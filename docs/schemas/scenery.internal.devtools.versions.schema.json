@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.internal.devtools.versions.schema.json",
+  "title": "scenery.internal.devtools.versions",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "victoria"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.internal.devtools.versions"
+    },
+    "schema_revision": {
+      "const": "sha256:cb117e0934975289d6f6047f449e4e281c4f0f93e6a7cecd4ab1a9d6936c7044"
+    },
+    "victoria": {
+      "type": "object",
+      "required": [
+        "metrics",
+        "logs",
+        "traces"
+      ],
+      "properties": {
+        "metrics": {
+          "type": "object",
+          "required": [
+            "version"
+          ],
+          "properties": {
+            "version": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": false
+        },
+        "logs": {
+          "type": "object",
+          "required": [
+            "version"
+          ],
+          "properties": {
+            "version": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": false
+        },
+        "traces": {
+          "type": "object",
+          "required": [
+            "version"
+          ],
+          "properties": {
+            "version": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

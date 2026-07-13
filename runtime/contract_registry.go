@@ -12,7 +12,7 @@ import (
 const ContractRuntimeABI = "scenery.go-runtime/v1"
 
 // ContractRegistration is the application-adapter payload accepted by the
-// edition-2027 registration boundary. Apply is delayed until Seal has verified
+// contract registration boundary. Apply is delayed until Seal has verified
 // the complete ownership set, so missing or duplicate adapters cannot expose a
 // partial runtime graph.
 type ContractRegistration struct {

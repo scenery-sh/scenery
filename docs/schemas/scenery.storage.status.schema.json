@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.storage.status.schema.json",
+  "title": "scenery.storage.status",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.storage.status"
+    },
+    "schema_revision": {
+      "const": "sha256:8f70ca219f68fdcd348256e2a9dd54731778aa3304d34ade3adc347c93061dd0"
+    },
+    "storage": {
+    },
+    "stores": {
+    }
+  },
+  "additionalProperties": false
+}

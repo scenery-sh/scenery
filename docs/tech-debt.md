@@ -4,7 +4,7 @@ This file tracks known project debt that should be visible to agents before they
 
 ## Resolved
 
-- 2026-07-06: 2026-07-03 finding 1 (dashboard embed drift) — the dashboard now exposes the embedded bundle hash via the `version` RPC, response headers, and HTML meta tags, warns when the running binary's bundle differs from `apps/consolenext/dist`, and the self-harness `dashboard ui fresh` step uses the same hash comparison. See docs/local-contract.md.
+- 2026-07-06: 2026-07-03 finding 1 (dashboard embed drift) — the dashboard now exposes the embedded bundle hash via the `version` RPC, response headers, and HTML meta tags, warns when the running binary's bundle differs from `apps/console/dist`, and the self-harness `dashboard ui fresh` step uses the same hash comparison. See docs/local-contract.md.
 - 2026-07-06: 2026-07-03 finding 5 (Postgres review) — all four code findings (duplicate_database race, mixed-app SQLite branch rejection, reset/drop resolving all Postgres services, swallowed trailing `--yes`) were verified already fixed on main by commit f07065c2; the docs/knowledge.json and 0093 plan-text drift had already been corrected (0093 is completed and indexed as such). The self-harness postgres probe now provisions a disposable managed container when missing (cleaning up what it created) instead of hard-failing.
 
 ## Open
@@ -16,22 +16,22 @@ Inspected 4 eligible Codex threads attached to `/Users/petrbrazdil/Repos/scenery
 | Thread | Input | Output | Reasoning | Cache Read | Total Tokens | Cost (USD) |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | Implement and harden Symphony dashboard/runner | 3,189,616 | 281,545 | 90,034 | 83,311,232 | 86,782,393 | unavailable |
-| ConsoleNext parity and cleanup | 2,126,455 | 148,677 | 46,220 | 30,240,256 | 32,515,388 | unavailable |
+| Console parity and cleanup | 2,126,455 | 148,677 | 46,220 | 30,240,256 | 32,515,388 | unavailable |
 | Postgres ExecPlan review | 197,378 | 12,962 | 7,338 | 1,700,352 | 1,910,692 | unavailable |
 | Agent thread debt digest (July 3) | 88,613 | 9,243 | 3,366 | 456,576 | 554,432 | unavailable |
 | **Totals** | **5,602,062** | **452,427** | **146,958** | **115,708,416** | **121,762,905** | unavailable |
 
 1. Dashboard source, embedded assets, and live agent state still drift apart.
-   - Area: `apps/consolenext` / embedded dashboard runtime proof.
+   - Area: `apps/console` / embedded dashboard runtime proof.
    - Symptom agents experienced: source edits and app builds passed, but Chrome still saw stale dashboard shells or old asset hashes until the embedded bundle, installed Scenery binary, agent/edge process, and target app runtime were cycled together.
-   - Evidence needed to avoid recreating the issue: threads `019f2237-8ae7-7301-bc36-7ce603675895` (`Implement and harden Symphony dashboard/runner`) and `019f21ec-c25b-7331-83b0-4c62d78f4076` (`ConsoleNext parity and cleanup`); commands `bun run build`, `./scripts/build-dashboard-ui-embed.sh`, `go test ./cmd/scenery`, `curl http://localhost:4747/consolenext/`, Chrome asset checks such as `index-iSP1-ZDY.js`, and repeated Scenery agent/edge plus ONLV restarts; affected files `apps/consolenext/src/App.tsx`, `apps/consolenext/src/symphony-page.tsx`, `cmd/scenery/dashboard_static/dist`, and `scripts/build-dashboard-ui-embed.sh`.
+   - Evidence needed to avoid recreating the issue: threads `019f2237-8ae7-7301-bc36-7ce603675895` (`Implement and harden Symphony dashboard/runner`) and `019f21ec-c25b-7331-83b0-4c62d78f4076` (`Console parity and cleanup`); commands `bun run build`, `./scripts/build-dashboard-ui-embed.sh`, `go test ./cmd/scenery`, `curl http://localhost:4747/console/`, Chrome asset checks such as `index-iSP1-ZDY.js`, and repeated Scenery agent/edge plus ONLV restarts; affected files `apps/console/src/App.tsx`, `apps/console/src/symphony-page.tsx`, `cmd/scenery/dashboard_static/dist`, and `scripts/build-dashboard-ui-embed.sh`.
    - Likely fix owner or next concrete action: dashboard/runtime owner should expose a cheap served-bundle hash or restart recommendation and keep UI harness proof tied to the final served embedded asset, not only source `dist`.
 
-2. ConsoleNext parity work keeps creating duplicate frontend ownership before it gets trimmed.
-   - Area: `apps/consolenext` frontend architecture.
+2. Console parity work keeps creating duplicate frontend ownership before it gets trimmed.
+   - Area: `apps/console` frontend architecture.
    - Symptom agents experienced: the app started as an untracked prototype missing most `ui/` workflows, then parity work added API, Catalog, Output, Cron, Observability, SQL, traces, and stored requests, but follow-up Ponytail cleanup had to remove duplicate API callers, a mini GraphQL client, legacy page exports, template README prose, and a runtime-only CLI dependency.
-   - Evidence needed to avoid recreating the issue: thread `019f21ec-c25b-7331-83b0-4c62d78f4076`; user prompts "what functionality is implemented? what is missing? compare to ui/" and Ponytail audit follow-ups; commands `bun run lint`, `bun run typecheck`, `bun run build`, `rg "api-call|postGraphQL|/__graphql" apps/consolenext/src`, and `./scripts/build-dashboard-ui-embed.sh`; affected files `apps/consolenext/src/App.tsx`, `apps/consolenext/src/workbench-pages.tsx`, `apps/consolenext/src/dashboard-ui.tsx`, `apps/consolenext/src/scenery.ts`, `apps/consolenext/AGENTS.md`, `apps/consolenext/README.md`, and `apps/consolenext/package.json`.
-   - Likely fix owner or next concrete action: consolenext owner should keep route/page ownership singular: API Explorer sends requests, Catalog shows metadata, workbench pages own migrated workflows, and local AGENTS should name the supported RPC surfaces.
+   - Evidence needed to avoid recreating the issue: thread `019f21ec-c25b-7331-83b0-4c62d78f4076`; user prompts "what functionality is implemented? what is missing? compare to ui/" and Ponytail audit follow-ups; commands `bun run lint`, `bun run typecheck`, `bun run build`, `rg "api-call|postGraphQL|/__graphql" apps/console/src`, and `./scripts/build-dashboard-ui-embed.sh`; affected files `apps/console/src/App.tsx`, `apps/console/src/workbench-pages.tsx`, `apps/console/src/dashboard-ui.tsx`, `apps/console/src/scenery.ts`, `apps/console/AGENTS.md`, `apps/console/README.md`, and `apps/console/package.json`.
+   - Likely fix owner or next concrete action: console owner should keep route/page ownership singular: API Explorer sends requests, Catalog shows metadata, workbench pages own migrated workflows, and local AGENTS should name the supported RPC surfaces.
 
 3. Symphony runner semantics blurred manual auth gating with autonomous execution.
    - Area: Symphony dashboard runner / agent safety.
@@ -81,7 +81,7 @@ Inspected 1 eligible Codex thread attached to `/Users/petrbrazdil/Repos/scenery`
 4. Dirty primary checkouts make doc-only automation harder to verify.
    - Area: repo hygiene / automation scope.
    - Symptom agents experienced: `git status --short` showed many pre-existing modified and untracked files, including `docs/tech-debt.md`, so the automation had to preserve unrelated work and rely on path-limited diffs.
-   - Evidence needed to avoid recreating the issue: thread `019f208f-0263-74b1-bdce-cb5b5c8bbe1d`; command `git status --short`; affected paths already dirty included `AGENTS.md`, `README.md`, `apps/console/*`, `apps/consolenext/`, `cmd/scenery/*`, `db/*`, `internal/devdash/*`, and `docs/tech-debt.md`; verification shortcut: always run `git diff -- docs/tech-debt.md` after the patch and avoid broad cleanup.
+   - Evidence needed to avoid recreating the issue: thread `019f208f-0263-74b1-bdce-cb5b5c8bbe1d`; command `git status --short`; affected paths already dirty included `AGENTS.md`, `README.md`, dashboard app trees, `cmd/scenery/*`, `db/*`, `internal/devdash/*`, and `docs/tech-debt.md`; verification shortcut: always run `git diff -- docs/tech-debt.md` after the patch and avoid broad cleanup.
    - Likely fix owner or next concrete action: agents should keep recurring doc automations path-limited in dirty primaries, or run them from a clean worktree when durable implementation work is ongoing.
 
 ### Agent Thread Findings - 2026-07-01
@@ -90,38 +90,38 @@ Inspected 1 eligible Codex thread attached to `/Users/petrbrazdil/Repos/scenery`
 
 | Thread | Input | Output | Reasoning | Cache Read | Total Tokens | Cost (USD) |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Build and migrate consolenext | 1,660,196 | 125,209 | 42,659 | 29,893,376 | 31,678,781 | unavailable |
+| Build and migrate console | 1,660,196 | 125,209 | 42,659 | 29,893,376 | 31,678,781 | unavailable |
 | **Totals** | **1,660,196** | **125,209** | **42,659** | **29,893,376** | **31,678,781** | unavailable |
 
 1. Astryx published packages disagreed with current docs/examples.
-   - Area: `apps/consolenext` scaffold / frontend dependency integration.
+   - Area: `apps/console` scaffold / frontend dependency integration.
    - Symptom agents experienced: the GitHub example, getting-started docs, and published `@astryxdesign/*@0.1.2` packages required repeated rebuilds before Vite + StyleX compiled.
-   - Evidence needed to avoid recreating the issue: thread `019f17fb-5620-79e0-8218-24788711b1a8` (`Build and migrate consolenext`); commands `git clone --sparse https://github.com/facebook/astryx.git`, `curl https://astryx.atmeta.com/docs/getting-started`, `bunx astryx init`, `bun run build`; errors included StyleX `0.19.0` vs Astryx core `0.18.x` opaque type mismatch and `@astryxdesign/core/astryx.css` resolving to missing `src/astryx.css`; affected files `apps/consolenext/package.json`, `apps/consolenext/vite.config.ts`, and `apps/consolenext/src/*`; shortcut: pin StyleX to Astryx core's dependency version and verify package exports before trusting docs text.
-   - Likely fix owner or next concrete action: consolenext owner should document the exact working Astryx/StyleX versions in `apps/consolenext/AGENTS.md` and revisit when Astryx publishes a compatible release.
+   - Evidence needed to avoid recreating the issue: thread `019f17fb-5620-79e0-8218-24788711b1a8` (`Build and migrate console`); commands `git clone --sparse https://github.com/facebook/astryx.git`, `curl https://astryx.atmeta.com/docs/getting-started`, `bunx astryx init`, `bun run build`; errors included StyleX `0.19.0` vs Astryx core `0.18.x` opaque type mismatch and `@astryxdesign/core/astryx.css` resolving to missing `src/astryx.css`; affected files `apps/console/package.json`, `apps/console/vite.config.ts`, and `apps/console/src/*`; shortcut: pin StyleX to Astryx core's dependency version and verify package exports before trusting docs text.
+   - Likely fix owner or next concrete action: console owner should document the exact working Astryx/StyleX versions in `apps/console/AGENTS.md` and revisit when Astryx publishes a compatible release.
 
 2. Dashboard route ownership was correct while the embedded bundle stayed stale.
    - Area: dashboard build/embed/release contract.
-   - Symptom agents experienced: `/consolenext/` was already the dashboard path, but `scenery up` still served the old embedded dashboard until build scripts, release checks, harness pointers, and docs were moved from `ui/` to `apps/consolenext/`.
-   - Evidence needed to avoid recreating the issue: thread `019f17fb-5620-79e0-8218-24788711b1a8`; commands `rg -n "dashboard_static|build-dashboard|ui/dist|consolenext"`, `./scripts/build-dashboard-ui-embed.sh`, `.scenery/harness/bin/scenery build`, fixture `scenery up`, and Chrome proof; affected files `scripts/build-dashboard-ui-embed.sh`, `scripts/release-gate.sh`, `cmd/scenery/dashboard_ui_build.go`, `cmd/scenery/harness_self.go`, `docs/local-contract.md`, `docs/ui-agent-contract.md`; extra snag: Vite template still referenced missing `/favicon.svg`; shortcut: after any dashboard source move, verify HTML asset names and one JS/CSS asset through the advertised route, not just route registration.
+   - Symptom agents experienced: the dashboard route was already correct for that migration, but `scenery up` still served the old embedded dashboard until build scripts, release checks, harness pointers, and docs were moved from `ui/` to the runnable dashboard app.
+   - Evidence needed to avoid recreating the issue: thread `019f17fb-5620-79e0-8218-24788711b1a8`; commands `rg -n "dashboard_static|build-dashboard|ui/dist|console"`, `./scripts/build-dashboard-ui-embed.sh`, `.scenery/harness/bin/scenery build`, fixture `scenery up`, and Chrome proof; affected files `scripts/build-dashboard-ui-embed.sh`, `scripts/release-gate.sh`, `cmd/scenery/dashboard_ui_build.go`, `cmd/scenery/harness_self.go`, `docs/local-contract.md`, `docs/ui-agent-contract.md`; extra snag: Vite template still referenced missing `/favicon.svg`; shortcut: after any dashboard source move, verify HTML asset names and one JS/CSS asset through the advertised route, not just route registration.
    - Likely fix owner or next concrete action: dashboard/runtime owner should keep one source constant for dashboard source/dist paths and assert it in release gate plus self-harness.
 
 3. Architecture/self-harness treated nested app dependency trees as source.
    - Area: harness hygiene / generated file scanning.
-   - Symptom agents experienced: self-harness failed on ignored `apps/console/node_modules`, then on `apps/consolenext/node_modules`; deleting dependencies was a temporary workaround until the architecture walk ignored nested `node_modules`.
+   - Symptom agents experienced: self-harness failed on ignored dependency trees in successive dashboard app locations; deleting dependencies was a temporary workaround until the architecture walk ignored nested `node_modules`.
    - Evidence needed to avoid recreating the issue: thread `019f17fb-5620-79e0-8218-24788711b1a8`; commands `.scenery/harness/bin/scenery harness self --summary --write`, `go test ./cmd/scenery`, and architecture tests; output mentioned dashboard checks passing while architecture scanned app-local `node_modules`; affected files included `cmd/scenery/harness_self.go` and its tests; shortcut: reproduce with any app-local `node_modules` under `apps/*/node_modules`.
    - Likely fix owner or next concrete action: harness owner should keep generated-directory skips path-component based and include nested fixtures in architecture tests.
 
 4. Live proof kept hitting stale isolated agent/runtime state.
    - Area: local runtime proof / embedded dashboard refresh.
    - Symptom agents experienced: rebuilt assets were present on disk, but the running isolated demo agent still served old embedded asset names until the app runtime, agent process, and Victoria helpers were stopped and restarted.
-   - Evidence needed to avoid recreating the issue: thread `019f17fb-5620-79e0-8218-24788711b1a8`; commands used isolated `SCENERY_AGENT_HOME=/Users/petrbrazdil/Repos/scenery/.scenery/consolenext-demo/agent-home`, `.scenery/harness/bin/scenery down --app-root testdata/apps/basic`, process checks for pid `10490` and Victoria children, `curl http://localhost:4968/consolenext/`, and final asset checks for fresh `index-*.js`/`index-*.css`; shortcut: restart the dashboard-owning agent after rebuilding embedded assets, not only the app runtime.
+   - Evidence needed to avoid recreating the issue: thread `019f17fb-5620-79e0-8218-24788711b1a8`; commands used isolated `SCENERY_AGENT_HOME=/Users/petrbrazdil/Repos/scenery/.scenery/console-demo/agent-home`, `.scenery/harness/bin/scenery down --app-root testdata/apps/basic`, process checks for pid `10490` and Victoria children, `curl http://localhost:4968/console/`, and final asset checks for fresh `index-*.js`/`index-*.css`; shortcut: restart the dashboard-owning agent after rebuilding embedded assets, not only the app runtime.
    - Likely fix owner or next concrete action: agent/runtime owner should expose a cheap dashboard bundle hash or restart recommendation when embedded dashboard assets change under a live agent.
 
 5. Mounted dashboard RPC needed path-aware WebSocket routing.
-   - Area: consolenext live dashboard RPC / browser validation.
-   - Symptom agents experienced: the migrated UI loaded under `/consolenext/` but stayed disconnected because the WebSocket resolver used `/__scenery` instead of `/consolenext/__scenery`; Chrome proof caught it after smaller DOM checks replaced an over-optimistic wait strategy.
-   - Evidence needed to avoid recreating the issue: thread `019f17fb-5620-79e0-8218-24788711b1a8`; commands and checks `bun run lint`, `bun run typecheck`, `bun run build`, `./scripts/build-dashboard-ui-embed.sh`, Chrome proof at `http://localhost:4968/consolenext/`, tabs for Services/Logs/Traces/Databases, and `scenery check --app-root testdata/apps/basic --json`; affected files `apps/consolenext/src/App.tsx`, `apps/consolenext/src/dashboard-rpc.ts`, `apps/consolenext/src/dashboard-ui.tsx`, `apps/consolenext/src/dashboard-model.ts`; shortcut: browser-test embedded dashboards at their mounted path and assert the RPC URL follows the mount prefix.
-   - Likely fix owner or next concrete action: consolenext owner should add a small route-mounted RPC smoke check to dashboard browser harness coverage.
+   - Area: console live dashboard RPC / browser validation.
+   - Symptom agents experienced: the migrated UI loaded under `/console/` but stayed disconnected because the WebSocket resolver used `/__scenery` instead of `/console/__scenery`; Chrome proof caught it after smaller DOM checks replaced an over-optimistic wait strategy.
+   - Evidence needed to avoid recreating the issue: thread `019f17fb-5620-79e0-8218-24788711b1a8`; commands and checks `bun run lint`, `bun run typecheck`, `bun run build`, `./scripts/build-dashboard-ui-embed.sh`, Chrome proof at `http://localhost:4968/console/`, tabs for Services/Logs/Traces/Databases, and `scenery check --app-root testdata/apps/basic --json`; affected files `apps/console/src/App.tsx`, `apps/console/src/dashboard-rpc.ts`, `apps/console/src/dashboard-ui.tsx`, `apps/console/src/dashboard-model.ts`; shortcut: browser-test embedded dashboards at their mounted path and assert the RPC URL follows the mount prefix.
+   - Likely fix owner or next concrete action: console owner should add a small route-mounted RPC smoke check to dashboard browser harness coverage.
 
 ### Agent Thread Findings - 2026-06-30
 
@@ -222,7 +222,7 @@ Inspected 2 eligible Codex threads attached to `/Users/petrbrazdil/Repos/scenery
 2. Path-mode asset prefixing escaped the service paths.
    - Area: local path routing.
    - Symptom agents experienced: Vite, dashboard, Astro, and storage pages loaded shells or blanks because root-relative assets such as `/@vite/client`, `/assets/...`, and storage assets bypassed the service prefix.
-   - Evidence needed to avoid recreating the issue: thread `019f09cb-ae40-79c3-b838-5d1d746cb06c`; status updates identified root-relative Vite/runtime assets, dashboard `/assets/...`, storage `/storage/assets/...`, and the dashboard route rename from `/console/` to `/consolenext/`; affected files included `cmd/scenery/dev_frontends.go`, `cmd/scenery/local_path_router.go`, `internal/agent/router.go`, `internal/agent/path_routing_test.go`, and ONLV `apps/blog/astro.config.mjs`; shortcut: compare HTML asset URLs against `route_manifest.routes` and request both prefixed and unprefixed asset URLs.
+   - Evidence needed to avoid recreating the issue: thread `019f09cb-ae40-79c3-b838-5d1d746cb06c`; status updates identified root-relative Vite/runtime assets, dashboard `/assets/...`, storage `/storage/assets/...`, and a dashboard path migration; affected files included `cmd/scenery/dev_frontends.go`, `cmd/scenery/local_path_router.go`, `internal/agent/router.go`, `internal/agent/path_routing_test.go`, and ONLV `apps/blog/astro.config.mjs`; shortcut: compare HTML asset URLs against `route_manifest.routes` and request both prefixed and unprefixed asset URLs.
    - Likely fix owner or next concrete action: scenery runtime should keep prefix handling centralized and add fixture-backed browser coverage for one Vite frontend, one Astro frontend, dashboard assets, and storage assets.
 
 3. Stale registry/session state kept looking like live infrastructure.

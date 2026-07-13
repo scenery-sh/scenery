@@ -1,0 +1,162 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.upgrade.schema.json",
+  "title": "scenery upgrade",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "ok",
+    "repository",
+    "platform",
+    "current_version",
+    "target_version",
+    "target_path",
+    "asset_name",
+    "installed",
+    "skipped",
+    "dry_run"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.upgrade"
+    },
+    "schema_revision": {
+      "const": "sha256:e0939fcd3459682071fee19feb22763d48c45d0c1163c20ac1fd7467ab385e1f"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "repository": {
+      "type": "string"
+    },
+    "platform": {
+      "type": "string"
+    },
+    "current_version": {
+      "type": "string"
+    },
+    "target_version": {
+      "type": "string"
+    },
+    "target_path": {
+      "type": "string"
+    },
+    "asset_name": {
+      "type": "string"
+    },
+    "checksum_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "installed": {
+      "type": "boolean"
+    },
+    "skipped": {
+      "type": "boolean"
+    },
+    "dry_run": {
+      "type": "boolean"
+    },
+    "reason": {
+      "type": "string"
+    },
+    "error": {
+      "type": "string"
+    },
+    "toolchain": {
+      "type": "object",
+      "required": [
+        "mode"
+      ],
+      "properties": {
+        "mode": {
+          "enum": [
+            "installed",
+            "all",
+            "none"
+          ]
+        },
+        "store_dir": {
+          "type": "string"
+        },
+        "synced": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/toolchain_sync"
+          }
+        },
+        "skipped": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/toolchain_sync"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "deploy": {
+      "type": "object",
+      "required": [
+        "helper_installed",
+        "action_required",
+        "expected_schema"
+      ],
+      "properties": {
+        "helper_installed": {
+          "type": "boolean"
+        },
+        "action_required": {
+          "type": "boolean"
+        },
+        "helper_version": {
+          "type": "string"
+        },
+        "current_version": {
+          "type": "string"
+        },
+        "target_schema": {
+          "type": "string"
+        },
+        "expected_schema": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "suggested_action": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "toolchain_sync": {
+      "type": "object",
+      "required": [
+        "tool",
+        "status"
+      ],
+      "properties": {
+        "tool": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "images": {
+          "type": "boolean"
+        },
+        "status": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

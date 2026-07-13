@@ -26,7 +26,7 @@ type harnessSelfOptions struct {
 }
 
 type harnessSelfResponse struct {
-	SchemaVersion    string                         `json:"schema_version"`
+	cliPayloadIdentity
 	OK               bool                           `json:"ok"`
 	GeneratedAt      string                         `json:"generated_at"`
 	Mode             string                         `json:"mode"`
@@ -65,10 +65,10 @@ func runSceneryHarnessSelf(ctx context.Context, stdout io.Writer, args []string)
 	}
 
 	resp := harnessSelfResponse{
-		SchemaVersion: "scenery.harness.self.v1",
-		OK:            true,
-		GeneratedAt:   time.Now().UTC().Format(time.RFC3339Nano),
-		Mode:          opts.Mode,
+		cliPayloadIdentity: newCLIPayloadIdentity("scenery.harness.self"),
+		OK:                 true,
+		GeneratedAt:        time.Now().UTC().Format(time.RFC3339Nano),
+		Mode:               opts.Mode,
 		Repo: harnessSelfRepo{
 			Root:       repoRoot,
 			ModulePath: "scenery.sh",
@@ -118,8 +118,8 @@ func runSceneryHarnessSelf(ctx context.Context, stdout io.Writer, args []string)
 			runHarnessExecStep(ctx, dashboardUIRoot, "dashboard ui typecheck", []string{"bun", "run", "typecheck"}, artifactCtx),
 			runHarnessExecStep(ctx, dashboardUIRoot, "dashboard ui build", []string{"bun", "run", "build"}, artifactCtx),
 			runHarnessFreshnessStep("dashboard ui fresh", dashboardUIRoot, dashboardUIBundleStale, "Run `./scripts/build-dashboard-ui-embed.sh`, rebuild the scenery binary, restart scenery, then rerun `scenery harness self -o json`."),
-			runHarnessExecStep(ctx, repoRoot, "vNext TypeScript client conformance", []string{"bun", "test", "internal/vnext/testdata/typescript_client_conformance.test.ts"}, artifactCtx),
-			runHarnessExecStep(ctx, repoRoot, "vNext TypeScript client typecheck", []string{filepath.Join(dashboardUIRoot, "node_modules", ".bin", "tsc"), "-p", "internal/vnext/testdata/tsconfig.generated-clients.json"}, artifactCtx),
+			runHarnessExecStep(ctx, repoRoot, "Scenery TypeScript client conformance", []string{"bun", "test", "internal/generate/testdata/typescript_client_conformance.test.ts"}, artifactCtx),
+			runHarnessExecStep(ctx, repoRoot, "Scenery TypeScript client typecheck", []string{filepath.Join(dashboardUIRoot, "node_modules", ".bin", "tsc"), "-p", "internal/generate/testdata/tsconfig.generated-clients.json"}, artifactCtx),
 		)
 		fixtureStep, fixtureMatrix := runHarnessFixtureMatrixStep(ctx, repoRoot)
 		resp.FixtureMatrix = fixtureMatrix
@@ -241,20 +241,21 @@ func runHarnessInspectDocsStep(repoRoot string) harnessStep {
 			Stage:           step.Name,
 			Severity:        "error",
 			Message:         step.Error,
-			SuggestedAction: "Fix `scenery inspect docs -o json` output so it conforms to scenery.inspect.docs.v1.",
+			SuggestedAction: "Fix `scenery inspect docs -o json` output so it conforms to the current scenery.inspect.docs schema.",
 		}}
 		return step
 	}
 	step.Summary = map[string]any{
-		"schema_version":   payload.SchemaVersion,
+		"kind":             payload.Kind,
+		"schema_revision":  payload.SchemaRevision,
 		"document_count":   payload.Summary.DocumentCount,
 		"missing_count":    payload.Summary.MissingCount,
 		"review_due_count": payload.Summary.ReviewDueCount,
 		"stale_count":      payload.Summary.StaleCount,
 	}
-	if payload.SchemaVersion != inspectDocsSchema {
+	if payload.Kind != inspectDocsKind || payload.SchemaRevision != newCLIPayloadIdentity(inspectDocsKind).SchemaRevision {
 		step.OK = false
-		step.Error = "unexpected schema_version " + payload.SchemaVersion
+		step.Error = "unexpected inspect docs identity " + payload.Kind + " " + payload.SchemaRevision
 	}
 	if payload.Summary.MissingCount > 0 || payload.Summary.StaleCount > 0 {
 		step.OK = false
@@ -645,55 +646,55 @@ func buildHarnessSelfKnowledge(repoRoot string) harnessKnowledge {
 		"docs/tech-debt.md",
 	}
 	schemas := []string{
-		"docs/schemas/scenery.config.v1.schema.json",
-		"docs/schemas/scenery.build.latest.v1.schema.json",
-		"docs/schemas/scenery.docs.index.v1.schema.json",
-		"docs/schemas/scenery.environment.registry.v1.schema.json",
-		"docs/schemas/scenery.harness.artifact.v1.schema.json",
-		"docs/schemas/scenery.harness.self.v1.schema.json",
-		"docs/schemas/scenery.harness.toolchain.v1.schema.json",
-		"docs/schemas/scenery.harness.self.summary.v1.schema.json",
-		"docs/schemas/scenery.harness.changed_area.v1.schema.json",
-		"docs/schemas/scenery.harness.drift.v1.schema.json",
-		"docs/schemas/scenery.harness.test_timing.v1.schema.json",
-		"docs/schemas/scenery.harness.fixture_matrix.v1.schema.json",
-		"docs/schemas/scenery.harness.schema_validation.v1.schema.json",
-		"docs/schemas/scenery.agent_context.v1.schema.json",
-		"docs/schemas/scenery.help.v1.schema.json",
-		"docs/schemas/scenery.harness.result.v1.schema.json",
-		"docs/schemas/scenery.harness.ui.v1.schema.json",
-		"docs/schemas/scenery.harness.ui.dom.v1.schema.json",
-		"docs/schemas/scenery.cli.v1.schema.json",
-		"docs/schemas/scenery.inspect.app.v1.schema.json",
-		"docs/schemas/scenery.inspect.build.v1.schema.json",
-		"docs/schemas/scenery.inspect.docs.v1.schema.json",
-		"docs/schemas/scenery.inspect.endpoints.v1.schema.json",
-		"docs/schemas/scenery.inspect.harness.v1.schema.json",
-		"docs/schemas/scenery.inspect.observability.v1.schema.json",
-		"docs/schemas/scenery.inspect.metrics.v1.schema.json",
-		"docs/schemas/scenery.inspect.paths.v1.schema.json",
-		"docs/schemas/scenery.inspect.validation.v1.schema.json",
-		"docs/schemas/scenery.inspect.routes.v1.schema.json",
-		"docs/schemas/scenery.inspect.services.v1.schema.json",
-		"docs/schemas/scenery.inspect.traces.v1.schema.json",
-		"docs/schemas/scenery.task.inspect.v1.schema.json",
-		"docs/schemas/scenery.task.list.v1.schema.json",
-		"docs/schemas/scenery.task.graph.v1.schema.json",
-		"docs/schemas/scenery.validation.graph.v1.schema.json",
-		"docs/schemas/scenery.validation.inspect.v1.schema.json",
-		"docs/schemas/scenery.validation.list.v1.schema.json",
-		"docs/schemas/scenery.validation.plan.v1.schema.json",
-		"docs/schemas/scenery.validation.result.v1.schema.json",
-		"docs/schemas/scenery.traces.clear.v1.schema.json",
-		"docs/schemas/scenery.dev.event.v1.schema.json",
-		"docs/schemas/scenery.logs.query.v1.schema.json",
-		"docs/schemas/scenery.logs.tail.entry.v1.schema.json",
-		"docs/schemas/scenery.metrics.labels.v1.schema.json",
-		"docs/schemas/scenery.metrics.query.v1.schema.json",
-		"docs/schemas/scenery.metrics.series.v1.schema.json",
-		"docs/schemas/scenery.db.list.v3.schema.json",
-		"docs/schemas/scenery.run.event.v1.schema.json",
-		"docs/schemas/scenery.version.v1.schema.json",
+		"docs/schemas/scenery.config.schema.json",
+		"docs/schemas/scenery.build.latest.schema.json",
+		"docs/schemas/scenery.docs.index.schema.json",
+		"docs/schemas/scenery.environment.registry.schema.json",
+		"docs/schemas/scenery.harness.artifact.schema.json",
+		"docs/schemas/scenery.harness.self.schema.json",
+		"docs/schemas/scenery.harness.toolchain.schema.json",
+		"docs/schemas/scenery.harness.self.summary.schema.json",
+		"docs/schemas/scenery.harness.changed_area.schema.json",
+		"docs/schemas/scenery.harness.drift.schema.json",
+		"docs/schemas/scenery.harness.test_timing.schema.json",
+		"docs/schemas/scenery.harness.fixture_matrix.schema.json",
+		"docs/schemas/scenery.harness.schema_validation.schema.json",
+		"docs/schemas/scenery.agent_context.schema.json",
+		"docs/schemas/scenery.help.schema.json",
+		"docs/schemas/scenery.harness.result.schema.json",
+		"docs/schemas/scenery.harness.ui.schema.json",
+		"docs/schemas/scenery.harness.ui.dom.schema.json",
+		"docs/schemas/scenery.cli.schema.json",
+		"docs/schemas/scenery.inspect.app.schema.json",
+		"docs/schemas/scenery.inspect.build.schema.json",
+		"docs/schemas/scenery.inspect.docs.schema.json",
+		"docs/schemas/scenery.inspect.endpoints.schema.json",
+		"docs/schemas/scenery.inspect.harness.schema.json",
+		"docs/schemas/scenery.inspect.observability.schema.json",
+		"docs/schemas/scenery.inspect.metrics.schema.json",
+		"docs/schemas/scenery.inspect.paths.schema.json",
+		"docs/schemas/scenery.inspect.validation.schema.json",
+		"docs/schemas/scenery.inspect.routes.schema.json",
+		"docs/schemas/scenery.inspect.services.schema.json",
+		"docs/schemas/scenery.inspect.traces.schema.json",
+		"docs/schemas/scenery.task.inspect.schema.json",
+		"docs/schemas/scenery.task.list.schema.json",
+		"docs/schemas/scenery.task.graph.schema.json",
+		"docs/schemas/scenery.validation.graph.schema.json",
+		"docs/schemas/scenery.validation.inspect.schema.json",
+		"docs/schemas/scenery.validation.list.schema.json",
+		"docs/schemas/scenery.validation.plan.schema.json",
+		"docs/schemas/scenery.validation.result.schema.json",
+		"docs/schemas/scenery.traces.clear.schema.json",
+		"docs/schemas/scenery.dev.event.schema.json",
+		"docs/schemas/scenery.logs.query.schema.json",
+		"docs/schemas/scenery.logs.tail.entry.schema.json",
+		"docs/schemas/scenery.metrics.labels.schema.json",
+		"docs/schemas/scenery.metrics.query.schema.json",
+		"docs/schemas/scenery.metrics.series.schema.json",
+		"docs/schemas/scenery.db.list.schema.json",
+		"docs/schemas/scenery.run.event.schema.json",
+		"docs/schemas/scenery.version.schema.json",
 	}
 	return harnessKnowledge{
 		Entrypoints: harnessKnowledgeFiles(repoRoot, entrypoints),
@@ -703,16 +704,16 @@ func buildHarnessSelfKnowledge(repoRoot string) harnessKnowledge {
 
 func buildHarnessSelfArtifacts(repoRoot string, selfWillExist bool, resp harnessSelfResponse) []harnessArtifact {
 	artifacts := []harnessArtifact{
-		{Name: "self-harness", Path: ".scenery/harness/self-latest.json", SchemaVersion: "scenery.harness.self.v1"},
-		{Name: "self-summary", Path: ".scenery/harness/self-summary-latest.json", SchemaVersion: "scenery.harness.self.summary.v1"},
-		{Name: "toolchain", Path: ".scenery/harness/toolchain-latest.json", SchemaVersion: "scenery.harness.toolchain.v1"},
-		{Name: "changed-area", Path: ".scenery/harness/changed-area-latest.json", SchemaVersion: "scenery.harness.changed_area.v1"},
-		{Name: "drift", Path: ".scenery/harness/drift-latest.json", SchemaVersion: "scenery.harness.drift.v1"},
-		{Name: "test-timing", Path: ".scenery/harness/test-timing-latest.json", SchemaVersion: "scenery.harness.test_timing.v1"},
-		{Name: "fixture-matrix", Path: ".scenery/harness/fixture-matrix-latest.json", SchemaVersion: "scenery.harness.fixture_matrix.v1"},
-		{Name: "schema-validation", Path: ".scenery/harness/schema-validation-latest.json", SchemaVersion: "scenery.harness.schema_validation.v1"},
-		{Name: "agent-context", Path: ".scenery/harness/agent-context.json", SchemaVersion: "scenery.agent_context.v1"},
-		{Name: "dashboard-ui", Path: "apps/consolenext/dist/index.html"},
+		newHarnessArtifact("self-harness", ".scenery/harness/self-latest.json", "scenery.harness.self", false),
+		newHarnessArtifact("self-summary", ".scenery/harness/self-summary-latest.json", harnessSelfSummaryKind, false),
+		newHarnessArtifact("toolchain", ".scenery/harness/toolchain-latest.json", harnessToolchainKind, false),
+		newHarnessArtifact("changed-area", ".scenery/harness/changed-area-latest.json", harnessChangedAreaKind, false),
+		newHarnessArtifact("drift", ".scenery/harness/drift-latest.json", harnessDriftKind, false),
+		newHarnessArtifact("test-timing", ".scenery/harness/test-timing-latest.json", harnessTestTimingKind, false),
+		newHarnessArtifact("fixture-matrix", ".scenery/harness/fixture-matrix-latest.json", harnessFixtureMatrixKind, false),
+		newHarnessArtifact("schema-validation", ".scenery/harness/schema-validation-latest.json", harnessSchemaValidationKind, false),
+		newHarnessArtifact("agent-context", ".scenery/harness/agent-context.json", harnessAgentContextKind, false),
+		{Name: "dashboard-ui", Path: "apps/console/dist/index.html"},
 	}
 	reportWillExist := map[string]bool{
 		"self-harness":      selfWillExist,

@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.harness.changed_area.schema.json",
+  "title": "scenery harness changed area report",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "changed_files",
+    "affected_packages",
+    "recommended_commands",
+    "relevant_docs",
+    "risk_flags"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.harness.changed_area"
+    },
+    "schema_revision": {
+      "const": "sha256:c215f07dddb5b11acca4d74c93159b1506aa0c13321bbf6b1af5d9669984bb9e"
+    },
+    "changed_files": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/changed_file"
+      }
+    },
+    "ignored_files": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/changed_file"
+      }
+    },
+    "affected_packages": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "recommended_commands": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "relevant_docs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "risk_flags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "changed_file": {
+      "type": "object",
+      "required": [
+        "path",
+        "status",
+        "category"
+      ],
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "category": {
+          "type": "string"
+        },
+        "package": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

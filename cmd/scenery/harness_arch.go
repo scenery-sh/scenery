@@ -7,6 +7,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -27,13 +28,13 @@ var allowedDirectGoDeps = map[string]string{
 	"github.com/golang-jwt/jwt/v5": "JWT signing and verification for standard auth",
 	"github.com/google/uuid":       "UUID generation and parsing for standard auth database records",
 	"github.com/gorilla/websocket": "dashboard JSON-RPC websocket transport",
-	"github.com/hashicorp/hcl/v2":  "edition-2027 lossless HCL syntax parsing and deterministic source formatting",
+	"github.com/hashicorp/hcl/v2":  "lossless .scn syntax parsing and deterministic source formatting",
 	"github.com/zclconf/go-cty":    "typed literal values exposed by the HCL v2 syntax API",
 	"golang.org/x/crypto":          "password hashing primitives for standard auth",
 	"golang.org/x/mod":             "Go module parsing for self-harness dependency checks",
-	"golang.org/x/net":             "IDNA2008 non-transitional URL host normalization required by the edition-2027 scalar contract",
+	"golang.org/x/net":             "IDNA2008 non-transitional URL host normalization required by the current scalar contract",
 	"golang.org/x/sys":             "portable OS syscalls for doctor disk and memory readiness probes",
-	"golang.org/x/text":            "Unicode 15.0 NFC normalization required by the edition-2027 relative_path scalar contract",
+	"golang.org/x/text":            "Unicode 15.0 NFC normalization required by the current relative_path scalar contract",
 	"golang.org/x/tools":           "Go package loading/parser pipeline",
 	"gopkg.in/yaml.v3":             "SQLC generator graph inspection from sqlc.yaml without shell parsing",
 }
@@ -61,6 +62,91 @@ var removedAgentTransportTerms = []string{
 var removedAgentTransportToken = "m" + "cp"
 var removedAgentTransportTokenWithPrefix = "r" + removedAgentTransportToken
 
+type currentSurfaceResidueRule struct {
+	Name            string
+	Pattern         *regexp.Regexp
+	SuggestedAction string
+	CheckPath       bool
+}
+
+var currentSurfaceResidueRules = []currentSurfaceResidueRule{
+	{
+		Name:            "authored language selector",
+		Pattern:         regexp.MustCompile(`\blanguage\s*\{|\bedition\s*=\s*"2027"|\b` + "require_" + `profiles\b|\b` + "scenery_" + `version\b`),
+		SuggestedAction: "Delete the selector and express the application with the singular current source contract.",
+	},
+	{
+		Name:            "retired auth cookie name",
+		Pattern:         regexp.MustCompile(`\b` + "onlv_" + `refresh\b`),
+		SuggestedAction: "Use only the current Scenery refresh cookie name.",
+	},
+	{
+		Name:            "historical release selection",
+		Pattern:         regexp.MustCompile(`\bupgrade\s+--version\b`),
+		SuggestedAction: "Keep upgrade on the singular current release channel.",
+	},
+	{
+		Name:            "active next-generation name",
+		Pattern:         regexp.MustCompile(`(?i)(^|[^a-z0-9])(?:` + "v" + `next|console` + "next" + `)(?:[^a-z0-9]|$)|(?i)` + "v" + `next_`),
+		SuggestedAction: "Use the stable responsibility or product name on current surfaces.",
+		CheckPath:       true,
+	},
+	{
+		Name:            "versioned first-party identity",
+		Pattern:         regexp.MustCompile(`\bscenery\.[a-z0-9_.-]+(?:/v[0-9]+|\.v[0-9]+)\b`),
+		SuggestedAction: "Use an unversioned logical identity plus exact schema, specification, artifact, or producer revisions.",
+	},
+}
+
+// These are protocol/implementation ABIs, not selectable Scenery schemas.
+// Their exact major is part of generated-code and provider compatibility.
+var retainedVersionedABIs = map[string]struct{}{
+	"scenery.go-runtime/v1":          {},
+	"scenery.go-implementation/v1":   {},
+	"scenery.http-codec/v1":          {},
+	"scenery.datasource/v1":          {},
+	"scenery.object/v1":              {},
+	"scenery.data-runtime/v1":        {},
+	"scenery.data-migration/v1":      {},
+	"scenery.execution-runtime/v1":   {},
+	"scenery.events-runtime/v1":      {},
+	"scenery.secrets-runtime/v1":     {},
+	"scenery.deployment-provider/v1": {},
+}
+
+// Legacy identities remain only where current code detects and atomically
+// migrates or safely refuses non-disposable state produced before plan 0111.
+var legacyIdentityMigrationFiles = map[string]struct{}{
+	"cmd/scenery/dev_ports.go":                       {},
+	"cmd/scenery/dev_ports_test.go":                  {},
+	"cmd/scenery/dev_services_postgres.go":           {},
+	"cmd/scenery/dev_services_test.go":               {},
+	"cmd/scenery/edge.go":                            {},
+	"cmd/scenery/edge_test.go":                       {},
+	"cmd/scenery/upgrade_recovery_test.go":           {},
+	"cmd/scenery/upgrade_test.go":                    {},
+	"internal/agent/artifact_migration_test.go":      {},
+	"internal/agent/deploy.go":                       {},
+	"internal/agent/deploy_test.go":                  {},
+	"internal/agent/edge.go":                         {},
+	"internal/agent/identity_test.go":                {},
+	"internal/agent/registry.go":                     {},
+	"internal/agent/state.go":                        {},
+	"internal/deployplan/deployplan.go":              {},
+	"internal/deployplan/deployplan_test.go":         {},
+	"internal/deployplan/recovery.go":                {},
+	"internal/evolution/approval.go":                 {},
+	"internal/evolution/changes_transaction.go":      {},
+	"internal/evolution/changes_transaction_test.go": {},
+	"internal/evolution/recovery.go":                 {},
+	"internal/machine/envelope_test.go":              {},
+}
+
+var historicalKnowledgeLines = map[string]struct{}{
+	`"path": "docs/plans/0103-` + "v" + `next-language-and-onlv-house-migration.md",`: {},
+	`"title": "Scenery ` + "v" + `Next Language and ONLV House Migration",`:           {},
+}
+
 type packageLayerRule struct {
 	Name             string
 	PathPrefixes     []string
@@ -69,11 +155,89 @@ type packageLayerRule struct {
 
 var packageLayerRules = []packageLayerRule{
 	{
+		Name:         "internal/scn stays foundational",
+		PathPrefixes: []string{"internal/scn/"},
+		ForbiddenImports: []string{
+			"scenery.sh/internal/graph",
+			"scenery.sh/internal/compiler",
+			"scenery.sh/internal/evolution",
+			"scenery.sh/internal/generate",
+			"scenery.sh/internal/deployplan",
+			"scenery.sh/internal/contractagent",
+		},
+	},
+	{
+		Name:         "internal/spec stays foundational",
+		PathPrefixes: []string{"internal/spec/"},
+		ForbiddenImports: []string{
+			"scenery.sh/internal/scn",
+			"scenery.sh/internal/graph",
+			"scenery.sh/internal/compiler",
+			"scenery.sh/internal/evolution",
+			"scenery.sh/internal/generate",
+			"scenery.sh/internal/deployplan",
+			"scenery.sh/internal/contractagent",
+		},
+	},
+	{
+		Name:         "internal/graph stays below compiler and workflows",
+		PathPrefixes: []string{"internal/graph/"},
+		ForbiddenImports: []string{
+			"scenery.sh/internal/compiler",
+			"scenery.sh/internal/evolution",
+			"scenery.sh/internal/generate",
+			"scenery.sh/internal/deployplan",
+			"scenery.sh/internal/contractagent",
+		},
+	},
+	{
+		Name:         "internal/compiler stays below workflows",
+		PathPrefixes: []string{"internal/compiler/"},
+		ForbiddenImports: []string{
+			"scenery.sh/internal/evolution",
+			"scenery.sh/internal/generate",
+			"scenery.sh/internal/deployplan",
+			"scenery.sh/internal/contractagent",
+		},
+	},
+	{
+		Name:         "internal/generate stays independent from mutation workflows",
+		PathPrefixes: []string{"internal/generate/"},
+		ForbiddenImports: []string{
+			"scenery.sh/internal/evolution",
+			"scenery.sh/internal/deployplan",
+			"scenery.sh/internal/contractagent",
+		},
+	},
+	{
+		Name:         "internal/evolution stays below deployment and protocol composition",
+		PathPrefixes: []string{"internal/evolution/"},
+		ForbiddenImports: []string{
+			"scenery.sh/internal/deployplan",
+			"scenery.sh/internal/contractagent",
+		},
+	},
+	{
+		Name:         "internal/deployplan stays below protocol composition",
+		PathPrefixes: []string{"internal/deployplan/"},
+		ForbiddenImports: []string{
+			"scenery.sh/internal/contractagent",
+		},
+	},
+	{
 		Name:         "runtime packages stay independent from CLI/dev dashboard",
 		PathPrefixes: []string{"runtime/"},
 		ForbiddenImports: []string{
 			"scenery.sh/cmd/scenery",
 			"scenery.sh/internal/devdash",
+			"scenery.sh/internal/parse",
+			"scenery.sh/internal/scn",
+			"scenery.sh/internal/graph",
+			"scenery.sh/internal/compiler",
+			"scenery.sh/internal/evolution",
+			"scenery.sh/internal/generate",
+			"scenery.sh/internal/deployplan",
+			"scenery.sh/internal/contractagent",
 		},
 	},
 	{
@@ -203,6 +367,13 @@ func checkArchitectureSource(repoRoot string, summary *architectureSummary) ([]c
 		if architectureGeneratedOrVendored(rel) {
 			return nil
 		}
+		if currentSurfaceResidueCandidate(rel) {
+			residueDiagnostics, err := checkCurrentSurfaceResidue(path, rel)
+			if err != nil {
+				return err
+			}
+			diagnostics = append(diagnostics, residueDiagnostics...)
+		}
 		ext := filepath.Ext(rel)
 		if !slices.Contains([]string{".go", ".ts", ".tsx", ".md", ".json"}, ext) {
 			return nil
@@ -245,8 +416,84 @@ func checkArchitectureSource(repoRoot string, summary *architectureSummary) ([]c
 	return diagnostics, err
 }
 
+func checkCurrentSurfaceResidue(path, rel string) ([]checkDiagnostic, error) {
+	rel = filepath.ToSlash(rel)
+	if currentSurfaceResidueHistorical(rel) {
+		return nil, nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var diagnostics []checkDiagnostic
+	for _, rule := range currentSurfaceResidueRules {
+		if rule.CheckPath {
+			diagnostics = append(diagnostics, currentSurfaceResidueDiagnostics(rule, rel, 0, rel)...)
+		}
+	}
+	for index, line := range strings.Split(string(data), "\n") {
+		for _, rule := range currentSurfaceResidueRules {
+			diagnostics = append(diagnostics, currentSurfaceResidueDiagnostics(rule, rel, index+1, line)...)
+		}
+	}
+	return diagnostics, nil
+}
+
+func currentSurfaceResidueDiagnostics(rule currentSurfaceResidueRule, rel string, line int, text string) []checkDiagnostic {
+	matches := rule.Pattern.FindAllString(text, -1)
+	diagnostics := make([]checkDiagnostic, 0, len(matches))
+	for _, match := range matches {
+		if currentSurfaceResidueAllowed(rule, rel, match, text) {
+			continue
+		}
+		diagnostics = append(diagnostics, checkDiagnostic{
+			Stage:           "architecture checks",
+			Severity:        "error",
+			File:            rel,
+			Line:            line,
+			Message:         fmt.Sprintf("current surface contains %s: %q", rule.Name, strings.TrimSpace(match)),
+			SuggestedAction: rule.SuggestedAction,
+		})
+	}
+	return diagnostics
+}
+
+func currentSurfaceResidueAllowed(rule currentSurfaceResidueRule, rel, match, text string) bool {
+	if rule.Name == "active next-generation name" && filepath.ToSlash(rel) == "docs/knowledge.json" {
+		_, ok := historicalKnowledgeLines[strings.TrimSpace(text)]
+		return ok
+	}
+	if rule.Name != "versioned first-party identity" {
+		return false
+	}
+	if _, ok := retainedVersionedABIs[match]; ok {
+		return true
+	}
+	_, ok := legacyIdentityMigrationFiles[filepath.ToSlash(rel)]
+	return ok
+}
+
+func currentSurfaceResidueCandidate(rel string) bool {
+	switch filepath.Ext(rel) {
+	case ".css", ".go", ".html", ".js", ".json", ".jsx", ".md", ".scn", ".sh", ".toml", ".ts", ".tsx", ".yaml", ".yml":
+		return true
+	default:
+		return false
+	}
+}
+
+func currentSurfaceResidueHistorical(rel string) bool {
+	rel = filepath.ToSlash(rel)
+	for _, prefix := range []string{"docs/archive/", "docs/history/", "docs/plans/", "docs/spec/history/"} {
+		if strings.HasPrefix(rel, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 func checkRemovedAgentTransportTerms(path, rel string) []checkDiagnostic {
-	if strings.HasPrefix(filepath.ToSlash(rel), "docs/specs/vnext/") {
+	if strings.HasPrefix(filepath.ToSlash(rel), "docs/spec/") {
 		return nil
 	}
 	data, err := os.ReadFile(path)

@@ -1,0 +1,165 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.db.seed.result.schema.json",
+  "title": "scenery.db.seed.result",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "app",
+    "dry_run",
+    "environment",
+    "seeds",
+    "summary"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.db.seed.result"
+    },
+    "schema_revision": {
+      "const": "sha256:38c33fe664ee1c2f8122d07188546cc8768192bbc984af6b1ca2e3c4e2cf7765"
+    },
+    "app": {
+      "$ref": "#/$defs/appRef"
+    },
+    "dry_run": {
+      "type": "boolean"
+    },
+    "environment": {
+      "type": "string"
+    },
+    "seeds": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/seed"
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": [
+        "planned",
+        "applied",
+        "skipped",
+        "changed",
+        "failed"
+      ],
+      "properties": {
+        "planned": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "applied": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "skipped": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "changed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "failed": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "appRef": {
+      "type": "object",
+      "required": [
+        "name",
+        "root",
+        "config_path"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "root": {
+          "type": "string"
+        },
+        "config_path": {
+          "type": "string"
+        },
+        "module_path": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "seed": {
+      "type": "object",
+      "required": [
+        "service",
+        "path",
+        "sha256",
+        "status"
+      ],
+      "properties": {
+        "service": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "sha256": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "planned",
+            "applied",
+            "skipped",
+            "changed",
+            "failed"
+          ]
+        },
+        "error": {
+          "type": "string"
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/seedDiagnostic"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "seedDiagnostic": {
+      "type": "object",
+      "required": [
+        "path",
+        "line",
+        "message",
+        "context"
+      ],
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "message": {
+          "type": "string"
+        },
+        "context": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.harness.ui.dom.schema.json",
+  "title": "scenery UI harness DOM snapshot",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "route",
+    "url",
+    "ready_state",
+    "semantic_nodes"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.harness.ui.dom"
+    },
+    "schema_revision": {
+      "const": "sha256:39eb0887de5fc2851fc76fa4617bbf09eedddb732331819a26abf73d2776fb9c"
+    },
+    "route": {
+      "type": "string"
+    },
+    "url": {
+      "type": "string"
+    },
+    "title": {
+      "type": "string"
+    },
+    "ready_state": {
+      "type": "string"
+    },
+    "semantic_nodes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/semantic_node"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "semantic_node": {
+      "type": "object",
+      "required": [
+        "marker"
+      ],
+      "properties": {
+        "marker": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string"
+        },
+        "tag": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string"
+        },
+        "href": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

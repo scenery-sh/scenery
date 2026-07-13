@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.down.schema.json",
+  "title": "scenery down result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "kind",
+    "schema_revision",
+    "deleted",
+    "record_preserved",
+    "db_cleanup",
+    "state_cleanup"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.down"
+    },
+    "schema_revision": {
+      "const": "sha256:650b1258f522f112e9f91c1114af6affc47e4dde0470dd188b0124454446b826"
+    },
+    "app_root": {
+      "type": "string"
+    },
+    "deleted": {
+      "type": "boolean"
+    },
+    "record_preserved": {
+      "type": "boolean"
+    },
+    "db_cleanup": {
+      "type": "boolean"
+    },
+    "state_cleanup": {
+      "type": "boolean"
+    },
+    "state_root_removed": {
+      "type": "string"
+    },
+    "messages": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  }
+}

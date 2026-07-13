@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.harness.schema_validation.schema.json",
+  "title": "scenery harness schema validation report",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "validated"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.harness.schema_validation"
+    },
+    "schema_revision": {
+      "const": "sha256:0b8037ff35c8ad553fa023abf7886d3fe7e28649400fa8d69d3a7994062d91bd"
+    },
+    "validated": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/validated_item"
+      }
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "validated_item": {
+      "type": "object",
+      "required": [
+        "name",
+        "schema",
+        "ok"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "schema": {
+          "type": "string"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

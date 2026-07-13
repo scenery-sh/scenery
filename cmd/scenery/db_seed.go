@@ -15,9 +15,9 @@ import (
 	"strings"
 
 	appcfg "scenery.sh/internal/app"
+	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/envpolicy"
 	inspectdata "scenery.sh/internal/inspect"
-	"scenery.sh/internal/vnext"
 )
 
 type dbSeedOptions struct {
@@ -28,12 +28,12 @@ type dbSeedOptions struct {
 }
 
 type dbSeedResult struct {
-	SchemaVersion string             `json:"schema_version"`
-	App           inspectdata.AppRef `json:"app"`
-	DryRun        bool               `json:"dry_run"`
-	Environment   string             `json:"environment"`
-	Seeds         []dbSeedRecord     `json:"seeds"`
-	Summary       dbSeedSummary      `json:"summary"`
+	cliPayloadIdentity
+	App         inspectdata.AppRef `json:"app"`
+	DryRun      bool               `json:"dry_run"`
+	Environment string             `json:"environment"`
+	Seeds       []dbSeedRecord     `json:"seeds"`
+	Summary     dbSeedSummary      `json:"summary"`
 }
 
 type dbSeedRecord struct {
@@ -174,7 +174,7 @@ func buildDBSeedResultWithEnvHooks(ctx context.Context, appRoot string, cfg appc
 		opts.Env = "development"
 	}
 	result := dbSeedResult{
-		SchemaVersion: "scenery.db.seed.result.v1",
+		cliPayloadIdentity: newCLIPayloadIdentity("scenery.db.seed.result"),
 		App: inspectdata.AppRef{
 			Name:       cfg.Name,
 			ID:         cfg.ID,
@@ -310,7 +310,7 @@ func buildDBSeedResultWithEnvHooks(ctx context.Context, appRoot string, cfg appc
 
 func emptyDBSeedResult(appRoot string, cfg appcfg.Config, opts dbSeedOptions) dbSeedResult {
 	return dbSeedResult{
-		SchemaVersion: "scenery.db.seed.result.v1",
+		cliPayloadIdentity: newCLIPayloadIdentity("scenery.db.seed.result"),
 		App: inspectdata.AppRef{
 			Name:       cfg.Name,
 			ID:         cfg.ID,
@@ -353,11 +353,11 @@ func discoverDBSeedPlansForEnvironment(appRoot string, cfg appcfg.Config, enviro
 			SHA256:  hex.EncodeToString(sum[:]),
 		})
 	}
-	compiled, compileErr := vnext.Compile(appRoot)
+	compiled, compileErr := compiler.Compile(appRoot)
 	if compileErr != nil {
 		return nil, compileErr
 	}
-	fixturePlans, fixtureErr := vnext.BuildFixtureSeedPlans(compiled, environment)
+	fixturePlans, fixtureErr := compiler.BuildFixtureSeedPlans(compiled, environment)
 	if fixtureErr != nil {
 		return nil, fixtureErr
 	}

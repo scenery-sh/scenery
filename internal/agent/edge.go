@@ -13,15 +13,15 @@ import (
 )
 
 const (
-	EdgeSchemaVersion       = "scenery.edge.state.v1"
-	EdgeTargetSchemaVersion = "scenery.edge.target.v1"
-	EdgeKindCaddy           = "caddy"
-	EdgeStatusRunning       = "running"
-	EdgeStatusStopped       = "stopped"
+	legacyEdgeSchemaVersion       = "scenery.edge.state.v1"
+	legacyEdgeTargetSchemaVersion = "scenery.edge.target.v1"
+	EdgeKindCaddy                 = "caddy"
+	EdgeStatusRunning             = "running"
+	EdgeStatusStopped             = "stopped"
 )
 
 func LoadEdgeState(path string) (EdgeState, error) {
-	data, err := os.ReadFile(path)
+	_, err := os.Stat(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return EdgeState{}, nil
 	}
@@ -29,7 +29,13 @@ func LoadEdgeState(path string) (EdgeState, error) {
 		return EdgeState{}, err
 	}
 	var state EdgeState
-	if err := json.Unmarshal(data, &state); err != nil {
+	if err := LoadDurableArtifact(path, &state, &state.ArtifactIdentity, EdgeStateKind, edgeStateSchemaDescriptor, 0o644, func(fields map[string]json.RawMessage) error {
+		if err := requireLegacySchemaOrMissing(fields, legacyEdgeSchemaVersion); err != nil {
+			return err
+		}
+		renameLegacyField(fields, "kind", "edge_kind")
+		return nil
+	}); err != nil {
 		return EdgeState{}, err
 	}
 	state.Kind = sanitizeLabel(state.Kind)
@@ -42,9 +48,7 @@ func LoadEdgeState(path string) (EdgeState, error) {
 }
 
 func WriteEdgeState(path string, state EdgeState) error {
-	if state.SchemaVersion == "" {
-		state.SchemaVersion = EdgeSchemaVersion
-	}
+	state.ArtifactIdentity = edgeStateIdentity()
 	if state.UpdatedAt.IsZero() {
 		state.UpdatedAt = time.Now().UTC()
 	}
@@ -57,7 +61,7 @@ func WriteEdgeState(path string, state EdgeState) error {
 }
 
 func LoadEdgeTargetState(path string) (EdgeTargetState, error) {
-	data, err := os.ReadFile(path)
+	_, err := os.Stat(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return EdgeTargetState{}, nil
 	}
@@ -65,7 +69,13 @@ func LoadEdgeTargetState(path string) (EdgeTargetState, error) {
 		return EdgeTargetState{}, err
 	}
 	var state EdgeTargetState
-	if err := json.Unmarshal(data, &state); err != nil {
+	if err := LoadDurableArtifact(path, &state, &state.ArtifactIdentity, EdgeTargetKind, edgeTargetSchemaDescriptor, 0o600, func(fields map[string]json.RawMessage) error {
+		if err := requireLegacySchemaOrMissing(fields, legacyEdgeTargetSchemaVersion); err != nil {
+			return err
+		}
+		renameLegacyField(fields, "kind", "edge_kind")
+		return nil
+	}); err != nil {
 		return EdgeTargetState{}, err
 	}
 	state.Kind = sanitizeLabel(state.Kind)
@@ -77,9 +87,7 @@ func LoadEdgeTargetState(path string) (EdgeTargetState, error) {
 }
 
 func WriteEdgeTargetState(path string, state EdgeTargetState) error {
-	if state.SchemaVersion == "" {
-		state.SchemaVersion = EdgeTargetSchemaVersion
-	}
+	state.ArtifactIdentity = edgeTargetIdentity()
 	if state.UpdatedAt.IsZero() {
 		state.UpdatedAt = time.Now().UTC()
 	}

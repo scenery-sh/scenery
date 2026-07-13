@@ -10,27 +10,28 @@ import (
 	"scenery.sh/internal/inspect"
 )
 
-const inspectHarnessSchema = "scenery.inspect.harness.v1"
+const inspectHarnessKind = "scenery.inspect.harness"
 
 type inspectHarnessResponse struct {
-	SchemaVersion string                 `json:"schema_version"`
-	GeneratedAt   string                 `json:"generated_at"`
-	Scope         string                 `json:"scope"`
-	Root          string                 `json:"root"`
-	App           *inspect.AppRef        `json:"app,omitempty"`
-	Repo          *harnessSelfRepo       `json:"repo,omitempty"`
-	Latest        []inspectHarnessLatest `json:"latest"`
-	Artifacts     []harnessArtifact      `json:"artifacts,omitempty"`
-	Evidence      []harnessEvidence      `json:"evidence,omitempty"`
+	cliPayloadIdentity
+	GeneratedAt string                 `json:"generated_at"`
+	Scope       string                 `json:"scope"`
+	Root        string                 `json:"root"`
+	App         *inspect.AppRef        `json:"app,omitempty"`
+	Repo        *harnessSelfRepo       `json:"repo,omitempty"`
+	Latest      []inspectHarnessLatest `json:"latest"`
+	Artifacts   []harnessArtifact      `json:"artifacts,omitempty"`
+	Evidence    []harnessEvidence      `json:"evidence,omitempty"`
 }
 
 type inspectHarnessLatest struct {
-	Name          string `json:"name"`
-	Path          string `json:"path"`
-	SchemaVersion string `json:"schema_version"`
-	Exists        bool   `json:"exists"`
-	SizeBytes     int64  `json:"size_bytes,omitempty"`
-	ModifiedAt    string `json:"modified_at,omitempty"`
+	Name           string `json:"name"`
+	Path           string `json:"path"`
+	Kind           string `json:"kind"`
+	SchemaRevision string `json:"schema_revision"`
+	Exists         bool   `json:"exists"`
+	SizeBytes      int64  `json:"size_bytes,omitempty"`
+	ModifiedAt     string `json:"modified_at,omitempty"`
 }
 
 func buildInspectHarnessResponse(opts inspectOptions) (inspectHarnessResponse, error) {
@@ -39,19 +40,19 @@ func buildInspectHarnessResponse(opts inspectOptions) (inspectHarnessResponse, e
 		return inspectHarnessResponse{}, err
 	}
 	resp := inspectHarnessResponse{
-		SchemaVersion: inspectHarnessSchema,
-		GeneratedAt:   time.Now().UTC().Format(time.RFC3339Nano),
-		Scope:         scope,
-		Root:          root,
-		App:           appRef,
-		Repo:          repoRef,
+		cliPayloadIdentity: newCLIPayloadIdentity(inspectHarnessKind),
+		GeneratedAt:        time.Now().UTC().Format(time.RFC3339Nano),
+		Scope:              scope,
+		Root:               root,
+		App:                appRef,
+		Repo:               repoRef,
 	}
 	candidates := []inspectHarnessLatest{
-		{Name: "app-harness", Path: ".scenery/harness/latest.json", SchemaVersion: "scenery.harness.result.v1"},
-		{Name: "self-harness", Path: ".scenery/harness/self-latest.json", SchemaVersion: "scenery.harness.self.v1"},
-		{Name: "self-summary", Path: ".scenery/harness/self-summary-latest.json", SchemaVersion: harnessSelfSummarySchema},
-		{Name: "ui-harness", Path: ".scenery/harness/ui/latest.json", SchemaVersion: "scenery.harness.ui.v1"},
-		{Name: "evidence-artifacts", Path: ".scenery/harness/artifacts", SchemaVersion: harnessArtifactEvidenceSchema},
+		newInspectHarnessLatest("app-harness", ".scenery/harness/latest.json", "scenery.harness.result"),
+		newInspectHarnessLatest("self-harness", ".scenery/harness/self-latest.json", "scenery.harness.self"),
+		newInspectHarnessLatest("self-summary", ".scenery/harness/self-summary-latest.json", harnessSelfSummaryKind),
+		newInspectHarnessLatest("ui-harness", ".scenery/harness/ui/latest.json", "scenery.harness.ui"),
+		newInspectHarnessLatest("evidence-artifacts", ".scenery/harness/artifacts", harnessArtifactEvidenceKind),
 	}
 	for _, item := range candidates {
 		item = inspectHarnessLatestWithStat(root, item)
@@ -85,6 +86,11 @@ func buildInspectHarnessResponse(opts inspectOptions) (inspectHarnessResponse, e
 	}
 	resp.Artifacts = dedupeHarnessArtifacts(resp.Artifacts)
 	return resp, nil
+}
+
+func newInspectHarnessLatest(name, path, kind string) inspectHarnessLatest {
+	identity := newCLIPayloadIdentity(kind)
+	return inspectHarnessLatest{Name: name, Path: path, Kind: identity.Kind, SchemaRevision: identity.SchemaRevision}
 }
 
 func resolveInspectHarnessRoot(opts inspectOptions) (string, string, *inspect.AppRef, *harnessSelfRepo, error) {

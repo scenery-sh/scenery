@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.build.latest.schema.json",
+  "title": "scenery.build.latest",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "spec_revision",
+    "producer",
+    "app",
+    "build"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.build.latest"
+    },
+    "schema_revision": {
+      "const": "sha256:9cf0d64062da541ff614904f6499eef61a602ff64bd501aa92cd36ec99ee7e79"
+    },
+    "spec_revision": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "producer": {
+      "type": "object"
+    },
+    "app": {
+      "type": "object",
+      "required": [
+        "name",
+        "root",
+        "config_path"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "root": {
+          "type": "string"
+        },
+        "config_path": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "build": {
+      "type": "object",
+      "required": [
+        "phase",
+        "workspace_dir",
+        "binary_path",
+        "workspace_exists",
+        "binary_exists",
+        "build_state_path",
+        "build_state_exists",
+        "metadata_present",
+        "api_encoding_present",
+        "source_file_count",
+        "generated_file_count"
+      ],
+      "properties": {
+        "phase": {
+          "type": "string",
+          "enum": [
+            "prepared",
+            "primed",
+            "compiled"
+          ]
+        },
+        "workspace_dir": {
+          "type": "string"
+        },
+        "binary_path": {
+          "type": "string"
+        },
+        "workspace_exists": {
+          "type": "boolean"
+        },
+        "binary_exists": {
+          "type": "boolean"
+        },
+        "build_state_path": {
+          "type": "string"
+        },
+        "build_state_exists": {
+          "type": "boolean"
+        },
+        "build_state_version": {
+          "type": "string"
+        },
+        "dependency_fingerprint": {
+          "type": "string"
+        },
+        "graph_fingerprint": {
+          "type": "string"
+        },
+        "metadata_present": {
+          "type": "boolean"
+        },
+        "api_encoding_present": {
+          "type": "boolean"
+        },
+        "source_file_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "generated_file_count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

@@ -15,16 +15,16 @@ import (
 )
 
 const (
-	harnessToolchainSchema     = "scenery.harness.toolchain.v1"
-	harnessDriftSchema         = "scenery.harness.drift.v1"
-	harnessFixtureMatrixSchema = "scenery.harness.fixture_matrix.v1"
+	harnessToolchainKind     = "scenery.harness.toolchain"
+	harnessDriftKind         = "scenery.harness.drift"
+	harnessFixtureMatrixKind = "scenery.harness.fixture_matrix"
 )
 
 type harnessToolchainReport struct {
-	SchemaVersion string                 `json:"schema_version"`
-	Tools         []harnessToolchainTool `json:"tools"`
-	Env           []harnessEnvValue      `json:"env,omitempty"`
-	Diagnostics   []checkDiagnostic      `json:"diagnostics,omitempty"`
+	cliPayloadIdentity
+	Tools       []harnessToolchainTool `json:"tools"`
+	Env         []harnessEnvValue      `json:"env,omitempty"`
+	Diagnostics []checkDiagnostic      `json:"diagnostics,omitempty"`
 }
 
 type harnessToolchainTool struct {
@@ -46,12 +46,12 @@ type harnessEnvValue struct {
 }
 
 type harnessDriftReport struct {
-	SchemaVersion string                       `json:"schema_version"`
-	CLI           harnessCLIContractReport     `json:"cli"`
-	Env           harnessEnvVarReport          `json:"env"`
-	Artifacts     harnessArtifactHygieneReport `json:"artifacts"`
-	Embeds        harnessEmbedReport           `json:"embeds"`
-	Diagnostics   []checkDiagnostic            `json:"diagnostics,omitempty"`
+	cliPayloadIdentity
+	CLI         harnessCLIContractReport     `json:"cli"`
+	Env         harnessEnvVarReport          `json:"env"`
+	Artifacts   harnessArtifactHygieneReport `json:"artifacts"`
+	Embeds      harnessEmbedReport           `json:"embeds"`
+	Diagnostics []checkDiagnostic            `json:"diagnostics,omitempty"`
 }
 
 type harnessCLIContractReport struct {
@@ -104,9 +104,9 @@ type harnessEmbedFinding struct {
 }
 
 type harnessFixtureMatrixReport struct {
-	SchemaVersion string                 `json:"schema_version"`
-	Fixtures      []harnessFixtureResult `json:"fixtures"`
-	Diagnostics   []checkDiagnostic      `json:"diagnostics,omitempty"`
+	cliPayloadIdentity
+	Fixtures    []harnessFixtureResult `json:"fixtures"`
+	Diagnostics []checkDiagnostic      `json:"diagnostics,omitempty"`
 }
 
 type harnessFixtureResult struct {
@@ -157,7 +157,7 @@ func runHarnessToolchainPreflightStep(ctx context.Context, repoRoot string) (har
 }
 
 func buildHarnessToolchainPreflightReport(ctx context.Context, repoRoot string) *harnessToolchainReport {
-	report := &harnessToolchainReport{SchemaVersion: harnessToolchainSchema}
+	report := &harnessToolchainReport{cliPayloadIdentity: newCLIPayloadIdentity(harnessToolchainKind)}
 	for _, spec := range harnessToolchainSpecs {
 		tool := harnessProbeTool(ctx, spec.name, spec.scope, spec.required, spec.args)
 		if !tool.Present && tool.Required {
@@ -248,7 +248,7 @@ func runHarnessDriftStep(ctx context.Context, repoRoot string) (harnessStep, *ha
 }
 
 func buildHarnessDriftReport(ctx context.Context, repoRoot string) *harnessDriftReport {
-	report := &harnessDriftReport{SchemaVersion: harnessDriftSchema}
+	report := &harnessDriftReport{cliPayloadIdentity: newCLIPayloadIdentity(harnessDriftKind)}
 	report.CLI, report.Diagnostics = buildHarnessCLIContractReport(repoRoot, report.Diagnostics)
 	report.Env, report.Diagnostics = buildHarnessEnvVarReport(repoRoot, report.Diagnostics)
 	report.Diagnostics = appendDirectOSEnvDiagnostics(repoRoot, report.Diagnostics)
@@ -277,7 +277,7 @@ func buildHarnessCLIContractReport(repoRoot string, diagnostics []checkDiagnosti
 			return writeVersionJSON(&out, buildVersionResponse())
 		}},
 		{name: "check", needle: "scenery check [--app-root <path>] [-o json]", mode: "parse", smoke: func() error {
-			_, positionals, err := parseVNextOptions("check", []string{"--app-root", filepath.Join(repoRoot, "testdata", "apps", "basic"), "-o", "json"})
+			_, positionals, err := parseContractOptions("check", []string{"--app-root", filepath.Join(repoRoot, "testdata", "apps", "basic"), "-o", "json"})
 			if err == nil {
 				err = rejectCLIPositionals(positionals)
 			}
@@ -341,7 +341,7 @@ func buildHarnessEnvVarReport(repoRoot string, diagnostics []checkDiagnostic) (h
 			Severity:        "error",
 			File:            filepath.ToSlash(registryPath),
 			Message:         "environment registry is missing or invalid: " + err.Error(),
-			SuggestedAction: "Restore docs/environment.registry.json with schema_version " + envpolicy.SchemaVersion + ".",
+			SuggestedAction: "Restore docs/environment.registry.json with kind " + envpolicy.Kind + " and schema_revision " + envpolicy.SchemaRevision + ".",
 		})
 		return report, diagnostics
 	}
@@ -696,7 +696,7 @@ func runHarnessFixtureMatrixStep(ctx context.Context, repoRoot string) (harnessS
 }
 
 func buildHarnessFixtureMatrixReport(ctx context.Context, repoRoot string) *harnessFixtureMatrixReport {
-	report := &harnessFixtureMatrixReport{SchemaVersion: harnessFixtureMatrixSchema}
+	report := &harnessFixtureMatrixReport{cliPayloadIdentity: newCLIPayloadIdentity(harnessFixtureMatrixKind)}
 	fixtureRoot := filepath.Join(repoRoot, "testdata", "apps")
 	entries, err := os.ReadDir(fixtureRoot)
 	if err != nil {
@@ -781,7 +781,7 @@ func runHarnessFixtureInspect(repoRoot, subject, appRoot string) harnessStep {
 		return step
 	}
 	step.Summary = summarizeHarnessInspect(subject, payload)
-	schemaRel := "docs/schemas/scenery.inspect." + subject + ".v1.schema.json"
+	schemaRel := "docs/schemas/scenery.inspect." + subject + ".schema.json"
 	schemaPath := filepath.Join(repoRoot, filepath.FromSlash(schemaRel))
 	if diagnostics := validateHarnessJSONSchemaFile(schemaPath, payload); len(diagnostics) > 0 {
 		step.OK = false

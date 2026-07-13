@@ -2,7 +2,7 @@ package model
 
 import "go/types"
 
-// App is the Go analysis snapshot used to verify and build an edition-2027 app.
+// App is the Go analysis snapshot used to verify and build a Scenery app.
 // Application resources come exclusively from .scn source.
 type App struct {
 	Name       string

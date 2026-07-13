@@ -163,7 +163,7 @@ func TestDeployStatusReportsRegistryTargetsAndLiveSession(t *testing.T) {
 	if err := decodeCLIJSON(out.Bytes(), &status); err != nil {
 		t.Fatalf("decodeCLIJSON status: %v\n%s", err, out.String())
 	}
-	if status.SchemaVersion != "scenery.deploy.status.v1" || status.RegistryPath != paths.DeployPath {
+	if status.Kind != "scenery.deploy.status" || status.SchemaRevision != newCLIPayloadIdentity("scenery.deploy.status").SchemaRevision || status.RegistryPath != paths.DeployPath {
 		t.Fatalf("status metadata = %+v", status)
 	}
 	if len(status.Targets) != 1 || status.Targets[0].Domain != "onlv.dev" || !status.Targets[0].LiveSession || status.Targets[0].SessionID != "deployapp" || !status.Targets[0].CertPresent {
@@ -334,7 +334,7 @@ func TestDeploySetupWritesRegistryInstallsHelperAndRestartsEdge(t *testing.T) {
 	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
 		t.Fatalf("decodeCLIJSON setup: %v\n%s", err, out.String())
 	}
-	if payload.SchemaVersion != "scenery.deploy.setup.v1" || payload.ACME.Email != "ops@example.com" || payload.ACME.CA != "staging" || !payload.HelperPublic || !payload.LaunchAgentInstalled || !payload.EdgeRestarted {
+	if payload.Kind != "scenery.deploy.setup" || payload.SchemaRevision != newCLIPayloadIdentity("scenery.deploy.setup").SchemaRevision || payload.ACME.Email != "ops@example.com" || payload.ACME.CA != "staging" || !payload.HelperPublic || !payload.LaunchAgentInstalled || !payload.EdgeRestarted {
 		t.Fatalf("setup payload = %+v", payload)
 	}
 	paths, err := localagent.DefaultPaths()
@@ -396,7 +396,7 @@ func TestDeployTeardownInstallsLoopbackHelperRemovesLaunchAgentAndRestartsEdge(t
 	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
 		t.Fatalf("decodeCLIJSON teardown: %v\n%s", err, out.String())
 	}
-	if payload.SchemaVersion != "scenery.deploy.teardown.v1" || payload.HelperPublic || !payload.LaunchAgentRemoved || !payload.EdgeRestarted {
+	if payload.Kind != "scenery.deploy.teardown" || payload.SchemaRevision != newCLIPayloadIdentity("scenery.deploy.teardown").SchemaRevision || payload.HelperPublic || !payload.LaunchAgentRemoved || !payload.EdgeRestarted {
 		t.Fatalf("teardown payload = %+v", payload)
 	}
 }

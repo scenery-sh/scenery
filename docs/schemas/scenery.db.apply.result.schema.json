@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.db.apply.result.schema.json",
+  "title": "scenery.db.apply.result",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "app",
+    "apply"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.db.apply.result"
+    },
+    "schema_revision": {
+      "const": "sha256:8e9223ebba90b7f493b14f0bbc0347da0ea53d0bc5769ad42e080c99f73b71a4"
+    },
+    "app": {
+      "$ref": "#/$defs/appRef"
+    },
+    "apply": {
+      "type": "object",
+      "required": [
+        "status"
+      ],
+      "properties": {
+        "command": {
+          "type": "string"
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "status": {
+          "const": "applied"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "appRef": {
+      "type": "object",
+      "required": [
+        "name",
+        "root",
+        "config_path"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "root": {
+          "type": "string"
+        },
+        "config_path": {
+          "type": "string"
+        },
+        "module_path": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

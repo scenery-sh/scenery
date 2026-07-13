@@ -1,5 +1,5 @@
 // Package datasource defines stable capability interfaces injected into
-// edition-2027 service constructors.
+// generated service constructors.
 package datasource
 
 import (

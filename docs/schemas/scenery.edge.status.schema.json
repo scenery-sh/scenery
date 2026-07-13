@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.edge.status.schema.json",
+  "title": "scenery.edge.status",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.edge.status"
+    },
+    "schema_revision": {
+      "const": "sha256:f3078edc6896e0e859339cc97443e533e8e622f3a4feed6b658488263e0cc467"
+    },
+    "ready": {
+    },
+    "public_base": {
+    },
+    "edge": {
+    },
+    "dns": {
+    },
+    "privileged_listener": {
+    }
+  },
+  "additionalProperties": false
+}

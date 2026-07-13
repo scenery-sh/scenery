@@ -15,15 +15,17 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"scenery.sh/internal/vnext"
+	localagent "scenery.sh/internal/agent"
+	"scenery.sh/internal/compiler"
+	"scenery.sh/internal/machine"
 )
 
-const harnessSchemaValidationSchema = "scenery.harness.schema_validation.v1"
+const harnessSchemaValidationKind = "scenery.harness.schema_validation"
 
 type harnessSchemaValidationReport struct {
-	SchemaVersion string                        `json:"schema_version"`
-	Validated     []harnessSchemaValidationItem `json:"validated"`
-	Diagnostics   []checkDiagnostic             `json:"diagnostics,omitempty"`
+	cliPayloadIdentity
+	Validated   []harnessSchemaValidationItem `json:"validated"`
+	Diagnostics []checkDiagnostic             `json:"diagnostics,omitempty"`
 }
 
 type harnessSchemaValidationItem struct {
@@ -54,7 +56,7 @@ func runHarnessSchemaValidationStep(repoRoot string, resp harnessSelfResponse) (
 }
 
 func buildHarnessSchemaValidationReport(repoRoot string, resp harnessSelfResponse) *harnessSchemaValidationReport {
-	report := &harnessSchemaValidationReport{SchemaVersion: harnessSchemaValidationSchema}
+	report := &harnessSchemaValidationReport{cliPayloadIdentity: newCLIPayloadIdentity(harnessSchemaValidationKind)}
 	versionPayload := buildVersionResponse()
 	inspectDocsPayload, inspectDocsErr := harnessInspectDocsPayload(repoRoot)
 	if inspectDocsErr != nil {
@@ -75,6 +77,16 @@ func buildHarnessSchemaValidationReport(repoRoot string, resp harnessSelfRespons
 			SuggestedAction: "Fix docs/environment.registry.json so it can be validated.",
 		})
 	}
+	docsKnowledgePayload, docsKnowledgeErr := harnessJSONFilePayload(filepath.Join(repoRoot, "docs", "knowledge.json"))
+	if docsKnowledgeErr != nil {
+		report.Diagnostics = append(report.Diagnostics, checkDiagnostic{
+			Stage:           "schema validation",
+			Severity:        "error",
+			File:            filepath.ToSlash(filepath.Join(repoRoot, "docs", "knowledge.json")),
+			Message:         "failed to load docs knowledge index JSON for schema validation: " + docsKnowledgeErr.Error(),
+			SuggestedAction: "Fix docs/knowledge.json so it can be validated.",
+		})
+	}
 	var inspectHarnessPayload any
 	if payload, inspectHarnessErr := buildInspectHarnessResponse(inspectOptions{Subject: "harness", RepoRoot: repoRoot}); inspectHarnessErr != nil {
 		report.Diagnostics = append(report.Diagnostics, checkDiagnostic{
@@ -87,17 +99,16 @@ func buildHarnessSchemaValidationReport(repoRoot string, resp harnessSelfRespons
 		inspectHarnessPayload = payload
 	}
 	artifactEvidencePayload := harnessEvidence{
-		SchemaVersion: harnessArtifactEvidenceSchema,
-		Command:       []string{"go", "test", "-json", "./..."},
-		CWD:           repoRoot,
-		StartedAt:     "2026-06-07T00:00:00Z",
-		DurationMS:    1234,
-		ExitCode:      intPtr(1),
-		StdoutTail:    "{}",
+		cliPayloadIdentity: newCLIPayloadIdentity(harnessArtifactEvidenceKind),
+		Command:            []string{"go", "test", "-json", "./..."},
+		CWD:                repoRoot,
+		StartedAt:          "2026-06-07T00:00:00Z",
+		DurationMS:         1234,
+		ExitCode:           intPtr(1),
+		StdoutTail:         "{}",
 		Artifacts: []harnessEvidenceArtifact{{
-			Name:          "go-test-json",
-			Path:          ".scenery/harness/artifacts/20260607T000000Z/go-test.jsonl",
-			SchemaVersion: "go.test.jsonl",
+			Name: "go-test-json",
+			Path: ".scenery/harness/artifacts/20260607T000000Z/go-test.jsonl",
 		}},
 		ReproCommand: "cd " + repoRoot + " && go test -json ./...",
 	}
@@ -125,18 +136,20 @@ func buildHarnessSchemaValidationReport(repoRoot string, resp harnessSelfRespons
 			Stage:           "schema validation",
 			Severity:        "error",
 			File:            fixtureRel,
-			Message:         "failed to load vNext schema fixture: " + err.Error(),
-			SuggestedAction: "Regenerate the committed vNext conformance fixtures.",
+			Message:         "failed to load schema fixture: " + err.Error(),
+			SuggestedAction: "Regenerate the committed conformance fixtures.",
 		})
 		return nil
 	}
-	buildInputManifest := map[string]any{
-		"api_version": "scenery.go-build-input-manifest/v1", "target": "development", "entries": []any{}, "digest": digest,
+	artifact := func(kind string, values map[string]any) map[string]any {
+		values["kind"], values["schema_revision"], values["spec_revision"], values["producer"] = kind, digest, currentMachineSpecRevision(), cliProducer()
+		return values
 	}
-	var vnextManifestPayload any
-	if whenSchemaExists("docs/schemas/scenery.manifest.v1.schema.json", true) != nil {
-		fixtureRoot := filepath.Join(repoRoot, "internal", "vnext", "testdata", "house")
-		compiled, err := vnext.Compile(fixtureRoot)
+	buildInputManifest := artifact("scenery.go-build-input-manifest", map[string]any{"target": "development", "entries": []any{}, "digest": digest})
+	var manifestPayload any
+	if whenSchemaExists("docs/schemas/scenery.manifest.schema.json", true) != nil {
+		fixtureRoot := filepath.Join(repoRoot, "internal", "compiler", "testdata", "house")
+		compiled, err := compiler.Compile(fixtureRoot)
 		if err != nil || compiled == nil || compiled.Manifest == nil {
 			message := "compiler returned no manifest"
 			if err != nil {
@@ -144,10 +157,10 @@ func buildHarnessSchemaValidationReport(repoRoot string, resp harnessSelfRespons
 			}
 			report.Diagnostics = append(report.Diagnostics, checkDiagnostic{
 				Stage: "schema validation", Severity: "error", File: filepath.ToSlash(fixtureRoot),
-				Message: "failed to build vNext manifest/status schema fixtures: " + message, SuggestedAction: "Repair the committed House compiler fixture.",
+				Message: "failed to build manifest/status schema fixtures: " + message, SuggestedAction: "Repair the committed House compiler fixture.",
 			})
 		} else {
-			vnextManifestPayload = compiled.Manifest
+			manifestPayload = compiled.Manifest
 		}
 	}
 	items := []struct {
@@ -155,86 +168,87 @@ func buildHarnessSchemaValidationReport(repoRoot string, resp harnessSelfRespons
 		schemaRel string
 		payload   any
 	}{
-		{name: "approval.trust", schemaRel: "docs/schemas/scenery.approval-trust.v1.schema.json", payload: map[string]any{
-			"api_version": "scenery.approval-trust.v1", "keys": map[string]any{"maintainer": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"},
-		}},
-		{name: "approval.token", schemaRel: "docs/schemas/scenery.approval-token.v1.schema.json", payload: map[string]any{
+		{name: "docs.index", schemaRel: "docs/schemas/scenery.docs.index.schema.json", payload: docsKnowledgePayload},
+		{name: "approval.trust", schemaRel: "docs/schemas/scenery.approval-trust.schema.json", payload: artifact("scenery.approval-trust", map[string]any{
+			"keys": map[string]any{"maintainer": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"},
+		})},
+		{name: "approval.token", schemaRel: "docs/schemas/scenery.approval-token.schema.json", payload: artifact("scenery.approval-token", map[string]any{
 			"plan_id": "sha256:" + strings.Repeat("0", 64), "caller": "local", "risk_scopes": []any{"deployment.destructive:app/data_source/database"},
 			"expires_at": "2026-07-10T12:00:00Z", "signature": "ed25519:maintainer:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-		}},
-		{name: "vnext.change.plan", schemaRel: "docs/schemas/scenery.change-plan.v1.schema.json", payload: whenSchemaExists("docs/schemas/scenery.change-plan.v1.schema.json", map[string]any{
-			"api_version": "scenery.change-plan/v1", "plan_id": digest, "application": "schema-fixture", "base_workspace_revision": digest,
+		})},
+		{name: "change.plan", schemaRel: "docs/schemas/scenery.change-plan.schema.json", payload: whenSchemaExists("docs/schemas/scenery.change-plan.schema.json", artifact("scenery.change-plan", map[string]any{
+			"plan_id": digest, "application": "schema-fixture", "base_workspace_revision": digest,
 			"base_contract_revision": digest, "predicted_workspace_revision": digest, "predicted_contract_revision": digest,
 			"implementation_revision_status": "not_built", "deployment_revision_status": "not_planned", "caller": "harness", "capabilities": []any{},
 			"operations_digest": digest, "operations": []any{}, "rename_receipts": []any{}, "semantic_diff": map[string]any{}, "affected_resources": []any{}, "diagnostics": []any{},
 			"source_edits": []any{}, "formatting_effects": []any{}, "required_approvals": []any{}, "required_capabilities": []any{}, "risk_records": []any{},
 			"expires_at": "2026-07-10T12:00:00Z",
-		})},
-		{name: "vnext.change.receipt", schemaRel: "docs/schemas/scenery.change-receipt.v1.schema.json", payload: whenSchemaExists("docs/schemas/scenery.change-receipt.v1.schema.json", map[string]any{
-			"api_version": "scenery.change-receipt/v1", "plan_id": digest, "workspace_revision": digest, "contract_revision": digest,
+		}))},
+		{name: "change.receipt", schemaRel: "docs/schemas/scenery.change-receipt.schema.json", payload: whenSchemaExists("docs/schemas/scenery.change-receipt.schema.json", artifact("scenery.change-receipt", map[string]any{
+			"plan_id": digest, "workspace_revision": digest, "contract_revision": digest,
 			"implementation_revision_status": "not_built", "deployment_revision_status": "not_planned", "applied": []any{}, "rename_receipts": []any{},
-		})},
-		{name: "vnext.cli", schemaRel: "docs/schemas/scenery.cli.v1.schema.json", payload: whenSchemaExists("docs/schemas/scenery.cli.v1.schema.json", map[string]any{
-			"api_version": "scenery.cli.v1", "diagnostic_catalog": "scenery.diagnostics.2027.v1", "ok": true,
+		}))},
+		{name: "cli", schemaRel: "docs/schemas/scenery.cli.schema.json", payload: whenSchemaExists("docs/schemas/scenery.cli.schema.json", map[string]any{
+			"kind": machine.EnvelopeKind, "schema_revision": machine.EnvelopeSchemaRevision, "spec_revision": currentMachineSpecRevision(), "producer": cliProducer(), "ok": true,
 			"workspace_revision": digest, "contract_revision": digest, "implementation_revision": nil, "deployment_revision": nil,
 			"data": map[string]any{"fixture": true}, "diagnostics": []any{},
 		})},
-		{name: "vnext.cli.event", schemaRel: "docs/schemas/scenery.cli.event.v1.schema.json", payload: whenSchemaExists("docs/schemas/scenery.cli.event.v1.schema.json", map[string]any{
-			"api_version": "scenery.cli.event.v1", "diagnostic_catalog": "scenery.diagnostics.2027.v1", "sequence": 1, "kind": "summary", "terminal": true,
+		{name: "cli.event", schemaRel: "docs/schemas/scenery.cli.event.schema.json", payload: whenSchemaExists("docs/schemas/scenery.cli.event.schema.json", map[string]any{
+			"kind": machine.EventEnvelopeKind, "schema_revision": machine.EventEnvelopeSchemaRevision, "spec_revision": currentMachineSpecRevision(), "producer": cliProducer(), "sequence": 1, "event": "summary", "terminal": true,
 			"workspace_revision": nil, "contract_revision": nil, "implementation_revision": nil, "deployment_revision": nil,
 			"data": map[string]any{"event_count": 0}, "diagnostics": []any{},
 		})},
-		{name: "vnext.deployment.plan", schemaRel: "docs/schemas/scenery.deployment-plan.v1.schema.json", payload: whenSchemaExists("docs/schemas/scenery.deployment-plan.v1.schema.json", map[string]any{
-			"api_version": "scenery.deployment-plan/v1", "plan_id": digest, "application": "schema-fixture", "deployment": "app/deployment/local",
+		{name: "deployment.plan", schemaRel: "docs/schemas/scenery.deployment-plan.schema.json", payload: whenSchemaExists("docs/schemas/scenery.deployment-plan.schema.json", artifact("scenery.deployment-plan", map[string]any{
+			"plan_id": digest, "application": "schema-fixture", "deployment": "app/deployment/local",
 			"deployment_name": "local", "environment": "development", "base_workspace_revision": digest, "contract_revision": digest,
 			"implementation_revision": map[string]any{"development": digest}, "deployment_revision": digest,
-			"projection":     map[string]any{"api_version": "scenery.deployment-projection/v1", "deployment": "app/deployment/local", "environment": "development", "contract_revision": digest, "resources": map[string]any{}},
+			"projection":     artifact("scenery.deployment-projection", map[string]any{"deployment": "app/deployment/local", "environment": "development", "contract_revision": digest, "resources": map[string]any{}}),
 			"provider_plans": []any{}, "caller": "harness", "capabilities": []any{}, "required_approvals": []any{}, "risk_records": []any{}, "expires_at": "2026-07-10T12:00:00Z",
-		})},
-		{name: "vnext.deployment.receipt", schemaRel: "docs/schemas/scenery.deployment-receipt.v1.schema.json", payload: whenSchemaExists("docs/schemas/scenery.deployment-receipt.v1.schema.json", map[string]any{
-			"api_version": "scenery.deployment-receipt/v1", "plan_id": digest, "application": "schema-fixture", "deployment": "app/deployment/local",
+		}))},
+		{name: "deployment.receipt", schemaRel: "docs/schemas/scenery.deployment-receipt.schema.json", payload: whenSchemaExists("docs/schemas/scenery.deployment-receipt.schema.json", artifact("scenery.deployment-receipt", map[string]any{
+			"plan_id": digest, "application": "schema-fixture", "deployment": "app/deployment/local",
 			"workspace_revision": digest, "contract_revision": digest, "implementation_revision": map[string]any{"development": digest},
 			"deployment_revision": digest, "provider_plan_digests": []any{}, "applied_at": "2026-07-10T12:00:00Z",
-		})},
-		{name: "vnext.generated.application", schemaRel: "docs/schemas/scenery.generated.v1.schema.json", payload: fixturePayload(
-			"docs/schemas/scenery.generated.v1.schema.json", "internal/vnext/testdata/native/internal/scenerygen/scenery.generated.v1.json",
+		}))},
+		{name: "generated.application", schemaRel: "docs/schemas/scenery.generated.schema.json", payload: fixturePayload(
+			"docs/schemas/scenery.generated.schema.json", "internal/compiler/testdata/native/internal/scenerygen/scenery.generated.json",
 		)},
-		{name: "vnext.go.build-input", schemaRel: "docs/schemas/scenery.go-build-input-manifest.v1.schema.json", payload: whenSchemaExists(
-			"docs/schemas/scenery.go-build-input-manifest.v1.schema.json", buildInputManifest,
+		{name: "go.build-input", schemaRel: "docs/schemas/scenery.go-build-input-manifest.schema.json", payload: whenSchemaExists(
+			"docs/schemas/scenery.go-build-input-manifest.schema.json", buildInputManifest,
 		)},
-		{name: "vnext.manifest", schemaRel: "docs/schemas/scenery.manifest.v1.schema.json", payload: whenSchemaExists("docs/schemas/scenery.manifest.v1.schema.json", vnextManifestPayload)},
-		{name: "vnext.generated.package", schemaRel: "docs/schemas/scenery.package-generated.v1.schema.json", payload: fixturePayload(
-			"docs/schemas/scenery.package-generated.v1.schema.json", "internal/vnext/testdata/native/house/scenerycontract/scenery.package-generated.v1.json",
+		{name: "manifest", schemaRel: "docs/schemas/scenery.manifest.schema.json", payload: whenSchemaExists("docs/schemas/scenery.manifest.schema.json", manifestPayload)},
+		{name: "generated.package", schemaRel: "docs/schemas/scenery.package-generated.schema.json", payload: fixturePayload(
+			"docs/schemas/scenery.package-generated.schema.json", "internal/compiler/testdata/native/house/scenerycontract/scenery.package-generated.json",
 		)},
-		{name: "vnext.runtime.bundle", schemaRel: "docs/schemas/scenery.runtime-bundle.v1.schema.json", payload: whenSchemaExists("docs/schemas/scenery.runtime-bundle.v1.schema.json", map[string]any{
-			"api_version": "scenery.runtime-bundle/v1", "artifact_kind": "go_runtime_bundle", "application": "schema-fixture", "target": "development",
+		{name: "runtime.bundle", schemaRel: "docs/schemas/scenery.runtime-bundle.schema.json", payload: whenSchemaExists("docs/schemas/scenery.runtime-bundle.schema.json", artifact("scenery.runtime-bundle", map[string]any{
+			"artifact_kind": "go_runtime_bundle", "application": "schema-fixture", "target": "development",
 			"contract_revision": digest, "implementation_revision": digest, "build_input_manifest": buildInputManifest,
 			"resolved_go_target": map[string]any{"resolved_platform": map[string]any{}, "resolved_toolchain": map[string]any{}}, "runtime_abi": "scenery.go-runtime/v1",
-		})},
-		{name: "vnext.generated.typescript", schemaRel: "docs/schemas/scenery.typescript-client-generated.v1.schema.json", payload: fixturePayload(
-			"docs/schemas/scenery.typescript-client-generated.v1.schema.json", "internal/vnext/testdata/native/clients/generated/public_api/scenery.typescript-client-generated.v1.json",
+		}))},
+		{name: "generated.typescript", schemaRel: "docs/schemas/scenery.typescript-client-generated.schema.json", payload: fixturePayload(
+			"docs/schemas/scenery.typescript-client-generated.schema.json", "internal/compiler/testdata/native/clients/generated/public_api/scenery.typescript-client-generated.json",
 		)},
-		{name: "environment.registry", schemaRel: "docs/schemas/scenery.environment.registry.v1.schema.json", payload: environmentRegistryPayload},
-		{name: "help", schemaRel: "docs/schemas/scenery.help.v1.schema.json", payload: helpPayload},
-		{name: "version", schemaRel: "docs/schemas/scenery.version.v1.schema.json", payload: versionPayload},
-		{name: "build.result", schemaRel: "docs/schemas/scenery.build.result.v1.schema.json", payload: map[string]any{
-			"schema_version": "scenery.build.result.v1", "output_path": "/tmp/scenery-app", "descriptor_path": "/tmp/scenery-app.scenery.runtime-bundle.v1.json", "copied": true,
-		}},
-		{name: "doctor", schemaRel: "docs/schemas/scenery.doctor.result.v1.schema.json", payload: buildHarnessDoctorSchemaPayload(versionPayload)},
-		{name: "deploy.registry", schemaRel: "docs/schemas/scenery.deploy.registry.v1.schema.json", payload: buildHarnessDeployRegistrySchemaPayload()},
-		{name: "deploy.status", schemaRel: "docs/schemas/scenery.deploy.status.v1.schema.json", payload: buildHarnessDeployStatusSchemaPayload()},
-		{name: "inspect.docs", schemaRel: "docs/schemas/scenery.inspect.docs.v1.schema.json", payload: inspectDocsPayload},
-		{name: "inspect.harness", schemaRel: "docs/schemas/scenery.inspect.harness.v1.schema.json", payload: inspectHarnessPayload},
-		{name: "harness.artifact", schemaRel: "docs/schemas/scenery.harness.artifact.v1.schema.json", payload: artifactEvidencePayload},
-		{name: "harness.self", schemaRel: "docs/schemas/scenery.harness.self.v1.schema.json", payload: resp},
-		{name: "harness.self.summary", schemaRel: "docs/schemas/scenery.harness.self.summary.v1.schema.json", payload: buildHarnessSelfSummary(resp)},
-		{name: "harness.toolchain", schemaRel: "docs/schemas/scenery.harness.toolchain.v1.schema.json", payload: resp.Toolchain},
-		{name: "harness.changed_area", schemaRel: "docs/schemas/scenery.harness.changed_area.v1.schema.json", payload: resp.ChangedArea},
-		{name: "harness.drift", schemaRel: "docs/schemas/scenery.harness.drift.v1.schema.json", payload: resp.Drift},
-		{name: "harness.test_timing", schemaRel: "docs/schemas/scenery.harness.test_timing.v1.schema.json", payload: resp.TestTiming},
-		{name: "harness.fixture_matrix", schemaRel: "docs/schemas/scenery.harness.fixture_matrix.v1.schema.json", payload: resp.FixtureMatrix},
-		{name: "harness.schema_validation", schemaRel: "docs/schemas/scenery.harness.schema_validation.v1.schema.json", payload: report},
-		{name: "agent_context", schemaRel: "docs/schemas/scenery.agent_context.v1.schema.json", payload: buildHarnessAgentContext(repoRoot, resp)},
+		{name: "environment.registry", schemaRel: "docs/schemas/scenery.environment.registry.schema.json", payload: environmentRegistryPayload},
+		{name: "help", schemaRel: "docs/schemas/scenery.help.schema.json", payload: helpPayload},
+		{name: "version", schemaRel: "docs/schemas/scenery.version.schema.json", payload: versionPayload},
+		{name: "build.result", schemaRel: "docs/schemas/scenery.build.result.schema.json", payload: withCLIPayloadIdentity("scenery.build.result", map[string]any{
+			"output_path": "/tmp/scenery-app", "descriptor_path": "/tmp/scenery-app.scenery.runtime-bundle.json", "copied": true,
+		})},
+		{name: "doctor", schemaRel: "docs/schemas/scenery.doctor.result.schema.json", payload: buildHarnessDoctorSchemaPayload(versionPayload)},
+		{name: "deploy.registry", schemaRel: "docs/schemas/scenery.deploy.registry.schema.json", payload: buildHarnessDeployRegistrySchemaPayload()},
+		{name: "deploy.status", schemaRel: "docs/schemas/scenery.deploy.status.schema.json", payload: buildHarnessDeployStatusSchemaPayload()},
+		{name: "inspect.docs", schemaRel: "docs/schemas/scenery.inspect.docs.schema.json", payload: inspectDocsPayload},
+		{name: "inspect.harness", schemaRel: "docs/schemas/scenery.inspect.harness.schema.json", payload: inspectHarnessPayload},
+		{name: "harness.artifact", schemaRel: "docs/schemas/scenery.harness.artifact.schema.json", payload: artifactEvidencePayload},
+		{name: "harness.self", schemaRel: "docs/schemas/scenery.harness.self.schema.json", payload: resp},
+		{name: "harness.self.summary", schemaRel: "docs/schemas/scenery.harness.self.summary.schema.json", payload: buildHarnessSelfSummary(resp)},
+		{name: "harness.toolchain", schemaRel: "docs/schemas/scenery.harness.toolchain.schema.json", payload: resp.Toolchain},
+		{name: "harness.changed_area", schemaRel: "docs/schemas/scenery.harness.changed_area.schema.json", payload: resp.ChangedArea},
+		{name: "harness.drift", schemaRel: "docs/schemas/scenery.harness.drift.schema.json", payload: resp.Drift},
+		{name: "harness.test_timing", schemaRel: "docs/schemas/scenery.harness.test_timing.schema.json", payload: resp.TestTiming},
+		{name: "harness.fixture_matrix", schemaRel: "docs/schemas/scenery.harness.fixture_matrix.schema.json", payload: resp.FixtureMatrix},
+		{name: "harness.schema_validation", schemaRel: "docs/schemas/scenery.harness.schema_validation.schema.json", payload: report},
+		{name: "agent_context", schemaRel: "docs/schemas/scenery.agent_context.schema.json", payload: buildHarnessAgentContext(repoRoot, resp)},
 	}
 	for _, item := range items {
 		if harnessNilPayload(item.payload) {
@@ -276,9 +290,9 @@ func harnessJSONFilePayload(path string) (map[string]any, error) {
 
 func buildHarnessDoctorSchemaPayload(versionPayload versionResponse) doctorResponse {
 	resp := doctorResponse{
-		SchemaVersion: doctorSchemaVersion,
-		OK:            true,
-		Scenery:       versionPayload,
+		cliPayloadIdentity: newCLIPayloadIdentity(doctorResultKind),
+		OK:                 true,
+		Scenery:            versionPayload,
 		App: &doctorAppInfo{
 			Root:       "/tmp/scenery-doctor-fixture",
 			ConfigPath: "/tmp/scenery-doctor-fixture/.scenery.json",
@@ -323,26 +337,28 @@ func buildHarnessDoctorSchemaPayload(versionPayload versionResponse) doctorRespo
 }
 
 func buildHarnessDeployRegistrySchemaPayload() map[string]any {
-	return map[string]any{
-		"schema_version": "scenery.deploy.registry.v1",
-		"acme_email":     "ops@example.com",
-		"acme_ca":        "staging",
-		"targets": []map[string]any{{
-			"domain":       "example.com",
-			"app_root":     "/tmp/scenery-deploy-fixture",
-			"root_service": "web",
-			"enabled":      true,
-			"created_at":   "2026-07-07T00:00:00Z",
-			"updated_at":   "2026-07-07T00:00:00Z",
-		}},
-	}
+	registry := localagent.EmptyDeployRegistry()
+	encoded, _ := json.Marshal(registry.ArtifactIdentity)
+	var payload map[string]any
+	_ = json.Unmarshal(encoded, &payload)
+	payload["acme_email"] = "ops@example.com"
+	payload["acme_ca"] = "staging"
+	payload["targets"] = []map[string]any{{
+		"domain":       "example.com",
+		"app_root":     "/tmp/scenery-deploy-fixture",
+		"root_service": "web",
+		"enabled":      true,
+		"created_at":   "2026-07-07T00:00:00Z",
+		"updated_at":   "2026-07-07T00:00:00Z",
+	}}
+	return payload
 }
 
 func buildHarnessDeployStatusSchemaPayload() deployStatusResponse {
 	return deployStatusResponse{
-		SchemaVersion: "scenery.deploy.status.v1",
-		Ready:         true,
-		RegistryPath:  "/tmp/scenery/agent/deploy.json",
+		cliPayloadIdentity: newCLIPayloadIdentity("scenery.deploy.status"),
+		Ready:              true,
+		RegistryPath:       "/tmp/scenery/agent/deploy.json",
 		PrivilegedListener: edgeStatusPrivilegedListener{
 			Strategy:                 "helper",
 			Installed:                true,

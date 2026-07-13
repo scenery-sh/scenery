@@ -368,7 +368,7 @@ func (s *dashboardServer) indexHTML(appID string) string {
     <main>
       <h1>scenery Dev Dashboard</h1>
       <p>The dashboard server is running for <code>`+appID+`</code>, but the dashboard UI build is not available.</p>
-      <p>Build it from the scenery repo with <code>bun run build</code> inside <code>apps/consolenext/</code>.</p>
+      <p>Build it from the scenery repo with <code>bun run build</code> inside <code>apps/console/</code>.</p>
       <p>WebSocket endpoint: <code>ws://`+s.addr+devdash.WebSocketPath+`</code></p>
     </main>
   </body>

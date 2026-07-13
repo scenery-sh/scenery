@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.harness.drift.schema.json",
+  "title": "scenery harness drift report",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "cli",
+    "env",
+    "artifacts",
+    "embeds"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.harness.drift"
+    },
+    "schema_revision": {
+      "const": "sha256:2218980db0b2af538f8773e3a3412f1a15c2d0c66ef6574bd8910805b8eebf71"
+    },
+    "cli": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "env": {
+      "type": "object",
+      "required": [
+        "variables"
+      ],
+      "properties": {
+        "registry": {
+          "type": "string"
+        },
+        "variables": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/env_variable"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "embeds": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "env_variable": {
+      "type": "object",
+      "required": [
+        "name",
+        "scope",
+        "used_in_code",
+        "documented",
+        "registered"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "used_in_code": {
+          "type": "boolean"
+        },
+        "documented": {
+          "type": "boolean"
+        },
+        "registered": {
+          "type": "boolean"
+        },
+        "registry_name": {
+          "type": "string"
+        },
+        "direction": {
+          "type": "string"
+        },
+        "stability": {
+          "type": "string"
+        },
+        "category": {
+          "type": "string"
+        },
+        "secret": {
+          "type": "boolean"
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "references": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "file",
+              "kind",
+              "scope"
+            ],
+            "properties": {
+              "file": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string"
+              },
+              "scope": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "violations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

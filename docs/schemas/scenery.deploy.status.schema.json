@@ -1,0 +1,330 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.deploy.status.schema.json",
+  "title": "scenery.deploy.status",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "ready",
+    "registry_path",
+    "privileged_listener",
+    "helper_public",
+    "edge",
+    "agent",
+    "launch_agent",
+    "acme",
+    "targets"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "kind": {
+      "const": "scenery.deploy.status"
+    },
+    "schema_revision": {
+      "const": "sha256:c13801392d88db862d3b66cc64fd136a5fcaae473500e5882ea5c9b372867113"
+    },
+    "ready": {
+      "type": "boolean"
+    },
+    "registry_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "privileged_listener": {
+      "$ref": "#/$defs/privileged_listener"
+    },
+    "helper_public": {
+      "type": "boolean"
+    },
+    "edge": {
+      "$ref": "#/$defs/edge"
+    },
+    "agent": {
+      "$ref": "#/$defs/agent"
+    },
+    "launch_agent": {
+      "$ref": "#/$defs/launch_agent"
+    },
+    "acme": {
+      "$ref": "#/$defs/acme"
+    },
+    "targets": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/target"
+      }
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "diagnostics_detail": {
+      "$ref": "#/$defs/diagnostics"
+    }
+  },
+  "$defs": {
+    "privileged_listener": {
+      "type": "object",
+      "required": [
+        "strategy",
+        "installed",
+        "state"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "strategy": {
+          "type": "string"
+        },
+        "installed": {
+          "type": "boolean"
+        },
+        "state": {
+          "type": "string"
+        },
+        "pid": {
+          "type": "integer"
+        },
+        "listen": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "target": {
+          "type": "string"
+        },
+        "target_path": {
+          "type": "string"
+        },
+        "target_pid": {
+          "type": "integer"
+        },
+        "owner_uid": {
+          "type": "integer"
+        },
+        "owner_gid": {
+          "type": "integer"
+        },
+        "version": {
+          "type": "string"
+        },
+        "required_for_portless_https": {
+          "type": "boolean"
+        },
+        "install_command": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    },
+    "edge": {
+      "type": "object",
+      "required": [
+        "kind",
+        "state"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string"
+        },
+        "pid": {
+          "type": "integer"
+        },
+        "uid": {
+          "type": "integer"
+        },
+        "https_listen": {
+          "type": "string"
+        },
+        "upstream": {
+          "type": "string"
+        },
+        "agent_router": {
+          "type": "string"
+        },
+        "admin": {
+          "type": "string"
+        },
+        "config_path": {
+          "type": "string"
+        },
+        "log_path": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        }
+      }
+    },
+    "agent": {
+      "type": "object",
+      "required": [
+        "state",
+        "state_path",
+        "socket_path"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "state": {
+          "type": "string"
+        },
+        "pid": {
+          "type": "integer"
+        },
+        "state_path": {
+          "type": "string"
+        },
+        "socket_path": {
+          "type": "string"
+        },
+        "router_addr": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    },
+    "launch_agent": {
+      "type": "object",
+      "required": [
+        "installed",
+        "path"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "installed": {
+          "type": "boolean"
+        },
+        "path": {
+          "type": "string"
+        }
+      }
+    },
+    "acme": {
+      "type": "object",
+      "required": [
+        "ca"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "email": {
+          "type": "string"
+        },
+        "ca": {
+          "enum": [
+            "production",
+            "staging"
+          ]
+        }
+      }
+    },
+    "target": {
+      "type": "object",
+      "required": [
+        "domain",
+        "app_root",
+        "enabled",
+        "live_session",
+        "cert_present"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "domain": {
+          "type": "string",
+          "minLength": 1
+        },
+        "app_root": {
+          "type": "string",
+          "minLength": 1
+        },
+        "root_service": {
+          "type": "string"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "live_session": {
+          "type": "boolean"
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "cert_present": {
+          "type": "boolean"
+        },
+        "cert_not_after": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "diagnostics": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "lan_ip": {
+          "type": "string"
+        },
+        "public_ip": {
+          "type": "string"
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/diagnostic_check"
+          }
+        }
+      }
+    },
+    "diagnostic_check": {
+      "type": "object",
+      "required": [
+        "id",
+        "status",
+        "message"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "enum": [
+            "ok",
+            "warn",
+            "error",
+            "skipped"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "suggested_action": {
+          "type": "string"
+        },
+        "observed": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    }
+  }
+}

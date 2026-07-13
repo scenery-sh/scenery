@@ -24,9 +24,9 @@ scenery harness self --summary
 - [Harness Engineering](harness-engineering.md): agent validation loop, harness outputs, and self-harness expectations.
 - [Execution Plan Standard](../PLANS.md): required structure for long-running agent-executable implementation plans.
 
-## vNext Normative Specifications
+## Current Specification
 
-Language edition 2027 is the singular profile-based application contract. Start with the [Scenery Language Specification](specs/vnext/SCENERY_LANGUAGE_SPEC.md), then use its normative companions for the [Go ABI](specs/vnext/SCENERY_GO_IMPLEMENTATION_V1.md), [HTTP codec](specs/vnext/SCENERY_HTTP_CODEC_V1.md), [typed terminal path tails](specs/vnext/SCENERY_HTTP_PATH_TAIL_V1.md), [TypeScript client](specs/vnext/SCENERY_TYPESCRIPT_CLIENT_V1.md), and [compatibility core](specs/vnext/SCENERY_COMPATIBILITY_CORE_V1.md).
+Scenery has one evolving application contract. Start with the [Scenery Specification](spec/SPEC.md), then use its normative companions for the [Go implementation](spec/go-implementation.md), [HTTP contract](spec/http.md), [typed terminal path tails](spec/http-path-tail.md), [TypeScript client](spec/typescript-client.md), and [evolution rules](spec/evolution.md).
 
 ## Product Plans
 
@@ -45,20 +45,20 @@ JSON schemas live in [schemas/](schemas/). They are part of the local agent cont
 
 Start with:
 
-- [scenery.config.v1](schemas/scenery.config.v1.schema.json)
-- [scenery.build.result.v1](schemas/scenery.build.result.v1.schema.json)
-- [scenery.environment.registry.v1](schemas/scenery.environment.registry.v1.schema.json)
-- [scenery.harness.result.v1](schemas/scenery.harness.result.v1.schema.json)
-- [scenery.inspect.validation.v1](schemas/scenery.inspect.validation.v1.schema.json)
-- [scenery.validation.result.v1](schemas/scenery.validation.result.v1.schema.json)
-- [scenery.harness.self.v1](schemas/scenery.harness.self.v1.schema.json)
-- [scenery.harness.self.summary.v1](schemas/scenery.harness.self.summary.v1.schema.json)
-- [scenery.inspect.docs.v1](schemas/scenery.inspect.docs.v1.schema.json)
-- [scenery.docs.index.v1](schemas/scenery.docs.index.v1.schema.json)
-- [scenery.cli.v1](schemas/scenery.cli.v1.schema.json)
-- [scenery.cli.event.v1](schemas/scenery.cli.event.v1.schema.json)
-- [scenery.manifest.v1](schemas/scenery.manifest.v1.schema.json)
-- [scenery.typescript-client-generated.v1](schemas/scenery.typescript-client-generated.v1.schema.json)
-- [scenery.version.v1](schemas/scenery.version.v1.schema.json)
-- [scenery.db.list.v3](schemas/scenery.db.list.v3.schema.json)
-- [scenery.db.server.status.v1](schemas/scenery.db.server.status.v1.schema.json)
+- [scenery.config](schemas/scenery.config.schema.json)
+- [scenery.build.result](schemas/scenery.build.result.schema.json)
+- [scenery.environment.registry](schemas/scenery.environment.registry.schema.json)
+- [scenery.harness.result](schemas/scenery.harness.result.schema.json)
+- [scenery.inspect.validation](schemas/scenery.inspect.validation.schema.json)
+- [scenery.validation.result](schemas/scenery.validation.result.schema.json)
+- [scenery.harness.self](schemas/scenery.harness.self.schema.json)
+- [scenery.harness.self.summary](schemas/scenery.harness.self.summary.schema.json)
+- [scenery.inspect.docs](schemas/scenery.inspect.docs.schema.json)
+- [scenery.docs.index](schemas/scenery.docs.index.schema.json)
+- [scenery.cli](schemas/scenery.cli.schema.json)
+- [scenery.cli.event](schemas/scenery.cli.event.schema.json)
+- [scenery.manifest](schemas/scenery.manifest.schema.json)
+- [scenery.typescript-client-generated](schemas/scenery.typescript-client-generated.schema.json)
+- [scenery.version](schemas/scenery.version.schema.json)
+- [scenery.db.list](schemas/scenery.db.list.schema.json)
+- [scenery.db.server.status](schemas/scenery.db.server.status.schema.json)

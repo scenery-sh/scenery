@@ -12,6 +12,12 @@ import (
 
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/envpolicy"
+	"scenery.sh/internal/machine"
+)
+
+const (
+	latestBuildKind             = "scenery.build.latest"
+	latestBuildSchemaDescriptor = machine.ExactSchemaRevision("sha256:9cf0d64062da541ff614904f6499eef61a602ff64bd501aa92cd36ec99ee7e79")
 )
 
 func workspaceDir(appRoot, appName string) (string, error) {
@@ -137,7 +143,7 @@ func ReadLatestBuildManifest(appRoot string) (*LatestBuildManifest, bool, error)
 		return nil, false, err
 	}
 	var manifest LatestBuildManifest
-	if err := json.Unmarshal(data, &manifest); err != nil {
+	if err := machine.DecodeArtifact(data, &manifest, &manifest.ArtifactIdentity, latestBuildKind, latestBuildSchemaDescriptor, "rebuild the application"); err != nil {
 		return nil, false, err
 	}
 	return &manifest, true, nil
@@ -159,7 +165,7 @@ func WriteLatestBuildManifest(result *Result, phase string) error {
 		return err
 	}
 	manifest := LatestBuildManifest{
-		SchemaVersion: "scenery.build.latest.v1",
+		ArtifactIdentity: machine.NewArtifactIdentity(latestBuildKind, latestBuildSchemaDescriptor),
 		App: LatestBuildManifestApp{
 			Name:       result.AppName,
 			ID:         result.AppID,

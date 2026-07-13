@@ -7,16 +7,6 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
-- [0111 Single Current Scenery Specification](0111-single-current-scenery-specification.md)
-  - Status: active
-  - Owner: scenery language / runtime / CLI / agent DX
-  - Created: 2026-07-13
-  - Focus: make edition 2027 the last migration codename, remove edition/profile/version selection and active `vnext`/`consolenext` identities, retain only content revisions that fail closed, and converge on one evolving specification, compiler/runtime path, machine protocol, and current release channel.
-- [0110 Bounded Refresh-Cookie Compatibility](0110-bounded-refresh-cookie-compatibility.md)
-  - Status: active through follow-up removal release
-  - Owner: scenery auth / runtime
-  - Created: 2026-07-13
-  - Focus: current implementation temporarily reads `scenery_refresh` before the known former `onlv_refresh`, issues only the current cookie, and clears both independently; plan 0111 will supersede the waiting window only when its removal milestone actually lands.
 - [0101 Public Deploy Edge](0101-public-deploy-edge.md)
   - Status: active
   - Owner: scenery runtime / edge
@@ -102,7 +92,7 @@ Current focus:
 
 Current focus:
 
-- Maintain editable source dashboard behavior under `apps/consolenext/`.
+- Maintain editable source dashboard behavior under `apps/console/`.
 - Keep supported local-only surfaces first: API Explorer, traces, DB explorer, cron, service metadata.
 - Avoid reintroducing cloud, Clerk, deploy, or marketing surfaces.
 

@@ -1,5 +1,6 @@
 {
-  "schema_version": "scenery.docs.index.v1",
+  "kind": "scenery.docs.index",
+  "schema_revision": "sha256:f7dd1d1f35accc8e6d7709db084650bcebc74321fd74b1f0faa283dab0e5d6b4",
   "generated_at": "2026-06-07T00:00:00Z",
   "owner_default": "scenery maintainers",
   "freshness_policy": {
@@ -21,24 +22,24 @@
       "path": "docs/plans/0111-single-current-scenery-specification.md",
       "title": "Single Current Scenery Specification",
       "owner": "scenery language / runtime / CLI / agent DX",
-      "status": "active",
+      "status": "completed",
       "quality": "B",
       "freshness": "current",
       "last_reviewed": "2026-07-13",
       "review_after": "2026-08-12",
-      "summary": "Active flag-day ExecPlan to retire edition 2027 as a selector, remove authored profiles and first-party version negotiation, unversion logical kinds through content revisions, replace active vnext/consolenext naming, keep evolution and safe state migration, and converge on one evolving specification, compiler/runtime path, machine protocol, and current release channel.",
+      "summary": "Completed flag-day ExecPlan that removed product version selectors and compatibility dispatch, established one current catalog and machine protocol with exact digest identities, split the former vnext implementation by responsibility, migrated durable state safely, moved the dashboard to apps/console at /console/, and completed Scenery plus ONLV runtime acceptance.",
       "tags": ["plans", "execplans", "language", "specification", "compiler", "runtime", "cli", "cleanup"]
     },
     {
       "path": "docs/plans/0110-bounded-refresh-cookie-compatibility.md",
       "title": "Bounded Refresh-Cookie Compatibility",
       "owner": "scenery auth / runtime",
-      "status": "active",
+      "status": "completed",
       "quality": "B",
       "freshness": "current",
       "last_reviewed": "2026-07-13",
       "review_after": "2026-08-12",
-      "summary": "Active corrective ExecPlan that temporarily accepts the former fixed onlv_refresh cookie after scenery_refresh only when the current cookie is absent, keeps issuance current-only, clears both names independently on logout, and forbids follow-up removal until 30 days after the corrective release publication date.",
+      "summary": "Completed corrective ExecPlan whose bounded refresh-cookie compatibility was removed by plan 0111; standard auth now reads, issues, and clears only scenery_refresh, and sessions carrying only the former cookie require login again.",
       "tags": ["plans", "execplans", "auth", "migration", "cookies"]
     },
     {
@@ -54,15 +55,15 @@
       "tags": ["plans", "execplans", "cleanup", "v0", "runtime", "cli"]
     },
     {
-      "path": "docs/schemas/scenery.build.result.v1.schema.json",
-      "title": "scenery.build.result.v1 Schema",
+      "path": "docs/schemas/scenery.build.result.schema.json",
+      "title": "scenery.build.result Schema",
       "owner": "scenery build / CLI",
       "status": "active",
       "quality": "A",
       "freshness": "current",
       "last_reviewed": "2026-07-12",
       "review_after": "2026-08-11",
-      "summary": "JSON Schema for the build output path, runtime-bundle descriptor path, and copy result returned under scenery.cli.v1 data.",
+      "summary": "JSON Schema for the build output path, runtime-bundle descriptor path, and copy result returned under scenery.cli data.",
       "tags": ["schema", "build", "cli", "json"]
     },
     {
@@ -86,8 +87,8 @@
       ]
     },
     {
-      "path": "docs/schemas/scenery.approval-token.v1.schema.json",
-      "title": "scenery.approval-token.v1 Schema",
+      "path": "docs/schemas/scenery.approval-token.schema.json",
+      "title": "scenery.approval-token Schema",
       "owner": "scenery compiler / approval verification",
       "status": "active",
       "quality": "A",
@@ -95,11 +96,11 @@
       "last_reviewed": "2026-07-11",
       "review_after": "2026-08-10",
       "summary": "JSON Schema for signed, caller-bound, expiring detached approval tokens used by semantic changes and deployments.",
-      "tags": ["schema", "vnext", "approval", "security"]
+      "tags": ["schema", "compiler", "approval", "security"]
     },
     {
-      "path": "docs/schemas/scenery.approval-trust.v1.schema.json",
-      "title": "scenery.approval-trust.v1 Schema",
+      "path": "docs/schemas/scenery.approval-trust.schema.json",
+      "title": "scenery.approval-trust Schema",
       "owner": "scenery compiler / approval verification",
       "status": "active",
       "quality": "A",
@@ -107,11 +108,11 @@
       "last_reviewed": "2026-07-11",
       "review_after": "2026-08-10",
       "summary": "JSON Schema for the app-local Ed25519 public-key trust store used to verify detached approval tokens.",
-      "tags": ["schema", "vnext", "approval", "security"]
+      "tags": ["schema", "compiler", "approval", "security"]
     },
     {
-      "path": "docs/schemas/scenery.change-plan.v1.schema.json",
-      "title": "scenery.change-plan.v1 Schema",
+      "path": "docs/schemas/scenery.change-plan.schema.json",
+      "title": "scenery.change-plan Schema",
       "owner": "scenery compiler / immutable changes",
       "status": "active",
       "quality": "A",
@@ -119,11 +120,11 @@
       "last_reviewed": "2026-07-11",
       "review_after": "2026-08-10",
       "summary": "JSON Schema for immutable semantic change plans, normalized operations, revision-bound rename receipts, predicted revisions, source edits, risks, capabilities, and approvals.",
-      "tags": ["schema", "vnext", "changes", "transactions"]
+      "tags": ["schema", "compiler", "changes", "transactions"]
     },
     {
-      "path": "docs/schemas/scenery.change-receipt.v1.schema.json",
-      "title": "scenery.change-receipt.v1 Schema",
+      "path": "docs/schemas/scenery.change-receipt.schema.json",
+      "title": "scenery.change-receipt Schema",
       "owner": "scenery compiler / immutable changes",
       "status": "active",
       "quality": "A",
@@ -131,11 +132,11 @@
       "last_reviewed": "2026-07-11",
       "review_after": "2026-08-10",
       "summary": "JSON Schema for applied semantic change receipts, durable rename evidence, and resulting revisions.",
-      "tags": ["schema", "vnext", "changes", "transactions"]
+      "tags": ["schema", "compiler", "changes", "transactions"]
     },
     {
-      "path": "docs/schemas/scenery.deployment-plan.v1.schema.json",
-      "title": "scenery.deployment-plan.v1 Schema",
+      "path": "docs/schemas/scenery.deployment-plan.schema.json",
+      "title": "scenery.deployment-plan Schema",
       "owner": "scenery compiler / deployment",
       "status": "active",
       "quality": "A",
@@ -143,11 +144,11 @@
       "last_reviewed": "2026-07-11",
       "review_after": "2026-08-10",
       "summary": "JSON Schema for immutable deployment plans, exact implementation revisions, provider plans, risks, and approvals.",
-      "tags": ["schema", "vnext", "deployment", "transactions"]
+      "tags": ["schema", "compiler", "deployment", "transactions"]
     },
     {
-      "path": "docs/schemas/scenery.deployment-receipt.v1.schema.json",
-      "title": "scenery.deployment-receipt.v1 Schema",
+      "path": "docs/schemas/scenery.deployment-receipt.schema.json",
+      "title": "scenery.deployment-receipt Schema",
       "owner": "scenery compiler / deployment",
       "status": "active",
       "quality": "A",
@@ -155,23 +156,23 @@
       "last_reviewed": "2026-07-11",
       "review_after": "2026-08-10",
       "summary": "JSON Schema for committed deployment receipts and exact workspace, contract, implementation, deployment, and provider-plan revisions.",
-      "tags": ["schema", "vnext", "deployment", "transactions"]
+      "tags": ["schema", "compiler", "deployment", "transactions"]
     },
     {
-      "path": "docs/schemas/scenery.generated.v1.schema.json",
-      "title": "scenery.generated.v1 Schema",
+      "path": "docs/schemas/scenery.generated.schema.json",
+      "title": "scenery.generated Schema",
       "owner": "scenery Go application generation",
       "status": "active",
       "quality": "A",
       "freshness": "current",
       "last_reviewed": "2026-07-12",
       "review_after": "2026-08-11",
-      "summary": "JSON Schema for generated Go application adapters, ABI ranges, extension profiles, projection revisions, ownership, and content identity.",
-      "tags": ["schema", "vnext", "go", "codegen"]
+      "summary": "JSON Schema for generated Go application adapters, ABI ranges, projection revisions, ownership, and content identity.",
+      "tags": ["schema", "compiler", "go", "codegen"]
     },
     {
-      "path": "docs/schemas/scenery.go-build-input-manifest.v1.schema.json",
-      "title": "scenery.go-build-input-manifest.v1 Schema",
+      "path": "docs/schemas/scenery.go-build-input-manifest.schema.json",
+      "title": "scenery.go-build-input-manifest Schema",
       "owner": "scenery Go build",
       "status": "active",
       "quality": "A",
@@ -179,11 +180,11 @@
       "last_reviewed": "2026-07-11",
       "review_after": "2026-08-10",
       "summary": "JSON Schema for the sorted content-addressed Go build graph used to derive exact implementation revisions.",
-      "tags": ["schema", "vnext", "go", "build", "revisions"]
+      "tags": ["schema", "compiler", "go", "build", "revisions"]
     },
     {
-      "path": "docs/schemas/scenery.package-generated.v1.schema.json",
-      "title": "scenery.package-generated.v1 Schema",
+      "path": "docs/schemas/scenery.package-generated.schema.json",
+      "title": "scenery.package-generated Schema",
       "owner": "scenery Go contract generation",
       "status": "active",
       "quality": "A",
@@ -191,11 +192,11 @@
       "last_reviewed": "2026-07-11",
       "review_after": "2026-08-10",
       "summary": "JSON Schema for generated Go package contracts, package ABI identity, capability ranges, ownership, and content identity.",
-      "tags": ["schema", "vnext", "go", "abi", "codegen"]
+      "tags": ["schema", "compiler", "go", "abi", "codegen"]
     },
     {
-      "path": "docs/schemas/scenery.runtime-bundle.v1.schema.json",
-      "title": "scenery.runtime-bundle.v1 Schema",
+      "path": "docs/schemas/scenery.runtime-bundle.schema.json",
+      "title": "scenery.runtime-bundle Schema",
       "owner": "scenery Go build / runtime",
       "status": "active",
       "quality": "A",
@@ -203,72 +204,72 @@
       "last_reviewed": "2026-07-11",
       "review_after": "2026-08-10",
       "summary": "JSON Schema for linked Go runtime bundles, exact target resolution, revisions, and embedded build-input manifests.",
-      "tags": ["schema", "vnext", "go", "build", "runtime"]
+      "tags": ["schema", "compiler", "go", "build", "runtime"]
     },
     {
-      "path": "docs/schemas/scenery.cli.v1.schema.json",
-      "title": "scenery.cli.v1 Schema",
-      "owner": "scenery compiler / CLI",
+      "path": "docs/schemas/scenery.cli.schema.json",
+      "title": "scenery.cli Schema",
+      "owner": "scenery machine envelope / CLI",
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-07-11",
+      "last_reviewed": "2026-07-13",
       "review_after": "2026-08-10",
-      "summary": "JSON Schema for the edition-2027 CLI envelope, revisions, data payload, and structured diagnostics.",
+      "summary": "JSON Schema for the singular CLI envelope, exact schema/spec revisions, producer identity, data payload, and structured diagnostics.",
       "tags": [
         "schema",
-        "vnext",
+        "machine",
         "cli",
         "json"
       ]
     },
     {
-      "path": "docs/schemas/scenery.cli.event.v1.schema.json",
-      "title": "scenery.cli.event.v1 Schema",
-      "owner": "scenery compiler / CLI",
+      "path": "docs/schemas/scenery.cli.event.schema.json",
+      "title": "scenery.cli.event Schema",
+      "owner": "scenery machine envelope / CLI",
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-07-12",
+      "last_reviewed": "2026-07-13",
       "review_after": "2026-08-11",
-      "summary": "JSON Schema for monotonic edition-2027 CLI streaming events and their terminal summary.",
+      "summary": "JSON Schema for singular monotonic CLI streaming events, exact schema/spec revisions, producer identity, and terminal summaries.",
       "tags": [
         "schema",
-        "vnext",
+        "machine",
         "cli",
         "jsonl"
       ]
     },
     {
-      "path": "docs/schemas/scenery.manifest.v1.schema.json",
-      "title": "scenery.manifest.v1 Schema",
+      "path": "docs/schemas/scenery.manifest.schema.json",
+      "title": "scenery.manifest Schema",
       "owner": "scenery compiler",
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-07-11",
-      "review_after": "2026-08-10",
-      "summary": "JSON Schema for the edition-2027 canonical resource manifest.",
+      "last_reviewed": "2026-07-13",
+      "review_after": "2026-08-12",
+      "summary": "JSON Schema for the canonical resource manifest with exact specification and schema revisions and unversioned logical resource kinds.",
       "tags": [
         "schema",
-        "vnext",
+        "compiler",
         "manifest",
         "canonical-ir"
       ]
     },
     {
-      "path": "docs/schemas/scenery.typescript-client-generated.v1.schema.json",
-      "title": "scenery.typescript-client-generated.v1 Schema",
+      "path": "docs/schemas/scenery.typescript-client-generated.schema.json",
+      "title": "scenery.typescript-client-generated Schema",
       "owner": "scenery client generation",
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-07-11",
-      "review_after": "2026-08-10",
-      "summary": "JSON Schema for deterministic vNext TypeScript client descriptors.",
+      "last_reviewed": "2026-07-13",
+      "review_after": "2026-08-12",
+      "summary": "JSON Schema for deterministic current TypeScript client descriptors with exact specification and schema revisions.",
       "tags": [
         "schema",
-        "vnext",
+        "compiler",
         "typescript",
         "clientgen"
       ]
@@ -286,7 +287,6 @@
       "tags": [
         "plans",
         "execplans",
-        "vnext",
         "directives",
         "legacy-removal"
       ]
@@ -304,7 +304,6 @@
       "tags": [
         "plans",
         "execplans",
-        "vnext",
         "http",
         "routing",
         "legacy-bridge",
@@ -324,7 +323,6 @@
       "tags": [
         "plans",
         "execplans",
-        "vnext",
         "conformance",
         "agent-mutation",
         "legacy-bridge",
@@ -344,7 +342,6 @@
       "tags": [
         "plans",
         "execplans",
-        "vnext",
         "language",
         "compiler",
         "legacy-bridge",
@@ -365,7 +362,6 @@
       "tags": [
         "plans",
         "execplans",
-        "vnext",
         "conformance",
         "compiler",
         "agent-mutation",
@@ -373,73 +369,68 @@
       ]
     },
     {
-      "path": "docs/specs/vnext/SCENERY_LANGUAGE_SPEC.md",
-      "title": "Scenery Language Specification",
+      "path": "docs/spec/SPEC.md",
+      "title": "Scenery Specification",
       "owner": "scenery compiler / language",
       "status": "reference",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-07-12",
-      "review_after": "2026-08-11",
-      "summary": "Normative umbrella design specification for Scenery language edition 2027, including the singular .scn declaration surface, typed terminal HTTP path tails, truthful graph views and field provenance, profiles, authenticated plans, semantic transactions, revisions, synchronized Go ABI, and the House example.",
+      "last_reviewed": "2026-07-13",
+      "review_after": "2026-08-12",
+      "summary": "Normative evolving current Scenery specification, including the singular .scn declaration surface, typed terminal HTTP path tails, truthful graph views and field provenance, authenticated plans, semantic transactions, revisions, synchronized Go implementation, and the House example.",
       "tags": [
         "spec",
-        "vnext",
         "language",
-        "edition-2027",
         "compiler",
         "canonical-ir"
       ]
     },
     {
-      "path": "docs/specs/vnext/SCENERY_GO_IMPLEMENTATION_V1.md",
-      "title": "Scenery Go Implementation ABI v1",
+      "path": "docs/spec/go-implementation.md",
+      "title": "Scenery Go Implementation",
       "owner": "scenery compiler / Go runtime",
       "status": "reference",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-07-12",
-      "review_after": "2026-08-11",
-      "summary": "Normative edition-2027 Go implementation ABI for generated contract packages, aliased typed config inputs with exact field provenance, constructor inputs, handlers, outcomes, adapters, descriptors, staged verification, and path-tail input population without transport objects or handler ABI changes.",
+      "last_reviewed": "2026-07-13",
+      "review_after": "2026-08-12",
+      "summary": "Normative current Go implementation contract for generated packages, aliased typed config inputs with exact field provenance, constructor inputs, handlers, outcomes, adapters, descriptors, staged verification, and path-tail input population without transport objects or handler ABI changes.",
       "tags": [
         "spec",
-        "vnext",
         "go",
         "abi",
         "codegen"
       ]
     },
     {
-      "path": "docs/specs/vnext/SCENERY_HTTP_CODEC_V1.md",
-      "title": "Scenery HTTP Codec v1",
+      "path": "docs/spec/http.md",
+      "title": "Scenery HTTP Contract",
       "owner": "scenery HTTP runtime",
       "status": "reference",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-07-12",
-      "review_after": "2026-08-11",
-      "summary": "Normative base HTTP gateway, single-segment routing, request mapping, codec, response, negotiation, limit, and security-boundary contract for vNext, with typed terminal path tails kept in a separately claimed extension.",
+      "last_reviewed": "2026-07-13",
+      "review_after": "2026-08-12",
+      "summary": "Normative HTTP gateway, single-segment routing, request mapping, codec, response, negotiation, limit, and security-boundary contract, with typed terminal path tails specified separately.",
       "tags": [
         "spec",
-        "vnext",
         "http",
         "codec",
         "runtime"
       ]
     },
     {
-      "path": "docs/specs/vnext/SCENERY_HTTP_PATH_TAIL_V1.md",
-      "title": "Scenery HTTP Path Tail v1",
+      "path": "docs/spec/http-path-tail.md",
+      "title": "Scenery HTTP Path Tails",
       "owner": "scenery compiler / HTTP runtime",
       "status": "reference",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-07-12",
-      "review_after": "2026-08-11",
+      "last_reviewed": "2026-07-13",
+      "review_after": "2026-08-12",
       "summary": "Normative additive terminal path-tail contract for source syntax, typed zero-or-more segment mapping, deterministic route precedence, strict decoding, generated Go and TypeScript behavior, OpenAPI projection, security, and conformance.",
       "tags": [
         "spec",
-        "vnext",
         "http",
         "routing",
         "codec",
@@ -448,36 +439,34 @@
       ]
     },
     {
-      "path": "docs/specs/vnext/SCENERY_TYPESCRIPT_CLIENT_V1.md",
-      "title": "Scenery TypeScript Client v1",
+      "path": "docs/spec/typescript-client.md",
+      "title": "Scenery TypeScript Client",
       "owner": "scenery client generation",
       "status": "reference",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-07-12",
-      "review_after": "2026-08-11",
-      "summary": "Normative deterministic TypeScript client API, type mapping, outcomes, metadata, compatibility, cancellation, independently encoded terminal path-tail segments, and generation workflow for edition-2027 public HTTP bindings.",
+      "last_reviewed": "2026-07-13",
+      "review_after": "2026-08-12",
+      "summary": "Normative deterministic TypeScript client API, type mapping, outcomes, metadata, compatibility, cancellation, independently encoded terminal path-tail segments, and generation workflow for public HTTP bindings.",
       "tags": [
         "spec",
-        "vnext",
         "typescript",
         "clientgen"
       ]
     },
     {
-      "path": "docs/specs/vnext/SCENERY_COMPATIBILITY_CORE_V1.md",
-      "title": "Scenery Compatibility Core v1",
-      "owner": "scenery compiler / compatibility",
+      "path": "docs/spec/evolution.md",
+      "title": "Scenery Evolution Rules",
+      "owner": "scenery compiler / evolution",
       "status": "reference",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-07-11",
-      "review_after": "2026-08-10",
-      "summary": "Normative multidimensional semantic compatibility comparison rules for canonical Scenery resource graphs, including revision-bound rename receipts.",
+      "last_reviewed": "2026-07-13",
+      "review_after": "2026-08-12",
+      "summary": "Normative multidimensional semantic evolution rules for canonical Scenery resource graphs, including revision-bound rename receipts.",
       "tags": [
         "spec",
-        "vnext",
-        "compatibility",
+        "evolution",
         "semantic-diff"
       ]
     },
@@ -490,7 +479,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-10",
       "review_after": "2026-08-08",
-      "summary": "Completed ExecPlan that made ConsoleNext the sole runnable dashboard, consolidated 44 command parsers, removed dormant compatibility and dead surfaces, unified local filesystem storage, deleted superseded timing and dashboard-mtime tooling, and pruned unused error/SQLC adapters while retaining Astryx by explicit request.",
+      "summary": "Completed ExecPlan that made Console the sole runnable dashboard, consolidated 44 command parsers, removed dormant compatibility and dead surfaces, unified local filesystem storage, deleted superseded timing and dashboard-mtime tooling, and pruned unused error/SQLC adapters while retaining Astryx by explicit request.",
       "tags": [
         "plans",
         "execplans",
@@ -573,7 +562,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-12",
       "review_after": "2026-08-11",
-      "summary": "Active ExecPlan adding a top-level scenery snapshot save|load command after retirement of the old database-only snapshot command: one portable zip with a scenery.snapshot.manifest.v1 manifest, a pg_dump -Fc dump of the whole app database, and verbatim storage-cell store trees; explicit selection, atomic merge-or-fail semantics, and container-matched Postgres tooling.",
+      "summary": "Active ExecPlan adding a top-level scenery snapshot save|load command after retirement of the old database-only snapshot command: one portable zip with a scenery.snapshot.manifest manifest and exact schema revision, a pg_dump -Fc dump of the whole app database, and verbatim storage-cell store trees; explicit selection, atomic merge-or-fail semantics, and container-matched Postgres tooling.",
       "tags": [
         "plans",
         "execplans",
@@ -598,7 +587,7 @@
         "plans",
         "execplans",
         "dashboard",
-        "consolenext",
+        "console",
         "symphony",
         "sqlite",
         "agents",
@@ -656,7 +645,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-12",
       "review_after": "2026-08-11",
-      "summary": "Human entry point for the repo knowledge base, with explicit agent entry points, current-contract guidance, and the edition-2027 typed path-tail companion.",
+      "summary": "Human entry point for the repo knowledge base, with explicit agent entry points and the evolving current specification plus its Go, HTTP, path-tail, TypeScript, and evolution companions.",
       "tags": [
         "docs",
         "agents",
@@ -680,7 +669,7 @@
         "contract"
       ],
       "schema_refs": [
-        "docs/schemas/scenery.docs.index.v1.schema.json"
+        "docs/schemas/scenery.docs.index.schema.json"
       ]
     },
     {
@@ -692,7 +681,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-13",
       "review_after": "2026-08-12",
-      "summary": "Repo-local operating manual for agents changing Scenery itself, including the singular edition-2027 app model, app-root runtime config, trusted plan issuance, local Markdown issue tracking and triage, domain docs, package boundaries, cached-by-default validation, documentation drift handling, AGENTS hierarchy, and client-app instruction rules.",
+      "summary": "Repo-local operating manual for agents changing Scenery itself, including the singular current app model, app-root runtime config, trusted plan issuance, local Markdown issue tracking and triage, domain docs, package boundaries, cached-by-default validation, documentation drift handling, AGENTS hierarchy, and client-app instruction rules.",
       "tags": [
         "agents",
         "repo",
@@ -709,7 +698,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-13",
       "review_after": "2026-08-12",
-      "summary": "Concise installed-skill entrypoint for native edition-2027 Scenery apps, including target-app AGENTS checks, graph views and provenance, schema-driven authoring, trusted transactions, dev runtimes and capabilities, deploy, storage, Postgres, durable work, observability, TypeScript clients, and cached-by-default validation loops.",
+      "summary": "Concise installed-skill entrypoint for current Scenery apps, including target-app AGENTS checks, graph views and provenance, schema-driven authoring, trusted transactions, dev runtimes and capabilities, deploy, storage, Postgres, durable work, observability, TypeScript clients, and cached-by-default validation loops.",
       "tags": [
         "skill",
         "agents",
@@ -728,7 +717,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-13",
       "review_after": "2026-08-12",
-      "summary": "Agent workflow guide for native edition-2027 app roots, including CLI JSON, graph provenance, schema-driven authoring, typed HTTP path tails, trusted plans and rename receipts, typed Go config, runtime capabilities, deploy, storage, Postgres, observability, cached-by-default tests, clients, and app-local AGENTS hierarchy.",
+      "summary": "Agent workflow guide for current app roots, including CLI JSON, graph provenance, schema-driven authoring, typed HTTP path tails, trusted plans and rename receipts, typed Go config, runtime capabilities, deploy, storage, Postgres, observability, cached-by-default tests, clients, and app-local AGENTS hierarchy.",
       "tags": [
         "agents",
         "cli",
@@ -782,7 +771,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-12",
       "review_after": "2026-08-11",
-      "summary": "High-level repo map, native edition-2027 architecture boundaries and invariants, including analysis-only Go parsing, canonical resource compilation and generation, managed edge, public local-filesystem storage, and content-addressed repository test execution.",
+      "summary": "High-level repo map and current specification architecture boundaries, including source parsing, the digest-addressed catalog and canonical graph, analysis-only Go parsing, generation, managed edge, public local-filesystem storage, and content-addressed repository test execution.",
       "tags": [
         "architecture",
         "agents",
@@ -799,7 +788,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-13",
       "review_after": "2026-08-12",
-      "summary": "Frozen local developer and agent-facing contract for native edition-2027 applications and independently versioned CLI JSON surfaces, including bounded standard-auth refresh-cookie migration, typed HTTP path tails, graph provenance, recursive schemas, trusted plans, semantic changes and rename receipts, Go config provenance, app-root discovery, runtimes, deploy, data, storage, visible self-healing local observability, cached-by-default harness validation, explicit fresh timing, generators, and code tasks.",
+      "summary": "Frozen local developer and agent-facing contract for current applications and independently versioned CLI JSON surfaces, including canonical standard-auth refresh-cookie behavior, typed HTTP path tails, graph provenance, recursive schemas, trusted plans, semantic changes and rename receipts, Go config provenance, app-root discovery, runtimes, deploy, data, storage, visible self-healing local observability, cached-by-default harness validation, explicit fresh timing, generators, and code tasks.",
       "tags": [
         "contract",
         "cli",
@@ -810,43 +799,64 @@
         "deploy"
       ],
       "schema_refs": [
-        "docs/schemas/scenery.config.v1.schema.json",
-        "docs/schemas/scenery.toolchain.v1.schema.json",
-        "docs/schemas/scenery.toolchain.status.v1.schema.json",
-        "docs/schemas/scenery.upgrade.v1.schema.json",
-        "docs/schemas/scenery.deploy.registry.v1.schema.json",
-        "docs/schemas/scenery.deploy.status.v1.schema.json",
-        "docs/schemas/scenery.db.list.v3.schema.json",
-        "docs/schemas/scenery.db.server.status.v1.schema.json",
-        "docs/schemas/scenery.worktree.create.v1.schema.json",
-        "docs/schemas/scenery.worktree.list.v1.schema.json",
-        "docs/schemas/scenery.worktree.remove.v1.schema.json",
-        "docs/schemas/scenery.harness.artifact.v1.schema.json",
-        "docs/schemas/scenery.harness.self.summary.v1.schema.json",
-        "docs/schemas/scenery.inspect.harness.v1.schema.json",
-        "docs/schemas/scenery.inspect.observability.v1.schema.json",
-        "docs/schemas/scenery.logs.query.v1.schema.json",
-        "docs/schemas/scenery.logs.tail.entry.v1.schema.json",
-        "docs/schemas/scenery.help.v1.schema.json",
-        "docs/schemas/scenery.down.v1.schema.json",
-        "docs/schemas/scenery.metrics.labels.v1.schema.json",
-        "docs/schemas/scenery.metrics.query.v1.schema.json",
-        "docs/schemas/scenery.metrics.series.v1.schema.json",
-        "docs/schemas/scenery.harness.ui.v1.schema.json",
-        "docs/schemas/scenery.harness.ui.dom.v1.schema.json",
-        "docs/schemas/scenery.inspect.validation.v1.schema.json",
-        "docs/schemas/scenery.inspect.durable.v2.schema.json",
-        "docs/schemas/scenery.durable.worker_token.create.v1.schema.json",
-        "docs/schemas/scenery.durable.jobs.v1.schema.json",
-        "docs/schemas/scenery.validation.list.v1.schema.json",
-        "docs/schemas/scenery.validation.inspect.v1.schema.json",
-        "docs/schemas/scenery.validation.graph.v1.schema.json",
-        "docs/schemas/scenery.validation.plan.v1.schema.json",
-        "docs/schemas/scenery.validation.result.v1.schema.json",
-        "docs/schemas/scenery.storage.inspect.v1.schema.json",
-        "docs/schemas/scenery.storage.object.v1.schema.json",
-        "docs/schemas/scenery.storage.list.v1.schema.json",
-        "docs/schemas/scenery.storage.delete.v1.schema.json"
+        "docs/schemas/scenery.config.schema.json",
+        "docs/schemas/scenery.toolchain.schema.json",
+        "docs/schemas/scenery.toolchain.status.schema.json",
+        "docs/schemas/scenery.upgrade.schema.json",
+        "docs/schemas/scenery.deploy.registry.schema.json",
+        "docs/schemas/scenery.deploy.status.schema.json",
+        "docs/schemas/scenery.db.list.schema.json",
+        "docs/schemas/scenery.db.server.status.schema.json",
+        "docs/schemas/scenery.worktree.create.schema.json",
+        "docs/schemas/scenery.worktree.list.schema.json",
+        "docs/schemas/scenery.worktree.remove.schema.json",
+        "docs/schemas/scenery.harness.artifact.schema.json",
+        "docs/schemas/scenery.harness.self.summary.schema.json",
+        "docs/schemas/scenery.inspect.harness.schema.json",
+        "docs/schemas/scenery.inspect.observability.schema.json",
+        "docs/schemas/scenery.logs.query.schema.json",
+        "docs/schemas/scenery.logs.tail.entry.schema.json",
+        "docs/schemas/scenery.help.schema.json",
+        "docs/schemas/scenery.down.schema.json",
+        "docs/schemas/scenery.metrics.labels.schema.json",
+        "docs/schemas/scenery.metrics.query.schema.json",
+        "docs/schemas/scenery.metrics.series.schema.json",
+        "docs/schemas/scenery.harness.ui.schema.json",
+        "docs/schemas/scenery.harness.ui.dom.schema.json",
+        "docs/schemas/scenery.inspect.validation.schema.json",
+        "docs/schemas/scenery.inspect.durable.schema.json",
+        "docs/schemas/scenery.internal.devtools.versions.schema.json",
+        "docs/schemas/scenery.durable.worker_token.create.schema.json",
+        "docs/schemas/scenery.durable.jobs.schema.json",
+        "docs/schemas/scenery.validation.list.schema.json",
+        "docs/schemas/scenery.validation.inspect.schema.json",
+        "docs/schemas/scenery.validation.graph.schema.json",
+        "docs/schemas/scenery.validation.plan.schema.json",
+        "docs/schemas/scenery.validation.result.schema.json",
+        "docs/schemas/scenery.agent.capabilities.schema.json",
+        "docs/schemas/scenery.agent.restart.schema.json",
+        "docs/schemas/scenery.agent.status.schema.json",
+        "docs/schemas/scenery.contract-cli.request.schema.json",
+        "docs/schemas/scenery.contract-cli.response.schema.json",
+        "docs/schemas/scenery.db.server.stop.schema.json",
+        "docs/schemas/scenery.dev.detach.schema.json",
+        "docs/schemas/scenery.deploy.target.schema.json",
+        "docs/schemas/scenery.deploy.setup.schema.json",
+        "docs/schemas/scenery.deploy.resume.schema.json",
+        "docs/schemas/scenery.deploy.teardown.schema.json",
+        "docs/schemas/scenery.doctor.deploy.schema.json",
+        "docs/schemas/scenery.edge.trust.schema.json",
+        "docs/schemas/scenery.edge.dns.status.schema.json",
+        "docs/schemas/scenery.edge.status.schema.json",
+        "docs/schemas/scenery.local.health.schema.json",
+        "docs/schemas/scenery.local.routes.schema.json",
+        "docs/schemas/scenery.storage.cleanup.schema.json",
+        "docs/schemas/scenery.storage.status.schema.json",
+        "docs/schemas/scenery.storage.webui.schema.json",
+        "docs/schemas/scenery.storage.inspect.schema.json",
+        "docs/schemas/scenery.storage.object.schema.json",
+        "docs/schemas/scenery.storage.list.schema.json",
+        "docs/schemas/scenery.storage.delete.schema.json"
       ]
     },
     {
@@ -868,7 +878,7 @@
         "toolchain"
       ],
       "schema_refs": [
-        "docs/schemas/scenery.environment.registry.v1.schema.json"
+        "docs/schemas/scenery.environment.registry.schema.json"
       ]
     },
     {
@@ -889,7 +899,7 @@
         "harness"
       ],
       "schema_refs": [
-        "docs/schemas/scenery.environment.registry.v1.schema.json"
+        "docs/schemas/scenery.environment.registry.schema.json"
       ]
     },
     {
@@ -908,12 +918,12 @@
         "testing"
       ],
       "schema_refs": [
-        "docs/schemas/scenery.harness.artifact.v1.schema.json",
-        "docs/schemas/scenery.harness.self.summary.v1.schema.json",
-        "docs/schemas/scenery.inspect.harness.v1.schema.json",
-        "docs/schemas/scenery.agent_context.v1.schema.json",
-        "docs/schemas/scenery.harness.ui.v1.schema.json",
-        "docs/schemas/scenery.harness.ui.dom.v1.schema.json"
+        "docs/schemas/scenery.harness.artifact.schema.json",
+        "docs/schemas/scenery.harness.self.summary.schema.json",
+        "docs/schemas/scenery.inspect.harness.schema.json",
+        "docs/schemas/scenery.agent_context.schema.json",
+        "docs/schemas/scenery.harness.ui.schema.json",
+        "docs/schemas/scenery.harness.ui.dom.schema.json"
       ]
     },
     {
@@ -925,7 +935,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-12",
       "review_after": "2026-08-11",
-      "summary": "Practical recipes for building native edition-2027 Scenery apps, including .scn source, generated Go contracts, typed HTTP and internal bindings, constructor capabilities, auth, storage, Postgres, durable work and schedules, TypeScript targets, observability, and validation workflows.",
+      "summary": "Practical recipes for building current Scenery apps, including .scn source, generated Go contracts, typed HTTP and internal bindings, constructor capabilities, auth, storage, Postgres, durable work and schedules, TypeScript targets, observability, and validation workflows.",
       "tags": [
         "cookbook",
         "apps",
@@ -943,7 +953,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-09",
       "review_after": "2026-08-08",
-      "summary": "Rules for maintaining the reusable @scenery component registry, its primitives and layouts, and its guarded shadcn promotion flow; the runnable dashboard is owned separately by apps/consolenext.",
+      "summary": "Rules for maintaining the reusable @scenery component registry, its primitives and layouts, and its guarded shadcn promotion flow; the runnable dashboard is owned separately by apps/console.",
       "tags": [
         "ui",
         "agents",
@@ -1063,12 +1073,12 @@
         "agents"
       ],
       "schema_refs": [
-        "docs/schemas/scenery.inspect.observability.v1.schema.json",
-        "docs/schemas/scenery.logs.query.v1.schema.json",
-        "docs/schemas/scenery.logs.tail.entry.v1.schema.json",
-        "docs/schemas/scenery.metrics.labels.v1.schema.json",
-        "docs/schemas/scenery.metrics.query.v1.schema.json",
-        "docs/schemas/scenery.metrics.series.v1.schema.json"
+        "docs/schemas/scenery.inspect.observability.schema.json",
+        "docs/schemas/scenery.logs.query.schema.json",
+        "docs/schemas/scenery.logs.tail.entry.schema.json",
+        "docs/schemas/scenery.metrics.labels.schema.json",
+        "docs/schemas/scenery.metrics.query.schema.json",
+        "docs/schemas/scenery.metrics.series.schema.json"
       ]
     },
     {
@@ -1089,8 +1099,8 @@
         "cli"
       ],
       "schema_refs": [
-        "docs/schemas/scenery.harness.self.summary.v1.schema.json",
-        "docs/schemas/scenery.inspect.harness.v1.schema.json"
+        "docs/schemas/scenery.harness.self.summary.schema.json",
+        "docs/schemas/scenery.inspect.harness.schema.json"
       ]
     },
     {
@@ -1423,12 +1433,12 @@
       "freshness": "current",
       "last_reviewed": "2026-07-02",
       "review_after": "2026-08-01",
-      "summary": "Completed ExecPlan that replaced the consolenext Observability page with an app-scoped SQLite-backed Symphony Kanban board, workflow store, and workflow-gated server-side Codex app-server auto runner while keeping manual process-starting runner RPCs blocked until an authenticated runner channel exists.",
+      "summary": "Completed ExecPlan that replaced the console Observability page with an app-scoped SQLite-backed Symphony Kanban board, workflow store, and workflow-gated server-side Codex app-server auto runner while keeping manual process-starting runner RPCs blocked until an authenticated runner channel exists.",
       "tags": [
         "plans",
         "execplans",
         "dashboard",
-        "consolenext",
+        "console",
         "symphony",
         "sqlite",
         "agents"
@@ -1748,7 +1758,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-13",
       "review_after": "2026-08-12",
-      "summary": "Current plans that should inform agent decisions, led by the single-current-specification flag day while the bounded refresh-cookie transition remains current until its removal milestone lands, using permanent historical IDs and links mirrored in docs/knowledge.json.",
+      "summary": "Current plans that should inform agent decisions, led by the single-current-specification flag day, using permanent historical IDs and links mirrored in docs/knowledge.json.",
       "tags": [
         "plans",
         "roadmap",
@@ -1764,7 +1774,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-13",
       "review_after": "2026-08-12",
-      "summary": "Completed milestones and shipped behavior, including the corrective note for bounded refresh-cookie compatibility after post-v0 cleanup, remaining v0 and Go-directive frontend removal, typed HTTP path-tail profiles, edition-2027 transaction conformance, devdash control-plane/store work, audited active-plan retirements, and browser UI harness baselines.",
+      "summary": "Completed milestones and shipped behavior, including bounded refresh-cookie compatibility and its removal, post-v0 cleanup, remaining v0 and Go-directive frontend removal, typed HTTP path-tail support, historical transaction conformance, devdash control-plane/store work, audited active-plan retirements, and browser UI harness baselines.",
       "tags": [
         "plans",
         "history",
@@ -1780,7 +1790,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-13",
       "review_after": "2026-08-12",
-      "summary": "Operator checklist and Postgres SQL template for preserving existing app-owned auth data and former fixed onlv_refresh sessions while moving to scenery standard auth tables and the canonical scenery_refresh cookie.",
+      "summary": "Operator checklist and Postgres SQL template for preserving existing app-owned auth data while moving to scenery standard auth tables and the canonical scenery_refresh cookie.",
       "tags": [
         "runbook",
         "auth",

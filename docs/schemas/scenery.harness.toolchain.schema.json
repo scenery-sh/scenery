@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.harness.toolchain.schema.json",
+  "title": "scenery harness toolchain preflight",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "tools"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.harness.toolchain"
+    },
+    "schema_revision": {
+      "const": "sha256:edb5bd2a880e5ed8d87baa7906437520766479ffe7f9a26d754ce35c3656e3a3"
+    },
+    "tools": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/tool"
+      }
+    },
+    "env": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/env"
+      }
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "tool": {
+      "type": "object",
+      "required": [
+        "name",
+        "scope",
+        "required",
+        "present"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "present": {
+          "type": "boolean"
+        },
+        "path": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "commit": {
+          "type": "string"
+        },
+        "built_at": {
+          "type": "string"
+        },
+        "go_version": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "env": {
+      "type": "object",
+      "required": [
+        "name",
+        "value"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,4 +1,4 @@
-// Package object defines the object-store capability used by edition-2027
+// Package object defines the object-store capability used by generated
 // constructor injection.
 package object
 

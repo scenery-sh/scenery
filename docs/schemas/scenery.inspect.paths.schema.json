@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.inspect.paths.schema.json",
+  "title": "scenery.inspect.paths",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "app",
+    "paths"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.inspect.paths"
+    },
+    "schema_revision": {
+      "const": "sha256:608b88133556842c287301f9d5dc62e97e76afec107695192b272d2fd6896d38"
+    },
+    "app": {
+      "$ref": "#/$defs/appRef"
+    },
+    "paths": {
+      "type": "object",
+      "required": [
+        "app_root",
+        "config_path",
+        "cache_root",
+        "build_root",
+        "workspace_dir",
+        "binary_path",
+        "build_state_path"
+      ],
+      "properties": {
+        "app_root": {
+          "type": "string"
+        },
+        "config_path": {
+          "type": "string"
+        },
+        "cache_root": {
+          "type": "string"
+        },
+        "build_root": {
+          "type": "string"
+        },
+        "workspace_dir": {
+          "type": "string"
+        },
+        "binary_path": {
+          "type": "string"
+        },
+        "build_state_path": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "appRef": {
+      "type": "object",
+      "required": [
+        "name",
+        "root",
+        "config_path"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "root": {
+          "type": "string"
+        },
+        "config_path": {
+          "type": "string"
+        },
+        "module_path": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

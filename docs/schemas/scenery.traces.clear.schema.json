@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.traces.clear.schema.json",
+  "title": "scenery.traces.clear",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "ok",
+    "command",
+    "app"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.traces.clear"
+    },
+    "schema_revision": {
+      "const": "sha256:74017cd28d7ebf63756c18c4e3ae477ef6e87485b9d153b492513497dace7ca5"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "command": {
+      "const": "scenery traces clear"
+    },
+    "app": {
+      "$ref": "#/$defs/appRef"
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "data": {
+      "type": "object",
+      "properties": {
+        "app_id": {
+          "type": "string"
+        },
+        "cleared": {
+          "const": "traces"
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "appRef": {
+      "type": "object",
+      "required": [
+        "name",
+        "root"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "root": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

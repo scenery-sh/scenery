@@ -196,7 +196,7 @@ func TestDiscoverRootRejectsRemovedStandardAuthConfigFields(t *testing.T) {
 	}{
 		{name: "database url env", config: `{"name":"authapp","auth":{"database_url_env":"DATABASE_URL"}}`, path: "auth.database_url_env"},
 		{name: "jwt secret env", config: `{"name":"authapp","auth":{"jwt_secret_env":"JWT_SECRET"}}`, path: "auth.jwt_secret_env"},
-		{name: "refresh cookie name", config: `{"name":"authapp","auth":{"refresh_cookie_name":"onlv_refresh"}}`, path: "auth.refresh_cookie_name"},
+		{name: "refresh cookie name", config: `{"name":"authapp","auth":{"refresh_cookie_name":"custom_refresh"}}`, path: "auth.refresh_cookie_name"},
 		{name: "cookie domain env", config: `{"name":"authapp","auth":{"auth_cookie_domain_env":"AUTH_COOKIE_DOMAIN"}}`, path: "auth.auth_cookie_domain_env"},
 		{name: "public app url env", config: `{"name":"authapp","auth":{"public_app_url_env":"SCENERY_PUBLIC_APP_URL"}}`, path: "auth.public_app_url_env"},
 		{name: "api base url env", config: `{"name":"authapp","auth":{"api_base_url_env":"SCENERY_API_BASE_URL"}}`, path: "auth.api_base_url_env"},

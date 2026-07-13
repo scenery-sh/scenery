@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -22,11 +21,16 @@ import (
 	"time"
 
 	localagent "scenery.sh/internal/agent"
+	appcfg "scenery.sh/internal/app"
+	"scenery.sh/internal/deployplan"
 	"scenery.sh/internal/envpolicy"
+	"scenery.sh/internal/evolution"
 	"scenery.sh/internal/toolchain"
 )
 
-const upgradeSchemaVersion = "scenery.upgrade.v1"
+const (
+	upgradeKind = "scenery.upgrade"
+)
 
 var (
 	upgradeAPIBaseURL       = "https://api.github.com/repos/scenery-sh/scenery"
@@ -34,11 +38,11 @@ var (
 	upgradeCommandContext   = exec.CommandContext
 	upgradeCurrentVersionFn = func() string { return buildVersionResponse().Version }
 	upgradeDeployNoticeFunc = defaultUpgradeDeployNotice
+	upgradeWorkingDirectory = os.Getwd
 )
 
 type upgradeOptions struct {
 	JSON          bool
-	Version       string
 	Target        string
 	DryRun        bool
 	Force         bool
@@ -46,7 +50,7 @@ type upgradeOptions struct {
 }
 
 type upgradeResponse struct {
-	SchemaVersion  string                  `json:"schema_version"`
+	cliPayloadIdentity
 	OK             bool                    `json:"ok"`
 	Repository     string                  `json:"repository"`
 	Platform       string                  `json:"platform"`
@@ -103,6 +107,11 @@ func upgradeCommand(args []string) error {
 }
 
 func runUpgrade(ctx context.Context, stdout io.Writer, args []string) error {
+	if len(args) == 1 && args[0] == "--help" {
+		entry, _ := findHelpCommand([]string{"upgrade"})
+		writeCommandHelp(stdout, entry)
+		return nil
+	}
 	opts, err := parseUpgradeArgs(args)
 	if err != nil {
 		return err
@@ -124,14 +133,13 @@ func runUpgrade(ctx context.Context, stdout io.Writer, args []string) error {
 }
 
 func parseUpgradeArgs(args []string) (upgradeOptions, error) {
-	opts := upgradeOptions{Version: "latest", ToolchainMode: "installed"}
+	opts := upgradeOptions{ToolchainMode: "installed"}
 	skipToolchain := false
 	flags := newCLIFlagSet("upgrade")
 	registerJSONOutput(flags, &opts.JSON)
 	flags.BoolVar(&opts.DryRun, "dry-run", false, "")
 	flags.BoolVar(&opts.Force, "force", false, "")
 	flags.BoolVar(&skipToolchain, "skip-toolchain", false, "")
-	flags.StringVar(&opts.Version, "version", opts.Version, "")
 	flags.StringVar(&opts.Target, "target", "", "")
 	flags.StringVar(&opts.ToolchainMode, "toolchain", opts.ToolchainMode, "")
 	positionals, err := parseCLIFlags(flags, args)
@@ -144,11 +152,7 @@ func parseUpgradeArgs(args []string) (upgradeOptions, error) {
 	if skipToolchain {
 		opts.ToolchainMode = "none"
 	}
-	opts.Version = strings.TrimSpace(opts.Version)
 	opts.ToolchainMode = strings.TrimSpace(opts.ToolchainMode)
-	if opts.Version == "" {
-		return upgradeOptions{}, fmt.Errorf("--version must not be empty")
-	}
 	switch opts.ToolchainMode {
 	case "installed", "all", "none":
 	default:
@@ -161,18 +165,18 @@ func performUpgrade(ctx context.Context, opts upgradeOptions) (upgradeResponse, 
 	defaultTarget := strings.TrimSpace(opts.Target) == ""
 	target, err := upgradeTargetPath(opts.Target)
 	resp := upgradeResponse{
-		SchemaVersion:  upgradeSchemaVersion,
-		Repository:     "scenery-sh/scenery",
-		Platform:       toolchain.CurrentPlatform().String(),
-		CurrentVersion: upgradeCurrentVersionFn(),
-		TargetPath:     target,
-		DryRun:         opts.DryRun,
+		cliPayloadIdentity: newCLIPayloadIdentity(upgradeKind),
+		Repository:         "scenery-sh/scenery",
+		Platform:           toolchain.CurrentPlatform().String(),
+		CurrentVersion:     upgradeCurrentVersionFn(),
+		TargetPath:         target,
+		DryRun:             opts.DryRun,
 	}
 	if err != nil {
 		resp.Error = err.Error()
 		return resp, err
 	}
-	cwd, err := os.Getwd()
+	cwd, err := upgradeWorkingDirectory()
 	if err != nil {
 		resp.Error = err.Error()
 		return resp, err
@@ -187,7 +191,7 @@ func performUpgrade(ctx context.Context, opts upgradeOptions) (upgradeResponse, 
 			return resp, collectErr
 		}
 	}
-	release, err := fetchUpgradeRelease(ctx, opts.Version)
+	release, err := fetchUpgradeRelease(ctx)
 	if err != nil {
 		resp.Error = err.Error()
 		return resp, err
@@ -253,6 +257,10 @@ func performUpgrade(ctx context.Context, opts upgradeOptions) (upgradeResponse, 
 		resp.Error = err.Error()
 		return resp, err
 	}
+	if err := preflightUpgradeRecoveryState(cwd); err != nil {
+		resp.Error = err.Error()
+		return resp, err
+	}
 	if err := installUpgradeBinary(target, binaryData); err != nil {
 		resp.Error = err.Error()
 		return resp, err
@@ -267,6 +275,24 @@ func performUpgrade(ctx context.Context, opts upgradeOptions) (upgradeResponse, 
 	resp.OK = true
 	attachUpgradeDeployNotice(&resp)
 	return resp, nil
+}
+
+func preflightUpgradeRecoveryState(cwd string) error {
+	root, _, err := appcfg.DiscoverRoot(cwd)
+	if errors.Is(err, appcfg.ErrRootNotFound) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("failed_precondition: inspect the current app before replacing Scenery: %w", err)
+	}
+	return checkLegacyRecoveryState(root)
+}
+
+func checkLegacyRecoveryState(root string) error {
+	if err := evolution.CheckLegacyRecoveryState(root); err != nil {
+		return err
+	}
+	return deployplan.CheckLegacyRecoveryState(root)
 }
 
 func attachUpgradeDeployNotice(resp *upgradeResponse) {
@@ -306,12 +332,8 @@ func upgradeTargetPath(explicit string) (string, error) {
 	return filepath.Abs(exe)
 }
 
-func fetchUpgradeRelease(ctx context.Context, version string) (upgradeRelease, error) {
-	path := "/releases/latest"
-	if strings.TrimSpace(version) != "" && version != "latest" {
-		path = "/releases/tags/" + url.PathEscape(version)
-	}
-	endpoint := strings.TrimRight(upgradeAPIBaseURL, "/") + path
+func fetchUpgradeRelease(ctx context.Context) (upgradeRelease, error) {
+	endpoint := strings.TrimRight(upgradeAPIBaseURL, "/") + "/releases/latest"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return upgradeRelease{}, err

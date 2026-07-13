@@ -256,12 +256,12 @@ func TestWriteDetachedDevResultJSON(t *testing.T) {
 	t.Parallel()
 
 	result := detachedDevResult{
-		SchemaVersion: "scenery.dev.detach.v1",
-		Wait:          detachedDevWaitReady,
-		PID:           123,
-		LogPath:       "/tmp/dev.log",
-		AttachCommand: `scenery logs --follow --app-root "/tmp/app"`,
-		DownCommand:   `scenery down --app-root "/tmp/app"`,
+		cliPayloadIdentity: newCLIPayloadIdentity("scenery.dev.detach"),
+		Wait:               detachedDevWaitReady,
+		PID:                123,
+		LogPath:            "/tmp/dev.log",
+		AttachCommand:      `scenery logs --follow --app-root "/tmp/app"`,
+		DownCommand:        `scenery down --app-root "/tmp/app"`,
 		Session: localagent.Session{
 			SessionID: "app-abc",
 			OwnerPID:  123,
@@ -278,7 +278,7 @@ func TestWriteDetachedDevResultJSON(t *testing.T) {
 	if err := decodeCLIJSON(buf.Bytes(), &payload); err != nil {
 		t.Fatalf("decodeCLIJSON: %v\n%s", err, buf.String())
 	}
-	if payload.SchemaVersion != result.SchemaVersion || payload.PID != 123 || payload.Session.SessionID != "app-abc" {
+	if payload.cliPayloadIdentity != result.cliPayloadIdentity || payload.PID != 123 || payload.Session.SessionID != "app-abc" {
 		t.Fatalf("payload = %+v", payload)
 	}
 }
@@ -343,7 +343,7 @@ func TestWriteDetachedDevResultTextIncludesReadyBanner(t *testing.T) {
 			Status:  "running",
 			RouteManifest: localagent.RouteManifest{Routes: map[string]localagent.RouteRecord{
 				localagent.RouteAPI:       {URL: "https://app.localhost/api/"},
-				localagent.RouteDashboard: {URL: "https://app.localhost/consolenext/"},
+				localagent.RouteDashboard: {URL: "https://app.localhost/console/"},
 				"web":                     {URL: "https://app.localhost/web/"},
 			}},
 		},
@@ -358,7 +358,7 @@ func TestWriteDetachedDevResultTextIncludesReadyBanner(t *testing.T) {
 		"API:",
 		"https://app.localhost/api/",
 		"Dashboard:",
-		"https://app.localhost/consolenext/",
+		"https://app.localhost/console/",
 		"Frontend web:",
 		"https://app.localhost/web/",
 	} {

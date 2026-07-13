@@ -37,8 +37,9 @@ func TestRunSceneryInspectStorage(t *testing.T) {
 		t.Fatalf("runSceneryInspect(storage) error = %v", err)
 	}
 	var payload struct {
-		SchemaVersion string `json:"schema_version"`
-		Storage       struct {
+		Kind           string `json:"kind"`
+		SchemaRevision string `json:"schema_revision"`
+		Storage        struct {
 			Configured bool   `json:"configured"`
 			CellID     string `json:"storage_cell_id"`
 			Share      string `json:"share"`
@@ -58,8 +59,8 @@ func TestRunSceneryInspectStorage(t *testing.T) {
 	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
 		t.Fatalf("decodeCLIJSON(storage) error = %v\n%s", err, out.String())
 	}
-	if payload.SchemaVersion != "scenery.storage.inspect.v1" {
-		t.Fatalf("schema_version = %q", payload.SchemaVersion)
+	if payload.Kind != "scenery.storage.inspect" || payload.SchemaRevision != newCLIPayloadIdentity("scenery.storage.inspect").SchemaRevision {
+		t.Fatalf("identity = %q %q", payload.Kind, payload.SchemaRevision)
 	}
 	if !payload.Storage.Configured || payload.Storage.CellID != "onlv" || payload.Storage.Share != "worktree" || payload.Storage.Default != "app" || payload.Storage.Readiness != "configured" {
 		t.Fatalf("storage = %+v", payload.Storage)

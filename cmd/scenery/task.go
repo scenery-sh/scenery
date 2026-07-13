@@ -24,16 +24,16 @@ type taskOptions struct {
 }
 
 type taskGraphResponse struct {
-	SchemaVersion string             `json:"schema_version"`
-	App           inspectdata.AppRef `json:"app"`
-	Nodes         []taskGraphNode    `json:"nodes"`
-	Edges         []taskGraphEdge    `json:"edges"`
+	cliPayloadIdentity
+	App   inspectdata.AppRef `json:"app"`
+	Nodes []taskGraphNode    `json:"nodes"`
+	Edges []taskGraphEdge    `json:"edges"`
 }
 
 type taskListResponse struct {
-	SchemaVersion string             `json:"schema_version"`
-	App           inspectdata.AppRef `json:"app"`
-	Tasks         []taskListRecord   `json:"tasks"`
+	cliPayloadIdentity
+	App   inspectdata.AppRef `json:"app"`
+	Tasks []taskListRecord   `json:"tasks"`
 }
 
 type taskListRecord struct {
@@ -51,10 +51,10 @@ type taskListRecord struct {
 }
 
 type taskInspectResponse struct {
-	SchemaVersion string             `json:"schema_version"`
-	App           inspectdata.AppRef `json:"app"`
-	Task          taskListRecord     `json:"task"`
-	Searched      []string           `json:"searched,omitempty"`
+	cliPayloadIdentity
+	App      inspectdata.AppRef `json:"app"`
+	Task     taskListRecord     `json:"task"`
+	Searched []string           `json:"searched,omitempty"`
 }
 
 type taskGraphNode struct {
@@ -197,9 +197,9 @@ func parseTaskArgs(args []string) (taskOptions, error) {
 
 func buildTaskList(appRoot string, cfg appcfg.Config) (taskListResponse, error) {
 	resp := taskListResponse{
-		SchemaVersion: "scenery.task.list.v1",
-		App:           taskAppRef(appRoot, cfg),
-		Tasks:         []taskListRecord{},
+		cliPayloadIdentity: newCLIPayloadIdentity("scenery.task.list"),
+		App:                taskAppRef(appRoot, cfg),
+		Tasks:              []taskListRecord{},
 	}
 	codeTasks, err := listScriptCandidates(appRoot)
 	if err != nil {
@@ -217,8 +217,8 @@ func buildTaskInspect(appRoot string, cfg appcfg.Config, opts taskOptions) (task
 		return taskInspectResponse{}, err
 	}
 	resp := taskInspectResponse{
-		SchemaVersion: "scenery.task.inspect.v1",
-		App:           taskAppRef(appRoot, cfg),
+		cliPayloadIdentity: newCLIPayloadIdentity("scenery.task.inspect"),
+		App:                taskAppRef(appRoot, cfg),
 	}
 	switch kind {
 	case taskKindCode:
@@ -240,10 +240,10 @@ func buildTaskInspect(appRoot string, cfg appcfg.Config, opts taskOptions) (task
 
 func buildTaskGraph(appRoot string, cfg appcfg.Config) (taskGraphResponse, error) {
 	resp := taskGraphResponse{
-		SchemaVersion: "scenery.task.graph.v1",
-		App:           taskAppRef(appRoot, cfg),
-		Nodes:         []taskGraphNode{},
-		Edges:         []taskGraphEdge{},
+		cliPayloadIdentity: newCLIPayloadIdentity("scenery.task.graph"),
+		App:                taskAppRef(appRoot, cfg),
+		Nodes:              []taskGraphNode{},
+		Edges:              []taskGraphEdge{},
 	}
 	seenNodes := map[string]bool{}
 	addNode := func(node taskGraphNode) {

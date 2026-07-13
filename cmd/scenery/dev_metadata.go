@@ -6,18 +6,18 @@ import (
 	"sort"
 	"strings"
 
-	"scenery.sh/internal/vnext"
+	"scenery.sh/internal/compiler"
 )
 
 func buildDevMetadata(root string) (json.RawMessage, json.RawMessage, error) {
-	result, err := vnext.Compile(root)
+	result, err := compiler.Compile(root)
 	if err != nil {
 		return nil, nil, err
 	}
 	if !result.Valid() {
-		return nil, nil, fmt.Errorf("edition-2027 graph is invalid: %s", firstVNextDiagnostic(result.Diagnostics))
+		return nil, nil, fmt.Errorf("app contract graph is invalid: %s", firstCompilerDiagnostic(result.Diagnostics))
 	}
-	endpoints, err := vnextInspectEndpoints(result)
+	endpoints, err := inspectEndpoints(result)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -35,7 +35,7 @@ func buildDevMetadata(root string) (json.RawMessage, json.RawMessage, error) {
 			"raw": false, "access_type": endpoint.Access, "service_name": endpoint.Service,
 		})
 	}
-	services := vnextInspectServices(result)
+	services := inspectServices(result)
 	metadataServices := make([]map[string]any, 0, len(services))
 	apiServices := make([]map[string]any, 0, len(services))
 	for _, service := range services {

@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.edge.trust.schema.json",
+  "title": "scenery.edge.trust",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.edge.trust"
+    },
+    "schema_revision": {
+      "const": "sha256:5b028667b235c96636e9f3dd51f311600201534cd3bfe8d47afdf084c233eabe"
+    },
+    "edge_kind": {
+    },
+    "status": {
+    }
+  },
+  "additionalProperties": false
+}

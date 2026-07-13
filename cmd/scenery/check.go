@@ -25,7 +25,7 @@ func checkCommand(args []string) error {
 }
 
 func runSceneryCheck(_ context.Context, stdout io.Writer, args []string) error {
-	return runVNextCheck(stdout, args)
+	return runContractCheck(stdout, args)
 }
 
 func checkWarningDiagnostics(appRoot string, cfg appcfg.Config) ([]checkDiagnostic, error) {

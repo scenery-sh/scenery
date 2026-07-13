@@ -12,8 +12,10 @@ import (
 	"time"
 
 	appcfg "scenery.sh/internal/app"
+	"scenery.sh/internal/compiler"
+	"scenery.sh/internal/graph"
 	"scenery.sh/internal/inspect"
-	"scenery.sh/internal/vnext"
+	"scenery.sh/internal/machine"
 )
 
 type harnessOptions struct {
@@ -25,16 +27,16 @@ type harnessOptions struct {
 }
 
 type harnessResponse struct {
-	SchemaVersion string             `json:"schema_version"`
-	OK            bool               `json:"ok"`
-	GeneratedAt   string             `json:"generated_at"`
-	App           inspect.AppRef     `json:"app"`
-	Knowledge     harnessKnowledge   `json:"knowledge"`
-	Steps         []harnessStep      `json:"steps"`
-	Artifacts     []harnessArtifact  `json:"artifacts"`
-	Validation    *harnessValidation `json:"validation,omitempty"`
-	NextActions   []string           `json:"next_actions,omitempty"`
-	Wrote         string             `json:"wrote,omitempty"`
+	cliPayloadIdentity
+	OK          bool               `json:"ok"`
+	GeneratedAt string             `json:"generated_at"`
+	App         inspect.AppRef     `json:"app"`
+	Knowledge   harnessKnowledge   `json:"knowledge"`
+	Steps       []harnessStep      `json:"steps"`
+	Artifacts   []harnessArtifact  `json:"artifacts"`
+	Validation  *harnessValidation `json:"validation,omitempty"`
+	NextActions []string           `json:"next_actions,omitempty"`
+	Wrote       string             `json:"wrote,omitempty"`
 }
 
 type harnessValidation struct {
@@ -93,9 +95,9 @@ func runSceneryHarness(ctx context.Context, stdout io.Writer, args []string) err
 	}
 
 	resp := harnessResponse{
-		SchemaVersion: "scenery.harness.result.v1",
-		OK:            true,
-		GeneratedAt:   time.Now().UTC().Format(time.RFC3339Nano),
+		cliPayloadIdentity: newCLIPayloadIdentity("scenery.harness.result"),
+		OK:                 true,
+		GeneratedAt:        time.Now().UTC().Format(time.RFC3339Nano),
 		App: inspect.AppRef{
 			Name:       cfg.Name,
 			ID:         cfg.ID,
@@ -104,8 +106,8 @@ func runSceneryHarness(ctx context.Context, stdout io.Writer, args []string) err
 		},
 		Knowledge: buildHarnessKnowledge(appRoot),
 	}
-	if contract, compileErr := vnext.Compile(appRoot); compileErr == nil && contract.Manifest != nil {
-		resp.App = vnextInspectAppRef(appRoot, cfg, contract)
+	if contract, compileErr := compiler.Compile(appRoot); compileErr == nil && contract.Manifest != nil {
+		resp.App = inspectAppRef(appRoot, cfg, contract)
 	}
 	artifactCtx := newHarnessArtifactContext(appRoot, opts.Write)
 
@@ -208,7 +210,7 @@ func runHarnessValidation(ctx context.Context, appRoot, profile string) harnessV
 	var out bytes.Buffer
 	err := runSceneryValidate(ctx, &out, args)
 	var result validationResultResponse
-	if decodeCLIJSON(out.Bytes(), &result) == nil && result.SchemaVersion == validationResultSchema {
+	if decodeCLIJSON(out.Bytes(), &result) == nil && result.cliPayloadIdentity == newCLIPayloadIdentity(validationResultKind) {
 		resultPath := ".scenery/harness/validation/latest.json"
 		if result.Wrote != "" {
 			if rel, relErr := filepath.Rel(appRoot, result.Wrote); relErr == nil {
@@ -234,11 +236,11 @@ func runHarnessCheck(ctx context.Context, appRoot string, artifactCtxs ...harnes
 		DurationMS: time.Since(started).Milliseconds(),
 		Evidence:   &evidence,
 	}
-	artifacts, artifactDiagnostics := writeHarnessOutputEvidenceArtifacts(optionalHarnessArtifactContext(artifactCtxs), step.Name, "check.json", "scenery.cli.v1", out.Bytes(), nil)
+	artifacts, artifactDiagnostics := writeHarnessOutputEvidenceArtifacts(optionalHarnessArtifactContext(artifactCtxs), step.Name, "check.json", machine.EnvelopeKind, out.Bytes(), nil)
 	step.Diagnostics = append(step.Diagnostics, artifactDiagnostics...)
 
-	var payload vnextEnvelope
-	if out.Len() > 0 && json.Unmarshal(out.Bytes(), &payload) == nil && payload.APIVersion == "scenery.cli.v1" {
+	payload, decodeErr := machine.Decode[graph.Diagnostic](out.Bytes(), currentMachineSpecRevision())
+	if out.Len() > 0 && decodeErr == nil {
 		step.OK = payload.OK && err == nil
 		step.Summary = map[string]any{
 			"diagnostics": len(payload.Diagnostics),
@@ -267,7 +269,7 @@ func runHarnessInspect(subject, appRoot string, artifactCtxs ...harnessArtifactC
 		DurationMS: time.Since(started).Milliseconds(),
 		Evidence:   &evidence,
 	}
-	artifacts, artifactDiagnostics := writeHarnessOutputEvidenceArtifacts(optionalHarnessArtifactContext(artifactCtxs), step.Name, "inspect-"+subject+".json", "scenery.inspect."+subject+".v1", out.Bytes(), nil)
+	artifacts, artifactDiagnostics := writeHarnessOutputEvidenceArtifacts(optionalHarnessArtifactContext(artifactCtxs), step.Name, "inspect-"+subject+".json", "scenery.inspect."+subject, out.Bytes(), nil)
 	step.Diagnostics = append(step.Diagnostics, artifactDiagnostics...)
 	if err != nil {
 		step.Error = strings.TrimSpace(err.Error())
@@ -307,7 +309,7 @@ func runHarnessObservability(subject, appRoot string, artifactCtxs ...harnessArt
 		DurationMS: time.Since(started).Milliseconds(),
 		Evidence:   &evidence,
 	}
-	artifacts, artifactDiagnostics := writeHarnessOutputEvidenceArtifacts(optionalHarnessArtifactContext(artifactCtxs), step.Name, subject+".json", "scenery.inspect."+subject+".v1", out.Bytes(), nil)
+	artifacts, artifactDiagnostics := writeHarnessOutputEvidenceArtifacts(optionalHarnessArtifactContext(artifactCtxs), step.Name, subject+".json", "scenery.inspect."+subject, out.Bytes(), nil)
 	step.Diagnostics = append(step.Diagnostics, artifactDiagnostics...)
 	if err != nil {
 		step.Error = strings.TrimSpace(err.Error())
@@ -328,8 +330,11 @@ func runHarnessObservability(subject, appRoot string, artifactCtxs ...harnessArt
 
 func summarizeHarnessInspect(subject string, payload map[string]any) map[string]any {
 	summary := map[string]any{}
-	if schema, _ := payload["schema_version"].(string); schema != "" {
-		summary["schema_version"] = schema
+	if kind, _ := payload["kind"].(string); kind != "" {
+		summary["kind"] = kind
+	}
+	if revision, _ := payload["schema_revision"].(string); revision != "" {
+		summary["schema_revision"] = revision
 	}
 	switch subject {
 	case "app":
@@ -389,25 +394,25 @@ func buildHarnessKnowledge(appRoot string) harnessKnowledge {
 		"docs/agent-guide.md",
 	}
 	schemas := []string{
-		"docs/schemas/scenery.config.v1.schema.json",
-		"docs/schemas/scenery.cli.v1.schema.json",
-		"docs/schemas/scenery.harness.artifact.v1.schema.json",
-		"docs/schemas/scenery.harness.result.v1.schema.json",
-		"docs/schemas/scenery.inspect.harness.v1.schema.json",
-		"docs/schemas/scenery.inspect.app.v1.schema.json",
-		"docs/schemas/scenery.inspect.routes.v1.schema.json",
-		"docs/schemas/scenery.inspect.services.v1.schema.json",
-		"docs/schemas/scenery.inspect.endpoints.v1.schema.json",
-		"docs/schemas/scenery.inspect.traces.v1.schema.json",
-		"docs/schemas/scenery.inspect.metrics.v1.schema.json",
-		"docs/schemas/scenery.inspect.observability.v1.schema.json",
-		"docs/schemas/scenery.logs.query.v1.schema.json",
-		"docs/schemas/scenery.logs.tail.entry.v1.schema.json",
-		"docs/schemas/scenery.metrics.query.v1.schema.json",
-		"docs/schemas/scenery.metrics.labels.v1.schema.json",
-		"docs/schemas/scenery.metrics.series.v1.schema.json",
-		"docs/schemas/scenery.inspect.build.v1.schema.json",
-		"docs/schemas/scenery.inspect.paths.v1.schema.json",
+		"docs/schemas/scenery.config.schema.json",
+		"docs/schemas/scenery.cli.schema.json",
+		"docs/schemas/scenery.harness.artifact.schema.json",
+		"docs/schemas/scenery.harness.result.schema.json",
+		"docs/schemas/scenery.inspect.harness.schema.json",
+		"docs/schemas/scenery.inspect.app.schema.json",
+		"docs/schemas/scenery.inspect.routes.schema.json",
+		"docs/schemas/scenery.inspect.services.schema.json",
+		"docs/schemas/scenery.inspect.endpoints.schema.json",
+		"docs/schemas/scenery.inspect.traces.schema.json",
+		"docs/schemas/scenery.inspect.metrics.schema.json",
+		"docs/schemas/scenery.inspect.observability.schema.json",
+		"docs/schemas/scenery.logs.query.schema.json",
+		"docs/schemas/scenery.logs.tail.entry.schema.json",
+		"docs/schemas/scenery.metrics.query.schema.json",
+		"docs/schemas/scenery.metrics.labels.schema.json",
+		"docs/schemas/scenery.metrics.series.schema.json",
+		"docs/schemas/scenery.inspect.build.schema.json",
+		"docs/schemas/scenery.inspect.paths.schema.json",
 	}
 	return harnessKnowledge{
 		Entrypoints: harnessKnowledgeFiles(appRoot, entrypoints),
@@ -429,8 +434,8 @@ func harnessKnowledgeFiles(root string, relPaths []string) []harnessKnowledgeFil
 
 func buildHarnessArtifacts(appRoot string, harnessWillExist bool) []harnessArtifact {
 	artifacts := []harnessArtifact{
-		{Name: "latest-build", Path: ".scenery/build/latest.json", SchemaVersion: "scenery.build.latest.v1"},
-		{Name: "latest-harness", Path: ".scenery/harness/latest.json", SchemaVersion: "scenery.harness.result.v1"},
+		{Name: "latest-build", Path: ".scenery/build/latest.json"},
+		newHarnessArtifact("latest-harness", ".scenery/harness/latest.json", "scenery.harness.result", false),
 	}
 	for i := range artifacts {
 		if artifacts[i].Name == "latest-harness" && harnessWillExist {

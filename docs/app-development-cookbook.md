@@ -1,6 +1,6 @@
 # Scenery App Development Cookbook
 
-Practical recipes for supported edition-2027 applications. The normative language contract lives under `docs/specs/vnext/`; exact CLI and artifact contracts live in `docs/local-contract.md`.
+Practical recipes for current Scenery applications. The normative language contract lives under `docs/spec/`; exact CLI and artifact contracts live in `docs/local-contract.md`.
 
 ## Start A Native App
 
@@ -8,7 +8,6 @@ Create `.scenery.json` for runtime config, `scenery.scn` for the root graph, and
 
 At minimum, root source declares:
 
-- language edition and required profiles;
 - workspace implementation and managed generated roots;
 - Go module, toolchain, and target;
 - application identity;
@@ -99,7 +98,7 @@ binding "hello_http" {
 
 Map path, query, header, cookie, and body inputs explicitly in the `http` block. Map each business outcome to an exact status/body/header/cookie representation. Ambiguous same-status outcomes fail compilation instead of relying on declaration order.
 
-For a no-input operation, use `std.type.unit`; do not invent an empty request struct. For a terminal zero-or-more tail, require both path-tail profiles, use final `{name...}`, and declare one matching `path_tail` mapping.
+For a no-input operation, use `std.type.unit`; do not invent an empty request struct. For a terminal zero-or-more tail, use final `{name...}` and declare one matching `path_tail` mapping.
 
 ## Constructor Capabilities And Config
 
@@ -168,7 +167,7 @@ scenery inspect durable -o json
 
 ## Data, CRUD, Fixtures, Pages, And Renderers
 
-Use edition resources for data sources, records, entities, views, CRUD expansion, fixtures, pages, and renderers. Expanded graph inspection shows generated services, operations, bindings, and artifacts:
+Use current specification resources for data sources, records, entities, views, CRUD expansion, fixtures, pages, and renderers. Expanded graph inspection shows generated services, operations, bindings, and artifacts:
 
 ```sh
 scenery compile --view expanded -o json
@@ -213,7 +212,7 @@ Use canonical graph operations rather than editing generated files:
 
 ```sh
 scenery list service -o json
-scenery schema scenery.service/v1 -o json
+scenery schema scenery.service -o json
 scenery changes plan ... -o json
 scenery changes apply <plan> ... -o json
 scenery diff --semantic <base> <target> -o json

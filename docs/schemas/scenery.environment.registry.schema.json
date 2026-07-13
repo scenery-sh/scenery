@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.environment.registry.schema.json",
+  "title": "scenery environment registry",
+  "type": "object",
+  "required": ["kind", "schema_revision", "variables"],
+  "properties": {
+    "kind": { "const": "scenery.environment.registry" },
+    "schema_revision": { "const": "sha256:6b701aa3ad57d309f09af6c10a16d91814259db5cfe4f55eae879cabd9b5100e" },
+    "variables": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/variable" }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "variable": {
+      "type": "object",
+      "required": [
+        "name",
+        "scope",
+        "direction",
+        "category",
+        "stability",
+        "secret",
+        "allowed_in",
+        "owner",
+        "rationale",
+        "preferred_surface",
+        "docs"
+      ],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "match": { "enum": ["exact", "prefix", "glob"] },
+        "scope": { "enum": ["runtime", "internal", "test_only"] },
+        "direction": { "type": "string", "minLength": 1 },
+        "category": { "type": "string", "minLength": 1 },
+        "stability": { "type": "string", "minLength": 1 },
+        "secret": { "type": "boolean" },
+        "allowed_in": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "enum": ["code", "docs", "tests"] }
+        },
+        "owner": { "type": "string", "minLength": 1 },
+        "rationale": { "type": "string", "minLength": 1 },
+        "preferred_surface": { "type": "string", "minLength": 1 },
+        "replacement": { "type": "string" },
+        "sunset": { "type": "string" },
+        "docs": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

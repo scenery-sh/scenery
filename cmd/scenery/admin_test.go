@@ -32,10 +32,11 @@ func TestRunTracesClear(t *testing.T) {
 		t.Fatalf("runTracesClear error = %v", err)
 	}
 	var payload struct {
-		SchemaVersion string `json:"schema_version"`
-		OK            bool   `json:"ok"`
-		Command       string `json:"command"`
-		Data          struct {
+		Kind           string `json:"kind"`
+		SchemaRevision string `json:"schema_revision"`
+		OK             bool   `json:"ok"`
+		Command        string `json:"command"`
+		Data           struct {
 			AppID   string `json:"app_id"`
 			Cleared string `json:"cleared"`
 		} `json:"data"`
@@ -43,7 +44,7 @@ func TestRunTracesClear(t *testing.T) {
 	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
 		t.Fatalf("decodeCLIJSON(traces clear): %v\n%s", err, out.String())
 	}
-	if payload.SchemaVersion != "scenery.traces.clear.v1" || !payload.OK || payload.Command != "scenery traces clear" {
+	if payload.Kind != "scenery.traces.clear" || payload.SchemaRevision != newCLIPayloadIdentity("scenery.traces.clear").SchemaRevision || !payload.OK || payload.Command != "scenery traces clear" {
 		t.Fatalf("payload = %+v", payload)
 	}
 	if payload.Data.AppID != "admin-id" || payload.Data.Cleared != "traces" {

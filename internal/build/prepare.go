@@ -8,9 +8,10 @@ import (
 
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/codegen"
+	"scenery.sh/internal/compiler"
+	"scenery.sh/internal/generate"
 	"scenery.sh/internal/model"
 	"scenery.sh/internal/parse"
-	"scenery.sh/internal/vnext"
 )
 
 func Prepare(appRoot string, model *model.App, cfg app.Config) (*Result, error) {
@@ -18,29 +19,34 @@ func Prepare(appRoot string, model *model.App, cfg app.Config) (*Result, error) 
 }
 
 func PrepareWithSnapshot(appRoot string, model *model.App, cfg app.Config, snapshot *SourceSnapshot) (*Result, error) {
-	contract, err := vnext.Check(appRoot)
+	contract, err := compiler.Check(appRoot)
 	if err != nil {
 		return nil, err
 	}
+	generationDiagnostics := generate.Check(contract)
+	contract.Diagnostics = append(contract.Diagnostics, generationDiagnostics...)
+	if len(generationDiagnostics) > 0 {
+		contract.ImplementationStatus = "invalid"
+	}
 	if !contract.Valid() {
-		message := "edition-2027 contract or generated artifacts are invalid"
+		message := "app contract or generated artifacts are invalid"
 		for _, diagnostic := range contract.Diagnostics {
 			if diagnostic.Severity == "error" {
 				message = diagnostic.Code + ": " + diagnostic.Message
 				break
 			}
 		}
-		return nil, fmt.Errorf("vNext build preparation failed: %s", message)
+		return nil, fmt.Errorf("build preparation failed: %s", message)
 	}
-	target, err := vnext.ResolveGoBuildTarget(contract, "", "development")
+	target, err := compiler.ResolveGoBuildTarget(contract, "", "development")
 	if err != nil {
 		return nil, err
 	}
 	return prepareWithContractTarget(appRoot, model, cfg, snapshot, contract, target)
 }
 
-func prepareWithContractTarget(appRoot string, model *model.App, cfg app.Config, snapshot *SourceSnapshot, contract *vnext.Result, target vnext.GoBuildTarget) (*Result, error) {
-	runtimePlan, err := vnext.BuildRuntimeIntegrationPlan(contract)
+func prepareWithContractTarget(appRoot string, model *model.App, cfg app.Config, snapshot *SourceSnapshot, contract *compiler.Result, target compiler.GoBuildTarget) (*Result, error) {
+	runtimePlan, err := generate.BuildRuntimeIntegrationPlan(contract)
 	if err != nil {
 		return nil, err
 	}
@@ -127,8 +133,8 @@ func prepareWithContractTarget(appRoot string, model *model.App, cfg app.Config,
 		SourceStamps:              sourceStamps,
 		GeneratedFiles:            generatedFiles,
 		GoBuildFlags:              append([]string(nil), goBuildFlags...),
-		VNextContract:             contract,
-		VNextTarget:               &target,
+		Contract:                  contract,
+		Target:                    &target,
 	}
 	result.GoEnvironment = parse.GoTargetEnvironment(target.Context)
 	// Runtime bundles are target-specific, so an unbound workspace binary is

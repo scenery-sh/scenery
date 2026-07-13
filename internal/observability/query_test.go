@@ -53,7 +53,8 @@ func TestQueryLogsAppliesVictoriaLogsScope(t *testing.T) {
 	if strings.Contains(filters, "app_root_hash") {
 		t.Fatalf("logs scope should not require app root hash: %q", filters)
 	}
-	if result.SchemaVersion != LogsQuerySchema || len(result.Logs) != 1 {
+	wantIdentity := NewPayloadIdentity(LogsQueryKind, "scope,backend,query,warnings,logs")
+	if result.Kind != wantIdentity.Kind || result.SchemaRevision != wantIdentity.SchemaRevision || len(result.Logs) != 1 {
 		t.Fatalf("unexpected result: %+v", result)
 	}
 	entry := result.Logs[0]
@@ -98,7 +99,8 @@ func TestTailLogsUsesStartOffsetAndSelfDescribingEntries(t *testing.T) {
 	if form.Get("start_offset") != "15m" || form.Get("start") != "" || form.Get("end") != "" {
 		t.Fatalf("unexpected tail form: %+v", form)
 	}
-	if len(entries) != 1 || entries[0].SchemaVersion != LogsTailEntrySchema || entries[0].Log.Message != "tailed" || entries[0].Scope.SessionID != "session-a" {
+	wantIdentity := NewPayloadIdentity(LogsTailEntryKind, "scope,backend,query,log")
+	if len(entries) != 1 || entries[0].Kind != wantIdentity.Kind || entries[0].SchemaRevision != wantIdentity.SchemaRevision || entries[0].Log.Message != "tailed" || entries[0].Scope.SessionID != "session-a" {
 		t.Fatalf("unexpected tail entries: %+v", entries)
 	}
 }

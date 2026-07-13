@@ -20,6 +20,7 @@ import (
 	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/inspect"
+	"scenery.sh/internal/machine"
 )
 
 type harnessUIOptions struct {
@@ -31,17 +32,17 @@ type harnessUIOptions struct {
 }
 
 type harnessUIResponse struct {
-	SchemaVersion string            `json:"schema_version"`
-	OK            bool              `json:"ok"`
-	GeneratedAt   string            `json:"generated_at"`
-	App           inspect.AppRef    `json:"app"`
-	DashboardURL  string            `json:"dashboard_url"`
-	Routes        []harnessUIRoute  `json:"routes"`
-	Artifacts     []harnessArtifact `json:"artifacts"`
-	Evidence      []harnessEvidence `json:"evidence,omitempty"`
-	Diagnostics   []checkDiagnostic `json:"diagnostics,omitempty"`
-	NextActions   []string          `json:"next_actions,omitempty"`
-	Wrote         string            `json:"wrote,omitempty"`
+	cliPayloadIdentity
+	OK           bool              `json:"ok"`
+	GeneratedAt  string            `json:"generated_at"`
+	App          inspect.AppRef    `json:"app"`
+	DashboardURL string            `json:"dashboard_url"`
+	Routes       []harnessUIRoute  `json:"routes"`
+	Artifacts    []harnessArtifact `json:"artifacts"`
+	Evidence     []harnessEvidence `json:"evidence,omitempty"`
+	Diagnostics  []checkDiagnostic `json:"diagnostics,omitempty"`
+	NextActions  []string          `json:"next_actions,omitempty"`
+	Wrote        string            `json:"wrote,omitempty"`
 }
 
 type harnessUIRoute struct {
@@ -147,9 +148,9 @@ func runSceneryHarnessUI(ctx context.Context, stdout io.Writer, args []string) e
 	}
 
 	resp := harnessUIResponse{
-		SchemaVersion: "scenery.harness.ui.v1",
-		OK:            true,
-		GeneratedAt:   time.Now().UTC().Format(time.RFC3339Nano),
+		cliPayloadIdentity: newCLIPayloadIdentity("scenery.harness.ui"),
+		OK:                 true,
+		GeneratedAt:        time.Now().UTC().Format(time.RFC3339Nano),
 		App: inspect.AppRef{
 			Name:       cfg.Name,
 			ID:         cfg.ID,
@@ -279,7 +280,7 @@ func startHarnessUIDevProcess(ctx context.Context, appRoot string) (*harnessUIDe
 	if err != nil {
 		return nil, err
 	}
-	cmd := exec.CommandContext(ctx, exe, "up", "--app-root", appRoot, "--listen", appAddr, "-o", "json")
+	cmd := exec.CommandContext(ctx, exe, "up", "--app-root", appRoot, "--listen", appAddr, "-o", "jsonl")
 	cmd.Dir = appRoot
 	cmd.Env = append(envpolicy.Environ(),
 		"SCENERY_DEV_DASHBOARD_ADDR="+dashboardAddr,
@@ -330,8 +331,16 @@ func (p *harnessUIDevProcess) scanDevOutput(r io.Reader, ready chan<- harnessUID
 		if ready == nil {
 			continue
 		}
+		envelope, err := machine.DecodeEvent[json.RawMessage]([]byte(line), currentMachineSpecRevision())
+		if err != nil || envelope.Event != "event" {
+			continue
+		}
+		encoded, err := json.Marshal(envelope.Data)
+		if err != nil {
+			continue
+		}
 		var event runEvent
-		if err := json.Unmarshal([]byte(line), &event); err != nil {
+		if err := json.Unmarshal(encoded, &event); err != nil {
 			continue
 		}
 		switch event.Type {
@@ -408,59 +417,59 @@ func buildHarnessUIRoutes(dashboardURL, appID string) []harnessUIRouteSpec {
 		{
 			Name:    "dashboard-home",
 			Path:    appURL,
-			Markers: []string{`[data-scenery-ui="ConsoleNextHeaderNav"]`},
+			Markers: []string{`[data-scenery-ui="ConsoleHeaderNav"]`},
 			Checks: []harnessUIJourneyCheckSpec{
-				{Name: "overview route rendered", Selector: `[data-scenery-ui="ConsoleNextOverview"]`, Required: true},
+				{Name: "overview route rendered", Selector: `[data-scenery-ui="ConsoleOverview"]`, Required: true},
 			},
 		},
 		{
 			Name:    "api-explorer",
 			Path:    appURL,
-			Markers: []string{`[data-scenery-ui="ConsoleNextHeaderNav"]`},
+			Markers: []string{`[data-scenery-ui="ConsoleHeaderNav"]`},
 			Actions: []harnessUIJourneyActionSpec{
-				{Name: "api page opens", Click: `[data-scenery-ui="ConsoleNextTab:API"]`, WaitSelector: `[data-scenery-ui="ConsoleNextAPIExplorer"]`},
+				{Name: "api page opens", Click: `[data-scenery-ui="ConsoleTab:API"]`, WaitSelector: `[data-scenery-ui="ConsoleAPIExplorer"]`},
 			},
 		},
 		{
 			Name:    "service-catalog",
 			Path:    appURL,
-			Markers: []string{`[data-scenery-ui="ConsoleNextHeaderNav"]`},
+			Markers: []string{`[data-scenery-ui="ConsoleHeaderNav"]`},
 			Actions: []harnessUIJourneyActionSpec{
-				{Name: "catalog page opens", Click: `[data-scenery-ui="ConsoleNextTab:Catalog"]`, WaitSelector: `[data-scenery-ui="ConsoleNextServiceCatalog"]`},
+				{Name: "catalog page opens", Click: `[data-scenery-ui="ConsoleTab:Catalog"]`, WaitSelector: `[data-scenery-ui="ConsoleServiceCatalog"]`},
 			},
 		},
 		{
 			Name:    "traces",
 			Path:    appURL,
-			Markers: []string{`[data-scenery-ui="ConsoleNextHeaderNav"]`},
+			Markers: []string{`[data-scenery-ui="ConsoleHeaderNav"]`},
 			Actions: []harnessUIJourneyActionSpec{
-				{Name: "traces page opens", Click: `[data-scenery-ui="ConsoleNextTab:Traces"]`, WaitSelector: `[data-scenery-ui="ConsoleNextTraces"]`},
+				{Name: "traces page opens", Click: `[data-scenery-ui="ConsoleTab:Traces"]`, WaitSelector: `[data-scenery-ui="ConsoleTraces"]`},
 			},
 		},
 		{
 			Name:    "db-explorer",
 			Path:    appURL,
-			Markers: []string{`[data-scenery-ui="ConsoleNextHeaderNav"]`},
+			Markers: []string{`[data-scenery-ui="ConsoleHeaderNav"]`},
 			Actions: []harnessUIJourneyActionSpec{
-				{Name: "databases page opens", Click: `[data-scenery-ui="ConsoleNextTab:Databases"]`, WaitSelector: `[data-scenery-ui="ConsoleNextDatabases"]`},
+				{Name: "databases page opens", Click: `[data-scenery-ui="ConsoleTab:Databases"]`, WaitSelector: `[data-scenery-ui="ConsoleDatabases"]`},
 			},
 		},
 		{
 			Name:    "cron",
 			Path:    appURL,
-			Markers: []string{`[data-scenery-ui="ConsoleNextHeaderNav"]`},
+			Markers: []string{`[data-scenery-ui="ConsoleHeaderNav"]`},
 			Actions: []harnessUIJourneyActionSpec{
-				{Name: "cron page opens", Click: `[data-scenery-ui="ConsoleNextTab:Cron"]`, WaitSelector: `[data-scenery-ui="ConsoleNextCron"]`},
+				{Name: "cron page opens", Click: `[data-scenery-ui="ConsoleTab:Cron"]`, WaitSelector: `[data-scenery-ui="ConsoleCron"]`},
 			},
 		},
 		{
 			Name:    "symphony",
 			Path:    appURL,
-			Markers: []string{`[data-scenery-ui="ConsoleNextHeaderNav"]`},
+			Markers: []string{`[data-scenery-ui="ConsoleHeaderNav"]`},
 			Actions: []harnessUIJourneyActionSpec{
-				{Name: "symphony page opens", Click: `[data-scenery-ui="ConsoleNextTab:Symphony"]`, WaitSelector: `[data-scenery-ui="ConsoleNextSymphony"]`},
-				{Name: "symphony board visible", Click: `[data-scenery-ui="ConsoleNextTab:Symphony"]`, WaitSelector: `[data-scenery-ui="SymphonyBoard"]`},
-				{Name: "symphony hidden columns visible", Click: `[data-scenery-ui="ConsoleNextTab:Symphony"]`, WaitSelector: `[data-scenery-ui="SymphonyHiddenColumns"]`},
+				{Name: "symphony page opens", Click: `[data-scenery-ui="ConsoleTab:Symphony"]`, WaitSelector: `[data-scenery-ui="ConsoleSymphony"]`},
+				{Name: "symphony board visible", Click: `[data-scenery-ui="ConsoleTab:Symphony"]`, WaitSelector: `[data-scenery-ui="SymphonyBoard"]`},
+				{Name: "symphony hidden columns visible", Click: `[data-scenery-ui="ConsoleTab:Symphony"]`, WaitSelector: `[data-scenery-ui="SymphonyHiddenColumns"]`},
 			},
 		},
 	}
@@ -519,11 +528,7 @@ func attachHarnessUIRouteEvidence(routes []harnessUIRoute, appRoot string) []har
 			})
 		}
 		if out[i].DOMSnapshot != "" {
-			artifacts = append(artifacts, harnessEvidenceArtifact{
-				Name:          "dom:" + out[i].Name,
-				Path:          out[i].DOMSnapshot,
-				SchemaVersion: "scenery.harness.ui.dom.v1",
-			})
+			artifacts = append(artifacts, newHarnessEvidenceArtifact("dom:"+out[i].Name, out[i].DOMSnapshot, "scenery.harness.ui.dom"))
 		}
 		finalizeHarnessEvidence(&evidence, time.Duration(out[i].DurationMS)*time.Millisecond, out[i].OK, "", out[i].Error, nil, artifacts)
 		out[i].Evidence = &evidence
@@ -565,12 +570,7 @@ func buildHarnessUINextActions(resp harnessUIResponse) []string {
 
 func markHarnessUIArtifacts(items []harnessArtifact, latest string) []harnessArtifact {
 	items = append([]harnessArtifact(nil), items...)
-	items = append(items, harnessArtifact{
-		Name:          "ui-harness",
-		Path:          ".scenery/harness/ui/latest.json",
-		SchemaVersion: "scenery.harness.ui.v1",
-		Exists:        latest != "" || pathExists(latest),
-	})
+	items = append(items, newHarnessArtifact("ui-harness", ".scenery/harness/ui/latest.json", "scenery.harness.ui", latest != "" || pathExists(latest)))
 	return items
 }
 

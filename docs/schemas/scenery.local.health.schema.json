@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.local.health.schema.json",
+  "title": "scenery.local.health",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "spec_revision",
+    "producer",
+    "status",
+    "session_id",
+    "base_url"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.local.health"
+    },
+    "schema_revision": {
+      "const": "sha256:af2ff38e2a1d33b3657300d2a12b8d249a94cb13be536dec4680b030a5275569"
+    },
+    "spec_revision": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "producer": {
+      "type": "object"
+    },
+    "status": {
+      "const": "ok"
+    },
+    "session_id": {
+      "type": "string"
+    },
+    "base_url": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

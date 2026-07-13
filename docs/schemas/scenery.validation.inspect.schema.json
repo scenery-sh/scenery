@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.validation.inspect.schema.json",
+  "title": "scenery.validation.inspect",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "app",
+    "profile",
+    "resolved_steps",
+    "source"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.validation.inspect"
+    },
+    "schema_revision": {
+      "const": "sha256:cebd1d3580ec6f91147dc707bca344abbb5d20787749fd5dd28e76bdf480b085"
+    },
+    "app": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "profile": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "resolved_steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "tasks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "source": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

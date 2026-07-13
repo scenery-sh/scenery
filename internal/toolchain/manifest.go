@@ -15,16 +15,17 @@ import (
 )
 
 const (
-	ManifestSchemaVersion = "scenery.toolchain.v1"
-	StatusSchemaVersion   = "scenery.toolchain.status.v1"
-	InstallSchemaVersion  = "scenery.toolchain.install.v1"
+	ManifestKind             = "scenery.toolchain"
+	ManifestSchemaRevision   = "sha256:02fd89902b530fb84a9fc13269b5ed93f1a01d8981430ba4f263963f40d86bc6"
+	manifestSchemaDescriptor = `{"artifacts":"array<artifact>","kind":"scenery.toolchain","schema_revision":"digest","source_locks":"array<source-lock>"}`
+	StatusKind               = "scenery.toolchain.status"
 )
 
 type Manifest struct {
-	SchemaVersion   string       `json:"schema_version"`
-	ManifestVersion int          `json:"manifest_version"`
-	SourceLocks     []SourceLock `json:"source_locks"`
-	Artifacts       []Artifact   `json:"artifacts"`
+	Kind           string       `json:"kind"`
+	SchemaRevision string       `json:"schema_revision"`
+	SourceLocks    []SourceLock `json:"source_locks"`
+	Artifacts      []Artifact   `json:"artifacts"`
 }
 
 type SourceLock struct {
@@ -117,11 +118,8 @@ func ParseManifest(data []byte) (Manifest, error) {
 }
 
 func (m Manifest) Validate() error {
-	if m.SchemaVersion != ManifestSchemaVersion {
-		return fmt.Errorf("unsupported toolchain manifest schema %q", m.SchemaVersion)
-	}
-	if m.ManifestVersion <= 0 {
-		return fmt.Errorf("toolchain manifest_version must be positive")
+	if m.Kind != ManifestKind || m.SchemaRevision != ManifestSchemaRevision {
+		return fmt.Errorf("unsupported toolchain manifest identity %q %q", m.Kind, m.SchemaRevision)
 	}
 	seenLocks := map[string]bool{}
 	for i, lock := range m.SourceLocks {

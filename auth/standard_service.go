@@ -310,9 +310,9 @@ func refreshCookie(value string, expiresAt time.Time) string {
 	return cookie
 }
 
-func clearRefreshCookie(name string) string {
+func clearRefreshCookie() string {
 	cookie := (&http.Cookie{
-		Name:     name,
+		Name:     refreshCookieName,
 		Value:    "",
 		Path:     refreshCookiePath(requestHeaders()),
 		Expires:  time.Unix(0, 0),

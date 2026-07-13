@@ -22,9 +22,8 @@ type EmailVerificationResendResponse struct {
 }
 
 type LogoutResponse struct {
-	OK              bool   `json:"ok"`
-	SetCookie       string `json:"-" header:"Set-Cookie"`
-	legacySetCookie string
+	OK        bool   `json:"ok"`
+	SetCookie string `json:"-" header:"Set-Cookie"`
 }
 
 // SignupEmail creates a first-party email/password user and sends an email verification token.
@@ -339,9 +338,8 @@ func (s *Service) Logout(ctx context.Context, params *RefreshParams) (*LogoutRes
 		}
 	}
 	return &LogoutResponse{
-		OK:              true,
-		SetCookie:       clearRefreshCookie(refreshCookieName),
-		legacySetCookie: clearRefreshCookie(legacyRefreshCookieName),
+		OK:        true,
+		SetCookie: clearRefreshCookie(),
 	}, nil
 }
 

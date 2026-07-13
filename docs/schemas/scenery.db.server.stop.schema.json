@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.db.server.stop.schema.json",
+  "title": "scenery.db.server.stop",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.db.server.stop"
+    },
+    "schema_revision": {
+      "const": "sha256:f3e444f3a3840938fa93468976a7cbf9c260a97f163075c3e5c59b333667bd2f"
+    },
+    "ok": {
+    },
+    "container": {
+    }
+  },
+  "additionalProperties": false
+}

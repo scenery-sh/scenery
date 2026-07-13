@@ -19,7 +19,7 @@ scenery should optimize for agent legibility and fast feedback loops:
 Already implemented:
 
 - Stable inspect surfaces: `scenery inspect app|routes|services|endpoints|build|paths|docs -o json`.
-- Native edition-2027 resource inspection through `scenery compile|list|get|explain ... -o json`.
+- Current specification resource inspection through `scenery compile|list|get|explain ... -o json`.
 - Queryable diagnostics through `scenery traces list -o json`, `scenery metrics list -o json`, and `scenery logs -o jsonl`.
 - App harness: `scenery harness -o json --write`.
 - Repo self-harness: `scenery harness self -o json --write`.

@@ -7,11 +7,6 @@ import (
 	"strings"
 )
 
-const (
-	contractHTTPPathTailProfile        = "scenery.http-path-tail/v1"
-	contractRuntimeHTTPPathTailProfile = "scenery.runtime-http-path-tail/v1"
-)
-
 func validateContractPathTail(endpoint *Endpoint) error {
 	tail := endpoint.ContractPathTail
 	if tail == nil {
@@ -40,9 +35,6 @@ func validateContractPathTail(endpoint *Endpoint) error {
 	validEmpty := map[string]string{"string": "empty_string", "relative_path": "invalid_request", "optional(relative_path)": "absent"}
 	if validEmpty[tail.Type] == "" || tail.EmptyCapture != validEmpty[tail.Type] {
 		return fmt.Errorf("unsupported target type or empty-capture behavior")
-	}
-	if !slices.Contains(tail.RequiredProfiles, contractHTTPPathTailProfile) || !slices.Contains(tail.RequiredProfiles, contractRuntimeHTTPPathTailProfile) {
-		return fmt.Errorf("required path-tail profiles are missing")
 	}
 	return nil
 }

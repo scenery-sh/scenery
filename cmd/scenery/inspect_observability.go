@@ -16,8 +16,8 @@ import (
 )
 
 const (
-	inspectTracesSchema  = "scenery.inspect.traces.v1"
-	inspectMetricsSchema = "scenery.inspect.metrics.v1"
+	inspectTracesKind  = "scenery.inspect.traces"
+	inspectMetricsKind = "scenery.inspect.metrics"
 )
 
 type inspectTraceQueryOptions struct {
@@ -33,23 +33,23 @@ type inspectTraceQueryOptions struct {
 }
 
 type inspectTracesResponse struct {
-	SchemaVersion string                  `json:"schema_version"`
-	App           inspectdata.AppRef      `json:"app"`
-	Query         inspectTraceQueryRecord `json:"query"`
-	Warnings      []string                `json:"warnings,omitempty"`
-	Traces        []inspectTraceRecord    `json:"traces"`
+	cliPayloadIdentity
+	App      inspectdata.AppRef      `json:"app"`
+	Query    inspectTraceQueryRecord `json:"query"`
+	Warnings []string                `json:"warnings,omitempty"`
+	Traces   []inspectTraceRecord    `json:"traces"`
 }
 
 type inspectMetricsResponse struct {
-	SchemaVersion string                       `json:"schema_version"`
-	App           inspectdata.AppRef           `json:"app"`
-	Query         inspectTraceQueryRecord      `json:"query"`
-	Warnings      []string                     `json:"warnings,omitempty"`
-	Summary       inspectMetricsSummary        `json:"summary"`
-	Services      []inspectTraceMetric         `json:"services"`
-	Endpoints     []inspectTraceMetric         `json:"endpoints"`
-	Logs          []devdash.LogLevelCount      `json:"logs"`
-	Meta          inspectObservabilityMetaInfo `json:"meta"`
+	cliPayloadIdentity
+	App       inspectdata.AppRef           `json:"app"`
+	Query     inspectTraceQueryRecord      `json:"query"`
+	Warnings  []string                     `json:"warnings,omitempty"`
+	Summary   inspectMetricsSummary        `json:"summary"`
+	Services  []inspectTraceMetric         `json:"services"`
+	Endpoints []inspectTraceMetric         `json:"endpoints"`
+	Logs      []devdash.LogLevelCount      `json:"logs"`
+	Meta      inspectObservabilityMetaInfo `json:"meta"`
 }
 
 type inspectTraceQueryRecord struct {
@@ -143,10 +143,10 @@ func buildInspectTracesResponse(ctx context.Context, appRoot string, cfg appcfg.
 	}
 	opts.Session = sessionID
 	resp := inspectTracesResponse{
-		SchemaVersion: inspectTracesSchema,
-		App:           inspectAppInfo(appRoot, cfg, nil),
-		Query:         buildInspectTraceQueryRecord(appID, opts),
-		Traces:        []inspectTraceRecord{},
+		cliPayloadIdentity: newCLIPayloadIdentity(inspectTracesKind),
+		App:                inspectAppInfo(appRoot, cfg, nil),
+		Query:              buildInspectTraceQueryRecord(appID, opts),
+		Traces:             []inspectTraceRecord{},
 	}
 
 	store, warnings, err := openObservabilityStore(ctx, appRoot, cfg, sessionID)
@@ -187,12 +187,12 @@ func buildInspectMetricsResponse(ctx context.Context, appRoot string, cfg appcfg
 	}
 	opts.Session = sessionID
 	resp := inspectMetricsResponse{
-		SchemaVersion: inspectMetricsSchema,
-		App:           inspectAppInfo(appRoot, cfg, nil),
-		Query:         buildInspectTraceQueryRecord(appID, opts),
-		Services:      []inspectTraceMetric{},
-		Endpoints:     []inspectTraceMetric{},
-		Logs:          []devdash.LogLevelCount{},
+		cliPayloadIdentity: newCLIPayloadIdentity(inspectMetricsKind),
+		App:                inspectAppInfo(appRoot, cfg, nil),
+		Query:              buildInspectTraceQueryRecord(appID, opts),
+		Services:           []inspectTraceMetric{},
+		Endpoints:          []inspectTraceMetric{},
+		Logs:               []devdash.LogLevelCount{},
 		Meta: inspectObservabilityMetaInfo{
 			TraceMetricLimit: opts.Limit,
 		},

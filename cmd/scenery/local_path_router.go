@@ -20,9 +20,11 @@ import (
 	"time"
 
 	localagent "scenery.sh/internal/agent"
+	"scenery.sh/internal/machine"
 )
 
-const localPathRouterStateVersion = "scenery.local_path_router.v1"
+const localPathRouterStateKind = "scenery.local-path-router"
+const localPathRouterStateDescriptor = `{"identity":"artifact","state":"local-path-router"}`
 const localPathRouterStorageAssetCacheKey = "scenery_path=storage_v2"
 
 var localPathRouterHTMLRootRefRE = regexp.MustCompile(`\b(src|href)="(/[^"]*)"`)
@@ -32,18 +34,18 @@ var localPathRouterJSRootAssetRefRE = regexp.MustCompile(`(["'])(/[^"'\\]*\.(?:a
 var localPathRouterStorageAssetRefRE = regexp.MustCompile(`\b(src|href)="(/storage/assets/[^"?]+\.(?:js|css))"`)
 
 type localPathRouterState struct {
-	SchemaVersion string    `json:"schema_version"`
-	Kind          string    `json:"kind"`
-	Status        string    `json:"status"`
-	SessionID     string    `json:"session_id"`
-	AppRoot       string    `json:"app_root"`
-	Port          int       `json:"port"`
-	URL           string    `json:"url"`
-	PID           int       `json:"pid"`
-	UpstreamAddr  string    `json:"upstream_addr"`
-	ConfigPath    string    `json:"config_path,omitempty"`
-	LogPath       string    `json:"log_path,omitempty"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	machine.ArtifactIdentity
+	Kind         string    `json:"router_kind"`
+	Status       string    `json:"status"`
+	SessionID    string    `json:"session_id"`
+	AppRoot      string    `json:"app_root"`
+	Port         int       `json:"port"`
+	URL          string    `json:"url"`
+	PID          int       `json:"pid"`
+	UpstreamAddr string    `json:"upstream_addr"`
+	ConfigPath   string    `json:"config_path,omitempty"`
+	LogPath      string    `json:"log_path,omitempty"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 type localPathRouterOptions struct {
@@ -166,18 +168,18 @@ func startLocalPathRouter(ctx context.Context, opts localPathRouterOptions) (fun
 		done <- nil
 	}()
 	state := localPathRouterState{
-		SchemaVersion: localPathRouterStateVersion,
-		Kind:          "builtin",
-		Status:        "running",
-		SessionID:     session.SessionID,
-		AppRoot:       session.AppRoot,
-		Port:          lease.Port,
-		URL:           baseURL,
-		PID:           os.Getpid(),
-		UpstreamAddr:  upstreamAddr,
-		ConfigPath:    artifacts.configPath,
-		LogPath:       artifacts.logPath,
-		UpdatedAt:     time.Now().UTC(),
+		ArtifactIdentity: machine.NewArtifactIdentity(localPathRouterStateKind, localPathRouterStateDescriptor),
+		Kind:             "builtin",
+		Status:           "running",
+		SessionID:        session.SessionID,
+		AppRoot:          session.AppRoot,
+		Port:             lease.Port,
+		URL:              baseURL,
+		PID:              os.Getpid(),
+		UpstreamAddr:     upstreamAddr,
+		ConfigPath:       artifacts.configPath,
+		LogPath:          artifacts.logPath,
+		UpdatedAt:        time.Now().UTC(),
 	}
 	if err := writeLocalPathRouterState(session.StateRoot, state); err != nil {
 		_ = server.Close()
@@ -586,9 +588,7 @@ http://127.0.0.1:%d, http://localhost:%d {
 }
 
 func writeLocalPathRouterState(stateRoot string, state localPathRouterState) error {
-	if state.SchemaVersion == "" {
-		state.SchemaVersion = localPathRouterStateVersion
-	}
+	state.ArtifactIdentity = machine.NewArtifactIdentity(localPathRouterStateKind, localPathRouterStateDescriptor)
 	if state.UpdatedAt.IsZero() {
 		state.UpdatedAt = time.Now().UTC()
 	}

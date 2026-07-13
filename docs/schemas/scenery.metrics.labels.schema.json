@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.metrics.labels.schema.json",
+  "title": "scenery.metrics.labels",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "scope",
+    "backend",
+    "query",
+    "labels"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.metrics.labels"
+    },
+    "schema_revision": {
+      "const": "sha256:3ada3931f5afdb8a340d4fc2318613297632bae6646c2218df34ec3b98d22482"
+    },
+    "scope": {
+      "$ref": "scenery.inspect.observability.schema.json#/$defs/scope"
+    },
+    "backend": {
+      "$ref": "scenery.inspect.observability.schema.json#/$defs/backend"
+    },
+    "query": {
+      "$ref": "#/$defs/query"
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "labels": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "query": {
+      "type": "object",
+      "required": [
+        "start",
+        "end"
+      ],
+      "properties": {
+        "match": {
+          "type": "string"
+        },
+        "since": {
+          "type": "string"
+        },
+        "start": {
+          "type": "string"
+        },
+        "end": {
+          "type": "string"
+        },
+        "timeout": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,6 +1,6 @@
 {
-  "schema_version": "scenery.toolchain.v1",
-  "manifest_version": 2,
+  "kind": "scenery.toolchain",
+  "schema_revision": "sha256:02fd89902b530fb84a9fc13269b5ed93f1a01d8981430ba4f263963f40d86bc6",
   "source_locks": [
     {
       "name": "go-modules",
@@ -12,8 +12,8 @@
       "name": "dashboard-ui",
       "kind": "package-manager",
       "manager": "bun",
-      "manifest": "apps/consolenext/package.json",
-      "lock": "apps/consolenext/bun.lock"
+      "manifest": "apps/console/package.json",
+      "lock": "apps/console/bun.lock"
     },
     {
       "name": "scenery-ui-registry",

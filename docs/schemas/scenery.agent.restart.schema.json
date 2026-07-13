@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.agent.restart.schema.json",
+  "title": "scenery.agent.restart",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.agent.restart"
+    },
+    "schema_revision": {
+      "const": "sha256:f2c09773f5bb07c7649aa2001cb3be4d72aaacaa1637142af6fdd0deae41c8bf"
+    },
+    "old_pid": {
+    },
+    "pid": {
+    },
+    "socket_path": {
+    },
+    "router_addr": {
+    },
+    "router_scheme": {
+    }
+  },
+  "additionalProperties": false
+}

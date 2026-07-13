@@ -15,6 +15,7 @@ import (
 	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/app"
 	durablestore "scenery.sh/internal/durable/store"
+	"scenery.sh/internal/machine"
 	"scenery.sh/internal/postgresdb"
 )
 
@@ -236,14 +237,14 @@ func seedHarnessPostgresServerState(agentHome, label string) (*postgresServerSta
 		return nil, err
 	}
 	state := postgresServerState{
-		SchemaVersion: postgresServerSchemaVersion,
-		Container:     "scenery-postgres-harness-" + label,
-		Volume:        "scenery-postgres-harness-" + label + "-data",
-		Image:         postgresServerImage,
-		Port:          port,
-		User:          postgresServerUser,
-		Password:      password,
-		CreatedAt:     time.Now().UTC(),
+		ArtifactIdentity: machine.NewArtifactIdentity(postgresServerStateKind, postgresServerDescriptor),
+		Container:        "scenery-postgres-harness-" + label,
+		Volume:           "scenery-postgres-harness-" + label + "-data",
+		Image:            postgresServerImage,
+		Port:             port,
+		User:             postgresServerUser,
+		Password:         password,
+		CreatedAt:        time.Now().UTC(),
 	}
 	path := postgresServerStatePath(localagent.PathsForHome(agentHome))
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {

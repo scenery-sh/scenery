@@ -8,11 +8,21 @@ import (
 	"io"
 	"os"
 	"os/user"
+	"runtime"
 	"strings"
 	"time"
 
 	"scenery.sh/errs"
+	"scenery.sh/internal/machine"
+	"scenery.sh/internal/spec"
 	"scenery.sh/runtime/shared"
+)
+
+const (
+	ContractCLIRequestKind            = "scenery.contract-cli.request"
+	ContractCLIResponseKind           = "scenery.contract-cli.response"
+	ContractCLIRequestSchemaRevision  = "sha256:95f956252d5b0a53ba551fb8c7f33ad7a928b1a3f6d858e94f0d39de69e470b1"
+	ContractCLIResponseSchemaRevision = "sha256:42b3bc64a69833b0456dfaf6d4332fcad6a4eb208fed48b4723f17b1d3360198"
 )
 
 type ContractCLIInvoke func(context.Context, []byte) (ContractCLIOutcome, error)
@@ -36,15 +46,21 @@ type ContractCLISystemProblem struct {
 }
 
 type ContractCLIResponse struct {
-	APIVersion string                    `json:"api_version"`
-	Outcome    *ContractCLIOutcome       `json:"outcome,omitempty"`
-	Problem    *ContractCLISystemProblem `json:"problem,omitempty"`
+	Kind           string                    `json:"kind"`
+	SchemaRevision string                    `json:"schema_revision"`
+	SpecRevision   string                    `json:"spec_revision"`
+	Producer       machine.Producer          `json:"producer"`
+	Outcome        *ContractCLIOutcome       `json:"outcome,omitempty"`
+	Problem        *ContractCLISystemProblem `json:"problem,omitempty"`
 }
 
-type contractCLIRequest struct {
-	APIVersion string          `json:"api_version"`
-	Binding    string          `json:"binding"`
-	Input      json.RawMessage `json:"input"`
+type ContractCLIRequest struct {
+	Kind           string           `json:"kind"`
+	SchemaRevision string           `json:"schema_revision"`
+	SpecRevision   string           `json:"spec_revision"`
+	Producer       machine.Producer `json:"producer"`
+	Binding        string           `json:"binding"`
+	Input          json.RawMessage  `json:"input"`
 }
 
 func RegisterContractCLIBinding(registration ContractCLIBindingRegistration) error {
@@ -116,13 +132,16 @@ func ExecuteContractCLIRequest(path string, output io.Writer) error {
 	if err != nil {
 		return err
 	}
-	var request contractCLIRequest
+	var request ContractCLIRequest
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&request); err != nil || decoder.Decode(&struct{}{}) != io.EOF || request.APIVersion != "scenery.contract-cli-request/v1" || request.Binding == "" || len(request.Input) == 0 {
+	if err := decoder.Decode(&request); err != nil || decoder.Decode(&struct{}{}) != io.EOF || validateContractCLIRequest(request) != nil {
 		return fmt.Errorf("invalid contract CLI request")
 	}
-	response := ContractCLIResponse{APIVersion: "scenery.contract-cli-response/v1"}
+	response := ContractCLIResponse{
+		Kind: ContractCLIResponseKind, SchemaRevision: ContractCLIResponseSchemaRevision,
+		SpecRevision: request.SpecRevision, Producer: contractCLIRuntimeProducer(),
+	}
 	outcome, invokeErr := InvokeContractCLIBinding(context.Background(), request.Binding, request.Input)
 	if invokeErr == nil {
 		response.Outcome = &outcome
@@ -134,4 +153,31 @@ func ExecuteContractCLIRequest(path string, output io.Writer) error {
 		response.Problem = &ContractCLISystemProblem{Code: code, Message: invokeErr.Error()}
 	}
 	return json.NewEncoder(output).Encode(response)
+}
+
+func validateContractCLIRequest(request ContractCLIRequest) error {
+	if request.Kind != ContractCLIRequestKind || request.SchemaRevision != ContractCLIRequestSchemaRevision || request.SpecRevision != string(spec.CurrentRevision()) {
+		return fmt.Errorf("unexpected contract CLI request identity")
+	}
+	if request.Binding == "" || len(request.Input) == 0 || request.Producer.Version == "" || request.Producer.Toolchain.GoVersion == "" {
+		return fmt.Errorf("incomplete contract CLI request")
+	}
+	return nil
+}
+
+func ValidateContractCLIResponse(response ContractCLIResponse, expectedSpecRevision string) error {
+	if response.Kind != ContractCLIResponseKind || response.SchemaRevision != ContractCLIResponseSchemaRevision || response.SpecRevision != expectedSpecRevision {
+		return fmt.Errorf("unexpected contract CLI response identity")
+	}
+	if response.Producer.Version == "" || response.Producer.Toolchain.GoVersion == "" {
+		return fmt.Errorf("incomplete contract CLI response producer")
+	}
+	if (response.Outcome == nil) == (response.Problem == nil) {
+		return fmt.Errorf("contract CLI response must contain exactly one outcome or problem")
+	}
+	return nil
+}
+
+func contractCLIRuntimeProducer() machine.Producer {
+	return machine.Producer{Version: "scenery-runtime", Toolchain: machine.Toolchain{GoVersion: runtime.Version()}}
 }

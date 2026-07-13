@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.docs.index.schema.json",
+  "title": "scenery.docs.index",
+  "type": "object",
+  "required": ["kind", "schema_revision", "generated_at", "owner_default", "freshness_policy", "documents", "plans", "tech_debt"],
+  "properties": {
+    "kind": { "const": "scenery.docs.index" },
+    "schema_revision": { "const": "sha256:f7dd1d1f35accc8e6d7709db084650bcebc74321fd74b1f0faa283dab0e5d6b4" },
+    "generated_at": { "type": "string" },
+    "owner_default": { "type": "string" },
+    "freshness_policy": {
+      "type": "object",
+      "required": ["default_review_days", "quality_grades", "freshness_states"],
+      "properties": {
+        "default_review_days": { "type": "integer" },
+        "quality_grades": {
+          "type": "array",
+          "items": { "enum": ["A", "B", "C", "D"] }
+        },
+        "freshness_states": {
+          "type": "array",
+          "items": { "enum": ["current", "review_due", "stale"] }
+        }
+      },
+      "additionalProperties": false
+    },
+    "documents": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/document" }
+    },
+    "plans": {
+      "type": "object",
+      "required": ["active", "completed"],
+      "properties": {
+        "active": { "type": "string" },
+        "completed": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "tech_debt": { "type": "string" }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "document": {
+      "type": "object",
+      "required": ["path", "title", "owner", "status", "quality", "freshness", "last_reviewed", "review_after", "summary", "tags"],
+      "properties": {
+        "path": { "type": "string" },
+        "title": { "type": "string" },
+        "owner": { "type": "string" },
+        "status": { "enum": ["active", "reference", "completed", "deprecated"] },
+        "quality": { "enum": ["A", "B", "C", "D"] },
+        "freshness": { "enum": ["current", "review_due", "stale"] },
+        "last_reviewed": { "type": "string" },
+        "review_after": { "type": "string" },
+        "summary": { "type": "string" },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "schema_refs": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

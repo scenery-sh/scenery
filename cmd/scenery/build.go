@@ -39,7 +39,7 @@ func buildCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := validateVNextRuntimePlan(appRoot); err != nil {
+	if err := validateRuntimePlan(appRoot); err != nil {
 		return err
 	}
 	if outputPath != "" && !filepath.IsAbs(outputPath) {
@@ -48,21 +48,21 @@ func buildCommand(args []string) error {
 			return err
 		}
 	}
-	result, err := build.AppForVNextTarget(appRoot, cfg, targetName, "artifact")
+	result, err := build.AppForTarget(appRoot, cfg, targetName, "artifact")
 	if err != nil {
 		return err
 	}
 	if outputPath == "" {
 		goos := goruntime.GOOS
-		if result.VNextTarget != nil {
-			goos = result.VNextTarget.Context.GOOS
+		if result.Target != nil {
+			goos = result.Target.Context.GOOS
 		}
 		outputPath = filepath.Join(appRoot, defaultBuildBinaryNameForGOOS(cfg.Name, goos))
 	}
 	if info, err := os.Stat(outputPath); err == nil && info.IsDir() {
 		goos := goruntime.GOOS
-		if result.VNextTarget != nil {
-			goos = result.VNextTarget.Context.GOOS
+		if result.Target != nil {
+			goos = result.Target.Context.GOOS
 		}
 		outputPath = filepath.Join(outputPath, defaultBuildBinaryNameForGOOS(cfg.Name, goos))
 	} else if err != nil && !os.IsNotExist(err) {
@@ -79,20 +79,19 @@ func buildCommand(args []string) error {
 		}
 	}
 	descriptorPath := ""
-	if result.VNextTarget != nil {
-		descriptor := build.VNextRuntimeBundlePath(appRoot, result.VNextTarget.Name)
-		descriptorPath = outputPath + ".scenery.runtime-bundle.v1.json"
+	if result.Target != nil {
+		descriptor := build.RuntimeBundlePath(appRoot, result.Target.Name)
+		descriptorPath = outputPath + ".scenery.runtime-bundle.json"
 		if _, err := copyBinary(descriptor, descriptorPath); err != nil {
 			return err
 		}
 	}
 	if jsonOutput {
-		return writeCLIJSON(os.Stdout, map[string]any{
-			"schema_version":  "scenery.build.result.v1",
+		return writeCLIJSON(os.Stdout, withCLIPayloadIdentity("scenery.build.result", map[string]any{
 			"output_path":     outputPath,
 			"descriptor_path": descriptorPath,
 			"copied":          copied,
-		})
+		}))
 	}
 	fmt.Fprintf(os.Stdout, "scenery: built %s\n", outputPath)
 	return nil

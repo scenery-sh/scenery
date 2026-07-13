@@ -78,12 +78,12 @@ func CompileContext(ctx context.Context, result *Result) error {
 		}
 		return WriteLatestBuildManifest(result, "compiled")
 	}
-	if result.VNextTarget != nil && result.NeedsTidy {
+	if result.Target != nil && result.NeedsTidy {
 		if err := tidyWorkspace(ctx, result); err != nil {
 			return err
 		}
 	}
-	if err := prepareVNextRuntimeBundle(ctx, result); err != nil {
+	if err := prepareRuntimeBundle(ctx, result); err != nil {
 		return err
 	}
 	if !result.NeedsTidy {
@@ -104,7 +104,7 @@ func CompileContext(ctx context.Context, result *Result) error {
 	if err != nil {
 		return err
 	}
-	if err := writeVNextRuntimeBundle(result); err != nil {
+	if err := writeRuntimeBundle(result); err != nil {
 		return err
 	}
 	if result.NeedsTidy {

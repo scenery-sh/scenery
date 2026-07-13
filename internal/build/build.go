@@ -5,8 +5,9 @@ import (
 	"fmt"
 
 	"scenery.sh/internal/app"
+	"scenery.sh/internal/compiler"
+	"scenery.sh/internal/machine"
 	"scenery.sh/internal/parse"
-	"scenery.sh/internal/vnext"
 )
 
 type Result struct {
@@ -32,9 +33,9 @@ type Result struct {
 	Ephemeral                 bool
 	GoBuildFlags              []string
 	GoEnvironment             []string
-	VNextContract             *vnext.Result
-	VNextTarget               *vnext.GoBuildTarget
-	VNextBuildInput           *VNextBuildInputManifest
+	Contract                  *compiler.Result
+	Target                    *compiler.GoBuildTarget
+	BuildInput                *BuildInputManifest
 	ImplementationRevisions   map[string]string
 }
 
@@ -89,9 +90,9 @@ type CachedGraph struct {
 }
 
 type LatestBuildManifest struct {
-	SchemaVersion string                    `json:"schema_version"`
-	App           LatestBuildManifestApp    `json:"app"`
-	Build         LatestBuildManifestRecord `json:"build"`
+	machine.ArtifactIdentity
+	App   LatestBuildManifestApp    `json:"app"`
+	Build LatestBuildManifestRecord `json:"build"`
 }
 
 type LatestBuildManifestApp struct {
@@ -119,15 +120,15 @@ type LatestBuildManifestRecord struct {
 	GeneratedFileCount    int    `json:"generated_file_count"`
 }
 
-func AppForVNextTarget(appRoot string, cfg app.Config, targetName, defaultRole string) (*Result, error) {
-	contract, err := vnext.Check(appRoot)
+func AppForTarget(appRoot string, cfg app.Config, targetName, defaultRole string) (*Result, error) {
+	contract, err := compiler.Check(appRoot)
 	if err != nil {
 		return nil, err
 	}
 	if !contract.Valid() {
-		return nil, fmt.Errorf("vNext contract or generated artifacts are invalid")
+		return nil, fmt.Errorf("contract or generated artifacts are invalid")
 	}
-	target, err := vnext.ResolveGoBuildTarget(contract, targetName, defaultRole)
+	target, err := compiler.ResolveGoBuildTarget(contract, targetName, defaultRole)
 	if err != nil {
 		return nil, err
 	}

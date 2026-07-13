@@ -101,13 +101,19 @@ marker, but no runtime dispatch to an older implementation.
 - [x] 2026-07-13 - Read root instructions, `PLANS.md`, current contracts, active plans, completed edition/v0 cleanup plans, source schemas, compiler/profile code, lock/provider code, CLI envelopes, upgrader, auth compatibility, current specifications, dashboard paths, and documentation status.
 - [x] 2026-07-13 - Reconciled the supplied design conversation with current source: verified live edition/profile selectors, versioned kind/schema identities, `internal/vnext`, `apps/consolenext`, `upgrade --version`, package/provider version constraints, and plan-0110 cookie compatibility; rejected the nonexistent `scenery update` command as an implementation assumption.
 - [x] 2026-07-13 - Created this ExecPlan and registered it in `docs/plans/active.md` and `docs/knowledge.json`; no product behavior changed.
-- [ ] Milestone 1 - Remove live compatibility and historical release selection.
-- [ ] Milestone 2 - Remove authored edition/profile selection and infer required behavior from the graph.
-- [ ] Milestone 3 - Establish one current catalog and reset first-party logical and machine identities.
-- [ ] Milestone 4 - Remove Scenery package/provider semantic-version selection.
-- [ ] Milestone 5 - Remove `vnext` / `consolenext` product and specification naming.
-- [ ] Milestone 6 - Move the current implementation into stable responsibility packages without an intermediate mega-package.
-- [ ] Milestone 7 - Add final residue guardrails and complete generated, client-app, runtime, and documentation acceptance.
+- [x] 2026-07-13 - Step 17: moved the sole dashboard source to `apps/console`, changed the path-mode route to `/console/` without an alias, and synchronized package, toolchain, embed, harness, agent-instruction, and current documentation references.
+- [x] 2026-07-13 - Step 18: renamed root contract files, CLI command and inspection files, and the tightly coupled build bundle/input identifiers by responsibility; behavior and the deferred `internal/vnext` package path remain unchanged.
+- [x] 2026-07-13 - Step 9 machine-envelope slice: centralized `scenery.cli` and `scenery.cli.event` under `internal/machine`, added producer identity and exact schema/spec revisions, removed direct CLI constructors, and made decoding strict with no alternate schema path. Envelope schema revisions are `sha256:2f9c241ad368ba2a9495d8b8025bb7de5a0fde893da4b5659dde8774519abe6e` and `sha256:85aeaf3276c078fe745cc7d327447caebd7926d5410a2a3dcbb036b188e61a75`.
+- [x] 2026-07-13 - Milestone 1: removed the temporary refresh-cookie compatibility path and tag-specific upgrade selection; `scenery upgrade` follows the current release channel.
+- [x] 2026-07-13 - Milestone 2: removed authored language edition/profile selectors from current source, fixtures, parsing, graph projections, and generated artifacts; resource use now determines required behavior.
+- [x] 2026-07-13 - Milestone 3: established `internal/spec` as the canonical current catalog, made resource kinds unversioned with digest schema revisions, added exact manifest catalog identity, and centralized strict `scenery.cli` / `scenery.cli.event` envelopes under `internal/machine`.
+- [x] 2026-07-13 - Milestone 4: removed Scenery package/provider semantic-version selection and retained exact integrity plus descriptor/ABI revisions for locked content.
+- [x] 2026-07-13 - Milestone 5: moved the normative specification to `docs/spec`, the dashboard to `apps/console` at `/console/`, and current public product naming away from `vnext` / `consolenext`; the internal implementation-package extraction remains Milestone 6.
+- [x] 2026-07-13 - Step 12 durable-state audit and transition handling: proved application databases, durable execution rows, object stores, dashboard state, global deploy ownership, agent identity, and `.scenery.json` retain their existing persisted shapes; added an atomic, idempotent, identity-only migration for `.scenery/approval-trust.json`; made `scenery upgrade` refuse binary replacement when the app root discoverable from its current directory contains legacy interrupted recovery state; and kept the same refusal at current change/deployment entry points as the safety net for other app roots. Focused tests prove preserved trust-key encodings, backup and completion-marker behavior, crash completion after the trust-store rewrite, pre-replacement refusal, and byte-for-byte preservation of refused journals, locks, and target binary.
+- [x] 2026-07-13 - Step 12 durable-state follow-up: migrated deploy ownership, agent registry/session/substrate/route/lease state, agent and edge process state, privileged edge targets, edge DNS state, managed Postgres credentials, and dev port leases to strict current artifact identities. Each migration preserves payload values, writes the exact former bytes to an owner-only `.legacy.bak`, atomically/fsyncs the replacement, records `.legacy.migrated`, and is restart-idempotent; application databases, durable rows, object data, and `.scenery.json` remain unchanged.
+- [x] 2026-07-13 - Milestone 6: split source/compiler, graph, evolution, generation, deployment planning, and contract-agent protocol composition into stable responsibility packages; moved package-owned tests with them; migrated command/build consumers; and removed `internal/vnext` rather than retaining a compatibility facade.
+- [x] 2026-07-13 - Cross-process artifact identity reset: bound checked compiler/evolution/generation/deployment/build artifacts to static revisions of their complete self-normalized schemas; expanded private journal, lock, provider, cache, and OpenAPI descriptors to complete type shapes with projection tests; and replaced deployment-state `api_version` with strict current artifact identity.
+- [x] 2026-07-13 - Milestone 7: added tracked-source residue and dependency-direction guardrails; regenerated current Go, TypeScript, OpenAPI, fixture, and embedded-dashboard artifacts; migrated ONLV to the unversioned generated-client path and package name; and completed repository, schema, runtime, dashboard, storage, PostgreSQL, parallel-worktree, and client-app acceptance.
 
 ## Surprises & Discoveries
 
@@ -120,6 +126,12 @@ marker, but no runtime dispatch to an older implementation.
 - Plan 0110 is the only intentionally active application compatibility exception found in current contracts. Removing it immediately invalidates browser sessions that only carry `onlv_refresh`; that is an explicit product consequence, not an accidental regression.
 - The normative directory still calls itself `docs/specs/vnext`, version `0.5-draft`, target edition 2027, and profile-specific `V1`, even though current docs call `.scn` the singular application model.
 - `apps/consolenext` is the active embedded dashboard source and `/consolenext/` is the path-mode dashboard route. Renaming it requires source, embed scripts, toolchain metadata, route manifests, tests, docs, and browser proof together; there is no route alias afterward.
+- The machine-identity reset reaches one durable configuration file: `.scenery/approval-trust.json`. Its Ed25519 public keys are user-owned trust roots, but the current strict decoder rejects the former `api_version` shape and suggests recreating the store. Recreating is data loss; the keys need an atomic identity-only migration.
+- Change and deployment apply journals are normally transient, but they are non-disposable while an apply is interrupted because they own source backups, prior deployment bytes, and provider rollback progress. The current strict readers reject former journal/lock identities before recovery, so a flag-day upgrade must migrate/recover them or refuse the binary replacement while old recovery state exists.
+- Provider descriptor revisions initially included producer provenance, which made the same semantic provider compile to different locks under `go run` and a built binary. Producer metadata remains reported, but descriptor identity now hashes only the semantic provider contract and is proven stable across processes.
+- Generated-artifact freshness initially compared producer metadata and therefore treated artifacts as stale after only the binary build identity changed. Freshness now validates exact schema/spec identity and compares the semantic document with producer provenance excluded.
+- Runtime built-in providers still registered sources with `@semver` suffixes after source package selection was removed. Registering the plain current source and testing all built-ins exposed and closed that last runtime-only compatibility seam.
+- The complete generated-app and generated-package schemas required one final identity reset after their required fields drifted from the actual producer shape. Removing the nonexistent top-level `generator_version`, regenerating descriptors, and validating every harness payload made the checked schemas authoritative again.
 
 ## Decision Log
 
@@ -138,6 +150,9 @@ marker, but no runtime dispatch to an older implementation.
 - Decision: Disposable artifacts fail closed; durable state migrates explicitly.
   Rationale: Regenerating code, caches, plans, and receipts is safer and smaller than compatibility decoding. Databases, object stores, deploy registries, and other persistent user state cannot be discarded and need idempotent migrations instead.
   Date/Author: 2026-07-13 / Codex.
+- Decision: Checked cross-process artifacts carry static exact schema revisions derived from their complete self-normalized JSON Schemas; private artifacts without checked schemas hash complete structural descriptors guarded by type-shape tests.
+  Rationale: Partial field summaries can remain unchanged while real wire shapes drift. Exact checked-schema bindings and complete private projections make any structural change an intentional identity reset without adding schema files for every transient cache or lock.
+  Date/Author: 2026-07-13 / Codex.
 - Decision: `scenery upgrade` follows one current channel, while `scenery version`, immutable Git tags, release checksums, and producer metadata remain.
   Rationale: Build provenance and rollback evidence are not user-selectable language versions. Normal installation must not offer arbitrary historical targets.
   Date/Author: 2026-07-13 / user and Codex.
@@ -147,71 +162,113 @@ marker, but no runtime dispatch to an older implementation.
 - Decision: Remove `application.version` and `PackageVersion` rather than replacing them with speculative release metadata.
   Rationale: OpenAPI can display the contract revision, and generated/runtime compatibility already has content revisions. Optional human release metadata can be added later if a real consumer appears.
   Date/Author: 2026-07-13 / Codex.
+- Decision: Keep JSON-RPC contract-agent composition in a thin `internal/contractagent` package instead of placing it in compiler or evolution.
+  Rationale: The protocol combines immutable compiler results and graph/schema queries with explicit evolution mutations. Giving it a narrow adapter boundary avoids a compiler-to-evolution dependency while assigning no domain policy or compatibility behavior to the adapter.
+  Date/Author: 2026-07-13 / Codex.
 - Decision: Move each `internal/vnext` file once into its final responsibility package; do not create a temporary `internal/language` mega-package.
   Rationale: A neutral intermediate rename followed by a split doubles churn across roughly 39,000 lines without changing behavior or reducing ownership ambiguity.
   Date/Author: 2026-07-13 / Codex.
 - Decision: Activating this plan does not silently change today’s contracts. Plan 0110 remains the current cookie contract until Milestone 1 lands; that milestone then marks 0110 superseded and records the forced-login consequence.
   Rationale: An ExecPlan records intended work. Current implementation and `docs/local-contract.md` remain authoritative until a milestone is actually shipped.
   Date/Author: 2026-07-13 / Codex.
+- Decision: Treat approval trust keys and interrupted apply recovery records as durable state, not as disposable old artifacts.
+  Rationale: Trust keys cannot be reconstructed, and interrupted journals are the only safe route back to pre-apply source/provider state. Pending plans, detached approvals, generated outputs, and completed receipts can be regenerated or reissued; these two classes cannot.
+  Date/Author: 2026-07-13 / Codex.
 
 ## Outcomes & Retrospective
 
-Not yet completed.
+Scenery now has one current source language, catalog, compiler/runtime path, and
+machine protocol. Source has no edition, profile, application/package version,
+Scenery-version range, or provider-version selector. Logical resource and
+machine kinds are unversioned; exact digest revisions identify schemas, the
+catalog, generated artifacts, plans, locks, and runtime/deployment ABIs. The
+final catalog revision is
+`sha256:f0169e1b831f438fb57320be3bcf5e80ddf96aaea6fcbd2f23124ecd1cb3b64f`.
+
+The former `internal/vnext`, `docs/specs/vnext`, `apps/consolenext`, and
+`/consolenext/` current architecture is gone. Responsibilities now live in
+`internal/scn`, `internal/spec`, `internal/graph`, `internal/compiler`,
+`internal/evolution`, `internal/generate`, `internal/deployplan`,
+`internal/machine`, and the thin `internal/contractagent` adapter. The sole
+dashboard is `apps/console` at `/console/`. Architecture and tracked-source
+residue checks fail future reintroduction outside explicit durable-migration
+and historical-plan allowlists.
+
+Durable identity changes preserve user-owned data through strict, atomic,
+restart-idempotent migrations with exact backups and completion markers.
+Interrupted legacy change/deployment recovery state instead blocks upgrade and
+current mutation with a previous-binary recovery instruction. Disposable
+generated artifacts, locks, pending plans, and caches fail closed and are
+regenerated or replanned under the current identity.
+
+Acceptance completed on 2026-07-13:
+
+- `go run ./cmd/scenery harness self --summary --write` passed all lanes,
+  including full Go tests, Go vet, architecture and contract drift, schema
+  validation, parallel worktree runtimes, PostgreSQL, storage, dashboard
+  typecheck/build, TypeScript client conformance/typecheck, and the fixture
+  matrix. Evidence is `.scenery/harness/self-latest.json`.
+- Both canonical app fixtures passed current-source generation, generation
+  freshness, and contract checks after regeneration.
+- Dashboard lint, typecheck, build, embedded-bundle generation, generated
+  TypeScript conformance, and generated-client typecheck passed.
+- ONLV was migrated in place to `apps/scenery-client`, package
+  `@onlv/scenery-client`, and `apps/next/src/generated/scenery`; its contract
+  check, generated-client freshness, Go tests, application lint/typecheck/build,
+  repository harness, `/console/` route, and live current-source runtime path
+  passed without using the shared installed Scenery binary.
+- `scenery upgrade --help` and focused tests prove there is no historical
+  `--version` selection; focused auth tests prove only `scenery_refresh` is
+  read, issued, and cleared.
+
+The largest implementation risk was not parsing; it was identity consistency
+across built binaries, generated documents, provider locks, and durable state.
+Making schema/catalog/ABI hashes semantic and producer-independent, then
+running the same artifacts through source and built binaries, was the useful
+acceptance boundary. No compatibility dispatcher, selector replacement,
+feature-flag framework, or package-manager update workflow was added.
 
 ## Context and Orientation
 
 Scenery source is HCL-like `.scn`. Root `scenery.scn` installs package-local
-`scenery.package.scn` modules. Today every authored root starts with exactly one
-`language` block. `internal/vnext/compiler.go` validates `edition == "2027"`,
-reads `require_profiles`, expands `ProfileDependencies`, validates against
-`SupportedProfiles`, and writes edition/profiles into every graph view.
-`internal/vnext/model.go` defines those constants and includes edition/profiles
-in manifest and contract-revision projections. `internal/vnext/source_schemas.go`
-defines the authored `language`, `application.version`, `package.version`, and
-`package.scenery_version` fields.
+`scenery.package.scn` modules. Current source starts with application/workspace
+declarations and has no language, edition, profile, application/package version,
+or Scenery-version selector. `internal/scn` owns parsing and formatting,
+`internal/spec` owns the exact current catalog, and `internal/graph` owns the
+canonical resource graph and general revisions.
 
-The current canonical graph uses strings such as `scenery.record/v1` as both
-logical resource kinds and schema identities. `internal/vnext/schemas.go` owns
-`resourceSchemas`, `CoreSchema`, authored-to-core schema projection, and several
-helpers that trim `/v1`. `internal/vnext/agent_schemas.go` and
-`internal/vnext/agent.go` expose these identities to agent schema/capability
-surfaces.
+The current canonical graph uses unversioned logical resource kinds such as
+`scenery.record` and independent digest-valued schema revisions. The canonical
+catalog and diagnostic catalog share one exact `spec_revision`; agent schema and
+capability surfaces expose the same identities.
 
-The compiler manifest in `internal/vnext/model.go` currently contains
-`APIVersion`, `Edition`, `DiagnosticCatalog`, `Application.Version`, `Profiles`,
-`ContractRevision`, resources, source map, and diagnostics. Independent
-workspace, implementation, deployment, HTTP-surface, OpenAPI, package ABI,
-provider ABI, and artifact revisions are calculated throughout
-`internal/vnext/revisions.go`, generation files, change/migration planning, and
-deployment planning. Those independent revisions remain, but their projections
-must include the current `spec_revision` and use unversioned hash domains.
+The compiler manifest contains `kind`, `schema_revision`, `spec_revision`, the
+diagnostic-catalog revision, application identity, `contract_revision`,
+resources, source map, and diagnostics. Independent workspace, implementation,
+deployment, HTTP-surface, OpenAPI, package ABI, provider ABI, and artifact
+revisions are calculated by `internal/compiler`, `internal/graph`,
+`internal/generate`, `internal/evolution`, and `internal/deployplan`. Their
+projections include the current `spec_revision` and use unversioned hash domains.
 
-Machine CLI envelopes live mainly in `cmd/scenery/main.go`, while
-`cmd/scenery/vnext.go`, `vnext_helpers.go`, `vnext_deploy.go`, and
-`vnext_binding_cli.go` construct parallel envelope values directly. Current
-schemas live under `docs/schemas/` and use first-party `.v1` identifiers. The
-current binary accepts only `scenery.cli.v1`, so no multi-version dispatcher
-needs preservation.
+Machine CLI envelopes are centralized under `internal/machine`. The current
+schemas expose `scenery.cli` and `scenery.cli.event` logical kinds, exact
+schema/spec revisions, producer identity, and strict current decoding without a
+multi-version dispatcher.
 
-Registry and provider identity lives in `internal/vnext/lock.go`,
-`module_compile.go`, source schemas, generated contract metadata, and provider
-deployment/runtime checks. Lock entries carry semantic `Version` plus integrity
-and descriptor/ABI fields; provider descriptors advertise `Editions` and
-`Profiles`. The exact integrity and descriptor/ABI revisions remain while
-semantic source selection disappears.
+Registry and provider identity lives in `internal/compiler/lock.go`, module
+compilation, source schemas, generated contract metadata, and provider
+deployment/runtime checks. Lock entries pin exact source integrity plus
+descriptor, package-contract, capability, and runtime/deployment/migration ABI
+identities; no semantic version, edition, or profile selection remains.
 
-Current normative prose is the seven Markdown files under `docs/specs/vnext/`,
-including its child `AGENTS.md`. Active dashboard source is
-`apps/consolenext/`; `cmd/scenery/dashboard_ui_build.go` owns the root constant,
-and route, harness, toolchain, embed, docs, and browser paths refer to
-`/consolenext/`.
+Current normative prose is under `docs/spec/`, including its child `AGENTS.md`.
+The sole dashboard source is `apps/console/`; route, harness, toolchain, embed,
+docs, and browser paths use `/console/` with no former route alias.
 
-The only live first-party compatibility exception named by this plan is the
-fixed `onlv_refresh` read/clear path in `auth/standard_config.go`,
-`auth/standard.go`, `auth/standard_sessions.go`, and plan 0110. Historical
-ExecPlans may keep historical words and identifiers, but current source, current
-docs, schemas, generated artifacts, and tests must converge on the new singular
-contract.
+The former fixed-cookie exception from plan 0110 is removed: current auth reads,
+issues, and clears only `scenery_refresh`. Historical ExecPlans may keep
+historical words and identifiers, but current source, docs, schemas, generated
+artifacts, and tests converge on the singular current contract.
 
 Definitions used by this plan:
 
@@ -375,7 +432,7 @@ scenery check -o json
 scenery compile --view expanded -o json
 scenery generate --check -o json
 bun test internal/vnext/testdata/typescript_client_conformance.test.ts
-apps/consolenext/node_modules/.bin/tsc -p internal/vnext/testdata/tsconfig.generated-clients.json
+apps/console/node_modules/.bin/tsc -p internal/vnext/testdata/tsconfig.generated-clients.json
 ```
 
 Update those paths as files move; the final commands must use the new stable
@@ -494,6 +551,39 @@ digests, generated-artifact reset notes, durable migration inventories, residue
 searches, self-harness artifact paths, and ONLV runtime proof. The supplied chat
 is design input only; this file and the live tree are the resumable source of
 truth.
+
+### Step 12 durable-state inventory (2026-07-13)
+
+Read-only inspection of the current worktree produced this classification:
+
+| Surface and location | Classification | Evidence and required handling |
+|---|---|---|
+| CLI/event envelopes; manifests; OpenAPI; generated Go/TypeScript descriptors; runtime bundles under `.scenery/build/runtime/`; generated fixture SQL under `.scenery/fixtures/`; harness output; immutable provider cache entries | Disposable process output, generated artifact, or cache | Their logical/schema identities changed intentionally. Regenerate, rebuild, rerun, or reinstall the exact provider cache entry; no durable migration or compatibility decoder is required. |
+| Issued plans under `.scenery/plans/issued/`, detached approval tokens, unapplied deployment/change plans, and completed plan/receipt files under `.scenery/changes/applied/` and `.scenery/deployments/applied/` | Revision-bound transaction artifacts | Re-plan or reissue after the flag day. Applied rename receipts remain read-only evidence: the loader extracts `rename_receipts` and validates their base/target revisions and digest, so unknown outer identity fields do not mutate user state. |
+| Auth PostgreSQL tables, including `scenery_auth_refresh_sessions` | Durable user state; shape unchanged | No files under `auth/db` changed. Cookie selection is transport-only; existing canonical `scenery_refresh` sessions continue and former-cookie-only browsers intentionally log in again. |
+| Durable tasks/jobs/events/steps/signals/schedules/worker tokens in the app database | Durable user state; shape unchanged | No files under `internal/durable/store` changed. Generated descriptor/contract revisions changed, but persisted task `external_name` and revision semantics did not receive a storage migration in this worktree. |
+| Application Postgres schemas/data and storage-cell/object-store trees | Durable user state; shape unchanged | No files under `internal/postgresdb`, `internal/postgresname`, `storage`, or `internal/storage` changed. The object/datasource edits are package-comment naming only. |
+| Dashboard/devdash persisted state | Durable local user state; shape unchanged | No files under `internal/devdash` changed. `apps/console` and `/console/` rename source/routes/RPC presentation without rewriting the backing store. |
+| Global deploy ownership registry at `Paths.DeployPath` (`.../scenery/agent/deploy.json`) | Durable deployment ownership; identity-only migration implemented | The current registry carries strict artifact identity. Loading the former registry preserves targets, domains, app roots, ownership, and ACME email; writes exact former bytes to `.legacy.bak`; atomically installs the current bytes; and records `.legacy.migrated`. |
+| Agent registry/session/substrate/route/lease records, agent/edge process state, privileged edge target, edge DNS state, managed Postgres state, and dev port leases | Durable local operational state; identity-only migrations implemented | The shared migration helper validates the former identity, preserves payload fields and credentials, writes an owner-only exact backup, atomically/fsyncs the current artifact, and records an idempotent completion marker. Focused migration tests cover nested registry records and each standalone state family. |
+| `.scenery.json` app configuration | Durable user configuration; shape unchanged | Application configuration does not use the retired selectable specification identities and is not rewritten. |
+| `scenery.scn`, package source, and optional `scenery.lock.scn` | Tracked source input, not runtime state | Current source is edited in the flag day. Lock entries drop semantic `version` while preserving exact source, integrity, descriptor, package-contract, capability, and runtime/deployment/migration ABI identities. This checkout has no `scenery.lock.scn`; external apps must update the tracked lock source rather than rely on a runtime translator. |
+| `.scenery/deployments/<name>.json` applied-state snapshot | App-local deployment evidence; prior bytes remain safe | New snapshots use the strict current `scenery.deployment-state` artifact identity. Existing prior bytes are read opaquely, copied into a recovery journal, restored byte-for-byte on rollback, and replaced only after a successful new apply; the global deploy registry remains authoritative for routing ownership. No eager rewrite is required. |
+| `.scenery/approval-trust.json` | Durable user trust configuration; identity-only migration implemented | On first load of the former `{api_version, keys}` shape, Scenery validates every key, preserves the encoded key values and exact legacy bytes, writes the owner-only `.legacy-v1.bak` backup, atomically/fsync-renames the current identity, and atomically writes `.legacy-v1.migrated`. A restart after the current-file rewrite completes the marker only when the strict current identity and all keys match the backup. Once marked, only the strict current decoder runs. Recreating or deleting the store is forbidden. |
+| `.scenery/transactions/change.lock`, `change-apply.json`, and transaction backup directory | Non-disposable while interrupted; safe refusal implemented | Before installing a downloaded binary, `scenery upgrade` checks the app root discoverable from its current directory and refuses a former lock or journal identity with an explicit instruction to recover using the previous Scenery binary. Current change recovery repeats that check before decoding or mutation, covering roots not visible to the upgrade process. The legacy bytes and backup directory remain untouched. |
+| `.scenery/deployments/apply.lock` and `.scenery/deployments/journal/*.json` | Non-disposable while interrupted; safe refusal implemented | The same bounded upgrade preflight checks the discoverable app root before replacement. Current deploy apply remains the safety net for other app roots: it detects the former lock or recovery-journal identity before stale-lock removal, provider rollback, state restoration, or other mutation and returns the same previous-binary recovery instruction. The legacy bytes remain untouched. No global app-root walk or registry scan is attempted. |
+
+The local checkout contained no approval trust store, issued/applied plans,
+lockfile, change transaction, or deployment journal/state at audit time. That
+absence made this checkout safe but was not sufficient product handling. The
+trust-store migration and legacy recovery-state refusal now cover the two
+non-disposable transition hazards. Focused current-shape, migration, refusal,
+and applied-rename tests passed with:
+
+```sh
+go test ./internal/agent ./internal/evolution ./internal/deployplan ./cmd/scenery -run 'Test(Approval|ArtifactMigration|DeployRegistryMigration|DeploymentRecovery|ChangeTransaction|AppliedRename|Legacy)'
+go test ./cmd/scenery -run 'TestRunUpgradeRefusesLegacyRecoveryStateBeforeReplacingBinary'
+```
 
 ## Interfaces and Dependencies
 

@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.runtime-bundle.schema.json",
+  "title": "Scenery Runtime Bundle",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "kind",
+    "schema_revision",
+    "spec_revision",
+    "producer",
+    "artifact_kind",
+    "application",
+    "target",
+    "contract_revision",
+    "implementation_revision",
+    "build_input_manifest",
+    "resolved_go_target",
+    "runtime_abi"
+  ],
+  "properties": {
+    "kind": { "const": "scenery.runtime-bundle" },
+    "schema_revision": { "$ref": "#/$defs/digest" },
+    "spec_revision": { "$ref": "#/$defs/digest" },
+    "producer": { "type": "object" },
+    "artifact_kind": { "const": "go_runtime_bundle" },
+    "application": { "type": "string", "minLength": 1 },
+    "target": { "type": "string", "minLength": 1 },
+    "contract_revision": { "$ref": "#/$defs/digest" },
+    "implementation_revision": { "$ref": "#/$defs/digest" },
+    "build_input_manifest": { "$ref": "scenery.go-build-input-manifest.schema.json" },
+    "resolved_go_target": { "type": "object" },
+    "runtime_abi": { "const": "scenery.go-runtime/v1" }
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  }
+}

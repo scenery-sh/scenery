@@ -21,9 +21,9 @@ func devRoutingMode(cfg app.Config) (localagent.RouteMode, error) {
 
 func pathRouteManifestForLease(lease localagent.PortLease) localagent.RouteManifest {
 	return localagent.RouteManifest{
-		SchemaVersion: localagent.RouteManifestVersion,
-		Mode:          localagent.RouteModePath,
-		BaseURL:       lease.URL,
-		PortLease:     &lease,
+		ArtifactIdentity: localagent.NewRouteManifestIdentity(),
+		Mode:             localagent.RouteModePath,
+		BaseURL:          lease.URL,
+		PortLease:        &lease,
 	}
 }

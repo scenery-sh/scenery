@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.toolchain.schema.json",
+  "title": "scenery toolchain manifest",
+  "type": "object",
+  "required": ["kind", "schema_revision", "source_locks", "artifacts"],
+  "additionalProperties": false,
+  "properties": {
+    "kind": { "const": "scenery.toolchain" },
+    "schema_revision": { "const": "sha256:02fd89902b530fb84a9fc13269b5ed93f1a01d8981430ba4f263963f40d86bc6" },
+    "source_locks": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/source_lock" }
+    },
+    "artifacts": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/artifact" }
+    }
+  },
+  "$defs": {
+    "source_lock": {
+      "type": "object",
+      "required": ["name", "kind", "manifest"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "kind": { "type": "string", "enum": ["go-modules", "package-manager"] },
+        "manager": { "type": "string", "minLength": 1 },
+        "manifest": { "type": "string", "minLength": 1 },
+        "lock": { "type": "string", "minLength": 1 }
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "required": ["name", "kind", "version"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "kind": { "type": "string", "enum": ["binary", "image", "plugin"] },
+        "version": { "type": "string", "minLength": 1 },
+        "license": { "type": "string" },
+        "default_binary": { "type": "string", "minLength": 1 },
+        "binaries": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "platforms": {
+          "type": "object",
+          "patternProperties": {
+            "^[a-z0-9]+/[a-z0-9]+$": { "$ref": "#/$defs/platform_artifact" }
+          },
+          "additionalProperties": false
+        },
+        "source_build": { "$ref": "#/$defs/source_build" },
+        "images": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/image" }
+        }
+      }
+    },
+    "platform_artifact": {
+      "type": "object",
+      "required": ["archive", "url", "sha256", "extract"],
+      "additionalProperties": false,
+      "properties": {
+        "archive": { "type": "string", "enum": ["tar.gz"] },
+        "url": { "type": "string", "minLength": 1 },
+        "sha256": { "type": "string", "pattern": "^[A-Fa-f0-9]{64}$" },
+        "extract": { "type": "string", "minLength": 1 },
+        "home": { "type": "boolean" },
+        "strip_components": { "type": "integer", "minimum": 0 },
+        "build": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "build_output": { "type": "string", "minLength": 1 }
+      }
+    },
+    "source_build": {
+      "type": "object",
+      "required": ["kind", "package"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "const": "go" },
+        "package": {
+          "type": "string",
+          "pattern": "^\\./[^/].*"
+        }
+      }
+    },
+    "image": {
+      "type": "object",
+      "required": ["ref"],
+      "additionalProperties": false,
+      "properties": {
+        "ref": { "type": "string", "minLength": 1 },
+        "digest": { "type": "string", "pattern": "^sha256:[A-Fa-f0-9]{64}$" },
+        "optional": { "type": "boolean" },
+        "usage": { "type": "string" },
+        "stability": { "type": "string", "enum": ["stable", "unstable"] }
+      }
+    }
+  }
+}

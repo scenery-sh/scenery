@@ -10,32 +10,34 @@ import (
 	"time"
 )
 
-const harnessArtifactEvidenceSchema = "scenery.harness.artifact.v1"
+const harnessArtifactEvidenceKind = "scenery.harness.artifact"
 
 type harnessArtifact struct {
-	Name          string `json:"name"`
-	Path          string `json:"path"`
-	SchemaVersion string `json:"schema_version,omitempty"`
-	Exists        bool   `json:"exists"`
+	Name           string `json:"name"`
+	Path           string `json:"path"`
+	Kind           string `json:"kind,omitempty"`
+	SchemaRevision string `json:"schema_revision,omitempty"`
+	Exists         bool   `json:"exists"`
 }
 
 type harnessEvidence struct {
-	SchemaVersion string                    `json:"schema_version"`
-	Command       []string                  `json:"command,omitempty"`
-	CWD           string                    `json:"cwd,omitempty"`
-	StartedAt     string                    `json:"started_at,omitempty"`
-	DurationMS    int64                     `json:"duration_ms"`
-	ExitCode      *int                      `json:"exit_code,omitempty"`
-	StdoutTail    string                    `json:"stdout_tail,omitempty"`
-	StderrTail    string                    `json:"stderr_tail,omitempty"`
-	Artifacts     []harnessEvidenceArtifact `json:"artifacts,omitempty"`
-	ReproCommand  string                    `json:"repro_command,omitempty"`
+	cliPayloadIdentity
+	Command      []string                  `json:"command,omitempty"`
+	CWD          string                    `json:"cwd,omitempty"`
+	StartedAt    string                    `json:"started_at,omitempty"`
+	DurationMS   int64                     `json:"duration_ms"`
+	ExitCode     *int                      `json:"exit_code,omitempty"`
+	StdoutTail   string                    `json:"stdout_tail,omitempty"`
+	StderrTail   string                    `json:"stderr_tail,omitempty"`
+	Artifacts    []harnessEvidenceArtifact `json:"artifacts,omitempty"`
+	ReproCommand string                    `json:"repro_command,omitempty"`
 }
 
 type harnessEvidenceArtifact struct {
-	Name          string `json:"name"`
-	Path          string `json:"path"`
-	SchemaVersion string `json:"schema_version,omitempty"`
+	Name           string `json:"name"`
+	Path           string `json:"path"`
+	Kind           string `json:"kind,omitempty"`
+	SchemaRevision string `json:"schema_revision,omitempty"`
 }
 
 type harnessArtifactContext struct {
@@ -66,7 +68,25 @@ func (ctx harnessArtifactContext) Write(name, filename, schemaVersion string, da
 	if err := os.WriteFile(abs, data, 0o644); err != nil {
 		return harnessEvidenceArtifact{}, err
 	}
-	return harnessEvidenceArtifact{Name: cleanName, Path: rel, SchemaVersion: schemaVersion}, nil
+	identity := harnessArtifactPayloadIdentity(schemaVersion)
+	return harnessEvidenceArtifact{Name: cleanName, Path: rel, Kind: identity.Kind, SchemaRevision: identity.SchemaRevision}, nil
+}
+
+func harnessArtifactPayloadIdentity(kind string) cliPayloadIdentity {
+	if _, ok := cliPayloadSchemaRevisions[kind]; !ok {
+		return cliPayloadIdentity{}
+	}
+	return newCLIPayloadIdentity(kind)
+}
+
+func newHarnessArtifact(name, path, kind string, exists bool) harnessArtifact {
+	identity := harnessArtifactPayloadIdentity(kind)
+	return harnessArtifact{Name: name, Path: path, Kind: identity.Kind, SchemaRevision: identity.SchemaRevision, Exists: exists}
+}
+
+func newHarnessEvidenceArtifact(name, path, kind string) harnessEvidenceArtifact {
+	identity := harnessArtifactPayloadIdentity(kind)
+	return harnessEvidenceArtifact{Name: name, Path: path, Kind: identity.Kind, SchemaRevision: identity.SchemaRevision}
 }
 
 func optionalHarnessArtifactContext(items []harnessArtifactContext) harnessArtifactContext {
@@ -161,13 +181,15 @@ func ensureHarnessStepEvidence(step *harnessStep, defaultCWD string) {
 	if step.Evidence == nil {
 		started := time.Now().UTC().Add(-time.Duration(step.DurationMS) * time.Millisecond)
 		step.Evidence = &harnessEvidence{
-			SchemaVersion: harnessArtifactEvidenceSchema,
-			Command:       append([]string{}, step.Command...),
-			CWD:           firstNonEmpty(harnessStepEvidenceCWD(*step), defaultCWD),
-			StartedAt:     started.Format(time.RFC3339Nano),
+			cliPayloadIdentity: newCLIPayloadIdentity(harnessArtifactEvidenceKind),
+			Command:            append([]string{}, step.Command...),
+			CWD:                firstNonEmpty(harnessStepEvidenceCWD(*step), defaultCWD),
+			StartedAt:          started.Format(time.RFC3339Nano),
 		}
 	}
-	step.Evidence.SchemaVersion = firstNonEmpty(step.Evidence.SchemaVersion, harnessArtifactEvidenceSchema)
+	if step.Evidence.Kind == "" {
+		step.Evidence.cliPayloadIdentity = newCLIPayloadIdentity(harnessArtifactEvidenceKind)
+	}
 	if len(step.Evidence.Command) == 0 {
 		step.Evidence.Command = append([]string{}, step.Command...)
 	}
@@ -212,11 +234,11 @@ func annotateHarnessEvidence(steps []harnessStep, defaultCWD string) {
 
 func newHarnessEvidence(command []string, cwd string, started time.Time) harnessEvidence {
 	return harnessEvidence{
-		SchemaVersion: harnessArtifactEvidenceSchema,
-		Command:       append([]string{}, command...),
-		CWD:           cwd,
-		StartedAt:     started.UTC().Format(time.RFC3339Nano),
-		ReproCommand:  reproCommand(command, cwd),
+		cliPayloadIdentity: newCLIPayloadIdentity(harnessArtifactEvidenceKind),
+		Command:            append([]string{}, command...),
+		CWD:                cwd,
+		StartedAt:          started.UTC().Format(time.RFC3339Nano),
+		ReproCommand:       reproCommand(command, cwd),
 	}
 }
 
@@ -224,7 +246,9 @@ func finalizeHarnessEvidence(evidence *harnessEvidence, duration time.Duration, 
 	if evidence == nil {
 		return
 	}
-	evidence.SchemaVersion = firstNonEmpty(evidence.SchemaVersion, harnessArtifactEvidenceSchema)
+	if evidence.Kind == "" {
+		evidence.cliPayloadIdentity = newCLIPayloadIdentity(harnessArtifactEvidenceKind)
+	}
 	evidence.DurationMS = duration.Milliseconds()
 	if exitCode == nil {
 		code := 0
@@ -307,9 +331,10 @@ func evidenceArtifactsFromHarnessArtifacts(items []harnessArtifact) []harnessEvi
 	out := make([]harnessEvidenceArtifact, 0, len(items))
 	for _, item := range items {
 		out = append(out, harnessEvidenceArtifact{
-			Name:          item.Name,
-			Path:          item.Path,
-			SchemaVersion: item.SchemaVersion,
+			Name:           item.Name,
+			Path:           item.Path,
+			Kind:           item.Kind,
+			SchemaRevision: item.SchemaRevision,
 		})
 	}
 	return out

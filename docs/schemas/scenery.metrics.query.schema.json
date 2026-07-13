@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.metrics.query.schema.json",
+  "title": "scenery.metrics.query",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "scope",
+    "backend",
+    "query",
+    "result_type",
+    "series"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.metrics.query"
+    },
+    "schema_revision": {
+      "const": "sha256:59ed52449eeb10a9ebcba329f6399917ef3bf1d425ab9d3c4eacaebed730ed6b"
+    },
+    "scope": {
+      "$ref": "scenery.inspect.observability.schema.json#/$defs/scope"
+    },
+    "backend": {
+      "$ref": "scenery.inspect.observability.schema.json#/$defs/backend"
+    },
+    "query": {
+      "$ref": "#/$defs/query"
+    },
+    "result_type": {
+      "type": "string"
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "series": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/series"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "query": {
+      "type": "object",
+      "required": [
+        "promql",
+        "mode"
+      ],
+      "properties": {
+        "promql": {
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            "range",
+            "instant"
+          ]
+        },
+        "since": {
+          "type": "string"
+        },
+        "start": {
+          "type": "string"
+        },
+        "end": {
+          "type": "string"
+        },
+        "step": {
+          "type": "string"
+        },
+        "timeout": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false
+    },
+    "sample": {
+      "type": "object",
+      "required": [
+        "time",
+        "value"
+      ],
+      "properties": {
+        "time": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "series": {
+      "type": "object",
+      "required": [
+        "metric"
+      ],
+      "properties": {
+        "metric": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "value": {
+          "$ref": "#/$defs/sample"
+        },
+        "values": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/sample"
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

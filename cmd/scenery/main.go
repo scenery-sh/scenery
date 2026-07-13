@@ -14,14 +14,17 @@ import (
 	"strings"
 
 	appcfg "scenery.sh/internal/app"
+	"scenery.sh/internal/compiler"
+	"scenery.sh/internal/graph"
+	"scenery.sh/internal/machine"
+	"scenery.sh/internal/spec"
 	"scenery.sh/internal/stdlog"
-	"scenery.sh/internal/vnext"
 )
 
 var cliStderr io.Writer = os.Stderr
 
 func main() {
-	if err := renderVNextMachineError(os.Stdout, os.Args[1:], run(os.Args[1:])); err != nil {
+	if err := renderMachineError(os.Stdout, os.Args[1:], run(os.Args[1:])); err != nil {
 		if _, ok := errors.AsType[*silentCLIError](err); !ok {
 			fmt.Fprintln(os.Stderr, err)
 		}
@@ -29,7 +32,7 @@ func main() {
 	}
 }
 
-func renderVNextMachineError(stdout io.Writer, args []string, err error) error {
+func renderMachineError(stdout io.Writer, args []string, err error) error {
 	output := requestedCLIOutput(args)
 	if err == nil || (output != "json" && output != "jsonl") {
 		return err
@@ -50,7 +53,7 @@ func renderVNextMachineError(stdout io.Writer, args []string, err error) error {
 	} else if code == 10 {
 		kind = "internal"
 	}
-	diagnostic := vnext.TransportDiagnostic(kind, err.Error())
+	diagnostic := compiler.TransportDiagnostic(kind, err.Error())
 	if output == "jsonl" {
 		writer := newCLIEventWriter(stdout)
 		if encodeErr := writer.write("summary", true, map[string]any{"event_count": 0, "ok": false, "diagnostic": diagnostic}); encodeErr != nil {
@@ -58,11 +61,7 @@ func renderVNextMachineError(stdout io.Writer, args []string, err error) error {
 		}
 		return &silentCLIError{err: err, code: code}
 	}
-	envelope := vnextEnvelope{
-		APIVersion: "scenery.cli.v1", DiagnosticCatalog: vnext.DiagnosticCatalog, OK: false,
-		WorkspaceRevision: nil, ContractRevision: nil, ImplementationRevision: nil, DeploymentRevision: nil,
-		Data: nil, Diagnostics: []vnext.Diagnostic{diagnostic},
-	}
+	envelope := newCLIEnvelope(false, nil, []graph.Diagnostic{diagnostic})
 	if encodeErr := json.NewEncoder(stdout).Encode(envelope); encodeErr != nil {
 		return &silentCLIError{err: fmt.Errorf("internal: encode CLI error envelope: %w", encodeErr), code: 10}
 	}
@@ -85,11 +84,7 @@ func requestedCLIOutput(args []string) string {
 }
 
 func writeCLIJSON(w io.Writer, data any) error {
-	return json.NewEncoder(w).Encode(vnextEnvelope{
-		APIVersion: "scenery.cli.v1", DiagnosticCatalog: vnext.DiagnosticCatalog, OK: cliDataOK(data),
-		WorkspaceRevision: nil, ContractRevision: nil, ImplementationRevision: nil, DeploymentRevision: nil,
-		Data: data, Diagnostics: []vnext.Diagnostic{},
-	})
+	return json.NewEncoder(w).Encode(newCLIEnvelope(cliDataOK(data), data, nil))
 }
 
 func cliDataOK(data any) bool {
@@ -111,18 +106,14 @@ func cliDataOK(data any) bool {
 }
 
 func decodeCLIJSON(encoded []byte, target any) error {
-	var envelope struct {
-		APIVersion string          `json:"api_version"`
-		Data       json.RawMessage `json:"data"`
-	}
-	if err := json.Unmarshal(encoded, &envelope); err != nil {
-		return err
-	}
-	if envelope.APIVersion != "scenery.cli.v1" {
-		return fmt.Errorf("unexpected CLI API version %q", envelope.APIVersion)
-	}
-	return json.Unmarshal(envelope.Data, target)
+	return machine.DecodeData[graph.Diagnostic](encoded, currentMachineSpecRevision(), target)
 }
+
+func newCLIEnvelope(ok bool, data any, diagnostics []graph.Diagnostic) machine.Envelope[graph.Diagnostic] {
+	return machine.NewEnvelope(currentMachineSpecRevision(), cliProducer(), ok, data, diagnostics)
+}
+
+func currentMachineSpecRevision() string { return string(spec.CurrentRevision()) }
 
 func init() {
 	stdlog.Install(os.Stderr)
@@ -138,7 +129,7 @@ func run(args []string) error {
 	case "help":
 		return helpCommand(args[1:])
 	case "completion":
-		return runVNextCompletion(os.Stdout, args[1:])
+		return runBindingCompletion(os.Stdout, args[1:])
 	case "up":
 		return upCommand(args[1:])
 	case "ps":
@@ -157,7 +148,7 @@ func run(args []string) error {
 		if len(args) > 1 && args[1] == "sqlc" {
 			return generateCommand(args[1:])
 		}
-		return runVNextGenerate(os.Stdout, args[1:])
+		return runContractGenerate(os.Stdout, args[1:])
 	case "task":
 		return taskCommand(args[1:])
 	case "validate":
@@ -217,7 +208,7 @@ func run(args []string) error {
 	case "internal":
 		return internalCommand(args[1:])
 	default:
-		if handled, err := runVNextBindingCLI(os.Stdout, os.Stderr, args); handled {
+		if handled, err := runBindingCLI(os.Stdout, os.Stderr, args); handled {
 			return err
 		}
 		return fmt.Errorf("unknown command %q; use `scenery help`", args[0])
@@ -229,35 +220,22 @@ type silentCLIError struct {
 	code int
 }
 
-type cliEventEnvelope struct {
-	APIVersion             string             `json:"api_version"`
-	DiagnosticCatalog      string             `json:"diagnostic_catalog"`
-	Sequence               uint64             `json:"sequence"`
-	Kind                   string             `json:"kind"`
-	Terminal               bool               `json:"terminal"`
-	WorkspaceRevision      any                `json:"workspace_revision"`
-	ContractRevision       any                `json:"contract_revision"`
-	ImplementationRevision any                `json:"implementation_revision"`
-	DeploymentRevision     any                `json:"deployment_revision"`
-	Data                   any                `json:"data"`
-	Diagnostics            []vnext.Diagnostic `json:"diagnostics"`
-}
-
 type cliEventWriter struct {
-	w        io.Writer
-	sequence uint64
+	w            io.Writer
+	sequence     uint64
+	specRevision string
+	producer     machine.Producer
 }
 
-func newCLIEventWriter(w io.Writer) *cliEventWriter { return &cliEventWriter{w: w} }
+func newCLIEventWriter(w io.Writer) *cliEventWriter {
+	return &cliEventWriter{w: w, specRevision: currentMachineSpecRevision(), producer: cliProducer()}
+}
 
-func (w *cliEventWriter) write(kind string, terminal bool, data any) error {
+func (w *cliEventWriter) write(event string, terminal bool, data any) error {
 	w.sequence++
-	return json.NewEncoder(w.w).Encode(cliEventEnvelope{
-		APIVersion: "scenery.cli.event.v1", DiagnosticCatalog: vnext.DiagnosticCatalog,
-		Sequence: w.sequence, Kind: kind, Terminal: terminal,
-		WorkspaceRevision: nil, ContractRevision: nil, ImplementationRevision: nil, DeploymentRevision: nil,
-		Data: data, Diagnostics: []vnext.Diagnostic{},
-	})
+	return json.NewEncoder(w.w).Encode(machine.NewEventEnvelope(
+		w.specRevision, w.producer, w.sequence, event, terminal, data, []graph.Diagnostic{},
+	))
 }
 
 func (w *cliEventWriter) event(data any) error { return w.write("event", false, data) }
@@ -303,7 +281,7 @@ func cliExitCode(err error) int {
 	switch kind {
 	case "permission_denied":
 		return 5
-	case "capability_unavailable", "unsupported_profile":
+	case "capability_unavailable", "feature_unavailable":
 		return 4
 	case "revision_conflict", "failed_precondition":
 		return 3
@@ -347,7 +325,7 @@ func upCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := validateVNextRuntimePlan(opts.AppRoot); err != nil {
+	if err := validateRuntimePlan(opts.AppRoot); err != nil {
 		return err
 	}
 	warnDevEscapeHatches(opts)
@@ -358,7 +336,7 @@ func upCommand(args []string) error {
 	return runWithWatchFunc(listen, opts.Verbose, opts.JSON, opts.AppRoot)
 }
 
-func validateVNextRuntimePlan(appRootOption string) error {
+func validateRuntimePlan(appRootOption string) error {
 	start, err := resolveAppRoot(appRootOption)
 	if err != nil {
 		return err
@@ -367,12 +345,12 @@ func validateVNextRuntimePlan(appRootOption string) error {
 	if err != nil {
 		return err
 	}
-	result, err := vnext.Check(appRoot)
+	result, err := checkCompiledContract(appRoot)
 	if err != nil {
 		return err
 	}
 	if !result.Valid() {
-		return fmt.Errorf("vNext runtime plan is invalid: %s", firstVNextDiagnostic(result.Diagnostics))
+		return fmt.Errorf("runtime plan is invalid: %s", firstCompilerDiagnostic(result.Diagnostics))
 	}
 	return nil
 }

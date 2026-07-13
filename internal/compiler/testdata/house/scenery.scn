@@ -1,0 +1,34 @@
+workspace {
+  managed_generated_roots = [
+    "clients/generated/public_api",
+    "house/scenerycontract",
+    "internal/scenerygen",
+  ]
+}
+
+application "clean_tech" {
+}
+
+http_gateway "public_api" {
+  exposure        = "internet"
+  base_path       = "/"
+  cors            = std.cors.none
+  trusted_proxies = std.trusted_proxies.none
+  forwarded       = std.forwarded_headers.reject
+}
+
+module "house" {
+  source = "./house"
+
+  inputs = {
+    gateway = http_gateway.public_api
+  }
+}
+
+typescript_client "public_api" {
+  gateways    = [http_gateway.public_api]
+  package     = "@example/scenery-client"
+  module      = "esm"
+  runtime     = "fetch"
+  output_root = "clients/generated/public_api"
+}

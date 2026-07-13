@@ -120,8 +120,8 @@ func TestContractEndpointPreservesRepeatedSetCookieHeaders(t *testing.T) {
 	defer restore()
 
 	wantCookies := []string{
-		"scenery_refresh=; Path=/auth; Max-Age=0",
-		"onlv_refresh=; Path=/auth; Max-Age=0",
+		"first=; Path=/auth; Max-Age=0",
+		"second=; Path=/auth; Max-Age=0",
 	}
 	if err := RegisterEndpointChecked(&Endpoint{
 		Service: "contract", Name: "Logout", Access: Public, Path: "/logout", Methods: []string{http.MethodPost},
@@ -166,8 +166,8 @@ func TestContractEndpointPreservesRepeatedSetCookieHeaders(t *testing.T) {
 		t.Fatalf("Set-Cookie values = %#v, want %#v", got, wantCookies)
 	}
 	cookies := response.Cookies()
-	if len(cookies) != 2 || cookies[0].Name != "scenery_refresh" || cookies[1].Name != "onlv_refresh" {
-		t.Fatalf("response cookies = %#v, want separate current and legacy cookies", cookies)
+	if len(cookies) != 2 || cookies[0].Name != "first" || cookies[1].Name != "second" {
+		t.Fatalf("response cookies = %#v, want separate cookies", cookies)
 	}
 }
 

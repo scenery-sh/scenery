@@ -8,9 +8,14 @@ import (
 	"scenery.sh/internal/toolchain"
 )
 
+const pinnedVersionsKind = "scenery.internal.devtools.versions"
+
+const pinnedVersionsSchemaRevision = "sha256:cb117e0934975289d6f6047f449e4e281c4f0f93e6a7cecd4ab1a9d6936c7044"
+
 type PinnedVersionsConfig struct {
-	SchemaVersion string           `json:"schema_version"`
-	Victoria      VictoriaVersions `json:"victoria"`
+	Kind           string           `json:"kind"`
+	SchemaRevision string           `json:"schema_revision"`
+	Victoria       VictoriaVersions `json:"victoria"`
 }
 
 type VictoriaVersions struct {
@@ -45,7 +50,7 @@ func pinnedVersionsFromToolchainManifest() (PinnedVersionsConfig, error) {
 		return PinnedVersionsConfig{}, err
 	}
 	cfg := PinnedVersionsConfig{
-		SchemaVersion: "scenery.internal.devtools.versions.v1",
+		Kind: pinnedVersionsKind, SchemaRevision: pinnedVersionsSchemaRevision,
 	}
 	for _, artifact := range manifest.Artifacts {
 		switch artifact.Name {
@@ -64,8 +69,8 @@ func pinnedVersionsFromToolchainManifest() (PinnedVersionsConfig, error) {
 }
 
 func validatePinnedVersions(cfg PinnedVersionsConfig) error {
-	if cfg.SchemaVersion != "scenery.internal.devtools.versions.v1" {
-		return fmt.Errorf("unsupported internal devtool versions schema %q", cfg.SchemaVersion)
+	if cfg.Kind != pinnedVersionsKind || cfg.SchemaRevision != pinnedVersionsSchemaRevision {
+		return fmt.Errorf("unsupported internal devtool versions identity %q at %q", cfg.Kind, cfg.SchemaRevision)
 	}
 	if strings.TrimSpace(cfg.Victoria.Metrics.Version) == "" {
 		return fmt.Errorf("internal devtool versions missing victoria.metrics.version")

@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.build.result.schema.json",
+  "title": "scenery.build.result",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "output_path",
+    "descriptor_path",
+    "copied"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "kind": {
+      "const": "scenery.build.result"
+    },
+    "schema_revision": {
+      "const": "sha256:222cea7f47a8ed1776bdfec77b9c8a499f636840b22b1c72cf4260059b4212e9"
+    },
+    "output_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "descriptor_path": {
+      "type": "string"
+    },
+    "copied": {
+      "type": "boolean"
+    }
+  }
+}

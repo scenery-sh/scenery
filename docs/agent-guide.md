@@ -1,6 +1,6 @@
 # scenery Agent Guide
 
-This guide is for agents using scenery applications or changing scenery itself. The installable `SKILL.md` is the portable quick reference; this document explains source-of-truth order, native edition-2027 workflow, generated artifacts, and client-app integration.
+This guide is for agents using scenery applications or changing scenery itself. The installable `SKILL.md` is the portable quick reference; this document explains source-of-truth order, the current workflow, generated artifacts, and client-app integration.
 
 ## Source Of Truth Order
 
@@ -14,7 +14,7 @@ Use the narrowest current source that applies:
 
 When prose and current JSON/tests disagree, fix the affected documentation in the same change or record the drift in an active ExecPlan. Do not add alternate declaration spellings to preserve old source.
 
-## Edition-2027 Application Model
+## Current Application Model
 
 Every supported app has:
 
@@ -65,7 +65,7 @@ The build revision comes from the complete content-addressed Go input manifest a
 
 No-input operations use exact `std.type.unit`. CLI bindings own their help, completion, typed caller inputs, trusted runtime context, outcomes, and exit codes. Context-mapped fields must never become caller flags or arguments.
 
-For terminal HTTP path tails, require `scenery.http-path-tail/v1` and `scenery.runtime-http-path-tail/v1`, use only final `{name...}` syntax, and add one matching `path_tail` mapping. Do not substitute router wildcards, pre-encoded fragments, or filesystem cleaning.
+For terminal HTTP path tails, use only final `{name...}` syntax and add one matching `path_tail` mapping. Path tails are part of the current HTTP codec/runtime contract and require no extra source selector. Do not substitute router wildcards, pre-encoded fragments, or filesystem cleaning.
 
 Generated Go constructor config fields reference typed package inputs. The input owns phase, type, constraints, and sensitivity; plaintext sensitive values fail compilation.
 
@@ -74,7 +74,7 @@ Generated Go constructor config fields reference typed package inputs. The input
 Branch on stable diagnostic codes, never message text. Inspect the catalog with:
 
 ```sh
-scenery schema scenery.diagnostics.2027.v1 -o json
+scenery schema SCN2101 -o json
 ```
 
 Internal diagnostics publish a sanitized message and opaque report token.
@@ -94,7 +94,7 @@ Use `scenery diff --semantic` for compatibility. Rename evidence is revision-bou
 
 ## CLI Surfaces For Agents
 
-Use `-o json` for edition-2027 commands and `-o json` for command-specific current protocols. Never combine them.
+Use `-o json` for compiler commands and command-specific current protocols. Never combine incompatible output modes.
 
 | Intent | Command |
 | --- | --- |
@@ -145,24 +145,24 @@ An explicit app-level `DATABASE_URL` is external. Otherwise `scenery up` manages
 
 ## Generated And Cache Artifacts
 
-Checked-in edition outputs include:
+Checked-in generated outputs include:
 
 ```text
 <module>/scenerycontract/
   contract.gen.go
   types.gen.go
-  scenery.package-generated.v1.json
+  scenery.package-generated.json
 internal/scenerygen/
   composition/composition.gen.go
   <service>_adapter/adapter.gen.go
-  scenery.generated.v1.json
+  scenery.generated.json
 <typescript-output-root>/
   client.ts
   runtime.ts
   types.ts
   metadata.ts
   index.ts
-  scenery.typescript-client-generated.v1.json
+  scenery.typescript-client-generated.json
 ```
 
 App-local `.scenery/` state is cache/evidence, not source. It may contain build records, sessions, issued plans, logs, and harness outputs. Do not commit it.

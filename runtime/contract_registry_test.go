@@ -71,13 +71,13 @@ func TestContractRegistryPropagatesAdapterFailureWithoutSealing(t *testing.T) {
 }
 
 func TestContractRegistryRejectsProviderABIMismatch(t *testing.T) {
-	registry, err := NewContractRegistry(ContractRegistryOptions{ContractRevision: "sha256:contract", RequiredAddresses: []string{"house/service/house"}, ProviderABIs: map[string]string{"provider/postgres@2.1.0": "scenery.data-runtime/v1"}})
+	registry, err := NewContractRegistry(ContractRegistryOptions{ContractRevision: "sha256:contract", RequiredAddresses: []string{"house/service/house"}, ProviderABIs: map[string]string{"registry.scenery.dev/core/postgres": "scenery.data-runtime/v1"}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	err = registry.Register("adapter/house", ContractRegistration{
 		ContractRevision: "sha256:contract", PackageContractABIRevision: "sha256:package", RuntimeABI: ContractRuntimeABI,
-		ProviderABIs: map[string]string{"provider/postgres@2.1.0": "scenery.data-runtime/v2"}, CoveredAddresses: []string{"house/service/house"}, Apply: func() error { return nil },
+		ProviderABIs: map[string]string{"registry.scenery.dev/core/postgres": "scenery.data-runtime/" + "v2"}, CoveredAddresses: []string{"house/service/house"}, Apply: func() error { return nil },
 	})
 	if err == nil || !strings.Contains(err.Error(), "requires provider") {
 		t.Fatalf("provider ABI mismatch error = %v", err)

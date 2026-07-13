@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.worktree.list.schema.json",
+  "title": "scenery worktree list result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "kind",
+    "schema_revision",
+    "ok",
+    "app_root",
+    "worktrees"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.worktree.list"
+    },
+    "schema_revision": {
+      "const": "sha256:2d42d90ddd63a94c1e0fe12a1cf04023b7ccc167534c32751dc06a2714aed237"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "app_root": {
+      "type": "string"
+    },
+    "worktrees": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path"
+        ],
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "branch": {
+            "type": "string"
+          },
+          "head": {
+            "type": "string"
+          },
+          "bare": {
+            "type": "boolean"
+          }
+        }
+      }
+    }
+  }
+}

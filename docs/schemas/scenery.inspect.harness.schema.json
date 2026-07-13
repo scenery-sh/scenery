@@ -1,0 +1,251 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.inspect.harness.schema.json",
+  "title": "scenery inspect harness",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "generated_at",
+    "scope",
+    "root"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.inspect.harness"
+    },
+    "schema_revision": {
+      "const": "sha256:f85ff889bd47c12fef97c8f922a235989ad736775207a7cf6c2e24a5d48e4897"
+    },
+    "generated_at": {
+      "type": "string"
+    },
+    "scope": {
+      "enum": [
+        "app",
+        "repo"
+      ]
+    },
+    "root": {
+      "type": "string"
+    },
+    "app": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "repo": {
+      "type": "object",
+      "required": [
+        "root",
+        "module_path",
+        "go_mod_path"
+      ],
+      "properties": {
+        "root": {
+          "type": "string"
+        },
+        "module_path": {
+          "const": "scenery.sh"
+        },
+        "go_mod_path": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "latest": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/latest"
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/artifact"
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/evidence"
+      }
+    },
+    "artifact": {
+      "$ref": "#/$defs/artifact"
+    },
+    "payload": true,
+    "severity": {
+      "type": "string"
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "omitted_count": {
+      "type": "integer"
+    },
+    "top": {
+      "type": "integer"
+    },
+    "total_seconds": {
+      "type": "number"
+    },
+    "budgets": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "slow_tests": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "slow_packages": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "latest": {
+      "type": "object",
+      "required": [
+        "name",
+        "path",
+        "kind",
+        "schema_revision",
+        "exists"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "schema_revision": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "exists": {
+          "type": "boolean"
+        },
+        "size_bytes": {
+          "type": "integer"
+        },
+        "modified_at": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "artifact": {
+      "type": "object",
+      "required": [
+        "name",
+        "path",
+        "exists"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "schema_revision": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "exists": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "evidence": {
+      "type": "object",
+      "required": [
+        "kind",
+        "schema_revision",
+        "duration_ms"
+      ],
+      "properties": {
+        "kind": {
+          "const": "scenery.harness.artifact"
+        },
+        "schema_revision": {
+          "const": "sha256:5fdbd3fbabd171b9226331c8d821c2a59744e7682943593896c332b8ac69eaa8"
+        },
+        "command": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "started_at": {
+          "type": "string"
+        },
+        "duration_ms": {
+          "type": "integer"
+        },
+        "exit_code": {
+          "type": "integer"
+        },
+        "stdout_tail": {
+          "type": "string"
+        },
+        "stderr_tail": {
+          "type": "string"
+        },
+        "artifacts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/evidence_artifact"
+          }
+        },
+        "repro_command": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "evidence_artifact": {
+      "type": "object",
+      "required": [
+        "name",
+        "path"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "schema_revision": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

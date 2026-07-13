@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"scenery.sh/internal/machine"
 )
 
 type Registry struct {
@@ -30,6 +32,7 @@ type routeTarget struct {
 }
 
 type registryFile struct {
+	machine.ArtifactIdentity
 	Sessions         []Session         `json:"sessions"`
 	Substrates       []Substrate       `json:"substrates,omitempty"`
 	Aliases          []AliasLease      `json:"aliases,omitempty"`
@@ -94,20 +97,20 @@ func (r *Registry) UpsertSubstrate(req UpsertSubstrateRequest) (Substrate, error
 		lastExit = copySubstrateExit(current.LastExit)
 	}
 	substrate := Substrate{
-		SchemaVersion:  SubstrateSchemaVersion,
-		Kind:           kind,
-		Status:         status,
-		OwnerPID:       ownerPID,
-		Owner:          owner,
-		PIDs:           pids,
-		Owners:         owners,
-		URLs:           copyStringMap(req.URLs),
-		Endpoints:      copyStringMap(req.Endpoints),
-		Leases:         leasesForSubstrate(req.Leases, current),
-		LastExit:       lastExit,
-		ComponentExits: componentExits,
-		CreatedAt:      createdAt,
-		UpdatedAt:      now,
+		ArtifactIdentity: substrateIdentity(),
+		Kind:             kind,
+		Status:           status,
+		OwnerPID:         ownerPID,
+		Owner:            owner,
+		PIDs:             pids,
+		Owners:           owners,
+		URLs:             copyStringMap(req.URLs),
+		Endpoints:        copyStringMap(req.Endpoints),
+		Leases:           leasesForSubstrate(req.Leases, current),
+		LastExit:         lastExit,
+		ComponentExits:   componentExits,
+		CreatedAt:        createdAt,
+		UpdatedAt:        now,
 	}
 	r.substrates[kind] = substrate
 	if err := r.saveLocked(); err != nil {
@@ -522,7 +525,7 @@ func normalizeAliasRoute(route string) string {
 }
 
 func (r *Registry) load() error {
-	data, err := os.ReadFile(r.path)
+	_, err := os.Stat(r.path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
@@ -530,7 +533,7 @@ func (r *Registry) load() error {
 		return err
 	}
 	var file registryFile
-	if err := json.Unmarshal(data, &file); err != nil {
+	if err := LoadDurableArtifact(r.path, &file, &file.ArtifactIdentity, AgentRegistryKind, agentRegistrySchemaDescriptor, 0o644, migrateLegacyRegistry); err != nil {
 		return err
 	}
 	for _, session := range file.Sessions {
@@ -568,6 +571,73 @@ func (r *Registry) load() error {
 	return nil
 }
 
+func migrateLegacyRegistry(fields map[string]json.RawMessage) error {
+	if _, ok := fields["sessions"]; !ok {
+		return fmt.Errorf("unsupported legacy agent registry")
+	}
+	if err := migrateLegacyArtifactList(fields, "sessions", func(item map[string]json.RawMessage) error {
+		if err := requireLegacySchemaOrMissing(item, "scenery.dev.session.v1"); err != nil {
+			return err
+		}
+		addIdentityFields(item, sessionIdentity())
+		if raw := item["route_manifest"]; len(raw) > 0 && string(raw) != "null" && string(raw) != "{}" {
+			var manifest map[string]json.RawMessage
+			if err := json.Unmarshal(raw, &manifest); err != nil {
+				return err
+			}
+			if version := manifest["schema_version"]; len(version) > 0 {
+				if err := requireLegacySchema(manifest, "scenery.route_manifest.v1"); err != nil {
+					return err
+				}
+			}
+			addIdentityFields(manifest, routeManifestIdentity())
+			if leaseRaw := manifest["port_lease"]; len(leaseRaw) > 0 && string(leaseRaw) != "null" {
+				var lease map[string]json.RawMessage
+				if err := json.Unmarshal(leaseRaw, &lease); err != nil {
+					return err
+				}
+				if version := lease["schema_version"]; len(version) > 0 {
+					if err := requireLegacySchema(lease, "scenery.dev.port_lease.v1"); err != nil {
+						return err
+					}
+				}
+				addIdentityFields(lease, portLeaseIdentity())
+				manifest["port_lease"], _ = json.Marshal(lease)
+			}
+			item["route_manifest"], _ = json.Marshal(manifest)
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	return migrateLegacyArtifactList(fields, "substrates", func(item map[string]json.RawMessage) error {
+		if err := requireLegacySchemaOrMissing(item, "scenery.dev.substrate.v1"); err != nil {
+			return err
+		}
+		renameLegacyField(item, "kind", "substrate_kind")
+		addIdentityFields(item, substrateIdentity())
+		return nil
+	})
+}
+
+func migrateLegacyArtifactList(fields map[string]json.RawMessage, name string, migrate func(map[string]json.RawMessage) error) error {
+	raw := fields[name]
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil
+	}
+	var items []map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &items); err != nil {
+		return err
+	}
+	for _, item := range items {
+		if err := migrate(item); err != nil {
+			return err
+		}
+	}
+	fields[name], _ = json.Marshal(items)
+	return nil
+}
+
 func (r *Registry) rebuildRouteHostIndexLocked() {
 	hosts := make(map[string]routeTarget)
 	for _, session := range r.sessions {
@@ -602,6 +672,7 @@ func (r *Registry) saveLocked() error {
 		return err
 	}
 	data, err := json.MarshalIndent(registryFile{
+		ArtifactIdentity: agentRegistryIdentity(),
 		Sessions:         sortedSessions(r.sessions),
 		Substrates:       sortedSubstrates(r.substrates),
 		Aliases:          sortedAliases(r.aliases),
@@ -873,8 +944,20 @@ func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 		_ = tmp.Close()
 		return err
 	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmpPath, path)
+	if err := os.Rename(tmpPath, path); err != nil {
+		return err
+	}
+	dirHandle, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer dirHandle.Close()
+	return dirHandle.Sync()
 }

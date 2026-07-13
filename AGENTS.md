@@ -53,10 +53,20 @@ Child `AGENTS.md` files:
 
 ### Child Agent Index
 
-- `apps/consolenext/AGENTS.md` owns the Vite/React Astryx + StyleX dashboard and frontend validation commands.
+- `apps/console/AGENTS.md` owns the Vite/React Astryx + StyleX dashboard and frontend validation commands.
+- `internal/agent/AGENTS.md` owns local agent protocol state, machine ownership records, and their durable identity migrations.
+- `internal/compiler/AGENTS.md` owns source loading, validation, expansion, and immutable compiler results.
+- `internal/contractagent/AGENTS.md` owns compiled-graph JSON-RPC capabilities and evolution dispatch.
+- `internal/deployplan/AGENTS.md` owns deployment plans, provider coordination, and crash-safe application.
 - `internal/edge/AGENTS.md` owns the managed Caddy edge process lifecycle and its real-process validation.
+- `internal/evolution/AGENTS.md` owns semantic comparison, source mutation planning, approvals, and revision-bound receipts.
+- `internal/generate/AGENTS.md` owns Go, TypeScript, OpenAPI, and runtime-composition generation and atomic artifact writes.
+- `internal/graph/AGENTS.md` owns canonical resources, graph views, provenance, and general revision hashing.
+- `internal/machine/AGENTS.md` owns singular CLI JSON/JSONL envelopes, exact machine revisions, producer identity, and strict current decoding.
+- `internal/scn/AGENTS.md` owns `.scn` source discovery, safe filesystem access, parsing, positions, lossless CSTs, and canonical formatting.
+- `internal/spec/AGENTS.md` owns the current resource/source-schema and diagnostic catalog, canonical JSON, and content revisions.
 - `internal/testsuite/AGENTS.md` owns explicit fresh execution from content-addressed Go test binaries and Go JSON event output.
-- `docs/specs/vnext/AGENTS.md` owns the edition-2027 normative specification set and profile-conformance update rules.
+- `docs/spec/AGENTS.md` owns the evolving current specification set and conformance update rules.
 
 ## Agent skills
 
@@ -81,7 +91,7 @@ Use a multi-context domain docs layout with root `CONTEXT-MAP.md` plus per-conte
 scenery is a Go-native service runtime and local development platform. Think in app roots, app runtimes, and capability surfaces first; Victoria, agent routing, generated cache files, hidden ports, and local stores are substrate details unless the task is explicitly debugging that substrate.
 
 - App roots are marked by `.scenery.json`.
-- Edition-2027 `.scn` source is the singular app model. Root `scenery.scn` installs package-local `scenery.package.scn` modules; Go source implements the generated native contracts but is not scanned for declarations.
+- `.scn` source is the singular current app model. Root `scenery.scn` installs package-local `scenery.package.scn` modules; Go source implements the generated native contracts but is not scanned for declarations.
 - The compiler exposes source/effective/expanded graphs and separate workspace, contract, implementation, deployment, and artifact revisions. Source retains authored expressions, effective resolves inputs/defaults/patches, expanded adds generators, and every provenance key is an RFC 6901 pointer into that view's resource spec.
 - `scenery task run <domain>:<name> -- [args...]` runs an app-local code task.
 - `scenery worker` builds once and starts a worker-role runtime for declared durable executions and schedules.
@@ -89,11 +99,11 @@ scenery is a Go-native service runtime and local development platform. Think in 
 - Route manifests expose the API, Scenery-owned runtime/dashboard surfaces where appropriate, and configured frontends; arbitrary backend names do not receive reserved route behavior.
 - Public and auth endpoints are externally reachable. Private endpoints are internal-only and must be called through generated helpers.
 - Typed endpoints decode path/query/header/cookie/body inputs into Go values and encode typed responses.
-- Edition-2027 terminal HTTP path tails use `{name...}` plus one typed `path_tail` mapping under the explicit codec/runtime extension profiles. They capture zero or more complete segments with exact/literal/parameter/tail precedence, strict one-time segment decoding, ordinary typed Go inputs, and independently encoded TypeScript segments.
+- Terminal HTTP path tails use `{name...}` plus one typed `path_tail` mapping under the HTTP codec/runtime contract. They capture zero or more complete segments with exact/literal/parameter/tail precedence, strict one-time segment decoding, ordinary typed Go inputs, and independently encoded TypeScript segments.
 - Generated internal calls preserve route, private access, auth context, tracing, and error semantics.
-- Edition-2027 constructors receive typed `scenery.sh/datasource` and `scenery.sh/object` capabilities; built-in CRUD, fixtures, views, pages, and renderers stay in the same generated application composition.
-- Edition-2027 agent capabilities expose exact `resource_create_kinds`; `scenery schema` / `schema.get` provide the recursive authored shape, and semantic creation must reject unadvertised kinds instead of guessing blocks, labels, or source destinations.
-- Edition-2027 mutation plans normalize typed values/references and resolved kind/schema identities before hashing. Planning retains the exact canonical plan under app-local trusted state, and apply rejects caller-recomputed plans before trusting expiry, approvals, operations, edits, or provider actions. Approval-bearing migration transitions use `--out <plan>` followed by `migrate apply <plan>` so the detached token binds the exact issued plan instead of a replanned expiry. Semantic renames emit revision-bound, digest-checked plan/apply receipts, including migration-manifest references and containing-module descendants; later diffs load matching app-local receipts or accept `--rename-receipts` explicitly.
+- Constructors receive typed `scenery.sh/datasource` and `scenery.sh/object` capabilities; built-in CRUD, fixtures, views, pages, and renderers stay in the same generated application composition.
+- Agent capabilities expose exact `resource_create_kinds`; `scenery schema` / `schema.get` provide the recursive authored shape, and semantic creation must reject unadvertised kinds instead of guessing blocks, labels, or source destinations.
+- Mutation plans normalize typed values/references and resolved kind/schema identities before hashing. Planning retains the exact canonical plan under app-local trusted state, and apply rejects caller-recomputed plans before trusting expiry, approvals, operations, edits, or provider actions. Approval-bearing migration transitions use `--out <plan>` followed by `migrate apply <plan>` so the detached token binds the exact issued plan instead of a replanned expiry. Semantic renames emit revision-bound, digest-checked plan/apply receipts, including migration-manifest references and containing-module descendants; later diffs load matching app-local receipts or accept `--rename-receipts` explicitly.
 
 Do not add deprecated non-scenery APIs or compatibility aliases unless an active plan explicitly requires compatibility.
 
@@ -106,9 +116,9 @@ Do not add deprecated non-scenery APIs or compatibility aliases unless an active
 - Do not add new environment-variable knobs by default. Prefer explicit CLI flags, config files, or existing contracts; add an env var only when the human explicitly asks for one or an active ExecPlan records why flags/config are insufficient.
 - Preserve scenery-native naming: `scenery.scn`, `scenery.package.scn`, `.scenery.json`, and `scenery.sh/...`.
 - Keep generated app models and machine-readable JSON contracts stable. If a JSON shape changes, update schemas, docs, tests, and harness expectations together.
-- Keep edition module sources inside the non-symlink app workspace and every generated output beneath a declared managed root; top-level edition generation is one artifact-set transaction.
+- Keep module sources inside the non-symlink app workspace and every generated output beneath a declared managed root; top-level generation is one artifact-set transaction.
 - Declare every service, operation, binding, durable execution, schedule, data resource, page, renderer, and middleware identity in `.scn`. Go package comments and package-init builders do not register application behavior. If `external_name` preserves an existing durable task name while its persisted input changes, increment `revision` and drain or migrate active rows first.
-- Keep every edition diagnostic in the checked-in catalog with one stable identity. Request-protocol failures use SCN8000-range codes; SCN9000-range codes are internal-only and must carry an opaque report token with a sanitized public message.
+- Keep every diagnostic in the checked-in current specification catalog with one stable identity. Request-protocol failures use SCN8000-range codes; SCN9000-range codes are internal-only and must carry an opaque report token with a sanitized public message.
 - Do not commit machine-local state or generated cache output from `.scenery/`, Victoria, node modules, coverage, `.DS_Store`, or local environment files.
 
 ## Before Making Changes
@@ -154,7 +164,7 @@ scenery harness self --summary --write
 scenery upgrade -o json
 ```
 
-For edition-2027 apps, prefer the current protocol and immutable transaction surfaces:
+For current Scenery apps, prefer the current protocol and immutable transaction surfaces:
 
 ```text
 scenery fmt --check -o json
@@ -167,7 +177,7 @@ scenery changes plan|apply ... -o json
 scenery deploy plan|apply ... -o json
 ```
 
-`-o json` selects the singular `scenery.cli.v1` envelope. `-o jsonl` emits `scenery.cli.event.v1` envelopes for streaming commands. Command-specific schemas live under the envelope `data` field.
+`-o json` selects the singular `scenery.cli` envelope. `-o jsonl` emits `scenery.cli.event` envelopes for streaming commands. Both carry exact schema/spec revisions and producer identity; command-specific schemas live under the envelope `data` field.
 
 Use `scenery doctor -o json` before expensive troubleshooting when the failure may be local environment readiness: missing or old Go, low disk or memory, absent optional tools, or an app root that is not discoverable.
 
@@ -250,14 +260,14 @@ For generated TypeScript client changes:
 ```sh
 scenery inspect endpoints -o json
 scenery generate --target typescript_client.<name> --check -o json
-bun test internal/vnext/testdata/typescript_client_conformance.test.ts
-apps/consolenext/node_modules/.bin/tsc -p internal/vnext/testdata/tsconfig.generated-clients.json
+bun test internal/generate/testdata/typescript_client_conformance.test.ts
+apps/console/node_modules/.bin/tsc -p internal/generate/testdata/tsconfig.generated-clients.json
 ```
 
 For dashboard UI changes:
 
 ```sh
-cd apps/consolenext
+cd apps/console
 bun run lint
 bun run typecheck
 bun run build
@@ -294,9 +304,9 @@ Do not copy the whole scenery skill into the client app. Keep the shared scenery
 
 When editing source that changes the public app model, confirm the docs and tests cover:
 
-- edition-2027 services, operations, executions, HTTP/internal/CLI bindings, authentication, authorization, and middleware resources
-- edition-2027 CLI bindings, including generated help/completion, typed input, trusted context, delivery, outcomes, and exit codes
-- edition-2027 `std.type.unit`, data sources, entities/views/CRUD/fixtures, pages/renderers, and typed constructor capability injection
+- services, operations, executions, HTTP/internal/CLI bindings, authentication, authorization, and middleware resources
+- CLI bindings, including generated help/completion, typed input, trusted context, delivery, outcomes, and exit codes
+- `std.type.unit`, data sources, entities/views/CRUD/fixtures, pages/renderers, and typed constructor capability injection
 - generated contract input/outcome types and explicit `.scn` HTTP request/response mappings
 - public packages: `scenery`, `auth`, `errs`, `durable`, `db`, `datasource`, `object`, `storage`
 - standard auth configuration and generated endpoints
@@ -308,4 +318,4 @@ When editing source that changes the public app model, confirm the docs and test
 - Keep changes small and explicit.
 - Prefer tests at stable boundaries: parser validation, codegen golden output, runtime HTTP behavior, CLI JSON contracts, schemas, and fixture apps.
 - Keep large files split. Non-generated source over 2500 lines should fail self-harness architecture checks; non-generated source over 1000 lines should be treated as a warning to split soon.
-- Do not bypass UI boundaries. The dashboard under `apps/consolenext/` follows its local Astryx + StyleX contract. The reusable component registry under `ui/` follows `docs/ui-agent-contract.md`.
+- Do not bypass UI boundaries. The dashboard under `apps/console/` follows its local Astryx + StyleX contract. The reusable component registry under `ui/` follows `docs/ui-agent-contract.md`.

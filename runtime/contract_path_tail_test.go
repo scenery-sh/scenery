@@ -200,13 +200,11 @@ func TestContractPathTailRegistrationRejectsInvalidMetadata(t *testing.T) {
 		{"canonical template", func(tail *ContractPathTail) { tail.CanonicalTemplate = "/drive/{rest...}" }},
 		{"target type", func(tail *ContractPathTail) { tail.Type = "optional(string)" }},
 		{"precedence", func(tail *ContractPathTail) { tail.Precedence = []string{"path_tail", "literal"} }},
-		{"profiles", func(tail *ContractPathTail) { tail.RequiredProfiles = []string{contractHTTPPathTailProfile} }},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			candidate := *valid
 			candidate.Precedence = append([]string(nil), valid.Precedence...)
-			candidate.RequiredProfiles = append([]string(nil), valid.RequiredProfiles...)
 			test.mutate(&candidate)
 			if err := validateContractPathTail(&Endpoint{Path: "/drive/*path", ContractPathTail: &candidate}); err == nil {
 				t.Fatal("invalid runtime metadata was accepted")
@@ -248,7 +246,6 @@ func testContractPathTail(name, targetType string) *ContractPathTail {
 	return &ContractPathTail{
 		CanonicalTemplate: "/drive/{" + name + "...}", Name: name, Target: "operation.download.input.path", Type: targetType,
 		EmptyCapture: empty, Decoding: "segment_rfc3986_once", Guarantee: "framework_enforced",
-		Precedence:       []string{"literal", "parameter", "exact_end", "path_tail"},
-		RequiredProfiles: []string{contractHTTPPathTailProfile, contractRuntimeHTTPPathTailProfile},
+		Precedence: []string{"literal", "parameter", "exact_end", "path_tail"},
 	}
 }

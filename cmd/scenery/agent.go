@@ -44,7 +44,7 @@ type downOptions struct {
 }
 
 type downResponse struct {
-	SchemaVersion    string   `json:"schema_version"`
+	cliPayloadIdentity
 	AppRoot          string   `json:"app_root,omitempty"`
 	Deleted          bool     `json:"deleted"`
 	RecordPreserved  bool     `json:"record_preserved"`
@@ -62,7 +62,7 @@ type pruneOptions struct {
 
 func agentCommand(args []string) error {
 	if len(args) > 0 && args[0] == "serve" {
-		return runVNextAgentServer(os.Stdin, os.Stdout, args)
+		return runContractAgentServer(os.Stdin, os.Stdout, args)
 	}
 	if len(args) > 0 && args[0] == "restart" {
 		return agentRestartCommand(args[1:])
@@ -156,14 +156,13 @@ func agentRestartCommand(args []string) error {
 		return err
 	}
 	if opts.JSON {
-		return writeCLIJSON(os.Stdout, map[string]any{
-			"schema_version": "scenery.agent.restart.v1",
-			"old_pid":        oldHealth.PID,
-			"pid":            health.PID,
-			"socket_path":    health.SocketPath,
-			"router_addr":    health.RouterAddr,
-			"router_scheme":  health.RouterScheme,
-		})
+		return writeCLIJSON(os.Stdout, withCLIPayloadIdentity("scenery.agent.restart", map[string]any{
+			"old_pid":       oldHealth.PID,
+			"pid":           health.PID,
+			"socket_path":   health.SocketPath,
+			"router_addr":   health.RouterAddr,
+			"router_scheme": health.RouterScheme,
+		}))
 	}
 	fmt.Fprintf(os.Stdout, "restarted scenery agent")
 	if health.PID > 0 {
@@ -350,12 +349,11 @@ func writeStatus(ctx context.Context, client *localagent.Client, stdout io.Write
 	substrates, _ := statusSubstrates(ctx, client)
 	if opts.JSON {
 		health, _ := client.Health(ctx)
-		return writeCLIJSON(stdout, map[string]any{
-			"schema_version": "scenery.agent.status.v1",
-			"agent":          health,
-			"sessions":       sessions,
-			"substrates":     substrates,
-		})
+		return writeCLIJSON(stdout, withCLIPayloadIdentity("scenery.agent.status", map[string]any{
+			"agent":      health,
+			"sessions":   sessions,
+			"substrates": substrates,
+		}))
 	}
 	writeStatusTable(stdout, sessions, substrates)
 	if opts.Watch {
@@ -540,10 +538,10 @@ func downCommandWithClient(client *localagent.Client, stdout io.Writer, args []s
 	}
 	if runtimeMissing {
 		resp := downResponse{
-			SchemaVersion: "scenery.down.v1",
-			AppRoot:       appRoot,
-			DBCleanup:     opts.DB,
-			StateCleanup:  opts.State,
+			cliPayloadIdentity: newCLIPayloadIdentity("scenery.down"),
+			AppRoot:            appRoot,
+			DBCleanup:          opts.DB,
+			StateCleanup:       opts.State,
 		}
 		message := fmt.Sprintf("no scenery dev runtime found for app root %s; runtime stop skipped", appRoot)
 		resp.Messages = append(resp.Messages, message)
@@ -580,11 +578,11 @@ func downCommandWithClient(client *localagent.Client, stdout io.Writer, args []s
 		return err
 	}
 	resp := downResponse{
-		SchemaVersion: "scenery.down.v1",
-		AppRoot:       appRoot,
-		Deleted:       deleted,
-		DBCleanup:     opts.DB,
-		StateCleanup:  opts.State,
+		cliPayloadIdentity: newCLIPayloadIdentity("scenery.down"),
+		AppRoot:            appRoot,
+		Deleted:            deleted,
+		DBCleanup:          opts.DB,
+		StateCleanup:       opts.State,
 	}
 	runtimeLabel := firstNonEmpty(appRoot, deletedSession.AppRoot, session.AppRoot, deletedSession.SessionID, session.SessionID)
 	if !deleted {

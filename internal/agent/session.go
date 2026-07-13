@@ -90,24 +90,24 @@ func NewSession(req RegisterRequest, routerAddr, routerScheme string, existing *
 		routes = routesForPathManifest(routeManifest)
 	}
 	session := Session{
-		SchemaVersion:  SessionSchemaVersion,
-		SessionID:      sessionID,
-		BaseAppID:      baseAppID,
-		RuntimeAppID:   baseAppID + "--" + sessionID,
-		RouteNamespace: routeNamespace,
-		AppRoot:        appRoot,
-		StateRoot:      StateRoot(appRoot, sessionID),
-		Branch:         branch,
-		Status:         status,
-		OwnerPID:       ownerPID,
-		Owner:          owner,
-		AppPID:         strings.TrimSpace(req.AppPID),
-		Processes:      processes,
-		RouteManifest:  routeManifest,
-		Backends:       backends,
-		ReportToken:    reportToken,
-		CreatedAt:      createdAt,
-		UpdatedAt:      now,
+		ArtifactIdentity: sessionIdentity(),
+		SessionID:        sessionID,
+		BaseAppID:        baseAppID,
+		RuntimeAppID:     baseAppID + "--" + sessionID,
+		RouteNamespace:   routeNamespace,
+		AppRoot:          appRoot,
+		StateRoot:        StateRoot(appRoot, sessionID),
+		Branch:           branch,
+		Status:           status,
+		OwnerPID:         ownerPID,
+		Owner:            owner,
+		AppPID:           strings.TrimSpace(req.AppPID),
+		Processes:        processes,
+		RouteManifest:    routeManifest,
+		Backends:         backends,
+		ReportToken:      reportToken,
+		CreatedAt:        createdAt,
+		UpdatedAt:        now,
 	}
 	return session, nil
 }
@@ -333,12 +333,12 @@ func normalizeRouteManifest(manifest RouteManifest, sessionID, baseAppID, appRoo
 		mode = RouteModeHost
 	}
 	out := RouteManifest{
-		SchemaVersion: firstNonEmpty(manifest.SchemaVersion, RouteManifestVersion),
-		Mode:          mode,
-		BaseURL:       normalizeBaseURL(manifest.BaseURL),
-		Root:          strings.TrimSpace(manifest.Root),
-		Worktree:      sanitizeLabel(firstNonEmpty(manifest.Worktree, branch, sessionID)),
-		PortLease:     copyPortLease(manifest.PortLease),
+		ArtifactIdentity: routeManifestIdentity(),
+		Mode:             mode,
+		BaseURL:          normalizeBaseURL(manifest.BaseURL),
+		Root:             strings.TrimSpace(manifest.Root),
+		Worktree:         sanitizeLabel(firstNonEmpty(manifest.Worktree, branch, sessionID)),
+		PortLease:        copyPortLease(manifest.PortLease),
 	}
 	if out.Root == "" {
 		if mode == RouteModePath {
@@ -387,11 +387,11 @@ func hostRouteManifestForSession(sessionID, branch string, routes map[string]str
 		}
 	}
 	return RouteManifest{
-		SchemaVersion: RouteManifestVersion,
-		Mode:          RouteModeHost,
-		Root:          RouteDashboard,
-		Worktree:      sanitizeLabel(firstNonEmpty(branch, sessionID)),
-		Routes:        records,
+		ArtifactIdentity: routeManifestIdentity(),
+		Mode:             RouteModeHost,
+		Root:             RouteDashboard,
+		Worktree:         sanitizeLabel(firstNonEmpty(branch, sessionID)),
+		Routes:           records,
 	}
 }
 
@@ -566,9 +566,7 @@ func copyPortLease(lease *PortLease) *PortLease {
 		return nil
 	}
 	copied := *lease
-	if copied.SchemaVersion == "" {
-		copied.SchemaVersion = "scenery.dev.port_lease.v1"
-	}
+	copied.ArtifactIdentity = portLeaseIdentity()
 	return &copied
 }
 

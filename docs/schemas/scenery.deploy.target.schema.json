@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.deploy.target.schema.json",
+  "title": "scenery.deploy.target",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.deploy.target"
+    },
+    "schema_revision": {
+      "const": "sha256:356e55ad96ebecf480ec923f0f57278a7b1d670050cbdae6fdc8319633ab26f6"
+    },
+    "action": {
+    },
+    "registry_path": {
+    },
+    "targets": {
+    }
+  },
+  "additionalProperties": false
+}

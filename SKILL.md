@@ -1,11 +1,11 @@
 ---
 name: scenery
-description: Use when building, running, debugging, inspecting, validating, or generating clients for edition-2027 scenery applications. Scenery is a Go-native runtime and CLI whose singular application model is declared in scenery.scn and package-local scenery.package.scn files.
+description: Use when building, running, debugging, inspecting, validating, or generating clients for current scenery applications. Scenery is a Go-native runtime and CLI whose singular application model is declared in scenery.scn and package-local scenery.package.scn files.
 ---
 
 # scenery
 
-Scenery runs one supervised local application runtime and exposes safe capabilities for inspection and action. Applications declare a canonical edition-2027 graph in `scenery.scn` plus package-local `scenery.package.scn` files. Go packages implement generated native contracts; comments and package initialization do not register application resources.
+Scenery runs one supervised local application runtime and exposes safe capabilities for inspection and action. Applications declare a canonical current graph in `scenery.scn` plus package-local `scenery.package.scn` files. Go packages implement generated native contracts; comments and package initialization do not register application resources.
 
 This skill is shared runtime knowledge, not a replacement for app-local instructions. Read the target repository's root `AGENTS.md` and every child `AGENTS.md` on the path to files you will touch. Client apps should record only their app root, frontend roots, generated output paths, required environment names, validation commands, and product invariants locally.
 
@@ -33,7 +33,7 @@ scenery logs -o jsonl --limit 200
 scenery harness -o json --write
 ```
 
-Prefer machine-readable output for decisions. `-o json` selects the singular `scenery.cli.v1` envelope; command-specific results live under `data`. `-o jsonl` emits `scenery.cli.event.v1` envelopes for streaming commands. Branch on stable `SCNxxxx` diagnostics rather than message text. Resolve opaque source IDs through the returned source map.
+Prefer machine-readable output for decisions. `-o json` selects the singular `scenery.cli` envelope; command-specific results live under `data`. `-o jsonl` emits `scenery.cli.event` envelopes for streaming commands. Verify exact schema/spec revisions and producer identity, and branch on stable `SCNxxxx` diagnostics rather than message text. Resolve opaque source IDs through the returned source map.
 
 Run `scenery doctor -o json` before deep troubleshooting when host readiness is uncertain. For scenery repository changes, use `scenery inspect docs -o json` before editing current contracts and `scenery harness self --summary --write` after substantial work.
 
@@ -55,7 +55,7 @@ App-required build flags belong in `build.go_flags` in app config. Non-runtime t
 
 Start from the checked-in `testdata/apps/basic` fixture or the minimal example in `README.md`. A native Go service has:
 
-- root language/workspace/application/toolchain/target/gateway/module declarations;
+- root workspace/application/toolchain/target/gateway/module declarations;
 - package metadata with a `go_contract.import_path`;
 - a service constructor declaration;
 - typed records, an operation, an execution, and one or more bindings;
@@ -76,7 +76,7 @@ Keep every generated output beneath `workspace.managed_generated_roots`. Top-lev
 
 Use `scenery list|get|explain|graph ... -o json` for graph facts and `scenery diff --semantic` for compatibility. Semantic changes and deployments use immutable revision-bound plan/apply. Apply accepts only the exact app-local issued plan and rejects caller-recomputed approvals, operations, edits, or provider actions.
 
-For semantic creation, read agent `resource_create_kinds` and `schema.get` first. Unadvertised kinds are intentionally unavailable. For terminal HTTP path tails, require both path-tail profiles, use final `{name...}` syntax, and declare one matching typed `path_tail` mapping; do not substitute router globs or pre-encoded fragments.
+For semantic creation, read agent `resource_create_kinds` and `schema.get` first. Unadvertised kinds are intentionally unavailable. For terminal HTTP path tails, use final `{name...}` syntax and declare one matching typed `path_tail` mapping; path tails are part of the current HTTP contract and require no extra source selector. Do not substitute router globs or pre-encoded fragments.
 
 ## Public Go Capabilities
 
@@ -136,7 +136,7 @@ Declare each `typescript_client` target in `scenery.scn`, including its gateway 
 ```sh
 scenery generate --target typescript_client.public_api -o json
 scenery generate --target typescript_client.public_api --check -o json
-bun test internal/vnext/testdata/typescript_client_conformance.test.ts
+bun test internal/generate/testdata/typescript_client_conformance.test.ts
 ```
 
 Generated clients implement the exact declared HTTP mappings and typed outcomes. They do not infer routes or authentication from Go names. Regenerate after any reachable binding, type, codec, or auth contract changes.
@@ -156,10 +156,10 @@ Single-file Go code tasks live under a domain `tasks` directory and use `//go:bu
 
 ## UI Work
 
-Follow `apps/consolenext/AGENTS.md` for dashboard work. For reusable components, follow `docs/ui-agent-contract.md`, use the `@scenery registry`, and install through commands such as `bun run shadcn:add @scenery/button`.
+Follow `apps/console/AGENTS.md` for dashboard work. For reusable components, follow `docs/ui-agent-contract.md`, use the `@scenery registry`, and install through commands such as `bun run shadcn:add @scenery/button`.
 
 ```sh
-cd apps/consolenext
+cd apps/console
 bun run lint
 bun run typecheck
 bun run build

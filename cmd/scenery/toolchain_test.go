@@ -30,8 +30,9 @@ func TestRunToolchainListJSON(t *testing.T) {
 		t.Fatalf("runToolchain list: %v", err)
 	}
 	var payload struct {
-		SchemaVersion string `json:"schema_version"`
-		Artifacts     []struct {
+		Kind           string `json:"kind"`
+		SchemaRevision string `json:"schema_revision"`
+		Artifacts      []struct {
 			Name   string `json:"name"`
 			Status string `json:"status"`
 		} `json:"artifacts"`
@@ -42,8 +43,8 @@ func TestRunToolchainListJSON(t *testing.T) {
 	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
 		t.Fatalf("decodeCLIJSON: %v\n%s", err, out.String())
 	}
-	if payload.SchemaVersion != "scenery.toolchain.status.v1" {
-		t.Fatalf("schema_version = %q", payload.SchemaVersion)
+	if payload.Kind != toolchain.StatusKind || payload.SchemaRevision != toolchain.StatusSchemaRevision {
+		t.Fatalf("identity = %q %q", payload.Kind, payload.SchemaRevision)
 	}
 	if len(payload.Artifacts) == 0 || len(payload.SourceLocks) == 0 {
 		t.Fatalf("payload missing artifacts or source locks: %+v", payload)
@@ -88,8 +89,8 @@ func TestVersionJSONIncludesToolchainManifest(t *testing.T) {
 	if resp.Toolchain == nil {
 		t.Fatal("toolchain manifest metadata missing")
 	}
-	if resp.Toolchain.SchemaVersion != "scenery.toolchain.v1" {
-		t.Fatalf("toolchain schema = %q", resp.Toolchain.SchemaVersion)
+	if resp.Toolchain.Kind != toolchain.ManifestKind || resp.Toolchain.SchemaRevision != toolchain.ManifestSchemaRevision {
+		t.Fatalf("toolchain identity = %q %q", resp.Toolchain.Kind, resp.Toolchain.SchemaRevision)
 	}
 	if len(resp.Toolchain.SHA256) != 64 {
 		t.Fatalf("toolchain sha = %q", resp.Toolchain.SHA256)

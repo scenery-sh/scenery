@@ -32,8 +32,8 @@ type logsOptions struct {
 }
 
 type logsEvent struct {
-	SchemaVersion string `json:"schema_version"`
-	App           struct {
+	cliPayloadIdentity
+	App struct {
 		ID   string `json:"id"`
 		Name string `json:"name"`
 		Root string `json:"root"`
@@ -390,15 +390,15 @@ func writeDevEventOutput(w io.Writer, events *cliEventWriter, appName, appRoot s
 
 func writeDevEventJSONL(events *cliEventWriter, appName, appRoot string, item devdash.DevEvent) error {
 	event := logsEvent{
-		SchemaVersion: devdash.DevEventSchemaVersion,
-		ID:            item.ID,
-		Time:          item.CreatedAt.UTC().Format(time.RFC3339Nano),
-		SessionID:     item.SessionID,
-		Source:        item.Source,
-		Level:         item.Level,
-		Message:       item.Message,
-		Raw:           item.Raw,
-		Parse:         item.Parse,
+		cliPayloadIdentity: newCLIPayloadIdentity(devdash.DevEventKind),
+		ID:                 item.ID,
+		Time:               item.CreatedAt.UTC().Format(time.RFC3339Nano),
+		SessionID:          item.SessionID,
+		Source:             item.Source,
+		Level:              item.Level,
+		Message:            item.Message,
+		Raw:                item.Raw,
+		Parse:              item.Parse,
 	}
 	if len(item.Fields) > 0 && string(item.Fields) != "{}" {
 		event.Fields = item.Fields

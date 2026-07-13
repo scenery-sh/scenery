@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.validation.result.schema.json",
+  "title": "scenery.validation.result",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "ok",
+    "generated_at",
+    "app",
+    "profile",
+    "selection",
+    "steps"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.validation.result"
+    },
+    "schema_revision": {
+      "const": "sha256:ed8954775be56b4fbcf7d87e97a3e6bd75eadeefdc16893c3765fc5ac3bf04c3"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "generated_at": {
+      "type": "string"
+    },
+    "app": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "profile": {
+      "type": "string"
+    },
+    "selection": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "next_actions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "wrote": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

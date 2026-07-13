@@ -1,0 +1,180 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.inspect.traces.schema.json",
+  "title": "scenery.inspect.traces",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "app",
+    "query",
+    "traces"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.inspect.traces"
+    },
+    "schema_revision": {
+      "const": "sha256:f3a83468f7bc3d018825b0536c47515a3d6e5e9d053a3e3442a6fa3a6a9bd816"
+    },
+    "app": {
+      "type": "object",
+      "required": [
+        "name",
+        "root",
+        "config_path"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "root": {
+          "type": "string"
+        },
+        "config_path": {
+          "type": "string"
+        },
+        "module_path": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "query": {
+      "$ref": "#/$defs/query"
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "traces": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/trace"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "query": {
+      "type": "object",
+      "required": [
+        "app_id",
+        "available_filters"
+      ],
+      "properties": {
+        "app_id": {
+          "type": "string"
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "integer"
+        },
+        "since": {
+          "type": "string"
+        },
+        "since_timestamp": {
+          "type": "string"
+        },
+        "service": {
+          "type": "string"
+        },
+        "endpoint": {
+          "type": "string"
+        },
+        "trace_id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "min_duration_ms": {
+          "type": "number"
+        },
+        "sort": {
+          "type": "string"
+        },
+        "available_filters": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "trace": {
+      "type": "object",
+      "required": [
+        "trace_id",
+        "span_id",
+        "kind",
+        "status",
+        "started_at",
+        "duration_ms",
+        "duration_nanos"
+      ],
+      "properties": {
+        "trace_id": {
+          "type": "string"
+        },
+        "span_id": {
+          "type": "string"
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "app_root_hash": {
+          "type": "string"
+        },
+        "branch": {
+          "type": "string"
+        },
+        "worktree": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "service": {
+          "type": "string"
+        },
+        "endpoint": {
+          "type": "string"
+        },
+        "topic": {
+          "type": "string"
+        },
+        "subscription": {
+          "type": "string"
+        },
+        "message_id": {
+          "type": "string"
+        },
+        "started_at": {
+          "type": "string"
+        },
+        "duration_ms": {
+          "type": "number"
+        },
+        "duration_nanos": {
+          "type": "integer"
+        },
+        "service_catalog_url": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

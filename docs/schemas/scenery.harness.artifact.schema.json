@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.harness.artifact.schema.json",
+  "title": "scenery harness evidence artifact",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "duration_ms"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.harness.artifact"
+    },
+    "schema_revision": {
+      "const": "sha256:5fdbd3fbabd171b9226331c8d821c2a59744e7682943593896c332b8ac69eaa8"
+    },
+    "command": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "cwd": {
+      "type": "string"
+    },
+    "started_at": {
+      "type": "string"
+    },
+    "duration_ms": {
+      "type": "integer"
+    },
+    "exit_code": {
+      "type": "integer"
+    },
+    "stdout_tail": {
+      "type": "string"
+    },
+    "stderr_tail": {
+      "type": "string"
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/evidence_artifact"
+      }
+    },
+    "repro_command": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "evidence_artifact": {
+      "type": "object",
+      "required": [
+        "name",
+        "path"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "schema_revision": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

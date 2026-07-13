@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.deploy.setup.schema.json",
+  "title": "scenery.deploy.setup",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.deploy.setup"
+    },
+    "schema_revision": {
+      "const": "sha256:f8973bd425ddbbe813df86be5e22af0bdd6b50f86178a53dc32c801319927da3"
+    },
+    "registry_path": {
+    },
+    "acme": {
+    },
+    "helper_version": {
+    },
+    "helper_public": {
+    },
+    "launch_agent_installed": {
+    },
+    "edge_restarted": {
+    }
+  },
+  "additionalProperties": false
+}

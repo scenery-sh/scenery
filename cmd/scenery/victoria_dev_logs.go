@@ -19,11 +19,12 @@ import (
 )
 
 const (
-	victoriaDevEventSchemaField = "scenery_dev_schema"
-	victoriaDevEventAppField    = "scenery_app_id"
-	victoriaDevEventSession     = "scenery_session_id"
-	victoriaDevEventCreatedAt   = "created_at"
-	victoriaDevEventMessage     = "message"
+	victoriaDevEventKindField     = "scenery_dev_kind"
+	victoriaDevEventRevisionField = "scenery_dev_schema_revision"
+	victoriaDevEventAppField      = "scenery_app_id"
+	victoriaDevEventSession       = "scenery_session_id"
+	victoriaDevEventCreatedAt     = "created_at"
+	victoriaDevEventMessage       = "message"
 )
 
 const victoriaDevEventQueryWindow = "30d"
@@ -39,7 +40,7 @@ func (s *victoriaStack) ExportDevEvent(ctx context.Context, event devdash.DevEve
 	}
 	body = append(body, '\n')
 	values := url.Values{}
-	values.Set("_stream_fields", strings.Join([]string{victoriaDevEventSchemaField, victoriaDevEventAppField, victoriaDevEventSession, "source_id"}, ","))
+	values.Set("_stream_fields", strings.Join([]string{victoriaDevEventKindField, victoriaDevEventRevisionField, victoriaDevEventAppField, victoriaDevEventSession, "source_id"}, ","))
 	values.Set("_msg_field", victoriaDevEventMessage)
 	endpoint := strings.TrimRight(baseURL, "/") + "/insert/jsonline?" + values.Encode()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
@@ -74,27 +75,28 @@ func victoriaDevEventRecord(event devdash.DevEvent) map[string]any {
 		message = event.Level
 	}
 	return map[string]any{
-		victoriaDevEventSchemaField: devdash.DevEventSchemaVersion,
-		victoriaDevEventAppField:    event.AppID,
-		victoriaDevEventSession:     event.SessionID,
-		"id":                        event.ID,
-		victoriaDevEventCreatedAt:   event.CreatedAt.UTC().Format(time.RFC3339Nano),
-		"source_id":                 event.Source.ID,
-		"source_kind":               event.Source.Kind,
-		"source_name":               event.Source.Name,
-		"source_role":               event.Source.Role,
-		"source_pid":                event.Source.PID,
-		"source_stream":             event.Source.Stream,
-		"source_restart_id":         event.Source.RestartID,
-		"source_status":             event.Source.Status,
-		"source_url":                event.Source.URL,
-		"source_reason":             event.Source.Reason,
-		"level":                     event.Level,
-		victoriaDevEventMessage:     message,
-		"fields_json":               string(fields),
-		"raw":                       event.Raw,
-		"parse_format":              event.Parse.Format,
-		"parse_ok":                  event.Parse.OK,
+		victoriaDevEventKindField:     devdash.DevEventKind,
+		victoriaDevEventRevisionField: devdash.DevEventSchemaRevision,
+		victoriaDevEventAppField:      event.AppID,
+		victoriaDevEventSession:       event.SessionID,
+		"id":                          event.ID,
+		victoriaDevEventCreatedAt:     event.CreatedAt.UTC().Format(time.RFC3339Nano),
+		"source_id":                   event.Source.ID,
+		"source_kind":                 event.Source.Kind,
+		"source_name":                 event.Source.Name,
+		"source_role":                 event.Source.Role,
+		"source_pid":                  event.Source.PID,
+		"source_stream":               event.Source.Stream,
+		"source_restart_id":           event.Source.RestartID,
+		"source_status":               event.Source.Status,
+		"source_url":                  event.Source.URL,
+		"source_reason":               event.Source.Reason,
+		"level":                       event.Level,
+		victoriaDevEventMessage:       message,
+		"fields_json":                 string(fields),
+		"raw":                         event.Raw,
+		"parse_format":                event.Parse.Format,
+		"parse_ok":                    event.Parse.OK,
 	}
 }
 
@@ -228,7 +230,8 @@ func queryVictoriaDevEvents(ctx context.Context, baseURL string, query devdash.D
 
 func victoriaDevEventsLogSQL(query devdash.DevEventQuery) string {
 	stream := map[string]string{
-		victoriaDevEventSchemaField: devdash.DevEventSchemaVersion,
+		victoriaDevEventKindField:     devdash.DevEventKind,
+		victoriaDevEventRevisionField: devdash.DevEventSchemaRevision,
 	}
 	if query.AppID != "" {
 		stream[victoriaDevEventAppField] = query.AppID
@@ -300,7 +303,7 @@ func decodeVictoriaDevEventRows(r io.Reader) ([]map[string]any, error) {
 }
 
 func devEventFromVictoriaRecord(row map[string]any) (devdash.DevEvent, bool) {
-	if victoriaRecordString(row, victoriaDevEventSchemaField) != devdash.DevEventSchemaVersion {
+	if victoriaRecordString(row, victoriaDevEventKindField) != devdash.DevEventKind || victoriaRecordString(row, victoriaDevEventRevisionField) != devdash.DevEventSchemaRevision {
 		return devdash.DevEvent{}, false
 	}
 	fields := victoriaRecordString(row, "fields_json")

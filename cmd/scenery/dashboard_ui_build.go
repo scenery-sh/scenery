@@ -14,7 +14,7 @@ import (
 	"scenery.sh/internal/devdash"
 )
 
-const dashboardUIRootRel = "apps/consolenext"
+const dashboardUIRootRel = "apps/console"
 
 func dashboardUIBundleStale(uiRoot string) (bool, error) {
 	status, err := dashboardBundleStatusForDist(embeddedDashboardAssetFS(), filepath.Join(uiRoot, "dist"))
@@ -32,7 +32,7 @@ func dashboardBundleStatusForCurrentRepo() (devdash.DashboardBundle, error) {
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return status, err
 	}
-	distDir, ok := dashboardConsoleNextDistDir()
+	distDir, ok := dashboardConsoleDistDir()
 	if !ok {
 		return status, nil
 	}
@@ -108,7 +108,7 @@ func dashboardBundleHash(fsys fs.FS) (string, error) {
 	return fmt.Sprintf("%x", h.Sum(nil)), nil
 }
 
-func dashboardConsoleNextDistDir() (string, bool) {
+func dashboardConsoleDistDir() (string, bool) {
 	candidates := []string{}
 	if cwd, err := os.Getwd(); err == nil {
 		candidates = append(candidates, cwd)

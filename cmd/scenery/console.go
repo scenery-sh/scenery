@@ -33,11 +33,11 @@ type runURLs struct {
 }
 
 type runEvent struct {
-	SchemaVersion string         `json:"schema_version"`
-	Type          string         `json:"type"`
-	Time          string         `json:"time"`
-	App           runEventApp    `json:"app"`
-	Data          map[string]any `json:"data,omitempty"`
+	cliPayloadIdentity
+	Type string         `json:"type"`
+	Time string         `json:"time"`
+	App  runEventApp    `json:"app"`
+	Data map[string]any `json:"data,omitempty"`
 }
 
 type runEventApp struct {
@@ -348,9 +348,9 @@ func (c *runConsole) Event(eventType string, data map[string]any) {
 		return
 	}
 	event := runEvent{
-		SchemaVersion: "scenery.run.event.v1",
-		Type:          eventType,
-		Time:          time.Now().UTC().Format(time.RFC3339Nano),
+		cliPayloadIdentity: newCLIPayloadIdentity("scenery.run.event"),
+		Type:               eventType,
+		Time:               time.Now().UTC().Format(time.RFC3339Nano),
 		App: runEventApp{
 			Name: c.appName,
 			Root: c.appRoot,

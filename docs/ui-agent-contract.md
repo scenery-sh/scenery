@@ -4,7 +4,7 @@ Agents must compose UI from scenery layouts and primitives.
 
 Agents must not use shadcn directly in app or dashboard screens. shadcn is an implementation input for the scenery registry and promotion flow, not a screen-authoring API.
 
-This contract applies to registry and promoted-component work under `ui/`. The runnable dashboard lives only under `apps/consolenext/` and is governed by its local Astryx + StyleX `AGENTS.md` contract.
+This contract applies to registry and promoted-component work under `ui/`. The runnable dashboard lives only under `apps/console/` and is governed by its local Astryx + StyleX `AGENTS.md` contract.
 
 ## Allowed
 

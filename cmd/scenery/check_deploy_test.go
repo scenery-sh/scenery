@@ -3,11 +3,12 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"strings"
 	"testing"
 
 	appcfg "scenery.sh/internal/app"
+	"scenery.sh/internal/graph"
+	"scenery.sh/internal/machine"
 )
 
 func TestDeployConfigInfoDiagnosticsReportsUnsetRoot(t *testing.T) {
@@ -48,8 +49,8 @@ func TestRunSceneryCheckAcceptsNativePersistentFixture(t *testing.T) {
 	if err := runSceneryCheck(context.Background(), &out, []string{"--app-root", root, "-o", "json"}); err != nil {
 		t.Fatalf("runSceneryCheck: %v\n%s", err, out.String())
 	}
-	var payload vnextEnvelope
-	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+	payload, err := machine.Decode[graph.Diagnostic](out.Bytes(), currentMachineSpecRevision())
+	if err != nil {
 		t.Fatalf("decode v1 envelope: %v\n%s", err, out.String())
 	}
 	if !payload.OK || len(payload.Diagnostics) != 0 {

@@ -19,9 +19,9 @@ import (
 )
 
 const (
-	harnessChangedAreaSchema  = "scenery.harness.changed_area.v1"
-	harnessTestTimingSchema   = "scenery.harness.test_timing.v1"
-	harnessAgentContextSchema = "scenery.agent_context.v1"
+	harnessChangedAreaKind  = "scenery.harness.changed_area"
+	harnessTestTimingKind   = "scenery.harness.test_timing"
+	harnessAgentContextKind = "scenery.agent_context"
 )
 
 const (
@@ -34,7 +34,7 @@ const (
 )
 
 type harnessChangedAreaReport struct {
-	SchemaVersion       string               `json:"schema_version"`
+	cliPayloadIdentity
 	ChangedFiles        []harnessChangedFile `json:"changed_files"`
 	IgnoredFiles        []harnessChangedFile `json:"ignored_files,omitempty"`
 	AffectedPackages    []string             `json:"affected_packages"`
@@ -63,7 +63,7 @@ var (
 )
 
 type harnessTestTimingReport struct {
-	SchemaVersion       string                   `json:"schema_version"`
+	cliPayloadIdentity
 	Command             []string                 `json:"command"`
 	Env                 []string                 `json:"env,omitempty"`
 	TotalSeconds        float64                  `json:"total_seconds"`
@@ -112,7 +112,7 @@ type goTestJSONEvent struct {
 }
 
 type harnessAgentContext struct {
-	SchemaVersion                  string                       `json:"schema_version"`
+	cliPayloadIdentity
 	GeneratedAt                    string                       `json:"generated_at"`
 	Repo                           harnessAgentContextRepo      `json:"repo"`
 	CurrentBranch                  string                       `json:"current_branch,omitempty"`
@@ -159,15 +159,17 @@ type harnessAgentExecPlan struct {
 }
 
 type harnessAgentFailedArtifact struct {
-	Step          string `json:"step"`
-	Name          string `json:"name"`
-	Path          string `json:"path"`
-	SchemaVersion string `json:"schema_version,omitempty"`
-	RerunCommand  string `json:"rerun_command,omitempty"`
+	Step           string `json:"step"`
+	Name           string `json:"name"`
+	Path           string `json:"path"`
+	Kind           string `json:"kind,omitempty"`
+	SchemaRevision string `json:"schema_revision,omitempty"`
+	RerunCommand   string `json:"rerun_command,omitempty"`
 }
 
 type harnessAgentDocsFreshness struct {
-	SchemaVersion    string   `json:"schema_version,omitempty"`
+	Kind             string   `json:"kind,omitempty"`
+	SchemaRevision   string   `json:"schema_revision,omitempty"`
 	DocumentCount    int      `json:"document_count"`
 	MissingCount     int      `json:"missing_count"`
 	ReviewDueCount   int      `json:"review_due_count"`
@@ -202,7 +204,7 @@ func runHarnessChangedAreaStep(ctx context.Context, repoRoot string) (harnessSte
 
 func buildHarnessChangedAreaReport(ctx context.Context, repoRoot string) *harnessChangedAreaReport {
 	report := &harnessChangedAreaReport{
-		SchemaVersion:       harnessChangedAreaSchema,
+		cliPayloadIdentity:  newCLIPayloadIdentity(harnessChangedAreaKind),
 		ChangedFiles:        []harnessChangedFile{},
 		AffectedPackages:    []string{},
 		RecommendedCommands: []string{},
@@ -423,7 +425,7 @@ func classifyHarnessChangedFile(path string) string {
 		return "internal"
 	case strings.HasPrefix(path, "runtime") || strings.HasPrefix(path, "auth/"):
 		return "runtime"
-	case strings.HasPrefix(path, "ui/"), strings.HasPrefix(path, "apps/consolenext/"):
+	case strings.HasPrefix(path, "ui/"), strings.HasPrefix(path, "apps/console/"):
 		return "ui"
 	case strings.HasPrefix(path, "docs/schemas/"):
 		return "schema"
@@ -465,9 +467,9 @@ func addHarnessChangedAreaKnowledge(path, category string, docs, risks, commands
 		risks["exec-plan"] = true
 	case "ui":
 		risks["dashboard-ui"] = true
-		if strings.HasPrefix(path, "apps/consolenext/") {
-			docs["apps/consolenext/AGENTS.md"] = true
-			commands["cd apps/consolenext && bun run lint && bun run typecheck && bun run build"] = true
+		if strings.HasPrefix(path, "apps/console/") {
+			docs["apps/console/AGENTS.md"] = true
+			commands["cd apps/console && bun run lint && bun run typecheck && bun run build"] = true
 		} else {
 			docs["docs/ui-agent-contract.md"] = true
 			commands["cd ui && bun run typecheck && bun run test"] = true
@@ -547,12 +549,12 @@ func runHarnessGoTestTimingStepWithBudgets(ctx context.Context, repoRoot string,
 		}}
 		finalizeHarnessEvidence(step.Evidence, time.Since(started), step.OK, "", step.Error, exitCodeFromError(err), nil)
 		return step, &harnessTestTimingReport{
-			SchemaVersion: harnessTestTimingSchema,
-			Command:       command,
-			Env:           testEnv,
-			TotalSeconds:  float64(step.DurationMS) / 1000,
-			Budgets:       budgets,
-			Diagnostics:   step.Diagnostics,
+			cliPayloadIdentity: newCLIPayloadIdentity(harnessTestTimingKind),
+			Command:            command,
+			Env:                testEnv,
+			TotalSeconds:       float64(step.DurationMS) / 1000,
+			Budgets:            budgets,
+			Diagnostics:        step.Diagnostics,
 		}
 	}
 	outputFile, err := os.CreateTemp("", "scenery-go-test-*.json")
@@ -568,12 +570,12 @@ func runHarnessGoTestTimingStepWithBudgets(ctx context.Context, repoRoot string,
 		}}
 		finalizeHarnessEvidence(step.Evidence, time.Since(started), step.OK, "", step.Error, exitCodeFromError(err), nil)
 		return step, &harnessTestTimingReport{
-			SchemaVersion: harnessTestTimingSchema,
-			Command:       command,
-			Env:           testEnv,
-			TotalSeconds:  float64(step.DurationMS) / 1000,
-			Budgets:       budgets,
-			Diagnostics:   step.Diagnostics,
+			cliPayloadIdentity: newCLIPayloadIdentity(harnessTestTimingKind),
+			Command:            command,
+			Env:                testEnv,
+			TotalSeconds:       float64(step.DurationMS) / 1000,
+			Budgets:            budgets,
+			Diagnostics:        step.Diagnostics,
 		}
 	}
 	outputPath := outputFile.Name()
@@ -654,10 +656,10 @@ func runHarnessGoTestTimingStepWithBudgets(ctx context.Context, repoRoot string,
 
 func parseHarnessGoTestTimingWithBudgets(output []byte, command []string, elapsed time.Duration, budgets harnessTestTimingBudgets) *harnessTestTimingReport {
 	report := &harnessTestTimingReport{
-		SchemaVersion: harnessTestTimingSchema,
-		Command:       append([]string{}, command...),
-		TotalSeconds:  roundSeconds(elapsed.Seconds()),
-		Budgets:       budgets,
+		cliPayloadIdentity: newCLIPayloadIdentity(harnessTestTimingKind),
+		Command:            append([]string{}, command...),
+		TotalSeconds:       roundSeconds(elapsed.Seconds()),
+		Budgets:            budgets,
 	}
 	packages := map[string]*harnessPackageTiming{}
 	scanner := bufio.NewScanner(bytes.NewReader(output))

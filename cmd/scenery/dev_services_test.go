@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -155,5 +157,24 @@ func TestValidateHeadlessPostgresEnvRequiresExplicitDSN(t *testing.T) {
 	}
 	if err := validateHeadlessPostgresEnv(cfg, []string{"DATABASE_URL=postgres://user:secret@localhost/reports"}); err != nil {
 		t.Fatalf("validateHeadlessPostgresEnv rejected explicit DSN: %v", err)
+	}
+}
+
+func TestLoadPostgresServerStateMigratesWithoutChangingCredentials(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "server.json")
+	legacy := []byte(`{"schema_version":"scenery.dev.postgres.server.v1","container":"scenery-postgres","volume":"scenery-postgres-data","image":"postgres:test","port":5432,"user":"scenery","password":"keep-me","created_at":"2026-07-13T00:00:00Z"}`)
+	if err := os.WriteFile(path, legacy, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	state, err := loadPostgresServerState(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Password != "keep-me" || state.Port != 5432 || state.Kind != postgresServerStateKind {
+		t.Fatalf("migrated state = %+v", state)
+	}
+	backup, err := os.ReadFile(path + ".legacy.bak")
+	if err != nil || string(backup) != string(legacy) {
+		t.Fatalf("backup = %q, %v", backup, err)
 	}
 }

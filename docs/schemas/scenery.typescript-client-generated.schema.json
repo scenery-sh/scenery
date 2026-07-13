@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.typescript-client-generated.schema.json",
+  "title": "Scenery generated TypeScript client descriptor",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "spec_revision",
+    "producer",
+    "target",
+    "package",
+    "contract_revision",
+    "typescript_client_revision",
+    "http_surface_revisions",
+    "openapi_revisions",
+    "content_digest",
+    "covered_gateways",
+    "covered_bindings",
+    "covered_operations",
+    "covered_types",
+    "compatibility_catalog",
+    "generator",
+    "files"
+  ],
+  "properties": {
+    "kind": { "const": "scenery.typescript-client-generated" },
+    "schema_revision": { "$ref": "#/$defs/revision" },
+    "spec_revision": { "$ref": "#/$defs/revision" },
+    "producer": { "type": "object" },
+    "target": { "type": "string" },
+    "package": { "type": "string" },
+    "contract_revision": { "$ref": "#/$defs/revision" },
+    "typescript_client_revision": { "$ref": "#/$defs/revision" },
+    "http_surface_revisions": { "$ref": "#/$defs/revision_map" },
+    "openapi_revisions": { "$ref": "#/$defs/revision_map" },
+    "content_digest": { "$ref": "#/$defs/revision" },
+    "compatibility_catalog": { "type": "string", "minLength": 1 },
+    "covered_gateways": { "$ref": "#/$defs/string_list" },
+    "covered_bindings": { "$ref": "#/$defs/string_list" },
+    "covered_operations": { "$ref": "#/$defs/string_list" },
+    "covered_types": { "$ref": "#/$defs/string_list" },
+    "typescript_version": { "type": ["string", "null"] },
+    "javascript_target": { "type": ["string", "null"] },
+    "generator": { "type": "string" },
+    "files": { "$ref": "#/$defs/string_list" }
+  },
+  "$defs": {
+    "revision": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "revision_map": {
+      "type": "object",
+      "propertyNames": { "type": "string" },
+      "additionalProperties": { "$ref": "#/$defs/revision" }
+    },
+    "string_list": {
+      "type": "array",
+      "items": { "type": "string" },
+      "uniqueItems": true
+    }
+  },
+  "additionalProperties": false
+}

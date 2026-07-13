@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.worktree.remove.schema.json",
+  "title": "scenery worktree remove result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "kind",
+    "schema_revision",
+    "ok",
+    "name",
+    "path"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.worktree.remove"
+    },
+    "schema_revision": {
+      "const": "sha256:c9a11366bd39db3ae470555a433ecb93d82459f38ef0f645cd2c0fe456f08131"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "name": {
+      "type": "string"
+    },
+    "path": {
+      "type": "string"
+    },
+    "message": {
+      "type": "string"
+    }
+  }
+}

@@ -12,9 +12,9 @@ import (
 	"unicode"
 )
 
-const worktreeListSchemaVersion = "scenery.worktree.list.v1"
-const worktreeCreateSchemaVersion = "scenery.worktree.create.v1"
-const worktreeRemoveSchemaVersion = "scenery.worktree.remove.v1"
+const worktreeListKind = "scenery.worktree.list"
+const worktreeCreateKind = "scenery.worktree.create"
+const worktreeRemoveKind = "scenery.worktree.remove"
 
 type worktreeOptions struct {
 	Command string
@@ -33,29 +33,29 @@ type worktreeRecord struct {
 }
 
 type worktreeCreateResult struct {
-	SchemaVersion string `json:"schema_version"`
-	OK            bool   `json:"ok"`
-	Name          string `json:"name"`
-	Path          string `json:"path"`
-	Branch        string `json:"branch"`
-	From          string `json:"from,omitempty"`
-	NextCommand   string `json:"next_command"`
-	Message       string `json:"message,omitempty"`
+	cliPayloadIdentity
+	OK          bool   `json:"ok"`
+	Name        string `json:"name"`
+	Path        string `json:"path"`
+	Branch      string `json:"branch"`
+	From        string `json:"from,omitempty"`
+	NextCommand string `json:"next_command"`
+	Message     string `json:"message,omitempty"`
 }
 
 type worktreeListResult struct {
-	SchemaVersion string           `json:"schema_version"`
-	OK            bool             `json:"ok"`
-	AppRoot       string           `json:"app_root"`
-	Worktrees     []worktreeRecord `json:"worktrees"`
+	cliPayloadIdentity
+	OK        bool             `json:"ok"`
+	AppRoot   string           `json:"app_root"`
+	Worktrees []worktreeRecord `json:"worktrees"`
 }
 
 type worktreeRemoveResult struct {
-	SchemaVersion string `json:"schema_version"`
-	OK            bool   `json:"ok"`
-	Name          string `json:"name"`
-	Path          string `json:"path"`
-	Message       string `json:"message,omitempty"`
+	cliPayloadIdentity
+	OK      bool   `json:"ok"`
+	Name    string `json:"name"`
+	Path    string `json:"path"`
+	Message string `json:"message,omitempty"`
 }
 
 func worktreeCommand(args []string) error {
@@ -130,13 +130,13 @@ func runWorktreeCreate(ctx context.Context, stdout io.Writer, opts worktreeOptio
 		return err
 	}
 	result := worktreeCreateResult{
-		SchemaVersion: worktreeCreateSchemaVersion,
-		OK:            true,
-		Name:          name,
-		Path:          target,
-		Branch:        name,
-		From:          strings.TrimSpace(opts.From),
-		NextCommand:   "cd " + target + " && scenery up",
+		cliPayloadIdentity: newCLIPayloadIdentity(worktreeCreateKind),
+		OK:                 true,
+		Name:               name,
+		Path:               target,
+		Branch:             name,
+		From:               strings.TrimSpace(opts.From),
+		NextCommand:        "cd " + target + " && scenery up",
 	}
 	result.Message = "Git worktree created."
 	if opts.JSON {
@@ -157,10 +157,10 @@ func runWorktreeList(ctx context.Context, stdout io.Writer, opts worktreeOptions
 		return err
 	}
 	result := worktreeListResult{
-		SchemaVersion: worktreeListSchemaVersion,
-		OK:            true,
-		AppRoot:       appRoot,
-		Worktrees:     worktrees,
+		cliPayloadIdentity: newCLIPayloadIdentity(worktreeListKind),
+		OK:                 true,
+		AppRoot:            appRoot,
+		Worktrees:          worktrees,
 	}
 	if opts.JSON {
 		return writeInspectJSON(stdout, result)
@@ -181,10 +181,10 @@ func runWorktreeRemove(ctx context.Context, stdout io.Writer, opts worktreeOptio
 		return err
 	}
 	result := worktreeRemoveResult{
-		SchemaVersion: worktreeRemoveSchemaVersion,
-		OK:            true,
-		Name:          sanitizeWorktreeName(opts.Name),
-		Path:          target,
+		cliPayloadIdentity: newCLIPayloadIdentity(worktreeRemoveKind),
+		OK:                 true,
+		Name:               sanitizeWorktreeName(opts.Name),
+		Path:               target,
 	}
 	var dbStateBackup string
 	if opts.DB {

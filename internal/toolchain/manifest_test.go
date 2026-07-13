@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +15,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"scenery.sh/internal/spec"
 )
 
 type fakeDockerRunner struct {
@@ -57,6 +60,30 @@ func TestBundledManifestMatchesRootFile(t *testing.T) {
 	}
 }
 
+func TestManifestSchemaRevisionMatchesDescriptor(t *testing.T) {
+	if got := string(spec.SchemaRevision(manifestSchemaDescriptor)); got != ManifestSchemaRevision {
+		t.Fatalf("schema revision = %q, want %q", got, ManifestSchemaRevision)
+	}
+}
+
+func TestStatusSchemaMatchesIdentity(t *testing.T) {
+	encoded, err := os.ReadFile(filepath.Join("..", "..", "docs", "schemas", "scenery.toolchain.status.schema.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schema struct {
+		Properties map[string]struct {
+			Const string `json:"const"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(encoded, &schema); err != nil {
+		t.Fatal(err)
+	}
+	if schema.Properties["kind"].Const != StatusKind || schema.Properties["schema_revision"].Const != StatusSchemaRevision {
+		t.Fatalf("schema identity = %q %q, want %q %q", schema.Properties["kind"].Const, schema.Properties["schema_revision"].Const, StatusKind, StatusSchemaRevision)
+	}
+}
+
 func TestBundledManifestDeclaresDigestPinnedPostgresImage(t *testing.T) {
 	manifest, err := LoadBundledManifest()
 	if err != nil {
@@ -73,8 +100,8 @@ func TestBundledManifestDeclaresDigestPinnedPostgresImage(t *testing.T) {
 
 func TestParseManifestRejectsUnknownFields(t *testing.T) {
 	_, err := ParseManifest([]byte(`{
-		"schema_version":"scenery.toolchain.v1",
-		"manifest_version":1,
+		"kind":"scenery.toolchain",
+		"schema_revision":"sha256:02fd89902b530fb84a9fc13269b5ed93f1a01d8981430ba4f263963f40d86bc6",
 		"source_locks":[],
 		"artifacts":[],
 		"extra":true
@@ -86,8 +113,8 @@ func TestParseManifestRejectsUnknownFields(t *testing.T) {
 
 func TestParseManifestRejectsTrailingJSON(t *testing.T) {
 	_, err := ParseManifest([]byte(`{
-		"schema_version":"scenery.toolchain.v1",
-		"manifest_version":1,
+		"kind":"scenery.toolchain",
+		"schema_revision":"sha256:02fd89902b530fb84a9fc13269b5ed93f1a01d8981430ba4f263963f40d86bc6",
 		"source_locks":[],
 		"artifacts":[]
 	} {}`))
@@ -98,8 +125,8 @@ func TestParseManifestRejectsTrailingJSON(t *testing.T) {
 
 func TestParseManifestRejectsInvalidPlatform(t *testing.T) {
 	_, err := ParseManifest([]byte(`{
-		"schema_version":"scenery.toolchain.v1",
-		"manifest_version":1,
+		"kind":"scenery.toolchain",
+		"schema_revision":"sha256:02fd89902b530fb84a9fc13269b5ed93f1a01d8981430ba4f263963f40d86bc6",
 		"source_locks":[],
 		"artifacts":[{
 			"name":"demo",
@@ -235,8 +262,8 @@ func TestStoreSyncSourceBuildArtifact(t *testing.T) {
 		t.Fatalf("write main.go: %v", err)
 	}
 	manifest := Manifest{
-		SchemaVersion:   ManifestSchemaVersion,
-		ManifestVersion: 1,
+		Kind:           ManifestKind,
+		SchemaRevision: ManifestSchemaRevision,
 		Artifacts: []Artifact{{
 			Name:          "demo-source",
 			Kind:          "binary",
@@ -280,8 +307,8 @@ func TestStoreSyncSourceBuildArtifact(t *testing.T) {
 
 func TestParseManifestRejectsInvalidSourceBuildPackage(t *testing.T) {
 	_, err := ParseManifest([]byte(`{
-		"schema_version":"scenery.toolchain.v1",
-		"manifest_version":1,
+		"kind":"scenery.toolchain",
+		"schema_revision":"sha256:02fd89902b530fb84a9fc13269b5ed93f1a01d8981430ba4f263963f40d86bc6",
 		"source_locks":[],
 		"artifacts":[{
 			"name":"demo",
@@ -317,8 +344,8 @@ func TestStoreRejectsArchiveTraversal(t *testing.T) {
 
 func TestStoreImageStatusAndSyncUseDockerRunner(t *testing.T) {
 	manifest := Manifest{
-		SchemaVersion:   ManifestSchemaVersion,
-		ManifestVersion: 1,
+		Kind:           ManifestKind,
+		SchemaRevision: ManifestSchemaRevision,
 		Artifacts: []Artifact{{
 			Name:    "demo-image",
 			Kind:    "image",
@@ -359,8 +386,8 @@ func TestStoreImageStatusAndSyncUseDockerRunner(t *testing.T) {
 
 func TestStrictImageStatusRejectsTagOnlyRefs(t *testing.T) {
 	manifest := Manifest{
-		SchemaVersion:   ManifestSchemaVersion,
-		ManifestVersion: 1,
+		Kind:           ManifestKind,
+		SchemaRevision: ManifestSchemaRevision,
 		Artifacts: []Artifact{{
 			Name:    "demo-image",
 			Kind:    "image",
@@ -386,8 +413,8 @@ func TestStrictImageStatusRejectsTagOnlyRefs(t *testing.T) {
 
 func testManifest(url, sha string) Manifest {
 	return Manifest{
-		SchemaVersion:   ManifestSchemaVersion,
-		ManifestVersion: 1,
+		Kind:           ManifestKind,
+		SchemaRevision: ManifestSchemaRevision,
 		Artifacts: []Artifact{{
 			Name:          "demo",
 			Kind:          "binary",

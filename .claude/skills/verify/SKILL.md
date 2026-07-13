@@ -21,17 +21,15 @@ There is no tracked standard-auth fixture. For cookie/session behavior, use a di
 5. Drive the public HTTP surface:
    - `POST /auth/signup/email`, then `POST /auth/email-verification/confirm` using the local `dev_verification_token`.
    - Capture the issued `scenery_refresh` cookie.
-   - Exercise `/auth/refresh` with legacy-only, both-present, empty-current, malformed-current, and invalid-current cookie headers.
-   - Exercise `/auth/logout` with the valid legacy token and capture every `Set-Cookie` field value separately.
+   - Exercise `/auth/refresh` with valid, missing, empty, malformed, and invalid `scenery_refresh` cookie headers.
+   - Exercise `/auth/logout` with the valid token and capture the `Set-Cookie` field value.
 6. Stop the app, terminate remaining database connections, drop the disposable database, and remove the temporary module.
 
-For bounded refresh-cookie compatibility, expected observations are:
+Expected observations are:
 
 - confirmation and every successful refresh issue only `scenery_refresh`;
-- legacy-only refresh succeeds;
-- both-present refresh uses the valid current cookie;
-- empty or malformed current cookies return `refresh session is missing` without consuming the valid legacy session;
-- an invalid current token returns `refresh session is invalid` without legacy fallback;
-- logout returns `{"ok":true}` with separate clearing headers ordered `scenery_refresh`, then `onlv_refresh`.
+- missing, empty, or malformed cookies return `refresh session is missing`;
+- an invalid current token returns `refresh session is invalid`;
+- logout returns `{"ok":true}` with one clearing `scenery_refresh` header.
 
 If the managed Postgres container is unavailable, report verification as blocked rather than replacing this flow with tests.

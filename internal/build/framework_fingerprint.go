@@ -12,12 +12,17 @@ import (
 	"strings"
 
 	"golang.org/x/mod/modfile"
+
+	"scenery.sh/internal/machine"
 )
 
-const frameworkFingerprintCacheSchema = "scenery.framework-fingerprint.v1"
+const (
+	frameworkFingerprintCacheKind             = "scenery.framework-fingerprint"
+	frameworkFingerprintCacheSchemaDescriptor = `{"fingerprint":"digest","go_files":{"*":{"stamp":{"size":"integer","mtime_unix_nano":"integer","perm":"integer"},"embed_patterns":["string"]}},"kind":"scenery.framework-fingerprint","metadata_fingerprint":"digest","producer":"producer","repo_root":"path","schema_revision":"digest","spec_revision":"digest"}`
+)
 
 type frameworkFingerprintCache struct {
-	SchemaVersion       string                          `json:"schema_version"`
+	machine.ArtifactIdentity
 	RepoRoot            string                          `json:"repo_root"`
 	MetadataFingerprint string                          `json:"metadata_fingerprint"`
 	Fingerprint         string                          `json:"fingerprint"`
@@ -88,7 +93,7 @@ func cachedFrameworkFingerprint(repoRoot string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if cached.SchemaVersion == frameworkFingerprintCacheSchema &&
+	if cached.Kind == frameworkFingerprintCacheKind &&
 		cached.RepoRoot == repoRoot &&
 		cached.MetadataFingerprint == metadataFingerprint &&
 		cached.Fingerprint != "" {
@@ -99,7 +104,7 @@ func cachedFrameworkFingerprint(repoRoot string) (string, error) {
 		return "", err
 	}
 	if err := saveFrameworkFingerprintCache(cachePath, frameworkFingerprintCache{
-		SchemaVersion:       frameworkFingerprintCacheSchema,
+		ArtifactIdentity:    machine.NewArtifactIdentity(frameworkFingerprintCacheKind, frameworkFingerprintCacheSchemaDescriptor),
 		RepoRoot:            repoRoot,
 		MetadataFingerprint: metadataFingerprint,
 		Fingerprint:         fingerprint,
@@ -132,8 +137,8 @@ func loadFrameworkFingerprintCache(path string) (frameworkFingerprintCache, bool
 		return frameworkFingerprintCache{}, false, err
 	}
 	var cached frameworkFingerprintCache
-	if err := json.Unmarshal(data, &cached); err != nil {
-		return frameworkFingerprintCache{}, false, err
+	if err := machine.DecodeArtifact(data, &cached, &cached.ArtifactIdentity, frameworkFingerprintCacheKind, frameworkFingerprintCacheSchemaDescriptor, "rebuild the framework fingerprint cache"); err != nil {
+		return frameworkFingerprintCache{}, false, nil
 	}
 	return cached, true, nil
 }

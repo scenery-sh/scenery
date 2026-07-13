@@ -51,7 +51,8 @@ func TestRenderDevConsoleShowsSourcesLogsAndExpandedJSON(t *testing.T) {
 		"task failed",
 		`"task": "ImportUser"`,
 		"event json",
-		`"schema_version": "scenery.dev.event.v1"`,
+		`"kind": "scenery.dev.event"`,
+		`"schema_revision": "sha256:`,
 		"q quit",
 	} {
 		if !strings.Contains(out, want) {

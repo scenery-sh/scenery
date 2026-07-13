@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -108,9 +108,9 @@ type dbApplyOptions struct {
 }
 
 type dbApplyResult struct {
-	SchemaVersion string             `json:"schema_version"`
-	App           inspectdata.AppRef `json:"app"`
-	Apply         dbApplyRecord      `json:"apply"`
+	cliPayloadIdentity
+	App   inspectdata.AppRef `json:"app"`
+	Apply dbApplyRecord      `json:"apply"`
 }
 
 type dbApplyRecord struct {
@@ -121,7 +121,7 @@ type dbApplyRecord struct {
 
 func buildDBApplyResult(appRoot string, cfg appcfg.Config) dbApplyResult {
 	return dbApplyResult{
-		SchemaVersion: "scenery.db.apply.result.v1",
+		cliPayloadIdentity: newCLIPayloadIdentity("scenery.db.apply.result"),
 		App: inspectdata.AppRef{
 			Name:       cfg.Name,
 			ID:         cfg.ID,
@@ -193,7 +193,7 @@ func dbListCommand(args []string) error {
 	}
 	record := databaseListRecordFromDatabase(ctx, database)
 	if opts.JSON {
-		return writeInspectJSON(os.Stdout, databaseListResponse{SchemaVersion: "scenery.db.list.v3", Database: record})
+		return writeInspectJSON(os.Stdout, databaseListResponse{cliPayloadIdentity: newCLIPayloadIdentity("scenery.db.list"), Database: record})
 	}
 	fmt.Fprintf(os.Stdout, "%s\t%s\t%s\n", record.Name, record.Source, record.URL)
 	for _, schema := range record.Schemas {
@@ -285,16 +285,16 @@ type dbServerOptions struct {
 }
 
 type dbServerStatusResponse struct {
-	SchemaVersion string                               `json:"schema_version"`
-	OK            bool                                 `json:"ok"`
-	Container     string                               `json:"container"`
-	Image         string                               `json:"image,omitempty"`
-	Status        string                               `json:"status"`
-	Port          int                                  `json:"port,omitempty"`
-	URL           string                               `json:"url,omitempty"`
-	Databases     []postgresdb.DatabaseInfo            `json:"databases,omitempty"`
-	Leases        map[string]localagent.SubstrateLease `json:"leases,omitempty"`
-	StatePath     string                               `json:"state_path,omitempty"`
+	cliPayloadIdentity
+	OK        bool                                 `json:"ok"`
+	Container string                               `json:"container"`
+	Image     string                               `json:"image,omitempty"`
+	Status    string                               `json:"status"`
+	Port      int                                  `json:"port,omitempty"`
+	URL       string                               `json:"url,omitempty"`
+	Databases []postgresdb.DatabaseInfo            `json:"databases,omitempty"`
+	Leases    map[string]localagent.SubstrateLease `json:"leases,omitempty"`
+	StatePath string                               `json:"state_path,omitempty"`
 }
 
 func dbServerCommand(args []string) error {
@@ -335,7 +335,7 @@ func dbServerCommand(args []string) error {
 			return err
 		}
 		if opts.JSON {
-			return writeInspectJSON(os.Stdout, map[string]any{"schema_version": "scenery.db.server.stop.v1", "ok": true, "container": postgresServerContainer})
+			return writeInspectJSON(os.Stdout, withCLIPayloadIdentity("scenery.db.server.stop", map[string]any{"ok": true, "container": postgresServerContainer}))
 		}
 		fmt.Fprintln(os.Stdout, "stopped scenery postgres server")
 		return nil
@@ -370,17 +370,13 @@ func parseDBServerArgs(args []string) (dbServerOptions, error) {
 }
 
 func postgresServerStatus(ctx context.Context) (dbServerStatusResponse, error) {
-	resp := dbServerStatusResponse{SchemaVersion: "scenery.db.server.status.v1", Container: postgresServerContainer, Status: "absent"}
+	resp := dbServerStatusResponse{cliPayloadIdentity: newCLIPayloadIdentity("scenery.db.server.status"), Container: postgresServerContainer, Status: "absent"}
 	paths, err := localagent.DefaultPaths()
 	if err != nil {
 		return resp, err
 	}
 	resp.StatePath = postgresServerStatePath(paths)
-	if data, err := os.ReadFile(resp.StatePath); err == nil {
-		var state postgresServerState
-		if err := json.Unmarshal(data, &state); err != nil {
-			return resp, err
-		}
+	if state, err := loadPostgresServerState(resp.StatePath); err == nil {
 		resp.Image = state.Image
 		resp.Port = state.Port
 		resp.URL = state.publicURL()
@@ -394,6 +390,8 @@ func postgresServerStatus(ctx context.Context) (dbServerStatusResponse, error) {
 				_ = admin.Close()
 			}
 		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return resp, err
 	}
 	if client, err := localagent.DefaultClient(); err == nil {
 		if substrate, err := client.GetSubstrate(ctx, localagent.SubstratePostgres); err == nil {
@@ -552,12 +550,8 @@ func managedPostgresAdmin(ctx context.Context) (*sql.DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	data, err := os.ReadFile(postgresServerStatePath(paths))
+	state, err := loadPostgresServerState(postgresServerStatePath(paths))
 	if err != nil {
-		return nil, err
-	}
-	var state postgresServerState
-	if err := json.Unmarshal(data, &state); err != nil {
 		return nil, err
 	}
 	return openPostgresAdmin(ctx, state.databaseURL("postgres"))
@@ -587,8 +581,8 @@ type dbResetOptions struct {
 }
 
 type databaseListResponse struct {
-	SchemaVersion string             `json:"schema_version"`
-	Database      databaseListRecord `json:"database"`
+	cliPayloadIdentity
+	Database databaseListRecord `json:"database"`
 }
 
 type databaseListRecord struct {

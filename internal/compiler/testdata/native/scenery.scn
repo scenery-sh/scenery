@@ -1,0 +1,58 @@
+workspace {
+  implementation_root "application" {
+    path             = "."
+    revision_include = ["**/*.go", "go.mod"]
+  }
+
+  managed_generated_roots = [
+    "clients/generated/public_api",
+    "house/scenerycontract",
+    "internal/scenerygen",
+  ]
+}
+
+go_module "application" {
+  root        = "."
+  import_path = "example.test/nativeapp"
+}
+
+go_toolchain "application" {
+	version     = "1.26.3"
+  experiments = []
+}
+
+go_target "development" {
+  role      = "development"
+  platform  = "host"
+  toolchain = go_toolchain.application
+  module    = go_module.application
+  packages  = ["./..."]
+  cgo       = "disabled"
+}
+
+application "nativeapp" {
+}
+
+http_gateway "public_api" {
+  exposure        = "internet"
+  base_path       = "/api"
+  cors            = std.cors.none
+  trusted_proxies = std.trusted_proxies.none
+  forwarded       = std.forwarded_headers.reject
+}
+
+module "house" {
+  source = "./house"
+
+  inputs = {
+    gateway = http_gateway.public_api
+  }
+}
+
+typescript_client "public_api" {
+  gateways    = [http_gateway.public_api]
+  package     = "@example/native-client"
+  module      = "esm"
+  runtime     = "fetch"
+  output_root = "clients/generated/public_api"
+}

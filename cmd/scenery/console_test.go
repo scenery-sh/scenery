@@ -2,10 +2,12 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
 	"io"
 	"strings"
 	"testing"
+
+	"scenery.sh/internal/graph"
+	"scenery.sh/internal/machine"
 )
 
 func TestRunConsoleSetupOutputFormatsAtlasLines(t *testing.T) {
@@ -71,9 +73,9 @@ func TestRunConsoleSetupOutputJSON(t *testing.T) {
 
 	console.SetupOutput("==> Atlas target: postgres://localhost/example", "stdout")
 
-	var envelope cliEventEnvelope
-	if err := json.Unmarshal(out.Bytes(), &envelope); err != nil {
-		t.Fatalf("json.Unmarshal: %v\n%s", err, out.String())
+	envelope, err := machine.DecodeEvent[graph.Diagnostic](out.Bytes(), currentMachineSpecRevision())
+	if err != nil {
+		t.Fatalf("DecodeEvent: %v\n%s", err, out.String())
 	}
 	event, ok := envelope.Data.(map[string]any)
 	if !ok {

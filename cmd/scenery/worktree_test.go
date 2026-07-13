@@ -49,7 +49,7 @@ func TestWorktreeCreateListAndRemoveWithoutDBPin(t *testing.T) {
 	if !createdA.OK {
 		t.Fatalf("created A = %+v", createdA)
 	}
-	if diagnostics := validateHarnessJSONSchemaFile(filepath.Join(repoRootForTest(t), "docs", "schemas", "scenery.worktree.create.v1.schema.json"), createdA); len(diagnostics) != 0 {
+	if diagnostics := validateHarnessJSONSchemaFile(filepath.Join(repoRootForTest(t), "docs", "schemas", "scenery.worktree.create.schema.json"), createdA); len(diagnostics) != 0 {
 		t.Fatalf("create A schema diagnostics = %+v", diagnostics)
 	}
 	if _, err := os.Stat(filepath.Join(createdA.Path, ".scenery", "worktree-db.json")); !os.IsNotExist(err) {
@@ -93,7 +93,7 @@ func TestWorktreeCreateListAndRemoveWithoutDBPin(t *testing.T) {
 	if !found["pricing-agent"] || !found["content-agent"] {
 		t.Fatalf("created worktrees not listed: %+v", listed.Worktrees)
 	}
-	if diagnostics := validateHarnessJSONSchemaFile(filepath.Join(repoRootForTest(t), "docs", "schemas", "scenery.worktree.list.v1.schema.json"), listed); len(diagnostics) != 0 {
+	if diagnostics := validateHarnessJSONSchemaFile(filepath.Join(repoRootForTest(t), "docs", "schemas", "scenery.worktree.list.schema.json"), listed); len(diagnostics) != 0 {
 		t.Fatalf("list schema diagnostics = %+v", diagnostics)
 	}
 
@@ -109,7 +109,7 @@ func TestWorktreeCreateListAndRemoveWithoutDBPin(t *testing.T) {
 		if !removed.OK {
 			t.Fatalf("removed %s = %+v", name, removed)
 		}
-		if diagnostics := validateHarnessJSONSchemaFile(filepath.Join(repoRootForTest(t), "docs", "schemas", "scenery.worktree.remove.v1.schema.json"), removed); len(diagnostics) != 0 {
+		if diagnostics := validateHarnessJSONSchemaFile(filepath.Join(repoRootForTest(t), "docs", "schemas", "scenery.worktree.remove.schema.json"), removed); len(diagnostics) != 0 {
 			t.Fatalf("remove %s schema diagnostics = %+v", name, diagnostics)
 		}
 	}

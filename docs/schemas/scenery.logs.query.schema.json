@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.logs.query.schema.json",
+  "title": "scenery.logs.query",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "scope",
+    "backend",
+    "query",
+    "logs"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.logs.query"
+    },
+    "schema_revision": {
+      "const": "sha256:d863e3f48e9645e48e8fd1188f50e11a180da452e771868b378d6e5a170cf69b"
+    },
+    "scope": {
+      "$ref": "scenery.inspect.observability.schema.json#/$defs/scope"
+    },
+    "backend": {
+      "$ref": "scenery.inspect.observability.schema.json#/$defs/backend"
+    },
+    "query": {
+      "$ref": "#/$defs/query"
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "logs": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/log"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "query": {
+      "type": "object",
+      "required": [
+        "query",
+        "start",
+        "end"
+      ],
+      "properties": {
+        "query": {
+          "type": "string"
+        },
+        "since": {
+          "type": "string"
+        },
+        "start": {
+          "type": "string"
+        },
+        "end": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "integer"
+        },
+        "timeout": {
+          "type": "string"
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "log": {
+      "type": "object",
+      "properties": {
+        "time": {
+          "type": "string"
+        },
+        "level": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "fields": {
+          "type": "object"
+        },
+        "trace_id": {
+          "type": "string"
+        },
+        "span_id": {
+          "type": "string"
+        },
+        "raw": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

@@ -25,6 +25,8 @@ Go test binaries so fresh measurement does not relink unchanged packages.
 - Build disposable test binaries with VCS stamping disabled; the workspace
   fingerprint remains the source-change guard.
 - Store disposable state only under `.scenery/harness/test-binaries/`.
+- Test-binary manifests use the current `scenery.test-binary-cache` artifact
+  identity; an identity mismatch invalidates the disposable cache and rebuilds it.
 - Route process environment reads through `internal/envpolicy`.
 
 ## Work Guidance

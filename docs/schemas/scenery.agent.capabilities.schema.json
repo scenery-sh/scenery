@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.agent.capabilities.schema.json",
+  "title": "scenery.agent.capabilities",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "spec_revision",
+    "producer",
+    "resource_schema_revisions",
+    "resource_create_kinds",
+    "mutation_schema_revisions",
+    "unsupported_draft_surfaces",
+    "operations",
+    "transport_limits"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.agent.capabilities"
+    },
+    "schema_revision": {
+      "const": "sha256:2039fe024772db03d46bb431ccb58381ea24a7452c58fc999db08824f90415c8"
+    },
+    "spec_revision": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "producer": {
+      "type": "object"
+    },
+    "resource_schema_revisions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "resource_create_kinds": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "mutation_schema_revisions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "unsupported_draft_surfaces": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "operations": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "transport_limits": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": false
+}

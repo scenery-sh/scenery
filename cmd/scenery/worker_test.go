@@ -30,10 +30,10 @@ func TestWorkerDurableTokenCreate(t *testing.T) {
 		t.Fatalf("durableWorkerCommand token create: %v", err)
 	}
 	var payload struct {
-		SchemaVersion string `json:"schema_version"`
-		Service       string `json:"service"`
-		DBPath        string `json:"db_path"`
-		Token         struct {
+		Kind    string `json:"kind"`
+		Service string `json:"service"`
+		DBPath  string `json:"db_path"`
+		Token   struct {
 			ID        string `json:"id"`
 			Name      string `json:"name"`
 			Secret    string `json:"secret"`
@@ -43,7 +43,7 @@ func TestWorkerDurableTokenCreate(t *testing.T) {
 	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
 		t.Fatalf("decode token response: %v\n%s", err, out.String())
 	}
-	if payload.SchemaVersion != "scenery.durable.worker_token.create.v1" || payload.Service != "maps" || payload.Token.ID != "tok-test" || payload.Token.Name != "maps remote" {
+	if payload.Kind != "scenery.durable.worker_token.create" || payload.Service != "maps" || payload.Token.ID != "tok-test" || payload.Token.Name != "maps remote" {
 		t.Fatalf("payload = %+v", payload)
 	}
 	if payload.Token.Secret == "" || payload.Token.TokenHash == "" || payload.Token.Secret == payload.Token.TokenHash {

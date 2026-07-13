@@ -12,12 +12,12 @@ type adminOptions struct {
 }
 
 type adminResponse struct {
-	SchemaVersion string         `json:"schema_version"`
-	OK            bool           `json:"ok"`
-	Command       string         `json:"command"`
-	App           adminAppRef    `json:"app"`
-	Warnings      []string       `json:"warnings,omitempty"`
-	Data          map[string]any `json:"data,omitempty"`
+	cliPayloadIdentity
+	OK       bool           `json:"ok"`
+	Command  string         `json:"command"`
+	App      adminAppRef    `json:"app"`
+	Warnings []string       `json:"warnings,omitempty"`
+	Data     map[string]any `json:"data,omitempty"`
 }
 
 type adminAppRef struct {

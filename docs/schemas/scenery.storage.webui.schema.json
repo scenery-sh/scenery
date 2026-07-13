@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.storage.webui.schema.json",
+  "title": "scenery.storage.webui",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.storage.webui"
+    },
+    "schema_revision": {
+      "const": "sha256:039750815e774c0f89b25c418df225efa8f0e32fcf50bfb1beb610c7253f0254"
+    },
+    "configured": {
+    },
+    "ready": {
+    },
+    "url": {
+    },
+    "reason": {
+    }
+  },
+  "additionalProperties": false
+}

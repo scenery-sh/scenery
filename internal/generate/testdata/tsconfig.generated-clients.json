@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "noEmit": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "target": "ES2022"
+  },
+  "files": [
+    "../../compiler/testdata/house/clients/generated/public_api/index.ts",
+    "../../compiler/testdata/native/clients/generated/public_api/index.ts"
+  ]
+}

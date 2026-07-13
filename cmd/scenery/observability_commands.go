@@ -101,9 +101,9 @@ func runTracesClear(ctx context.Context, stdout io.Writer, args []string) error 
 		stack.MarkCleared(appID, time.Now().UTC())
 	}
 	resp := adminResponse{
-		SchemaVersion: "scenery.traces.clear.v1",
-		OK:            true,
-		Command:       "scenery traces clear",
+		cliPayloadIdentity: newCLIPayloadIdentity("scenery.traces.clear"),
+		OK:                 true,
+		Command:            "scenery traces clear",
 		App: adminAppRef{
 			Name: cfg.Name,
 			Root: appRoot,

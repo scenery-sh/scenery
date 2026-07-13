@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-UI_ROOT="$ROOT/apps/consolenext"
+UI_ROOT="$ROOT/apps/console"
 EMBED_DIST="$ROOT/cmd/scenery/dashboard_static/dist"
 
 command -v bun >/dev/null 2>&1 || {

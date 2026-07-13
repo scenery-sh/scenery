@@ -14,14 +14,7 @@ const (
 	refreshTokenReplayGrace     = 30 * time.Second
 )
 
-const (
-	refreshCookieName       = "scenery_refresh"
-	legacyRefreshCookieName = "onlv_refresh"
-)
-
-// refreshCookieReadOrder is temporary compatibility tracked by plan 0110. Remove
-// the legacy entry no earlier than 30 days after the corrective release ships.
-var refreshCookieReadOrder = [...]string{refreshCookieName, legacyRefreshCookieName}
+const refreshCookieName = "scenery_refresh"
 
 const (
 	identityProviderEmail  = "email"

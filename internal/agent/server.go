@@ -393,7 +393,7 @@ func removeStaleSocket(path string) error {
 
 func (s *Server) writeState() error {
 	state := State{
-		SchemaVersion:    StateSchemaVersion,
+		ArtifactIdentity: agentStateIdentity(),
 		PID:              os.Getpid(),
 		Identity:         s.identity,
 		SocketPath:       s.paths.SocketPath,
@@ -428,7 +428,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, HealthResponse{
-		SchemaVersion:        StateSchemaVersion,
+		ArtifactIdentity:     agentStateIdentity(),
 		PID:                  os.Getpid(),
 		Identity:             s.identity,
 		SocketPath:           s.paths.SocketPath,

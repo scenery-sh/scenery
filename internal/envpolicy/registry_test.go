@@ -8,7 +8,8 @@ import (
 
 func TestRegistryFindExactPrefixAndGlob(t *testing.T) {
 	registry := &Registry{
-		SchemaVersion: SchemaVersion,
+		Kind:           Kind,
+		SchemaRevision: SchemaRevision,
 		Variables: []Variable{
 			testVariable("SCENERY_APP_ID", "exact"),
 			testVariable("SCENERY_TEST_", "prefix"),
@@ -31,7 +32,8 @@ func TestRegistryFindExactPrefixAndGlob(t *testing.T) {
 
 func TestRegistryRedactsSecretValues(t *testing.T) {
 	registry := &Registry{
-		SchemaVersion: SchemaVersion,
+		Kind:           Kind,
+		SchemaRevision: SchemaRevision,
 		Variables: []Variable{
 			func() Variable {
 				v := testVariable("JWT_SECRET", "exact")
@@ -52,6 +54,21 @@ func TestRegistryRedactsSecretValues(t *testing.T) {
 	}
 	if got := registry.RedactValue("SCENERY_APP_ID", "app"); got != "app" {
 		t.Fatalf("RedactValue(non-secret) = %q", got)
+	}
+}
+
+func TestLoadRegistryRejectsLegacyAndUnknownFields(t *testing.T) {
+	for _, content := range []string{
+		`{"schema_version":"scenery.environment.registry.` + "v1" + `","variables":[]}`,
+		`{"kind":"scenery.environment.registry","schema_revision":"` + SchemaRevision + `","variables":[],"extra":true}`,
+	} {
+		path := filepath.Join(t.TempDir(), "registry.json")
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := LoadRegistry(path); err == nil {
+			t.Fatalf("LoadRegistry accepted %s", content)
+		}
 	}
 }
 

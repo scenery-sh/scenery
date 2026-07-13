@@ -1,22 +1,24 @@
 package storageconfig
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
+
+	"scenery.sh/internal/machine"
 )
 
 const (
-	RuntimeConfigEnv     = "SCENERY_STORAGE_CONFIG"
-	RuntimeSchemaVersion = "scenery.storage.runtime.v1"
+	RuntimeConfigEnv        = "SCENERY_STORAGE_CONFIG"
+	RuntimeKind             = "scenery.storage.runtime"
+	runtimeSchemaDescriptor = `{"identity":"artifact","cell_id":"string","default":"string","stores":"runtime-stores"}`
 )
 
 type RuntimeConfig struct {
-	SchemaVersion string                        `json:"schema_version"`
-	CellID        string                        `json:"cell_id"`
-	Default       string                        `json:"default,omitempty"`
-	Stores        map[string]RuntimeStoreConfig `json:"stores"`
+	machine.ArtifactIdentity
+	CellID  string                        `json:"cell_id"`
+	Default string                        `json:"default,omitempty"`
+	Stores  map[string]RuntimeStoreConfig `json:"stores"`
 }
 
 type RuntimeStoreConfig struct {
@@ -41,11 +43,15 @@ func LoadRuntimeConfigValue(raw string) (RuntimeConfig, bool, error) {
 		raw = string(data)
 	}
 	var cfg RuntimeConfig
-	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
+	if err := machine.DecodeArtifact([]byte(raw), &cfg, &cfg.ArtifactIdentity, RuntimeKind, runtimeSchemaDescriptor, "regenerate the runtime storage configuration"); err != nil {
 		return RuntimeConfig{}, true, fmt.Errorf("decode %s: %w", RuntimeConfigEnv, err)
 	}
 	if len(cfg.Stores) == 0 {
 		return RuntimeConfig{}, false, nil
 	}
 	return cfg, true, nil
+}
+
+func NewRuntimeIdentity() machine.ArtifactIdentity {
+	return machine.NewArtifactIdentity(RuntimeKind, runtimeSchemaDescriptor)
 }

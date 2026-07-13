@@ -17,6 +17,9 @@ import (
 	"sort"
 	"strings"
 	"syscall"
+
+	"scenery.sh/internal/machine"
+	"scenery.sh/internal/spec"
 )
 
 var htmlRootRefRE = regexp.MustCompile(`\b(src|href)="(/[^"]*)"`)
@@ -203,12 +206,12 @@ func publicRouteManifest(session Session, target DeployTarget) RouteManifest {
 		records[name] = RouteRecord{Name: name, Kind: "frontend", URL: joinRouteURL(baseURL, routePath), Path: routePath, StripPrefix: strings.TrimSuffix(routePath, "/"), Backend: name}
 	}
 	return RouteManifest{
-		SchemaVersion: RouteManifestVersion,
-		Mode:          RouteModePath,
-		BaseURL:       baseURL,
-		Root:          root,
-		Worktree:      session.RouteManifest.Worktree,
-		Routes:        normalizeRouteRecords(records),
+		ArtifactIdentity: routeManifestIdentity(),
+		Mode:             RouteModePath,
+		BaseURL:          baseURL,
+		Root:             root,
+		Worktree:         session.RouteManifest.Worktree,
+		Routes:           normalizeRouteRecords(records),
 	}
 }
 
@@ -503,12 +506,9 @@ func (s *Server) handlePathModeRoute(w http.ResponseWriter, req *http.Request, s
 	requestPath := cleanRequestPath(req.URL.Path)
 	switch requestPath {
 	case PathModeRuntimePrefix + "/health":
-		writeJSON(w, http.StatusOK, map[string]any{
-			"schema_version": "scenery.local.health.v1",
-			"status":         "ok",
-			"session_id":     session.SessionID,
-			"base_url":       session.RouteManifest.BaseURL,
-		})
+		writeJSON(w, http.StatusOK, localResponse("scenery.local.health", "sha256:af2ff38e2a1d33b3657300d2a12b8d249a94cb13be536dec4680b030a5275569", map[string]any{
+			"status": "ok", "session_id": session.SessionID, "base_url": session.RouteManifest.BaseURL,
+		}))
 		return
 	case PathModeRuntimePrefix + "/routes":
 		writeJSON(w, http.StatusOK, localRoutesResponse(session))
@@ -593,14 +593,21 @@ func (s *Server) handlePathModeRoute(w http.ResponseWriter, req *http.Request, s
 }
 
 func localRoutesResponse(session Session) map[string]any {
-	return map[string]any{
-		"schema_version": "scenery.local.routes.v1",
-		"app":            session.BaseAppID,
-		"worktree":       session.RouteManifest.Worktree,
-		"session_id":     session.SessionID,
-		"base_url":       session.RouteManifest.BaseURL,
-		"routes":         session.RouteManifest.Routes,
-	}
+	return localResponse("scenery.local.routes", "sha256:cd25c08078a7d79950f1bd1dbf06670499e2c4882ee28a0d0ae04cbfb96402c9", map[string]any{
+		"app":        session.BaseAppID,
+		"worktree":   session.RouteManifest.Worktree,
+		"session_id": session.SessionID,
+		"base_url":   session.RouteManifest.BaseURL,
+		"routes":     session.RouteManifest.Routes,
+	})
+}
+
+func localResponse(kind, schemaRevision string, value map[string]any) map[string]any {
+	value["kind"] = kind
+	value["schema_revision"] = schemaRevision
+	value["spec_revision"] = string(spec.CurrentRevision())
+	value["producer"] = machine.RuntimeProducer()
+	return value
 }
 
 func (s *Server) handlePathModeRoot(w http.ResponseWriter, req *http.Request, session Session) {

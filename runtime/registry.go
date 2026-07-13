@@ -72,7 +72,6 @@ type ContractPathTail struct {
 	Decoding          string
 	Guarantee         string
 	Precedence        []string
-	RequiredProfiles  []string
 }
 
 type ContractDecodedRequest struct {

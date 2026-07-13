@@ -7,10 +7,10 @@ import (
 	"strings"
 )
 
-const harnessSelfSummarySchema = "scenery.harness.self.summary.v1"
+const harnessSelfSummaryKind = "scenery.harness.self.summary"
 
 type harnessSelfSummaryResponse struct {
-	SchemaVersion     string                     `json:"schema_version"`
+	cliPayloadIdentity
 	OK                bool                       `json:"ok"`
 	Status            string                     `json:"status"`
 	GeneratedAt       string                     `json:"generated_at"`
@@ -140,19 +140,19 @@ func buildHarnessSelfSummary(resp harnessSelfResponse) harnessSelfSummaryRespons
 	attention, architectureDebtWarnings, architectureChangedWarnings := buildHarnessSelfAttention(resp, changedPaths)
 	status := classifyHarnessSelfSummaryStatus(resp.OK, attention, architectureDebtWarnings)
 	return harnessSelfSummaryResponse{
-		SchemaVersion:     harnessSelfSummarySchema,
-		OK:                resp.OK,
-		Status:            status,
-		GeneratedAt:       resp.GeneratedAt,
-		Mode:              resp.Mode,
-		Repo:              summaryRepo(resp.Repo),
-		CanProceed:        resp.OK,
-		ChangedArea:       summarizeChangedArea(resp.ChangedArea),
-		DiagnosticSummary: summarizeDiagnostics(resp.Steps),
-		Attention:         attention,
-		Steps:             summarizeHarnessSteps(resp.Repo.Root, resp.Steps),
-		Reports:           summarizeHarnessReports(resp, changedPaths, architectureDebtWarnings, architectureChangedWarnings),
-		Artifacts:         normalizeHarnessArtifacts(resp.Artifacts),
+		cliPayloadIdentity: newCLIPayloadIdentity(harnessSelfSummaryKind),
+		OK:                 resp.OK,
+		Status:             status,
+		GeneratedAt:        resp.GeneratedAt,
+		Mode:               resp.Mode,
+		Repo:               summaryRepo(resp.Repo),
+		CanProceed:         resp.OK,
+		ChangedArea:        summarizeChangedArea(resp.ChangedArea),
+		DiagnosticSummary:  summarizeDiagnostics(resp.Steps),
+		Attention:          attention,
+		Steps:              summarizeHarnessSteps(resp.Repo.Root, resp.Steps),
+		Reports:            summarizeHarnessReports(resp, changedPaths, architectureDebtWarnings, architectureChangedWarnings),
+		Artifacts:          normalizeHarnessArtifacts(resp.Artifacts),
 		Drilldowns: []string{
 			"scenery inspect harness -o json",
 			"scenery inspect harness artifact test-timing -o json",
@@ -306,7 +306,7 @@ func artifactsFromStep(step harnessStep) []harnessArtifact {
 	}
 	out := make([]harnessArtifact, 0, len(step.Evidence.Artifacts))
 	for _, item := range step.Evidence.Artifacts {
-		out = append(out, harnessArtifact{Name: item.Name, Path: item.Path, SchemaVersion: item.SchemaVersion, Exists: true})
+		out = append(out, harnessArtifact{Name: item.Name, Path: item.Path, Kind: item.Kind, SchemaRevision: item.SchemaRevision, Exists: true})
 	}
 	return out
 }
@@ -481,7 +481,7 @@ func summaryDiagnosticFile(path string) string {
 	if idx := strings.Index(path, "/cmd/"); idx >= 0 {
 		return strings.TrimPrefix(path[idx+1:], "/")
 	}
-	for _, prefix := range []string{"cmd/", "internal/", "runtime/", "auth/", "docs/", "ui/", "apps/consolenext/", "testdata/", "scripts/"} {
+	for _, prefix := range []string{"cmd/", "internal/", "runtime/", "auth/", "docs/", "ui/", "apps/console/", "testdata/", "scripts/"} {
 		if strings.HasPrefix(path, prefix) {
 			return path
 		}
@@ -627,7 +627,7 @@ func normalizeLikelyPath(path string) string {
 	if idx := strings.Index(path, "/.scenery/"); idx >= 0 {
 		return ".scenery/" + strings.TrimPrefix(path[idx+len("/.scenery/"):], "/")
 	}
-	for _, marker := range []string{"/cmd/", "/internal/", "/runtime/", "/auth/", "/docs/", "/ui/", "/apps/consolenext/", "/testdata/", "/scripts/"} {
+	for _, marker := range []string{"/cmd/", "/internal/", "/runtime/", "/auth/", "/docs/", "/ui/", "/apps/console/", "/testdata/", "/scripts/"} {
 		if idx := strings.Index(path, marker); idx >= 0 {
 			return strings.TrimPrefix(path[idx+1:], "/")
 		}

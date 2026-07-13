@@ -663,15 +663,15 @@ func buildDevConsoleErrorGroups(events []devdash.DevEvent) []devConsoleErrorGrou
 
 func devConsoleEventJSON(appName, appRoot string, event devdash.DevEvent) logsEvent {
 	out := logsEvent{
-		SchemaVersion: devdash.DevEventSchemaVersion,
-		ID:            event.ID,
-		Time:          event.CreatedAt.UTC().Format(time.RFC3339Nano),
-		SessionID:     event.SessionID,
-		Source:        event.Source,
-		Level:         event.Level,
-		Message:       event.Message,
-		Raw:           event.Raw,
-		Parse:         event.Parse,
+		cliPayloadIdentity: newCLIPayloadIdentity(devdash.DevEventKind),
+		ID:                 event.ID,
+		Time:               event.CreatedAt.UTC().Format(time.RFC3339Nano),
+		SessionID:          event.SessionID,
+		Source:             event.Source,
+		Level:              event.Level,
+		Message:            event.Message,
+		Raw:                event.Raw,
+		Parse:              event.Parse,
 	}
 	if len(event.Fields) > 0 && string(event.Fields) != "{}" {
 		out.Fields = event.Fields

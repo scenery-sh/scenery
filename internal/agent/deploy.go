@@ -8,15 +8,17 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"scenery.sh/internal/machine"
 )
 
-const DeployRegistrySchemaVersion = "scenery.deploy.registry.v1"
+const legacyDeployRegistrySchemaVersion = "scenery.deploy.registry.v1"
 
 type DeployRegistry struct {
-	SchemaVersion string         `json:"schema_version"`
-	ACMEEmail     string         `json:"acme_email,omitempty"`
-	ACMECA        string         `json:"acme_ca,omitempty"`
-	Targets       []DeployTarget `json:"targets"`
+	machine.ArtifactIdentity
+	ACMEEmail string         `json:"acme_email,omitempty"`
+	ACMECA    string         `json:"acme_ca,omitempty"`
+	Targets   []DeployTarget `json:"targets"`
 }
 
 type DeployTarget struct {
@@ -30,14 +32,14 @@ type DeployTarget struct {
 
 func EmptyDeployRegistry() DeployRegistry {
 	return DeployRegistry{
-		SchemaVersion: DeployRegistrySchemaVersion,
-		ACMECA:        "production",
-		Targets:       []DeployTarget{},
+		ArtifactIdentity: deployRegistryIdentity(),
+		ACMECA:           "production",
+		Targets:          []DeployTarget{},
 	}
 }
 
 func LoadDeployRegistry(path string) (DeployRegistry, error) {
-	data, err := os.ReadFile(path)
+	_, err := os.Stat(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return EmptyDeployRegistry(), nil
 	}
@@ -45,11 +47,10 @@ func LoadDeployRegistry(path string) (DeployRegistry, error) {
 		return DeployRegistry{}, err
 	}
 	var registry DeployRegistry
-	if err := json.Unmarshal(data, &registry); err != nil {
+	if err := LoadDurableArtifact(path, &registry, &registry.ArtifactIdentity, DeployRegistryKind, deployRegistrySchemaDescriptor, 0o600, func(fields map[string]json.RawMessage) error {
+		return requireLegacySchemaOrMissing(fields, legacyDeployRegistrySchemaVersion)
+	}); err != nil {
 		return DeployRegistry{}, err
-	}
-	if registry.SchemaVersion == "" {
-		registry.SchemaVersion = DeployRegistrySchemaVersion
 	}
 	if registry.ACMECA == "" {
 		registry.ACMECA = "production"
@@ -67,9 +68,7 @@ func LoadDeployRegistry(path string) (DeployRegistry, error) {
 }
 
 func WriteDeployRegistry(path string, registry DeployRegistry) error {
-	if registry.SchemaVersion == "" {
-		registry.SchemaVersion = DeployRegistrySchemaVersion
-	}
+	registry.ArtifactIdentity = deployRegistryIdentity()
 	if registry.ACMECA == "" {
 		registry.ACMECA = "production"
 	}

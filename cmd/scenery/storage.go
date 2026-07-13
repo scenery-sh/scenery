@@ -31,40 +31,40 @@ type storageCLIOptions struct {
 }
 
 type storageStatusResponse struct {
-	SchemaVersion string                `json:"schema_version"`
-	Storage       inspectStorageRecord  `json:"storage"`
-	Stores        []inspectStorageStore `json:"stores"`
+	cliPayloadIdentity
+	Storage inspectStorageRecord  `json:"storage"`
+	Stores  []inspectStorageStore `json:"stores"`
 }
 
 type storageWebUIResponse struct {
-	SchemaVersion string `json:"schema_version"`
-	Configured    bool   `json:"configured"`
-	Ready         bool   `json:"ready"`
-	URL           string `json:"url,omitempty"`
-	Reason        string `json:"reason,omitempty"`
+	cliPayloadIdentity
+	Configured bool   `json:"configured"`
+	Ready      bool   `json:"ready"`
+	URL        string `json:"url,omitempty"`
+	Reason     string `json:"reason,omitempty"`
 }
 
 type storageObjectResponse struct {
-	SchemaVersion string               `json:"schema_version"`
-	Object        publicstorage.Object `json:"object"`
+	cliPayloadIdentity
+	Object publicstorage.Object `json:"object"`
 }
 
 type storageListResponse struct {
-	SchemaVersion string                 `json:"schema_version"`
-	Store         string                 `json:"store"`
-	Page          publicstorage.ListPage `json:"page"`
+	cliPayloadIdentity
+	Store string                 `json:"store"`
+	Page  publicstorage.ListPage `json:"page"`
 }
 
 type storageDeleteResponse struct {
-	SchemaVersion string `json:"schema_version"`
-	Store         string `json:"store"`
-	Key           string `json:"key,omitempty"`
-	Prefix        string `json:"prefix,omitempty"`
-	Deleted       bool   `json:"deleted"`
+	cliPayloadIdentity
+	Store   string `json:"store"`
+	Key     string `json:"key,omitempty"`
+	Prefix  string `json:"prefix,omitempty"`
+	Deleted bool   `json:"deleted"`
 }
 
 type storageCleanupResponse struct {
-	SchemaVersion string `json:"schema_version"`
+	cliPayloadIdentity
 	StorageCellID string `json:"storage_cell_id"`
 	CellRoot      string `json:"cell_root"`
 	Exists        bool   `json:"exists"`
@@ -96,9 +96,9 @@ func runStorageCommand(args []string, stdout io.Writer) error {
 	case "status":
 		inspect := buildInspectStorageResponse(context.Background(), appRoot, cfg)
 		return writeStorageJSON(stdout, storageStatusResponse{
-			SchemaVersion: "scenery.storage.status.v1",
-			Storage:       inspect.Storage,
-			Stores:        inspect.Stores,
+			cliPayloadIdentity: newCLIPayloadIdentity("scenery.storage.status"),
+			Storage:            inspect.Storage,
+			Stores:             inspect.Stores,
 		})
 	case "webui":
 		return writeStorageJSON(stdout, buildStorageWebUIResponse(cfg))
@@ -113,7 +113,7 @@ func runStorageCommand(args []string, stdout io.Writer) error {
 		if err != nil {
 			return err
 		}
-		return writeStorageJSON(stdout, storageListResponse{SchemaVersion: "scenery.storage.list.v1", Store: opts.Store, Page: *page})
+		return writeStorageJSON(stdout, storageListResponse{cliPayloadIdentity: newCLIPayloadIdentity("scenery.storage.list"), Store: opts.Store, Page: *page})
 	case "stat":
 		store, err := storageStoreForCLI(cfg, opts.Store)
 		if err != nil {
@@ -123,7 +123,7 @@ func runStorageCommand(args []string, stdout io.Writer) error {
 		if err != nil {
 			return err
 		}
-		return writeStorageJSON(stdout, storageObjectResponse{SchemaVersion: "scenery.storage.object.v1", Object: *obj})
+		return writeStorageJSON(stdout, storageObjectResponse{cliPayloadIdentity: newCLIPayloadIdentity("scenery.storage.object"), Object: *obj})
 	case "put":
 		store, err := storageStoreForCLI(cfg, opts.Store)
 		if err != nil {
@@ -133,7 +133,7 @@ func runStorageCommand(args []string, stdout io.Writer) error {
 		if err != nil {
 			return err
 		}
-		return writeStorageJSON(stdout, storageObjectResponse{SchemaVersion: "scenery.storage.object.v1", Object: *obj})
+		return writeStorageJSON(stdout, storageObjectResponse{cliPayloadIdentity: newCLIPayloadIdentity("scenery.storage.object"), Object: *obj})
 	case "get":
 		if opts.Output == "" {
 			return fmt.Errorf("scenery storage get requires --output when -o json is used")
@@ -161,7 +161,7 @@ func runStorageCommand(args []string, stdout io.Writer) error {
 		if err := out.Close(); err != nil {
 			return err
 		}
-		return writeStorageJSON(stdout, storageObjectResponse{SchemaVersion: "scenery.storage.object.v1", Object: *obj})
+		return writeStorageJSON(stdout, storageObjectResponse{cliPayloadIdentity: newCLIPayloadIdentity("scenery.storage.object"), Object: *obj})
 	case "rm":
 		store, err := storageStoreForCLI(cfg, opts.Store)
 		if err != nil {
@@ -171,12 +171,12 @@ func runStorageCommand(args []string, stdout io.Writer) error {
 			if err := store.DeletePrefix(context.Background(), opts.Key); err != nil {
 				return err
 			}
-			return writeStorageJSON(stdout, storageDeleteResponse{SchemaVersion: "scenery.storage.delete.v1", Store: opts.Store, Prefix: opts.Key, Deleted: true})
+			return writeStorageJSON(stdout, storageDeleteResponse{cliPayloadIdentity: newCLIPayloadIdentity("scenery.storage.delete"), Store: opts.Store, Prefix: opts.Key, Deleted: true})
 		}
 		if err := store.Delete(context.Background(), opts.Key); err != nil {
 			return err
 		}
-		return writeStorageJSON(stdout, storageDeleteResponse{SchemaVersion: "scenery.storage.delete.v1", Store: opts.Store, Key: opts.Key, Deleted: true})
+		return writeStorageJSON(stdout, storageDeleteResponse{cliPayloadIdentity: newCLIPayloadIdentity("scenery.storage.delete"), Store: opts.Store, Key: opts.Key, Deleted: true})
 	default:
 		return fmt.Errorf("unknown storage command %q", opts.Command)
 	}
@@ -268,12 +268,12 @@ func runStorageCleanup(ctx context.Context, stdout io.Writer, cfg appcfg.Config,
 		exists = false
 	}
 	return writeStorageJSON(stdout, storageCleanupResponse{
-		SchemaVersion: "scenery.storage.cleanup.v1",
-		StorageCellID: plan.StorageCellID,
-		CellRoot:      plan.CellRoot,
-		Exists:        exists,
-		DryRun:        !opts.Yes,
-		Deleted:       deleted,
+		cliPayloadIdentity: newCLIPayloadIdentity("scenery.storage.cleanup"),
+		StorageCellID:      plan.StorageCellID,
+		CellRoot:           plan.CellRoot,
+		Exists:             exists,
+		DryRun:             !opts.Yes,
+		Deleted:            deleted,
 	})
 }
 
@@ -334,10 +334,10 @@ func storageCapabilityEnv(cfg appcfg.Config, session *localagent.Session, baseEn
 		stores[name] = storeRuntime
 	}
 	runtimeCfg := storageconfig.RuntimeConfig{
-		SchemaVersion: storageconfig.RuntimeSchemaVersion,
-		CellID:        plan.StorageCellID,
-		Default:       strings.TrimSpace(cfg.Storage.Default),
-		Stores:        stores,
+		ArtifactIdentity: storageconfig.NewRuntimeIdentity(),
+		CellID:           plan.StorageCellID,
+		Default:          strings.TrimSpace(cfg.Storage.Default),
+		Stores:           stores,
 	}
 	if runtimeCfg.Default == "" && len(stores) == 1 {
 		for name := range stores {
@@ -409,9 +409,9 @@ func validateHeadlessStorageRuntimeConfig(raw string) error {
 func buildStorageWebUIResponse(cfg appcfg.Config) storageWebUIResponse {
 	configured := len(cfg.Storage.Stores) > 0
 	if !configured {
-		return storageWebUIResponse{SchemaVersion: "scenery.storage.webui.v1", Configured: false, Ready: false, Reason: "storage is not configured"}
+		return storageWebUIResponse{cliPayloadIdentity: newCLIPayloadIdentity("scenery.storage.webui"), Configured: false, Ready: false, Reason: "storage is not configured"}
 	}
-	return storageWebUIResponse{SchemaVersion: "scenery.storage.webui.v1", Configured: true, Ready: false, Reason: "local storage has no managed Web UI; use `scenery storage ls/stat` or `scenery inspect storage`"}
+	return storageWebUIResponse{cliPayloadIdentity: newCLIPayloadIdentity("scenery.storage.webui"), Configured: true, Ready: false, Reason: "local storage has no managed Web UI; use `scenery storage ls/stat` or `scenery inspect storage`"}
 }
 
 func writeStorageJSON(w io.Writer, payload any) error {

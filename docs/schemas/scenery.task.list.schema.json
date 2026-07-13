@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.task.list.schema.json",
+  "title": "scenery.task.list",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "app",
+    "tasks"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.task.list"
+    },
+    "schema_revision": {
+      "const": "sha256:7cbb5e4355f533e353de7e3171a2b3cb4b60c30675d884ca52733295f89a4c99"
+    },
+    "app": {
+      "$ref": "#/$defs/appRef"
+    },
+    "tasks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/task"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "appRef": {
+      "type": "object",
+      "required": [
+        "name",
+        "root",
+        "config_path"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "root": {
+          "type": "string"
+        },
+        "config_path": {
+          "type": "string"
+        },
+        "module_path": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "task": {
+      "type": "object",
+      "required": [
+        "target",
+        "kind",
+        "source",
+        "args_accepted"
+      ],
+      "properties": {
+        "target": {
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "configured",
+            "code"
+          ]
+        },
+        "source": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "run": {
+          "type": "string"
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "env_keys": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "language": {
+          "type": "string"
+        },
+        "layout": {
+          "type": "string"
+        },
+        "args_accepted": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

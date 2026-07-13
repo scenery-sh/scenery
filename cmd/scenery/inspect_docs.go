@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -11,15 +13,20 @@ import (
 	"time"
 
 	"scenery.sh/internal/appwalk"
+	"scenery.sh/internal/spec"
 )
 
 const (
-	docsIndexSchema   = "scenery.docs.index.v1"
-	inspectDocsSchema = "scenery.inspect.docs.v1"
+	docsIndexKind       = "scenery.docs.index"
+	docsIndexDescriptor = `{"kind":"scenery.docs.index","identity":"source","generated_at":"datetime","owner_default":"string","freshness_policy":"policy","documents":"documents","plans":"paths","tech_debt":"path"}`
+	inspectDocsKind     = "scenery.inspect.docs"
 )
 
+var docsIndexSchemaRevision = string(spec.SchemaRevision(docsIndexDescriptor))
+
 type docsKnowledgeIndex struct {
-	SchemaVersion   string                  `json:"schema_version"`
+	Kind            string                  `json:"kind"`
+	SchemaRevision  string                  `json:"schema_revision"`
 	GeneratedAt     string                  `json:"generated_at"`
 	OwnerDefault    string                  `json:"owner_default"`
 	FreshnessPolicy docsFreshnessPolicy     `json:"freshness_policy"`
@@ -54,14 +61,14 @@ type docsKnowledgeDocument struct {
 }
 
 type inspectDocsResponse struct {
-	SchemaVersion string                 `json:"schema_version"`
-	Repo          harnessSelfRepo        `json:"repo"`
-	Summary       inspectDocsSummary     `json:"summary"`
-	Warnings      []string               `json:"warnings,omitempty"`
-	Agents        inspectDocsAgents      `json:"agents"`
-	Documents     []inspectDocsDocument  `json:"documents"`
-	Plans         inspectDocsPlans       `json:"plans"`
-	TechDebt      inspectDocsArtifactRef `json:"tech_debt"`
+	cliPayloadIdentity
+	Repo      harnessSelfRepo        `json:"repo"`
+	Summary   inspectDocsSummary     `json:"summary"`
+	Warnings  []string               `json:"warnings,omitempty"`
+	Agents    inspectDocsAgents      `json:"agents"`
+	Documents []inspectDocsDocument  `json:"documents"`
+	Plans     inspectDocsPlans       `json:"plans"`
+	TechDebt  inspectDocsArtifactRef `json:"tech_debt"`
 }
 
 type inspectDocsSummary struct {
@@ -113,7 +120,7 @@ func buildInspectDocsResponse(repoRoot string) (inspectDocsResponse, error) {
 		return inspectDocsResponse{}, err
 	}
 	resp := inspectDocsResponse{
-		SchemaVersion: inspectDocsSchema,
+		cliPayloadIdentity: newCLIPayloadIdentity(inspectDocsKind),
 		Repo: harnessSelfRepo{
 			Root:       repoRoot,
 			ModulePath: "scenery.sh",
@@ -173,11 +180,16 @@ func readDocsKnowledgeIndex(repoRoot string) (docsKnowledgeIndex, error) {
 		return docsKnowledgeIndex{}, err
 	}
 	var index docsKnowledgeIndex
-	if err := json.Unmarshal(data, &index); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&index); err != nil {
 		return docsKnowledgeIndex{}, err
 	}
-	if index.SchemaVersion != docsIndexSchema {
-		return docsKnowledgeIndex{}, fmt.Errorf("docs/knowledge.json schema_version = %q, want %q", index.SchemaVersion, docsIndexSchema)
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return docsKnowledgeIndex{}, fmt.Errorf("docs/knowledge.json contains trailing JSON")
+	}
+	if index.Kind != docsIndexKind || index.SchemaRevision != docsIndexSchemaRevision {
+		return docsKnowledgeIndex{}, fmt.Errorf("docs/knowledge.json identity = %q at %q, want %q at %q", index.Kind, index.SchemaRevision, docsIndexKind, docsIndexSchemaRevision)
 	}
 	return index, nil
 }
@@ -386,7 +398,7 @@ func validateDocsKnowledge(repoRoot string) ([]checkDiagnostic, map[string]any) 
 			Severity:        "error",
 			File:            filepath.ToSlash(filepath.Join(repoRoot, "docs", "knowledge.json")),
 			Message:         err.Error(),
-			SuggestedAction: "Fix docs/knowledge.json so it conforms to scenery.docs.index.v1.",
+			SuggestedAction: "Fix docs/knowledge.json so it conforms to the current scenery.docs.index schema revision.",
 		}}, summary
 	}
 

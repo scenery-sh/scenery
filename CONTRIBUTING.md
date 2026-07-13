@@ -39,7 +39,7 @@ scenery harness self -o json --write
 For dashboard UI changes:
 
 ```sh
-cd apps/consolenext
+cd apps/console
 bun run lint
 bun run typecheck
 bun run build

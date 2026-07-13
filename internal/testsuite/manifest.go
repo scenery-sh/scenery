@@ -16,9 +16,13 @@ import (
 	"strings"
 
 	"scenery.sh/internal/envpolicy"
+	"scenery.sh/internal/machine"
 )
 
-const manifestSchemaVersion = "scenery.test-binary-cache.v1"
+const (
+	testBinaryCacheKind             = "scenery.test-binary-cache"
+	testBinaryCacheSchemaDescriptor = `{"fingerprint":"digest","kind":"scenery.test-binary-cache","no_test_packages":"array<string>","packages":"array<test-package>","producer":"producer","schema_revision":"digest","spec_revision":"digest"}`
+)
 
 func testPackageListArgs() []string {
 	return []string{"list", "-buildvcs=false", "-test", "-export", "-json", "./..."}
@@ -41,7 +45,7 @@ type testPackage struct {
 }
 
 type cacheManifest struct {
-	SchemaVersion  string        `json:"schema_version"`
+	machine.ArtifactIdentity
 	Fingerprint    string        `json:"fingerprint"`
 	Packages       []testPackage `json:"packages"`
 	NoTestPackages []string      `json:"no_test_packages"`
@@ -56,7 +60,8 @@ func readManifest(path, fingerprint string, refresh bool) (cacheManifest, bool) 
 		return cacheManifest{}, false
 	}
 	var manifest cacheManifest
-	if json.Unmarshal(data, &manifest) != nil || manifest.SchemaVersion != manifestSchemaVersion || manifest.Fingerprint != fingerprint {
+	if machine.DecodeArtifact(data, &manifest, &manifest.ArtifactIdentity, testBinaryCacheKind, testBinaryCacheSchemaDescriptor, "rebuild the test-binary cache") != nil ||
+		manifest.Fingerprint != fingerprint {
 		return cacheManifest{}, false
 	}
 	return manifest, true
@@ -82,7 +87,10 @@ func listTestPackages(ctx context.Context, repoRoot, cacheDir, fingerprint strin
 		return cacheManifest{}, fmt.Errorf("go list test packages: %w: %s", err, strings.TrimSpace(stderr.String()))
 	}
 	decoder := json.NewDecoder(bytes.NewReader(stdout))
-	manifest := cacheManifest{SchemaVersion: manifestSchemaVersion, Fingerprint: fingerprint}
+	manifest := cacheManifest{
+		ArtifactIdentity: machine.NewArtifactIdentity(testBinaryCacheKind, testBinaryCacheSchemaDescriptor),
+		Fingerprint:      fingerprint,
+	}
 	allPackages := map[string]listedPackage{}
 	for {
 		var pkg listedPackage

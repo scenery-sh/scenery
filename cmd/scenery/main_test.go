@@ -12,7 +12,10 @@ import (
 	"strings"
 	"testing"
 
-	"scenery.sh/internal/vnext"
+	"scenery.sh/internal/evolution"
+	"scenery.sh/internal/graph"
+	"scenery.sh/internal/machine"
+	"scenery.sh/internal/spec"
 )
 
 func TestCLIExitStatusMatchesEdition2027Contract(t *testing.T) {
@@ -46,7 +49,7 @@ func TestCLIProcessExitStatusMatchesEdition2027Contract(t *testing.T) {
 	}{
 		{name: "success", args: nil, want: 0},
 		{name: "invalid usage", args: []string{"not-a-command"}, want: 2},
-		{name: "missing resource", args: []string{"get", "missing/operation/nope", "--app-root", vnextFixtureRoot(t)}, want: 2},
+		{name: "missing resource", args: []string{"get", "missing/operation/nope", "--app-root", contractFixtureRoot(t)}, want: 2},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -86,9 +89,9 @@ func TestCLIProcessHelper(t *testing.T) {
 	main()
 }
 
-func TestVNextJSONEnvelopeHasStableFields(t *testing.T) {
+func TestContractJSONEnvelopeHasStableFields(t *testing.T) {
 	var output strings.Builder
-	err := runVNextCompile(&output, []string{"--app-root", vnextFixtureRoot(t), "-o", "json", "--non-interactive", "--quiet"})
+	err := runContractCompile(&output, []string{"--app-root", contractFixtureRoot(t), "-o", "json", "--non-interactive", "--quiet"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,13 +99,13 @@ func TestVNextJSONEnvelopeHasStableFields(t *testing.T) {
 	if err := json.Unmarshal([]byte(output.String()), &envelope); err != nil {
 		t.Fatal(err)
 	}
-	for _, field := range []string{"api_version", "diagnostic_catalog", "ok", "workspace_revision", "contract_revision", "implementation_revision", "deployment_revision", "data", "diagnostics"} {
+	for _, field := range []string{"kind", "schema_revision", "spec_revision", "producer", "ok", "workspace_revision", "contract_revision", "implementation_revision", "deployment_revision", "data", "diagnostics"} {
 		if _, ok := envelope[field]; !ok {
 			t.Errorf("missing stable envelope field %q in %s", field, output.String())
 		}
 	}
-	if envelope["api_version"] != "scenery.cli.v1" {
-		t.Fatalf("api_version = %v", envelope["api_version"])
+	if envelope["kind"] != machine.EnvelopeKind || envelope["schema_revision"] != machine.EnvelopeSchemaRevision {
+		t.Fatalf("machine identity = %v %v", envelope["kind"], envelope["schema_revision"])
 	}
 }
 
@@ -111,11 +114,11 @@ func TestCLIJSONWrapsCommandData(t *testing.T) {
 	if err := writeCLIJSON(&output, map[string]any{"schema_version": "example.v1"}); err != nil {
 		t.Fatal(err)
 	}
-	var envelope vnextEnvelope
-	if err := json.Unmarshal([]byte(output.String()), &envelope); err != nil {
+	envelope, err := machine.Decode[graph.Diagnostic]([]byte(output.String()), currentMachineSpecRevision())
+	if err != nil {
 		t.Fatal(err)
 	}
-	if envelope.APIVersion != "scenery.cli.v1" || !envelope.OK {
+	if envelope.Kind != machine.EnvelopeKind || envelope.SchemaRevision != machine.EnvelopeSchemaRevision || !envelope.OK {
 		t.Fatalf("envelope = %#v", envelope)
 	}
 	data, ok := envelope.Data.(map[string]any)
@@ -133,29 +136,47 @@ func TestCLIJSONLSequencesEventsAndTerminates(t *testing.T) {
 	if err := events.summary(1); err != nil {
 		t.Fatal(err)
 	}
-	decoder := json.NewDecoder(strings.NewReader(output.String()))
-	var first, terminal cliEventEnvelope
-	if err := decoder.Decode(&first); err != nil {
+	lines := strings.Split(strings.TrimSpace(output.String()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("event lines = %d, want 2", len(lines))
+	}
+	first, err := machine.DecodeEvent[graph.Diagnostic]([]byte(lines[0]), currentMachineSpecRevision())
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := decoder.Decode(&terminal); err != nil {
+	terminal, err := machine.DecodeEvent[graph.Diagnostic]([]byte(lines[1]), currentMachineSpecRevision())
+	if err != nil {
 		t.Fatal(err)
 	}
-	if first.APIVersion != "scenery.cli.event.v1" || first.Sequence != 1 || first.Terminal {
+	if first.Kind != machine.EventEnvelopeKind || first.SchemaRevision != machine.EventEnvelopeSchemaRevision || first.Sequence != 1 || first.Terminal {
 		t.Fatalf("first = %#v", first)
 	}
-	if terminal.Sequence != 2 || terminal.Kind != "summary" || !terminal.Terminal {
+	if terminal.Sequence != 2 || terminal.Event != "summary" || !terminal.Terminal {
 		t.Fatalf("terminal = %#v", terminal)
 	}
 }
 
-func TestVNextSchemaPublishesDiagnosticCatalog(t *testing.T) {
+func TestMachineEnvelopeSchemasMatchConstructors(t *testing.T) {
+	root := repoRootForTest(t)
+	specRevision := currentMachineSpecRevision()
+	producer := cliProducer()
+	for path, payload := range map[string]any{
+		"scenery.cli.schema.json":       machine.NewEnvelope[graph.Diagnostic](specRevision, producer, true, map[string]any{"fixture": true}, nil),
+		"scenery.cli.event.schema.json": machine.NewEventEnvelope[graph.Diagnostic](specRevision, producer, 1, "summary", true, map[string]any{"event_count": 0}, nil),
+	} {
+		if diagnostics := validateHarnessJSONSchemaFile(filepath.Join(root, "docs", "schemas", path), payload); len(diagnostics) != 0 {
+			t.Fatalf("%s diagnostics = %v", path, diagnostics)
+		}
+	}
+}
+
+func TestContractSchemaPublishesDiagnosticCatalog(t *testing.T) {
 	var output strings.Builder
-	if err := runVNextSchema(&output, []string{vnext.DiagnosticCatalog, "-o", "json"}); err != nil {
+	if err := runContractSchema(&output, []string{graph.DiagnosticCatalog, "-o", "json"}); err != nil {
 		t.Fatal(err)
 	}
-	var envelope vnextEnvelope
-	if err := json.Unmarshal([]byte(output.String()), &envelope); err != nil {
+	envelope, err := machine.Decode[graph.Diagnostic]([]byte(output.String()), currentMachineSpecRevision())
+	if err != nil {
 		t.Fatal(err)
 	}
 	catalog, ok := envelope.Data.(map[string]any)
@@ -174,19 +195,19 @@ func TestVNextSchemaPublishesDiagnosticCatalog(t *testing.T) {
 	}
 }
 
-func TestVNextDiffConsumesRenameReceiptFile(t *testing.T) {
+func TestContractDiffConsumesRenameReceiptFile(t *testing.T) {
 	root := t.TempDir()
-	before := vnext.Resource{Address: "house/record/old", Kind: "scenery.record/v1", Module: "house", Name: "old", Spec: map[string]any{}}
+	before := graph.Resource{Address: "house/record/old", Kind: "scenery.record", Module: "house", Name: "old", Spec: map[string]any{}}
 	after := before
 	after.Address, after.Name = "house/record/new", "new"
-	base := &vnext.Manifest{APIVersion: vnext.ManifestVersion, ContractRevision: "sha256:base", Resources: []vnext.Resource{before}}
-	target := &vnext.Manifest{APIVersion: vnext.ManifestVersion, ContractRevision: "sha256:target", Resources: []vnext.Resource{after}}
-	receipt := vnext.RenameReceipt{From: before.Address, To: after.Address, BaseContractRevision: base.ContractRevision, TargetContractRevision: target.ContractRevision}
-	canonical, err := vnext.MarshalCanonical(receipt)
+	base := &graph.Manifest{Kind: graph.ManifestKind, SchemaRevision: graph.ManifestSchemaRevision, SpecRevision: string(spec.CurrentRevision()), ContractRevision: "sha256:base", Resources: []graph.Resource{before}}
+	target := &graph.Manifest{Kind: graph.ManifestKind, SchemaRevision: graph.ManifestSchemaRevision, SpecRevision: string(spec.CurrentRevision()), ContractRevision: "sha256:target", Resources: []graph.Resource{after}}
+	receipt := evolution.RenameReceipt{From: before.Address, To: after.Address, BaseContractRevision: base.ContractRevision, TargetContractRevision: target.ContractRevision}
+	canonical, err := spec.MarshalCanonical(receipt)
 	if err != nil {
 		t.Fatal(err)
 	}
-	digest := sha256.Sum256(append([]byte("scenery.rename-receipt.v1\x00"), canonical...))
+	digest := sha256.Sum256(append([]byte("scenery.rename-receipt\x00"), canonical...))
 	receipt.Digest = "sha256:" + hex.EncodeToString(digest[:])
 	writeJSON := func(name string, value any) string {
 		t.Helper()
@@ -202,40 +223,34 @@ func TestVNextDiffConsumesRenameReceiptFile(t *testing.T) {
 	}
 	basePath := writeJSON("base.json", base)
 	targetPath := writeJSON("target.json", target)
-	receiptPath := writeJSON("receipt.json", map[string]any{"rename_receipts": []vnext.RenameReceipt{receipt}})
+	receiptPath := writeJSON("receipt.json", map[string]any{"rename_receipts": []evolution.RenameReceipt{receipt}})
 	var output strings.Builder
-	if err := runVNextDiff(&output, []string{"--semantic", basePath, targetPath, "--rename-receipts", receiptPath, "-o", "json"}); err != nil {
+	if err := runContractDiff(&output, []string{"--semantic", basePath, targetPath, "--rename-receipts", receiptPath, "-o", "json"}); err != nil {
 		t.Fatal(err)
 	}
-	var envelope struct {
-		Data vnext.SemanticDiff `json:"data"`
-	}
-	if err := json.Unmarshal([]byte(output.String()), &envelope); err != nil || len(envelope.Data.Changes) != 1 || envelope.Data.Changes[0].Operation != "rename" {
+	var diff evolution.SemanticDiff
+	err = machine.DecodeData[graph.Diagnostic]([]byte(output.String()), currentMachineSpecRevision(), &diff)
+	if err != nil || len(diff.Changes) != 1 || diff.Changes[0].Operation != "rename" {
 		t.Fatalf("diff output = %s, %v", output.String(), err)
 	}
 }
 
-func TestVNextJSONFailureWritesExactlyOneStableEnvelope(t *testing.T) {
+func TestContractJSONFailureWritesExactlyOneStableEnvelope(t *testing.T) {
 	var output strings.Builder
-	err := renderVNextMachineError(&output, []string{"migrate", "activate", "missing", "-o", "json"}, errors.New("failed_precondition: candidate unavailable"))
+	err := renderMachineError(&output, []string{"migrate", "activate", "missing", "-o", "json"}, errors.New("failed_precondition: candidate unavailable"))
 	if err == nil || cliExitCode(err) != 3 {
 		t.Fatalf("render error = %v, code %d", err, cliExitCode(err))
 	}
-	decoder := json.NewDecoder(strings.NewReader(output.String()))
-	var envelope vnextEnvelope
-	if err := decoder.Decode(&envelope); err != nil {
-		t.Fatal(err)
+	envelope, decodeErr := machine.Decode[graph.Diagnostic]([]byte(output.String()), currentMachineSpecRevision())
+	if decodeErr != nil {
+		t.Fatal(decodeErr)
 	}
 	if envelope.OK || len(envelope.Diagnostics) != 1 || envelope.Diagnostics[0].Code != "SCN8003" {
 		t.Fatalf("failure envelope = %#v", envelope)
 	}
-	var extra any
-	if err := decoder.Decode(&extra); err == nil {
-		t.Fatalf("failure output contains more than one document: %q", output.String())
-	}
 }
 
-func TestVNextJSONFailureCodesMatchTransportErrorKinds(t *testing.T) {
+func TestContractJSONFailureCodesMatchTransportErrorKinds(t *testing.T) {
 	tests := []struct {
 		err        error
 		wantCode   string
@@ -250,12 +265,12 @@ func TestVNextJSONFailureCodesMatchTransportErrorKinds(t *testing.T) {
 	}
 	for _, test := range tests {
 		var output strings.Builder
-		err := renderVNextMachineError(&output, []string{"compile", "-o", "json"}, test.err)
+		err := renderMachineError(&output, []string{"compile", "-o", "json"}, test.err)
 		if err == nil {
-			t.Fatalf("renderVNextMachineError(%v) returned nil", test.err)
+			t.Fatalf("renderMachineError(%v) returned nil", test.err)
 		}
-		var envelope vnextEnvelope
-		if decodeErr := json.Unmarshal([]byte(output.String()), &envelope); decodeErr != nil {
+		envelope, decodeErr := machine.Decode[graph.Diagnostic]([]byte(output.String()), currentMachineSpecRevision())
+		if decodeErr != nil {
 			t.Fatal(decodeErr)
 		}
 		if len(envelope.Diagnostics) != 1 || envelope.Diagnostics[0].Code != test.wantCode {
@@ -271,9 +286,9 @@ func TestVNextJSONFailureCodesMatchTransportErrorKinds(t *testing.T) {
 	}
 }
 
-func TestVNextQuietSuppressesHumanOutput(t *testing.T) {
+func TestContractQuietSuppressesHumanOutput(t *testing.T) {
 	var output strings.Builder
-	if err := runVNextCompile(&output, []string{"--app-root", vnextFixtureRoot(t), "--quiet"}); err != nil {
+	if err := runContractCompile(&output, []string{"--app-root", contractFixtureRoot(t), "--quiet"}); err != nil {
 		t.Fatal(err)
 	}
 	if output.Len() != 0 {
@@ -281,13 +296,13 @@ func TestVNextQuietSuppressesHumanOutput(t *testing.T) {
 	}
 }
 
-func vnextFixtureRoot(t *testing.T) string {
+func contractFixtureRoot(t *testing.T) string {
 	t.Helper()
 	_, file, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("runtime.Caller failed")
 	}
-	return filepath.Join(filepath.Dir(file), "..", "..", "internal", "vnext", "testdata", "house")
+	return filepath.Join(filepath.Dir(file), "..", "..", "internal", "compiler", "testdata", "house")
 }
 
 func TestResolveAppRoot(t *testing.T) {

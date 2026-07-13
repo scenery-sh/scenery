@@ -76,8 +76,8 @@ func TestRunGenerateDryRunJSON(t *testing.T) {
 	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
 		t.Fatalf("decodeCLIJSON: %v\n%s", err, out.String())
 	}
-	if payload.SchemaVersion != "scenery.inspect.generators.v1" {
-		t.Fatalf("schema_version = %q", payload.SchemaVersion)
+	if payload.Kind != "scenery.inspect.generators" || payload.SchemaRevision != newCLIPayloadIdentity("scenery.inspect.generators").SchemaRevision {
+		t.Fatalf("identity = %q %q", payload.Kind, payload.SchemaRevision)
 	}
 	if len(payload.Generators) != 1 {
 		t.Fatalf("generators = %+v", payload.Generators)
@@ -370,7 +370,7 @@ func TestDBApplyRunsApplyWithoutSQLC(t *testing.T) {
 	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
 		t.Fatalf("decodeCLIJSON: %v\n%s", err, out.String())
 	}
-	if payload.SchemaVersion != "scenery.db.apply.result.v1" || payload.Apply.Status != "applied" {
+	if payload.Kind != "scenery.db.apply.result" || payload.SchemaRevision != newCLIPayloadIdentity("scenery.db.apply.result").SchemaRevision || payload.Apply.Status != "applied" {
 		t.Fatalf("payload = %+v", payload)
 	}
 }

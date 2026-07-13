@@ -1,0 +1,123 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.inspect.routes.schema.json",
+  "title": "scenery.inspect.routes",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "app",
+    "routes"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.inspect.routes"
+    },
+    "schema_revision": {
+      "const": "sha256:000c440270d6bfe7bde83bbba963e0a4614aa830b284c4fca8424e82c1ca5bd0"
+    },
+    "app": {
+      "$ref": "#/$defs/appRef"
+    },
+    "routes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "service",
+          "endpoint",
+          "package",
+          "file",
+          "access",
+          "raw",
+          "path",
+          "methods",
+          "has_payload"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "service": {
+            "type": "string"
+          },
+          "endpoint": {
+            "type": "string"
+          },
+          "package": {
+            "type": "string"
+          },
+          "file": {
+            "type": "string"
+          },
+          "access": {
+            "type": "string",
+            "enum": [
+              "public",
+              "auth",
+              "private"
+            ]
+          },
+          "raw": {
+            "type": "boolean"
+          },
+          "path": {
+            "type": "string"
+          },
+          "methods": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "receiver": {
+            "type": "string"
+          },
+          "generated": {
+            "type": "boolean"
+          },
+          "has_payload": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "appRef": {
+      "type": "object",
+      "required": [
+        "name",
+        "root",
+        "config_path"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "root": {
+          "type": "string"
+        },
+        "config_path": {
+          "type": "string"
+        },
+        "module_path": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

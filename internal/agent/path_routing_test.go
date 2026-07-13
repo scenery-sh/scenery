@@ -37,7 +37,7 @@ func TestPathRouteManifestForSession(t *testing.T) {
 	if got, want := session.RouteManifest.Routes[RouteAPI].URL, "http://localhost:4001/api/"; got != want {
 		t.Fatalf("api route = %q, want %q", got, want)
 	}
-	if got, want := session.RouteManifest.Routes[RouteDashboard].URL, "http://localhost:4001/consolenext/"; got != want {
+	if got, want := session.RouteManifest.Routes[RouteDashboard].URL, "http://localhost:4001/console/"; got != want {
 		t.Fatalf("dashboard route = %q, want %q", got, want)
 	}
 	if got, want := session.RouteManifest.Routes["ui"].StripPrefix, "/ui"; got != want {
@@ -200,7 +200,7 @@ func TestServerPathModeRoutesByTrustedSessionHeader(t *testing.T) {
 		t.Fatalf("health status=%d body=%q", status, body)
 	}
 	status, body, _ = request(http.MethodGet, PathModeRuntimePrefix+"/routes", "", true)
-	if status != http.StatusOK || !strings.Contains(body, `"schema_version":"scenery.local.routes.v1"`) || !strings.Contains(body, `"ui"`) {
+	if status != http.StatusOK || !strings.Contains(body, `"kind":"scenery.local.routes"`) || !strings.Contains(body, `"schema_revision":"sha256:`) || !strings.Contains(body, `"ui"`) {
 		t.Fatalf("routes status=%d body=%q", status, body)
 	}
 	status, body, _ = request(http.MethodGet, "/api/v1/users", "", true)

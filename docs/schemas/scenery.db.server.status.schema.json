@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.db.server.status.schema.json",
+  "title": "scenery db server status",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "ok",
+    "container",
+    "status"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.db.server.status"
+    },
+    "schema_revision": {
+      "const": "sha256:120bed92b10ab3cd646f455e7f1492d9c7b2b0cf081a32c7b37e859504171621"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "container": {
+      "type": "string"
+    },
+    "image": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string"
+    },
+    "port": {
+      "type": "integer"
+    },
+    "url": {
+      "type": "string"
+    },
+    "state_path": {
+      "type": "string"
+    },
+    "databases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "leases": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object"
+      }
+    }
+  },
+  "additionalProperties": false
+}

@@ -18,12 +18,12 @@ import (
 )
 
 const (
-	validationInspectSchema       = "scenery.inspect.validation.v1"
-	validationListSchema          = "scenery.validation.list.v1"
-	validationInspectDetailSchema = "scenery.validation.inspect.v1"
-	validationGraphSchema         = "scenery.validation.graph.v1"
-	validationPlanSchema          = "scenery.validation.plan.v1"
-	validationResultSchema        = "scenery.validation.result.v1"
+	validationInspectKind       = "scenery.inspect.validation"
+	validationListKind          = "scenery.validation.list"
+	validationInspectDetailKind = "scenery.validation.inspect"
+	validationGraphKind         = "scenery.validation.graph"
+	validationPlanKind          = "scenery.validation.plan"
+	validationResultKind        = "scenery.validation.result"
 )
 
 type validateOptions struct {
@@ -49,38 +49,38 @@ type validationProfileRecord struct {
 }
 
 type inspectValidationResponse struct {
-	SchemaVersion string                    `json:"schema_version"`
-	App           inspectdata.AppRef        `json:"app"`
-	Default       string                    `json:"default,omitempty"`
-	Profiles      []validationProfileRecord `json:"profiles"`
-	Diagnostics   []checkDiagnostic         `json:"diagnostics"`
+	cliPayloadIdentity
+	App         inspectdata.AppRef        `json:"app"`
+	Default     string                    `json:"default,omitempty"`
+	Profiles    []validationProfileRecord `json:"profiles"`
+	Diagnostics []checkDiagnostic         `json:"diagnostics"`
 }
 
 type validationListResponse struct {
-	SchemaVersion string                    `json:"schema_version"`
-	App           inspectdata.AppRef        `json:"app"`
-	Default       string                    `json:"default,omitempty"`
-	Profiles      []validationProfileRecord `json:"profiles"`
-	Diagnostics   []checkDiagnostic         `json:"diagnostics,omitempty"`
+	cliPayloadIdentity
+	App         inspectdata.AppRef        `json:"app"`
+	Default     string                    `json:"default,omitempty"`
+	Profiles    []validationProfileRecord `json:"profiles"`
+	Diagnostics []checkDiagnostic         `json:"diagnostics,omitempty"`
 }
 
 type validationInspectResponse struct {
-	SchemaVersion string                  `json:"schema_version"`
-	App           inspectdata.AppRef      `json:"app"`
-	Profile       validationProfileRecord `json:"profile"`
-	Resolved      []validationPlanStep    `json:"resolved_steps"`
-	Tasks         []taskListRecord        `json:"tasks,omitempty"`
-	Diagnostics   []checkDiagnostic       `json:"diagnostics,omitempty"`
-	Source        string                  `json:"source"`
+	cliPayloadIdentity
+	App         inspectdata.AppRef      `json:"app"`
+	Profile     validationProfileRecord `json:"profile"`
+	Resolved    []validationPlanStep    `json:"resolved_steps"`
+	Tasks       []taskListRecord        `json:"tasks,omitempty"`
+	Diagnostics []checkDiagnostic       `json:"diagnostics,omitempty"`
+	Source      string                  `json:"source"`
 }
 
 type validationGraphResponse struct {
-	SchemaVersion string                `json:"schema_version"`
-	App           inspectdata.AppRef    `json:"app"`
-	Profile       string                `json:"profile"`
-	Nodes         []validationGraphNode `json:"nodes"`
-	Edges         []validationGraphEdge `json:"edges"`
-	Diagnostics   []checkDiagnostic     `json:"diagnostics,omitempty"`
+	cliPayloadIdentity
+	App         inspectdata.AppRef    `json:"app"`
+	Profile     string                `json:"profile"`
+	Nodes       []validationGraphNode `json:"nodes"`
+	Edges       []validationGraphEdge `json:"edges"`
+	Diagnostics []checkDiagnostic     `json:"diagnostics,omitempty"`
 }
 
 type validationGraphNode struct {
@@ -97,13 +97,13 @@ type validationGraphEdge struct {
 }
 
 type validationPlanResponse struct {
-	SchemaVersion string               `json:"schema_version"`
-	OK            bool                 `json:"ok"`
-	App           inspectdata.AppRef   `json:"app"`
-	Profile       string               `json:"profile"`
-	Selection     validationSelection  `json:"selection"`
-	Steps         []validationPlanStep `json:"steps"`
-	Diagnostics   []checkDiagnostic    `json:"diagnostics,omitempty"`
+	cliPayloadIdentity
+	OK          bool                 `json:"ok"`
+	App         inspectdata.AppRef   `json:"app"`
+	Profile     string               `json:"profile"`
+	Selection   validationSelection  `json:"selection"`
+	Steps       []validationPlanStep `json:"steps"`
+	Diagnostics []checkDiagnostic    `json:"diagnostics,omitempty"`
 }
 
 type validationSelection struct {
@@ -133,17 +133,17 @@ type validationPlanStep struct {
 }
 
 type validationResultResponse struct {
-	SchemaVersion string                 `json:"schema_version"`
-	OK            bool                   `json:"ok"`
-	GeneratedAt   string                 `json:"generated_at"`
-	App           inspectdata.AppRef     `json:"app"`
-	Profile       string                 `json:"profile"`
-	Selection     validationSelection    `json:"selection"`
-	Steps         []validationResultStep `json:"steps"`
-	Artifacts     []validationArtifact   `json:"artifacts,omitempty"`
-	Diagnostics   []checkDiagnostic      `json:"diagnostics,omitempty"`
-	NextActions   []string               `json:"next_actions,omitempty"`
-	Wrote         string                 `json:"wrote,omitempty"`
+	cliPayloadIdentity
+	OK          bool                   `json:"ok"`
+	GeneratedAt string                 `json:"generated_at"`
+	App         inspectdata.AppRef     `json:"app"`
+	Profile     string                 `json:"profile"`
+	Selection   validationSelection    `json:"selection"`
+	Steps       []validationResultStep `json:"steps"`
+	Artifacts   []validationArtifact   `json:"artifacts,omitempty"`
+	Diagnostics []checkDiagnostic      `json:"diagnostics,omitempty"`
+	NextActions []string               `json:"next_actions,omitempty"`
+	Wrote       string                 `json:"wrote,omitempty"`
 }
 
 type validationResultStep struct {
@@ -274,13 +274,13 @@ func runSceneryValidate(ctx context.Context, stdout io.Writer, args []string) er
 		}
 		if opts.DryRun {
 			resp := validationPlanResponse{
-				SchemaVersion: validationPlanSchema,
-				OK:            len(plan.Diagnostics) == 0,
-				App:           plan.App,
-				Profile:       plan.Profile,
-				Selection:     plan.Selection,
-				Steps:         plan.Steps,
-				Diagnostics:   plan.Diagnostics,
+				cliPayloadIdentity: newCLIPayloadIdentity(validationPlanKind),
+				OK:                 len(plan.Diagnostics) == 0,
+				App:                plan.App,
+				Profile:            plan.Profile,
+				Selection:          plan.Selection,
+				Steps:              plan.Steps,
+				Diagnostics:        plan.Diagnostics,
 			}
 			if opts.JSON {
 				return writeInspectJSON(stdout, resp)
@@ -371,21 +371,21 @@ func parseValidateArgs(args []string) (validateOptions, error) {
 
 func buildInspectValidationResponse(appRoot string, cfg appcfg.Config) inspectValidationResponse {
 	return inspectValidationResponse{
-		SchemaVersion: validationInspectSchema,
-		App:           taskAppRef(appRoot, cfg),
-		Default:       cfg.Validation.Default,
-		Profiles:      validationProfileRecords(cfg),
-		Diagnostics:   nonNilValidationDiagnostics(validateValidationConfig(appRoot, cfg)),
+		cliPayloadIdentity: newCLIPayloadIdentity(validationInspectKind),
+		App:                taskAppRef(appRoot, cfg),
+		Default:            cfg.Validation.Default,
+		Profiles:           validationProfileRecords(cfg),
+		Diagnostics:        nonNilValidationDiagnostics(validateValidationConfig(appRoot, cfg)),
 	}
 }
 
 func buildValidationListResponse(appRoot string, cfg appcfg.Config) validationListResponse {
 	return validationListResponse{
-		SchemaVersion: validationListSchema,
-		App:           taskAppRef(appRoot, cfg),
-		Default:       cfg.Validation.Default,
-		Profiles:      validationProfileRecords(cfg),
-		Diagnostics:   validateValidationConfig(appRoot, cfg),
+		cliPayloadIdentity: newCLIPayloadIdentity(validationListKind),
+		App:                taskAppRef(appRoot, cfg),
+		Default:            cfg.Validation.Default,
+		Profiles:           validationProfileRecords(cfg),
+		Diagnostics:        validateValidationConfig(appRoot, cfg),
 	}
 }
 
@@ -398,13 +398,13 @@ func buildValidationInspectResponse(appRoot string, cfg appcfg.Config, profile s
 	plan, _ := buildValidationNamedPlan(appRoot, cfg, profile, validationSelection{Mode: "explicit", Requested: []string{profile}})
 	tasks := referencedValidationTasks(appRoot, cfg, plan.Steps)
 	return validationInspectResponse{
-		SchemaVersion: validationInspectDetailSchema,
-		App:           taskAppRef(appRoot, cfg),
-		Profile:       rec,
-		Resolved:      plan.Steps,
-		Tasks:         tasks,
-		Diagnostics:   plan.Diagnostics,
-		Source:        cfg.SourcePath(appRoot),
+		cliPayloadIdentity: newCLIPayloadIdentity(validationInspectDetailKind),
+		App:                taskAppRef(appRoot, cfg),
+		Profile:            rec,
+		Resolved:           plan.Steps,
+		Tasks:              tasks,
+		Diagnostics:        plan.Diagnostics,
+		Source:             cfg.SourcePath(appRoot),
 	}, nil
 }
 
@@ -414,11 +414,11 @@ func buildValidationGraphResponse(appRoot string, cfg appcfg.Config, profile str
 		return validationGraphResponse{}, fmt.Errorf("validation profile %q is not configured", profile)
 	}
 	resp := validationGraphResponse{
-		SchemaVersion: validationGraphSchema,
-		App:           taskAppRef(appRoot, cfg),
-		Profile:       profile,
-		Nodes:         []validationGraphNode{},
-		Edges:         []validationGraphEdge{},
+		cliPayloadIdentity: newCLIPayloadIdentity(validationGraphKind),
+		App:                taskAppRef(appRoot, cfg),
+		Profile:            profile,
+		Nodes:              []validationGraphNode{},
+		Edges:              []validationGraphEdge{},
 	}
 	seen := map[string]bool{}
 	configRel := cfg.SourceRelPath(appRoot)
@@ -815,14 +815,14 @@ func referencedValidationTasks(appRoot string, cfg appcfg.Config, steps []valida
 
 func executeValidationPlan(ctx context.Context, appRoot string, cfg appcfg.Config, plan validationResolvedPlan, opts validateOptions) validationResultResponse {
 	result := validationResultResponse{
-		SchemaVersion: validationResultSchema,
-		OK:            len(plan.Diagnostics) == 0,
-		GeneratedAt:   time.Now().UTC().Format(time.RFC3339Nano),
-		App:           plan.App,
-		Profile:       plan.Profile,
-		Selection:     plan.Selection,
-		Diagnostics:   append([]checkDiagnostic(nil), plan.Diagnostics...),
-		Steps:         []validationResultStep{},
+		cliPayloadIdentity: newCLIPayloadIdentity(validationResultKind),
+		OK:                 len(plan.Diagnostics) == 0,
+		GeneratedAt:        time.Now().UTC().Format(time.RFC3339Nano),
+		App:                plan.App,
+		Profile:            plan.Profile,
+		Selection:          plan.Selection,
+		Diagnostics:        append([]checkDiagnostic(nil), plan.Diagnostics...),
+		Steps:              []validationResultStep{},
 	}
 	artifactCtx := newValidationArtifactContext(appRoot, opts.Write)
 	if len(plan.Diagnostics) > 0 {

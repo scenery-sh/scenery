@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.deployment-plan.schema.json",
+  "title": "Scenery deployment plan",
+  "type": "object",
+  "required": ["kind", "schema_revision", "spec_revision", "producer", "plan_id", "application", "deployment", "deployment_name", "environment", "base_workspace_revision", "contract_revision", "implementation_revision", "deployment_revision", "projection", "provider_plans", "caller", "capabilities", "required_approvals", "risk_records", "expires_at"],
+  "properties": {
+    "kind": { "const": "scenery.deployment-plan" },
+    "schema_revision": { "$ref": "#/$defs/revision" },
+    "spec_revision": { "$ref": "#/$defs/revision" },
+    "producer": { "type": "object" },
+    "plan_id": { "$ref": "#/$defs/revision" },
+    "application": { "type": "string", "minLength": 1 },
+    "deployment": { "type": "string", "minLength": 1 },
+    "deployment_name": { "type": "string", "minLength": 1 },
+    "environment": { "type": "string", "minLength": 1 },
+    "base_workspace_revision": { "$ref": "#/$defs/revision" },
+    "contract_revision": { "$ref": "#/$defs/revision" },
+    "implementation_revision": { "$ref": "#/$defs/revision_map" },
+    "deployment_revision": { "$ref": "#/$defs/revision" },
+    "projection": { "$ref": "#/$defs/projection" },
+    "provider_plans": { "type": "array", "items": { "$ref": "#/$defs/provider_plan" } },
+    "caller": { "type": "string", "minLength": 1 },
+    "capabilities": { "$ref": "#/$defs/string_list" },
+    "required_approvals": { "$ref": "#/$defs/string_list" },
+    "risk_records": { "type": "array", "items": { "type": "object" } },
+    "expires_at": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "revision": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "revision_map": { "type": "object", "minProperties": 1, "additionalProperties": { "$ref": "#/$defs/revision" } },
+    "string_list": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+    "projection": {
+      "type": "object", "required": ["kind", "schema_revision", "spec_revision", "producer", "deployment", "environment", "contract_revision", "resources"],
+      "properties": { "kind": { "const": "scenery.deployment-projection" }, "schema_revision": { "$ref": "#/$defs/revision" }, "spec_revision": { "$ref": "#/$defs/revision" }, "producer": { "type": "object" }, "deployment": { "type": "string" }, "environment": { "type": "string" }, "contract_revision": { "$ref": "#/$defs/revision" }, "resources": { "type": "object", "additionalProperties": { "type": "object" } } },
+      "additionalProperties": false
+    },
+    "provider_plan": {
+      "type": "object", "required": ["kind", "schema_revision", "spec_revision", "producer", "provider_address", "provider_source", "provider_abi", "instances", "actions", "requires_apply", "digest"],
+      "properties": { "kind": { "const": "scenery.provider-deployment-plan" }, "schema_revision": { "$ref": "#/$defs/revision" }, "spec_revision": { "$ref": "#/$defs/revision" }, "producer": { "type": "object" }, "provider_address": { "type": "string" }, "provider_source": { "type": "string" }, "provider_abi": { "type": "string" }, "instances": { "$ref": "#/$defs/string_list" }, "actions": { "type": "array", "items": { "type": "object" } }, "opaque": {}, "requires_apply": { "type": "boolean" }, "digest": { "$ref": "#/$defs/revision" } },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

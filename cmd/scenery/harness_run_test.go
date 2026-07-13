@@ -29,7 +29,7 @@ func TestRunSceneryHarnessJSONSuccessWritesLatest(t *testing.T) {
 	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
 		t.Fatalf("decodeCLIJSON: %v\n%s", err, out.String())
 	}
-	if payload.SchemaVersion != "scenery.harness.result.v1" || !payload.OK {
+	if payload.Kind != "scenery.harness.result" || payload.SchemaRevision != newCLIPayloadIdentity("scenery.harness.result").SchemaRevision || !payload.OK {
 		t.Fatalf("payload = %+v", payload)
 	}
 	if payload.App.Name != "harnessapp" || payload.App.ModulePath != "example.com/harnessapp" {
@@ -59,7 +59,7 @@ func TestRunSceneryHarnessJSONSuccessWritesLatest(t *testing.T) {
 	if err := decodeCLIJSON(inspectOut.Bytes(), &inspectPayload); err != nil {
 		t.Fatalf("decode inspect harness: %v\n%s", err, inspectOut.String())
 	}
-	if inspectPayload.SchemaVersion != inspectHarnessSchema || len(inspectPayload.Evidence) == 0 {
+	if inspectPayload.Kind != inspectHarnessKind || inspectPayload.SchemaRevision != newCLIPayloadIdentity(inspectHarnessKind).SchemaRevision || len(inspectPayload.Evidence) == 0 {
 		t.Fatalf("inspect harness payload = %+v", inspectPayload)
 	}
 }
@@ -161,10 +161,10 @@ func TestHarnessSelfSummaryStaysSmallAndOmitsArchiveFields(t *testing.T) {
 
 	root := t.TempDir()
 	resp := harnessSelfResponse{
-		SchemaVersion: "scenery.harness.self.v1",
-		OK:            true,
-		GeneratedAt:   "2026-06-08T00:00:00Z",
-		Mode:          harnessSelfModeDefault,
+		cliPayloadIdentity: newCLIPayloadIdentity("scenery.harness.self"),
+		OK:                 true,
+		GeneratedAt:        "2026-06-08T00:00:00Z",
+		Mode:               harnessSelfModeDefault,
 		Repo: harnessSelfRepo{
 			Root:       root,
 			ModulePath: "scenery.sh",
@@ -172,15 +172,15 @@ func TestHarnessSelfSummaryStaysSmallAndOmitsArchiveFields(t *testing.T) {
 		},
 		Knowledge: harnessKnowledge{
 			Entrypoints: []harnessKnowledgeFile{{Path: "AGENTS.md", Exists: true}},
-			Schemas:     []harnessKnowledgeFile{{Path: "docs/schemas/scenery.harness.self.v1.schema.json", Exists: true}},
+			Schemas:     []harnessKnowledgeFile{{Path: "docs/schemas/scenery.harness.self.schema.json", Exists: true}},
 		},
 		ChangedArea: &harnessChangedAreaReport{
-			SchemaVersion:       harnessChangedAreaSchema,
+			cliPayloadIdentity:  newCLIPayloadIdentity(harnessChangedAreaKind),
 			IgnoredFiles:        []harnessChangedFile{{Path: ".scenery/harness/self-latest.json", Status: "untracked", Category: "local-artifact"}},
 			RecommendedCommands: []string{},
 		},
 		Drift: &harnessDriftReport{
-			SchemaVersion: harnessDriftSchema,
+			cliPayloadIdentity: newCLIPayloadIdentity(harnessDriftKind),
 			Env: harnessEnvVarReport{Variables: []harnessEnvVarFinding{
 				{Name: "SCENERY_ALPHA"}, {Name: "SCENERY_BETA"},
 			}},
@@ -188,10 +188,10 @@ func TestHarnessSelfSummaryStaysSmallAndOmitsArchiveFields(t *testing.T) {
 			Embeds: harnessEmbedReport{Embeds: []harnessEmbedFinding{{File: "cmd/scenery/main.go"}}},
 		},
 		TestTiming: &harnessTestTimingReport{
-			SchemaVersion: harnessTestTimingSchema,
-			Command:       harnessSelfGoTestCommand(),
-			TotalSeconds:  8,
-			Budgets:       defaultHarnessTestTimingBudgets(),
+			cliPayloadIdentity: newCLIPayloadIdentity(harnessTestTimingKind),
+			Command:            harnessSelfGoTestCommand(),
+			TotalSeconds:       8,
+			Budgets:            defaultHarnessTestTimingBudgets(),
 		},
 		Steps: []harnessStep{{
 			Name:       "go tests",
@@ -199,10 +199,10 @@ func TestHarnessSelfSummaryStaysSmallAndOmitsArchiveFields(t *testing.T) {
 			OK:         true,
 			DurationMS: 8000,
 			Evidence: &harnessEvidence{
-				SchemaVersion: harnessArtifactEvidenceSchema,
-				DurationMS:    8000,
-				StdoutTail:    strings.Repeat("pass\n", 1000),
-				StderrTail:    strings.Repeat("warn\n", 1000),
+				cliPayloadIdentity: newCLIPayloadIdentity(harnessArtifactEvidenceKind),
+				DurationMS:         8000,
+				StdoutTail:         strings.Repeat("pass\n", 1000),
+				StderrTail:         strings.Repeat("warn\n", 1000),
 			},
 		}, {
 			Name: "architecture checks",
@@ -217,7 +217,7 @@ func TestHarnessSelfSummaryStaysSmallAndOmitsArchiveFields(t *testing.T) {
 				Message:  "file has 1001 lines, over warning threshold 1000",
 			}},
 		}},
-		Artifacts: []harnessArtifact{{Name: "self-harness", Path: ".scenery/harness/self-latest.json", SchemaVersion: "scenery.harness.self.v1", Exists: true}},
+		Artifacts: []harnessArtifact{newHarnessArtifact("self-harness", ".scenery/harness/self-latest.json", "scenery.harness.self", true)},
 	}
 	for i := 0; i < 20; i++ {
 		resp.TestTiming.Packages = append(resp.TestTiming.Packages, harnessPackageTiming{Package: fmt.Sprintf("example.com/pkg%d", i), Seconds: float64(20 - i)})
@@ -283,7 +283,7 @@ func TestHarnessLocalArtifactIgnoreDoesNotHideSchemas(t *testing.T) {
 	if !isIgnoredHarnessLocalArtifact(".claude/worktrees/example/docs/plans/0061-env-harness.md") {
 		t.Fatal("local Claude worktree artifacts should be ignored")
 	}
-	if isIgnoredHarnessLocalArtifact("docs/schemas/scenery.harness.self.v1.schema.json") {
+	if isIgnoredHarnessLocalArtifact("docs/schemas/scenery.harness.self.schema.json") {
 		t.Fatal("schema source files must remain in changed-area analysis")
 	}
 }
@@ -292,7 +292,13 @@ func TestProbeHarnessToolParsesSceneryVersionJSON(t *testing.T) {
 
 	dir := t.TempDir()
 	path := filepath.Join(dir, "scenery")
-	script := "#!/bin/sh\nprintf '%s\\n' '{\"api_version\":\"scenery.cli.v1\",\"diagnostic_catalog\":\"scenery.diagnostics.2027.v1\",\"ok\":true,\"workspace_revision\":null,\"contract_revision\":null,\"implementation_revision\":null,\"deployment_revision\":null,\"data\":{\"schema_version\":\"scenery.version.v1\",\"version\":\"v1.2.3\",\"commit\":\"abc\",\"built_at\":\"2026-06-08T00:00:00Z\",\"go_version\":\"go1.26.3\"},\"diagnostics\":[]}'\n"
+	versionIdentity := newCLIPayloadIdentity("scenery.version")
+	envelope := newCLIEnvelope(true, map[string]any{"kind": versionIdentity.Kind, "schema_revision": versionIdentity.SchemaRevision, "version": "v1.2.3", "commit": "abc", "built_at": "2026-06-08T00:00:00Z", "go_version": "go1.26.3"}, nil)
+	encoded, err := json.Marshal(envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' %q\n", string(encoded))
 	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -308,12 +314,12 @@ func TestInspectHarnessFocusedCommands(t *testing.T) {
 
 	root := writeHarnessSelfRepo(t, `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object"}`)
 	self := harnessSelfResponse{
-		SchemaVersion: "scenery.harness.self.v1",
-		OK:            true,
-		GeneratedAt:   "2026-06-08T00:00:00Z",
-		Mode:          harnessSelfModeDefault,
-		Repo:          harnessSelfRepo{Root: root, ModulePath: "scenery.sh", GoModPath: filepath.Join(root, "go.mod")},
-		Knowledge:     buildHarnessSelfKnowledge(root),
+		cliPayloadIdentity: newCLIPayloadIdentity("scenery.harness.self"),
+		OK:                 true,
+		GeneratedAt:        "2026-06-08T00:00:00Z",
+		Mode:               harnessSelfModeDefault,
+		Repo:               harnessSelfRepo{Root: root, ModulePath: "scenery.sh", GoModPath: filepath.Join(root, "go.mod")},
+		Knowledge:          buildHarnessSelfKnowledge(root),
 		Steps: []harnessStep{{
 			Name: "go tests",
 			OK:   true,
@@ -329,12 +335,12 @@ func TestInspectHarnessFocusedCommands(t *testing.T) {
 		t.Fatal(err)
 	}
 	timing := harnessTestTimingReport{
-		SchemaVersion: harnessTestTimingSchema,
-		Command:       harnessSelfGoTestCommand(),
-		TotalSeconds:  8,
-		Budgets:       defaultHarnessTestTimingBudgets(),
-		Packages:      []harnessPackageTiming{{Package: "example.com/slow", Seconds: 3}},
-		SlowTests:     []harnessTestTiming{{Name: "TestSlow", Package: "example.com/slow", Seconds: 1}},
+		cliPayloadIdentity: newCLIPayloadIdentity(harnessTestTimingKind),
+		Command:            harnessSelfGoTestCommand(),
+		TotalSeconds:       8,
+		Budgets:            defaultHarnessTestTimingBudgets(),
+		Packages:           []harnessPackageTiming{{Package: "example.com/slow", Seconds: 3}},
+		SlowTests:          []harnessTestTiming{{Name: "TestSlow", Package: "example.com/slow", Seconds: 1}},
 	}
 	if err := writeHarnessJSONFile(filepath.Join(root, ".scenery", "harness", "test-timing-latest.json"), timing); err != nil {
 		t.Fatal(err)

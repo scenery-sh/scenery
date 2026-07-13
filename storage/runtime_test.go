@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -16,13 +17,11 @@ import (
 
 func TestDefaultUsesRuntimeConfigEnv(t *testing.T) {
 	root := t.TempDir()
-	t.Setenv(storageconfig.RuntimeConfigEnv, `{
-		"schema_version": "`+storageconfig.RuntimeSchemaVersion+`",
-		"default": "app",
-		"stores": {
-			"app": {"kind": "local", "root": `+quoteJSON(filepath.Join(root, "app"))+`}
-		}
-	}`)
+	raw, err := json.Marshal(storageconfig.RuntimeConfig{ArtifactIdentity: storageconfig.NewRuntimeIdentity(), Default: "app", Stores: map[string]storageconfig.RuntimeStoreConfig{"app": {Kind: "local", Root: filepath.Join(root, "app")}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(storageconfig.RuntimeConfigEnv, string(raw))
 	store, err := Default(context.Background())
 	if err != nil {
 		t.Fatalf("Default returned error: %v", err)

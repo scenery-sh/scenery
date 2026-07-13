@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.run.event.schema.json",
+  "title": "scenery.run.event",
+  "description": "Event payload schema emitted under `scenery.cli.event` by `scenery up -o jsonl`.",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "type",
+    "time"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.run.event"
+    },
+    "schema_revision": {
+      "const": "sha256:acd3c69b8de91403ea35c71807d38e492bfb4a1cf23242be9a4475b10c178c6a"
+    },
+    "type": {
+      "type": "string"
+    },
+    "time": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "app": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "root": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "data": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": false
+}

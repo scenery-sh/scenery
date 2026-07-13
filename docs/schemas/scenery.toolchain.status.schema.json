@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.toolchain.status.schema.json",
+  "title": "scenery toolchain status",
+  "type": "object",
+  "required": ["kind", "schema_revision", "manifest_sha256", "store_dir", "platform", "source_locks", "artifacts"],
+  "additionalProperties": false,
+  "properties": {
+    "kind": { "const": "scenery.toolchain.status" },
+    "schema_revision": { "const": "sha256:016d9a4dcfe775dd3847bd0ff320dd889d7945e9df22b8774a1d42b210c3f0f0" },
+    "manifest_sha256": { "type": "string", "pattern": "^[A-Fa-f0-9]{64}$" },
+    "store_dir": { "type": "string", "minLength": 1 },
+    "platform": { "type": "string", "minLength": 1 },
+    "source_locks": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/source_lock_status" }
+    },
+    "artifacts": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/artifact_status" }
+    }
+  },
+  "$defs": {
+    "source_lock_status": {
+      "type": "object",
+      "required": ["name", "kind", "manifest", "status"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "kind": { "type": "string" },
+        "manager": { "type": "string" },
+        "manifest": { "type": "string" },
+        "lock": { "type": "string" },
+        "status": { "type": "string" }
+      }
+    },
+    "artifact_status": {
+      "type": "object",
+      "required": ["name", "kind", "version", "status"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "kind": { "type": "string" },
+        "version": { "type": "string" },
+        "status": { "type": "string" },
+        "source": { "type": "string" },
+        "managed_path": { "type": "string" },
+        "home_path": { "type": "string" },
+        "message": { "type": "string" },
+        "images": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      }
+    }
+  }
+}

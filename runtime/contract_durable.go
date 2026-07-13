@@ -38,7 +38,7 @@ func ContractDurableFailureOutcome(err error) string {
 }
 
 // ContractDurableRegistration is the exact runtime projection of one
-// scenery.execution/v1 durable execution.
+// scenery.execution durable execution.
 type ContractDurableRegistration struct {
 	Address                string
 	ExternalName           string

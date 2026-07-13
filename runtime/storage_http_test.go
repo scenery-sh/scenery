@@ -343,17 +343,12 @@ func storageHTTPTestConfig(root, access string) string {
 }
 
 func storageHTTPTestConfigWithTenantScoped(root, access string, tenantScoped bool) string {
-	raw, err := json.Marshal(map[string]any{
-		"schema_version": storageconfig.RuntimeSchemaVersion,
-		"cell_id":        "test-cell",
-		"default":        "app",
-		"stores": map[string]any{
-			"app": map[string]any{
-				"kind":          "local",
-				"root":          filepath.Join(root, "app"),
-				"access":        access,
-				"tenant_scoped": tenantScoped,
-			},
+	raw, err := json.Marshal(storageconfig.RuntimeConfig{
+		ArtifactIdentity: storageconfig.NewRuntimeIdentity(),
+		CellID:           "test-cell",
+		Default:          "app",
+		Stores: map[string]storageconfig.RuntimeStoreConfig{
+			"app": {Kind: "local", Root: filepath.Join(root, "app"), Access: access, TenantScoped: tenantScoped},
 		},
 	})
 	if err != nil {

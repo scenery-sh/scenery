@@ -113,11 +113,11 @@ scenery inspect harness timing --top 10 -o json
 
 JSON output conforms to:
 
-- [scenery.harness.result.v1.schema.json](schemas/scenery.harness.result.v1.schema.json)
-- [scenery.harness.artifact.v1.schema.json](schemas/scenery.harness.artifact.v1.schema.json)
-- [scenery.inspect.harness.v1.schema.json](schemas/scenery.inspect.harness.v1.schema.json)
-- [scenery.harness.ui.v1.schema.json](schemas/scenery.harness.ui.v1.schema.json)
-- [scenery.harness.ui.dom.v1.schema.json](schemas/scenery.harness.ui.dom.v1.schema.json)
+- [scenery.harness.result.schema.json](schemas/scenery.harness.result.schema.json)
+- [scenery.harness.artifact.schema.json](schemas/scenery.harness.artifact.schema.json)
+- [scenery.inspect.harness.schema.json](schemas/scenery.inspect.harness.schema.json)
+- [scenery.harness.ui.schema.json](schemas/scenery.harness.ui.schema.json)
+- [scenery.harness.ui.dom.schema.json](schemas/scenery.harness.ui.dom.schema.json)
 
 When `--write` is present, scenery writes:
 
@@ -162,7 +162,7 @@ risk classification across runtime, CLI contract, dashboard, schema, release,
 and ONLV-impacting changes.
 
 For the scenery repo itself, `scenery harness self --summary --write` prints the
-compact `scenery.harness.self.summary.v1` decision packet and writes:
+compact `scenery.harness.self.summary` decision packet and writes:
 
 ```text
 <repo-root>/.scenery/harness/self-latest.json
@@ -170,7 +170,7 @@ compact `scenery.harness.self.summary.v1` decision packet and writes:
 ```
 
 Use `scenery harness self -o json --write` only when stdout must contain the
-full `scenery.harness.self.v1` archive. Agents should prefer artifacts and focused
+full `scenery.harness.self` archive. Agents should prefer artifacts and focused
 inspect commands over pasting `.scenery/harness/self-latest.json` into chat.
 
 The self harness validates the local scenery development loop:

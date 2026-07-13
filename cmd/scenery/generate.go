@@ -35,10 +35,10 @@ type generatorExecutionPlan struct {
 }
 
 type generatorGraphResponse struct {
-	SchemaVersion string                   `json:"schema_version"`
-	App           inspectdata.AppRef       `json:"app"`
-	Generators    []generatorRecord        `json:"generators"`
-	DBArtifacts   []databaseArtifactRecord `json:"db_artifacts"`
+	cliPayloadIdentity
+	App         inspectdata.AppRef       `json:"app"`
+	Generators  []generatorRecord        `json:"generators"`
+	DBArtifacts []databaseArtifactRecord `json:"db_artifacts"`
 }
 
 type generatorRecord struct {
@@ -252,7 +252,7 @@ func buildInspectGeneratorsResponse(appRoot string, cfg appcfg.Config) (generato
 
 func baseGeneratorGraph(appRoot string, cfg appcfg.Config, hasApp bool) generatorGraphResponse {
 	graph := generatorGraphResponse{
-		SchemaVersion: "scenery.inspect.generators.v1",
+		cliPayloadIdentity: newCLIPayloadIdentity("scenery.inspect.generators"),
 		App: inspectdata.AppRef{
 			Name:       cfg.Name,
 			ID:         cfg.ID,

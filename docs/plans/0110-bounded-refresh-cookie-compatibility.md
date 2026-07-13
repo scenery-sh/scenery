@@ -21,7 +21,7 @@ read and clear behavior before the release following the corrective release.
 - [x] 2026-07-13 - Add focused cookie behavior, repeated-header transport, and removed-config rejection coverage.
 - [x] 2026-07-13 - Synchronize the local contract, migration runbook, environment reference/registry, active historical plan notes, completed-plan correction, and knowledge indexes.
 - [x] 2026-07-13 - Run formatting, focused and full Go tests, vet, docs inspection, live HTTP verification, and self-harness.
-- [ ] Follow-up release - Remove `onlv_refresh` request selection, logout clearing, tests, and transition documentation before the release after the corrective release.
+- [x] 2026-07-13 - Plan 0111 superseded the waiting window as an intentional flag day; removed `onlv_refresh` request selection, logout clearing, focused compatibility tests, and current transition documentation. Existing legacy-only browser sessions must log in again.
 
 ## Surprises & Discoveries
 
@@ -45,12 +45,13 @@ read and clear behavior before the release following the corrective release.
 - Decision: The removal release may not ship until 30 days after publication of the corrective release; record the publication date here when known.
   Rationale: The session TTL is 30 days, so a relative "next release" condition alone could retire compatibility too early.
   Date/Author: 2026-07-13 / approved implementation plan and Claude.
+- Decision: Plan 0111 supersedes the 30-day waiting condition and removes the compatibility path immediately as a coordinated flag day.
+  Rationale: Scenery now keeps one current auth contract without runtime compatibility; invalidating browser sessions that only carry the former cookie is an explicit product consequence.
+  Date/Author: 2026-07-13 / user and Codex.
 
 ## Outcomes & Retrospective
 
-The corrective implementation is complete and validated. Existing sessions under the former fixed `onlv_refresh` name can refresh into the canonical `scenery_refresh` cookie; current-cookie presence prevents validation-dependent fallback; logout clears both names independently; and removed config/env naming fields remain rejected. Focused and full Go validation, vet, docs inspection, self-harness, and a disposable live HTTP flow all passed.
-
-The plan remains active only for the bounded removal milestone. Record the corrective release publication date here when it ships, wait at least 30 days, then remove `onlv_refresh` selection/clearing and transition documentation before the following release.
+The corrective implementation shipped and was validated, then plan 0111 superseded its waiting window on 2026-07-13. Standard auth now reads, issues, and clears only `scenery_refresh`; sessions that only carry the former cookie require login again. The compatibility code, focused tests, and current transition documentation are removed, while strict rejection of configurable cookie/env naming remains.
 
 ## Context and Orientation
 

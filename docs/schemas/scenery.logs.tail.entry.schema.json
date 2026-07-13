@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.logs.tail.entry.schema.json",
+  "title": "scenery.logs.tail.entry",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "scope",
+    "backend",
+    "query",
+    "log"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.logs.tail.entry"
+    },
+    "schema_revision": {
+      "const": "sha256:17abdfc0a0061a4e2d712621561b7dfb90e443a64beeba86de111ba2e7db887a"
+    },
+    "scope": {
+      "$ref": "scenery.inspect.observability.schema.json#/$defs/scope"
+    },
+    "backend": {
+      "$ref": "scenery.inspect.observability.schema.json#/$defs/backend"
+    },
+    "query": {
+      "$ref": "scenery.logs.query.schema.json#/$defs/query"
+    },
+    "log": {
+      "$ref": "scenery.logs.query.schema.json#/$defs/log"
+    }
+  },
+  "additionalProperties": false
+}

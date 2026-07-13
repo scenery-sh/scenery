@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.dev.event.schema.json",
+  "title": "scenery.dev.event",
+  "description": "Structured log payload schema emitted under `scenery.cli.event` by `scenery logs -o jsonl`.",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "app",
+    "id",
+    "time",
+    "source",
+    "level",
+    "message",
+    "parse"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.dev.event"
+    },
+    "schema_revision": {
+      "const": "sha256:88d7bd9bd7e38e93de754e8508bde933e9d49d48a5391c29686e11737bb5ba2e"
+    },
+    "app": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "root"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "root": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "id": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "time": {
+      "type": "string"
+    },
+    "session_id": {
+      "type": "string"
+    },
+    "source": {
+      "type": "object",
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string"
+        },
+        "pid": {
+          "type": "string"
+        },
+        "stream": {
+          "type": "string",
+          "enum": [
+            "",
+            "stdout",
+            "stderr"
+          ]
+        },
+        "restart_id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "level": {
+      "type": "string",
+      "enum": [
+        "debug",
+        "info",
+        "warn",
+        "error",
+        "fatal"
+      ]
+    },
+    "message": {
+      "type": "string"
+    },
+    "fields": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "raw": {
+      "type": "string"
+    },
+    "parse": {
+      "type": "object",
+      "required": [
+        "format",
+        "ok"
+      ],
+      "properties": {
+        "format": {
+          "type": "string"
+        },
+        "ok": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.deploy.registry.schema.json",
+  "title": "scenery deploy registry",
+  "type": "object",
+  "required": ["kind", "schema_revision", "spec_revision", "producer", "targets"],
+  "additionalProperties": false,
+  "properties": {
+    "kind": { "const": "scenery.deploy.registry" },
+    "schema_revision": { "$ref": "#/$defs/revision" },
+    "spec_revision": { "$ref": "#/$defs/revision" },
+    "producer": { "type": "object" },
+    "acme_email": { "type": "string" },
+    "acme_ca": { "enum": ["production", "staging"] },
+    "targets": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/target" }
+    }
+  },
+  "$defs": {
+    "revision": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "target": {
+      "type": "object",
+      "required": ["domain", "app_root", "enabled", "created_at", "updated_at"],
+      "additionalProperties": false,
+      "properties": {
+        "domain": { "type": "string", "minLength": 1 },
+        "app_root": { "type": "string", "minLength": 1 },
+        "root_service": { "type": "string" },
+        "enabled": { "type": "boolean" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}

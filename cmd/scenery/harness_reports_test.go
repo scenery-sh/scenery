@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"scenery.sh/internal/envpolicy"
 )
 
 func TestValidateHarnessJSONSchemaFile(t *testing.T) {
@@ -93,30 +95,30 @@ func TestBuildHarnessSchemaValidationReport(t *testing.T) {
 	t.Parallel()
 
 	root := writeHarnessSelfRepo(t, `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object"}`,
-		"scenery.agent_context.v1.schema.json",
-		"scenery.approval-token.v1.schema.json",
-		"scenery.approval-trust.v1.schema.json",
-		"scenery.build.result.v1.schema.json",
-		"scenery.deploy.registry.v1.schema.json",
-		"scenery.deploy.status.v1.schema.json",
-		"scenery.doctor.result.v1.schema.json",
-		"scenery.environment.registry.v1.schema.json",
-		"scenery.harness.artifact.v1.schema.json",
-		"scenery.harness.changed_area.v1.schema.json",
-		"scenery.harness.schema_validation.v1.schema.json",
-		"scenery.harness.self.summary.v1.schema.json",
-		"scenery.harness.self.v1.schema.json",
-		"scenery.harness.test_timing.v1.schema.json",
-		"scenery.help.v1.schema.json",
-		"scenery.inspect.docs.v1.schema.json",
-		"scenery.inspect.harness.v1.schema.json",
-		"scenery.version.v1.schema.json",
+		"scenery.agent_context.schema.json",
+		"scenery.approval-token.schema.json",
+		"scenery.approval-trust.schema.json",
+		"scenery.build.result.schema.json",
+		"scenery.deploy.registry.schema.json",
+		"scenery.deploy.status.schema.json",
+		"scenery.doctor.result.schema.json",
+		"scenery.environment.registry.schema.json",
+		"scenery.harness.artifact.schema.json",
+		"scenery.harness.changed_area.schema.json",
+		"scenery.harness.schema_validation.schema.json",
+		"scenery.harness.self.summary.schema.json",
+		"scenery.harness.self.schema.json",
+		"scenery.harness.test_timing.schema.json",
+		"scenery.help.schema.json",
+		"scenery.inspect.docs.schema.json",
+		"scenery.inspect.harness.schema.json",
+		"scenery.version.schema.json",
 	)
 	resp := harnessSelfResponse{
-		SchemaVersion: "scenery.harness.self.v1",
-		OK:            true,
-		GeneratedAt:   "2026-05-29T00:00:00Z",
-		Mode:          harnessSelfModeDefault,
+		cliPayloadIdentity: newCLIPayloadIdentity("scenery.harness.self"),
+		OK:                 true,
+		GeneratedAt:        "2026-05-29T00:00:00Z",
+		Mode:               harnessSelfModeDefault,
 		Repo: harnessSelfRepo{
 			Root:       root,
 			ModulePath: "scenery.sh",
@@ -124,18 +126,18 @@ func TestBuildHarnessSchemaValidationReport(t *testing.T) {
 		},
 		Knowledge: buildHarnessSelfKnowledge(root),
 		ChangedArea: &harnessChangedAreaReport{
-			SchemaVersion: harnessChangedAreaSchema,
+			cliPayloadIdentity: newCLIPayloadIdentity(harnessChangedAreaKind),
 		},
 		TestTiming: &harnessTestTimingReport{
-			SchemaVersion: harnessTestTimingSchema,
-			Command:       harnessSelfGoTestCommand(),
-			Budgets:       defaultHarnessTestTimingBudgets(),
+			cliPayloadIdentity: newCLIPayloadIdentity(harnessTestTimingKind),
+			Command:            harnessSelfGoTestCommand(),
+			Budgets:            defaultHarnessTestTimingBudgets(),
 		},
 		Steps:     []harnessStep{{Name: "test", Command: []string{"true"}, OK: true}},
 		Artifacts: []harnessArtifact{{Name: "self-harness", Path: ".scenery/harness/self-latest.json", Exists: true}},
 	}
 	report := buildHarnessSchemaValidationReport(root, resp)
-	if len(report.Validated) != 18 {
+	if len(report.Validated) != 19 {
 		t.Fatalf("validated = %+v", report.Validated)
 	}
 	if hasErrorDiagnostics(report.Diagnostics) {
@@ -146,7 +148,7 @@ func TestBuildHarnessSchemaValidationReport(t *testing.T) {
 func TestWriteHarnessSelfRepoWritesOnlyRequestedSchemas(t *testing.T) {
 	t.Parallel()
 
-	root := writeHarnessSelfRepo(t, `{"type":"object"}`, "scenery.help.v1.schema.json")
+	root := writeHarnessSelfRepo(t, `{"type":"object"}`, "scenery.help.schema.json")
 	matches, err := filepath.Glob(filepath.Join(root, "docs", "schemas", "*.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -172,8 +174,8 @@ func TestBuildHarnessToolchainPreflightReport(t *testing.T) {
 	t.Cleanup(func() { harnessProbeTool = oldProbe })
 
 	report := buildHarnessToolchainPreflightReport(context.Background(), t.TempDir())
-	if report.SchemaVersion != harnessToolchainSchema {
-		t.Fatalf("schema = %q", report.SchemaVersion)
+	if report.Kind != harnessToolchainKind || report.SchemaRevision != newCLIPayloadIdentity(harnessToolchainKind).SchemaRevision {
+		t.Fatalf("identity = %q %q", report.Kind, report.SchemaRevision)
 	}
 	var foundGo bool
 	for _, tool := range report.Tools {
@@ -195,7 +197,8 @@ func TestBuildHarnessDriftReport(t *testing.T) {
 	root := writeHarnessSelfRepo(t, `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object"}`)
 	writeTestAppFile(t, root, "docs/environment.md", "Environment.\n\n`SCENERY_APP_ID`\n")
 	writeTestAppFile(t, root, "docs/environment.registry.json", `{
-  "schema_version": "scenery.environment.registry.v1",
+  "kind": "`+envpolicy.Kind+`",
+  "schema_revision": "`+envpolicy.SchemaRevision+`",
   "variables": [
     {
       "name": "SCENERY_APP_ID",
@@ -217,8 +220,8 @@ func TestBuildHarnessDriftReport(t *testing.T) {
 	writeTestAppFile(t, root, "internal/build/source.go", "package build\n\nconst _ = `.env .DS_Store __MACOSX node_modules coverage`\n")
 
 	report := buildHarnessDriftReport(context.Background(), root)
-	if report.SchemaVersion != harnessDriftSchema {
-		t.Fatalf("schema = %q", report.SchemaVersion)
+	if report.Kind != harnessDriftKind || report.SchemaRevision != newCLIPayloadIdentity(harnessDriftKind).SchemaRevision {
+		t.Fatalf("identity = %q %q", report.Kind, report.SchemaRevision)
 	}
 	if len(report.CLI.Commands) == 0 {
 		t.Fatalf("expected CLI contract commands")
@@ -236,7 +239,8 @@ func TestBuildHarnessEnvVarReportInvalidRuntimeEnvDiagnostics(t *testing.T) {
 
 	root := writeHarnessSelfRepo(t, `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object"}`)
 	writeTestAppFile(t, root, "docs/environment.registry.json", `{
-  "schema_version": "scenery.environment.registry.v1",
+  "kind": "`+envpolicy.Kind+`",
+  "schema_revision": "`+envpolicy.SchemaRevision+`",
   "variables": [
     {
       "name": "SCENERY_TEST_",
@@ -273,7 +277,8 @@ func TestBuildHarnessEnvVarReportIgnoresClaudeWorktreeCopies(t *testing.T) {
 
 	root := writeHarnessSelfRepo(t, `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object"}`)
 	writeTestAppFile(t, root, "docs/environment.registry.json", `{
-  "schema_version": "scenery.environment.registry.v1",
+  "kind": "`+envpolicy.Kind+`",
+  "schema_revision": "`+envpolicy.SchemaRevision+`",
   "variables": [
     {
       "name": "SCENERY_TEST_",
@@ -317,7 +322,8 @@ func TestBuildHarnessToolchainPreflightReportRedactsSecretEnv(t *testing.T) {
 
 	root := writeHarnessSelfRepo(t, `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object"}`)
 	writeTestAppFile(t, root, "docs/environment.registry.json", `{
-  "schema_version": "scenery.environment.registry.v1",
+  "kind": "`+envpolicy.Kind+`",
+  "schema_revision": "`+envpolicy.SchemaRevision+`",
   "variables": [
     {
       "name": "JWT_SECRET",
@@ -408,13 +414,14 @@ func TestBuildHarnessFixtureMatrixReport(t *testing.T) {
 
 	root := t.TempDir()
 	for _, subject := range []string{"app", "routes", "services", "endpoints"} {
-		writeTestAppFile(t, root, "docs/schemas/scenery.inspect."+subject+".v1.schema.json", `{"type":"object","required":["schema_version"],"properties":{"schema_version":{"const":"scenery.inspect.`+subject+`.v1"}}}`)
+		identity := newCLIPayloadIdentity("scenery.inspect." + subject)
+		writeTestAppFile(t, root, "docs/schemas/scenery.inspect."+subject+".schema.json", `{"type":"object","required":["kind","schema_revision"],"properties":{"kind":{"const":"`+identity.Kind+`"},"schema_revision":{"const":"`+identity.SchemaRevision+`"}}}`)
 	}
 	writeHarnessTestApp(t, filepath.Join(root, "testdata", "apps", "basic"), "basic", "return nil")
 
 	report := buildHarnessFixtureMatrixReport(context.Background(), root)
-	if report.SchemaVersion != harnessFixtureMatrixSchema {
-		t.Fatalf("schema = %q", report.SchemaVersion)
+	if report.Kind != harnessFixtureMatrixKind || report.SchemaRevision != newCLIPayloadIdentity(harnessFixtureMatrixKind).SchemaRevision {
+		t.Fatalf("identity = %q %q", report.Kind, report.SchemaRevision)
 	}
 	if len(report.Fixtures) != 1 {
 		t.Fatalf("fixtures = %+v", report.Fixtures)

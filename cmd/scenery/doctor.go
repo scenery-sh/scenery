@@ -23,7 +23,7 @@ import (
 )
 
 const (
-	doctorSchemaVersion         = "scenery.doctor.result.v1"
+	doctorResultKind            = "scenery.doctor.result"
 	doctorCommandTimeout        = 2 * time.Second
 	doctorMinGoMajor            = 1
 	doctorMinGoMinor            = 26
@@ -47,14 +47,14 @@ type doctorOptions struct {
 }
 
 type doctorResponse struct {
-	SchemaVersion string            `json:"schema_version"`
-	OK            bool              `json:"ok"`
-	Summary       doctorSummary     `json:"summary"`
-	Scenery       versionResponse   `json:"scenery"`
-	App           *doctorAppInfo    `json:"app,omitempty"`
-	Environment   doctorEnvironment `json:"environment"`
-	Deploy        *doctorDeployInfo `json:"deploy,omitempty"`
-	Checks        []doctorCheck     `json:"checks"`
+	cliPayloadIdentity
+	OK          bool              `json:"ok"`
+	Summary     doctorSummary     `json:"summary"`
+	Scenery     versionResponse   `json:"scenery"`
+	App         *doctorAppInfo    `json:"app,omitempty"`
+	Environment doctorEnvironment `json:"environment"`
+	Deploy      *doctorDeployInfo `json:"deploy,omitempty"`
+	Checks      []doctorCheck     `json:"checks"`
 }
 
 type doctorSummary struct {
@@ -87,11 +87,11 @@ type doctorPathReport struct {
 }
 
 type doctorDeployInfo struct {
-	SchemaVersion string                 `json:"schema_version"`
-	Ready         bool                   `json:"ready"`
-	RegistryPath  string                 `json:"registry_path"`
-	Targets       []deployTargetStatus   `json:"targets"`
-	Diagnostics   deployDiagnosticReport `json:"diagnostics"`
+	cliPayloadIdentity
+	Ready        bool                   `json:"ready"`
+	RegistryPath string                 `json:"registry_path"`
+	Targets      []deployTargetStatus   `json:"targets"`
+	Diagnostics  deployDiagnosticReport `json:"diagnostics"`
 }
 
 type doctorCheck struct {
@@ -245,9 +245,9 @@ func doctorRunCommand(ctx context.Context, name string, args ...string) ([]byte,
 func buildDoctorResponse(ctx context.Context, opts doctorOptions, deps doctorProbeDeps) doctorResponse {
 	deps = fillDoctorProbeDeps(deps)
 	resp := doctorResponse{
-		SchemaVersion: doctorSchemaVersion,
-		OK:            true,
-		Scenery:       buildVersionResponse(),
+		cliPayloadIdentity: newCLIPayloadIdentity(doctorResultKind),
+		OK:                 true,
+		Scenery:            buildVersionResponse(),
 	}
 
 	runtimeInfo := deps.ResourceProbe.Runtime()
@@ -376,8 +376,8 @@ func doctorDeployDiagnostics(ctx context.Context, deps doctorProbeDeps) (*doctor
 	if err != nil {
 		message := "deploy registry path could not be resolved: " + err.Error()
 		info := &doctorDeployInfo{
-			SchemaVersion: "scenery.doctor.deploy.v1",
-			RegistryPath:  "",
+			cliPayloadIdentity: newCLIPayloadIdentity("scenery.doctor.deploy"),
+			RegistryPath:       "",
 			Diagnostics: deployDiagnosticReport{Checks: []deployDiagnosticCheck{{
 				ID:      "deploy.registry",
 				Status:  doctorStatusSkipped,
@@ -399,8 +399,8 @@ func doctorDeployDiagnostics(ctx context.Context, deps doctorProbeDeps) (*doctor
 	registry, err := localagent.LoadDeployRegistry(paths.DeployPath)
 	if err != nil {
 		info := &doctorDeployInfo{
-			SchemaVersion: "scenery.doctor.deploy.v1",
-			RegistryPath:  paths.DeployPath,
+			cliPayloadIdentity: newCLIPayloadIdentity("scenery.doctor.deploy"),
+			RegistryPath:       paths.DeployPath,
 			Diagnostics: deployDiagnosticReport{Checks: []deployDiagnosticCheck{{
 				ID:      "deploy.registry",
 				Status:  doctorStatusWarn,
@@ -428,11 +428,11 @@ func doctorDeployDiagnostics(ctx context.Context, deps doctorProbeDeps) (*doctor
 		diagnostics = *status.DiagnosticsDetail
 	}
 	info := &doctorDeployInfo{
-		SchemaVersion: "scenery.doctor.deploy.v1",
-		Ready:         status.Ready,
-		RegistryPath:  status.RegistryPath,
-		Targets:       status.Targets,
-		Diagnostics:   diagnostics,
+		cliPayloadIdentity: newCLIPayloadIdentity("scenery.doctor.deploy"),
+		Ready:              status.Ready,
+		RegistryPath:       status.RegistryPath,
+		Targets:            status.Targets,
+		Diagnostics:        diagnostics,
 	}
 	checks := make([]doctorCheck, 0, len(diagnostics.Checks))
 	for _, check := range diagnostics.Checks {

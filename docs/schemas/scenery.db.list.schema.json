@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.db.list.schema.json",
+  "title": "scenery db list",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "database"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.db.list"
+    },
+    "schema_revision": {
+      "const": "sha256:01b0f8b9cbd30278207c2e5b3b2ae00a9af81ff624e27c3bfc2995e826598e15"
+    },
+    "database": {
+      "type": "object",
+      "required": [
+        "name",
+        "url",
+        "source",
+        "schemas"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "url": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "managed",
+            "external"
+          ]
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "schemas": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "service",
+              "schema"
+            ],
+            "properties": {
+              "service": {
+                "type": "string",
+                "minLength": 1
+              },
+              "schema": {
+                "type": "string",
+                "minLength": 1
+              },
+              "url": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.version.schema.json",
+  "title": "scenery version",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "version",
+    "go_version"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "kind": {
+      "const": "scenery.version"
+    },
+    "schema_revision": {
+      "const": "sha256:7b2f75aa63a70fdeec0ef99ff740321fcd4cebcb2b45f0e177ee4884519a4fa9"
+    },
+    "version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "commit": {
+      "type": "string"
+    },
+    "built_at": {
+      "type": "string"
+    },
+    "go_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "module_version": {
+      "type": "string"
+    },
+    "toolchain_manifest": {
+      "type": "object",
+      "required": [
+        "kind",
+        "schema_revision",
+        "sha256",
+        "artifact_count",
+        "source_lock_count"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "scenery.toolchain"
+        },
+        "schema_revision": {
+          "const": "sha256:02fd89902b530fb84a9fc13269b5ed93f1a01d8981430ba4f263963f40d86bc6"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[A-Fa-f0-9]{64}$"
+        },
+        "artifact_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "source_lock_count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.storage.cleanup.schema.json",
+  "title": "scenery.storage.cleanup",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.storage.cleanup"
+    },
+    "schema_revision": {
+      "const": "sha256:b794cf14c0dbe58e5601384929f93e1a3125d44c181afc2444c6870d7a31d5dc"
+    },
+    "storage_cell_id": {
+    },
+    "cell_root": {
+    },
+    "exists": {
+    },
+    "dry_run": {
+    },
+    "deleted": {
+    }
+  },
+  "additionalProperties": false
+}

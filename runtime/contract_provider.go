@@ -38,7 +38,7 @@ func ContractProviderABIs() map[string]string {
 
 func init() {
 	// These implementations are linked into scenery/runtime itself.
-	_ = RegisterContractProviderABI("registry.scenery.dev/core/postgres@2.1.0", "scenery.data-runtime/v1")
-	_ = RegisterContractProviderABI("registry.scenery.dev/core/storage@2.0.0", "scenery.object/v1")
-	_ = RegisterContractProviderABI("registry.scenery.dev/core/durable@1.0.0", "scenery.execution-runtime/v1")
+	_ = RegisterContractProviderABI("registry.scenery.dev/core/postgres", "scenery.data-runtime/v1")
+	_ = RegisterContractProviderABI("registry.scenery.dev/core/storage", "scenery.object/v1")
+	_ = RegisterContractProviderABI("registry.scenery.dev/core/durable", "scenery.execution-runtime/v1")
 }

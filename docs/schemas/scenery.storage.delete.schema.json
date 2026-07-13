@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.storage.delete.schema.json",
+  "title": "scenery.storage.delete",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "store",
+    "deleted"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.storage.delete"
+    },
+    "schema_revision": {
+      "const": "sha256:a7c00ff140a9db27999660049545588ca8a5521e1956b36823a8c948eea74adb"
+    },
+    "store": {
+      "type": "string"
+    },
+    "key": {
+      "type": "string"
+    },
+    "prefix": {
+      "type": "string"
+    },
+    "deleted": {
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": false
+}

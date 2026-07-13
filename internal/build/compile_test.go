@@ -9,13 +9,14 @@ import (
 	"testing"
 
 	appcfg "scenery.sh/internal/app"
+	"scenery.sh/internal/machine"
 	"scenery.sh/internal/parse"
 )
 
 func TestPrepareAndCompileWriteLatestBuildManifest(t *testing.T) {
 	t.Parallel()
 
-	appDir := copyVNextBuildFixture(t, "native")
+	appDir := copyBuildFixture(t, "native")
 
 	model, err := parse.Analyze(appDir, "nativeapp")
 	if err != nil {
@@ -33,8 +34,8 @@ func TestPrepareAndCompileWriteLatestBuildManifest(t *testing.T) {
 	if !ok {
 		t.Fatal("expected latest build manifest after prepare")
 	}
-	if manifest.SchemaVersion != "scenery.build.latest.v1" {
-		t.Fatalf("schema_version = %q", manifest.SchemaVersion)
+	if manifest.Kind != latestBuildKind || manifest.SchemaRevision != machine.ArtifactSchemaRevision(latestBuildSchemaDescriptor) {
+		t.Fatalf("artifact identity = %#v", manifest.ArtifactIdentity)
 	}
 	if manifest.Build.Phase != "prepared" {
 		t.Fatalf("phase after prepare = %q", manifest.Build.Phase)

@@ -56,7 +56,7 @@ Usually do not preserve:
 1. Freeze auth writes or put the app in maintenance mode.
 2. Take a database backup.
 3. Deploy a Scenery build that contains standard auth support, but do not route production traffic to it yet.
-4. Use the canonical `JWT_SECRET` value that signed the existing access tokens. Refresh-cookie naming is not configurable: the bounded compatibility release can preserve sessions issued under the former fixed `onlv_refresh` name, but arbitrary custom cookie names require an explicit forced-login migration.
+4. Use the canonical `JWT_SECRET` value that signed the existing access tokens. Refresh-cookie naming is not configurable: only `scenery_refresh` is accepted, so deployments using another cookie name require an explicit forced-login migration.
 5. Bootstrap the target schema on a copy of production first:
 
    ```sh
@@ -480,9 +480,9 @@ scenery inspect routes -o json
 In staging, verify:
 
 - login with an existing email/password user
-- refresh with an existing browser cookie named `onlv_refresh` if those sessions are preserved; the response must issue only `scenery_refresh`
-- with both names present, confirm `scenery_refresh` is selected; an empty or invalid current cookie must not fall back to the legacy credential
-- logout and confirm separate clearing `Set-Cookie` headers are emitted for `scenery_refresh` and `onlv_refresh`
+- refresh with an existing `scenery_refresh` browser cookie; the response must rotate it under the same name
+- use an empty or invalid `scenery_refresh` cookie and confirm the request fails
+- logout and confirm one clearing `Set-Cookie` header is emitted for `scenery_refresh`
 - `/auth/me`
 - organization list and switch
 - owner-only organization member mutation
@@ -496,8 +496,8 @@ In staging, verify:
 3. Run verification SQL.
 4. Deploy the scenery-standard-auth app build.
 5. Route traffic to the new build.
-6. Watch auth errors, refresh-cookie selection/rotation, logout clearing, and organization membership errors.
-7. Keep legacy tables read-only until you have completed at least one normal refresh-session TTL window. Do not remove the fixed `onlv_refresh` compatibility before 30 days have elapsed from publication of the corrective release; record the publication date in plan 0110.
+6. Watch auth errors, refresh-cookie rotation, logout clearing, and organization membership errors.
+7. Keep legacy tables read-only until you have completed at least one normal refresh-session TTL window.
 
 ## Rollback
 
@@ -513,6 +513,6 @@ If cutover fails after traffic moves:
 ## Notes
 
 - Password hashes are copied as opaque strings. scenery verifies Argon2id hashes and can upgrade hash parameters on successful login.
-- Refresh-session preservation requires the same token shape and a recognized cookie name. During the bounded plan-0110 transition, `scenery_refresh` is selected whenever present and `onlv_refresh` is tried only when the current name is absent. Successful refresh rotates the browser onto `scenery_refresh`; other historical custom names are not accepted.
+- Refresh-session preservation requires the same token shape and the canonical `scenery_refresh` cookie name. Other cookie names are not accepted and require users to log in again.
 - Access JWTs only survive cutover if the new app uses the same canonical `JWT_SECRET` value and compatible claims. If not, users will need refresh or login.
 - Directly editing this data with SQL is production-sensitive. Use explicit SQL, backups, and verification queries.

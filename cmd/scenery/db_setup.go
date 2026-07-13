@@ -16,10 +16,10 @@ type dbSetupOptions struct {
 }
 
 type dbSetupResult struct {
-	SchemaVersion string             `json:"schema_version"`
-	App           inspectdata.AppRef `json:"app"`
-	Apply         dbSetupPhase       `json:"apply"`
-	Seed          dbSeedResult       `json:"seed"`
+	cliPayloadIdentity
+	App   inspectdata.AppRef `json:"app"`
+	Apply dbSetupPhase       `json:"apply"`
+	Seed  dbSeedResult       `json:"seed"`
 }
 
 type dbSetupPhase struct {
@@ -45,13 +45,13 @@ func runDBSetupWithHooks(ctx context.Context, stdout io.Writer, args []string, l
 		return err
 	}
 	result := dbSetupResult{
-		SchemaVersion: "scenery.db.setup.result.v1",
-		App:           buildDBApplyResult(appRoot, cfg).App,
-		Apply:         dbSetupPhase{Status: "pending"},
+		cliPayloadIdentity: newCLIPayloadIdentity("scenery.db.setup.result"),
+		App:                buildDBApplyResult(appRoot, cfg).App,
+		Apply:              dbSetupPhase{Status: "pending"},
 		Seed: dbSeedResult{
-			SchemaVersion: "scenery.db.seed.result.v1",
-			App:           buildDBApplyResult(appRoot, cfg).App,
-			Seeds:         []dbSeedRecord{},
+			cliPayloadIdentity: newCLIPayloadIdentity("scenery.db.seed.result"),
+			App:                buildDBApplyResult(appRoot, cfg).App,
+			Seeds:              []dbSeedRecord{},
 		},
 	}
 

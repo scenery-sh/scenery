@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.agent.status.schema.json",
+  "title": "scenery.agent.status",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.agent.status"
+    },
+    "schema_revision": {
+      "const": "sha256:5a50e5ca784a3ac4552b7d77287dee3753a71b198751dad0a3978e451a92a303"
+    },
+    "agent": {
+    },
+    "sessions": {
+    },
+    "substrates": {
+    }
+  },
+  "additionalProperties": false
+}

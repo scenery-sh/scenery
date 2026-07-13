@@ -6,6 +6,43 @@ Completed means implemented or shipped at least once. It does not imply stable
 support for every surface. Use [../local-contract.md](../local-contract.md) as
 the source of truth for stable, beta, and dev-only classification.
 
+## Single Current Scenery Specification
+
+- Status: completed
+- Owner: scenery language / runtime / CLI / agent DX
+- Completed: 2026-07-13
+- Quality: B
+- ExecPlan: [0111 Single Current Scenery Specification](0111-single-current-scenery-specification.md)
+
+Shipped:
+
+- Removed edition, profile, first-party schema-version, package/provider semver, historical upgrade-target, and temporary refresh-cookie selectors without replacement compatibility dispatchers.
+- Established one current unversioned catalog and machine protocol with exact schema, catalog, artifact, lock, and ABI revisions; made those semantic identities stable across source and built binaries.
+- Split the former current `internal/vnext` implementation into responsibility packages, moved the normative spec to `docs/spec`, and moved the sole dashboard to `apps/console` at `/console/`.
+- Added explicit idempotent migrations for durable identity-bearing state, safe refusal for interrupted legacy recovery state, and architecture/residue guardrails against reintroducing removed lanes.
+- Migrated ONLV to the unversioned generated client and validated its current-source runtime path.
+
+Validation:
+
+- Passed full Scenery self-harness, Go tests and vet, schema and architecture checks, fixture generation/checks, dashboard and TypeScript validation, PostgreSQL/storage/parallel-runtime probes, ONLV application validation, and live current-source ONLV runtime acceptance.
+
+## Bounded Refresh-Cookie Compatibility
+
+- Status: completed by supersession
+- Owner: scenery auth / runtime
+- Completed: 2026-07-13
+- Quality: B
+- ExecPlan: [0110 Bounded Refresh-Cookie Compatibility](0110-bounded-refresh-cookie-compatibility.md)
+
+Shipped:
+
+- Temporarily preserved sessions under the former fixed cookie name, then removed that read/clear compatibility under plan 0111's one-current-contract flag day.
+- Standard auth now reads, issues, and clears only `scenery_refresh`; browser sessions carrying only the former name must log in again.
+
+Validation:
+
+- Focused auth, config, and runtime tests cover canonical cookie selection, issuance, clearing, strict config rejection, and repeated response-header transport.
+
 ## Post-v0 Legacy Lane Removal
 
 - Status: completed
@@ -19,7 +56,7 @@ Shipped:
 - Moved standard auth onto typed contract codecs and deleted reflection request decoding, response encoding, endpoint metadata, and internal-call compatibility APIs.
 - Removed config-defined shell tasks, old generate sniffing, rejected legacy flags, duplicate routes, unused wrappers and PostgreSQL fields, dashboard compatibility metadata, and orphan dependencies and fixtures.
 - Standardized auth on canonical environment names and the `scenery_refresh` cookie, simplified code generation, and synchronized docs, schemas, generated fixtures, and agent guidance.
-- Current corrective contract: plan 0110 keeps `scenery_refresh` as the only issued cookie while temporarily accepting the former fixed `onlv_refresh` name only when the current cookie is absent and clearing both names on logout. Configurable cookie/env naming remains removed.
+- Plan 0110's temporary fixed-cookie compatibility was removed by plan 0111; standard auth reads, issues, and clears only `scenery_refresh`. Configurable cookie/env naming remains removed.
 - Removed migration-only `dev.setup`, configurable app database URL env naming, Symphony's missing-base-ID fallback, the superseded database-only snapshot command, and non-output short CLI aliases.
 
 Validation:

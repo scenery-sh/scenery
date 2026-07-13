@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.durable.worker_token.create.schema.json",
+  "title": "scenery.durable.worker_token.create",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "app",
+    "service",
+    "db_path",
+    "token"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.durable.worker_token.create"
+    },
+    "schema_revision": {
+      "const": "sha256:f7796e7a49f33ebaa8a3304439f08de48d2391d31bcd1efbb735ac6ac8da8520"
+    },
+    "app": {
+      "type": "object",
+      "required": [
+        "name",
+        "root"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "root": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "service": {
+      "type": "string"
+    },
+    "db_path": {
+      "type": "string"
+    },
+    "token": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "secret",
+        "token_hash"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "secret": {
+          "type": "string",
+          "minLength": 32
+        },
+        "token_hash": {
+          "type": "string",
+          "minLength": 64,
+          "maxLength": 64
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

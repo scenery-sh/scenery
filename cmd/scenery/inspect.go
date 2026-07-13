@@ -11,10 +11,11 @@ import (
 
 	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/build"
+	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/envpolicy"
+	"scenery.sh/internal/graph"
 	inspectdata "scenery.sh/internal/inspect"
 	"scenery.sh/internal/postgresdb"
-	"scenery.sh/internal/vnext"
 )
 
 type inspectOptions struct {
@@ -27,9 +28,9 @@ type inspectOptions struct {
 }
 
 type inspectBuildResponse struct {
-	SchemaVersion string             `json:"schema_version"`
-	App           inspectdata.AppRef `json:"app"`
-	Build         inspectBuildRecord `json:"build"`
+	cliPayloadIdentity
+	App   inspectdata.AppRef `json:"app"`
+	Build inspectBuildRecord `json:"build"`
 }
 
 type inspectBuildRecord struct {
@@ -49,9 +50,9 @@ type inspectBuildRecord struct {
 }
 
 type inspectPathsResponse struct {
-	SchemaVersion string             `json:"schema_version"`
-	App           inspectdata.AppRef `json:"app"`
-	Paths         inspectPathsRecord `json:"paths"`
+	cliPayloadIdentity
+	App   inspectdata.AppRef `json:"app"`
+	Paths inspectPathsRecord `json:"paths"`
 }
 
 type inspectPathsRecord struct {
@@ -65,11 +66,11 @@ type inspectPathsRecord struct {
 }
 
 type inspectDurableResponse struct {
-	SchemaVersion string                 `json:"schema_version"`
-	App           inspectdata.AppRef     `json:"app"`
-	Durable       inspectDurableRecord   `json:"durable"`
-	Declarations  []durableDeclaration   `json:"declarations"`
-	Services      []durableServiceRecord `json:"services"`
+	cliPayloadIdentity
+	App          inspectdata.AppRef     `json:"app"`
+	Durable      inspectDurableRecord   `json:"durable"`
+	Declarations []durableDeclaration   `json:"declarations"`
+	Services     []durableServiceRecord `json:"services"`
 }
 
 type inspectDurableRecord struct {
@@ -101,10 +102,10 @@ type durableServiceRecord struct {
 }
 
 type inspectStorageResponse struct {
-	SchemaVersion string                `json:"schema_version"`
-	App           inspectdata.AppRef    `json:"app"`
-	Storage       inspectStorageRecord  `json:"storage"`
-	Stores        []inspectStorageStore `json:"stores"`
+	cliPayloadIdentity
+	App     inspectdata.AppRef    `json:"app"`
+	Storage inspectStorageRecord  `json:"storage"`
+	Stores  []inspectStorageStore `json:"stores"`
 }
 
 type inspectStorageRecord struct {
@@ -179,31 +180,31 @@ func runSceneryInspect(args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	var merged *vnext.Result
+	var merged *compiler.Result
 	if opts.Subject == "app" || opts.Subject == "services" || opts.Subject == "routes" || opts.Subject == "endpoints" || opts.Subject == "durable" {
-		compiled, compileErr := vnext.Compile(appRoot)
+		compiled, compileErr := compiler.Compile(appRoot)
 		if compileErr != nil {
 			return compileErr
 		}
 		if !compiled.Valid() {
-			return fmt.Errorf("vNext merged graph is invalid: %s", firstVNextDiagnostic(compiled.Diagnostics))
+			return fmt.Errorf("merged graph is invalid: %s", firstCompilerDiagnostic(compiled.Diagnostics))
 		}
 		merged = compiled
 	}
 
 	switch opts.Subject {
 	case "app":
-		return writeInspectJSON(stdout, buildVNextInspectAppResponse(appRoot, cfg, merged))
+		return writeInspectJSON(stdout, buildInspectAppResponse(appRoot, cfg, merged))
 	case "services":
-		return writeInspectJSON(stdout, buildVNextInspectServicesResponse(appRoot, cfg, merged))
+		return writeInspectJSON(stdout, buildInspectServicesResponse(appRoot, cfg, merged))
 	case "routes":
-		response, err := buildVNextInspectRoutesResponse(appRoot, cfg, merged)
+		response, err := buildInspectRoutesResponse(appRoot, cfg, merged)
 		if err != nil {
 			return err
 		}
 		return writeInspectJSON(stdout, response)
 	case "endpoints":
-		response, err := buildVNextInspectEndpointsResponse(appRoot, cfg, merged)
+		response, err := buildInspectEndpointsResponse(appRoot, cfg, merged)
 		if err != nil {
 			return err
 		}
@@ -227,7 +228,7 @@ func runSceneryInspect(args []string, stdout io.Writer) error {
 		}
 		return writeInspectJSON(stdout, resp)
 	case "durable":
-		return writeInspectJSON(stdout, buildVNextInspectDurableResponse(appRoot, cfg, merged))
+		return writeInspectJSON(stdout, buildInspectDurableResponse(appRoot, cfg, merged))
 	case "storage":
 		return writeInspectJSON(stdout, buildInspectStorageResponse(context.Background(), appRoot, cfg))
 	case "validation":
@@ -243,13 +244,13 @@ func runSceneryInspect(args []string, stdout io.Writer) error {
 	}
 }
 
-func firstVNextDiagnostic(diagnostics []vnext.Diagnostic) string {
+func firstCompilerDiagnostic(diagnostics []graph.Diagnostic) string {
 	for _, diagnostic := range diagnostics {
 		if diagnostic.Severity == "error" {
 			return diagnostic.Code + ": " + diagnostic.Message
 		}
 	}
-	return "unknown vNext compilation failure"
+	return "unknown compilation failure"
 }
 
 func parseInspectArgs(args []string) (inspectOptions, error) {
@@ -342,7 +343,7 @@ func buildInspectBuildResponse(appRoot string, cfg appcfg.Config) (inspectBuildR
 		return inspectBuildResponse{}, err
 	} else if ok {
 		return inspectBuildResponse{
-			SchemaVersion: "scenery.inspect.build.v1",
+			cliPayloadIdentity: newCLIPayloadIdentity("scenery.inspect.build"),
 			App: inspectdata.AppRef{
 				Name:       manifest.App.Name,
 				ID:         manifest.App.ID,
@@ -377,8 +378,8 @@ func buildInspectBuildResponse(appRoot string, cfg appcfg.Config) (inspectBuildR
 	}
 	binaryPath := filepath.Join(workspaceDir, "scenery-app")
 	resp := inspectBuildResponse{
-		SchemaVersion: "scenery.inspect.build.v1",
-		App:           inspectAppInfo(appRoot, cfg, nil),
+		cliPayloadIdentity: newCLIPayloadIdentity("scenery.inspect.build"),
+		App:                inspectAppInfo(appRoot, cfg, nil),
 		Build: inspectBuildRecord{
 			WorkspaceDir:          workspaceDir,
 			BinaryPath:            binaryPath,
@@ -412,8 +413,8 @@ func buildInspectPathsResponse(appRoot string, cfg appcfg.Config) (inspectPathsR
 		return inspectPathsResponse{}, err
 	}
 	resp := inspectPathsResponse{
-		SchemaVersion: "scenery.inspect.paths.v1",
-		App:           inspectAppInfo(appRoot, cfg, nil),
+		cliPayloadIdentity: newCLIPayloadIdentity("scenery.inspect.paths"),
+		App:                inspectAppInfo(appRoot, cfg, nil),
 		Paths: inspectPathsRecord{
 			AppRoot:        appRoot,
 			ConfigPath:     cfg.SourcePath(appRoot),
@@ -462,10 +463,10 @@ func buildInspectStorageResponse(ctx context.Context, appRoot string, cfg appcfg
 	sort.Slice(stores, func(i, j int) bool { return stores[i].Name < stores[j].Name })
 
 	return inspectStorageResponse{
-		SchemaVersion: "scenery.storage.inspect.v1",
-		App:           inspectAppInfo(appRoot, cfg, nil),
-		Storage:       storage,
-		Stores:        stores,
+		cliPayloadIdentity: newCLIPayloadIdentity("scenery.storage.inspect"),
+		App:                inspectAppInfo(appRoot, cfg, nil),
+		Storage:            storage,
+		Stores:             stores,
 	}
 }
 

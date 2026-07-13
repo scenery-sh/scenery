@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.deploy.teardown.schema.json",
+  "title": "scenery.deploy.teardown",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.deploy.teardown"
+    },
+    "schema_revision": {
+      "const": "sha256:4e2b332e700acd8315832e3f0b55eb2cc2035876a2bcbdbe2d7f7ee7094f26ea"
+    },
+    "registry_path": {
+    },
+    "helper_version": {
+    },
+    "helper_public": {
+    },
+    "launch_agent_removed": {
+    },
+    "edge_restarted": {
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,189 @@
+package "house" {
+
+  go_contract {
+    import_path = "example.test/nativeapp/house"
+  }
+}
+
+input "gateway" {
+  type = resource_ref("http_gateway")
+}
+
+service "house" {
+  runtime = "go"
+
+  implementation {
+    constructor = "NewService"
+  }
+
+  client "self" {
+    binding = binding.process_scene_internal
+  }
+}
+
+record "process_scene_input" {
+  field "scene_id" {
+    type = string
+  }
+}
+
+record "process_scene_result" {
+  field "status" {
+    type = string
+  }
+}
+
+enum "process_mode" {
+  value "all" {}
+  value "roof_only" {
+    wire_value = "roof-only"
+  }
+}
+
+record "ready_state" {
+  field "message" {
+    type       = string
+    min_length = 1
+  }
+}
+
+union "process_state" {
+  discriminator   = "kind"
+  open            = true
+  unknown_variant = "preserve"
+
+  variant "ready" {
+    type = record.ready_state
+  }
+}
+
+record "wire_profile" {
+  unknown_fields = "preserve"
+
+  field "count" {
+    type    = int64
+    minimum = 1
+    maximum = 100
+  }
+
+  field "mode" {
+    type = enum.process_mode
+  }
+
+  field "state" {
+    type = union.process_state
+  }
+
+  field "tags" {
+    type         = set(string)
+    unique_items = true
+  }
+}
+
+export "wire_profile" {
+  value = record.wire_profile
+}
+
+export "process_scene" {
+  value = operation.process_scene
+}
+
+operation "process_scene" {
+  service = service.house
+  input   = record.process_scene_input
+
+  handler {
+    method = "ProcessScene"
+  }
+
+  result "processed" {
+    type = record.process_scene_result
+  }
+}
+
+execution "process_scene_direct" {
+  operation = operation.process_scene
+  mode      = "direct"
+  timeout   = "30s"
+}
+
+binding "process_scene_http" {
+  gateway   = var.gateway
+  operation = operation.process_scene
+  execution = execution.process_scene_direct
+  protocol  = "http"
+  delivery  = "call"
+
+  authentication = std.authentication.none
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+
+  http {
+    method        = "POST"
+    path          = "/house/process"
+    codec_profile = std.codec.http_json_v1
+
+    body {
+      codec = "json"
+      to    = operation.process_scene.input
+    }
+
+    response "processed" {
+      when   = result.processed
+      status = 200
+
+      body {
+        codec = "json"
+        from  = result.processed
+      }
+    }
+  }
+}
+
+binding "process_scene_internal" {
+  operation = operation.process_scene
+  execution = execution.process_scene_direct
+  protocol  = "internal"
+  delivery  = "call"
+
+  exposure       = "application"
+  authentication = std.authentication.inherit
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+
+  internal {
+    visibility = "application"
+    principal  = "inherit"
+  }
+}
+
+binding "process_scene_cli" {
+  operation = operation.process_scene
+  execution = execution.process_scene_direct
+  protocol  = "cli"
+  delivery  = "call"
+
+  exposure       = "local"
+  authentication = std.authentication.local_developer
+  authorization  = std.authorization.local_developer
+  pipeline       = std.pipeline.empty
+
+  cli {
+    command = ["house", "process-scene"]
+
+    argument "scene_id" {
+      position = 0
+      to       = operation.process_scene.input.scene_id
+    }
+
+    outcome "processed" {
+      when = result.processed
+      exit = 0
+
+      stdout {
+        codec = "json"
+        from  = result.processed
+      }
+    }
+  }
+}

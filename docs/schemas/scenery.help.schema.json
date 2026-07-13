@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.help.schema.json",
+  "title": "scenery.help",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "commands"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.help"
+    },
+    "schema_revision": {
+      "const": "sha256:b2d01675a4f18a153fc6ab90070bd32c757174a0889532b3c33210b09b7ce808"
+    },
+    "commands": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "command",
+          "group",
+          "summary",
+          "usage",
+          "json",
+          "stability"
+        ],
+        "properties": {
+          "command": {
+            "type": "string",
+            "minLength": 1
+          },
+          "group": {
+            "type": "string",
+            "minLength": 1
+          },
+          "summary": {
+            "type": "string",
+            "minLength": 1
+          },
+          "usage": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 1
+          },
+          "subcommands": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "flags": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "json": {
+            "type": "boolean"
+          },
+          "stability": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

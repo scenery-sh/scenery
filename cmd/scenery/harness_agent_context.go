@@ -33,8 +33,8 @@ func buildHarnessAgentContext(repoRoot string, resp harnessSelfResponse) harness
 		changedAreaCommands = append(changedAreaCommands, resp.ChangedArea.RecommendedCommands...)
 	}
 	contextPack := harnessAgentContext{
-		SchemaVersion: harnessAgentContextSchema,
-		GeneratedAt:   resp.GeneratedAt,
+		cliPayloadIdentity: newCLIPayloadIdentity(harnessAgentContextKind),
+		GeneratedAt:        resp.GeneratedAt,
 		Repo: harnessAgentContextRepo{
 			Root:       resp.Repo.Root,
 			ModulePath: resp.Repo.ModulePath,
@@ -177,12 +177,14 @@ func buildHarnessAgentDocsFreshness(repoRoot string) harnessAgentDocsFreshness {
 	resp, err := buildInspectDocsResponse(repoRoot)
 	if err != nil {
 		return harnessAgentDocsFreshness{
-			SchemaVersion: inspectDocsSchema,
-			Error:         err.Error(),
+			Kind:           inspectDocsKind,
+			SchemaRevision: newCLIPayloadIdentity(inspectDocsKind).SchemaRevision,
+			Error:          err.Error(),
 		}
 	}
 	state := harnessAgentDocsFreshness{
-		SchemaVersion:  resp.SchemaVersion,
+		Kind:           resp.Kind,
+		SchemaRevision: resp.SchemaRevision,
 		DocumentCount:  resp.Summary.DocumentCount,
 		MissingCount:   resp.Summary.MissingCount,
 		ReviewDueCount: resp.Summary.ReviewDueCount,
@@ -255,19 +257,21 @@ func buildHarnessAgentFailedArtifacts(repoRoot string, failures []harnessAgentFa
 				continue
 			}
 			item := harnessAgentFailedArtifact{
-				Step:          stepName,
-				Name:          artifact.Name,
-				Path:          artifact.Path,
-				SchemaVersion: artifact.SchemaVersion,
-				RerunCommand:  rerun,
+				Step:           stepName,
+				Name:           artifact.Name,
+				Path:           artifact.Path,
+				Kind:           artifact.Kind,
+				SchemaRevision: artifact.SchemaRevision,
+				RerunCommand:   rerun,
 			}
 			key := item.Name + "\x00" + item.Path
 			if existing, ok := items[key]; ok {
 				if existing.Step == "" {
 					existing.Step = item.Step
 				}
-				if existing.SchemaVersion == "" {
-					existing.SchemaVersion = item.SchemaVersion
+				if existing.Kind == "" {
+					existing.Kind = item.Kind
+					existing.SchemaRevision = item.SchemaRevision
 				}
 				if existing.RerunCommand == "" {
 					existing.RerunCommand = item.RerunCommand

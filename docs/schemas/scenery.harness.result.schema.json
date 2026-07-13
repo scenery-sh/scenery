@@ -1,0 +1,283 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.harness.result.schema.json",
+  "title": "scenery harness result",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "ok",
+    "generated_at",
+    "app",
+    "knowledge",
+    "steps",
+    "artifacts"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.harness.result"
+    },
+    "schema_revision": {
+      "const": "sha256:19f4764781db12ff44ec727ecfff77b0a633a238ad4b316323c862288f54afc6"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "generated_at": {
+      "type": "string"
+    },
+    "app": {
+      "type": "object",
+      "required": [
+        "name",
+        "root",
+        "config_path"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "root": {
+          "type": "string"
+        },
+        "config_path": {
+          "type": "string"
+        },
+        "module_path": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "knowledge": {
+      "type": "object",
+      "required": [
+        "entrypoints",
+        "schemas"
+      ],
+      "properties": {
+        "entrypoints": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/knowledge_file"
+          }
+        },
+        "schemas": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/knowledge_file"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "steps": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/step"
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/artifact"
+      }
+    },
+    "validation": {
+      "type": "object",
+      "required": [
+        "profile",
+        "ok",
+        "result_path"
+      ],
+      "properties": {
+        "profile": {
+          "type": "string"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "result_path": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "next_actions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "wrote": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "knowledge_file": {
+      "type": "object",
+      "required": [
+        "path",
+        "exists"
+      ],
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "exists": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "step": {
+      "type": "object",
+      "required": [
+        "name",
+        "command",
+        "ok",
+        "duration_ms"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "command": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "duration_ms": {
+          "type": "integer"
+        },
+        "evidence": {
+          "$ref": "#/$defs/evidence"
+        },
+        "summary": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "error": {
+          "type": "string"
+        },
+        "output_tail": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "evidence": {
+      "type": "object",
+      "required": [
+        "kind",
+        "schema_revision",
+        "duration_ms"
+      ],
+      "properties": {
+        "kind": {
+          "const": "scenery.harness.artifact"
+        },
+        "schema_revision": {
+          "const": "sha256:9d62b7ef8b7bfc70e70c92e8cddf4cbd00b100de0487aa8dab4bd6ad8722f6ae"
+        },
+        "command": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "started_at": {
+          "type": "string"
+        },
+        "duration_ms": {
+          "type": "integer"
+        },
+        "exit_code": {
+          "type": "integer"
+        },
+        "stdout_tail": {
+          "type": "string"
+        },
+        "stderr_tail": {
+          "type": "string"
+        },
+        "artifacts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/evidence_artifact"
+          }
+        },
+        "repro_command": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "evidence_artifact": {
+      "type": "object",
+      "required": [
+        "name",
+        "path"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "schema_revision": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "artifact": {
+      "type": "object",
+      "required": [
+        "name",
+        "path",
+        "exists"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "schema_revision": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "exists": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

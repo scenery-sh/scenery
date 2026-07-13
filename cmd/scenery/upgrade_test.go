@@ -28,22 +28,40 @@ func TestParseUpgradeArgs(t *testing.T) {
 		t.Fatalf("upgradeArchiveName kept tag prefix: %q", got)
 	}
 
-	opts, err := parseUpgradeArgs([]string{"--version", "v9.9.9", "--target", "/tmp/scenery", "--toolchain", "all", "--force", "--dry-run", "-o", "json"})
+	opts, err := parseUpgradeArgs([]string{"--target", "/tmp/scenery", "--toolchain", "all", "--force", "--dry-run", "-o", "json"})
 	if err != nil {
 		t.Fatalf("parseUpgradeArgs() error = %v", err)
 	}
-	if opts.Version != "v9.9.9" || opts.Target != "/tmp/scenery" || opts.ToolchainMode != "all" || !opts.Force || !opts.DryRun || !opts.JSON {
+	if opts.Target != "/tmp/scenery" || opts.ToolchainMode != "all" || !opts.Force || !opts.DryRun || !opts.JSON {
 		t.Fatalf("opts = %+v", opts)
 	}
 	opts, err = parseUpgradeArgs([]string{"--skip-toolchain"})
 	if err != nil {
 		t.Fatalf("parseUpgradeArgs(skip) error = %v", err)
 	}
-	if opts.Version != "latest" || opts.ToolchainMode != "none" {
+	if opts.ToolchainMode != "none" {
 		t.Fatalf("skip opts = %+v", opts)
 	}
 	if _, err := parseUpgradeArgs([]string{"--toolchain", "maybe"}); err == nil {
 		t.Fatal("expected invalid toolchain mode to fail")
+	}
+}
+
+func TestRunUpgradeHelpUsesCurrentChannelContract(t *testing.T) {
+	t.Parallel()
+
+	var out bytes.Buffer
+	if err := runUpgrade(t.Context(), &out, []string{"--help"}); err != nil {
+		t.Fatal(err)
+	}
+	help := out.String()
+	for _, want := range []string{"scenery upgrade", "--target <path>", "--toolchain installed|all|none"} {
+		if !strings.Contains(help, want) {
+			t.Fatalf("help missing %q:\n%s", want, help)
+		}
+	}
+	if strings.Contains(help, "--version") {
+		t.Fatalf("help exposes historical release selection:\n%s", help)
 	}
 }
 
@@ -57,7 +75,7 @@ func TestRunUpgradeInstallsVerifiedReleaseAndSyncsToolchain(t *testing.T) {
 	script := "#!/bin/sh\n" +
 		"if [ \"$1\" = \"system\" ] && [ \"$2\" = \"toolchain\" ] && [ \"$3\" = \"sync\" ]; then\n" +
 		"  printf '%s\\n' \"$*\" > \"$UPGRADE_TEST_MARKER\"\n" +
-		"  echo '{\"schema_version\":\"scenery.toolchain.status.v1\",\"artifacts\":[]}'\n" +
+		"  echo '{\"kind\":\"scenery.toolchain.status\",\"schema_revision\":\"sha256:016d9a4dcfe775dd3847bd0ff320dd889d7945e9df22b8774a1d42b210c3f0f0\",\"artifacts\":[]}'\n" +
 		"  exit 0\n" +
 		"fi\n" +
 		"echo 'fake scenery'\n"
@@ -74,7 +92,7 @@ func TestRunUpgradeInstallsVerifiedReleaseAndSyncsToolchain(t *testing.T) {
 
 	target := filepath.Join(t.TempDir(), "bin", "scenery")
 	var out bytes.Buffer
-	if err := runUpgrade(t.Context(), &out, []string{"--version", tag, "--target", target, "--toolchain", "all", "-o", "json"}); err != nil {
+	if err := runUpgrade(t.Context(), &out, []string{"--target", target, "--toolchain", "all", "-o", "json"}); err != nil {
 		t.Fatalf("runUpgrade() error = %v\n%s", err, out.String())
 	}
 	var payload upgradeResponse
@@ -116,7 +134,7 @@ func TestRunUpgradeSkipsCurrentVersionForDefaultTarget(t *testing.T) {
 	defer restore()
 
 	var out bytes.Buffer
-	if err := runUpgrade(t.Context(), &out, []string{"--version", tag, "--skip-toolchain", "-o", "json"}); err != nil {
+	if err := runUpgrade(t.Context(), &out, []string{"--skip-toolchain", "-o", "json"}); err != nil {
 		t.Fatalf("runUpgrade() error = %v\n%s", err, out.String())
 	}
 	var payload upgradeResponse
@@ -145,7 +163,7 @@ func TestRunUpgradeInstallsExplicitTargetEvenWhenCurrentVersionMatches(t *testin
 	}
 
 	var out bytes.Buffer
-	if err := runUpgrade(t.Context(), &out, []string{"--version", tag, "--target", target, "--skip-toolchain", "-o", "json"}); err != nil {
+	if err := runUpgrade(t.Context(), &out, []string{"--target", target, "--skip-toolchain", "-o", "json"}); err != nil {
 		t.Fatalf("runUpgrade() error = %v\n%s", err, out.String())
 	}
 	var payload upgradeResponse
@@ -164,6 +182,49 @@ func TestRunUpgradeInstallsExplicitTargetEvenWhenCurrentVersionMatches(t *testin
 	}
 }
 
+func TestRunUpgradeRefusesLegacyRecoveryStateBeforeReplacingBinary(t *testing.T) {
+	tag := "v9.9.9"
+	assetName := upgradeArchiveName(tag)
+	archiveData := buildUpgradeArchive(t, []byte("new binary"))
+	sum := sha256.Sum256(archiveData)
+	server := newUpgradeReleaseServer(t, tag, map[string][]byte{
+		assetName:       archiveData,
+		"checksums.txt": []byte(hex.EncodeToString(sum[:]) + "  " + assetName + "\n"),
+	})
+	restore := overrideUpgradeGlobals(t, server, "v0.2.0")
+	defer restore()
+
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, ".scenery.json"), []byte(`{"name":"legacy-recovery"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	legacyPath := filepath.Join(root, ".scenery", "transactions", "change-apply.json")
+	if err := os.MkdirAll(filepath.Dir(legacyPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	legacy := []byte(`{"api_version":"scenery.change-transaction/v1","sentinel":"keep"}`)
+	if err := os.WriteFile(legacyPath, legacy, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	upgradeWorkingDirectory = func() (string, error) { return root, nil }
+
+	target := filepath.Join(t.TempDir(), "scenery")
+	if err := os.WriteFile(target, []byte("old binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	err := runUpgrade(t.Context(), &out, []string{"--target", target, "--skip-toolchain", "-o", "json"})
+	if err == nil || !strings.Contains(err.Error(), "previous Scenery binary") || !strings.Contains(err.Error(), "no state was modified") {
+		t.Fatalf("runUpgrade() error = %v\n%s", err, out.String())
+	}
+	if got, readErr := os.ReadFile(target); readErr != nil || string(got) != "old binary" {
+		t.Fatalf("upgrade replaced target: got %q, err %v", got, readErr)
+	}
+	if got, readErr := os.ReadFile(legacyPath); readErr != nil || string(got) != string(legacy) {
+		t.Fatalf("upgrade changed legacy state: got %q, err %v", got, readErr)
+	}
+}
+
 func TestRunUpgradeRejectsChecksumMismatch(t *testing.T) {
 	tag := "v9.9.9"
 	assetName := upgradeArchiveName(tag)
@@ -176,7 +237,7 @@ func TestRunUpgradeRejectsChecksumMismatch(t *testing.T) {
 	target := filepath.Join(t.TempDir(), "scenery")
 
 	var out bytes.Buffer
-	err := runUpgrade(t.Context(), &out, []string{"--version", tag, "--target", target, "--skip-toolchain", "-o", "json"})
+	err := runUpgrade(t.Context(), &out, []string{"--target", target, "--skip-toolchain", "-o", "json"})
 	if err == nil || !strings.Contains(err.Error(), "checksum mismatch") {
 		t.Fatalf("error = %v\n%s", err, out.String())
 	}
@@ -225,7 +286,7 @@ func TestUpgradeAddsDeploySetupNoticeWhenHelperContractDrifts(t *testing.T) {
 
 	target := filepath.Join(t.TempDir(), "scenery")
 	var out bytes.Buffer
-	if err := runUpgrade(t.Context(), &out, []string{"--version", tag, "--target", target, "--skip-toolchain"}); err != nil {
+	if err := runUpgrade(t.Context(), &out, []string{"--target", target, "--skip-toolchain"}); err != nil {
 		t.Fatalf("runUpgrade() error = %v\n%s", err, out.String())
 	}
 	if !strings.Contains(out.String(), "deploy helper: Run `scenery deploy setup` to update the privileged listener (asks for sudo).") {
@@ -233,7 +294,7 @@ func TestUpgradeAddsDeploySetupNoticeWhenHelperContractDrifts(t *testing.T) {
 	}
 
 	out.Reset()
-	if err := runUpgrade(t.Context(), &out, []string{"--version", tag, "--target", target, "--force", "--skip-toolchain", "-o", "json"}); err != nil {
+	if err := runUpgrade(t.Context(), &out, []string{"--target", target, "--force", "--skip-toolchain", "-o", "json"}); err != nil {
 		t.Fatalf("runUpgrade json error = %v\n%s", err, out.String())
 	}
 	var payload upgradeResponse
@@ -247,12 +308,11 @@ func TestUpgradeAddsDeploySetupNoticeWhenHelperContractDrifts(t *testing.T) {
 
 func TestDeployHelperDriftRequiresSetupOnlyForContractDrift(t *testing.T) {
 	paths := localagent.PathsForHome(t.TempDir())
-	if err := localagent.WriteEdgeTargetState(paths.EdgeTargetPath, localagent.EdgeTargetState{
-		SchemaVersion: "scenery.edge.target.old",
-		Kind:          localagent.EdgeKindCaddy,
-		TargetAddr:    "127.0.0.1:19443",
-	}); err != nil {
-		t.Fatalf("WriteEdgeTargetState: %v", err)
+	if err := os.MkdirAll(filepath.Dir(paths.EdgeTargetPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(paths.EdgeTargetPath, []byte(`{"kind":"scenery.edge.target","schema_revision":"sha256:old","spec_revision":"sha256:old","producer":{"version":"dev","toolchain":{"go_version":"go1.26"}},"edge_kind":"caddy","target_addr":"127.0.0.1:19443"}`), 0o600); err != nil {
+		t.Fatalf("write stale edge target: %v", err)
 	}
 	helper := edgeStatusPrivilegedListener{
 		Installed:  true,
@@ -265,9 +325,8 @@ func TestDeployHelperDriftRequiresSetupOnlyForContractDrift(t *testing.T) {
 	}
 
 	if err := localagent.WriteEdgeTargetState(paths.EdgeTargetPath, localagent.EdgeTargetState{
-		SchemaVersion: deployHelperContractVersion,
-		Kind:          localagent.EdgeKindCaddy,
-		TargetAddr:    "127.0.0.1:19443",
+		Kind:       localagent.EdgeKindCaddy,
+		TargetAddr: "127.0.0.1:19443",
 	}); err != nil {
 		t.Fatalf("WriteEdgeTargetState current: %v", err)
 	}
@@ -323,9 +382,6 @@ func newUpgradeReleaseServer(t *testing.T, tag string, assets map[string][]byte)
 	mux.HandleFunc("/repos/scenery-sh/scenery/releases/latest", func(w http.ResponseWriter, r *http.Request) {
 		writeUpgradeRelease(t, w, tag, assets, r.Host)
 	})
-	mux.HandleFunc("/repos/scenery-sh/scenery/releases/tags/"+tag, func(w http.ResponseWriter, r *http.Request) {
-		writeUpgradeRelease(t, w, tag, assets, r.Host)
-	})
 	mux.HandleFunc("/download/", func(w http.ResponseWriter, r *http.Request) {
 		name := strings.TrimPrefix(r.URL.Path, "/download/")
 		data, ok := assets[name]
@@ -365,6 +421,7 @@ func overrideUpgradeGlobals(t *testing.T, server *httptest.Server, currentVersio
 	oldClient := upgradeHTTPClient
 	oldVersion := upgradeCurrentVersionFn
 	oldNotice := upgradeDeployNoticeFunc
+	oldWorkingDirectory := upgradeWorkingDirectory
 	upgradeAPIBaseURL = server.URL + "/repos/scenery-sh/scenery"
 	upgradeHTTPClient = server.Client()
 	upgradeCurrentVersionFn = func() string { return currentVersion }
@@ -374,6 +431,7 @@ func overrideUpgradeGlobals(t *testing.T, server *httptest.Server, currentVersio
 		upgradeHTTPClient = oldClient
 		upgradeCurrentVersionFn = oldVersion
 		upgradeDeployNoticeFunc = oldNotice
+		upgradeWorkingDirectory = oldWorkingDirectory
 		server.Close()
 	}
 }

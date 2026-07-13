@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.validation.graph.schema.json",
+  "title": "scenery.validation.graph",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "app",
+    "profile",
+    "nodes",
+    "edges"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.validation.graph"
+    },
+    "schema_revision": {
+      "const": "sha256:35965ecbaf060d0b8256d797246367e8758c5a8b321d43ee54423a0cb4932fef"
+    },
+    "app": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "profile": {
+      "type": "string"
+    },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "kind"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "from",
+          "to",
+          "kind"
+        ],
+        "properties": {
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": false
+}

@@ -2,11 +2,13 @@ package main
 
 import (
 	"net"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	localagent "scenery.sh/internal/agent"
+	"scenery.sh/internal/machine"
 )
 
 func TestPreferredDevPortStableForAppRoot(t *testing.T) {
@@ -86,13 +88,13 @@ func TestAllocateDevPortLeaseReclaimsStaleFreeLease(t *testing.T) {
 	rootA := filepath.Join(t.TempDir(), "app-a")
 	rootB := filepath.Join(t.TempDir(), "app-b")
 	stale := devPortLeaseFile{
-		SchemaVersion: devPortLeaseSchemaVersion,
+		ArtifactIdentity: machine.NewArtifactIdentity(devPortLeaseFileKind, devPortLeaseFileDescriptor),
 		Leases: []localagent.PortLease{{
-			SchemaVersion: devPortLeaseSchemaVersion,
-			AppRoot:       rootA,
-			SessionID:     "old",
-			Port:          4001,
-			Owner:         localagent.Owner{PID: 999999},
+			ArtifactIdentity: localagent.NewPortLeaseIdentity(),
+			AppRoot:          rootA,
+			SessionID:        "old",
+			Port:             4001,
+			Owner:            localagent.Owner{PID: 999999},
 		}},
 	}
 	if err := saveDevPortLeases(path, stale); err != nil {
@@ -125,6 +127,25 @@ func TestAllocateDevPortLeaseFailsWhenRangeExhausted(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected exhausted range error")
+	}
+}
+
+func TestLoadDevPortLeasesMigratesOwnership(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "dev-ports.json")
+	legacy := []byte(`{"schema_version":"scenery.dev.port_lease.v1","leases":[{"schema_version":"scenery.dev.port_lease.v1","app_root":"/repo/onlv","session_id":"main","port":4001,"url":"http://localhost:4001","owner_pid":42,"owner":{"pid":42,"recorded_at":"2026-07-13T00:00:00Z"},"created_at":"2026-07-13T00:00:00Z","updated_at":"2026-07-13T00:00:00Z"}]}`)
+	if err := os.WriteFile(path, legacy, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	file, err := loadDevPortLeases(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if file.Kind != devPortLeaseFileKind || len(file.Leases) != 1 || file.Leases[0].OwnerPID != 42 || file.Leases[0].Kind != localagent.PortLeaseKind {
+		t.Fatalf("migrated leases = %+v", file)
+	}
+	backup, err := os.ReadFile(path + ".legacy.bak")
+	if err != nil || string(backup) != string(legacy) {
+		t.Fatalf("backup = %q, %v", backup, err)
 	}
 }
 

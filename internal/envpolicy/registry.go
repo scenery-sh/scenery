@@ -1,23 +1,31 @@
 package envpolicy
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
+
+	"scenery.sh/internal/spec"
 )
 
 const (
-	SchemaVersion = "scenery.environment.registry.v1"
-	RedactedValue = "<redacted>"
+	Kind             = "scenery.environment.registry"
+	schemaDescriptor = `{"kind":"scenery.environment.registry","identity":"source","variables":"environment_variables"}`
+	RedactedValue    = "<redacted>"
 )
 
+var SchemaRevision = string(spec.SchemaRevision(schemaDescriptor))
+
 type Registry struct {
-	SchemaVersion string     `json:"schema_version"`
-	Variables     []Variable `json:"variables"`
+	Kind           string     `json:"kind"`
+	SchemaRevision string     `json:"schema_revision"`
+	Variables      []Variable `json:"variables"`
 
 	exact    map[string]Variable
 	patterns []Variable
@@ -50,8 +58,13 @@ func LoadRegistry(path string) (*Registry, error) {
 		return nil, err
 	}
 	var registry Registry
-	if err := json.Unmarshal(data, &registry); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&registry); err != nil {
 		return nil, err
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return nil, fmt.Errorf("environment registry contains trailing JSON")
 	}
 	if err := registry.Validate(); err != nil {
 		return nil, err
@@ -61,8 +74,8 @@ func LoadRegistry(path string) (*Registry, error) {
 }
 
 func (r *Registry) Validate() error {
-	if r.SchemaVersion != SchemaVersion {
-		return fmt.Errorf("environment registry schema_version = %q, want %q", r.SchemaVersion, SchemaVersion)
+	if r.Kind != Kind || r.SchemaRevision != SchemaRevision {
+		return fmt.Errorf("environment registry identity = %q at %q, want %q at %q", r.Kind, r.SchemaRevision, Kind, SchemaRevision)
 	}
 	seen := map[string]struct{}{}
 	for i, variable := range r.Variables {

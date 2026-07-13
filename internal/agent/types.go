@@ -1,18 +1,27 @@
 package agent
 
-import "time"
+import (
+	"time"
+
+	"scenery.sh/internal/machine"
+)
 
 const (
-	SessionSchemaVersion   = "scenery.dev.session.v1"
-	RouteManifestVersion   = "scenery.route_manifest.v1"
-	SubstrateSchemaVersion = "scenery.dev.substrate.v1"
-	StateSchemaVersion     = "scenery.agent.state.v1"
+	SessionKind        = "scenery.dev.session"
+	RouteManifestKind  = "scenery.route-manifest"
+	PortLeaseKind      = "scenery.dev.port-lease"
+	SubstrateKind      = "scenery.dev.substrate"
+	AgentStateKind     = "scenery.agent.state"
+	AgentRegistryKind  = "scenery.agent.registry"
+	DeployRegistryKind = "scenery.deploy.registry"
+	EdgeStateKind      = "scenery.edge.state"
+	EdgeTargetKind     = "scenery.edge.target"
 
 	RouteAPI       = "api"
 	RouteDashboard = "dashboard"
 	RoutePublic    = "public"
 
-	PathModeDashboardPrefix = "/consolenext"
+	PathModeDashboardPrefix = "/console"
 	PathModeRuntimePrefix   = "/runtime"
 
 	DefaultRouteBaseDomain = "local.dev"
@@ -44,7 +53,7 @@ type Owner struct {
 }
 
 type Session struct {
-	SchemaVersion  string                `json:"schema_version"`
+	machine.ArtifactIdentity
 	SessionID      string                `json:"session_id"`
 	BaseAppID      string                `json:"base_app_id"`
 	RuntimeAppID   string                `json:"runtime_app_id"`
@@ -97,13 +106,13 @@ type RouteNamespace struct {
 }
 
 type RouteManifest struct {
-	SchemaVersion string                 `json:"schema_version,omitempty"`
-	Mode          RouteMode              `json:"mode,omitempty"`
-	BaseURL       string                 `json:"base_url,omitempty"`
-	Root          string                 `json:"root,omitempty"`
-	Worktree      string                 `json:"worktree,omitempty"`
-	Routes        map[string]RouteRecord `json:"routes,omitempty"`
-	PortLease     *PortLease             `json:"port_lease,omitempty"`
+	machine.ArtifactIdentity
+	Mode      RouteMode              `json:"mode,omitempty"`
+	BaseURL   string                 `json:"base_url,omitempty"`
+	Root      string                 `json:"root,omitempty"`
+	Worktree  string                 `json:"worktree,omitempty"`
+	Routes    map[string]RouteRecord `json:"routes,omitempty"`
+	PortLease *PortLease             `json:"port_lease,omitempty"`
 }
 
 func (m RouteManifest) URLs() map[string]string {
@@ -124,7 +133,7 @@ type RouteRecord struct {
 }
 
 type PortLease struct {
-	SchemaVersion string    `json:"schema_version,omitempty"`
+	machine.ArtifactIdentity
 	AppRoot       string    `json:"app_root"`
 	SessionID     string    `json:"session_id"`
 	BaseAppID     string    `json:"base_app_id,omitempty"`
@@ -160,8 +169,8 @@ type StatusResponse struct {
 }
 
 type Substrate struct {
-	SchemaVersion  string                    `json:"schema_version"`
-	Kind           string                    `json:"kind"`
+	machine.ArtifactIdentity
+	Kind           string                    `json:"substrate_kind"`
 	Status         string                    `json:"status"`
 	OwnerPID       int                       `json:"owner_pid,omitempty"`
 	Owner          Owner                     `json:"owner"`
@@ -223,8 +232,8 @@ type SubstratesResponse struct {
 }
 
 type HealthResponse struct {
-	SchemaVersion string `json:"schema_version"`
-	PID           int    `json:"pid"`
+	machine.ArtifactIdentity
+	PID int `json:"pid"`
 	Identity
 	SocketPath           string     `json:"socket_path"`
 	RouterAddr           string     `json:"router_addr"`
@@ -236,8 +245,8 @@ type HealthResponse struct {
 }
 
 type State struct {
-	SchemaVersion string `json:"schema_version"`
-	PID           int    `json:"pid"`
+	machine.ArtifactIdentity
+	PID int `json:"pid"`
 	Identity
 	SocketPath       string     `json:"socket_path"`
 	RouterAddr       string     `json:"router_addr"`
@@ -248,24 +257,24 @@ type State struct {
 }
 
 type EdgeState struct {
-	SchemaVersion string    `json:"schema_version,omitempty"`
-	Kind          string    `json:"kind"`
-	Status        string    `json:"status"`
-	PID           int       `json:"pid,omitempty"`
-	PublicAddr    string    `json:"public_addr,omitempty"`
-	PublicScheme  string    `json:"public_scheme,omitempty"`
-	HTTPSListen   string    `json:"https_listen,omitempty"`
-	UpstreamAddr  string    `json:"upstream_addr,omitempty"`
-	AdminSocket   string    `json:"admin_socket,omitempty"`
-	ConfigPath    string    `json:"config_path,omitempty"`
-	LogPath       string    `json:"log_path,omitempty"`
-	Error         string    `json:"error,omitempty"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	machine.ArtifactIdentity
+	Kind         string    `json:"edge_kind"`
+	Status       string    `json:"status"`
+	PID          int       `json:"pid,omitempty"`
+	PublicAddr   string    `json:"public_addr,omitempty"`
+	PublicScheme string    `json:"public_scheme,omitempty"`
+	HTTPSListen  string    `json:"https_listen,omitempty"`
+	UpstreamAddr string    `json:"upstream_addr,omitempty"`
+	AdminSocket  string    `json:"admin_socket,omitempty"`
+	ConfigPath   string    `json:"config_path,omitempty"`
+	LogPath      string    `json:"log_path,omitempty"`
+	Error        string    `json:"error,omitempty"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 type EdgeTargetState struct {
-	SchemaVersion  string    `json:"schema_version"`
-	Kind           string    `json:"kind"`
+	machine.ArtifactIdentity
+	Kind           string    `json:"edge_kind"`
 	TargetAddr     string    `json:"target_addr"`
 	HTTPTargetAddr string    `json:"http_target_addr,omitempty"`
 	PID            int       `json:"pid"`

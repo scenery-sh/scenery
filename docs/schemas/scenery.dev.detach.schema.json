@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.dev.detach.schema.json",
+  "title": "scenery.dev.detach",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.dev.detach"
+    },
+    "schema_revision": {
+      "const": "sha256:55f0c6bc2e79cdb46c59b095fc9433e51a21aa620408b63ae7c5dcac4dfde7ff"
+    },
+    "wait": {
+    },
+    "pid": {
+    },
+    "log_path": {
+    },
+    "attach_command": {
+    },
+    "down_command": {
+    },
+    "session": {
+    }
+  },
+  "additionalProperties": false
+}

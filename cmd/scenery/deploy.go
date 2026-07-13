@@ -32,17 +32,17 @@ type deployOptions struct {
 	ACMECA    string
 }
 
-const deployHelperContractVersion = localagent.EdgeTargetSchemaVersion
+var deployHelperContractVersion = localagent.EdgeTargetSchemaRevision()
 
 type deployMutationResponse struct {
-	SchemaVersion string                    `json:"schema_version"`
-	Action        string                    `json:"action"`
-	RegistryPath  string                    `json:"registry_path"`
-	Targets       []localagent.DeployTarget `json:"targets"`
+	cliPayloadIdentity
+	Action       string                    `json:"action"`
+	RegistryPath string                    `json:"registry_path"`
+	Targets      []localagent.DeployTarget `json:"targets"`
 }
 
 type deployStatusResponse struct {
-	SchemaVersion      string                       `json:"schema_version"`
+	cliPayloadIdentity
 	Ready              bool                         `json:"ready"`
 	RegistryPath       string                       `json:"registry_path"`
 	PrivilegedListener edgeStatusPrivilegedListener `json:"privileged_listener"`
@@ -57,7 +57,7 @@ type deployStatusResponse struct {
 }
 
 type deploySetupResponse struct {
-	SchemaVersion        string           `json:"schema_version"`
+	cliPayloadIdentity
 	RegistryPath         string           `json:"registry_path"`
 	ACME                 deployACMEStatus `json:"acme"`
 	HelperVersion        string           `json:"helper_version"`
@@ -67,7 +67,7 @@ type deploySetupResponse struct {
 }
 
 type deployTeardownResponse struct {
-	SchemaVersion      string `json:"schema_version"`
+	cliPayloadIdentity
 	RegistryPath       string `json:"registry_path"`
 	HelperVersion      string `json:"helper_version"`
 	HelperPublic       bool   `json:"helper_public"`
@@ -76,7 +76,7 @@ type deployTeardownResponse struct {
 }
 
 type deployResumeResponse struct {
-	SchemaVersion string               `json:"schema_version"`
+	cliPayloadIdentity
 	RegistryPath  string               `json:"registry_path"`
 	LogPath       string               `json:"log_path"`
 	AgentReady    bool                 `json:"agent_ready"`
@@ -210,7 +210,7 @@ func runDeployCommand(stdout io.Writer, args []string) error {
 	}
 	subcommand := args[0]
 	if subcommand == "plan" || subcommand == "apply" {
-		return runVNextDeploy(stdout, args)
+		return runDeployment(stdout, args)
 	}
 	opts, err := parseDeployOptions(subcommand, args[1:])
 	if err != nil {
@@ -294,10 +294,10 @@ func runDeployEnable(stdout io.Writer, opts deployOptions) error {
 		return err
 	}
 	return writeDeployMutation(stdout, opts.JSON, deployMutationResponse{
-		SchemaVersion: "scenery.deploy.target.v1",
-		Action:        "enable",
-		RegistryPath:  paths.DeployPath,
-		Targets:       registry.Targets,
+		cliPayloadIdentity: newCLIPayloadIdentity("scenery.deploy.target"),
+		Action:             "enable",
+		RegistryPath:       paths.DeployPath,
+		Targets:            registry.Targets,
 	})
 }
 
@@ -334,10 +334,10 @@ func runDeployDisable(stdout io.Writer, opts deployOptions) error {
 		return err
 	}
 	return writeDeployMutation(stdout, opts.JSON, deployMutationResponse{
-		SchemaVersion: "scenery.deploy.target.v1",
-		Action:        "disable",
-		RegistryPath:  paths.DeployPath,
-		Targets:       registry.Targets,
+		cliPayloadIdentity: newCLIPayloadIdentity("scenery.deploy.target"),
+		Action:             "disable",
+		RegistryPath:       paths.DeployPath,
+		Targets:            registry.Targets,
 	})
 }
 
@@ -409,8 +409,8 @@ func runDeploySetup(stdout io.Writer, opts deployOptions) error {
 		return err
 	}
 	resp := deploySetupResponse{
-		SchemaVersion: "scenery.deploy.setup.v1",
-		RegistryPath:  paths.DeployPath,
+		cliPayloadIdentity: newCLIPayloadIdentity("scenery.deploy.setup"),
+		RegistryPath:       paths.DeployPath,
 		ACME: deployACMEStatus{
 			Email: registry.ACMEEmail,
 			CA:    firstNonEmpty(registry.ACMECA, "production"),
@@ -447,11 +447,11 @@ func runDeployResume(stdout io.Writer, opts deployOptions) error {
 	}
 	sessions := deploySessionsByAppRoot(paths)
 	resp := deployResumeResponse{
-		SchemaVersion: "scenery.deploy.resume.v1",
-		RegistryPath:  paths.DeployPath,
-		LogPath:       paths.DeployResumeLogPath,
-		AgentReady:    true,
-		EdgeRestarted: true,
+		cliPayloadIdentity: newCLIPayloadIdentity("scenery.deploy.resume"),
+		RegistryPath:       paths.DeployPath,
+		LogPath:            paths.DeployResumeLogPath,
+		AgentReady:         true,
+		EdgeRestarted:      true,
 	}
 	for _, target := range registry.Targets {
 		if !target.Enabled {
@@ -519,7 +519,7 @@ func runDeployTeardown(stdout io.Writer, opts deployOptions) error {
 		return err
 	}
 	resp := deployTeardownResponse{
-		SchemaVersion:      "scenery.deploy.teardown.v1",
+		cliPayloadIdentity: newCLIPayloadIdentity("scenery.deploy.teardown"),
 		RegistryPath:       paths.DeployPath,
 		HelperVersion:      helperVersion,
 		HelperPublic:       false,
@@ -635,7 +635,7 @@ func buildDeployStatusWithContext(ctx context.Context, paths localagent.Paths, r
 	}
 	helperPublic := deployHelperHasPublicBinding(helper.Listen)
 	status := deployStatusResponse{
-		SchemaVersion:      "scenery.deploy.status.v1",
+		cliPayloadIdentity: newCLIPayloadIdentity("scenery.deploy.status"),
 		RegistryPath:       paths.DeployPath,
 		PrivilegedListener: helper,
 		HelperPublic:       helperPublic,
@@ -677,17 +677,11 @@ func deployAgentStatusFor(paths localagent.Paths) deployAgentStatus {
 		StatePath:  paths.StatePath,
 		SocketPath: paths.SocketPath,
 	}
-	data, err := os.ReadFile(paths.StatePath)
+	state, err := localagent.LoadState(paths.StatePath)
 	if errors.Is(err, os.ErrNotExist) {
 		return status
 	}
 	if err != nil {
-		status.State = "unhealthy"
-		status.Message = err.Error()
-		return status
-	}
-	var state localagent.State
-	if err := json.Unmarshal(data, &state); err != nil {
 		status.State = "unhealthy"
 		status.Message = err.Error()
 		return status
@@ -888,10 +882,10 @@ func addDeployHelperDiagnostics(report *deployDiagnosticReport, paths localagent
 		Message:         drift.Message,
 		SuggestedAction: drift.SuggestedAction,
 		Observed: map[string]any{
-			"helper_version":        drift.HelperVersion,
-			"current_version":       drift.CurrentVersion,
-			"target_schema_version": drift.TargetSchema,
-			"expected_schema":       drift.ExpectedSchema,
+			"helper_version":           drift.HelperVersion,
+			"current_version":          drift.CurrentVersion,
+			"target_schema_revision":   drift.TargetSchema,
+			"expected_schema_revision": drift.ExpectedSchema,
 		},
 	})
 }
@@ -901,12 +895,16 @@ func deployHelperDriftFor(paths localagent.Paths, helper edgeStatusPrivilegedLis
 	if targetPath == "" {
 		targetPath = paths.EdgeTargetPath
 	}
-	targetState, _ := localagent.LoadEdgeTargetState(targetPath)
+	targetState, targetErr := localagent.LoadEdgeTargetState(targetPath)
+	targetSchema := strings.TrimSpace(targetState.SchemaRevision)
+	if targetErr != nil {
+		targetSchema = "invalid"
+	}
 	drift := deployHelperDrift{
 		HelperInstalled: helper.Installed,
 		HelperVersion:   strings.TrimSpace(helper.Version),
 		CurrentVersion:  strings.TrimSpace(currentVersion),
-		TargetSchema:    strings.TrimSpace(targetState.SchemaVersion),
+		TargetSchema:    targetSchema,
 		ExpectedSchema:  deployHelperContractVersion,
 	}
 	switch {

@@ -19,7 +19,17 @@ import (
 	"time"
 
 	"scenery.sh/internal/envpolicy"
+	"scenery.sh/internal/machine"
+	"scenery.sh/internal/spec"
 )
+
+const (
+	installMetadataKind             = "scenery.toolchain.install"
+	installMetadataSchemaDescriptor = `{"installed_at":"datetime","kind":"scenery.toolchain.install","manifest_sha256":"digest","name":"string","platform":"platform","producer":"producer","schema_revision":"digest","source_kind":"optional_string","source_sha256":"digest","source_url":"string","spec_revision":"digest","version":"external_version"}`
+	statusSchemaDescriptor          = `{"artifacts":"array<artifact-status>","kind":"scenery.toolchain.status","manifest_sha256":"digest","platform":"platform","schema_revision":"digest","source_locks":"array<source-lock-status>","store_dir":"path"}`
+)
+
+var StatusSchemaRevision = string(spec.SchemaRevision(statusSchemaDescriptor))
 
 var ErrDockerUnavailable = errors.New("docker unavailable")
 
@@ -71,7 +81,8 @@ type Options struct {
 }
 
 type Status struct {
-	SchemaVersion  string             `json:"schema_version"`
+	Kind           string             `json:"kind"`
+	SchemaRevision string             `json:"schema_revision"`
 	ManifestSHA256 string             `json:"manifest_sha256"`
 	StoreDir       string             `json:"store_dir"`
 	Platform       string             `json:"platform"`
@@ -111,7 +122,7 @@ type ImageStatus struct {
 }
 
 type InstallMetadata struct {
-	SchemaVersion  string `json:"schema_version"`
+	machine.ArtifactIdentity
 	Name           string `json:"name"`
 	Version        string `json:"version"`
 	Platform       string `json:"platform"`
@@ -222,7 +233,8 @@ func (s *Store) status(ctx context.Context, opts Options, verify bool) (Status, 
 		root = s.RootDir
 	}
 	status := Status{
-		SchemaVersion:  StatusSchemaVersion,
+		Kind:           StatusKind,
+		SchemaRevision: StatusSchemaRevision,
 		ManifestSHA256: s.manifestSHA256(),
 		StoreDir:       filepath.Clean(s.Dir),
 		Platform:       opts.Platform.String(),
@@ -469,14 +481,14 @@ func (s *Store) installArtifact(ctx context.Context, artifact Artifact, platform
 		return err
 	}
 	meta := InstallMetadata{
-		SchemaVersion:  InstallSchemaVersion,
-		Name:           artifact.Name,
-		Version:        artifact.Version,
-		Platform:       platform.String(),
-		ManifestSHA256: s.manifestSHA256(),
-		SourceURL:      entry.URL,
-		SourceSHA256:   strings.ToLower(entry.SHA256),
-		InstalledAt:    time.Now().UTC().Format(time.RFC3339Nano),
+		ArtifactIdentity: machine.NewArtifactIdentity(installMetadataKind, installMetadataSchemaDescriptor),
+		Name:             artifact.Name,
+		Version:          artifact.Version,
+		Platform:         platform.String(),
+		ManifestSHA256:   s.manifestSHA256(),
+		SourceURL:        entry.URL,
+		SourceSHA256:     strings.ToLower(entry.SHA256),
+		InstalledAt:      time.Now().UTC().Format(time.RFC3339Nano),
 	}
 	data, err = json.MarshalIndent(meta, "", "  ")
 	if err != nil {
@@ -520,15 +532,15 @@ func (s *Store) installSourceBuildArtifact(ctx context.Context, artifact Artifac
 		return err
 	}
 	meta := InstallMetadata{
-		SchemaVersion:  InstallSchemaVersion,
-		Name:           artifact.Name,
-		Version:        artifact.Version,
-		Platform:       platform.String(),
-		ManifestSHA256: s.manifestSHA256(),
-		SourceURL:      pkg,
-		SourceSHA256:   s.manifestSHA256(),
-		SourceKind:     "source-build",
-		InstalledAt:    time.Now().UTC().Format(time.RFC3339Nano),
+		ArtifactIdentity: machine.NewArtifactIdentity(installMetadataKind, installMetadataSchemaDescriptor),
+		Name:             artifact.Name,
+		Version:          artifact.Version,
+		Platform:         platform.String(),
+		ManifestSHA256:   s.manifestSHA256(),
+		SourceURL:        pkg,
+		SourceSHA256:     s.manifestSHA256(),
+		SourceKind:       "source-build",
+		InstalledAt:      time.Now().UTC().Format(time.RFC3339Nano),
 	}
 	data, err := json.MarshalIndent(meta, "", "  ")
 	if err != nil {
@@ -765,10 +777,10 @@ func (s *Store) verifyInstall(artifact Artifact, entry PlatformArtifact, platfor
 		return err
 	}
 	var meta InstallMetadata
-	if err := json.Unmarshal(data, &meta); err != nil {
+	if err := machine.DecodeArtifact(data, &meta, &meta.ArtifactIdentity, installMetadataKind, installMetadataSchemaDescriptor, "reinstall the toolchain artifact"); err != nil {
 		return err
 	}
-	if meta.SchemaVersion != InstallSchemaVersion || meta.Name != artifact.Name || meta.Version != artifact.Version || meta.Platform != platform.String() {
+	if meta.Name != artifact.Name || meta.Version != artifact.Version || meta.Platform != platform.String() {
 		return fmt.Errorf("install metadata does not match manifest")
 	}
 	if !strings.EqualFold(meta.SourceSHA256, entry.SHA256) {
@@ -784,10 +796,10 @@ func (s *Store) verifySourceBuildInstall(artifact Artifact, platform Platform) e
 		return err
 	}
 	var meta InstallMetadata
-	if err := json.Unmarshal(data, &meta); err != nil {
+	if err := machine.DecodeArtifact(data, &meta, &meta.ArtifactIdentity, installMetadataKind, installMetadataSchemaDescriptor, "reinstall the toolchain artifact"); err != nil {
 		return err
 	}
-	if meta.SchemaVersion != InstallSchemaVersion || meta.Name != artifact.Name || meta.Version != artifact.Version || meta.Platform != platform.String() {
+	if meta.Name != artifact.Name || meta.Version != artifact.Version || meta.Platform != platform.String() {
 		return fmt.Errorf("install metadata does not match manifest")
 	}
 	if meta.SourceKind != "source-build" {

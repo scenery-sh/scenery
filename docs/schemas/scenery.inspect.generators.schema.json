@@ -1,0 +1,138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.inspect.generators.schema.json",
+  "title": "scenery.inspect.generators",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "app",
+    "generators",
+    "db_artifacts"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.inspect.generators"
+    },
+    "schema_revision": {
+      "const": "sha256:0269eee33879a07dc9ecd83d78180fe8e3276f4d948506740bc2586e91625f55"
+    },
+    "app": {
+      "$ref": "#/$defs/appRef"
+    },
+    "generators": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/generator"
+      }
+    },
+    "db_artifacts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/dbArtifact"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "appRef": {
+      "type": "object",
+      "required": [
+        "name",
+        "root",
+        "config_path"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "root": {
+          "type": "string"
+        },
+        "config_path": {
+          "type": "string"
+        },
+        "module_path": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "generator": {
+      "type": "object",
+      "required": [
+        "id",
+        "kind"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "inputs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "outputs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "tool": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "dbArtifact": {
+      "type": "object",
+      "required": [
+        "service",
+        "kind",
+        "role",
+        "path"
+      ],
+      "properties": {
+        "service": {
+          "type": "string"
+        },
+        "engine": {
+          "type": "string",
+          "enum": [
+            "postgres"
+          ]
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "schema-source",
+            "query",
+            "generated-schema",
+            "seed"
+          ]
+        },
+        "role": {
+          "type": "string",
+          "enum": [
+            "schema",
+            "query-generation-input",
+            "generated-source",
+            "initial-data"
+          ]
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

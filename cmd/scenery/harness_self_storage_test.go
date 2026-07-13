@@ -1,11 +1,18 @@
 package main
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
 func TestHarnessDetachStateRootReadsCLIEnvelope(t *testing.T) {
 	t.Parallel()
 
-	got, err := harnessDetachStateRoot(`{"api_version":"scenery.cli.v1","ok":true,"data":{"schema_version":"scenery.dev.detach.v1","session":{"state_root":"/tmp/state"}},"diagnostics":[]}`)
+	encoded, err := json.Marshal(newCLIEnvelope(true, map[string]any{"kind": "scenery.dev.detach", "schema_revision": "sha256:test", "session": map[string]any{"state_root": "/tmp/state"}}, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := harnessDetachStateRoot(string(encoded))
 	if err != nil {
 		t.Fatal(err)
 	}

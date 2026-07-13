@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.inspect.app.schema.json",
+  "title": "scenery.inspect.app",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "app",
+    "config",
+    "counts",
+    "services"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.inspect.app"
+    },
+    "schema_revision": {
+      "const": "sha256:b03f14d1a3f67697f8a3f410bb037a43b6bd02e9119cd395466278fe6a21ea55"
+    },
+    "app": {
+      "$ref": "#/$defs/appRef"
+    },
+    "config": {
+      "$ref": "scenery.config.schema.json"
+    },
+    "counts": {
+      "type": "object",
+      "required": [
+        "packages",
+        "services",
+        "endpoints",
+        "middleware",
+        "auth_handler",
+        "runtime_declarations"
+      ],
+      "properties": {
+        "packages": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "services": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "endpoints": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "middleware": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "auth_handler": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "runtime_declarations": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "services": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "auth_handler": {
+      "type": "object",
+      "required": [
+        "service",
+        "name"
+      ],
+      "properties": {
+        "service": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "appRef": {
+      "type": "object",
+      "required": [
+        "name",
+        "root",
+        "config_path"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "root": {
+          "type": "string"
+        },
+        "config_path": {
+          "type": "string"
+        },
+        "module_path": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

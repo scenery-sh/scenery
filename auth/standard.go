@@ -253,35 +253,11 @@ func resolveRefreshToken(params *RefreshParams, headers http.Header) string {
 	if params != nil && strings.TrimSpace(params.RefreshToken) != "" {
 		return strings.TrimSpace(params.RefreshToken)
 	}
-	for _, name := range refreshCookieReadOrder {
-		if value, present := refreshCookieValue(headers, name); present {
-			return strings.TrimSpace(value)
-		}
+	request := http.Request{Header: headers}
+	if cookie, err := request.Cookie(refreshCookieName); err == nil {
+		return strings.TrimSpace(cookie.Value)
 	}
 	return ""
-}
-
-func refreshCookieValue(headers http.Header, name string) (string, bool) {
-	if headers == nil {
-		return "", false
-	}
-	request := http.Request{Header: headers}
-	if cookie, err := request.Cookie(name); err == nil {
-		return cookie.Value, true
-	}
-	return "", cookieNamePresent(headers, name)
-}
-
-func cookieNamePresent(headers http.Header, name string) bool {
-	for _, line := range headers.Values("Cookie") {
-		for part := range strings.SplitSeq(line, ";") {
-			candidate, _, _ := strings.Cut(strings.TrimSpace(part), "=")
-			if strings.TrimSpace(candidate) == name {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 func registerStandardEmpty[O any](service, name string, access runtime.Access, path, method string, invoke func(context.Context, *Service, []string) (*O, error)) {
@@ -344,9 +320,6 @@ func encodeStandardContractOutcome(_ *http.Request, outcome any) (runtime.Contra
 		response.Headers.Add("Set-Cookie", value.SetCookie)
 	case *LogoutResponse:
 		response.Headers.Add("Set-Cookie", value.SetCookie)
-		if value.legacySetCookie != "" {
-			response.Headers.Add("Set-Cookie", value.legacySetCookie)
-		}
 	}
 	return response, nil
 }

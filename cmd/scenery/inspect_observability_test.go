@@ -34,8 +34,8 @@ func TestRunSceneryInspectTracesWithFilters(t *testing.T) {
 	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
 		t.Fatalf("decodeCLIJSON: %v\n%s", err, out.String())
 	}
-	if payload.SchemaVersion != inspectTracesSchema {
-		t.Fatalf("schema = %q", payload.SchemaVersion)
+	if payload.Kind != inspectTracesKind || payload.SchemaRevision != newCLIPayloadIdentity(inspectTracesKind).SchemaRevision {
+		t.Fatalf("identity = %q %q", payload.Kind, payload.SchemaRevision)
 	}
 	if payload.Query.SessionID != "session-a" {
 		t.Fatalf("query session = %q", payload.Query.SessionID)
@@ -72,8 +72,8 @@ func TestRunSceneryInspectMetricsAggregatesTracesAndLogs(t *testing.T) {
 	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
 		t.Fatalf("decodeCLIJSON: %v\n%s", err, out.String())
 	}
-	if payload.SchemaVersion != inspectMetricsSchema {
-		t.Fatalf("schema = %q", payload.SchemaVersion)
+	if payload.Kind != inspectMetricsKind || payload.SchemaRevision != newCLIPayloadIdentity(inspectMetricsKind).SchemaRevision {
+		t.Fatalf("identity = %q %q", payload.Kind, payload.SchemaRevision)
 	}
 	if payload.Query.SessionID != "session-a" {
 		t.Fatalf("query session = %q", payload.Query.SessionID)

@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.local.routes.schema.json",
+  "title": "scenery.local.routes",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "spec_revision",
+    "producer",
+    "app",
+    "worktree",
+    "session_id",
+    "base_url",
+    "routes"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.local.routes"
+    },
+    "schema_revision": {
+      "const": "sha256:cd25c08078a7d79950f1bd1dbf06670499e2c4882ee28a0d0ae04cbfb96402c9"
+    },
+    "spec_revision": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "producer": {
+      "type": "object"
+    },
+    "app": {
+      "type": "string"
+    },
+    "worktree": {
+      "type": "string"
+    },
+    "session_id": {
+      "type": "string"
+    },
+    "base_url": {
+      "type": "string"
+    },
+    "routes": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": false
+}

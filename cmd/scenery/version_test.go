@@ -9,8 +9,8 @@ func TestBuildVersionResponse(t *testing.T) {
 	t.Parallel()
 
 	resp := buildVersionResponse()
-	if resp.SchemaVersion != "scenery.version.v1" {
-		t.Fatalf("schema = %q", resp.SchemaVersion)
+	if resp.Kind != "scenery.version" || resp.SchemaRevision != newCLIPayloadIdentity("scenery.version").SchemaRevision {
+		t.Fatalf("identity = %q %q", resp.Kind, resp.SchemaRevision)
 	}
 	if resp.Version == "" {
 		t.Fatal("version is empty")
@@ -31,7 +31,7 @@ func TestWriteVersionJSON(t *testing.T) {
 	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
 		t.Fatalf("invalid JSON: %v\n%s", err, out.String())
 	}
-	if payload.SchemaVersion != "scenery.version.v1" {
-		t.Fatalf("schema = %q", payload.SchemaVersion)
+	if payload.Kind != "scenery.version" || payload.SchemaRevision != newCLIPayloadIdentity("scenery.version").SchemaRevision {
+		t.Fatalf("identity = %q %q", payload.Kind, payload.SchemaRevision)
 	}
 }

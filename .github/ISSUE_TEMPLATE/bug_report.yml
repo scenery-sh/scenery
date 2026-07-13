@@ -48,10 +48,14 @@ body:
       render: json
       placeholder: |
         {
-          "schema_version": "scenery.version.v1",
-          "version": "...",
-          "go_version": "...",
-          "module_version": "..."
+          "kind": "scenery.cli",
+          "data": {
+            "kind": "scenery.version",
+            "schema_revision": "sha256:7b2f75aa63a70fdeec0ef99ff740321fcd4cebcb2b45f0e177ee4884519a4fa9",
+            "version": "...",
+            "go_version": "...",
+            "module_version": "..."
+          }
         }
     validations:
       required: true

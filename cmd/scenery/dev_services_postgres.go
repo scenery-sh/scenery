@@ -18,27 +18,29 @@ import (
 	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/devdash"
+	"scenery.sh/internal/machine"
 	"scenery.sh/internal/postgresdb"
 	"scenery.sh/internal/postgresname"
 )
 
 const (
-	postgresServerSchemaVersion = "scenery.dev.postgres.server.v1"
-	postgresServerContainer     = "scenery-postgres"
-	postgresServerVolume        = "scenery-postgres-data"
-	postgresServerImage         = "postgres:18@sha256:4aabea78cf39b90e834caf3af7d602a18565f6fe2508705c8d01aa63245c2e20"
-	postgresServerUser          = "scenery"
+	postgresServerStateKind  = "scenery.dev.postgres-server"
+	postgresServerDescriptor = `{"identity":"artifact","state":"managed-postgres-server"}`
+	postgresServerContainer  = "scenery-postgres"
+	postgresServerVolume     = "scenery-postgres-data"
+	postgresServerImage      = "postgres:18@sha256:4aabea78cf39b90e834caf3af7d602a18565f6fe2508705c8d01aa63245c2e20"
+	postgresServerUser       = "scenery"
 )
 
 type postgresServerState struct {
-	SchemaVersion string    `json:"schema_version"`
-	Container     string    `json:"container"`
-	Volume        string    `json:"volume,omitempty"`
-	Image         string    `json:"image"`
-	Port          int       `json:"port"`
-	User          string    `json:"user"`
-	Password      string    `json:"password"`
-	CreatedAt     time.Time `json:"created_at"`
+	machine.ArtifactIdentity
+	Container string    `json:"container"`
+	Volume    string    `json:"volume,omitempty"`
+	Image     string    `json:"image"`
+	Port      int       `json:"port"`
+	User      string    `json:"user"`
+	Password  string    `json:"password"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 func (s *postgresServerState) normalize() {
@@ -189,16 +191,9 @@ func ensureSharedPostgresServerWithAgent(ctx context.Context, appRoot string, se
 
 func loadOrCreatePostgresServerState(paths localagent.Paths) (*postgresServerState, error) {
 	path := postgresServerStatePath(paths)
-	data, err := os.ReadFile(path)
+	state, err := loadPostgresServerState(path)
 	if err == nil {
-		var state postgresServerState
-		if err := json.Unmarshal(data, &state); err != nil {
-			return nil, err
-		}
-		if state.SchemaVersion == postgresServerSchemaVersion && state.Port > 0 && state.Password != "" {
-			state.normalize()
-			return &state, nil
-		}
+		return state, nil
 	}
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, err
@@ -211,26 +206,45 @@ func loadOrCreatePostgresServerState(paths localagent.Paths) (*postgresServerSta
 	if err != nil {
 		return nil, err
 	}
-	state := postgresServerState{
-		SchemaVersion: postgresServerSchemaVersion,
-		Container:     postgresServerContainer,
-		Volume:        postgresServerVolume,
-		Image:         postgresServerImage,
-		Port:          port,
-		User:          postgresServerUser,
-		Password:      password,
-		CreatedAt:     time.Now().UTC(),
+	state = &postgresServerState{
+		ArtifactIdentity: machine.NewArtifactIdentity(postgresServerStateKind, postgresServerDescriptor),
+		Container:        postgresServerContainer,
+		Volume:           postgresServerVolume,
+		Image:            postgresServerImage,
+		Port:             port,
+		User:             postgresServerUser,
+		Password:         password,
+		CreatedAt:        time.Now().UTC(),
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, err
 	}
-	data, err = json.MarshalIndent(state, "", "  ")
+	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
 		return nil, err
 	}
-	if err := os.WriteFile(path, append(data, '\n'), 0o600); err != nil {
+	if err := atomicWriteFile(path, append(data, '\n'), 0o600); err != nil {
 		return nil, err
 	}
+	return state, nil
+}
+
+func loadPostgresServerState(path string) (*postgresServerState, error) {
+	var state postgresServerState
+	if err := localagent.LoadDurableArtifact(path, &state, &state.ArtifactIdentity, postgresServerStateKind, postgresServerDescriptor, 0o600, func(fields map[string]json.RawMessage) error {
+		var version string
+		if err := json.Unmarshal(fields["schema_version"], &version); err != nil || version != "scenery.dev.postgres.server.v1" {
+			return fmt.Errorf("unsupported legacy managed Postgres schema %q", version)
+		}
+		delete(fields, "schema_version")
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	if state.Port <= 0 || state.Password == "" {
+		return nil, fmt.Errorf("managed Postgres state %s is missing its port or password", path)
+	}
+	state.normalize()
 	return &state, nil
 }
 

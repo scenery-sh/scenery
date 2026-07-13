@@ -1,0 +1,357 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.harness.ui.schema.json",
+  "title": "scenery UI harness result",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "ok",
+    "generated_at",
+    "app",
+    "dashboard_url",
+    "routes",
+    "artifacts"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.harness.ui"
+    },
+    "schema_revision": {
+      "const": "sha256:32aa15a9c70fd00ed2f701ea74d1f3b3eaf3ce8c20a05677a83fbb23404a64ef"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "generated_at": {
+      "type": "string"
+    },
+    "app": {
+      "type": "object",
+      "required": [
+        "name",
+        "root",
+        "config_path"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "root": {
+          "type": "string"
+        },
+        "config_path": {
+          "type": "string"
+        },
+        "module_path": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "dashboard_url": {
+      "type": "string"
+    },
+    "routes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/route"
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/artifact"
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/evidence"
+      }
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "next_actions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "wrote": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "route": {
+      "type": "object",
+      "required": [
+        "name",
+        "url",
+        "ok",
+        "duration_ms",
+        "markers"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "duration_ms": {
+          "type": "integer"
+        },
+        "markers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/marker"
+          }
+        },
+        "journey": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/journey_result"
+          }
+        },
+        "screenshot": {
+          "type": "string"
+        },
+        "dom_snapshot": {
+          "type": "string"
+        },
+        "evidence": {
+          "$ref": "#/$defs/evidence"
+        },
+        "console_errors": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/console_error"
+          }
+        },
+        "network_failures": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/network_failure"
+          }
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "evidence": {
+      "type": "object",
+      "required": [
+        "kind",
+        "schema_revision",
+        "duration_ms"
+      ],
+      "properties": {
+        "kind": {
+          "const": "scenery.harness.artifact"
+        },
+        "schema_revision": {
+          "const": "sha256:9d62b7ef8b7bfc70e70c92e8cddf4cbd00b100de0487aa8dab4bd6ad8722f6ae"
+        },
+        "command": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "started_at": {
+          "type": "string"
+        },
+        "duration_ms": {
+          "type": "integer"
+        },
+        "exit_code": {
+          "type": "integer"
+        },
+        "stdout_tail": {
+          "type": "string"
+        },
+        "stderr_tail": {
+          "type": "string"
+        },
+        "artifacts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/evidence_artifact"
+          }
+        },
+        "repro_command": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "evidence_artifact": {
+      "type": "object",
+      "required": [
+        "name",
+        "path"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "schema_revision": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "marker": {
+      "type": "object",
+      "required": [
+        "selector",
+        "count",
+        "found"
+      ],
+      "properties": {
+        "selector": {
+          "type": "string"
+        },
+        "count": {
+          "type": "integer"
+        },
+        "found": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "journey_result": {
+      "type": "object",
+      "required": [
+        "name",
+        "kind",
+        "found",
+        "required"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "selectors": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "selector": {
+          "type": "string"
+        },
+        "count": {
+          "type": "integer"
+        },
+        "found": {
+          "type": "boolean"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "skipped": {
+          "type": "boolean"
+        },
+        "detail": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "console_error": {
+      "type": "object",
+      "required": [
+        "level",
+        "message"
+      ],
+      "properties": {
+        "route": {
+          "type": "string"
+        },
+        "level": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "network_failure": {
+      "type": "object",
+      "required": [
+        "error"
+      ],
+      "properties": {
+        "route": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "artifact": {
+      "type": "object",
+      "required": [
+        "name",
+        "path",
+        "exists"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "schema_revision": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "exists": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

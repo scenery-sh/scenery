@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -20,8 +22,8 @@ func TestRunSceneryInspectDocs(t *testing.T) {
 	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
 		t.Fatalf("decodeCLIJSON: %v\n%s", err, out.String())
 	}
-	if payload.SchemaVersion != inspectDocsSchema {
-		t.Fatalf("schema = %q", payload.SchemaVersion)
+	if payload.Kind != inspectDocsKind || payload.SchemaRevision != newCLIPayloadIdentity(inspectDocsKind).SchemaRevision {
+		t.Fatalf("identity = %q %q", payload.Kind, payload.SchemaRevision)
 	}
 	if payload.Repo.Root != root || payload.Repo.ModulePath != "scenery.sh" {
 		t.Fatalf("repo = %+v", payload.Repo)
@@ -40,6 +42,25 @@ func TestRunSceneryInspectDocs(t *testing.T) {
 	}
 	if !payload.Plans.Active.Exists || !payload.Plans.Completed.Exists || !payload.TechDebt.Exists {
 		t.Fatalf("plans/debt = %+v %+v", payload.Plans, payload.TechDebt)
+	}
+}
+
+func TestReadDocsKnowledgeIndexRejectsLegacyAndUnknownFields(t *testing.T) {
+	for _, content := range []string{
+		`{"schema_version":"scenery.docs.index.` + "v1" + `"}`,
+		`{"kind":"` + docsIndexKind + `","schema_revision":"` + docsIndexSchemaRevision + `","extra":true}`,
+	} {
+		root := t.TempDir()
+		path := filepath.Join(root, "docs", "knowledge.json")
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := readDocsKnowledgeIndex(root); err == nil {
+			t.Fatalf("readDocsKnowledgeIndex accepted %s", content)
+		}
 	}
 }
 

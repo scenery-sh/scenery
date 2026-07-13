@@ -13,17 +13,19 @@ import (
 	"time"
 
 	localagent "scenery.sh/internal/agent"
+	"scenery.sh/internal/machine"
 )
 
 const (
-	devPortLeaseSchemaVersion = "scenery.dev.port_lease.v1"
-	defaultDevPortStart       = 4001
-	defaultDevPortEnd         = 4999
+	devPortLeaseFileKind       = "scenery.dev.port-leases"
+	devPortLeaseFileDescriptor = `{"identity":"artifact","leases":"port-leases"}`
+	defaultDevPortStart        = 4001
+	defaultDevPortEnd          = 4999
 )
 
 type devPortLeaseFile struct {
-	SchemaVersion string                 `json:"schema_version"`
-	Leases        []localagent.PortLease `json:"leases"`
+	machine.ArtifactIdentity
+	Leases []localagent.PortLease `json:"leases"`
 }
 
 type devPortLeaseRequest struct {
@@ -104,18 +106,18 @@ func allocateDevPortLease(path string, req devPortLeaseRequest) (localagent.Port
 			continue
 		}
 		lease := localagent.PortLease{
-			SchemaVersion: devPortLeaseSchemaVersion,
-			AppRoot:       appRoot,
-			SessionID:     sessionID,
-			BaseAppID:     strings.TrimSpace(req.BaseAppID),
-			Branch:        strings.TrimSpace(req.Branch),
-			WorktreeLabel: strings.TrimSpace(req.WorktreeLabel),
-			Port:          port,
-			URL:           fmt.Sprintf("http://localhost:%d", port),
-			OwnerPID:      req.OwnerPID,
-			Owner:         localagent.OwnerFromRequest(req.OwnerPID, req.Owner, "scenery local path caddy"),
-			CreatedAt:     now,
-			UpdatedAt:     now,
+			ArtifactIdentity: localagent.NewPortLeaseIdentity(),
+			AppRoot:          appRoot,
+			SessionID:        sessionID,
+			BaseAppID:        strings.TrimSpace(req.BaseAppID),
+			Branch:           strings.TrimSpace(req.Branch),
+			WorktreeLabel:    strings.TrimSpace(req.WorktreeLabel),
+			Port:             port,
+			URL:              fmt.Sprintf("http://localhost:%d", port),
+			OwnerPID:         req.OwnerPID,
+			Owner:            localagent.OwnerFromRequest(req.OwnerPID, req.Owner, "scenery local path caddy"),
+			CreatedAt:        now,
+			UpdatedAt:        now,
 		}
 		file.Leases = upsertDevPortLease(file.Leases, lease)
 		if err := saveDevPortLeases(path, file); err != nil {
@@ -140,25 +142,25 @@ func normalizeDevPortRange(start, end int) (int, int, error) {
 }
 
 func loadDevPortLeases(path string) (devPortLeaseFile, error) {
-	file := devPortLeaseFile{SchemaVersion: devPortLeaseSchemaVersion}
-	data, err := os.ReadFile(path)
+	file := devPortLeaseFile{ArtifactIdentity: machine.NewArtifactIdentity(devPortLeaseFileKind, devPortLeaseFileDescriptor)}
+	_, err := os.Stat(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return file, nil
 	}
 	if err != nil {
 		return file, err
 	}
-	if err := json.Unmarshal(data, &file); err != nil {
+	if err := localagent.LoadDurableArtifact(path, &file, &file.ArtifactIdentity, devPortLeaseFileKind, devPortLeaseFileDescriptor, 0o600, migrateLegacyDevPortLeases); err != nil {
 		return file, err
-	}
-	if file.SchemaVersion == "" {
-		file.SchemaVersion = devPortLeaseSchemaVersion
 	}
 	return file, nil
 }
 
 func saveDevPortLeases(path string, file devPortLeaseFile) error {
-	file.SchemaVersion = devPortLeaseSchemaVersion
+	file.ArtifactIdentity = machine.NewArtifactIdentity(devPortLeaseFileKind, devPortLeaseFileDescriptor)
+	for i := range file.Leases {
+		file.Leases[i].ArtifactIdentity = localagent.NewPortLeaseIdentity()
+	}
 	data, err := json.MarshalIndent(file, "", "  ")
 	if err != nil {
 		return err
@@ -168,6 +170,31 @@ func saveDevPortLeases(path string, file devPortLeaseFile) error {
 		return err
 	}
 	return atomicWriteFile(path, data, 0o600)
+}
+
+func migrateLegacyDevPortLeases(fields map[string]json.RawMessage) error {
+	var version string
+	if raw := fields["schema_version"]; len(raw) > 0 {
+		if err := json.Unmarshal(raw, &version); err != nil || version != "scenery.dev.port_lease.v1" {
+			return fmt.Errorf("unsupported legacy dev port lease schema %q", version)
+		}
+	}
+	delete(fields, "schema_version")
+	var leases []map[string]json.RawMessage
+	if err := json.Unmarshal(fields["leases"], &leases); err != nil {
+		return err
+	}
+	for _, lease := range leases {
+		delete(lease, "schema_version")
+		identity, _ := json.Marshal(localagent.NewPortLeaseIdentity())
+		var identityFields map[string]json.RawMessage
+		_ = json.Unmarshal(identity, &identityFields)
+		for name, value := range identityFields {
+			lease[name] = value
+		}
+	}
+	fields["leases"], _ = json.Marshal(leases)
+	return nil
 }
 
 func pruneStaleDevPortLeases(leases []localagent.PortLease, portFree func(int) bool) []localagent.PortLease {

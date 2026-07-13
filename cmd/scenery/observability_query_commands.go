@@ -64,13 +64,13 @@ type metricsCatalogOptions struct {
 }
 
 type inspectObservabilityResponse struct {
-	SchemaVersion string              `json:"schema_version"`
-	App           inspectAppRefLite   `json:"app"`
-	Scope         obs.QueryScope      `json:"scope"`
-	Backends      observabilityKinds  `json:"backends"`
-	Debug         *observabilityDebug `json:"debug,omitempty"`
-	Examples      []string            `json:"examples"`
-	Warnings      []string            `json:"warnings,omitempty"`
+	obs.PayloadIdentity
+	App      inspectAppRefLite   `json:"app"`
+	Scope    obs.QueryScope      `json:"scope"`
+	Backends observabilityKinds  `json:"backends"`
+	Debug    *observabilityDebug `json:"debug,omitempty"`
+	Examples []string            `json:"examples"`
+	Warnings []string            `json:"warnings,omitempty"`
 }
 
 type inspectAppRefLite struct {
@@ -263,7 +263,7 @@ func buildInspectObservabilityResponse(ctx context.Context, appRoot string, cfg 
 		tracesBase = stack.BaseURL("traces")
 	}
 	resp := inspectObservabilityResponse{
-		SchemaVersion: obs.InspectObservabilitySchema,
+		PayloadIdentity: obs.NewPayloadIdentity(obs.InspectObservabilityKind, "app,scope,backends,debug,examples,warnings"),
 		App: inspectAppRefLite{
 			ID:   cfg.AppID(),
 			Name: cfg.Name,

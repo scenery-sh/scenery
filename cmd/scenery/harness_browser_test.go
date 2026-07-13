@@ -32,11 +32,11 @@ func TestHarnessUICommandWithDashboardURLAndFakeRunner(t *testing.T) {
 				URL:        routes[0].Path,
 				OK:         true,
 				DurationMS: 1,
-				Markers:    []harnessUIMarker{{Selector: `[data-scenery-ui="ConsoleNextHeaderNav"]`, Count: 1, Found: true}},
+				Markers:    []harnessUIMarker{{Selector: `[data-scenery-ui="ConsoleHeaderNav"]`, Count: 1, Found: true}},
 				Journey: []harnessUIJourneyResult{{
 					Name:     "overview route rendered",
 					Kind:     "selector",
-					Selector: `[data-scenery-ui="ConsoleNextOverview"]`,
+					Selector: `[data-scenery-ui="ConsoleOverview"]`,
 					Count:    1,
 					Found:    true,
 					Required: true,
@@ -44,7 +44,7 @@ func TestHarnessUICommandWithDashboardURLAndFakeRunner(t *testing.T) {
 				DOMSnapshot: ".scenery/harness/ui/dom/dashboard-home.json",
 			}},
 			Artifacts: []harnessArtifact{
-				{Name: "dom:dashboard-home", Path: ".scenery/harness/ui/dom/dashboard-home.json", SchemaVersion: "scenery.harness.ui.dom.v1", Exists: true},
+				newHarnessArtifact("dom:dashboard-home", ".scenery/harness/ui/dom/dashboard-home.json", "scenery.harness.ui.dom", true),
 				{Name: "console", Path: ".scenery/harness/ui/console.jsonl", Exists: true},
 			},
 		}, nil
@@ -64,7 +64,7 @@ func TestHarnessUICommandWithDashboardURLAndFakeRunner(t *testing.T) {
 	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
 		t.Fatalf("decode payload: %v\n%s", err, out.String())
 	}
-	if payload.SchemaVersion != "scenery.harness.ui.v1" || !payload.OK {
+	if payload.Kind != "scenery.harness.ui" || payload.SchemaRevision != newCLIPayloadIdentity("scenery.harness.ui").SchemaRevision || !payload.OK {
 		t.Fatalf("payload = %#v", payload)
 	}
 	if payload.Wrote == "" {
@@ -157,7 +157,12 @@ func TestHarnessUIDevProcessScanDevOutputReportsCompileError(t *testing.T) {
 
 	proc := &harnessUIDevProcess{output: &safeLineTail{limit: 10}}
 	ready := make(chan harnessUIDevSignal, 1)
-	proc.scanDevOutput(strings.NewReader(`{"type":"process.compile-error","data":{"error":"fatal error: 'torch/torch.h' file not found"}}`+"\n"), ready)
+	var stream bytes.Buffer
+	writer := newCLIEventWriter(&stream)
+	if err := writer.event(runEvent{Type: "process.compile-error", Data: map[string]any{"error": "fatal error: 'torch/torch.h' file not found"}}); err != nil {
+		t.Fatal(err)
+	}
+	proc.scanDevOutput(strings.NewReader(stream.String()), ready)
 
 	select {
 	case signal := <-ready:

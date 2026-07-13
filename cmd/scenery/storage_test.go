@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -17,6 +18,15 @@ import (
 	"scenery.sh/internal/storageconfig"
 	publicstorage "scenery.sh/storage"
 )
+
+func runtimeStorageJSON(t *testing.T, cfg storageconfig.RuntimeConfig) string {
+	t.Helper()
+	encoded, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(encoded)
+}
 
 func TestRunStorageStatus(t *testing.T) {
 	t.Parallel()
@@ -38,7 +48,7 @@ func TestRunStorageStatus(t *testing.T) {
 	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
 		t.Fatalf("decodeCLIJSON(status) error = %v\n%s", err, out.String())
 	}
-	if payload.SchemaVersion != "scenery.storage.status.v1" || !payload.Storage.Configured {
+	if payload.Kind != "scenery.storage.status" || payload.SchemaRevision != newCLIPayloadIdentity("scenery.storage.status").SchemaRevision || !payload.Storage.Configured {
 		t.Fatalf("payload = %+v", payload)
 	}
 	if len(payload.Stores) != 1 || payload.Stores[0].Name != "app" || payload.Stores[0].Kind != "local" {
@@ -61,7 +71,7 @@ func TestRunStorageWebUIReportsNoManagedUI(t *testing.T) {
 	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
 		t.Fatalf("decodeCLIJSON(webui) error = %v\n%s", err, out.String())
 	}
-	if payload.SchemaVersion != "scenery.storage.webui.v1" || !payload.Configured || payload.Ready || payload.Reason == "" {
+	if payload.Kind != "scenery.storage.webui" || payload.SchemaRevision != newCLIPayloadIdentity("scenery.storage.webui").SchemaRevision || !payload.Configured || payload.Ready || payload.Reason == "" {
 		t.Fatalf("payload = %+v", payload)
 	}
 }
@@ -92,7 +102,7 @@ func TestRunStorageObjectCommands(t *testing.T) {
 	if err := decodeCLIJSON(putOut.Bytes(), &putPayload); err != nil {
 		t.Fatalf("unmarshal put: %v\n%s", err, putOut.String())
 	}
-	if putPayload.SchemaVersion != "scenery.storage.object.v1" || putPayload.Object.Key != "reports/report.txt" || putPayload.Object.SizeBytes != int64(len("storage report")) {
+	if putPayload.Kind != "scenery.storage.object" || putPayload.SchemaRevision != newCLIPayloadIdentity("scenery.storage.object").SchemaRevision || putPayload.Object.Key != "reports/report.txt" || putPayload.Object.SizeBytes != int64(len("storage report")) {
 		t.Fatalf("put payload = %+v", putPayload)
 	}
 
@@ -249,7 +259,7 @@ func TestStorageCapabilityEnvPointsAtSharedCell(t *testing.T) {
 	if !strings.Contains(joined, "SCENERY_STORAGE_CELL_ID=shared-cell") {
 		t.Fatalf("env missing cell ID: %v", env)
 	}
-	if !strings.Contains(joined, `"schema_version":"`+storageconfig.RuntimeSchemaVersion+`"`) ||
+	if !strings.Contains(joined, `"kind":"`+storageconfig.RuntimeKind+`"`) ||
 		!strings.Contains(joined, `"default":"app"`) ||
 		!strings.Contains(joined, `"kind":"local"`) ||
 		!strings.Contains(joined, `"max_object_bytes":100`) {
@@ -308,7 +318,7 @@ func TestAppProcessEnvFailsClosedForStorageWithoutExplicitRuntimeConfig(t *testi
 }
 
 func TestAppProcessEnvAcceptsExplicitProxyStorageRuntimeConfig(t *testing.T) {
-	raw := `{"schema_version":"` + storageconfig.RuntimeSchemaVersion + `","cell_id":"prod-cell","stores":{"app":{"kind":"proxy","proxy_socket":"/tmp/storage.sock"}}}`
+	raw := runtimeStorageJSON(t, storageconfig.RuntimeConfig{ArtifactIdentity: storageconfig.NewRuntimeIdentity(), CellID: "prod-cell", Stores: map[string]storageconfig.RuntimeStoreConfig{"app": {Kind: "proxy", ProxySocket: "/tmp/storage.sock"}}})
 	t.Setenv(storageconfig.RuntimeConfigEnv, raw)
 	cfg := appcfg.Config{
 		Name: "storageapp",
@@ -331,7 +341,7 @@ func TestAppProcessEnvAcceptsExplicitProxyStorageRuntimeConfig(t *testing.T) {
 
 func TestAppProcessEnvAcceptsExplicitLocalStorageRuntimeConfig(t *testing.T) {
 	dir := t.TempDir()
-	raw := `{"schema_version":"` + storageconfig.RuntimeSchemaVersion + `","cell_id":"prod-cell","stores":{"app":{"kind":"local","root":"` + dir + `"}}}`
+	raw := runtimeStorageJSON(t, storageconfig.RuntimeConfig{ArtifactIdentity: storageconfig.NewRuntimeIdentity(), CellID: "prod-cell", Stores: map[string]storageconfig.RuntimeStoreConfig{"app": {Kind: "local", Root: dir}}})
 	t.Setenv(storageconfig.RuntimeConfigEnv, raw)
 	cfg := appcfg.Config{
 		Name: "storageapp",
@@ -352,7 +362,7 @@ func TestAppProcessEnvAcceptsExplicitLocalStorageRuntimeConfig(t *testing.T) {
 }
 
 func TestAppProcessEnvRejectsRelativeLocalStorageRoot(t *testing.T) {
-	raw := `{"schema_version":"` + storageconfig.RuntimeSchemaVersion + `","cell_id":"prod-cell","stores":{"app":{"kind":"local","root":"relative/path"}}}`
+	raw := runtimeStorageJSON(t, storageconfig.RuntimeConfig{ArtifactIdentity: storageconfig.NewRuntimeIdentity(), CellID: "prod-cell", Stores: map[string]storageconfig.RuntimeStoreConfig{"app": {Kind: "local", Root: "relative/path"}}})
 	t.Setenv(storageconfig.RuntimeConfigEnv, raw)
 	cfg := appcfg.Config{
 		Name: "storageapp",

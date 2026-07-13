@@ -1,6 +1,24 @@
 package inspect
 
-import appcfg "scenery.sh/internal/app"
+import (
+	appcfg "scenery.sh/internal/app"
+)
+
+var payloadSchemaRevisions = map[string]string{
+	"scenery.inspect.app":       "sha256:b03f14d1a3f67697f8a3f410bb037a43b6bd02e9119cd395466278fe6a21ea55",
+	"scenery.inspect.services":  "sha256:eed0de0f1862bd98948f299b756a92df5f13532b1f1d71df5dd908cf33aa0c28",
+	"scenery.inspect.routes":    "sha256:000c440270d6bfe7bde83bbba963e0a4614aa830b284c4fca8424e82c1ca5bd0",
+	"scenery.inspect.endpoints": "sha256:af1066b46918c1a19a1e24c22e7316c35a406a6d8cfdd04c49e1a1623a797d13",
+}
+
+type PayloadIdentity struct {
+	Kind           string `json:"kind"`
+	SchemaRevision string `json:"schema_revision"`
+}
+
+func NewPayloadIdentity(kind, _ string) PayloadIdentity {
+	return PayloadIdentity{Kind: kind, SchemaRevision: payloadSchemaRevisions[kind]}
+}
 
 type AppRef struct {
 	Name       string `json:"name"`
@@ -11,12 +29,12 @@ type AppRef struct {
 }
 
 type AppResponse struct {
-	SchemaVersion string         `json:"schema_version"`
-	App           AppRef         `json:"app"`
-	Config        appcfg.Config  `json:"config"`
-	Counts        AppCounts      `json:"counts"`
-	Services      []string       `json:"services"`
-	AuthHandler   *AuthBriefInfo `json:"auth_handler,omitempty"`
+	PayloadIdentity
+	App         AppRef         `json:"app"`
+	Config      appcfg.Config  `json:"config"`
+	Counts      AppCounts      `json:"counts"`
+	Services    []string       `json:"services"`
+	AuthHandler *AuthBriefInfo `json:"auth_handler,omitempty"`
 }
 
 type AppCounts struct {
@@ -34,9 +52,9 @@ type AuthBriefInfo struct {
 }
 
 type ServicesResponse struct {
-	SchemaVersion string           `json:"schema_version"`
-	App           AppRef           `json:"app"`
-	Services      []ServiceDetails `json:"services"`
+	PayloadIdentity
+	App      AppRef           `json:"app"`
+	Services []ServiceDetails `json:"services"`
 }
 
 type ServiceDetails struct {
@@ -63,15 +81,15 @@ type AuthHandlerRef struct {
 }
 
 type RoutesResponse struct {
-	SchemaVersion string        `json:"schema_version"`
-	App           AppRef        `json:"app"`
-	Routes        []RouteRecord `json:"routes"`
+	PayloadIdentity
+	App    AppRef        `json:"app"`
+	Routes []RouteRecord `json:"routes"`
 }
 
 type EndpointsResponse struct {
-	SchemaVersion string           `json:"schema_version"`
-	App           AppRef           `json:"app"`
-	Endpoints     []EndpointRecord `json:"endpoints"`
+	PayloadIdentity
+	App       AppRef           `json:"app"`
+	Endpoints []EndpointRecord `json:"endpoints"`
 }
 
 type RouteRecord struct {

@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.harness.fixture_matrix.schema.json",
+  "title": "scenery harness fixture matrix",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "fixtures"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.harness.fixture_matrix"
+    },
+    "schema_revision": {
+      "const": "sha256:0317781d4d92e84a88e03e368cc06c8371a325ac37d48ca8982dbb70eeefb729"
+    },
+    "fixtures": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/fixture"
+      }
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "fixture": {
+      "type": "object",
+      "required": [
+        "name",
+        "path",
+        "check",
+        "inspect"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "check": {
+          "type": "boolean"
+        },
+        "inspect": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "boolean"
+          }
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

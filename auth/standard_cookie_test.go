@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
-	"strings"
 	"testing"
 	"time"
 )
@@ -20,19 +19,19 @@ func TestResolveRefreshToken(t *testing.T) {
 		{
 			name:     "explicit token wins",
 			explicit: " explicit ",
-			cookie:   "scenery_refresh=current; onlv_refresh=legacy",
+			cookie:   "scenery_refresh=current",
 			want:     "explicit",
 		},
 		{
 			name:     "invalid explicit token still wins",
 			explicit: "invalid",
-			cookie:   "scenery_refresh=current; onlv_refresh=legacy",
+			cookie:   "scenery_refresh=current",
 			want:     "invalid",
 		},
 		{
 			name:     "whitespace explicit token falls back",
 			explicit: "  ",
-			cookie:   "scenery_refresh=current; onlv_refresh=legacy",
+			cookie:   "scenery_refresh=current",
 			want:     "current",
 		},
 		{
@@ -41,28 +40,18 @@ func TestResolveRefreshToken(t *testing.T) {
 			want:   "current",
 		},
 		{
-			name:   "legacy only",
-			cookie: "onlv_refresh=legacy",
-			want:   "legacy",
-		},
-		{
-			name:   "current wins when both are present",
-			cookie: "scenery_refresh=current; onlv_refresh=legacy",
-			want:   "current",
-		},
-		{
-			name:   "empty current blocks legacy fallback",
-			cookie: "scenery_refresh=; onlv_refresh=legacy",
+			name:   "empty current",
+			cookie: "scenery_refresh=",
 			want:   "",
 		},
 		{
-			name:   "invalid current token blocks legacy fallback",
-			cookie: "scenery_refresh=not-a-refresh-token; onlv_refresh=legacy",
+			name:   "invalid current token is returned for validation",
+			cookie: "scenery_refresh=not-a-refresh-token",
 			want:   "not-a-refresh-token",
 		},
 		{
-			name:   "unparseable current cookie blocks legacy fallback",
-			cookie: `scenery_refresh="unterminated; onlv_refresh=legacy`,
+			name:   "unparseable current cookie",
+			cookie: `scenery_refresh="unterminated`,
 			want:   "",
 		},
 		{
@@ -104,10 +93,6 @@ func TestRefreshCookieIssuanceStaysCurrentOnly(t *testing.T) {
 	if cookie.Value != "token" {
 		t.Fatalf("issued cookie value = %q, want token", cookie.Value)
 	}
-	if strings.Contains(setCookie, "onlv_refresh") {
-		t.Fatalf("issued cookie contains legacy name: %q", setCookie)
-	}
-
 	response, err := encodeStandardContractOutcome(nil, &AuthSessionResponse{SetCookie: setCookie})
 	if err != nil {
 		t.Fatalf("encode auth session outcome: %v", err)
@@ -118,7 +103,7 @@ func TestRefreshCookieIssuanceStaysCurrentOnly(t *testing.T) {
 	}
 }
 
-func TestLogoutClearsCurrentAndLegacyCookies(t *testing.T) {
+func TestLogoutClearsRefreshCookie(t *testing.T) {
 	oldSecrets := secrets
 	secrets.AuthCookieDomain = "example.test"
 	secrets.APIBaseURL = ""
@@ -128,8 +113,8 @@ func TestLogoutClearsCurrentAndLegacyCookies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Logout() error = %v", err)
 	}
-	if response.SetCookie == "" || response.legacySetCookie == "" {
-		t.Fatalf("logout clears = current %q legacy %q", response.SetCookie, response.legacySetCookie)
+	if response.SetCookie == "" {
+		t.Fatal("logout did not clear refresh cookie")
 	}
 
 	encoded, err := encodeStandardContractOutcome(nil, response)
@@ -137,7 +122,7 @@ func TestLogoutClearsCurrentAndLegacyCookies(t *testing.T) {
 		t.Fatalf("encode logout outcome: %v", err)
 	}
 	values := encoded.Headers.Values("Set-Cookie")
-	wantValues := []string{response.SetCookie, response.legacySetCookie}
+	wantValues := []string{response.SetCookie}
 	if !reflect.DeepEqual(values, wantValues) {
 		t.Fatalf("Set-Cookie values = %#v, want %#v", values, wantValues)
 	}
@@ -146,17 +131,15 @@ func TestLogoutClearsCurrentAndLegacyCookies(t *testing.T) {
 	}
 
 	current := parseSetCookie(t, values[0])
-	legacy := parseSetCookie(t, values[1])
-	if current.Name != "scenery_refresh" || legacy.Name != "onlv_refresh" {
-		t.Fatalf("cleared cookie names = %q, %q", current.Name, legacy.Name)
+	if current.Name != "scenery_refresh" {
+		t.Fatalf("cleared cookie name = %q", current.Name)
 	}
-	if current.Value != "" || legacy.Value != "" {
-		t.Fatalf("cleared cookie values = %q, %q", current.Value, legacy.Value)
+	if current.Value != "" {
+		t.Fatalf("cleared cookie value = %q", current.Value)
 	}
-	if current.MaxAge >= 0 || legacy.MaxAge >= 0 {
-		t.Fatalf("cleared cookie MaxAge = %d, %d, want negative", current.MaxAge, legacy.MaxAge)
+	if current.MaxAge >= 0 {
+		t.Fatalf("cleared cookie MaxAge = %d, want negative", current.MaxAge)
 	}
-	assertMatchingCookieScope(t, current, legacy)
 }
 
 func parseSetCookie(t *testing.T, value string) *http.Cookie {
@@ -168,17 +151,4 @@ func parseSetCookie(t *testing.T, value string) *http.Cookie {
 		t.Fatalf("parsed cookies = %#v, want one from %q", cookies, value)
 	}
 	return cookies[0]
-}
-
-func assertMatchingCookieScope(t *testing.T, current, legacy *http.Cookie) {
-	t.Helper()
-	if current.Path != legacy.Path ||
-		current.Domain != legacy.Domain ||
-		current.Expires != legacy.Expires ||
-		current.MaxAge != legacy.MaxAge ||
-		current.HttpOnly != legacy.HttpOnly ||
-		current.Secure != legacy.Secure ||
-		current.SameSite != legacy.SameSite {
-		t.Fatalf("cookie scopes differ: current=%+v legacy=%+v", current, legacy)
-	}
 }

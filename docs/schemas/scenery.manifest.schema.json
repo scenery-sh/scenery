@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.manifest.schema.json",
+  "title": "Scenery canonical manifest",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "spec_revision",
+    "diagnostic_catalog",
+    "producer",
+    "application",
+    "contract_revision",
+    "resources",
+    "source_map",
+    "diagnostics"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.manifest"
+    },
+    "schema_revision": {
+      "const": "sha256:05219d86e7f37c7b8542ec2441f89c21548e55da43b33abd18ed0eeecc6bfcbc"
+    },
+    "spec_revision": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "producer": {
+      "type": "object"
+    },
+    "diagnostic_catalog": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "application": {
+      "type": "object",
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "contract_revision": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "resources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "address",
+          "kind",
+          "name",
+          "module",
+          "spec",
+          "origin"
+        ],
+        "properties": {
+          "address": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "pattern": "^scenery\\.[a-z][a-z0-9-]*$"
+          },
+          "name": {
+            "type": "string"
+          },
+          "module": {
+            "type": "string"
+          },
+          "spec": {
+            "type": "object"
+          },
+          "origin": {
+            "type": "object"
+          },
+          "migration": {
+            "type": "object"
+          },
+          "compatibility": {
+            "type": "object",
+            "required": [
+              "semantics",
+              "contract",
+              "migration_disposition"
+            ],
+            "properties": {
+              "semantics": {
+                "type": "string"
+              },
+              "contract": {
+                "type": "string"
+              },
+              "migration_disposition": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "source_map": {
+      "type": "object"
+    },
+    "diagnostics": {
+      "type": "array"
+    }
+  },
+  "additionalProperties": false
+}

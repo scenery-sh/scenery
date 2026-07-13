@@ -7,6 +7,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"scenery.sh/internal/machine"
+	"scenery.sh/internal/spec"
 )
 
 func TestContractCLIRequestInvokesRegisteredBinding(t *testing.T) {
@@ -23,8 +26,15 @@ func TestContractCLIRequestInvokesRegisteredBinding(t *testing.T) {
 		t.Fatal(err)
 	}
 	requestPath := filepath.Join(t.TempDir(), "request.json")
-	request := `{"api_version":"scenery.contract-cli-request/v1","binding":"house/binding/process_cli","input":{"scene_id":"scene-1"}}`
-	if err := os.WriteFile(requestPath, []byte(request), 0o600); err != nil {
+	request, err := json.Marshal(ContractCLIRequest{
+		Kind: ContractCLIRequestKind, SchemaRevision: ContractCLIRequestSchemaRevision, SpecRevision: string(spec.CurrentRevision()),
+		Producer: machine.Producer{Version: "test", Toolchain: machine.Toolchain{GoVersion: "go-test"}},
+		Binding:  "house/binding/process_cli", Input: json.RawMessage(`{"scene_id":"scene-1"}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(requestPath, request, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	var output bytes.Buffer
@@ -35,7 +45,28 @@ func TestContractCLIRequestInvokesRegisteredBinding(t *testing.T) {
 	if err := json.Unmarshal(output.Bytes(), &response); err != nil {
 		t.Fatal(err)
 	}
-	if response.Problem != nil || response.Outcome == nil || response.Outcome.Name != "processed" || string(response.Outcome.Payload) != `{"scene_id":"scene-1"}` {
+	if err := ValidateContractCLIResponse(response, string(spec.CurrentRevision())); err != nil {
+		t.Fatal(err)
+	}
+	if response.Outcome.Name != "processed" || string(response.Outcome.Payload) != `{"scene_id":"scene-1"}` {
 		t.Fatalf("response = %#v", response)
+	}
+}
+
+func TestContractCLISchemaRevisionsMatchCheckedSchemas(t *testing.T) {
+	for kind, expected := range map[string]string{
+		ContractCLIRequestKind: ContractCLIRequestSchemaRevision, ContractCLIResponseKind: ContractCLIResponseSchemaRevision,
+	} {
+		encoded, err := os.ReadFile(filepath.Join("..", "docs", "schemas", kind+".schema.json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		revision, err := spec.SchemaDocumentRevision(encoded)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(revision) != expected {
+			t.Fatalf("%s schema revision = %s, want %s", kind, revision, expected)
+		}
 	}
 }

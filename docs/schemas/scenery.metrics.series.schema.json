@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.metrics.series.schema.json",
+  "title": "scenery.metrics.series",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "scope",
+    "backend",
+    "query",
+    "series"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.metrics.series"
+    },
+    "schema_revision": {
+      "const": "sha256:ccb53b231affc674aa36da784d17aa57f6ed5d9425127327ddace8983d00bb39"
+    },
+    "scope": {
+      "$ref": "scenery.inspect.observability.schema.json#/$defs/scope"
+    },
+    "backend": {
+      "$ref": "scenery.inspect.observability.schema.json#/$defs/backend"
+    },
+    "query": {
+      "$ref": "scenery.metrics.labels.schema.json#/$defs/query"
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "series": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}

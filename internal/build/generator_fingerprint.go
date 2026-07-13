@@ -17,6 +17,7 @@ import (
 	"unicode/utf8"
 
 	"scenery.sh/internal/app"
+	"scenery.sh/internal/machine"
 )
 
 var generatorFingerprint struct {
@@ -32,10 +33,13 @@ func currentGeneratorFingerprint() (string, error) {
 	return generatorFingerprint.value, generatorFingerprint.err
 }
 
-const generatorFingerprintCacheSchema = "scenery.generator-fingerprint.v1"
+const (
+	generatorFingerprintCacheKind             = "scenery.generator-fingerprint"
+	generatorFingerprintCacheSchemaDescriptor = `{"fingerprint":"digest","kind":"scenery.generator-fingerprint","metadata_fingerprint":"digest","producer":"producer","repo_root":"path","schema_revision":"digest","spec_revision":"digest"}`
+)
 
 type generatorFingerprintCache struct {
-	SchemaVersion       string `json:"schema_version"`
+	machine.ArtifactIdentity
 	RepoRoot            string `json:"repo_root"`
 	MetadataFingerprint string `json:"metadata_fingerprint"`
 	Fingerprint         string `json:"fingerprint"`
@@ -53,7 +57,7 @@ func cachedGeneratorFingerprint(repoRoot string) (string, error) {
 	if cached, ok, err := loadGeneratorFingerprintCache(cachePath); err != nil {
 		return "", err
 	} else if ok &&
-		cached.SchemaVersion == generatorFingerprintCacheSchema &&
+		cached.Kind == generatorFingerprintCacheKind &&
 		cached.RepoRoot == repoRoot &&
 		cached.MetadataFingerprint == metadataFingerprint &&
 		cached.Fingerprint != "" {
@@ -64,7 +68,7 @@ func cachedGeneratorFingerprint(repoRoot string) (string, error) {
 		return "", err
 	}
 	if err := saveGeneratorFingerprintCache(cachePath, generatorFingerprintCache{
-		SchemaVersion:       generatorFingerprintCacheSchema,
+		ArtifactIdentity:    machine.NewArtifactIdentity(generatorFingerprintCacheKind, generatorFingerprintCacheSchemaDescriptor),
 		RepoRoot:            repoRoot,
 		MetadataFingerprint: metadataFingerprint,
 		Fingerprint:         fingerprint,
@@ -145,8 +149,8 @@ func loadGeneratorFingerprintCache(path string) (generatorFingerprintCache, bool
 		return generatorFingerprintCache{}, false, err
 	}
 	var cached generatorFingerprintCache
-	if err := json.Unmarshal(data, &cached); err != nil {
-		return generatorFingerprintCache{}, false, err
+	if err := machine.DecodeArtifact(data, &cached, &cached.ArtifactIdentity, generatorFingerprintCacheKind, generatorFingerprintCacheSchemaDescriptor, "rebuild the generator fingerprint cache"); err != nil {
+		return generatorFingerprintCache{}, false, nil
 	}
 	return cached, true, nil
 }

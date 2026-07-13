@@ -1,0 +1,167 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.inspect.observability.schema.json",
+  "title": "scenery.inspect.observability",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "app",
+    "scope",
+    "backends",
+    "examples"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.inspect.observability"
+    },
+    "schema_revision": {
+      "const": "sha256:d4a30b220fd68c3155a257fdbfdece6d58ecf9f6c851fa569f7eacfe9ed7f5aa"
+    },
+    "app": {
+      "$ref": "#/$defs/app"
+    },
+    "scope": {
+      "$ref": "#/$defs/scope"
+    },
+    "backends": {
+      "type": "object",
+      "required": [
+        "logs",
+        "metrics",
+        "traces"
+      ],
+      "properties": {
+        "logs": {
+          "$ref": "#/$defs/backend"
+        },
+        "metrics": {
+          "$ref": "#/$defs/backend"
+        },
+        "traces": {
+          "$ref": "#/$defs/backend"
+        }
+      },
+      "additionalProperties": false
+    },
+    "debug": {
+      "type": "object",
+      "properties": {
+        "base_urls": {
+          "type": "object",
+          "properties": {
+            "logs": {
+              "type": "string"
+            },
+            "metrics": {
+              "type": "string"
+            },
+            "traces": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "examples": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "app": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "root"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "root": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "scope": {
+      "type": "object",
+      "required": [
+        "app_id",
+        "session_id",
+        "app_root",
+        "app_root_hash",
+        "enforced"
+      ],
+      "properties": {
+        "app_id": {
+          "type": "string"
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "app_root": {
+          "type": "string"
+        },
+        "app_root_hash": {
+          "type": "string"
+        },
+        "worktree": {
+          "type": "string"
+        },
+        "branch": {
+          "type": "string"
+        },
+        "enforced": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "backend": {
+      "type": "object",
+      "required": [
+        "kind",
+        "dialect",
+        "ready"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "dialect": {
+          "type": "string"
+        },
+        "base_url": {
+          "type": "string"
+        },
+        "ready": {
+          "type": "boolean"
+        },
+        "query_path": {
+          "type": "string"
+        },
+        "tail_path": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

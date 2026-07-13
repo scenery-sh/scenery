@@ -8,7 +8,10 @@ import (
 	"time"
 )
 
-const DevEventSchemaVersion = "scenery.dev.event.v1"
+const (
+	DevEventKind           = "scenery.dev.event"
+	DevEventSchemaRevision = "sha256:88d7bd9bd7e38e93de754e8508bde933e9d49d48a5391c29686e11737bb5ba2e"
+)
 
 func DevEventFromOutput(appID, sessionID string, source DevSource, output []byte, createdAt time.Time) DevEvent {
 	if createdAt.IsZero() {

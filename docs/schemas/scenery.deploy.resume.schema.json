@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.deploy.resume.schema.json",
+  "title": "scenery.deploy.resume",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.deploy.resume"
+    },
+    "schema_revision": {
+      "const": "sha256:aee56efdc98e43b805863062a1a519c22db8c0f796df73274d11ed6326fe41d4"
+    },
+    "registry_path": {
+    },
+    "log_path": {
+    },
+    "agent_ready": {
+    },
+    "edge_restarted": {
+    },
+    "targets": {
+    }
+  },
+  "additionalProperties": false
+}

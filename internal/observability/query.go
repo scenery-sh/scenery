@@ -17,13 +17,30 @@ import (
 )
 
 const (
-	InspectObservabilitySchema = "scenery.inspect.observability.v1"
-	LogsQuerySchema            = "scenery.logs.query.v1"
-	LogsTailEntrySchema        = "scenery.logs.tail.entry.v1"
-	MetricsQuerySchema         = "scenery.metrics.query.v1"
-	MetricsLabelsSchema        = "scenery.metrics.labels.v1"
-	MetricsSeriesSchema        = "scenery.metrics.series.v1"
+	InspectObservabilityKind = "scenery.inspect.observability"
+	LogsQueryKind            = "scenery.logs.query"
+	LogsTailEntryKind        = "scenery.logs.tail.entry"
+	MetricsQueryKind         = "scenery.metrics.query"
+	MetricsLabelsKind        = "scenery.metrics.labels"
+	MetricsSeriesKind        = "scenery.metrics.series"
 )
+
+type PayloadIdentity struct {
+	Kind           string `json:"kind"`
+	SchemaRevision string `json:"schema_revision"`
+}
+
+func NewPayloadIdentity(kind, _ string) PayloadIdentity {
+	revisions := map[string]string{
+		InspectObservabilityKind: "sha256:d4a30b220fd68c3155a257fdbfdece6d58ecf9f6c851fa569f7eacfe9ed7f5aa",
+		LogsQueryKind:            "sha256:d863e3f48e9645e48e8fd1188f50e11a180da452e771868b378d6e5a170cf69b",
+		LogsTailEntryKind:        "sha256:17abdfc0a0061a4e2d712621561b7dfb90e443a64beeba86de111ba2e7db887a",
+		MetricsQueryKind:         "sha256:59ed52449eeb10a9ebcba329f6399917ef3bf1d425ab9d3c4eacaebed730ed6b",
+		MetricsLabelsKind:        "sha256:3ada3931f5afdb8a340d4fc2318613297632bae6646c2218df34ec3b98d22482",
+		MetricsSeriesKind:        "sha256:ccb53b231affc674aa36da784d17aa57f6ed5d9425127327ddace8983d00bb39",
+	}
+	return PayloadIdentity{Kind: kind, SchemaRevision: revisions[kind]}
+}
 
 type QueryScope struct {
 	AppID       string `json:"app_id"`
@@ -83,20 +100,20 @@ type LogEntry struct {
 }
 
 type LogsQueryResult struct {
-	SchemaVersion string          `json:"schema_version"`
-	Scope         QueryScope      `json:"scope"`
-	Backend       QueryBackend    `json:"backend"`
-	Query         LogsQueryRecord `json:"query"`
-	Warnings      []string        `json:"warnings,omitempty"`
-	Logs          []LogEntry      `json:"logs"`
+	PayloadIdentity
+	Scope    QueryScope      `json:"scope"`
+	Backend  QueryBackend    `json:"backend"`
+	Query    LogsQueryRecord `json:"query"`
+	Warnings []string        `json:"warnings,omitempty"`
+	Logs     []LogEntry      `json:"logs"`
 }
 
 type LogsTailEntry struct {
-	SchemaVersion string          `json:"schema_version"`
-	Scope         QueryScope      `json:"scope"`
-	Backend       QueryBackend    `json:"backend"`
-	Query         LogsQueryRecord `json:"query"`
-	Log           LogEntry        `json:"log"`
+	PayloadIdentity
+	Scope   QueryScope      `json:"scope"`
+	Backend QueryBackend    `json:"backend"`
+	Query   LogsQueryRecord `json:"query"`
+	Log     LogEntry        `json:"log"`
 }
 
 type MetricsQuery struct {
@@ -134,13 +151,13 @@ type MetricSeries struct {
 }
 
 type MetricsQueryResult struct {
-	SchemaVersion string             `json:"schema_version"`
-	Scope         QueryScope         `json:"scope"`
-	Backend       QueryBackend       `json:"backend"`
-	Query         MetricsQueryRecord `json:"query"`
-	ResultType    string             `json:"result_type"`
-	Warnings      []string           `json:"warnings,omitempty"`
-	Series        []MetricSeries     `json:"series"`
+	PayloadIdentity
+	Scope      QueryScope         `json:"scope"`
+	Backend    QueryBackend       `json:"backend"`
+	Query      MetricsQueryRecord `json:"query"`
+	ResultType string             `json:"result_type"`
+	Warnings   []string           `json:"warnings,omitempty"`
+	Series     []MetricSeries     `json:"series"`
 }
 
 type MetricsCatalogQuery struct {
@@ -163,31 +180,31 @@ type MetricsCatalogRecord struct {
 }
 
 type MetricsLabelsResult struct {
-	SchemaVersion string               `json:"schema_version"`
-	Scope         QueryScope           `json:"scope"`
-	Backend       QueryBackend         `json:"backend"`
-	Query         MetricsCatalogRecord `json:"query"`
-	Warnings      []string             `json:"warnings,omitempty"`
-	Labels        []string             `json:"labels"`
+	PayloadIdentity
+	Scope    QueryScope           `json:"scope"`
+	Backend  QueryBackend         `json:"backend"`
+	Query    MetricsCatalogRecord `json:"query"`
+	Warnings []string             `json:"warnings,omitempty"`
+	Labels   []string             `json:"labels"`
 }
 
 type MetricsSeriesResult struct {
-	SchemaVersion string               `json:"schema_version"`
-	Scope         QueryScope           `json:"scope"`
-	Backend       QueryBackend         `json:"backend"`
-	Query         MetricsCatalogRecord `json:"query"`
-	Warnings      []string             `json:"warnings,omitempty"`
-	Series        []map[string]string  `json:"series"`
+	PayloadIdentity
+	Scope    QueryScope           `json:"scope"`
+	Backend  QueryBackend         `json:"backend"`
+	Query    MetricsCatalogRecord `json:"query"`
+	Warnings []string             `json:"warnings,omitempty"`
+	Series   []map[string]string  `json:"series"`
 }
 
 func QueryLogs(ctx context.Context, q LogsQuery) (LogsQueryResult, error) {
 	result := LogsQueryResult{
-		SchemaVersion: LogsQuerySchema,
-		Scope:         q.Scope,
-		Backend:       logsBackend(q.BaseURL),
-		Query:         logsQueryRecord(q),
-		Warnings:      append([]string(nil), q.Warnings...),
-		Logs:          []LogEntry{},
+		PayloadIdentity: NewPayloadIdentity(LogsQueryKind, "scope,backend,query,warnings,logs"),
+		Scope:           q.Scope,
+		Backend:         logsBackend(q.BaseURL),
+		Query:           logsQueryRecord(q),
+		Warnings:        append([]string(nil), q.Warnings...),
+		Logs:            []LogEntry{},
 	}
 	if strings.TrimSpace(q.BaseURL) == "" {
 		result.Warnings = append(result.Warnings, "VictoriaLogs is unavailable")
@@ -217,23 +234,23 @@ func TailLogs(ctx context.Context, q LogsQuery, emit func(LogsTailEntry) error) 
 			return nil
 		}
 		return emit(LogsTailEntry{
-			SchemaVersion: LogsTailEntrySchema,
-			Scope:         q.Scope,
-			Backend:       logsBackend(q.BaseURL),
-			Query:         record,
-			Log:           entries[0],
+			PayloadIdentity: NewPayloadIdentity(LogsTailEntryKind, "scope,backend,query,log"),
+			Scope:           q.Scope,
+			Backend:         logsBackend(q.BaseURL),
+			Query:           record,
+			Log:             entries[0],
 		})
 	})
 }
 
 func QueryMetrics(ctx context.Context, q MetricsQuery) (MetricsQueryResult, error) {
 	result := MetricsQueryResult{
-		SchemaVersion: MetricsQuerySchema,
-		Scope:         q.Scope,
-		Backend:       metricsBackend(q.BaseURL),
-		Query:         metricsQueryRecord(q),
-		Warnings:      append([]string(nil), q.Warnings...),
-		Series:        []MetricSeries{},
+		PayloadIdentity: NewPayloadIdentity(MetricsQueryKind, "scope,backend,query,result_type,warnings,series"),
+		Scope:           q.Scope,
+		Backend:         metricsBackend(q.BaseURL),
+		Query:           metricsQueryRecord(q),
+		Warnings:        append([]string(nil), q.Warnings...),
+		Series:          []MetricSeries{},
 	}
 	if strings.TrimSpace(q.BaseURL) == "" {
 		result.Warnings = append(result.Warnings, "VictoriaMetrics is unavailable")
@@ -270,12 +287,12 @@ func QueryMetrics(ctx context.Context, q MetricsQuery) (MetricsQueryResult, erro
 
 func MetricsLabels(ctx context.Context, q MetricsCatalogQuery) (MetricsLabelsResult, error) {
 	result := MetricsLabelsResult{
-		SchemaVersion: MetricsLabelsSchema,
-		Scope:         q.Scope,
-		Backend:       metricsBackend(q.BaseURL),
-		Query:         metricsCatalogRecord(q),
-		Warnings:      append([]string(nil), q.Warnings...),
-		Labels:        []string{},
+		PayloadIdentity: NewPayloadIdentity(MetricsLabelsKind, "scope,backend,query,warnings,labels"),
+		Scope:           q.Scope,
+		Backend:         metricsBackend(q.BaseURL),
+		Query:           metricsCatalogRecord(q),
+		Warnings:        append([]string(nil), q.Warnings...),
+		Labels:          []string{},
 	}
 	if strings.TrimSpace(q.BaseURL) == "" {
 		result.Warnings = append(result.Warnings, "VictoriaMetrics is unavailable")
@@ -306,12 +323,12 @@ func MetricsLabels(ctx context.Context, q MetricsCatalogQuery) (MetricsLabelsRes
 
 func MetricsSeries(ctx context.Context, q MetricsCatalogQuery) (MetricsSeriesResult, error) {
 	result := MetricsSeriesResult{
-		SchemaVersion: MetricsSeriesSchema,
-		Scope:         q.Scope,
-		Backend:       metricsBackend(q.BaseURL),
-		Query:         metricsCatalogRecord(q),
-		Warnings:      append([]string(nil), q.Warnings...),
-		Series:        []map[string]string{},
+		PayloadIdentity: NewPayloadIdentity(MetricsSeriesKind, "scope,backend,query,warnings,series"),
+		Scope:           q.Scope,
+		Backend:         metricsBackend(q.BaseURL),
+		Query:           metricsCatalogRecord(q),
+		Warnings:        append([]string(nil), q.Warnings...),
+		Series:          []map[string]string{},
 	}
 	if strings.TrimSpace(q.BaseURL) == "" {
 		result.Warnings = append(result.Warnings, "VictoriaMetrics is unavailable")

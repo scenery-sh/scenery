@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.contract-cli.response.schema.json",
+  "title": "scenery.contract-cli.response",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "spec_revision",
+    "producer"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.contract-cli.response"
+    },
+    "schema_revision": {
+      "const": "sha256:42b3bc64a69833b0456dfaf6d4332fcad6a4eb208fed48b4723f17b1d3360198"
+    },
+    "spec_revision": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "producer": {
+      "type": "object"
+    },
+    "outcome": {
+      "type": "object",
+      "required": [
+        "kind",
+        "name",
+        "payload"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "payload": {
+        }
+      },
+      "additionalProperties": false
+    },
+    "problem": {
+      "type": "object",
+      "required": [
+        "code",
+        "message"
+      ],
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

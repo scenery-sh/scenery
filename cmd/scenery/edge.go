@@ -23,6 +23,7 @@ import (
 	localagent "scenery.sh/internal/agent"
 	edgelifecycle "scenery.sh/internal/edge"
 	"scenery.sh/internal/envpolicy"
+	"scenery.sh/internal/machine"
 	"scenery.sh/internal/toolchain"
 )
 
@@ -278,14 +279,14 @@ func edgeStatus(opts edgeOptions) error {
 	}
 	if state.Kind == "" {
 		state = localagent.EdgeState{
-			SchemaVersion: localagent.EdgeSchemaVersion,
-			Kind:          localagent.EdgeKindCaddy,
-			Status:        localagent.EdgeStatusStopped,
-			PublicAddr:    defaultEdgePublicAddr,
-			PublicScheme:  "https",
-			ConfigPath:    paths.EdgeConfigPath,
-			LogPath:       paths.EdgeLogPath,
-			UpdatedAt:     time.Now().UTC(),
+			ArtifactIdentity: localagent.NewEdgeStateIdentity(),
+			Kind:             localagent.EdgeKindCaddy,
+			Status:           localagent.EdgeStatusStopped,
+			PublicAddr:       defaultEdgePublicAddr,
+			PublicScheme:     "https",
+			ConfigPath:       paths.EdgeConfigPath,
+			LogPath:          paths.EdgeLogPath,
+			UpdatedAt:        time.Now().UTC(),
 		}
 	} else if !localagent.EdgeStateRunning(state) {
 		state.Status = localagent.EdgeStatusStopped
@@ -322,11 +323,10 @@ func edgeTrust(opts edgeOptions) error {
 		return err
 	}
 	if opts.JSON {
-		return writeCLIJSON(os.Stdout, map[string]any{
-			"schema_version": localagent.EdgeSchemaVersion,
-			"kind":           localagent.EdgeKindCaddy,
-			"status":         "trusted",
-		})
+		return writeCLIJSON(os.Stdout, withCLIPayloadIdentity("scenery.edge.trust", map[string]any{
+			"edge_kind": localagent.EdgeKindCaddy,
+			"status":    "trusted",
+		}))
 	}
 	fmt.Fprintln(os.Stdout, "trusted scenery Caddy local CA")
 	return nil
@@ -366,22 +366,22 @@ func edgeUninstall(opts edgeOptions) error {
 }
 
 type edgeDNSState struct {
-	SchemaVersion string    `json:"schema_version"`
-	Status        string    `json:"status"`
-	PID           int       `json:"pid,omitempty"`
-	Domain        string    `json:"domain"`
-	Listen        string    `json:"listen"`
-	Address       string    `json:"address"`
-	Executable    string    `json:"executable,omitempty"`
-	ConfigPath    string    `json:"config_path,omitempty"`
-	LogPath       string    `json:"log_path,omitempty"`
-	ResolverPath  string    `json:"resolver_path,omitempty"`
-	Error         string    `json:"error,omitempty"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	machine.ArtifactIdentity
+	Status       string    `json:"status"`
+	PID          int       `json:"pid,omitempty"`
+	Domain       string    `json:"domain"`
+	Listen       string    `json:"listen"`
+	Address      string    `json:"address"`
+	Executable   string    `json:"executable,omitempty"`
+	ConfigPath   string    `json:"config_path,omitempty"`
+	LogPath      string    `json:"log_path,omitempty"`
+	ResolverPath string    `json:"resolver_path,omitempty"`
+	Error        string    `json:"error,omitempty"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 type edgeDNSStatusResult struct {
-	SchemaVersion  string               `json:"schema_version"`
+	cliPayloadIdentity
 	Ready          bool                 `json:"ready"`
 	Domain         string               `json:"domain"`
 	Address        string               `json:"address"`
@@ -731,11 +731,11 @@ func edgeDNSStatusFor(paths localagent.Paths, domain string) edgeDNSStatusResult
 		configServesDomain = true
 	}
 	status := edgeDNSStatusResult{
-		SchemaVersion:  "scenery.edge.dns.status.v1",
-		Ready:          (dnsState == "running" || dnsState == "external") && resolver.State == "installed" && configServesDomain,
-		Domain:         domain,
-		Address:        firstNonEmpty(state.Address, defaultEdgeDNSAddress),
-		InstallCommand: edgeDNSInstallCommand(domain),
+		cliPayloadIdentity: newCLIPayloadIdentity("scenery.edge.dns.status"),
+		Ready:              (dnsState == "running" || dnsState == "external") && resolver.State == "installed" && configServesDomain,
+		Domain:             domain,
+		Address:            firstNonEmpty(state.Address, defaultEdgeDNSAddress),
+		InstallCommand:     edgeDNSInstallCommand(domain),
 	}
 	status.DNSMasq.State = dnsState
 	status.DNSMasq.PID = state.PID
@@ -804,7 +804,7 @@ func edgeDNSInstallCommand(domain string) string {
 }
 
 func writeEdgeDNSState(paths localagent.Paths, state edgeDNSState) error {
-	state.SchemaVersion = "scenery.edge.dns.state.v1"
+	state.ArtifactIdentity = machine.NewArtifactIdentity("scenery.edge.dns-state", edgeDNSStateDescriptor)
 	if state.UpdatedAt.IsZero() {
 		state.UpdatedAt = time.Now().UTC()
 	}
@@ -815,20 +815,25 @@ func writeEdgeDNSState(paths localagent.Paths, state edgeDNSState) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(edgeDNSStatePath(paths), append(data, '\n'), 0o600)
+	return atomicWriteFile(edgeDNSStatePath(paths), append(data, '\n'), 0o600)
 }
 
 func loadEdgeDNSState(path string) (edgeDNSState, error) {
 	var state edgeDNSState
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return state, err
-	}
-	if err := json.Unmarshal(data, &state); err != nil {
+	if err := localagent.LoadDurableArtifact(path, &state, &state.ArtifactIdentity, "scenery.edge.dns-state", edgeDNSStateDescriptor, 0o600, func(fields map[string]json.RawMessage) error {
+		var version string
+		if err := json.Unmarshal(fields["schema_version"], &version); err != nil || version != "scenery.edge.dns.state.v1" {
+			return fmt.Errorf("unsupported legacy edge DNS state schema %q", version)
+		}
+		delete(fields, "schema_version")
+		return nil
+	}); err != nil {
 		return state, err
 	}
 	return state, nil
 }
+
+const edgeDNSStateDescriptor = `{"identity":"artifact","state":"edge-dns-resolver"}`
 
 func edgeDNSConfigPath(paths localagent.Paths) string {
 	return filepath.Join(paths.EdgeDir, "dnsmasq.conf")
@@ -1048,7 +1053,7 @@ func writeEdgeStatusJSON(status edgeStatusResult) error {
 }
 
 type edgeStatusResult struct {
-	SchemaVersion      string                       `json:"schema_version"`
+	cliPayloadIdentity
 	Ready              bool                         `json:"ready"`
 	PublicBase         string                       `json:"public_base"`
 	Edge               edgeStatusCaddy              `json:"edge"`
@@ -1101,9 +1106,9 @@ func edgeStatusForStateDomain(paths localagent.Paths, state localagent.EdgeState
 	dns := edgeDNSStatusFor(paths, domain)
 	helperTargetsState := helper.Target == state.HTTPSListen && helper.TargetPID == state.PID
 	return edgeStatusResult{
-		SchemaVersion: "scenery.edge.status.v1",
-		Ready:         edgeState == localagent.EdgeStatusRunning && dns.Ready && helper.State == "running" && helperTargetsState && agentRouter == state.UpstreamAddr,
-		PublicBase:    publicBaseForEdge(state.PublicAddr),
+		cliPayloadIdentity: newCLIPayloadIdentity("scenery.edge.status"),
+		Ready:              edgeState == localagent.EdgeStatusRunning && dns.Ready && helper.State == "running" && helperTargetsState && agentRouter == state.UpstreamAddr,
+		PublicBase:         publicBaseForEdge(state.PublicAddr),
 		Edge: edgeStatusCaddy{
 			Kind:        localagent.EdgeKindCaddy,
 			State:       edgeState,
@@ -1901,7 +1906,7 @@ func validateEdgeTargetForPort(path string, ownerUID, ownerGID int, httpPort80 b
 	if err != nil {
 		return "", err
 	}
-	if state.SchemaVersion != localagent.EdgeTargetSchemaVersion || state.Kind != localagent.EdgeKindCaddy {
+	if state.Kind != localagent.EdgeKindCaddy {
 		return "", fmt.Errorf("edge target metadata has unexpected kind")
 	}
 	targetAddr, err := edgeTargetAddrForPort(state, httpPort80)

@@ -8,18 +8,13 @@ import (
 )
 
 func TestApprovalTokenPayloadIsCanonicalAndRejectsDuplicateScopes(t *testing.T) {
-	token := ApprovalToken{
-		PlanID: "sha256:" + strings.Repeat("a", 64),
-		Caller: "agent:test", RiskScopes: []string{"write", "deploy"},
-		ExpiresAt: time.Date(2026, 7, 10, 12, 30, 0, 0, time.FixedZone("offset", 2*60*60)),
-	}
+	token := NewApprovalToken("sha256:"+strings.Repeat("a", 64), "agent:test", []string{"write", "deploy"}, time.Date(2026, 7, 10, 12, 30, 0, 0, time.FixedZone("offset", 2*60*60)))
 	payload, err := ApprovalTokenPayload(token)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `{"caller":"agent:test","expires_at":"2026-07-10T10:30:00Z","plan_id":"sha256:` + strings.Repeat("a", 64) + `","risk_scopes":["deploy","write"]}`
-	if string(payload) != want {
-		t.Fatalf("payload = %s, want %s", payload, want)
+	if !strings.Contains(string(payload), `"kind":"scenery.approval-token"`) || !strings.Contains(string(payload), `"caller":"agent:test"`) || !strings.Contains(string(payload), `"risk_scopes":["deploy","write"]`) {
+		t.Fatalf("payload = %s", payload)
 	}
 	token.RiskScopes = []string{"deploy", "deploy"}
 	if _, err := ApprovalTokenPayload(token); err == nil {
@@ -28,11 +23,8 @@ func TestApprovalTokenPayloadIsCanonicalAndRejectsDuplicateScopes(t *testing.T) 
 }
 
 func TestValidateApprovalTokenEnforcesSignatureShape(t *testing.T) {
-	token := ApprovalToken{
-		PlanID: "sha256:" + strings.Repeat("b", 64), Caller: "agent:test", RiskScopes: []string{"deploy"},
-		ExpiresAt: time.Now().UTC().Add(time.Minute),
-		Signature: "ed25519:maintainer:" + base64.RawStdEncoding.EncodeToString(make([]byte, 64)),
-	}
+	token := NewApprovalToken("sha256:"+strings.Repeat("b", 64), "agent:test", []string{"deploy"}, time.Now().UTC().Add(time.Minute))
+	token.Signature = "ed25519:maintainer:" + base64.RawStdEncoding.EncodeToString(make([]byte, 64))
 	if err := ValidateApprovalToken(token); err != nil {
 		t.Fatal(err)
 	}

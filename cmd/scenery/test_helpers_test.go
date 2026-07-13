@@ -21,6 +21,7 @@ import (
 
 	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/devdash"
+	"scenery.sh/internal/envpolicy"
 )
 
 func writeTestAppFileIfChanged(t *testing.T, root, rel, contents string) {
@@ -90,7 +91,7 @@ func writeTestAppFile(t *testing.T, root, rel, contents string) {
 	if rel == ".scenery.json" {
 		contractPath := filepath.Join(root, "scenery.scn")
 		if _, err := os.Stat(contractPath); os.IsNotExist(err) {
-			contract := "language {\n  edition = \"2027\"\n  require_profiles = [\"scenery.compiler-core/v1\", \"scenery.inspection-core/v1\"]\n}\napplication \"test\" { version = \"1.0.0\" }\n"
+			contract := "application \"test\" {}\n"
 			if err := os.WriteFile(contractPath, []byte(contract), 0o644); err != nil {
 				t.Fatalf("WriteFile(%q): %v", contractPath, err)
 			}
@@ -148,11 +149,7 @@ func nativeHarnessTestFiles(t *testing.T, name, body string) map[string]string {
 	return map[string]string{
 		".scenery.json": `{"name":"` + name + `","id":"` + name + `-id"}`,
 		"go.mod":        "module " + module + "\n\ngo 1.26.3\n\nrequire scenery.sh v0.0.0\n\nreplace scenery.sh => " + filepath.ToSlash(repoRootForTest(t)) + "\n",
-		"scenery.scn": `language {
-  edition = "2027"
-  require_profiles = ["scenery.compiler-core/v1", "scenery.go-implementation/v1"]
-}
-workspace {
+		"scenery.scn": `workspace {
   implementation_root "application" {
     path = "."
     revision_include = ["**/*.go", "go.mod"]
@@ -164,7 +161,7 @@ go_module "application" {
   import_path = "` + module + `"
 }
 go_toolchain "application" {
-  version = "1.26.3"
+	version = "1.26.3"
   experiments = []
 }
 go_target "development" {
@@ -176,7 +173,6 @@ go_target "development" {
   cgo = "disabled"
 }
 application "` + name + `" {
-  version = "1.0.0"
 }
 `,
 		"svc/api.go": `package svc
@@ -201,14 +197,14 @@ func writeHarnessSelfRepo(t *testing.T, schema string, requestedSchemas ...strin
 	writeTestAppFile(t, root, "docs/index.md", "See [local](local-contract.md), [plans](plans/active.md), and [debt](tech-debt.md).\n")
 	writeTestAppFile(t, root, "docs/local-contract.md", "Contract.\n")
 	writeTestAppFile(t, root, "docs/environment.md", "Environment.\n")
-	writeTestAppFile(t, root, "docs/environment.registry.json", `{"schema_version":"scenery.environment.registry.v1","variables":[{"name":"SCENERY_TEST_","match":"prefix","scope":"test_only","direction":"test_input","category":"tests","stability":"test_only","secret":false,"allowed_in":["docs","tests"],"owner":"scenery runtime","rationale":"Test-only controls.","preferred_surface":"tests","docs":["docs/environment.md"]}]}`)
+	writeTestAppFile(t, root, "docs/environment.registry.json", `{"kind":"`+envpolicy.Kind+`","schema_revision":"`+envpolicy.SchemaRevision+`","variables":[{"name":"SCENERY_TEST_","match":"prefix","scope":"test_only","direction":"test_input","category":"tests","stability":"test_only","secret":false,"allowed_in":["docs","tests"],"owner":"scenery runtime","rationale":"Test-only controls.","preferred_surface":"tests","docs":["docs/environment.md"]}]}`)
 	writeTestAppFile(t, root, "docs/app-development-cookbook.md", "Cookbook.\n")
 	writeTestAppFile(t, root, "docs/ui-agent-contract.md", "UI contract.\n")
 	writeTestAppFile(t, root, "docs/harness-engineering.md", "Harness.\n")
 	writeTestAppFile(t, root, "docs/plans/active.md", "Active.\n")
 	writeTestAppFile(t, root, "docs/plans/completed.md", "Completed.\n")
 	writeTestAppFile(t, root, "docs/tech-debt.md", "Debt.\n")
-	schemaNames := append([]string{"scenery.docs.index.v1.schema.json"}, requestedSchemas...)
+	schemaNames := append([]string{"scenery.docs.index.schema.json"}, requestedSchemas...)
 	sort.Strings(schemaNames)
 	for i, name := range schemaNames {
 		name = strings.TrimSpace(name)
@@ -224,7 +220,8 @@ func writeHarnessSelfRepo(t *testing.T, schema string, requestedSchemas ...strin
 		writeTestAppFile(t, root, filepath.Join("docs", "schemas", name), schema)
 	}
 	writeTestAppFile(t, root, "docs/knowledge.json", `{
-  "schema_version": "scenery.docs.index.v1",
+  "kind": "`+docsIndexKind+`",
+  "schema_revision": "`+docsIndexSchemaRevision+`",
   "generated_at": "2026-04-27T00:00:00Z",
   "owner_default": "scenery maintainers",
   "freshness_policy": {
@@ -292,7 +289,7 @@ func writeHarnessSelfRepo(t *testing.T, schema string, requestedSchemas ...strin
       "review_after": "2026-05-27",
       "summary": "Contract.",
       "tags": ["contract"],
-      "schema_refs": ["docs/schemas/scenery.docs.index.v1.schema.json"]
+      "schema_refs": ["docs/schemas/scenery.docs.index.schema.json"]
     }
   ],
   "plans": {

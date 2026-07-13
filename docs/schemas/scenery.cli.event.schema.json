@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.cli.event.schema.json",
+  "title": "Scenery CLI event envelope",
+  "type": "object",
+  "required": ["kind", "schema_revision", "spec_revision", "producer", "sequence", "event", "terminal", "workspace_revision", "contract_revision", "implementation_revision", "deployment_revision", "data", "diagnostics"],
+  "properties": {
+    "kind": { "const": "scenery.cli.event" },
+    "schema_revision": { "const": "sha256:85aeaf3276c078fe745cc7d327447caebd7926d5410a2a3dcbb036b188e61a75" },
+    "spec_revision": { "$ref": "#/$defs/revision" },
+    "producer": { "$ref": "#/$defs/producer" },
+    "sequence": { "type": "integer", "minimum": 1 },
+    "event": { "enum": ["event", "summary"] },
+    "terminal": { "type": "boolean" },
+    "workspace_revision": { "oneOf": [{ "$ref": "#/$defs/revision" }, { "type": "null" }] },
+    "contract_revision": { "oneOf": [{ "$ref": "#/$defs/revision" }, { "type": "null" }] },
+    "implementation_revision": { "$ref": "#/$defs/revision_value" },
+    "deployment_revision": { "$ref": "#/$defs/revision_value" },
+    "data": true,
+    "diagnostics": { "type": "array", "items": { "$ref": "#/$defs/diagnostic" } }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "event": { "const": "summary" } } },
+      "then": { "properties": { "terminal": { "const": true } } },
+      "else": { "properties": { "terminal": { "const": false } } }
+    }
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "revision": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "revision_value": {
+      "oneOf": [
+        { "$ref": "#/$defs/revision" },
+        { "type": "object", "additionalProperties": { "$ref": "#/$defs/revision" } },
+        { "type": "null" }
+      ]
+    },
+    "producer": {
+      "type": "object",
+      "required": ["version", "toolchain"],
+      "properties": {
+        "version": { "type": "string", "minLength": 1 },
+        "commit": { "type": "string" },
+        "built_at": { "type": "string" },
+        "toolchain": { "$ref": "#/$defs/toolchain" }
+      },
+      "additionalProperties": false
+    },
+    "toolchain": {
+      "type": "object",
+      "required": ["go_version"],
+      "properties": {
+        "go_version": { "type": "string", "minLength": 1 },
+        "manifest_revision": { "$ref": "#/$defs/revision" }
+      },
+      "additionalProperties": false
+    },
+    "diagnostic": {
+      "type": "object",
+      "required": ["code", "severity", "message"],
+      "properties": {
+        "code": { "type": "string", "pattern": "^SCN[0-9]{4}$" },
+        "severity": { "enum": ["error", "warning", "information", "hint"] },
+        "message": { "type": "string" },
+        "report_token": { "type": "string", "pattern": "^rpt_[a-z2-7]+$" },
+        "address": { "type": "string" },
+        "path": { "type": "string" }
+      },
+      "additionalProperties": true
+    }
+  }
+}

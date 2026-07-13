@@ -52,8 +52,8 @@ type workerDurableJobsOptions struct {
 }
 
 type workerDurableTokenCreateResponse struct {
-	SchemaVersion string `json:"schema_version"`
-	App           struct {
+	cliPayloadIdentity
+	App struct {
 		Name string `json:"name"`
 		Root string `json:"root"`
 	} `json:"app"`
@@ -68,14 +68,14 @@ type workerDurableTokenCreateResponse struct {
 }
 
 type workerDurableJobsResponse struct {
-	SchemaVersion string             `json:"schema_version"`
-	Service       string             `json:"service"`
-	DBPath        string             `json:"db_path"`
-	Jobs          []durableJobRecord `json:"jobs,omitempty"`
-	Job           *durableJobRecord  `json:"job,omitempty"`
-	Events        []durableJobEvent  `json:"events,omitempty"`
-	Action        string             `json:"action,omitempty"`
-	OK            bool               `json:"ok,omitempty"`
+	cliPayloadIdentity
+	Service string             `json:"service"`
+	DBPath  string             `json:"db_path"`
+	Jobs    []durableJobRecord `json:"jobs,omitempty"`
+	Job     *durableJobRecord  `json:"job,omitempty"`
+	Events  []durableJobEvent  `json:"events,omitempty"`
+	Action  string             `json:"action,omitempty"`
+	OK      bool               `json:"ok,omitempty"`
 }
 
 type durableJobRecord struct {
@@ -108,7 +108,7 @@ func workerCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := validateVNextRuntimePlan(opts.AppRoot); err != nil {
+	if err := validateRuntimePlan(opts.AppRoot); err != nil {
 		return err
 	}
 	return runWorkerFunc(opts)
@@ -281,7 +281,7 @@ func runWorker(opts workerOptions) error {
 	if err != nil {
 		return err
 	}
-	result, err := build.AppForVNextTarget(root, cfg, "", "worker")
+	result, err := build.AppForTarget(root, cfg, "", "worker")
 	if err != nil {
 		return err
 	}
@@ -297,7 +297,7 @@ func runWorkerDurable(opts workerDurableOptions) error {
 	if err != nil {
 		return err
 	}
-	result, err := build.AppForVNextTarget(root, cfg, "", "worker")
+	result, err := build.AppForTarget(root, cfg, "", "worker")
 	if err != nil {
 		return err
 	}
@@ -412,9 +412,9 @@ func runWorkerDurableTokenCreate(opts workerDurableTokenCreateOptions, stdout io
 		return err
 	}
 	resp := workerDurableTokenCreateResponse{
-		SchemaVersion: "scenery.durable.worker_token.create.v1",
-		Service:       service,
-		DBPath:        postgresdb.RedactURL(databaseURL),
+		cliPayloadIdentity: newCLIPayloadIdentity("scenery.durable.worker_token.create"),
+		Service:            service,
+		DBPath:             postgresdb.RedactURL(databaseURL),
 	}
 	resp.App.Name = cfg.Name
 	resp.App.Root = root
@@ -439,10 +439,10 @@ func runWorkerDurableJobs(opts workerDurableJobsOptions, stdout io.Writer) error
 	_ = cfg
 	defer db.Close()
 	resp := workerDurableJobsResponse{
-		SchemaVersion: "scenery.durable.jobs.v1",
-		Service:       service,
-		DBPath:        postgresdb.RedactURL(databaseURL),
-		Action:        opts.Action,
+		cliPayloadIdentity: newCLIPayloadIdentity("scenery.durable.jobs"),
+		Service:            service,
+		DBPath:             postgresdb.RedactURL(databaseURL),
+		Action:             opts.Action,
 	}
 	switch opts.Action {
 	case "list":

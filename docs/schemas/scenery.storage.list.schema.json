@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.storage.list.schema.json",
+  "title": "scenery.storage.list",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "store",
+    "page"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.storage.list"
+    },
+    "schema_revision": {
+      "const": "sha256:5efdf0ca16bbcf0b7c7534c14fd984a09384aea90518b75be64dd9bdba8a4eb7"
+    },
+    "store": {
+      "type": "string"
+    },
+    "page": {
+      "type": "object",
+      "required": [
+        "objects"
+      ],
+      "properties": {
+        "objects": {
+          "type": "array",
+          "items": {
+            "$ref": "scenery.storage.object.schema.json#/properties/object"
+          }
+        },
+        "prefixes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "next_cursor": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

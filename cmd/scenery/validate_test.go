@@ -48,7 +48,7 @@ func TestInspectValidationProfiles(t *testing.T) {
 	if err := decodeCLIJSON(out.Bytes(), &resp); err != nil {
 		t.Fatalf("decodeCLIJSON: %v\n%s", err, out.String())
 	}
-	if resp.SchemaVersion != validationInspectSchema || resp.Default != "quick" || len(resp.Profiles) != 2 {
+	if resp.Kind != validationInspectKind || resp.SchemaRevision != newCLIPayloadIdentity(validationInspectKind).SchemaRevision || resp.Default != "quick" || len(resp.Profiles) != 2 {
 		t.Fatalf("resp = %+v", resp)
 	}
 	if len(resp.Diagnostics) < 2 {

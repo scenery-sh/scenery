@@ -17,37 +17,37 @@ type inspectHarnessOptions struct {
 }
 
 type inspectHarnessArtifactResponse struct {
-	SchemaVersion string          `json:"schema_version"`
-	GeneratedAt   string          `json:"generated_at"`
-	Scope         string          `json:"scope"`
-	Root          string          `json:"root"`
-	Artifact      harnessArtifact `json:"artifact"`
-	Payload       any             `json:"payload,omitempty"`
+	cliPayloadIdentity
+	GeneratedAt string          `json:"generated_at"`
+	Scope       string          `json:"scope"`
+	Root        string          `json:"root"`
+	Artifact    harnessArtifact `json:"artifact"`
+	Payload     any             `json:"payload,omitempty"`
 }
 
 type inspectHarnessDiagnosticsResponse struct {
-	SchemaVersion string            `json:"schema_version"`
-	GeneratedAt   string            `json:"generated_at"`
-	Scope         string            `json:"scope"`
-	Root          string            `json:"root"`
-	Severity      string            `json:"severity,omitempty"`
-	Diagnostics   []checkDiagnostic `json:"diagnostics"`
-	OmittedCount  int               `json:"omitted_count,omitempty"`
-	Artifacts     []harnessArtifact `json:"artifacts,omitempty"`
+	cliPayloadIdentity
+	GeneratedAt  string            `json:"generated_at"`
+	Scope        string            `json:"scope"`
+	Root         string            `json:"root"`
+	Severity     string            `json:"severity,omitempty"`
+	Diagnostics  []checkDiagnostic `json:"diagnostics"`
+	OmittedCount int               `json:"omitted_count,omitempty"`
+	Artifacts    []harnessArtifact `json:"artifacts,omitempty"`
 }
 
 type inspectHarnessTimingResponse struct {
-	SchemaVersion string                   `json:"schema_version"`
-	GeneratedAt   string                   `json:"generated_at"`
-	Scope         string                   `json:"scope"`
-	Root          string                   `json:"root"`
-	Top           int                      `json:"top"`
-	TotalSeconds  float64                  `json:"total_seconds"`
-	Budgets       harnessTestTimingBudgets `json:"budgets"`
-	SlowTests     []harnessTestTiming      `json:"slow_tests,omitempty"`
-	SlowPackages  []harnessPackageTiming   `json:"slow_packages,omitempty"`
-	Diagnostics   []checkDiagnostic        `json:"diagnostics,omitempty"`
-	Artifact      harnessArtifact          `json:"artifact"`
+	cliPayloadIdentity
+	GeneratedAt  string                   `json:"generated_at"`
+	Scope        string                   `json:"scope"`
+	Root         string                   `json:"root"`
+	Top          int                      `json:"top"`
+	TotalSeconds float64                  `json:"total_seconds"`
+	Budgets      harnessTestTimingBudgets `json:"budgets"`
+	SlowTests    []harnessTestTiming      `json:"slow_tests,omitempty"`
+	SlowPackages []harnessPackageTiming   `json:"slow_packages,omitempty"`
+	Diagnostics  []checkDiagnostic        `json:"diagnostics,omitempty"`
+	Artifact     harnessArtifact          `json:"artifact"`
 }
 
 func buildInspectHarnessFocusedResponse(opts inspectOptions) (any, error) {
@@ -80,7 +80,7 @@ func buildInspectHarnessArtifactResponse(root, scope, name string) (inspectHarne
 	if err != nil {
 		return inspectHarnessArtifactResponse{}, err
 	}
-	return inspectHarnessArtifactResponse{SchemaVersion: inspectHarnessSchema, GeneratedAt: time.Now().UTC().Format(time.RFC3339Nano), Scope: scope, Root: root, Artifact: artifact, Payload: payload}, nil
+	return inspectHarnessArtifactResponse{cliPayloadIdentity: newCLIPayloadIdentity(inspectHarnessKind), GeneratedAt: time.Now().UTC().Format(time.RFC3339Nano), Scope: scope, Root: root, Artifact: artifact, Payload: payload}, nil
 }
 
 func readBoundedHarnessArtifactPayload(name, path string) (any, error) {
@@ -98,7 +98,8 @@ func readBoundedHarnessArtifactPayload(name, path string) (any, error) {
 			return packages[i].Seconds > packages[j].Seconds
 		})
 		return map[string]any{
-			"schema_version":           report.SchemaVersion,
+			"kind":                     report.Kind,
+			"schema_revision":          report.SchemaRevision,
 			"total_seconds":            report.TotalSeconds,
 			"confirmation_seconds":     report.ConfirmationSeconds,
 			"budgets":                  report.Budgets,
@@ -115,7 +116,8 @@ func readBoundedHarnessArtifactPayload(name, path string) (any, error) {
 			return nil, err
 		}
 		return map[string]any{
-			"schema_version":    report.SchemaVersion,
+			"kind":              report.Kind,
+			"schema_revision":   report.SchemaRevision,
 			"cli_command_count": len(report.CLI.Commands),
 			"env_var_count":     len(report.Env.Variables),
 			"embed_count":       len(report.Embeds.Embeds),
@@ -135,7 +137,7 @@ func readBoundedHarnessArtifactPayload(name, path string) (any, error) {
 }
 
 func buildInspectHarnessDiagnosticsResponse(root, scope, severity string) (inspectHarnessDiagnosticsResponse, error) {
-	resp := inspectHarnessDiagnosticsResponse{SchemaVersion: inspectHarnessSchema, GeneratedAt: time.Now().UTC().Format(time.RFC3339Nano), Scope: scope, Root: root, Severity: severity}
+	resp := inspectHarnessDiagnosticsResponse{cliPayloadIdentity: newCLIPayloadIdentity(inspectHarnessKind), GeneratedAt: time.Now().UTC().Format(time.RFC3339Nano), Scope: scope, Root: root, Severity: severity}
 	self, ok, err := readLatestSelfHarness(root)
 	if err != nil {
 		return resp, err
@@ -176,7 +178,7 @@ func buildInspectHarnessTimingResponse(root, scope string, top int) (inspectHarn
 		}
 		return packages[i].Seconds > packages[j].Seconds
 	})
-	return inspectHarnessTimingResponse{SchemaVersion: inspectHarnessSchema, GeneratedAt: time.Now().UTC().Format(time.RFC3339Nano), Scope: scope, Root: root, Top: top, TotalSeconds: report.TotalSeconds, Budgets: report.Budgets, SlowTests: capTests(report.SlowTests, top), SlowPackages: capPackages(packages, top), Diagnostics: capDiagnostics(report.Diagnostics, 50, ""), Artifact: artifact}, nil
+	return inspectHarnessTimingResponse{cliPayloadIdentity: newCLIPayloadIdentity(inspectHarnessKind), GeneratedAt: time.Now().UTC().Format(time.RFC3339Nano), Scope: scope, Root: root, Top: top, TotalSeconds: report.TotalSeconds, Budgets: report.Budgets, SlowTests: capTests(report.SlowTests, top), SlowPackages: capPackages(packages, top), Diagnostics: capDiagnostics(report.Diagnostics, 50, ""), Artifact: artifact}, nil
 }
 
 func resolveHarnessArtifactByName(root, name string) (harnessArtifact, string, error) {
@@ -196,15 +198,15 @@ func resolveHarnessArtifactByName(root, name string) (harnessArtifact, string, e
 
 func knownHarnessArtifacts() []harnessArtifact {
 	return []harnessArtifact{
-		{Name: "self-harness", Path: ".scenery/harness/self-latest.json", SchemaVersion: "scenery.harness.self.v1"},
-		{Name: "self-summary", Path: ".scenery/harness/self-summary-latest.json", SchemaVersion: harnessSelfSummarySchema},
-		{Name: "toolchain", Path: ".scenery/harness/toolchain-latest.json", SchemaVersion: harnessToolchainSchema},
-		{Name: "changed-area", Path: ".scenery/harness/changed-area-latest.json", SchemaVersion: harnessChangedAreaSchema},
-		{Name: "drift", Path: ".scenery/harness/drift-latest.json", SchemaVersion: harnessDriftSchema},
-		{Name: "test-timing", Path: ".scenery/harness/test-timing-latest.json", SchemaVersion: harnessTestTimingSchema},
-		{Name: "fixture-matrix", Path: ".scenery/harness/fixture-matrix-latest.json", SchemaVersion: harnessFixtureMatrixSchema},
-		{Name: "schema-validation", Path: ".scenery/harness/schema-validation-latest.json", SchemaVersion: harnessSchemaValidationSchema},
-		{Name: "agent-context", Path: ".scenery/harness/agent-context.json", SchemaVersion: harnessAgentContextSchema},
+		newHarnessArtifact("self-harness", ".scenery/harness/self-latest.json", "scenery.harness.self", false),
+		newHarnessArtifact("self-summary", ".scenery/harness/self-summary-latest.json", harnessSelfSummaryKind, false),
+		newHarnessArtifact("toolchain", ".scenery/harness/toolchain-latest.json", harnessToolchainKind, false),
+		newHarnessArtifact("changed-area", ".scenery/harness/changed-area-latest.json", harnessChangedAreaKind, false),
+		newHarnessArtifact("drift", ".scenery/harness/drift-latest.json", harnessDriftKind, false),
+		newHarnessArtifact("test-timing", ".scenery/harness/test-timing-latest.json", harnessTestTimingKind, false),
+		newHarnessArtifact("fixture-matrix", ".scenery/harness/fixture-matrix-latest.json", harnessFixtureMatrixKind, false),
+		newHarnessArtifact("schema-validation", ".scenery/harness/schema-validation-latest.json", harnessSchemaValidationKind, false),
+		newHarnessArtifact("agent-context", ".scenery/harness/agent-context.json", harnessAgentContextKind, false),
 	}
 }
 

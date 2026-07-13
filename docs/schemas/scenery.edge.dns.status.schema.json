@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.edge.dns.status.schema.json",
+  "title": "scenery.edge.dns.status",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.edge.dns.status"
+    },
+    "schema_revision": {
+      "const": "sha256:041b8530c0083c8928023de9539c15a4ff92626cf1b186626105731fe01e446f"
+    },
+    "ready": {
+    },
+    "domain": {
+    },
+    "address": {
+    },
+    "dnsmasq": {
+    },
+    "resolver": {
+    },
+    "install_command": {
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.storage.object.schema.json",
+  "title": "scenery.storage.object",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "object"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.storage.object"
+    },
+    "schema_revision": {
+      "const": "sha256:f7c4e21d85a92097f91347b8d9861c00f3042a40102a677ea79c080921a9ec2a"
+    },
+    "object": {
+      "type": "object",
+      "required": [
+        "store",
+        "key",
+        "size_bytes",
+        "modified_at"
+      ],
+      "properties": {
+        "store": {
+          "type": "string"
+        },
+        "key": {
+          "type": "string"
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "content_type": {
+          "type": "string"
+        },
+        "etag": {
+          "type": "string"
+        },
+        "sha256": {
+          "type": "string"
+        },
+        "modified_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

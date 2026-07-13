@@ -624,3 +624,22 @@ func TestResolveCaddyBinaryDoesNotUseSystemPath(t *testing.T) {
 		t.Fatalf("resolveCaddyBinary() err = %v", err)
 	}
 }
+
+func TestLoadEdgeDNSStateMigratesResolverOwnership(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "dns.json")
+	legacy := []byte(`{"schema_version":"scenery.edge.dns.state.v1","status":"running","pid":42,"domain":"local.dev","listen":"127.0.0.1:53535","address":"127.0.0.1","resolver_path":"/etc/resolver/local.dev","updated_at":"2026-07-13T00:00:00Z"}`)
+	if err := os.WriteFile(path, legacy, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	state, err := loadEdgeDNSState(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Kind != "scenery.edge.dns-state" || state.PID != 42 || state.ResolverPath != "/etc/resolver/local.dev" {
+		t.Fatalf("migrated state = %+v", state)
+	}
+	backup, err := os.ReadFile(path + ".legacy.bak")
+	if err != nil || string(backup) != string(legacy) {
+		t.Fatalf("backup = %q, %v", backup, err)
+	}
+}

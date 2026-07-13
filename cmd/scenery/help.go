@@ -7,7 +7,9 @@ import (
 	"strings"
 )
 
-const helpManifestSchemaVersion = "scenery.help.v1"
+const (
+	helpManifestKind = "scenery.help"
+)
 
 type helpRootGroup struct {
 	Name    string
@@ -37,8 +39,8 @@ type helpCommandEntry struct {
 }
 
 type helpManifest struct {
-	SchemaVersion string             `json:"schema_version"`
-	Commands      []helpCommandEntry `json:"commands"`
+	cliPayloadIdentity
+	Commands []helpCommandEntry `json:"commands"`
 }
 
 var rootHelpGroups = []helpRootGroup{
@@ -58,12 +60,12 @@ var rootHelpGroups = []helpRootGroup{
 	}},
 	{Name: "App resources", Entries: []helpRootEntry{
 		{Command: "inspect", Summary: "Inspect app model and diagnostics as JSON"},
-		{Command: "compile", Summary: "Compile an edition-2027 canonical manifest"},
-		{Command: "list", Summary: "List edition-2027 resources"},
-		{Command: "get", Summary: "Get one edition-2027 resource"},
+		{Command: "compile", Summary: "Compile the canonical app manifest"},
+		{Command: "list", Summary: "List app resources"},
+		{Command: "get", Summary: "Get one app resource"},
 		{Command: "explain", Summary: "Explain a resource and provenance"},
-		{Command: "schema", Summary: "Read an edition-2027 resource schema"},
-		{Command: "fmt", Summary: "Format edition-2027 source"},
+		{Command: "schema", Summary: "Read a resource schema"},
+		{Command: "fmt", Summary: "Format Scenery source"},
 		{Command: "generate", Summary: "Generate clients, SQLC, and configured outputs"},
 		{Command: "db", Summary: "Manage Postgres database lifecycle"},
 		{Command: "task", Summary: "List, inspect, graph, and run app tasks"},
@@ -89,7 +91,7 @@ var rootHelpGroups = []helpRootGroup{
 }
 
 var helpReferenceGroups = []helpReferenceGroup{
-	{Name: "Edition 2027", Commands: []string{
+	{Name: "App contract", Commands: []string{
 		"scenery fmt",
 		"scenery compile",
 		"scenery schema",
@@ -205,12 +207,12 @@ var helpReferenceGroups = []helpReferenceGroup{
 }
 
 var helpCommands = []helpCommandEntry{
-	{Command: "fmt", Group: "Edition 2027", Summary: "Format edition-2027 .scn source.", Usage: []string{"scenery fmt [--check] [--app-root <path>] [-o human|json]"}, Flags: []string{"--check", "--app-root <path>", "-o human|json"}, JSON: true, Stability: "draft"},
-	{Command: "compile", Group: "Edition 2027", Summary: "Compile the canonical edition-2027 manifest.", Usage: []string{"scenery compile [--view source|effective|expanded] [--app-root <path>] [-o human|json]"}, Flags: []string{"--view <view>", "--app-root <path>", "-o human|json"}, JSON: true, Stability: "draft"},
-	{Command: "schema", Group: "Edition 2027", Summary: "Read an edition-2027 resource schema.", Usage: []string{"scenery schema <kind> [-o human|json]"}, Flags: []string{"-o human|json"}, JSON: true, Stability: "draft"},
-	{Command: "list", Group: "Edition 2027", Summary: "List canonical resources by kind.", Usage: []string{"scenery list <kind> [--module <name>] [-o human|json]"}, Flags: []string{"--module <name>", "-o human|json"}, JSON: true, Stability: "draft"},
-	{Command: "get", Group: "Edition 2027", Summary: "Get one canonical resource.", Usage: []string{"scenery get <address> [-o human|json]"}, Flags: []string{"-o human|json"}, JSON: true, Stability: "draft"},
-	{Command: "explain", Group: "Edition 2027", Summary: "Explain a canonical resource and provenance.", Usage: []string{"scenery explain <address> [-o human|json]"}, Flags: []string{"-o human|json"}, JSON: true, Stability: "draft"},
+	{Command: "fmt", Group: "App contract", Summary: "Format .scn source.", Usage: []string{"scenery fmt [--check] [--app-root <path>] [-o human|json]"}, Flags: []string{"--check", "--app-root <path>", "-o human|json"}, JSON: true, Stability: "stable"},
+	{Command: "compile", Group: "App contract", Summary: "Compile the canonical app manifest.", Usage: []string{"scenery compile [--view source|effective|expanded] [--app-root <path>] [-o human|json]"}, Flags: []string{"--view <view>", "--app-root <path>", "-o human|json"}, JSON: true, Stability: "stable"},
+	{Command: "schema", Group: "App contract", Summary: "Read a resource schema.", Usage: []string{"scenery schema <kind> [-o human|json]"}, Flags: []string{"-o human|json"}, JSON: true, Stability: "stable"},
+	{Command: "list", Group: "App contract", Summary: "List canonical resources by kind.", Usage: []string{"scenery list <kind> [--module <name>] [-o human|json]"}, Flags: []string{"--module <name>", "-o human|json"}, JSON: true, Stability: "stable"},
+	{Command: "get", Group: "App contract", Summary: "Get one canonical resource.", Usage: []string{"scenery get <address> [-o human|json]"}, Flags: []string{"-o human|json"}, JSON: true, Stability: "stable"},
+	{Command: "explain", Group: "App contract", Summary: "Explain a canonical resource and provenance.", Usage: []string{"scenery explain <address> [-o human|json]"}, Flags: []string{"-o human|json"}, JSON: true, Stability: "stable"},
 	{
 		Command:   "up",
 		Group:     "Local dev",
@@ -226,7 +228,7 @@ var helpCommands = []helpCommandEntry{
 		Summary:   "Show local dev app roots.",
 		Usage:     []string{"scenery ps [-o json] [--app-root <path>] [--watch]"},
 		Flags:     []string{"-o", "json", "--app-root <path>", "--watch"},
-		Notes:     []string{"Human table output is the default and shows console URLs.", "`-o json` emits scenery.agent.status.v1 for agents and automation."},
+		Notes:     []string{"Human table output is the default and shows console URLs.", "`-o json` emits the current scenery.agent.status payload for agents and automation."},
 		JSON:      true,
 		Stability: "stable",
 	},
@@ -480,8 +482,8 @@ var helpCommands = []helpCommandEntry{
 		Command:   "upgrade",
 		Group:     "System",
 		Summary:   "Upgrade the local Scenery binary.",
-		Usage:     []string{"scenery upgrade [--version latest|vX.Y.Z] [--target <path>] [--toolchain installed|all|none] [--force] [--dry-run] [-o json]"},
-		Flags:     []string{"--version latest|vX.Y.Z", "--target <path>", "--toolchain installed|all|none", "--skip-toolchain", "--force", "--dry-run", "-o", "json"},
+		Usage:     []string{"scenery upgrade [--target <path>] [--toolchain installed|all|none] [--force] [--dry-run] [-o json]"},
+		Flags:     []string{"--target <path>", "--toolchain installed|all|none", "--skip-toolchain", "--force", "--dry-run", "-o", "json"},
 		Notes:     []string{"Downloads are verified against the release checksums.txt asset.", "`--toolchain installed` syncs managed tools already present in the local store; `all` syncs every manifest artifact and image from the upgraded binary."},
 		JSON:      true,
 		Stability: "stable",
@@ -515,7 +517,7 @@ func helpCommand(args []string) error {
 	}
 	entry, ok := findHelpCommand(args)
 	if !ok {
-		if handled, err := runVNextBindingCLI(os.Stdout, os.Stderr, append(append([]string(nil), args...), "--help")); handled {
+		if handled, err := runBindingCLI(os.Stdout, os.Stderr, append(append([]string(nil), args...), "--help")); handled {
 			return err
 		}
 		return fmt.Errorf("unknown help topic %q", strings.Join(args, " "))
@@ -593,8 +595,8 @@ func writeCommandHelp(w io.Writer, entry helpCommandEntry) {
 
 func writeHelpJSON(w io.Writer) error {
 	manifest := helpManifest{
-		SchemaVersion: helpManifestSchemaVersion,
-		Commands:      append([]helpCommandEntry(nil), helpCommands...),
+		cliPayloadIdentity: newCLIPayloadIdentity(helpManifestKind),
+		Commands:           append([]helpCommandEntry(nil), helpCommands...),
 	}
 	return writeCLIJSON(w, manifest)
 }

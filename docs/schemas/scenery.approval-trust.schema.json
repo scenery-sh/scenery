@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.approval-trust.schema.json",
+  "title": "Scenery app-local approval trust store",
+  "type": "object",
+  "required": ["kind", "schema_revision", "spec_revision", "producer", "keys"],
+  "properties": {
+    "kind": { "const": "scenery.approval-trust" },
+    "schema_revision": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "spec_revision": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "producer": { "type": "object" },
+    "keys": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "type": "string", "minLength": 1, "pattern": "^[^:\\s]+$" },
+      "additionalProperties": {
+        "type": "string",
+        "description": "Raw 32-byte Ed25519 public key in padded or unpadded standard base64."
+      }
+    }
+  },
+  "additionalProperties": false
+}

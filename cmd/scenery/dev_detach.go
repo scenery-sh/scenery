@@ -33,7 +33,7 @@ var detachedDevStartupInterval = 100 * time.Millisecond
 var detachedDevBackendAcceptsConnections = backendAcceptsConnections
 
 type detachedDevResult struct {
-	SchemaVersion string             `json:"schema_version"`
+	cliPayloadIdentity
 	Wait          string             `json:"wait"`
 	PID           int                `json:"pid"`
 	LogPath       string             `json:"log_path"`
@@ -119,13 +119,13 @@ func runDetachedDev(args []string, opts devOptions) error {
 		return err
 	}
 	return writeDetachedDevResult(os.Stdout, opts.JSON, detachedDevResult{
-		SchemaVersion: "scenery.dev.detach.v1",
-		Wait:          waitMode,
-		PID:           session.OwnerPID,
-		LogPath:       logPath,
-		AttachCommand: fmt.Sprintf("scenery logs --follow --app-root %q", root),
-		DownCommand:   fmt.Sprintf("scenery down --app-root %q", root),
-		Session:       session,
+		cliPayloadIdentity: newCLIPayloadIdentity("scenery.dev.detach"),
+		Wait:               waitMode,
+		PID:                session.OwnerPID,
+		LogPath:            logPath,
+		AttachCommand:      fmt.Sprintf("scenery logs --follow --app-root %q", root),
+		DownCommand:        fmt.Sprintf("scenery down --app-root %q", root),
+		Session:            session,
 	})
 }
 

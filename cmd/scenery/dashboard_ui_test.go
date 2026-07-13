@@ -273,13 +273,14 @@ func TestDashboardLogsListRPCUsesVictoriaLogs(t *testing.T) {
 		for _, want := range []string{
 			`scenery_app_id="app-test"`,
 			`scenery_session_id="session-a"`,
-			`scenery_dev_schema="scenery.dev.event.v1"`,
+			`scenery_dev_kind="` + devdash.DevEventKind + `"`,
+			`scenery_dev_schema_revision="` + devdash.DevEventSchemaRevision + `"`,
 		} {
 			if !strings.Contains(query, want) {
 				t.Fatalf("query %q does not contain %q", query, want)
 			}
 		}
-		_, _ = io.WriteString(w, `{"_msg":"INFO ready","created_at":"2026-05-31T12:44:01.223Z","scenery_dev_schema":"scenery.dev.event.v1","scenery_app_id":"app-test","scenery_session_id":"session-a","id":"42","source_id":"api","source_kind":"app","source_name":"api","source_stream":"stdout","level":"info","fields_json":"{}","raw":"INFO ready","parse_format":"raw","parse_ok":"false"}`+"\n")
+		_, _ = io.WriteString(w, `{"_msg":"INFO ready","created_at":"2026-05-31T12:44:01.223Z","scenery_dev_kind":"`+devdash.DevEventKind+`","scenery_dev_schema_revision":"`+devdash.DevEventSchemaRevision+`","scenery_app_id":"app-test","scenery_session_id":"session-a","id":"42","source_id":"api","source_kind":"app","source_name":"api","source_stream":"stdout","level":"info","fields_json":"{}","raw":"INFO ready","parse_format":"raw","parse_ok":"false"}`+"\n")
 	}))
 	defer logsServer.Close()
 

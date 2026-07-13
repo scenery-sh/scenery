@@ -88,7 +88,7 @@ func runCDPBrowserChecks(ctx context.Context, routes []harnessUIRouteSpec, artif
 			abs := filepath.Join(artifactRoot, domPath)
 			if writeErr := writeHarnessUIDOMSnapshot(abs, snapshot); writeErr == nil {
 				route.DOMSnapshot = filepath.ToSlash(filepath.Join(".scenery", "harness", "ui", domPath))
-				result.Artifacts = append(result.Artifacts, harnessArtifact{Name: "dom:" + spec.Name, Path: route.DOMSnapshot, SchemaVersion: "scenery.harness.ui.dom.v1", Exists: true})
+				result.Artifacts = append(result.Artifacts, newHarnessArtifact("dom:"+spec.Name, route.DOMSnapshot, "scenery.harness.ui.dom", true))
 			}
 		}
 		screenshotPath := filepath.Join("screenshots", spec.Name+".png")
@@ -725,7 +725,7 @@ func waitForHarnessAnySelector(ctx context.Context, client *harnessCDPClient, se
 }
 
 type harnessUIDOMSnapshot struct {
-	SchemaVersion string             `json:"schema_version"`
+	cliPayloadIdentity
 	Route         string             `json:"route"`
 	URL           string             `json:"url"`
 	Title         string             `json:"title,omitempty"`
@@ -770,7 +770,7 @@ return {
 	if err := json.Unmarshal(out.Result.Value, &snapshot); err != nil {
 		return harnessUIDOMSnapshot{}, err
 	}
-	snapshot.SchemaVersion = "scenery.harness.ui.dom.v1"
+	snapshot.cliPayloadIdentity = newCLIPayloadIdentity("scenery.harness.ui.dom")
 	snapshot.Route = routeName
 	if snapshot.SemanticNodes == nil {
 		snapshot.SemanticNodes = []harnessUIDOMNode{}

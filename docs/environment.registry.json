@@ -1,5 +1,6 @@
 {
-  "schema_version": "scenery.environment.registry.v1",
+  "kind": "scenery.environment.registry",
+  "schema_revision": "sha256:6b701aa3ad57d309f09af6c10a16d91814259db5cfe4f55eae879cabd9b5100e",
   "variables": [
     {
       "name": "API_BASE_URL",

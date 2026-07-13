@@ -60,7 +60,7 @@ func TestDoctorIncludesDeployDiagnosticsSection(t *testing.T) {
 	if resp.Deploy == nil {
 		t.Fatal("doctor deploy section is nil")
 	}
-	if resp.Deploy.SchemaVersion != "scenery.doctor.deploy.v1" || resp.Deploy.RegistryPath != paths.DeployPath || len(resp.Deploy.Targets) != 1 {
+	if resp.Deploy.Kind != "scenery.doctor.deploy" || resp.Deploy.SchemaRevision != newCLIPayloadIdentity("scenery.doctor.deploy").SchemaRevision || resp.Deploy.RegistryPath != paths.DeployPath || len(resp.Deploy.Targets) != 1 {
 		t.Fatalf("doctor deploy section = %+v", resp.Deploy)
 	}
 	if resp.Deploy.Diagnostics.LANIP != "192.168.1.20" || resp.Deploy.Diagnostics.PublicIP != "203.0.113.10" {

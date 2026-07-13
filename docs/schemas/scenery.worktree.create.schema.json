@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.worktree.create.schema.json",
+  "title": "scenery worktree create result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "kind",
+    "schema_revision",
+    "ok",
+    "name",
+    "path",
+    "branch",
+    "next_command"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.worktree.create"
+    },
+    "schema_revision": {
+      "const": "sha256:7d2585e9045317d17a142fd91ceb4b38d0f60f8223abc31d30736697424fa5ea"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "name": {
+      "type": "string"
+    },
+    "path": {
+      "type": "string"
+    },
+    "branch": {
+      "type": "string"
+    },
+    "from": {
+      "type": "string"
+    },
+    "next_command": {
+      "type": "string"
+    },
+    "message": {
+      "type": "string"
+    }
+  }
+}
