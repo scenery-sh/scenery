@@ -18,6 +18,18 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0110-bounded-refresh-cookie-compatibility.md",
+      "title": "Bounded Refresh-Cookie Compatibility",
+      "owner": "scenery auth / runtime",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-07-13",
+      "review_after": "2026-08-12",
+      "summary": "Active corrective ExecPlan that temporarily accepts the former fixed onlv_refresh cookie after scenery_refresh only when the current cookie is absent, keeps issuance current-only, clears both names independently on logout, and forbids follow-up removal until 30 days after the corrective release publication date.",
+      "tags": ["plans", "execplans", "auth", "migration", "cookies"]
+    },
+    {
       "path": "docs/plans/0109-remove-post-v0-legacy-lanes.md",
       "title": "Remove Post-v0 Legacy Lanes",
       "owner": "scenery maintainers / runtime / CLI / agent routing",
@@ -504,9 +516,9 @@
       "status": "active",
       "quality": "B",
       "freshness": "current",
-      "last_reviewed": "2026-07-12",
-      "review_after": "2026-08-11",
-      "summary": "Active ExecPlan for per-user Google connections in standard auth using canonical auth environment names: encrypted offline refresh-token storage, single-flight cross-process refresh, reauth_required and google_scope_missing error taxonomy, connect/status/disconnect endpoints, auth.GoogleAccessToken Go API, and the Gmail integration contract for ONLV.",
+      "last_reviewed": "2026-07-13",
+      "review_after": "2026-08-12",
+      "summary": "Active ExecPlan for per-user Google connections in standard auth using current callback ownership and canonical auth environment names: encrypted offline refresh-token storage, single-flight cross-process refresh, reauth_required and google_scope_missing error taxonomy, connect/status/disconnect endpoints, auth.GoogleAccessToken Go API, and the Gmail integration contract for ONLV.",
       "tags": [
         "plans",
         "execplans",
@@ -773,9 +785,9 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-07-12",
-      "review_after": "2026-08-11",
-      "summary": "Frozen local developer and agent-facing contract for native edition-2027 applications and independently versioned CLI JSON surfaces, including typed HTTP path tails, graph provenance, recursive schemas, trusted plans, semantic changes and rename receipts, Go config provenance, app-root discovery, runtimes, deploy, data, storage, observability, harness timing, generators, and code tasks.",
+      "last_reviewed": "2026-07-13",
+      "review_after": "2026-08-12",
+      "summary": "Frozen local developer and agent-facing contract for native edition-2027 applications and independently versioned CLI JSON surfaces, including bounded standard-auth refresh-cookie migration, typed HTTP path tails, graph provenance, recursive schemas, trusted plans, semantic changes and rename receipts, Go config provenance, app-root discovery, runtimes, deploy, data, storage, observability, harness timing, generators, and code tasks.",
       "tags": [
         "contract",
         "cli",
@@ -786,6 +798,7 @@
         "deploy"
       ],
       "schema_refs": [
+        "docs/schemas/scenery.config.v1.schema.json",
         "docs/schemas/scenery.toolchain.v1.schema.json",
         "docs/schemas/scenery.toolchain.status.v1.schema.json",
         "docs/schemas/scenery.upgrade.v1.schema.json",
@@ -831,9 +844,9 @@
       "status": "completed",
       "quality": "B",
       "freshness": "current",
-      "last_reviewed": "2026-07-12",
-      "review_after": "2026-08-11",
-      "summary": "Human reference for scenery-owned environment variables, app-injected process identity, Postgres app database URLs and schema registry env, standard auth Google OAuth and token-cipher envs, remote durable worker variables, managed toolchain controls, local dev overrides, and tooling escape hatches.",
+      "last_reviewed": "2026-07-13",
+      "review_after": "2026-08-12",
+      "summary": "Human reference for scenery-owned environment variables, including fixed canonical standard-auth names and rejected legacy selectors, app-injected process identity, Postgres app database URLs and schema registry env, Google OAuth and token-cipher envs, remote durable worker variables, managed toolchain controls, local dev overrides, and tooling escape hatches.",
       "tags": [
         "environment",
         "env",
@@ -853,9 +866,9 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-07-12",
-      "review_after": "2026-08-11",
-      "summary": "Machine-readable registry of approved environment variables, families, metadata, documentation links, and secret flags enforced by self-harness, including canonical Postgres and standard-auth env names, service database URL patterns, Google OAuth secrets, and remote durable worker endpoint/token/service variables.",
+      "last_reviewed": "2026-07-13",
+      "review_after": "2026-08-12",
+      "summary": "Machine-readable registry of approved environment variables, families, metadata, documentation links, and secret flags enforced by self-harness, including singular canonical Postgres and standard-auth env names, service database URL patterns, Google OAuth secrets, and remote durable worker endpoint/token/service variables.",
       "tags": [
         "environment",
         "env",
@@ -1721,9 +1734,9 @@
       "status": "active",
       "quality": "B",
       "freshness": "current",
-      "last_reviewed": "2026-07-12",
-      "review_after": "2026-08-11",
-      "summary": "Current plans that should inform agent decisions, using permanent historical IDs and links mirrored in docs/knowledge.json.",
+      "last_reviewed": "2026-07-13",
+      "review_after": "2026-08-12",
+      "summary": "Current plans that should inform agent decisions, including the bounded refresh-cookie compatibility/removal window, using permanent historical IDs and links mirrored in docs/knowledge.json.",
       "tags": [
         "plans",
         "roadmap",
@@ -1737,9 +1750,9 @@
       "status": "active",
       "quality": "B",
       "freshness": "current",
-      "last_reviewed": "2026-07-12",
-      "review_after": "2026-08-11",
-      "summary": "Completed milestones and shipped behavior, including post-v0 legacy-lane removal, removal of remaining v0 compatibility and the Go-directive frontend, typed HTTP path-tail profiles, edition-2027 transaction conformance, devdash control-plane/store work, audited active-plan retirements, and browser UI harness baselines.",
+      "last_reviewed": "2026-07-13",
+      "review_after": "2026-08-12",
+      "summary": "Completed milestones and shipped behavior, including the corrective note for bounded refresh-cookie compatibility after post-v0 cleanup, remaining v0 and Go-directive frontend removal, typed HTTP path-tail profiles, edition-2027 transaction conformance, devdash control-plane/store work, audited active-plan retirements, and browser UI harness baselines.",
       "tags": [
         "plans",
         "history",
@@ -1753,14 +1766,15 @@
       "status": "active",
       "quality": "B",
       "freshness": "current",
-      "last_reviewed": "2026-06-07",
-      "review_after": "2026-07-07",
-      "summary": "Operator checklist and Postgres SQL template for preserving existing app-owned auth data when moving to scenery standard auth tables in the scenery schema.",
+      "last_reviewed": "2026-07-13",
+      "review_after": "2026-08-12",
+      "summary": "Operator checklist and Postgres SQL template for preserving existing app-owned auth data and former fixed onlv_refresh sessions while moving to scenery standard auth tables and the canonical scenery_refresh cookie.",
       "tags": [
         "runbook",
         "auth",
         "migration",
-        "sqlite"
+        "postgres",
+        "cookies"
       ]
     },
     {

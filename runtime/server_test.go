@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -111,6 +112,62 @@ func TestContractEndpointUsesGeneratedDecodeAndOutcomeMapping(t *testing.T) {
 	server.Handler.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusCreated || recorder.Header().Get("Content-Type") != "application/json" || recorder.Body.String() != `{"name":"roof"}` {
 		t.Fatalf("response = %d %#v %q", recorder.Code, recorder.Header(), recorder.Body.String())
+	}
+}
+
+func TestContractEndpointPreservesRepeatedSetCookieHeaders(t *testing.T) {
+	restore := replaceGlobalRegistryForTest()
+	defer restore()
+
+	wantCookies := []string{
+		"scenery_refresh=; Path=/auth; Max-Age=0",
+		"onlv_refresh=; Path=/auth; Max-Age=0",
+	}
+	if err := RegisterEndpointChecked(&Endpoint{
+		Service: "contract", Name: "Logout", Access: Public, Path: "/logout", Methods: []string{http.MethodPost},
+		DecodeContractRequest: func(*http.Request, map[string]string) (ContractDecodedRequest, error) {
+			return ContractDecodedRequest{}, nil
+		},
+		Invoke: func(context.Context, []any, any) (any, error) {
+			return struct{}{}, nil
+		},
+		EncodeContractOutcome: func(*http.Request, any) (ContractHTTPResponse, error) {
+			return ContractHTTPResponse{
+				Status:  http.StatusOK,
+				Headers: http.Header{"Set-Cookie": append([]string(nil), wantCookies...)},
+				Body:    []byte(`{"ok":true}`),
+			}, nil
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	server, err := newServer("127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	httpServer := httptest.NewServer(server.Handler)
+	defer httpServer.Close()
+
+	request, err := http.NewRequest(http.MethodPost, httpServer.URL+"/logout", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := httpServer.Client().Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = response.Body.Close() }()
+
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want %d", response.StatusCode, http.StatusOK)
+	}
+	if got := response.Header.Values("Set-Cookie"); !reflect.DeepEqual(got, wantCookies) {
+		t.Fatalf("Set-Cookie values = %#v, want %#v", got, wantCookies)
+	}
+	cookies := response.Cookies()
+	if len(cookies) != 2 || cookies[0].Name != "scenery_refresh" || cookies[1].Name != "onlv_refresh" {
+		t.Fatalf("response cookies = %#v, want separate current and legacy cookies", cookies)
 	}
 }
 

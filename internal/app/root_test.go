@@ -188,6 +188,38 @@ func TestDiscoverRootRejectsRemovedProxyConfig(t *testing.T) {
 	}
 }
 
+func TestDiscoverRootRejectsRemovedStandardAuthConfigFields(t *testing.T) {
+	tests := []struct {
+		name   string
+		config string
+		path   string
+	}{
+		{name: "database url env", config: `{"name":"authapp","auth":{"database_url_env":"DATABASE_URL"}}`, path: "auth.database_url_env"},
+		{name: "jwt secret env", config: `{"name":"authapp","auth":{"jwt_secret_env":"JWT_SECRET"}}`, path: "auth.jwt_secret_env"},
+		{name: "refresh cookie name", config: `{"name":"authapp","auth":{"refresh_cookie_name":"onlv_refresh"}}`, path: "auth.refresh_cookie_name"},
+		{name: "cookie domain env", config: `{"name":"authapp","auth":{"auth_cookie_domain_env":"AUTH_COOKIE_DOMAIN"}}`, path: "auth.auth_cookie_domain_env"},
+		{name: "public app url env", config: `{"name":"authapp","auth":{"public_app_url_env":"SCENERY_PUBLIC_APP_URL"}}`, path: "auth.public_app_url_env"},
+		{name: "api base url env", config: `{"name":"authapp","auth":{"api_base_url_env":"SCENERY_API_BASE_URL"}}`, path: "auth.api_base_url_env"},
+		{name: "email from env", config: `{"name":"authapp","auth":{"email_from_env":"AUTH_EMAIL_FROM"}}`, path: "auth.email_from_env"},
+		{name: "google client id env", config: `{"name":"authapp","auth":{"google_oauth":{"client_id_env":"GOOGLE_OAUTH_CLIENT_ID"}}}`, path: "auth.google_oauth.client_id_env"},
+		{name: "google client secret env", config: `{"name":"authapp","auth":{"google_oauth":{"client_secret_env":"GOOGLE_OAUTH_CLIENT_SECRET"}}}`, path: "auth.google_oauth.client_secret_env"},
+		{name: "google token cipher key env", config: `{"name":"authapp","auth":{"google_oauth":{"token_cipher_key_env":"AUTH_TOKEN_CIPHER_KEY"}}}`, path: "auth.google_oauth.token_cipher_key_env"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			writeAppTestFile(t, root, ".scenery.json", tt.config)
+
+			_, _, err := DiscoverRoot(root)
+			want := `unknown .scenery.json field "` + tt.path + `"`
+			if err == nil || !strings.Contains(err.Error(), want) {
+				t.Fatalf("DiscoverRoot removed auth field error = %v, want %q", err, want)
+			}
+		})
+	}
+}
+
 func TestDiscoverRootRejectsInvalidWatchIgnoreConfig(t *testing.T) {
 	tests := []struct {
 		name    string

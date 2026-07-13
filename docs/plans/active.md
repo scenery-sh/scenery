@@ -7,6 +7,11 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
+- [0110 Bounded Refresh-Cookie Compatibility](0110-bounded-refresh-cookie-compatibility.md)
+  - Status: active through follow-up removal release
+  - Owner: scenery auth / runtime
+  - Created: 2026-07-13
+  - Focus: temporarily read `scenery_refresh` before the known former `onlv_refresh`, issue only the current cookie, clear both independently on logout, and remove the bounded compatibility no earlier than 30 days after the corrective release publication date recorded in the plan.
 - [0101 Public Deploy Edge](0101-public-deploy-edge.md)
   - Status: active
   - Owner: scenery runtime / edge

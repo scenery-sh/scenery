@@ -81,7 +81,9 @@ These are injected by scenery into generated app processes. App code may read th
 | `VITE_SCENERY_*` | injected | Vite-compatible mirrors of Scenery dev route metadata for managed frontends. |
 | `SCENERY_PUBLIC_APP_URL` | injected | Public app URL for auth and app code. |
 
-Each standard-auth setting resolves exactly its configured env name; omitted names use the canonical defaults above plus `SCENERY_PUBLIC_APP_URL` and `SCENERY_API_BASE_URL`. `scenery check -o json` warns when Google OAuth is enabled but the configured client ID or secret env cannot be resolved. Local `scenery up` derives a dev-only Google token cipher key from the local JWT secret if `AUTH_TOKEN_CIPHER_KEY` is absent; production should set a real base64 32-byte key.
+Standard auth reads fixed canonical names directly; app config cannot rename them. Removed selectors map as follows: `database_url_env` to `DATABASE_URL`, `jwt_secret_env` to `JWT_SECRET`, `auth_cookie_domain_env` to `AUTH_COOKIE_DOMAIN`, `public_app_url_env` to `SCENERY_PUBLIC_APP_URL`, `api_base_url_env` to `SCENERY_API_BASE_URL`, `email_from_env` to `AUTH_EMAIL_FROM`, and the Google OAuth client ID, client secret, and token cipher selectors to `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, and `AUTH_TOKEN_CIPHER_KEY`. Those removed `*_env` fields are rejected rather than ignored. `refresh_cookie_name` has no configuration or environment replacement: successful session flows issue `scenery_refresh`, with only the temporary fixed `onlv_refresh` read/clear transition documented in the local contract and standard-auth migration runbook.
+
+`scenery check -o json` warns when Google OAuth is enabled but the canonical client ID or secret cannot be resolved. Local `scenery up` derives a dev-only Google token cipher key from the local JWT secret if `AUTH_TOKEN_CIPHER_KEY` is absent; production should set a real base64 32-byte key.
 
 ## Toolchain Store
 

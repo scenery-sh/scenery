@@ -19,6 +19,7 @@ Shipped:
 - Moved standard auth onto typed contract codecs and deleted reflection request decoding, response encoding, endpoint metadata, and internal-call compatibility APIs.
 - Removed config-defined shell tasks, old generate sniffing, rejected legacy flags, duplicate routes, unused wrappers and PostgreSQL fields, dashboard compatibility metadata, and orphan dependencies and fixtures.
 - Standardized auth on canonical environment names and the `scenery_refresh` cookie, simplified code generation, and synchronized docs, schemas, generated fixtures, and agent guidance.
+- Current corrective contract: plan 0110 keeps `scenery_refresh` as the only issued cookie while temporarily accepting the former fixed `onlv_refresh` name only when the current cookie is absent and clearing both names on logout. Configurable cookie/env naming remains removed.
 - Removed migration-only `dev.setup`, configurable app database URL env naming, Symphony's missing-base-ID fallback, the superseded database-only snapshot command, and non-output short CLI aliases.
 
 Validation:

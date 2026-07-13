@@ -241,16 +241,47 @@ func registerStandardJSON[I, O any](service, name string, access runtime.Access,
 func registerStandardCookie[O any](service, name string, access runtime.Access, path, method string, invoke func(context.Context, *Service, []string, *RefreshParams) (*O, error)) {
 	registerStandardContract(service, name, access, path, method,
 		func(request *http.Request) (any, error) {
-			input := &RefreshParams{}
-			if cookie, err := request.Cookie(refreshCookieName); err == nil {
-				input.RefreshToken = cookie.Value
-			}
-			return input, nil
+			return &RefreshParams{RefreshToken: resolveRefreshToken(nil, request.Header)}, nil
 		},
 		func(ctx context.Context, svc *Service, path []string, input any) (any, error) {
 			return invoke(ctx, svc, path, input.(*RefreshParams))
 		},
 	)
+}
+
+func resolveRefreshToken(params *RefreshParams, headers http.Header) string {
+	if params != nil && strings.TrimSpace(params.RefreshToken) != "" {
+		return strings.TrimSpace(params.RefreshToken)
+	}
+	for _, name := range refreshCookieReadOrder {
+		if value, present := refreshCookieValue(headers, name); present {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func refreshCookieValue(headers http.Header, name string) (string, bool) {
+	if headers == nil {
+		return "", false
+	}
+	request := http.Request{Header: headers}
+	if cookie, err := request.Cookie(name); err == nil {
+		return cookie.Value, true
+	}
+	return "", cookieNamePresent(headers, name)
+}
+
+func cookieNamePresent(headers http.Header, name string) bool {
+	for _, line := range headers.Values("Cookie") {
+		for part := range strings.SplitSeq(line, ";") {
+			candidate, _, _ := strings.Cut(strings.TrimSpace(part), "=")
+			if strings.TrimSpace(candidate) == name {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func registerStandardEmpty[O any](service, name string, access runtime.Access, path, method string, invoke func(context.Context, *Service, []string) (*O, error)) {
@@ -299,20 +330,25 @@ func registerStandardContractWithInvoke(service, name string, access runtime.Acc
 			}
 			return invoke(ctx, values, input)
 		},
-		EncodeContractOutcome: func(_ *http.Request, outcome any) (runtime.ContractHTTPResponse, error) {
-			response, err := runtime.EncodeContractJSON(http.StatusOK, outcome)
-			if err != nil {
-				return response, err
-			}
-			switch value := outcome.(type) {
-			case *AuthSessionResponse:
-				response.Headers.Add("Set-Cookie", value.SetCookie)
-			case *LogoutResponse:
-				response.Headers.Add("Set-Cookie", value.SetCookie)
-			}
-			return response, nil
-		},
+		EncodeContractOutcome: encodeStandardContractOutcome,
 	})
+}
+
+func encodeStandardContractOutcome(_ *http.Request, outcome any) (runtime.ContractHTTPResponse, error) {
+	response, err := runtime.EncodeContractJSON(http.StatusOK, outcome)
+	if err != nil {
+		return response, err
+	}
+	switch value := outcome.(type) {
+	case *AuthSessionResponse:
+		response.Headers.Add("Set-Cookie", value.SetCookie)
+	case *LogoutResponse:
+		response.Headers.Add("Set-Cookie", value.SetCookie)
+		if value.legacySetCookie != "" {
+			response.Headers.Add("Set-Cookie", value.legacySetCookie)
+		}
+	}
+	return response, nil
 }
 
 func standardPathNames(path string) []string {

@@ -37,8 +37,8 @@
         "tests"
       ],
       "owner": "scenery runtime",
-      "rationale": "Conventional app auth cookie domain fallback for standard auth.",
-      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
+      "rationale": "Canonical standard-auth cookie domain. Scenery injects an empty value for host-only cookies in default local agent development.",
+      "preferred_surface": "app-root `.env` or process environment for operator-supplied auth configuration",
       "replacement": "",
       "sunset": "",
       "docs": [
@@ -59,8 +59,8 @@
         "tests"
       ],
       "owner": "scenery runtime",
-      "rationale": "Conventional app auth sender fallback for standard auth.",
-      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
+      "rationale": "Canonical sender address for standard-auth email flows.",
+      "preferred_surface": "app-root `.env` or process environment for operator-supplied auth configuration",
       "replacement": "",
       "sunset": "",
       "docs": [
@@ -218,7 +218,7 @@
       "name": "JWT_SECRET",
       "match": "exact",
       "scope": "runtime",
-      "direction": "internal",
+      "direction": "user_input",
       "category": "app.services.auth",
       "stability": "secret",
       "secret": true,
@@ -228,8 +228,8 @@
         "tests"
       ],
       "owner": "scenery runtime",
-      "rationale": "Conventional app JWT signing secret fallback for standard auth.",
-      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
+      "rationale": "Canonical standard-auth JWT signing secret.",
+      "preferred_surface": "app-root `.env` or process environment for app-supplied auth secrets",
       "replacement": "",
       "sunset": "",
       "docs": [
@@ -359,28 +359,6 @@
       "replacement": "",
       "sunset": "",
       "docs": []
-    },
-    {
-      "name": "PUBLIC_APP_URL",
-      "match": "exact",
-      "scope": "runtime",
-      "direction": "user_input_injected",
-      "category": "app.services.auth",
-      "stability": "stable",
-      "secret": false,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "Conventional app public URL fallback for standard auth.",
-      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
     },
     {
       "name": "SCENERY_AGENT_DISABLE",

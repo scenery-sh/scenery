@@ -2,10 +2,10 @@ package auth
 
 import (
 	"context"
-	"net/http"
-	authdb "scenery.sh/auth/db/gen"
 	"strings"
 	"time"
+
+	authdb "scenery.sh/auth/db/gen"
 )
 
 type EmailVerificationConfirmParams struct {
@@ -22,8 +22,9 @@ type EmailVerificationResendResponse struct {
 }
 
 type LogoutResponse struct {
-	OK        bool   `json:"ok"`
-	SetCookie string `json:"-" header:"Set-Cookie"`
+	OK              bool   `json:"ok"`
+	SetCookie       string `json:"-" header:"Set-Cookie"`
+	legacySetCookie string
 }
 
 // SignupEmail creates a first-party email/password user and sends an email verification token.
@@ -337,22 +338,15 @@ func (s *Service) Logout(ctx context.Context, params *RefreshParams) (*LogoutRes
 			})
 		}
 	}
-	return &LogoutResponse{OK: true, SetCookie: clearRefreshCookie()}, nil
+	return &LogoutResponse{
+		OK:              true,
+		SetCookie:       clearRefreshCookie(refreshCookieName),
+		legacySetCookie: clearRefreshCookie(legacyRefreshCookieName),
+	}, nil
 }
 
 func refreshTokenFromParams(params *RefreshParams) string {
-	if params != nil && strings.TrimSpace(params.RefreshToken) != "" {
-		return strings.TrimSpace(params.RefreshToken)
-	}
-	headers := requestHeaders()
-	if headers == nil {
-		return ""
-	}
-	req := http.Request{Header: headers}
-	if cookie, err := req.Cookie(refreshCookieName); err == nil {
-		return strings.TrimSpace(cookie.Value)
-	}
-	return ""
+	return resolveRefreshToken(params, requestHeaders())
 }
 
 // Me returns the current auth bootstrap state for an access token.
