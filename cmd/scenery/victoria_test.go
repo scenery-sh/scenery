@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -222,7 +223,7 @@ func TestEnsureSharedVictoriaStackReusesAgentSubstrate(t *testing.T) {
 }
 
 func TestEnsureSharedVictoriaStackReplacesStaleOwner(t *testing.T) {
-	occupyVictoriaTestPorts(t)
+	configureManagedVictoriaTestProcesses(t)
 
 	ctx, client := startSubstrateTestAgent(t)
 	stale, err := client.UpsertSubstrate(ctx, localagent.UpsertSubstrateRequest{
@@ -245,16 +246,51 @@ func TestEnsureSharedVictoriaStackReplacesStaleOwner(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fresh.OwnerPID != os.Getpid() {
-		t.Fatalf("fresh owner pid = %d, want %d", fresh.OwnerPID, os.Getpid())
+	if fresh.OwnerPID <= 0 || !containsPID(fresh.PIDs, fresh.OwnerPID) {
+		t.Fatalf("fresh owner pid = %d, component pids = %v", fresh.OwnerPID, fresh.PIDs)
 	}
 	if fresh.CreatedAt.Equal(stale.CreatedAt) {
 		t.Fatalf("stale substrate was updated in place: created_at=%s", fresh.CreatedAt)
 	}
 }
 
+func TestEnsureSharedVictoriaStackRejectsUnverifiedLiveOwner(t *testing.T) {
+	configureManagedVictoriaTestProcesses(t)
+	ctx, client := startSubstrateTestAgent(t)
+	ownerPID := startFakeSubstrateOwner(t)
+	badOwner := localagent.Owner{PID: ownerPID, StartedAt: "not-the-live-start-time"}
+	pids := map[string]int{}
+	owners := map[string]localagent.Owner{}
+	for _, spec := range victoriaComponentSpecs() {
+		pids[spec.Name] = ownerPID
+		owners[spec.Name] = badOwner
+	}
+	before, err := client.UpsertSubstrate(ctx, localagent.UpsertSubstrateRequest{
+		Kind:     localagent.SubstrateVictoria,
+		Status:   "degraded",
+		OwnerPID: ownerPID,
+		Owner:    badOwner,
+		PIDs:     pids,
+		Owners:   owners,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stack, reused, err := (&devSupervisor{agent: client}).ensureSharedVictoriaStack(ctx, t.TempDir())
+	if err == nil || stack != nil || reused {
+		t.Fatalf("ensure stack=%T reused=%v err=%v, want ownership rejection", stack, reused, err)
+	}
+	after, getErr := client.GetSubstrate(ctx, localagent.SubstrateVictoria)
+	if getErr != nil {
+		t.Fatal(getErr)
+	}
+	if !after.CreatedAt.Equal(before.CreatedAt) || after.OwnerPID != ownerPID {
+		t.Fatalf("unverified substrate was replaced: before=%+v after=%+v", before, after)
+	}
+}
+
 func TestEnsureSharedVictoriaStackSerializesConcurrentStarts(t *testing.T) {
-	occupyVictoriaTestPorts(t)
+	configureManagedVictoriaTestProcesses(t)
 
 	ctx, client := startSubstrateTestAgent(t)
 	supervisor := &devSupervisor{agent: client}
@@ -328,7 +364,7 @@ func TestVictoriaSubstrateMonitorRecordsExitState(t *testing.T) {
 	if _, err := client.UpsertSubstrate(ctx, stack.SubstrateRequest(os.Getpid())); err != nil {
 		t.Fatal(err)
 	}
-	monitorDone := monitorVictoriaSubstrate(client, nil, stack)
+	monitorDone := monitorVictoriaSubstrate(t.TempDir(), client, nil, stack)
 	done <- fmt.Errorf("exit status 7")
 	close(done)
 	substrate := waitForSubstrateStatus(t, ctx, client, localagent.SubstrateVictoria, "degraded")
@@ -339,6 +375,182 @@ func TestVictoriaSubstrateMonitorRecordsExitState(t *testing.T) {
 		t.Fatalf("component exit = %+v", substrate.ComponentExits)
 	}
 	waitForMonitorDone(t, monitorDone)
+}
+
+func TestVictoriaSupervisorRecoversExitedComponent(t *testing.T) {
+	configureManagedVictoriaTestProcesses(t)
+	ctx, client := startSubstrateTestAgent(t)
+	runCtx, cancel := context.WithCancel(ctx)
+	t.Cleanup(cancel)
+	root := t.TempDir()
+	supervisor := &devSupervisor{ctx: runCtx, cancel: cancel, agent: client}
+	stack, reused, err := supervisor.ensureSharedVictoriaStack(runCtx, root)
+	if err != nil || stack == nil || reused {
+		t.Fatalf("initial ensure stack=%T reused=%v err=%v", stack, reused, err)
+	}
+	supervisor.victoria = stack
+	monitorVictoriaSubstrate(root, client, nil, stack)
+	recoveryDone := supervisor.monitorVictoriaRecovery(root, 10*time.Millisecond, 50*time.Millisecond)
+
+	before, err := client.GetSubstrate(ctx, localagent.SubstrateVictoria)
+	if err != nil {
+		t.Fatal(err)
+	}
+	logs := victoriaTestComponent(t, stack, "logs")
+	if err := logs.cmd.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	after := waitForVictoriaPIDChange(t, ctx, client, "logs", before.PIDs["logs"])
+	if after.Status != "ready" || len(after.PIDs) != len(victoriaComponentSpecs()) {
+		t.Fatalf("recovered substrate = %+v", after)
+	}
+	for name, pid := range before.PIDs {
+		if after.PIDs[name] == pid {
+			t.Fatalf("Victoria component %s was not replaced with the stack: before=%v after=%v", name, before.PIDs, after.PIDs)
+		}
+	}
+	substrates, err := client.ListSubstrates(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(substrates) != 1 || substrates[0].Kind != localagent.SubstrateVictoria {
+		t.Fatalf("registered substrates = %+v, want one Victoria stack", substrates)
+	}
+	cancel()
+	waitForMonitorDone(t, recoveryDone)
+}
+
+func TestVictoriaRecoverySerializesConcurrentAttempts(t *testing.T) {
+	configureManagedVictoriaTestProcesses(t)
+	ctx, client := startSubstrateTestAgent(t)
+	runCtx, cancel := context.WithCancel(ctx)
+	t.Cleanup(cancel)
+	root := t.TempDir()
+	supervisor := &devSupervisor{ctx: runCtx, cancel: cancel, agent: client}
+	stack, _, err := supervisor.ensureSharedVictoriaStack(runCtx, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	monitorVictoriaSubstrate(root, client, nil, stack)
+	before, err := client.GetSubstrate(ctx, localagent.SubstrateVictoria)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := victoriaTestComponent(t, stack, "logs").cmd.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	waitForVictoriaPortAvailable(t, victoriaComponentSpecs()[1].DefaultPort)
+
+	type ensureResult struct {
+		stack  *victoriaStack
+		reused bool
+		err    error
+	}
+	results := make(chan ensureResult, 2)
+	for range 2 {
+		go func() {
+			stack, reused, err := supervisor.ensureSharedVictoriaStack(runCtx, root)
+			results <- ensureResult{stack: stack, reused: reused, err: err}
+		}()
+	}
+	started, reused := 0, 0
+	for range 2 {
+		result := <-results
+		if result.err != nil || result.stack == nil {
+			t.Fatalf("concurrent recovery stack=%T reused=%v err=%v", result.stack, result.reused, result.err)
+		}
+		if result.reused {
+			reused++
+		} else {
+			started++
+		}
+	}
+	if started != 1 || reused != 1 {
+		t.Fatalf("concurrent recoveries started=%d reused=%d, want one each", started, reused)
+	}
+	after := waitForVictoriaPIDChange(t, ctx, client, "logs", before.PIDs["logs"])
+	if len(after.PIDs) != len(victoriaComponentSpecs()) {
+		t.Fatalf("recovered PIDs = %v", after.PIDs)
+	}
+}
+
+func TestVictoriaRecoveryStopsWithSupervisor(t *testing.T) {
+	configureManagedVictoriaTestProcesses(t)
+	ctx, client := startSubstrateTestAgent(t)
+	runCtx, cancel := context.WithCancel(ctx)
+	root := t.TempDir()
+	supervisor := &devSupervisor{ctx: runCtx, cancel: cancel, agent: client}
+	stack, _, err := supervisor.ensureSharedVictoriaStack(runCtx, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	supervisor.victoria = stack
+	before, err := client.GetSubstrate(ctx, localagent.SubstrateVictoria)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := supervisor.monitorVictoriaRecovery(root, 10*time.Millisecond, 50*time.Millisecond)
+	cancel()
+	waitForMonitorDone(t, done)
+	time.Sleep(75 * time.Millisecond)
+	after, err := client.GetSubstrate(ctx, localagent.SubstrateVictoria)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, pid := range before.PIDs {
+		if after.PIDs[name] != pid {
+			t.Fatalf("Victoria restarted after supervisor shutdown: before=%v after=%v", before.PIDs, after.PIDs)
+		}
+	}
+}
+
+func TestVictoriaRecoveryFailureIsVisible(t *testing.T) {
+	t.Setenv("CLICOLOR_FORCE", "1")
+	ctx, client := startSubstrateTestAgent(t)
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseURL := "http://" + listener.Addr().String()
+	_ = listener.Close()
+	urls := map[string]string{}
+	endpoints := map[string]string{}
+	for _, spec := range victoriaComponentSpecs() {
+		urls[spec.Name] = baseURL
+		endpoints[spec.Name] = baseURL + spec.EndpointPath
+	}
+	if _, err := client.UpsertSubstrate(ctx, localagent.UpsertSubstrateRequest{
+		Kind:      localagent.SubstrateVictoria,
+		Status:    "ready",
+		OwnerPID:  os.Getpid(),
+		URLs:      urls,
+		Endpoints: endpoints,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var humanOut, humanErr bytes.Buffer
+	console := newRunConsole(&humanOut, &humanErr, false, false, "demo", t.TempDir())
+	supervisor := &devSupervisor{ctx: ctx, agent: client, console: console, victoriaStarted: true}
+	supervisor.reportVictoriaRecoveryFailure(t.TempDir(), fmt.Errorf("owner fingerprint mismatch"), 2*time.Second)
+	if got := humanErr.String(); !strings.Contains(got, "\x1b[31m") || !strings.Contains(got, "ERR Victoria observability recovery failed; retrying in 2.0s: owner fingerprint mismatch") {
+		t.Fatalf("human recovery warning = %q", got)
+	}
+	substrate, err := client.GetSubstrate(ctx, localagent.SubstrateVictoria)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if substrate.Status != "degraded" {
+		t.Fatalf("substrate status = %q, want degraded", substrate.Status)
+	}
+
+	var jsonOut bytes.Buffer
+	jsonConsole := newRunConsole(&jsonOut, &bytes.Buffer{}, false, true, "demo", t.TempDir())
+	jsonSupervisor := &devSupervisor{ctx: ctx, console: jsonConsole, victoriaStarted: true}
+	jsonSupervisor.reportVictoriaRecoveryFailure("", fmt.Errorf("agent unavailable"), 4*time.Second)
+	if got := jsonOut.String(); !strings.Contains(got, `"type":"process.output"`) || !strings.Contains(got, "ERR Victoria observability recovery failed; retrying in 4.0s: agent unavailable") {
+		t.Fatalf("detached recovery event = %q", got)
+	}
 }
 
 func reachableVictoriaTestSubstrate(t *testing.T, ownerPID int) localagent.Substrate {
@@ -363,21 +575,102 @@ func reachableVictoriaTestSubstrate(t *testing.T, ownerPID int) localagent.Subst
 	}
 }
 
-func occupyVictoriaTestPorts(t *testing.T) {
+func configureManagedVictoriaTestProcesses(t *testing.T) {
 	t.Helper()
-	for _, key := range []string{
-		"SCENERY_VICTORIA_METRICS_PORT",
-		"SCENERY_VICTORIA_LOGS_PORT",
-		"SCENERY_VICTORIA_TRACES_PORT",
-	} {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := filepath.Join(t.TempDir(), "victoria-test-process")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nexec \"$SCENERY_VICTORIA_TEST_BINARY\" -test.run='^TestVictoriaManagedProcessHelper$' -- \"$@\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SCENERY_VICTORIA_TEST_BINARY", executable)
+	t.Setenv("SCENERY_VICTORIA_PROCESS_HELPER", "1")
+	listeners := make([]net.Listener, 0, len(victoriaComponentSpecs()))
+	for _, spec := range victoriaComponentSpecs() {
 		listener, err := net.Listen("tcp", "127.0.0.1:0")
 		if err != nil {
 			t.Fatal(err)
 		}
-		t.Cleanup(func() { _ = listener.Close() })
-		t.Setenv(key, strconv.Itoa(listener.Addr().(*net.TCPAddr).Port))
+		listeners = append(listeners, listener)
+		t.Setenv(spec.EnvPrefix+"_PORT", strconv.Itoa(listener.Addr().(*net.TCPAddr).Port))
+		t.Setenv(spec.EnvPrefix+"_BIN", script)
 	}
+	for _, listener := range listeners {
+		_ = listener.Close()
+	}
+	t.Setenv("SCENERY_DEV_VICTORIA", "1")
 	t.Setenv("SCENERY_DEV_VICTORIA_DOWNLOAD", "0")
+}
+
+func TestVictoriaManagedProcessHelper(t *testing.T) {
+	if os.Getenv("SCENERY_VICTORIA_PROCESS_HELPER") != "1" {
+		return
+	}
+	addr := ""
+	for _, arg := range os.Args {
+		if strings.HasPrefix(arg, "-httpListenAddr=") {
+			addr = strings.TrimPrefix(arg, "-httpListenAddr=")
+		}
+	}
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		os.Exit(2)
+	}
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			os.Exit(0)
+		}
+		_ = conn.Close()
+	}
+}
+
+func victoriaTestComponent(t *testing.T, stack *victoriaStack, name string) *victoriaComponent {
+	t.Helper()
+	for _, component := range stack.components {
+		if component != nil && component.spec.Name == name {
+			return component
+		}
+	}
+	t.Fatalf("Victoria component %q not found", name)
+	return nil
+}
+
+func containsPID(pids map[string]int, want int) bool {
+	for _, pid := range pids {
+		if pid == want {
+			return true
+		}
+	}
+	return false
+}
+
+func waitForVictoriaPIDChange(t *testing.T, ctx context.Context, client *localagent.Client, component string, previous int) localagent.Substrate {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		substrate, err := client.GetSubstrate(ctx, localagent.SubstrateVictoria)
+		if err == nil && substrate.Status == "ready" && substrate.PIDs[component] > 0 && substrate.PIDs[component] != previous {
+			return substrate
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("Victoria component %s PID did not change from %d", component, previous)
+	return localagent.Substrate{}
+}
+
+func waitForVictoriaPortAvailable(t *testing.T, port int) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if tcpAddrAvailable(victoriaDefaultHost, port) {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("Victoria port %d did not become available", port)
 }
 
 func TestURLAcceptsTCP(t *testing.T) {

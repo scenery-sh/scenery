@@ -305,6 +305,10 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 		return prepared, err
 	}
 	if routingMode == localagent.RouteModePath {
+		redirectURL := ""
+		if domain := strings.TrimSpace(cfg.Deploy.Domain); domain != "" {
+			redirectURL = "https://" + domain
+		}
 		if err := c.runPhase("Starting local path router", func() error {
 			token, err := ensureEdgeToken(paths.EdgeTokenPath)
 			if err != nil {
@@ -320,6 +324,7 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 				EdgeToken:        token,
 				UpstreamAddr:     localagent.RouterAddrFromEnv(),
 				DashboardBackend: health.DashboardBackend,
+				RedirectURL:      redirectURL,
 			})
 			if err != nil {
 				return err

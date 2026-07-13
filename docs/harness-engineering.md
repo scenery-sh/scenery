@@ -19,13 +19,13 @@ scenery harness ui [--app-root <path>] [--dashboard-url <url>] [--headed] [-o js
 scenery inspect harness [artifact <name>|diagnostics --severity error|warning|timing --top <n>] -o json [--app-root <path>] [--repo-root <path>]
 ```
 
-Self-harness Go test steps always execute test bodies fresh with `-test.count=1`.
-They reuse content-addressed linked test binaries, not Go test results, and run
-the complete `./...` surface with the locally measured package parallelism of
-three. `--fresh-tests` retains the explicit fresh timing-lane label; execution
-semantics are already fresh in both lanes. Cached and fresh lanes have a
+Self-harness uses Go's native test result cache by default, including substantial
+final and release validation. `--fresh-tests` is reserved for explicit fresh
+measurement or nondeterminism investigation; that lane reuses content-addressed
+linked test binaries, executes test bodies with `-test.count=1`, and uses the
+locally measured package parallelism of three. Cached and fresh lanes have a
 five-second advisory budget and target; release keeps its 30-second enforced
-budget. Package/test overages still use isolated confirmation.
+budget. Only explicit fresh runs perform isolated timing confirmation.
 
 Use this before large edits and after fixes when an agent needs a single machine-readable status snapshot.
 

@@ -2,15 +2,16 @@
 
 ## Purpose
 
-`internal/testsuite` runs every repository test from content-addressed Go test
-binaries so repeated local validation does not relink unchanged packages.
+`internal/testsuite` runs the explicit fresh-test lane from content-addressed
+Go test binaries so fresh measurement does not relink unchanged packages.
 
 ## Ownership
 
 - Own repository/package discovery, linked-binary caching, longest-first package
   scheduling, fresh test execution, and Go JSON event output.
 - Keep harness policy, budgets, and diagnostics in `cmd/scenery`.
-- Keep the manual adapter in `scripts/testsuite`.
+- Keep the `--fresh-tests` integration in `cmd/scenery` and the manual adapter
+  in `scripts/testsuite`.
 
 ## Local Contracts
 

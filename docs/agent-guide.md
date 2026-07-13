@@ -199,7 +199,7 @@ Read root `AGENTS.md` plus every applicable child instruction file. Before non-t
 Validate ordinary changes with:
 
 ```sh
-go test -count=1 ./...
+go test ./...
 go vet ./...
 ```
 
@@ -208,6 +208,10 @@ For substantial changes, also run:
 ```sh
 scenery harness self --summary --write
 ```
+
+Ordinary, focused, and substantial final validation uses Go's test result
+cache. Use `-count=1` or `scenery harness self --fresh-tests` only when
+explicitly measuring fresh execution or investigating nondeterminism.
 
 Do not install a shared CLI during agent validation. Self-harness builds a worktree-local binary.
 

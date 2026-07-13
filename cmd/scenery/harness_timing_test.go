@@ -15,7 +15,7 @@ func TestHarnessTimingBudgetsUseSeparateLanes(t *testing.T) {
 	if cached.Lane != "cached" || cached.TotalSeconds != 5 || cached.TargetSeconds != 5 || cached.Mode != "observe-total" {
 		t.Fatalf("cached budgets = %+v", cached)
 	}
-	if cached.PackageOverrides["scenery.sh/cmd/scenery"] != 5 || cached.ConfirmationRuns != 3 {
+	if cached.PackageOverrides["scenery.sh/cmd/scenery"] != 5 || cached.ConfirmationRuns != 0 {
 		t.Fatalf("cached package/test confirmation budgets = %+v", cached)
 	}
 
@@ -23,16 +23,22 @@ func TestHarnessTimingBudgetsUseSeparateLanes(t *testing.T) {
 	if fresh.Lane != "fresh" || fresh.TotalSeconds != 5 || fresh.TargetSeconds != 5 || fresh.Mode != "observe-total" {
 		t.Fatalf("fresh budgets = %+v", fresh)
 	}
+	if fresh.ConfirmationRuns != 3 {
+		t.Fatalf("fresh confirmation budgets = %+v", fresh)
+	}
 
 	release := harnessTestTimingBudgetsForMode(harnessSelfModeRelease, false)
 	if release.Lane != "release" || release.TotalSeconds != 30 || release.TargetSeconds != 5 || release.Mode != "enforce-total" {
 		t.Fatalf("release budgets = %+v", release)
 	}
+	if release.ConfirmationRuns != 0 {
+		t.Fatalf("release confirmation budgets = %+v", release)
+	}
 }
 
-func TestHarnessSelfGoTestCommandUsesBuildIDCacheAndMeasuredParallelism(t *testing.T) {
+func TestHarnessSelfGoTestCommandUsesResultCacheUnlessFresh(t *testing.T) {
 	t.Parallel()
-	if got := strings.Join(harnessSelfGoTestCommand(), " "); got != "go run ./scripts/testsuite -p 3 -run .*" {
+	if got := strings.Join(harnessSelfGoTestCommand(), " "); got != "go test -json ./..." {
 		t.Fatalf("cached command = %q", got)
 	}
 	if got := strings.Join(harnessSelfGoTestCommandWithCacheMode(true), " "); got != "go run ./scripts/testsuite -p 3 -run .*" {
@@ -48,7 +54,7 @@ func TestConfirmHarnessTimingOutliersUsesIsolatedEvidence(t *testing.T) {
 		`{"Action":"pass","Package":"example.com/app","Test":"TestAlsoObserved","Elapsed":0.7}`,
 		`{"Action":"pass","Package":"example.com/app","Elapsed":3.2}`,
 	}, "\n")
-	report := parseHarnessGoTestTimingWithBudgets([]byte(output), harnessSelfGoTestCommand(), 13*time.Second, defaultHarnessTestTimingBudgets())
+	report := parseHarnessGoTestTimingWithBudgets([]byte(output), harnessSelfGoTestCommandWithCacheMode(true), 13*time.Second, harnessTestTimingBudgetsForMode(harnessSelfModeDefault, true))
 	if len(report.ObservedSlowTests) != 2 || len(report.SlowTests) != 0 {
 		t.Fatalf("pre-confirmation tests = observed:%+v confirmed:%+v", report.ObservedSlowTests, report.SlowTests)
 	}
@@ -99,7 +105,7 @@ func TestConfirmHarnessTimingOutliersWarnsOnlyForConfirmedPackage(t *testing.T) 
 	t.Parallel()
 
 	output := []byte(`{"Action":"pass","Package":"example.com/app","Elapsed":3.2}`)
-	report := parseHarnessGoTestTimingWithBudgets(output, harnessSelfGoTestCommand(), time.Second, defaultHarnessTestTimingBudgets())
+	report := parseHarnessGoTestTimingWithBudgets(output, harnessSelfGoTestCommandWithCacheMode(true), time.Second, harnessTestTimingBudgetsForMode(harnessSelfModeDefault, true))
 	confirmHarnessTimingOutliers(context.Background(), "/repo", report, func(_ context.Context, _ string, command []string) ([]byte, error) {
 		return []byte(`{"Action":"pass","Package":"example.com/app","Elapsed":2.5}`), nil
 	})

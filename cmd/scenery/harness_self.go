@@ -201,8 +201,11 @@ func harnessSelfGoTestCommand() []string {
 	return harnessSelfGoTestCommandWithCacheMode(false)
 }
 
-func harnessSelfGoTestCommandWithCacheMode(_ bool) []string {
-	return []string{"go", "run", "./scripts/testsuite", "-p", "3", "-run", ".*"}
+func harnessSelfGoTestCommandWithCacheMode(freshTests bool) []string {
+	if freshTests {
+		return []string{"go", "run", "./scripts/testsuite", "-p", "3", "-run", ".*"}
+	}
+	return []string{"go", "test", "-json", "./..."}
 }
 
 func harnessSelfGoTestEnv() []string {

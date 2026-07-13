@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"strings"
 	"testing"
 )
@@ -31,6 +32,34 @@ func TestRunConsoleSetupOutputFormatsAtlasLines(t *testing.T) {
 	}
 	if strings.Contains(got, "==>") {
 		t.Fatalf("formatted setup output kept raw marker:\n%s", got)
+	}
+}
+
+func TestProcessOutputWriterHighlightsErrors(t *testing.T) {
+	t.Setenv("CLICOLOR_FORCE", "1")
+
+	var out bytes.Buffer
+	console := newRunConsole(&out, &bytes.Buffer{}, false, false, "demo", t.TempDir())
+	writer := (&devSupervisor{console: console}).processOutputWriter(&out)
+	for _, line := range []string{
+		"1:23PM TRC starting request\n",
+		"1:23PM INF request completed\n",
+		"1:23PM WRN request delayed\n",
+		"1:23PM ERR request failed\n",
+	} {
+		if _, err := io.WriteString(writer, line); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	got := out.String()
+	for _, want := range []string{"\x1b[2m1:23PM TRC", "1:23PM INF request completed\n", "\x1b[33m1:23PM WRN", "\x1b[31m1:23PM ERR"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("styled output missing %q:\n%q", want, got)
+		}
+	}
+	if !strings.Contains(got, "\x1b[1m") {
+		t.Fatalf("error output is not bold:\n%q", got)
 	}
 }
 

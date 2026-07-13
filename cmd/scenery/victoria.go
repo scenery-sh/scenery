@@ -23,6 +23,11 @@ import (
 
 const victoriaDefaultHost = "127.0.0.1"
 
+const (
+	victoriaHealthCheckInterval = time.Second
+	victoriaRecoveryBackoffMax  = 30 * time.Second
+)
+
 type victoriaComponentSpec struct {
 	Name               string
 	DisplayName        string
@@ -724,6 +729,7 @@ func (s *devSupervisor) ensureSharedVictoriaStack(ctx context.Context, root stri
 		return nil, false, err
 	}
 	defer unlock()
+	var existing *localagent.Substrate
 	if substrate, err := s.agent.GetSubstrate(ctx, localagent.SubstrateVictoria); err == nil {
 		stack, reusable := reusableVictoriaStack(substrate)
 		if reusable {
@@ -733,11 +739,25 @@ func (s *devSupervisor) ensureSharedVictoriaStack(ctx context.Context, root stri
 			})
 			return stack, true, nil
 		}
-		_, _ = s.agent.DeleteSubstrate(ctx, localagent.SubstrateVictoria)
+		existing = &substrate
+	} else if !localagent.IsNotFound(err) {
+		return nil, false, err
+	}
+	if existing != nil {
+		if err := stopVerifiedVictoriaStack(ctx, *existing); err != nil {
+			return nil, false, err
+		}
+		if _, err := s.agent.DeleteSubstrate(ctx, localagent.SubstrateVictoria); err != nil {
+			return nil, false, err
+		}
 	}
 	stack := startVictoriaStackWithRoot(ctx, root, console)
 	if stack == nil {
 		return nil, false, nil
+	}
+	if !fullyManagedVictoriaStack(stack) {
+		discardVictoriaStack(stack)
+		return nil, false, fmt.Errorf("shared Victoria stack did not start all components")
 	}
 	req := stack.SubstrateRequest(os.Getpid())
 	if strings.TrimSpace(req.Kind) == "" {
@@ -747,7 +767,8 @@ func (s *devSupervisor) ensureSharedVictoriaStack(ctx context.Context, root stri
 		req.Status = "ready"
 	}
 	if _, err := s.agent.UpsertSubstrate(ctx, req); err != nil {
-		return stack, false, err
+		discardVictoriaStack(stack)
+		return nil, false, err
 	}
 	stack.MarkExternal()
 	emitVictoriaSubstrateEvent(s.eventSink(), ctx, "running", "shared Victoria stack ready", map[string]any{
@@ -755,6 +776,76 @@ func (s *devSupervisor) ensureSharedVictoriaStack(ctx context.Context, root stri
 		"endpoints": req.Endpoints,
 	})
 	return stack, false, nil
+}
+
+func stopVerifiedVictoriaStack(ctx context.Context, substrate localagent.Substrate) error {
+	live := make([]int, 0, len(substrate.PIDs))
+	seen := map[int]bool{}
+	for name, pid := range substrate.PIDs {
+		if pid <= 0 || !processAliveForEdge(pid) {
+			continue
+		}
+		owner := substrate.Owners[name]
+		if owner.PID != pid {
+			return fmt.Errorf("Victoria component %s process %d has no matching owner", name, pid)
+		}
+		if err := localagent.VerifyOwner(owner); err != nil {
+			return fmt.Errorf("Victoria component %s process %d owner cannot be verified: %w", name, pid, err)
+		}
+		if !seen[pid] {
+			live = append(live, pid)
+		}
+		seen[pid] = true
+	}
+	ownerPID := firstPositiveInt(substrate.Owner.PID, substrate.OwnerPID)
+	if ownerPID > 0 && !seen[ownerPID] && processAliveForEdge(ownerPID) {
+		return fmt.Errorf("Victoria stack owner process %d is not a registered component", ownerPID)
+	}
+	for _, pid := range live {
+		if err := signalPID(pid, os.Interrupt); err != nil {
+			return err
+		}
+	}
+	deadline := time.NewTimer(5 * time.Second)
+	defer deadline.Stop()
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		stopped := true
+		for _, pid := range live {
+			stopped = stopped && !processAliveForEdge(pid)
+		}
+		for _, spec := range victoriaComponentSpecs() {
+			stopped = stopped && tcpAddrAvailable(victoriaDefaultHost, spec.DefaultPort)
+		}
+		if stopped {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-deadline.C:
+			return fmt.Errorf("timed out waiting for the previous Victoria stack to stop")
+		case <-ticker.C:
+		}
+	}
+}
+
+func fullyManagedVictoriaStack(stack *victoriaStack) bool {
+	if stack == nil || len(stack.components) != len(victoriaComponentSpecs()) || !stack.Reachable() {
+		return false
+	}
+	for _, component := range stack.components {
+		if component == nil || component.external || component.cmd == nil || component.cmd.Process == nil {
+			return false
+		}
+	}
+	return true
+}
+
+func discardVictoriaStack(stack *victoriaStack) {
+	_ = stack.Interrupt()
+	_ = stack.WaitOrKill(time.Second)
 }
 
 func lockVictoriaSubstrateProcess(root string) func() {
@@ -787,7 +878,143 @@ func reusableVictoriaStack(substrate localagent.Substrate) (*victoriaStack, bool
 	return stack, true
 }
 
-func monitorVictoriaSubstrate(agent *localagent.Client, events *devEventSink, stack *victoriaStack) <-chan struct{} {
+func (s *devSupervisor) startVictoriaRecoveryMonitor() {
+	paths, err := localagent.DefaultPaths()
+	if err != nil {
+		s.reportVictoriaRecoveryFailure("", fmt.Errorf("recovery monitor unavailable: %w", err), 0)
+		return
+	}
+	s.monitorVictoriaRecovery(filepath.Join(paths.AgentDir, "victoria"), victoriaHealthCheckInterval, victoriaRecoveryBackoffMax)
+}
+
+func (s *devSupervisor) monitorVictoriaRecovery(root string, interval, maxBackoff time.Duration) <-chan struct{} {
+	done := make(chan struct{})
+	if s == nil || s.agent == nil || s.ctx == nil {
+		close(done)
+		return done
+	}
+	if interval <= 0 {
+		interval = victoriaHealthCheckInterval
+	}
+	if maxBackoff < interval {
+		maxBackoff = interval
+	}
+	go func() {
+		defer close(done)
+		delay := interval
+		for {
+			timer := time.NewTimer(delay)
+			select {
+			case <-s.ctx.Done():
+				if !timer.Stop() {
+					<-timer.C
+				}
+				return
+			case <-timer.C:
+			}
+
+			s.mu.RLock()
+			current := s.victoria
+			s.mu.RUnlock()
+			if current != nil && current.Reachable() {
+				delay = interval
+				continue
+			}
+
+			stack, reused, err := s.ensureSharedVictoriaStack(s.ctx, root)
+			if err != nil || stack == nil || !stack.Reachable() {
+				if err == nil {
+					err = errors.New("shared Victoria stack remains unavailable")
+				}
+				delay *= 2
+				if delay > maxBackoff {
+					delay = maxBackoff
+				}
+				s.reportVictoriaRecoveryFailure(root, err, delay)
+				continue
+			}
+
+			s.mu.Lock()
+			if s.ctx.Err() != nil {
+				s.mu.Unlock()
+				return
+			}
+			s.victoria = stack
+			s.mu.Unlock()
+			monitorVictoriaSubstrate(root, s.agent, s.eventSink(), stack)
+			emitVictoriaSubstrateEvent(s.eventSink(), s.ctx, "running", "shared Victoria stack recovered", map[string]any{
+				"reused":    reused,
+				"endpoints": stack.SubstrateRequest(os.Getpid()).Endpoints,
+			})
+			delay = interval
+		}
+	}()
+	return done
+}
+
+func (s *devSupervisor) reportVictoriaRecoveryFailure(root string, recoveryErr error, retryAfter time.Duration) {
+	if s == nil || recoveryErr == nil {
+		return
+	}
+	message := fmt.Sprintf("Victoria observability recovery failed: %v", recoveryErr)
+	if retryAfter > 0 {
+		message = fmt.Sprintf("Victoria observability recovery failed; retrying in %s: %v", formatDuration(retryAfter), recoveryErr)
+	}
+	ctx := s.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	s.eventSink().Output(ctx, devdash.DevSource{
+		ID:     "victoria",
+		Kind:   "substrate",
+		Name:   "Victoria stack",
+		Role:   "observability",
+		Stream: "stderr",
+		Status: "degraded",
+		Reason: recoveryErr.Error(),
+	}, []byte("ERR "+message+"\n"))
+	if s.console != nil && !s.console.json {
+		s.console.printf(s.console.err, "%s\n", s.console.palette.Bold(s.console.palette.Red("ERR "+message)))
+	}
+	if strings.TrimSpace(root) != "" {
+		s.markVictoriaSubstrateDegraded(ctx, root)
+	}
+}
+
+func (s *devSupervisor) markVictoriaSubstrateDegraded(ctx context.Context, root string) {
+	if s == nil || s.agent == nil {
+		return
+	}
+	processUnlock := lockVictoriaSubstrateProcess(root)
+	defer processUnlock()
+	unlock, err := lockManagedSubstrateRoot(root, localagent.SubstrateVictoria)
+	if err != nil {
+		return
+	}
+	defer unlock()
+	current, err := s.agent.GetSubstrate(ctx, localagent.SubstrateVictoria)
+	if err != nil {
+		return
+	}
+	if _, reusable := reusableVictoriaStack(current); reusable {
+		return
+	}
+	_, _ = s.agent.UpsertSubstrate(ctx, localagent.UpsertSubstrateRequest{
+		Kind:           current.Kind,
+		Status:         "degraded",
+		OwnerPID:       current.OwnerPID,
+		Owner:          current.Owner,
+		PIDs:           current.PIDs,
+		Owners:         current.Owners,
+		URLs:           current.URLs,
+		Endpoints:      current.Endpoints,
+		Leases:         current.Leases,
+		LastExit:       current.LastExit,
+		ComponentExits: current.ComponentExits,
+	})
+}
+
+func monitorVictoriaSubstrate(root string, agent *localagent.Client, events *devEventSink, stack *victoriaStack) <-chan struct{} {
 	done := make(chan struct{})
 	if agent == nil || stack == nil {
 		close(done)
@@ -810,11 +1037,29 @@ func monitorVictoriaSubstrate(agent *localagent.Client, events *devEventSink, st
 				return
 			}
 			exit := component.ExitRecord(err)
-			req := stack.SubstrateRequest(os.Getpid())
-			req.Status = "degraded"
-			req.LastExit = &exit
-			req.ComponentExits = map[string]localagent.SubstrateExit{component.spec.Name: exit}
-			_, _ = agent.UpsertSubstrate(context.Background(), req)
+			processUnlock := lockVictoriaSubstrateProcess(root)
+			if unlock, lockErr := lockManagedSubstrateRoot(root, localagent.SubstrateVictoria); lockErr == nil {
+				if current, getErr := agent.GetSubstrate(context.Background(), localagent.SubstrateVictoria); getErr == nil && current.PIDs[component.spec.Name] == exit.PID {
+					req := localagent.UpsertSubstrateRequest{
+						Kind:      current.Kind,
+						Status:    "degraded",
+						OwnerPID:  current.OwnerPID,
+						Owner:     current.Owner,
+						PIDs:      current.PIDs,
+						Owners:    current.Owners,
+						URLs:      current.URLs,
+						Endpoints: current.Endpoints,
+						Leases:    current.Leases,
+						LastExit:  &exit,
+						ComponentExits: map[string]localagent.SubstrateExit{
+							component.spec.Name: exit,
+						},
+					}
+					_, _ = agent.UpsertSubstrate(context.Background(), req)
+				}
+				unlock()
+			}
+			processUnlock()
 			emitVictoriaSubstrateEvent(events, context.Background(), "degraded", component.spec.DisplayName+" exited", substrateExitEventFields(exit), devdash.DevSource{
 				ID:     "victoria." + component.spec.Name,
 				Kind:   "substrate",

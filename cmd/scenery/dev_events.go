@@ -2,10 +2,48 @@ package main
 
 import (
 	"context"
+	"io"
 	"time"
 
 	"scenery.sh/internal/devdash"
+	"scenery.sh/internal/termstyle"
 )
+
+type devProcessOutputWriter struct {
+	dst     io.Writer
+	palette termstyle.Palette
+}
+
+func (w *devProcessOutputWriter) Write(p []byte) (int, error) {
+	styled := styleDevProcessOutput(p, w.palette)
+	n, err := io.WriteString(w.dst, styled)
+	if err != nil {
+		return 0, err
+	}
+	if n != len(styled) {
+		return 0, io.ErrShortWrite
+	}
+	return len(p), nil
+}
+
+func styleDevProcessOutput(data []byte, palette termstyle.Palette) string {
+	text := string(data)
+	end := len(text)
+	for end > 0 && (text[end-1] == '\n' || text[end-1] == '\r') {
+		end--
+	}
+	body, newline := text[:end], text[end:]
+	level := devdash.DevEventFromOutput("", "", devdash.DevSource{}, data, time.Time{}).Level
+	switch level {
+	case "fatal", "error":
+		body = palette.Bold(palette.Red(body))
+	case "warn":
+		body = palette.Yellow(body)
+	case "debug":
+		body = palette.Dim(body)
+	}
+	return body + newline
+}
 
 type devEventSink struct {
 	supervisor *devSupervisor

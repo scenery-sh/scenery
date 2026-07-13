@@ -52,6 +52,7 @@ type localPathRouterOptions struct {
 	EdgeToken        string
 	UpstreamAddr     string
 	DashboardBackend localagent.Backend
+	RedirectURL      string
 }
 
 func startLocalPathRouter(ctx context.Context, opts localPathRouterOptions) (func(), error) {
@@ -153,6 +154,7 @@ func startLocalPathRouter(ctx context.Context, opts localPathRouterOptions) (fun
 			proxy.ServeHTTP(w, req)
 		})
 	}
+	handler = localPathRouterRedirect(handler, opts.RedirectURL)
 	server := &http.Server{Handler: handler}
 	done := make(chan error, 1)
 	go func() {
@@ -202,6 +204,16 @@ func startLocalPathRouter(ctx context.Context, opts localPathRouterOptions) (fun
 		cleanup()
 	}()
 	return cleanup, nil
+}
+
+func localPathRouterRedirect(next http.Handler, target string) http.Handler {
+	target = strings.TrimRight(strings.TrimSpace(target), "/")
+	if target == "" {
+		return next
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		http.Redirect(w, req, target+req.URL.RequestURI(), http.StatusTemporaryRedirect)
+	})
 }
 
 func localPathRouterCurrentSession(ctx context.Context, client *localagent.Client, fallback localagent.Session) localagent.Session {

@@ -55,7 +55,7 @@ Child `AGENTS.md` files:
 
 - `apps/consolenext/AGENTS.md` owns the Vite/React Astryx + StyleX dashboard and frontend validation commands.
 - `internal/edge/AGENTS.md` owns the managed Caddy edge process lifecycle and its real-process validation.
-- `internal/testsuite/AGENTS.md` owns content-addressed Go test binaries, fresh test execution, and Go JSON event output.
+- `internal/testsuite/AGENTS.md` owns explicit fresh execution from content-addressed Go test binaries and Go JSON event output.
 - `docs/specs/vnext/AGENTS.md` owns the edition-2027 normative specification set and profile-conformance update rules.
 
 ## Agent skills
@@ -85,7 +85,7 @@ scenery is a Go-native service runtime and local development platform. Think in 
 - The compiler exposes source/effective/expanded graphs and separate workspace, contract, implementation, deployment, and artifact revisions. Source retains authored expressions, effective resolves inputs/defaults/patches, expanded adds generators, and every provenance key is an RFC 6901 pointer into that view's resource spec.
 - `scenery task run <domain>:<name> -- [args...]` runs an app-local code task.
 - `scenery worker` builds once and starts a worker-role runtime for declared durable executions and schedules.
-- `scenery up` starts the app root's one live dev runtime: supervised app process, file watching, dashboard, API explorer, logs, traces, metrics, managed dev services, and optional frontend routing.
+- `scenery up` starts the app root's one live dev runtime: supervised app process, file watching, dashboard, API explorer, logs, traces, metrics, managed dev services, and optional frontend routing. While that supervisor remains live, shared Victoria observability is probed and recovered as one managed stack; failed recovery is always surfaced as a degraded error rather than hidden behind verbose output.
 - Route manifests expose the API, Scenery-owned runtime/dashboard surfaces where appropriate, and configured frontends; arbitrary backend names do not receive reserved route behavior.
 - Public and auth endpoints are externally reachable. Private endpoints are internal-only and must be called through generated helpers.
 - Typed endpoints decode path/query/header/cookie/body inputs into Go values and encode typed responses.
@@ -216,6 +216,11 @@ go test ./...
 go test ./cmd/scenery
 ```
 
+Use Go's test result cache for ordinary, focused, and substantial final
+validation. Pass `-count=1` only when explicitly measuring fresh execution or
+investigating nondeterminism. `scenery harness self --fresh-tests` is the
+explicit fresh self-harness lane.
+
 Do not run `go install ./cmd/scenery` during agent validation unless the human
 explicitly asks. Multiple worktrees share the same installed `scenery` path; use
 self-harness' worktree-local `.scenery/harness/bin/scenery` build instead.
@@ -226,12 +231,11 @@ For substantial scenery repo changes:
 scenery harness self --summary --write
 ```
 
-Self-harness timing keeps a seven-second optimization target separate from its
-operational lanes: cached and fresh runs use 12-second and 18-second advisory
-budgets, while release mode enforces 30 seconds. Package and test timing
-warnings require isolated confirmation; inspect the timing artifact before
-treating contended full-suite elapsed values as regressions. The Go timing step
-uses `-p 8`, selected from repeated measurements on the maintainer machine.
+Self-harness timing keeps a five-second optimization target separate from its
+operational lanes: cached and fresh runs use five-second advisory budgets,
+while release mode enforces 30 seconds. Only explicit `--fresh-tests` runs use
+isolated timing confirmation. That fresh lane uses package parallelism three,
+selected from repeated measurements on the maintainer machine.
 
 For target app changes:
 

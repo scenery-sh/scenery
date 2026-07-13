@@ -25,7 +25,7 @@ func confirmHarnessTimingOutliers(ctx context.Context, repoRoot string, report *
 	started := time.Now()
 	confirmationRuns := report.Budgets.ConfirmationRuns
 	if confirmationRuns <= 0 {
-		confirmationRuns = harnessTimingConfirmationRuns
+		return
 	}
 	var packageIndices []int
 	command := []string{"go", "test", "-count=1", "-p", "1", "-json"}

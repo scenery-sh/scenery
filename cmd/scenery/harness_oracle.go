@@ -514,6 +514,7 @@ func harnessTestTimingBudgetsForMode(mode string, freshTests bool) harnessTestTi
 	if freshTests {
 		budgets.Lane = "fresh"
 		budgets.TotalSeconds = freshHarnessTotalSeconds
+		budgets.ConfirmationRuns = harnessTimingConfirmationRuns
 	}
 	if mode == harnessSelfModeRelease {
 		budgets.Lane = "release"
@@ -533,7 +534,7 @@ func runHarnessGoTestTimingStepWithBudgets(ctx context.Context, repoRoot string,
 		Command:  command,
 		Evidence: &evidence,
 	}
-	_, err := exec.LookPath("go")
+	goPath, err := exec.LookPath("go")
 	if err != nil {
 		step.OK = false
 		step.DurationMS = time.Since(started).Milliseconds()
@@ -577,16 +578,27 @@ func runHarnessGoTestTimingStepWithBudgets(ctx context.Context, repoRoot string,
 	}
 	outputPath := outputFile.Name()
 	defer os.Remove(outputPath)
-	testResult, runErr := testsuite.Run(ctx, testsuite.Options{
-		RepoRoot:           repoRoot,
-		CacheDir:           filepath.Join(repoRoot, ".scenery", "harness", "test-binaries"),
-		RunPattern:         ".*",
-		PackageParallelism: 3,
-		BuildParallelism:   8,
-		RecordTimings:      true,
-		Output:             outputFile,
-		Env:                envWithOverrides(envpolicy.Environ(), testEnv...),
-	})
+	var testResult testsuite.Result
+	var runErr error
+	if freshTests {
+		testResult, runErr = testsuite.Run(ctx, testsuite.Options{
+			RepoRoot:           repoRoot,
+			CacheDir:           filepath.Join(repoRoot, ".scenery", "harness", "test-binaries"),
+			RunPattern:         ".*",
+			PackageParallelism: 3,
+			BuildParallelism:   8,
+			RecordTimings:      true,
+			Output:             outputFile,
+			Env:                envWithOverrides(envpolicy.Environ(), testEnv...),
+		})
+	} else {
+		cmd := commandTreeContext(ctx, goPath, command[1:]...)
+		cmd.Dir = repoRoot
+		cmd.Env = envWithOverrides(envpolicy.Environ(), testEnv...)
+		cmd.Stdout = outputFile
+		cmd.Stderr = outputFile
+		runErr = cmd.Run()
+	}
 	suiteElapsed := time.Since(started)
 	closeErr := outputFile.Close()
 	output, readErr := os.ReadFile(outputPath)
@@ -598,22 +610,24 @@ func runHarnessGoTestTimingStepWithBudgets(ctx context.Context, repoRoot string,
 	}
 	report := parseHarnessGoTestTimingWithBudgets(output, command, suiteElapsed, budgets)
 	report.Env = append([]string{}, testEnv...)
-	if runErr == nil {
+	if runErr == nil && freshTests {
 		confirmHarnessTimingOutliers(ctx, repoRoot, report, runHarnessTimingConfirmationCommand)
 	}
 	elapsed := time.Since(started)
 	step.DurationMS = elapsed.Milliseconds()
 	step.Summary = map[string]any{
 		"packages":             len(report.Packages),
-		"test_results":         testResult.TestResultCount,
-		"test_binaries_built":  testResult.BuiltCount,
-		"test_manifest_hit":    testResult.ManifestHit,
 		"observed_slow_tests":  len(report.ObservedSlowTests),
 		"confirmed_slow_tests": len(report.SlowTests),
 		"total_seconds":        report.TotalSeconds,
 		"confirmation_seconds": report.ConfirmationSeconds,
 		"timing_lane":          report.Budgets.Lane,
 		"env":                  testEnv,
+	}
+	if freshTests {
+		step.Summary["test_results"] = testResult.TestResultCount
+		step.Summary["test_binaries_built"] = testResult.BuiltCount
+		step.Summary["test_manifest_hit"] = testResult.ManifestHit
 	}
 	step.Diagnostics = report.Diagnostics
 	artifacts, artifactDiagnostics := writeHarnessOutputEvidenceArtifacts(optionalHarnessArtifactContext(artifactCtxs), step.Name, "go-test.jsonl", "go.test.jsonl", output, nil)
@@ -782,9 +796,8 @@ func defaultHarnessTestTimingBudgets() harnessTestTimingBudgets {
 		PackageOverrides: map[string]float64{
 			"scenery.sh/cmd/scenery": commandPackageTimingSeconds,
 		},
-		TestSeconds:      0.5,
-		ConfirmationRuns: harnessTimingConfirmationRuns,
-		Mode:             "observe-total",
+		TestSeconds: 0.5,
+		Mode:        "observe-total",
 	}
 }
 

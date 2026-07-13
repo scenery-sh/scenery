@@ -2,6 +2,9 @@
 
 This ExecPlan is a living document. Update `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` as work proceeds.
 
+Current validation policy lives in `docs/local-contract.md`: result caching is
+the default, and the fresh-execution decisions below are historical.
+
 ## Purpose / Big Picture
 
 `scenery harness self` should become a machine-readable development oracle for the scenery repository. Today it already runs a useful collection of checks, but agents still have to infer too much from terminal output, local knowledge, or stale docs. The target state is that a human or AI agent can run:

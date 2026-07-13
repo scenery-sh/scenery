@@ -2,6 +2,9 @@
 
 This ExecPlan is a living document. Update Progress, Surprises & Discoveries, Decision Log, and Outcomes & Retrospective as work proceeds.
 
+Current validation policy lives in `docs/local-contract.md`: result caching is
+the default, and the fresh-execution decisions below are historical.
+
 ## Purpose / Big Picture
 
 The immediate goal was to make complete repository validation green, quiet, and measurably faster without deleting coverage. The original failures and noise came from test infrastructure, not from the product behavior being asserted.

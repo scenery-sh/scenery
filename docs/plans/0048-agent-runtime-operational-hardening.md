@@ -34,10 +34,13 @@ This file is the active ExecPlan for the 2026-05-28 source-review findings about
 - [ ] Phase 5.2: Add a rebrand-migration sweep that detects and stops pre-rebrand `~/.onlava` processes and offers `~/.onlava` state cleanup.
 - [ ] Phase 5.3: Teach `scenery doctor` to flag duplicate listeners on scenery-owned ports and orphaned `scenery system agent` processes.
 - [x] 2026-06-12: Hardened shared substrate and Postgres branch locks with bounded nonblocking acquisition, named wait diagnostics, real Windows file locking, short `branches.lock` registry sections, and a separate parent-database operation lock for branch DDL.
+- [x] 2026-07-13: Made running `scenery up` supervisors self-heal the shared Victoria stack after a component or agent-driven shutdown, using owner verification, the existing substrate locks/registry, and bounded retry backoff. Phase 1.3 remains open because ordinary agent restart still interrupts other shared substrate kinds.
+- [x] 2026-07-13: Made each failed Victoria recovery attempt visible without Victoria through a red foreground warning, detached JSONL event, dashboard notification, and best-effort degraded registry state.
 
 ## Surprises & Discoveries
 
 - 2026-07-12: Current contract note: `dev.setup` was removed rather than extended with lifecycle policy. Database initialization uses `database.apply`, seeds, and `scenery db setup`; app-local operational tasks are declared in `.scn`.
+- 2026-07-13: Victoria's exit monitor recorded `degraded` state but never returned control to the shared ensure path, so a healthy app supervisor could outlive all three observability processes indefinitely. The recovery path must serialize exit writes with replacement registration so late exits from the old generation cannot overwrite the new stack.
 
 - 2026-05-27: Agent home is decoupled from `SCENERY_DEV_CACHE_DIR`, but `cmd/scenery/devdash_store.go` still checks `SCENERY_DEV_CACHE_DIR` before the active agent. `cmd/scenery/watch.go` only forces the agent dashboard store when `SCENERY_DEV_CACHE_DIR` is empty, so a globally exported old cache dir can still split logs/traces/dashboard state. Source review on 2026-05-28 confirmed this is still open.
 - 2026-05-27: `cmd/scenery/agent.go` implements `scenery prune --older-than` without `--db`, `--state`, or `--all`. The current command deletes stale runtime records and state roots, but it does not drop managed runtime Postgres databases or prune `session.<id>` substrate metadata. Source review on 2026-05-28 confirmed this is still open.
@@ -90,6 +93,12 @@ This file is the active ExecPlan for the 2026-05-28 source-review findings about
 - Decision: Managed dev substrate failures should write structured failure evidence instead of relying only on terminal text.
   Rationale: The failure artifact answers which phase failed, whether a session existed, and which substrate component, process, socket, log, and config were involved. This is especially important for required ZeroFS preflight and bounded readiness failures that are intermittent under release validation.
   Date/Author: 2026-06-25 / Codex.
+- Decision: Recover Victoria through its existing shared ensure path and replace all three components as one stack.
+  Rationale: The existing ownership fingerprints, substrate locks, and singular registry key already provide the safety and deduplication boundary; a generic substrate recovery framework or consumer retry would add surface without fixing lifecycle ownership.
+  Date/Author: 2026-07-13 / Codex.
+- Decision: Report Victoria recovery failures through terminal, detached-supervisor, and dashboard paths that do not depend on Victoria.
+  Rationale: An observability outage cannot safely use the unavailable observability backend as its only alert path; the existing process-output channel provides immediate visibility while registry degradation preserves machine-readable state when the agent is reachable.
+  Date/Author: 2026-07-13 / Codex.
 
 ## Outcomes & Retrospective
 

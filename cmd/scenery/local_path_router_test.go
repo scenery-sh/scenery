@@ -22,6 +22,30 @@ func TestLocalPathRouterShouldNotStripFrontendPrefix(t *testing.T) {
 	}
 }
 
+func TestLocalPathRouterRedirect(t *testing.T) {
+	t.Parallel()
+
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	handler := localPathRouterRedirect(next, "https://local.clean.tech")
+
+	for _, test := range []struct {
+		path string
+		want string
+	}{
+		{path: "/", want: "https://local.clean.tech/"},
+		{path: "/api/healthy?probe=1", want: "https://local.clean.tech/api/healthy?probe=1"},
+		{path: "/next/mails?mail=abc%2Fdef", want: "https://local.clean.tech/next/mails?mail=abc%2Fdef"},
+	} {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "http://localhost:4748"+test.path, nil))
+		if response.Code != http.StatusTemporaryRedirect || response.Header().Get("Location") != test.want {
+			t.Errorf("%s response = %d %q, want %d %q", test.path, response.Code, response.Header().Get("Location"), http.StatusTemporaryRedirect, test.want)
+		}
+	}
+}
+
 func TestLocalPathRouterRewriteHTMLRootRefs(t *testing.T) {
 	t.Parallel()
 

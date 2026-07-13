@@ -155,7 +155,9 @@ func (s *devSupervisor) Close() error {
 
 		app := s.detachCurrentApp()
 		frontends := s.detachManagedFrontends()
+		s.mu.RLock()
 		victoria := s.victoria
+		s.mu.RUnlock()
 
 		var errs []error
 		if app != nil {
@@ -299,12 +301,15 @@ func (s *devSupervisor) startDevServiceStartup(ctx context.Context) <-chan error
 			pendingDevEvents := append([]devdash.DevEvent(nil), s.pendingDevEvents...)
 			s.pendingDevEvents = nil
 			s.mu.Unlock()
-			if s.victoria != nil {
+			if s.agent != nil && victoriaEnabled() {
+				s.startVictoriaRecoveryMonitor()
+			}
+			if victoria != nil {
 				for _, event := range pendingDevEvents {
 					s.eventSink().ExportVictoriaDevEvent(event)
 				}
 				s.eventSink().Emit(ctx, devdash.DevSource{ID: "victoria", Kind: "substrate", Name: "victoria", Role: "observability", Status: "running"}, "info", "Victoria stack ready", map[string]any{
-					"urls": s.victoria.URLs(),
+					"urls": victoria.URLs(),
 				})
 			}
 		}()
@@ -388,7 +393,7 @@ func (s *devSupervisor) startVictoriaStack(ctx context.Context) *victoriaStack {
 	if stack == nil {
 		return nil
 	}
-	monitorVictoriaSubstrate(s.agent, s.eventSink(), stack)
+	monitorVictoriaSubstrate(filepath.Join(paths.AgentDir, "victoria"), s.agent, s.eventSink(), stack)
 	if s.console != nil && s.console.verbose {
 		s.console.Event("victoria.shared", map[string]any{
 			"owner":     "agent",
@@ -1033,10 +1038,13 @@ func tcpAddrAcceptsConnections(addr string) bool {
 }
 
 func (s *devSupervisor) processOutputWriter(dst io.Writer) io.Writer {
-	if s == nil || s.console == nil || !s.console.json {
-		return dst
+	if s != nil && s.console != nil && s.console.json {
+		return nil
 	}
-	return nil
+	if s != nil && s.console != nil && s.console.palette.Enabled() {
+		return &devProcessOutputWriter{dst: dst, palette: s.console.palette}
+	}
+	return dst
 }
 
 func (s *devSupervisor) processOutputFilter(pid int, stream string, data []byte) []byte {

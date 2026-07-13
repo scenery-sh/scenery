@@ -208,9 +208,13 @@ scenery harness -o json --write
 For scenery repository changes:
 
 ```sh
-go test -count=1 ./...
+go test ./...
 go vet ./...
 scenery harness self --summary --write
 ```
+
+Keep Go's test result cache enabled for ordinary, focused, and substantial
+final validation. Use `-count=1` or `--fresh-tests` only for explicit fresh
+measurement or nondeterminism investigation.
 
 Do not run `go install ./cmd/scenery` unless the human explicitly asks. Multiple worktrees share the installed binary; self-harness builds a worktree-local binary.
