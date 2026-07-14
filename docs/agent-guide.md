@@ -121,7 +121,7 @@ Use `-o json` for compiler commands and command-specific current protocols. Neve
 - Use `scenery up --detach` when the local agent should retain it; the default wait returns only after every advertised route and one declared frontend asset are reachable.
 - `scenery up` reruns against an already-live app root are idempotent instead of failing: human foreground reruns report the existing runtime and attach to its logs (Ctrl+C detaches without stopping it), while `-o jsonl` and `--detach` reruns report and exit `0` (detached JSON sets `already_running: true`).
 - Use `scenery ps -o json` to discover the current base URL, route manifest, child health, and substrate state.
-- Use `scenery system agent restart` to restart only the control plane/router; registered Postgres and Victoria processes survive.
+- Use `scenery system agent restart` to restart only the control plane/router; registered Postgres and Victoria processes survive. On machines set up with `scenery deploy setup`, the agent is continuously owned by the `dev.scenery.agent` launchd LaunchAgent and restart cooperates with it (`supervised: true` in the JSON payload); `scenery deploy status -o json` reports supervision truth under `agent_supervisor` and refuses `ready` when the supervisor is not loaded.
 - Use `scenery doctor -o json` when startup reports an occupied Scenery port; it distinguishes duplicate Scenery owners from foreign listeners, and startup never falls back to an unadvertised router port.
 - Use `scenery logs --follow` for the current runtime.
 - Use `scenery down` to stop it; add destructive cleanup flags only intentionally.

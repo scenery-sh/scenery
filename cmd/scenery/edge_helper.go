@@ -263,19 +263,25 @@ var (
 )
 
 type edgeHelperFailureLog struct {
-	mu       sync.Mutex
-	interval time.Duration
-	now      func() time.Time
-	last     map[string]time.Time
-	dropped  map[string]int
+	mu        sync.Mutex
+	component string
+	interval  time.Duration
+	now       func() time.Time
+	last      map[string]time.Time
+	dropped   map[string]int
 }
 
 func newEdgeHelperFailureLog(interval time.Duration, now func() time.Time) *edgeHelperFailureLog {
+	return newComponentFailureLog("edge-helper", interval, now)
+}
+
+func newComponentFailureLog(component string, interval time.Duration, now func() time.Time) *edgeHelperFailureLog {
 	return &edgeHelperFailureLog{
-		interval: interval,
-		now:      now,
-		last:     map[string]time.Time{},
-		dropped:  map[string]int{},
+		component: component,
+		interval:  interval,
+		now:       now,
+		last:      map[string]time.Time{},
+		dropped:   map[string]int{},
 	}
 }
 
@@ -296,10 +302,10 @@ func (l *edgeHelperFailureLog) report(w io.Writer, listenAddr, reason string, er
 	delete(l.dropped, key)
 	l.last[key] = now
 	if suppressed > 0 {
-		fmt.Fprintf(w, "%s edge-helper %s on %s: %v (%d similar suppressed in the last %s)\n", now.UTC().Format(time.RFC3339), reason, listenAddr, err, suppressed, l.interval)
+		fmt.Fprintf(w, "%s %s %s on %s: %v (%d similar suppressed in the last %s)\n", now.UTC().Format(time.RFC3339), l.component, reason, listenAddr, err, suppressed, l.interval)
 		return
 	}
-	fmt.Fprintf(w, "%s edge-helper %s on %s: %v\n", now.UTC().Format(time.RFC3339), reason, listenAddr, err)
+	fmt.Fprintf(w, "%s %s %s on %s: %v\n", now.UTC().Format(time.RFC3339), l.component, reason, listenAddr, err)
 }
 
 func handleEdgeHelperConn(client net.Conn, opts edgeHelperOptions, spec edgeHelperListenSpec) {

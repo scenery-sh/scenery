@@ -135,6 +135,12 @@ func reapStaleAgentRouterOwner(opts agentOptions) error {
 	return stopStaleUserSceneryAgents(paths.SocketPath, firstNonEmpty(opts.RouterAddr, localagent.RouterAddrFromEnv()), 2*time.Second)
 }
 
+var (
+	agentSupervisorStatusFunc    = localagent.AgentLaunchdStatusForSocket
+	agentSupervisorKickstartFunc = localagent.KickstartAgentLaunchd
+	agentSupervisorBootstrapFunc = localagent.BootstrapAgentLaunchd
+)
+
 func agentRestartCommand(args []string) error {
 	opts, err := parseAgentArgs(args)
 	if err != nil {
@@ -153,26 +159,32 @@ func agentRestartCommand(args []string) error {
 	defer cancel()
 
 	oldHealth, running := currentAgentHealth(ctx, client)
-	if running && oldHealth.PID > 0 {
-		if err := signalAgentPID(oldHealth.PID); err != nil {
-			return fmt.Errorf("stop scenery agent pid %d: %w", oldHealth.PID, err)
-		}
-		if err := waitForAgentStop(ctx, client, oldHealth.PID); err != nil {
-			return err
-		}
-	}
-	logOffset := fileSize(paths.LogPath)
-	if err := localagent.StartProcess(paths, localagent.StartOptions{
-		RouterAddr: opts.RouterAddr,
-		RouterTLS:  opts.effectiveRouterTLS(),
-		RouterHTTP: opts.RouterHTTP,
-		Trust:      opts.Trust,
-	}); err != nil {
-		return err
-	}
-	health, err := waitForAgentStart(ctx, client, oldHealth.PID, paths.LogPath, logOffset)
+	health, supervised, err := restartAgentViaSupervisor(ctx, client, paths, oldHealth, running)
 	if err != nil {
 		return err
+	}
+	if !supervised {
+		if running && oldHealth.PID > 0 {
+			if err := signalAgentPID(oldHealth.PID); err != nil {
+				return fmt.Errorf("stop scenery agent pid %d: %w", oldHealth.PID, err)
+			}
+			if err := waitForAgentStop(ctx, client, oldHealth.PID); err != nil {
+				return err
+			}
+		}
+		logOffset := fileSize(paths.LogPath)
+		if err := localagent.StartProcess(paths, localagent.StartOptions{
+			RouterAddr: opts.RouterAddr,
+			RouterTLS:  opts.effectiveRouterTLS(),
+			RouterHTTP: opts.RouterHTTP,
+			Trust:      opts.Trust,
+		}); err != nil {
+			return err
+		}
+		health, err = waitForAgentStart(ctx, client, oldHealth.PID, paths.LogPath, logOffset)
+		if err != nil {
+			return err
+		}
 	}
 	if opts.JSON {
 		return writeCLIJSON(os.Stdout, withCLIPayloadIdentity("scenery.agent.restart", map[string]any{
@@ -181,14 +193,53 @@ func agentRestartCommand(args []string) error {
 			"socket_path":   health.SocketPath,
 			"router_addr":   health.RouterAddr,
 			"router_scheme": health.RouterScheme,
+			"supervised":    supervised,
 		}))
 	}
 	fmt.Fprintf(os.Stdout, "restarted scenery agent")
 	if health.PID > 0 {
 		fmt.Fprintf(os.Stdout, " (pid %d)", health.PID)
 	}
+	if supervised {
+		fmt.Fprintf(os.Stdout, " under launchd supervisor %s", localagent.AgentLaunchdLabel)
+	}
 	fmt.Fprintln(os.Stdout)
 	return nil
+}
+
+// restartAgentViaSupervisor restarts the agent through launchd when the
+// installed supervised plist manages this socket. Kickstart replaces the
+// running agent atomically, so the restart cooperates with KeepAlive instead
+// of racing it; a plist that exists but is not loaded is repaired by
+// bootstrapping it. It returns supervised=false when no supervisor owns the
+// socket, leaving the caller on the unsupervised stop/start path.
+func restartAgentViaSupervisor(ctx context.Context, client *localagent.Client, paths localagent.Paths, oldHealth localagent.HealthResponse, running bool) (localagent.HealthResponse, bool, error) {
+	status := agentSupervisorStatusFunc(paths.SocketPath)
+	if !status.Supported || !status.PlistPresent || !status.SupervisesSocket {
+		return localagent.HealthResponse{}, false, nil
+	}
+	logOffset := fileSize(paths.LogPath)
+	// A reachable agent that is not the supervisor's own process (an
+	// unsupervised agent, or one from before supervision was installed)
+	// holds the agent lock and would make every supervised spawn fail
+	// closed; stop it first so launchd's process can take ownership.
+	if running && oldHealth.PID > 0 && oldHealth.PID != status.PID {
+		if err := signalAgentPID(oldHealth.PID); err != nil {
+			return localagent.HealthResponse{}, true, fmt.Errorf("stop scenery agent pid %d: %w", oldHealth.PID, err)
+		}
+		if err := waitForAgentStop(ctx, client, oldHealth.PID); err != nil {
+			return localagent.HealthResponse{}, true, err
+		}
+	}
+	if !status.Loaded {
+		if err := agentSupervisorBootstrapFunc(); err != nil {
+			return localagent.HealthResponse{}, true, err
+		}
+	} else if err := agentSupervisorKickstartFunc(true); err != nil {
+		return localagent.HealthResponse{}, true, err
+	}
+	health, err := waitForAgentStart(ctx, client, oldHealth.PID, paths.LogPath, logOffset)
+	return health, true, err
 }
 
 func parseAgentArgs(args []string) (agentOptions, error) {

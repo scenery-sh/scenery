@@ -1231,6 +1231,15 @@ func ensureEdgeAgent(routerAddr string, force bool) error {
 	if running && !force && health.RouterAddr == routerAddr && health.RouterScheme == "http" {
 		return nil
 	}
+	// Under launchd supervision a SIGTERM respawn immediately rebinds the
+	// router port, so the stop/wait-for-free dance below would race the
+	// supervisor; restart through launchd instead.
+	if started, supervised, err := restartAgentViaSupervisor(ctx, client, paths, health, running); supervised {
+		if err != nil {
+			return err
+		}
+		return validateEdgeAgentHealth(started, routerAddr)
+	}
 	if running && health.PID > 0 {
 		if err := signalAgentPID(health.PID); err != nil {
 			return fmt.Errorf("stop scenery agent pid %d: %w", health.PID, err)
@@ -1401,12 +1410,17 @@ func caddyEdgeConfig(opts caddyEdgeConfigOptions) string {
 }
 
 `)
+	// lb_try_duration bridges the agent router's supervised restart window:
+	// a refused upstream dial retries for a bounded time instead of exposing
+	// a raw 502 on the public edge.
 	fmt.Fprintf(&b, `%s {
 	tls internal {
 		on_demand
 	}
 	reverse_proxy %s {
 		flush_interval -1
+		lb_try_duration 5s
+		lb_try_interval 250ms
 		header_up Host {host}
 		header_up X-Forwarded-Proto https
 		header_up X-Forwarded-Port %s
@@ -1422,6 +1436,8 @@ func caddyEdgeConfig(opts caddyEdgeConfigOptions) string {
 	}
 	reverse_proxy %s {
 		flush_interval -1
+		lb_try_duration 5s
+		lb_try_interval 250ms
 		header_up Host {host}
 		header_up X-Forwarded-Proto https
 		header_up X-Forwarded-Port 443

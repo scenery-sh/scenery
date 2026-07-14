@@ -12,6 +12,7 @@
     "helper_public",
     "edge",
     "agent",
+    "agent_supervisor",
     "launch_agent",
     "acme",
     "targets"
@@ -22,7 +23,7 @@
       "const": "scenery.deploy.status"
     },
     "schema_revision": {
-      "const": "sha256:b25bee4adc4de757ceeecf3c4e9aeb1563db4da469af2376c674acb3ac9c0df4"
+      "const": "sha256:b6b4d153af5da363324fe96337c21ddbe89abe143d3b2340fa5fcdded8bf46ef"
     },
     "ready": {
       "type": "boolean"
@@ -42,6 +43,9 @@
     },
     "agent": {
       "$ref": "#/$defs/agent"
+    },
+    "agent_supervisor": {
+      "$ref": "#/$defs/agent_supervisor"
     },
     "launch_agent": {
       "$ref": "#/$defs/launch_agent"
@@ -197,15 +201,50 @@
         }
       }
     },
-    "launch_agent": {
+    "agent_supervisor": {
       "type": "object",
       "required": [
         "installed",
+        "loaded",
+        "running",
+        "label",
         "path"
       ],
       "additionalProperties": false,
       "properties": {
         "installed": {
+          "type": "boolean"
+        },
+        "loaded": {
+          "type": "boolean"
+        },
+        "running": {
+          "type": "boolean"
+        },
+        "pid": {
+          "type": "integer"
+        },
+        "label": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        }
+      }
+    },
+    "launch_agent": {
+      "type": "object",
+      "required": [
+        "installed",
+        "loaded",
+        "path"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "installed": {
+          "type": "boolean"
+        },
+        "loaded": {
           "type": "boolean"
         },
         "path": {

@@ -147,6 +147,7 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode bool, appRoot strin
 		return err
 	}
 	supervisor.addStartupReady(preparedSession.FrontendReady)
+	startAgentAvailabilityWatchdog(ctx, agentClient)
 
 	if err := supervisor.RebuildAndRestart(ctx, true, snapshot); err != nil {
 		supervisor.console.InitialBuildFailed(err, supervisor.runURLs())

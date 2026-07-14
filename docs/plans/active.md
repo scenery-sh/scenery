@@ -7,6 +7,11 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
+- [0114 Supervised Agent Lifecycle](0114-supervised-agent-lifecycle.md)
+  - Status: active
+  - Owner: scenery runtime / edge
+  - Created: 2026-07-14
+  - Focus: launchd-supervised scenery agent (`dev.scenery.agent` KeepAlive job) as the availability owner behind the public deploy edge — LaunchAgent installs that actually bootstrap, teardown that boots out, `scenery deploy status` supervision truth (`agent_supervisor`, `launch_agent.loaded`) gating readiness, cooperative `scenery system agent restart`, per-request dashboard backend refresh in local path routers, and bounded upstream dial retries on the Caddy edge so ordinary supervised restarts do not surface raw 502s.
 - [0101 Public Deploy Edge](0101-public-deploy-edge.md)
   - Status: active
   - Owner: scenery runtime / edge

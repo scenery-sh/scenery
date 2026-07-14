@@ -12,20 +12,16 @@
       "const": "scenery.deploy.setup"
     },
     "schema_revision": {
-      "const": "sha256:f8973bd425ddbbe813df86be5e22af0bdd6b50f86178a53dc32c801319927da3"
+      "const": "sha256:32d9afc33d4a53d3d657ca7c1f883d250dfc6caab23b5190cc42bf3f84182496"
     },
-    "registry_path": {
-    },
-    "acme": {
-    },
-    "helper_version": {
-    },
-    "helper_public": {
-    },
-    "launch_agent_installed": {
-    },
-    "edge_restarted": {
-    }
+    "registry_path": {},
+    "acme": {},
+    "helper_version": {},
+    "helper_public": {},
+    "helper_reinstalled": {},
+    "agent_supervisor_installed": {},
+    "launch_agent_installed": {},
+    "edge_restarted": {}
   },
   "additionalProperties": false
 }

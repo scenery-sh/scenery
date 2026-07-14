@@ -34,6 +34,8 @@ func TestCaddyEdgeConfigUsesStableAgentRouterContract(t *testing.T) {
 		"https://:19443 {",
 		"reverse_proxy 127.0.0.1:9440",
 		"flush_interval -1",
+		"lb_try_duration 5s",
+		"lb_try_interval 250ms",
 		"header_up Host {host}",
 		"header_up X-Forwarded-Proto https",
 		"header_up X-Forwarded-Port 443",

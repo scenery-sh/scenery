@@ -175,9 +175,15 @@ func waitForAgentReady(ctx context.Context, client *Client, paths Paths, oldPID 
 	return nil, fmt.Errorf("timed out waiting for scenery agent at %s: %w", paths.SocketPath, lastErr)
 }
 
+// StartProcess starts the local agent. When a launchd supervisor owns the
+// requested socket it starts the agent through launchd instead of spawning an
+// unsupervised process, so every stop/start path cooperates with supervision.
 func StartProcess(paths Paths, opts StartOptions) error {
 	if err := EnsureDirs(paths); err != nil {
 		return err
+	}
+	if startSupervisedAgentProcess(paths) {
+		return nil
 	}
 	exe, err := os.Executable()
 	if err != nil {
@@ -187,20 +193,7 @@ func StartProcess(paths Paths, opts StartOptions) error {
 	if err != nil {
 		return err
 	}
-	routerAddr := strings.TrimSpace(opts.RouterAddr)
-	if routerAddr == "" {
-		routerAddr = RouterAddrFromEnv()
-	}
-	routerTLS := opts.RouterTLS
-	args := []string{"system", "agent", "--socket", paths.SocketPath, "--router-listen", routerAddr}
-	if opts.Trust {
-		args = append(args, "--trust")
-	} else if routerTLS {
-		args = append(args, "--router-tls")
-	} else {
-		args = append(args, "--router-http")
-	}
-	cmd := exec.Command(exe, args...)
+	cmd := exec.Command(exe, agentProcessArgs(paths, opts)...)
 	cmd.Env = envpolicy.Environ()
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
@@ -212,6 +205,25 @@ func StartProcess(paths Paths, opts StartOptions) error {
 	}
 	_ = logFile.Close()
 	return cmd.Process.Release()
+}
+
+// agentProcessArgs is the singular agent invocation shape shared by direct
+// spawns and the launchd supervisor plist.
+func agentProcessArgs(paths Paths, opts StartOptions) []string {
+	routerAddr := strings.TrimSpace(opts.RouterAddr)
+	if routerAddr == "" {
+		routerAddr = RouterAddrFromEnv()
+	}
+	args := []string{"system", "agent", "--socket", paths.SocketPath, "--router-listen", routerAddr}
+	switch {
+	case opts.Trust:
+		args = append(args, "--trust")
+	case opts.RouterTLS:
+		args = append(args, "--router-tls")
+	default:
+		args = append(args, "--router-http")
+	}
+	return args
 }
 
 // CloseIdleConnections drops any keep-alive connections held by the client so

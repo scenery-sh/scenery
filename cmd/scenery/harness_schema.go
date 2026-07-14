@@ -416,8 +416,17 @@ func buildHarnessDeployStatusSchemaPayload() deployStatusResponse {
 			SocketPath: "/tmp/scenery/agent/agent.sock",
 			RouterAddr: "127.0.0.1:9440",
 		},
+		AgentSupervisor: deployAgentSupervisorStatus{
+			Installed: true,
+			Loaded:    true,
+			Running:   true,
+			PID:       404,
+			Label:     localagent.AgentLaunchdLabel,
+			Path:      "/Users/example/Library/LaunchAgents/dev.scenery.agent.plist",
+		},
 		LaunchAgent: deployLaunchAgentStatus{
 			Installed: true,
+			Loaded:    true,
 			Path:      "/Users/example/Library/LaunchAgents/dev.scenery.deploy-resume.plist",
 		},
 		ACME: deployACMEStatus{

@@ -47,6 +47,7 @@ type deployStatusResponse struct {
 	HelperPublic       bool                         `json:"helper_public"`
 	Edge               edgeStatusCaddy              `json:"edge"`
 	Agent              deployAgentStatus            `json:"agent"`
+	AgentSupervisor    deployAgentSupervisorStatus  `json:"agent_supervisor"`
 	LaunchAgent        deployLaunchAgentStatus      `json:"launch_agent"`
 	ACME               deployACMEStatus             `json:"acme"`
 	Targets            []deployTargetStatus         `json:"targets"`
@@ -56,21 +57,24 @@ type deployStatusResponse struct {
 
 type deploySetupResponse struct {
 	cliPayloadIdentity
-	RegistryPath         string           `json:"registry_path"`
-	ACME                 deployACMEStatus `json:"acme"`
-	HelperVersion        string           `json:"helper_version"`
-	HelperPublic         bool             `json:"helper_public"`
-	LaunchAgentInstalled bool             `json:"launch_agent_installed"`
-	EdgeRestarted        bool             `json:"edge_restarted"`
+	RegistryPath             string           `json:"registry_path"`
+	ACME                     deployACMEStatus `json:"acme"`
+	HelperVersion            string           `json:"helper_version"`
+	HelperPublic             bool             `json:"helper_public"`
+	HelperReinstalled        bool             `json:"helper_reinstalled"`
+	AgentSupervisorInstalled bool             `json:"agent_supervisor_installed"`
+	LaunchAgentInstalled     bool             `json:"launch_agent_installed"`
+	EdgeRestarted            bool             `json:"edge_restarted"`
 }
 
 type deployTeardownResponse struct {
 	cliPayloadIdentity
-	RegistryPath       string `json:"registry_path"`
-	HelperVersion      string `json:"helper_version"`
-	HelperPublic       bool   `json:"helper_public"`
-	LaunchAgentRemoved bool   `json:"launch_agent_removed"`
-	EdgeRestarted      bool   `json:"edge_restarted"`
+	RegistryPath           string `json:"registry_path"`
+	HelperVersion          string `json:"helper_version"`
+	HelperPublic           bool   `json:"helper_public"`
+	AgentSupervisorRemoved bool   `json:"agent_supervisor_removed"`
+	LaunchAgentRemoved     bool   `json:"launch_agent_removed"`
+	EdgeRestarted          bool   `json:"edge_restarted"`
 }
 
 type deployResumeResponse struct {
@@ -100,8 +104,23 @@ type deployAgentStatus struct {
 	Message    string `json:"message,omitempty"`
 }
 
+// deployLaunchAgentStatus distinguishes plist presence (Installed) from a job
+// launchd actually loaded (Loaded); only the latter can recover anything.
 type deployLaunchAgentStatus struct {
 	Installed bool   `json:"installed"`
+	Loaded    bool   `json:"loaded"`
+	Path      string `json:"path"`
+}
+
+// deployAgentSupervisorStatus reports the launchd job that continuously owns
+// the scenery agent. Deploy readiness requires it: without supervision the
+// public edge upstream has no recovery owner.
+type deployAgentSupervisorStatus struct {
+	Installed bool   `json:"installed"`
+	Loaded    bool   `json:"loaded"`
+	Running   bool   `json:"running"`
+	PID       int    `json:"pid,omitempty"`
+	Label     string `json:"label"`
 	Path      string `json:"path"`
 }
 
@@ -185,6 +204,11 @@ var (
 	deployLoopbackHelperInstallFunc      = deployLoopbackHelperInstall
 	deployInstallResumeLaunchAgentFunc   = installDeployResumeLaunchAgent
 	deployRemoveResumeLaunchAgentFunc    = removeDeployResumeLaunchAgent
+	deployInstallAgentSupervisorFunc     = installDeployAgentSupervisor
+	deployRemoveAgentSupervisorFunc      = localagent.RemoveAgentLaunchd
+	deployResumeLaunchAgentLoadedFunc    = deployResumeLaunchAgentLoaded
+	deployHelperReinstallNeededFunc      = deploySetupNeedsHelperReinstall
+	deployLaunchctlFunc                  = runDeployLaunchctl
 	deployEnsureAgentFunc                = func() error { return ensureEdgeAgent(localagent.RouterAddrFromEnv(), false) }
 	deployEdgeRestartFunc                = func() error { return edgeRestart(edgeOptions{Deploy: true}) }
 	deployRefreshEdgeAfterMutationFunc   = deployRefreshEdgeAfterMutation
@@ -401,13 +425,22 @@ func runDeploySetup(stdout io.Writer, opts deployOptions) error {
 		return err
 	}
 	helperVersion := buildVersionResponse().Version
-	if err := deployPrivilegedHelperInstallFunc(paths, helperVersion); err != nil {
-		return err
+	// Setup must stay re-runnable without sudo so launchd supervision can be
+	// repaired unattended: reinstall the privileged helper only when the
+	// installed one is missing, drifted, or not publicly bound.
+	helperReinstall := deployHelperReinstallNeededFunc(paths, helperVersion)
+	if helperReinstall {
+		if err := deployPrivilegedHelperInstallFunc(paths, helperVersion); err != nil {
+			return err
+		}
 	}
-	if err := deployInstallResumeLaunchAgentFunc(paths); err != nil {
+	if err := deployInstallAgentSupervisorFunc(paths); err != nil {
 		return err
 	}
 	if err := deployEdgeRestartFunc(); err != nil {
+		return err
+	}
+	if err := deployInstallResumeLaunchAgentFunc(paths); err != nil {
 		return err
 	}
 	resp := deploySetupResponse{
@@ -417,16 +450,30 @@ func runDeploySetup(stdout io.Writer, opts deployOptions) error {
 			Email: registry.ACMEEmail,
 			CA:    firstNonEmpty(registry.ACMECA, "production"),
 		},
-		HelperVersion:        helperVersion,
-		HelperPublic:         true,
-		LaunchAgentInstalled: true,
-		EdgeRestarted:        true,
+		HelperVersion:            helperVersion,
+		HelperPublic:             true,
+		HelperReinstalled:        helperReinstall,
+		AgentSupervisorInstalled: true,
+		LaunchAgentInstalled:     true,
+		EdgeRestarted:            true,
 	}
 	if opts.JSON {
 		return writeCLIJSON(stdout, resp)
 	}
 	fmt.Fprintf(stdout, "configured public deploy edge (%s CA)\n", resp.ACME.CA)
 	return nil
+}
+
+// deploySetupNeedsHelperReinstall keeps the sudo escalation out of setup
+// re-runs whose installed helper already matches the current handoff
+// contract: the helper is designed to survive scenery upgrades, so only a
+// missing, non-public, stopped, or contract-drifted helper forces sudo.
+func deploySetupNeedsHelperReinstall(paths localagent.Paths, currentVersion string) bool {
+	helper := privilegedListenerStatus(paths)
+	if !helper.Installed || helper.State != "running" || !deployHelperHasPublicBinding(helper.Listen) {
+		return true
+	}
+	return deployHelperDriftFor(helper, currentVersion).ActionRequired
 }
 
 func runDeployResume(stdout io.Writer, opts deployOptions) error {
@@ -528,16 +575,21 @@ func runDeployTeardown(stdout io.Writer, opts deployOptions) error {
 	if err != nil {
 		return err
 	}
+	supervisorRemoved, err := deployRemoveAgentSupervisorFunc()
+	if err != nil {
+		return err
+	}
 	if err := deployEdgeRestartFunc(); err != nil {
 		return err
 	}
 	resp := deployTeardownResponse{
-		cliPayloadIdentity: newCLIPayloadIdentity("scenery.deploy.teardown"),
-		RegistryPath:       paths.DeployPath,
-		HelperVersion:      helperVersion,
-		HelperPublic:       false,
-		LaunchAgentRemoved: removed,
-		EdgeRestarted:      true,
+		cliPayloadIdentity:     newCLIPayloadIdentity("scenery.deploy.teardown"),
+		RegistryPath:           paths.DeployPath,
+		HelperVersion:          helperVersion,
+		HelperPublic:           false,
+		AgentSupervisorRemoved: supervisorRemoved,
+		LaunchAgentRemoved:     removed,
+		EdgeRestarted:          true,
 	}
 	if opts.JSON {
 		return writeCLIJSON(stdout, resp)
@@ -620,6 +672,7 @@ func buildDeployStatusWithContext(ctx context.Context, paths localagent.Paths, r
 	edgeStatus := edgeStatusForStateDomain(paths, edgeState, "").Edge
 	helper := privilegedListenerStatus(paths)
 	agent := deployAgentStatusFor(paths)
+	agentSupervisor := deployAgentSupervisorStatusFor(paths)
 	launchAgent := deployLaunchAgentStatusFor()
 	sessions := deploySessionsByAppRoot(paths)
 	targets := make([]deployTargetStatus, 0, len(registry.Targets))
@@ -654,6 +707,7 @@ func buildDeployStatusWithContext(ctx context.Context, paths localagent.Paths, r
 		HelperPublic:       helperPublic,
 		Edge:               edgeStatus,
 		Agent:              agent,
+		AgentSupervisor:    agentSupervisor,
 		LaunchAgent:        launchAgent,
 		ACME: deployACMEStatus{
 			Email: registry.ACMEEmail,
@@ -670,8 +724,21 @@ func buildDeployStatusWithContext(ctx context.Context, paths localagent.Paths, r
 	if agent.State != "running" {
 		status.Diagnostics = append(status.Diagnostics, "Scenery agent is not running")
 	}
-	if !launchAgent.Installed {
+	// Supervision is part of deploy readiness: a plist on disk that launchd
+	// never loaded recovers nothing, so presence alone never counts.
+	switch {
+	case !agentSupervisor.Installed:
+		status.Diagnostics = append(status.Diagnostics, "scenery agent supervisor LaunchAgent is not installed; run `scenery deploy setup`")
+	case !agentSupervisor.Loaded:
+		status.Diagnostics = append(status.Diagnostics, "scenery agent supervisor LaunchAgent is installed but not loaded in launchd; run `scenery deploy setup`")
+	case !agentSupervisor.Running:
+		status.Diagnostics = append(status.Diagnostics, "scenery agent supervisor LaunchAgent is loaded but its agent process is not running; run `scenery system agent restart`")
+	}
+	switch {
+	case !launchAgent.Installed:
 		status.Diagnostics = append(status.Diagnostics, "deploy resume LaunchAgent is not installed")
+	case !launchAgent.Loaded:
+		status.Diagnostics = append(status.Diagnostics, "deploy resume LaunchAgent plist exists but the job is not loaded in launchd; run `scenery deploy setup`")
 	}
 	diagnostics := buildDeployDiagnostics(ctx, registry, status)
 	status.DiagnosticsDetail = &diagnostics
@@ -709,10 +776,45 @@ func deployAgentStatusFor(paths localagent.Paths) deployAgentStatus {
 	return status
 }
 
+const deployResumeLaunchAgentLabel = "dev.scenery.deploy-resume"
+
+func runDeployLaunchctl(args ...string) ([]byte, error) {
+	return exec.Command("launchctl", args...).CombinedOutput()
+}
+
+func deployResumeLaunchAgentTarget() string {
+	return fmt.Sprintf("gui/%d/%s", os.Getuid(), deployResumeLaunchAgentLabel)
+}
+
+func deployResumeLaunchAgentLoaded() bool {
+	if runtime.GOOS != "darwin" {
+		return false
+	}
+	_, err := deployLaunchctlFunc("print", deployResumeLaunchAgentTarget())
+	return err == nil
+}
+
 func deployLaunchAgentStatusFor() deployLaunchAgentStatus {
 	path := deployResumeLaunchAgentPath()
 	_, err := os.Stat(path)
-	return deployLaunchAgentStatus{Installed: err == nil, Path: path}
+	installed := err == nil
+	return deployLaunchAgentStatus{
+		Installed: installed,
+		Loaded:    installed && deployResumeLaunchAgentLoadedFunc(),
+		Path:      path,
+	}
+}
+
+func deployAgentSupervisorStatusFor(paths localagent.Paths) deployAgentSupervisorStatus {
+	status := agentSupervisorStatusFunc(paths.SocketPath)
+	return deployAgentSupervisorStatus{
+		Installed: status.PlistPresent && status.SupervisesSocket,
+		Loaded:    status.Loaded,
+		Running:   status.Running,
+		PID:       status.PID,
+		Label:     status.Label,
+		Path:      status.PlistPath,
+	}
 }
 
 func deployResumeLaunchAgentPath() string {
@@ -735,7 +837,54 @@ func installDeployResumeLaunchAgent(paths localagent.Paths) error {
 	if err := os.MkdirAll(filepath.Dir(plistPath), 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(plistPath, []byte(deployResumeLaunchAgentPlist(exe, paths.DeployResumeLogPath)), 0o644)
+	if err := os.WriteFile(plistPath, []byte(deployResumeLaunchAgentPlist(exe, paths.DeployResumeLogPath)), 0o644); err != nil {
+		return err
+	}
+	// A plist on disk recovers nothing: installation means launchd loaded the
+	// job. launchd can pend a RunAtLoad spawn when bootstrapped from a
+	// non-Aqua context, so kickstart fires the one idempotent resume run
+	// explicitly, proving the job is actually runnable.
+	_, _ = deployLaunchctlFunc("bootout", deployResumeLaunchAgentTarget())
+	if err := retryEdgeHelperLaunchctl(edgeHelperLaunchctlRetryWindow, time.Sleep, deployLaunchctlFunc, "bootstrap", fmt.Sprintf("gui/%d", os.Getuid()), plistPath); err != nil {
+		return err
+	}
+	if out, err := deployLaunchctlFunc("kickstart", deployResumeLaunchAgentTarget()); err != nil {
+		return fmt.Errorf("launchctl kickstart %s: %w: %s", deployResumeLaunchAgentTarget(), err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// installDeployAgentSupervisor hands the running agent over to launchd
+// ownership: any unsupervised agent is stopped first so the bootstrapped
+// KeepAlive job acquires the agent lock instead of crash-looping against it.
+func installDeployAgentSupervisor(paths localagent.Paths) error {
+	exe, err := deployPrivilegedHelperExecutableFunc()
+	if err != nil {
+		return err
+	}
+	if deployExecutableIsHarness(exe) {
+		return fmt.Errorf("refusing to install scenery agent supervisor LaunchAgent from harness binary %s", exe)
+	}
+	client := localagent.NewClient(paths.SocketPath)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	health, running := currentAgentHealth(ctx, client)
+	logOffset := fileSize(paths.LogPath)
+	if running && health.PID > 0 {
+		if err := signalAgentPID(health.PID); err != nil {
+			return fmt.Errorf("stop scenery agent pid %d: %w", health.PID, err)
+		}
+		if err := waitForAgentStop(ctx, client, health.PID); err != nil {
+			return err
+		}
+	}
+	if _, err := localagent.InstallAgentLaunchd(exe, paths, localagent.StartOptions{RouterHTTP: true}); err != nil {
+		return err
+	}
+	if _, err := waitForAgentStart(ctx, client, health.PID, paths.LogPath, logOffset); err != nil {
+		return fmt.Errorf("supervised scenery agent did not become ready after launchd bootstrap: %w", err)
+	}
+	return nil
 }
 
 func deployExecutableIsHarness(exe string) bool {
@@ -1709,6 +1858,9 @@ func deployHelperInstallArgs(exe string, paths localagent.Paths, helperVersion s
 }
 
 func removeDeployResumeLaunchAgent() (bool, error) {
+	// Boot the job out before removing the plist so launchd never keeps a
+	// loaded job whose plist is gone.
+	_, _ = deployLaunchctlFunc("bootout", deployResumeLaunchAgentTarget())
 	err := os.Remove(deployResumeLaunchAgentPath())
 	if errors.Is(err, os.ErrNotExist) {
 		return false, nil

@@ -19,6 +19,18 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0114-supervised-agent-lifecycle.md",
+      "title": "Supervised Agent Lifecycle",
+      "owner": "scenery runtime / edge",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-07-14",
+      "review_after": "2026-08-13",
+      "summary": "ExecPlan from the 2026-07-14 micro.scenery.sh 502 incident: launchd-supervised scenery agent (dev.scenery.agent KeepAlive job), bootstrap/bootout-backed LaunchAgent installs, deploy status supervision truth (agent_supervisor, launch_agent.loaded) gating readiness, cooperative scenery system agent restart, per-request dashboard backend refresh in local path routers, and bounded upstream dial retries on the Caddy edge.",
+      "tags": ["plans", "execplans", "agent", "launchd", "deploy", "edge", "availability", "supervision", "dashboard", "router"]
+    },
+    {
       "path": "docs/plans/0113-cache-only-generated-go.md",
       "title": "Cache-Only Generated Go Artifacts",
       "owner": "scenery generate / build / evolution",

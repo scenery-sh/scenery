@@ -380,17 +380,23 @@ func TestDeploySetupWritesRegistryInstallsHelperAndRestartsEdge(t *testing.T) {
 	oldPreflight := deploySetupPreflightFunc
 	oldInstall := deployPrivilegedHelperInstallFunc
 	oldInstallLaunchAgent := deployInstallResumeLaunchAgentFunc
+	oldInstallSupervisor := deployInstallAgentSupervisorFunc
 	oldRestart := deployEdgeRestartFunc
+	oldReinstallNeeded := deployHelperReinstallNeededFunc
 	t.Cleanup(func() {
 		deploySetupPreflightFunc = oldPreflight
 		deployPrivilegedHelperInstallFunc = oldInstall
 		deployInstallResumeLaunchAgentFunc = oldInstallLaunchAgent
+		deployInstallAgentSupervisorFunc = oldInstallSupervisor
 		deployEdgeRestartFunc = oldRestart
+		deployHelperReinstallNeededFunc = oldReinstallNeeded
 	})
+	deployHelperReinstallNeededFunc = func(paths localagent.Paths, currentVersion string) bool { return true }
 
 	preflighted := false
 	installed := false
 	launchAgentInstalled := false
+	supervisorInstalled := false
 	restarted := false
 	var installedVersion string
 	deploySetupPreflightFunc = func(paths localagent.Paths) error {
@@ -404,6 +410,10 @@ func TestDeploySetupWritesRegistryInstallsHelperAndRestartsEdge(t *testing.T) {
 	}
 	deployInstallResumeLaunchAgentFunc = func(paths localagent.Paths) error {
 		launchAgentInstalled = true
+		return nil
+	}
+	deployInstallAgentSupervisorFunc = func(paths localagent.Paths) error {
+		supervisorInstalled = true
 		return nil
 	}
 	deployEdgeRestartFunc = func() error {
@@ -443,14 +453,14 @@ func TestDeploySetupWritesRegistryInstallsHelperAndRestartsEdge(t *testing.T) {
 	if err := runDeployCommand(&out, []string{"setup", "--acme-email", "ops@example.com", "--acme-ca", "staging", "-o", "json"}); err != nil {
 		t.Fatalf("deploy setup: %v\n%s", err, out.String())
 	}
-	if !preflighted || !installed || !launchAgentInstalled || !restarted || installedVersion == "" {
-		t.Fatalf("setup hooks preflight=%v install=%v launchAgent=%v restart=%v version=%q", preflighted, installed, launchAgentInstalled, restarted, installedVersion)
+	if !preflighted || !installed || !launchAgentInstalled || !supervisorInstalled || !restarted || installedVersion == "" {
+		t.Fatalf("setup hooks preflight=%v install=%v launchAgent=%v supervisor=%v restart=%v version=%q", preflighted, installed, launchAgentInstalled, supervisorInstalled, restarted, installedVersion)
 	}
 	var payload deploySetupResponse
 	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
 		t.Fatalf("decodeCLIJSON setup: %v\n%s", err, out.String())
 	}
-	if payload.Kind != "scenery.deploy.setup" || payload.SchemaRevision != newCLIPayloadIdentity("scenery.deploy.setup").SchemaRevision || payload.ACME.Email != "ops@example.com" || payload.ACME.CA != "staging" || !payload.HelperPublic || !payload.LaunchAgentInstalled || !payload.EdgeRestarted {
+	if payload.Kind != "scenery.deploy.setup" || payload.SchemaRevision != newCLIPayloadIdentity("scenery.deploy.setup").SchemaRevision || payload.ACME.Email != "ops@example.com" || payload.ACME.CA != "staging" || !payload.HelperPublic || !payload.HelperReinstalled || !payload.AgentSupervisorInstalled || !payload.LaunchAgentInstalled || !payload.EdgeRestarted {
 		t.Fatalf("setup payload = %+v", payload)
 	}
 	registry, err := localagent.LoadDeployRegistry(seedPaths.DeployPath)
@@ -481,15 +491,18 @@ func TestDeployTeardownInstallsLoopbackHelperRemovesLaunchAgentAndRestartsEdge(t
 	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
 	oldInstall := deployLoopbackHelperInstallFunc
 	oldRemove := deployRemoveResumeLaunchAgentFunc
+	oldRemoveSupervisor := deployRemoveAgentSupervisorFunc
 	oldRestart := deployEdgeRestartFunc
 	t.Cleanup(func() {
 		deployLoopbackHelperInstallFunc = oldInstall
 		deployRemoveResumeLaunchAgentFunc = oldRemove
+		deployRemoveAgentSupervisorFunc = oldRemoveSupervisor
 		deployEdgeRestartFunc = oldRestart
 	})
 
 	installed := false
 	removed := false
+	supervisorRemoved := false
 	restarted := false
 	var installedVersion string
 	deployLoopbackHelperInstallFunc = func(paths localagent.Paths, helperVersion string) error {
@@ -501,6 +514,10 @@ func TestDeployTeardownInstallsLoopbackHelperRemovesLaunchAgentAndRestartsEdge(t
 		removed = true
 		return true, nil
 	}
+	deployRemoveAgentSupervisorFunc = func() (bool, error) {
+		supervisorRemoved = true
+		return true, nil
+	}
 	deployEdgeRestartFunc = func() error {
 		restarted = true
 		return nil
@@ -510,14 +527,14 @@ func TestDeployTeardownInstallsLoopbackHelperRemovesLaunchAgentAndRestartsEdge(t
 	if err := runDeployCommand(&out, []string{"teardown", "-o", "json"}); err != nil {
 		t.Fatalf("deploy teardown: %v\n%s", err, out.String())
 	}
-	if !installed || !removed || !restarted || installedVersion == "" {
-		t.Fatalf("teardown hooks install=%v remove=%v restart=%v version=%q", installed, removed, restarted, installedVersion)
+	if !installed || !removed || !supervisorRemoved || !restarted || installedVersion == "" {
+		t.Fatalf("teardown hooks install=%v remove=%v supervisorRemove=%v restart=%v version=%q", installed, removed, supervisorRemoved, restarted, installedVersion)
 	}
 	var payload deployTeardownResponse
 	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
 		t.Fatalf("decodeCLIJSON teardown: %v\n%s", err, out.String())
 	}
-	if payload.Kind != "scenery.deploy.teardown" || payload.SchemaRevision != newCLIPayloadIdentity("scenery.deploy.teardown").SchemaRevision || payload.HelperPublic || !payload.LaunchAgentRemoved || !payload.EdgeRestarted {
+	if payload.Kind != "scenery.deploy.teardown" || payload.SchemaRevision != newCLIPayloadIdentity("scenery.deploy.teardown").SchemaRevision || payload.HelperPublic || !payload.LaunchAgentRemoved || !payload.AgentSupervisorRemoved || !payload.EdgeRestarted {
 		t.Fatalf("teardown payload = %+v", payload)
 	}
 }
