@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/envpolicy"
 )
 
@@ -189,12 +190,20 @@ func runHarnessLocalStorageRestartProbe(ctx context.Context, repoRoot, sceneryPa
 	if err != nil {
 		return summary, fmt.Errorf("local storage scenery up failed: %s\n%s", strings.TrimSpace(err.Error()), tailString(firstNonEmpty(upErr, upOut), 8192))
 	}
+	// Cleanup must not depend on the probe agent staying reachable: record
+	// every detached `scenery up` child PID directly so the runtime is torn
+	// down even when `scenery down` and the agent-based cleanup both fail.
+	// A leaked detached child once outlived its deleted agent home and drove
+	// an agent restart storm on the host machine.
+	detachedChildPIDs := map[int]bool{}
 	defer func() {
 		downCommand := []string{sceneryPath, "down", "--app-root", fixtureRoot, "-o", "json"}
 		_, _, _ = runHarnessStorageProbeCommandWithEnv(context.Background(), repoRoot, env, downCommand)
 		cleanupHarnessStorageRestartAgent(context.Background(), repoRoot, sceneryPath, agentHome, env)
+		signalHarnessCleanupPIDs(detachedChildPIDs)
 	}()
-	stateRoot, err := harnessDetachStateRoot(upOut)
+	stateRoot, upPID, err := harnessDetachInfo(upOut)
+	addHarnessCleanupPID(detachedChildPIDs, upPID)
 	if err != nil {
 		return summary, err
 	}
@@ -248,7 +257,8 @@ func runHarnessLocalStorageRestartProbe(ctx context.Context, repoRoot, sceneryPa
 	if err != nil {
 		return summary, fmt.Errorf("local storage restart scenery up failed: %s\n%s", strings.TrimSpace(err.Error()), tailString(firstNonEmpty(restartErr, restartOut), 8192))
 	}
-	restartStateRoot, err := harnessDetachStateRoot(restartOut)
+	restartStateRoot, restartPID, err := harnessDetachInfo(restartOut)
+	addHarnessCleanupPID(detachedChildPIDs, restartPID)
 	if err != nil {
 		return summary, err
 	}
@@ -272,20 +282,25 @@ func runHarnessLocalStorageRestartProbe(ctx context.Context, repoRoot, sceneryPa
 	return summary, nil
 }
 
-func harnessDetachStateRoot(detachJSON string) (string, error) {
+// harnessDetachInfo extracts the session state root and the detached
+// `scenery up` child PID from a scenery.dev.detach payload. The PID is
+// returned even when the state root is missing so callers can always record
+// the child for direct cleanup.
+func harnessDetachInfo(detachJSON string) (string, int, error) {
 	var detach struct {
+		PID     int `json:"pid"`
 		Session struct {
 			StateRoot string `json:"state_root"`
 		} `json:"session"`
 	}
 	if err := decodeCLIJSON([]byte(detachJSON), &detach); err != nil {
-		return "", fmt.Errorf("parse storage detach JSON: %w", err)
+		return "", 0, fmt.Errorf("parse storage detach JSON: %w", err)
 	}
 	stateRoot := strings.TrimSpace(detach.Session.StateRoot)
 	if stateRoot == "" {
-		return "", fmt.Errorf("storage detach JSON did not include session.state_root")
+		return "", detach.PID, fmt.Errorf("storage detach JSON did not include session.state_root")
 	}
-	return stateRoot, nil
+	return stateRoot, detach.PID, nil
 }
 
 func cleanupHarnessStorageRestartAgent(ctx context.Context, repoRoot, sceneryPath, agentHome string, env []string) {
@@ -338,6 +353,37 @@ func cleanupHarnessStorageRestartAgent(ctx context.Context, repoRoot, sceneryPat
 		if json.Unmarshal(data, &agent) == nil {
 			addHarnessCleanupPID(pids, agent.PID)
 		}
+	}
+	// `scenery ps` needs a live probe agent; a crashed or already-reaped
+	// agent must not leave the detached runtime running. The durable session
+	// registry still records the owners, so collect fingerprint-verified
+	// PIDs from it as a fallback.
+	if registry, regErr := localagent.OpenRegistry(filepath.Join(agentHome, "agent", "sessions.json"), localagent.RouterAddrFromEnv()); regErr == nil {
+		harnessCleanupPIDsFromSessions(pids, registry.List())
+	}
+	signalHarnessCleanupPIDs(pids)
+}
+
+// harnessCleanupPIDsFromSessions collects session owner and registered
+// process PIDs whose recorded ownership fingerprints still verify, so a
+// stale registry from a crashed run can never target a reused PID.
+func harnessCleanupPIDsFromSessions(pids map[int]bool, sessions []localagent.Session) {
+	for _, session := range sessions {
+		ownerPID := firstPositiveInt(session.OwnerPID, session.Owner.PID)
+		if ownerPID > 0 && session.Owner.PID == ownerPID && localagent.VerifyOwner(session.Owner) == nil {
+			addHarnessCleanupPID(pids, ownerPID)
+		}
+		for _, process := range session.Processes {
+			if process.PID > 0 && process.Owner.PID == process.PID && localagent.VerifyOwner(process.Owner) == nil {
+				addHarnessCleanupPID(pids, process.PID)
+			}
+		}
+	}
+}
+
+func signalHarnessCleanupPIDs(pids map[int]bool) {
+	if len(pids) == 0 {
+		return
 	}
 	for pid := range pids {
 		proc, findErr := os.FindProcess(pid)
