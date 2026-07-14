@@ -19,6 +19,18 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0113-cache-only-generated-go.md",
+      "title": "Cache-Only Generated Go Artifacts",
+      "owner": "scenery generate / build / evolution",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-07-14",
+      "review_after": "2026-08-13",
+      "summary": "Active ExecPlan removing materialized scenerycontract and internal/scenerygen directories from application checkouts: stable Go import identities, pure in-memory rendering injected into the external build workspace, overlay-based check without source materialization, external editor contract modules bridged by a Scenery-owned machine-local root go.work with fail-closed ownership and source-input exclusion, verified pruning of legacy artifacts, explicit materialize/vendor mode, and workspace-revision recomposition with pending-plan invalidation plus rename-receipt revision rebind.",
+      "tags": ["plans", "execplans", "generate", "build", "go", "gowork", "editor", "revisions", "evolution", "migration"]
+    },
+    {
       "path": "docs/plans/0112-single-current-identity-correctness.md",
       "title": "Single Current Identity Correctness",
       "owner": "scenery compiler / graph / machine / specification",
