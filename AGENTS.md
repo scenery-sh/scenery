@@ -21,7 +21,8 @@ Use the narrowest current source of truth that applies:
 3. `docs/agent-guide.md` explains agent workflows, generated artifacts, and client-app integration.
 4. `docs/local-contract.md` is the contract for CLI grammar, JSON schemas, artifact paths, and stability labels.
 5. `docs/app-development-cookbook.md` gives practical app-building recipes.
-6. `scenery inspect ... -o json`, schemas under `docs/schemas/`, and harness command outputs are stronger than old prose when they disagree. Generated files under `.scenery/gen/` are cache, not an API.
+6. `ARCHITECTURE.md` is the stable code map: the central `.scn` → compiler → generation → runtime flow, package boundaries, and architecture invariants. Read it before deciding where a change belongs.
+7. `scenery inspect ... -o json`, schemas under `docs/schemas/`, and harness command outputs are stronger than old prose when they disagree. Generated files under `.scenery/gen/` are cache, not an API.
 
 When implementation and docs disagree, the same PR must either fix the affected docs or open/update an ExecPlan that records the drift, owner, and intended resolution path.
 
@@ -236,6 +237,9 @@ For ordinary scenery repo changes:
 go test ./...
 go test ./cmd/scenery
 ```
+
+Run a single test with `go test ./<package> -run '<TestName>'`, for example
+`go test ./cmd/scenery -run TestWriteDetachedDevResultJSON`.
 
 Use Go's test result cache for ordinary, focused, and substantial final
 validation. Pass `-count=1` only when explicitly measuring fresh execution or
