@@ -61,6 +61,13 @@ rollback system, or zero-downtime orchestrator.
   state as an ordinary skipped stop in its output path. The shared down resolver
   now treats a missing runtime as idempotent success, while preserving errors for
   real agent or shutdown failures.
+- First ONLV deployment exposed 4.4 GB of ignored local backups plus caches
+  that fixed excludes alone would upload. Rsync now consumes per-directory
+  `.gitignore` rules; the fixed state/secret exclusions remain fail-safe.
+- A pristine ONLV host had no agent socket, so calling remote `scenery down`
+  could not list sessions. The remote stop now runs only when both the app
+  marker and default agent socket exist; an existing but unhealthy socket
+  still fails closed.
 
 ## Decision Log
 
@@ -81,11 +88,10 @@ rollback system, or zero-downtime orchestrator.
   dashes, must start with a letter or digit, and must not equal an existing
   deploy subcommand. This prevents option and remote-shell injection without
   implementing an SSH parser.
-- 2026-07-14, agent: use only fixed excludes: `.git/`, `.scenery/`, `.env`,
-  `node_modules/`, `go.work`, and `go.work.sum`. They preserve remote runtime,
-  secrets, and the remote Scenery-owned editor workspace with `--delete`. Do
-  not parse `.gitignore`; add an explicit ignore contract only if real
-  deployments demonstrate a need.
+- 2026-07-14, agent: use fixed excludes for `.git/`, `.scenery/`, `.env`,
+  `node_modules/`, `go.work`, and `go.work.sum`, and consume per-directory
+  `.gitignore` rules. ONLV demonstrated the need by keeping multi-gigabyte
+  backups and caches outside its tracked source.
 - 2026-07-14, agent: the first version streams terminal output only. Do not add
   a second machine protocol or buffer remote logs into a final JSON payload.
 
@@ -116,6 +122,14 @@ running session, one supervisor, and one app process. Remote `.env` and
 `.scenery` markers survived, a stale source file was deleted, local-only
 `.git` and `node_modules` content was absent, and the remote Scenery-owned
 `go.work` contained only the target's Linux source/cache paths.
+
+The first real ONLV deployment then used alias `onlv-209` against a pristine
+Ubuntu 24.04 host. The ignored `var/` backups, caches, local datasets, and
+experimental workspaces were absent remotely; the app reached ready with one
+supervisor and one app process; VictoriaLogs, VictoriaMetrics, and
+VictoriaTraces all answered; and the backend `/healthy` route returned
+`{"status":"ok"}`. The advertised route remains loopback-only by design;
+public listener/domain setup is outside this source-sync command.
 
 ## Context and Orientation
 

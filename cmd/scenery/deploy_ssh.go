@@ -52,11 +52,11 @@ func runDeploySSHCommands(stdout io.Writer, appRoot, appID, target string) error
 		{
 			name: "remote scenery down",
 			cmd: exec.Command("ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "--", target,
-				`if [ -f "`+remoteApp+`/.scenery.json" ]; then scenery down --app-root "`+remoteApp+`"; fi`),
+				`if [ -f "`+remoteApp+`/.scenery.json" ] && [ -S "$HOME/.scenery/run/agent.sock" ]; then scenery down --app-root "`+remoteApp+`"; fi`),
 		},
 		{
 			name: "rsync",
-			cmd: exec.Command("rsync", "-az", "--delete", "--exclude=.git/", "--exclude=.scenery/", "--exclude=.env", "--exclude=node_modules/", "--exclude=go.work", "--exclude=go.work.sum",
+			cmd: exec.Command("rsync", "-az", "--delete", "--filter=:- .gitignore", "--exclude=.git/", "--exclude=.scenery/", "--exclude=.env", "--exclude=node_modules/", "--exclude=go.work", "--exclude=go.work.sum",
 				"-e", "ssh -o BatchMode=yes -o ConnectTimeout=10", "--", "./", target+":.scenery/apps/"+appID+"/"),
 		},
 		{

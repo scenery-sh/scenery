@@ -106,7 +106,8 @@ passwordless OpenSSH, stops the remote app, rsyncs the current working tree to
 `$HOME/.scenery/apps/hello`, and runs remote `scenery up --detach --wait ready`.
 The target needs `rsync`, `scenery`, and the app toolchain. `.git`, local
 `.scenery`, `.env`, `node_modules`, and Scenery-owned `go.work` files are not
-uploaded; remote `.env`, `.scenery`, and editor workspace state are preserved.
+uploaded; `.gitignore` exclusions are honored, and remote `.env`, `.scenery`,
+and editor workspace state are preserved.
 Deployment has brief downtime and no rollback.
 
 ## Public Deploy Edge

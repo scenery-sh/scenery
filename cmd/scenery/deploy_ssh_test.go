@@ -24,9 +24,11 @@ func TestDeploySSHRunsCheckAndCommandsInOrder(t *testing.T) {
 	for _, want := range []string{
 		"ssh:preflight",
 		"ssh:down",
+		"$HOME/.scenery/run/agent.sock",
 		"rsync:" + root,
 		"ssh:up",
 		"--delete",
+		"--filter=:- .gitignore",
 		"--exclude=.git/",
 		"--exclude=.scenery/",
 		"--exclude=.env",

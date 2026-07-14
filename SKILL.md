@@ -117,8 +117,9 @@ scenery deploy <ssh-target> [--app-root <path>]
 ```
 
 The beta SSH form requires the host alias in app config `deploy.ssh`. It uses
-passwordless OpenSSH and rsync, preserves remote `.env` and `.scenery`, then
-restarts with readiness waiting; expect brief downtime and no rollback.
+passwordless OpenSSH and rsync, honors `.gitignore`, preserves remote `.env`
+and `.scenery`, then restarts with readiness waiting; expect brief downtime
+and no rollback.
 
 ## Storage and Databases
 
