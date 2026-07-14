@@ -74,7 +74,9 @@ func TestAgentWatchdogRecoversDeadAgent(t *testing.T) {
 // TestAgentWatchdogStopsWhenHomeIsGoneOrNotConverging proves the two runaway
 // guards: a deleted agent home stops the watchdog before any recovery (an
 // orphaned runtime must not spawn agents that reap the real router owner),
-// and recovery attempts are capped when the agent never comes back.
+// and non-converging recovery keeps retrying with exponential backoff
+// instead of stopping — a permanent stop would disable the only unattended
+// recovery path after a long external outage.
 func TestAgentWatchdogStopsWhenHomeIsGoneOrNotConverging(t *testing.T) {
 	oldInterval, oldBackoff, oldStart := agentWatchdogInterval, agentWatchdogRecoveryBackoff, agentWatchdogStartFunc
 	t.Cleanup(func() {
@@ -110,7 +112,8 @@ func TestAgentWatchdogStopsWhenHomeIsGoneOrNotConverging(t *testing.T) {
 	}
 	cancel()
 
-	// Dead agent that never comes back: recoveries stop at the cap.
+	// Dead agent that never comes back: recovery keeps retrying with
+	// backoff and never stops outright.
 	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
 	paths, err = localagent.DefaultPaths()
 	if err != nil {
@@ -124,8 +127,8 @@ func TestAgentWatchdogStopsWhenHomeIsGoneOrNotConverging(t *testing.T) {
 	defer capCancel()
 	startAgentAvailabilityWatchdog(capCtx, localagent.NewClient(paths.SocketPath))
 	time.Sleep(500 * time.Millisecond)
-	if got := starts.Load(); got != int32(agentWatchdogMaxRecoveries) {
-		t.Fatalf("watchdog recovery attempts = %d, want %d", got, agentWatchdogMaxRecoveries)
+	if got := starts.Load(); got < 4 {
+		t.Fatalf("watchdog recovery attempts = %d, want continued retries (>= 4)", got)
 	}
 }
 

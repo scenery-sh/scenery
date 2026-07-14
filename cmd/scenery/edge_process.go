@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -88,6 +89,15 @@ func stopStaleUserSceneryAgents(socketPath, routerAddr string, timeout time.Dura
 		if process.UID != os.Getuid() || process.PID == os.Getpid() || !edgeAgentCommandMatches(process.Command, socketPath, routerAddr) {
 			continue
 		}
+		// A same-router-address agent serving a different control socket
+		// that still answers health on it is not stale: it is another agent
+		// home's live agent — typically the machine's supervised agent seen
+		// from a test, harness, or worktree agent start that uses the
+		// default router address. Killing it takes down real routing; the
+		// new agent falls back to another router port instead.
+		if isLiveForeignSceneryAgent(process.Command, socketPath) {
+			continue
+		}
 		owner := localagent.CaptureOwner(process.PID, "stale scenery agent")
 		if err := localagent.VerifyOwner(owner); err != nil {
 			return fmt.Errorf("verify stale scenery agent pid %d: %w", process.PID, err)
@@ -106,6 +116,30 @@ func stopStaleUserSceneryAgents(socketPath, routerAddr string, timeout time.Dura
 		}
 	}
 	return nil
+}
+
+func isLiveForeignSceneryAgent(command, socketPath string) bool {
+	otherSocket := agentCommandSocketPath(command)
+	if otherSocket == "" || filepath.Clean(otherSocket) == filepath.Clean(socketPath) {
+		return false
+	}
+	return agentSocketHealthy(otherSocket)
+}
+
+func agentCommandSocketPath(command string) string {
+	fields := strings.Fields(command)
+	for i, field := range fields {
+		if field == "--socket" && i+1 < len(fields) {
+			return fields[i+1]
+		}
+	}
+	return ""
+}
+
+func agentSocketHealthy(socketPath string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	return localagent.NewClient(socketPath).Ping(ctx) == nil
 }
 
 func managedCaddyCommandMatches(command string, configPaths []string) bool {

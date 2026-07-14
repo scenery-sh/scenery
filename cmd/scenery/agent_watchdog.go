@@ -9,12 +9,12 @@ import (
 )
 
 var (
-	agentWatchdogInterval        = 2 * time.Second
-	agentWatchdogFailThreshold   = 2
-	agentWatchdogRecoveryBackoff = 10 * time.Second
-	agentWatchdogMaxRecoveries   = 3
-	agentWatchdogStartFunc       = localagent.StartProcess
-	agentWatchdogLog             = newComponentFailureLog("scenery-agent-watchdog", 30*time.Second, time.Now)
+	agentWatchdogInterval           = 2 * time.Second
+	agentWatchdogFailThreshold      = 2
+	agentWatchdogRecoveryBackoff    = 10 * time.Second
+	agentWatchdogRecoveryBackoffMax = 5 * time.Minute
+	agentWatchdogStartFunc          = localagent.StartProcess
+	agentWatchdogLog                = newComponentFailureLog("scenery-agent-watchdog", 30*time.Second, time.Now)
 )
 
 // startAgentAvailabilityWatchdog keeps the local agent alive from inside the
@@ -36,7 +36,7 @@ func startAgentAvailabilityWatchdog(ctx context.Context, client *localagent.Clie
 	}
 	go func() {
 		failures := 0
-		recoveries := 0
+		backoff := agentWatchdogRecoveryBackoff
 		ticker := time.NewTicker(agentWatchdogInterval)
 		defer ticker.Stop()
 		for {
@@ -50,7 +50,7 @@ func startAgentAvailabilityWatchdog(ctx context.Context, client *localagent.Clie
 			cancel()
 			if err == nil {
 				failures = 0
-				recoveries = 0
+				backoff = agentWatchdogRecoveryBackoff
 				continue
 			}
 			failures++
@@ -66,20 +66,20 @@ func startAgentAvailabilityWatchdog(ctx context.Context, client *localagent.Clie
 				agentWatchdogLog.report(os.Stderr, paths.SocketPath, "agent home is gone; stopping agent watchdog", statErr)
 				return
 			}
-			if recoveries >= agentWatchdogMaxRecoveries {
-				agentWatchdogLog.report(os.Stderr, paths.SocketPath, "agent recovery is not converging; stopping agent watchdog", err)
-				return
-			}
-			recoveries++
 			agentWatchdogLog.report(os.Stderr, paths.SocketPath, "scenery agent unreachable; starting recovery", err)
 			if startErr := agentWatchdogStartFunc(paths, localagent.StartOptions{}); startErr != nil {
 				agentWatchdogLog.report(os.Stderr, paths.SocketPath, "scenery agent recovery start failed", startErr)
 			}
+			// Recovery that is not converging must never stop the watchdog
+			// outright — a long external outage (an agent restart storm, a
+			// wedged launchd job) would otherwise permanently disable the
+			// only unattended recovery path. Back off exponentially instead.
 			select {
 			case <-ctx.Done():
 				return
-			case <-time.After(agentWatchdogRecoveryBackoff):
+			case <-time.After(backoff):
 			}
+			backoff = min(backoff*2, agentWatchdogRecoveryBackoffMax)
 		}
 	}()
 }

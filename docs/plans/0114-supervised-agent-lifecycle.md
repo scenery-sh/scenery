@@ -72,6 +72,17 @@ best-effort side effect of whichever CLI last started the agent.
   supervision; installs/bootstraps must kickstart explicitly, and a watchdog
   in every live `scenery up` supervisor issues a demand start when the agent
   stays unreachable (`cmd/scenery/agent_watchdog.go`).
+- The dominant agent killer was scenery itself: `edgeAgentCommandMatches`
+  ignored its socket parameter, so `reapStaleAgentRouterOwner` — which runs
+  on every agent start — SIGTERMed any same-user agent sharing the default
+  router address. Every test, harness, or worktree agent start with a fresh
+  temp home killed the machine's real supervised agent (launchd `runs`
+  climbed 99→114 during one test-heavy evening, every exit code 0).
+  `stopStaleUserSceneryAgents` now skips a live foreign agent — one that
+  answers health on its own `--socket` — and lets the new agent take the
+  router-port fallback instead. Evidence: launchd run counter stayed flat
+  across a full `go test ./cmd/scenery` run after the fix, and climbed by
+  several before it.
 - `scenery harness self` invoked from an older installed binary validates
   schemas against that binary's payload shapes; use the worktree-local
   `.scenery/harness/bin/scenery` build.
