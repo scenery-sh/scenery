@@ -291,7 +291,7 @@ func TestDashboardSymphonyAutoRunnerClaimsTodoTask(t *testing.T) {
 		t.Fatal(err)
 	}
 	server := &dashboardServer{symphonyRoot: t.TempDir(), symphonyHooks: hooks}
-	err = server.runSymphonyAutoForApp(context.Background(), store, devdash.AppStatus{
+	_, err = server.runSymphonyAutoForApp(context.Background(), store, devdash.AppStatus{
 		AppID:     "demo--session",
 		BaseAppID: "demo",
 		SessionID: "session-1",
@@ -386,7 +386,7 @@ func TestDashboardSymphonyAutoRunnerRecoversExpiredRun(t *testing.T) {
 	if _, err := store.UpdateWorkflow(context.Background(), "demo", symphony.WorkflowInput{Mode: "auto", MaxConcurrency: 1}); err != nil {
 		t.Fatal(err)
 	}
-	if err := server.runSymphonyAutoForApp(context.Background(), store, devdash.AppStatus{
+	if _, err := server.runSymphonyAutoForApp(context.Background(), store, devdash.AppStatus{
 		AppID:     "demo--session",
 		BaseAppID: "demo",
 		SessionID: "session-1",
@@ -429,7 +429,7 @@ func TestDashboardSymphonyAutoRunnerTimesOutRun(t *testing.T) {
 	if _, err := store.UpdateWorkflow(context.Background(), "demo", symphony.WorkflowInput{Mode: "auto", MaxConcurrency: 1}); err != nil {
 		t.Fatal(err)
 	}
-	if err := server.runSymphonyAutoForApp(context.Background(), store, devdash.AppStatus{AppID: "demo", BaseAppID: "demo", SessionID: "session-1", AppRoot: appRoot, Running: true}); err != nil {
+	if _, err := server.runSymphonyAutoForApp(context.Background(), store, devdash.AppStatus{AppID: "demo", BaseAppID: "demo", SessionID: "session-1", AppRoot: appRoot, Running: true}); err != nil {
 		t.Fatal(err)
 	}
 	state, err := store.State(context.Background(), "demo")
@@ -473,7 +473,7 @@ func TestDashboardSymphonyAutoRunnerHonorsMaxAttempts(t *testing.T) {
 	if _, err := store.UpdateWorkflow(context.Background(), "demo", symphony.WorkflowInput{Mode: "auto", MaxConcurrency: 1}); err != nil {
 		t.Fatal(err)
 	}
-	if err := server.runSymphonyAutoForApp(context.Background(), store, devdash.AppStatus{AppID: "demo", BaseAppID: "demo", AppRoot: appRoot, Running: true}); err != nil {
+	if _, err := server.runSymphonyAutoForApp(context.Background(), store, devdash.AppStatus{AppID: "demo", BaseAppID: "demo", AppRoot: appRoot, Running: true}); err != nil {
 		t.Fatal(err)
 	}
 	state, err := store.State(context.Background(), "demo")
@@ -588,7 +588,7 @@ func TestDashboardSymphonyAutoRunnerUsesFreshWorkspacePerRun(t *testing.T) {
 	}
 	status := devdash.AppStatus{AppID: "demo", BaseAppID: "demo", SessionID: "session-1", AppRoot: appRoot, Running: true}
 	for attempt := 1; attempt <= 2; attempt++ {
-		if err := server.runSymphonyAutoForApp(context.Background(), store, status); err != nil {
+		if _, err := server.runSymphonyAutoForApp(context.Background(), store, status); err != nil {
 			t.Fatal(err)
 		}
 		if err := store.MoveTask(context.Background(), "demo", task.ID, "todo", 0); err != nil {
@@ -611,7 +611,7 @@ func TestDashboardSymphonyAutoRunnerRequiresWorkflow(t *testing.T) {
 	if _, err := store.UpdateWorkflow(context.Background(), "demo", symphony.WorkflowInput{Mode: "auto", MaxConcurrency: 1}); err != nil {
 		t.Fatal(err)
 	}
-	err = (&dashboardServer{symphonyRoot: t.TempDir()}).runSymphonyAutoForApp(context.Background(), store, devdash.AppStatus{
+	_, err = (&dashboardServer{symphonyRoot: t.TempDir()}).runSymphonyAutoForApp(context.Background(), store, devdash.AppStatus{
 		AppID:     "demo--session",
 		BaseAppID: "demo",
 		SessionID: "session-1",
@@ -627,6 +627,73 @@ func TestDashboardSymphonyAutoRunnerRequiresWorkflow(t *testing.T) {
 	}
 	if len(state.Tasks) != 1 || state.Tasks[0].ID != task.ID || state.Tasks[0].StatusKey != "todo" || state.Tasks[0].LatestRun != nil {
 		t.Fatalf("task should stay unclaimed: %+v", state.Tasks)
+	}
+}
+
+// TestSymphonyRunnerPacing proves the tick loop's pacing contract: failing
+// ticks back off exponentially (bounded log volume during a store outage),
+// boards with no auto workflow idle instead of hammering Postgres every two
+// seconds, and healthy auto boards keep the fast tick. Shutdown cancellation
+// is not a failure.
+func TestSymphonyRunnerPacing(t *testing.T) {
+	t.Parallel()
+
+	backoff := symphonyRunnerInterval
+	var interval time.Duration
+	tickErr := errors.New("store unavailable")
+	seen := []time.Duration{}
+	for range 12 {
+		interval, backoff = nextSymphonyRunnerInterval(false, tickErr, backoff)
+		seen = append(seen, interval)
+	}
+	if seen[0] != 2*symphonyRunnerInterval || seen[1] != 4*symphonyRunnerInterval {
+		t.Fatalf("failure backoff = %v, want doubling from %v", seen[:2], symphonyRunnerInterval)
+	}
+	if seen[len(seen)-1] != symphonyRunnerBackoffMax {
+		t.Fatalf("failure backoff cap = %v, want %v", seen[len(seen)-1], symphonyRunnerBackoffMax)
+	}
+
+	interval, backoff = nextSymphonyRunnerInterval(false, nil, backoff)
+	if interval != symphonyRunnerIdleInterval || backoff != symphonyRunnerInterval {
+		t.Fatalf("idle interval = %v backoff = %v, want %v and reset", interval, backoff, symphonyRunnerIdleInterval)
+	}
+	interval, backoff = nextSymphonyRunnerInterval(true, nil, backoff)
+	if interval != symphonyRunnerInterval || backoff != symphonyRunnerInterval {
+		t.Fatalf("active interval = %v, want %v", interval, symphonyRunnerInterval)
+	}
+	interval, _ = nextSymphonyRunnerInterval(true, context.Canceled, symphonyRunnerInterval)
+	if interval != symphonyRunnerInterval {
+		t.Fatalf("canceled tick interval = %v, want %v (shutdown is not a failure)", interval, symphonyRunnerInterval)
+	}
+}
+
+// TestRunSymphonyAutoForAppReportsAutoMode proves the idle gate's input: the
+// per-app runner reports whether the workflow is in auto mode, including on
+// error paths, so a non-auto board can idle the tick loop.
+func TestRunSymphonyAutoForAppReportsAutoMode(t *testing.T) {
+	t.Parallel()
+
+	store := newSymphonyStore(t)
+	server := &dashboardServer{symphonyRoot: t.TempDir()}
+	status := devdash.AppStatus{
+		AppID:     "demo--session",
+		BaseAppID: "demo",
+		SessionID: "session-1",
+		AppRoot:   t.TempDir(),
+		Running:   true,
+	}
+	auto, err := server.runSymphonyAutoForApp(context.Background(), store, status)
+	if err != nil || auto {
+		t.Fatalf("manual workflow auto = %v err = %v, want false, nil", auto, err)
+	}
+	if _, err := store.UpdateWorkflow(context.Background(), "demo", symphony.WorkflowInput{Mode: "auto", MaxConcurrency: 1}); err != nil {
+		t.Fatal(err)
+	}
+	// Auto mode with a missing WORKFLOW.md errors but still reports auto,
+	// so the failure is retried at the failure backoff, not the idle pace.
+	auto, err = server.runSymphonyAutoForApp(context.Background(), store, status)
+	if err == nil || !auto {
+		t.Fatalf("auto workflow auto = %v err = %v, want true with error", auto, err)
 	}
 }
 

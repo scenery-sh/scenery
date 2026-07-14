@@ -77,6 +77,10 @@ func TestAgentLaunchdPlistPinsSupervisedInvocation(t *testing.T) {
 		"<string>Interactive</string>",
 		"<key>ThrottleInterval</key>",
 		"<integer>2</integer>",
+		// launchd's default PATH lacks Homebrew/local prefixes where docker
+		// and codex live; the supervised agent pins a complete PATH.
+		"<key>EnvironmentVariables</key>",
+		"<string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>",
 		"<string>" + paths.LogPath + "</string>",
 	} {
 		if !strings.Contains(plist, want) {

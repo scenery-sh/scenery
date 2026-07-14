@@ -25,7 +25,17 @@ import (
 
 var (
 	symphonyRunnerInterval = 2 * time.Second
-	errSymphonyRunStalled  = errors.New("codex app-server stalled")
+	// symphonyRunnerIdleInterval paces the runner when no workflow is in
+	// auto mode, so an unused Symphony board does not hit Postgres every
+	// two seconds. `scenery symphony auto --on` is picked up within one
+	// idle interval.
+	symphonyRunnerIdleInterval = 15 * time.Second
+	// symphonyRunnerBackoffMax caps the exponential backoff applied to
+	// failing ticks (typically an unreachable symphony Postgres store), so
+	// a persistent outage logs a bounded warning stream instead of one
+	// line every tick.
+	symphonyRunnerBackoffMax = 5 * time.Minute
+	errSymphonyRunStalled    = errors.New("codex app-server stalled")
 )
 
 const maxSymphonyArtifactBytes = 120 * 1024
@@ -92,6 +102,7 @@ func (s *dashboardServer) startSymphonyRunner(ctx context.Context) {
 		if err := s.cleanupSymphonyTerminalWorkspaces(ctx); err != nil && !errors.Is(err, context.Canceled) {
 			slog.Warn("symphony workspace cleanup failed", "err", err)
 		}
+		failureBackoff := symphonyRunnerInterval
 		timer := time.NewTimer(500 * time.Millisecond)
 		defer timer.Stop()
 		for {
@@ -99,24 +110,48 @@ func (s *dashboardServer) startSymphonyRunner(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case <-timer.C:
-				if err := s.runSymphonyAutoOnce(ctx); err != nil && !errors.Is(err, context.Canceled) {
-					slog.Warn("symphony runner tick failed", "err", err)
-				}
-				timer.Reset(symphonyRunnerInterval)
 			}
+			auto, err := s.runSymphonyAutoOnce(ctx)
+			var interval time.Duration
+			interval, failureBackoff = nextSymphonyRunnerInterval(auto, err, failureBackoff)
+			if err != nil && !errors.Is(err, context.Canceled) {
+				slog.Warn("symphony runner tick failed", "err", err, "retry_in", interval)
+			}
+			timer.Reset(interval)
 		}
 	}()
 }
 
-func (s *dashboardServer) runSymphonyAutoOnce(ctx context.Context) error {
+// nextSymphonyRunnerInterval paces the runner loop: failing ticks back off
+// exponentially up to symphonyRunnerBackoffMax, boards with no auto workflow
+// idle at symphonyRunnerIdleInterval, and active auto boards keep the fast
+// tick. A canceled context is shutdown, not a failure.
+func nextSymphonyRunnerInterval(auto bool, err error, failureBackoff time.Duration) (time.Duration, time.Duration) {
+	if err != nil && !errors.Is(err, context.Canceled) {
+		failureBackoff = min(failureBackoff*2, symphonyRunnerBackoffMax)
+		return failureBackoff, failureBackoff
+	}
+	if !auto {
+		return symphonyRunnerIdleInterval, symphonyRunnerInterval
+	}
+	return symphonyRunnerInterval, symphonyRunnerInterval
+}
+
+// runSymphonyAutoOnce runs one runner tick. It reports whether any running
+// app's workflow is in auto mode, so the caller can idle the tick loop when
+// Symphony is not in use; per-app failures are joined into one tick error so
+// the caller's backoff bounds the log volume.
+func (s *dashboardServer) runSymphonyAutoOnce(ctx context.Context) (bool, error) {
 	apps, err := s.dashboardListApps(ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
 	store, err := s.dashboardSymphonyStore(ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
+	anyAuto := false
+	var errs []error
 	for _, app := range apps {
 		if boolFromMap(app, "offline") {
 			continue
@@ -129,11 +164,15 @@ func (s *dashboardServer) runSymphonyAutoOnce(ctx context.Context) error {
 		if err != nil || !status.Running {
 			continue
 		}
-		if err := s.runSymphonyAutoForApp(ctx, store, status); err != nil {
-			slog.Warn("symphony app runner failed", "app", requested, "err", err)
+		auto, err := s.runSymphonyAutoForApp(ctx, store, status)
+		if auto {
+			anyAuto = true
+		}
+		if err != nil {
+			errs = append(errs, fmt.Errorf("app %s: %w", requested, err))
 		}
 	}
-	return nil
+	return anyAuto, errors.Join(errs...)
 }
 
 func (s *dashboardServer) cleanupSymphonyTerminalWorkspaces(ctx context.Context) error {
@@ -200,24 +239,26 @@ func cleanupSymphonyRunWorkspace(ctx context.Context, cacheRoot string, run symp
 	return os.RemoveAll(repoWorkspace)
 }
 
-func (s *dashboardServer) runSymphonyAutoForApp(ctx context.Context, store *symphony.Store, status devdash.AppStatus) error {
+// runSymphonyAutoForApp reports whether this app's workflow is in auto mode
+// alongside any tick error, so the runner can idle when nothing is auto.
+func (s *dashboardServer) runSymphonyAutoForApp(ctx context.Context, store *symphony.Store, status devdash.AppStatus) (bool, error) {
 	appID := dashboardStoreAppID(status)
 	if appID == "" || status.AppRoot == "" {
-		return nil
+		return false, nil
 	}
 	if _, err := store.MarkExpiredRunsStalled(ctx, appID); err != nil {
-		return err
+		return false, err
 	}
 	workflow, err := store.Workflow(ctx, appID)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if workflow.Mode != "auto" {
-		return nil
+		return false, nil
 	}
 	runtimeWorkflow, err := loadSymphonyWorkflowRuntime(status.AppRoot, workflow)
 	if err != nil {
-		return err
+		return true, err
 	}
 	maxConcurrency := firstPositive(runtimeWorkflow.MaxConcurrency, workflow.MaxConcurrency, 1)
 	if maxConcurrency <= 0 {
@@ -225,25 +266,26 @@ func (s *dashboardServer) runSymphonyAutoForApp(ctx context.Context, store *symp
 	}
 	active, err := store.ActiveRunCount(ctx, appID)
 	if err != nil {
-		return err
+		return true, err
 	}
 	available := maxConcurrency - active
 	if available <= 0 {
-		return nil
+		return true, nil
 	}
 	tasks, err := store.RunnableTasksWithMaxAttempts(ctx, appID, []string{"todo"}, available, runtimeWorkflow.MaxAttempts)
 	if err != nil {
-		return err
+		return true, err
 	}
+	var errs []error
 	for _, task := range tasks {
 		req, err := s.startSymphonyRunRecord(ctx, store, appID, status, runtimeWorkflow, task)
 		if err != nil {
-			slog.Warn("symphony run claim failed", "task", task.Identifier, "err", err)
+			errs = append(errs, fmt.Errorf("claim task %s: %w", task.Identifier, err))
 			continue
 		}
 		s.runnerHooks().startAsync(func() { s.executeSymphonyRun(ctx, store, req) })
 	}
-	return nil
+	return true, errors.Join(errs...)
 }
 
 func (s *dashboardServer) startSymphonyRunRecord(ctx context.Context, store *symphony.Store, appID string, status devdash.AppStatus, workflow symphonyWorkflowRuntime, task symphony.Task) (symphonyRunRequest, error) {

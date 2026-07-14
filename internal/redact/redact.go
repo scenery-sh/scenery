@@ -121,6 +121,14 @@ func (r redactor) value(value reflect.Value, key string) any {
 	if SensitiveKey(key) {
 		return Placeholder
 	}
+	// Errors almost never expose exported fields, so the struct walk below
+	// would erase them to an empty map (logs then read `error=map[]`).
+	// Preserve the message and scrub it like any other string.
+	if value.CanInterface() {
+		if err, ok := value.Interface().(error); ok && err != nil {
+			return String(err.Error())
+		}
+	}
 
 	switch value.Kind() {
 	case reflect.Interface:

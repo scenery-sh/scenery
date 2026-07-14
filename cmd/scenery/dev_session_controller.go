@@ -318,11 +318,14 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 			if err != nil {
 				return err
 			}
+			// The upstream is the live agent's actual router address: with an
+			// ephemeral --router-listen (127.0.0.1:0) the env-derived address
+			// is not dialable, only health reports where the router bound.
 			cleanup, err := startLocalPathRouter(ctx, localPathRouterOptions{
 				Session:          session,
 				PortLease:        portLease,
 				EdgeToken:        token,
-				UpstreamAddr:     localagent.RouterAddrFromEnv(),
+				UpstreamAddr:     firstNonEmpty(strings.TrimSpace(health.RouterAddr), localagent.RouterAddrFromEnv()),
 				DashboardBackend: health.DashboardBackend,
 				RedirectURL:      redirectURL,
 			})

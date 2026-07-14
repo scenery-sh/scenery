@@ -40,7 +40,7 @@ func runHarnessStorageProbeStep(ctx context.Context, repoRoot, sceneryPath strin
 	}
 	cmd := commandTreeContext(ctx, sceneryPath, command[1:]...)
 	cmd.Dir = repoRoot
-	cmd.Env = envWithOverrides(envpolicy.Environ(), "SCENERY_AGENT_HOME="+agentHome)
+	cmd.Env = harnessStorageProbeEnv(agentHome)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -156,12 +156,24 @@ func runHarnessStorageProbeStep(ctx context.Context, repoRoot, sceneryPath strin
 func runHarnessStorageProbeCommand(ctx context.Context, repoRoot, agentHome string, command []string) (string, string, error) {
 	cmd := commandTreeContext(ctx, command[0], command[1:]...)
 	cmd.Dir = repoRoot
-	cmd.Env = envWithOverrides(envpolicy.Environ(), "SCENERY_AGENT_HOME="+agentHome)
+	cmd.Env = harnessStorageProbeEnv(agentHome)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	err := cmd.Run()
 	return stdout.String(), stderr.String(), err
+}
+
+// harnessStorageProbeEnv isolates probe commands in their own agent home AND
+// on an ephemeral router port: the probe agent must never contend for the
+// machine agent's router address — before stale-agent reaping learned to skip
+// live foreign agents, that contention killed the machine's real agent, and
+// now it would correctly fail the probe agent closed instead.
+func harnessStorageProbeEnv(agentHome string) []string {
+	return envWithOverrides(envpolicy.Environ(),
+		"SCENERY_AGENT_HOME="+agentHome,
+		"SCENERY_AGENT_ROUTER_ADDR=127.0.0.1:0",
+	)
 }
 
 // runHarnessLocalStorageRestartProbe proves durability of the local storage
@@ -174,10 +186,9 @@ func runHarnessLocalStorageRestartProbe(ctx context.Context, repoRoot, sceneryPa
 	summary := map[string]any{
 		"local_storage_restart_probe": "skipped",
 	}
-	baseEnv := envpolicy.Environ()
 	agentHome := filepath.Join(repoRoot, ".scenery", "harness", "storage-restart-agent-home")
 	sessionRoot := filepath.Join(fixtureRoot, ".scenery", "sessions", "main-f49603")
-	env := envWithOverrides(baseEnv, "SCENERY_AGENT_HOME="+agentHome)
+	env := harnessStorageProbeEnv(agentHome)
 	cleanupHarnessStorageRestartAgent(ctx, repoRoot, sceneryPath, agentHome, env)
 	if err := os.RemoveAll(agentHome); err != nil {
 		return summary, err
