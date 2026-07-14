@@ -343,9 +343,6 @@ func upCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := validateRuntimePlan(opts.AppRoot); err != nil {
-		return err
-	}
 	warnDevEscapeHatches(opts)
 	if opts.Detach && !detachedDevChildMode() {
 		return runDetachedDevFunc(args, opts)

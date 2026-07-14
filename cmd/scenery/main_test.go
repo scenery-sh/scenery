@@ -401,6 +401,22 @@ func TestDevOutputMatchesExecutionMode(t *testing.T) {
 	}
 }
 
+func TestUpCommandDelegatesValidationToWatchLoop(t *testing.T) {
+	original := runWithWatchFunc
+	t.Cleanup(func() { runWithWatchFunc = original })
+	called := false
+	runWithWatchFunc = func(_ devListenRequest, _ bool, _ bool, _ string) error {
+		called = true
+		return nil
+	}
+	if err := upCommand([]string{"--app-root", filepath.Join(t.TempDir(), "missing")}); err != nil {
+		t.Fatal(err)
+	}
+	if !called {
+		t.Fatal("up did not delegate validation to the watch loop")
+	}
+}
+
 func TestLegacyLocalProxyEnvRemovedFromProductionSource(t *testing.T) {
 	t.Parallel()
 

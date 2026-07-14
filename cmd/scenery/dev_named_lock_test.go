@@ -57,23 +57,40 @@ func TestDevNamedLockSubprocessAcquireTimeout(t *testing.T) {
 	os.Exit(2)
 }
 
-func TestDevNamedLockRejectsSameProcessReacquisition(t *testing.T) {
+func TestDevNamedLockSerializesSameProcessAcquisition(t *testing.T) {
 	restore := setDevLockTestTiming(io.Discard)
 	defer restore()
 	root := t.TempDir()
-	unlock, err := lockManagedSubstrateRoot(root, "postgres")
+	unlockFirst, err := lockManagedSubstrateRoot(root, "postgres")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer unlock()
-	second, err := lockManagedSubstrateRoot(root, "postgres")
-	if err == nil {
-		second()
-		t.Fatal("substrate lock re-acquisition succeeded in the same process")
+	type result struct {
+		unlock func()
+		err    error
 	}
-	if !strings.Contains(err.Error(), "lock ordering violation") ||
-		!strings.Contains(err.Error(), "shared substrate postgres") {
-		t.Fatalf("ordering error = %v", err)
+	acquired := make(chan result, 1)
+	go func() {
+		unlock, err := lockManagedSubstrateRoot(root, "postgres")
+		acquired <- result{unlock: unlock, err: err}
+	}()
+	select {
+	case got := <-acquired:
+		if got.unlock != nil {
+			got.unlock()
+		}
+		t.Fatalf("second acquisition completed before first release: %v", got.err)
+	case <-time.After(30 * time.Millisecond):
+	}
+	unlockFirst()
+	select {
+	case got := <-acquired:
+		if got.err != nil {
+			t.Fatal(got.err)
+		}
+		got.unlock()
+	case <-time.After(time.Second):
+		t.Fatal("second acquisition did not complete after first release")
 	}
 }
 

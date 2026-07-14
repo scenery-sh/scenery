@@ -14,9 +14,9 @@ const devLockOrderSubstrate = 10
 
 // Substrate locks serialize slow shared substrate startup (for example the
 // managed Postgres server ensure path). The process-local held-lock set below
-// rejects same-process re-acquisition and lower-order inversions before the
-// OS lock can block forever. Keep lock acquisition paths non-overlapping
-// inside one process; the durable cross-process boundary is the OS file lock.
+// rejects lower-order inversions before the OS lock can block forever. The OS
+// lock serializes concurrent acquisition of the same path within and across
+// processes.
 var (
 	devLockRetryInterval = 50 * time.Millisecond
 	devLockWarnAfter     = 2 * time.Second
@@ -90,10 +90,10 @@ func acquireDevNamedLock(root, name, kind string, order int) (func(), error) {
 func checkDevLockOrder(path, kind string, order int) error {
 	devHeldLocks.Lock()
 	defer devHeldLocks.Unlock()
-	if held, ok := devHeldLocks.byPath[path]; ok {
-		return fmt.Errorf("lock ordering violation: %s lock at %s is already held by this process as %s", kind, path, held.kind)
-	}
 	for heldPath, held := range devHeldLocks.byPath {
+		if heldPath == path {
+			continue
+		}
 		if held.order > order {
 			return fmt.Errorf("lock ordering violation: refusing to acquire %s lock at %s while holding %s lock at %s", kind, path, held.kind, heldPath)
 		}

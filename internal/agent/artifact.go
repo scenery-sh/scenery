@@ -58,8 +58,8 @@ func EdgeTargetSchemaRevision() string {
 	return machine.ArtifactSchemaRevision(edgeTargetSchemaDescriptor)
 }
 
-// LoadDurableArtifact migrates one identity-only legacy JSON shape. The caller
-// mutates legacy fields in place; payload values otherwise remain unchanged.
+// LoadDurableArtifact rebinds unchanged schemas to the current specification
+// and migrates one identity-only legacy JSON shape. Payload values stay intact.
 func LoadDurableArtifact(path string, target any, identity *machine.ArtifactIdentity, kind, descriptor string, perm os.FileMode, migrate func(map[string]json.RawMessage) error) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -71,6 +71,30 @@ func LoadDurableArtifact(path string, target any, identity *machine.ArtifactIden
 		}
 		return nil
 	}
+	currentIdentity := machine.NewArtifactIdentity(kind, descriptor)
+	var storedIdentity machine.ArtifactIdentity
+	if err := json.Unmarshal(data, &storedIdentity); err == nil &&
+		storedIdentity.Kind == currentIdentity.Kind &&
+		storedIdentity.SchemaRevision == currentIdentity.SchemaRevision &&
+		storedIdentity.SpecRevision != currentIdentity.SpecRevision {
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(data, &fields); err != nil {
+			return err
+		}
+		addIdentityFields(fields, currentIdentity)
+		current, err := json.MarshalIndent(fields, "", "  ")
+		if err != nil {
+			return err
+		}
+		current = append(current, '\n')
+		if err := machine.DecodeArtifact(current, target, identity, kind, descriptor, "rerun the state migration"); err != nil {
+			return err
+		}
+		if err := atomicWriteFile(path, current, perm); err != nil {
+			return err
+		}
+		return writeMigrationMarker(path)
+	}
 	if _, err := os.Stat(path + ".legacy.migrated"); err == nil {
 		return fmt.Errorf("legacy state remained after completed migration: %s", path)
 	}
@@ -81,7 +105,7 @@ func LoadDurableArtifact(path string, target any, identity *machine.ArtifactIden
 	if err := migrate(fields); err != nil {
 		return err
 	}
-	addIdentityFields(fields, machine.NewArtifactIdentity(kind, descriptor))
+	addIdentityFields(fields, currentIdentity)
 	current, err := json.MarshalIndent(fields, "", "  ")
 	if err != nil {
 		return err
