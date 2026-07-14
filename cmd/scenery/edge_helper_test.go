@@ -184,6 +184,40 @@ func TestEdgeHelperPlistStampsHandoffContract(t *testing.T) {
 	}
 }
 
+func TestRetryEdgeHelperLaunchctlSurvivesAsyncBootout(t *testing.T) {
+	t.Parallel()
+
+	// launchctl bootout tears the old service down asynchronously, so the
+	// first bootstrap attempts can fail with EIO (exit status 5). Install
+	// must absorb that instead of making the operator rerun `scenery deploy
+	// setup`.
+	attempts := 0
+	run := func(args ...string) ([]byte, error) {
+		attempts++
+		if attempts < 3 {
+			return []byte("Bootstrap failed: 5: Input/output error"), fmt.Errorf("exit status 5")
+		}
+		return nil, nil
+	}
+	var slept time.Duration
+	sleep := func(d time.Duration) { slept += d }
+	if err := retryEdgeHelperLaunchctl(10*time.Second, sleep, run, "bootstrap", "system", edgeHelperPlistPath); err != nil {
+		t.Fatalf("retryEdgeHelperLaunchctl: %v", err)
+	}
+	if attempts != 3 || slept == 0 {
+		t.Fatalf("attempts = %d, slept = %s", attempts, slept)
+	}
+
+	// A persistent failure still surfaces launchctl's error after the window.
+	failing := func(args ...string) ([]byte, error) {
+		return []byte("Bootstrap failed: 5: Input/output error"), fmt.Errorf("exit status 5")
+	}
+	err := retryEdgeHelperLaunchctl(0, func(time.Duration) {}, failing, "bootstrap", "system", edgeHelperPlistPath)
+	if err == nil || !strings.Contains(err.Error(), "launchctl bootstrap") || !strings.Contains(err.Error(), "Input/output error") {
+		t.Fatalf("persistent failure err = %v", err)
+	}
+}
+
 func TestEdgeHelperFailureLogRateLimitsRepeatedDrops(t *testing.T) {
 	t.Parallel()
 

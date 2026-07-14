@@ -138,13 +138,38 @@ func edgePrivilegedHelperInstall(opts edgeHelperOptions) error {
 		return err
 	}
 	_ = exec.Command("launchctl", "bootout", "system/"+edgeHelperLabel).Run()
-	if out, err := exec.Command("launchctl", "bootstrap", "system", edgeHelperPlistPath).CombinedOutput(); err != nil {
-		return fmt.Errorf("launchctl bootstrap: %w: %s", err, strings.TrimSpace(string(out)))
+	if err := retryEdgeHelperLaunchctl(edgeHelperLaunchctlRetryWindow, time.Sleep, runEdgeHelperLaunchctl, "bootstrap", "system", edgeHelperPlistPath); err != nil {
+		return err
 	}
-	if out, err := exec.Command("launchctl", "kickstart", "-k", "system/"+edgeHelperLabel).CombinedOutput(); err != nil {
-		return fmt.Errorf("launchctl kickstart: %w: %s", err, strings.TrimSpace(string(out)))
+	if err := retryEdgeHelperLaunchctl(edgeHelperLaunchctlRetryWindow, time.Sleep, runEdgeHelperLaunchctl, "kickstart", "-k", "system/"+edgeHelperLabel); err != nil {
+		return err
 	}
 	return nil
+}
+
+// edgeHelperLaunchctlRetryWindow bounds retries of launchctl bootstrap and
+// kickstart during install. `launchctl bootout` returns before launchd has
+// finished tearing the old service down, so an immediate bootstrap of the
+// replacement can fail transiently with exit status 5 (EIO); one re-run of
+// `scenery deploy setup` used to be the workaround.
+const edgeHelperLaunchctlRetryWindow = 10 * time.Second
+
+func runEdgeHelperLaunchctl(args ...string) ([]byte, error) {
+	return exec.Command("launchctl", args...).CombinedOutput()
+}
+
+func retryEdgeHelperLaunchctl(window time.Duration, sleep func(time.Duration), run func(...string) ([]byte, error), args ...string) error {
+	deadline := time.Now().Add(window)
+	for {
+		out, err := run(args...)
+		if err == nil {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("launchctl %s: %w: %s", args[0], err, strings.TrimSpace(string(out)))
+		}
+		sleep(250 * time.Millisecond)
+	}
 }
 
 func edgePrivilegedHelperUninstall() error {
