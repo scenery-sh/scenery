@@ -3,6 +3,8 @@ package main
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -163,7 +165,7 @@ func (s *dashboardServer) cleanupSymphonyTerminalWorkspaces(ctx context.Context)
 			return err
 		}
 		for _, run := range runs {
-			if err := cleanupSymphonyRunWorkspace(ctx, run); err != nil {
+			if err := cleanupSymphonyRunWorkspace(ctx, s.symphonyCacheRoot(), run); err != nil {
 				slog.Warn("symphony workspace cleanup failed", "app", appID, "run", run.ID, "err", err)
 			}
 		}
@@ -171,12 +173,12 @@ func (s *dashboardServer) cleanupSymphonyTerminalWorkspaces(ctx context.Context)
 	return nil
 }
 
-func cleanupSymphonyRunWorkspace(ctx context.Context, run symphony.Run) error {
+func cleanupSymphonyRunWorkspace(ctx context.Context, cacheRoot string, run symphony.Run) error {
 	repoWorkspace := strings.TrimSpace(run.RepoWorkspace)
 	if repoWorkspace == "" {
 		return nil
 	}
-	if !symphonyWorkspacePathAllowed(repoWorkspace) {
+	if !symphonyWorkspacePathAllowedInRoot(cacheRoot, repoWorkspace) {
 		return fmt.Errorf("refusing to remove workspace outside Symphony cache: %s", repoWorkspace)
 	}
 	if _, err := os.Stat(repoWorkspace); errors.Is(err, os.ErrNotExist) {
@@ -254,7 +256,10 @@ func (s *dashboardServer) startSymphonyRunRecord(ctx context.Context, store *sym
 		}
 		return symphonyRunRequest{}, err
 	}
-	repoWorkspace := filepath.Join(s.symphonyCacheRoot(), "workspaces", safePathSegment(appID), safePathSegment(task.Identifier), "repo")
+	// Each run gets its own worktree. Sharing one worktree per task lets a
+	// lease-expired-but-alive previous runner race the retry inside the same
+	// checkout, so the retry must never reuse a prior run's directory.
+	repoWorkspace := filepath.Join(s.symphonyCacheRoot(), "workspaces", safePathSegment(appID), safePathSegment(task.Identifier), symphonyRunWorkspaceSegment(), "repo")
 	appWorkspace := filepath.Join(repoWorkspace, relAppRoot)
 	run, err := store.StartRunWithRepo(ctx, appID, task.ID, appWorkspace, status.SessionID, repoRoot, repoWorkspace)
 	if err != nil {
@@ -297,7 +302,7 @@ func (s *dashboardServer) executeSymphonyRun(ctx context.Context, store *symphon
 	stopHeartbeat := startSymphonyRunHeartbeat(runCtx, store, req)
 	defer stopHeartbeat()
 
-	reset, err := prepareSymphonyWorkspace(runCtx, req.RepoRoot, req.RepoWorkspace, req.AppWorkspace)
+	reset, err := prepareSymphonyWorkspace(runCtx, s.symphonyCacheRoot(), req.RepoRoot, req.RepoWorkspace, req.AppWorkspace)
 	if err != nil {
 		completeSymphonyRun(store, req, "failed", "", err.Error(), "rework")
 		return
@@ -359,8 +364,15 @@ func completeSymphonyRun(store *symphony.Store, req symphonyRunRequest, status, 
 	} else {
 		slog.Warn("symphony run artifact collection failed", "task", req.Task.Identifier, "run", req.Run.ID, "err", err)
 	}
-	if _, err := store.CompleteRun(context.Background(), req.AppID, req.Run.ID, status, summary, runError); err != nil {
+	run, err := store.CompleteRun(context.Background(), req.AppID, req.Run.ID, status, summary, runError)
+	if err != nil {
 		slog.Warn("symphony run completion failed", "task", req.Task.Identifier, "run", req.Run.ID, "err", err)
+		return
+	}
+	if run.Status != status {
+		// Another owner finalized this run first (for example lease recovery
+		// marked it stalled); the task now belongs to that outcome.
+		slog.Warn("symphony run completion superseded", "task", req.Task.Identifier, "run", req.Run.ID, "recorded_status", run.Status, "attempted_status", status)
 		return
 	}
 	current, err := store.Task(context.Background(), req.AppID, req.Task.ID)
@@ -405,7 +417,7 @@ func gitRepoRootForApp(ctx context.Context, appRoot string) (string, string, err
 	return repoRoot, rel, nil
 }
 
-func prepareSymphonyWorkspace(ctx context.Context, repoRoot, repoWorkspace, appWorkspace string) (bool, error) {
+func prepareSymphonyWorkspace(ctx context.Context, cacheRoot, repoRoot, repoWorkspace, appWorkspace string) (bool, error) {
 	if err := os.MkdirAll(filepath.Dir(repoWorkspace), 0o755); err != nil {
 		return false, err
 	}
@@ -418,7 +430,7 @@ func prepareSymphonyWorkspace(ctx context.Context, repoRoot, repoWorkspace, appW
 	} else if err != nil {
 		return false, err
 	} else {
-		if !symphonyWorkspacePathAllowed(repoWorkspace) {
+		if !symphonyWorkspacePathAllowedInRoot(cacheRoot, repoWorkspace) {
 			return false, fmt.Errorf("workspace path %s is outside the Symphony cache", repoWorkspace)
 		}
 		if _, err := gitOutput(ctx, repoWorkspace, "reset", "--hard", "HEAD"); err != nil {
@@ -972,6 +984,14 @@ func jsonString(raw json.RawMessage, path ...string) string {
 		return text
 	}
 	return ""
+}
+
+func symphonyRunWorkspaceSegment() string {
+	var buf [8]byte
+	if _, err := rand.Read(buf[:]); err != nil {
+		return fmt.Sprintf("run-%d", time.Now().UnixNano())
+	}
+	return "run-" + hex.EncodeToString(buf[:])
 }
 
 func safePathSegment(value string) string {

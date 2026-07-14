@@ -33,6 +33,11 @@ Terminal task worktrees are removed from the Symphony cache and Git worktree reg
 * [x] 2026-07-03 - Ran focused race validation: `go test ./internal/symphony -count=1 -race` and `go test ./cmd/scenery -run 'TestDashboardSymphony|TestDashboardRPC|TestHarnessBrowser|TestCodexAppServerClient|TestPrepareSymphonyWorkspace|TestCleanupSymphonyRunWorkspace|TestDashboardWebSocketOriginCheck' -count=1 -race`.
 * [x] 2026-07-03 - Ran full Go and frontend validation: `go test ./...`, `bun run lint`, `bun run typecheck`, `bun run build`, and `./scripts/build-dashboard-ui-embed.sh`.
 * [x] 2026-07-03 - Ran `scenery harness self --summary --write`; all steps passed except the existing managed Postgres service probe, which failed because Docker had no `scenery-postgres` container and `.scenery/harness/bin/scenery db server start --json` failed with the same missing-container inspect error.
+* [x] 2026-07-14 - Replaced the process-local store mutex with per-app Postgres advisory transaction locks (`pg_advisory_xact_lock`) so concurrent dashboard and CLI processes sharing `scenery_symphony` serialize read-modify-write invariants; added unique index backstops for one active run per task and unique `(app_id, task_id, attempt)`; serialized concurrent store opens' migration DDL with a session advisory lock.
+* [x] 2026-07-14 - Switched auto-runner workspaces from one shared worktree per task to a fresh worktree per run under `workspaces/<app-id>/<task-identifier>/run-<suffix>/repo`, closing the race where lease recovery reclaims a task while the previous still-alive runner keeps mutating the shared checkout; workspace-allowed validation in prepare/cleanup now uses the owning server's cache root instead of the global default.
+* [x] 2026-07-14 - Made late run completions lose to lease recovery explicitly: `completeSymphonyRun` checks the recorded run status after `CompleteRun` and skips the task move when the completion was superseded (previously the swallowed no-op update could still move a recovered or re-queued task).
+* [x] 2026-07-14 - Restricted mutating `symphony/*` dashboard RPC methods to loopback WebSocket peers, because task titles/descriptions feed the auto-runner's Codex prompt with `approvalPolicy: never`; reads stay available and in-process callers are unaffected.
+* [x] 2026-07-14 - Ran focused validation: `go test ./internal/symphony -count=1 -race` and `go test ./cmd/scenery -run 'TestDashboardSymphony|TestCompleteSymphonyRun|TestPrepareSymphonyWorkspace|TestCleanupSymphonyRunWorkspace|TestCodexAppServerClient|TestIsLoopbackRemoteAddr|TestDashboardWebSocketOriginCheck' -count=1 -race` against a live `SCENERY_TEST_DATABASE_URL`, plus full `go test ./...`.
 
 ## Surprises & Discoveries
 
@@ -75,6 +80,30 @@ Terminal task worktrees are removed from the Symphony cache and Git worktree reg
   Date: 2026-07-03
 
   Author: Codex
+
+* Decision: Serialize symphony writers with per-app `pg_advisory_xact_lock` instead of row locks per table.
+
+  Rationale: The store's invariants (next attempt, next event seq, sort-order renumbering, single active run) span several tables per write, and Symphony write volume is tiny. One transaction-scoped app lock is simpler than a `FOR UPDATE` locking protocol with ordering rules, works across processes where the old in-process mutex did not, and the new unique indexes remain as the hard backstop if a future path skips the lock.
+
+  Date: 2026-07-14
+
+  Author: Claude
+
+* Decision: Give every run its own worktree instead of verifying old-runner liveness before reclaiming a shared per-task worktree.
+
+  Rationale: A lease only proves heartbeats stopped, not that the old runner and its Codex process died; PID checks were already rejected by ExecPlan 0092. Disjoint per-run checkouts make the zombie harmless without process inspection. Abandoned worktrees are bounded by `agent.max_attempts` and removed by the existing terminal-task cleanup.
+
+  Date: 2026-07-14
+
+  Author: Claude
+
+* Decision: Gate mutating `symphony/*` RPCs on a loopback WebSocket peer rather than blocking task writes in auto mode or building dashboard auth.
+
+  Rationale: In auto mode, unauthenticated task creation is indirect agent-prompt injection with `approvalPolicy: never`. Same-origin checks only constrain browsers; a loopback peer requirement closes the exposed-listener path (custom `SCENERY_DEV_DASHBOARD_ADDR` binds) while keeping the local dashboard fully usable. Full dashboard auth remains the deferred long-term fix.
+
+  Date: 2026-07-14
+
+  Author: Claude
 
 ## Outcomes & Retrospective
 

@@ -348,6 +348,66 @@ func TestStoreConcurrentCreatesUseUniqueIdentifiers(t *testing.T) {
 	}
 }
 
+func TestStoreConcurrentStartRunAllowsOneActiveRun(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	testURL, cleanup := createLiveTestDatabase(t)
+	t.Cleanup(cleanup)
+	a, err := Open(ctx, testURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+	b, err := Open(ctx, testURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = b.Close() })
+
+	task, err := a.CreateTask(ctx, "demo", TaskInput{Title: "Contended", StatusKey: "todo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const workers = 8
+	type outcome struct {
+		run Run
+		err error
+	}
+	results := make(chan outcome, workers)
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		store := a
+		if i%2 == 1 {
+			store = b
+		}
+		go func(i int) {
+			defer wg.Done()
+			run, err := store.StartRun(ctx, "demo", task.ID, "/tmp/contended", "session-1")
+			results <- outcome{run: run, err: err}
+		}(i)
+	}
+	wg.Wait()
+	close(results)
+	started := 0
+	for result := range results {
+		if result.err == nil {
+			started++
+		}
+	}
+	if started != 1 {
+		t.Fatalf("started %d active runs, want exactly 1", started)
+	}
+	var active int
+	if err := a.db.QueryRowContext(ctx, `SELECT count(*) FROM symphony_runs WHERE app_id = 'demo' AND task_id = $1 AND status IN ('queued', 'running')`, task.ID).Scan(&active); err != nil {
+		t.Fatal(err)
+	}
+	if active != 1 {
+		t.Fatalf("active runs in database = %d, want 1", active)
+	}
+}
+
 func openTestStore(t *testing.T) *Store {
 	t.Helper()
 	testURL, cleanup := createLiveTestDatabase(t)

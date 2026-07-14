@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"scenery.sh/internal/postgresdb"
@@ -18,7 +17,6 @@ import (
 
 type Store struct {
 	db *sql.DB
-	mu *sync.Mutex
 }
 
 type State struct {
@@ -144,8 +142,6 @@ var activeRunStatuses = map[string]bool{
 
 const DefaultRunLeaseDuration = time.Minute
 
-var storeLocks sync.Map
-
 func Open(ctx context.Context, databaseURL string) (*Store, error) {
 	if strings.TrimSpace(databaseURL) == "" || !strings.HasPrefix(strings.TrimSpace(databaseURL), "postgres") {
 		return nil, fmt.Errorf("symphony store requires the managed Postgres server database URL")
@@ -154,13 +150,22 @@ func Open(ctx context.Context, databaseURL string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	lockAny, _ := storeLocks.LoadOrStore(strings.TrimSpace(databaseURL), &sync.Mutex{})
-	store := &Store{db: db, mu: lockAny.(*sync.Mutex)}
+	store := &Store{db: db}
 	if err := store.migrate(ctx); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
 	return store, nil
+}
+
+// lockAppTx serializes symphony writers for one app across every process that
+// shares the database. The advisory lock is transaction-scoped, so it releases
+// on commit or rollback. Read-modify-write patterns such as next attempt, next
+// event seq, sort-order renumbering, and the single-active-run check rely on
+// this lock; the unique indexes on symphony_runs are the crash backstop.
+func lockAppTx(ctx context.Context, tx *sql.Tx, appID string) error {
+	_, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('scenery.symphony.app.' || $1, 0))`, appID)
+	return err
 }
 
 func (s *Store) Close() error {
@@ -194,9 +199,6 @@ func (s *Store) State(ctx context.Context, appID string) (State, error) {
 }
 
 func (s *Store) CreateTask(ctx context.Context, appID string, input TaskInput) (Task, error) {
-	unlock := s.lock()
-	defer unlock()
-
 	appID, err := cleanAppID(appID)
 	if err != nil {
 		return Task{}, err
@@ -214,6 +216,9 @@ func (s *Store) CreateTask(ctx context.Context, appID string, input TaskInput) (
 		return Task{}, err
 	}
 	defer tx.Rollback()
+	if err := lockAppTx(ctx, tx, appID); err != nil {
+		return Task{}, err
+	}
 	if err := ensureAppTx(ctx, tx, appID, now); err != nil {
 		return Task{}, err
 	}
@@ -251,9 +256,6 @@ func (s *Store) CreateTask(ctx context.Context, appID string, input TaskInput) (
 }
 
 func (s *Store) UpdateTask(ctx context.Context, appID, id string, input TaskInput) (Task, error) {
-	unlock := s.lock()
-	defer unlock()
-
 	appID, err := cleanAppID(appID)
 	if err != nil {
 		return Task{}, err
@@ -272,6 +274,9 @@ func (s *Store) UpdateTask(ctx context.Context, appID, id string, input TaskInpu
 		return Task{}, err
 	}
 	defer tx.Rollback()
+	if err := lockAppTx(ctx, tx, appID); err != nil {
+		return Task{}, err
+	}
 	if err := ensureAppTx(ctx, tx, appID, now); err != nil {
 		return Task{}, err
 	}
@@ -315,9 +320,6 @@ func (s *Store) UpdateTask(ctx context.Context, appID, id string, input TaskInpu
 }
 
 func (s *Store) MoveTask(ctx context.Context, appID, id, statusKey string, index int) error {
-	unlock := s.lock()
-	defer unlock()
-
 	appID, err := cleanAppID(appID)
 	if err != nil {
 		return err
@@ -333,6 +335,9 @@ func (s *Store) MoveTask(ctx context.Context, appID, id, statusKey string, index
 		return err
 	}
 	defer tx.Rollback()
+	if err := lockAppTx(ctx, tx, appID); err != nil {
+		return err
+	}
 	if err := ensureAppTx(ctx, tx, appID, now); err != nil {
 		return err
 	}
@@ -372,9 +377,6 @@ func (s *Store) MoveTask(ctx context.Context, appID, id, statusKey string, index
 }
 
 func (s *Store) DeleteTask(ctx context.Context, appID, id string) error {
-	unlock := s.lock()
-	defer unlock()
-
 	appID, err := cleanAppID(appID)
 	if err != nil {
 		return err
@@ -424,9 +426,6 @@ func (s *Store) UpdateStatuses(ctx context.Context, appID string, updates []Stat
 }
 
 func (s *Store) updateStatuses(ctx context.Context, appID string, updates []StatusUpdate) error {
-	unlock := s.lock()
-	defer unlock()
-
 	appID, err := cleanAppID(appID)
 	if err != nil {
 		return err
@@ -437,6 +436,9 @@ func (s *Store) updateStatuses(ctx context.Context, appID string, updates []Stat
 		return err
 	}
 	defer tx.Rollback()
+	if err := lockAppTx(ctx, tx, appID); err != nil {
+		return err
+	}
 	if err := ensureAppTx(ctx, tx, appID, now); err != nil {
 		return err
 	}
@@ -484,9 +486,6 @@ func (s *Store) Workflow(ctx context.Context, appID string) (Workflow, error) {
 }
 
 func (s *Store) UpdateWorkflow(ctx context.Context, appID string, input WorkflowInput) (Workflow, error) {
-	unlock := s.lock()
-	defer unlock()
-
 	appID, err := cleanAppID(appID)
 	if err != nil {
 		return Workflow{}, err
@@ -583,9 +582,6 @@ func (s *Store) StartRun(ctx context.Context, appID, taskID, workspacePath, owne
 }
 
 func (s *Store) StartRunWithRepo(ctx context.Context, appID, taskID, workspacePath, ownerSessionID, repoRoot, repoWorkspace string) (Run, error) {
-	unlock := s.lock()
-	defer unlock()
-
 	appID, err := cleanAppID(appID)
 	if err != nil {
 		return Run{}, err
@@ -606,6 +602,9 @@ func (s *Store) StartRunWithRepo(ctx context.Context, appID, taskID, workspacePa
 		return Run{}, err
 	}
 	defer tx.Rollback()
+	if err := lockAppTx(ctx, tx, appID); err != nil {
+		return Run{}, err
+	}
 	if err := ensureAppTx(ctx, tx, appID, now); err != nil {
 		return Run{}, err
 	}
@@ -682,9 +681,6 @@ func (s *Store) RenewRunLease(ctx context.Context, appID, runID string, duration
 }
 
 func (s *Store) MarkExpiredRunsStalled(ctx context.Context, appID string) (int, error) {
-	unlock := s.lock()
-	defer unlock()
-
 	appID, err := cleanAppID(appID)
 	if err != nil {
 		return 0, err
@@ -696,6 +692,9 @@ func (s *Store) MarkExpiredRunsStalled(ctx context.Context, appID string) (int, 
 		return 0, err
 	}
 	defer tx.Rollback()
+	if err := lockAppTx(ctx, tx, appID); err != nil {
+		return 0, err
+	}
 	rows, err := tx.QueryContext(ctx, `SELECT id, task_id, coalesce(lease_expires_at, '') FROM symphony_runs WHERE app_id = $1 AND status IN ('queued', 'running')`, appID)
 	if err != nil {
 		return 0, err
@@ -807,9 +806,6 @@ func (s *Store) RecordRunArtifacts(ctx context.Context, appID, runID, diffStat, 
 }
 
 func (s *Store) RecordRunEvent(ctx context.Context, appID, runID, eventType string, payload any) error {
-	unlock := s.lock()
-	defer unlock()
-
 	appID, err := cleanAppID(appID)
 	if err != nil {
 		return err
@@ -824,6 +820,9 @@ func (s *Store) RecordRunEvent(ctx context.Context, appID, runID, eventType stri
 		return err
 	}
 	defer tx.Rollback()
+	if err := lockAppTx(ctx, tx, appID); err != nil {
+		return err
+	}
 	if err := runExistsTx(ctx, tx, appID, runID); err != nil {
 		return err
 	}
@@ -896,9 +895,6 @@ func (s *Store) TerminalWorkspaces(ctx context.Context, appID string) ([]Run, er
 }
 
 func (s *Store) updateRun(ctx context.Context, appID, runID string, fn func(context.Context, *sql.Tx, string) error) (Run, error) {
-	unlock := s.lock()
-	defer unlock()
-
 	appID, err := cleanAppID(appID)
 	if err != nil {
 		return Run{}, err
@@ -913,6 +909,9 @@ func (s *Store) updateRun(ctx context.Context, appID, runID string, fn func(cont
 		return Run{}, err
 	}
 	defer tx.Rollback()
+	if err := lockAppTx(ctx, tx, appID); err != nil {
+		return Run{}, err
+	}
 	if err := runExistsTx(ctx, tx, appID, runID); err != nil {
 		return Run{}, err
 	}
@@ -926,6 +925,19 @@ func (s *Store) updateRun(ctx context.Context, appID, runID string, fn func(cont
 }
 
 func (s *Store) migrate(ctx context.Context) error {
+	// Concurrent opens from other processes run the same idempotent DDL;
+	// hold a session advisory lock so they execute one at a time.
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, `SELECT pg_advisory_lock(hashtextextended('scenery.symphony.migrate', 0))`); err != nil {
+		return err
+	}
+	defer func() {
+		_, _ = conn.ExecContext(context.WithoutCancel(ctx), `SELECT pg_advisory_unlock(hashtextextended('scenery.symphony.migrate', 0))`)
+	}()
 	for _, stmt := range []string{
 		`CREATE TABLE IF NOT EXISTS symphony_statuses (
 			app_id text not null,
@@ -1000,6 +1012,8 @@ func (s *Store) migrate(ctx context.Context) error {
 			foreign key(task_id) references symphony_tasks(id)
 		)`,
 		`CREATE INDEX IF NOT EXISTS symphony_runs_task_idx ON symphony_runs(app_id, task_id, created_at)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS symphony_runs_active_task_key ON symphony_runs(app_id, task_id) WHERE status IN ('queued', 'running')`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS symphony_runs_task_attempt_key ON symphony_runs(app_id, task_id, attempt)`,
 		`CREATE TABLE IF NOT EXISTS symphony_run_events (
 			app_id text not null,
 			run_id text not null,
@@ -1038,9 +1052,6 @@ func (s *Store) migrate(ctx context.Context) error {
 }
 
 func (s *Store) ensureApp(ctx context.Context, appID string) error {
-	unlock := s.lock()
-	defer unlock()
-
 	now := nowText()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -1430,12 +1441,4 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
-}
-
-func (s *Store) lock() func() {
-	if s == nil || s.mu == nil {
-		return func() {}
-	}
-	s.mu.Lock()
-	return s.mu.Unlock
 }

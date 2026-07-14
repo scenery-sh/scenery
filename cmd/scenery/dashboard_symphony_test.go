@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -110,6 +111,48 @@ func TestDashboardSymphonyRPCBlocksAutoEscalation(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "mode=auto") {
 		t.Fatalf("expected auto mode gate, got %v", err)
+	}
+}
+
+func TestDashboardSymphonyRPCRequiresLoopbackPeerForMutations(t *testing.T) {
+	t.Parallel()
+
+	server := newSymphonyDashboardTestServer(t)
+	remote := withDashboardLoopbackPeer(context.Background(), false)
+	_, err := dispatchSymphonyTestRPC[symphony.Task](remote, server, "symphony/task/create", map[string]any{
+		"app_id": "session-a",
+		"input":  map[string]any{"title": "Remote task"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "local dashboard clients") {
+		t.Fatalf("expected loopback gate for task create, got %v", err)
+	}
+	if _, err := dispatchSymphonyTestRPC[symphony.State](remote, server, "symphony/state", map[string]any{"app_id": "session-a"}); err != nil {
+		t.Fatalf("read should stay available to remote peers: %v", err)
+	}
+	local := withDashboardLoopbackPeer(context.Background(), true)
+	created, err := dispatchSymphonyTestRPC[symphony.Task](local, server, "symphony/task/create", map[string]any{
+		"app_id": "session-a",
+		"input":  map[string]any{"title": "Local task"},
+	})
+	if err != nil || created.Identifier != "SYM-1" {
+		t.Fatalf("local create = %+v, %v", created, err)
+	}
+}
+
+func TestIsLoopbackRemoteAddr(t *testing.T) {
+	t.Parallel()
+
+	for addr, want := range map[string]bool{
+		"127.0.0.1:52011": true,
+		"[::1]:52011":     true,
+		"10.0.0.5:52011":  false,
+		"192.168.1.2:80":  false,
+		"":                false,
+		"not-an-address":  false,
+	} {
+		if got := isLoopbackRemoteAddr(addr); got != want {
+			t.Errorf("isLoopbackRemoteAddr(%q) = %v, want %v", addr, got, want)
+		}
 	}
 }
 
@@ -285,8 +328,8 @@ func TestDashboardSymphonyAutoRunnerClaimsTodoTask(t *testing.T) {
 	if run.Status != "succeeded" || run.ThreadID != "thread-test" || run.TurnID != "turn-test" || run.WorkspacePath == "" {
 		t.Fatalf("run = %+v", run)
 	}
-	if !strings.Contains(run.WorkspacePath, filepath.Join("workspaces", "demo", task.Identifier, "repo")) {
-		t.Fatalf("workspace path = %q, want stable task workspace", run.WorkspacePath)
+	if !strings.Contains(run.WorkspacePath, filepath.Join("workspaces", "demo", task.Identifier)+string(filepath.Separator)+"run-") {
+		t.Fatalf("workspace path = %q, want per-run task workspace", run.WorkspacePath)
 	}
 	if !strings.Contains(run.DiffStat, "prepared.txt") {
 		t.Fatalf("run diff stat = %q, want prepared.txt", run.DiffStat)
@@ -477,6 +520,86 @@ func TestCompleteSymphonyRunDoesNotOverrideMovedTask(t *testing.T) {
 	}
 }
 
+func TestCompleteSymphonyRunSkipsSupersededCompletion(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := newSymphonyStore(t)
+	task, err := store.CreateTask(ctx, "demo", symphony.TaskInput{Title: "Superseded", StatusKey: "todo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := store.StartRun(ctx, "demo", task.ID, "", "session-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MoveTask(ctx, "demo", task.ID, "in_progress", 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.RenewRunLease(ctx, "demo", run.ID, -time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if marked, err := store.MarkExpiredRunsStalled(ctx, "demo"); err != nil || marked != 1 {
+		t.Fatalf("marked = %d, err = %v", marked, err)
+	}
+	completeSymphonyRun(store, symphonyRunRequest{AppID: "demo", Task: task, Run: run}, "succeeded", "late finish", "", "human_review")
+	got, err := store.Run(ctx, "demo", run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "stalled" {
+		t.Fatalf("run status = %q, want stalled to win over late completion", got.Status)
+	}
+	state, err := store.State(ctx, "demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Tasks[0].StatusKey != "todo" {
+		t.Fatalf("task status = %q, want recovered todo untouched by late completion", state.Tasks[0].StatusKey)
+	}
+}
+
+func TestDashboardSymphonyAutoRunnerUsesFreshWorkspacePerRun(t *testing.T) {
+	t.Parallel()
+
+	var workspaceMu sync.Mutex
+	var workspaces []string
+	server := &dashboardServer{
+		symphonyRoot: t.TempDir(),
+		symphonyHooks: symphonyRunnerHooks{
+			startAsync: func(fn func()) { fn() },
+			runCodexAgent: func(ctx context.Context, req symphonyRunRequest, callbacks symphonyRunCallbacks) (symphonyRunResult, error) {
+				workspaceMu.Lock()
+				workspaces = append(workspaces, req.RepoWorkspace)
+				workspaceMu.Unlock()
+				return symphonyRunResult{}, fmt.Errorf("fail to trigger retry")
+			},
+		},
+	}
+
+	_, appRoot := newSymphonyGitFixture(t, "---\nagent:\n  max_attempts: 3\n---\nRetry {{ issue.identifier }}")
+	store := newSymphonyStore(t)
+	task, err := store.CreateTask(context.Background(), "demo", symphony.TaskInput{Title: "Retry", StatusKey: "todo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.UpdateWorkflow(context.Background(), "demo", symphony.WorkflowInput{Mode: "auto", MaxConcurrency: 1}); err != nil {
+		t.Fatal(err)
+	}
+	status := devdash.AppStatus{AppID: "demo", BaseAppID: "demo", SessionID: "session-1", AppRoot: appRoot, Running: true}
+	for attempt := 1; attempt <= 2; attempt++ {
+		if err := server.runSymphonyAutoForApp(context.Background(), store, status); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.MoveTask(context.Background(), "demo", task.ID, "todo", 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(workspaces) != 2 || workspaces[0] == workspaces[1] {
+		t.Fatalf("workspaces = %v, want two distinct per-run worktrees", workspaces)
+	}
+}
+
 func TestDashboardSymphonyAutoRunnerRequiresWorkflow(t *testing.T) {
 	t.Parallel()
 
@@ -520,7 +643,7 @@ func TestPrepareSymphonyWorkspaceResetsExistingWorktree(t *testing.T) {
 	runGit(t, repoRoot, "add", ".")
 	runGit(t, repoRoot, "commit", "-m", "initial")
 	repoWorkspace := filepath.Join(symphonyCacheRoot(), "workspaces", "demo", "SYM-1", "repo")
-	reset, err := prepareSymphonyWorkspace(context.Background(), repoRoot, repoWorkspace, repoWorkspace)
+	reset, err := prepareSymphonyWorkspace(context.Background(), symphonyCacheRoot(), repoRoot, repoWorkspace, repoWorkspace)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -533,7 +656,7 @@ func TestPrepareSymphonyWorkspaceResetsExistingWorktree(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(repoWorkspace, "untracked.txt"), []byte("remove me\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	reset, err = prepareSymphonyWorkspace(context.Background(), repoRoot, repoWorkspace, repoWorkspace)
+	reset, err = prepareSymphonyWorkspace(context.Background(), symphonyCacheRoot(), repoRoot, repoWorkspace, repoWorkspace)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -557,10 +680,10 @@ func TestCleanupSymphonyRunWorkspaceRemovesWorktree(t *testing.T) {
 
 	repoRoot, appRoot := newSymphonyGitFixture(t, "manual")
 	repoWorkspace := filepath.Join(symphonyCacheRoot(), "workspaces", "demo", "SYM-1", "repo")
-	if _, err := prepareSymphonyWorkspace(context.Background(), repoRoot, repoWorkspace, repoWorkspace); err != nil {
+	if _, err := prepareSymphonyWorkspace(context.Background(), symphonyCacheRoot(), repoRoot, repoWorkspace, repoWorkspace); err != nil {
 		t.Fatal(err)
 	}
-	if err := cleanupSymphonyRunWorkspace(context.Background(), symphony.Run{RepoRoot: repoRoot, RepoWorkspace: repoWorkspace, WorkspacePath: appRoot}); err != nil {
+	if err := cleanupSymphonyRunWorkspace(context.Background(), symphonyCacheRoot(), symphony.Run{RepoRoot: repoRoot, RepoWorkspace: repoWorkspace, WorkspacePath: appRoot}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(repoWorkspace); !errors.Is(err, os.ErrNotExist) {

@@ -19,9 +19,23 @@ type symphonyRunDetail struct {
 	Events []symphony.RunEvent `json:"events"`
 }
 
+var symphonyMutatingRPCMethods = map[string]bool{
+	"symphony/task/create":     true,
+	"symphony/task/update":     true,
+	"symphony/task/move":       true,
+	"symphony/task/delete":     true,
+	"symphony/statuses/update": true,
+	"symphony/workflow/update": true,
+}
+
 func (s *dashboardServer) dispatchSymphonyRPC(ctx context.Context, method string, raw json.RawMessage) (any, error) {
 	if strings.HasPrefix(method, "symphony/run/") && method != "symphony/run/detail" {
 		return nil, fmt.Errorf("%s is unavailable until dashboard runner auth is implemented", method)
+	}
+	// The dashboard WebSocket is unauthenticated and task content feeds the
+	// auto-runner's agent prompt, so board writes stay loopback-only.
+	if symphonyMutatingRPCMethods[method] && !dashboardPeerIsLoopback(ctx) {
+		return nil, fmt.Errorf("%s is only available to local dashboard clients", method)
 	}
 	appID, err := s.symphonyAppID(ctx, raw)
 	if err != nil {
@@ -214,10 +228,6 @@ func symphonyCacheRoot() string {
 		return filepath.Join(dir, "scenery")
 	}
 	return filepath.Join(os.TempDir(), "scenery")
-}
-
-func symphonyWorkspacePathAllowed(path string) bool {
-	return symphonyWorkspacePathAllowedInRoot(symphonyCacheRoot(), path)
 }
 
 func (s *dashboardServer) symphonyWorkspacePathAllowed(path string) bool {

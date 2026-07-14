@@ -53,6 +53,31 @@ func dashboardCheckOrigin(req *http.Request) bool {
 	return strings.EqualFold(u.Host, req.Host)
 }
 
+type dashboardLoopbackPeerKey struct{}
+
+func withDashboardLoopbackPeer(ctx context.Context, loopback bool) context.Context {
+	return context.WithValue(ctx, dashboardLoopbackPeerKey{}, loopback)
+}
+
+// dashboardPeerIsLoopback reports whether the RPC arrived from a loopback
+// peer. Contexts without the marker come from in-process callers and count
+// as local; only the WebSocket handler stamps remote peer information.
+func dashboardPeerIsLoopback(ctx context.Context) bool {
+	if loopback, ok := ctx.Value(dashboardLoopbackPeerKey{}).(bool); ok {
+		return loopback
+	}
+	return true
+}
+
+func isLoopbackRemoteAddr(remoteAddr string) bool {
+	host, _, err := net.SplitHostPort(strings.TrimSpace(remoteAddr))
+	if err != nil {
+		host = strings.TrimSpace(remoteAddr)
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
 type dashboardServer struct {
 	controller dashboardController
 	supervisor *devSupervisor
@@ -474,6 +499,7 @@ func (s *dashboardServer) handleWebSocket(w http.ResponseWriter, req *http.Reque
 	if err != nil {
 		return
 	}
+	ctx := withDashboardLoopbackPeer(req.Context(), isLoopbackRemoteAddr(req.RemoteAddr))
 	client := s.addClient(conn)
 	defer func() {
 		s.removeClient(client)
@@ -485,7 +511,7 @@ func (s *dashboardServer) handleWebSocket(w http.ResponseWriter, req *http.Reque
 		if err := conn.ReadJSON(&reqMsg); err != nil {
 			return
 		}
-		resp := s.handleRPC(req.Context(), reqMsg)
+		resp := s.handleRPC(ctx, reqMsg)
 		if reqMsg.ID == nil {
 			continue
 		}
