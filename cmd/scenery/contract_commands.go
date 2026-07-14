@@ -320,23 +320,29 @@ func runContractDiff(stdout io.Writer, args []string) error {
 		return fmt.Errorf("load target: %w", err)
 	}
 	var renames []evolution.RenameReceipt
+	var rebinds []evolution.RevisionRebind
 	if renameReceiptsPath != "" {
-		renames, err = evolution.LoadRenameReceipts(renameReceiptsPath)
+		renames, rebinds, err = evolution.LoadRenameEvidence(renameReceiptsPath)
 		if err != nil {
-			return fmt.Errorf("load rename receipts: %w", err)
+			// Preserve the existing bare-array receipt format.
+			renames, err = evolution.LoadRenameReceipts(renameReceiptsPath)
+		}
+		if err != nil {
+			return fmt.Errorf("load rename evidence: %w", err)
 		}
 	}
 	for _, reference := range []string{positionals[1], positionals[0]} {
 		if info, statErr := os.Stat(reference); statErr == nil && info.IsDir() {
-			persisted, loadErr := evolution.LoadAppliedRenameReceipts(reference, base, target)
+			persisted, persistedRebinds, loadErr := evolution.LoadAppliedRenameEvidence(reference)
 			if loadErr != nil {
 				return fmt.Errorf("load applied rename receipts: %w", loadErr)
 			}
 			renames = append(renames, persisted...)
+			rebinds = append(rebinds, persistedRebinds...)
 			break
 		}
 	}
-	diff := evolution.CompareManifests(base, target, evolution.CompareOptions{View: view, Renames: renames})
+	diff := evolution.CompareManifests(base, target, evolution.CompareOptions{View: view, Renames: renames, Rebinds: rebinds})
 	if output == "json" {
 		envelope := newCLIEnvelope(true, diff, nil)
 		envelope.ContractRevision = target.ContractRevision
@@ -360,11 +366,17 @@ func runContractDiff(stdout io.Writer, args []string) error {
 func runContractGenerate(stdout io.Writer, args []string) error {
 	opts := contractOptions{Output: "human"}
 	var target string
+	var materialize bool
+	var pruneMaterializedGo bool
+	var mergeEditorWorkspace bool
 	flags := newCLIFlagSet("generate")
 	flags.StringVar(&opts.AppRoot, "app-root", "", "")
 	flags.StringVar(&opts.Output, "o", opts.Output, "")
 	flags.StringVar(&target, "target", "", "")
 	flags.BoolVar(&opts.Check, "check", false, "")
+	flags.BoolVar(&materialize, "materialize", false, "")
+	flags.BoolVar(&pruneMaterializedGo, "prune-materialized-go", false, "")
+	flags.BoolVar(&mergeEditorWorkspace, "merge-editor-workspace", false, "")
 	flags.BoolVar(&opts.NonInteractive, "non-interactive", false, "")
 	flags.BoolVar(&opts.Quiet, "quiet", false, "")
 	positionals, err := parseCLIFlags(flags, args)
@@ -386,15 +398,39 @@ func runContractGenerate(stdout io.Writer, args []string) error {
 	}
 	var result generate.GenerateResult
 	var generateErr error
-	if strings.HasPrefix(target, "typescript_client.") {
+	if pruneMaterializedGo {
+		if target != "" || materialize {
+			return fmt.Errorf("--prune-materialized-go cannot be combined with --target or --materialize")
+		}
+		result, generateErr = generate.PruneMaterializedGo(root, opts.Check)
+	} else if strings.HasPrefix(target, "typescript_client.") {
 		result, generateErr = generate.GenerateTypeScriptClients(root, target, opts.Check)
 	} else if target == "" {
+		if materialize {
+			return fmt.Errorf("--materialize requires --target contracts")
+		}
 		result, generateErr = generate.GenerateAll(root, opts.Check)
 	} else {
+		if !materialize {
+			return fmt.Errorf("--target %s requires --materialize", target)
+		}
 		result, generateErr = generate.GenerateGoContracts(root, opts.Check)
 	}
+	var compilation *compiler.Result
+	if generateErr == nil {
+		compilation, generateErr = compiler.Compile(root)
+		if generateErr == nil && compilation.Valid() {
+			if mergeEditorWorkspace {
+				generateErr = generate.SyncEditorWorkspaceMerge(compilation)
+			} else {
+				generateErr = generate.SyncEditorWorkspace(compilation)
+			}
+		}
+	}
 	if opts.Output == "json" {
-		compilation, _ := compiler.Compile(root)
+		if compilation == nil {
+			compilation, _ = compiler.Compile(root)
+		}
 		envelope := newCLIEnvelope(generateErr == nil, map[string]any{"target": target, "generation": result}, nil)
 		if compilation != nil {
 			envelope.WorkspaceRevision = compilation.WorkspaceRevision
@@ -521,6 +557,11 @@ func runContractCompile(stdout io.Writer, args []string) error {
 	result, err := compileContractRoot(opts.AppRoot)
 	if err != nil {
 		return err
+	}
+	if result.Valid() {
+		if err := generate.SyncEditorWorkspace(result); err != nil {
+			return err
+		}
 	}
 	manifest := result.Manifest
 	if result.Valid() {

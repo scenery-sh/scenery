@@ -6,6 +6,20 @@ Completed means implemented or shipped at least once. It does not imply stable
 support for every surface. Use [../local-contract.md](../local-contract.md) as
 the source of truth for stable, beta, and dev-only classification.
 
+## Cache-Only Generated Go Artifacts
+
+- Status: completed
+- Owner: scenery generate / build / evolution
+- Completed: 2026-07-14
+- Quality: B
+- ExecPlan: [0113 Cache-Only Generated Go Artifacts](0113-cache-only-generated-go.md)
+
+Shipped external build/editor rendering with stable import identities,
+ownership-verified root Go workspaces, descriptor-authenticated legacy prune,
+explicit published-module materialization, authored-only workspace revisions,
+revision-rebind evidence, TypeScript source/cache modes, and full ONLV
+check/test/build/detached-runtime acceptance with zero regenerated Go trees.
+
 ## Google Connections and Gmail Platform
 
 - Status: completed

@@ -14,6 +14,7 @@ import (
 
 	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/appwalk"
+	"scenery.sh/internal/envpolicy"
 )
 
 type harnessSelfOptions struct {
@@ -209,7 +210,7 @@ func harnessSelfGoTestCommandWithCacheMode(freshTests bool) []string {
 }
 
 func harnessSelfGoTestEnv() []string {
-	return nil
+	return []string{"GOWORK=off"}
 }
 
 func runHarnessInspectDocsStep(repoRoot string) harnessStep {
@@ -369,6 +370,9 @@ func runHarnessExecStep(ctx context.Context, dir, name string, command []string,
 
 	cmd := commandTreeContext(ctx, path, command[1:]...)
 	cmd.Dir = dir
+	if command[0] == "go" {
+		cmd.Env = envWithOverrides(envpolicy.Environ(), "GOWORK=off")
+	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

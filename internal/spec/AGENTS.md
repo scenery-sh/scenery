@@ -15,6 +15,8 @@
 - Explanatory diagnostic prose belongs to the separate diagnostic-catalog
   digest; stable diagnostic rule identity remains in `spec_revision`.
 - Revisions identify current content and never select an older catalog, parser, or decoder.
+- Generation materialization and revision-scheme migration are semantic review
+  gates; bump their owning digests and stable diagnostics together.
 - Keep external codec, runtime, provider ABI, and third-party standard versions intact.
 - Do not create a parallel JSON catalog; generate machine output from the Go catalog.
 

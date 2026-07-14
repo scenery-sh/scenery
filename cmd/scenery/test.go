@@ -12,7 +12,6 @@ import (
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/build"
 	"scenery.sh/internal/envpolicy"
-	"scenery.sh/internal/parse"
 )
 
 type testOptions struct {
@@ -97,11 +96,7 @@ func prepareTestWorkspace(ctx context.Context, appRoot string, cfg app.Config) (
 		}
 	}
 	if result == nil {
-		model, err := parse.Analyze(appRoot, cfg.Name)
-		if err != nil {
-			return nil, err
-		}
-		prepared, err := build.Prepare(appRoot, model, cfg)
+		prepared, err := build.Prepare(appRoot, nil, cfg)
 		if err != nil {
 			return nil, err
 		}
@@ -119,7 +114,7 @@ func prepareTestWorkspace(ctx context.Context, appRoot string, cfg app.Config) (
 func runGeneratedWorkspaceGoTest(ctx context.Context, dir string, goArgs []string, stream bool) (error, []byte) {
 	cmd := execGoTestCommand(ctx, "go", goArgs...)
 	cmd.Dir = dir
-	cmd.Env = envWithOverrides(envpolicy.Environ(), "SCENERY_RUNTIME_ENV=test")
+	cmd.Env = envWithOverrides(envpolicy.Environ(), "SCENERY_RUNTIME_ENV=test", "GOWORK=off")
 	if stream {
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
@@ -134,7 +129,7 @@ func runGeneratedWorkspaceGoTest(ctx context.Context, dir string, goArgs []strin
 func runGeneratedWorkspaceGoModTidy(ctx context.Context, dir string) (error, []byte) {
 	cmd := execGoTestCommand(ctx, "go", "mod", "tidy")
 	cmd.Dir = dir
-	cmd.Env = envpolicy.Environ()
+	cmd.Env = envWithOverrides(envpolicy.Environ(), "GOWORK=off")
 	var output bytes.Buffer
 	cmd.Stdout = &output
 	cmd.Stderr = &output

@@ -38,6 +38,27 @@ func ContractRevision(resources []Resource, appName string) (string, error) {
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 
+// ContractProjectionHash identifies the canonical contract projection without
+// folding in the current specification revision. It is used only to prove a
+// revision-scheme rebind; executable artifacts remain bound to ContractRevision.
+func ContractProjectionHash(manifest *Manifest) string {
+	if manifest == nil {
+		return ""
+	}
+	projected := make([]Resource, 0, len(manifest.Resources))
+	for _, resource := range manifest.Resources {
+		if value, include := ContractResourceProjection(resource); include {
+			projected = append(projected, value)
+		}
+	}
+	sort.Slice(projected, func(i, j int) bool { return projected[i].Address < projected[j].Address })
+	return RevisionHash("scenery.contract-projection\x00", struct {
+		Application  string           `json:"application"`
+		Dependencies []map[string]any `json:"compile_dependencies"`
+		Resources    []Resource       `json:"resources"`
+	}{manifest.Application.Name, dependencyContractIdentities(manifest.Resources), projected})
+}
+
 func ContractResourceProjection(resource Resource) (Resource, bool) {
 	schema, ok := spec.ResourceSchemas()[resource.Kind]
 	if !ok {

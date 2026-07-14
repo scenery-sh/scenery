@@ -7,7 +7,6 @@ import (
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/machine"
-	"scenery.sh/internal/parse"
 )
 
 type Result struct {
@@ -135,11 +134,7 @@ func AppForTarget(appRoot string, cfg app.Config, targetName, defaultRole string
 	if target.Role == "contract" {
 		return nil, fmt.Errorf("Go contract target %s does not produce a runtime binary", target.Name)
 	}
-	appModel, err := parse.AnalyzeTarget(appRoot, cfg.Name, nil, target.Context)
-	if err != nil {
-		return nil, err
-	}
-	result, err := prepareWithContractTarget(appRoot, appModel, cfg, nil, contract, target)
+	result, err := prepareWithContractTarget(appRoot, nil, cfg, nil, contract, target)
 	if err != nil {
 		return nil, err
 	}

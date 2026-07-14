@@ -41,10 +41,11 @@ type RenameReceipt struct {
 }
 
 type CompareOptions struct {
-	View       string          `json:"view,omitempty"`
-	Dimensions []string        `json:"dimensions,omitempty"`
-	Scope      string          `json:"scope,omitempty"`
-	Renames    []RenameReceipt `json:"renames,omitempty"`
+	View       string           `json:"view,omitempty"`
+	Dimensions []string         `json:"dimensions,omitempty"`
+	Scope      string           `json:"scope,omitempty"`
+	Renames    []RenameReceipt  `json:"renames,omitempty"`
+	Rebinds    []RevisionRebind `json:"revision_rebinds,omitempty"`
 }
 
 type Classification struct {
@@ -137,7 +138,7 @@ func CompareManifests(base, target *Manifest, options CompareOptions) SemanticDi
 	ctx := comparisonContext{base: resourcesByAddress(base), target: resourcesByAddress(target), dimensions: dimensions}
 	ctx.typePositions = compatibilityTypePositions(ctx.base, ctx.target)
 	consumedBase, consumedTarget := map[string]bool{}, map[string]bool{}
-	renames := ValidRenameReceipts(base, target, options.Renames)
+	renames := ValidRenameReceiptsWithRebinds(base, target, options.Renames, options.Rebinds)
 	for _, receipt := range renames {
 		before, beforeOK := ctx.base[receipt.From]
 		after, afterOK := ctx.target[receipt.To]
@@ -151,6 +152,12 @@ func CompareManifests(base, target *Manifest, options CompareOptions) SemanticDi
 			"base_contract_revision": receipt.BaseContractRevision, "target_contract_revision": receipt.TargetContractRevision,
 			"digest": receipt.Digest,
 		})
+		for _, rebind := range validRevisionRebinds(base, options.Rebinds) {
+			change.Evidence = append(change.Evidence, map[string]any{"kind": "revision_rebind", "from_contract_revision": rebind.FromContractRevision, "to_contract_revision": rebind.ToContractRevision, "contract_projection_hash": rebind.ProjectionHash, "reason": rebind.Reason, "digest": rebind.Digest})
+		}
+		for _, rebind := range validRevisionRebinds(target, options.Rebinds) {
+			change.Evidence = append(change.Evidence, map[string]any{"kind": "revision_rebind", "from_contract_revision": rebind.FromContractRevision, "to_contract_revision": rebind.ToContractRevision, "contract_projection_hash": rebind.ProjectionHash, "reason": rebind.Reason, "digest": rebind.Digest})
+		}
 		diff.Changes = append(diff.Changes, change)
 		for _, difference := range semanticDifferences(before.Spec, after.Spec, "/spec") {
 			diff.Changes = append(diff.Changes, classifyChange(ctx, difference.operation, &before, &after, difference.path, difference.base, difference.target))

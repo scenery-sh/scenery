@@ -15,6 +15,8 @@ current application graph.
   deployment planning consume them without redefining the graph model.
 - Workspace snapshots exclude VCS, Scenery state, and dependency caches and
   reject symlinks or non-regular entries.
+- `workspace_revision` excludes derived generated roots and Scenery-owned
+  editor workfiles; it hashes authored and explicitly declared inputs only.
 - Every normal source read first asks `internal/workspacetx` to recover an
   abandoned transaction or reject a live owner. Staged validation admits only
   the current transaction owner.

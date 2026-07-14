@@ -67,6 +67,7 @@ func Hello(ctx context.Context) error { return nil }
 		t.Fatal(err)
 	}
 	writeBuildTestFile(t, workspace, "go.mod", goMod)
+	writeBuildTestFile(t, workspace, ".scenery.json", `{"name":"buildtest"}`)
 	writeBuildTestFile(t, workspace, "svc/api.go", serviceSource)
 	writeBuildTestFile(t, workspace, "svc/scenery.gen.go", "package svc\n")
 	writeBuildTestFile(t, workspace, "scenery_internal_main/main.go", "package main\n\nfunc main() {}\n")
@@ -75,7 +76,7 @@ func Hello(ctx context.Context) error { return nil }
 	if err != nil {
 		t.Fatal(err)
 	}
-	sourceFiles := []string{"go.mod", "svc/api.go"}
+	sourceFiles := []string{".scenery.json", "go.mod", "svc/api.go"}
 	generatedFiles := []string{"scenery_internal_main/main.go", "svc/scenery.gen.go"}
 	buildFingerprint, err := workspaceBuildFingerprint(workspace, nil, sourceFiles, generatedFiles)
 	if err != nil {

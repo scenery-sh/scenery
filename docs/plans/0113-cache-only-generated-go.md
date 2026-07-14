@@ -37,12 +37,18 @@ After this plan is complete:
 
 ## Progress
 
-- [ ] Slice A: build/check independence from materialized generated Go files.
-- [ ] Slice B: editor contract modules, Scenery-owned root `go.work`, mandatory
+- [x] Slice A: build/check independence from materialized generated Go files.
+- [x] Slice B: editor contract modules, Scenery-owned root `go.work`, mandatory
       refresh, ownership protocol, source-input exclusion.
-- [ ] Slice C: verified pruning of legacy materialized artifacts, default flip,
+- [x] Slice C: verified pruning of legacy materialized artifacts, default flip,
       workspace-revision recomposition, plan invalidation and receipt rebind.
-- [ ] Slice D: TypeScript client `materialization = "cache" | "source"`.
+- [x] Slice D: TypeScript client `materialization = "cache" | "source"`.
+- [x] 2026-07-14 - Migrated ONLV: authenticated and removed 43 generated Go
+      trees, refreshed its current provider lock and source-materialized
+      TypeScript SDK, and proved check/raw Go/Scenery test/build/detached up.
+- [x] 2026-07-14 - Final validation: `go test ./...` passed in 46.30s using
+      the ordinary cache policy; TypeScript conformance (16 tests) and generated
+      client typecheck passed; self-harness functional lanes passed.
 - [x] 2026-07-14 - Design review completed against the current implementation
       (generator, check, overlay verification, build workspace sync, revision
       composition, receipt structure). ExecPlan authored. Implementation not
@@ -82,6 +88,10 @@ After this plan is complete:
 - `internal/parse/analysis.go` already sets `GOWORK=off` in its hermetic Go
   environment, providing the precedent for making that invariant explicit in
   build, test, and harness child processes.
+- ONLV exposed that the external test workspace must contain the app config and
+  ordinary Go `testdata` trees, not only Go/C/embed inputs. Without them,
+  package initialization could not discover `.scenery.json` and non-embedded
+  golden fixtures disappeared. The source sync now includes both categories.
 
 ## Decision Log
 
@@ -154,7 +164,25 @@ After this plan is complete:
 
 ## Outcomes & Retrospective
 
-Not yet completed.
+Completed on 2026-07-14. Ordinary Scenery compilation no longer reads or
+writes materialized generated Go. Build/test/up inject one deterministic render
+into the external workspace, while editor contract modules retain original Go
+import identity through an ownership-verified root `go.work`. Exclusive and
+explicit tagged-merge ownership both fail closed on user divergence, and all
+hermetic Go children ignore ambient workspaces.
+
+The one-time migration is safe and observable: current and final legacy
+descriptors are accepted only with normalized owned paths, generated markers,
+and a matching aggregate digest. Source materialization is now an explicit
+`--target contracts --materialize` export. Workspace revisions exclude derived
+roots, pending old-scheme plans report `revision_scheme_changed`, and immutable
+rename receipts can be supplemented only by projection-matching rebinds.
+
+ONLV acceptance removed 43 generated directories without touching authored
+files. `scenery check`, raw `go test ./...`, `scenery test ./...`, and
+`scenery build --target development` passed; detached `up --wait ready`
+returned ready and the application frontend returned HTTP 200. Repeating check
+did not change Git status and no generated Go directory reappeared.
 
 ## Context and Orientation
 
@@ -439,7 +467,7 @@ successful top-level compile:
 Ownership sidecar (Slice B), `.scenery/editor/go-work-owner.json`:
 
     { "path": "go.work", "digest": "sha256:...",
-      "application": "...", "generator": "scenery.editor-workspace/v1" }
+      "application": "...", "generator": "scenery.editor-workspace" }
 
 Rebind evidence (Slice C), `internal/evolution`:
 
@@ -453,7 +481,7 @@ Rebind evidence (Slice C), `internal/evolution`:
         Digest                 string
     }
 
-CLI surface changes: `scenery generate --target contracts [--materialize]`;
+CLI surface changes: `scenery generate --target contracts --materialize`;
 `scenery generate --prune-materialized-go` (name final at implementation);
 new `scenery doctor` checks (workfile ownership conflict, parent `go.work`
 shadowing, editor cache behind last valid revision); no new environment

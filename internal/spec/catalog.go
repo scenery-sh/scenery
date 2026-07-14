@@ -72,9 +72,9 @@ func CurrentSemanticRevisions() SemanticRevisions {
 		Expansion:            "sha256:a1ff16940d253b7c290e5e5f4f9af146fae30bad0e2cf00a887d30b8dd8a8dd1",
 		ReferenceResolution:  "sha256:7ecc0fc75e31d0a9a6c69ba50ae2817b69f0ae9447d7648b2188d9786724e89b",
 		ContractProjection:   "sha256:35bf6a93c2b8acbf829a6253c7aba39bedb6d41c708ec213f5454a1bbf455fcc",
-		EvolutionRules:       "sha256:0a70ca1cfe1861065897ee0d3e947670e11b38acf06f260ba23e589a70abd056",
-		GoGeneration:         "sha256:5f5535c40936b12763bcb7df26169c98717ea065227898cd4a13808d42625459",
-		TypeScriptGeneration: "sha256:63cb18ae655c3cf82f9a218fb02a698ab2e59ec11cfad67d1e90cda293d3ee62",
+		EvolutionRules:       "sha256:b143c9be9c74f9c3542a56d7ea4dd92ca05dd711a472cc4c3f24dc51e81ce481",
+		GoGeneration:         "sha256:ab020bfc57f634dcdcb0931903ab6a636ae4f77fbf9d5749a348a44ac73ab7a7",
+		TypeScriptGeneration: "sha256:2a1b69452d78d29a4058b5bd657d0fe73ef63fc0c39f873c249e310f9f03f620",
 	}
 }
 

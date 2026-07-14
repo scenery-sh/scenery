@@ -300,6 +300,9 @@ func ApplyChangePlan(root string, plan ChangePlan, expectedWorkspace, expectedCo
 }
 
 func ApplyChangePlanWithOptions(root string, plan ChangePlan, options ApplyOptions) (ChangeReceipt, error) {
+	if !machine.UsesCurrentSpec(plan.ArtifactIdentity) {
+		return ChangeReceipt{}, fmt.Errorf("failed_precondition: revision_scheme_changed: pending change plan must be recreated with the current Scenery CLI")
+	}
 	if err := machine.ValidateArtifactIdentity(plan.ArtifactIdentity, changePlanKind, changePlanSchemaDescriptor, "re-plan"); err != nil {
 		return ChangeReceipt{}, fmt.Errorf("failed_precondition: %w", err)
 	}

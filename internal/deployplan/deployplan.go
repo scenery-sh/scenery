@@ -255,6 +255,9 @@ func PlanDeployment(ctx context.Context, root string, request DeploymentPlanRequ
 }
 
 func ApplyDeploymentPlan(ctx context.Context, root string, plan DeploymentPlan, options DeploymentApplyOptions, providers DeploymentProviderRegistry) (DeploymentReceipt, error) {
+	if !machine.UsesCurrentSpec(plan.ArtifactIdentity) {
+		return DeploymentReceipt{}, fmt.Errorf("failed_precondition: revision_scheme_changed: pending deployment plan must be recreated with the current Scenery CLI")
+	}
 	if err := machine.ValidateArtifactIdentity(plan.ArtifactIdentity, deploymentPlanKind, deploymentPlanSchemaDescriptor, "re-plan"); err != nil {
 		return DeploymentReceipt{}, fmt.Errorf("failed_precondition: %w", err)
 	}

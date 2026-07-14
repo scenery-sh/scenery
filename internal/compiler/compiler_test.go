@@ -264,7 +264,7 @@ go_target "development" {
 	}
 }
 
-func TestWorkspaceRevisionIncludesOnlyDescriptorOwnedGeneratedFiles(t *testing.T) {
+func TestWorkspaceRevisionExcludesManagedGeneratedFiles(t *testing.T) {
 	temp := t.TempDir()
 	copyTree(t, filepath.Join("testdata", "house"), temp)
 	rootSource := filepath.Join(temp, "scenery.scn")
@@ -313,8 +313,8 @@ func TestWorkspaceRevisionIncludesOnlyDescriptorOwnedGeneratedFiles(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ownedChanged.WorkspaceRevision == base.WorkspaceRevision {
-		t.Fatal("descriptor-owned generated file did not change workspace revision")
+	if ownedChanged.WorkspaceRevision != base.WorkspaceRevision {
+		t.Fatal("descriptor-owned generated file changed authored workspace revision")
 	}
 }
 

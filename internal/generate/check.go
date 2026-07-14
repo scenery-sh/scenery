@@ -16,10 +16,9 @@ func Check(result *compiler.Result) CheckResult {
 	if result == nil || !result.Valid() {
 		return check
 	}
-	if _, err := generateGoContractsFromResult(result, true); err != nil {
-		check.Diagnostics = append(check.Diagnostics, Diagnostic{Code: "SCN6203", Severity: "error", Message: err.Error()})
-	}
-	if _, err := generateTypeScriptClientsFromResult(result, "", true); err != nil {
+	if files, err := renderTypeScriptClientFilesByMode(result, "", true); err != nil {
+		check.Diagnostics = append(check.Diagnostics, Diagnostic{Code: "SCN6204", Severity: "error", Message: err.Error()})
+	} else if _, err := finishGeneratedFiles(result.Root, files, true, "generated TypeScript clients are stale"); err != nil {
 		check.Diagnostics = append(check.Diagnostics, Diagnostic{Code: "SCN6204", Severity: "error", Message: err.Error()})
 	}
 	check.Diagnostics = append(check.Diagnostics, VerifyImplementation(result)...)

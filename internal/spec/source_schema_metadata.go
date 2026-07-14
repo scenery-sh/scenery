@@ -76,6 +76,7 @@ var authoredFieldOverrides = map[authoredFieldKey]authoredFieldOverride{
 	{Revision: "scenery.deployment.http-listener", Name: "http_versions"}:             {Ordered: true},
 	{Revision: "scenery.source.typescript_client", Name: "module"}:                    {Constraints: enumConstraint("esm")},
 	{Revision: "scenery.source.typescript_client", Name: "runtime"}:                   {Constraints: enumConstraint("fetch")},
+	{Revision: "scenery.source.typescript_client", Name: "materialization"}:           {Default: "source", DefaultSource: "spec", Constraints: enumConstraint("cache", "source")},
 	{Revision: "scenery.typescript-client.retry", Name: "policy"}:                     {Constraints: enumConstraint("scenery.retry.idempotent")},
 	{Revision: "scenery.typescript-client.retry", Name: "maximum_attempts"}:           {Constraints: map[string]any{"minimum": 2, "maximum": 10}},
 	{Revision: "scenery.typescript-client.retry", Name: "maximum_delay_milliseconds"}: {Constraints: map[string]any{"maximum": 86_400_000}},

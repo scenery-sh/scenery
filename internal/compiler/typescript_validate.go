@@ -36,6 +36,9 @@ func validateTypeScriptTarget(target Resource, resources []Resource) []Diagnosti
 	if target.Spec["runtime"] != "fetch" {
 		diagnostic("SCN6302", "TypeScript client runtime must be fetch")
 	}
+	if materialization := defaultString(stringValue(target.Spec["materialization"]), "source"); materialization != "source" && materialization != "cache" {
+		diagnostic("SCN6306", "TypeScript client materialization must be source or cache")
+	}
 	packageName, _ := target.Spec["package"].(string)
 	if packageName == "" || strings.ContainsAny(packageName, " \\") {
 		diagnostic("SCN6303", "TypeScript client package name is invalid")

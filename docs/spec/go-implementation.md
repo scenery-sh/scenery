@@ -643,7 +643,7 @@ A package Go-surface change creates a new package ABI revision when the mapping 
 
 ## 19. Generated ownership
 
-Generated artifacts are projections, never declaration sources. They live only beneath declared managed-generated roots, contain generated markers, and are replaced atomically as complete descriptor-covered sets.
+Generated artifacts are projections, never declaration sources. Ordinary Go contracts, adapters, composition, descriptors, and generated runtime entrypoints live in Scenery's external content-addressed build/editor caches. Explicit published-module exports live beneath declared managed-generated roots, contain generated markers, and are replaced atomically as complete descriptor-covered sets.
 
 Agents and humans MUST NOT edit generated artifacts to change semantics. They edit `.scn` declarations or implementation source and regenerate.
 
@@ -651,15 +651,13 @@ Unknown files beneath generated roots are not adopted implicitly.
 
 ## 20. Clean clone and editor workflow
 
-For every workspace-local Go implementation package, its module-owned `scenerycontract` package and detached descriptor MUST be deterministically materialized and committed. A clean clone can therefore run ordinary `go test ./...` and provide types to `gopls` without starting Scenery or generating into the source tree first.
+For every workspace-local Go implementation package, Scenery MUST render its module-owned `scenerycontract` package into an external editor-cache module that declares the original import identity. After each successful top-level compilation Scenery atomically refreshes a machine-local root `go.work` whose exact content is protected by an app-local ownership record. It MUST NOT replace a tracked, pre-existing, or digest-diverged workfile. Owned workfiles are locally excluded from Git and omitted from workspace snapshots, watches, revisions, and hermetic builds.
 
-`scenery check` generates the expected contract and adapters in an overlay, compares descriptor-covered on-disk contract bytes, and reports stale or missing committed contracts as implementation diagnostics. It still type-checks against the overlay and never mutates files.
+`scenery check` renders expected contracts and adapters in memory, verifies implementations through an overlay, and never requires or writes materialized Go in the source checkout. `scenery test`, `scenery build`, and `scenery up` inject the same rendered set into the external build workspace. Every Scenery-spawned hermetic Go command uses `GOWORK=off`; the managed workfile exists only for editors and direct user Go commands.
 
-`scenery generate` atomically refreshes committed contract packages and other selected generated artifacts. `scenery generate --check` exits nonzero when committed bytes differ and is the required CI clean-tree check. Application adapters may be committed or build-generated according to project policy, but their descriptor ownership and staleness rules are identical.
+`scenery generate --target contracts --materialize` atomically exports descriptor-covered contract and application artifacts for published modules. `scenery generate --prune-materialized-go` recognizes current and final `.v1.json` descriptors but deletes only safe relative paths whose bytes match the descriptor digest and carry a Scenery generated-file marker; any unverifiable or modified artifact fails closed.
 
-During unsaved or not-yet-generated `.scn` edits, a Scenery language server SHOULD expose the verified overlay to `gopls` through supported editor integration. Without overlay integration, `gopls` sees the last committed contract and the editor displays a clear stale-generation status rather than silently mixing revisions.
-
-Generated descriptors record the source contract/package ABI revisions, so stale artifacts are always detectable. A stale generated contract is an error for check/build and a warning-level editor state only while the user is actively editing.
+If compilation fails, the last-known-good editor generation remains active and `scenery doctor` reports that it represents a prior valid contract. The cache retains one prior complete generation for editor continuity and can be regenerated deterministically after deletion or checkout relocation.
 
 Registry packages ship their contract package and descriptor as part of the immutable artifact.
 

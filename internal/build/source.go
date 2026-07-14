@@ -8,12 +8,14 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
 	"golang.org/x/mod/modfile"
 
 	"scenery.sh/internal/app"
+	"scenery.sh/internal/generate"
 )
 
 func copyTree(src, dst string) error {
@@ -31,7 +33,7 @@ func copyTree(src, dst string) error {
 		if d.IsDir() && (shouldSkipDir(rel) || shouldSkipRuntimeArtifactDir(rel)) {
 			return filepath.SkipDir
 		}
-		if !d.IsDir() && shouldSkipFile(rel) {
+		if !d.IsDir() && (shouldSkipFile(rel) || generate.IsManagedEditorWorkFile(src, rel)) {
 			return nil
 		}
 		if shouldSkipSymlink(path, d) {
@@ -66,7 +68,7 @@ func syncSourceFilesWithSnapshot(root, appRoot string, prevStamps map[string]Sou
 	if snapshot == nil {
 		return syncSourceFilesFromDisk(root, appRoot, prevStamps, skip)
 	}
-	currentFiles := snapshotSourceFiles(snapshot)
+	currentFiles := snapshotSourceFilesForRoot(appRoot, snapshot)
 	stamps := make(map[string]SourceStamp, len(currentFiles))
 	for _, rel := range currentFiles {
 		stamp := sourceStampFromSnapshot(snapshot.Files[rel])
@@ -211,6 +213,9 @@ func listSourceFiles(appRoot string) ([]string, error) {
 			return nil
 		}
 		rel = filepath.ToSlash(rel)
+		if generate.IsManagedEditorWorkFile(appRoot, rel) {
+			return nil
+		}
 		files[rel] = struct{}{}
 		if filepath.Ext(rel) == ".go" {
 			if err := addAppEmbeddedFiles(appRoot, rel, files); err != nil {
@@ -228,6 +233,9 @@ func listSourceFiles(appRoot string) ([]string, error) {
 func isGoWorkspaceSourceFile(rel string) bool {
 	rel = filepath.ToSlash(rel)
 	base := filepath.Base(rel)
+	if app.IsConfigFilename(base) || pathHasSegment(rel, "testdata") {
+		return true
+	}
 	switch base {
 	case "go.mod", "go.sum", "go.work", "go.work.sum":
 		return true
@@ -238,6 +246,15 @@ func isGoWorkspaceSourceFile(rel string) bool {
 	default:
 		return false
 	}
+}
+
+func pathHasSegment(path, want string) bool {
+	for _, segment := range strings.Split(filepath.ToSlash(path), "/") {
+		if segment == want {
+			return true
+		}
+	}
+	return false
 }
 
 func addAppEmbeddedFiles(appRoot, goRel string, files map[string]struct{}) error {
@@ -277,7 +294,7 @@ func currentAppSourceFingerprintWithSnapshot(appRoot string, snapshot *SourceSna
 			_, _ = h.Write([]byte{0})
 		}
 	}
-	for _, rel := range snapshotSourceFiles(snapshot) {
+	for _, rel := range snapshotSourceFilesForRoot(appRoot, snapshot) {
 		file := snapshot.Files[rel]
 		_, _ = h.Write([]byte(rel))
 		_, _ = h.Write([]byte{0})
@@ -348,6 +365,16 @@ func snapshotSourceFiles(snapshot *SourceSnapshot) []string {
 	}
 	sort.Strings(files)
 	return files
+}
+
+func snapshotSourceFilesForRoot(appRoot string, snapshot *SourceSnapshot) []string {
+	files := snapshotSourceFiles(snapshot)
+	if !generate.InspectEditorWorkspace(appRoot).Managed {
+		return files
+	}
+	return slices.DeleteFunc(files, func(relative string) bool {
+		return generate.IsManagedEditorWorkFile(appRoot, relative)
+	})
 }
 
 func shouldSkipDir(rel string) bool {

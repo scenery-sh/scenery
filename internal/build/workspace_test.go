@@ -94,7 +94,9 @@ func TestListSourceFilesSkipsLocalSecretsAndArtifacts(t *testing.T) {
 	writeBuildTestFile(t, root, "go.sum", "")
 	writeBuildTestFile(t, root, "svc/api.go", "package svc\n\nimport \"embed\"\n\n//go:embed assets/logo.png\nvar _ embed.FS\n")
 	for _, rel := range []string{
+		".scenery.json",
 		"svc/assets/logo.png",
+		"svc/testdata/request.json",
 		"assets/unembedded-logo.png",
 		"docs/readme.md",
 		"var/atlas/plans/2026-06-01-atlas-apply-dry-run.txt",
@@ -115,12 +117,12 @@ func TestListSourceFilesSkipsLocalSecretsAndArtifacts(t *testing.T) {
 		t.Fatalf("listSourceFiles() error = %v", err)
 	}
 	got := strings.Join(files, "\n")
-	for _, want := range []string{"go.mod", "go.sum", "svc/api.go", "svc/assets/logo.png"} {
+	for _, want := range []string{".scenery.json", "go.mod", "go.sum", "svc/api.go", "svc/assets/logo.png", "svc/testdata/request.json"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("source files missing %s: %v", want, files)
 		}
 	}
-	for _, unwanted := range []string{"assets/unembedded-logo.png", "docs/readme.md", "var/atlas/plans", ".env", ".env.local", ".DS_Store", "__MACOSX", "node_modules", ".scenery", ".git", "coverage"} {
+	for _, unwanted := range []string{"assets/unembedded-logo.png", "docs/readme.md", "var/atlas/plans", ".env", ".env.local", ".DS_Store", "__MACOSX", "node_modules", ".scenery/", ".git", "coverage"} {
 		if strings.Contains(got, unwanted) {
 			t.Fatalf("source files included %s: %v", unwanted, files)
 		}
@@ -193,7 +195,7 @@ func Ping(context.Context) (*Response, error) {
 		"var/browser",
 		"var/chrome",
 		"var/playwright",
-		".scenery",
+		".scenery/",
 	}, socketPaths...) {
 		if strings.Contains(got, unwanted) {
 			t.Fatalf("source files included %s: %v", unwanted, files)

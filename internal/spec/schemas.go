@@ -52,7 +52,7 @@ var resourceSchemas = map[string]resourceSchema{
 	}},
 	"scenery.secret":            {"deployment", []string{"store", "key"}, []string{"store", "key"}, nil},
 	"scenery.deployment":        {"deployment", []string{"environment"}, []string{"environment", "fixture_policy"}, nil},
-	"scenery.typescript-client": {"implementation", []string{"gateways", "package", "module", "runtime", "output_root"}, []string{"gateways", "package", "module", "runtime", "output_root", "typescript_version", "javascript_target", "include"}, nil},
+	"scenery.typescript-client": {"implementation", []string{"gateways", "package", "module", "runtime", "output_root"}, []string{"gateways", "package", "module", "runtime", "output_root", "materialization", "typescript_version", "javascript_target", "include"}, nil},
 	"scenery.patch":             {"workspace_only", []string{"target", "schema", "expect", "set"}, []string{"target", "schema"}, nil},
 	"scenery.module": {"workspace_only", []string{"source"}, []string{"source", "inputs"}, map[string]string{
 		"package": "contract", "interface_inputs": "contract", "exports": "contract", "export_metadata": "contract", "workspace_package_root": "workspace_only",

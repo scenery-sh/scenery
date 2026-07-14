@@ -40,13 +40,54 @@ func GenerateTypeScriptClientsFromResult(result *compiler.Result, selector strin
 	return generateTypeScriptClientsFromResult(result, selector, check)
 }
 
-func renderTypeScriptClientFiles(result *Result, selector string) ([]generatedFile, error) {
+// SyncCachedTypeScriptClients refreshes only cache-materialized clients. It is
+// safe for ordinary build/test/up orchestration because every write remains
+// beneath app-local .scenery state.
+func SyncCachedTypeScriptClients(result *compiler.Result) (GenerateResult, error) {
+	if result == nil || !result.Valid() || result.Manifest == nil {
+		return GenerateResult{}, nil
+	}
+	var files []generatedFile
 	for _, target := range typescriptTargets(result.Manifest.Resources, "") {
-		if _, err := managedTypeScriptOutputRoot(result, stringValue(target.Spec["output_root"])); err != nil {
+		if typeScriptMaterialization(target) != "cache" {
+			continue
+		}
+		targetFiles, err := renderTypeScriptTarget(result, target)
+		if err != nil {
+			return GenerateResult{}, err
+		}
+		outputRoot, err := typeScriptOutputRoot(result, target)
+		if err != nil {
+			return GenerateResult{}, err
+		}
+		if pathExists(outputRoot) {
+			targetFiles, err = includeStaleGeneratedFiles(outputRoot, targetFiles, map[string]bool{"scenery.typescript-client-generated.json": true}, nil)
+			if err != nil {
+				return GenerateResult{}, err
+			}
+		}
+		files = append(files, targetFiles...)
+	}
+	return finishGeneratedFiles(result.Root, files, false, "generated TypeScript cache is stale")
+}
+
+func renderTypeScriptClientFiles(result *Result, selector string) ([]generatedFile, error) {
+	return renderTypeScriptClientFilesByMode(result, selector, false)
+}
+
+func renderTypeScriptClientFilesByMode(result *Result, selector string, sourceOnly bool) ([]generatedFile, error) {
+	for _, target := range typescriptTargets(result.Manifest.Resources, "") {
+		if sourceOnly && typeScriptMaterialization(target) != "source" {
+			continue
+		}
+		if _, err := typeScriptOutputRoot(result, target); err != nil {
 			return nil, fmt.Errorf("TypeScript client %s: %w", target.Name, err)
 		}
 	}
 	targets := typescriptTargets(result.Manifest.Resources, selector)
+	if sourceOnly {
+		targets = sourceTypeScriptTargets(targets)
+	}
 	if selector != "" && len(targets) == 0 {
 		return nil, fmt.Errorf("TypeScript client target %q not found", selector)
 	}
@@ -68,7 +109,10 @@ func renderTypeScriptClientFiles(result *Result, selector string) ([]generatedFi
 			if selected[target.Address] {
 				continue
 			}
-			outputRoot := filepath.Join(result.Root, filepath.FromSlash(stringValue(target.Spec["output_root"])))
+			outputRoot, rootErr := typeScriptOutputRoot(result, target)
+			if rootErr != nil {
+				return nil, rootErr
+			}
 			protectedDescriptors[filepath.Clean(filepath.Join(outputRoot, "scenery.typescript-client-generated.json"))] = true
 		}
 	}
@@ -78,6 +122,20 @@ func renderTypeScriptClientFiles(result *Result, selector string) ([]generatedFi
 		return nil, err
 	}
 	return files, nil
+}
+
+func sourceTypeScriptTargets(targets []Resource) []Resource {
+	result := targets[:0]
+	for _, target := range targets {
+		if typeScriptMaterialization(target) == "source" {
+			result = append(result, target)
+		}
+	}
+	return result
+}
+
+func typeScriptMaterialization(target Resource) string {
+	return defaultString(stringValue(target.Spec["materialization"]), "source")
 }
 
 func typescriptTargets(resources []Resource, selector string) []Resource {
@@ -96,7 +154,7 @@ func renderTypeScriptTarget(result *Result, target Resource) ([]generatedFile, e
 	if !ok || outputRoot == "" {
 		return nil, fmt.Errorf("TypeScript client %s requires output_root", target.Name)
 	}
-	root, err := managedTypeScriptOutputRoot(result, outputRoot)
+	root, err := typeScriptOutputRoot(result, target)
 	if err != nil {
 		return nil, err
 	}
@@ -119,6 +177,16 @@ func renderTypeScriptTarget(result *Result, target Resource) ([]generatedFile, e
 	b, _ := json.MarshalIndent(descriptor, "", "  ")
 	files = append(files, generatedFile{Path: filepath.Join(root, "scenery.typescript-client-generated.json"), Bytes: append(b, '\n')})
 	return files, nil
+}
+
+func typeScriptOutputRoot(result *Result, target Resource) (string, error) {
+	if typeScriptMaterialization(target) == "cache" {
+		if result == nil || target.Name == "" || strings.ContainsAny(target.Name, `/\\`) {
+			return "", fmt.Errorf("TypeScript cache target name is invalid")
+		}
+		return filepath.Join(result.Root, ".scenery", "gen", "typescript", target.Name), nil
+	}
+	return managedTypeScriptOutputRoot(result, stringValue(target.Spec["output_root"]))
 }
 
 func managedTypeScriptOutputRoot(result *Result, outputRoot string) (string, error) {

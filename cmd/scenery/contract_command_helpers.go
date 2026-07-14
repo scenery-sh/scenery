@@ -83,6 +83,11 @@ func checkCompiledContract(root string) (*compiler.Result, error) {
 		return result, err
 	}
 	generate.ApplyCheck(result, generate.Check(result))
+	if result.Valid() {
+		if err := generate.SyncEditorWorkspace(result); err != nil {
+			return result, err
+		}
+	}
 	return result, nil
 }
 

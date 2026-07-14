@@ -42,6 +42,26 @@ func PrepareWithSnapshot(appRoot string, model *model.App, cfg app.Config, snaps
 }
 
 func prepareWithContractTarget(appRoot string, model *model.App, cfg app.Config, snapshot *SourceSnapshot, contract *compiler.Result, target compiler.GoBuildTarget) (*Result, error) {
+	if err := generate.SyncEditorWorkspace(contract); err != nil {
+		return nil, err
+	}
+	if _, err := generate.SyncCachedTypeScriptClients(contract); err != nil {
+		return nil, err
+	}
+	renderedGo, err := generate.RenderGoWorkspaceFiles(contract)
+	if err != nil {
+		return nil, err
+	}
+	if model == nil {
+		overlay, overlayErr := generate.GoVerificationOverlay(contract)
+		if overlayErr != nil {
+			return nil, overlayErr
+		}
+		model, err = parse.AnalyzeTarget(appRoot, cfg.Name, overlay, target.Context)
+		if err != nil {
+			return nil, err
+		}
+	}
 	runtimePlan, err := generate.BuildRuntimeIntegrationPlan(contract)
 	if err != nil {
 		return nil, err
@@ -53,6 +73,12 @@ func prepareWithContractTarget(appRoot string, model *model.App, cfg app.Config,
 	gen, err := codegen.Generate(model, cfg, runtimePlan.CompositionImport)
 	if err != nil {
 		return nil, err
+	}
+	for relative, contents := range renderedGo {
+		if _, exists := gen.Generated[relative]; exists {
+			return nil, fmt.Errorf("generated artifact path collision: %s", relative)
+		}
+		gen.Generated[relative] = contents
 	}
 
 	workspaceDir, err := workspaceDir(appRoot, cfg.Name)
@@ -78,7 +104,11 @@ func prepareWithContractTarget(appRoot string, model *model.App, cfg app.Config,
 	if err != nil {
 		return nil, err
 	}
-	sourceFiles, sourceStamps, err := syncSourceFilesWithSnapshot(workspaceDir, appRoot, state.SourceStamps, nil, snapshot)
+	generatedPaths := make(map[string]struct{}, len(gen.Generated))
+	for relative := range gen.Generated {
+		generatedPaths[filepath.ToSlash(relative)] = struct{}{}
+	}
+	sourceFiles, sourceStamps, err := syncSourceFilesWithSnapshot(workspaceDir, appRoot, state.SourceStamps, generatedPaths, snapshot)
 	if err != nil {
 		return nil, err
 	}

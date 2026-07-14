@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 
 	"scenery.sh/internal/build"
-	"scenery.sh/internal/model"
-	"scenery.sh/internal/parse"
 )
 
 type devRuntimePlan struct {
@@ -49,7 +47,6 @@ func devBuildError(metadata, apiEncoding json.RawMessage, err error) error {
 
 func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool, snapshot fileSnapshot) (*devRuntimePlan, error) {
 	var (
-		appModel    *model.App
 		metadata    json.RawMessage
 		apiEncoding json.RawMessage
 		result      *build.Result
@@ -71,8 +68,7 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 				return nil
 			}
 		}
-		appModel, err = parseDevApp(s.root, s.cfg.Name)
-		return err
+		return nil
 	}); err != nil {
 		return nil, devBuildError(nil, nil, err)
 	}
@@ -97,18 +93,12 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 			if reused {
 				return nil
 			}
-			if appModel == nil {
-				appModel, err = parseDevApp(s.root, s.cfg.Name)
-				if err != nil {
-					return err
-				}
-			}
 			metadata, apiEncoding, err = buildDevMetadata(s.root)
 			if err != nil {
 				return err
 			}
 		}
-		result, err = build.PrepareWithSnapshot(s.root, appModel, s.cfg, sourceSnapshot)
+		result, err = build.PrepareWithSnapshot(s.root, nil, s.cfg, sourceSnapshot)
 		if err == nil && result != nil {
 			result.GraphFingerprint = graphFingerprint
 			result.Metadata = append(json.RawMessage(nil), metadata...)
@@ -149,8 +139,4 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 		APIEncoding: apiEncoding,
 		Initial:     initial,
 	}, nil
-}
-
-func parseDevApp(root, name string) (*model.App, error) {
-	return parse.Analyze(root, name)
 }

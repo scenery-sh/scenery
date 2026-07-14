@@ -25,6 +25,7 @@ import (
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/build"
 	"scenery.sh/internal/envpolicy"
+	"scenery.sh/internal/generate"
 	"scenery.sh/internal/watchignore"
 )
 
@@ -565,6 +566,9 @@ func scanWatchedFiles(root string) (fileSnapshot, error) {
 		if shouldIgnoreWatchPathWithMatcher(rel, false, ignore) {
 			return nil
 		}
+		if generate.IsManagedEditorWorkFile(root, rel) {
+			return nil
+		}
 		if !isWatchedFile(rel) {
 			return nil
 		}
@@ -870,6 +874,9 @@ func (fw *fileChangeWatcher) handleEvent(event fsnotify.Event) {
 		return
 	}
 	if shouldIgnoreWatchPathWithMatcher(rel, false, fw.ignore) {
+		return
+	}
+	if generate.IsManagedEditorWorkFile(fw.root, rel) {
 		return
 	}
 	if event.Has(fsnotify.Create) {

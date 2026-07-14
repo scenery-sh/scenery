@@ -93,6 +93,7 @@ scenery is a Go-native service runtime and local development platform. Think in 
 
 - App roots are marked by `.scenery.json`.
 - `.scn` source is the singular current app model. Root `scenery.scn` installs package-local `scenery.package.scn` modules; Go source implements the generated native contracts but is not scanned for declarations.
+- Generated Go contracts, adapters, composition, descriptors, and entrypoints live in external build/editor caches. Successful compilation maintains an ownership-verified, locally excluded root `go.work` for raw Go/editor resolution; source materialization is explicit export mode only.
 - The compiler exposes source/effective/expanded graphs and separate workspace, contract, implementation, deployment, and artifact revisions. Source retains authored expressions, effective resolves inputs/defaults/patches, expanded adds generators, and every provenance key is an RFC 6901 pointer into that view's resource spec.
 - `scenery task run <domain>:<name> -- [args...]` runs an app-local code task.
 - `scenery worker` builds once and starts a worker-role runtime for declared durable executions and schedules.
@@ -110,7 +111,9 @@ scenery is a Go-native service runtime and local development platform. Think in 
 - Agent capabilities expose exact `resource_create_kinds`; `scenery schema` / `schema.get` provide the recursive authored shape, and semantic creation must reject unadvertised kinds instead of guessing blocks, labels, or source destinations.
 - Mutation plans normalize typed values/references and resolved kind/schema identities before hashing. Planning retains the exact canonical plan under app-local trusted state, and apply rejects caller-recomputed plans before trusting expiry, approvals, operations, edits, or provider actions. Approval-bearing migration transitions use `--out <plan>` followed by `migrate apply <plan>` so the detached token binds the exact issued plan instead of a replanned expiry. Semantic renames emit revision-bound, digest-checked plan/apply receipts, including migration-manifest references and containing-module descendants; later diffs load matching app-local receipts or accept `--rename-receipts` explicitly.
 
-Do not add deprecated non-scenery APIs or compatibility aliases unless an active plan explicitly requires compatibility.
+Scenery does not have legacy support. It has **one rolling Scenery specification, one compiler, one runtime path, and one machine protocol—the ones shipped by the current Scenery binary.**
+
+Do not add deprecated APIs, compatibility aliases, old decoders, or fallback runtime paths.
 
 ## Engineering Rules
 

@@ -130,10 +130,22 @@ func normalizeOptions(opts Options) (Options, error) {
 	if opts.Env == nil {
 		opts.Env = envpolicy.Environ()
 	}
+	opts.Env = environmentWithOverride(opts.Env, "GOWORK", "off")
 	if err := os.MkdirAll(opts.CacheDir, 0o755); err != nil {
 		return Options{}, err
 	}
 	return opts, nil
+}
+
+func environmentWithOverride(environment []string, name, value string) []string {
+	prefix := name + "="
+	result := make([]string, 0, len(environment)+1)
+	for _, entry := range environment {
+		if !strings.HasPrefix(entry, prefix) {
+			result = append(result, entry)
+		}
+	}
+	return append(result, prefix+value)
 }
 
 func prepare(ctx context.Context, opts Options) (cacheManifest, bool, int, error) {

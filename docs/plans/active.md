@@ -7,11 +7,6 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
-- [0113 Cache-Only Generated Go Artifacts](0113-cache-only-generated-go.md)
-  - Status: active
-  - Owner: scenery generate / build / evolution
-  - Created: 2026-07-14
-  - Focus: remove materialized `<pkg>/scenerycontract/` and `internal/scenerygen/` from application checkouts — stable Go import identities, pure in-memory rendering injected into the external build workspace, external editor contract modules bridged by a Scenery-owned machine-local root `go.work`, verified pruning, and a workspace-revision recomposition with explicit pending-plan invalidation and rename-receipt rebind.
 - [0101 Public Deploy Edge](0101-public-deploy-edge.md)
   - Status: active
   - Owner: scenery runtime / edge

@@ -151,7 +151,6 @@ workspace {
     path = "."
     revision_include = ["**/*.go", "go.mod"]
   }
-  managed_generated_roots = ["service/scenerycontract", "internal/scenerygen"]
 }
 
 go_module "application" {
@@ -348,7 +347,7 @@ scenery check [--app-root <path>] -o json
 scenery compile [--app-root <path>] [--view source|effective|expanded] -o json
 scenery list|get|explain|graph ... [--app-root <path>] -o json
 scenery diff --semantic BASE TARGET [--rename-receipts <path>] -o json
-scenery generate [--app-root <path>] [--target go|contracts|typescript_client.<name>] [--check] -o json
+scenery generate [--app-root <path>] [--target contracts|typescript_client.<name>] [--materialize] [--prune-materialized-go] [--merge-editor-workspace] [--check] -o json
 scenery changes plan|apply ... -o json
 scenery generate sqlc [--app-root <path>] [--dry-run] [-o json]
 scenery task list [--app-root <path>] [-o json]
@@ -410,7 +409,7 @@ See [docs/local-contract.md](docs/local-contract.md) for the full command contra
 
 ## TypeScript Client Generation
 
-Declare each TypeScript target in `scenery.scn`, keep its `output_root` beneath a declared managed generated root, then run:
+Declare each TypeScript target in `scenery.scn`. Use `materialization = "source"` with an `output_root` beneath a declared managed generated root for a checked-in SDK, or `materialization = "cache"` for disposable output under `.scenery/gen/typescript/<name>`, then run:
 
 ```sh
 scenery inspect endpoints -o json

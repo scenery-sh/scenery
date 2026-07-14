@@ -5,7 +5,7 @@ export const sceneryClientMetadata = freezeMetadata({
     "house/binding/process_scene_http"
   ],
   "compatibilityCatalog": "scenery.compatibility-core",
-  "contractRevision": "sha256:1fd62db00ac84b74cc80b7a04e0bae8975bd97e79d44662b85a110169b0347de",
+  "contractRevision": "sha256:0cbdc227942f50be1e7155c5be5cc86c95eac987f5a2e0b9a891282b39f29108",
   "gateways": [
     "http_gateway.public_api"
   ],
@@ -24,5 +24,5 @@ export const sceneryClientMetadata = freezeMetadata({
     "house/record/process_scene_result"
   ],
   "target": "app/typescript_client/public_api",
-  "typescriptClientRevision": "sha256:4225a6f07f32fb1cd1ec52f0fba598a1c35468729ebfaa5f4e731e7c40a0ccea"
+  "typescriptClientRevision": "sha256:e3e81eddcbc20a35cff41244bbcdbd4a13b5421fe47c85cb5f8f19aaa86f3ea6"
 } as const);

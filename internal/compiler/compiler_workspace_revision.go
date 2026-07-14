@@ -184,15 +184,6 @@ func declaredWorkspaceEntries(root string, sources []*Source) (map[string][]byte
 			entries[clean] = data
 		}
 	}
-	for _, managedRoot := range literalStringList(workspace, "managed_generated_roots") {
-		generatedEntries, err := managedGeneratedEntries(root, managedRoot)
-		if err != nil {
-			return nil, err
-		}
-		for path, data := range generatedEntries {
-			entries[path] = data
-		}
-	}
 	return entries, nil
 }
 

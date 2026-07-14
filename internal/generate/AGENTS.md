@@ -9,7 +9,12 @@ TypeScript clients, OpenAPI documents, and their generated-file transactions.
 
 - Consume immutable `internal/compiler.Result` and canonical `internal/graph`
   resources; never depend on legacy umbrella packages.
-- Render every selected artifact before atomically committing any output.
+- Render Go artifacts into external build/editor workspaces by default; source
+  materialization is an explicit published-module export.
+- Own the fail-closed editor `go.work` protocol and descriptor-verified legacy
+  pruning. Never replace or delete bytes whose ownership cannot be proven.
+- TypeScript targets route to source or `.scenery` cache from their declared
+  `materialization` mode.
 - Generated descriptors carry current machine identity and exact revisions.
 - Keep output beneath compiler-declared managed roots and reject symlinks.
 - Generation checks return diagnostics plus an explicit implementation state:

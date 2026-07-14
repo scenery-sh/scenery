@@ -3,7 +3,7 @@ import { freezeMetadata } from "./runtime.js";
 export const sceneryClientMetadata = freezeMetadata({
   "bindings": [],
   "compatibilityCatalog": "scenery.compatibility-core",
-  "contractRevision": "sha256:d69ffb5ccc3fa7e98ff8a1222e9fe3ea1fb51d3a19f28dccc3d2ef85b3387d6c",
+  "contractRevision": "sha256:b1591e97a16b80051329c4e72f01fc82c61158bfee37b5e58efff4d4db641f04",
   "gateways": [
     "http_gateway.public_api"
   ],
@@ -12,5 +12,5 @@ export const sceneryClientMetadata = freezeMetadata({
   "operationMethods": {},
   "resources": [],
   "target": "app/typescript_client/public_api",
-  "typescriptClientRevision": "sha256:5e42fcee834ece040c8891fc0a6e5c46b76f31828560b02148dd9dd32c661fde"
+  "typescriptClientRevision": "sha256:4fa6e23487f7a89f5d0a5c89c74b3cd1cafe1532aacc0e09499e80a20b1ace65"
 } as const);

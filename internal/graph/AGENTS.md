@@ -8,6 +8,8 @@
 
 - Depend only on foundational packages such as `internal/scn`, `internal/spec`, and the shared machine identity; never import compiler, generation, evolution, deployment planning, or runtime orchestration.
 - Keep resource addresses, graph ordering, provenance paths, and revision hashes deterministic.
+- Keep the spec-independent contract projection hash separate from executable
+  contract revision identity; it exists only for evidence rebind validation.
 - Graph views are immutable compiler outputs: source, effective, and expanded.
 - Cross-process graph and context results carry strict current artifact identities; opaque continuation tokens have one unversioned hash domain and no decoder selection.
 - Raw manifests and compile-envelope manifests pass through the same exact

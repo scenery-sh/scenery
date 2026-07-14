@@ -72,7 +72,7 @@ scenery check -o json
 go test ./...
 ```
 
-Keep every generated output beneath `workspace.managed_generated_roots`. Top-level generation plans all selected Go and TypeScript families before writing any of them. Never hand-edit `scenerycontract`, `internal/scenerygen`, generated descriptors, or generated TypeScript.
+Go contracts, adapters, and composition are rendered into Scenery's external build/editor caches; do not commit or hand-edit `scenerycontract` or `internal/scenerygen`. A successful compile maintains a locally excluded root `go.work` for raw Go/editor resolution. Use `scenery generate --target contracts --materialize` only to export a published module, and `scenery generate --prune-materialized-go` for the descriptor-verified one-time migration. TypeScript targets choose `materialization = "source"` beneath `workspace.managed_generated_roots` or `"cache"` beneath `.scenery/gen/typescript/`.
 
 Use `scenery list|get|explain|graph ... -o json` for graph facts and `scenery diff --semantic` for compatibility. Semantic changes and deployments use immutable revision-bound plan/apply. Apply accepts only the exact app-local issued plan and rejects caller-recomputed approvals, operations, edits, or provider actions.
 
@@ -139,7 +139,7 @@ Snapshots include only explicitly selected data. Verify checks every payload wit
 
 ## Generated TypeScript Clients
 
-Declare each `typescript_client` target in `scenery.scn`, including its gateway set and managed `output_root`:
+Declare each `typescript_client` target in `scenery.scn`, including its gateway set, `materialization = "source" | "cache"`, and source-mode managed `output_root`:
 
 ```sh
 scenery generate --target typescript_client.public_api -o json
@@ -189,7 +189,7 @@ scenery check [--app-root <path>] -o json
 scenery compile [--app-root <path>] [--view source|effective|expanded] -o json
 scenery list|get|explain|graph ... [--app-root <path>] -o json
 scenery diff --semantic BASE TARGET [--rename-receipts <path>] -o json
-scenery generate [--app-root <path>] [--target go|contracts|typescript_client.<name>] [--check] -o json
+scenery generate [--app-root <path>] [--target contracts|typescript_client.<name>] [--materialize] [--prune-materialized-go] [--merge-editor-workspace] [--check] -o json
 scenery changes plan|apply ... -o json
 scenery deploy plan|apply ... -o json
 scenery inspect app|routes|services|endpoints|build|paths|durable|storage|observability -o json

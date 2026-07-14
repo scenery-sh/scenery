@@ -53,7 +53,7 @@ go test ./...
 scenery harness -o json --write
 ```
 
-Edit authored `.scn` and Go implementation files. Never hand-edit generated `scenerycontract`, `internal/scenerygen`, TypeScript, or descriptor files. After a contract edit, regenerate the affected family and include deterministic outputs in the same change.
+Edit authored `.scn` and Go implementation files. Go contracts, adapters, and composition are cache inputs: `check`, `test`, `build`, and `up` render them outside the checkout. A successful compile also refreshes a Scenery-owned, locally excluded root `go.work` so `gopls` and raw `go test ./...` resolve stable `scenerycontract` imports. Never hand-edit generated TypeScript or descriptors. Use `scenery generate --target contracts --materialize` only when exporting a published Go module.
 
 Compilation intentionally leaves `implementation_revision` null. When exact implementation identity matters, use a declared build target:
 
@@ -159,17 +159,9 @@ Verify validates every payload checksum without discovering or stopping a target
 
 ## Generated And Cache Artifacts
 
-Checked-in generated outputs include:
+Generated/cache outputs include:
 
 ```text
-<module>/scenerycontract/
-  contract.gen.go
-  types.gen.go
-  scenery.package-generated.json
-internal/scenerygen/
-  composition/composition.gen.go
-  <service>_adapter/adapter.gen.go
-  scenery.generated.json
 <typescript-output-root>/
   client.ts
   runtime.ts
@@ -179,11 +171,11 @@ internal/scenerygen/
   scenery.typescript-client-generated.json
 ```
 
-App-local `.scenery/` state is cache/evidence, not source. It may contain build records, sessions, issued plans, logs, and harness outputs. Do not commit it.
+Go generation lives in Scenery's external build/editor caches and is never ordinary source. App-local `.scenery/` state is cache/evidence, not source; it may contain TypeScript cache materialization, editor ownership, build records, sessions, issued plans, logs, and harness outputs. Do not commit it. A migration may safely remove descriptor-authenticated legacy Go trees with `scenery generate --prune-materialized-go`.
 
 ## TypeScript Client Integration
 
-Declare each target in root `scenery.scn`, select exact gateways, and place its output beneath a managed root. Generated clients derive only from reachable canonical resources and exact binding codecs; they do not infer routes or auth from Go symbols.
+Declare each target in root `scenery.scn`, select exact gateways, and choose `materialization = "source"` for a checked-in SDK or `materialization = "cache"` for `.scenery/gen/typescript/<name>`. Source output must remain beneath a managed root. Generated clients derive only from reachable canonical resources and exact binding codecs; they do not infer routes or auth from Go symbols.
 
 ```sh
 scenery generate --target typescript_client.public_api -o json

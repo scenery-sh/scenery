@@ -349,11 +349,13 @@ SCN6205|planned_generated_go|A change plan produces invalid generated Go artifac
 SCN6206|planned_generated_typescript|A change plan produces invalid generated TypeScript artifacts
 SCN6207|generated_artifact_transaction|Generated artifact planning overlay or transaction failed
 SCN6208|package_abi_invariance|Package Go ABI shape varies by module input
+SCN6209|revision_scheme_changed|A pending artifact uses a superseded revision scheme
 SCN6301|typescript_target|A TypeScript client target is invalid or unavailable
 SCN6302|typescript_gateway|A TypeScript client gateway selection is invalid
 SCN6303|typescript_operation_selection|A TypeScript client operation selection is invalid
 SCN6304|typescript_type_lowering|A canonical type cannot be lowered to TypeScript
 SCN6305|typescript_codec|A TypeScript client codec mapping is invalid
+SCN6306|typescript_materialization|TypeScript client materialization is invalid
 SCN6307|typescript_runtime|Generated TypeScript runtime configuration is invalid
 SCN6308|typescript_response|A TypeScript response mapping is invalid
 SCN6309|typescript_target_contract|A TypeScript target package module runtime or output root is invalid

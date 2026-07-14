@@ -22,12 +22,12 @@
       "path": "docs/plans/0113-cache-only-generated-go.md",
       "title": "Cache-Only Generated Go Artifacts",
       "owner": "scenery generate / build / evolution",
-      "status": "active",
+      "status": "completed",
       "quality": "B",
       "freshness": "current",
       "last_reviewed": "2026-07-14",
       "review_after": "2026-08-13",
-      "summary": "Active ExecPlan removing materialized scenerycontract and internal/scenerygen directories from application checkouts: stable Go import identities, pure in-memory rendering injected into the external build workspace, overlay-based check without source materialization, external editor contract modules bridged by a Scenery-owned machine-local root go.work with fail-closed ownership and source-input exclusion, verified pruning of legacy artifacts, explicit materialize/vendor mode, and workspace-revision recomposition with pending-plan invalidation plus rename-receipt revision rebind.",
+      "summary": "Completed ExecPlan removing materialized scenerycontract and internal/scenerygen directories from application checkouts: stable Go import identities, external build and editor rendering, ownership-verified root go.work, verified legacy pruning, explicit materialize export, authored-only workspace revisions, pending-plan invalidation, rename-receipt rebind, TypeScript source/cache modes, and ONLV runtime acceptance.",
       "tags": ["plans", "execplans", "generate", "build", "go", "gowork", "editor", "revisions", "evolution", "migration"]
     },
     {
@@ -416,9 +416,9 @@
       "status": "reference",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-07-13",
-      "review_after": "2026-08-12",
-      "summary": "Normative current Go implementation contract for generated packages, aliased typed config inputs with exact field provenance, constructor inputs, handlers, outcomes, adapters, descriptors, staged verification, and path-tail input population without transport objects or handler ABI changes.",
+      "last_reviewed": "2026-07-14",
+      "review_after": "2026-08-13",
+      "summary": "Normative current Go implementation contract for externally cached generated contracts, stable import identities, ownership-verified editor workspaces, explicit published-module materialization, verified pruning, aliased typed config inputs, handlers, adapters, descriptors, and staged verification.",
       "tags": [
         "spec",
         "go",

@@ -21,6 +21,8 @@ import (
 	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/appwalk"
 	"scenery.sh/internal/build"
+	"scenery.sh/internal/compiler"
+	"scenery.sh/internal/generate"
 )
 
 const (
@@ -336,6 +338,9 @@ func buildDoctorResponse(ctx context.Context, opts doctorOptions, deps doctorPro
 	resp.Checks = append(resp.Checks, doctorDependencyChecks(ctx, deps, features, appFound)...)
 	resp.Checks = append(resp.Checks, doctorDockerChecks(ctx, deps)...)
 	resp.Checks = append(resp.Checks, doctorPostgresServerCheck(ctx, deps, features))
+	if resp.App != nil {
+		resp.Checks = append(resp.Checks, doctorEditorWorkspaceCheck(resp.App.Root))
+	}
 	resp.Checks = append(resp.Checks, doctorProcessOwnershipCheck(ctx, deps))
 	if deployInfo, deployChecks := doctorDeployDiagnostics(ctx, deps); deployInfo != nil {
 		resp.Deploy = deployInfo
@@ -345,6 +350,50 @@ func buildDoctorResponse(ctx context.Context, opts doctorOptions, deps doctorPro
 	resp.Summary = summarizeDoctorChecks(resp.Checks)
 	resp.OK = resp.Summary.Errors == 0
 	return resp
+}
+
+func doctorEditorWorkspaceCheck(root string) doctorCheck {
+	check := doctorCheck{
+		ID:       "app.editor_workspace",
+		Category: "app",
+		Name:     "Generated Go editor workspace",
+		Status:   doctorStatusSkipped,
+		Severity: doctorSeverityInformational,
+		Message:  "editor contracts have not been synchronized; run `scenery check`",
+	}
+	status := generate.InspectEditorWorkspace(root)
+	check.Observed = map[string]any{"go_work": status.WorkFile, "owner": status.OwnerFile}
+	if status.ParentWorkFile != "" {
+		check.Observed["parent_go_work"] = status.ParentWorkFile
+	}
+	if status.Conflict {
+		check.Status = doctorStatusError
+		check.Severity = doctorSeverityRequired
+		check.Message = status.Message
+		check.SuggestedAction = "Remove or restore the conflicting root go.work, then run `scenery check`; Scenery never replaces an unverified workfile."
+		return check
+	}
+	if !status.Managed {
+		return check
+	}
+	check.Status = doctorStatusOK
+	check.Message = "generated Go contracts are available to raw Go commands and gopls"
+	check.Observed["spec_revision"] = status.SpecRevision
+	check.Observed["contract_revision"] = status.ContractRevision
+	if compiled, err := compiler.Compile(root); err == nil && compiled.Manifest != nil && compiled.Manifest.ContractRevision != status.ContractRevision {
+		check.Status = doctorStatusWarn
+		check.Severity = doctorSeverityOptional
+		check.Message = "editor contracts correspond to the previous valid contract revision"
+		check.SuggestedAction = "Fix contract diagnostics, then run `scenery check` to refresh editor contracts."
+		check.Observed["current_contract_revision"] = compiled.Manifest.ContractRevision
+	}
+	if status.ParentWorkFile != "" && check.Status == doctorStatusOK {
+		check.Status = doctorStatusWarn
+		check.Severity = doctorSeverityOptional
+		check.Message = "the managed app go.work shadows a parent Go workspace"
+		check.SuggestedAction = "Run Go commands from the app root; remove the managed workfile only if the parent workspace must control this app."
+	}
+	return check
 }
 
 func doctorProcessOwnershipCheck(ctx context.Context, deps doctorProbeDeps) doctorCheck {
