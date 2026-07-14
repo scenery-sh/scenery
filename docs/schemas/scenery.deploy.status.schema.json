@@ -22,7 +22,7 @@
       "const": "scenery.deploy.status"
     },
     "schema_revision": {
-      "const": "sha256:c13801392d88db862d3b66cc64fd136a5fcaae473500e5882ea5c9b372867113"
+      "const": "sha256:b25bee4adc4de757ceeecf3c4e9aeb1563db4da469af2376c674acb3ac9c0df4"
     },
     "ready": {
       "type": "boolean"
@@ -109,6 +109,9 @@
           "type": "integer"
         },
         "version": {
+          "type": "string"
+        },
+        "contract_revision": {
           "type": "string"
         },
         "required_for_portless_https": {

@@ -392,6 +392,7 @@ func buildHarnessDeployStatusSchemaPayload() deployStatusResponse {
 			OwnerUID:                 501,
 			OwnerGID:                 20,
 			Version:                  "v1.2.3",
+			ContractRevision:         localagent.EdgeHelperContractRevision,
 			RequiredForPortlessHTTPS: true,
 			InstallCommand:           "scenery deploy setup",
 		},

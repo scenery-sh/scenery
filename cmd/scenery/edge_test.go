@@ -323,7 +323,7 @@ func TestParseEdgeHelperPlistOptionsExtractsProgramArguments(t *testing.T) {
 func TestEdgeTargetAddrForPortUsesHTTPMetadata(t *testing.T) {
 	t.Parallel()
 
-	state := localagent.EdgeTargetState{
+	state := localagent.EdgeHelperTarget{
 		TargetAddr:     "127.0.0.1:19443",
 		HTTPTargetAddr: "127.0.0.1:19080",
 	}

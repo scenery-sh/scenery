@@ -212,15 +212,6 @@ func stopStaleRootSceneryEdgeAgent(ownerHome, routerAddr string, timeout time.Du
 	return nil
 }
 
-func edgePortReachable(addr string) bool {
-	conn, err := net.DialTimeout("tcp", addr, 100*time.Millisecond)
-	if err != nil {
-		return false
-	}
-	_ = conn.Close()
-	return true
-}
-
 func stopEdge(paths localagent.Paths, timeout time.Duration) error {
 	return edgelifecycle.Stop(paths, timeout)
 }

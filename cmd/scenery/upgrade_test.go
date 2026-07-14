@@ -273,14 +273,14 @@ func TestUpgradeAddsDeploySetupNoticeWhenHelperContractDrifts(t *testing.T) {
 	}()
 	upgradeDeployNoticeFunc = func(targetVersion string) *deployHelperDrift {
 		return &deployHelperDrift{
-			HelperInstalled: true,
-			ActionRequired:  true,
-			HelperVersion:   "v0.2.0",
-			CurrentVersion:  targetVersion,
-			TargetSchema:    "scenery.edge.target.old",
-			ExpectedSchema:  deployHelperContractVersion,
-			Message:         "edge target metadata is scenery.edge.target.old; current binary expects " + deployHelperContractVersion,
-			SuggestedAction: "Run `scenery deploy setup` to update the privileged listener (asks for sudo).",
+			HelperInstalled:  true,
+			ActionRequired:   true,
+			HelperVersion:    "v0.2.0",
+			CurrentVersion:   targetVersion,
+			HelperContract:   "",
+			ExpectedContract: localagent.EdgeHelperContractRevision,
+			Message:          "installed privileged helper predates handoff contract " + localagent.EdgeHelperContractRevision + " and can stop forwarding when target metadata changes",
+			SuggestedAction:  "Run `scenery deploy setup` to update the privileged listener (asks for sudo).",
 		}
 	}
 
@@ -301,38 +301,61 @@ func TestUpgradeAddsDeploySetupNoticeWhenHelperContractDrifts(t *testing.T) {
 	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
 		t.Fatalf("decodeCLIJSON: %v\n%s", err, out.String())
 	}
-	if payload.Deploy == nil || !payload.Deploy.ActionRequired || payload.Deploy.ExpectedSchema != deployHelperContractVersion {
+	if payload.Deploy == nil || !payload.Deploy.ActionRequired || payload.Deploy.ExpectedContract != localagent.EdgeHelperContractRevision {
 		t.Fatalf("deploy notice = %+v", payload.Deploy)
 	}
 }
 
 func TestDeployHelperDriftRequiresSetupOnlyForContractDrift(t *testing.T) {
-	paths := localagent.PathsForHome(t.TempDir())
-	if err := os.MkdirAll(filepath.Dir(paths.EdgeTargetPath), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(paths.EdgeTargetPath, []byte(`{"kind":"scenery.edge.target","schema_revision":"sha256:old","spec_revision":"sha256:old","producer":{"version":"dev","toolchain":{"go_version":"go1.26"}},"edge_kind":"caddy","target_addr":"127.0.0.1:19443"}`), 0o600); err != nil {
-		t.Fatalf("write stale edge target: %v", err)
-	}
+	t.Parallel()
+
+	// An installed helper without a stamped handoff contract predates the
+	// tolerant reader: any target-metadata revision change makes it drop
+	// every connection, so it must be flagged even though its version string
+	// and its target metadata look plausible.
 	helper := edgeStatusPrivilegedListener{
-		Installed:  true,
-		Version:    "v1.0.0",
-		TargetPath: paths.EdgeTargetPath,
+		Installed: true,
+		Version:   "v1.0.0",
+		Listen:    []string{"0.0.0.0:443", "[::]:443", "0.0.0.0:80", "[::]:80"},
 	}
-	drift := deployHelperDriftFor(paths, helper, "v2.0.0")
+	drift := deployHelperDriftFor(helper, "v2.0.0")
 	if !drift.ActionRequired || !strings.Contains(drift.SuggestedAction, "deploy setup") {
+		t.Fatalf("unstamped helper drift = %+v", drift)
+	}
+	if drift.ExpectedContract != localagent.EdgeHelperContractRevision {
+		t.Fatalf("expected contract = %q", drift.ExpectedContract)
+	}
+
+	// A stamped but different contract also requires re-setup.
+	helper.ContractRevision = "1"
+	drift = deployHelperDriftFor(helper, "v2.0.0")
+	if !drift.ActionRequired || !strings.Contains(drift.Message, "handoff contract 1") {
 		t.Fatalf("contract drift = %+v", drift)
 	}
 
-	if err := localagent.WriteEdgeTargetState(paths.EdgeTargetPath, localagent.EdgeTargetState{
-		Kind:       localagent.EdgeKindCaddy,
-		TargetAddr: "127.0.0.1:19443",
-	}); err != nil {
-		t.Fatalf("WriteEdgeTargetState current: %v", err)
+	// A loopback-only install points at the loopback installer instead.
+	loopback := helper
+	loopback.ContractRevision = ""
+	loopback.Listen = []string{"127.0.0.1:443", "[::1]:443"}
+	drift = deployHelperDriftFor(loopback, "v2.0.0")
+	if !drift.ActionRequired || !strings.Contains(drift.SuggestedAction, "system edge privileged install") {
+		t.Fatalf("loopback drift = %+v", drift)
 	}
-	drift = deployHelperDriftFor(paths, helper, "v2.0.0")
+
+	// Version drift with a matching contract stays informational: the frozen
+	// handoff contract is exactly what makes scenery upgrades safe without a
+	// sudo re-setup.
+	helper.ContractRevision = localagent.EdgeHelperContractRevision
+	drift = deployHelperDriftFor(helper, "v2.0.0")
 	if drift.ActionRequired || !strings.Contains(drift.Message, "helper is v1.0.0") {
 		t.Fatalf("version-only drift = %+v", drift)
+	}
+
+	// Matching version and contract is clean.
+	helper.Version = "v2.0.0"
+	drift = deployHelperDriftFor(helper, "v2.0.0")
+	if drift.ActionRequired || !strings.Contains(drift.Message, "matches current binary") {
+		t.Fatalf("clean drift = %+v", drift)
 	}
 }
 

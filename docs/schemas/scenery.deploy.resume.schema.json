@@ -12,7 +12,7 @@
       "const": "scenery.deploy.resume"
     },
     "schema_revision": {
-      "const": "sha256:aee56efdc98e43b805863062a1a519c22db8c0f796df73274d11ed6326fe41d4"
+      "const": "sha256:bed17db79b44a0b8508898e8db3db4ae91b9239d9bf3f0b5d9afa3b3f234f939"
     },
     "registry_path": {
     },
@@ -21,6 +21,8 @@
     "agent_ready": {
     },
     "edge_restarted": {
+    },
+    "helper_drift": {
     },
     "targets": {
     }

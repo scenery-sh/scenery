@@ -311,7 +311,7 @@ func defaultUpgradeDeployNotice(targetVersion string) *deployHelperDrift {
 	if !helper.Installed {
 		return nil
 	}
-	drift := deployHelperDriftFor(paths, helper, targetVersion)
+	drift := deployHelperDriftFor(helper, targetVersion)
 	if !drift.ActionRequired {
 		return nil
 	}

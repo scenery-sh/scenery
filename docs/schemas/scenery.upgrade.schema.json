@@ -22,7 +22,7 @@
       "const": "scenery.upgrade"
     },
     "schema_revision": {
-      "const": "sha256:e0939fcd3459682071fee19feb22763d48c45d0c1163c20ac1fd7467ab385e1f"
+      "const": "sha256:6022bbea99526a7a838bfe887dd1cd8ffb27fe49e0aefa6827dc4c2b5c03cf57"
     },
     "ok": {
       "type": "boolean"
@@ -100,7 +100,7 @@
       "required": [
         "helper_installed",
         "action_required",
-        "expected_schema"
+        "expected_contract"
       ],
       "properties": {
         "helper_installed": {
@@ -115,10 +115,10 @@
         "current_version": {
           "type": "string"
         },
-        "target_schema": {
+        "helper_contract": {
           "type": "string"
         },
-        "expected_schema": {
+        "expected_contract": {
           "type": "string"
         },
         "message": {

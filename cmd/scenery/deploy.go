@@ -32,8 +32,6 @@ type deployOptions struct {
 	ACMECA    string
 }
 
-var deployHelperContractVersion = localagent.EdgeTargetSchemaRevision()
-
 type deployMutationResponse struct {
 	cliPayloadIdentity
 	Action       string                    `json:"action"`
@@ -81,6 +79,7 @@ type deployResumeResponse struct {
 	LogPath       string               `json:"log_path"`
 	AgentReady    bool                 `json:"agent_ready"`
 	EdgeRestarted bool                 `json:"edge_restarted"`
+	HelperDrift   *deployHelperDrift   `json:"helper_drift,omitempty"`
 	Targets       []deployResumeTarget `json:"targets"`
 }
 
@@ -163,14 +162,14 @@ type deployCertStatus struct {
 }
 
 type deployHelperDrift struct {
-	HelperInstalled bool   `json:"helper_installed"`
-	ActionRequired  bool   `json:"action_required"`
-	HelperVersion   string `json:"helper_version,omitempty"`
-	CurrentVersion  string `json:"current_version,omitempty"`
-	TargetSchema    string `json:"target_schema,omitempty"`
-	ExpectedSchema  string `json:"expected_schema"`
-	Message         string `json:"message,omitempty"`
-	SuggestedAction string `json:"suggested_action,omitempty"`
+	HelperInstalled  bool   `json:"helper_installed"`
+	ActionRequired   bool   `json:"action_required"`
+	HelperVersion    string `json:"helper_version,omitempty"`
+	CurrentVersion   string `json:"current_version,omitempty"`
+	HelperContract   string `json:"helper_contract,omitempty"`
+	ExpectedContract string `json:"expected_contract"`
+	Message          string `json:"message,omitempty"`
+	SuggestedAction  string `json:"suggested_action,omitempty"`
 }
 
 type deployPortListenerInfo struct {
@@ -192,12 +191,15 @@ var (
 	deployRunUpDetachFunc                = deployRunUpDetach
 	deployPortListenerFunc               = defaultDeployPortListener
 	deployPrivilegedHelperExecutableFunc = os.Executable
-	deployLANIPFunc                      = defaultDeployLANIP
-	deployHTTPProbeFunc                  = defaultDeployHTTPProbe
-	deployPublicIPFunc                   = defaultDeployPublicIP
-	deployDNSLookupFunc                  = net.LookupIP
-	deployPowerStatusFunc                = defaultDeployPowerStatus
-	deployFirewallStatusFunc             = defaultDeployFirewallStatus
+	deployHelperDriftStatusFunc          = func(paths localagent.Paths) deployHelperDrift {
+		return deployHelperDriftFor(privilegedListenerStatus(paths), buildVersionResponse().Version)
+	}
+	deployLANIPFunc          = defaultDeployLANIP
+	deployHTTPProbeFunc      = defaultDeployHTTPProbe
+	deployPublicIPFunc       = defaultDeployPublicIP
+	deployDNSLookupFunc      = net.LookupIP
+	deployPowerStatusFunc    = defaultDeployPowerStatus
+	deployFirewallStatusFunc = defaultDeployFirewallStatus
 )
 
 func deployCommand(args []string) error {
@@ -453,6 +455,11 @@ func runDeployResume(stdout io.Writer, opts deployOptions) error {
 		AgentReady:         true,
 		EdgeRestarted:      true,
 	}
+	// Resume runs unattended at login, so it cannot sudo; it must still
+	// refuse to report a quietly broken helper after an upgrade.
+	if drift := deployHelperDriftStatusFunc(paths); drift.ActionRequired {
+		resp.HelperDrift = &drift
+	}
 	for _, target := range registry.Targets {
 		if !target.Enabled {
 			continue
@@ -482,6 +489,12 @@ func runDeployResume(stdout io.Writer, opts deployOptions) error {
 	_ = appendDeployResumeLog(paths, resp)
 	if opts.JSON {
 		return writeCLIJSON(stdout, resp)
+	}
+	if resp.HelperDrift != nil {
+		fmt.Fprintf(stdout, "helper drift: %s\n", resp.HelperDrift.Message)
+		if resp.HelperDrift.SuggestedAction != "" {
+			fmt.Fprintf(stdout, "helper drift: %s\n", resp.HelperDrift.SuggestedAction)
+		}
 	}
 	for _, target := range resp.Targets {
 		if target.Error != "" {
@@ -660,7 +673,7 @@ func buildDeployStatusWithContext(ctx context.Context, paths localagent.Paths, r
 	if !launchAgent.Installed {
 		status.Diagnostics = append(status.Diagnostics, "deploy resume LaunchAgent is not installed")
 	}
-	diagnostics := buildDeployDiagnostics(ctx, paths, registry, status)
+	diagnostics := buildDeployDiagnostics(ctx, registry, status)
 	status.DiagnosticsDetail = &diagnostics
 	for _, check := range diagnostics.Checks {
 		if check.Status == "warn" || check.Status == "error" {
@@ -817,14 +830,15 @@ func deployCertStatusFor(paths localagent.Paths, domain string) deployCertStatus
 	return status
 }
 
-func buildDeployDiagnostics(ctx context.Context, paths localagent.Paths, registry localagent.DeployRegistry, status deployStatusResponse) deployDiagnosticReport {
+func buildDeployDiagnostics(ctx context.Context, registry localagent.DeployRegistry, status deployStatusResponse) deployDiagnosticReport {
 	report := deployDiagnosticReport{}
-	addDeployHelperDiagnostics(&report, paths, status.PrivilegedListener)
+	addDeployHelperDiagnostics(&report, status.PrivilegedListener)
 	addDeployListenerDiagnostics(&report, status.PrivilegedListener)
 	addDeployCertDiagnostics(&report, status.Targets)
 	if !deployHasEnabledTarget(registry) {
 		return report
 	}
+	addDeployTLSHandshakeDiagnostics(&report, status)
 	lanOK := addDeployLANDiagnostics(ctx, &report)
 	publicOK := addDeployPublicIPDiagnostics(ctx, &report, lanOK)
 	addDeployDNSDiagnostics(&report, registry)
@@ -850,7 +864,7 @@ func deployHasEnabledTarget(registry localagent.DeployRegistry) bool {
 	return false
 }
 
-func addDeployHelperDiagnostics(report *deployDiagnosticReport, paths localagent.Paths, helper edgeStatusPrivilegedListener) {
+func addDeployHelperDiagnostics(report *deployDiagnosticReport, helper edgeStatusPrivilegedListener) {
 	status := "ok"
 	message := "public privileged helper is installed and running"
 	action := ""
@@ -871,7 +885,7 @@ func addDeployHelperDiagnostics(report *deployDiagnosticReport, paths localagent
 			"listen":    helper.Listen,
 		},
 	})
-	drift := deployHelperDriftFor(paths, helper, buildVersionResponse().Version)
+	drift := deployHelperDriftFor(helper, buildVersionResponse().Version)
 	versionStatus := "ok"
 	if drift.ActionRequired {
 		versionStatus = "warn"
@@ -882,46 +896,110 @@ func addDeployHelperDiagnostics(report *deployDiagnosticReport, paths localagent
 		Message:         drift.Message,
 		SuggestedAction: drift.SuggestedAction,
 		Observed: map[string]any{
-			"helper_version":           drift.HelperVersion,
-			"current_version":          drift.CurrentVersion,
-			"target_schema_revision":   drift.TargetSchema,
-			"expected_schema_revision": drift.ExpectedSchema,
+			"helper_version":    drift.HelperVersion,
+			"current_version":   drift.CurrentVersion,
+			"helper_contract":   drift.HelperContract,
+			"expected_contract": drift.ExpectedContract,
 		},
 	})
 }
 
-func deployHelperDriftFor(paths localagent.Paths, helper edgeStatusPrivilegedListener, currentVersion string) deployHelperDrift {
-	targetPath := strings.TrimSpace(helper.TargetPath)
-	if targetPath == "" {
-		targetPath = paths.EdgeTargetPath
-	}
-	targetState, targetErr := localagent.LoadEdgeTargetState(targetPath)
-	targetSchema := strings.TrimSpace(targetState.SchemaRevision)
-	if targetErr != nil {
-		targetSchema = "invalid"
-	}
+// deployHelperDriftFor compares the handoff-contract revision stamped into
+// the installed helper LaunchDaemon against the current binary's contract.
+// Version drift alone stays informational: the helper contract is designed to
+// survive scenery upgrades, so only a contract mismatch (or an unstamped
+// helper from before the tolerant handoff reader) requires a sudo re-setup.
+func deployHelperDriftFor(helper edgeStatusPrivilegedListener, currentVersion string) deployHelperDrift {
 	drift := deployHelperDrift{
-		HelperInstalled: helper.Installed,
-		HelperVersion:   strings.TrimSpace(helper.Version),
-		CurrentVersion:  strings.TrimSpace(currentVersion),
-		TargetSchema:    targetSchema,
-		ExpectedSchema:  deployHelperContractVersion,
+		HelperInstalled:  helper.Installed,
+		HelperVersion:    strings.TrimSpace(helper.Version),
+		CurrentVersion:   strings.TrimSpace(currentVersion),
+		HelperContract:   strings.TrimSpace(helper.ContractRevision),
+		ExpectedContract: localagent.EdgeHelperContractRevision,
+	}
+	reinstall := "Run `scenery deploy setup` to update the privileged listener (asks for sudo)."
+	if !deployHelperHasPublicBinding(helper.Listen) {
+		reinstall = "Run `scenery system edge privileged install` to update the privileged listener (asks for sudo)."
 	}
 	switch {
 	case !helper.Installed:
 		drift.Message = "privileged helper is not installed"
-	case drift.TargetSchema != "" && drift.TargetSchema != deployHelperContractVersion:
+	case drift.HelperContract == "":
 		drift.ActionRequired = true
-		drift.Message = fmt.Sprintf("edge target metadata is %s; current binary expects %s", drift.TargetSchema, deployHelperContractVersion)
-		drift.SuggestedAction = "Run `scenery deploy setup` to update the privileged listener (asks for sudo)."
+		drift.Message = fmt.Sprintf("installed privileged helper predates handoff contract %s and can stop forwarding when target metadata changes", drift.ExpectedContract)
+		drift.SuggestedAction = reinstall
+	case drift.HelperContract != drift.ExpectedContract:
+		drift.ActionRequired = true
+		drift.Message = fmt.Sprintf("installed privileged helper uses handoff contract %s; current binary expects %s", drift.HelperContract, drift.ExpectedContract)
+		drift.SuggestedAction = reinstall
 	case drift.HelperVersion == "":
 		drift.Message = "helper version is not recorded"
 	case drift.CurrentVersion != "" && drift.HelperVersion != drift.CurrentVersion:
-		drift.Message = fmt.Sprintf("helper is %s and current binary is %s", drift.HelperVersion, drift.CurrentVersion)
+		drift.Message = fmt.Sprintf("helper is %s and current binary is %s; the handoff contract matches, so no action is needed", drift.HelperVersion, drift.CurrentVersion)
 	default:
 		drift.Message = fmt.Sprintf("helper version %s matches current binary", drift.HelperVersion)
 	}
 	return drift
+}
+
+// addDeployTLSHandshakeDiagnostics proves each enabled domain end to end: a
+// TLS handshake with that domain's SNI must complete through public port 443
+// (helper → Caddy). A bound listener or a live helper PID never counts as
+// ready on its own — a helper that cannot validate its target metadata still
+// accepts TCP and then resets, which upstream proxies surface as errors like
+// Cloudflare 525 while naive status checks stay green.
+func addDeployTLSHandshakeDiagnostics(report *deployDiagnosticReport, status deployStatusResponse) {
+	if !status.HelperPublic || status.PrivilegedListener.State != "running" {
+		report.addCheck(deployDiagnosticCheck{
+			ID:      "deploy.tls_handshake",
+			Status:  "skipped",
+			Message: "end-to-end TLS handshake probe skipped because the public privileged helper is not running",
+		})
+		return
+	}
+	directAddr := firstNonEmpty(status.Edge.HTTPSListen, status.PrivilegedListener.Target, defaultEdgeTargetAddr)
+	for _, target := range status.Targets {
+		if !target.Enabled {
+			continue
+		}
+		through := edgeTLSProbeFunc("127.0.0.1:443", target.Domain, edgeTLSProbeTimeout)
+		check := deployDiagnosticCheck{
+			ID:     "deploy.tls_handshake." + target.Domain,
+			Status: "ok",
+			Observed: map[string]any{
+				"domain":  target.Domain,
+				"outcome": string(through.Outcome),
+			},
+		}
+		if through.Error != "" {
+			check.Observed["error"] = through.Error
+		}
+		switch through.Outcome {
+		case edgeTLSProbeHandshakeOK:
+			check.Message = fmt.Sprintf("end-to-end TLS handshake for %s succeeded through port 443", target.Domain)
+		case edgeTLSProbeUnreachable:
+			check.Status = "warn"
+			check.Message = fmt.Sprintf("port 443 did not accept a TCP connection for the %s handshake probe", target.Domain)
+			check.SuggestedAction = "Run `scenery deploy setup` and check the port 80/443 listener diagnostics."
+		case edgeTLSProbeForwarded:
+			check.Status = "warn"
+			check.Message = fmt.Sprintf("traffic reaches Caddy but the TLS handshake for %s did not complete: %s", target.Domain, through.Error)
+			check.SuggestedAction = "Check certificate issuance for this domain in the Caddy edge log and the certificate diagnostics above."
+		case edgeTLSProbeDropped:
+			direct := edgeTLSProbeFunc(directAddr, target.Domain, edgeTLSProbeTimeout)
+			check.Observed["direct_outcome"] = string(direct.Outcome)
+			if direct.reachedTLSServer() {
+				check.Status = "error"
+				check.Message = fmt.Sprintf("port 443 accepts TCP but the TLS handshake for %s never reaches Caddy, while Caddy at %s answers TLS directly; the running privileged helper cannot validate its target metadata", target.Domain, directAddr)
+				check.SuggestedAction = "Run `scenery deploy setup` to replace and restart the privileged helper (asks for sudo)."
+			} else {
+				check.Status = "warn"
+				check.Message = fmt.Sprintf("neither public port 443 nor the Caddy edge at %s completed a TLS handshake for %s", directAddr, target.Domain)
+				check.SuggestedAction = "Start the Caddy edge (`scenery deploy resume` or `scenery system edge install`), then re-run `scenery deploy status`."
+			}
+		}
+		report.addCheck(check)
+	}
 }
 
 func addDeployListenerDiagnostics(report *deployDiagnosticReport, helper edgeStatusPrivilegedListener) {

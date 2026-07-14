@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	localagent "scenery.sh/internal/agent"
 )
@@ -23,6 +24,7 @@ func stubDeployDiagnostics(t *testing.T, overrides func()) {
 	oldDNS := deployDNSLookupFunc
 	oldPower := deployPowerStatusFunc
 	oldFirewall := deployFirewallStatusFunc
+	oldTLSProbe := edgeTLSProbeFunc
 	t.Cleanup(func() {
 		deployPortListenerFunc = oldListener
 		deployLANIPFunc = oldLANIP
@@ -31,7 +33,11 @@ func stubDeployDiagnostics(t *testing.T, overrides func()) {
 		deployDNSLookupFunc = oldDNS
 		deployPowerStatusFunc = oldPower
 		deployFirewallStatusFunc = oldFirewall
+		edgeTLSProbeFunc = oldTLSProbe
 	})
+	edgeTLSProbeFunc = func(addr, serverName string, timeout time.Duration) edgeTLSProbeResult {
+		return edgeTLSProbeResult{Outcome: edgeTLSProbeHandshakeOK}
+	}
 	deployPortListenerFunc = func(port int) (deployPortListenerInfo, bool, error) {
 		return deployPortListenerInfo{
 			Port:    port,
@@ -233,6 +239,88 @@ func TestDeployStatusDiagnosticsReportReachabilityDNSPowerAndFirewall(t *testing
 	}
 }
 
+func TestDeployTLSHandshakeDiagnosticsGateReadiness(t *testing.T) {
+	oldProbe := edgeTLSProbeFunc
+	t.Cleanup(func() { edgeTLSProbeFunc = oldProbe })
+
+	baseStatus := func() deployStatusResponse {
+		status := deployStatusResponse{HelperPublic: true}
+		status.PrivilegedListener.State = "running"
+		status.Edge.HTTPSListen = "127.0.0.1:19443"
+		status.Targets = []deployTargetStatus{
+			{Domain: "onlv.dev", Enabled: true},
+			{Domain: "off.dev", Enabled: false},
+		}
+		return status
+	}
+	probeFor := func(results map[string]edgeTLSProbeResult) {
+		edgeTLSProbeFunc = func(addr, serverName string, timeout time.Duration) edgeTLSProbeResult {
+			return results[addr]
+		}
+	}
+
+	// Healthy: the SNI handshake completes end to end through port 443.
+	probeFor(map[string]edgeTLSProbeResult{
+		"127.0.0.1:443": {Outcome: edgeTLSProbeHandshakeOK},
+	})
+	report := deployDiagnosticReport{}
+	addDeployTLSHandshakeDiagnostics(&report, baseStatus())
+	checks := deployChecksByID(report.Checks)
+	if check := checks["deploy.tls_handshake.onlv.dev"]; check.Status != "ok" {
+		t.Fatalf("healthy handshake check = %+v", check)
+	}
+	if _, probedDisabled := checks["deploy.tls_handshake.off.dev"]; probedDisabled {
+		t.Fatalf("disabled target was probed: %+v", report.Checks)
+	}
+
+	// The observed outage: port 443 accepts TCP, the helper drops before any
+	// TLS reply, and Caddy answers TLS directly. Status must go unhealthy
+	// with the exact repair command instead of staying green.
+	probeFor(map[string]edgeTLSProbeResult{
+		"127.0.0.1:443":   {Outcome: edgeTLSProbeDropped, Error: "EOF"},
+		"127.0.0.1:19443": {Outcome: edgeTLSProbeHandshakeOK},
+	})
+	report = deployDiagnosticReport{}
+	addDeployTLSHandshakeDiagnostics(&report, baseStatus())
+	check := deployChecksByID(report.Checks)["deploy.tls_handshake.onlv.dev"]
+	if check.Status != "error" || !strings.Contains(check.SuggestedAction, "deploy setup") {
+		t.Fatalf("dropped handshake check = %+v", check)
+	}
+
+	// Both drop: the Caddy origin is the problem, not the helper.
+	probeFor(map[string]edgeTLSProbeResult{
+		"127.0.0.1:443":   {Outcome: edgeTLSProbeDropped, Error: "EOF"},
+		"127.0.0.1:19443": {Outcome: edgeTLSProbeUnreachable, Error: "connection refused"},
+	})
+	report = deployDiagnosticReport{}
+	addDeployTLSHandshakeDiagnostics(&report, baseStatus())
+	check = deployChecksByID(report.Checks)["deploy.tls_handshake.onlv.dev"]
+	if check.Status != "warn" || strings.Contains(check.SuggestedAction, "deploy setup") {
+		t.Fatalf("origin-down handshake check = %+v", check)
+	}
+
+	// Forwarding works but the handshake fails (for example no certificate
+	// yet): warn toward certificate diagnostics.
+	probeFor(map[string]edgeTLSProbeResult{
+		"127.0.0.1:443": {Outcome: edgeTLSProbeForwarded, Error: "remote error: tls: internal error"},
+	})
+	report = deployDiagnosticReport{}
+	addDeployTLSHandshakeDiagnostics(&report, baseStatus())
+	check = deployChecksByID(report.Checks)["deploy.tls_handshake.onlv.dev"]
+	if check.Status != "warn" || !strings.Contains(check.SuggestedAction, "certificate") {
+		t.Fatalf("forwarded handshake check = %+v", check)
+	}
+
+	// Helper not running: the probe is skipped, never treated as healthy.
+	stopped := baseStatus()
+	stopped.PrivilegedListener.State = "stopped"
+	report = deployDiagnosticReport{}
+	addDeployTLSHandshakeDiagnostics(&report, stopped)
+	if check := deployChecksByID(report.Checks)["deploy.tls_handshake"]; check.Status != "skipped" {
+		t.Fatalf("stopped helper handshake check = %+v", check)
+	}
+}
+
 func TestDeployDNSDiagnosticsAllowsCloudflareProxy(t *testing.T) {
 	oldDNS := deployDNSLookupFunc
 	t.Cleanup(func() { deployDNSLookupFunc = oldDNS })
@@ -323,6 +411,34 @@ func TestDeploySetupWritesRegistryInstallsHelperAndRestartsEdge(t *testing.T) {
 		return nil
 	}
 
+	// Recovery from a broken helper must never delete certificates, deploy
+	// targets, or app data: pre-seed all three and prove setup keeps them.
+	seedPaths, err := localagent.DefaultPaths()
+	if err != nil {
+		t.Fatalf("DefaultPaths: %v", err)
+	}
+	seedRegistry := localagent.EmptyDeployRegistry()
+	seedRegistry.Targets = []localagent.DeployTarget{{Domain: "onlv.dev", AppRoot: t.TempDir(), Enabled: true}}
+	if err := localagent.WriteDeployRegistry(seedPaths.DeployPath, seedRegistry); err != nil {
+		t.Fatalf("WriteDeployRegistry: %v", err)
+	}
+	certPath := filepath.Join(seedPaths.EdgeDir, "caddy-data", "certificates", "acme-v02.api.letsencrypt.org-directory", "onlv.dev", "onlv.dev.crt")
+	if err := os.MkdirAll(filepath.Dir(certPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(certPath, []byte("issued cert"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(seedPaths.EdgeTargetPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := localagent.WriteEdgeTargetState(seedPaths.EdgeTargetPath, localagent.EdgeTargetState{
+		Kind:       localagent.EdgeKindCaddy,
+		TargetAddr: "127.0.0.1:19443",
+	}); err != nil {
+		t.Fatalf("WriteEdgeTargetState: %v", err)
+	}
+
 	var out bytes.Buffer
 	if err := runDeployCommand(&out, []string{"setup", "--acme-email", "ops@example.com", "--acme-ca", "staging", "-o", "json"}); err != nil {
 		t.Fatalf("deploy setup: %v\n%s", err, out.String())
@@ -337,16 +453,21 @@ func TestDeploySetupWritesRegistryInstallsHelperAndRestartsEdge(t *testing.T) {
 	if payload.Kind != "scenery.deploy.setup" || payload.SchemaRevision != newCLIPayloadIdentity("scenery.deploy.setup").SchemaRevision || payload.ACME.Email != "ops@example.com" || payload.ACME.CA != "staging" || !payload.HelperPublic || !payload.LaunchAgentInstalled || !payload.EdgeRestarted {
 		t.Fatalf("setup payload = %+v", payload)
 	}
-	paths, err := localagent.DefaultPaths()
-	if err != nil {
-		t.Fatalf("DefaultPaths: %v", err)
-	}
-	registry, err := localagent.LoadDeployRegistry(paths.DeployPath)
+	registry, err := localagent.LoadDeployRegistry(seedPaths.DeployPath)
 	if err != nil {
 		t.Fatalf("LoadDeployRegistry: %v", err)
 	}
 	if registry.ACMEEmail != "ops@example.com" || registry.ACMECA != "staging" {
 		t.Fatalf("registry ACME = %+v", registry)
+	}
+	if len(registry.Targets) != 1 || registry.Targets[0].Domain != "onlv.dev" || !registry.Targets[0].Enabled {
+		t.Fatalf("setup dropped deploy targets: %+v", registry.Targets)
+	}
+	if data, err := os.ReadFile(certPath); err != nil || string(data) != "issued cert" {
+		t.Fatalf("setup touched issued certificate: %q, %v", data, err)
+	}
+	if _, err := localagent.LoadEdgeTargetState(seedPaths.EdgeTargetPath); err != nil {
+		t.Fatalf("setup broke edge target metadata: %v", err)
 	}
 }
 
@@ -406,13 +527,28 @@ func TestDeployResumeStartsMissingTargetsAndSkipsLiveSessions(t *testing.T) {
 	oldEnsureAgent := deployEnsureAgentFunc
 	oldRestart := deployEdgeRestartFunc
 	oldRunUp := deployRunUpDetachFunc
+	oldDrift := deployHelperDriftStatusFunc
 	t.Cleanup(func() {
 		deployEnsureAgentFunc = oldEnsureAgent
 		deployEdgeRestartFunc = oldRestart
 		deployRunUpDetachFunc = oldRunUp
+		deployHelperDriftStatusFunc = oldDrift
 	})
 	deployEnsureAgentFunc = func() error { return nil }
 	deployEdgeRestartFunc = func() error { return nil }
+	// The installed helper predates the current handoff contract: resume
+	// cannot sudo, so it must surface the drift instead of reporting a
+	// quietly broken edge.
+	deployHelperDriftStatusFunc = func(paths localagent.Paths) deployHelperDrift {
+		return deployHelperDrift{
+			HelperInstalled:  true,
+			ActionRequired:   true,
+			HelperContract:   "",
+			ExpectedContract: localagent.EdgeHelperContractRevision,
+			Message:          "installed privileged helper predates handoff contract " + localagent.EdgeHelperContractRevision,
+			SuggestedAction:  "Run `scenery deploy setup` to update the privileged listener (asks for sudo).",
+		}
+	}
 	var started []string
 	deployRunUpDetachFunc = func(appRoot string) error {
 		started = append(started, appRoot)
@@ -459,6 +595,9 @@ func TestDeployResumeStartsMissingTargetsAndSkipsLiveSessions(t *testing.T) {
 	}
 	if !payload.AgentReady || !payload.EdgeRestarted || payload.LogPath != paths.DeployResumeLogPath {
 		t.Fatalf("resume payload metadata = %+v", payload)
+	}
+	if payload.HelperDrift == nil || !payload.HelperDrift.ActionRequired || !strings.Contains(payload.HelperDrift.SuggestedAction, "deploy setup") {
+		t.Fatalf("resume helper drift = %+v", payload.HelperDrift)
 	}
 	actions := map[string]string{}
 	for _, target := range payload.Targets {

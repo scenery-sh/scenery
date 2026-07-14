@@ -54,10 +54,6 @@ func NewPortLeaseIdentity() machine.ArtifactIdentity     { return portLeaseIdent
 func NewEdgeStateIdentity() machine.ArtifactIdentity     { return edgeStateIdentity() }
 func NewEdgeTargetIdentity() machine.ArtifactIdentity    { return edgeTargetIdentity() }
 
-func EdgeTargetSchemaRevision() string {
-	return machine.ArtifactSchemaRevision(edgeTargetSchemaDescriptor)
-}
-
 // LoadDurableArtifact rebinds unchanged schemas to the current specification
 // and migrates one identity-only legacy JSON shape. Payload values stay intact.
 func LoadDurableArtifact(path string, target any, identity *machine.ArtifactIdentity, kind, descriptor string, perm os.FileMode, migrate func(map[string]json.RawMessage) error) error {
