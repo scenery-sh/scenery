@@ -352,6 +352,7 @@ scenery worker durable jobs list|inspect|cancel|retry [job-id] --service <name> 
 scenery worker durable token create --service <name> [--name <name>] [--id <id>] [--app-root <path>] -o json
 scenery version [-o json]
 scenery upgrade [--target <path>] [--toolchain installed|all|none] [--force] [--dry-run] [-o json]
+scenery deploy <ssh-target> [--app-root <path>]
 scenery deploy enable [--app-root <path>] [-o json]
 scenery deploy disable [--app-root <path>] [-o json]
 scenery deploy status [-o json]
@@ -432,7 +433,7 @@ scenery worktree remove <name> [--app-root <path>] [--db] [-o json]
 
 `scenery snapshot load` requires a stopped app runtime. Database overwrite drops, recreates, and restores the managed app database; rerunning the same archive recovers an interrupted restore. Database merge is a single-transaction data-only restore. Storage overwrite stages on the same filesystem and atomically swaps each store; a later load recovers an interrupted swap. Storage merge preflights conflicts and applies `fail`, `skip`, or atomic per-object `overwrite`. `--dry-run` performs every preflight without mutation. Database and storage are separate recovery units: if storage fails after database success, rerun with `--storage` only.
 
-`scenery down --db` drops the app root's managed app database even when no live dev runtime is registered. Runtime-stop output still reports when no runtime was found. It refuses external DSNs. `scenery down --state` removes only the app root's local runtime state when a runtime record exists.
+`scenery down` is idempotent when no live dev runtime is registered: it reports that runtime stop was skipped and exits successfully. `scenery down --db` still drops the app root's managed app database in that case and refuses external DSNs. `scenery down --state` removes only the app root's local runtime state when a runtime record exists.
 
 `scenery worktree create <name> -o json` runs `git worktree add -b <name>` next to the current app root and emits `scenery.worktree.create`. `scenery worktree list -o json` emits `scenery.worktree.list` from `git worktree list --porcelain`. `scenery worktree remove <name> --db -o json` first resolves the target from `git worktree list --porcelain`, then removes local `.scenery` state before `git worktree remove`, and emits `scenery.worktree.remove`.
 
@@ -455,6 +456,8 @@ Doctor rules:
 - When the deploy registry exists, `scenery doctor -o json` includes a `deploy` section summarizing `scenery deploy status` diagnostics. Deploy doctor checks may perform explicit reachability/DNS probes only because `doctor` is an operator-invoked diagnostic command.
 
 Deploy rules:
+- `deploy.ssh` is an ordered, duplicate-free allowlist of safe OpenSSH host aliases for beta source-sync deployment. Current deploy subcommand names are reserved. When configured, the app ID must be safe as one remote path segment.
+- `scenery deploy <ssh-target>` is terminal-streaming single-server source sync with brief downtime. It requires the target in `deploy.ssh`, runs the existing local `scenery check`, preflights passwordless OpenSSH plus remote `scenery` and `rsync`, conditionally runs remote `scenery down`, synchronizes the working tree with `rsync -az --delete`, then runs remote `scenery up --detach --wait ready`. The remote directory is `$HOME/.scenery/apps/<app-id>`. Fixed exclusions prevent `.git`, local `.scenery`, `.env`, `node_modules`, and Scenery-owned `go.work`/`go.work.sum` from uploading; their remote counterparts survive deletion so the remote Scenery binary owns its own state and editor workspace. OpenSSH configuration owns user, host, port, key, jump hosts, and host-key behavior. The command has no JSON mode, release bundle, rollback, remote agent, or zero-downtime claim.
 - `deploy.domain` in app config is a beta public FQDN claim for `scenery deploy enable`. It must be lowercase, must not be localhost or an IP address, and must not use the local route-base domain. `deploy.root` optionally names the frontend/service that owns `/` on that domain; when omitted, Scenery can infer it only if exactly one frontend is configured.
 - `scenery deploy enable|disable -o json` records intent in the machine deploy registry at `<agent home>/agent/deploy.json` and emits the current `scenery.deploy.target` payload with an exact digest revision. Enabling rejects a domain already enabled for another app root.
 - The deploy registry and agent/session/edge ownership files use exact current artifact identities. First access migrates their former identity-only shapes in place after writing an exact owner-only `.legacy.bak`; the fsynced replacement is followed by `.legacy.migrated`. When the JSON schema is unchanged across a later Scenery specification revision, loading rebinds only the artifact identity and preserves the payload; schema changes still fail closed. Targets, app roots, process ownership, resolver state, and managed Postgres credentials are preserved.

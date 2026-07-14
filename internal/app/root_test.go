@@ -62,7 +62,8 @@ func TestDiscoverRootAcceptsDeployConfig(t *testing.T) {
 		"name": "deployapp",
 		"deploy": {
 			"domain": "onlv.dev",
-			"root": "web"
+			"root": "web",
+			"ssh": ["some-id"]
 		},
 		"frontends": {
 			"web": {
@@ -75,7 +76,7 @@ func TestDiscoverRootAcceptsDeployConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DiscoverRoot returned error: %v", err)
 	}
-	if cfg.Deploy.Domain != "onlv.dev" || cfg.Deploy.Root != "web" {
+	if cfg.Deploy.Domain != "onlv.dev" || cfg.Deploy.Root != "web" || strings.Join(cfg.Deploy.SSH, ",") != "some-id" {
 		t.Fatalf("Deploy = %+v", cfg.Deploy)
 	}
 }
@@ -306,6 +307,31 @@ func TestDiscoverRootRejectsInvalidDeployConfig(t *testing.T) {
 			name:   "unknown root",
 			config: `{"name":"deployapp","deploy":{"domain":"onlv.dev","root":"web"}}`,
 			want:   `deploy.root "web" must be "api" or a configured frontend`,
+		},
+		{
+			name:   "unsafe ssh target",
+			config: `{"name":"deployapp","deploy":{"ssh":["-oProxyCommand=bad"]}}`,
+			want:   `deploy.ssh[0] "-oProxyCommand=bad" must be a safe OpenSSH host alias`,
+		},
+		{
+			name:   "reserved ssh target",
+			config: `{"name":"deployapp","deploy":{"ssh":["status"]}}`,
+			want:   `deploy.ssh[0] "status" must be a safe OpenSSH host alias`,
+		},
+		{
+			name:   "duplicate ssh target",
+			config: `{"name":"deployapp","deploy":{"ssh":["some-id","some-id"]}}`,
+			want:   `deploy.ssh[1] duplicates "some-id"`,
+		},
+		{
+			name:   "unsafe app id",
+			config: `{"name":"My App","deploy":{"ssh":["some-id"]}}`,
+			want:   `app id "My App" must start with a lowercase letter or number`,
+		},
+		{
+			name:   "traversing app id",
+			config: `{"name":"..","deploy":{"ssh":["some-id"]}}`,
+			want:   `app id ".." must start with a lowercase letter or number`,
 		},
 	}
 	for _, tt := range tests {

@@ -768,10 +768,7 @@ func resolveDownSession(ctx context.Context, client *localagent.Client, opts dow
 
 func resolveDownSessionFromList(appRoot string, sessions []localagent.Session, opts downOptions) (localagent.Session, bool, error) {
 	if len(sessions) == 0 {
-		if opts.DB {
-			return localagent.Session{AppRoot: appRoot}, true, nil
-		}
-		return localagent.Session{}, false, fmt.Errorf("no scenery dev runtime found for app root %s", appRoot)
+		return localagent.Session{AppRoot: appRoot}, true, nil
 	}
 	return sessions[0], false, nil
 }

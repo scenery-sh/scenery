@@ -19,6 +19,18 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0115-ssh-source-sync-deploy.md",
+      "title": "SSH Source-Sync Deployment",
+      "owner": "scenery CLI / app configuration",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-07-14",
+      "review_after": "2026-08-13",
+      "summary": "Completed ExecPlan for the minimal remote deployment path: scenery deploy plus an allowed OpenSSH host alias validates locally, stops the existing remote app, rsyncs the current working tree while preserving remote secrets and runtime state, and restarts with remote scenery up readiness; focused, full, self-harness, and real OrbStack SSH acceptance passed.",
+      "tags": ["plans", "execplans", "deploy", "ssh", "rsync", "remote", "source-sync"]
+    },
+    {
       "path": "docs/plans/0114-supervised-agent-lifecycle.md",
       "title": "Supervised Agent Lifecycle",
       "owner": "scenery runtime / edge",

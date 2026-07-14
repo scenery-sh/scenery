@@ -114,6 +114,7 @@ Use `-o json` for compiler commands and command-specific current protocols. Neve
 | Inspect databases | `scenery db list -o json`, `scenery db shell` |
 | Apply initial DB state | `scenery db apply -o json`, `scenery db seed -o json`, `scenery db setup -o json` |
 | Save, verify, or load app data | `scenery snapshot save|verify|load ... -o json` |
+| Sync source to an allowed SSH target | `scenery deploy <ssh-target>` |
 
 ## Runtime Command Choice
 
@@ -127,6 +128,7 @@ Use `-o json` for compiler commands and command-specific current protocols. Neve
 - Use `scenery down` to stop it; add destructive cleanup flags only intentionally.
 - Use `scenery worker` for a worker-role runtime serving declared durable executions and schedules.
 - Use `scenery build` for a deployable binary.
+- Use `scenery deploy <ssh-target>` only for configured beta single-server source sync. It stops the remote app, rsyncs the current working tree while preserving remote `.env`, `.scenery`, and Scenery-owned `go.work`, then waits for remote readiness; expect brief downtime and no rollback.
 - Use `scenery generate` only for file generation. It must not apply database state.
 - Use `scenery task` for app-local code tasks.
 - Use Git worktrees for another live code copy.

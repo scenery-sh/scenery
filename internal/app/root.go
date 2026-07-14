@@ -209,12 +209,13 @@ type DevRoutingConfig struct {
 }
 
 type DeployConfig struct {
-	Domain string `json:"domain,omitempty"`
-	Root   string `json:"root,omitempty"`
+	Domain string   `json:"domain,omitempty"`
+	Root   string   `json:"root,omitempty"`
+	SSH    []string `json:"ssh,omitempty"`
 }
 
 func (c DeployConfig) IsZero() bool {
-	return c.Domain == "" && c.Root == ""
+	return c.Domain == "" && c.Root == "" && len(c.SSH) == 0
 }
 
 type DevServiceConfig struct {
@@ -425,6 +426,19 @@ func (c Config) validateDeploy() error {
 			return err
 		}
 	}
+	seenSSH := map[string]struct{}{}
+	for index, target := range c.Deploy.SSH {
+		if !validDeploySSHTarget(target) {
+			return fmt.Errorf("deploy.ssh[%d] %q must be a safe OpenSSH host alias and not a scenery deploy subcommand", index, target)
+		}
+		if _, exists := seenSSH[target]; exists {
+			return fmt.Errorf("deploy.ssh[%d] duplicates %q", index, target)
+		}
+		seenSSH[target] = struct{}{}
+	}
+	if len(c.Deploy.SSH) > 0 && !validDeploySSHAppID(c.AppID()) {
+		return fmt.Errorf("app id %q must start with a lowercase letter or number and use only lowercase letters, numbers, dots, underscores, or dashes for SSH deployment", c.AppID())
+	}
 	root := strings.TrimSpace(c.Deploy.Root)
 	if root == "" {
 		return nil
@@ -439,6 +453,29 @@ func (c Config) validateDeploy() error {
 		return nil
 	}
 	return fmt.Errorf("deploy.root %q must be \"api\" or a configured frontend", root)
+}
+
+func validDeploySSHTarget(target string) bool {
+	if target == "" || target == "plan" || target == "apply" || target == "setup" || target == "status" || target == "enable" || target == "disable" || target == "resume" || target == "teardown" {
+		return false
+	}
+	for index, r := range target {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || (index > 0 && (r == '.' || r == '_' || r == '-')) {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func validDeploySSHAppID(value string) bool {
+	for index, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || (index > 0 && (r == '.' || r == '_' || r == '-')) {
+			continue
+		}
+		return false
+	}
+	return value != ""
 }
 
 func validateDeployDomain(domain string) error {

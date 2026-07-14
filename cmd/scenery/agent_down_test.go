@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestResolveDownSessionAllowsMissingRuntimeForDBCleanup(t *testing.T) {
+func TestResolveDownSessionAllowsMissingRuntime(t *testing.T) {
 	t.Parallel()
 
 	session, missing, err := resolveDownSessionFromList("/tmp/app", nil, downOptions{DB: true})
@@ -16,8 +16,9 @@ func TestResolveDownSessionAllowsMissingRuntimeForDBCleanup(t *testing.T) {
 	if !missing || session.AppRoot != "/tmp/app" {
 		t.Fatalf("session = %+v missing=%v, want synthetic missing-runtime session", session, missing)
 	}
-	if _, _, err := resolveDownSessionFromList("/tmp/app", nil, downOptions{}); err == nil || !strings.Contains(err.Error(), "no scenery dev runtime found") {
-		t.Fatalf("resolve down session without cleanup error = %v", err)
+	session, missing, err = resolveDownSessionFromList("/tmp/app", nil, downOptions{})
+	if err != nil || !missing || session.AppRoot != "/tmp/app" {
+		t.Fatalf("resolve down session without cleanup = %+v missing=%v err=%v", session, missing, err)
 	}
 }
 

@@ -92,6 +92,23 @@ scenery upgrade
 
 `scenery upgrade` verifies the current release archive against `checksums.txt`, replaces the current local binary, and then syncs managed toolchain entries already present in the local store. Use `scenery upgrade --toolchain all` when you intentionally want every frozen tool and image from the upgraded binary pulled immediately.
 
+## SSH Source-Sync Deployment
+
+For a simple single-server or preview deployment, allow an ordinary OpenSSH
+host alias in the app config:
+
+```json
+{"name":"hello","deploy":{"ssh":["some-id"]}}
+```
+
+Then run `scenery deploy some-id`. Scenery validates locally, connects with
+passwordless OpenSSH, stops the remote app, rsyncs the current working tree to
+`$HOME/.scenery/apps/hello`, and runs remote `scenery up --detach --wait ready`.
+The target needs `rsync`, `scenery`, and the app toolchain. `.git`, local
+`.scenery`, `.env`, `node_modules`, and Scenery-owned `go.work` files are not
+uploaded; remote `.env`, `.scenery`, and editor workspace state are preserved.
+Deployment has brief downtime and no rollback.
+
 ## Public Deploy Edge
 
 `scenery deploy` is a beta operator surface for serving a live local app on a public domain from a macOS machine. Add a public domain to the app config:
@@ -335,6 +352,7 @@ scenery worker durable jobs list|inspect|cancel|retry [job-id] --service <name> 
 scenery worker durable token create --service <name> [--name <name>] [--id <id>] [--app-root <path>] -o json
 scenery version [-o json]
 scenery upgrade [--target <path>] [--toolchain installed|all|none] [--force] [--dry-run] [-o json]
+scenery deploy <ssh-target> [--app-root <path>]
 scenery deploy enable|disable|status|setup|resume|teardown [-o json]
 scenery system toolchain list [-o json] [--include-source-locks] [--images]
 scenery system toolchain sync [-o json] [--all] [--tool <name>] [--platform <goos/goarch>] [--images]

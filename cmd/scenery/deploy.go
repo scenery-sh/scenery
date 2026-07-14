@@ -232,11 +232,14 @@ func deployCommand(args []string) error {
 
 func runDeployCommand(stdout io.Writer, args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: scenery deploy setup|status|enable|disable|resume|teardown [-o json]")
+		return fmt.Errorf("usage: scenery deploy <ssh-target> [--app-root <path>] | setup|status|enable|disable|resume|teardown [-o json]")
 	}
 	subcommand := args[0]
 	if subcommand == "plan" || subcommand == "apply" {
 		return runDeployment(stdout, args)
+	}
+	if !isDeploySubcommand(subcommand) {
+		return runDeploySSH(stdout, subcommand, args[1:])
 	}
 	opts, err := parseDeployOptions(subcommand, args[1:])
 	if err != nil {
@@ -257,6 +260,15 @@ func runDeployCommand(stdout io.Writer, args []string) error {
 		return runDeployTeardown(stdout, opts)
 	default:
 		return fmt.Errorf("unknown scenery deploy subcommand %q", subcommand)
+	}
+}
+
+func isDeploySubcommand(value string) bool {
+	switch value {
+	case "setup", "status", "enable", "disable", "resume", "teardown":
+		return true
+	default:
+		return false
 	}
 }
 

@@ -263,7 +263,7 @@
     },
     "deploy": {
       "type": "object",
-      "description": "Beta public deploy configuration. One app may claim one public domain; deploy.root optionally names the service that owns / on that domain.",
+      "description": "Beta deploy configuration for public-domain routing and allowed OpenSSH source-sync targets.",
       "properties": {
         "domain": {
           "type": "string",
@@ -273,6 +273,18 @@
         "root": {
           "type": "string",
           "description": "Optional public / owner: api or a configured frontend name."
+        },
+        "ssh": {
+          "type": "array",
+          "description": "Allowed OpenSSH host aliases for direct source-sync deployment.",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+            "not": {
+              "enum": ["plan", "apply", "setup", "status", "enable", "disable", "resume", "teardown"]
+            }
+          }
         }
       },
       "additionalProperties": false
