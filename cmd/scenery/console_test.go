@@ -147,3 +147,52 @@ func TestRunConsoleSetupOutputVerboseKeepsSQLNoise(t *testing.T) {
 		t.Fatalf("verbose setup output dropped SQL line:\n%s", out.String())
 	}
 }
+
+func TestRunConsoleAlreadyRunningText(t *testing.T) {
+	t.Parallel()
+
+	var out bytes.Buffer
+	console := newRunConsole(&out, &bytes.Buffer{}, false, false, "demo", t.TempDir())
+
+	console.AlreadyRunning(74057, "running", runURLs{
+		API:       "https://app.localhost/api/",
+		Dashboard: "https://app.localhost/console/",
+	}, `scenery logs --follow --app-root "/tmp/app"`, `scenery down --app-root "/tmp/app"`)
+
+	got := out.String()
+	for _, want := range []string{
+		"scenery up is already running for this app root",
+		"(owner PID 74057)",
+		"https://app.localhost/api/",
+		"https://app.localhost/console/",
+		`logs: scenery logs --follow --app-root "/tmp/app"`,
+		`stop: scenery down --app-root "/tmp/app"`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("output missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestRunConsoleAlreadyRunningJSON(t *testing.T) {
+	t.Parallel()
+
+	var out bytes.Buffer
+	console := newRunConsole(&out, &bytes.Buffer{}, false, true, "demo", t.TempDir())
+
+	console.AlreadyRunning(74057, "running", runURLs{API: "https://app.localhost/api/"},
+		`scenery logs --follow --app-root "/tmp/app"`, `scenery down --app-root "/tmp/app"`)
+
+	envelope, err := machine.DecodeEvent[graph.Diagnostic](out.Bytes(), currentMachineSpecRevision())
+	if err != nil {
+		t.Fatalf("DecodeEvent: %v\n%s", err, out.String())
+	}
+	event, ok := envelope.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("event data = %#v", envelope.Data)
+	}
+	data, _ := event["data"].(map[string]any)
+	if event["type"] != "run.already_running" || data["owner_pid"] != float64(74057) || data["status"] != "running" || data["api_url"] != "https://app.localhost/api/" {
+		t.Fatalf("event = %+v", event)
+	}
+}

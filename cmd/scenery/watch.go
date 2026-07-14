@@ -115,6 +115,16 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode bool, appRoot strin
 		if preparedSession != nil && preparedSession.Cleanup != nil {
 			preparedSession.Cleanup()
 		}
+		var already *devSessionAlreadyRunningError
+		if errors.As(err, &already) && !detachedDevChildMode() {
+			console.AlreadyRunning(already.ownerPID, already.session.Status, detachedDevRunURLs(already.session),
+				fmt.Sprintf("scenery logs --follow --app-root %q", root),
+				fmt.Sprintf("scenery down --app-root %q", root))
+			if jsonMode {
+				return nil
+			}
+			return followAlreadyRunningDevSession(ctx, console, root)
+		}
 		return err
 	}
 	agentClient := preparedSession.Client
@@ -233,17 +243,93 @@ func sanitizeRouteLabel(value string) string {
 	return strings.Trim(b.String(), "-")
 }
 
+// devSessionAlreadyRunningError reports a live duplicate dev runtime for the
+// same app root. `scenery up` entry points treat it as an idempotent success
+// and report the existing runtime instead of failing.
+type devSessionAlreadyRunningError struct {
+	root     string
+	ownerPID int
+	session  localagent.Session
+}
+
+func (e *devSessionAlreadyRunningError) Error() string {
+	return fmt.Sprintf("scenery up is already running for app root %s under owner PID %d; stop it with `scenery down --app-root %q`, or use a separate Git worktree for another live code copy", e.root, e.ownerPID, e.root)
+}
+
 func rejectLiveDuplicateDevSession(root string, existing []localagent.Session) error {
-	for _, session := range existing {
-		if cleanAbsPath(session.AppRoot) != cleanAbsPath(root) {
-			continue
-		}
-		pid, live := sessionOwnerProcessLive(session)
-		if live {
-			return fmt.Errorf("scenery up is already running for app root %s under owner PID %d; stop it with `scenery down --app-root %q`, or use a separate Git worktree for another live code copy", root, pid, root)
-		}
+	if session, pid := findLiveDuplicateDevSession(root, existing); session != nil {
+		return &devSessionAlreadyRunningError{root: root, ownerPID: pid, session: *session}
 	}
 	return nil
+}
+
+var devSessionOwnerExitPollInterval = 2 * time.Second
+
+// followAlreadyRunningDevSession attaches a duplicate foreground `scenery up`
+// to the live runtime's structured logs, like `docker compose up` against
+// running services. Interrupt detaches this follower only; stopping the
+// runtime stays explicit through `scenery down`. The follower also exits when
+// the owning runtime goes away.
+func followAlreadyRunningDevSession(ctx context.Context, console *runConsole, root string) error {
+	console.printf(console.out, "  %s\n\n", console.palette.Dim("Following the running runtime's logs. Ctrl+C detaches without stopping it."))
+	followCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	ownerExited := make(chan struct{})
+	go func() {
+		if devSessionOwnerGone(followCtx, root) {
+			close(ownerExited)
+			cancel()
+		}
+	}()
+	err := runSceneryLogsFunc(followCtx, os.Stdout, []string{"--follow", "--app-root", root})
+	select {
+	case <-ownerExited:
+		console.printf(console.out, "\n  %s\n", console.palette.Dim("The running dev runtime stopped; detaching."))
+		return nil
+	default:
+	}
+	if err == nil || errors.Is(err, context.Canceled) {
+		return nil
+	}
+	return fmt.Errorf("scenery up attached to the running runtime but could not follow its logs: %w; retry with `scenery logs --follow --app-root %q`", err, root)
+}
+
+// devSessionOwnerGone reports true once the app root no longer has a live
+// verified owner, and false when ctx ends first. Transient agent errors keep
+// the watch alive instead of misreporting the runtime as stopped.
+func devSessionOwnerGone(ctx context.Context, root string) bool {
+	client, err := localagent.DefaultClient()
+	if err != nil {
+		return false
+	}
+	ticker := time.NewTicker(devSessionOwnerExitPollInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return false
+		case <-ticker.C:
+			sessions, err := client.List(ctx, root)
+			if err != nil {
+				continue
+			}
+			if session, _ := findLiveDuplicateDevSession(root, sessions); session == nil {
+				return true
+			}
+		}
+	}
+}
+
+func findLiveDuplicateDevSession(root string, existing []localagent.Session) (*localagent.Session, int) {
+	for i := range existing {
+		if cleanAbsPath(existing[i].AppRoot) != cleanAbsPath(root) {
+			continue
+		}
+		if pid, live := sessionOwnerProcessLive(existing[i]); live {
+			return &existing[i], pid
+		}
+	}
+	return nil, 0
 }
 
 func sessionOwnerProcessLive(session localagent.Session) (int, bool) {

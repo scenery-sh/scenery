@@ -145,6 +145,33 @@ func (c *runConsole) Banner(urls runURLs) {
 		c.Event("run.ready", runURLData(urls, c.verbose))
 		return
 	}
+	c.printf(c.out, "\n  %s\n\n", c.palette.Bold("scenery development server running"))
+	c.printURLRows(urls)
+	c.printf(c.out, "\n")
+}
+
+// AlreadyRunning reports an existing live dev runtime for the app root as an
+// idempotent `scenery up` outcome: the runtime keeps its current owner and
+// this invocation only surfaces how to reach, follow, and stop it.
+func (c *runConsole) AlreadyRunning(ownerPID int, status string, urls runURLs, attachCommand, downCommand string) {
+	if c.json {
+		data := runURLData(urls, c.verbose)
+		data["owner_pid"] = ownerPID
+		data["status"] = status
+		data["attach_command"] = attachCommand
+		data["down_command"] = downCommand
+		c.Event("run.already_running", data)
+		return
+	}
+	c.printf(c.out, "\n  %s %s\n\n",
+		c.palette.Bold("scenery up is already running for this app root"),
+		c.palette.Dim(fmt.Sprintf("(owner PID %d)", ownerPID)))
+	c.printURLRows(urls)
+	c.printf(c.out, "\n  %s %s\n", c.palette.Dim("logs:"), attachCommand)
+	c.printf(c.out, "  %s %s\n\n", c.palette.Dim("stop:"), downCommand)
+}
+
+func (c *runConsole) printURLRows(urls runURLs) {
 	type bannerRow struct {
 		label string
 		url   string
@@ -173,11 +200,9 @@ func (c *runConsole) Banner(urls runURLs) {
 			width = len(row.label)
 		}
 	}
-	c.printf(c.out, "\n  %s\n\n", c.palette.Bold("scenery development server running"))
 	for _, row := range rows {
 		c.printf(c.out, "  %s %-*s %s\n", c.palette.Cyan("➜"), width, row.label, c.palette.Cyan(row.url))
 	}
-	c.printf(c.out, "\n")
 }
 
 func (c *runConsole) SetupOutput(line, stream string) {

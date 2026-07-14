@@ -35,12 +35,13 @@ var detachedDevRoutesReachable = probeDetachedDevRoutes
 
 type detachedDevResult struct {
 	cliPayloadIdentity
-	Wait          string             `json:"wait"`
-	PID           int                `json:"pid"`
-	LogPath       string             `json:"log_path"`
-	AttachCommand string             `json:"attach_command"`
-	DownCommand   string             `json:"down_command"`
-	Session       localagent.Session `json:"session"`
+	Wait           string             `json:"wait"`
+	AlreadyRunning bool               `json:"already_running,omitempty"`
+	PID            int                `json:"pid"`
+	LogPath        string             `json:"log_path,omitempty"`
+	AttachCommand  string             `json:"attach_command"`
+	DownCommand    string             `json:"down_command"`
+	Session        localagent.Session `json:"session"`
 }
 
 func runDetachedDev(args []string, opts devOptions) error {
@@ -69,8 +70,12 @@ func runDetachedDev(args []string, opts devOptions) error {
 	if client == nil {
 		return fmt.Errorf("scenery up --detach requires the local scenery agent")
 	}
-	if err := rejectDetachedDuplicateDevSession(setupCtx, client, root, opts); err != nil {
+	existing, existingPID, err := liveDetachedDuplicateDevSession(setupCtx, client, root)
+	if err != nil {
 		return err
+	}
+	if existing != nil {
+		return reportDetachedDevAlreadyRunning(client, root, cfg, opts, waitMode, existingPID)
 	}
 
 	paths, err := localagent.DefaultPaths()
@@ -137,15 +142,38 @@ func detachedDevWaitTimeout(waitMode string) time.Duration {
 	return detachedDevStartupTimeout
 }
 
-func rejectDetachedDuplicateDevSession(ctx context.Context, client *localagent.Client, root string, opts devOptions) error {
+func liveDetachedDuplicateDevSession(ctx context.Context, client *localagent.Client, root string) (*localagent.Session, int, error) {
 	if client == nil {
-		return nil
+		return nil, 0, nil
 	}
 	sessions, err := client.List(ctx, root)
 	if err != nil {
-		return err
+		return nil, 0, err
 	}
-	return rejectLiveDuplicateDevSession(root, sessions)
+	session, pid := findLiveDuplicateDevSession(root, sessions)
+	return session, pid, nil
+}
+
+// reportDetachedDevAlreadyRunning adopts an already-live dev runtime for the
+// app root instead of failing: the requested wait readiness is verified
+// against the existing owner and that session is reported as the result.
+func reportDetachedDevAlreadyRunning(client *localagent.Client, root string, cfg app.Config, opts devOptions, waitMode string, ownerPID int) error {
+	waitTimeout := detachedDevWaitTimeout(waitMode)
+	waitCtx, waitCancel := context.WithTimeout(context.Background(), waitTimeout)
+	defer waitCancel()
+	session, err := waitForDetachedDevSession(waitCtx, client, root, ownerPID, waitMode, detachedDevExpectedFrontendRoutes(cfg.Frontends))
+	if err != nil {
+		return fmt.Errorf("scenery up is already running for app root %s under owner PID %d, but the live runtime did not reach %s within %s: %w; stop it with `scenery down --app-root %q`", root, ownerPID, waitMode, waitTimeout, err, root)
+	}
+	return writeDetachedDevResult(os.Stdout, opts.JSON, detachedDevResult{
+		cliPayloadIdentity: newCLIPayloadIdentity("scenery.dev.detach"),
+		Wait:               waitMode,
+		AlreadyRunning:     true,
+		PID:                session.OwnerPID,
+		AttachCommand:      fmt.Sprintf("scenery logs --follow --app-root %q", root),
+		DownCommand:        fmt.Sprintf("scenery down --app-root %q", root),
+		Session:            session,
+	})
 }
 
 func detachedDevChildMode() bool {
@@ -316,12 +344,16 @@ func writeDetachedDevResult(w io.Writer, jsonMode bool, result detachedDevResult
 	if jsonMode {
 		return writeCLIJSON(w, result)
 	}
+	status := detachedDevDisplayStatus(result.Session.Status)
+	if result.AlreadyRunning {
+		status += " (already up)"
+	}
 	fmt.Fprintln(w, "[+] Running 1/1")
 	fmt.Fprintf(
 		w,
 		" - App %s  %s  pid=%d\n\n",
 		detachedDevAppLabel(result.Session),
-		detachedDevDisplayStatus(result.Session.Status),
+		status,
 		result.PID,
 	)
 	if result.Session.Status == "running" {
@@ -333,7 +365,9 @@ func writeDetachedDevResult(w io.Writer, jsonMode bool, result detachedDevResult
 	}
 	fmt.Fprintf(w, "  logs    %s\n", result.AttachCommand)
 	fmt.Fprintf(w, "  stop    %s\n", result.DownCommand)
-	fmt.Fprintf(w, "\nLog file: %s\n", result.LogPath)
+	if strings.TrimSpace(result.LogPath) != "" {
+		fmt.Fprintf(w, "\nLog file: %s\n", result.LogPath)
+	}
 	routes := result.Session.RouteManifest.URLs()
 	if len(routes) > 0 {
 		fmt.Fprintln(w, "\nRoutes currently registered:")

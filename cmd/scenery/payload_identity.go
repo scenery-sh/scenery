@@ -61,7 +61,7 @@ var cliPayloadSchemaRevisions = map[string]string{
 	"scenery.build.result":                "sha256:222cea7f47a8ed1776bdfec77b9c8a499f636840b22b1c72cf4260059b4212e9",
 	"scenery.run.event":                   "sha256:acd3c69b8de91403ea35c71807d38e492bfb4a1cf23242be9a4475b10c178c6a",
 	"scenery.dev.event":                   "sha256:88d7bd9bd7e38e93de754e8508bde933e9d49d48a5391c29686e11737bb5ba2e",
-	"scenery.dev.detach":                  "sha256:55f0c6bc2e79cdb46c59b095fc9433e51a21aa620408b63ae7c5dcac4dfde7ff",
+	"scenery.dev.detach":                  "sha256:3ba4e45cfd425a451b8a6caf3d7217014fc9d48055d00c9a158a500a255f1742",
 	"scenery.deploy.target":               "sha256:356e55ad96ebecf480ec923f0f57278a7b1d670050cbdae6fdc8319633ab26f6",
 	"scenery.deploy.setup":                "sha256:f8973bd425ddbbe813df86be5e22af0bdd6b50f86178a53dc32c801319927da3",
 	"scenery.deploy.resume":               "sha256:bed17db79b44a0b8508898e8db3db4ae91b9239d9bf3f0b5d9afa3b3f234f939",

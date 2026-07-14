@@ -105,6 +105,8 @@ scenery down
 
 The default detached wait verifies every advertised route and one script or stylesheet asset from each frontend before returning. Use `--wait registered` only when route readiness is intentionally deferred.
 
+`scenery up` is idempotent per app root: when a live runtime already owns the app root, it reports that runtime instead of failing. Human foreground reruns attach to the running runtime's logs, and Ctrl+C detaches without stopping it; `-o jsonl` and `--detach` reruns report and exit `0` (detached JSON sets `already_running: true`). Use a Git worktree when a second live code copy is needed.
+
 Default local routing gives each live app root one localhost base URL. Discover it and every routed capability through `scenery ps -o json`; do not guess hidden ports or substrate paths. Treat Caddy, dnsmasq, and Victoria as substrate unless the task explicitly diagnoses them. Use managed toolchain commands instead of relying on ambient `PATH` binaries.
 
 ```sh

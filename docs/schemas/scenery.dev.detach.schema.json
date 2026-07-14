@@ -12,9 +12,11 @@
       "const": "scenery.dev.detach"
     },
     "schema_revision": {
-      "const": "sha256:55f0c6bc2e79cdb46c59b095fc9433e51a21aa620408b63ae7c5dcac4dfde7ff"
+      "const": "sha256:3ba4e45cfd425a451b8a6caf3d7217014fc9d48055d00c9a158a500a255f1742"
     },
     "wait": {
+    },
+    "already_running": {
     },
     "pid": {
     },

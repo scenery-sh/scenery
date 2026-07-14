@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -313,7 +314,7 @@ func TestWaitForDetachedDevSessionReadyTimeoutReportsState(t *testing.T) {
 	}
 }
 
-func TestRejectDetachedDuplicateDevSessionRejectsLiveOwner(t *testing.T) {
+func TestLiveDetachedDuplicateDevSessionFindsLiveOwner(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	agentDone := startTestAgentServer(t, ctx)
@@ -346,9 +347,25 @@ func TestRejectDetachedDuplicateDevSessionRejectsLiveOwner(t *testing.T) {
 		t.Fatalf("register live owner session: %v", err)
 	}
 
-	err = rejectDetachedDuplicateDevSession(ctx, client, root, devOptions{})
-	if err == nil || !strings.Contains(err.Error(), "already running") {
-		t.Fatalf("rejectDetachedDuplicateDevSession error = %v, want already running", err)
+	existing, existingPID, err := liveDetachedDuplicateDevSession(ctx, client, root)
+	if err != nil {
+		t.Fatalf("liveDetachedDuplicateDevSession error = %v", err)
+	}
+	if existing == nil || existingPID != owner.Process.Pid {
+		t.Fatalf("liveDetachedDuplicateDevSession = %v pid %d, want live session owned by %d", existing, existingPID, owner.Process.Pid)
+	}
+
+	sessions, err := client.List(ctx, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rejectErr := rejectLiveDuplicateDevSession(root, sessions)
+	var already *devSessionAlreadyRunningError
+	if !errors.As(rejectErr, &already) || !strings.Contains(rejectErr.Error(), "already running") {
+		t.Fatalf("rejectLiveDuplicateDevSession error = %v, want devSessionAlreadyRunningError", rejectErr)
+	}
+	if already.ownerPID != owner.Process.Pid {
+		t.Fatalf("already running owner PID = %d, want %d", already.ownerPID, owner.Process.Pid)
 	}
 
 	cancel()
@@ -429,6 +446,36 @@ func TestWriteDetachedDevResultTextSeparatesAliases(t *testing.T) {
 		if !strings.Contains(output, want) {
 			t.Fatalf("output missing %q:\n%s", want, output)
 		}
+	}
+}
+
+func TestWriteDetachedDevResultTextAlreadyRunning(t *testing.T) {
+	t.Parallel()
+
+	result := detachedDevResult{
+		Wait:           detachedDevWaitReady,
+		AlreadyRunning: true,
+		PID:            123,
+		AttachCommand:  `scenery logs --follow --app-root "/tmp/app"`,
+		DownCommand:    `scenery down --app-root "/tmp/app"`,
+		Session: localagent.Session{
+			AppRoot: "/tmp/app",
+			Status:  "running",
+			RouteManifest: localagent.RouteManifest{Routes: map[string]localagent.RouteRecord{
+				localagent.RouteAPI: {URL: "https://app.localhost/api/"},
+			}},
+		},
+	}
+	var buf bytes.Buffer
+	if err := writeDetachedDevResult(&buf, false, result); err != nil {
+		t.Fatalf("writeDetachedDevResult: %v", err)
+	}
+	output := buf.String()
+	if !strings.Contains(output, "[+] Running 1/1\n - App /tmp/app  Running (already up)  pid=123") {
+		t.Fatalf("output missing already-up status:\n%s", output)
+	}
+	if strings.Contains(output, "Log file:") {
+		t.Fatalf("output must not report a log file for an adopted session:\n%s", output)
 	}
 }
 
