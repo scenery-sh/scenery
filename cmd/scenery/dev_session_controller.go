@@ -41,7 +41,11 @@ type PreparedDevSession struct {
 	Backend           devBackend
 	FrontendProcesses []*managedFrontendProcess
 	FrontendReady     <-chan error
-	Cleanup           func()
+	// DomainURL is the session's dev domain base URL after a successful
+	// end-to-end edge probe; empty when no dev.routing.domain applies or the
+	// edge is not serving it yet.
+	DomainURL string
+	Cleanup   func()
 }
 
 func devAPIUnixSocketPath(stateRoot string) string {
@@ -110,6 +114,14 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 	}
 	branch := discoverDevGitBranch(root)
 	sessionID := localagent.SessionID(root, branch)
+	domainHost := localagent.DevDomainHost(cfg.Dev.Routing.Domain, branch)
+	publicRoutes, err := devExposeRouteNames(cfg)
+	if err != nil {
+		return prepared, err
+	}
+	if err := validateFrontendServeModes(cfg); err != nil {
+		return prepared, err
+	}
 	var routeManifest localagent.RouteManifest
 	var portLease localagent.PortLease
 	if routingMode == localagent.RouteModePath {
@@ -127,7 +139,7 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 		if err != nil {
 			return prepared, err
 		}
-		routeManifest = pathRouteManifestForLease(portLease)
+		routeManifest = pathRouteManifestForLease(portLease, domainHost, publicRoutes)
 	}
 	if localagent.DisabledByEnv() {
 		if requiresPortlessEdge {
@@ -305,8 +317,22 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 		return prepared, err
 	}
 	if routingMode == localagent.RouteModePath {
+		if strings.TrimSpace(session.RouteManifest.DomainURL) != "" || session.DomainHostConflict != nil {
+			if err := c.runPhase("Checking dev domain edge", func() error {
+				domainURL, warning := validateDevDomainURL(ctx, session)
+				prepared.DomainURL = domainURL
+				if warning != "" {
+					fmt.Fprintf(os.Stderr, "scenery: %s\n", warning)
+				}
+				return nil
+			}); err != nil {
+				return prepared, err
+			}
+		}
 		redirectURL := ""
-		if domain := strings.TrimSpace(cfg.Deploy.Domain); domain != "" {
+		if prepared.DomainURL != "" {
+			redirectURL = prepared.DomainURL
+		} else if domain := strings.TrimSpace(cfg.Deploy.Domain); domain != "" {
 			redirectURL = "https://" + domain
 		}
 		if err := c.runPhase("Starting local path router", func() error {

@@ -29,11 +29,59 @@ func (s *devSupervisor) adoptManagedFrontends(processes []*managedFrontendProces
 	}
 	for _, process := range processes {
 		name := localagentLabel(process.Name)
-		if name == "" || process == nil || process.Process == nil {
+		if name == "" || process == nil {
+			continue
+		}
+		if process.Static != nil {
+			s.setProductionFrontend(name, process.Static)
+			continue
+		}
+		if process.Process == nil {
 			continue
 		}
 		s.setManagedFrontend(name, process)
 		go s.monitorManagedFrontend(name, process)
+	}
+}
+
+func (s *devSupervisor) setProductionFrontend(name string, static *staticFrontendServer) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.productionFrontends == nil {
+		s.productionFrontends = map[string]*staticFrontendServer{}
+	}
+	s.productionFrontends[name] = static
+}
+
+// RebuildProductionFrontends rebuilds the named production frontends (all of
+// them when names is empty is NOT implied — callers pass explicit names from
+// changed paths). Failures are reported to the run console and do not stop
+// the dev loop; the previous bundle keeps serving.
+func (s *devSupervisor) RebuildProductionFrontends(ctx context.Context, names []string) {
+	if s == nil || len(names) == 0 {
+		return
+	}
+	s.mu.RLock()
+	servers := make(map[string]*staticFrontendServer, len(names))
+	for _, name := range names {
+		if static := s.productionFrontends[localagentLabel(name)]; static != nil {
+			servers[localagentLabel(name)] = static
+		}
+	}
+	s.mu.RUnlock()
+	for name, static := range servers {
+		if s.console != nil {
+			s.console.Event("frontend.rebuild", map[string]any{"name": name})
+		}
+		if err := static.Rebuild(ctx); err != nil {
+			if s.console != nil {
+				s.console.printError("frontend "+name+" rebuild failed", err)
+			}
+			continue
+		}
+		if s.console != nil && !s.console.json {
+			s.console.printSetupDone("frontend " + name + " rebuilt")
+		}
 	}
 }
 

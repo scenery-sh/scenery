@@ -26,6 +26,9 @@ type runConsole struct {
 }
 
 type runURLs struct {
+	// App is the dev domain base URL when dev.routing.domain is configured
+	// and the local edge is serving it; empty otherwise.
+	App       string
 	API       string
 	Dashboard string
 	Frontends map[string]string
@@ -176,10 +179,14 @@ func (c *runConsole) printURLRows(urls runURLs) {
 		label string
 		url   string
 	}
-	rows := []bannerRow{
-		{label: "API:", url: urls.API},
-		{label: "Dashboard:", url: urls.Dashboard},
+	var rows []bannerRow
+	if urls.App != "" {
+		rows = append(rows, bannerRow{label: "App:", url: urls.App})
 	}
+	rows = append(rows,
+		bannerRow{label: "API:", url: urls.API},
+		bannerRow{label: "Dashboard:", url: urls.Dashboard},
+	)
 	for _, name := range sortedKeys(urls.Frontends) {
 		rows = append(rows, bannerRow{label: frontendLabel(name), url: urls.Frontends[name]})
 	}
@@ -280,6 +287,9 @@ func runURLData(urls runURLs, verbose bool) map[string]any {
 		"api_url":       urls.API,
 		"dashboard_url": urls.Dashboard,
 		"frontend_urls": urls.Frontends,
+	}
+	if urls.App != "" {
+		data["app_url"] = urls.App
 	}
 	if verbose {
 		data["victoria_urls"] = urls.Victoria

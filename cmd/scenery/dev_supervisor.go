@@ -58,8 +58,15 @@ type devSupervisor struct {
 	console      *runConsole
 	agent        *localagent.Client
 	agentSession *localagent.Session
+	// devDomainURL is the edge-verified dev domain base URL advertised in
+	// run output; empty when dev.routing.domain does not apply or the edge
+	// was not serving it at startup.
+	devDomainURL string
 	frontends    map[string]*managedFrontendProcess
-	events       *devEventSink
+	// productionFrontends holds in-process static servers for frontends with
+	// serve mode "production", keyed by normalized frontend name; guarded by mu.
+	productionFrontends map[string]*staticFrontendServer
+	events              *devEventSink
 
 	closeOnce          sync.Once
 	mu                 sync.RWMutex
@@ -1497,6 +1504,7 @@ func frontendURLsFromAgentRoutes(routes map[string]string, frontends map[string]
 
 func (s *devSupervisor) runURLs() runURLs {
 	return runURLs{
+		App:       s.devDomainURL,
 		API:       s.apiURL(),
 		Dashboard: s.dashboardURL(),
 		Frontends: s.frontendURLs(),

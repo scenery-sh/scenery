@@ -107,7 +107,7 @@ The default detached wait verifies every advertised route and one script or styl
 
 `scenery up` is idempotent per app root: when a live runtime already owns the app root, it reports that runtime instead of failing. Human foreground reruns attach to the running runtime's logs, and Ctrl+C detaches without stopping it; `-o jsonl` and `--detach` reruns report and exit `0` (detached JSON sets `already_running: true`). Use a Git worktree when a second live code copy is needed.
 
-Default local routing gives each live app root one localhost base URL. Discover it and every routed capability through `scenery ps -o json`; do not guess hidden ports or substrate paths. Treat Caddy, dnsmasq, and Victoria as substrate unless the task explicitly diagnoses them. Use managed toolchain commands instead of relying on ambient `PATH` binaries.
+Default local routing gives each live app root one localhost base URL. Discover it and every routed capability through `scenery ps -o json`; do not guess hidden ports or substrate paths. When the app config sets `dev.routing.domain`, the same session is also served at `https://<branch>-<domain>` (bare `<domain>` on `main`) through the local edge; session JSON reports it as `route_manifest.domain_url`, and `route_manifest.public_routes` (from `dev.routing.expose`) narrows what that origin serves — localhost always serves everything. Frontends with `serve: "production"` are static builds without HMR. Treat Caddy, dnsmasq, and Victoria as substrate unless the task explicitly diagnoses them. Use managed toolchain commands instead of relying on ambient `PATH` binaries.
 
 ```sh
 scenery system toolchain verify -o json

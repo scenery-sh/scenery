@@ -316,6 +316,43 @@ The default wait checks every advertised route and one script or stylesheet asse
 
 Discover URLs from `scenery ps -o json`; do not guess hidden ports. Use a Git worktree for a second live code copy.
 
+### Branded Dev Domain Per Worktree
+
+To serve local dev at your own domain instead of `localhost:<port>`, add a path-mode dev domain to `.scenery.json`:
+
+```json
+{
+  "dev": {
+    "routing": {
+      "domain": "local.example.com",
+      "expose": ["api", "next"]
+    }
+  },
+  "frontends": {
+    "next": { "root": "apps/next" },
+    "blog": { "root": "apps/blog", "serve": "production" }
+  }
+}
+```
+
+Branch `main` serves `https://local.example.com/`; a worktree on branch `pricing` serves `https://pricing-local.example.com/` (dash join — every host stays one DNS label deep, inside a single `*.example.com` wildcard and Cloudflare Universal SSL). The URL structure is unchanged path mode: `/api/`, `/console/`, `/<frontend>/`.
+
+`expose` narrows what the domain origin serves; absent means everything, and `localhost:<port>` always serves everything. `serve: "production"` builds that frontend once and serves the built `dist/` statically — no dev server, no HMR; editing its sources rebuilds the bundle in place.
+
+Loopback-only setup (this machine's browser only):
+
+1. A records for `local.example.com` and `*.example.com` to `127.0.0.1` (plain DNS, no proxying).
+2. `scenery system edge install`, then `scenery system edge trust`.
+
+Cloudflare-fronted setup (reachable from any device; Cloudflare terminates public TLS, so no local CA trust anywhere):
+
+1. Proxied A records for `local.example.com` and the `*.example.com` catch-all pointing at your static IP; explicit records for real sites keep winning over the wildcard.
+2. Set the zone SSL mode to "Full" (not "Full (strict)") so Cloudflare accepts the Scenery edge's internal origin certificate.
+3. Forward router ports 80/443 to the dev machine and run `scenery deploy setup` once so the edge listens publicly.
+4. Consider Cloudflare Access in front of the dev hostnames — with `expose` absent, the whole dev surface (console and runtime included) is internet-reachable.
+
+When the edge is not serving, `scenery up` still starts and keeps localhost URLs; the warning names the missing setup step. Domain hosts are single-owner per branch label: a second worktree on the same branch keeps localhost URLs and reports `domain_host_conflict`.
+
 ## Debug A Failing App
 
 1. Run `scenery doctor -o json`.

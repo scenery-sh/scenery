@@ -21,6 +21,11 @@ const (
 	RouteDashboard = "dashboard"
 	RoutePublic    = "public"
 
+	// RoutePathMode marks a registered route host that dispatches the whole
+	// path-mode manifest instead of one backend route. It is internal-only
+	// and never a valid route or alias name.
+	RoutePathMode = "__path"
+
 	PathModeDashboardPrefix = "/console"
 	PathModeRuntimePrefix   = "/runtime"
 
@@ -70,10 +75,14 @@ type Session struct {
 	RouteManifest  RouteManifest         `json:"route_manifest,omitempty"`
 	Aliases        map[string]string     `json:"aliases,omitempty"`
 	AliasConflicts map[string]AliasLease `json:"alias_conflicts,omitempty"`
-	Backends       map[string]Backend    `json:"backends"`
-	ReportToken    string                `json:"-"`
-	CreatedAt      time.Time             `json:"created_at"`
-	UpdatedAt      time.Time             `json:"updated_at"`
+	// DomainHostConflict reports the live session that already owns this
+	// session's requested dev domain host; the host is stripped from the
+	// route manifest when set.
+	DomainHostConflict *AliasLease        `json:"domain_host_conflict,omitempty"`
+	Backends           map[string]Backend `json:"backends"`
+	ReportToken        string             `json:"-"`
+	CreatedAt          time.Time          `json:"created_at"`
+	UpdatedAt          time.Time          `json:"updated_at"`
 }
 
 type Process struct {
@@ -107,12 +116,18 @@ type RouteNamespace struct {
 
 type RouteManifest struct {
 	machine.ArtifactIdentity
-	Mode      RouteMode              `json:"mode,omitempty"`
-	BaseURL   string                 `json:"base_url,omitempty"`
-	Root      string                 `json:"root,omitempty"`
-	Worktree  string                 `json:"worktree,omitempty"`
-	Routes    map[string]RouteRecord `json:"routes,omitempty"`
-	PortLease *PortLease             `json:"port_lease,omitempty"`
+	Mode       RouteMode `json:"mode,omitempty"`
+	BaseURL    string    `json:"base_url,omitempty"`
+	DomainHost string    `json:"domain_host,omitempty"`
+	DomainURL  string    `json:"domain_url,omitempty"`
+	// PublicRoutes narrows what the dev domain origin serves to the listed
+	// route names (root, api, dashboard, runtime, frontend names). Empty
+	// means the full path-mode surface. Localhost dispatch ignores it.
+	PublicRoutes []string               `json:"public_routes,omitempty"`
+	Root         string                 `json:"root,omitempty"`
+	Worktree     string                 `json:"worktree,omitempty"`
+	Routes       map[string]RouteRecord `json:"routes,omitempty"`
+	PortLease    *PortLease             `json:"port_lease,omitempty"`
 }
 
 func (m RouteManifest) URLs() map[string]string {

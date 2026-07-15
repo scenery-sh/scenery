@@ -7,6 +7,16 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
+- [0117 Public Dev Domain: Dash Hosts, Exposure Config, Frontend Serve Modes](0117-public-dev-domain-exposure.md)
+  - Status: active
+  - Owner: scenery runtime / agent DX
+  - Created: 2026-07-15
+  - Focus: amend 0116 for the Cloudflare-fronted topology — `<branch>-<domain>` dash hosts within Universal SSL's first-level wildcard, `dev.routing.expose` opt-in narrowing of what the internet-reachable domain origin serves (default everything; localhost always full), and per-frontend `serve: development|production` where production builds once and serves static output from a scenery-internal server.
+- [0116 Dev Domain Hosts for Path-Mode Routing](0116-dev-domain-path-hosts.md)
+  - Status: active
+  - Owner: scenery runtime / agent DX
+  - Created: 2026-07-15
+  - Focus: `dev.routing.domain` gives path-mode dev sessions a branded browser origin — `https://<branch>.<domain>` per worktree, bare `<domain>` on `main` — served through the managed HTTPS edge with user-owned public wildcard DNS to `127.0.0.1`; single-owner host claims with alias-style conflict reporting, localhost fallback when the edge is not ready.
 - [0114 Supervised Agent Lifecycle](0114-supervised-agent-lifecycle.md)
   - Status: active
   - Owner: scenery runtime / edge

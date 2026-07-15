@@ -19,6 +19,30 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0117-public-dev-domain-exposure.md",
+      "title": "Public Dev Domain: Dash Hosts, Exposure Config, Frontend Serve Modes",
+      "owner": "scenery runtime / agent DX",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-07-15",
+      "review_after": "2026-08-14",
+      "summary": "Active ExecPlan amending 0116 for a Cloudflare-fronted static-IP topology: dash-joined <branch>-<domain> hosts inside Universal SSL's first-level wildcard, dev.routing.expose opt-in narrowing of the internet-reachable domain origin (default everything, localhost always full surface), and frontends.<name>.serve development|production where production builds the frontend and serves static output from a scenery-internal server.",
+      "tags": ["plans", "execplans", "dev", "routing", "domain", "cloudflare", "expose", "frontends", "production-build"]
+    },
+    {
+      "path": "docs/plans/0116-dev-domain-path-hosts.md",
+      "title": "Dev Domain Hosts for Path-Mode Routing",
+      "owner": "scenery runtime / agent DX",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-07-15",
+      "review_after": "2026-08-14",
+      "summary": "Completed ExecPlan giving path-mode dev sessions a branded browser origin from dev.routing.domain, served through the managed HTTPS edge with operator-owned public DNS, single-owner host claims with alias-style conflict reporting, and localhost fallback whenever the edge is not ready. Plan 0117 later amended the host join to <branch>-<domain> and added exposure/serve-mode config.",
+      "tags": ["plans", "execplans", "dev", "routing", "domain", "edge", "worktree", "path-mode", "urls"]
+    },
+    {
       "path": "docs/plans/0115-ssh-source-sync-deploy.md",
       "title": "SSH Source-Sync Deployment",
       "owner": "scenery CLI / app configuration",

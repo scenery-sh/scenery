@@ -27,6 +27,10 @@ type managedFrontendProcess struct {
 	Root    string
 	Addr    string
 	Process *devManagedProcess
+	// Static is set instead of Process for serve mode "production": an
+	// in-process static server over the built bundle. It has no PID, is
+	// never restart-supervised, and dies with the dev supervisor.
+	Static  *staticFrontendServer
 	LogFile *os.File
 }
 
@@ -72,7 +76,7 @@ func beginManagedFrontendBackendsForSession(ctx context.Context, root string, cf
 			backends[frontend.Name] = localagent.Backend{Network: "tcp", Addr: override}
 			continue
 		}
-		if frontend.AllowSharedUpstream {
+		if frontend.AllowSharedUpstream && frontend.Serve != frontendServeProduction {
 			result := startManagedFrontend(ctx, root, cfg.AppID(), len(startable), frontend, baseEnv, session)
 			if result.err != nil {
 				return nil, nil, nil, result.err
@@ -185,9 +189,25 @@ func configuredFrontends(frontends map[string]app.FrontendConfig) []localproxy.F
 			Root:                frontend.Root,
 			Upstream:            frontend.Upstream,
 			AllowSharedUpstream: frontend.AllowSharedUpstream,
+			Serve:               strings.ToLower(strings.TrimSpace(frontend.Serve)),
 		})
 	}
 	return resolved
+}
+
+const frontendServeProduction = "production"
+
+// validateFrontendServeModes rejects unknown frontends.<name>.serve values
+// before any frontend process management starts.
+func validateFrontendServeModes(cfg app.Config) error {
+	for name, frontend := range cfg.Frontends {
+		switch strings.ToLower(strings.TrimSpace(frontend.Serve)) {
+		case "", "development", frontendServeProduction:
+		default:
+			return fmt.Errorf("frontends.%s.serve must be \"development\" or \"production\"", name)
+		}
+	}
+	return nil
 }
 
 func startManagedFrontends(ctx context.Context, appRoot, appID string, frontends []localproxy.FrontendConfig, baseEnv []string, session localagent.Session, starter managedFrontendStarter) []managedFrontendStartResult {
@@ -252,6 +272,17 @@ func beginManagedFrontend(ctx context.Context, cancel context.CancelFunc, appRoo
 	result := pendingManagedFrontendStart{
 		managedFrontendStartResult: managedFrontendStartResult{index: index, name: frontend.Name},
 	}
+	if frontend.Serve == frontendServeProduction {
+		process, ready, err := startProductionFrontendServer(appRoot, frontend, baseEnv, session)
+		if err != nil {
+			result.err = fmt.Errorf("build managed frontend %q: %w", frontend.Name, err)
+			return result
+		}
+		result.process = process
+		result.backend = localagent.Backend{Network: "tcp", Addr: process.Addr}
+		result.ready = ready
+		return result
+	}
 	process, err := startManagedFrontendProcessWithoutWaiting(ctx, appRoot, appID, frontend, baseEnv, session)
 	if err != nil {
 		if strings.TrimSpace(frontend.Upstream) != "" {
@@ -281,6 +312,22 @@ func beginManagedFrontend(ctx context.Context, cancel context.CancelFunc, appRoo
 
 func startManagedFrontend(ctx context.Context, appRoot, appID string, index int, frontend localproxy.FrontendConfig, baseEnv []string, session localagent.Session) managedFrontendStartResult {
 	result := managedFrontendStartResult{index: index, name: frontend.Name}
+	if frontend.Serve == frontendServeProduction {
+		process, ready, err := startProductionFrontendServer(appRoot, frontend, baseEnv, session)
+		if err == nil {
+			err = <-ready
+		}
+		if err != nil {
+			if process != nil {
+				_ = process.Stop()
+			}
+			result.err = fmt.Errorf("build managed frontend %q: %w", frontend.Name, err)
+			return result
+		}
+		result.process = process
+		result.backend = localagent.Backend{Network: "tcp", Addr: process.Addr}
+		return result
+	}
 	process, err := startManagedFrontendProcess(ctx, appRoot, appID, frontend, baseEnv, session)
 	if err == nil && process != nil {
 		result.process = process
@@ -511,6 +558,10 @@ func managedFrontendBasePath(session localagent.Session, frontendName string) st
 }
 
 func managedFrontendDevScript(root string) (string, error) {
+	return managedFrontendScript(root, "dev")
+}
+
+func managedFrontendScript(root, name string) (string, error) {
 	data, err := os.ReadFile(filepath.Join(root, "package.json"))
 	if err != nil {
 		return "", err
@@ -519,11 +570,61 @@ func managedFrontendDevScript(root string) (string, error) {
 	if err := json.Unmarshal(data, &pkg); err != nil {
 		return "", err
 	}
-	script := strings.TrimSpace(pkg.Scripts["dev"])
+	script := strings.TrimSpace(pkg.Scripts[name])
 	if script == "" {
-		return "", fmt.Errorf("frontend package has no dev script")
+		return "", fmt.Errorf("frontend package has no %s script", name)
 	}
 	return script, nil
+}
+
+// managedFrontendBuildCommand mirrors managedFrontendCommand for the package
+// build script used by serve mode "production": local astro/vite binaries
+// first, then the detected package manager. The vite base flag keeps built
+// asset URLs under the frontend's path-mode prefix.
+func managedFrontendBuildCommand(root, basePath string) (string, []string, error) {
+	script, err := managedFrontendScript(root, "build")
+	if err != nil {
+		return "", nil, err
+	}
+	baseArg := managedFrontendViteBaseArg(basePath)
+	if strings.Contains(script, "astro") {
+		if bin := managedFrontendLocalBin(root, "astro"); bin != "" {
+			return bin, []string{"build"}, nil
+		}
+	}
+	if strings.Contains(script, "vite") {
+		if bin := managedFrontendLocalBin(root, "vite"); bin != "" {
+			args := []string{"build"}
+			if baseArg != "" {
+				args = append(args, "--base", baseArg)
+			}
+			return bin, args, nil
+		}
+	}
+	viteBaseArgs := func() []string {
+		if strings.Contains(script, "vite") && baseArg != "" {
+			return []string{"--base", baseArg}
+		}
+		return nil
+	}
+	switch managedFrontendPackageManager(root) {
+	case "bun":
+		return "bun", append([]string{"run", "build"}, viteBaseArgs()...), nil
+	case "pnpm":
+		args := []string{"run", "build"}
+		if extra := viteBaseArgs(); len(extra) > 0 {
+			args = append(append(args, "--"), extra...)
+		}
+		return "pnpm", args, nil
+	case "yarn":
+		return "yarn", append([]string{"build"}, viteBaseArgs()...), nil
+	default:
+		args := []string{"run", "build"}
+		if extra := viteBaseArgs(); len(extra) > 0 {
+			args = append(append(args, "--"), extra...)
+		}
+		return "npm", args, nil
+	}
 }
 
 func managedFrontendLocalBin(root, name string) string {
@@ -733,6 +834,9 @@ func (p *managedFrontendProcess) Stop() error {
 	}
 	if p.Process != nil {
 		_ = p.Process.Stop(stopTimeout)
+	}
+	if p.Static != nil {
+		_ = p.Static.Close()
 	}
 	if p.LogFile != nil {
 		return p.LogFile.Close()

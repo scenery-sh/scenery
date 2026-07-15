@@ -178,6 +178,7 @@ func (r *Registry) Upsert(req RegisterRequest) (Session, error) {
 		return Session{}, fmt.Errorf("scenery up is already running for app root %s under owner PID %d; use a separate Git worktree for another live code copy", session.AppRoot, blockingPID)
 	}
 	session.Aliases, session.AliasConflicts = r.claimAliasesLocked(session, req.ClaimAliases)
+	r.claimDomainHostLocked(&session, req.ClaimAliases)
 	r.sessions[session.SessionID] = session
 	r.currentByAppRoot[filepath.Clean(session.AppRoot)] = session.SessionID
 	r.rebuildRouteHostIndexLocked()
@@ -458,6 +459,65 @@ func (r *Registry) claimAliasesLocked(session Session, force bool) (map[string]s
 	return aliases, conflicts
 }
 
+// claimDomainHostLocked enforces single ownership of a path-mode dev domain
+// host across sessions. A live verified owner keeps the host: the newcomer's
+// manifest drops it and records the conflict. A provably stale owner loses
+// the host to the newcomer; `force` transfers it from a live owner the same
+// way `--claim-aliases` transfers alias leases.
+func (r *Registry) claimDomainHostLocked(session *Session, force bool) {
+	session.DomainHostConflict = nil
+	host := normalizeRouteHost(session.RouteManifest.DomainHost)
+	if session.RouteManifest.Mode != RouteModePath || host == "" {
+		return
+	}
+	for id, other := range r.sessions {
+		if id == session.SessionID {
+			continue
+		}
+		if other.RouteManifest.Mode != RouteModePath || normalizeRouteHost(other.RouteManifest.DomainHost) != host {
+			continue
+		}
+		if !force && !sessionDomainHostOwnerStale(other) {
+			session.DomainHostConflict = &AliasLease{
+				Host:      host,
+				Route:     RoutePathMode,
+				SessionID: other.SessionID,
+				AppRoot:   other.AppRoot,
+				OwnerPID:  other.OwnerPID,
+				Owner:     other.Owner,
+				URL:       "https://" + host,
+				CreatedAt: other.CreatedAt,
+				UpdatedAt: other.UpdatedAt,
+			}
+			session.RouteManifest.DomainHost = ""
+			session.RouteManifest.DomainURL = ""
+			return
+		}
+		other.RouteManifest.DomainHost = ""
+		other.RouteManifest.DomainURL = ""
+		r.sessions[id] = other
+	}
+}
+
+// sessionDomainHostOwnerStale mirrors aliasLeaseOwnerStale: a host owner is
+// stale only when a recorded fingerprint provably no longer matches a live
+// process. Missing owners or missing fingerprints stay conservative.
+func sessionDomainHostOwnerStale(session Session) bool {
+	owner := session.Owner
+	pid := firstPositive(session.OwnerPID, owner.PID)
+	if pid <= 0 {
+		return false
+	}
+	if owner.PID > 0 && owner.PID != pid {
+		owner = Owner{}
+	}
+	owner.PID = pid
+	if !ownerHasFingerprint(owner) {
+		return false
+	}
+	return VerifyOwner(owner) != nil
+}
+
 func (r *Registry) removeSessionAliasesLocked(sessionID string) {
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {
@@ -642,6 +702,17 @@ func (r *Registry) rebuildRouteHostIndexLocked() {
 	hosts := make(map[string]routeTarget)
 	for _, session := range r.sessions {
 		if session.RouteManifest.Mode == RouteModePath {
+			host := normalizeRouteHost(session.RouteManifest.DomainHost)
+			if host == "" {
+				continue
+			}
+			// Claim-time ownership keeps at most one session per host; the
+			// preference check only makes stale persisted duplicates
+			// deterministic across map iteration order.
+			if existing, ok := hosts[host]; ok && !r.domainHostIndexPrefersLocked(session, existing) {
+				continue
+			}
+			hosts[host] = routeTarget{SessionID: session.SessionID, Route: RoutePathMode}
 			continue
 		}
 		for route, record := range session.RouteManifest.Routes {
@@ -665,6 +736,20 @@ func (r *Registry) rebuildRouteHostIndexLocked() {
 		hosts[host] = routeTarget{SessionID: alias.SessionID, Route: route}
 	}
 	r.routeHosts = hosts
+}
+
+func (r *Registry) domainHostIndexPrefersLocked(candidate Session, existing routeTarget) bool {
+	current, ok := r.sessions[existing.SessionID]
+	if !ok {
+		return true
+	}
+	if candidate.UpdatedAt.After(current.UpdatedAt) {
+		return true
+	}
+	if current.UpdatedAt.After(candidate.UpdatedAt) {
+		return false
+	}
+	return candidate.SessionID < current.SessionID
 }
 
 func (r *Registry) saveLocked() error {

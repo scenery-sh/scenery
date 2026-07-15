@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 	"unicode"
@@ -26,6 +27,7 @@ import (
 	"scenery.sh/internal/build"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/generate"
+	"scenery.sh/internal/localproxy"
 	"scenery.sh/internal/watchignore"
 )
 
@@ -36,6 +38,100 @@ var (
 )
 
 const stopTimeout = 5 * time.Second
+
+// productionFrontendWatch registers the source dirs of serve-mode
+// "production" frontends so the watcher tracks their files for static
+// rebuilds instead of ignoring non-Go extensions. It is set once per dev
+// process before the initial scan; every other scanWatchedFiles caller sees
+// an empty registry and keeps today's Go-only watch set.
+var productionFrontendWatch struct {
+	sync.RWMutex
+	root string
+	dirs map[string]string // slash-relative frontend dir -> frontend name
+}
+
+func setProductionFrontendWatch(root string, cfg app.Config) {
+	dirs := map[string]string{}
+	for name, frontend := range cfg.Frontends {
+		if strings.ToLower(strings.TrimSpace(frontend.Serve)) != frontendServeProduction {
+			continue
+		}
+		label := localagentLabel(name)
+		if label == "" {
+			continue
+		}
+		absRoot := managedFrontendRoot(root, localproxy.FrontendConfig{Name: name, Root: frontend.Root})
+		rel, err := filepath.Rel(root, absRoot)
+		if err != nil || rel == "." || strings.HasPrefix(filepath.ToSlash(rel), "../") {
+			continue
+		}
+		dirs[filepath.ToSlash(rel)] = label
+	}
+	productionFrontendWatch.Lock()
+	productionFrontendWatch.root = filepath.Clean(root)
+	productionFrontendWatch.dirs = dirs
+	productionFrontendWatch.Unlock()
+}
+
+// productionFrontendForWatchPath returns the production frontend owning a
+// watched rel path. Files under the frontend's dist/ build output are
+// excluded so rebuild artifacts never retrigger the watcher.
+func productionFrontendForWatchPath(root, rel string) (string, bool) {
+	productionFrontendWatch.RLock()
+	defer productionFrontendWatch.RUnlock()
+	if len(productionFrontendWatch.dirs) == 0 || filepath.Clean(root) != productionFrontendWatch.root {
+		return "", false
+	}
+	rel = filepath.ToSlash(rel)
+	for dir, name := range productionFrontendWatch.dirs {
+		if rel != dir && !strings.HasPrefix(rel, dir+"/") {
+			continue
+		}
+		if rel == dir+"/dist" || strings.HasPrefix(rel, dir+"/dist/") {
+			return "", false
+		}
+		return name, true
+	}
+	return "", false
+}
+
+func isProductionFrontendOutputDir(root, rel string) bool {
+	productionFrontendWatch.RLock()
+	defer productionFrontendWatch.RUnlock()
+	if len(productionFrontendWatch.dirs) == 0 || filepath.Clean(root) != productionFrontendWatch.root {
+		return false
+	}
+	rel = filepath.ToSlash(rel)
+	for dir := range productionFrontendWatch.dirs {
+		if rel == dir+"/dist" {
+			return true
+		}
+	}
+	return false
+}
+
+// splitProductionFrontendPaths partitions changed paths into production
+// frontends to rebuild and app paths for the ordinary Go rebuild. Paths the
+// core watcher already owns (Go, config) and .scn app sources stay app paths
+// even inside a frontend root.
+func splitProductionFrontendPaths(root string, paths []string) ([]string, []string) {
+	var names, appPaths []string
+	seen := map[string]bool{}
+	for _, rel := range paths {
+		if !isWatchedFile(rel) && filepath.Ext(rel) != ".scn" {
+			if name, ok := productionFrontendForWatchPath(root, rel); ok {
+				if !seen[name] {
+					seen[name] = true
+					names = append(names, name)
+				}
+				continue
+			}
+		}
+		appPaths = append(appPaths, rel)
+	}
+	sort.Strings(names)
+	return names, appPaths
+}
 
 type fileStamp struct {
 	modTime time.Time
@@ -73,6 +169,7 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode bool, appRoot strin
 	if err != nil {
 		return err
 	}
+	setProductionFrontendWatch(root, cfg)
 
 	sigCtx, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -141,6 +238,7 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode bool, appRoot strin
 	if err != nil {
 		return err
 	}
+	supervisor.devDomainURL = preparedSession.DomainURL
 	supervisor.adoptManagedFrontends(preparedSession.FrontendProcesses)
 	defer supervisor.Close()
 	if err := supervisor.Start(ctx); err != nil {
@@ -176,7 +274,14 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode bool, appRoot strin
 		}
 		paths := changedPaths(snapshot, nextSnapshot)
 		snapshot = nextSnapshot
-		supervisor.announceRebuild(paths)
+		frontendNames, appPaths := splitProductionFrontendPaths(root, paths)
+		if len(frontendNames) > 0 {
+			supervisor.RebuildProductionFrontends(ctx, frontendNames)
+		}
+		if len(appPaths) == 0 {
+			continue
+		}
+		supervisor.announceRebuild(appPaths)
 		if err := supervisor.RebuildAndRestart(ctx, false, snapshot); err != nil {
 			supervisor.console.RebuildFailed(err)
 		}
@@ -554,7 +659,7 @@ func scanWatchedFiles(root string) (fileSnapshot, error) {
 		rel = filepath.ToSlash(rel)
 
 		if d.IsDir() {
-			if shouldIgnoreWatchPathWithMatcher(rel, true, ignore) {
+			if shouldIgnoreWatchPathWithMatcher(rel, true, ignore) || isProductionFrontendOutputDir(root, rel) {
 				return filepath.SkipDir
 			}
 			ignore.LoadDir(rel)
@@ -571,7 +676,9 @@ func scanWatchedFiles(root string) (fileSnapshot, error) {
 			return nil
 		}
 		if !isWatchedFile(rel) {
-			return nil
+			if _, ok := productionFrontendForWatchPath(root, rel); !ok {
+				return nil
+			}
 		}
 
 		info, err := d.Info()

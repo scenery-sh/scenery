@@ -78,6 +78,21 @@
                 "host"
               ]
             },
+            "domain": {
+              "type": "string",
+              "description": "Optional path-mode browser domain. When set, the dev session is also served at https://<branch>-<domain> (bare <domain> on branch main) through the managed HTTPS edge; DNS for the domain is operator-owned (loopback records or a Cloudflare-proxied static IP)."
+            },
+            "expose": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "description": "Optional narrowing of what the dev domain origin serves: route names among root, api, console, runtime, and configured frontend names. Absent means the full path-mode surface. localhost always serves everything.",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
             "port": {
               "type": "integer",
               "minimum": 0,
@@ -241,6 +256,15 @@
         },
         "allow_shared_upstream": {
           "type": "boolean"
+        },
+        "serve": {
+          "type": "string",
+          "description": "Dev runtime serving mode: development (default) runs the package dev server with HMR; production runs the package build script and serves the build output statically.",
+          "enum": [
+            "",
+            "development",
+            "production"
+          ]
         }
       },
       "additionalProperties": false

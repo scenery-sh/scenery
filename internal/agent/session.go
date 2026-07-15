@@ -7,6 +7,7 @@ import (
 	"net"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 	"unicode"
@@ -154,6 +155,27 @@ func sanitizeLabel(value string) string {
 		}
 	}
 	return strings.Trim(b.String(), "-")
+}
+
+// DevDomainHost returns the browser host for a path-mode dev session under a
+// configured dev routing domain: the bare domain on branch main, otherwise
+// "<sanitized-branch>-<domain>". The dash join keeps every worktree host on
+// the domain's first subdomain level, inside the reach of a single-level DNS
+// wildcard and Cloudflare Universal SSL. Empty means no domain host applies
+// (no domain configured, or no usable branch label such as a detached HEAD).
+func DevDomainHost(domain, branch string) string {
+	domain = normalizeRouteHost(domain)
+	if domain == "" {
+		return ""
+	}
+	label := sanitizeLabel(branch)
+	if label == "" {
+		return ""
+	}
+	if label == "main" {
+		return domain
+	}
+	return label + "-" + domain
 }
 
 func discoverGitBranch(root string) string {
@@ -349,6 +371,11 @@ func normalizeRouteManifest(manifest RouteManifest, sessionID, baseAppID, appRoo
 	}
 	out.Routes = normalizeRouteRecords(manifest.Routes)
 	if mode == RouteModePath {
+		if host := normalizeRouteHost(manifest.DomainHost); host != "" {
+			out.DomainHost = host
+			out.DomainURL = "https://" + host
+		}
+		out.PublicRoutes = normalizePublicRoutes(manifest.PublicRoutes)
 		if out.BaseURL == "" && out.PortLease != nil {
 			out.BaseURL = normalizeBaseURL(out.PortLease.URL)
 		}
@@ -469,6 +496,30 @@ func routesForPathManifest(manifest RouteManifest) map[string]string {
 		routes[name] = strings.TrimSpace(record.URL)
 	}
 	return routes
+}
+
+// normalizePublicRoutes canonicalizes a dev domain exposure list: route
+// names sanitized, "console" folded into the dashboard route, "runtime"
+// kept as the runtime-surface marker, duplicates dropped, order sorted.
+func normalizePublicRoutes(names []string) []string {
+	if len(names) == 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, name := range names {
+		name = normalizeRouteName(name)
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		out = append(out, name)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	sort.Strings(out)
+	return out
 }
 
 func normalizeRouteName(name string) string {

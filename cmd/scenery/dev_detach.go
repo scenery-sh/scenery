@@ -388,15 +388,34 @@ func writeDetachedDevResult(w io.Writer, jsonMode bool, result detachedDevResult
 		conflict := result.Session.AliasConflicts[name]
 		fmt.Fprintf(w, "  %-10s %s owned by %s\n", name, conflict.Host, aliasConflictOwnerLabel(conflict))
 	}
+	if conflict := result.Session.DomainHostConflict; conflict != nil {
+		fmt.Fprintf(w, "\nDev domain held by another worktree:\n  %s owned by %s\n", conflict.Host, aliasConflictOwnerLabel(*conflict))
+	}
 	return nil
 }
 
 func detachedDevRunURLs(session localagent.Session) runURLs {
 	return runURLs{
+		App:       detachedDevDomainURL(session),
 		API:       session.RouteManifest.Routes[localagent.RouteAPI].URL,
 		Dashboard: session.RouteManifest.Routes[localagent.RouteDashboard].URL,
 		Frontends: frontendURLsFromAgentRoutes(session.RouteManifest.URLs(), nil),
 	}
+}
+
+// detachedDevDomainURL advertises the session's dev domain base URL only when
+// the edge components can serve it right now; the child supervisor already
+// ran the end-to-end probe and warned into its log otherwise.
+func detachedDevDomainURL(session localagent.Session) string {
+	domainURL := strings.TrimSpace(session.RouteManifest.DomainURL)
+	if domainURL == "" {
+		return ""
+	}
+	status, err := devDomainEdgeStatus(session.RouteManifest.DomainHost)
+	if err != nil || !devDomainEdgeComponentsReady(status) {
+		return ""
+	}
+	return domainURL
 }
 
 func detachedDevAppLabel(session localagent.Session) string {

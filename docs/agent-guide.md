@@ -133,7 +133,7 @@ Use `-o json` for compiler commands and command-specific current protocols. Neve
 - Use `scenery task` for app-local code tasks.
 - Use Git worktrees for another live code copy.
 
-Default local routing gives one app root/worktree one localhost base URL with API, dashboard, runtime, and frontend paths. Do not guess hidden ports. Host-mode wildcard HTTPS is opt-in through managed edge/DNS commands.
+Default local routing gives one app root/worktree one localhost base URL with API, dashboard, runtime, and frontend paths. Do not guess hidden ports. Host-mode wildcard HTTPS is opt-in through managed edge/DNS commands. Apps may also set `dev.routing.domain` to serve the same path-mode structure at `https://<branch>-<domain>` (bare `<domain>` on `main`) through the managed edge; when active, run output and the `scenery.dev.detach` payload advertise it as `app_url`, and `route_manifest.domain_url` names it in session JSON. `dev.routing.expose` (session JSON `route_manifest.public_routes`) narrows what that origin serves; localhost always serves the full surface. Frontends with `serve: "production"` are static builds — expect no HMR and a 503 until the first build finishes.
 
 Treat Caddy, dnsmasq, Victoria, proxy sockets, hidden ports, and local stores as substrate unless the task explicitly diagnoses them. Prefer scenery inspection and status commands over direct substrate access.
 

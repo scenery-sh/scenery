@@ -50,6 +50,22 @@ func (s *Server) routerMux() http.Handler {
 			http.NotFound(w, req)
 			return
 		}
+		if kind == RoutePathMode {
+			if session.RouteManifest.Mode != RouteModePath {
+				http.NotFound(w, req)
+				return
+			}
+			manifest := devDomainRouteManifest(session.RouteManifest, normalizeRouteRequestHost(host))
+			if len(manifest.PublicRoutes) > 0 {
+				if !publicRouteExposed(manifest, "runtime") && isPathModeRuntimePath(req.URL.Path) {
+					http.NotFound(w, req)
+					return
+				}
+				manifest = filterExposedRouteRecords(manifest)
+			}
+			s.handlePathModeRoute(w, req, sessionWithRouteManifest(session, manifest))
+			return
+		}
 		if kind == RouteDashboard {
 			s.handleConsole(w, req, session)
 			return
@@ -225,6 +241,63 @@ func publicRouteKind(backend string) string {
 func sessionWithRouteManifest(session Session, manifest RouteManifest) Session {
 	session.RouteManifest = manifest
 	return session
+}
+
+func publicRouteExposed(manifest RouteManifest, name string) bool {
+	for _, exposed := range manifest.PublicRoutes {
+		if exposed == name {
+			return true
+		}
+	}
+	return false
+}
+
+func isPathModeRuntimePath(value string) bool {
+	value = cleanRequestPath(value)
+	return value == PathModeRuntimePrefix || strings.HasPrefix(value, PathModeRuntimePrefix+"/") || value == "/__scenery" || strings.HasPrefix(value, "/__scenery/")
+}
+
+// filterExposedRouteRecords drops route records not named by PublicRoutes so
+// the dev domain origin serves only the configured surface; the localhost
+// listener keeps the unfiltered manifest.
+func filterExposedRouteRecords(manifest RouteManifest) RouteManifest {
+	allowed := make(map[string]bool, len(manifest.PublicRoutes))
+	for _, name := range manifest.PublicRoutes {
+		allowed[name] = true
+	}
+	routes := make(map[string]RouteRecord, len(manifest.Routes))
+	for name, record := range manifest.Routes {
+		if allowed[name] {
+			routes[name] = record
+		}
+	}
+	manifest.Routes = routes
+	return manifest
+}
+
+// devDomainRouteManifest rebases a path-mode manifest onto the session's dev
+// domain origin so path dispatch, HTML root-ref rewrites, and runtime
+// payloads all report https://<host> instead of the localhost port lease.
+// The route structure is byte-for-byte today's path mode; only the base
+// URL moves.
+func devDomainRouteManifest(manifest RouteManifest, host string) RouteManifest {
+	baseURL := "https://" + host
+	out := manifest
+	out.ArtifactIdentity = routeManifestIdentity()
+	out.BaseURL = baseURL
+	out.DomainHost = host
+	out.DomainURL = baseURL
+	if len(manifest.Routes) > 0 {
+		routes := make(map[string]RouteRecord, len(manifest.Routes))
+		for name, record := range manifest.Routes {
+			if record.Path != "" {
+				record.URL = joinPathModeURL(baseURL, record.Path)
+			}
+			routes[name] = record
+		}
+		out.Routes = routes
+	}
+	return out
 }
 
 func (s *Server) handleFrontendRoute(w http.ResponseWriter, req *http.Request, session Session, backend Backend) {

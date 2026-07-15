@@ -194,6 +194,10 @@ type FrontendConfig struct {
 	Root                string `json:"root"`
 	Upstream            string `json:"upstream"`
 	AllowSharedUpstream bool   `json:"allow_shared_upstream"`
+	// Serve selects the dev runtime serving mode: "development" (default)
+	// runs the package dev server with HMR; "production" runs the package
+	// build script once and serves the build output statically.
+	Serve string `json:"serve"`
 }
 
 type DevConfig struct {
@@ -202,10 +206,12 @@ type DevConfig struct {
 }
 
 type DevRoutingConfig struct {
-	Mode      string `json:"mode"`
-	Port      int    `json:"port"`
-	PortStart int    `json:"port_start"`
-	PortEnd   int    `json:"port_end"`
+	Mode      string   `json:"mode"`
+	Domain    string   `json:"domain"`
+	Expose    []string `json:"expose"`
+	Port      int      `json:"port"`
+	PortStart int      `json:"port_start"`
+	PortEnd   int      `json:"port_end"`
 }
 
 type DeployConfig struct {
