@@ -17,6 +17,7 @@ import (
 	"sort"
 	"strings"
 	"syscall"
+	"time"
 
 	"scenery.sh/internal/machine"
 	"scenery.sh/internal/spec"
@@ -363,19 +364,39 @@ func (s *Server) proxyBackend(w http.ResponseWriter, req *http.Request, backend 
 	s.proxyBackendWithOptions(w, req, backend, proxyBackendOptions{stripPrefix: stripPrefix})
 }
 
+// transportForBackend returns a shared RoundTripper for the backend. Unix-socket
+// backends get one cached transport per socket path: allocating a fresh
+// transport per request leaks its idle connections, their read/write
+// goroutines, and a file descriptor every time, because nothing ever closes the
+// abandoned transport's kept-alive connections.
+func (s *Server) transportForBackend(backend Backend) http.RoundTripper {
+	if backend.Network != "unix" {
+		return http.DefaultTransport
+	}
+	if cached, ok := s.unixTransports.Load(backend.Addr); ok {
+		return cached.(*http.Transport)
+	}
+	addr := backend.Addr
+	transport := &http.Transport{
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			var d net.Dialer
+			return d.DialContext(ctx, "unix", addr)
+		},
+		MaxIdleConns:          32,
+		MaxIdleConnsPerHost:   8,
+		IdleConnTimeout:       90 * time.Second,
+		ExpectContinueTimeout: time.Second,
+	}
+	actual, _ := s.unixTransports.LoadOrStore(addr, transport)
+	return actual.(*http.Transport)
+}
+
 func (s *Server) proxyBackendWithOptions(w http.ResponseWriter, req *http.Request, backend Backend, opts proxyBackendOptions) {
 	target := &url.URL{Scheme: "http", Host: backend.Addr}
-	transport := http.DefaultTransport
 	if backend.Network == "unix" {
 		target.Host = "unix"
-		addr := backend.Addr
-		transport = &http.Transport{
-			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-				var d net.Dialer
-				return d.DialContext(ctx, "unix", addr)
-			},
-		}
 	}
+	transport := s.transportForBackend(backend)
 	proxy := httputil.NewSingleHostReverseProxy(target)
 	proxy.Transport = transport
 	originalDirector := proxy.Director

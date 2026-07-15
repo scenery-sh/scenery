@@ -620,20 +620,40 @@ func localPathRouterRouteForSession(manifest localagent.RouteManifest, requestPa
 	return best, true
 }
 
+// localUnixTransports caches one *http.Transport per unix socket path. The
+// router builds a fresh ReverseProxy per request, but the transport underneath
+// must be reused: a per-request transport leaks its idle connections, their
+// read/write goroutines, and a file descriptor every time, since nothing closes
+// the abandoned transport's kept-alive connections.
+var localUnixTransports sync.Map
+
 func reverseProxyForLocalBackend(backend localagent.Backend) *httputil.ReverseProxy {
 	target := &url.URL{Scheme: "http", Host: backend.Addr}
-	proxy := httputil.NewSingleHostReverseProxy(target)
 	if strings.TrimSpace(backend.Network) == "unix" {
-		addr := backend.Addr
 		target.Host = "unix"
-		proxy.Transport = &http.Transport{
-			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-				var d net.Dialer
-				return d.DialContext(ctx, "unix", addr)
-			},
-		}
+		proxy := httputil.NewSingleHostReverseProxy(target)
+		proxy.Transport = localUnixTransport(backend.Addr)
+		return proxy
 	}
-	return proxy
+	return httputil.NewSingleHostReverseProxy(target)
+}
+
+func localUnixTransport(addr string) *http.Transport {
+	if cached, ok := localUnixTransports.Load(addr); ok {
+		return cached.(*http.Transport)
+	}
+	transport := &http.Transport{
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			var d net.Dialer
+			return d.DialContext(ctx, "unix", addr)
+		},
+		MaxIdleConns:          32,
+		MaxIdleConnsPerHost:   8,
+		IdleConnTimeout:       90 * time.Second,
+		ExpectContinueTimeout: time.Second,
+	}
+	actual, _ := localUnixTransports.LoadOrStore(addr, transport)
+	return actual.(*http.Transport)
 }
 
 func cleanLocalPath(value string) string {

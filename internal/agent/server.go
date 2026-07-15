@@ -45,6 +45,7 @@ type Server struct {
 	identity             Identity
 	tlsCA                localproxy.LocalCA
 	tlsCerts             sync.Map
+	unixTransports       sync.Map // socket path -> *http.Transport, reused across requests
 	control              *http.Server
 	router               *http.Server
 	controlLn            net.Listener

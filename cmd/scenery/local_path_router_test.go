@@ -233,3 +233,28 @@ func TestLocalPathRouterStorageWebSocketRoute(t *testing.T) {
 		t.Fatalf("upstream path = %q, want /ws/9p", upstreamPath)
 	}
 }
+
+func TestReverseProxyForLocalBackendReusesUnixTransport(t *testing.T) {
+	backend := localagent.Backend{Network: "unix", Addr: "/tmp/scenery-lpr-test.sock"}
+
+	first := reverseProxyForLocalBackend(backend)
+	second := reverseProxyForLocalBackend(backend)
+	if first.Transport == nil || second.Transport == nil {
+		t.Fatal("unix backend proxy has no transport")
+	}
+	if first.Transport != second.Transport {
+		t.Fatal("unix backend produced distinct transports; per-request allocation leaks goroutines and FDs")
+	}
+	tr, ok := first.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("unix transport type = %T, want *http.Transport", first.Transport)
+	}
+	if tr.IdleConnTimeout == 0 {
+		t.Fatal("cached unix transport has no IdleConnTimeout; idle connections never reap")
+	}
+
+	// A TCP backend leaves the default transport in place (proxy.Transport nil).
+	if tcp := reverseProxyForLocalBackend(localagent.Backend{Network: "tcp", Addr: "127.0.0.1:4000"}); tcp.Transport != nil {
+		t.Fatal("tcp backend should not install a custom transport")
+	}
+}
