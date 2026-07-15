@@ -1,13 +1,11 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -15,6 +13,7 @@ import (
 
 	appcfg "scenery.sh/internal/app"
 	inspectdata "scenery.sh/internal/inspect"
+	"scenery.sh/internal/validation"
 )
 
 const (
@@ -53,7 +52,7 @@ type inspectValidationResponse struct {
 	App         inspectdata.AppRef        `json:"app"`
 	Default     string                    `json:"default,omitempty"`
 	Profiles    []validationProfileRecord `json:"profiles"`
-	Diagnostics []checkDiagnostic         `json:"diagnostics"`
+	Diagnostics []validation.Diagnostic   `json:"diagnostics"`
 }
 
 type validationListResponse struct {
@@ -61,26 +60,26 @@ type validationListResponse struct {
 	App         inspectdata.AppRef        `json:"app"`
 	Default     string                    `json:"default,omitempty"`
 	Profiles    []validationProfileRecord `json:"profiles"`
-	Diagnostics []checkDiagnostic         `json:"diagnostics,omitempty"`
+	Diagnostics []validation.Diagnostic   `json:"diagnostics,omitempty"`
 }
 
 type validationInspectResponse struct {
 	cliPayloadIdentity
 	App         inspectdata.AppRef      `json:"app"`
 	Profile     validationProfileRecord `json:"profile"`
-	Resolved    []validationPlanStep    `json:"resolved_steps"`
+	Resolved    []validation.PlanStep   `json:"resolved_steps"`
 	Tasks       []taskListRecord        `json:"tasks,omitempty"`
-	Diagnostics []checkDiagnostic       `json:"diagnostics,omitempty"`
+	Diagnostics []validation.Diagnostic `json:"diagnostics,omitempty"`
 	Source      string                  `json:"source"`
 }
 
 type validationGraphResponse struct {
 	cliPayloadIdentity
-	App         inspectdata.AppRef    `json:"app"`
-	Profile     string                `json:"profile"`
-	Nodes       []validationGraphNode `json:"nodes"`
-	Edges       []validationGraphEdge `json:"edges"`
-	Diagnostics []checkDiagnostic     `json:"diagnostics,omitempty"`
+	App         inspectdata.AppRef      `json:"app"`
+	Profile     string                  `json:"profile"`
+	Nodes       []validationGraphNode   `json:"nodes"`
+	Edges       []validationGraphEdge   `json:"edges"`
+	Diagnostics []validation.Diagnostic `json:"diagnostics,omitempty"`
 }
 
 type validationGraphNode struct {
@@ -98,52 +97,26 @@ type validationGraphEdge struct {
 
 type validationPlanResponse struct {
 	cliPayloadIdentity
-	OK          bool                 `json:"ok"`
-	App         inspectdata.AppRef   `json:"app"`
-	Profile     string               `json:"profile"`
-	Selection   validationSelection  `json:"selection"`
-	Steps       []validationPlanStep `json:"steps"`
-	Diagnostics []checkDiagnostic    `json:"diagnostics,omitempty"`
-}
-
-type validationSelection struct {
-	Mode             string                   `json:"mode"`
-	Requested        []string                 `json:"requested,omitempty"`
-	Base             string                   `json:"base,omitempty"`
-	ChangedFiles     []string                 `json:"changed_files,omitempty"`
-	MatchedProfiles  []validationProfileMatch `json:"matched_profiles,omitempty"`
-	ResolvedProfiles []string                 `json:"resolved_profiles"`
-}
-
-type validationProfileMatch struct {
-	Profile      string   `json:"profile"`
-	MatchedPaths []string `json:"matched_paths"`
-	MatchedFiles []string `json:"matched_files"`
-}
-
-type validationPlanStep struct {
-	ID       string            `json:"id"`
-	Name     string            `json:"name"`
-	Kind     string            `json:"kind"`
-	Profile  string            `json:"profile,omitempty"`
-	Command  []string          `json:"command,omitempty"`
-	CWD      string            `json:"cwd,omitempty"`
-	Artifact []string          `json:"artifacts,omitempty"`
-	Env      map[string]string `json:"-"`
+	OK          bool                    `json:"ok"`
+	App         inspectdata.AppRef      `json:"app"`
+	Profile     string                  `json:"profile"`
+	Selection   validation.Selection    `json:"selection"`
+	Steps       []validation.PlanStep   `json:"steps"`
+	Diagnostics []validation.Diagnostic `json:"diagnostics,omitempty"`
 }
 
 type validationResultResponse struct {
 	cliPayloadIdentity
-	OK          bool                   `json:"ok"`
-	GeneratedAt string                 `json:"generated_at"`
-	App         inspectdata.AppRef     `json:"app"`
-	Profile     string                 `json:"profile"`
-	Selection   validationSelection    `json:"selection"`
-	Steps       []validationResultStep `json:"steps"`
-	Artifacts   []validationArtifact   `json:"artifacts,omitempty"`
-	Diagnostics []checkDiagnostic      `json:"diagnostics,omitempty"`
-	NextActions []string               `json:"next_actions,omitempty"`
-	Wrote       string                 `json:"wrote,omitempty"`
+	OK          bool                    `json:"ok"`
+	GeneratedAt string                  `json:"generated_at"`
+	App         inspectdata.AppRef      `json:"app"`
+	Profile     string                  `json:"profile"`
+	Selection   validation.Selection    `json:"selection"`
+	Steps       []validationResultStep  `json:"steps"`
+	Artifacts   []validation.Artifact   `json:"artifacts,omitempty"`
+	Diagnostics []validation.Diagnostic `json:"diagnostics,omitempty"`
+	NextActions []string                `json:"next_actions,omitempty"`
+	Wrote       string                  `json:"wrote,omitempty"`
 }
 
 type validationResultStep struct {
@@ -157,65 +130,22 @@ type validationResultStep struct {
 	Error      string           `json:"error,omitempty"`
 }
 
-type validationArtifact struct {
-	Path string `json:"path"`
-	Kind string `json:"kind"`
-}
-
-type validationResolvedPlan struct {
-	App         inspectdata.AppRef
-	Profile     string
-	Selection   validationSelection
-	Profiles    []string
-	Steps       []validationPlanStep
-	Diagnostics []checkDiagnostic
-}
-
 type validationArtifactContext struct {
 	Root    string
 	Enabled bool
 	RunID   string
 }
 
-var collectValidationChangedFiles = func(ctx context.Context, appRoot, base string) ([]string, error) {
-	rootCmd := exec.CommandContext(ctx, "git", "rev-parse", "--show-toplevel")
-	rootCmd.Dir = appRoot
-	rootOut, err := rootCmd.CombinedOutput()
-	if err != nil {
-		return nil, fmt.Errorf("git rev-parse --show-toplevel: %w: %s", err, strings.TrimSpace(string(rootOut)))
+func newValidationPlanner(appRoot string, cfg appcfg.Config) validation.Planner {
+	return validation.Planner{
+		AppRoot: appRoot,
+		Config:  cfg,
+		App:     taskAppRef(appRoot, cfg),
+		ValidateTaskTarget: func(target string) error {
+			_, err := taskTargetKind(target)
+			return err
+		},
 	}
-	gitRoot := strings.TrimSpace(string(rootOut))
-	if physicalGitRoot, err := filepath.EvalSymlinks(gitRoot); err == nil {
-		gitRoot = physicalGitRoot
-	}
-	appRootForRel := appRoot
-	if physicalAppRoot, err := filepath.EvalSymlinks(appRoot); err == nil {
-		appRootForRel = physicalAppRoot
-	}
-	appRel, err := filepath.Rel(gitRoot, appRootForRel)
-	if err != nil {
-		return nil, err
-	}
-	appRel = filepath.ToSlash(appRel)
-	args := []string{"diff", "--name-only", base + "...HEAD"}
-	if appRel != "." && appRel != "" {
-		args = []string{"diff", "--name-only", "--relative=" + appRel, base + "...HEAD", "--", appRel}
-	}
-	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Dir = gitRoot
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return nil, fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
-	}
-	var files []string
-	for _, line := range strings.Split(string(out), "\n") {
-		line = strings.TrimSpace(filepath.ToSlash(line))
-		if line != "" {
-			files = append(files, line)
-		}
-	}
-	sort.Strings(files)
-	return files, nil
 }
 
 func validateCommand(args []string) error {
@@ -268,7 +198,12 @@ func runSceneryValidate(ctx context.Context, stdout io.Writer, args []string) er
 		}
 		return nil
 	case "run", "changed":
-		plan, err := buildValidationPlan(ctx, appRoot, cfg, opts)
+		planner := newValidationPlanner(appRoot, cfg)
+		plan, err := planner.Plan(ctx, validation.PlanRequest{
+			Profile: opts.Profile,
+			Changed: opts.Action == "changed",
+			Base:    opts.Base,
+		})
 		if err != nil {
 			return err
 		}
@@ -375,7 +310,7 @@ func buildInspectValidationResponse(appRoot string, cfg appcfg.Config) inspectVa
 		App:                taskAppRef(appRoot, cfg),
 		Default:            cfg.Validation.Default,
 		Profiles:           validationProfileRecords(cfg),
-		Diagnostics:        nonNilValidationDiagnostics(validateValidationConfig(appRoot, cfg)),
+		Diagnostics:        nonNilValidationDiagnostics(newValidationPlanner(appRoot, cfg).ValidateConfig()),
 	}
 }
 
@@ -385,17 +320,18 @@ func buildValidationListResponse(appRoot string, cfg appcfg.Config) validationLi
 		App:                taskAppRef(appRoot, cfg),
 		Default:            cfg.Validation.Default,
 		Profiles:           validationProfileRecords(cfg),
-		Diagnostics:        validateValidationConfig(appRoot, cfg),
+		Diagnostics:        newValidationPlanner(appRoot, cfg).ValidateConfig(),
 	}
 }
 
 func buildValidationInspectResponse(appRoot string, cfg appcfg.Config, profile string) (validationInspectResponse, error) {
-	profile = resolveValidationProfileName(cfg, profile)
+	planner := newValidationPlanner(appRoot, cfg)
+	profile = planner.ResolveProfileName(profile)
 	rec, ok := validationProfileRecordFor(cfg, profile)
 	if !ok {
 		return validationInspectResponse{}, fmt.Errorf("validation profile %q is not configured", profile)
 	}
-	plan, _ := buildValidationNamedPlan(appRoot, cfg, profile, validationSelection{Mode: "explicit", Requested: []string{profile}})
+	plan, _ := planner.NamedPlan(profile, validation.Selection{Mode: "explicit", Requested: []string{profile}})
 	tasks := referencedValidationTasks(appRoot, cfg, plan.Steps)
 	return validationInspectResponse{
 		cliPayloadIdentity: newCLIPayloadIdentity(validationInspectDetailKind),
@@ -409,7 +345,8 @@ func buildValidationInspectResponse(appRoot string, cfg appcfg.Config, profile s
 }
 
 func buildValidationGraphResponse(appRoot string, cfg appcfg.Config, profile string) (validationGraphResponse, error) {
-	profile = resolveValidationProfileName(cfg, profile)
+	planner := newValidationPlanner(appRoot, cfg)
+	profile = planner.ResolveProfileName(profile)
 	if _, ok := cfg.Validation.Profiles[profile]; !ok {
 		return validationGraphResponse{}, fmt.Errorf("validation profile %q is not configured", profile)
 	}
@@ -445,7 +382,7 @@ func buildValidationGraphResponse(appRoot string, cfg appcfg.Config, profile str
 			return
 		}
 		for _, step := range prof.Steps {
-			ref := parseValidationStep(step)
+			ref := validation.ParseStepRef(step)
 			if ref.Name == "" {
 				continue
 			}
@@ -468,147 +405,15 @@ func buildValidationGraphResponse(appRoot string, cfg appcfg.Config, profile str
 		}
 		return resp.Edges[i].From < resp.Edges[j].From
 	})
-	resp.Diagnostics = append(resp.Diagnostics, validateValidationConfig(appRoot, cfg)...)
+	resp.Diagnostics = append(resp.Diagnostics, planner.ValidateConfig()...)
 	return resp, nil
 }
 
-func buildValidationPlan(ctx context.Context, appRoot string, cfg appcfg.Config, opts validateOptions) (validationResolvedPlan, error) {
-	selection := validationSelection{Mode: "explicit"}
-	profile := resolveValidationProfileName(cfg, opts.Profile)
-	if opts.Action == "changed" {
-		files, err := collectValidationChangedFiles(ctx, appRoot, opts.Base)
-		if err != nil {
-			return validationResolvedPlan{}, err
-		}
-		selection.Mode = "changed"
-		selection.Base = opts.Base
-		selection.ChangedFiles = files
-		profiles := selectChangedValidationProfiles(cfg, files)
-		selection.Requested = profiles
-		selection.MatchedProfiles = matchChangedValidationProfiles(cfg, files)
-		if len(profiles) == 0 {
-			profile = resolveValidationProfileName(cfg, "")
-			selection.Requested = []string{profile}
-		} else if len(profiles) == 1 {
-			profile = profiles[0]
-		} else {
-			profile = strings.Join(profiles, "+")
-		}
-		return buildValidationMultiPlan(appRoot, cfg, profile, profiles, selection)
-	}
-	selection.Requested = []string{profile}
-	return buildValidationNamedPlan(appRoot, cfg, profile, selection)
-}
-
-func buildValidationNamedPlan(appRoot string, cfg appcfg.Config, profile string, selection validationSelection) (validationResolvedPlan, error) {
-	return buildValidationMultiPlan(appRoot, cfg, profile, []string{profile}, selection)
-}
-
-func buildValidationMultiPlan(appRoot string, cfg appcfg.Config, profileLabel string, profiles []string, selection validationSelection) (validationResolvedPlan, error) {
-	plan := validationResolvedPlan{App: taskAppRef(appRoot, cfg), Profile: profileLabel, Selection: selection}
-	plan.Diagnostics = append(plan.Diagnostics, validateValidationConfig(appRoot, cfg)...)
-	seenProfiles := map[string]bool{}
-	for _, profile := range profiles {
-		if strings.TrimSpace(profile) == "" {
-			continue
-		}
-		plan.addValidationProfile(appRoot, cfg, profile, nil, seenProfiles, nil)
-	}
-	plan.Selection.ResolvedProfiles = append([]string(nil), plan.Profiles...)
-	return plan, nil
-}
-
-func (plan *validationResolvedPlan) addValidationProfile(appRoot string, cfg appcfg.Config, name string, stack []string, seenProfiles map[string]bool, inheritedEnv map[string]string) {
-	if seenProfiles[name] {
-		return
-	}
-	prof, ok := cfg.Validation.Profiles[name]
-	if !ok {
-		plan.Diagnostics = append(plan.Diagnostics, validationDiagnostic("validation", "error", "validation profile "+name+" is not configured"))
-		return
-	}
-	for _, active := range stack {
-		if active == name {
-			plan.Diagnostics = append(plan.Diagnostics, validationDiagnostic("validation", "error", "profile cycle detected: "+strings.Join(append(stack, name), " -> ")))
-			return
-		}
-	}
-	seenProfiles[name] = true
-	plan.Profiles = append(plan.Profiles, name)
-	profileEnv := overlayStringMap(inheritedEnv, prof.Env)
-	stack = append(stack, name)
-	for idx, step := range prof.Steps {
-		ref := parseValidationStep(step)
-		if ref.Kind == "profile" {
-			plan.addValidationProfile(appRoot, cfg, ref.Name, stack, seenProfiles, profileEnv)
-			continue
-		}
-		stepID := strings.Join(append(stack, ref.Raw), "/")
-		plan.Steps = append(plan.Steps, validationPlanStep{
-			ID:       firstNonEmpty(stepID, fmt.Sprintf("%s/step-%d", name, idx+1)),
-			Name:     ref.Raw,
-			Kind:     ref.Kind,
-			Profile:  name,
-			Command:  validationStepCommand(appRoot, ref),
-			CWD:      appRoot,
-			Artifact: append([]string(nil), prof.Artifacts...),
-			Env:      profileEnv,
-		})
-	}
-}
-
-type validationStepRef struct {
-	Raw  string
-	Kind string
-	Name string
-}
-
-func parseValidationStep(step string) validationStepRef {
-	raw := strings.TrimSpace(step)
-	switch {
-	case strings.HasPrefix(raw, "profile:"):
-		return validationStepRef{Raw: raw, Kind: "profile", Name: strings.TrimSpace(strings.TrimPrefix(raw, "profile:"))}
-	case strings.HasPrefix(raw, "task:"):
-		return validationStepRef{Raw: raw, Kind: "task", Name: strings.TrimSpace(strings.TrimPrefix(raw, "task:"))}
-	default:
-		return validationStepRef{Raw: raw, Kind: "builtin", Name: raw}
-	}
-}
-
-func validationStepSource(ref validationStepRef, configRel string) string {
+func validationStepSource(ref validation.StepRef, configRel string) string {
 	if ref.Kind == "builtin" {
 		return "scenery"
 	}
 	return configRel
-}
-
-func validationStepCommand(appRoot string, ref validationStepRef) []string {
-	switch ref.Kind {
-	case "task":
-		return []string{"scenery", "task", "run", ref.Name, "--app-root", appRoot}
-	case "builtin":
-		switch ref.Name {
-		case "harness", "harness:core":
-			return []string{"scenery", "harness", "--app-root", appRoot, "-o", "json"}
-		case "harness:ui":
-			return []string{"scenery", "harness", "ui", "--app-root", appRoot, "-o", "json"}
-		case "check":
-			return []string{"scenery", "check", "--app-root", appRoot, "-o", "json"}
-		case "test", "test:go":
-			return []string{"scenery", "test", "--app-root", appRoot}
-		case "generate":
-			return []string{"scenery", "generate", "--app-root", appRoot}
-		case "generate:sqlc":
-			return []string{"scenery", "generate", "sqlc", "--app-root", appRoot}
-		case "db:apply":
-			return []string{"scenery", "db", "apply", "--app-root", appRoot}
-		case "db:seed":
-			return []string{"scenery", "db", "seed", "--app-root", appRoot}
-		case "db:setup":
-			return []string{"scenery", "db", "setup", "--app-root", appRoot}
-		}
-	}
-	return nil
 }
 
 func validationProfileRecords(cfg appcfg.Config) []validationProfileRecord {
@@ -650,150 +455,22 @@ func nonNilStrings(values []string) []string {
 	return append([]string(nil), values...)
 }
 
-func nonNilValidationDiagnostics(values []checkDiagnostic) []checkDiagnostic {
+func nonNilValidationDiagnostics(values []validation.Diagnostic) []validation.Diagnostic {
 	if values == nil {
-		return []checkDiagnostic{}
+		return []validation.Diagnostic{}
 	}
 	return values
 }
 
-func resolveValidationProfileName(cfg appcfg.Config, requested string) string {
-	requested = strings.TrimSpace(requested)
-	if requested != "" {
-		return requested
-	}
-	if strings.TrimSpace(cfg.Validation.Default) != "" {
-		return strings.TrimSpace(cfg.Validation.Default)
-	}
-	if _, ok := cfg.Validation.Profiles["quick"]; ok {
-		return "quick"
-	}
-	return ""
+func validationDiagnostic(stage, severity, message string) validation.Diagnostic {
+	return validation.Diagnostic{Stage: stage, Severity: severity, Message: message}
 }
 
-func validateValidationConfig(appRoot string, cfg appcfg.Config) []checkDiagnostic {
-	var diags []checkDiagnostic
-	for name, prof := range cfg.Validation.Profiles {
-		if !validScriptSegment(name) || strings.Contains(name, ":") {
-			diags = append(diags, validationDiagnostic("validation", "error", "invalid validation profile name "+name))
-		}
-		if validationReservedProfileName(name) {
-			diags = append(diags, validationDiagnostic("validation", "error", "validation profile name "+name+" is reserved by scenery validate"))
-		}
-		if prof.Cost != "" && prof.Cost != "low" && prof.Cost != "medium" && prof.Cost != "high" {
-			diags = append(diags, validationDiagnostic("validation", "error", "validation profile "+name+" has invalid cost "+prof.Cost))
-		}
-		if len(prof.Steps) == 0 {
-			diags = append(diags, validationDiagnostic("validation", "error", "validation profile "+name+" has no steps"))
-		}
-		for _, glob := range prof.Paths {
-			if strings.TrimSpace(glob) == "" {
-				diags = append(diags, validationDiagnostic("validation", "error", "validation profile "+name+" has an empty path glob"))
-			}
-		}
-		for _, step := range prof.Steps {
-			ref := parseValidationStep(step)
-			switch ref.Kind {
-			case "profile":
-				if ref.Name == "" {
-					diags = append(diags, validationDiagnostic("validation", "error", "validation profile "+name+" has an empty profile step"))
-				} else if _, ok := cfg.Validation.Profiles[ref.Name]; !ok {
-					diags = append(diags, validationDiagnostic("validation", "error", "validation profile "+name+" references unknown profile "+ref.Name))
-				}
-			case "task":
-				if ref.Name == "" {
-					diags = append(diags, validationDiagnostic("validation", "error", "validation profile "+name+" has an empty task step"))
-					continue
-				}
-				if _, err := taskTargetKind(ref.Name); err != nil {
-					diags = append(diags, validationDiagnostic("validation", "error", err.Error()))
-				}
-			case "builtin":
-				if !validationBuiltinSupported(ref.Name) {
-					diags = append(diags, validationDiagnostic("validation", "error", "validation profile "+name+" has unsupported step "+ref.Raw))
-				}
-			}
-		}
-	}
-	defaultProfile := resolveValidationProfileName(cfg, "")
-	if len(cfg.Validation.Profiles) > 0 && defaultProfile == "" {
-		diags = append(diags, validationDiagnostic("validation", "error", "validation.default is not configured and profile quick does not exist"))
-	} else if defaultProfile != "" {
-		if _, ok := cfg.Validation.Profiles[defaultProfile]; !ok {
-			diags = append(diags, validationDiagnostic("validation", "error", "validation default profile "+defaultProfile+" is not configured"))
-		}
-	}
-	for _, cycle := range validationProfileCycles(cfg) {
-		diags = append(diags, validationDiagnostic("validation", "error", "profile cycle detected: "+strings.Join(cycle, " -> ")))
-	}
-	for i := range diags {
-		diags[i].File = cfg.SourcePath(appRoot)
-	}
-	return diags
-}
-
-func validationReservedProfileName(name string) bool {
-	switch name {
-	case "list", "inspect", "graph", "changed":
-		return true
-	default:
-		return false
-	}
-}
-
-func validationDiagnostic(stage, severity, message string) checkDiagnostic {
-	return checkDiagnostic{Stage: stage, Severity: severity, Message: message}
-}
-
-func validationBuiltinSupported(name string) bool {
-	switch name {
-	case "harness", "harness:core", "harness:ui", "check", "test", "test:go", "generate", "generate:sqlc", "db:apply", "db:seed", "db:setup":
-		return true
-	default:
-		return false
-	}
-}
-
-func validationProfileCycles(cfg appcfg.Config) [][]string {
-	var cycles [][]string
-	var walk func(name string, stack []string)
-	walk = func(name string, stack []string) {
-		for i, active := range stack {
-			if active == name {
-				cycle := append([]string(nil), stack[i:]...)
-				cycle = append(cycle, name)
-				cycles = append(cycles, cycle)
-				return
-			}
-		}
-		prof, ok := cfg.Validation.Profiles[name]
-		if !ok {
-			return
-		}
-		stack = append(stack, name)
-		for _, step := range prof.Steps {
-			ref := parseValidationStep(step)
-			if ref.Kind == "profile" {
-				walk(ref.Name, stack)
-			}
-		}
-	}
-	names := make([]string, 0, len(cfg.Validation.Profiles))
-	for name := range cfg.Validation.Profiles {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	for _, name := range names {
-		walk(name, nil)
-	}
-	return cycles
-}
-
-func referencedValidationTasks(appRoot string, cfg appcfg.Config, steps []validationPlanStep) []taskListRecord {
+func referencedValidationTasks(appRoot string, cfg appcfg.Config, steps []validation.PlanStep) []taskListRecord {
 	var out []taskListRecord
 	seen := map[string]bool{}
 	for _, step := range steps {
-		ref := parseValidationStep(step.Name)
+		ref := validation.ParseStepRef(step.Name)
 		if ref.Kind != "task" || seen[ref.Name] {
 			continue
 		}
@@ -813,75 +490,57 @@ func referencedValidationTasks(appRoot string, cfg appcfg.Config, steps []valida
 	return out
 }
 
-func executeValidationPlan(ctx context.Context, appRoot string, cfg appcfg.Config, plan validationResolvedPlan, opts validateOptions) validationResultResponse {
-	result := validationResultResponse{
-		cliPayloadIdentity: newCLIPayloadIdentity(validationResultKind),
-		OK:                 len(plan.Diagnostics) == 0,
-		GeneratedAt:        time.Now().UTC().Format(time.RFC3339Nano),
-		App:                plan.App,
-		Profile:            plan.Profile,
-		Selection:          plan.Selection,
-		Diagnostics:        append([]checkDiagnostic(nil), plan.Diagnostics...),
-		Steps:              []validationResultStep{},
-	}
+func executeValidationPlan(ctx context.Context, appRoot string, cfg appcfg.Config, plan validation.ResolvedPlan, opts validateOptions) validationResultResponse {
 	artifactCtx := newValidationArtifactContext(appRoot, opts.Write)
-	if len(plan.Diagnostics) > 0 {
-		result.NextActions = []string{"Fix validation configuration diagnostics, then rerun: scenery validate " + plan.Profile + " -o json --write"}
-		return result
+	run := func(ctx context.Context, step validation.PlanStep, stdout, stderr io.Writer) error {
+		return runValidationStepCommand(ctx, appRoot, cfg, step, stdout, stderr, opts.JSON)
 	}
-	for _, step := range plan.Steps {
-		res := runValidationStep(ctx, appRoot, cfg, step, artifactCtx, opts.JSON)
-		result.Steps = append(result.Steps, res)
-		if res.Evidence != nil {
-			for _, artifact := range res.Evidence.Artifacts {
-				kind := "artifact"
-				if strings.Contains(artifact.Name, "stdout") {
-					kind = "stdout"
-				} else if strings.Contains(artifact.Name, "stderr") {
-					kind = "stderr"
-				}
-				result.Artifacts = append(result.Artifacts, validationArtifact{Path: artifact.Path, Kind: kind})
-			}
-		}
-		if !res.OK {
-			result.OK = false
-			result.NextActions = []string{"Fix " + res.Name + ", then rerun: scenery validate " + plan.Profile + " -o json --write"}
-			break
-		}
+	writeArtifacts := func(stepName string, stdout, stderr []byte) ([]validation.OutputArtifact, []validation.Diagnostic) {
+		return writeValidationOutputArtifacts(artifactCtx, stepName, stdout, stderr)
 	}
-	return result
+	return validationResultResponseFrom(validation.ExecutePlan(ctx, plan, run, writeArtifacts))
 }
 
-func runValidationStep(ctx context.Context, appRoot string, cfg appcfg.Config, step validationPlanStep, artifactCtx validationArtifactContext, capture bool) validationResultStep {
-	started := time.Now()
-	evidence := newHarnessEvidence(step.Command, firstNonEmpty(step.CWD, appRoot), started)
-	var stdout, stderr bytes.Buffer
-	err := runValidationStepCommand(ctx, appRoot, cfg, step, &stdout, &stderr, capture)
-	ok := err == nil
-	artifacts, diagnostics := writeValidationOutputArtifacts(artifactCtx, step.Name, stdout.Bytes(), stderr.Bytes())
-	res := validationResultStep{
+func validationResultResponseFrom(result validation.Result) validationResultResponse {
+	resp := validationResultResponse{
+		cliPayloadIdentity: newCLIPayloadIdentity(validationResultKind),
+		OK:                 result.OK,
+		GeneratedAt:        result.GeneratedAt,
+		App:                result.App,
+		Profile:            result.Profile,
+		Selection:          result.Selection,
+		Steps:              make([]validationResultStep, 0, len(result.Steps)),
+		Artifacts:          result.Artifacts,
+		Diagnostics:        result.Diagnostics,
+		NextActions:        result.NextActions,
+	}
+	for _, step := range result.Steps {
+		resp.Steps = append(resp.Steps, validationResultStepFrom(step))
+	}
+	return resp
+}
+
+func validationResultStepFrom(step validation.StepResult) validationResultStep {
+	evidence := newHarnessEvidence(step.Command, step.CWD, step.Started)
+	var artifacts []harnessEvidenceArtifact
+	for _, artifact := range step.Artifacts {
+		artifacts = append(artifacts, harnessEvidenceArtifact{Name: artifact.Name, Path: artifact.Path})
+	}
+	finalizeHarnessEvidence(&evidence, step.Duration, step.OK, step.Stdout, step.Stderr, exitCodeFromError(step.Err), artifacts)
+	return validationResultStep{
 		ID:         step.ID,
 		Name:       step.Name,
 		Kind:       step.Kind,
 		Profile:    step.Profile,
-		OK:         ok,
-		DurationMS: time.Since(started).Milliseconds(),
+		OK:         step.OK,
+		DurationMS: step.Duration.Milliseconds(),
 		Evidence:   &evidence,
+		Error:      step.Error,
 	}
-	if len(diagnostics) > 0 {
-		res.Error = diagnostics[0].Message
-		ok = false
-		res.OK = false
-	}
-	if err != nil {
-		res.Error = strings.TrimSpace(err.Error())
-	}
-	finalizeHarnessEvidence(res.Evidence, time.Since(started), ok, stdout.String(), stderr.String(), exitCodeFromError(err), artifacts)
-	return res
 }
 
-func runValidationStepCommand(ctx context.Context, appRoot string, cfg appcfg.Config, step validationPlanStep, stdout, stderr io.Writer, capture bool) error {
-	ref := parseValidationStep(step.Name)
+func runValidationStepCommand(ctx context.Context, appRoot string, cfg appcfg.Config, step validation.PlanStep, stdout, stderr io.Writer, capture bool) error {
+	ref := validation.ParseStepRef(step.Name)
 	if !capture {
 		stdout = os.Stdout
 		stderr = os.Stderr
@@ -905,21 +564,21 @@ func runValidationStepCommand(ctx context.Context, appRoot string, cfg appcfg.Co
 			return runGenerate(ctx, stdout, []string{"sqlc", "--app-root", appRoot})
 		case "db:apply":
 			if capture {
-				return runWithCapturedProcessOutput(stdout, stderr, func() error {
+				return validation.RunWithCapturedProcessOutput(stdout, stderr, func() error {
 					return dbApplyCommand([]string{"--app-root", appRoot})
 				})
 			}
 			return dbApplyCommand([]string{"--app-root", appRoot})
 		case "db:seed":
 			if capture {
-				return runWithCapturedProcessOutput(stdout, stderr, func() error {
+				return validation.RunWithCapturedProcessOutput(stdout, stderr, func() error {
 					return dbSeedCommand([]string{"--app-root", appRoot})
 				})
 			}
 			return dbSeedCommand([]string{"--app-root", appRoot})
 		case "db:setup":
 			if capture {
-				return runWithCapturedProcessOutput(stdout, stderr, func() error {
+				return validation.RunWithCapturedProcessOutput(stdout, stderr, func() error {
 					return dbSetupCommand([]string{"--app-root", appRoot})
 				})
 			}
@@ -927,43 +586,6 @@ func runValidationStepCommand(ctx context.Context, appRoot string, cfg appcfg.Co
 		}
 	}
 	return fmt.Errorf("unsupported validation step %q", step.Name)
-}
-
-func runWithCapturedProcessOutput(stdout, stderr io.Writer, fn func() error) error {
-	oldStdout := os.Stdout
-	oldStderr := os.Stderr
-	outR, outW, err := os.Pipe()
-	if err != nil {
-		return err
-	}
-	errR, errW, err := os.Pipe()
-	if err != nil {
-		_ = outR.Close()
-		_ = outW.Close()
-		return err
-	}
-	os.Stdout = outW
-	os.Stderr = errW
-	outDone := make(chan struct{})
-	errDone := make(chan struct{})
-	go func() {
-		_, _ = io.Copy(stdout, outR)
-		close(outDone)
-	}()
-	go func() {
-		_, _ = io.Copy(stderr, errR)
-		close(errDone)
-	}()
-	runErr := fn()
-	_ = outW.Close()
-	_ = errW.Close()
-	os.Stdout = oldStdout
-	os.Stderr = oldStderr
-	<-outDone
-	<-errDone
-	_ = outR.Close()
-	_ = errR.Close()
-	return runErr
 }
 
 func runValidationTask(ctx context.Context, appRoot string, cfg appcfg.Config, target string, stack []string, stdout, stderr io.Writer, envOverlay map[string]string) error {
@@ -980,20 +602,6 @@ func runValidationTask(ctx context.Context, appRoot string, cfg appcfg.Config, t
 	})
 }
 
-func overlayStringMap(base, values map[string]string) map[string]string {
-	if len(base) == 0 && len(values) == 0 {
-		return nil
-	}
-	out := make(map[string]string, len(base)+len(values))
-	for key, value := range base {
-		out[key] = value
-	}
-	for key, value := range values {
-		out[key] = value
-	}
-	return out
-}
-
 func newValidationArtifactContext(root string, enabled bool) validationArtifactContext {
 	return validationArtifactContext{
 		Root:    root,
@@ -1002,12 +610,12 @@ func newValidationArtifactContext(root string, enabled bool) validationArtifactC
 	}
 }
 
-func writeValidationOutputArtifacts(ctx validationArtifactContext, stepName string, stdout, stderr []byte) ([]harnessEvidenceArtifact, []checkDiagnostic) {
+func writeValidationOutputArtifacts(ctx validationArtifactContext, stepName string, stdout, stderr []byte) ([]validation.OutputArtifact, []validation.Diagnostic) {
 	if !ctx.Enabled {
 		return nil, nil
 	}
-	var artifacts []harnessEvidenceArtifact
-	var diags []checkDiagnostic
+	var artifacts []validation.OutputArtifact
+	var diags []validation.Diagnostic
 	write := func(kind string, data []byte) {
 		if len(data) == 0 {
 			return
@@ -1017,14 +625,14 @@ func writeValidationOutputArtifacts(ctx validationArtifactContext, stepName stri
 		rel := filepath.ToSlash(filepath.Join(".scenery", "harness", "validation", "artifacts", ctx.RunID, filename))
 		abs := filepath.Join(ctx.Root, filepath.FromSlash(rel))
 		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
-			diags = append(diags, formatArtifactWriteError(stepName, err))
+			diags = append(diags, validation.Diagnostic(formatArtifactWriteError(stepName, err)))
 			return
 		}
 		if err := os.WriteFile(abs, data, 0o644); err != nil {
-			diags = append(diags, formatArtifactWriteError(stepName, err))
+			diags = append(diags, validation.Diagnostic(formatArtifactWriteError(stepName, err)))
 			return
 		}
-		artifacts = append(artifacts, harnessEvidenceArtifact{Name: name, Path: rel})
+		artifacts = append(artifacts, validation.OutputArtifact{Name: name, Path: rel})
 	}
 	write("stdout", stdout)
 	write("stderr", stderr)
@@ -1078,111 +686,4 @@ func writeValidationText(stdout io.Writer, result validationResultResponse) erro
 		}
 	}
 	return nil
-}
-
-func selectChangedValidationProfiles(cfg appcfg.Config, files []string) []string {
-	selected := []string{}
-	defaultProfile := resolveValidationProfileName(cfg, "")
-	if defaultProfile != "" {
-		selected = append(selected, defaultProfile)
-	}
-	for _, match := range matchChangedValidationProfiles(cfg, files) {
-		if !validationContainsString(selected, match.Profile) {
-			selected = append(selected, match.Profile)
-		}
-	}
-	return selected
-}
-
-func matchChangedValidationProfiles(cfg appcfg.Config, files []string) []validationProfileMatch {
-	names := make([]string, 0, len(cfg.Validation.Profiles))
-	for name := range cfg.Validation.Profiles {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	var matches []validationProfileMatch
-	for _, name := range names {
-		prof := cfg.Validation.Profiles[name]
-		if len(prof.Paths) == 0 {
-			continue
-		}
-		var matchedPaths, matchedFiles []string
-		for _, pattern := range prof.Paths {
-			for _, file := range files {
-				if validationGlobMatches(pattern, file) {
-					if !validationContainsString(matchedPaths, pattern) {
-						matchedPaths = append(matchedPaths, pattern)
-					}
-					if !validationContainsString(matchedFiles, file) {
-						matchedFiles = append(matchedFiles, file)
-					}
-				}
-			}
-		}
-		if len(matchedFiles) > 0 {
-			matches = append(matches, validationProfileMatch{Profile: name, MatchedPaths: matchedPaths, MatchedFiles: matchedFiles})
-		}
-	}
-	return matches
-}
-
-func validationContainsString(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
-}
-
-func validationGlobMatches(pattern, file string) bool {
-	pattern = filepath.ToSlash(strings.TrimSpace(pattern))
-	file = filepath.ToSlash(strings.TrimSpace(file))
-	if pattern == "" || file == "" {
-		return false
-	}
-	if pattern == file {
-		return true
-	}
-	if strings.HasSuffix(pattern, "/**") {
-		prefix := strings.TrimSuffix(pattern, "/**")
-		return file == prefix || strings.HasPrefix(file, prefix+"/")
-	}
-	if validationGlobMatchSegments(strings.Split(pattern, "/"), strings.Split(file, "/")) {
-		return true
-	}
-	ok, _ := filepath.Match(pattern, file)
-	if ok {
-		return true
-	}
-	if !strings.Contains(pattern, "/") {
-		ok, _ = filepath.Match(pattern, filepath.Base(file))
-		return ok
-	}
-	return false
-}
-
-func validationGlobMatchSegments(patternParts, fileParts []string) bool {
-	if len(patternParts) == 0 {
-		return len(fileParts) == 0
-	}
-	if patternParts[0] == "**" {
-		if validationGlobMatchSegments(patternParts[1:], fileParts) {
-			return true
-		}
-		for i := range fileParts {
-			if validationGlobMatchSegments(patternParts[1:], fileParts[i+1:]) {
-				return true
-			}
-		}
-		return false
-	}
-	if len(fileParts) == 0 {
-		return false
-	}
-	ok, err := filepath.Match(patternParts[0], fileParts[0])
-	if err != nil || !ok {
-		return false
-	}
-	return validationGlobMatchSegments(patternParts[1:], fileParts[1:])
 }
