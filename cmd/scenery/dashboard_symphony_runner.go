@@ -1,20 +1,17 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -35,7 +32,6 @@ var (
 	// a persistent outage logs a bounded warning stream instead of one
 	// line every tick.
 	symphonyRunnerBackoffMax = 5 * time.Minute
-	errSymphonyRunStalled    = errors.New("codex app-server stalled")
 )
 
 const maxSymphonyArtifactBytes = 120 * 1024
@@ -52,15 +48,6 @@ type symphonyRunRequest struct {
 	MaxTurns      int
 	TurnTimeout   time.Duration
 	StallTimeout  time.Duration
-}
-
-type symphonyWorkflowRuntime struct {
-	PromptTemplate string
-	MaxConcurrency int
-	MaxTurns       int
-	MaxAttempts    int
-	TurnTimeout    time.Duration
-	StallTimeout   time.Duration
 }
 
 type symphonyRunResult struct {
@@ -256,7 +243,7 @@ func (s *dashboardServer) runSymphonyAutoForApp(ctx context.Context, store *symp
 	if workflow.Mode != "auto" {
 		return false, nil
 	}
-	runtimeWorkflow, err := loadSymphonyWorkflowRuntime(status.AppRoot, workflow)
+	runtimeWorkflow, err := symphony.LoadWorkflowRuntime(status.AppRoot, workflow)
 	if err != nil {
 		return true, err
 	}
@@ -288,7 +275,7 @@ func (s *dashboardServer) runSymphonyAutoForApp(ctx context.Context, store *symp
 	return true, errors.Join(errs...)
 }
 
-func (s *dashboardServer) startSymphonyRunRecord(ctx context.Context, store *symphony.Store, appID string, status devdash.AppStatus, workflow symphonyWorkflowRuntime, task symphony.Task) (symphonyRunRequest, error) {
+func (s *dashboardServer) startSymphonyRunRecord(ctx context.Context, store *symphony.Store, appID string, status devdash.AppStatus, workflow symphony.WorkflowRuntime, task symphony.Task) (symphonyRunRequest, error) {
 	repoRoot, relAppRoot, err := gitRepoRootForApp(ctx, status.AppRoot)
 	if err != nil {
 		run, runErr := store.StartRun(ctx, appID, task.ID, "", status.SessionID)
@@ -368,7 +355,7 @@ func (s *dashboardServer) executeSymphonyRun(ctx context.Context, store *symphon
 		status := "failed"
 		if errors.Is(err, context.DeadlineExceeded) {
 			status = "timed_out"
-		} else if errors.Is(err, errSymphonyRunStalled) {
+		} else if errors.Is(err, symphony.ErrRunStalled) {
 			status = "stalled"
 		}
 		completeSymphonyRun(store, req, status, result.Summary, err.Error(), "rework")
@@ -537,12 +524,12 @@ func runSymphonyCodexAppServer(ctx context.Context, req symphonyRunRequest, call
 		}
 		return out
 	}
-	client, err := newCodexAppServerClient(ctx, handler)
+	client, err := symphony.NewCodexAppServerClient(ctx, handler)
 	if err != nil {
 		return symphonyRunResult{}, err
 	}
 	defer client.Close()
-	if _, err := client.call(ctx, "initialize", map[string]any{
+	if _, err := client.Call(ctx, "initialize", map[string]any{
 		"clientInfo": map[string]string{"name": "scenery-symphony", "version": sceneryVersion},
 		"capabilities": map[string]any{
 			"experimentalApi": true,
@@ -550,7 +537,7 @@ func runSymphonyCodexAppServer(ctx context.Context, req symphonyRunRequest, call
 	}); err != nil {
 		return symphonyRunResult{}, err
 	}
-	threadResult, err := client.call(ctx, "thread/start", map[string]any{
+	threadResult, err := client.Call(ctx, "thread/start", map[string]any{
 		"cwd":                   req.AppWorkspace,
 		"runtimeWorkspaceRoots": []string{req.AppWorkspace},
 		"sandbox":               "workspace-write",
@@ -566,13 +553,13 @@ func runSymphonyCodexAppServer(ctx context.Context, req symphonyRunRequest, call
 		return symphonyRunResult{}, fmt.Errorf("codex app-server thread/start did not return a thread id")
 	}
 	if callbacks.ThreadStarted != nil {
-		callbacks.ThreadStarted(client.pid(), threadID)
+		callbacks.ThreadStarted(client.PID(), threadID)
 	}
 	prompt := symphonyTaskPrompt(req)
 	resultMu.Lock()
 	result.ThreadID = threadID
 	resultMu.Unlock()
-	if _, err := client.call(ctx, "turn/start", map[string]any{
+	if _, err := client.Call(ctx, "turn/start", map[string]any{
 		"threadId": threadID,
 		"cwd":      req.AppWorkspace,
 		"input": []map[string]string{{
@@ -584,7 +571,7 @@ func runSymphonyCodexAppServer(ctx context.Context, req symphonyRunRequest, call
 	}); err != nil {
 		return snapshotResult(false), err
 	}
-	if err := client.waitForTurnCompleted(ctx, req.StallTimeout); err != nil {
+	if err := client.WaitForTurnCompleted(ctx, req.StallTimeout); err != nil {
 		return snapshotResult(false), err
 	}
 	return snapshotResult(true), nil
@@ -605,7 +592,7 @@ func symphonyTaskPrompt(req symphonyRunRequest) string {
 	return b.String()
 }
 
-func renderSymphonyRunPrompt(workflow symphonyWorkflowRuntime, req symphonyRunRequest) (string, error) {
+func renderSymphonyRunPrompt(workflow symphony.WorkflowRuntime, req symphonyRunRequest) (string, error) {
 	template := strings.TrimSpace(workflow.PromptTemplate)
 	if template == "" {
 		return symphonyTaskPrompt(req), nil
@@ -637,121 +624,6 @@ func renderSymphonyRunPrompt(workflow symphonyWorkflowRuntime, req symphonyRunRe
 		return "", fmt.Errorf("unsupported WORKFLOW.md template variables: %s", strings.Join(unknown, ", "))
 	}
 	return strings.TrimSpace(rendered), nil
-}
-
-func loadSymphonyWorkflowRuntime(appRoot string, workflow symphony.Workflow) (symphonyWorkflowRuntime, error) {
-	out := symphonyWorkflowRuntime{
-		MaxTurns:     20,
-		MaxAttempts:  3,
-		TurnTimeout:  time.Hour,
-		StallTimeout: 5 * time.Minute,
-	}
-	if text := strings.TrimSpace(workflow.WorkflowMarkdown); text != "" {
-		return parseSymphonyWorkflowRuntime(text, out)
-	}
-	data, err := os.ReadFile(filepath.Join(appRoot, "WORKFLOW.md"))
-	if errors.Is(err, os.ErrNotExist) {
-		return out, errors.New("missing WORKFLOW.md")
-	}
-	if err != nil {
-		return out, err
-	}
-	return parseSymphonyWorkflowRuntime(string(data), out)
-}
-
-func parseSymphonyWorkflowRuntime(text string, out symphonyWorkflowRuntime) (symphonyWorkflowRuntime, error) {
-	text = strings.TrimSpace(text)
-	if !strings.HasPrefix(text, "---") {
-		out.PromptTemplate = text
-		return out, nil
-	}
-	lines := strings.Split(text, "\n")
-	for i := 1; i < len(lines); i++ {
-		if strings.TrimSpace(lines[i]) == "---" {
-			if err := applySymphonyWorkflowConfig(lines[1:i], &out); err != nil {
-				return out, err
-			}
-			out.PromptTemplate = strings.TrimSpace(strings.Join(lines[i+1:], "\n"))
-			return out, nil
-		}
-	}
-	return out, errors.New("WORKFLOW.md front matter is not closed")
-}
-
-func applySymphonyWorkflowConfig(lines []string, out *symphonyWorkflowRuntime) error {
-	section := ""
-	for _, line := range lines {
-		if strings.TrimSpace(line) == "" || strings.HasPrefix(strings.TrimSpace(line), "#") {
-			continue
-		}
-		trimmed := strings.TrimSpace(line)
-		if !strings.HasPrefix(line, " ") && strings.HasSuffix(trimmed, ":") {
-			section = strings.TrimSuffix(trimmed, ":")
-			continue
-		}
-		if section != "agent" {
-			continue
-		}
-		key, value, ok := strings.Cut(trimmed, ":")
-		if !ok {
-			continue
-		}
-		key = strings.TrimSpace(key)
-		switch key {
-		case "max_concurrent_agents":
-			n, err := parseSymphonyPositiveInt(value)
-			if err != nil {
-				return fmt.Errorf("invalid agent.%s: %w", key, err)
-			}
-			out.MaxConcurrency = n
-		case "max_turns":
-			n, err := parseSymphonyPositiveInt(value)
-			if err != nil {
-				return fmt.Errorf("invalid agent.%s: %w", key, err)
-			}
-			out.MaxTurns = n
-		case "max_attempts":
-			n, err := parseSymphonyPositiveInt(value)
-			if err != nil {
-				return fmt.Errorf("invalid agent.%s: %w", key, err)
-			}
-			out.MaxAttempts = n
-		case "turn_timeout_ms":
-			timeout, err := parseSymphonyPositiveDurationMillis(value)
-			if err != nil {
-				return fmt.Errorf("invalid agent.%s: %w", key, err)
-			}
-			out.TurnTimeout = timeout
-		case "stall_timeout_ms":
-			timeout, err := parseSymphonyPositiveDurationMillis(value)
-			if err != nil {
-				return fmt.Errorf("invalid agent.%s: %w", key, err)
-			}
-			out.StallTimeout = timeout
-		}
-	}
-	return nil
-}
-
-func parseSymphonyPositiveInt(value string) (int, error) {
-	value = strings.TrimSpace(strings.SplitN(value, "#", 2)[0])
-	value = strings.Trim(value, `"'`)
-	n, err := strconv.Atoi(value)
-	if err != nil {
-		return 0, err
-	}
-	if n <= 0 {
-		return 0, fmt.Errorf("must be positive")
-	}
-	return n, nil
-}
-
-func parseSymphonyPositiveDurationMillis(value string) (time.Duration, error) {
-	n, err := parseSymphonyPositiveInt(value)
-	if err != nil {
-		return 0, err
-	}
-	return time.Duration(n) * time.Millisecond, nil
 }
 
 func collectSymphonyRunArtifacts(ctx context.Context, appWorkspace string) (string, string, error) {
@@ -798,216 +670,6 @@ func trimArtifact(value string) string {
 		return value
 	}
 	return value[:maxSymphonyArtifactBytes] + "\n\n[truncated]"
-}
-
-type codexAppServerClient struct {
-	cmd            *exec.Cmd
-	stdin          io.WriteCloser
-	pendingMu      sync.Mutex
-	pending        map[int]chan codexRPCMessage
-	nextID         int
-	done           chan error
-	turnDone       chan struct{}
-	onNotification func(string, json.RawMessage)
-	activityMu     sync.Mutex
-	lastActivity   time.Time
-}
-
-type codexRPCMessage struct {
-	ID     any             `json:"id,omitempty"`
-	Method string          `json:"method,omitempty"`
-	Params json.RawMessage `json:"params,omitempty"`
-	Result json.RawMessage `json:"result,omitempty"`
-	Error  *codexRPCError  `json:"error,omitempty"`
-}
-
-type codexRPCError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
-}
-
-func newCodexAppServerClient(ctx context.Context, onNotification func(string, json.RawMessage)) (*codexAppServerClient, error) {
-	cmd := exec.CommandContext(ctx, "codex", "app-server", "--listen", "stdio://")
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		return nil, err
-	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, err
-	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return nil, err
-	}
-	client := &codexAppServerClient{
-		cmd:            cmd,
-		stdin:          stdin,
-		pending:        map[int]chan codexRPCMessage{},
-		done:           make(chan error, 1),
-		turnDone:       make(chan struct{}),
-		onNotification: onNotification,
-		lastActivity:   time.Now(),
-	}
-	if err := cmd.Start(); err != nil {
-		return nil, err
-	}
-	go io.Copy(io.Discard, stderr)
-	go client.readLoop(stdout)
-	go func() { client.done <- cmd.Wait() }()
-	return client, nil
-}
-
-func (c *codexAppServerClient) pid() int {
-	if c == nil || c.cmd == nil || c.cmd.Process == nil {
-		return 0
-	}
-	return c.cmd.Process.Pid
-}
-
-func (c *codexAppServerClient) Close() error {
-	if c == nil || c.cmd == nil || c.cmd.Process == nil {
-		return nil
-	}
-	_ = c.stdin.Close()
-	if err := c.cmd.Process.Signal(os.Interrupt); err != nil {
-		_ = c.cmd.Process.Kill()
-	}
-	select {
-	case <-c.done:
-	case <-time.After(2 * time.Second):
-		_ = c.cmd.Process.Kill()
-		<-c.done
-	}
-	return nil
-}
-
-func (c *codexAppServerClient) call(ctx context.Context, method string, params any) (json.RawMessage, error) {
-	c.pendingMu.Lock()
-	c.nextID++
-	id := c.nextID
-	ch := make(chan codexRPCMessage, 1)
-	c.pending[id] = ch
-	c.pendingMu.Unlock()
-
-	payload := map[string]any{"jsonrpc": "2.0", "id": id, "method": method, "params": params}
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return nil, err
-	}
-	if _, err := c.stdin.Write(append(data, '\n')); err != nil {
-		c.pendingMu.Lock()
-		delete(c.pending, id)
-		c.pendingMu.Unlock()
-		return nil, err
-	}
-	select {
-	case msg := <-ch:
-		if msg.Error != nil {
-			return nil, errors.New(msg.Error.Message)
-		}
-		return msg.Result, nil
-	case err := <-c.done:
-		return nil, fmt.Errorf("codex app-server exited: %w", err)
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	}
-}
-
-func (c *codexAppServerClient) readLoop(stdout io.Reader) {
-	scanner := bufio.NewScanner(stdout)
-	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		if len(strings.TrimSpace(string(line))) == 0 {
-			continue
-		}
-		var msg codexRPCMessage
-		if err := json.Unmarshal(line, &msg); err != nil {
-			continue
-		}
-		if id, ok := numericID(msg.ID); ok {
-			c.pendingMu.Lock()
-			ch := c.pending[id]
-			delete(c.pending, id)
-			c.pendingMu.Unlock()
-			if ch != nil {
-				ch <- msg
-				continue
-			}
-		}
-		if msg.Method != "" {
-			c.markActivity()
-			if c.onNotification != nil {
-				c.onNotification(msg.Method, msg.Params)
-			}
-			if msg.Method == "turn/completed" {
-				select {
-				case <-c.turnDone:
-				default:
-					close(c.turnDone)
-				}
-			}
-		}
-	}
-}
-
-func (c *codexAppServerClient) waitForTurnCompleted(ctx context.Context, stallTimeout time.Duration) error {
-	if stallTimeout <= 0 {
-		stallTimeout = 5 * time.Minute
-	}
-	tick := stallTimeout / 4
-	if tick <= 0 || tick > time.Second {
-		tick = time.Second
-	}
-	ticker := time.NewTicker(tick)
-	defer ticker.Stop()
-	select {
-	case <-c.turnDone:
-		return nil
-	default:
-	}
-	for {
-		select {
-		case <-c.turnDone:
-			return nil
-		case err := <-c.done:
-			return fmt.Errorf("codex app-server exited before turn completed: %w", err)
-		case <-ticker.C:
-			if c.idleFor() >= stallTimeout {
-				return errSymphonyRunStalled
-			}
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-	}
-}
-
-func (c *codexAppServerClient) markActivity() {
-	c.activityMu.Lock()
-	c.lastActivity = time.Now()
-	c.activityMu.Unlock()
-}
-
-func (c *codexAppServerClient) idleFor() time.Duration {
-	c.activityMu.Lock()
-	last := c.lastActivity
-	c.activityMu.Unlock()
-	if last.IsZero() {
-		return 0
-	}
-	return time.Since(last)
-}
-
-func numericID(value any) (int, bool) {
-	switch v := value.(type) {
-	case float64:
-		return int(v), true
-	case int:
-		return v, true
-	default:
-		return 0, false
-	}
 }
 
 func jsonString(raw json.RawMessage, path ...string) string {
