@@ -18,8 +18,8 @@ type goDependencyBinding struct {
 	RuntimeName   string
 }
 
-func serviceGoDependencies(resources []Resource, service Resource) ([]goDependencyBinding, error) {
-	byAddress := resourcesByAddress(&Manifest{Resources: resources})
+func serviceGoDependencies(idx *resourceIndex, service Resource) ([]goDependencyBinding, error) {
+	byAddress := idx.byAddress
 	var result []goDependencyBinding
 	for _, dependency := range namedChildren(service.Spec, "dependency") {
 		name := stringValue(dependency["name"])

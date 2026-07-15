@@ -43,7 +43,7 @@ func renderGoContractConstraints(field map[string]any) string {
 	return "scenery.ContractConstraints{" + strings.Join(fields, ", ") + "}"
 }
 
-func renderContractAPI(packageIdentity, importPath, abi string, resources, allResources []Resource, typeResolver *goContractTypeResolver) (string, error) {
+func renderContractAPI(packageIdentity, importPath, abi string, resources []Resource, idx *resourceIndex, typeResolver *goContractTypeResolver) (string, error) {
 	dependencyImports := map[string]string{}
 	serviceDependencies := map[string][]goDependencyBinding{}
 	serviceClients := map[string][]goClientBinding{}
@@ -56,12 +56,12 @@ func renderContractAPI(packageIdentity, importPath, abi string, resources, allRe
 		if service.Kind != "scenery.service" {
 			continue
 		}
-		dependencies, err := serviceGoDependencies(allResources, service)
+		dependencies, err := serviceGoDependencies(idx, service)
 		if err != nil {
 			return "", err
 		}
 		serviceDependencies[service.Address] = dependencies
-		clients, err := serviceGoClients(allResources, service)
+		clients, err := serviceGoClients(idx, service)
 		if err != nil {
 			return "", err
 		}

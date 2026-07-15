@@ -40,7 +40,7 @@ func BuildRuntimeIntegrationPlan(result *Result) (RuntimeIntegrationPlan, error)
 	return RuntimeIntegrationPlan{CompositionImport: generatedImport + "/composition"}, nil
 }
 
-func generateApplicationArtifacts(result *Result) ([]generatedFile, error) {
+func generateApplicationArtifacts(result *Result, idx *resourceIndex) ([]generatedFile, error) {
 	services := nativeApplicationServices(result)
 	if len(services) == 0 {
 		return nil, nil
@@ -59,7 +59,7 @@ func generateApplicationArtifacts(result *Result) ([]generatedFile, error) {
 		if !ok {
 			return nil, fmt.Errorf("native service %s is not owned by a local module", service.Address)
 		}
-		adapter, err := renderApplicationAdapter(result, module, service, generatedImport)
+		adapter, err := renderApplicationAdapter(result, idx, module, service, generatedImport)
 		if err != nil {
 			return nil, err
 		}
@@ -216,7 +216,7 @@ func resolveApplicationGeneratedRoot(result *Result) (string, string, error) {
 	return "", "", fmt.Errorf("native application adapters require a go_module mapping for %s", relativeRoot)
 }
 
-func renderApplicationAdapter(result *Result, module, service Resource, generatedImport string) (applicationAdapter, error) {
+func renderApplicationAdapter(result *Result, idx *resourceIndex, module, service Resource, generatedImport string) (applicationAdapter, error) {
 	moduleSource, _ := module.Spec["workspace_package_root"].(string)
 	if moduleSource == "" {
 		moduleSource, _ = module.Spec["source"].(string)
@@ -237,8 +237,8 @@ func renderApplicationAdapter(result *Result, module, service Resource, generate
 	if implementationImport == "" {
 		return applicationAdapter{}, fmt.Errorf("native service %s has no go_contract import path", service.Address)
 	}
-	moduleResources := moduleResources(result.Manifest.Resources, moduleInstancePath(module))
-	packageABI, err := packageABIRevision(implementationImport, moduleResources, result.Manifest.Resources)
+	moduleResources := idx.moduleResources(moduleInstancePath(module))
+	packageABI, err := packageABIRevision(implementationImport, moduleResources, idx)
 	if err != nil {
 		return applicationAdapter{}, err
 	}
@@ -284,7 +284,7 @@ func renderApplicationAdapter(result *Result, module, service Resource, generate
 	packageName := goPackageName(moduleInstancePath(module) + "_" + service.Name + "_adapter")
 	contractImport := implementationImport + "/scenerycontract"
 	adapterImport := generatedImport + "/" + dirName
-	source, err := renderApplicationAdapterSource(result.Manifest.ContractRevision, packageIdentity, packageABI, implementationImport, contractImport, packageName, service, operations, bindings, result.Manifest.Resources, covered, providerRuntimeABIs(result.Manifest.Resources))
+	source, err := renderApplicationAdapterSource(result.Manifest.ContractRevision, packageIdentity, packageABI, implementationImport, contractImport, packageName, service, operations, bindings, result.Manifest.Resources, idx, covered, providerRuntimeABIs(result.Manifest.Resources))
 	if err != nil {
 		return applicationAdapter{}, err
 	}
@@ -294,17 +294,17 @@ func renderApplicationAdapter(result *Result, module, service Resource, generate
 	}, nil
 }
 
-func renderApplicationAdapterSource(contractRevision, packageIdentity, packageABI, implementationImport, contractImport, packageName string, service Resource, operations, bindings, resources []Resource, covered []string, providerABIs map[string]string) ([]byte, error) {
+func renderApplicationAdapterSource(contractRevision, packageIdentity, packageABI, implementationImport, contractImport, packageName string, service Resource, operations, bindings, resources []Resource, idx *resourceIndex, covered []string, providerABIs map[string]string) ([]byte, error) {
 	implementation, _ := service.Spec["implementation"].(map[string]any)
 	constructor, _ := implementation["constructor"].(string)
 	if constructor == "" {
 		return nil, fmt.Errorf("native service %s has no constructor", service.Address)
 	}
-	dependencies, err := serviceGoDependencies(resources, service)
+	dependencies, err := serviceGoDependencies(idx, service)
 	if err != nil {
 		return nil, err
 	}
-	clients, err := serviceGoClients(resources, service)
+	clients, err := serviceGoClients(idx, service)
 	if err != nil {
 		return nil, err
 	}

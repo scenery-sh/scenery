@@ -19,15 +19,16 @@ func VerifyImplementation(result *compiler.Result) []Diagnostic {
 	if err := validateInvariantPackageABIs(result); err != nil {
 		return []Diagnostic{{Code: "SCN6208", Severity: "error", Message: err.Error()}}
 	}
+	idx := newResourceIndex(result.Manifest.Resources)
 	var files []generatedFile
 	for _, module := range localModules(result.Manifest.Resources) {
-		moduleFiles, err := generateModuleContract(result, module)
+		moduleFiles, err := generateModuleContract(result, idx, module)
 		if err != nil {
 			return []Diagnostic{{Code: "SCN6201", Severity: "error", Message: err.Error(), Address: module.Address}}
 		}
 		files = append(files, moduleFiles...)
 	}
-	applicationFiles, err := generateApplicationArtifacts(result)
+	applicationFiles, err := generateApplicationArtifacts(result, idx)
 	if err != nil {
 		return []Diagnostic{{Code: "SCN6207", Severity: "error", Message: err.Error()}}
 	}

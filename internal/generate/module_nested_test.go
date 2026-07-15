@@ -153,7 +153,7 @@ export "point" { value = record.point }
 		t.Fatalf("compile: %v diagnostics=%#v", err, result.Diagnostics)
 	}
 	parent := resourcesByAddress(result.Manifest)["app/module/parent"]
-	files, err := generateModuleContract(result, parent)
+	files, err := generateModuleContract(result, newResourceIndex(result.Manifest.Resources), parent)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,11 +178,11 @@ func TestPackageABIIsStableAcrossModuleAliasesWithTypeOnlyDependency(t *testing.
 		}
 	}
 	first, second := resourcesFor("first"), resourcesFor("second")
-	firstABI, err := packageABIRevision("example.test/cross/parent", moduleResources(first, "first"), first)
+	firstABI, err := packageABIRevision("example.test/cross/parent", moduleResources(first, "first"), newResourceIndex(first))
 	if err != nil {
 		t.Fatal(err)
 	}
-	secondABI, err := packageABIRevision("example.test/cross/parent", moduleResources(second, "second"), second)
+	secondABI, err := packageABIRevision("example.test/cross/parent", moduleResources(second, "second"), newResourceIndex(second))
 	if err != nil {
 		t.Fatal(err)
 	}

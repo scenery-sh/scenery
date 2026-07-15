@@ -230,17 +230,18 @@ func renderExpectedGoContractFiles(result *Result) ([]generatedFile, error) {
 	if err := validateInvariantPackageABIs(result); err != nil {
 		return nil, err
 	}
+	idx := newResourceIndex(result.Manifest.Resources)
 	modules := localModules(result.Manifest.Resources)
 	var files []generatedFile
 	for _, module := range modules {
-		moduleFiles, err := generateModuleContract(result, module)
+		moduleFiles, err := generateModuleContract(result, idx, module)
 		if err != nil {
 			return nil, err
 		}
 		files = append(files, moduleFiles...)
 	}
 	if usesGoImplementation(result.Manifest.Resources) {
-		applicationFiles, err := generateApplicationArtifacts(result)
+		applicationFiles, err := generateApplicationArtifacts(result, idx)
 		if err != nil {
 			return nil, err
 		}
@@ -298,14 +299,15 @@ func validateInvariantPackageABIs(result *Result) error {
 		return nil
 	}
 	seen := map[string]string{}
+	idx := newResourceIndex(result.Manifest.Resources)
 	for _, module := range localModuleInstances(result.Manifest.Resources) {
 		instance := moduleInstancePath(module)
-		contractImport, ok := moduleContractImportPath(result.Manifest.Resources, instance)
+		contractImport, ok := idx.contractImport(instance)
 		if !ok {
 			continue
 		}
 		implementationImport := strings.TrimSuffix(contractImport, "/scenerycontract")
-		revision, err := packageABIRevision(implementationImport, moduleResources(result.Manifest.Resources, instance), result.Manifest.Resources)
+		revision, err := packageABIRevision(implementationImport, idx.moduleResources(instance), idx)
 		if err != nil {
 			return err
 		}
@@ -580,14 +582,14 @@ func localModuleInstances(resources []Resource) []Resource {
 	return modules
 }
 
-func generateModuleContract(result *Result, module Resource) ([]generatedFile, error) {
+func generateModuleContract(result *Result, idx *resourceIndex, module Resource) ([]generatedFile, error) {
 	source, _ := module.Spec["workspace_package_root"].(string)
 	if source == "" {
 		source, _ = module.Spec["source"].(string)
 	}
 	dir := filepath.Join(result.Root, filepath.FromSlash(source))
 	contractDir := filepath.Join(dir, "scenerycontract")
-	resources := moduleResources(result.Manifest.Resources, moduleInstancePath(module))
+	resources := idx.moduleResources(moduleInstancePath(module))
 	packageBlock := findPackageBlock(result.Sources, source)
 	importPath := ""
 	if packageBlock != nil {
@@ -600,7 +602,7 @@ func generateModuleContract(result *Result, module Resource) ([]generatedFile, e
 	if importPath == "" {
 		return nil, fmt.Errorf("module %s package has no go_contract.import_path", moduleInstancePath(module))
 	}
-	abiRevision, err := packageABIRevision(importPath, resources, result.Manifest.Resources)
+	abiRevision, err := packageABIRevision(importPath, resources, idx)
 	if err != nil {
 		return nil, err
 	}
@@ -620,7 +622,7 @@ func generateModuleContract(result *Result, module Resource) ([]generatedFile, e
 		}
 	}
 	apiResolver := newGoContractTypeResolver(moduleInstancePath(module), result.Manifest.Resources, embeddedTypes)
-	contractSource, err := renderContractAPI(packageIdentity, importPath, abiRevision, resources, result.Manifest.Resources, apiResolver)
+	contractSource, err := renderContractAPI(packageIdentity, importPath, abiRevision, resources, idx, apiResolver)
 	if err != nil {
 		return nil, err
 	}
@@ -641,7 +643,7 @@ func generateModuleContract(result *Result, module Resource) ([]generatedFile, e
 		"package":       packageIdentity, "package_identity": packageIdentity,
 		"import_path": importPath + "/scenerycontract", "package_contract_abi_revision": abiRevision,
 		"go_implementation_abi_range": ">=1.0.0, <2.0.0", "runtime_abi_range": "scenery.go-runtime/v1",
-		"capability_interface_abi_ranges": packageCapabilityABIRanges(resources, result.Manifest.Resources),
+		"capability_interface_abi_ranges": packageCapabilityABIRanges(resources, idx),
 		"content_digest":                  artifactDigest(contractDir, artifactFiles), "generator": "scenery.generate.go",
 		"covered": packageDeclarationKeys(resources), "files": generatedFilePaths(contractDir, artifactFiles),
 	}, goPackageDescriptorKind, goPackageSchemaDescriptor, result.Manifest.SpecRevision)
@@ -677,13 +679,13 @@ func packageDeclarationKeys(resources []Resource) []string {
 	return canonicalStrings(keys)
 }
 
-func packageCapabilityABIRanges(resources, allResources []Resource) map[string]string {
+func packageCapabilityABIRanges(resources []Resource, idx *resourceIndex) map[string]string {
 	ranges := map[string]string{}
 	for _, service := range resources {
 		if service.Kind != "scenery.service" {
 			continue
 		}
-		dependencies, err := serviceGoDependencies(allResources, service)
+		dependencies, err := serviceGoDependencies(idx, service)
 		if err != nil {
 			continue
 		}
@@ -709,8 +711,8 @@ func findPackageBlock(sources []*Source, moduleSource string) *Block {
 	return nil
 }
 
-func packageABIRevision(importPath string, resources, allResources []Resource) (string, error) {
-	abiResources, err := packageABIResources(resources, allResources)
+func packageABIRevision(importPath string, resources []Resource, idx *resourceIndex) (string, error) {
+	abiResources, err := packageABIResources(resources, idx)
 	if err != nil {
 		return "", err
 	}
@@ -723,8 +725,8 @@ func packageABIRevision(importPath string, resources, allResources []Resource) (
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 
-func packageABIResources(resources, allResources []Resource) ([]map[string]any, error) {
-	byAddress := resourcesByAddress(&Manifest{Resources: allResources})
+func packageABIResources(resources []Resource, idx *resourceIndex) ([]map[string]any, error) {
+	byAddress := idx.byAddress
 	neededTypes := map[string]bool{}
 	var projected []map[string]any
 	module := ""
@@ -734,7 +736,7 @@ func packageABIResources(resources, allResources []Resource) ([]map[string]any, 
 	for _, resource := range resources {
 		switch resource.Kind {
 		case "scenery.service":
-			dependencies, err := serviceGoDependencies(allResources, resource)
+			dependencies, err := serviceGoDependencies(idx, resource)
 			if err != nil {
 				return nil, err
 			}
@@ -742,18 +744,18 @@ func packageABIResources(resources, allResources []Resource) ([]map[string]any, 
 			for _, dependency := range dependencies {
 				dependencyProjection = append(dependencyProjection, map[string]any{"name": dependency.Name, "go_type": dependency.GoType, "capability_abi": dependency.CapabilityABI})
 			}
-			clients, err := serviceGoClients(allResources, resource)
+			clients, err := serviceGoClients(idx, resource)
 			if err != nil {
 				return nil, err
 			}
 			clientProjection := make([]map[string]any, 0, len(clients))
 			for _, client := range clients {
-				clientProjection = append(clientProjection, map[string]any{"name": client.Name, "target_contract_import_path": client.ContractImport, "operation": client.Operation.Name, "input": normalizePackageABIValue(client.Operation.Spec["input"], client.Operation.Module, allResources), "result": normalizePackageABIValue(client.Operation.Spec["result"], client.Operation.Module, allResources), "error": normalizePackageABIValue(client.Operation.Spec["error"], client.Operation.Module, allResources), "delivery": client.Delivery})
+				clientProjection = append(clientProjection, map[string]any{"name": client.Name, "target_contract_import_path": client.ContractImport, "operation": client.Operation.Name, "input": normalizePackageABIValue(client.Operation.Spec["input"], client.Operation.Module, idx), "result": normalizePackageABIValue(client.Operation.Spec["result"], client.Operation.Module, idx), "error": normalizePackageABIValue(client.Operation.Spec["error"], client.Operation.Module, idx), "delivery": client.Delivery})
 			}
 			projected = append(projected, map[string]any{
 				"kind": "service", "name": resource.Name, "implementation": resource.Spec["implementation"],
 				"lifecycle": resource.Spec["lifecycle"], "dependencies": dependencyProjection,
-				"config_shape": normalizePackageABIValue(serviceConfigShape(resource), resource.Module, allResources), "clients": clientProjection,
+				"config_shape": normalizePackageABIValue(serviceConfigShape(resource), resource.Module, idx), "clients": clientProjection,
 			})
 			for _, field := range namedChildren(resource.Spec, "config_schema") {
 				collectABITypeReferences(field["type"], resource.Module, byAddress, neededTypes)
@@ -774,15 +776,12 @@ func packageABIResources(resources, allResources []Resource) ([]map[string]any, 
 				}
 			}
 			projected = append(projected, map[string]any{
-				"kind": "operation", "name": resource.Name, "input": normalizePackageABIValue(resource.Spec["input"], resource.Module, allResources), "handler": resource.Spec["handler"],
-				"result": normalizePackageABIValue(resource.Spec["result"], resource.Module, allResources), "error": normalizePackageABIValue(resource.Spec["error"], resource.Module, allResources),
+				"kind": "operation", "name": resource.Name, "input": normalizePackageABIValue(resource.Spec["input"], resource.Module, idx), "handler": resource.Spec["handler"],
+				"result": normalizePackageABIValue(resource.Spec["result"], resource.Module, idx), "error": normalizePackageABIValue(resource.Spec["error"], resource.Module, idx),
 			})
 		}
 	}
-	for _, resource := range allResources {
-		if resource.Kind != "scenery.module" || moduleInstancePath(resource) != module {
-			continue
-		}
+	for _, resource := range idx.moduleDecls(module) {
 		if exports, ok := resource.Spec["exports"].(map[string]any); ok {
 			for _, value := range exports {
 				collectABITypeReferences(value, module, byAddress, neededTypes)
@@ -810,9 +809,9 @@ func packageABIResources(resources, allResources []Resource) ([]map[string]any, 
 		if !ok {
 			continue
 		}
-		projection := map[string]any{"kind": strings.TrimPrefix(resource.Kind, "scenery."), "name": resource.Name, "spec": normalizePackageABIValue(resource.Spec, resource.Module, allResources)}
+		projection := map[string]any{"kind": strings.TrimPrefix(resource.Kind, "scenery."), "name": resource.Name, "spec": normalizePackageABIValue(resource.Spec, resource.Module, idx)}
 		if resource.Module != module {
-			projection["package_type_identity"] = packageABITypeIdentity(resource, allResources)
+			projection["package_type_identity"] = packageABITypeIdentity(resource, idx)
 		}
 		projected = append(projected, projection)
 	}

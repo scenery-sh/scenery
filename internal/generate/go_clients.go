@@ -17,8 +17,8 @@ type goClientBinding struct {
 	Delivery       string
 }
 
-func serviceGoClients(resources []Resource, service Resource) ([]goClientBinding, error) {
-	byAddress := resourcesByAddress(&Manifest{Resources: resources})
+func serviceGoClients(idx *resourceIndex, service Resource) ([]goClientBinding, error) {
+	byAddress := idx.byAddress
 	var result []goClientBinding
 	for _, client := range namedChildren(service.Spec, "client") {
 		name := stringValue(client["name"])
@@ -39,7 +39,7 @@ func serviceGoClients(resources []Resource, service Resource) ([]goClientBinding
 		contractAlias, contractImport := "", ""
 		if operation.Module != service.Module {
 			var found bool
-			contractImport, found = moduleContractImportPath(resources, operation.Module)
+			contractImport, found = idx.contractImport(operation.Module)
 			if !found {
 				return nil, fmt.Errorf("service %s client %s target package %s has no immutable Go contract import path", service.Address, name, operation.Module)
 			}

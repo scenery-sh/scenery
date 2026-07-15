@@ -785,7 +785,7 @@ func TestTypeScriptRetryRequiresIdempotentReplayableOperation(t *testing.T) {
 func TestGenerateApplicationArtifactsUsesExplicitRegistryAndComposition(t *testing.T) {
 	root := t.TempDir()
 	result := nativeApplicationGenerationFixture(root)
-	files, err := generateApplicationArtifacts(result)
+	files, err := generateApplicationArtifacts(result, newResourceIndex(result.Manifest.Resources))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -819,7 +819,7 @@ func TestGenerateApplicationArtifactsUsesExplicitRegistryAndComposition(t *testi
 func TestGeneratedGoOperationOutcomeHasDeterministicDurableCodec(t *testing.T) {
 	result := nativeApplicationGenerationFixture(t.TempDir())
 	module := resourceByKind(result.Manifest.Resources, "scenery.module")
-	files, err := generateModuleContract(result, module)
+	files, err := generateModuleContract(result, newResourceIndex(result.Manifest.Resources), module)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -963,7 +963,7 @@ func TestGenerateApplicationAdapterEmitsTypedPathMappingAndGatewayBasePath(t *te
 			httpSpec["path_parameter"] = map[string]any{"name": "scene_id", "to": map[string]any{"$ref": "operation.process_scene.input.scene_id"}}
 		}
 	}
-	files, err := generateApplicationArtifacts(result)
+	files, err := generateApplicationArtifacts(result, newResourceIndex(result.Manifest.Resources))
 	if err != nil {
 		t.Fatal(err)
 	}

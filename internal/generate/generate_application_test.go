@@ -55,7 +55,7 @@ func TestGenerateGoConstructorInjectsTypedInternalClient(t *testing.T) {
 		}
 	}
 	module := resourceByKind(result.Manifest.Resources, "scenery.module")
-	contractFiles, err := generateModuleContract(result, module)
+	contractFiles, err := generateModuleContract(result, newResourceIndex(result.Manifest.Resources), module)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +69,7 @@ func TestGenerateGoConstructorInjectsTypedInternalClient(t *testing.T) {
 			t.Fatalf("contract missing %q:\n%s", fragment, contractSource)
 		}
 	}
-	applicationFiles, err := generateApplicationArtifacts(result)
+	applicationFiles, err := generateApplicationArtifacts(result, newResourceIndex(result.Manifest.Resources))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +101,7 @@ func TestGenerateApplicationAdapterRegistersExecutablePageContract(t *testing.T)
 			"page": map[string]any{"$ref": "page.scene_detail"}, "runtime": "web", "module": "ui/SceneDetail.tsx", "implementation_digest": "sha256:renderer", "config": map[string]any{"theme": "dark"},
 		}},
 	)
-	files, err := generateApplicationArtifacts(result)
+	files, err := generateApplicationArtifacts(result, newResourceIndex(result.Manifest.Resources))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,7 +148,7 @@ func TestGenerateGoInternalClientImportsCrossPackageContract(t *testing.T) {
 		Resource{Address: "audit/binding/write_internal", Kind: "scenery.binding", Name: "write_internal", Module: "audit", Spec: map[string]any{"operation": map[string]any{"$ref": "operation.write"}, "protocol": "internal", "delivery": "call", "exposure": "application", "authentication": map[string]any{"$ref": "std.authentication.inherit"}, "authorization": map[string]any{"$ref": "std.authorization.public"}, "pipeline": map[string]any{"$ref": "std.pipeline.empty"}, "internal": map[string]any{"visibility": "application", "principal": "inherit"}}, Origin: Origin{Kind: "authored"}},
 	)
 	houseModule := resourceByKind(result.Manifest.Resources, "scenery.module")
-	contractFiles, err := generateModuleContract(result, houseModule)
+	contractFiles, err := generateModuleContract(result, newResourceIndex(result.Manifest.Resources), houseModule)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +158,7 @@ func TestGenerateGoInternalClientImportsCrossPackageContract(t *testing.T) {
 			t.Fatalf("cross-package contract missing %q:\n%s", fragment, contractSource)
 		}
 	}
-	applicationFiles, err := generateApplicationArtifacts(result)
+	applicationFiles, err := generateApplicationArtifacts(result, newResourceIndex(result.Manifest.Resources))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,7 +215,7 @@ func TestGenerateApplicationAdapterRegistersAndDispatchesDurableExecution(t *tes
 			}
 		}
 	}
-	files, err := generateApplicationArtifacts(result)
+	files, err := generateApplicationArtifacts(result, newResourceIndex(result.Manifest.Resources))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -273,7 +273,7 @@ func TestGenerateApplicationAdapterRegistersSchedulesConsumersAndEmissions(t *te
 			"invoke": map[string]any{"operation": map[string]any{"$ref": "operation.process_scene"}, "execution": map[string]any{"$ref": "execution.process_scene_direct"}, "identity": map[string]any{"$ref": "std.workload_identity.scheduler"}, "authorization": map[string]any{"$ref": "std.authorization.scheduled"}, "pipeline": map[string]any{"$ref": "std.pipeline.empty"}, "input": map[string]any{"scene_id": "nightly"}},
 		}},
 	)
-	files, err := generateApplicationArtifacts(result)
+	files, err := generateApplicationArtifacts(result, newResourceIndex(result.Manifest.Resources))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -316,7 +316,7 @@ func generatedSourceWithSuffix(files []generatedFile, suffix string) string {
 func TestPackageABIExcludesRoutesAndIncludesReachableTypes(t *testing.T) {
 	result := nativeApplicationGenerationFixture(t.TempDir())
 	owned := moduleResources(result.Manifest.Resources, "house")
-	base, err := packageABIRevision("clean.tech/house", owned, result.Manifest.Resources)
+	base, err := packageABIRevision("clean.tech/house", owned, newResourceIndex(result.Manifest.Resources))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -325,7 +325,7 @@ func TestPackageABIExcludesRoutesAndIncludesReachableTypes(t *testing.T) {
 			result.Manifest.Resources[index].Spec["http"].(map[string]any)["path"] = "/different-route"
 		}
 	}
-	routeChanged, err := packageABIRevision("clean.tech/house", moduleResources(result.Manifest.Resources, "house"), result.Manifest.Resources)
+	routeChanged, err := packageABIRevision("clean.tech/house", moduleResources(result.Manifest.Resources, "house"), newResourceIndex(result.Manifest.Resources))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -337,7 +337,7 @@ func TestPackageABIExcludesRoutesAndIncludesReachableTypes(t *testing.T) {
 			result.Manifest.Resources[index].Spec["field"].(map[string]any)["type"] = map[string]any{"$ref": "int64"}
 		}
 	}
-	typeChanged, err := packageABIRevision("clean.tech/house", moduleResources(result.Manifest.Resources, "house"), result.Manifest.Resources)
+	typeChanged, err := packageABIRevision("clean.tech/house", moduleResources(result.Manifest.Resources, "house"), newResourceIndex(result.Manifest.Resources))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -354,11 +354,11 @@ func TestPackageABIAndGeneratedContractExcludeUnreachablePrivateTypes(t *testing
 	}
 	result.Manifest.Resources = append(result.Manifest.Resources, private)
 	owned := moduleResources(result.Manifest.Resources, "house")
-	baseABI, err := packageABIRevision("clean.tech/house", owned, result.Manifest.Resources)
+	baseABI, err := packageABIRevision("clean.tech/house", owned, newResourceIndex(result.Manifest.Resources))
 	if err != nil {
 		t.Fatal(err)
 	}
-	baseFiles, err := generateModuleContract(result, resourceByKind(result.Manifest.Resources, "scenery.module"))
+	baseFiles, err := generateModuleContract(result, newResourceIndex(result.Manifest.Resources), resourceByKind(result.Manifest.Resources, "scenery.module"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -368,11 +368,11 @@ func TestPackageABIAndGeneratedContractExcludeUnreachablePrivateTypes(t *testing
 			result.Manifest.Resources[index].Spec["field"].(map[string]any)["type"] = map[string]any{"$ref": "int64"}
 		}
 	}
-	changedABI, err := packageABIRevision("clean.tech/house", moduleResources(result.Manifest.Resources, "house"), result.Manifest.Resources)
+	changedABI, err := packageABIRevision("clean.tech/house", moduleResources(result.Manifest.Resources, "house"), newResourceIndex(result.Manifest.Resources))
 	if err != nil {
 		t.Fatal(err)
 	}
-	changedFiles, err := generateModuleContract(result, resourceByKind(result.Manifest.Resources, "scenery.module"))
+	changedFiles, err := generateModuleContract(result, newResourceIndex(result.Manifest.Resources), resourceByKind(result.Manifest.Resources, "scenery.module"))
 	if err != nil {
 		t.Fatal(err)
 	}
