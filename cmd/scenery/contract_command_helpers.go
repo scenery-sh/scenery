@@ -123,6 +123,10 @@ func writeContractResult(stdout io.Writer, output string, quiet bool, result *co
 	if !result.Valid() {
 		for _, diag := range result.Diagnostics {
 			if diag.Severity == "error" {
+				if location := contractDiagnosticLocation(result, diag); location != "" {
+					_, _ = fmt.Fprintf(stdout, "%s: %s: %s\n", location, diag.Code, diag.Message)
+					continue
+				}
 				_, _ = fmt.Fprintf(stdout, "%s: %s\n", diag.Code, diag.Message)
 			}
 		}
@@ -133,6 +137,37 @@ func writeContractResult(stdout io.Writer, output string, quiet bool, result *co
 	}
 	_, err := fmt.Fprintln(stdout, "scenery: contract ok", result.Manifest.ContractRevision)
 	return err
+}
+
+// contractDiagnosticLocation renders "file:line:column" (one-based, editor
+// clickable) for a diagnostic range by resolving its opaque source ID
+// through the compiler result's source map — the manifest's when compilation
+// reached one, the partial graph's on failure, and the loaded sources as the
+// last resort for pure parse failures. Machine JSON keeps the zero-based
+// range untouched; this is human output only.
+func contractDiagnosticLocation(result *compiler.Result, diag graph.Diagnostic) string {
+	if result == nil || diag.Range == nil || strings.TrimSpace(diag.Range.SourceID) == "" {
+		return ""
+	}
+	uri := ""
+	if result.Manifest != nil {
+		uri = result.Manifest.SourceMap[diag.Range.SourceID].URI
+	}
+	if uri == "" && result.PartialGraph != nil {
+		uri = result.PartialGraph.SourceMap[diag.Range.SourceID].URI
+	}
+	if uri == "" {
+		for _, source := range result.Sources {
+			if source != nil && source.ID == diag.Range.SourceID {
+				uri = source.Relative
+				break
+			}
+		}
+	}
+	if strings.TrimSpace(uri) == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s:%d:%d", uri, diag.Range.Start.Line+1, diag.Range.Start.Column+1)
 }
 
 func contractInvalidExitCode(result *compiler.Result) int {
