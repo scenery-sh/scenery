@@ -1,4 +1,4 @@
-package main
+package victoria
 
 import (
 	"bufio"
@@ -29,12 +29,13 @@ const (
 
 const victoriaDevEventQueryWindow = "30d"
 
-func (s *victoriaStack) ExportDevEvent(ctx context.Context, event devdash.DevEvent) error {
+// ExportDevEvent writes one dev event into VictoriaLogs.
+func (s *Stack) ExportDevEvent(ctx context.Context, event devdash.DevEvent) error {
 	baseURL := s.BaseURL("logs")
 	if baseURL == "" {
 		return errors.New("VictoriaLogs is unavailable")
 	}
-	body, err := json.Marshal(victoriaDevEventRecord(event))
+	body, err := json.Marshal(DevEventRecord(event))
 	if err != nil {
 		return err
 	}
@@ -48,7 +49,7 @@ func (s *victoriaStack) ExportDevEvent(ctx context.Context, event devdash.DevEve
 		return err
 	}
 	req.Header.Set("Content-Type", "application/stream+json")
-	resp, err := victoriaExportClient.Do(req)
+	resp, err := exportClient.Do(req)
 	if err != nil {
 		return err
 	}
@@ -59,7 +60,8 @@ func (s *victoriaStack) ExportDevEvent(ctx context.Context, event devdash.DevEve
 	return nil
 }
 
-func victoriaDevEventRecord(event devdash.DevEvent) map[string]any {
+// DevEventRecord maps a dev event to the VictoriaLogs jsonline row shape.
+func DevEventRecord(event devdash.DevEvent) map[string]any {
 	if event.CreatedAt.IsZero() {
 		event.CreatedAt = time.Now().UTC()
 	}
@@ -100,7 +102,8 @@ func victoriaDevEventRecord(event devdash.DevEvent) map[string]any {
 	}
 }
 
-func (s *victoriaStack) ListDevEvents(ctx context.Context, query devdash.DevEventQuery) ([]devdash.DevEvent, error) {
+// ListDevEvents queries dev events from VictoriaLogs.
+func (s *Stack) ListDevEvents(ctx context.Context, query devdash.DevEventQuery) ([]devdash.DevEvent, error) {
 	baseURL := s.BaseURL("logs")
 	if baseURL == "" {
 		return nil, errors.New("VictoriaLogs is unavailable")
@@ -135,7 +138,8 @@ func (s *victoriaStack) ListDevEvents(ctx context.Context, query devdash.DevEven
 	return items, nil
 }
 
-func (s *victoriaStack) ListDevSources(ctx context.Context, appID, sessionID string) ([]devdash.DevSource, error) {
+// ListDevSources aggregates the distinct dev event sources for an app session.
+func (s *Stack) ListDevSources(ctx context.Context, appID, sessionID string) ([]devdash.DevSource, error) {
 	items, err := s.ListDevEvents(ctx, devdash.DevEventQuery{
 		AppID:     appID,
 		SessionID: sessionID,
@@ -212,7 +216,7 @@ func queryVictoriaDevEvents(ctx context.Context, baseURL string, query devdash.D
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	resp, err := victoriaExportClient.Do(req)
+	resp, err := exportClient.Do(req)
 	if err != nil {
 		return nil, err
 	}

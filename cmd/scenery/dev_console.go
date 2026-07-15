@@ -15,6 +15,7 @@ import (
 	"scenery.sh/internal/devdash"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/termstyle"
+	"scenery.sh/internal/victoria"
 )
 
 const (
@@ -205,7 +206,7 @@ type devConsoleState struct {
 	sources   []devConsoleSource
 }
 
-func (s *devConsoleState) refresh(ctx context.Context, victoria *victoriaStack) error {
+func (s *devConsoleState) refresh(ctx context.Context, victoria *victoria.Stack) error {
 	query := logsDevEventQuery(s.opts, s.appID, s.sessionID)
 	query.Limit = maxInt(s.opts.Limit, devConsoleDefaultEvents)
 	if s.selected != "" && s.selected != "all" {
@@ -234,7 +235,7 @@ func (s *devConsoleState) refresh(ctx context.Context, victoria *victoriaStack) 
 	return nil
 }
 
-func (s *devConsoleState) refreshIfChanged(ctx context.Context, victoria *victoriaStack) (bool, error) {
+func (s *devConsoleState) refreshIfChanged(ctx context.Context, victoria *victoria.Stack) (bool, error) {
 	before := s.signature()
 	if err := s.refresh(ctx, victoria); err != nil {
 		return false, err

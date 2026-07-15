@@ -22,6 +22,7 @@ import (
 	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/devdash"
 	"scenery.sh/internal/envpolicy"
+	"scenery.sh/internal/victoria"
 )
 
 func writeTestAppFileIfChanged(t *testing.T, root, rel, contents string) {
@@ -421,7 +422,7 @@ func stringSliceContains(values []string, want string) bool {
 	return false
 }
 
-func installLogsVictoriaStack(t *testing.T, events ...devdash.DevEvent) *victoriaStack {
+func installLogsVictoriaStack(t *testing.T, events ...devdash.DevEvent) *victoria.Stack {
 	t.Helper()
 	for i := range events {
 		if events[i].ID == 0 {
@@ -433,7 +434,7 @@ func installLogsVictoriaStack(t *testing.T, events ...devdash.DevEvent) *victori
 			t.Fatalf("path = %s", r.URL.Path)
 		}
 		for _, event := range events {
-			data, err := json.Marshal(victoriaDevEventRecord(event))
+			data, err := json.Marshal(victoria.DevEventRecord(event))
 			if err != nil {
 				t.Fatalf("marshal event: %v", err)
 			}
@@ -441,9 +442,9 @@ func installLogsVictoriaStack(t *testing.T, events ...devdash.DevEvent) *victori
 		}
 	}))
 	t.Cleanup(server.Close)
-	stack := &victoriaStack{components: []*victoriaComponent{{spec: victoriaComponentSpec{Name: "logs"}, baseURL: server.URL}}}
+	stack := victoria.NewStack(victoria.ExternalComponent{Name: "logs", BaseURL: server.URL})
 	prev := resolveLogsVictoriaStackFunc
-	resolveLogsVictoriaStackFunc = func(ctx context.Context, allowDefault bool) *victoriaStack {
+	resolveLogsVictoriaStackFunc = func(ctx context.Context, allowDefault bool) *victoria.Stack {
 		return stack
 	}
 	t.Cleanup(func() {

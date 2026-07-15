@@ -1,4 +1,4 @@
-package main
+package victoria
 
 import (
 	"context"
@@ -23,8 +23,8 @@ func TestQueryTraceSummariesDefaultsToRecentWindow(t *testing.T) {
 	}))
 	defer server.Close()
 
-	stack := &victoriaStack{components: []*victoriaComponent{{
-		spec:    victoriaComponentSpec{Name: "traces"},
+	stack := &Stack{components: []*Component{{
+		spec:    ComponentSpec{Name: "traces"},
 		baseURL: server.URL,
 	}}}
 
@@ -39,7 +39,7 @@ func TestQueryTraceSummariesDefaultsToRecentWindow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse start: %v", err)
 	}
-	if time.Since(time.UnixMicro(startTime)) > victoriaDefaultTraceSince+time.Minute {
+	if time.Since(time.UnixMicro(startTime)) > defaultTraceSince+time.Minute {
 		t.Fatalf("start too old: %s", time.UnixMicro(startTime))
 	}
 }

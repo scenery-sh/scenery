@@ -1,10 +1,8 @@
-package main
+package victoria
 
 import (
 	"context"
 	"fmt"
-	"net"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -12,33 +10,12 @@ import (
 	"scenery.sh/internal/toolchain"
 )
 
-func freeLoopbackPort() (int, error) {
-	ln, err := netListen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return 0, err
-	}
-	defer ln.Close()
-	addr, ok := ln.Addr().(*net.TCPAddr)
-	if !ok {
-		return 0, fmt.Errorf("unexpected listener address %s", ln.Addr())
-	}
-	return addr.Port, nil
-}
-
-func isExecutableFile(path string) bool {
-	info, err := os.Stat(path)
-	if err != nil || info.IsDir() {
-		return false
-	}
-	return info.Mode()&0o111 != 0
-}
-
-func managedToolchainArtifactStatusInDir(storeDir, name string) (toolchain.ArtifactStatus, error) {
+func managedToolchainArtifactStatus(stateRoot, name string) (toolchain.ArtifactStatus, error) {
 	manifest, err := toolchain.LoadBundledManifest()
 	if err != nil {
 		return toolchain.ArtifactStatus{}, err
 	}
-	store, err := toolchain.NewStore(storeDir, manifest)
+	store, err := toolchain.NewStore(toolchainStoreDirForStateRoot(stateRoot), manifest)
 	if err != nil {
 		return toolchain.ArtifactStatus{}, err
 	}
@@ -46,12 +23,12 @@ func managedToolchainArtifactStatusInDir(storeDir, name string) (toolchain.Artif
 	return store.Path(context.Background(), name, toolchain.CurrentPlatform())
 }
 
-func syncManagedToolchainArtifactInDir(ctx context.Context, storeDir, name string) (toolchain.ArtifactStatus, error) {
+func syncManagedToolchainArtifact(ctx context.Context, stateRoot, name string) (toolchain.ArtifactStatus, error) {
 	manifest, err := toolchain.LoadBundledManifest()
 	if err != nil {
 		return toolchain.ArtifactStatus{}, err
 	}
-	store, err := toolchain.NewStore(storeDir, manifest)
+	store, err := toolchain.NewStore(toolchainStoreDirForStateRoot(stateRoot), manifest)
 	if err != nil {
 		return toolchain.ArtifactStatus{}, err
 	}

@@ -14,6 +14,7 @@ import (
 	localagent "scenery.sh/internal/agent"
 	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/devdash"
+	"scenery.sh/internal/victoria"
 )
 
 type agentDashboardRuntime struct {
@@ -25,7 +26,7 @@ type agentDashboardController struct {
 	store             *devdash.Store
 	agent             *localagent.Server
 	victoriaMu        sync.Mutex
-	victoria          *victoriaStack
+	victoria          *victoria.Stack
 	victoriaSubstrate string
 }
 
@@ -166,7 +167,7 @@ func (c *agentDashboardController) dashboardVictoria() dashboardVictoria {
 	if c.victoria != nil && c.victoriaSubstrate == key {
 		return c.victoria
 	}
-	c.victoria = victoriaStackFromSubstrate(substrate)
+	c.victoria = victoria.FromSubstrate(substrate)
 	c.victoriaSubstrate = key
 	return c.victoria
 }

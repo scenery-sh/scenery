@@ -1,4 +1,4 @@
-package main
+package victoria
 
 import (
 	"context"
@@ -15,12 +15,14 @@ import (
 	"scenery.sh/internal/devdash"
 )
 
+var exportClient = &http.Client{Timeout: time.Second}
+
 type victoriaJaegerResponse struct {
 	Data []victoriaJaegerTrace `json:"data"`
 }
 
 const victoriaJaegerMaxTraceLimit = 1000
-const victoriaDefaultTraceSince = 15 * time.Minute
+const defaultTraceSince = 15 * time.Minute
 
 type victoriaJaegerTrace struct {
 	TraceID   string                           `json:"traceID"`
@@ -62,14 +64,17 @@ type victoriaJaegerLog struct {
 	Fields    []victoriaJaegerTag `json:"fields"`
 }
 
-func defaultVictoriaQueryStack() *victoriaStack {
-	if !victoriaEnabled() {
+// DefaultQueryStack builds an external stack pointing at the default local
+// component ports for read-only queries. It returns nil when Victoria is
+// disabled.
+func DefaultQueryStack() *Stack {
+	if !Enabled() {
 		return nil
 	}
-	stack := &victoriaStack{}
-	for _, spec := range victoriaComponentSpecs() {
-		baseURL := fmt.Sprintf("http://%s:%d", victoriaDefaultHost, spec.DefaultPort)
-		stack.components = append(stack.components, &victoriaComponent{
+	stack := &Stack{}
+	for _, spec := range ComponentSpecs() {
+		baseURL := fmt.Sprintf("http://%s:%d", defaultHost, spec.DefaultPort)
+		stack.components = append(stack.components, &Component{
 			spec:        spec,
 			baseURL:     baseURL,
 			endpointURL: baseURL + spec.EndpointPath,
@@ -79,7 +84,8 @@ func defaultVictoriaQueryStack() *victoriaStack {
 	return stack
 }
 
-func (s *victoriaStack) QueryTraceSummaries(ctx context.Context, query devdash.TraceQuery) ([]*devdash.TraceSummary, error) {
+// QueryTraceSummaries lists trace summaries from VictoriaTraces.
+func (s *Stack) QueryTraceSummaries(ctx context.Context, query devdash.TraceQuery) ([]*devdash.TraceSummary, error) {
 	baseURL := s.BaseURL("traces")
 	if baseURL == "" {
 		return nil, errors.New("VictoriaTraces is unavailable")
@@ -92,7 +98,7 @@ func (s *victoriaStack) QueryTraceSummaries(ctx context.Context, query devdash.T
 	}
 	fetchQuery := query
 	if fetchQuery.Since.IsZero() && fetchQuery.TraceID == "" {
-		fetchQuery.Since = time.Now().UTC().Add(-victoriaDefaultTraceSince)
+		fetchQuery.Since = time.Now().UTC().Add(-defaultTraceSince)
 	}
 	traces, err := queryVictoriaJaegerTraces(ctx, baseURL, fetchQuery)
 	if err != nil {
@@ -112,7 +118,8 @@ func (s *victoriaStack) QueryTraceSummaries(ctx context.Context, query devdash.T
 	return items, nil
 }
 
-func (s *victoriaStack) GetTraceSummaries(ctx context.Context, appID, traceID string) ([]*devdash.TraceSummary, error) {
+// GetTraceSummaries fetches every span summary for one trace.
+func (s *Stack) GetTraceSummaries(ctx context.Context, appID, traceID string) ([]*devdash.TraceSummary, error) {
 	baseURL := s.BaseURL("traces")
 	if baseURL == "" {
 		return nil, errors.New("VictoriaTraces is unavailable")
@@ -131,7 +138,8 @@ func (s *victoriaStack) GetTraceSummaries(ctx context.Context, appID, traceID st
 	return items, nil
 }
 
-func (s *victoriaStack) BaseURL(name string) string {
+// BaseURL returns the base URL for the named component.
+func (s *Stack) BaseURL(name string) string {
 	if s == nil {
 		return ""
 	}
@@ -188,7 +196,7 @@ func fetchVictoriaJaeger(ctx context.Context, endpoint string) ([]victoriaJaeger
 	if err != nil {
 		return nil, err
 	}
-	resp, err := victoriaExportClient.Do(req)
+	resp, err := exportClient.Do(req)
 	if err != nil {
 		return nil, err
 	}

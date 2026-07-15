@@ -29,7 +29,9 @@ import (
 	"scenery.sh/internal/devdash"
 	"scenery.sh/internal/envfile"
 	"scenery.sh/internal/envpolicy"
+	"scenery.sh/internal/netprobe"
 	"scenery.sh/internal/postgresname"
+	"scenery.sh/internal/victoria"
 )
 
 type runningApp struct {
@@ -52,7 +54,7 @@ type devSupervisor struct {
 	store        *devdash.Store
 	storeWriter  dashboardControlPlaneWriter
 	dashboard    *dashboardServer
-	victoria     *victoriaStack
+	victoria     *victoria.Stack
 	storageProxy *managedStorageProxy
 	reportToken  string
 	console      *runConsole
@@ -297,26 +299,26 @@ func (s *devSupervisor) startDevServiceStartup(ctx context.Context) <-chan error
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			var victoria *victoriaStack
+			var victoriaStack *victoria.Stack
 			_ = s.console.Phase("Starting Victoria observability stack", func() error {
-				victoria = s.startVictoriaStack(ctx)
+				victoriaStack = s.startVictoriaStack(ctx)
 				return nil
 			})
 			s.mu.Lock()
-			s.victoria = victoria
+			s.victoria = victoriaStack
 			s.victoriaStarted = true
 			pendingDevEvents := append([]devdash.DevEvent(nil), s.pendingDevEvents...)
 			s.pendingDevEvents = nil
 			s.mu.Unlock()
-			if s.agent != nil && victoriaEnabled() {
+			if s.agent != nil && victoria.Enabled() {
 				s.startVictoriaRecoveryMonitor()
 			}
-			if victoria != nil {
+			if victoriaStack != nil {
 				for _, event := range pendingDevEvents {
 					s.eventSink().ExportVictoriaDevEvent(event)
 				}
 				s.eventSink().Emit(ctx, devdash.DevSource{ID: "victoria", Kind: "substrate", Name: "victoria", Role: "observability", Status: "running"}, "info", "Victoria stack ready", map[string]any{
-					"urls": victoria.URLs(),
+					"urls": victoriaStack.URLs(),
 				})
 			}
 		}()
@@ -383,18 +385,18 @@ func joinStartupReady(left, right <-chan error) <-chan error {
 	return done
 }
 
-func (s *devSupervisor) startVictoriaStack(ctx context.Context) *victoriaStack {
+func (s *devSupervisor) startVictoriaStack(ctx context.Context) *victoria.Stack {
 	if s == nil || s.agent == nil {
-		return startVictoriaStack(s.ctx, s.root, s.console)
+		return victoria.Start(s.ctx, s.root, victoriaConsole(s.console))
 	}
 	paths, err := localagent.DefaultPaths()
 	if err != nil {
-		warnVictoria(s.console, "agent Victoria state path unavailable: %v", err)
-		return startVictoriaStack(s.ctx, s.root, s.console)
+		victoria.Warn(victoriaConsole(s.console), "agent Victoria state path unavailable: %v", err)
+		return victoria.Start(s.ctx, s.root, victoriaConsole(s.console))
 	}
 	stack, reused, err := s.ensureSharedVictoriaStack(ctx, filepath.Join(paths.AgentDir, "victoria"))
 	if err != nil {
-		warnVictoria(s.console, "failed to prepare shared Victoria substrate with agent: %v", err)
+		victoria.Warn(victoriaConsole(s.console), "failed to prepare shared Victoria substrate with agent: %v", err)
 		return stack
 	}
 	if stack == nil {
@@ -1032,16 +1034,7 @@ func backendAvailableBeforeStartup(backend devBackend) error {
 }
 
 func tcpAddrAcceptsConnections(addr string) bool {
-	target := addr
-	if host, port, err := net.SplitHostPort(addr); err == nil && host == "" {
-		target = net.JoinHostPort("127.0.0.1", port)
-	}
-	conn, err := net.DialTimeout("tcp", target, 100*time.Millisecond)
-	if err != nil {
-		return false
-	}
-	_ = conn.Close()
-	return true
+	return netprobe.DialReachable(addr, 100*time.Millisecond)
 }
 
 func (s *devSupervisor) processOutputWriter(dst io.Writer) io.Writer {
@@ -1844,9 +1837,5 @@ func copySessionProcesses(values map[string]localagent.Process) map[string]local
 }
 
 func portAvailable(addr string) error {
-	ln, err := net.Listen("tcp", addr)
-	if err != nil {
-		return err
-	}
-	return ln.Close()
+	return netprobe.BindFree(addr)
 }

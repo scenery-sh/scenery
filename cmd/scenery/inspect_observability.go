@@ -13,6 +13,7 @@ import (
 	"scenery.sh/internal/devdash"
 	inspectdata "scenery.sh/internal/inspect"
 	obs "scenery.sh/internal/observability"
+	"scenery.sh/internal/victoria"
 )
 
 const (
@@ -273,7 +274,7 @@ func inspectTraceQuery(appID string, opts inspectTraceQueryOptions) devdash.Trac
 }
 
 func queryVictoriaTraceSummaries(ctx context.Context, query devdash.TraceQuery) ([]*devdash.TraceSummary, string, error) {
-	stack := defaultVictoriaQueryStack()
+	stack := victoria.DefaultQueryStack()
 	if stack == nil {
 		return nil, "VictoriaTraces is unavailable", nil
 	}
@@ -285,7 +286,7 @@ func queryVictoriaTraceSummaries(ctx context.Context, query devdash.TraceQuery) 
 }
 
 func queryVictoriaLogCounts(ctx context.Context, appID, sessionID string, since time.Duration) ([]devdash.LogLevelCount, string, error) {
-	stack := defaultVictoriaQueryStack()
+	stack := victoria.DefaultQueryStack()
 	if stack == nil || stack.BaseURL("logs") == "" {
 		return nil, "VictoriaLogs is unavailable", nil
 	}

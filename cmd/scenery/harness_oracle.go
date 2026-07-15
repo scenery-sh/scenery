@@ -497,7 +497,7 @@ func harnessDevEventReadPath(path string) bool {
 		"cmd/scenery/logs_test.go",
 		"cmd/scenery/dev_console.go",
 		"cmd/scenery/dev_console_test.go",
-		"cmd/scenery/victoria_dev_logs.go",
+		"internal/victoria/devlogs.go",
 		"internal/devdash/dev_events.go",
 		"internal/devdash/store.go",
 		"internal/devdash/store_test.go":

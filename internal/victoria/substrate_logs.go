@@ -1,4 +1,4 @@
-package main
+package victoria
 
 import (
 	"errors"
@@ -20,7 +20,7 @@ type substrateLogWriters struct {
 	close      func() error
 }
 
-func openSubstrateLogWriters(root, kind, component string, console *runConsole) (substrateLogWriters, error) {
+func openSubstrateLogWriters(root, kind, component string, console Console) (substrateLogWriters, error) {
 	dir := substrateLogDir(root, kind)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return substrateLogWriters{}, err
@@ -39,7 +39,7 @@ func openSubstrateLogWriters(root, kind, component string, console *runConsole) 
 	}
 	stdout := io.Writer(stdoutFile)
 	stderr := io.Writer(stderrFile)
-	if console != nil && console.verbose {
+	if console != nil && console.Verbose() {
 		stdout = io.MultiWriter(stdoutFile, os.Stdout)
 		stderr = io.MultiWriter(stderrFile, os.Stderr)
 	}

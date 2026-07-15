@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"scenery.sh/internal/devdash"
+	"scenery.sh/internal/victoria"
 )
 
 func TestDashboardServesUIAssetsFromOverrideDir(t *testing.T) {
@@ -285,7 +286,7 @@ func TestDashboardLogsListRPCUsesVictoriaLogs(t *testing.T) {
 	defer logsServer.Close()
 
 	server := newTestDashboardServer(t)
-	server.supervisor.victoria = &victoriaStack{components: []*victoriaComponent{{spec: victoriaComponentSpec{Name: "logs"}, baseURL: logsServer.URL}}}
+	server.supervisor.victoria = victoria.NewStack(victoria.ExternalComponent{Name: "logs", BaseURL: logsServer.URL})
 	if err := server.supervisor.store.UpsertApp(context.Background(), devdash.AppRecord{
 		ID:        "app-test",
 		BaseAppID: "app-test",

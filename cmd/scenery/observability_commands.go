@@ -6,6 +6,8 @@ import (
 	"io"
 	"os"
 	"time"
+
+	"scenery.sh/internal/victoria"
 )
 
 func tracesCommand(args []string) error {
@@ -97,7 +99,7 @@ func runTracesClear(ctx context.Context, stdout io.Writer, args []string) error 
 		return err
 	}
 	appID := cfg.AppID()
-	if stack := defaultVictoriaQueryStack(); stack != nil {
+	if stack := victoria.DefaultQueryStack(); stack != nil {
 		stack.MarkCleared(appID, time.Now().UTC())
 	}
 	resp := adminResponse{

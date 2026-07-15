@@ -13,6 +13,7 @@ import (
 	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/devdash"
+	"scenery.sh/internal/victoria"
 )
 
 type logsOptions struct {
@@ -237,7 +238,7 @@ func parseLogsArgs(args []string) (logsOptions, error) {
 
 var resolveLogsVictoriaStackFunc = resolveLogsVictoriaStack
 
-func logsVictoriaStack(ctx context.Context) (*victoriaStack, error) {
+func logsVictoriaStack(ctx context.Context) (*victoria.Stack, error) {
 	victoria := resolveLogsVictoriaStackFunc(ctx, true)
 	if victoria == nil {
 		return nil, fmt.Errorf("VictoriaLogs is unavailable")
@@ -245,18 +246,18 @@ func logsVictoriaStack(ctx context.Context) (*victoriaStack, error) {
 	return victoria, nil
 }
 
-func resolveLogsVictoriaStack(ctx context.Context, allowDefault bool) *victoriaStack {
+func resolveLogsVictoriaStack(ctx context.Context, allowDefault bool) *victoria.Stack {
 	agentCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 	if client, err := localagent.DefaultClient(); err == nil {
 		if substrate, err := client.GetSubstrate(agentCtx, localagent.SubstrateVictoria); err == nil {
-			if stack := victoriaStackFromSubstrate(substrate); stack != nil {
+			if stack := victoria.FromSubstrate(substrate); stack != nil {
 				return stack
 			}
 		}
 	}
 	if allowDefault {
-		return defaultVictoriaQueryStack()
+		return victoria.DefaultQueryStack()
 	}
 	return nil
 }
@@ -289,7 +290,7 @@ func resolveLogsSessionID(ctx context.Context, value, appRoot string) (string, e
 	return sessions[0].SessionID, nil
 }
 
-func followVictoriaDevEvents(ctx context.Context, stdout io.Writer, victoria *victoriaStack, appID, appRoot, sessionID string, opts logsOptions, items []devdash.DevEvent) error {
+func followVictoriaDevEvents(ctx context.Context, stdout io.Writer, victoria *victoria.Stack, appID, appRoot, sessionID string, opts logsOptions, items []devdash.DevEvent) error {
 	lastID := int64(0)
 	eventCount := 0
 	var events *cliEventWriter
