@@ -45,7 +45,7 @@ type Server struct {
 	identity             Identity
 	tlsCA                localproxy.LocalCA
 	tlsCerts             sync.Map
-	unixTransports       sync.Map // socket path -> *http.Transport, reused across requests
+	unixTransports       UnixTransportCache
 	control              *http.Server
 	router               *http.Server
 	controlLn            net.Listener
@@ -560,6 +560,16 @@ func (s *Server) handleSession(w http.ResponseWriter, req *http.Request) {
 		if !ok && session.SessionID == "" {
 			http.NotFound(w, req)
 			return
+		}
+		if ok {
+			// The session's unix sockets die with it; drop their cached
+			// transports so the cache stays bounded across sessions and no idle
+			// connection lingers to a socket path that will not come back.
+			for _, backend := range session.Backends {
+				if backend.Network == "unix" {
+					s.unixTransports.Evict(backend.Addr)
+				}
+			}
 		}
 		if ok && req.URL.Query().Get("signal") == "1" && (session.OwnerPID > 0 || session.Owner.PID > 0) {
 			owner, err := ownerForSignal(session.OwnerPID, session.Owner)

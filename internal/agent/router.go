@@ -2,7 +2,6 @@ package agent
 
 import (
 	"bytes"
-	"context"
 	"errors"
 	"fmt"
 	"html"
@@ -17,7 +16,6 @@ import (
 	"sort"
 	"strings"
 	"syscall"
-	"time"
 
 	"scenery.sh/internal/machine"
 	"scenery.sh/internal/spec"
@@ -365,30 +363,13 @@ func (s *Server) proxyBackend(w http.ResponseWriter, req *http.Request, backend 
 }
 
 // transportForBackend returns a shared RoundTripper for the backend. Unix-socket
-// backends get one cached transport per socket path: allocating a fresh
-// transport per request leaks its idle connections, their read/write
-// goroutines, and a file descriptor every time, because nothing ever closes the
-// abandoned transport's kept-alive connections.
+// backends get one cached transport per socket path (see UnixTransportCache);
+// TCP backends share the default transport.
 func (s *Server) transportForBackend(backend Backend) http.RoundTripper {
 	if backend.Network != "unix" {
 		return http.DefaultTransport
 	}
-	if cached, ok := s.unixTransports.Load(backend.Addr); ok {
-		return cached.(*http.Transport)
-	}
-	addr := backend.Addr
-	transport := &http.Transport{
-		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			var d net.Dialer
-			return d.DialContext(ctx, "unix", addr)
-		},
-		MaxIdleConns:          32,
-		MaxIdleConnsPerHost:   8,
-		IdleConnTimeout:       90 * time.Second,
-		ExpectContinueTimeout: time.Second,
-	}
-	actual, _ := s.unixTransports.LoadOrStore(addr, transport)
-	return actual.(*http.Transport)
+	return s.unixTransports.For(backend.Addr)
 }
 
 func (s *Server) proxyBackendWithOptions(w http.ResponseWriter, req *http.Request, backend Backend, opts proxyBackendOptions) {
@@ -482,7 +463,14 @@ func isBackendUnavailableError(err error) bool {
 	if opErr, ok := errors.AsType[*net.OpError](err); ok && opErr.Op == "dial" {
 		return true
 	}
-	return errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.ENOENT)
+	// A reused keep-alive connection to a backend that just restarted on the
+	// same socket path fails mid-request with these rather than a dial error;
+	// treat them as "backend briefly unavailable, retry shortly" too.
+	return errors.Is(err, syscall.ECONNREFUSED) ||
+		errors.Is(err, syscall.ENOENT) ||
+		errors.Is(err, syscall.ECONNRESET) ||
+		errors.Is(err, syscall.EPIPE) ||
+		errors.Is(err, io.EOF)
 }
 
 func isFrontendSessionBackend(kind string) bool {

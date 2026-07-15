@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	localagent "scenery.sh/internal/agent"
@@ -298,16 +299,23 @@ func configureQuietLocalProxy(proxy *httputil.ReverseProxy, label string) {
 			return
 		}
 		localProxyFailureLog.report(os.Stderr, label, "proxy request failed", err)
-		if isLocalDialError(err) {
+		if isLocalBackendUnavailable(err) {
 			w.Header().Set("Retry-After", "1")
 		}
 		http.Error(w, "scenery: "+label+" is unavailable", http.StatusBadGateway)
 	}
 }
 
-func isLocalDialError(err error) bool {
-	opErr, ok := errors.AsType[*net.OpError](err)
-	return ok && opErr.Op == "dial"
+// isLocalBackendUnavailable matches a backend that is briefly gone: a fresh dial
+// failure, or a reused keep-alive connection that broke because the backend
+// restarted on the same socket path (ECONNRESET/EPIPE/EOF).
+func isLocalBackendUnavailable(err error) bool {
+	if opErr, ok := errors.AsType[*net.OpError](err); ok && opErr.Op == "dial" {
+		return true
+	}
+	return errors.Is(err, syscall.ECONNRESET) ||
+		errors.Is(err, syscall.EPIPE) ||
+		errors.Is(err, io.EOF)
 }
 
 // localRequestRetryable limits dial retries to requests whose body is
@@ -332,7 +340,7 @@ func newLocalDialRetryHandler(build func(localagent.Backend) *httputil.ReversePr
 			quietErrorHandler := proxy.ErrorHandler
 			retry := false
 			proxy.ErrorHandler = func(pw http.ResponseWriter, preq *http.Request, err error) {
-				if isLocalDialError(err) && localRequestRetryable(req) && time.Now().Before(deadline) && preq.Context().Err() == nil {
+				if isLocalBackendUnavailable(err) && localRequestRetryable(req) && time.Now().Before(deadline) && preq.Context().Err() == nil {
 					retry = true
 					return
 				}
@@ -620,40 +628,20 @@ func localPathRouterRouteForSession(manifest localagent.RouteManifest, requestPa
 	return best, true
 }
 
-// localUnixTransports caches one *http.Transport per unix socket path. The
-// router builds a fresh ReverseProxy per request, but the transport underneath
-// must be reused: a per-request transport leaks its idle connections, their
-// read/write goroutines, and a file descriptor every time, since nothing closes
-// the abandoned transport's kept-alive connections.
-var localUnixTransports sync.Map
+// localUnixTransports reuses one transport per unix socket path across the
+// router's per-request proxies. This process is scoped to one `scenery up`
+// session, so its handful of socket paths never need eviction.
+var localUnixTransports localagent.UnixTransportCache
 
 func reverseProxyForLocalBackend(backend localagent.Backend) *httputil.ReverseProxy {
 	target := &url.URL{Scheme: "http", Host: backend.Addr}
 	if strings.TrimSpace(backend.Network) == "unix" {
 		target.Host = "unix"
 		proxy := httputil.NewSingleHostReverseProxy(target)
-		proxy.Transport = localUnixTransport(backend.Addr)
+		proxy.Transport = localUnixTransports.For(backend.Addr)
 		return proxy
 	}
 	return httputil.NewSingleHostReverseProxy(target)
-}
-
-func localUnixTransport(addr string) *http.Transport {
-	if cached, ok := localUnixTransports.Load(addr); ok {
-		return cached.(*http.Transport)
-	}
-	transport := &http.Transport{
-		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			var d net.Dialer
-			return d.DialContext(ctx, "unix", addr)
-		},
-		MaxIdleConns:          32,
-		MaxIdleConnsPerHost:   8,
-		IdleConnTimeout:       90 * time.Second,
-		ExpectContinueTimeout: time.Second,
-	}
-	actual, _ := localUnixTransports.LoadOrStore(addr, transport)
-	return actual.(*http.Transport)
 }
 
 func cleanLocalPath(value string) string {

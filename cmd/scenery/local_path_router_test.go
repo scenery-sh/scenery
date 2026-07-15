@@ -1,8 +1,12 @@
 package main
 
 import (
+	"errors"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"syscall"
 	"testing"
 
 	localagent "scenery.sh/internal/agent"
@@ -256,5 +260,24 @@ func TestReverseProxyForLocalBackendReusesUnixTransport(t *testing.T) {
 	// A TCP backend leaves the default transport in place (proxy.Transport nil).
 	if tcp := reverseProxyForLocalBackend(localagent.Backend{Network: "tcp", Addr: "127.0.0.1:4000"}); tcp.Transport != nil {
 		t.Fatal("tcp backend should not install a custom transport")
+	}
+}
+
+func TestIsLocalBackendUnavailableMatchesReusedDeadConn(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"dial", &net.OpError{Op: "dial", Err: syscall.ECONNREFUSED}, true},
+		{"reset reused conn", &net.OpError{Op: "read", Err: syscall.ECONNRESET}, true},
+		{"broken pipe", &net.OpError{Op: "write", Err: syscall.EPIPE}, true},
+		{"eof", io.EOF, true},
+		{"unrelated read", &net.OpError{Op: "read", Err: errors.New("boom")}, false},
+	}
+	for _, tc := range cases {
+		if got := isLocalBackendUnavailable(tc.err); got != tc.want {
+			t.Errorf("%s: isLocalBackendUnavailable = %v, want %v", tc.name, got, tc.want)
+		}
 	}
 }
