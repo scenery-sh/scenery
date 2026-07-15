@@ -416,7 +416,12 @@ func (s *Server) proxyBackendWithOptions(w http.ResponseWriter, req *http.Reques
 				fallbackReq.URL.RawQuery = ""
 				fallbackResp, err := transport.RoundTrip(fallbackReq)
 				if err != nil {
-					return nil
+					// Surface the failure so ErrorHandler can classify it: a
+					// backend restarting between the original request and the
+					// SPA fallback must answer 503/Retry-After, not the stale
+					// 404. ReverseProxy closes resp.Body on a ModifyResponse
+					// error before invoking ErrorHandler.
+					return err
 				}
 				_ = resp.Body.Close()
 				resp.StatusCode = fallbackResp.StatusCode
@@ -451,7 +456,10 @@ func (s *Server) proxyBackendWithOptions(w http.ResponseWriter, req *http.Reques
 			http.Error(w, "backend restarting, retry shortly", http.StatusServiceUnavailable)
 			return
 		}
-		http.Error(w, err.Error(), http.StatusBadGateway)
+		// Never echo the upstream error to the client: it can carry unix
+		// socket paths and internal addresses, and routed hosts may be
+		// internet-reachable through the managed edge.
+		http.Error(w, "scenery: backend request failed", http.StatusBadGateway)
 	}
 	proxy.ServeHTTP(w, req)
 }

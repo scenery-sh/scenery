@@ -310,18 +310,37 @@ func configureQuietLocalProxy(proxy *httputil.ReverseProxy, label string) {
 // failure, or a reused keep-alive connection that broke because the backend
 // restarted on the same socket path (ECONNRESET/EPIPE/EOF).
 func isLocalBackendUnavailable(err error) bool {
-	if opErr, ok := errors.AsType[*net.OpError](err); ok && opErr.Op == "dial" {
-		return true
-	}
-	return errors.Is(err, syscall.ECONNRESET) ||
+	return isLocalDialFailure(err) ||
+		errors.Is(err, syscall.ECONNRESET) ||
 		errors.Is(err, syscall.EPIPE) ||
 		errors.Is(err, io.EOF)
 }
 
-// localRequestRetryable limits dial retries to requests whose body is
-// guaranteed empty, so a retry never replays a partially consumed body.
-func localRequestRetryable(req *http.Request) bool {
-	return req.ContentLength == 0 && len(req.TransferEncoding) == 0
+// isLocalDialFailure matches a failure that happened before any bytes reached
+// the backend, so retrying can never replay a delivered request.
+func isLocalDialFailure(err error) bool {
+	opErr, ok := errors.AsType[*net.OpError](err)
+	return ok && opErr.Op == "dial"
+}
+
+// localRequestRetryable limits retries to requests whose body is guaranteed
+// empty, so a retry never replays a partially consumed body. A dial failure
+// provably never reached the backend, so any bodyless request may retry.
+// Reset/EPIPE/EOF on a reused connection are ambiguous — the backend may have
+// processed the request before the connection died — so only safe methods
+// retry; a bodyless mutation must surface the failure rather than run twice.
+func localRequestRetryable(req *http.Request, err error) bool {
+	if req.ContentLength != 0 || len(req.TransferEncoding) != 0 {
+		return false
+	}
+	if isLocalDialFailure(err) {
+		return true
+	}
+	switch req.Method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions, http.MethodTrace:
+		return true
+	}
+	return false
 }
 
 // newLocalDialRetryHandler retries backend dial failures for a bounded window
@@ -340,7 +359,7 @@ func newLocalDialRetryHandler(build func(localagent.Backend) *httputil.ReversePr
 			quietErrorHandler := proxy.ErrorHandler
 			retry := false
 			proxy.ErrorHandler = func(pw http.ResponseWriter, preq *http.Request, err error) {
-				if isLocalBackendUnavailable(err) && localRequestRetryable(req) && time.Now().Before(deadline) && preq.Context().Err() == nil {
+				if isLocalBackendUnavailable(err) && localRequestRetryable(req, err) && time.Now().Before(deadline) && preq.Context().Err() == nil {
 					retry = true
 					return
 				}

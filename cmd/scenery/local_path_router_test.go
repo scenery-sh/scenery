@@ -6,6 +6,9 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httputil"
+	"net/url"
+	"sync/atomic"
 	"syscall"
 	"testing"
 
@@ -260,6 +263,110 @@ func TestReverseProxyForLocalBackendReusesUnixTransport(t *testing.T) {
 	// A TCP backend leaves the default transport in place (proxy.Transport nil).
 	if tcp := reverseProxyForLocalBackend(localagent.Backend{Network: "tcp", Addr: "127.0.0.1:4000"}); tcp.Transport != nil {
 		t.Fatal("tcp backend should not install a custom transport")
+	}
+}
+
+func TestLocalRequestRetryablePolicy(t *testing.T) {
+	t.Parallel()
+
+	dialErr := &net.OpError{Op: "dial", Err: syscall.ECONNREFUSED}
+	resetErr := &net.OpError{Op: "read", Err: syscall.ECONNRESET}
+	body := func(req *http.Request) *http.Request {
+		req.ContentLength = 5
+		return req
+	}
+	cases := []struct {
+		name string
+		req  *http.Request
+		err  error
+		want bool
+	}{
+		{"GET after reset", httptest.NewRequest(http.MethodGet, "/", nil), resetErr, true},
+		{"HEAD after eof", httptest.NewRequest(http.MethodHead, "/", nil), io.EOF, true},
+		{"POST after reset", httptest.NewRequest(http.MethodPost, "/", nil), resetErr, false},
+		{"DELETE after eof", httptest.NewRequest(http.MethodDelete, "/", nil), io.EOF, false},
+		{"PUT after reset", httptest.NewRequest(http.MethodPut, "/", nil), resetErr, false},
+		{"POST after dial failure", httptest.NewRequest(http.MethodPost, "/", nil), dialErr, true},
+		{"DELETE after dial failure", httptest.NewRequest(http.MethodDelete, "/", nil), dialErr, true},
+		{"GET with body after dial failure", body(httptest.NewRequest(http.MethodGet, "/", nil)), dialErr, false},
+		{"POST with body after dial failure", body(httptest.NewRequest(http.MethodPost, "/", nil)), dialErr, false},
+	}
+	for _, tc := range cases {
+		if got := localRequestRetryable(tc.req, tc.err); got != tc.want {
+			t.Errorf("%s: localRequestRetryable = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+// countingCloseOnceBackend serves a real listener whose first request is
+// consumed and then dropped without a response — the exact failure a
+// supervised backend restart produces on an established connection.
+func countingCloseOnceBackend(t *testing.T, count *int32) *httptest.Server {
+	t.Helper()
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if atomic.AddInt32(count, 1) == 1 {
+			conn, _, err := w.(http.Hijacker).Hijack()
+			if err != nil {
+				t.Errorf("hijack: %v", err)
+				return
+			}
+			_ = conn.Close()
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(backend.Close)
+	return backend
+}
+
+func newRetryHandlerForBackend(t *testing.T, backend *httptest.Server) http.Handler {
+	t.Helper()
+	target, err := url.Parse(backend.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return newLocalDialRetryHandler(func(localagent.Backend) *httputil.ReverseProxy {
+		// A fresh transport per attempt so keep-alive pooling never masks the
+		// mid-request failure with net/http's own idempotent retry.
+		proxy := httputil.NewSingleHostReverseProxy(target)
+		proxy.Transport = &http.Transport{}
+		return proxy
+	}, nil)
+}
+
+func TestLocalDialRetryHandlerNeverReplaysMutationAfterMidRequestFailure(t *testing.T) {
+	t.Parallel()
+
+	var count int32
+	backend := countingCloseOnceBackend(t, &count)
+	handler := newRetryHandlerForBackend(t, backend)
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/mutate", nil))
+
+	if got := atomic.LoadInt32(&count); got != 1 {
+		t.Fatalf("backend received %d requests, want exactly 1: a mid-request failure must never replay a mutation", got)
+	}
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadGateway)
+	}
+}
+
+func TestLocalDialRetryHandlerRetriesSafeMethodAfterMidRequestFailure(t *testing.T) {
+	t.Parallel()
+
+	var count int32
+	backend := countingCloseOnceBackend(t, &count)
+	handler := newRetryHandlerForBackend(t, backend)
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/page", nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if got := atomic.LoadInt32(&count); got != 2 {
+		t.Fatalf("backend received %d requests, want 2 (one failed, one retried)", got)
 	}
 }
 
