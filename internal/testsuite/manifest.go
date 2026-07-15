@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strings"
 
+	"scenery.sh/internal/atomicfile"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/machine"
 )
@@ -196,25 +197,5 @@ func pruneUnreferencedBinaries(cacheDir string, packages []testPackage) {
 }
 
 func writeAtomic(path string, data []byte, mode os.FileMode) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	temp, err := os.CreateTemp(filepath.Dir(path), ".testsuite-*.tmp")
-	if err != nil {
-		return err
-	}
-	tempPath := temp.Name()
-	defer os.Remove(tempPath)
-	if _, err := temp.Write(data); err != nil {
-		_ = temp.Close()
-		return err
-	}
-	if err := temp.Chmod(mode); err != nil {
-		_ = temp.Close()
-		return err
-	}
-	if err := temp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tempPath, path)
+	return atomicfile.Write(path, data, mode, atomicfile.Options{})
 }

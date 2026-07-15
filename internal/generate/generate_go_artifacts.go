@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"scenery.sh/internal/atomicfile"
 )
 
 func optionalJSONSuffix(value any) string {
@@ -39,18 +41,7 @@ func goName(value string) string {
 	return b.String()
 }
 func atomicWrite(path string, data []byte) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-		return err
-	}
-	return nil
+	return atomicfile.Write(path, data, 0o644, atomicfile.Options{})
 }
 
 func atomicWriteSet(root string, files []generatedFile) error {

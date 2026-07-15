@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"scenery.sh/internal/atomicfile"
 	"scenery.sh/internal/graph"
 	"scenery.sh/internal/scn"
 )
@@ -129,20 +130,7 @@ func confinedPath(root, relative string) (string, error) {
 }
 
 func atomicWriteSynced(path string, data []byte, mode os.FileMode) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	temporary := path + ".tmp"
-	_ = os.Remove(temporary)
-	if err := writeSyncedFile(temporary, data, mode); err != nil {
-		_ = os.Remove(temporary)
-		return err
-	}
-	if err := os.Rename(temporary, path); err != nil {
-		_ = os.Remove(temporary)
-		return err
-	}
-	return syncDirectory(filepath.Dir(path))
+	return atomicfile.Write(path, data, mode, atomicfile.Options{SyncFile: true, SyncDir: true})
 }
 
 func writeSyncedFile(path string, data []byte, mode os.FileMode) error {
