@@ -17,6 +17,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"scenery.sh/internal/atomicfile"
 )
 
 type Store struct {
@@ -230,6 +232,14 @@ func (s *Store) withState(ctx context.Context, write bool, fn func(*storeState) 
 	return s.withStatePersist(ctx, write, true, fn)
 }
 
+// withStateDeferred applies a write mutation now but coalesces persistence
+// into the deferred save path, so high-frequency appenders do not rewrite the
+// whole store file under the shared lock on every call. Deferred mutations
+// must stay safe to replay onto a freshly loaded state snapshot.
+func (s *Store) withStateDeferred(ctx context.Context, fn storeMutation) error {
+	return s.withStatePersist(ctx, true, false, fn)
+}
+
 func (s *Store) withStatePersist(ctx context.Context, write bool, immediate bool, fn storeMutation) error {
 	if s == nil || s.path == "" || s.shared == nil {
 		return errors.New("devdash store is nil")
@@ -358,33 +368,7 @@ func (s *Store) saveState(state *storeState) error {
 			return fmt.Errorf("devdash store exceeds hard budget: %d > %d (%s)", len(data), hardStoreFileBytes, formatStoreSizeBreakdown(state))
 		}
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(s.path), ".devdash-*.json")
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-	ok := false
-	defer func() {
-		if !ok {
-			_ = os.Remove(tmpName)
-		}
-	}()
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if _, err := tmp.Write([]byte("\n")); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(tmpName, s.path); err != nil {
-		return err
-	}
-	ok = true
-	return nil
+	return atomicfile.Write(s.path, append(data, '\n'), 0o600, atomicfile.Options{})
 }
 
 func (s *Store) scheduleSaveLocked() {
@@ -1002,7 +986,7 @@ func (s *Store) WriteProcessEvent(ctx context.Context, appID, kind string, paylo
 			return err
 		}
 	}
-	return s.withState(ctx, true, func(state *storeState) error {
+	return s.withStateDeferred(ctx, func(state *storeState) error {
 		event := ProcessEvent{
 			ID:          state.NextProcessEventID,
 			AppID:       appID,
@@ -1042,7 +1026,7 @@ func (s *Store) WriteProcessOutput(ctx context.Context, output ProcessOutput) er
 	if output.CreatedAt.IsZero() {
 		output.CreatedAt = time.Now().UTC()
 	}
-	return s.withState(ctx, true, func(state *storeState) error {
+	return s.withStateDeferred(ctx, func(state *storeState) error {
 		output.ID = state.NextProcessOutputID
 		state.NextProcessOutputID++
 		state.ProcessOutput = append(state.ProcessOutput, output)
@@ -1117,7 +1101,7 @@ func (s *Store) WriteDevEvent(ctx context.Context, event DevEvent) error {
 
 func (s *Store) WriteDevEventReturningID(ctx context.Context, event DevEvent) (int64, error) {
 	var id int64
-	err := s.withState(ctx, true, func(state *storeState) error {
+	err := s.withStateDeferred(ctx, func(state *storeState) error {
 		event = normalizeDevEvent(event)
 		if event.ID <= 0 {
 			event.ID = state.NextDevEventID

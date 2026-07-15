@@ -3,6 +3,7 @@ package devdash
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -309,8 +310,14 @@ func largeAppMetadata(t *testing.T, revision string, payloadBytes int) json.RawM
 func TestStoreFlushErrorAllowsDeferredRetry(t *testing.T) {
 	t.Parallel()
 
+	// A regular file where the parent directory should be makes the store
+	// path unwritable even though saves create missing parent directories.
+	blocked := filepath.Join(t.TempDir(), "blocked")
+	if err := os.WriteFile(blocked, []byte("not a directory"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	store := &Store{
-		path: filepath.Join(t.TempDir(), "missing", "devdash.json"),
+		path: filepath.Join(blocked, "devdash.json"),
 		shared: &storeShared{
 			state:       newStoreState(),
 			dirty:       true,
@@ -763,5 +770,64 @@ func TestPruneTruncatesOversizedProcessEventPayloadsFromOlderWriters(t *testing.
 	}
 	if string(state.ProcessEvents[1].PayloadJSON) != `{"pid":"42"}` {
 		t.Fatalf("small payload was modified: %s", state.ProcessEvents[1].PayloadJSON)
+	}
+}
+
+func TestHighFrequencyWritersDeferPersistUntilFlush(t *testing.T) {
+	t.Parallel()
+
+	cacheRoot := t.TempDir()
+	store, err := OpenStore(cacheRoot)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	path := filepath.Join(cacheRoot, "devdash.json")
+
+	ctx := context.Background()
+	if err := store.WriteProcessOutput(ctx, ProcessOutput{
+		AppID:  "app-defer",
+		Stream: "stdout",
+		Output: []byte("deferred line"),
+	}); err != nil {
+		t.Fatalf("write process output: %v", err)
+	}
+	if err := store.WriteProcessEvent(ctx, "app-defer", "status", map[string]string{"phase": "ready"}); err != nil {
+		t.Fatalf("write process event: %v", err)
+	}
+	id, err := store.WriteDevEventReturningID(ctx, DevEvent{AppID: "app-defer", Message: "hello"})
+	if err != nil {
+		t.Fatalf("write dev event: %v", err)
+	}
+	if id <= 0 {
+		t.Fatalf("dev event id = %d, want > 0", id)
+	}
+
+	// Readers on the shared in-memory state observe the writes immediately.
+	items, err := store.ListProcessOutput(ctx, "app-defer", 10)
+	if err != nil {
+		t.Fatalf("list process output: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("in-memory process output count = %d, want 1", len(items))
+	}
+
+	// The on-disk file stays behind until the coalesced save runs.
+	if data, err := os.ReadFile(path); err == nil && bytes.Contains(data, []byte("app-defer")) {
+		t.Fatal("high-frequency write persisted immediately; want deferred persistence")
+	}
+
+	if err := store.Flush(ctx); err != nil {
+		t.Fatalf("flush: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read store file after flush: %v", err)
+	}
+	encodedOutput := base64.StdEncoding.EncodeToString([]byte("deferred line"))
+	for _, want := range []string{"app-defer", encodedOutput, "hello"} {
+		if !bytes.Contains(data, []byte(want)) {
+			t.Fatalf("flushed store file missing %q", want)
+		}
 	}
 }
