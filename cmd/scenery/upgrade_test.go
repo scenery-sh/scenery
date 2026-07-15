@@ -19,6 +19,7 @@ import (
 	"time"
 
 	localagent "scenery.sh/internal/agent"
+	"scenery.sh/internal/deploydiag"
 )
 
 func TestParseUpgradeArgs(t *testing.T) {
@@ -271,8 +272,8 @@ func TestUpgradeAddsDeploySetupNoticeWhenHelperContractDrifts(t *testing.T) {
 		upgradeDeployNoticeFunc = oldNotice
 		restore()
 	}()
-	upgradeDeployNoticeFunc = func(targetVersion string) *deployHelperDrift {
-		return &deployHelperDrift{
+	upgradeDeployNoticeFunc = func(targetVersion string) *deploydiag.HelperDrift {
+		return &deploydiag.HelperDrift{
 			HelperInstalled:  true,
 			ActionRequired:   true,
 			HelperVersion:    "v0.2.0",
@@ -303,59 +304,6 @@ func TestUpgradeAddsDeploySetupNoticeWhenHelperContractDrifts(t *testing.T) {
 	}
 	if payload.Deploy == nil || !payload.Deploy.ActionRequired || payload.Deploy.ExpectedContract != localagent.EdgeHelperContractRevision {
 		t.Fatalf("deploy notice = %+v", payload.Deploy)
-	}
-}
-
-func TestDeployHelperDriftRequiresSetupOnlyForContractDrift(t *testing.T) {
-	t.Parallel()
-
-	// An installed helper without a stamped handoff contract predates the
-	// tolerant reader: any target-metadata revision change makes it drop
-	// every connection, so it must be flagged even though its version string
-	// and its target metadata look plausible.
-	helper := edgeStatusPrivilegedListener{
-		Installed: true,
-		Version:   "v1.0.0",
-		Listen:    []string{"0.0.0.0:443", "[::]:443", "0.0.0.0:80", "[::]:80"},
-	}
-	drift := deployHelperDriftFor(helper, "v2.0.0")
-	if !drift.ActionRequired || !strings.Contains(drift.SuggestedAction, "deploy setup") {
-		t.Fatalf("unstamped helper drift = %+v", drift)
-	}
-	if drift.ExpectedContract != localagent.EdgeHelperContractRevision {
-		t.Fatalf("expected contract = %q", drift.ExpectedContract)
-	}
-
-	// A stamped but different contract also requires re-setup.
-	helper.ContractRevision = "1"
-	drift = deployHelperDriftFor(helper, "v2.0.0")
-	if !drift.ActionRequired || !strings.Contains(drift.Message, "handoff contract 1") {
-		t.Fatalf("contract drift = %+v", drift)
-	}
-
-	// A loopback-only install points at the loopback installer instead.
-	loopback := helper
-	loopback.ContractRevision = ""
-	loopback.Listen = []string{"127.0.0.1:443", "[::1]:443"}
-	drift = deployHelperDriftFor(loopback, "v2.0.0")
-	if !drift.ActionRequired || !strings.Contains(drift.SuggestedAction, "system edge privileged install") {
-		t.Fatalf("loopback drift = %+v", drift)
-	}
-
-	// Version drift with a matching contract stays informational: the frozen
-	// handoff contract is exactly what makes scenery upgrades safe without a
-	// sudo re-setup.
-	helper.ContractRevision = localagent.EdgeHelperContractRevision
-	drift = deployHelperDriftFor(helper, "v2.0.0")
-	if drift.ActionRequired || !strings.Contains(drift.Message, "helper is v1.0.0") {
-		t.Fatalf("version-only drift = %+v", drift)
-	}
-
-	// Matching version and contract is clean.
-	helper.Version = "v2.0.0"
-	drift = deployHelperDriftFor(helper, "v2.0.0")
-	if drift.ActionRequired || !strings.Contains(drift.Message, "matches current binary") {
-		t.Fatalf("clean drift = %+v", drift)
 	}
 }
 
@@ -448,7 +396,7 @@ func overrideUpgradeGlobals(t *testing.T, server *httptest.Server, currentVersio
 	upgradeAPIBaseURL = server.URL + "/repos/scenery-sh/scenery"
 	upgradeHTTPClient = server.Client()
 	upgradeCurrentVersionFn = func() string { return currentVersion }
-	upgradeDeployNoticeFunc = func(targetVersion string) *deployHelperDrift { return nil }
+	upgradeDeployNoticeFunc = func(targetVersion string) *deploydiag.HelperDrift { return nil }
 	return func() {
 		upgradeAPIBaseURL = oldBase
 		upgradeHTTPClient = oldClient

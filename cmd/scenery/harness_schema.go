@@ -17,6 +17,8 @@ import (
 
 	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/compiler"
+	"scenery.sh/internal/deploydiag"
+	"scenery.sh/internal/doctor"
 	"scenery.sh/internal/machine"
 )
 
@@ -314,31 +316,31 @@ func buildHarnessDoctorSchemaPayload(versionPayload versionResponse) doctorRespo
 		cliPayloadIdentity: newCLIPayloadIdentity(doctorResultKind),
 		OK:                 true,
 		Scenery:            versionPayload,
-		App: &doctorAppInfo{
+		App: &doctor.AppInfo{
 			Root:       "/tmp/scenery-doctor-fixture",
 			ConfigPath: "/tmp/scenery-doctor-fixture/.scenery.json",
 			Name:       "doctorfixture",
 			ID:         "doctorfixture",
 		},
-		Environment: doctorEnvironment{
+		Environment: doctor.Environment{
 			GOOS:             "linux",
 			GOARCH:           "amd64",
 			NumCPU:           8,
 			TotalMemoryBytes: 8 * 1024 * 1024 * 1024,
-			Paths: []doctorPathReport{{
+			Paths: []doctor.PathReport{{
 				Kind:       "app_root",
 				Path:       "/tmp/scenery-doctor-fixture",
 				FreeBytes:  20 * 1024 * 1024 * 1024,
 				TotalBytes: 40 * 1024 * 1024 * 1024,
 			}},
 		},
-		Checks: []doctorCheck{
+		Checks: []doctor.Check{
 			{
 				ID:       "os.runtime",
 				Category: "host",
 				Name:     "Operating system",
-				Status:   doctorStatusOK,
-				Severity: doctorSeverityInformational,
+				Status:   doctor.StatusOK,
+				Severity: doctor.SeverityInformational,
 				Message:  "linux/amd64",
 				Observed: map[string]any{"goos": "linux", "goarch": "amd64"},
 			},
@@ -346,14 +348,14 @@ func buildHarnessDoctorSchemaPayload(versionPayload versionResponse) doctorRespo
 				ID:       "tool.go",
 				Category: "dependency",
 				Name:     "Go toolchain",
-				Status:   doctorStatusOK,
-				Severity: doctorSeverityRequired,
+				Status:   doctor.StatusOK,
+				Severity: doctor.SeverityRequired,
 				Message:  "go version go1.26.3 linux/amd64 at /usr/local/go/bin/go",
 				Observed: map[string]any{"path": "/usr/local/go/bin/go", "version": "go version go1.26.3 linux/amd64"},
 			},
 		},
 	}
-	resp.Summary = summarizeDoctorChecks(resp.Checks)
+	resp.Summary = doctor.Summarize(resp.Checks)
 	return resp
 }
 
@@ -443,10 +445,10 @@ func buildHarnessDeployStatusSchemaPayload() deployStatusResponse {
 			CertPresent:  true,
 			CertNotAfter: "2026-10-07T00:00:00Z",
 		}},
-		DiagnosticsDetail: &deployDiagnosticReport{
+		DiagnosticsDetail: &deploydiag.Report{
 			LANIP:    "192.168.1.20",
 			PublicIP: "203.0.113.10",
-			Checks: []deployDiagnosticCheck{{
+			Checks: []deploydiag.Check{{
 				ID:      "deploy.dns.example.com",
 				Status:  "ok",
 				Message: "DNS for example.com resolves to this public IP",

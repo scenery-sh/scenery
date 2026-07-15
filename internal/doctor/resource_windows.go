@@ -1,6 +1,6 @@
 //go:build windows
 
-package main
+package doctor
 
 import (
 	"context"
@@ -14,9 +14,9 @@ import (
 
 var procGlobalMemoryStatusEx = windows.NewLazySystemDLL("kernel32.dll").NewProc("GlobalMemoryStatusEx")
 
-var errDoctorResourceUnsupported = errors.New("unsupported platform resource probe")
+var errResourceUnsupported = errors.New("unsupported platform resource probe")
 
-type doctorWindowsMemoryStatusEx struct {
+type windowsMemoryStatusEx struct {
 	Length               uint32
 	MemoryLoad           uint32
 	TotalPhys            uint64
@@ -28,31 +28,31 @@ type doctorWindowsMemoryStatusEx struct {
 	AvailExtendedVirtual uint64
 }
 
-func (defaultDoctorResourceProbe) Disk(_ context.Context, path string) (doctorDiskInfo, error) {
+func (defaultResourceProbe) Disk(_ context.Context, path string) (DiskInfo, error) {
 	abs, err := filepath.Abs(path)
 	if err != nil {
-		return doctorDiskInfo{}, err
+		return DiskInfo{}, err
 	}
 	ptr, err := windows.UTF16PtrFromString(abs)
 	if err != nil {
-		return doctorDiskInfo{}, err
+		return DiskInfo{}, err
 	}
 	var freeToCaller, total, free uint64
 	if err := windows.GetDiskFreeSpaceEx(ptr, &freeToCaller, &total, &free); err != nil {
-		return doctorDiskInfo{}, err
+		return DiskInfo{}, err
 	}
-	return doctorDiskInfo{Path: abs, FreeBytes: free, TotalBytes: total}, nil
+	return DiskInfo{Path: abs, FreeBytes: free, TotalBytes: total}, nil
 }
 
-func (defaultDoctorResourceProbe) Memory(context.Context) (doctorMemoryInfo, error) {
-	var status doctorWindowsMemoryStatusEx
+func (defaultResourceProbe) Memory(context.Context) (MemoryInfo, error) {
+	var status windowsMemoryStatusEx
 	status.Length = uint32(unsafe.Sizeof(status))
 	r1, _, err := procGlobalMemoryStatusEx.Call(uintptr(unsafe.Pointer(&status)))
 	if r1 == 0 {
 		if err != syscall.Errno(0) {
-			return doctorMemoryInfo{}, err
+			return MemoryInfo{}, err
 		}
-		return doctorMemoryInfo{}, errDoctorResourceUnsupported
+		return MemoryInfo{}, errResourceUnsupported
 	}
-	return doctorMemoryInfo{TotalBytes: status.TotalPhys}, nil
+	return MemoryInfo{TotalBytes: status.TotalPhys}, nil
 }

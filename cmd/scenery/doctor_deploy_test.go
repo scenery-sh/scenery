@@ -10,20 +10,21 @@ import (
 
 	localagent "scenery.sh/internal/agent"
 	appcfg "scenery.sh/internal/app"
+	"scenery.sh/internal/doctor"
 )
 
 type fakeDoctorResourceProbe struct{}
 
-func (fakeDoctorResourceProbe) Runtime() doctorRuntimeInfo {
-	return doctorRuntimeInfo{GOOS: "darwin", GOARCH: "arm64", NumCPU: 8}
+func (fakeDoctorResourceProbe) Runtime() doctor.RuntimeInfo {
+	return doctor.RuntimeInfo{GOOS: "darwin", GOARCH: "arm64", NumCPU: 8}
 }
 
-func (fakeDoctorResourceProbe) Memory(ctx context.Context) (doctorMemoryInfo, error) {
-	return doctorMemoryInfo{TotalBytes: 8 * 1024 * 1024 * 1024}, nil
+func (fakeDoctorResourceProbe) Memory(ctx context.Context) (doctor.MemoryInfo, error) {
+	return doctor.MemoryInfo{TotalBytes: 8 * 1024 * 1024 * 1024}, nil
 }
 
-func (fakeDoctorResourceProbe) Disk(ctx context.Context, path string) (doctorDiskInfo, error) {
-	return doctorDiskInfo{Path: path, FreeBytes: 20 * 1024 * 1024 * 1024, TotalBytes: 40 * 1024 * 1024 * 1024}, nil
+func (fakeDoctorResourceProbe) Disk(ctx context.Context, path string) (doctor.DiskInfo, error) {
+	return doctor.DiskInfo{Path: path, FreeBytes: 20 * 1024 * 1024 * 1024, TotalBytes: 40 * 1024 * 1024 * 1024}, nil
 }
 
 func TestDoctorIncludesDeployDiagnosticsSection(t *testing.T) {
@@ -41,7 +42,7 @@ func TestDoctorIncludesDeployDiagnosticsSection(t *testing.T) {
 		t.Fatalf("WriteDeployRegistry: %v", err)
 	}
 	tmp := t.TempDir()
-	resp := buildDoctorResponse(context.Background(), doctorOptions{}, doctorProbeDeps{
+	resp := buildDoctorResponse(context.Background(), doctorOptions{}, doctor.ProbeDeps{
 		LookPath: func(file string) (string, error) {
 			if file == "go" {
 				return "/usr/local/go/bin/go", nil
@@ -55,8 +56,8 @@ func TestDoctorIncludesDeployDiagnosticsSection(t *testing.T) {
 		Getwd:         func() (string, error) { return tmp, nil },
 		CacheRoot:     func() (string, error) { return filepath.Join(tmp, "cache"), nil },
 		AgentHome:     func() (string, error) { return home, nil },
-		DiscoverApp: func(start string) (doctorAppInfo, appcfg.Config, bool, error) {
-			return doctorAppInfo{}, appcfg.Config{}, false, nil
+		DiscoverApp: func(start string) (doctor.AppInfo, appcfg.Config, bool, error) {
+			return doctor.AppInfo{}, appcfg.Config{}, false, nil
 		},
 	})
 	if resp.Deploy == nil {
@@ -73,7 +74,7 @@ func TestDoctorIncludesDeployDiagnosticsSection(t *testing.T) {
 	}
 }
 
-func doctorHasCheck(checks []doctorCheck, id string) bool {
+func doctorHasCheck(checks []doctor.Check, id string) bool {
 	for _, check := range checks {
 		if check.ID == id {
 			return true
@@ -85,7 +86,7 @@ func doctorHasCheck(checks []doctorCheck, id string) bool {
 func TestDoctorWarnsAboutDuplicateRuntimeOwners(t *testing.T) {
 	home := t.TempDir()
 	paths := localagent.PathsForHome(home)
-	check := doctorProcessOwnershipCheck(context.Background(), doctorProbeDeps{
+	check := doctorProcessOwnershipCheck(context.Background(), doctor.ProbeDeps{
 		ResourceProbe: fakeDoctorResourceProbe{},
 		AgentHome:     func() (string, error) { return home, nil },
 		RunCommand: func(_ context.Context, name string, args ...string) ([]byte, error) {
@@ -95,7 +96,7 @@ func TestDoctorWarnsAboutDuplicateRuntimeOwners(t *testing.T) {
 			return []byte("10\n11\n"), nil
 		},
 	})
-	if check.Status != doctorStatusWarn {
+	if check.Status != doctor.StatusWarn {
 		t.Fatalf("process ownership check = %+v", check)
 	}
 }

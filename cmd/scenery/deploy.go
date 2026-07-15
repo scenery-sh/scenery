@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
@@ -10,8 +9,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -23,6 +20,7 @@ import (
 
 	localagent "scenery.sh/internal/agent"
 	appcfg "scenery.sh/internal/app"
+	"scenery.sh/internal/deploydiag"
 )
 
 type deployOptions struct {
@@ -52,7 +50,7 @@ type deployStatusResponse struct {
 	ACME               deployACMEStatus             `json:"acme"`
 	Targets            []deployTargetStatus         `json:"targets"`
 	Diagnostics        []string                     `json:"diagnostics,omitempty"`
-	DiagnosticsDetail  *deployDiagnosticReport      `json:"diagnostics_detail,omitempty"`
+	DiagnosticsDetail  *deploydiag.Report           `json:"diagnostics_detail,omitempty"`
 }
 
 type deploySetupResponse struct {
@@ -79,12 +77,12 @@ type deployTeardownResponse struct {
 
 type deployResumeResponse struct {
 	cliPayloadIdentity
-	RegistryPath  string               `json:"registry_path"`
-	LogPath       string               `json:"log_path"`
-	AgentReady    bool                 `json:"agent_ready"`
-	EdgeRestarted bool                 `json:"edge_restarted"`
-	HelperDrift   *deployHelperDrift   `json:"helper_drift,omitempty"`
-	Targets       []deployResumeTarget `json:"targets"`
+	RegistryPath  string                  `json:"registry_path"`
+	LogPath       string                  `json:"log_path"`
+	AgentReady    bool                    `json:"agent_ready"`
+	EdgeRestarted bool                    `json:"edge_restarted"`
+	HelperDrift   *deploydiag.HelperDrift `json:"helper_drift,omitempty"`
+	Targets       []deployResumeTarget    `json:"targets"`
 }
 
 type deployResumeTarget struct {
@@ -141,61 +139,11 @@ type deployTargetStatus struct {
 	Diagnostics  []string `json:"diagnostics,omitempty"`
 }
 
-type deployDiagnosticReport struct {
-	LANIP    string                  `json:"lan_ip,omitempty"`
-	PublicIP string                  `json:"public_ip,omitempty"`
-	Checks   []deployDiagnosticCheck `json:"checks,omitempty"`
-}
-
-type deployDiagnosticCheck struct {
-	ID              string         `json:"id"`
-	Status          string         `json:"status"`
-	Message         string         `json:"message"`
-	SuggestedAction string         `json:"suggested_action,omitempty"`
-	Observed        map[string]any `json:"observed,omitempty"`
-}
-
-type deployHTTPProbeResult struct {
-	OK         bool   `json:"ok"`
-	StatusCode int    `json:"status_code,omitempty"`
-	Error      string `json:"error,omitempty"`
-}
-
-type deployPowerStatus struct {
-	Supported    bool
-	SleepMinutes int
-	Raw          string
-}
-
-type deployFirewallStatus struct {
-	Supported bool
-	Enabled   bool
-	Raw       string
-}
-
 type deployCertStatus struct {
 	Present  bool
 	Path     string
 	NotAfter time.Time
 	Error    string
-}
-
-type deployHelperDrift struct {
-	HelperInstalled  bool   `json:"helper_installed"`
-	ActionRequired   bool   `json:"action_required"`
-	HelperVersion    string `json:"helper_version,omitempty"`
-	CurrentVersion   string `json:"current_version,omitempty"`
-	HelperContract   string `json:"helper_contract,omitempty"`
-	ExpectedContract string `json:"expected_contract"`
-	Message          string `json:"message,omitempty"`
-	SuggestedAction  string `json:"suggested_action,omitempty"`
-}
-
-type deployPortListenerInfo struct {
-	Port    int
-	PID     int
-	Command string
-	Name    string
 }
 
 var (
@@ -213,17 +161,17 @@ var (
 	deployEdgeRestartFunc                = func() error { return edgeRestart(edgeOptions{Deploy: true}) }
 	deployRefreshEdgeAfterMutationFunc   = deployRefreshEdgeAfterMutation
 	deployRunUpDetachFunc                = deployRunUpDetach
-	deployPortListenerFunc               = defaultDeployPortListener
+	deployPortListenerFunc               = deploydiag.DefaultPortListener
 	deployPrivilegedHelperExecutableFunc = os.Executable
-	deployHelperDriftStatusFunc          = func(paths localagent.Paths) deployHelperDrift {
-		return deployHelperDriftFor(privilegedListenerStatus(paths), buildVersionResponse().Version)
+	deployHelperDriftStatusFunc          = func(paths localagent.Paths) deploydiag.HelperDrift {
+		return deploydiag.HelperDriftFor(deployDiagHelperStatus(privilegedListenerStatus(paths)), buildVersionResponse().Version)
 	}
-	deployLANIPFunc          = defaultDeployLANIP
-	deployHTTPProbeFunc      = defaultDeployHTTPProbe
-	deployPublicIPFunc       = defaultDeployPublicIP
+	deployLANIPFunc          = deploydiag.DefaultLANIP
+	deployHTTPProbeFunc      = deploydiag.DefaultHTTPProbe
+	deployPublicIPFunc       = deploydiag.DefaultPublicIP
 	deployDNSLookupFunc      = net.LookupIP
-	deployPowerStatusFunc    = defaultDeployPowerStatus
-	deployFirewallStatusFunc = defaultDeployFirewallStatus
+	deployPowerStatusFunc    = deploydiag.DefaultPowerStatus
+	deployFirewallStatusFunc = deploydiag.DefaultFirewallStatus
 )
 
 func deployCommand(args []string) error {
@@ -482,10 +430,10 @@ func runDeploySetup(stdout io.Writer, opts deployOptions) error {
 // missing, non-public, stopped, or contract-drifted helper forces sudo.
 func deploySetupNeedsHelperReinstall(paths localagent.Paths, currentVersion string) bool {
 	helper := privilegedListenerStatus(paths)
-	if !helper.Installed || helper.State != "running" || !deployHelperHasPublicBinding(helper.Listen) {
+	if !helper.Installed || helper.State != "running" || !deploydiag.HelperHasPublicBinding(helper.Listen) {
 		return true
 	}
-	return deployHelperDriftFor(helper, currentVersion).ActionRequired
+	return deploydiag.HelperDriftFor(deployDiagHelperStatus(helper), currentVersion).ActionRequired
 }
 
 func runDeployResume(stdout io.Writer, opts deployOptions) error {
@@ -711,7 +659,7 @@ func buildDeployStatusWithContext(ctx context.Context, paths localagent.Paths, r
 		}
 		targets = append(targets, item)
 	}
-	helperPublic := deployHelperHasPublicBinding(helper.Listen)
+	helperPublic := deploydiag.HelperHasPublicBinding(helper.Listen)
 	status := deployStatusResponse{
 		cliPayloadIdentity: newCLIPayloadIdentity("scenery.deploy.status"),
 		RegistryPath:       paths.DeployPath,
@@ -752,7 +700,7 @@ func buildDeployStatusWithContext(ctx context.Context, paths localagent.Paths, r
 	case !launchAgent.Loaded:
 		status.Diagnostics = append(status.Diagnostics, "deploy resume LaunchAgent plist exists but the job is not loaded in launchd; run `scenery deploy setup`")
 	}
-	diagnostics := buildDeployDiagnostics(ctx, registry, status)
+	diagnostics := deploydiag.BuildReport(ctx, deployDiagnosticsSnapshot(status), deployDiagnosticsDeps())
 	status.DiagnosticsDetail = &diagnostics
 	for _, check := range diagnostics.Checks {
 		if check.Status == "warn" || check.Status == "error" {
@@ -761,6 +709,61 @@ func buildDeployStatusWithContext(ctx context.Context, paths localagent.Paths, r
 	}
 	status.Ready = len(status.Diagnostics) == 0
 	return status
+}
+
+// deployDiagHelperStatus converts the CLI privileged-listener payload into
+// the deploydiag helper snapshot.
+func deployDiagHelperStatus(helper edgeStatusPrivilegedListener) deploydiag.HelperStatus {
+	return deploydiag.HelperStatus{
+		Installed:        helper.Installed,
+		State:            helper.State,
+		PID:              helper.PID,
+		Listen:           helper.Listen,
+		Target:           helper.Target,
+		Version:          helper.Version,
+		ContractRevision: helper.ContractRevision,
+	}
+}
+
+// deployDiagnosticsSnapshot converts the CLI deploy status payload into the
+// snapshot the diagnostics engine consumes. Status targets mirror the deploy
+// registry targets one to one, so they carry both the registry enablement and
+// the certificate observations.
+func deployDiagnosticsSnapshot(status deployStatusResponse) deploydiag.Snapshot {
+	targets := make([]deploydiag.Target, 0, len(status.Targets))
+	for _, target := range status.Targets {
+		targets = append(targets, deploydiag.Target{
+			Domain:       target.Domain,
+			Enabled:      target.Enabled,
+			CertPresent:  target.CertPresent,
+			CertNotAfter: target.CertNotAfter,
+		})
+	}
+	return deploydiag.Snapshot{
+		Helper:          deployDiagHelperStatus(status.PrivilegedListener),
+		HelperPublic:    status.HelperPublic,
+		EdgeHTTPSListen: status.Edge.HTTPSListen,
+		Targets:         targets,
+		CurrentVersion:  buildVersionResponse().Version,
+	}
+}
+
+// deployDiagnosticsDeps wires the injectable probe functions into the
+// diagnostics engine at call time so tests can stub the package variables.
+func deployDiagnosticsDeps() deploydiag.Deps {
+	return deploydiag.Deps{
+		PortListener:   deployPortListenerFunc,
+		LANIP:          deployLANIPFunc,
+		HTTPProbe:      deployHTTPProbeFunc,
+		PublicIP:       deployPublicIPFunc,
+		DNSLookup:      deployDNSLookupFunc,
+		PowerStatus:    deployPowerStatusFunc,
+		FirewallStatus: deployFirewallStatusFunc,
+		TLSProbe: func(addr, serverName string) deploydiag.TLSProbeResult {
+			result := edgeTLSProbeFunc(addr, serverName, edgeTLSProbeTimeout)
+			return deploydiag.TLSProbeResult{Outcome: deploydiag.TLSProbeOutcome(result.Outcome), Error: result.Error}
+		},
+	}
 }
 
 func deployAgentStatusFor(paths localagent.Paths) deployAgentStatus {
@@ -788,35 +791,6 @@ func deployAgentStatusFor(paths localagent.Paths) deployAgentStatus {
 	return status
 }
 
-const deployResumeLaunchAgentLabel = "dev.scenery.deploy-resume"
-
-func runDeployLaunchctl(args ...string) ([]byte, error) {
-	return exec.Command("launchctl", args...).CombinedOutput()
-}
-
-func deployResumeLaunchAgentTarget() string {
-	return fmt.Sprintf("gui/%d/%s", os.Getuid(), deployResumeLaunchAgentLabel)
-}
-
-func deployResumeLaunchAgentLoaded() bool {
-	if runtime.GOOS != "darwin" {
-		return false
-	}
-	_, err := deployLaunchctlFunc("print", deployResumeLaunchAgentTarget())
-	return err == nil
-}
-
-func deployLaunchAgentStatusFor() deployLaunchAgentStatus {
-	path := deployResumeLaunchAgentPath()
-	_, err := os.Stat(path)
-	installed := err == nil
-	return deployLaunchAgentStatus{
-		Installed: installed,
-		Loaded:    installed && deployResumeLaunchAgentLoadedFunc(),
-		Path:      path,
-	}
-}
-
 func deployAgentSupervisorStatusFor(paths localagent.Paths) deployAgentSupervisorStatus {
 	status := agentSupervisorStatusFunc(paths.SocketPath)
 	return deployAgentSupervisorStatus{
@@ -827,106 +801,6 @@ func deployAgentSupervisorStatusFor(paths localagent.Paths) deployAgentSuperviso
 		Label:     status.Label,
 		Path:      status.PlistPath,
 	}
-}
-
-func deployResumeLaunchAgentPath() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "~/Library/LaunchAgents/dev.scenery.deploy-resume.plist"
-	}
-	return filepath.Join(home, "Library", "LaunchAgents", "dev.scenery.deploy-resume.plist")
-}
-
-func installDeployResumeLaunchAgent(paths localagent.Paths) error {
-	exe, err := deployPrivilegedHelperExecutableFunc()
-	if err != nil {
-		return err
-	}
-	if deployExecutableIsHarness(exe) {
-		return fmt.Errorf("refusing to install deploy resume LaunchAgent from harness binary %s", exe)
-	}
-	plistPath := deployResumeLaunchAgentPath()
-	if err := os.MkdirAll(filepath.Dir(plistPath), 0o755); err != nil {
-		return err
-	}
-	if err := os.WriteFile(plistPath, []byte(deployResumeLaunchAgentPlist(exe, paths.DeployResumeLogPath)), 0o644); err != nil {
-		return err
-	}
-	// A plist on disk recovers nothing: installation means launchd loaded the
-	// job. launchd can pend a RunAtLoad spawn when bootstrapped from a
-	// non-Aqua context, so kickstart fires the one idempotent resume run
-	// explicitly, proving the job is actually runnable.
-	_, _ = deployLaunchctlFunc("bootout", deployResumeLaunchAgentTarget())
-	if err := retryEdgeHelperLaunchctl(edgeHelperLaunchctlRetryWindow, time.Sleep, deployLaunchctlFunc, "bootstrap", fmt.Sprintf("gui/%d", os.Getuid()), plistPath); err != nil {
-		return err
-	}
-	if out, err := deployLaunchctlFunc("kickstart", deployResumeLaunchAgentTarget()); err != nil {
-		return fmt.Errorf("launchctl kickstart %s: %w: %s", deployResumeLaunchAgentTarget(), err, strings.TrimSpace(string(out)))
-	}
-	return nil
-}
-
-// installDeployAgentSupervisor hands the running agent over to launchd
-// ownership: any unsupervised agent is stopped first so the bootstrapped
-// KeepAlive job acquires the agent lock instead of crash-looping against it.
-func installDeployAgentSupervisor(paths localagent.Paths) error {
-	exe, err := deployPrivilegedHelperExecutableFunc()
-	if err != nil {
-		return err
-	}
-	if deployExecutableIsHarness(exe) {
-		return fmt.Errorf("refusing to install scenery agent supervisor LaunchAgent from harness binary %s", exe)
-	}
-	client := localagent.NewClient(paths.SocketPath)
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-	health, running := currentAgentHealth(ctx, client)
-	logOffset := fileSize(paths.LogPath)
-	if running && health.PID > 0 {
-		if err := signalAgentPID(health.PID); err != nil {
-			return fmt.Errorf("stop scenery agent pid %d: %w", health.PID, err)
-		}
-		if err := waitForAgentStop(ctx, client, health.PID); err != nil {
-			return err
-		}
-	}
-	if _, err := localagent.InstallAgentLaunchd(exe, paths, localagent.StartOptions{RouterHTTP: true}); err != nil {
-		return err
-	}
-	if _, err := waitForAgentStart(ctx, client, health.PID, paths.LogPath, logOffset); err != nil {
-		return fmt.Errorf("supervised scenery agent did not become ready after launchd bootstrap: %w", err)
-	}
-	return nil
-}
-
-func deployExecutableIsHarness(exe string) bool {
-	return strings.Contains(filepath.Clean(exe), string(os.PathSeparator)+".scenery"+string(os.PathSeparator)+"harness"+string(os.PathSeparator))
-}
-
-func deployResumeLaunchAgentPlist(exe, logPath string) string {
-	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-	<key>Label</key>
-	<string>dev.scenery.deploy-resume</string>
-	<key>ProgramArguments</key>
-	<array>
-		<string>%s</string>
-		<string>deploy</string>
-		<string>resume</string>
-	</array>
-	<key>RunAtLoad</key>
-	<true/>
-	<key>KeepAlive</key>
-	<false/>
-	<key>StandardOutPath</key>
-	<string>%s</string>
-	<key>StandardErrorPath</key>
-	<string>%s</string>
-</dict>
-</plist>
-`, escapePlistString(exe), escapePlistString(logPath), escapePlistString(logPath))
 }
 
 func deploySessionsByAppRoot(paths localagent.Paths) map[string]localagent.Session {
@@ -945,20 +819,6 @@ func deploySessionsByAppRoot(paths localagent.Paths) map[string]localagent.Sessi
 		}
 	}
 	return out
-}
-
-func deployHelperHasPublicBinding(listen []string) bool {
-	has80 := false
-	has443 := false
-	for _, addr := range listen {
-		switch strings.TrimSpace(addr) {
-		case "0.0.0.0:80", "[::]:80":
-			has80 = true
-		case "0.0.0.0:443", "[::]:443":
-			has443 = true
-		}
-	}
-	return has80 && has443
 }
 
 func deployCertStatusFor(paths localagent.Paths, domain string) deployCertStatus {
@@ -991,677 +851,6 @@ func deployCertStatusFor(paths localagent.Paths, domain string) deployCertStatus
 	return status
 }
 
-func buildDeployDiagnostics(ctx context.Context, registry localagent.DeployRegistry, status deployStatusResponse) deployDiagnosticReport {
-	report := deployDiagnosticReport{}
-	addDeployHelperDiagnostics(&report, status.PrivilegedListener)
-	addDeployListenerDiagnostics(&report, status.PrivilegedListener)
-	addDeployCertDiagnostics(&report, status.Targets)
-	if !deployHasEnabledTarget(registry) {
-		return report
-	}
-	addDeployTLSHandshakeDiagnostics(&report, status)
-	lanOK := addDeployLANDiagnostics(ctx, &report)
-	publicOK := addDeployPublicIPDiagnostics(ctx, &report, lanOK)
-	addDeployDNSDiagnostics(&report, registry)
-	if !publicOK && lanOK {
-		report.addCheck(deployDiagnosticCheck{
-			ID:              "deploy.reachability.public",
-			Status:          "warn",
-			Message:         "LAN self-probe works but the public IP self-probe failed; verify router forwarding for TCP 80/443 to this Mac",
-			SuggestedAction: "Forward public TCP 80/443 to the reported LAN IP. If the router WAN IP differs from the reported public IP or is in 100.64.0.0/10, ask the ISP for a public address because CGNAT can block inbound traffic.",
-		})
-	}
-	addDeployPowerDiagnostic(ctx, &report)
-	addDeployFirewallDiagnostic(ctx, &report)
-	return report
-}
-
-func deployHasEnabledTarget(registry localagent.DeployRegistry) bool {
-	for _, target := range registry.Targets {
-		if target.Enabled {
-			return true
-		}
-	}
-	return false
-}
-
-func addDeployHelperDiagnostics(report *deployDiagnosticReport, helper edgeStatusPrivilegedListener) {
-	status := "ok"
-	message := "public privileged helper is installed and running"
-	action := ""
-	if !helper.Installed || helper.State != "running" {
-		status = "warn"
-		message = "public privileged helper is not running"
-		action = "Run `scenery deploy setup` to install and start the public edge helper."
-	}
-	report.addCheck(deployDiagnosticCheck{
-		ID:              "deploy.helper",
-		Status:          status,
-		Message:         message,
-		SuggestedAction: action,
-		Observed: map[string]any{
-			"installed": helper.Installed,
-			"state":     helper.State,
-			"pid":       helper.PID,
-			"listen":    helper.Listen,
-		},
-	})
-	drift := deployHelperDriftFor(helper, buildVersionResponse().Version)
-	versionStatus := "ok"
-	if drift.ActionRequired {
-		versionStatus = "warn"
-	}
-	report.addCheck(deployDiagnosticCheck{
-		ID:              "deploy.helper_version",
-		Status:          versionStatus,
-		Message:         drift.Message,
-		SuggestedAction: drift.SuggestedAction,
-		Observed: map[string]any{
-			"helper_version":    drift.HelperVersion,
-			"current_version":   drift.CurrentVersion,
-			"helper_contract":   drift.HelperContract,
-			"expected_contract": drift.ExpectedContract,
-		},
-	})
-}
-
-// deployHelperDriftFor compares the handoff-contract revision stamped into
-// the installed helper LaunchDaemon against the current binary's contract.
-// Version drift alone stays informational: the helper contract is designed to
-// survive scenery upgrades, so only a contract mismatch (or an unstamped
-// helper from before the tolerant handoff reader) requires a sudo re-setup.
-func deployHelperDriftFor(helper edgeStatusPrivilegedListener, currentVersion string) deployHelperDrift {
-	drift := deployHelperDrift{
-		HelperInstalled:  helper.Installed,
-		HelperVersion:    strings.TrimSpace(helper.Version),
-		CurrentVersion:   strings.TrimSpace(currentVersion),
-		HelperContract:   strings.TrimSpace(helper.ContractRevision),
-		ExpectedContract: localagent.EdgeHelperContractRevision,
-	}
-	reinstall := "Run `scenery deploy setup` to update the privileged listener (asks for sudo)."
-	if !deployHelperHasPublicBinding(helper.Listen) {
-		reinstall = "Run `scenery system edge privileged install` to update the privileged listener (asks for sudo)."
-	}
-	switch {
-	case !helper.Installed:
-		drift.Message = "privileged helper is not installed"
-	case drift.HelperContract == "":
-		drift.ActionRequired = true
-		drift.Message = fmt.Sprintf("installed privileged helper predates handoff contract %s and can stop forwarding when target metadata changes", drift.ExpectedContract)
-		drift.SuggestedAction = reinstall
-	case drift.HelperContract != drift.ExpectedContract:
-		drift.ActionRequired = true
-		drift.Message = fmt.Sprintf("installed privileged helper uses handoff contract %s; current binary expects %s", drift.HelperContract, drift.ExpectedContract)
-		drift.SuggestedAction = reinstall
-	case drift.HelperVersion == "":
-		drift.Message = "helper version is not recorded"
-	case drift.CurrentVersion != "" && drift.HelperVersion != drift.CurrentVersion:
-		drift.Message = fmt.Sprintf("helper is %s and current binary is %s; the handoff contract matches, so no action is needed", drift.HelperVersion, drift.CurrentVersion)
-	default:
-		drift.Message = fmt.Sprintf("helper version %s matches current binary", drift.HelperVersion)
-	}
-	return drift
-}
-
-// addDeployTLSHandshakeDiagnostics proves each enabled domain end to end: a
-// TLS handshake with that domain's SNI must complete through public port 443
-// (helper → Caddy). A bound listener or a live helper PID never counts as
-// ready on its own — a helper that cannot validate its target metadata still
-// accepts TCP and then resets, which upstream proxies surface as errors like
-// Cloudflare 525 while naive status checks stay green.
-func addDeployTLSHandshakeDiagnostics(report *deployDiagnosticReport, status deployStatusResponse) {
-	if !status.HelperPublic || status.PrivilegedListener.State != "running" {
-		report.addCheck(deployDiagnosticCheck{
-			ID:      "deploy.tls_handshake",
-			Status:  "skipped",
-			Message: "end-to-end TLS handshake probe skipped because the public privileged helper is not running",
-		})
-		return
-	}
-	directAddr := firstNonEmpty(status.Edge.HTTPSListen, status.PrivilegedListener.Target, defaultEdgeTargetAddr)
-	for _, target := range status.Targets {
-		if !target.Enabled {
-			continue
-		}
-		through := edgeTLSProbeFunc("127.0.0.1:443", target.Domain, edgeTLSProbeTimeout)
-		check := deployDiagnosticCheck{
-			ID:     "deploy.tls_handshake." + target.Domain,
-			Status: "ok",
-			Observed: map[string]any{
-				"domain":  target.Domain,
-				"outcome": string(through.Outcome),
-			},
-		}
-		if through.Error != "" {
-			check.Observed["error"] = through.Error
-		}
-		switch through.Outcome {
-		case edgeTLSProbeHandshakeOK:
-			check.Message = fmt.Sprintf("end-to-end TLS handshake for %s succeeded through port 443", target.Domain)
-		case edgeTLSProbeUnreachable:
-			check.Status = "warn"
-			check.Message = fmt.Sprintf("port 443 did not accept a TCP connection for the %s handshake probe", target.Domain)
-			check.SuggestedAction = "Run `scenery deploy setup` and check the port 80/443 listener diagnostics."
-		case edgeTLSProbeForwarded:
-			check.Status = "warn"
-			check.Message = fmt.Sprintf("traffic reaches Caddy but the TLS handshake for %s did not complete: %s", target.Domain, through.Error)
-			check.SuggestedAction = "Check certificate issuance for this domain in the Caddy edge log and the certificate diagnostics above."
-		case edgeTLSProbeDropped:
-			direct := edgeTLSProbeFunc(directAddr, target.Domain, edgeTLSProbeTimeout)
-			check.Observed["direct_outcome"] = string(direct.Outcome)
-			if direct.reachedTLSServer() {
-				check.Status = "error"
-				check.Message = fmt.Sprintf("port 443 accepts TCP but the TLS handshake for %s never reaches Caddy, while Caddy at %s answers TLS directly; the running privileged helper cannot validate its target metadata", target.Domain, directAddr)
-				check.SuggestedAction = "Run `scenery deploy setup` to replace and restart the privileged helper (asks for sudo)."
-			} else {
-				check.Status = "warn"
-				check.Message = fmt.Sprintf("neither public port 443 nor the Caddy edge at %s completed a TLS handshake for %s", directAddr, target.Domain)
-				check.SuggestedAction = "Start the Caddy edge (`scenery deploy resume` or `scenery system edge install`), then re-run `scenery deploy status`."
-			}
-		}
-		report.addCheck(check)
-	}
-}
-
-func addDeployListenerDiagnostics(report *deployDiagnosticReport, helper edgeStatusPrivilegedListener) {
-	for _, port := range []int{80, 443} {
-		listener, ok, err := deployPortListenerFunc(port)
-		check := deployDiagnosticCheck{
-			ID:      fmt.Sprintf("deploy.listener.%d", port),
-			Status:  "ok",
-			Message: fmt.Sprintf("port %d is bound by the Scenery public helper", port),
-			Observed: map[string]any{
-				"port":              port,
-				"configured_listen": helper.Listen,
-			},
-		}
-		if err != nil {
-			check.Status = "warn"
-			check.Message = fmt.Sprintf("port %d listener could not be inspected: %v", port, err)
-			check.SuggestedAction = "Run `scenery deploy setup` and verify the privileged helper with launchctl or lsof."
-			report.addCheck(check)
-			continue
-		}
-		if !ok {
-			check.Status = "warn"
-			check.Message = fmt.Sprintf("port %d is not listening", port)
-			check.SuggestedAction = "Run `scenery deploy setup` and allow the privileged helper to bind public ports."
-			report.addCheck(check)
-			continue
-		}
-		check.Observed["pid"] = listener.PID
-		check.Observed["command"] = listener.Command
-		check.Observed["name"] = listener.Name
-		if !listener.isSceneryHelper() {
-			check.Status = "warn"
-			check.Message = fmt.Sprintf("port %d is bound by %s, not the Scenery public helper", port, listener.String())
-			check.SuggestedAction = fmt.Sprintf("Stop that process, then run `scenery deploy setup` so Scenery can bind TCP %d.", port)
-		} else if !deployListenerIsWildcard(listener, helper.Listen, port) {
-			check.Status = "warn"
-			check.Message = fmt.Sprintf("port %d is not bound on a wildcard address", port)
-			check.SuggestedAction = "Run `scenery deploy setup` to reinstall the helper with 0.0.0.0/[::] public listeners."
-		}
-		report.addCheck(check)
-	}
-}
-
-func addDeployCertDiagnostics(report *deployDiagnosticReport, targets []deployTargetStatus) {
-	now := time.Now()
-	for _, target := range targets {
-		if !target.Enabled {
-			continue
-		}
-		check := deployDiagnosticCheck{
-			ID:     "deploy.cert." + target.Domain,
-			Status: "ok",
-			Observed: map[string]any{
-				"domain":       target.Domain,
-				"cert_present": target.CertPresent,
-			},
-		}
-		if target.CertNotAfter != "" {
-			check.Observed["not_after"] = target.CertNotAfter
-		}
-		switch {
-		case !target.CertPresent:
-			check.Status = "warn"
-			check.Message = fmt.Sprintf("no Caddy certificate is present for %s", target.Domain)
-			check.SuggestedAction = "Verify DNS and public reachability, then let Caddy issue the certificate on first HTTPS traffic."
-		case target.CertNotAfter == "":
-			check.Status = "warn"
-			check.Message = fmt.Sprintf("certificate for %s is present but expiry could not be parsed", target.Domain)
-			check.SuggestedAction = "If HTTPS fails, remove the invalid certificate directory under the pinned Caddy storage and retry after fixing reachability."
-		default:
-			notAfter, err := time.Parse(time.RFC3339, target.CertNotAfter)
-			if err == nil && now.After(notAfter) {
-				check.Status = "warn"
-				check.Message = fmt.Sprintf("certificate for %s expired at %s", target.Domain, target.CertNotAfter)
-				check.SuggestedAction = "Fix reachability and let Caddy renew the certificate, or remove the expired cached certificate after confirming storage."
-			} else {
-				check.Message = fmt.Sprintf("certificate for %s is present until %s", target.Domain, target.CertNotAfter)
-			}
-		}
-		report.addCheck(check)
-	}
-}
-
-func addDeployLANDiagnostics(ctx context.Context, report *deployDiagnosticReport) bool {
-	lanIP, err := deployLANIPFunc(ctx)
-	if err != nil || strings.TrimSpace(lanIP) == "" {
-		message := "LAN IP could not be determined"
-		if err != nil {
-			message += ": " + err.Error()
-		}
-		report.addCheck(deployDiagnosticCheck{
-			ID:              "deploy.lan_ip",
-			Status:          "warn",
-			Message:         message,
-			SuggestedAction: "Connect to a LAN interface or pass this Mac's LAN IP to your router forwarding rules manually.",
-		})
-		return false
-	}
-	report.LANIP = strings.TrimSpace(lanIP)
-	report.addCheck(deployDiagnosticCheck{
-		ID:      "deploy.lan_ip",
-		Status:  "ok",
-		Message: "LAN IP is " + report.LANIP,
-		Observed: map[string]any{
-			"lan_ip": report.LANIP,
-		},
-	})
-	httpOK := addDeployHTTPProbeCheck(ctx, report, "deploy.probe.lan_http", "LAN HTTP self-probe", deployURLForHost("http", report.LANIP))
-	httpsOK := addDeployHTTPProbeCheck(ctx, report, "deploy.probe.lan_https", "LAN HTTPS self-probe", deployURLForHost("https", report.LANIP))
-	return httpOK && httpsOK
-}
-
-func addDeployPublicIPDiagnostics(ctx context.Context, report *deployDiagnosticReport, lanOK bool) bool {
-	publicIP, err := deployPublicIPFunc(ctx)
-	if err != nil || strings.TrimSpace(publicIP) == "" {
-		message := "public IP could not be discovered"
-		if err != nil {
-			message += ": " + err.Error()
-		}
-		report.addCheck(deployDiagnosticCheck{
-			ID:              "deploy.public_ip",
-			Status:          "warn",
-			Message:         message,
-			SuggestedAction: "Check internet connectivity, then rerun `scenery deploy status`.",
-		})
-		return false
-	}
-	report.PublicIP = strings.TrimSpace(publicIP)
-	report.addCheck(deployDiagnosticCheck{
-		ID:      "deploy.public_ip",
-		Status:  "ok",
-		Message: "public IP is " + report.PublicIP,
-		Observed: map[string]any{
-			"public_ip": report.PublicIP,
-		},
-	})
-	httpOK := addDeployHTTPProbeCheck(ctx, report, "deploy.probe.public_http", "public HTTP self-probe", deployURLForHost("http", report.PublicIP))
-	httpsOK := addDeployHTTPProbeCheck(ctx, report, "deploy.probe.public_https", "public HTTPS self-probe", deployURLForHost("https", report.PublicIP))
-	if lanOK && !httpOK && !httpsOK && deployIPIsCGNATHint(report.PublicIP) {
-		report.addCheck(deployDiagnosticCheck{
-			ID:              "deploy.reachability.cgnat",
-			Status:          "warn",
-			Message:         "public IP looks like carrier-grade NAT, so inbound router forwarding may not be possible",
-			SuggestedAction: "Ask the ISP for a public IPv4 address or use an IPv6 AAAA record that reaches this Mac directly.",
-			Observed:        map[string]any{"public_ip": report.PublicIP},
-		})
-	}
-	return httpOK && httpsOK
-}
-
-func addDeployDNSDiagnostics(report *deployDiagnosticReport, registry localagent.DeployRegistry) {
-	for _, target := range registry.Targets {
-		if !target.Enabled {
-			continue
-		}
-		ips, err := deployDNSLookupFunc(target.Domain)
-		check := deployDiagnosticCheck{
-			ID:     "deploy.dns." + target.Domain,
-			Status: "ok",
-			Observed: map[string]any{
-				"domain": target.Domain,
-			},
-		}
-		if err != nil {
-			check.Status = "warn"
-			check.Message = fmt.Sprintf("DNS lookup for %s failed: %v", target.Domain, err)
-			check.SuggestedAction = "Create A/AAAA records for this domain at your DNS provider."
-			report.addCheck(check)
-			continue
-		}
-		ipStrings := deployIPStrings(ips)
-		check.Observed["ips"] = ipStrings
-		check.Observed["public_ip"] = report.PublicIP
-		if report.PublicIP == "" {
-			check.Status = "warn"
-			check.Message = fmt.Sprintf("DNS for %s resolves, but public IP discovery failed", target.Domain)
-			check.SuggestedAction = "Fix public IP discovery, then confirm DNS matches that address."
-		} else if !deployIPsContain(ips, report.PublicIP) {
-			if deployIPsAreCloudflareProxy(ips) {
-				check.Message = fmt.Sprintf("DNS for %s resolves to Cloudflare proxy IPs; verify the Cloudflare origin record points to %s", target.Domain, report.PublicIP)
-				check.Observed["cloudflare_proxy"] = true
-				report.addCheck(check)
-				continue
-			}
-			check.Status = "warn"
-			check.Message = fmt.Sprintf("DNS for %s resolves to %s, not this public IP %s", target.Domain, strings.Join(ipStrings, ", "), report.PublicIP)
-			check.SuggestedAction = fmt.Sprintf("Set the A/AAAA record for %s to %s, then wait for DNS propagation.", target.Domain, report.PublicIP)
-		} else {
-			check.Message = fmt.Sprintf("DNS for %s resolves to this public IP", target.Domain)
-		}
-		report.addCheck(check)
-	}
-}
-
-func addDeployPowerDiagnostic(ctx context.Context, report *deployDiagnosticReport) {
-	power, err := deployPowerStatusFunc(ctx)
-	if err != nil {
-		report.addCheck(deployDiagnosticCheck{
-			ID:      "deploy.power.sleep",
-			Status:  "warn",
-			Message: "power sleep settings could not be inspected: " + err.Error(),
-		})
-		return
-	}
-	if !power.Supported {
-		report.addCheck(deployDiagnosticCheck{
-			ID:      "deploy.power.sleep",
-			Status:  "skipped",
-			Message: "power sleep diagnostics are supported on macOS",
-		})
-		return
-	}
-	check := deployDiagnosticCheck{
-		ID:      "deploy.power.sleep",
-		Status:  "ok",
-		Message: "system sleep is disabled while on power",
-		Observed: map[string]any{
-			"sleep_minutes": power.SleepMinutes,
-			"raw":           power.Raw,
-		},
-	}
-	if power.SleepMinutes > 0 {
-		check.Status = "warn"
-		check.Message = fmt.Sprintf("system sleep is set to %d minute(s); sleeping takes the public site down", power.SleepMinutes)
-		check.SuggestedAction = "Run `sudo pmset -c sleep 0` if this Mac should keep serving public traffic on power."
-	}
-	report.addCheck(check)
-}
-
-func addDeployFirewallDiagnostic(ctx context.Context, report *deployDiagnosticReport) {
-	firewall, err := deployFirewallStatusFunc(ctx)
-	if err != nil {
-		report.addCheck(deployDiagnosticCheck{
-			ID:      "deploy.firewall",
-			Status:  "warn",
-			Message: "application firewall state could not be inspected: " + err.Error(),
-		})
-		return
-	}
-	if !firewall.Supported {
-		report.addCheck(deployDiagnosticCheck{
-			ID:      "deploy.firewall",
-			Status:  "skipped",
-			Message: "application firewall diagnostics are supported on macOS",
-		})
-		return
-	}
-	check := deployDiagnosticCheck{
-		ID:      "deploy.firewall",
-		Status:  "ok",
-		Message: "macOS application firewall is disabled",
-		Observed: map[string]any{
-			"enabled": firewall.Enabled,
-			"raw":     firewall.Raw,
-		},
-	}
-	if firewall.Enabled {
-		check.Status = "warn"
-		check.Message = "macOS application firewall is enabled"
-		check.SuggestedAction = "Allow `/usr/local/libexec/scenery-edge-helper` if inbound public traffic is blocked."
-	}
-	report.addCheck(check)
-}
-
-func addDeployHTTPProbeCheck(ctx context.Context, report *deployDiagnosticReport, id, name, url string) bool {
-	result := deployHTTPProbeFunc(ctx, url)
-	check := deployDiagnosticCheck{
-		ID:      id,
-		Status:  "ok",
-		Message: name + " reached " + url,
-		Observed: map[string]any{
-			"url":         url,
-			"status_code": result.StatusCode,
-		},
-	}
-	if !result.OK {
-		if deployRawIPHTTPSNeedsSNI(url, result.Error) {
-			check.Status = "skipped"
-			check.Message = name + " skipped for raw IP because public HTTPS requires domain SNI"
-			check.Observed["error"] = result.Error
-			report.addCheck(check)
-			return true
-		}
-		check.Status = "warn"
-		check.Message = name + " failed for " + url
-		check.SuggestedAction = "Verify the edge helper, Caddy, and router forwarding for TCP 80/443."
-		if result.Error != "" {
-			check.Observed["error"] = result.Error
-		}
-	}
-	report.addCheck(check)
-	return result.OK
-}
-
-func deployRawIPHTTPSNeedsSNI(rawURL, errText string) bool {
-	u, err := url.Parse(rawURL)
-	if err != nil || u.Scheme != "https" || net.ParseIP(u.Hostname()) == nil {
-		return false
-	}
-	return strings.Contains(errText, "tls: internal error") || strings.Contains(errText, "tlsv1 alert internal error")
-}
-
-func (report *deployDiagnosticReport) addCheck(check deployDiagnosticCheck) {
-	report.Checks = append(report.Checks, check)
-}
-
-func defaultDeployLANIP(ctx context.Context) (string, error) {
-	for _, iface := range []string{"en0", "en1"} {
-		cmdCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-		out, err := exec.CommandContext(cmdCtx, "ipconfig", "getifaddr", iface).Output()
-		cancel()
-		if err == nil && strings.TrimSpace(string(out)) != "" {
-			return strings.TrimSpace(string(out)), nil
-		}
-	}
-	return "", fmt.Errorf("ipconfig getifaddr en0/en1 returned no address")
-}
-
-func defaultDeployHTTPProbe(ctx context.Context, rawURL string) deployHTTPProbeResult {
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} // local reachability probe, not trust validation.
-	client := http.Client{
-		Timeout:   3 * time.Second,
-		Transport: transport,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
-	if err != nil {
-		return deployHTTPProbeResult{Error: err.Error()}
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return deployHTTPProbeResult{Error: err.Error()}
-	}
-	defer resp.Body.Close()
-	return deployHTTPProbeResult{OK: true, StatusCode: resp.StatusCode}
-}
-
-func defaultDeployPublicIP(ctx context.Context) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.ipify.org", nil)
-	if err != nil {
-		return "", err
-	}
-	client := http.Client{Timeout: 3 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return "", fmt.Errorf("api.ipify.org returned HTTP %d", resp.StatusCode)
-	}
-	data, err := io.ReadAll(io.LimitReader(resp.Body, 128))
-	if err != nil {
-		return "", err
-	}
-	ip := strings.TrimSpace(string(data))
-	if net.ParseIP(ip) == nil {
-		return "", fmt.Errorf("api.ipify.org returned %q", ip)
-	}
-	return ip, nil
-}
-
-func defaultDeployPowerStatus(ctx context.Context) (deployPowerStatus, error) {
-	if runtime.GOOS != "darwin" {
-		return deployPowerStatus{Supported: false}, nil
-	}
-	cmdCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-	defer cancel()
-	out, err := exec.CommandContext(cmdCtx, "pmset", "-g").CombinedOutput()
-	if err != nil {
-		return deployPowerStatus{}, fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
-	}
-	raw := string(out)
-	return deployPowerStatus{Supported: true, SleepMinutes: parsePMSetSleepMinutes(raw), Raw: strings.TrimSpace(raw)}, nil
-}
-
-func defaultDeployFirewallStatus(ctx context.Context) (deployFirewallStatus, error) {
-	if runtime.GOOS != "darwin" {
-		return deployFirewallStatus{Supported: false}, nil
-	}
-	candidates := []string{"/usr/libexec/ApplicationFirewall/socketfilterfw", "socketfilterfw"}
-	var lastErr error
-	for _, name := range candidates {
-		cmdCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-		out, err := exec.CommandContext(cmdCtx, name, "--getglobalstate").CombinedOutput()
-		cancel()
-		if err != nil {
-			lastErr = fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
-			continue
-		}
-		raw := strings.TrimSpace(string(out))
-		enabled := strings.Contains(strings.ToLower(raw), "enabled")
-		return deployFirewallStatus{Supported: true, Enabled: enabled, Raw: raw}, nil
-	}
-	return deployFirewallStatus{}, lastErr
-}
-
-func parsePMSetSleepMinutes(raw string) int {
-	for _, line := range strings.Split(raw, "\n") {
-		fields := strings.Fields(line)
-		if len(fields) >= 2 && fields[0] == "sleep" {
-			minutes, _ := strconv.Atoi(fields[1])
-			return minutes
-		}
-	}
-	return 0
-}
-
-func deployURLForHost(scheme, host string) string {
-	host = strings.TrimSpace(host)
-	if strings.Contains(host, ":") && !strings.HasPrefix(host, "[") {
-		host = "[" + host + "]"
-	}
-	return scheme + "://" + host + "/"
-}
-
-func deployListenerIsWildcard(listener deployPortListenerInfo, configured []string, port int) bool {
-	name := strings.ToLower(listener.Name)
-	portSuffix := ":" + strconv.Itoa(port)
-	for _, token := range []string{"*" + portSuffix, "0.0.0.0" + portSuffix, "[::]" + portSuffix, "::" + portSuffix} {
-		if strings.Contains(name, strings.ToLower(token)) {
-			return true
-		}
-	}
-	for _, addr := range configured {
-		if strings.TrimSpace(addr) == "0.0.0.0"+portSuffix || strings.TrimSpace(addr) == "[::]"+portSuffix {
-			return true
-		}
-	}
-	return false
-}
-
-func deployIPStrings(ips []net.IP) []string {
-	out := make([]string, 0, len(ips))
-	for _, ip := range ips {
-		if ip == nil {
-			continue
-		}
-		out = append(out, ip.String())
-	}
-	sort.Strings(out)
-	return out
-}
-
-func deployIPsContain(ips []net.IP, want string) bool {
-	parsed := net.ParseIP(strings.TrimSpace(want))
-	if parsed == nil {
-		return false
-	}
-	for _, ip := range ips {
-		if ip.Equal(parsed) {
-			return true
-		}
-	}
-	return false
-}
-
-func deployIPsAreCloudflareProxy(ips []net.IP) bool {
-	if len(ips) == 0 {
-		return false
-	}
-	// ponytail: static Cloudflare ranges; refresh from https://www.cloudflare.com/ips/ if they change.
-	cidrs := []string{
-		"173.245.48.0/20", "103.21.244.0/22", "103.22.200.0/22", "103.31.4.0/22",
-		"141.101.64.0/18", "108.162.192.0/18", "190.93.240.0/20", "188.114.96.0/20",
-		"197.234.240.0/22", "198.41.128.0/17", "162.158.0.0/15", "104.16.0.0/13",
-		"104.24.0.0/14", "172.64.0.0/13", "131.0.72.0/22", "2400:cb00::/32",
-		"2606:4700::/32", "2803:f800::/32", "2405:b500::/32", "2405:8100::/32",
-		"2a06:98c0::/29", "2c0f:f248::/32",
-	}
-	for _, ip := range ips {
-		if ip == nil {
-			return false
-		}
-		matched := false
-		for _, cidr := range cidrs {
-			_, network, err := net.ParseCIDR(cidr)
-			if err == nil && network.Contains(ip) {
-				matched = true
-				break
-			}
-		}
-		if !matched {
-			return false
-		}
-	}
-	return true
-}
-
-func deployIPIsCGNATHint(ip string) bool {
-	parsed := net.ParseIP(strings.TrimSpace(ip)).To4()
-	if parsed == nil {
-		return false
-	}
-	return parsed[0] == 100 && parsed[1] >= 64 && parsed[1] <= 127
-}
-
 func deployPreflightPublicPorts(paths localagent.Paths) error {
 	_ = paths
 	for _, port := range []int{80, 443} {
@@ -1669,7 +858,7 @@ func deployPreflightPublicPorts(paths localagent.Paths) error {
 		if err != nil {
 			return err
 		}
-		if !ok || listener.isSceneryHelper() {
+		if !ok || listener.IsSceneryHelper() {
 			continue
 		}
 		return fmt.Errorf("port %d is already in use by %s; stop it before running scenery deploy setup", port, listener.String())
@@ -1679,7 +868,7 @@ func deployPreflightPublicPorts(paths localagent.Paths) error {
 
 func deployRefreshEdgeAfterMutation(paths localagent.Paths) error {
 	helper := privilegedListenerStatus(paths)
-	if !helper.Installed || !deployHelperHasPublicBinding(helper.Listen) {
+	if !helper.Installed || !deploydiag.HelperHasPublicBinding(helper.Listen) {
 		return nil
 	}
 	state, err := localagent.LoadEdgeState(paths.EdgeStatePath)
@@ -1690,105 +879,6 @@ func deployRefreshEdgeAfterMutation(paths localagent.Paths) error {
 		return nil
 	}
 	return edgeReloadFromRegistry(paths, state)
-}
-
-func defaultDeployPortListener(port int) (deployPortListenerInfo, bool, error) {
-	out, err := exec.Command("lsof", "-nP", "-iTCP:"+strconv.Itoa(port), "-sTCP:LISTEN").CombinedOutput()
-	if err == nil {
-		if info, ok := parseDeployLsofPortListener(string(out), port); ok {
-			return deployHydratePortListenerCommand(info), true, nil
-		}
-	} else {
-		var execErr *exec.Error
-		if errors.As(err, &execErr) {
-			return deployPortListenerInfo{}, false, err
-		}
-	}
-
-	out, err = exec.Command("netstat", "-anv", "-p", "tcp").CombinedOutput()
-	if err != nil {
-		return deployPortListenerInfo{}, false, nil
-	}
-	if info, ok := parseDeployNetstatPortListener(string(out), port); ok {
-		return deployHydratePortListenerCommand(info), true, nil
-	}
-	return deployPortListenerInfo{}, false, nil
-}
-
-func parseDeployLsofPortListener(output string, port int) (deployPortListenerInfo, bool) {
-	for _, line := range strings.Split(output, "\n") {
-		fields := strings.Fields(line)
-		if len(fields) < 2 || fields[0] == "COMMAND" {
-			continue
-		}
-		pid, err := strconv.Atoi(fields[1])
-		if err != nil {
-			continue
-		}
-		info := deployPortListenerInfo{
-			Port:    port,
-			PID:     pid,
-			Command: fields[0],
-			Name:    fields[len(fields)-1],
-		}
-		if len(fields) > 8 {
-			info.Name = strings.Join(fields[8:], " ")
-		}
-		return info, true
-	}
-	return deployPortListenerInfo{}, false
-}
-
-func parseDeployNetstatPortListener(output string, port int) (deployPortListenerInfo, bool) {
-	portSuffix := "." + strconv.Itoa(port)
-	for _, line := range strings.Split(output, "\n") {
-		fields := strings.Fields(line)
-		if len(fields) < 6 || fields[0] == "Proto" || fields[5] != "LISTEN" || !strings.HasSuffix(fields[3], portSuffix) {
-			continue
-		}
-		for _, field := range fields {
-			name, rawPID, ok := strings.Cut(field, ":")
-			if !ok {
-				continue
-			}
-			pid, err := strconv.Atoi(rawPID)
-			if err != nil || pid <= 0 {
-				continue
-			}
-			return deployPortListenerInfo{
-				Port:    port,
-				PID:     pid,
-				Command: name,
-				Name:    fields[3],
-			}, true
-		}
-	}
-	return deployPortListenerInfo{}, false
-}
-
-func deployHydratePortListenerCommand(info deployPortListenerInfo) deployPortListenerInfo {
-	if info.PID > 0 {
-		if cmdline, err := exec.Command("ps", "-p", strconv.Itoa(info.PID), "-o", "command=").Output(); err == nil && strings.TrimSpace(string(cmdline)) != "" {
-			info.Command = strings.TrimSpace(string(cmdline))
-		}
-	}
-	return info
-}
-
-func (info deployPortListenerInfo) isSceneryHelper() bool {
-	command := strings.ToLower(info.Command)
-	return strings.Contains(command, "scenery-edge-helper") || strings.Contains(command, edgeHelperLabel)
-}
-
-func (info deployPortListenerInfo) String() string {
-	command := strings.TrimSpace(info.Command)
-	if command == "" {
-		command = "unknown process"
-	}
-	if info.PID > 0 {
-		return fmt.Sprintf("%s (pid %d)", command, info.PID)
-	}
-	return command
 }
 
 func deployPrivilegedHelperInstall(paths localagent.Paths, helperVersion string) error {
@@ -1867,20 +957,6 @@ func deployHelperInstallArgs(exe string, paths localagent.Paths, helperVersion s
 		"--router-addr", localagent.RouterAddrFromEnv(),
 	)
 	return args
-}
-
-func removeDeployResumeLaunchAgent() (bool, error) {
-	// Boot the job out before removing the plist so launchd never keeps a
-	// loaded job whose plist is gone.
-	_, _ = deployLaunchctlFunc("bootout", deployResumeLaunchAgentTarget())
-	err := os.Remove(deployResumeLaunchAgentPath())
-	if errors.Is(err, os.ErrNotExist) {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	return true, nil
 }
 
 func readyWord(ok bool) string {

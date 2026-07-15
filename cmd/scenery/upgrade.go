@@ -22,6 +22,7 @@ import (
 
 	localagent "scenery.sh/internal/agent"
 	appcfg "scenery.sh/internal/app"
+	"scenery.sh/internal/deploydiag"
 	"scenery.sh/internal/deployplan"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/evolution"
@@ -64,7 +65,7 @@ type upgradeResponse struct {
 	DryRun         bool                    `json:"dry_run"`
 	Reason         string                  `json:"reason,omitempty"`
 	Toolchain      *upgradeToolchainResult `json:"toolchain,omitempty"`
-	Deploy         *deployHelperDrift      `json:"deploy,omitempty"`
+	Deploy         *deploydiag.HelperDrift `json:"deploy,omitempty"`
 	Error          string                  `json:"error,omitempty"`
 }
 
@@ -302,7 +303,7 @@ func attachUpgradeDeployNotice(resp *upgradeResponse) {
 	resp.Deploy = upgradeDeployNoticeFunc(resp.TargetVersion)
 }
 
-func defaultUpgradeDeployNotice(targetVersion string) *deployHelperDrift {
+func defaultUpgradeDeployNotice(targetVersion string) *deploydiag.HelperDrift {
 	paths, err := localagent.DefaultPaths()
 	if err != nil {
 		return nil
@@ -311,7 +312,7 @@ func defaultUpgradeDeployNotice(targetVersion string) *deployHelperDrift {
 	if !helper.Installed {
 		return nil
 	}
-	drift := deployHelperDriftFor(helper, targetVersion)
+	drift := deploydiag.HelperDriftFor(deployDiagHelperStatus(helper), targetVersion)
 	if !drift.ActionRequired {
 		return nil
 	}

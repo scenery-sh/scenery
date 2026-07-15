@@ -13,6 +13,7 @@ import (
 	"time"
 
 	localagent "scenery.sh/internal/agent"
+	"scenery.sh/internal/deploydiag"
 )
 
 func stubDeployDiagnostics(t *testing.T, overrides func()) {
@@ -38,8 +39,8 @@ func stubDeployDiagnostics(t *testing.T, overrides func()) {
 	edgeTLSProbeFunc = func(addr, serverName string, timeout time.Duration) edgeTLSProbeResult {
 		return edgeTLSProbeResult{Outcome: edgeTLSProbeHandshakeOK}
 	}
-	deployPortListenerFunc = func(port int) (deployPortListenerInfo, bool, error) {
-		return deployPortListenerInfo{
+	deployPortListenerFunc = func(port int) (deploydiag.PortListenerInfo, bool, error) {
+		return deploydiag.PortListenerInfo{
 			Port:    port,
 			PID:     123,
 			Command: "/usr/local/libexec/scenery-edge-helper",
@@ -47,24 +48,24 @@ func stubDeployDiagnostics(t *testing.T, overrides func()) {
 		}, true, nil
 	}
 	deployLANIPFunc = func(ctx context.Context) (string, error) { return "192.168.1.20", nil }
-	deployHTTPProbeFunc = func(ctx context.Context, url string) deployHTTPProbeResult {
-		return deployHTTPProbeResult{OK: true, StatusCode: 200}
+	deployHTTPProbeFunc = func(ctx context.Context, url string) deploydiag.HTTPProbeResult {
+		return deploydiag.HTTPProbeResult{OK: true, StatusCode: 200}
 	}
 	deployPublicIPFunc = func(ctx context.Context) (string, error) { return "203.0.113.10", nil }
 	deployDNSLookupFunc = func(domain string) ([]net.IP, error) { return []net.IP{net.ParseIP("203.0.113.10")}, nil }
-	deployPowerStatusFunc = func(ctx context.Context) (deployPowerStatus, error) {
-		return deployPowerStatus{Supported: true, SleepMinutes: 0, Raw: "sleep 0"}, nil
+	deployPowerStatusFunc = func(ctx context.Context) (deploydiag.PowerStatus, error) {
+		return deploydiag.PowerStatus{Supported: true, SleepMinutes: 0, Raw: "sleep 0"}, nil
 	}
-	deployFirewallStatusFunc = func(ctx context.Context) (deployFirewallStatus, error) {
-		return deployFirewallStatus{Supported: true, Enabled: false, Raw: "Firewall is disabled"}, nil
+	deployFirewallStatusFunc = func(ctx context.Context) (deploydiag.FirewallStatus, error) {
+		return deploydiag.FirewallStatus{Supported: true, Enabled: false, Raw: "Firewall is disabled"}, nil
 	}
 	if overrides != nil {
 		overrides()
 	}
 }
 
-func deployChecksByID(checks []deployDiagnosticCheck) map[string]deployDiagnosticCheck {
-	out := map[string]deployDiagnosticCheck{}
+func deployChecksByID(checks []deploydiag.Check) map[string]deploydiag.Check {
+	out := map[string]deploydiag.Check{}
 	for _, check := range checks {
 		out[check.ID] = check
 	}
@@ -181,20 +182,20 @@ func TestDeployStatusDiagnosticsReportReachabilityDNSPowerAndFirewall(t *testing
 	home := t.TempDir()
 	t.Setenv("SCENERY_AGENT_HOME", home)
 	stubDeployDiagnostics(t, func() {
-		deployHTTPProbeFunc = func(ctx context.Context, url string) deployHTTPProbeResult {
+		deployHTTPProbeFunc = func(ctx context.Context, url string) deploydiag.HTTPProbeResult {
 			if strings.Contains(url, "192.168.1.20") {
-				return deployHTTPProbeResult{OK: true, StatusCode: 200}
+				return deploydiag.HTTPProbeResult{OK: true, StatusCode: 200}
 			}
-			return deployHTTPProbeResult{Error: "connection refused"}
+			return deploydiag.HTTPProbeResult{Error: "connection refused"}
 		}
 		deployDNSLookupFunc = func(domain string) ([]net.IP, error) {
 			return []net.IP{net.ParseIP("198.51.100.25")}, nil
 		}
-		deployPowerStatusFunc = func(ctx context.Context) (deployPowerStatus, error) {
-			return deployPowerStatus{Supported: true, SleepMinutes: 15, Raw: "sleep 15"}, nil
+		deployPowerStatusFunc = func(ctx context.Context) (deploydiag.PowerStatus, error) {
+			return deploydiag.PowerStatus{Supported: true, SleepMinutes: 15, Raw: "sleep 15"}, nil
 		}
-		deployFirewallStatusFunc = func(ctx context.Context) (deployFirewallStatus, error) {
-			return deployFirewallStatus{Supported: true, Enabled: true, Raw: "Firewall is enabled"}, nil
+		deployFirewallStatusFunc = func(ctx context.Context) (deploydiag.FirewallStatus, error) {
+			return deploydiag.FirewallStatus{Supported: true, Enabled: true, Raw: "Firewall is enabled"}, nil
 		}
 	})
 	paths, err := localagent.DefaultPaths()
@@ -236,136 +237,6 @@ func TestDeployStatusDiagnosticsReportReachabilityDNSPowerAndFirewall(t *testing
 	}
 	if !strings.Contains(checks["deploy.dns.onlv.dev"].SuggestedAction, "203.0.113.10") {
 		t.Fatalf("dns suggested action = %q", checks["deploy.dns.onlv.dev"].SuggestedAction)
-	}
-}
-
-func TestDeployTLSHandshakeDiagnosticsGateReadiness(t *testing.T) {
-	oldProbe := edgeTLSProbeFunc
-	t.Cleanup(func() { edgeTLSProbeFunc = oldProbe })
-
-	baseStatus := func() deployStatusResponse {
-		status := deployStatusResponse{HelperPublic: true}
-		status.PrivilegedListener.State = "running"
-		status.Edge.HTTPSListen = "127.0.0.1:19443"
-		status.Targets = []deployTargetStatus{
-			{Domain: "onlv.dev", Enabled: true},
-			{Domain: "off.dev", Enabled: false},
-		}
-		return status
-	}
-	probeFor := func(results map[string]edgeTLSProbeResult) {
-		edgeTLSProbeFunc = func(addr, serverName string, timeout time.Duration) edgeTLSProbeResult {
-			return results[addr]
-		}
-	}
-
-	// Healthy: the SNI handshake completes end to end through port 443.
-	probeFor(map[string]edgeTLSProbeResult{
-		"127.0.0.1:443": {Outcome: edgeTLSProbeHandshakeOK},
-	})
-	report := deployDiagnosticReport{}
-	addDeployTLSHandshakeDiagnostics(&report, baseStatus())
-	checks := deployChecksByID(report.Checks)
-	if check := checks["deploy.tls_handshake.onlv.dev"]; check.Status != "ok" {
-		t.Fatalf("healthy handshake check = %+v", check)
-	}
-	if _, probedDisabled := checks["deploy.tls_handshake.off.dev"]; probedDisabled {
-		t.Fatalf("disabled target was probed: %+v", report.Checks)
-	}
-
-	// The observed outage: port 443 accepts TCP, the helper drops before any
-	// TLS reply, and Caddy answers TLS directly. Status must go unhealthy
-	// with the exact repair command instead of staying green.
-	probeFor(map[string]edgeTLSProbeResult{
-		"127.0.0.1:443":   {Outcome: edgeTLSProbeDropped, Error: "EOF"},
-		"127.0.0.1:19443": {Outcome: edgeTLSProbeHandshakeOK},
-	})
-	report = deployDiagnosticReport{}
-	addDeployTLSHandshakeDiagnostics(&report, baseStatus())
-	check := deployChecksByID(report.Checks)["deploy.tls_handshake.onlv.dev"]
-	if check.Status != "error" || !strings.Contains(check.SuggestedAction, "deploy setup") {
-		t.Fatalf("dropped handshake check = %+v", check)
-	}
-
-	// Both drop: the Caddy origin is the problem, not the helper.
-	probeFor(map[string]edgeTLSProbeResult{
-		"127.0.0.1:443":   {Outcome: edgeTLSProbeDropped, Error: "EOF"},
-		"127.0.0.1:19443": {Outcome: edgeTLSProbeUnreachable, Error: "connection refused"},
-	})
-	report = deployDiagnosticReport{}
-	addDeployTLSHandshakeDiagnostics(&report, baseStatus())
-	check = deployChecksByID(report.Checks)["deploy.tls_handshake.onlv.dev"]
-	if check.Status != "warn" || strings.Contains(check.SuggestedAction, "deploy setup") {
-		t.Fatalf("origin-down handshake check = %+v", check)
-	}
-
-	// Forwarding works but the handshake fails (for example no certificate
-	// yet): warn toward certificate diagnostics.
-	probeFor(map[string]edgeTLSProbeResult{
-		"127.0.0.1:443": {Outcome: edgeTLSProbeForwarded, Error: "remote error: tls: internal error"},
-	})
-	report = deployDiagnosticReport{}
-	addDeployTLSHandshakeDiagnostics(&report, baseStatus())
-	check = deployChecksByID(report.Checks)["deploy.tls_handshake.onlv.dev"]
-	if check.Status != "warn" || !strings.Contains(check.SuggestedAction, "certificate") {
-		t.Fatalf("forwarded handshake check = %+v", check)
-	}
-
-	// Helper not running: the probe is skipped, never treated as healthy.
-	stopped := baseStatus()
-	stopped.PrivilegedListener.State = "stopped"
-	report = deployDiagnosticReport{}
-	addDeployTLSHandshakeDiagnostics(&report, stopped)
-	if check := deployChecksByID(report.Checks)["deploy.tls_handshake"]; check.Status != "skipped" {
-		t.Fatalf("stopped helper handshake check = %+v", check)
-	}
-}
-
-func TestDeployDNSDiagnosticsAllowsCloudflareProxy(t *testing.T) {
-	oldDNS := deployDNSLookupFunc
-	t.Cleanup(func() { deployDNSLookupFunc = oldDNS })
-	deployDNSLookupFunc = func(domain string) ([]net.IP, error) {
-		return []net.IP{
-			net.ParseIP("104.21.1.153"),
-			net.ParseIP("172.67.129.115"),
-			net.ParseIP("2606:4700:3030::6815:199"),
-		}, nil
-	}
-	report := deployDiagnosticReport{PublicIP: "217.112.163.198"}
-	addDeployDNSDiagnostics(&report, localagent.DeployRegistry{
-		Targets: []localagent.DeployTarget{{
-			Domain:  "local.clean.tech",
-			AppRoot: t.TempDir(),
-			Enabled: true,
-		}},
-	})
-	check := deployChecksByID(report.Checks)["deploy.dns.local.clean.tech"]
-	if check.Status != "ok" || !strings.Contains(check.Message, "Cloudflare proxy IPs") {
-		t.Fatalf("cloudflare DNS check = %+v", check)
-	}
-	if check.Observed["cloudflare_proxy"] != true {
-		t.Fatalf("cloudflare proxy observation = %+v", check.Observed)
-	}
-}
-
-func TestParseDeployNetstatPortListenerDualStack(t *testing.T) {
-	t.Parallel()
-
-	output := `tcp46      0      0  *.443                  *.*                    LISTEN                 0            0  131072  131072 scenery-edge-hel:10536  00180 00000006 000000000066c994 00000000 00000800      1      0 000000`
-	info, ok := parseDeployNetstatPortListener(output, 443)
-	if !ok || info.PID != 10536 || info.Command != "scenery-edge-hel" || info.Name != "*.443" {
-		t.Fatalf("netstat listener = %+v, %v", info, ok)
-	}
-}
-
-func TestDeployRawIPHTTPSNeedsSNISkipsTLSInternalError(t *testing.T) {
-	t.Parallel()
-
-	if !deployRawIPHTTPSNeedsSNI("https://217.112.163.198/", "remote error: tls: internal error") {
-		t.Fatal("expected raw-IP HTTPS TLS internal error to be skipped")
-	}
-	if deployRawIPHTTPSNeedsSNI("https://local.clean.tech/", "remote error: tls: internal error") {
-		t.Fatal("domain HTTPS errors should not be skipped")
 	}
 }
 
@@ -556,8 +427,8 @@ func TestDeployResumeStartsMissingTargetsAndSkipsLiveSessions(t *testing.T) {
 	// The installed helper predates the current handoff contract: resume
 	// cannot sudo, so it must surface the drift instead of reporting a
 	// quietly broken edge.
-	deployHelperDriftStatusFunc = func(paths localagent.Paths) deployHelperDrift {
-		return deployHelperDrift{
+	deployHelperDriftStatusFunc = func(paths localagent.Paths) deploydiag.HelperDrift {
+		return deploydiag.HelperDrift{
 			HelperInstalled:  true,
 			ActionRequired:   true,
 			HelperContract:   "",
@@ -657,19 +528,19 @@ func TestDeployPreflightRejectsNonSceneryPortListener(t *testing.T) {
 	oldListener := deployPortListenerFunc
 	t.Cleanup(func() { deployPortListenerFunc = oldListener })
 	paths := localagent.PathsForHome(t.TempDir())
-	deployPortListenerFunc = func(port int) (deployPortListenerInfo, bool, error) {
+	deployPortListenerFunc = func(port int) (deploydiag.PortListenerInfo, bool, error) {
 		if port == 80 {
-			return deployPortListenerInfo{Port: port, PID: 123, Command: "/usr/sbin/httpd"}, true, nil
+			return deploydiag.PortListenerInfo{Port: port, PID: 123, Command: "/usr/sbin/httpd"}, true, nil
 		}
-		return deployPortListenerInfo{}, false, nil
+		return deploydiag.PortListenerInfo{}, false, nil
 	}
 	err := deployPreflightPublicPorts(paths)
 	if err == nil || !strings.Contains(err.Error(), "port 80 is already in use") {
 		t.Fatalf("preflight err = %v", err)
 	}
 
-	deployPortListenerFunc = func(port int) (deployPortListenerInfo, bool, error) {
-		return deployPortListenerInfo{Port: port, PID: 456, Command: "/usr/local/libexec/scenery-edge-helper"}, true, nil
+	deployPortListenerFunc = func(port int) (deploydiag.PortListenerInfo, bool, error) {
+		return deploydiag.PortListenerInfo{Port: port, PID: 456, Command: "/usr/local/libexec/scenery-edge-helper"}, true, nil
 	}
 	if err := deployPreflightPublicPorts(paths); err != nil {
 		t.Fatalf("preflight should allow existing Scenery helper: %v", err)
