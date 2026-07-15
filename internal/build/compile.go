@@ -128,7 +128,7 @@ func runGoBuildContext(ctx context.Context, result *Result) error {
 	if err := os.Remove(result.Binary); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove stale build output %s: %w", result.Binary, err)
 	}
-	return runGoContextWithEnvironment(ctx, result.Dir, result.GoEnvironment, goBuildArgs(result.Binary, result.GoBuildFlags)...)
+	return runGoContextWithEnvironment(ctx, result.Dir, result.GoEnvironment, goBuildArgs(result.Binary, effectiveGoBuildFlags(result))...)
 }
 
 func goBuildNeedsWorkspaceTidy(err error) bool {

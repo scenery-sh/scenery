@@ -31,11 +31,15 @@ type Result struct {
 	ReuseCompiled             bool
 	Ephemeral                 bool
 	GoBuildFlags              []string
-	GoEnvironment             []string
-	Contract                  *compiler.Result
-	Target                    *compiler.GoBuildTarget
-	BuildInput                *BuildInputManifest
-	ImplementationRevisions   map[string]string
+	// RuntimeLinkerMetadata holds the -X linker values injected at go build
+	// time. It stays out of GoBuildFlags so persisted build state keeps only
+	// the configured flags and warm-start cache comparison remains stable.
+	RuntimeLinkerMetadata   map[string]string
+	GoEnvironment           []string
+	Contract                *compiler.Result
+	Target                  *compiler.GoBuildTarget
+	BuildInput              *BuildInputManifest
+	ImplementationRevisions map[string]string
 }
 
 // SourceStamp records the size/mtime/permissions of an app source file as

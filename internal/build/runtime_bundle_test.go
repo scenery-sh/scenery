@@ -3,6 +3,7 @@ package build
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"net"
 	"net/http"
 	"os"
@@ -43,11 +44,35 @@ func TestPrepareAndCompileNativeContractApplication(t *testing.T) {
 			t.Fatalf("generated main missing %q:\n%s", fragment, mainSource)
 		}
 	}
+	result.GraphFingerprint = "graph-fingerprint-test"
+	result.Metadata = json.RawMessage(`{"app":"nativeapp"}`)
+	result.APIEncoding = json.RawMessage(`{"services":[]}`)
 	if err := Compile(result); err != nil {
 		t.Fatalf("compile native app: %v", err)
 	}
 	if _, err := os.Stat(result.Binary); err != nil {
 		t.Fatalf("native app binary missing: %v", err)
+	}
+	if len(result.GoBuildFlags) != 0 {
+		t.Fatalf("compile mutated configured go build flags: %v", result.GoBuildFlags)
+	}
+	if len(result.RuntimeLinkerMetadata) == 0 {
+		t.Fatal("compile did not record runtime linker metadata")
+	}
+	cached, ok, err := LoadCachedGraph(appRoot, appcfg.Config{Name: "nativeapp"}, "graph-fingerprint-test")
+	if err != nil {
+		t.Fatalf("load cached graph after compile: %v", err)
+	}
+	if !ok || cached == nil {
+		t.Fatal("cached graph is not reusable immediately after compile; warm restarts would rebuild from scratch")
+	}
+	if !cached.Result.ReuseCompiled {
+		if reused, refreshErr := RefreshCachedWorkspace(appRoot, cached.Result); refreshErr != nil || !reused {
+			t.Fatalf("refresh cached workspace after compile: reused=%v err=%v", reused, refreshErr)
+		}
+		if !cached.Result.ReuseCompiled {
+			t.Fatal("refreshed cached workspace does not reuse the compiled binary")
+		}
 	}
 	bundle, err := ReadRuntimeBundle(appRoot, "development")
 	if err != nil {

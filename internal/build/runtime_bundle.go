@@ -51,13 +51,23 @@ func prepareRuntimeBundle(ctx context.Context, result *Result) error {
 	}
 	result.BuildInput = manifest
 	result.ImplementationRevisions = revisions
-	result.GoBuildFlags = withRuntimeBundleLinkerMetadata(result.GoBuildFlags, map[string]string{
+	result.RuntimeLinkerMetadata = map[string]string{
 		"scenery.sh/runtime.linkedContractRevision":       result.Contract.Manifest.ContractRevision,
 		"scenery.sh/runtime.linkedImplementationRevision": implementationRevision,
 		"scenery.sh/runtime.linkedBuildInputDigest":       manifest.Digest,
 		"scenery.sh/runtime.linkedGoTarget":               result.Target.Name,
-	})
+	}
 	return nil
+}
+
+// effectiveGoBuildFlags merges the configured build flags with the runtime
+// linker metadata for the actual go build invocation. Persisted build state
+// and cache comparisons use only result.GoBuildFlags.
+func effectiveGoBuildFlags(result *Result) []string {
+	if len(result.RuntimeLinkerMetadata) == 0 {
+		return result.GoBuildFlags
+	}
+	return withRuntimeBundleLinkerMetadata(result.GoBuildFlags, result.RuntimeLinkerMetadata)
 }
 
 func writeRuntimeBundle(result *Result) error {
