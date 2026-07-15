@@ -19,6 +19,18 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0118-runtime-infra-consolidation.md",
+      "title": "Runtime Infrastructure Consolidation and CLI Logic Extraction",
+      "owner": "scenery runtime",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-07-15",
+      "review_after": "2026-08-14",
+      "summary": "Active ExecPlan landing audit findings in one campaign: shared postgresdb.Migrate advisory-lock primitive fixing symphony migration serialization, agent registry marshal-error propagation, devdash coalesced high-frequency persistence, internal/atomicfile and internal/netprobe kernels replacing hand-rolled copies, a generate-time resourceIndex removing quadratic resource rescans, and extraction of edge/deploy/doctor/victoria/symphony/validate business logic from cmd/scenery into internal packages.",
+      "tags": ["plans", "execplans", "runtime", "refactor", "postgres", "atomicfile", "netprobe", "generate", "cli"]
+    },
+    {
       "path": "docs/plans/0117-public-dev-domain-exposure.md",
       "title": "Public Dev Domain: Dash Hosts, Exposure Config, Frontend Serve Modes",
       "owner": "scenery runtime / agent DX",

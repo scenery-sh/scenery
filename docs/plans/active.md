@@ -7,6 +7,11 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
+- [0118 Runtime Infrastructure Consolidation and CLI Logic Extraction](0118-runtime-infra-consolidation.md)
+  - Status: active
+  - Owner: scenery runtime
+  - Created: 2026-07-15
+  - Focus: one campaign landing audit findings — Postgres migration locking via shared `postgresdb.Migrate`, registry marshal-error propagation, devdash coalesced persistence, `internal/atomicfile` and `internal/netprobe` kernels, a generate-time `resourceIndex` removing quadratic resource rescans, and extraction of edge/deploy/doctor/victoria/symphony/validate business logic from `cmd/scenery` into internal packages.
 - [0117 Public Dev Domain: Dash Hosts, Exposure Config, Frontend Serve Modes](0117-public-dev-domain-exposure.md)
   - Status: active
   - Owner: scenery runtime / agent DX
