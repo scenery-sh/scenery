@@ -15,6 +15,7 @@ import (
 	"testing/fstest"
 	"time"
 
+	dashboardstatic "scenery.sh/cmd/scenery/dashboard_static"
 	"scenery.sh/internal/devdash"
 	"scenery.sh/internal/victoria"
 )
@@ -70,16 +71,23 @@ func TestDashboardFallbackWhenUIDirMissing(t *testing.T) {
 	}
 }
 
-func TestDashboardServesEmbeddedUIAssets(t *testing.T) {
+// stubEmbeddedDashboardAssets swaps the embedded dashboard bundle for a fake
+// so tests pass on fresh checkouts where dashboard_static/dist holds only the
+// tracked placeholder. Callers must not use t.Parallel: the seam is a package
+// global shared with every other test reading the bundle.
+func stubEmbeddedDashboardAssets(t *testing.T, fsys fs.FS) {
+	t.Helper()
 	old := embeddedDashboardAssetFS
-	embeddedDashboardAssetFS = func() fs.FS {
-		return fstest.MapFS{
-			"index.html":    {Data: []byte(`<!doctype html><html><body>embedded __APP_ID__</body></html>`)},
-			"assets/app.js": {Data: []byte(`console.log("embedded-dashboard")`)},
-		}
-	}
+	embeddedDashboardAssetFS = func() fs.FS { return fsys }
 	t.Cleanup(func() {
 		embeddedDashboardAssetFS = old
+	})
+}
+
+func TestDashboardServesEmbeddedUIAssets(t *testing.T) {
+	stubEmbeddedDashboardAssets(t, fstest.MapFS{
+		"index.html":    {Data: []byte(`<!doctype html><html><body>embedded __APP_ID__</body></html>`)},
+		"assets/app.js": {Data: []byte(`console.log("embedded-dashboard")`)},
 	})
 
 	server := newTestDashboardServer(t)
@@ -106,7 +114,9 @@ func TestDashboardServesEmbeddedUIAssets(t *testing.T) {
 }
 
 func TestDashboardResponsesIncludeBundleIdentity(t *testing.T) {
-	t.Parallel()
+	stubEmbeddedDashboardAssets(t, fstest.MapFS{
+		"index.html": {Data: []byte(`<!doctype html><html><head></head><body>bundle</body></html>`)},
+	})
 
 	server := newTestDashboardServer(t)
 	server.assets = fstest.MapFS{
@@ -125,6 +135,21 @@ func TestDashboardResponsesIncludeBundleIdentity(t *testing.T) {
 	}
 	if body := rec.Body.String(); !strings.Contains(body, `name="scenery-dashboard-bundle-hash" content="`+hash+`"`) {
 		t.Fatalf("missing dashboard bundle meta tag: %s", body)
+	}
+}
+
+func TestDashboardRealEmbeddedBundleHasIdentity(t *testing.T) {
+	t.Parallel()
+
+	if dashboardstatic.FS() == nil {
+		t.Skip("no real dashboard bundle embedded in this checkout; run ./scripts/build-dashboard-ui-embed.sh to cover the real-bundle path")
+	}
+	hash, err := dashboardBundleHash(dashboardstatic.FS())
+	if err != nil {
+		t.Fatalf("hash real embedded bundle: %v", err)
+	}
+	if hash == "" {
+		t.Fatal("real embedded bundle produced an empty hash")
 	}
 }
 

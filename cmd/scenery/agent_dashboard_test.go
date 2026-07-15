@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	localagent "scenery.sh/internal/agent"
@@ -76,7 +77,9 @@ func TestAppRecordStatusUsesStoredSessionHealth(t *testing.T) {
 }
 
 func TestAppRecordStatusIncludesDashboardBundleJSON(t *testing.T) {
-	t.Parallel()
+	stubEmbeddedDashboardAssets(t, fstest.MapFS{
+		"index.html": {Data: []byte(`<!doctype html><html><head></head><body>bundle</body></html>`)},
+	})
 
 	status := appRecordStatus(devdash.AppRecord{
 		ID:        "demo",
