@@ -2,11 +2,18 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
 	authdb "scenery.sh/auth/db/gen"
 )
+
+// errRefreshReplay signals that a replayed refresh token was detected and the
+// session family was revoked on the caller's transaction. The caller must
+// commit that revocation before rejecting the request, otherwise the revoke is
+// rolled back and the stolen session stays alive.
+var errRefreshReplay = errors.New("refresh session replay detected")
 
 type EmailVerificationConfirmParams struct {
 	Token string `json:"token"`
@@ -293,6 +300,14 @@ func (s *Service) Refresh(ctx context.Context, params *RefreshParams) (*AuthSess
 
 	session, rawToken, err := s.rotateRefreshSession(ctx, q, rawRefreshToken)
 	if err != nil {
+		if errors.Is(err, errRefreshReplay) {
+			// Persist the replay revocation instead of discarding it with the
+			// deferred rollback; the request is still rejected afterward.
+			if commitErr := tx.Commit(); commitErr != nil {
+				return nil, commitErr
+			}
+			return nil, unauthenticated("refresh session is invalid")
+		}
 		return nil, err
 	}
 	user, err := q.GetUserByID(ctx, session.UserID)
@@ -535,11 +550,13 @@ func (s *Service) rotateRefreshSession(ctx context.Context, q authdb.Querier, ra
 		session.PreviousTokenExpiresAt.Valid &&
 		session.PreviousTokenExpiresAt.Time.After(now)
 	if !matchesCurrent && !matchesPrevious {
-		_ = q.RevokeRefreshSession(ctx, authdb.RevokeRefreshSessionParams{
+		if err := q.RevokeRefreshSession(ctx, authdb.RevokeRefreshSessionParams{
 			ID:            session.ID,
 			RevokedReason: "refresh_replay",
-		})
-		return authdb.SceneryAuthRefreshSession{}, "", unauthenticated("refresh session is invalid")
+		}); err != nil {
+			return authdb.SceneryAuthRefreshSession{}, "", err
+		}
+		return authdb.SceneryAuthRefreshSession{}, "", errRefreshReplay
 	}
 
 	nextRawToken, err := newRefreshToken(session.ID)

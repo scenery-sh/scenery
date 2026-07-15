@@ -20,6 +20,11 @@ import (
 	"scenery.sh/errs"
 )
 
+// googleHTTPClient bounds every outbound Google OAuth call so a hung endpoint
+// cannot pin a request goroutine — or, for the token refresh path, a FOR UPDATE
+// row lock and its database connection — indefinitely.
+var googleHTTPClient = &http.Client{Timeout: googleHTTPTimeout}
+
 var (
 	googleAuthEndpoint   = "https://accounts.google.com/o/oauth2/v2/auth"
 	googleTokenEndpoint  = "https://oauth2.googleapis.com/token"
@@ -183,7 +188,7 @@ func exchangeGoogleCode(ctx context.Context, code string, verifier string, redir
 		return googleTokenResponse{}, err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := googleHTTPClient.Do(req)
 	if err != nil {
 		return googleTokenResponse{}, err
 	}
@@ -291,7 +296,7 @@ func fetchGoogleKeys(ctx context.Context) (map[string]*rsa.PublicKey, error) {
 	if err != nil {
 		return nil, err
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := googleHTTPClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
