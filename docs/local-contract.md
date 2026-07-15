@@ -718,6 +718,7 @@ scenery inspect harness timing --top 10 -o json
 - focused artifact output reads known `.scenery/harness/*-latest.json` files by name (`self-harness`, `self-summary`, `toolchain`, `changed-area`, `drift`, `test-timing`, `fixture-matrix`, `schema-validation`, `agent-context`)
 - diagnostics output caps returned diagnostics at 50 and supports `--severity error|warning`
 - timing output reads `.scenery/harness/test-timing-latest.json`, sorts slow packages/tests by duration, and caps both lists with `--top`
+- a missing named artifact file (including the timing artifact) is `failed_precondition` (`SCN8003`, exit 3) pointing at `scenery harness self --summary --write`; an unknown artifact name is `invalid_request` (`SCN8001`, exit 2), never an internal `SCN9000`
 - manifest output reads latest harness outputs when present and returns their normalized `artifacts` and `evidence` arrays
 - evidence records use `scenery.harness.artifact` and include `command`, `cwd`, `started_at`, `duration_ms`, `exit_code`, output tails, artifact references, and `repro_command`
 

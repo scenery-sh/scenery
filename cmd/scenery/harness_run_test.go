@@ -370,3 +370,33 @@ func TestInspectHarnessFocusedCommands(t *testing.T) {
 		t.Fatalf("timing response = %+v", timingResp)
 	}
 }
+
+func TestInspectHarnessFocusedMissingArtifact(t *testing.T) {
+	t.Parallel()
+
+	root := writeHarnessSelfRepo(t, `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object"}`)
+
+	var timingOut bytes.Buffer
+	err := runSceneryInspect([]string{"harness", "timing", "--top", "1", "--repo-root", root, "-o", "json"}, &timingOut)
+	if err == nil {
+		t.Fatal("expected missing test-timing artifact error")
+	}
+	if !strings.HasPrefix(err.Error(), "failed_precondition:") || !strings.Contains(err.Error(), "test-timing") {
+		t.Fatalf("timing error = %v", err)
+	}
+	if code := cliExitCode(err); code != 3 {
+		t.Fatalf("timing exit code = %d, want 3", code)
+	}
+
+	var artifactOut bytes.Buffer
+	err = runSceneryInspect([]string{"harness", "artifact", "nope", "--repo-root", root, "-o", "json"}, &artifactOut)
+	if err == nil {
+		t.Fatal("expected unknown artifact error")
+	}
+	if !strings.HasPrefix(err.Error(), "invalid_request:") {
+		t.Fatalf("artifact error = %v", err)
+	}
+	if code := cliExitCode(err); code != 2 {
+		t.Fatalf("artifact exit code = %d, want 2", code)
+	}
+}
