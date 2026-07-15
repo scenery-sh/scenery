@@ -16,6 +16,7 @@ import (
 	"time"
 
 	localagent "scenery.sh/internal/agent"
+	edgelifecycle "scenery.sh/internal/edge"
 )
 
 // The privileged helper is a security boundary shared across scenery
@@ -469,7 +470,7 @@ func edgeHelperPlist(opts edgeHelperOptions) string {
 	)
 	var argLines strings.Builder
 	for _, arg := range args {
-		fmt.Fprintf(&argLines, "\t\t<string>%s</string>\n", escapePlistString(arg))
+		fmt.Fprintf(&argLines, "\t\t<string>%s</string>\n", edgelifecycle.EscapePlistString(arg))
 	}
 	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -491,5 +492,5 @@ func edgeHelperPlist(opts edgeHelperOptions) string {
 	<string>%s</string>
 </dict>
 </plist>
-`, escapePlistString(edgeHelperLabel), strings.TrimRight(argLines.String(), "\n"), escapePlistString(edgeHelperLogPath), escapePlistString(edgeHelperLogPath))
+`, edgelifecycle.EscapePlistString(edgeHelperLabel), strings.TrimRight(argLines.String(), "\n"), edgelifecycle.EscapePlistString(edgeHelperLogPath), edgelifecycle.EscapePlistString(edgeHelperLogPath))
 }

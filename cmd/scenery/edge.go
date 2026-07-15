@@ -4,17 +4,12 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
-	"encoding/xml"
-	"errors"
 	"fmt"
-	"io"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -23,7 +18,7 @@ import (
 	localagent "scenery.sh/internal/agent"
 	edgelifecycle "scenery.sh/internal/edge"
 	"scenery.sh/internal/envpolicy"
-	"scenery.sh/internal/machine"
+	"scenery.sh/internal/netprobe"
 	"scenery.sh/internal/toolchain"
 )
 
@@ -49,12 +44,11 @@ const (
 var caddyStartupSettle = 1500 * time.Millisecond
 
 var (
-	edgeDNSResolverStatusFunc        = edgeDNSResolverStatus
-	edgeDNSResolverServesDomainFunc  = edgeDNSResolverServesDomain
-	edgeDNSResolverFunctionalTimeout = 300 * time.Millisecond
-	edgeHelperLaunchStatusFunc       = edgeHelperLaunchStatus
-	edgeHelperPlistOptionsFunc       = installedEdgeHelperOptions
-	reloadCaddyEdgeConfigFunc        = reloadCaddyEdgeConfig
+	edgeDNSResolverStatusFunc       = edgelifecycle.DNSResolverStatus
+	edgeDNSResolverServesDomainFunc = edgelifecycle.DNSResolverServesDomain
+	edgeHelperLaunchStatusFunc      = edgeHelperLaunchStatus
+	edgeHelperPlistOptionsFunc      = installedEdgeHelperOptions
+	reloadCaddyEdgeConfigFunc       = reloadCaddyEdgeConfig
 )
 
 type edgeOptions struct {
@@ -173,7 +167,7 @@ func edgeRestart(opts edgeOptions) error {
 	}
 	upstreamAddr := localagent.RouterAddrFromEnv()
 	adminSocket := filepath.Join(paths.RunDir, "caddy-admin.sock")
-	config, err := caddyEdgeConfigForRegistry(paths, targetAddr, httpTargetAddr, upstreamAddr, adminSocket, token)
+	config, err := edgelifecycle.CaddyConfigForRegistry(paths, targetAddr, httpTargetAddr, upstreamAddr, adminSocket, token)
 	if err != nil {
 		return err
 	}
@@ -372,29 +366,14 @@ func edgeUninstall(opts edgeOptions) error {
 	return nil
 }
 
-type edgeDNSState struct {
-	machine.ArtifactIdentity
-	Status       string    `json:"status"`
-	PID          int       `json:"pid,omitempty"`
-	Domain       string    `json:"domain"`
-	Listen       string    `json:"listen"`
-	Address      string    `json:"address"`
-	Executable   string    `json:"executable,omitempty"`
-	ConfigPath   string    `json:"config_path,omitempty"`
-	LogPath      string    `json:"log_path,omitempty"`
-	ResolverPath string    `json:"resolver_path,omitempty"`
-	Error        string    `json:"error,omitempty"`
-	UpdatedAt    time.Time `json:"updated_at"`
-}
-
 type edgeDNSStatusResult struct {
 	cliPayloadIdentity
-	Ready          bool                 `json:"ready"`
-	Domain         string               `json:"domain"`
-	Address        string               `json:"address"`
-	DNSMasq        edgeDNSMasqStatus    `json:"dnsmasq"`
-	Resolver       edgeDNSResolverState `json:"resolver"`
-	InstallCommand string               `json:"install_command"`
+	Ready          bool                           `json:"ready"`
+	Domain         string                         `json:"domain"`
+	Address        string                         `json:"address"`
+	DNSMasq        edgeDNSMasqStatus              `json:"dnsmasq"`
+	Resolver       edgelifecycle.DNSResolverState `json:"resolver"`
+	InstallCommand string                         `json:"install_command"`
 }
 
 type edgeDNSMasqStatus struct {
@@ -405,16 +384,6 @@ type edgeDNSMasqStatus struct {
 	ConfigPath string `json:"config_path,omitempty"`
 	LogPath    string `json:"log_path,omitempty"`
 	Error      string `json:"error,omitempty"`
-}
-
-type edgeDNSResolverState struct {
-	Installed  bool   `json:"installed"`
-	State      string `json:"state"`
-	Path       string `json:"path,omitempty"`
-	Domain     string `json:"domain,omitempty"`
-	Nameserver string `json:"nameserver,omitempty"`
-	Port       string `json:"port,omitempty"`
-	Message    string `json:"message,omitempty"`
 }
 
 func edgeDNSInstall(opts edgeOptions) error {
@@ -436,14 +405,14 @@ func edgeDNSInstall(opts edgeOptions) error {
 	if err := stopEdgeDNS(paths, 2*time.Second); err != nil {
 		return err
 	}
-	configPath := edgeDNSConfigPath(paths)
-	logPath := edgeDNSLogPath(paths)
-	domains := edgeDNSConfigDomains(opts.Domain)
-	if err := os.WriteFile(configPath, []byte(dnsmasqEdgeConfig(domains, defaultEdgeDNSListen, defaultEdgeDNSAddress)), 0o600); err != nil {
+	configPath := edgelifecycle.DNSConfigPath(paths)
+	logPath := edgelifecycle.DNSLogPath(paths)
+	domains := edgelifecycle.DNSConfigDomains(opts.Domain)
+	if err := os.WriteFile(configPath, []byte(edgelifecycle.DNSMasqConfig(domains, defaultEdgeDNSListen, defaultEdgeDNSAddress)), 0o600); err != nil {
 		return err
 	}
 	if err := startEdgeDNS(dnsmasqBin, paths, opts.Domain, defaultEdgeDNSListen, defaultEdgeDNSAddress); err != nil {
-		_ = writeEdgeDNSState(paths, edgeDNSState{
+		_ = edgelifecycle.WriteDNSState(paths, edgelifecycle.DNSState{
 			Status:       "stopped",
 			Domain:       opts.Domain,
 			Listen:       defaultEdgeDNSListen,
@@ -451,7 +420,7 @@ func edgeDNSInstall(opts edgeOptions) error {
 			Executable:   dnsmasqBin,
 			ConfigPath:   configPath,
 			LogPath:      logPath,
-			ResolverPath: edgeDNSResolverPath(opts.Domain),
+			ResolverPath: edgelifecycle.DNSResolverPath(opts.Domain),
 			Error:        err.Error(),
 			UpdatedAt:    time.Now().UTC(),
 		})
@@ -506,7 +475,7 @@ func edgeDNSUninstall(opts edgeOptions) error {
 	if err := edgeDNSUninstallResolver(opts.Domain); err != nil {
 		return err
 	}
-	_ = os.Remove(edgeDNSStatePath(paths))
+	_ = os.Remove(edgelifecycle.DNSStatePath(paths))
 	if opts.JSON {
 		return edgeDNSStatus(edgeOptions{JSON: true, Domain: opts.Domain})
 	}
@@ -535,88 +504,14 @@ func resolveDNSMasqBinaryInStore(ctx context.Context, storeDir string, download 
 	return status.ManagedPath, nil
 }
 
-func dnsmasqEdgeConfig(domains []string, listen, address string) string {
-	host, port := splitHostPort(listen)
-	if host == "" {
-		host = "127.0.0.1"
-	}
-	if port == "" {
-		port = "53535"
-	}
-	domains = normalizeEdgeDNSDomains(domains)
-	if len(domains) == 0 {
-		domains = []string{defaultEdgeDNSDomain}
-	}
-	var b strings.Builder
-	fmt.Fprintf(&b, `no-daemon
-bind-interfaces
-listen-address=%s
-port=%s
-`, host, port)
-	for _, domain := range domains {
-		fmt.Fprintf(&b, "address=/%s/%s\n", domain, address)
-	}
-	b.WriteString(`domain-needed
-bogus-priv
-no-resolv
-`)
-	return b.String()
-}
-
-func edgeDNSConfigDomains(domain string) []string {
-	domains := []string{defaultEdgeDNSDomain, domain}
-	if runtime.GOOS == "darwin" {
-		domains = append(domains, managedEdgeDNSResolverDomains()...)
-	}
-	return normalizeEdgeDNSDomains(domains)
-}
-
-func managedEdgeDNSResolverDomains() []string {
-	entries, err := os.ReadDir("/etc/resolver")
-	if err != nil {
-		return nil
-	}
-	var domains []string
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		domain := normalizeRouteNamespaceHost(entry.Name())
-		if domain == "" {
-			continue
-		}
-		data, err := os.ReadFile(filepath.Join("/etc/resolver", entry.Name()))
-		if err != nil || !strings.Contains(string(data), "Managed by scenery edge dns") {
-			continue
-		}
-		domains = append(domains, domain)
-	}
-	return domains
-}
-
-func normalizeEdgeDNSDomains(domains []string) []string {
-	seen := map[string]bool{}
-	var out []string
-	for _, domain := range domains {
-		domain = normalizeRouteNamespaceHost(domain)
-		if domain == "" || seen[domain] {
-			continue
-		}
-		seen[domain] = true
-		out = append(out, domain)
-	}
-	sort.Strings(out)
-	return out
-}
-
 func startEdgeDNS(dnsmasqBin string, paths localagent.Paths, domain, listen, address string) error {
-	logPath := edgeDNSLogPath(paths)
+	logPath := edgelifecycle.DNSLogPath(paths)
 	logOffset := fileSize(logPath)
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return err
 	}
-	cmd := exec.Command(dnsmasqBin, "--keep-in-foreground", "--conf-file="+edgeDNSConfigPath(paths))
+	cmd := exec.Command(dnsmasqBin, "--keep-in-foreground", "--conf-file="+edgelifecycle.DNSConfigPath(paths))
 	cmd.Env = envpolicy.Environ()
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
@@ -635,16 +530,16 @@ func startEdgeDNS(dnsmasqBin string, paths localagent.Paths, domain, listen, add
 		_ = logFile.Close()
 		return err
 	}
-	if err := writeEdgeDNSState(paths, edgeDNSState{
+	if err := edgelifecycle.WriteDNSState(paths, edgelifecycle.DNSState{
 		Status:       "running",
 		PID:          cmd.Process.Pid,
 		Domain:       domain,
 		Listen:       listen,
 		Address:      address,
 		Executable:   dnsmasqBin,
-		ConfigPath:   edgeDNSConfigPath(paths),
+		ConfigPath:   edgelifecycle.DNSConfigPath(paths),
 		LogPath:      logPath,
-		ResolverPath: edgeDNSResolverPath(domain),
+		ResolverPath: edgelifecycle.DNSResolverPath(domain),
 		UpdatedAt:    time.Now().UTC(),
 	}); err != nil {
 		_ = signalPID(cmd.Process.Pid, syscall.SIGTERM)
@@ -692,7 +587,7 @@ func waitForEdgeDNSStartup(listen string, exitCh <-chan error, logPath string, l
 }
 
 func stopEdgeDNS(paths localagent.Paths, timeout time.Duration) error {
-	state, _ := loadEdgeDNSState(edgeDNSStatePath(paths))
+	state, _ := edgelifecycle.LoadDNSState(edgelifecycle.DNSStatePath(paths))
 	if state.PID <= 0 || !processAliveForEdge(state.PID) {
 		return nil
 	}
@@ -712,14 +607,14 @@ func edgeDNSStatusFor(paths localagent.Paths, domain string) edgeDNSStatusResult
 		domain = defaultEdgeDNSDomain
 	}
 	domain = normalizeRouteNamespaceHost(domain)
-	state, _ := loadEdgeDNSState(edgeDNSStatePath(paths))
+	state, _ := edgelifecycle.LoadDNSState(edgelifecycle.DNSStatePath(paths))
 	if state.Domain == "" {
 		state.Domain = domain
 		state.Listen = defaultEdgeDNSListen
 		state.Address = defaultEdgeDNSAddress
-		state.ConfigPath = edgeDNSConfigPath(paths)
-		state.LogPath = edgeDNSLogPath(paths)
-		state.ResolverPath = edgeDNSResolverPath(domain)
+		state.ConfigPath = edgelifecycle.DNSConfigPath(paths)
+		state.LogPath = edgelifecycle.DNSLogPath(paths)
+		state.ResolverPath = edgelifecycle.DNSResolverPath(domain)
 	}
 	dnsState := state.Status
 	if dnsState == "" {
@@ -728,7 +623,7 @@ func edgeDNSStatusFor(paths localagent.Paths, domain string) edgeDNSStatusResult
 	if state.PID <= 0 || !processAliveForEdge(state.PID) {
 		dnsState = "stopped"
 	}
-	configServesDomain := edgeDNSConfigServesDomain(state.ConfigPath, domain)
+	configServesDomain := edgelifecycle.DNSConfigServesDomain(state.ConfigPath, domain)
 	if dnsState == "running" && !configServesDomain {
 		dnsState = "mismatch"
 	}
@@ -742,7 +637,7 @@ func edgeDNSStatusFor(paths localagent.Paths, domain string) edgeDNSStatusResult
 		Ready:              (dnsState == "running" || dnsState == "external") && resolver.State == "installed" && configServesDomain,
 		Domain:             domain,
 		Address:            firstNonEmpty(state.Address, defaultEdgeDNSAddress),
-		InstallCommand:     edgeDNSInstallCommand(domain),
+		InstallCommand:     edgelifecycle.DNSInstallCommand(domain),
 	}
 	status.DNSMasq.State = dnsState
 	status.DNSMasq.PID = state.PID
@@ -756,102 +651,6 @@ func edgeDNSStatusFor(paths localagent.Paths, domain string) edgeDNSStatusResult
 	}
 	status.Resolver = resolver
 	return status
-}
-
-func edgeDNSResolverServesDomain(domain, nameserver, port, address string) bool {
-	domain = normalizeRouteNamespaceHost(domain)
-	if domain == "" || nameserver == "" || port == "" {
-		return false
-	}
-	target := net.JoinHostPort(nameserver, port)
-	resolver := net.Resolver{
-		PreferGo: true,
-		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-			dialer := net.Dialer{}
-			return dialer.DialContext(ctx, network, target)
-		},
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), edgeDNSResolverFunctionalTimeout)
-	defer cancel()
-	hosts, err := resolver.LookupHost(ctx, "scenery-edge-probe."+domain)
-	if err != nil {
-		return false
-	}
-	for _, host := range hosts {
-		if host == address {
-			return true
-		}
-	}
-	return false
-}
-
-func edgeDNSConfigServesDomain(path, domain string) bool {
-	domain = normalizeRouteNamespaceHost(domain)
-	if path == "" || domain == "" {
-		return false
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return false
-	}
-	needle := "address=/" + domain + "/"
-	for _, line := range strings.Split(string(data), "\n") {
-		if strings.HasPrefix(strings.TrimSpace(line), needle) {
-			return true
-		}
-	}
-	return false
-}
-
-func edgeDNSInstallCommand(domain string) string {
-	if domain == "" || domain == defaultEdgeDNSDomain {
-		return "scenery system edge dns install"
-	}
-	return "scenery system edge dns install --domain " + domain
-}
-
-func writeEdgeDNSState(paths localagent.Paths, state edgeDNSState) error {
-	state.ArtifactIdentity = machine.NewArtifactIdentity("scenery.edge.dns-state", edgeDNSStateDescriptor)
-	if state.UpdatedAt.IsZero() {
-		state.UpdatedAt = time.Now().UTC()
-	}
-	if err := os.MkdirAll(filepath.Dir(edgeDNSStatePath(paths)), 0o700); err != nil {
-		return err
-	}
-	data, err := json.MarshalIndent(state, "", "  ")
-	if err != nil {
-		return err
-	}
-	return atomicWriteFile(edgeDNSStatePath(paths), append(data, '\n'), 0o600)
-}
-
-func loadEdgeDNSState(path string) (edgeDNSState, error) {
-	var state edgeDNSState
-	if err := localagent.LoadDurableArtifact(path, &state, &state.ArtifactIdentity, "scenery.edge.dns-state", edgeDNSStateDescriptor, 0o600, func(fields map[string]json.RawMessage) error {
-		var version string
-		if err := json.Unmarshal(fields["schema_version"], &version); err != nil || version != "scenery.edge.dns.state.v1" {
-			return fmt.Errorf("unsupported legacy edge DNS state schema %q", version)
-		}
-		delete(fields, "schema_version")
-		return nil
-	}); err != nil {
-		return state, err
-	}
-	return state, nil
-}
-
-const edgeDNSStateDescriptor = `{"identity":"artifact","state":"edge-dns-resolver"}`
-
-func edgeDNSConfigPath(paths localagent.Paths) string {
-	return filepath.Join(paths.EdgeDir, "dnsmasq.conf")
-}
-
-func edgeDNSLogPath(paths localagent.Paths) string {
-	return filepath.Join(paths.EdgeDir, "dnsmasq.log")
-}
-
-func edgeDNSStatePath(paths localagent.Paths) string {
-	return filepath.Join(paths.RunDir, "edge-dns.json")
 }
 
 func edgeDNSInstallResolver(domain, listen string) error {
@@ -868,7 +667,7 @@ func edgeDNSInstallResolver(domain, listen string) error {
 	if port == "" {
 		port = "53535"
 	}
-	if edgeDNSResolverStatus(domain, net.JoinHostPort(host, port)).State == "installed" {
+	if edgelifecycle.DNSResolverStatus(domain, net.JoinHostPort(host, port)).State == "installed" {
 		return nil
 	}
 	exe, err := os.Executable()
@@ -898,65 +697,6 @@ func edgeDNSUninstallResolver(domain string) error {
 	run.Stderr = os.Stderr
 	run.Stdin = os.Stdin
 	return run.Run()
-}
-
-func edgeDNSResolverStatus(domain, listen string) edgeDNSResolverState {
-	status := edgeDNSResolverState{
-		State:  "unsupported",
-		Domain: domain,
-	}
-	if runtime.GOOS != "darwin" {
-		status.Message = "scoped resolver configuration is currently managed on macOS"
-		return status
-	}
-	status.Path = edgeDNSResolverPath(domain)
-	host, port := splitHostPort(listen)
-	if host == "" {
-		host = "127.0.0.1"
-	}
-	if port == "" {
-		port = "53535"
-	}
-	status.Nameserver = host
-	status.Port = port
-	data, err := os.ReadFile(status.Path)
-	if err != nil {
-		status.State = "missing"
-		status.Message = "run `scenery system edge dns install`"
-		return status
-	}
-	fields := parseResolverFile(string(data))
-	if fields["domain"] == domain && fields["nameserver"] == host && fields["port"] == port {
-		status.Installed = true
-		status.State = "installed"
-		return status
-	}
-	status.State = "mismatch"
-	status.Message = "resolver file exists but does not match scenery system edge dns"
-	return status
-}
-
-func parseResolverFile(data string) map[string]string {
-	fields := map[string]string{}
-	for _, line := range strings.Split(data, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		parts := strings.Fields(line)
-		if len(parts) >= 2 {
-			fields[parts[0]] = parts[1]
-		}
-	}
-	return fields
-}
-
-func edgeDNSResolverPath(domain string) string {
-	domain = normalizeRouteNamespaceHost(domain)
-	if domain == "" {
-		domain = defaultEdgeDNSDomain
-	}
-	return filepath.Join("/etc/resolver", domain)
 }
 
 type edgeDNSHelperOptions struct {
@@ -1021,8 +761,8 @@ func edgeDNSHelperInstall(opts edgeDNSHelperOptions) error {
 	if err := os.MkdirAll("/etc/resolver", 0o755); err != nil {
 		return err
 	}
-	content := edgeDNSResolverFile(opts.Domain, opts.Nameserver, opts.Port)
-	if err := os.WriteFile(edgeDNSResolverPath(opts.Domain), []byte(content), 0o644); err != nil {
+	content := edgelifecycle.DNSResolverFile(opts.Domain, opts.Nameserver, opts.Port)
+	if err := os.WriteFile(edgelifecycle.DNSResolverPath(opts.Domain), []byte(content), 0o644); err != nil {
 		return err
 	}
 	fmt.Fprintf(os.Stdout, "installed scenery resolver for %s\n", opts.Domain)
@@ -1036,7 +776,7 @@ func edgeDNSHelperUninstall(opts edgeDNSHelperOptions) error {
 	if os.Geteuid() != 0 {
 		return fmt.Errorf("scenery system edge dns-helper uninstall must run as root; use `scenery system edge dns uninstall`")
 	}
-	path := edgeDNSResolverPath(opts.Domain)
+	path := edgelifecycle.DNSResolverPath(opts.Domain)
 	data, err := os.ReadFile(path)
 	if err == nil && strings.Contains(string(data), "Managed by scenery edge dns") {
 		if err := os.Remove(path); err != nil {
@@ -1045,14 +785,6 @@ func edgeDNSHelperUninstall(opts edgeDNSHelperOptions) error {
 	}
 	fmt.Fprintf(os.Stdout, "removed scenery resolver for %s\n", opts.Domain)
 	return nil
-}
-
-func edgeDNSResolverFile(domain, nameserver, port string) string {
-	return fmt.Sprintf(`# Managed by scenery edge dns
-domain %s
-nameserver %s
-port %s
-`, domain, nameserver, port)
 }
 
 func writeEdgeStatusJSON(status edgeStatusResult) error {
@@ -1325,198 +1057,10 @@ func edgeAgentCommandMatches(command, socketPath, routerAddr string) bool {
 }
 
 func waitForTCPAddrFree(ctx context.Context, addr string) error {
-	ticker := time.NewTicker(50 * time.Millisecond)
-	defer ticker.Stop()
-	var lastErr error
-	for {
-		ln, err := net.Listen("tcp", addr)
-		if err == nil {
-			_ = ln.Close()
-			return nil
-		}
-		lastErr = err
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("timed out waiting for edge upstream %s to become available: %w", addr, lastErr)
-		case <-ticker.C:
-		}
+	if err := netprobe.WaitBindFree(ctx, addr, 50*time.Millisecond); err != nil {
+		return fmt.Errorf("timed out waiting for edge upstream %s to become available: %w", addr, err)
 	}
-}
-
-type caddyEdgeConfigOptions struct {
-	ListenAddr     string
-	PublicPort     string
-	Upstream       string
-	AskURL         string
-	AdminSocket    string
-	Token          string
-	PublicDomains  []publicDomainSite
-	ACMEEmail      string
-	ACMECA         string
-	StorageDir     string
-	HTTPListenPort string
-}
-
-type publicDomainSite struct {
-	Domain string
-}
-
-func caddyEdgeConfig(opts caddyEdgeConfigOptions) string {
-	host, listenPort := splitHostPort(opts.ListenAddr)
-	if host == "" {
-		host = "127.0.0.1"
-	}
-	if listenPort == "" {
-		listenPort = "19443"
-	}
-	publicPort := strings.TrimSpace(opts.PublicPort)
-	if publicPort == "" {
-		publicPort = "443"
-	}
-	httpPort := strings.TrimSpace(opts.HTTPListenPort)
-	if httpPort == "" {
-		httpPort = "19080"
-	}
-	site := "https://:" + listenPort
-	publicDomains := normalizedPublicDomainSites(opts.PublicDomains)
-	var b strings.Builder
-	fmt.Fprintf(&b, `{
-	default_bind %s
-	auto_https disable_redirects
-`, host)
-	if len(publicDomains) == 0 {
-		b.WriteString("	local_certs\n")
-	}
-	if opts.AskURL != "" {
-		fmt.Fprintf(&b, `	on_demand_tls {
-		ask %s
-	}
-`, opts.AskURL)
-	}
-	fmt.Fprintf(&b, "	admin unix//%s\n", opts.AdminSocket)
-	if storage := strings.TrimSpace(opts.StorageDir); storage != "" {
-		fmt.Fprintf(&b, "	storage file_system %s\n", storage)
-	}
-	if email := strings.TrimSpace(opts.ACMEEmail); email != "" {
-		fmt.Fprintf(&b, "	email %s\n", email)
-	}
-	if len(publicDomains) > 0 {
-		fmt.Fprintf(&b, "	http_port %s\n", httpPort)
-		fmt.Fprintf(&b, "	https_port %s\n", listenPort)
-	}
-	b.WriteString(`	servers {
-		strict_sni_host on
-	}
-}
-
-`)
-	// lb_try_duration bridges the agent router's supervised restart window:
-	// a refused upstream dial retries for a bounded time instead of exposing
-	// a raw 502 on the public edge.
-	fmt.Fprintf(&b, `%s {
-	tls internal {
-		on_demand
-	}
-	reverse_proxy %s {
-		flush_interval -1
-		lb_try_duration 5s
-		lb_try_interval 250ms
-		header_up Host {host}
-		header_up X-Forwarded-Proto https
-		header_up X-Forwarded-Port %s
-		header_up X-Scenery-Edge-Token %s
-	}
-}
-`, site, opts.Upstream, publicPort, opts.Token)
-	for _, site := range publicDomains {
-		fmt.Fprintf(&b, `
-%s:%s {
-	tls {
-		issuer acme%s
-	}
-	reverse_proxy %s {
-		flush_interval -1
-		lb_try_duration 5s
-		lb_try_interval 250ms
-		header_up Host {host}
-		header_up X-Forwarded-Proto https
-		header_up X-Forwarded-Port 443
-		header_up X-Scenery-Edge-Token %s
-		header_up X-Scenery-Public-Edge 1
-	}
-}
-
-http://%s:%s {
-	redir https://{host}{uri} 308
-}
-`, site.Domain, listenPort, caddyACMEIssuerOptions(opts.ACMECA), opts.Upstream, opts.Token, site.Domain, httpPort)
-	}
-	return b.String()
-}
-
-func caddyEdgeConfigForRegistry(paths localagent.Paths, targetAddr, httpTargetAddr, upstreamAddr, adminSocket, token string) (string, error) {
-	deployRegistry, err := localagent.LoadDeployRegistry(paths.DeployPath)
-	if err != nil {
-		return "", err
-	}
-	publicDomains := publicDomainSitesForDeployRegistry(deployRegistry)
-	_, httpPort := splitHostPort(httpTargetAddr)
-	storageDir := ""
-	if len(publicDomains) > 0 {
-		storageDir = filepath.Join(paths.EdgeDir, "caddy-data")
-	}
-	return caddyEdgeConfig(caddyEdgeConfigOptions{
-		ListenAddr:     targetAddr,
-		PublicPort:     "443",
-		Upstream:       upstreamAddr,
-		AskURL:         "http://" + upstreamAddr + "/v1/tls/allow",
-		AdminSocket:    adminSocket,
-		Token:          token,
-		PublicDomains:  publicDomains,
-		ACMEEmail:      deployRegistry.ACMEEmail,
-		ACMECA:         deployRegistry.ACMECA,
-		StorageDir:     storageDir,
-		HTTPListenPort: httpPort,
-	}), nil
-}
-
-func normalizedPublicDomainSites(sites []publicDomainSite) []publicDomainSite {
-	seen := map[string]bool{}
-	out := make([]publicDomainSite, 0, len(sites))
-	for _, site := range sites {
-		domain := strings.ToLower(strings.TrimSpace(site.Domain))
-		if domain == "" || seen[domain] {
-			continue
-		}
-		seen[domain] = true
-		out = append(out, publicDomainSite{Domain: domain})
-	}
-	sort.Slice(out, func(i, j int) bool {
-		return out[i].Domain < out[j].Domain
-	})
-	return out
-}
-
-func publicDomainSitesForDeployRegistry(registry localagent.DeployRegistry) []publicDomainSite {
-	sites := make([]publicDomainSite, 0, len(registry.Targets))
-	for _, target := range registry.Targets {
-		if !target.Enabled {
-			continue
-		}
-		sites = append(sites, publicDomainSite{Domain: target.Domain})
-	}
-	return normalizedPublicDomainSites(sites)
-}
-
-func caddyACMEIssuerOptions(ca string) string {
-	switch strings.TrimSpace(ca) {
-	case "staging":
-		return ` {
-			ca https://acme-staging-v02.api.letsencrypt.org/directory
-		}`
-	default:
-		return ""
-	}
+	return nil
 }
 
 func startCaddyEdge(caddyBin string, paths localagent.Paths, publicAddr, targetAddr, httpTargetAddr, adminSocket, upstreamAddr string) error {
@@ -1545,7 +1089,7 @@ func edgeReloadFromRegistry(paths localagent.Paths, state localagent.EdgeState) 
 	httpTargetAddr := defaultEdgeHTTPTargetAddr
 	upstreamAddr := firstNonEmpty(state.UpstreamAddr, localagent.RouterAddrFromEnv())
 	adminSocket := firstNonEmpty(state.AdminSocket, filepath.Join(paths.RunDir, "caddy-admin.sock"))
-	config, err := caddyEdgeConfigForRegistry(paths, targetAddr, httpTargetAddr, upstreamAddr, adminSocket, token)
+	config, err := edgelifecycle.CaddyConfigForRegistry(paths, targetAddr, httpTargetAddr, upstreamAddr, adminSocket, token)
 	if err != nil {
 		return err
 	}
@@ -1689,16 +1233,6 @@ func edgePrivilegedUninstall() error {
 	return run.Run()
 }
 
-func escapePlistString(value string) string {
-	return strings.NewReplacer(
-		"&", "&amp;",
-		"<", "&lt;",
-		">", "&gt;",
-		"\"", "&quot;",
-		"'", "&apos;",
-	).Replace(value)
-}
-
 func privilegedListenerStatus(paths localagent.Paths) edgeStatusPrivilegedListener {
 	status := edgeStatusPrivilegedListener{
 		Strategy:                 "helper",
@@ -1817,25 +1351,7 @@ func edgeHelperLaunchStatus() (string, int, error) {
 	if err != nil {
 		return "", 0, err
 	}
-	return parseEdgeHelperLaunchStatus(string(out))
-}
-
-func parseEdgeHelperLaunchStatus(output string) (string, int, error) {
-	var state string
-	var pid int
-	for _, line := range strings.Split(output, "\n") {
-		line = strings.TrimSpace(line)
-		if state == "" && strings.HasPrefix(line, "state = ") {
-			state = strings.TrimSpace(strings.TrimPrefix(line, "state = "))
-		}
-		if pid == 0 && strings.HasPrefix(line, "pid = ") {
-			parsed, err := strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(line, "pid = ")))
-			if err == nil {
-				pid = parsed
-			}
-		}
-	}
-	return state, pid, nil
+	return edgelifecycle.ParseHelperLaunchStatus(string(out))
 }
 
 func installedEdgeHelperOptions() (edgeHelperOptions, error) {
@@ -1847,64 +1363,26 @@ func installedEdgeHelperOptions() (edgeHelperOptions, error) {
 }
 
 func parseEdgeHelperPlistOptions(data []byte) (edgeHelperOptions, error) {
-	decoder := xml.NewDecoder(strings.NewReader(string(data)))
-	expectProgramArguments := false
-	inProgramArguments := false
-	var args []string
-	for {
-		token, err := decoder.Token()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			return edgeHelperOptions{}, err
-		}
-		switch item := token.(type) {
-		case xml.StartElement:
-			switch item.Name.Local {
-			case "key":
-				var key string
-				if err := decoder.DecodeElement(&key, &item); err != nil {
-					return edgeHelperOptions{}, err
-				}
-				expectProgramArguments = key == "ProgramArguments"
-			case "array":
-				if expectProgramArguments {
-					inProgramArguments = true
-					expectProgramArguments = false
-				}
-			case "string":
-				if inProgramArguments {
-					var value string
-					if err := decoder.DecodeElement(&value, &item); err != nil {
-						return edgeHelperOptions{}, err
-					}
-					args = append(args, value)
-				}
-			}
-		case xml.EndElement:
-			if item.Name.Local == "array" && inProgramArguments {
-				return parseEdgeHelperProgramArguments(args)
-			}
-		}
+	args, err := edgelifecycle.ParseHelperPlistProgramArguments(data)
+	if err != nil {
+		return edgeHelperOptions{}, err
 	}
-	return edgeHelperOptions{}, fmt.Errorf("edge helper plist missing ProgramArguments")
+	return parseEdgeHelperProgramArguments(args)
 }
 
 func parseEdgeHelperProgramArguments(args []string) (edgeHelperOptions, error) {
-	for i := 0; i+3 < len(args); i++ {
-		if args[i] == "system" && args[i+1] == "edge" && args[i+2] == "privileged-helper" && args[i+3] == "run" {
-			opts, err := parseEdgeHelperArgs(args[i+4:])
-			if err != nil {
-				return edgeHelperOptions{}, err
-			}
-			if err := requireEdgeHelperOwnerOptions(opts); err != nil {
-				return edgeHelperOptions{}, err
-			}
-			return opts, nil
-		}
+	runArgs, err := edgelifecycle.HelperRunArguments(args)
+	if err != nil {
+		return edgeHelperOptions{}, err
 	}
-	return edgeHelperOptions{}, fmt.Errorf("edge helper plist does not run scenery system edge privileged-helper run")
+	opts, err := parseEdgeHelperArgs(runArgs)
+	if err != nil {
+		return edgeHelperOptions{}, err
+	}
+	if err := requireEdgeHelperOwnerOptions(opts); err != nil {
+		return edgeHelperOptions{}, err
+	}
+	return opts, nil
 }
 
 func helperTargetStatePath(paths localagent.Paths) (string, bool) {

@@ -2,11 +2,11 @@
 
 ## Purpose
 
-`internal/edge` owns the managed Caddy process lifecycle used by `scenery system edge`: start, stop, reload, local-CA trust, and persistence of the matching edge state.
+`internal/edge` owns the managed Caddy process lifecycle used by `scenery system edge` (start, stop, reload, local-CA trust, and persistence of the matching edge state) plus the pure edge config and parsing surfaces: Caddyfile generation (`caddyconfig.go`), dnsmasq/resolver config generation and edge DNS state persistence (`dns.go`), and launchd plist parsing helpers (`launchd.go`).
 
 ## Ownership
 
-- Keep CLI parsing, output rendering, managed-tool resolution, DNS, privileged-listener setup, and Caddyfile generation in `cmd/scenery`.
+- Keep CLI parsing, output rendering, managed-tool resolution, dnsmasq/helper process orchestration, and privileged-listener setup in `cmd/scenery`.
 - Keep edge state schemas and path derivation in `internal/agent`.
 - Do not import `cmd/scenery`; the command package adapts this package's concrete functions.
 
