@@ -112,13 +112,13 @@ func isProductionFrontendOutputDir(root, rel string) bool {
 
 // splitProductionFrontendPaths partitions changed paths into production
 // frontends to rebuild and app paths for the ordinary Go rebuild. Paths the
-// core watcher already owns (Go, config) and .scn app sources stay app paths
-// even inside a frontend root.
+// core watcher already owns (Go, .scn, config) stay app paths even inside a
+// frontend root.
 func splitProductionFrontendPaths(root string, paths []string) ([]string, []string) {
 	var names, appPaths []string
 	seen := map[string]bool{}
 	for _, rel := range paths {
-		if !isWatchedFile(rel) && filepath.Ext(rel) != ".scn" {
+		if !isWatchedFile(rel) {
 			if name, ok := productionFrontendForWatchPath(root, rel); ok {
 				if !seen[name] {
 					seen[name] = true
@@ -780,6 +780,13 @@ func isWatchedFile(rel string) bool {
 		return true
 	}
 	if strings.HasSuffix(rel, "/db/schema.hcl") {
+		return true
+	}
+	// .scn app sources follow scn.SourceFiles discovery: every .scn file is
+	// a compiler input except the compiler-owned scenery.lock.scn, which
+	// must stay unwatched so compile-time lock rewrites cannot retrigger
+	// the loop.
+	if strings.HasSuffix(base, ".scn") && base != "scenery.lock.scn" {
 		return true
 	}
 	switch filepath.Ext(rel) {
