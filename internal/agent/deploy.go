@@ -28,6 +28,22 @@ type DeployTarget struct {
 	Enabled     bool      `json:"enabled"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
+	// Frontends records production frontends published into the deploy
+	// artifact store for direct managed-Caddy serving. The field is
+	// additive: an old target without publication metadata keeps the
+	// agent-proxy behavior for every route.
+	Frontends []DeployTargetFrontend `json:"frontends,omitempty"`
+}
+
+// DeployTargetFrontend is one published production frontend on a deploy
+// target. Path is the frontend's `current` symlink inside the machine-owned
+// deploy artifact store; Root marks the frontend that owns `/`.
+type DeployTargetFrontend struct {
+	Name        string    `json:"name"`
+	Path        string    `json:"path"`
+	Root        bool      `json:"root,omitempty"`
+	ReleaseID   string    `json:"release_id,omitempty"`
+	PublishedAt time.Time `json:"published_at,omitempty"`
 }
 
 func EmptyDeployRegistry() DeployRegistry {
@@ -59,6 +75,11 @@ func LoadDeployRegistry(path string) (DeployRegistry, error) {
 		registry.Targets[i].Domain = strings.ToLower(strings.TrimSpace(registry.Targets[i].Domain))
 		registry.Targets[i].AppRoot = filepath.Clean(strings.TrimSpace(registry.Targets[i].AppRoot))
 		registry.Targets[i].RootService = strings.TrimSpace(registry.Targets[i].RootService)
+		for j := range registry.Targets[i].Frontends {
+			frontend := &registry.Targets[i].Frontends[j]
+			frontend.Name = strings.TrimSpace(frontend.Name)
+			frontend.Path = filepath.Clean(strings.TrimSpace(frontend.Path))
+		}
 	}
 	sortDeployTargets(registry.Targets)
 	if registry.Targets == nil {

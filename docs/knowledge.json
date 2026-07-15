@@ -19,6 +19,18 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0119-caddy-first-production-frontends.md",
+      "title": "Caddy-First Production Frontend Deployments",
+      "owner": "scenery runtime / edge / deploy",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-07-15",
+      "review_after": "2026-08-14",
+      "summary": "Completed ExecPlan making public production frontends direct Caddy-served static artifacts instead of agent-proxied Vite development traffic, with atomic remote publication, dynamic and API fallback through the trusted Scenery router, Linux systemd edge lifecycle, SSH deploy integration, and typed topology diagnostics.",
+      "tags": ["plans", "execplans", "deploy", "edge", "caddy", "frontends", "production-build", "linux", "systemd", "ssh", "performance"]
+    },
+    {
       "path": "docs/plans/0118-runtime-infra-consolidation.md",
       "title": "Runtime Infrastructure Consolidation and CLI Logic Extraction",
       "owner": "scenery runtime",
@@ -926,6 +938,7 @@
         "docs/schemas/scenery.dev.detach.schema.json",
         "docs/schemas/scenery.deploy.target.schema.json",
         "docs/schemas/scenery.deploy.setup.schema.json",
+        "docs/schemas/scenery.deploy.publish.schema.json",
         "docs/schemas/scenery.deploy.resume.schema.json",
         "docs/schemas/scenery.deploy.teardown.schema.json",
         "docs/schemas/scenery.doctor.deploy.schema.json",

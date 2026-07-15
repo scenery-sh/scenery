@@ -49,6 +49,7 @@ var (
 	edgeHelperLaunchStatusFunc      = edgeHelperLaunchStatus
 	edgeHelperPlistOptionsFunc      = installedEdgeHelperOptions
 	reloadCaddyEdgeConfigFunc       = reloadCaddyEdgeConfig
+	validateCaddyEdgeConfigFunc     = edgelifecycle.ValidateCaddyConfig
 )
 
 type edgeOptions struct {
@@ -138,6 +139,16 @@ func edgeDNSCommand(args []string) error {
 }
 
 func edgeRestart(opts edgeOptions) error {
+	// A systemd-owned edge must converge through its unit: spawning an
+	// unsupervised Caddy would race the unit's Restart=always respawn for
+	// the public ports.
+	if edgeSystemdManaged() {
+		paths, err := localagent.DefaultPaths()
+		if err != nil {
+			return err
+		}
+		return edgeRestartSystemd(paths)
+	}
 	ctx := context.Background()
 	publicAddr := defaultEdgePublicAddr
 	targetAddr := defaultEdgeTargetAddr
@@ -1098,6 +1109,12 @@ func edgeReloadFromRegistry(paths localagent.Paths, state localagent.EdgeState) 
 		return err
 	}
 	if err := os.WriteFile(nextPath, []byte(config), 0o600); err != nil {
+		return err
+	}
+	// Never hand Caddy an unvalidated candidate: a reload of a broken
+	// config must fail here with the previous config still active.
+	if err := validateCaddyEdgeConfigFunc(caddyBin, nextPath); err != nil {
+		_ = os.Remove(nextPath)
 		return err
 	}
 	if err := reloadCaddyEdgeConfigFunc(caddyBin, nextPath, adminSocket); err != nil {

@@ -128,7 +128,7 @@ Use `-o json` for compiler commands and command-specific current protocols. Neve
 - Use `scenery down` to stop it; add destructive cleanup flags only intentionally.
 - Use `scenery worker` for a worker-role runtime serving declared durable executions and schedules.
 - Use `scenery build` for a deployable binary.
-- Use `scenery deploy <ssh-target>` only for configured beta single-server source sync. It stops the remote app, rsyncs the non-ignored working tree while preserving remote `.env`, `.scenery`, and Scenery-owned `go.work`, then waits for remote readiness; expect brief downtime and no rollback.
+- Use `scenery deploy <ssh-target>` only for configured beta single-server source sync. It stops the remote app, rsyncs the non-ignored working tree while preserving remote `.env`, `.scenery`, and Scenery-owned `go.work`, then waits for remote readiness; expect brief downtime and no backend rollback. When the app declares `deploy.domain` plus a `serve: "production"` frontend, the deploy also runs remote `scenery deploy publish`: the frontend builds on the remote host, publishes into an immutable Scenery-owned artifact release, and is served directly by the managed Caddy edge (dynamic `/api/*` traffic stays on the agent router); publish failures roll back to the previous public frontend.
 - Use `scenery generate` only for file generation. It must not apply database state.
 - Use `scenery task` for app-local code tasks.
 - Use Git worktrees for another live code copy.

@@ -12,9 +12,10 @@
       "const": "scenery.deploy.setup"
     },
     "schema_revision": {
-      "const": "sha256:32d9afc33d4a53d3d657ca7c1f883d250dfc6caab23b5190cc42bf3f84182496"
+      "const": "sha256:13031efa37d9cb702b60fabe94e51536439b1d3796313e62e45a151e2a581c1e"
     },
     "registry_path": {},
+    "service_manager": {},
     "acme": {},
     "helper_version": {},
     "helper_public": {},

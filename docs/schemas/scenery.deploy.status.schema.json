@@ -23,10 +23,16 @@
       "const": "scenery.deploy.status"
     },
     "schema_revision": {
-      "const": "sha256:b6b4d153af5da363324fe96337c21ddbe89abe143d3b2340fa5fcdded8bf46ef"
+      "const": "sha256:28fdf35a9ba1671a2f21dd5a2ceb1d1d9fb42bcd96b42ee476d56d0611e46849"
     },
     "ready": {
       "type": "boolean"
+    },
+    "service_manager": {
+      "enum": [
+        "launchd",
+        "systemd"
+      ]
     },
     "registry_path": {
       "type": "string",
@@ -308,11 +314,52 @@
           "type": "string",
           "format": "date-time"
         },
+        "frontends": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/target_frontend"
+          }
+        },
         "diagnostics": {
           "type": "array",
           "items": {
             "type": "string"
           }
+        }
+      }
+    },
+    "target_frontend": {
+      "type": "object",
+      "required": [
+        "name",
+        "route",
+        "mode",
+        "entry_document"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "route": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mode": {
+          "enum": [
+            "caddy_static",
+            "agent_proxy"
+          ]
+        },
+        "artifact_path": {
+          "type": "string"
+        },
+        "release_id": {
+          "type": "string"
+        },
+        "entry_document": {
+          "type": "boolean"
         }
       }
     },

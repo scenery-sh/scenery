@@ -12,9 +12,10 @@
       "const": "scenery.deploy.teardown"
     },
     "schema_revision": {
-      "const": "sha256:d451f482b593deb53e99a7b3acc25abbce0a8da8391bfd65dcd9bd3f8f76744c"
+      "const": "sha256:5f4c80e767cd9fc8d8b32f2cd330d7248c917dd3c3e672d95d20294779139aa4"
     },
     "registry_path": {},
+    "service_manager": {},
     "helper_version": {},
     "helper_public": {},
     "agent_supervisor_removed": {},

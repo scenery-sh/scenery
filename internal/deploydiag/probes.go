@@ -20,15 +20,31 @@ import (
 // DefaultLANIP discovers this host's LAN IP via `ipconfig getifaddr` on the
 // primary interfaces.
 func DefaultLANIP(ctx context.Context) (string, error) {
-	for _, iface := range []string{"en0", "en1"} {
-		cmdCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-		out, err := exec.CommandContext(cmdCtx, "ipconfig", "getifaddr", iface).Output()
-		cancel()
-		if err == nil && strings.TrimSpace(string(out)) != "" {
-			return strings.TrimSpace(string(out)), nil
+	if runtime.GOOS == "darwin" {
+		for _, iface := range []string{"en0", "en1"} {
+			cmdCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+			out, err := exec.CommandContext(cmdCtx, "ipconfig", "getifaddr", iface).Output()
+			cancel()
+			if err == nil && strings.TrimSpace(string(out)) != "" {
+				return strings.TrimSpace(string(out)), nil
+			}
+		}
+		return "", fmt.Errorf("ipconfig getifaddr en0/en1 returned no address")
+	}
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return "", err
+	}
+	for _, addr := range addrs {
+		ipNet, ok := addr.(*net.IPNet)
+		if !ok || ipNet.IP.IsLoopback() {
+			continue
+		}
+		if ip := ipNet.IP.To4(); ip != nil {
+			return ip.String(), nil
 		}
 	}
-	return "", fmt.Errorf("ipconfig getifaddr en0/en1 returned no address")
+	return "", fmt.Errorf("no non-loopback IPv4 interface address found")
 }
 
 // DefaultHTTPProbe performs one GET reachability probe without following

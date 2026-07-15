@@ -119,7 +119,12 @@ scenery deploy <ssh-target> [--app-root <path>]
 The beta SSH form requires the host alias in app config `deploy.ssh`. It uses
 passwordless OpenSSH and rsync, honors `.gitignore`, preserves remote `.env`
 and `.scenery`, then restarts with readiness waiting; expect brief downtime
-and no rollback.
+and no backend rollback. When the app declares `deploy.domain` and a frontend
+with `serve: "production"`, the deploy also builds that frontend on the remote
+host and publishes it atomically for direct managed-Caddy static serving
+(`scenery deploy publish`); a failed publish keeps the previous public
+frontend, and `scenery deploy status -o json` reports each frontend's serving
+mode (`caddy_static` or `agent_proxy`).
 
 ## Storage and Databases
 

@@ -112,7 +112,7 @@ Deployment has brief downtime and no rollback.
 
 ## Public Deploy Edge
 
-`scenery deploy` is a beta operator surface for serving a live local app on a public domain from a macOS machine. Add a public domain to the app config:
+`scenery deploy` is a beta operator surface for serving a live app on a public domain from a macOS (launchd) or Linux (systemd, run setup as root) machine. Frontends with `serve: "production"` are built on the serving host and served directly by the managed Caddy edge as static files; dynamic `/api/*` traffic stays on the Scenery router. Add a public domain to the app config:
 
 ```json
 {"name":"hello","deploy":{"domain":"hello.example.com","root":"app"}}

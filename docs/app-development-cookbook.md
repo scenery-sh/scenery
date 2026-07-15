@@ -353,6 +353,19 @@ Cloudflare-fronted setup (reachable from any device; Cloudflare terminates publi
 
 When the edge is not serving, `scenery up` still starts and keeps localhost URLs; the warning names the missing setup step. Domain hosts are single-owner per branch label: a second worktree on the same branch keeps localhost URLs and reports `domain_host_conflict`.
 
+## Serve A Production Frontend Publicly
+
+For a public deployment that should not ship the Vite dev runtime, mark the frontend production and give the app a deploy domain:
+
+```json
+{
+  "frontends": { "app": { "root": "apps/app", "serve": "production" } },
+  "deploy": { "domain": "app.example.com", "root": "app", "ssh": ["my-server"] }
+}
+```
+
+`scenery deploy my-server` then syncs source, waits for remote readiness, and runs remote `scenery deploy publish`: the frontend builds on the server (`vite build --base /<name>/`), lands as an immutable release under the Scenery agent home, and the managed Caddy edge serves it directly — compressed, cached (`/assets/*` immutable, entry document revalidated), with SPA fallback and byte ranges — while `/api/*` keeps flowing through the Scenery router. A failed build, invalid Caddyfile, or failed probe leaves the previous frontend public. On a Linux server, run `scenery deploy setup` once as root first (systemd units for the agent, edge, and boot resume). Verify with `scenery deploy status -o json`: each target's `frontends[].mode` should be `caddy_static`.
+
 ## Debug A Failing App
 
 1. Run `scenery doctor -o json`.

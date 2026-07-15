@@ -462,7 +462,7 @@ func (c Config) validateDeploy() error {
 }
 
 func validDeploySSHTarget(target string) bool {
-	if target == "" || target == "plan" || target == "apply" || target == "setup" || target == "status" || target == "enable" || target == "disable" || target == "resume" || target == "teardown" {
+	if target == "" || target == "plan" || target == "apply" || target == "setup" || target == "status" || target == "enable" || target == "disable" || target == "publish" || target == "resume" || target == "teardown" {
 		return false
 	}
 	for index, r := range target {

@@ -40,6 +40,7 @@ type deployMutationResponse struct {
 type deployStatusResponse struct {
 	cliPayloadIdentity
 	Ready              bool                         `json:"ready"`
+	ServiceManager     string                       `json:"service_manager,omitempty"`
 	RegistryPath       string                       `json:"registry_path"`
 	PrivilegedListener edgeStatusPrivilegedListener `json:"privileged_listener"`
 	HelperPublic       bool                         `json:"helper_public"`
@@ -56,6 +57,7 @@ type deployStatusResponse struct {
 type deploySetupResponse struct {
 	cliPayloadIdentity
 	RegistryPath             string           `json:"registry_path"`
+	ServiceManager           string           `json:"service_manager,omitempty"`
 	ACME                     deployACMEStatus `json:"acme"`
 	HelperVersion            string           `json:"helper_version"`
 	HelperPublic             bool             `json:"helper_public"`
@@ -68,6 +70,7 @@ type deploySetupResponse struct {
 type deployTeardownResponse struct {
 	cliPayloadIdentity
 	RegistryPath           string `json:"registry_path"`
+	ServiceManager         string `json:"service_manager,omitempty"`
 	HelperVersion          string `json:"helper_version"`
 	HelperPublic           bool   `json:"helper_public"`
 	AgentSupervisorRemoved bool   `json:"agent_supervisor_removed"`
@@ -128,15 +131,28 @@ type deployACMEStatus struct {
 }
 
 type deployTargetStatus struct {
-	Domain       string   `json:"domain"`
-	AppRoot      string   `json:"app_root"`
-	RootService  string   `json:"root_service,omitempty"`
-	Enabled      bool     `json:"enabled"`
-	LiveSession  bool     `json:"live_session"`
-	SessionID    string   `json:"session_id,omitempty"`
-	CertPresent  bool     `json:"cert_present"`
-	CertNotAfter string   `json:"cert_not_after,omitempty"`
-	Diagnostics  []string `json:"diagnostics,omitempty"`
+	Domain       string                       `json:"domain"`
+	AppRoot      string                       `json:"app_root"`
+	RootService  string                       `json:"root_service,omitempty"`
+	Enabled      bool                         `json:"enabled"`
+	LiveSession  bool                         `json:"live_session"`
+	SessionID    string                       `json:"session_id,omitempty"`
+	CertPresent  bool                         `json:"cert_present"`
+	CertNotAfter string                       `json:"cert_not_after,omitempty"`
+	Frontends    []deployTargetFrontendStatus `json:"frontends,omitempty"`
+	Diagnostics  []string                     `json:"diagnostics,omitempty"`
+}
+
+// deployTargetFrontendStatus reports how one production frontend is served
+// publicly: "caddy_static" when its published artifact currently resolves,
+// otherwise "agent_proxy".
+type deployTargetFrontendStatus struct {
+	Name          string `json:"name"`
+	Route         string `json:"route"`
+	Mode          string `json:"mode"`
+	ArtifactPath  string `json:"artifact_path,omitempty"`
+	ReleaseID     string `json:"release_id,omitempty"`
+	EntryDocument bool   `json:"entry_document"`
 }
 
 type deployCertStatus struct {
@@ -180,7 +196,7 @@ func deployCommand(args []string) error {
 
 func runDeployCommand(stdout io.Writer, args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: scenery deploy <ssh-target> [--app-root <path>] | setup|status|enable|disable|resume|teardown [-o json]")
+		return fmt.Errorf("usage: scenery deploy <ssh-target> [--app-root <path>] | setup|status|enable|disable|publish|resume|teardown [-o json]")
 	}
 	subcommand := args[0]
 	if subcommand == "plan" || subcommand == "apply" {
@@ -198,6 +214,8 @@ func runDeployCommand(stdout io.Writer, args []string) error {
 		return runDeployEnable(stdout, opts)
 	case "disable":
 		return runDeployDisable(stdout, opts)
+	case "publish":
+		return runDeployPublish(stdout, opts)
 	case "status":
 		return runDeployStatus(stdout, opts)
 	case "setup":
@@ -213,7 +231,7 @@ func runDeployCommand(stdout io.Writer, args []string) error {
 
 func isDeploySubcommand(value string) bool {
 	switch value {
-	case "setup", "status", "enable", "disable", "resume", "teardown":
+	case "setup", "status", "enable", "disable", "publish", "resume", "teardown":
 		return true
 	default:
 		return false
@@ -355,8 +373,11 @@ func runDeployStatus(stdout io.Writer, opts deployOptions) error {
 }
 
 func runDeploySetup(stdout io.Writer, opts deployOptions) error {
+	if runtime.GOOS == "linux" {
+		return runDeploySetupLinux(stdout, opts)
+	}
 	if runtime.GOOS != "darwin" {
-		return fmt.Errorf("scenery deploy setup is currently supported on macOS")
+		return fmt.Errorf("scenery deploy setup is supported on macOS (launchd) and Linux (systemd)")
 	}
 	if os.Geteuid() == 0 {
 		return fmt.Errorf("do not run `sudo scenery deploy setup`; run it as your normal user so Scenery can record the expected owner")
@@ -406,6 +427,7 @@ func runDeploySetup(stdout io.Writer, opts deployOptions) error {
 	resp := deploySetupResponse{
 		cliPayloadIdentity: newCLIPayloadIdentity("scenery.deploy.setup"),
 		RegistryPath:       paths.DeployPath,
+		ServiceManager:     "launchd",
 		ACME: deployACMEStatus{
 			Email: registry.ACMEEmail,
 			CA:    firstNonEmpty(registry.ACMECA, "production"),
@@ -514,8 +536,11 @@ func runDeployResume(stdout io.Writer, opts deployOptions) error {
 }
 
 func runDeployTeardown(stdout io.Writer, opts deployOptions) error {
+	if runtime.GOOS == "linux" {
+		return runDeployTeardownLinux(stdout, opts)
+	}
 	if runtime.GOOS != "darwin" {
-		return fmt.Errorf("scenery deploy teardown is currently supported on macOS")
+		return fmt.Errorf("scenery deploy teardown is supported on macOS (launchd) and Linux (systemd)")
 	}
 	if os.Geteuid() == 0 {
 		return fmt.Errorf("do not run `sudo scenery deploy teardown`; run it as your normal user so Scenery can record the expected owner")
@@ -545,6 +570,7 @@ func runDeployTeardown(stdout io.Writer, opts deployOptions) error {
 	resp := deployTeardownResponse{
 		cliPayloadIdentity:     newCLIPayloadIdentity("scenery.deploy.teardown"),
 		RegistryPath:           paths.DeployPath,
+		ServiceManager:         "launchd",
 		HelperVersion:          helperVersion,
 		HelperPublic:           false,
 		AgentSupervisorRemoved: supervisorRemoved,
@@ -647,6 +673,7 @@ func buildDeployStatusWithContext(ctx context.Context, paths localagent.Paths, r
 			LiveSession: session.SessionID != "",
 			SessionID:   session.SessionID,
 			CertPresent: cert.Present,
+			Frontends:   deployTargetFrontendStatuses(target),
 		}
 		if !cert.NotAfter.IsZero() {
 			item.CertNotAfter = cert.NotAfter.UTC().Format(time.RFC3339)
@@ -657,11 +684,18 @@ func buildDeployStatusWithContext(ctx context.Context, paths localagent.Paths, r
 		if cert.Present && cert.Error != "" {
 			item.Diagnostics = append(item.Diagnostics, "certificate expiry could not be parsed: "+cert.Error)
 		}
+		for _, frontend := range item.Frontends {
+			if target.Enabled && frontend.Mode != "caddy_static" {
+				item.Diagnostics = append(item.Diagnostics, fmt.Sprintf("published frontend %q has no complete current artifact; serving falls back to the agent proxy", frontend.Name))
+			}
+		}
 		targets = append(targets, item)
 	}
+	manager := deployServiceManagerFunc()
 	helperPublic := deploydiag.HelperHasPublicBinding(helper.Listen)
 	status := deployStatusResponse{
 		cliPayloadIdentity: newCLIPayloadIdentity("scenery.deploy.status"),
+		ServiceManager:     manager,
 		RegistryPath:       paths.DeployPath,
 		PrivilegedListener: helper,
 		HelperPublic:       helperPublic,
@@ -675,7 +709,7 @@ func buildDeployStatusWithContext(ctx context.Context, paths localagent.Paths, r
 		},
 		Targets: targets,
 	}
-	if helper.State != "running" || !helperPublic {
+	if manager != "systemd" && (helper.State != "running" || !helperPublic) {
 		status.Diagnostics = append(status.Diagnostics, "public privileged listener is not ready; run `scenery deploy setup`")
 	}
 	if edgeStatus.State != localagent.EdgeStatusRunning {
@@ -684,23 +718,32 @@ func buildDeployStatusWithContext(ctx context.Context, paths localagent.Paths, r
 	if agent.State != "running" {
 		status.Diagnostics = append(status.Diagnostics, "Scenery agent is not running")
 	}
-	// Supervision is part of deploy readiness: a plist on disk that launchd
-	// never loaded recovers nothing, so presence alone never counts.
+	// Supervision is part of deploy readiness: a unit or plist on disk the
+	// service manager never loaded recovers nothing, so presence alone never
+	// counts.
+	supervisorWord := "LaunchAgent"
+	if manager == "systemd" {
+		supervisorWord = "systemd unit"
+	}
 	switch {
 	case !agentSupervisor.Installed:
-		status.Diagnostics = append(status.Diagnostics, "scenery agent supervisor LaunchAgent is not installed; run `scenery deploy setup`")
+		status.Diagnostics = append(status.Diagnostics, fmt.Sprintf("scenery agent supervisor %s is not installed; run `scenery deploy setup`", supervisorWord))
 	case !agentSupervisor.Loaded:
-		status.Diagnostics = append(status.Diagnostics, "scenery agent supervisor LaunchAgent is installed but not loaded in launchd; run `scenery deploy setup`")
+		status.Diagnostics = append(status.Diagnostics, fmt.Sprintf("scenery agent supervisor %s is installed but not loaded; run `scenery deploy setup`", supervisorWord))
 	case !agentSupervisor.Running:
-		status.Diagnostics = append(status.Diagnostics, "scenery agent supervisor LaunchAgent is loaded but its agent process is not running; run `scenery system agent restart`")
+		status.Diagnostics = append(status.Diagnostics, fmt.Sprintf("scenery agent supervisor %s is loaded but its agent process is not running; run `scenery system agent restart`", supervisorWord))
 	}
 	switch {
 	case !launchAgent.Installed:
-		status.Diagnostics = append(status.Diagnostics, "deploy resume LaunchAgent is not installed")
+		status.Diagnostics = append(status.Diagnostics, fmt.Sprintf("deploy resume %s is not installed", supervisorWord))
 	case !launchAgent.Loaded:
-		status.Diagnostics = append(status.Diagnostics, "deploy resume LaunchAgent plist exists but the job is not loaded in launchd; run `scenery deploy setup`")
+		status.Diagnostics = append(status.Diagnostics, fmt.Sprintf("deploy resume %s exists but is not loaded; run `scenery deploy setup`", supervisorWord))
 	}
-	diagnostics := deploydiag.BuildReport(ctx, deployDiagnosticsSnapshot(status), deployDiagnosticsDeps())
+	snapshot := deployDiagnosticsSnapshot(status)
+	if manager == "systemd" {
+		deploySystemdSnapshotOverlay(&snapshot)
+	}
+	diagnostics := deploydiag.BuildReport(ctx, snapshot, deployDiagnosticsDeps())
 	status.DiagnosticsDetail = &diagnostics
 	for _, check := range diagnostics.Checks {
 		if check.Status == "warn" || check.Status == "error" {
@@ -792,6 +835,17 @@ func deployAgentStatusFor(paths localagent.Paths) deployAgentStatus {
 }
 
 func deployAgentSupervisorStatusFor(paths localagent.Paths) deployAgentSupervisorStatus {
+	if deployServiceManagerFunc() == "systemd" {
+		status := localagent.AgentSystemdStatusForSocket(paths.SocketPath)
+		return deployAgentSupervisorStatus{
+			Installed: status.PlistPresent && status.SupervisesSocket,
+			Loaded:    status.Loaded,
+			Running:   status.Running,
+			PID:       status.PID,
+			Label:     status.Label,
+			Path:      status.PlistPath,
+		}
+	}
 	status := agentSupervisorStatusFunc(paths.SocketPath)
 	return deployAgentSupervisorStatus{
 		Installed: status.PlistPresent && status.SupervisesSocket,
@@ -867,6 +921,13 @@ func deployPreflightPublicPorts(paths localagent.Paths) error {
 }
 
 func deployRefreshEdgeAfterMutation(paths localagent.Paths) error {
+	if edgeSystemdManaged() {
+		state, err := localagent.LoadEdgeState(paths.EdgeStatePath)
+		if err != nil || !localagent.EdgeStateRunning(state) {
+			return edgeRestartSystemd(paths)
+		}
+		return edgeReloadFromRegistry(paths, state)
+	}
 	helper := privilegedListenerStatus(paths)
 	if !helper.Installed || !deploydiag.HelperHasPublicBinding(helper.Listen) {
 		return nil

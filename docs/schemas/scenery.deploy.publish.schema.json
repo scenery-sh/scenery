@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.deploy.publish.schema.json",
+  "title": "scenery.deploy.publish",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "domain",
+    "app_id",
+    "registry_path",
+    "edge_reloaded",
+    "frontends",
+    "probe"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "kind": {
+      "const": "scenery.deploy.publish"
+    },
+    "schema_revision": {
+      "const": "sha256:ba7cf3955961a930bd1f1833d9bc5a3df71a44ac28706cdb6843a90ecb1966f8"
+    },
+    "domain": {
+      "type": "string",
+      "minLength": 1
+    },
+    "app_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "registry_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "edge_reloaded": {
+      "type": "boolean"
+    },
+    "frontends": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/frontend"
+      }
+    },
+    "probe": {
+      "type": "object",
+      "required": [
+        "document",
+        "api"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "document": {
+          "type": "string"
+        },
+        "api": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "frontend": {
+      "type": "object",
+      "required": [
+        "name",
+        "route",
+        "mode",
+        "release_id",
+        "artifact_path",
+        "files",
+        "bytes"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "route": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mode": {
+          "enum": [
+            "caddy_static"
+          ]
+        },
+        "release_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "artifact_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "files": {
+          "type": "integer"
+        },
+        "bytes": {
+          "type": "integer"
+        }
+      }
+    }
+  }
+}

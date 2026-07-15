@@ -185,6 +185,9 @@ func StartProcess(paths Paths, opts StartOptions) error {
 	if startSupervisedAgentProcess(paths) {
 		return nil
 	}
+	if startSystemdSupervisedAgent(paths) {
+		return nil
+	}
 	exe, err := os.Executable()
 	if err != nil {
 		return err

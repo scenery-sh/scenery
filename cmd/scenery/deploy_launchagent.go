@@ -34,6 +34,10 @@ func deployResumeLaunchAgentLoaded() bool {
 }
 
 func deployLaunchAgentStatusFor() deployLaunchAgentStatus {
+	if deployServiceManagerFunc() == "systemd" {
+		installed, loaded, path := localagent.DeployResumeSystemdStatus()
+		return deployLaunchAgentStatus{Installed: installed, Loaded: loaded, Path: path}
+	}
 	path := deployResumeLaunchAgentPath()
 	_, err := os.Stat(path)
 	installed := err == nil

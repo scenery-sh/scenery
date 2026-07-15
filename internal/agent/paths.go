@@ -36,6 +36,7 @@ type Paths struct {
 	EdgeConfigPath      string
 	EdgeLogPath         string
 	DeployPath          string
+	DeployArtifactsDir  string
 	DeployResumeLogPath string
 	RegistryPath        string
 	LogPath             string
@@ -83,6 +84,7 @@ func PathsForHome(home string) Paths {
 		EdgeConfigPath:      filepath.Join(edgeDir, "Caddyfile"),
 		EdgeLogPath:         filepath.Join(edgeDir, "caddy.log"),
 		DeployPath:          filepath.Join(agentDir, "deploy.json"),
+		DeployArtifactsDir:  filepath.Join(agentDir, "deploy-artifacts"),
 		DeployResumeLogPath: filepath.Join(agentDir, "deploy-resume.log"),
 		RegistryPath:        filepath.Join(agentDir, "sessions.json"),
 		LogPath:             filepath.Join(agentDir, "agent.log"),

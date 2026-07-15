@@ -152,6 +152,14 @@ type Snapshot struct {
 	// CurrentVersion is the running scenery binary version, compared against
 	// the installed helper for drift.
 	CurrentVersion string
+	// ServiceManager is "launchd" on macOS or "systemd" on Linux deploy
+	// hosts. Under systemd there is no privileged loopback helper: the
+	// managed Caddy edge binds 80/443 directly, so helper diagnostics are
+	// replaced by direct edge-listener checks.
+	ServiceManager string
+	// EdgeUnitActive reports the systemd managed-edge unit state when
+	// ServiceManager is "systemd".
+	EdgeUnitActive bool
 }
 
 // Deps injects every network and host probe the engine runs, so tests and
@@ -188,8 +196,12 @@ type HelperDrift struct {
 // deploy target is enabled.
 func BuildReport(ctx context.Context, snap Snapshot, deps Deps) Report {
 	report := Report{}
-	addHelperDiagnostics(&report, snap.Helper, snap.CurrentVersion)
-	addListenerDiagnostics(&report, snap.Helper, deps.PortListener)
+	if snap.ServiceManager == "systemd" {
+		addSystemdEdgeDiagnostics(&report, snap, deps.PortListener)
+	} else {
+		addHelperDiagnostics(&report, snap.Helper, snap.CurrentVersion)
+		addListenerDiagnostics(&report, snap.Helper, deps.PortListener)
+	}
 	addCertDiagnostics(&report, snap.Targets)
 	if !hasEnabledTarget(snap.Targets) {
 		return report
@@ -218,6 +230,46 @@ func hasEnabledTarget(targets []Target) bool {
 		}
 	}
 	return false
+}
+
+// addSystemdEdgeDiagnostics replaces the macOS helper checks on Linux: the
+// managed edge unit must be active and ports 80/443 must be bound by the
+// managed Caddy edge itself.
+func addSystemdEdgeDiagnostics(report *Report, snap Snapshot, portListener func(port int) (PortListenerInfo, bool, error)) {
+	unitCheck := Check{
+		ID:       "deploy.edge.unit",
+		Status:   "ok",
+		Message:  "managed edge systemd unit is active",
+		Observed: map[string]any{"active": snap.EdgeUnitActive},
+	}
+	if !snap.EdgeUnitActive {
+		unitCheck.Status = "warn"
+		unitCheck.Message = "managed edge systemd unit is not active"
+		unitCheck.SuggestedAction = "Run `scenery deploy setup` to install and start the scenery-edge systemd unit."
+	}
+	report.addCheck(unitCheck)
+	for _, port := range []int{80, 443} {
+		listener, ok, err := portListener(port)
+		check := Check{
+			ID:      fmt.Sprintf("deploy.listener.%d", port),
+			Status:  "ok",
+			Message: fmt.Sprintf("port %d is bound by the managed Caddy edge", port),
+		}
+		switch {
+		case err != nil:
+			check.Status = "warn"
+			check.Message = fmt.Sprintf("port %d listener could not be inspected: %v", port, err)
+		case !ok:
+			check.Status = "warn"
+			check.Message = fmt.Sprintf("no process is listening on port %d", port)
+			check.SuggestedAction = "Run `scenery deploy setup` to start the managed edge."
+		case !strings.Contains(strings.ToLower(listener.Command), "caddy"):
+			check.Status = "warn"
+			check.Message = fmt.Sprintf("port %d is bound by %s, not the managed Caddy edge", port, listener.String())
+			check.SuggestedAction = fmt.Sprintf("Stop that process, then run `scenery deploy setup` so Scenery can bind TCP %d.", port)
+		}
+		report.addCheck(check)
+	}
 }
 
 func addHelperDiagnostics(report *Report, helper HelperStatus, currentVersion string) {

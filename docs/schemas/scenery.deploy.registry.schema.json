@@ -29,7 +29,23 @@
         "root_service": { "type": "string" },
         "enabled": { "type": "boolean" },
         "created_at": { "type": "string", "format": "date-time" },
-        "updated_at": { "type": "string", "format": "date-time" }
+        "updated_at": { "type": "string", "format": "date-time" },
+        "frontends": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/published_frontend" }
+        }
+      }
+    },
+    "published_frontend": {
+      "type": "object",
+      "required": ["name", "path"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "path": { "type": "string", "minLength": 1 },
+        "root": { "type": "boolean" },
+        "release_id": { "type": "string" },
+        "published_at": { "type": "string", "format": "date-time" }
       }
     }
   }

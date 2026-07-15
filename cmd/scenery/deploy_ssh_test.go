@@ -91,7 +91,7 @@ func TestDeploySSHStopsAfterChildFailureAndPreservesExitCode(t *testing.T) {
 			}
 			logPath := installDeploySSHTestCommands(t)
 			t.Setenv(tt.env, "7")
-			err := runDeploySSHCommands(&bytes.Buffer{}, root, "basicapp", "some-id")
+			err := runDeploySSHCommands(&bytes.Buffer{}, root, "basicapp", "some-id", false)
 			var exitErr *exec.ExitError
 			if !errors.As(err, &exitErr) || exitErr.ExitCode() != 7 || cliExitCode(err) != 7 {
 				t.Fatalf("error = %v, want child exit 7", err)
@@ -104,6 +104,24 @@ func TestDeploySSHStopsAfterChildFailureAndPreservesExitCode(t *testing.T) {
 				t.Fatalf("rsync cwd did not preserve spaced path:\n%s", log)
 			}
 		})
+	}
+}
+
+func TestDeploySSHRunsRemotePublishAfterUp(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "app")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	logPath := installDeploySSHTestCommands(t)
+	if err := runDeploySSHCommands(&bytes.Buffer{}, root, "basicapp", "some-id", true); err != nil {
+		t.Fatalf("runDeploySSHCommands: %v", err)
+	}
+	log := readDeploySSHTestLog(t, logPath)
+	if order := commandOrder(log); order != "ssh:preflight\nssh:down\nrsync\nssh:up\nssh:publish" {
+		t.Fatalf("command order = %q\n%s", order, log)
+	}
+	if !strings.Contains(log, `scenery deploy publish --app-root "$HOME/.scenery/apps/basicapp" -o json`) {
+		t.Fatalf("publish command missing app root:\n%s", log)
 	}
 }
 
@@ -138,6 +156,7 @@ case "$command" in
   *"command -v scenery"*) kind=preflight; code=${DEPLOY_PREFLIGHT_EXIT:-0} ;;
   *"scenery down"*) kind=down; code=${DEPLOY_DOWN_EXIT:-0} ;;
   *"scenery up"*) kind=up; code=${DEPLOY_UP_EXIT:-0} ;;
+  *"scenery deploy publish"*) kind=publish; code=${DEPLOY_PUBLISH_EXIT:-0} ;;
   *) kind=unknown; code=99 ;;
 esac
 printf 'ssh:%s\nssh-args:%s\n' "$kind" "$command" >> "$DEPLOY_COMMAND_LOG"

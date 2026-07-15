@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	appcfg "scenery.sh/internal/app"
 )
@@ -35,10 +36,11 @@ func runDeploySSH(stdout io.Writer, target string, args []string) error {
 	if err := runSceneryCheck(context.Background(), stdout, []string{"--app-root", appRoot}); err != nil {
 		return fmt.Errorf("local scenery check: %w", err)
 	}
-	return runDeploySSHCommands(stdout, appRoot, cfg.AppID(), target)
+	publishFrontends := strings.TrimSpace(cfg.Deploy.Domain) != "" && len(productionFrontendNames(cfg)) > 0
+	return runDeploySSHCommands(stdout, appRoot, cfg.AppID(), target, publishFrontends)
 }
 
-func runDeploySSHCommands(stdout io.Writer, appRoot, appID, target string) error {
+func runDeploySSHCommands(stdout io.Writer, appRoot, appID, target string, publishFrontends bool) error {
 	remoteApp := "$HOME/.scenery/apps/" + appID
 	steps := []struct {
 		name string
@@ -64,6 +66,20 @@ func runDeploySSHCommands(stdout io.Writer, appRoot, appID, target string) error
 			cmd: exec.Command("ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "--", target,
 				`scenery up --detach --wait ready --app-root "`+remoteApp+`"`),
 		},
+	}
+	if publishFrontends {
+		// Production frontends are built and published on the remote host
+		// after the dynamic runtime is ready: rsync deliberately excludes
+		// ignored build output, and the remote publish step validates and
+		// reloads the managed edge before reporting success.
+		steps = append(steps, struct {
+			name string
+			cmd  *exec.Cmd
+		}{
+			name: "remote scenery deploy publish",
+			cmd: exec.Command("ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "--", target,
+				`scenery deploy publish --app-root "`+remoteApp+`" -o json`),
+		})
 	}
 	for _, step := range steps {
 		step.cmd.Dir = filepath.Clean(appRoot)
