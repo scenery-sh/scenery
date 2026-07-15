@@ -662,9 +662,17 @@ func migrateLegacyRegistry(fields map[string]json.RawMessage) error {
 					}
 				}
 				addIdentityFields(lease, portLeaseIdentity())
-				manifest["port_lease"], _ = json.Marshal(lease)
+				encodedLease, err := json.Marshal(lease)
+				if err != nil {
+					return err
+				}
+				manifest["port_lease"] = encodedLease
 			}
-			item["route_manifest"], _ = json.Marshal(manifest)
+			encodedManifest, err := json.Marshal(manifest)
+			if err != nil {
+				return err
+			}
+			item["route_manifest"] = encodedManifest
 		}
 		return nil
 	}); err != nil {
@@ -694,7 +702,11 @@ func migrateLegacyArtifactList(fields map[string]json.RawMessage, name string, m
 			return err
 		}
 	}
-	fields[name], _ = json.Marshal(items)
+	encoded, err := json.Marshal(items)
+	if err != nil {
+		return err
+	}
+	fields[name] = encoded
 	return nil
 }
 

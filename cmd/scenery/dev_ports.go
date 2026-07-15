@@ -193,7 +193,11 @@ func migrateLegacyDevPortLeases(fields map[string]json.RawMessage) error {
 			lease[name] = value
 		}
 	}
-	fields["leases"], _ = json.Marshal(leases)
+	encodedLeases, err := json.Marshal(leases)
+	if err != nil {
+		return err
+	}
+	fields["leases"] = encodedLeases
 	return nil
 }
 

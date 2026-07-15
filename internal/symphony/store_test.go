@@ -463,3 +463,40 @@ func adminDatabaseURL(raw string) (string, error) {
 	u.Path = "/postgres"
 	return u.String(), nil
 }
+
+func TestStoreConcurrentOpensMigrateOnce(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	testURL, cleanup := createLiveTestDatabase(t)
+	t.Cleanup(cleanup)
+
+	const openers = 8
+	stores := make(chan *Store, openers)
+	errs := make(chan error, openers)
+	var wg sync.WaitGroup
+	for i := 0; i < openers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			store, err := Open(ctx, testURL)
+			if err != nil {
+				errs <- err
+				return
+			}
+			stores <- store
+		}()
+	}
+	wg.Wait()
+	close(stores)
+	close(errs)
+	for err := range errs {
+		t.Fatalf("concurrent open: %v", err)
+	}
+	for store := range stores {
+		if _, err := store.CreateTask(ctx, "demo", TaskInput{Title: "Migrated"}); err != nil {
+			t.Fatalf("create task after concurrent open: %v", err)
+		}
+		_ = store.Close()
+	}
+}

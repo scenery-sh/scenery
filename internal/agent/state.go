@@ -28,7 +28,11 @@ func LoadState(path string) (State, error) {
 			}
 			renameLegacyField(edge, "kind", "edge_kind")
 			addIdentityFields(edge, edgeStateIdentity())
-			fields["edge"], _ = json.Marshal(edge)
+			encodedEdge, err := json.Marshal(edge)
+			if err != nil {
+				return err
+			}
+			fields["edge"] = encodedEdge
 		}
 		return nil
 	})

@@ -94,27 +94,19 @@ func (s *Store) DB() *sql.DB {
 }
 
 func (s *Store) init(ctx context.Context) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("durable store: begin migration: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('scenery.durable.store', 0))`); err != nil {
-		return rollback(tx, fmt.Errorf("durable store: acquire migration lock: %w", err))
-	}
-	if _, err := tx.ExecContext(ctx, initSchemaSQL); err != nil {
-		return rollback(tx, fmt.Errorf("durable store: apply schema: %w", err))
-	}
-	if _, err := tx.ExecContext(ctx, `
+	return postgresdb.Migrate(ctx, s.db, "scenery.durable.store", func(ctx context.Context, tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, initSchemaSQL); err != nil {
+			return fmt.Errorf("durable store: apply schema: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `
 INSERT INTO scenery.durable_schema_migrations (version, name, checksum)
 VALUES ($1, $2, $3)
 ON CONFLICT(version) DO NOTHING
 `, schemaVersion, "retention", "durable-postgres-v2"); err != nil {
-		return rollback(tx, fmt.Errorf("durable store: record schema migration: %w", err))
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("durable store: commit migration: %w", err)
-	}
-	return nil
+			return fmt.Errorf("durable store: record schema migration: %w", err)
+		}
+		return nil
+	})
 }
 
 func rollback(tx *sql.Tx, err error) error {

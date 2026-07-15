@@ -926,19 +926,8 @@ func (s *Store) updateRun(ctx context.Context, appID, runID string, fn func(cont
 
 func (s *Store) migrate(ctx context.Context) error {
 	// Concurrent opens from other processes run the same idempotent DDL;
-	// hold a session advisory lock so they execute one at a time.
-	conn, err := s.db.Conn(ctx)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	if _, err := conn.ExecContext(ctx, `SELECT pg_advisory_lock(hashtextextended('scenery.symphony.migrate', 0))`); err != nil {
-		return err
-	}
-	defer func() {
-		_, _ = conn.ExecContext(context.WithoutCancel(ctx), `SELECT pg_advisory_unlock(hashtextextended('scenery.symphony.migrate', 0))`)
-	}()
-	for _, stmt := range []string{
+	// the transaction-scoped advisory lock makes them execute one at a time.
+	return postgresdb.MigrateStatements(ctx, s.db, "scenery.symphony.migrate", []string{
 		`CREATE TABLE IF NOT EXISTS symphony_statuses (
 			app_id text not null,
 			status_key text not null,
@@ -1031,24 +1020,13 @@ func (s *Store) migrate(ctx context.Context) error {
 			max_concurrency integer not null default 1,
 			updated_at text not null
 		)`,
-	} {
-		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
-			return err
-		}
-	}
-	for _, stmt := range []string{
-		`ALTER TABLE symphony_runs ADD COLUMN repo_root text not null default ''`,
-		`ALTER TABLE symphony_runs ADD COLUMN repo_workspace_path text not null default ''`,
-		`ALTER TABLE symphony_runs ADD COLUMN owner_started_at text`,
-		`ALTER TABLE symphony_runs ADD COLUMN lease_expires_at text`,
-		`ALTER TABLE symphony_runs ADD COLUMN diff_stat text not null default ''`,
-		`ALTER TABLE symphony_runs ADD COLUMN diff text not null default ''`,
-	} {
-		if _, err := s.db.ExecContext(ctx, stmt); err != nil && !strings.Contains(err.Error(), "already exists") && !strings.Contains(err.Error(), "duplicate column") {
-			return err
-		}
-	}
-	return nil
+		`ALTER TABLE symphony_runs ADD COLUMN IF NOT EXISTS repo_root text not null default ''`,
+		`ALTER TABLE symphony_runs ADD COLUMN IF NOT EXISTS repo_workspace_path text not null default ''`,
+		`ALTER TABLE symphony_runs ADD COLUMN IF NOT EXISTS owner_started_at text`,
+		`ALTER TABLE symphony_runs ADD COLUMN IF NOT EXISTS lease_expires_at text`,
+		`ALTER TABLE symphony_runs ADD COLUMN IF NOT EXISTS diff_stat text not null default ''`,
+		`ALTER TABLE symphony_runs ADD COLUMN IF NOT EXISTS diff text not null default ''`,
+	})
 }
 
 func (s *Store) ensureApp(ctx context.Context, appID string) error {
