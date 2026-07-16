@@ -6,6 +6,7 @@
   "required": [
     "kind",
     "schema_revision",
+	"environment",
     "domain",
     "app_id",
     "registry_path",
@@ -19,8 +20,12 @@
       "const": "scenery.deploy.publish"
     },
     "schema_revision": {
-      "const": "sha256:ba7cf3955961a930bd1f1833d9bc5a3df71a44ac28706cdb6843a90ecb1966f8"
+      "const": "sha256:e955649b692bd4fb98e3f5df375f74a62d447bd4e8818f2f55713214051a57c0"
     },
+	"environment": {
+	  "type": "string",
+	  "minLength": 1
+	},
     "domain": {
       "type": "string",
       "minLength": 1

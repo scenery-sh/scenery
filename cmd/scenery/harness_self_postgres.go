@@ -97,7 +97,8 @@ func runHarnessPostgresProbeCheck(parent context.Context, repoRoot string) (summ
 	rootB := filepath.Join(agentHome, "worktree-b")
 	cfg := app.Config{
 		Name: "postgres-harness", ID: "postgres-harness",
-		Dev: app.DevConfig{Services: map[string]app.DevServiceConfig{"cache": {}, "reports": {}}},
+		Envs: map[string]app.EnvConfig{"local": {Default: true}},
+		Dev:  app.DevConfig{Services: map[string]app.DevServiceConfig{"cache": {}, "reports": {}}},
 		Storage: app.StorageConfig{CellID: "postgres-harness", Stores: map[string]app.StorageStoreConfig{
 			"app": {Kind: "local"},
 		}},
@@ -299,7 +300,7 @@ func writePostgresHarnessConfig(root string) error {
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(root, ".scenery.json"), []byte(`{"name":"postgres-harness","id":"postgres-harness","dev":{"services":{"reports":{},"cache":{}}},"storage":{"cell_id":"postgres-harness","stores":{"app":{"kind":"local"}}}}`), 0o644)
+	return os.WriteFile(filepath.Join(root, ".scenery.json"), []byte(`{"name":"postgres-harness","id":"postgres-harness","envs":{"local":{"default":true}},"dev":{"services":{"reports":{},"cache":{}}},"storage":{"cell_id":"postgres-harness","stores":{"app":{"kind":"local"}}}}`), 0o644)
 }
 
 func runPostgresHarnessSnapshotRoundTrip(ctx context.Context, appRoot string, cfg app.Config, databaseURL string) error {

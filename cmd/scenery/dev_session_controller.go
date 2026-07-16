@@ -16,6 +16,7 @@ import (
 type DevSessionController struct {
 	root    string
 	cfg     app.Config
+	env     app.ResolvedEnv
 	listen  devListenRequest
 	console *runConsole
 }
@@ -60,8 +61,8 @@ func devAPIUnixSocketPath(stateRoot string) string {
 	return filepath.Join(os.TempDir(), "scenery-api-"+id+".sock")
 }
 
-func prepareDevAgentSession(ctx context.Context, root string, cfg app.Config, listen devListenRequest, console *runConsole) (*localagent.Client, *localagent.Session, devBackend, func(), error) {
-	prepared, err := prepareDevAgentSessionDetailed(ctx, root, cfg, listen, console)
+func prepareDevAgentSession(ctx context.Context, root string, cfg app.Config, env app.ResolvedEnv, listen devListenRequest, console *runConsole) (*localagent.Client, *localagent.Session, devBackend, func(), error) {
+	prepared, err := prepareDevAgentSessionDetailed(ctx, root, cfg, env, listen, console)
 	if err != nil {
 		if prepared != nil && prepared.Cleanup != nil {
 			prepared.Cleanup()
@@ -75,13 +76,14 @@ func prepareDevAgentSession(ctx context.Context, root string, cfg app.Config, li
 	return prepared.Client, prepared.Session, prepared.Backend, cleanup, nil
 }
 
-func prepareDevAgentSessionDetailed(ctx context.Context, root string, cfg app.Config, listen devListenRequest, console *runConsole) (*PreparedDevSession, error) {
-	return (&DevSessionController{root: root, cfg: cfg, listen: listen, console: console}).Prepare(ctx)
+func prepareDevAgentSessionDetailed(ctx context.Context, root string, cfg app.Config, env app.ResolvedEnv, listen devListenRequest, console *runConsole) (*PreparedDevSession, error) {
+	return (&DevSessionController{root: root, cfg: cfg, env: env, listen: listen, console: console}).Prepare(ctx)
 }
 
 func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession, error) {
 	root := c.root
 	cfg := c.cfg
+	env := c.env
 	listen := c.listen
 	var restorers []func()
 	restore := func() {
@@ -103,7 +105,7 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 		fallback.Addr = resolveListenAddr("", 4000)
 	}
 	routeNamespace := routeNamespaceForConfig(cfg)
-	routingMode, err := devRoutingMode(cfg)
+	routingMode, err := devRoutingMode(env)
 	if err != nil {
 		return prepared, err
 	}
@@ -114,8 +116,8 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 	}
 	branch := discoverDevGitBranch(root)
 	sessionID := localagent.SessionID(root, branch)
-	domainHost := localagent.DevDomainHost(cfg.Dev.Routing.Domain, branch)
-	publicRoutes, err := devExposeRouteNames(cfg)
+	domainHost := localagent.DevDomainHost(env.Domain, branch)
+	publicRoutes, err := devExposeRouteNames(cfg, env)
 	if err != nil {
 		return prepared, err
 	}
@@ -131,9 +133,9 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 			BaseAppID:     cfg.AppID(),
 			Branch:        branch,
 			WorktreeLabel: firstNonEmpty(branch, filepath.Base(root)),
-			Start:         cfg.Dev.Routing.PortStart,
-			End:           cfg.Dev.Routing.PortEnd,
-			Port:          cfg.Dev.Routing.Port,
+			Start:         env.PortStart,
+			End:           env.PortEnd,
+			Port:          env.Port,
 			OwnerPID:      os.Getpid(),
 		})
 		if err != nil {
@@ -143,7 +145,7 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 	}
 	if localagent.DisabledByEnv() {
 		if requiresPortlessEdge {
-			return prepared, fmt.Errorf("host routing for %q requires the scenery agent and local edge; unset SCENERY_AGENT_DISABLE or use dev.routing.mode \"path\"", routeNamespace.BaseDomain)
+			return prepared, fmt.Errorf("host routing for %q requires the scenery agent and local edge; unset SCENERY_AGENT_DISABLE or use envs.%s.mode \"path\"", routeNamespace.BaseDomain, env.Name)
 		}
 		prepared.Backend = fallback
 		return prepared, nil
@@ -205,7 +207,7 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 		})
 	}
 	backends := map[string]localagent.Backend{}
-	baseEnv, err := appEnvWithDotEnv(envpolicy.Environ(), root, ".env", ".env.local")
+	baseEnv, err := appEnvWithDotEnv(envpolicy.Environ(), root, env.DotEnvFiles()...)
 	if err != nil {
 		return prepared, err
 	}
@@ -235,6 +237,7 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 	}
 	frontendSeedSession, err := localagent.NewSession(localagent.RegisterRequest{
 		BaseAppID:      cfg.AppID(),
+		Environment:    env.Name,
 		AppRoot:        root,
 		SessionID:      sessionID,
 		Branch:         branch,
@@ -286,6 +289,7 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 		var err error
 		req := localagent.RegisterRequest{
 			BaseAppID:      cfg.AppID(),
+			Environment:    env.Name,
 			AppRoot:        root,
 			SessionID:      sessionID,
 			Branch:         branch,
@@ -329,12 +333,7 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 				return prepared, err
 			}
 		}
-		redirectURL := ""
-		if prepared.DomainURL != "" {
-			redirectURL = prepared.DomainURL
-		} else if domain := strings.TrimSpace(cfg.Deploy.Domain); domain != "" {
-			redirectURL = "https://" + domain
-		}
+		redirectURL := prepared.DomainURL
 		if err := c.runPhase("Starting local path router", func() error {
 			token, err := ensureEdgeToken(paths.EdgeTokenPath)
 			if err != nil {

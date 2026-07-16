@@ -22,6 +22,7 @@ type DeployRegistry struct {
 }
 
 type DeployTarget struct {
+	Environment string    `json:"environment,omitempty"`
 	Domain      string    `json:"domain"`
 	AppRoot     string    `json:"app_root"`
 	RootService string    `json:"root_service,omitempty"`
@@ -39,6 +40,7 @@ type DeployTarget struct {
 // target. Path is the frontend's `current` symlink inside the machine-owned
 // deploy artifact store; Root marks the frontend that owns `/`.
 type DeployTargetFrontend struct {
+	Environment string    `json:"environment,omitempty"`
 	Name        string    `json:"name"`
 	Path        string    `json:"path"`
 	Root        bool      `json:"root,omitempty"`

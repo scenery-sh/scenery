@@ -9,17 +9,17 @@ import (
 	"scenery.sh/internal/app"
 )
 
-func devRoutingMode(cfg app.Config) (localagent.RouteMode, error) {
-	switch strings.ToLower(strings.TrimSpace(cfg.Dev.Routing.Mode)) {
+func devRoutingMode(env app.ResolvedEnv) (localagent.RouteMode, error) {
+	switch strings.ToLower(strings.TrimSpace(env.Mode)) {
 	case "", string(localagent.RouteModePath):
 		return localagent.RouteModePath, nil
 	case string(localagent.RouteModeHost):
-		if strings.TrimSpace(cfg.Dev.Routing.Domain) != "" {
-			return "", fmt.Errorf("dev.routing.domain applies to path mode; remove it or use dev.routing.mode \"path\"")
+		if strings.TrimSpace(env.Domain) != "" {
+			return "", fmt.Errorf("envs.%s.domain applies to path mode; remove it or use envs.%s.mode \"path\"", env.Name, env.Name)
 		}
 		return localagent.RouteModeHost, nil
 	default:
-		return "", fmt.Errorf("dev.routing.mode must be \"path\" or \"host\"")
+		return "", fmt.Errorf("envs.%s.mode must be \"path\" or \"host\"", env.Name)
 	}
 }
 
@@ -37,13 +37,13 @@ func pathRouteManifestForLease(lease localagent.PortLease, domainHost string, pu
 // devExposeRouteNames validates dev.routing.expose against the routes this
 // app can actually serve and returns the canonical route names carried on
 // the manifest as public_routes. Nil means no narrowing (full surface).
-func devExposeRouteNames(cfg app.Config) ([]string, error) {
-	entries := cfg.Dev.Routing.Expose
+func devExposeRouteNames(cfg app.Config, env app.ResolvedEnv) ([]string, error) {
+	entries := env.Expose
 	if len(entries) == 0 {
 		return nil, nil
 	}
-	if strings.TrimSpace(cfg.Dev.Routing.Domain) == "" {
-		return nil, fmt.Errorf("dev.routing.expose requires dev.routing.domain")
+	if strings.TrimSpace(env.Domain) == "" {
+		return nil, fmt.Errorf("envs.%s.expose requires envs.%s.domain", env.Name, env.Name)
 	}
 	valid := map[string]bool{
 		"root":                    true,
@@ -64,7 +64,7 @@ func devExposeRouteNames(cfg app.Config) ([]string, error) {
 			name = localagent.RouteDashboard
 		}
 		if name == "" || !valid[name] {
-			return nil, fmt.Errorf("dev.routing.expose entry %q is not root, api, console, runtime, or a configured frontend name", raw)
+			return nil, fmt.Errorf("envs.%s.expose entry %q is not root, api, console, runtime, or a configured frontend name", env.Name, raw)
 		}
 		if seen[name] {
 			continue

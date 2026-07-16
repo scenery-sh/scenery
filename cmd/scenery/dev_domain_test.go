@@ -13,12 +13,12 @@ import (
 func TestDevRoutingModeRejectsDomainWithHostMode(t *testing.T) {
 	t.Parallel()
 
-	cfg := app.Config{Dev: app.DevConfig{Routing: app.DevRoutingConfig{Mode: "host", Domain: "local.clean.tech"}}}
-	if _, err := devRoutingMode(cfg); err == nil || !strings.Contains(err.Error(), "dev.routing.domain") {
+	env := app.ResolvedEnv{Name: "local", Mode: "host", Domain: "local.clean.tech"}
+	if _, err := devRoutingMode(env); err == nil || !strings.Contains(err.Error(), "envs.local.domain") {
 		t.Fatalf("devRoutingMode error = %v", err)
 	}
-	cfg.Dev.Routing.Mode = "path"
-	if _, err := devRoutingMode(cfg); err != nil {
+	env.Mode = "path"
+	if _, err := devRoutingMode(env); err != nil {
 		t.Fatalf("path mode with domain: %v", err)
 	}
 }
@@ -65,12 +65,9 @@ func TestDevExposeRouteNames(t *testing.T) {
 
 	cfg := app.Config{
 		Frontends: map[string]app.FrontendConfig{"next": {Root: "apps/next"}},
-		Dev: app.DevConfig{Routing: app.DevRoutingConfig{
-			Domain: "local.clean.tech",
-			Expose: []string{"api", "console", "next", "runtime", "api"},
-		}},
 	}
-	names, err := devExposeRouteNames(cfg)
+	env := app.ResolvedEnv{Name: "local", Domain: "local.clean.tech", Expose: []string{"api", "console", "next", "runtime", "api"}}
+	names, err := devExposeRouteNames(cfg, env)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,19 +81,19 @@ func TestDevExposeRouteNames(t *testing.T) {
 		}
 	}
 
-	cfg.Dev.Routing.Expose = []string{"pulse"}
-	if _, err := devExposeRouteNames(cfg); err == nil || !strings.Contains(err.Error(), `"pulse"`) {
+	env.Expose = []string{"pulse"}
+	if _, err := devExposeRouteNames(cfg, env); err == nil || !strings.Contains(err.Error(), `"pulse"`) {
 		t.Fatalf("unknown frontend error = %v", err)
 	}
 
-	cfg.Dev.Routing.Expose = []string{"api"}
-	cfg.Dev.Routing.Domain = ""
-	if _, err := devExposeRouteNames(cfg); err == nil || !strings.Contains(err.Error(), "dev.routing.domain") {
+	env.Expose = []string{"api"}
+	env.Domain = ""
+	if _, err := devExposeRouteNames(cfg, env); err == nil || !strings.Contains(err.Error(), "envs.local.domain") {
 		t.Fatalf("missing domain error = %v", err)
 	}
 
-	cfg.Dev.Routing.Expose = nil
-	if names, err := devExposeRouteNames(cfg); err != nil || names != nil {
+	env.Expose = nil
+	if names, err := devExposeRouteNames(cfg, env); err != nil || names != nil {
 		t.Fatalf("empty expose = (%v, %v)", names, err)
 	}
 }

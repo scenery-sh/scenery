@@ -18,10 +18,17 @@ func TestDeployConfigInfoDiagnosticsReportsUnsetRoot(t *testing.T) {
 	preparePersistentTestApp(t, root, map[string]string{
 		".scenery.json": `{
 		"name": "deploycheck",
-		"deploy": { "domain": "onlv.dev" },
 		"frontends": {
 			"web": { "root": "web" },
 			"admin": { "root": "admin" }
+		},
+		"envs": {
+			"local": {"default": true},
+			"production": {
+				"domain": "onlv.dev",
+				"frontends": {"web": {"serve": "production"}, "admin": {"serve": "production"}},
+				"deploy": {}
+			}
 		}
 	}`,
 	})

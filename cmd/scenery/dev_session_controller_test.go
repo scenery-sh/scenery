@@ -53,12 +53,18 @@ func TestPrepareDevAgentSessionRegistersOnceWithFrontendBackends(t *testing.T) {
 		devSessionTestHooks.Unlock()
 	})
 
-	prepared, err := prepareDevAgentSessionDetailed(ctx, t.TempDir(), app.Config{
+	cfg := app.Config{
 		Name: "demo",
 		Frontends: map[string]app.FrontendConfig{
 			"web": {Root: "apps/web"},
 		},
-	}, devListenRequest{}, nil)
+		Envs: map[string]app.EnvConfig{"local": {Default: true}},
+	}
+	env, err := cfg.ResolveEnv("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := prepareDevAgentSessionDetailed(ctx, t.TempDir(), cfg, env, devListenRequest{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

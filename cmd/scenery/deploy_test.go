@@ -438,8 +438,11 @@ func TestDeployResumeStartsMissingTargetsAndSkipsLiveSessions(t *testing.T) {
 		}
 	}
 	var started []string
-	deployRunUpDetachFunc = func(appRoot string) error {
+	deployRunUpDetachFunc = func(appRoot, envName string) error {
 		started = append(started, appRoot)
+		if envName != "" {
+			started = append(started, "env:"+envName)
+		}
 		return nil
 	}
 
@@ -611,9 +614,16 @@ func writeDeployTestApp(t *testing.T, name, domain, frontend string) string {
 	root := filepath.Join(t.TempDir(), name)
 	writeTestAppFile(t, root, ".scenery.json", `{
 		"name": "`+name+`",
-		"deploy": { "domain": "`+domain+`" },
 		"frontends": {
 			"`+frontend+`": { "root": "`+frontend+`" }
+		},
+		"envs": {
+			"local": {"default": true, "frontends": {"`+frontend+`": {"serve": "development"}}},
+			"production": {
+				"domain": "`+domain+`",
+				"frontends": {"`+frontend+`": {"serve": "production"}},
+				"deploy": {}
+			}
 		}
 	}`)
 	return root

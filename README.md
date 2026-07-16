@@ -98,24 +98,24 @@ For a simple single-server or preview deployment, allow an ordinary OpenSSH
 host alias in the app config:
 
 ```json
-{"name":"hello","deploy":{"ssh":["some-id"]}}
+{"name":"hello","envs":{"local":{"default":true},"production":{"deploy":{"ssh":["some-id"]}}}}
 ```
 
 Then run `scenery deploy some-id`. Scenery validates locally, connects with
 passwordless OpenSSH, stops the remote app, rsyncs the current working tree to
 `$HOME/.scenery/apps/hello`, and runs remote `scenery up --detach --wait ready`.
 The target needs `rsync`, `scenery`, and the app toolchain. `.git`, local
-`.scenery`, `.env`, `node_modules`, and Scenery-owned `go.work` files are not
-uploaded; `.gitignore` exclusions are honored, and remote `.env`, `.scenery`,
+`.scenery`, `.env*`, `node_modules`, and Scenery-owned `go.work` files are not
+uploaded; `.gitignore` exclusions are honored, and remote dotenv, `.scenery`,
 and editor workspace state are preserved.
 Deployment has brief downtime and no rollback.
 
 ## Public Deploy Edge
 
-`scenery deploy` is a beta operator surface for serving a live app on a public domain from a macOS (launchd) or Linux (systemd, run setup as root) machine. Frontends with `serve: "production"` are built on the serving host and served directly by the managed Caddy edge as static files; dynamic `/api/*` traffic stays on the Scenery router. Add a public domain to the app config:
+`scenery deploy` is a beta operator surface for serving a live app on a public domain from a macOS (launchd) or Linux (systemd, run setup as root) machine. An environment-scoped frontend with `serve: "production"` is built on the serving host and served directly by the managed Caddy edge as static files; dynamic `/api/*` traffic stays on the Scenery router.
 
 ```json
-{"name":"hello","deploy":{"domain":"hello.example.com","root":"app"}}
+{"name":"hello","frontends":{"app":{"root":"apps/app"}},"envs":{"local":{"default":true},"production":{"domain":"hello.example.com","frontends":{"app":{"serve":"production"}},"deploy":{"root":"app"}}}}
 ```
 
 Then configure the machine once, enable the app, and keep a live dev runtime running:
@@ -308,7 +308,7 @@ scenery console
 
 `--detach` starts the app root's agent-backed dev runtime in the background and, by default, returns after the API and configured frontends are ready; use `--wait registered` for the faster registration-only path. `scenery logs --follow` follows that app root's logs from VictoriaLogs. `scenery console` opens a source-aware terminal console when attached to a real TTY. `scenery down` stops the app root's one live runtime; for shared storage cells, it releases only that runtime's lease and preserves shared data. Use Git worktrees when you need multiple live code copies.
 
-`scenery up` defaults to path routing: one live app root gets one browser-facing base URL such as `http://localhost:4001`, and services live under paths such as `/api/`, `/console/`, `/web/`, `/blog/`, and `/runtime/`. `scenery ps` and `scenery ps -o json` report the base URL plus service routes. `dev.routing.port`, `dev.routing.port_start`, and `dev.routing.port_end` may pin or constrain the assigned localhost port; otherwise Scenery chooses a stable free port for the app root/session. `dev.routing.domain` optionally serves the same path structure at a branded HTTPS origin per Git worktree — `https://<branch>-<domain>`, bare `<domain>` on `main` — through the managed local edge with operator-owned DNS (loopback records, or Cloudflare-proxied records to a static IP); `dev.routing.expose` narrows what that origin serves, and `frontends.<name>.serve: "production"` swaps a frontend's dev server for a built static bundle (see the cookbook's "Branded Dev Domain Per Worktree"). Set `dev.routing.mode` to `host` only when you intentionally want the default `local.dev` edge/DNS route path.
+`scenery up` runs the single default named environment from `.scenery.json` (normally `local`); `--env <name>` selects another. Environment fields `port`, `port_start`, and `port_end` constrain its localhost port, `domain` adds the branded HTTPS origin, `expose` narrows that origin, and `frontends.<name>.serve` selects HMR development or built static production serving. A failed domain-edge probe keeps serving localhost and never redirects into another environment.
 
 In host mode, generated routes use the local edge/DNS path under `local.dev`. Use `scenery system edge dns install`, `scenery system edge privileged install`, `scenery system edge install`, and `scenery system edge trust` when you want trusted wildcard local HTTPS routes on the default HTTPS port; edge syncs managed dnsmasq and Caddy when needed and keeps Caddy user-owned.
 
@@ -317,19 +317,17 @@ Example frontend config:
 ```json
 {
   "name": "myapp",
-  "dev": {
-    "routing": {
-      "mode": "path"
-    }
-  },
-  "frontends": {
+	"frontends": {
     "web": {
       "root": "apps/web"
     },
     "blog": {
       "root": "apps/blog",
       "upstream": "127.0.0.1:5174"
-    }
+	},
+	"envs": {
+	  "local": {"default": true, "mode": "path", "frontends": {"web": {"serve": "development"}, "blog": {"serve": "development"}}}
+	}
   }
 }
 ```
@@ -337,7 +335,7 @@ Example frontend config:
 ## CLI Overview
 
 ```text
-scenery up [--port <n>] [--listen <addr>] [--app-root <path>] [--claim-aliases] [--verbose] [-o jsonl] [--detach]
+scenery up [--env <name>] [--port <n>] [--listen <addr>] [--app-root <path>] [--claim-aliases] [--verbose] [-o jsonl] [--detach]
 scenery logs --follow [--app-root <path>] [--limit <n>] [--stream all|stdout|stderr] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>] [-o jsonl|-o json]
 scenery console [--app-root <path>] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>]
 scenery system agent [--socket <path>] [--router-listen <addr>] [--router-tls|--router-http] [--trust] [-o json]
@@ -354,6 +352,7 @@ scenery worker durable token create --service <name> [--name <name>] [--id <id>]
 scenery version [-o json]
 scenery upgrade [--target <path>] [--toolchain installed|all|none] [--force] [--dry-run] [-o json]
 scenery deploy <ssh-target> [--app-root <path>]
+scenery deploy --env <name> [--app-root <path>]
 scenery deploy enable|disable|status|setup|resume|teardown [-o json]
 scenery system toolchain list [-o json] [--include-source-locks] [--images]
 scenery system toolchain sync [-o json] [--all] [--tool <name>] [--platform <goos/goarch>] [--images]

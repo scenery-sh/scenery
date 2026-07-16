@@ -48,6 +48,7 @@ type devSupervisor struct {
 	cancel  context.CancelFunc
 	root    string
 	cfg     app.Config
+	env     app.ResolvedEnv
 	backend devBackend
 	addr    string
 
@@ -87,7 +88,7 @@ const (
 
 var ansiEscapeRE = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
-func newDevSupervisor(ctx context.Context, root string, cfg app.Config, backend devBackend, console *runConsole, agent *localagent.Client, agentSession *localagent.Session) (*devSupervisor, error) {
+func newDevSupervisor(ctx context.Context, root string, cfg app.Config, env app.ResolvedEnv, backend devBackend, console *runConsole, agent *localagent.Client, agentSession *localagent.Session) (*devSupervisor, error) {
 	supervisorCtx, cancel := context.WithCancel(ctx)
 	backend = backend.normalized()
 	token, err := randomToken()
@@ -123,6 +124,7 @@ func newDevSupervisor(ctx context.Context, root string, cfg app.Config, backend 
 		cancel:       cancel,
 		root:         root,
 		cfg:          cfg,
+		env:          env,
 		backend:      backend,
 		addr:         backend.Addr,
 		store:        store,
@@ -515,6 +517,12 @@ func (s *devSupervisor) reloadConfig() (app.Config, error) {
 	if filepath.Clean(root) != filepath.Clean(s.root) {
 		return app.Config{}, fmt.Errorf("scenery app config moved from %s to %s", s.root, root)
 	}
+	resolved, err := cfg.ResolveEnv(s.env.Name)
+	if err != nil {
+		return app.Config{}, err
+	}
+	cfg.Frontends = resolved.Frontends
+	s.env = resolved
 	return cfg, nil
 }
 
@@ -526,7 +534,7 @@ func (s *devSupervisor) startApp(ctx context.Context, result *build.Result, meta
 	} else if sessionBinary != "" {
 		binary = sessionBinary
 	}
-	baseEnv, err := appEnvWithDotEnv(envpolicy.Environ(), s.root, ".env", ".env.local")
+	baseEnv, err := appEnvWithDotEnv(envpolicy.Environ(), s.root, s.env.DotEnvFiles()...)
 	if err != nil {
 		return nil, err
 	}
@@ -538,6 +546,8 @@ func (s *devSupervisor) startApp(ctx context.Context, result *build.Result, meta
 		"SCENERY_LISTEN_ADDR="+s.addr,
 		"SCENERY_APP_ID="+s.activeAppID(),
 		"SCENERY_APP_ROOT="+s.root,
+		"SCENERY_ENV="+s.env.Name,
+		"SCENERY_RUNTIME_ENV="+s.env.Name,
 		"SCENERY_DEV_SUPERVISOR=1",
 		"SCENERY_DEV_ENDPOINTS=1",
 		fmt.Sprintf("SCENERY_DEV_SUPERVISOR_PID=%d", os.Getpid()),
@@ -715,7 +725,7 @@ func buildDevDatabaseSetup(root string, cfg app.Config) (devDatabaseSetup, bool,
 }
 
 func (s *devSupervisor) runDevDatabaseSetup(ctx context.Context, setup devDatabaseSetup) error {
-	baseEnv, err := appEnvWithDotEnv(envpolicy.Environ(), s.root, ".env", ".env.local")
+	baseEnv, err := appEnvWithDotEnv(envpolicy.Environ(), s.root, s.env.DotEnvFiles()...)
 	if err != nil {
 		return err
 	}
@@ -729,6 +739,8 @@ func (s *devSupervisor) runDevDatabaseSetup(ctx context.Context, setup devDataba
 		s.console != nil && s.console.palette.Enabled(),
 		"SCENERY_APP_ID="+s.activeAppID(),
 		"SCENERY_APP_ROOT="+s.root,
+		"SCENERY_ENV="+s.env.Name,
+		"SCENERY_RUNTIME_ENV="+s.env.Name,
 		"SCENERY_DEV_SUPERVISOR=1",
 	)
 	env = append(env, managedEnv...)
@@ -1204,17 +1216,39 @@ func isExpectedExit(err error) bool {
 	return ok
 }
 
-func validateLocalSecretsFiles(root string) error {
-	if err := requireDotEnv(root); err != nil {
-		return err
+func validateLocalSecretsFiles(root string, cfg app.Config, env app.ResolvedEnv) error {
+	if !env.Deployable() {
+		if err := requireDotEnv(root); err != nil {
+			return err
+		}
 	}
-	for _, name := range []string{".env", ".env.local"} {
+	for _, name := range env.DotEnvFiles() {
 		path := filepath.Join(root, name)
 		if _, err := os.Stat(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
 		if _, err := envfile.ParseFile(path); err != nil {
 			return err
+		}
+	}
+	if env.Deployable() && cfg.Auth.Enabled {
+		values, err := appEnvWithDotEnv(envpolicy.Environ(), root, env.DotEnvFiles()...)
+		if err != nil {
+			return err
+		}
+		var required []string
+		if value, _ := lookupEnvValue(values, "JWT_SECRET"); strings.TrimSpace(value) == "" {
+			required = append(required, "JWT_SECRET")
+		}
+		if cfg.Auth.GoogleOAuth.Enabled {
+			for _, name := range []string{"GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET", "AUTH_TOKEN_CIPHER_KEY"} {
+				if value, _ := lookupEnvValue(values, name); strings.TrimSpace(value) == "" {
+					required = append(required, name)
+				}
+			}
+		}
+		if len(required) > 0 {
+			return fmt.Errorf("environment %q is missing required secrets: %s", env.Name, strings.Join(required, ", "))
 		}
 	}
 	return nil
@@ -1790,6 +1824,7 @@ func (s *devSupervisor) updateAgentSession(ctx context.Context, status, appPID s
 	}
 	updated, err := s.agent.Register(ctx, localagent.RegisterRequest{
 		BaseAppID:     s.activeAppID(),
+		Environment:   firstNonEmpty(session.Environment, s.env.Name),
 		AppRoot:       s.root,
 		SessionID:     session.SessionID,
 		Branch:        session.Branch,

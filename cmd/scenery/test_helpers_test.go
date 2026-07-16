@@ -27,6 +27,7 @@ import (
 
 func writeTestAppFileIfChanged(t *testing.T, root, rel, contents string) {
 	t.Helper()
+	contents = normalizeTestAppConfig(rel, contents)
 	path := filepath.Join(root, rel)
 	if current, err := os.ReadFile(path); err == nil && string(current) == contents {
 		return
@@ -82,6 +83,7 @@ func testAppFingerprint(files map[string]string) string {
 
 func writeTestAppFile(t *testing.T, root, rel, contents string) {
 	t.Helper()
+	contents = normalizeTestAppConfig(rel, contents)
 	path := filepath.Join(root, rel)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatalf("MkdirAll(%q): %v", filepath.Dir(path), err)
@@ -98,6 +100,21 @@ func writeTestAppFile(t *testing.T, root, rel, contents string) {
 			}
 		}
 	}
+}
+
+func normalizeTestAppConfig(rel, contents string) string {
+	if rel == ".scenery.json" {
+		var cfg map[string]any
+		if json.Unmarshal([]byte(contents), &cfg) == nil {
+			if _, ok := cfg["envs"]; !ok {
+				cfg["envs"] = map[string]any{"local": map[string]any{"default": true}}
+				if encoded, err := json.Marshal(cfg); err == nil {
+					contents = string(encoded)
+				}
+			}
+		}
+	}
+	return contents
 }
 
 func writeWatchFile(t *testing.T, root, rel, data string) {

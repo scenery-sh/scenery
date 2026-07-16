@@ -355,16 +355,18 @@ To serve local dev at your own domain instead of `localhost:<port>`, add a path-
 
 ```json
 {
-  "dev": {
-    "routing": {
-      "domain": "local.example.com",
-      "expose": ["api", "next"]
-    }
-  },
-  "frontends": {
-    "next": { "root": "apps/next" },
-    "blog": { "root": "apps/blog", "serve": "production" }
-  }
+	"frontends": {
+	  "next": { "root": "apps/next" },
+	  "blog": { "root": "apps/blog" }
+	},
+	"envs": {
+	  "local": {
+		"default": true,
+		"domain": "local.example.com",
+		"expose": ["api", "next"],
+		"frontends": {"next": {"serve": "development"}, "blog": {"serve": "production"}}
+	  }
+	}
 }
 ```
 
@@ -392,8 +394,11 @@ For a public deployment that should not ship the Vite dev runtime, mark the fron
 
 ```json
 {
-  "frontends": { "app": { "root": "apps/app", "serve": "production" } },
-  "deploy": { "domain": "app.example.com", "root": "app", "ssh": ["my-server"] }
+  "frontends": { "app": { "root": "apps/app" } },
+  "envs": {
+	"local": {"default": true, "frontends": {"app": {"serve": "development"}}},
+	"production": {"domain": "app.example.com", "frontends": {"app": {"serve": "production"}}, "deploy": {"root": "app", "ssh": ["my-server"]}}
+  }
 }
 ```
 

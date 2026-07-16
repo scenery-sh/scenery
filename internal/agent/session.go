@@ -94,6 +94,7 @@ func NewSession(req RegisterRequest, routerAddr, routerScheme string, existing *
 		ArtifactIdentity: sessionIdentity(),
 		SessionID:        sessionID,
 		BaseAppID:        baseAppID,
+		Environment:      strings.TrimSpace(req.Environment),
 		RuntimeAppID:     baseAppID + "--" + sessionID,
 		RouteNamespace:   routeNamespace,
 		AppRoot:          appRoot,

@@ -358,7 +358,11 @@ func runScriptProcess(ctx context.Context, root string, cfg app.Config, program 
 	defer stopSignals()
 	cmd := scriptCommandContext(ctx, program, args...)
 	cmd.Dir = root
-	env, err := appEnvWithDotEnv(envpolicy.Environ(), root, ".env", ".env.local")
+	resolved, err := cfg.ResolveEnv(opts.Env)
+	if err != nil {
+		return err
+	}
+	env, err := appEnvWithDotEnv(envpolicy.Environ(), root, resolved.DotEnvFiles()...)
 	if err != nil {
 		return err
 	}
@@ -372,9 +376,7 @@ func runScriptProcess(ctx context.Context, root string, cfg app.Config, program 
 		return err
 	}
 	extra = append(extra, storageEnv...)
-	if opts.Env != "" {
-		extra = append(extra, "SCENERY_ENV="+opts.Env, "SCENERY_RUNTIME_ENV="+opts.Env)
-	}
+	extra = append(extra, "SCENERY_ENV="+resolved.Name, "SCENERY_RUNTIME_ENV="+resolved.Name)
 	cmd.Env = envWithOverrides(env, extra...)
 	cmd.Stdout = firstNonNilWriter(opts.Stdout, os.Stdout)
 	cmd.Stderr = firstNonNilWriter(opts.Stderr, os.Stderr)

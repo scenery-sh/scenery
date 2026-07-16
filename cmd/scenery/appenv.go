@@ -11,11 +11,15 @@ import (
 )
 
 func appProcessEnv(root string, cfg app.Config, logFormat string, envName string, extra ...string) ([]string, error) {
+	resolved, err := cfg.ResolveEnv(envName)
+	if err != nil {
+		return nil, err
+	}
 	envLoader := appEnvWithRequiredDotEnv
-	if strings.EqualFold(strings.TrimSpace(envName), "production") {
+	if resolved.Deployable() {
 		envLoader = appEnvWithDotEnv
 	}
-	baseEnv, err := envLoader(envpolicy.Environ(), root)
+	baseEnv, err := envLoader(envpolicy.Environ(), root, resolved.DotEnvFiles()...)
 	if err != nil {
 		return nil, err
 	}
@@ -27,9 +31,7 @@ func appProcessEnv(root string, cfg app.Config, logFormat string, envName string
 		fmt.Sprintf("SCENERY_PARENT_MONITOR_PID=%d", os.Getpid()),
 	}
 	overrides = append(overrides, extra...)
-	if envName != "" {
-		overrides = append(overrides, "SCENERY_ENV="+envName, "SCENERY_RUNTIME_ENV="+envName)
-	}
+	overrides = append(overrides, "SCENERY_ENV="+resolved.Name, "SCENERY_RUNTIME_ENV="+resolved.Name)
 	if err := validateHeadlessPostgresEnv(cfg, baseEnv); err != nil {
 		return nil, err
 	}

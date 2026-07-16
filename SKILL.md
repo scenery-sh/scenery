@@ -107,19 +107,20 @@ The default detached wait verifies every advertised route and one script or styl
 
 `scenery up` is idempotent per app root: when a live runtime already owns the app root, it reports that runtime instead of failing. Human foreground reruns attach to the running runtime's logs, and Ctrl+C detaches without stopping it; `-o jsonl` and `--detach` reruns report and exit `0` (detached JSON sets `already_running: true`). Use a Git worktree when a second live code copy is needed.
 
-Default local routing gives each live app root one localhost base URL. Discover it and every routed capability through `scenery ps -o json`; do not guess hidden ports or substrate paths. When the app config sets `dev.routing.domain`, the same session is also served at `https://<branch>-<domain>` (bare `<domain>` on `main`) through the local edge; session JSON reports it as `route_manifest.domain_url`, and `route_manifest.public_routes` (from `dev.routing.expose`) narrows what that origin serves — localhost always serves everything. Frontends with `serve: "production"` are static builds without HMR. Treat Caddy, dnsmasq, and Victoria as substrate unless the task explicitly diagnoses them. Use managed toolchain commands instead of relying on ambient `PATH` binaries.
+Default local routing uses the one `envs` entry marked `default` and gives each live app root one localhost base URL. `scenery up --env <name>` selects another declared environment. The selected env owns `domain`, `expose`, ports, frontend `serve` modes, and deploy settings; session JSON records `environment`. A failed domain probe keeps localhost content and never falls through to another env's domain. Discover routes through `scenery ps -o json`; do not guess hidden ports or substrate paths.
 
 ```sh
 scenery system toolchain verify -o json
 scenery system edge status -o json
 scenery deploy status -o json
 scenery deploy <ssh-target> [--app-root <path>]
+scenery deploy --env <name> [--app-root <path>]
 ```
 
-The beta SSH form requires the host alias in app config `deploy.ssh`. It uses
-passwordless OpenSSH and rsync, honors `.gitignore`, preserves remote `.env`
+The beta SSH form requires the host alias in exactly one `envs.<name>.deploy.ssh`. It uses
+passwordless OpenSSH and rsync, honors `.gitignore`, preserves remote `.env*`
 and `.scenery`, then restarts with readiness waiting; expect brief downtime
-and no backend rollback. When the app declares `deploy.domain` and a frontend
+and no backend rollback. When that env declares `domain` and a frontend
 with `serve: "production"`, the deploy also builds that frontend on the remote
 host and publishes it atomically for direct managed-Caddy static serving
 (`scenery deploy publish`); a failed publish keeps the previous public
@@ -193,7 +194,7 @@ scenery harness ui -o json --write
 Use `docs/local-contract.md` for full grammar. Common agent commands:
 
 ```text
-scenery up [--app-root <path>] [-o jsonl] [--detach]
+scenery up [--env <name>] [--app-root <path>] [-o jsonl] [--detach]
 scenery ps [--app-root <path>] [-o json]
 scenery down [--app-root <path>] [-o json]
 scenery build [--app-root <path>] [--target <go-target>] [--output <path>] [-o human|json]

@@ -27,6 +27,7 @@ import (
 // configuration, and the direct-origin probe outcome.
 type deployPublishResponse struct {
 	cliPayloadIdentity
+	Environment  string                   `json:"environment"`
 	Domain       string                   `json:"domain"`
 	AppID        string                   `json:"app_id"`
 	RegistryPath string                   `json:"registry_path"`
@@ -66,11 +67,16 @@ func runDeployPublish(stdout io.Writer, opts deployOptions) error {
 	if err != nil {
 		return err
 	}
-	domain := strings.TrimSpace(cfg.Deploy.Domain)
-	if domain == "" {
-		return fmt.Errorf("%s has no deploy.domain; deploy publish serves a configured public domain", cfg.SourcePath(appRoot))
+	env, err := resolveDeployEnv(cfg, opts.Env)
+	if err != nil {
+		return err
 	}
-	names := productionFrontendNames(cfg)
+	cfg.Frontends = env.Frontends
+	domain := strings.TrimSpace(env.Domain)
+	if domain == "" {
+		return fmt.Errorf("envs.%s has no domain; deploy publish serves a configured public domain", env.Name)
+	}
+	names := productionFrontendNames(env)
 	if len(names) == 0 {
 		return fmt.Errorf("%s has no frontend with serve: \"production\"; nothing to publish", cfg.SourcePath(appRoot))
 	}
@@ -81,7 +87,7 @@ func runDeployPublish(stdout io.Writer, opts deployOptions) error {
 	if err := localagent.EnsureDirs(paths); err != nil {
 		return err
 	}
-	rootService := deployRootService(cfg)
+	rootService := deployRootService(cfg, env)
 	published := make([]localagent.DeployTargetFrontend, 0, len(names))
 	results := make([]deployPublishFrontend, 0, len(names))
 	previousReleases := map[string]string{}
@@ -93,13 +99,13 @@ func runDeployPublish(stdout io.Writer, opts deployOptions) error {
 		if err := runDeployPublishBuild(frontendRoot, "/"+name, stdout); err != nil {
 			return fmt.Errorf("build frontend %q: %w", name, err)
 		}
-		currentPath := filepath.Join(paths.DeployArtifactsDir, cfg.AppID(), name, "current")
+		currentPath := filepath.Join(paths.DeployArtifactsDir, cfg.AppID(), env.Name, name, "current")
 		if target, err := os.Readlink(currentPath); err == nil {
 			previousReleases[name] = target
 		}
 		record, err := edge.PublishFrontendArtifact(edge.PublishInput{
-			ArtifactsRoot: paths.DeployArtifactsDir,
-			AppID:         cfg.AppID(),
+			ArtifactsRoot: filepath.Join(paths.DeployArtifactsDir, cfg.AppID()),
+			AppID:         env.Name,
 			Frontend:      name,
 			SourceDir:     filepath.Join(frontendRoot, "dist"),
 		})
@@ -111,6 +117,7 @@ func runDeployPublish(stdout io.Writer, opts deployOptions) error {
 			route = "/"
 		}
 		published = append(published, localagent.DeployTargetFrontend{
+			Environment: env.Name,
 			Name:        name,
 			Path:        record.CurrentPath,
 			Root:        rootService == name,
@@ -133,6 +140,7 @@ func runDeployPublish(stdout io.Writer, opts deployOptions) error {
 	}
 	previousRegistry := registry
 	if err := upsertDeployTarget(&registry, localagent.DeployTarget{
+		Environment: env.Name,
 		Domain:      domain,
 		AppRoot:     filepath.Clean(appRoot),
 		RootService: rootService,
@@ -171,6 +179,7 @@ func runDeployPublish(stdout io.Writer, opts deployOptions) error {
 	}
 	resp := deployPublishResponse{
 		cliPayloadIdentity: newCLIPayloadIdentity("scenery.deploy.publish"),
+		Environment:        env.Name,
 		Domain:             domain,
 		AppID:              cfg.AppID(),
 		RegistryPath:       paths.DeployPath,
@@ -191,9 +200,9 @@ func runDeployPublish(stdout io.Writer, opts deployOptions) error {
 	return nil
 }
 
-func productionFrontendNames(cfg appcfg.Config) []string {
-	names := make([]string, 0, len(cfg.Frontends))
-	for name, frontend := range cfg.Frontends {
+func productionFrontendNames(env appcfg.ResolvedEnv) []string {
+	names := make([]string, 0, len(env.Frontends))
+	for name, frontend := range env.Frontends {
 		if strings.TrimSpace(frontend.Serve) == "production" {
 			names = append(names, name)
 		}

@@ -159,7 +159,7 @@ func (s *devSupervisor) restartManagedFrontend(ctx context.Context, name string,
 		s.clearManagedFrontend(name, previous)
 		return s.updateManagedFrontendSession(ctx, name, localagent.Backend{Network: "tcp", Addr: override}, nil)
 	}
-	baseEnv, err := appEnvWithDotEnv(envpolicy.Environ(), s.root, ".env", ".env.local")
+	baseEnv, err := appEnvWithDotEnv(envpolicy.Environ(), s.root, s.env.DotEnvFiles()...)
 	if err != nil {
 		return err
 	}
@@ -247,6 +247,7 @@ func (s *devSupervisor) updateManagedFrontendSession(ctx context.Context, name s
 	}
 	updated, err := s.agent.Register(ctx, localagent.RegisterRequest{
 		BaseAppID:      firstNonEmpty(session.BaseAppID, s.activeAppID()),
+		Environment:    firstNonEmpty(session.Environment, s.env.Name),
 		AppRoot:        s.root,
 		SessionID:      session.SessionID,
 		Branch:         session.Branch,

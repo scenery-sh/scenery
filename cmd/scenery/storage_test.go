@@ -243,6 +243,7 @@ func TestStorageCapabilityEnvPointsAtSharedCell(t *testing.T) {
 	agentHome := t.TempDir()
 	cfg := appcfg.Config{
 		Name: "storageapp",
+		Envs: map[string]appcfg.EnvConfig{"local": {Default: true}, "production": {Deploy: &appcfg.EnvDeployConfig{}}},
 		Storage: appcfg.StorageConfig{
 			CellID:  "shared-cell",
 			Default: "app",
@@ -275,6 +276,7 @@ func TestStorageCapabilityEnvUsesProxyForSessionStateRoot(t *testing.T) {
 	stateRoot := filepath.Join(t.TempDir(), ".scenery", "sessions", "dev")
 	cfg := appcfg.Config{
 		Name: "storageapp",
+		Envs: map[string]appcfg.EnvConfig{"local": {Default: true}, "production": {Deploy: &appcfg.EnvDeployConfig{}}},
 		Storage: appcfg.StorageConfig{
 			CellID:  "shared-cell",
 			Default: "app",
@@ -300,6 +302,7 @@ func TestAppProcessEnvFailsClosedForStorageWithoutExplicitRuntimeConfig(t *testi
 	t.Setenv(storageconfig.RuntimeConfigEnv, "")
 	cfg := appcfg.Config{
 		Name: "storageapp",
+		Envs: map[string]appcfg.EnvConfig{"local": {Default: true}, "production": {Deploy: &appcfg.EnvDeployConfig{}}},
 		Storage: appcfg.StorageConfig{
 			Default: "app",
 			Stores: map[string]appcfg.StorageStoreConfig{
@@ -322,6 +325,7 @@ func TestAppProcessEnvAcceptsExplicitProxyStorageRuntimeConfig(t *testing.T) {
 	t.Setenv(storageconfig.RuntimeConfigEnv, raw)
 	cfg := appcfg.Config{
 		Name: "storageapp",
+		Envs: map[string]appcfg.EnvConfig{"local": {Default: true}, "production": {Deploy: &appcfg.EnvDeployConfig{}}},
 		Storage: appcfg.StorageConfig{
 			Default: "app",
 			Stores: map[string]appcfg.StorageStoreConfig{
@@ -345,6 +349,7 @@ func TestAppProcessEnvAcceptsExplicitLocalStorageRuntimeConfig(t *testing.T) {
 	t.Setenv(storageconfig.RuntimeConfigEnv, raw)
 	cfg := appcfg.Config{
 		Name: "storageapp",
+		Envs: map[string]appcfg.EnvConfig{"local": {Default: true}, "production": {Deploy: &appcfg.EnvDeployConfig{}}},
 		Storage: appcfg.StorageConfig{
 			Default: "app",
 			Stores: map[string]appcfg.StorageStoreConfig{
@@ -366,6 +371,7 @@ func TestAppProcessEnvRejectsRelativeLocalStorageRoot(t *testing.T) {
 	t.Setenv(storageconfig.RuntimeConfigEnv, raw)
 	cfg := appcfg.Config{
 		Name: "storageapp",
+		Envs: map[string]appcfg.EnvConfig{"local": {Default: true}, "production": {Deploy: &appcfg.EnvDeployConfig{}}},
 		Storage: appcfg.StorageConfig{
 			Default: "app",
 			Stores: map[string]appcfg.StorageStoreConfig{

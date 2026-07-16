@@ -128,12 +128,12 @@ Use `-o json` for compiler commands and command-specific current protocols. Neve
 - Use `scenery down` to stop it; add destructive cleanup flags only intentionally.
 - Use `scenery worker` for a worker-role runtime serving declared durable executions and schedules.
 - Use `scenery build` for a deployable binary.
-- Use `scenery deploy <ssh-target>` only for configured beta single-server source sync. It stops the remote app, rsyncs the non-ignored working tree while preserving remote `.env`, `.scenery`, and Scenery-owned `go.work`, then waits for remote readiness; expect brief downtime and no backend rollback. When the app declares `deploy.domain` plus a `serve: "production"` frontend, the deploy also runs remote `scenery deploy publish`: the frontend builds on the remote host, publishes into an immutable Scenery-owned artifact release, and is served directly by the managed Caddy edge (dynamic `/api/*` traffic stays on the agent router); publish failures roll back to the previous public frontend.
+- Use `scenery deploy <ssh-target>` only for configured beta single-server source sync. The target must belong to exactly one `envs.<name>.deploy.ssh`; `scenery deploy --env <name>` is the equivalent shortcut when that env has one target. Scenery preserves remote `.env*`, `.scenery`, and Scenery-owned `go.work`, restarts with `--env <name>`, and publishes only that env's production frontends.
 - Use `scenery generate` only for file generation. It must not apply database state.
 - Use `scenery task` for app-local code tasks.
 - Use Git worktrees for another live code copy.
 
-Default local routing gives one app root/worktree one localhost base URL with API, dashboard, runtime, and frontend paths. Do not guess hidden ports. Host-mode wildcard HTTPS is opt-in through managed edge/DNS commands. Apps may also set `dev.routing.domain` to serve the same path-mode structure at `https://<branch>-<domain>` (bare `<domain>` on `main`) through the managed edge; when active, run output and the `scenery.dev.detach` payload advertise it as `app_url`, and `route_manifest.domain_url` names it in session JSON. `dev.routing.expose` (session JSON `route_manifest.public_routes`) narrows what that origin serves; localhost always serves the full surface. Frontends with `serve: "production"` are static builds — expect no HMR and a 503 until the first build finishes.
+Default local routing resolves the single default named env and gives one app root/worktree one localhost base URL. `scenery up --env <name>` selects another declared env. Its `domain`, `expose`, port fields, and frontend `serve` modes determine routing; session JSON includes `environment`. Domain-edge unreadiness degrades to localhost without a cross-env redirect.
 
 Treat Caddy, dnsmasq, Victoria, proxy sockets, hidden ports, and local stores as substrate unless the task explicitly diagnoses them. Prefer scenery inspection and status commands over direct substrate access.
 

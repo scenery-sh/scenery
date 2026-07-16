@@ -2,6 +2,7 @@ package validation
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -25,7 +26,16 @@ func writeValidationTestFile(t *testing.T, root, rel, contents string) {
 func discoverValidationTestApp(t *testing.T, config string) Planner {
 	t.Helper()
 	root := t.TempDir()
-	writeValidationTestFile(t, root, ".scenery.json", config)
+	var raw map[string]any
+	if err := json.Unmarshal([]byte(config), &raw); err != nil {
+		t.Fatal(err)
+	}
+	raw["envs"] = map[string]any{"local": map[string]any{"default": true}}
+	encoded, err := json.Marshal(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeValidationTestFile(t, root, ".scenery.json", string(encoded))
 	writeValidationTestFile(t, root, "scenery.scn", "application \"test\" {}\n")
 	appRoot, cfg, err := appcfg.DiscoverRoot(root)
 	if err != nil {

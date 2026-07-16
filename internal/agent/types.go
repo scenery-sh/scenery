@@ -61,6 +61,7 @@ type Session struct {
 	machine.ArtifactIdentity
 	SessionID      string                `json:"session_id"`
 	BaseAppID      string                `json:"base_app_id"`
+	Environment    string                `json:"environment"`
 	RuntimeAppID   string                `json:"runtime_app_id"`
 	RouteNamespace RouteNamespace        `json:"route_namespace"`
 	AppRoot        string                `json:"app_root"`
@@ -92,6 +93,7 @@ type Process struct {
 
 type RegisterRequest struct {
 	BaseAppID      string             `json:"base_app_id"`
+	Environment    string             `json:"environment"`
 	AppRoot        string             `json:"app_root"`
 	SessionID      string             `json:"session_id,omitempty"`
 	Branch         string             `json:"branch,omitempty"`

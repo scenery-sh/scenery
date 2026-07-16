@@ -158,7 +158,7 @@ func (b devBackend) normalized() devBackend {
 	return b
 }
 
-func runWithWatch(listen devListenRequest, verbose, jsonMode bool, appRoot string) (runErr error) {
+func runWithWatch(listen devListenRequest, verbose, jsonMode bool, appRoot, envName string) (runErr error) {
 	applyWatchTimingOverridesFromEnv()
 
 	start, err := resolveAppRoot(appRoot)
@@ -169,6 +169,11 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode bool, appRoot strin
 	if err != nil {
 		return err
 	}
+	resolvedEnv, err := cfg.ResolveEnv(envName)
+	if err != nil {
+		return err
+	}
+	cfg.Frontends = resolvedEnv.Frontends
 	setProductionFrontendWatch(root, cfg)
 
 	sigCtx, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -208,7 +213,7 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode bool, appRoot strin
 		return err
 	}
 
-	preparedSession, err := prepareDevAgentSessionDetailed(ctx, root, cfg, listen, console)
+	preparedSession, err := prepareDevAgentSessionDetailed(ctx, root, cfg, resolvedEnv, listen, console)
 	if err != nil {
 		if preparedSession != nil && preparedSession.Cleanup != nil {
 			preparedSession.Cleanup()
@@ -234,7 +239,7 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode bool, appRoot strin
 	}
 	defer restoreAgentEnv()
 
-	supervisor, err := newDevSupervisor(ctx, root, cfg, backend, console, agentClient, agentSession)
+	supervisor, err := newDevSupervisor(ctx, root, cfg, resolvedEnv, backend, console, agentClient, agentSession)
 	if err != nil {
 		return err
 	}

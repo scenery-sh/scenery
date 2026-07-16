@@ -264,6 +264,7 @@ func deployTargetFrontendStatuses(target localagent.DeployTarget) []deployTarget
 	out := make([]deployTargetFrontendStatus, 0, len(target.Frontends))
 	for _, frontend := range target.Frontends {
 		item := deployTargetFrontendStatus{
+			Environment:  firstNonEmpty(frontend.Environment, target.Environment),
 			Name:         frontend.Name,
 			Route:        "/" + frontend.Name + "/",
 			Mode:         "agent_proxy",

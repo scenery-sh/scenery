@@ -348,7 +348,7 @@ func upCommand(args []string) error {
 		return runDetachedDevFunc(args, opts)
 	}
 	listen := resolveDevListenRequest(opts)
-	return runWithWatchFunc(listen, opts.Verbose, opts.JSON, opts.AppRoot)
+	return runWithWatchFunc(listen, opts.Verbose, opts.JSON, opts.AppRoot, opts.Env)
 }
 
 func validateRuntimePlan(appRootOption string) error {
@@ -379,6 +379,7 @@ type devOptions struct {
 	JSON         bool
 	Output       string
 	AppRoot      string
+	Env          string
 	Detach       bool
 	Wait         string
 	ClaimAliases bool
@@ -402,6 +403,7 @@ func parseDevArgs(args []string) (devOptions, error) {
 	flags.BoolVar(&opts.Detach, "detach", false, "")
 	flags.StringVar(&opts.Wait, "wait", opts.Wait, "")
 	flags.StringVar(&opts.AppRoot, "app-root", "", "")
+	flags.StringVar(&opts.Env, "env", "", "")
 	flags.BoolVar(&opts.ClaimAliases, "claim-aliases", false, "")
 	positionals, err := parseCLIFlags(flags, args)
 	if err != nil {
@@ -412,6 +414,10 @@ func parseDevArgs(args []string) (devOptions, error) {
 	}
 	opts.PortSet = cliFlagSet(flags, "port", "p")
 	opts.ListenSet = cliFlagSet(flags, "listen")
+	opts.Env = strings.TrimSpace(opts.Env)
+	if cliFlagSet(flags, "env") && opts.Env == "" {
+		return devOptions{}, fmt.Errorf("--env must not be empty")
+	}
 	opts.Wait, err = normalizeDetachedDevWaitMode(opts.Wait)
 	if err != nil {
 		return devOptions{}, err

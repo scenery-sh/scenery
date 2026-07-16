@@ -196,7 +196,7 @@ func TestRunUpgradeRefusesLegacyRecoveryStateBeforeReplacingBinary(t *testing.T)
 	defer restore()
 
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, ".scenery.json"), []byte(`{"name":"legacy-recovery"}`), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, ".scenery.json"), []byte(`{"name":"legacy-recovery","envs":{"local":{"default":true}}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	legacyPath := filepath.Join(root, ".scenery", "transactions", "change-apply.json")

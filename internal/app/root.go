@@ -28,9 +28,9 @@ type Config struct {
 	ID            string                    `json:"id"`
 	Build         BuildConfig               `json:"build"`
 	Frontends     map[string]FrontendConfig `json:"frontends"`
+	Envs          map[string]EnvConfig      `json:"envs"`
 	Watch         WatchConfig               `json:"watch"`
 	Dev           DevConfig                 `json:"dev"`
-	Deploy        DeployConfig              `json:"deploy"`
 	Storage       StorageConfig             `json:"storage"`
 	Generators    GeneratorsConfig          `json:"generators"`
 	Database      DatabaseConfig            `json:"database"`
@@ -47,9 +47,9 @@ func (c Config) MarshalJSON() ([]byte, error) {
 		ID            string                    `json:"id"`
 		Build         BuildConfig               `json:"build"`
 		Frontends     map[string]FrontendConfig `json:"frontends"`
+		Envs          map[string]EnvConfig      `json:"envs"`
 		Watch         WatchConfig               `json:"watch"`
 		Dev           DevConfig                 `json:"dev"`
-		Deploy        *DeployConfig             `json:"deploy,omitempty"`
 		Storage       *StorageConfig            `json:"storage,omitempty"`
 		Generators    GeneratorsConfig          `json:"generators"`
 		Database      DatabaseConfig            `json:"database"`
@@ -58,7 +58,7 @@ func (c Config) MarshalJSON() ([]byte, error) {
 		Observability ObservabilityConfig       `json:"observability"`
 	}
 	out := configJSON{
-		Name: c.Name, ID: c.ID, Build: c.Build, Frontends: c.Frontends,
+		Name: c.Name, ID: c.ID, Build: c.Build, Frontends: c.Frontends, Envs: c.Envs,
 		Watch: c.Watch, Dev: c.Dev, Generators: c.Generators,
 		Database: c.Database, Validation: c.Validation, Auth: c.Auth,
 		Observability: c.Observability,
@@ -69,10 +69,6 @@ func (c Config) MarshalJSON() ([]byte, error) {
 			storage.Stores = map[string]StorageStoreConfig{}
 		}
 		out.Storage = &storage
-	}
-	if !c.Deploy.IsZero() {
-		deploy := c.Deploy
-		out.Deploy = &deploy
 	}
 	return json.Marshal(out)
 }
@@ -194,34 +190,99 @@ type FrontendConfig struct {
 	Root                string `json:"root"`
 	Upstream            string `json:"upstream"`
 	AllowSharedUpstream bool   `json:"allow_shared_upstream"`
-	// Serve selects the dev runtime serving mode: "development" (default)
-	// runs the package dev server with HMR; "production" runs the package
-	// build script once and serves the build output statically.
-	Serve string `json:"serve"`
+	Serve               string `json:"-"`
 }
 
 type DevConfig struct {
 	Services map[string]DevServiceConfig `json:"services"`
-	Routing  DevRoutingConfig            `json:"routing"`
 }
 
-type DevRoutingConfig struct {
-	Mode      string   `json:"mode"`
-	Domain    string   `json:"domain"`
-	Expose    []string `json:"expose"`
-	Port      int      `json:"port"`
-	PortStart int      `json:"port_start"`
-	PortEnd   int      `json:"port_end"`
+type EnvConfig struct {
+	Default   bool                         `json:"default"`
+	Mode      string                       `json:"mode"`
+	Domain    string                       `json:"domain"`
+	Expose    []string                     `json:"expose"`
+	Port      int                          `json:"port"`
+	PortStart int                          `json:"port_start"`
+	PortEnd   int                          `json:"port_end"`
+	Frontends map[string]EnvFrontendConfig `json:"frontends"`
+	Deploy    *EnvDeployConfig             `json:"deploy,omitempty"`
 }
 
-type DeployConfig struct {
-	Domain string   `json:"domain,omitempty"`
-	Root   string   `json:"root,omitempty"`
-	SSH    []string `json:"ssh,omitempty"`
+type EnvFrontendConfig struct {
+	Serve string `json:"serve"`
 }
 
-func (c DeployConfig) IsZero() bool {
-	return c.Domain == "" && c.Root == "" && len(c.SSH) == 0
+type EnvDeployConfig struct {
+	Root string   `json:"root,omitempty"`
+	SSH  []string `json:"ssh,omitempty"`
+}
+
+type ResolvedEnv struct {
+	Name      string
+	Default   bool
+	Domain    string
+	Mode      string
+	Expose    []string
+	Port      int
+	PortStart int
+	PortEnd   int
+	Frontends map[string]FrontendConfig
+	Deploy    *EnvDeployConfig
+}
+
+func (c Config) ResolveEnv(name string) (ResolvedEnv, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		for candidate, env := range c.Envs {
+			if env.Default {
+				name = candidate
+				break
+			}
+		}
+	}
+	env, ok := c.Envs[name]
+	if !ok {
+		return ResolvedEnv{}, fmt.Errorf("environment %q is not declared in envs", name)
+	}
+	frontends := make(map[string]FrontendConfig, len(c.Frontends))
+	for frontendName, frontend := range c.Frontends {
+		frontend.Serve = "development"
+		if override, exists := env.Frontends[frontendName]; exists && strings.TrimSpace(override.Serve) != "" {
+			frontend.Serve = strings.ToLower(strings.TrimSpace(override.Serve))
+		}
+		frontends[frontendName] = frontend
+	}
+	return ResolvedEnv{
+		Name: name, Default: env.Default, Domain: strings.TrimSpace(env.Domain),
+		Mode: strings.ToLower(strings.TrimSpace(env.Mode)), Expose: append([]string(nil), env.Expose...),
+		Port: env.Port, PortStart: env.PortStart, PortEnd: env.PortEnd,
+		Frontends: frontends, Deploy: env.Deploy,
+	}, nil
+}
+
+func (c Config) EnvForSSHTarget(target string) (ResolvedEnv, error) {
+	for name, env := range c.Envs {
+		if env.Deploy != nil {
+			for _, candidate := range env.Deploy.SSH {
+				if candidate == target {
+					return c.ResolveEnv(name)
+				}
+			}
+		}
+	}
+	return ResolvedEnv{}, fmt.Errorf("SSH target %q is not configured in any environment", target)
+}
+
+func (e ResolvedEnv) DotEnvFiles() []string {
+	if e.Name == "local" {
+		return []string{".env", ".env.local"}
+	}
+	return []string{".env", ".env." + e.Name, ".env.local", ".env." + e.Name + ".local"}
+}
+
+func (e ResolvedEnv) Deployable() bool {
+	return e.Deploy != nil
 }
 
 type DevServiceConfig struct {
@@ -381,7 +442,7 @@ func (c Config) Validate() error {
 	if err := c.validateDevServices(); err != nil {
 		return err
 	}
-	if err := c.validateDeploy(); err != nil {
+	if err := c.validateEnvs(); err != nil {
 		return err
 	}
 	return c.validateStorage()
@@ -422,43 +483,82 @@ func (c Config) validateDevServices() error {
 	return nil
 }
 
-func (c Config) validateDeploy() error {
-	domain := strings.TrimSpace(c.Deploy.Domain)
-	if domain != "" {
-		if domain != strings.ToLower(domain) {
-			return errors.New("deploy.domain must be lowercase")
+func (c Config) validateEnvs() error {
+	if len(c.Envs) == 0 {
+		return errors.New("envs must declare environments and exactly one default")
+	}
+	defaults := 0
+	seenSSH := map[string]string{}
+	for name, env := range c.Envs {
+		if !isStorageIdentifier(name) {
+			return fmt.Errorf("envs.%s name is invalid; use lowercase letters, numbers, dots, underscores, or dashes", name)
 		}
-		if err := validateDeployDomain(domain); err != nil {
-			return err
+		if env.Default {
+			defaults++
+		}
+		if name == "local" && !env.Default {
+			return errors.New("envs.local must be the default environment")
+		}
+		if name == "local" && env.Deploy != nil {
+			return errors.New("envs.local must not declare deploy")
+		}
+		domain := strings.TrimSpace(env.Domain)
+		if domain != "" {
+			if domain != strings.ToLower(domain) {
+				return fmt.Errorf("envs.%s.domain must be lowercase", name)
+			}
+			if err := validateEnvDomain(domain); err != nil {
+				return fmt.Errorf("envs.%s.domain: %w", name, err)
+			}
+		}
+		for frontendName, override := range env.Frontends {
+			if _, ok := c.Frontends[frontendName]; !ok {
+				return fmt.Errorf("envs.%s.frontends.%s does not match a configured frontend", name, frontendName)
+			}
+			serve := strings.ToLower(strings.TrimSpace(override.Serve))
+			if serve != "development" && serve != "production" {
+				return fmt.Errorf("envs.%s.frontends.%s.serve must be \"development\" or \"production\"", name, frontendName)
+			}
+		}
+		if env.Deploy == nil {
+			continue
+		}
+		for frontendName := range c.Frontends {
+			if strings.ToLower(strings.TrimSpace(env.Frontends[frontendName].Serve)) != "production" {
+				return fmt.Errorf("envs.%s.frontends.%s.serve must be \"production\" for a deployable environment", name, frontendName)
+			}
+		}
+		for index, target := range env.Deploy.SSH {
+			if !validDeploySSHTarget(target) {
+				return fmt.Errorf("envs.%s.deploy.ssh[%d] %q must be a safe OpenSSH host alias and not a scenery deploy subcommand", name, index, target)
+			}
+			if previous, exists := seenSSH[target]; exists {
+				return fmt.Errorf("envs.%s.deploy.ssh[%d] duplicates target %q from envs.%s", name, index, target, previous)
+			}
+			seenSSH[target] = name
+		}
+		if len(env.Deploy.SSH) > 0 && !validDeploySSHAppID(c.AppID()) {
+			return fmt.Errorf("app id %q must start with a lowercase letter or number and use only lowercase letters, numbers, dots, underscores, or dashes for SSH deployment", c.AppID())
+		}
+		root := strings.TrimSpace(env.Deploy.Root)
+		switch root {
+		case "":
+		case "console", "dashboard", "runtime", "__scenery":
+			return fmt.Errorf("envs.%s.deploy.root %q is reserved by Scenery", name, root)
+		case "api":
+		default:
+			if _, ok := c.Frontends[root]; !ok {
+				return fmt.Errorf("envs.%s.deploy.root %q must be \"api\" or a configured frontend", name, root)
+			}
 		}
 	}
-	seenSSH := map[string]struct{}{}
-	for index, target := range c.Deploy.SSH {
-		if !validDeploySSHTarget(target) {
-			return fmt.Errorf("deploy.ssh[%d] %q must be a safe OpenSSH host alias and not a scenery deploy subcommand", index, target)
-		}
-		if _, exists := seenSSH[target]; exists {
-			return fmt.Errorf("deploy.ssh[%d] duplicates %q", index, target)
-		}
-		seenSSH[target] = struct{}{}
+	if defaults != 1 {
+		return fmt.Errorf("envs must declare exactly one default environment; found %d", defaults)
 	}
-	if len(c.Deploy.SSH) > 0 && !validDeploySSHAppID(c.AppID()) {
-		return fmt.Errorf("app id %q must start with a lowercase letter or number and use only lowercase letters, numbers, dots, underscores, or dashes for SSH deployment", c.AppID())
+	if _, ok := c.Envs["local"]; !ok {
+		return errors.New("envs.local must declare the default local environment")
 	}
-	root := strings.TrimSpace(c.Deploy.Root)
-	if root == "" {
-		return nil
-	}
-	switch root {
-	case "console", "dashboard", "runtime", "__scenery":
-		return fmt.Errorf("deploy.root %q is reserved by Scenery", root)
-	case "api":
-		return nil
-	}
-	if _, ok := c.Frontends[root]; ok {
-		return nil
-	}
-	return fmt.Errorf("deploy.root %q must be \"api\" or a configured frontend", root)
+	return nil
 }
 
 func validDeploySSHTarget(target string) bool {
@@ -484,19 +584,19 @@ func validDeploySSHAppID(value string) bool {
 	return value != ""
 }
 
-func validateDeployDomain(domain string) error {
+func validateEnvDomain(domain string) error {
 	if domain == "localhost" {
-		return errors.New("deploy.domain must not be localhost")
+		return errors.New("must not be localhost")
 	}
 	if ip := net.ParseIP(strings.Trim(domain, "[]")); ip != nil {
-		return errors.New("deploy.domain must not be an IP address")
+		return errors.New("must not be an IP address")
 	}
 	if !validDeployFQDN(domain) {
-		return fmt.Errorf("deploy.domain %q must be a valid lowercase FQDN", domain)
+		return fmt.Errorf("%q must be a valid lowercase FQDN", domain)
 	}
 	base := "local.dev"
 	if domain == base || strings.HasSuffix(domain, "."+base) {
-		return fmt.Errorf("deploy.domain %q must not use the local route base domain %q", domain, base)
+		return fmt.Errorf("%q must not use the local route base domain %q", domain, base)
 	}
 	return nil
 }

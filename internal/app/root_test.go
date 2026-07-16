@@ -1,6 +1,7 @@
 package app
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -60,14 +61,17 @@ func TestDiscoverRootAcceptsDeployConfig(t *testing.T) {
 	root := t.TempDir()
 	writeAppTestFile(t, root, ".scenery.json", `{
 		"name": "deployapp",
-		"deploy": {
-			"domain": "onlv.dev",
-			"root": "web",
-			"ssh": ["some-id"]
-		},
 		"frontends": {
 			"web": {
 				"root": "web"
+			}
+		},
+		"envs": {
+			"local": {"default": true, "frontends": {"web": {"serve": "development"}}},
+			"production": {
+				"domain": "onlv.dev",
+				"frontends": {"web": {"serve": "production"}},
+				"deploy": {"root": "web", "ssh": ["some-id"]}
 			}
 		}
 	}`)
@@ -76,8 +80,50 @@ func TestDiscoverRootAcceptsDeployConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DiscoverRoot returned error: %v", err)
 	}
-	if cfg.Deploy.Domain != "onlv.dev" || cfg.Deploy.Root != "web" || strings.Join(cfg.Deploy.SSH, ",") != "some-id" {
-		t.Fatalf("Deploy = %+v", cfg.Deploy)
+	env, err := cfg.EnvForSSHTarget("some-id")
+	if err != nil || env.Domain != "onlv.dev" || env.Deploy.Root != "web" || strings.Join(env.Deploy.SSH, ",") != "some-id" {
+		t.Fatalf("production env = %+v, err = %v", env, err)
+	}
+}
+
+func TestResolveEnvAppliesFrontendModesAndDotenvStack(t *testing.T) {
+	cfg := Config{
+		Frontends: map[string]FrontendConfig{"web": {Root: "web"}},
+		Envs: map[string]EnvConfig{
+			"local":      {Default: true, Frontends: map[string]EnvFrontendConfig{"web": {Serve: "development"}}},
+			"production": {Frontends: map[string]EnvFrontendConfig{"web": {Serve: "production"}}, Deploy: &EnvDeployConfig{SSH: []string{"prod"}}},
+		},
+	}
+	local, err := cfg.ResolveEnv("")
+	if err != nil || local.Name != "local" || local.Frontends["web"].Serve != "development" || strings.Join(local.DotEnvFiles(), ",") != ".env,.env.local" {
+		t.Fatalf("local = %+v, err = %v", local, err)
+	}
+	production, err := cfg.EnvForSSHTarget("prod")
+	if err != nil || production.Name != "production" || production.Frontends["web"].Serve != "production" || strings.Join(production.DotEnvFiles(), ",") != ".env,.env.production,.env.local,.env.production.local" {
+		t.Fatalf("production = %+v, err = %v", production, err)
+	}
+}
+
+func TestDiscoverRootRejectsInvalidEnvironmentOwnership(t *testing.T) {
+	tests := []struct{ name, config, want string }{
+		{"missing envs", `{"name":"demo"}`, "envs must declare environments"},
+		{"two defaults", `{"name":"demo","envs":{"local":{"default":true},"other":{"default":true}}}`, "exactly one default"},
+		{"duplicate target", `{"name":"demo","envs":{"local":{"default":true},"staging":{"deploy":{"ssh":["host"]}},"production":{"deploy":{"ssh":["host"]}}}}`, "duplicates target"},
+		{"old deploy", `{"name":"demo","envs":{"local":{"default":true}},"deploy":{}}`, `unknown .scenery.json field "deploy"`},
+		{"old routing", `{"name":"demo","envs":{"local":{"default":true}},"dev":{"routing":{}}}`, `unknown .scenery.json field "dev.routing"`},
+		{"old serve", `{"name":"demo","frontends":{"web":{"root":"web","serve":"production"}},"envs":{"local":{"default":true}}}`, `unknown .scenery.json field "frontends.web.serve"`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			if err := os.WriteFile(filepath.Join(root, ".scenery.json"), []byte(tt.config), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			_, _, err := DiscoverRoot(root)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error = %v, want %q", err, tt.want)
+			}
+		})
 	}
 }
 
@@ -280,57 +326,57 @@ func TestDiscoverRootRejectsInvalidDeployConfig(t *testing.T) {
 	}{
 		{
 			name:   "uppercase domain",
-			config: `{"name":"deployapp","deploy":{"domain":"Onlv.dev"}}`,
-			want:   "deploy.domain must be lowercase",
+			config: `{"name":"deployapp","envs":{"local":{"default":true},"production":{"domain":"Onlv.dev","deploy":{}}}}`,
+			want:   "envs.production.domain must be lowercase",
 		},
 		{
 			name:   "localhost",
-			config: `{"name":"deployapp","deploy":{"domain":"localhost"}}`,
-			want:   "deploy.domain must not be localhost",
+			config: `{"name":"deployapp","envs":{"local":{"default":true},"production":{"domain":"localhost","deploy":{}}}}`,
+			want:   "envs.production.domain: must not be localhost",
 		},
 		{
 			name:   "ip",
-			config: `{"name":"deployapp","deploy":{"domain":"192.168.1.10"}}`,
-			want:   "deploy.domain must not be an IP address",
+			config: `{"name":"deployapp","envs":{"local":{"default":true},"production":{"domain":"192.168.1.10","deploy":{}}}}`,
+			want:   "envs.production.domain: must not be an IP address",
 		},
 		{
 			name:   "bad fqdn",
-			config: `{"name":"deployapp","deploy":{"domain":"notadomain"}}`,
-			want:   `deploy.domain "notadomain" must be a valid lowercase FQDN`,
+			config: `{"name":"deployapp","envs":{"local":{"default":true},"production":{"domain":"notadomain","deploy":{}}}}`,
+			want:   `envs.production.domain: "notadomain" must be a valid lowercase FQDN`,
 		},
 		{
 			name:   "reserved root",
-			config: `{"name":"deployapp","deploy":{"domain":"onlv.dev","root":"runtime"}}`,
-			want:   `deploy.root "runtime" is reserved by Scenery`,
+			config: `{"name":"deployapp","envs":{"local":{"default":true},"production":{"domain":"onlv.dev","deploy":{"root":"runtime"}}}}`,
+			want:   `envs.production.deploy.root "runtime" is reserved by Scenery`,
 		},
 		{
 			name:   "unknown root",
-			config: `{"name":"deployapp","deploy":{"domain":"onlv.dev","root":"web"}}`,
-			want:   `deploy.root "web" must be "api" or a configured frontend`,
+			config: `{"name":"deployapp","envs":{"local":{"default":true},"production":{"domain":"onlv.dev","deploy":{"root":"web"}}}}`,
+			want:   `envs.production.deploy.root "web" must be "api" or a configured frontend`,
 		},
 		{
 			name:   "unsafe ssh target",
-			config: `{"name":"deployapp","deploy":{"ssh":["-oProxyCommand=bad"]}}`,
-			want:   `deploy.ssh[0] "-oProxyCommand=bad" must be a safe OpenSSH host alias`,
+			config: `{"name":"deployapp","envs":{"local":{"default":true},"production":{"deploy":{"ssh":["-oProxyCommand=bad"]}}}}`,
+			want:   `envs.production.deploy.ssh[0] "-oProxyCommand=bad" must be a safe OpenSSH host alias`,
 		},
 		{
 			name:   "reserved ssh target",
-			config: `{"name":"deployapp","deploy":{"ssh":["status"]}}`,
-			want:   `deploy.ssh[0] "status" must be a safe OpenSSH host alias`,
+			config: `{"name":"deployapp","envs":{"local":{"default":true},"production":{"deploy":{"ssh":["status"]}}}}`,
+			want:   `envs.production.deploy.ssh[0] "status" must be a safe OpenSSH host alias`,
 		},
 		{
 			name:   "duplicate ssh target",
-			config: `{"name":"deployapp","deploy":{"ssh":["some-id","some-id"]}}`,
-			want:   `deploy.ssh[1] duplicates "some-id"`,
+			config: `{"name":"deployapp","envs":{"local":{"default":true},"production":{"deploy":{"ssh":["some-id","some-id"]}}}}`,
+			want:   `envs.production.deploy.ssh[1] duplicates target "some-id"`,
 		},
 		{
 			name:   "unsafe app id",
-			config: `{"name":"My App","deploy":{"ssh":["some-id"]}}`,
+			config: `{"name":"My App","envs":{"local":{"default":true},"production":{"deploy":{"ssh":["some-id"]}}}}`,
 			want:   `app id "My App" must start with a lowercase letter or number`,
 		},
 		{
 			name:   "traversing app id",
-			config: `{"name":"..","deploy":{"ssh":["some-id"]}}`,
+			config: `{"name":"..","envs":{"local":{"default":true},"production":{"deploy":{"ssh":["some-id"]}}}}`,
 			want:   `app id ".." must start with a lowercase letter or number`,
 		},
 	}
@@ -445,6 +491,17 @@ func writeAppTestFile(t *testing.T, root, rel, contents string) {
 	path := filepath.Join(root, rel)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatalf("mkdir %s: %v", rel, err)
+	}
+	if rel == ".scenery.json" {
+		var cfg map[string]any
+		if json.Unmarshal([]byte(contents), &cfg) == nil {
+			if _, ok := cfg["envs"]; !ok {
+				cfg["envs"] = map[string]any{"local": map[string]any{"default": true}}
+				if encoded, err := json.Marshal(cfg); err == nil {
+					contents = string(encoded)
+				}
+			}
+		}
 	}
 	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
 		t.Fatalf("write %s: %v", rel, err)

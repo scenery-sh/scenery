@@ -466,7 +466,7 @@ SCENERY_FRONTEND_TEST_SERVER_HELPER=1 exec "$SCENERY_FRONTEND_TEST_SERVER" -test
 	if len(prepared.FrontendProcesses) != 1 {
 		t.Fatalf("frontend processes = %d, want 1", len(prepared.FrontendProcesses))
 	}
-	supervisor, err := newDevSupervisor(ctx, appRoot, cfg, prepared.Backend, nil, prepared.Client, prepared.Session)
+	supervisor, err := newDevSupervisor(ctx, appRoot, cfg, app.ResolvedEnv{Name: "local", Frontends: cfg.Frontends}, prepared.Backend, nil, prepared.Client, prepared.Session)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -497,6 +497,14 @@ SCENERY_FRONTEND_TEST_SERVER_HELPER=1 exec "$SCENERY_FRONTEND_TEST_SERVER" -test
 	}()
 	supervisor.agent = prepared.Client
 	supervisor.agentSession = prepared.Session
+	supervisor.updateAgentSession(ctx, "running", "")
+	sessions, err := prepared.Client.List(ctx, appRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != 1 || sessions[0].Environment != "local" {
+		t.Fatalf("session environment after status update = %+v, want local", sessions)
+	}
 	supervisor.adoptManagedFrontends(prepared.FrontendProcesses)
 
 	first := prepared.FrontendProcesses[0]
@@ -529,7 +537,7 @@ SCENERY_FRONTEND_TEST_SERVER_HELPER=1 exec "$SCENERY_FRONTEND_TEST_SERVER" -test
 			}
 			backend := latest.Backends["web"]
 			process := latest.Processes["frontend-web"]
-			if backend.Addr == update.backend.Addr && process.PID == update.pid {
+			if backend.Addr == update.backend.Addr && process.PID == update.pid && latest.Environment == "local" {
 				return
 			}
 			t.Fatalf("session update = backend=%+v pid=%d, latest=%+v", update.backend, update.pid, latest)

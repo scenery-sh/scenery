@@ -3,6 +3,7 @@
   "$id": "https://scenery.sh/schemas/scenery.config.schema.json",
   "title": "Scenery app configuration",
   "type": "object",
+	"required": ["envs"],
   "properties": {
     "name": {
       "type": "string"
@@ -21,6 +22,14 @@
       "description": "Configured frontend roots for dev routing and generated web packages.",
       "additionalProperties": {
         "$ref": "#/$defs/frontend"
+      }
+    },
+    "envs": {
+      "type": "object",
+      "description": "Named runtime environments. Exactly one environment must be the default local environment.",
+      "minProperties": 1,
+      "additionalProperties": {
+        "$ref": "#/$defs/environment"
       }
     },
     "watch": {
@@ -65,57 +74,9 @@
           "additionalProperties": {
             "$ref": "#/$defs/devService"
           }
-        },
-        "routing": {
-          "type": "object",
-          "description": "Browser-facing local dev routing. The default mode is path, which assigns one stable localhost port per app root.",
-          "properties": {
-            "mode": {
-              "type": "string",
-              "enum": [
-                "",
-                "path",
-                "host"
-              ]
-            },
-            "domain": {
-              "type": "string",
-              "description": "Optional path-mode browser domain. When set, the dev session is also served at https://<branch>-<domain> (bare <domain> on branch main) through the managed HTTPS edge; DNS for the domain is operator-owned (loopback records or a Cloudflare-proxied static IP)."
-            },
-            "expose": {
-              "type": [
-                "array",
-                "null"
-              ],
-              "description": "Optional narrowing of what the dev domain origin serves: route names among root, api, console, runtime, and configured frontend names. Absent means the full path-mode surface. localhost always serves everything.",
-              "items": {
-                "type": "string",
-                "minLength": 1
-              }
-            },
-            "port": {
-              "type": "integer",
-              "minimum": 0,
-              "maximum": 65535
-            },
-            "port_start": {
-              "type": "integer",
-              "minimum": 0,
-              "maximum": 65535
-            },
-            "port_end": {
-              "type": "integer",
-              "minimum": 0,
-              "maximum": 65535
-            }
-          },
-          "additionalProperties": false
-        }
+		}
       },
       "additionalProperties": false
-    },
-    "deploy": {
-      "$ref": "#/$defs/deploy"
     },
     "storage": {
       "$ref": "#/$defs/storage"
@@ -256,16 +217,7 @@
         },
         "allow_shared_upstream": {
           "type": "boolean"
-        },
-        "serve": {
-          "type": "string",
-          "description": "Dev runtime serving mode: development (default) runs the package dev server with HMR; production runs the package build script and serves the build output statically.",
-          "enum": [
-            "",
-            "development",
-            "production"
-          ]
-        }
+		}
       },
       "additionalProperties": false
     },
@@ -285,15 +237,39 @@
       },
       "additionalProperties": false
     },
-    "deploy": {
-      "type": "object",
-      "description": "Beta deploy configuration for public-domain routing and allowed OpenSSH source-sync targets.",
-      "properties": {
+    "environment": {
+	  "type": "object",
+	  "properties": {
+		"default": { "type": "boolean" },
+		"mode": { "enum": ["", "path", "host"] },
         "domain": {
           "type": "string",
-          "description": "Lowercase public FQDN claimed by scenery deploy enable. Must not be localhost, an IP address, or the local route base domain.",
-          "pattern": "^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+          "maxLength": 253,
+          "pattern": "^$|^([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
         },
+		"expose": { "type": ["array", "null"], "items": { "type": "string", "minLength": 1 } },
+		"port": { "type": "integer", "minimum": 0, "maximum": 65535 },
+		"port_start": { "type": "integer", "minimum": 0, "maximum": 65535 },
+		"port_end": { "type": "integer", "minimum": 0, "maximum": 65535 },
+		"frontends": {
+		  "type": ["object", "null"],
+		  "additionalProperties": { "$ref": "#/$defs/environmentFrontend" }
+		},
+		"deploy": { "$ref": "#/$defs/deploy" }
+	  },
+	  "additionalProperties": false
+	},
+    "environmentFrontend": {
+	  "type": "object",
+	  "properties": {
+		"serve": { "enum": ["development", "production"] }
+	  },
+	  "additionalProperties": false
+	},
+    "deploy": {
+      "type": "object",
+	  "description": "Beta source-sync targets for one named environment.",
+	  "properties": {
         "root": {
           "type": "string",
           "description": "Optional public / owner: api or a configured frontend name."

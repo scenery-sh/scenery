@@ -685,6 +685,8 @@ func frontendDevEnv(baseEnv []string, appRoot, addr string, session localagent.S
 		"PORT="+portFromAddr(addr),
 		"SCENERY_APP_ROOT="+appRoot,
 		"SCENERY_SESSION_ID="+session.SessionID,
+		"SCENERY_ENV="+session.Environment,
+		"SCENERY_RUNTIME_ENV="+session.Environment,
 	)
 	if apiURL := strings.TrimSpace(session.RouteManifest.Routes[localagent.RouteAPI].URL); apiURL != "" {
 		env = append(env,

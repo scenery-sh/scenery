@@ -1,1 +1,1 @@
-{"name":"nativeapp"}
+{"name":"nativeapp","envs":{"local":{"default":true}}}

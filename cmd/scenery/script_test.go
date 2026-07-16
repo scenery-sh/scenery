@@ -289,7 +289,7 @@ func main() {
 func scriptFixtureRoot(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
-	writeTestAppFile(t, root, ".scenery.json", `{"name":"scriptapp"}`)
+	writeTestAppFile(t, root, ".scenery.json", `{"name":"scriptapp","envs":{"local":{"default":true},"production":{}}}`)
 	writeTestAppFile(t, root, "go.mod", "module example.com/scriptapp\n\ngo 1.26.3\n")
 	return root
 }

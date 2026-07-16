@@ -23,7 +23,7 @@
       "const": "scenery.deploy.status"
     },
     "schema_revision": {
-      "const": "sha256:28fdf35a9ba1671a2f21dd5a2ceb1d1d9fb42bcd96b42ee476d56d0611e46849"
+      "const": "sha256:44aec24f02fc8aabe19d395a08ba9fb40ebcb244e6acd90fbc5c113fd0eee529"
     },
     "ready": {
       "type": "boolean"
@@ -287,7 +287,8 @@
       ],
       "additionalProperties": false,
       "properties": {
-        "domain": {
+		"environment": { "type": "string" },
+		"domain": {
           "type": "string",
           "minLength": 1
         },
@@ -338,7 +339,8 @@
       ],
       "additionalProperties": false,
       "properties": {
-        "name": {
+		"environment": { "type": "string" },
+		"name": {
           "type": "string",
           "minLength": 1
         },

@@ -25,6 +25,7 @@ import (
 
 type deployOptions struct {
 	AppRoot   string
+	Env       string
 	JSON      bool
 	ACMEEmail string
 	ACMECA    string
@@ -89,11 +90,12 @@ type deployResumeResponse struct {
 }
 
 type deployResumeTarget struct {
-	Domain    string `json:"domain"`
-	AppRoot   string `json:"app_root"`
-	Action    string `json:"action"`
-	SessionID string `json:"session_id,omitempty"`
-	Error     string `json:"error,omitempty"`
+	Environment string `json:"environment,omitempty"`
+	Domain      string `json:"domain"`
+	AppRoot     string `json:"app_root"`
+	Action      string `json:"action"`
+	SessionID   string `json:"session_id,omitempty"`
+	Error       string `json:"error,omitempty"`
 }
 
 type deployAgentStatus struct {
@@ -131,6 +133,7 @@ type deployACMEStatus struct {
 }
 
 type deployTargetStatus struct {
+	Environment  string                       `json:"environment,omitempty"`
 	Domain       string                       `json:"domain"`
 	AppRoot      string                       `json:"app_root"`
 	RootService  string                       `json:"root_service,omitempty"`
@@ -147,6 +150,7 @@ type deployTargetStatus struct {
 // publicly: "caddy_static" when its published artifact currently resolves,
 // otherwise "agent_proxy".
 type deployTargetFrontendStatus struct {
+	Environment   string `json:"environment,omitempty"`
 	Name          string `json:"name"`
 	Route         string `json:"route"`
 	Mode          string `json:"mode"`
@@ -199,6 +203,9 @@ func runDeployCommand(stdout io.Writer, args []string) error {
 		return fmt.Errorf("usage: scenery deploy <ssh-target> [--app-root <path>] | setup|status|enable|disable|publish|resume|teardown [-o json]")
 	}
 	subcommand := args[0]
+	if strings.HasPrefix(subcommand, "-") {
+		return runDeploySSH(stdout, "", args)
+	}
 	if subcommand == "plan" || subcommand == "apply" {
 		return runDeployment(stdout, args)
 	}
@@ -243,6 +250,7 @@ func parseDeployOptions(subcommand string, args []string) (deployOptions, error)
 	flags := newCLIFlagSet("deploy " + subcommand)
 	registerJSONOutput(flags, &opts.JSON)
 	flags.StringVar(&opts.AppRoot, "app-root", "", "")
+	flags.StringVar(&opts.Env, "env", "", "")
 	flags.StringVar(&opts.ACMEEmail, "acme-email", "", "")
 	flags.StringVar(&opts.ACMECA, "acme-ca", "", "")
 	positionals, err := parseCLIFlags(flags, args)
@@ -254,6 +262,10 @@ func parseDeployOptions(subcommand string, args []string) (deployOptions, error)
 	}
 	if opts.ACMECA != "" && opts.ACMECA != "production" && opts.ACMECA != "staging" {
 		return deployOptions{}, fmt.Errorf("--acme-ca must be production or staging")
+	}
+	opts.Env = strings.TrimSpace(opts.Env)
+	if cliFlagSet(flags, "env") && opts.Env == "" {
+		return deployOptions{}, fmt.Errorf("--env must not be empty")
 	}
 	if subcommand != "setup" && (opts.ACMEEmail != "" || opts.ACMECA != "") {
 		return deployOptions{}, fmt.Errorf("--acme-email and --acme-ca are only supported by scenery deploy setup")
@@ -270,9 +282,13 @@ func runDeployEnable(stdout io.Writer, opts deployOptions) error {
 	if err != nil {
 		return err
 	}
-	domain := strings.TrimSpace(cfg.Deploy.Domain)
+	env, err := resolveDeployEnv(cfg, opts.Env)
+	if err != nil {
+		return err
+	}
+	domain := strings.TrimSpace(env.Domain)
 	if domain == "" {
-		return fmt.Errorf("%s has no deploy.domain; add deploy.domain before running scenery deploy enable", cfg.SourcePath(appRoot))
+		return fmt.Errorf("envs.%s has no domain; add one before running scenery deploy enable", env.Name)
 	}
 	paths, err := localagent.DefaultPaths()
 	if err != nil {
@@ -282,8 +298,9 @@ func runDeployEnable(stdout io.Writer, opts deployOptions) error {
 	if err != nil {
 		return err
 	}
-	rootService := deployRootService(cfg)
+	rootService := deployRootService(cfg, env)
 	if err := upsertDeployTarget(&registry, localagent.DeployTarget{
+		Environment: env.Name,
 		Domain:      domain,
 		AppRoot:     filepath.Clean(appRoot),
 		RootService: rootService,
@@ -493,7 +510,7 @@ func runDeployResume(stdout io.Writer, opts deployOptions) error {
 		if !target.Enabled {
 			continue
 		}
-		item := deployResumeTarget{Domain: target.Domain, AppRoot: target.AppRoot}
+		item := deployResumeTarget{Environment: firstNonEmpty(target.Environment, "unknown"), Domain: target.Domain, AppRoot: target.AppRoot}
 		if _, err := os.Stat(target.AppRoot); err != nil {
 			item.Action = "missing"
 			item.Error = err.Error()
@@ -506,7 +523,7 @@ func runDeployResume(stdout io.Writer, opts deployOptions) error {
 			resp.Targets = append(resp.Targets, item)
 			continue
 		}
-		if err := deployRunUpDetachFunc(target.AppRoot); err != nil {
+		if err := deployRunUpDetachFunc(target.AppRoot, target.Environment); err != nil {
 			item.Action = "failed"
 			item.Error = err.Error()
 			resp.Targets = append(resp.Targets, item)
@@ -622,9 +639,11 @@ func upsertDeployTarget(registry *localagent.DeployRegistry, next localagent.Dep
 	return nil
 }
 
-func deployRootService(cfg appcfg.Config) string {
-	if root := strings.TrimSpace(cfg.Deploy.Root); root != "" {
-		return root
+func deployRootService(cfg appcfg.Config, env appcfg.ResolvedEnv) string {
+	if env.Deploy != nil {
+		if root := strings.TrimSpace(env.Deploy.Root); root != "" {
+			return root
+		}
 	}
 	if len(cfg.Frontends) != 1 {
 		return ""
@@ -635,6 +654,33 @@ func deployRootService(cfg appcfg.Config) string {
 	}
 	sort.Strings(names)
 	return names[0]
+}
+
+func resolveDeployEnv(cfg appcfg.Config, name string) (appcfg.ResolvedEnv, error) {
+	if strings.TrimSpace(name) != "" {
+		env, err := cfg.ResolveEnv(name)
+		if err != nil {
+			return appcfg.ResolvedEnv{}, err
+		}
+		if !env.Deployable() {
+			return appcfg.ResolvedEnv{}, fmt.Errorf("environment %q is not deployable", env.Name)
+		}
+		return env, nil
+	}
+	var found appcfg.ResolvedEnv
+	for envName, raw := range cfg.Envs {
+		if raw.Deploy == nil {
+			continue
+		}
+		if found.Name != "" {
+			return appcfg.ResolvedEnv{}, fmt.Errorf("multiple deployable environments; pass --env <name>")
+		}
+		found, _ = cfg.ResolveEnv(envName)
+	}
+	if found.Name == "" {
+		return appcfg.ResolvedEnv{}, fmt.Errorf("no deployable environment is configured")
+	}
+	return found, nil
 }
 
 func absoluteDeployAppRoot(appRootOpt string) (string, error) {
@@ -666,6 +712,7 @@ func buildDeployStatusWithContext(ctx context.Context, paths localagent.Paths, r
 		session := sessions[filepath.Clean(target.AppRoot)]
 		cert := deployCertStatusFor(paths, target.Domain)
 		item := deployTargetStatus{
+			Environment: firstNonEmpty(target.Environment, "unknown"),
 			Domain:      target.Domain,
 			AppRoot:     target.AppRoot,
 			RootService: target.RootService,
@@ -960,12 +1007,16 @@ func deployLoopbackHelperInstall(paths localagent.Paths, helperVersion string) e
 	return runDeploySudo(args)
 }
 
-func deployRunUpDetach(appRoot string) error {
+func deployRunUpDetach(appRoot, envName string) error {
 	exe, err := deployPrivilegedHelperExecutableFunc()
 	if err != nil {
 		return err
 	}
-	out, err := exec.Command(exe, "up", "--detach", "--app-root", appRoot).CombinedOutput()
+	args := []string{"up", "--detach", "--app-root", appRoot}
+	if strings.TrimSpace(envName) != "" {
+		args = append(args, "--env", envName)
+	}
+	out, err := exec.Command(exe, args...).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("scenery up --detach --app-root %s: %w: %s", appRoot, err, strings.TrimSpace(string(out)))
 	}

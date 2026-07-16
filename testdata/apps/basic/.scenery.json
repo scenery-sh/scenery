@@ -1,1 +1,1 @@
-{"name":"basicapp"}
+{"name":"basicapp","envs":{"local":{"default":true}}}

@@ -52,10 +52,10 @@ func TestDeploySSHRunsCheckAndCommandsInOrder(t *testing.T) {
 func TestDeploySSHRejectsBeforeCommands(t *testing.T) {
 	logPath := installDeploySSHTestCommands(t)
 	root := t.TempDir()
-	writeTestAppFile(t, root, ".scenery.json", `{"name":"basicapp","deploy":{"ssh":["some-id"]}}`)
+	writeTestAppFile(t, root, ".scenery.json", `{"name":"basicapp","envs":{"local":{"default":true},"production":{"deploy":{"ssh":["some-id"]}}}}`)
 
 	err := runDeploySSH(&bytes.Buffer{}, "other-id", []string{"--app-root", root})
-	if err == nil || !strings.Contains(err.Error(), "not allowed") {
+	if err == nil || !strings.Contains(err.Error(), "not configured") {
 		t.Fatalf("unlisted target error = %v", err)
 	}
 	if log := readDeploySSHTestLog(t, logPath); log != "" {
@@ -91,7 +91,7 @@ func TestDeploySSHStopsAfterChildFailureAndPreservesExitCode(t *testing.T) {
 			}
 			logPath := installDeploySSHTestCommands(t)
 			t.Setenv(tt.env, "7")
-			err := runDeploySSHCommands(&bytes.Buffer{}, root, "basicapp", "some-id", false)
+			err := runDeploySSHCommands(&bytes.Buffer{}, root, "basicapp", "some-id", "production", false)
 			var exitErr *exec.ExitError
 			if !errors.As(err, &exitErr) || exitErr.ExitCode() != 7 || cliExitCode(err) != 7 {
 				t.Fatalf("error = %v, want child exit 7", err)
@@ -113,14 +113,14 @@ func TestDeploySSHRunsRemotePublishAfterUp(t *testing.T) {
 		t.Fatal(err)
 	}
 	logPath := installDeploySSHTestCommands(t)
-	if err := runDeploySSHCommands(&bytes.Buffer{}, root, "basicapp", "some-id", true); err != nil {
+	if err := runDeploySSHCommands(&bytes.Buffer{}, root, "basicapp", "some-id", "production", true); err != nil {
 		t.Fatalf("runDeploySSHCommands: %v", err)
 	}
 	log := readDeploySSHTestLog(t, logPath)
 	if order := commandOrder(log); order != "ssh:preflight\nssh:down\nrsync\nssh:up\nssh:publish" {
 		t.Fatalf("command order = %q\n%s", order, log)
 	}
-	if !strings.Contains(log, `scenery deploy publish --app-root "$HOME/.scenery/apps/basicapp" -o json`) {
+	if !strings.Contains(log, `scenery deploy publish --env "production" --app-root "$HOME/.scenery/apps/basicapp" -o json`) {
 		t.Fatalf("publish command missing app root:\n%s", log)
 	}
 }
@@ -140,7 +140,7 @@ func copyDeploySSHTestApp(t *testing.T) string {
 		t.Fatal(err)
 	}
 	writeTestAppFile(t, root, "go.mod", strings.ReplaceAll(string(goMod), "../../..", appcfg.RepoRoot()))
-	writeTestAppFile(t, root, ".scenery.json", `{"name":"basicapp","deploy":{"ssh":["some-id"]}}`)
+	writeTestAppFile(t, root, ".scenery.json", `{"name":"basicapp","envs":{"local":{"default":true},"production":{"deploy":{"ssh":["some-id"]}}}}`)
 	return root
 }
 

@@ -19,6 +19,18 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0121-named-environments.md",
+      "title": "Named Environments: envs Config, Per-Env Domain/Serve/Deploy, Dotenv Layering",
+      "owner": "scenery runtime / config / deploy",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-07-16",
+      "review_after": "2026-08-15",
+      "summary": "Active ExecPlan replacing the implicit dev/deploy config split with named environments: an envs map carrying per-env domain, frontend serve modes, routing details, and env-scoped deploy targets; per-env dotenv layering with a reserved local default env; always-injected SCENERY_ENV; env-derived secret strictness; and removal of the localhost-to-production redirect fallback. Hard cutover of dev.routing.* and top-level deploy.*.",
+      "tags": ["plans", "execplans", "config", "environments", "dotenv", "deploy", "routing", "secrets", "dev-domain"]
+    },
+    {
       "path": "docs/plans/0120-declarative-table-pages.md",
       "title": "Declarative Table Pages: CRUD List Contract, Binary-Owned UI Catalog, Verified React Generation",
       "owner": "scenery generation / UI",

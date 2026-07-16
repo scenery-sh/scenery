@@ -81,7 +81,7 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 	}); err != nil {
 		return nil, devBuildError(nil, nil, err)
 	}
-	if err := validateLocalSecretsFiles(s.root); err != nil {
+	if err := validateLocalSecretsFiles(s.root, s.cfg, s.env); err != nil {
 		return nil, devBuildError(metadata, apiEncoding, err)
 	}
 	if err := s.console.Phase("Generating boilerplate code", func() error {

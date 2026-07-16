@@ -1,5 +1,7 @@
 # 0116 Dev Domain Hosts for Path-Mode Routing
 
+Current config note (0121): `dev.routing.*` and the deploy-domain fallback were removed; named `envs.<name>` now owns domain, routing, and ports, and an unavailable env domain stays on localhost.
+
 This ExecPlan is a living document: update Progress, Surprises & Discoveries,
 and the Decision Log as work proceeds.
 

@@ -33,7 +33,11 @@ func checkWarningDiagnostics(appRoot string, cfg appcfg.Config) ([]checkDiagnost
 	if !cfg.Auth.Enabled || !cfg.Auth.GoogleOAuth.Enabled {
 		return diagnostics, nil
 	}
-	env, err := appEnvWithDotEnv(envpolicy.Environ(), appRoot)
+	resolved, err := cfg.ResolveEnv("")
+	if err != nil {
+		return nil, err
+	}
+	env, err := appEnvWithDotEnv(envpolicy.Environ(), appRoot, resolved.DotEnvFiles()...)
 	if err != nil {
 		return nil, err
 	}
@@ -52,24 +56,27 @@ func checkWarningDiagnostics(appRoot string, cfg appcfg.Config) ([]checkDiagnost
 }
 
 func deployConfigInfoDiagnostics(appRoot string, cfg appcfg.Config) []checkDiagnostic {
-	if strings.TrimSpace(cfg.Deploy.Domain) == "" || strings.TrimSpace(cfg.Deploy.Root) != "" {
-		return nil
+	for name, raw := range cfg.Envs {
+		if raw.Deploy == nil || strings.TrimSpace(raw.Domain) == "" || strings.TrimSpace(raw.Deploy.Root) != "" {
+			continue
+		}
+		frontends := len(cfg.Frontends)
+		if frontends == 1 {
+			continue
+		}
+		reason := "no frontends are configured"
+		if frontends > 1 {
+			reason = "multiple frontends are configured"
+		}
+		return []checkDiagnostic{{
+			Stage:           "config",
+			Severity:        "info",
+			File:            cfg.SourcePath(appRoot),
+			Message:         "envs." + name + ".domain is set but deploy.root is unset; public / will serve a minimal page because " + reason,
+			SuggestedAction: "Set envs." + name + ".deploy.root to \"api\" or the frontend that should own / on the public domain.",
+		}}
 	}
-	frontends := len(cfg.Frontends)
-	if frontends == 1 {
-		return nil
-	}
-	reason := "no frontends are configured"
-	if frontends > 1 {
-		reason = "multiple frontends are configured"
-	}
-	return []checkDiagnostic{{
-		Stage:           "config",
-		Severity:        "info",
-		File:            cfg.SourcePath(appRoot),
-		Message:         "deploy.domain is set but deploy.root is unset; public / will serve a minimal page because " + reason,
-		SuggestedAction: "Set deploy.root to \"api\" or the frontend that should own / on the public domain.",
-	}}
+	return nil
 }
 
 func missingGoogleOAuthEnv(cfg appcfg.AuthGoogleConfig, env []string) []string {

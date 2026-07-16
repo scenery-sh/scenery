@@ -219,6 +219,7 @@ func harnessParallelConfig(frontendAddr string) app.Config {
 				AllowSharedUpstream: true,
 			},
 		},
+		Envs: map[string]app.EnvConfig{"local": {Default: true}},
 		Dev: app.DevConfig{
 			Services: map[string]app.DevServiceConfig{
 				"main": {},
@@ -231,10 +232,14 @@ func prepareHarnessParallelSession(ctx context.Context, root string, cfg app.Con
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return nil, func() {}, err
 	}
-	if err := os.WriteFile(filepath.Join(root, ".scenery.json"), []byte(`{"name":"parallel","id":"parallel-app"}`), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, ".scenery.json"), []byte(`{"name":"parallel","id":"parallel-app","envs":{"local":{"default":true}}}`), 0o644); err != nil {
 		return nil, func() {}, err
 	}
-	client, session, _, restore, err := prepareDevAgentSession(ctx, root, cfg, devListenRequest{}, nil)
+	env, err := cfg.ResolveEnv("")
+	if err != nil {
+		return nil, func() {}, err
+	}
+	client, session, _, restore, err := prepareDevAgentSession(ctx, root, cfg, env, devListenRequest{}, nil)
 	if err != nil {
 		restore()
 		return nil, func() {}, err

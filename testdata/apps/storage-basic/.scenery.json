@@ -1,5 +1,8 @@
 {
   "name": "storage-basic",
+  "envs": {
+    "local": { "default": true }
+  },
   "storage": {
     "cell_id": "storage-basic",
     "share": "worktree",

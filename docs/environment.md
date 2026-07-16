@@ -4,7 +4,7 @@ This page is the human reference for scenery-owned environment variables. The ma
 
 Prefer `.scenery.json` for stable app configuration. Use environment variables for local overrides, secrets, process identity, or explicit escape hatches. New production env names must be added to the registry with rationale, docs, and tests; otherwise self-harness fails.
 
-Process environment wins over values loaded from `.env` and `.env.local`. `scenery up`, local `scenery task run`, and local `scenery worker` require an app-root `.env`; `.env.local` is optional.
+The selected `.scenery.json` environment loads `.env`, `.env.<env>`, `.env.local`, then `.env.<env>.local`; later files win, while the parent process wins over every file. The reserved `local` environment uses only `.env` then `.env.local` (never `.env.local.local`). Non-deployable environments require `.env`; deployable environments may rely entirely on host process environment. Ignore every `.env*` file and commit only an optional `.env.example` containing names, never values.
 
 ## Agent And Dev Routing
 
@@ -37,8 +37,8 @@ These are injected by scenery into generated app processes. App code may read th
 | `SCENERY_DURABLE_SERVICES` | injected | Comma-separated durable services the remote worker should poll. |
 | `SCENERY_DURABLE_WORKER_ID` | injected | Optional durable remote worker ID; defaults to the worker process ID. |
 | `SCENERY_LOG_FORMAT` | injected/user input | Runtime log format selected by CLI flags or env. |
-| `SCENERY_ENV` | injected/user input | App environment name such as `development`, `test`, or `production`. |
-| `SCENERY_RUNTIME_ENV` | injected/user input | Runtime environment name used by scenery internals. |
+| `SCENERY_ENV` | injected | Resolved `.scenery.json` environment name; always present in app, frontend, task, and worker processes. |
+| `SCENERY_RUNTIME_ENV` | injected | Same resolved environment name for runtime internals. |
 | `SCENERY_SESSION_ID` | injected | Agent session ID for local dev. |
 | `SCENERY_BASE_APP_ID` | injected | Base app ID for a session. |
 | `SCENERY_RUNTIME_APP_ID` | injected | Session-qualified runtime app ID. |

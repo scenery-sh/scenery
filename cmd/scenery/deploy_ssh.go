@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	appcfg "scenery.sh/internal/app"
@@ -15,6 +14,7 @@ import (
 
 type deploySSHOptions struct {
 	AppRoot string
+	Env     string
 }
 
 func runDeploySSH(stdout io.Writer, target string, args []string) error {
@@ -30,17 +30,32 @@ func runDeploySSH(stdout io.Writer, target string, args []string) error {
 	if err != nil {
 		return err
 	}
-	if !slices.Contains(cfg.Deploy.SSH, target) {
-		return fmt.Errorf("SSH target %q is not allowed by deploy.ssh", target)
+	var env appcfg.ResolvedEnv
+	if opts.Env != "" {
+		env, err = resolveDeployEnv(cfg, opts.Env)
+		if err != nil {
+			return err
+		}
+		if target == "" {
+			if len(env.Deploy.SSH) != 1 {
+				return fmt.Errorf("envs.%s.deploy.ssh must contain exactly one target for scenery deploy --env", env.Name)
+			}
+			target = env.Deploy.SSH[0]
+		}
+	} else {
+		env, err = cfg.EnvForSSHTarget(target)
+		if err != nil {
+			return err
+		}
 	}
 	if err := runSceneryCheck(context.Background(), stdout, []string{"--app-root", appRoot}); err != nil {
 		return fmt.Errorf("local scenery check: %w", err)
 	}
-	publishFrontends := strings.TrimSpace(cfg.Deploy.Domain) != "" && len(productionFrontendNames(cfg)) > 0
-	return runDeploySSHCommands(stdout, appRoot, cfg.AppID(), target, publishFrontends)
+	publishFrontends := strings.TrimSpace(env.Domain) != "" && len(productionFrontendNames(env)) > 0
+	return runDeploySSHCommands(stdout, appRoot, cfg.AppID(), target, env.Name, publishFrontends)
 }
 
-func runDeploySSHCommands(stdout io.Writer, appRoot, appID, target string, publishFrontends bool) error {
+func runDeploySSHCommands(stdout io.Writer, appRoot, appID, target, envName string, publishFrontends bool) error {
 	remoteApp := "$HOME/.scenery/apps/" + appID
 	steps := []struct {
 		name string
@@ -58,13 +73,13 @@ func runDeploySSHCommands(stdout io.Writer, appRoot, appID, target string, publi
 		},
 		{
 			name: "rsync",
-			cmd: exec.Command("rsync", "-az", "--delete", "--filter=:- .gitignore", "--exclude=.git/", "--exclude=.scenery/", "--exclude=.env", "--exclude=node_modules/", "--exclude=go.work", "--exclude=go.work.sum",
+			cmd: exec.Command("rsync", "-az", "--delete", "--filter=:- .gitignore", "--exclude=.git/", "--exclude=.scenery/", "--exclude=.env*", "--exclude=node_modules/", "--exclude=go.work", "--exclude=go.work.sum",
 				"-e", "ssh -o BatchMode=yes -o ConnectTimeout=10", "--", "./", target+":.scenery/apps/"+appID+"/"),
 		},
 		{
 			name: "remote scenery up",
 			cmd: exec.Command("ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "--", target,
-				`scenery up --detach --wait ready --app-root "`+remoteApp+`"`),
+				`scenery up --detach --wait ready --env "`+envName+`" --app-root "`+remoteApp+`"`),
 		},
 	}
 	if publishFrontends {
@@ -78,7 +93,7 @@ func runDeploySSHCommands(stdout io.Writer, appRoot, appID, target string, publi
 		}{
 			name: "remote scenery deploy publish",
 			cmd: exec.Command("ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "--", target,
-				`scenery deploy publish --app-root "`+remoteApp+`" -o json`),
+				`scenery deploy publish --env "`+envName+`" --app-root "`+remoteApp+`" -o json`),
 		})
 	}
 	for _, step := range steps {
@@ -97,12 +112,17 @@ func parseDeploySSHOptions(target string, args []string) (deploySSHOptions, erro
 	var opts deploySSHOptions
 	flags := newCLIFlagSet("deploy " + target)
 	flags.StringVar(&opts.AppRoot, "app-root", "", "")
+	flags.StringVar(&opts.Env, "env", "", "")
 	positionals, err := parseCLIFlags(flags, args)
 	if err != nil {
 		return deploySSHOptions{}, err
 	}
 	if err := rejectCLIPositionals(positionals); err != nil {
 		return deploySSHOptions{}, err
+	}
+	opts.Env = strings.TrimSpace(opts.Env)
+	if cliFlagSet(flags, "env") && opts.Env == "" {
+		return deploySSHOptions{}, fmt.Errorf("--env must not be empty")
 	}
 	return opts, nil
 }

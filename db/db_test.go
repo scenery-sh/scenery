@@ -129,6 +129,7 @@ func writeAppConfig(t *testing.T, services string) string {
 	root := t.TempDir()
 	config := fmt.Sprintf(`{
 		"name": "db-test",
+		"envs": {"local": {"default": true}},
 		"dev": {
 			"services": {
 				%s

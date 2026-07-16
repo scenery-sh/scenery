@@ -1,5 +1,7 @@
 # 0117 Public Dev Domain: Dash Hosts, Exposure Config, Frontend Serve Modes
 
+Current config note (0121): exposure and frontend serve modes moved to `envs.<name>.expose` and `envs.<name>.frontends`; global frontend `serve` is no longer accepted.
+
 This ExecPlan is a living document: update Progress, Surprises & Discoveries,
 and the Decision Log as work proceeds.
 

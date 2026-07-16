@@ -53,6 +53,15 @@ func TestLocalPathRouterRedirect(t *testing.T) {
 	}
 }
 
+func TestLocalPathRouterWithoutValidatedDomainDoesNotRedirect(t *testing.T) {
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
+	response := httptest.NewRecorder()
+	localPathRouterRedirect(next, "").ServeHTTP(response, httptest.NewRequest(http.MethodGet, "http://localhost:4748/platform/", nil))
+	if response.Code != http.StatusNoContent || response.Header().Get("Location") != "" {
+		t.Fatalf("response = %d location %q", response.Code, response.Header().Get("Location"))
+	}
+}
+
 func TestLocalPathRouterRedirectKeepsControlRoutesLocal(t *testing.T) {
 	t.Parallel()
 
