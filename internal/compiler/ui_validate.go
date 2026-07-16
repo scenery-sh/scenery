@@ -21,6 +21,8 @@ func validateUISemantics(root string, resources []Resource) []Diagnostic {
 			diagnostics = append(diagnostics, validateReactComponent(root, byAddress, resource)...)
 		case "scenery.table-page":
 			diagnostics = append(diagnostics, validateTablePage(byAddress, resource)...)
+		case "scenery.split-page":
+			diagnostics = append(diagnostics, validateSplitPage(byAddress, resource)...)
 		case "scenery.page":
 			path := stringValue(resource.Spec["path"])
 			canonical := canonicalRoute(path)
@@ -33,7 +35,7 @@ func validateUISemantics(root string, resources []Resource) []Diagnostic {
 			}
 			diagnostics = append(diagnostics, validatePageBindings(byAddress, resource)...)
 		case "scenery.renderer":
-			if builtinTablePageRenderer(resource) {
+			if builtinUIRenderer(resource) {
 				continue
 			}
 			page := byAddress[resolveResourceRef(resource, refString(resource.Spec["page"]), "page")]
@@ -113,7 +115,7 @@ func enrichUIImplementationDigests(root string, resources []Resource) ([]Resourc
 		if resource.Kind != "scenery.renderer" {
 			continue
 		}
-		if builtinTablePageRenderer(*resource) {
+		if builtinUIRenderer(*resource) {
 			continue
 		}
 		path, err := rendererModulePath(root, byAddress, *resource)
@@ -135,6 +137,10 @@ func enrichUIImplementationDigests(root string, resources []Resource) ([]Resourc
 
 func builtinTablePageRenderer(renderer Resource) bool {
 	return renderer.Origin.Kind == "expanded" && stringValue(renderer.Spec["module"]) == tablePageRendererModule
+}
+
+func builtinUIRenderer(renderer Resource) bool {
+	return builtinTablePageRenderer(renderer) || builtinSplitPageRenderer(renderer)
 }
 
 func rendererModulePath(root string, resources map[string]Resource, renderer Resource) (string, error) {

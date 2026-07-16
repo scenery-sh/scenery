@@ -15,7 +15,7 @@ TypeScript clients, OpenAPI documents, and their generated-file transactions.
   pruning. Never replace or delete bytes whose ownership cannot be proven.
 - TypeScript targets route to source or `.scenery` cache from their declared
   `materialization` mode.
-- React-enabled TypeScript targets render generated table pages and the
+- React-enabled TypeScript targets render generated table and split pages and the
   binary-owned UI catalog from its editable source at `ui/` into the
   same artifact transaction. Typecheck a
   sibling staging tree with the exact managed native checker before commit;

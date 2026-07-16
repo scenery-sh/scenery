@@ -323,7 +323,7 @@ func publicHTTPBindings(resources []Resource, target Resource) []Resource {
 	var out []Resource
 	operations := map[string]Resource{}
 	exported, exportDeclared := exportedOperations(resources)
-	tablePageLists := reactTablePageListBindings(resources, target)
+	reactPageBindings := declaredReactPageBindings(resources, target)
 	gateways := map[string]bool{}
 	for _, gateway := range anyList(target.Spec["gateways"]) {
 		gateways[refOrString(gateway)] = true
@@ -344,7 +344,7 @@ func publicHTTPBindings(resources []Resource, target Resource) []Resource {
 		if r.Kind != "scenery.binding" {
 			continue
 		}
-		if r.Origin.Kind != "authored" && !tablePageLists[r.Address] {
+		if r.Origin.Kind != "authored" && !reactPageBindings[r.Address] {
 			continue
 		}
 		opRef := refString(r.Spec["operation"])
@@ -355,7 +355,7 @@ func publicHTTPBindings(resources []Resource, target Resource) []Resource {
 		if protocol, _ := r.Spec["protocol"].(string); protocol != "http" {
 			continue
 		}
-		if exportDeclared[r.Module] && !exported[op.Address] && !tablePageLists[r.Address] {
+		if exportDeclared[r.Module] && !exported[op.Address] && !reactPageBindings[r.Address] {
 			continue
 		}
 		gateway := refOrString(r.Spec["gateway"])
@@ -378,7 +378,7 @@ func publicHTTPBindings(resources []Resource, target Resource) []Resource {
 	return out
 }
 
-func reactTablePageListBindings(resources []Resource, target Resource) map[string]bool {
+func declaredReactPageBindings(resources []Resource, target Resource) map[string]bool {
 	result := map[string]bool{}
 	if _, ok := target.Spec["react"].(map[string]any); !ok {
 		return result
@@ -391,6 +391,11 @@ func reactTablePageListBindings(resources []Resource, target Resource) map[strin
 		crud := byAddress[resolveResourceRef(table, refString(table.Spec["source"]), "crud")]
 		if crud.Kind == "scenery.crud" {
 			result[resourceAddress(crud.Module, "binding", crud.Name+"_list_http")] = true
+		}
+	}
+	for _, split := range resources {
+		if split.Kind == "scenery.split-page" && split.Origin.Kind != "expanded" {
+			result[resolveResourceRef(split, refString(split.Spec["source"]), "binding")] = true
 		}
 	}
 	return result

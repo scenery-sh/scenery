@@ -486,6 +486,72 @@ func TestDiscoverRootAcceptsEmptyStorageKindAsLocal(t *testing.T) {
 	}
 }
 
+func TestEnvUICatalogOnlyOnLocal(t *testing.T) {
+	root := t.TempDir()
+	config := `{"name":"demo","frontends":{"web":{"root":"web"}},"envs":{"local":{"default":true},"production":{"ui_catalog":"../ui","domain":"demo.example.com","frontends":{"web":{"serve":"production"}},"deploy":{"ssh":["host"]}}}}`
+	if err := os.WriteFile(filepath.Join(root, ".scenery.json"), []byte(config), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := DiscoverRoot(root)
+	if err == nil || !strings.Contains(err.Error(), "ui_catalog is a local development override") {
+		t.Fatalf("error = %v, want ui_catalog rejection", err)
+	}
+
+	accepted := t.TempDir()
+	config = `{"name":"demo","envs":{"local":{"default":true,"ui_catalog":"../ui"}}}`
+	if err := os.WriteFile(filepath.Join(accepted, ".scenery.json"), []byte(config), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, cfg, err := DiscoverRoot(accepted)
+	if err != nil {
+		t.Fatalf("DiscoverRoot returned error: %v", err)
+	}
+	env, err := cfg.ResolveEnv("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if env.UICatalog != "../ui" {
+		t.Fatalf("UICatalog = %q, want ../ui", env.UICatalog)
+	}
+}
+
+func TestResolvedEnvUICatalogDir(t *testing.T) {
+	appRoot := t.TempDir()
+
+	env := ResolvedEnv{Name: "local"}
+	if dir, missing, err := env.UICatalogDir(appRoot); dir != "" || missing || err != nil {
+		t.Fatalf("unset override = (%q, %v, %v), want empty", dir, missing, err)
+	}
+
+	env.UICatalog = "no-such-dir"
+	if dir, missing, err := env.UICatalogDir(appRoot); dir != "" || !missing || err != nil {
+		t.Fatalf("missing dir = (%q, %v, %v), want missing=true", dir, missing, err)
+	}
+
+	if err := os.MkdirAll(filepath.Join(appRoot, "bad"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	env.UICatalog = "bad"
+	if _, _, err := env.UICatalogDir(appRoot); err == nil || !strings.Contains(err.Error(), "not a UI catalog root") {
+		t.Fatalf("implausible dir error = %v, want catalog-root rejection", err)
+	}
+
+	catalog := filepath.Join(appRoot, "catalog")
+	if err := os.MkdirAll(catalog, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, marker := range []string{"index.ts", "package.json"} {
+		if err := os.WriteFile(filepath.Join(catalog, marker), []byte("{}"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	env.UICatalog = "catalog"
+	dir, missing, err := env.UICatalogDir(appRoot)
+	if err != nil || missing || dir != catalog {
+		t.Fatalf("valid dir = (%q, %v, %v), want %q", dir, missing, err, catalog)
+	}
+}
+
 func writeAppTestFile(t *testing.T, root, rel, contents string) {
 	t.Helper()
 	path := filepath.Join(root, rel)

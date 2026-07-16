@@ -7,6 +7,11 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
+- [0122 UI Catalog Dev Mode: Live ui/ Iteration Without Binary Rebuilds](0122-ui-catalog-dev-mode.md)
+  - Status: completed (retain until first release ships it)
+  - Owner: scenery generation / agent DX
+  - Created: 2026-07-16
+  - Focus: `envs.local.ui_catalog` points generation at a live `@scenery/ui` source directory; `scenery up` watches it and re-materializes `react/scenery-ui/` in place (staged tsgo verification, embed fallback when the directory is absent) so catalog edits reach the browser through Vite HMR without rebuilding the Scenery binary or restarting the app.
 - [0120 Declarative Table Pages: CRUD List Contract, Binary-Owned UI Catalog, Verified React Generation](0120-declarative-table-pages.md)
   - Status: active
   - Owner: scenery compiler / generate

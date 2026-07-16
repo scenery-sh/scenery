@@ -207,6 +207,10 @@ type EnvConfig struct {
 	PortEnd   int                          `json:"port_end"`
 	Frontends map[string]EnvFrontendConfig `json:"frontends"`
 	Deploy    *EnvDeployConfig             `json:"deploy,omitempty"`
+	// UICatalog points local development at a live @scenery/ui catalog
+	// source directory instead of the binary-embedded copy. Only the
+	// default local environment may set it.
+	UICatalog string `json:"ui_catalog,omitempty"`
 }
 
 type EnvFrontendConfig struct {
@@ -229,6 +233,7 @@ type ResolvedEnv struct {
 	PortEnd   int
 	Frontends map[string]FrontendConfig
 	Deploy    *EnvDeployConfig
+	UICatalog string
 }
 
 func (c Config) ResolveEnv(name string) (ResolvedEnv, error) {
@@ -258,6 +263,7 @@ func (c Config) ResolveEnv(name string) (ResolvedEnv, error) {
 		Mode: strings.ToLower(strings.TrimSpace(env.Mode)), Expose: append([]string(nil), env.Expose...),
 		Port: env.Port, PortStart: env.PortStart, PortEnd: env.PortEnd,
 		Frontends: frontends, Deploy: env.Deploy,
+		UICatalog: strings.TrimSpace(env.UICatalog),
 	}, nil
 }
 
@@ -283,6 +289,40 @@ func (e ResolvedEnv) DotEnvFiles() []string {
 
 func (e ResolvedEnv) Deployable() bool {
 	return e.Deploy != nil
+}
+
+// UICatalogDir resolves the environment's ui_catalog development override
+// against the app root. missing is true when the override is set but the
+// directory does not exist — callers fall back to the embedded catalog so a
+// committed relative path never breaks machines without the source checkout.
+// A directory that exists without index.ts and package.json is a
+// misconfiguration and returns an error.
+func (e ResolvedEnv) UICatalogDir(appRoot string) (dir string, missing bool, err error) {
+	configured := strings.TrimSpace(e.UICatalog)
+	if configured == "" {
+		return "", false, nil
+	}
+	dir = configured
+	if !filepath.IsAbs(dir) {
+		dir = filepath.Join(appRoot, dir)
+	}
+	dir = filepath.Clean(dir)
+	info, err := os.Stat(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", true, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	if !info.IsDir() {
+		return "", false, fmt.Errorf("envs.%s.ui_catalog %q is not a directory", e.Name, configured)
+	}
+	for _, marker := range []string{"index.ts", "package.json"} {
+		if _, err := os.Stat(filepath.Join(dir, marker)); err != nil {
+			return "", false, fmt.Errorf("envs.%s.ui_catalog %q is not a UI catalog root: missing %s", e.Name, configured, marker)
+		}
+	}
+	return dir, false, nil
 }
 
 type DevServiceConfig struct {
@@ -501,6 +541,9 @@ func (c Config) validateEnvs() error {
 		}
 		if name == "local" && env.Deploy != nil {
 			return errors.New("envs.local must not declare deploy")
+		}
+		if strings.TrimSpace(env.UICatalog) != "" && name != "local" {
+			return fmt.Errorf("envs.%s.ui_catalog is a local development override; only envs.local may set it", name)
 		}
 		domain := strings.TrimSpace(env.Domain)
 		if domain != "" {

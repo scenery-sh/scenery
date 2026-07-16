@@ -24,6 +24,8 @@
 
 Map `@scenery/ui` to the declared TypeScript client's `<output_root>/react/scenery-ui/index.ts` in both `tsconfig.json` and `vite.config.ts`. Keep the two paths identical. The app's existing StyleX transform compiles the materialized TSX, so no symlink, workspace package, npm install, or copied component tree is needed. The app must install compatible versions of the peer dependencies declared in `ui/package.json`.
 
+Wrap the app shell once with `PageLayoutProvider` when shared page headers need app-owned navigation state. `Page`, `PageShell`, `SplitPage`, and `PageHeader` then consume that configuration without importing the app store or threading navigation props through every route.
+
 ## Work Guidance
 
 Prefer extending the existing catalog over adding another component system. Shared structure and behavior belong here; app-specific routing, authentication, assets, state, route data, and product composition stay in the client app and flow through typed props or slots.

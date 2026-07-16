@@ -175,6 +175,13 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode bool, appRoot, envN
 	}
 	cfg.Frontends = resolvedEnv.Frontends
 	setProductionFrontendWatch(root, cfg)
+	uiCatalogDir, uiCatalogMissing, err := resolvedEnv.UICatalogDir(root)
+	if err != nil {
+		return err
+	}
+	if uiCatalogMissing {
+		fmt.Fprintf(os.Stderr, "scenery: envs.%s.ui_catalog %q not found; using the embedded UI catalog\n", resolvedEnv.Name, resolvedEnv.UICatalog)
+	}
 
 	sigCtx, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -251,6 +258,12 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode bool, appRoot, envN
 	}
 	supervisor.addStartupReady(preparedSession.FrontendReady)
 	startAgentAvailabilityWatchdog(ctx, agentClient)
+	if uiCatalogDir != "" {
+		if !console.json {
+			console.printSetupDone("ui catalog dev mode: " + uiCatalogDir)
+		}
+		startUICatalogDevSync(ctx, console, supervisor, root, uiCatalogDir, resolvedEnv)
+	}
 
 	if err := supervisor.RebuildAndRestart(ctx, true, snapshot); err != nil {
 		supervisor.console.InitialBuildFailed(err, supervisor.runURLs())

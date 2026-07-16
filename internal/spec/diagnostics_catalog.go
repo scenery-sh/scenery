@@ -268,6 +268,8 @@ SCN2611|table_page_slot|A table page slot does not resolve to a declared React c
 SCN2612|table_page_row_link|A table page row link references an unavailable field
 SCN2613|table_page_page_size|A table page page size is outside its CRUD list bound
 SCN2614|table_page_expansion_identity|A table-page-derived resource address collides
+SCN2615|split_page_contract|A split page source or slot contract is invalid
+SCN2616|split_page_expansion_identity|A split-page-derived resource address collides
 SCN2701|event_contract|An event lacks a payload or positive version
 SCN2702|event_emission_shape|An event emission is incomplete
 SCN2703|event_binding_shape|An event binding is incomplete

@@ -255,7 +255,11 @@
 		  "type": ["object", "null"],
 		  "additionalProperties": { "$ref": "#/$defs/environmentFrontend" }
 		},
-		"deploy": { "$ref": "#/$defs/deploy" }
+		"deploy": { "$ref": "#/$defs/deploy" },
+		"ui_catalog": {
+		  "type": "string",
+		  "description": "Local development override: path to a live @scenery/ui catalog source directory, resolved against the app root. Only envs.local may set it."
+		}
 	  },
 	  "additionalProperties": false
 	},

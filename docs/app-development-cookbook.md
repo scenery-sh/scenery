@@ -211,6 +211,23 @@ table_page "orders" {
 
 The CRUD runtime applies enum-array and datetime-range filters, query-bound keyset cursors, stable primary-key tie-breaking, and server-side limit clamping. Add declared `react_component` overrides only where the catalog defaults are insufficient.
 
+For a two-pane page, keep the declaration generic and the domain UI app-owned:
+
+```hcl
+split_page "inbox" {
+  path   = "/inbox"
+  source = binding.inbox_http
+  title  = "Inbox"
+
+  pane           { component = react_component.inbox_list }
+  pane_actions   { component = react_component.inbox_actions }
+  detail_header  { component = react_component.inbox_header }
+  detail         { component = react_component.inbox_detail }
+}
+```
+
+The source operation has unit input, exactly one result, and both HTTP and inherited internal bindings. Its slot modules receive the typed result plus loading/error and URL-backed selection state. Scenery supplies the reusable split layout; it contains no inbox-specific component.
+
 ## Generate A TypeScript Client
 
 Declare a root target:

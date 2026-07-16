@@ -229,6 +229,7 @@ var authoredResourceChildren = map[string]map[string]authoredChildSchema{
 	"crud":              {"execution": singleton(crudExecutionSourceSchema), "list": singleton(crudListSourceSchema), "http": singleton(crudHTTPSourceSchema), "internal": singleton(crudInternalSourceSchema), "extension": repeated(crudExtensionSourceSchema)},
 	"page":              {"action": repeated(pageActionSourceSchema)},
 	"table_page":        {"column": repeated(tablePageColumnSourceSchema), "filter": repeated(tablePageFilterSourceSchema), "sort": repeated(tablePageSortSourceSchema), "toolbar": singleton(tablePageSlotSourceSchema), "empty": singleton(tablePageSlotSourceSchema)},
+	"split_page":        {"pane": singleton(tablePageSlotSourceSchema), "detail": singleton(tablePageSlotSourceSchema), "pane_actions": singleton(tablePageSlotSourceSchema), "detail_header": singleton(tablePageSlotSourceSchema)},
 }
 
 var authoredStructuralSchemas = map[string]*authoredBlockSchema{

@@ -65,6 +65,8 @@ any`, no runtime component registry, no dynamic imports, and no eject flow.
 - [x] M6: Documentation layer sync, schemas, and harness coverage (2026-07-16)
 - [x] Relocated the editable catalog to root `ui/` and removed the obsolete shadcn registry workspace and enforcement (2026-07-16)
 - [x] Expanded `@scenery/ui` with the Micro Platform Astryx + StyleX primitives and navigation chrome; the pilot app now consumes only the generated catalog through a bare alias (2026-07-16)
+- [x] Moved the pilot's one-column and split-page scaffolds into `@scenery/ui`; one root provider supplies the app-owned navigation toggle (2026-07-16)
+- [x] Added the domain-neutral `split_page` macro and typed split slot contract; the Micro pilot's `/mailsnext` transport and wrapper are generated while all mail rendering remains app-owned (2026-07-16)
 
 (M1-M6 completed 2026-07-16.)
 
@@ -122,6 +124,13 @@ assistance, during the design conversation that produced this plan.
   and StyleX peers and its normal StyleX transform compiles the materialized
   TSX. There is no local component copy, symlink, or separately versioned npm
   package. Decided 2026-07-16 by Petr Brazdil.
+
+- **`split_page` is generic composition; Scenery never owns a domain page.**
+  The declaration binds one typed operation result to required app-owned
+  `pane` and `detail` slots plus optional `pane_actions` and `detail_header`
+  slots. Scenery owns only layout, transport, loading/error state, and URL
+  selection. Mail, project, order, and other domain components stay in the
+  client app. Decided 2026-07-16 by Petr Brazdil.
 
 - **`table_page` is a macro, not a new query IR or page platform.** It expands
   to existing `scenery.page` + `scenery.renderer` resources. No runtime
@@ -242,6 +251,16 @@ catalog. Its former `src/ui/` and `src/nav/` component trees were removed; the
 app retains only route/icon data and slot composition. TypeScript and Vite use
 the same `@scenery/ui` alias, and the app's Astryx + StyleX pipeline compiles
 the raw materialized catalog in both development and production builds.
+The same catalog now owns `Page`, `PageShell`, `SplitPage`, and `PageHeader`;
+`PageLayoutProvider` injects the app's navigation toggle once at the shell.
+
+The pilot also proves the second declarative page kind without widening that
+catalog boundary: `/mailsnext` is emitted from a generic `split_page`, while
+Micro owns the typed inbox operation and every mail-specific slot. Scenery has
+no mail resource kind, compiler path, renderer, or catalog component. Live
+browser verification matched the handwritten page's split geometry and core
+content, exercised URL-backed message selection, and recorded successful
+`mail/InboxHttp` traces with no application console errors.
 
 The planned in-process TypeScript embedding was not viable because upstream
 does not expose a public embeddable compiler API. Reusing Scenery's existing

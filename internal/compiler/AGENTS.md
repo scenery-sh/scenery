@@ -20,9 +20,10 @@ current application graph.
 - Every normal source read first asks `internal/workspacetx` to recover an
   abandoned transaction or reject a live owner. Staged validation admits only
   the current transaction owner.
-- Validate CRUD list and table-page field capabilities before expansion.
-  `table_page` is a macro over ordinary page and renderer resources, not a
-  parallel UI graph or query model.
+- Validate CRUD list and table-page field capabilities and split-page binding
+  and slot contracts before expansion. Both page kinds are macros over
+  ordinary page and renderer resources, not a parallel UI graph or query
+  model. Split-page domain rendering belongs to app-owned component slots.
 - Never import evolution, generation, deployment planning, or
   runtime orchestration.
 

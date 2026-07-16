@@ -2,26 +2,84 @@ package generate
 
 import (
 	"bytes"
+	"errors"
 	"io/fs"
+	"os"
 	"path/filepath"
 
+	"scenery.sh/internal/app"
 	uicatalog "scenery.sh/ui"
 )
 
-func renderUICatalog(root string) ([]generatedFile, error) {
+// uiCatalogEntries mirrors the go:embed directive in ui/embed.go. A live
+// catalog directory configured through envs.local.ui_catalog is walked with
+// this exact entry set so repo files such as AGENTS.md or embed.go never
+// materialize into clients.
+var uiCatalogEntries = []string{"package.json", "global.d.ts", "index.ts", "components", "pages"}
+
+func renderUICatalog(appRoot, root string) ([]generatedFile, error) {
+	source, err := uiCatalogFS(appRoot)
+	if err != nil {
+		return nil, err
+	}
 	var files []generatedFile
-	err := fs.WalkDir(uicatalog.Files, ".", func(path string, entry fs.DirEntry, err error) error {
-		if err != nil || entry.IsDir() {
-			return err
-		}
-		data, err := uicatalog.Files.ReadFile(path)
+	appendFile := func(path string) error {
+		data, err := fs.ReadFile(source, path)
 		if err != nil {
 			return err
 		}
 		files = append(files, generatedFile{Path: filepath.Join(root, filepath.FromSlash(path)), Bytes: markGeneratedUICatalogFile(path, data)})
 		return nil
-	})
-	return files, err
+	}
+	for _, entry := range uiCatalogEntries {
+		info, err := fs.Stat(source, entry)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		if !info.IsDir() {
+			if err := appendFile(entry); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		err = fs.WalkDir(source, entry, func(path string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() {
+				return err
+			}
+			return appendFile(path)
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+	return files, nil
+}
+
+// uiCatalogFS selects the catalog source: the live directory configured by
+// the app's default environment (envs.local.ui_catalog), or the
+// binary-embedded copy. Apps without a discoverable config, without the
+// override, or whose configured directory is absent all use the embed; a
+// present-but-implausible directory is a configuration error.
+func uiCatalogFS(appRoot string) (fs.FS, error) {
+	discoveredRoot, cfg, err := app.DiscoverRoot(appRoot)
+	if err != nil {
+		return uicatalog.Files, nil
+	}
+	env, err := cfg.ResolveEnv("")
+	if err != nil {
+		return uicatalog.Files, nil
+	}
+	dir, missing, err := env.UICatalogDir(discoveredRoot)
+	if err != nil {
+		return nil, err
+	}
+	if dir == "" || missing {
+		return uicatalog.Files, nil
+	}
+	return os.DirFS(dir), nil
 }
 
 func markGeneratedUICatalogFile(path string, data []byte) []byte {

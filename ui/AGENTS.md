@@ -6,11 +6,22 @@
 
 ## Local contracts
 
-- Components are reusable across client applications. Never import app-owned routes, state, assets, or generated API types here; expose data and composition through typed props and slots.
+- Components are reusable across client applications. Never add domain-specific pages (mail, projects, orders, or similar), or import app-owned routes, state, assets, or generated API types here; expose data and composition through typed props and slots.
 - Use Astryx components and tokens with StyleX. Keep React, Astryx, and StyleX as peer dependencies so each Vite app supplies one runtime copy.
 - Apps must not edit or copy the materialized catalog. They may alias `@scenery/ui` to `<output_root>/react/scenery-ui/index.ts` in both TypeScript and Vite.
 - `embed.go` must include every catalog source directory. `internal/generate` adds generated ownership markers during materialization.
 - Export the supported surface from `index.ts`; do not expose internal subpath imports.
+
+## Local iteration
+
+To see catalog edits live in a running client app without rebuilding the
+Scenery binary, set `envs.local.ui_catalog` in that app's `.scenery.json` to
+this directory (relative to the app root), for example
+`"ui_catalog": "../../scenery/ui"`, and run `scenery up`. Saved edits under
+`ui/` re-materialize `react/scenery-ui/` within about a second (staged
+TypeScript verification included) and reach the browser through Vite HMR.
+Shipping still uses the embedded copy: rebuild the binary before release and
+keep `ui_catalog` out of deployable environments (validation enforces this).
 
 ## Verification
 

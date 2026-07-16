@@ -838,6 +838,11 @@ func authoredAttributeType(revision, name string) (map[string]any, string) {
 		default:
 			return primitive("string")
 		}
+	case "scenery.source.split_page":
+		if name == "source" {
+			return resourceRef("binding")
+		}
+		return primitive("string")
 	case "scenery.table-page.column", "scenery.table-page.filter", "scenery.table-page.slot":
 		if name == "component" {
 			return resourceRef("react_component")

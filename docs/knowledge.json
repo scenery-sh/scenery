@@ -19,6 +19,18 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0122-ui-catalog-dev-mode.md",
+      "title": "UI Catalog Dev Mode: Live ui/ Iteration Without Binary Rebuilds",
+      "owner": "scenery generation / agent DX",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-07-16",
+      "review_after": "2026-08-15",
+      "summary": "Completed ExecPlan adding envs.local.ui_catalog: generation materializes react/scenery-ui from a live @scenery/ui source directory instead of the binary embed, and scenery up watches that directory and re-syncs clients in place with staged TypeScript verification, embed fallback for absent paths, and hard errors for implausible ones — catalog edits reach the browser via Vite HMR with no Go rebuild or app restart.",
+      "tags": ["plans", "execplans", "ui-catalog", "generation", "dev-loop", "hmr", "typescript", "dx"]
+    },
+    {
       "path": "docs/plans/0121-named-environments.md",
       "title": "Named Environments: envs Config, Per-Env Domain/Serve/Deploy, Dotenv Layering",
       "owner": "scenery runtime / config / deploy",
@@ -39,8 +51,8 @@
       "freshness": "current",
       "last_reviewed": "2026-07-16",
       "review_after": "2026-08-15",
-      "summary": "Completed ExecPlan shipping explicit CRUD list filter/sort capabilities and query-bound cursor pagination, table_page expansion, react_component slots, the binary-owned TablePage catalog, generated React adapters and neutral routes, and fail-closed checksummed native tsgo verification.",
-      "tags": ["plans", "execplans", "crud", "table-page", "react", "typescript", "generation", "ui-catalog", "tsgo"]
+      "summary": "Completed ExecPlan shipping explicit CRUD list filter/sort capabilities and query-bound cursor pagination, table_page and generic split_page expansion, react_component slots, the binary-owned reusable UI catalog, generated React adapters and neutral routes, and fail-closed checksummed native tsgo verification.",
+      "tags": ["plans", "execplans", "crud", "table-page", "split-page", "react", "typescript", "generation", "ui-catalog", "tsgo"]
     },
     {
       "path": "docs/plans/0119-caddy-first-production-frontends.md",
@@ -1074,7 +1086,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-16",
       "review_after": "2026-08-15",
-      "summary": "Rules for maintaining the binary-owned generated-app React catalog under ui; the runnable dashboard remains owned separately by apps/console.",
+      "summary": "Rules for maintaining and consuming the binary-owned Astryx + StyleX React catalog under ui, including generated Vite aliases and shared page layouts; the runnable dashboard remains owned separately by apps/console.",
       "tags": [
         "ui",
         "agents",
