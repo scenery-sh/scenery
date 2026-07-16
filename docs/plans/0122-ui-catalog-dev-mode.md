@@ -76,6 +76,18 @@ running `github.com/pbrazdil/Micro` platform (`~/Repos/Micro/platform`) with
   catalog walk-order change cannot alter content digests, and the affected
   fixtures do not configure `ui_catalog`.
 
+- (2026-07-16) Live verification against Micro/platform caught a real bug the
+  unit tests could not: the watcher's first implementation called
+  `SyncCachedTypeScriptClients`, which by design refreshes only
+  `materialization: "cache"` clients — and Micro's client uses the default
+  `"source"` materialization, so the sync event fired but `Checked` was empty
+  and nothing was written. Fixed by calling
+  `generate.GenerateTypeScriptClients(root, "", false)` (covers both
+  materializations, same staged tsgo verification). Verified end-to-end:
+  initial convergence on startup ~1s, live edit materialized in ~3s, a type
+  error rejected with `SCN6321`/`TS2322` logged while the previous catalog
+  kept serving, and a revert cleaned up in ~3s.
+
 ## Decision Log
 
 All decisions 2026-07-16, owner (Petr Brazdil) with Claude.
@@ -97,13 +109,21 @@ All decisions 2026-07-16, owner (Petr Brazdil) with Claude.
   (`package.json`, `global.d.ts`, `index.ts`, `components/`, `pages/` — from
   `ui/embed.go`). Repo files like `AGENTS.md` and `embed.go` never
   materialize into clients.
-- **Re-sync path is `compiler.Check` + `SyncCachedTypeScriptClients`, not an
-  app rebuild.** Catalog changes cannot affect the Go binary, so the app
+- **Re-sync path is `generate.GenerateTypeScriptClients(root, "", false)`, not
+  an app rebuild.** Catalog changes cannot affect the Go binary, so the app
   process keeps running (no state loss); rewritten files reach the browser via
   the Vite dev server's own watcher. Production-serve frontends are rebuilt in
-  place via the existing `RebuildProductionFrontends`. The staged native
-  TypeScript verification inside the sync keeps broken catalog edits out of
-  the client tree — the previous files keep serving and the error is printed.
+  place via the existing `RebuildProductionFrontends` when the sync changed
+  files. The staged native TypeScript verification inside generation keeps
+  broken catalog edits out of the client tree — the previous files keep
+  serving and the error is printed (and emitted as a JSONL `error` event in
+  detached sessions). Originally implemented with
+  `SyncCachedTypeScriptClients`; corrected after live verification — see
+  Surprises.
+- **The watcher syncs once at startup before polling.** The materialized
+  catalog may predate live-dir edits made while no session was running;
+  converging immediately makes `scenery up` sufficient to reach the current
+  catalog state.
 - **Polling watcher (1s interval, 300ms settle), not fsnotify.** The catalog
   tree is small; a stat-walk poll is a few milliseconds, has no
   platform-specific edge cases, and avoids extending the root-scoped fsnotify

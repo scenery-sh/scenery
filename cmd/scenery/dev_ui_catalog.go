@@ -2,14 +2,12 @@ package main
 
 import (
 	"context"
-	"errors"
 	"io/fs"
 	"maps"
 	"path/filepath"
 	"time"
 
 	"scenery.sh/internal/app"
-	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/generate"
 )
 
@@ -35,6 +33,9 @@ func runUICatalogDevSync(ctx context.Context, console *runConsole, supervisor *d
 		consolePrintError(console, "ui catalog watch failed", err)
 		return
 	}
+	// Converge immediately: the materialized catalog may predate live-dir
+	// edits made while no session was running.
+	syncUICatalog(ctx, console, supervisor, root, env)
 	ticker := time.NewTicker(uiCatalogPollInterval)
 	defer ticker.Stop()
 	for {
@@ -91,30 +92,23 @@ func syncUICatalog(ctx context.Context, console *runConsole, supervisor *devSupe
 	if console != nil {
 		console.Event("ui_catalog.sync", map[string]any{"root": root})
 	}
-	contract, err := compiler.Check(root)
+	// GenerateTypeScriptClients covers source- and cache-materialized
+	// clients; SyncCachedTypeScriptClients would silently skip the default
+	// source materialization.
+	result, err := generate.GenerateTypeScriptClients(root, "", false)
 	if err != nil {
 		consolePrintError(console, "ui catalog sync failed", err)
 		return
 	}
-	if !contract.Valid() {
-		message := "app contract is invalid"
-		for _, diagnostic := range contract.Diagnostics {
-			if diagnostic.Severity == "error" {
-				message = diagnostic.Code + ": " + diagnostic.Message
-				break
-			}
+	if console != nil {
+		console.Event("ui_catalog.synced", map[string]any{"changed": result.Changed})
+		if !console.json && len(result.Changed) > 0 {
+			console.printSetupDone("ui catalog synced")
 		}
-		consolePrintError(console, "ui catalog sync failed", errors.New(message))
-		return
 	}
-	if _, err := generate.SyncCachedTypeScriptClients(contract); err != nil {
-		consolePrintError(console, "ui catalog sync failed", err)
-		return
+	if len(result.Changed) > 0 {
+		supervisor.RebuildProductionFrontends(ctx, productionFrontendNames(env))
 	}
-	if console != nil && !console.json {
-		console.printSetupDone("ui catalog synced")
-	}
-	supervisor.RebuildProductionFrontends(ctx, productionFrontendNames(env))
 }
 
 func consolePrintError(console *runConsole, message string, err error) {
