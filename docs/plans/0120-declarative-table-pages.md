@@ -63,11 +63,33 @@ any`, no runtime component registry, no dynamic imports, and no eject flow.
 - [x] M4: `typescript_client` `react` block and generated page/adapter/route output (2026-07-16)
 - [x] M5: Staged TypeScript verification with the managed native `tsgo` checker (2026-07-16)
 - [x] M6: Documentation layer sync, schemas, and harness coverage (2026-07-16)
+- [x] Relocated the editable catalog to root `ui/` and removed the obsolete shadcn registry workspace and enforcement (2026-07-16)
+- [x] Expanded `@scenery/ui` with the Micro Platform Astryx + StyleX primitives and navigation chrome; the pilot app now consumes only the generated catalog through a bare alias (2026-07-16)
 
 (M1-M6 completed 2026-07-16.)
 
 ## Surprises & Discoveries
 
+- 2026-07-16: A production-built frontend under `scenery up` still needs
+  local-only auth injection. Generated table pages now accept an optional
+  generated client so the app can reuse its authenticated fetch path without
+  editing generated code.
+- 2026-07-16: Live pagination in the MicroGRID pilot found that contract
+  `int` values are encoded as canonical JSON strings, while the CRUD runtime
+  accepted only JSON numbers; it also found that a framework-only rebuild
+  could reuse a cached graph without its target contract and emit an unbound
+  runtime binary. CRUD pagination now accepts the contract wire encoding, and
+  framework drift forces full build preparation so linker metadata is always
+  regenerated.
+- 2026-07-16: The first MicroGRID Platform pilot exposed strict-TypeScript
+  unused imports on pages without custom cells or filters, alphabetical UI
+  field ordering, and loaders targeting the frontend root instead of Scenery's
+  `/api/` route; the first retry also showed that catalog assets had no trusted
+  ownership markers. The generator now emits only used imports, preserves
+  authored table order, calls the browser-facing API path, and marks every
+  catalog artifact so repeated generation stays idempotent. Runtime build
+  preparation also now verifies only cache-materialized React targets during
+  cache sync instead of passing source targets with an empty staging set.
 - 2026-07-16: `github.com/microsoft/typescript-go` cannot be embedded by an
   external module. The current module has no public compiler package, Go's
   `internal` import rule rejects all checker packages, and upstream documents
@@ -75,11 +97,31 @@ any`, no runtime component registry, no dynamic imports, and no eject flow.
   self-contained platform binaries plus TypeScript library declarations, so
   the existing checksummed Scenery toolchain store can own the exact checker
   without Node, bun, or PATH drift.
+- 2026-07-16: A Vite consumer does not need a linked workspace package or a
+  copied component tree. Pointing the same `@scenery/ui` alias in TypeScript
+  and Vite at the source-materialized `react/scenery-ui/index.ts` lets the
+  app's existing Astryx, React, and StyleX toolchain compile the binary-owned
+  catalog directly. The staged generator check remains independent because it
+  verifies the generated subtree from its sibling stage root.
 
 ## Decision Log
 
 All decisions below were made 2026-07-15 by Petr Brazdil with agent design
 assistance, during the design conversation that produced this plan.
+
+- **The editable catalog source lives directly under root `ui/`.** The old
+  reusable registry workspace was removed. `ui/embed.go` is the only Go bridge;
+  `internal/generate` consumes the embedded files and adds ownership markers
+  only when materializing them into generated apps. Rationale: the UI source is
+  a frequent human/agent iteration surface and must be immediately discoverable
+  without a mirrored copy or sync step. Decided 2026-07-16 by Petr Brazdil.
+
+- **Vite apps consume reusable catalog components through one exact bare
+  alias.** Both `tsconfig.json` and Vite map `@scenery/ui` to the declared
+  client's `react/scenery-ui/index.ts`; the app supplies the React, Astryx,
+  and StyleX peers and its normal StyleX transform compiles the materialized
+  TSX. There is no local component copy, symlink, or separately versioned npm
+  package. Decided 2026-07-16 by Petr Brazdil.
 
 - **`table_page` is a macro, not a new query IR or page platform.** It expands
   to existing `scenery.page` + `scenery.renderer` resources. No runtime
@@ -190,6 +232,17 @@ descriptors, and fail-closed staged checking by an exact checksummed native
 fails and classifies override incompatibility, reachable application errors,
 and toolchain readiness separately.
 
+The editable catalog source now lives directly under `ui/`; the obsolete
+shadcn registry workspace, installer, toolchain lock, environment knobs, and
+self-harness enforcement were removed.
+
+The Micro Platform pilot now imports its tables, query states, form controls,
+status badges, stat tiles, side navigation, and top bar from the generated
+catalog. Its former `src/ui/` and `src/nav/` component trees were removed; the
+app retains only route/icon data and slot composition. TypeScript and Vite use
+the same `@scenery/ui` alias, and the app's Astryx + StyleX pipeline compiles
+the raw materialized catalog in both development and production builds.
+
 The planned in-process TypeScript embedding was not viable because upstream
 does not expose a public embeddable compiler API. Reusing Scenery's existing
 managed-toolchain protocol produced a smaller current contract with no PATH,
@@ -202,6 +255,8 @@ native `tsgo`, schema CLI inspection, and `scenery harness self --summary
 --write`. A live browser acceptance page rendered two linked rows through the
 catalog `TablePage`, exercised its enum control, exposed no console errors,
 and applied a changed `--scenery-ui-background` token without regeneration.
+The first external pilot additionally served 28 real MicroGRID project rows
+through the generated page endpoint and verified the next-page cursor.
 
 ## Context and Orientation
 
@@ -490,7 +545,7 @@ Catalog package lanes:
 
     apps/console/node_modules/.bin/tsc -p internal/generate/testdata/tsconfig.catalog.json
 
-Use the `ui/` lanes too if the reusable registry is extended.
+Run the catalog package lane whenever `ui/` changes.
 
 Acceptance is observable behavior on a fixture app:
 

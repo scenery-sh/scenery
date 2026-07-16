@@ -662,7 +662,7 @@ func harnessBinaryFreshnessCoversRel(rel string) bool {
 	if strings.HasPrefix(rel, dashboardStaticDistRel+"/") && harnessBinaryInputFile(rel) {
 		return true
 	}
-	for _, prefix := range []string{"auth/", "cmd/", "db/", "errs/", "internal/", "middleware/", "runtime/"} {
+	for _, prefix := range []string{"auth/", "cmd/", "db/", "errs/", "internal/", "middleware/", "runtime/", "ui/"} {
 		if strings.HasPrefix(rel, prefix) && harnessBinaryInputFile(rel) {
 			for _, part := range strings.Split(filepath.Dir(rel), "/") {
 				if harnessBinaryInputSkipDir(part) {
@@ -869,7 +869,7 @@ func harnessStepEffects(step harnessStep) []string {
 		set["path-binary"] = true
 	case "toolchain preflight":
 		set["external-binary"] = true
-	case "schema validation", "changed area oracle", "contract drift checks", "knowledge contract", "inspect docs", "architecture checks", "ui static architecture", "dashboard ui fresh":
+	case "schema validation", "changed area oracle", "contract drift checks", "knowledge contract", "inspect docs", "architecture checks", "dashboard ui fresh":
 		set["filesystem-read"] = true
 	}
 	return sortedStringSet(set)

@@ -155,7 +155,7 @@ func TestCRUDListQueryFiltersPaginatesAndBindsCursorToQuery(t *testing.T) {
 		{Name: "name", Column: "name", Type: "enum.scene_name"},
 		{Name: "created_at", Column: "created_at", Type: "datetime"},
 	}, List: &CRUDListSpec{Filters: []string{"name", "created_at"}, Sorts: []string{"name"}, DefaultSort: "name", DefaultDirection: "desc", MaxPageSize: 2}}
-	output, err := InvokeCRUD(context.Background(), database, spec, "list", []byte(`{"tenant_id":"tenant-1","name":["roof"],"created_at_from":"2026-07-16T00:00:00Z","created_at_to":"2026-07-17T00:00:00Z","limit":1}`))
+	output, err := InvokeCRUD(context.Background(), database, spec, "list", []byte(`{"tenant_id":"tenant-1","name":["roof"],"created_at_from":"2026-07-16T00:00:00Z","created_at_to":"2026-07-17T00:00:00Z","limit":"1"}`))
 	if err != nil {
 		t.Fatal(err)
 	}

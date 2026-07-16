@@ -1056,19 +1056,19 @@
     {
       "path": "docs/ui-agent-contract.md",
       "title": "scenery UI Agent Contract",
-      "owner": "scenery dashboard",
+      "owner": "scenery generation / UI",
       "status": "active",
       "quality": "B",
       "freshness": "current",
-      "last_reviewed": "2026-07-09",
-      "review_after": "2026-08-08",
-      "summary": "Rules for maintaining the reusable @scenery component registry, its primitives and layouts, and its guarded shadcn promotion flow; the runnable dashboard is owned separately by apps/console.",
+      "last_reviewed": "2026-07-16",
+      "review_after": "2026-08-15",
+      "summary": "Rules for maintaining the binary-owned generated-app React catalog under ui; the runnable dashboard remains owned separately by apps/console.",
       "tags": [
         "ui",
         "agents",
-        "shadcn",
-        "registry",
-        "guardrails"
+        "generation",
+        "react",
+        "catalog"
       ]
     },
     {

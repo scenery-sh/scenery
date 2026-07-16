@@ -14,13 +14,6 @@
       "manager": "bun",
       "manifest": "apps/console/package.json",
       "lock": "apps/console/bun.lock"
-    },
-    {
-      "name": "scenery-ui-registry",
-      "kind": "package-manager",
-      "manager": "bun",
-      "manifest": "ui/package.json",
-      "lock": "ui/bun.lock"
     }
   ],
   "artifacts": [

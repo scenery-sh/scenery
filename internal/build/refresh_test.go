@@ -226,6 +226,28 @@ func TestRefreshCachedWorkspaceFallsBackWhenGeneratedFileMissing(t *testing.T) {
 	}
 }
 
+func TestRefreshCachedWorkspaceFallsBackWhenFrameworkChanges(t *testing.T) {
+	t.Parallel()
+
+	appDir, _ := newCachedBuildTestWorkspace(t, "graph-1")
+	cached, ok, err := LoadCachedGraph(appDir, appcfg.Config{Name: "buildtest"}, "graph-1")
+	if err != nil {
+		t.Fatalf("LoadCachedGraph() error = %v", err)
+	}
+	if !ok || cached == nil || cached.Result == nil {
+		t.Fatal("expected cached graph to load")
+	}
+	cached.Result.FrameworkFingerprint = "sha256:stale"
+
+	reused, err := RefreshCachedWorkspace(appDir, cached.Result)
+	if err != nil {
+		t.Fatalf("RefreshCachedWorkspace() error = %v", err)
+	}
+	if reused {
+		t.Fatal("expected framework drift to force a full build preparation")
+	}
+}
+
 func TestSyncSourceFilesDetectsNewFiles(t *testing.T) {
 	t.Parallel()
 

@@ -736,7 +736,6 @@ func architectureSkipDir(rel string) bool {
 		"coverage",
 		"oracle",
 		"node_modules",
-		"ui/node_modules",
 	} {
 		if rel == prefix || strings.HasPrefix(rel, prefix+"/") {
 			return true

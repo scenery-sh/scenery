@@ -1,5 +1,5 @@
-import type { TablePageCellProps, TablePageFilterProps } from "../catalog/index.js";
-import { defineTablePageSlots } from "../catalog/index.js";
+import type { TablePageCellProps, TablePageFilterProps } from "../../../ui/index.js";
+import { defineTablePageSlots } from "../../../ui/index.js";
 
 interface Row {
   readonly id: string;

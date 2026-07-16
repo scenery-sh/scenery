@@ -54,10 +54,8 @@ func SyncCachedTypeScriptClients(result *compiler.Result) (GenerateResult, error
 		return GenerateResult{}, nil
 	}
 	var files []generatedFile
-	for _, target := range typescriptTargets(result.Manifest.Resources, "") {
-		if typeScriptMaterialization(target) != "cache" {
-			continue
-		}
+	targets := cacheTypeScriptTargets(typescriptTargets(result.Manifest.Resources, ""))
+	for _, target := range targets {
 		targetFiles, err := renderTypeScriptTarget(result, target)
 		if err != nil {
 			return GenerateResult{}, err
@@ -74,7 +72,7 @@ func SyncCachedTypeScriptClients(result *compiler.Result) (GenerateResult, error
 		}
 		files = append(files, targetFiles...)
 	}
-	if err := verifyRenderedTypeScriptReact(result, typescriptTargets(result.Manifest.Resources, ""), files); err != nil {
+	if err := verifyRenderedTypeScriptReact(result, targets, files); err != nil {
 		return GenerateResult{}, err
 	}
 	return finishGeneratedFiles(result.Root, files, false, "generated TypeScript cache is stale")
@@ -175,6 +173,16 @@ func sourceTypeScriptTargets(targets []Resource) []Resource {
 	result := targets[:0]
 	for _, target := range targets {
 		if typeScriptMaterialization(target) == "source" {
+			result = append(result, target)
+		}
+	}
+	return result
+}
+
+func cacheTypeScriptTargets(targets []Resource) []Resource {
+	result := targets[:0]
+	for _, target := range targets {
+		if typeScriptMaterialization(target) == "cache" {
 			result = append(result, target)
 		}
 	}

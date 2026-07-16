@@ -133,8 +133,6 @@ func firstFileForHarnessStep(repoRoot string, step harnessStep) string {
 		return "docs/harness-engineering.md"
 	case "contract drift checks":
 		return "docs/local-contract.md"
-	case "ui static architecture":
-		return "docs/ui-agent-contract.md"
 	case "go tests":
 		return ".scenery/harness/test-timing-latest.json"
 	case "fixture matrix":
@@ -142,7 +140,7 @@ func firstFileForHarnessStep(repoRoot string, step harnessStep) string {
 	case "schema validation":
 		return ".scenery/harness/schema-validation-latest.json"
 	case "dashboard ui typecheck", "dashboard ui build", "dashboard ui fresh":
-		return "ui"
+		return "apps/console"
 	case "parallel worktree runtimes":
 		return ".scenery/harness/agent-context.json"
 	default:

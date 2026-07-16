@@ -205,6 +205,12 @@ func RefreshCachedWorkspaceWithSnapshot(appRoot string, result *Result, snapshot
 		return false, err
 	}
 	result.FrameworkFingerprint = frameworkFingerprint
+	// A cached graph does not carry the target contract needed to regenerate
+	// runtime linker metadata. Re-prepare the full build when Scenery itself
+	// changes instead of producing an unbound runtime binary.
+	if previousFrameworkFingerprint != frameworkFingerprint {
+		return false, nil
+	}
 	depFingerprint, err := dependencyFingerprintFromWorkspace(result.Dir)
 	if err != nil {
 		return false, err

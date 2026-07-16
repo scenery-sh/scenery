@@ -228,7 +228,7 @@ artifact_hygiene() {
   cd "$ROOT"
   local bad
   bad="$(find . \
-    \( -path './.git' -o -path './.scenery' -o -path './.codex-tmp' -o -path './ui/node_modules' \) -prune \
+    \( -path './.git' -o -path './.scenery' -o -path './.codex-tmp' \) -prune \
     -o \( -name '.DS_Store' -o -name '__MACOSX' \) -print)"
   if [[ -n "$bad" ]]; then
     printf '%s\n' "$bad"

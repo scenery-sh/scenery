@@ -58,6 +58,13 @@ func TestContractWireJSONRejectsAmbiguityAndCanonicalizes(t *testing.T) {
 func TestContractConstraintsValidateExactValues(t *testing.T) {
 	minimum, maximum := "2", "10"
 	minLength, maxLength := int64(2), int64(4)
+	integer, err := ParseInt("9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateContractValue(integer, "int", ContractConstraints{Minimum: &minimum, Maximum: &maximum}); err != nil {
+		t.Fatal(err)
+	}
 	if err := ValidateContractValue(int64(9), "int64", ContractConstraints{Minimum: &minimum, Maximum: &maximum}); err != nil {
 		t.Fatal(err)
 	}

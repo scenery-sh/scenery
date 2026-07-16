@@ -9,9 +9,14 @@
     "skipLibCheck": true,
     "strict": true,
     "paths": {
+      "@astryxdesign/core/*": [
+        "../../../apps/console/node_modules/@astryxdesign/core/dist/*/index.d.ts",
+        "../../../apps/console/node_modules/@astryxdesign/core/dist/*.d.ts"
+      ],
+      "@stylexjs/stylex": ["../../../apps/console/node_modules/@stylexjs/stylex/lib/es/stylex.d.ts"],
       "react": ["../../../apps/console/node_modules/@types/react/index.d.ts"],
       "react/jsx-runtime": ["../../../apps/console/node_modules/@types/react/jsx-runtime.d.ts"]
     }
   },
-  "include": ["../catalog/**/*.ts", "../catalog/**/*.tsx", "catalog_contract_test.tsx"]
+  "include": ["../../../ui/**/*.ts", "../../../ui/**/*.tsx", "catalog_contract_test.tsx"]
 }

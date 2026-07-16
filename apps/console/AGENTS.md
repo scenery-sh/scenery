@@ -6,7 +6,7 @@
 
 ## Ownership
 
-Keep this app isolated from the reusable registry under `ui/` unless a task explicitly asks to share code. This is the sole runnable dashboard source.
+Keep this app isolated from the generated-app catalog under `ui/`. This is the sole runnable dashboard source.
 
 ## Local Contracts
 

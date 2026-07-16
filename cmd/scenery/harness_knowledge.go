@@ -254,9 +254,6 @@ func validateExecPlanContract(repoRoot string) ([]checkDiagnostic, map[string]an
 
 var requiredSkillMentions = []string{
 	"scenery harness ui -o json",
-	"docs/ui-agent-contract.md",
-	"@scenery registry",
-	"bun run shadcn:add @scenery/",
 	"scenery harness self --summary --write",
 }
 

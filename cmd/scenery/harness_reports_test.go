@@ -276,6 +276,15 @@ func TestBuildHarnessEnvVarReportInvalidRuntimeEnvDiagnostics(t *testing.T) {
 	}
 }
 
+func diagnosticsContain(diagnostics []checkDiagnostic, needle string) bool {
+	for _, diagnostic := range diagnostics {
+		if strings.Contains(diagnostic.Message, needle) {
+			return true
+		}
+	}
+	return false
+}
+
 func TestBuildHarnessEnvVarReportIgnoresClaudeWorktreeCopies(t *testing.T) {
 	t.Parallel()
 

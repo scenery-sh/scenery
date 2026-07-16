@@ -147,8 +147,5 @@ scenery also injects standard OpenTelemetry endpoint variables when Victoria sid
 | `SCENERY_TEST_WATCH_BACKUP_POLL_MS` | test escape hatch | Overrides `scenery up` file-watch backup poll interval in integration tests so missed fsnotify events do not wait on the production fallback delay. |
 | `SCENERY_TEST_WATCH_POLL_MS` | test escape hatch | Overrides `scenery up` file-watch polling interval in integration tests that intentionally exercise polling paths. |
 | `SCENERY_TEST_WATCH_SETTLE_DELAY_MS` | test escape hatch | Overrides `scenery up` file-watch settle delay in integration tests so reload assertions do not wait on production debounce timing. This is intentionally registry-approved because the process under test is production dev code. |
-| `SCENERY_SHADCN_REGISTRY_ROOT` | user input | UI registry root override for the dashboard shadcn wrapper. |
-| `SCENERY_SHADCN_VERSION` | user input | shadcn CLI version override for the dashboard wrapper. |
-| `SCENERY_SHADCN_OVERWRITE` | user input | `1` permits overwrite operations in the dashboard shadcn wrapper. |
 
 Variables named `SCENERY_TEST_*` that appear only inside tests are not part of the user-facing contract.

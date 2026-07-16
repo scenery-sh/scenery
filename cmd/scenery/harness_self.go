@@ -94,7 +94,6 @@ func runSceneryHarnessSelf(ctx context.Context, stdout io.Writer, args []string)
 		runHarnessInspectDocsStep(repoRoot),
 		runHarnessArchitectureStep(repoRoot),
 		driftStep,
-		runHarnessUIStaticStep(repoRoot),
 	)
 
 	switch opts.Mode {
@@ -533,6 +532,7 @@ func latestHarnessSourceModTime(repoRoot string) (time.Time, bool, error) {
 		"internal",
 		"middleware",
 		"runtime",
+		"ui",
 	}
 	var latest time.Time
 	found := false

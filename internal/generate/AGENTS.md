@@ -16,7 +16,8 @@ TypeScript clients, OpenAPI documents, and their generated-file transactions.
 - TypeScript targets route to source or `.scenery` cache from their declared
   `materialization` mode.
 - React-enabled TypeScript targets render generated table pages and the
-  binary-owned UI catalog into the same artifact transaction. Typecheck a
+  binary-owned UI catalog from its editable source at `ui/` into the
+  same artifact transaction. Typecheck a
   sibling staging tree with the exact managed native checker before commit;
   never consult PATH or fall back when the checker or app dependencies are
   unavailable.

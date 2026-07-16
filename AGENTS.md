@@ -69,6 +69,7 @@ Child `AGENTS.md` files:
 - `internal/testsuite/AGENTS.md` owns explicit fresh execution from content-addressed Go test binaries and Go JSON event output.
 - `internal/workspacetx/AGENTS.md` owns crash-safe source transaction metadata, ownership checks, and recovery before compiler reads.
 - `docs/spec/AGENTS.md` owns the evolving current specification set and conformance update rules.
+- `ui/AGENTS.md` owns the binary-embedded Astryx + StyleX component catalog materialized into React-enabled TypeScript clients.
 
 ## Agent skills
 
@@ -293,7 +294,7 @@ cd ../..
 scenery harness self --summary --write
 ```
 
-For `ui/` registry changes, run `bun run typecheck` and `bun run test` from `ui/`.
+For `ui/` catalog changes, run `apps/console/node_modules/.bin/tsc -p internal/generate/testdata/tsconfig.catalog.json` from the repository root.
 
 For browser/dashboard validation when relevant:
 
@@ -336,4 +337,4 @@ When editing source that changes the public app model, confirm the docs and test
 - Keep changes small and explicit.
 - Prefer tests at stable boundaries: parser validation, codegen golden output, runtime HTTP behavior, CLI JSON contracts, schemas, and fixture apps.
 - Keep large files split. Non-generated source over 2500 lines should fail self-harness architecture checks; non-generated source over 1000 lines should be treated as a warning to split soon.
-- Do not bypass UI boundaries. The dashboard under `apps/console/` follows its local Astryx + StyleX contract. The reusable component registry under `ui/` follows `docs/ui-agent-contract.md`.
+- Do not bypass UI boundaries. The dashboard under `apps/console/` follows its local Astryx + StyleX contract. The binary-owned generated-app catalog under `ui/` follows `ui/AGENTS.md`.

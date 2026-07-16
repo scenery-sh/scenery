@@ -466,13 +466,15 @@ func addHarnessChangedAreaKnowledge(path, category string, docs, risks, commands
 		docs["docs/plans/active.md"] = true
 		risks["exec-plan"] = true
 	case "ui":
-		risks["dashboard-ui"] = true
 		if strings.HasPrefix(path, "apps/console/") {
+			risks["dashboard-ui"] = true
 			docs["apps/console/AGENTS.md"] = true
 			commands["cd apps/console && bun run lint && bun run typecheck && bun run build"] = true
 		} else {
+			risks["generated-ui-catalog"] = true
 			docs["docs/ui-agent-contract.md"] = true
-			commands["cd ui && bun run typecheck && bun run test"] = true
+			commands["apps/console/node_modules/.bin/tsc -p internal/generate/testdata/tsconfig.catalog.json"] = true
+			commands["go test ./internal/generate"] = true
 		}
 	case "fixture":
 		docs["docs/app-development-cookbook.md"] = true

@@ -14,7 +14,7 @@ Read next when needed:
 - `docs/agent-guide.md` for agent workflow and generated-artifact rules.
 - `docs/local-contract.md` for exact CLI grammar, JSON schemas, and artifact paths.
 - `docs/app-development-cookbook.md` for native app recipes.
-- `docs/ui-agent-contract.md` before UI work.
+- `docs/ui-agent-contract.md` before changing Scenery's generated UI catalog.
 
 ## Agent Fast Path
 
@@ -160,7 +160,7 @@ bun test internal/generate/testdata/typescript_client_conformance.test.ts
 
 Generated clients implement the exact declared HTTP mappings and typed outcomes. They do not infer routes or authentication from Go names. Regenerate after any reachable binding, type, codec, or auth contract changes.
 
-For generated React table pages, declare the CRUD `list` filter/sort allowlist, `react_component` overrides, and `table_page`, then add `react { tsconfig = "path/to/tsconfig.json" }` to the client target. Scenery materializes `react/` plus its binary-owned `scenery-ui` catalog and typechecks the staged target with managed `tsgo` before committing. Treat `SCN6320` as an override contract error, `SCN6321` as a reachable app TypeScript error, and `SCN6322` as checker/config/dependency readiness. Do not edit the generated page or catalog; mount `generatedPages` through the app router and customize only declared slots and catalog CSS tokens.
+For generated React table pages, declare the CRUD `list` filter/sort allowlist, `react_component` overrides, and `table_page`, then add `react { tsconfig = "path/to/tsconfig.json" }` to the client target. Scenery materializes `react/` plus its binary-owned `scenery-ui` catalog, targets the browser-facing `/api/` route on the current origin, and typechecks the staged target with managed `tsgo` before committing. Treat `SCN6320` as an override contract error, `SCN6321` as a reachable app TypeScript error, and `SCN6322` as checker/config/dependency readiness. Do not edit the generated page or catalog; mount `generatedPages` through the app router, pass its optional `client` prop when the app owns fetch/auth behavior, and customize only declared slots and catalog CSS tokens. Vite apps may import reusable catalog components through an exact `@scenery/ui` alias to `<output_root>/react/scenery-ui/index.ts` in both TypeScript and Vite; the app supplies the declared React, Astryx, and StyleX peers and compiles the generated source with its normal StyleX transform.
 
 ## Tasks and Workers
 
@@ -177,7 +177,7 @@ Single-file Go code tasks live under a domain `tasks` directory and use `//go:bu
 
 ## UI Work
 
-Follow `apps/console/AGENTS.md` for dashboard work. For reusable components, follow `docs/ui-agent-contract.md`, use the `@scenery registry`, and install through commands such as `bun run shadcn:add @scenery/button`.
+Follow `apps/console/AGENTS.md` for dashboard work. Generated table pages use Scenery's binary-owned catalog; mount `generatedPages` and customize declared slots or CSS tokens instead of editing materialized catalog files.
 
 ```sh
 cd apps/console

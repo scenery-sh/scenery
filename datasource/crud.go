@@ -12,6 +12,7 @@ import (
 	"io"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -558,6 +559,13 @@ func crudOptionalString(raw json.RawMessage) (string, error) {
 }
 
 func crudInteger(raw json.RawMessage) (int, error) {
+	if len(raw) > 0 && raw[0] == '"' {
+		var encoded string
+		if err := json.Unmarshal(raw, &encoded); err != nil {
+			return 0, err
+		}
+		return strconv.Atoi(encoded)
+	}
 	var value int
 	if err := json.Unmarshal(raw, &value); err != nil {
 		return 0, err

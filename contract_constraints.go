@@ -136,7 +136,13 @@ func contractConstraintNumber(value reflect.Value, typeName string) (*big.Rat, b
 	}
 	var source string
 	switch typeName {
-	case "int", "decimal":
+	case "int":
+		integer, ok := value.Interface().(Int)
+		if !ok {
+			return nil, false
+		}
+		return new(big.Rat).SetInt(new(big.Int).Set(&integer.Int)), true
+	case "decimal":
 		stringer, ok := value.Interface().(fmt.Stringer)
 		if !ok {
 			return nil, false
