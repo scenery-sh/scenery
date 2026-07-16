@@ -76,6 +76,7 @@ func TestEnsureSharedVictoriaStackReplacesStaleOwner(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	killVictoriaTestStack(t, stack)
 	if stack == nil || reused {
 		t.Fatalf("ensure result stack=%T reused=%v", stack, reused)
 	}
@@ -164,6 +165,7 @@ func TestEnsureSharedVictoriaStackSerializesConcurrentStarts(t *testing.T) {
 	for range 2 {
 		select {
 		case result := <-results:
+			killVictoriaTestStack(t, result.stack)
 			if result.err != nil {
 				t.Fatal(result.err)
 			}
@@ -458,6 +460,29 @@ func TestVictoriaManagedProcessHelper(t *testing.T) {
 		}
 		_ = conn.Close()
 	}
+}
+
+// killVictoriaTestStack reaps stand-in Victoria processes at test end. Once a
+// shared stack is registered it is marked external, so Stack.Interrupt and
+// context cancellation both leave its processes alive; without an explicit
+// PID kill every registered test stack outlives the test binary.
+func killVictoriaTestStack(t *testing.T, stack *victoria.Stack) {
+	t.Helper()
+	if stack == nil {
+		return
+	}
+	t.Cleanup(func() {
+		for _, pid := range stack.SubstrateRequest(0).PIDs {
+			if pid <= 0 {
+				continue
+			}
+			process, err := os.FindProcess(pid)
+			if err != nil {
+				continue
+			}
+			_ = process.Kill()
+		}
+	})
 }
 
 func killVictoriaTestComponent(t *testing.T, stack *victoria.Stack, name string) {
