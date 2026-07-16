@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"sync"
 )
 
 type Kind string
@@ -82,8 +83,15 @@ func RevisionOf(catalog Catalog) Revision {
 	return revision("scenery.spec", catalog)
 }
 
-func CurrentRevision() Revision {
+// currentRevision is computed once: the catalog is a pure function of the
+// binary, and recomputing the canonical hash per artifact identity dominated
+// the long-running agent's CPU profile.
+var currentRevision = sync.OnceValue(func() Revision {
 	return RevisionOf(Current())
+})
+
+func CurrentRevision() Revision {
+	return currentRevision()
 }
 
 func SchemaRevision(schema any) Revision {

@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"runtime/debug"
 	"strings"
+	"sync"
 
 	"scenery.sh/internal/spec"
 )
@@ -113,6 +114,12 @@ func isCanonicalDigest(value string) bool {
 // RuntimeProducer returns the best producer identity available to library code.
 // The CLI envelope replaces these values with linker-supplied release metadata.
 func RuntimeProducer() Producer {
+	return runtimeProducer()
+}
+
+// runtimeProducer is computed once: build info is immutable for the process,
+// and debug.ReadBuildInfo is too expensive for per-artifact identity calls.
+var runtimeProducer = sync.OnceValue(func() Producer {
 	producer := Producer{Version: "dev", Toolchain: Toolchain{GoVersion: runtime.Version()}}
 	if info, ok := debug.ReadBuildInfo(); ok {
 		if info.Main.Version != "" && info.Main.Version != "(devel)" {
@@ -128,4 +135,4 @@ func RuntimeProducer() Producer {
 		}
 	}
 	return producer
-}
+})
