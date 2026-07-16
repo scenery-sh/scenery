@@ -88,7 +88,29 @@ func TestWatchIgnoreMatcherNegatedDirectoryDoesNotUnignoreContents(t *testing.T)
 	}
 }
 
-func writeWatchFile(t *testing.T, root, rel, contents string) {
+func BenchmarkWatchIgnoreMatcher(b *testing.B) {
+	root := b.TempDir()
+	writeWatchFile(b, root, ".gitignore", strings.Join([]string{
+		"node_modules", "dist/", "*.log", "!important.log", "/build/*",
+		"nested/**/cache/", ".DS_Store", "coverage", "*.tmp", "/.scenery/",
+	}, "\n"))
+	writeWatchFile(b, root, "apps/ui/.gitignore", "dist\n*.local\n")
+	ignore := New(root)
+	ignore.LoadDir("apps/ui")
+	paths := []string{
+		"src/api.go", "apps/ui/src/components/button/index.tsx",
+		"apps/ui/node_modules/react/index.js", "internal/deep/path/to/handler.go",
+		"nested/a/b/cache/entry", "important.log", "apps/ui/dist/main.js",
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		for _, path := range paths {
+			ignore.Ignored(path, false)
+		}
+	}
+}
+
+func writeWatchFile(t testing.TB, root, rel, contents string) {
 	t.Helper()
 	path := filepath.Join(root, filepath.FromSlash(rel))
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

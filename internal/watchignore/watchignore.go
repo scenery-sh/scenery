@@ -17,11 +17,13 @@ type Matcher struct {
 }
 
 type watchIgnoreRule struct {
-	base     string
-	pattern  string
-	negated  bool
-	dirOnly  bool
-	hasSlash bool
+	base         string
+	baseParts    []string
+	pattern      string
+	patternParts []string
+	negated      bool
+	dirOnly      bool
+	hasSlash     bool
 }
 
 func New(root string) *Matcher {
@@ -77,14 +79,15 @@ func (m *Matcher) Ignored(rel string, isDir bool) bool {
 	if rel == "" {
 		return false
 	}
+	relParts := strings.Split(rel, "/")
 	for _, rule := range m.configRules {
-		if rule.matches(rel, isDir) {
+		if rule.matches(relParts, isDir) {
 			return true
 		}
 	}
 	ignored := false
 	for _, rule := range m.gitRules {
-		if !rule.matches(rel, isDir) {
+		if !rule.matches(relParts, isDir) {
 			continue
 		}
 		ignored = !rule.negated
@@ -108,9 +111,10 @@ func parseWatchConfigIgnoreRule(line string) (watchIgnoreRule, bool) {
 		return watchIgnoreRule{}, false
 	}
 	return watchIgnoreRule{
-		pattern:  pattern,
-		dirOnly:  dirOnly,
-		hasSlash: strings.Contains(pattern, "/"),
+		pattern:      pattern,
+		patternParts: splitWatchPath(pattern),
+		dirOnly:      dirOnly,
+		hasSlash:     strings.Contains(pattern, "/"),
 	}, true
 }
 
@@ -147,12 +151,15 @@ func parseWatchIgnoreRule(base, line string) (watchIgnoreRule, bool) {
 	if pattern == "." {
 		return watchIgnoreRule{}, false
 	}
+	normalizedBase := normalizeWatchRel(base)
 	return watchIgnoreRule{
-		base:     normalizeWatchRel(base),
-		pattern:  pattern,
-		negated:  negated,
-		dirOnly:  dirOnly,
-		hasSlash: strings.Contains(pattern, "/"),
+		base:         normalizedBase,
+		baseParts:    splitWatchPath(normalizedBase),
+		pattern:      pattern,
+		patternParts: splitWatchPath(pattern),
+		negated:      negated,
+		dirOnly:      dirOnly,
+		hasSlash:     strings.Contains(pattern, "/"),
 	}, true
 }
 
@@ -170,9 +177,9 @@ func trimUnescapedTrailingSpaces(value string) string {
 	return value
 }
 
-func (r watchIgnoreRule) matches(rel string, isDir bool) bool {
-	sub, ok := relUnderWatchBase(rel, r.base)
-	if !ok || sub == "" {
+func (r watchIgnoreRule) matches(relParts []string, isDir bool) bool {
+	sub, ok := partsUnderWatchBase(relParts, r.baseParts)
+	if !ok || len(sub) == 0 {
 		return false
 	}
 	if r.negated {
@@ -181,29 +188,27 @@ func (r watchIgnoreRule) matches(rel string, isDir bool) bool {
 	return r.matchesSelfOrParent(sub, isDir)
 }
 
-func (r watchIgnoreRule) matchesExact(sub string, isDir bool) bool {
+func (r watchIgnoreRule) matchesExact(sub []string, isDir bool) bool {
 	if r.hasSlash {
-		if !matchGitignorePath(r.pattern, sub) {
+		if !matchGitignorePathParts(r.patternParts, sub) {
 			return false
 		}
 		return !r.dirOnly || isDir
 	}
-	if !matchGitignoreSegment(r.pattern, filepath.Base(sub)) {
+	if !matchGitignoreSegment(r.pattern, sub[len(sub)-1]) {
 		return false
 	}
 	return !r.dirOnly || isDir
 }
 
-func (r watchIgnoreRule) matchesSelfOrParent(sub string, isDir bool) bool {
-	parts := strings.Split(sub, "/")
-	for i := 1; i <= len(parts); i++ {
-		candidate := strings.Join(parts[:i], "/")
-		candidateIsDir := i < len(parts) || isDir
+func (r watchIgnoreRule) matchesSelfOrParent(sub []string, isDir bool) bool {
+	for i := 1; i <= len(sub); i++ {
+		candidateIsDir := i < len(sub) || isDir
 		if r.hasSlash {
-			if !matchGitignorePath(r.pattern, candidate) {
+			if !matchGitignorePathParts(r.patternParts, sub[:i]) {
 				continue
 			}
-		} else if !matchGitignoreSegment(r.pattern, parts[i-1]) {
+		} else if !matchGitignoreSegment(r.pattern, sub[i-1]) {
 			continue
 		}
 		if r.dirOnly && !candidateIsDir {
@@ -214,19 +219,19 @@ func (r watchIgnoreRule) matchesSelfOrParent(sub string, isDir bool) bool {
 	return false
 }
 
-func relUnderWatchBase(rel, base string) (string, bool) {
-	rel = normalizeWatchRel(rel)
-	base = normalizeWatchRel(base)
-	if base == "" {
-		return rel, true
+func partsUnderWatchBase(relParts, baseParts []string) ([]string, bool) {
+	if len(baseParts) == 0 {
+		return relParts, true
 	}
-	if rel == base {
-		return "", true
+	if len(relParts) < len(baseParts) {
+		return nil, false
 	}
-	if strings.HasPrefix(rel, base+"/") {
-		return strings.TrimPrefix(rel, base+"/"), true
+	for i, segment := range baseParts {
+		if relParts[i] != segment {
+			return nil, false
+		}
 	}
-	return "", false
+	return relParts[len(baseParts):], true
 }
 
 func normalizeWatchRel(rel string) string {
@@ -235,10 +240,6 @@ func normalizeWatchRel(rel string) string {
 		return ""
 	}
 	return strings.TrimPrefix(rel, "./")
-}
-
-func matchGitignorePath(pattern, rel string) bool {
-	return matchGitignorePathParts(splitWatchPath(pattern), splitWatchPath(rel))
 }
 
 func matchGitignorePathParts(patternParts, relParts []string) bool {
