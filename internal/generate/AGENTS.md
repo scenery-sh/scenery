@@ -15,6 +15,11 @@ TypeScript clients, OpenAPI documents, and their generated-file transactions.
   pruning. Never replace or delete bytes whose ownership cannot be proven.
 - TypeScript targets route to source or `.scenery` cache from their declared
   `materialization` mode.
+- React-enabled TypeScript targets render generated table pages and the
+  binary-owned UI catalog into the same artifact transaction. Typecheck a
+  sibling staging tree with the exact managed native checker before commit;
+  never consult PATH or fall back when the checker or app dependencies are
+  unavailable.
 - Generated descriptors carry current machine identity and exact revisions.
 - Keep output beneath compiler-declared managed roots and reject symlinks.
 - Generation checks return diagnostics plus an explicit implementation state:
@@ -28,4 +33,5 @@ go test ./internal/generate
 go test ./cmd/scenery -run 'TestGenerate'
 bun test internal/generate/testdata/typescript_client_conformance.test.ts
 apps/console/node_modules/.bin/tsc -p internal/generate/testdata/tsconfig.generated-clients.json
+apps/console/node_modules/.bin/tsc -p internal/generate/testdata/tsconfig.catalog.json
 ```

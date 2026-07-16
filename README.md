@@ -438,6 +438,8 @@ scenery generate --target typescript_client.public_api --check -o json
 
 The generated client implements the declared gateway/binding contract.
 
+Add `react { tsconfig = "apps/web/tsconfig.json" }` to a TypeScript target to opt into declarative `table_page` output. Scenery writes generated page adapters, a router-neutral `generatedPages` array, and its binary-owned `@scenery/ui` table catalog beneath the same output root, then checks the staged target with the checksummed managed `tsgo` binary before committing any file.
+
 `WithMeta` methods expose response headers, status, and the raw `Response` alongside decoded data.
 
 `scenery generate sqlc` remains the configured SQLC source-artifact command; it must not apply database schema or seed data.

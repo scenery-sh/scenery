@@ -1,0 +1,11 @@
+{
+  "name": "@scenery/ui",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.ts"
+  },
+  "peerDependencies": {
+    "react": ">=18"
+  }
+}

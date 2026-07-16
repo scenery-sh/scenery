@@ -17,6 +17,10 @@ func validateUISemantics(root string, resources []Resource) []Diagnostic {
 	var diagnostics []Diagnostic
 	for _, resource := range resources {
 		switch resource.Kind {
+		case "scenery.react-component":
+			diagnostics = append(diagnostics, validateReactComponent(root, byAddress, resource)...)
+		case "scenery.table-page":
+			diagnostics = append(diagnostics, validateTablePage(byAddress, resource)...)
 		case "scenery.page":
 			path := stringValue(resource.Spec["path"])
 			canonical := canonicalRoute(path)
@@ -29,6 +33,9 @@ func validateUISemantics(root string, resources []Resource) []Diagnostic {
 			}
 			diagnostics = append(diagnostics, validatePageBindings(byAddress, resource)...)
 		case "scenery.renderer":
+			if builtinTablePageRenderer(resource) {
+				continue
+			}
 			page := byAddress[resolveResourceRef(resource, refString(resource.Spec["page"]), "page")]
 			runtimeName := strings.TrimSpace(stringValue(resource.Spec["runtime"]))
 			if page.Kind != "scenery.page" || runtimeName != "web" {
@@ -106,6 +113,9 @@ func enrichUIImplementationDigests(root string, resources []Resource) ([]Resourc
 		if resource.Kind != "scenery.renderer" {
 			continue
 		}
+		if builtinTablePageRenderer(*resource) {
+			continue
+		}
 		path, err := rendererModulePath(root, byAddress, *resource)
 		if err != nil {
 			diagnostics = append(diagnostics, uiDiagnostic("SCN2604", err.Error(), *resource))
@@ -121,6 +131,10 @@ func enrichUIImplementationDigests(root string, resources []Resource) ([]Resourc
 		resource.Spec["implementation_digest"] = "sha256:" + hex.EncodeToString(sum[:])
 	}
 	return result, diagnostics
+}
+
+func builtinTablePageRenderer(renderer Resource) bool {
+	return renderer.Origin.Kind == "expanded" && stringValue(renderer.Spec["module"]) == tablePageRendererModule
 }
 
 func rendererModulePath(root string, resources map[string]Resource, renderer Resource) (string, error) {

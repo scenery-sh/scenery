@@ -160,6 +160,8 @@ bun test internal/generate/testdata/typescript_client_conformance.test.ts
 
 Generated clients implement the exact declared HTTP mappings and typed outcomes. They do not infer routes or authentication from Go names. Regenerate after any reachable binding, type, codec, or auth contract changes.
 
+For generated React table pages, declare the CRUD `list` filter/sort allowlist, `react_component` overrides, and `table_page`, then add `react { tsconfig = "path/to/tsconfig.json" }` to the client target. Scenery materializes `react/` plus its binary-owned `scenery-ui` catalog and typechecks the staged target with managed `tsgo` before committing. Treat `SCN6320` as an override contract error, `SCN6321` as a reachable app TypeScript error, and `SCN6322` as checker/config/dependency readiness. Do not edit the generated page or catalog; mount `generatedPages` through the app router and customize only declared slots and catalog CSS tokens.
+
 ## Tasks and Workers
 
 Use `scenery task` for app-local code tasks. Targets use `<domain>:<name>` and may run even when the application graph is temporarily invalid.

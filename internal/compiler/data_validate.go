@@ -30,7 +30,7 @@ func validateDataSemantics(root string, resources []Resource) []Diagnostic {
 		case "scenery.view":
 			diagnostics = append(diagnostics, validateViewSemantics(root, byAddress, resource)...)
 		case "scenery.crud":
-			diagnostics = append(diagnostics, validateCRUDSemantics(resource)...)
+			diagnostics = append(diagnostics, validateCRUDSemantics(byAddress, resource)...)
 		case "scenery.fixture":
 			diagnostics = append(diagnostics, validateFixtureSemantics(byAddress, resource, productionFixturesAllowed)...)
 		}
@@ -219,7 +219,7 @@ func sqlProjectionName(expression string) string {
 	return strings.Trim(strings.TrimSpace(name), "\"`")
 }
 
-func validateCRUDSemantics(crud Resource) []Diagnostic {
+func validateCRUDSemantics(resources map[string]Resource, crud Resource) []Diagnostic {
 	actions := stringValues(crud.Spec["actions"])
 	seen := map[string]bool{}
 	for _, action := range actions {
@@ -238,7 +238,91 @@ func validateCRUDSemantics(crud Resource) []Diagnostic {
 	if httpSpec, ok := crud.Spec["http"].(map[string]any); ok && missingAny(httpSpec, "path", "codec_profile", "gateway", "authentication", "authorization", "pipeline") {
 		return []Diagnostic{dataDiagnostic("SCN2504", "CRUD HTTP projection requires path, codec, gateway, authentication, authorization, and pipeline", crud)}
 	}
-	return nil
+	list, ok := crud.Spec["list"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	if !seen["list"] {
+		return []Diagnostic{dataDiagnostic("SCN2512", "CRUD list capabilities require the list action", crud)}
+	}
+	entity := resources[resolveResourceRef(crud, refString(crud.Spec["entity"]), "entity")]
+	record := resources[resolveResourceRef(entity, refString(entity.Spec["type"]), "record")]
+	recordFields := map[string]map[string]any{}
+	for _, field := range namedChildren(record.Spec, "field") {
+		recordFields[stringValue(field["name"])] = field
+	}
+	fields := map[string]map[string]any{}
+	for _, mapping := range namedChildren(entity.Spec, "field") {
+		name := stringValue(mapping["name"])
+		fields[name] = recordFields[name]
+	}
+	var diagnostics []Diagnostic
+	filters, sorts := stringValues(list["filters"]), stringValues(list["sorts"])
+	for _, name := range filters {
+		field := fields[name]
+		if field == nil {
+			diagnostics = append(diagnostics, dataDiagnostic("SCN2512", "CRUD list filter references unknown entity field "+name, crud))
+			continue
+		}
+		typeName := unwrapCRUDListType(typeExpression(field["type"]))
+		if typeName != "datetime" && resources[namedFixtureTypeAddress(typeName, record.Module)].Kind != "scenery.enum" {
+			diagnostics = append(diagnostics, dataDiagnostic("SCN2513", "CRUD list filter "+name+" must be an enum or datetime field", crud))
+		}
+	}
+	for _, name := range sorts {
+		field := fields[name]
+		if field == nil {
+			diagnostics = append(diagnostics, dataDiagnostic("SCN2512", "CRUD list sort references unknown entity field "+name, crud))
+			continue
+		}
+		if !crudListScalarType(unwrapCRUDListType(typeExpression(field["type"])), record.Module, resources) {
+			diagnostics = append(diagnostics, dataDiagnostic("SCN2514", "CRUD list sort "+name+" must be a scalar field", crud))
+		}
+	}
+	if defaultSort, present := list["default_sort"]; present {
+		value, valid := defaultSort.(map[string]any)
+		field, direction := stringValue(value["field"]), stringValue(value["direction"])
+		if !valid || !containsDataString(sorts, field) || direction != "asc" && direction != "desc" || len(value) != 2 {
+			diagnostics = append(diagnostics, dataDiagnostic("SCN2514", "CRUD default_sort requires exactly an allowlisted field and asc or desc direction", crud))
+		}
+	}
+	return diagnostics
+}
+
+func unwrapCRUDListType(value string) string {
+	for {
+		unwrapped := false
+		for _, wrapper := range []string{"optional", "nullable"} {
+			if inner, ok := wrappedFixtureType(value, wrapper); ok {
+				value, unwrapped = inner, true
+				break
+			}
+		}
+		if !unwrapped {
+			return strings.TrimSpace(value)
+		}
+	}
+}
+
+func crudListScalarType(value, module string, resources map[string]Resource) bool {
+	if resources[namedFixtureTypeAddress(value, module)].Kind == "scenery.enum" {
+		return true
+	}
+	switch value {
+	case "bool", "int", "int32", "uint32", "int64", "uint64", "decimal", "float32", "float64", "string", "uuid", "date", "datetime", "duration", "size", "url", "relative_path":
+		return true
+	default:
+		return false
+	}
+}
+
+func containsDataString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 func validateFixtureSemantics(resources map[string]Resource, fixture Resource, productionAllowed map[string]bool) []Diagnostic {

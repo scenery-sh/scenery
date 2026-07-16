@@ -6,6 +6,19 @@ Completed means implemented or shipped at least once. It does not imply stable
 support for every surface. Use [../local-contract.md](../local-contract.md) as
 the source of truth for stable, beta, and dev-only classification.
 
+## Declarative Table Pages
+
+- Status: completed
+- Owner: scenery compiler / generation / data runtime
+- Completed: 2026-07-16
+- Quality: B
+- ExecPlan: [0120 Declarative Table Pages](0120-declarative-table-pages.md)
+
+Shipped explicit CRUD list capabilities with fingerprint-bound keyset cursors,
+declarative table-page expansion, a binary-owned React catalog, exact typed
+slot overrides, transactional React generation, and fail-closed verification
+by a checksummed Scenery-managed native TypeScript checker.
+
 ## Cache-Only Generated Go Artifacts
 
 - Status: completed

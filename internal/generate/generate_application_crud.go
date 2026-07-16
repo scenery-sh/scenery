@@ -41,8 +41,11 @@ func renderProviderCRUDAdapterSource(contractRevision, packageIdentity, packageA
 		fmt.Fprintf(&b, "\traw, err := scenery.MarshalContractValue(input, %q)\n\tif err != nil { return nil, err }\n", goWireTypeExpression(operation.Spec["input"]))
 		fmt.Fprintf(&b, "\tresult, err := datasource.InvokeCRUD(ctx, value.database, %s, %q, raw)\n", crudSpec, action)
 		for _, failure := range namedChildren(operation.Spec, "error") {
-			if stringValue(failure["name"]) == "not_found" {
+			switch stringValue(failure["name"]) {
+			case "not_found":
 				fmt.Fprintf(&b, "\tif errors.Is(err, datasource.ErrCRUDNotFound) { return contract.%sNotFound{Problem: scenery.Problem{Code: \"not_found\", Message: \"resource not found\"}}, nil }\n", operationName)
+			case "invalid_cursor":
+				fmt.Fprintf(&b, "\tif errors.Is(err, datasource.ErrCRUDInvalidCursor) { return contract.%sInvalidCursor{Problem: scenery.Problem{Code: \"SCN8001\", Message: \"cursor does not match the list query\"}}, nil }\n", operationName)
 			}
 		}
 		b.WriteString("\tif err != nil { return nil, err }\n")
@@ -139,7 +142,22 @@ func providerCRUDRuntimeSpec(resources []Resource, operations []Resource) (strin
 	}
 	config, _ := dataSource.Spec["config"].(map[string]any)
 	databaseName := defaultString(stringValue(config["database"]), dataSource.Name)
-	return fmt.Sprintf("datasource.CRUDSpec{Address: %q, Schema: %q, Relation: %q, Fields: []datasource.CRUDField{%s}}", entity.Address, schema, relation, strings.Join(fields, ", ")), databaseName, nil
+	listLiteral := ""
+	for _, operation := range operations {
+		handler, _ := operation.Spec["handler"].(map[string]any)
+		list, ok := handler["list"].(map[string]any)
+		if !ok {
+			continue
+		}
+		maxPageSize, _ := integerValue(list["max_page_size"])
+		if maxPageSize == 0 {
+			maxPageSize = 100
+		}
+		defaultSort, _ := list["default_sort"].(map[string]any)
+		listLiteral = fmt.Sprintf(", List: &datasource.CRUDListSpec{Filters: %#v, Sorts: %#v, DefaultSort: %q, DefaultDirection: %q, MaxPageSize: %d}", stringValues(list["filters"]), stringValues(list["sorts"]), stringValue(defaultSort["field"]), stringValue(defaultSort["direction"]), maxPageSize)
+		break
+	}
+	return fmt.Sprintf("datasource.CRUDSpec{Address: %q, Schema: %q, Relation: %q, Fields: []datasource.CRUDField{%s}%s}", entity.Address, schema, relation, strings.Join(fields, ", "), listLiteral), databaseName, nil
 }
 
 func renderProviderCRUDInternalBindings(b *strings.Builder, operations, resources []Resource) error {

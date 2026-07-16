@@ -51,6 +51,13 @@ func validateTypeScriptTarget(target Resource, resources []Resource) []Diagnosti
 	if len(anyList(target.Spec["gateways"])) == 0 {
 		diagnostic("SCN6305", "TypeScript client requires at least one gateway")
 	}
+	if react, ok := target.Spec["react"].(map[string]any); ok {
+		tsconfig := stringValue(react["tsconfig"])
+		clean := filepath.ToSlash(filepath.Clean(filepath.FromSlash(tsconfig)))
+		if tsconfig == "" || filepath.IsAbs(tsconfig) || strings.Contains(tsconfig, "\\") || clean != tsconfig || clean == "." || clean == ".." || strings.HasPrefix(clean, "../") {
+			diagnostic("SCN6322", "TypeScript client react tsconfig must be a normalized workspace-relative path")
+		}
+	}
 	bindings := publicHTTPBindings(resources, target)
 	diagnostics = append(diagnostics, validateTypeScriptNames(target, resources, bindings)...)
 	operations := resourcesByKind(resources, "scenery.operation")

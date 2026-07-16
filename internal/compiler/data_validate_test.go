@@ -124,6 +124,46 @@ func TestCRUDExpansionIsIndependentOfActionOrder(t *testing.T) {
 	}
 }
 
+func TestCRUDListCapabilitiesValidateAndExpandStandardQuery(t *testing.T) {
+	resources := dataProfileFixtureResources()
+	resources = append(resources, Resource{Address: "house/enum/scene_name", Module: "house", Name: "scene_name", Kind: "scenery.enum", Spec: map[string]any{"value": []any{map[string]any{"name": "roof"}}}})
+	record := &resources[2]
+	record.Spec["field"].([]any)[2].(map[string]any)["type"] = map[string]any{"$ref": "enum.scene_name"}
+	crud := &resources[4]
+	crud.Spec["actions"] = []any{"list"}
+	crud.Spec["list"] = map[string]any{"filters": []any{"name"}, "sorts": []any{"name"}, "default_sort": map[string]any{"field": "name", "direction": "desc"}, "max_page_size": 25}
+	if diagnostics := validateDataSemantics("", resources); hasErrors(diagnostics) {
+		t.Fatalf("valid list diagnostics = %#v", diagnostics)
+	}
+	expanded, diagnostics := expandDataResources(resources)
+	if hasErrors(diagnostics) {
+		t.Fatalf("expansion diagnostics = %#v", diagnostics)
+	}
+	byAddress := resourcesByAddress(&Manifest{Resources: expanded})
+	input := namedChildren(byAddress["house/record/scene_api_list_input"].Spec, "field")
+	var names []string
+	for _, field := range input {
+		names = append(names, stringValue(field["name"]))
+	}
+	for _, want := range []string{"tenant_id", "name", "sort", "direction", "cursor", "limit"} {
+		if !containsDataString(names, want) {
+			t.Errorf("list input fields %v missing %s", names, want)
+		}
+	}
+	result := namedChildren(byAddress["house/record/scene_api_list_result"].Spec, "field")
+	if len(result) != 2 || result[1]["name"] != "next_cursor" {
+		t.Fatalf("list result = %#v", result)
+	}
+	http := byAddress["house/binding/scene_api_list_http"].Spec["http"].(map[string]any)
+	if got := namedChildren(http, "query_parameter"); len(got) != 5 {
+		t.Fatalf("query mappings = %#v", got)
+	}
+	crud.Spec["list"].(map[string]any)["filters"] = []any{"id"}
+	if diagnostics := validateDataSemantics("", resources); !hasDiagnostic(diagnostics, "SCN2513") {
+		t.Fatalf("invalid filter diagnostics = %#v", diagnostics)
+	}
+}
+
 func TestDataValidationRejectsInvalidEntityMappingAndProductionFixture(t *testing.T) {
 	resources := dataProfileFixtureResources()
 	for index := range resources {

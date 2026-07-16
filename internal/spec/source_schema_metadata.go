@@ -97,6 +97,10 @@ var authoredFieldOverrides = map[authoredFieldKey]authoredFieldOverride{
 	{Revision: "scenery.source.schedule", Name: "overlap"}:                            {Constraints: enumConstraint("allow", "queue", "replace", "skip")},
 	{Revision: "scenery.entity.field-default", Name: "strategy"}:                      {Constraints: enumConstraint("current_datetime", "provider", "uuid_v7")},
 	{Revision: "scenery.crud.execution", Name: "mode"}:                                {Constraints: enumConstraint("direct", "durable")},
+	{Revision: "scenery.crud.list", Name: "max_page_size"}:                            {Default: 100, DefaultSource: "spec", Constraints: map[string]any{"minimum": 1, "maximum": 1000}},
+	{Revision: "scenery.source.table_page", Name: "page_size"}:                        {Default: 50, DefaultSource: "spec", Constraints: map[string]any{"minimum": 1}},
+	{Revision: "scenery.table-page.column", Name: "appearance"}:                       {Default: "auto", DefaultSource: "spec", Constraints: enumConstraint("auto", "badge", "datetime", "number", "text")},
+	{Revision: "scenery.table-page.sort", Name: "default"}:                            {Constraints: enumConstraint("asc", "desc")},
 	{Revision: "scenery.source.fixture", Name: "mode"}:                                {Constraints: enumConstraint("insert", "replace", "upsert")},
 	{Revision: "scenery.deployment.secret", Name: "value"}:                            {Sensitive: true},
 	{Revision: "scenery.deployment.http-listener", Name: "certificate"}:               {UnsupportedDraft: "platform_listener_and_certificate_schemas"},
@@ -374,6 +378,8 @@ func authoredAttributeType(revision, name string) (map[string]any, string) {
 			return list("string")
 		case "output_root":
 			return primitive("relative_path")
+		case "react":
+			return object("typescript_client_react")
 		default:
 			return primitive("string")
 		}
@@ -386,6 +392,8 @@ func authoredAttributeType(revision, name string) (map[string]any, string) {
 		default:
 			return primitive("string")
 		}
+	case "scenery.typescript-client.react":
+		return primitive("relative_path")
 	case "scenery.source.patch":
 		if name == "target" {
 			return typedReference()
@@ -771,12 +779,23 @@ func authoredAttributeType(revision, name string) (map[string]any, string) {
 			return map[string]any{"resource_ref": "std.crud"}, "exact"
 		case "actions":
 			return map[string]any{"collection": "set", "items": map[string]any{"primitive": "string"}}, "exact"
+		case "list":
+			return object("crud_list")
 		}
 	case "scenery.crud.execution":
 		if name == "timeout" {
 			return primitive("duration")
 		}
 		return primitive("string")
+	case "scenery.crud.list":
+		switch name {
+		case "filters", "sorts":
+			return map[string]any{"collection": "set", "items": map[string]any{"primitive": "string"}}, "exact"
+		case "default_sort":
+			return object("crud_default_sort")
+		case "max_page_size":
+			return primitive("positive_int")
+		}
 	case "scenery.crud.http":
 		switch name {
 		case "codec_profile":
@@ -805,6 +824,27 @@ func authoredAttributeType(revision, name string) (map[string]any, string) {
 		}
 	case "scenery.crud.extension":
 		return object("provider_config")
+	case "scenery.source.react_component":
+		if name == "module" {
+			return primitive("relative_path")
+		}
+		return primitive("string")
+	case "scenery.source.table_page":
+		switch name {
+		case "source":
+			return resourceRef("crud")
+		case "page_size":
+			return primitive("positive_int")
+		default:
+			return primitive("string")
+		}
+	case "scenery.table-page.column", "scenery.table-page.filter", "scenery.table-page.slot":
+		if name == "component" {
+			return resourceRef("react_component")
+		}
+		return primitive("string")
+	case "scenery.table-page.sort":
+		return primitive("string")
 	case "scenery.source.fixture":
 		switch name {
 		case "entity":
@@ -885,7 +925,7 @@ func authoredDefaultRevisionDomain(revision string) string {
 	if strings.HasPrefix(revision, "scenery.source.go-") || strings.HasPrefix(revision, "scenery.go-target.") || revision == "scenery.source.typescript_client" {
 		return "implementation"
 	}
-	if revision == "scenery.typescript-client.retry" {
+	if revision == "scenery.typescript-client.retry" || revision == "scenery.typescript-client.react" {
 		return "implementation"
 	}
 	switch revision {

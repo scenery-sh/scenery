@@ -5,6 +5,42 @@ import (
 	"testing"
 )
 
+func TestDeclarativeTableResourceMetadataIsComplete(t *testing.T) {
+	for _, kind := range []string{"scenery.crud", "scenery.react-component", "scenery.table-page"} {
+		if !resourceCreateKindSupported(kind) {
+			t.Fatalf("%s is not advertised as a creatable resource kind", kind)
+		}
+		blockType := strings.ReplaceAll(strings.TrimPrefix(kind, "scenery."), "-", "_")
+		schema, ok := authoredResourceSourceSchema(blockType)
+		if !ok {
+			t.Fatalf("%s source schema is unavailable", kind)
+		}
+		var incomplete []string
+		var inspect func(*authoredBlockSchema)
+		inspect = func(current *authoredBlockSchema) {
+			for name, attribute := range current.Attributes {
+				if attribute.MetadataStatus != "exact" || len(attribute.Type) == 0 || attribute.Phase == "" || attribute.RevisionDomain == "" {
+					incomplete = append(incomplete, current.Revision+"."+name)
+				}
+			}
+			for _, child := range current.Children {
+				inspect(child.Schema)
+			}
+		}
+		inspect(schema)
+		if len(incomplete) > 0 {
+			t.Fatalf("%s metadata incomplete: %v", kind, incomplete)
+		}
+	}
+
+	table, _ := authoredResourceSourceSchema("table_page")
+	for _, name := range []string{"toolbar", "empty"} {
+		if child, ok := table.Children[name]; !ok || child.Repeatable || child.Schema.Labels != 0 {
+			t.Errorf("table_page %s must be an unlabeled singleton block: %#v", name, child)
+		}
+	}
+}
+
 func TestCurrentCatalogUsesUnversionedKindsAndContentRevisions(t *testing.T) {
 	catalog := Current()
 	if len(catalog.ResourceSchemas) == 0 || len(catalog.StructuralSchemas) != 6 || len(catalog.DiagnosticRules) == 0 {

@@ -99,13 +99,35 @@ func expandCRUDResource(resources map[string]Resource, crud Resource) ([]Resourc
 		Address: serviceAddress, Module: crud.Module, Name: serviceName, Kind: "scenery.service", Origin: lineage(serviceAddress, "service"),
 		Spec: map[string]any{"runtime": "provider", "implementation": map[string]any{"adapter": "provider_crud_v1", "entity": map[string]any{"$ref": entity.Address}}},
 	}}
+	if list, ok := crud.Spec["list"].(map[string]any); ok {
+		directionName := crud.Name + "_list_direction"
+		directionAddress := resourceAddress(crud.Module, "enum", directionName)
+		generated = append(generated, Resource{Address: directionAddress, Module: crud.Module, Name: directionName, Kind: "scenery.enum", Origin: lineage(directionAddress, "list.direction"), Spec: map[string]any{"value": []any{map[string]any{"name": "asc"}, map[string]any{"name": "desc"}}}})
+		if sorts := stringValues(list["sorts"]); len(sorts) > 0 {
+			sortName := crud.Name + "_list_sort"
+			sortAddress := resourceAddress(crud.Module, "enum", sortName)
+			values := make([]any, len(sorts))
+			for index, name := range sorts {
+				values[index] = map[string]any{"name": name}
+			}
+			generated = append(generated, Resource{Address: sortAddress, Module: crud.Module, Name: sortName, Kind: "scenery.enum", Origin: lineage(sortAddress, "list.sort"), Spec: map[string]any{"value": values}})
+		}
+	}
 	for _, action := range actions {
 		inputName, resultName := crud.Name+"_"+action+"_input", crud.Name+"_"+action+"_result"
 		inputAddress, resultAddress := resourceAddress(crud.Module, "record", inputName), resourceAddress(crud.Module, "record", resultName)
 		inputFields := crudInputFields(action, primary, entityFields)
+		if action == "list" {
+			inputFields = append(inputFields, crudListInputFields(crud, record, entityFields, resources)...)
+		}
 		resultFields := []any{map[string]any{"name": "value", "type": map[string]any{"$ref": "record." + record.Name}}}
 		if action == "list" {
-			resultFields = []any{map[string]any{"name": "items", "type": map[string]any{"$expression": "list(record." + record.Name + ")"}}}
+			resultFields = []any{
+				map[string]any{"name": "items", "type": map[string]any{"$expression": "list(record." + record.Name + ")"}},
+			}
+			if crud.Spec["list"] != nil {
+				resultFields = append(resultFields, map[string]any{"name": "next_cursor", "type": map[string]any{"$expression": "optional(string)"}})
+			}
 		}
 		generated = append(generated,
 			Resource{Address: inputAddress, Module: crud.Module, Name: inputName, Kind: "scenery.record", Origin: lineage(inputAddress, action+".input"), Spec: map[string]any{"field": inputFields}},
@@ -123,7 +145,10 @@ func expandCRUDResource(resources map[string]Resource, crud Resource) ([]Resourc
 				"result":  map[string]any{"name": "ok", "type": map[string]any{"$ref": "record." + resultName}},
 			},
 		}
-		if action == "get" || action == "update" || action == "delete" {
+		if action == "list" && crud.Spec["list"] != nil {
+			operation.Spec["handler"].(map[string]any)["list"] = cloneMapValue(crud.Spec["list"])
+			operation.Spec["error"] = map[string]any{"name": "invalid_cursor", "type": map[string]any{"$ref": "std.type.problem"}}
+		} else if action == "get" || action == "update" || action == "delete" {
 			operation.Spec["error"] = map[string]any{"name": "not_found", "type": map[string]any{"$ref": "std.type.problem"}}
 		}
 		executionSpec := cloneMapValue(crud.Spec["execution"])
@@ -136,7 +161,11 @@ func expandCRUDResource(resources map[string]Resource, crud Resource) ([]Resourc
 			binding := expandCRUDHTTPBinding(crud, entity, record, action, operationName, executionName, primary, entityFields, httpSpec, lineage)
 			generated = append(generated, binding)
 		}
-		if internalSpec, ok := crud.Spec["internal"].(map[string]any); ok {
+		internalSpec, hasInternal := crud.Spec["internal"].(map[string]any)
+		if !hasInternal && action == "list" && crud.Spec["list"] != nil {
+			internalSpec, hasInternal = map[string]any{"visibility": "application", "authorization": map[string]any{"$ref": "std.authorization.public"}, "pipeline": map[string]any{"$ref": "std.pipeline.empty"}}, true
+		}
+		if hasInternal {
 			bindingName := operationName + "_internal"
 			address := resourceAddress(crud.Module, "binding", bindingName)
 			visibility := defaultString(stringValue(internalSpec["visibility"]), "application")
@@ -204,11 +233,44 @@ func crudInputFields(action string, primary, all []map[string]any) []any {
 	for _, field := range selected {
 		copy := map[string]any{"name": field["name"], "type": field["type"]}
 		mapping, _ := field["entity_mapping"].(map[string]any)
-		if action == "create" && mapping["default"] != nil || action == "update" && !primaryNames[stringValue(field["name"])] && mapping["tenant_key"] != true {
+		if action == "list" && mapping["tenant_key"] == true || action == "create" && mapping["default"] != nil || action == "update" && !primaryNames[stringValue(field["name"])] && mapping["tenant_key"] != true {
 			copy["type"] = map[string]any{"$expression": "optional(" + typeExpression(field["type"]) + ")"}
 		}
 		result = append(result, copy)
 	}
+	return result
+}
+
+func crudListInputFields(crud, record Resource, all []map[string]any, resources map[string]Resource) []any {
+	list, ok := crud.Spec["list"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	byName := map[string]map[string]any{}
+	for _, field := range all {
+		byName[stringValue(field["name"])] = field
+	}
+	var result []any
+	for _, name := range stringValues(list["filters"]) {
+		field := byName[name]
+		typeName := unwrapCRUDListType(typeExpression(field["type"]))
+		if resources[namedFixtureTypeAddress(typeName, record.Module)].Kind == "scenery.enum" {
+			result = append(result, map[string]any{"name": name, "type": map[string]any{"$expression": "optional(list(" + typeName + "))"}})
+		} else {
+			result = append(result,
+				map[string]any{"name": name + "_from", "type": map[string]any{"$expression": "optional(datetime)"}},
+				map[string]any{"name": name + "_to", "type": map[string]any{"$expression": "optional(datetime)"}},
+			)
+		}
+	}
+	if len(stringValues(list["sorts"])) > 0 {
+		result = append(result, map[string]any{"name": "sort", "type": map[string]any{"$expression": "optional(enum." + crud.Name + "_list_sort)"}})
+	}
+	result = append(result,
+		map[string]any{"name": "direction", "type": map[string]any{"$expression": "optional(enum." + crud.Name + "_list_direction)"}},
+		map[string]any{"name": "cursor", "type": map[string]any{"$expression": "optional(string)"}},
+	)
+	result = append(result, map[string]any{"name": "limit", "type": map[string]any{"$expression": "optional(int)"}, "minimum": "1"})
 	return result
 }
 
@@ -261,6 +323,32 @@ func expandCRUDHTTPBinding(crud, entity, record Resource, action, operationName,
 		})
 		bodyExcept = append(bodyExcept, map[string]any{"$ref": "operation." + operationName + ".input." + name})
 	}
+	if action == "list" {
+		if list, ok := crud.Spec["list"].(map[string]any); ok {
+			byName := map[string]map[string]any{}
+			for _, field := range all {
+				byName[stringValue(field["name"])] = field
+			}
+			for _, name := range stringValues(list["filters"]) {
+				field := byName[name]
+				wire := wireName(field, name)
+				if unwrapCRUDListType(typeExpression(field["type"])) == "datetime" {
+					for _, suffix := range []string{"_from", "_to"} {
+						appendNamedChild(child, "query_parameter", map[string]any{"name": wire + suffix, "to": map[string]any{"$ref": "operation." + operationName + ".input." + name + suffix}})
+					}
+				} else {
+					appendNamedChild(child, "query_parameter", map[string]any{"name": wire, "encoding": "repeated", "to": map[string]any{"$ref": "operation." + operationName + ".input." + name}})
+				}
+			}
+			standard := []string{"direction", "cursor", "limit"}
+			if len(stringValues(list["sorts"])) > 0 {
+				standard = append([]string{"sort"}, standard...)
+			}
+			for _, name := range standard {
+				appendNamedChild(child, "query_parameter", map[string]any{"name": name, "to": map[string]any{"$ref": "operation." + operationName + ".input." + name}})
+			}
+		}
+	}
 	if action == "create" || action == "update" {
 		body := map[string]any{"codec": "json", "to": map[string]any{"$ref": "operation." + operationName + ".input"}}
 		if action == "update" {
@@ -283,6 +371,11 @@ func expandCRUDHTTPBinding(crud, entity, record Resource, action, operationName,
 		responses = append(responses, map[string]any{
 			"name": "not_found", "when": map[string]any{"$ref": "error.not_found"}, "status": "404",
 			"body": map[string]any{"codec": "problem_json", "from": map[string]any{"$ref": "error.not_found"}},
+		})
+	} else if action == "list" && crud.Spec["list"] != nil {
+		responses = append(responses, map[string]any{
+			"name": "invalid_cursor", "when": map[string]any{"$ref": "error.invalid_cursor"}, "status": "400",
+			"body": map[string]any{"codec": "problem_json", "from": map[string]any{"$ref": "error.invalid_cursor"}},
 		})
 	}
 	child["response"] = responses

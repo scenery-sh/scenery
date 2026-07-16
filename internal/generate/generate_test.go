@@ -2,6 +2,7 @@ package generate
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"go/format"
@@ -10,10 +11,12 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/machine"
 	"scenery.sh/internal/scn"
+	"scenery.sh/internal/tscheck"
 )
 
 func TestGeneratedDescriptorStalenessIgnoresProducerProvenance(t *testing.T) {
@@ -853,6 +856,12 @@ func TestGeneratedProviderCRUDAdapterCompilesInCleanClone(t *testing.T) {
     "scenery.data",`, 1))
 	rootSource = []byte(strings.Replace(string(rootSource), `gateway = http_gateway.public_api`, `gateway  = http_gateway.public_api
     database = data_source.house_database`, 1))
+	rootSource = []byte(strings.Replace(string(rootSource), `  output_root = "clients/generated/public_api"
+}`, `  output_root = "clients/generated/public_api"
+  react {
+    tsconfig = "tsconfig.json"
+  }
+}`, 1))
 	rootSource = append(rootSource, []byte(`
 
 provider "postgres" {
@@ -882,7 +891,12 @@ input "database" { type = resource_ref("data_source") }
 record "scene_row" {
   field "id" { type = uuid }
   field "tenant_id" { type = string }
-  field "name" { type = string }
+  field "name" { type = enum.scene_name }
+}
+
+enum "scene_name" {
+  value "roof" {}
+  value "wall" {}
 }
 
 entity "scene" {
@@ -914,6 +928,12 @@ crud "scene_api" {
     mode    = "direct"
     timeout = "15s"
   }
+  list {
+    filters       = ["name"]
+    sorts         = ["name"]
+    default_sort  = { field = "name", direction = "asc" }
+    max_page_size = 25
+  }
   http {
     path           = "/scenes"
     codec_profile  = std.codec.http_json_v1
@@ -923,8 +943,41 @@ crud "scene_api" {
     pipeline       = std.pipeline.empty
   }
 }
+
+react_component "scene_name_cell" {
+  module = "scene-name-cell.tsx"
+  export = "SceneNameCell"
+}
+
+react_component "scene_name_filter" {
+  module = "scene-name-filter.tsx"
+  export = "SceneNameFilter"
+}
+
+table_page "scenes" {
+  path   = "/scenes"
+  source = crud.scene_api
+  title  = "Scenes"
+  column "id" {}
+  column "name" { component = react_component.scene_name_cell }
+  filter "name" { component = react_component.scene_name_filter }
+  sort "name" { default = "asc" }
+  row_link  = "/scenes/{id}"
+  page_size = 20
+}
 `)...)
 	if err := os.WriteFile(packagePath, packageSource, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for name, source := range map[string]string{
+		"scene-name-cell.tsx":   `export function SceneNameCell(props: { readonly row: object; readonly value: string }) { return props.value; }`,
+		"scene-name-filter.tsx": `export function SceneNameFilter(props: { readonly value?: string; readonly label: string; readonly onChange: (value: string | undefined) => void }) { return props.label; }`,
+	} {
+		if err := os.WriteFile(filepath.Join(root, "house", name), []byte(source), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(root, "tsconfig.json"), []byte(`{"compilerOptions":{"strict":true,"jsx":"react-jsx","module":"esnext","moduleResolution":"bundler","target":"es2022","lib":["es2022","dom"]},"include":["clients/generated/public_api/react/**/*.ts","clients/generated/public_api/react/**/*.tsx","house/**/*.tsx"]}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	integrity, ok := compiler.BuiltinProviderLock("registry.scenery.dev/core/postgres")
@@ -940,6 +993,92 @@ crud "scene_api" {
 	}
 	if _, err := GenerateGoContracts(root, false); err != nil {
 		t.Fatal(err)
+	}
+	compiled, err := compiler.Compile(root)
+	if err != nil || !compiled.Valid() {
+		t.Fatalf("compile generated CRUD list: %v diagnostics=%#v", err, compiled.Diagnostics)
+	}
+	var target Resource
+	for _, resource := range compiled.Manifest.Resources {
+		if resource.Address == "app/typescript_client/public_api" {
+			target = resource
+			break
+		}
+	}
+	typeScriptFiles, err := renderTypeScriptTarget(compiled, target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if binary := os.Getenv("SCENERY_TSGO_BINARY"); binary != "" {
+		repoRoot, err := filepath.Abs(filepath.Join("..", ".."))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(filepath.Join(repoRoot, "apps", "console", "node_modules"), filepath.Join(root, "node_modules")); err != nil {
+			t.Fatal(err)
+		}
+		staged := make([]tscheck.File, 0, len(typeScriptFiles))
+		for _, file := range typeScriptFiles {
+			if !file.Remove {
+				staged = append(staged, tscheck.File{Path: file.Path, Bytes: file.Bytes})
+			}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		if err := tscheck.Check(ctx, binary, root, filepath.Join(root, "clients", "generated", "public_api"), "tsconfig.json", staged); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := finishGeneratedFiles(root, typeScriptFiles, false, ""); err != nil {
+		t.Fatal(err)
+	}
+	var listBinding Resource
+	for _, resource := range compiled.Manifest.Resources {
+		if resource.Address == "house/binding/scene_api_list_http" {
+			listBinding = resource
+			break
+		}
+	}
+	types := []byte(renderTSTypes(reachableResources(compiled.Manifest.Resources, []Resource{listBinding}), []Resource{listBinding}))
+	for _, fragment := range []string{
+		`export type SceneApiListSort = "name";`,
+		`readonly name?: readonly SceneName[];`,
+		`readonly direction?: SceneApiListDirection;`,
+		`readonly nextCursor?: string;`,
+	} {
+		if !strings.Contains(string(types), fragment) {
+			t.Errorf("generated CRUD list TypeScript missing %q:\n%s", fragment, types)
+		}
+	}
+	clientSource, err := os.ReadFile(filepath.Join(root, "clients", "generated", "public_api", "client.ts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, method := range []string{"sceneApiCreate", "sceneApiGet", "sceneApiUpdate", "sceneApiDelete"} {
+		if strings.Contains(string(clientSource), method) {
+			t.Errorf("React table-page projection exported unrelated CRUD method %q", method)
+		}
+	}
+	pageSource, err := os.ReadFile(filepath.Join(root, "clients", "generated", "public_api", "react", "scenes.generated.tsx"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, fragment := range []string{"defineTablePageSlots<SceneRow", "client.sceneApiList", "value is SceneName", "Code generated by Scenery"} {
+		if !strings.Contains(string(pageSource), fragment) {
+			t.Errorf("generated table page missing %q:\n%s", fragment, pageSource)
+		}
+	}
+	for _, forbidden := range []string{"as any", "as unknown as", "import("} {
+		if strings.Contains(string(pageSource), forbidden) {
+			t.Errorf("generated table page contains forbidden %q:\n%s", forbidden, pageSource)
+		}
+	}
+	descriptorBytes, err := os.ReadFile(filepath.Join(root, "clients", "generated", "public_api", "scenery.typescript-client-generated.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(descriptorBytes), `"react/scenery-ui"`) {
+		t.Errorf("generated descriptor has no UI catalog root:\n%s", descriptorBytes)
 	}
 	command := boundedGoCommand("test", "./...")
 	command.Dir = root

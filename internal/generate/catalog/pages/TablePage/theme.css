@@ -1,0 +1,23 @@
+.scenery-table-page {
+  color: var(--scenery-ui-foreground, #111827);
+  background: var(--scenery-ui-background, #fff);
+  font: var(--scenery-ui-font, 400 0.875rem/1.5 system-ui, sans-serif);
+  padding: var(--scenery-ui-page-padding, 1.5rem);
+}
+.scenery-table-page__header, .scenery-table-page__controls, .scenery-table-page__pagination { display: flex; align-items: center; gap: 1rem; }
+.scenery-table-page__header { justify-content: space-between; }
+.scenery-table-page__header h1 { margin: 0; font-size: var(--scenery-ui-title-size, 1.5rem); }
+.scenery-table-page__controls { flex-wrap: wrap; margin: 1rem 0; }
+.scenery-table-page__controls label { display: grid; gap: 0.25rem; }
+.scenery-table-page__range { display: flex; gap: 0.5rem; }
+.scenery-table-page select, .scenery-table-page input, .scenery-table-page button { min-height: 2.25rem; border: 1px solid var(--scenery-ui-border, #d1d5db); border-radius: var(--scenery-ui-radius, 0.5rem); background: var(--scenery-ui-control-background, #fff); color: inherit; padding: 0.375rem 0.625rem; }
+.scenery-table-page button:focus-visible, .scenery-table-page a:focus-visible, .scenery-table-page select:focus-visible, .scenery-table-page input:focus-visible { outline: 2px solid var(--scenery-ui-focus, #2563eb); outline-offset: 2px; }
+.scenery-table-page__table-wrap { overflow-x: auto; border: 1px solid var(--scenery-ui-border, #d1d5db); border-radius: var(--scenery-ui-radius, 0.5rem); }
+.scenery-table-page table { width: 100%; border-collapse: collapse; }
+.scenery-table-page th, .scenery-table-page td { padding: var(--scenery-ui-cell-padding, 0.75rem); border-bottom: 1px solid var(--scenery-ui-border, #d1d5db); text-align: left; white-space: nowrap; }
+.scenery-table-page th { background: var(--scenery-ui-header-background, #f9fafb); font-weight: 600; }
+.scenery-table-page__badge { display: inline-flex; border-radius: 999px; background: var(--scenery-ui-badge-background, #e5e7eb); padding: 0.125rem 0.5rem; }
+.scenery-table-page__error { display: grid; gap: 0.25rem; margin: 1rem 0; color: var(--scenery-ui-error, #b91c1c); }
+.scenery-table-page__empty, .scenery-table-page__status { padding: 1rem; text-align: center; color: var(--scenery-ui-muted, #6b7280); }
+.scenery-table-page__pagination { justify-content: flex-end; margin-top: 1rem; }
+.scenery-table-page__sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }

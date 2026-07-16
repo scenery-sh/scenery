@@ -18,6 +18,8 @@ func Check(result *compiler.Result) CheckResult {
 	}
 	if files, err := renderTypeScriptClientFilesByMode(result, "", true); err != nil {
 		check.Diagnostics = append(check.Diagnostics, Diagnostic{Code: "SCN6204", Severity: "error", Message: err.Error()})
+	} else if err := verifyRenderedTypeScriptReact(result, sourceTypeScriptTargets(typescriptTargets(result.Manifest.Resources, "")), files); err != nil {
+		check.Diagnostics = append(check.Diagnostics, Diagnostic{Code: "SCN6204", Severity: "error", Message: err.Error()})
 	} else if _, err := finishGeneratedFiles(result.Root, files, true, "generated TypeScript clients are stale"); err != nil {
 		check.Diagnostics = append(check.Diagnostics, Diagnostic{Code: "SCN6204", Severity: "error", Message: err.Error()})
 	}

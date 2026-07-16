@@ -92,6 +92,8 @@ var (
 
 	typescriptRetrySourceSchema = sourceSchema("scenery.typescript-client.retry", 0,
 		[]string{"policy", "maximum_attempts", "maximum_delay_milliseconds", "statuses"}, []string{"policy", "maximum_attempts"}, nil)
+	typescriptReactSourceSchema = sourceSchema("scenery.typescript-client.react", 0,
+		[]string{"tsconfig"}, []string{"tsconfig"}, nil)
 	patchOperationSourceSchema = sourceSchema("scenery.patch.operation", 0, []string{"path", "value"}, []string{"path", "value"}, nil)
 
 	serviceImplementationSourceSchema = sourceSchema("scenery.service.implementation", 0,
@@ -180,13 +182,22 @@ var (
 	entityDeletionSourceSchema     = sourceSchema("scenery.entity.deletion", 0, []string{"strategy", "field"}, []string{"strategy"}, nil)
 	viewImplementationSourceSchema = sourceSchema("scenery.view.implementation", 0, []string{"kind", "file", "name"}, []string{"kind", "file", "name"}, nil)
 	crudExecutionSourceSchema      = sourceSchema("scenery.crud.execution", 0, []string{"mode", "timeout"}, []string{"mode", "timeout"}, nil)
+	crudListSourceSchema           = sourceSchema("scenery.crud.list", 0, []string{"filters", "sorts", "default_sort", "max_page_size"}, nil, nil)
 	crudHTTPSourceSchema           = sourceSchema("scenery.crud.http", 0,
 		[]string{"path", "codec_profile", "gateway", "authentication", "authorization", "pipeline"},
 		[]string{"path", "codec_profile", "gateway", "authentication", "authorization", "pipeline"}, nil)
 	crudInternalSourceSchema = sourceSchema("scenery.crud.internal", 0,
 		[]string{"exposure", "authentication", "authorization", "pipeline"}, nil, nil)
-	crudExtensionSourceSchema = sourceSchema("scenery.crud.extension", 1, []string{"config"}, nil, nil)
-	pageActionSourceSchema    = sourceSchema("scenery.page.action", 1, []string{"invoke"}, []string{"invoke"}, nil)
+	crudExtensionSourceSchema   = sourceSchema("scenery.crud.extension", 1, []string{"config"}, nil, nil)
+	pageActionSourceSchema      = sourceSchema("scenery.page.action", 1, []string{"invoke"}, []string{"invoke"}, nil)
+	tablePageColumnSourceSchema = sourceSchema("scenery.table-page.column", 1,
+		[]string{"label", "appearance", "component"}, nil, nil)
+	tablePageFilterSourceSchema = sourceSchema("scenery.table-page.filter", 1,
+		[]string{"label", "component"}, nil, nil)
+	tablePageSortSourceSchema = sourceSchema("scenery.table-page.sort", 1,
+		[]string{"label", "default"}, nil, nil)
+	tablePageSlotSourceSchema = sourceSchema("scenery.table-page.slot", 0,
+		[]string{"component"}, []string{"component"}, nil)
 )
 
 func init() {
@@ -202,7 +213,7 @@ var authoredResourceChildren = map[string]map[string]authoredChildSchema{
 	"authorization":     {"rule": ordered(authorizationRuleSourceSchema)},
 	"pipeline":          {"step": ordered(pipelineStepSourceSchema)},
 	"deployment":        {"module": repeated(deploymentModuleSourceSchema), "data_source": repeated(deploymentDataSourceSourceSchema), "service": repeated(deploymentServiceSourceSchema), "http_gateway": repeated(deploymentHTTPGatewaySourceSchema), "provider": repeated(deploymentProviderSourceSchema), "secret": repeated(deploymentSecretSourceSchema)},
-	"typescript_client": {"retry": singleton(typescriptRetrySourceSchema)},
+	"typescript_client": {"retry": singleton(typescriptRetrySourceSchema), "react": singleton(typescriptReactSourceSchema)},
 	"patch":             {"expect": repeated(patchOperationSourceSchema), "set": repeated(patchOperationSourceSchema)},
 	"service":           {"implementation": singleton(serviceImplementationSourceSchema), "dependency": repeated(serviceDependencySourceSchema), "config": singleton(serviceConfigSourceSchema), "client": repeated(serviceClientSourceSchema), "lifecycle": singleton(serviceLifecycleSourceSchema)},
 	"record":            {"field": repeated(recordFieldSourceSchema), "validation": repeated(recordValidationSourceSchema)},
@@ -215,8 +226,9 @@ var authoredResourceChildren = map[string]map[string]authoredChildSchema{
 	"event_emission":    {"broker_retry": singleton(eventRetrySourceSchema), "from": singleton(eventEmissionFromSourceSchema)},
 	"entity":            {"mapping": singleton(entityMappingSourceSchema), "field": repeated(entityFieldSourceSchema), "index": repeated(entityIndexSourceSchema), "unique": repeated(entityUniqueSourceSchema), "foreign_key": repeated(entityForeignKeySourceSchema), "deletion": singleton(entityDeletionSourceSchema)},
 	"view":              {"implementation": singleton(viewImplementationSourceSchema)},
-	"crud":              {"execution": singleton(crudExecutionSourceSchema), "http": singleton(crudHTTPSourceSchema), "internal": singleton(crudInternalSourceSchema), "extension": repeated(crudExtensionSourceSchema)},
+	"crud":              {"execution": singleton(crudExecutionSourceSchema), "list": singleton(crudListSourceSchema), "http": singleton(crudHTTPSourceSchema), "internal": singleton(crudInternalSourceSchema), "extension": repeated(crudExtensionSourceSchema)},
 	"page":              {"action": repeated(pageActionSourceSchema)},
+	"table_page":        {"column": repeated(tablePageColumnSourceSchema), "filter": repeated(tablePageFilterSourceSchema), "sort": repeated(tablePageSortSourceSchema), "toolbar": singleton(tablePageSlotSourceSchema), "empty": singleton(tablePageSlotSourceSchema)},
 }
 
 var authoredStructuralSchemas = map[string]*authoredBlockSchema{

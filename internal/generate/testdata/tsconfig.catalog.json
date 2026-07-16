@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "allowArbitraryExtensions": true,
+    "jsx": "react-jsx",
+    "lib": ["ES2023", "DOM"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "noEmit": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "paths": {
+      "react": ["../../../apps/console/node_modules/@types/react/index.d.ts"],
+      "react/jsx-runtime": ["../../../apps/console/node_modules/@types/react/jsx-runtime.d.ts"]
+    }
+  },
+  "include": ["../catalog/**/*.ts", "../catalog/**/*.tsx", "catalog_contract_test.tsx"]
+}

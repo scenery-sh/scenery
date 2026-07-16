@@ -186,6 +186,8 @@ scenery generate --target typescript_client.public_api --check -o json
 
 Regenerate after changes to reachable types, bindings, codec mappings, authentication, authorization, or gateway behavior. Keep app imports pointed at the declared output root.
 
+For a declarative table frontend, add an explicit CRUD `list` allowlist, declare `react_component` overrides and a `table_page`, then add `react { tsconfig = "..." }` to the TypeScript target. Generation writes `react/<page>.generated.tsx`, the neutral `generatedPages` descriptor, and the binary-owned `react/scenery-ui` catalog in the same managed transaction. Mount `generatedPages` through an app-owned router adapter and theme the catalog with its documented CSS variables; never edit generated adapters or catalog files. Run `scenery doctor -o json` first when the tsconfig, frontend `node_modules`, or managed native checker may be missing.
+
 ## Client-App Instructions
 
 The installable skill is necessary but not sufficient for a client repository. Keep a small app-local `AGENTS.md` containing:

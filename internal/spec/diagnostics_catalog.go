@@ -251,12 +251,23 @@ SCN2508|fixture_contract|Fixture entity mode environment or typed rows are inval
 SCN2509|view_result_contract|A view implementation result is incompatible with its declared type
 SCN2510|crud_expansion_identity|A CRUD-derived resource address collides
 SCN2511|fixture_shape|A fixture is missing required entity environment mode or values
+SCN2512|crud_list_field|A CRUD list capability references an unavailable field or action
+SCN2513|crud_list_filter|A CRUD list filter is not supported by the standard query contract
+SCN2514|crud_list_sort|A CRUD list sort or default ordering is invalid
 SCN2601|page_contract|A page lacks a path or typed load binding
 SCN2602|renderer_contract|A renderer lacks a page runtime or module
 SCN2603|page_semantics|Page path load actions or renderer references are invalid
 SCN2604|renderer_semantics|Renderer module exports or configuration are invalid
 SCN2605|page_route_identity|A page route is duplicated
 SCN2606|renderer_runtime_identity|A renderer runtime identity is duplicated
+SCN2607|react_component|A declared React component module or export is invalid
+SCN2608|table_page_contract|A table page source or required declaration is invalid
+SCN2609|table_page_column|A table page column field appearance or identity is invalid
+SCN2610|table_page_query|A table page filter sort or default ordering is invalid
+SCN2611|table_page_slot|A table page slot does not resolve to a declared React component
+SCN2612|table_page_row_link|A table page row link references an unavailable field
+SCN2613|table_page_page_size|A table page page size is outside its CRUD list bound
+SCN2614|table_page_expansion_identity|A table-page-derived resource address collides
 SCN2701|event_contract|An event lacks a payload or positive version
 SCN2702|event_emission_shape|An event emission is incomplete
 SCN2703|event_binding_shape|An event binding is incomplete
@@ -366,6 +377,9 @@ SCN6313|typescript_metadata|Generated TypeScript metadata is invalid
 SCN6314|typescript_selection_artifact|A TypeScript client selection artifact is invalid
 SCN6315|typescript_transport_outcome|A TypeScript transport outcome mapping is invalid
 SCN6316|typescript_field_constraint|A TypeScript field constraint cannot be represented safely
+SCN6320|typescript_react_override|A declared React override is incompatible with its generated slot contract
+SCN6321|typescript_react_application|A reachable application module has an unrelated TypeScript error
+SCN6322|typescript_react_readiness|The native React generation checker or application dependencies are unavailable
 SCN7001|feature_unavailable|A recognized source feature is unavailable
 SCN7008|streaming_unavailable|Streaming or server-sent events are unavailable
 SCN7009|unsupported_draft_surface|A declaration uses an unresolved draft capability

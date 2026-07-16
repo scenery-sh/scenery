@@ -52,7 +52,7 @@ var resourceSchemas = map[string]resourceSchema{
 	}},
 	"scenery.secret":            {"deployment", []string{"store", "key"}, []string{"store", "key"}, nil},
 	"scenery.deployment":        {"deployment", []string{"environment"}, []string{"environment", "fixture_policy"}, nil},
-	"scenery.typescript-client": {"implementation", []string{"gateways", "package", "module", "runtime", "output_root"}, []string{"gateways", "package", "module", "runtime", "output_root", "materialization", "typescript_version", "javascript_target", "include"}, nil},
+	"scenery.typescript-client": {"implementation", []string{"gateways", "package", "module", "runtime", "output_root"}, []string{"gateways", "package", "module", "runtime", "output_root", "materialization", "typescript_version", "javascript_target", "include", "react"}, nil},
 	"scenery.patch":             {"workspace_only", []string{"target", "schema", "expect", "set"}, []string{"target", "schema"}, nil},
 	"scenery.module": {"workspace_only", []string{"source"}, []string{"source", "inputs"}, map[string]string{
 		"package": "contract", "interface_inputs": "contract", "exports": "contract", "export_metadata": "contract", "workspace_package_root": "workspace_only",
@@ -72,13 +72,15 @@ var resourceSchemas = map[string]resourceSchema{
 	"scenery.view": {"contract", []string{"data_source", "input", "result", "implementation"}, []string{"data_source", "input", "result"}, map[string]string{
 		"implementation_digest": "implementation",
 	}},
-	"scenery.crud":    {"contract", []string{"entity", "implementation", "actions", "execution"}, []string{"entity", "implementation", "actions"}, nil},
+	"scenery.crud":    {"contract", []string{"entity", "implementation", "actions", "execution"}, []string{"entity", "implementation", "actions", "list"}, nil},
 	"scenery.fixture": {"contract", []string{"entity", "environments", "mode", "values"}, []string{"entity", "environments", "mode", "values"}, nil},
 	"scenery.page":    {"contract", []string{"path", "load"}, []string{"path", "load"}, nil},
 	"scenery.renderer": {"contract", []string{"page", "runtime", "module"}, []string{"page", "runtime", "module", "config"}, map[string]string{
 		"implementation_digest": "implementation",
 	}},
-	"scenery.middleware": {"contract", []string{"protocols", "phases"}, []string{"protocols", "phases", "before", "after", "exclusive", "effects"}, nil},
+	"scenery.react-component": {"implementation", []string{"module", "export"}, []string{"module", "export"}, nil},
+	"scenery.table-page":      {"contract", []string{"path", "source", "title", "column"}, []string{"path", "source", "title", "description", "page_size", "row_link"}, nil},
+	"scenery.middleware":      {"contract", []string{"protocols", "phases"}, []string{"protocols", "phases", "before", "after", "exclusive", "effects"}, nil},
 }
 
 var resourceConditionalRequirements = map[string][]resourceConditionalRequirement{

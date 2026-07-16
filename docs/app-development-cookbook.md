@@ -183,6 +183,34 @@ scenery db seed --env development --dry-run -o json
 scenery db seed --env development -o json
 ```
 
+For a filtered table page, make the list API surface explicit and keep the UI declaration thin:
+
+```hcl
+crud "orders" {
+  entity = entity.order
+  list {
+    filters       = ["status", "created_at"]
+    sorts         = ["created_at"]
+    default_sort  = { field = "created_at", direction = "desc" }
+    max_page_size = 100
+  }
+}
+
+table_page "orders" {
+  path = "/orders"
+  source = crud.orders
+  title = "Orders"
+  column "number" {}
+  column "status" { appearance = "badge" }
+  filter "status" {}
+  filter "created_at" {}
+  sort "created_at" { default = "desc" }
+  row_link = "/orders/{id}"
+}
+```
+
+The CRUD runtime applies enum-array and datetime-range filters, query-bound keyset cursors, stable primary-key tie-breaking, and server-side limit clamping. Add declared `react_component` overrides only where the catalog defaults are insufficient.
+
 ## Generate A TypeScript Client
 
 Declare a root target:
@@ -194,6 +222,9 @@ typescript_client "public_api" {
   module      = "esm"
   runtime     = "fetch"
   output_root = "clients/generated/public_api"
+  react {
+    tsconfig = "apps/web/tsconfig.json"
+  }
 }
 ```
 
@@ -205,6 +236,8 @@ scenery generate --target typescript_client.public_api --check -o json
 ```
 
 Commit the generated descriptor and source files. Regenerate after reachable type, binding, codec, gateway, auth, or outcome changes. Generated clients never infer behavior from Go symbols.
+
+With `react`, the same transaction owns `react/<table>.generated.tsx`, `react/pages.generated.ts`, and `react/scenery-ui/`. The app mounts the neutral `generatedPages` array in its router. Install frontend dependencies before generation; `scenery doctor -o json` reports the declared tsconfig, `node_modules`, and managed checker readiness.
 
 ## Semantic Changes And Compatibility
 

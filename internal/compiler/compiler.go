@@ -31,7 +31,7 @@ var packageResourceKinds = map[string]bool{
 	"operation": true, "execution": true, "binding": true,
 	"schedule": true, "event": true, "event_emission": true,
 	"entity": true, "view": true, "crud": true, "fixture": true,
-	"page": true, "renderer": true, "middleware": true,
+	"page": true, "renderer": true, "react_component": true, "table_page": true, "middleware": true,
 }
 
 func Compile(root string) (*Result, error) {
@@ -335,6 +335,8 @@ func compileSources(root string, sources []*Source, lockfile *Lockfile) (*Manife
 	completeFieldProvenance(resources, "effective")
 	effectiveNative := cloneResourceView(resources)
 	resources, resourceDiagnostics = expandDataResources(resources)
+	diagnostics = append(diagnostics, resourceDiagnostics...)
+	resources, resourceDiagnostics = expandTablePageResources(resources)
 	diagnostics = append(diagnostics, resourceDiagnostics...)
 	resources, resourceDiagnostics = enrichDataImplementationDigests(root, resources)
 	diagnostics = append(diagnostics, resourceDiagnostics...)

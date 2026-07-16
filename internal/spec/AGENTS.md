@@ -19,6 +19,9 @@
   gates; bump their owning digests and stable diagnostics together.
 - Keep external codec, runtime, provider ABI, and third-party standard versions intact.
 - Do not create a parallel JSON catalog; generate machine output from the Go catalog.
+- Keep declarative UI kinds and CRUD list source shapes in the singular source
+  schema catalog; their compiler expansion must not introduce a second public
+  resource-schema dialect.
 
 ## Verification
 

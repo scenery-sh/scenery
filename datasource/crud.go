@@ -2,10 +2,14 @@ package datasource
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"regexp"
 	"sort"
 	"strings"
@@ -14,7 +18,10 @@ import (
 	"github.com/google/uuid"
 )
 
-var ErrCRUDNotFound = errors.New("datasource CRUD row not found")
+var (
+	ErrCRUDNotFound      = errors.New("datasource CRUD row not found")
+	ErrCRUDInvalidCursor = errors.New("datasource CRUD cursor is invalid for this query")
+)
 
 type CRUDField struct {
 	Name            string
@@ -31,6 +38,15 @@ type CRUDSpec struct {
 	Schema   string
 	Relation string
 	Fields   []CRUDField
+	List     *CRUDListSpec
+}
+
+type CRUDListSpec struct {
+	Filters          []string
+	Sorts            []string
+	DefaultSort      string
+	DefaultDirection string
+	MaxPageSize      int
 }
 
 // InvokeCRUD executes the built-in std.crud.entity implementation against an
@@ -64,6 +80,9 @@ func InvokeCRUD(ctx context.Context, database SQL, spec CRUDSpec, action string,
 }
 
 func listCRUD(ctx context.Context, database SQL, spec CRUDSpec, input map[string]json.RawMessage) ([]byte, error) {
+	if spec.List != nil {
+		return listCRUDPage(ctx, database, spec, input)
+	}
 	where, arguments, err := crudWhere(spec, input, func(field CRUDField) bool { return field.TenantKey })
 	if err != nil {
 		return nil, err
@@ -89,6 +108,171 @@ func listCRUD(ctx context.Context, database SQL, spec CRUDSpec, input map[string
 		return nil, fmt.Errorf("CRUD %s list rows: %w", spec.Address, err)
 	}
 	return json.Marshal(map[string]any{"items": items})
+}
+
+type crudListCursor struct {
+	Version     int               `json:"v"`
+	Fingerprint string            `json:"fingerprint"`
+	Values      []json.RawMessage `json:"values"`
+}
+
+func listCRUDPage(ctx context.Context, database SQL, spec CRUDSpec, input map[string]json.RawMessage) ([]byte, error) {
+	where, arguments, err := crudWhere(spec, input, func(field CRUDField) bool { return field.TenantKey })
+	if err != nil {
+		return nil, err
+	}
+	var clauses []string
+	if where != "" {
+		clauses = append(clauses, strings.TrimPrefix(where, " WHERE "))
+	}
+	fields := crudFieldsByName(spec.Fields)
+	filterValues := map[string]any{}
+	for _, field := range spec.Fields {
+		if !field.TenantKey {
+			continue
+		}
+		raw, present := input[field.Name]
+		if !present {
+			continue
+		}
+		value, err := decodeCRUDSQLValue(raw)
+		if err != nil {
+			return nil, fmt.Errorf("CRUD %s tenant scope %s: %w", spec.Address, field.Name, err)
+		}
+		filterValues["tenant."+field.Name] = value
+	}
+	for _, name := range spec.List.Filters {
+		field := fields[name]
+		if strings.Contains(field.Type, "enum.") || strings.Contains(field.Type, "/enum/") {
+			raw, present := input[name]
+			if !present {
+				continue
+			}
+			values, err := decodeCRUDList(raw)
+			if err != nil {
+				return nil, fmt.Errorf("CRUD %s filter %s: %w", spec.Address, name, err)
+			}
+			sort.Slice(values, func(i, j int) bool { return fmt.Sprint(values[i]) < fmt.Sprint(values[j]) })
+			values = compactCRUDValues(values)
+			filterValues[name] = values
+			if len(values) == 0 {
+				clauses = append(clauses, "FALSE")
+				continue
+			}
+			placeholders := make([]string, len(values))
+			for index, value := range values {
+				arguments = append(arguments, value)
+				placeholders[index] = fmt.Sprintf("$%d", len(arguments))
+			}
+			clauses = append(clauses, quoteCRUDIdentifier(field.Column)+" IN ("+strings.Join(placeholders, ", ")+")")
+			continue
+		}
+		for _, suffix := range []struct {
+			name, operator string
+		}{{"_from", ">="}, {"_to", "<="}} {
+			key := name + suffix.name
+			raw, present := input[key]
+			if !present {
+				continue
+			}
+			value, err := decodeCRUDSQLValue(raw)
+			if err != nil {
+				return nil, fmt.Errorf("CRUD %s filter %s: %w", spec.Address, key, err)
+			}
+			filterValues[key] = value
+			arguments = append(arguments, value)
+			clauses = append(clauses, quoteCRUDIdentifier(field.Column)+" "+suffix.operator+fmt.Sprintf(" $%d", len(arguments)))
+		}
+	}
+	sortName, err := crudOptionalString(input["sort"])
+	if err != nil {
+		return nil, err
+	}
+	if sortName == "" {
+		sortName = spec.List.DefaultSort
+	}
+	direction, err := crudOptionalString(input["direction"])
+	if err != nil {
+		return nil, err
+	}
+	if direction == "" {
+		direction = spec.List.DefaultDirection
+	}
+	if direction == "" {
+		direction = "asc"
+	}
+	if direction != "asc" && direction != "desc" || sortName != "" && !containsCRUDString(spec.List.Sorts, sortName) {
+		return nil, fmt.Errorf("CRUD %s list sort is not allowlisted", spec.Address)
+	}
+	order := crudListOrder(spec.Fields, sortName)
+	fingerprint := crudQueryFingerprint(sortName, direction, filterValues)
+	cursorText, err := crudOptionalString(input["cursor"])
+	if err != nil {
+		return nil, err
+	}
+	if cursorText != "" {
+		cursor, err := decodeCRUDCursor(cursorText, fingerprint, len(order))
+		if err != nil {
+			return nil, ErrCRUDInvalidCursor
+		}
+		cursorClause, cursorArguments, err := crudCursorClause(order, direction, cursor.Values, len(arguments)+1)
+		if err != nil {
+			return nil, ErrCRUDInvalidCursor
+		}
+		clauses, arguments = append(clauses, cursorClause), append(arguments, cursorArguments...)
+	}
+	limit := 50
+	if spec.List.MaxPageSize < limit {
+		limit = spec.List.MaxPageSize
+	}
+	if raw, present := input["limit"]; present {
+		value, err := crudInteger(raw)
+		if err != nil || value < 1 {
+			return nil, fmt.Errorf("CRUD %s list limit must be positive", spec.Address)
+		}
+		limit = min(value, spec.List.MaxPageSize)
+	}
+	query := "SELECT " + crudColumns(spec) + " FROM " + crudRelation(spec)
+	if len(clauses) > 0 {
+		query += " WHERE " + strings.Join(clauses, " AND ")
+	}
+	orderSQL := make([]string, len(order))
+	for index, field := range order {
+		orderSQL[index] = quoteCRUDIdentifier(field.Column) + " " + strings.ToUpper(direction) + " NULLS LAST"
+	}
+	arguments = append(arguments, limit+1)
+	query += " ORDER BY " + strings.Join(orderSQL, ", ") + fmt.Sprintf(" LIMIT $%d", len(arguments))
+	rows, err := database.QueryContext(ctx, query, arguments...)
+	if err != nil {
+		return nil, fmt.Errorf("CRUD %s list: %w", spec.Address, err)
+	}
+	defer rows.Close()
+	items := make([]map[string]any, 0, limit+1)
+	for rows.Next() {
+		item, scanErr := scanCRUDRow(rows, spec.Fields)
+		if scanErr != nil {
+			return nil, fmt.Errorf("CRUD %s list row: %w", spec.Address, scanErr)
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("CRUD %s list rows: %w", spec.Address, err)
+	}
+	result := map[string]any{"items": items}
+	if len(items) > limit {
+		items = items[:limit]
+		result["items"] = items
+		values := make([]any, len(order))
+		for index, field := range order {
+			values[index] = items[len(items)-1][field.Name]
+		}
+		encoded, err := json.Marshal(crudListCursor{Version: 1, Fingerprint: fingerprint, Values: marshalCRUDCursorValues(values)})
+		if err != nil {
+			return nil, err
+		}
+		result["next_cursor"] = base64.RawURLEncoding.EncodeToString(encoded)
+	}
+	return json.Marshal(result)
 }
 
 func getCRUD(ctx context.Context, database SQL, spec CRUDSpec, input map[string]json.RawMessage) ([]byte, error) {
@@ -256,6 +440,156 @@ func crudWhereFrom(spec CRUDSpec, input map[string]json.RawMessage, start int, i
 	return " WHERE " + strings.Join(clauses, " AND "), arguments, nil
 }
 
+func crudFieldsByName(fields []CRUDField) map[string]CRUDField {
+	result := make(map[string]CRUDField, len(fields))
+	for _, field := range fields {
+		result[field.Name] = field
+	}
+	return result
+}
+
+func crudListOrder(fields []CRUDField, sortName string) []CRUDField {
+	byName := crudFieldsByName(fields)
+	var result []CRUDField
+	if sortName != "" {
+		result = append(result, byName[sortName])
+	}
+	var primary []CRUDField
+	for _, field := range fields {
+		if field.PrimaryKey && field.Name != sortName {
+			primary = append(primary, field)
+		}
+	}
+	sort.Slice(primary, func(i, j int) bool { return primary[i].Name < primary[j].Name })
+	return append(result, primary...)
+}
+
+func crudQueryFingerprint(sortName, direction string, filters map[string]any) string {
+	data, _ := json.Marshal(struct {
+		Sort      string         `json:"sort"`
+		Direction string         `json:"direction"`
+		Filters   map[string]any `json:"filters"`
+	}{sortName, direction, filters})
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+func decodeCRUDCursor(value, fingerprint string, values int) (crudListCursor, error) {
+	data, err := base64.RawURLEncoding.DecodeString(value)
+	if err != nil {
+		return crudListCursor{}, err
+	}
+	var cursor crudListCursor
+	decoder := json.NewDecoder(strings.NewReader(string(data)))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&cursor); err != nil || cursor.Version != 1 || cursor.Fingerprint != fingerprint || len(cursor.Values) != values {
+		return crudListCursor{}, ErrCRUDInvalidCursor
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return crudListCursor{}, ErrCRUDInvalidCursor
+	}
+	return cursor, nil
+}
+
+func compactCRUDValues(values []any) []any {
+	if len(values) < 2 {
+		return values
+	}
+	result := values[:1]
+	for _, value := range values[1:] {
+		if fmt.Sprint(value) != fmt.Sprint(result[len(result)-1]) {
+			result = append(result, value)
+		}
+	}
+	return result
+}
+
+func crudCursorClause(order []CRUDField, direction string, values []json.RawMessage, start int) (string, []any, error) {
+	operator := ">"
+	if direction == "desc" {
+		operator = "<"
+	}
+	var branches []string
+	var arguments []any
+	for index, field := range order {
+		if string(values[index]) == "null" {
+			continue
+		}
+		var parts []string
+		for prefix := 0; prefix < index; prefix++ {
+			value, err := decodeCRUDSQLValue(values[prefix])
+			if err != nil {
+				return "", nil, err
+			}
+			arguments = append(arguments, value)
+			parts = append(parts, quoteCRUDIdentifier(order[prefix].Column)+fmt.Sprintf(" IS NOT DISTINCT FROM $%d", start+len(arguments)-1))
+		}
+		value, err := decodeCRUDSQLValue(values[index])
+		if err != nil {
+			return "", nil, err
+		}
+		arguments = append(arguments, value)
+		parts = append(parts, "("+quoteCRUDIdentifier(field.Column)+" "+operator+fmt.Sprintf(" $%d", start+len(arguments)-1)+" OR "+quoteCRUDIdentifier(field.Column)+" IS NULL)")
+		branches = append(branches, "("+strings.Join(parts, " AND ")+")")
+	}
+	if len(branches) == 0 {
+		return "FALSE", arguments, nil
+	}
+	return "(" + strings.Join(branches, " OR ") + ")", arguments, nil
+}
+
+func marshalCRUDCursorValues(values []any) []json.RawMessage {
+	result := make([]json.RawMessage, len(values))
+	for index, value := range values {
+		result[index], _ = json.Marshal(value)
+	}
+	return result
+}
+
+func crudOptionalString(raw json.RawMessage) (string, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return "", nil
+	}
+	var value string
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return "", err
+	}
+	return value, nil
+}
+
+func crudInteger(raw json.RawMessage) (int, error) {
+	var value int
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return 0, err
+	}
+	return value, nil
+}
+
+func decodeCRUDList(raw json.RawMessage) ([]any, error) {
+	var values []json.RawMessage
+	if err := json.Unmarshal(raw, &values); err != nil {
+		return nil, err
+	}
+	result := make([]any, len(values))
+	for index, value := range values {
+		decoded, err := decodeCRUDSQLValue(value)
+		if err != nil {
+			return nil, err
+		}
+		result[index] = decoded
+	}
+	return result, nil
+}
+
+func containsCRUDString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}
+
 func decodeCRUDInput(input []byte) (map[string]json.RawMessage, error) {
 	var object map[string]json.RawMessage
 	decoder := json.NewDecoder(strings.NewReader(string(input)))
@@ -324,6 +658,19 @@ func validateCRUDSpec(spec CRUDSpec) error {
 	}
 	if primaryKeys == 0 {
 		return fmt.Errorf("CRUD %s has no primary key", spec.Address)
+	}
+	if spec.List != nil {
+		if spec.List.MaxPageSize < 1 || spec.List.DefaultDirection != "" && spec.List.DefaultDirection != "asc" && spec.List.DefaultDirection != "desc" {
+			return fmt.Errorf("CRUD %s has invalid list pagination", spec.Address)
+		}
+		for _, name := range append(append([]string(nil), spec.List.Filters...), spec.List.Sorts...) {
+			if !names[name] {
+				return fmt.Errorf("CRUD %s list references unknown field %s", spec.Address, name)
+			}
+		}
+		if spec.List.DefaultSort != "" && !containsCRUDString(spec.List.Sorts, spec.List.DefaultSort) {
+			return fmt.Errorf("CRUD %s default list sort is not allowlisted", spec.Address)
+		}
 	}
 	return nil
 }

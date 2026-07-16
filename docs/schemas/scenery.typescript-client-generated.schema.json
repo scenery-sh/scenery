@@ -20,6 +20,7 @@
     "covered_operations",
     "covered_types",
     "compatibility_catalog",
+    "ui_catalog_roots",
     "generator",
     "files"
   ],
@@ -36,6 +37,7 @@
     "openapi_revisions": { "$ref": "#/$defs/revision_map" },
     "content_digest": { "$ref": "#/$defs/revision" },
     "compatibility_catalog": { "type": "string", "minLength": 1 },
+    "ui_catalog_roots": { "$ref": "#/$defs/string_list" },
     "covered_gateways": { "$ref": "#/$defs/string_list" },
     "covered_bindings": { "$ref": "#/$defs/string_list" },
     "covered_operations": { "$ref": "#/$defs/string_list" },

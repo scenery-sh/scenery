@@ -121,6 +121,7 @@ func runSceneryHarnessSelf(ctx context.Context, stdout io.Writer, args []string)
 			runHarnessFreshnessStep("dashboard ui fresh", dashboardUIRoot, dashboardUIBundleStale, "Run `./scripts/build-dashboard-ui-embed.sh`, rebuild the scenery binary, restart scenery, then rerun `scenery harness self -o json`."),
 			runHarnessExecStep(ctx, repoRoot, "Scenery TypeScript client conformance", []string{"bun", "test", "internal/generate/testdata/typescript_client_conformance.test.ts"}, artifactCtx),
 			runHarnessExecStep(ctx, repoRoot, "Scenery TypeScript client typecheck", []string{filepath.Join(dashboardUIRoot, "node_modules", ".bin", "tsc"), "-p", "internal/generate/testdata/tsconfig.generated-clients.json"}, artifactCtx),
+			runHarnessExecStep(ctx, repoRoot, "Scenery UI catalog typecheck", []string{filepath.Join(dashboardUIRoot, "node_modules", ".bin", "tsc"), "-p", "internal/generate/testdata/tsconfig.catalog.json"}, artifactCtx),
 		)
 		fixtureStep, fixtureMatrix := runHarnessFixtureMatrixStep(ctx, repoRoot)
 		resp.FixtureMatrix = fixtureMatrix

@@ -13,8 +13,11 @@ import (
 
 	localagent "scenery.sh/internal/agent"
 	appcfg "scenery.sh/internal/app"
+	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/deploydiag"
 	"scenery.sh/internal/doctor"
+	"scenery.sh/internal/toolchain"
+	"scenery.sh/internal/tscheck"
 )
 
 const doctorResultKind = "scenery.doctor.result"
@@ -185,6 +188,7 @@ func buildDoctorResponse(ctx context.Context, opts doctorOptions, deps doctor.Pr
 	resp.Checks = append(resp.Checks, doctor.PostgresServerCheck(ctx, deps, features))
 	if resp.App != nil {
 		resp.Checks = append(resp.Checks, doctor.EditorWorkspaceCheck(resp.App.Root))
+		resp.Checks = append(resp.Checks, doctorReactChecks(resp.App.Root)...)
 	}
 	resp.Checks = append(resp.Checks, doctorProcessOwnershipCheck(ctx, deps))
 	if deployInfo, deployChecks := doctorDeployDiagnostics(ctx, deps); deployInfo != nil {
@@ -195,6 +199,57 @@ func buildDoctorResponse(ctx context.Context, opts doctorOptions, deps doctor.Pr
 	resp.Summary = doctor.Summarize(resp.Checks)
 	resp.OK = resp.Summary.Errors == 0
 	return resp
+}
+
+func doctorReactChecks(root string) []doctor.Check {
+	if _, err := os.Stat(filepath.Join(root, "scenery.scn")); err != nil {
+		return nil
+	}
+	result, err := compiler.Compile(root)
+	if err != nil || result.Manifest == nil {
+		return nil
+	}
+	var checks []doctor.Check
+	hasReact := false
+	for _, target := range result.Manifest.Resources {
+		react, ok := target.Spec["react"].(map[string]any)
+		if target.Kind != "scenery.typescript-client" || !ok {
+			continue
+		}
+		hasReact = true
+		tsconfig := strings.TrimSpace(fmt.Sprint(react["tsconfig"]))
+		configPath := filepath.Join(root, filepath.FromSlash(tsconfig))
+		check := doctor.Check{ID: "typescript.react.dependencies." + target.Name, Category: "dependency", Name: "React generation dependencies (" + target.Name + ")", Status: doctor.StatusOK, Severity: doctor.SeverityRequired, Message: "declared tsconfig and node_modules are available", Observed: map[string]any{"tsconfig": tsconfig}}
+		if info, statErr := os.Stat(configPath); statErr != nil || !info.Mode().IsRegular() {
+			check.Status = doctor.StatusError
+			check.Message = "declared React generation tsconfig is unavailable"
+			check.SuggestedAction = "Create " + tsconfig + " or update the typescript_client react block."
+		} else if modules := tscheck.NodeModulesPath(filepath.Dir(configPath), root); modules == "" {
+			check.Status = doctor.StatusError
+			check.Message = "node_modules is unavailable for React generation"
+			check.SuggestedAction = "Install the application's frontend dependencies before generating the React client."
+		} else {
+			check.Observed["node_modules"] = modules
+		}
+		checks = append(checks, check)
+	}
+	if !hasReact {
+		return nil
+	}
+	checker := doctor.Check{ID: "typescript.react.checker", Category: "dependency", Name: "Native TypeScript checker", Status: doctor.StatusWarn, Severity: doctor.SeverityOptional, Message: "managed tsgo will be installed on first React generation", SuggestedAction: "Run `scenery system toolchain sync --tool tsgo -o json` to install it now."}
+	if manifest, loadErr := toolchain.LoadBundledManifest(); loadErr == nil {
+		if store, storeErr := toolchain.NewStore(toolchain.DefaultStoreDir(root), manifest); storeErr == nil {
+			store.ManifestSHA256 = toolchain.BundledManifestSHA256()
+			if status, pathErr := store.Path(context.Background(), "tsgo", toolchain.CurrentPlatform()); pathErr == nil && status.Status == "installed" {
+				checker.Status = doctor.StatusOK
+				checker.Severity = doctor.SeverityInformational
+				checker.Message = "checksummed native tsgo is installed"
+				checker.SuggestedAction = ""
+				checker.Observed = map[string]any{"path": status.ManagedPath, "version": status.Version}
+			}
+		}
+	}
+	return append(checks, checker)
 }
 
 // doctorProcessOwnershipCheck stays in cmd/scenery because it depends on

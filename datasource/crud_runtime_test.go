@@ -4,12 +4,14 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 type crudDriverQuery struct {
@@ -52,8 +54,17 @@ func (connection *crudTestConn) QueryContext(_ context.Context, query string, ar
 	return &crudTestRows{values: response}, nil
 }
 
-func (rows *crudTestRows) Columns() []string { return []string{"id", "tenant_id", "name"} }
-func (rows *crudTestRows) Close() error      { return nil }
+func (rows *crudTestRows) Columns() []string {
+	if len(rows.values) == 0 {
+		return nil
+	}
+	columns := make([]string, len(rows.values[0]))
+	for index := range columns {
+		columns[index] = fmt.Sprintf("column_%d", index)
+	}
+	return columns
+}
+func (rows *crudTestRows) Close() error { return nil }
 func (rows *crudTestRows) Next(destination []driver.Value) error {
 	if rows.index >= len(rows.values) {
 		return io.EOF
@@ -130,6 +141,48 @@ func TestInvokeCRUDMapsEmptyGetToNotFound(t *testing.T) {
 	_, err := InvokeCRUD(context.Background(), database, spec, "get", []byte(`{"id":"missing","tenant_id":"tenant-1"}`))
 	if !errors.Is(err, ErrCRUDNotFound) {
 		t.Fatalf("get error = %v", err)
+	}
+}
+
+func TestCRUDListQueryFiltersPaginatesAndBindsCursorToQuery(t *testing.T) {
+	created := time.Date(2026, 7, 16, 10, 0, 0, 0, time.UTC)
+	row1 := []driver.Value{"scene-1", "tenant-1", "roof", created}
+	row2 := []driver.Value{"scene-2", "tenant-1", "wall", created.Add(time.Hour)}
+	database, state := openCRUDTestDatabase(t, [][][]driver.Value{{row1, row2}, {}})
+	spec := CRUDSpec{Address: "house/crud/scenes", Relation: "scenes", Fields: []CRUDField{
+		{Name: "id", Column: "id", Type: "uuid", PrimaryKey: true},
+		{Name: "tenant_id", Column: "tenant_id", Type: "string", TenantKey: true},
+		{Name: "name", Column: "name", Type: "enum.scene_name"},
+		{Name: "created_at", Column: "created_at", Type: "datetime"},
+	}, List: &CRUDListSpec{Filters: []string{"name", "created_at"}, Sorts: []string{"name"}, DefaultSort: "name", DefaultDirection: "desc", MaxPageSize: 2}}
+	output, err := InvokeCRUD(context.Background(), database, spec, "list", []byte(`{"tenant_id":"tenant-1","name":["roof"],"created_at_from":"2026-07-16T00:00:00Z","created_at_to":"2026-07-17T00:00:00Z","limit":1}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var page struct {
+		Items      []map[string]any `json:"items"`
+		NextCursor string           `json:"next_cursor"`
+	}
+	if err := json.Unmarshal(output, &page); err != nil || len(page.Items) != 1 || page.NextCursor == "" {
+		t.Fatalf("page = %#v, err = %v", page, err)
+	}
+	if got := state.queries[0].SQL; !strings.Contains(got, `"name" IN ($2)`) || !strings.Contains(got, `"created_at" >= $3`) || !strings.Contains(got, `"created_at" <= $4`) || !strings.Contains(got, `ORDER BY "name" DESC NULLS LAST, "id" DESC NULLS LAST LIMIT $5`) {
+		t.Fatalf("list query = %s", got)
+	}
+	_, err = InvokeCRUD(context.Background(), database, spec, "list", []byte(fmt.Sprintf(`{"tenant_id":"tenant-2","name":["roof"],"created_at_from":"2026-07-16T00:00:00Z","created_at_to":"2026-07-17T00:00:00Z","cursor":%q}`, page.NextCursor)))
+	if !errors.Is(err, ErrCRUDInvalidCursor) || len(state.queries) != 1 {
+		t.Fatalf("cross-tenant cursor error = %v, queries = %d", err, len(state.queries))
+	}
+	_, err = InvokeCRUD(context.Background(), database, spec, "list", []byte(fmt.Sprintf(`{"tenant_id":"tenant-1","name":["roof"],"sort":"name","direction":"asc","cursor":%q}`, page.NextCursor)))
+	if !errors.Is(err, ErrCRUDInvalidCursor) || len(state.queries) != 1 {
+		t.Fatalf("mismatched cursor error = %v, queries = %d", err, len(state.queries))
+	}
+	if _, err := InvokeCRUD(context.Background(), database, spec, "list", []byte(`{"tenant_id":"tenant-1","limit":999}`)); err != nil {
+		t.Fatal(err)
+	}
+	lastArgs := state.queries[len(state.queries)-1].Args
+	if got := lastArgs[len(lastArgs)-1].Value; got != int64(3) {
+		t.Fatalf("clamped fetch limit = %#v", got)
 	}
 }
 

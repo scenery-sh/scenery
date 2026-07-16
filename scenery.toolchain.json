@@ -25,6 +25,34 @@
   ],
   "artifacts": [
     {
+      "name": "tsgo",
+      "kind": "binary",
+      "version": "7.0.0-dev.20260707.2",
+      "license": "Apache-2.0",
+      "default_binary": "tsgo",
+      "binaries": [
+        "tsgo"
+      ],
+      "platforms": {
+        "linux/amd64": {
+          "archive": "tar.gz",
+          "url": "https://registry.npmjs.org/@typescript/native-preview-linux-x64/-/native-preview-linux-x64-7.0.0-dev.20260707.2.tgz",
+          "sha256": "5e6ee1052190526ae0ac277b2fb52ba0c7e880619201493bd5342976a0b33eb6",
+          "extract": "lib/tsgo",
+          "home": true,
+          "strip_components": 1
+        },
+        "darwin/arm64": {
+          "archive": "tar.gz",
+          "url": "https://registry.npmjs.org/@typescript/native-preview-darwin-arm64/-/native-preview-darwin-arm64-7.0.0-dev.20260707.2.tgz",
+          "sha256": "a6d0b46d71358db2d602324c553366a58fa1d031f5dfa12c09a35b6be17fe503",
+          "extract": "lib/tsgo",
+          "home": true,
+          "strip_components": 1
+        }
+      }
+    },
+    {
       "name": "postgres",
       "kind": "image",
       "version": "18",

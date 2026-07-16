@@ -47,6 +47,9 @@ func GenerateAll(root string, check bool) (GenerateResult, error) {
 	if err != nil {
 		return GenerateResult{}, err
 	}
+	if err := verifyRenderedTypeScriptReact(result, typescriptTargets(result.Manifest.Resources, ""), typeScriptFiles); err != nil {
+		return GenerateResult{}, err
+	}
 	return finishGeneratedFiles(result.Root, typeScriptFiles, check, "generated artifacts are stale")
 }
 
