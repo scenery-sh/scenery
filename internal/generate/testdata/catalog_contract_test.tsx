@@ -1,4 +1,5 @@
 import type {
+  RequestState,
   SplitPageSlotProps,
   TablePageCellProps,
   TablePageFilterProps,
@@ -6,6 +7,7 @@ import type {
 import {
   defineSplitPageSlots,
   defineTablePageSlots,
+  queryStateProps,
   SplitPage,
 } from "../../../ui/index.js";
 
@@ -13,6 +15,11 @@ interface Row {
   readonly id: string;
   readonly status: "open" | "closed";
 }
+
+const requestState: RequestState<{ readonly data: Row }> = {
+  kind: "loading",
+};
+const requestStateView = queryStateProps(requestState, "row");
 
 function StatusCell(props: TablePageCellProps<Row, Row["status"]>) {
   return <span>{props.value}</span>;
@@ -84,3 +91,4 @@ const splitWithUnlabeledCustomTitle = (
 void splitWithDefaultLabels;
 void splitWithCustomTitle;
 void splitWithUnlabeledCustomTitle;
+void requestStateView;

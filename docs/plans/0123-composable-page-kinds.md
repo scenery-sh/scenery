@@ -17,7 +17,7 @@ A future page kind then costs a content component plus sugar, not a new page she
 ## Progress
 
 - [x] Milestone 1: generator correctness fixes and shared emission helpers (completed 2026-07-17)
-- [ ] Milestone 2: shared request-state module in the catalog
+- [x] Milestone 2: shared request-state module in the catalog (completed 2026-07-17)
 - [ ] Milestone 3: `content_page` source kind end to end
 - [ ] Milestone 4: `QueryTable` on Astryx; `table_page` recomposes onto `content_page`; `ui/pages/` removed
 - [ ] Docs, SKILL.md, local contract, cookbook, and conformance fixtures updated
@@ -25,6 +25,7 @@ A future page kind then costs a content component plus sugar, not a new page she
 
 2026-07-17: Plan created from a review session; no implementation started.
 2026-07-17: Completed Milestone 1. Generated JSX attributes now use JavaScript string expressions, split-page selection follows `popstate`, both page renderers share client/load scaffolding and render unexpected failures, and `humanLabel` uppercases a decoded Unicode rune instead of a byte.
+2026-07-17: Completed Milestone 2. The catalog now exports one `Problem` / `RequestState` vocabulary and `queryStateProps`; split and table state types are aliases over it, without changing generated page output.
 
 ## Surprises & Discoveries
 
@@ -47,6 +48,7 @@ Add new discoveries here with evidence as implementation proceeds.
 - 2026-07-17: unify unexpected-error policy on the split-page behavior (map to `{ kind: "error", name: "unexpected" }`) rather than rethrowing; `TablePageResult` already has the error arm so the change is type-safe and renders instead of producing unhandled rejections.
 - 2026-07-17: fix JSX escaping by emitting brace-wrapped expressions (`title={"..."}`) for every authored string in attribute position; inside braces `strconv.Quote` semantics are correct. Do not attempt JSX-literal escaping rules.
 - 2026-07-17: no back-compat shims. Scenery has one rolling specification; `ui/pages/`, `theme.css`, and the `--scenery-ui-*` CSS token surface are removed, and docs that promised "catalog CSS tokens" customization are rewritten to "declared slots and Astryx tokens" in the same change.
+- 2026-07-17, agent: model `RequestState` as a discriminated union over the result-arm fields, so `SplitPageState<Data>` can specialize it with `{data: Data}` and `TablePageResult<Row>` with `{items, nextCursor}`. This gives both contracts one loading/result/error vocabulary while keeping Milestone 2 output-identical.
 
 Record further decisions with date, author, and rationale.
 

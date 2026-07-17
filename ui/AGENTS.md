@@ -11,6 +11,7 @@
 - Apps must not edit or copy the materialized catalog. They may alias `@scenery/ui` to `<output_root>/react/scenery-ui/index.ts` in both TypeScript and Vite.
 - `embed.go` must include every catalog source directory. `internal/generate` adds generated ownership markers during materialization.
 - Export the supported surface from `index.ts`; do not expose internal subpath imports.
+- Use the shared `Problem` / `RequestState` vocabulary and `queryStateProps` adapter for catalog request lifecycles instead of introducing component-local loading/error unions.
 - Do not constrain `ui/` changes to compatibility with older installed Scenery versions or apps that have not upgraded yet. When the current catalog needs compiler, generator, schema, or runtime changes, update Scenery in the same work and regenerate current consumers; do not add compatibility aliases or preserve an inferior UI contract for stale apps.
 
 ## Local iteration

@@ -1,17 +1,14 @@
 import type { ComponentType, ReactNode } from "react";
+import type { Problem, RequestState } from "../../components/request-state.js";
 
 export type TablePageAppearance = "auto" | "text" | "number" | "datetime" | "badge";
 export type TablePageDirection = "asc" | "desc";
 
-export interface TablePageProblem {
-  readonly code: string;
-  readonly message: string;
-  readonly path?: string;
-}
-
-export type TablePageResult<Row> =
-  | { readonly kind: "result"; readonly items: readonly Row[]; readonly nextCursor?: string }
-  | { readonly kind: "error"; readonly name: string; readonly problem: TablePageProblem };
+export type TablePageProblem = Problem;
+export type TablePageResult<Row> = RequestState<{
+  readonly items: readonly Row[];
+  readonly nextCursor?: string;
+}>;
 
 export interface TablePageQuery {
   readonly filters: Readonly<Record<string, string | readonly string[] | undefined>>;

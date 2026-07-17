@@ -4,6 +4,19 @@ import { colorVars, spacingVars } from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
 import type { ReactNode } from "react";
 
+export interface QueryStateProps {
+  error?: unknown;
+  isPending?: boolean;
+  isEmpty?: boolean;
+  resource: string;
+  retry?: () => void;
+  errorTitle?: string;
+  loadingLabel?: ReactNode;
+  empty?: ReactNode;
+  children: ReactNode;
+  getErrorMessage?: (error: unknown) => string;
+}
+
 export function QueryState({
   error,
   isPending,
@@ -15,18 +28,7 @@ export function QueryState({
   empty,
   children,
   getErrorMessage = defaultErrorMessage,
-}: {
-  error?: unknown;
-  isPending?: boolean;
-  isEmpty?: boolean;
-  resource: string;
-  retry?: () => void;
-  errorTitle?: string;
-  loadingLabel?: ReactNode;
-  empty?: ReactNode;
-  children: ReactNode;
-  getErrorMessage?: (error: unknown) => string;
-}) {
+}: QueryStateProps) {
   if (error) {
     return (
       <div {...stylex.props(styles.state)} role="alert">

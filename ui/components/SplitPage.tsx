@@ -6,21 +6,10 @@ import {
 import * as stylex from "@stylexjs/stylex";
 import type { ComponentType, CSSProperties, ReactNode } from "react";
 import { PageHeader, PageHeaderRow } from "./PageLayout.js";
+import type { Problem, RequestState } from "./request-state.js";
 
-export interface SplitPageProblem {
-  readonly code: string;
-  readonly message: string;
-  readonly path?: string;
-}
-
-export type SplitPageState<Data> =
-  | { readonly kind: "loading" }
-  | { readonly kind: "result"; readonly data: Data }
-  | {
-      readonly kind: "error";
-      readonly name: string;
-      readonly problem: SplitPageProblem;
-    };
+export type SplitPageProblem = Problem;
+export type SplitPageState<Data> = RequestState<{ readonly data: Data }>;
 
 /**
  * Generated split-page slots receive the raw request state so each app-owned
