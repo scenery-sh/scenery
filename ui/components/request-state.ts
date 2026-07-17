@@ -15,6 +15,32 @@ export type RequestState<Result extends object> =
       readonly problem: Problem;
     };
 
+export function requestStateFromQuery<Result extends object>(query: {
+  readonly data: RequestState<Result> | undefined;
+  readonly error: unknown;
+}): RequestState<Result> {
+  if (query.data) return query.data;
+  if (!query.error) return { kind: "loading" };
+  if (isCodedError(query.error)) {
+    return {
+      kind: "error",
+      name: query.error.code,
+      problem: { code: query.error.code, message: query.error.message },
+    };
+  }
+  return {
+    kind: "error",
+    name: "unexpected",
+    problem: {
+      code: "unexpected",
+      message:
+        query.error instanceof Error
+          ? query.error.message
+          : "Unexpected error",
+    },
+  };
+}
+
 export function queryStateProps<Result extends object>(
   state: RequestState<Result>,
   resource: string,
@@ -38,6 +64,19 @@ function isProblem(value: unknown): value is Problem {
   return (
     typeof value === "object" &&
     value !== null &&
+    "message" in value &&
+    typeof value.message === "string"
+  );
+}
+
+function isCodedError(
+  value: unknown,
+): value is { readonly code: string; readonly message: string } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "code" in value &&
+    typeof value.code === "string" &&
     "message" in value &&
     typeof value.message === "string"
   );

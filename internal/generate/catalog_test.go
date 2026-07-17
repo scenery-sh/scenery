@@ -45,6 +45,8 @@ func TestBinaryOwnedUICatalogContainsComposableQueryTable(t *testing.T) {
 		`@astryxdesign/core/DateTimeInput`,
 		`@astryxdesign/core/Pagination`,
 		`@astryxdesign/core/Selector`,
+		`@tanstack/react-query`,
+		`requestStateFromQuery<{`,
 		`<DataTable`,
 		`<QueryState`,
 	} {

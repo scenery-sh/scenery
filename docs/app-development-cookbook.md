@@ -274,6 +274,12 @@ Commit the generated descriptor and source files. Regenerate after reachable typ
 
 With `react`, the same transaction owns `react/<table>.generated.tsx`, `react/pages.generated.ts`, and `react/scenery-ui/`. The app mounts the neutral `generatedPages` array in its router. Install frontend dependencies before generation; `scenery doctor -o json` reports the declared tsconfig, `node_modules`, and managed checker readiness.
 
+Mount generated pages beneath the app's TanStack `QueryClientProvider`. Content,
+split, and table pages use stable page-address query keys, so the app's cache,
+deduplication, retry, and invalidation defaults apply automatically. Generated
+pages do not mark arbitrary API results for persistent storage; enable persistence
+only through an explicit app policy that is appropriate for the data.
+
 ## Semantic Changes And Compatibility
 
 Use canonical graph operations rather than editing generated files:

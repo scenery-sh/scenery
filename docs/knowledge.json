@@ -19,6 +19,30 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0125-scenery-ui-single-surface.md",
+      "title": "Single @scenery/ui Import Surface: Token Facade and Blessed Primitives",
+      "owner": "scenery ui catalog / generation / agent DX",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-07-17",
+      "review_after": "2026-08-16",
+      "summary": "Active ExecPlan making @scenery/ui the single UI import surface over Meta-maintained Astryx (shadcn model): a catalog-owned tokens.stylex.ts defining module whose semantic StyleX vars reference imported Astryx var members (runtime theming flows through Astryx's plain named custom properties), curated re-exports of the measured blessed primitive set in ui/index.ts, an app alias contract for the token subpath, and a gating feasibility spike in the Micro platform app via ui_catalog live mode; vendoring Astryx is ruled out and plan 0124's report measures adoption.",
+      "tags": ["plans", "execplans", "ui-catalog", "astryx", "stylex", "tokens", "react", "agent-dx", "generation"]
+    },
+    {
+      "path": "docs/plans/0124-ui-guardrails-report.md",
+      "title": "UI Guardrails Report: Design-System Adherence Inspection",
+      "owner": "scenery inspect / ui catalog / agent DX",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-07-17",
+      "review_after": "2026-08-16",
+      "summary": "Active ExecPlan adding read-only `scenery inspect ui`: per-frontend, per-file design-system adherence report scanning hand-authored React source for two independent axes (Astryx/@scenery/ui markup share vs raw HTML elements; StyleX theme-token share vs hardcoded colors/sizes/inline styles) with a ranked slop score for rewrite triage; check-time ratcheted enforcement is sketched but deferred.",
+      "tags": ["plans", "execplans", "inspect", "ui-catalog", "astryx", "stylex", "react", "guardrails", "agent-dx"]
+    },
+    {
       "path": "docs/plans/0123-composable-page-kinds.md",
       "title": "Composable Page Kinds: content_page Shell, Astryx QueryTable, Shared Request State",
       "owner": "scenery generation / ui catalog",

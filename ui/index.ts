@@ -52,7 +52,10 @@ export type {
 } from "./components/SplitPage.js";
 export { EmptyState, QueryState, TableEmptyRow } from "./components/QueryState.js";
 export type { QueryStateProps } from "./components/QueryState.js";
-export { queryStateProps } from "./components/request-state.js";
+export {
+  queryStateProps,
+  requestStateFromQuery,
+} from "./components/request-state.js";
 export type {
   Problem,
   RequestState,

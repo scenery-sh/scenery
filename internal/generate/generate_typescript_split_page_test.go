@@ -19,8 +19,12 @@ func TestRenderReactSplitPageUsesTypedSlots(t *testing.T) {
 	for _, fragment := range []string{
 		"defineSplitPageSlots<ReadResult>",
 		"client.read({})",
+		`import { useQuery } from "@tanstack/react-query"`,
+		`const queryKey = ["scenery", "split_page", "work/split_page/work"] as const`,
+		"const query = useQuery({ queryKey, queryFn: load })",
+		"const state: SplitPageState<ReadResult> = requestStateFromQuery<{ readonly data: ReadResult }>(query)",
 		"useState<string | null>",
-		`globalThis.addEventListener("popstate", syncSelectionFromURL)`,
+		`syncSelectionFromURL(); globalThis.addEventListener("popstate", syncSelectionFromURL)`,
 		`globalThis.removeEventListener("popstate", syncSelectionFromURL)`,
 		"nextURL.searchParams.delete(queryParameter)",
 		`<SplitPage sidebarTitle={"Say \"hi\" \\ work"}`,
@@ -31,6 +35,11 @@ func TestRenderReactSplitPageUsesTypedSlots(t *testing.T) {
 	} {
 		if !strings.Contains(source, fragment) {
 			t.Errorf("generated split page missing %q:\n%s", fragment, source)
+		}
+	}
+	for _, fragment := range []string{"useState<SplitPageState", "void load().then"} {
+		if strings.Contains(source, fragment) {
+			t.Errorf("generated split page retains manual request state %q:\n%s", fragment, source)
 		}
 	}
 	delete(split.Spec, "aria_label")

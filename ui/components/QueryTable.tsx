@@ -7,11 +7,11 @@ import { Selector } from "@astryxdesign/core/Selector";
 import { Text } from "@astryxdesign/core/Text";
 import { spacingVars } from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
+import { useQuery } from "@tanstack/react-query";
 import {
   type ComponentType,
   type ReactNode,
   useCallback,
-  useEffect,
   useMemo,
   useState,
 } from "react";
@@ -20,6 +20,7 @@ import { QueryState } from "./QueryState.js";
 import {
   type Problem,
   queryStateProps,
+  requestStateFromQuery,
   type RequestState,
 } from "./request-state.js";
 
@@ -138,6 +139,7 @@ export interface QueryTableProps<Row extends object> {
   readonly sorts: readonly TablePageSort[];
   readonly rowLink?: (row: Row) => string;
   readonly pageSize: number;
+  readonly queryKey: readonly unknown[];
   readonly load: (query: TablePageQuery) => Promise<TablePageResult<Row>>;
   readonly empty?: ComponentType<TablePageEmptyProps>;
 }
@@ -150,6 +152,7 @@ export function QueryTable<Row extends object>({
   sorts,
   rowLink,
   pageSize,
+  queryKey,
   load,
   empty: Empty,
 }: QueryTableProps<Row>) {
@@ -163,38 +166,19 @@ export function QueryTable<Row extends object>({
   );
   const [cursor, setCursor] = useState<string>();
   const [history, setHistory] = useState<readonly (string | undefined)[]>([]);
-  const [reloadKey, setReloadKey] = useState(0);
-  const [result, setResult] = useState<TablePageResult<Row>>({
-    kind: "loading",
-  });
 
   const query = useMemo<TablePageQuery>(
     () => ({ filters, sort, direction, cursor, limit: pageSize }),
     [cursor, direction, filters, pageSize, sort],
   );
-  useEffect(() => {
-    let active = true;
-    setResult({ kind: "loading" });
-    void load(query)
-      .then((next) => {
-        if (active) setResult(next);
-      })
-      .catch((cause: unknown) => {
-        if (!active) return;
-        setResult({
-          kind: "error",
-          name: "unexpected",
-          problem: {
-            code: "unexpected",
-            message:
-              cause instanceof Error ? cause.message : "Unexpected error",
-          },
-        });
-      });
-    return () => {
-      active = false;
-    };
-  }, [load, query, reloadKey]);
+  const resultQuery = useQuery({
+    queryKey: [...queryKey, query],
+    queryFn: () => load(query),
+  });
+  const result = requestStateFromQuery<{
+    readonly items: readonly Row[];
+    readonly nextCursor?: string;
+  }>(resultQuery);
 
   const resetQuery = useCallback(() => {
     setCursor(undefined);
@@ -317,7 +301,7 @@ export function QueryTable<Row extends object>({
           )
         }
         isEmpty={result.kind === "result" && result.items.length === 0}
-        retry={() => setReloadKey((value) => value + 1)}
+        retry={() => void resultQuery.refetch()}
       >
         <DataTable
           columns={dataColumns}

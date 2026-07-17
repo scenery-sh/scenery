@@ -7,12 +7,12 @@
 ## Local contracts
 
 - Components are reusable across client applications. Never add domain-specific pages (mail, projects, orders, or similar), or import app-owned routes, state, assets, or generated API types here; expose data and composition through typed props and slots.
-- Use Astryx components and tokens with StyleX. Keep React, Astryx, and StyleX as peer dependencies so each Vite app supplies one runtime copy.
+- Use Astryx components and tokens with StyleX. Keep React, TanStack Query, Astryx, and StyleX as peer dependencies so each Vite app supplies one runtime copy and one QueryClient.
 - Apps must not edit or copy the materialized catalog. They may alias `@scenery/ui` to `<output_root>/react/scenery-ui/index.ts` in both TypeScript and Vite.
 - `embed.go` must include every catalog source directory. `internal/generate` adds generated ownership markers during materialization.
 - Export the supported surface from `index.ts`; do not expose internal subpath imports.
 - Use the shared `Problem` / `RequestState` vocabulary and `queryStateProps` adapter for catalog request lifecycles instead of introducing component-local loading/error unions.
-- Keep `QueryTable` chrome-less. Generated `table_page` adapters own the surrounding `Page` shell and map `toolbar` to page actions; the catalog component owns only query controls, request states, grid, and pagination.
+- Keep `QueryTable` chrome-less. Generated `table_page` adapters own the surrounding `Page` shell and map `toolbar` to page actions; the catalog component owns only query controls, TanStack Query request state, grid, and pagination.
 - Do not constrain `ui/` changes to compatibility with older installed Scenery versions or apps that have not upgraded yet. When the current catalog needs compiler, generator, schema, or runtime changes, update Scenery in the same work and regenerate current consumers; do not add compatibility aliases or preserve an inferior UI contract for stale apps.
 
 ## Local iteration

@@ -14,6 +14,7 @@
     "@astryxdesign/core": "^0.1.2",
     "@astryxdesign/theme-neutral": "^0.1.2",
     "@stylexjs/stylex": "0.18.3",
+    "@tanstack/react-query": "^5.101.2",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
   },

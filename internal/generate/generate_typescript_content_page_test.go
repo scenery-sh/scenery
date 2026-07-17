@@ -26,7 +26,10 @@ func TestRenderReactContentPageUsesPageShellAndTypedSlots(t *testing.T) {
 	for _, fragment := range []string{
 		"defineContentPageSlots<ReadResult>",
 		"client.read({})",
-		"useState<ContentPageState<ReadResult>>",
+		`import { useQuery } from "@tanstack/react-query"`,
+		`const queryKey = ["scenery", "content_page", "work/content_page/summary"] as const`,
+		"const query = useQuery({ queryKey, queryFn: load })",
+		"const state: ContentPageState<ReadResult> = requestStateFromQuery<{ readonly data: ReadResult }>(query)",
 		`<Page title={"Say \"hi\" \\ summary"}`,
 		`ariaLabel={"Summary \"page\" \\ content"}`,
 		"maxWidth={960}",
@@ -35,6 +38,11 @@ func TestRenderReactContentPageUsesPageShellAndTypedSlots(t *testing.T) {
 	} {
 		if !strings.Contains(source, fragment) {
 			t.Errorf("generated content page missing %q:\n%s", fragment, source)
+		}
+	}
+	for _, fragment := range []string{"useState<ContentPageState", "void load().then"} {
+		if strings.Contains(source, fragment) {
+			t.Errorf("generated content page retains manual request state %q:\n%s", fragment, source)
 		}
 	}
 }

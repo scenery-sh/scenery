@@ -14,6 +14,7 @@
         "../../../apps/console/node_modules/@astryxdesign/core/dist/*.d.ts"
       ],
       "@stylexjs/stylex": ["../../../apps/console/node_modules/@stylexjs/stylex/lib/es/stylex.d.ts"],
+      "@tanstack/react-query": ["../../../apps/console/node_modules/@tanstack/react-query/build/modern/index.d.ts"],
       "react": ["../../../apps/console/node_modules/@types/react/index.d.ts"],
       "react/jsx-runtime": ["../../../apps/console/node_modules/@types/react/jsx-runtime.d.ts"]
     }
