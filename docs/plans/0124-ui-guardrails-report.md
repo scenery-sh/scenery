@@ -119,7 +119,9 @@ metric definitions survive at least one real cleanup driven by the report.
   in-guardrails; the scanner keys token identity off imports from any
   `*.stylex` module, so this migration would not change the report
   contract, and the separate `markup.design_system` / `markup.catalog`
-  counters are exactly the instrument that would measure it.
+  counters are exactly the instrument that would measure it. This
+  direction is now planned as ExecPlan 0125
+  (`docs/plans/0125-scenery-ui-single-surface.md`).
 - (2026-07-17, Claude) v1 scanning is a dedicated Go lexical scanner in
   `internal/uireport`, not an AST from the managed TypeScript checker.
   Rationale: `internal/tscheck` wraps the managed `tsgo` binary as a
