@@ -72,6 +72,8 @@ any`, no runtime component registry, no dynamic imports, and no eject flow.
 - [x] Consolidated the component implementation and slot contract in `ui/components/SplitPage.tsx` (completed 2026-07-17)
 - [x] Documented slot-owned loading/error rendering through `QueryState` and completed cross-repo validation (completed 2026-07-17)
 - [x] Removed the positioned-ancestor layout dependency, made empty selection nullable, defaulted string-title labels, and unified the two header rows (completed 2026-07-17)
+- [x] Made authored JSX attribute strings literal-safe and synchronized generated SplitPage selection on browser Back/Forward navigation (completed 2026-07-17)
+- [x] Unified split/table page scaffolding and made TablePage unexpected failures render through its existing error state (completed 2026-07-17)
 
 (M1-M6 completed 2026-07-16.)
 
@@ -172,6 +174,20 @@ assistance, during the design conversation that produced this plan.
   default section and sidebar labels, while a custom React title requires
   explicit labels. Both header rows share one structural component with an
   explicit justification variant. Decided 2026-07-17 by Petr Brazdil.
+
+- **Generated JSX treats authored strings as JavaScript, not HTML-like
+  attributes.** Direct JSX string props use brace-wrapped expressions so Go
+  literal escaping remains valid TSX; strings already inside JavaScript
+  object/array expressions stay ordinary literals. Split-page history remains
+  navigable because the generated component re-reads selection on `popstate`.
+  Decided 2026-07-17 by Petr Brazdil.
+
+- **Generated React page loaders share one failure policy.** Split and table
+  pages map declared outcome failures, `SceneryClientError`, and unexpected
+  thrown failures into their typed renderable error state. The shared
+  generator scaffold prevents a future declarative page kind from silently
+  adopting a different transport-error policy. Decided 2026-07-17 by Petr
+  Brazdil.
 
 - **`table_page` is a macro, not a new query IR or page platform.** It expands
   to existing `scenery.page` + `scenery.renderer` resources. No runtime
@@ -320,6 +336,14 @@ its own parent without `position: absolute`, represents no selection as
 from a string title, and renders both headers through the same header-row
 primitive. Catalog contract typechecking covers the label-default and
 custom-title cases.
+
+Generator hardening now covers authored quotes and backslashes in split-page
+titles/labels and table-page titles, descriptions, labels, and enum wire
+values. SplitPage also subscribes and unsubscribes a `popstate` listener, so
+history Back/Forward changes both the URL and the rendered slot selection.
+SplitPage and TablePage now share the generated client/open and loader
+scaffolds, and TablePage converts unexpected thrown failures into its existing
+error result instead of leaking a rejected loader promise.
 
 The planned in-process TypeScript embedding was not viable because upstream
 does not expose a public embeddable compiler API. Reusing Scenery's existing

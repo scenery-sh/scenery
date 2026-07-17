@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 type reactTablePage struct {
@@ -15,6 +17,10 @@ type reactTablePage struct {
 type reactSplitPage struct {
 	split, operation, binding Resource
 }
+
+// Slot names mirror SplitPageSlots in ui/components/SplitPage.tsx and the
+// split_page source schema; order fixes the generated import alias numbering.
+var splitPageSlotNames = []string{"sidebar", "detail", "sidebar_actions", "detail_header"}
 
 func renderTypeScriptReact(result *Result, target Resource, root string, bindings []Resource) ([]generatedFile, []string, error) {
 	if _, ok := target.Spec["react"].(map[string]any); !ok {
@@ -116,6 +122,23 @@ func renderReactPages(pages []reactTablePage, splitPages []reactSplitPage) strin
 	return b.String()
 }
 
+func writeReactPageOpen(b *strings.Builder, pageName, clientName string) {
+	fmt.Fprintf(b, "export function %sPage({ client: providedClient }: { readonly client?: %sClient } = {}) {\n", pageName, clientName)
+	fmt.Fprintf(b, "  const defaultClient = useMemo(() => new %sClient({ baseUrl: url(new URL(\"/api/\", globalThis.location.origin).toString()), authentication: { credentials: \"include\" } }), []);\n", clientName)
+	b.WriteString("  const client = providedClient ?? defaultClient;\n")
+}
+
+func writeReactLoad(b *strings.Builder, params, stateType string, writeCall func(*strings.Builder), resultExpr string) {
+	fmt.Fprintf(b, "  const load = useCallback(async (%s): Promise<%s> => {\n    try {\n", params, stateType)
+	writeCall(b)
+	fmt.Fprintf(b, "      if (outcome.kind === \"result\") return %s;\n", resultExpr)
+	b.WriteString("      return { kind: \"error\", name: outcome.name, problem: outcome.problem };\n")
+	b.WriteString("    } catch (cause) {\n")
+	b.WriteString("      if (cause instanceof SceneryClientError) return { kind: \"error\", name: cause.code, problem: { code: cause.code, message: cause.message } };\n")
+	b.WriteString("      return { kind: \"error\", name: \"unexpected\", problem: { code: \"unexpected\", message: cause instanceof Error ? cause.message : \"Unexpected error\" } };\n")
+	b.WriteString("    }\n  }, [client]);\n")
+}
+
 func renderReactSplitPage(result *Result, target Resource, reactRoot string, page reactSplitPage, bindings []Resource) (string, error) {
 	resultType := tsType(namedChildren(page.operation.Spec, "result")[0]["type"])
 	aliases := map[string]string{}
@@ -126,7 +149,7 @@ func renderReactSplitPage(result *Result, target Resource, reactRoot string, pag
 	fmt.Fprintf(&b, "import type { %s } from \"../index.js\";\n", resultType)
 	b.WriteString("import { SplitPage, defineSplitPageSlots } from \"./scenery-ui/index.js\";\n")
 	b.WriteString("import type { SplitPageSlotProps, SplitPageState } from \"./scenery-ui/index.js\";\n")
-	for index, slot := range []string{"sidebar", "detail", "sidebar_actions", "detail_header"} {
+	for index, slot := range splitPageSlotNames {
 		children := orderedChildren(page.split.Spec, slot)
 		if len(children) == 0 {
 			continue
@@ -143,36 +166,30 @@ func renderReactSplitPage(result *Result, target Resource, reactRoot string, pag
 	}
 	b.WriteString("\n")
 	fmt.Fprintf(&b, "const slots = defineSplitPageSlots<%s>()({\n", resultType)
-	for _, slot := range []string{"sidebar", "detail", "sidebar_actions", "detail_header"} {
+	for _, slot := range splitPageSlotNames {
 		if alias := aliases[slot]; alias != "" {
 			fmt.Fprintf(&b, "  %s: %s,\n", tsName(slot), alias)
 		}
 	}
 	b.WriteString("});\n\n")
 	method := reactOperationClientMethod(page.operation, page.binding, bindings)
-	fmt.Fprintf(&b, "export function %sPage({ client: providedClient }: { readonly client?: %sClient } = {}) {\n", goName(page.split.Name), goName(target.Name))
-	fmt.Fprintf(&b, "  const defaultClient = useMemo(() => new %sClient({ baseUrl: url(new URL(\"/api/\", globalThis.location.origin).toString()), authentication: { credentials: \"include\" } }), []);\n", goName(target.Name))
-	b.WriteString("  const client = providedClient ?? defaultClient;\n")
-	fmt.Fprintf(&b, "  const load = useCallback(async (): Promise<SplitPageState<%s>> => {\n    try {\n", resultType)
-	fmt.Fprintf(&b, "      const outcome = await client.%s({});\n", method)
-	b.WriteString("      if (outcome.kind === \"result\") return { kind: \"result\", data: outcome.value };\n")
-	b.WriteString("      return { kind: \"error\", name: outcome.name, problem: outcome.problem };\n")
-	b.WriteString("    } catch (cause) {\n")
-	b.WriteString("      if (cause instanceof SceneryClientError) return { kind: \"error\", name: cause.code, problem: { code: cause.code, message: cause.message } };\n")
-	b.WriteString("      return { kind: \"error\", name: \"unexpected\", problem: { code: \"unexpected\", message: cause instanceof Error ? cause.message : \"Unexpected error\" } };\n")
-	b.WriteString("    }\n  }, [client]);\n")
+	writeReactPageOpen(&b, goName(page.split.Name), goName(target.Name))
+	writeReactLoad(&b, "", "SplitPageState<"+resultType+">", func(b *strings.Builder) {
+		fmt.Fprintf(b, "      const outcome = await client.%s({});\n", method)
+	}, `{ kind: "result", data: outcome.value }`)
 	fmt.Fprintf(&b, "  const queryParameter = %s;\n", strconv.Quote(defaultString(stringValue(page.split.Spec["query_parameter"]), "selected")))
 	b.WriteString("  const [state, setState] = useState<SplitPageState<" + resultType + ">>({ kind: \"loading\" });\n")
 	b.WriteString("  const [selection, setSelection] = useState<string | null>(() => typeof globalThis.location === \"undefined\" ? null : new URLSearchParams(globalThis.location.search).get(queryParameter));\n")
+	b.WriteString("  useEffect(() => { if (typeof globalThis.location === \"undefined\" || typeof globalThis.addEventListener !== \"function\") return; const syncSelectionFromURL = () => setSelection(new URLSearchParams(globalThis.location.search).get(queryParameter)); globalThis.addEventListener(\"popstate\", syncSelectionFromURL); return () => globalThis.removeEventListener(\"popstate\", syncSelectionFromURL); }, [queryParameter]);\n")
 	b.WriteString("  useEffect(() => { let active = true; void load().then((next) => { if (active) setState(next); }); return () => { active = false; }; }, [load]);\n")
 	b.WriteString("  const onSelectionChange = useCallback((next: string | null) => { setSelection(next); if (typeof globalThis.location !== \"undefined\") { const nextURL = new URL(globalThis.location.href); if (next === null) nextURL.searchParams.delete(queryParameter); else nextURL.searchParams.set(queryParameter, next); globalThis.history.pushState({}, \"\", nextURL); } }, [queryParameter]);\n")
 	b.WriteString("  const slotProps: SplitPageSlotProps<" + resultType + "> = { state, selection, onSelectionChange };\n")
-	fmt.Fprintf(&b, "  return <SplitPage sidebarTitle=%s", strconv.Quote(stringValue(page.split.Spec["title"])))
+	fmt.Fprintf(&b, "  return <SplitPage sidebarTitle=%s", jsxStringExpression(stringValue(page.split.Spec["title"])))
 	if label := stringValue(page.split.Spec["aria_label"]); label != "" {
-		fmt.Fprintf(&b, " ariaLabel=%s", strconv.Quote(label))
+		fmt.Fprintf(&b, " ariaLabel=%s", jsxStringExpression(label))
 	}
 	if label := stringValue(page.split.Spec["sidebar_label"]); label != "" {
-		fmt.Fprintf(&b, " sidebarLabel=%s", strconv.Quote(label))
+		fmt.Fprintf(&b, " sidebarLabel=%s", jsxStringExpression(label))
 	}
 	if aliases["sidebar_actions"] != "" {
 		b.WriteString(" sidebarActions={<slots.sidebarActions {...slotProps} />}")
@@ -327,36 +344,27 @@ func renderReactTablePage(result *Result, target Resource, reactRoot string, pag
 	b.WriteString("});\n\n")
 
 	method := reactClientMethod(page, bindings)
-	fmt.Fprintf(&b, "export function %sPage({ client: providedClient }: { readonly client?: %sClient } = {}) {\n", goName(page.table.Name), goName(target.Name))
-	fmt.Fprintf(&b, "  const defaultClient = useMemo(() => new %sClient({ baseUrl: url(new URL(\"/api/\", globalThis.location.origin).toString()), authentication: { credentials: \"include\" } }), []);\n", goName(target.Name))
-	b.WriteString("  const client = providedClient ?? defaultClient;\n")
-	fmt.Fprintf(&b, "  const load = useCallback(async (query: TablePageQuery): Promise<TablePageResult<%s>> => {\n", rowType)
-	b.WriteString("    try {\n")
-	fmt.Fprintf(&b, "    const outcome = await client.%s({\n", method)
-	for _, filter := range orderedChildren(page.table.Spec, "filter") {
-		field := stringValue(filter["name"])
-		values := enumWireValues(resources, page.record.Module, fields[field]["type"])
-		if len(values) > 0 {
-			fmt.Fprintf(&b, "      %s: Array.isArray(query.filters[%s]) ? query.filters[%s].filter((value): value is %s => %s) : undefined,\n", tsName(field), strconv.Quote(field), strconv.Quote(field), tsType(fields[field]["type"]), reactLiteralPredicate("value", values))
-		} else {
-			fmt.Fprintf(&b, "      %sFrom: typeof query.filters[%s] === \"string\" ? dateTime(query.filters[%s]) : undefined,\n", tsName(field), strconv.Quote(field+"_from"), strconv.Quote(field+"_from"))
-			fmt.Fprintf(&b, "      %sTo: typeof query.filters[%s] === \"string\" ? dateTime(query.filters[%s]) : undefined,\n", tsName(field), strconv.Quote(field+"_to"), strconv.Quote(field+"_to"))
+	writeReactPageOpen(&b, goName(page.table.Name), goName(target.Name))
+	writeReactLoad(&b, "query: TablePageQuery", "TablePageResult<"+rowType+">", func(b *strings.Builder) {
+		fmt.Fprintf(b, "    const outcome = await client.%s({\n", method)
+		for _, filter := range orderedChildren(page.table.Spec, "filter") {
+			field := stringValue(filter["name"])
+			values := enumWireValues(resources, page.record.Module, fields[field]["type"])
+			if len(values) > 0 {
+				fmt.Fprintf(b, "      %s: Array.isArray(query.filters[%s]) ? query.filters[%s].filter((value): value is %s => %s) : undefined,\n", tsName(field), strconv.Quote(field), strconv.Quote(field), tsType(fields[field]["type"]), reactLiteralPredicate("value", values))
+			} else {
+				fmt.Fprintf(b, "      %sFrom: typeof query.filters[%s] === \"string\" ? dateTime(query.filters[%s]) : undefined,\n", tsName(field), strconv.Quote(field+"_from"), strconv.Quote(field+"_from"))
+				fmt.Fprintf(b, "      %sTo: typeof query.filters[%s] === \"string\" ? dateTime(query.filters[%s]) : undefined,\n", tsName(field), strconv.Quote(field+"_to"), strconv.Quote(field+"_to"))
+			}
 		}
-	}
-	sorts := stringValues(page.crud.Spec["list"].(map[string]any)["sorts"])
-	fmt.Fprintf(&b, "      sort: query.sort !== undefined && %s ? query.sort : undefined,\n", reactLiteralPredicate("query.sort", sorts))
-	b.WriteString("      direction: query.direction,\n      cursor: query.cursor,\n      limit: BigInt(query.limit),\n")
-	b.WriteString("    });\n")
-	b.WriteString("      if (outcome.kind === \"result\") return { kind: \"result\", items: outcome.value.items, nextCursor: outcome.value.nextCursor };\n")
-	b.WriteString("      return { kind: \"error\", name: outcome.name, problem: outcome.problem };\n")
-	b.WriteString("    } catch (cause) {\n")
-	b.WriteString("      if (cause instanceof SceneryClientError) return { kind: \"error\", name: cause.code, problem: { code: cause.code, message: cause.message } };\n")
-	b.WriteString("      throw cause;\n")
-	b.WriteString("    }\n")
-	b.WriteString("  }, [client]);\n")
-	fmt.Fprintf(&b, "  return <TablePage<%s> title=%s", rowType, strconv.Quote(stringValue(page.table.Spec["title"])))
+		sorts := stringValues(page.crud.Spec["list"].(map[string]any)["sorts"])
+		fmt.Fprintf(b, "      sort: query.sort !== undefined && %s ? query.sort : undefined,\n", reactLiteralPredicate("query.sort", sorts))
+		b.WriteString("      direction: query.direction,\n      cursor: query.cursor,\n      limit: BigInt(query.limit),\n")
+		b.WriteString("    });\n")
+	}, `{ kind: "result", items: outcome.value.items, nextCursor: outcome.value.nextCursor }`)
+	fmt.Fprintf(&b, "  return <TablePage<%s> title=%s", rowType, jsxStringExpression(stringValue(page.table.Spec["title"])))
 	if description := stringValue(page.table.Spec["description"]); description != "" {
-		fmt.Fprintf(&b, " description=%s", strconv.Quote(description))
+		fmt.Fprintf(&b, " description=%s", jsxStringExpression(description))
 	}
 	b.WriteString(" columns={[\n")
 	for _, column := range orderedChildren(page.table.Spec, "column") {
@@ -486,9 +494,14 @@ func renderReactRowLink(template string) string {
 func humanLabel(value string) string {
 	parts := strings.Fields(strings.ReplaceAll(value, "_", " "))
 	for index := range parts {
-		parts[index] = strings.ToUpper(parts[index][:1]) + parts[index][1:]
+		first, size := utf8.DecodeRuneInString(parts[index])
+		parts[index] = string(unicode.ToUpper(first)) + parts[index][size:]
 	}
 	return strings.Join(parts, " ")
+}
+
+func jsxStringExpression(value string) string {
+	return "{" + strconv.Quote(value) + "}"
 }
 
 func unionOrNever(values []string) string {
