@@ -73,6 +73,10 @@ Child `AGENTS.md` files:
 
 ## Agent skills
 
+### Subagents
+
+Do not spawn subagents (background review/research/explore agents, multi-agent workflows) unless the human explicitly asks for them. Do the reading and analysis in the main session.
+
 ### Browser automation
 
 When browser interaction is needed, use the `chrome:control-chrome` skill by default unless the user explicitly asks for a different browser surface or tool.
@@ -109,7 +113,7 @@ scenery is a Go-native service runtime and local development platform. Think in 
 - `.scenery.json` declares named `envs`; exactly one reserved `local` env is default. The selected env owns domain/exposure/ports, frontend serve modes, deploy targets, dotenv layering, and secret strictness. `scenery up --env <name>` selects it, session manifests record it, and failed branded-domain validation stays on localhost without redirecting to another env.
 - Public and auth endpoints are externally reachable. Private endpoints are internal-only and must be called through generated helpers.
 - Typed endpoints decode path/query/header/cookie/body inputs into Go values and encode typed responses.
-- CRUD resources can declare an explicit list filter/sort contract with fingerprint-bound cursor pagination. `table_page` and generic `split_page` declarations expand to ordinary page/renderer resources, and React-enabled TypeScript clients materialize the binary-owned catalog and generated pages only after staged verification by Scenery's exact managed native TypeScript checker. Domain-specific UI remains in app-owned `react_component` slots, never in Scenery's catalog or compiler.
+- CRUD resources can declare an explicit list filter/sort contract with fingerprint-bound cursor pagination. `content_page`, `table_page`, and generic `split_page` declarations expand to ordinary page/renderer resources, and React-enabled TypeScript clients materialize the binary-owned catalog and generated pages only after staged verification by Scenery's exact managed native TypeScript checker. Domain-specific UI remains in app-owned `react_component` slots, never in Scenery's catalog or compiler.
 - Terminal HTTP path tails use `{name...}` plus one typed `path_tail` mapping under the HTTP codec/runtime contract. They capture zero or more complete segments with exact/literal/parameter/tail precedence, strict one-time segment decoding, ordinary typed Go inputs, and independently encoded TypeScript segments.
 - Generated internal calls preserve route, private access, auth context, tracing, and error semantics.
 - Constructors receive typed `scenery.sh/datasource` and `scenery.sh/object` capabilities; built-in CRUD, fixtures, views, pages, and renderers stay in the same generated application composition.
