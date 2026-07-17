@@ -6,6 +6,51 @@ Completed means implemented or shipped at least once. It does not imply stable
 support for every surface. Use [../local-contract.md](../local-contract.md) as
 the source of truth for stable, beta, and dev-only classification.
 
+## Fully Generated Client Apps
+
+- Status: completed
+- Owner: scenery spec / compiler / generation / ui catalog
+- Completed: 2026-07-17
+- Quality: B
+- ExecPlan: [0126 Fully Generated Client Apps](0126-fully-generated-client-apps.md)
+
+Shipped typed `.scn` page search/navigation metadata, `SCN2619` validation,
+generated route descriptors and search validators, one TanStack route-tree
+adapter, generated navigation, the router-agnostic catalog `ClientAppShell`,
+and fixed auth/top-bar/content/link/icon extension slots. The Micro platform
+reference app now mounts every page through `createSceneryApp`; its hand-written
+route tree, `AppPages`/`RoutePane`, duplicated generated-page validators,
+manual navigation list, and layout shell were deleted and verified live.
+
+## Single @scenery/ui Import Surface
+
+- Status: completed
+- Owner: scenery ui catalog / generation / agent DX
+- Completed: 2026-07-17
+- Quality: B
+- ExecPlan: [0125 Single @scenery/ui Import Surface](0125-scenery-ui-single-surface.md)
+
+Shipped the catalog-owned semantic `t` StyleX facade, its sole direct
+`@scenery/ui/tokens.stylex` defining-module subpath, curated Astryx primitive
+re-exports with component types, embedded and live catalog materialization,
+the three-resolver client alias contract, and a real Micro warranty-page
+migration proven by production build, current generation, adoption metrics,
+and a live Astryx light/dark theme flip.
+
+## UI Guardrails Report
+
+- Status: completed
+- Owner: scenery inspect / ui catalog / agent DX
+- Completed: 2026-07-17
+- Quality: B
+- ExecPlan: [0124 UI Guardrails Report](0124-ui-guardrails-report.md)
+
+Shipped the read-only `scenery inspect ui` human/JSON surface, tokenizer-aware
+React and StyleX classification, safe hand-authored-source collection,
+independent markup/token shares, deterministic slop ranking, exact machine
+schema, UI-cleanup workflow docs, and live Micro/platform plus ONLV acceptance.
+Check-time baseline enforcement remains a separate deferred decision.
+
 ## Composable Page Kinds
 
 - Status: completed

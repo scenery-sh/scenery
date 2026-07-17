@@ -23,6 +23,7 @@ type inspectOptions struct {
 	AppRoot  string
 	RepoRoot string
 	JSON     bool
+	UI       inspectUIOptions
 	Trace    inspectTraceQueryOptions
 	Harness  inspectHarnessOptions
 }
@@ -142,7 +143,7 @@ func runSceneryInspect(args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if !opts.JSON {
+	if !opts.JSON && opts.Subject != "ui" {
 		return fmt.Errorf("scenery inspect currently requires -o json")
 	}
 
@@ -239,6 +240,15 @@ func runSceneryInspect(args []string, stdout io.Writer) error {
 			return err
 		}
 		return writeInspectJSON(stdout, resp)
+	case "ui":
+		resp, err := buildInspectUIResponse(appRoot, cfg, opts.UI.Frontend)
+		if err != nil {
+			return err
+		}
+		if opts.JSON {
+			return writeInspectJSON(stdout, resp)
+		}
+		return writeInspectUIHuman(stdout, resp)
 	default:
 		return fmt.Errorf("unknown inspect subject %q", opts.Subject)
 	}
@@ -269,6 +279,7 @@ func parseInspectArgsInternal(args []string, allowObservability bool) (inspectOp
 	registerJSONOutput(flags, &opts.JSON)
 	flags.StringVar(&opts.AppRoot, "app-root", "", "")
 	flags.StringVar(&opts.RepoRoot, "repo-root", "", "")
+	flags.StringVar(&opts.UI.Frontend, "frontend", "", "")
 	flags.StringVar(&opts.Harness.Severity, "severity", "", "")
 	flags.IntVar(&opts.Harness.Top, "top", 0, "")
 	traceValues := map[string]*string{}
@@ -284,6 +295,9 @@ func parseInspectArgsInternal(args []string, allowObservability bool) (inspectOp
 	}
 	if cliFlagSet(flags, "repo-root") && opts.Subject != "docs" && opts.Subject != "harness" {
 		return inspectOptions{}, fmt.Errorf("--repo-root is only supported for inspect docs and inspect harness")
+	}
+	if cliFlagSet(flags, "frontend") && opts.Subject != "ui" {
+		return inspectOptions{}, fmt.Errorf("--frontend is only supported for inspect ui")
 	}
 	if opts.Subject == "harness" && len(positionals) > 0 {
 		opts.Harness.Topic = positionals[0]

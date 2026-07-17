@@ -67,6 +67,7 @@ Child `AGENTS.md` files:
 - `internal/scn/AGENTS.md` owns `.scn` source discovery, safe filesystem access, parsing, positions, lossless CSTs, and canonical formatting.
 - `internal/spec/AGENTS.md` owns the current resource/source-schema and diagnostic catalog, canonical JSON, and content revisions.
 - `internal/testsuite/AGENTS.md` owns explicit fresh execution from content-addressed Go test binaries and Go JSON event output.
+- `internal/uireport/AGENTS.md` owns read-only React design-system adherence scanning, source exclusions, metrics, and deterministic ranking.
 - `internal/workspacetx/AGENTS.md` owns crash-safe source transaction metadata, ownership checks, and recovery before compiler reads.
 - `docs/spec/AGENTS.md` owns the evolving current specification set and conformance update rules.
 - `ui/AGENTS.md` owns the binary-embedded Astryx + StyleX component catalog materialized into React-enabled TypeScript clients.
@@ -113,12 +114,26 @@ scenery is a Go-native service runtime and local development platform. Think in 
 - `.scenery.json` declares named `envs`; exactly one reserved `local` env is default. The selected env owns domain/exposure/ports, frontend serve modes, deploy targets, dotenv layering, and secret strictness. `scenery up --env <name>` selects it, session manifests record it, and failed branded-domain validation stays on localhost without redirecting to another env.
 - Public and auth endpoints are externally reachable. Private endpoints are internal-only and must be called through generated helpers.
 - Typed endpoints decode path/query/header/cookie/body inputs into Go values and encode typed responses.
-- CRUD resources can declare an explicit list filter/sort contract with fingerprint-bound cursor pagination. `content_page`, `table_page`, and generic `split_page` declarations expand to ordinary page/renderer resources, and React-enabled TypeScript clients materialize the binary-owned catalog and generated pages only after staged verification by Scenery's exact managed native TypeScript checker. Domain-specific UI remains in app-owned `react_component` slots, never in Scenery's catalog or compiler.
+- CRUD resources can declare an explicit list filter/sort contract with fingerprint-bound cursor pagination. `content_page`, `table_page`, and generic `split_page` declarations expand to ordinary page/renderer resources, and React-enabled TypeScript clients materialize the binary-owned catalog, generated pages, typed route descriptors, TanStack route tree, navigation, and app shell only after staged verification by Scenery's exact managed native TypeScript checker. The catalog exposes composed components plus blessed Astryx primitives from `@scenery/ui` and semantic StyleX variables from the sole `@scenery/ui/tokens.stylex` subpath. Domain-specific UI remains in app-owned `react_component` slots or the generated app's fixed extension/visual slots, never in Scenery's catalog or compiler.
+- `scenery inspect ui` gives declared React frontends a read-only, per-file markup/style adherence report and ranked cleanup queue; its score is triage guidance, not enforcement.
 - Terminal HTTP path tails use `{name...}` plus one typed `path_tail` mapping under the HTTP codec/runtime contract. They capture zero or more complete segments with exact/literal/parameter/tail precedence, strict one-time segment decoding, ordinary typed Go inputs, and independently encoded TypeScript segments.
 - Generated internal calls preserve route, private access, auth context, tracing, and error semantics.
 - Constructors receive typed `scenery.sh/datasource` and `scenery.sh/object` capabilities; built-in CRUD, fixtures, views, pages, and renderers stay in the same generated application composition.
 - Agent capabilities expose exact `resource_create_kinds`; `scenery schema` / `schema.get` provide the recursive authored shape, and semantic creation must reject unadvertised kinds instead of guessing blocks, labels, or source destinations.
 - Mutation plans normalize typed values/references and resolved kind/schema identities before hashing. Planning retains the exact canonical plan under app-local trusted state, and apply rejects caller-recomputed plans before trusting expiry, approvals, operations, edits, or provider actions. Approval-bearing migration transitions use `--out <plan>` followed by `migrate apply <plan>` so the detached token binds the exact issued plan instead of a replanned expiry. Semantic renames emit revision-bound, digest-checked plan/apply receipts, including migration-manifest references and containing-module descendants; later diffs load matching app-local receipts or accept `--rename-receipts` explicitly.
+
+### Fully generated clients
+
+React-enabled client apps use the generated route tree, navigation, and shell,
+with app-owned code reduced to one route-descriptor extension array and fixed
+visual slots:
+
+- Prefer generation-shaped contracts: a page's routing surface is data (path, search-parameter schema, component reference), not app logic. Search-parameter contracts belong in the page's `.scn` declaration, not in hand-written client router code.
+- Route-descriptor and route-tree generation belongs in `internal/generate`, never in the `ui/` catalog; the catalog stays router-agnostic with router libraries as app-side peers.
+- Overrides flow through declared slots and app-owned `react_component` resources only. Do not add override mechanisms that require apps to edit or fork materialized output.
+- Hand-written pages register through `SceneryRouteDescriptor`; do not create a
+  second TanStack route tree, navigation list, shell, or parallel page-selection
+  system.
 
 Scenery does not have legacy support. It has **one rolling Scenery specification, one compiler, one runtime path, and one machine protocol—the ones shipped by the current Scenery binary.**
 
@@ -173,6 +188,7 @@ scenery version -o json
 scenery doctor -o json
 scenery check -o json
 scenery inspect app|routes|services|endpoints|build|paths|docs -o json
+scenery inspect ui [--frontend <name>] -o human|json
 scenery traces list -o json
 scenery metrics list -o json
 scenery logs -o jsonl --limit 200

@@ -287,6 +287,10 @@ func buildHarnessCLIContractReport(repoRoot string, diagnostics []checkDiagnosti
 			var out bytes.Buffer
 			return runSceneryInspect([]string{"docs", "--repo-root", repoRoot, "-o", "json"}, &out)
 		}},
+		{name: "inspect ui", needle: "scenery inspect ui [--frontend <name>] [--app-root <path>] [-o human|json]", mode: "parse", smoke: func() error {
+			_, err := parseInspectArgs([]string{"ui", "--frontend", "web", "--app-root", filepath.Join(repoRoot, "testdata", "apps", "basic"), "-o", "json"})
+			return err
+		}},
 		{name: "inspect harness", needle: "scenery inspect harness [artifact <name>|diagnostics --severity error|warning|timing --top <n>] -o json [--app-root <path>] [--repo-root <path>]", mode: "execute", smoke: func() error {
 			var out bytes.Buffer
 			return runSceneryInspect([]string{"harness", "--repo-root", repoRoot, "-o", "json"}, &out)

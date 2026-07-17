@@ -44,17 +44,29 @@ metric definitions survive at least one real cleanup driven by the report.
 
 ## Progress
 
-- [ ] (2026-07-17) Plan authored; prototype validated against
+- [x] (2026-07-17) Plan authored; prototype validated against
   `onlv/apps/next` and `Micro/platform/apps/platform` (see Artifacts).
-- [ ] M1 scanner package `internal/uireport` with golden fixture tests.
-- [ ] M2 frontend resolution and generated/materialized exclusions.
-- [ ] M3 CLI surface `scenery inspect ui`, JSON schema, human table.
-- [ ] M4 docs: local-contract, agent-guide, SKILL.md, knowledge index,
+- [x] (2026-07-17) M1 scanner package `internal/uireport` with golden
+  fixture tests covering comments, strings, templates, bracket tokens,
+  `xstyle`, inline style, SVG, import origins, raw values, and undefined
+  shares.
+- [x] (2026-07-17) M2 frontend resolution and generated/materialized
+  exclusions, including escaping/symlink root protection, empty apps, legacy
+  design-system-free summaries, generated markers, tests, dependencies, and
+  build output.
+- [x] (2026-07-17) M3 CLI surface `scenery inspect ui`, `--frontend`,
+  exact JSON schema/revision, default human table, CLI contract/schema tests,
+  and help/drift/self-harness schema registration.
+- [x] (2026-07-17) M4 docs: local-contract, agent-guide, SKILL.md,
+  knowledge index, architecture map, package-local instructions, and
   root AGENTS.md command list.
-- [ ] M5 validation: suites green, live run against Micro/platform and
-  onlv matches the recorded audit ranking.
-- [ ] M6 (deferred, separate activation) check-time diagnostics with
-  committed baseline ratchet.
+- [x] (2026-07-17) M5 validation: focused packages, full CLI, `go test
+  ./...`, and 21-step worktree-local self-harness green; final JSON and human
+  runs against Micro/platform and ONLV passed every recorded acceptance
+  assertion. The `/tmp` prototype was deleted.
+- [x] (2026-07-17) M6 remains deliberately deferred to a separate activation
+  after a real report-driven cleanup; no baseline writes, diagnostics, or
+  check-time enforcement shipped in this plan.
 
 ## Surprises & Discoveries
 
@@ -78,6 +90,14 @@ metric definitions survive at least one real cleanup driven by the report.
   be nested responsive objects (`{ default: ..., "@media ...": ... }`) or
   template literals. Token detection must key off *imported identifier
   names* from `*.stylex` modules, not off value-shape regexes.
+- (2026-07-17) The tokenizer-aware implementation intentionally reports
+  slightly lower absolute markup/token counts than the regex prototype while
+  preserving its ranking and ratios. Live `go run ./cmd/scenery inspect ui`
+  measured Micro at 88.2% token share and 31.5% markup share with
+  funding/change-orders/invoices as the top three; ONLV next measured 68.5%
+  token share, exactly one inline style, and SceneViewer/scene/mails as the top
+  three. The difference is expected evidence that strings, comments, and
+  non-binding import text are no longer classified.
 
 ## Decision Log
 
@@ -136,10 +156,45 @@ metric definitions survive at least one real cleanup driven by the report.
   than absolute thresholds. Rationale: heuristic hard failures would
   teach agents to route around the check; ratchets let existing debt
   stand while blocking regressions. Not activated by this plan's M1–M5.
+- (2026-07-17, Codex) Frontends with no Astryx, `@scenery/ui`, or
+  `*.stylex` imports retain a zero-value totals object but omit file rows.
+  Rationale: a stable object shape is easier for exact machine consumers,
+  while the empty rows keep legacy stacks quiet as planned.
+- (2026-07-17, Codex) The human table is the default output only for
+  `inspect ui`; all older inspect subjects retain their JSON requirement.
+  Rationale: the ranked queue is directly useful to a human, while automation
+  still receives the singular `scenery.cli` envelope with `-o json`.
 
 ## Outcomes & Retrospective
 
-Not yet completed.
+Completed 2026-07-17.
+
+Scenery now exposes `scenery inspect ui` as a stable, read-only inspection
+subject with a default ranked human table, an exact `scenery.cli` JSON payload,
+one-frontend filtering, and a checked schema. The standard-library
+`internal/uireport` package separates markup adoption from style-token
+adoption, excludes generated/dependency/test/build source, collapses legacy
+frontends to quiet summaries, and pins its tokenizer-aware rules with golden
+fixtures.
+
+Final live evidence:
+
+- Micro/platform: 57 files; funding, change-orders, and invoices were the top
+  three; markup share 0.315; token share 0.882.
+- ONLV next: SceneViewer, scene, and mails were the top three; token share
+  0.685; exactly one inline style. ONLV pulse and ui reported
+  `design_system: "none"` with no file rows.
+- `go test ./internal/uireport`, `go test ./cmd/scenery`, and `go test ./...`
+  passed. A freshly built `.scenery/harness/bin/scenery` completed all 21
+  self-harness steps. The first self-harness pass hit a stale child-envelope
+  specification during the storage probe; the immediate rerun with the freshly
+  rebuilt worktree-local binary passed, with no product change needed.
+
+The regex prototype overcounted syntax that the real scanner correctly masks,
+so absolute counters moved while the intended ranking and acceptance ratios
+held. The deferred enforcement sketch remains useful future context, but the
+report needs to drive an actual cleanup before its heuristic metrics become a
+ratchet.
 
 ## Context and Orientation
 

@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./index.ts"
+    ".": "./index.ts",
+    "./tokens.stylex": "./tokens.stylex.ts"
   },
   "peerDependencies": {
     "@astryxdesign/core": ">=0.1.2 <0.2.0",

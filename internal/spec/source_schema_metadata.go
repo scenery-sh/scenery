@@ -99,6 +99,9 @@ var authoredFieldOverrides = map[authoredFieldKey]authoredFieldOverride{
 	{Revision: "scenery.crud.execution", Name: "mode"}:                                {Constraints: enumConstraint("direct", "durable")},
 	{Revision: "scenery.crud.list", Name: "max_page_size"}:                            {Default: 100, DefaultSource: "spec", Constraints: map[string]any{"minimum": 1, "maximum": 1000}},
 	{Revision: "scenery.source.table_page", Name: "page_size"}:                        {Default: 50, DefaultSource: "spec", Constraints: map[string]any{"minimum": 1}},
+	{Revision: "scenery.source.table_page", Name: "nav_order"}:                        {Constraints: map[string]any{"minimum": 0}},
+	{Revision: "scenery.source.split_page", Name: "nav_order"}:                        {Constraints: map[string]any{"minimum": 0}},
+	{Revision: "scenery.source.content_page", Name: "nav_order"}:                      {Constraints: map[string]any{"minimum": 0}},
 	{Revision: "scenery.table-page.column", Name: "appearance"}:                       {Default: "auto", DefaultSource: "spec", Constraints: enumConstraint("auto", "badge", "datetime", "number", "text")},
 	{Revision: "scenery.table-page.sort", Name: "default"}:                            {Constraints: enumConstraint("asc", "desc")},
 	{Revision: "scenery.source.fixture", Name: "mode"}:                                {Constraints: enumConstraint("insert", "replace", "upsert")},
@@ -835,12 +838,22 @@ func authoredAttributeType(revision, name string) (map[string]any, string) {
 			return resourceRef("crud")
 		case "page_size":
 			return primitive("positive_int")
+		case "nav_order":
+			return primitive("non_negative_int")
+		case "nav_active_paths":
+			return list("route_path")
 		default:
 			return primitive("string")
 		}
 	case "scenery.source.split_page":
 		if name == "source" {
 			return resourceRef("binding")
+		}
+		if name == "nav_order" {
+			return primitive("non_negative_int")
+		}
+		if name == "nav_active_paths" {
+			return list("route_path")
 		}
 		return primitive("string")
 	case "scenery.source.content_page":
@@ -849,9 +862,15 @@ func authoredAttributeType(revision, name string) (map[string]any, string) {
 			return resourceRef("binding")
 		case "max_width":
 			return primitive("positive_int")
+		case "nav_order":
+			return primitive("non_negative_int")
+		case "nav_active_paths":
+			return list("route_path")
 		default:
 			return primitive("string")
 		}
+	case "scenery.page.search":
+		return typeExpression()
 	case "scenery.table-page.column", "scenery.table-page.filter", "scenery.table-page.slot", "scenery.content-page.slot":
 		if name == "component" {
 			return resourceRef("react_component")

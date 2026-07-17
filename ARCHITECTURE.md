@@ -130,9 +130,11 @@ compiler results and never sit below it.
 ### `internal/generate`
 
 `internal/generate` renders Go contracts and composition, TypeScript clients,
-and OpenAPI projections from one compiler result. Its check path reports both
-diagnostics and whether native implementation verification was requested and
-valid.
+OpenAPI projections, generated React page adapters, and the binary-owned
+`@scenery/ui` catalog from one compiler result. The catalog materializes its
+root component barrel and the direct `tokens.stylex.ts` defining module in the
+same artifact-set transaction. Its check path reports both diagnostics and
+whether native implementation verification was requested and valid.
 
 Architecture invariant: render every selected output before one atomic commit;
 verification is read-only and generated paths stay beneath declared managed
@@ -269,6 +271,19 @@ metric, and docs information as stable JSON responses.
 Architecture invariant: inspect outputs are contracts. If the shape
 changes, update the corresponding schema and tests in the same change.
 
+### `internal/uireport`
+
+`internal/uireport` lexically scans hand-authored React frontend source for
+Astryx and `@scenery/ui` markup adoption, StyleX token use, hardcoded design
+values, and true inline styles. It also owns safe frontend collection,
+generated/dependency exclusions, aggregate shares, and deterministic triage
+ranking.
+
+Architecture invariant: UI inspection is read-only and heuristic. Keep markup
+and style axes independent, pin lexical rules with fixtures, and do not turn the
+score into validation or check-time enforcement without a separate contract
+decision.
+
 ### `internal/devdash` and `internal/localproxy`
 
 These packages support the local development platform around a running app.
@@ -285,12 +300,14 @@ remain runnable as a headless execution path.
 
 ### `ui`
 
-`ui` is the scenery dashboard frontend. It is a TypeScript/React application that
-is built and embedded for local development use.
+`ui` is the editable Astryx + StyleX source for the binary-owned `@scenery/ui`
+catalog materialized into React-enabled TypeScript clients. `apps/console` is
+the separate Scenery dashboard frontend.
 
-Architecture invariant: frontend state should come from CLI/dashboard APIs and
-stable inspect/observability data, not from duplicated guesses about parser or
-runtime behavior.
+Architecture invariant: the catalog stays domain-neutral, keeps its runtime
+libraries as peer dependencies, exports curated components from `index.ts`,
+and exposes StyleX variables only from the direct `tokens.stylex.ts` defining
+module. Consuming apps own routing, state, data, themes, and domain slots.
 
 ### `docs`, `PLANS.md`, and `PLAN.md`
 

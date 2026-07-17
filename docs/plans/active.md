@@ -7,16 +7,6 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
-- [0125 Single @scenery/ui Import Surface: Token Facade and Blessed Primitives](0125-scenery-ui-single-surface.md)
-  - Status: active (not started; M1 spike gates the design)
-  - Owner: scenery ui catalog / generation / agent DX
-  - Created: 2026-07-17
-  - Focus: make `@scenery/ui` the single UI import surface over Meta-maintained Astryx (shadcn model): a catalog-owned `ui/tokens.stylex.ts` defining semantic StyleX vars that reference Astryx var members (runtime theming flows through Astryx's plain named custom properties), plus curated re-exports of the measured blessed primitive set in `ui/index.ts`; vendoring Astryx is ruled out, direct Astryx imports remain the escape hatch, and plan 0124's report measures adoption.
-- [0124 UI Guardrails Report: Design-System Adherence Inspection](0124-ui-guardrails-report.md)
-  - Status: active (not started)
-  - Owner: scenery inspect / ui catalog / agent DX
-  - Created: 2026-07-17
-  - Focus: read-only `scenery inspect ui [--frontend <name>] -o human|json` reporting per-file design-system adherence for React frontends on two independent axes — markup share (Astryx + `@scenery/ui` tags vs raw HTML elements) and style share (StyleX theme-token refs vs hardcoded colors/sizes/inline styles) — with a ranked slop score for rewrite triage; lexical Go scanner in `internal/uireport`, schema `scenery.inspect.ui.schema.json`, ratcheted `scenery check` enforcement deferred.
 - [0122 UI Catalog Dev Mode: Live ui/ Iteration Without Binary Rebuilds](0122-ui-catalog-dev-mode.md)
   - Status: completed (retain until first release ships it)
   - Owner: scenery generation / agent DX

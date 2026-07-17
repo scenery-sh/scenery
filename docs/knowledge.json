@@ -19,28 +19,41 @@
   },
   "documents": [
     {
-      "path": "docs/plans/0125-scenery-ui-single-surface.md",
-      "title": "Single @scenery/ui Import Surface: Token Facade and Blessed Primitives",
-      "owner": "scenery ui catalog / generation / agent DX",
-      "status": "active",
+      "path": "docs/plans/0126-fully-generated-client-apps.md",
+      "title": "Fully Generated Client Apps: Route Tree, Shell, and Navigation Generation",
+      "owner": "scenery spec / compiler / generation / ui catalog",
+      "status": "completed",
       "quality": "B",
       "freshness": "current",
       "last_reviewed": "2026-07-17",
       "review_after": "2026-08-16",
-      "summary": "Active ExecPlan making @scenery/ui the single UI import surface over Meta-maintained Astryx (shadcn model): a catalog-owned tokens.stylex.ts defining module whose semantic StyleX vars reference imported Astryx var members (runtime theming flows through Astryx's plain named custom properties), curated re-exports of the measured blessed primitive set in ui/index.ts, an app alias contract for the token subpath, and a gating feasibility spike in the Micro platform app via ui_catalog live mode; vendoring Astryx is ruled out and plan 0124's report measures adoption.",
+      "summary": "Completed ExecPlan shipping typed page search and navigation metadata, generated route descriptors and validators, one TanStack route-tree adapter, generated navigation and ClientAppShell, plus the Micro platform cutover deleting its hand-written route tree, AppPages/RoutePane mount system, duplicated validators, navigation list, and layout shell.",
+      "tags": ["plans", "execplans", "generation", "routing", "react", "typescript", "ui-catalog", "navigation", "agent-dx"]
+    },
+    {
+      "path": "docs/plans/0125-scenery-ui-single-surface.md",
+      "title": "Single @scenery/ui Import Surface: Token Facade and Blessed Primitives",
+      "owner": "scenery ui catalog / generation / agent DX",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-07-17",
+      "review_after": "2026-08-16",
+      "summary": "Completed ExecPlan shipping @scenery/ui as the curated UI surface over external Astryx: the catalog-owned semantic t StyleX defining module at the sole tokens.stylex subpath, blessed primitive re-exports with types, embedded and live materialization, the exact TypeScript plus bundler plus StyleX-plugin alias contract, and a Micro warranty-page migration proven by generation, production build, adoption metrics, and a live light/dark theme flip.",
       "tags": ["plans", "execplans", "ui-catalog", "astryx", "stylex", "tokens", "react", "agent-dx", "generation"]
     },
     {
       "path": "docs/plans/0124-ui-guardrails-report.md",
       "title": "UI Guardrails Report: Design-System Adherence Inspection",
       "owner": "scenery inspect / ui catalog / agent DX",
-      "status": "active",
+      "status": "completed",
       "quality": "B",
       "freshness": "current",
       "last_reviewed": "2026-07-17",
       "review_after": "2026-08-16",
-      "summary": "Active ExecPlan adding read-only `scenery inspect ui`: per-frontend, per-file design-system adherence report scanning hand-authored React source for two independent axes (Astryx/@scenery/ui markup share vs raw HTML elements; StyleX theme-token share vs hardcoded colors/sizes/inline styles) with a ranked slop score for rewrite triage; check-time ratcheted enforcement is sketched but deferred.",
-      "tags": ["plans", "execplans", "inspect", "ui-catalog", "astryx", "stylex", "react", "guardrails", "agent-dx"]
+      "summary": "Completed ExecPlan shipping read-only `scenery inspect ui`: tokenizer-aware per-frontend and per-file design-system adherence across independent markup and StyleX-token axes, generated/dependency/test exclusions, deterministic rewrite ranking, human and exact JSON/schema output, and live Micro/platform plus ONLV acceptance; check-time baseline enforcement remains separately deferred.",
+      "tags": ["plans", "execplans", "inspect", "ui-catalog", "astryx", "stylex", "react", "guardrails", "agent-dx"],
+      "schema_refs": ["docs/schemas/scenery.inspect.ui.schema.json"]
     },
     {
       "path": "docs/plans/0123-composable-page-kinds.md",
@@ -847,9 +860,9 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-07-14",
-      "review_after": "2026-08-13",
-      "summary": "Repo-local operating manual for agents changing Scenery itself, including the singular current app model, single-owner agent and edge runtimes, end-to-end detached readiness, app-root runtime config, verified operator-scheduled snapshot workflows, private best-effort CLI telemetry, trusted plan issuance, local Markdown issue tracking and triage, domain docs, package boundaries, cached-by-default validation, documentation drift handling, AGENTS hierarchy, and client-app instruction rules.",
+      "last_reviewed": "2026-07-17",
+      "review_after": "2026-08-16",
+      "summary": "Repo-local operating manual for agents changing Scenery itself, including the singular current app model, fully generated React route trees navigation and shells, single-owner agent and edge runtimes, end-to-end detached readiness, app-root runtime config, read-only UI adherence inspection, trusted plan issuance, package boundaries, cached-by-default validation, documentation drift handling, AGENTS hierarchy, and client-app instruction rules.",
       "tags": [
         "agents",
         "repo",
@@ -866,7 +879,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-17",
       "review_after": "2026-08-16",
-      "summary": "Concise installed-skill entrypoint for current Scenery apps, including target-app AGENTS checks, graph views and provenance, schema-driven authoring, trusted transactions, runtime capabilities, deploy, storage, TypeScript clients, declarative table and sidebar/detail split pages with managed native checking, and cached-by-default validation loops.",
+      "summary": "Concise installed-skill entrypoint for current Scenery apps, including target-app AGENTS checks, graph views and provenance, schema-driven authoring, trusted transactions, runtime capabilities, deploy, storage, fully generated React route trees navigation and shells, read-only UI adherence triage, managed native checking, and cached-by-default validation loops.",
       "tags": [
         "skill",
         "agents",
@@ -885,7 +898,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-17",
       "review_after": "2026-08-16",
-      "summary": "Agent workflow guide for current app roots, including CLI JSON, graph provenance, schema-driven authoring, runtime diagnosis, capabilities, deploy, storage, TypeScript clients, declarative table-page and sidebar/detail split-page generation, managed native verification, cached-by-default tests, and app-local AGENTS hierarchy.",
+      "summary": "Agent workflow guide for current app roots, including CLI JSON, graph provenance, schema-driven authoring, runtime diagnosis, capabilities, deploy, storage, TypeScript clients, fully generated React route trees navigation and shells, read-only UI adherence triage, managed native verification, cached-by-default tests, and app-local AGENTS hierarchy.",
       "tags": [
         "agents",
         "cli",
@@ -956,7 +969,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-17",
       "review_after": "2026-08-16",
-      "summary": "Frozen local developer and agent-facing contract for current applications and exact CLI JSON surfaces, including schema identities, graph provenance, runtime and deploy behavior, data and snapshots, CRUD list pagination, declarative table and sidebar/detail split pages, binary-owned UI generation, managed native TypeScript verification, harness validation, generators, and code tasks.",
+      "summary": "Frozen local developer and agent-facing contract for current applications and exact CLI JSON surfaces, including schema identities, graph provenance, runtime and deploy behavior, data and snapshots, CRUD list pagination, declarative pages with typed search and navigation metadata, fully generated React route trees and shells, read-only UI adherence inspection, managed native TypeScript verification, harness validation, generators, and code tasks.",
       "tags": [
         "contract",
         "cli",
@@ -982,6 +995,7 @@
         "docs/schemas/scenery.harness.self.summary.schema.json",
         "docs/schemas/scenery.inspect.harness.schema.json",
         "docs/schemas/scenery.inspect.observability.schema.json",
+        "docs/schemas/scenery.inspect.ui.schema.json",
         "docs/schemas/scenery.logs.query.schema.json",
         "docs/schemas/scenery.logs.tail.entry.schema.json",
         "docs/schemas/scenery.help.schema.json",
@@ -1104,7 +1118,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-17",
       "review_after": "2026-08-16",
-      "summary": "Practical recipes for building current Scenery apps, including .scn source, generated contracts, bindings, capabilities, auth, storage, Postgres, snapshots, durable work, explicit CRUD list APIs, declarative table pages, one-column content pages, sidebar/detail split pages, React-enabled TypeScript targets, observability, and validation workflows.",
+      "summary": "Practical recipes for building current Scenery apps, including .scn source, generated contracts, bindings, capabilities, auth, storage, Postgres, snapshots, durable work, declarative pages with typed search and navigation metadata, generated React app mounting and extension routes, observability, and validation workflows.",
       "tags": [
         "cookbook",
         "apps",

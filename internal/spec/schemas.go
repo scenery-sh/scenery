@@ -79,9 +79,9 @@ var resourceSchemas = map[string]resourceSchema{
 		"implementation_digest": "implementation",
 	}},
 	"scenery.react-component": {"implementation", []string{"module", "export"}, []string{"module", "export"}, nil},
-	"scenery.table-page":      {"contract", []string{"path", "source", "title", "column"}, []string{"path", "source", "title", "description", "page_size", "row_link"}, nil},
-	"scenery.split-page":      {"contract", []string{"path", "source", "title", "sidebar", "detail"}, []string{"path", "source", "title", "aria_label", "sidebar_label", "query_parameter"}, nil},
-	"scenery.content-page":    {"contract", []string{"path", "source", "title", "content"}, []string{"path", "source", "title", "aria_label", "max_width"}, nil},
+	"scenery.table-page":      {"contract", []string{"path", "source", "title", "column"}, []string{"path", "source", "title", "description", "page_size", "row_link", "nav_group", "nav_order", "nav_label", "nav_icon", "nav_active_paths"}, nil},
+	"scenery.split-page":      {"contract", []string{"path", "source", "title", "sidebar", "detail"}, []string{"path", "source", "title", "aria_label", "sidebar_label", "query_parameter", "nav_group", "nav_order", "nav_label", "nav_icon", "nav_active_paths"}, nil},
+	"scenery.content-page":    {"contract", []string{"path", "source", "title", "content"}, []string{"path", "source", "title", "aria_label", "max_width", "nav_group", "nav_order", "nav_label", "nav_icon", "nav_active_paths"}, nil},
 	"scenery.middleware":      {"contract", []string{"protocols", "phases"}, []string{"protocols", "phases", "before", "after", "exclusive", "effects"}, nil},
 }
 

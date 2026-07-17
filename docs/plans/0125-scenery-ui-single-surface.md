@@ -52,18 +52,24 @@ rising, direct Astryx imports falling).
 
 ## Progress
 
-- [ ] (2026-07-17) Plan authored.
-- [ ] M1 feasibility spike: minimal facade var compiled and rendered in a
-  real consuming Vite app; go/no-go recorded in Decision Log.
-- [ ] M2 catalog token module `ui/tokens.stylex.ts` with curated
-  vocabulary; embed, materialization, catalog typecheck wired.
-- [ ] M3 blessed primitive exports in `ui/index.ts`; conformance and
-  fixture updates.
-- [ ] M4 app-side wiring contract documented and verified end-to-end in
-  Micro (aliases, StyleX resolution, theme flip, production build).
-- [ ] M5 docs sync: `ui/AGENTS.md`, `docs/agent-guide.md`, `SKILL.md`,
-  `docs/local-contract.md`, knowledge index, active plans.
-- [ ] M6 validation matrix green; adoption baseline measured.
+- [x] (2026-07-17) Plan authored.
+- [x] (2026-07-17) M1 feasibility spike: the two-token defining module
+  compiled through Micro's production Vite + StyleX pipeline and rendered
+  through a real light/dark theme flip; go decision recorded below.
+- [x] (2026-07-17) M2 catalog token module `ui/tokens.stylex.ts` with
+  measured vocabulary; embed, live materialization, ownership marker,
+  materialization test, and catalog typecheck wired.
+- [x] (2026-07-17) M3 blessed primitive exports and component types in
+  `ui/index.ts`; consuming fixture and TypeScript conformance green.
+- [x] (2026-07-17) M4 app-side wiring contract verified end-to-end in
+  Micro: TypeScript, Vite, StyleX resolution, live theme flip, production
+  build, generated-artifact check, and app validation lanes.
+- [x] (2026-07-17) M5 docs synced across `ui/AGENTS.md`,
+  `docs/agent-guide.md`, `SKILL.md`, `docs/local-contract.md`, root
+  instructions, architecture, and Micro's app-local instructions.
+- [x] (2026-07-17) M6 validation matrix green; plan 0124 adoption
+  before/after, emitted CSS, bundle size, generated marker, and browser
+  theme evidence recorded.
 
 ## Surprises & Discoveries
 
@@ -79,6 +85,16 @@ rising, direct Astryx imports falling).
   What remains unproven is the same composition inside a *materialized
   catalog file* compiled by a consuming app's Vite StyleX plugin — hence
   M1 is a gating spike, not a formality.
+- (2026-07-17, implementation) TypeScript and Vite aliases do not teach the
+  StyleX Babel transform where a defining module lives. The first Micro
+  production build failed at `import { t } from
+  "@scenery/ui/tokens.stylex"` until the same exact path was supplied in
+  `stylex.vite({ aliases: ... })`. The three-resolver requirement is now an
+  explicit client-app contract.
+- (2026-07-17, implementation) StyleX collapses the facade references into
+  Astryx's stable named custom properties in produced CSS. The spike emitted
+  ordinary uses of `var(--color-background-surface)` and
+  `var(--spacing-4)` rather than a parallel runtime theme surface.
 
 ## Decision Log
 
@@ -111,10 +127,28 @@ rising, direct Astryx imports falling).
   internal subpath imports": StyleX bans barrel re-export of vars, so
   the token module must be imported by its own path. The exception is
   exactly one file.
+- (2026-07-17, implementation) M1 is a go. Micro's production build,
+  running warranty page, and real application theme switch all proved the
+  materialized defining-module design. The alias fallback was not needed.
+- (2026-07-17, implementation) The final var-group name is `t`. The
+  vocabulary follows recurring Micro/ONLV use rather than mirroring Astryx:
+  common semantic colors, borders/radii/shadows, spacing 0.5 through 12 at
+  observed steps, the recurring body/code/supporting typography values, and
+  the Scenery-level `pageGutter` and `panelWidth` concepts.
+- (2026-07-17, implementation) The final facade adds 1.89 kB uncompressed
+  CSS (203.65 kB spike build to 205.54 kB final build, about 0.49 kB gzip)
+  and no JavaScript growth (4,251.19 kB to 4,251.18 kB). That bounded cost
+  is accepted for one curated vocabulary.
 
 ## Outcomes & Retrospective
 
-Not yet completed.
+The implemented surface keeps Astryx external and singular while giving app
+authors one curated component namespace and one unavoidable StyleX defining
+subpath. Micro's warranty page now has zero direct Astryx component imports,
+uses only facade tokens, generates without drift, and follows its existing
+theme toggle. The independent StyleX alias was the only integration wrinkle;
+recording it in every client-facing contract prevents the most likely repeat
+failure.
 
 ## Context and Orientation
 
@@ -382,8 +416,39 @@ inspection in `~/Repos/Micro/platform/node_modules`):
 - Curation motivator: `apps/platform/src/pages/mails.tsx`-era audit
   found `width: calc(5 × spacingVars["--spacing-10"])` — the shape a
   semantic `t.panelWidth` removes.
-- Adoption baseline (fill at M6): catalog vs direct-Astryx counts per
-  file from the 0124 report or its prototype methodology.
+- M2 usage audit, Micro: the most frequent direct values were `space3` 296,
+  `space2` 276, `borderWidth` 201, `border` 183, `textSecondary` 155,
+  `space4` 146, `space1` 129, `radiusElement` 101, `body` 99,
+  `textPrimary` 91, `radius` 84, and `surface` 62. ONLV independently
+  repeated spacing 2/3/4/6/10/12, border, surface, text, full/container
+  radii, and low shadow. The final facade is the intersection plus status
+  colors and the two planned layout semantics.
+- M1 produced-CSS evidence: Micro's spike build was 203.65 kB CSS
+  (34.81 kB gzip) and 4,251.19 kB JS (1,045.34 kB gzip); emitted rules
+  resolve facade-backed properties through `var(--color-background-surface)`
+  and `var(--spacing-4)`. The final curated build was 205.54 kB CSS
+  (35.30 kB gzip) and 4,251.18 kB JS (1,045.35 kB gzip).
+- M1 live runtime evidence: on
+  `http://localhost:4219/platform/warranty`, the spike's facade-backed
+  content container measured background `rgb(17, 17, 17)` in the app's dark
+  mode and `rgb(251, 251, 253)` after the existing theme control switched
+  to light; padding and gap remained 16 px through Astryx's `--spacing-4`.
+  The original dark mode was restored. The temporary surface declaration
+  was then removed; the final migration replaces existing Astryx values
+  one-for-one, so it introduces no new visual property.
+- Plan 0124 adoption meter, before → after: whole frontend direct Astryx
+  markup 704 → 695, catalog markup 397 → 406, raw markup unchanged at
+  1479; the migrated warranty page direct Astryx markup 9 → 0 and catalog
+  markup 9 → 18. Whole-frontend token references 1707 → 1708; warranty
+  token references 9 → 10 with token share remaining 1.0. The movement is
+  exactly the nine migrated primitives; token identity remains in-guardrails
+  because the scanner recognizes the facade's `*.stylex` import.
+- Final validation: catalog and generated-client TypeScript checks passed;
+  generator and full `go test ./...` passed; client conformance passed 16
+  tests; Micro passed 73 frontend tests, lint, typecheck, production build,
+  generation check, `make verify`, and the worktree-local
+  `make verify-scenery`; `scenery harness self --summary --write` passed all
+  21 reported lanes and wrote `.scenery/harness/self-latest.json`.
 
 ## Interfaces and Dependencies
 

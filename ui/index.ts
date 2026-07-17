@@ -65,6 +65,10 @@ export {
   type SideNavigationItem,
   type SideNavigationSection,
 } from "./components/SideNavigation.js";
+export {
+  ClientAppShell,
+  type ClientAppShellProps,
+} from "./components/ClientAppShell.js";
 export { StatGrid, StatTile, type StatTone } from "./components/StatTile.js";
 export {
   humanize,
@@ -73,3 +77,58 @@ export {
   type StatusStyle,
 } from "./components/StatusBadge.js";
 export { TopBar, type TopBarSearch } from "./components/TopBar.js";
+
+export {
+  Badge,
+  type BadgeProps,
+  type BadgeVariant,
+  type BadgeVariantMap,
+} from "@astryxdesign/core/Badge";
+export {
+  Button,
+  type ButtonProps,
+  type ButtonSize,
+  type ButtonVariant,
+  type ButtonVariantMap,
+} from "@astryxdesign/core/Button";
+export {
+  Icon,
+  type IconColor,
+  type IconProps,
+  type IconSize,
+  type IconType,
+} from "@astryxdesign/core/Icon";
+export { IconButton, type IconButtonProps } from "@astryxdesign/core/IconButton";
+export {
+  Selector,
+  type SelectorProps,
+  type SelectorSize,
+  type SelectorStatus,
+  type SelectorStatusType,
+} from "@astryxdesign/core/Selector";
+export {
+  Heading,
+  type HeadingLevel,
+  type HeadingProps,
+  type HeadingType,
+} from "@astryxdesign/core/Heading";
+export {
+  HStack,
+  type HStackProps,
+  VStack,
+  type VStackProps,
+} from "@astryxdesign/core/Stack";
+export {
+  Text,
+  type TextProps,
+  type TextSize,
+  type TextType,
+} from "@astryxdesign/core/Text";
+export {
+  TextInput,
+  type TextInputProps,
+  type TextInputSize,
+  type TextInputStatus,
+  type TextInputStatusType,
+  type TextInputType,
+} from "@astryxdesign/core/TextInput";

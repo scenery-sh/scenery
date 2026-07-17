@@ -7,12 +7,17 @@ import type {
   TablePageFilterProps,
 } from "../../../ui/index.js";
 import {
+  Button,
   defineContentPageSlots,
   defineSplitPageSlots,
   defineTablePageSlots,
   queryStateProps,
   SplitPage,
+  Text,
+  VStack,
 } from "../../../ui/index.js";
+import { t } from "../../../ui/tokens.stylex.js";
+import * as stylex from "@stylexjs/stylex";
 
 interface Row {
   readonly id: string;
@@ -23,6 +28,19 @@ const requestState: RequestState<{ readonly data: Row }> = {
   kind: "loading",
 };
 const requestStateView = queryStateProps(requestState, "row");
+const facadeStyles = stylex.create({
+  surface: {
+    backgroundColor: t.surface,
+    padding: t.space4,
+  },
+});
+
+const blessedPrimitives = (
+  <VStack xstyle={facadeStyles.surface}>
+    <Text>Catalog text</Text>
+    <Button label="Catalog button" />
+  </VStack>
+);
 
 function StatusCell(props: TablePageCellProps<Row, Row["status"]>) {
   return <span>{props.value}</span>;
@@ -112,3 +130,4 @@ void splitWithDefaultLabels;
 void splitWithCustomTitle;
 void splitWithUnlabeledCustomTitle;
 void requestStateView;
+void blessedPrimitives;

@@ -1,0 +1,82 @@
+[
+  {
+    "path": "astryx-heavy.tsx",
+    "lines": 32,
+    "markup": {
+      "design_system": 2,
+      "catalog": 0,
+      "raw": 1,
+      "local": 0,
+      "lib": 0,
+      "svg": 0,
+      "ds_share": 0.6666666666666666
+    },
+    "style": {
+      "token_refs": 3,
+      "raw_colors": 2,
+      "raw_sizes": 3,
+      "inline_style_props": 1,
+      "token_share": 0.375
+    },
+    "score": 11
+  },
+  {
+    "path": "raw-div.tsx",
+    "lines": 12,
+    "markup": {
+      "design_system": 0,
+      "catalog": 0,
+      "raw": 6,
+      "local": 0,
+      "lib": 0,
+      "svg": 0,
+      "ds_share": 0
+    },
+    "style": {
+      "token_refs": 0,
+      "raw_colors": 0,
+      "raw_sizes": 0,
+      "inline_style_props": 0
+    },
+    "score": 6
+  },
+  {
+    "path": "catalog-and-lib.tsx",
+    "lines": 14,
+    "markup": {
+      "design_system": 0,
+      "catalog": 1,
+      "raw": 1,
+      "local": 1,
+      "lib": 1,
+      "svg": 0,
+      "ds_share": 0.25
+    },
+    "style": {
+      "token_refs": 0,
+      "raw_colors": 0,
+      "raw_sizes": 0,
+      "inline_style_props": 0
+    },
+    "score": 1
+  },
+  {
+    "path": "svg-icon.jsx",
+    "lines": 11,
+    "markup": {
+      "design_system": 0,
+      "catalog": 0,
+      "raw": 0,
+      "local": 0,
+      "lib": 0,
+      "svg": 7
+    },
+    "style": {
+      "token_refs": 0,
+      "raw_colors": 0,
+      "raw_sizes": 0,
+      "inline_style_props": 0
+    },
+    "score": 0
+  }
+]

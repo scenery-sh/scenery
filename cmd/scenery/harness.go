@@ -406,6 +406,7 @@ func buildHarnessKnowledge(appRoot string) harnessKnowledge {
 		"docs/schemas/scenery.inspect.traces.schema.json",
 		"docs/schemas/scenery.inspect.metrics.schema.json",
 		"docs/schemas/scenery.inspect.observability.schema.json",
+		"docs/schemas/scenery.inspect.ui.schema.json",
 		"docs/schemas/scenery.logs.query.schema.json",
 		"docs/schemas/scenery.logs.tail.entry.schema.json",
 		"docs/schemas/scenery.metrics.query.schema.json",

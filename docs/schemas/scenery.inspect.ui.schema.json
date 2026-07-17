@@ -1,0 +1,229 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.inspect.ui.schema.json",
+  "title": "scenery.inspect.ui",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "app",
+    "frontends"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.inspect.ui"
+    },
+    "schema_revision": {
+      "const": "sha256:16c903f6ec1b17894cd23150bd387876af888fb957cabe010f1ba9219a24cb50"
+    },
+    "app": {
+      "$ref": "#/$defs/appRef"
+    },
+    "frontends": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/frontend"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "appRef": {
+      "type": "object",
+      "required": [
+        "name",
+        "root",
+        "config_path"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "root": {
+          "type": "string"
+        },
+        "config_path": {
+          "type": "string"
+        },
+        "module_path": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "frontend": {
+      "type": "object",
+      "required": [
+        "name",
+        "root",
+        "design_system",
+        "files",
+        "totals"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "root": {
+          "type": "string"
+        },
+        "design_system": {
+          "enum": [
+            "astryx",
+            "none"
+          ]
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/file"
+          }
+        },
+        "totals": {
+          "$ref": "#/$defs/totals"
+        }
+      },
+      "additionalProperties": false
+    },
+    "file": {
+      "type": "object",
+      "required": [
+        "path",
+        "lines",
+        "markup",
+        "style",
+        "score"
+      ],
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "lines": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "markup": {
+          "$ref": "#/$defs/markup"
+        },
+        "style": {
+          "$ref": "#/$defs/style"
+        },
+        "score": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "totals": {
+      "type": "object",
+      "required": [
+        "files",
+        "lines",
+        "markup",
+        "style",
+        "score"
+      ],
+      "properties": {
+        "files": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "lines": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "markup": {
+          "$ref": "#/$defs/markup"
+        },
+        "style": {
+          "$ref": "#/$defs/style"
+        },
+        "score": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "markup": {
+      "type": "object",
+      "required": [
+        "design_system",
+        "catalog",
+        "raw",
+        "local",
+        "lib",
+        "svg"
+      ],
+      "properties": {
+        "design_system": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "catalog": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "raw": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "local": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "lib": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "svg": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ds_share": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "style": {
+      "type": "object",
+      "required": [
+        "token_refs",
+        "raw_colors",
+        "raw_sizes",
+        "inline_style_props"
+      ],
+      "properties": {
+        "token_refs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "raw_colors": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "raw_sizes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "inline_style_props": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "token_share": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

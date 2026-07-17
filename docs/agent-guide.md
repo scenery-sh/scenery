@@ -103,6 +103,7 @@ Use `-o json` for compiler commands and command-specific current protocols. Neve
 | Inspect canonical graph | `scenery compile --view expanded -o json` |
 | Query resources and provenance | `scenery list|get|explain|graph ... -o json` |
 | Inspect routed app views | `scenery inspect app|routes|services|endpoints -o json` |
+| Rank React UI guardrail drift | `scenery inspect ui [--frontend <name>] -o human|json` |
 | Inspect build and paths | `scenery inspect build -o json`, `scenery inspect paths -o json` |
 | Inspect durable/storage capabilities | `scenery inspect durable -o json`, `scenery inspect storage -o json` |
 | Generate/check Go artifacts | `scenery generate --target go [--check] -o json` |
@@ -186,11 +187,20 @@ scenery generate --target typescript_client.public_api --check -o json
 
 Regenerate after changes to reachable types, bindings, codec mappings, authentication, authorization, or gateway behavior. Keep app imports pointed at the declared output root.
 
-For a declarative table frontend, add an explicit CRUD `list` allowlist, declare `react_component` overrides and a `table_page`, then add `react { tsconfig = "..." }` to the TypeScript target. Generation writes `react/<page>.generated.tsx`, the neutral `generatedPages` descriptor, and the binary-owned `react/scenery-ui` catalog in the same managed transaction; generated loaders call the browser-facing `/api/` route on the current origin. The adapter composes the shared `Page` shell with the chrome-less Astryx `QueryTable`, maps `toolbar` to page actions, and renders load failures through the shared request-state contract. Mount `generatedPages` beneath one app-owned TanStack `QueryClientProvider`; generated page-address keys then inherit the app's cache, deduplication, retry, and invalidation policies. Persistence remains opt-in app policy rather than a generated default. Pass the optional page `client` prop when the app owns fetch/auth behavior, and customize only declared slots and Astryx tokens; never edit generated adapters or catalog files. Apps may also import the catalog's reusable Astryx + StyleX components through one app-owned `@scenery/ui` alias pointing to `<output_root>/react/scenery-ui/index.ts` in both `tsconfig.json` and the bundler. Keep the aliases identical, install the catalog peer dependencies, and let the app's StyleX transform compile the generated TSX. Run `scenery doctor -o json` first when the tsconfig, frontend `node_modules`, or managed native checker may be missing.
+For a declarative frontend, add `react { tsconfig = "..." }` to the TypeScript target and put URL search types plus optional navigation placement on each generated page declaration. Generation writes page adapters, `routes.generated.ts`, `app.generated.tsx`, and the binary-owned catalog in one managed transaction. Use `createSceneryApp`; register app-owned pages through its one descriptor-array extension and fill the fixed auth/top-bar/content/link/icon slots. The generated layer owns the TanStack route tree, intent preloading, `Outlet`, active navigation, and `ClientAppShell`; do not keep a second route tree, navigation list, or hidden-page mount system. Keep one app-owned `QueryClientProvider`, supply the React/Astryx/StyleX/TanStack peers, and never edit generated output.
 
 For a generated two-pane screen, declare a unit-input operation with HTTP and inherited internal bindings, app-owned `react_component` slots for `sidebar` and `detail`, and a generic `split_page`. Optional `sidebar_actions` and `detail_header` slots share the raw request state and URL-backed selection state. Scenery generates transport, request/selection state, and the reusable split layout only; each domain-specific slot owns its loading/error/ready rendering and should wrap those branches with `QueryState` from `@scenery/ui`.
 
 For a generated one-column screen, declare the same unit-input HTTP plus inherited-internal operation pair and use `content_page` with one app-owned `content` slot. Optional `actions` render in the shared `Page` header; `max_width` bounds the centered content well. Both slots receive the shared typed request state and should adapt it to `QueryState` with `queryStateProps`.
+
+For UI cleanup triage, run `scenery inspect ui --frontend <name>` and start with
+the highest-score file while reading both axes independently. Replace raw
+layout and controls with the existing Astryx or `@scenery/ui` vocabulary, and
+replace hardcoded design values with the app's imported StyleX theme tokens.
+Re-run the report and confirm the relevant raw counts fall without treating the
+score as a pass/fail threshold. Use `-o json` for automation and compare
+`markup.ds_share` and `style.token_share` separately; a strong result on one
+axis does not excuse drift on the other.
 
 ## Client-App Instructions
 

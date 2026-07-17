@@ -59,15 +59,15 @@ func expandContentPageResources(resources []Resource) ([]Resource, []Diagnostic)
 }
 
 func validateContentPage(resources map[string]Resource, content Resource) []Diagnostic {
+	diagnostics := validateGeneratedPageRoute(resources, content)
 	source := resources[resolveResourceRef(content, refString(content.Spec["source"]), "binding")]
 	if source.Kind != "scenery.binding" || stringValue(source.Spec["protocol"]) != "http" || stringValue(source.Spec["delivery"]) != "call" {
-		return []Diagnostic{uiDiagnostic("SCN2617", "content_page source must resolve to a call-delivery HTTP binding", content)}
+		return append(diagnostics, uiDiagnostic("SCN2617", "content_page source must resolve to a call-delivery HTTP binding", content))
 	}
 	operation := resources[resolveResourceRef(source, refString(source.Spec["operation"]), "operation")]
 	if operation.Kind != "scenery.operation" || typeExpression(operation.Spec["input"]) != "std.type.unit" || len(namedChildren(operation.Spec, "result")) != 1 {
-		return []Diagnostic{uiDiagnostic("SCN2617", "content_page source operation requires unit input and exactly one result", content)}
+		return append(diagnostics, uiDiagnostic("SCN2617", "content_page source operation requires unit input and exactly one result", content))
 	}
-	var diagnostics []Diagnostic
 	for _, slot := range []string{"content", "actions"} {
 		children := orderedChildren(content.Spec, slot)
 		if slot == "content" && len(children) != 1 {

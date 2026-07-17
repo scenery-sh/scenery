@@ -437,7 +437,7 @@ scenery generate --target typescript_client.public_api --check -o json
 
 The generated client implements the declared gateway/binding contract.
 
-Add `react { tsconfig = "apps/web/tsconfig.json" }` to a TypeScript target to opt into declarative `table_page` output. Scenery writes generated page adapters, a router-neutral `generatedPages` array, and its binary-owned `@scenery/ui` table catalog beneath the same output root, then checks the staged target with the checksummed managed `tsgo` binary before committing any file. Generated loaders call the browser-facing `/api/` route on the current origin; pass the optional `client` prop when the app owns authentication or other fetch behavior.
+Add `react { tsconfig = "apps/web/tsconfig.json" }` to a TypeScript target to opt into generated React apps. Scenery writes page adapters, typed route/search descriptors, a TanStack route-tree adapter, generated navigation, the catalog-owned app shell, and `@scenery/ui` beneath the same output root, then checks the staged target with managed `tsgo`. Call `createSceneryApp`, register any hand-written pages through its descriptor extension, and fill its fixed visual/auth slots; the app does not maintain a parallel router, navigation list, or shell.
 
 `WithMeta` methods expose response headers, status, and the raw `Response` alongside decoded data.
 

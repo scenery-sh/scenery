@@ -29,6 +29,7 @@ scenery inspect services -o json
 scenery inspect endpoints -o json
 scenery inspect durable -o json
 scenery inspect storage -o json
+scenery inspect ui -o json
 scenery logs -o jsonl --limit 200
 scenery harness -o json --write
 ```
@@ -161,7 +162,7 @@ bun test internal/generate/testdata/typescript_client_conformance.test.ts
 
 Generated clients implement the exact declared HTTP mappings and typed outcomes. They do not infer routes or authentication from Go names. Regenerate after any reachable binding, type, codec, or auth contract changes.
 
-For generated React table pages, declare the CRUD `list` filter/sort allowlist, `react_component` overrides, and `table_page`, then add `react { tsconfig = "path/to/tsconfig.json" }` to the client target. Scenery materializes `react/` plus its binary-owned `scenery-ui` catalog, targets the browser-facing `/api/` route on the current origin, and typechecks the staged target with managed `tsgo` before committing. Treat `SCN6320` as an override contract error, `SCN6321` as a reachable app TypeScript error, and `SCN6322` as checker/config/dependency readiness. Do not edit the generated page or catalog; mount `generatedPages` through the app router, pass its optional `client` prop when the app owns fetch/auth behavior, and customize only declared slots and Astryx tokens. Generated table adapters compose the shared `Page` shell with the chrome-less Astryx `QueryTable`; `toolbar` becomes the page action slot. Vite apps may import reusable catalog components through an exact `@scenery/ui` alias to `<output_root>/react/scenery-ui/index.ts` in both TypeScript and Vite; the app supplies the declared React, Astryx, and StyleX peers and compiles the generated source with its normal StyleX transform.
+For generated React pages, declare the page macro plus any typed `search` blocks and `nav_*` metadata, then add `react { tsconfig = "path/to/tsconfig.json" }` to the client target. Scenery materializes page adapters, `routes.generated.ts`, `app.generated.tsx`, and its binary-owned `scenery-ui` catalog, then typechecks the staged target with managed `tsgo`. Create the app with `createSceneryApp`, register hand-written pages through its one `SceneryRouteDescriptor` array, and fill only its fixed auth/top-bar/content/link/icon slots; do not build another route tree, navigation list, shell, or page-selection system. TanStack Router remains an app peer. Treat `SCN2619` as invalid page search/navigation metadata, `SCN6320` as an override contract error, `SCN6321` as a reachable app TypeScript error, and `SCN6322` as checker/config/dependency readiness. Generated page loaders target the browser `/api/` route and accept an optional client prop. Vite apps alias `@scenery/ui` and its token subpath to the materialized catalog in TypeScript, Vite, and StyleX; the app supplies React, Astryx, StyleX, TanStack Query, and TanStack Router peers.
 
 For a generated two-pane screen, use the generic `split_page` kind with a unit-input HTTP operation and app-owned `sidebar` and `detail` `react_component` slots; `sidebar_actions` and `detail_header` are optional. Scenery owns transport, raw request state, URL-backed selection, and reusable layout. Each slot owns its loading/error/ready presentation and should use `QueryState` from `@scenery/ui` for consistency. Keep every domain-specific component in the client app.
 
@@ -183,6 +184,12 @@ Single-file Go code tasks live under a domain `tasks` directory and use `//go:bu
 ## UI Work
 
 Follow `apps/console/AGENTS.md` for dashboard work. Generated table pages use Scenery's binary-owned catalog; mount `generatedPages` and customize declared slots or CSS tokens instead of editing materialized catalog files.
+
+Before rewriting an app frontend, run
+`scenery inspect ui --frontend <name> -o human` for the ranked cleanup queue.
+Use its markup and style shares independently, move the top offender onto
+Astryx/`@scenery/ui` and StyleX tokens, then re-run. The score is triage
+guidance, not enforcement.
 
 ```sh
 cd apps/console
@@ -211,6 +218,7 @@ scenery generate [--app-root <path>] [--target contracts|typescript_client.<name
 scenery changes plan|apply ... -o json
 scenery deploy plan|apply ... -o json
 scenery inspect app|routes|services|endpoints|build|paths|durable|storage|observability -o json
+scenery inspect ui [--frontend <name>] [-o human|json]
 scenery logs [--app-root <path>] [-o jsonl] [--limit <n>]
 scenery traces list -o json [--app-root <path>]
 scenery metrics list -o json [--app-root <path>]

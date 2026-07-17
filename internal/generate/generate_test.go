@@ -1052,11 +1052,24 @@ binding "scene_summary_internal" {
 }
 
 content_page "scene_summary" {
-  path       = "/scene-summary"
-  source     = binding.scene_summary_http
-  title      = "Scene summary"
-  aria_label = "Scene summary content"
-  max_width  = 960
+  path             = "/scene-summary"
+  source           = binding.scene_summary_http
+  title            = "Scene summary"
+  aria_label       = "Scene summary content"
+  max_width        = 960
+  nav_group        = "UI"
+  nav_order        = 30
+  nav_label        = "Summary"
+  nav_icon         = "report"
+  nav_active_paths = ["/scene-summary", "/scene-summary/detail"]
+
+  search "mail" {
+    type = string
+  }
+
+  search "view" {
+    type = enum.scene_name
+  }
 
   content {
     component = react_component.scene_summary_content
@@ -1294,12 +1307,29 @@ func (service *Service) SceneSummary(_ context.Context, _ housecontract.SceneSum
 			t.Errorf("generated content page missing %q:\n%s", fragment, contentPageSource)
 		}
 	}
-	pagesSource, err := os.ReadFile(filepath.Join(root, "clients", "generated", "public_api", "react", "pages.generated.ts"))
+	routesSource, err := os.ReadFile(filepath.Join(root, "clients", "generated", "public_api", "react", "routes.generated.ts"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(pagesSource), `{ path: "/scene-summary", component: SceneSummaryPage }`) {
-		t.Errorf("generated pages descriptor omits content page:\n%s", pagesSource)
+	for _, fragment := range []string{
+		`export type SceneSummarySearch`,
+		`mail?: string`,
+		`view?: "roof \"quoted\" \\ path" | "wall"`,
+		`validateSceneSummarySearch`,
+		`navigation: { group: "UI", order: 30, label: "Summary", icon: "report", activePaths: ["/scene-summary", "/scene-summary/detail"] }`,
+	} {
+		if !strings.Contains(string(routesSource), fragment) {
+			t.Errorf("generated routes descriptor missing %q:\n%s", fragment, routesSource)
+		}
+	}
+	appSource, err := os.ReadFile(filepath.Join(root, "clients", "generated", "public_api", "react", "app.generated.tsx"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, fragment := range []string{"createSceneryApp", "ClientAppShell", "navigationSections", "<Outlet />"} {
+		if !strings.Contains(string(appSource), fragment) {
+			t.Errorf("generated app adapter missing %q:\n%s", fragment, appSource)
+		}
 	}
 	descriptorBytes, err := os.ReadFile(filepath.Join(root, "clients", "generated", "public_api", "scenery.typescript-client-generated.json"))
 	if err != nil {

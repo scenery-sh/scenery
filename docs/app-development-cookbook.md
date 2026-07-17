@@ -215,9 +215,14 @@ For a two-pane page, keep the declaration generic and the domain UI app-owned:
 
 ```hcl
 split_page "inbox" {
-  path   = "/inbox"
-  source = binding.inbox_http
-  title  = "Inbox"
+  path      = "/inbox"
+  source    = binding.inbox_http
+  title     = "Inbox"
+  nav_group = "Main"
+  nav_order = 20
+  nav_icon  = "mail"
+
+  search "message" { type = string }
 
   sidebar        { component = react_component.inbox_list }
   sidebar_actions { component = react_component.inbox_actions }
@@ -227,6 +232,12 @@ split_page "inbox" {
 ```
 
 The source operation has unit input, exactly one result, and both HTTP and inherited internal bindings. Its slot modules receive raw loading/error/result state plus URL-backed selection state. Each slot should use `QueryState` from `@scenery/ui` to render those branches consistently. Scenery supplies the reusable split layout; it contains no inbox-specific component.
+
+The same page declaration drives `routes.generated.ts`, its typed search
+validator, and generated navigation. Mount the frontend with
+`createSceneryApp`; put any remaining app-owned pages in its single
+`SceneryRouteDescriptor` extension array and supply fixed shell slots such as
+the auth gate, top bar, router-aware link, and icon resolver.
 
 For a centered one-column page, reuse that operation/binding shape and declare only the page shell slots:
 

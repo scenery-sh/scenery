@@ -82,13 +82,14 @@ func validateReactComponent(root string, resources map[string]Resource, componen
 }
 
 func validateTablePage(resources map[string]Resource, table Resource) []Diagnostic {
+	diagnostics := validateGeneratedPageRoute(resources, table)
 	crud := resources[resolveResourceRef(table, refString(table.Spec["source"]), "crud")]
 	if crud.Kind != "scenery.crud" {
-		return []Diagnostic{uiDiagnostic("SCN2608", "table_page source must resolve to a CRUD resource", table)}
+		return append(diagnostics, uiDiagnostic("SCN2608", "table_page source must resolve to a CRUD resource", table))
 	}
 	list, ok := crud.Spec["list"].(map[string]any)
 	if !ok || crud.Spec["http"] == nil {
-		return []Diagnostic{uiDiagnostic("SCN2608", "table_page source requires CRUD list and HTTP projections", table)}
+		return append(diagnostics, uiDiagnostic("SCN2608", "table_page source requires CRUD list and HTTP projections", table))
 	}
 	entity := resources[resolveResourceRef(crud, refString(crud.Spec["entity"]), "entity")]
 	record := resources[resolveResourceRef(entity, refString(entity.Spec["type"]), "record")]
@@ -97,7 +98,6 @@ func validateTablePage(resources map[string]Resource, table Resource) []Diagnost
 		fields[stringValue(field["name"])] = field
 	}
 	allowedFilters, allowedSorts := stringValues(list["filters"]), stringValues(list["sorts"])
-	var diagnostics []Diagnostic
 	seenColumns := map[string]bool{}
 	for _, column := range namedChildren(table.Spec, "column") {
 		name, appearance := stringValue(column["name"]), defaultString(stringValue(column["appearance"]), "auto")

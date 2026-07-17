@@ -132,6 +132,7 @@ Implemented now:
 - `scenery inspect durable -o json`
 - `scenery inspect storage -o json`
 - `scenery inspect validation -o json`
+- `scenery inspect ui [-o human|json]`
 - `scenery storage status|webui|ls|stat|put|get|rm|cleanup -o json`
 - `scenery traces list -o json`
 - `scenery metrics list -o json`
@@ -306,7 +307,7 @@ Rules:
 - Unknown fields are rejected. Runtime diagnostics include the config file path and JSON field path, for example `/repo/app/.scenery.json: unknown .scenery.json field "frontends.app.extra"`. Removed standard-auth naming fields such as `auth.refresh_cookie_name`, the auth `*_env` selectors, and the Google OAuth `*_env` selectors remain rejected; standard auth reads the canonical environment names documented in `docs/environment.md` directly.
 - The removed `proxy` app config has no compatibility behavior. Use `frontends` for frontend roots and dev runtime routes for local URLs.
 - `.scenery.json` requires an `envs` map and exactly one `local` entry with `default: true`. `scenery up` resolves the default; `scenery up --env <name>` resolves a named entry. Each env may declare `mode`, `domain`, `expose`, `port`, `port_start`, `port_end`, per-frontend `serve`, and an optional `deploy` block. Top-level `deploy`, `dev.routing`, and `frontends.<name>.serve` are unknown fields and fail with their exact JSON paths.
-- `envs.local.ui_catalog` (only `envs.local` may set it) points generation at a live `@scenery/ui` catalog source directory, resolved against the app root, instead of the binary-embedded copy. `scenery up` then watches that directory and re-materializes `react/scenery-ui/` in place on change — no rebuild or app restart; staged TypeScript verification still gates every sync and a failed sync keeps the previous catalog serving. An absent directory warns and falls back to the embedded catalog so committed relative paths never break other machines; a directory without `index.ts` and `package.json` fails as a misconfiguration. Only the embed's entry set (`package.json`, `global.d.ts`, `index.ts`, `components/`, `pages/`) materializes.
+- `envs.local.ui_catalog` (only `envs.local` may set it) points generation at a live `@scenery/ui` catalog source directory, resolved against the app root, instead of the binary-embedded copy. `scenery up` then watches that directory and re-materializes `react/scenery-ui/` in place on change — no rebuild or app restart; staged TypeScript verification still gates every sync and a failed sync keeps the previous catalog serving. An absent directory warns and falls back to the embedded catalog so committed relative paths never break other machines; a directory without `index.ts` and `package.json` fails as a misconfiguration. Only the embed's entry set (`package.json`, `global.d.ts`, `index.ts`, `tokens.stylex.ts`, and `components/`) materializes.
 - The selected env controls browser routing. Path mode (default) assigns one stable localhost base URL, optionally constrained by its port fields. Its `domain` adds `https://<sanitized-branch>-<domain>` (bare domain on `main`) and its `expose` narrows that origin. The env name is stored on the session. If host ownership, edge readiness, or the HTTPS probe fails, the runtime keeps serving localhost and never falls through to a different env's domain.
 - Agent dev-runtime manifests include `route_namespace`, the app-derived local browser namespace used by routed URLs. `route_namespace.workspace` comes from app identity. `route_namespace.base_domain` defaults to `local.dev`.
 - Agent dev-runtime sessions include `environment` plus the existing route manifest. Global `frontends` owns invariant roots/upstreams; `envs.<name>.frontends.<frontend>.serve` selects `development` (HMR) or `production` (built `dist/` static serving) for that env. Deployable environments require every configured frontend to select `production`.
@@ -318,11 +319,13 @@ Rules:
 - `dev.services` is a beta local-development config surface for scenery-owned Postgres schemas in one app database. If the app-level `DATABASE_URL` is present in the app/setup environment, Scenery treats that `postgres://` or `postgresql://` URL as external and manages no server or database; otherwise `scenery up` ensures one machine-wide Docker-backed shared Postgres server and creates one database per app root/worktree with one schema per service plus `scenery`. Managed Postgres database names are derived from app ID and a short hash of the absolute app root. Storage no longer needs a `dev.services` entry: declaring `storage.stores` is sufficient and `scenery up` serves those stores from the local backend.
 - App processes, setup commands, DB setup, and workers receive `DATABASE_URL` plus per-service `<SERVICE>_DATABASE_URL` values for the app database. `SCENERY_DATABASE_JSON` describes the app database, URL, source (`managed` or `external`), and service schemas. Headless runtimes fail closed when database services are configured and no explicit `DATABASE_URL` is present.
 - `scenery up` prepares declared local DB setup before the app process starts. When app config declares `database.apply` or service-local seed files are discovered, the supervisor runs the same split lifecycle as `scenery db setup`: apply first, then seed. It passes the same managed database URL env values that the app child receives, so setup targets the dev-runtime database. Successful setup is fingerprinted from `database.apply` config and seed file hashes; ordinary rebuilds skip setup until those inputs change. Apps can set `database.seed.enabled: false` to opt out of seed discovery when local seed files target a database dialect or lifecycle outside Scenery-managed services.
-- Native TypeScript clients are declared with `typescript_client` resources in `scenery.scn`; `materialization = "source"` writes the managed `output_root`, while `"cache"` writes `.scenery/gen/typescript/<name>`. Generate either with `scenery generate --target typescript_client.<name>`. An optional singleton `react { tsconfig = "path/to/tsconfig.json" }` block adds a managed `react/` subtree: one adapter per declared `content_page`, `table_page`, or `split_page`, `pages.generated.ts`, `index.ts`, and the binary-owned `@scenery/ui` catalog under `react/scenery-ui/`. Generated loaders use the browser-facing `/api/` route on the current origin, accept an optional generated-client `client` prop for app-owned fetch/auth behavior, preserve authored order, and run through the consuming app's TanStack Query client. Stable page-address query keys provide caching, deduplication, retry, and invalidation; typed client failures remain renderable data, while exhausted transport or decoding exceptions map back into the same page error state. Persistent storage is an app-owned QueryClient policy and is not enabled for arbitrary generated results. Reusable catalog components use Astryx + StyleX and declare React, TanStack Query, Astryx, and StyleX as peers. The consuming React tree must provide one `QueryClientProvider`. A consuming app may expose catalog components through an exact `@scenery/ui` TypeScript-and-bundler alias to `<output_root>/react/scenery-ui/index.ts`; its installed peers and StyleX transform compile the materialized source without a second package installation or copied component tree. The descriptor records `ui_catalog_roots`. Before any artifact commit, Scenery stages the whole target beside its final root and runs the exact checksummed managed `tsgo` binary with the declared config; `SCN6320` identifies an incompatible declared override, `SCN6321` an unrelated reachable application error, and `SCN6322` missing checker/config/dependency readiness. Generation never invokes Node, bun, or a `PATH` TypeScript compiler.
+- Native TypeScript clients are declared with `typescript_client` resources in `scenery.scn`; `materialization = "source"` writes the managed `output_root`, while `"cache"` writes `.scenery/gen/typescript/<name>`. Generate either with `scenery generate --target typescript_client.<name>`. An optional singleton `react { tsconfig = "path/to/tsconfig.json" }` block adds a managed `react/` subtree: one adapter per declared `content_page`, `table_page`, or `split_page`; typed `routes.generated.ts`; the TanStack-only `app.generated.tsx` route-tree/shell adapter; `index.ts`; and the binary-owned `@scenery/ui` catalog under `react/scenery-ui/`. `createSceneryApp` combines generated pages with one app-owned `SceneryRouteDescriptor` array and fixed auth/top-bar/content/link/icon slots. The generated adapter owns the root/shell route tree, `Outlet`, active navigation, intent preloading, and catalog `ClientAppShell`; TanStack Router remains a consuming-app peer and no catalog file imports it. Generated loaders use the browser-facing `/api/` route on the current origin, accept an optional generated-client `client` prop for app-owned fetch/auth behavior, preserve authored order, and run through the consuming app's TanStack Query client. Stable page-address query keys provide caching, deduplication, retry, and invalidation; typed client failures remain renderable data, while exhausted transport or decoding exceptions map back into the same page error state. Persistent storage is an app-owned QueryClient policy and is not enabled for arbitrary generated results. Reusable catalog components and blessed Astryx primitives are exported from `react/scenery-ui/index.ts`; semantic StyleX variables are the `t` var group in the generated-ownership-marked `react/scenery-ui/tokens.stylex.ts`. Both surfaces keep Astryx, StyleX, React, TanStack Query, and TanStack Router as peers, and the consuming React tree provides one `QueryClientProvider`. A consuming app aliases `@scenery/ui` to the materialized `index.ts` in TypeScript and its bundler. Apps using semantic tokens also alias `@scenery/ui/tokens.stylex` to the materialized defining module in TypeScript, the bundler, and the StyleX compiler plugin's own `aliases` option; a TypeScript-or-bundler-only alias is insufficient because StyleX resolves defining modules independently. Direct Astryx imports remain the escape hatch for unblessed UI. The descriptor records `ui_catalog_roots`. Before any artifact commit, Scenery stages the whole target beside its final root and runs the exact checksummed managed `tsgo` binary with the declared config; `SCN6320` identifies an incompatible declared override, `SCN6321` an unrelated reachable application error, and `SCN6322` missing checker/config/dependency readiness. Generation never invokes Node, bun, or a `PATH` TypeScript compiler.
 
 - A CRUD `list` block is an explicit public capability allowlist: `filters` accepts only enum fields (repeated query values) and datetime fields (`<field>_from`/`<field>_to`), while `sorts`, optional `default_sort = { field, direction }`, and `max_page_size` control one-column keyset pagination. The generated list result is `{items, next_cursor?}`. Cursors bind the canonical filters, injected tenant scope, sort field, and direction and use the entity primary key as a stable tie-breaker; a mismatched cursor returns the typed `invalid_cursor` request error, and an excessive limit is clamped.
 
 - `react_component` declares only a symlink-safe workspace-relative `module` and named `export`. `table_page` requires `path`, a CRUD `source` with `list` and HTTP projections, `title`, and at least one labeled `column`; it also accepts `description`, `page_size` (default 50, bounded by the CRUD maximum), `row_link`, labeled `filter`/`sort` children, and singleton `toolbar`/`empty` override slots. Columns may use `appearance = "auto"|"text"|"number"|"datetime"|"badge"`. Filters and sorts must be in the CRUD allowlist. The generated React adapter composes the shared `Page` shell with `QueryTable`; `toolbar` maps to page actions, while cells, filters, and empty state remain exact typed app slots. `QueryTable` uses Astryx controls and tokens, `DataTable`, and the shared request-state vocabulary, so it follows the consuming app theme without a parallel CSS-variable surface. Expansion produces the ordinary page plus a built-in web renderer with provenance back to the declaration. `scenery schema scenery.table-page -o json` is the authored grammar; `scenery compile --view expanded -o json` exposes the derived resources.
+
+- Every generated page macro may declare repeated `search "<name>" { type = <type> }` blocks. Search values are optional and support `string`, `bool`, and closed enums; `SCN2619` rejects duplicate names, unavailable/open enums, unsupported shapes, or invalid navigation metadata. Optional `nav_group`, `nav_order`, `nav_label`, `nav_icon`, and `nav_active_paths` fields place the route in generated navigation; `title` is the label fallback and a page without `nav_group` stays out of navigation. Generated validators normalize invalid or absent URL values to `undefined`.
 
 - `content_page` is the single-column generated shell. It requires `path`, `title`, a call-delivery HTTP `source` whose operation has unit input and exactly one result, and one app-owned `content` `react_component` slot; `actions`, `aria_label`, and positive pixel `max_width` are optional. The source operation must also have an inherited internal binding. Both slots receive typed raw `{state}` props using the catalog's shared `RequestState` vocabulary, and the generated adapter renders catalog `Page` with `actions` in its header. Expansion produces the ordinary page plus the built-in content renderer. `scenery schema scenery.content-page -o json` exposes the authored grammar.
 
@@ -421,6 +424,7 @@ scenery harness [--app-root <path>] [-o json] [--write] [--with-validation[=<pro
 scenery harness self [--repo-root <path>] [--summary] [-o human|json] [--write] [--quick|--race|--release] [--fresh-tests]
 scenery harness ui -o json [--app-root <path>] [--dashboard-url <url>] [--headed] [--write]
 scenery inspect app|routes|services|endpoints|build|paths|generators|durable|storage|observability|validation -o json [--app-root <path>]
+scenery inspect ui [--frontend <name>] [--app-root <path>] [-o human|json]
 scenery inspect docs -o json [--repo-root <path>]
 scenery inspect harness [artifact <name>|diagnostics --severity error|warning|timing --top <n>] -o json [--app-root <path>] [--repo-root <path>]
 scenery traces list -o json [--app-root <path>] [--service <name>] [--endpoint <name>] [--trace-id <id>] [--status ok|error] [--min-duration-ms <n>] [--since <duration>] [--limit <n>] [--slowest]
@@ -490,9 +494,10 @@ Deploy rules:
 
 Inspect rules:
 - `scenery inspect` requires a subject.
-- `scenery inspect` currently requires `-o json`.
+- Inspect subjects require `-o json` except `ui`, whose default is the ranked
+  human table and which also supports `-o json`.
 - `--app-root` is optional. When omitted, scenery walks upward from the current working directory to find the app config.
-- Stable inspect subjects are `app`, `routes`, `services`, `endpoints`, `build`, `paths`, and `docs`.
+- Stable inspect subjects are `app`, `routes`, `services`, `endpoints`, `build`, `paths`, `ui`, and `docs`.
 - `generators`, `durable`, `storage`, `traces`, `metrics`, and `observability` are beta diagnostic subjects. `generators` reports configured generation graph inputs and outputs. `durable` reports discovered durable task declarations, service schemas, the durable `scenery` schema, and redacted app database metadata. `storage` reports declared stores, the resolved storage cell ID, default/share policy, per-store object counts and total bytes, and readiness. `storage.runtime` reports the storage-cell `cell_root`, `objects_dir`, and whether the objects directory exists; readiness is `ready` once it does. Raw object-store credentials are never exposed (the local backend has none). `traces`, `metrics`, and `observability` read scenery-managed local observability data. Victoria is the current backing substrate, not the integration API. If no local state exists, query/discovery commands return valid JSON with warnings and empty result sets where possible.
 - `scenery storage status|webui|ls|stat|put|get|rm|cleanup -o json` is a beta storage capability CLI. Object commands operate on configured stores, validate keys with Scenery storage rules, and enforce configured `max_object_bytes`. `cleanup` reports the current storage cell path and existence by default and removes the storage cell directory only with `--yes`. The JSON-only CLI operates directly on the local storage-cell object directories. `webui` reports that the local backend has no managed Web UI. `get` requires `--output` in JSON mode. The app runtime exposes the same configured stores through reserved `/__scenery/storage/<store>/...` HTTP routes when storage env is present; these routes are app data-plane routes, not dev/admin endpoints. Generated TypeScript clients include `client.storage` and `client.storage.store(name)` helpers for list, put, get, getText, getBlob, head, delete, and deletePrefix over those reserved auth storage routes. Stores with `access: "private"` are deliberately absent from the generated browser contract and are only available through app/runtime helpers or the runtime private route table.
 - `scenery inspect observability -o json` emits `scenery.inspect.observability` with backend readiness for logs, metrics, and traces; native dialect names; examples; and the exact enforced query scope for the selected app/session.
@@ -808,7 +813,11 @@ Reserved for upcoming work:
 ```
 
 Rules:
-- Use `scenery inspect ... -o json` for app, route, service, endpoint, build, path, docs, generator, durable, and storage metadata. Use `scenery traces list -o json` and `scenery metrics list -o json` for local observability metadata.
+- Use `scenery inspect ... -o json` for app, route, service, endpoint, build,
+  path, docs, generator, durable, storage, and UI metadata. Use bare
+  `scenery inspect ui` only for its human rewrite queue. Use
+  `scenery traces list -o json` and `scenery metrics list -o json` for local
+  observability metadata.
 - Agent/global dashboard state uses `<dashboard-cache-root>/devdash.json` for compact control-plane records and `<dashboard-cache-root>/app-model/<metadata|api-encoding>/sha256/<hash>.json` for large app-model blobs. The agent dashboard process is the global dashboard-store writer; other agent-backed runtime processes mutate it through the internal dashboard control-plane endpoint. Treat these files as internal cache artifacts; use dashboard APIs and CLI JSON instead of reading them directly.
 - Use `scenery inspect build -o json` for build metadata. `build/latest.json` is a local cache pointer to the latest prepared or compiled build workspace.
 - `build/runtime/<go-target>.json` is the exact runtime-bundle descriptor for the latest local build of that target. Treat it as build output, not a contract source; distribute the copied `<binary>.scenery.runtime-bundle.json` sidecar with an explicit binary output.
@@ -844,6 +853,7 @@ Implemented now:
 - [scenery.inspect.traces.schema.json](schemas/scenery.inspect.traces.schema.json)
 - [scenery.inspect.metrics.schema.json](schemas/scenery.inspect.metrics.schema.json)
 - [scenery.inspect.observability.schema.json](schemas/scenery.inspect.observability.schema.json)
+- [scenery.inspect.ui.schema.json](schemas/scenery.inspect.ui.schema.json)
 - [scenery.logs.query.schema.json](schemas/scenery.logs.query.schema.json)
 - [scenery.logs.tail.entry.schema.json](schemas/scenery.logs.tail.entry.schema.json)
 - [scenery.help.schema.json](schemas/scenery.help.schema.json)
@@ -900,6 +910,34 @@ Schema rules:
 - the outer `scenery.cli` or `scenery.cli.event` envelope owns `spec_revision` and producer identity; nested command data does not duplicate them
 - any shape change produces a new digest revision without adding a selectable semantic version
 - consumers should match on `kind` and the exact `schema_revision`, not on command name alone
+
+### `scenery inspect ui`
+
+```text
+scenery inspect ui [--frontend <name>] [--app-root <path>] [-o human|json]
+```
+
+This read-only inspection scans hand-authored `.tsx` and `.jsx` files beneath
+each configured frontend root. It excludes dependencies, build output, tests,
+generated directories, the materialized `scenery-ui` catalog, and files carrying
+Scenery's generated-source marker. `--frontend` selects one configured frontend;
+an unknown name is invalid input. An app with no frontends succeeds with an
+empty `frontends` array.
+
+Each file reports separate markup and style axes. Markup classifies Astryx,
+`@scenery/ui`, raw HTML, local components, third-party components, and SVG
+internals. Style classifies references to identifiers imported from `*.stylex`
+modules, hardcoded colors, hardcoded `px`/`rem`/`em` sizes inside
+`stylex.create`, and JSX attributes named exactly `style`. `xstyle` is not an
+inline style. `ds_share` and `token_share` are numbers from 0 through 1 and are
+omitted when their denominator is zero.
+
+Rows sort by descending `score`, then path. The score is
+`raw + 2*raw_colors + raw_sizes + 3*inline_style_props`; it is only a rewrite
+queue. It is not a check, threshold, or policy signal. Frontends with no Astryx,
+`@scenery/ui`, or `*.stylex` imports report `design_system: "none"` with no file
+rows. JSON uses kind `scenery.inspect.ui` and the payload schema
+[scenery.inspect.ui.schema.json](schemas/scenery.inspect.ui.schema.json).
 
 ## Examples
 

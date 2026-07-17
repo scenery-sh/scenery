@@ -682,6 +682,7 @@ func buildHarnessSelfKnowledge(repoRoot string) harnessKnowledge {
 		"docs/schemas/scenery.inspect.routes.schema.json",
 		"docs/schemas/scenery.inspect.services.schema.json",
 		"docs/schemas/scenery.inspect.traces.schema.json",
+		"docs/schemas/scenery.inspect.ui.schema.json",
 		"docs/schemas/scenery.task.inspect.schema.json",
 		"docs/schemas/scenery.task.list.schema.json",
 		"docs/schemas/scenery.task.graph.schema.json",

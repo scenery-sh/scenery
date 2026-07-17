@@ -5,5 +5,5 @@ import "embed"
 
 // Files contains the editable catalog source under ui/.
 //
-//go:embed package.json global.d.ts index.ts components
+//go:embed package.json global.d.ts index.ts tokens.stylex.ts components
 var Files embed.FS

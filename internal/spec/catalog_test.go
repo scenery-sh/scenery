@@ -67,6 +67,21 @@ func TestDeclarativeTableResourceMetadataIsComplete(t *testing.T) {
 	if _, ok := content.Attributes["max_width"]; !ok {
 		t.Error("content_page does not advertise max_width")
 	}
+	for name, schema := range map[string]*authoredBlockSchema{
+		"table_page":   table,
+		"split_page":   split,
+		"content_page": content,
+	} {
+		search, ok := schema.Children["search"]
+		if !ok || !search.Repeatable || search.Schema.Labels != 1 {
+			t.Errorf("%s search must be a repeated labeled block: %#v", name, search)
+		}
+		for _, attribute := range []string{"nav_group", "nav_order", "nav_label", "nav_icon", "nav_active_paths"} {
+			if _, ok := schema.Attributes[attribute]; !ok {
+				t.Errorf("%s does not advertise %s", name, attribute)
+			}
+		}
+	}
 }
 
 func TestCurrentCatalogUsesUnversionedKindsAndContentRevisions(t *testing.T) {

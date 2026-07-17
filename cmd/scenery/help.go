@@ -422,14 +422,15 @@ var helpCommands = []helpCommandEntry{
 	{
 		Command: "inspect",
 		Group:   "Inspection",
-		Summary: "Inspect app model and diagnostics as JSON.",
+		Summary: "Inspect app models, UI adherence, and diagnostics.",
 		Usage: []string{
 			"scenery inspect app|routes|services|endpoints|build|paths|generators|durable|storage|observability|validation -o json [--app-root <path>]",
+			"scenery inspect ui [--frontend <name>] [--app-root <path>] [-o human|json]",
 			"scenery inspect docs -o json [--repo-root <path>]",
 			"scenery inspect harness [artifact <name>|diagnostics --severity error|warning|timing --top <n>] -o json [--app-root <path>] [--repo-root <path>]",
 		},
-		Subcommands: []string{"app", "routes", "services", "endpoints", "build", "paths", "generators", "durable", "observability", "validation", "docs", "harness"},
-		Flags:       []string{"-o", "json", "--app-root <path>", "--repo-root <path>"},
+		Subcommands: []string{"app", "routes", "services", "endpoints", "build", "paths", "generators", "durable", "observability", "validation", "ui", "docs", "harness"},
+		Flags:       []string{"-o", "human|json", "--app-root <path>", "--frontend <name>", "--repo-root <path>"},
 		JSON:        true,
 		Stability:   "stable",
 	},

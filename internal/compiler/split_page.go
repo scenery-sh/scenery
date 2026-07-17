@@ -59,15 +59,15 @@ func expandSplitPageResources(resources []Resource) ([]Resource, []Diagnostic) {
 }
 
 func validateSplitPage(resources map[string]Resource, split Resource) []Diagnostic {
+	diagnostics := validateGeneratedPageRoute(resources, split)
 	source := resources[resolveResourceRef(split, refString(split.Spec["source"]), "binding")]
 	if source.Kind != "scenery.binding" || stringValue(source.Spec["protocol"]) != "http" || stringValue(source.Spec["delivery"]) != "call" {
-		return []Diagnostic{uiDiagnostic("SCN2615", "split_page source must resolve to a call-delivery HTTP binding", split)}
+		return append(diagnostics, uiDiagnostic("SCN2615", "split_page source must resolve to a call-delivery HTTP binding", split))
 	}
 	operation := resources[resolveResourceRef(source, refString(source.Spec["operation"]), "operation")]
 	if operation.Kind != "scenery.operation" || typeExpression(operation.Spec["input"]) != "std.type.unit" || len(namedChildren(operation.Spec, "result")) != 1 {
-		return []Diagnostic{uiDiagnostic("SCN2615", "split_page source operation requires unit input and exactly one result", split)}
+		return append(diagnostics, uiDiagnostic("SCN2615", "split_page source operation requires unit input and exactly one result", split))
 	}
-	var diagnostics []Diagnostic
 	for _, slot := range []string{"sidebar", "detail", "sidebar_actions", "detail_header"} {
 		children := orderedChildren(split.Spec, slot)
 		if (slot == "sidebar" || slot == "detail") && len(children) != 1 {
