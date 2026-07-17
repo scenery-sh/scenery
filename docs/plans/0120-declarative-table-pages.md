@@ -67,6 +67,11 @@ any`, no runtime component registry, no dynamic imports, and no eject flow.
 - [x] Expanded `@scenery/ui` with the Micro Platform Astryx + StyleX primitives and navigation chrome; the pilot app now consumes only the generated catalog through a bare alias (2026-07-16)
 - [x] Moved the pilot's one-column and split-page scaffolds into `@scenery/ui`; one root provider supplies the app-owned navigation toggle (2026-07-16)
 - [x] Added the domain-neutral `split_page` macro and typed split slot contract; the Micro pilot's `/mailsnext` transport and wrapper are generated while all mail rendering remains app-owned (2026-07-16)
+- [x] Renamed the split-page left surface from `pane` to `sidebar` across schema, generation, catalog, docs, and the Micro pilot (completed 2026-07-17)
+- [x] Made `detail` an explicit `SplitPage` prop and removed the children bridge from generated output (completed 2026-07-17)
+- [x] Consolidated the component implementation and slot contract in `ui/components/SplitPage.tsx` (completed 2026-07-17)
+- [x] Documented slot-owned loading/error rendering through `QueryState` and completed cross-repo validation (completed 2026-07-17)
+- [x] Removed the positioned-ancestor layout dependency, made empty selection nullable, defaulted string-title labels, and unified the two header rows (completed 2026-07-17)
 
 (M1-M6 completed 2026-07-16.)
 
@@ -105,6 +110,13 @@ any`, no runtime component registry, no dynamic imports, and no eject flow.
   app's existing Astryx, React, and StyleX toolchain compile the binary-owned
   catalog directly. The staged generator check remains independent because it
   verifies the generated subtree from its sibling stage root.
+- 2026-07-17: The first catalog browser exposed three vocabulary seams in the
+  new split-page surface: the left side alone was called `pane`, the slot
+  contract called the main content `detail` while the component accepted it as
+  `children`, and the implementation lived separately from
+  `SplitPageContract.ts`. The same review also found that documentation claimed
+  Scenery rendered loading/error UI even though every slot receives raw state
+  and renders those branches itself.
 
 ## Decision Log
 
@@ -127,10 +139,39 @@ assistance, during the design conversation that produced this plan.
 
 - **`split_page` is generic composition; Scenery never owns a domain page.**
   The declaration binds one typed operation result to required app-owned
-  `pane` and `detail` slots plus optional `pane_actions` and `detail_header`
-  slots. Scenery owns only layout, transport, loading/error state, and URL
-  selection. Mail, project, order, and other domain components stay in the
-  client app. Decided 2026-07-16 by Petr Brazdil.
+  `sidebar` and `detail` slots plus optional `sidebar_actions` and
+  `detail_header` slots. Scenery owns only layout, transport, raw request
+  state, and URL selection. Mail, project, order, and other domain components
+  stay in the client app. Decided 2026-07-16 and vocabulary amended
+  2026-07-17 by Petr Brazdil.
+
+- **Split-page vocabulary is `sidebar` / `detail` end to end.** The authored
+  slots are required `sidebar` and `detail`, with optional `sidebar_actions`
+  and `detail_header`; the React props are `sidebar`, `sidebarActions`,
+  `sidebarLabel`, `sidebarTitle`, `sidebarWidth`, `detail`, and
+  `detailHeader`. There are no pane/list aliases under Scenery's single-current
+  no-legacy rule. Decided 2026-07-17 by Petr Brazdil.
+
+- **`detail` is an explicit prop and the component owns its contract beside
+  its implementation.** `SplitPage` does not use `children` for a named slot,
+  and `ui/components/SplitPage.tsx` contains the implementation, state/slot
+  types, and `defineSplitPageSlots`. Rationale: one vocabulary and one
+  discoverable source file remove generator-only bridging. Decided 2026-07-17
+  by Petr Brazdil.
+
+- **Split-page slots own state presentation.** Generated code supplies the raw
+  typed loading/error/result state to all slots. Domain slots decide how those
+  states occupy their surface and are expected to use the catalog
+  `QueryState`; the layout does not introduce a second shared loading/error
+  renderer. Decided 2026-07-17 by Petr Brazdil.
+
+- **SplitPage owns no hidden containing-block or empty-string contracts.** The
+  grid fills its parent with `width` / `height: 100%` instead of absolute
+  positioning, and the slot selection is `string | null`; changing selection
+  to `null` removes the URL query parameter. A string `sidebarTitle` supplies
+  default section and sidebar labels, while a custom React title requires
+  explicit labels. Both header rows share one structural component with an
+  explicit justification variant. Decided 2026-07-17 by Petr Brazdil.
 
 - **`table_page` is a macro, not a new query IR or page platform.** It expands
   to existing `scenery.page` + `scenery.renderer` resources. No runtime
@@ -261,6 +302,24 @@ no mail resource kind, compiler path, renderer, or catalog component. Live
 browser verification matched the handwritten page's split geometry and core
 content, exercised URL-backed message selection, and recorded successful
 `mail/InboxHttp` traces with no application console errors.
+
+The 2026-07-17 API review hard-cut the split contract to `sidebar` / `detail`
+vocabulary, made both surfaces explicit React props, and colocated the
+component, state types, slot types, and slot-definition helper in
+`ui/components/SplitPage.tsx`. Slots retain raw typed request state and now
+have explicit `QueryState` guidance. Catalog generation also retires marked
+files removed from a live catalog even when live sync has invalidated the
+previous aggregate descriptor, preventing obsolete contract files from
+surviving component moves. The Micro slot inspector rendered
+`sidebarTitle`, `sidebar_actions`, `sidebar`, `detail_header`, and `detail`;
+`?project=MG-1081` survived a live reload.
+
+The same review removed the remaining implicit contracts: SplitPage now fills
+its own parent without `position: absolute`, represents no selection as
+`null`, removes the query parameter when cleared, defaults landmark labels
+from a string title, and renders both headers through the same header-row
+primitive. Catalog contract typechecking covers the label-default and
+custom-title cases.
 
 The planned in-process TypeScript embedding was not viable because upstream
 does not expose a public embeddable compiler API. Reusing Scenery's existing
@@ -545,6 +604,11 @@ contract, and CLI JSON envelope tests in `cmd/scenery`.
    deferred after the feasibility spike.
 8. **M6 docs:** final documentation sweep per the milestone list; update
    `docs/plans/active.md` status and this plan's Outcomes & Retrospective.
+9. **Split-page API cleanup:** hard-cut `pane` to `sidebar`, make `detail` an
+   explicit React prop, merge the component and slot contract into
+   `ui/components/SplitPage.tsx`, update generated consumers and the Micro
+   pilot, document slot-owned `QueryState` use, and rerun schema, compiler,
+   generator, catalog, app, generation-check, and browser acceptance lanes.
 
 ## Validation and Acceptance
 
@@ -627,6 +691,10 @@ toolchain manifest.
   `table_page` kind with `column`/`filter`/`sort`/`toolbar`/`empty` children;
   `typescript_client.<name>.react` block. All documented in
   `docs/local-contract.md` with schemas and stability labels.
+- **Current `split_page` surface:** required `sidebar` and `detail` slots,
+  optional `sidebar_actions` and `detail_header`, optional `sidebar_label`,
+  and the `query_parameter` selection key. The corresponding `SplitPage`
+  component uses named sidebar/detail props and no children slot.
 - **Generated artifacts added:** `react/` subtree in the typescript_client
   managed root; materialized catalog package path recorded in the generated
   descriptor.

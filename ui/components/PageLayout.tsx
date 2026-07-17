@@ -41,13 +41,13 @@ export function PageHeader({
   title,
   actions,
 }: {
-  title: string;
+  title: ReactNode;
   actions?: ReactNode;
 }) {
   const navigation = useContext(PageNavigationContext);
   const shortcut = navigation?.shortcut ?? "⌘B";
   return (
-    <header {...stylex.props(styles.header)}>
+    <PageHeaderRow as="header" justify="between">
       <div {...stylex.props(styles.lead)}>
         {navigation ? (
           <>
@@ -69,7 +69,27 @@ export function PageHeader({
         </Heading>
       </div>
       {actions ? <div {...stylex.props(styles.actions)}>{actions}</div> : null}
-    </header>
+    </PageHeaderRow>
+  );
+}
+
+export function PageHeaderRow({
+  as = "div",
+  children,
+  justify = "start",
+}: {
+  as?: "div" | "header";
+  children: ReactNode;
+  justify?: "between" | "start";
+}) {
+  const props = stylex.props(
+    styles.header,
+    justify === "between" && styles.headerBetween,
+  );
+  return as === "header" ? (
+    <header {...props}>{children}</header>
+  ) : (
+    <div {...props}>{children}</div>
   );
 }
 
@@ -123,48 +143,6 @@ export function Page({
   );
 }
 
-export function SplitPage({
-  ariaLabel,
-  paneLabel,
-  paneTitle,
-  paneActions,
-  pane,
-  detailHeader,
-  children,
-  paneWidth,
-}: {
-  ariaLabel: string;
-  paneLabel: string;
-  paneTitle: string;
-  paneActions?: ReactNode;
-  pane: ReactNode;
-  detailHeader?: ReactNode;
-  children: ReactNode;
-  paneWidth?: string;
-}) {
-  const gridStyle = paneWidth
-    ? ({ "--split-pane-width": paneWidth } as CSSProperties)
-    : undefined;
-  return (
-    <section
-      {...stylex.props(styles.split)}
-      aria-label={ariaLabel}
-      style={gridStyle}
-    >
-      <aside {...stylex.props(styles.pane)} aria-label={paneLabel}>
-        <PageHeader title={paneTitle} actions={paneActions} />
-        <div {...stylex.props(styles.paneInner)}>{pane}</div>
-      </aside>
-      <article {...stylex.props(styles.detail)}>
-        {detailHeader ? (
-          <div {...stylex.props(styles.detailHeader)}>{detailHeader}</div>
-        ) : null}
-        {children}
-      </article>
-    </section>
-  );
-}
-
 const styles = stylex.create({
   header: {
     boxSizing: "border-box",
@@ -175,7 +153,6 @@ const styles = stylex.create({
     overflow: "hidden",
     display: "flex",
     alignItems: "center",
-    justifyContent: "space-between",
     gap: spacingVars["--spacing-2"],
     paddingInline: spacingVars["--spacing-4"],
     borderBottomColor: colorVars["--color-border"],
@@ -183,6 +160,7 @@ const styles = stylex.create({
     borderBottomWidth: borderVars["--border-width"],
     backgroundColor: colorVars["--color-background-surface"],
   },
+  headerBetween: { justifyContent: "space-between" },
   lead: {
     display: "flex",
     alignItems: "center",
@@ -219,76 +197,5 @@ const styles = stylex.create({
     display: "flex",
     flexDirection: "column",
     gap: spacingVars["--spacing-4"],
-  },
-  split: {
-    position: "absolute",
-    inset: 0,
-    display: "grid",
-    gridTemplateColumns: {
-      default: "var(--split-pane-width, minmax(20rem, 24rem)) minmax(0, 1fr)",
-      "@media (max-width: 760px)": "1fr",
-    },
-    gridTemplateRows: {
-      default: "minmax(0, 1fr)",
-      "@media (max-width: 760px)": "minmax(18rem, 45%) minmax(0, 1fr)",
-    },
-    minHeight: 0,
-    backgroundColor: colorVars["--color-background-surface"],
-  },
-  pane: {
-    display: "flex",
-    flexDirection: "column",
-    minHeight: 0,
-    overflow: "hidden",
-    borderInlineEndColor: {
-      default: colorVars["--color-border"],
-      "@media (max-width: 760px)": "transparent",
-    },
-    borderInlineEndStyle: "solid",
-    borderInlineEndWidth: {
-      default: borderVars["--border-width"],
-      "@media (max-width: 760px)": 0,
-    },
-    borderBottomColor: {
-      default: "transparent",
-      "@media (max-width: 760px)": colorVars["--color-border"],
-    },
-    borderBottomStyle: "solid",
-    borderBottomWidth: {
-      default: 0,
-      "@media (max-width: 760px)": borderVars["--border-width"],
-    },
-  },
-  paneInner: {
-    boxSizing: "border-box",
-    flexGrow: 1,
-    minHeight: 0,
-    overflow: "auto",
-    display: "flex",
-    flexDirection: "column",
-    gap: spacingVars["--spacing-4"],
-    padding: spacingVars["--spacing-4"],
-  },
-  detail: {
-    display: "flex",
-    flexDirection: "column",
-    minHeight: 0,
-    overflow: "hidden",
-  },
-  detailHeader: {
-    boxSizing: "border-box",
-    width: "100%",
-    height: spacingVars["--spacing-12"],
-    flexShrink: 0,
-    minWidth: 0,
-    overflow: "hidden",
-    display: "flex",
-    alignItems: "center",
-    gap: spacingVars["--spacing-2"],
-    paddingInline: spacingVars["--spacing-4"],
-    borderBottomColor: colorVars["--color-border"],
-    borderBottomStyle: "solid",
-    borderBottomWidth: borderVars["--border-width"],
-    backgroundColor: colorVars["--color-background-surface"],
   },
 });

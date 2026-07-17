@@ -139,7 +139,7 @@ const styles = stylex.create({
     width: "100%",
     height: 30,
     paddingInline: 10,
-    borderColor: colorVars["--color-border"],
+    borderColor: colorVars["--color-border-emphasized"],
     borderStyle: "solid",
     borderWidth: 1,
     borderRadius: 9,

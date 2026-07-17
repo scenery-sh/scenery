@@ -1,5 +1,13 @@
-import type { TablePageCellProps, TablePageFilterProps } from "../../../ui/index.js";
-import { defineTablePageSlots } from "../../../ui/index.js";
+import type {
+  SplitPageSlotProps,
+  TablePageCellProps,
+  TablePageFilterProps,
+} from "../../../ui/index.js";
+import {
+  defineSplitPageSlots,
+  defineTablePageSlots,
+  SplitPage,
+} from "../../../ui/index.js";
 
 interface Row {
   readonly id: string;
@@ -30,3 +38,49 @@ defineTablePageSlots<Row, "status", "status">()({
   // @ts-expect-error unknown top-level slots fail closed.
   layout: StatusFilter,
 });
+
+function SplitSlot(props: SplitPageSlotProps<Row>) {
+  return (
+    <button onClick={() => props.onSelectionChange(null)}>
+      {props.selection ?? "Nothing selected"}
+    </button>
+  );
+}
+
+defineSplitPageSlots<Row>()({
+  sidebar: SplitSlot,
+  detail: SplitSlot,
+});
+
+const splitContent = <div />;
+
+const splitWithDefaultLabels = (
+  <SplitPage
+    detail={splitContent}
+    sidebar={splitContent}
+    sidebarTitle="Projects"
+  />
+);
+
+const splitWithCustomTitle = (
+  <SplitPage
+    ariaLabel="Projects split page"
+    detail={splitContent}
+    sidebar={splitContent}
+    sidebarLabel="Projects"
+    sidebarTitle={<code>sidebarTitle</code>}
+  />
+);
+
+const splitWithUnlabeledCustomTitle = (
+  // @ts-expect-error non-string titles require explicit landmark labels.
+  <SplitPage
+    detail={splitContent}
+    sidebar={splitContent}
+    sidebarTitle={<code>sidebarTitle</code>}
+  />
+);
+
+void splitWithDefaultLabels;
+void splitWithCustomTitle;
+void splitWithUnlabeledCustomTitle;

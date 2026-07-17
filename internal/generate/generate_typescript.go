@@ -166,6 +166,10 @@ func renderTypeScriptClientFilesByMode(result *Result, selector string, sourceOn
 	if err != nil {
 		return nil, err
 	}
+	files, err = includeStaleUICatalogFiles(result, targets, files)
+	if err != nil {
+		return nil, err
+	}
 	return files, nil
 }
 

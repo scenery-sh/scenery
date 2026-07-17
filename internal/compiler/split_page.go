@@ -68,10 +68,10 @@ func validateSplitPage(resources map[string]Resource, split Resource) []Diagnost
 		return []Diagnostic{uiDiagnostic("SCN2615", "split_page source operation requires unit input and exactly one result", split)}
 	}
 	var diagnostics []Diagnostic
-	for _, slot := range []string{"pane", "detail", "pane_actions", "detail_header"} {
+	for _, slot := range []string{"sidebar", "detail", "sidebar_actions", "detail_header"} {
 		children := orderedChildren(split.Spec, slot)
-		if (slot == "pane" || slot == "detail") && len(children) != 1 {
-			diagnostics = append(diagnostics, uiDiagnostic("SCN2615", "split_page requires pane and detail slots", split))
+		if (slot == "sidebar" || slot == "detail") && len(children) != 1 {
+			diagnostics = append(diagnostics, uiDiagnostic("SCN2615", "split_page requires sidebar and detail slots", split))
 			continue
 		}
 		for _, child := range children {

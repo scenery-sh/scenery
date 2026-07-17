@@ -126,7 +126,7 @@ func renderReactSplitPage(result *Result, target Resource, reactRoot string, pag
 	fmt.Fprintf(&b, "import type { %s } from \"../index.js\";\n", resultType)
 	b.WriteString("import { SplitPage, defineSplitPageSlots } from \"./scenery-ui/index.js\";\n")
 	b.WriteString("import type { SplitPageSlotProps, SplitPageState } from \"./scenery-ui/index.js\";\n")
-	for index, slot := range []string{"pane", "detail", "pane_actions", "detail_header"} {
+	for index, slot := range []string{"sidebar", "detail", "sidebar_actions", "detail_header"} {
 		children := orderedChildren(page.split.Spec, slot)
 		if len(children) == 0 {
 			continue
@@ -143,7 +143,7 @@ func renderReactSplitPage(result *Result, target Resource, reactRoot string, pag
 	}
 	b.WriteString("\n")
 	fmt.Fprintf(&b, "const slots = defineSplitPageSlots<%s>()({\n", resultType)
-	for _, slot := range []string{"pane", "detail", "pane_actions", "detail_header"} {
+	for _, slot := range []string{"sidebar", "detail", "sidebar_actions", "detail_header"} {
 		if alias := aliases[slot]; alias != "" {
 			fmt.Fprintf(&b, "  %s: %s,\n", tsName(slot), alias)
 		}
@@ -163,19 +163,25 @@ func renderReactSplitPage(result *Result, target Resource, reactRoot string, pag
 	b.WriteString("    }\n  }, [client]);\n")
 	fmt.Fprintf(&b, "  const queryParameter = %s;\n", strconv.Quote(defaultString(stringValue(page.split.Spec["query_parameter"]), "selected")))
 	b.WriteString("  const [state, setState] = useState<SplitPageState<" + resultType + ">>({ kind: \"loading\" });\n")
-	b.WriteString("  const [selection, setSelection] = useState(() => typeof globalThis.location === \"undefined\" ? \"\" : new URLSearchParams(globalThis.location.search).get(queryParameter) ?? \"\");\n")
+	b.WriteString("  const [selection, setSelection] = useState<string | null>(() => typeof globalThis.location === \"undefined\" ? null : new URLSearchParams(globalThis.location.search).get(queryParameter));\n")
 	b.WriteString("  useEffect(() => { let active = true; void load().then((next) => { if (active) setState(next); }); return () => { active = false; }; }, [load]);\n")
-	b.WriteString("  const onSelectionChange = useCallback((next: string) => { setSelection(next); if (typeof globalThis.location !== \"undefined\") { const nextURL = new URL(globalThis.location.href); nextURL.searchParams.set(queryParameter, next); globalThis.history.pushState({}, \"\", nextURL); } }, [queryParameter]);\n")
+	b.WriteString("  const onSelectionChange = useCallback((next: string | null) => { setSelection(next); if (typeof globalThis.location !== \"undefined\") { const nextURL = new URL(globalThis.location.href); if (next === null) nextURL.searchParams.delete(queryParameter); else nextURL.searchParams.set(queryParameter, next); globalThis.history.pushState({}, \"\", nextURL); } }, [queryParameter]);\n")
 	b.WriteString("  const slotProps: SplitPageSlotProps<" + resultType + "> = { state, selection, onSelectionChange };\n")
-	fmt.Fprintf(&b, "  return <SplitPage ariaLabel=%s paneLabel=%s paneTitle=%s", strconv.Quote(defaultString(stringValue(page.split.Spec["aria_label"]), stringValue(page.split.Spec["title"]))), strconv.Quote(defaultString(stringValue(page.split.Spec["pane_label"]), stringValue(page.split.Spec["title"]))), strconv.Quote(stringValue(page.split.Spec["title"])))
-	if aliases["pane_actions"] != "" {
-		b.WriteString(" paneActions={<slots.paneActions {...slotProps} />}")
+	fmt.Fprintf(&b, "  return <SplitPage sidebarTitle=%s", strconv.Quote(stringValue(page.split.Spec["title"])))
+	if label := stringValue(page.split.Spec["aria_label"]); label != "" {
+		fmt.Fprintf(&b, " ariaLabel=%s", strconv.Quote(label))
 	}
-	b.WriteString(" pane={<slots.pane {...slotProps} />}")
+	if label := stringValue(page.split.Spec["sidebar_label"]); label != "" {
+		fmt.Fprintf(&b, " sidebarLabel=%s", strconv.Quote(label))
+	}
+	if aliases["sidebar_actions"] != "" {
+		b.WriteString(" sidebarActions={<slots.sidebarActions {...slotProps} />}")
+	}
+	b.WriteString(" sidebar={<slots.sidebar {...slotProps} />}")
 	if aliases["detail_header"] != "" {
 		b.WriteString(" detailHeader={<slots.detailHeader {...slotProps} />}")
 	}
-	b.WriteString("><slots.detail {...slotProps} /></SplitPage>;\n}\n")
+	b.WriteString(" detail={<slots.detail {...slotProps} />} />;\n}\n")
 	return b.String(), nil
 }
 

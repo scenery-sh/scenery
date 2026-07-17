@@ -219,14 +219,14 @@ split_page "inbox" {
   source = binding.inbox_http
   title  = "Inbox"
 
-  pane           { component = react_component.inbox_list }
-  pane_actions   { component = react_component.inbox_actions }
+  sidebar        { component = react_component.inbox_list }
+  sidebar_actions { component = react_component.inbox_actions }
   detail_header  { component = react_component.inbox_header }
   detail         { component = react_component.inbox_detail }
 }
 ```
 
-The source operation has unit input, exactly one result, and both HTTP and inherited internal bindings. Its slot modules receive the typed result plus loading/error and URL-backed selection state. Scenery supplies the reusable split layout; it contains no inbox-specific component.
+The source operation has unit input, exactly one result, and both HTTP and inherited internal bindings. Its slot modules receive raw loading/error/result state plus URL-backed selection state. Each slot should use `QueryState` from `@scenery/ui` to render those branches consistently. Scenery supplies the reusable split layout; it contains no inbox-specific component.
 
 ## Generate A TypeScript Client
 

@@ -39,6 +39,24 @@ func TestDeclarativeTableResourceMetadataIsComplete(t *testing.T) {
 			t.Errorf("table_page %s must be an unlabeled singleton block: %#v", name, child)
 		}
 	}
+
+	split, _ := authoredResourceSourceSchema("split_page")
+	for _, name := range []string{"sidebar", "detail", "sidebar_actions", "detail_header"} {
+		if child, ok := split.Children[name]; !ok || child.Repeatable || child.Schema.Labels != 0 {
+			t.Errorf("split_page %s must be an unlabeled singleton block: %#v", name, child)
+		}
+	}
+	for _, legacy := range []string{"pane", "pane_actions"} {
+		if _, ok := split.Children[legacy]; ok {
+			t.Errorf("split_page still advertises legacy child %s", legacy)
+		}
+	}
+	if _, ok := split.Attributes["sidebar_label"]; !ok {
+		t.Error("split_page does not advertise sidebar_label")
+	}
+	if _, ok := split.Attributes["pane_label"]; ok {
+		t.Error("split_page still advertises legacy pane_label")
+	}
 }
 
 func TestCurrentCatalogUsesUnversionedKindsAndContentRevisions(t *testing.T) {

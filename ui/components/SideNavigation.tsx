@@ -67,7 +67,7 @@ export function SideNavigation({
                 key={`${item.label}-${item.href ?? itemIndex}`}
                 as={linkComponent}
                 onClick={
-                  item.onClick || onNavigate
+                  item.onClick || (item.href && onNavigate)
                     ? (event: MouseEvent) =>
                         handleNavigate(event, item.onClick, onNavigate)
                     : undefined

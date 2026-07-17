@@ -16,7 +16,7 @@ reuse IDs; this list can still be ordered by current priority.
   - Status: active
   - Owner: scenery compiler / generate
   - Created: 2026-07-16
-  - Focus: `table_page` source kind expanding to ordinary page/renderer resources over an explicit CRUD list filter/sort contract with fingerprint-bound cursor pagination; React-enabled TypeScript clients materialize the binary-owned component catalog and generated pages only after staged verification by the managed native TypeScript checker (`internal/tscheck`).
+  - Focus: `table_page` and `split_page` source kinds expand to ordinary page/renderer resources; the current split contract uses explicit `sidebar` / `detail` slots, while React-enabled TypeScript clients materialize the binary-owned component catalog and generated pages only after staged verification by the managed native TypeScript checker (`internal/tscheck`).
 - [0118 Runtime Infrastructure Consolidation and CLI Logic Extraction](0118-runtime-infra-consolidation.md)
   - Status: active
   - Owner: scenery runtime

@@ -37,15 +37,14 @@ export {
   PageLayoutProvider,
   type PageNavigation,
   PageShell,
-  SplitPage,
 } from "./components/PageLayout.js";
-export { defineSplitPageSlots } from "./components/SplitPageContract.js";
+export { SplitPage, defineSplitPageSlots } from "./components/SplitPage.js";
 export type {
   SplitPageProblem,
   SplitPageSlotProps,
   SplitPageSlots,
   SplitPageState,
-} from "./components/SplitPageContract.js";
+} from "./components/SplitPage.js";
 export { EmptyState, QueryState, TableEmptyRow } from "./components/QueryState.js";
 export {
   SideNavigation,
