@@ -1,10 +1,12 @@
 import type {
+  ContentPageSlotProps,
   RequestState,
   SplitPageSlotProps,
   TablePageCellProps,
   TablePageFilterProps,
 } from "../../../ui/index.js";
 import {
+  defineContentPageSlots,
   defineSplitPageSlots,
   defineTablePageSlots,
   queryStateProps,
@@ -53,6 +55,15 @@ function SplitSlot(props: SplitPageSlotProps<Row>) {
     </button>
   );
 }
+
+function ContentSlot(props: ContentPageSlotProps<Row>) {
+  return props.state.kind === "result" ? props.state.data.id : null;
+}
+
+defineContentPageSlots<Row>()({
+  content: ContentSlot,
+  actions: ContentSlot,
+});
 
 defineSplitPageSlots<Row>()({
   sidebar: SplitSlot,

@@ -198,6 +198,8 @@ var (
 		[]string{"label", "default"}, nil, nil)
 	tablePageSlotSourceSchema = sourceSchema("scenery.table-page.slot", 0,
 		[]string{"component"}, []string{"component"}, nil)
+	contentPageSlotSourceSchema = sourceSchema("scenery.content-page.slot", 0,
+		[]string{"component"}, []string{"component"}, nil)
 )
 
 func init() {
@@ -230,6 +232,7 @@ var authoredResourceChildren = map[string]map[string]authoredChildSchema{
 	"page":              {"action": repeated(pageActionSourceSchema)},
 	"table_page":        {"column": repeated(tablePageColumnSourceSchema), "filter": repeated(tablePageFilterSourceSchema), "sort": repeated(tablePageSortSourceSchema), "toolbar": singleton(tablePageSlotSourceSchema), "empty": singleton(tablePageSlotSourceSchema)},
 	"split_page":        {"sidebar": singleton(tablePageSlotSourceSchema), "detail": singleton(tablePageSlotSourceSchema), "sidebar_actions": singleton(tablePageSlotSourceSchema), "detail_header": singleton(tablePageSlotSourceSchema)},
+	"content_page":      {"content": singleton(contentPageSlotSourceSchema), "actions": singleton(contentPageSlotSourceSchema)},
 }
 
 var authoredStructuralSchemas = map[string]*authoredBlockSchema{

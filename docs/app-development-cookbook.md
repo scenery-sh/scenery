@@ -228,6 +228,22 @@ split_page "inbox" {
 
 The source operation has unit input, exactly one result, and both HTTP and inherited internal bindings. Its slot modules receive raw loading/error/result state plus URL-backed selection state. Each slot should use `QueryState` from `@scenery/ui` to render those branches consistently. Scenery supplies the reusable split layout; it contains no inbox-specific component.
 
+For a centered one-column page, reuse that operation/binding shape and declare only the page shell slots:
+
+```hcl
+content_page "summary" {
+  path      = "/summary"
+  source    = binding.summary_http
+  title     = "Summary"
+  max_width = 960
+
+  actions { component = react_component.summary_actions }
+  content { component = react_component.summary_content }
+}
+```
+
+The generated adapter renders catalog `Page`, puts `actions` in its header, and passes the same typed raw request state to both slots. Use `queryStateProps(state, "summary")` with `QueryState` in the content component instead of inventing another loading/error union.
+
 ## Generate A TypeScript Client
 
 Declare a root target:

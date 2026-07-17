@@ -8,11 +8,34 @@ import {
 } from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
 import {
+  type ComponentType,
   type CSSProperties,
   createContext,
   type ReactNode,
   useContext,
 } from "react";
+import type { Problem, RequestState } from "./request-state.js";
+
+export type ContentPageProblem = Problem;
+export type ContentPageState<Data> = RequestState<{ readonly data: Data }>;
+
+export interface ContentPageSlotProps<Data> {
+  readonly state: ContentPageState<Data>;
+}
+
+export interface ContentPageSlots<Data> {
+  readonly content: ComponentType<ContentPageSlotProps<Data>>;
+  readonly actions?: ComponentType<ContentPageSlotProps<Data>>;
+}
+
+type Exact<Shape, Actual extends Shape> = Actual &
+  Record<Exclude<keyof Actual, keyof Shape>, never>;
+
+export function defineContentPageSlots<Data>() {
+  return <Actual extends ContentPageSlots<Data>>(
+    slots: Exact<ContentPageSlots<Data>, Actual>,
+  ): Actual => slots;
+}
 
 export type PageNavigation = {
   icon: ReactNode;
@@ -123,17 +146,19 @@ export function Page({
   actions,
   children,
   maxWidth,
+  ariaLabel,
 }: {
   title: string;
   actions?: ReactNode;
   children: ReactNode;
   maxWidth?: number;
+  ariaLabel?: string;
 }) {
   const contentStyle = maxWidth
     ? ({ "--page-content-max": `${maxWidth}px` } as CSSProperties)
     : undefined;
   return (
-    <PageShell title={title} actions={actions}>
+    <PageShell title={title} actions={actions} label={ariaLabel}>
       <div {...stylex.props(styles.scrollArea)}>
         <div {...stylex.props(styles.content)} style={contentStyle}>
           {children}

@@ -1080,7 +1080,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-17",
       "review_after": "2026-08-16",
-      "summary": "Practical recipes for building current Scenery apps, including .scn source, generated contracts, bindings, capabilities, auth, storage, Postgres, snapshots, durable work, explicit CRUD list APIs, declarative table pages, sidebar/detail split pages, React-enabled TypeScript targets, observability, and validation workflows.",
+      "summary": "Practical recipes for building current Scenery apps, including .scn source, generated contracts, bindings, capabilities, auth, storage, Postgres, snapshots, durable work, explicit CRUD list APIs, declarative table pages, one-column content pages, sidebar/detail split pages, React-enabled TypeScript targets, observability, and validation workflows.",
       "tags": [
         "cookbook",
         "apps",

@@ -32,11 +32,18 @@ export {
   TextField,
 } from "./components/FormDialog.js";
 export {
+  defineContentPageSlots,
   Page,
   PageHeader,
   PageLayoutProvider,
   type PageNavigation,
   PageShell,
+} from "./components/PageLayout.js";
+export type {
+  ContentPageProblem,
+  ContentPageSlotProps,
+  ContentPageSlots,
+  ContentPageState,
 } from "./components/PageLayout.js";
 export { SplitPage, defineSplitPageSlots } from "./components/SplitPage.js";
 export type {

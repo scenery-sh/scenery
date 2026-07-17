@@ -165,6 +165,8 @@ For generated React table pages, declare the CRUD `list` filter/sort allowlist, 
 
 For a generated two-pane screen, use the generic `split_page` kind with a unit-input HTTP operation and app-owned `sidebar` and `detail` `react_component` slots; `sidebar_actions` and `detail_header` are optional. Scenery owns transport, raw request state, URL-backed selection, and reusable layout. Each slot owns its loading/error/ready presentation and should use `QueryState` from `@scenery/ui` for consistency. Keep every domain-specific component in the client app.
 
+For a generated one-column screen, use `content_page` with the same unit-input HTTP plus inherited-internal operation contract, a required app-owned `content` slot, and optional `actions`. Scenery renders the shared `Page` shell; both slots receive typed `RequestState` props, and `max_width` optionally bounds the centered content well.
+
 ## Tasks and Workers
 
 Use `scenery task` for app-local code tasks. Targets use `<domain>:<name>` and may run even when the application graph is temporarily invalid.

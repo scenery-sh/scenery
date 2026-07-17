@@ -23,7 +23,7 @@ func TestBinaryOwnedUICatalogContainsTablePageContractAndTokens(t *testing.T) {
 	}
 	for path, fragment := range map[string]string{
 		"components/DataTable.tsx":          "export function DataTable",
-		"components/PageLayout.tsx":         "export function PageLayoutProvider",
+		"components/PageLayout.tsx":         "defineContentPageSlots",
 		"components/request-state.ts":       "export type RequestState",
 		"components/SplitPage.tsx":          "defineSplitPageSlots",
 		"components/SideNavigation.tsx":     "export function SideNavigation",

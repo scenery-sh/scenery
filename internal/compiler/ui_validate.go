@@ -23,6 +23,8 @@ func validateUISemantics(root string, resources []Resource) []Diagnostic {
 			diagnostics = append(diagnostics, validateTablePage(byAddress, resource)...)
 		case "scenery.split-page":
 			diagnostics = append(diagnostics, validateSplitPage(byAddress, resource)...)
+		case "scenery.content-page":
+			diagnostics = append(diagnostics, validateContentPage(byAddress, resource)...)
 		case "scenery.page":
 			path := stringValue(resource.Spec["path"])
 			canonical := canonicalRoute(path)
@@ -140,7 +142,7 @@ func builtinTablePageRenderer(renderer Resource) bool {
 }
 
 func builtinUIRenderer(renderer Resource) bool {
-	return builtinTablePageRenderer(renderer) || builtinSplitPageRenderer(renderer)
+	return builtinTablePageRenderer(renderer) || builtinSplitPageRenderer(renderer) || builtinContentPageRenderer(renderer)
 }
 
 func rendererModulePath(root string, resources map[string]Resource, renderer Resource) (string, error) {

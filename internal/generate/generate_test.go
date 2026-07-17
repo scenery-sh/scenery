@@ -965,6 +965,96 @@ react_component "scene_name_filter" {
   export = "SceneNameFilter"
 }
 
+react_component "scene_summary_content" {
+  module = "scene-summary.tsx"
+  export = "SceneSummary"
+}
+
+react_component "scene_summary_actions" {
+  module = "scene-summary.tsx"
+  export = "SceneSummaryActions"
+}
+
+operation "scene_summary" {
+  service = service.house
+  input   = std.type.unit
+
+  handler {
+    method = "SceneSummary"
+  }
+
+  result "success" {
+    type = record.scene_row
+  }
+}
+
+execution "scene_summary_direct" {
+  operation = operation.scene_summary
+  mode      = "direct"
+  timeout   = "15s"
+}
+
+binding "scene_summary_http" {
+  gateway   = var.gateway
+  operation = operation.scene_summary
+  execution = execution.scene_summary_direct
+  protocol  = "http"
+  delivery  = "call"
+
+  authentication = std.authentication.none
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+
+  http {
+    method        = "GET"
+    path          = "/scene-summary"
+    codec_profile = std.codec.http_json_v1
+
+    response "success" {
+      when   = result.success
+      status = 200
+
+      body {
+        codec = "json"
+        from  = result.success
+      }
+    }
+  }
+}
+
+binding "scene_summary_internal" {
+  operation = operation.scene_summary
+  execution = execution.scene_summary_direct
+  protocol  = "internal"
+  delivery  = "call"
+
+  exposure       = "application"
+  authentication = std.authentication.inherit
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+
+  internal {
+    visibility = "application"
+    principal  = "inherit"
+  }
+}
+
+content_page "scene_summary" {
+  path       = "/scene-summary"
+  source     = binding.scene_summary_http
+  title      = "Scene summary"
+  aria_label = "Scene summary content"
+  max_width  = 960
+
+  content {
+    component = react_component.scene_summary_content
+  }
+
+  actions {
+    component = react_component.scene_summary_actions
+  }
+}
+
 table_page "scenes" {
   path        = "/scenes"
   source      = crud.scene_api
@@ -1003,10 +1093,25 @@ table_page "plain_scenes" {
 	for name, source := range map[string]string{
 		"scene-name-cell.tsx":   `export function SceneNameCell(props: { readonly row: object; readonly value: string }) { return props.value; }`,
 		"scene-name-filter.tsx": `export function SceneNameFilter(props: { readonly value?: string; readonly label: string; readonly onChange: (value: string | undefined) => void }) { return props.label; }`,
+		"scene-summary.tsx":     `export function SceneSummary(props: { readonly state: unknown }) { return String(props.state); } export function SceneSummaryActions(props: { readonly state: unknown }) { return String(props.state); }`,
 	} {
 		if err := os.WriteFile(filepath.Join(root, "house", name), []byte(source), 0o644); err != nil {
 			t.Fatal(err)
 		}
+	}
+	servicePath := filepath.Join(root, "house", "service.go")
+	serviceSource, err := os.ReadFile(servicePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	serviceSource = append(serviceSource, []byte(`
+
+func (service *Service) SceneSummary(_ context.Context, _ housecontract.SceneSummaryInput) (housecontract.SceneSummaryOutcome, error) {
+	return housecontract.SceneSummarySuccess{Value: housecontract.SceneRow{}}, nil
+}
+`)...)
+	if err := os.WriteFile(servicePath, serviceSource, 0o644); err != nil {
+		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(root, "tsconfig.json"), []byte(`{"compilerOptions":{"strict":true,"noUnusedLocals":true,"jsx":"react-jsx","module":"esnext","moduleResolution":"bundler","target":"es2022","lib":["es2022","dom"]},"include":["clients/generated/public_api/react/**/*.ts","clients/generated/public_api/react/**/*.tsx","house/**/*.tsx"]}`), 0o644); err != nil {
 		t.Fatal(err)
@@ -1039,6 +1144,19 @@ table_page "plain_scenes" {
 	typeScriptFiles, err := renderTypeScriptTarget(compiled, target)
 	if err != nil {
 		t.Fatal(err)
+	}
+	secondTypeScriptFiles, err := renderTypeScriptTarget(compiled, target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstContentPage := generatedSourceWithSuffix(typeScriptFiles, "/scene_summary.generated.tsx")
+	secondContentPage := generatedSourceWithSuffix(secondTypeScriptFiles, "/scene_summary.generated.tsx")
+	if firstContentPage == "" || firstContentPage != secondContentPage {
+		var paths []string
+		for _, file := range typeScriptFiles {
+			paths = append(paths, filepath.ToSlash(file.Path))
+		}
+		t.Fatalf("content-page generation is not stable across consecutive renders: first=%q second=%q files=%v", firstContentPage, secondContentPage, paths)
 	}
 	if binary := os.Getenv("SCENERY_TSGO_BINARY"); binary != "" {
 		repoRoot, err := filepath.Abs(filepath.Join("..", ".."))
@@ -1134,6 +1252,28 @@ table_page "plain_scenes" {
 	}
 	if !strings.Contains(plainSource, `baseUrl: url(new URL("/api/", globalThis.location.origin).toString())`) {
 		t.Errorf("plain generated table page does not target the browser API route:\n%s", plainSource)
+	}
+	contentPageSource, err := os.ReadFile(filepath.Join(root, "clients", "generated", "public_api", "react", "scene_summary.generated.tsx"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, fragment := range []string{
+		"defineContentPageSlots<SceneRow>",
+		"client.sceneSummary({})",
+		`<Page title={"Scene summary"} ariaLabel={"Scene summary content"} maxWidth={960}`,
+		"actions={<slots.actions {...slotProps} />}",
+		"><slots.content {...slotProps} /></Page>",
+	} {
+		if !strings.Contains(string(contentPageSource), fragment) {
+			t.Errorf("generated content page missing %q:\n%s", fragment, contentPageSource)
+		}
+	}
+	pagesSource, err := os.ReadFile(filepath.Join(root, "clients", "generated", "public_api", "react", "pages.generated.ts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(pagesSource), `{ path: "/scene-summary", component: SceneSummaryPage }`) {
+		t.Errorf("generated pages descriptor omits content page:\n%s", pagesSource)
 	}
 	descriptorBytes, err := os.ReadFile(filepath.Join(root, "clients", "generated", "public_api", "scenery.typescript-client-generated.json"))
 	if err != nil {

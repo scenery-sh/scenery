@@ -843,7 +843,16 @@ func authoredAttributeType(revision, name string) (map[string]any, string) {
 			return resourceRef("binding")
 		}
 		return primitive("string")
-	case "scenery.table-page.column", "scenery.table-page.filter", "scenery.table-page.slot":
+	case "scenery.source.content_page":
+		switch name {
+		case "source":
+			return resourceRef("binding")
+		case "max_width":
+			return primitive("positive_int")
+		default:
+			return primitive("string")
+		}
+	case "scenery.table-page.column", "scenery.table-page.filter", "scenery.table-page.slot", "scenery.content-page.slot":
 		if name == "component" {
 			return resourceRef("react_component")
 		}

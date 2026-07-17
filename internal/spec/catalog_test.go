@@ -6,7 +6,7 @@ import (
 )
 
 func TestDeclarativeTableResourceMetadataIsComplete(t *testing.T) {
-	for _, kind := range []string{"scenery.crud", "scenery.react-component", "scenery.table-page", "scenery.split-page"} {
+	for _, kind := range []string{"scenery.crud", "scenery.react-component", "scenery.table-page", "scenery.split-page", "scenery.content-page"} {
 		if !resourceCreateKindSupported(kind) {
 			t.Fatalf("%s is not advertised as a creatable resource kind", kind)
 		}
@@ -56,6 +56,16 @@ func TestDeclarativeTableResourceMetadataIsComplete(t *testing.T) {
 	}
 	if _, ok := split.Attributes["pane_label"]; ok {
 		t.Error("split_page still advertises legacy pane_label")
+	}
+
+	content, _ := authoredResourceSourceSchema("content_page")
+	for _, name := range []string{"content", "actions"} {
+		if child, ok := content.Children[name]; !ok || child.Repeatable || child.Schema.Labels != 0 {
+			t.Errorf("content_page %s must be an unlabeled singleton block: %#v", name, child)
+		}
+	}
+	if _, ok := content.Attributes["max_width"]; !ok {
+		t.Error("content_page does not advertise max_width")
 	}
 }
 

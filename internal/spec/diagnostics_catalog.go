@@ -270,6 +270,8 @@ SCN2613|table_page_page_size|A table page page size is outside its CRUD list bou
 SCN2614|table_page_expansion_identity|A table-page-derived resource address collides
 SCN2615|split_page_contract|A split page source or slot contract is invalid
 SCN2616|split_page_expansion_identity|A split-page-derived resource address collides
+SCN2617|content_page_contract|A content page source or slot contract is invalid
+SCN2618|content_page_expansion_identity|A content-page-derived resource address collides
 SCN2701|event_contract|An event lacks a payload or positive version
 SCN2702|event_emission_shape|An event emission is incomplete
 SCN2703|event_binding_shape|An event binding is incomplete

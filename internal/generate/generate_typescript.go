@@ -402,6 +402,11 @@ func declaredReactPageBindings(resources []Resource, target Resource) map[string
 			result[resolveResourceRef(split, refString(split.Spec["source"]), "binding")] = true
 		}
 	}
+	for _, content := range resources {
+		if content.Kind == "scenery.content-page" && content.Origin.Kind != "expanded" {
+			result[resolveResourceRef(content, refString(content.Spec["source"]), "binding")] = true
+		}
+	}
 	return result
 }
 

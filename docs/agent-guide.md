@@ -190,6 +190,8 @@ For a declarative table frontend, add an explicit CRUD `list` allowlist, declare
 
 For a generated two-pane screen, declare a unit-input operation with HTTP and inherited internal bindings, app-owned `react_component` slots for `sidebar` and `detail`, and a generic `split_page`. Optional `sidebar_actions` and `detail_header` slots share the raw request state and URL-backed selection state. Scenery generates transport, request/selection state, and the reusable split layout only; each domain-specific slot owns its loading/error/ready rendering and should wrap those branches with `QueryState` from `@scenery/ui`.
 
+For a generated one-column screen, declare the same unit-input HTTP plus inherited-internal operation pair and use `content_page` with one app-owned `content` slot. Optional `actions` render in the shared `Page` header; `max_width` bounds the centered content well. Both slots receive the shared typed request state and should adapt it to `QueryState` with `queryStateProps`.
+
 ## Client-App Instructions
 
 The installable skill is necessary but not sufficient for a client repository. Keep a small app-local `AGENTS.md` containing:

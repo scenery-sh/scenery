@@ -18,7 +18,7 @@ A future page kind then costs a content component plus sugar, not a new page she
 
 - [x] Milestone 1: generator correctness fixes and shared emission helpers (completed 2026-07-17)
 - [x] Milestone 2: shared request-state module in the catalog (completed 2026-07-17)
-- [ ] Milestone 3: `content_page` source kind end to end
+- [x] Milestone 3: `content_page` source kind end to end (completed 2026-07-17)
 - [ ] Milestone 4: `QueryTable` on Astryx; `table_page` recomposes onto `content_page`; `ui/pages/` removed
 - [ ] Docs, SKILL.md, local contract, cookbook, and conformance fixtures updated
 - [ ] Final validation matrix green
@@ -26,6 +26,7 @@ A future page kind then costs a content component plus sugar, not a new page she
 2026-07-17: Plan created from a review session; no implementation started.
 2026-07-17: Completed Milestone 1. Generated JSX attributes now use JavaScript string expressions, split-page selection follows `popstate`, both page renderers share client/load scaffolding and render unexpected failures, and `humanLabel` uppercases a decoded Unicode rune instead of a byte.
 2026-07-17: Completed Milestone 2. The catalog now exports one `Problem` / `RequestState` vocabulary and `queryStateProps`; split and table state types are aliases over it, without changing generated page output.
+2026-07-17: Completed Milestone 3. `content_page` now exists in the current source schema, compiler expansion and validation, generated React routing, catalog slot types, staged fixture-client compilation, and public docs. Its generated output is stable across consecutive renders.
 
 ## Surprises & Discoveries
 
