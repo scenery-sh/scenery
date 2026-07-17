@@ -6,6 +6,20 @@ Completed means implemented or shipped at least once. It does not imply stable
 support for every surface. Use [../local-contract.md](../local-contract.md) as
 the source of truth for stable, beta, and dev-only classification.
 
+## Composable Page Kinds
+
+- Status: completed
+- Owner: scenery generation / ui catalog
+- Completed: 2026-07-17
+- Quality: B
+- ExecPlan: [0123 Composable Page Kinds](0123-composable-page-kinds.md)
+
+Shipped `content_page` as the single-column generated shell, recomposed
+`table_page` through the chrome-less Astryx `QueryTable`, unified catalog
+request state, removed the standalone table page and parallel CSS theme, and
+fixed generated JSX escaping, split-page history synchronization, unexpected
+error rendering, and UTF-8 labels.
+
 ## Declarative Table Pages
 
 - Status: completed

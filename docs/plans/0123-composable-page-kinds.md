@@ -1,5 +1,8 @@
 # 0123 Composable Page Kinds: content_page Shell, Astryx QueryTable, Shared Request State
 
+This ExecPlan is a living document. Keep its Progress, Surprises & Discoveries,
+Decision Log, and Outcomes & Retrospective current as implementation proceeds.
+
 ## Purpose / Big Picture
 
 Scenery generates React pages from `.scn` declarations. Today there are two generated page kinds and they do not compose: `split_page` renders the catalog's `SplitPage` layout (sidebar + detail), while `table_page` renders `TablePage` under `ui/pages/TablePage/`, a standalone component that owns its own page chrome (`<main>`, `<h1>` header), its own theming system (`theme.css` with `--scenery-ui-*` CSS variables and hardcoded hex fallbacks), and raw HTML controls (`<table>`, `<select>`, `<input>`, `<button>`). That violates the catalog's own contract in `ui/AGENTS.md` ("Use Astryx components and tokens with StyleX"), ignores the existing Astryx-based `ui/components/DataTable.tsx`, does not follow app theme or dark mode, and sets the wrong precedent: every future content type (form page, dashboard page) would fork another full page with its own chrome.
@@ -20,14 +23,16 @@ A future page kind then costs a content component plus sugar, not a new page she
 - [x] Milestone 2: shared request-state module in the catalog (completed 2026-07-17)
 - [x] Milestone 3: `content_page` source kind end to end (completed 2026-07-17)
 - [x] Milestone 4: `QueryTable` on Astryx; `table_page` recomposes onto `content_page`; `ui/pages/` removed (completed 2026-07-17)
-- [ ] Docs, SKILL.md, local contract, cookbook, and conformance fixtures updated
-- [ ] Final validation matrix green
+- [x] Docs, SKILL.md, local contract, cookbook, and conformance fixtures updated (completed 2026-07-17)
+- [x] Final validation matrix green (completed 2026-07-17)
 
 2026-07-17: Plan created from a review session; no implementation started.
 2026-07-17: Completed Milestone 1. Generated JSX attributes now use JavaScript string expressions, split-page selection follows `popstate`, both page renderers share client/load scaffolding and render unexpected failures, and `humanLabel` uppercases a decoded Unicode rune instead of a byte.
 2026-07-17: Completed Milestone 2. The catalog now exports one `Problem` / `RequestState` vocabulary and `queryStateProps`; split and table state types are aliases over it, without changing generated page output.
 2026-07-17: Completed Milestone 3. `content_page` now exists in the current source schema, compiler expansion and validation, generated React routing, catalog slot types, staged fixture-client compilation, and public docs. Its generated output is stable across consecutive renders.
 2026-07-17: Completed Milestone 4. The catalog now exposes a chrome-less Astryx `QueryTable`, generated table adapters compose it inside `Page`, toolbar overrides render as page actions, datetime filter overrides are typed by field value, and the standalone catalog page plus CSS theme surface are deleted.
+2026-07-17: Updated SKILL.md, the agent guide, local contract, cookbook, catalog instructions, knowledge index, conformance fixtures, and generated-client fixtures; a residue sweep found no current documentation that still prescribes the deleted `ui/pages/` or catalog CSS-token surfaces.
+2026-07-17: Passed the full Scenery validation matrix and regenerated revision-bound fixtures. In Micro/platform, regenerated with the worktree binary, passed typecheck/lint/tests/build plus repository and current-Scenery verification, and exercised generated table, split, and content pages through the live development route.
 
 ## Surprises & Discoveries
 
@@ -57,7 +62,21 @@ Record further decisions with date, author, and rationale.
 
 ## Outcomes & Retrospective
 
-Not yet completed.
+Completed all four milestones and validated the result in a real consuming app.
+Generated pages now share one request-state model and one page shell: authored
+`content_page` declarations render app-owned content in `Page`, while
+`table_page` is ergonomic sugar for `Page` plus the chrome-less Astryx
+`QueryTable`. The old standalone table page, parallel CSS theme, and
+materialized `ui/pages/` surface are gone.
+
+The runtime acceptance check in Micro/platform confirmed dark-mode Astryx
+theming, a quote-bearing generated title, URL-backed split selection, a
+generated content page, and rendered/recoverable table errors when the API was
+made unavailable. The main implementation risk was contract drift across the
+source schema, generator slot order, TypeScript catalog types, and embedded
+catalog manifest; focused schema/compiler/generator tests plus staged TypeScript
+verification caught the one singleton-slot lookup mismatch during development.
+No compatibility layer or new dependency was needed.
 
 ## Context and Orientation
 

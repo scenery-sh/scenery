@@ -22,12 +22,12 @@
       "path": "docs/plans/0123-composable-page-kinds.md",
       "title": "Composable Page Kinds: content_page Shell, Astryx QueryTable, Shared Request State",
       "owner": "scenery generation / ui catalog",
-      "status": "active",
+      "status": "completed",
       "quality": "B",
       "freshness": "current",
       "last_reviewed": "2026-07-17",
       "review_after": "2026-08-16",
-      "summary": "Active ExecPlan implementing composable generated React pages: content_page renders the shared catalog Page shell for app-owned one-column content, table_page composes the same shell with chrome-less Astryx QueryTable, one shared request-state/problem module unifies generated page and QueryState lifecycles, and generator correctness includes JSX attribute escaping, split-page popstate handling, unified unexpected-error policy, and UTF-8 labels.",
+      "summary": "Completed ExecPlan shipping composable generated React pages: content_page renders the shared catalog Page shell for app-owned one-column content, table_page composes the same shell with chrome-less Astryx QueryTable, one shared request-state/problem module unifies generated page and QueryState lifecycles, and generator correctness includes JSX attribute escaping, split-page popstate handling, unified unexpected-error policy, and UTF-8 labels.",
       "tags": ["plans", "execplans", "ui-catalog", "generation", "react", "content-page", "table-page", "split-page", "typescript", "astryx"]
     },
     {
