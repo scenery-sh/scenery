@@ -27,7 +27,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-17",
       "review_after": "2026-08-16",
-      "summary": "Active ExecPlan restructuring generated React pages into composable layers: a new content_page source kind renders the catalog Page shell as the only single-column generated page, a chrome-less Astryx QueryTable replaces the off-contract ui/pages/TablePage (raw HTML controls plus a parallel theme.css token system), table_page stays as .scn sugar expanding onto content_page, one shared request-state/problem module unifies the SplitPage/TablePage/QueryState vocabularies, and generator correctness fixes land first (JSX attribute escaping, split-page popstate handling, unified unexpected-error policy, UTF-8 label handling).",
+      "summary": "Active ExecPlan implementing composable generated React pages: content_page renders the shared catalog Page shell for app-owned one-column content, table_page composes the same shell with chrome-less Astryx QueryTable, one shared request-state/problem module unifies generated page and QueryState lifecycles, and generator correctness includes JSX attribute escaping, split-page popstate handling, unified unexpected-error policy, and UTF-8 labels.",
       "tags": ["plans", "execplans", "ui-catalog", "generation", "react", "content-page", "table-page", "split-page", "typescript", "astryx"]
     },
     {

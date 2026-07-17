@@ -244,6 +244,8 @@ content_page "summary" {
 
 The generated adapter renders catalog `Page`, puts `actions` in its header, and passes the same typed raw request state to both slots. Use `queryStateProps(state, "summary")` with `QueryState` in the content component instead of inventing another loading/error union.
 
+For a CRUD collection, keep the higher-level `table_page` declaration. Its generated adapter uses the same `Page` shell and renders the chrome-less catalog `QueryTable` as content. Declared `toolbar` becomes the page action slot; cell, filter, and empty-state components remain app-owned typed slots. The built-in grid, enum and datetime filters, sorting, pagination, loading, empty, and error states use Astryx components and tokens, so customize the app theme through Astryx rather than catalog-specific CSS variables.
+
 ## Generate A TypeScript Client
 
 Declare a root target:

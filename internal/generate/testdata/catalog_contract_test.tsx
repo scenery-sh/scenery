@@ -3,6 +3,7 @@ import type {
   RequestState,
   SplitPageSlotProps,
   TablePageCellProps,
+  TablePageDateTimeRange,
   TablePageFilterProps,
 } from "../../../ui/index.js";
 import {
@@ -31,19 +32,27 @@ function StatusFilter(props: TablePageFilterProps<string>) {
   return <button onClick={() => props.onChange("open")}>{props.label}</button>;
 }
 
-defineTablePageSlots<Row, "status", "status">()({
+function CreatedFilter(props: TablePageFilterProps<TablePageDateTimeRange>) {
+  return <button onClick={() => props.onChange({})}>{props.label}</button>;
+}
+
+defineTablePageSlots<
+  Row,
+  "status",
+  { readonly status: string; readonly created: TablePageDateTimeRange }
+>()({
   cells: { status: StatusCell },
-  filters: { status: StatusFilter },
+  filters: { created: CreatedFilter, status: StatusFilter },
 });
 
-defineTablePageSlots<Row, "status", "status">()({
+defineTablePageSlots<Row, "status", { readonly status: string }>()({
   cells: {
     // @ts-expect-error unknown cell slots fail closed.
     missing: StatusCell,
   },
 });
 
-defineTablePageSlots<Row, "status", "status">()({
+defineTablePageSlots<Row, "status", { readonly status: string }>()({
   // @ts-expect-error unknown top-level slots fail closed.
   layout: StatusFilter,
 });

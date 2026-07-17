@@ -347,7 +347,11 @@ func renderReactTablePage(result *Result, target Resource, reactRoot string, pag
 		fmt.Fprintf(&b, ", %s", name)
 	}
 	b.WriteString(" } from \"../index.js\";\n")
-	b.WriteString("import { TablePage, defineTablePageSlots } from \"./scenery-ui/index.js\";\n")
+	uiImports := []string{"Page", "QueryTable"}
+	if len(componentAddresses) > 0 {
+		uiImports = append(uiImports, "defineTablePageSlots")
+	}
+	fmt.Fprintf(&b, "import { %s } from \"./scenery-ui/index.js\";\n", strings.Join(uiImports, ", "))
 	uiTypeImports := []string{"TablePageQuery", "TablePageResult"}
 	for _, column := range orderedChildren(page.table.Spec, "column") {
 		if column["component"] != nil {
@@ -359,6 +363,13 @@ func renderReactTablePage(result *Result, target Resource, reactRoot string, pag
 		field := fields[stringValue(filter["name"])]
 		if filter["component"] != nil && field != nil && strings.HasPrefix(typeExpression(field["type"]), "enum.") {
 			uiTypeImports = append([]string{"TablePageFilterProps"}, uiTypeImports...)
+			break
+		}
+	}
+	for _, filter := range orderedChildren(page.table.Spec, "filter") {
+		field := fields[stringValue(filter["name"])]
+		if filter["component"] != nil && field != nil && !strings.HasPrefix(typeExpression(field["type"]), "enum.") {
+			uiTypeImports = append([]string{"TablePageDateTimeRange"}, uiTypeImports...)
 			break
 		}
 	}
@@ -400,7 +411,7 @@ func renderReactTablePage(result *Result, target Resource, reactRoot string, pag
 		}
 	}
 
-	cellKeys, filterKeys := []string{}, []string{}
+	cellKeys, filterKeys, filterValueTypes := []string{}, []string{}, []string{}
 	for _, column := range orderedChildren(page.table.Spec, "column") {
 		if column["component"] != nil {
 			cellKeys = append(cellKeys, strconv.Quote(tsName(stringValue(column["name"]))))
@@ -408,39 +419,48 @@ func renderReactTablePage(result *Result, target Resource, reactRoot string, pag
 	}
 	for _, filter := range orderedChildren(page.table.Spec, "filter") {
 		if filter["component"] != nil {
-			filterKeys = append(filterKeys, strconv.Quote(stringValue(filter["name"])))
+			field := stringValue(filter["name"])
+			key := strconv.Quote(tsName(field))
+			filterKeys = append(filterKeys, key)
+			valueType := "TablePageDateTimeRange"
+			if len(enumWireValues(resources, page.record.Module, fields[field]["type"])) > 0 {
+				valueType = "string"
+			}
+			filterValueTypes = append(filterValueTypes, "readonly "+key+": "+valueType)
 		}
 	}
-	fmt.Fprintf(&b, "\nconst slots = defineTablePageSlots<%s, %s, %s>()({\n", rowType, unionOrNever(cellKeys), unionOrNever(filterKeys))
-	if len(cellKeys) > 0 {
-		b.WriteString("  cells: {\n")
-		for _, column := range orderedChildren(page.table.Spec, "column") {
-			if column["component"] != nil {
-				field := stringValue(column["name"])
-				fmt.Fprintf(&b, "    %s: %s%sCell,\n", tsName(field), goName(page.table.Name), goName(field))
+	if len(componentAddresses) > 0 {
+		fmt.Fprintf(&b, "\nconst slots = defineTablePageSlots<%s, %s, %s>()({\n", rowType, unionOrNever(cellKeys), objectTypeOrEmpty(filterValueTypes))
+		if len(cellKeys) > 0 {
+			b.WriteString("  cells: {\n")
+			for _, column := range orderedChildren(page.table.Spec, "column") {
+				if column["component"] != nil {
+					field := stringValue(column["name"])
+					fmt.Fprintf(&b, "    %s: %s%sCell,\n", tsName(field), goName(page.table.Name), goName(field))
+				}
+			}
+			b.WriteString("  },\n")
+		}
+		if len(filterKeys) > 0 {
+			b.WriteString("  filters: {\n")
+			for _, filter := range orderedChildren(page.table.Spec, "filter") {
+				if filter["component"] != nil {
+					field := stringValue(filter["name"])
+					fmt.Fprintf(&b, "    %s: %s%sFilter,\n", tsName(field), goName(page.table.Name), goName(field))
+				}
+			}
+			b.WriteString("  },\n")
+		}
+		for _, slot := range []string{"toolbar", "empty"} {
+			for _, value := range orderedChildren(page.table.Spec, slot) {
+				if value["component"] != nil {
+					alias := aliases[resolveResourceRef(page.table, refString(value["component"]), "react_component")]
+					fmt.Fprintf(&b, "  %s: %s,\n", slot, alias)
+				}
 			}
 		}
-		b.WriteString("  },\n")
+		b.WriteString("});\n\n")
 	}
-	if len(filterKeys) > 0 {
-		b.WriteString("  filters: {\n")
-		for _, filter := range orderedChildren(page.table.Spec, "filter") {
-			if filter["component"] != nil {
-				field := stringValue(filter["name"])
-				fmt.Fprintf(&b, "    %s: %s%sFilter,\n", tsName(field), goName(page.table.Name), goName(field))
-			}
-		}
-		b.WriteString("  },\n")
-	}
-	for _, slot := range []string{"toolbar", "empty"} {
-		for _, value := range orderedChildren(page.table.Spec, slot) {
-			if value["component"] != nil {
-				alias := aliases[resolveResourceRef(page.table, refString(value["component"]), "react_component")]
-				fmt.Fprintf(&b, "  %s: %s,\n", slot, alias)
-			}
-		}
-	}
-	b.WriteString("});\n\n")
 
 	method := reactClientMethod(page, bindings)
 	writeReactPageOpen(&b, goName(page.table.Name), goName(target.Name))
@@ -461,7 +481,11 @@ func renderReactTablePage(result *Result, target Resource, reactRoot string, pag
 		b.WriteString("      direction: query.direction,\n      cursor: query.cursor,\n      limit: BigInt(query.limit),\n")
 		b.WriteString("    });\n")
 	}, `{ kind: "result", items: outcome.value.items, nextCursor: outcome.value.nextCursor }`)
-	fmt.Fprintf(&b, "  return <TablePage<%s> title=%s", rowType, jsxStringExpression(stringValue(page.table.Spec["title"])))
+	fmt.Fprintf(&b, "  return <Page title=%s", jsxStringExpression(stringValue(page.table.Spec["title"])))
+	if len(orderedChildren(page.table.Spec, "toolbar")) > 0 {
+		b.WriteString(" actions={<slots.toolbar />}")
+	}
+	fmt.Fprintf(&b, "><QueryTable<%s> resource=%s", rowType, jsxStringExpression(stringValue(page.table.Spec["title"])))
 	if description := stringValue(page.table.Spec["description"]); description != "" {
 		fmt.Fprintf(&b, " description=%s", jsxStringExpression(description))
 	}
@@ -504,8 +528,11 @@ func renderReactTablePage(result *Result, target Resource, reactRoot string, pag
 	if rowLink := stringValue(page.table.Spec["row_link"]); rowLink != "" {
 		fmt.Fprintf(&b, " rowLink={(row) => %s}", renderReactRowLink(rowLink))
 	}
+	if len(orderedChildren(page.table.Spec, "empty")) > 0 {
+		b.WriteString(" empty={slots.empty}")
+	}
 	pageSize, _ := integerValue(page.table.Spec["page_size"])
-	fmt.Fprintf(&b, " pageSize={%d} load={load} slots={slots} />;\n}\n", pageSize)
+	fmt.Fprintf(&b, " pageSize={%d} load={load} /></Page>;\n}\n", pageSize)
 	return b.String(), nil
 }
 
@@ -608,6 +635,13 @@ func unionOrNever(values []string) string {
 		return "never"
 	}
 	return strings.Join(values, " | ")
+}
+
+func objectTypeOrEmpty(fields []string) string {
+	if len(fields) == 0 {
+		return "Record<never, never>"
+	}
+	return "{ " + strings.Join(fields, "; ") + " }"
 }
 
 func quotedList(values []string) string {

@@ -16,7 +16,7 @@ import (
 // catalog directory configured through envs.local.ui_catalog is walked with
 // this exact entry set so repo files such as AGENTS.md or embed.go never
 // materialize into clients.
-var uiCatalogEntries = []string{"package.json", "global.d.ts", "index.ts", "components", "pages"}
+var uiCatalogEntries = []string{"package.json", "global.d.ts", "index.ts", "components"}
 
 func renderUICatalog(appRoot, root string) ([]generatedFile, error) {
 	source, err := uiCatalogFS(appRoot)

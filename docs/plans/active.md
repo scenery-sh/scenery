@@ -11,7 +11,7 @@ reuse IDs; this list can still be ordered by current priority.
   - Status: active
   - Owner: scenery generation / ui catalog
   - Created: 2026-07-17
-  - Focus: one single-column generated page shell (`content_page` rendering the catalog `Page`), chrome-less Astryx `QueryTable` replacing the off-contract `ui/pages/TablePage` (raw HTML + parallel `theme.css` tokens), `table_page` recomposed as sugar over `content_page`, one shared request-state/problem vocabulary across SplitPage/TablePage/QueryState, plus generator correctness fixes (JSX attribute escaping, split-page `popstate`, unified error policy, UTF-8 labels).
+  - Focus: one single-column generated page shell (`content_page` rendering catalog `Page`), chrome-less Astryx `QueryTable`, `table_page` composition through the shared shell, one request-state/problem vocabulary across generated pages and `QueryState`, plus generator correctness fixes (JSX attribute escaping, split-page `popstate`, unified error policy, UTF-8 labels).
 - [0122 UI Catalog Dev Mode: Live ui/ Iteration Without Binary Rebuilds](0122-ui-catalog-dev-mode.md)
   - Status: completed (retain until first release ships it)
   - Owner: scenery generation / agent DX

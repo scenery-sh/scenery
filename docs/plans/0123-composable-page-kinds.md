@@ -19,7 +19,7 @@ A future page kind then costs a content component plus sugar, not a new page she
 - [x] Milestone 1: generator correctness fixes and shared emission helpers (completed 2026-07-17)
 - [x] Milestone 2: shared request-state module in the catalog (completed 2026-07-17)
 - [x] Milestone 3: `content_page` source kind end to end (completed 2026-07-17)
-- [ ] Milestone 4: `QueryTable` on Astryx; `table_page` recomposes onto `content_page`; `ui/pages/` removed
+- [x] Milestone 4: `QueryTable` on Astryx; `table_page` recomposes onto `content_page`; `ui/pages/` removed (completed 2026-07-17)
 - [ ] Docs, SKILL.md, local contract, cookbook, and conformance fixtures updated
 - [ ] Final validation matrix green
 
@@ -27,6 +27,7 @@ A future page kind then costs a content component plus sugar, not a new page she
 2026-07-17: Completed Milestone 1. Generated JSX attributes now use JavaScript string expressions, split-page selection follows `popstate`, both page renderers share client/load scaffolding and render unexpected failures, and `humanLabel` uppercases a decoded Unicode rune instead of a byte.
 2026-07-17: Completed Milestone 2. The catalog now exports one `Problem` / `RequestState` vocabulary and `queryStateProps`; split and table state types are aliases over it, without changing generated page output.
 2026-07-17: Completed Milestone 3. `content_page` now exists in the current source schema, compiler expansion and validation, generated React routing, catalog slot types, staged fixture-client compilation, and public docs. Its generated output is stable across consecutive renders.
+2026-07-17: Completed Milestone 4. The catalog now exposes a chrome-less Astryx `QueryTable`, generated table adapters compose it inside `Page`, toolbar overrides render as page actions, datetime filter overrides are typed by field value, and the standalone catalog page plus CSS theme surface are deleted.
 
 ## Surprises & Discoveries
 
@@ -39,6 +40,7 @@ Recorded from the motivating review (2026-07-17), before implementation:
 - Generated split pages seed selection from the URL and `pushState` on change but install no `popstate` listener, so browser Back leaves rendered selection stale.
 - Unexpected (non-`SceneryClientError`) load errors map to an error state in split pages but are rethrown in table pages.
 - `humanLabel` in `internal/generate/generate_typescript_react.go` uppercases `parts[index][:1]`, a byte slice, corrupting labels that start with a multi-byte UTF-8 rune.
+- The table renderer's first composition pass looked up singleton `toolbar` and `empty` slots by the literal slot name in a map keyed by resolved component address. Fixture assertions exposed the mismatch; singleton presence now follows the authored child block, while the resolved-address map remains responsible only for import aliases.
 
 Add new discoveries here with evidence as implementation proceeds.
 
@@ -62,12 +64,12 @@ Not yet completed.
 Terms:
 
 - **Catalog**: `ui/` in this repo is the single editable source of `@scenery/ui`. The Scenery binary embeds it (`ui/embed.go`) and materializes it into each React-enabled TypeScript client under `react/scenery-ui/` (`internal/generate/catalog.go`; entry list `uiCatalogEntries` mirrors the embed). `envs.local.ui_catalog` (ExecPlan 0122) live-syncs catalog edits into a running client app.
-- **Generated pages**: `internal/generate/generate_typescript_react.go` renders one `<name>.generated.tsx` per `table_page`/`split_page` plus `pages.generated.ts`. Generation is staged and typechecked by the managed native TypeScript checker before commit (diagnostics SCN6320/6321/6322).
+- **Generated pages**: `internal/generate/generate_typescript_react.go` renders one `<name>.generated.tsx` per `content_page`, `table_page`, or `split_page` plus `pages.generated.ts`. Generation is staged and typechecked by the managed native TypeScript checker before commit (diagnostics SCN6320/6321/6322).
 - **Source kinds and expansion**: `table_page` and `split_page` are `.scn` declarations validated by schemas in `internal/spec/source_schemas.go` and expanded to ordinary page/renderer resources by `internal/compiler` (see `internal/compiler/split_page.go` and `split_page_test.go`; ExecPlan 0120 owns that mechanism). `content_page` follows the same path.
 
 Key files (repository-relative):
 
-- `ui/components/PageLayout.tsx` — `Page`, `PageShell`, `PageHeader` (the shell `content_page` reuses); `ui/components/SplitPage.tsx` — split contract with `sidebar`/`detail` slots; `ui/components/QueryState.tsx`; `ui/components/DataTable.tsx`; `ui/pages/TablePage/` — to be deleted; `ui/index.ts` — public surface; `ui/embed.go`.
+- `ui/components/PageLayout.tsx` — `Page`, `PageShell`, `PageHeader` (the shell `content_page` reuses); `ui/components/SplitPage.tsx` — split contract with `sidebar`/`detail` slots; `ui/components/QueryTable.tsx` — table query state, Astryx controls, grid, and pagination; `ui/components/QueryState.tsx`; `ui/components/DataTable.tsx`; `ui/index.ts` — public surface; `ui/embed.go`.
 - `internal/generate/generate_typescript_react.go`, `internal/generate/catalog.go`, golden/conformance fixtures under `internal/generate/testdata/` (`typescript_client_conformance.test.ts`, `tsconfig.catalog.json`, `tsconfig.generated-clients.json`), `internal/generate/generate_typescript_split_page_test.go`, `internal/generate/catalog_test.go`.
 - `internal/spec/source_schemas.go`, `internal/spec/source_schema_metadata.go`, `internal/spec/catalog_test.go`; `internal/compiler/split_page.go` as the expansion template; `internal/compiler/ui_validate.go`.
 - Docs to update together: `docs/local-contract.md`, `docs/agent-guide.md`, `SKILL.md`, `docs/app-development-cookbook.md`, `ui/AGENTS.md`, `internal/generate/AGENTS.md`, `internal/compiler/AGENTS.md`, `docs/knowledge.json`, `docs/plans/active.md`.

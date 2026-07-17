@@ -1,6 +1,6 @@
-export { TablePage } from "./pages/TablePage/TablePage.js";
-export { defineTablePageSlots } from "./pages/TablePage/contract-types.js";
+export { QueryTable, defineTablePageSlots } from "./components/QueryTable.js";
 export type {
+  QueryTableProps,
   TablePageAppearance,
   TablePageCellProps,
   TablePageColumn,
@@ -10,13 +10,11 @@ export type {
   TablePageFilter,
   TablePageFilterProps,
   TablePageProblem,
-  TablePageProps,
   TablePageQuery,
   TablePageResult,
   TablePageSlots,
   TablePageSort,
-  TablePageToolbarProps,
-} from "./pages/TablePage/contract-types.js";
+} from "./components/QueryTable.js";
 export {
   type Align,
   type Column,

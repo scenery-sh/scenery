@@ -1,5 +1,10 @@
 # 0120 Declarative Table Pages: CRUD List Contract, Binary-Owned UI Catalog, Verified React Generation
 
+> Historical note (2026-07-17): ExecPlan 0123 supersedes this plan's standalone
+> table component, catalog `ui/pages/` layout, and catalog-specific CSS-token
+> surface. The current contract composes catalog `Page` with the chrome-less
+> Astryx `QueryTable`; the details below document the original delivered design.
+
 This ExecPlan is a living document. Update Progress, Surprises & Discoveries,
 the Decision Log, and Outcomes & Retrospective as work proceeds; a future
 agent must be able to resume from this file alone.
