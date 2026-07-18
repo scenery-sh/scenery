@@ -100,6 +100,7 @@ The core language defines the following resource families.
 | package | A reusable module source unit |
 | module | An instantiated package with explicit inputs and exports |
 | service | A runtime implementation boundary |
+| library | A `pkg/` Go operation boundary that can link from source or a verified c-shared artifact |
 | go_module, go_toolchain, go_target | Reproducible Go import, toolchain, and build-target metadata |
 | record, enum, union | Boundary and domain types |
 | operation | A logical callable capability |

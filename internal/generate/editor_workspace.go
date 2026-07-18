@@ -259,23 +259,41 @@ func renderEditorContractModules(result *compiler.Result) ([]editorContractModul
 	}
 	byDir := map[string]*editorContractModule{}
 	for _, file := range files {
-		if filepath.Base(file.Path) != "scenery.package-generated.json" {
+		name := filepath.Base(file.Path)
+		if name != "scenery.package-generated.json" && name != "scenery.library-generated.json" {
 			continue
 		}
 		var descriptor struct {
-			ImportPath string `json:"import_path"`
+			ImportPath   string `json:"import_path"`
+			FacadeImport string `json:"facade_import"`
 		}
-		if err := json.Unmarshal(file.Bytes, &descriptor); err != nil || descriptor.ImportPath == "" {
+		if err := json.Unmarshal(file.Bytes, &descriptor); err != nil {
 			return nil, "", fmt.Errorf("decode generated contract descriptor %s", file.Path)
 		}
-		byDir[filepath.Clean(filepath.Dir(file.Path))] = &editorContractModule{ImportPath: descriptor.ImportPath, Files: map[string][]byte{}}
+		importPath := descriptor.ImportPath
+		if name == "scenery.library-generated.json" {
+			importPath = descriptor.FacadeImport
+		}
+		if importPath == "" {
+			return nil, "", fmt.Errorf("decode generated contract descriptor %s: missing import path", file.Path)
+		}
+		byDir[filepath.Clean(filepath.Dir(file.Path))] = &editorContractModule{ImportPath: importPath, Files: map[string][]byte{}}
 	}
 	for _, file := range files {
-		module := byDir[filepath.Clean(filepath.Dir(file.Path))]
-		if module == nil {
+		var moduleRoot string
+		for root := range byDir {
+			if pathWithin(root, file.Path) && len(root) > len(moduleRoot) {
+				moduleRoot = root
+			}
+		}
+		if moduleRoot == "" {
 			continue
 		}
-		module.Files[filepath.Base(file.Path)] = append([]byte(nil), file.Bytes...)
+		relative, err := filepath.Rel(moduleRoot, file.Path)
+		if err != nil {
+			return nil, "", err
+		}
+		byDir[moduleRoot].Files[filepath.ToSlash(relative)] = append([]byte(nil), file.Bytes...)
 	}
 	modules := make([]editorContractModule, 0, len(byDir))
 	for _, module := range byDir {
@@ -328,7 +346,11 @@ func materializeEditorGeneration(generation string, modules []editorContractModu
 			return nil, err
 		}
 		for name, contents := range module.Files {
-			if err := os.WriteFile(filepath.Join(directory, name), contents, 0o644); err != nil {
+			path := filepath.Join(directory, filepath.FromSlash(name))
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				return nil, err
+			}
+			if err := os.WriteFile(path, contents, 0o644); err != nil {
 				return nil, err
 			}
 		}

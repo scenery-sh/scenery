@@ -135,6 +135,9 @@ func validateNativeGoHandlers(appModel *model.App, resources []Resource) []Diagn
 		if operation.Kind != "scenery.operation" || operation.Origin.Kind != "authored" {
 			continue
 		}
+		if refString(operation.Spec["library"]) != "" {
+			continue
+		}
 		handler, _ := operation.Spec["handler"].(map[string]any)
 		methodName := stringValue(handler["method"])
 		if methodName == "" {
@@ -171,6 +174,52 @@ func validateNativeGoHandlers(appModel *model.App, resources []Resource) []Diagn
 		errorGot := types.TypeString(signature.Results().At(1).Type(), packageQualifier)
 		if !strings.HasSuffix(inputGot, "/scenerycontract."+inputWant) || !strings.HasSuffix(outcomeGot, "/scenerycontract."+outcomeWant) || errorGot != "error" {
 			diagnostics = append(diagnostics, Diagnostic{Code: "SCN6105", Severity: "error", Message: fmt.Sprintf("native handler %s has (%s) (%s, %s), want scenerycontract.%s -> scenerycontract.%s, error", methodName, inputGot, outcomeGot, errorGot, inputWant, outcomeWant), Address: operation.Address})
+		}
+	}
+	return diagnostics
+}
+
+func validateNativeGoLibraries(appModel *model.App, resources []Resource) []Diagnostic {
+	if appModel == nil {
+		return nil
+	}
+	packages := map[string]*model.Package{}
+	for _, pkg := range appModel.Packages {
+		packages[pkg.ImportPath] = pkg
+	}
+	var diagnostics []Diagnostic
+	for _, operation := range resources {
+		if operation.Kind != "scenery.operation" || operation.Origin.Kind != "authored" || refString(operation.Spec["library"]) == "" {
+			continue
+		}
+		var library Resource
+		for _, candidate := range resources {
+			if candidate.Kind == "scenery.library" && candidate.Module == operation.Module && candidate.Name == lastRef(refString(operation.Spec["library"])) {
+				library = candidate
+				break
+			}
+		}
+		pkg := packages[stringValue(library.Spec["package"])]
+		handler, _ := operation.Spec["handler"].(map[string]any)
+		methodName := stringValue(handler["method"])
+		if pkg == nil || pkg.Analysis == nil {
+			diagnostics = append(diagnostics, Diagnostic{Code: "SCN6160", Severity: "error", Message: "native library package " + stringValue(library.Spec["package"]) + " not found", Address: operation.Address})
+			continue
+		}
+		object := pkg.Analysis.Types.Scope().Lookup(methodName)
+		signature, ok := objectTypeSignature(object)
+		if !ok || signature.Params().Len() != 2 || signature.Results().Len() != 2 {
+			diagnostics = append(diagnostics, Diagnostic{Code: "SCN6160", Severity: "error", Message: "native library handler " + methodName + " must accept context and generated input and return generated outcome plus error", Address: operation.Address})
+			continue
+		}
+		inputWant := goName(operation.Name) + "Input"
+		outcomeWant := goName(operation.Name) + "Outcome"
+		inputGot := types.TypeString(signature.Params().At(1).Type(), packageQualifier)
+		outcomeGot := types.TypeString(signature.Results().At(0).Type(), packageQualifier)
+		errorGot := types.TypeString(signature.Results().At(1).Type(), packageQualifier)
+		contextGot := types.TypeString(signature.Params().At(0).Type(), packageQualifier)
+		if contextGot != "context.Context" || !strings.HasSuffix(inputGot, "/scenerycontract."+inputWant) || !strings.HasSuffix(outcomeGot, "/scenerycontract."+outcomeWant) || errorGot != "error" {
+			diagnostics = append(diagnostics, Diagnostic{Code: "SCN6160", Severity: "error", Message: fmt.Sprintf("native library handler %s has (%s, %s) (%s, %s), want context.Context and scenerycontract.%s -> scenerycontract.%s, error", methodName, contextGot, inputGot, outcomeGot, errorGot, inputWant, outcomeWant), Address: operation.Address})
 		}
 	}
 	return diagnostics

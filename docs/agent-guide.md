@@ -69,6 +69,48 @@ For terminal HTTP path tails, use only final `{name...}` syntax and add one matc
 
 Generated Go constructor config fields reference typed package inputs. The input owns phase, type, constraints, and sensitivity; plaintext sensitive values fail compilation.
 
+### Declared Go libraries
+
+A package beneath `pkg/` may declare a `library` and library-owned operations
+with direct record inputs and outcomes. Scenery generates
+`scenerylib_<name>` beside the package in the external build/editor workspace.
+App code imports that stable typed facade; never materialize, edit, or commit
+the facade or its `export/` c-shared shim.
+
+Select linkage per environment in `.scenery.json`:
+
+```json
+{
+  "envs": {
+    "local": {
+      "default": true,
+      "libraries": { "geometry": { "linkage": "source" } }
+    },
+    "production": {
+      "libraries": {
+        "geometry": {
+          "linkage": "shared",
+          "manifest": "dist/libraries/geometry/v1.2.3/geometry.scenery-library.json"
+        }
+      }
+    }
+  }
+}
+```
+
+Build the portable fixed matrix with
+`scenery build --lib geometry --version v1.2.3 -o json`. The default emits
+darwin/arm64 and linux/amd64 artifacts plus a digest/ABI-bound manifest.
+Shared startup fails closed if its artifact is missing, unsupported, stale,
+tampered, or ABI-incompatible.
+
+For a live load-alongside upgrade, call the generated facade's
+`UseShared(newManifest)`; new calls use the new version atomically while active
+old calls drain. `Versions()` exposes process-local state. Go c-shared runtimes
+cannot be unloaded, so recycle long-running processes after unusually frequent
+swaps. Validate both backends with a deterministic fixture on the same
+architecture; cross-architecture floating-point bytes may differ.
+
 ## Diagnostics And Semantic Changes
 
 Branch on stable diagnostic codes, never message text. Inspect the catalog with:

@@ -187,6 +187,8 @@ SCN1233|record_validation_expression|A record validation expression is invalid
 SCN2001|http_binding_shape|An HTTP binding is missing its gateway method or path
 SCN2002|http_route_identity|Two HTTP bindings own the same route
 SCN2003|operation_idempotency|An operation idempotency declaration has an invalid mode or key shape
+SCN2004|operation_owner|An operation does not have exactly one service or library owner
+SCN2005|library_contract|A library declaration or operation contract is invalid
 SCN2101|http_method|An HTTP method is not canonical uppercase
 SCN2102|http_path|An HTTP path is not absolute normalized and wildcard-free
 SCN2103|http_raw_codec|The raw HTTP codec is outside the claimed profile
@@ -357,6 +359,7 @@ SCN6142|go_architecture_features|Go target architecture features are invalid or 
 SCN6143|go_module_ownership|A Go module root or import path has multiple owners
 SCN6150|implementation_target_resolution|Implementation revision target inheritance cannot be resolved
 SCN6151|implementation_target_module|An implementation revision target has no resolved Go module
+SCN6160|go_library_package|A Go library implementation package or handler is invalid
 SCN6201|generated_go_contract|Generated Go contract artifacts are invalid
 SCN6202|go_verification|Staged Go target or implementation verification failed
 SCN6203|stale_generated_go|Committed generated Go artifacts are stale or invalid

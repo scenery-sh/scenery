@@ -19,6 +19,18 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0127-shared-library-linkage.md",
+      "title": "Shared Library Linkage: Compile pkg Libraries From Source or Load Prebuilt Shared Artifacts",
+      "owner": "scenery contract / generation / runtime",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-07-18",
+      "review_after": "2026-08-17",
+      "summary": "Completed ExecPlan shipping declared pkg Go libraries, generated source/shared facades and export shims, fixed darwin/arm64 plus linux/amd64 artifact builds, strict digest and ABI manifests, load-alongside hot swaps, and ONLV maps3d adoption.",
+      "tags": ["plans", "execplans", "go", "libraries", "codegen", "c-shared", "hot-swap", "onlv"]
+    },
+    {
       "path": "docs/plans/0126-fully-generated-client-apps.md",
       "title": "Fully Generated Client Apps: Route Tree, Shell, and Navigation Generation",
       "owner": "scenery spec / compiler / generation / ui catalog",
@@ -350,6 +362,42 @@
       "review_after": "2026-08-11",
       "summary": "JSON Schema for generated Go application adapters, ABI ranges, projection revisions, ownership, and content identity.",
       "tags": ["schema", "compiler", "go", "codegen"]
+    },
+    {
+      "path": "docs/schemas/scenery.library-generated.schema.json",
+      "title": "scenery.library-generated Schema",
+      "owner": "scenery Go library generation",
+      "status": "active",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-07-18",
+      "review_after": "2026-08-17",
+      "summary": "JSON Schema for generated typed library facades, source/shared backends, export shims, ABI identity, ownership, and content identity.",
+      "tags": ["schema", "compiler", "go", "libraries", "codegen", "abi"]
+    },
+    {
+      "path": "docs/schemas/scenery.library.artifact.schema.json",
+      "title": "scenery.library.artifact Schema",
+      "owner": "scenery library runtime / build",
+      "status": "active",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-07-18",
+      "review_after": "2026-08-17",
+      "summary": "JSON Schema for portable shared-library manifests with exact ABI, version, platform, digest, Go toolchain, and Linux glibc-floor identity.",
+      "tags": ["schema", "go", "libraries", "build", "runtime", "abi"]
+    },
+    {
+      "path": "docs/schemas/scenery.library.build.result.schema.json",
+      "title": "scenery.library.build.result Schema",
+      "owner": "scenery library build / CLI",
+      "status": "active",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-07-18",
+      "review_after": "2026-08-17",
+      "summary": "JSON Schema for scenery build --lib output, including the manifest path and exact built artifact metadata.",
+      "tags": ["schema", "go", "libraries", "build", "cli", "json"]
     },
     {
       "path": "docs/schemas/scenery.go-build-input-manifest.schema.json",
@@ -993,6 +1041,9 @@
         "docs/schemas/scenery.worktree.remove.schema.json",
         "docs/schemas/scenery.harness.artifact.schema.json",
         "docs/schemas/scenery.harness.self.summary.schema.json",
+        "docs/schemas/scenery.library-generated.schema.json",
+        "docs/schemas/scenery.library.artifact.schema.json",
+        "docs/schemas/scenery.library.build.result.schema.json",
         "docs/schemas/scenery.inspect.harness.schema.json",
         "docs/schemas/scenery.inspect.observability.schema.json",
         "docs/schemas/scenery.inspect.ui.schema.json",

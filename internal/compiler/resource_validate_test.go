@@ -2,6 +2,34 @@ package compiler
 
 import "testing"
 
+func TestLibraryContractRequiresPkgRootAndRecordOperations(t *testing.T) {
+	module := Resource{Address: "app/module/maps3d", Module: "app", Name: "maps3d", Kind: "scenery.module", Spec: map[string]any{
+		"source": map[string]any{"value": "./pkg/maps3d"}, "workspace_package_root": "pkg/maps3d",
+	}}
+	library := Resource{Address: "maps3d/library/maps3d", Module: "maps3d", Name: "maps3d", Kind: "scenery.library", Spec: map[string]any{
+		"runtime": "go", "package": "example.test/pkg/maps3d", "version": "v1.0.0", "artifact": map[string]any{"name": "maps3d"},
+	}}
+	input := Resource{Address: "maps3d/record/process_input", Module: "maps3d", Name: "process_input", Kind: "scenery.record", Spec: map[string]any{}}
+	output := Resource{Address: "maps3d/record/process_output", Module: "maps3d", Name: "process_output", Kind: "scenery.record", Spec: map[string]any{}}
+	operation := Resource{Address: "maps3d/operation/process", Module: "maps3d", Name: "process", Kind: "scenery.operation", Spec: map[string]any{
+		"library": map[string]any{"$ref": "library.maps3d"}, "input": map[string]any{"$ref": "record.process_input"},
+		"handler": map[string]any{"method": "Process"}, "result": map[string]any{"name": "ok", "type": map[string]any{"$ref": "record.process_output"}},
+	}}
+	resources := []Resource{module, library, input, output, operation}
+	if diagnostics := validateResourceSemantics(resources); hasDiagnostic(diagnostics, "SCN2004") || hasDiagnostic(diagnostics, "SCN2005") {
+		t.Fatalf("valid library diagnostics = %#v", diagnostics)
+	}
+
+	broken := operation
+	broken.Spec = cloneMapValue(operation.Spec)
+	broken.Spec["service"] = map[string]any{"$ref": "service.other"}
+	broken.Spec["input"] = map[string]any{"$ref": "string"}
+	diagnostics := validateResourceSemantics([]Resource{module, library, input, output, broken})
+	if !hasDiagnostic(diagnostics, "SCN2004") || !hasDiagnostic(diagnostics, "SCN2005") {
+		t.Fatalf("broken library diagnostics = %#v", diagnostics)
+	}
+}
+
 func TestOperationIdempotencyRequiresOrderedTypedKeyComponents(t *testing.T) {
 	tests := []struct {
 		name string

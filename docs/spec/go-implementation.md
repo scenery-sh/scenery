@@ -96,6 +96,31 @@ Dependencies, configuration, and internal clients are separate constructor-input
 
 Module inputs cannot change generated Go type shape, the implementation import path, constructor signature, lifecycle signature, handler signature, or outcome surface.
 
+### 3.3 Library declaration
+
+A local Scenery package rooted beneath `pkg/` MAY declare a Go library:
+
+~~~hcl
+library "geometry" {
+  runtime = "go"
+  package = "example.com/app/pkg/geometry"
+  version = "v1.2.3"
+  artifact { name = "geometry" }
+}
+~~~
+
+The package, version, and artifact name are compile-time literals. The version
+is canonical semantic version and the artifact name is lower snake case. A
+library owns at least one operation through `library = library.<name>`; that
+operation cannot also name a service. Its input and every declared result or
+error type are direct records, and its handler method names an exported,
+non-generic, non-variadic top-level function in the declared package.
+
+The generated `scenerylib_<name>` facade is the only substitutable API. Source
+linkage calls the handler directly. Shared linkage encodes the same contract
+wire value and calls the generated c-shared export symbol through the verified
+manifest. Arbitrary package Go APIs are not part of this boundary.
+
 ## 4. Workspace and import mapping
 
 A local Go package resolves through an explicit `go_module` resource:
@@ -643,7 +668,7 @@ A package Go-surface change creates a new package ABI revision when the mapping 
 
 ## 19. Generated ownership
 
-Generated artifacts are projections, never declaration sources. Ordinary Go contracts, adapters, composition, descriptors, and generated runtime entrypoints live in Scenery's external content-addressed build/editor caches. Explicit published-module exports live beneath declared managed-generated roots, contain generated markers, and are replaced atomically as complete descriptor-covered sets.
+Generated artifacts are projections, never declaration sources. Ordinary Go contracts, adapters, composition, library facades and c-shared export shims, descriptors, and generated runtime entrypoints live in Scenery's external content-addressed build/editor caches. Explicit published-module exports live beneath declared managed-generated roots, contain generated markers, and are replaced atomically as complete descriptor-covered sets.
 
 Agents and humans MUST NOT edit generated artifacts to change semantics. They edit `.scn` declarations or implementation source and regenerate.
 
@@ -660,6 +685,13 @@ For every workspace-local Go implementation package, Scenery MUST render its mod
 If compilation fails, the last-known-good editor generation remains active and `scenery doctor` reports that it represents a prior valid contract. The cache retains one prior complete generation for editor continuity and can be regenerated deterministically after deletion or checkout relocation.
 
 Registry packages ship their contract package and descriptor as part of the immutable artifact.
+
+A library artifact manifest selects exactly darwin/arm64 or linux/amd64 bytes,
+binds the package ABI revision, semantic version, per-artifact digest, build Go
+version, and Linux glibc floor, and is checked before `dlopen`. Hot swap loads a
+new artifact with local symbol scope, validates version and ABI symbols, then
+atomically changes the current handle. Existing calls drain on the prior
+handle. A Go c-shared runtime MUST NOT be passed to `dlclose`.
 
 ## 21. Testing
 

@@ -46,6 +46,9 @@ Run `scenery doctor -o json` before deep troubleshooting when host readiness is 
 - Workspace, contract, implementation, deployment, and artifact revisions are separate. `scenery compile` does not invent an implementation revision; build supplies an exact target input manifest.
 - Services, operations, executions, HTTP/internal/CLI bindings, authentication, authorization, middleware, durable work, schedules, events, data, and UI resources are `.scn` declarations.
 - Generated Go contract and application-composition files are outputs, never source of truth.
+- Declared `pkg/` Go libraries expose generated `scenerylib_<name>` facades;
+  environments select source or verified shared linkage without changing app
+  imports.
 - `scenery up` starts the app process, rebuild loop, dashboard, API explorer, logs, traces, metrics, managed dev services, and configured frontends for one app root.
 - Public and auth HTTP bindings are externally reachable. Internal bindings are called through generated clients so auth, visibility, tracing, delivery, and error semantics remain intact.
 - Use Git worktrees for multiple live code copies.
@@ -75,6 +78,14 @@ go test ./...
 
 Go contracts, adapters, and composition are rendered into Scenery's external build/editor caches; do not commit or hand-edit `scenerycontract` or `internal/scenerygen`. A successful compile maintains a locally excluded root `go.work` for raw Go/editor resolution. Use `scenery generate --target contracts --materialize` only to export a published module, and `scenery generate --prune-materialized-go` for the descriptor-verified one-time migration. TypeScript targets choose `materialization = "source"` beneath `workspace.managed_generated_roots` or `"cache"` beneath `.scenery/gen/typescript/`.
 
+For a declared library, import the generated `scenerylib_<name>` facade and
+set `envs.<env>.libraries.<name>.linkage` to `source` or `shared`. Shared mode
+also requires an app-root-relative artifact manifest. Build the fixed
+darwin/arm64 + linux/amd64 matrix with
+`scenery build --lib <name> --version <vN.N.N> -o json`. The generated
+`UseShared` entry point swaps verified versions alongside each other; never
+attempt to unload a Go c-shared runtime.
+
 Use `scenery list|get|explain|graph ... -o json` for graph facts and `scenery diff --semantic` for compatibility. Semantic changes and deployments use immutable revision-bound plan/apply. Apply accepts only the exact app-local issued plan and rejects caller-recomputed approvals, operations, edits, or provider actions.
 
 For semantic creation, read agent `resource_create_kinds` and `schema.get` first. Unadvertised kinds are intentionally unavailable. For terminal HTTP path tails, use final `{name...}` syntax and declare one matching typed `path_tail` mapping; path tails are part of the current HTTP contract and require no extra source selector. Do not substitute router globs or pre-encoded fragments.
@@ -84,6 +95,8 @@ For semantic creation, read agent `resource_create_kinds` and `schema.get` first
 - `scenery.sh` for runtime metadata and contract wire helpers.
 - `scenery.sh/auth` for request auth and standard-auth/Google connection helpers.
 - `scenery.sh/errs` for coded errors.
+- `scenery.sh/library` for generated facade loading and load-alongside swaps;
+  app code normally uses its typed facade instead of this package directly.
 - `scenery.sh/durable` for non-registering durable steps and signals; ownership is declared in `.scn`.
 - `scenery.sh/db` for service-scoped Postgres pools.
 - `scenery.sh/datasource` and `scenery.sh/object` for typed constructor capabilities.

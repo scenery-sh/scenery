@@ -148,6 +148,73 @@ binding "quote_internal" {
 
 Use the generated constructor client. It preserves visibility, auth context, tracing, typed cloning, outcomes, and delivery semantics.
 
+## Build Or Consume A Shared Go Library
+
+Use a declared library when a `pkg/` package needs one typed API that can
+either compile from source or load from a prebuilt artifact. The substitution
+boundary is an operation contract, not the package's arbitrary Go API:
+
+```hcl
+library "geometry" {
+  runtime = "go"
+  package = "example.com/app/pkg/geometry"
+  version = "v1.2.3"
+  artifact { name = "geometry" }
+}
+
+record "render_input" {
+  field "source_path" { type = relative_path }
+}
+
+record "render_result" {
+  field "output_path" { type = relative_path }
+}
+
+operation "render" {
+  library = library.geometry
+  input   = record.render_input
+  handler { method = "Render" }
+  result "ok" { type = record.render_result }
+}
+```
+
+Implement `Render` as an exported top-level function using generated contract
+types. Consumers import
+`example.com/app/pkg/geometry/scenerylib_geometry`. Scenery maintains that
+facade in its external workspace; do not add cgo to the library source and do
+not commit the facade.
+
+Choose source linkage for development:
+
+```json
+"libraries": {
+  "geometry": { "linkage": "source" }
+}
+```
+
+Produce both supported artifacts and their manifest:
+
+```sh
+scenery check -o json
+scenery build --lib geometry --version v1.2.3 -o json
+```
+
+For shared linkage, point the environment at the app-root-relative manifest:
+
+```json
+"libraries": {
+  "geometry": {
+    "linkage": "shared",
+    "manifest": "dist/libraries/geometry/v1.2.3/geometry.scenery-library.json"
+  }
+}
+```
+
+The facade validates digest, platform, ABI hash, artifact version, and symbols
+before use. `UseShared` performs a load-alongside hot swap and `Versions`
+reports current, draining, and active-call state. Do not call `dlclose`;
+recycle the process to reclaim old Go runtimes after high swap churn.
+
 ## Authentication And Authorization
 
 Bindings reference explicit authentication and authorization resources or standard policies. Public endpoints use `std.authentication.none` plus `std.authorization.public`. Protected bindings use the configured standard-auth provider and generated auth context; app code reads request identity through `scenery.sh/auth`.

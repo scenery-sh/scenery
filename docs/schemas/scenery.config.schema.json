@@ -255,6 +255,14 @@
 		  "type": ["object", "null"],
 		  "additionalProperties": { "$ref": "#/$defs/environmentFrontend" }
 		},
+		"libraries": {
+		  "type": ["object", "null"],
+		  "description": "Per-library source or shared linkage selected for this environment.",
+		  "propertyNames": {
+			"pattern": "^[a-z0-9][a-z0-9._-]*$"
+		  },
+		  "additionalProperties": { "$ref": "#/$defs/environmentLibrary" }
+		},
 		"deploy": { "$ref": "#/$defs/deploy" },
 		"ui_catalog": {
 		  "type": "string",
@@ -268,6 +276,24 @@
 	  "properties": {
 		"serve": { "enum": ["development", "production"] }
 	  },
+	  "additionalProperties": false
+	},
+    "environmentLibrary": {
+	  "type": "object",
+	  "required": ["linkage"],
+	  "properties": {
+		"linkage": { "enum": ["source", "shared"] },
+		"manifest": {
+		  "type": "string",
+		  "minLength": 1,
+		  "description": "App-root-relative scenery.library.artifact manifest. Required when linkage is shared."
+		}
+	  },
+	  "if": {
+		"properties": { "linkage": { "const": "shared" } },
+		"required": ["linkage"]
+	  },
+	  "then": { "required": ["manifest"] },
 	  "additionalProperties": false
 	},
     "deploy": {

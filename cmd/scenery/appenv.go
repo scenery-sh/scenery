@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 
 	"scenery.sh/internal/app"
@@ -32,6 +34,19 @@ func appProcessEnv(root string, cfg app.Config, logFormat string, envName string
 	}
 	overrides = append(overrides, extra...)
 	overrides = append(overrides, "SCENERY_ENV="+resolved.Name, "SCENERY_RUNTIME_ENV="+resolved.Name)
+	libraryNames := make([]string, 0, len(resolved.Libraries))
+	for name := range resolved.Libraries {
+		libraryNames = append(libraryNames, name)
+	}
+	sort.Strings(libraryNames)
+	for _, name := range libraryNames {
+		library := resolved.Libraries[name]
+		prefix := libraryEnvironmentPrefix(name)
+		overrides = append(overrides, prefix+"_LINKAGE="+library.Linkage)
+		if library.Manifest != "" {
+			overrides = append(overrides, prefix+"_MANIFEST="+filepath.Join(root, filepath.FromSlash(library.Manifest)))
+		}
+	}
 	if err := validateHeadlessPostgresEnv(cfg, baseEnv); err != nil {
 		return nil, err
 	}
@@ -41,6 +56,18 @@ func appProcessEnv(root string, cfg app.Config, logFormat string, envName string
 	}
 	overrides = append(overrides, storageEnv...)
 	return envWithOverrides(baseEnv, overrides...), nil
+}
+
+func libraryEnvironmentPrefix(name string) string {
+	var value strings.Builder
+	for _, r := range strings.ToUpper(name) {
+		if r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' {
+			value.WriteRune(r)
+		} else {
+			value.WriteByte('_')
+		}
+	}
+	return "SCENERY_LIBRARY_" + value.String()
 }
 
 func validateHeadlessPostgresEnv(cfg app.Config, baseEnv []string) error {

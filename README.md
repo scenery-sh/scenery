@@ -360,6 +360,7 @@ scenery system toolchain verify [-o json] [--all] [--tool <name>] [--platform <g
 scenery system toolchain path [-o json] --tool <name> [--platform <goos/goarch>]
 scenery doctor [--app-root <path>] [-o json]
 scenery build [--app-root <path>] [--output <path>] [-o human|json]
+scenery build --lib <name> [--version <vN.N.N>] [--platform all|host|darwin/arm64|linux/amd64] [--app-root <path>] [--output <directory>] [-o human|json]
 scenery fmt --check [--app-root <path>] -o json
 scenery check [--app-root <path>] -o json
 scenery compile [--app-root <path>] [--view source|effective|expanded] -o json
@@ -415,12 +416,29 @@ the `scenery` schema for framework state.
 
 See [docs/local-contract.md](docs/local-contract.md) for the full command contract and JSON schema list.
 
+## Source Or Shared Go Libraries
+
+A package beneath `pkg/` can declare a Go `library` and record-shaped
+operations in `scenery.package.scn`. Scenery generates one typed
+`scenerylib_<name>` facade, so consumers keep the same import and call surface
+while `.scenery.json` selects `source` or `shared` linkage per environment.
+
+`scenery build --lib <name> --version <vN.N.N>` emits the supported
+darwin/arm64 `.dylib`, linux/amd64 `.so`, and a portable manifest binding exact
+platform, digest, ABI, Go version, and Linux glibc floor. Shared mode verifies
+that identity before loading and supports load-alongside hot swaps; old Go
+runtimes remain resident and are never unloaded. See
+[the cookbook](docs/app-development-cookbook.md#build-or-consume-a-shared-go-library)
+for the declaration and config recipe.
+
 ## Public Go Packages
 
 - `scenery.sh` exposes app metadata and current request metadata.
 - `scenery.sh/auth` exposes request auth state helpers.
 - Standard auth owns its tenant tables under the app database's `scenery` schema; app-local `tenants` services or tables are product-domain concerns. Google connections store encrypted refresh tokens for app-owned Google API calls through `auth.GoogleAccessToken`.
 - `scenery.sh/errs` exposes coded errors and HTTP status mapping.
+- `scenery.sh/library` provides the cgo-free verified loader used by generated
+  shared-library facades.
 - `scenery.sh/durable` exposes non-registering durable runtime helpers such as steps and signals; task, execution, and schedule ownership is declared in `.scn`.
 - `scenery.sh/db` exposes Postgres `*sql.DB` pools pinned to a service schema for app code and sqlc.
 - `scenery.sh/datasource` and `scenery.sh/object` expose typed constructor capabilities.

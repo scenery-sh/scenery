@@ -39,6 +39,8 @@ These are injected by scenery into generated app processes. App code may read th
 | `SCENERY_LOG_FORMAT` | injected/user input | Runtime log format selected by CLI flags or env. |
 | `SCENERY_ENV` | injected | Resolved `.scenery.json` environment name; always present in app, frontend, task, and worker processes. |
 | `SCENERY_RUNTIME_ENV` | injected | Same resolved environment name for runtime internals. |
+| `SCENERY_LIBRARY_<NAME>_LINKAGE` | injected | Resolved `source` or `shared` linkage for one declared library, derived from `envs.<env>.libraries.<name>`. |
+| `SCENERY_LIBRARY_<NAME>_MANIFEST` | injected | Absolute path to the configured shared artifact manifest. Present only for shared linkage; the checked-in config stores an app-root-relative path. |
 | `SCENERY_SESSION_ID` | injected | Agent session ID for local dev. |
 | `SCENERY_BASE_APP_ID` | injected | Base app ID for a session. |
 | `SCENERY_RUNTIME_APP_ID` | injected | Session-qualified runtime app ID. |
@@ -57,6 +59,11 @@ These are injected by scenery into generated app processes. App code may read th
 | `SCENERY_DEV_REPORT_TOKEN` | injected | Token used by the app child to report logs/traces to the dev dashboard. |
 | `SCENERY_DEV_DETACHED_CHILD` | internal | Marks the background child used by `scenery up --detach`. |
 | `SCENERY_PUBLIC_BASE_URL` | injected | Public API base URL advertised to app code. |
+
+The two `SCENERY_LIBRARY_<NAME>_*` values are a generated-facade transport
+between resolved app config and the app child. Users should configure
+`envs.<env>.libraries` rather than set them manually. `<NAME>` is the declared
+library name uppercased with non-alphanumeric characters replaced by `_`.
 
 ## App Service URLs And Auth
 

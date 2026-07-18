@@ -6,6 +6,21 @@ Completed means implemented or shipped at least once. It does not imply stable
 support for every surface. Use [../local-contract.md](../local-contract.md) as
 the source of truth for stable, beta, and dev-only classification.
 
+## Shared Library Linkage
+
+- Status: completed
+- Owner: scenery contract / generation / runtime
+- Completed: 2026-07-18
+- Quality: B
+- ExecPlan: [0127 Shared Library Linkage](0127-shared-library-linkage.md)
+
+Shipped declared `pkg/` Go libraries, generated source/shared typed facades and
+c-shared export shims, the strict cgo-free `scenery.sh/library` loader,
+load-alongside hot swaps, and `scenery build --lib` for the exact
+darwin/arm64 plus linux/amd64 matrix. ONLV maps3d is the first adopter, with
+House source/shared byte parity, real two-version swapping, measured overhead,
+Linux container loading, and app-side repoharness guardrails.
+
 ## Fully Generated Client Apps
 
 - Status: completed

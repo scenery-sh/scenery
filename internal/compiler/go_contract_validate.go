@@ -7,8 +7,8 @@ import (
 
 func validateGoContractOwnership(application *Block, resources []Resource) []Diagnostic {
 	type owner struct {
-		key, address, importPath string
-		hasServices, hasContract bool
+		key, address, importPath           string
+		hasNativeDeclarations, hasContract bool
 	}
 	owners := map[string]owner{}
 	for _, module := range resources {
@@ -34,8 +34,8 @@ func validateGoContractOwnership(application *Block, resources []Resource) []Dia
 			entry.importPath = importPath
 		}
 		for _, resource := range resources {
-			if resource.Module == instance && resource.Kind == "scenery.service" && stringValue(resource.Spec["runtime"]) == "go" {
-				entry.hasServices = true
+			if resource.Module == instance && ((resource.Kind == "scenery.service" && stringValue(resource.Spec["runtime"]) == "go") || (resource.Kind == "scenery.library" && stringValue(resource.Spec["runtime"]) == "go")) {
+				entry.hasNativeDeclarations = true
 				entry.address = resource.Address
 			}
 		}
@@ -47,12 +47,12 @@ func validateGoContractOwnership(application *Block, resources []Resource) []Dia
 			rootHasContract = rootHasContract || child.Type == "go_contract"
 		}
 	}
-	rootHasServices := false
+	rootHasNativeDeclarations := false
 	for _, resource := range resources {
-		rootHasServices = rootHasServices || resource.Module == "app" && resource.Kind == "scenery.service" && stringValue(resource.Spec["runtime"]) == "go"
+		rootHasNativeDeclarations = rootHasNativeDeclarations || resource.Module == "app" && ((resource.Kind == "scenery.service" && stringValue(resource.Spec["runtime"]) == "go") || (resource.Kind == "scenery.library" && stringValue(resource.Spec["runtime"]) == "go"))
 	}
-	if rootHasContract || rootHasServices {
-		owners["application"] = owner{key: "application", address: "app", hasContract: rootHasContract, hasServices: rootHasServices}
+	if rootHasContract || rootHasNativeDeclarations {
+		owners["application"] = owner{key: "application", address: "app", hasContract: rootHasContract, hasNativeDeclarations: rootHasNativeDeclarations}
 	}
 	keys := make([]string, 0, len(owners))
 	for key := range owners {
@@ -64,10 +64,10 @@ func validateGoContractOwnership(application *Block, resources []Resource) []Dia
 	for _, key := range keys {
 		entry := owners[key]
 		switch {
-		case entry.hasServices && !entry.hasContract:
-			diagnostics = append(diagnostics, Diagnostic{Code: "SCN6120", Severity: "error", Message: "source unit with Go services requires exactly one go_contract", Address: entry.address})
-		case !entry.hasServices && entry.hasContract:
-			diagnostics = append(diagnostics, Diagnostic{Code: "SCN6120", Severity: "error", Message: "source unit without Go services must not declare go_contract", Address: entry.address})
+		case entry.hasNativeDeclarations && !entry.hasContract:
+			diagnostics = append(diagnostics, Diagnostic{Code: "SCN6120", Severity: "error", Message: "source unit with Go services or libraries requires exactly one go_contract", Address: entry.address})
+		case !entry.hasNativeDeclarations && entry.hasContract:
+			diagnostics = append(diagnostics, Diagnostic{Code: "SCN6120", Severity: "error", Message: "source unit without Go services or libraries must not declare go_contract", Address: entry.address})
 		}
 		if entry.importPath == "" {
 			continue

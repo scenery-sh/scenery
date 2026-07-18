@@ -103,6 +103,7 @@ var (
 	serviceConfigSourceSchema    = sourceSchema("scenery.service.config", 0, nil, nil, nil)
 	serviceClientSourceSchema    = sourceSchema("scenery.service.client", 1, []string{"binding"}, []string{"binding"}, nil)
 	serviceLifecycleSourceSchema = sourceSchema("scenery.service.lifecycle", 0, []string{"start", "stop"}, nil, nil)
+	libraryArtifactSourceSchema  = sourceSchema("scenery.library.artifact", 0, []string{"name"}, []string{"name"}, nil)
 
 	recordFieldSourceSchema = sourceSchema("scenery.record.field", 1,
 		[]string{"type", "wire_name", "default", "minimum", "maximum", "min_length", "max_length", "pattern", "format", "min_items", "max_items", "unique_items", "sensitive", "immutable", "deprecated", "replacement"}, []string{"type"}, nil)
@@ -220,6 +221,7 @@ var authoredResourceChildren = map[string]map[string]authoredChildSchema{
 	"typescript_client": {"retry": singleton(typescriptRetrySourceSchema), "react": singleton(typescriptReactSourceSchema)},
 	"patch":             {"expect": repeated(patchOperationSourceSchema), "set": repeated(patchOperationSourceSchema)},
 	"service":           {"implementation": singleton(serviceImplementationSourceSchema), "dependency": repeated(serviceDependencySourceSchema), "config": singleton(serviceConfigSourceSchema), "client": repeated(serviceClientSourceSchema), "lifecycle": singleton(serviceLifecycleSourceSchema)},
+	"library":           {"artifact": singleton(libraryArtifactSourceSchema)},
 	"record":            {"field": repeated(recordFieldSourceSchema), "validation": repeated(recordValidationSourceSchema)},
 	"enum":              {"value": repeated(enumValueSourceSchema)},
 	"union":             {"variant": repeated(unionVariantSourceSchema)},

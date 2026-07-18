@@ -26,6 +26,7 @@ func TestGeneratedDescriptorStalenessIgnoresProducerProvenance(t *testing.T) {
 	}{
 		{"scenery.generated.json", goApplicationDescriptorKind, goApplicationSchemaDescriptor},
 		{"scenery.package-generated.json", goPackageDescriptorKind, goPackageSchemaDescriptor},
+		{"scenery.library-generated.json", goLibraryDescriptorKind, goLibrarySchemaDescriptor},
 		{"scenery.typescript-client-generated.json", typeScriptDescriptorKind, typeScriptSchemaDescriptor},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -88,6 +89,99 @@ func TestGenerateContractsAndTypeScriptAreStable(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(temp, "clients", "generated", "public_api", path)); err != nil {
 			t.Error(err)
 		}
+	}
+}
+
+func TestVerifyImplementationResolvesGeneratedLibraryFacade(t *testing.T) {
+	root := t.TempDir()
+	copyTree(t, filepath.Join("..", "compiler", "testdata", "native"), root)
+	rewriteFixtureSceneryReplace(t, root)
+	rootSourcePath := filepath.Join(root, "scenery.scn")
+	rootSource, err := os.ReadFile(rootSourcePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootSource = append(rootSource, []byte(`
+
+module "geometry" {
+  source = "./pkg/geometry"
+}
+`)...)
+	if err := os.WriteFile(rootSourcePath, rootSource, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	packageRoot := filepath.Join(root, "pkg", "geometry")
+	if err := os.MkdirAll(packageRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	packageSource := `package "geometry" {
+  go_contract { import_path = "example.test/nativeapp/pkg/geometry" }
+}
+
+library "geometry" {
+  runtime = "go"
+  package = "example.test/nativeapp/pkg/geometry"
+  version = "v1.0.0"
+  artifact { name = "geometry" }
+}
+
+record "process_input" {
+  field "value" { type = string }
+}
+
+record "process_result" {
+  field "value" { type = string }
+}
+
+operation "process" {
+  library = library.geometry
+  input = record.process_input
+  handler { method = "Process" }
+  result "processed" { type = record.process_result }
+}
+`
+	if err := os.WriteFile(filepath.Join(packageRoot, "scenery.package.scn"), []byte(packageSource), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	implementation := `package geometry
+
+import (
+	"context"
+	contract "example.test/nativeapp/pkg/geometry/scenerycontract"
+)
+
+func Process(_ context.Context, input contract.ProcessInput) (contract.ProcessOutcome, error) {
+	return contract.ProcessProcessed{Value: contract.ProcessResult{Value: input.Value}}, nil
+}
+`
+	if err := os.WriteFile(filepath.Join(packageRoot, "library.go"), []byte(implementation), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	consumer := `package nativeapp
+
+import (
+	"context"
+	contract "example.test/nativeapp/pkg/geometry/scenerycontract"
+	library "example.test/nativeapp/pkg/geometry/scenerylib_geometry"
+)
+
+func consumeGeneratedLibrary() {
+	_, _ = library.Process(context.Background(), contract.ProcessInput{})
+}
+`
+	if err := os.WriteFile(filepath.Join(root, "library_consumer.go"), []byte(consumer), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := compiler.Compile(root)
+	if err != nil || !result.Valid() {
+		t.Fatalf("compile: %v diagnostics=%#v", err, result.Diagnostics)
+	}
+	patterns, err := GoVerificationPatterns(result)
+	if err != nil || !slices.Contains(patterns, "./pkg/geometry/scenerylib_geometry") {
+		t.Fatalf("library verification patterns = %#v, %v", patterns, err)
+	}
+	if diagnostics := VerifyImplementation(result); len(diagnostics) != 0 {
+		t.Fatalf("implementation diagnostics = %#v", diagnostics)
 	}
 }
 
@@ -525,6 +619,22 @@ func TestGeneratedDescriptorOwnershipPrunesRetiredFiles(t *testing.T) {
 	}
 	if _, err := os.Stat(oldAdapter); !os.IsNotExist(err) {
 		t.Fatalf("retired adapter remains: %v", err)
+	}
+}
+
+func TestGeneratedDescriptorRetirementIgnoresAgentWorktrees(t *testing.T) {
+	root := t.TempDir()
+	for _, toolDirectory := range []string{".agents", ".claude", ".codex"} {
+		descriptorPath := filepath.Join(root, toolDirectory, "worktrees", "other", "scenery.generated.json")
+		if err := os.MkdirAll(filepath.Dir(descriptorPath), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(descriptorPath, []byte("not a Scenery descriptor"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := includeStaleGeneratedFiles(root, nil, map[string]bool{"scenery.generated.json": true}, nil); err != nil {
+		t.Fatalf("agent worktree descriptor affected the app root: %v", err)
 	}
 }
 

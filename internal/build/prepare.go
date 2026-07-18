@@ -60,6 +60,11 @@ func prepareWithContractTarget(appRoot string, model *model.App, cfg app.Config,
 		if overlayErr != nil {
 			return nil, overlayErr
 		}
+		patterns, patternsErr := generate.GoVerificationPatterns(contract)
+		if patternsErr != nil {
+			return nil, patternsErr
+		}
+		target.Context.Patterns = append(target.Context.Patterns, patterns...)
 		model, err = parse.AnalyzeTarget(appRoot, cfg.Name, overlay, target.Context)
 		if err != nil {
 			return nil, err

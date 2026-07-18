@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.library.build.result.schema.json",
+  "title": "scenery.library.build.result",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "library",
+    "version",
+    "manifest_path",
+    "artifacts"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "kind": {
+      "const": "scenery.library.build.result"
+    },
+    "schema_revision": {
+      "const": "sha256:ad2e40ffc534c3f78b0accc975546e25c4941994fa86e8a8effe5549e61a181d"
+    },
+    "library": {
+      "type": "string",
+      "minLength": 1
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?$"
+    },
+    "manifest_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "artifacts": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "goos",
+          "goarch",
+          "path",
+          "sha256",
+          "go_version"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "goos": {
+            "enum": [
+              "darwin",
+              "linux"
+            ]
+          },
+          "goarch": {
+            "enum": [
+              "arm64",
+              "amd64"
+            ]
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "go_version": {
+            "type": "string",
+            "pattern": "^go[0-9]+\\.[0-9]+(?:\\.[0-9]+)?$"
+          },
+          "glibc_floor": {
+            "type": "string",
+            "pattern": "^[0-9]+\\.[0-9]+$"
+          }
+        }
+      }
+    }
+  }
+}

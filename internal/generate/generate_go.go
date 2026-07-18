@@ -77,11 +77,8 @@ func PruneMaterializedGo(root string, check bool) (GenerateResult, error) {
 		if walkErr != nil {
 			return walkErr
 		}
-		if entry.IsDir() {
-			if path != root && (entry.Name() == ".git" || entry.Name() == ".scenery" || entry.Name() == "node_modules") {
-				return filepath.SkipDir
-			}
-			return nil
+		if path != root && entry.IsDir() && skipGeneratedArtifactScanDirectory(entry.Name()) {
+			return filepath.SkipDir
 		}
 		name := entry.Name()
 		if !goGeneratedDescriptorNames()[name] && !legacyGoGeneratedDescriptorNames[name] {
@@ -250,6 +247,11 @@ func renderExpectedGoContractFiles(result *Result) ([]generatedFile, error) {
 		}
 		files = append(files, applicationFiles...)
 	}
+	libraryFiles, err := generateLibraryArtifacts(result, idx)
+	if err != nil {
+		return nil, err
+	}
+	files = append(files, libraryFiles...)
 	return files, nil
 }
 
@@ -279,6 +281,41 @@ func RenderGoWorkspaceFiles(result *compiler.Result) (map[string][]byte, error) 
 		rendered[relative] = append([]byte(nil), file.Bytes...)
 	}
 	return rendered, nil
+}
+
+// GoVerificationPatterns returns overlay-only facade packages that must be
+// named explicitly because go/packages cannot discover a wholly virtual
+// imported directory through ./... alone.
+func GoVerificationPatterns(result *compiler.Result) ([]string, error) {
+	if result == nil || result.Manifest == nil || result.ContractStatus != "valid" {
+		return nil, nil
+	}
+	files, err := renderExpectedGoContractFiles(result)
+	if err != nil {
+		return nil, err
+	}
+	return generatedLibraryPackagePatterns(result.Root, files), nil
+}
+
+func generatedLibraryPackagePatterns(root string, files []generatedFile) []string {
+	seen := map[string]bool{}
+	var patterns []string
+	for _, file := range files {
+		if filepath.Base(file.Path) != "scenery.library-generated.json" {
+			continue
+		}
+		relative, err := filepath.Rel(root, filepath.Dir(file.Path))
+		if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+			continue
+		}
+		pattern := "./" + filepath.ToSlash(relative)
+		if !seen[pattern] {
+			seen[pattern] = true
+			patterns = append(patterns, pattern)
+		}
+	}
+	sort.Strings(patterns)
+	return patterns
 }
 
 func finishGeneratedFiles(root string, files []generatedFile, check bool, staleMessage string) (GenerateResult, error) {
@@ -371,6 +408,7 @@ func generatedArtifactSpec(name string) (generatedArtifactIdentitySpec, bool) {
 	specifications := map[string]generatedArtifactIdentitySpec{
 		"scenery.package-generated.json":           {goPackageDescriptorKind, goPackageSchemaDescriptor},
 		"scenery.generated.json":                   {goApplicationDescriptorKind, goApplicationSchemaDescriptor},
+		"scenery.library-generated.json":           {goLibraryDescriptorKind, goLibrarySchemaDescriptor},
 		"scenery.typescript-client-generated.json": {typeScriptDescriptorKind, typeScriptSchemaDescriptor},
 	}
 	specification, ok := specifications[name]
@@ -422,11 +460,8 @@ func includeStaleGeneratedFiles(root string, files []generatedFile, descriptorNa
 		if walkErr != nil {
 			return walkErr
 		}
-		if entry.IsDir() {
-			if path != root && (entry.Name() == ".git" || entry.Name() == ".scenery" || entry.Name() == "node_modules") {
-				return filepath.SkipDir
-			}
-			return nil
+		if path != root && entry.IsDir() && skipGeneratedArtifactScanDirectory(entry.Name()) {
+			return filepath.SkipDir
 		}
 		if !descriptorNames[entry.Name()] || protectedDescriptors[filepath.Clean(path)] {
 			return nil
@@ -470,6 +505,15 @@ func includeStaleGeneratedFiles(root string, files []generatedFile, descriptorNa
 		files = append(files, generatedFile{Path: path, Remove: true})
 	}
 	return files, nil
+}
+
+func skipGeneratedArtifactScanDirectory(name string) bool {
+	switch name {
+	case ".agents", ".claude", ".codex", ".git", ".scenery", "node_modules":
+		return true
+	default:
+		return false
+	}
 }
 
 func verifiedGeneratedDescriptorFiles(path string) ([]string, bool, error) {

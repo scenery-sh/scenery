@@ -34,7 +34,7 @@ internal/app + internal/scn + internal/spec + compiler
 canonical source/effective/expanded manifests
         |
         v
-generated contracts/composition + internal/build
+generated contracts/composition/library facades + internal/build
         |
         v
 generated workspace + scenery.sh/runtime
@@ -136,6 +136,11 @@ root component barrel and the direct `tokens.stylex.ts` defining module in the
 same artifact-set transaction. Its check path reports both diagnostics and
 whether native implementation verification was requested and valid.
 
+Declared Go libraries add a `scenerylib_<name>` facade with source/shared
+backends and an `export/` c-shared shim in the same external workspace.
+Application source imports only the facade; these files remain generated
+projections rather than declaration or edit surfaces.
+
 Architecture invariant: render every selected output before one atomic commit;
 verification is read-only and generated paths stay beneath declared managed
 roots.
@@ -196,6 +201,22 @@ workspace the source of truth.
 Architecture invariant: build metadata should be machine-readable enough for
 agents and humans to diagnose drift without scraping terminal output.
 
+### `internal/librarybuild` and `scenery.sh/library`
+
+`internal/librarybuild` turns a verified declared-library export shim into the
+exact darwin/arm64 and linux/amd64 artifact matrix. It builds Darwin natively,
+builds Linux in the pinned oldest-supported container, hashes each artifact,
+and writes the current portable manifest.
+
+The public `scenery.sh/library` package strictly decodes that manifest, selects
+the host artifact, verifies its digest and ABI/version symbols, binds operation
+symbols with `RTLD_NOW|RTLD_LOCAL`, and atomically routes new calls to a swapped
+version. Loaded Go runtimes remain resident forever; `dlclose` is forbidden.
+
+Architecture invariant: shared linkage substitutes only a declared,
+record-shaped operation contract. It never exposes an arbitrary Go package ABI
+or bypasses the generated facade.
+
 ### `internal/testsuite`
 
 `internal/testsuite` discovers the complete repository test graph through the
@@ -245,6 +266,8 @@ The public packages at the module root are what user apps import:
   standard auth module surface (`AuthData`, token helpers, standard auth
   registration, and pluggable email delivery)
 - `scenery.sh/errs` exposes coded errors and HTTP status mapping
+- `scenery.sh/library` owns verified cgo-free loading, operation calls, and
+  load-alongside swaps for generated shared-library facades
 - `scenery.sh/storage` exposes the storage capability and owns the canonical
   local filesystem store used by app runtimes, CLI commands, and the managed
   storage proxy

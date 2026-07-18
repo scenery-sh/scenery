@@ -387,9 +387,12 @@ var helpCommands = []helpCommandEntry{
 	{
 		Command:   "build",
 		Group:     "Build and checks",
-		Summary:   "Build the deployable binary.",
-		Usage:     []string{"scenery build [--app-root <path>] [--output <path>] [-o human|json]"},
-		Flags:     []string{"--app-root <path>", "--output <path>", "-o human|json"},
+		Summary: "Build the deployable binary or a declared shared library.",
+		Usage: []string{
+			"scenery build [--app-root <path>] [--output <path>] [-o human|json]",
+			"scenery build --lib <name> [--version <semver>] [--platform all|host|darwin/arm64,linux/amd64] [--app-root <path>] [--output <dir>] [-o human|json]",
+		},
+		Flags:     []string{"--app-root <path>", "--output <path>", "--lib <name>", "--version <semver>", "--platform <matrix>", "-o human|json"},
 		Stability: "stable",
 	},
 	{

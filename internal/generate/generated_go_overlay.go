@@ -14,6 +14,7 @@ func goGeneratedDescriptorNames() map[string]bool {
 	return map[string]bool{
 		"scenery.package-generated.json": true,
 		"scenery.generated.json":         true,
+		"scenery.library-generated.json": true,
 	}
 }
 

@@ -1,8 +1,11 @@
 package compiler
 
 import (
+	"go/token"
 	"strings"
 
+	"golang.org/x/mod/module"
+	"golang.org/x/mod/semver"
 	scenery "scenery.sh"
 )
 
@@ -11,6 +14,8 @@ func validateResourceSemantics(resources []Resource) []Diagnostic {
 	var diagnostics []Diagnostic
 	for _, resource := range resources {
 		switch resource.Kind {
+		case "scenery.library":
+			diagnostics = append(diagnostics, validateLibrary(resource, byAddress)...)
 		case "scenery.operation":
 			diagnostics = append(diagnostics, validateOperation(resource, byAddress)...)
 		case "scenery.execution":
@@ -73,19 +78,96 @@ func validateResourceSemantics(resources []Resource) []Diagnostic {
 }
 
 func validateOperation(resource Resource, resources map[string]Resource) []Diagnostic {
+	serviceRef := refString(resource.Spec["service"])
+	libraryRef := refString(resource.Spec["library"])
+	var diagnostics []Diagnostic
+	if (serviceRef == "") == (libraryRef == "") {
+		diagnostics = append(diagnostics, resourceDiagnostic("SCN2004", "operation requires exactly one of service or library", resource))
+	}
+	if libraryRef != "" {
+		library := resources[resolveResourceRef(resource, libraryRef, "library")]
+		if library.Kind != "scenery.library" {
+			diagnostics = append(diagnostics, resourceDiagnostic("SCN2005", "library operation references an unavailable library", resource))
+		} else if library.Module != resource.Module {
+			diagnostics = append(diagnostics, resourceDiagnostic("SCN2005", "library operation and library must belong to the same module", resource))
+		}
+		if !directRecordType(resource, resource.Spec["input"], resources) {
+			diagnostics = append(diagnostics, resourceDiagnostic("SCN2005", "library operation input must be a direct record type", resource))
+		}
+		outcomeCount := 0
+		for _, kind := range []string{"result", "error"} {
+			for _, outcome := range namedChildren(resource.Spec, kind) {
+				outcomeCount++
+				if !directRecordType(resource, outcome["type"], resources) {
+					diagnostics = append(diagnostics, resourceDiagnostic("SCN2005", "library operation outcomes must use direct record types", resource))
+				}
+			}
+		}
+		if outcomeCount == 0 {
+			diagnostics = append(diagnostics, resourceDiagnostic("SCN2005", "library operation requires at least one record outcome", resource))
+		}
+		handler, _ := resource.Spec["handler"].(map[string]any)
+		method := stringValue(handler["method"])
+		if !token.IsIdentifier(method) || !token.IsExported(method) {
+			diagnostics = append(diagnostics, resourceDiagnostic("SCN2005", "library operation handler must name an exported Go function", resource))
+		}
+	}
 	raw, present := resource.Spec["idempotency"]
 	if !present {
-		return nil
+		return diagnostics
 	}
 	idempotency, valid := raw.(map[string]any)
 	if !valid {
-		return []Diagnostic{resourceDiagnostic("SCN2003", "operation idempotency must be a singleton block", resource)}
+		return append(diagnostics, resourceDiagnostic("SCN2003", "operation idempotency must be a singleton block", resource))
 	}
 	mode := stringValue(idempotency["mode"])
 	if (mode == "keyed" && validKeyedIdempotency(resource, resources)) || (mode == "none" && idempotency["key"] == nil) {
-		return nil
+		return diagnostics
 	}
-	return []Diagnostic{resourceDiagnostic("SCN2003", "operation idempotency must be none without a key or keyed with a non-empty ordered list of direct input-record field references", resource)}
+	return append(diagnostics, resourceDiagnostic("SCN2003", "operation idempotency must be none without a key or keyed with a non-empty ordered list of direct input-record field references", resource))
+}
+
+func validateLibrary(resource Resource, resources map[string]Resource) []Diagnostic {
+	var diagnostics []Diagnostic
+	if stringValue(resource.Spec["runtime"]) != "go" {
+		diagnostics = append(diagnostics, resourceDiagnostic("SCN2005", "library runtime must be go", resource))
+	}
+	importPath := strings.TrimSpace(stringValue(resource.Spec["package"]))
+	if err := module.CheckImportPath(importPath); err != nil {
+		diagnostics = append(diagnostics, resourceDiagnostic("SCN2005", "library package must be a canonical Go import path", resource))
+	}
+	version := strings.TrimSpace(stringValue(resource.Spec["version"]))
+	if !semver.IsValid(version) || semver.Canonical(version) != version {
+		diagnostics = append(diagnostics, resourceDiagnostic("SCN2005", "library version must be canonical semantic version such as v1.2.3", resource))
+	}
+	artifact, _ := resource.Spec["artifact"].(map[string]any)
+	name := strings.TrimSpace(stringValue(artifact["name"]))
+	if !validSemanticName(name) {
+		diagnostics = append(diagnostics, resourceDiagnostic("SCN2005", "library artifact name must be lower_snake_case", resource))
+	}
+	var owner Resource
+	for _, candidate := range resources {
+		if candidate.Kind == "scenery.module" && moduleInstancePath(candidate) == resource.Module {
+			owner = candidate
+			break
+		}
+	}
+	source := strings.TrimPrefix(strings.TrimSpace(stringValue(owner.Spec["workspace_package_root"])), "./")
+	if source == "" {
+		source = strings.TrimPrefix(strings.TrimSpace(stringValue(owner.Spec["source"])), "./")
+	}
+	if source == "" || source == "." || !strings.HasPrefix(source, "pkg/") {
+		diagnostics = append(diagnostics, resourceDiagnostic("SCN2005", "libraries must be declared by a package rooted beneath pkg/", resource))
+	}
+	return diagnostics
+}
+
+func directRecordType(owner Resource, value any, resources map[string]Resource) bool {
+	reference := refString(value)
+	if reference == "" {
+		return false
+	}
+	return resources[resolveResourceRef(owner, reference, "record")].Kind == "scenery.record"
 }
 
 func validKeyedIdempotency(operation Resource, resources map[string]Resource) bool {

@@ -18,6 +18,7 @@ func TestGeneratedArtifactSchemaRevisionsMatchCheckedSchemas(t *testing.T) {
 	}{
 		{"scenery.generated.schema.json", goApplicationSchemaDescriptor},
 		{"scenery.package-generated.schema.json", goPackageSchemaDescriptor},
+		{"scenery.library-generated.schema.json", goLibrarySchemaDescriptor},
 		{"scenery.typescript-client-generated.schema.json", typeScriptSchemaDescriptor},
 	} {
 		t.Run(test.name, func(t *testing.T) {

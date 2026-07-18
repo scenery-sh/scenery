@@ -109,12 +109,15 @@ func TestAgentSchemaDescribesStructuredResourceAuthoring(t *testing.T) {
 	fields, _ := schema["fields"].(map[string]any)
 	service, _ := fields["service"].(map[string]any)
 	serviceType, _ := service["type"].(map[string]any)
+	library, _ := fields["library"].(map[string]any)
+	libraryType, _ := library["type"].(map[string]any)
 	resultField, _ := fields["result"].(map[string]any)
 	cardinality, _ := resultField["cardinality"].(map[string]any)
 	if schema["source_shape"] != "labeled_block" || schema["labels"] != 1 || schema["label_source"] != "address" ||
 		service["source_shape"] != "attribute" || serviceType["resource_ref"] != "scenery.service" || service["phase"] != "compile" ||
-		service["revision_domain"] != "contract" || service["required"] != true || service["sensitive"] != false || service["patchable"] != true ||
+		service["revision_domain"] != "contract" || service["required"] != false || service["sensitive"] != false || service["patchable"] != true ||
 		service["ordered"] != false || service["constraints"] == nil ||
+		library["source_shape"] != "attribute" || libraryType["resource_ref"] != "scenery.library" || library["required"] != false ||
 		resultField["source_shape"] != "repeated_labeled_block" || resultField["labels"] != 1 || resultField["label_source"] != "name" || resultField["ordered"] != false ||
 		!isCanonicalSHA256Digest(stringValue(resultField["child_schema"])) || cardinality["minimum"] != 0 || cardinality["maximum"] != nil {
 		t.Fatalf("operation authoring schema = %#v", schema)

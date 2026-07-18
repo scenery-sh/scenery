@@ -33,6 +33,11 @@ func VerifyImplementation(result *compiler.Result) []Diagnostic {
 		return []Diagnostic{{Code: "SCN6207", Severity: "error", Message: err.Error()}}
 	}
 	files = append(files, applicationFiles...)
+	libraryFiles, err := generateLibraryArtifacts(result, idx)
+	if err != nil {
+		return []Diagnostic{{Code: "SCN6207", Severity: "error", Message: err.Error()}}
+	}
+	files = append(files, libraryFiles...)
 	files, err = includeStaleGeneratedFiles(result.Root, files, goGeneratedDescriptorNames(), protectedGoGeneratedDescriptors(result))
 	if err != nil {
 		return []Diagnostic{{Code: "SCN6207", Severity: "error", Message: err.Error()}}
@@ -47,6 +52,7 @@ func VerifyImplementation(result *compiler.Result) []Diagnostic {
 	}
 	var diagnostics []Diagnostic
 	for _, target := range targets {
+		target.Context.Patterns = append(target.Context.Patterns, generatedLibraryPackagePatterns(result.Root, files)...)
 		appModel, appModelErr := parse.AnalyzeTarget(result.Root, result.Manifest.Application.Name, overlay, target.Context)
 		if appModelErr != nil {
 			diagnostics = append(diagnostics, Diagnostic{Code: "SCN6202", Severity: "error", Message: fmt.Sprintf("staged Go implementation verification failed for %s: %v", target.Address, appModelErr), Address: target.Address})
@@ -57,6 +63,7 @@ func VerifyImplementation(result *compiler.Result) []Diagnostic {
 		}
 		diagnostics = append(diagnostics, validateNativeGoServices(appModel, result.Manifest.Resources)...)
 		diagnostics = append(diagnostics, validateNativeGoHandlers(appModel, result.Manifest.Resources)...)
+		diagnostics = append(diagnostics, validateNativeGoLibraries(appModel, result.Manifest.Resources)...)
 	}
 	return diagnostics
 }

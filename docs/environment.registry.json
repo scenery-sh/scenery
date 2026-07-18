@@ -1131,6 +1131,28 @@
       ]
     },
     {
+      "name": "SCENERY_LIBRARY_",
+      "match": "prefix",
+      "scope": "runtime",
+      "direction": "injected",
+      "category": "app.services.library",
+      "stability": "injected",
+      "secret": false,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime",
+      "rationale": "Dynamic SCENERY_LIBRARY_<NAME>_LINKAGE and _MANIFEST values carry resolved per-environment library linkage into generated facades.",
+      "preferred_surface": "envs.<name>.libraries in .scenery.json",
+      "replacement": "",
+      "sunset": "",
+      "docs": [
+        "docs/environment.md"
+      ]
+    },
+    {
       "name": "SCENERY_LOG_FORMAT",
       "match": "exact",
       "scope": "runtime",

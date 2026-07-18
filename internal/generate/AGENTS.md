@@ -11,6 +11,10 @@ TypeScript clients, OpenAPI documents, and their generated-file transactions.
   resources; never depend on legacy umbrella packages.
 - Render Go artifacts into external build/editor workspaces by default; source
   materialization is an explicit published-module export.
+- For declared Go libraries, render the typed `scenerylib_<name>` facade,
+  source/shared backends, c-shared export shim, and detached descriptor into
+  that external workspace. The app imports the facade; it never commits or
+  edits those projections.
 - Own the fail-closed editor `go.work` protocol and descriptor-verified legacy
   pruning. Never replace or delete bytes whose ownership cannot be proven.
 - TypeScript targets route to source or `.scenery` cache from their declared

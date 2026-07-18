@@ -90,13 +90,16 @@ func TestResolveEnvAppliesFrontendModesAndDotenvStack(t *testing.T) {
 	cfg := Config{
 		Frontends: map[string]FrontendConfig{"web": {Root: "web"}},
 		Envs: map[string]EnvConfig{
-			"local":      {Default: true, Frontends: map[string]EnvFrontendConfig{"web": {Serve: "development"}}},
+			"local":      {Default: true, Frontends: map[string]EnvFrontendConfig{"web": {Serve: "development"}}, Libraries: map[string]EnvLibraryConfig{"maps3d": {Linkage: "source"}}},
 			"production": {Frontends: map[string]EnvFrontendConfig{"web": {Serve: "production"}}, Deploy: &EnvDeployConfig{SSH: []string{"prod"}}},
 		},
 	}
 	local, err := cfg.ResolveEnv("")
 	if err != nil || local.Name != "local" || local.Frontends["web"].Serve != "development" || strings.Join(local.DotEnvFiles(), ",") != ".env,.env.local" {
 		t.Fatalf("local = %+v, err = %v", local, err)
+	}
+	if local.Libraries["maps3d"].Linkage != "source" {
+		t.Fatalf("local libraries = %#v", local.Libraries)
 	}
 	production, err := cfg.EnvForSSHTarget("prod")
 	if err != nil || production.Name != "production" || production.Frontends["web"].Serve != "production" || strings.Join(production.DotEnvFiles(), ",") != ".env,.env.production,.env.local,.env.production.local" {
@@ -112,6 +115,8 @@ func TestDiscoverRootRejectsInvalidEnvironmentOwnership(t *testing.T) {
 		{"old deploy", `{"name":"demo","envs":{"local":{"default":true}},"deploy":{}}`, `unknown .scenery.json field "deploy"`},
 		{"old routing", `{"name":"demo","envs":{"local":{"default":true}},"dev":{"routing":{}}}`, `unknown .scenery.json field "dev.routing"`},
 		{"old serve", `{"name":"demo","frontends":{"web":{"root":"web","serve":"production"}},"envs":{"local":{"default":true}}}`, `unknown .scenery.json field "frontends.web.serve"`},
+		{"invalid library linkage", `{"name":"demo","envs":{"local":{"default":true,"libraries":{"maps3d":{"linkage":"dynamic"}}}}}`, `linkage must be "source" or "shared"`},
+		{"shared library missing manifest", `{"name":"demo","envs":{"local":{"default":true,"libraries":{"maps3d":{"linkage":"shared"}}}}}`, "manifest is required"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

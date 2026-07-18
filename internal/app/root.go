@@ -206,6 +206,7 @@ type EnvConfig struct {
 	PortStart int                          `json:"port_start"`
 	PortEnd   int                          `json:"port_end"`
 	Frontends map[string]EnvFrontendConfig `json:"frontends"`
+	Libraries map[string]EnvLibraryConfig  `json:"libraries,omitempty"`
 	Deploy    *EnvDeployConfig             `json:"deploy,omitempty"`
 	// UICatalog points local development at a live @scenery/ui catalog
 	// source directory instead of the binary-embedded copy. Only the
@@ -215,6 +216,11 @@ type EnvConfig struct {
 
 type EnvFrontendConfig struct {
 	Serve string `json:"serve"`
+}
+
+type EnvLibraryConfig struct {
+	Linkage  string `json:"linkage"`
+	Manifest string `json:"manifest,omitempty"`
 }
 
 type EnvDeployConfig struct {
@@ -232,6 +238,7 @@ type ResolvedEnv struct {
 	PortStart int
 	PortEnd   int
 	Frontends map[string]FrontendConfig
+	Libraries map[string]EnvLibraryConfig
 	Deploy    *EnvDeployConfig
 	UICatalog string
 }
@@ -263,8 +270,22 @@ func (c Config) ResolveEnv(name string) (ResolvedEnv, error) {
 		Mode: strings.ToLower(strings.TrimSpace(env.Mode)), Expose: append([]string(nil), env.Expose...),
 		Port: env.Port, PortStart: env.PortStart, PortEnd: env.PortEnd,
 		Frontends: frontends, Deploy: env.Deploy,
+		Libraries: cloneLibraryConfig(env.Libraries),
 		UICatalog: strings.TrimSpace(env.UICatalog),
 	}, nil
+}
+
+func cloneLibraryConfig(values map[string]EnvLibraryConfig) map[string]EnvLibraryConfig {
+	if len(values) == 0 {
+		return nil
+	}
+	result := make(map[string]EnvLibraryConfig, len(values))
+	for name, value := range values {
+		value.Linkage = strings.ToLower(strings.TrimSpace(value.Linkage))
+		value.Manifest = strings.TrimSpace(value.Manifest)
+		result[name] = value
+	}
+	return result
 }
 
 func (c Config) EnvForSSHTarget(target string) (ResolvedEnv, error) {
@@ -561,6 +582,24 @@ func (c Config) validateEnvs() error {
 			serve := strings.ToLower(strings.TrimSpace(override.Serve))
 			if serve != "development" && serve != "production" {
 				return fmt.Errorf("envs.%s.frontends.%s.serve must be \"development\" or \"production\"", name, frontendName)
+			}
+		}
+		for libraryName, library := range env.Libraries {
+			if !isStorageIdentifier(libraryName) {
+				return fmt.Errorf("envs.%s.libraries.%s name is invalid; use lowercase letters, numbers, dots, underscores, or dashes", name, libraryName)
+			}
+			linkage := strings.ToLower(strings.TrimSpace(library.Linkage))
+			if linkage != "source" && linkage != "shared" {
+				return fmt.Errorf("envs.%s.libraries.%s.linkage must be \"source\" or \"shared\"", name, libraryName)
+			}
+			if linkage == "shared" && strings.TrimSpace(library.Manifest) == "" {
+				return fmt.Errorf("envs.%s.libraries.%s.manifest is required for shared linkage", name, libraryName)
+			}
+			if filepath.IsAbs(library.Manifest) {
+				return fmt.Errorf("envs.%s.libraries.%s.manifest must be relative to the app root", name, libraryName)
+			}
+			if cleaned := filepath.Clean(library.Manifest); library.Manifest != "" && (cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator))) {
+				return fmt.Errorf("envs.%s.libraries.%s.manifest must stay beneath the app root", name, libraryName)
 			}
 		}
 		if env.Deploy == nil {

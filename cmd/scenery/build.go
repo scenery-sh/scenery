@@ -2,27 +2,37 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	goruntime "runtime"
+	"strings"
 
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/build"
+	"scenery.sh/internal/generate"
+	"scenery.sh/internal/librarybuild"
 )
 
 func buildCommand(args []string) error {
 	outputPath := ""
 	appRootFlag := ""
 	targetName := ""
+	libraryName := ""
+	libraryVersion := ""
+	libraryPlatforms := ""
 	jsonOutput := false
 	flags := newCLIFlagSet("build")
 	flags.StringVar(&outputPath, "output", "", "")
 	registerJSONOutput(flags, &jsonOutput)
 	flags.StringVar(&appRootFlag, "app-root", "", "")
 	flags.StringVar(&targetName, "target", "", "")
+	flags.StringVar(&libraryName, "lib", "", "")
+	flags.StringVar(&libraryVersion, "version", "", "")
+	flags.StringVar(&libraryPlatforms, "platform", "", "")
 	positionals, err := parseCLIFlags(flags, args)
 	if err != nil {
 		return err
@@ -48,9 +58,60 @@ func buildCommand(args []string) error {
 			return err
 		}
 	}
-	result, err := build.AppForTarget(appRoot, cfg, targetName, "artifact")
+	var result *build.Result
+	if libraryName != "" {
+		result, err = build.Prepare(appRoot, nil, cfg)
+	} else {
+		result, err = build.AppForTarget(appRoot, cfg, targetName, "artifact")
+	}
 	if err != nil {
 		return err
+	}
+	if libraryName != "" {
+		specs, err := generate.LibraryBuildSpecs(result.Contract)
+		if err != nil {
+			return err
+		}
+		var selected *generate.LibraryBuildSpec
+		for index := range specs {
+			if specs[index].Name == libraryName || specs[index].Address == libraryName || specs[index].Artifact == libraryName {
+				if selected != nil {
+					return fmt.Errorf("library selector %q is ambiguous", libraryName)
+				}
+				selected = &specs[index]
+			}
+		}
+		if selected == nil {
+			return fmt.Errorf("library selector %q did not match a declared Go library", libraryName)
+		}
+		version := strings.TrimSpace(libraryVersion)
+		if version == "" {
+			version = selected.Version
+		}
+		if outputPath == "" {
+			outputPath = filepath.Join(appRoot, "dist", "libraries", selected.Artifact, version)
+		}
+		var platforms []string
+		if value := strings.TrimSpace(libraryPlatforms); value != "" && value != "all" {
+			for _, platform := range strings.Split(value, ",") {
+				platforms = append(platforms, strings.TrimSpace(platform))
+			}
+		}
+		libraryResult, err := librarybuild.Build(context.Background(), librarybuild.Options{
+			Workspace: result.Dir, OutputDir: outputPath, Spec: *selected,
+			Version: version, Platforms: platforms,
+		})
+		if err != nil {
+			return err
+		}
+		if jsonOutput {
+			return writeCLIJSON(os.Stdout, withCLIPayloadIdentity("scenery.library.build.result", map[string]any{
+				"library": selected.Name, "version": version,
+				"manifest_path": libraryResult.ManifestPath, "artifacts": libraryResult.Manifest.Artifacts,
+			}))
+		}
+		fmt.Fprintf(os.Stdout, "scenery: built library %s at %s\n", selected.Name, libraryResult.ManifestPath)
+		return nil
 	}
 	if outputPath == "" {
 		goos := goruntime.GOOS

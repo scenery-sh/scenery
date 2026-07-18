@@ -16,12 +16,16 @@ Observable outcome: a separate Go application without ONLV source calls maps3d o
 - [x] (2026-07-18 12:35Z) Feasibility prototype completed in ONLV local workspace `x/wasmbench` (gitignored; all findings folded into this plan). Validated: c-shared build of the maps3d pipeline, cgo-free consumption via purego, +2.3% overhead, byte-identical output, multi-version coexistence, hot-swap protocol, two-target build matrix, runtime platform selection.
 - [x] (2026-07-18 13:05Z) Plan drafted, all owner decisions resolved (platform matrix, FMA parity, signing, grammar/config shape, wasm rejection).
 - [x] (2026-07-18 13:20Z) Plan moved from the ONLV repo into Scenery as 0127.
-- [ ] Milestone 1: `library` contract concept (declaration parsing, contract hash, validation).
-- [ ] Milestone 2: generation — dual-backend facade + c-shared export shim.
-- [ ] Milestone 3: `scenery build --lib` artifact pipeline + manifest.
-- [ ] Milestone 4: ONLV adoption — `pkg/maps3d/scenery.package.scn` library declaration and facade consumption.
-- [ ] Milestone 5: hot-swap runtime support in the generated shared-linkage client.
-- [ ] Milestone 6: guardrails + docs (ONLV repoharness rules, AGENTS.md chain updates in both repos).
+- [x] (2026-07-18 19:12Z) Milestone 1: `library` contract concept (declaration parsing, contract hash, validation).
+- [x] (2026-07-18 19:46Z) Milestone 2: generation — dual-backend facade + c-shared export shim.
+- [x] (2026-07-18 20:34Z) Milestone 3: `scenery build --lib` artifact pipeline + manifest.
+- [x] (2026-07-18 20:58Z) Milestone 4: ONLV adoption — `pkg/maps3d/scenery.package.scn` library declaration and facade consumption.
+- [x] (2026-07-18 21:18Z) Milestone 5: hot-swap runtime support in the generated shared-linkage client.
+- [x] (2026-07-18 21:44Z) Milestone 6: guardrails + docs (ONLV repoharness rules, AGENTS.md chain updates in both repos).
+- [x] (2026-07-18 22:03Z) Final validation: both full Go suites,
+  Scenery self-harness, ONLV app harness/repoharness/check/generate, real
+  two-platform artifacts, configured shared startup, parity, hot-swap,
+  benchmark, Linux loading, docs inspection, and diff hygiene all passed.
 
 ## Surprises & Discoveries
 
@@ -39,6 +43,30 @@ Findings from the 2026-07-18 feasibility prototype (evidence lived in ONLV's git
   Evidence: platform-selecting loader executed `libworkload_linux_amd64.so` inside a bookworm container.
 - Observation: Go dropped binary-only package support in Go 1.13; there is no compiler-level way to import a prebuilt Go package. Any "import the library" path must cross a C-ABI dlopen boundary (or a subprocess), which is why the design centers on a declared operation contract rather than the raw Go API.
   Evidence: Go release history; this constraint shaped the whole design.
+- Observation: `go/packages` overlays cannot make a wholly virtual grandchild
+  package reliably discoverable with `GOWORK=off`; a nested
+  `scenerylib/<name>` facade failed verification even though every overlay
+  file existed.
+  Evidence: the focused generated-facade verification failed package
+  discovery until the facade became the one-level
+  `scenerylib_<name>` package and the editor workspace materialized that
+  package as its own external module.
+- Observation: cgo turns `//export` function parameter names into generated C
+  header identifiers. Anonymous underscore parameters produced duplicate or
+  invalid declarations.
+  Evidence: the first real Darwin c-shared build failed in the generated
+  header; naming the metadata parameters made the export shim build normally.
+- Observation: valid native floating-point metadata can include NaN, infinity,
+  or negative zero, while the exact Scenery JSON wire contract rejects those
+  values.
+  Evidence: the first source/shared maps3d parity call failed before dispatch;
+  the top-level library handler now normalizes non-finite/negative-zero no-data
+  metadata before constructing its validated result.
+- Observation: nested Codex/Claude worktrees beneath a repository can contain
+  stale generated descriptors and were being mistaken for app source.
+  Evidence: ONLV verification selected a descriptor under
+  `.claude/worktrees`; generated-artifact discovery now excludes `.agents`,
+  `.claude`, and `.codex` tool worktrees, with a regression test.
 
 ## Decision Log
 
@@ -69,10 +97,77 @@ Findings from the 2026-07-18 feasibility prototype (evidence lived in ONLV's git
 - Decision: First iteration exposes only coarse-grained operations; no opaque state handles across the boundary.
   Rationale: per-call wire encoding punishes chatty interfaces; maps3d's natural surface (build scene → GLB bytes) is coarse. Handle-based stateful APIs can be layered in later.
   Date/Author: 2026-07-18 / Claude.
+- Decision: Generated facade packages use the one-level directory and import
+  suffix `scenerylib_<library>`.
+  Rationale: this keeps the facade a normal discoverable Go package in
+  hermetic overlay verification and in the ownership-verified editor
+  workspace, without creating a parallel source-materialization path.
+  Date/Author: 2026-07-18 / Codex.
+- Decision: Linux artifacts always build in
+  `golang:1.26.3-bookworm`, record Go `go1.26.3` and glibc floor `2.36`,
+  while Darwin artifacts build only on a native darwin/arm64 host.
+  Rationale: the artifact manifest must state a reproducible compatibility
+  floor; silently using the current Linux host would make release bytes
+  environment-dependent.
+  Date/Author: 2026-07-18 / Codex.
+- Decision: Runtime linkage environment names derive from the declared library
+  name, while file/build-tag names derive from the artifact name.
+  Rationale: `.scenery.json` config is keyed by library identity and artifact
+  names are allowed to differ; using artifact identity for both would make
+  otherwise valid declarations impossible to configure.
+  Date/Author: 2026-07-18 / Codex.
 
 ## Outcomes & Retrospective
 
-Not yet completed. The feasibility prototype fully de-risks the dlopen mechanics; contract design and generator work have not begun.
+Completed on 2026-07-18.
+
+Scenery now has one current `scenery.library` contract, exact compiler
+validation, generated typed source/shared facades, c-shared export shims, a
+strict public `scenery.sh/library` loader, and
+`scenery build --lib`. The default build emits the exact darwin/arm64 and
+linux/amd64 matrix plus a portable manifest carrying schema, library, version,
+ABI, per-platform digest, Go version, and Linux glibc-floor identity. Hot swap
+verifies and loads a new version alongside the old runtime, atomically changes
+routing, reports current/draining/active state, and never calls `dlclose`.
+
+ONLV declares `pkg/maps3d` as the first library. House's DEM COG path imports
+the generated `clean.tech/pkg/maps3d/scenerylib_maps3d` facade, so the same
+application code runs source or shared linkage. The real acceptance fixture
+was byte-identical across both Darwin backends. Loading v1.0.0 then v1.0.1 in
+one process reported v1 draining and v2 current without a restart. Three
+five-iteration measurements had median source 6.143 ms and median shared
+5.661 ms, so shared was about 7.9% faster in that run and comfortably within
+the ≤20% overhead ceiling. The final linux/amd64 artifact loaded in
+`debian:bookworm-slim` through a `CGO_ENABLED=0` test binary and successfully
+crossed the exported operation boundary.
+
+The app-side repoharness now enforces `pkg/` placement, record-shaped library
+contracts, and no cgo in direct library source. Both repositories' instruction,
+specification, cookbook, environment, schema, and plan indexes describe the
+shipped contract. No generated Go facade is committed.
+
+Final validation:
+
+    # Scenery
+    go test ./...
+    go test ./cmd/scenery
+    go run ./cmd/scenery harness self --summary --write
+    go run ./cmd/scenery inspect docs -o json
+
+    # ONLV
+    just repo-harness
+    go test ./...
+    go test ./house/...
+    go -C /Users/petrbrazdil/Repos/scenery run ./cmd/scenery check -o json --app-root /Users/petrbrazdil/Repos/onlv
+    go -C /Users/petrbrazdil/Repos/scenery run ./cmd/scenery generate --check -o json --app-root /Users/petrbrazdil/Repos/onlv
+    go -C /Users/petrbrazdil/Repos/scenery run ./cmd/scenery harness -o json --write --app-root /Users/petrbrazdil/Repos/onlv
+
+The self-harness reported every lane `ok`, including architecture, contract
+drift, Go tests/vet, parallel worktree runtimes, PostgreSQL/storage probes,
+schemas, fixture matrix, dashboard, TypeScript clients, and UI catalog.
+`inspect docs` reported zero review-due or stale documents and recognized 0127
+as completed. Both worktrees passed `git diff --check`; neither contains a
+tracked or untracked generated `scenerylib_*` directory.
 
 ## Context and Orientation
 

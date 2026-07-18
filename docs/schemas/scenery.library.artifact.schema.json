@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.library.artifact.schema.json",
+  "title": "Scenery shared library artifact manifest",
+  "type": "object",
+  "required": ["kind", "schema_revision", "library", "version", "abi_hash", "artifacts"],
+  "properties": {
+    "kind": { "const": "scenery.library.artifact" },
+    "schema_revision": { "$ref": "#/$defs/revision" },
+    "library": { "type": "string", "minLength": 1 },
+    "version": { "type": "string", "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?$" },
+    "abi_hash": { "$ref": "#/$defs/revision" },
+    "artifacts": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "pattern": "^(darwin_arm64|linux_amd64)$" },
+      "additionalProperties": {
+        "type": "object",
+        "required": ["goos", "goarch", "path", "sha256", "go_version"],
+        "properties": {
+          "goos": { "enum": ["darwin", "linux"] },
+          "goarch": { "enum": ["arm64", "amd64"] },
+          "path": { "type": "string", "minLength": 1 },
+          "sha256": { "$ref": "#/$defs/revision" },
+          "go_version": { "type": "string", "pattern": "^go[0-9]+\\.[0-9]+(?:\\.[0-9]+)?$" },
+          "glibc_floor": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+$" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "$defs": {
+    "revision": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+  },
+  "additionalProperties": false
+}

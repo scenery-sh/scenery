@@ -7,12 +7,6 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
-- [0127 Shared Library Linkage: Compile pkg/ Libraries From Source or Load Prebuilt .so/.dylib](0127-shared-library-linkage.md)
-  - Status: active
-  - Owner: scenery contract / generation
-  - Created: 2026-07-18
-  - Focus: a `library` block in `scenery.package.scn` for `pkg/` Go packages with per-consumer linkage — `source` compiles the package in; `shared` loads a prebuilt hot-swappable `.dylib`/`.so` (c-shared + purego, darwin/arm64 + linux/amd64 only) through a generated dual-backend facade with wire-encoded operations and an ABI-hash load handshake; first adopter is ONLV `pkg/maps3d`.
-
 - [0122 UI Catalog Dev Mode: Live ui/ Iteration Without Binary Rebuilds](0122-ui-catalog-dev-mode.md)
   - Status: completed (retain until first release ships it)
   - Owner: scenery generation / agent DX

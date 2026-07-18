@@ -35,11 +35,11 @@ func TestLockedBuiltinProviderDerivesCapabilitiesAndSchema(t *testing.T) {
 
 func TestBuiltinProviderLockDigestsAreStable(t *testing.T) {
 	want := map[string]string{
-		"registry.scenery.dev/core/durable":  "sha256:cf79942b3ed53759d3d1d90a66484b762a042145b41f4612769ed40939a68f53",
-		"registry.scenery.dev/core/kafka":    "sha256:f543e821b6cfb512d1c439b69643457b275e237dc3cc27f8626675f7bb6d5490",
-		"registry.scenery.dev/core/postgres": "sha256:d151422657be04dabefb5ac9e6a85d98643337eae556662d713f21adb3327030",
-		"registry.scenery.dev/core/storage":  "sha256:84353eb4daa3bebd4a9423b1ee45150ea6e812a7d046960f8721d800e3fcc7e1",
-		"registry.scenery.dev/core/vault":    "sha256:7623132065c3a7534efc62ecf89cdbeee08db89e08f9287a703370934a91d1c1",
+		"registry.scenery.dev/core/durable":  "sha256:bad37203d381091db302924a8cb4df39e763e523ad844d426698a706f021a86c",
+		"registry.scenery.dev/core/kafka":    "sha256:973a396be88ea9c3ec9cc13fa4fa168ddfbd46ff998262cda6061ea072ac1cd9",
+		"registry.scenery.dev/core/postgres": "sha256:922bdee54405eb5bd8c949c707d0f1a810743edbc55857a761ea120702cc2b2b",
+		"registry.scenery.dev/core/storage":  "sha256:c3d0b48497a98dd3553d28766dabba6106efea0b8220cec87a8b4674a1482100",
+		"registry.scenery.dev/core/vault":    "sha256:ca096b2d9bc44e7c82634af19e43dba45a0adc7da42bde8480bd1cfb7e34d15c",
 	}
 	for source, expected := range want {
 		integrity, ok := BuiltinProviderLock(source)

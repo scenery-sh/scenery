@@ -27,7 +27,7 @@ var rootResourceKinds = map[string]bool{
 }
 
 var packageResourceKinds = map[string]bool{
-	"service": true, "record": true, "enum": true, "union": true,
+	"service": true, "library": true, "record": true, "enum": true, "union": true,
 	"operation": true, "execution": true, "binding": true,
 	"schedule": true, "event": true, "event_emission": true,
 	"entity": true, "view": true, "crud": true, "fixture": true,
