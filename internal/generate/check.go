@@ -16,12 +16,13 @@ func Check(result *compiler.Result) CheckResult {
 	if result == nil || !result.Valid() {
 		return check
 	}
+	refresh := typescriptRefreshSuggestions(result)
 	if files, err := renderTypeScriptClientFilesByMode(result, "", true); err != nil {
-		check.Diagnostics = append(check.Diagnostics, Diagnostic{Code: "SCN6204", Severity: "error", Message: err.Error()})
+		check.Diagnostics = append(check.Diagnostics, Diagnostic{Code: "SCN6204", Severity: "error", Message: err.Error(), Suggestions: refresh})
 	} else if err := verifyRenderedTypeScriptReact(result, sourceTypeScriptTargets(typescriptTargets(result.Manifest.Resources, "")), files); err != nil {
-		check.Diagnostics = append(check.Diagnostics, Diagnostic{Code: "SCN6204", Severity: "error", Message: err.Error()})
+		check.Diagnostics = append(check.Diagnostics, Diagnostic{Code: "SCN6204", Severity: "error", Message: err.Error(), Suggestions: refresh})
 	} else if _, err := finishGeneratedFiles(result.Root, files, true, "generated TypeScript clients are stale"); err != nil {
-		check.Diagnostics = append(check.Diagnostics, Diagnostic{Code: "SCN6204", Severity: "error", Message: err.Error()})
+		check.Diagnostics = append(check.Diagnostics, Diagnostic{Code: "SCN6204", Severity: "error", Message: err.Error(), Suggestions: refresh})
 	}
 	check.Diagnostics = append(check.Diagnostics, VerifyImplementation(result)...)
 	if checked {
@@ -34,6 +35,17 @@ func Check(result *compiler.Result) CheckResult {
 		}
 	}
 	return check
+}
+
+// typescriptRefreshSuggestions names the exact regeneration command for every
+// declared TypeScript client target so stale-artifact diagnostics are
+// actionable without reading generator internals.
+func typescriptRefreshSuggestions(result *compiler.Result) []string {
+	var suggestions []string
+	for _, target := range typescriptTargets(result.Manifest.Resources, "") {
+		suggestions = append(suggestions, "Run `scenery generate --target typescript_client."+target.Name+" -o json` in the app root to refresh committed generated clients.")
+	}
+	return suggestions
 }
 
 // ApplyCheck records one generation/implementation check on the immutable

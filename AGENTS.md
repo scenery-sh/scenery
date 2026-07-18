@@ -274,6 +274,37 @@ Do not run `go install ./cmd/scenery` during agent validation unless the human
 explicitly asks. Multiple worktrees share the same installed `scenery` path; use
 self-harness' worktree-local `.scenery/harness/bin/scenery` build instead.
 
+Compiler expansion or generator output changes alter fixture-app contract
+revisions. When touching `internal/compiler` or `internal/generate`, regenerate
+the committed fixture clients in the same change and commit the diff:
+
+```sh
+go run ./cmd/scenery generate --target typescript_client.public_api --app-root internal/compiler/testdata/native -o json
+go run ./cmd/scenery generate --target typescript_client.public_api --app-root internal/compiler/testdata/house -o json
+```
+
+Stale fixture clients fail `go test ./...` with SCN6204 in `internal/build`,
+`internal/evolution`, and `cmd/scenery`; the diagnostic's `suggestions` carry
+the exact refresh command.
+
+### Fresh Worktree Preflight
+
+A fresh worktree fails UI and self-harness lanes for environment reasons, not
+code reasons, until:
+
+1. `bun install` runs inside `apps/console` (`bun.lock` is honored; every
+   tsc-dependent lane needs this tree).
+2. `./scripts/build-dashboard-ui-embed.sh` runs once. Only `placeholder.txt` is
+   tracked under `cmd/scenery/dashboard_static/dist`; the real embed bundle is
+   built locally.
+3. Self-harness runs through the worktree-local binary:
+   `.scenery/harness/bin/scenery harness self --summary --write`. The
+   `dashboard ui fresh` lane compares the invoking binary's own embedded
+   dashboard bundle in-process, so the installed PATH `scenery` fails that lane
+   in any worktree whose console build differs. The first installed-`scenery`
+   run builds the worktree-local binary; rerun through it before trusting the
+   `dashboard ui fresh` result.
+
 For substantial scenery repo changes:
 
 ```sh

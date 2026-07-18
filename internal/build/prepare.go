@@ -29,6 +29,9 @@ func PrepareWithSnapshot(appRoot string, model *model.App, cfg app.Config, snaps
 		for _, diagnostic := range contract.Diagnostics {
 			if diagnostic.Severity == "error" {
 				message = diagnostic.Code + ": " + diagnostic.Message
+				if len(diagnostic.Suggestions) > 0 {
+					message += " (" + diagnostic.Suggestions[0] + ")"
+				}
 				break
 			}
 		}
