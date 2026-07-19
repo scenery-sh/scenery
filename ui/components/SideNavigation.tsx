@@ -27,6 +27,14 @@ export type SideNavigationSection = {
   isHeaderHidden?: boolean;
   className?: string;
   endContent?: ReactNode;
+  /**
+   * Render the group as a collapsible parent item with a chevron toggle
+   * instead of a flat titled section. Starts collapsed unless one of its
+   * items is selected on first render.
+   */
+  collapsible?: boolean;
+  /** Icon for the collapsible parent item. Flat sections ignore it. */
+  icon?: ReactNode;
   items: readonly SideNavigationItem[];
 };
 
@@ -51,32 +59,52 @@ export function SideNavigation({
       inert={isCollapsed}
     >
       <SideNav xstyle={styles.sideNav}>
-        {sections.map((section, sectionIndex) => (
-          <SideNavSection
-            key={`${section.title}-${sectionIndex}`}
-            className={section.className}
-            endContent={section.endContent}
-            isHeaderHidden={section.isHeaderHidden}
-            subtitle={section.subtitle}
-            title={section.title}
-            xstyle={sectionIndex === 0 ? styles.sideSection : styles.sideGroup}
-          >
-            {section.items.map((item, itemIndex) => (
-              <SideNavItem
-                {...item}
-                key={`${item.label}-${item.href ?? itemIndex}`}
-                as={linkComponent}
-                onClick={
-                  item.onClick || (item.href && onNavigate)
-                    ? (event: MouseEvent) =>
-                        handleNavigate(event, item.onClick, onNavigate)
-                    : undefined
-                }
-                size="sm"
-              />
-            ))}
-          </SideNavSection>
-        ))}
+        {sections.map((section, sectionIndex) => {
+          const items = section.items.map((item, itemIndex) => (
+            <SideNavItem
+              {...item}
+              key={`${item.label}-${item.href ?? itemIndex}`}
+              as={linkComponent}
+              onClick={
+                item.onClick || (item.href && onNavigate)
+                  ? (event: MouseEvent) =>
+                      handleNavigate(event, item.onClick, onNavigate)
+                  : undefined
+              }
+              size="sm"
+            />
+          ));
+          return (
+            <SideNavSection
+              key={`${section.title}-${sectionIndex}`}
+              className={section.className}
+              endContent={section.endContent}
+              isHeaderHidden={section.isHeaderHidden || section.collapsible}
+              subtitle={section.subtitle}
+              title={section.title}
+              xstyle={
+                sectionIndex === 0 ? styles.sideSection : styles.sideGroup
+              }
+            >
+              {section.collapsible ? (
+                <SideNavItem
+                  collapsible={{
+                    defaultIsCollapsed: !section.items.some(
+                      (item) => item.isSelected,
+                    ),
+                  }}
+                  icon={section.icon}
+                  label={section.title}
+                  size="sm"
+                >
+                  {items}
+                </SideNavItem>
+              ) : (
+                items
+              )}
+            </SideNavSection>
+          );
+        })}
       </SideNav>
     </div>
   );

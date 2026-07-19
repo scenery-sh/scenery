@@ -167,6 +167,11 @@ import {
   type SceneryRouteDescriptor,
 } from "./routes.generated.js";
 
+export type SceneryNavigationGroupOptions = {
+  readonly collapsible?: boolean;
+  readonly icon?: string;
+};
+
 export type SceneryAppSlots = {
   readonly authGate?: (props: { readonly children: ReactNode }) => ReactNode;
   readonly topBar?: ReactNode;
@@ -175,7 +180,12 @@ export type SceneryAppSlots = {
   readonly linkComponent?: ClientAppShellProps["linkComponent"];
   readonly navigationToggleIcon?: ReactNode;
   readonly resolveNavigationIcon?: (name: string) => ReactNode;
+  readonly navigationGroups?: Readonly<
+    Record<string, SceneryNavigationGroupOptions>
+  >;
   readonly normalizePath?: (path: string) => string;
+  readonly contentGroup?: (path: string) => string;
+  readonly navigationFilter?: (routePath: string, currentPath: string) => boolean;
 };
 
 export type SceneryAppOptions = {
@@ -198,15 +208,23 @@ export function createSceneryApp(options: SceneryAppOptions = {}) {
       select: (state) => state.location.pathname,
     });
     const slots = options.slots ?? {};
+    const normalizedPath = slots.normalizePath
+      ? slots.normalizePath(currentPath)
+      : currentPath;
     const content = (
       <ClientAppShell
         afterContent={slots.afterContent}
         beforeContent={slots.beforeContent}
+        contentGroup={
+          slots.contentGroup ? slots.contentGroup(normalizedPath) : undefined
+        }
         linkComponent={slots.linkComponent}
         navigation={navigationSections(
           routes,
-          slots.normalizePath ? slots.normalizePath(currentPath) : currentPath,
+          normalizedPath,
           slots.resolveNavigationIcon,
+          slots.navigationGroups,
+          slots.navigationFilter,
         )}
         navigationToggleIcon={slots.navigationToggleIcon}
         topBar={slots.topBar}
@@ -273,6 +291,8 @@ function navigationSections(
   routes: readonly SceneryRouteDescriptor[],
   currentPath: string,
   resolveIcon: ((name: string) => ReactNode) | undefined,
+  groupOptions: Readonly<Record<string, SceneryNavigationGroupOptions>> | undefined,
+  navigationFilter: ((routePath: string, currentPath: string) => boolean) | undefined,
 ): readonly SideNavigationSection[] {
   const groups = new Map<string, Array<{
     descriptor: SceneryNavigationDescriptor;
@@ -280,6 +300,7 @@ function navigationSections(
   }>>();
   for (const route of routes) {
     if (!route.navigation) continue;
+    if (navigationFilter && !navigationFilter(route.path, currentPath)) continue;
     const group = groups.get(route.navigation.group) ?? [];
     group.push({ descriptor: route.navigation, path: route.path });
     groups.set(route.navigation.group, group);
@@ -290,21 +311,26 @@ function navigationSections(
         Math.min(...right.map(({ descriptor }) => descriptor.order)) ||
       leftTitle.localeCompare(rightTitle),
     )
-    .map(([title, entries]) => ({
-    title,
-    isHeaderHidden: title === "Main",
-    items: entries
-      .sort((left, right) =>
-        left.descriptor.order - right.descriptor.order ||
-        left.descriptor.label.localeCompare(right.descriptor.label),
-      )
-      .map(({ descriptor, path }) => ({
-        href: path,
-        icon: descriptor.icon && resolveIcon ? resolveIcon(descriptor.icon) : undefined,
-        isSelected: descriptor.activePaths.includes(currentPath),
-        label: descriptor.label,
-      })),
-    }));
+    .map(([title, entries]) => {
+      const group = groupOptions?.[title];
+      return {
+        title,
+        isHeaderHidden: title === "Main",
+        collapsible: group?.collapsible,
+        icon: group?.icon && resolveIcon ? resolveIcon(group.icon) : undefined,
+        items: entries
+          .sort((left, right) =>
+            left.descriptor.order - right.descriptor.order ||
+            left.descriptor.label.localeCompare(right.descriptor.label),
+          )
+          .map(({ descriptor, path }) => ({
+            href: path,
+            icon: descriptor.icon && resolveIcon ? resolveIcon(descriptor.icon) : undefined,
+            isSelected: descriptor.activePaths.includes(currentPath),
+            label: descriptor.label,
+          })),
+      };
+    });
 }
 `
 }

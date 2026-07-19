@@ -1,6 +1,11 @@
 import { AppShell } from "@astryxdesign/core/AppShell";
 import type { LinkComponentType } from "@astryxdesign/core/Link";
-import { colorVars, radiusVars, spacingVars } from "@astryxdesign/core/theme/tokens.stylex";
+import {
+  colorVars,
+  durationVars,
+  radiusVars,
+  spacingVars,
+} from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
 import { type ReactNode, useEffect, useState } from "react";
 import { PageLayoutProvider } from "./PageLayout.js";
@@ -17,6 +22,13 @@ export type ClientAppShellProps = {
   topBar?: ReactNode;
   beforeContent?: ReactNode;
   afterContent?: ReactNode;
+  /**
+   * Identity of the content region's current context (for example the active
+   * application in a multi-app shell). When it changes, the content pane
+   * remounts with a short enter transition, and an empty navigation collapses
+   * instead of unmounting so its width animates.
+   */
+  contentGroup?: string;
 };
 
 // ClientAppShell is the router-agnostic frame used by generated app adapters.
@@ -30,6 +42,7 @@ export function ClientAppShell({
   topBar,
   beforeContent,
   afterContent,
+  contentGroup,
 }: ClientAppShellProps) {
   const [isNavigationCollapsed, setIsNavigationCollapsed] = useState(false);
   const hasNavigation = navigation.length > 0;
@@ -65,9 +78,9 @@ export function ClientAppShell({
         height="fill"
         mobileNav={{ breakpoint: "md" }}
         sideNav={
-          hasNavigation ? (
+          hasNavigation || contentGroup !== undefined ? (
             <SideNavigation
-              isCollapsed={isNavigationCollapsed}
+              isCollapsed={isNavigationCollapsed || !hasNavigation}
               linkComponent={linkComponent}
               onNavigate={() => setIsNavigationCollapsed(true)}
               sections={navigation}
@@ -79,16 +92,35 @@ export function ClientAppShell({
         xstyle={styles.shell}
       >
         {beforeContent}
-        <div {...stylex.props(styles.content)}>{children}</div>
+        <div
+          key={contentGroup}
+          {...stylex.props(
+            styles.content,
+            contentGroup !== undefined && styles.contentEnter,
+          )}
+        >
+          {children}
+        </div>
         {afterContent}
       </AppShell>
     </PageLayoutProvider>
   );
 }
 
+const contentEnter = stylex.keyframes({
+  from: { opacity: 0, transform: "translateY(6px)" },
+  to: { opacity: 1, transform: "none" },
+});
+
 const styles = stylex.create({
   shell: {
     color: colorVars["--color-text-primary"],
+  },
+  contentEnter: {
+    animationName: contentEnter,
+    animationDuration: durationVars["--duration-fast-max"],
+    animationTimingFunction: "ease-out",
+    animationFillMode: "backwards",
   },
   content: {
     position: "relative",
