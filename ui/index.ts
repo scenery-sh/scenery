@@ -35,6 +35,7 @@ export {
   PageHeader,
   PageLayoutProvider,
   type PageNavigation,
+  PageNavigationToggle,
   PageShell,
 } from "./components/PageLayout.js";
 export type {

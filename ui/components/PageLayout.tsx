@@ -60,6 +60,24 @@ export function PageLayoutProvider({
   );
 }
 
+export function PageNavigationToggle() {
+  const navigation = useContext(PageNavigationContext);
+  if (!navigation) return null;
+
+  const action = navigation.isCollapsed ? "Expand" : "Collapse";
+  const shortcut = navigation.shortcut ?? "⌘B";
+  return (
+    <IconButton
+      icon={navigation.icon}
+      label={`${action} side nav`}
+      onClick={navigation.onToggle}
+      tooltip={`${action} side nav (${shortcut})`}
+      variant="ghost"
+      xstyle={styles.navToggle}
+    />
+  );
+}
+
 export function PageHeader({
   title,
   actions,
@@ -68,22 +86,12 @@ export function PageHeader({
   actions?: ReactNode;
 }) {
   const navigation = useContext(PageNavigationContext);
-  const shortcut = navigation?.shortcut ?? "⌘B";
   return (
     <PageHeaderRow as="header" justify="between">
       <div {...stylex.props(styles.lead)}>
         {navigation ? (
           <>
-            <IconButton
-              icon={navigation.icon}
-              label={
-                navigation.isCollapsed ? "Expand side nav" : "Collapse side nav"
-              }
-              onClick={navigation.onToggle}
-              tooltip={`${navigation.isCollapsed ? "Expand" : "Collapse"} side nav (${shortcut})`}
-              variant="ghost"
-              xstyle={styles.navToggle}
-            />
+            <PageNavigationToggle />
             <span {...stylex.props(styles.divider)} />
           </>
         ) : null}

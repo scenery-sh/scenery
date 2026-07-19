@@ -18,6 +18,9 @@
 - Keep `ClientAppShell` router-agnostic. Generated adapters own route
   selection, active-state calculation, and the router outlet; the catalog
   shell accepts resolved navigation plus fixed visual slots.
+- Custom page headers use `PageNavigationToggle` to consume the
+  `PageLayoutProvider` navigation state; do not create a second sidebar
+  collapse store in the consuming app.
 - Keep `QueryTable` chrome-less. Generated `table_page` adapters own the surrounding `Page` shell and map `toolbar` to page actions; the catalog component owns only query controls, TanStack Query request state, grid, and pagination.
 - Do not constrain `ui/` changes to compatibility with older installed Scenery versions or apps that have not upgraded yet. When the current catalog needs compiler, generator, schema, or runtime changes, update Scenery in the same work and regenerate current consumers; do not add compatibility aliases or preserve an inferior UI contract for stale apps.
 
