@@ -5,6 +5,7 @@ This file tracks known project debt that should be visible to agents before they
 ## Resolved
 
 - 2026-07-06: 2026-07-03 finding 1 (dashboard embed drift) — the dashboard now exposes the embedded bundle hash via the `version` RPC, response headers, and HTML meta tags, warns when the running binary's bundle differs from `apps/console/dist`, and the self-harness `dashboard ui fresh` step uses the same hash comparison. See docs/local-contract.md.
+- 2026-07-14: 2026-06-28 finding 1 (`scenery ps` treated as runtime proof) — default `scenery up --detach --wait ready` now requests every advertised route and one script or stylesheet asset from each frontend before returning; `scenery ps` remains an inspection surface rather than a probe.
 - 2026-07-06: 2026-07-03 finding 5 (Postgres review) — all four code findings (duplicate_database race, mixed-app SQLite branch rejection, reset/drop resolving all Postgres services, swallowed trailing `--yes`) were verified already fixed on main by commit f07065c2; the docs/knowledge.json and 0093 plan-text drift had already been corrected (0093 is completed and indexed as such). The self-harness postgres probe now provisions a disposable managed container when missing (cleaning up what it created) instead of hard-failing.
 
 ## Open
@@ -25,7 +26,7 @@ Inspected 4 eligible Codex threads attached to `/Users/petrbrazdil/Repos/scenery
    - Area: `apps/console` / embedded dashboard runtime proof.
    - Symptom agents experienced: source edits and app builds passed, but Chrome still saw stale dashboard shells or old asset hashes until the embedded bundle, installed Scenery binary, agent/edge process, and target app runtime were cycled together.
    - Evidence needed to avoid recreating the issue: threads `019f2237-8ae7-7301-bc36-7ce603675895` (`Implement and harden Symphony dashboard/runner`) and `019f21ec-c25b-7331-83b0-4c62d78f4076` (`Console parity and cleanup`); commands `bun run build`, `./scripts/build-dashboard-ui-embed.sh`, `go test ./cmd/scenery`, `curl http://localhost:4747/console/`, Chrome asset checks such as `index-iSP1-ZDY.js`, and repeated Scenery agent/edge plus ONLV restarts; affected files `apps/console/src/App.tsx`, `apps/console/src/symphony-page.tsx`, `cmd/scenery/dashboard_static/dist`, and `scripts/build-dashboard-ui-embed.sh`.
-   - Likely fix owner or next concrete action: dashboard/runtime owner should expose a cheap served-bundle hash or restart recommendation and keep UI harness proof tied to the final served embedded asset, not only source `dist`.
+   - Resolved 2026-07-06: see the Resolved entry above — the dashboard exposes the embedded bundle hash via the `version` RPC, response headers, and HTML meta tags, and the self-harness `dashboard ui fresh` step compares the same hash.
 
 2. Console parity work keeps creating duplicate frontend ownership before it gets trimmed.
    - Area: `apps/console` frontend architecture.
@@ -49,7 +50,7 @@ Inspected 4 eligible Codex threads attached to `/Users/petrbrazdil/Repos/scenery
    - Area: database runtime / ExecPlan bookkeeping.
    - Symptom agents experienced: the review started with no local diff in the primary checkout, had to discover `main...feat/postgres`, and found concrete branch bugs plus docs state drift after the Postgres plan moved toward completion.
    - Evidence needed to avoid recreating the issue: thread `019f24ef-8fea-7d23-9c80-9f2863b8cff5` (`Postgres ExecPlan review`); command path `git diff main...feat/postgres`; findings called out `internal/postgresdb/admin.go:L21-L28` check-then-create `duplicate_database`, `cmd/scenery/db_branch_commands.go:L23` rejecting all SQLite branch commands in mixed apps, `cmd/scenery/db_cli.go:L287-L316` resolving all Postgres services before `reset/drop <sqlite-service>`, `cmd/scenery/db_cli.go:L896-L899` swallowing trailing `--yes`, `docs/knowledge.json:L837` staying `active`, and stale `0091` text in `docs/plans/0093-postgres-service-databases.md:L225`.
-   - Likely fix owner or next concrete action: database owner should fix mixed SQLite/Postgres target resolution before merge and make plan status/index updates part of the same completion checklist.
+   - Resolved 2026-07-06: see the Resolved entry above — all four branch code findings were verified already fixed on main by commit f07065c2, and the docs/knowledge.json plus 0093 plan-text drift had already been corrected.
 
 ### Agent Thread Findings - 2026-07-02
 
@@ -203,7 +204,7 @@ Inspected 2 eligible Codex threads attached to `/Users/petrbrazdil/Repos/scenery
 - Severity: medium
 - Owner: scenery maintainers
 - Created: 2026-06-28
-- Review after: 2026-07-05
+- Review after: 2026-08-17 (last reviewed 2026-07-18; finding 1 resolved, findings 2-5 still open)
 
 Inspected 2 eligible Codex threads attached to `/Users/petrbrazdil/Repos/scenery` in the previous 24 hours. No eligible thread was missing a local `token_count` record.
 
@@ -249,7 +250,7 @@ Inspected 2 eligible Codex threads attached to `/Users/petrbrazdil/Repos/scenery
 - Severity: low
 - Owner: scenery maintainers
 - Created: 2026-06-27
-- Review after: 2026-07-04
+- Review after: 2026-08-17 (last reviewed 2026-07-18; process notes remain valid)
 
 Inspected 2 eligible Codex threads attached to `/Users/petrbrazdil/Repos/scenery` in the previous 24 hours. No eligible thread was missing a local `token_count` record. Only one thread contained implementation work, so these are repeated friction points inside that thread rather than cross-thread trends.
 
@@ -285,7 +286,7 @@ Inspected 2 eligible Codex threads attached to `/Users/petrbrazdil/Repos/scenery
 - Severity: medium
 - Owner: scenery dashboard
 - Created: 2026-04-27
-- Review after: 2026-05-27
+- Review after: 2026-08-17 (last reviewed 2026-07-18)
 
 The editable dashboard source exists, but parity should continue to be verified visually for complex pages such as traces, API Explorer, Cron, and DB Explorer.
 
@@ -295,7 +296,7 @@ The editable dashboard source exists, but parity should continue to be verified 
 - Severity: medium
 - Owner: scenery runtime
 - Created: 2026-06-07
-- Review after: 2026-07-07
+- Review after: 2026-08-17 (last reviewed 2026-07-18)
 
 The browser UI harness now captures route-specific semantic journeys, screenshots, console events, network requests, and DOM snapshots for the core dashboard routes. Remaining debt is deeper fixture-backed mutation coverage for flows such as actually sending API Explorer requests, running DB queries against managed fixtures, clearing traces, and validating docs/help routes when those pages exist.
 
@@ -305,7 +306,7 @@ The browser UI harness now captures route-specific semantic journeys, screenshot
 - Severity: low
 - Owner: scenery runtime
 - Created: 2026-04-27
-- Review after: 2026-05-27
+- Review after: 2026-08-17 (last reviewed 2026-07-18)
 
 The self harness now enforces the first architecture checks: dependency allowlist, forbidden imports, CLI package boundaries, generated-file hygiene, and file-size thresholds. Future work can add deeper package dependency direction rules once the repo structure stabilizes.
 
@@ -315,6 +316,6 @@ The self harness now enforces the first architecture checks: dependency allowlis
 - Severity: low
 - Owner: scenery runtime
 - Created: 2026-04-27
-- Review after: 2026-05-27
+- Review after: 2026-08-17 (last reviewed 2026-07-18)
 
 Some full `go test ./...` runs still spend most time in build/package tests. Keep these real tests, but continue optimizing the build path rather than gating them away.

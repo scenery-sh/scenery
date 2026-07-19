@@ -13,7 +13,7 @@ reuse IDs; this list can still be ordered by current priority.
   - Created: 2026-07-16
   - Focus: `envs.local.ui_catalog` points generation at a live `@scenery/ui` source directory; `scenery up` watches it and re-materializes `react/scenery-ui/` in place (staged tsgo verification, embed fallback when the directory is absent) so catalog edits reach the browser through Vite HMR without rebuilding the Scenery binary or restarting the app.
 - [0120 Declarative Table Pages: CRUD List Contract, Binary-Owned UI Catalog, Verified React Generation](0120-declarative-table-pages.md)
-  - Status: active
+  - Status: completed 2026-07-16 (retain until first release ships it; follow-on slot/split work completed 2026-07-17)
   - Owner: scenery compiler / generate
   - Created: 2026-07-16
   - Focus: `table_page` and `split_page` source kinds expand to ordinary page/renderer resources; the current split contract uses explicit `sidebar` / `detail` slots, while React-enabled TypeScript clients materialize the binary-owned component catalog and generated pages only after staged verification by the managed native TypeScript checker (`internal/tscheck`).
@@ -67,8 +67,8 @@ reuse IDs; this list can still be ordered by current priority.
 
 - Status: active
 - Owner: scenery runtime
-- Last reviewed: 2026-04-27
-- Review after: 2026-05-27
+- Last reviewed: 2026-07-18
+- Review after: 2026-08-17
 - Quality: B
 
 Current focus:
@@ -81,8 +81,8 @@ Current focus:
 
 - Status: active
 - Owner: scenery dashboard
-- Last reviewed: 2026-04-27
-- Review after: 2026-05-27
+- Last reviewed: 2026-07-18
+- Review after: 2026-08-17
 - Quality: B
 
 Current focus:
@@ -95,8 +95,8 @@ Current focus:
 
 - Status: active
 - Owner: scenery runtime
-- Last reviewed: 2026-04-27
-- Review after: 2026-05-27
+- Last reviewed: 2026-07-18
+- Review after: 2026-08-17
 - Quality: B
 
 Current focus:
