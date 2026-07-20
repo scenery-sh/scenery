@@ -83,7 +83,7 @@ type buildState struct {
 
 const (
 	buildStateFile    = ".scenery-build-state.json"
-	buildStateVersion = "4"
+	buildStateVersion = "5"
 )
 
 type CachedGraph struct {

@@ -33,8 +33,8 @@ func TestRefreshCachedWorkspaceResyncsMissingSourceFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RefreshCachedWorkspace() error = %v", err)
 	}
-	if !reused {
-		t.Fatal("expected cached workspace refresh to be reusable")
+	if reused {
+		t.Fatal("expected a changed build fingerprint without a binary to force full preparation")
 	}
 	if _, err := os.Stat(filepath.Join(cached.Result.Dir, filepath.FromSlash(newFile))); err != nil {
 		t.Fatalf("expected refreshed workspace to include %s: %v", newFile, err)
@@ -75,8 +75,8 @@ func pulledInChange() {}
 	if err != nil {
 		t.Fatalf("RefreshCachedWorkspace() error = %v", err)
 	}
-	if !reused {
-		t.Fatal("expected cached workspace refresh to be reusable")
+	if reused {
+		t.Fatal("expected a changed build fingerprint without a binary to force full preparation")
 	}
 	data, err := os.ReadFile(filepath.Join(cached.Result.Dir, "svc", "api.go"))
 	if err != nil {
@@ -96,6 +96,9 @@ func TestRefreshCachedWorkspaceFallsBackWhenSourceFileMissing(t *testing.T) {
 	if err := os.Remove(target); err != nil {
 		t.Fatalf("remove source file: %v", err)
 	}
+	if err := os.WriteFile(result.Binary, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("write cached binary: %v", err)
+	}
 
 	cached, ok, err := LoadCachedGraph(appDir, appcfg.Config{Name: "buildtest"}, "graph-1")
 	if err != nil {
@@ -110,7 +113,7 @@ func TestRefreshCachedWorkspaceFallsBackWhenSourceFileMissing(t *testing.T) {
 		t.Fatalf("RefreshCachedWorkspace() error = %v", err)
 	}
 	if !reused {
-		t.Fatal("expected cached workspace refresh to be reusable")
+		t.Fatal("expected restored workspace source to reuse the existing fingerprint binary")
 	}
 	if _, err := os.Stat(target); err != nil {
 		t.Fatalf("expected missing source file to be restored: %v", err)
@@ -139,8 +142,8 @@ import _ "rsc.io/quote"
 	if err != nil {
 		t.Fatalf("RefreshCachedWorkspace() error = %v", err)
 	}
-	if !reused {
-		t.Fatal("expected cached workspace refresh to be reusable")
+	if reused {
+		t.Fatal("expected changed imports without a matching binary to force full preparation")
 	}
 	if !cached.Result.NeedsTidy {
 		t.Fatal("expected refreshed cached workspace to require go mod tidy")
@@ -196,6 +199,30 @@ func TestRefreshCachedWorkspaceSeedsDependencyFingerprintBeforeReuse(t *testing.
 	}
 	if cached.Result.DependencyFingerprint != depFingerprint {
 		t.Fatalf("dependency fingerprint = %q, want seeded %q", cached.Result.DependencyFingerprint, depFingerprint)
+	}
+}
+
+func TestRefreshCachedWorkspaceFallsBackWhenBinaryMissing(t *testing.T) {
+	t.Parallel()
+
+	appDir, _ := newCachedBuildTestWorkspace(t, "graph-1")
+	cached, ok, err := LoadCachedGraph(appDir, appcfg.Config{Name: "buildtest"}, "graph-1")
+	if err != nil {
+		t.Fatalf("LoadCachedGraph() error = %v", err)
+	}
+	if !ok || cached == nil || cached.Result == nil {
+		t.Fatal("expected cached graph to load")
+	}
+	if cached.Result.ReuseCompiled {
+		t.Fatal("expected fixture to begin without a compiled binary")
+	}
+
+	reused, err := RefreshCachedWorkspace(appDir, cached.Result)
+	if err != nil {
+		t.Fatalf("RefreshCachedWorkspace() error = %v", err)
+	}
+	if reused || cached.Result.ReuseCompiled {
+		t.Fatal("expected a missing fingerprint binary to force full preparation")
 	}
 }
 

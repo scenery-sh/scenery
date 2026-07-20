@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	appcfg "scenery.sh/internal/app"
+	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/machine"
 	"scenery.sh/internal/parse"
 )
@@ -83,7 +84,7 @@ func TestCompileRealGoBuildSmoke(t *testing.T) {
 	writeBuildTestFile(t, workspace, "go.mod", "module example.com/smoke\n\ngo 1.26.3\n")
 	writeBuildTestFile(t, workspace, "scenery_internal_main/main.go", "package main\n\nfunc main() {}\n")
 
-	result := &Result{
+	result := prepareCompileTestResult(&Result{
 		AppRoot:        appDir,
 		AppName:        "smoke",
 		Dir:            workspace,
@@ -91,7 +92,7 @@ func TestCompileRealGoBuildSmoke(t *testing.T) {
 		NeedsTidy:      true,
 		SourceFiles:    []string{"go.mod"},
 		GeneratedFiles: []string{"scenery_internal_main/main.go"},
-	}
+	})
 	if err := os.WriteFile(result.Binary, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
 		t.Fatalf("write stale build output: %v", err)
 	}
@@ -116,7 +117,7 @@ func TestCompileRealGoBuildSmoke(t *testing.T) {
 	}
 }
 
-func TestCompileRunsTidyOnlyAfterBuildFailure(t *testing.T) {
+func TestCompileTidiesPreparedWorkspaceBeforeBuild(t *testing.T) {
 	appDir := t.TempDir()
 	writeBuildTestFile(t, appDir, ".scenery.json", `{"name":"smoke"}`)
 
@@ -128,19 +129,13 @@ func TestCompileRunsTidyOnlyAfterBuildFailure(t *testing.T) {
 	writeBuildTestFile(t, workspace, "scenery_internal_main/main.go", "package main\n\nfunc main() {}\n")
 
 	var commands []string
-	tidied := false
 	old := runGo
 	runGo = func(_ context.Context, _ string, _ []string, args ...string) error {
 		commands = append(commands, strings.Join(args, " "))
 		if len(args) >= 2 && args[0] == "mod" && args[1] == "tidy" {
-			tidied = true
 			return nil
 		}
-		if len(args) == 5 && args[0] == "build" && args[1] == "-buildvcs=false" && args[2] == "-o" && args[4] == "./scenery_internal_main" {
-			if !tidied {
-				return fmt.Errorf("go.mod updates needed")
-			}
-			out := args[3]
+		if out, ok := fakeGoBuildOutput(args); ok {
 			if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
 				return err
 			}
@@ -150,7 +145,7 @@ func TestCompileRunsTidyOnlyAfterBuildFailure(t *testing.T) {
 	}
 	t.Cleanup(func() { runGo = old })
 
-	result := &Result{
+	result := prepareCompileTestResult(&Result{
 		AppRoot:        appDir,
 		AppName:        "smoke",
 		Dir:            workspace,
@@ -158,11 +153,12 @@ func TestCompileRunsTidyOnlyAfterBuildFailure(t *testing.T) {
 		NeedsTidy:      true,
 		SourceFiles:    []string{"go.mod"},
 		GeneratedFiles: []string{"scenery_internal_main/main.go"},
-	}
+	})
 	if err := Compile(result); err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
-	if got, want := strings.Join(commands, "|"), "build -buildvcs=false -o "+result.Binary+" ./scenery_internal_main|mod tidy|build -buildvcs=false -o "+result.Binary+" ./scenery_internal_main"; got != want {
+	buildCommand := strings.Join(goBuildArgs(result.Binary, effectiveGoBuildFlags(result)), " ")
+	if got, want := strings.Join(commands, "|"), "mod tidy|"+buildCommand; got != want {
 		t.Fatalf("go commands = %q, want %q", got, want)
 	}
 	if result.NeedsTidy {
@@ -196,19 +192,52 @@ func TestCompilePassesConfiguredGoBuildFlags(t *testing.T) {
 	}
 	t.Cleanup(func() { runGo = old })
 
-	result := &Result{
+	result := prepareCompileTestResult(&Result{
 		AppRoot:      appDir,
 		AppName:      "smoke",
 		Dir:          workspace,
 		Binary:       filepath.Join(workspace, "scenery-app"),
 		GoBuildFlags: []string{"-tags=roofmapnet_native", " ", "-gcflags=all=-N -l"},
-	}
+	})
 	if err := Compile(result); err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
-	want := []string{"build", "-tags=roofmapnet_native", "-gcflags=all=-N -l", "-buildvcs=false", "-o", result.Binary, "./scenery_internal_main"}
+	want := goBuildArgs(result.Binary, effectiveGoBuildFlags(result))
 	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
 		t.Fatalf("go build args = %#v, want %#v", got, want)
+	}
+}
+
+func TestCompileRejectsNonReusableUnpreparedResult(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		result *Result
+	}{
+		{name: "missing contract", result: &Result{Target: &compiler.GoBuildTarget{}}},
+		{name: "missing target", result: &Result{Contract: &compiler.Result{}}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			if err := Compile(test.result); err == nil || !strings.Contains(err.Error(), "refusing non-reusable build") {
+				t.Fatalf("Compile() error = %v, want prepared-runtime invariant failure", err)
+			}
+		})
+	}
+}
+
+func TestRuntimeLinkerMetadataInvariantRejectsEmptyIdentity(t *testing.T) {
+	t.Parallel()
+
+	if err := validateRuntimeLinkerMetadata(nil); err == nil {
+		t.Fatal("expected empty runtime linker metadata to be rejected")
+	}
+	metadata := prepareCompileTestResult(&Result{}).RuntimeLinkerMetadata
+	delete(metadata, "scenery.sh/runtime.linkedBuildInputDigest")
+	if err := validateRuntimeLinkerMetadata(metadata); err == nil {
+		t.Fatal("expected incomplete runtime linker metadata to be rejected")
 	}
 }
 
@@ -249,7 +278,7 @@ func TestCompilePrunesStaleFingerprintBinariesAfterSuccess(t *testing.T) {
 	t.Cleanup(restore)
 
 	const currentFingerprint = "33333333333333333333333333333333"
-	result := &Result{
+	result := prepareCompileTestResult(&Result{
 		AppRoot:          appDir,
 		AppName:          "smoke",
 		Dir:              workspace,
@@ -257,7 +286,7 @@ func TestCompilePrunesStaleFingerprintBinariesAfterSuccess(t *testing.T) {
 		BuildFingerprint: currentFingerprint,
 		SourceFiles:      []string{"go.mod"},
 		GeneratedFiles:   []string{"scenery_internal_main/main.go"},
-	}
+	})
 	if err := Compile(result); err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
@@ -283,10 +312,10 @@ func TestCompileFailureDoesNotPruneFingerprintBinaries(t *testing.T) {
 	})
 	t.Cleanup(restore)
 
-	result := &Result{
+	result := prepareCompileTestResult(&Result{
 		Dir:    workspace,
 		Binary: filepath.Join(workspace, "scenery-app-2222222222222222"),
-	}
+	})
 	if err := Compile(result); err == nil {
 		t.Fatal("expected Compile() to fail")
 	}
@@ -315,11 +344,10 @@ func TestCompileRetriesTidyWhenBuildReportsStaleGoMod(t *testing.T) {
 			tidied = true
 			return nil
 		}
-		if len(args) == 5 && args[0] == "build" && args[1] == "-buildvcs=false" && args[2] == "-o" && args[4] == "./scenery_internal_main" {
+		if out, ok := fakeGoBuildOutput(args); ok {
 			if !tidied {
 				return fmt.Errorf("go build -buildvcs=false failed: exit status 1\ngo: updates to go.mod needed; to update it:\n\tgo mod tidy")
 			}
-			out := args[3]
 			if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
 				return err
 			}
@@ -329,7 +357,7 @@ func TestCompileRetriesTidyWhenBuildReportsStaleGoMod(t *testing.T) {
 	}
 	t.Cleanup(func() { runGo = old })
 
-	result := &Result{
+	result := prepareCompileTestResult(&Result{
 		AppRoot:        appDir,
 		AppName:        "smoke",
 		Dir:            workspace,
@@ -337,11 +365,12 @@ func TestCompileRetriesTidyWhenBuildReportsStaleGoMod(t *testing.T) {
 		NeedsTidy:      false,
 		SourceFiles:    []string{"go.mod"},
 		GeneratedFiles: []string{"scenery_internal_main/main.go"},
-	}
+	})
 	if err := Compile(result); err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
-	if got, want := strings.Join(commands, "|"), "build -buildvcs=false -o "+result.Binary+" ./scenery_internal_main|mod tidy|build -buildvcs=false -o "+result.Binary+" ./scenery_internal_main"; got != want {
+	buildCommand := strings.Join(goBuildArgs(result.Binary, effectiveGoBuildFlags(result)), " ")
+	if got, want := strings.Join(commands, "|"), buildCommand+"|mod tidy|"+buildCommand; got != want {
 		t.Fatalf("go commands = %q, want %q", got, want)
 	}
 }

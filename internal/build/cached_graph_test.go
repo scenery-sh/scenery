@@ -125,7 +125,10 @@ func TestLoadCachedGraphRequiresMatchingGoBuildFlags(t *testing.T) {
 
 func TestCompileCachedGraphWritesLatestBuildManifest(t *testing.T) {
 	useFakeGoRunner(t)
-	appDir, _ := newCachedBuildTestWorkspace(t, "graph-1")
+	appDir, result := newCachedBuildTestWorkspace(t, "graph-1")
+	if err := os.WriteFile(result.Binary, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("write cached binary: %v", err)
+	}
 
 	cached, ok, err := LoadCachedGraph(appDir, appcfg.Config{Name: "buildtest"}, "graph-1")
 	if err != nil {
@@ -133,6 +136,13 @@ func TestCompileCachedGraphWritesLatestBuildManifest(t *testing.T) {
 	}
 	if !ok || cached == nil || cached.Result == nil {
 		t.Fatal("expected cached graph to load")
+	}
+	reused, err := RefreshCachedWorkspace(appDir, cached.Result)
+	if err != nil {
+		t.Fatalf("refresh cached workspace: %v", err)
+	}
+	if !reused {
+		t.Fatal("expected existing fingerprint binary to be reusable")
 	}
 
 	if err := Compile(cached.Result); err != nil {
@@ -154,7 +164,7 @@ func TestCompileCachedGraphWritesLatestBuildManifest(t *testing.T) {
 	}
 }
 
-func TestLoadCachedGraphRejectsOldBuildStateVersion(t *testing.T) {
+func TestLoadCachedGraphRejectsBuildStateVersionFour(t *testing.T) {
 	t.Parallel()
 
 	appDir, result := newCachedBuildTestWorkspace(t, "graph-1")
@@ -168,7 +178,7 @@ func TestLoadCachedGraphRejectsOldBuildStateVersion(t *testing.T) {
 	if err := json.Unmarshal(data, &state); err != nil {
 		t.Fatalf("decode build state: %v", err)
 	}
-	delete(state, "version")
+	state["version"] = "4"
 	data, err = json.Marshal(state)
 	if err != nil {
 		t.Fatalf("encode old build state: %v", err)

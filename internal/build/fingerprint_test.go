@@ -13,11 +13,10 @@ import (
 func TestCompileUpdatesDependencyFingerprintAfterSuccessfulBuild(t *testing.T) {
 	old := runGo
 	runGo = func(_ context.Context, dir string, _ []string, args ...string) error {
-		if len(args) == 5 && args[0] == "build" && args[1] == "-buildvcs=false" && args[2] == "-o" && args[4] == "./scenery_internal_main" {
-			if err := os.WriteFile(filepath.Join(dir, "go.sum"), []byte("example.com/dep v1.0.0 h1:dep\n"), 0o644); err != nil {
-				return err
-			}
-			out := args[3]
+		if len(args) >= 2 && args[0] == "mod" && args[1] == "tidy" {
+			return os.WriteFile(filepath.Join(dir, "go.sum"), []byte("example.com/dep v1.0.0 h1:dep\n"), 0o644)
+		}
+		if out, ok := fakeGoBuildOutput(args); ok {
 			if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
 				return err
 			}
@@ -35,7 +34,7 @@ func TestCompileUpdatesDependencyFingerprintAfterSuccessfulBuild(t *testing.T) {
 	writeBuildTestFile(t, workspace, "go.mod", "module example.com/buildtest\n\ngo 1.26.3\n")
 	writeBuildTestFile(t, workspace, "go.sum", "")
 	writeBuildTestFile(t, workspace, "scenery_internal_main/main.go", "package main\n\nfunc main() {}\n")
-	result := &Result{
+	result := prepareCompileTestResult(&Result{
 		AppRoot:               appDir,
 		AppName:               "buildtest",
 		Dir:                   workspace,
@@ -45,7 +44,7 @@ func TestCompileUpdatesDependencyFingerprintAfterSuccessfulBuild(t *testing.T) {
 		BuildFingerprint:      "test",
 		SourceFiles:           []string{"go.mod"},
 		GeneratedFiles:        []string{"scenery_internal_main/main.go"},
-	}
+	})
 
 	if err := Compile(result); err != nil {
 		t.Fatalf("Compile: %v", err)

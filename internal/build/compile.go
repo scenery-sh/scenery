@@ -67,6 +67,14 @@ func CompileContext(ctx context.Context, result *Result) error {
 	if result == nil {
 		return fmt.Errorf("nil build result")
 	}
+	if !result.ReuseCompiled {
+		if result.Contract == nil {
+			return fmt.Errorf("refusing non-reusable build without a prepared contract")
+		}
+		if result.Target == nil {
+			return fmt.Errorf("refusing non-reusable build without a prepared target")
+		}
+	}
 	unlock, err := lockWorkspace(result.Dir)
 	if err != nil {
 		return err
@@ -95,7 +103,12 @@ func CompileContext(ctx context.Context, result *Result) error {
 			return err
 		}
 	}
-	if err := prepareRuntimeBundle(ctx, result); err != nil {
+	if len(result.RuntimeLinkerMetadata) == 0 {
+		if err := prepareRuntimeBundle(ctx, result); err != nil {
+			return err
+		}
+	}
+	if err := validateRuntimeLinkerMetadata(result.RuntimeLinkerMetadata); err != nil {
 		return err
 	}
 	if !result.NeedsTidy {

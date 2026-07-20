@@ -19,6 +19,13 @@ const (
 	runtimeBundleSchemaDescriptor = machine.ExactSchemaRevision("sha256:6e30118e507d6c984dd95f474b687d57f122dc14cfb8f92a60e17a3651899ba5")
 )
 
+var runtimeLinkerMetadataKeys = [...]string{
+	"scenery.sh/runtime.linkedContractRevision",
+	"scenery.sh/runtime.linkedImplementationRevision",
+	"scenery.sh/runtime.linkedBuildInputDigest",
+	"scenery.sh/runtime.linkedGoTarget",
+}
+
 type RuntimeBundleDescriptor struct {
 	machine.ArtifactIdentity
 	ArtifactKind           string              `json:"artifact_kind"`
@@ -68,6 +75,15 @@ func effectiveGoBuildFlags(result *Result) []string {
 		return result.GoBuildFlags
 	}
 	return withRuntimeBundleLinkerMetadata(result.GoBuildFlags, result.RuntimeLinkerMetadata)
+}
+
+func validateRuntimeLinkerMetadata(values map[string]string) error {
+	for _, key := range runtimeLinkerMetadataKeys {
+		if strings.TrimSpace(values[key]) == "" {
+			return fmt.Errorf("refusing non-reusable build without complete runtime linker metadata")
+		}
+	}
+	return nil
 }
 
 func writeRuntimeBundle(result *Result) error {
@@ -132,11 +148,7 @@ func withRuntimeBundleLinkerMetadata(flags []string, values map[string]string) [
 			result = append(result, flag)
 		}
 	}
-	keys := []string{
-		"scenery.sh/runtime.linkedContractRevision", "scenery.sh/runtime.linkedImplementationRevision",
-		"scenery.sh/runtime.linkedBuildInputDigest", "scenery.sh/runtime.linkedGoTarget",
-	}
-	for _, key := range keys {
+	for _, key := range runtimeLinkerMetadataKeys {
 		ldflags += " -X=" + key + "=" + values[key]
 	}
 	return append(result, "-ldflags="+strings.TrimSpace(ldflags))

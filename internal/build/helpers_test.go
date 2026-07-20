@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"scenery.sh/internal/compiler"
 )
 
 func TestMain(m *testing.M) {
@@ -177,4 +179,16 @@ func fakeGoBuildOutput(args []string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+func prepareCompileTestResult(result *Result) *Result {
+	result.Contract = &compiler.Result{}
+	result.Target = &compiler.GoBuildTarget{}
+	result.RuntimeLinkerMetadata = map[string]string{
+		"scenery.sh/runtime.linkedContractRevision":       "test-contract",
+		"scenery.sh/runtime.linkedImplementationRevision": "test-implementation",
+		"scenery.sh/runtime.linkedBuildInputDigest":       "test-build-input",
+		"scenery.sh/runtime.linkedGoTarget":               "test-target",
+	}
+	return result
 }

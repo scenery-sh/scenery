@@ -224,7 +224,7 @@ func RefreshCachedWorkspaceWithSnapshot(appRoot string, result *Result, snapshot
 	result.BuildFingerprint = buildFingerprint
 	result.Binary = filepath.Join(result.Dir, workspaceBinaryName(appRoot, buildFingerprint))
 	result.ReuseCompiled = pathExists(result.Binary) && previousFrameworkFingerprint == frameworkFingerprint
-	return true, nil
+	return result.ReuseCompiled, nil
 }
 
 func saveBuildState(root string, state buildState) error {
