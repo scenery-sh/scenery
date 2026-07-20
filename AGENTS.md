@@ -317,7 +317,10 @@ Self-harness timing keeps a five-second optimization target separate from its
 operational lanes: cached and fresh runs use five-second advisory budgets,
 while release mode enforces 30 seconds. Only explicit `--fresh-tests` runs use
 isolated timing confirmation. That fresh lane uses package parallelism three,
-selected from repeated measurements on the maintainer machine.
+selected from repeated measurements on the maintainer machine. The postgres
+service probe runs its smoke proof by default and its full DB proof (durable,
+auth, reset, snapshot) only in release mode; its step summary carries
+per-segment timings.
 
 For target app changes:
 

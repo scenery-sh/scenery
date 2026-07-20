@@ -21,13 +21,17 @@ import (
 
 var runHarnessPostgresProbeCheckFunc = runHarnessPostgresProbeCheck
 
-func runHarnessPostgresProbeStep(ctx context.Context, repoRoot string) harnessStep {
+func runHarnessPostgresProbeStep(ctx context.Context, repoRoot string, full bool) harnessStep {
 	started := time.Now()
+	command := []string{"scenery", "harness", "self", "internal:postgres-service-probe", repoRoot}
+	if full {
+		command = append(command, "--full")
+	}
 	step := harnessStep{
 		Name:    "postgres service probe",
-		Command: []string{"scenery", "harness", "self", "internal:postgres-service-probe", repoRoot},
+		Command: command,
 	}
-	summary, diagnostics, err := runHarnessPostgresProbeCheckFunc(ctx, repoRoot)
+	summary, diagnostics, err := runHarnessPostgresProbeCheckFunc(ctx, repoRoot, full)
 	step.DurationMS = time.Since(started).Milliseconds()
 	step.Summary = summary
 	step.Diagnostics = diagnostics
@@ -48,7 +52,23 @@ func runHarnessPostgresProbeStep(ctx context.Context, repoRoot string) harnessSt
 	return step
 }
 
-func runHarnessPostgresProbeCheck(parent context.Context, repoRoot string) (summary map[string]any, diagnostics []checkDiagnostic, err error) {
+// postgresProbeSegments records ordered per-segment wall-clock timings so the
+// probe summary shows where its time goes.
+type postgresProbeSegments struct {
+	entries []map[string]any
+}
+
+func (s *postgresProbeSegments) run(name string, fn func() error) error {
+	started := time.Now()
+	err := fn()
+	s.entries = append(s.entries, map[string]any{
+		"name":        name,
+		"duration_ms": time.Since(started).Milliseconds(),
+	})
+	return err
+}
+
+func runHarnessPostgresProbeCheck(parent context.Context, repoRoot string, full bool) (summary map[string]any, diagnostics []checkDiagnostic, err error) {
 	ctx, cancel := context.WithTimeout(parent, 2*time.Minute)
 	defer cancel()
 	if _, err := exec.LookPath("docker"); err != nil {
@@ -57,6 +77,7 @@ func runHarnessPostgresProbeCheck(parent context.Context, repoRoot string) (summ
 	if out, err := exec.CommandContext(ctx, "docker", "info", "--format", "{{json .}}").CombinedOutput(); err != nil {
 		return postgresProbeSkip(strings.TrimSpace(string(out))), []checkDiagnostic{postgresProbeSkipDiagnostic("Docker engine is unavailable")}, nil
 	}
+	segments := &postgresProbeSegments{}
 	label := harnessRandomLabel()
 	agentHome := filepath.Join(os.TempDir(), "scenery-harness-postgres-"+label)
 	defer os.RemoveAll(agentHome)
@@ -67,7 +88,12 @@ func runHarnessPostgresProbeCheck(parent context.Context, repoRoot string) (summ
 	defer func() {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		if cleanupErr := cleanupPostgresHarnessContainer(cleanupCtx, serverState.Container, serverState.Volume); cleanupErr != nil {
+		cleanupStarted := time.Now()
+		cleanupErr := cleanupPostgresHarnessContainer(cleanupCtx, serverState.Container, serverState.Volume)
+		if summary != nil {
+			summary["cleanup_ms"] = time.Since(cleanupStarted).Milliseconds()
+		}
+		if cleanupErr != nil {
 			diagnostics = append(diagnostics, checkDiagnostic{
 				Stage:           "postgres service probe",
 				Severity:        "warning",
@@ -84,9 +110,12 @@ func runHarnessPostgresProbeCheck(parent context.Context, repoRoot string) (summ
 			summary["cleanup"] = "removed_disposable_container"
 		}
 	}()
+	// The probe proves managed database behavior, not the local control
+	// plane; disabling the agent avoids starting a throwaway agent process
+	// inside the isolated agent home on every harness run.
 	restoreEnv := patchEnv(map[string]*string{
 		"SCENERY_AGENT_HOME":    stringPtr(agentHome),
-		"SCENERY_AGENT_DISABLE": nil,
+		"SCENERY_AGENT_DISABLE": stringPtr("1"),
 		"SCENERY_APP_ROOT":      nil,
 		"DATABASE_URL":          nil,
 		"REPORTS_DATABASE_URL":  nil,
@@ -109,12 +138,25 @@ func runHarnessPostgresProbeCheck(parent context.Context, repoRoot string) (summ
 	if err := writePostgresHarnessConfig(rootB); err != nil {
 		return nil, nil, err
 	}
-	envA, databaseA, err := managedDatabaseEnv(ctx, rootA, cfg, nil, nil)
-	if err != nil {
+	if err := segments.run("container_start", func() error {
+		if err := startHarnessPostgresContainer(ctx, serverState); err != nil {
+			return err
+		}
+		return waitForPostgresServer(ctx, serverState)
+	}); err != nil {
 		return nil, nil, err
 	}
-	_, databaseB, err := managedDatabaseEnv(ctx, rootB, cfg, nil, nil)
-	if err != nil {
+	var envA []string
+	var databaseA, databaseB postgresdb.Database
+	if err := segments.run("worktree_databases", func() error {
+		var err error
+		envA, databaseA, err = managedDatabaseEnv(ctx, rootA, cfg, nil, nil)
+		if err != nil {
+			return err
+		}
+		_, databaseB, err = managedDatabaseEnv(ctx, rootB, cfg, nil, nil)
+		return err
+	}); err != nil {
 		return nil, nil, err
 	}
 	if len(databaseA.Schemas) != 2 || len(databaseB.Schemas) != 2 {
@@ -132,92 +174,146 @@ func runHarnessPostgresProbeCheck(parent context.Context, repoRoot string) (summ
 		return nil, diagnostics, err
 	}
 	defer appDB.Close()
-	for _, schema := range []string{"scenery", "reports", "cache"} {
-		ok, err := postgresSchemaExists(ctx, appDB, schema)
-		if err != nil {
-			return nil, diagnostics, err
+	if err := segments.run("schema_isolation", func() error {
+		for _, schema := range []string{"scenery", "reports", "cache"} {
+			ok, err := postgresSchemaExists(ctx, appDB, schema)
+			if err != nil {
+				return err
+			}
+			check(ok, "postgres schema "+schema+" must exist")
 		}
-		check(ok, "postgres schema "+schema+" must exist")
-	}
-	if err := withPatchedEnvForDB(rootA, envA, func() error {
-		db, err := appdb.Get(ctx, "reports")
-		if err != nil {
+		if err := withPatchedEnvForDB(rootA, envA, func() error {
+			db, err := appdb.Get(ctx, "reports")
+			if err != nil {
+				return err
+			}
+			defer appdb.Close("reports")
+			_, err = db.ExecContext(ctx, `create table if not exists scenery_pg_marker(value text primary key); insert into scenery_pg_marker(value) values ('a') on conflict do nothing`)
+			return err
+		}); err != nil {
 			return err
 		}
-		defer appdb.Close("reports")
-		_, err = db.ExecContext(ctx, `create table if not exists scenery_pg_marker(value text primary key); insert into scenery_pg_marker(value) values ('a') on conflict do nothing`)
-		return err
+		return withPatchedEnvForDB(rootB, postgresdb.Env(databaseB), func() error {
+			db, err := appdb.Get(ctx, "reports")
+			if err != nil {
+				return err
+			}
+			defer appdb.Close("reports")
+			var exists bool
+			err = db.QueryRowContext(ctx, `select exists (select 1 from information_schema.tables where table_name = 'scenery_pg_marker')`).Scan(&exists)
+			if err != nil {
+				return err
+			}
+			check(!exists, "second worktree database must not see first worktree marker table")
+			return nil
+		})
 	}); err != nil {
 		return nil, diagnostics, err
 	}
-	if err := withPatchedEnvForDB(rootB, postgresdb.Env(databaseB), func() error {
-		db, err := appdb.Get(ctx, "reports")
+	if full {
+		if err := segments.run("durable_roundtrip", func() error {
+			return runPostgresHarnessDurableRoundTrip(ctx, databaseA.URL)
+		}); err != nil {
+			return nil, diagnostics, err
+		}
+		if err := segments.run("auth_bootstrap", func() error {
+			return runPostgresHarnessAuthBootstrap(ctx, repoRoot, appDB)
+		}); err != nil {
+			return nil, diagnostics, err
+		}
+		if err := segments.run("db_reset", func() error {
+			if _, err := appDB.ExecContext(ctx, `create table reports.reset_marker(id integer primary key); insert into reports.reset_marker values (1); create table cache.keep_marker(id integer primary key); insert into cache.keep_marker values (1)`); err != nil {
+				return err
+			}
+			if err := dbResetCommand([]string{"reports", "--app-root", rootA}); err != nil {
+				return err
+			}
+			reportsMarker, err := postgresTableExists(ctx, appDB, "reports", "reset_marker")
+			if err != nil {
+				return err
+			}
+			cacheMarker, err := postgresTableExists(ctx, appDB, "cache", "keep_marker")
+			if err != nil {
+				return err
+			}
+			check(!reportsMarker, "db reset reports must empty only the reports schema")
+			check(cacheMarker, "db reset reports must leave the cache schema intact")
+			return nil
+		}); err != nil {
+			return nil, diagnostics, err
+		}
+		if err := appDB.Close(); err != nil {
+			return nil, diagnostics, err
+		}
+		if err := segments.run("snapshot_roundtrip", func() error {
+			return runPostgresHarnessSnapshotRoundTrip(ctx, rootA, cfg, databaseA.URL)
+		}); err != nil {
+			return nil, diagnostics, err
+		}
+	}
+	if !full {
+		if err := appDB.Close(); err != nil {
+			return nil, diagnostics, err
+		}
+	}
+	if err := segments.run("drop_databases", func() error {
+		admin, err := managedPostgresAdmin(ctx)
 		if err != nil {
 			return err
 		}
-		defer appdb.Close("reports")
-		var exists bool
-		err = db.QueryRowContext(ctx, `select exists (select 1 from information_schema.tables where table_name = 'scenery_pg_marker')`).Scan(&exists)
-		if err != nil {
-			return err
-		}
-		check(!exists, "second worktree database must not see first worktree marker table")
+		defer admin.Close()
+		_ = postgresdb.DropDatabase(ctx, admin, databaseA.Database)
+		_ = postgresdb.DropDatabase(ctx, admin, databaseB.Database)
 		return nil
 	}); err != nil {
 		return nil, diagnostics, err
 	}
-	if err := runPostgresHarnessDurableRoundTrip(ctx, databaseA.URL); err != nil {
-		return nil, diagnostics, err
+	proof := "smoke"
+	if full {
+		proof = "full"
 	}
-	if err := runPostgresHarnessAuthBootstrap(ctx, repoRoot, appDB); err != nil {
-		return nil, diagnostics, err
-	}
-	if _, err := appDB.ExecContext(ctx, `create table reports.reset_marker(id integer primary key); insert into reports.reset_marker values (1); create table cache.keep_marker(id integer primary key); insert into cache.keep_marker values (1)`); err != nil {
-		return nil, diagnostics, err
-	}
-	if err := dbResetCommand([]string{"reports", "--app-root", rootA}); err != nil {
-		return nil, diagnostics, err
-	}
-	reportsMarker, err := postgresTableExists(ctx, appDB, "reports", "reset_marker")
-	if err != nil {
-		return nil, diagnostics, err
-	}
-	cacheMarker, err := postgresTableExists(ctx, appDB, "cache", "keep_marker")
-	if err != nil {
-		return nil, diagnostics, err
-	}
-	check(!reportsMarker, "db reset reports must empty only the reports schema")
-	check(cacheMarker, "db reset reports must leave the cache schema intact")
-	if err := appDB.Close(); err != nil {
-		return nil, diagnostics, err
-	}
-	if err := runPostgresHarnessSnapshotRoundTrip(ctx, rootA, cfg, databaseA.URL); err != nil {
-		return nil, diagnostics, err
-	}
-	admin, err := managedPostgresAdmin(ctx)
-	if err != nil {
-		return nil, diagnostics, err
-	}
-	defer admin.Close()
-	_ = postgresdb.DropDatabase(ctx, admin, databaseA.Database)
-	_ = postgresdb.DropDatabase(ctx, admin, databaseB.Database)
 	summary = map[string]any{
 		"postgres_probe": "ran",
+		"proof":          proof,
 		"container":      serverState.Container,
 		"container_mode": "disposable",
 		"database_a":     databaseA.Database,
 		"database_b":     databaseB.Database,
 		"schemas":        []string{"scenery", "reports", "cache"},
-		"durable":        "roundtrip",
-		"auth":           "bootstrap",
-		"reset":          "service_schema_only",
-		"snapshot":       "db_storage_roundtrip",
+		"segments":       segments.entries,
 		"diagnostics":    len(diagnostics),
+	}
+	if full {
+		summary["durable"] = "roundtrip"
+		summary["auth"] = "bootstrap"
+		summary["reset"] = "service_schema_only"
+		summary["snapshot"] = "db_storage_roundtrip"
 	}
 	if hasErrorDiagnostics(diagnostics) {
 		return summary, diagnostics, fmt.Errorf("postgres service probe failed")
 	}
 	return summary, diagnostics, nil
+}
+
+// startHarnessPostgresContainer starts the disposable probe container directly
+// with throwaway tuning: a tmpfs data directory, initdb without fsync, and
+// durability settings off. The machine-wide shared server keeps the default
+// durable `docker run` path in ensurePostgresDockerContainer; this container
+// lives for one probe run and is always removed, so trading crash safety for
+// startup speed is safe here.
+func startHarnessPostgresContainer(ctx context.Context, state *postgresServerState) error {
+	_, err := postgresDocker.Run(ctx,
+		"run", "-d",
+		"--name", state.Container,
+		"-p", fmt.Sprintf("127.0.0.1:%d:5432", state.Port),
+		"--tmpfs", "/var/lib/postgresql",
+		"-e", "POSTGRES_USER="+state.User,
+		"-e", "POSTGRES_PASSWORD="+state.Password,
+		"-e", "POSTGRES_INITDB_ARGS=--no-sync",
+		state.Image,
+		"postgres", "-c", "fsync=off", "-c", "synchronous_commit=off", "-c", "full_page_writes=off",
+	)
+	return err
 }
 
 func cleanupPostgresHarnessContainer(ctx context.Context, container, volume string) error {

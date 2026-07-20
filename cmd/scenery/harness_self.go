@@ -111,7 +111,7 @@ func runSceneryHarnessSelf(ctx context.Context, stdout io.Writer, args []string)
 			goTestStep,
 			runHarnessExecStep(ctx, repoRoot, "go vet", []string{"go", "vet", "./..."}, artifactCtx),
 			runHarnessParallelDevStep(ctx, repoRoot),
-			runHarnessPostgresProbeStep(ctx, repoRoot),
+			runHarnessPostgresProbeStep(ctx, repoRoot, opts.Mode == harnessSelfModeRelease),
 		)
 		dashboardUIRoot := filepath.Join(repoRoot, filepath.FromSlash(dashboardUIRootRel))
 		resp.Steps = append(resp.Steps,
