@@ -76,6 +76,10 @@ export {
   ClientAppShell,
   type ClientAppShellProps,
 } from "./components/ClientAppShell.js";
+export {
+  FilterPills,
+  type FilterPillOption,
+} from "./components/FilterPills.js";
 export { StatGrid, StatTile, type StatTone } from "./components/StatTile.js";
 export {
   humanize,
