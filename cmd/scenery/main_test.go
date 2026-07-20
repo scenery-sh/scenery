@@ -139,8 +139,19 @@ func TestContractCheckJSONReportsValidNativeImplementation(t *testing.T) {
 	if got := data["implementation_status"]; got != "valid" {
 		t.Fatalf("implementation_status = %#v, want valid", got)
 	}
-	if _, err := graph.DecodeManifest([]byte(output.String())); err != nil {
-		t.Fatalf("check output does not contain an exact current manifest: %v", err)
+	if _, ok := data["manifest"]; ok {
+		t.Fatal("check output must not embed the full manifest; the graph belongs to compile/list/get")
+	}
+	summary, ok := data["manifest_summary"].(map[string]any)
+	if !ok {
+		t.Fatalf("manifest_summary = %#v", data["manifest_summary"])
+	}
+	resources, ok := summary["resources"].(float64)
+	if !ok || resources <= 0 {
+		t.Fatalf("manifest_summary resources = %#v, want > 0", summary["resources"])
+	}
+	if _, ok := summary["resources_by_kind"].(map[string]any); !ok {
+		t.Fatalf("manifest_summary resources_by_kind = %#v", summary["resources_by_kind"])
 	}
 }
 

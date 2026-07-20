@@ -539,11 +539,29 @@ func runContractCheck(stdout io.Writer, args []string) error {
 	if err != nil {
 		return err
 	}
-	data := map[string]any{"contract_status": result.ContractStatus, "implementation_status": result.ImplementationStatus, "manifest": result.Manifest, "http_surface_revision": result.HTTPSurfaceRevisions, "openapi_revision": result.OpenAPIRevisions}
+	// check is a validation gate: it reports statuses, revisions, and a
+	// compact manifest summary. The full graph stays on `scenery compile`,
+	// `list`, `get`, and `explain`.
+	data := map[string]any{"contract_status": result.ContractStatus, "implementation_status": result.ImplementationStatus, "manifest_summary": contractManifestSummary(result.Manifest), "http_surface_revision": result.HTTPSurfaceRevisions, "openapi_revision": result.OpenAPIRevisions}
 	if result.PartialGraph != nil {
 		data["partial_graph"] = result.PartialGraph
 	}
 	return writeContractResult(stdout, opts.Output, opts.Quiet, result, data)
+}
+
+func contractManifestSummary(manifest *graph.Manifest) map[string]any {
+	if manifest == nil {
+		return nil
+	}
+	byKind := map[string]int{}
+	for _, resource := range manifest.Resources {
+		byKind[resource.Kind]++
+	}
+	return map[string]any{
+		"application":       manifest.Application,
+		"resources":         len(manifest.Resources),
+		"resources_by_kind": byKind,
+	}
 }
 
 func runContractCompile(stdout io.Writer, args []string) error {
