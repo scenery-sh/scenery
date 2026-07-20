@@ -269,7 +269,7 @@ SCN2609|table_page_column|A table page column field appearance or identity is in
 SCN2610|table_page_query|A table page filter sort or default ordering is invalid
 SCN2611|table_page_slot|A table page slot does not resolve to a declared React component
 SCN2612|table_page_row_link|A table page row link references an unavailable field
-SCN2613|table_page_page_size|A table page page size is outside its CRUD list bound
+SCN2613|table_page_page_size|A table page page size is invalid for its source
 SCN2614|table_page_expansion_identity|A table-page-derived resource address collides
 SCN2615|split_page_contract|A split page source or slot contract is invalid
 SCN2616|split_page_expansion_identity|A split-page-derived resource address collides

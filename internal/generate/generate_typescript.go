@@ -394,9 +394,11 @@ func declaredReactPageBindings(resources []Resource, target Resource) map[string
 		if table.Kind != "scenery.table-page" || table.Origin.Kind == "expanded" {
 			continue
 		}
-		crud := byAddress[resolveResourceRef(table, refString(table.Spec["source"]), "crud")]
-		if crud.Kind == "scenery.crud" {
-			result[resourceAddress(crud.Module, "binding", crud.Name+"_list_http")] = true
+		source := byAddress[resolveResourceRef(table, refString(table.Spec["source"]), "crud")]
+		if source.Kind == "scenery.crud" {
+			result[resourceAddress(source.Module, "binding", source.Name+"_list_http")] = true
+		} else if source.Kind == "scenery.binding" {
+			result[source.Address] = true
 		}
 		for _, stats := range orderedChildren(table.Spec, "stats") {
 			result[resolveResourceRef(table, refString(stats["source"]), "binding")] = true

@@ -6,6 +6,22 @@ Completed means implemented or shipped at least once. It does not imply stable
 support for every surface. Use [../local-contract.md](../local-contract.md) as
 the source of truth for stable, beta, and dev-only classification.
 
+## Workbench Table Pages
+
+- Status: completed
+- Owner: scenery spec / compiler / generation / ui catalog
+- Completed: 2026-07-20
+- Quality: B
+- ExecPlan: [0128 Workbench Table Pages](0128-workbench-table-pages.md)
+
+Shipped reusable status maps, stats, declarative filter/sort controls,
+expandable typed row details, mutation dialogs, and loaded-result CSV for
+generated `table_page` workbenches. Table sources now support both cursor-paged
+CRUD lists and unpaginated call-delivery HTTP aggregates with explicit
+display/export columns. Micro platform's generated work-orders page passed the
+full handwritten feature inventory and now owns `/work-orders`; the temporary
+candidate route, shadow CRUD model, and 1,377-line handwritten page are gone.
+
 ## Shared Library Linkage
 
 - Status: completed

@@ -16,6 +16,8 @@ type reactTablePage struct {
 	table, crud, record, operation, binding Resource
 	stats                                   *reactTableStats
 	dialogs                                 []reactTableDialog
+	itemsField                              string
+	paginated                               bool
 }
 
 type reactTableStats struct {
@@ -100,15 +102,43 @@ func selectedReactTablePages(resources, bindings []Resource) []reactTablePage {
 		if table.Kind != "scenery.table-page" || table.Origin.Kind == "expanded" {
 			continue
 		}
-		crud := byAddress[resolveResourceRef(table, refString(table.Spec["source"]), "crud")]
-		binding := selectedBindings[resourceAddress(crud.Module, "binding", crud.Name+"_list_http")]
-		if binding.Address == "" {
+		source := byAddress[resolveResourceRef(table, refString(table.Spec["source"]), "crud")]
+		var page reactTablePage
+		switch source.Kind {
+		case "scenery.crud":
+			binding := selectedBindings[resourceAddress(source.Module, "binding", source.Name+"_list_http")]
+			if binding.Address == "" {
+				continue
+			}
+			operation := byAddress[resolveResourceRef(binding, refString(binding.Spec["operation"]), "operation")]
+			entity := byAddress[resolveResourceRef(source, refString(source.Spec["entity"]), "entity")]
+			record := byAddress[resolveResourceRef(entity, refString(entity.Spec["type"]), "record")]
+			page = reactTablePage{table: table, crud: source, record: record, operation: operation, binding: binding, itemsField: "items", paginated: true}
+		case "scenery.binding":
+			binding := selectedBindings[source.Address]
+			if binding.Address == "" {
+				continue
+			}
+			operation := byAddress[resolveResourceRef(binding, refString(binding.Spec["operation"]), "operation")]
+			results := namedChildren(operation.Spec, "result")
+			if len(results) != 1 {
+				continue
+			}
+			resultRecord := byAddress[resolveResourceRef(operation, refString(results[0]["type"]), "record")]
+			itemsField := stringValue(table.Spec["items"])
+			items := namedResourceChild(resultRecord.Spec, "field", itemsField)
+			itemType, ok := unwrapReactCollectionType(typeExpression(items["type"]), "list")
+			if !ok {
+				continue
+			}
+			record := byAddress[resolveResourceRef(operation, itemType, "record")]
+			if record.Kind != "scenery.record" {
+				continue
+			}
+			page = reactTablePage{table: table, record: record, operation: operation, binding: binding, itemsField: itemsField}
+		default:
 			continue
 		}
-		operation := byAddress[resolveResourceRef(binding, refString(binding.Spec["operation"]), "operation")]
-		entity := byAddress[resolveResourceRef(crud, refString(crud.Spec["entity"]), "entity")]
-		record := byAddress[resolveResourceRef(entity, refString(entity.Spec["type"]), "record")]
-		page := reactTablePage{table: table, crud: crud, record: record, operation: operation, binding: binding}
 		if children := orderedChildren(table.Spec, "stats"); len(children) == 1 {
 			spec := Resource{Address: table.Address + "/stats", Module: table.Module, Name: table.Name + "_stats", Spec: children[0]}
 			statsBinding := selectedBindings[resolveResourceRef(table, refString(children[0]["source"]), "binding")]
@@ -606,27 +636,42 @@ func renderReactTablePage(result *Result, target Resource, reactRoot string, pag
 	}
 	writeReactLoad(&b, "query: TablePageQuery", "TablePageResult<"+rowType+">", func(b *strings.Builder) {
 		fmt.Fprintf(b, "    const outcome = await client.%s({\n", method)
-		list := page.crud.Spec["list"].(map[string]any)
-		if len(stringValues(list["search"])) > 0 {
+		shape := resolveOperationInputShape(resources, page.operation)
+		if (page.paginated && len(stringValues(page.crud.Spec["list"].(map[string]any)["search"])) > 0) ||
+			(!page.paginated && shape.Fields["search"].Name != "") {
 			b.WriteString("      search: query.search,\n")
 		}
 		for _, filter := range orderedChildren(page.table.Spec, "filter") {
 			field := stringValue(filter["name"])
-			values := enumWireValues(resources, page.record.Module, fields[field]["type"])
+			fieldType := fields[field]["type"]
+			if !page.paginated {
+				fieldType = shape.Fields[field].Type
+			}
+			values := enumWireValues(resources, page.operation.Module, fieldType)
 			if len(values) > 0 {
-				fmt.Fprintf(b, "      %s: Array.isArray(query.filters[%s]) ? query.filters[%s].filter((value): value is %s => %s) : undefined,\n", tsName(field), strconv.Quote(field), strconv.Quote(field), tsType(fields[field]["type"]), reactLiteralPredicate("value", values))
-			} else if unwrapReactType(typeExpression(fields[field]["type"])) == "string" {
+				fmt.Fprintf(b, "      %s: Array.isArray(query.filters[%s]) ? query.filters[%s].filter((value): value is %s => %s) : undefined,\n", tsName(field), strconv.Quote(field), strconv.Quote(field), reactTableFilterValueType(fieldType), reactLiteralPredicate("value", values))
+			} else if unwrapReactType(typeExpression(fieldType)) == "string" {
 				fmt.Fprintf(b, "      %s: Array.isArray(query.filters[%s]) ? query.filters[%s] : undefined,\n", tsName(field), strconv.Quote(field), strconv.Quote(field))
 			} else {
 				fmt.Fprintf(b, "      %sFrom: typeof query.filters[%s] === \"string\" ? dateTime(query.filters[%s]) : undefined,\n", tsName(field), strconv.Quote(field+"_from"), strconv.Quote(field+"_from"))
 				fmt.Fprintf(b, "      %sTo: typeof query.filters[%s] === \"string\" ? dateTime(query.filters[%s]) : undefined,\n", tsName(field), strconv.Quote(field+"_to"), strconv.Quote(field+"_to"))
 			}
 		}
-		sorts := stringValues(list["sorts"])
-		fmt.Fprintf(b, "      sort: query.sort !== undefined && %s ? query.sort : undefined,\n", reactLiteralPredicate("query.sort", sorts))
-		b.WriteString("      direction: query.direction,\n      cursor: query.cursor,\n      limit: BigInt(query.limit),\n")
+		var sorts []string
+		if page.paginated {
+			sorts = stringValues(page.crud.Spec["list"].(map[string]any)["sorts"])
+		} else {
+			sorts = enumWireValues(resources, page.operation.Module, shape.Fields["sort"].Type)
+		}
+		if len(sorts) > 0 {
+			fmt.Fprintf(b, "      sort: query.sort !== undefined && (%s) ? query.sort : undefined,\n", reactLiteralPredicate("query.sort", sorts))
+			b.WriteString("      direction: query.direction,\n")
+		}
+		if page.paginated {
+			b.WriteString("      cursor: query.cursor,\n      limit: BigInt(query.limit),\n")
+		}
 		b.WriteString("    });\n")
-	}, `{ kind: "result", items: outcome.value.items, nextCursor: outcome.value.nextCursor }`)
+	}, reactTableResultExpression(page))
 	fmt.Fprintf(&b, "  return <><Page title=%s", jsxStringExpression(stringValue(page.table.Spec["title"])))
 	if len(orderedChildren(page.table.Spec, "toolbar")) > 0 || len(headerTableDialogs(page.dialogs)) > 0 {
 		b.WriteString(" actions={<>\n")
@@ -669,6 +714,12 @@ func renderReactTablePage(result *Result, target Resource, reactRoot string, pag
 		if column["component"] != nil {
 			fmt.Fprintf(&b, ", component: slots.cells.%s", tsName(field))
 		}
+		if column["hidden"] == true {
+			b.WriteString(", hidden: true")
+		}
+		if column["export"] == false {
+			b.WriteString(", export: false")
+		}
 		if statusMap := resolveReferencedStatusMap(resources, page.table, column["status_map"]); statusMap.Address != "" {
 			fmt.Fprintf(&b, ", statusMap: %s", reactStatusMapName(statusMap))
 		}
@@ -704,7 +755,8 @@ func renderReactTablePage(result *Result, target Resource, reactRoot string, pag
 		b.WriteString(" },\n")
 	}
 	b.WriteString("  ]}")
-	if len(stringValues(page.crud.Spec["list"].(map[string]any)["search"])) > 0 {
+	if (page.paginated && len(stringValues(page.crud.Spec["list"].(map[string]any)["search"])) > 0) ||
+		(!page.paginated && resolveOperationInputShape(resources, page.operation).Fields["search"].Name != "") {
 		b.WriteString(" searchable")
 	}
 	if rowLink := stringValue(page.table.Spec["row_link"]); rowLink != "" {
@@ -736,6 +788,9 @@ func renderReactTablePage(result *Result, target Resource, reactRoot string, pag
 		b.WriteString(" }}")
 	}
 	pageSize, _ := integerValue(page.table.Spec["page_size"])
+	if !page.paginated {
+		b.WriteString(" paginated={false}")
+	}
 	fmt.Fprintf(&b, " pageSize={%d} queryKey={queryKey} load={load} /></Page>\n", pageSize)
 	for _, dialog := range page.dialogs {
 		writeReactTableDialogJSX(&b, dialog, resources)
@@ -1046,10 +1101,16 @@ func unwrapReactType(value string) string {
 
 func reactPageTypeImports(page reactTablePage, fields map[string]map[string]any, resources map[string]Resource) []string {
 	set := map[string]bool{}
+	shape := resolveOperationInputShape(resources, page.operation)
 	for _, filter := range orderedChildren(page.table.Spec, "filter") {
-		field := fields[stringValue(filter["name"])]
-		if field != nil && len(enumWireValues(resources, page.record.Module, field["type"])) > 0 {
-			set[tsType(field["type"])] = true
+		name := stringValue(filter["name"])
+		field := fields[name]
+		fieldType := field["type"]
+		if !page.paginated {
+			fieldType = shape.Fields[name].Type
+		}
+		if field != nil && len(enumWireValues(resources, page.operation.Module, fieldType)) > 0 {
+			set[reactTableFilterValueType(fieldType)] = true
 		}
 	}
 	result := make([]string, 0, len(set))
@@ -1060,6 +1121,39 @@ func reactPageTypeImports(page reactTablePage, fields map[string]map[string]any,
 	}
 	sort.Strings(result)
 	return result
+}
+
+func namedResourceChild(spec map[string]any, kind, name string) map[string]any {
+	for _, child := range namedChildren(spec, kind) {
+		if stringValue(child["name"]) == name {
+			return child
+		}
+	}
+	return nil
+}
+
+func unwrapReactCollectionType(value, collection string) (string, bool) {
+	value = unwrapReactType(value)
+	prefix := collection + "("
+	if !strings.HasPrefix(value, prefix) || !strings.HasSuffix(value, ")") {
+		return "", false
+	}
+	return strings.TrimSpace(value[len(prefix) : len(value)-1]), true
+}
+
+func reactTableResultExpression(page reactTablePage) string {
+	if page.paginated {
+		return `{ kind: "result", items: outcome.value.items, nextCursor: outcome.value.nextCursor }`
+	}
+	return fmt.Sprintf(`{ kind: "result", items: outcome.value.%s }`, tsName(page.itemsField))
+}
+
+func reactTableFilterValueType(value any) string {
+	expression := unwrapReactType(typeExpression(value))
+	if inner, ok := unwrapReactCollectionType(expression, "list"); ok {
+		expression = inner
+	}
+	return tsType(map[string]any{"$expression": expression})
 }
 
 func reactClientMethod(page reactTablePage, bindings []Resource) string {

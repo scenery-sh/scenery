@@ -196,7 +196,7 @@ var (
 	formDialogFieldSourceSchema = sourceSchema("scenery.form-dialog.field", 1,
 		[]string{"label", "control", "placeholder", "status_map"}, nil, nil)
 	tablePageColumnSourceSchema = sourceSchema("scenery.table-page.column", 1,
-		[]string{"label", "appearance", "component", "status_map"}, nil, nil)
+		[]string{"label", "appearance", "component", "status_map", "hidden", "export"}, nil, nil)
 	tablePageFilterSourceSchema = sourceSchema("scenery.table-page.filter", 1,
 		[]string{"label", "component", "status_map", "pinned"}, nil, nil)
 	tablePageSortSourceSchema = sourceSchema("scenery.table-page.sort", 1,

@@ -278,6 +278,37 @@ table_page "orders" {
 
 The CRUD runtime applies exact string/enum filters, datetime ranges, escaped case-insensitive search across declared string fields, query-bound keyset cursors, stable primary-key tie-breaking, and server-side limit clamping. Add declared `react_component` overrides only where the catalog defaults are insufficient.
 
+When an existing operation already returns the complete domain aggregate, keep that operation instead of inventing a shadow CRUD entity. Point the table at its HTTP binding and name the result list:
+
+```hcl
+record "order_query" {
+  field "search"    { type = optional(string) }
+  field "status"    { type = optional(list(enum.order_status)) }
+  field "sort"      { type = optional(enum.order_sort) }
+  field "direction" { type = optional(enum.sort_direction) }
+}
+
+record "order_dashboard" {
+  field "orders" { type = list(record.order) }
+  field "crews"  { type = list(record.crew) }
+}
+
+table_page "orders" {
+  path   = "/orders"
+  source = binding.order_read_http
+  items  = "orders"
+  title  = "Orders"
+
+  column "number" {}
+  column "project" { component = react_component.project_cell export = false }
+  column "project_id" { hidden = true }
+  filter "status" {}
+  sort "created_at" { default = "desc" }
+}
+```
+
+The binding must use call-delivery HTTP and have one result record. `items` must be a `list(record)` field. Optional `search`, same-named optional list filter inputs, and closed `sort`/`direction` enums form the query contract. The generated table sends those inputs, renders the complete returned list without pagination, and preserves the rest of the aggregate for app-owned toolbar or dialog slots.
+
 Grow the same page into an operations workbench without moving transport or query state into app code:
 
 ```hcl
@@ -340,7 +371,7 @@ table_page "orders" {
 }
 ```
 
-The stats operation has unit input and one flat numeric/string record result. The form source is a call-delivery mutation HTTP binding whose input is a string/closed-enum record. Generated dialogs keep failures inline and invalidate both list and stats queries on success. Use `pinned = true` only for the few finite selectors that need inline quick access: pinned selectors also remain in the complete Filters popover, active filters appear as removable chips, and sort/direction stay visible as separate query controls. CSV export intentionally covers the currently loaded filtered rows; expose a separate operation when the product needs a full-dataset export.
+The stats operation has unit input and one flat numeric/string record result. The form source is a call-delivery mutation HTTP binding whose input is a string/closed-enum record. Generated dialogs keep failures inline and invalidate both list and stats queries on success. Use `pinned = true` only for the few finite selectors that need inline quick access: pinned selectors also remain in the complete Filters popover, active filters appear as removable chips, and sort/direction stay visible as separate query controls. CSV export covers the rows returned by the current query: one cursor page for a CRUD source, or the complete filtered result for a binding source. Use `hidden = true` for export-only fields and `export = false` for display-only custom cells.
 
 For a two-pane page, keep the declaration generic and the domain UI app-owned:
 

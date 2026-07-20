@@ -108,6 +108,8 @@ var authoredFieldOverrides = map[authoredFieldKey]authoredFieldOverride{
 	{Revision: "scenery.source.split_page", Name: "nav_order"}:                        {Constraints: map[string]any{"minimum": 0}},
 	{Revision: "scenery.source.content_page", Name: "nav_order"}:                      {Constraints: map[string]any{"minimum": 0}},
 	{Revision: "scenery.table-page.column", Name: "appearance"}:                       {Default: "auto", DefaultSource: "spec", Constraints: enumConstraint("auto", "badge", "datetime", "number", "text")},
+	{Revision: "scenery.table-page.column", Name: "hidden"}:                           {Default: false, DefaultSource: "spec"},
+	{Revision: "scenery.table-page.column", Name: "export"}:                           {Default: true, DefaultSource: "spec"},
 	{Revision: "scenery.table-page.sort", Name: "default"}:                            {Constraints: enumConstraint("asc", "desc")},
 	{Revision: "scenery.status-map.status", Name: "variant"}:                          {Constraints: enumConstraint(statusBadgeVariants...)},
 	{Revision: "scenery.form-dialog.field", Name: "control"}:                          {Default: "auto", DefaultSource: "spec", Constraints: enumConstraint("auto", "select", "textarea", "text")},
@@ -888,7 +890,7 @@ func authoredAttributeType(revision, name string) (map[string]any, string) {
 	case "scenery.source.table_page":
 		switch name {
 		case "source":
-			return resourceRef("crud")
+			return map[string]any{"resource_ref_one_of": []string{"scenery.binding", "scenery.crud"}}, "exact"
 		case "page_size":
 			return primitive("positive_int")
 		case "nav_order":
@@ -930,7 +932,7 @@ func authoredAttributeType(revision, name string) (map[string]any, string) {
 			return resourceRef("react_component")
 		case "status_map":
 			return resourceRef("status_map")
-		case "pinned":
+		case "pinned", "hidden", "export":
 			return primitive("bool")
 		default:
 			return primitive("string")

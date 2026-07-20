@@ -26,14 +26,25 @@ func expandTablePageResources(resources []Resource) ([]Resource, []Diagnostic) {
 		if table.Kind != "scenery.table-page" || table.Origin.Kind == "expanded" {
 			continue
 		}
-		crud := byAddress[resolveResourceRef(table, refString(table.Spec["source"]), "crud")]
-		if crud.Kind != "scenery.crud" || crud.Spec["list"] == nil {
-			diagnostics = append(diagnostics, uiDiagnostic("SCN2608", "table_page source must resolve to a CRUD list contract", table))
-			continue
-		}
-		load := resourceAddress(crud.Module, "binding", crud.Name+"_list_internal")
-		if byAddress[load].Kind != "scenery.binding" {
-			diagnostics = append(diagnostics, uiDiagnostic("SCN2608", "table_page source has no generated list binding", table))
+		source := byAddress[resolveResourceRef(table, refString(table.Spec["source"]), "crud")]
+		load := ""
+		bindingSource := false
+		switch source.Kind {
+		case "scenery.crud":
+			if source.Spec["list"] == nil {
+				diagnostics = append(diagnostics, uiDiagnostic("SCN2608", "table_page CRUD source must declare a list contract", table))
+				continue
+			}
+			load = resourceAddress(source.Module, "binding", source.Name+"_list_internal")
+			if byAddress[load].Kind != "scenery.binding" {
+				diagnostics = append(diagnostics, uiDiagnostic("SCN2608", "table_page CRUD source has no generated list binding", table))
+				continue
+			}
+		case "scenery.binding":
+			load = resourceAddress(table.Module, "binding", table.Name+"_load_internal")
+			bindingSource = true
+		default:
+			diagnostics = append(diagnostics, uiDiagnostic("SCN2608", "table_page source must resolve to a CRUD list contract or call-delivery HTTP binding", table))
 			continue
 		}
 		lineage := func(output, key string) Origin {
@@ -44,6 +55,22 @@ func expandTablePageResources(resources []Resource) ([]Resource, []Diagnostic) {
 		generated := []Resource{
 			{Address: pageAddress, Module: table.Module, Name: table.Name, Kind: "scenery.page", Origin: lineage(pageAddress, "page"), Spec: map[string]any{"path": table.Spec["path"], "load": map[string]any{"$ref": load}}},
 			{Address: rendererAddress, Module: table.Module, Name: table.Name + "_web", Kind: "scenery.renderer", Origin: lineage(rendererAddress, "renderer"), Spec: map[string]any{"page": map[string]any{"$ref": pageAddress}, "runtime": "web", "module": tablePageRendererModule, "config": cloneMapValue(table.Spec)}},
+		}
+		if bindingSource {
+			generated = append(generated, Resource{
+				Address: load, Module: table.Module, Name: table.Name + "_load_internal", Kind: "scenery.binding", Origin: lineage(load, "load"),
+				Spec: map[string]any{
+					"operation":      map[string]any{"$ref": resolveResourceRef(source, refString(source.Spec["operation"]), "operation")},
+					"execution":      map[string]any{"$ref": resolveResourceRef(source, refString(source.Spec["execution"]), "execution")},
+					"protocol":       "internal",
+					"delivery":       "call",
+					"exposure":       "application",
+					"authentication": map[string]any{"$ref": "std.authentication.inherit"},
+					"authorization":  map[string]any{"$ref": "std.authorization.public"},
+					"pipeline":       map[string]any{"$ref": "std.pipeline.empty"},
+					"internal":       map[string]any{"visibility": "application", "principal": "inherit"},
+				},
+			})
 		}
 		collision := false
 		for _, resource := range generated {
@@ -83,28 +110,28 @@ func validateReactComponent(root string, resources map[string]Resource, componen
 
 func validateTablePage(resources map[string]Resource, table Resource) []Diagnostic {
 	diagnostics := validateGeneratedPageRoute(resources, table)
-	crud := resources[resolveResourceRef(table, refString(table.Spec["source"]), "crud")]
-	if crud.Kind != "scenery.crud" {
-		return append(diagnostics, uiDiagnostic("SCN2608", "table_page source must resolve to a CRUD resource", table))
+	contract, sourceDiagnostics := resolveTablePageSource(resources, table)
+	diagnostics = append(diagnostics, sourceDiagnostics...)
+	if contract.record.Kind != "scenery.record" {
+		return diagnostics
 	}
-	list, ok := crud.Spec["list"].(map[string]any)
-	if !ok || crud.Spec["http"] == nil {
-		return append(diagnostics, uiDiagnostic("SCN2608", "table_page source requires CRUD list and HTTP projections", table))
-	}
-	entity := resources[resolveResourceRef(crud, refString(crud.Spec["entity"]), "entity")]
-	record := resources[resolveResourceRef(entity, refString(entity.Spec["type"]), "record")]
+	record := contract.record
 	fields := map[string]map[string]any{}
 	for _, field := range namedChildren(record.Spec, "field") {
 		fields[stringValue(field["name"])] = field
 	}
-	allowedFilters, allowedSorts := stringValues(list["filters"]), stringValues(list["sorts"])
+	allowedFilters, allowedSorts := contract.allowedFilters, contract.allowedSorts
 	seenColumns := map[string]bool{}
+	visibleColumns := 0
 	for _, column := range namedChildren(table.Spec, "column") {
 		name, appearance := stringValue(column["name"]), defaultString(stringValue(column["appearance"]), "auto")
 		if fields[name] == nil || seenColumns[name] {
 			diagnostics = append(diagnostics, uiDiagnostic("SCN2609", "table_page columns require unique entity fields", table))
 		}
 		seenColumns[name] = true
+		if column["hidden"] != true {
+			visibleColumns++
+		}
 		if !oneOfString(appearance, "auto", "text", "number", "datetime", "badge") {
 			diagnostics = append(diagnostics, uiDiagnostic("SCN2609", "table_page column appearance is invalid", table))
 		}
@@ -122,11 +149,14 @@ func validateTablePage(resources map[string]Resource, table Resource) []Diagnost
 	if len(seenColumns) == 0 {
 		diagnostics = append(diagnostics, uiDiagnostic("SCN2608", "table_page requires at least one column", table))
 	}
+	if visibleColumns == 0 {
+		diagnostics = append(diagnostics, uiDiagnostic("SCN2609", "table_page requires at least one visible column", table))
+	}
 	seenFilters := map[string]bool{}
 	for _, filter := range namedChildren(table.Spec, "filter") {
 		name := stringValue(filter["name"])
 		if fields[name] == nil || seenFilters[name] || !containsDataString(allowedFilters, name) {
-			diagnostics = append(diagnostics, uiDiagnostic("SCN2610", "table_page filters require unique CRUD-allowlisted entity fields", table))
+			diagnostics = append(diagnostics, uiDiagnostic("SCN2610", "table_page filters require unique source-allowlisted row fields", table))
 		}
 		seenFilters[name] = true
 		diagnostics = append(diagnostics, validateTablePageComponent(resources, table, filter["component"])...)
@@ -150,7 +180,7 @@ func validateTablePage(resources map[string]Resource, table Resource) []Diagnost
 	for _, sortSpec := range namedChildren(table.Spec, "sort") {
 		name := stringValue(sortSpec["name"])
 		if fields[name] == nil || seenSorts[name] || !containsDataString(allowedSorts, name) {
-			diagnostics = append(diagnostics, uiDiagnostic("SCN2610", "table_page sorts require unique CRUD-allowlisted entity fields", table))
+			diagnostics = append(diagnostics, uiDiagnostic("SCN2610", "table_page sorts require unique source-allowlisted row fields", table))
 		}
 		seenSorts[name] = true
 		if direction := stringValue(sortSpec["default"]); direction != "" {
@@ -187,9 +217,12 @@ func validateTablePage(resources map[string]Resource, table Resource) []Diagnost
 		diagnostics = append(diagnostics, uiDiagnostic("SCN2622", "table_page may declare at most one primary action", table))
 	}
 	pageSize, validPageSize := integerValue(table.Spec["page_size"])
-	maxPageSize, _ := integerValue(list["max_page_size"])
-	if !validPageSize || pageSize < 1 || maxPageSize < pageSize {
-		diagnostics = append(diagnostics, uiDiagnostic("SCN2613", fmt.Sprintf("table_page page_size must be between 1 and %d", maxPageSize), table))
+	if !validPageSize || pageSize < 1 || contract.paginated && contract.maxPageSize < pageSize {
+		if contract.paginated {
+			diagnostics = append(diagnostics, uiDiagnostic("SCN2613", fmt.Sprintf("table_page page_size must be between 1 and %d", contract.maxPageSize), table))
+		} else {
+			diagnostics = append(diagnostics, uiDiagnostic("SCN2613", "table_page page_size must be positive", table))
+		}
 	}
 	for _, match := range tablePageRouteParameter.FindAllStringSubmatch(stringValue(table.Spec["row_link"]), -1) {
 		if fields[match[1]] == nil {
@@ -197,6 +230,117 @@ func validateTablePage(resources map[string]Resource, table Resource) []Diagnost
 		}
 	}
 	return diagnostics
+}
+
+type tablePageSourceContract struct {
+	record                       Resource
+	allowedFilters, allowedSorts []string
+	maxPageSize                  int
+	paginated                    bool
+}
+
+func resolveTablePageSource(resources map[string]Resource, table Resource) (tablePageSourceContract, []Diagnostic) {
+	source := resources[resolveResourceRef(table, refString(table.Spec["source"]), "crud")]
+	switch source.Kind {
+	case "scenery.crud":
+		list, ok := source.Spec["list"].(map[string]any)
+		if !ok || source.Spec["http"] == nil {
+			return tablePageSourceContract{}, []Diagnostic{uiDiagnostic("SCN2608", "table_page CRUD source requires list and HTTP projections", table)}
+		}
+		if strings.TrimSpace(stringValue(table.Spec["items"])) != "" {
+			return tablePageSourceContract{}, []Diagnostic{uiDiagnostic("SCN2608", "table_page items is only valid with a binding source", table)}
+		}
+		entity := resources[resolveResourceRef(source, refString(source.Spec["entity"]), "entity")]
+		record := resources[resolveResourceRef(entity, refString(entity.Spec["type"]), "record")]
+		maxPageSize, _ := integerValue(list["max_page_size"])
+		return tablePageSourceContract{
+			record: record, allowedFilters: stringValues(list["filters"]), allowedSorts: stringValues(list["sorts"]),
+			maxPageSize: maxPageSize, paginated: true,
+		}, nil
+	case "scenery.binding":
+		return resolveBindingTablePageSource(resources, table, source)
+	default:
+		return tablePageSourceContract{}, []Diagnostic{uiDiagnostic("SCN2608", "table_page source must resolve to a CRUD resource or call-delivery HTTP binding", table)}
+	}
+}
+
+func resolveBindingTablePageSource(resources map[string]Resource, table, binding Resource) (tablePageSourceContract, []Diagnostic) {
+	if stringValue(binding.Spec["protocol"]) != "http" || stringValue(binding.Spec["delivery"]) != "call" {
+		return tablePageSourceContract{}, []Diagnostic{uiDiagnostic("SCN2608", "table_page binding source must use call-delivery HTTP", table)}
+	}
+	operation := resources[resolveResourceRef(binding, refString(binding.Spec["operation"]), "operation")]
+	results := namedChildren(operation.Spec, "result")
+	if operation.Kind != "scenery.operation" || len(results) != 1 {
+		return tablePageSourceContract{}, []Diagnostic{uiDiagnostic("SCN2608", "table_page binding source requires exactly one result record", table)}
+	}
+	resultRecord := resources[resolveResourceRef(operation, refString(results[0]["type"]), "record")]
+	itemsName := strings.TrimSpace(stringValue(table.Spec["items"]))
+	itemsField := namedChild(resultRecord.Spec, "field", itemsName)
+	itemsType := unwrapCRUDListType(typeExpression(itemsField["type"]))
+	itemType, ok := wrappedFixtureType(itemsType, "list")
+	if resultRecord.Kind != "scenery.record" || itemsName == "" || !ok {
+		return tablePageSourceContract{}, []Diagnostic{uiDiagnostic("SCN2608", "table_page binding source requires items naming a list(record) result field", table)}
+	}
+	record := resources[resolveResourceRef(operation, itemType, "record")]
+	if record.Kind != "scenery.record" {
+		return tablePageSourceContract{}, []Diagnostic{uiDiagnostic("SCN2608", "table_page binding source items must contain records", table)}
+	}
+
+	shape := resolveOperationInputShape(resources, operation)
+	var diagnostics []Diagnostic
+	allowedFilters := make([]string, 0)
+	for _, filter := range namedChildren(table.Spec, "filter") {
+		name := stringValue(filter["name"])
+		field := shape.Fields[name]
+		expression := unwrapCRUDListType(typeExpression(field.Type))
+		if _, list := wrappedFixtureType(expression, "list"); !field.Optional || !list {
+			diagnostics = append(diagnostics, uiDiagnostic("SCN2610", "table_page binding filters require same-named optional list input fields", table))
+			continue
+		}
+		allowedFilters = append(allowedFilters, name)
+	}
+	allowedSorts := make([]string, 0)
+	sorts := namedChildren(table.Spec, "sort")
+	if len(sorts) > 0 {
+		sortField, directionField := shape.Fields["sort"], shape.Fields["direction"]
+		sortValues, directionValues := enumWireValues(resources, operation.Module, sortField.Type), enumWireValues(resources, operation.Module, directionField.Type)
+		if !sortField.Optional || !directionField.Optional || len(sortValues) == 0 || !sameStringSet(directionValues, []string{"asc", "desc"}) {
+			diagnostics = append(diagnostics, uiDiagnostic("SCN2610", "table_page binding sorts require optional sort and direction enum input fields", table))
+		} else {
+			for _, sortSpec := range sorts {
+				name := stringValue(sortSpec["name"])
+				if containsDataString(sortValues, name) {
+					allowedSorts = append(allowedSorts, name)
+				}
+			}
+		}
+	}
+	if search := shape.Fields["search"]; search.Name != "" &&
+		(!search.Optional || unwrapCRUDListType(typeExpression(search.Type)) != "string") {
+		diagnostics = append(diagnostics, uiDiagnostic("SCN2610", "table_page binding search input must be optional(string)", table))
+	}
+	return tablePageSourceContract{record: record, allowedFilters: allowedFilters, allowedSorts: allowedSorts}, diagnostics
+}
+
+func namedChild(spec map[string]any, kind, name string) map[string]any {
+	for _, child := range namedChildren(spec, kind) {
+		if stringValue(child["name"]) == name {
+			return child
+		}
+	}
+	return nil
+}
+
+func sameStringSet(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for _, value := range left {
+		if !containsDataString(right, value) {
+			return false
+		}
+	}
+	return true
 }
 
 func validateTablePageRowDialog(resources map[string]Resource, table Resource, rowFields map[string]map[string]any) []Diagnostic {

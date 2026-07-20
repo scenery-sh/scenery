@@ -87,6 +87,8 @@ export type TablePageColumn<Row> = {
     readonly appearance: TablePageAppearance;
     readonly component?: ComponentType<TablePageCellProps<Row, Row[Key]>>;
     readonly statusMap?: StatusMap;
+    readonly hidden?: boolean;
+    readonly export?: boolean;
   };
 }[keyof Row];
 
@@ -167,6 +169,7 @@ export interface QueryTableProps<Row extends object> {
     readonly fileName: string;
     readonly icon?: ReactNode;
   };
+  readonly paginated?: boolean;
   readonly pageSize: number;
   readonly queryKey: readonly unknown[];
   readonly load: (query: TablePageQuery) => Promise<TablePageResult<Row>>;
@@ -185,6 +188,7 @@ export function QueryTable<Row extends object>({
   rowDetailAction,
   emptyAction,
   exportAction,
+  paginated = true,
   pageSize,
   queryKey,
   load,
@@ -239,7 +243,8 @@ export function QueryTable<Row extends object>({
   const items = result.kind === "result" ? result.items : [];
   const rowKey = (row: Row, index: number) =>
     rowLink?.(row) ?? String(index);
-  const dataColumns = columns.map<Column<Row>>((column, columnIndex) => ({
+  const visibleColumns = columns.filter((column) => !column.hidden);
+  const dataColumns = visibleColumns.map<Column<Row>>((column, columnIndex) => ({
     key: String(column.field),
     header: column.label,
     align: column.appearance === "number" ? "right" : "left",
@@ -349,7 +354,12 @@ export function QueryTable<Row extends object>({
           filters={toolbarFilters}
           onExport={
             exportAction && result.kind === "result"
-              ? () => exportRows(exportAction.fileName, columns, items)
+              ? () =>
+                  exportRows(
+                    exportAction.fileName,
+                    columns.filter((column) => column.export !== false),
+                    items,
+                  )
               : undefined
           }
           onFilterChange={(field, value) => {
@@ -504,7 +514,7 @@ export function QueryTable<Row extends object>({
           sticky
         />
       </QueryState>
-      {result.kind === "result" ? (
+      {paginated && result.kind === "result" ? (
         <div {...stylex.props(styles.pagination)}>
           <Pagination
             hasMore={Boolean(result.nextCursor)}
@@ -652,7 +662,16 @@ function exportRows<Row extends object>(
   const csv = [
     columns.map((column) => csvCell(column.label)).join(","),
     ...rows.map((row) =>
-      columns.map((column) => csvCell(cellText(row[column.field]))).join(","),
+      columns
+        .map((column) =>
+          csvCell(
+            cellText(
+              row[column.field],
+              column.statusMap,
+            ),
+          ),
+        )
+        .join(","),
     ),
   ].join("\n");
   const href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
@@ -667,8 +686,14 @@ function csvCell(value: string) {
   return `"${value.replaceAll("\"", "\"\"")}"`;
 }
 
-function cellText(value: unknown): string {
+function cellText(value: unknown, statusMap?: StatusMap): string {
   if (value === null || value === undefined || value === "") return "—";
+  if (statusMap && typeof value === "string") {
+    const label = statusMap[value]?.label;
+    return typeof label === "string" || typeof label === "number"
+      ? String(label)
+      : value;
+  }
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);
 }

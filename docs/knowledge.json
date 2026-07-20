@@ -22,12 +22,12 @@
       "path": "docs/plans/0128-workbench-table-pages.md",
       "title": "Workbench Table Pages: Stats Band, Declarative Filters, Status Maps, Row Detail, and Generated Form Dialogs",
       "owner": "scenery spec / compiler / generation / ui catalog",
-      "status": "active",
+      "status": "completed",
       "quality": "B",
       "freshness": "current",
       "last_reviewed": "2026-07-20",
       "review_after": "2026-08-19",
-      "summary": "Active ExecPlan with CRUD search, reusable status maps, workbench table pages, row details, and generated mutation dialogs implemented; the Micro work-orders pilot remains side by side and cannot replace the hand-written production route until focused tests and authenticated browser acceptance prove exact functional parity.",
+      "summary": "Completed ExecPlan shipping reusable status maps, workbench table pages, generated mutation dialogs, binding-backed unpaginated aggregate tables, display/export column control, and an exact-parity Micro work-orders cutover validated by focused tests and authenticated browser workflows.",
       "tags": ["plans", "execplans", "crud", "search", "table-page", "form-dialog", "status-map", "react", "typescript", "ui-catalog", "micro"]
     },
     {
@@ -2018,9 +2018,9 @@
       "status": "active",
       "quality": "B",
       "freshness": "current",
-      "last_reviewed": "2026-07-14",
-      "review_after": "2026-08-13",
-      "summary": "Completed milestones and shipped behavior, including Google connections, Symphony hardening, local storage and ZeroFS removal, local path routing, shared Victoria visibility, the database lifecycle split, portable snapshots, single-current specification and identity work, and earlier audited retirements.",
+      "last_reviewed": "2026-07-20",
+      "review_after": "2026-08-19",
+      "summary": "Completed milestones and shipped behavior, including generated workbench table pages with Micro work-orders parity, Google connections, Symphony hardening, local storage, local path routing, shared Victoria visibility, the database lifecycle split, portable snapshots, single-current specification and identity work, and earlier audited retirements.",
       "tags": [
         "plans",
         "history",

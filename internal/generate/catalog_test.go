@@ -51,6 +51,11 @@ func TestBinaryOwnedUICatalogContainsComposableQueryTable(t *testing.T) {
 		`requestStateFromQuery<{`,
 		`<DataTable`,
 		`<QueryState`,
+		`paginated = true`,
+		`paginated && result.kind === "result"`,
+		`columns.filter((column) => !column.hidden)`,
+		`columns.filter((column) => column.export !== false)`,
+		`const label = statusMap[value]?.label`,
 	} {
 		if !strings.Contains(queryTable, fragment) {
 			t.Errorf("QueryTable missing %q", fragment)

@@ -47,6 +47,7 @@ func TestTablePageValidationRejectsInvalidAuthoredContracts(t *testing.T) {
 	}{
 		{"missing source", "SCN2608", func(spec map[string]any) { spec["source"] = map[string]any{"$ref": "crud.missing"} }},
 		{"unknown column", "SCN2609", func(spec map[string]any) { spec["column"] = map[string]any{"name": "missing"} }},
+		{"all columns hidden", "SCN2609", func(spec map[string]any) { spec["column"] = map[string]any{"name": "name", "hidden": true} }},
 		{"filter outside allowlist", "SCN2610", func(spec map[string]any) { spec["filter"] = map[string]any{"name": "name"} }},
 		{"missing override", "SCN2611", func(spec map[string]any) {
 			spec["column"] = map[string]any{"name": "name", "component": map[string]any{"$ref": "react_component.missing"}}
@@ -77,6 +78,64 @@ func TestTablePageValidationRejectsInvalidAuthoredContracts(t *testing.T) {
 	_, diagnostics = expandTablePageResources(expanded)
 	if !hasDiagnostic(diagnostics, "SCN2614") {
 		t.Fatalf("collision diagnostics = %#v", diagnostics)
+	}
+}
+
+func TestTablePageBindingSourceExpandsAndValidatesCompleteTypedList(t *testing.T) {
+	resources := append(tablePageFixtureResources(),
+		Resource{Address: "house/enum/scene_sort", Module: "house", Name: "scene_sort", Kind: "scenery.enum", Spec: map[string]any{
+			"value": map[string]any{"name": "name"},
+		}},
+		Resource{Address: "house/enum/sort_direction", Module: "house", Name: "sort_direction", Kind: "scenery.enum", Spec: map[string]any{
+			"value": []any{map[string]any{"name": "asc"}, map[string]any{"name": "desc"}},
+		}},
+		Resource{Address: "house/record/scene_query", Module: "house", Name: "scene_query", Kind: "scenery.record", Spec: map[string]any{
+			"field": []any{
+				map[string]any{"name": "search", "type": map[string]any{"$expression": "optional(string)"}},
+				map[string]any{"name": "name", "type": map[string]any{"$expression": "optional(list(string))"}},
+				map[string]any{"name": "sort", "type": map[string]any{"$expression": "optional(enum.scene_sort)"}},
+				map[string]any{"name": "direction", "type": map[string]any{"$expression": "optional(enum.sort_direction)"}},
+			},
+		}},
+		Resource{Address: "house/record/scene_results", Module: "house", Name: "scene_results", Kind: "scenery.record", Spec: map[string]any{
+			"field": map[string]any{"name": "rows", "type": map[string]any{"$expression": "list(record.scene_row)"}},
+		}},
+		Resource{Address: "house/operation/search_scenes", Module: "house", Name: "search_scenes", Kind: "scenery.operation", Spec: map[string]any{
+			"input": map[string]any{"$ref": "record.scene_query"}, "result": map[string]any{"name": "success", "type": map[string]any{"$ref": "record.scene_results"}},
+		}},
+		Resource{Address: "house/binding/search_scenes_http", Module: "house", Name: "search_scenes_http", Kind: "scenery.binding", Spec: map[string]any{
+			"operation": map[string]any{"$ref": "operation.search_scenes"}, "protocol": "http", "delivery": "call",
+		}},
+		Resource{Address: "house/status_map/scene_name", Module: "house", Name: "scene_name", Kind: "scenery.status-map", Spec: map[string]any{
+			"status": map[string]any{"name": "example", "label": "Example", "variant": "neutral"},
+		}},
+	)
+	for index := range resources {
+		if resources[index].Address != "house/table_page/scenes" {
+			continue
+		}
+		resources[index].Spec = cloneMapValue(resources[index].Spec)
+		resources[index].Spec["source"] = map[string]any{"$ref": "binding.search_scenes_http"}
+		resources[index].Spec["items"] = "rows"
+		resources[index].Spec["filter"] = map[string]any{
+			"name": "name", "status_map": map[string]any{"$ref": "status_map.scene_name"},
+		}
+		break
+	}
+	expanded, diagnostics := expandDataResources(resources)
+	if hasErrors(diagnostics) {
+		t.Fatal(diagnostics)
+	}
+	expanded, diagnostics = expandTablePageResources(expanded)
+	if hasErrors(diagnostics) {
+		t.Fatal(diagnostics)
+	}
+	if diagnostics := validateUISemantics("", expanded); hasErrors(diagnostics) {
+		t.Fatalf("table page diagnostics = %#v", diagnostics)
+	}
+	page := resourcesByAddress(&Manifest{Resources: expanded})["house/page/scenes"]
+	if got := refString(page.Spec["load"]); got != "house/binding/scenes_load_internal" {
+		t.Fatalf("page load = %q", got)
 	}
 }
 

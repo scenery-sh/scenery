@@ -59,11 +59,11 @@ Artifacts and Notes as candidate follow-on plans.
 
 Success is observable in the Micro platform app only when the generated
 work-orders page is functionally identical to the hand-written production
-page. Milestone 4 keeps `work-orders.tsx` on `/work-orders` and the generated
-candidate on `/work-orders/generated` until a feature-by-feature inventory,
-focused tests, and authenticated browser acceptance prove parity. Green
-typecheck/lint/test/build lanes and an HTTP 200 are necessary but are not
-cutover evidence by themselves.
+page. Milestone 4 therefore kept `work-orders.tsx` on `/work-orders` and the
+generated candidate on `/work-orders/generated` until a feature-by-feature
+inventory, focused tests, and authenticated browser acceptance proved parity.
+Only after that evidence was complete did the generated page claim
+`/work-orders` and the hand-written page get deleted.
 
 ## Progress
 
@@ -72,9 +72,9 @@ cutover evidence by themselves.
       `FilterToolbar`, badge columns via status maps, row detail slot,
       toolbar count/export)
 - [x] M3: `form_dialog` resource kind and page/row action wiring
-- [ ] M4: docs, SKILL.md, cookbook, conformance fixtures, and a functionally
+- [x] M4: docs, SKILL.md, cookbook, conformance fixtures, and a functionally
       identical Micro platform work-orders pilot conversion
-- [ ] Final validation matrix and feature-by-feature browser acceptance green
+- [x] Final validation matrix and feature-by-feature browser acceptance green
 
 2026-07-20: Plan created from a Micro platform page census; no
 implementation started.
@@ -103,6 +103,18 @@ workflow and therefore did not establish parity. Restored the exact
 hand-written page and helpers from Micro commit `5612e2a`, restored its
 `/work-orders` route and navigation entry, and moved the generated candidate
 to the non-navigation route `/work-orders/generated`.
+2026-07-20: Closed the parity gap by allowing `table_page.source` to reference
+the app's existing call-delivery HTTP aggregate binding, naming the complete
+row list with `items`, and rendering that result without cursor pagination.
+Added display-only and export-only column control so the generated table keeps
+the production columns while CSV retains every operational field.
+2026-07-20: Completed authenticated browser acceptance on
+`https://micro.scenery.sh/platform/work-orders`: search, filters, sort,
+full-result export, project navigation, empty state, create, checklist
+add/update/delete, notes/time, signature, transitions, inspection requirements,
+keyboard interaction, and light/dark themes all passed without reloading the
+app. The generated page now owns `/work-orders`; the 1,377-line handwritten
+page and temporary candidate route are deleted.
 
 ## Surprises & Discoveries
 
@@ -141,10 +153,10 @@ Add new discoveries here with evidence as implementation proceeds.
 
 - The pilot's existing `GET /projects/work-orders` returns one aggregate
   dashboard document with orders and crews, not a cursor-paged entity list.
-  A generated workbench cannot truthfully reuse that endpoint as a CRUD list.
-  The pilot therefore declares a read-only `work_order_list` entity/CRUD
-  projection over the same table while the existing audited command methods
-  remain the mutation owner.
+  The first implementation added a shadow read-only entity/CRUD projection,
+  but the parity pass rejected that duplicate model. `table_page` now accepts
+  the existing call-delivery HTTP binding directly, with an `items` field
+  naming its complete typed row list.
 - Search was not part of the pre-plan CRUD list contract. Adding a toolbar
   text input without a server capability would have searched only one loaded
   page, so `crud.list.search` now allowlists string fields and participates in
@@ -184,6 +196,16 @@ Add new discoveries here with evidence as implementation proceeds.
   create-dialog project search, live crew selection, native date input,
   default-checklist preview/toggle, custom checklist items; and full filtered
   export. Restoring the page brings the frontend suite back to 101 tests.
+- The existing project-search operation returned richer `facets` and
+  `filters` than its declared result record. Strict generated-client
+  transcoding exposed the mismatch during browser acceptance; the current
+  contract now declares the returned AHJ and utility fields, with a focused
+  round-trip test preventing recurrence.
+- A single column list originally forced display and CSV to share the same
+  fields. Work-order parity needs a clickable project cell in the table but
+  the project ID and assignment timestamps in CSV. `column.hidden` and
+  `column.export` now separate those concerns without introducing a second
+  export framework.
 
 ## Decision Log
 
@@ -217,11 +239,11 @@ Add new discoveries here with evidence as implementation proceeds.
   The generated adapter stays responsible for domain binding translation,
   the surrounding `Page` shell, stats, header actions, and mutations.
   `FilterToolbar` receives typed filter descriptors and values through props.
-- 2026-07-20, agent: the reusable `table_page` default export acts on the
-  currently loaded, filtered rows and is generated client-side as CSV; docs
-  label it as such. That default is not sufficient for the Micro cutover:
-  the generated candidate must bind an explicit operation or extension that
-  preserves the production page's full filtered-dataset export.
+- 2026-07-20, agent: the reusable `table_page` export acts on the complete
+  result currently owned by `QueryTable`. Cursor-paged CRUD sources therefore
+  export the loaded page; binding-backed sources are deliberately unpaginated
+  and export the full server-filtered result. `column.hidden` controls display
+  and `column.export = false` excludes a display-only column from CSV.
 - 2026-07-20, agent: add `crud.list.search` as the only new data capability
   needed by the workbench. It is an explicit string-field allowlist, not a
   generic full-text framework, and it binds cursors to the normalized search
@@ -234,11 +256,21 @@ Add new discoveries here with evidence as implementation proceeds.
   The compiler requires every dialog input field to have a type-compatible row
   field; generation seeds those values and renders one secondary edit action
   in the expanded row.
-- 2026-07-20, agent: the Micro pilot uses a dedicated list-only CRUD projection
-  and delegates its generated quick-create handler to the existing audited
-  `CreateWorkOrder` service method. This preserves existing work-order command
-  policy, checklist defaults, and audit writes while replacing only UI/query
-  boilerplate.
+- 2026-07-20, agent (superseded during parity): the first Micro pilot used a
+  dedicated list-only CRUD projection and generated quick-create handler.
+  The final implementation removes both because they duplicated the existing
+  aggregate and could not express the full create workflow.
+- 2026-07-20, agent: a `table_page` may source either a cursor-paged CRUD list
+  or an existing call-delivery HTTP binding. Binding-backed pages name one
+  `list(record)` result field with `items`, use optional typed
+  `search`/filter/sort inputs, and run unpaginated. This is the smallest
+  extension that preserves aggregate workbench semantics without a shadow
+  domain model.
+- 2026-07-20, agent: the work-orders create dialog remains an app-owned
+  `react_component` toolbar slot because live project search, crew loading,
+  checklist templates, and custom checklist editing exceed the intentionally
+  small generated `form_dialog` contract. The generated page still owns its
+  route, shell, table, query state, filters, sort, export, and row expansion.
 - 2026-07-20, maintainer: `FilterToolbar` presentation is "quiet row +
   Filters popover + active-filter chips". Four directions were mocked
   against the pipeline page's toolbar (the densest in the reference app:
@@ -265,6 +297,10 @@ Add new discoveries here with evidence as implementation proceeds.
   Deletion requires an explicit feature inventory, focused regression tests
   that remain after cutover, and authenticated browser proof of every
   workflow; green build lanes or subset acceptance cannot waive that gate.
+- 2026-07-20, agent: parity is proven and cutover is complete. The retained
+  focused tests cover filter/sort semantics, stats, project-result strict
+  transcoding, cancellation, status sequencing, and CSV escaping; browser
+  acceptance covers the interactive workflows and no-reload invalidation.
 
 ## Outcomes & Retrospective
 
@@ -274,25 +310,22 @@ M1-M3 shipped the reusable workbench primitives:
   as typed generated constants;
 - `table_page` now composes server metrics, declared finite filters and
   ordering, active-filter chips, badge columns, row expansion, typed detail
-  slots, current-page CSV, empty actions, and generated dialog actions;
+  slots, loaded-result CSV, empty actions, and generated dialog actions;
 - `form_dialog` derives typed controls and mutation lifecycles from a current
   binding contract, keeps failures inline, and invalidates list/stats data;
 - CRUD list search is an explicit string allowlist whose normalized value
-  participates in cursor identity.
+  participates in cursor identity;
+- binding-backed table pages reuse one existing aggregate operation, name the
+  complete typed row field explicitly, and avoid a duplicate CRUD model;
+- display-only and export-only columns preserve a compact table and complete
+  operational CSV.
 
-M4 remains open. The Micro pilot is deliberately side by side:
-
-- `/work-orders` is the restored 1,377-line production page from Micro commit
-  `5612e2a`;
-- `/work-orders/generated` is the generated candidate and has no navigation
-  entry;
-- the production page has live authenticated browser proof for project
-  navigation, detailed assignment metadata, checklist operations, notes and
-  time-on-site editing, signature collection, transitions/cancellation, and
-  the full create form;
-- cutover is blocked until the generated candidate proves the complete
-  feature inventory below and the hand-written page can be deleted without
-  deleting its focused parity tests.
+M4 is complete. Micro's generated `table_page` owns `/work-orders` and the
+Main navigation entry. The temporary `/work-orders/generated` route, shadow
+`work_order_list` CRUD projection, incomplete quick-create operation, and
+1,377-line hand-written page are gone. The full creation and row-detail
+workflows remain app-owned typed slots, while Scenery owns the generated
+workbench shell and query lifecycle.
 
 The main implementation lesson was to keep query capability and presentation
 separate: `.scn` declares what can be searched, filtered, and ordered;
@@ -316,21 +349,25 @@ Terms:
   `internal/compiler/table_page.go`, `split_page.go`, `content_page.go`;
   route/search handling in `internal/compiler/page_route.go`; React emission
   in `internal/generate/generate_typescript_react.go`.
-- **CRUD list contract**: `crud` resources with a `list` block generate list
-  operations/bindings with filter/sort allowlists; `table_page.source` must
-  resolve to one (`internal/compiler/table_page.go`, diagnostic SCN2608).
+- **Table source contract**: `table_page.source` resolves either to a `crud`
+  resource with a paged list + HTTP projection or to a call-delivery HTTP
+  binding. Binding sources use `items` to name one `list(record)` result field
+  and conventionally expose optional typed `search`, filter, `sort`, and
+  `direction` inputs (`internal/compiler/table_page.go`, diagnostics
+  SCN2608/SCN2610).
 - **Reference consumer**: the Micro platform app at
   `~/Repos/Micro/platform` (separate repository). Its
   `envs.local.ui_catalog` points at this repo's `ui/`, so catalog edits
   reach its browser via HMR without rebuilding the binary (plan 0122). Its
   page census and archetype evidence are in Artifacts and Notes.
 
-Current `table_page` authored surface (for the M2 delta): blocks `column`
-(attrs `label`, `appearance` ∈ auto|text|number|datetime|badge,
-`component`), `filter` (attrs `label`, `component`; must name
-CRUD-allowlisted fields, SCN2610), `sort`, singleton slots `toolbar` and
-`empty`, repeated `search`. The expansion emits a `scenery.page` with the
-list binding as `load` and a `scenery.renderer` with module
+Current `table_page` authored surface: `source` plus binding-only `items`;
+blocks `column` (attrs `label`, `appearance` ∈
+auto|text|number|datetime|badge, `component`, `hidden`, `export`), `filter`
+(attrs `label`, `component`; must name source-allowlisted fields, SCN2610),
+`sort`, metrics/actions, and singleton slots `toolbar`, `empty`, and
+`row_detail`. The expansion emits a `scenery.page` with an inherited internal
+load binding and a `scenery.renderer` with module
 `scenery.ui.table_page`; the React generator composes catalog `Page` +
 `QueryTable` (chrome-less per `ui/AGENTS.md`).
 
@@ -365,7 +402,8 @@ milestone against `internal/spec` conventions):
 
     table_page "work_orders" {
       path   = "/work-orders"
-      source = crud.work_orders
+      source = binding.work_order_read_http
+      items  = "orders"
       title  = "Work orders"
 
       stats {
@@ -496,7 +534,8 @@ into the TypeScript client as typed `StatusMap` constants. No consumer yet;
 - a singleton `row_detail` slot whose `react_component` receives the typed
   row, rendered as an expandable row;
 - toolbar result count and a declared `export` action (client-side CSV of
-  the currently loaded filtered rows).
+  the loaded filtered result; the full result for unpaginated binding
+  sources).
 
 Filters surface through `FilterToolbar` in the chosen popover-plus-chips
 presentation (search input, pinned-filter selects, Filters button with
@@ -531,9 +570,9 @@ and problem display inside the dialog using the shared `Problem` vocabulary.
 page (workbench + create dialog + row-detail slot) behind
 `/work-orders/generated`. Keep the hand-written `/work-orders` page and
 navigation entry until every item in the acceptance inventory below passes
-focused tests and authenticated browser acceptance. Only then move the
-generated page to `/work-orders`, remove the handwritten implementation, and
-rerun the complete app verification.
+focused tests and authenticated browser acceptance. This gate passed; the
+generated page now owns `/work-orders`, the handwritten implementation is
+removed, and complete app verification is green.
 
 ## Plan of Work
 
@@ -609,16 +648,16 @@ All commands run from this repository's root unless stated.
    `status_map`, `form_dialog`, and `table_page` declarations plus the
    row-detail slot module at `/work-orders/generated`, then run generation,
    app typecheck/lint/test/build, and the complete side-by-side acceptance
-   inventory. Move it to `/work-orders` and delete the hand-written page only
-   after every item is proven identical, then rerun `make verify`.
+   inventory. After every item is proven identical, move it to `/work-orders`,
+   delete the hand-written page, and rerun `make verify`.
 
 ## Validation and Acceptance
 
 Scenery-side, after every milestone:
 
     go test ./...
-    go install ./cmd/scenery
-    scenery harness self -o json --write
+    go build -o .scenery/harness/bin/scenery ./cmd/scenery
+    .scenery/harness/bin/scenery harness self --summary --write
     apps/console/node_modules/.bin/tsc -p internal/generate/testdata/tsconfig.catalog.json
     go test ./internal/generate
 
@@ -627,8 +666,8 @@ in `apps/console` (the in-repo consumer), plus the staged fixture-client
 compilation above.
 
 App-side acceptance (M4, in `~/Repos/Micro/platform`): `scenery generate
---check` clean; typecheck/lint/test/build green; and side-by-side acceptance
-between `/work-orders` and `/work-orders/generated` proves all of:
+--check` clean; typecheck/lint/test/build green; and pre-cutover side-by-side
+acceptance between `/work-orders` and `/work-orders/generated` proves all of:
 
 - four stat tiles with server values; server-backed search/status/type
   filters; status/priority badges; full filtered-result count and export;
@@ -645,11 +684,9 @@ between `/work-orders` and `/work-orders/generated` proves all of:
   behavior, keyboard/focus behavior, and correct light/dark semantic-token
   surfaces.
 
-The focused parity tests must survive deletion of the handwritten page.
-Only after this inventory is identical may the generated route claim
-`/work-orders` and its navigation entry. Until then the handwritten page is
-the production implementation and the generated page is a non-navigation
-candidate.
+The focused parity tests survived deletion of the handwritten page. This
+inventory is green, so the generated route now owns `/work-orders` and its
+navigation entry.
 
 The plan's structural contract is validated by `scenery harness self`
 (required ExecPlan sections).

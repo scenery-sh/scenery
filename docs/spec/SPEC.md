@@ -2391,9 +2391,21 @@ A workbench `table_page` MAY declare:
   string result record, with tiles naming fields in that record;
 - finite filters and badge columns labeled through reusable `status_map`
   resources;
-- client-side export of the currently loaded filtered rows;
+- client-side export of the rows returned by the current source query, with
+  per-column display and export participation;
 - one typed row-detail component, with at most one row expanded at a time;
 - header actions that open `form_dialog` mutation resources.
+
+A table page source MUST be either a CRUD resource with list and HTTP
+projections or a call-delivery HTTP binding. A binding-backed table MUST name
+with `items` a `list(record)` field in the operation's sole result record and
+MUST render that returned list without pagination. If present, the operation's
+`search` input MUST be an optional string, each declared filter MUST have a
+same-named optional list input, `sort` MUST be a closed enum containing every
+declared sort, and `direction` MUST be a closed enum with exactly `asc` and
+`desc`. At least one column MUST remain visible. `hidden = true` excludes a
+column from the grid but not export by default; `export = false` excludes it
+from export.
 
 Generated workbench filter presentation MUST keep search visible, render only
 filters explicitly marked `pinned = true` as inline quick-access selectors,
