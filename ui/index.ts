@@ -79,6 +79,7 @@ export {
 } from "./components/StatusBadge.js";
 export { TopBar, type TopBarSearch } from "./components/TopBar.js";
 
+export { Avatar } from "@astryxdesign/core/Avatar";
 export {
   Badge,
   type BadgeProps,
@@ -93,6 +94,15 @@ export {
   type ButtonVariantMap,
 } from "@astryxdesign/core/Button";
 export {
+  CommandPalette,
+  CommandPaletteFooter,
+  CommandPaletteInput,
+  useCommandPaletteContext,
+} from "@astryxdesign/core/CommandPalette";
+export { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
+export { Divider } from "@astryxdesign/core/Divider";
+export { EmptyState as RichEmptyState } from "@astryxdesign/core/EmptyState";
+export {
   Icon,
   type IconColor,
   type IconProps,
@@ -100,6 +110,16 @@ export {
   type IconType,
 } from "@astryxdesign/core/Icon";
 export { IconButton, type IconButtonProps } from "@astryxdesign/core/IconButton";
+export { Kbd } from "@astryxdesign/core/Kbd";
+export { Layout, LayoutContent } from "@astryxdesign/core/Layout";
+export { List, ListItem } from "@astryxdesign/core/List";
+export { Pagination } from "@astryxdesign/core/Pagination";
+export { Popover } from "@astryxdesign/core/Popover";
+export { ProgressBar } from "@astryxdesign/core/ProgressBar";
+export {
+  SegmentedControl,
+  SegmentedControlItem,
+} from "@astryxdesign/core/SegmentedControl";
 export {
   Selector,
   type SelectorProps,
@@ -107,6 +127,17 @@ export {
   type SelectorStatus,
   type SelectorStatusType,
 } from "@astryxdesign/core/Selector";
+export { Spinner } from "@astryxdesign/core/Spinner";
+export { Switch } from "@astryxdesign/core/Switch";
+export { Tab, TabList } from "@astryxdesign/core/TabList";
+export {
+  Table,
+  TableBody,
+  TableCell,
+  TableHeader,
+  TableHeaderCell,
+  TableRow,
+} from "@astryxdesign/core/Table";
 export {
   Heading,
   type HeadingLevel,
@@ -125,6 +156,7 @@ export {
   type TextSize,
   type TextType,
 } from "@astryxdesign/core/Text";
+export { TextArea } from "@astryxdesign/core/TextArea";
 export {
   TextInput,
   type TextInputProps,
@@ -133,3 +165,13 @@ export {
   type TextInputStatusType,
   type TextInputType,
 } from "@astryxdesign/core/TextInput";
+export {
+  ToggleButton,
+  ToggleButtonGroup,
+} from "@astryxdesign/core/ToggleButton";
+export { Toolbar } from "@astryxdesign/core/Toolbar";
+export type {
+  SearchSource,
+  SearchableItem,
+} from "@astryxdesign/core/Typeahead";
+export { Theme } from "@astryxdesign/core/theme";
