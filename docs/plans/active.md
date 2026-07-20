@@ -8,10 +8,10 @@ reuse IDs; this list can still be ordered by current priority.
 ## Active ExecPlans
 
 - [0128 Workbench Table Pages: Stats Band, Declarative Filters, Status Maps, Row Detail, and Generated Form Dialogs](0128-workbench-table-pages.md)
-  - Status: completed 2026-07-20 (retain until first release ships it)
+  - Status: implementing; M1-M3 complete, M4 cutover blocked on functional parity
   - Owner: scenery compiler / generate / ui catalog
   - Created: 2026-07-20
-  - Focus: shipped the full ops workbench through `table_page` — server stats, search, a complete Filters popover with optional pinned quick-access selectors and active chips, separate ordering controls, reusable `status_map` badges, expandable `row_detail`, loaded-row count/CSV, and generated `form_dialog` mutations. The Micro work-orders route is converted; record-detail, dashboard, and board page kinds remain deferred.
+  - Focus: the reusable workbench primitives are implemented, but the Micro pilot remains side by side: the complete hand-written page owns `/work-orders`, while the generated candidate lives at `/work-orders/generated` without navigation. Cutover requires feature-by-feature test and authenticated-browser proof of exact functional parity; record-detail, dashboard, and board page kinds remain deferred.
 - [0122 UI Catalog Dev Mode: Live ui/ Iteration Without Binary Rebuilds](0122-ui-catalog-dev-mode.md)
   - Status: completed (retain until first release ships it)
   - Owner: scenery generation / agent DX

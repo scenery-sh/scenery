@@ -136,6 +136,11 @@ visual slots:
 - Hand-written pages register through `SceneryRouteDescriptor`; do not create a
   second TanStack route tree, navigation list, shell, or parallel page-selection
   system.
+- A generated-page conversion does not cut over or delete its hand-written
+  production route until a feature-by-feature inventory, focused tests that
+  survive the deletion, and authenticated browser acceptance prove identical
+  functionality. Keep the generated candidate on a separate non-navigation
+  route until that gate passes.
 
 Scenery does not have legacy support. It has **one rolling Scenery specification, one compiler, one runtime path, and one machine protocol—the ones shipped by the current Scenery binary.**
 

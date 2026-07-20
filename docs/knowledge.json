@@ -22,12 +22,12 @@
       "path": "docs/plans/0128-workbench-table-pages.md",
       "title": "Workbench Table Pages: Stats Band, Declarative Filters, Status Maps, Row Detail, and Generated Form Dialogs",
       "owner": "scenery spec / compiler / generation / ui catalog",
-      "status": "completed",
+      "status": "active",
       "quality": "B",
       "freshness": "current",
       "last_reviewed": "2026-07-20",
       "review_after": "2026-08-19",
-      "summary": "Completed ExecPlan shipping CRUD search, reusable status maps, workbench table pages with server stats, a complete filter popover, optional pinned selectors, active chips, separate ordering controls, loaded-row count and CSV, expandable row details, generated mutation form dialogs with invalidation, semantic action icons, and the Micro work-orders pilot replacing its hand-written production route.",
+      "summary": "Active ExecPlan with CRUD search, reusable status maps, workbench table pages, row details, and generated mutation dialogs implemented; the Micro work-orders pilot remains side by side and cannot replace the hand-written production route until focused tests and authenticated browser acceptance prove exact functional parity.",
       "tags": ["plans", "execplans", "crud", "search", "table-page", "form-dialog", "status-map", "react", "typescript", "ui-catalog", "micro"]
     },
     {

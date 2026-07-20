@@ -57,12 +57,13 @@ Other archetypes found in the census (tabbed record detail, dashboards,
 kanban boards) are deliberately **out of scope**; they are recorded in
 Artifacts and Notes as candidate follow-on plans.
 
-Success is observable in the Micro platform app: the pilot conversion in
-Milestone 4 replaces `work-orders.tsx` (workbench + create dialog) with a
-`.scn` declaration plus a small row-detail slot module, with `scenery
-generate --check` and the app's typecheck/lint/test/build lanes green, and
-the generated page exercised through the live development route
-(`https://micro.scenery.sh/*`).
+Success is observable in the Micro platform app only when the generated
+work-orders page is functionally identical to the hand-written production
+page. Milestone 4 keeps `work-orders.tsx` on `/work-orders` and the generated
+candidate on `/work-orders/generated` until a feature-by-feature inventory,
+focused tests, and authenticated browser acceptance prove parity. Green
+typecheck/lint/test/build lanes and an HTTP 200 are necessary but are not
+cutover evidence by themselves.
 
 ## Progress
 
@@ -71,9 +72,9 @@ the generated page exercised through the live development route
       `FilterToolbar`, badge columns via status maps, row detail slot,
       toolbar count/export)
 - [x] M3: `form_dialog` resource kind and page/row action wiring
-- [x] M4: docs, SKILL.md, cookbook, conformance fixtures, and the Micro
-      platform work-orders pilot conversion
-- [x] Final validation matrix green
+- [ ] M4: docs, SKILL.md, cookbook, conformance fixtures, and a functionally
+      identical Micro platform work-orders pilot conversion
+- [ ] Final validation matrix and feature-by-feature browser acceptance green
 
 2026-07-20: Plan created from a Micro platform page census; no
 implementation started.
@@ -96,6 +97,12 @@ query controls.
 2026-07-20: Final Scenery and Micro validation passed. The regenerated Micro
 runtime reached detached readiness and served
 `https://micro.scenery.sh/platform/work-orders` with HTTP 200.
+2026-07-20: Reopened M4 after comparing the deleted page to the generated
+replacement. The earlier acceptance covered only a subset of the production
+workflow and therefore did not establish parity. Restored the exact
+hand-written page and helpers from Micro commit `5612e2a`, restored its
+`/work-orders` route and navigation entry, and moved the generated candidate
+to the non-navigation route `/work-orders/generated`.
 
 ## Surprises & Discoveries
 
@@ -167,6 +174,16 @@ Add new discoveries here with evidence as implementation proceeds.
   by the light/dark acceptance fix, while Scenery's managed checker rejected
   their branded cross-var types. Keeping the cast at the one StyleX theme
   boundary made the checker, Vite transform, and runtime theme behavior agree.
+- The original 97-test green run was a false cutover signal: deleting
+  `work-orders.test.ts` removed four focused tests, and the acceptance list
+  covered only the generated subset. The generated candidate was missing
+  project name/link navigation; detailed assignment, status, type, and
+  priority presentation; checklist progress/toggle/add/delete; notes and
+  time-on-site editing; customer signature collection and signed state;
+  status transitions and cancellation; inspection-photo requirements;
+  create-dialog project search, live crew selection, native date input,
+  default-checklist preview/toggle, custom checklist items; and full filtered
+  export. Restoring the page brings the frontend suite back to 101 tests.
 
 ## Decision Log
 
@@ -200,9 +217,11 @@ Add new discoveries here with evidence as implementation proceeds.
   The generated adapter stays responsible for domain binding translation,
   the surrounding `Page` shell, stats, header actions, and mutations.
   `FilterToolbar` receives typed filter descriptors and values through props.
-- 2026-07-20, agent: export acts on the currently loaded, filtered rows and
-  is generated client-side as CSV; docs must label it as such. A server-side
-  full-dataset export is an operation concern, out of scope here.
+- 2026-07-20, agent: the reusable `table_page` default export acts on the
+  currently loaded, filtered rows and is generated client-side as CSV; docs
+  label it as such. That default is not sufficient for the Micro cutover:
+  the generated candidate must bind an explicit operation or extension that
+  preserves the production page's full filtered-dataset export.
 - 2026-07-20, agent: add `crud.list.search` as the only new data capability
   needed by the workbench. It is an explicit string-field allowlist, not a
   generic full-text framework, and it binds cursors to the normalized search
@@ -240,10 +259,16 @@ Add new discoveries here with evidence as implementation proceeds.
   set. Pinned selectors render inline and remain in the complete Filters
   popover. Sort and direction stay immediately after that button and never
   contribute to its active count or chips.
+- 2026-07-20, maintainer: there is no generated-page cutover until the
+  replacement is identical in functionality. A production hand-written route
+  must remain active while its generated candidate is mounted separately.
+  Deletion requires an explicit feature inventory, focused regression tests
+  that remain after cutover, and authenticated browser proof of every
+  workflow; green build lanes or subset acceptance cannot waive that gate.
 
 ## Outcomes & Retrospective
 
-0128 shipped the workbench archetype as one current Scenery path:
+M1-M3 shipped the reusable workbench primitives:
 
 - `status_map` is reusable, compiler-validated presentation metadata emitted
   as typed generated constants;
@@ -253,26 +278,21 @@ Add new discoveries here with evidence as implementation proceeds.
 - `form_dialog` derives typed controls and mutation lifecycles from a current
   binding contract, keeps failures inline, and invalidates list/stats data;
 - CRUD list search is an explicit string allowlist whose normalized value
-  participates in cursor identity;
-- Micro's hand-written 1,377-line work-orders workbench and presentation
-  helpers are gone, replaced by `.scn`, one typed detail slot, and audited
-  backend handlers.
+  participates in cursor identity.
 
-Final proof on 2026-07-20:
+M4 remains open. The Micro pilot is deliberately side by side:
 
-- Scenery: `go test ./...`, `go test ./cmd/scenery`, generator/client
-  conformance, managed catalog TypeScript compilation, console
-  lint/typecheck/build, and `scenery harness self --summary --write` all
-  passed.
-- Micro: `scenery check -o json`, generation plus clean `--check`,
-  `go test ./...`, `make verify`, `make verify-scenery`, 97 Bun tests,
-  frontend typecheck/lint/build all passed.
-- Runtime: authenticated browser acceptance showed server-backed search,
-  status/type filtering, four metrics, badge colors, row expansion, a
-  persisted quick-create reflected without reload, filtered CSV download,
-  and correct light/dark surfaces. A final regenerated
-  `scenery up --detach --wait ready` returned ready and the work-orders route
-  returned HTTP 200 while preserving the created row and app state.
+- `/work-orders` is the restored 1,377-line production page from Micro commit
+  `5612e2a`;
+- `/work-orders/generated` is the generated candidate and has no navigation
+  entry;
+- the production page has live authenticated browser proof for project
+  navigation, detailed assignment metadata, checklist operations, notes and
+  time-on-site editing, signature collection, transitions/cancellation, and
+  the full create form;
+- cutover is blocked until the generated candidate proves the complete
+  feature inventory below and the hand-written page can be deleted without
+  deleting its focused parity tests.
 
 The main implementation lesson was to keep query capability and presentation
 separate: `.scn` declares what can be searched, filtered, and ordered;
@@ -508,9 +528,12 @@ and problem display inside the dialog using the shared `Problem` vocabulary.
 `docs/app-development-cookbook.md`, `docs/spec/` conformance fixtures,
 `ui/AGENTS.md`, and `docs/knowledge.json` for `status_map`, the extended
 `table_page`, and `form_dialog`. In Micro platform: convert the work-orders
-page (workbench + create dialog + row-detail slot); keep the hand-written
-page until the pilot passes the app's verification lanes, then delete the
-replaced page code per that repo's no-dead-code rule.
+page (workbench + create dialog + row-detail slot) behind
+`/work-orders/generated`. Keep the hand-written `/work-orders` page and
+navigation entry until every item in the acceptance inventory below passes
+focused tests and authenticated browser acceptance. Only then move the
+generated page to `/work-orders`, remove the handwritten implementation, and
+rerun the complete app verification.
 
 ## Plan of Work
 
@@ -581,13 +604,13 @@ All commands run from this repository's root unless stated.
    catalog `FormDialog`, TanStack `useMutation`, list-query invalidation.
 4. **M4.** Docs sweep (files listed in Milestones), `docs/spec/` conformance
    updates per `docs/spec/AGENTS.md`. Micro platform pilot:
-   `go install ./cmd/scenery`, then in `~/Repos/Micro/platform` declare the
-   work-orders metrics operation/binding if not present, write the
+   in `~/Repos/Micro/platform` declare the work-orders metrics
+   operation/binding if not present, write the
    `status_map`, `form_dialog`, and `table_page` declarations plus the
-   row-detail slot module, `scenery generate --check`, app
-   typecheck/lint/test/build, exercise the route at
-   `https://micro.scenery.sh/...`, then delete the replaced hand-written
-   page and re-run the app's verification (`make verify` in that repo).
+   row-detail slot module at `/work-orders/generated`, then run generation,
+   app typecheck/lint/test/build, and the complete side-by-side acceptance
+   inventory. Move it to `/work-orders` and delete the hand-written page only
+   after every item is proven identical, then rerun `make verify`.
 
 ## Validation and Acceptance
 
@@ -604,21 +627,29 @@ in `apps/console` (the in-repo consumer), plus the staged fixture-client
 compilation above.
 
 App-side acceptance (M4, in `~/Repos/Micro/platform`): `scenery generate
---check` clean; typecheck/lint/test/build green; the generated work-orders
-page at its route shows the four stat tiles with server values,
-status/priority badges matching the hand-written page's colors, working
-search/status/type filters that update the table through the list binding's
-query parameters, an expandable row rendering the app's `row_detail` slot, a
-create dialog that persists a work order and refreshes the table without a
-reload, and CSV export of the filtered rows. Visual acceptance follows the
-Presentation contract: toolbar composition and density match the
-hand-written page (sm controls, count + export at the row end), and the
-page renders correctly in both light and dark themes (semantic tokens only;
-note that Astryx tokens not overridden by the app follow the OS color
-scheme, so verify under both OS schemes, not just an app-level theme
-toggle). Behavior is compared against the pre-conversion
-page (kept in git history) rather than a side-by-side, since the
-hand-written page is deleted in the same change only after the checks pass.
+--check` clean; typecheck/lint/test/build green; and side-by-side acceptance
+between `/work-orders` and `/work-orders/generated` proves all of:
+
+- four stat tiles with server values; server-backed search/status/type
+  filters; status/priority badges; full filtered-result count and export;
+- project name plus clickable project navigation; complete assignment,
+  status, type, priority, schedule, description, special-instruction, and
+  inspection-photo-requirement presentation;
+- checklist progress plus completion toggle, per-item notes, add, and delete;
+  notes and time-on-site editing; customer signature collection and signed
+  state; all valid status transitions and cancellation;
+- create-dialog project search/selection, live crew selector, native date
+  input, type and priority, description and instructions, default-checklist
+  preview/toggle, and custom checklist items;
+- mutation persistence, query invalidation without reload, loading/empty/error
+  behavior, keyboard/focus behavior, and correct light/dark semantic-token
+  surfaces.
+
+The focused parity tests must survive deletion of the handwritten page.
+Only after this inventory is identical may the generated route claim
+`/work-orders` and its navigation entry. Until then the handwritten page is
+the production implementation and the generated page is a non-navigation
+candidate.
 
 The plan's structural contract is validated by `scenery harness self`
 (required ExecPlan sections).
@@ -631,11 +662,11 @@ existing `.scn` sources (including Micro platform's current `table_page`,
 `split_page`, `content_page` declarations) compile unchanged at every
 intermediate state. If a milestone must be abandoned mid-way, the new source
 kind simply remains unreferenced; no data or migration state is involved.
-The Micro platform pilot is recoverable by reverting the app-side commit —
-the hand-written page is deleted only in the same change that lands and
-verifies its replacement. Per repo policy (Decision Log of 0123), no
-back-compat shims: if a schema shape needs revision mid-plan, update the
-spec, fixtures, and current consumers in the same change.
+The Micro platform pilot is recoverable without a revert because the
+hand-written production page remains active while the generated candidate
+uses a separate non-navigation route. Per repo policy (Decision Log of
+0123), no back-compat shims: if a schema shape needs revision mid-plan,
+update the spec, fixtures, and current consumers in the same change.
 
 ## Artifacts and Notes
 
