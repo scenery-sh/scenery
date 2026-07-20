@@ -1,4 +1,5 @@
 import { Button } from "@astryxdesign/core/Button";
+import { Spinner } from "@astryxdesign/core/Spinner";
 import { Text } from "@astryxdesign/core/Text";
 import { colorVars, spacingVars } from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
@@ -46,8 +47,14 @@ export function QueryState({
   }
   if (isPending) {
     return (
-      <div {...stylex.props(styles.state)}>
-        <Text color="secondary">{loadingLabel ?? `Loading ${resource}…`}</Text>
+      <div
+        {...stylex.props(styles.state)}
+        aria-live="polite"
+        aria-label={`Loading ${resource}`}
+        role="status"
+      >
+        <Spinner aria-hidden="true" shade="subtle" size="sm" />
+        {loadingLabel ? <Text color="secondary">{loadingLabel}</Text> : null}
       </div>
     );
   }

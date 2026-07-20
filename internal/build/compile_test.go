@@ -212,6 +212,89 @@ func TestCompilePassesConfiguredGoBuildFlags(t *testing.T) {
 	}
 }
 
+func TestCompilePrunesStaleFingerprintBinariesAfterSuccess(t *testing.T) {
+	appDir := t.TempDir()
+	writeBuildTestFile(t, appDir, ".scenery.json", `{"name":"smoke"}`)
+
+	workspace, err := workspaceDir(appDir, "smoke")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeBuildTestFile(t, workspace, "go.mod", "module example.com/smoke\n\ngo 1.26.3\n")
+	writeBuildTestFile(t, workspace, "scenery_internal_main/main.go", "package main\n\nfunc main() {}\n")
+
+	const previousFingerprint = "11111111111111111111111111111111"
+	if err := saveBuildState(workspace, buildState{
+		Version:          buildStateVersion,
+		BuildFingerprint: previousFingerprint,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	previousBinary := filepath.Join(workspace, workspaceBinaryName(appDir, previousFingerprint))
+	staleBinary := filepath.Join(workspace, "scenery-app-2222222222222222")
+	unmanagedPrefixFile := filepath.Join(workspace, "scenery-app-not-a-fingerprint")
+	for _, path := range []string{previousBinary, staleBinary, unmanagedPrefixFile} {
+		if err := os.WriteFile(path, []byte("old"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	restore := SetGoRunnerForTesting(func(_ context.Context, _ string, args ...string) error {
+		output, ok := fakeGoBuildOutput(args)
+		if !ok {
+			return fmt.Errorf("unexpected fake go command: go %s", strings.Join(args, " "))
+		}
+		return os.WriteFile(output, []byte("current"), 0o755)
+	})
+	t.Cleanup(restore)
+
+	const currentFingerprint = "33333333333333333333333333333333"
+	result := &Result{
+		AppRoot:          appDir,
+		AppName:          "smoke",
+		Dir:              workspace,
+		Binary:           filepath.Join(workspace, workspaceBinaryName(appDir, currentFingerprint)),
+		BuildFingerprint: currentFingerprint,
+		SourceFiles:      []string{"go.mod"},
+		GeneratedFiles:   []string{"scenery_internal_main/main.go"},
+	}
+	if err := Compile(result); err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+
+	for _, path := range []string{result.Binary, previousBinary, unmanagedPrefixFile} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("expected %s to remain: %v", filepath.Base(path), err)
+		}
+	}
+	if _, err := os.Stat(staleBinary); !os.IsNotExist(err) {
+		t.Fatalf("expected stale fingerprint binary to be removed, stat err = %v", err)
+	}
+}
+
+func TestCompileFailureDoesNotPruneFingerprintBinaries(t *testing.T) {
+	workspace := t.TempDir()
+	staleBinary := filepath.Join(workspace, "scenery-app-1111111111111111")
+	if err := os.WriteFile(staleBinary, []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	restore := SetGoRunnerForTesting(func(_ context.Context, _ string, _ ...string) error {
+		return fmt.Errorf("build failed")
+	})
+	t.Cleanup(restore)
+
+	result := &Result{
+		Dir:    workspace,
+		Binary: filepath.Join(workspace, "scenery-app-2222222222222222"),
+	}
+	if err := Compile(result); err == nil {
+		t.Fatal("expected Compile() to fail")
+	}
+	if _, err := os.Stat(staleBinary); err != nil {
+		t.Fatalf("expected stale binary to remain after failed build: %v", err)
+	}
+}
+
 func TestCompileRetriesTidyWhenBuildReportsStaleGoMod(t *testing.T) {
 	appDir := t.TempDir()
 	writeBuildTestFile(t, appDir, ".scenery.json", `{"name":"smoke"}`)

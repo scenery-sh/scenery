@@ -602,3 +602,44 @@ func removeUnexpectedFilesFromLists(root string, sourceFiles, generatedFiles []s
 	}
 	return nil
 }
+
+func pruneStaleWorkspaceBinaries(root string, keepPaths ...string) error {
+	keep := make(map[string]struct{}, len(keepPaths))
+	for _, path := range keepPaths {
+		if path != "" && filepath.Clean(filepath.Dir(path)) == filepath.Clean(root) {
+			keep[filepath.Base(path)] = struct{}{}
+		}
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if !isFingerprintBinaryName(name) {
+			continue
+		}
+		if _, ok := keep[name]; ok {
+			continue
+		}
+		path := filepath.Join(root, name)
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("remove stale build binary %s: %w", path, err)
+		}
+	}
+	return nil
+}
+
+func isFingerprintBinaryName(name string) bool {
+	const prefix = "scenery-app-"
+	const fingerprintLength = 16
+	if len(name) != len(prefix)+fingerprintLength || !strings.HasPrefix(name, prefix) {
+		return false
+	}
+	for _, char := range name[len(prefix):] {
+		if !strings.ContainsRune("0123456789abcdef", char) {
+			return false
+		}
+	}
+	return true
+}

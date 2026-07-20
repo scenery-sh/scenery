@@ -6,6 +6,7 @@ import (
 	"maps"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -71,9 +72,20 @@ func CompileContext(ctx context.Context, result *Result) error {
 		return err
 	}
 	defer unlock()
+	previousBinary := ""
+	previousState, err := loadBuildState(result.Dir)
+	if err != nil {
+		return err
+	}
+	if previousState.BuildFingerprint != "" {
+		previousBinary = filepath.Join(result.Dir, workspaceBinaryName(result.AppRoot, previousState.BuildFingerprint))
+	}
 	if result.ReuseCompiled {
 		result.NeedsTidy = false
 		if err := savePrimedWorkspace(result); err != nil {
+			return err
+		}
+		if err := pruneStaleWorkspaceBinaries(result.Dir, result.Binary, previousBinary); err != nil {
 			return err
 		}
 		return WriteLatestBuildManifest(result, "compiled")
@@ -117,6 +129,9 @@ func CompileContext(ctx context.Context, result *Result) error {
 		if err := savePrimedWorkspace(result); err != nil {
 			return err
 		}
+	}
+	if err := pruneStaleWorkspaceBinaries(result.Dir, result.Binary, previousBinary); err != nil {
+		return err
 	}
 	if err := WriteLatestBuildManifest(result, "compiled"); err != nil {
 		return err
