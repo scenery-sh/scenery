@@ -294,8 +294,11 @@ the exact refresh command.
 A fresh worktree fails UI and self-harness lanes for environment reasons, not
 code reasons, until:
 
-1. `bun install` runs inside `apps/console` (`bun.lock` is honored; every
-   tsc-dependent lane needs this tree).
+1. Self-harness provisions `apps/console` dependencies itself: the `console
+   dependencies` step runs `bun install --frozen-lockfile` before the
+   tsc-dependent lanes and skips them with one actionable diagnostic when bun
+   is missing or the install fails. No manual `bun install` is needed; only
+   the `bun` binary itself must be installed.
 2. `./scripts/build-dashboard-ui-embed.sh` runs once. Only `placeholder.txt` is
    tracked under `cmd/scenery/dashboard_static/dist`; the real embed bundle is
    built locally.

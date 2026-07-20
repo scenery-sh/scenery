@@ -863,6 +863,10 @@ func harnessStepEffects(step harnessStep) []string {
 	case "dashboard ui typecheck", "dashboard ui build":
 		set["node-runtime"] = true
 		set["external-binary"] = true
+	case "console dependencies":
+		set["node-runtime"] = true
+		set["external-binary"] = true
+		set["filesystem-write"] = true
 	case "fixture matrix":
 		set["filesystem-cache"] = true
 		set["external-binary"] = true

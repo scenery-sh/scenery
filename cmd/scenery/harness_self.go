@@ -114,14 +114,18 @@ func runSceneryHarnessSelf(ctx context.Context, stdout io.Writer, args []string)
 			runHarnessPostgresProbeStep(ctx, repoRoot, opts.Mode == harnessSelfModeRelease),
 		)
 		dashboardUIRoot := filepath.Join(repoRoot, filepath.FromSlash(dashboardUIRootRel))
-		resp.Steps = append(resp.Steps,
-			runHarnessExecStep(ctx, dashboardUIRoot, "dashboard ui typecheck", []string{"bun", "run", "typecheck"}, artifactCtx),
-			runHarnessExecStep(ctx, dashboardUIRoot, "dashboard ui build", []string{"bun", "run", "build"}, artifactCtx),
-			runHarnessFreshnessStep("dashboard ui fresh", dashboardUIRoot, dashboardUIBundleStale, "Run `./scripts/build-dashboard-ui-embed.sh`, rebuild the scenery binary, restart scenery, then rerun `scenery harness self -o json`."),
-			runHarnessExecStep(ctx, repoRoot, "Scenery TypeScript client conformance", []string{"bun", "test", "internal/generate/testdata/typescript_client_conformance.test.ts"}, artifactCtx),
-			runHarnessExecStep(ctx, repoRoot, "Scenery TypeScript client typecheck", []string{filepath.Join(dashboardUIRoot, "node_modules", ".bin", "tsc"), "-p", "internal/generate/testdata/tsconfig.generated-clients.json"}, artifactCtx),
-			runHarnessExecStep(ctx, repoRoot, "Scenery UI catalog typecheck", []string{filepath.Join(dashboardUIRoot, "node_modules", ".bin", "tsc"), "-p", "internal/generate/testdata/tsconfig.catalog.json"}, artifactCtx),
-		)
+		consoleDepsStep, consoleReady := runHarnessConsoleDepsStep(ctx, dashboardUIRoot, artifactCtx)
+		resp.Steps = append(resp.Steps, consoleDepsStep)
+		if consoleReady {
+			resp.Steps = append(resp.Steps,
+				runHarnessExecStep(ctx, dashboardUIRoot, "dashboard ui typecheck", []string{"bun", "run", "typecheck"}, artifactCtx),
+				runHarnessExecStep(ctx, dashboardUIRoot, "dashboard ui build", []string{"bun", "run", "build"}, artifactCtx),
+				runHarnessFreshnessStep("dashboard ui fresh", dashboardUIRoot, dashboardUIBundleStale, "Run `./scripts/build-dashboard-ui-embed.sh`, rebuild the scenery binary, restart scenery, then rerun `scenery harness self -o json`."),
+				runHarnessExecStep(ctx, repoRoot, "Scenery TypeScript client conformance", []string{"bun", "test", "internal/generate/testdata/typescript_client_conformance.test.ts"}, artifactCtx),
+				runHarnessExecStep(ctx, repoRoot, "Scenery TypeScript client typecheck", []string{filepath.Join(dashboardUIRoot, "node_modules", ".bin", "tsc"), "-p", "internal/generate/testdata/tsconfig.generated-clients.json"}, artifactCtx),
+				runHarnessExecStep(ctx, repoRoot, "Scenery UI catalog typecheck", []string{filepath.Join(dashboardUIRoot, "node_modules", ".bin", "tsc"), "-p", "internal/generate/testdata/tsconfig.catalog.json"}, artifactCtx),
+			)
+		}
 		fixtureStep, fixtureMatrix := runHarnessFixtureMatrixStep(ctx, repoRoot)
 		resp.FixtureMatrix = fixtureMatrix
 		resp.Steps = append(resp.Steps, fixtureStep)
@@ -335,6 +339,60 @@ func findSceneryRepoRoot(start string) (string, bool) {
 		}
 		dir = parent
 	}
+}
+
+// harnessConsoleLaneNames are the self-harness lanes that need bun and the
+// installed apps/console dependency tree.
+var harnessConsoleLaneNames = []string{
+	"dashboard ui typecheck",
+	"dashboard ui build",
+	"dashboard ui fresh",
+	"Scenery TypeScript client conformance",
+	"Scenery TypeScript client typecheck",
+	"Scenery UI catalog typecheck",
+}
+
+// runHarnessConsoleDepsStep provisions the apps/console dependency tree so a
+// fresh worktree passes the tsc-dependent lanes without a manual preflight.
+// `bun install --frozen-lockfile` honors bun.lock, fails on drift instead of
+// rewriting it, and is a fast no-op when node_modules is already current. When
+// bun is missing or the install fails, the dependent lanes are skipped and the
+// returned step carries the one actionable diagnostic instead of letting every
+// lane fail on exec errors.
+func runHarnessConsoleDepsStep(ctx context.Context, consoleRoot string, artifactCtx harnessArtifactContext) (harnessStep, bool) {
+	command := []string{"bun", "install", "--frozen-lockfile"}
+	if _, err := exec.LookPath("bun"); err != nil {
+		step := harnessStep{
+			Name:    "console dependencies",
+			Command: command,
+			Error:   "bun was not found in PATH; skipped lanes: " + strings.Join(harnessConsoleLaneNames, ", "),
+			Summary: map[string]any{
+				"console_deps":  "unavailable",
+				"skipped_lanes": harnessConsoleLaneNames,
+			},
+			Diagnostics: []checkDiagnostic{{
+				Stage:           "console dependencies",
+				Severity:        "error",
+				Message:         "bun is not in PATH, so the dashboard and TypeScript client lanes were skipped and not measured",
+				SuggestedAction: "Install bun (https://bun.sh), then rerun `scenery harness self --summary --write`.",
+			}},
+		}
+		return step, false
+	}
+	step := runHarnessExecStep(ctx, consoleRoot, "console dependencies", command, artifactCtx)
+	if !step.OK {
+		step.Diagnostics = append(step.Diagnostics, checkDiagnostic{
+			Stage:           "console dependencies",
+			Severity:        "error",
+			Message:         "bun install --frozen-lockfile failed in apps/console, so the dashboard and TypeScript client lanes were skipped and not measured",
+			SuggestedAction: "Fix apps/console dependency state (bun.lock must match package.json), then rerun `scenery harness self --summary --write`.",
+		})
+		if step.Summary == nil {
+			step.Summary = map[string]any{}
+		}
+		step.Summary["skipped_lanes"] = harnessConsoleLaneNames
+	}
+	return step, step.OK
 }
 
 func runHarnessExecStep(ctx context.Context, dir, name string, command []string, artifactCtxs ...harnessArtifactContext) harnessStep {
