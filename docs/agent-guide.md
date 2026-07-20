@@ -235,6 +235,8 @@ For a generated two-pane screen, declare a unit-input operation with HTTP and in
 
 For a generated one-column screen, declare the same unit-input HTTP plus inherited-internal operation pair and use `content_page` with one app-owned `content` slot. Optional `actions` render in the shared `Page` header; `max_width` bounds the centered content well. Both slots receive the shared typed request state and should adapt it to `QueryState` with `queryStateProps`.
 
+For a generated operations workbench, make server capabilities explicit in the CRUD list: `search` names searchable string fields, `filters` allowlist exact string/enum or datetime filters, and `sorts` allowlist ordering. Reuse `status_map` resources for badge/filter presentation; set `pinned = true` only on the zero-to-two generated selectors that deserve inline quick access. Every filter remains in the Filters popover, active values remain visible as removable chips, and sort/direction stay separate from the filter count. Bind `table_page.stats` to a unit-input metrics operation; declare current-page CSV `export`; and fill only domain-specific `row_detail` content with a typed `react_component`. `form_dialog` derives string/enum fields from a mutation input record, table actions open it, failures stay inline, and success invalidates list and stats query keys. `row_detail.dialog` is the edit path when every mutation input can be seeded from a matching row field. Regenerate instead of editing the emitted page, status-map, dialog, or route files.
+
 For UI cleanup triage, run `scenery inspect ui --frontend <name>` and start with
 the highest-score file while reading both axes independently. Replace raw
 layout and controls with the existing Astryx or `@scenery/ui` vocabulary, and

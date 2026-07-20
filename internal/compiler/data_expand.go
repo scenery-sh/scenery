@@ -251,10 +251,13 @@ func crudListInputFields(crud, record Resource, all []map[string]any, resources 
 		byName[stringValue(field["name"])] = field
 	}
 	var result []any
+	if len(stringValues(list["search"])) > 0 {
+		result = append(result, map[string]any{"name": "search", "type": map[string]any{"$expression": "optional(string)"}})
+	}
 	for _, name := range stringValues(list["filters"]) {
 		field := byName[name]
 		typeName := unwrapCRUDListType(typeExpression(field["type"]))
-		if resources[namedFixtureTypeAddress(typeName, record.Module)].Kind == "scenery.enum" {
+		if typeName == "string" || resources[namedFixtureTypeAddress(typeName, record.Module)].Kind == "scenery.enum" {
 			result = append(result, map[string]any{"name": name, "type": map[string]any{"$expression": "optional(list(" + typeName + "))"}})
 		} else {
 			result = append(result,
@@ -339,6 +342,9 @@ func expandCRUDHTTPBinding(crud, entity, record Resource, action, operationName,
 				} else {
 					appendNamedChild(child, "query_parameter", map[string]any{"name": wire, "encoding": "repeated", "to": map[string]any{"$ref": "operation." + operationName + ".input." + name}})
 				}
+			}
+			if len(stringValues(list["search"])) > 0 {
+				appendNamedChild(child, "query_parameter", map[string]any{"name": "search", "to": map[string]any{"$ref": "operation." + operationName + ".input.search"}})
 			}
 			standard := []string{"direction", "cursor", "limit"}
 			if len(stringValues(list["sorts"])) > 0 {

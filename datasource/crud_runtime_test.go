@@ -186,4 +186,26 @@ func TestCRUDListQueryFiltersPaginatesAndBindsCursorToQuery(t *testing.T) {
 	}
 }
 
+func TestCRUDListSearchEscapesWildcardsAndBindsCursorFingerprint(t *testing.T) {
+	database, state := openCRUDTestDatabase(t, [][][]driver.Value{{}})
+	spec := CRUDSpec{Address: "house/crud/scenes", Relation: "scenes", Fields: []CRUDField{
+		{Name: "id", Column: "id", Type: "uuid", PrimaryKey: true},
+		{Name: "name", Column: "name", Type: "string"},
+		{Name: "description", Column: "description", Type: "optional(string)"},
+	}, List: &CRUDListSpec{Search: []string{"name", "description"}, Sorts: []string{"name"}, DefaultSort: "name", MaxPageSize: 25}}
+	if _, err := InvokeCRUD(context.Background(), database, spec, "list", []byte(`{"search":"roof_100%","limit":5}`)); err != nil {
+		t.Fatal(err)
+	}
+	if len(state.queries) != 1 {
+		t.Fatalf("queries = %#v", state.queries)
+	}
+	query := state.queries[0]
+	if !strings.Contains(query.SQL, `LOWER("name") LIKE LOWER($1) ESCAPE '\'`) || !strings.Contains(query.SQL, `LOWER("description") LIKE LOWER($1) ESCAPE '\'`) {
+		t.Fatalf("search query = %s", query.SQL)
+	}
+	if got := query.Args[0].Value; got != `%roof\_100\%%` {
+		t.Fatalf("search argument = %#v", got)
+	}
+}
+
 var _ driver.QueryerContext = (*crudTestConn)(nil)

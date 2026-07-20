@@ -73,9 +73,13 @@ export function EmptyState({
 }) {
   return (
     <div {...stylex.props(styles.empty, compact && styles.emptyCompact)}>
-      <Text color="secondary" type="supporting">
-        {children}
-      </Text>
+      {typeof children === "string" || typeof children === "number" ? (
+        <Text color="secondary" type="supporting">
+          {children}
+        </Text>
+      ) : (
+        children
+      )}
     </div>
   );
 }

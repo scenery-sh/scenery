@@ -80,6 +80,69 @@ func TestTablePageValidationRejectsInvalidAuthoredContracts(t *testing.T) {
 	}
 }
 
+func TestTablePageValidatesWorkbenchContracts(t *testing.T) {
+	resources := tablePageFixtureResources()
+	for index := range resources {
+		if resources[index].Address == "house/crud/scene_api" {
+			resources[index].Spec["list"].(map[string]any)["filters"] = []any{"name"}
+		}
+	}
+	resources = append(resources,
+		Resource{Address: "house/status_map/state", Module: "house", Name: "state", Kind: "scenery.status-map", Spec: map[string]any{
+			"status": map[string]any{"name": "open", "label": "Open", "variant": "neutral"},
+		}},
+		Resource{Address: "house/react_component/detail", Module: "house", Name: "detail", Kind: "scenery.react-component", Spec: map[string]any{"module": "detail.tsx", "export": "Detail"}},
+		Resource{Address: "house/record/metrics", Module: "house", Name: "metrics", Kind: "scenery.record", Spec: map[string]any{
+			"field": map[string]any{"name": "total", "type": map[string]any{"$expression": "int32"}},
+		}},
+		Resource{Address: "house/operation/metrics", Module: "house", Name: "metrics", Kind: "scenery.operation", Spec: map[string]any{
+			"input": map[string]any{"$ref": "std.type.unit"}, "result": map[string]any{"name": "success", "type": map[string]any{"$ref": "record.metrics"}},
+		}},
+		Resource{Address: "house/binding/metrics_http", Module: "house", Name: "metrics_http", Kind: "scenery.binding", Spec: map[string]any{
+			"operation": map[string]any{"$ref": "operation.metrics"}, "protocol": "http", "delivery": "call", "http": map[string]any{"method": "GET"},
+		}},
+		Resource{Address: "house/record/create_input", Module: "house", Name: "create_input", Kind: "scenery.record", Spec: map[string]any{
+			"field": map[string]any{"name": "name", "type": map[string]any{"$ref": "string"}},
+		}},
+		Resource{Address: "house/operation/create", Module: "house", Name: "create", Kind: "scenery.operation", Spec: map[string]any{
+			"input": map[string]any{"$ref": "record.create_input"}, "result": map[string]any{"name": "success", "type": map[string]any{"$ref": "record.create_input"}},
+		}},
+		Resource{Address: "house/binding/create_http", Module: "house", Name: "create_http", Kind: "scenery.binding", Spec: map[string]any{
+			"operation": map[string]any{"$ref": "operation.create"}, "protocol": "http", "delivery": "call", "http": map[string]any{"method": "POST"},
+		}},
+		Resource{Address: "house/form_dialog/create", Module: "house", Name: "create", Kind: "scenery.form-dialog", Spec: map[string]any{"source": map[string]any{"$ref": "binding.create_http"}, "title": "Create"}},
+	)
+	expanded, diagnostics := expandDataResources(resources)
+	if hasErrors(diagnostics) {
+		t.Fatal(diagnostics)
+	}
+	byAddress := resourcesByAddress(&Manifest{Resources: expanded})
+	table := byAddress["house/table_page/scenes"]
+	table.Spec = cloneMapValue(table.Spec)
+	table.Spec["stats"] = map[string]any{
+		"source": map[string]any{"$ref": "binding.metrics_http"},
+		"tile":   map[string]any{"name": "total", "label": "Total"},
+	}
+	table.Spec["row_detail"] = map[string]any{"component": map[string]any{"$ref": "react_component.detail"}, "dialog": map[string]any{"$ref": "form_dialog.create"}}
+	table.Spec["action"] = map[string]any{"name": "create", "label": "Create", "dialog": map[string]any{"$ref": "form_dialog.create"}}
+	table.Spec["filter"] = map[string]any{
+		"name":       "name",
+		"label":      "State",
+		"pinned":     true,
+		"status_map": map[string]any{"$ref": "status_map.state"},
+	}
+	if diagnostics := validateTablePage(byAddress, table); hasErrors(diagnostics) {
+		t.Fatalf("workbench diagnostics = %#v", diagnostics)
+	}
+
+	invalidPinned := table
+	invalidPinned.Spec = cloneMapValue(table.Spec)
+	invalidPinned.Spec["filter"].(map[string]any)["component"] = map[string]any{"$ref": "react_component.detail"}
+	if diagnostics := validateTablePage(byAddress, invalidPinned); !hasDiagnostic(diagnostics, "SCN2622") {
+		t.Fatalf("pinned custom filter diagnostics = %#v", diagnostics)
+	}
+}
+
 func tablePageFixtureResources() []Resource {
 	resources := dataProfileFixtureResources()
 	crud := &resources[4]

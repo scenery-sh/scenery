@@ -14,6 +14,7 @@ import type {
   TextareaHTMLAttributes,
 } from "react";
 import { useId } from "react";
+import type { Problem } from "./request-state.js";
 
 export function FormDialog({
   title,
@@ -157,6 +158,15 @@ export function TextAreaField({
   );
 }
 
+export function FormProblem({ problem }: { problem?: Problem }) {
+  if (!problem) return null;
+  return (
+    <div role="alert" {...stylex.props(styles.problem)}>
+      {problem.message}
+    </div>
+  );
+}
+
 function FieldFor({
   id,
   label,
@@ -230,4 +240,13 @@ const styles = stylex.create({
     font: "inherit",
   },
   textarea: { minHeight: 96, resize: "vertical" },
+  problem: {
+    padding: spacingVars["--spacing-2"],
+    borderColor: colorVars["--color-error"],
+    borderStyle: "solid",
+    borderWidth: borderVars["--border-width"],
+    borderRadius: radiusVars["--radius-element"],
+    color: colorVars["--color-error"],
+    fontSize: 12,
+  },
 });

@@ -12,9 +12,14 @@ export type {
   TablePageProblem,
   TablePageQuery,
   TablePageResult,
+  TablePageRowDetailProps,
   TablePageSlots,
   TablePageSort,
 } from "./components/QueryTable.js";
+export {
+  FilterToolbar,
+  type FilterToolbarFilter,
+} from "./components/FilterToolbar.js";
 export {
   type Align,
   type Column,
@@ -25,6 +30,7 @@ export {
 export {
   Field,
   FormDialog,
+  FormProblem,
   SelectField,
   TextAreaField,
   TextField,
@@ -174,4 +180,4 @@ export type {
   SearchSource,
   SearchableItem,
 } from "@astryxdesign/core/Typeahead";
-export { Theme } from "@astryxdesign/core/theme";
+export { Theme, type ThemeProps } from "./components/Theme.js";

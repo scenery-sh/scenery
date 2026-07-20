@@ -183,7 +183,7 @@ var (
 	entityDeletionSourceSchema     = sourceSchema("scenery.entity.deletion", 0, []string{"strategy", "field"}, []string{"strategy"}, nil)
 	viewImplementationSourceSchema = sourceSchema("scenery.view.implementation", 0, []string{"kind", "file", "name"}, []string{"kind", "file", "name"}, nil)
 	crudExecutionSourceSchema      = sourceSchema("scenery.crud.execution", 0, []string{"mode", "timeout"}, []string{"mode", "timeout"}, nil)
-	crudListSourceSchema           = sourceSchema("scenery.crud.list", 0, []string{"filters", "sorts", "default_sort", "max_page_size"}, nil, nil)
+	crudListSourceSchema           = sourceSchema("scenery.crud.list", 0, []string{"filters", "search", "sorts", "default_sort", "max_page_size"}, nil, nil)
 	crudHTTPSourceSchema           = sourceSchema("scenery.crud.http", 0,
 		[]string{"path", "codec_profile", "gateway", "authentication", "authorization", "pipeline"},
 		[]string{"path", "codec_profile", "gateway", "authentication", "authorization", "pipeline"}, nil)
@@ -191,14 +191,28 @@ var (
 		[]string{"exposure", "authentication", "authorization", "pipeline"}, nil, nil)
 	crudExtensionSourceSchema   = sourceSchema("scenery.crud.extension", 1, []string{"config"}, nil, nil)
 	pageActionSourceSchema      = sourceSchema("scenery.page.action", 1, []string{"invoke"}, []string{"invoke"}, nil)
+	statusMapStatusSourceSchema = sourceSchema("scenery.status-map.status", 1,
+		[]string{"label", "variant"}, []string{"label", "variant"}, nil)
+	formDialogFieldSourceSchema = sourceSchema("scenery.form-dialog.field", 1,
+		[]string{"label", "control", "placeholder", "status_map"}, nil, nil)
 	tablePageColumnSourceSchema = sourceSchema("scenery.table-page.column", 1,
-		[]string{"label", "appearance", "component"}, nil, nil)
+		[]string{"label", "appearance", "component", "status_map"}, nil, nil)
 	tablePageFilterSourceSchema = sourceSchema("scenery.table-page.filter", 1,
-		[]string{"label", "component"}, nil, nil)
+		[]string{"label", "component", "status_map", "pinned"}, nil, nil)
 	tablePageSortSourceSchema = sourceSchema("scenery.table-page.sort", 1,
 		[]string{"label", "default"}, nil, nil)
 	tablePageSlotSourceSchema = sourceSchema("scenery.table-page.slot", 0,
 		[]string{"component"}, []string{"component"}, nil)
+	tablePageRowDetailSourceSchema = sourceSchema("scenery.table-page.row-detail", 0,
+		[]string{"component", "dialog"}, []string{"component"}, nil)
+	tablePageStatsSourceSchema = sourceSchema("scenery.table-page.stats", 0,
+		[]string{"source"}, []string{"source"}, map[string]authoredChildSchema{
+			"tile": repeated(sourceSchema("scenery.table-page.stats.tile", 1, []string{"label"}, []string{"label"}, nil)),
+		})
+	tablePageActionSourceSchema = sourceSchema("scenery.table-page.action", 1,
+		[]string{"label", "icon", "dialog", "primary"}, []string{"label", "dialog"}, nil)
+	tablePageExportSourceSchema = sourceSchema("scenery.table-page.export", 0,
+		[]string{"label", "icon", "file_name"}, nil, nil)
 	contentPageSlotSourceSchema = sourceSchema("scenery.content-page.slot", 0,
 		[]string{"component"}, []string{"component"}, nil)
 	pageSearchSourceSchema = sourceSchema("scenery.page.search", 1,
@@ -234,7 +248,9 @@ var authoredResourceChildren = map[string]map[string]authoredChildSchema{
 	"view":              {"implementation": singleton(viewImplementationSourceSchema)},
 	"crud":              {"execution": singleton(crudExecutionSourceSchema), "list": singleton(crudListSourceSchema), "http": singleton(crudHTTPSourceSchema), "internal": singleton(crudInternalSourceSchema), "extension": repeated(crudExtensionSourceSchema)},
 	"page":              {"action": repeated(pageActionSourceSchema)},
-	"table_page":        {"column": repeated(tablePageColumnSourceSchema), "filter": repeated(tablePageFilterSourceSchema), "sort": repeated(tablePageSortSourceSchema), "toolbar": singleton(tablePageSlotSourceSchema), "empty": singleton(tablePageSlotSourceSchema), "search": repeated(pageSearchSourceSchema)},
+	"status_map":        {"status": repeated(statusMapStatusSourceSchema)},
+	"form_dialog":       {"field": repeated(formDialogFieldSourceSchema)},
+	"table_page":        {"column": repeated(tablePageColumnSourceSchema), "filter": repeated(tablePageFilterSourceSchema), "sort": repeated(tablePageSortSourceSchema), "action": repeated(tablePageActionSourceSchema), "stats": singleton(tablePageStatsSourceSchema), "row_detail": singleton(tablePageRowDetailSourceSchema), "export": singleton(tablePageExportSourceSchema), "toolbar": singleton(tablePageSlotSourceSchema), "empty": singleton(tablePageSlotSourceSchema), "search": repeated(pageSearchSourceSchema)},
 	"split_page":        {"sidebar": singleton(tablePageSlotSourceSchema), "detail": singleton(tablePageSlotSourceSchema), "sidebar_actions": singleton(tablePageSlotSourceSchema), "detail_header": singleton(tablePageSlotSourceSchema), "search": repeated(pageSearchSourceSchema)},
 	"content_page":      {"content": singleton(contentPageSlotSourceSchema), "actions": singleton(contentPageSlotSourceSchema), "search": repeated(pageSearchSourceSchema)},
 }

@@ -398,6 +398,15 @@ func declaredReactPageBindings(resources []Resource, target Resource) map[string
 		if crud.Kind == "scenery.crud" {
 			result[resourceAddress(crud.Module, "binding", crud.Name+"_list_http")] = true
 		}
+		for _, stats := range orderedChildren(table.Spec, "stats") {
+			result[resolveResourceRef(table, refString(stats["source"]), "binding")] = true
+		}
+		for _, action := range orderedChildren(table.Spec, "action") {
+			dialog := byAddress[resolveResourceRef(table, refString(action["dialog"]), "form_dialog")]
+			if dialog.Kind == "scenery.form-dialog" {
+				result[resolveResourceRef(dialog, refString(dialog.Spec["source"]), "binding")] = true
+			}
+		}
 	}
 	for _, split := range resources {
 		if split.Kind == "scenery.split-page" && split.Origin.Kind != "expanded" {

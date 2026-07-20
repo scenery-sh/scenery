@@ -1,6 +1,7 @@
-import { Badge } from "@astryxdesign/core/Badge";
 import { DateTimeInput } from "@astryxdesign/core/DateTimeInput";
 import type { ISODateTimeString } from "@astryxdesign/core/DateTimeInput";
+import { Icon } from "@astryxdesign/core/Icon";
+import { IconButton } from "@astryxdesign/core/IconButton";
 import { Link } from "@astryxdesign/core/Link";
 import { Pagination } from "@astryxdesign/core/Pagination";
 import { Selector } from "@astryxdesign/core/Selector";
@@ -10,12 +11,18 @@ import * as stylex from "@stylexjs/stylex";
 import { useQuery } from "@tanstack/react-query";
 import {
   type ComponentType,
+  type MouseEvent,
   type ReactNode,
   useCallback,
   useMemo,
   useState,
 } from "react";
 import { type Column, DataTable } from "./DataTable.js";
+import {
+  FilterToolbar,
+  type FilterToolbarActiveFilter,
+  type FilterToolbarFilter,
+} from "./FilterToolbar.js";
 import { QueryState } from "./QueryState.js";
 import {
   type Problem,
@@ -23,6 +30,7 @@ import {
   requestStateFromQuery,
   type RequestState,
 } from "./request-state.js";
+import { type StatusMap, StatusBadge } from "./StatusBadge.js";
 
 export type TablePageAppearance =
   | "auto"
@@ -38,6 +46,7 @@ export type TablePageResult<Row> = RequestState<{
 }>;
 
 export interface TablePageQuery {
+  readonly search?: string;
   readonly filters: Readonly<
     Record<string, string | readonly string[] | undefined>
   >;
@@ -67,12 +76,17 @@ export interface TablePageEmptyProps {
   readonly filtered: boolean;
 }
 
+export interface TablePageRowDetailProps<Row> {
+  readonly row: Row;
+}
+
 export type TablePageColumn<Row> = {
   readonly [Key in keyof Row]: {
     readonly field: Key;
     readonly label: string;
     readonly appearance: TablePageAppearance;
     readonly component?: ComponentType<TablePageCellProps<Row, Row[Key]>>;
+    readonly statusMap?: StatusMap;
   };
 }[keyof Row];
 
@@ -81,8 +95,12 @@ export type TablePageFilter =
       readonly field: string;
       readonly label: string;
       readonly kind: "enum";
-      readonly options: readonly string[];
+      readonly options: readonly (
+        | string
+        | { readonly value: string; readonly label: string }
+      )[];
       readonly component?: ComponentType<TablePageFilterProps<string>>;
+      readonly pinned?: boolean;
     }
   | {
       readonly field: string;
@@ -91,6 +109,7 @@ export type TablePageFilter =
       readonly component?: ComponentType<
         TablePageFilterProps<TablePageDateTimeRange>
       >;
+      readonly pinned?: boolean;
     };
 
 export interface TablePageSort {
@@ -116,6 +135,7 @@ export interface TablePageSlots<
   };
   readonly toolbar?: ComponentType;
   readonly empty?: ComponentType<TablePageEmptyProps>;
+  readonly rowDetail?: ComponentType<TablePageRowDetailProps<Row>>;
 }
 
 type Exact<Shape, Actual extends Shape> = Actual &
@@ -137,7 +157,16 @@ export interface QueryTableProps<Row extends object> {
   readonly columns: readonly TablePageColumn<Row>[];
   readonly filters: readonly TablePageFilter[];
   readonly sorts: readonly TablePageSort[];
+  readonly searchable?: boolean;
   readonly rowLink?: (row: Row) => string;
+  readonly rowDetail?: ComponentType<TablePageRowDetailProps<Row>>;
+  readonly rowDetailAction?: (row: Row) => ReactNode;
+  readonly emptyAction?: ReactNode;
+  readonly exportAction?: {
+    readonly label?: string;
+    readonly fileName: string;
+    readonly icon?: ReactNode;
+  };
   readonly pageSize: number;
   readonly queryKey: readonly unknown[];
   readonly load: (query: TablePageQuery) => Promise<TablePageResult<Row>>;
@@ -150,13 +179,19 @@ export function QueryTable<Row extends object>({
   columns,
   filters: declaredFilters,
   sorts,
+  searchable,
   rowLink,
+  rowDetail: RowDetail,
+  rowDetailAction,
+  emptyAction,
+  exportAction,
   pageSize,
   queryKey,
   load,
   empty: Empty,
 }: QueryTableProps<Row>) {
   const defaultSort = sorts.find((sort) => sort.default);
+  const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<
     Readonly<Record<string, string | readonly string[] | undefined>>
   >({});
@@ -166,10 +201,18 @@ export function QueryTable<Row extends object>({
   );
   const [cursor, setCursor] = useState<string>();
   const [history, setHistory] = useState<readonly (string | undefined)[]>([]);
+  const [expandedKey, setExpandedKey] = useState<string | null>(null);
 
   const query = useMemo<TablePageQuery>(
-    () => ({ filters, sort, direction, cursor, limit: pageSize }),
-    [cursor, direction, filters, pageSize, sort],
+    () => ({
+      search: search.trim() || undefined,
+      filters,
+      sort,
+      direction,
+      cursor,
+      limit: pageSize,
+    }),
+    [cursor, direction, filters, pageSize, search, sort],
   );
   const resultQuery = useQuery({
     queryKey: [...queryKey, query],
@@ -183,14 +226,19 @@ export function QueryTable<Row extends object>({
   const resetQuery = useCallback(() => {
     setCursor(undefined);
     setHistory([]);
+    setExpandedKey(null);
   }, []);
-  const filtered = Object.values(filters).some(
-    (value) =>
-      value !== undefined &&
-      value !== "" &&
-      (!Array.isArray(value) || value.length > 0),
-  );
+  const filtered =
+    search.trim() !== "" ||
+    Object.values(filters).some(
+      (value) =>
+        value !== undefined &&
+        value !== "" &&
+        (!Array.isArray(value) || value.length > 0),
+    );
   const items = result.kind === "result" ? result.items : [];
+  const rowKey = (row: Row, index: number) =>
+    rowLink?.(row) ?? String(index);
   const dataColumns = columns.map<Column<Row>>((column, columnIndex) => ({
     key: String(column.field),
     header: column.label,
@@ -207,6 +255,80 @@ export function QueryTable<Row extends object>({
       );
     },
   }));
+  if (RowDetail) {
+    dataColumns.unshift({
+      key: "__expand",
+      header: "",
+      width: "40px",
+      render: (row, index) => {
+        const key = rowKey(row, index);
+        const expanded = expandedKey === key;
+        return (
+          <IconButton
+            icon={
+              <Icon
+                icon={expanded ? "chevronDown" : "chevronRight"}
+                size="sm"
+              />
+            }
+            label={expanded ? "Collapse row" : "Expand row"}
+            onClick={(event: MouseEvent<HTMLButtonElement>) => {
+              event.stopPropagation();
+              setExpandedKey(expanded ? null : key);
+            }}
+            variant="ghost"
+          />
+        );
+      },
+    });
+  }
+  const toolbarFilters: FilterToolbarFilter[] = declaredFilters
+    .filter(
+      (
+        filter,
+      ): filter is Extract<TablePageFilter, { readonly kind: "enum" }> =>
+        filter.kind === "enum",
+    )
+    .map((filter) => ({
+      custom: Boolean(filter.component),
+      field: filter.field,
+      label: filter.label,
+      options: filter.options.map(normalizeFilterOption),
+      pinned: filter.pinned,
+    }));
+  const toolbarValues = Object.fromEntries(
+    toolbarFilters.map((filter) => {
+      const value = filters[filter.field];
+      return [filter.field, Array.isArray(value) ? value[0] : undefined];
+    }),
+  );
+  const activeDateTimeFilters: FilterToolbarActiveFilter[] = declaredFilters
+    .filter(
+      (
+        filter,
+      ): filter is Extract<TablePageFilter, { readonly kind: "datetime" }> =>
+        filter.kind === "datetime",
+    )
+    .flatMap((filter) => {
+      const from = filters[`${filter.field}_from`] as string | undefined;
+      const to = filters[`${filter.field}_to`] as string | undefined;
+      if (!from && !to) return [];
+      return [
+        {
+          field: filter.field,
+          label: filter.label,
+          valueLabel: `${from ?? "…"} – ${to ?? "…"}`,
+          onClear: () => {
+            setFilters((values) => ({
+              ...values,
+              [`${filter.field}_from`]: undefined,
+              [`${filter.field}_to`]: undefined,
+            }));
+            resetQuery();
+          },
+        },
+      ];
+    });
 
   return (
     <section aria-label={resource} {...stylex.props(styles.root)}>
@@ -215,46 +337,94 @@ export function QueryTable<Row extends object>({
           {description}
         </Text>
       ) : null}
-      {declaredFilters.length > 0 || sorts.length > 0 ? (
-        <div {...stylex.props(styles.controls)}>
-          {declaredFilters.map((filter) => {
-            if (filter.kind === "enum") {
-              const current = filters[filter.field];
-              return (
-                <EnumFilter
-                  filter={filter}
-                  key={filter.field}
-                  onChange={(value: string | undefined) => {
-                    setFilters((values) => ({
-                      ...values,
-                      [filter.field]: value ? [value] : undefined,
-                    }));
-                    resetQuery();
-                  }}
-                  value={Array.isArray(current) ? current[0] : undefined}
-                />
-              );
-            }
-            const range = {
-              from: filters[`${filter.field}_from`] as string | undefined,
-              to: filters[`${filter.field}_to`] as string | undefined,
-            };
-            return (
-              <DateTimeFilter
-                filter={filter}
-                key={filter.field}
-                onChange={(value: TablePageDateTimeRange) => {
-                  setFilters((values) => ({
-                    ...values,
-                    [`${filter.field}_from`]: value.from,
-                    [`${filter.field}_to`]: value.to,
-                  }));
+      {searchable ||
+      declaredFilters.length > 0 ||
+      sorts.length > 0 ||
+      result.kind === "result" ||
+      exportAction ? (
+        <FilterToolbar
+          activeFilterItems={activeDateTimeFilters}
+          exportLabel={exportAction?.label}
+          exportIcon={exportAction?.icon}
+          filters={toolbarFilters}
+          onExport={
+            exportAction && result.kind === "result"
+              ? () => exportRows(exportAction.fileName, columns, items)
+              : undefined
+          }
+          onFilterChange={(field, value) => {
+            setFilters((values) => ({
+              ...values,
+              [field]: value ? [value] : undefined,
+            }));
+            resetQuery();
+          }}
+          onSearchChange={
+            searchable
+              ? (value) => {
+                  setSearch(value);
                   resetQuery();
-                }}
-                value={range}
-              />
-            );
-          })}
+                }
+              : undefined
+          }
+          resultLabel={
+            result.kind === "result"
+              ? `${result.items.length} ${
+                  result.items.length === 1
+                    ? singular(resource)
+                    : resource.toLocaleLowerCase()
+                }`
+              : undefined
+          }
+          search={search}
+          searchLabel={`Search ${resource.toLocaleLowerCase()}`}
+          values={toolbarValues}
+          filterContent={
+            <>
+              {declaredFilters.map((filter) => {
+                if (filter.kind === "enum") {
+                  if (!filter.component) return null;
+                  const current = filters[filter.field];
+                  return (
+                    <EnumFilter
+                      filter={filter}
+                      key={filter.field}
+                      onChange={(value: string | undefined) => {
+                        setFilters((values) => ({
+                          ...values,
+                          [filter.field]: value ? [value] : undefined,
+                        }));
+                        resetQuery();
+                      }}
+                      value={
+                        Array.isArray(current) ? current[0] : undefined
+                      }
+                    />
+                  );
+                }
+                const range = {
+                  from: filters[`${filter.field}_from`] as string | undefined,
+                  to: filters[`${filter.field}_to`] as string | undefined,
+                };
+                return (
+                  <DateTimeFilter
+                    filter={filter}
+                    key={filter.field}
+                    onChange={(value: TablePageDateTimeRange) => {
+                      setFilters((values) => ({
+                        ...values,
+                        [`${filter.field}_from`]: value.from,
+                        [`${filter.field}_to`]: value.to,
+                      }));
+                      resetQuery();
+                    }}
+                    value={range}
+                  />
+                );
+              })}
+            </>
+          }
+        >
           {sorts.length > 0 ? (
             <>
               <Selector
@@ -287,7 +457,7 @@ export function QueryTable<Row extends object>({
               />
             </>
           ) : null}
-        </div>
+        </FilterToolbar>
       ) : null}
       <QueryState
         {...queryStateProps(result, resource)}
@@ -296,6 +466,13 @@ export function QueryTable<Row extends object>({
             <Empty filtered={filtered} />
           ) : filtered ? (
             "No matching results."
+          ) : emptyAction ? (
+            <div {...stylex.props(styles.emptyWithAction)}>
+              <Text color="secondary" type="supporting">
+                No results yet.
+              </Text>
+              {emptyAction}
+            </div>
           ) : (
             "No results yet."
           )
@@ -305,9 +482,24 @@ export function QueryTable<Row extends object>({
       >
         <DataTable
           columns={dataColumns}
+          expandedKey={expandedKey}
           framed
-          getRowKey={(row, index) => rowLink?.(row) ?? String(index)}
+          getRowKey={rowKey}
           minWidth={720}
+          renderExpanded={
+            RowDetail
+              ? (row) => (
+                  <div {...stylex.props(styles.rowDetail)}>
+                    <RowDetail row={row} />
+                    {rowDetailAction ? (
+                      <div {...stylex.props(styles.rowDetailAction)}>
+                        {rowDetailAction(row)}
+                      </div>
+                    ) : null}
+                  </div>
+                )
+              : undefined
+          }
           rows={items}
           sticky
         />
@@ -360,10 +552,7 @@ function EnumFilter({
       hasClear
       label={filter.label}
       onChange={(next: string | null) => onChange(next ?? undefined)}
-      options={filter.options.map((option) => ({
-        label: option,
-        value: option,
-      }))}
+      options={filter.options.map(normalizeFilterOption)}
       placeholder="All"
       size="sm"
       value={value ?? null}
@@ -430,12 +619,52 @@ function renderCell<Row extends object>(
     return <time dateTime={value}>{new Date(value).toLocaleString()}</time>;
   }
   if (column.appearance === "badge") {
-    return <Badge label={cellText(value)} />;
+    return column.statusMap && typeof value === "string" ? (
+      <StatusBadge map={column.statusMap} status={value} />
+    ) : (
+      <StatusBadge map={{}} status={cellText(value)} />
+    );
   }
   if (column.appearance === "number" && typeof value === "number") {
     return value.toLocaleString();
   }
   return cellText(value);
+}
+
+function normalizeFilterOption(
+  option: string | { readonly value: string; readonly label: string },
+) {
+  return typeof option === "string"
+    ? { label: option, value: option }
+    : { label: option.label, value: option.value };
+}
+
+function singular(resource: string) {
+  const value = resource.toLocaleLowerCase();
+  return value.endsWith("s") ? value.slice(0, -1) : value;
+}
+
+function exportRows<Row extends object>(
+  fileName: string,
+  columns: readonly TablePageColumn<Row>[],
+  rows: readonly Row[],
+) {
+  const csv = [
+    columns.map((column) => csvCell(column.label)).join(","),
+    ...rows.map((row) =>
+      columns.map((column) => csvCell(cellText(row[column.field]))).join(","),
+    ),
+  ].join("\n");
+  const href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+  const link = document.createElement("a");
+  link.href = href;
+  link.download = fileName;
+  link.click();
+  URL.revokeObjectURL(href);
+}
+
+function csvCell(value: string) {
+  return `"${value.replaceAll("\"", "\"\"")}"`;
 }
 
 function cellText(value: unknown): string {
@@ -464,12 +693,6 @@ const styles = stylex.create({
     gap: spacingVars["--spacing-4"],
     minWidth: 0,
   },
-  controls: {
-    display: "flex",
-    alignItems: "flex-end",
-    flexWrap: "wrap",
-    gap: spacingVars["--spacing-3"],
-  },
   dateRange: {
     display: "flex",
     alignItems: "flex-end",
@@ -477,6 +700,21 @@ const styles = stylex.create({
     gap: spacingVars["--spacing-2"],
   },
   pagination: {
+    display: "flex",
+    justifyContent: "flex-end",
+  },
+  emptyWithAction: {
+    display: "flex",
+    alignItems: "center",
+    flexDirection: "column",
+    gap: spacingVars["--spacing-3"],
+  },
+  rowDetail: {
+    display: "flex",
+    flexDirection: "column",
+    gap: spacingVars["--spacing-3"],
+  },
+  rowDetailAction: {
     display: "flex",
     justifyContent: "flex-end",
   },

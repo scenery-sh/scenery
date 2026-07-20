@@ -181,6 +181,8 @@ For a generated two-pane screen, use the generic `split_page` kind with a unit-i
 
 For a generated one-column screen, use `content_page` with the same unit-input HTTP plus inherited-internal operation contract, a required app-owned `content` slot, and optional `actions`. Scenery renders the shared `Page` shell; both slots receive typed `RequestState` props, and `max_width` optionally bounds the centered content well.
 
+For a generated operations workbench, declare CRUD `list.search`, filters, and sorts; reuse `status_map` resources for badge columns and finite filter labels; and use `pinned = true` sparingly for inline filter quick access. Every declared filter remains in the Filters popover, active values appear as removable chips, and sort/direction remain separate query controls. Add a unit-input metrics binding under `table_page.stats`; use `row_detail` only for domain-specific row content; and remember that `export` downloads the currently loaded filtered rows. A `form_dialog` derives string/enum controls from a mutation input record; a table `action` opens it and successful mutations invalidate both list and stats queries. An optional `row_detail.dialog` must be seedable from matching row fields. Keep generated page, route, dialog, and query wiring intact rather than rebuilding them in app code.
+
 ## Tasks and Workers
 
 Use `scenery task` for app-local code tasks. Targets use `<domain>:<name>` and may run even when the application graph is temporarily invalid.

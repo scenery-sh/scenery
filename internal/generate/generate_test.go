@@ -1053,6 +1053,7 @@ crud "scene_api" {
   }
   list {
     filters       = ["name", "created_at"]
+    search        = ["tenant_id"]
     sorts         = ["name"]
     default_sort  = { field = "name", direction = "asc" }
     max_page_size = 25
@@ -1085,6 +1086,22 @@ react_component "scene_date_filter" {
 react_component "scene_toolbar" {
   module = "scene-toolbar.tsx"
   export = "SceneToolbar"
+}
+
+react_component "scene_detail" {
+  module = "scene-detail.tsx"
+  export = "SceneDetail"
+}
+
+status_map "scene_name" {
+  status "roof" {
+    label   = "Roof"
+    variant = "green"
+  }
+  status "wall" {
+    label   = "Wall"
+    variant = "neutral"
+  }
 }
 
 react_component "scene_summary_content" {
@@ -1194,6 +1211,106 @@ content_page "scene_summary" {
   }
 }
 
+record "scene_metrics" {
+  field "total" { type = int32 }
+}
+
+operation "scene_metrics" {
+  service = service.house
+  input   = std.type.unit
+
+  handler { method = "SceneMetrics" }
+  result "success" { type = record.scene_metrics }
+}
+
+execution "scene_metrics_direct" {
+  operation = operation.scene_metrics
+  mode      = "direct"
+  timeout   = "15s"
+}
+
+binding "scene_metrics_http" {
+  gateway        = var.gateway
+  operation      = operation.scene_metrics
+  execution      = execution.scene_metrics_direct
+  protocol       = "http"
+  delivery       = "call"
+  authentication = std.authentication.none
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+
+  http {
+    method        = "GET"
+    path          = "/scene-metrics"
+    codec_profile = std.codec.http_json_v1
+    response "success" {
+      when   = result.success
+      status = 200
+      body {
+        codec = "json"
+        from  = result.success
+      }
+    }
+  }
+}
+
+record "scene_quick_create_input" {
+  field "name" { type = enum.scene_name }
+}
+
+operation "scene_quick_create" {
+  service = service.house
+  input   = record.scene_quick_create_input
+
+  handler { method = "SceneQuickCreate" }
+  result "success" { type = record.scene_row }
+}
+
+execution "scene_quick_create_direct" {
+  operation = operation.scene_quick_create
+  mode      = "direct"
+  timeout   = "15s"
+}
+
+binding "scene_quick_create_http" {
+  gateway        = var.gateway
+  operation      = operation.scene_quick_create
+  execution      = execution.scene_quick_create_direct
+  protocol       = "http"
+  delivery       = "call"
+  authentication = std.authentication.none
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+
+  http {
+    method        = "POST"
+    path          = "/scene-quick-create"
+    codec_profile = std.codec.http_json_v1
+    body {
+      codec = "json"
+      to    = operation.scene_quick_create.input
+    }
+    response "success" {
+      when   = result.success
+      status = 200
+      body {
+        codec = "json"
+        from  = result.success
+      }
+    }
+  }
+}
+
+form_dialog "scene_quick_create" {
+  source       = binding.scene_quick_create_http
+  title        = "Create scene"
+  submit_label = "Create"
+  field "name" {
+    label       = "Name"
+    placeholder = "Scene name"
+  }
+}
+
 table_page "scenes" {
   path        = "/scenes"
   source      = crud.scene_api
@@ -1201,12 +1318,14 @@ table_page "scenes" {
   description = "Description \"quoted\" \\ path"
   column "id" { label = "ID \"quoted\" \\ path" }
   column "name" {
-    label     = "Name \"quoted\" \\ path"
-    component = react_component.scene_name_cell
+    label      = "Name \"quoted\" \\ path"
+    appearance = "badge"
+    component  = react_component.scene_name_cell
+    status_map = status_map.scene_name
   }
   filter "name" {
-    label     = "Filter \"quoted\" \\ path"
-    component = react_component.scene_name_filter
+    label  = "Filter \"quoted\" \\ path"
+    pinned = true
   }
   filter "created_at" {
     label     = "Created"
@@ -1218,6 +1337,25 @@ table_page "scenes" {
   }
   toolbar {
     component = react_component.scene_toolbar
+  }
+  row_detail {
+    component = react_component.scene_detail
+    dialog    = form_dialog.scene_quick_create
+  }
+  export {
+    label     = "Export scenes"
+    icon      = "arrowDown"
+    file_name = "scenes.csv"
+  }
+  stats {
+    source = binding.scene_metrics_http
+    tile "total" { label = "Total" }
+  }
+  action "create" {
+    label   = "Create scene"
+    icon    = "wrench"
+    dialog  = form_dialog.scene_quick_create
+    primary = true
   }
   row_link  = "/scenes/{id}"
   page_size = 20
@@ -1240,6 +1378,7 @@ table_page "plain_scenes" {
 		"scene-name-cell.tsx":   `export function SceneNameCell(props: { readonly row: object; readonly value: string }) { return props.value; }`,
 		"scene-name-filter.tsx": `export function SceneNameFilter(props: { readonly value?: string; readonly label: string; readonly onChange: (value: string | undefined) => void }) { return props.label; }`,
 		"scene-date-filter.tsx": `export function SceneDateFilter(props: { readonly value?: { readonly from?: string; readonly to?: string }; readonly label: string; readonly onChange: (value: { readonly from?: string; readonly to?: string } | undefined) => void }) { return props.label; }`,
+		"scene-detail.tsx":      `export function SceneDetail(props: { readonly row: object }) { return JSON.stringify(props.row); }`,
 		"scene-summary.tsx":     `export function SceneSummary(props: { readonly state: unknown }) { return String(props.state); } export function SceneSummaryActions(props: { readonly state: unknown }) { return String(props.state); }`,
 		"scene-toolbar.tsx":     `export function SceneToolbar() { return "Toolbar"; }`,
 	} {
@@ -1256,6 +1395,14 @@ table_page "plain_scenes" {
 
 func (service *Service) SceneSummary(_ context.Context, _ housecontract.SceneSummaryInput) (housecontract.SceneSummaryOutcome, error) {
 	return housecontract.SceneSummarySuccess{Value: housecontract.SceneRow{}}, nil
+}
+
+func (service *Service) SceneMetrics(_ context.Context, _ housecontract.SceneMetricsInput) (housecontract.SceneMetricsOutcome, error) {
+	return housecontract.SceneMetricsSuccess{Value: housecontract.SceneMetrics{Total: 1}}, nil
+}
+
+func (service *Service) SceneQuickCreate(_ context.Context, _ housecontract.SceneQuickCreateInput) (housecontract.SceneQuickCreateOutcome, error) {
+	return housecontract.SceneQuickCreateSuccess{Value: housecontract.SceneRow{}}, nil
 }
 `)...)
 	if err := os.WriteFile(servicePath, serviceSource, 0o644); err != nil {
@@ -1340,6 +1487,7 @@ func (service *Service) SceneSummary(_ context.Context, _ housecontract.SceneSum
 	for _, fragment := range []string{
 		`export type SceneApiListSort = "name";`,
 		`readonly name?: readonly SceneName[];`,
+		`readonly search?: string;`,
 		`readonly direction?: SceneApiListDirection;`,
 		`readonly nextCursor?: string;`,
 	} {
@@ -1363,26 +1511,56 @@ func (service *Service) SceneSummary(_ context.Context, _ housecontract.SceneSum
 	for _, fragment := range []string{
 		"defineTablePageSlots<SceneRow",
 		`readonly "createdAt": TablePageDateTimeRange`,
-		"actions={<slots.toolbar />}",
+		"actions={<>",
+		"<slots.toolbar />",
 		"client?: PublicApiClient",
 		"providedClient ?? defaultClient",
 		"client.sceneApiList",
+		"client.sceneMetrics",
+		"client.sceneQuickCreate",
+		"useMutation",
+		"onError: (error) =>",
+		"const openSceneQuickCreate = (row?: SceneRow)",
+		`name: row?.name ?? "roof \"quoted\" \\ path"`,
+		"<StatTile label={\"Total\"} value={statsState.value.total}",
+		"<FormDialog title={\"Create scene\"}",
+		"queryClient.invalidateQueries({ queryKey })",
 		"value is SceneName",
 		"Code generated by Scenery",
-		`<Page title={"Scenes \"quoted\" \\ path"} actions={<slots.toolbar />}>`,
+		`<Page title={"Scenes \"quoted\" \\ path"} actions={<>`,
 		`<QueryTable<SceneRow> resource={"Scenes \"quoted\" \\ path"}`,
 		`queryKey={queryKey}`,
+		`searchable`,
+		`rowDetail={slots.rowDetail}`,
+		`rowDetailAction={(row) => <Button label="Create scene" onClick={() => openSceneQuickCreate(row)} size="sm" variant="secondary" />}`,
+		`emptyAction={<Button label="Create scene" icon={<Icon icon="wrench" size="sm" />} onClick={() => openSceneQuickCreate()} size="sm" variant="primary" />}`,
+		`exportAction={{ fileName: "scenes.csv", label: "Export scenes", icon: <Icon icon="arrowDown" size="sm" /> }}`,
 		`const queryKey = ["scenery", "table_page", "house/table_page/scenes"] as const;`,
 		`title={"Scenes \"quoted\" \\ path"}`,
 		`description={"Description \"quoted\" \\ path"}`,
 		`label: "ID \"quoted\" \\ path"`,
 		`label: "Name \"quoted\" \\ path"`,
 		`label: "Filter \"quoted\" \\ path"`,
+		`pinned: true`,
 		`label: "Sort \"quoted\" \\ path"`,
-		`options: ["roof \"quoted\" \\ path", "wall"]`,
+		`options: [{ value: "roof \"quoted\" \\ path", label: "Roof \"quoted\" \\ Path" }, { value: "wall", label: "Wall" }]`,
 	} {
 		if !strings.Contains(string(pageSource), fragment) {
 			t.Errorf("generated table page missing %q:\n%s", fragment, pageSource)
+		}
+	}
+	statusMaps, err := os.ReadFile(filepath.Join(root, "clients", "generated", "public_api", "react", "status-maps.generated.ts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, fragment := range []string{
+		"SceneryStatusBadgeVariants",
+		"satisfies Partial<Record<BadgeVariant, true>>",
+		"export const HouseSceneNameStatusMap: StatusMap",
+		`"roof": { label: "Roof", variant: "green" }`,
+	} {
+		if !strings.Contains(string(statusMaps), fragment) {
+			t.Errorf("generated status map missing %q:\n%s", fragment, statusMaps)
 		}
 	}
 	for _, forbidden := range []string{"as any", "as unknown as", "import(", "throw cause", "import { TablePage", "return <TablePage", "ui/pages/"} {

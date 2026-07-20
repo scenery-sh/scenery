@@ -276,7 +276,71 @@ table_page "orders" {
 }
 ```
 
-The CRUD runtime applies enum-array and datetime-range filters, query-bound keyset cursors, stable primary-key tie-breaking, and server-side limit clamping. Add declared `react_component` overrides only where the catalog defaults are insufficient.
+The CRUD runtime applies exact string/enum filters, datetime ranges, escaped case-insensitive search across declared string fields, query-bound keyset cursors, stable primary-key tie-breaking, and server-side limit clamping. Add declared `react_component` overrides only where the catalog defaults are insufficient.
+
+Grow the same page into an operations workbench without moving transport or query state into app code:
+
+```hcl
+status_map "order_status" {
+  status "open" {
+    label   = "Open"
+    variant = "neutral"
+  }
+  status "complete" {
+    label   = "Complete"
+    variant = "green"
+  }
+}
+
+form_dialog "order_create" {
+  source       = binding.order_create_http
+  title        = "New order"
+  submit_label = "Create"
+
+  field "notes" {
+    label   = "Notes"
+    control = "textarea"
+  }
+}
+
+table_page "orders" {
+  path   = "/orders"
+  source = crud.orders
+  title  = "Orders"
+
+  stats {
+    source = binding.order_metrics_http
+    tile "open" { label = "Open" }
+    tile "total" { label = "Total" }
+  }
+
+  column "number" {}
+  column "status" {
+    appearance = "badge"
+    status_map = status_map.order_status
+  }
+  filter "status" {
+    label      = "Status"
+    pinned     = true
+    status_map = status_map.order_status
+  }
+  action "create" {
+    label   = "New order"
+    icon    = "wrench"
+    dialog  = form_dialog.order_create
+    primary = true
+  }
+  row_detail {
+    component = react_component.order_detail
+  }
+  export {
+    file_name = "orders.csv"
+    icon      = "arrowDown"
+  }
+}
+```
+
+The stats operation has unit input and one flat numeric/string record result. The form source is a call-delivery mutation HTTP binding whose input is a string/closed-enum record. Generated dialogs keep failures inline and invalidate both list and stats queries on success. Use `pinned = true` only for the few finite selectors that need inline quick access: pinned selectors also remain in the complete Filters popover, active filters appear as removable chips, and sort/direction stay visible as separate query controls. CSV export intentionally covers the currently loaded filtered rows; expose a separate operation when the product needs a full-dataset export.
 
 For a two-pane page, keep the declaration generic and the domain UI app-owned:
 
@@ -322,7 +386,7 @@ content_page "summary" {
 
 The generated adapter renders catalog `Page`, puts `actions` in its header, and passes the same typed raw request state to both slots. Use `queryStateProps(state, "summary")` with `QueryState` in the content component instead of inventing another loading/error union.
 
-For a CRUD collection, keep the higher-level `table_page` declaration. Its generated adapter uses the same `Page` shell and renders the chrome-less catalog `QueryTable` as content. Declared `toolbar` becomes the page action slot; cell, filter, and empty-state components remain app-owned typed slots. The built-in grid, enum and datetime filters, sorting, pagination, loading, empty, and error states use Astryx components and tokens, so customize the app theme through Astryx rather than catalog-specific CSS variables.
+For a CRUD collection, keep the higher-level `table_page` declaration. Its generated adapter uses the same `Page` shell and renders the chrome-less catalog `QueryTable` as content. Declared stats, header actions, generated form dialogs, and mutation invalidation stay in the adapter; search/filter/sort controls, loaded-row count, current-page export, row expansion, pagination, and list request state stay in `QueryTable`. Cell, filter, toolbar, empty-state, and row-detail components remain app-owned typed slots. The built-in workbench uses Astryx components and semantic tokens, so customize the app theme through Astryx rather than catalog-specific CSS variables.
 
 ## Generate A TypeScript Client
 

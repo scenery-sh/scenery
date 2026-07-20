@@ -31,7 +31,7 @@ var packageResourceKinds = map[string]bool{
 	"operation": true, "execution": true, "binding": true,
 	"schedule": true, "event": true, "event_emission": true,
 	"entity": true, "view": true, "crud": true, "fixture": true,
-	"page": true, "renderer": true, "react_component": true, "table_page": true, "split_page": true, "content_page": true, "middleware": true,
+	"page": true, "renderer": true, "react_component": true, "status_map": true, "form_dialog": true, "table_page": true, "split_page": true, "content_page": true, "middleware": true,
 }
 
 func Compile(root string) (*Result, error) {

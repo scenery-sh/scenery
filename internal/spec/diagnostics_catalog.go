@@ -256,6 +256,7 @@ SCN2511|fixture_shape|A fixture is missing required entity environment mode or v
 SCN2512|crud_list_field|A CRUD list capability references an unavailable field or action
 SCN2513|crud_list_filter|A CRUD list filter is not supported by the standard query contract
 SCN2514|crud_list_sort|A CRUD list sort or default ordering is invalid
+SCN2515|crud_list_search|A CRUD list search field is not supported by the standard query contract
 SCN2601|page_contract|A page lacks a path or typed load binding
 SCN2602|renderer_contract|A renderer lacks a page runtime or module
 SCN2603|page_semantics|Page path load actions or renderer references are invalid
@@ -275,6 +276,9 @@ SCN2616|split_page_expansion_identity|A split-page-derived resource address coll
 SCN2617|content_page_contract|A content page source or slot contract is invalid
 SCN2618|content_page_expansion_identity|A content-page-derived resource address collides
 SCN2619|page_route_contract|A generated page search or navigation contract is invalid
+SCN2620|status_map_contract|A status map declaration is invalid
+SCN2621|form_dialog_contract|A form dialog declaration or mutation binding is invalid
+SCN2622|table_page_workbench|A table page workbench declaration is invalid
 SCN2701|event_contract|An event lacks a payload or positive version
 SCN2702|event_emission_shape|An event emission is incomplete
 SCN2703|event_binding_shape|An event binding is incomplete

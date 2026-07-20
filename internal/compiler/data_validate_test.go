@@ -131,7 +131,7 @@ func TestCRUDListCapabilitiesValidateAndExpandStandardQuery(t *testing.T) {
 	record.Spec["field"].([]any)[2].(map[string]any)["type"] = map[string]any{"$ref": "enum.scene_name"}
 	crud := &resources[4]
 	crud.Spec["actions"] = []any{"list"}
-	crud.Spec["list"] = map[string]any{"filters": []any{"name"}, "sorts": []any{"name"}, "default_sort": map[string]any{"field": "name", "direction": "desc"}, "max_page_size": 25}
+	crud.Spec["list"] = map[string]any{"filters": []any{"name"}, "search": []any{"tenant_id"}, "sorts": []any{"name"}, "default_sort": map[string]any{"field": "name", "direction": "desc"}, "max_page_size": 25}
 	if diagnostics := validateDataSemantics("", resources); hasErrors(diagnostics) {
 		t.Fatalf("valid list diagnostics = %#v", diagnostics)
 	}
@@ -145,7 +145,7 @@ func TestCRUDListCapabilitiesValidateAndExpandStandardQuery(t *testing.T) {
 	for _, field := range input {
 		names = append(names, stringValue(field["name"]))
 	}
-	for _, want := range []string{"tenant_id", "name", "sort", "direction", "cursor", "limit"} {
+	for _, want := range []string{"tenant_id", "search", "name", "sort", "direction", "cursor", "limit"} {
 		if !containsDataString(names, want) {
 			t.Errorf("list input fields %v missing %s", names, want)
 		}
@@ -155,7 +155,7 @@ func TestCRUDListCapabilitiesValidateAndExpandStandardQuery(t *testing.T) {
 		t.Fatalf("list result = %#v", result)
 	}
 	http := byAddress["house/binding/scene_api_list_http"].Spec["http"].(map[string]any)
-	if got := namedChildren(http, "query_parameter"); len(got) != 5 {
+	if got := namedChildren(http, "query_parameter"); len(got) != 6 {
 		t.Fatalf("query mappings = %#v", got)
 	}
 	crud.Spec["list"].(map[string]any)["filters"] = []any{"id"}

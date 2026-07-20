@@ -6,7 +6,7 @@ import (
 )
 
 func TestDeclarativeTableResourceMetadataIsComplete(t *testing.T) {
-	for _, kind := range []string{"scenery.crud", "scenery.react-component", "scenery.table-page", "scenery.split-page", "scenery.content-page"} {
+	for _, kind := range []string{"scenery.crud", "scenery.react-component", "scenery.status-map", "scenery.form-dialog", "scenery.table-page", "scenery.split-page", "scenery.content-page"} {
 		if !resourceCreateKindSupported(kind) {
 			t.Fatalf("%s is not advertised as a creatable resource kind", kind)
 		}

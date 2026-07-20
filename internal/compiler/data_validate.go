@@ -257,7 +257,7 @@ func validateCRUDSemantics(resources map[string]Resource, crud Resource) []Diagn
 		fields[name] = recordFields[name]
 	}
 	var diagnostics []Diagnostic
-	filters, sorts := stringValues(list["filters"]), stringValues(list["sorts"])
+	filters, search, sorts := stringValues(list["filters"]), stringValues(list["search"]), stringValues(list["sorts"])
 	for _, name := range filters {
 		field := fields[name]
 		if field == nil {
@@ -265,8 +265,18 @@ func validateCRUDSemantics(resources map[string]Resource, crud Resource) []Diagn
 			continue
 		}
 		typeName := unwrapCRUDListType(typeExpression(field["type"]))
-		if typeName != "datetime" && resources[namedFixtureTypeAddress(typeName, record.Module)].Kind != "scenery.enum" {
-			diagnostics = append(diagnostics, dataDiagnostic("SCN2513", "CRUD list filter "+name+" must be an enum or datetime field", crud))
+		if typeName != "datetime" && typeName != "string" && resources[namedFixtureTypeAddress(typeName, record.Module)].Kind != "scenery.enum" {
+			diagnostics = append(diagnostics, dataDiagnostic("SCN2513", "CRUD list filter "+name+" must be a string, enum, or datetime field", crud))
+		}
+	}
+	for _, name := range search {
+		field := fields[name]
+		if field == nil {
+			diagnostics = append(diagnostics, dataDiagnostic("SCN2512", "CRUD list search references unknown entity field "+name, crud))
+			continue
+		}
+		if unwrapCRUDListType(typeExpression(field["type"])) != "string" {
+			diagnostics = append(diagnostics, dataDiagnostic("SCN2515", "CRUD list search field "+name+" must be a string field", crud))
 		}
 	}
 	for _, name := range sorts {

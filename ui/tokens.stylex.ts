@@ -12,8 +12,7 @@ import {
 } from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
 
-// Scenery's semantic token facade. Values remain references to Astryx
-// custom properties, so app-owned Astryx themes continue to control them.
+// Scenery's semantic token facade.
 export const t = stylex.defineVars({
   accent: colorVars["--color-accent"],
   accentMuted: colorVars["--color-accent-muted"],
@@ -83,3 +82,41 @@ export const t = stylex.defineVars({
   pageGutter: spacingVars["--spacing-4"],
   panelWidth: `calc(${spacingVars["--spacing-10"]} + ${spacingVars["--spacing-10"]} + ${spacingVars["--spacing-10"]} + ${spacingVars["--spacing-10"]} + ${spacingVars["--spacing-10"]})`,
 });
+
+// Re-resolve mode-dependent aliases inside the active Astryx Theme wrapper.
+// Without this scope, defineVars computes its root defaults against the OS
+// scheme, so an explicitly selected app theme can get opposite-mode surfaces.
+export const tTheme = stylex.createTheme(t, {
+  accent: colorVars["--color-accent"],
+  accentMuted: colorVars["--color-accent-muted"],
+  body: colorVars["--color-background-body"],
+  surface: colorVars["--color-background-surface"],
+  popover: colorVars["--color-background-popover"],
+  muted: colorVars["--color-background-muted"],
+  graySurface: colorVars["--color-background-gray"],
+  dangerSurface: colorVars["--color-background-red"],
+  overlay: colorVars["--color-overlay"],
+  overlayHover: colorVars["--color-overlay-hover"],
+  neutral: colorVars["--color-neutral"],
+  border: colorVars["--color-border"],
+  infoBorder: colorVars["--color-border-blue"],
+  borderEmphasized: colorVars["--color-border-emphasized"],
+  textPrimary: colorVars["--color-text-primary"],
+  textSecondary: colorVars["--color-text-secondary"],
+  accentText: colorVars["--color-text-accent"],
+  dangerText: colorVars["--color-text-red"],
+  infoIcon: colorVars["--color-icon-blue"],
+  mutedIcon: colorVars["--color-icon-gray"],
+  dangerIcon: colorVars["--color-icon-red"],
+  onDark: colorVars["--color-on-dark"],
+  shadowColor: colorVars["--color-shadow"],
+  success: colorVars["--color-success"],
+  successMuted: colorVars["--color-success-muted"],
+  warning: colorVars["--color-warning"],
+  warningMuted: colorVars["--color-warning-muted"],
+  error: colorVars["--color-error"],
+  errorMuted: colorVars["--color-error-muted"],
+  shadowLow: shadowVars["--shadow-low"],
+  shadowMedium: shadowVars["--shadow-med"],
+  shadowHigh: shadowVars["--shadow-high"],
+} as never);

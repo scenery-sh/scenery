@@ -19,6 +19,10 @@ func validateUISemantics(root string, resources []Resource) []Diagnostic {
 		switch resource.Kind {
 		case "scenery.react-component":
 			diagnostics = append(diagnostics, validateReactComponent(root, byAddress, resource)...)
+		case "scenery.status-map":
+			diagnostics = append(diagnostics, validateStatusMap(resource)...)
+		case "scenery.form-dialog":
+			diagnostics = append(diagnostics, validateFormDialog(byAddress, resource)...)
 		case "scenery.table-page":
 			diagnostics = append(diagnostics, validateTablePage(byAddress, resource)...)
 		case "scenery.split-page":

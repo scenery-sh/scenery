@@ -2374,6 +2374,52 @@ renderer "scene_detail_web" {
 
 Page loads and actions invoke typed internal bindings, which already select operation, execution, and policy. They do not call bare operations or arbitrary backend methods. One page MAY have multiple renderers.
 
+The current source language also provides `content_page`, `split_page`, and
+`table_page` declarations. They are authored sugar: expansion MUST emit
+ordinary page and renderer resources with lineage back to the source
+declaration. No page macro creates a second runtime path.
+
+A CRUD list MAY declare `search` string fields, exact string/enum `filters`,
+datetime-range filters, allowed sorts, a default sort, and a maximum page
+size. Search MUST escape user wildcard characters before applying
+case-insensitive substring matching. Cursor identity MUST include search,
+filters, tenant scope, sort field, and direction.
+
+A workbench `table_page` MAY declare:
+
+- a `stats` binding whose operation has unit input and one flat numeric or
+  string result record, with tiles naming fields in that record;
+- finite filters and badge columns labeled through reusable `status_map`
+  resources;
+- client-side export of the currently loaded filtered rows;
+- one typed row-detail component, with at most one row expanded at a time;
+- header actions that open `form_dialog` mutation resources.
+
+Generated workbench filter presentation MUST keep search visible, render only
+filters explicitly marked `pinned = true` as inline quick-access selectors,
+keep every declared filter editable in one Filters popover, and summarize
+active values as removable chips with a Clear all action. A pinned filter MUST
+use a generated finite string or closed-enum selector. Sort field and direction
+are separate, always-visible query controls and MUST NOT contribute to the
+active-filter count.
+
+Each status-map entry MUST have a unique status, a non-empty label, and a
+variant in the current catalog badge vocabulary. Generated clients MUST
+type-check that vocabulary against the catalog badge type.
+
+A `form_dialog` source MUST be a call-delivery HTTP mutation binding whose
+operation input is a record. Current generated controls accept string and
+closed-enum fields, preserve optionality, render typed or transport failures
+inside the dialog, and invalidate the owning table list and stats queries
+after success. When `row_detail.dialog` is present, every dialog input field
+MUST have a type-compatible row field so the generated edit form can be
+seeded without inference or an untyped adapter.
+
+Action and export icons MUST use the current semantic Astryx icon vocabulary.
+Generated catalog code MUST use Astryx controls and semantic tokens so the
+same workbench renders under light and dark color schemes without
+app-specific color branches.
+
 ## 17. Providers, instances, and extensions
 
 ### 17.1 Provider packages

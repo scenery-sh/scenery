@@ -154,7 +154,7 @@ func providerCRUDRuntimeSpec(resources []Resource, operations []Resource) (strin
 			maxPageSize = 100
 		}
 		defaultSort, _ := list["default_sort"].(map[string]any)
-		listLiteral = fmt.Sprintf(", List: &datasource.CRUDListSpec{Filters: %#v, Sorts: %#v, DefaultSort: %q, DefaultDirection: %q, MaxPageSize: %d}", stringValues(list["filters"]), stringValues(list["sorts"]), stringValue(defaultSort["field"]), stringValue(defaultSort["direction"]), maxPageSize)
+		listLiteral = fmt.Sprintf(", List: &datasource.CRUDListSpec{Filters: %#v, Search: %#v, Sorts: %#v, DefaultSort: %q, DefaultDirection: %q, MaxPageSize: %d}", stringValues(list["filters"]), stringValues(list["search"]), stringValues(list["sorts"]), stringValue(defaultSort["field"]), stringValue(defaultSort["direction"]), maxPageSize)
 		break
 	}
 	return fmt.Sprintf("datasource.CRUDSpec{Address: %q, Schema: %q, Relation: %q, Fields: []datasource.CRUDField{%s}%s}", entity.Address, schema, relation, strings.Join(fields, ", "), listLiteral), databaseName, nil

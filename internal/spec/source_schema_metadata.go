@@ -39,6 +39,11 @@ type authoredFieldOverride struct {
 type AuthoredFieldKey = authoredFieldKey
 type AuthoredFieldOverride = authoredFieldOverride
 
+var statusBadgeVariants = []string{
+	"blue", "cyan", "error", "green", "info", "neutral", "orange",
+	"pink", "purple", "red", "success", "teal", "warning", "yellow",
+}
+
 var authoredFieldOverrides = map[authoredFieldKey]authoredFieldOverride{
 	{Name: "config"}: {SensitivitySource: "provider_schema"},
 
@@ -104,6 +109,12 @@ var authoredFieldOverrides = map[authoredFieldKey]authoredFieldOverride{
 	{Revision: "scenery.source.content_page", Name: "nav_order"}:                      {Constraints: map[string]any{"minimum": 0}},
 	{Revision: "scenery.table-page.column", Name: "appearance"}:                       {Default: "auto", DefaultSource: "spec", Constraints: enumConstraint("auto", "badge", "datetime", "number", "text")},
 	{Revision: "scenery.table-page.sort", Name: "default"}:                            {Constraints: enumConstraint("asc", "desc")},
+	{Revision: "scenery.status-map.status", Name: "variant"}:                          {Constraints: enumConstraint(statusBadgeVariants...)},
+	{Revision: "scenery.form-dialog.field", Name: "control"}:                          {Default: "auto", DefaultSource: "spec", Constraints: enumConstraint("auto", "select", "textarea", "text")},
+	{Revision: "scenery.table-page.action", Name: "primary"}:                          {Default: false, DefaultSource: "spec"},
+	{Revision: "scenery.table-page.action", Name: "icon"}:                             {Constraints: semanticIconConstraint()},
+	{Revision: "scenery.table-page.export", Name: "label"}:                            {Default: "Export", DefaultSource: "spec"},
+	{Revision: "scenery.table-page.export", Name: "icon"}:                             {Constraints: semanticIconConstraint()},
 	{Revision: "scenery.source.fixture", Name: "mode"}:                                {Constraints: enumConstraint("insert", "replace", "upsert")},
 	{Revision: "scenery.deployment.secret", Name: "value"}:                            {Sensitive: true},
 	{Revision: "scenery.deployment.http-listener", Name: "certificate"}:               {UnsupportedDraft: "platform_listener_and_certificate_schemas"},
@@ -158,8 +169,24 @@ func AuthoredRevisionDomain(revision, name string) string {
 	return authoredRevisionDomain(revision, name)
 }
 
+func StatusBadgeVariants() []string {
+	return append([]string(nil), statusBadgeVariants...)
+}
+
 func enumConstraint(values ...string) map[string]any {
 	return map[string]any{"enum": values}
+}
+
+// semanticIconConstraint mirrors Astryx's IconName vocabulary. Generated
+// clients pass these names directly to the catalog Icon component.
+func semanticIconConstraint() map[string]any {
+	return enumConstraint(
+		"arrowDown", "arrowUp", "arrowsUpDown", "calendar", "check",
+		"checkDouble", "chevronDown", "chevronLeft", "chevronRight", "clock",
+		"close", "copy", "error", "externalLink", "eyeSlash", "funnel",
+		"info", "menu", "microphone", "moreHorizontal", "search", "stop",
+		"success", "viewColumns", "warning", "wrench",
+	)
 }
 
 func authoredPrimitiveConstraints(typeDefinition map[string]any) map[string]any {
@@ -804,7 +831,7 @@ func authoredAttributeType(revision, name string) (map[string]any, string) {
 		return primitive("string")
 	case "scenery.crud.list":
 		switch name {
-		case "filters", "sorts":
+		case "filters", "search", "sorts":
 			return map[string]any{"collection": "set", "items": map[string]any{"primitive": "string"}}, "exact"
 		case "default_sort":
 			return object("crud_default_sort")
@@ -842,6 +869,20 @@ func authoredAttributeType(revision, name string) (map[string]any, string) {
 	case "scenery.source.react_component":
 		if name == "module" {
 			return primitive("relative_path")
+		}
+		return primitive("string")
+	case "scenery.source.status_map":
+		return primitive("string")
+	case "scenery.status-map.status":
+		return primitive("string")
+	case "scenery.source.form_dialog":
+		if name == "source" {
+			return resourceRef("binding")
+		}
+		return primitive("string")
+	case "scenery.form-dialog.field":
+		if name == "status_map" {
+			return resourceRef("status_map")
 		}
 		return primitive("string")
 	case "scenery.source.table_page":
@@ -883,12 +924,46 @@ func authoredAttributeType(revision, name string) (map[string]any, string) {
 		}
 	case "scenery.page.search":
 		return typeExpression()
-	case "scenery.table-page.column", "scenery.table-page.filter", "scenery.table-page.slot", "scenery.content-page.slot":
+	case "scenery.table-page.column", "scenery.table-page.filter":
+		switch name {
+		case "component":
+			return resourceRef("react_component")
+		case "status_map":
+			return resourceRef("status_map")
+		case "pinned":
+			return primitive("bool")
+		default:
+			return primitive("string")
+		}
+	case "scenery.table-page.slot", "scenery.content-page.slot":
 		if name == "component" {
 			return resourceRef("react_component")
 		}
 		return primitive("string")
+	case "scenery.table-page.row-detail":
+		if name == "dialog" {
+			return resourceRef("form_dialog")
+		}
+		return resourceRef("react_component")
 	case "scenery.table-page.sort":
+		return primitive("string")
+	case "scenery.table-page.stats":
+		if name == "source" {
+			return resourceRef("binding")
+		}
+		return primitive("string")
+	case "scenery.table-page.stats.tile":
+		return primitive("string")
+	case "scenery.table-page.action":
+		switch name {
+		case "dialog":
+			return resourceRef("form_dialog")
+		case "primary":
+			return primitive("bool")
+		default:
+			return primitive("string")
+		}
+	case "scenery.table-page.export":
 		return primitive("string")
 	case "scenery.source.fixture":
 		switch name {

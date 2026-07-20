@@ -44,6 +44,7 @@ type CRUDSpec struct {
 
 type CRUDListSpec struct {
 	Filters          []string
+	Search           []string
 	Sorts            []string
 	DefaultSort      string
 	DefaultDirection string
@@ -144,7 +145,7 @@ func listCRUDPage(ctx context.Context, database SQL, spec CRUDSpec, input map[st
 	}
 	for _, name := range spec.List.Filters {
 		field := fields[name]
-		if strings.Contains(field.Type, "enum.") || strings.Contains(field.Type, "/enum/") {
+		if crudBaseType(field.Type) == "string" || strings.Contains(field.Type, "enum.") || strings.Contains(field.Type, "/enum/") {
 			raw, present := input[name]
 			if !present {
 				continue
@@ -184,6 +185,21 @@ func listCRUDPage(ctx context.Context, database SQL, spec CRUDSpec, input map[st
 			arguments = append(arguments, value)
 			clauses = append(clauses, quoteCRUDIdentifier(field.Column)+" "+suffix.operator+fmt.Sprintf(" $%d", len(arguments)))
 		}
+	}
+	search, err := crudOptionalString(input["search"])
+	if err != nil {
+		return nil, err
+	}
+	search = strings.TrimSpace(search)
+	if search != "" {
+		filterValues["search"] = search
+		arguments = append(arguments, "%"+escapeCRUDLike(search)+"%")
+		placeholder := fmt.Sprintf("$%d", len(arguments))
+		searchClauses := make([]string, 0, len(spec.List.Search))
+		for _, name := range spec.List.Search {
+			searchClauses = append(searchClauses, "LOWER("+quoteCRUDIdentifier(fields[name].Column)+") LIKE LOWER("+placeholder+") ESCAPE '\\'")
+		}
+		clauses = append(clauses, "("+strings.Join(searchClauses, " OR ")+")")
 	}
 	sortName, err := crudOptionalString(input["sort"])
 	if err != nil {
@@ -671,7 +687,7 @@ func validateCRUDSpec(spec CRUDSpec) error {
 		if spec.List.MaxPageSize < 1 || spec.List.DefaultDirection != "" && spec.List.DefaultDirection != "asc" && spec.List.DefaultDirection != "desc" {
 			return fmt.Errorf("CRUD %s has invalid list pagination", spec.Address)
 		}
-		for _, name := range append(append([]string(nil), spec.List.Filters...), spec.List.Sorts...) {
+		for _, name := range append(append(append([]string(nil), spec.List.Filters...), spec.List.Search...), spec.List.Sorts...) {
 			if !names[name] {
 				return fmt.Errorf("CRUD %s list references unknown field %s", spec.Address, name)
 			}
@@ -681,6 +697,27 @@ func validateCRUDSpec(spec CRUDSpec) error {
 		}
 	}
 	return nil
+}
+
+func escapeCRUDLike(value string) string {
+	value = strings.ReplaceAll(value, `\`, `\\`)
+	value = strings.ReplaceAll(value, `%`, `\%`)
+	return strings.ReplaceAll(value, `_`, `\_`)
+}
+
+func crudBaseType(value string) string {
+	value = strings.TrimSpace(value)
+	for {
+		open := strings.IndexByte(value, '(')
+		if open < 0 || !strings.HasSuffix(value, ")") {
+			return value
+		}
+		wrapper := strings.TrimSpace(value[:open])
+		if wrapper != "optional" && wrapper != "nullable" {
+			return value
+		}
+		value = strings.TrimSpace(value[open+1 : len(value)-1])
+	}
 }
 
 func crudRelation(spec CRUDSpec) string {
