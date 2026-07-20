@@ -13,6 +13,9 @@ current application graph.
   contexts.
 - Compiler results are immutable graph snapshots; evolution, generation, and
   deployment planning consume them without redefining the graph model.
+- Runtime-config-selected, framework-owned endpoint projections belong in
+  `Result.FrameworkResources`. Inspection and client generation consume them,
+  while `Manifest.Resources` and generated runtime composition remain authored.
 - Workspace snapshots exclude VCS, Scenery state, and dependency caches and
   reject symlinks or non-regular entries.
 - `workspace_revision` excludes derived generated roots and Scenery-owned

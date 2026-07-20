@@ -1177,6 +1177,10 @@ content_page "scene_summary" {
     type = string
   }
 
+  search "google_connected" {
+    type = string
+  }
+
   search "view" {
     type = enum.scene_name
   }
@@ -1422,8 +1426,13 @@ func (service *Service) SceneSummary(_ context.Context, _ housecontract.SceneSum
 		t.Fatal(err)
 	}
 	for _, fragment := range []string{
+		`import type { PublicApiClient } from "../index.js";`,
+		`export function createGeneratedRoutes(client?: PublicApiClient)`,
+		`component: () => createElement(SceneSummaryPage as ComponentType<{ readonly client?: PublicApiClient }>, { client })`,
 		`export type SceneSummarySearch`,
 		`mail?: string`,
+		`googleConnected?: string`,
+		`googleConnected: typeof search["google_connected"] === "string"`,
 		`view?: "roof \"quoted\" \\ path" | "wall"`,
 		`validateSceneSummarySearch`,
 		`navigation: { group: "UI", order: 30, label: "Summary", icon: "report", activePaths: ["/scene-summary", "/scene-summary/detail"] }`,
@@ -1436,7 +1445,15 @@ func (service *Service) SceneSummary(_ context.Context, _ housecontract.SceneSum
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, fragment := range []string{"createSceneryApp", "ClientAppShell", "navigationSections", "<Outlet />"} {
+	for _, fragment := range []string{
+		`import type { PublicApiClient } from "../index.js";`,
+		`readonly client?: PublicApiClient`,
+		`...createGeneratedRoutes(options.client)`,
+		"createSceneryApp",
+		"ClientAppShell",
+		"navigationSections",
+		"<Outlet />",
+	} {
 		if !strings.Contains(string(appSource), fragment) {
 			t.Errorf("generated app adapter missing %q:\n%s", fragment, appSource)
 		}
@@ -1491,5 +1508,98 @@ func TestGenerateApplicationAdapterEmitsTypedPathMappingAndGatewayBasePath(t *te
 		if !strings.Contains(adapter, fragment) {
 			t.Fatalf("adapter missing %q:\n%s", fragment, adapter)
 		}
+	}
+}
+
+func TestTypeScriptClientIncludesFrameworkOwnedEndpointProjection(t *testing.T) {
+	resources := []Resource{
+		{
+			Address: "app/http_gateway/public",
+			Module:  "app",
+			Kind:    "scenery.http-gateway",
+			Name:    "public",
+			Spec:    map[string]any{},
+			Origin:  Origin{Kind: "authored"},
+		},
+		{
+			Address: "scenery_auth/record/google_connect_start_input",
+			Module:  "scenery_auth",
+			Kind:    "scenery.record",
+			Name:    "google_connect_start_input",
+			Spec: map[string]any{"field": []any{
+				map[string]any{"name": "scopes", "type": map[string]any{"$expression": "list(string)"}},
+			}},
+			Origin: Origin{Kind: "framework"},
+		},
+		{
+			Address: "scenery_auth/record/google_connect_start_response",
+			Module:  "scenery_auth",
+			Kind:    "scenery.record",
+			Name:    "google_connect_start_response",
+			Spec: map[string]any{"field": map[string]any{
+				"name": "authorize_url",
+				"type": map[string]any{"$ref": "string"},
+			}},
+			Origin: Origin{Kind: "framework"},
+		},
+		{
+			Address: "scenery_auth/operation/google_connect_start",
+			Module:  "scenery_auth",
+			Kind:    "scenery.operation",
+			Name:    "google_connect_start",
+			Spec: map[string]any{
+				"input":  map[string]any{"$ref": "scenery_auth/record/google_connect_start_input"},
+				"result": map[string]any{"name": "success", "type": map[string]any{"$ref": "scenery_auth/record/google_connect_start_response"}},
+			},
+			Origin: Origin{Kind: "framework"},
+		},
+		{
+			Address: "scenery_auth/binding/google_connect_start_public_http",
+			Module:  "scenery_auth",
+			Kind:    "scenery.binding",
+			Name:    "google_connect_start_public_http",
+			Spec: map[string]any{
+				"gateway":   map[string]any{"$ref": "app/http_gateway/public"},
+				"operation": map[string]any{"$ref": "scenery_auth/operation/google_connect_start"},
+				"protocol":  "http",
+				"http": map[string]any{
+					"method": "POST",
+					"path":   "/auth/google/connect/start",
+					"body": map[string]any{
+						"codec": "json",
+						"to":    map[string]any{"$ref": "operation.google_connect_start.input"},
+					},
+					"response": map[string]any{
+						"name":   "success",
+						"when":   map[string]any{"$ref": "result.success"},
+						"status": "200",
+						"body":   map[string]any{"codec": "json"},
+					},
+				},
+			},
+			Origin: Origin{Kind: "framework"},
+		},
+	}
+	target := Resource{
+		Name: "public",
+		Spec: map[string]any{
+			"gateways": []any{map[string]any{"$ref": "app/http_gateway/public"}},
+		},
+	}
+	bindings := publicHTTPBindings(resources, target)
+	reachable := reachableResources(resources, bindings)
+	clientSource := renderTSClient(target, bindings, reachable)
+	typesSource := renderTSTypes(reachable, bindings)
+
+	for _, fragment := range []string{
+		"async googleConnectStart(input: Types.GoogleConnectStartInput",
+		`"/auth/google/connect/start"`,
+	} {
+		if !strings.Contains(clientSource, fragment) {
+			t.Fatalf("generated client missing %q:\n%s", fragment, clientSource)
+		}
+	}
+	if !strings.Contains(typesSource, "export interface GoogleConnectStartResponse") {
+		t.Fatalf("generated types omit the framework-owned response:\n%s", typesSource)
 	}
 }

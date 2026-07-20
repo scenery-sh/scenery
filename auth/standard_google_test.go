@@ -346,6 +346,21 @@ func TestGoogleConnectionFlowStoresEncryptedTokenAndDisconnects(t *testing.T) {
 	}
 }
 
+func TestGoogleConnectionResponseNormalizesContractDateTimesToUTC(t *testing.T) {
+	location := time.FixedZone("local", 2*60*60)
+	response := googleConnectionResponse(authdb.SceneryAuthGoogleConnection{
+		Status:      "active",
+		ConnectedAt: time.Date(2026, 7, 20, 13, 18, 45, 171981000, location),
+	})
+
+	if response.ConnectedAt == nil {
+		t.Fatal("ConnectedAt is nil")
+	}
+	if got, want := response.ConnectedAt.Format(time.RFC3339Nano), "2026-07-20T11:18:45.171981Z"; got != want {
+		t.Fatalf("ConnectedAt = %q, want %q", got, want)
+	}
+}
+
 func TestGoogleConnectionCallbackOAuthErrorUsesStateRedirect(t *testing.T) {
 	svc, _, authData := setupGoogleConnectionTest(t)
 

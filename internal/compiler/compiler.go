@@ -109,6 +109,11 @@ func compileResult(root string) (*Result, error) {
 	result.Manifest = manifest
 	result.ViewManifests = viewManifests
 	if manifest != nil {
+		frameworkResources, frameworkErr := standardAuthProjectionResources(absRoot, manifest.Resources)
+		if frameworkErr != nil {
+			return nil, frameworkErr
+		}
+		result.FrameworkResources = frameworkResources
 		result.ContractStatus = "valid"
 		result.HTTPSurfaceRevisions, result.OpenAPIRevisions = computeHTTPProjectionRevisions(manifest)
 		// The language compiler never approximates the Go build graph.

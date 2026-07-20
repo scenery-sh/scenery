@@ -413,10 +413,12 @@ func googleConnectionResponse(conn authdb.SceneryAuthGoogleConnection) *GoogleCo
 		resp.Scopes = nil
 	}
 	if conn.ConnectedAt.IsZero() == false {
-		resp.ConnectedAt = &conn.ConnectedAt
+		connectedAt := conn.ConnectedAt.UTC()
+		resp.ConnectedAt = &connectedAt
 	}
 	if conn.LastRefreshAt.Valid {
-		resp.LastRefreshAt = &conn.LastRefreshAt.Time
+		lastRefreshAt := conn.LastRefreshAt.Time.UTC()
+		resp.LastRefreshAt = &lastRefreshAt
 	}
 	if resp.Status == "reauth_required" {
 		resp.ReauthReason = strings.TrimSpace(conn.LastRefreshError)

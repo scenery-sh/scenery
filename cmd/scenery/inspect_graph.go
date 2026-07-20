@@ -171,12 +171,13 @@ func inspectServices(result *compiler.Result) []inspectdata.ServiceDetails {
 		return []inspectdata.ServiceDetails{}
 	}
 	resources := map[string]graph.Resource{}
-	for _, resource := range result.Manifest.Resources {
+	allResources := inspectProjectionResources(result)
+	for _, resource := range allResources {
 		resources[resource.Address] = resource
 	}
 	operations := map[string][]string{}
 	middleware := map[string][]string{}
-	for _, resource := range result.Manifest.Resources {
+	for _, resource := range allResources {
 		switch resource.Kind {
 		case "scenery.operation":
 			handler, _ := resource.Spec["handler"].(map[string]any)
@@ -196,7 +197,7 @@ func inspectServices(result *compiler.Result) []inspectdata.ServiceDetails {
 	}
 	roots := inspectServiceRoots(result)
 	var services []inspectdata.ServiceDetails
-	for _, resource := range result.Manifest.Resources {
+	for _, resource := range allResources {
 		if resource.Kind != "scenery.service" {
 			continue
 		}
@@ -226,7 +227,8 @@ func inspectEndpoints(result *compiler.Result) ([]inspectdata.EndpointRecord, er
 	for _, source := range result.Sources {
 		sourcePaths[source.ID] = source.Relative
 	}
-	for _, resource := range result.Manifest.Resources {
+	allResources := inspectProjectionResources(result)
+	for _, resource := range allResources {
 		resources[resource.Address] = resource
 	}
 	type endpointGroup struct {
@@ -234,7 +236,7 @@ func inspectEndpoints(result *compiler.Result) ([]inspectdata.EndpointRecord, er
 		methods map[string]bool
 	}
 	groups := map[string]*endpointGroup{}
-	for _, binding := range result.Manifest.Resources {
+	for _, binding := range allResources {
 		if binding.Kind != "scenery.binding" {
 			continue
 		}
@@ -269,7 +271,7 @@ func inspectEndpoints(result *compiler.Result) ([]inspectdata.EndpointRecord, er
 		if group == nil {
 			group = &endpointGroup{record: inspectdata.EndpointRecord{
 				ID: service.Name + "." + endpointName, Service: service.Name, Endpoint: endpointName, Access: access,
-				Path: effectivePath, Generated: operation.Origin.Kind == "expanded", HasPayload: hasPayload,
+				Path: effectivePath, Generated: operation.Origin.Kind == "expanded" || operation.Origin.Kind == "framework", HasPayload: hasPayload,
 				File: sourcePaths[operation.Origin.SourceID],
 			}, methods: map[string]bool{}}
 			groups[key] = group
@@ -291,6 +293,14 @@ func inspectEndpoints(result *compiler.Result) ([]inspectdata.EndpointRecord, er
 		return endpoints[i].Path < endpoints[j].Path
 	})
 	return endpoints, nil
+}
+
+func inspectProjectionResources(result *compiler.Result) []graph.Resource {
+	if result == nil || result.Manifest == nil {
+		return nil
+	}
+	resources := append([]graph.Resource(nil), result.Manifest.Resources...)
+	return append(resources, result.FrameworkResources...)
 }
 
 func inspectServiceRoots(result *compiler.Result) map[string]string {

@@ -94,6 +94,42 @@ func TestContractInspectProjectsNativeServiceAndPrivateEndpointIdentity(t *testi
 	}
 }
 
+func TestContractInspectIncludesFrameworkOwnedGoogleEndpoints(t *testing.T) {
+	t.Parallel()
+
+	result := &compiler.Result{
+		Manifest: &graph.Manifest{Resources: []graph.Resource{
+			{Address: "app/http_gateway/public_api", Kind: "scenery.http-gateway", Name: "public_api", Module: "app", Spec: map[string]any{"base_path": "/"}},
+		}},
+		FrameworkResources: []graph.Resource{
+			{Address: "scenery_auth/service/auth", Kind: "scenery.service", Name: "auth", Module: "scenery_auth", Spec: map[string]any{}, Origin: graph.Origin{Kind: "framework"}},
+			{Address: "scenery_auth/operation/google_connect_start", Kind: "scenery.operation", Name: "google_connect_start", Module: "scenery_auth", Spec: map[string]any{
+				"service": map[string]any{"$ref": "scenery_auth/service/auth"},
+				"handler": map[string]any{"method": "GoogleConnectStart"},
+			}, Origin: graph.Origin{Kind: "framework"}},
+			{Address: "scenery_auth/binding/google_connect_start_public_api_http", Kind: "scenery.binding", Name: "google_connect_start_public_api_http", Module: "scenery_auth", Spec: map[string]any{
+				"protocol":       "http",
+				"operation":      map[string]any{"$ref": "scenery_auth/operation/google_connect_start"},
+				"gateway":        map[string]any{"$ref": "app/http_gateway/public_api"},
+				"authentication": map[string]any{"$ref": "app/authentication/standard"},
+				"http":           map[string]any{"method": "POST", "path": "/auth/google/connect/start", "body": map[string]any{}},
+			}, Origin: graph.Origin{Kind: "framework"}},
+		},
+	}
+
+	endpoints, err := inspectEndpoints(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(endpoints) != 1 || endpoints[0].ID != "auth.GoogleConnectStart" || endpoints[0].Access != "auth" || !endpoints[0].Generated {
+		t.Fatalf("framework endpoints = %#v", endpoints)
+	}
+	services := inspectServices(result)
+	if got := findInspectServiceEndpoints(services, "auth"); len(got) != 1 || got[0] != "GoogleConnectStart" {
+		t.Fatalf("auth endpoints = %#v", got)
+	}
+}
+
 func findInspectServiceEndpoints(services []inspectdata.ServiceDetails, name string) []string {
 	for _, service := range services {
 		if service.Name == name {
