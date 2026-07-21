@@ -942,6 +942,13 @@ func authoredAttributeType(revision, name string) (map[string]any, string) {
 		default:
 			return primitive("string")
 		}
+	case "scenery.table-page.pagination", "scenery.table-page.query":
+		return primitive("string")
+	case "scenery.table-page.predicate":
+		if name == "value" {
+			return map[string]any{"$ref": "scenery.value"}, "exact"
+		}
+		return primitive("string")
 	case "scenery.table-page.slot", "scenery.content-page.slot":
 		if name == "component" {
 			return resourceRef("react_component")

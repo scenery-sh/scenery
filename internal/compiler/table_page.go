@@ -211,10 +211,13 @@ func validateTablePage(resources map[string]Resource, table Resource) []Diagnost
 	if defaultGroups > 1 {
 		diagnostics = append(diagnostics, uiDiagnostic("SCN2623", "table_page may declare one default group", table))
 	}
-	for _, slot := range []string{"toolbar", "empty", "row_detail"} {
+	for _, slot := range []string{"toolbar", "footer", "empty", "row_detail", "row_action"} {
 		for _, value := range namedChildren(table.Spec, slot) {
 			diagnostics = append(diagnostics, validateTablePageComponent(resources, table, value["component"])...)
 		}
+	}
+	if len(orderedChildren(table.Spec, "row_detail")) > 0 && len(orderedChildren(table.Spec, "row_action")) > 0 {
+		diagnostics = append(diagnostics, uiDiagnostic("SCN2623", "table_page row_action and row_detail are mutually exclusive", table))
 	}
 	for _, rowDetail := range orderedChildren(table.Spec, "row_detail") {
 		presentation := defaultString(stringValue(rowDetail["presentation"]), "inline")
@@ -250,8 +253,8 @@ func validateTablePage(resources map[string]Resource, table Resource) []Diagnost
 		diagnostics = append(diagnostics, uiDiagnostic("SCN2622", "table_page may declare at most one primary action", table))
 	}
 	pageSize, validPageSize := integerValue(table.Spec["page_size"])
-	if !validPageSize || pageSize < 1 || contract.paginated && contract.maxPageSize < pageSize {
-		if contract.paginated {
+	if !validPageSize || pageSize < 1 || contract.maxPageSize > 0 && contract.maxPageSize < pageSize {
+		if contract.maxPageSize > 0 {
 			diagnostics = append(diagnostics, uiDiagnostic("SCN2613", fmt.Sprintf("table_page page_size must be between 1 and %d", contract.maxPageSize), table))
 		} else {
 			diagnostics = append(diagnostics, uiDiagnostic("SCN2613", "table_page page_size must be positive", table))
@@ -286,10 +289,36 @@ func resolveTablePageSource(resources map[string]Resource, table Resource) (tabl
 		entity := resources[resolveResourceRef(source, refString(source.Spec["entity"]), "entity")]
 		record := resources[resolveResourceRef(entity, refString(entity.Spec["type"]), "record")]
 		maxPageSize, _ := integerValue(list["max_page_size"])
+		var diagnostics []Diagnostic
+		if len(orderedChildren(table.Spec, "pagination")) > 0 {
+			diagnostics = append(diagnostics, uiDiagnostic("SCN2624", "table_page page-number pagination is available only with a binding source", table))
+		}
+		if len(orderedChildren(table.Spec, "query")) > 0 {
+			diagnostics = append(diagnostics, uiDiagnostic("SCN2625", "table_page query mapping is available only with a binding source", table))
+		}
+		seenPredicates := map[string]bool{}
+		allowedFilters := stringValues(list["filters"])
+		for _, predicate := range namedChildren(table.Spec, "predicate") {
+			name := stringValue(predicate["name"])
+			rowField := namedChild(record.Spec, "field", name)
+			if name == "" || seenPredicates[name] || !containsDataString(allowedFilters, name) || rowField == nil {
+				diagnostics = append(diagnostics, uiDiagnostic("SCN2625", "table_page CRUD predicates require unique allowlisted filter input fields", table))
+				continue
+			}
+			seenPredicates[name] = true
+			if err := validateFixtureValue(predicate["value"], typeExpression(rowField["type"]), record.Module, resources); err != nil {
+				diagnostics = append(diagnostics, uiDiagnostic("SCN2625", "table_page predicate "+name+" value does not match its CRUD filter item type: "+err.Error(), table))
+			}
+		}
+		for _, filter := range namedChildren(table.Spec, "filter") {
+			if input := strings.TrimSpace(stringValue(filter["input"])); input != "" && input != stringValue(filter["name"]) {
+				diagnostics = append(diagnostics, uiDiagnostic("SCN2625", "table_page CRUD filter input mappings must use the generated same-named list input", table))
+			}
+		}
 		return tablePageSourceContract{
-			record: record, allowedFilters: stringValues(list["filters"]), allowedSorts: stringValues(list["sorts"]),
+			record: record, allowedFilters: allowedFilters, allowedSorts: stringValues(list["sorts"]),
 			maxPageSize: maxPageSize, paginated: true,
-		}, nil
+		}, diagnostics
 	case "scenery.binding":
 		return resolveBindingTablePageSource(resources, table, source)
 	default:
@@ -321,38 +350,133 @@ func resolveBindingTablePageSource(resources map[string]Resource, table, binding
 
 	shape := resolveOperationInputShape(resources, operation)
 	var diagnostics []Diagnostic
+	mappedInputs := map[string]string{}
+	claimInput := func(name, use string) bool {
+		if name == "" {
+			return false
+		}
+		if previous := mappedInputs[name]; previous != "" {
+			diagnostics = append(diagnostics, uiDiagnostic("SCN2625", "table_page input "+name+" is mapped by both "+previous+" and "+use, table))
+			return false
+		}
+		mappedInputs[name] = use
+		return true
+	}
 	allowedFilters := make([]string, 0)
 	for _, filter := range namedChildren(table.Spec, "filter") {
 		name := stringValue(filter["name"])
-		field := shape.Fields[name]
-		expression := unwrapCRUDListType(typeExpression(field.Type))
-		if _, list := wrappedFixtureType(expression, "list"); !field.Optional || !list {
-			diagnostics = append(diagnostics, uiDiagnostic("SCN2610", "table_page binding filters require same-named optional list input fields", table))
+		input := defaultString(strings.TrimSpace(stringValue(filter["input"])), name)
+		field := shape.Fields[input]
+		if !claimInput(input, "filter "+name) {
+			continue
+		}
+		if field.Name == "" || !field.Optional && !field.HasDefault || !tablePageFilterInputMatchesRow(resources, operation.Module, field.Type, namedChild(record.Spec, "field", name)) {
+			diagnostics = append(diagnostics, uiDiagnostic("SCN2625", "table_page binding filter "+name+" requires a mapped optional/defaulted scalar or list input with the row field type", table))
 			continue
 		}
 		allowedFilters = append(allowedFilters, name)
 	}
+
+	query := firstTablePageChild(table.Spec, "query")
+	queryName := func(kind, fallback string) string {
+		if query == nil {
+			return fallback
+		}
+		return defaultString(strings.TrimSpace(stringValue(query[kind])), fallback)
+	}
 	allowedSorts := make([]string, 0)
 	sorts := namedChildren(table.Spec, "sort")
 	if len(sorts) > 0 {
-		sortField, directionField := shape.Fields["sort"], shape.Fields["direction"]
+		sortName, directionName := queryName("sort", "sort"), queryName("direction", "direction")
+		sortField, directionField := shape.Fields[sortName], shape.Fields[directionName]
 		sortValues, directionValues := enumWireValues(resources, operation.Module, sortField.Type), enumWireValues(resources, operation.Module, directionField.Type)
-		if !sortField.Optional || !directionField.Optional || len(sortValues) == 0 || !sameStringSet(directionValues, []string{"asc", "desc"}) {
-			diagnostics = append(diagnostics, uiDiagnostic("SCN2610", "table_page binding sorts require optional sort and direction enum input fields", table))
+		sortString := unwrapCRUDListType(typeExpression(sortField.Type)) == "string"
+		directionString := unwrapCRUDListType(typeExpression(directionField.Type)) == "string"
+		hasDefaultSort := false
+		for _, sortSpec := range sorts {
+			hasDefaultSort = hasDefaultSort || stringValue(sortSpec["default"]) != ""
+		}
+		if !claimInput(sortName, "query sort") || !claimInput(directionName, "query direction") || sortField.Name == "" || directionField.Name == "" ||
+			(!sortField.Optional && !sortField.HasDefault && !hasDefaultSort) || (!directionField.Optional && !directionField.HasDefault && !hasDefaultSort) ||
+			(!sortString && len(sortValues) == 0) || (!directionString && !sameStringSet(directionValues, []string{"asc", "desc"})) {
+			diagnostics = append(diagnostics, uiDiagnostic("SCN2625", "table_page binding sort mappings require string or enum input fields and a usable direction", table))
 		} else {
 			for _, sortSpec := range sorts {
 				name := stringValue(sortSpec["name"])
-				if containsDataString(sortValues, name) {
+				if sortString || containsDataString(sortValues, name) {
 					allowedSorts = append(allowedSorts, name)
 				}
 			}
 		}
 	}
-	if search := shape.Fields["search"]; search.Name != "" &&
-		(!search.Optional || unwrapCRUDListType(typeExpression(search.Type)) != "string") {
-		diagnostics = append(diagnostics, uiDiagnostic("SCN2610", "table_page binding search input must be optional(string)", table))
+	searchName := queryName("search", "search")
+	if search := shape.Fields[searchName]; search.Name != "" {
+		claimInput(searchName, "query search")
+		if unwrapCRUDListType(typeExpression(search.Type)) != "string" {
+			diagnostics = append(diagnostics, uiDiagnostic("SCN2625", "table_page binding search mapping must target a string input field", table))
+		}
+	} else if query != nil && strings.TrimSpace(stringValue(query["search"])) != "" {
+		diagnostics = append(diagnostics, uiDiagnostic("SCN2625", "table_page binding search mapping must name an operation input field", table))
 	}
-	return tablePageSourceContract{record: record, allowedFilters: allowedFilters, allowedSorts: allowedSorts}, diagnostics
+
+	paginated := false
+	if pagination := firstTablePageChild(table.Spec, "pagination"); pagination != nil {
+		paginated = true
+		pageName, pageSizeName, totalName := strings.TrimSpace(stringValue(pagination["page"])), strings.TrimSpace(stringValue(pagination["page_size"])), strings.TrimSpace(stringValue(pagination["total"]))
+		pageField, pageSizeField := shape.Fields[pageName], shape.Fields[pageSizeName]
+		totalField := namedChild(resultRecord.Spec, "field", totalName)
+		if !claimInput(pageName, "pagination page") || !claimInput(pageSizeName, "pagination page_size") ||
+			!tablePageIntegerType(pageField.Type) || !tablePageIntegerType(pageSizeField.Type) || totalField == nil || !tablePageIntegerType(totalField["type"]) {
+			diagnostics = append(diagnostics, uiDiagnostic("SCN2624", "table_page pagination must map distinct integer page/page_size inputs and an integer total result field", table))
+		}
+	}
+
+	seenPredicates := map[string]bool{}
+	for _, predicate := range namedChildren(table.Spec, "predicate") {
+		name := stringValue(predicate["name"])
+		field := shape.Fields[name]
+		if name == "" || seenPredicates[name] || field.Name == "" || !claimInput(name, "predicate") {
+			diagnostics = append(diagnostics, uiDiagnostic("SCN2625", "table_page predicates require unique operation input field labels", table))
+			continue
+		}
+		seenPredicates[name] = true
+		if err := validateFixtureValue(predicate["value"], typeExpression(field.Type), operation.Module, resources); err != nil {
+			diagnostics = append(diagnostics, uiDiagnostic("SCN2625", "table_page predicate "+name+" value does not match its input type: "+err.Error(), table))
+		}
+	}
+	return tablePageSourceContract{record: record, allowedFilters: allowedFilters, allowedSorts: allowedSorts, paginated: paginated}, diagnostics
+}
+
+func firstTablePageChild(spec map[string]any, kind string) map[string]any {
+	children := orderedChildren(spec, kind)
+	if len(children) == 0 {
+		return nil
+	}
+	return children[0]
+}
+
+func tablePageIntegerType(value any) bool {
+	return oneOfString(unwrapCRUDListType(typeExpression(value)), "int", "int32", "int64", "uint32", "uint64")
+}
+
+func tablePageFilterInputMatchesRow(resources map[string]Resource, module string, input any, rowField map[string]any) bool {
+	if rowField == nil {
+		return false
+	}
+	inputType := unwrapCRUDListType(typeExpression(input))
+	if inner, list := wrappedFixtureType(inputType, "list"); list {
+		inputType = inner
+	}
+	rowType := unwrapCRUDListType(typeExpression(rowField["type"]))
+	if inputType == rowType {
+		return true
+	}
+	inputValues := enumWireValues(resources, module, input)
+	rowValues := enumWireValues(resources, module, rowField["type"])
+	if inputType == "string" && len(rowValues) > 0 || rowType == "string" && len(inputValues) > 0 {
+		return true
+	}
+	return len(inputValues) > 0 && len(rowValues) > 0 && sameStringSet(inputValues, rowValues)
 }
 
 func namedChild(spec map[string]any, kind, name string) map[string]any {

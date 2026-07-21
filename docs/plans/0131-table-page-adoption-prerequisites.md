@@ -7,7 +7,7 @@ Retrospective` on completion.
 ## Purpose / Big Picture
 
 The Micro platform's ExecPlan 0051 (its repo,
-`docs/agent/exec-plans/active/0051-generated-page-adoption.md`) audited every
+`docs/agent/exec-plans/completed/0051-generated-page-adoption.md`) audited every
 hand-written route against the current templates under a non-negotiable
 functionality-parity rule. The result: **zero pages could be converted.**
 Every candidate hit at least one template gap that would have lost data or
@@ -47,13 +47,28 @@ conversions become executable at full parity.
   platform handlers — all four Wave 1 domains are server-paginated with
   totals (table in `Artifacts and Notes`). Milestone 2 is mandatory for
   every Wave 1 page, and Milestone 1's context must carry `total`.
-- [ ] Milestone 1: response-aware slot context (catalog + generator).
-- [ ] Milestone 2: page-number pagination for binding sources
+- [x] (2026-07-21) Milestone 1: response-aware slot context (catalog +
+  generator), including the response-derived Owner filter and footer on the
+  live Micro table-template demo.
+- [x] (2026-07-21) Milestone 2: page-number pagination for binding sources
   (contract + compiler + generator + catalog).
-- [ ] Milestone 3: row activation slot (contract + generator + catalog).
-- [ ] Milestone 4: fixed source predicates (contract + compiler + generator).
-- [ ] Milestone 5: static `content_page` (compiler + generator).
-- [ ] Milestone 6 (optional): clickable stats, datetime presets.
+- [x] (2026-07-21) Milestone 3: row activation slot (contract + generator +
+  catalog), proven by the generated In Service page opening the app-owned
+  project detail dialog.
+- [x] (2026-07-21) Milestone 4: fixed source predicates (contract + compiler
+  + generator), proven by the generated In Service request always sending
+  `disposition = "In Service"` and `financier = "EDGE"`.
+- [x] (2026-07-21) Milestone 5: static `content_page` (compiler + generator),
+  proven by the source-less generated Testing page.
+- [x] (2026-07-21) Milestone 6 decision: no new surface. `StatTile` already
+  supports click handling, while datetime presets are not required by the
+  accepted In Service conversion and are deferred until a concrete page
+  contract needs them.
+- [x] (2026-07-21) Final acceptance: cached focused and repository-wide Go
+  tests, catalog/generated-client TypeScript checks, 16 client conformance
+  tests, self-harness, Micro `make verify` plus `verify-scenery`, 101 frontend
+  tests, production frontend build, and authenticated browser workflows all
+  passed.
 
 ## Surprises & Discoveries
 
@@ -66,6 +81,16 @@ conversions become executable at full parity.
   `audit/types.go` — see `Artifacts and Notes`). Any complete-list
   conversion of these pages would have silently shown one page as the whole
   dataset — the parity gate caught a real data-loss bug before it shipped.
+- (2026-07-21) Micro's binding exposes `status` and `type` filters as enum
+  inputs while the returned work-order row uses strings. Exact nominal-type
+  equality would reject a safe generated filter, so binding-filter validation
+  deliberately accepts enum/string pairs while retaining scalar/list shape
+  checks.
+- (2026-07-21) The installed dev supervisor used an older compiler and entered
+  `compile-error` on the new enum/string rule. Rebuilding the worktree-local
+  harness binary and restarting only the Micro dev session produced a ready
+  runtime; this confirmed the implementation rather than changing the global
+  installed binary.
 
 ## Decision Log
 
@@ -80,10 +105,42 @@ conversions become executable at full parity.
 - (2026-07-21, agent) **Exact contract spellings for Milestones 2–5 are
   decided at implementation time** against `internal/spec/source_schemas.go`
   conventions, and recorded here. The plan fixes semantics, not syntax.
+- (2026-07-21, agent) **The exact table source grammar is singular.** Binding
+  pages use `pagination { page, page_size, total }`,
+  `query { search, sort, direction }`, filter `input`, and repeated
+  `predicate "<input>" { value = ... }` blocks. `QueryTable` uses
+  `pagination = "page" | "cursor"`; complete-list pages omit pagination.
+- (2026-07-21, Petr + agent) **In Service is the real end-to-end fixture.** It
+  exercises mapped search/sort/direction, numeric page pagination, backend
+  totals, fixed predicates, response-aware toolbar/footer slots, and an
+  app-owned row dialog in one page. Change Log still needs optional datetime
+  preset product design and is not a stronger prerequisite proof.
+- (2026-07-21, agent) **Static content has no synthetic data contract.** A
+  `content_page` without `source` generates a prop-free content component and
+  no client, query, or load adapter.
 
 ## Outcomes & Retrospective
 
-Not yet completed.
+Completed 2026-07-21. Scenery now has one typed path for honest binding-backed
+tables: explicit page/query/filter/predicate mappings, response-aware slots,
+and delegated row actions. Cursor CRUD behavior remains intact, binding-backed
+grouping remains rejected, and shutdown/consumer APIs did not gain a parallel
+compatibility path. Source-less `content_page` generation removes the dummy
+operation requirement.
+
+The Micro platform supplied two real acceptance pages without cutting over an
+existing production route: `/platform/in-service/generated` covered
+Milestones 1–4 and `/platform/testing/generated` covered Milestone 5. Cached Go,
+catalog TypeScript, generated-client conformance, Micro frontend, repository
+verification, self-harness, and authenticated Chrome acceptance all passed.
+The live In Service page showed one of one backend rows, mapped sorting,
+numeric pagination, fixed EDGE/In Service predicates, search/empty behavior,
+and its app-owned project dialog; the table-template demo showed its
+response-derived Owner filter and `Showing 6 of 6` footer.
+
+Milestone 6 remains intentionally absent: clickable tiles need no new catalog
+API and datetime presets should be designed from a concrete adoption page
+rather than added speculatively.
 
 ## Context and Orientation
 
@@ -203,7 +260,7 @@ with each new attr/child; update `docs/ui-agent-contract.md` and
 `ui/AGENTS.md` where they enumerate slot props or table_page children; and
 verify live against the platform demo page via `ui_catalog` dev mode.
 
-After Milestone 5, hand back to the platform repo: update its ExecPlan 0051
+After Milestone 5, hand back to the platform repo: update its completed ExecPlan 0051
 (the Blocked decisions that this plan's milestones resolve get follow-up
 entries naming the now-available capability) so the adoption waves can be
 re-run there.
@@ -215,19 +272,20 @@ From `/Users/petrbrazdil/Repos/scenery`:
     apps/console/node_modules/.bin/tsc -p internal/generate/testdata/tsconfig.catalog.json
     go test ./internal/spec ./internal/compiler ./internal/generate
     go test ./...
-    go install ./cmd/scenery
+    go build -o .scenery/harness/bin/scenery ./cmd/scenery
+    .scenery/harness/bin/scenery harness self --summary --write
 
 Schema-revision fallout recovery (needed after any new contract attr):
 
     # pinned digests: update internal/compiler/lock_test.go from test output
-    (cd internal/compiler/testdata/native && scenery generate --target typescript_client.public_api -o json)
-    (cd internal/compiler/testdata/house  && scenery generate --target typescript_client.public_api -o json)
+    go run ./cmd/scenery generate --target typescript_client.public_api --app-root internal/compiler/testdata/native -o json
+    go run ./cmd/scenery generate --target typescript_client.public_api --app-root internal/compiler/testdata/house -o json
 
 Consumer verification, from `/Users/petrbrazdil/Repos/Micro/platform`:
 
     # refresh lock integrity/compile_descriptor_digest in scenery.lock.scn, then
     scenery generate --target typescript_client.public_api -o json
-    scenery validate
+    scenery check -o json
     (cd apps/platform && bun run typecheck && bun run lint && bun test && bun run build)
 
 Browser checks against https://micro.scenery.sh/platform/scenery-ui/table-page
@@ -241,8 +299,9 @@ closing each milestone.
 - Per-milestone acceptance fixtures as listed under `Milestones`.
 - Final acceptance: the platform's 0051 Wave 1 blockers that map to
   Milestones 1–5 are each demonstrably resolved — for at least one real page
-  (Change Log is the best single end-to-end proof: page pagination + mapped
-  sort/filter inputs + response-aware footer + row activation), a full
+  (In Service is the completed single end-to-end proof: page pagination +
+  mapped sort/filter inputs + fixed predicates + response-aware footer + row
+  activation), a full
   parity conversion succeeds in the platform repo under 0051's rules.
   That conversion itself belongs to 0051, not this plan.
 
@@ -257,7 +316,7 @@ them) and record why in the Decision Log.
 ## Artifacts and Notes
 
 - Requirements source: Micro platform
-  `docs/agent/exec-plans/active/0051-generated-page-adoption.md` — its
+  `docs/agent/exec-plans/completed/0051-generated-page-adoption.md` — its
   Decision Log's Blocked entries and Outcomes retrospective (2026-07-21
   "Codex parity audit") enumerate the observed gaps with evidence pointers
   into this repo (`internal/compiler/table_page.go`,

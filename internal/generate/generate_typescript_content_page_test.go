@@ -46,3 +46,45 @@ func TestRenderReactContentPageUsesPageShellAndTypedSlots(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderReactStaticContentPageUsesNoClientOrLoad(t *testing.T) {
+	contentSlot := Resource{Address: "work/react_component/content", Module: "work", Name: "content", Kind: "scenery.react-component", Spec: map[string]any{"module": "slots.tsx", "export": "Content"}}
+	actionsSlot := Resource{Address: "work/react_component/actions", Module: "work", Name: "actions", Kind: "scenery.react-component", Spec: map[string]any{"module": "slots.tsx", "export": "Actions"}}
+	content := Resource{Address: "work/content_page/privacy", Module: "work", Name: "privacy", Kind: "scenery.content-page", Spec: map[string]any{
+		"path":    "/privacy",
+		"title":   "Privacy",
+		"content": map[string]any{"component": map[string]any{"$ref": contentSlot.Address}},
+		"actions": map[string]any{"component": map[string]any{"$ref": actionsSlot.Address}},
+	}}
+	result := &Result{Root: "/app", Manifest: &Manifest{Resources: []Resource{contentSlot, actionsSlot, content}}}
+	pages := selectedReactContentPages(result.Manifest.Resources, nil)
+	if len(pages) != 1 || pages[0].binding.Address != "" || pages[0].operation.Address != "" {
+		t.Fatalf("selected static pages = %#v", pages)
+	}
+	source, err := renderReactContentPage(result, Resource{Name: "public_api"}, "/app/generated/react", pages[0], nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, fragment := range []string{
+		`import { Page } from "./scenery-ui/index.js"`,
+		"export function PrivacyPage()",
+		`<Page title={"Privacy"} actions={<SceneryContentSlot2 />}><SceneryContentSlot1 /></Page>`,
+	} {
+		if !strings.Contains(source, fragment) {
+			t.Errorf("generated static content page missing %q:\n%s", fragment, source)
+		}
+	}
+	for _, fragment := range []string{
+		"PublicApiClient",
+		"useQuery",
+		"queryKey",
+		"requestStateFromQuery",
+		"ContentPageState",
+		"defineContentPageSlots",
+		"client.read",
+	} {
+		if strings.Contains(source, fragment) {
+			t.Errorf("generated static content page contains data-loading fragment %q:\n%s", fragment, source)
+		}
+	}
+}

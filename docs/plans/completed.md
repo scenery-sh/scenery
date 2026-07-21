@@ -6,6 +6,21 @@ Completed means implemented or shipped at least once. It does not imply stable
 support for every surface. Use [../local-contract.md](../local-contract.md) as
 the source of truth for stable, beta, and dev-only classification.
 
+## Table Page Adoption Prerequisites
+
+- Status: completed
+- Owner: scenery compiler / generation / ui catalog
+- Completed: 2026-07-21
+- Quality: B
+- ExecPlan: [0131 Table Page Adoption Prerequisites: Response-Aware Slots, Page Pagination, Row Actions](0131-table-page-adoption-prerequisites.md)
+
+Shipped response-aware table slots, explicit page-number pagination and query
+mapping for binding sources, fixed typed source predicates, app-owned row
+actions, and source-less static content pages. A generated Micro In Service
+candidate proved backend totals, sorting, search, fixed EDGE/In Service
+predicates, numeric pagination, footer context, and project-detail activation;
+a generated Testing candidate proved static content without a dummy operation.
+
 ## Astryx-Native UI Catalog
 
 - Status: completed

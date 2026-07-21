@@ -174,13 +174,17 @@ export type {
   TablePageEmptyProps,
   TablePageFilter,
   TablePageFilterProps,
+  TablePageFooterProps,
   TablePageGroup,
   TablePageProblem,
   TablePageQuery,
   TablePageResult,
+  TablePageResultContext,
+  TablePageRowActionProps,
   TablePageRowDetailProps,
   TablePageSlots,
   TablePageSort,
+  TablePageToolbarProps,
 } from "./components/QueryTable.js";
 export { defineTablePageSlots, QueryTable } from "./components/QueryTable.js";
 export type {

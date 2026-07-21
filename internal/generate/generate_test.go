@@ -1512,7 +1512,7 @@ func (service *Service) SceneQuickCreate(_ context.Context, _ housecontract.Scen
 		"defineTablePageSlots<SceneRow",
 		`readonly "createdAt": TablePageDateTimeRange`,
 		"actions={<>",
-		"<slots.toolbar />",
+		"<slots.toolbar context={tableContext} />",
 		"client?: PublicApiClient",
 		"providedClient ?? defaultClient",
 		"client.sceneApiList",

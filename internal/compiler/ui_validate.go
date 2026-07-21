@@ -73,18 +73,21 @@ func validateUISemantics(root string, resources []Resource) []Diagnostic {
 
 func validatePageBindings(resources map[string]Resource, page Resource) []Diagnostic {
 	var diagnostics []Diagnostic
-	load := resources[resolveResourceRef(page, refString(page.Spec["load"]), "binding")]
-	if !isPageInternalBinding(load) || stringValue(load.Spec["delivery"]) == "enqueue" {
-		diagnostics = append(diagnostics, uiDiagnostic("SCN2603", "page load must reference a typed internal binding", page))
-	} else {
-		operation := resources[resolveResourceRef(load, refString(load.Spec["operation"]), "operation")]
-		shape := resolveOperationInputShape(resources, operation)
-		for _, match := range httpPathParameterPattern.FindAllStringSubmatch(stringValue(page.Spec["path"]), -1) {
-			if len(match) != 2 {
-				continue
-			}
-			if _, exists := shape.Fields[match[1]]; shape.Record == nil || !exists {
-				diagnostics = append(diagnostics, uiDiagnostic("SCN2603", "page path parameter "+match[1]+" is not present in the load operation input", page))
+	if page.Spec["load"] != nil {
+		loadRef := refString(page.Spec["load"])
+		load := resources[resolveResourceRef(page, loadRef, "binding")]
+		if !isPageInternalBinding(load) || stringValue(load.Spec["delivery"]) == "enqueue" {
+			diagnostics = append(diagnostics, uiDiagnostic("SCN2603", "page load must reference a typed internal binding", page))
+		} else {
+			operation := resources[resolveResourceRef(load, refString(load.Spec["operation"]), "operation")]
+			shape := resolveOperationInputShape(resources, operation)
+			for _, match := range httpPathParameterPattern.FindAllStringSubmatch(stringValue(page.Spec["path"]), -1) {
+				if len(match) != 2 {
+					continue
+				}
+				if _, exists := shape.Fields[match[1]]; shape.Record == nil || !exists {
+					diagnostics = append(diagnostics, uiDiagnostic("SCN2603", "page path parameter "+match[1]+" is not present in the load operation input", page))
+				}
 			}
 		}
 	}

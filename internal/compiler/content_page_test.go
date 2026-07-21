@@ -18,6 +18,31 @@ func TestContentPageExpandsToPageAndRenderer(t *testing.T) {
 	}
 }
 
+func TestStaticContentPageExpandsWithoutLoad(t *testing.T) {
+	resources := contentPageFixture()
+	for index := range resources {
+		if resources[index].Address == "house/content_page/summary" {
+			delete(resources[index].Spec, "source")
+		}
+	}
+	byAddress := resourcesByAddress(&Manifest{Resources: resources})
+	if diagnostics := validateContentPage(byAddress, byAddress["house/content_page/summary"]); len(diagnostics) != 0 {
+		t.Fatalf("validate static content page: %#v", diagnostics)
+	}
+	expanded, diagnostics := expandContentPageResources(resources)
+	if len(diagnostics) != 0 {
+		t.Fatalf("expand static content page: %#v", diagnostics)
+	}
+	byAddress = resourcesByAddress(&Manifest{Resources: expanded})
+	page := byAddress["house/page/summary"]
+	if page.Kind != "scenery.page" || page.Spec["load"] != nil {
+		t.Fatalf("static page = %#v", page)
+	}
+	if diagnostics := validateResourceSemantics([]Resource{page}); hasErrors(diagnostics) {
+		t.Fatalf("static content-page resource diagnostics = %#v", diagnostics)
+	}
+}
+
 func TestContentPageRejectsInvalidContractAndCollisions(t *testing.T) {
 	resources := contentPageFixture()
 	for index := range resources {
@@ -35,6 +60,19 @@ func TestContentPageRejectsInvalidContractAndCollisions(t *testing.T) {
 	resources = append(resources, Resource{Address: "house/page/summary", Module: "house", Name: "summary", Kind: "scenery.page"})
 	if _, diagnostics := expandContentPageResources(resources); !hasDiagnostic(diagnostics, "SCN2618") {
 		t.Fatalf("collision diagnostics: %#v", diagnostics)
+	}
+}
+
+func TestContentPageRejectsExplicitInvalidSource(t *testing.T) {
+	resources := contentPageFixture()
+	for index := range resources {
+		if resources[index].Address == "house/content_page/summary" {
+			resources[index].Spec["source"] = ""
+		}
+	}
+	byAddress := resourcesByAddress(&Manifest{Resources: resources})
+	if diagnostics := validateContentPage(byAddress, byAddress["house/content_page/summary"]); !hasDiagnostic(diagnostics, "SCN2617") {
+		t.Fatalf("explicit invalid source diagnostics = %#v", diagnostics)
 	}
 }
 

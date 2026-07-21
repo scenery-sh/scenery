@@ -37,15 +37,37 @@ func TestDeclarativeTableResourceMetadataIsComplete(t *testing.T) {
 	if child, ok := table.Children["group"]; !ok || !child.Repeatable || child.Schema.Labels != 1 {
 		t.Errorf("table_page group must be a repeated labeled block: %#v", child)
 	}
+	if child, ok := table.Children["pagination"]; !ok || child.Repeatable || child.Schema.Labels != 0 {
+		t.Errorf("table_page pagination must be an unlabeled singleton block: %#v", child)
+	} else {
+		for _, name := range []string{"page", "page_size", "total"} {
+			if !child.Schema.Required[name] {
+				t.Errorf("table_page pagination must require %s", name)
+			}
+		}
+	}
+	if child, ok := table.Children["predicate"]; !ok || !child.Repeatable || child.Schema.Labels != 1 || !child.Schema.Required["value"] {
+		t.Errorf("table_page predicate must be a repeated labeled block requiring value: %#v", child)
+	} else if child.Schema.Attributes["value"].Type["$ref"] != "scenery.value" {
+		t.Errorf("table_page predicate value must accept typed literals: %#v", child.Schema.Attributes["value"])
+	}
+	if child, ok := table.Children["query"]; !ok || child.Repeatable || child.Schema.Labels != 0 {
+		t.Errorf("table_page query must be an unlabeled singleton block: %#v", child)
+	}
+	if _, ok := table.Children["filter"].Schema.Attributes["input"]; !ok {
+		t.Error("table_page filter does not advertise explicit input mapping")
+	}
 	rowDetail := table.Children["row_detail"].Schema
 	for _, name := range []string{"presentation", "panel_width"} {
 		if _, ok := rowDetail.Attributes[name]; !ok {
 			t.Errorf("table_page row_detail does not advertise %s", name)
 		}
 	}
-	for _, name := range []string{"toolbar", "empty"} {
+	for _, name := range []string{"toolbar", "footer", "empty", "row_action"} {
 		if child, ok := table.Children[name]; !ok || child.Repeatable || child.Schema.Labels != 0 {
 			t.Errorf("table_page %s must be an unlabeled singleton block: %#v", name, child)
+		} else if len(child.Schema.Attributes) != 1 || !child.Schema.Required["component"] {
+			t.Errorf("table_page %s must use the component-only slot contract: %#v", name, child.Schema)
 		}
 	}
 
@@ -75,6 +97,18 @@ func TestDeclarativeTableResourceMetadataIsComplete(t *testing.T) {
 	}
 	if _, ok := content.Attributes["max_width"]; !ok {
 		t.Error("content_page does not advertise max_width")
+	}
+	if content.Required["source"] {
+		t.Error("content_page still requires source")
+	}
+	page, ok := resourceSchemas["scenery.page"]
+	if !ok {
+		t.Fatal("scenery.page schema is unavailable")
+	}
+	for _, required := range page.Required {
+		if required == "load" {
+			t.Error("scenery.page still requires load")
+		}
 	}
 	for name, schema := range map[string]*authoredBlockSchema{
 		"table_page":   table,

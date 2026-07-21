@@ -2379,6 +2379,13 @@ The current source language also provides `content_page`, `split_page`, and
 ordinary page and renderer resources with lineage back to the source
 declaration. No page macro creates a second runtime path.
 
+A `content_page` MUST declare one content component and MAY omit `source`. A
+sourced content page MUST resolve to a call-delivery HTTP binding whose
+operation has unit input, exactly one result, and an inherited internal
+binding; content and actions slots receive the typed request state. A static
+content page MUST NOT emit a load binding or query, and its content and actions
+slots receive no request-state props.
+
 A CRUD list MAY declare `search` string fields, exact string/enum `filters`,
 datetime-range filters, allowed sorts, a default sort, and a maximum page
 size. Search MUST escape user wildcard characters before applying
@@ -2393,19 +2400,34 @@ A workbench `table_page` MAY declare:
   resources;
 - client-side export of the rows returned by the current source query, with
   per-column display and export participation;
-- one typed row-detail component, with at most one row expanded at a time;
+- response-aware filter, toolbar, empty, and footer components;
+- either one typed row-detail component or one typed row-action component,
+  with at most one selected row at a time;
 - header actions that open `form_dialog` mutation resources.
 
 A table page source MUST be either a CRUD resource with list and HTTP
-projections or a call-delivery HTTP binding. A binding-backed table MUST name
-with `items` a `list(record)` field in the operation's sole result record and
-MUST render that returned list without pagination. If present, the operation's
-`search` input MUST be an optional string, each declared filter MUST have a
-same-named optional list input, `sort` MUST be a closed enum containing every
-declared sort, and `direction` MUST be a closed enum with exactly `asc` and
-`desc`. At least one column MUST remain visible. `hidden = true` excludes a
-column from the grid but not export by default; `export = false` excludes it
-from export.
+projections or a call-delivery HTTP binding. CRUD tables use the generated
+fingerprint-bound cursor contract. A binding-backed table MUST name with
+`items` a `list(record)` field in the operation's sole result record. It MAY
+render that complete list without pagination or declare one numeric
+`pagination` block: `page` and `page_size` MUST map distinct integer operation
+inputs and `total` MUST name an integer result field. A `query` block MAY map
+search, sort, and direction controls to compatible operation inputs, and a
+filter's `input` MAY differ from its row-field label when it names a compatible
+optional or defaulted scalar or list input. A labeled `predicate` MUST name an
+otherwise-unmapped operation input and its fixed literal MUST type-check
+against that input. No input may be claimed by more than one mapping. At least
+one column MUST remain visible. `hidden = true` excludes a column from the grid
+but not export by default; `export = false` excludes it from export.
+
+Only a binding-backed complete-list table MAY group. Cursor-paginated CRUD and
+numeric-page binding tables MUST reject grouping. Filters and empty/footer
+slots MUST receive the current result context: loaded rows, optional total and
+truncation metadata, filtered state, and the current query. A header toolbar
+receives the same context once a first result context exists. `row_action` is
+mutually exclusive with `row_detail`; it receives the selected row plus an
+`onClose` callback and MUST remain mounted independently of request-state
+rendering.
 
 Generated workbench filter presentation MUST keep search visible, render only
 filters explicitly marked `pinned = true` as inline quick-access selectors,

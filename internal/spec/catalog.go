@@ -70,12 +70,12 @@ func CurrentSemanticRevisions() SemanticRevisions {
 	return SemanticRevisions{
 		SourceComposition:    "sha256:d7b7bf5f2f7187f43cabf92d66774f44cdef8a15ac53dbf30b4048a88461df5e",
 		Defaults:             "sha256:624f80596718cc9cfc71ddbee9989204b485d98ab96e517dfdf7ba549f3ab685",
-		Expansion:            "sha256:a1ff16940d253b7c290e5e5f4f9af146fae30bad0e2cf00a887d30b8dd8a8dd1",
+		Expansion:            "sha256:4b8b4df0b6cbe195627827006ecc65f98977d9774d8dd2aed5e2a0960cb14301",
 		ReferenceResolution:  "sha256:7ecc0fc75e31d0a9a6c69ba50ae2817b69f0ae9447d7648b2188d9786724e89b",
 		ContractProjection:   "sha256:35bf6a93c2b8acbf829a6253c7aba39bedb6d41c708ec213f5454a1bbf455fcc",
 		EvolutionRules:       "sha256:b143c9be9c74f9c3542a56d7ea4dd92ca05dd711a472cc4c3f24dc51e81ce481",
 		GoGeneration:         "sha256:ab020bfc57f634dcdcb0931903ab6a636ae4f77fbf9d5749a348a44ac73ab7a7",
-		TypeScriptGeneration: "sha256:590c81189319c36baa1fb4cc274ef91a5db62263ff1df3915785527d5a8a3311",
+		TypeScriptGeneration: "sha256:b31e3a0c1ce92d83b89f70bfe2db33708997848699e22b732e96a874f973e6a7",
 	}
 }
 

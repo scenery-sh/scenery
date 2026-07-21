@@ -56,8 +56,8 @@ func validateResourceSemantics(resources []Resource) []Diagnostic {
 				diagnostics = append(diagnostics, resourceDiagnostic("SCN2511", "fixture requires entity, environments, mode, and values", resource))
 			}
 		case "scenery.page":
-			if missingAny(resource.Spec, "path", "load") {
-				diagnostics = append(diagnostics, resourceDiagnostic("SCN2601", "page requires path and typed load binding", resource))
+			if missingAny(resource.Spec, "path") {
+				diagnostics = append(diagnostics, resourceDiagnostic("SCN2601", "page requires path", resource))
 			}
 		case "scenery.renderer":
 			if missingAny(resource.Spec, "page", "runtime", "module") {

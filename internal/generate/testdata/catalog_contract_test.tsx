@@ -5,6 +5,9 @@ import type {
   TablePageCellProps,
   TablePageDateTimeRange,
   TablePageFilterProps,
+  TablePageFooterProps,
+  TablePageRowActionProps,
+  TablePageToolbarProps,
 } from "../../../ui/index.js";
 import {
   Button,
@@ -46,12 +49,30 @@ function StatusCell(props: TablePageCellProps<Row, Row["status"]>) {
   return <span>{props.value}</span>;
 }
 
-function StatusFilter(props: TablePageFilterProps<string>) {
-  return <button onClick={() => props.onChange("open")}>{props.label}</button>;
+function StatusFilter(props: TablePageFilterProps<string, Row>) {
+  return (
+    <button onClick={() => props.onChange("open")}>
+      {props.label}: {props.context.rows.length}
+    </button>
+  );
 }
 
-function CreatedFilter(props: TablePageFilterProps<TablePageDateTimeRange>) {
+function CreatedFilter(
+  props: TablePageFilterProps<TablePageDateTimeRange, Row>,
+) {
   return <button onClick={() => props.onChange({})}>{props.label}</button>;
+}
+
+function FooterSlot(props: TablePageFooterProps<Row>) {
+  return <span>{props.context.total ?? props.context.rows.length}</span>;
+}
+
+function ToolbarSlot(props: TablePageToolbarProps<Row>) {
+  return <span>{props.context?.rows.length ?? 0}</span>;
+}
+
+function RowAction(props: TablePageRowActionProps<Row>) {
+  return <button onClick={props.onClose}>{props.row.id}</button>;
 }
 
 defineTablePageSlots<
@@ -61,6 +82,9 @@ defineTablePageSlots<
 >()({
   cells: { status: StatusCell },
   filters: { created: CreatedFilter, status: StatusFilter },
+  footer: FooterSlot,
+  toolbar: ToolbarSlot,
+  rowAction: RowAction,
 });
 
 defineTablePageSlots<Row, "status", { readonly status: string }>()({

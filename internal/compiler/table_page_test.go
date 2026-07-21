@@ -55,6 +55,12 @@ func TestTablePageValidationRejectsInvalidAuthoredContracts(t *testing.T) {
 		{"missing override", "SCN2611", func(spec map[string]any) {
 			spec["column"] = map[string]any{"name": "name", "component": map[string]any{"$ref": "react_component.missing"}}
 		}},
+		{"missing footer component", "SCN2611", func(spec map[string]any) {
+			spec["footer"] = map[string]any{"component": map[string]any{"$ref": "react_component.missing"}}
+		}},
+		{"missing row action component", "SCN2611", func(spec map[string]any) {
+			spec["row_action"] = map[string]any{"component": map[string]any{"$ref": "react_component.missing"}}
+		}},
 		{"unknown row link field", "SCN2612", func(spec map[string]any) { spec["row_link"] = "/scenes/{missing}" }},
 		{"page size exceeds CRUD limit", "SCN2613", func(spec map[string]any) { spec["page_size"] = 101 }},
 	}
@@ -149,6 +155,18 @@ func TestTablePageValidatesGroupingAndDetailPresentation(t *testing.T) {
 					"component":    map[string]any{"$ref": "react_component.name_cell"},
 					"dialog":       map[string]any{"$ref": "form_dialog.edit"},
 					"presentation": "panel",
+				}
+			},
+		},
+		{
+			name: "row action with row detail",
+			want: "row_action and row_detail are mutually exclusive",
+			edit: func(spec map[string]any) {
+				spec["row_detail"] = map[string]any{
+					"component": map[string]any{"$ref": "react_component.name_cell"},
+				}
+				spec["row_action"] = map[string]any{
+					"component": map[string]any{"$ref": "react_component.name_cell"},
 				}
 			},
 		},
@@ -291,6 +309,208 @@ func TestTablePageValidatesWorkbenchContracts(t *testing.T) {
 	if diagnostics := validateTablePage(byAddress, invalidPinned); !hasDiagnostic(diagnostics, "SCN2622") {
 		t.Fatalf("pinned custom filter diagnostics = %#v", diagnostics)
 	}
+}
+
+func TestTablePageBindingPaginationQueryAndPredicates(t *testing.T) {
+	resources := tablePageBindingPaginationFixtureResources()
+	expanded, diagnostics := expandDataResources(resources)
+	if hasErrors(diagnostics) {
+		t.Fatal(diagnostics)
+	}
+	byAddress := resourcesByAddress(&Manifest{Resources: expanded})
+	table := byAddress["house/table_page/scenes"]
+	contract, diagnostics := resolveTablePageSource(byAddress, table)
+	if hasErrors(diagnostics) {
+		t.Fatalf("source diagnostics = %#v", diagnostics)
+	}
+	if !contract.paginated || contract.maxPageSize != 0 {
+		t.Fatalf("source contract = %#v, want unbounded page pagination", contract)
+	}
+	if diagnostics := validateTablePage(byAddress, table); hasErrors(diagnostics) {
+		t.Fatalf("table page diagnostics = %#v", diagnostics)
+	}
+
+	grouped := table
+	grouped.Spec = cloneMapValue(table.Spec)
+	grouped.Spec["group"] = map[string]any{"name": "name"}
+	if diagnostics := validateTablePage(byAddress, grouped); !hasDiagnostic(diagnostics, "SCN2623") {
+		t.Fatalf("paginated grouping diagnostics = %#v", diagnostics)
+	}
+}
+
+func TestTablePageBindingMappingsRejectInvalidFieldsAndValues(t *testing.T) {
+	resources := tablePageBindingPaginationFixtureResources()
+	expanded, diagnostics := expandDataResources(resources)
+	if hasErrors(diagnostics) {
+		t.Fatal(diagnostics)
+	}
+	byAddress := resourcesByAddress(&Manifest{Resources: expanded})
+	base := byAddress["house/table_page/scenes"]
+	tests := []struct {
+		name string
+		code string
+		edit func(map[string]any)
+	}{
+		{
+			name: "non-integer page input",
+			code: "SCN2624",
+			edit: func(spec map[string]any) {
+				spec["pagination"].(map[string]any)["page"] = "q"
+			},
+		},
+		{
+			name: "missing total field",
+			code: "SCN2624",
+			edit: func(spec map[string]any) {
+				spec["pagination"].(map[string]any)["total"] = "missing"
+			},
+		},
+		{
+			name: "invalid query direction mapping",
+			code: "SCN2625",
+			edit: func(spec map[string]any) {
+				spec["query"].(map[string]any)["direction"] = "q"
+			},
+		},
+		{
+			name: "missing filter input",
+			code: "SCN2625",
+			edit: func(spec map[string]any) {
+				spec["filter"].(map[string]any)["input"] = "missing"
+			},
+		},
+		{
+			name: "wrong predicate value type",
+			code: "SCN2625",
+			edit: func(spec map[string]any) {
+				spec["predicate"].(map[string]any)["value"] = "not-an-integer"
+			},
+		},
+		{
+			name: "predicate conflicts with pagination",
+			code: "SCN2625",
+			edit: func(spec map[string]any) {
+				spec["predicate"].(map[string]any)["name"] = "page_number"
+				spec["predicate"].(map[string]any)["value"] = 1
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			table := base
+			table.Spec = cloneMapValue(base.Spec)
+			test.edit(table.Spec)
+			if diagnostics := validateTablePage(byAddress, table); !hasDiagnostic(diagnostics, test.code) {
+				t.Fatalf("diagnostics = %#v, want %s", diagnostics, test.code)
+			}
+		})
+	}
+}
+
+func TestTablePageBindingFilterAcceptsEnumInputForStringRowField(t *testing.T) {
+	resources := tablePageBindingPaginationFixtureResources()
+	resources = append(resources, Resource{Address: "house/enum/scene_stage", Module: "house", Name: "scene_stage", Kind: "scenery.enum", Spec: map[string]any{
+		"value": []any{map[string]any{"name": "open"}, map[string]any{"name": "closed"}},
+	}})
+	for index := range resources {
+		if resources[index].Address == "house/record/scene_page_query" {
+			for _, field := range namedChildren(resources[index].Spec, "field") {
+				if stringValue(field["name"]) == "stage_filter" {
+					field["type"] = map[string]any{"$expression": "optional(enum.scene_stage)"}
+				}
+			}
+		}
+	}
+	expanded, diagnostics := expandDataResources(resources)
+	if hasErrors(diagnostics) {
+		t.Fatal(diagnostics)
+	}
+	byAddress := resourcesByAddress(&Manifest{Resources: expanded})
+	if diagnostics := validateTablePage(byAddress, byAddress["house/table_page/scenes"]); hasErrors(diagnostics) {
+		t.Fatalf("enum input for string row field diagnostics = %#v", diagnostics)
+	}
+}
+
+func TestTablePageCRUDPredicatesUseAllowlistedFilterItemTypes(t *testing.T) {
+	resources := tablePageFixtureResources()
+	for index := range resources {
+		if resources[index].Address == "house/crud/scene_api" {
+			list := resources[index].Spec["list"].(map[string]any)
+			list["filters"] = []any{"name"}
+			delete(list, "max_page_size")
+		}
+		if resources[index].Address == "house/table_page/scenes" {
+			resources[index].Spec["predicate"] = map[string]any{"name": "name", "value": "fixed"}
+		}
+	}
+	expanded, diagnostics := expandDataResources(resources)
+	if hasErrors(diagnostics) {
+		t.Fatal(diagnostics)
+	}
+	byAddress := resourcesByAddress(&Manifest{Resources: expanded})
+	base := byAddress["house/table_page/scenes"]
+	if diagnostics := validateTablePage(byAddress, base); hasDiagnostic(diagnostics, "SCN2613") || hasDiagnostic(diagnostics, "SCN2625") {
+		t.Fatalf("valid CRUD predicate diagnostics = %#v", diagnostics)
+	}
+
+	wrongType := base
+	wrongType.Spec = cloneMapValue(base.Spec)
+	wrongType.Spec["predicate"].(map[string]any)["value"] = 42
+	if diagnostics := validateTablePage(byAddress, wrongType); !hasDiagnostic(diagnostics, "SCN2625") {
+		t.Fatalf("wrong-type CRUD predicate diagnostics = %#v", diagnostics)
+	}
+
+	notAllowlisted := base
+	notAllowlisted.Spec = cloneMapValue(base.Spec)
+	notAllowlisted.Spec["predicate"].(map[string]any)["name"] = "id"
+	if diagnostics := validateTablePage(byAddress, notAllowlisted); !hasDiagnostic(diagnostics, "SCN2625") {
+		t.Fatalf("non-allowlisted CRUD predicate diagnostics = %#v", diagnostics)
+	}
+}
+
+func tablePageBindingPaginationFixtureResources() []Resource {
+	resources := append(tablePageFixtureResources(),
+		Resource{Address: "house/record/scene_page_query", Module: "house", Name: "scene_page_query", Kind: "scenery.record", Spec: map[string]any{
+			"field": []any{
+				map[string]any{"name": "q", "type": map[string]any{"$expression": "optional(string)"}},
+				map[string]any{"name": "stage_filter", "type": map[string]any{"$expression": "optional(string)"}},
+				map[string]any{"name": "sort_field", "type": map[string]any{"$expression": "string"}},
+				map[string]any{"name": "sort_direction", "type": map[string]any{"$expression": "string"}},
+				map[string]any{"name": "page_number", "type": map[string]any{"$expression": "int32"}},
+				map[string]any{"name": "per_page", "type": map[string]any{"$expression": "int32"}},
+				map[string]any{"name": "tenant_id", "type": map[string]any{"$expression": "int64"}},
+			},
+		}},
+		Resource{Address: "house/record/scene_page_result", Module: "house", Name: "scene_page_result", Kind: "scenery.record", Spec: map[string]any{
+			"field": []any{
+				map[string]any{"name": "rows", "type": map[string]any{"$expression": "list(record.scene_row)"}},
+				map[string]any{"name": "total_count", "type": map[string]any{"$expression": "int64"}},
+			},
+		}},
+		Resource{Address: "house/operation/page_scenes", Module: "house", Name: "page_scenes", Kind: "scenery.operation", Spec: map[string]any{
+			"input": map[string]any{"$ref": "record.scene_page_query"}, "result": map[string]any{"name": "success", "type": map[string]any{"$ref": "record.scene_page_result"}},
+		}},
+		Resource{Address: "house/binding/page_scenes_http", Module: "house", Name: "page_scenes_http", Kind: "scenery.binding", Spec: map[string]any{
+			"operation": map[string]any{"$ref": "operation.page_scenes"}, "protocol": "http", "delivery": "call",
+		}},
+		Resource{Address: "house/status_map/scene_name", Module: "house", Name: "scene_name", Kind: "scenery.status-map", Spec: map[string]any{
+			"status": map[string]any{"name": "fixed", "label": "Fixed", "variant": "neutral"},
+		}},
+	)
+	for index := range resources {
+		if resources[index].Address != "house/table_page/scenes" {
+			continue
+		}
+		resources[index].Spec = cloneMapValue(resources[index].Spec)
+		resources[index].Spec["source"] = map[string]any{"$ref": "binding.page_scenes_http"}
+		resources[index].Spec["items"] = "rows"
+		resources[index].Spec["filter"] = map[string]any{"name": "name", "input": "stage_filter", "status_map": map[string]any{"$ref": "status_map.scene_name"}}
+		resources[index].Spec["query"] = map[string]any{"search": "q", "sort": "sort_field", "direction": "sort_direction"}
+		resources[index].Spec["pagination"] = map[string]any{"page": "page_number", "page_size": "per_page", "total": "total_count"}
+		resources[index].Spec["predicate"] = map[string]any{"name": "tenant_id", "value": 42}
+		break
+	}
+	return resources
 }
 
 func tablePageFixtureResources() []Resource {

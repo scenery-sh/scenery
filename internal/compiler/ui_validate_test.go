@@ -19,6 +19,18 @@ func TestUIValidationRequiresTypedInternalBindings(t *testing.T) {
 	}
 }
 
+func TestUIValidationAllowsPageWithoutLoadButRejectsExplicitInvalidLoad(t *testing.T) {
+	page := Resource{Address: "house/page/static", Module: "house", Name: "static", Kind: "scenery.page", Spec: map[string]any{"path": "/static"}}
+	if diagnostics := validateUISemantics("", []Resource{page}); hasErrors(diagnostics) {
+		t.Fatalf("static page diagnostics = %#v", diagnostics)
+	}
+
+	page.Spec["load"] = ""
+	if diagnostics := validateUISemantics("", []Resource{page}); !hasDiagnostic(diagnostics, "SCN2603") {
+		t.Fatalf("explicit invalid load diagnostics = %#v", diagnostics)
+	}
+}
+
 func TestUIValidationRejectsDuplicatePageRoutesAndMissingRendererModule(t *testing.T) {
 	resources := uiProfileFixtureResources()
 	resources = append(resources, Resource{Address: "house/page/duplicate", Module: "house", Name: "duplicate", Kind: "scenery.page", Spec: map[string]any{"path": "/house/scenes/{scene_id}", "load": map[string]any{"$ref": "binding.load_scene"}}})

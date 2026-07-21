@@ -13,9 +13,10 @@
 
 - Keep the package router-neutral. React, Astryx, and StyleX are peer dependencies supplied once by each consuming app.
 - Prefer Astryx components and tokens with StyleX; do not add a second component or styling system.
-- Keep generated-page customization in exact typed slots declared by `defineTablePageSlots`.
+- Keep generated-page customization in exact typed slots declared by `defineTablePageSlots`. Table filters, toolbar, empty, and footer consume the shared `TablePageResultContext` (`rows`, optional `total`/`truncated`, filtered state, and current query); toolbar context is optional before the first result. `row_action` receives `row` and `onClose` and is mutually exclusive with `row_detail`.
 - Preserve the CSS variables documented in `docs/local-contract.md`; they are the supported styling surface.
-- Keep request/result types aligned with generated React adapters and CRUD list behavior.
+- Keep request/result types aligned with generated React adapters and all three table source modes: cursor-paginated CRUD, explicitly mapped numeric-page bindings, and complete-list bindings. Only complete-list tables may group.
+- Static `content_page` slots receive no props; sourced content slots receive typed request state. Do not add a client or query to the static path.
 - Source files remain plainly editable. The generator adds ownership markers only to materialized copies.
 - Do not move the source back under `internal/generate`; `ui/` is the discoverable UI iteration surface.
 - Export supported components from root `index.ts`; generated apps import `@scenery/ui`, never internal catalog subpaths.

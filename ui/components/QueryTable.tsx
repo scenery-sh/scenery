@@ -55,6 +55,8 @@ export type TablePageProblem = Problem;
 export type TablePageResult<Row> = RequestState<{
   readonly items: readonly Row[];
   readonly nextCursor?: string;
+  readonly total?: number;
+  readonly truncated?: boolean;
 }>;
 
 export interface TablePageQuery {
@@ -65,7 +67,16 @@ export interface TablePageQuery {
   readonly sort?: string;
   readonly direction: TablePageDirection;
   readonly cursor?: string;
+  readonly page: number;
   readonly limit: number;
+}
+
+export interface TablePageResultContext<Row> {
+  readonly rows: readonly Row[];
+  readonly total?: number;
+  readonly truncated?: boolean;
+  readonly filtered: boolean;
+  readonly query: TablePageQuery;
 }
 
 export interface TablePageCellProps<Row, Value> {
@@ -73,10 +84,11 @@ export interface TablePageCellProps<Row, Value> {
   readonly value: Value;
 }
 
-export interface TablePageFilterProps<Value> {
+export interface TablePageFilterProps<Value, Row extends object = object> {
   readonly value: Value | undefined;
   readonly onChange: (value: Value | undefined) => void;
   readonly label: string;
+  readonly context: TablePageResultContext<Row>;
 }
 
 export interface TablePageDateTimeRange {
@@ -84,8 +96,17 @@ export interface TablePageDateTimeRange {
   readonly to?: string;
 }
 
-export interface TablePageEmptyProps {
+export interface TablePageEmptyProps<Row extends object = object> {
   readonly filtered: boolean;
+  readonly context: TablePageResultContext<Row>;
+}
+
+export interface TablePageToolbarProps<Row extends object = object> {
+  readonly context?: TablePageResultContext<Row>;
+}
+
+export interface TablePageFooterProps<Row extends object = object> {
+  readonly context: TablePageResultContext<Row>;
 }
 
 export interface TablePageRowDetailProps<Row> {
@@ -96,6 +117,8 @@ export interface TablePageDetailPanelProps<Row> {
   readonly row: Row;
   readonly onClose: () => void;
 }
+
+export type TablePageRowActionProps<Row> = TablePageDetailPanelProps<Row>;
 
 export type TablePageColumn<Row> = {
   readonly [Key in keyof Row]: {
@@ -109,7 +132,7 @@ export type TablePageColumn<Row> = {
   };
 }[keyof Row];
 
-export type TablePageFilter =
+export type TablePageFilter<Row extends object = object> =
   | {
       readonly field: string;
       readonly label: string;
@@ -118,7 +141,7 @@ export type TablePageFilter =
         | string
         | { readonly value: string; readonly label: string }
       )[];
-      readonly component?: ComponentType<TablePageFilterProps<string>>;
+      readonly component?: ComponentType<TablePageFilterProps<string, Row>>;
       readonly pinned?: boolean;
     }
   | {
@@ -126,7 +149,7 @@ export type TablePageFilter =
       readonly label: string;
       readonly kind: "datetime";
       readonly component?: ComponentType<
-        TablePageFilterProps<TablePageDateTimeRange>
+        TablePageFilterProps<TablePageDateTimeRange, Row>
       >;
       readonly pinned?: boolean;
     };
@@ -145,7 +168,7 @@ export interface TablePageGroup {
 }
 
 export interface TablePageSlots<
-  Row,
+  Row extends object,
   CellKey extends keyof Row = never,
   FilterValues extends object = Record<never, never>,
 > {
@@ -156,20 +179,22 @@ export interface TablePageSlots<
   };
   readonly filters?: {
     readonly [Key in keyof FilterValues]?: ComponentType<
-      TablePageFilterProps<FilterValues[Key]>
+      TablePageFilterProps<FilterValues[Key], Row>
     >;
   };
-  readonly toolbar?: ComponentType;
-  readonly empty?: ComponentType<TablePageEmptyProps>;
+  readonly toolbar?: ComponentType<TablePageToolbarProps<Row>>;
+  readonly footer?: ComponentType<TablePageFooterProps<Row>>;
+  readonly empty?: ComponentType<TablePageEmptyProps<Row>>;
   readonly rowDetail?: ComponentType<TablePageRowDetailProps<Row>>;
   readonly detailPanel?: ComponentType<TablePageDetailPanelProps<Row>>;
+  readonly rowAction?: ComponentType<TablePageRowActionProps<Row>>;
 }
 
 type Exact<Shape, Actual extends Shape> = Actual &
   Record<Exclude<keyof Actual, keyof Shape>, never>;
 
 export function defineTablePageSlots<
-  Row,
+  Row extends object,
   CellKey extends keyof Row = never,
   FilterValues extends object = Record<never, never>,
 >() {
@@ -182,12 +207,13 @@ export interface QueryTableProps<Row extends object> {
   readonly resource: string;
   readonly description?: string;
   readonly columns: readonly TablePageColumn<Row>[];
-  readonly filters: readonly TablePageFilter[];
+  readonly filters: readonly TablePageFilter<Row>[];
   readonly sorts: readonly TablePageSort[];
   readonly searchable?: boolean;
   readonly rowLink?: (row: Row) => string;
   readonly rowDetail?: ComponentType<TablePageRowDetailProps<Row>>;
   readonly detailPanel?: ComponentType<TablePageDetailPanelProps<Row>>;
+  readonly rowAction?: ComponentType<TablePageRowActionProps<Row>>;
   readonly detailPanelWidth?: number;
   readonly detailTitle?: (row: Row) => ReactNode;
   readonly rowDetailAction?: (row: Row) => ReactNode;
@@ -197,7 +223,7 @@ export interface QueryTableProps<Row extends object> {
     readonly fileName: string;
     readonly icon?: ReactNode;
   };
-  readonly paginated?: boolean;
+  readonly pagination?: "cursor" | "page";
   readonly hideHeader?: boolean;
   readonly fill?: boolean;
   readonly numbered?: boolean;
@@ -208,13 +234,18 @@ export interface QueryTableProps<Row extends object> {
     query: TablePageQuery,
     signal?: AbortSignal,
   ) => Promise<TablePageResult<Row>>;
-  readonly empty?: ComponentType<TablePageEmptyProps>;
+  readonly empty?: ComponentType<TablePageEmptyProps<Row>>;
+  readonly footer?: ComponentType<TablePageFooterProps<Row>>;
+  readonly onResultContextChange?: (
+    context: TablePageResultContext<Row>,
+  ) => void;
 }
 
 // Keystrokes update the visible input immediately; the query key only moves
 // after this idle window, so typing does not launch one request per character.
 const searchDebounceMilliseconds = 250;
 const noGroupValue = "__scenery_no_group__";
+const emptyTableRows: readonly never[] = [];
 
 export function QueryTable<Row extends object>({
   resource,
@@ -226,12 +257,13 @@ export function QueryTable<Row extends object>({
   rowLink,
   rowDetail: RowDetail,
   detailPanel: DetailPanel,
+  rowAction: RowAction,
   detailPanelWidth,
   detailTitle,
   rowDetailAction,
   emptyAction,
   exportAction,
-  paginated = true,
+  pagination,
   hideHeader,
   fill,
   numbered,
@@ -240,6 +272,8 @@ export function QueryTable<Row extends object>({
   queryKey,
   load,
   empty: Empty,
+  footer: Footer,
+  onResultContextChange,
 }: QueryTableProps<Row>) {
   const defaultSort = sorts.find((sort) => sort.default);
   const [search, setSearch] = useState("");
@@ -253,12 +287,13 @@ export function QueryTable<Row extends object>({
   );
   const [cursor, setCursor] = useState<string>();
   const [history, setHistory] = useState<readonly (string | undefined)[]>([]);
+  const [page, setPage] = useState(1);
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
   const [selectedRow, setSelectedRow] = useState<{
     readonly key: string;
     readonly row: Row;
   } | null>(null);
-  const allowedGroups = paginated ? [] : groups;
+  const allowedGroups = pagination ? [] : groups;
   const [activeGroupField, setActiveGroupField] = useState(
     () => allowedGroups.find((group) => group.default)?.field ?? noGroupValue,
   );
@@ -269,6 +304,7 @@ export function QueryTable<Row extends object>({
   });
   const warnedPaginatedGroups = useRef(false);
   const warnedDetailConflict = useRef(false);
+  const warnedRowActionConflict = useRef(false);
 
   useEffect(() => {
     const timer = setTimeout(
@@ -279,7 +315,7 @@ export function QueryTable<Row extends object>({
   }, [search]);
   useEffect(() => {
     if (!isDevelopmentBuild()) return;
-    if (paginated && groups.length > 0 && !warnedPaginatedGroups.current) {
+    if (pagination && groups.length > 0 && !warnedPaginatedGroups.current) {
       warnedPaginatedGroups.current = true;
       console.warn(
         "QueryTable ignores groups for paginated data because section counts would only describe one page.",
@@ -291,7 +327,17 @@ export function QueryTable<Row extends object>({
         "QueryTable received both detailPanel and rowDetail; detailPanel takes precedence.",
       );
     }
-  }, [DetailPanel, RowDetail, groups.length, paginated]);
+    if (
+      RowAction &&
+      (DetailPanel || RowDetail) &&
+      !warnedRowActionConflict.current
+    ) {
+      warnedRowActionConflict.current = true;
+      console.warn(
+        "QueryTable received rowAction with rowDetail or detailPanel; rowAction takes precedence.",
+      );
+    }
+  }, [DetailPanel, RowAction, RowDetail, groups.length, pagination]);
   const query = useMemo<TablePageQuery>(
     () => ({
       search: debouncedSearch.trim() || undefined,
@@ -299,9 +345,10 @@ export function QueryTable<Row extends object>({
       sort,
       direction,
       cursor,
+      page,
       limit: pageSize,
     }),
-    [cursor, debouncedSearch, direction, filters, pageSize, sort],
+    [cursor, debouncedSearch, direction, filters, page, pageSize, sort],
   );
   const resultQuery = useQuery({
     queryKey: [...queryKey, query],
@@ -310,11 +357,14 @@ export function QueryTable<Row extends object>({
   const result = requestStateFromQuery<{
     readonly items: readonly Row[];
     readonly nextCursor?: string;
+    readonly total?: number;
+    readonly truncated?: boolean;
   }>(resultQuery);
 
   const resetQuery = useCallback(() => {
     setCursor(undefined);
     setHistory([]);
+    setPage(1);
     setExpandedKey(null);
     setSelectedRow(null);
   }, []);
@@ -326,7 +376,23 @@ export function QueryTable<Row extends object>({
         value !== "" &&
         (!Array.isArray(value) || value.length > 0),
     );
-  const items = result.kind === "result" ? result.items : [];
+  const items: readonly Row[] =
+    result.kind === "result" ? result.items : emptyTableRows;
+  const total = result.kind === "result" ? result.total : undefined;
+  const truncated = result.kind === "result" ? result.truncated : undefined;
+  const resultContext = useMemo<TablePageResultContext<Row>>(
+    () => ({
+      rows: items,
+      total,
+      truncated,
+      filtered,
+      query,
+    }),
+    [filtered, items, query, total, truncated],
+  );
+  useEffect(() => {
+    onResultContextChange?.(resultContext);
+  }, [onResultContextChange, resultContext]);
   const rowKey = (row: Row, index: number) => rowLink?.(row) ?? String(index);
   const visibleColumns = columns.filter((column) => !column.hidden);
   const activeGroup = allowedGroups.find(
@@ -343,7 +409,7 @@ export function QueryTable<Row extends object>({
     [items, sections],
   );
   useEffect(() => {
-    if (!selectedRow || !DetailPanel) return;
+    if (!selectedRow || (!DetailPanel && !RowAction)) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         setSelectedRow(null);
@@ -386,7 +452,7 @@ export function QueryTable<Row extends object>({
       },
     }),
   );
-  if (RowDetail && !DetailPanel) {
+  if (RowDetail && !DetailPanel && !RowAction) {
     dataColumns.unshift({
       key: "__expand",
       header: "",
@@ -415,7 +481,12 @@ export function QueryTable<Row extends object>({
   }
   const toolbarFilters: FilterToolbarFilter[] = declaredFilters
     .filter(
-      (filter): filter is Extract<TablePageFilter, { readonly kind: "enum" }> =>
+      (
+        filter,
+      ): filter is Extract<
+        TablePageFilter<Row>,
+        { readonly kind: "enum" }
+      > =>
         filter.kind === "enum",
     )
     .map((filter) => ({
@@ -435,7 +506,10 @@ export function QueryTable<Row extends object>({
     .filter(
       (
         filter,
-      ): filter is Extract<TablePageFilter, { readonly kind: "datetime" }> =>
+      ): filter is Extract<
+        TablePageFilter<Row>,
+        { readonly kind: "datetime" }
+      > =>
         filter.kind === "datetime",
     )
     .flatMap((filter) => {
@@ -523,6 +597,7 @@ export function QueryTable<Row extends object>({
               const current = filters[filter.field];
               return (
                 <EnumFilter
+                  context={resultContext}
                   filter={filter}
                   key={filter.field}
                   onChange={(value: string | undefined) => {
@@ -542,6 +617,7 @@ export function QueryTable<Row extends object>({
             };
             return (
               <DateTimeFilter
+                context={resultContext}
                 filter={filter}
                 key={filter.field}
                 onChange={(value: TablePageDateTimeRange) => {
@@ -620,7 +696,7 @@ export function QueryTable<Row extends object>({
             {...queryStateProps(result, resource)}
             empty={
               Empty ? (
-                <Empty filtered={filtered} />
+                <Empty context={resultContext} filtered={filtered} />
               ) : filtered ? (
                 <EmptyState title="No matching results." />
               ) : emptyAction ? (
@@ -643,7 +719,7 @@ export function QueryTable<Row extends object>({
               minWidth={720}
               numbered={numbered}
               onRowClick={
-                DetailPanel
+                DetailPanel || RowAction
                   ? (row, index) => {
                       const key = rowKey(row, index);
                       setSelectedRow((current) =>
@@ -653,7 +729,7 @@ export function QueryTable<Row extends object>({
                   : undefined
               }
               renderExpanded={
-                RowDetail && !DetailPanel
+                RowDetail && !DetailPanel && !RowAction
                   ? (row) => (
                       <div {...stylex.props(styles.rowDetail)}>
                         <RowDetail row={row} />
@@ -668,36 +744,61 @@ export function QueryTable<Row extends object>({
               }
               rows={items}
               sections={sections}
-              selectedKey={DetailPanel ? (selectedRow?.key ?? null) : null}
+              selectedKey={
+                DetailPanel || RowAction ? (selectedRow?.key ?? null) : null
+              }
               sticky
             />
           </QueryState>
-          {paginated && result.kind === "result" ? (
+          {Footer && result.kind === "result" ? (
+            <Footer context={resultContext} />
+          ) : null}
+          {pagination && result.kind === "result" ? (
             <div {...stylex.props(styles.pagination)}>
               <Pagination
-                hasMore={Boolean(result.nextCursor)}
+                hasMore={
+                  pagination === "cursor"
+                    ? Boolean(result.nextCursor)
+                    : undefined
+                }
                 isDisabled={false}
                 label={`${resource} pagination`}
                 onChange={(nextPage: number) => {
-                  const page = history.length + 1;
-                  if (nextPage === page - 1 && history.length > 0) {
+                  if (pagination === "page") {
+                    setPage(nextPage);
+                    setExpandedKey(null);
+                    setSelectedRow(null);
+                    return;
+                  }
+                  const currentPage = history.length + 1;
+                  if (nextPage === currentPage - 1 && history.length > 0) {
                     const previous = history.at(-1);
                     setHistory((value) => value.slice(0, -1));
                     setCursor(previous);
-                  } else if (nextPage === page + 1 && result.nextCursor) {
+                    setExpandedKey(null);
+                    setSelectedRow(null);
+                  } else if (
+                    nextPage === currentPage + 1 &&
+                    result.nextCursor
+                  ) {
                     setHistory((value) => [...value, cursor]);
                     setCursor(result.nextCursor);
+                    setExpandedKey(null);
+                    setSelectedRow(null);
                   }
                 }}
-                page={history.length + 1}
+                page={pagination === "page" ? page : history.length + 1}
                 pageSize={pageSize}
+                totalItems={
+                  pagination === "page" ? result.total : undefined
+                }
                 size="sm"
-                variant="none"
+                variant={pagination === "page" ? "pages" : "none"}
               />
             </div>
           ) : null}
         </div>
-        {DetailPanel && selectedRow ? (
+        {DetailPanel && !RowAction && selectedRow ? (
           <div
             style={{ width: panel.size }}
             {...stylex.props(
@@ -744,22 +845,38 @@ export function QueryTable<Row extends object>({
           </div>
         ) : null}
       </div>
+      {RowAction && selectedRow ? (
+        <RowAction
+          key={selectedRow.key}
+          onClose={() => setSelectedRow(null)}
+          row={selectedRow.row}
+        />
+      ) : null}
     </section>
   );
 }
 
-function EnumFilter({
+function EnumFilter<Row extends object>({
   filter,
   value,
   onChange,
+  context,
 }: {
-  filter: Extract<TablePageFilter, { readonly kind: "enum" }>;
+  filter: Extract<TablePageFilter<Row>, { readonly kind: "enum" }>;
   value: string | undefined;
   onChange: (value: string | undefined) => void;
+  context: TablePageResultContext<Row>;
 }) {
   if (filter.component) {
     const Component = filter.component;
-    return <Component label={filter.label} onChange={onChange} value={value} />;
+    return (
+      <Component
+        context={context}
+        label={filter.label}
+        onChange={onChange}
+        value={value}
+      />
+    );
   }
   return (
     <Selector
@@ -775,19 +892,22 @@ function EnumFilter({
   );
 }
 
-function DateTimeFilter({
+function DateTimeFilter<Row extends object>({
   filter,
   value,
   onChange,
+  context,
 }: {
-  filter: Extract<TablePageFilter, { readonly kind: "datetime" }>;
+  filter: Extract<TablePageFilter<Row>, { readonly kind: "datetime" }>;
   value: TablePageDateTimeRange;
   onChange: (value: TablePageDateTimeRange) => void;
+  context: TablePageResultContext<Row>;
 }) {
   if (filter.component) {
     const Component = filter.component;
     return (
       <Component
+        context={context}
         label={filter.label}
         onChange={(next) => onChange(next ?? {})}
         value={value}

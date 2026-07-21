@@ -75,7 +75,7 @@ var resourceSchemas = map[string]resourceSchema{
 	}},
 	"scenery.crud":    {"contract", []string{"entity", "implementation", "actions", "execution"}, []string{"entity", "implementation", "actions", "list"}, nil},
 	"scenery.fixture": {"contract", []string{"entity", "environments", "mode", "values"}, []string{"entity", "environments", "mode", "values"}, nil},
-	"scenery.page":    {"contract", []string{"path", "load"}, []string{"path", "load"}, nil},
+	"scenery.page":    {"contract", []string{"path"}, []string{"path", "load"}, nil},
 	"scenery.renderer": {"contract", []string{"page", "runtime", "module"}, []string{"page", "runtime", "module", "config"}, map[string]string{
 		"implementation_digest": "implementation",
 	}},
@@ -84,7 +84,7 @@ var resourceSchemas = map[string]resourceSchema{
 	"scenery.form-dialog":     {"contract", []string{"source", "title"}, []string{"source", "title", "description", "submit_label"}, nil},
 	"scenery.table-page":      {"contract", []string{"path", "source", "title", "column"}, []string{"path", "source", "items", "title", "description", "page_size", "row_link", "hide_header", "nav_group", "nav_order", "nav_label", "nav_icon", "nav_active_paths"}, nil},
 	"scenery.split-page":      {"contract", []string{"path", "source", "title", "sidebar", "detail"}, []string{"path", "source", "title", "aria_label", "sidebar_label", "query_parameter", "nav_group", "nav_order", "nav_label", "nav_icon", "nav_active_paths"}, nil},
-	"scenery.content-page":    {"contract", []string{"path", "source", "title", "content"}, []string{"path", "source", "title", "aria_label", "max_width", "nav_group", "nav_order", "nav_label", "nav_icon", "nav_active_paths"}, nil},
+	"scenery.content-page":    {"contract", []string{"path", "title", "content"}, []string{"path", "source", "title", "aria_label", "max_width", "nav_group", "nav_order", "nav_label", "nav_icon", "nav_active_paths"}, nil},
 	"scenery.middleware":      {"contract", []string{"protocols", "phases"}, []string{"protocols", "phases", "before", "after", "exclusive", "effects"}, nil},
 }
 

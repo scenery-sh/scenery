@@ -137,7 +137,7 @@ func TestProfileValidationRejectsIncompleteDataAndUIResources(t *testing.T) {
 		{Address: "house/entity/scene", Module: "house", Kind: "scenery.entity", Spec: map[string]any{}},
 		{Address: "house/view/recent", Module: "house", Kind: "scenery.view", Spec: map[string]any{}},
 		{Address: "house/crud/scenes", Module: "house", Kind: "scenery.crud", Spec: map[string]any{}},
-		{Address: "house/page/detail", Module: "house", Kind: "scenery.page", Spec: map[string]any{"path": "/house/{id}"}},
+		{Address: "house/page/detail", Module: "house", Kind: "scenery.page", Spec: map[string]any{}},
 		{Address: "house/renderer/detail", Module: "house", Kind: "scenery.renderer", Spec: map[string]any{}},
 	}
 	diagnostics := validateResourceSemantics(resources)
