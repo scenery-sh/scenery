@@ -571,7 +571,8 @@ export function QueryTable<Row extends object>({
                 }))}
                 size="sm"
                 value={sort}
-                width={180}
+                width={160}
+                xstyle={styles.toolbarControl}
               />
               <Selector
                 label="Direction"
@@ -585,7 +586,8 @@ export function QueryTable<Row extends object>({
                 ]}
                 size="sm"
                 value={direction}
-                width={150}
+                width={140}
+                xstyle={styles.toolbarControl}
               />
             </>
           ) : null}
@@ -606,7 +608,8 @@ export function QueryTable<Row extends object>({
               ]}
               size="sm"
               value={activeGroupField}
-              width={180}
+              width={160}
+              xstyle={styles.toolbarControl}
             />
           ) : null}
         </FilterToolbar>
@@ -969,6 +972,9 @@ const panelSlideIn = stylex.keyframes({
 });
 
 const styles = stylex.create({
+  toolbarControl: {
+    paddingBlock: spacingVars["--spacing-1"],
+  },
   root: {
     display: "flex",
     flexDirection: "column",

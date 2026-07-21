@@ -3,7 +3,7 @@ import { Icon } from "@astryxdesign/core/Icon";
 import { IconButton } from "@astryxdesign/core/IconButton";
 import { Kbd } from "@astryxdesign/core/Kbd";
 import { TopNav } from "@astryxdesign/core/TopNav";
-import { colorVars } from "@astryxdesign/core/theme/tokens.stylex";
+import { colorVars, spacingVars } from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
 import { type ReactNode, useSyncExternalStore } from "react";
 
@@ -78,6 +78,7 @@ function useIsCompactTopBar() {
 function SearchField({ search }: { search: TopBarSearch }) {
   return (
     <Button
+      endContent={<Kbd keys={search.shortcut ?? "mod+k"} />}
       icon={search.icon}
       label={search.label ?? "Search"}
       onClick={search.onOpen}
@@ -85,12 +86,7 @@ function SearchField({ search }: { search: TopBarSearch }) {
       variant="secondary"
       width="100%"
       xstyle={styles.searchLauncher}
-    >
-      <span {...stylex.props(styles.searchLauncherLabel)}>
-        {search.label ?? "Search"}
-      </span>
-      <Kbd keys={search.shortcut ?? "mod+k"} />
-    </Button>
+    />
   );
 }
 
@@ -128,6 +124,6 @@ const styles = stylex.create({
   },
   searchLauncher: {
     color: colorVars["--color-text-secondary"],
+    paddingBlock: spacingVars["--spacing-1"],
   },
-  searchLauncherLabel: { flexGrow: 1, textAlign: "start" },
 });

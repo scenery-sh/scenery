@@ -1,6 +1,7 @@
-import { Button } from "@astryxdesign/core/Button";
 import { Card } from "@astryxdesign/core/Card";
+import { ClickableCard } from "@astryxdesign/core/ClickableCard";
 import { Grid } from "@astryxdesign/core/Grid";
+import { SelectableCard } from "@astryxdesign/core/SelectableCard";
 import { Text } from "@astryxdesign/core/Text";
 import {
   borderVars,
@@ -43,11 +44,8 @@ export function StatTile({
   active?: boolean;
   onClick?: () => void;
 }) {
-  const card = (
-    <Card
-      padding={4}
-      xstyle={[styles.tile, active && styles.tileActive].filter(Boolean)}
-    >
+  const content = (
+    <>
       <Text color="secondary" type="supporting" xstyle={styles.label}>
         {icon ? <span {...stylex.props(styles.icon)}>{icon}</span> : null}
         {label}
@@ -74,20 +72,43 @@ export function StatTile({
           {sub}
         </Text>
       ) : null}
-    </Card>
+    </>
   );
-  if (!onClick) return card;
+  if (!onClick) {
+    return (
+      <Card
+        padding={4}
+        xstyle={[styles.tile, active && styles.tileActive].filter(Boolean)}
+      >
+        {content}
+      </Card>
+    );
+  }
+  const accessibleLabel = typeof label === "string" ? label : "Statistic";
+  if (active !== undefined) {
+    return (
+      <SelectableCard
+        isSelected={active}
+        label={accessibleLabel}
+        onChange={onClick}
+        padding={4}
+        width="100%"
+        xstyle={[styles.tile, !active && styles.tileInteractive].filter(Boolean)}
+      >
+        {content}
+      </SelectableCard>
+    );
+  }
   return (
-    <Button
-      aria-pressed={active}
-      label={typeof label === "string" ? label : "Statistic"}
+    <ClickableCard
+      label={accessibleLabel}
       onClick={onClick}
-      variant="ghost"
+      padding={4}
       width="100%"
-      xstyle={styles.tileButton}
+      xstyle={styles.tile}
     >
-      {card}
-    </Button>
+      {content}
+    </ClickableCard>
   );
 }
 
@@ -101,17 +122,12 @@ const styles = stylex.create({
     gap: spacingVars["--spacing-1"],
     textAlign: "start",
   },
-  tileButton: {
-    height: "auto",
-    padding: 0,
-    borderWidth: 0,
-    backgroundColor: "transparent",
-    display: "block",
-    textAlign: "start",
-  },
   tileActive: {
     borderColor: colorVars["--color-accent"],
     boxShadow: `inset 0 0 0 ${borderVars["--border-width"]} ${colorVars["--color-accent"]}`,
+  },
+  tileInteractive: {
+    borderColor: colorVars["--color-border"],
   },
   label: {
     display: "flex",

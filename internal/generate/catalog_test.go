@@ -80,9 +80,14 @@ func TestBinaryOwnedUICatalogContainsComposableQueryTable(t *testing.T) {
 	}
 	statTile := content["components/StatTile.tsx"]
 	for _, fragment := range []string{
+		`@astryxdesign/core/ClickableCard`,
 		`@astryxdesign/core/Grid`,
+		`@astryxdesign/core/SelectableCard`,
+		`<ClickableCard`,
 		`<Grid`,
+		`<SelectableCard`,
 		`columns={{ minWidth: 180, max: columns, repeat: "fit" }}`,
+		`!active && styles.tileInteractive`,
 	} {
 		if !strings.Contains(statTile, fragment) {
 			t.Errorf("StatTile missing %q", fragment)
@@ -108,6 +113,8 @@ func TestBinaryOwnedUICatalogContainsComposableQueryTable(t *testing.T) {
 		`<Toolbar`,
 		`startContent={`,
 		`endContent={`,
+		`alignItems: "flex-end"`,
+		`paddingBlock: spacingVars["--spacing-1"]`,
 	} {
 		if !strings.Contains(filterToolbar, fragment) {
 			t.Errorf("FilterToolbar missing %q", fragment)

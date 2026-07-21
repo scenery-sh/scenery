@@ -90,7 +90,11 @@ export function FilterToolbar({
           resultLabel || onExport ? (
             <>
               {resultLabel ? (
-                <Text color="secondary" type="supporting">
+                <Text
+                  color="secondary"
+                  type="supporting"
+                  xstyle={styles.resultLabel}
+                >
                   {resultLabel}
                 </Text>
               ) : null}
@@ -101,6 +105,7 @@ export function FilterToolbar({
                   onClick={onExport}
                   size="sm"
                   variant="secondary"
+                  xstyle={styles.compactControl}
                 />
               ) : null}
             </>
@@ -164,6 +169,7 @@ export function FilterToolbar({
                   label="Filters"
                   size="sm"
                   variant="secondary"
+                  xstyle={styles.compactControl}
                 />
               </Popover>
             ) : null}
@@ -180,6 +186,7 @@ export function FilterToolbar({
               onClick={filter.onClear}
               size="sm"
               variant="secondary"
+              xstyle={styles.compactControl}
             >
               {`${filter.label} · ${filter.valueLabel} ×`}
             </Button>
@@ -193,6 +200,7 @@ export function FilterToolbar({
             }}
             size="sm"
             variant="ghost"
+            xstyle={styles.compactControl}
           />
         </div>
       ) : null}
@@ -224,6 +232,7 @@ function FilterSelector({
       size="sm"
       value={value ?? null}
       width={width}
+      xstyle={styles.compactControl}
     />
   );
 }
@@ -242,10 +251,16 @@ const styles = stylex.create({
   },
   controls: {
     display: "flex",
-    alignItems: "center",
+    alignItems: "flex-end",
     flexWrap: "wrap",
     gap: spacingVars["--spacing-2"],
     minWidth: 0,
+  },
+  compactControl: {
+    paddingBlock: spacingVars["--spacing-1"],
+  },
+  resultLabel: {
+    whiteSpace: "nowrap",
   },
   filterPanel: {
     display: "flex",

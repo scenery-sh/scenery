@@ -76,6 +76,14 @@ skew is no longer a constraint.
   but left `StatGrid` hand-rolling its container. `StatGrid` now delegates the
   grid, gap, and responsive tracks to Astryx `Grid`; `columns` caps the native
   180-pixel auto-fit tracks instead of maintaining custom viewport breakpoints.
+- (2026-07-21) Interactive `StatTile`s initially nested a full-width `Card`
+  inside `Button`; the button filled its grid track but its internal label span
+  shrink-wrapped the card. Action tiles now use Astryx `ClickableCard`, selected
+  filter tiles use `SelectableCard`, and static tiles remain ordinary `Card`s.
+- (2026-07-21) An inactive `SelectableCard` retained Astryx `Card`'s emphasized
+  border, making a clickable filter statistic look identical to a static
+  statistic. Inactive selectable statistics now share `ClickableCard`'s subtle
+  interactive border; the selected state remains owned by `SelectableCard`.
 - (2026-07-21) The catalog's `Field` wrapper duplicated Astryx labels and field
   spacing, the dialog body maintained another vertical stack, and
   `FormProblem` restyled an error box. `Field`/`FieldLabel` are now direct
@@ -85,6 +93,12 @@ skew is no longer a constraint.
   start/end action layout. Astryx `Toolbar` now owns those regions, spacing,
   sizing context, and toolbar semantics; the start content keeps one wrapping
   container so narrow layouts retain the existing responsive filter behavior.
+- (2026-07-21) Browser measurement exposed two compact-control alignment
+  defects after the toolbar cutover: mixed 28-pixel controls and 52-pixel
+  labeled selectors were center-aligned, and Astryx compact `Button`/`Selector`
+  padding overflowed their fixed height. The catalog now bottom-aligns mixed
+  fields and applies the matching four-pixel compact padding through Astryx
+  `xstyle`, including the top search launcher.
 - (2026-07-21) `LayoutContent` renders as a block by default. The first browser
   pass exposed a zero-height `PageLayout` scroll area because the previous raw
   wrapper had been a flex column; an explicit flex-column `xstyle` restored the
