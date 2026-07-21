@@ -1,4 +1,10 @@
+import type { ISODateString } from "@astryxdesign/core/Calendar";
+import { DateInput } from "@astryxdesign/core/DateInput";
 import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
+import { NumberInput } from "@astryxdesign/core/NumberInput";
+import { Selector } from "@astryxdesign/core/Selector";
+import { TextArea } from "@astryxdesign/core/TextArea";
+import { TextInput } from "@astryxdesign/core/TextInput";
 import {
   borderVars,
   colorVars,
@@ -6,14 +12,7 @@ import {
   spacingVars,
 } from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
-import type {
-  FormEvent,
-  InputHTMLAttributes,
-  ReactNode,
-  SelectHTMLAttributes,
-  TextareaHTMLAttributes,
-} from "react";
-import { useId } from "react";
+import type { FormEvent, ReactNode } from "react";
 import type { Problem } from "./request-state.js";
 
 export function FormDialog({
@@ -92,69 +91,125 @@ export function Field({
   );
 }
 
-type ControlAttributes<T> = Omit<T, "className" | "style">;
+export type TextFieldType = "text" | "password" | "email" | "number" | "date";
+
+interface FieldControlProps {
+  label: string;
+  hint?: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  required?: boolean;
+  disabled?: boolean;
+}
 
 export function TextField({
   label,
   hint,
-  ...input
-}: {
-  label: ReactNode;
-  hint?: ReactNode;
-} & ControlAttributes<InputHTMLAttributes<HTMLInputElement>>) {
-  const id = useId();
+  value,
+  onChange,
+  placeholder,
+  required,
+  disabled,
+  type = "text",
+  min,
+  max,
+}: FieldControlProps & { type?: TextFieldType; min?: number; max?: number }) {
+  if (type === "number") {
+    const parsed = Number(value);
+    return (
+      <NumberInput
+        description={hint}
+        hasClear
+        isDisabled={disabled}
+        isRequired={required}
+        label={label}
+        max={max}
+        min={min}
+        onChange={(next: number | null) =>
+          onChange(next === null ? "" : String(next))
+        }
+        placeholder={placeholder}
+        value={value !== "" && Number.isFinite(parsed) ? parsed : null}
+      />
+    );
+  }
+  if (type === "date") {
+    return (
+      <DateInput
+        description={hint}
+        isDisabled={disabled}
+        isRequired={required}
+        label={label}
+        onChange={(next: ISODateString | undefined) => onChange(next ?? "")}
+        value={value === "" ? undefined : (value as ISODateString)}
+      />
+    );
+  }
   return (
-    <FieldFor id={id} label={label} hint={hint}>
-      <input id={id} {...stylex.props(styles.control)} {...input} />
-    </FieldFor>
+    <TextInput
+      description={hint}
+      isDisabled={disabled}
+      isRequired={required}
+      label={label}
+      onChange={onChange}
+      placeholder={placeholder}
+      type={type}
+      value={value}
+    />
   );
 }
 
 export function SelectField({
   label,
   hint,
+  value,
+  onChange,
   options,
-  children,
-  ...select
-}: {
-  label: ReactNode;
-  hint?: ReactNode;
-  options?: readonly { value: string; label: string }[];
-  children?: ReactNode;
-} & ControlAttributes<SelectHTMLAttributes<HTMLSelectElement>>) {
-  const id = useId();
+  placeholder,
+  required,
+  disabled,
+}: FieldControlProps & {
+  options: readonly { value: string; label: string }[];
+}) {
   return (
-    <FieldFor id={id} label={label} hint={hint}>
-      <select id={id} {...stylex.props(styles.control)} {...select}>
-        {options
-          ? options.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))
-          : children}
-      </select>
-    </FieldFor>
+    <Selector
+      description={hint}
+      hasClear
+      isDisabled={disabled}
+      isRequired={required}
+      label={label}
+      onChange={(next: string | null) => onChange(next ?? "")}
+      options={options.map((option) => ({ ...option }))}
+      placeholder={placeholder}
+      value={value || null}
+    />
   );
 }
 
 export function TextAreaField({
   label,
   hint,
-  ...textarea
-}: {
-  label: ReactNode;
-  hint?: ReactNode;
-} & ControlAttributes<TextareaHTMLAttributes<HTMLTextAreaElement>>) {
-  const id = useId();
+  value,
+  onChange,
+  placeholder,
+  required,
+  disabled,
+  rows,
+  maxLength,
+}: FieldControlProps & { rows?: number; maxLength?: number }) {
   return (
-    <FieldFor id={id} label={label} hint={hint}>
-      <textarea
-        id={id}
-        {...stylex.props(styles.control, styles.textarea)}
-        {...textarea}
-      />
-    </FieldFor>
+    <TextArea
+      description={hint}
+      isDisabled={disabled}
+      isRequired={required}
+      label={label}
+      maxLength={maxLength}
+      onChange={onChange}
+      placeholder={placeholder}
+      rows={rows}
+      value={value}
+    />
   );
 }
 
@@ -163,28 +218,6 @@ export function FormProblem({ problem }: { problem?: Problem }) {
   return (
     <div role="alert" {...stylex.props(styles.problem)}>
       {problem.message}
-    </div>
-  );
-}
-
-function FieldFor({
-  id,
-  label,
-  hint,
-  children,
-}: {
-  id: string;
-  label: ReactNode;
-  hint?: ReactNode;
-  children: ReactNode;
-}) {
-  return (
-    <div {...stylex.props(styles.field)}>
-      <label htmlFor={id} {...stylex.props(styles.fieldLabel)}>
-        {label}
-      </label>
-      {children}
-      {hint ? <small {...stylex.props(styles.fieldHint)}>{hint}</small> : null}
     </div>
   );
 }
@@ -225,21 +258,6 @@ const styles = stylex.create({
   },
   fieldLabel: { fontSize: 12, color: colorVars["--color-text-secondary"] },
   fieldHint: { color: colorVars["--color-text-secondary"] },
-  control: {
-    boxSizing: "border-box",
-    width: "100%",
-    minHeight: 36,
-    paddingBlock: spacingVars["--spacing-2"],
-    paddingInline: spacingVars["--spacing-3"],
-    borderColor: colorVars["--color-border"],
-    borderStyle: "solid",
-    borderWidth: borderVars["--border-width"],
-    borderRadius: radiusVars["--radius-element"],
-    backgroundColor: colorVars["--color-background-body"],
-    color: colorVars["--color-text-primary"],
-    font: "inherit",
-  },
-  textarea: { minHeight: 96, resize: "vertical" },
   problem: {
     padding: spacingVars["--spacing-2"],
     borderColor: colorVars["--color-error"],

@@ -34,6 +34,7 @@ export {
   SelectField,
   TextAreaField,
   TextField,
+  type TextFieldType,
 } from "./components/FormDialog.js";
 export {
   defineContentPageSlots,
