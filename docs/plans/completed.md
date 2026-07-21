@@ -6,6 +6,20 @@ Completed means implemented or shipped at least once. It does not imply stable
 support for every surface. Use [../local-contract.md](../local-contract.md) as
 the source of truth for stable, beta, and dev-only classification.
 
+## Table Grouping and Resizable Detail Panels
+
+- Status: completed
+- Owner: scenery ui catalog / compiler / generation
+- Completed: 2026-07-21
+- Quality: B
+- ExecPlan: [0129 Table Grouping and Resizable Detail Panel for `table_page`](0129-table-grouping-and-detail-panel.md)
+
+Shipped complete-list grouping as an optional mode of the existing Table
+template: ordered collapsible sections with counts, a runtime None/group
+selector, and compile-time rejection on paginated sources. Row details now have
+explicit inline or bounded resizable-panel presentation, with generated adapter
+wiring and live Micro work-orders acceptance preserving the full workbench.
+
 ## Workbench Table Pages
 
 - Status: completed

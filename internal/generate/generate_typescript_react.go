@@ -614,7 +614,11 @@ func renderReactTablePage(result *Result, target Resource, reactRoot string, pag
 		}
 		for _, value := range orderedChildren(page.table.Spec, "row_detail") {
 			alias := aliases[resolveResourceRef(page.table, refString(value["component"]), "react_component")]
-			fmt.Fprintf(&b, "  rowDetail: %s,\n", alias)
+			slot := "rowDetail"
+			if stringValue(value["presentation"]) == "panel" {
+				slot = "detailPanel"
+			}
+			fmt.Fprintf(&b, "  %s: %s,\n", slot, alias)
 		}
 		b.WriteString("});\n\n")
 	}
@@ -672,7 +676,7 @@ func renderReactTablePage(result *Result, target Resource, reactRoot string, pag
 		}
 		b.WriteString("    }, { signal });\n")
 	}, reactTableResultExpression(page))
-	fmt.Fprintf(&b, "  return <><Page title=%s", jsxStringExpression(stringValue(page.table.Spec["title"])))
+	fmt.Fprintf(&b, "  return <><Page title=%s fill", jsxStringExpression(stringValue(page.table.Spec["title"])))
 	if len(orderedChildren(page.table.Spec, "toolbar")) > 0 || len(headerTableDialogs(page.dialogs)) > 0 {
 		b.WriteString(" actions={<>\n")
 		if len(orderedChildren(page.table.Spec, "toolbar")) > 0 {
@@ -701,7 +705,7 @@ func renderReactTablePage(result *Result, target Resource, reactRoot string, pag
 		}
 		b.WriteString("    </StatGrid> : null}\n  </QueryState>\n")
 	}
-	fmt.Fprintf(&b, "<QueryTable<%s> resource=%s", rowType, jsxStringExpression(stringValue(page.table.Spec["title"])))
+	fmt.Fprintf(&b, "<QueryTable<%s> resource=%s fill", rowType, jsxStringExpression(stringValue(page.table.Spec["title"])))
 	if description := stringValue(page.table.Spec["description"]); description != "" {
 		fmt.Fprintf(&b, " description=%s", jsxStringExpression(description))
 	}
@@ -745,7 +749,23 @@ func renderReactTablePage(result *Result, target Resource, reactRoot string, pag
 		}
 		b.WriteString(" },\n")
 	}
-	b.WriteString("  ]} sorts={[\n")
+	b.WriteString("  ]}")
+	if groups := orderedChildren(page.table.Spec, "group"); len(groups) > 0 {
+		b.WriteString(" groups={[\n")
+		for _, group := range groups {
+			field := stringValue(group["name"])
+			fmt.Fprintf(&b, "    { field: %s, label: %s", strconv.Quote(field), strconv.Quote(defaultString(stringValue(group["label"]), humanLabel(field))))
+			if order := stringValues(group["order"]); len(order) > 0 {
+				fmt.Fprintf(&b, ", order: [%s]", quotedList(order))
+			}
+			if group["default"] == true {
+				b.WriteString(", default: true")
+			}
+			b.WriteString(" },\n")
+		}
+		b.WriteString("  ]}")
+	}
+	b.WriteString(" sorts={[\n")
 	for _, sortSpec := range orderedChildren(page.table.Spec, "sort") {
 		field := stringValue(sortSpec["name"])
 		fmt.Fprintf(&b, "    { field: %s, label: %s", strconv.Quote(field), strconv.Quote(defaultString(stringValue(sortSpec["label"]), humanLabel(field))))
@@ -766,7 +786,15 @@ func renderReactTablePage(result *Result, target Resource, reactRoot string, pag
 		b.WriteString(" empty={slots.empty}")
 	}
 	if len(orderedChildren(page.table.Spec, "row_detail")) > 0 {
-		b.WriteString(" rowDetail={slots.rowDetail}")
+		rowDetail := orderedChildren(page.table.Spec, "row_detail")[0]
+		if stringValue(rowDetail["presentation"]) == "panel" {
+			b.WriteString(" detailPanel={slots.detailPanel}")
+			if width, valid := integerValue(rowDetail["panel_width"]); valid {
+				fmt.Fprintf(&b, " detailPanelWidth={%d}", width)
+			}
+		} else {
+			b.WriteString(" rowDetail={slots.rowDetail}")
+		}
 	}
 	if dialog := rowTableDialog(page.dialogs); dialog != nil {
 		fmt.Fprintf(&b, " rowDetailAction={(row) => <Button label=%s onClick={() => %s} size=\"sm\" variant=\"secondary\" />}",
@@ -790,6 +818,9 @@ func renderReactTablePage(result *Result, target Resource, reactRoot string, pag
 	pageSize, _ := integerValue(page.table.Spec["page_size"])
 	if !page.paginated {
 		b.WriteString(" paginated={false}")
+	}
+	if page.table.Spec["hide_header"] == true {
+		b.WriteString(" hideHeader")
 	}
 	fmt.Fprintf(&b, " pageSize={%d} queryKey={queryKey} load={load} /></Page>\n", pageSize)
 	for _, dialog := range page.dialogs {

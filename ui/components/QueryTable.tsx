@@ -4,9 +4,18 @@ import { Icon } from "@astryxdesign/core/Icon";
 import { IconButton } from "@astryxdesign/core/IconButton";
 import { Link } from "@astryxdesign/core/Link";
 import { Pagination } from "@astryxdesign/core/Pagination";
+import { ResizeHandle, useResizable } from "@astryxdesign/core/Resizable";
 import { Selector } from "@astryxdesign/core/Selector";
 import { Text } from "@astryxdesign/core/Text";
-import { spacingVars } from "@astryxdesign/core/theme/tokens.stylex";
+import {
+  borderVars,
+  colorVars,
+  durationVars,
+  easeVars,
+  radiusVars,
+  shadowVars,
+  spacingVars,
+} from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -16,9 +25,10 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
-import { type Column, DataTable } from "./DataTable.js";
+import { type Column, DataTable, type DataTableSection } from "./DataTable.js";
 import {
   FilterToolbar,
   type FilterToolbarActiveFilter,
@@ -81,6 +91,11 @@ export interface TablePageRowDetailProps<Row> {
   readonly row: Row;
 }
 
+export interface TablePageDetailPanelProps<Row> {
+  readonly row: Row;
+  readonly onClose: () => void;
+}
+
 export type TablePageColumn<Row> = {
   readonly [Key in keyof Row]: {
     readonly field: Key;
@@ -121,6 +136,13 @@ export interface TablePageSort {
   readonly default?: TablePageDirection;
 }
 
+export interface TablePageGroup {
+  readonly field: string;
+  readonly label: string;
+  readonly order?: readonly string[];
+  readonly default?: boolean;
+}
+
 export interface TablePageSlots<
   Row,
   CellKey extends keyof Row = never,
@@ -139,6 +161,7 @@ export interface TablePageSlots<
   readonly toolbar?: ComponentType;
   readonly empty?: ComponentType<TablePageEmptyProps>;
   readonly rowDetail?: ComponentType<TablePageRowDetailProps<Row>>;
+  readonly detailPanel?: ComponentType<TablePageDetailPanelProps<Row>>;
 }
 
 type Exact<Shape, Actual extends Shape> = Actual &
@@ -163,6 +186,9 @@ export interface QueryTableProps<Row extends object> {
   readonly searchable?: boolean;
   readonly rowLink?: (row: Row) => string;
   readonly rowDetail?: ComponentType<TablePageRowDetailProps<Row>>;
+  readonly detailPanel?: ComponentType<TablePageDetailPanelProps<Row>>;
+  readonly detailPanelWidth?: number;
+  readonly detailTitle?: (row: Row) => ReactNode;
   readonly rowDetailAction?: (row: Row) => ReactNode;
   readonly emptyAction?: ReactNode;
   readonly exportAction?: {
@@ -171,6 +197,9 @@ export interface QueryTableProps<Row extends object> {
     readonly icon?: ReactNode;
   };
   readonly paginated?: boolean;
+  readonly hideHeader?: boolean;
+  readonly fill?: boolean;
+  readonly groups?: readonly TablePageGroup[];
   readonly pageSize: number;
   readonly queryKey: readonly unknown[];
   readonly load: (
@@ -183,6 +212,7 @@ export interface QueryTableProps<Row extends object> {
 // Keystrokes update the visible input immediately; the query key only moves
 // after this idle window, so typing does not launch one request per character.
 const searchDebounceMilliseconds = 250;
+const noGroupValue = "__scenery_no_group__";
 
 export function QueryTable<Row extends object>({
   resource,
@@ -193,10 +223,16 @@ export function QueryTable<Row extends object>({
   searchable,
   rowLink,
   rowDetail: RowDetail,
+  detailPanel: DetailPanel,
+  detailPanelWidth,
+  detailTitle,
   rowDetailAction,
   emptyAction,
   exportAction,
   paginated = true,
+  hideHeader,
+  fill,
+  groups = [],
   pageSize,
   queryKey,
   load,
@@ -215,6 +251,21 @@ export function QueryTable<Row extends object>({
   const [cursor, setCursor] = useState<string>();
   const [history, setHistory] = useState<readonly (string | undefined)[]>([]);
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
+  const [selectedRow, setSelectedRow] = useState<{
+    readonly key: string;
+    readonly row: Row;
+  } | null>(null);
+  const allowedGroups = paginated ? [] : groups;
+  const [activeGroupField, setActiveGroupField] = useState(
+    () => allowedGroups.find((group) => group.default)?.field ?? noGroupValue,
+  );
+  const panel = useResizable({
+    defaultSize: detailPanelWidth ?? 360,
+    minSizePx: 280,
+    maxSizePx: 560,
+  });
+  const warnedPaginatedGroups = useRef(false);
+  const warnedDetailConflict = useRef(false);
 
   useEffect(() => {
     const timer = setTimeout(
@@ -223,6 +274,21 @@ export function QueryTable<Row extends object>({
     );
     return () => clearTimeout(timer);
   }, [search]);
+  useEffect(() => {
+    if (!isDevelopmentBuild()) return;
+    if (paginated && groups.length > 0 && !warnedPaginatedGroups.current) {
+      warnedPaginatedGroups.current = true;
+      console.warn(
+        "QueryTable ignores groups for paginated data because section counts would only describe one page.",
+      );
+    }
+    if (DetailPanel && RowDetail && !warnedDetailConflict.current) {
+      warnedDetailConflict.current = true;
+      console.warn(
+        "QueryTable received both detailPanel and rowDetail; detailPanel takes precedence.",
+      );
+    }
+  }, [DetailPanel, RowDetail, groups.length, paginated]);
   const query = useMemo<TablePageQuery>(
     () => ({
       search: debouncedSearch.trim() || undefined,
@@ -247,6 +313,7 @@ export function QueryTable<Row extends object>({
     setCursor(undefined);
     setHistory([]);
     setExpandedKey(null);
+    setSelectedRow(null);
   }, []);
   const filtered =
     debouncedSearch.trim() !== "" ||
@@ -257,26 +324,66 @@ export function QueryTable<Row extends object>({
         (!Array.isArray(value) || value.length > 0),
     );
   const items = result.kind === "result" ? result.items : [];
-  const rowKey = (row: Row, index: number) =>
-    rowLink?.(row) ?? String(index);
+  const rowKey = (row: Row, index: number) => rowLink?.(row) ?? String(index);
   const visibleColumns = columns.filter((column) => !column.hidden);
-  const dataColumns = visibleColumns.map<Column<Row>>((column, columnIndex) => ({
-    key: String(column.field),
-    header: column.label,
-    align: column.appearance === "number" ? "right" : "left",
-    nowrap:
-      column.appearance === "datetime" || column.appearance === "number",
-    render: (row) => {
-      const value = renderCell(column, row);
-      const href = rowLink?.(row);
-      return href && columnIndex === 0 ? (
-        <Link href={href}>{value}</Link>
-      ) : (
-        value
+  const activeGroup = allowedGroups.find(
+    (group) => group.field === activeGroupField,
+  );
+  const sections = useMemo<readonly DataTableSection<Row>[] | undefined>(() => {
+    if (!activeGroup) return undefined;
+    return groupRows(items, activeGroup, columns);
+  }, [activeGroup, columns, items]);
+  // Rows in display order: grouped sections flatten to the same indices
+  // DataTable hands to getRowKey, so arrow-key selection stays aligned.
+  const orderedRows = useMemo<readonly Row[]>(
+    () => (sections ? sections.flatMap((section) => section.rows) : items),
+    [items, sections],
+  );
+  useEffect(() => {
+    if (!selectedRow || !DetailPanel) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setSelectedRow(null);
+        return;
+      }
+      if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+      if (
+        event.target instanceof Element &&
+        event.target.closest("input, textarea, select, [contenteditable]")
+      ) {
+        return;
+      }
+      event.preventDefault();
+      const currentIndex = orderedRows.findIndex(
+        (row, index) => rowKey(row, index) === selectedRow.key,
       );
-    },
-  }));
-  if (RowDetail) {
+      if (currentIndex === -1) return;
+      const nextIndex = currentIndex + (event.key === "ArrowDown" ? 1 : -1);
+      const next = orderedRows[nextIndex];
+      if (next) setSelectedRow({ key: rowKey(next, nextIndex), row: next });
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  });
+  const dataColumns = visibleColumns.map<Column<Row>>(
+    (column, columnIndex) => ({
+      key: String(column.field),
+      header: column.label,
+      align: column.appearance === "number" ? "right" : "left",
+      nowrap:
+        column.appearance === "datetime" || column.appearance === "number",
+      render: (row) => {
+        const value = renderCell(column, row);
+        const href = rowLink?.(row);
+        return href && columnIndex === 0 ? (
+          <Link href={href}>{value}</Link>
+        ) : (
+          value
+        );
+      },
+    }),
+  );
+  if (RowDetail && !DetailPanel) {
     dataColumns.unshift({
       key: "__expand",
       header: "",
@@ -305,9 +412,7 @@ export function QueryTable<Row extends object>({
   }
   const toolbarFilters: FilterToolbarFilter[] = declaredFilters
     .filter(
-      (
-        filter,
-      ): filter is Extract<TablePageFilter, { readonly kind: "enum" }> =>
+      (filter): filter is Extract<TablePageFilter, { readonly kind: "enum" }> =>
         filter.kind === "enum",
     )
     .map((filter) => ({
@@ -352,7 +457,10 @@ export function QueryTable<Row extends object>({
     });
 
   return (
-    <section aria-label={resource} {...stylex.props(styles.root)}>
+    <section
+      aria-label={resource}
+      {...stylex.props(styles.root, fill && styles.rootFill)}
+    >
       {description ? (
         <Text color="secondary" type="supporting">
           {description}
@@ -361,6 +469,7 @@ export function QueryTable<Row extends object>({
       {searchable ||
       declaredFilters.length > 0 ||
       sorts.length > 0 ||
+      allowedGroups.length > 0 ||
       result.kind === "result" ||
       exportAction ? (
         <FilterToolbar
@@ -422,9 +531,7 @@ export function QueryTable<Row extends object>({
                         }));
                         resetQuery();
                       }}
-                      value={
-                        Array.isArray(current) ? current[0] : undefined
-                      }
+                      value={Array.isArray(current) ? current[0] : undefined}
                     />
                   );
                 }
@@ -483,77 +590,162 @@ export function QueryTable<Row extends object>({
               />
             </>
           ) : null}
+          {allowedGroups.length > 0 ? (
+            <Selector
+              label="Group"
+              onChange={(value: string) => {
+                setActiveGroupField(value);
+                setExpandedKey(null);
+                setSelectedRow(null);
+              }}
+              options={[
+                { label: "None", value: noGroupValue },
+                ...allowedGroups.map((group) => ({
+                  label: group.label,
+                  value: group.field,
+                })),
+              ]}
+              size="sm"
+              value={activeGroupField}
+              width={180}
+            />
+          ) : null}
         </FilterToolbar>
       ) : null}
-      <QueryState
-        {...queryStateProps(result, resource)}
-        empty={
-          Empty ? (
-            <Empty filtered={filtered} />
-          ) : filtered ? (
-            "No matching results."
-          ) : emptyAction ? (
-            <div {...stylex.props(styles.emptyWithAction)}>
-              <Text color="secondary" type="supporting">
-                No results yet.
-              </Text>
-              {emptyAction}
-            </div>
-          ) : (
-            "No results yet."
-          )
-        }
-        isEmpty={result.kind === "result" && result.items.length === 0}
-        retry={() => void resultQuery.refetch()}
-      >
-        <DataTable
-          columns={dataColumns}
-          expandedKey={expandedKey}
-          framed
-          getRowKey={rowKey}
-          minWidth={720}
-          renderExpanded={
-            RowDetail
-              ? (row) => (
-                  <div {...stylex.props(styles.rowDetail)}>
-                    <RowDetail row={row} />
-                    {rowDetailAction ? (
-                      <div {...stylex.props(styles.rowDetailAction)}>
-                        {rowDetailAction(row)}
-                      </div>
-                    ) : null}
-                  </div>
-                )
-              : undefined
-          }
-          rows={items}
-          sticky
-        />
-      </QueryState>
-      {paginated && result.kind === "result" ? (
-        <div {...stylex.props(styles.pagination)}>
-          <Pagination
-            hasMore={Boolean(result.nextCursor)}
-            isDisabled={false}
-            label={`${resource} pagination`}
-            onChange={(nextPage: number) => {
-              const page = history.length + 1;
-              if (nextPage === page - 1 && history.length > 0) {
-                const previous = history.at(-1);
-                setHistory((value) => value.slice(0, -1));
-                setCursor(previous);
-              } else if (nextPage === page + 1 && result.nextCursor) {
-                setHistory((value) => [...value, cursor]);
-                setCursor(result.nextCursor);
+      <div {...stylex.props(styles.workspace, fill && styles.workspaceFill)}>
+        <div {...stylex.props(styles.content, fill && styles.contentFill)}>
+          <QueryState
+            {...queryStateProps(result, resource)}
+            empty={
+              Empty ? (
+                <Empty filtered={filtered} />
+              ) : filtered ? (
+                "No matching results."
+              ) : emptyAction ? (
+                <div {...stylex.props(styles.emptyWithAction)}>
+                  <Text color="secondary" type="supporting">
+                    No results yet.
+                  </Text>
+                  {emptyAction}
+                </div>
+              ) : (
+                "No results yet."
+              )
+            }
+            isEmpty={result.kind === "result" && result.items.length === 0}
+            retry={() => void resultQuery.refetch()}
+          >
+            <DataTable
+              key={activeGroupField}
+              columns={dataColumns}
+              expandedKey={expandedKey}
+              fill={fill}
+              framed
+              getRowKey={rowKey}
+              hideHeader={hideHeader}
+              minWidth={720}
+              onRowClick={
+                DetailPanel
+                  ? (row, index) => {
+                      const key = rowKey(row, index);
+                      setSelectedRow((current) =>
+                        current?.key === key ? null : { key, row },
+                      );
+                    }
+                  : undefined
               }
-            }}
-            page={history.length + 1}
-            pageSize={pageSize}
-            size="sm"
-            variant="none"
-          />
+              renderExpanded={
+                RowDetail && !DetailPanel
+                  ? (row) => (
+                      <div {...stylex.props(styles.rowDetail)}>
+                        <RowDetail row={row} />
+                        {rowDetailAction ? (
+                          <div {...stylex.props(styles.rowDetailAction)}>
+                            {rowDetailAction(row)}
+                          </div>
+                        ) : null}
+                      </div>
+                    )
+                  : undefined
+              }
+              rows={items}
+              sections={sections}
+              selectedKey={DetailPanel ? (selectedRow?.key ?? null) : null}
+              sticky
+            />
+          </QueryState>
+          {paginated && result.kind === "result" ? (
+            <div {...stylex.props(styles.pagination)}>
+              <Pagination
+                hasMore={Boolean(result.nextCursor)}
+                isDisabled={false}
+                label={`${resource} pagination`}
+                onChange={(nextPage: number) => {
+                  const page = history.length + 1;
+                  if (nextPage === page - 1 && history.length > 0) {
+                    const previous = history.at(-1);
+                    setHistory((value) => value.slice(0, -1));
+                    setCursor(previous);
+                  } else if (nextPage === page + 1 && result.nextCursor) {
+                    setHistory((value) => [...value, cursor]);
+                    setCursor(result.nextCursor);
+                  }
+                }}
+                page={history.length + 1}
+                pageSize={pageSize}
+                size="sm"
+                variant="none"
+              />
+            </div>
+          ) : null}
         </div>
-      ) : null}
+        {DetailPanel && selectedRow ? (
+          <div
+            style={{ width: panel.size }}
+            {...stylex.props(
+              styles.detailPanelColumn,
+              fill && styles.detailPanelColumnFill,
+            )}
+          >
+            <aside
+              aria-label={`${singular(resource)} details`}
+              {...stylex.props(
+                styles.detailPanel,
+                fill && styles.detailPanelFill,
+              )}
+            >
+              <ResizeHandle
+                isAlwaysVisible={false}
+                isReversed
+                label="Resize detail panel"
+                position="overlay"
+                resizable={panel.props}
+                xstyle={styles.overlayResizeHandle}
+              />
+              <div {...stylex.props(styles.detailPanelHeader)}>
+                <span {...stylex.props(styles.detailPanelTitle)}>
+                  {detailTitle
+                    ? detailTitle(selectedRow.row)
+                    : firstColumnText(selectedRow.row, visibleColumns)}
+                </span>
+                <IconButton
+                  icon={<Icon icon="close" size="sm" />}
+                  label="Close detail panel"
+                  onClick={() => setSelectedRow(null)}
+                  variant="ghost"
+                />
+              </div>
+              <div {...stylex.props(styles.detailPanelBody)}>
+                <DetailPanel
+                  key={selectedRow.key}
+                  onClose={() => setSelectedRow(null)}
+                  row={selectedRow.row}
+                />
+              </div>
+            </aside>
+          </div>
+        ) : null}
+      </div>
     </section>
   );
 }
@@ -569,9 +761,7 @@ function EnumFilter({
 }) {
   if (filter.component) {
     const Component = filter.component;
-    return (
-      <Component label={filter.label} onChange={onChange} value={value} />
-    );
+    return <Component label={filter.label} onChange={onChange} value={value} />;
   }
   return (
     <Selector
@@ -665,6 +855,64 @@ function normalizeFilterOption(
     : { label: option.label, value: option.value };
 }
 
+function groupRows<Row extends object>(
+  rows: readonly Row[],
+  group: TablePageGroup,
+  columns: readonly TablePageColumn<Row>[],
+): readonly DataTableSection<Row>[] {
+  const buckets = new Map<string, Row[]>();
+  for (const row of rows) {
+    const value = (row as Record<string, unknown>)[group.field];
+    const key =
+      value === null || value === undefined || value === ""
+        ? ""
+        : typeof value === "object"
+          ? JSON.stringify(value)
+          : String(value);
+    const bucket = buckets.get(key);
+    if (bucket) bucket.push(row);
+    else buckets.set(key, [row]);
+  }
+
+  const ordered: string[] = [];
+  for (const key of group.order ?? []) {
+    if (key !== "" && buckets.has(key) && !ordered.includes(key)) {
+      ordered.push(key);
+    }
+  }
+  ordered.push(
+    ...[...buckets.keys()]
+      .filter((key) => key !== "" && !ordered.includes(key))
+      .sort((left, right) => left.localeCompare(right)),
+  );
+  if (buckets.has("")) ordered.push("");
+
+  const column = columns.find(
+    (candidate) => String(candidate.field) === group.field,
+  );
+  return ordered.map((key) => ({
+    key,
+    label: cellText(key, column?.statusMap),
+    rows: buckets.get(key) ?? [],
+  }));
+}
+
+function firstColumnText<Row extends object>(
+  row: Row,
+  columns: readonly TablePageColumn<Row>[],
+): string | null {
+  const column = columns[0];
+  if (!column) return null;
+  return cellText(row[column.field], column.statusMap);
+}
+
+function isDevelopmentBuild() {
+  return (
+    (import.meta as ImportMeta & { readonly env?: { readonly DEV?: boolean } })
+      .env?.DEV ?? false
+  );
+}
+
 function singular(resource: string) {
   const value = resource.toLocaleLowerCase();
   return value.endsWith("s") ? value.slice(0, -1) : value;
@@ -679,14 +927,7 @@ function exportRows<Row extends object>(
     columns.map((column) => csvCell(column.label)).join(","),
     ...rows.map((row) =>
       columns
-        .map((column) =>
-          csvCell(
-            cellText(
-              row[column.field],
-              column.statusMap,
-            ),
-          ),
-        )
+        .map((column) => csvCell(cellText(row[column.field], column.statusMap)))
         .join(","),
     ),
   ].join("\n");
@@ -699,7 +940,7 @@ function exportRows<Row extends object>(
 }
 
 function csvCell(value: string) {
-  return `"${value.replaceAll("\"", "\"\"")}"`;
+  return `"${value.replaceAll('"', '""')}"`;
 }
 
 function cellText(value: unknown, statusMap?: StatusMap): string {
@@ -727,12 +968,49 @@ function exactDateTime(value: ISODateTimeString | undefined) {
   return value ? new Date(value).toISOString() : undefined;
 }
 
+const panelSlideIn = stylex.keyframes({
+  from: { opacity: 0, transform: "translateX(16px)" },
+  to: { opacity: 1, transform: "translateX(0)" },
+});
+
 const styles = stylex.create({
   root: {
     display: "flex",
     flexDirection: "column",
     gap: spacingVars["--spacing-4"],
     minWidth: 0,
+  },
+  workspace: {
+    display: "flex",
+    alignItems: "stretch",
+    gap: spacingVars["--spacing-3"],
+    minWidth: 0,
+  },
+  content: {
+    display: "flex",
+    flex: 1,
+    flexDirection: "column",
+    gap: spacingVars["--spacing-4"],
+    minWidth: 0,
+  },
+  // Fill mode (Linear-style scrolling): the section flex-fills its page,
+  // nothing above the grid moves, and the grid scroller plus the detail
+  // panel body scroll independently.
+  rootFill: { flex: 1, minHeight: 0 },
+  workspaceFill: { flex: 1, minHeight: 0 },
+  contentFill: { minHeight: 0 },
+  detailPanelColumnFill: {
+    display: "flex",
+    flexDirection: "column",
+    minHeight: 0,
+  },
+  detailPanelFill: {
+    // Stays positioned so the overlay resize handle keeps its anchor.
+    position: "relative",
+    top: "auto",
+    maxHeight: "100%",
+    flex: 1,
+    minHeight: 0,
   },
   dateRange: {
     display: "flex",
@@ -758,5 +1036,63 @@ const styles = stylex.create({
   rowDetailAction: {
     display: "flex",
     justifyContent: "flex-end",
+  },
+  detailPanelColumn: {
+    flexShrink: 0,
+  },
+  // Content-sized with a scrollport cap: the panel never forces the page
+  // taller than its scroll container, and while a long table scrolls past
+  // it pins at the top and scrolls internally. 100cqh reads the PageLayout
+  // scroll area's height (a size container) and degrades to viewport units
+  // when QueryTable renders outside one.
+  detailPanel: {
+    boxSizing: "border-box",
+    position: "sticky",
+    top: 12,
+    maxHeight: "calc(100cqh - 24px)",
+    display: "flex",
+    flexDirection: "column",
+    backgroundColor: colorVars["--color-background-card"],
+    borderColor: colorVars["--color-border"],
+    borderStyle: "solid",
+    borderWidth: borderVars["--border-width"],
+    borderRadius: radiusVars["--radius-container"],
+    boxShadow: shadowVars["--shadow-low"],
+    animationName: {
+      default: panelSlideIn,
+      "@media (prefers-reduced-motion: reduce)": "none",
+    },
+    animationDuration: durationVars["--duration-medium"],
+    animationTimingFunction: easeVars["--ease-standard"],
+  },
+  overlayResizeHandle: {
+    insetInlineEnd: "auto",
+    insetInlineStart: 0,
+  },
+  detailPanelHeader: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacingVars["--spacing-2"],
+    flexShrink: 0,
+    padding: `${spacingVars["--spacing-2"]} ${spacingVars["--spacing-3"]}`,
+    borderBottomColor: colorVars["--color-border"],
+    borderBottomStyle: "solid",
+    borderBottomWidth: borderVars["--border-width"],
+  },
+  detailPanelTitle: {
+    fontSize: 13,
+    fontWeight: 600,
+    minWidth: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  detailPanelBody: {
+    minHeight: 0,
+    overflowY: "auto",
+    padding: spacingVars["--spacing-4"],
+    scrollbarColor: `${colorVars["--color-text-secondary"]} transparent`,
+    scrollbarWidth: "thin",
   },
 });

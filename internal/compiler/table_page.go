@@ -193,9 +193,42 @@ func validateTablePage(resources map[string]Resource, table Resource) []Diagnost
 	if defaults > 1 {
 		diagnostics = append(diagnostics, uiDiagnostic("SCN2610", "table_page may declare one default sort", table))
 	}
+	groups := namedChildren(table.Spec, "group")
+	seenGroups, defaultGroups := map[string]bool{}, 0
+	for _, group := range groups {
+		name := stringValue(group["name"])
+		if fields[name] == nil || seenGroups[name] {
+			diagnostics = append(diagnostics, uiDiagnostic("SCN2623", "table_page groups require unique row fields", table))
+		}
+		seenGroups[name] = true
+		if group["default"] == true {
+			defaultGroups++
+		}
+	}
+	if len(groups) > 0 && contract.paginated {
+		diagnostics = append(diagnostics, uiDiagnostic("SCN2623", "table_page group requires a complete-list data source; paginated pages cannot group", table))
+	}
+	if defaultGroups > 1 {
+		diagnostics = append(diagnostics, uiDiagnostic("SCN2623", "table_page may declare one default group", table))
+	}
 	for _, slot := range []string{"toolbar", "empty", "row_detail"} {
 		for _, value := range namedChildren(table.Spec, slot) {
 			diagnostics = append(diagnostics, validateTablePageComponent(resources, table, value["component"])...)
+		}
+	}
+	for _, rowDetail := range orderedChildren(table.Spec, "row_detail") {
+		presentation := defaultString(stringValue(rowDetail["presentation"]), "inline")
+		if presentation != "inline" && presentation != "panel" {
+			diagnostics = append(diagnostics, uiDiagnostic("SCN2623", "table_page row_detail presentation must be inline or panel", table))
+		}
+		if rowDetail["panel_width"] != nil {
+			width, valid := integerValue(rowDetail["panel_width"])
+			if presentation != "panel" || !valid || width < 280 || width > 560 {
+				diagnostics = append(diagnostics, uiDiagnostic("SCN2623", "table_page row_detail panel_width requires panel presentation and an integer from 280 to 560", table))
+			}
+		}
+		if presentation == "panel" && rowDetail["dialog"] != nil {
+			diagnostics = append(diagnostics, uiDiagnostic("SCN2623", "table_page row_detail dialog is available only with inline presentation", table))
 		}
 	}
 	diagnostics = append(diagnostics, validateTablePageRowDialog(resources, table, fields)...)

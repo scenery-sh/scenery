@@ -43,8 +43,11 @@ func TestBindingBackedReactTableLoadsCompleteTypedResultWithoutPagination(t *tes
 		{Address: "house/status_map/work_order_status", Module: "house", Name: "work_order_status", Kind: "scenery.status-map", Spec: map[string]any{
 			"status": map[string]any{"name": "open", "label": "Open", "variant": "neutral"},
 		}},
+		{Address: "house/react_component/work_order_detail", Module: "house", Name: "work_order_detail", Kind: "scenery.react-component", Spec: map[string]any{
+			"module": "work-order-detail.tsx", "export": "WorkOrderDetail",
+		}},
 		{Address: "house/table_page/work_orders", Module: "house", Name: "work_orders", Kind: "scenery.table-page", Origin: Origin{Kind: "authored"}, Spec: map[string]any{
-			"path": "/work-orders", "source": map[string]any{"$ref": "binding.search_work_orders_http"}, "items": "orders", "title": "Work Orders", "page_size": 50,
+			"path": "/work-orders", "source": map[string]any{"$ref": "binding.search_work_orders_http"}, "items": "orders", "title": "Work Orders", "page_size": 50, "hide_header": true,
 			"column": []any{
 				map[string]any{"name": "id"},
 				map[string]any{"name": "status", "appearance": "badge", "status_map": map[string]any{"$ref": "status_map.work_order_status"}},
@@ -52,6 +55,10 @@ func TestBindingBackedReactTableLoadsCompleteTypedResultWithoutPagination(t *tes
 			},
 			"filter": map[string]any{"name": "status", "status_map": map[string]any{"$ref": "status_map.work_order_status"}},
 			"sort":   map[string]any{"name": "created_at", "default": "desc"},
+			"group":  map[string]any{"name": "status", "label": "Status", "order": []any{"open", "complete"}, "default": true},
+			"row_detail": map[string]any{
+				"component": map[string]any{"$ref": "react_component.work_order_detail"}, "presentation": "panel", "panel_width": 420,
+			},
 		}},
 	}
 	binding := resources[7]
@@ -75,6 +82,12 @@ func TestBindingBackedReactTableLoadsCompleteTypedResultWithoutPagination(t *tes
 		`{ kind: "result", items: outcome.value.orders }`,
 		"searchable",
 		"paginated={false}",
+		" hideHeader",
+		`groups={[`,
+		`{ field: "status", label: "Status", order: ["open", "complete"], default: true }`,
+		`detailPanel: SceneryOverride1`,
+		`detailPanel={slots.detailPanel}`,
+		`detailPanelWidth={420}`,
 		`{ field: "createdAt", label: "Created At", appearance: "auto", hidden: true, export: false }`,
 	} {
 		if !strings.Contains(source, fragment) {

@@ -155,20 +155,25 @@ export function Page({
   children,
   maxWidth,
   ariaLabel,
+  fill,
 }: {
   title: string;
   actions?: ReactNode;
   children: ReactNode;
   maxWidth?: number;
   ariaLabel?: string;
+  fill?: boolean;
 }) {
   const contentStyle = maxWidth
     ? ({ "--page-content-max": `${maxWidth}px` } as CSSProperties)
     : undefined;
   return (
     <PageShell title={title} actions={actions} label={ariaLabel}>
-      <div {...stylex.props(styles.scrollArea)}>
-        <div {...stylex.props(styles.content)} style={contentStyle}>
+      <div {...stylex.props(styles.scrollArea, fill && styles.scrollAreaFill)}>
+        <div
+          {...stylex.props(styles.content, fill && styles.contentFill)}
+          style={contentStyle}
+        >
           {children}
         </div>
       </div>
@@ -221,7 +226,16 @@ const styles = stylex.create({
     flexDirection: "column",
     backgroundColor: colorVars["--color-background-surface"],
   },
-  scrollArea: { minHeight: 0, flex: 1, overflow: "auto" },
+  // A size container so descendants (e.g. QueryTable's sticky detail panel)
+  // can cap their height in cqh units — the scrollport's real height —
+  // instead of guessing how much app chrome sits above it. Safe here: the
+  // scroll area's size comes from flex, never from its content.
+  scrollArea: {
+    minHeight: 0,
+    flex: 1,
+    overflow: "auto",
+    containerType: "size",
+  },
   content: {
     boxSizing: "border-box",
     width: "min(var(--page-content-max, 1540px), 100%)",
@@ -230,5 +244,17 @@ const styles = stylex.create({
     display: "flex",
     flexDirection: "column",
     gap: spacingVars["--spacing-4"],
+  },
+  // Fill mode: the page itself never scrolls — everything above the grid
+  // stays put and a flex-fill descendant (QueryTable's grid, its detail
+  // panel) owns its own scrolling.
+  scrollAreaFill: {
+    overflow: "hidden",
+    display: "flex",
+    flexDirection: "column",
+  },
+  contentFill: {
+    flex: 1,
+    minHeight: 0,
   },
 });

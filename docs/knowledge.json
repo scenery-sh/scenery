@@ -19,6 +19,18 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0129-table-grouping-and-detail-panel.md",
+      "title": "Table Grouping and Resizable Detail Panel for table_page",
+      "owner": "scenery ui catalog / compiler / generation",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-07-21",
+      "review_after": "2026-08-20",
+      "summary": "Completed ExecPlan extending the singular table_page template with complete-list grouping, ordered collapsible sections and counts, a runtime None/group selector, and explicit inline or bounded resizable row-detail panels, verified through generated Micro work orders and authenticated browser acceptance.",
+      "tags": ["plans", "execplans", "table-page", "grouping", "detail-panel", "react", "typescript", "ui-catalog", "micro"]
+    },
+    {
       "path": "docs/plans/0128-workbench-table-pages.md",
       "title": "Workbench Table Pages: Stats Band, Declarative Filters, Status Maps, Row Detail, and Generated Form Dialogs",
       "owner": "scenery spec / compiler / generation / ui catalog",

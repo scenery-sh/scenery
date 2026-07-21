@@ -4,13 +4,26 @@ import {
   radiusVars,
   spacingVars,
 } from "@astryxdesign/core/theme/tokens.stylex";
+import { Badge } from "@astryxdesign/core/Badge";
+import { Icon } from "@astryxdesign/core/Icon";
 import * as stylex from "@stylexjs/stylex";
-import { type CSSProperties, Fragment, type ReactNode } from "react";
+import {
+  type CSSProperties,
+  Fragment,
+  type ReactNode,
+  useState,
+} from "react";
 import { TableEmptyRow } from "./QueryState.js";
 
 export type Align = "left" | "right" | "center";
 export type SortDirection = "asc" | "desc";
 export type SortState = { key: string; direction: SortDirection };
+
+export type DataTableSection<T> = {
+  key: string;
+  label: ReactNode;
+  rows: readonly T[];
+};
 
 export type Column<T> = {
   key: string;
@@ -26,11 +39,13 @@ export type Column<T> = {
 export function DataTable<T>({
   columns,
   rows,
+  sections,
   getRowKey,
   minWidth,
   sticky,
   framed,
   fill,
+  hideHeader,
   layout = "auto",
   onRowClick,
   rowLabel,
@@ -38,15 +53,18 @@ export function DataTable<T>({
   onSort,
   expandedKey,
   renderExpanded,
+  selectedKey,
   empty = "No results",
 }: {
   columns: readonly Column<T>[];
   rows: readonly T[];
+  sections?: readonly DataTableSection<T>[];
   getRowKey: (row: T, index: number) => string;
   minWidth?: number;
   sticky?: boolean;
   framed?: boolean;
   fill?: boolean;
+  hideHeader?: boolean;
   layout?: "auto" | "fixed";
   onRowClick?: (row: T, index: number) => void;
   rowLabel?: (row: T) => string;
@@ -54,8 +72,12 @@ export function DataTable<T>({
   onSort?: (sortKey: string) => void;
   expandedKey?: string | null;
   renderExpanded?: (row: T) => ReactNode;
+  selectedKey?: string | null;
   empty?: ReactNode;
 }) {
+  const [collapsedSections, setCollapsedSections] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
   const style = minWidth
     ? ({ "--table-min-width": `${minWidth}px` } as CSSProperties)
     : undefined;
@@ -71,7 +93,20 @@ export function DataTable<T>({
         {...stylex.props(styles.table, layout === "fixed" && styles.fixed)}
         style={style}
       >
-        <thead>
+        {hideHeader ? (
+          // Column width hints normally live on the header cells; without a
+          // header they move to a colgroup so fixed widths still apply.
+          <colgroup>
+            {columns.map((column) => (
+              <col
+                key={column.key}
+                style={column.width ? { width: column.width } : undefined}
+              />
+            ))}
+          </colgroup>
+        ) : null}
+        {hideHeader ? null : (
+          <thead>
           <tr>
             {columns.map((column) => {
               const sortable = column.sortKey && onSort;
@@ -112,68 +147,173 @@ export function DataTable<T>({
               );
             })}
           </tr>
-        </thead>
+          </thead>
+        )}
         <tbody>
-          {rows.length === 0 ? (
+          {rows.length === 0 && (!sections || sections.length === 0) ? (
             <TableEmptyRow columns={columns.length}>{empty}</TableEmptyRow>
-          ) : (
-            rows.map((row, index) => {
-              const key = getRowKey(row, index);
-              const clickable = Boolean(onRowClick);
-              const expanded =
-                renderExpanded && expandedKey != null && expandedKey === key;
+          ) : sections ? (
+            sections.map((section, sectionIndex) => {
+              const collapsed = collapsedSections.has(section.key);
+              const rowOffset = sections
+                .slice(0, sectionIndex)
+                .reduce((total, candidate) => total + candidate.rows.length, 0);
               return (
-                <Fragment key={key}>
+                <Fragment key={section.key}>
                   <tr
-                    aria-label={clickable ? rowLabel?.(row) : undefined}
-                    onClick={onRowClick ? () => onRowClick(row, index) : undefined}
-                    onKeyDown={
-                      onRowClick
-                        ? (event) => {
-                            if (event.target !== event.currentTarget) return;
-                            if (event.key === "Enter" || event.key === " ") {
-                              event.preventDefault();
-                              onRowClick(row, index);
-                            }
-                          }
-                        : undefined
+                    aria-expanded={!collapsed}
+                    onClick={() =>
+                      setCollapsedSections((current) => {
+                        const next = new Set(current);
+                        if (next.has(section.key)) next.delete(section.key);
+                        else next.add(section.key);
+                        return next;
+                      })
                     }
-                    tabIndex={clickable ? 0 : undefined}
-                    {...stylex.props(clickable && styles.clickableRow)}
+                    onKeyDown={(event) => {
+                      if (event.key !== "Enter" && event.key !== " ") return;
+                      event.preventDefault();
+                      event.currentTarget.click();
+                    }}
+                    role="button"
+                    tabIndex={0}
+                    {...stylex.props(styles.sectionRow)}
                   >
-                    {columns.map((column) => (
-                      <td
-                        key={column.key}
-                        {...stylex.props(
-                          styles.cell,
-                          alignStyle(column.align),
-                          column.mono && styles.mono,
-                          column.nowrap && styles.nowrap,
-                        )}
-                      >
-                        {column.render
-                          ? column.render(row, index)
-                          : cellText(row, column.key)}
-                      </td>
-                    ))}
+                    <td colSpan={columns.length} {...stylex.props(styles.sectionCell)}>
+                      <span {...stylex.props(styles.sectionLabel)}>
+                        <Icon
+                          icon={collapsed ? "chevronRight" : "chevronDown"}
+                          size="sm"
+                        />
+                        <span>{section.label}</span>
+                        <Badge label={section.rows.length} variant="neutral" />
+                      </span>
+                    </td>
                   </tr>
-                  {expanded ? (
-                    <tr>
-                      <td
-                        colSpan={columns.length}
-                        {...stylex.props(styles.expandedCell)}
-                      >
-                        {renderExpanded(row)}
-                      </td>
-                    </tr>
-                  ) : null}
+                  {collapsed
+                    ? null
+                    : section.rows.map((row, index) =>
+                        renderRow({
+                          columns,
+                          expandedKey,
+                          getRowKey,
+                          onRowClick,
+                          renderExpanded,
+                          row,
+                          rowIndex: rowOffset + index,
+                          rowLabel,
+                          selectedKey,
+                        }),
+                      )}
                 </Fragment>
               );
             })
+          ) : (
+            rows.map((row, index) =>
+              renderRow({
+                columns,
+                expandedKey,
+                getRowKey,
+                onRowClick,
+                renderExpanded,
+                row,
+                rowIndex: index,
+                rowLabel,
+                selectedKey,
+              }),
+            )
           )}
         </tbody>
       </table>
     </div>
+  );
+}
+
+function renderRow<T>({
+  columns,
+  expandedKey,
+  getRowKey,
+  onRowClick,
+  renderExpanded,
+  row,
+  rowIndex,
+  rowLabel,
+  selectedKey,
+}: {
+  columns: readonly Column<T>[];
+  expandedKey?: string | null;
+  getRowKey: (row: T, index: number) => string;
+  onRowClick?: (row: T, index: number) => void;
+  renderExpanded?: (row: T) => ReactNode;
+  row: T;
+  rowIndex: number;
+  rowLabel?: (row: T) => string;
+  selectedKey?: string | null;
+}) {
+  const key = getRowKey(row, rowIndex);
+  const clickable = Boolean(onRowClick);
+  const selected = selectedKey != null && selectedKey === key;
+  const expanded =
+    renderExpanded && expandedKey != null && expandedKey === key;
+  return (
+    <Fragment key={key}>
+      <tr
+        aria-label={clickable ? rowLabel?.(row) : undefined}
+        onClick={
+          onRowClick
+            ? (event) => {
+                if (interactiveTarget(event.target)) return;
+                onRowClick(row, rowIndex);
+              }
+            : undefined
+        }
+        onKeyDown={
+          onRowClick
+            ? (event) => {
+                if (event.target !== event.currentTarget) return;
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  onRowClick(row, rowIndex);
+                }
+              }
+            : undefined
+        }
+        tabIndex={clickable ? 0 : undefined}
+        {...stylex.props(clickable && styles.clickableRow)}
+      >
+        {columns.map((column, columnIndex) => (
+          <td
+            key={column.key}
+            {...stylex.props(
+              styles.cell,
+              alignStyle(column.align),
+              column.mono && styles.mono,
+              column.nowrap && styles.nowrap,
+              selected && styles.selectedCell,
+              selected && columnIndex === 0 && styles.selectedFirstCell,
+            )}
+          >
+            {column.render
+              ? column.render(row, rowIndex)
+              : cellText(row, column.key)}
+          </td>
+        ))}
+      </tr>
+      {expanded ? (
+        <tr>
+          <td colSpan={columns.length} {...stylex.props(styles.expandedCell)}>
+            {renderExpanded(row)}
+          </td>
+        </tr>
+      ) : null}
+    </Fragment>
+  );
+}
+
+function interactiveTarget(target: EventTarget | null) {
+  return (
+    target instanceof Element &&
+    target.closest("a, button, input, select, textarea, [role='button']") != null
   );
 }
 
@@ -274,6 +414,31 @@ const styles = stylex.create({
   clickableRow: {
     cursor: "pointer",
     ":hover": { backgroundColor: colorVars["--color-background-muted"] },
+  },
+  selectedCell: {
+    backgroundColor: colorVars["--color-accent-muted"],
+  },
+  selectedFirstCell: {
+    boxShadow: `inset 2px 0 0 ${colorVars["--color-accent"]}`,
+  },
+  sectionRow: {
+    cursor: "pointer",
+    outline: { default: "none", ":focus-visible": "2px solid" },
+    outlineColor: colorVars["--color-accent"],
+    outlineOffset: -2,
+  },
+  sectionCell: {
+    padding: spacingVars["--spacing-2"],
+    borderBottomColor: colorVars["--color-border"],
+    borderBottomStyle: "solid",
+    borderBottomWidth: borderVars["--border-width"],
+    backgroundColor: colorVars["--color-background-muted"],
+  },
+  sectionLabel: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: spacingVars["--spacing-2"],
+    fontWeight: 600,
   },
   expandedCell: {
     padding: spacingVars["--spacing-4"],

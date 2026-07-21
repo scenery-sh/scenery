@@ -1,6 +1,9 @@
 package compiler
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestTablePageValidatesAndExpandsToExistingPageRendererContract(t *testing.T) {
 	resources := tablePageFixtureResources()
@@ -81,6 +84,91 @@ func TestTablePageValidationRejectsInvalidAuthoredContracts(t *testing.T) {
 	}
 }
 
+func TestTablePageValidatesGroupingAndDetailPresentation(t *testing.T) {
+	resources := tablePageFixtureResources()
+	expanded, diagnostics := expandDataResources(resources)
+	if hasErrors(diagnostics) {
+		t.Fatal(diagnostics)
+	}
+	byAddress := resourcesByAddress(&Manifest{Resources: expanded})
+	base := byAddress["house/table_page/scenes"]
+	byAddress["house/form_dialog/edit"] = Resource{
+		Address: "house/form_dialog/edit",
+		Module:  "house",
+		Name:    "edit",
+		Kind:    "scenery.form-dialog",
+		Spec:    map[string]any{},
+	}
+	tests := []struct {
+		name string
+		want string
+		edit func(map[string]any)
+	}{
+		{
+			name: "paginated grouping",
+			want: "complete-list data source",
+			edit: func(spec map[string]any) {
+				spec["group"] = map[string]any{"name": "name", "label": "Name"}
+			},
+		},
+		{
+			name: "duplicate group field",
+			want: "groups require unique row fields",
+			edit: func(spec map[string]any) {
+				spec["group"] = []any{
+					map[string]any{"name": "name", "label": "Name"},
+					map[string]any{"name": "name", "label": "Name again"},
+				}
+			},
+		},
+		{
+			name: "invalid presentation",
+			want: "presentation must be inline or panel",
+			edit: func(spec map[string]any) {
+				spec["row_detail"] = map[string]any{
+					"component":    map[string]any{"$ref": "react_component.name_cell"},
+					"presentation": "drawer",
+				}
+			},
+		},
+		{
+			name: "panel width on inline detail",
+			want: "panel_width requires panel presentation",
+			edit: func(spec map[string]any) {
+				spec["row_detail"] = map[string]any{
+					"component":   map[string]any{"$ref": "react_component.name_cell"},
+					"panel_width": 360,
+				}
+			},
+		},
+		{
+			name: "dialog on panel detail",
+			want: "dialog is available only with inline presentation",
+			edit: func(spec map[string]any) {
+				spec["row_detail"] = map[string]any{
+					"component":    map[string]any{"$ref": "react_component.name_cell"},
+					"dialog":       map[string]any{"$ref": "form_dialog.edit"},
+					"presentation": "panel",
+				}
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			table := cloneResourceView([]Resource{base})[0]
+			test.edit(table.Spec)
+			got := validateTablePage(byAddress, table)
+			found := false
+			for _, diagnostic := range got {
+				found = found || diagnostic.Code == "SCN2623" && strings.Contains(diagnostic.Message, test.want)
+			}
+			if !found {
+				t.Fatalf("diagnostics = %#v, want SCN2623 containing %q", got, test.want)
+			}
+		})
+	}
+}
+
 func TestTablePageBindingSourceExpandsAndValidatesCompleteTypedList(t *testing.T) {
 	resources := append(tablePageFixtureResources(),
 		Resource{Address: "house/enum/scene_sort", Module: "house", Name: "scene_sort", Kind: "scenery.enum", Spec: map[string]any{
@@ -119,6 +207,9 @@ func TestTablePageBindingSourceExpandsAndValidatesCompleteTypedList(t *testing.T
 		resources[index].Spec["items"] = "rows"
 		resources[index].Spec["filter"] = map[string]any{
 			"name": "name", "status_map": map[string]any{"$ref": "status_map.scene_name"},
+		}
+		resources[index].Spec["group"] = map[string]any{
+			"name": "name", "label": "Name", "default": true,
 		}
 		break
 	}

@@ -111,6 +111,9 @@ var authoredFieldOverrides = map[authoredFieldKey]authoredFieldOverride{
 	{Revision: "scenery.table-page.column", Name: "hidden"}:                           {Default: false, DefaultSource: "spec"},
 	{Revision: "scenery.table-page.column", Name: "export"}:                           {Default: true, DefaultSource: "spec"},
 	{Revision: "scenery.table-page.sort", Name: "default"}:                            {Constraints: enumConstraint("asc", "desc")},
+	{Revision: "scenery.table-page.group", Name: "default"}:                           {Default: false, DefaultSource: "spec"},
+	{Revision: "scenery.table-page.row-detail", Name: "presentation"}:                 {Default: "inline", DefaultSource: "spec", Constraints: enumConstraint("inline", "panel")},
+	{Revision: "scenery.table-page.row-detail", Name: "panel_width"}:                  {Constraints: map[string]any{"minimum": 280, "maximum": 560}},
 	{Revision: "scenery.status-map.status", Name: "variant"}:                          {Constraints: enumConstraint(statusBadgeVariants...)},
 	{Revision: "scenery.form-dialog.field", Name: "control"}:                          {Default: "auto", DefaultSource: "spec", Constraints: enumConstraint("auto", "select", "textarea", "text")},
 	{Revision: "scenery.table-page.action", Name: "primary"}:                          {Default: false, DefaultSource: "spec"},
@@ -893,6 +896,8 @@ func authoredAttributeType(revision, name string) (map[string]any, string) {
 			return map[string]any{"resource_ref_one_of": []string{"scenery.binding", "scenery.crud"}}, "exact"
 		case "page_size":
 			return primitive("positive_int")
+		case "hide_header":
+			return primitive("bool")
 		case "nav_order":
 			return primitive("non_negative_int")
 		case "nav_active_paths":
@@ -943,12 +948,27 @@ func authoredAttributeType(revision, name string) (map[string]any, string) {
 		}
 		return primitive("string")
 	case "scenery.table-page.row-detail":
-		if name == "dialog" {
+		switch name {
+		case "dialog":
 			return resourceRef("form_dialog")
+		case "component":
+			return resourceRef("react_component")
+		case "panel_width":
+			return primitive("positive_int")
+		default:
+			return primitive("string")
 		}
-		return resourceRef("react_component")
 	case "scenery.table-page.sort":
 		return primitive("string")
+	case "scenery.table-page.group":
+		switch name {
+		case "order":
+			return list("string")
+		case "default":
+			return primitive("bool")
+		default:
+			return primitive("string")
+		}
 	case "scenery.table-page.stats":
 		if name == "source" {
 			return resourceRef("binding")

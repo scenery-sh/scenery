@@ -46,6 +46,7 @@ func TestBinaryOwnedUICatalogContainsComposableQueryTable(t *testing.T) {
 	for _, fragment := range []string{
 		`@astryxdesign/core/DateTimeInput`,
 		`@astryxdesign/core/Pagination`,
+		`@astryxdesign/core/Resizable`,
 		`@astryxdesign/core/Selector`,
 		`@tanstack/react-query`,
 		`requestStateFromQuery<{`,
@@ -56,9 +57,18 @@ func TestBinaryOwnedUICatalogContainsComposableQueryTable(t *testing.T) {
 		`columns.filter((column) => !column.hidden)`,
 		`columns.filter((column) => column.export !== false)`,
 		`const label = statusMap[value]?.label`,
+		`export interface TablePageGroup`,
+		`detailPanel?: ComponentType<TablePageDetailPanelProps<Row>>`,
+		`<ResizeHandle`,
 	} {
 		if !strings.Contains(queryTable, fragment) {
 			t.Errorf("QueryTable missing %q", fragment)
+		}
+	}
+	dataTable := content["components/DataTable.tsx"]
+	for _, fragment := range []string{"export type DataTableSection", "section.rows.length", `role="button"`} {
+		if !strings.Contains(dataTable, fragment) {
+			t.Errorf("DataTable missing %q", fragment)
 		}
 	}
 	for _, rawControl := range []string{"<button", "<input", "<select"} {

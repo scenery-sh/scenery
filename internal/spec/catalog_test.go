@@ -34,6 +34,15 @@ func TestDeclarativeTableResourceMetadataIsComplete(t *testing.T) {
 	}
 
 	table, _ := authoredResourceSourceSchema("table_page")
+	if child, ok := table.Children["group"]; !ok || !child.Repeatable || child.Schema.Labels != 1 {
+		t.Errorf("table_page group must be a repeated labeled block: %#v", child)
+	}
+	rowDetail := table.Children["row_detail"].Schema
+	for _, name := range []string{"presentation", "panel_width"} {
+		if _, ok := rowDetail.Attributes[name]; !ok {
+			t.Errorf("table_page row_detail does not advertise %s", name)
+		}
+	}
 	for _, name := range []string{"toolbar", "empty"} {
 		if child, ok := table.Children[name]; !ok || child.Repeatable || child.Schema.Labels != 0 {
 			t.Errorf("table_page %s must be an unlabeled singleton block: %#v", name, child)

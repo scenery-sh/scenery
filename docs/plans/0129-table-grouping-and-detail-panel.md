@@ -32,12 +32,20 @@ React adapters wire them through with staged TypeScript verification passing.
 
 - [x] (2026-07-21) Plan authored; scope agreed with Petr (extend `table_page`,
   include resizable detail panel).
-- [ ] Milestone 1: catalog grouping (DataTable sections, QueryTable `groups`,
-  toolbar Group selector).
-- [ ] Milestone 2: catalog resizable detail panel.
-- [ ] Milestone 3: contract + compiler + generator (`group` child,
-  `row_detail.presentation`, golden tests).
-- [ ] Milestone 4: docs updated; downstream verification in a consuming app.
+- [x] (2026-07-21) Milestone 1: catalog grouping (`DataTable` sections,
+  `QueryTable.groups`, toolbar Group selector).
+- [x] (2026-07-21) Milestone 2: catalog resizable detail panel.
+- [x] (2026-07-21) Milestone 3: contract + compiler + generator (`group`
+  child, `row_detail.presentation`, focused tests and regenerated fixtures).
+- [x] (2026-07-21) Milestone 4: docs and agent contracts updated; Micro
+  platform generated work orders and the catalog demo verified live.
+- [x] (2026-07-21) Post-completion design revision after Petr's browser
+  review: displacement layout replaces the float-over panel; selected-row
+  highlight, card-style panel with title header, full-viewport sticky height,
+  slide-in motion, and arrow-key row navigation added. Re-verified live on
+  the Micro platform work-orders page and catalog demo (drag resize
+  360→460px, Escape/ArrowDown via synthetic key events, group headers now
+  status-mapped).
 
 ## Surprises & Discoveries
 
@@ -51,6 +59,15 @@ React adapters wire them through with staged TypeScript verification passing.
   unions differ across versions (a required-`hasClear` `Selector` union in
   0.1.5 already broke staged verification once, surfaced as SCN6321). Every
   new Astryx usage must be verified against both lanes.
+- (2026-07-21) Astryx `ResizeHandle`'s inline horizontal style uses
+  `height: 100%`, which resolves to zero inside an auto-height flex row even
+  when the parent uses `align-items: stretch`. Browser acceptance caught the
+  non-functional drag target; a catalog-owned `alignSelf: stretch` plus
+  `height: auto` override gives the separator the panel's full height.
+- (2026-07-21) The current specification revision changes builtin provider
+  descriptor identities. The Micro reference consumer therefore needed both
+  `integrity` and `compile_descriptor_digest` refreshed before current
+  generation could validate; there is intentionally no old-identity fallback.
 
 ## Decision Log
 
@@ -82,10 +99,58 @@ React adapters wire them through with staged TypeScript verification passing.
   `presentation = "inline" | "panel"` (default `inline`) so no new child kind
   is introduced; the generator emits either `rowDetail` or `detailPanel`,
   never both.
+- (2026-07-21, Petr + agent) ~~The panel floats over the right side of the
+  table; it never shrinks the table or its toolbar.~~ **Superseded the same
+  day after browser review: the panel displaces the table instead of
+  overlaying it.** The float-over version amputated columns mid-cell and read
+  as "something is covering my data". Now the workspace row is a real
+  two-column flex — the table keeps `flex: 1; min-width: 0` with its own
+  horizontal scroll, the panel takes its resizable width — so columns are
+  never half-covered. The toolbar and stats stay full width above; only the
+  grid row splits. Additional refinements from the same review: the selected
+  row gets a persistent accent-muted background plus an inset accent bar on
+  its first cell (`DataTable.selectedKey`); the panel is a raised card
+  (card background, border, container radius, `--shadow-med`) with a single
+  sticky header line combining a title (`QueryTable.detailTitle`, falling
+  back to the first visible column's text) and the close button; the panel is
+  sticky and viewport-height (`calc(100dvh - 24px)`) rather than capped at
+  `min(80vh, 900px)`; it slides in over `--duration-medium`/`--ease-standard`
+  with the animation removed under `prefers-reduced-motion`; and ArrowUp /
+  ArrowDown move the selection through rows in display order while the panel
+  is open (ignored while typing in form controls).
+- (2026-07-21, Petr + agent) **Table pages use Linear-style scrolling: no
+  page scroll at all.** `Page` gained a `fill` mode (scroll area stops
+  scrolling and flex-fills) and `QueryTable` a matching `fill` prop (section,
+  workspace, and grid become a flex chain; `DataTable` gets its `fill`
+  scroller). The generator emits `fill` on both for every `table_page`.
+  Result: header, stats, description, and toolbar never move; the grid
+  scrolls vertically in its own region with the sticky column header; the
+  detail panel fills the region height and scrolls its body independently.
+  This supersedes the sticky/`100cqh` panel sizing for generated pages (that
+  path remains the fallback for non-fill QueryTable usage).
+- (2026-07-21, agent) **Changing the active group remounts `DataTable`.**
+  Collapse state is local to one grouping view and always begins expanded;
+  switching between Stage, Owner, and None cannot leak stale collapsed keys.
 
 ## Outcomes & Retrospective
 
-Not yet completed.
+Completed 2026-07-21. `table_page` now has one optional complete-list grouping
+mode and two explicit row-detail presentations without forking the page kind.
+The catalog renders ordered, collapsible sections with counts, a runtime Group
+selector including None, and a bounded 280–560px side panel that closes by
+button, row re-click, or Escape. The compiler rejects dishonest paginated
+grouping and invalid panel combinations under SCN2623; generated React adapters
+emit the singular matching props.
+
+The Micro platform reference consumer compiled and regenerated cleanly, passed
+typecheck, lint, 101 Bun tests, and production build, then started with the
+current Scenery binary and logged `ui_catalog.synced`. Authenticated Chrome
+acceptance proved Stage/Owner/None switching, count headers, collapse, panel
+open/close/Escape, and a real pointer drag from 370px to 429px. The generated
+work-orders page preserved its full workbench detail and opened it in the
+declared 520px panel. Repository validation passed `go test ./...`, focused
+package tests, both generated-client TypeScript checks, 16 TypeScript codec
+conformance tests, and self-harness with no diagnostics.
 
 ## Context and Orientation
 

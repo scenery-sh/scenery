@@ -279,6 +279,7 @@ SCN2619|page_route_contract|A generated page search or navigation contract is in
 SCN2620|status_map_contract|A status map declaration is invalid
 SCN2621|form_dialog_contract|A form dialog declaration or mutation binding is invalid
 SCN2622|table_page_workbench|A table page workbench declaration is invalid
+SCN2623|table_page_grouping_and_detail|A table page grouping or row detail presentation is invalid
 SCN2701|event_contract|An event lacks a payload or positive version
 SCN2702|event_emission_shape|An event emission is incomplete
 SCN2703|event_binding_shape|An event binding is incomplete

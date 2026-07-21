@@ -300,14 +300,20 @@ table_page "orders" {
   title  = "Orders"
 
   column "number" {}
+  column "status" {}
   column "project" { component = react_component.project_cell export = false }
   column "project_id" { hidden = true }
   filter "status" {}
   sort "created_at" { default = "desc" }
+  group "status" {
+    label   = "Status"
+    order   = ["open", "complete"]
+    default = true
+  }
 }
 ```
 
-The binding must use call-delivery HTTP and have one result record. `items` must be a `list(record)` field. Optional `search`, same-named optional list filter inputs, and closed `sort`/`direction` enums form the query contract. The generated table sends those inputs, renders the complete returned list without pagination, and preserves the rest of the aggregate for app-owned toolbar or dialog slots.
+The binding must use call-delivery HTTP and have one result record. `items` must be a `list(record)` field. Optional `search`, same-named optional list filter inputs, and closed `sort`/`direction` enums form the query contract. The generated table sends those inputs, renders the complete returned list without pagination, and preserves the rest of the aggregate for app-owned toolbar or dialog slots. Complete-list pages may declare one or more `group` fields; the runtime Group selector includes None, sections preserve the loaded sort order within each bucket, and declared `order` values lead before remaining labels. Paginated CRUD pages reject grouping because their section counts would describe only one cursor page.
 
 Grow the same page into an operations workbench without moving transport or query state into app code:
 
@@ -362,7 +368,9 @@ table_page "orders" {
     primary = true
   }
   row_detail {
-    component = react_component.order_detail
+    component    = react_component.order_detail
+    presentation = "panel"
+    panel_width  = 480
   }
   export {
     file_name = "orders.csv"
@@ -371,7 +379,7 @@ table_page "orders" {
 }
 ```
 
-The stats operation has unit input and one flat numeric/string record result. The form source is a call-delivery mutation HTTP binding whose input is a string/closed-enum record. Generated dialogs keep failures inline and invalidate both list and stats queries on success. Use `pinned = true` only for the few finite selectors that need inline quick access: pinned selectors also remain in the complete Filters popover, active filters appear as removable chips, and sort/direction stay visible as separate query controls. CSV export covers the rows returned by the current query: one cursor page for a CRUD source, or the complete filtered result for a binding source. Use `hidden = true` for export-only fields and `export = false` for display-only custom cells.
+The stats operation has unit input and one flat numeric/string record result. The form source is a call-delivery mutation HTTP binding whose input is a string/closed-enum record. Generated dialogs keep failures inline and invalidate both list and stats queries on success. Row detail defaults to inline expansion; panel presentation opens the same typed component in a right-hand surface that resizes from 280 to 560 pixels and closes by its button, row re-click, or Escape. A row-detail dialog remains inline-only. Use `pinned = true` only for the few finite selectors that need inline quick access: pinned selectors also remain in the complete Filters popover, active filters appear as removable chips, and group/sort/direction stay visible as separate query controls. CSV export covers the rows returned by the current query: one cursor page for a CRUD source, or the complete filtered result for a binding source. Use `hidden = true` for export-only fields and `export = false` for display-only custom cells.
 
 For a two-pane page, keep the declaration generic and the domain UI app-owned:
 
@@ -417,7 +425,7 @@ content_page "summary" {
 
 The generated adapter renders catalog `Page`, puts `actions` in its header, and passes the same typed raw request state to both slots. Use `queryStateProps(state, "summary")` with `QueryState` in the content component instead of inventing another loading/error union.
 
-For a CRUD collection, keep the higher-level `table_page` declaration. Its generated adapter uses the same `Page` shell and renders the chrome-less catalog `QueryTable` as content. Declared stats, header actions, generated form dialogs, and mutation invalidation stay in the adapter; search/filter/sort controls, loaded-row count, current-page export, row expansion, pagination, and list request state stay in `QueryTable`. Cell, filter, toolbar, empty-state, and row-detail components remain app-owned typed slots. The built-in workbench uses Astryx components and semantic tokens, so customize the app theme through Astryx rather than catalog-specific CSS variables.
+For a collection, keep the higher-level `table_page` declaration. Its generated adapter uses the same `Page` shell and renders the chrome-less catalog `QueryTable` as content. Declared stats, header actions, generated form dialogs, and mutation invalidation stay in the adapter; search/filter/group/sort controls, loaded-row count, export, collapsible sections, inline expansion or the resizable detail panel, pagination, and list request state stay in `QueryTable`. Cell, filter, toolbar, empty-state, and row-detail components remain app-owned typed slots. The built-in workbench uses Astryx components and semantic tokens, so customize the app theme through Astryx rather than catalog-specific CSS variables.
 
 ## Generate A TypeScript Client
 

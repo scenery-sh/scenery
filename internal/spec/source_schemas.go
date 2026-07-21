@@ -201,10 +201,12 @@ var (
 		[]string{"label", "component", "status_map", "pinned"}, nil, nil)
 	tablePageSortSourceSchema = sourceSchema("scenery.table-page.sort", 1,
 		[]string{"label", "default"}, nil, nil)
+	tablePageGroupSourceSchema = sourceSchema("scenery.table-page.group", 1,
+		[]string{"label", "order", "default"}, nil, nil)
 	tablePageSlotSourceSchema = sourceSchema("scenery.table-page.slot", 0,
 		[]string{"component"}, []string{"component"}, nil)
 	tablePageRowDetailSourceSchema = sourceSchema("scenery.table-page.row-detail", 0,
-		[]string{"component", "dialog"}, []string{"component"}, nil)
+		[]string{"component", "dialog", "presentation", "panel_width"}, []string{"component"}, nil)
 	tablePageStatsSourceSchema = sourceSchema("scenery.table-page.stats", 0,
 		[]string{"source"}, []string{"source"}, map[string]authoredChildSchema{
 			"tile": repeated(sourceSchema("scenery.table-page.stats.tile", 1, []string{"label"}, []string{"label"}, nil)),
@@ -250,7 +252,7 @@ var authoredResourceChildren = map[string]map[string]authoredChildSchema{
 	"page":              {"action": repeated(pageActionSourceSchema)},
 	"status_map":        {"status": repeated(statusMapStatusSourceSchema)},
 	"form_dialog":       {"field": repeated(formDialogFieldSourceSchema)},
-	"table_page":        {"column": repeated(tablePageColumnSourceSchema), "filter": repeated(tablePageFilterSourceSchema), "sort": repeated(tablePageSortSourceSchema), "action": repeated(tablePageActionSourceSchema), "stats": singleton(tablePageStatsSourceSchema), "row_detail": singleton(tablePageRowDetailSourceSchema), "export": singleton(tablePageExportSourceSchema), "toolbar": singleton(tablePageSlotSourceSchema), "empty": singleton(tablePageSlotSourceSchema), "search": repeated(pageSearchSourceSchema)},
+	"table_page":        {"column": repeated(tablePageColumnSourceSchema), "filter": repeated(tablePageFilterSourceSchema), "sort": repeated(tablePageSortSourceSchema), "group": repeated(tablePageGroupSourceSchema), "action": repeated(tablePageActionSourceSchema), "stats": singleton(tablePageStatsSourceSchema), "row_detail": singleton(tablePageRowDetailSourceSchema), "export": singleton(tablePageExportSourceSchema), "toolbar": singleton(tablePageSlotSourceSchema), "empty": singleton(tablePageSlotSourceSchema), "search": repeated(pageSearchSourceSchema)},
 	"split_page":        {"sidebar": singleton(tablePageSlotSourceSchema), "detail": singleton(tablePageSlotSourceSchema), "sidebar_actions": singleton(tablePageSlotSourceSchema), "detail_header": singleton(tablePageSlotSourceSchema), "search": repeated(pageSearchSourceSchema)},
 	"content_page":      {"content": singleton(contentPageSlotSourceSchema), "actions": singleton(contentPageSlotSourceSchema), "search": repeated(pageSearchSourceSchema)},
 }
