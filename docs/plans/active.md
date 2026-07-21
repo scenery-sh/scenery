@@ -7,6 +7,11 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
+- [0129 Table Grouping and Resizable Detail Panel for table_page](0129-table-grouping-and-detail-panel.md)
+  - Status: active
+  - Owner: scenery ui catalog / compiler / generate
+  - Created: 2026-07-21
+  - Focus: extend the Table template instead of forking it — `QueryTable` gains client-side grouping (collapsible section headers with counts, runtime "Group by" selector incl. None, complete-list pages only) and a resizable right-hand row-detail panel (Astryx `Resizable`, alternative presentation of `row_detail`); the `table_page` contract adds repeated `group(field)` children and `row_detail { presentation = "panel" }`, with compiler diagnostics and generated-adapter wiring.
 - [0122 UI Catalog Dev Mode: Live ui/ Iteration Without Binary Rebuilds](0122-ui-catalog-dev-mode.md)
   - Status: completed (retain until first release ships it)
   - Owner: scenery generation / agent DX
