@@ -7,6 +7,12 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
+- [0131 Table Page Adoption Prerequisites: Response-Aware Slots, Page Pagination, Row Actions](0131-table-page-adoption-prerequisites.md)
+  - Status: active
+  - Owner: scenery compiler / generate / ui catalog
+  - Created: 2026-07-21
+  - Focus: implement the template capabilities the Micro platform's generated-page parity audit (its ExecPlan 0051) proved missing — result-aware filter/toolbar/footer slots, page-number pagination for binding sources, a row-activation slot for app-owned dialogs, fixed source predicates, and source-optional static content pages — so the blocked adoption waves become executable at full functionality parity.
+
 - [0122 UI Catalog Dev Mode: Live ui/ Iteration Without Binary Rebuilds](0122-ui-catalog-dev-mode.md)
   - Status: completed (retain until first release ships it)
   - Owner: scenery generation / agent DX
