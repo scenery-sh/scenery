@@ -67,6 +67,8 @@ func TestBindingBackedReactTableLoadsCompleteTypedResultWithoutPagination(t *tes
 	}
 	for _, fragment := range []string{
 		"client.searchWorkOrders({",
+		"const load = useCallback(async (query: TablePageQuery, signal?: AbortSignal)",
+		"}, { signal });",
 		"search: query.search",
 		"value is WorkOrderStatus",
 		`sort: query.sort !== undefined && (query.sort === "created_at")`,

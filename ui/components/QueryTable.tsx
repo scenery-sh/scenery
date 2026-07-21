@@ -14,6 +14,7 @@ import {
   type MouseEvent,
   type ReactNode,
   useCallback,
+  useEffect,
   useMemo,
   useState,
 } from "react";
@@ -172,9 +173,16 @@ export interface QueryTableProps<Row extends object> {
   readonly paginated?: boolean;
   readonly pageSize: number;
   readonly queryKey: readonly unknown[];
-  readonly load: (query: TablePageQuery) => Promise<TablePageResult<Row>>;
+  readonly load: (
+    query: TablePageQuery,
+    signal?: AbortSignal,
+  ) => Promise<TablePageResult<Row>>;
   readonly empty?: ComponentType<TablePageEmptyProps>;
 }
+
+// Keystrokes update the visible input immediately; the query key only moves
+// after this idle window, so typing does not launch one request per character.
+const searchDebounceMilliseconds = 250;
 
 export function QueryTable<Row extends object>({
   resource,
@@ -196,6 +204,7 @@ export function QueryTable<Row extends object>({
 }: QueryTableProps<Row>) {
   const defaultSort = sorts.find((sort) => sort.default);
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [filters, setFilters] = useState<
     Readonly<Record<string, string | readonly string[] | undefined>>
   >({});
@@ -207,20 +216,27 @@ export function QueryTable<Row extends object>({
   const [history, setHistory] = useState<readonly (string | undefined)[]>([]);
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
 
+  useEffect(() => {
+    const timer = setTimeout(
+      () => setDebouncedSearch(search),
+      searchDebounceMilliseconds,
+    );
+    return () => clearTimeout(timer);
+  }, [search]);
   const query = useMemo<TablePageQuery>(
     () => ({
-      search: search.trim() || undefined,
+      search: debouncedSearch.trim() || undefined,
       filters,
       sort,
       direction,
       cursor,
       limit: pageSize,
     }),
-    [cursor, direction, filters, pageSize, search, sort],
+    [cursor, debouncedSearch, direction, filters, pageSize, sort],
   );
   const resultQuery = useQuery({
     queryKey: [...queryKey, query],
-    queryFn: () => load(query),
+    queryFn: ({ signal }) => load(query, signal),
   });
   const result = requestStateFromQuery<{
     readonly items: readonly Row[];
@@ -233,7 +249,7 @@ export function QueryTable<Row extends object>({
     setExpandedKey(null);
   }, []);
   const filtered =
-    search.trim() !== "" ||
+    debouncedSearch.trim() !== "" ||
     Object.values(filters).some(
       (value) =>
         value !== undefined &&

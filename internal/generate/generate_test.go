@@ -1530,6 +1530,8 @@ func (service *Service) SceneQuickCreate(_ context.Context, _ housecontract.Scen
 		`<Page title={"Scenes \"quoted\" \\ path"} actions={<>`,
 		`<QueryTable<SceneRow> resource={"Scenes \"quoted\" \\ path"}`,
 		`queryKey={queryKey}`,
+		`const load = useCallback(async (query: TablePageQuery, signal?: AbortSignal): Promise<TablePageResult<SceneRow>> => {`,
+		`}, { signal });`,
 		`searchable`,
 		`rowDetail={slots.rowDetail}`,
 		`rowDetailAction={(row) => <Button label="Create scene" onClick={() => openSceneQuickCreate(row)} size="sm" variant="secondary" />}`,

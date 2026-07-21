@@ -634,7 +634,7 @@ func renderReactTablePage(result *Result, target Resource, reactRoot string, pag
 	for _, dialog := range page.dialogs {
 		writeReactTableDialogState(&b, page, dialog, bindings, resources, rowType)
 	}
-	writeReactLoad(&b, "query: TablePageQuery", "TablePageResult<"+rowType+">", func(b *strings.Builder) {
+	writeReactLoad(&b, "query: TablePageQuery, signal?: AbortSignal", "TablePageResult<"+rowType+">", func(b *strings.Builder) {
 		fmt.Fprintf(b, "    const outcome = await client.%s({\n", method)
 		shape := resolveOperationInputShape(resources, page.operation)
 		if (page.paginated && len(stringValues(page.crud.Spec["list"].(map[string]any)["search"])) > 0) ||
@@ -670,7 +670,7 @@ func renderReactTablePage(result *Result, target Resource, reactRoot string, pag
 		if page.paginated {
 			b.WriteString("      cursor: query.cursor,\n      limit: BigInt(query.limit),\n")
 		}
-		b.WriteString("    });\n")
+		b.WriteString("    }, { signal });\n")
 	}, reactTableResultExpression(page))
 	fmt.Fprintf(&b, "  return <><Page title=%s", jsxStringExpression(stringValue(page.table.Spec["title"])))
 	if len(orderedChildren(page.table.Spec, "toolbar")) > 0 || len(headerTableDialogs(page.dialogs)) > 0 {
