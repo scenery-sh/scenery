@@ -66,14 +66,75 @@ func TestBinaryOwnedUICatalogContainsComposableQueryTable(t *testing.T) {
 		}
 	}
 	dataTable := content["components/DataTable.tsx"]
-	for _, fragment := range []string{"export type DataTableSection", "section.rows.length", `role="button"`} {
+	for _, fragment := range []string{
+		"export type DataTableSection",
+		`@astryxdesign/core/Table`,
+		"useTableGroupedRows",
+		"useTableRowIndex",
+		"useTableSortable",
+		"numbered?: boolean",
+	} {
 		if !strings.Contains(dataTable, fragment) {
 			t.Errorf("DataTable missing %q", fragment)
 		}
 	}
-	for _, rawControl := range []string{"<button", "<input", "<select"} {
-		if strings.Contains(queryTable, rawControl) {
-			t.Errorf("QueryTable contains raw control %q", rawControl)
+	statTile := content["components/StatTile.tsx"]
+	for _, fragment := range []string{
+		`@astryxdesign/core/Grid`,
+		`<Grid`,
+		`columns={{ minWidth: 180, max: columns, repeat: "fit" }}`,
+	} {
+		if !strings.Contains(statTile, fragment) {
+			t.Errorf("StatTile missing %q", fragment)
+		}
+	}
+	formDialog := content["components/FormDialog.tsx"]
+	for _, fragment := range []string{
+		`@astryxdesign/core/Banner`,
+		`@astryxdesign/core/FormLayout`,
+		`<FormLayout`,
+		`<Banner status="error"`,
+	} {
+		if !strings.Contains(formDialog, fragment) {
+			t.Errorf("FormDialog missing %q", fragment)
+		}
+	}
+	if strings.Contains(formDialog, "export function Field") {
+		t.Error("FormDialog still contains a catalog-owned Field wrapper")
+	}
+	filterToolbar := content["components/FilterToolbar.tsx"]
+	for _, fragment := range []string{
+		`@astryxdesign/core/Toolbar`,
+		`<Toolbar`,
+		`startContent={`,
+		`endContent={`,
+	} {
+		if !strings.Contains(filterToolbar, fragment) {
+			t.Errorf("FilterToolbar missing %q", fragment)
+		}
+	}
+	for _, fragment := range []string{"styles.toolbar", "styles.trailing"} {
+		if strings.Contains(filterToolbar, fragment) {
+			t.Errorf("FilterToolbar still owns outer toolbar layout through %q", fragment)
+		}
+	}
+	for _, fragment := range []string{
+		`from "@astryxdesign/core/Field"`,
+		`from "@astryxdesign/core/FormLayout"`,
+		`from "@astryxdesign/core/Banner"`,
+	} {
+		if !strings.Contains(content["index.ts"], fragment) {
+			t.Errorf("catalog index missing %q", fragment)
+		}
+	}
+	for path, source := range content {
+		if path == "components/FilterPills.tsx" {
+			continue
+		}
+		for _, rawControl := range []string{"<button", "<input", "<select", "<textarea", "<table"} {
+			if strings.Contains(source, rawControl) {
+				t.Errorf("catalog %s contains raw interactive element %q", path, rawControl)
+			}
 		}
 	}
 	for path := range content {

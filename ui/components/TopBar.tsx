@@ -1,3 +1,6 @@
+import { Button } from "@astryxdesign/core/Button";
+import { Icon } from "@astryxdesign/core/Icon";
+import { IconButton } from "@astryxdesign/core/IconButton";
 import { Kbd } from "@astryxdesign/core/Kbd";
 import { TopNav } from "@astryxdesign/core/TopNav";
 import { colorVars } from "@astryxdesign/core/theme/tokens.stylex";
@@ -33,14 +36,14 @@ export function TopBar({
       endContent={
         <span {...stylex.props(styles.topActions)}>
           {search && isCompact ? (
-            <button
-              type="button"
-              aria-label={search.label ?? "Search"}
+            <IconButton
+              icon={search.icon ?? <Icon icon="search" size="sm" />}
+              label={search.label ?? "Search"}
               onClick={search.onOpen}
-              {...stylex.props(styles.compactSearch)}
-            >
-              {search.icon}
-            </button>
+              size="sm"
+              variant="ghost"
+              xstyle={styles.compactSearch}
+            />
           ) : null}
           {endContent}
         </span>
@@ -66,24 +69,28 @@ function subscribeToCompactTopBar(onChange: () => void) {
 }
 
 function useIsCompactTopBar() {
-  return useSyncExternalStore(subscribeToCompactTopBar, () =>
-    window.matchMedia(compactTopBarQuery).matches,
+  return useSyncExternalStore(
+    subscribeToCompactTopBar,
+    () => window.matchMedia(compactTopBarQuery).matches,
   );
 }
 
 function SearchField({ search }: { search: TopBarSearch }) {
   return (
-    <button
-      type="button"
+    <Button
+      icon={search.icon}
+      label={search.label ?? "Search"}
       onClick={search.onOpen}
-      {...stylex.props(styles.searchLauncher)}
+      size="sm"
+      variant="secondary"
+      width="100%"
+      xstyle={styles.searchLauncher}
     >
-      {search.icon}
       <span {...stylex.props(styles.searchLauncherLabel)}>
         {search.label ?? "Search"}
       </span>
       <Kbd keys={search.shortcut ?? "mod+k"} />
-    </button>
+    </Button>
   );
 }
 
@@ -117,39 +124,10 @@ const styles = stylex.create({
     minWidth: 0,
   },
   compactSearch: {
-    appearance: "none",
-    display: "inline-grid",
-    placeItems: "center",
-    width: 30,
-    height: 30,
-    padding: 0,
-    border: 0,
-    borderRadius: 9,
-    backgroundColor: {
-      default: "transparent",
-      ":hover": colorVars["--color-overlay-hover"],
-    },
     color: "inherit",
-    cursor: "pointer",
   },
   searchLauncher: {
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    width: "100%",
-    height: 30,
-    paddingInline: 10,
-    borderColor: colorVars["--color-border-emphasized"],
-    borderStyle: "solid",
-    borderWidth: 1,
-    borderRadius: 9,
-    backgroundColor: {
-      default: "transparent",
-      ":hover": colorVars["--color-overlay-hover"],
-    },
     color: colorVars["--color-text-secondary"],
-    fontSize: 13,
-    cursor: "pointer",
   },
   searchLauncherLabel: { flexGrow: 1, textAlign: "start" },
 });

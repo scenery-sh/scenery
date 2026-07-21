@@ -1,10 +1,15 @@
 import {
-  borderVars,
-  colorVars,
-  spacingVars,
-} from "@astryxdesign/core/theme/tokens.stylex";
+  Layout,
+  LayoutContent,
+  LayoutHeader,
+  LayoutPanel,
+} from "@astryxdesign/core/Layout";
 import * as stylex from "@stylexjs/stylex";
-import type { ComponentType, CSSProperties, ReactNode } from "react";
+import {
+  type ComponentType,
+  type ReactNode,
+  useSyncExternalStore,
+} from "react";
 import { PageHeader, PageHeaderRow } from "./PageLayout.js";
 import type { Problem, RequestState } from "./request-state.js";
 
@@ -68,91 +73,111 @@ export function SplitPage({
   detail,
   sidebarWidth,
 }: SplitPageProps) {
+  const compact = useCompactSplitPage();
   const defaultLabel =
     typeof sidebarTitle === "string" ? sidebarTitle : undefined;
-  const gridStyle = sidebarWidth
-    ? ({ "--split-sidebar-width": sidebarWidth } as CSSProperties)
-    : undefined;
+  const sidebarLayout = (
+    <Layout
+      content={<LayoutContent padding={4}>{sidebar}</LayoutContent>}
+      header={
+        <LayoutHeader padding={0}>
+          <PageHeader title={sidebarTitle} actions={sidebarActions} />
+        </LayoutHeader>
+      }
+      height="fill"
+      padding={0}
+    />
+  );
+  const detailLayout = (
+    <Layout
+      content={<LayoutContent padding={0}>{detail}</LayoutContent>}
+      header={
+        detailHeader ? (
+          <LayoutHeader padding={0}>
+            <PageHeaderRow>{detailHeader}</PageHeaderRow>
+          </LayoutHeader>
+        ) : undefined
+      }
+      height="fill"
+      padding={0}
+    />
+  );
+
   return (
     <section
-      {...stylex.props(styles.split)}
       aria-label={ariaLabel ?? defaultLabel}
-      style={gridStyle}
+      {...stylex.props(styles.root)}
     >
-      <aside
-        {...stylex.props(styles.sidebar)}
-        aria-label={sidebarLabel ?? defaultLabel}
-      >
-        <PageHeader title={sidebarTitle} actions={sidebarActions} />
-        <div {...stylex.props(styles.sidebarInner)}>{sidebar}</div>
-      </aside>
-      <article {...stylex.props(styles.detail)}>
-        {detailHeader ? (
-          <PageHeaderRow>{detailHeader}</PageHeaderRow>
-        ) : null}
-        {detail}
-      </article>
+      {compact ? (
+        <Layout
+          content={
+            <LayoutContent isScrollable={false} padding={0}>
+              <div {...stylex.props(styles.compact)}>
+                <aside aria-label={sidebarLabel ?? defaultLabel}>
+                  {sidebarLayout}
+                </aside>
+                {detailLayout}
+              </div>
+            </LayoutContent>
+          }
+          height="fill"
+          padding={0}
+        />
+      ) : (
+        <Layout
+          content={
+            <LayoutContent isScrollable={false} padding={0}>
+              {detailLayout}
+            </LayoutContent>
+          }
+          height="fill"
+          padding={0}
+          start={
+            <LayoutPanel
+              hasDivider
+              isScrollable={false}
+              label={sidebarLabel ?? defaultLabel}
+              padding={0}
+              role="complementary"
+              width={sidebarWidth ?? "24rem"}
+            >
+              {sidebarLayout}
+            </LayoutPanel>
+          }
+        />
+      )}
     </section>
   );
 }
 
+const compactSplitPageQuery = "(max-width: 760px)";
+
+function subscribeToCompactSplitPage(onChange: () => void) {
+  const media = window.matchMedia(compactSplitPageQuery);
+  media.addEventListener("change", onChange);
+  return () => media.removeEventListener("change", onChange);
+}
+
+function useCompactSplitPage() {
+  return useSyncExternalStore(
+    subscribeToCompactSplitPage,
+    () => window.matchMedia(compactSplitPageQuery).matches,
+    () => false,
+  );
+}
+
 const styles = stylex.create({
-  split: {
+  root: {
     boxSizing: "border-box",
     width: "100%",
     height: "100%",
-    display: "grid",
-    gridTemplateColumns: {
-      default:
-        "var(--split-sidebar-width, minmax(20rem, 24rem)) minmax(0, 1fr)",
-      "@media (max-width: 760px)": "1fr",
-    },
-    gridTemplateRows: {
-      default: "minmax(0, 1fr)",
-      "@media (max-width: 760px)": "minmax(18rem, 45%) minmax(0, 1fr)",
-    },
     minHeight: 0,
     minWidth: 0,
-    backgroundColor: colorVars["--color-background-surface"],
   },
-  sidebar: {
-    display: "flex",
-    flexDirection: "column",
+  compact: {
+    height: "100%",
     minHeight: 0,
-    overflow: "hidden",
-    borderInlineEndColor: {
-      default: colorVars["--color-border"],
-      "@media (max-width: 760px)": "transparent",
-    },
-    borderInlineEndStyle: "solid",
-    borderInlineEndWidth: {
-      default: borderVars["--border-width"],
-      "@media (max-width: 760px)": 0,
-    },
-    borderBottomColor: {
-      default: "transparent",
-      "@media (max-width: 760px)": colorVars["--color-border"],
-    },
-    borderBottomStyle: "solid",
-    borderBottomWidth: {
-      default: 0,
-      "@media (max-width: 760px)": borderVars["--border-width"],
-    },
-  },
-  sidebarInner: {
-    boxSizing: "border-box",
-    flexGrow: 1,
-    minHeight: 0,
-    overflow: "auto",
-    display: "flex",
-    flexDirection: "column",
-    gap: spacingVars["--spacing-4"],
-    padding: spacingVars["--spacing-4"],
-  },
-  detail: {
-    display: "flex",
-    flexDirection: "column",
-    minHeight: 0,
-    overflow: "hidden",
+    display: "grid",
+    gridTemplateRows: "minmax(18rem, 45%) minmax(0, 1fr)",
   },
 });

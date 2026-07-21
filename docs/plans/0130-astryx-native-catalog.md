@@ -31,17 +31,17 @@ skew is no longer a constraint.
 - [x] (2026-07-21) Audit completed; plan authored. Not yet started.
 - [x] (2026-07-21) Scope decision from Petr: `FilterPills` is exempt and
   stays hand-rolled; every other audited component is in scope.
-- [ ] Milestone 1: `DataTable` on Astryx `Table` with `useTableGroupedRows`
+- [x] (2026-07-21) Milestone 1: `DataTable` on Astryx `Table` with `useTableGroupedRows`
   and a row-number option via `useTableRowIndex`.
-- [ ] Milestone 2: `StatTile`/`StatGrid` on `Card` + typography primitives;
+- [x] (2026-07-21) Milestone 2: `StatTile`/`StatGrid` on `Grid`, `Card`, and typography primitives;
   `QueryState`'s `EmptyState` on Astryx `EmptyState`; `TopBar` raw buttons on
   `Button`/`IconButton`.
-- [ ] Milestone 3: `SplitPage` (and `PageLayout` shell internals where they
+- [x] (2026-07-21) Milestone 3: `SplitPage` (and `PageLayout` shell internals where they
   overlap) on the Astryx `Layout` family.
-- [ ] Milestone 4: shell review — verify `ClientAppShell`, `SideNavigation`,
+- [x] (2026-07-21) Milestone 4: shell review — verify `ClientAppShell`, `SideNavigation`,
   and `TopBar` against Astryx `AppShell`; adopt or record the reasoned
   exception.
-- [ ] Milestone 5: guardrail — verification that fails on raw interactive
+- [x] (2026-07-21) Milestone 5: guardrail — verification that fails on raw interactive
   elements in `ui/components/` (allowlist: `FilterPills`), plus
   `ui/AGENTS.md` rule.
 
@@ -56,9 +56,43 @@ skew is no longer a constraint.
   `DataTable` 12 raw elements; `FilterPills` all-raw pills, zero Astryx
   imports; `StatTile` all-raw, zero Astryx; `SplitPage` zero Astryx layout;
   `TopBar` two raw `<button>`s; `QueryState` hand-rolled `EmptyState` div
-  even though the catalog already re-exports Astryx `EmptyState` as
-  `RichEmptyState`. Confirmed Astryx-backed: `FormDialog`, `FilterToolbar`,
+  even though Astryx already provides the complete `EmptyState` API. Confirmed
+  Astryx-backed: `FormDialog`, `FilterToolbar`,
   `QueryTable` controls, `StatusBadge`, `ClientAppShell`, `SideNavigation`.
+- (2026-07-21) Astryx `Table` has no omit-header prop. `hideHeader` therefore
+  remains an accessibility-hidden header-row transform on top of Astryx rather
+  than reviving the old raw table/colgroup path. Column sizing stays native via
+  `pixel` and `proportional`.
+- (2026-07-21) The catalog-only TypeScript lane accepted locally reconstructed
+  plugin render-prop types, but staged consumer verification correctly rejected
+  them. Importing Astryx's exact `TableRenderProps`/row/cell render types makes
+  both lanes agree and keeps the plugin contract upstream-owned.
+- (2026-07-21) A singular catalog API rename exposed that staged consumer
+  verification still resolved app-owned `@scenery/ui` imports against the
+  previous materialization. Staged verification now redirects those aliases to
+  the sibling replacement tree while retaining every other resolved path alias,
+  so the native `EmptyState` cutover is one verified artifact transaction.
+- (2026-07-21) The first `StatTile` pass adopted Astryx cards and typography
+  but left `StatGrid` hand-rolling its container. `StatGrid` now delegates the
+  grid, gap, and responsive tracks to Astryx `Grid`; `columns` caps the native
+  180-pixel auto-fit tracks instead of maintaining custom viewport breakpoints.
+- (2026-07-21) The catalog's `Field` wrapper duplicated Astryx labels and field
+  spacing, the dialog body maintained another vertical stack, and
+  `FormProblem` restyled an error box. `Field`/`FieldLabel` are now direct
+  Astryx exports, `FormDialog` uses `FormLayout`, and `FormProblem` composes an
+  error `Banner`.
+- (2026-07-21) `FilterToolbar` used Astryx controls but still owned its outer
+  start/end action layout. Astryx `Toolbar` now owns those regions, spacing,
+  sizing context, and toolbar semantics; the start content keeps one wrapping
+  container so narrow layouts retain the existing responsive filter behavior.
+- (2026-07-21) `LayoutContent` renders as a block by default. The first browser
+  pass exposed a zero-height `PageLayout` scroll area because the previous raw
+  wrapper had been a flex column; an explicit flex-column `xstyle` restored the
+  fill contract.
+- (2026-07-21) The shell review found no remaining exception:
+  `ClientAppShell` already composes Astryx `AppShell`, `SideNavigation` composes
+  `SideNav`, and `TopBar` composes `TopNav`; this work completed the remaining
+  raw search/action controls with Astryx `Button`, `IconButton`, and `Kbd`.
 
 ## Decision Log
 
@@ -89,10 +123,36 @@ skew is no longer a constraint.
   (`numbered?: boolean` on `DataTable`/`QueryTable`, wired to
   `useTableRowIndex`), not a default — no current page design shows row
   numbers.
+- (2026-07-21, agent) **Arbitrary consumer rows are wrapped in catalog-private
+  records before entering Astryx `Table`.** The wrapper preserves source index,
+  stable row key, and group key while satisfying Astryx's record constraint;
+  expanded rows are synthetic records inserted after grouped flattening so
+  group headers and row numbers retain their native behavior.
+- (2026-07-21, agent) **The right-hand table detail sheet shares the table's
+  grid track instead of being a flex sibling.** It aligns to the right over the
+  full-width table, retains resize/sticky/keyboard behavior, and uses Astryx
+  elevation to read as a floating sheet. It must never consume table width.
+- (2026-07-21, agent) **`SplitPage` uses an explicit compact structural branch.**
+  Desktop uses `LayoutPanel`; compact mode stacks two nested Astryx `Layout`s.
+  This keeps the public slot contract singular without hand-rolling a second
+  component family.
 
 ## Outcomes & Retrospective
 
-Not yet completed.
+Completed 2026-07-21. The catalog's table, statistics grid, empty state, top bar,
+page layout, and split layout now compose Astryx primitives. `DataTable` keeps
+its public API, adds opt-in native row numbering, and delegates grouping and
+sorting semantics to Astryx plugins. The only raw interactive catalog source is
+the documented `FilterPills` exception; self-harness architecture checks reject
+any other `<button>`, `<input>`, `<select>`, `<textarea>`, or `<table>`.
+
+Validation passed: catalog TypeScript verification, staged Micro generation,
+`go test ./...`, and two worktree-local self-harness runs. The Micro platform
+passed typecheck, lint, 101 tests, and production build. Authenticated browser
+acceptance proved table group collapse/expand, header hide/show, selection
+arrow/Escape navigation, a full-width non-shrinking detail overlay (including
+the generated 520px work-order sheet), Invoices' exempt filter pills, Mails'
+split layout, and the content-page/AppShell composition.
 
 ## Context and Orientation
 

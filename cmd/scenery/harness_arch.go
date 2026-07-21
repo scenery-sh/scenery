@@ -63,6 +63,12 @@ var removedAgentTransportTerms = []string{
 var removedAgentTransportToken = "m" + "cp"
 var removedAgentTransportTokenWithPrefix = "r" + removedAgentTransportToken
 
+var rawUICatalogInteractiveElement = regexp.MustCompile(`<\s*(button|input|select|textarea|table)\b`)
+
+var rawUICatalogInteractiveAllowlist = map[string]string{
+	"ui/components/FilterPills.tsx": "bespoke faceted-filter pills have no matching Astryx component",
+}
+
 type currentSurfaceResidueRule struct {
 	Name            string
 	Pattern         *regexp.Regexp
@@ -369,6 +375,13 @@ func checkArchitectureSource(repoRoot string, summary *architectureSummary) ([]c
 		if architectureGeneratedOrVendored(rel) {
 			return nil
 		}
+		if strings.HasPrefix(rel, "ui/components/") && filepath.Ext(rel) == ".tsx" {
+			catalogDiagnostics, err := checkUICatalogAstryxComposition(path, rel)
+			if err != nil {
+				return err
+			}
+			diagnostics = append(diagnostics, catalogDiagnostics...)
+		}
 		if currentSurfaceResidueCandidate(rel) {
 			residueDiagnostics, err := checkCurrentSurfaceResidue(path, rel)
 			if err != nil {
@@ -416,6 +429,31 @@ func checkArchitectureSource(repoRoot string, summary *architectureSummary) ([]c
 		return nil
 	})
 	return diagnostics, err
+}
+
+func checkUICatalogAstryxComposition(path, rel string) ([]checkDiagnostic, error) {
+	rel = filepath.ToSlash(rel)
+	if _, allowed := rawUICatalogInteractiveAllowlist[rel]; allowed {
+		return nil, nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var diagnostics []checkDiagnostic
+	for index, line := range strings.Split(string(data), "\n") {
+		for _, match := range rawUICatalogInteractiveElement.FindAllString(line, -1) {
+			diagnostics = append(diagnostics, checkDiagnostic{
+				Stage:           "architecture checks",
+				Severity:        "error",
+				File:            rel,
+				Line:            index + 1,
+				Message:         "UI catalog component contains raw interactive HTML: " + strings.TrimSpace(match),
+				SuggestedAction: "Compose the matching Astryx primitive from @astryxdesign/core; hand-rolled equivalents are catalog defects.",
+			})
+		}
+	}
+	return diagnostics, nil
 }
 
 func checkCurrentSurfaceResidue(path, rel string) ([]checkDiagnostic, error) {

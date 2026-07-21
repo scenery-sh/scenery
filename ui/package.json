@@ -7,7 +7,7 @@
     "./tokens.stylex": "./tokens.stylex.ts"
   },
   "peerDependencies": {
-    "@astryxdesign/core": ">=0.1.2 <0.2.0",
+    "@astryxdesign/core": ">=0.1.7 <0.2.0",
     "@stylexjs/stylex": ">=0.18.3 <0.20.0",
     "@tanstack/react-query": ">=5 <6",
     "react": ">=18"

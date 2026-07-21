@@ -1,5 +1,6 @@
 import { Heading } from "@astryxdesign/core/Heading";
 import { IconButton } from "@astryxdesign/core/IconButton";
+import { Layout, LayoutContent, LayoutHeader } from "@astryxdesign/core/Layout";
 import {
   borderVars,
   colorVars,
@@ -138,14 +139,27 @@ export function PageShell({
   children: ReactNode;
 }) {
   return (
-    <main {...stylex.props(styles.page)} aria-label={label}>
-      <PageHeader title={title} actions={actions} />
-      {scroll ? (
-        <div {...stylex.props(styles.scrollArea)}>{children}</div>
-      ) : (
-        children
-      )}
-    </main>
+    <Layout
+      content={
+        <LayoutContent
+          isScrollable={scroll}
+          label={label}
+          padding={0}
+          role="main"
+          xstyle={styles.pageContent}
+        >
+          {children}
+        </LayoutContent>
+      }
+      header={
+        <LayoutHeader padding={0}>
+          <PageHeader title={title} actions={actions} />
+        </LayoutHeader>
+      }
+      height="fill"
+      padding={0}
+      xstyle={styles.page}
+    />
   );
 }
 
@@ -220,11 +234,13 @@ const styles = stylex.create({
     gap: spacingVars["--spacing-2"],
   },
   page: {
-    height: "100%",
+    backgroundColor: colorVars["--color-background-surface"],
+  },
+  pageContent: {
     minHeight: 0,
     display: "flex",
     flexDirection: "column",
-    backgroundColor: colorVars["--color-background-surface"],
+    containerType: "size",
   },
   // A size container so descendants (e.g. QueryTable's sticky detail panel)
   // can cap their height in cqh units — the scrollport's real height —

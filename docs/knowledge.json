@@ -19,6 +19,18 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0130-astryx-native-catalog.md",
+      "title": "Astryx-Native Catalog: Table Migration and Hand-Rolled Component Elimination",
+      "owner": "scenery ui catalog",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-07-21",
+      "review_after": "2026-08-20",
+      "summary": "Completed ExecPlan migrating the Scenery UI catalog table, statistics, empty state, top bar, page layout, and split layout onto Astryx primitives, adding native grouping and opt-in row numbering, preserving a full-width floating detail sheet, and enforcing the composition contract through self-harness.",
+      "tags": ["plans", "execplans", "astryx", "table", "grouping", "row-index", "layout", "ui-catalog", "react", "typescript", "micro"]
+    },
+    {
       "path": "docs/plans/0129-table-grouping-and-detail-panel.md",
       "title": "Table Grouping and Resizable Detail Panel for table_page",
       "owner": "scenery ui catalog / compiler / generation",
@@ -2032,7 +2044,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-20",
       "review_after": "2026-08-19",
-      "summary": "Completed milestones and shipped behavior, including generated workbench table pages with Micro work-orders parity, Google connections, Symphony hardening, local storage, local path routing, shared Victoria visibility, the database lifecycle split, portable snapshots, single-current specification and identity work, and earlier audited retirements.",
+      "summary": "Completed milestones and shipped behavior, including the Astryx-native UI catalog, generated workbench table pages with Micro work-orders parity, Google connections, Symphony hardening, local storage, local path routing, shared Victoria visibility, the database lifecycle split, portable snapshots, single-current specification and identity work, and earlier audited retirements.",
       "tags": [
         "plans",
         "history",

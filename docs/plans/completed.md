@@ -6,6 +6,21 @@ Completed means implemented or shipped at least once. It does not imply stable
 support for every surface. Use [../local-contract.md](../local-contract.md) as
 the source of truth for stable, beta, and dev-only classification.
 
+## Astryx-Native UI Catalog
+
+- Status: completed
+- Owner: scenery ui catalog
+- Completed: 2026-07-21
+- Quality: B
+- ExecPlan: [0130 Astryx-Native Catalog: Table Migration and Hand-Rolled Component Elimination](0130-astryx-native-catalog.md)
+
+Migrated the catalog table, statistics, empty state, top bar, page layout, and
+split layout onto Astryx primitives while retaining the existing public APIs.
+Native table grouping and opt-in row numbering replace hand-rolled table
+semantics; the resizable detail sheet now overlays the full-width table. A
+self-harness architecture guard rejects raw interactive catalog HTML except the
+documented bespoke `FilterPills` pattern.
+
 ## Table Grouping and Resizable Detail Panels
 
 - Status: completed

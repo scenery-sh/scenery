@@ -1,6 +1,8 @@
+import { Banner } from "@astryxdesign/core/Banner";
 import type { ISODateString } from "@astryxdesign/core/Calendar";
 import { DateInput } from "@astryxdesign/core/DateInput";
 import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
+import { FormLayout } from "@astryxdesign/core/FormLayout";
 import { NumberInput } from "@astryxdesign/core/NumberInput";
 import { Selector } from "@astryxdesign/core/Selector";
 import { TextArea } from "@astryxdesign/core/TextArea";
@@ -8,7 +10,6 @@ import { TextInput } from "@astryxdesign/core/TextInput";
 import {
   borderVars,
   colorVars,
-  radiusVars,
   spacingVars,
 } from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
@@ -34,7 +35,7 @@ export function FormDialog({
 }) {
   const body = (
     <>
-      <div {...stylex.props(styles.body)}>{children}</div>
+      <FormLayout xstyle={styles.body}>{children}</FormLayout>
       <footer {...stylex.props(styles.footer)}>{footer}</footer>
     </>
   );
@@ -70,24 +71,6 @@ export function FormDialog({
         )}
       </div>
     </Dialog>
-  );
-}
-
-export function Field({
-  label,
-  hint,
-  children,
-}: {
-  label: ReactNode;
-  hint?: ReactNode;
-  children: ReactNode;
-}) {
-  return (
-    <label {...stylex.props(styles.field)}>
-      <span {...stylex.props(styles.fieldLabel)}>{label}</span>
-      {children}
-      {hint ? <small {...stylex.props(styles.fieldHint)}>{hint}</small> : null}
-    </label>
   );
 }
 
@@ -215,11 +198,7 @@ export function TextAreaField({
 
 export function FormProblem({ problem }: { problem?: Problem }) {
   if (!problem) return null;
-  return (
-    <div role="alert" {...stylex.props(styles.problem)}>
-      {problem.message}
-    </div>
-  );
+  return <Banner status="error" title={problem.message} />;
 }
 
 const styles = stylex.create({
@@ -234,9 +213,6 @@ const styles = stylex.create({
   body: {
     minHeight: 0,
     overflowY: "auto",
-    display: "flex",
-    flexDirection: "column",
-    gap: spacingVars["--spacing-3"],
     padding: `0 ${spacingVars["--spacing-4"]} ${spacingVars["--spacing-4"]}`,
     scrollbarColor: `${colorVars["--color-text-secondary"]} transparent`,
     scrollbarWidth: "thin",
@@ -250,21 +226,5 @@ const styles = stylex.create({
     borderTopColor: colorVars["--color-border"],
     borderTopStyle: "solid",
     borderTopWidth: borderVars["--border-width"],
-  },
-  field: {
-    display: "flex",
-    flexDirection: "column",
-    gap: spacingVars["--spacing-1"],
-  },
-  fieldLabel: { fontSize: 12, color: colorVars["--color-text-secondary"] },
-  fieldHint: { color: colorVars["--color-text-secondary"] },
-  problem: {
-    padding: spacingVars["--spacing-2"],
-    borderColor: colorVars["--color-error"],
-    borderStyle: "solid",
-    borderWidth: borderVars["--border-width"],
-    borderRadius: radiusVars["--radius-element"],
-    color: colorVars["--color-error"],
-    fontSize: 12,
   },
 });

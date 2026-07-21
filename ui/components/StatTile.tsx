@@ -1,12 +1,14 @@
+import { Button } from "@astryxdesign/core/Button";
+import { Card } from "@astryxdesign/core/Card";
+import { Grid } from "@astryxdesign/core/Grid";
+import { Text } from "@astryxdesign/core/Text";
 import {
   borderVars,
   colorVars,
-  radiusVars,
   spacingVars,
-  typeScaleVars,
 } from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
 
 export type StatTone = "neutral" | "success" | "warning" | "danger";
 
@@ -17,16 +19,10 @@ export function StatGrid({
   columns?: number;
   children: ReactNode;
 }) {
-  const style = columns
-    ? ({ "--stat-columns": String(columns) } as CSSProperties)
-    : undefined;
   return (
-    <div
-      {...stylex.props(columns ? styles.gridFixed : styles.gridAuto)}
-      style={style}
-    >
+    <Grid columns={{ minWidth: 180, max: columns, repeat: "fit" }} gap={3}>
       {children}
-    </div>
+    </Grid>
   );
 }
 
@@ -47,76 +43,71 @@ export function StatTile({
   active?: boolean;
   onClick?: () => void;
 }) {
-  const body = (
-    <>
-      <span {...stylex.props(styles.label)}>
+  const card = (
+    <Card
+      padding={4}
+      xstyle={[styles.tile, active && styles.tileActive].filter(Boolean)}
+    >
+      <Text color="secondary" type="supporting" xstyle={styles.label}>
         {icon ? <span {...stylex.props(styles.icon)}>{icon}</span> : null}
         {label}
-      </span>
-      <strong
-        {...stylex.props(
-          styles.value,
-          tone === "success" && styles.valueSuccess,
-          tone === "warning" && styles.valueWarning,
-          tone === "danger" && styles.valueDanger,
-        )}
+      </Text>
+      <Text
+        as="div"
+        hasTabularNumbers
+        size="2xl"
+        weight="semibold"
+        xstyle={
+          tone === "success"
+            ? styles.valueSuccess
+            : tone === "warning"
+              ? styles.valueWarning
+              : tone === "danger"
+                ? styles.valueDanger
+                : undefined
+        }
       >
         {value}
-      </strong>
-      {sub ? <small {...stylex.props(styles.sub)}>{sub}</small> : null}
-    </>
+      </Text>
+      {sub ? (
+        <Text color="secondary" type="supporting">
+          {sub}
+        </Text>
+      ) : null}
+    </Card>
   );
-  if (onClick) {
-    return (
-      <button
-        aria-pressed={active}
-        onClick={onClick}
-        type="button"
-        {...stylex.props(styles.tile, styles.tileButton, active && styles.tileActive)}
-      >
-        {body}
-      </button>
-    );
-  }
-  return <section {...stylex.props(styles.tile)}>{body}</section>;
+  if (!onClick) return card;
+  return (
+    <Button
+      aria-pressed={active}
+      label={typeof label === "string" ? label : "Statistic"}
+      onClick={onClick}
+      variant="ghost"
+      width="100%"
+      xstyle={styles.tileButton}
+    >
+      {card}
+    </Button>
+  );
 }
 
 const styles = stylex.create({
-  gridAuto: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-    gap: spacingVars["--spacing-3"],
-  },
-  gridFixed: {
-    display: "grid",
-    gridTemplateColumns: {
-      default: "repeat(var(--stat-columns, 4), minmax(0, 1fr))",
-      "@media (max-width: 900px)": "repeat(2, minmax(0, 1fr))",
-      "@media (max-width: 520px)": "1fr",
-    },
-    gap: spacingVars["--spacing-3"],
-  },
   tile: {
     boxSizing: "border-box",
     minWidth: 0,
-    padding: spacingVars["--spacing-4"],
+    width: "100%",
     display: "flex",
     flexDirection: "column",
     gap: spacingVars["--spacing-1"],
-    borderWidth: borderVars["--border-width"],
-    borderStyle: "solid",
-    borderColor: colorVars["--color-border"],
-    borderRadius: radiusVars["--radius-container"],
-    backgroundColor: colorVars["--color-background-body"],
-    textAlign: "left",
+    textAlign: "start",
   },
   tileButton: {
-    appearance: "none",
-    color: colorVars["--color-text-primary"],
-    cursor: "pointer",
-    transitionProperty: "border-color",
-    transitionDuration: "150ms",
-    ":hover": { borderColor: colorVars["--color-border-emphasized"] },
+    height: "auto",
+    padding: 0,
+    borderWidth: 0,
+    backgroundColor: "transparent",
+    display: "block",
+    textAlign: "start",
   },
   tileActive: {
     borderColor: colorVars["--color-accent"],
@@ -126,21 +117,13 @@ const styles = stylex.create({
     display: "flex",
     alignItems: "center",
     gap: spacingVars["--spacing-1"],
-    color: colorVars["--color-text-secondary"],
-    fontSize: 12,
   },
   icon: {
     display: "inline-flex",
     alignItems: "center",
     color: colorVars["--color-text-secondary"],
   },
-  value: {
-    fontSize: 24,
-    fontWeight: typeScaleVars["--text-label-weight"],
-    fontVariantNumeric: "tabular-nums",
-  },
   valueSuccess: { color: colorVars["--color-success"] },
   valueWarning: { color: colorVars["--color-warning"] },
   valueDanger: { color: colorVars["--color-error"] },
-  sub: { color: colorVars["--color-text-secondary"] },
 });

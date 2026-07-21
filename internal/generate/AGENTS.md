@@ -24,6 +24,10 @@ TypeScript clients, OpenAPI documents, and their generated-file transactions.
   same artifact transaction. Generated pages use the consuming app's TanStack
   Query client for caching, deduplication, retry, and invalidation. Typecheck a
   sibling staging tree with the exact managed native checker before commit;
+  redirect the consuming app's `@scenery/ui` aliases to that sibling tree while
+  preserving its other resolved TypeScript path aliases, so a catalog API
+  cutover verifies atomically against the replacement rather than the previous
+  materialization;
   never consult PATH or fall back when the checker or app dependencies are
   unavailable.
 - Emit authored strings in JSX attributes as brace-wrapped JavaScript string expressions (`prop={"..."}`), never HTML-like quoted attributes; keep ordinary quoted literals only inside JavaScript object/array expressions. Generated URL-backed state that creates history entries must also subscribe to `popstate`.

@@ -7,12 +7,6 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
-- [0130 Astryx-Native Catalog: Table Migration and Hand-Rolled Component Elimination](0130-astryx-native-catalog.md)
-  - Status: active
-  - Owner: scenery ui catalog
-  - Created: 2026-07-21
-  - Focus: audit found catalog components hand-rolling what Astryx provides — worst is `DataTable`, a from-scratch `<table>` duplicating 0.1.6's `useTableGroupedRows`. Migrate `DataTable` onto Astryx `Table` (grouped rows, `useTableRowIndex` behind `numbered`), `StatTile`/`EmptyState`/`TopBar` onto their Astryx counterparts, `SplitPage`/`PageLayout` onto the `Layout` family, evaluate the shell trio against Astryx `AppShell`, and add a verification guardrail that rejects raw interactive HTML in `ui/components/`. `FilterPills` is exempt by decision (bespoke pattern, no Astryx equivalent) and stays hand-rolled on the guardrail allowlist.
-
 - [0122 UI Catalog Dev Mode: Live ui/ Iteration Without Binary Rebuilds](0122-ui-catalog-dev-mode.md)
   - Status: completed (retain until first release ships it)
   - Owner: scenery generation / agent DX

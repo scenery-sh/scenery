@@ -5,6 +5,7 @@ import { Popover } from "@astryxdesign/core/Popover";
 import { Selector } from "@astryxdesign/core/Selector";
 import { Text } from "@astryxdesign/core/Text";
 import { TextInput } from "@astryxdesign/core/TextInput";
+import { Toolbar } from "@astryxdesign/core/Toolbar";
 import { spacingVars } from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
 import type { ReactNode } from "react";
@@ -12,7 +13,10 @@ import type { ReactNode } from "react";
 export interface FilterToolbarFilter {
   readonly field: string;
   readonly label: string;
-  readonly options: readonly { readonly value: string; readonly label: string }[];
+  readonly options: readonly {
+    readonly value: string;
+    readonly label: string;
+  }[];
   readonly custom?: boolean;
   readonly pinned?: boolean;
 }
@@ -60,102 +64,113 @@ export function FilterToolbar({
   // them in the complete popover as well so every declared filter is editable
   // from one predictable place.
   const popoverFilters = filters.filter((filter) => !filter.custom);
-  const activeFilters: FilterToolbarActiveFilter[] = filters.flatMap((filter) => {
-    const value = values[filter.field];
-    if (!value) return [];
-    return [
-      {
-        field: filter.field,
-        label: filter.label,
-        valueLabel:
-          filter.options.find((option) => option.value === value)?.label ??
-          value,
-        onClear: () => onFilterChange(filter.field, undefined),
-      },
-    ];
-  });
+  const activeFilters: FilterToolbarActiveFilter[] = filters.flatMap(
+    (filter) => {
+      const value = values[filter.field];
+      if (!value) return [];
+      return [
+        {
+          field: filter.field,
+          label: filter.label,
+          valueLabel:
+            filter.options.find((option) => option.value === value)?.label ??
+            value,
+          onClear: () => onFilterChange(filter.field, undefined),
+        },
+      ];
+    },
+  );
   activeFilters.push(...(activeFilterItems ?? []));
   const hasFilterPopover = popoverFilters.length > 0 || filterContent;
 
   return (
     <div {...stylex.props(styles.root)}>
-      <div {...stylex.props(styles.toolbar)}>
-        <div {...stylex.props(styles.controls)}>
-          {onSearchChange ? (
-            <TextInput
-              hasClear
-              isLabelHidden
-              label={searchLabel ?? "Search"}
-              onChange={onSearchChange}
-              placeholder={searchLabel ?? "Search"}
-              size="sm"
-              startIcon={<Icon icon="search" size="sm" />}
-              value={search ?? ""}
-              width={240}
-            />
-          ) : null}
-          {pinnedFilters.map((filter) => (
-            <FilterSelector
-              filter={filter}
-              key={filter.field}
-              onFilterChange={onFilterChange}
-              value={values[filter.field]}
-              width={180}
-            />
-          ))}
-          {hasFilterPopover ? (
-            <Popover
-              alignment="start"
-              content={
-                <div {...stylex.props(styles.filterPanel)}>
-                  {popoverFilters.map((filter) => (
-                    <FilterSelector
-                      filter={filter}
-                      key={filter.field}
-                      onFilterChange={onFilterChange}
-                      value={values[filter.field]}
-                      width="100%"
-                    />
-                  ))}
-                  {filterContent}
-                </div>
-              }
-              label="Filters"
-              placement="below"
-              width={280}
-            >
-              <Button
-                endContent={
-                  activeFilters.length > 0 ? (
-                    <Badge label={activeFilters.length} variant="neutral" />
-                  ) : undefined
-                }
-                icon={<Icon icon="funnel" size="sm" />}
-                label="Filters"
+      <Toolbar
+        endContent={
+          resultLabel || onExport ? (
+            <>
+              {resultLabel ? (
+                <Text color="secondary" type="supporting">
+                  {resultLabel}
+                </Text>
+              ) : null}
+              {onExport ? (
+                <Button
+                  icon={exportIcon ?? <Icon icon="arrowDown" size="sm" />}
+                  label={exportLabel ?? "Export"}
+                  onClick={onExport}
+                  size="sm"
+                  variant="secondary"
+                />
+              ) : null}
+            </>
+          ) : undefined
+        }
+        gap={2}
+        label="Table filters and actions"
+        size="sm"
+        startContent={
+          <div {...stylex.props(styles.controls)}>
+            {onSearchChange ? (
+              <TextInput
+                hasClear
+                isLabelHidden
+                label={searchLabel ?? "Search"}
+                onChange={onSearchChange}
+                placeholder={searchLabel ?? "Search"}
                 size="sm"
-                variant="secondary"
+                startIcon={<Icon icon="search" size="sm" />}
+                value={search ?? ""}
+                width={240}
               />
-            </Popover>
-          ) : null}
-          {children}
-        </div>
-        <div {...stylex.props(styles.trailing)}>
-          {resultLabel ? (
-            <Text color="secondary" type="supporting">
-              {resultLabel}
-            </Text>
-          ) : null}
-          {onExport ? (
-            <Button
-              icon={exportIcon ?? <Icon icon="arrowDown" size="sm" />}
-              label={exportLabel ?? "Export"}
-              onClick={onExport}
-              size="sm"
-              variant="secondary"
-            />
-          ) : null}
-        </div>
-      </div>
+            ) : null}
+            {pinnedFilters.map((filter) => (
+              <FilterSelector
+                filter={filter}
+                key={filter.field}
+                onFilterChange={onFilterChange}
+                value={values[filter.field]}
+                width={180}
+              />
+            ))}
+            {hasFilterPopover ? (
+              <Popover
+                alignment="start"
+                content={
+                  <div {...stylex.props(styles.filterPanel)}>
+                    {popoverFilters.map((filter) => (
+                      <FilterSelector
+                        filter={filter}
+                        key={filter.field}
+                        onFilterChange={onFilterChange}
+                        value={values[filter.field]}
+                        width="100%"
+                      />
+                    ))}
+                    {filterContent}
+                  </div>
+                }
+                label="Filters"
+                placement="below"
+                width={280}
+              >
+                <Button
+                  endContent={
+                    activeFilters.length > 0 ? (
+                      <Badge label={activeFilters.length} variant="neutral" />
+                    ) : undefined
+                  }
+                  icon={<Icon icon="funnel" size="sm" />}
+                  label="Filters"
+                  size="sm"
+                  variant="secondary"
+                />
+              </Popover>
+            ) : null}
+            {children}
+          </div>
+        }
+      />
       {activeFilters.length > 0 ? (
         <div aria-label="Active filters" {...stylex.props(styles.chips)}>
           {activeFilters.map((filter) => (
@@ -225,24 +240,12 @@ const styles = stylex.create({
     flexDirection: "column",
     gap: spacingVars["--spacing-2"],
   },
-  toolbar: {
-    display: "flex",
-    alignItems: "flex-end",
-    justifyContent: "space-between",
-    flexWrap: "wrap",
-    gap: spacingVars["--spacing-3"],
-  },
   controls: {
     display: "flex",
-    alignItems: "flex-end",
+    alignItems: "center",
     flexWrap: "wrap",
     gap: spacingVars["--spacing-2"],
-  },
-  trailing: {
-    marginInlineStart: "auto",
-    display: "flex",
-    alignItems: "center",
-    gap: spacingVars["--spacing-2"],
+    minWidth: 0,
   },
   filterPanel: {
     display: "flex",

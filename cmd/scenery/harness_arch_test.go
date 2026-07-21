@@ -39,6 +39,7 @@ func TestRunHarnessArchitectureStepValidAndInvalidFixtures(t *testing.T) {
 		writeTestAppFile(t, root, "internal/graph/bad.go", "package graph\n\nimport _ \"scenery.sh/internal/compiler\"\n")
 		writeTestAppFile(t, root, "internal/compiler/bad.go", "package compiler\n\nimport _ \"scenery.sh/internal/evolution\"\n")
 		writeTestAppFile(t, root, "runtime/bad.go", "package runtime\n\nimport _ \"scenery.sh/internal/devdash\"\n")
+		writeTestAppFile(t, root, "ui/components/BadControl.tsx", "export function BadControl() { return <button>Bad</button>; }\n")
 
 		step := runHarnessArchitectureStep(root)
 		if step.OK {
@@ -53,10 +54,43 @@ func TestRunHarnessArchitectureStepValidAndInvalidFixtures(t *testing.T) {
 			"internal/scn stays foundational",
 			"internal/graph stays below compiler and workflows",
 			"internal/compiler stays below workflows",
+			"UI catalog component contains raw interactive HTML",
 		} {
 			if !strings.Contains(joined, want) {
 				t.Fatalf("missing %q diagnostic: %+v", want, step.Diagnostics)
 			}
+		}
+	})
+}
+
+func TestCheckUICatalogAstryxComposition(t *testing.T) {
+	t.Parallel()
+
+	t.Run("rejects raw controls", func(t *testing.T) {
+		t.Parallel()
+		root := t.TempDir()
+		path := filepath.Join(root, "Bad.tsx")
+		writeTestAppFile(t, root, "Bad.tsx", "export const Bad = () => <input />;\n")
+		diagnostics, err := checkUICatalogAstryxComposition(path, "ui/components/Bad.tsx")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(diagnostics) != 1 || !strings.Contains(diagnostics[0].SuggestedAction, "Astryx primitive") {
+			t.Fatalf("diagnostics = %+v, want one Astryx policy failure", diagnostics)
+		}
+	})
+
+	t.Run("allows the documented filter pills exception", func(t *testing.T) {
+		t.Parallel()
+		root := t.TempDir()
+		path := filepath.Join(root, "FilterPills.tsx")
+		writeTestAppFile(t, root, "FilterPills.tsx", "export const FilterPills = () => <button>All</button>;\n")
+		diagnostics, err := checkUICatalogAstryxComposition(path, "ui/components/FilterPills.tsx")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(diagnostics) != 0 {
+			t.Fatalf("diagnostics = %+v, want documented exception", diagnostics)
 		}
 	})
 }

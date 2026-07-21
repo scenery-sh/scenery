@@ -1,7 +1,9 @@
 import { Button } from "@astryxdesign/core/Button";
+import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { Spinner } from "@astryxdesign/core/Spinner";
+import { TableCell, TableRow } from "@astryxdesign/core/Table";
 import { Text } from "@astryxdesign/core/Text";
-import { colorVars, spacingVars } from "@astryxdesign/core/theme/tokens.stylex";
+import { spacingVars } from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
 import type { ReactNode } from "react";
 
@@ -59,29 +61,14 @@ export function QueryState({
     );
   }
   if (isEmpty) {
-    return <EmptyState>{empty ?? `No ${resource} found`}</EmptyState>;
+    const content = empty ?? `No ${resource} found`;
+    return typeof content === "string" || typeof content === "number" ? (
+      <EmptyState title={String(content)} />
+    ) : (
+      <>{content}</>
+    );
   }
   return <>{children}</>;
-}
-
-export function EmptyState({
-  children,
-  compact,
-}: {
-  children: ReactNode;
-  compact?: boolean;
-}) {
-  return (
-    <div {...stylex.props(styles.empty, compact && styles.emptyCompact)}>
-      {typeof children === "string" || typeof children === "number" ? (
-        <Text color="secondary" type="supporting">
-          {children}
-        </Text>
-      ) : (
-        children
-      )}
-    </div>
-  );
 }
 
 export function TableEmptyRow({
@@ -92,13 +79,13 @@ export function TableEmptyRow({
   children: ReactNode;
 }) {
   return (
-    <tr>
-      <td colSpan={columns} {...stylex.props(styles.emptyCell)}>
+    <TableRow>
+      <TableCell colSpan={columns} xstyle={styles.emptyCell}>
         <Text color="secondary" type="supporting">
           {children}
         </Text>
-      </td>
-    </tr>
+      </TableCell>
+    </TableRow>
   );
 }
 
@@ -117,16 +104,6 @@ const styles = stylex.create({
     padding: spacingVars["--spacing-6"],
     textAlign: "center",
   },
-  empty: {
-    minHeight: 120,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: spacingVars["--spacing-4"],
-    color: colorVars["--color-text-secondary"],
-    textAlign: "center",
-  },
-  emptyCompact: { minHeight: 64 },
   emptyCell: {
     height: 160,
     padding: spacingVars["--spacing-6"],

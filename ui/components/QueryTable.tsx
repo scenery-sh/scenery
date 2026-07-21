@@ -1,5 +1,6 @@
-import { DateTimeInput } from "@astryxdesign/core/DateTimeInput";
 import type { ISODateTimeString } from "@astryxdesign/core/DateTimeInput";
+import { DateTimeInput } from "@astryxdesign/core/DateTimeInput";
+import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { Icon } from "@astryxdesign/core/Icon";
 import { IconButton } from "@astryxdesign/core/IconButton";
 import { Link } from "@astryxdesign/core/Link";
@@ -38,10 +39,10 @@ import { QueryState } from "./QueryState.js";
 import {
   type Problem,
   queryStateProps,
-  requestStateFromQuery,
   type RequestState,
+  requestStateFromQuery,
 } from "./request-state.js";
-import { type StatusMap, StatusBadge } from "./StatusBadge.js";
+import { StatusBadge, type StatusMap } from "./StatusBadge.js";
 
 export type TablePageAppearance =
   | "auto"
@@ -199,6 +200,7 @@ export interface QueryTableProps<Row extends object> {
   readonly paginated?: boolean;
   readonly hideHeader?: boolean;
   readonly fill?: boolean;
+  readonly numbered?: boolean;
   readonly groups?: readonly TablePageGroup[];
   readonly pageSize: number;
   readonly queryKey: readonly unknown[];
@@ -232,6 +234,7 @@ export function QueryTable<Row extends object>({
   paginated = true,
   hideHeader,
   fill,
+  numbered,
   groups = [],
   pageSize,
   queryKey,
@@ -514,49 +517,45 @@ export function QueryTable<Row extends object>({
           search={search}
           searchLabel={`Search ${resource.toLocaleLowerCase()}`}
           values={toolbarValues}
-          filterContent={
-            <>
-              {declaredFilters.map((filter) => {
-                if (filter.kind === "enum") {
-                  if (!filter.component) return null;
-                  const current = filters[filter.field];
-                  return (
-                    <EnumFilter
-                      filter={filter}
-                      key={filter.field}
-                      onChange={(value: string | undefined) => {
-                        setFilters((values) => ({
-                          ...values,
-                          [filter.field]: value ? [value] : undefined,
-                        }));
-                        resetQuery();
-                      }}
-                      value={Array.isArray(current) ? current[0] : undefined}
-                    />
-                  );
-                }
-                const range = {
-                  from: filters[`${filter.field}_from`] as string | undefined,
-                  to: filters[`${filter.field}_to`] as string | undefined,
-                };
-                return (
-                  <DateTimeFilter
-                    filter={filter}
-                    key={filter.field}
-                    onChange={(value: TablePageDateTimeRange) => {
-                      setFilters((values) => ({
-                        ...values,
-                        [`${filter.field}_from`]: value.from,
-                        [`${filter.field}_to`]: value.to,
-                      }));
-                      resetQuery();
-                    }}
-                    value={range}
-                  />
-                );
-              })}
-            </>
-          }
+          filterContent={declaredFilters.map((filter) => {
+            if (filter.kind === "enum") {
+              if (!filter.component) return null;
+              const current = filters[filter.field];
+              return (
+                <EnumFilter
+                  filter={filter}
+                  key={filter.field}
+                  onChange={(value: string | undefined) => {
+                    setFilters((values) => ({
+                      ...values,
+                      [filter.field]: value ? [value] : undefined,
+                    }));
+                    resetQuery();
+                  }}
+                  value={Array.isArray(current) ? current[0] : undefined}
+                />
+              );
+            }
+            const range = {
+              from: filters[`${filter.field}_from`] as string | undefined,
+              to: filters[`${filter.field}_to`] as string | undefined,
+            };
+            return (
+              <DateTimeFilter
+                filter={filter}
+                key={filter.field}
+                onChange={(value: TablePageDateTimeRange) => {
+                  setFilters((values) => ({
+                    ...values,
+                    [`${filter.field}_from`]: value.from,
+                    [`${filter.field}_to`]: value.to,
+                  }));
+                  resetQuery();
+                }}
+                value={range}
+              />
+            );
+          })}
         >
           {sorts.length > 0 ? (
             <>
@@ -620,16 +619,11 @@ export function QueryTable<Row extends object>({
               Empty ? (
                 <Empty filtered={filtered} />
               ) : filtered ? (
-                "No matching results."
+                <EmptyState title="No matching results." />
               ) : emptyAction ? (
-                <div {...stylex.props(styles.emptyWithAction)}>
-                  <Text color="secondary" type="supporting">
-                    No results yet.
-                  </Text>
-                  {emptyAction}
-                </div>
+                <EmptyState actions={emptyAction} title="No results yet." />
               ) : (
-                "No results yet."
+                <EmptyState title="No results yet." />
               )
             }
             isEmpty={result.kind === "result" && result.items.length === 0}
@@ -644,6 +638,7 @@ export function QueryTable<Row extends object>({
               getRowKey={rowKey}
               hideHeader={hideHeader}
               minWidth={720}
+              numbered={numbered}
               onRowClick={
                 DetailPanel
                   ? (row, index) => {
@@ -981,16 +976,18 @@ const styles = stylex.create({
     minWidth: 0,
   },
   workspace: {
-    display: "flex",
+    display: "grid",
+    gridTemplateColumns: "minmax(0, 1fr)",
     alignItems: "stretch",
-    gap: spacingVars["--spacing-3"],
     minWidth: 0,
+    position: "relative",
   },
   content: {
     display: "flex",
     flex: 1,
     flexDirection: "column",
     gap: spacingVars["--spacing-4"],
+    gridArea: "1 / 1",
     minWidth: 0,
   },
   // Fill mode (Linear-style scrolling): the section flex-fills its page,
@@ -1022,12 +1019,6 @@ const styles = stylex.create({
     display: "flex",
     justifyContent: "flex-end",
   },
-  emptyWithAction: {
-    display: "flex",
-    alignItems: "center",
-    flexDirection: "column",
-    gap: spacingVars["--spacing-3"],
-  },
   rowDetail: {
     display: "flex",
     flexDirection: "column",
@@ -1038,7 +1029,11 @@ const styles = stylex.create({
     justifyContent: "flex-end",
   },
   detailPanelColumn: {
+    gridArea: "1 / 1",
+    justifySelf: "end",
     flexShrink: 0,
+    maxWidth: "calc(100% - 48px)",
+    zIndex: 1,
   },
   // Content-sized with a scrollport cap: the panel never forces the page
   // taller than its scroll container, and while a long table scrolls past
@@ -1057,7 +1052,7 @@ const styles = stylex.create({
     borderStyle: "solid",
     borderWidth: borderVars["--border-width"],
     borderRadius: radiusVars["--radius-container"],
-    boxShadow: shadowVars["--shadow-low"],
+    boxShadow: shadowVars["--shadow-med"],
     animationName: {
       default: panelSlideIn,
       "@media (prefers-reduced-motion: reduce)": "none",
