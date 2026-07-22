@@ -377,8 +377,20 @@ table_page "orders" {
 
   stats {
     source = binding.order_metrics_http
-    tile "open" { label = "Open" }
-    tile "total" { label = "Total" }
+    tile "open" {
+      label          = "Open"
+      appearance     = "money"
+      sub            = "open_count"
+      sub_appearance = "count"
+      sub_label      = "orders"
+      filter         = "status"
+      value          = "open"
+    }
+    tile "total" {
+      label  = "Total"
+      filter = "status"
+      clear  = true
+    }
   }
 
   column "number" {}
@@ -414,7 +426,7 @@ table_page "orders" {
 }
 ```
 
-The stats operation has unit input and one flat numeric/string record result. The form source is a call-delivery mutation HTTP binding whose input is a string/closed-enum record. Generated dialogs keep failures inline and invalidate both list and stats queries on success. Row detail defaults to inline expansion; panel presentation opens the same typed component in a right-hand surface that resizes from 280 to 560 pixels and closes by its button, row re-click, or Escape. A row-detail dialog remains inline-only. For an app-owned selected-row workflow, replace `row_detail` with mutually exclusive `row_action { component = ... }`; that component receives the exact row and `onClose` and remains mounted outside list request-state rendering. Filters, `empty`, and `footer` receive the current `TablePageResultContext`; a `toolbar` receives optional context plus controls for setting/clearing enum filters and refreshing the current query. Toolbars default to compact Page-header actions; `placement = "content"` renders a large workbench directly above the table. Set `filter.hidden = true` when that toolbar owns a filter: the filter remains typed and query-mapped but is omitted from built-in selectors, the popover, and chips. Use `pinned = true` only for the few finite catalog selectors that need inline quick access. CSV export covers the rows returned by the current query: one cursor or numeric page for paginated sources, or the complete filtered result for a complete-list binding. Use column `hidden = true` for export-only fields and `export = false` for display-only custom cells.
+The stats operation has unit input and one flat numeric/string record result. Tile values and sub-lines may use plain, money, count, or percent formatting. A tile may set/toggle one typed declared filter or predicate, while `clear = true` produces the selected default tile that removes that filter. Date/datetime filters may declare local-calendar Today, Last 7 days, and Month to date presets over their existing paired inputs. The form source is a call-delivery mutation HTTP binding whose input is a string/closed-enum record. Generated dialogs keep failures inline and invalidate both list and stats queries on success. Row detail defaults to inline expansion; panel presentation opens the same typed component in a right-hand surface that resizes from 280 to 560 pixels and closes by its button, row re-click, or Escape. A row-detail dialog remains inline-only. For an app-owned selected-row workflow, replace `row_detail` with mutually exclusive `row_action { component = ... }`; that component receives the exact row and `onClose` and remains mounted outside list request-state rendering. Filters, `empty`, and `footer` receive the current `TablePageResultContext`; a `toolbar` receives optional context plus controls for setting/clearing enum filters and refreshing the current query. Toolbars default to compact Page-header actions; `placement = "content"` renders a large workbench directly above the table. Set `filter.hidden = true` when that toolbar owns a filter: the filter remains typed and query-mapped but is omitted from built-in selectors, the popover, and chips. Use `pinned = true` only for the few finite catalog selectors that need inline quick access. CSV export covers the rows returned by the current query: one cursor or numeric page for paginated sources, or the complete filtered result for a complete-list binding. Use column `hidden = true` for export-only fields and `export = false` for display-only custom cells.
 
 For a two-pane page, keep the declaration generic and the domain UI app-owned:
 
@@ -472,7 +484,7 @@ content_page "privacy" {
 
 The static adapter creates no query or client requirement and invokes its content and actions components without request-state props.
 
-For a routed record, declare a call-delivery HTTP read binding whose input contains the path key and whose sole result is the displayed record:
+For a routed record, declare a call-delivery HTTP read binding whose input contains the path key, whose sole result is the displayed record, and whose declared not-found business error is mapped to HTTP 404:
 
 ```hcl
 detail_page "order_detail" {

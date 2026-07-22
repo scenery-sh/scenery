@@ -177,6 +177,7 @@ export type {
   TablePageCellProps,
   TablePageColumn,
   TablePageDateTimeRange,
+  TablePageDateTimePreset,
   TablePageDetailPanelProps,
   TablePageDirection,
   TablePageEmptyProps,

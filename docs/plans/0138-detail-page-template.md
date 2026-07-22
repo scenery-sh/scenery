@@ -54,6 +54,9 @@ moving the platform another step toward fully generated client apps.
   platform, including any missing claim-read-by-id backend surface).
 - [x] (2026-07-22) Milestone 4: docs/harness sync, full cached validation,
   installed-binary restart, and authenticated browser acceptance.
+- [x] (2026-07-22) Post-completion correction: require a declared business
+  error mapped by the load HTTP binding to status 404, preventing missing
+  records from collapsing into `system.internal`.
 
 ## Surprises & Discoveries
 
@@ -84,6 +87,10 @@ moving the platform another step toward fully generated client apps.
   client explicitly; the generated routed page already receives it from
   `createSceneryApp`, while the hand-written accordion/dialog mount passes the
   same client itself.
+- (2026-07-22) The pilot exposed a contract hole after completion: a detail
+  source with only a success result compiles, but an ordinary missing row then
+  has no typed client completion and the runtime correctly fails closed as
+  `system.internal`.
 
 ## Decision Log
 
@@ -131,6 +138,11 @@ moving the platform another step toward fully generated client apps.
   by default; `hide_empty = true` omits the labeled field only for absent,
   null, or empty-string values. The warranty pilot uses it for
   `deployed_epc_name`, `deployed_at`, and `notes`.
+- (2026-07-22, agent) **Typed absence is mandatory.** Every `detail_page`
+  source operation declares at least one business error that its selected HTTP
+  binding maps to 404. Validation keys off the observable completion mapping,
+  not a fixed error name, so domain labels remain free while generated clients
+  always have a typed not-found path.
 
 ## Outcomes & Retrospective
 

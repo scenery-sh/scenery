@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -267,66 +266,4 @@ func declaredResourceFileEntries(root string, sources []*Source) (map[string][]b
 		}
 	}
 	return entries, nil
-}
-
-func managedGeneratedEntries(root, declaredRoot string) (map[string][]byte, error) {
-	entries := map[string][]byte{}
-	if declaredRoot == "" || filepath.IsAbs(declaredRoot) || strings.HasPrefix(filepath.Clean(declaredRoot), "..") {
-		return nil, fmt.Errorf("managed generated root must be workspace-relative")
-	}
-	absRoot := filepath.Join(root, filepath.FromSlash(declaredRoot))
-	if !pathExists(absRoot) {
-		return entries, nil
-	}
-	if err := rejectPathSymlinks(root, absRoot); err != nil {
-		return nil, fmt.Errorf("managed generated root %s: %w", declaredRoot, err)
-	}
-	err := filepath.WalkDir(absRoot, func(path string, entry os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if entry.IsDir() {
-			return nil
-		}
-		if entry.Type()&os.ModeSymlink != 0 {
-			return fmt.Errorf("managed generated artifact is a symlink: %s", path)
-		}
-		if !strings.HasSuffix(entry.Name(), ".json") || !strings.HasPrefix(entry.Name(), "scenery.") || !strings.Contains(entry.Name(), "generated") {
-			return nil
-		}
-		descriptorBytes, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		var descriptor struct {
-			Files []string `json:"files"`
-		}
-		if err := json.Unmarshal(descriptorBytes, &descriptor); err != nil {
-			return fmt.Errorf("read generated descriptor %s: %w", path, err)
-		}
-		descriptorRel, _ := filepath.Rel(root, path)
-		entries[filepath.ToSlash(descriptorRel)] = descriptorBytes
-		descriptorRoot := filepath.Dir(path)
-		for _, relative := range descriptor.Files {
-			artifact := filepath.Clean(filepath.Join(descriptorRoot, filepath.FromSlash(relative)))
-			if !pathWithin(descriptorRoot, artifact) {
-				return fmt.Errorf("generated descriptor file escapes root: %s", relative)
-			}
-			info, err := os.Lstat(artifact)
-			if err != nil {
-				return err
-			}
-			if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-				return fmt.Errorf("generated descriptor file is not regular: %s", artifact)
-			}
-			data, err := os.ReadFile(artifact)
-			if err != nil {
-				return err
-			}
-			artifactRel, _ := filepath.Rel(root, artifact)
-			entries[filepath.ToSlash(artifactRel)] = data
-		}
-		return nil
-	})
-	return entries, err
 }

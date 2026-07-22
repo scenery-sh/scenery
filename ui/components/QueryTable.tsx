@@ -1,5 +1,6 @@
 import type { ISODateTimeString } from "@astryxdesign/core/DateTimeInput";
 import { DateTimeInput } from "@astryxdesign/core/DateTimeInput";
+import { Button } from "@astryxdesign/core/Button";
 import { DropdownMenu } from "@astryxdesign/core/DropdownMenu";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { Icon } from "@astryxdesign/core/Icon";
@@ -131,6 +132,11 @@ export interface TablePageDateTimeRange {
 	readonly to?: string;
 }
 
+export interface TablePageDateTimePreset {
+	readonly label: string;
+	readonly range: "today" | "last_7_days" | "month_to_date";
+}
+
 export interface TablePageEmptyProps<
 	Row extends object = object,
 	Metadata extends object = Record<string, never>,
@@ -210,6 +216,7 @@ export type TablePageFilter<
 			>;
 			readonly pinned?: boolean;
 			readonly hidden?: boolean;
+			readonly presets?: readonly TablePageDateTimePreset[];
 	  };
 
 export interface TablePageSort {
@@ -1159,6 +1166,19 @@ function DateTimeFilter<
 	}
 	return (
 		<div {...stylex.props(styles.dateRange)}>
+			{filter.presets?.length ? (
+				<div {...stylex.props(styles.datePresets)}>
+					{filter.presets.map((preset) => (
+						<Button
+							key={preset.range}
+							label={preset.label}
+							onClick={() => onChange(dateTimePreset(preset.range))}
+							size="sm"
+							variant="secondary"
+						/>
+					))}
+				</div>
+			) : null}
 			<DateTimeInput
 				hasClear
 				label={`${filter.label} from`}
@@ -1183,6 +1203,19 @@ function DateTimeFilter<
 	);
 }
 
+function dateTimePreset(
+	range: TablePageDateTimePreset["range"],
+): TablePageDateTimeRange {
+	const now = new Date();
+	const start = new Date(now);
+	start.setHours(0, 0, 0, 0);
+	if (range === "last_7_days") start.setDate(start.getDate() - 6);
+	if (range === "month_to_date") start.setDate(1);
+	const end = new Date(now);
+	end.setHours(23, 59, 59, 999);
+	return { from: start.toISOString(), to: end.toISOString() };
+}
+
 function renderCell<Row extends object>(
 	column: TablePageColumn<Row>,
 	row: Row,
@@ -1193,7 +1226,13 @@ function renderCell<Row extends object>(
 		return <Component row={row} value={value} />;
 	}
 	if (column.appearance === "datetime" && typeof value === "string") {
-		return <time dateTime={value}>{new Date(value).toLocaleString()}</time>;
+		if (value === "") return "—";
+		const date = new Date(value);
+		return Number.isNaN(date.getTime()) ? (
+			value
+		) : (
+			<time dateTime={value}>{date.toLocaleString()}</time>
+		);
 	}
 	if (column.appearance === "badge") {
 		return column.statusMap && typeof value === "string" ? (
@@ -1408,6 +1447,13 @@ const styles = stylex.create({
 		alignItems: "flex-end",
 		flexWrap: "wrap",
 		gap: spacingVars["--spacing-2"],
+	},
+	datePresets: {
+		display: "flex",
+		alignItems: "center",
+		flexWrap: "wrap",
+		gap: spacingVars["--spacing-1"],
+		width: "100%",
 	},
 	pagination: {
 		display: "flex",

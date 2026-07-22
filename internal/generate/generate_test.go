@@ -1013,6 +1013,7 @@ record "scene_row" {
   field "id" { type = uuid }
   field "tenant_id" { type = string }
   field "name" { type = enum.scene_name }
+  field "kind" { type = string }
   field "created_at" { type = datetime }
 }
 
@@ -1040,6 +1041,7 @@ entity "scene" {
     immutable = true
   }
   field "name" { column = "name" }
+  field "kind" { column = "kind" }
   field "created_at" { column = "created_at" }
 }
 
@@ -1052,7 +1054,7 @@ crud "scene_api" {
     timeout = "15s"
   }
   list {
-    filters       = ["name", "created_at"]
+    filters       = ["name", "created_at", "kind"]
     search        = ["tenant_id"]
     sorts         = ["name"]
     default_sort  = { field = "name", direction = "asc" }
@@ -1213,6 +1215,8 @@ content_page "scene_summary" {
 
 record "scene_metrics" {
   field "total" { type = int32 }
+  field "matching" { type = int32 }
+  field "filtered" { type = int32 }
 }
 
 operation "scene_metrics" {
@@ -1328,9 +1332,17 @@ table_page "scenes" {
     pinned = true
   }
   filter "created_at" {
-    label     = "Created"
-    component = react_component.scene_date_filter
+    label = "Created"
+    preset "today" {
+      label = "Today"
+      range = "today"
+    }
+    preset "month" {
+      label = "Month to date"
+      range = "month_to_date"
+    }
   }
+  predicate "kind" { value = "default" }
   sort "name" {
     label   = "Sort \"quoted\" \\ path"
     default = "asc"
@@ -1349,7 +1361,26 @@ table_page "scenes" {
   }
   stats {
     source = binding.scene_metrics_http
-    tile "total" { label = "Total" }
+    tile "total" {
+      label          = "Total"
+      appearance     = "money"
+      sub            = "matching"
+      sub_appearance = "count"
+      sub_label      = "scenes"
+		icon           = "calendar"
+      filter         = "name"
+      value          = "wall"
+    }
+    tile "matching" {
+      label  = "All"
+      filter = "name"
+      clear  = true
+    }
+    tile "filtered" {
+      label  = "Premium"
+      filter = "kind"
+      value  = "premium"
+    }
   }
   action "create" {
     label   = "Create scene"
@@ -1398,7 +1429,7 @@ func (service *Service) SceneSummary(_ context.Context, _ housecontract.SceneSum
 }
 
 func (service *Service) SceneMetrics(_ context.Context, _ housecontract.SceneMetricsInput) (housecontract.SceneMetricsOutcome, error) {
-	return housecontract.SceneMetricsSuccess{Value: housecontract.SceneMetrics{Total: 1}}, nil
+	return housecontract.SceneMetricsSuccess{Value: housecontract.SceneMetrics{Total: 1, Matching: 1, Filtered: 1}}, nil
 }
 
 func (service *Service) SceneQuickCreate(_ context.Context, _ housecontract.SceneQuickCreateInput) (housecontract.SceneQuickCreateOutcome, error) {
@@ -1510,7 +1541,6 @@ func (service *Service) SceneQuickCreate(_ context.Context, _ housecontract.Scen
 	}
 	for _, fragment := range []string{
 		"defineTablePageSlots<SceneRow",
-		`readonly "createdAt": TablePageDateTimeRange`,
 		"actions={<>",
 		"<ScenesToolbarSlot context={tableContext} />",
 		"client?: PublicApiClient",
@@ -1522,7 +1552,12 @@ func (service *Service) SceneQuickCreate(_ context.Context, _ housecontract.Scen
 		"onError: (error) =>",
 		"const openSceneQuickCreate = (row?: SceneRow)",
 		`name: row?.name ?? "roof \"quoted\" \\ path"`,
-		"<StatTile label={\"Total\"} value={statsState.value.total}",
+		"<StatTile label={\"Total\"} value={formatStatValue(statsState.value.total, \"money\")} sub={formatStatValue(statsState.value.matching, \"count\") + \" scenes\"} icon={<Icon icon=\"calendar\" size=\"sm\" />} active={Array.isArray(tableContext?.query.filters[\"name\"])",
+		`onClick={() => tableContext?.controls.setFilter("name"`,
+		`active={!Array.isArray(tableContext?.query.filters["name"])} onClick={() => tableContext?.controls.clearFilter("name")}`,
+		`kind: Array.isArray(query.filters["kind"]) ? query.filters["kind"] : ["default"]`,
+		`{ field: "kind", label: "Kind", kind: "enum", options: [{ value: "premium", label: "Premium" },], hidden: true }`,
+		`presets: [{ label: "Today", range: "today" },{ label: "Month to date", range: "month_to_date" },]`,
 		"<FormDialog title={\"Create scene\"}",
 		"queryClient.invalidateQueries({ queryKey: scopedQueryKey })",
 		"value is SceneName",

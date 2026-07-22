@@ -122,6 +122,14 @@ var authoredFieldOverrides = map[authoredFieldKey]authoredFieldOverride{
 	{Revision: "scenery.table-page.sort", Name: "default"}:                            {Constraints: enumConstraint("asc", "desc")},
 	{Revision: "scenery.table-page.group", Name: "default"}:                           {Default: false, DefaultSource: "spec"},
 	{Revision: "scenery.table-page.filter", Name: "hidden"}:                           {Default: false, DefaultSource: "spec"},
+	{Revision: "scenery.table-page.filter.preset", Name: "range"}:                     {Constraints: enumConstraint("today", "last_7_days", "month_to_date")},
+	{Revision: "scenery.table-page.stats.tile", Name: "appearance"}:                   {Default: "plain", DefaultSource: "spec", Constraints: enumConstraint("plain", "money", "count", "percent")},
+	{Revision: "scenery.table-page.stats.tile", Name: "sub_appearance"}:               {Default: "plain", DefaultSource: "spec", Constraints: enumConstraint("plain", "money", "count", "percent")},
+	{Revision: "scenery.table-page.stats.tile", Name: "icon"}:                         {Constraints: semanticIconConstraint()},
+	{Revision: "scenery.table-page.stats.tile", Name: "clear"}:                        {Default: false, DefaultSource: "spec"},
+	{Revision: "scenery.workspace-page.stats.tile", Name: "appearance"}:               {Default: "plain", DefaultSource: "spec", Constraints: enumConstraint("plain", "money", "count", "percent")},
+	{Revision: "scenery.workspace-page.stats.tile", Name: "sub_appearance"}:           {Default: "plain", DefaultSource: "spec", Constraints: enumConstraint("plain", "money", "count", "percent")},
+	{Revision: "scenery.workspace-page.stats.tile", Name: "icon"}:                     {Constraints: semanticIconConstraint()},
 	{Revision: "scenery.table-page.toolbar", Name: "placement"}:                       {Default: "header", DefaultSource: "spec", Constraints: enumConstraint("header", "content")},
 	{Revision: "scenery.table-page.row-detail", Name: "presentation"}:                 {Default: "inline", DefaultSource: "spec", Constraints: enumConstraint("inline", "panel")},
 	{Revision: "scenery.table-page.row-detail", Name: "panel_width"}:                  {Constraints: map[string]any{"minimum": 280, "maximum": 560}},
@@ -1017,6 +1025,8 @@ func authoredAttributeType(revision, name string) (map[string]any, string) {
 		default:
 			return primitive("string")
 		}
+	case "scenery.table-page.filter.preset":
+		return primitive("string")
 	case "scenery.table-page.pagination":
 		return primitive("string")
 	case "scenery.table-page.query":
@@ -1062,6 +1072,12 @@ func authoredAttributeType(revision, name string) (map[string]any, string) {
 		}
 		return primitive("string")
 	case "scenery.table-page.stats.tile":
+		if name == "clear" {
+			return primitive("bool")
+		}
+		if name == "value" {
+			return map[string]any{"$ref": "scenery.value"}, "exact"
+		}
 		return primitive("string")
 	case "scenery.table-page.action":
 		switch name {

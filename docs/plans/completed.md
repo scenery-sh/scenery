@@ -6,6 +6,21 @@ Completed means implemented or shipped at least once. It does not imply stable
 support for every surface. Use [../local-contract.md](../local-contract.md) as
 the source of truth for stable, beta, and dev-only classification.
 
+## Summary Metrics and Filter Presets
+
+- Status: completed
+- Owner: scenery spec / compiler / generate / ui + Micro funding pilot
+- Completed: 2026-07-22
+- Quality: B
+- ExecPlan: [0139 Summary Metrics and Chart Blocks](0139-summary-metrics-and-charts.md)
+
+Added formatted primary/sub stats tiles, typed tile-to-filter/predicate
+set/toggle/clear actions, and local-calendar date/datetime presets to generated
+pages without a second request path. The Micro Funding route is generated and
+parity-accepted; its 1,818-line handwritten page was deleted after live browser
+proof. The evidence survey found no real chart, so no chart dependency or
+hierarchy abstraction was added.
+
 ## Entity Detail Page Template
 
 - Status: completed
@@ -18,7 +33,9 @@ Shipped the singular one-record `detail_page` macro with typed dynamic route
 params, field sections, related tables, simple form actions, a typed app-owned
 action slot, and shared routed-page/controlled-dialog output. Micro's live
 workmanship-claim pilot preserves the complete lifecycle and passed static,
-runtime, and authenticated browser acceptance.
+runtime, and authenticated browser acceptance. A post-completion correction
+also requires every detail load binding to map a declared business error to
+HTTP 404 so missing entities remain typed client outcomes.
 
 ## Role-Named Contract Files
 

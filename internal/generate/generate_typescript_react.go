@@ -534,6 +534,19 @@ func renderReactTablePage(result *Result, target Resource, reactRoot string, pag
 		fmt.Fprintf(&b, "import { %s } from \"@tanstack/react-query\";\n", strings.Join(tanstackImports, ", "))
 	}
 	hasToolbar := len(orderedChildren(page.table.Spec, "toolbar")) > 0
+	hasStatsFilter := false
+	statsPredicateFilters := map[string][]map[string]any{}
+	if page.stats != nil {
+		for _, tile := range orderedChildren(page.stats.spec.Spec, "tile") {
+			if filter := stringValue(tile["filter"]); filter != "" {
+				hasStatsFilter = true
+				if namedResourceChild(page.table.Spec, "predicate", filter) != nil {
+					statsPredicateFilters[filter] = append(statsPredicateFilters[filter], tile)
+				}
+			}
+		}
+	}
+	hasTableContext := hasToolbar || hasStatsFilter
 	toolbarPlacement := "header"
 	if hasToolbar {
 		toolbarPlacement = defaultString(stringValue(orderedChildren(page.table.Spec, "toolbar")[0]["placement"]), "header")
@@ -552,7 +565,7 @@ func renderReactTablePage(result *Result, target Resource, reactRoot string, pag
 	if hasToolbar || hasAdaptedFilter {
 		reactImports = append([]string{"type ComponentType"}, reactImports...)
 	}
-	if len(page.dialogs) > 0 || hasToolbar {
+	if len(page.dialogs) > 0 || hasTableContext {
 		reactImports = append(reactImports, "useState")
 	}
 	fmt.Fprintf(&b, "import { %s } from \"react\";\n", strings.Join(reactImports, ", "))
@@ -594,7 +607,7 @@ func renderReactTablePage(result *Result, target Resource, reactRoot string, pag
 			}
 		}
 	}
-	if reactTableUsesIcons(page.table) {
+	if reactTableUsesIcons(page.table) || reactTableStatsUsesIcons(page.stats) {
 		uiImports = append(uiImports, "Icon")
 	}
 	if len(componentAddresses) > 0 {
@@ -602,8 +615,11 @@ func renderReactTablePage(result *Result, target Resource, reactRoot string, pag
 	}
 	fmt.Fprintf(&b, "import { %s } from \"./scenery-ui/index.js\";\n", strings.Join(uiImports, ", "))
 	uiTypeImports := []string{"TablePageQuery", "TablePageResult"}
+	if hasTableContext {
+		uiTypeImports = append(uiTypeImports, "TablePageResultContext")
+	}
 	if hasToolbar {
-		uiTypeImports = append(uiTypeImports, "TablePageResultContext", "TablePageToolbarProps")
+		uiTypeImports = append(uiTypeImports, "TablePageToolbarProps")
 	}
 	for _, column := range orderedChildren(page.table.Spec, "column") {
 		if column["component"] != nil {
@@ -613,7 +629,7 @@ func renderReactTablePage(result *Result, target Resource, reactRoot string, pag
 	}
 	for _, filter := range orderedChildren(page.table.Spec, "filter") {
 		field := fields[stringValue(filter["name"])]
-		if filter["component"] != nil && field != nil && (len(enumWireValues(resources, page.record.Module, field["type"])) > 0 || unwrapReactType(typeExpression(field["type"])) == "string") {
+		if filter["component"] != nil && field != nil && len(enumWireValues(resources, page.record.Module, field["type"])) > 0 {
 			uiTypeImports = append([]string{"TablePageFilterProps"}, uiTypeImports...)
 			break
 		}
@@ -788,13 +804,18 @@ func renderReactTablePage(result *Result, target Resource, reactRoot string, pag
 	}
 	if page.stats != nil {
 		fmt.Fprintf(&b, "const statsQueryKey = [\"scenery\", \"table_page\", %s, \"stats\"] as const;\n\n", strconv.Quote(page.table.Address))
+		b.WriteString("function formatStatValue(value: unknown, appearance: \"plain\" | \"money\" | \"count\" | \"percent\"): string {\n")
+		b.WriteString("  if (appearance === \"money\") return new Intl.NumberFormat(\"en-US\", { style: \"currency\", currency: \"USD\", maximumFractionDigits: 0 }).format(Number(value) || 0);\n")
+		b.WriteString("  if (appearance === \"count\") return new Intl.NumberFormat(\"en-US\", { maximumFractionDigits: 0 }).format(Number(value) || 0);\n")
+		b.WriteString("  if (appearance === \"percent\") return `${new Intl.NumberFormat(\"en-US\", { maximumFractionDigits: 2 }).format(Number(value) || 0)}%`;\n")
+		b.WriteString("  return String(value ?? \"\");\n}\n\n")
 	}
 	method := reactClientMethod(page, bindings)
 	fmt.Fprintf(&b, "export function %sPage({ client: providedClient, injectedInput, queryKeySuffix }: { readonly client?: %sClient; readonly injectedInput?: Partial<%s>; readonly queryKeySuffix?: readonly unknown[] } = {}) {\n", goName(page.table.Name), goName(target.Name), inputType)
 	fmt.Fprintf(&b, "  const defaultClient = useMemo(() => new %sClient({ baseUrl: url(new URL(\"/api/\", globalThis.location.origin).toString()), authentication: { credentials: \"include\" } }), []);\n", goName(target.Name))
 	b.WriteString("  const client = providedClient ?? defaultClient;\n")
 	b.WriteString("  const scopedQueryKey = useMemo(() => [...queryKey, ...(queryKeySuffix ?? [])] as const, [queryKeySuffix]);\n")
-	if hasToolbar {
+	if hasTableContext {
 		fmt.Fprintf(&b, "  const [tableContext, setTableContext] = useState<TablePageResultContext<%s%s>>();\n", rowType, metadataTypeArgument)
 		fmt.Fprintf(&b, "  const onResultContextChange = useCallback((context: TablePageResultContext<%s%s>) => setTableContext(context), []);\n", rowType, metadataTypeArgument)
 	}
@@ -823,7 +844,7 @@ func renderReactTablePage(result *Result, target Resource, reactRoot string, pag
 		}
 	}
 	queryParameter := "query"
-	if !reactTableSearchable(page, shape, searchInput) && len(orderedChildren(page.table.Spec, "filter")) == 0 && len(sorts) == 0 && page.pagination == "" {
+	if !reactTableSearchable(page, shape, searchInput) && len(orderedChildren(page.table.Spec, "filter")) == 0 && len(statsPredicateFilters) == 0 && len(sorts) == 0 && page.pagination == "" {
 		queryParameter = "_query"
 	}
 	writeReactLoadWithDependencies(&b, queryParameter+": TablePageQuery, signal?: AbortSignal", "TablePageResult<"+rowType+metadataTypeArgument+">", func(b *strings.Builder) {
@@ -866,11 +887,22 @@ func renderReactTablePage(result *Result, target Resource, reactRoot string, pag
 		}
 		for _, predicate := range orderedChildren(page.table.Spec, "predicate") {
 			name := stringValue(predicate["name"])
+			tiles := statsPredicateFilters[name]
 			if page.pagination == "cursor" {
 				rowField := namedResourceChild(page.record.Spec, "field", name)
-				fmt.Fprintf(b, "      %s: [%s],\n", tsName(name), reactTableLiteral(predicate["value"], rowField["type"]))
+				literal := reactTableLiteral(predicate["value"], rowField["type"])
+				if len(tiles) > 0 {
+					fmt.Fprintf(b, "      %s: Array.isArray(query.filters[%s]) ? query.filters[%s] : [%s],\n", tsName(name), strconv.Quote(name), strconv.Quote(name), literal)
+				} else {
+					fmt.Fprintf(b, "      %s: [%s],\n", tsName(name), literal)
+				}
 			} else {
-				fmt.Fprintf(b, "      %s: %s,\n", tsName(name), reactTableLiteral(predicate["value"], shape.Fields[name].Type))
+				literal := reactTableLiteral(predicate["value"], shape.Fields[name].Type)
+				if len(tiles) > 0 {
+					fmt.Fprintf(b, "      %s: Array.isArray(query.filters[%s]) ? query.filters[%s][0] : %s,\n", tsName(name), strconv.Quote(name), strconv.Quote(name), literal)
+				} else {
+					fmt.Fprintf(b, "      %s: %s,\n", tsName(name), literal)
+				}
 			}
 		}
 		b.WriteString("      ...injectedInput,\n")
@@ -901,7 +933,34 @@ func renderReactTablePage(result *Result, target Resource, reactRoot string, pag
 		fmt.Fprintf(&b, "%d", len(orderedChildren(page.stats.spec.Spec, "tile")))
 		b.WriteString("}>\n")
 		for _, tile := range orderedChildren(page.stats.spec.Spec, "tile") {
-			fmt.Fprintf(&b, "      <StatTile label=%s value={statsState.value.%s} />\n", jsxStringExpression(stringValue(tile["label"])), tsName(stringValue(tile["name"])))
+			appearance := defaultString(stringValue(tile["appearance"]), "plain")
+			fmt.Fprintf(&b, "      <StatTile label=%s value={formatStatValue(statsState.value.%s, %s)}", jsxStringExpression(stringValue(tile["label"])), tsName(stringValue(tile["name"])), strconv.Quote(appearance))
+			if sub := stringValue(tile["sub"]); sub != "" {
+				subAppearance := defaultString(stringValue(tile["sub_appearance"]), "plain")
+				suffix := ""
+				if label := strings.TrimSpace(stringValue(tile["sub_label"])); label != "" {
+					suffix = " + " + strconv.Quote(" "+label)
+				}
+				fmt.Fprintf(&b, " sub={formatStatValue(statsState.value.%s, %s)%s}", tsName(sub), strconv.Quote(subAppearance), suffix)
+			}
+			if icon := stringValue(tile["icon"]); icon != "" {
+				fmt.Fprintf(&b, " icon={<Icon icon=%s size=\"sm\" />}", strconv.Quote(icon))
+			}
+			if filter := stringValue(tile["filter"]); filter != "" {
+				if tile["clear"] == true {
+					fmt.Fprintf(&b, " active={!Array.isArray(tableContext?.query.filters[%s])}", strconv.Quote(filter))
+					fmt.Fprintf(&b, " onClick={() => tableContext?.controls.clearFilter(%s)}", strconv.Quote(filter))
+				} else {
+					fieldType := fields[filter]["type"]
+					if fieldType == nil {
+						fieldType = shape.Fields[filter].Type
+					}
+					value := reactTableLiteral(tile["value"], fieldType)
+					fmt.Fprintf(&b, " active={Array.isArray(tableContext?.query.filters[%s]) && tableContext.query.filters[%s]?.includes(%s)}", strconv.Quote(filter), strconv.Quote(filter), value)
+					fmt.Fprintf(&b, " onClick={() => tableContext?.controls.setFilter(%s, Array.isArray(tableContext.query.filters[%s]) && tableContext.query.filters[%s]?.includes(%s) ? undefined : %s)}", strconv.Quote(filter), strconv.Quote(filter), strconv.Quote(filter), value, value)
+				}
+			}
+			b.WriteString(" />\n")
 		}
 		b.WriteString("    </StatGrid> : null}\n  </QueryState>\n")
 	}
@@ -970,10 +1029,39 @@ func renderReactTablePage(result *Result, target Resource, reactRoot string, pag
 		if filter["pinned"] == true {
 			b.WriteString(", pinned: true")
 		}
+		if presets := orderedChildren(filter, "preset"); len(presets) > 0 {
+			b.WriteString(", presets: [")
+			for _, preset := range presets {
+				fmt.Fprintf(&b, "{ label: %s, range: %s },", strconv.Quote(stringValue(preset["label"])), strconv.Quote(stringValue(preset["range"])))
+			}
+			b.WriteString("]")
+		}
 		if filter["hidden"] == true {
 			b.WriteString(", hidden: true")
 		}
 		b.WriteString(" },\n")
+	}
+	for _, predicate := range orderedChildren(page.table.Spec, "predicate") {
+		field := stringValue(predicate["name"])
+		valueTiles := make([]map[string]any, 0, len(statsPredicateFilters[field]))
+		for _, tile := range statsPredicateFilters[field] {
+			if tile["clear"] != true {
+				valueTiles = append(valueTiles, tile)
+			}
+		}
+		if len(valueTiles) == 0 {
+			continue
+		}
+		fieldType := shape.Fields[field].Type
+		if page.pagination == "cursor" {
+			fieldType = namedResourceChild(page.record.Spec, "field", field)["type"]
+		}
+		fmt.Fprintf(&b, "    { field: %s, label: %s, kind: \"enum\", options: [", strconv.Quote(field), strconv.Quote(humanLabel(field)))
+		for _, tile := range valueTiles {
+			value := reactTableLiteral(tile["value"], fieldType)
+			fmt.Fprintf(&b, "{ value: %s, label: %s },", value, strconv.Quote(stringValue(tile["label"])))
+		}
+		b.WriteString("], hidden: true },\n")
 	}
 	b.WriteString("  ]}")
 	if groups := orderedChildren(page.table.Spec, "group"); len(groups) > 0 {
@@ -1016,7 +1104,7 @@ func renderReactTablePage(result *Result, target Resource, reactRoot string, pag
 	if len(orderedChildren(page.table.Spec, "footer")) > 0 {
 		b.WriteString(" footer={slots.footer}")
 	}
-	if hasToolbar {
+	if hasTableContext {
 		b.WriteString(" onResultContextChange={onResultContextChange}")
 	}
 	if len(orderedChildren(page.table.Spec, "row_detail")) > 0 {
@@ -1302,6 +1390,18 @@ func reactTableUsesIcons(table Resource) bool {
 	}
 	for _, export := range orderedChildren(table.Spec, "export") {
 		if stringValue(export["icon"]) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func reactTableStatsUsesIcons(stats *reactTableStats) bool {
+	if stats == nil {
+		return false
+	}
+	for _, tile := range orderedChildren(stats.spec.Spec, "tile") {
+		if stringValue(tile["icon"]) != "" {
 			return true
 		}
 	}

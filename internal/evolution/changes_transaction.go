@@ -357,17 +357,6 @@ func recoverInterruptedChangeTransaction(root string, force bool) error {
 	return workspacetx.RecoverOrReject(root, workspacetx.NormalRead)
 }
 
-func recoverInterruptedChangeTransactionWithAccess(root string, force, allowCurrentOwner bool) error {
-	if force {
-		return workspacetx.ForceRecover(root)
-	}
-	mode := workspacetx.NormalRead
-	if allowCurrentOwner {
-		mode = workspacetx.CurrentOwnerRead
-	}
-	return workspacetx.RecoverOrReject(root, mode)
-}
-
 func writeSyncedFile(path string, data []byte, mode os.FileMode) error {
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
 	if err != nil {

@@ -48,6 +48,10 @@ func renderReactWorkspacePage(result *Result, target Resource, reactRoot string,
 	if len(statsChildren) > 0 {
 		statsTiles = orderedChildren(statsChildren[0], "tile")
 	}
+	statsIcons := false
+	for _, tile := range statsTiles {
+		statsIcons = statsIcons || stringValue(tile["icon"]) != ""
+	}
 	if len(statsChildren) > 0 && page.statsBinding.Address == "" {
 		return "", fmt.Errorf("workspace_page %s stats binding is not included by TypeScript client %s", page.workspace.Address, target.Address)
 	}
@@ -71,6 +75,9 @@ func renderReactWorkspacePage(result *Result, target Resource, reactRoot string,
 		b.WriteString(", QueryState, queryStateProps, requestStateFromQuery")
 		if len(statsTiles) > 0 {
 			b.WriteString(", StatGrid, StatTile")
+			if statsIcons {
+				b.WriteString(", Icon")
+			}
 		}
 	}
 	b.WriteString(" } from \"./scenery-ui/index.js\";\n")
@@ -97,6 +104,13 @@ func renderReactWorkspacePage(result *Result, target Resource, reactRoot string,
 	b.WriteString("\n")
 	if len(statsChildren) > 0 {
 		fmt.Fprintf(&b, "const statsQueryKey = [\"scenery\", \"workspace_page\", %s, \"stats\"] as const;\n\n", strconv.Quote(page.workspace.Address))
+		if len(statsTiles) > 0 {
+			b.WriteString("function formatStatValue(value: unknown, appearance: \"plain\" | \"money\" | \"count\" | \"percent\"): string {\n")
+			b.WriteString("  if (appearance === \"money\") return new Intl.NumberFormat(\"en-US\", { style: \"currency\", currency: \"USD\", maximumFractionDigits: 0 }).format(Number(value) || 0);\n")
+			b.WriteString("  if (appearance === \"count\") return new Intl.NumberFormat(\"en-US\", { maximumFractionDigits: 0 }).format(Number(value) || 0);\n")
+			b.WriteString("  if (appearance === \"percent\") return `${new Intl.NumberFormat(\"en-US\", { maximumFractionDigits: 2 }).format(Number(value) || 0)}%`;\n")
+			b.WriteString("  return String(value ?? \"\");\n}\n\n")
+		}
 	}
 	writeReactPageOpen(&b, goName(page.workspace.Name), goName(target.Name))
 	var pageTabs []map[string]any
@@ -137,7 +151,20 @@ func renderReactWorkspacePage(result *Result, target Resource, reactRoot string,
 			fmt.Fprintf(&b, "%d", len(statsTiles))
 			b.WriteString("}>")
 			for _, tile := range statsTiles {
-				fmt.Fprintf(&b, "<StatTile label=%s value={statsState.value.%s} />", jsxStringExpression(stringValue(tile["label"])), tsName(stringValue(tile["name"])))
+				appearance := defaultString(stringValue(tile["appearance"]), "plain")
+				fmt.Fprintf(&b, "<StatTile label=%s value={formatStatValue(statsState.value.%s, %s)}", jsxStringExpression(stringValue(tile["label"])), tsName(stringValue(tile["name"])), strconv.Quote(appearance))
+				if sub := stringValue(tile["sub"]); sub != "" {
+					subAppearance := defaultString(stringValue(tile["sub_appearance"]), "plain")
+					suffix := ""
+					if label := strings.TrimSpace(stringValue(tile["sub_label"])); label != "" {
+						suffix = " + " + strconv.Quote(" "+label)
+					}
+					fmt.Fprintf(&b, " sub={formatStatValue(statsState.value.%s, %s)%s}", tsName(sub), strconv.Quote(subAppearance), suffix)
+				}
+				if icon := stringValue(tile["icon"]); icon != "" {
+					fmt.Fprintf(&b, " icon={<Icon icon=%s size=\"sm\" />}", strconv.Quote(icon))
+				}
+				b.WriteString(" />")
 			}
 			b.WriteString("</StatGrid> : null}")
 		} else {

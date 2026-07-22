@@ -113,10 +113,6 @@ func defaultRunLifecycleExec(ctx context.Context, req lifecycleExecRequest) erro
 	return cmd.Run()
 }
 
-func runLifecycleExec(ctx context.Context, req lifecycleExecRequest) error {
-	return defaultRunLifecycleExec(ctx, req)
-}
-
 func defaultOutputLifecycleExec(ctx context.Context, req lifecycleExecRequest) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, req.Program, req.Args...)
 	cmd.Dir = req.Dir

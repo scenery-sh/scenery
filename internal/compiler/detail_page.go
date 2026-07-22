@@ -113,6 +113,9 @@ func resolveDetailPageContract(resources map[string]Resource, detail Resource) (
 	if record.Kind != "scenery.record" {
 		return detailPageContract{operation: operation}, append(diagnostics, uiDiagnostic("SCN2629", "detail_page source result must directly reference a record", detail))
 	}
+	if !detailPageHasNotFoundCompletion(source, operation) {
+		diagnostics = append(diagnostics, uiDiagnostic("SCN2629", "detail_page source operation must declare an error mapped by its HTTP binding to status 404", detail))
+	}
 
 	routeParams := detailPagePathParams(path)
 	if len(routeParams) == 0 {
@@ -153,6 +156,22 @@ func resolveDetailPageContract(resources map[string]Resource, detail Resource) (
 		}
 	}
 	return detailPageContract{operation: operation, record: record, params: params}, diagnostics
+}
+
+func detailPageHasNotFoundCompletion(binding, operation Resource) bool {
+	errors := map[string]bool{}
+	for _, declared := range namedChildren(operation.Spec, "error") {
+		errors[stringValue(declared["name"])] = true
+	}
+	httpSpec, _ := binding.Spec["http"].(map[string]any)
+	for _, response := range namedChildren(httpSpec, "response") {
+		when := refOrString(response["when"])
+		name, ok := strings.CutPrefix(when, "error.")
+		if ok && errors[name] && stringValue(response["status"]) == "404" {
+			return true
+		}
+	}
+	return false
 }
 
 func validateDetailPageSections(resources map[string]Resource, detail, record Resource, fields map[string]map[string]any) []Diagnostic {

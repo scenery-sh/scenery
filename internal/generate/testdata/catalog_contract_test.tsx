@@ -5,6 +5,7 @@ import type {
 	SplitPageSlotProps,
 	TablePageCellProps,
 	TablePageDateTimeRange,
+	TablePageDateTimePreset,
 	TablePageFilterProps,
 	TablePageFooterProps,
 	TablePageRowActionProps,
@@ -42,6 +43,11 @@ interface ResultMetadata {
 const requestState: RequestState<{ readonly data: Row }> = {
 	kind: "loading",
 };
+const datePreset: TablePageDateTimePreset = {
+	label: "Month to date",
+	range: "month_to_date",
+};
+void datePreset;
 const requestStateView = queryStateProps(requestState, "row");
 const facadeStyles = stylex.create({
 	surface: {

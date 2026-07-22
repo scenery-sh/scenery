@@ -366,6 +366,8 @@ const styles = stylex.create({
     minWidth: 0,
   },
   panel: {
+    display: "flex",
+    flexDirection: "column",
     height: "100%",
     minHeight: 0,
   },

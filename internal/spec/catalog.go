@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"sort"
 	"sync"
 )
 
@@ -131,13 +130,4 @@ func revision(domain string, value any) Revision {
 	}
 	digest := sha256.Sum256(append([]byte(domain+"\x00"), encoded...))
 	return Revision("sha256:" + hex.EncodeToString(digest[:]))
-}
-
-func Kinds() []Kind {
-	kinds := make([]Kind, 0, len(resourceSchemas))
-	for kind := range resourceSchemas {
-		kinds = append(kinds, Kind(kind))
-	}
-	sort.Slice(kinds, func(i, j int) bool { return kinds[i] < kinds[j] })
-	return kinds
 }

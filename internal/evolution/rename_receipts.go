@@ -27,10 +27,6 @@ func validRenameReceipt(receipt RenameReceipt, baseRevision, targetRevision stri
 		receipt.Digest != "" && receipt.Digest == renameReceiptDigest(receipt)
 }
 
-func ValidRenameReceipts(base, target *Manifest, receipts []RenameReceipt) []RenameReceipt {
-	return ValidRenameReceiptsWithRebinds(base, target, receipts, nil)
-}
-
 func ValidRenameReceiptsWithRebinds(base, target *Manifest, receipts []RenameReceipt, rebinds []RevisionRebind) []RenameReceipt {
 	baseRevision, targetRevision := "", ""
 	if base != nil {

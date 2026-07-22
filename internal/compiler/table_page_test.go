@@ -290,7 +290,10 @@ func TestTablePageValidatesWorkbenchContracts(t *testing.T) {
 		}},
 		Resource{Address: "house/react_component/detail", Module: "house", Name: "detail", Kind: "scenery.react-component", Spec: map[string]any{"module": "detail.tsx", "export": "Detail"}},
 		Resource{Address: "house/record/metrics", Module: "house", Name: "metrics", Kind: "scenery.record", Spec: map[string]any{
-			"field": map[string]any{"name": "total", "type": map[string]any{"$expression": "int32"}},
+			"field": []any{
+				map[string]any{"name": "total", "type": map[string]any{"$expression": "int32"}},
+				map[string]any{"name": "matching", "type": map[string]any{"$expression": "int32"}},
+			},
 		}},
 		Resource{Address: "house/operation/metrics", Module: "house", Name: "metrics", Kind: "scenery.operation", Spec: map[string]any{
 			"input": map[string]any{"$ref": "std.type.unit"}, "result": map[string]any{"name": "success", "type": map[string]any{"$ref": "record.metrics"}},
@@ -318,7 +321,9 @@ func TestTablePageValidatesWorkbenchContracts(t *testing.T) {
 	table.Spec = cloneMapValue(table.Spec)
 	table.Spec["stats"] = map[string]any{
 		"source": map[string]any{"$ref": "binding.metrics_http"},
-		"tile":   map[string]any{"name": "total", "label": "Total"},
+		"tile": map[string]any{
+			"name": "total", "label": "Total", "appearance": "money", "sub": "matching", "sub_appearance": "count", "sub_label": "projects", "icon": "chartBar", "filter": "name", "value": "wall",
+		},
 	}
 	table.Spec["row_detail"] = map[string]any{"component": map[string]any{"$ref": "react_component.detail"}, "dialog": map[string]any{"$ref": "form_dialog.create"}}
 	table.Spec["action"] = map[string]any{"name": "create", "label": "Create", "dialog": map[string]any{"$ref": "form_dialog.create"}}
@@ -330,6 +335,17 @@ func TestTablePageValidatesWorkbenchContracts(t *testing.T) {
 	}
 	if diagnostics := validateTablePage(byAddress, table); hasErrors(diagnostics) {
 		t.Fatalf("workbench diagnostics = %#v", diagnostics)
+	}
+	clearTile := table
+	clearTile.Spec = cloneMapValue(table.Spec)
+	clearStats := cloneMapValue(clearTile.Spec["stats"])
+	clearStatsTile := cloneMapValue(clearStats["tile"])
+	clearStats["tile"] = clearStatsTile
+	clearTile.Spec["stats"] = clearStats
+	delete(clearStatsTile, "value")
+	clearStatsTile["clear"] = true
+	if diagnostics := validateTablePage(byAddress, clearTile); hasErrors(diagnostics) {
+		t.Fatalf("clear stats tile diagnostics = %#v", diagnostics)
 	}
 
 	customStringFilter := table
@@ -364,6 +380,61 @@ func TestTablePageValidatesWorkbenchContracts(t *testing.T) {
 	hiddenPinned.Spec["filter"].(map[string]any)["hidden"] = true
 	if diagnostics := validateTablePage(byAddress, hiddenPinned); !hasDiagnostic(diagnostics, "SCN2622") {
 		t.Fatalf("hidden pinned filter diagnostics = %#v", diagnostics)
+	}
+
+	for name, edit := range map[string]func(map[string]any){
+		"appearance":  func(tile map[string]any) { tile["appearance"] = "sparkle" },
+		"sub":         func(tile map[string]any) { tile["sub"] = "missing" },
+		"target":      func(tile map[string]any) { tile["filter"] = "missing" },
+		"value":       func(tile map[string]any) { tile["value"] = 42 },
+		"pair":        func(tile map[string]any) { delete(tile, "value") },
+		"clear value": func(tile map[string]any) { tile["clear"] = true },
+	} {
+		t.Run("stats "+name, func(t *testing.T) {
+			invalid := table
+			invalid.Spec = cloneMapValue(table.Spec)
+			stats := cloneMapValue(invalid.Spec["stats"])
+			tile := cloneMapValue(stats["tile"])
+			stats["tile"] = tile
+			invalid.Spec["stats"] = stats
+			edit(tile)
+			if diagnostics := validateTablePage(byAddress, invalid); !hasDiagnostic(diagnostics, "SCN2634") {
+				t.Fatalf("stats tile diagnostics = %#v", diagnostics)
+			}
+		})
+	}
+
+	for index := range resources {
+		if resources[index].Address == "house/crud/scene_api" {
+			resources[index].Spec["list"].(map[string]any)["filters"] = []any{"name", "created_at"}
+		}
+		if resources[index].Address == "house/record/scene_row" {
+			fields := resources[index].Spec["field"].([]any)
+			resources[index].Spec["field"] = append(fields, map[string]any{"name": "created_at", "type": map[string]any{"$expression": "datetime"}})
+		}
+	}
+	expanded, diagnostics = expandDataResources(resources)
+	if hasErrors(diagnostics) {
+		t.Fatal(diagnostics)
+	}
+	byAddress = resourcesByAddress(&Manifest{Resources: expanded})
+	presetTable := byAddress["house/table_page/scenes"]
+	presetTable.Spec = cloneMapValue(presetTable.Spec)
+	presetTable.Spec["filter"] = map[string]any{
+		"name": "created_at",
+		"preset": []any{
+			map[string]any{"name": "today", "label": "Today", "range": "today"},
+			map[string]any{"name": "week", "label": "Last 7 days", "range": "last_7_days"},
+		},
+	}
+	if diagnostics := validateTablePage(byAddress, presetTable); hasErrors(diagnostics) {
+		t.Fatalf("valid date presets diagnostics = %#v", diagnostics)
+	}
+	invalidPreset := presetTable
+	invalidPreset.Spec = cloneMapValue(presetTable.Spec)
+	invalidPreset.Spec["filter"].(map[string]any)["preset"].([]any)[1].(map[string]any)["name"] = "today"
+	if diagnostics := validateTablePage(byAddress, invalidPreset); !hasDiagnostic(diagnostics, "SCN2635") {
+		t.Fatalf("duplicate preset diagnostics = %#v", diagnostics)
 	}
 }
 

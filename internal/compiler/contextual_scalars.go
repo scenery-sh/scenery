@@ -238,10 +238,6 @@ func contextualizeValue(value any, typeExpression, module string, resources map[
 	return scn.ContextualizePrimitive(text, typeExpression)
 }
 
-func ContextualizeValue(value any, typeExpression, module string, resources map[string]Resource) (any, error) {
-	return contextualizeValue(value, typeExpression, module, resources)
-}
-
 func contextualizeRecordValue(value map[string]any, record Resource, resources map[string]Resource) (map[string]any, error) {
 	result := cloneMapValue(value)
 	fields := map[string]map[string]any{}

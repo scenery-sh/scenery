@@ -19,6 +19,18 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0139-summary-metrics-and-charts.md",
+      "title": "Summary Metrics and Chart Blocks for Generated Pages",
+      "owner": "scenery spec / compiler / generate / ui + Micro funding pilot",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-07-22",
+      "review_after": "2026-08-21",
+      "summary": "Completed ExecPlan delivering formatted primary/sub stats tiles, typed filter and predicate set/toggle/clear actions, local-calendar datetime presets, and an authenticated parity-accepted generated Micro Funding route; no chart was added because the evidence survey found no real chart.",
+      "tags": ["plans", "execplans", "table-page", "stats", "filters", "ui-catalog", "micro"]
+    },
+    {
       "path": "docs/plans/0138-detail-page-template.md",
       "title": "Entity Detail Page Template: detail_page",
       "owner": "scenery spec / compiler / generate / ui + Micro platform pilot",

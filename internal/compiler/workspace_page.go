@@ -171,8 +171,26 @@ func validateWorkspacePageStats(resources map[string]Resource, workspace Resourc
 	}
 	for _, tile := range orderedChildren(stats, "tile") {
 		field := fields[stringValue(tile["name"])]
-		if field == nil || !oneOfString(unwrapCRUDListType(typeExpression(field["type"])), "decimal", "float32", "float64", "int", "int32", "int64", "string", "uint32", "uint64") {
+		expression := unwrapCRUDListType(typeExpression(field["type"]))
+		if field == nil || !oneOfString(expression, "decimal", "float32", "float64", "int", "int32", "int64", "string", "uint32", "uint64") {
 			diagnostics = append(diagnostics, uiDiagnostic("SCN2627", "workspace_page stats tiles require numeric or string result fields", workspace))
+		}
+		appearance, subAppearance := defaultString(stringValue(tile["appearance"]), "plain"), defaultString(stringValue(tile["sub_appearance"]), "plain")
+		if !oneOfString(appearance, "plain", "money", "count", "percent") || !oneOfString(subAppearance, "plain", "money", "count", "percent") {
+			diagnostics = append(diagnostics, uiDiagnostic("SCN2634", "workspace_page stats tile appearance must be plain, money, count, or percent", workspace))
+		}
+		if expression == "string" && appearance != "plain" {
+			diagnostics = append(diagnostics, uiDiagnostic("SCN2634", "workspace_page stats tile appearance "+appearance+" requires a numeric result field", workspace))
+		}
+		if sub := stringValue(tile["sub"]); sub != "" {
+			subField := fields[sub]
+			subExpression := unwrapCRUDListType(typeExpression(subField["type"]))
+			if subField == nil || !oneOfString(subExpression, "decimal", "float32", "float64", "int", "int32", "int64", "string", "uint32", "uint64") {
+				diagnostics = append(diagnostics, uiDiagnostic("SCN2634", "workspace_page stats tile sub must name a numeric or string result field", workspace))
+			}
+			if subExpression == "string" && subAppearance != "plain" {
+				diagnostics = append(diagnostics, uiDiagnostic("SCN2634", "workspace_page stats tile sub_appearance "+subAppearance+" requires a numeric result field", workspace))
+			}
 		}
 	}
 	return diagnostics

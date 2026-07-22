@@ -198,8 +198,11 @@ var (
 		[]string{"label", "control", "placeholder", "status_map"}, nil, nil)
 	tablePageColumnSourceSchema = sourceSchema("scenery.table-page.column", 1,
 		[]string{"label", "appearance", "component", "status_map", "hidden", "export", "export_header", "export_format", "export_empty", "export_zero_empty"}, nil, nil)
+	tablePageFilterPresetSourceSchema = sourceSchema("scenery.table-page.filter.preset", 1,
+		[]string{"label", "range"}, []string{"label", "range"}, nil)
 	tablePageFilterSourceSchema = sourceSchema("scenery.table-page.filter", 1,
-		[]string{"label", "component", "status_map", "pinned", "hidden", "input"}, nil, nil)
+		[]string{"label", "component", "status_map", "pinned", "hidden", "input"}, nil,
+		map[string]authoredChildSchema{"preset": repeated(tablePageFilterPresetSourceSchema)})
 	tablePageSortSourceSchema = sourceSchema("scenery.table-page.sort", 1,
 		[]string{"label", "default"}, nil, nil)
 	tablePageGroupSourceSchema = sourceSchema("scenery.table-page.group", 1,
@@ -220,7 +223,8 @@ var (
 		[]string{"component", "dialog", "presentation", "panel_width", "prefetch_export"}, []string{"component"}, nil)
 	tablePageStatsSourceSchema = sourceSchema("scenery.table-page.stats", 0,
 		[]string{"source"}, []string{"source"}, map[string]authoredChildSchema{
-			"tile": repeated(sourceSchema("scenery.table-page.stats.tile", 1, []string{"label"}, []string{"label"}, nil)),
+			"tile": repeated(sourceSchema("scenery.table-page.stats.tile", 1,
+				[]string{"label", "appearance", "sub", "sub_appearance", "sub_label", "icon", "filter", "value", "clear"}, []string{"label"}, nil)),
 		})
 	tablePageActionSourceSchema = sourceSchema("scenery.table-page.action", 1,
 		[]string{"label", "icon", "dialog", "primary"}, []string{"label", "dialog"}, nil)
@@ -232,7 +236,8 @@ var (
 		[]string{"page", "destination", "label", "description", "group", "count", "available", "unavailable_reason"}, []string{"label"}, nil)
 	workspacePageStatsSourceSchema = sourceSchema("scenery.workspace-page.stats", 0,
 		[]string{"source"}, []string{"source"}, map[string]authoredChildSchema{
-			"tile": repeated(sourceSchema("scenery.workspace-page.stats.tile", 1, []string{"label"}, []string{"label"}, nil)),
+			"tile": repeated(sourceSchema("scenery.workspace-page.stats.tile", 1,
+				[]string{"label", "appearance", "sub", "sub_appearance", "sub_label", "icon"}, []string{"label"}, nil)),
 		})
 	detailPageParamSourceSchema = sourceSchema("scenery.detail-page.param", 1,
 		[]string{"input"}, []string{"input"}, nil)

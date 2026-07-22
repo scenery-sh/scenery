@@ -182,6 +182,17 @@ func validateTablePage(resources map[string]Resource, table Resource) []Diagnost
 		if filter["pinned"] == true && (filter["hidden"] == true || filter["component"] != nil || expression != "string" && !enumField) {
 			diagnostics = append(diagnostics, uiDiagnostic("SCN2622", "table_page pinned filters require a generated string or enum selector", table))
 		}
+		presets, seenPresets := orderedChildren(filter, "preset"), map[string]bool{}
+		if len(presets) > 0 && !oneOfString(expression, "date", "datetime") {
+			diagnostics = append(diagnostics, uiDiagnostic("SCN2635", "table_page filter presets require a date or datetime field", table))
+		}
+		for _, preset := range presets {
+			presetName, presetLabel, presetRange := stringValue(preset["name"]), strings.TrimSpace(stringValue(preset["label"])), stringValue(preset["range"])
+			if presetName == "" || seenPresets[presetName] || presetLabel == "" || !oneOfString(presetRange, "today", "last_7_days", "month_to_date") {
+				diagnostics = append(diagnostics, uiDiagnostic("SCN2635", "table_page filter presets require unique names, labels, and a supported range", table))
+			}
+			seenPresets[presetName] = true
+		}
 	}
 	seenSorts, defaults := map[string]bool{}, 0
 	for _, sortSpec := range namedChildren(table.Spec, "sort") {
@@ -423,13 +434,22 @@ func resolveBindingTablePageSource(resources map[string]Resource, table, binding
 	for _, filter := range namedChildren(table.Spec, "filter") {
 		name := stringValue(filter["name"])
 		input := defaultString(strings.TrimSpace(stringValue(filter["input"])), name)
-		field := shape.Fields[input]
-		if !claimInput(input, "filter "+name) {
-			continue
-		}
-		if field.Name == "" || !field.Optional && !field.HasDefault || !tablePageFilterInputMatchesRow(resources, operation.Module, field.Type, namedChild(record.Spec, "field", name)) {
-			diagnostics = append(diagnostics, uiDiagnostic("SCN2625", "table_page binding filter "+name+" requires a mapped optional/defaulted scalar or list input with the row field type", table))
-			continue
+		rowField := namedChild(record.Spec, "field", name)
+		rowType := unwrapCRUDListType(typeExpression(rowField["type"]))
+		if oneOfString(rowType, "date", "datetime") {
+			from, to := shape.Fields[input+"_from"], shape.Fields[input+"_to"]
+			claimedFrom := claimInput(input+"_from", "filter "+name)
+			claimedTo := claimInput(input+"_to", "filter "+name)
+			if !claimedFrom || !claimedTo || from.Name == "" || to.Name == "" || !from.Optional && !from.HasDefault || !to.Optional && !to.HasDefault || !tablePageFilterInputMatchesRow(resources, operation.Module, from.Type, rowField) || !tablePageFilterInputMatchesRow(resources, operation.Module, to.Type, rowField) {
+				diagnostics = append(diagnostics, uiDiagnostic("SCN2625", "table_page binding date filter "+name+" requires mapped optional/defaulted "+input+"_from and "+input+"_to inputs with the row field type", table))
+				continue
+			}
+		} else {
+			field := shape.Fields[input]
+			if !claimInput(input, "filter "+name) || field.Name == "" || !field.Optional && !field.HasDefault || !tablePageFilterInputMatchesRow(resources, operation.Module, field.Type, rowField) {
+				diagnostics = append(diagnostics, uiDiagnostic("SCN2625", "table_page binding filter "+name+" requires a mapped optional/defaulted scalar or list input with the row field type", table))
+				continue
+			}
 		}
 		allowedFilters = append(allowedFilters, name)
 	}
@@ -453,7 +473,9 @@ func resolveBindingTablePageSource(resources map[string]Resource, table, binding
 		for _, sortSpec := range sorts {
 			hasDefaultSort = hasDefaultSort || stringValue(sortSpec["default"]) != ""
 		}
-		if !claimInput(sortName, "query sort") || !claimInput(directionName, "query direction") || sortField.Name == "" || directionField.Name == "" ||
+		claimedSort := claimInput(sortName, "query sort")
+		claimedDirection := claimInput(directionName, "query direction")
+		if !claimedSort || !claimedDirection || sortField.Name == "" || directionField.Name == "" ||
 			(!sortField.Optional && !sortField.HasDefault && !hasDefaultSort) || (!directionField.Optional && !directionField.HasDefault && !hasDefaultSort) ||
 			(!sortString && len(sortValues) == 0) || (!directionString && !sameStringSet(directionValues, []string{"asc", "desc"})) {
 			diagnostics = append(diagnostics, uiDiagnostic("SCN2625", "table_page binding sort mappings require string or enum input fields and a usable direction", table))
@@ -482,7 +504,9 @@ func resolveBindingTablePageSource(resources map[string]Resource, table, binding
 		pageName, pageSizeName, totalName := strings.TrimSpace(stringValue(pagination["page"])), strings.TrimSpace(stringValue(pagination["page_size"])), strings.TrimSpace(stringValue(pagination["total"]))
 		pageField, pageSizeField := shape.Fields[pageName], shape.Fields[pageSizeName]
 		totalField := namedChild(resultRecord.Spec, "field", totalName)
-		if !claimInput(pageName, "pagination page") || !claimInput(pageSizeName, "pagination page_size") ||
+		claimedPage := claimInput(pageName, "pagination page")
+		claimedPageSize := claimInput(pageSizeName, "pagination page_size")
+		if !claimedPage || !claimedPageSize ||
 			!tablePageIntegerType(pageField.Type) || !tablePageIntegerType(pageSizeField.Type) || totalField == nil || !tablePageIntegerType(totalField["type"]) {
 			diagnostics = append(diagnostics, uiDiagnostic("SCN2624", "table_page pagination must map distinct integer page/page_size inputs and an integer total result field", table))
 		}
@@ -593,6 +617,7 @@ func validateTablePageStats(resources map[string]Resource, table Resource) []Dia
 		return nil
 	}
 	stats := children[0]
+	tableContract, _ := resolveTablePageSource(resources, table)
 	binding := resources[resolveResourceRef(table, refString(stats["source"]), "binding")]
 	if binding.Kind != "scenery.binding" || stringValue(binding.Spec["protocol"]) != "http" || stringValue(binding.Spec["delivery"]) != "call" {
 		return []Diagnostic{uiDiagnostic("SCN2622", "table_page stats source must resolve to a call-delivery HTTP binding", table)}
@@ -611,6 +636,13 @@ func validateTablePageStats(resources map[string]Resource, table Resource) []Dia
 		fields[stringValue(field["name"])] = field
 	}
 	seen := map[string]bool{}
+	filters, predicates := map[string]map[string]any{}, map[string]map[string]any{}
+	for _, filter := range namedChildren(table.Spec, "filter") {
+		filters[stringValue(filter["name"])] = filter
+	}
+	for _, predicate := range namedChildren(table.Spec, "predicate") {
+		predicates[stringValue(predicate["name"])] = predicate
+	}
 	var diagnostics []Diagnostic
 	for _, tile := range orderedChildren(stats, "tile") {
 		name := stringValue(tile["name"])
@@ -618,6 +650,45 @@ func validateTablePageStats(resources map[string]Resource, table Resource) []Dia
 		expression := unwrapCRUDListType(typeExpression(field["type"]))
 		if name == "" || seen[name] || field == nil || !oneOfString(expression, "decimal", "float32", "float64", "int", "int32", "int64", "string", "uint32", "uint64") {
 			diagnostics = append(diagnostics, uiDiagnostic("SCN2622", "table_page stats tiles require unique numeric or string result fields", table))
+		}
+		appearance, subAppearance := defaultString(stringValue(tile["appearance"]), "plain"), defaultString(stringValue(tile["sub_appearance"]), "plain")
+		if !oneOfString(appearance, "plain", "money", "count", "percent") || !oneOfString(subAppearance, "plain", "money", "count", "percent") {
+			diagnostics = append(diagnostics, uiDiagnostic("SCN2634", "table_page stats tile appearance must be plain, money, count, or percent", table))
+		}
+		if expression == "string" && appearance != "plain" {
+			diagnostics = append(diagnostics, uiDiagnostic("SCN2634", "table_page stats tile appearance "+appearance+" requires a numeric result field", table))
+		}
+		if sub := stringValue(tile["sub"]); sub != "" {
+			subField := fields[sub]
+			subExpression := unwrapCRUDListType(typeExpression(subField["type"]))
+			if subField == nil || !oneOfString(subExpression, "decimal", "float32", "float64", "int", "int32", "int64", "string", "uint32", "uint64") {
+				diagnostics = append(diagnostics, uiDiagnostic("SCN2634", "table_page stats tile sub must name a numeric or string result field", table))
+			}
+			if subExpression == "string" && subAppearance != "plain" {
+				diagnostics = append(diagnostics, uiDiagnostic("SCN2634", "table_page stats tile sub_appearance "+subAppearance+" requires a numeric result field", table))
+			}
+		}
+		target := stringValue(tile["filter"])
+		clear := tile["clear"] == true
+		if target == "" && (tile["value"] != nil || clear) || target != "" && tile["value"] == nil && !clear || clear && tile["value"] != nil {
+			diagnostics = append(diagnostics, uiDiagnostic("SCN2634", "table_page stats tile action requires filter with exactly one of value or clear", table))
+		} else if target != "" {
+			if filters[target] == nil && predicates[target] == nil {
+				diagnostics = append(diagnostics, uiDiagnostic("SCN2634", "table_page stats tile filter must name a declared filter or predicate", table))
+			} else if !clear {
+				rowField := namedChild(tableContract.record.Spec, "field", target)
+				targetType := any(nil)
+				if rowField != nil {
+					targetType = rowField["type"]
+				} else if predicates[target] != nil {
+					source := resources[resolveResourceRef(table, refString(table.Spec["source"]), "binding")]
+					operation := resources[resolveResourceRef(source, refString(source.Spec["operation"]), "operation")]
+					targetType = resolveOperationInputShape(resources, operation).Fields[target].Type
+				}
+				if targetType == nil || validateFixtureValue(tile["value"], typeExpression(targetType), table.Module, resources) != nil {
+					diagnostics = append(diagnostics, uiDiagnostic("SCN2634", "table_page stats tile filter value must match the target field type", table))
+				}
+			}
 		}
 		seen[name] = true
 	}

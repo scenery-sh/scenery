@@ -59,20 +59,6 @@ func httpSpecUsesPathTail(httpSpec map[string]any) bool {
 	return len(namedChildren(httpSpec, "path_tail")) > 0
 }
 
-func bindingUsesHTTPPathTail(binding Resource) bool {
-	httpSpec, _ := binding.Spec["http"].(map[string]any)
-	return httpSpecUsesPathTail(httpSpec)
-}
-
-func bindingsUseHTTPPathTail(bindings []Resource) bool {
-	for _, binding := range bindings {
-		if bindingUsesHTTPPathTail(binding) {
-			return true
-		}
-	}
-	return false
-}
-
 func applyHTTPPathTailEffective(binding *Resource, httpSpec map[string]any, resources map[string]*Resource) {
 	tails := provenanceNamedChildren(httpSpec, "path_tail", "/spec/http")
 	if len(tails) == 0 {

@@ -51,6 +51,7 @@ func TestBinaryOwnedUICatalogContainsComposableQueryTable(t *testing.T) {
 		`<SideNavigation sections={sections} />`,
 		`<Selector`,
 		`actionsHost={active ? actionsHost : null}`,
+		"panel: {\n    display: \"flex\",\n    flexDirection: \"column\"",
 	} {
 		if !strings.Contains(workspacePage, fragment) {
 			t.Errorf("WorkspacePage missing %q", fragment)

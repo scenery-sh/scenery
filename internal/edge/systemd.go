@@ -122,14 +122,6 @@ func InstallSystemdEdgeService(caddyBin string, paths localagent.Paths, adminSoc
 	return nil
 }
 
-// RestartSystemdEdgeService restarts the managed edge unit.
-func RestartSystemdEdgeService() error {
-	if out, err := systemctlEdgeRunFunc("restart", SystemdEdgeUnitName); err != nil {
-		return fmt.Errorf("systemctl restart %s: %w: %s", SystemdEdgeUnitName, err, strings.TrimSpace(string(out)))
-	}
-	return nil
-}
-
 // RemoveSystemdEdgeService stops and disables the managed edge unit and
 // removes its file. It does not delete published deploy artifacts or ACME
 // state; those belong to the Scenery agent home.

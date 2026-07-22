@@ -4,6 +4,9 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"scenery.sh/internal/graph"
+	"scenery.sh/internal/scn"
 )
 
 // A wake on the rebuild-request channel must end the watch wait with
@@ -57,5 +60,22 @@ func TestRequestRebuildIfBuildFailedGatesOnFailure(t *testing.T) {
 	case <-s.rebuildRequestChan():
 		t.Fatal("requests must coalesce into a single pending wake")
 	default:
+	}
+}
+
+func TestCompilerDiagnosticLocation(t *testing.T) {
+	if got := compilerDiagnosticLocation(graph.Diagnostic{}); got != "" {
+		t.Fatalf("no path should render empty, got %q", got)
+	}
+	withPath := graph.Diagnostic{Path: "funding/package.scn"}
+	if got := compilerDiagnosticLocation(withPath); got != " (funding/package.scn)" {
+		t.Fatalf("path-only location = %q", got)
+	}
+	withRange := graph.Diagnostic{
+		Path:  "funding/package.scn",
+		Range: &scn.Range{Start: scn.Position{Line: 519, Column: 33}},
+	}
+	if got := compilerDiagnosticLocation(withRange); got != " (funding/package.scn:519:33)" {
+		t.Fatalf("ranged location = %q", got)
 	}
 }

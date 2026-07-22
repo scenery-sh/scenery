@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -188,7 +189,7 @@ func runSceneryInspect(args []string, stdout io.Writer) error {
 			return compileErr
 		}
 		if !compiled.Valid() {
-			return fmt.Errorf("merged graph is invalid: %s", firstCompilerDiagnostic(compiled.Diagnostics))
+			return writeInspectCompileFailure(stdout, compiled)
 		}
 		merged = compiled
 	}
@@ -254,13 +255,44 @@ func runSceneryInspect(args []string, stdout io.Writer) error {
 	}
 }
 
+// writeInspectCompileFailure emits the failure envelope with the real
+// compiler diagnostics; wrapping them in a plain error would make the CLI
+// render an opaque SCN9000 internal-failure diagnostic instead.
+func writeInspectCompileFailure(stdout io.Writer, result *compiler.Result) error {
+	diagnostics := result.Diagnostics
+	if diagnostics == nil {
+		diagnostics = []graph.Diagnostic{}
+	}
+	if err := json.NewEncoder(stdout).Encode(newCLIEnvelope(false, nil, diagnostics)); err != nil {
+		return err
+	}
+	return &silentCLIError{
+		err:  fmt.Errorf("merged graph is invalid: %s", firstCompilerDiagnostic(diagnostics)),
+		code: contractInvalidExitCode(result),
+	}
+}
+
 func firstCompilerDiagnostic(diagnostics []graph.Diagnostic) string {
 	for _, diagnostic := range diagnostics {
 		if diagnostic.Severity == "error" {
-			return diagnostic.Code + ": " + diagnostic.Message
+			return diagnostic.Code + ": " + diagnostic.Message + compilerDiagnosticLocation(diagnostic)
 		}
 	}
 	return "unknown compilation failure"
+}
+
+// compilerDiagnosticLocation renders " (path:line:column)" so single-line
+// build errors point at the offending file; Range alone only carries an
+// opaque hashed source id.
+func compilerDiagnosticLocation(diagnostic graph.Diagnostic) string {
+	if diagnostic.Path == "" {
+		return ""
+	}
+	location := diagnostic.Path
+	if diagnostic.Range != nil {
+		location = fmt.Sprintf("%s:%d:%d", location, diagnostic.Range.Start.Line, diagnostic.Range.Start.Column)
+	}
+	return " (" + location + ")"
 }
 
 func parseInspectArgs(args []string) (inspectOptions, error) {

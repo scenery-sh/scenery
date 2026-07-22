@@ -554,12 +554,12 @@ func waitForStableChangePolling(ctx context.Context, root string, current fileSn
 		case <-ctx.Done():
 			return fileSnapshot{}, false, ctx.Err()
 		case <-wake:
-			next, err := scanWatchedFiles(root)
+			next, err := scanWatchedFilesReusing(root, current)
 			return next, true, err
 		case <-ticker.C:
 		}
 
-		next, err := scanWatchedFiles(root)
+		next, err := scanWatchedFilesReusing(root, current)
 		if err != nil {
 			return fileSnapshot{}, false, err
 		}
@@ -667,6 +667,14 @@ func waitForSnapshotToSettleEvents(ctx context.Context, root string, events <-ch
 }
 
 func scanWatchedFiles(root string) (fileSnapshot, error) {
+	return scanWatchedFilesReusing(root, fileSnapshot{})
+}
+
+// scanWatchedFilesReusing rescans the tree while reusing content hashes from
+// the previous snapshot for files whose size, permissions, and mtime are
+// unchanged, so steady-state watch ticks stat files instead of re-reading and
+// re-hashing the whole workspace.
+func scanWatchedFilesReusing(root string, previous fileSnapshot) (fileSnapshot, error) {
 	snapshot := fileSnapshot{files: make(map[string]fileStamp)}
 	dirs := map[string]struct{}{}
 	ignore := watchignore.New(root)
@@ -719,15 +727,29 @@ func scanWatchedFiles(root string) (fileSnapshot, error) {
 		if err != nil {
 			return nil
 		}
-		stamp, data, err := stampWatchedFile(path, info, false)
-		if err != nil {
-			return nil
+		var data []byte
+		stamp, reused := reusableStamp(previous.files, rel, info, false)
+		if !reused {
+			stamp, data, err = stampWatchedFile(path, info, false)
+			if err != nil {
+				return nil
+			}
 		}
 		snapshot.files[rel] = stamp
 		if filepath.Ext(rel) == ".go" {
+			patterns, cached := cachedGoEmbedPatterns(path, stamp)
+			if !cached {
+				if data == nil {
+					if data, err = os.ReadFile(path); err != nil {
+						return nil
+					}
+				}
+				patterns = parseGoEmbedPatterns(string(data))
+				storeGoEmbedPatterns(path, stamp, patterns)
+			}
 			pkgDir := filepath.Dir(rel)
-			for _, pattern := range parseGoEmbedPatterns(string(data)) {
-				if err := addEmbeddedSnapshotFiles(root, pkgDir, pattern, snapshot.files, ignore); err != nil {
+			for _, pattern := range patterns {
+				if err := addEmbeddedSnapshotFiles(root, pkgDir, pattern, snapshot.files, previous.files, ignore); err != nil {
 					return err
 				}
 			}
@@ -743,6 +765,18 @@ func scanWatchedFiles(root string) (fileSnapshot, error) {
 	}
 	sort.Strings(snapshot.dirs)
 	return snapshot, nil
+}
+
+// reusableStamp returns the previous stamp for rel when the file's size,
+// permissions, and mtime are unchanged, matching Git's index heuristic. An
+// in-place rewrite that preserves all three within mtime resolution is not
+// detected until the file is touched again.
+func reusableStamp(previous map[string]fileStamp, rel string, info fs.FileInfo, embedded bool) (fileStamp, bool) {
+	prev, ok := previous[rel]
+	if !ok || prev.embed != embedded || prev.size != info.Size() || prev.mode != uint32(info.Mode().Perm()) || !prev.modTime.Equal(info.ModTime().UTC().Round(0)) {
+		return fileStamp{}, false
+	}
+	return prev, true
 }
 
 func stampWatchedFile(path string, info fs.FileInfo, embedded bool) (fileStamp, []byte, error) {

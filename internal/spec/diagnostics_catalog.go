@@ -291,6 +291,8 @@ SCN2630|detail_page_section|A detail page section or result field declaration is
 SCN2631|detail_page_action|A detail page action dialog or seed contract is invalid
 SCN2632|detail_page_table|A detail page related table or parameter mapping is invalid
 SCN2633|detail_page_expansion_identity|A detail-page-derived resource address collides
+SCN2634|table_page_stats_tile|A table page statistics tile format sub-field or filter action is invalid
+SCN2635|table_page_filter_preset|A table page date or datetime filter preset is invalid
 SCN2701|event_contract|An event lacks a payload or positive version
 SCN2702|event_emission_shape|An event emission is incomplete
 SCN2703|event_binding_shape|An event binding is incomplete

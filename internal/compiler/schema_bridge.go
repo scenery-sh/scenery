@@ -53,26 +53,6 @@ func resourceSchemaAllowedFields(kind string) []string {
 	return spec.ResourceSchemaAllowedFields(kind)
 }
 
-func resourceFieldRevisionDomain(kind, name string) (string, bool) {
-	return spec.ResourceFieldRevisionDomain(kind, name)
-}
-
-func authoredPublicSchema(revision string) (map[string]any, bool) {
-	return spec.AuthoredPublicSchema(revision)
-}
-
-func publicAuthoredBlockSchema(schema *authoredBlockSchema) map[string]any {
-	return spec.PublicAuthoredBlockSchema(schema)
-}
-
-func resourceCreateSchemaRevisions() []string {
-	return spec.ResourceCreateSchemaRevisions()
-}
-
-func resourceCreateKindSupported(kind string) bool {
-	return spec.ResourceCreateKindSupported(kind)
-}
-
 func ResourceCreateKindSupported(kind string) bool { return spec.ResourceCreateKindSupported(kind) }
 
 func authoredResourceSourceSchema(blockType string) (*authoredBlockSchema, bool) {
@@ -107,15 +87,6 @@ func ValidAuthoredLabel(schema *AuthoredBlockSchema, label string) bool {
 	return validAuthoredLabel(schema, label)
 }
 
-func authoredBlockTypeHasWireLabels(blockType string) bool {
-	switch blockType {
-	case "query_parameter", "header", "cookie", "part":
-		return true
-	default:
-		return false
-	}
-}
-
 func authoredEnumAllows(field authoredAttributeSchema, value string) bool {
 	return spec.AuthoredEnumAllows(field, value)
 }
@@ -130,8 +101,4 @@ func authoredAttributeDefinition(revision, name string) authoredAttributeSchema 
 
 func authoredRevisionDomain(revision, name string) string {
 	return spec.AuthoredRevisionDomain(revision, name)
-}
-
-func sourceSchemaRevisionForInternalName(name string) string {
-	return string(spec.SourceSchemaRevisionForInternalName(name))
 }

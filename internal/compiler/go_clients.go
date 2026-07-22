@@ -72,29 +72,3 @@ func moduleContractImportPath(resources []Resource, module string) (string, bool
 	}
 	return "", false
 }
-
-func clientContractQualifier(client goClientBinding) string {
-	if client.ContractAlias == "" {
-		return ""
-	}
-	return client.ContractAlias + "."
-}
-
-func internalBindingsForOperations(resources []Resource, operations []Resource) []Resource {
-	operationAddresses := map[string]bool{}
-	for _, operation := range operations {
-		operationAddresses[operation.Address] = true
-	}
-	var bindings []Resource
-	for _, binding := range resources {
-		if binding.Kind != "scenery.binding" || stringValue(binding.Spec["protocol"]) != "internal" {
-			continue
-		}
-		operationAddress := resolveResourceRef(binding, refString(binding.Spec["operation"]), "operation")
-		if operationAddresses[operationAddress] {
-			bindings = append(bindings, binding)
-		}
-	}
-	sort.Slice(bindings, func(i, j int) bool { return bindings[i].Address < bindings[j].Address })
-	return bindings
-}

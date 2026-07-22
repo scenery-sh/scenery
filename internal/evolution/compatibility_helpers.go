@@ -24,10 +24,6 @@ func resourcesByAddress(manifest *Manifest) map[string]Resource {
 	return out
 }
 
-func ResourcesByAddress(manifest *Manifest) map[string]Resource {
-	return resourcesByAddress(manifest)
-}
-
 func stringUnion[A any, B any](left map[string]A, right map[string]B) []string {
 	set := map[string]bool{}
 	for key := range left {
@@ -44,25 +40,15 @@ func stringUnion[A any, B any](left map[string]A, right map[string]B) []string {
 	return keys
 }
 
-func StringUnion[A any, B any](left map[string]A, right map[string]B) []string {
-	return stringUnion(left, right)
-}
-
 func escapeJSONPointer(value string) string {
 	return strings.ReplaceAll(strings.ReplaceAll(value, "~", "~0"), "/", "~1")
 }
-
-func EscapeJSONPointer(value string) string { return escapeJSONPointer(value) }
 
 func semanticEqual(left, right any) bool {
 	left, right = normalizeComparableScalar(left, right), normalizeComparableScalar(right, left)
 	a, aErr := spec.MarshalCanonical(left)
 	b, bErr := spec.MarshalCanonical(right)
 	return aErr == nil && bErr == nil && string(a) == string(b)
-}
-
-func SemanticEqual(left, right any) bool {
-	return semanticEqual(left, right)
 }
 
 func normalizeComparableScalar(value, exemplar any) any {
@@ -141,10 +127,6 @@ func resourceSchemaRevision(kind string) string {
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
-func ResourceSchemaRevision(kind string) string {
-	return resourceSchemaRevision(kind)
-}
-
 func namedChildAtPath(path, child string) (string, bool) {
 	parts := strings.Split(strings.TrimPrefix(path, "/"), "/")
 	if len(parts) == 3 && parts[0] == "spec" && parts[1] == child {
@@ -156,8 +138,6 @@ func namedChildAtPath(path, child string) (string, bool) {
 func isOptionalType(value any) bool {
 	return wrappedType(typeExpression(value), "optional")
 }
-
-func IsOptionalType(value any) bool { return isOptionalType(value) }
 
 func typeExpression(value any) string {
 	if ref := refString(value); ref != "" {
@@ -171,14 +151,10 @@ func typeExpression(value any) string {
 	return fmt.Sprint(value)
 }
 
-func TypeExpression(value any) string { return typeExpression(value) }
-
 func wrappedType(value, wrapper string) bool {
 	value = strings.TrimSpace(value)
 	return strings.HasPrefix(value, wrapper+"(") && strings.HasSuffix(value, ")")
 }
-
-func WrappedType(value, wrapper string) bool { return wrappedType(value, wrapper) }
 
 func hasTypeWrapper(value, wrapper string) bool {
 	value = strings.TrimSpace(value)
@@ -201,8 +177,6 @@ func hasTypeWrapper(value, wrapper string) bool {
 		}
 	}
 }
-
-func HasTypeWrapper(value, wrapper string) bool { return hasTypeWrapper(value, wrapper) }
 
 func innermostType(value string) string {
 	value = strings.TrimSpace(value)
@@ -268,10 +242,6 @@ func oneOf[T comparable](value T, candidates ...T) bool {
 		}
 	}
 	return false
-}
-
-func OneOf[T comparable](value T, candidates ...T) bool {
-	return oneOf(value, candidates...)
 }
 
 func canonicalLess(left, right any) bool {

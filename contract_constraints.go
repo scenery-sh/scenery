@@ -5,7 +5,6 @@ import (
 	"math/big"
 	"reflect"
 	"regexp"
-	"strings"
 	"unicode/utf8"
 )
 
@@ -205,12 +204,4 @@ func validateContractStringFormat(value, format string) error {
 		return fmt.Errorf("value does not satisfy %s format: %w", format, err)
 	}
 	return nil
-}
-
-func contractConstraintPointer(value any) *string {
-	if value == nil {
-		return nil
-	}
-	text := strings.TrimSpace(fmt.Sprint(value))
-	return &text
 }

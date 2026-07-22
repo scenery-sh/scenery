@@ -26,10 +26,6 @@ func deployResumeLaunchAgentTarget() string {
 	return fmt.Sprintf("gui/%d/%s", os.Getuid(), deployResumeLaunchAgentLabel)
 }
 
-func deployResumeLaunchAgentLoaded() bool {
-	return deployResumeLaunchAgentStatus().Loaded
-}
-
 func deployResumeLaunchAgentStatus() deployLaunchAgentStatus {
 	status := deployLaunchAgentStatus{}
 	if runtime.GOOS != "darwin" {

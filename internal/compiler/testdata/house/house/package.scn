@@ -93,6 +93,28 @@ record "workspace_item" {
   field "name" {
     type = string
   }
+
+  field "status" {
+    type = string
+  }
+
+  field "created_at" {
+    type = datetime
+  }
+}
+
+record "workspace_items_input" {
+  field "status" {
+    type = optional(string)
+  }
+
+  field "created_at_from" {
+    type = optional(datetime)
+  }
+
+  field "created_at_to" {
+    type = optional(datetime)
+  }
 }
 
 record "workspace_items" {
@@ -109,11 +131,15 @@ record "workspace_stats" {
   field "orders_available" {
     type = bool
   }
+
+  field "orders_matching" {
+    type = int64
+  }
 }
 
 operation "list_workspace_items" {
   service = service.house
-  input   = std.type.unit
+  input   = record.workspace_items_input
 
   handler {
     method = "ListWorkspaceItems"
@@ -159,9 +185,14 @@ binding "list_workspace_items_http" {
   pipeline       = std.pipeline.empty
 
   http {
-    method        = "GET"
+    method        = "POST"
     path          = "/workspace/items"
     codec_profile = std.codec.http_json_v1
+
+    body {
+      codec = "json"
+      to    = operation.list_workspace_items.input
+    }
 
     response "success" {
       when   = result.success
@@ -221,6 +252,49 @@ table_page "workspace_orders" {
   column "name" {
     label = "Name"
   }
+
+  column "status" {
+    label = "Status"
+  }
+
+  column "created_at" {
+    label      = "Created"
+    appearance = "datetime"
+  }
+
+  filter "status" {
+    label  = "Status"
+    hidden = true
+  }
+
+  filter "created_at" {
+    label = "Created"
+
+    preset "today" {
+      label = "Today"
+      range = "today"
+    }
+
+    preset "week" {
+      label = "Last 7 days"
+      range = "last_7_days"
+    }
+  }
+
+  stats {
+    source = binding.read_workspace_stats_http
+
+    tile "orders_total" {
+      label          = "Open orders"
+      appearance     = "count"
+      sub            = "orders_matching"
+      sub_appearance = "count"
+      sub_label      = "matching"
+      icon           = "calendar"
+      filter         = "status"
+      value          = "open"
+    }
+  }
 }
 
 content_page "workspace_summary" {
@@ -241,7 +315,12 @@ workspace_page "workspace" {
     source = binding.read_workspace_stats_http
 
     tile "orders_total" {
-      label = "Orders"
+      label          = "Orders"
+      appearance     = "count"
+      sub            = "orders_matching"
+      sub_appearance = "count"
+      sub_label      = "matching"
+      icon           = "calendar"
     }
   }
 
@@ -340,6 +419,10 @@ operation "read_scene" {
   result "success" {
     type = record.scene_detail
   }
+
+  error "not_found" {
+    type = std.type.problem
+  }
 }
 
 operation "update_scene" {
@@ -410,6 +493,16 @@ binding "read_scene_http" {
       body {
         codec = "json"
         from  = result.success
+      }
+    }
+
+    response "not_found" {
+      when   = error.not_found
+      status = 404
+
+      body {
+        codec = "problem_json"
+        from  = error.not_found
       }
     }
   }

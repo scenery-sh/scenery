@@ -2388,7 +2388,9 @@ declaration. No page macro creates a second runtime path.
 A `detail_page` MUST declare a dynamic absolute `path`, a call-delivery HTTP
 `source`, a title, and at least one field `section`. Its source operation MUST
 have record input and exactly one result whose type directly names the entity
-record. Every path parameter MUST claim exactly one scalar operation input
+record. The operation MUST also declare at least one business-error variant
+that the selected HTTP binding maps to status 404, so entity absence remains a
+typed completion rather than becoming `system.internal`. Every path parameter MUST claim exactly one scalar operation input
 with a supported path codec. Same-name inputs are implicit; a labeled `param`
 block MAY explicitly map a path parameter to a differently named input. A path
 parameter or operation input MUST NOT be claimed twice.
@@ -2478,7 +2480,13 @@ filters, tenant scope, sort field, and direction.
 A workbench `table_page` MAY declare:
 
 - a `stats` binding whose operation has unit input and one flat numeric or
-  string result record, with tiles naming fields in that record;
+  string result record, with tiles naming fields in that record. A tile MAY
+  format its value as `plain`, `money`, `count`, or `percent`, bind a second
+  result field through `sub` with its own appearance and label, and render one
+  semantic icon. On `table_page`, a tile MAY also set a typed declared filter
+  or predicate to one literal, or clear that filter; the generated selected
+  state and click behavior MUST use the same request state as the table
+  controls;
 - finite filters and badge columns labeled through reusable `status_map`
   resources;
 - client-side export of the rows returned by the current source query, with
@@ -2504,6 +2512,21 @@ otherwise-unmapped operation input and its fixed literal MUST type-check
 against that input. No input may be claimed by more than one mapping. At least
 one column MUST remain visible. `hidden = true` excludes a column from the grid
 but not export by default; `export = false` excludes it from export.
+
+A date or datetime filter MAY declare uniquely named `preset` children. Each
+preset MUST have a label and one current range: `today`, `last_7_days`, or
+`month_to_date`. Presets are client-side shortcuts over the existing paired
+`<input>_from` and `<input>_to` wire inputs. Generated clients MUST calculate
+inclusive boundaries in the user's local calendar and send ordinary exact
+datetimes; presets do not add a server-side range vocabulary.
+
+A filter-setting stats tile MUST name a declared filter or predicate and its
+`value` MUST type-check against that target. It MUST declare exactly one of
+`value` or `clear`. Clicking a selected value tile clears that filter; clicking
+a clear tile clears it directly. A clear tile is selected only while the
+target filter is absent. Predicate-backed actions temporarily override the
+declared fixed predicate through the same typed generated query state, without
+creating a second request path.
 
 A binding-backed table MAY declare a non-empty unique `metadata` field list.
 Every name MUST resolve to the operation result record and MUST NOT name the

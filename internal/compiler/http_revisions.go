@@ -70,17 +70,3 @@ func httpBindingsForGateway(resources []Resource, gateway Resource) []Resource {
 	sort.Slice(bindings, func(i, j int) bool { return bindings[i].Address < bindings[j].Address })
 	return bindings
 }
-
-func projectionRevisionsForGateways(result *Result, references []string, revisions map[string]string) map[string]string {
-	selected := map[string]string{}
-	if result == nil || result.Manifest == nil {
-		return selected
-	}
-	for _, reference := range references {
-		address := resolveResourceRef(Resource{Module: "app"}, reference, "http_gateway")
-		if revision := revisions[address]; revision != "" {
-			selected[address] = revision
-		}
-	}
-	return selected
-}

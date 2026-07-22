@@ -1,7 +1,10 @@
 package main
 
 import (
+	"errors"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -9,6 +12,7 @@ import (
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/graph"
 	inspectdata "scenery.sh/internal/inspect"
+	"scenery.sh/internal/machine"
 )
 
 func TestContractCommandsRejectUnsupportedOutputBeforeWork(t *testing.T) {
@@ -127,6 +131,48 @@ func TestContractInspectIncludesFrameworkOwnedGoogleEndpoints(t *testing.T) {
 	services := inspectServices(result)
 	if got := findInspectServiceEndpoints(services, "auth"); len(got) != 1 || got[0] != "GoogleConnectStart" {
 		t.Fatalf("auth endpoints = %#v", got)
+	}
+}
+
+func TestInspectInvalidGraphSurfacesCompilerDiagnostics(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	if err := os.CopyFS(root, os.DirFS(contractFixtureRoot(t))); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".scenery.json"), []byte(`{"name": "house", "id": "house-id", "envs": {"local": {"default": true}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	packagePath := filepath.Join(root, "house", "package.scn")
+	source, err := os.ReadFile(packagePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source = append(source, []byte("\nsetting \"bad\" { label = \"a\" hidden = true }\n")...)
+	if err := os.WriteFile(packagePath, source, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var output strings.Builder
+	runErr := runSceneryInspect([]string{"endpoints", "--app-root", root, "-o", "json"}, &output)
+	if runErr == nil {
+		t.Fatal("inspect endpoints succeeded on an invalid graph")
+	}
+	if _, silent := errors.AsType[*silentCLIError](runErr); !silent {
+		t.Fatalf("error = %T (%v), want *silentCLIError so the CLI does not re-render it as SCN9000", runErr, runErr)
+	}
+	envelope, decodeErr := machine.Decode[graph.Diagnostic]([]byte(output.String()), currentMachineSpecRevision())
+	if decodeErr != nil {
+		t.Fatal(decodeErr)
+	}
+	if envelope.OK || len(envelope.Diagnostics) == 0 {
+		t.Fatalf("failure envelope = %#v, want ok=false with compiler diagnostics", envelope)
+	}
+	for _, diagnostic := range envelope.Diagnostics {
+		if diagnostic.Code == "SCN9000" {
+			t.Fatalf("compiler failure rendered as SCN9000: %#v", envelope.Diagnostics)
+		}
 	}
 }
 

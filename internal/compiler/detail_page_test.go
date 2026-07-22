@@ -66,6 +66,10 @@ func TestDetailPageContractDiagnosticMatrix(t *testing.T) {
 		mutate  func([]Resource)
 	}{
 		{"presentation", "presentation must", func(resources []Resource) { detailPageResource(resources).Spec["presentation"] = "drawer" }},
+		{"not found completion", "mapped by its HTTP binding to status 404", func(resources []Resource) {
+			binding := resourceByAddress(resources, "house/binding/read_http")
+			binding.Spec["http"] = map[string]any{"response": map[string]any{"name": "success", "when": map[string]any{"$ref": "result.success"}, "status": "200"}}
+		}},
 		{"unresolved param", "does not resolve", func(resources []Resource) {
 			namedChildren(detailPageResource(resources).Spec, "param")[0]["input"] = "missing"
 		}},
@@ -198,8 +202,8 @@ func detailPageFixture() []Resource {
 	return []Resource{
 		{Address: "house/record/read_input", Module: "house", Name: "read_input", Kind: "scenery.record", Spec: map[string]any{"field": []any{field("id", "string")}}},
 		{Address: "house/record/scene", Module: "house", Name: "scene", Kind: "scenery.record", Spec: map[string]any{"field": []any{field("id", "string"), field("name", "string"), field("status", "string")}}},
-		{Address: "house/operation/read", Module: "house", Name: "read", Kind: "scenery.operation", Spec: map[string]any{"input": map[string]any{"$ref": "record.read_input"}, "result": []any{map[string]any{"name": "success", "type": map[string]any{"$ref": "record.scene"}}}}},
-		{Address: "house/binding/read_http", Module: "house", Name: "read_http", Kind: "scenery.binding", Spec: map[string]any{"operation": map[string]any{"$ref": "operation.read"}, "protocol": "http", "delivery": "call"}},
+		{Address: "house/operation/read", Module: "house", Name: "read", Kind: "scenery.operation", Spec: map[string]any{"input": map[string]any{"$ref": "record.read_input"}, "result": []any{map[string]any{"name": "success", "type": map[string]any{"$ref": "record.scene"}}}, "error": []any{map[string]any{"name": "not_found", "type": map[string]any{"$ref": "std.type.problem"}}}}},
+		{Address: "house/binding/read_http", Module: "house", Name: "read_http", Kind: "scenery.binding", Spec: map[string]any{"operation": map[string]any{"$ref": "operation.read"}, "protocol": "http", "delivery": "call", "http": map[string]any{"response": []any{map[string]any{"name": "success", "when": map[string]any{"$ref": "result.success"}, "status": "200"}, map[string]any{"name": "not_found", "when": map[string]any{"$ref": "error.not_found"}, "status": "404"}}}}},
 		{Address: "house/binding/read_internal", Module: "house", Name: "read_internal", Kind: "scenery.binding", Spec: map[string]any{"operation": map[string]any{"$ref": "operation.read"}, "protocol": "internal", "delivery": "call", "internal": map[string]any{"principal": "inherit"}}},
 		{Address: "house/record/update_input", Module: "house", Name: "update_input", Kind: "scenery.record", Spec: map[string]any{"field": []any{field("id", "string"), field("name", "string")}}},
 		{Address: "house/operation/update", Module: "house", Name: "update", Kind: "scenery.operation", Spec: map[string]any{"input": map[string]any{"$ref": "record.update_input"}}},
