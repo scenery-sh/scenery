@@ -273,7 +273,7 @@ Do not copy scenery's full skill or repository manual into every app.
 
 ## Working In The scenery Repository
 
-Read root `AGENTS.md` plus every applicable child instruction file. Before non-trivial changes, run `scenery inspect docs -o json` and read current contracts and active plans. Use an ExecPlan for complex features, migrations, or substantial refactors.
+Read root `AGENTS.md` plus every applicable child instruction file, then read the `docs/local-contract.md` and `docs/agent-guide.md` sections covering the surface you are changing. Check `docs/plans/active.md` when the area may have an active ExecPlan; run `scenery inspect docs -o json` when choosing doc-gardening work. Use an ExecPlan for complex features, migrations, or substantial refactors.
 
 Validate ordinary changes with:
 
@@ -293,6 +293,72 @@ cache. Use `-count=1` or `scenery harness self --fresh-tests` only when
 explicitly measuring fresh execution or investigating nondeterminism.
 
 Do not install a shared CLI during agent validation. Self-harness builds a worktree-local binary.
+
+### Repository Mental Model
+
+scenery is a Go-native service runtime and local development platform. Think in app roots, app runtimes, and capability surfaces first; Victoria, agent routing, generated cache files, hidden ports, and local stores are substrate details unless the task is explicitly debugging that substrate.
+
+- App roots are marked by `.scenery.json`.
+- `.scn` source is the singular current app model. Root `app.scn` installs package-local `package.scn` modules and pairs with generated `app.lock.scn`; retired contract filenames fail with `SCN1021` instead of acting as aliases. Go source implements the generated native contracts but is not scanned for declarations.
+- Generated Go contracts, adapters, composition, descriptors, and entrypoints live in external build/editor caches. Successful compilation maintains an ownership-verified, locally excluded root `go.work` for raw Go/editor resolution; source materialization is explicit export mode only.
+- The compiler exposes source/effective/expanded graphs and separate workspace, contract, implementation, deployment, and artifact revisions. Source retains authored expressions, effective resolves inputs/defaults/patches, expanded adds generators, and every provenance key is an RFC 6901 pointer into that view's resource spec.
+- `scenery task run <domain>:<name> -- [args...]` runs an app-local code task.
+- `scenery worker` builds once and starts a worker-role runtime for declared durable executions and schedules.
+- `scenery up` starts the app root's one live dev runtime: supervised app process, file watching, dashboard, API explorer, logs, traces, metrics, managed dev services, and optional frontend routing. Detached `--wait ready` returns only after every advertised route and one declared frontend asset are reachable. Re-running `scenery up` while a verified live owner already runs the same app root succeeds instead of failing: the human foreground form reports that runtime and attaches to its logs (Ctrl+C detaches without stopping it), `-o jsonl` reports and exits `0`, and detached reruns apply the requested wait readiness to the existing owner and set `already_running` in the JSON result. While that supervisor remains live, shared Victoria observability is probed and recovered as one managed stack; failed recovery is always surfaced as a degraded error rather than hidden behind verbose output.
+- `scenery deploy <ssh-target>` is beta single-server source sync: the target belongs to exactly one `envs.<name>.deploy.ssh`; the remote restart and publication use that env name, rsync preserves remote `.env*` and `.scenery`, and status/registry records the environment. `scenery deploy --env <name>` selects the env directly when it has one target.
+- Public deploy hosts have two service managers: launchd on macOS (privileged loopback helper) and systemd on Linux (`scenery deploy setup` as root installs `scenery-agent.service`, `scenery-edge.service` binding public 80/443 directly, and a boot-time deploy resume oneshot). While the edge unit exists, edge restart/reload paths converge through systemd. Public resume uses bounded reacquisition to retain a healthy fingerprinted Caddy/helper/agent chain and restarts it only when unavailable, independently of optional `local.dev` DNS; deploy status is degraded when the loaded one-shot resume job last completed with a nonzero exit.
+- The local agent and managed edge are single-owner processes. Startup fails closed when a verified owner holds the runtime lock, reaps only same-user stale owners whose process fingerprints still match, and `scenery doctor` reports duplicate owners or foreign listeners on Scenery-owned ports. On machines configured with `scenery deploy setup`, the agent is continuously supervised by the `dev.scenery.agent` launchd LaunchAgent: LaunchAgent installs bootstrap the job (plist presence alone is not installation), teardown boots it out before removal, every agent start path cooperates with the supervisor instead of racing its KeepAlive respawn, and `scenery deploy status` reports supervision truth under `agent_supervisor` and is not `ready` without a loaded supervisor.
+- `scenery prune --older-than <duration>` removes only eligible stale session records and their matching substrate leases by default; filesystem state and managed databases require explicit `--state`, `--db`, or `--all`. `scenery system agent cleanup` is the explicit pre-rebrand sweep and signals only same-user processes whose exact legacy managed path and live ownership fingerprint both verify; legacy state removal additionally requires `--remove-state`.
+- Portable snapshots can be verified without a target app or stopped runtime. Scheduled retention, off-machine copy, and restore drills remain operator-owned through `scripts/snapshot-backup.sh` plus the host scheduler.
+- `scenery system agent restart` restarts only the local control plane and router. Registered shared substrate processes survive; destructive shutdown stays with substrate-specific commands and verified lifecycle owners.
+- Every CLI invocation best-effort appends one coarse, argument-free usage record to `~/.scenery/telemetry.jsonl`; telemetry write failures never affect the command result.
+- `.scenery.json` declares named `envs`; exactly one reserved `local` env is default. The selected env owns domain/exposure/ports, frontend serve modes, deploy targets, dotenv layering, and secret strictness. `scenery up --env <name>` selects it, session manifests record it, and failed branded-domain validation stays on localhost without redirecting to another env.
+- Public and auth endpoints are externally reachable. Private endpoints are internal-only and must be called through generated helpers.
+- Typed endpoints decode path/query/header/cookie/body inputs into Go values and encode typed responses.
+- CRUD resources can declare explicit search/filter/sort capabilities with fingerprint-bound cursor pagination. `table_page` can use that cursor-paginated CRUD list, a call-delivery HTTP binding with explicit numeric `pagination` mappings, or a binding whose named result field is one complete typed list. Binding input names are explicit through `query`, `filter.input`, and typed fixed `predicate` declarations. It can compose server metrics, declarative filters, reusable `status_map` badges, loaded-result CSV, visible/export-only columns, response-aware filter/toolbar/empty/footer slots, inline or resizable-panel row detail, an app-owned `row_action`, and generated mutation `form_dialog` actions. Only complete-list tables may group; cursor and numeric-page tables cannot. `content_page.source` is optional: sourced pages pass request state to their slots, while static slots receive no request-state props. `workspace_page` composes declared pages into one generated tabs/sidebar workspace. `detail_page` maps dynamic route parameters into one typed load operation, renders declared field sections and related tables, and shares one generated content component between routed-page and controlled-dialog presentations; simple mutations reuse `form_dialog`, while richer domain workflows stay in its typed app-owned actions slot. These page macros expand to ordinary page/renderer resources. React-enabled TypeScript clients materialize the binary-owned catalog, generated pages, typed route descriptors, TanStack route tree, navigation, and app shell only after staged verification by Scenery's exact managed native TypeScript checker. The catalog exposes composed components plus blessed Astryx primitives from `@scenery/ui` and semantic StyleX variables from the sole `@scenery/ui/tokens.stylex` subpath. Domain-specific UI remains in app-owned `react_component` slots or the generated app's fixed extension/visual slots, never in Scenery's catalog or compiler.
+- Generated table metrics may format primary/sub values and declaratively set, toggle, or clear typed filters or predicates through the table's singular request state. Date/datetime filter presets are local-calendar client shortcuts over the existing paired typed inputs.
+- `scenery inspect ui` gives declared React frontends a read-only, per-file markup/style adherence report and ranked cleanup queue; its score is triage guidance, not enforcement.
+- Terminal HTTP path tails use `{name...}` plus one typed `path_tail` mapping under the HTTP codec/runtime contract. They capture zero or more complete segments with exact/literal/parameter/tail precedence, strict one-time segment decoding, ordinary typed Go inputs, and independently encoded TypeScript segments.
+- Generated internal calls preserve route, private access, auth context, tracing, and error semantics.
+- Constructors receive typed `scenery.sh/datasource` and `scenery.sh/object` capabilities; built-in CRUD, fixtures, views, pages, and renderers stay in the same generated application composition.
+- Go packages beneath `pkg/` may declare a contract-bearing `library` whose generated typed facade selects source linkage or a verified hot-swappable c-shared artifact per environment. Shared linkage supports exactly darwin/arm64 and linux/amd64, loads through `scenery.sh/library`, and never unloads a Go runtime.
+- Agent capabilities expose exact `resource_create_kinds`; `scenery schema` / `schema.get` provide the recursive authored shape, and semantic creation must reject unadvertised kinds instead of guessing blocks, labels, or source destinations.
+- Mutation plans normalize typed values/references and resolved kind/schema identities before hashing. Planning retains the exact canonical plan under app-local trusted state, and apply rejects caller-recomputed plans before trusting expiry, approvals, operations, edits, or provider actions. Approval-bearing migration transitions use `--out <plan>` followed by `migrate apply <plan>` so the detached token binds the exact issued plan instead of a replanned expiry. Semantic renames emit revision-bound, digest-checked plan/apply receipts, including migration-manifest references and containing-module descendants; later diffs load matching app-local receipts or accept `--rename-receipts` explicitly.
+
+### Fully Generated Client Rules
+
+React-enabled client apps use the generated route tree, navigation, and shell, with app-owned code reduced to one route-descriptor extension array and fixed visual slots:
+
+- Prefer generation-shaped contracts: a page's routing surface is data (path, search-parameter schema, component reference), not app logic. Search-parameter contracts belong in the page's `.scn` declaration, not in hand-written client router code.
+- Route-descriptor and route-tree generation belongs in `internal/generate`, never in the `ui/` catalog; the catalog stays router-agnostic with router libraries as app-side peers.
+- Overrides flow through declared slots and app-owned `react_component` resources only. Do not add override mechanisms that require apps to edit or fork materialized output.
+- Hand-written pages register through `SceneryRouteDescriptor`; do not create a second TanStack route tree, navigation list, shell, or parallel page-selection system.
+- A generated-page conversion does not cut over or delete its hand-written production route until a feature-by-feature inventory, focused tests that survive the deletion, and authenticated browser acceptance prove identical functionality. Keep the generated candidate on a separate non-navigation route until that gate passes.
+
+### Public Surface Checklist
+
+When editing source that changes the public app model, confirm the docs and tests cover:
+
+- services, operations, executions, HTTP/internal/CLI bindings, authentication, authorization, and middleware resources
+- CLI bindings, including generated help/completion, typed input, trusted context, delivery, outcomes, and exit codes
+- `std.type.unit`, data sources, entities/views/CRUD/fixtures, pages/renderers, and typed constructor capability injection
+- generated contract input/outcome types and explicit `.scn` HTTP request/response mappings
+- public packages: `scenery`, `auth`, `errs`, `durable`, `db`, `datasource`, `object`, `storage`
+- standard auth configuration and generated endpoints
+- private/internal call behavior
+- worker, durable, schedule, middleware, and generated TypeScript client behavior when touched
+
+### Fresh Worktree Preflight
+
+A fresh worktree fails UI and self-harness lanes for environment reasons, not code reasons, until:
+
+1. Self-harness provisions `apps/console` dependencies itself: the `console dependencies` step runs `bun install --frozen-lockfile` before the tsc-dependent lanes and skips them with one actionable diagnostic when bun is missing or the install fails. No manual `bun install` is needed; only the `bun` binary itself must be installed.
+2. `./scripts/build-dashboard-ui-embed.sh` runs once. Only `placeholder.txt` is tracked under `cmd/scenery/dashboard_static/dist`; the real embed bundle is built locally.
+3. Self-harness runs through the worktree-local binary: `.scenery/harness/bin/scenery harness self --summary --write`. The `dashboard ui fresh` lane compares the invoking binary's own embedded dashboard bundle in-process, so the installed PATH `scenery` fails that lane in any worktree whose console build differs. The first installed-`scenery` run builds the worktree-local binary; rerun through it before trusting the `dashboard ui fresh` result.
+
+### Self-Harness Timing
+
+Self-harness timing keeps a five-second optimization target separate from its operational lanes: cached and fresh runs use five-second advisory budgets, while release mode enforces 30 seconds. Only explicit `--fresh-tests` runs use isolated timing confirmation. That fresh lane uses package parallelism three, selected from repeated measurements on the maintainer machine. The postgres service probe runs its smoke proof by default and its full DB proof (durable, auth, reset, snapshot) only in release mode; its step summary carries per-segment timings.
 
 ## Keeping Agent Docs Fresh
 

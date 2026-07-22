@@ -1,5 +1,16 @@
 # scenery Local Contract
 
+This file is large; read only the sections covering the surface you are
+changing. Each section is self-contained.
+
+- [Current Scenery contract](#current-scenery-contract) — role-named source files, the implemented command surface, and the revision model.
+- [Status](#status) — what is implemented now versus explicitly out of scope.
+- [App Config](#app-config) — the `.scenery.json` schema: envs, watch, frontends, deploy targets, and dev services.
+- [CLI Grammar](#cli-grammar) — the full implemented command grammar with flags, output modes, and exit semantics.
+- [Artifact Locations](#artifact-locations) — generated artifact paths and repo-local cache locations.
+- [JSON Schemas](#json-schemas) — machine-readable envelope and payload schemas under `docs/schemas/`.
+- [Examples](#examples) — representative `-o json` outputs per inspect and observability command.
+
 ## Current Scenery contract
 
 An app containing `app.scn` uses the compiler described by [the evolving current specification](spec/SPEC.md). Package contracts are named `package.scn` and the optional generated dependency lock is `app.lock.scn`. Retired pre-cutover filenames are rejected with `SCN1021` and an exact rename instruction; they are not aliases. Go comments and package-initialization builders are not application-model syntax.
@@ -399,7 +410,9 @@ Rules:
 
 ## CLI Grammar
 
-Current implemented grammar:
+Current implemented grammar, grouped by surface:
+
+### Runtime and sessions
 
 ```text
 scenery up [--env <name>] [--port <n>] [--listen <addr>] [--app-root <path>] [--claim-aliases] [--verbose] [-o jsonl] [--detach] [--wait ready|registered]
@@ -407,13 +420,6 @@ scenery logs --follow [--app-root <path>] [--limit <n>] [--stream all|stdout|std
 scenery logs query [--app-root <path>] --query <logsql> [--since <duration>] [--start <time>] [--end <time>] [--limit <n>] [--timeout <duration>] [--fields <csv>] [-o json|-o jsonl]
 scenery logs tail [--app-root <path>] --query <logsql> [--since <duration>] [--timeout <duration>] [--fields <csv>] [-o jsonl]
 scenery console [--app-root <path>] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>]
-scenery system agent [--socket <path>] [--router-listen <addr>] [--router-tls|--router-http] [--trust] [-o json]
-scenery system agent restart [--socket <path>] [--router-listen <addr>] [--router-tls|--router-http] [--trust] [-o json]
-scenery system agent cleanup [--remove-state] [-o json]
-scenery system edge install|trust|status|restart|uninstall|dns|privileged [-o json]
-scenery help <command>
-scenery help all
-scenery help -o json
 scenery ps [-o json] [--app-root <path>] [--watch]
 scenery down [--app-root <path>] [--db] [--state] [--all] [-o json]
 scenery prune --older-than <duration> [--app-root <path>] [--db] [--state] [--all] [-o json]
@@ -421,8 +427,31 @@ scenery worker [--app-root <path>] [--env <name>] [--log-format text|json]
 scenery worker durable --endpoint <url> --token <token> [--service <name>]... [--app-root <path>] [--env <name>] [--log-format text|json]
 scenery worker durable jobs list|inspect|cancel|retry [job-id] --service <name> [--app-root <path>] -o json
 scenery worker durable token create --service <name> [--name <name>] [--id <id>] [--app-root <path>] -o json
+scenery logs [--app-root <path>] [--limit <n>] [--stream all|stdout|stderr] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>] [--follow] [-o jsonl|-o json]
+```
+
+### System, toolchain, and doctor
+
+```text
+scenery system agent [--socket <path>] [--router-listen <addr>] [--router-tls|--router-http] [--trust] [-o json]
+scenery system agent restart [--socket <path>] [--router-listen <addr>] [--router-tls|--router-http] [--trust] [-o json]
+scenery system agent cleanup [--remove-state] [-o json]
+scenery system edge install|trust|status|restart|uninstall|dns|privileged [-o json]
+scenery help <command>
+scenery help all
+scenery help -o json
 scenery version [-o json]
 scenery upgrade [--target <path>] [--toolchain installed|all|none] [--force] [--dry-run] [-o json]
+scenery system toolchain list [-o json] [--include-source-locks] [--all] [--tool <name>] [--platform <goos/goarch>] [--images]
+scenery system toolchain sync [-o json] [--all] [--tool <name>] [--platform <goos/goarch>] [--images]
+scenery system toolchain verify [-o json] [--all] [--tool <name>] [--platform <goos/goarch>] [--images] [--strict]
+scenery system toolchain path [-o json] --tool <name> [--platform <goos/goarch>]
+scenery doctor [--app-root <path>] [-o json]
+```
+
+### Deploy
+
+```text
 scenery deploy <ssh-target> [--app-root <path>]
 scenery deploy --env <name> [--app-root <path>]
 scenery deploy enable [--app-root <path>] [-o json]
@@ -432,14 +461,22 @@ scenery deploy status [-o json]
 scenery deploy setup [--acme-email <email>] [--acme-ca production|staging] [-o json]
 scenery deploy resume [-o json]
 scenery deploy teardown [-o json]
-scenery system toolchain list [-o json] [--include-source-locks] [--all] [--tool <name>] [--platform <goos/goarch>] [--images]
-scenery system toolchain sync [-o json] [--all] [--tool <name>] [--platform <goos/goarch>] [--images]
-scenery system toolchain verify [-o json] [--all] [--tool <name>] [--platform <goos/goarch>] [--images] [--strict]
-scenery system toolchain path [-o json] --tool <name> [--platform <goos/goarch>]
-scenery doctor [--app-root <path>] [-o json]
+```
+
+### Build, check, and generate
+
+```text
 scenery build [--app-root <path>] [--target <go-target>] [--output <path>] [-o human|json]
 scenery build --lib <name|address|artifact> [--version <vN.N.N>] [--platform all|host|darwin/arm64|linux/amd64|<csv>] [--app-root <path>] [--output <directory>] [-o human|json]
 scenery check [--app-root <path>] [-o json]
+scenery generate [--app-root <path>] [--dry-run] [-o json]
+scenery generate sqlc [--app-root <path>] [--dry-run] [-o json]
+scenery test [--app-root <path>] [go test flags/packages...]
+```
+
+### Databases, snapshots, and storage
+
+```text
 scenery db list [--app-root <path>] [-o json]
 scenery db shell [service] [--app-root <path>] [psql args...]
 scenery db apply [--app-root <path>] [-o json]
@@ -451,8 +488,6 @@ scenery db server status|start|stop|logs [-o json] [--yes]
 scenery snapshot save --output <file.zip> [--db] [--storage] [--app-root <path>] [-o human|json]
 scenery snapshot verify --input <file.zip> [-o human|json]
 scenery snapshot load --input <file.zip> [--db] [--storage] --mode overwrite|merge [--on-conflict fail|skip|overwrite] [--yes] [--dry-run] [--app-root <path>] [-o human|json]
-scenery generate [--app-root <path>] [--dry-run] [-o json]
-scenery generate sqlc [--app-root <path>] [--dry-run] [-o json]
 scenery storage status [--app-root <path>] -o json
 scenery storage webui [--app-root <path>] -o json
 scenery storage ls <store> [--prefix <prefix>] [--cursor <cursor>] [--limit <n>] [--app-root <path>] -o json
@@ -461,6 +496,11 @@ scenery storage put <store> <key> <file> [--app-root <path>] -o json
 scenery storage get <store> <key> --output <file> [--app-root <path>] -o json
 scenery storage rm <store> <key> [--recursive] [--app-root <path>] -o json
 scenery storage cleanup [--yes] [--app-root <path>] -o json
+```
+
+### Tasks, symphony, and validation
+
+```text
 scenery symphony auto --on|--off [--app-root <path>]
 scenery task list [--app-root <path>] [-o json]
 scenery task inspect <target> [--app-root <path>] [--lang go|typescript] [-o json]
@@ -472,6 +512,11 @@ scenery validate list [--app-root <path>] [-o json]
 scenery validate inspect <profile> [--app-root <path>] [-o json]
 scenery validate graph [<profile>] [--app-root <path>] -o json
 scenery validate changed [--base <ref>] [--app-root <path>] [-o json] [--write] [--dry-run]
+```
+
+### Harness, inspection, and observability
+
+```text
 scenery harness [--app-root <path>] [-o json] [--write] [--with-validation[=<profile>]]
 scenery harness self [--repo-root <path>] [--summary] [-o human|json] [--write] [--quick|--race|--release] [--fresh-tests]
 scenery harness ui -o json [--app-root <path>] [--dashboard-url <url>] [--headed] [--write]
@@ -485,8 +530,6 @@ scenery metrics query -o json [--app-root <path>] --promql <query> [--instant] [
 scenery metrics labels -o json [--app-root <path>] [--match <selector>] [--since <duration>] [--start <time>] [--end <time>] [--timeout <duration>] [--limit <n>]
 scenery metrics series -o json [--app-root <path>] --match <selector> [--since <duration>] [--start <time>] [--end <time>] [--timeout <duration>] [--limit <n>]
 scenery traces clear -o json [--app-root <path>]
-scenery logs [--app-root <path>] [--limit <n>] [--stream all|stdout|stderr] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>] [--follow] [-o jsonl|-o json]
-scenery test [--app-root <path>] [go test flags/packages...]
 ```
 
 Implemented beta/dev helper grammar:

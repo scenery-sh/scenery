@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -63,6 +64,11 @@ func runHarnessKnowledgeStep(repoRoot string) harnessStep {
 
 	linksChecked, linkDiagnostics := checkHarnessMarkdownLinks(repoRoot, knowledge.Entrypoints)
 	diagnostics = append(diagnostics, linkDiagnostics...)
+	budgetDiagnostics, budgetSummary := validateInstructionDocBudgets(repoRoot)
+	diagnostics = append(diagnostics, budgetDiagnostics...)
+	for key, value := range budgetSummary {
+		step.Summary[key] = value
+	}
 	docsDiagnostics, docsSummary := validateDocsKnowledge(repoRoot)
 	diagnostics = append(diagnostics, docsDiagnostics...)
 	step.Summary["links_checked"] = linksChecked
@@ -118,7 +124,24 @@ func checkHarnessMarkdownLinks(repoRoot string, files []harnessKnowledgeFile) (i
 			})
 			continue
 		}
+		var slugs map[string]struct{}
 		for _, raw := range markdownLinkTargets(string(data)) {
+			if fragment, ok := strings.CutPrefix(strings.TrimSpace(raw), "#"); ok && fragment != "" {
+				if slugs == nil {
+					slugs = markdownHeadingSlugs(string(data))
+				}
+				checked++
+				if _, ok := slugs[fragment]; !ok {
+					diagnostics = append(diagnostics, checkDiagnostic{
+						Stage:           "knowledge contract",
+						Severity:        "error",
+						File:            filepath.ToSlash(path),
+						Message:         "intra-document anchor link has no matching heading: #" + fragment,
+						SuggestedAction: "Fix the anchor or the heading it points to, then rerun `scenery harness self -o json`.",
+					})
+				}
+				continue
+			}
 			target, ok := normalizeHarnessMarkdownLink(raw)
 			if !ok {
 				continue
@@ -140,6 +163,110 @@ func checkHarnessMarkdownLinks(repoRoot string, files []harnessKnowledgeFile) (i
 		}
 	}
 	return checked, diagnostics
+}
+
+// markdownHeadingSlugs collects GitHub-style anchor slugs for every heading
+// outside fenced code blocks.
+func markdownHeadingSlugs(text string) map[string]struct{} {
+	slugs := map[string]struct{}{}
+	inFence := false
+	for _, line := range strings.Split(text, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "```") {
+			inFence = !inFence
+			continue
+		}
+		if inFence || !strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		title := strings.TrimLeft(trimmed, "#")
+		if !strings.HasPrefix(title, " ") {
+			continue
+		}
+		slugs[markdownHeadingSlug(strings.TrimSpace(title))] = struct{}{}
+	}
+	return slugs
+}
+
+// markdownHeadingSlug mirrors GitHub anchor generation: lowercase, spaces
+// become hyphens, hyphens and underscores survive, other punctuation drops.
+func markdownHeadingSlug(title string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(title) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '-', r == '_':
+			b.WriteRune(r)
+		case r == ' ':
+			b.WriteByte('-')
+		}
+	}
+	return b.String()
+}
+
+// Instruction docs are loaded into every agent session, so self-harness warns
+// when they outgrow lean-prompt budgets instead of silently accreting.
+const (
+	rootInstructionDocWarnWords  = 2500
+	childInstructionDocWarnWords = 800
+)
+
+func validateInstructionDocBudgets(repoRoot string) ([]checkDiagnostic, map[string]any) {
+	summary := map[string]any{}
+	var diagnostics []checkDiagnostic
+	checked := 0
+	warned := 0
+	err := filepath.WalkDir(repoRoot, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, relErr := filepath.Rel(repoRoot, path)
+		if relErr != nil {
+			return relErr
+		}
+		rel = filepath.ToSlash(rel)
+		if entry.IsDir() {
+			if architectureSkipDir(rel) || strings.HasSuffix(rel, "/testdata") || rel == "testdata" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if entry.Name() != "AGENTS.md" {
+			return nil
+		}
+		data, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return nil
+		}
+		checked++
+		words := len(strings.Fields(string(data)))
+		budget := childInstructionDocWarnWords
+		if rel == "AGENTS.md" {
+			budget = rootInstructionDocWarnWords
+		}
+		if words <= budget {
+			return nil
+		}
+		warned++
+		diagnostics = append(diagnostics, checkDiagnostic{
+			Stage:           "knowledge contract",
+			Severity:        "warning",
+			File:            filepath.ToSlash(path),
+			Message:         fmt.Sprintf("instruction doc exceeds its lean budget: %d words (budget %d)", words, budget),
+			SuggestedAction: "Move detail into docs/agent-guide.md or docs/local-contract.md and keep the instruction doc as compact rules plus pointers.",
+		})
+		return nil
+	})
+	if err != nil {
+		diagnostics = append(diagnostics, checkDiagnostic{
+			Stage:           "knowledge contract",
+			Severity:        "error",
+			Message:         err.Error(),
+			SuggestedAction: "Fix the instruction-doc walk error, then rerun `scenery harness self -o json`.",
+		})
+	}
+	summary["instruction_docs_checked"] = checked
+	summary["instruction_doc_budget_warnings"] = warned
+	return diagnostics, summary
 }
 
 func markdownLinkTargets(text string) []string {

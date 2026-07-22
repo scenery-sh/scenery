@@ -1,6 +1,20 @@
 # Tech Debt
 
-This file tracks known project debt that should be visible to agents before they start large edits.
+This file tracks known project debt that should be visible to agents before they start large edits. Skim this list, then read only the entries touching your surface.
+
+- [Resolved](#resolved)
+- [Open](#open)
+  - [Agent Thread Findings - 2026-07-03](#agent-thread-findings---2026-07-03)
+  - [Agent Thread Findings - 2026-07-02](#agent-thread-findings---2026-07-02)
+  - [Agent Thread Findings - 2026-07-01](#agent-thread-findings---2026-07-01)
+  - [Agent Thread Findings - 2026-06-30](#agent-thread-findings---2026-06-30)
+  - [Agent Thread Findings - 2026-06-29](#agent-thread-findings---2026-06-29)
+  - [Agent Thread Findings - 2026-06-28](#agent-thread-findings---2026-06-28)
+  - [Agent Thread Findings - 2026-06-27](#agent-thread-findings---2026-06-27)
+  - [Full Dashboard Parity](#full-dashboard-parity)
+  - [Browser Harness Fixture-Backed Mutation Depth](#browser-harness-fixture-backed-mutation-depth)
+  - [Deeper Architecture Checks](#deeper-architecture-checks)
+  - [Long Build Tests](#long-build-tests)
 
 ## Resolved
 

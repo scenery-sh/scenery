@@ -2,8 +2,7 @@
 
 This file is the repo-local operating manual for AI agents changing `scenery.sh`.
 
-Optimize for agents: prefer concise rules, exact commands, and machine-readable contracts over long prose.
-
+Optimize for agents: prefer concise rules, exact commands, and machine-readable contracts over long prose. Read what covers the surface you are changing; do not preload everything.
 
 ## Core Model
 
@@ -18,10 +17,10 @@ Use the narrowest current source of truth that applies:
 
 1. `AGENTS.md` gives repo-local rules for changing scenery itself.
 2. `SKILL.md` is the installable skill for agents working inside any scenery app.
-3. `docs/agent-guide.md` explains agent workflows, generated artifacts, and client-app integration.
-4. `docs/local-contract.md` is the contract for CLI grammar, JSON schemas, artifact paths, and stability labels.
+3. `docs/agent-guide.md` explains agent workflows, generated artifacts, client-app integration, and the full repository mental model.
+4. `docs/local-contract.md` is the contract for CLI grammar, JSON schemas, artifact paths, and stability labels; its table of contents supports reading sections selectively.
 5. `docs/app-development-cookbook.md` gives practical app-building recipes.
-6. `ARCHITECTURE.md` is the stable code map: the central `.scn` → compiler → generation → runtime flow, package boundaries, and architecture invariants. Read it before deciding where a change belongs.
+6. `ARCHITECTURE.md` is the stable code map. Read it before deciding where a change belongs.
 7. `scenery inspect ... -o json`, schemas under `docs/schemas/`, and harness command outputs are stronger than old prose when they disagree. Generated files under `.scenery/gen/` are cache, not an API.
 
 When implementation and docs disagree, the same PR must either fix the affected docs or open/update an ExecPlan that records the drift, owner, and intended resolution path.
@@ -30,27 +29,11 @@ When implementation and docs disagree, the same PR must either fix the affected 
 
 `AGENTS.md` files are scoped operating contracts for the subtree that contains them.
 
-Before editing non-trivial changes:
+Before editing: identify the paths you will touch and read every `AGENTS.md` from the repository root down to each of them, in the current session — do not rely on memory. The closest file controls local details; parents still apply for repo-wide rules, and child docs must not weaken root engineering rules, public contracts, generated-artifact rules, or validation requirements. When docs conflict, current implementation, tests, CLI JSON output, and schemas win.
 
-1. Read this root `AGENTS.md`.
-2. Identify the files and directories you expect to touch.
-3. For each target path, walk from the repository root to that path and read every `AGENTS.md` found along the way.
-4. Use the closest `AGENTS.md` for local details; parent `AGENTS.md` files still apply for repo-wide rules.
-5. When docs conflict, current implementation, tests, CLI JSON output, schemas, and the narrower `AGENTS.md` control local details, but child docs must not weaken root engineering rules, public contracts, generated-artifact rules, or validation requirements.
-6. Do not rely on memory. Re-check the applicable instruction chain in the current session before editing.
+After meaningful changes, update the nearest owning `AGENTS.md` (and this root file when repo-wide rules, instruction layering, public behavior, validation policy, or the child index change), keeping `docs/knowledge.json`, `SKILL.md`, `docs/agent-guide.md`, and child docs synchronized when the same contract is affected. Small implementation-only edits need no instruction-doc updates; still report that docs were intentionally left unchanged.
 
-After meaningful changes:
-
-- Update the nearest owning `AGENTS.md` when the change alters durable purpose, ownership, workflow, generated paths, validation commands, quality rules, required inputs/outputs, side effects, or future agent behavior for that subtree.
-- Update this root `AGENTS.md` when the change alters repo-wide rules, instruction layering, public scenery behavior, validation policy, or the child index.
-- Keep `docs/knowledge.json`, docs indexes, `SKILL.md`, `docs/agent-guide.md`, and child `AGENTS.md` files synchronized when the same contract is affected.
-- Do not update instruction docs for small implementation-only edits that do not change future agent behavior; still report that instruction docs were intentionally left unchanged.
-
-Child `AGENTS.md` files:
-
-- Add one only when a directory becomes a durable boundary with its own purpose, contracts, workflow, verification, or quality standards.
-- Keep child docs short and operational. Put broad scenery rules here; put concrete local commands and exceptions in the child.
-- Preferred section order for new child docs: Purpose, Ownership, Local Contracts, Work Guidance, Verification, Child Agent Index.
+Add a child `AGENTS.md` only when a directory becomes a durable boundary with its own purpose, contracts, workflow, verification, or quality standards. Keep child docs short and operational, preferring the section order: Purpose, Ownership, Local Contracts, Work Guidance, Verification, Child Agent Index.
 
 ### Child Agent Index
 
@@ -73,80 +56,29 @@ Child `AGENTS.md` files:
 - `docs/spec/AGENTS.md` owns the evolving current specification set and conformance update rules.
 - `ui/AGENTS.md` owns the binary-embedded Astryx + StyleX component catalog materialized into React-enabled TypeScript clients.
 
-## Agent skills
+## Autonomy Policy
 
-### Subagents
+Reading, `-o json` inspection, builds, cached tests, and `scenery up` in a worktree are safe by default. The following need explicit human direction or a recorded exception:
 
-Do not spawn subagents (background review/research/explore agents, multi-agent workflows) unless the human explicitly asks for them. Do the reading and analysis in the main session.
+- Do not spawn subagents (background review/research/explore agents, multi-agent workflows) unless the human explicitly asks; do the reading and analysis in the main session.
+- Do not run `go install ./cmd/scenery` during validation; worktrees share the installed path — use self-harness' worktree-local `.scenery/harness/bin/scenery`.
+- Do not add environment-variable knobs unless the human explicitly asks or an active ExecPlan records why flags/config are insufficient.
+- Browser work defaults to the `chrome:control-chrome` skill.
+- Issues and product specs live as Markdown under `.scratch/<feature>/` (`docs/agents/issue-tracker.md`); use the default five-role triage vocabulary (`docs/agents/triage-labels.md`); domain docs follow root `CONTEXT-MAP.md` plus per-context `CONTEXT.md` (`docs/agents/domain.md`).
 
-### Browser automation
-
-When browser interaction is needed, use the `chrome:control-chrome` skill by default unless the user explicitly asks for a different browser surface or tool.
-
-### Issue tracker
-
-Issues and product specs for this repo live as Markdown under `.scratch/<feature>/`; external PRs are not a triage surface. See `docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-Use the default five-role triage vocabulary as local issue status values. See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-Use a multi-context domain docs layout with root `CONTEXT-MAP.md` plus per-context `CONTEXT.md` files. See `docs/agents/domain.md`.
-
-## Current Mental Model
+## Mental Model
 
 scenery is a Go-native service runtime and local development platform. Think in app roots, app runtimes, and capability surfaces first; Victoria, agent routing, generated cache files, hidden ports, and local stores are substrate details unless the task is explicitly debugging that substrate.
 
-- App roots are marked by `.scenery.json`.
-- `.scn` source is the singular current app model. Root `app.scn` installs package-local `package.scn` modules and pairs with generated `app.lock.scn`; retired contract filenames fail with `SCN1021` instead of acting as aliases. Go source implements the generated native contracts but is not scanned for declarations.
-- Generated Go contracts, adapters, composition, descriptors, and entrypoints live in external build/editor caches. Successful compilation maintains an ownership-verified, locally excluded root `go.work` for raw Go/editor resolution; source materialization is explicit export mode only.
-- The compiler exposes source/effective/expanded graphs and separate workspace, contract, implementation, deployment, and artifact revisions. Source retains authored expressions, effective resolves inputs/defaults/patches, expanded adds generators, and every provenance key is an RFC 6901 pointer into that view's resource spec.
-- `scenery task run <domain>:<name> -- [args...]` runs an app-local code task.
-- `scenery worker` builds once and starts a worker-role runtime for declared durable executions and schedules.
-- `scenery up` starts the app root's one live dev runtime: supervised app process, file watching, dashboard, API explorer, logs, traces, metrics, managed dev services, and optional frontend routing. Detached `--wait ready` returns only after every advertised route and one declared frontend asset are reachable. Re-running `scenery up` while a verified live owner already runs the same app root succeeds instead of failing: the human foreground form reports that runtime and attaches to its logs (Ctrl+C detaches without stopping it), `-o jsonl` reports and exits `0`, and detached reruns apply the requested wait readiness to the existing owner and set `already_running` in the JSON result. While that supervisor remains live, shared Victoria observability is probed and recovered as one managed stack; failed recovery is always surfaced as a degraded error rather than hidden behind verbose output.
-- `scenery deploy <ssh-target>` is beta single-server source sync: the target belongs to exactly one `envs.<name>.deploy.ssh`; the remote restart and publication use that env name, rsync preserves remote `.env*` and `.scenery`, and status/registry records the environment. `scenery deploy --env <name>` selects the env directly when it has one target.
-- Public deploy hosts have two service managers: launchd on macOS (privileged loopback helper) and systemd on Linux (`scenery deploy setup` as root installs `scenery-agent.service`, `scenery-edge.service` binding public 80/443 directly, and a boot-time deploy resume oneshot). While the edge unit exists, edge restart/reload paths converge through systemd. Public resume uses bounded reacquisition to retain a healthy fingerprinted Caddy/helper/agent chain and restarts it only when unavailable, independently of optional `local.dev` DNS; deploy status is degraded when the loaded one-shot resume job last completed with a nonzero exit.
-- The local agent and managed edge are single-owner processes. Startup fails closed when a verified owner holds the runtime lock, reaps only same-user stale owners whose process fingerprints still match, and `scenery doctor` reports duplicate owners or foreign listeners on Scenery-owned ports. On machines configured with `scenery deploy setup`, the agent is continuously supervised by the `dev.scenery.agent` launchd LaunchAgent: LaunchAgent installs bootstrap the job (plist presence alone is not installation), teardown boots it out before removal, every agent start path cooperates with the supervisor instead of racing its KeepAlive respawn, and `scenery deploy status` reports supervision truth under `agent_supervisor` and is not `ready` without a loaded supervisor.
-- `scenery prune --older-than <duration>` removes only eligible stale session records and their matching substrate leases by default; filesystem state and managed databases require explicit `--state`, `--db`, or `--all`. `scenery system agent cleanup` is the explicit pre-rebrand sweep and signals only same-user processes whose exact legacy managed path and live ownership fingerprint both verify; legacy state removal additionally requires `--remove-state`.
-- Portable snapshots can be verified without a target app or stopped runtime. Scheduled retention, off-machine copy, and restore drills remain operator-owned through `scripts/snapshot-backup.sh` plus the host scheduler.
-- `scenery system agent restart` restarts only the local control plane and router. Registered shared substrate processes survive; destructive shutdown stays with substrate-specific commands and verified lifecycle owners.
-- Every CLI invocation best-effort appends one coarse, argument-free usage record to `~/.scenery/telemetry.jsonl`; telemetry write failures never affect the command result.
-- `.scenery.json` declares named `envs`; exactly one reserved `local` env is default. The selected env owns domain/exposure/ports, frontend serve modes, deploy targets, dotenv layering, and secret strictness. `scenery up --env <name>` selects it, session manifests record it, and failed branded-domain validation stays on localhost without redirecting to another env.
-- Public and auth endpoints are externally reachable. Private endpoints are internal-only and must be called through generated helpers.
-- Typed endpoints decode path/query/header/cookie/body inputs into Go values and encode typed responses.
-- CRUD resources can declare explicit search/filter/sort capabilities with fingerprint-bound cursor pagination. `table_page` can use that cursor-paginated CRUD list, a call-delivery HTTP binding with explicit numeric `pagination` mappings, or a binding whose named result field is one complete typed list. Binding input names are explicit through `query`, `filter.input`, and typed fixed `predicate` declarations. It can compose server metrics, declarative filters, reusable `status_map` badges, loaded-result CSV, visible/export-only columns, response-aware filter/toolbar/empty/footer slots, inline or resizable-panel row detail, an app-owned `row_action`, and generated mutation `form_dialog` actions. Only complete-list tables may group; cursor and numeric-page tables cannot. `content_page.source` is optional: sourced pages pass request state to their slots, while static slots receive no request-state props. `workspace_page` composes declared pages into one generated tabs/sidebar workspace. `detail_page` maps dynamic route parameters into one typed load operation, renders declared field sections and related tables, and shares one generated content component between routed-page and controlled-dialog presentations; simple mutations reuse `form_dialog`, while richer domain workflows stay in its typed app-owned actions slot. These page macros expand to ordinary page/renderer resources. React-enabled TypeScript clients materialize the binary-owned catalog, generated pages, typed route descriptors, TanStack route tree, navigation, and app shell only after staged verification by Scenery's exact managed native TypeScript checker. The catalog exposes composed components plus blessed Astryx primitives from `@scenery/ui` and semantic StyleX variables from the sole `@scenery/ui/tokens.stylex` subpath. Domain-specific UI remains in app-owned `react_component` slots or the generated app's fixed extension/visual slots, never in Scenery's catalog or compiler.
-- Generated table metrics may format primary/sub values and declaratively set, toggle, or clear typed filters or predicates through the table's singular request state. Date/datetime filter presets are local-calendar client shortcuts over the existing paired typed inputs.
-- `scenery inspect ui` gives declared React frontends a read-only, per-file markup/style adherence report and ranked cleanup queue; its score is triage guidance, not enforcement.
-- Terminal HTTP path tails use `{name...}` plus one typed `path_tail` mapping under the HTTP codec/runtime contract. They capture zero or more complete segments with exact/literal/parameter/tail precedence, strict one-time segment decoding, ordinary typed Go inputs, and independently encoded TypeScript segments.
-- Generated internal calls preserve route, private access, auth context, tracing, and error semantics.
-- Constructors receive typed `scenery.sh/datasource` and `scenery.sh/object` capabilities; built-in CRUD, fixtures, views, pages, and renderers stay in the same generated application composition.
-- Go packages beneath `pkg/` may declare a contract-bearing `library` whose generated typed facade selects source linkage or a verified hot-swappable c-shared artifact per environment. Shared linkage supports exactly darwin/arm64 and linux/amd64, loads through `scenery.sh/library`, and never unloads a Go runtime.
-- Agent capabilities expose exact `resource_create_kinds`; `scenery schema` / `schema.get` provide the recursive authored shape, and semantic creation must reject unadvertised kinds instead of guessing blocks, labels, or source destinations.
-- Mutation plans normalize typed values/references and resolved kind/schema identities before hashing. Planning retains the exact canonical plan under app-local trusted state, and apply rejects caller-recomputed plans before trusting expiry, approvals, operations, edits, or provider actions. Approval-bearing migration transitions use `--out <plan>` followed by `migrate apply <plan>` so the detached token binds the exact issued plan instead of a replanned expiry. Semantic renames emit revision-bound, digest-checked plan/apply receipts, including migration-manifest references and containing-module descendants; later diffs load matching app-local receipts or accept `--rename-receipts` explicitly.
+- App roots are marked by `.scenery.json` with named `envs` (reserved default `local`). `.scn` source is the singular current app model; Go implements the generated native contracts but is not scanned for declarations.
+- The compiler exposes source/effective/expanded graphs with separate workspace, contract, implementation, deployment, and artifact revisions; every provenance key is an RFC 6901 pointer into that view's resource spec.
+- `scenery up` runs the app root's one live dev runtime; `scenery worker` runs the worker role; `scenery task run <domain>:<name>` runs app-local code tasks. The local agent and managed edge are single-owner processes that fail closed on ownership conflicts.
+- Typed endpoints, CRUD with fingerprint-bound cursor pagination, and page macros (`table_page`, `content_page`, `workspace_page`, `detail_page`) expand to ordinary page/renderer resources. React-enabled clients materialize the binary-owned catalog, generated route tree, navigation, and shell; domain-specific UI stays in app-owned `react_component` slots, never in Scenery's catalog or compiler.
+- Mutation, migration, and deploy plans are revision-bound and digest-checked; apply rejects caller-recomputed plans.
 
-### Fully generated clients
+The full repository mental model — runtime/deploy lifecycle, plan and receipt semantics, page-macro capabilities, and the fully-generated-client rules — lives in `docs/agent-guide.md` § Working In The scenery Repository. Exact grammar and schemas live in `docs/local-contract.md`.
 
-React-enabled client apps use the generated route tree, navigation, and shell,
-with app-owned code reduced to one route-descriptor extension array and fixed
-visual slots:
-
-- Prefer generation-shaped contracts: a page's routing surface is data (path, search-parameter schema, component reference), not app logic. Search-parameter contracts belong in the page's `.scn` declaration, not in hand-written client router code.
-- Route-descriptor and route-tree generation belongs in `internal/generate`, never in the `ui/` catalog; the catalog stays router-agnostic with router libraries as app-side peers.
-- Overrides flow through declared slots and app-owned `react_component` resources only. Do not add override mechanisms that require apps to edit or fork materialized output.
-- Hand-written pages register through `SceneryRouteDescriptor`; do not create a
-  second TanStack route tree, navigation list, shell, or parallel page-selection
-  system.
-- A generated-page conversion does not cut over or delete its hand-written
-  production route until a feature-by-feature inventory, focused tests that
-  survive the deletion, and authenticated browser acceptance prove identical
-  functionality. Keep the generated candidate on a separate non-navigation
-  route until that gate passes.
-
-Scenery does not have legacy support. It has **one rolling Scenery specification, one compiler, one runtime path, and one machine protocol—the ones shipped by the current Scenery binary.**
-
-Do not add deprecated APIs, compatibility aliases, old decoders, or fallback runtime paths.
+Scenery does not have legacy support. It has **one rolling Scenery specification, one compiler, one runtime path, and one machine protocol — the ones shipped by the current Scenery binary.** Do not add deprecated APIs, compatibility aliases, old decoders, or fallback runtime paths.
 
 ## Engineering Rules
 
@@ -154,255 +86,92 @@ Do not add deprecated APIs, compatibility aliases, old decoders, or fallback run
 - Keep public surface small, current, and singular. Remove obsolete spellings instead of carrying compatibility shims.
 - Keep `internal/app` free of the PostgreSQL driver layer; deterministic database/schema/env naming belongs in `internal/postgresname`.
 - Keep `golang.org/x/tools/go/packages` inside `internal/parse`; `internal/model` exposes only model-owned analysis data.
-- Do not add new environment-variable knobs by default. Prefer explicit CLI flags, config files, or existing contracts; add an env var only when the human explicitly asks for one or an active ExecPlan records why flags/config are insufficient.
 - Preserve scenery-native naming: `app.scn`, `package.scn`, `.scenery.json`, and `scenery.sh/...`.
 - Keep generated app models and machine-readable JSON contracts stable. If a JSON shape changes, update schemas, docs, tests, and harness expectations together.
 - Keep module sources inside the non-symlink app workspace and every generated output beneath a declared managed root; top-level generation is one artifact-set transaction.
-- Declare every service, operation, binding, durable execution, schedule, data resource, page, renderer, and middleware identity in `.scn`. Go package comments and package-init builders do not register application behavior. If `external_name` preserves an existing durable task name while its persisted input changes, increment `revision` and drain or migrate active rows first.
+- Declare every service, operation, binding, durable execution, schedule, data resource, page, renderer, and middleware identity in `.scn`. If `external_name` preserves an existing durable task name while its persisted input changes, increment `revision` and drain or migrate active rows first.
 - Keep every diagnostic in the checked-in current specification catalog with one stable identity. Request-protocol failures use SCN8000-range codes; SCN9000-range codes are internal-only and must carry an opaque report token with a sanitized public message.
 - Do not commit machine-local state or generated cache output from `.scenery/`, Victoria, node modules, coverage, `.DS_Store`, or local environment files.
+- When editing source that changes the public app model, run the Public Surface Checklist in `docs/agent-guide.md`.
 
 ## Before Making Changes
 
-For any non-trivial task:
+Scope your reading to the surface you are changing:
+
+1. Walk the `AGENTS.md` chain for each path you will touch (see AGENTS Hierarchy).
+2. Read the `docs/local-contract.md` and `docs/agent-guide.md` sections that cover that surface; `ARCHITECTURE.md` maps where a change belongs.
+3. Check `docs/plans/active.md` when the area may have an active ExecPlan, and `docs/tech-debt.md` before large refactors.
+
+Run `scenery inspect docs -o json` only when choosing doc-gardening work; use its `summary.review_due_count`, `review_due`, and `stale` fields.
+
+For complex features, migrations, multi-hour work, or significant refactors, create or update an ExecPlan as described in `PLANS.md`: active plans live under `docs/plans/<0000-short-slug>.md`, linked from `docs/plans/active.md`, with Progress, Surprises & Discoveries, Decision Log, and Outcomes kept current. `PLAN.md` is the strategic roadmap, not an executable task plan.
+
+## CLI Surfaces
+
+Prefer `-o json` (the singular `scenery.cli` envelope) and `-o jsonl` (streaming `scenery.cli.event` envelopes) for inspection and automation; both carry exact schema/spec revisions and producer identity, with command-specific schemas under the envelope `data` field. The full implemented grammar is in `docs/local-contract.md` § CLI Grammar; runtime-command selection guidance is in `docs/agent-guide.md` § Runtime Command Choice.
+
+Daily drivers:
 
 ```sh
-scenery inspect docs -o json
-```
-
-Use the output's `summary.review_due_count`, document-level `review_due`, and `stale` fields while choosing doc-gardening work.
-
-Read the relevant files from that output, then check:
-
-```text
-docs/local-contract.md
-docs/agent-guide.md
-docs/plans/active.md
-docs/tech-debt.md
-```
-
-For complex features, migrations, multi-hour work, or significant refactors, create or update an ExecPlan as described in `PLANS.md`.
-
-- Store active plans under `docs/plans/<0000-short-slug>.md`.
-- Link active plans from `docs/plans/active.md`.
-- Keep Progress, Surprises & Discoveries, Decision Log, and Outcomes & Retrospective current.
-- `PLAN.md` is the strategic roadmap. Do not treat it as an executable task plan.
-
-## CLI Commands Agents Should Prefer
-
-Use JSON surfaces for inspection and automation:
-
-```text
-scenery version -o json
-scenery doctor -o json
-scenery check -o json
-scenery inspect app|routes|services|endpoints|build|paths|docs -o json
-scenery inspect ui [--frontend <name>] -o human|json
-scenery traces list -o json
-scenery metrics list -o json
-scenery logs -o jsonl --limit 200
-scenery harness -o json --write
-scenery harness self --summary --write
-scenery upgrade -o json
-```
-
-For current Scenery apps, prefer the current protocol and immutable transaction surfaces:
-
-```text
-scenery fmt --check -o json
 scenery check -o json
 scenery compile --view expanded -o json
-scenery list|get|explain|graph ... -o json
-scenery diff --semantic BASE TARGET [--rename-receipts <change-plan-or-receipt.json>] -o json
-scenery generate --check -o json
-scenery changes plan|apply ... -o json
-scenery deploy plan|apply ... -o json
+scenery inspect app|routes|services|endpoints|build|paths|docs -o json
+scenery up [--env <name>] [--detach] [--wait ready]
+scenery logs -o jsonl --limit 200
+scenery harness self --summary --write
 ```
 
-`-o json` selects the singular `scenery.cli` envelope. `-o jsonl` emits `scenery.cli.event` envelopes for streaming commands. Both carry exact schema/spec revisions and producer identity; command-specific schemas live under the envelope `data` field.
-
-Use `scenery doctor -o json` before expensive troubleshooting when the failure may be local environment readiness: missing or old Go, low disk or memory, absent optional tools, or an app root that is not discoverable.
-
-Use runtime commands according to intent:
-
-```text
-scenery up [--env <name>] [--app-root <path>] [-o jsonl] [--detach] [--wait ready|registered]
-scenery logs --follow [--app-root <path>] [-o jsonl]
-scenery down [--app-root <path>] [--db] [--state] [--all] [-o json]
-scenery prune --older-than <duration> [--state] [--db] [--all] [--app-root <path>] [-o json]
-scenery system agent cleanup [--remove-state] [-o json]
-scenery task list [--app-root <path>] [-o json]
-scenery task inspect <target> [--app-root <path>] [--lang go|typescript] [-o json]
-scenery task run <name> [--app-root <path>]
-scenery task run [--app-root <path>] [--env <name>] [--lang go|typescript] <domain>:<name> [-- task args...]
-scenery worker [--app-root <path>] [--env <name>]
-scenery build [--app-root <path>] [--target <go-target>] [--output <path>] [-o human|json]
-scenery test [--app-root <path>] [go test flags/packages...]
-scenery generate --target typescript_client.<name> [--check] [--app-root <path>] -o json
-scenery db list|shell|apply|seed|setup|reset|drop [--app-root <path>]
-scenery db seed [--app-root <path>] [--env <name>] [--dry-run] [-o json]
-scenery snapshot save --output <file.zip> [--db] [--storage] [--app-root <path>] [-o json]
-scenery snapshot verify --input <file.zip> [-o json]
-scenery snapshot load --input <file.zip> [--db] [--storage] --mode overwrite|merge [--on-conflict fail|skip|overwrite] [--yes] [--dry-run] [--app-root <path>] [-o json]
-```
-
-`scenery up` is the preferred local loop for agents because it runs the app root's one live dev runtime and exposes safe capabilities: dashboard, logs, traces, metrics, routed local URLs, and managed dev services. Use a Git worktree for another live code copy. `scenery task` runs app-local code tasks declared by their `<domain>:<name>` path.
+`scenery up` is the preferred local loop: one live dev runtime with dashboard, logs, traces, metrics, routed local URLs, and managed dev services; use a Git worktree for another live code copy. Use `scenery doctor -o json` before expensive troubleshooting when the failure may be local environment readiness.
 
 ## Documentation Update Rules
 
-When changing behavior, update all affected layers in one change:
+When changing behavior, update every affected layer in the same change:
 
-- `docs/local-contract.md` for CLI grammar, JSON schemas, artifact paths, and stability semantics.
-- `docs/agent-guide.md` for agent workflows and client-app integration.
-- `SKILL.md` for concise portable instructions used inside target apps.
-- `README.md` for human-facing overview and install/run examples.
-- `docs/app-development-cookbook.md` for practical app recipes.
-- `docs/environment.md` for scenery-owned env vars.
-- `docs/environment.registry.json` for the machine-readable env registry enforced by self-harness. Do not add production env usage unless the user explicitly asks for env or an active ExecPlan records the exception.
-- `docs/knowledge.json` when adding, removing, or materially changing indexed docs.
-- `docs/plans/active.md` and `docs/knowledge.json` together when adding or activating an ExecPlan, until active plan indexing is generated by the toolchain.
+| What changed | Update |
+|---|---|
+| CLI grammar, JSON schemas, artifact paths, stability semantics | `docs/local-contract.md` (+ `docs/schemas/`) |
+| Agent workflows, repo mental model, client-app integration | `docs/agent-guide.md` |
+| Behavior agents rely on inside target apps | `SKILL.md` |
+| Human-facing overview, install/run examples | `README.md` |
+| Practical app recipes | `docs/app-development-cookbook.md` |
+| Scenery-owned env vars | `docs/environment.md` + `docs/environment.registry.json` (self-harness enforced) |
+| Adding, removing, or materially changing indexed docs | `docs/knowledge.json` |
+| Adding or activating an ExecPlan | `docs/plans/active.md` + `docs/knowledge.json` |
 
-If a historical product note appears in an ExecPlan, do not silently rewrite it into current contract prose. Add a short "current contract lives in ..." note or update the docs index/knowledge metadata instead.
+If a historical product note appears in an ExecPlan, do not silently rewrite it into current contract prose; add a short "current contract lives in ..." note or update the docs index instead.
 
 ## Validation Matrix
 
-For ordinary scenery repo changes:
+| Scope | Commands |
+|---|---|
+| Ordinary repo change | `go test ./...` |
+| Focused | `go test ./<package> -run '<TestName>'` |
+| Substantial repo change | `scenery harness self --summary --write` |
+| Target app change | `scenery check -o json`, `go test ./...`, `scenery harness -o json --write` |
+| Generated TS client | `scenery generate --target typescript_client.<name> --check -o json`, `bun test internal/generate/testdata/typescript_client_conformance.test.ts`, `apps/console/node_modules/.bin/tsc -p internal/generate/testdata/tsconfig.generated-clients.json` |
+| Dashboard UI | `cd apps/console && bun run lint && bun run typecheck && bun run build`, then self-harness |
+| `ui/` catalog | `apps/console/node_modules/.bin/tsc -p internal/generate/testdata/tsconfig.catalog.json` |
+| Browser/dashboard acceptance | `scenery harness ui -o json --write` |
 
-```sh
-go test ./...
-go test ./cmd/scenery
-```
+Rely on Go's test result cache; pass `-count=1` only when explicitly measuring fresh execution or investigating nondeterminism (`scenery harness self --fresh-tests` is the explicit fresh lane; see `docs/agent-guide.md` § Self-Harness Timing).
 
-Run a single test with `go test ./<package> -run '<TestName>'`, for example
-`go test ./cmd/scenery -run TestWriteDetachedDevResultJSON`.
-
-Use Go's test result cache for ordinary, focused, and substantial final
-validation. Pass `-count=1` only when explicitly measuring fresh execution or
-investigating nondeterminism. `scenery harness self --fresh-tests` is the
-explicit fresh self-harness lane.
-
-Do not run `go install ./cmd/scenery` during agent validation unless the human
-explicitly asks. Multiple worktrees share the same installed `scenery` path; use
-self-harness' worktree-local `.scenery/harness/bin/scenery` build instead.
-
-Compiler expansion or generator output changes alter fixture-app contract
-revisions. When touching `internal/compiler` or `internal/generate`, regenerate
-the committed fixture clients in the same change and commit the diff:
+When touching `internal/compiler` or `internal/generate`, regenerate the committed fixture clients in the same change and commit the diff — stale fixtures fail `go test ./...` with SCN6204, and the diagnostic's `suggestions` carry the refresh command:
 
 ```sh
 go run ./cmd/scenery generate --target typescript_client.public_api --app-root internal/compiler/testdata/native -o json
 go run ./cmd/scenery generate --target typescript_client.public_api --app-root internal/compiler/testdata/house -o json
 ```
 
-Stale fixture clients fail `go test ./...` with SCN6204 in `internal/build`,
-`internal/evolution`, and `cmd/scenery`; the diagnostic's `suggestions` carry
-the exact refresh command.
+Fresh worktrees need one-time provisioning before UI and self-harness lanes pass; see `docs/agent-guide.md` § Fresh Worktree Preflight. If a command cannot be run in the current environment, say exactly which command was skipped and why.
 
-### Fresh Worktree Preflight
+## Client Repositories
 
-A fresh worktree fails UI and self-harness lanes for environment reasons, not
-code reasons, until:
-
-1. Self-harness provisions `apps/console` dependencies itself: the `console
-   dependencies` step runs `bun install --frozen-lockfile` before the
-   tsc-dependent lanes and skips them with one actionable diagnostic when bun
-   is missing or the install fails. No manual `bun install` is needed; only
-   the `bun` binary itself must be installed.
-2. `./scripts/build-dashboard-ui-embed.sh` runs once. Only `placeholder.txt` is
-   tracked under `cmd/scenery/dashboard_static/dist`; the real embed bundle is
-   built locally.
-3. Self-harness runs through the worktree-local binary:
-   `.scenery/harness/bin/scenery harness self --summary --write`. The
-   `dashboard ui fresh` lane compares the invoking binary's own embedded
-   dashboard bundle in-process, so the installed PATH `scenery` fails that lane
-   in any worktree whose console build differs. The first installed-`scenery`
-   run builds the worktree-local binary; rerun through it before trusting the
-   `dashboard ui fresh` result.
-
-For substantial scenery repo changes:
-
-```sh
-scenery harness self --summary --write
-```
-
-Self-harness timing keeps a five-second optimization target separate from its
-operational lanes: cached and fresh runs use five-second advisory budgets,
-while release mode enforces 30 seconds. Only explicit `--fresh-tests` runs use
-isolated timing confirmation. That fresh lane uses package parallelism three,
-selected from repeated measurements on the maintainer machine. The postgres
-service probe runs its smoke proof by default and its full DB proof (durable,
-auth, reset, snapshot) only in release mode; its step summary carries
-per-segment timings.
-
-For target app changes:
-
-```sh
-scenery check -o json
-go test ./...
-scenery harness -o json --write
-```
-
-For generated TypeScript client changes:
-
-```sh
-scenery inspect endpoints -o json
-scenery generate --target typescript_client.<name> --check -o json
-bun test internal/generate/testdata/typescript_client_conformance.test.ts
-apps/console/node_modules/.bin/tsc -p internal/generate/testdata/tsconfig.generated-clients.json
-```
-
-For dashboard UI changes:
-
-```sh
-cd apps/console
-bun run lint
-bun run typecheck
-bun run build
-cd ../..
-scenery harness self --summary --write
-```
-
-For `ui/` catalog changes, run `apps/console/node_modules/.bin/tsc -p internal/generate/testdata/tsconfig.catalog.json` from the repository root.
-
-For browser/dashboard validation when relevant:
-
-```sh
-scenery harness ui -o json --write
-```
-
-If a command cannot be run in the current environment, say exactly which command was skipped and why.
-
-## App-Local Instructions For Clients
-
-The installable scenery skill is necessary but not enough for client repositories such as `github.com/pbrazdil/onlv`.
-
-Client apps should keep a small app-local `AGENTS.md` that records only app-specific facts:
-
-- app root and `.scenery.json` config path
-- frontend roots and generated client output paths
-- required local environment names without values
-- standard validation commands for that app
-- whether agents should use `scenery up --detach`, generated TypeScript client, or direct CLI JSON
-- product/domain invariants that scenery cannot know
-
-Do not copy the whole scenery skill into the client app. Keep the shared scenery behavior in `SKILL.md` and the app-specific policy in the client's `AGENTS.md`.
-
-## Public Surface Checklist
-
-When editing source that changes the public app model, confirm the docs and tests cover:
-
-- services, operations, executions, HTTP/internal/CLI bindings, authentication, authorization, and middleware resources
-- CLI bindings, including generated help/completion, typed input, trusted context, delivery, outcomes, and exit codes
-- `std.type.unit`, data sources, entities/views/CRUD/fixtures, pages/renderers, and typed constructor capability injection
-- generated contract input/outcome types and explicit `.scn` HTTP request/response mappings
-- public packages: `scenery`, `auth`, `errs`, `durable`, `db`, `datasource`, `object`, `storage`
-- standard auth configuration and generated endpoints
-- private/internal call behavior
-- worker, durable, schedule, middleware, and generated TypeScript client behavior when touched
+Client apps (for example `github.com/pbrazdil/onlv`) keep a small app-local `AGENTS.md` recording only app-specific facts: app root and config path, frontend roots and generated client output paths, required env names without values, standard validation commands, the preferred agent loop, and product invariants scenery cannot know. Do not copy the scenery skill into client apps; shared behavior stays in `SKILL.md`. Details: `docs/agent-guide.md` § Client-App Instructions.
 
 ## Repository Hygiene
 
 - Keep changes small and explicit.
 - Prefer tests at stable boundaries: parser validation, codegen golden output, runtime HTTP behavior, CLI JSON contracts, schemas, and fixture apps.
-- Keep large files split. Non-generated source over 2500 lines should fail self-harness architecture checks; non-generated source over 1000 lines should be treated as a warning to split soon.
-- Do not bypass UI boundaries. The dashboard under `apps/console/` follows its local Astryx + StyleX contract. The binary-owned generated-app catalog under `ui/` follows `ui/AGENTS.md`.
+- Keep large files split. Non-generated source over 2500 lines should fail self-harness architecture checks; over 1000 lines is a warning to split soon.
+- Keep instruction docs lean. Self-harness warns when this root `AGENTS.md` exceeds 2500 words or a child `AGENTS.md` exceeds 800, and fails on intra-document anchor links that match no heading in knowledge entrypoint docs; move detail into `docs/agent-guide.md` or `docs/local-contract.md` instead of growing the budgets.
+- Do not bypass UI boundaries. The dashboard under `apps/console/` follows its local Astryx + StyleX contract; the binary-owned catalog under `ui/` follows `ui/AGENTS.md`.

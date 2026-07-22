@@ -77,3 +77,76 @@ func assertDiagnosticContains(t *testing.T, diagnostics []checkDiagnostic, want 
 	}
 	t.Fatalf("diagnostics %#v do not contain %q", diagnostics, want)
 }
+
+func TestCheckHarnessMarkdownLinksValidatesIntraDocumentAnchors(t *testing.T) {
+	root := t.TempDir()
+	writeTestAppFile(t, root, "docs/guide.md", strings.Join([]string{
+		"# Guide",
+		"",
+		"- [CLI Grammar](#cli-grammar)",
+		"- [Missing Section](#missing-section)",
+		"",
+		"## CLI Grammar",
+		"",
+		"```sh",
+		"# this fenced comment is not a heading",
+		"```",
+	}, "\n"))
+
+	files := harnessKnowledgeFiles(root, []string{"docs/guide.md"})
+	checked, diagnostics := checkHarnessMarkdownLinks(root, files)
+	if checked != 2 {
+		t.Fatalf("checked = %d, want 2", checked)
+	}
+	assertDiagnosticContains(t, diagnostics, "intra-document anchor link has no matching heading: #missing-section")
+	for _, diag := range diagnostics {
+		if strings.Contains(diag.Message, "#cli-grammar") {
+			t.Fatalf("valid anchor was reported broken: %+v", diag)
+		}
+	}
+}
+
+func TestMarkdownHeadingSlugMirrorsGitHubAnchors(t *testing.T) {
+	tests := []struct{ title, want string }{
+		{"Current Scenery contract", "current-scenery-contract"},
+		{"`scenery inspect ui`", "scenery-inspect-ui"},
+		{"Agent Thread Findings - 2026-07-03", "agent-thread-findings---2026-07-03"},
+		{"Data: Databases, Snapshots, And Storage", "data-databases-snapshots-and-storage"},
+	}
+	for _, tt := range tests {
+		if got := markdownHeadingSlug(tt.title); got != tt.want {
+			t.Fatalf("markdownHeadingSlug(%q) = %q, want %q", tt.title, got, tt.want)
+		}
+	}
+}
+
+func TestValidateInstructionDocBudgetsWarnsOnOversizedDocs(t *testing.T) {
+	root := t.TempDir()
+	small := strings.Repeat("word ", 100)
+	big := strings.Repeat("word ", childInstructionDocWarnWords+1)
+	writeTestAppFile(t, root, "AGENTS.md", small)
+	writeTestAppFile(t, root, "internal/example/AGENTS.md", big)
+	writeTestAppFile(t, root, "internal/example/testdata/AGENTS.md", big)
+
+	diagnostics, summary := validateInstructionDocBudgets(root)
+	assertDiagnosticContains(t, diagnostics, "instruction doc exceeds its lean budget")
+	if len(diagnostics) != 1 {
+		t.Fatalf("diagnostics = %d, want 1 (testdata must be skipped, root is within budget): %+v", len(diagnostics), diagnostics)
+	}
+	if diagnostics[0].Severity != "warning" {
+		t.Fatalf("severity = %q, want warning", diagnostics[0].Severity)
+	}
+	if summary["instruction_docs_checked"] != 2 {
+		t.Fatalf("instruction_docs_checked = %v, want 2", summary["instruction_docs_checked"])
+	}
+}
+
+// The shipped instruction docs must stay within the budgets this harness
+// enforces, so the check never cries wolf on a clean tree.
+func TestShippedInstructionDocsWithinLeanBudgets(t *testing.T) {
+	repoRoot := repoRootForTest(t)
+	diagnostics, _ := validateInstructionDocBudgets(repoRoot)
+	for _, diag := range diagnostics {
+		t.Errorf("unexpected instruction-doc diagnostic: %s: %s", diag.File, diag.Message)
+	}
+}

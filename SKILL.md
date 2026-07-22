@@ -182,15 +182,14 @@ Generated clients implement the exact declared HTTP mappings and typed outcomes.
 
 For generated React pages, declare the page macro plus any typed `search` blocks and `nav_*` metadata, then add `react { tsconfig = "path/to/tsconfig.json" }` to the client target. Scenery materializes page adapters, `routes.generated.ts`, `app.generated.tsx`, and its binary-owned `scenery-ui` catalog, then typechecks the staged target with managed `tsgo`. Create the app with `createSceneryApp`, register hand-written pages through its one `SceneryRouteDescriptor` array, and fill only its fixed auth/top-bar/content/link/icon slots; do not build another route tree, navigation list, shell, or page-selection system. TanStack Router remains an app peer. Treat `SCN2619` as invalid page search/navigation metadata, `SCN6320` as an override contract error, `SCN6321` as a reachable app TypeScript error, and `SCN6322` as checker/config/dependency readiness. Generated page loaders target the browser `/api/` route and accept an optional client prop. Vite apps alias `@scenery/ui` and its token subpath to the materialized catalog in TypeScript, Vite, and StyleX; the app supplies React, Astryx, StyleX, TanStack Query, and TanStack Router peers.
 
-For a generated two-pane screen, use the generic `split_page` kind with a unit-input HTTP operation and app-owned `sidebar` and `detail` `react_component` slots; `sidebar_actions` and `detail_header` are optional. Scenery owns transport, raw request state, URL-backed selection, and reusable layout. Each slot owns its loading/error/ready presentation and should use `QueryState` from `@scenery/ui` for consistency. Keep every domain-specific component in the client app.
+Choose the page macro by shape, get its authored schema from `scenery schema <kind> -o json`, and read the full behavior contract in `docs/local-contract.md` (recipes in `docs/app-development-cookbook.md`):
 
-For a generated one-column screen, use `content_page` with a required app-owned `content` slot and optional `actions`. Omit `source` for static content; static slots receive no props. When `source` is present, it must use the unit-input HTTP plus inherited-internal operation contract and both slots receive typed `RequestState` props. Scenery renders the shared `Page` shell, and `max_width` optionally bounds the centered content well.
+- `split_page` — two-pane screen with app-owned `sidebar` and `detail` slots; Scenery owns transport, URL-backed selection, and layout, while each slot owns its request-state presentation (use `QueryState` from `@scenery/ui`).
+- `content_page` — one-column screen with a required app-owned `content` slot; omit `source` for static content (static slots receive no props), otherwise both slots receive typed `RequestState` props.
+- `detail_page` — one routed record from a parameterized path and call-delivery HTTP load binding; the load operation must declare a business error the binding maps to HTTP 404. Use `form_dialog` actions for simple seeded mutations and the typed app-owned `actions` slot for domain workflows; call `onMutated` after success so detail and related queries refresh.
+- `table_page` — operations workbench over cursor-paginated CRUD, a numeric-`pagination` binding, or one complete typed list; only complete-list tables may group. Composes declarative filters and typed fixed `predicate` inputs, `status_map` badges, CSV export, result-context slots, `row_detail` or mutually exclusive `row_action`, `form_dialog` actions, and `stats` tiles that format values and set, toggle, or clear typed filters through the table's single query state (date/datetime filters may declare local-calendar presets).
 
-For one routed record, use `detail_page` with a parameterized path, call-delivery HTTP load binding, and declared field sections. The load operation must declare a business error that the binding maps to HTTP 404, and its handler must return that typed outcome when the entity is absent. Path parameters map to operation inputs by name or explicit `param` blocks. Choose routed, controlled-dialog, or both presentations without duplicating content. Set `hide_empty = true` only for fields that should disappear when null or empty; zero and false remain visible. Related tables map one route param into one unclaimed table input. Use declared `form_dialog` actions for simple seeded mutations and the typed app-owned `actions` slot for conditional or domain-specific workflows; call `onMutated` after success so the detail and related queries refresh.
-
-For a generated operations workbench, use one of three list contracts: cursor-paginated CRUD (`list.search`, filters, and sorts), a call-delivery HTTP binding with numeric `pagination { page, page_size, total }` mappings, or a binding returning one complete typed list (`source = binding...` plus `items`) with no pagination. Binding pages may project named auxiliary result fields with `metadata = ["summary", "types"]`; slots receive those values as typed `context.metadata`, while `items` and pagination `total` remain singular. Use `query { search, sort, direction }` and `filter.input` when operation input names differ from presentation fields; `query.search_hidden = true` lets an app toolbar own the visible search input through `context.controls.setSearch` without duplicating transport. Use `predicate "input" { value = ... }` for typed fixed inputs that must not appear as controls. Only complete-list tables may declare `group "field"` blocks; cursor and numeric-page tables reject grouping. Reuse `status_map` resources for badge columns and finite filter/group labels; use `pinned = true` sparingly for inline filter quick access. Every declared filter remains in the Filters popover, active values appear as removable chips, and group/sort/direction remain separate query controls. Filters, `toolbar`, `empty`, and `footer` slots receive the typed current-result context: loaded rows, optional total/truncation/projected metadata, filtered state, and current query; toolbar context is optional before the first result. Use `row_detail` for inline or panel display, or mutually exclusive `row_action` for an app-owned selected-row workflow receiving `row` and `onClose`. Add a unit-input metrics binding under `table_page.stats`; `export` downloads the rows returned by the current query. Columns may be display-only with `export = false` or export-only with `hidden = true`. A `form_dialog` derives string/enum controls from a mutation input record; a table `action` opens it and successful mutations invalidate both list and stats queries. An optional `row_detail.dialog` must be seedable from matching row fields and stays inline-only. Keep generated page, route, dialog, and query wiring intact rather than rebuilding them in app code.
-
-Stats tiles may format primary/sub values and set, toggle, or clear a typed filter or predicate through the table query state. Date/datetime filters may declare `today`, `last_7_days`, and `month_to_date` presets; generated clients translate them to the existing paired datetime inputs.
+Keep generated page, route, dialog, and query wiring intact rather than rebuilding it in app code.
 
 ## Tasks and Workers
 
@@ -226,31 +225,22 @@ scenery harness ui -o json --write
 
 ## Command Reference
 
-Use `docs/local-contract.md` for full grammar. Common agent commands:
+Use `docs/local-contract.md` for full grammar. Lifecycle and mutation commands beyond the Agent Fast Path above:
 
 ```text
 scenery up [--env <name>] [--app-root <path>] [-o jsonl] [--detach]
 scenery ps [--app-root <path>] [-o json]
 scenery down [--app-root <path>] [-o json]
 scenery build [--app-root <path>] [--target <go-target>] [--output <path>] [-o human|json]
-scenery fmt --check [--app-root <path>] -o json
-scenery check [--app-root <path>] -o json
-scenery compile [--app-root <path>] [--view source|effective|expanded] -o json
 scenery list|get|explain|graph ... [--app-root <path>] -o json
 scenery diff --semantic BASE TARGET [--rename-receipts <path>] -o json
 scenery generate [--app-root <path>] [--target contracts|typescript_client.<name>] [--materialize] [--prune-materialized-go] [--merge-editor-workspace] [--check] -o json
 scenery changes plan|apply ... -o json
 scenery deploy plan|apply ... -o json
-scenery inspect app|routes|services|endpoints|build|paths|durable|storage|observability -o json
-scenery inspect ui [--frontend <name>] [-o human|json]
-scenery logs [--app-root <path>] [-o jsonl] [--limit <n>]
-scenery traces list -o json [--app-root <path>]
-scenery metrics list -o json [--app-root <path>]
 scenery task list|inspect|run ...
 scenery db list|path|shell|apply|seed|setup|reset|drop ...
 scenery snapshot save|verify|load ...
 scenery test [--app-root <path>] [go test flags/packages...]
-scenery harness [--app-root <path>] -o json --write
 ```
 
 ## Validation Before Finishing
