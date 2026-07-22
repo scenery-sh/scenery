@@ -1,5 +1,9 @@
 # 0132 QueryTable Performance: Stable Identities, Memoized Row Rendering, and Virtualized Large Tables
 
+This ExecPlan is a living document: update `Progress`, `Surprises &
+Discoveries`, and the `Decision Log` as work proceeds, and fill `Outcomes &
+Retrospective` on completion.
+
 ## Purpose / Big Picture
 
 `QueryTable` is the one table component every generated `table_page` and every

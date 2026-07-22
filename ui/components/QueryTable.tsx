@@ -779,24 +779,36 @@ export function QueryTable<
 						/>
 					) : null}
 					{allowedGroups.length > 0 ? (
-						<Selector
-							label="Group"
-							onChange={(value: string) => {
-								setActiveGroupField(value);
-								setExpandedKey(null);
-								setSelectedRow(null);
+						// Same compact shape as the sort menu: one button showing the
+						// active grouping, a menu with None plus the declared groups.
+						<DropdownMenu
+							button={{
+								label: `Group: ${
+									allowedGroups.find(
+										(group) => group.field === activeGroupField,
+									)?.label ?? "None"
+								}`,
+								size: "sm",
+								variant: "secondary",
 							}}
-							options={[
+							items={[
 								{ label: "None", value: noGroupValue },
 								...allowedGroups.map((group) => ({
 									label: group.label,
 									value: group.field,
 								})),
-							]}
-							size="sm"
-							value={activeGroupField}
-							width={160}
-							xstyle={styles.toolbarControl}
+							].map((option) => ({
+								label:
+									option.value === activeGroupField
+										? `${option.label} ✓`
+										: option.label,
+								onClick: () => {
+									setActiveGroupField(option.value);
+									setExpandedKey(null);
+									setSelectedRow(null);
+								},
+							}))}
+							menuWidth={200}
 						/>
 					) : null}
 				</FilterToolbar>
@@ -1212,9 +1224,6 @@ const panelSlideIn = stylex.keyframes({
 });
 
 const styles = stylex.create({
-	toolbarControl: {
-		paddingBlock: spacingVars["--spacing-1"],
-	},
 	root: {
 		display: "flex",
 		flexDirection: "column",

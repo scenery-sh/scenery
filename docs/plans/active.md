@@ -7,6 +7,16 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
+- [0133 Candidate Parity Fixes: Row Retention, Row-Intent Prefetch, Export Fidelity](0133-candidate-parity-fixes.md)
+  - Status: active
+  - Owner: scenery ui catalog / generate
+  - Created: 2026-07-22
+  - Focus: close the mechanism-parity gaps that keep the Micro platform's four `/generated` acceptance candidates from cutting over — TanStack `placeholderData` row retention during query transitions, a deduplicated row-intent (hover/focus) prefetch signal wired from `row_action`/panel slots, contract-controllable CSV filename and field formatting verified against the hand-written exports, plus an expansion-state and locale-ordering sweep. Ends with a platform handoff that converts or deletes every candidate (they expire; no third implementation state).
+- [0134 Tabbed Workspace Template: One Generated Page Kind for Multi-Tab Domain Workspaces](0134-tabbed-workspace-template.md)
+  - Status: active (design milestone first — contract spelling needs sign-off before code)
+  - Owner: scenery compiler / generate / ui catalog
+  - Created: 2026-07-22
+  - Focus: a `workspace_page` source kind — route-owning generated page with shared header/stats/actions and an Astryx `TabList` where each tab embeds an existing `table_page`/`content_page` rendered chrome-less (composition over expansion): URL-synced tab selection, lazy mount with per-tab state retention, count badges from response metadata. Unblocks the platform's ten multi-tab workspaces (tickets, inventory, invoices, vendors, fleet, permits, NTP, commissions, job-costing, sales) for tab-by-tab conversion; Sales then Vendors as pilots.
 - [0132 QueryTable Performance: Stable Identities, Memoized Row Rendering, and Virtualized Large Tables](0132-query-table-performance.md)
   - Status: active
   - Owner: scenery ui catalog
