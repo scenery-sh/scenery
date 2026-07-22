@@ -7,6 +7,11 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
+- [0136 Generated Page Provenance: Distinguish Generated Routes in Navigation and Beyond](0136-generated-page-provenance.md)
+  - Status: active
+  - Owner: scenery generate / ui catalog
+  - Created: 2026-07-22
+  - Focus: stamp `origin: "generated"` on generated routes' navigation descriptors (intrinsic — never authored in `.scn`, so no spec-revision fallout), carry it through `SideNavigationItem` as a `"generated" | "authored"` union, and consume it first as a tinted nav icon plus a `data-origin` attribute. The field, not the color, is the deliverable: later consumers (provenance tooltip, dev inspector, adoption dashboard, telemetry) build on the same two surfaces. Workspace routes from 0134 stamp the same field.
 - [0135 Governance Workspace Generation: From Generic Wire to Typed Module Contracts](0135-governance-workspace-generation.md)
   - Status: active (Option A and migration decisions locked)
   - Owner: scenery compiler / generate + platform governance package
