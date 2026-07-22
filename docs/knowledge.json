@@ -19,6 +19,18 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0140-query-table-review-hardening.md",
+      "title": "QueryTable Review Hardening",
+      "owner": "scenery UI catalog / generation",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-07-22",
+      "review_after": "2026-08-21",
+      "summary": "Completed ExecPlan closing post-cutover QueryTable request lifecycle, row interaction, CSV safety, formatting, accessibility, and performance findings with focused regressions and full validation.",
+      "tags": ["plans", "execplans", "query-table", "data-table", "csv", "react", "typescript", "ui-catalog"]
+    },
+    {
       "path": "docs/plans/0139-summary-metrics-and-charts.md",
       "title": "Summary Metrics and Chart Blocks for Generated Pages",
       "owner": "scenery spec / compiler / generate / ui + Micro funding pilot",

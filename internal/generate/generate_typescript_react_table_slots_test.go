@@ -194,6 +194,7 @@ func TestRenderReactTablePagePlacesContentToolbarAboveTableAndHidesOwnedFilter(t
 	for _, fragment := range []string{
 		`<Page title={"Work Orders"} fill>`,
 		"  <WorkOrdersToolbarSlot context={tableContext} />\n<QueryTable<WorkOrder>",
+		`resourceSingular={"Work Order"}`,
 		`{ field: "status", label: "Status", kind: "enum", options: [{ value: "closed", label: "Closed" }, { value: "open", label: "Open" }], component: WorkOrdersStatusFilterSlot, hidden: true }`,
 		`onResultContextChange={onResultContextChange}`,
 	} {
@@ -232,6 +233,7 @@ func TestRenderReactTablePageProjectsTypedBindingMetadataIntoSlotContext(t *test
 		`TablePageResult<WorkOrder, WorkOrdersMetadata>`,
 		`metadata: { summary: outcome.value.summary, types: outcome.value.types, manufacturers: outcome.value.manufacturers }`,
 		`<QueryTable<WorkOrder, WorkOrdersMetadata>`,
+		`resourceSingular={"Work Order"}`,
 	} {
 		if !strings.Contains(source, fragment) {
 			t.Errorf("generated metadata-aware table page missing %q:\n%s", fragment, source)

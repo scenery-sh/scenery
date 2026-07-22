@@ -1,6 +1,3 @@
-import type { ISODateTimeString } from "@astryxdesign/core/DateTimeInput";
-import { DateTimeInput } from "@astryxdesign/core/DateTimeInput";
-import { Button } from "@astryxdesign/core/Button";
 import { DropdownMenu } from "@astryxdesign/core/DropdownMenu";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { Icon } from "@astryxdesign/core/Icon";
@@ -8,29 +5,10 @@ import { IconButton } from "@astryxdesign/core/IconButton";
 import { Link } from "@astryxdesign/core/Link";
 import { Pagination } from "@astryxdesign/core/Pagination";
 import { ResizeHandle, useResizable } from "@astryxdesign/core/Resizable";
-import { Selector } from "@astryxdesign/core/Selector";
 import { Text } from "@astryxdesign/core/Text";
-import {
-	borderVars,
-	colorVars,
-	durationVars,
-	easeVars,
-	radiusVars,
-	shadowVars,
-	spacingVars,
-} from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
-import { useQuery } from "@tanstack/react-query";
-import {
-	type ComponentType,
-	type MouseEvent,
-	type ReactNode,
-	useCallback,
-	useEffect,
-	useMemo,
-	useRef,
-	useState,
-} from "react";
+import { hashKey, useQuery } from "@tanstack/react-query";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
 	type Column,
 	DataTable,
@@ -44,289 +22,54 @@ import {
 } from "./FilterToolbar.js";
 import { QueryState } from "./QueryState.js";
 import {
-	type Problem,
-	queryStateProps,
-	type RequestState,
-	requestStateFromQuery,
-} from "./request-state.js";
-import { StatusBadge, type StatusMap } from "./StatusBadge.js";
+	firstColumnText,
+	groupTableRows,
+	normalizeFilterOption,
+	renderTableCell,
+} from "./query-table-cells.js";
+import type {
+	QueryTableProps,
+	TablePageDateTimeRange,
+	TablePageDirection,
+	TablePageFilter,
+	TablePageFilterValue,
+	TablePageGroup,
+	TablePageQuery,
+	TablePageQueryControls,
+	TablePageResultContext,
+} from "./query-table-contract.js";
+import { queryStateProps, requestStateFromQuery } from "./request-state.js";
 
-export type TablePageAppearance =
-	| "auto"
-	| "text"
-	| "number"
-	| "datetime"
-	| "badge";
-export type TablePageDirection = "asc" | "desc";
-export type TablePageProblem = Problem;
-export type TablePageResult<
-	Row,
-	Metadata extends object = Record<string, never>,
-> = RequestState<{
-	readonly items: readonly Row[];
-	readonly nextCursor?: string;
-	readonly total?: number;
-	readonly truncated?: boolean;
-	readonly metadata?: Metadata;
-}>;
+export * from "./query-table-contract.js";
 
-export interface TablePageQuery {
-	readonly search?: string;
-	readonly filters: Readonly<
-		Record<string, string | readonly string[] | undefined>
-	>;
-	readonly sort?: string;
-	readonly direction: TablePageDirection;
-	readonly cursor?: string;
-	readonly page: number;
-	readonly limit: number;
-}
-
-export type TablePageFilterValue = string | readonly string[] | undefined;
-
-export interface TablePageQueryControls {
-	/** Set app-owned search text using the table's debounce and pagination reset semantics. */
-	readonly setSearch: (value: string) => void;
-	/** Set one declared enum filter and return to the first page. */
-	readonly setFilter: (field: string, value: TablePageFilterValue) => void;
-	/** Clear one declared enum filter and return to the first page. */
-	readonly clearFilter: (field: string) => void;
-	/** Reload the current query without changing its search, filters, or page. */
-	readonly refresh: () => Promise<void>;
-}
-
-export interface TablePageResultContext<
-	Row,
-	Metadata extends object = Record<string, never>,
-> {
-	readonly rows: readonly Row[];
-	readonly total?: number;
-	readonly truncated?: boolean;
-	/** Typed auxiliary fields projected from a binding result record. */
-	readonly metadata?: Metadata;
-	readonly filtered: boolean;
-	readonly query: TablePageQuery;
-	readonly controls: TablePageQueryControls;
-	/** True while retained rows are shown for a newer query in flight. */
-	readonly isPlaceholderData: boolean;
-}
-
-export interface TablePageCellProps<Row, Value> {
-	readonly row: Row;
-	readonly value: Value;
-}
-
-export interface TablePageFilterProps<
-	Value,
-	Row extends object = object,
-	Metadata extends object = Record<string, never>,
-> {
-	readonly value: Value | undefined;
-	readonly onChange: (value: Value | undefined) => void;
-	readonly label: string;
-	readonly context: TablePageResultContext<Row, Metadata>;
-}
-
-export interface TablePageDateTimeRange {
-	readonly from?: string;
-	readonly to?: string;
-}
-
-export interface TablePageDateTimePreset {
-	readonly label: string;
-	readonly range: "today" | "last_7_days" | "month_to_date";
-}
-
-export interface TablePageEmptyProps<
-	Row extends object = object,
-	Metadata extends object = Record<string, never>,
-> {
-	readonly filtered: boolean;
-	readonly context: TablePageResultContext<Row, Metadata>;
-}
-
-export interface TablePageToolbarProps<
-	Row extends object = object,
-	Metadata extends object = Record<string, never>,
-> {
-	readonly context?: TablePageResultContext<Row, Metadata>;
-}
-
-export interface TablePageFooterProps<
-	Row extends object = object,
-	Metadata extends object = Record<string, never>,
-> {
-	readonly context: TablePageResultContext<Row, Metadata>;
-}
-
-export interface TablePageRowDetailProps<Row> {
-	readonly row: Row;
-}
-
-export interface TablePageDetailPanelProps<Row> {
-	readonly row: Row;
-	readonly onClose: () => void;
-}
-
-export type TablePageRowActionProps<Row> = TablePageDetailPanelProps<Row>;
-export type TablePageRowIntent<Row> = (row: Row) => void | Promise<void>;
-
-export type TablePageExportFormat = "display" | "raw" | "date";
-
-export type TablePageColumn<Row> = {
-	readonly [Key in keyof Row]: {
-		readonly field: Key;
-		readonly label: string;
-		readonly appearance: TablePageAppearance;
-		readonly component?: ComponentType<TablePageCellProps<Row, Row[Key]>>;
-		readonly statusMap?: StatusMap;
-		readonly hidden?: boolean;
-		readonly export?: boolean;
-		readonly exportHeader?: string;
-		readonly exportFormat?: TablePageExportFormat;
-		readonly exportEmpty?: string;
-		readonly exportZeroEmpty?: boolean;
-	};
-}[keyof Row];
-
-export type TablePageFilter<
-	Row extends object = object,
-	Metadata extends object = Record<string, never>,
-> =
-	| {
-			readonly field: string;
-			readonly label: string;
-			readonly kind: "enum";
-			readonly options: readonly (
-				| string
-				| { readonly value: string; readonly label: string }
-			)[];
-			readonly component?: ComponentType<
-				TablePageFilterProps<string, Row, Metadata>
-			>;
-			readonly pinned?: boolean;
-			readonly hidden?: boolean;
-	  }
-	| {
-			readonly field: string;
-			readonly label: string;
-			readonly kind: "datetime";
-			readonly component?: ComponentType<
-				TablePageFilterProps<TablePageDateTimeRange, Row, Metadata>
-			>;
-			readonly pinned?: boolean;
-			readonly hidden?: boolean;
-			readonly presets?: readonly TablePageDateTimePreset[];
-	  };
-
-export interface TablePageSort {
-	readonly field: string;
-	readonly label: string;
-	readonly default?: TablePageDirection;
-}
-
-export interface TablePageGroup {
-	readonly field: string;
-	readonly label: string;
-	readonly order?: readonly string[];
-	readonly default?: boolean;
-}
-
-export interface TablePageSlots<
-	Row extends object,
-	CellKey extends keyof Row = never,
-	FilterValues extends object = Record<never, never>,
-	Metadata extends object = Record<string, never>,
-> {
-	readonly cells?: {
-		readonly [Key in CellKey]?: ComponentType<
-			TablePageCellProps<Row, Row[Key]>
-		>;
-	};
-	readonly filters?: {
-		readonly [Key in keyof FilterValues]?: ComponentType<
-			TablePageFilterProps<FilterValues[Key], Row, Metadata>
-		>;
-	};
-	readonly toolbar?: ComponentType<TablePageToolbarProps<Row, Metadata>>;
-	readonly footer?: ComponentType<TablePageFooterProps<Row, Metadata>>;
-	readonly empty?: ComponentType<TablePageEmptyProps<Row, Metadata>>;
-	readonly rowDetail?: ComponentType<TablePageRowDetailProps<Row>>;
-	readonly detailPanel?: ComponentType<TablePageDetailPanelProps<Row>>;
-	readonly rowAction?: ComponentType<TablePageRowActionProps<Row>>;
-	readonly rowIntent?: TablePageRowIntent<Row>;
-}
-
-type Exact<Shape, Actual extends Shape> = Actual &
-	Record<Exclude<keyof Actual, keyof Shape>, never>;
-
-export function defineTablePageSlots<
-	Row extends object,
-	CellKey extends keyof Row = never,
-	FilterValues extends object = Record<never, never>,
-	Metadata extends object = Record<string, never>,
->() {
-	return <Actual extends TablePageSlots<Row, CellKey, FilterValues, Metadata>>(
-		slots: Exact<TablePageSlots<Row, CellKey, FilterValues, Metadata>, Actual>,
-	): Actual => slots;
-}
-
-export interface QueryTableProps<
-	Row extends object,
-	Metadata extends object = Record<string, never>,
-> {
-	readonly resource: string;
-	readonly description?: string;
-	readonly loadingLabel?: ReactNode;
-	readonly errorTitle?: string;
-	readonly columns: readonly TablePageColumn<Row>[];
-	readonly filters: readonly TablePageFilter<Row, Metadata>[];
-	readonly sorts: readonly TablePageSort[];
-	readonly searchable?: boolean;
-	readonly hideSearch?: boolean;
-	readonly rowLink?: (row: Row) => string;
-	readonly rowDetail?: ComponentType<TablePageRowDetailProps<Row>>;
-	readonly detailPanel?: ComponentType<TablePageDetailPanelProps<Row>>;
-	readonly rowAction?: ComponentType<TablePageRowActionProps<Row>>;
-	readonly onRowIntent?: TablePageRowIntent<Row>;
-	readonly detailPanelWidth?: number;
-	readonly detailTitle?: (row: Row) => ReactNode;
-	readonly rowDetailAction?: (row: Row) => ReactNode;
-	readonly emptyAction?: ReactNode;
-	readonly exportAction?: {
-		readonly label?: string;
-		readonly fileName: string;
-		readonly icon?: ReactNode;
-	};
-	readonly pagination?: "cursor" | "page";
-	readonly hideHeader?: boolean;
-	readonly fill?: boolean;
-	readonly numbered?: boolean;
-	readonly groups?: readonly TablePageGroup[];
-	readonly pageSize: number;
-	readonly queryKey: readonly unknown[];
-	readonly load: (
-		query: TablePageQuery,
-		signal?: AbortSignal,
-	) => Promise<TablePageResult<Row, Metadata>>;
-	readonly empty?: ComponentType<TablePageEmptyProps<Row, Metadata>>;
-	readonly footer?: ComponentType<TablePageFooterProps<Row, Metadata>>;
-	readonly onResultContextChange?: (
-		context: TablePageResultContext<Row, Metadata>,
-	) => void;
-}
+import { exportRows } from "./query-table-export.js";
+import {
+	DateTimeFilter,
+	EnumFilter,
+	formatLocalDateTime,
+} from "./query-table-filters.js";
+import { queryTableStyles as styles } from "./query-table-styles.js";
 
 // Keystrokes update the visible input immediately; the query key only moves
 // after this idle window, so typing does not launch one request per character.
 const searchDebounceMilliseconds = 250;
 const noGroupValue = "__scenery_no_group__";
 const emptyTableRows: readonly never[] = [];
+const emptyTableGroups: readonly TablePageGroup[] = [];
 
 export function QueryTable<
 	Row extends object,
 	Metadata extends object = Record<string, never>,
+>(props: QueryTableProps<Row, Metadata>) {
+	return <QueryTableScope key={hashKey(props.queryKey)} {...props} />;
+}
+
+function QueryTableScope<
+	Row extends object,
+	Metadata extends object = Record<string, never>,
 >({
 	resource,
+	resourceSingular,
 	description,
 	loadingLabel,
 	errorTitle,
@@ -349,7 +92,7 @@ export function QueryTable<
 	hideHeader,
 	fill,
 	numbered,
-	groups = [],
+	groups = emptyTableGroups,
 	pageSize,
 	queryKey,
 	load,
@@ -375,8 +118,9 @@ export function QueryTable<
 		readonly key: string;
 		readonly row: Row;
 	} | null>(null);
-	const declaredFiltersRef = useRef(declaredFilters);
-	declaredFiltersRef.current = declaredFilters;
+	const [collapsedGroups, setCollapsedGroups] = useState<ReadonlySet<string>>(
+		() => new Set(),
+	);
 	const allowedGroups = useMemo<readonly TablePageGroup[]>(
 		() => (pagination ? [] : groups),
 		[groups, pagination],
@@ -392,14 +136,21 @@ export function QueryTable<
 	const warnedPaginatedGroups = useRef(false);
 	const warnedDetailConflict = useRef(false);
 	const warnedRowActionConflict = useRef(false);
-
+	const resetQuery = useCallback(() => {
+		setCursor(undefined);
+		setHistory([]);
+		setPage(1);
+		setExpandedKey(null);
+		setSelectedRow(null);
+	}, []);
 	useEffect(() => {
-		const timer = setTimeout(
-			() => setDebouncedSearch(search),
-			searchDebounceMilliseconds,
-		);
+		if (debouncedSearch === search) return;
+		const timer = setTimeout(() => {
+			resetQuery();
+			setDebouncedSearch(search);
+		}, searchDebounceMilliseconds);
 		return () => clearTimeout(timer);
-	}, [search]);
+	}, [debouncedSearch, resetQuery, search]);
 	useEffect(() => {
 		if (!isDevelopmentBuild()) return;
 		if (pagination && groups.length > 0 && !warnedPaginatedGroups.current) {
@@ -452,22 +203,12 @@ export function QueryTable<
 		...resultQuery,
 		// A failed replacement request must surface its error instead of leaving
 		// the retained result looking current.
-		data:
-			resultQuery.isPlaceholderData && resultQuery.error
-				? undefined
-				: resultQuery.data,
+		data: resultQuery.error ? undefined : resultQuery.data,
 	});
 
-	const resetQuery = useCallback(() => {
-		setCursor(undefined);
-		setHistory([]);
-		setPage(1);
-		setExpandedKey(null);
-		setSelectedRow(null);
-	}, []);
 	const setQueryFilter = useCallback(
 		(field: string, value: TablePageFilterValue) => {
-			const declared = declaredFiltersRef.current.find(
+			const declared = declaredFilters.find(
 				(candidate) => candidate.field === field,
 			);
 			if (declared?.kind !== "enum") {
@@ -479,29 +220,17 @@ export function QueryTable<
 				return;
 			}
 			const normalized =
-				typeof value === "string"
-					? value === ""
-						? undefined
-						: [value]
-					: value && value.length > 0
-						? value
-						: undefined;
+				value === "" || value === undefined ? undefined : [value];
 			setFilters((current) => ({ ...current, [field]: normalized }));
 			resetQuery();
 		},
-		[resetQuery],
+		[declaredFilters, resetQuery],
 	);
 	const clearQueryFilter = useCallback(
 		(field: string) => setQueryFilter(field, undefined),
 		[setQueryFilter],
 	);
-	const setQuerySearch = useCallback(
-		(value: string) => {
-			setSearch(value);
-			resetQuery();
-		},
-		[resetQuery],
-	);
+	const setQuerySearch = useCallback((value: string) => setSearch(value), []);
 	const refreshQuery = useCallback(async () => {
 		setExpandedKey(null);
 		setSelectedRow(null);
@@ -539,6 +268,7 @@ export function QueryTable<
 			query,
 			controls: queryControls,
 			isPlaceholderData: resultQuery.isPlaceholderData,
+			isRefreshing: resultQuery.isFetching && resultQuery.data !== undefined,
 		}),
 		[
 			filtered,
@@ -547,6 +277,8 @@ export function QueryTable<
 			query,
 			queryControls,
 			resultQuery.isPlaceholderData,
+			resultQuery.data,
+			resultQuery.isFetching,
 			total,
 			truncated,
 		],
@@ -555,25 +287,40 @@ export function QueryTable<
 		onResultContextChange?.(resultContext);
 	}, [onResultContextChange, resultContext]);
 	const rowKey = useCallback(
-		(row: Row, index: number) => rowLink?.(row) ?? String(index),
+		(row: Row, index: number) =>
+			rowLink ? `${rowLink(row)}#${index}` : String(index),
 		[rowLink],
 	);
 	const rowIntentState = useRef<{
-		query: TablePageQuery;
+		generation: number;
 		keys: Set<string>;
-	}>({ query, keys: new Set() });
+	}>({ generation: resultQuery.dataUpdatedAt, keys: new Set() });
 	const emitRowIntent = useCallback(
 		(row: Row, index: number) => {
-			if (!onRowIntent) return;
-			if (rowIntentState.current.query !== query) {
-				rowIntentState.current = { query, keys: new Set() };
+			if (!onRowIntent || resultQuery.isPlaceholderData) return;
+			if (rowIntentState.current.generation !== resultQuery.dataUpdatedAt) {
+				rowIntentState.current = {
+					generation: resultQuery.dataUpdatedAt,
+					keys: new Set(),
+				};
 			}
 			const key = rowKey(row, index);
 			if (rowIntentState.current.keys.has(key)) return;
 			rowIntentState.current.keys.add(key);
-			void onRowIntent(row);
+			Promise.resolve()
+				.then(() => onRowIntent(row))
+				.catch(() => {
+					if (rowIntentState.current.generation === resultQuery.dataUpdatedAt) {
+						rowIntentState.current.keys.delete(key);
+					}
+				});
 		},
-		[onRowIntent, query, rowKey],
+		[
+			onRowIntent,
+			resultQuery.dataUpdatedAt,
+			resultQuery.isPlaceholderData,
+			rowKey,
+		],
 	);
 	const visibleColumns = useMemo(
 		() => columns.filter((column) => !column.hidden),
@@ -589,36 +336,66 @@ export function QueryTable<
 	);
 	const sections = useMemo<readonly DataTableSection<Row>[] | undefined>(() => {
 		if (!activeGroup) return undefined;
-		return groupRows(items, activeGroup, columns);
+		return groupTableRows(items, activeGroup, columns);
 	}, [activeGroup, columns, items]);
 	// Rows in display order: grouped sections flatten to the same indices
 	// DataTable hands to getRowKey, so arrow-key selection stays aligned.
-	const orderedRows = useMemo<readonly Row[]>(
-		() => (sections ? sections.flatMap((section) => section.rows) : items),
-		[items, sections],
-	);
+	const orderedRows = useMemo<
+		readonly { readonly row: Row; readonly index: number }[]
+	>(() => {
+		if (!sections) return items.map((row, index) => ({ row, index }));
+		let index = 0;
+		return sections.flatMap((section) => {
+			const entries = section.rows.map((row) => ({ row, index: index++ }));
+			return collapsedGroups.has(section.key) ? [] : entries;
+		});
+	}, [collapsedGroups, items, sections]);
+	useEffect(() => {
+		if (
+			expandedKey &&
+			!orderedRows.some(({ row, index }) => rowKey(row, index) === expandedKey)
+		) {
+			setExpandedKey(null);
+		}
+		if (!selectedRow) return;
+		const next = orderedRows.find(
+			({ row, index }) => rowKey(row, index) === selectedRow.key,
+		);
+		if (!next) {
+			setSelectedRow(null);
+			return;
+		}
+		if (next.row !== selectedRow.row) {
+			setSelectedRow({ key: selectedRow.key, row: next.row });
+		}
+	}, [expandedKey, orderedRows, rowKey, selectedRow]);
 	useEffect(() => {
 		if (!selectedRow || (!DetailPanel && !RowAction)) return;
 		const onKeyDown = (event: KeyboardEvent) => {
+			if (
+				event.defaultPrevented ||
+				event.metaKey ||
+				event.ctrlKey ||
+				event.altKey ||
+				isEditableTarget(event.target)
+			) {
+				return;
+			}
 			if (event.key === "Escape") {
 				setSelectedRow(null);
 				return;
 			}
 			if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-			if (
-				event.target instanceof Element &&
-				event.target.closest("input, textarea, select, [contenteditable]")
-			) {
-				return;
-			}
 			event.preventDefault();
 			const currentIndex = orderedRows.findIndex(
-				(row, index) => rowKey(row, index) === selectedRow.key,
+				({ row, index }) => rowKey(row, index) === selectedRow.key,
 			);
 			if (currentIndex === -1) return;
 			const nextIndex = currentIndex + (event.key === "ArrowDown" ? 1 : -1);
 			const next = orderedRows[nextIndex];
-			if (next) setSelectedRow({ key: rowKey(next, nextIndex), row: next });
+			if (next) {
+				setSelectedRow({ key: rowKey(next.row, next.index), row: next.row });
+			}
 		};
 		window.addEventListener("keydown", onKeyDown);
 		return () => window.removeEventListener("keydown", onKeyDown);
@@ -638,72 +415,39 @@ export function QueryTable<
 		[resetQuery, sort, sorts],
 	);
 	const hasInlineDetail = Boolean(RowDetail && !DetailPanel && !RowAction);
-	const dataColumns = useMemo<readonly Column<Row>[]>(() => {
-		const result = visibleColumns.map<Column<Row>>((column, columnIndex) => ({
-			key: String(column.field),
-			header: column.label,
-			align: column.appearance === "number" ? "right" : "left",
-			nowrap:
-				column.appearance === "datetime" || column.appearance === "number",
-			sortKey: sorts.some((item) => item.field === String(column.field))
-				? String(column.field)
-				: undefined,
-			render: (row) => {
-				const value = renderCell(column, row);
-				const href = rowLink?.(row);
-				return href && columnIndex === 0 ? (
-					<Link href={href}>{value}</Link>
-				) : (
-					value
-				);
-			},
-		}));
-		if (hasInlineDetail) {
-			result.unshift({
-				key: "__expand",
-				header: "",
-				width: "40px",
-				render: (row, index) => {
-					const key = rowKey(row, index);
-					const expanded = expandedKey === key;
-					return (
-						<IconButton
-							icon={
-								<Icon
-									icon={expanded ? "chevronDown" : "chevronRight"}
-									size="sm"
-								/>
-							}
-							label={expanded ? "Collapse row" : "Expand row"}
-							onClick={(event: MouseEvent<HTMLButtonElement>) => {
-								event.stopPropagation();
-								setExpandedKey(expanded ? null : key);
-							}}
-							variant="ghost"
-						/>
+	const dataColumns = useMemo<readonly Column<Row>[]>(
+		() =>
+			visibleColumns.map<Column<Row>>((column, columnIndex) => ({
+				key: String(column.field),
+				header: column.label,
+				align: column.appearance === "number" ? "right" : "left",
+				nowrap:
+					column.appearance === "datetime" || column.appearance === "number",
+				sortKey: sorts.some((item) => item.field === String(column.field))
+					? String(column.field)
+					: undefined,
+				render: (row) => {
+					const value = renderTableCell(column, row);
+					const href = rowLink?.(row);
+					return href && columnIndex === 0 ? (
+						<Link href={href}>{value}</Link>
+					) : (
+						value
 					);
 				},
-			});
-		}
-		return result;
-	}, [
-		expandedKey,
-		hasInlineDetail,
-		rowKey,
-		rowLink,
-		sorts,
-		visibleColumns,
-	]);
+			})),
+		[rowLink, sorts, visibleColumns],
+	);
 	const toolbarFilters = useMemo<readonly FilterToolbarFilter[]>(
 		() =>
 			visibleDeclaredFilters
 				.filter(
-			(
-				filter,
-			): filter is Extract<
-				TablePageFilter<Row, Metadata>,
-				{ readonly kind: "enum" }
-			> => filter.kind === "enum",
+					(
+						filter,
+					): filter is Extract<
+						TablePageFilter<Row, Metadata>,
+						{ readonly kind: "enum" }
+					> => filter.kind === "enum",
 				)
 				.map((filter) => ({
 					custom: Boolean(filter.component),
@@ -719,47 +463,42 @@ export function QueryTable<
 			Object.fromEntries(
 				toolbarFilters.map((filter) => {
 					const value = filters[filter.field];
-					return [
-						filter.field,
-						Array.isArray(value) ? value[0] : undefined,
-					];
+					return [filter.field, Array.isArray(value) ? value[0] : undefined];
 				}),
 			),
 		[filters, toolbarFilters],
 	);
-	const activeDateTimeFilters = useMemo<
-		readonly FilterToolbarActiveFilter[]
-	>(
+	const activeDateTimeFilters = useMemo<readonly FilterToolbarActiveFilter[]>(
 		() =>
 			visibleDeclaredFilters
-			.filter(
-				(
-					filter,
-				): filter is Extract<
-					TablePageFilter<Row, Metadata>,
-					{ readonly kind: "datetime" }
-				> => filter.kind === "datetime",
-			)
-			.flatMap((filter) => {
-				const from = filters[`${filter.field}_from`] as string | undefined;
-				const to = filters[`${filter.field}_to`] as string | undefined;
-				if (!from && !to) return [];
-				return [
-					{
-						field: filter.field,
-						label: filter.label,
-						valueLabel: `${from ?? "…"} – ${to ?? "…"}`,
-						onClear: () => {
-							setFilters((values) => ({
-								...values,
-								[`${filter.field}_from`]: undefined,
-								[`${filter.field}_to`]: undefined,
-							}));
-							resetQuery();
+				.filter(
+					(
+						filter,
+					): filter is Extract<
+						TablePageFilter<Row, Metadata>,
+						{ readonly kind: "datetime" }
+					> => filter.kind === "datetime",
+				)
+				.flatMap((filter) => {
+					const from = filters[`${filter.field}_from`] as string | undefined;
+					const to = filters[`${filter.field}_to`] as string | undefined;
+					if (!from && !to) return [];
+					return [
+						{
+							field: filter.field,
+							label: filter.label,
+							valueLabel: `${formatLocalDateTime(from)} – ${formatLocalDateTime(to)}`,
+							onClear: () => {
+								setFilters((values) => ({
+									...values,
+									[`${filter.field}_from`]: undefined,
+									[`${filter.field}_to`]: undefined,
+								}));
+								resetQuery();
+							},
 						},
-					},
-				];
-			}),
+					];
+				}),
 		[filters, resetQuery, visibleDeclaredFilters],
 	);
 	const dataTableSort = useMemo<SortState | undefined>(
@@ -769,9 +508,7 @@ export function QueryTable<
 	const handleRowClick = useCallback(
 		(row: Row, index: number) => {
 			const key = rowKey(row, index);
-			setSelectedRow((current) =>
-				current?.key === key ? null : { key, row },
-			);
+			setSelectedRow((current) => (current?.key === key ? null : { key, row }));
 		},
 		[rowKey],
 	);
@@ -812,7 +549,9 @@ export function QueryTable<
 					exportIcon={exportAction?.icon}
 					filters={toolbarFilters}
 					onExport={
-						exportAction && result.kind === "result"
+						exportAction &&
+						result.kind === "result" &&
+						!resultQuery.isPlaceholderData
 							? () =>
 									exportRows(
 										exportAction.fileName,
@@ -835,9 +574,9 @@ export function QueryTable<
 						result.kind === "result"
 							? `${result.items.length} ${
 									result.items.length === 1
-										? singular(resource)
+										? (resourceSingular ?? "result")
 										: resource.toLocaleLowerCase()
-								}${resultQuery.isPlaceholderData ? " · Refreshing…" : ""}`
+								}${resultContext.isRefreshing ? " · Refreshing…" : ""}`
 							: undefined
 					}
 					search={search}
@@ -934,6 +673,7 @@ export function QueryTable<
 										: option.label,
 								onClick: () => {
 									setActiveGroupField(option.value);
+									setCollapsedGroups(new Set());
 									setExpandedKey(null);
 									setSelectedRow(null);
 								},
@@ -965,7 +705,9 @@ export function QueryTable<
 					>
 						<DataTable
 							key={activeGroupField}
+							collapsedGroups={collapsedGroups}
 							columns={dataColumns}
+							onExpandedChange={setExpandedKey}
 							expandedKey={expandedKey}
 							fill={fill}
 							framed
@@ -973,15 +715,12 @@ export function QueryTable<
 							hideHeader={hideHeader}
 							minWidth={720}
 							numbered={numbered}
+							onCollapsedGroupsChange={setCollapsedGroups}
 							onSort={sorts.length > 0 ? applySort : undefined}
 							sort={dataTableSort}
-							onRowClick={
-								DetailPanel || RowAction ? handleRowClick : undefined
-							}
+							onRowClick={DetailPanel || RowAction ? handleRowClick : undefined}
 							onRowIntent={onRowIntent ? emitRowIntent : undefined}
-							renderExpanded={
-								hasInlineDetail ? renderInlineDetail : undefined
-							}
+							renderExpanded={hasInlineDetail ? renderInlineDetail : undefined}
 							rows={items}
 							sections={sections}
 							selectedKey={
@@ -1004,9 +743,14 @@ export function QueryTable<
 										? Boolean(result.nextCursor)
 										: undefined
 								}
-								isDisabled={false}
+								isDisabled={
+									resultQuery.isPlaceholderData || resultQuery.isFetching
+								}
 								label={`${resource} pagination`}
 								onChange={(nextPage: number) => {
+									if (resultQuery.isPlaceholderData || resultQuery.isFetching) {
+										return;
+									}
 									if (pagination === "page") {
 										setPage(nextPage);
 										setExpandedKey(null);
@@ -1048,7 +792,7 @@ export function QueryTable<
 						)}
 					>
 						<aside
-							aria-label={`${singular(resource)} details`}
+							aria-label={`${resourceSingular ?? "result"} details`}
 							{...stylex.props(
 								styles.detailPanel,
 								fill && styles.detailPanelFill,
@@ -1097,215 +841,6 @@ export function QueryTable<
 	);
 }
 
-function EnumFilter<
-	Row extends object,
-	Metadata extends object = Record<string, never>,
->({
-	filter,
-	value,
-	onChange,
-	context,
-}: {
-	filter: Extract<TablePageFilter<Row, Metadata>, { readonly kind: "enum" }>;
-	value: string | undefined;
-	onChange: (value: string | undefined) => void;
-	context: TablePageResultContext<Row, Metadata>;
-}) {
-	if (filter.component) {
-		const Component = filter.component;
-		return (
-			<Component
-				context={context}
-				label={filter.label}
-				onChange={onChange}
-				value={value}
-			/>
-		);
-	}
-	return (
-		<Selector
-			hasClear
-			label={filter.label}
-			onChange={(next: string | null) => onChange(next ?? undefined)}
-			options={filter.options.map(normalizeFilterOption)}
-			placeholder="All"
-			size="sm"
-			value={value ?? null}
-			width={180}
-		/>
-	);
-}
-
-function DateTimeFilter<
-	Row extends object,
-	Metadata extends object = Record<string, never>,
->({
-	filter,
-	value,
-	onChange,
-	context,
-}: {
-	filter: Extract<
-		TablePageFilter<Row, Metadata>,
-		{ readonly kind: "datetime" }
-	>;
-	value: TablePageDateTimeRange;
-	onChange: (value: TablePageDateTimeRange) => void;
-	context: TablePageResultContext<Row, Metadata>;
-}) {
-	if (filter.component) {
-		const Component = filter.component;
-		return (
-			<Component
-				context={context}
-				label={filter.label}
-				onChange={(next) => onChange(next ?? {})}
-				value={value}
-			/>
-		);
-	}
-	return (
-		<div {...stylex.props(styles.dateRange)}>
-			{filter.presets?.length ? (
-				<div {...stylex.props(styles.datePresets)}>
-					{filter.presets.map((preset) => (
-						<Button
-							key={preset.range}
-							label={preset.label}
-							onClick={() => onChange(dateTimePreset(preset.range))}
-							size="sm"
-							variant="secondary"
-						/>
-					))}
-				</div>
-			) : null}
-			<DateTimeInput
-				hasClear
-				label={`${filter.label} from`}
-				onChange={(next: ISODateTimeString | undefined) =>
-					onChange({ ...value, from: exactDateTime(next) })
-				}
-				size="sm"
-				value={localDateTime(value.from)}
-				width={240}
-			/>
-			<DateTimeInput
-				hasClear
-				label={`${filter.label} to`}
-				onChange={(next: ISODateTimeString | undefined) =>
-					onChange({ ...value, to: exactDateTime(next) })
-				}
-				size="sm"
-				value={localDateTime(value.to)}
-				width={240}
-			/>
-		</div>
-	);
-}
-
-function dateTimePreset(
-	range: TablePageDateTimePreset["range"],
-): TablePageDateTimeRange {
-	const now = new Date();
-	const start = new Date(now);
-	start.setHours(0, 0, 0, 0);
-	if (range === "last_7_days") start.setDate(start.getDate() - 6);
-	if (range === "month_to_date") start.setDate(1);
-	const end = new Date(now);
-	end.setHours(23, 59, 59, 999);
-	return { from: start.toISOString(), to: end.toISOString() };
-}
-
-function renderCell<Row extends object>(
-	column: TablePageColumn<Row>,
-	row: Row,
-): ReactNode {
-	const value = row[column.field];
-	if (column.component) {
-		const Component = column.component;
-		return <Component row={row} value={value} />;
-	}
-	if (column.appearance === "datetime" && typeof value === "string") {
-		if (value === "") return "—";
-		const date = new Date(value);
-		return Number.isNaN(date.getTime()) ? (
-			value
-		) : (
-			<time dateTime={value}>{date.toLocaleString()}</time>
-		);
-	}
-	if (column.appearance === "badge") {
-		return column.statusMap && typeof value === "string" ? (
-			<StatusBadge map={column.statusMap} status={value} />
-		) : (
-			<StatusBadge map={{}} status={cellText(value)} />
-		);
-	}
-	if (column.appearance === "number" && typeof value === "number") {
-		return value.toLocaleString();
-	}
-	return cellText(value);
-}
-
-function normalizeFilterOption(
-	option: string | { readonly value: string; readonly label: string },
-) {
-	return typeof option === "string"
-		? { label: option, value: option }
-		: { label: option.label, value: option.value };
-}
-
-function groupRows<Row extends object>(
-	rows: readonly Row[],
-	group: TablePageGroup,
-	columns: readonly TablePageColumn<Row>[],
-): readonly DataTableSection<Row>[] {
-	const buckets = new Map<string, Row[]>();
-	for (const row of rows) {
-		const value = (row as Record<string, unknown>)[group.field];
-		const key =
-			value === null || value === undefined || value === ""
-				? ""
-				: typeof value === "object"
-					? JSON.stringify(value)
-					: String(value);
-		const bucket = buckets.get(key);
-		if (bucket) bucket.push(row);
-		else buckets.set(key, [row]);
-	}
-
-	const ordered: string[] = [];
-	for (const key of group.order ?? []) {
-		if (key !== "" && buckets.has(key) && !ordered.includes(key)) {
-			ordered.push(key);
-		}
-	}
-	ordered.push(
-		...[...buckets.keys()]
-			.filter((key) => key !== "" && !ordered.includes(key))
-			.sort((left, right) => left.localeCompare(right)),
-	);
-	if (buckets.has("")) ordered.push("");
-
-	const column = columns.find(
-		(candidate) => String(candidate.field) === group.field,
-	);
-	return ordered.map((key) => ({
-		key,
-		label: cellText(key, column?.statusMap),
-		rows: buckets.get(key) ?? [],
-	}));
-}
-
-function firstColumnText<Row extends object>(
-	row: Row,
-	columns: readonly TablePageColumn<Row>[],
-): string | null {
-	const column = columns[0];
-	if (!column) return null;
-	return cellText(row[column.field], column.statusMap);
-}
-
 function isDevelopmentBuild() {
 	return (
 		(import.meta as ImportMeta & { readonly env?: { readonly DEV?: boolean } })
@@ -1313,221 +848,11 @@ function isDevelopmentBuild() {
 	);
 }
 
-function singular(resource: string) {
-	const value = resource.toLocaleLowerCase();
-	return value.endsWith("s") ? value.slice(0, -1) : value;
-}
-
-function exportRows<Row extends object>(
-	fileName: string,
-	columns: readonly TablePageColumn<Row>[],
-	rows: readonly Row[],
-) {
-	const csv = [
-		columns.map((column) => csvCell(column.exportHeader ?? column.label)).join(","),
-		...rows.map((row) =>
-			columns
-				.map((column) => csvCell(exportCellText(column, row[column.field])))
-				.join(","),
-		),
-	].join("\n");
-	const href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-	const link = document.createElement("a");
-	link.href = href;
-	link.download = fileName.replaceAll(
-		"{date}",
-		new Date().toISOString().slice(0, 10),
+function isEditableTarget(target: EventTarget | null) {
+	return (
+		target instanceof Element &&
+		target.closest(
+			"input, textarea, select, [contenteditable], [role='combobox'], [role='listbox'], [role='menu'], [role='option'], [role='dialog']",
+		) !== null
 	);
-	link.click();
-	URL.revokeObjectURL(href);
 }
-
-function exportCellText<Row extends object>(
-	column: TablePageColumn<Row>,
-	value: unknown,
-): string {
-	const empty = column.exportEmpty ?? "";
-	if (column.exportZeroEmpty && value === 0) return empty;
-	if (
-		value === null ||
-		value === undefined ||
-		value === ""
-	) {
-		return column.exportEmpty !== undefined ||
-			(column.exportFormat && column.exportFormat !== "display")
-			? empty
-			: cellText(value, column.statusMap);
-	}
-	if (column.exportFormat === "raw") {
-		return typeof value === "object" ? JSON.stringify(value) : String(value);
-	}
-	if (column.exportFormat === "date") {
-		return typeof value === "string" ? value.slice(0, 10) : String(value);
-	}
-	return cellText(value, column.statusMap);
-}
-
-function csvCell(value: string) {
-	return `"${value.replaceAll('"', '""')}"`;
-}
-
-function cellText(value: unknown, statusMap?: StatusMap): string {
-	if (value === null || value === undefined || value === "") return "—";
-	if (statusMap && typeof value === "string") {
-		const label = statusMap[value]?.label;
-		return typeof label === "string" || typeof label === "number"
-			? String(label)
-			: value;
-	}
-	if (typeof value === "object") return JSON.stringify(value);
-	return String(value);
-}
-
-function localDateTime(value: string | undefined) {
-	if (!value) return undefined;
-	const instant = new Date(value);
-	if (Number.isNaN(instant.getTime())) return undefined;
-	return new Date(instant.getTime() - instant.getTimezoneOffset() * 60_000)
-		.toISOString()
-		.slice(0, 16) as ISODateTimeString;
-}
-
-function exactDateTime(value: ISODateTimeString | undefined) {
-	return value ? new Date(value).toISOString() : undefined;
-}
-
-const panelSlideIn = stylex.keyframes({
-	from: { opacity: 0, transform: "translateX(16px)" },
-	to: { opacity: 1, transform: "translateX(0)" },
-});
-
-const styles = stylex.create({
-	root: {
-		display: "flex",
-		flexDirection: "column",
-		gap: spacingVars["--spacing-4"],
-		minWidth: 0,
-	},
-	workspace: {
-		display: "grid",
-		gridTemplateColumns: "minmax(0, 1fr)",
-		alignItems: "stretch",
-		minWidth: 0,
-		position: "relative",
-	},
-	content: {
-		display: "flex",
-		flex: 1,
-		flexDirection: "column",
-		gap: spacingVars["--spacing-4"],
-		gridArea: "1 / 1",
-		minWidth: 0,
-	},
-	// Fill mode (Linear-style scrolling): the section flex-fills its page,
-	// nothing above the grid moves, and the grid scroller plus the detail
-	// panel body scroll independently.
-	rootFill: { flex: 1, minHeight: 0 },
-	workspaceFill: { flex: 1, minHeight: 0 },
-	contentFill: { minHeight: 0 },
-	detailPanelColumnFill: {
-		display: "flex",
-		flexDirection: "column",
-		minHeight: 0,
-	},
-	detailPanelFill: {
-		// Stays positioned so the overlay resize handle keeps its anchor.
-		position: "relative",
-		top: "auto",
-		maxHeight: "100%",
-		flex: 1,
-		minHeight: 0,
-	},
-	dateRange: {
-		display: "flex",
-		alignItems: "flex-end",
-		flexWrap: "wrap",
-		gap: spacingVars["--spacing-2"],
-	},
-	datePresets: {
-		display: "flex",
-		alignItems: "center",
-		flexWrap: "wrap",
-		gap: spacingVars["--spacing-1"],
-		width: "100%",
-	},
-	pagination: {
-		display: "flex",
-		justifyContent: "flex-end",
-	},
-	rowDetail: {
-		display: "flex",
-		flexDirection: "column",
-		gap: spacingVars["--spacing-3"],
-	},
-	rowDetailAction: {
-		display: "flex",
-		justifyContent: "flex-end",
-	},
-	detailPanelColumn: {
-		gridArea: "1 / 1",
-		justifySelf: "end",
-		flexShrink: 0,
-		maxWidth: "calc(100% - 48px)",
-		zIndex: 1,
-	},
-	// Content-sized with a scrollport cap: the panel never forces the page
-	// taller than its scroll container, and while a long table scrolls past
-	// it pins at the top and scrolls internally. 100cqh reads the PageLayout
-	// scroll area's height (a size container) and degrades to viewport units
-	// when QueryTable renders outside one.
-	detailPanel: {
-		boxSizing: "border-box",
-		position: "sticky",
-		top: 12,
-		maxHeight: "calc(100cqh - 24px)",
-		display: "flex",
-		flexDirection: "column",
-		backgroundColor: colorVars["--color-background-card"],
-		borderColor: colorVars["--color-border"],
-		borderStyle: "solid",
-		borderWidth: borderVars["--border-width"],
-		borderRadius: radiusVars["--radius-container"],
-		boxShadow: shadowVars["--shadow-med"],
-		animationName: {
-			default: panelSlideIn,
-			"@media (prefers-reduced-motion: reduce)": "none",
-		},
-		animationDuration: durationVars["--duration-medium"],
-		animationTimingFunction: easeVars["--ease-standard"],
-	},
-	overlayResizeHandle: {
-		insetInlineEnd: "auto",
-		insetInlineStart: 0,
-	},
-	detailPanelHeader: {
-		display: "flex",
-		alignItems: "center",
-		justifyContent: "space-between",
-		gap: spacingVars["--spacing-2"],
-		flexShrink: 0,
-		padding: `${spacingVars["--spacing-2"]} ${spacingVars["--spacing-3"]}`,
-		borderBottomColor: colorVars["--color-border"],
-		borderBottomStyle: "solid",
-		borderBottomWidth: borderVars["--border-width"],
-	},
-	detailPanelTitle: {
-		fontSize: 13,
-		fontWeight: 600,
-		minWidth: 0,
-		overflow: "hidden",
-		textOverflow: "ellipsis",
-		whiteSpace: "nowrap",
-	},
-	detailPanelBody: {
-		minHeight: 0,
-		overflowY: "auto",
-		padding: spacingVars["--spacing-4"],
-		scrollbarColor: `${colorVars["--color-text-secondary"]} transparent`,
-		scrollbarWidth: "thin",
-	},
-});

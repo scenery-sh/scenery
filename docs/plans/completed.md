@@ -6,6 +6,20 @@ Completed means implemented or shipped at least once. It does not imply stable
 support for every surface. Use [../local-contract.md](../local-contract.md) as
 the source of truth for stable, beta, and dev-only classification.
 
+## QueryTable Review Hardening
+
+- Status: completed
+- Owner: scenery UI catalog / generation
+- Completed: 2026-07-22
+- Quality: B
+- ExecPlan: [0140 QueryTable Review Hardening](0140-query-table-review-hardening.md)
+
+Closed the post-cutover request lifecycle, selected-row, grouped keyboard,
+prefetch, CSV safety, datetime, value formatting, accessibility, and windowing
+findings. `QueryTable.tsx` is split below the 1,000-line threshold, expansion
+no longer rebuilds data columns, and the completed surface passed focused
+regressions, full cached Go tests, and worktree-local self-harness.
+
 ## Summary Metrics and Filter Presets
 
 - Status: completed

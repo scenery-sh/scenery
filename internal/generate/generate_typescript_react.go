@@ -967,7 +967,7 @@ func renderReactTablePage(result *Result, target Resource, reactRoot string, pag
 	if contentToolbar {
 		fmt.Fprintf(&b, "\n  <%sToolbarSlot context={tableContext} />\n", goName(page.table.Name))
 	}
-	fmt.Fprintf(&b, "<QueryTable<%s%s> resource=%s fill", rowType, metadataTypeArgument, jsxStringExpression(stringValue(page.table.Spec["title"])))
+	fmt.Fprintf(&b, "<QueryTable<%s%s> resource=%s resourceSingular=%s fill", rowType, metadataTypeArgument, jsxStringExpression(stringValue(page.table.Spec["title"])), jsxStringExpression(humanLabel(page.record.Name)))
 	if description := stringValue(page.table.Spec["description"]); description != "" {
 		fmt.Fprintf(&b, " description=%s", jsxStringExpression(description))
 	}

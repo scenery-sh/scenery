@@ -1,11 +1,12 @@
+import * as stylex from "@stylexjs/stylex";
 import type {
 	ContentPageSlotProps,
 	DetailPageActionProps,
 	RequestState,
 	SplitPageSlotProps,
 	TablePageCellProps,
-	TablePageDateTimeRange,
 	TablePageDateTimePreset,
+	TablePageDateTimeRange,
 	TablePageFilterProps,
 	TablePageFooterProps,
 	TablePageRowActionProps,
@@ -13,14 +14,14 @@ import type {
 } from "../../../ui/index.js";
 import {
 	Button,
-	defineContentPageSlots,
-	defineSplitPageSlots,
-	defineTablePageSlots,
 	DetailDialog,
 	DetailField,
 	DetailPageLayout,
 	DetailRelated,
 	DetailSection,
+	defineContentPageSlots,
+	defineSplitPageSlots,
+	defineTablePageSlots,
 	queryStateProps,
 	SplitPage,
 	Text,
@@ -28,7 +29,6 @@ import {
 	WorkspacePage,
 } from "../../../ui/index.js";
 import { t } from "../../../ui/tokens.stylex.js";
-import * as stylex from "@stylexjs/stylex";
 
 interface Row {
 	readonly id: string;
@@ -69,7 +69,7 @@ function StatusCell(props: TablePageCellProps<Row, Row["status"]>) {
 
 function StatusFilter(props: TablePageFilterProps<string, Row>) {
 	return (
-		<button onClick={() => props.onChange("open")}>
+		<button type="button" onClick={() => props.onChange("open")}>
 			{props.label}: {props.context.rows.length}
 		</button>
 	);
@@ -78,7 +78,11 @@ function StatusFilter(props: TablePageFilterProps<string, Row>) {
 function CreatedFilter(
 	props: TablePageFilterProps<TablePageDateTimeRange, Row>,
 ) {
-	return <button onClick={() => props.onChange({})}>{props.label}</button>;
+	return (
+		<button type="button" onClick={() => props.onChange({})}>
+			{props.label}
+		</button>
+	);
 }
 
 function FooterSlot(props: TablePageFooterProps<Row>) {
@@ -86,21 +90,33 @@ function FooterSlot(props: TablePageFooterProps<Row>) {
 }
 
 function ToolbarSlot(props: TablePageToolbarProps<Row>) {
+	// @ts-expect-error built-in enum filters are singular values, not arrays.
+	props.context?.controls.setFilter("status", ["open", "closed"]);
 	return (
 		<div>
 			<span>{props.context?.rows.length ?? 0}</span>
 			<button
+				type="button"
 				onClick={() => props.context?.controls.setFilter("status", "open")}
 			>
 				Open
 			</button>
-			<button onClick={() => props.context?.controls.clearFilter("status")}>
+			<button
+				type="button"
+				onClick={() => props.context?.controls.clearFilter("status")}
+			>
 				All
 			</button>
-			<button onClick={() => void props.context?.controls.refresh()}>
+			<button
+				type="button"
+				onClick={() => void props.context?.controls.refresh()}
+			>
 				Refresh
 			</button>
-			<button onClick={() => props.context?.controls.setSearch("urgent")}>
+			<button
+				type="button"
+				onClick={() => props.context?.controls.setSearch("urgent")}
+			>
 				Search
 			</button>
 		</div>
@@ -108,7 +124,11 @@ function ToolbarSlot(props: TablePageToolbarProps<Row>) {
 }
 
 function RowAction(props: TablePageRowActionProps<Row>) {
-	return <button onClick={props.onClose}>{props.row.id}</button>;
+	return (
+		<button type="button" onClick={props.onClose}>
+			{props.row.id}
+		</button>
+	);
 }
 
 defineTablePageSlots<
@@ -150,7 +170,7 @@ defineTablePageSlots<Row, "status", { readonly status: string }>()({
 
 function SplitSlot(props: SplitPageSlotProps<Row>) {
 	return (
-		<button onClick={() => props.onSelectionChange(null)}>
+		<button type="button" onClick={() => props.onSelectionChange(null)}>
 			{props.selection ?? "Nothing selected"}
 		</button>
 	);
@@ -233,7 +253,9 @@ const workspace = (
 	/>
 );
 
-function DetailActions(props: DetailPageActionProps<Row, { readonly id: string }>) {
+function DetailActions(
+	props: DetailPageActionProps<Row, { readonly id: string }>,
+) {
 	return (
 		<Button
 			label={props.data.id}
@@ -243,11 +265,21 @@ function DetailActions(props: DetailPageActionProps<Row, { readonly id: string }
 }
 
 const detailContent = (
-	<DetailPageLayout actions={<DetailActions data={{ id: "1", status: "open" }} params={{ id: "1" }} onMutated={async () => {}} />}>
+	<DetailPageLayout
+		actions={
+			<DetailActions
+				data={{ id: "1", status: "open" }}
+				params={{ id: "1" }}
+				onMutated={async () => {}}
+			/>
+		}
+	>
 		<DetailSection description="Record metadata" title="Summary">
 			<DetailField label="ID">1</DetailField>
 		</DetailSection>
-		<DetailRelated title="Related records"><div /></DetailRelated>
+		<DetailRelated title="Related records">
+			<div />
+		</DetailRelated>
 	</DetailPageLayout>
 );
 
