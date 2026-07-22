@@ -386,8 +386,8 @@ var helpCommands = []helpCommandEntry{
 		Stability:   "beta",
 	},
 	{
-		Command:   "build",
-		Group:     "Build and checks",
+		Command: "build",
+		Group:   "Build and checks",
 		Summary: "Build the deployable binary or a declared shared library.",
 		Usage: []string{
 			"scenery build [--app-root <path>] [--output <path>] [-o human|json]",

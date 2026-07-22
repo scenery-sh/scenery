@@ -22,6 +22,22 @@ type embedPatternCacheEntry struct {
 // watch scans stat files instead of re-reading every .go file in the app.
 var embedPatternCache sync.Map
 
+func cachedGoEmbedPatterns(path string, stamp fileStamp) ([]string, bool) {
+	value, ok := embedPatternCache.Load(path)
+	if !ok {
+		return nil, false
+	}
+	entry := value.(embedPatternCacheEntry)
+	if entry.stamp.hash != stamp.hash {
+		return nil, false
+	}
+	return entry.patterns, true
+}
+
+func storeGoEmbedPatterns(path string, stamp fileStamp, patterns []string) {
+	embedPatternCache.Store(path, embedPatternCacheEntry{stamp: stamp, patterns: patterns})
+}
+
 func parseGoEmbedPatterns(src string) []string {
 	var patterns []string
 	for _, line := range strings.Split(src, "\n") {
@@ -91,7 +107,7 @@ func addEmbeddedPatternFiles(root, pkgDir, pattern string, files map[string]stru
 	return nil
 }
 
-func addEmbeddedSnapshotFiles(root, pkgDir, pattern string, files map[string]fileStamp, ignore *watchignore.Matcher) error {
+func addEmbeddedSnapshotFiles(root, pkgDir, pattern string, files, previous map[string]fileStamp, ignore *watchignore.Matcher) error {
 	includeHidden := false
 	if strings.HasPrefix(pattern, "all:") {
 		includeHidden = true
@@ -106,14 +122,14 @@ func addEmbeddedSnapshotFiles(root, pkgDir, pattern string, files map[string]fil
 		return nil
 	}
 	for _, match := range matches {
-		if err := addEmbeddedSnapshotPath(root, match, includeHidden, files, ignore); err != nil {
+		if err := addEmbeddedSnapshotPath(root, match, includeHidden, files, previous, ignore); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func addEmbeddedSnapshotPath(root, path string, includeHidden bool, files map[string]fileStamp, ignore *watchignore.Matcher) error {
+func addEmbeddedSnapshotPath(root, path string, includeHidden bool, files, previous map[string]fileStamp, ignore *watchignore.Matcher) error {
 	info, err := os.Stat(path)
 	if err != nil {
 		return nil
@@ -128,9 +144,12 @@ func addEmbeddedSnapshotPath(root, path string, includeHidden bool, files map[st
 	}
 	if !info.IsDir() {
 		if includeHidden || !hasHiddenOrUnderscorePart(rel) {
-			stamp, _, err := stampWatchedFile(path, info, true)
-			if err != nil {
-				return nil
+			stamp, reused := reusableStamp(previous, rel, info, true)
+			if !reused {
+				var err error
+				if stamp, _, err = stampWatchedFile(path, info, true); err != nil {
+					return nil
+				}
 			}
 			files[rel] = stamp
 		}
@@ -167,9 +186,11 @@ func addEmbeddedSnapshotPath(root, path string, includeHidden bool, files map[st
 		if err != nil {
 			return nil
 		}
-		stamp, _, err := stampWatchedFile(child, info, true)
-		if err != nil {
-			return nil
+		stamp, reused := reusableStamp(previous, rel, info, true)
+		if !reused {
+			if stamp, _, err = stampWatchedFile(child, info, true); err != nil {
+				return nil
+			}
 		}
 		files[rel] = stamp
 		return nil

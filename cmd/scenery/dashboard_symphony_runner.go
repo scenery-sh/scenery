@@ -612,7 +612,7 @@ func renderSymphonyRunPrompt(workflow symphony.WorkflowRuntime, req symphonyRunR
 		"run.attempt":       fmt.Sprintf("%d", req.Run.Attempt),
 	}
 	var unknown []string
-	rendered := regexp.MustCompile(`{{\s*([^{}]+?)\s*}}`).ReplaceAllStringFunc(template, func(match string) string {
+	rendered := symphonyTemplateVariablePattern.ReplaceAllStringFunc(template, func(match string) string {
 		key := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(match, "{{"), "}}"))
 		if value, ok := values[key]; ok {
 			return value
@@ -698,13 +698,17 @@ func symphonyRunWorkspaceSegment() string {
 	return "run-" + hex.EncodeToString(buf[:])
 }
 
+var (
+	symphonyTemplateVariablePattern = regexp.MustCompile(`{{\s*([^{}]+?)\s*}}`)
+	unsafePathSegmentPattern        = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
+)
+
 func safePathSegment(value string) string {
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return "unknown"
 	}
-	re := regexp.MustCompile(`[^A-Za-z0-9._-]+`)
-	value = re.ReplaceAllString(value, "-")
+	value = unsafePathSegmentPattern.ReplaceAllString(value, "-")
 	value = strings.Trim(value, "-.")
 	if value == "" {
 		return "unknown"

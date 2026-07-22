@@ -234,16 +234,14 @@ func ContextAt(manifest *Manifest, workspaceRevision string, diagnostics []Diagn
 		return ContextBundle{}, fmt.Errorf("failed_precondition: continuation offset is unavailable")
 	}
 	bundle := ContextBundle{ArtifactIdentity: machine.NewArtifactIdentity(contextBundleKind, contextBundleSchemaDescriptor), WorkspaceRevision: workspaceRevision, ContractRevision: manifest.ContractRevision, View: options.View, Resources: []Resource{}}
+	populateContextIncludes(&bundle, options.Include, diagnostics)
+	budget := newContextByteBudget(bundle, options.Include, diagnostics)
 	for _, address := range addresses[offset:] {
-		candidate := bundle
-		candidate.Resources = append(append([]Resource(nil), bundle.Resources...), selected[address])
-		populateContextIncludes(&candidate, options.Include, diagnostics)
-		encoded, _ := json.Marshal(candidate)
-		if len(candidate.Resources) > options.MaxResources || len(encoded) > options.MaxBytes {
+		if !budget.add(selected[address], options.MaxResources, options.MaxBytes) {
 			bundle.Truncated = true
 			break
 		}
-		bundle = candidate
+		bundle.Resources = append(bundle.Resources, selected[address])
 	}
 	populateContextIncludes(&bundle, options.Include, diagnostics)
 	for {
@@ -270,6 +268,103 @@ func ContextAt(manifest *Manifest, workspaceRevision string, diagnostics []Diagn
 		return ContextBundle{}, fmt.Errorf("invalid_request: max_bytes is too small for one resource")
 	}
 	return bundle, nil
+}
+
+// contextByteBudget tracks the exact serialized size of a growing context
+// bundle without re-marshaling the whole bundle per resource. Each candidate
+// fragment (resource, origin, schema, diagnostic) is marshaled once, and the
+// running total adds the same comma and field overhead encoding/json produces,
+// including the omitempty transitions of the schemas, provenance, and
+// diagnostics sections. The trailing trim loop in ContextAt still performs the
+// authoritative full-bundle marshal check with continuation metadata.
+type contextByteBudget struct {
+	total           int
+	resourceCount   int
+	wantSchemas     bool
+	wantProvenance  bool
+	wantDiagnostics bool
+	schemaCount     int
+	schemaKinds     map[string]bool
+	diagnosticCount int
+	diagnosticSizes map[string][]int
+}
+
+func newContextByteBudget(bundle ContextBundle, include []string, diagnostics []Diagnostic) contextByteBudget {
+	budget := contextByteBudget{
+		resourceCount:   len(bundle.Resources),
+		diagnosticCount: len(bundle.Diagnostics),
+		schemaKinds:     map[string]bool{},
+		diagnosticSizes: map[string][]int{},
+	}
+	for _, value := range include {
+		budget.wantSchemas = budget.wantSchemas || value == "schemas"
+		budget.wantProvenance = budget.wantProvenance || value == "provenance"
+		budget.wantDiagnostics = budget.wantDiagnostics || value == "diagnostics"
+	}
+	encoded, _ := json.Marshal(bundle)
+	budget.total = len(encoded)
+	if budget.wantDiagnostics {
+		for _, diagnostic := range diagnostics {
+			if diagnostic.Address == "" {
+				continue
+			}
+			encodedDiagnostic, _ := json.Marshal(diagnostic)
+			budget.diagnosticSizes[diagnostic.Address] = append(budget.diagnosticSizes[diagnostic.Address], len(encodedDiagnostic))
+		}
+	}
+	return budget
+}
+
+func (b *contextByteBudget) add(resource Resource, maxResources, maxBytes int) bool {
+	encodedResource, _ := json.Marshal(resource)
+	cost := len(encodedResource)
+	if b.resourceCount > 0 {
+		cost++ // comma between resources array elements
+	}
+	schemaKind := ""
+	if b.wantSchemas && !b.schemaKinds[resource.Kind] {
+		if schema, ok := spec.CoreSchema(resource.Kind); ok {
+			encodedKind, _ := json.Marshal(resource.Kind)
+			encodedSchema, _ := json.Marshal(schema)
+			if b.schemaCount == 0 {
+				cost += len(`,"schemas":{}`)
+			} else {
+				cost++ // comma between schema entries
+			}
+			cost += len(encodedKind) + 1 + len(encodedSchema)
+			schemaKind = resource.Kind
+		}
+	}
+	if b.wantProvenance {
+		encodedAddress, _ := json.Marshal(resource.Address)
+		encodedOrigin, _ := json.Marshal(resource.Origin)
+		if b.resourceCount == 0 {
+			cost += len(`,"provenance":{}`)
+		} else {
+			cost++ // comma between provenance entries
+		}
+		cost += len(encodedAddress) + 1 + len(encodedOrigin)
+	}
+	diagnosticSizes := b.diagnosticSizes[resource.Address]
+	for index, size := range diagnosticSizes {
+		if b.diagnosticCount+index == 0 {
+			cost += len(`,"diagnostics":[]`)
+		} else {
+			cost++ // comma between diagnostics array elements
+		}
+		cost += size
+	}
+	if b.resourceCount+1 > maxResources || b.total+cost > maxBytes {
+		return false
+	}
+	b.total += cost
+	b.resourceCount++
+	if schemaKind != "" {
+		b.schemaKinds[schemaKind] = true
+		b.schemaCount++
+	}
+	b.diagnosticCount += len(diagnosticSizes)
+	return true
 }
 
 func populateContextIncludes(bundle *ContextBundle, include []string, diagnostics []Diagnostic) {

@@ -43,14 +43,15 @@ var svgTags = map[string]struct{}{
 // Scan classifies source files without accessing the filesystem.
 func Scan(files []SourceFile) []FileReport {
 	reports := make([]FileReport, 0, len(files))
+	tokenPatterns := map[string]*regexp.Regexp{}
 	for _, file := range files {
-		reports = append(reports, scanFile(file))
+		reports = append(reports, scanFile(file, tokenPatterns))
 	}
 	sortFiles(reports)
 	return reports
 }
 
-func scanFile(file SourceFile) FileReport {
+func scanFile(file SourceFile, tokenPatterns map[string]*regexp.Regexp) FileReport {
 	source := string(file.Content)
 	tokens := lexJavaScript(source)
 	origins, tokenIdentifiers, importCount := parseImports(tokens)
@@ -62,7 +63,7 @@ func scanFile(file SourceFile) FileReport {
 		designSystemImports: importCount,
 	}
 	scanJSX(code, origins, &report)
-	scanStyleX(source, code, tokenIdentifiers, &report.Style)
+	scanStyleX(source, code, tokenIdentifiers, tokenPatterns, &report.Style)
 	finalizeFile(&report)
 	return report
 }
@@ -266,7 +267,7 @@ func findJSXTagEnd(code string, start int) int {
 	return -1
 }
 
-func scanStyleX(source, code string, tokenIdentifiers map[string]struct{}, style *StyleReport) {
+func scanStyleX(source, code string, tokenIdentifiers map[string]struct{}, tokenPatterns map[string]*regexp.Regexp, style *StyleReport) {
 	for _, match := range stylexCreatePattern.FindAllStringIndex(code, -1) {
 		open := match[1] - 1
 		close := matchingBrace(code, open)
@@ -276,7 +277,11 @@ func scanStyleX(source, code string, tokenIdentifiers map[string]struct{}, style
 		bodyCode := code[open+1 : close]
 		bodySource := stripComments(source[open+1 : close])
 		for identifier := range tokenIdentifiers {
-			pattern := regexp.MustCompile(`\b` + regexp.QuoteMeta(identifier) + `\s*(?:\.|\[)`)
+			pattern, ok := tokenPatterns[identifier]
+			if !ok {
+				pattern = regexp.MustCompile(`\b` + regexp.QuoteMeta(identifier) + `\s*(?:\.|\[)`)
+				tokenPatterns[identifier] = pattern
+			}
 			style.TokenRefs += len(pattern.FindAllStringIndex(bodyCode, -1))
 		}
 		style.RawColors += len(colorLiteralPattern.FindAllStringIndex(bodySource, -1))

@@ -480,7 +480,9 @@ func sessionOwnerProcessLive(session localagent.Session) (int, bool) {
 }
 
 func discoverDevGitBranch(root string) string {
-	out, err := exec.Command("git", "-C", root, "branch", "--show-current").Output()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "git", "-C", root, "branch", "--show-current").Output()
 	if err != nil {
 		return ""
 	}
@@ -580,14 +582,14 @@ func waitForStableChangeEvents(ctx context.Context, root string, current fileSna
 		case <-ctx.Done():
 			return fileSnapshot{}, false, ctx.Err()
 		case <-wake:
-			next, err := scanWatchedFiles(root)
+			next, err := scanWatchedFilesReusing(root, current)
 			return next, true, err
 		case _, ok := <-events:
 			if !ok {
 				return waitForStableChangePolling(ctx, root, current, wake)
 			}
 		case <-ticker.C:
-			next, err := scanWatchedFiles(root)
+			next, err := scanWatchedFilesReusing(root, current)
 			if err != nil {
 				return fileSnapshot{}, false, err
 			}
@@ -598,7 +600,7 @@ func waitForStableChangeEvents(ctx context.Context, root string, current fileSna
 			return settled, false, err
 		}
 
-		next, err := waitForSnapshotToSettleEvents(ctx, root, events)
+		next, err := waitForSnapshotToSettleEvents(ctx, root, current, events)
 		if err != nil {
 			return fileSnapshot{}, false, err
 		}
@@ -622,7 +624,7 @@ func waitForSnapshotToSettlePolling(ctx context.Context, root string, current fi
 		case <-timer.C:
 			return current, nil
 		case <-ticker.C:
-			next, err := scanWatchedFiles(root)
+			next, err := scanWatchedFilesReusing(root, current)
 			if err != nil {
 				return fileSnapshot{}, err
 			}
@@ -641,7 +643,7 @@ func waitForSnapshotToSettlePolling(ctx context.Context, root string, current fi
 	}
 }
 
-func waitForSnapshotToSettleEvents(ctx context.Context, root string, events <-chan struct{}) (fileSnapshot, error) {
+func waitForSnapshotToSettleEvents(ctx context.Context, root string, current fileSnapshot, events <-chan struct{}) (fileSnapshot, error) {
 	timer := time.NewTimer(watchSettleDelay)
 	defer timer.Stop()
 
@@ -650,10 +652,10 @@ func waitForSnapshotToSettleEvents(ctx context.Context, root string, events <-ch
 		case <-ctx.Done():
 			return fileSnapshot{}, ctx.Err()
 		case <-timer.C:
-			return scanWatchedFiles(root)
+			return scanWatchedFilesReusing(root, current)
 		case _, ok := <-events:
 			if !ok {
-				return scanWatchedFiles(root)
+				return scanWatchedFilesReusing(root, current)
 			}
 			if !timer.Stop() {
 				select {
@@ -912,14 +914,22 @@ func snapshotFingerprint(snapshot fileSnapshot) string {
 	}
 	sort.Strings(paths)
 	h := sha256.New()
+	var scratch []byte
 	for _, path := range paths {
 		stamp := snapshot.files[path]
 		_, _ = h.Write([]byte(path))
 		_, _ = h.Write([]byte{0})
 		_, _ = h.Write([]byte(stamp.hash))
 		_, _ = h.Write([]byte{0})
-		_, _ = h.Write([]byte(fmt.Sprintf("%d:%d:%o:%t", stamp.size, stamp.modTime.UnixNano(), stamp.mode, stamp.embed)))
-		_, _ = h.Write([]byte{0})
+		scratch = strconv.AppendInt(scratch[:0], stamp.size, 10)
+		scratch = append(scratch, ':')
+		scratch = strconv.AppendInt(scratch, stamp.modTime.UnixNano(), 10)
+		scratch = append(scratch, ':')
+		scratch = strconv.AppendUint(scratch, uint64(stamp.mode), 8)
+		scratch = append(scratch, ':')
+		scratch = strconv.AppendBool(scratch, stamp.embed)
+		scratch = append(scratch, 0)
+		_, _ = h.Write(scratch)
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }
