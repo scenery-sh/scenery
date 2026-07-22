@@ -60,8 +60,9 @@ func TestBinaryOwnedUICatalogContainsComposableQueryTable(t *testing.T) {
 	for _, fragment := range []string{
 		`export type NavigationOrigin = "generated" | "authored"`,
 		`data-origin={origin}`,
+		`origin === "authored" && icon`,
 		`renderIconSlot(icon, { color: "inherit", size: "sm" })`,
-		`generatedIcon: { color: t.infoIcon }`,
+		`authoredIcon: { color: t.dangerIcon }`,
 	} {
 		if !strings.Contains(sideNavigation, fragment) {
 			t.Errorf("SideNavigation missing provenance surface %q", fragment)

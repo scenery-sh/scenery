@@ -77,8 +77,8 @@ export function SideNavigation({
                   {...sideNavItem}
                   as={linkComponent}
                   icon={
-                    origin === "generated" && icon ? (
-                      <span {...stylex.props(styles.generatedIcon)}>
+                    origin === "authored" && icon ? (
+                      <span {...stylex.props(styles.authoredIcon)}>
                         {renderIconSlot(icon, { color: "inherit", size: "sm" })}
                       </span>
                     ) : (
@@ -172,5 +172,5 @@ const styles = stylex.create({
     paddingBlock: 0,
   },
   sideGroup: { marginTop: 20 },
-  generatedIcon: { color: t.infoIcon },
+  authoredIcon: { color: t.dangerIcon },
 });
