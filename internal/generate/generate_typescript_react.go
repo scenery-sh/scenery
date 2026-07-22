@@ -13,11 +13,12 @@ import (
 )
 
 type reactTablePage struct {
-	table, crud, record, operation, binding Resource
-	stats                                   *reactTableStats
-	dialogs                                 []reactTableDialog
-	itemsField                              string
-	pagination                              string
+	table, crud, record, resultRecord, operation, binding Resource
+	stats                                                 *reactTableStats
+	dialogs                                               []reactTableDialog
+	itemsField                                            string
+	metadataFields                                        []string
+	pagination                                            string
 }
 
 type reactTableStats struct {
@@ -139,7 +140,10 @@ func selectedReactTablePages(resources, bindings []Resource) []reactTablePage {
 			if len(orderedChildren(table.Spec, "pagination")) > 0 {
 				pagination = "page"
 			}
-			page = reactTablePage{table: table, record: record, operation: operation, binding: binding, itemsField: itemsField, pagination: pagination}
+			page = reactTablePage{
+				table: table, record: record, resultRecord: resultRecord, operation: operation, binding: binding,
+				itemsField: itemsField, metadataFields: stringValues(table.Spec["metadata"]), pagination: pagination,
+			}
 		default:
 			continue
 		}
@@ -453,6 +457,13 @@ func renderReactTablePage(result *Result, target Resource, reactRoot string, pag
 	for _, field := range namedChildren(page.record.Spec, "field") {
 		fields[stringValue(field["name"])] = field
 	}
+	rowType := goName(page.record.Name)
+	metadataType := "Record<string, never>"
+	metadataTypeArgument := ""
+	if len(page.metadataFields) > 0 {
+		metadataType = goName(page.table.Name) + "Metadata"
+		metadataTypeArgument = ", " + metadataType
+	}
 	components := map[string]Resource{}
 	collect := func(value any) {
 		if value == nil {
@@ -487,6 +498,12 @@ func renderReactTablePage(result *Result, target Resource, reactRoot string, pag
 		fmt.Fprintf(&b, "import { %s } from \"@tanstack/react-query\";\n", strings.Join(tanstackImports, ", "))
 	}
 	hasToolbar := len(orderedChildren(page.table.Spec, "toolbar")) > 0
+	toolbarPlacement := "header"
+	if hasToolbar {
+		toolbarPlacement = defaultString(stringValue(orderedChildren(page.table.Spec, "toolbar")[0]["placement"]), "header")
+	}
+	headerToolbar := hasToolbar && toolbarPlacement == "header"
+	contentToolbar := hasToolbar && toolbarPlacement == "content"
 	hasAdaptedFilter := false
 	for _, filter := range orderedChildren(page.table.Spec, "filter") {
 		field := fields[stringValue(filter["name"])]
@@ -513,7 +530,10 @@ func renderReactTablePage(result *Result, target Resource, reactRoot string, pag
 	}
 	clientImports = append(clientImports, "url")
 	fmt.Fprintf(&b, "import { %s } from \"../index.js\";\n", strings.Join(clientImports, ", "))
-	fmt.Fprintf(&b, "import type { %s", goName(page.record.Name))
+	fmt.Fprintf(&b, "import type { %s", rowType)
+	if len(page.metadataFields) > 0 {
+		fmt.Fprintf(&b, ", %s", goName(page.resultRecord.Name))
+	}
 	typeImports := reactPageTypeImports(page, fields, resources)
 	if page.stats != nil {
 		typeImports = append(typeImports, goName(page.stats.record.Name))
@@ -583,11 +603,17 @@ func renderReactTablePage(result *Result, target Resource, reactRoot string, pag
 		fmt.Fprintf(&b, "import { %s as %s } from %s;\n", stringValue(component.Spec["export"]), alias, strconv.Quote(module))
 	}
 	b.WriteString("\n")
-	rowType := goName(page.record.Name)
+	if len(page.metadataFields) > 0 {
+		keys := make([]string, 0, len(page.metadataFields))
+		for _, field := range page.metadataFields {
+			keys = append(keys, strconv.Quote(tsName(field)))
+		}
+		fmt.Fprintf(&b, "type %s = Pick<%s, %s>;\n\n", metadataType, goName(page.resultRecord.Name), strings.Join(keys, " | "))
+	}
 	if hasToolbar {
 		for _, value := range orderedChildren(page.table.Spec, "toolbar") {
 			alias := aliases[resolveResourceRef(page.table, refString(value["component"]), "react_component")]
-			fmt.Fprintf(&b, "const %sToolbar: ComponentType<TablePageToolbarProps<%s>> = %s;\n", goName(page.table.Name), rowType, alias)
+			fmt.Fprintf(&b, "const %sToolbar: ComponentType<TablePageToolbarProps<%s%s>> = %s;\n", goName(page.table.Name), rowType, metadataTypeArgument, alias)
 		}
 	}
 	for _, column := range orderedChildren(page.table.Spec, "column") {
@@ -608,8 +634,8 @@ func renderReactTablePage(result *Result, target Resource, reactRoot string, pag
 		if len(values) > 0 {
 			typeName := tsType(fields[field]["type"])
 			componentName := goName(page.table.Name) + goName(field) + "FilterComponent"
-			fmt.Fprintf(&b, "const %s: ComponentType<TablePageFilterProps<string, %s>> = %s;\n", componentName, rowType, alias)
-			fmt.Fprintf(&b, "function %s%sFilter(props: TablePageFilterProps<string, %s>) { const value = props.value !== undefined && (%s) ? props.value : undefined; return <%s context={props.context} label={props.label} value={value} onChange={props.onChange} />; }\n", goName(page.table.Name), goName(field), rowType, reactLiteralPredicate("props.value", values), componentName)
+			fmt.Fprintf(&b, "const %s: ComponentType<TablePageFilterProps<string, %s%s>> = %s;\n", componentName, rowType, metadataTypeArgument, alias)
+			fmt.Fprintf(&b, "function %s%sFilter(props: TablePageFilterProps<string, %s%s>) { const value = props.value !== undefined && (%s) ? props.value : undefined; return <%s context={props.context} label={props.label} value={value} onChange={props.onChange} />; }\n", goName(page.table.Name), goName(field), rowType, metadataTypeArgument, reactLiteralPredicate("props.value", values), componentName)
 			_ = typeName // the imported enum type is exercised by the generated list input.
 		} else {
 			fmt.Fprintf(&b, "const %s%sFilter = %s;\n", goName(page.table.Name), goName(field), alias)
@@ -635,7 +661,7 @@ func renderReactTablePage(result *Result, target Resource, reactRoot string, pag
 		}
 	}
 	if len(componentAddresses) > 0 {
-		fmt.Fprintf(&b, "\nconst slots = defineTablePageSlots<%s, %s, %s>()({\n", rowType, unionOrNever(cellKeys), objectTypeOrEmpty(filterValueTypes))
+		fmt.Fprintf(&b, "\nconst slots = defineTablePageSlots<%s, %s, %s%s>()({\n", rowType, unionOrNever(cellKeys), objectTypeOrEmpty(filterValueTypes), metadataTypeArgument)
 		if len(cellKeys) > 0 {
 			b.WriteString("  cells: {\n")
 			for _, column := range orderedChildren(page.table.Spec, "column") {
@@ -680,6 +706,29 @@ func renderReactTablePage(result *Result, target Resource, reactRoot string, pag
 			fmt.Fprintf(&b, "  rowAction: %s,\n", alias)
 		}
 		b.WriteString("});\n\n")
+		if hasToolbar || len(cellKeys) > 0 || len(filterKeys) > 0 {
+			b.WriteString("function requiredTablePageSlot<T>(value: T | undefined, name: string): T {\n")
+			b.WriteString("  if (value === undefined) throw new Error(`generated table_page slot ${name} is required`);\n")
+			b.WriteString("  return value;\n}\n")
+			for _, column := range orderedChildren(page.table.Spec, "column") {
+				if column["component"] == nil {
+					continue
+				}
+				field := stringValue(column["name"])
+				fmt.Fprintf(&b, "const %s%sCellSlot = requiredTablePageSlot(slots.cells?.%s, %s);\n", goName(page.table.Name), goName(field), tsName(field), strconv.Quote("cells."+tsName(field)))
+			}
+			for _, filter := range orderedChildren(page.table.Spec, "filter") {
+				if filter["component"] == nil {
+					continue
+				}
+				field := stringValue(filter["name"])
+				fmt.Fprintf(&b, "const %s%sFilterSlot = requiredTablePageSlot(slots.filters?.%s, %s);\n", goName(page.table.Name), goName(field), tsName(field), strconv.Quote("filters."+tsName(field)))
+			}
+			if hasToolbar {
+				fmt.Fprintf(&b, "const %sToolbarSlot = requiredTablePageSlot(slots.toolbar, \"toolbar\");\n", goName(page.table.Name))
+			}
+			b.WriteString("\n")
+		}
 	}
 
 	fmt.Fprintf(&b, "const queryKey = [\"scenery\", \"table_page\", %s] as const;\n\n", strconv.Quote(page.table.Address))
@@ -695,8 +744,8 @@ func renderReactTablePage(result *Result, target Resource, reactRoot string, pag
 	method := reactClientMethod(page, bindings)
 	writeReactPageOpen(&b, goName(page.table.Name), goName(target.Name))
 	if hasToolbar {
-		fmt.Fprintf(&b, "  const [tableContext, setTableContext] = useState<TablePageResultContext<%s>>();\n", rowType)
-		fmt.Fprintf(&b, "  const onResultContextChange = useCallback((context: TablePageResultContext<%s>) => setTableContext(context), []);\n", rowType)
+		fmt.Fprintf(&b, "  const [tableContext, setTableContext] = useState<TablePageResultContext<%s%s>>();\n", rowType, metadataTypeArgument)
+		fmt.Fprintf(&b, "  const onResultContextChange = useCallback((context: TablePageResultContext<%s%s>) => setTableContext(context), []);\n", rowType, metadataTypeArgument)
 	}
 	if len(page.dialogs) > 0 {
 		b.WriteString("  const queryClient = useQueryClient();\n")
@@ -707,7 +756,7 @@ func renderReactTablePage(result *Result, target Resource, reactRoot string, pag
 	for _, dialog := range page.dialogs {
 		writeReactTableDialogState(&b, page, dialog, bindings, resources, rowType)
 	}
-	writeReactLoad(&b, "query: TablePageQuery, signal?: AbortSignal", "TablePageResult<"+rowType+">", func(b *strings.Builder) {
+	writeReactLoad(&b, "query: TablePageQuery, signal?: AbortSignal", "TablePageResult<"+rowType+metadataTypeArgument+">", func(b *strings.Builder) {
 		fmt.Fprintf(b, "    const outcome = await client.%s({\n", method)
 		shape := resolveOperationInputShape(resources, page.operation)
 		queryMapping := firstReactTableChild(page.table.Spec, "query")
@@ -772,10 +821,10 @@ func renderReactTablePage(result *Result, target Resource, reactRoot string, pag
 		b.WriteString("    }, { signal });\n")
 	}, reactTableResultExpression(page))
 	fmt.Fprintf(&b, "  return <><Page title=%s fill", jsxStringExpression(stringValue(page.table.Spec["title"])))
-	if len(orderedChildren(page.table.Spec, "toolbar")) > 0 || len(headerTableDialogs(page.dialogs)) > 0 {
+	if headerToolbar || len(headerTableDialogs(page.dialogs)) > 0 {
 		b.WriteString(" actions={<>\n")
-		if hasToolbar {
-			b.WriteString("    <slots.toolbar context={tableContext} />\n")
+		if headerToolbar {
+			fmt.Fprintf(&b, "    <%sToolbarSlot context={tableContext} />\n", goName(page.table.Name))
 		}
 		headerDialogs := headerTableDialogs(page.dialogs)
 		primaryIndex := primaryDialogIndex(headerDialogs)
@@ -800,7 +849,10 @@ func renderReactTablePage(result *Result, target Resource, reactRoot string, pag
 		}
 		b.WriteString("    </StatGrid> : null}\n  </QueryState>\n")
 	}
-	fmt.Fprintf(&b, "<QueryTable<%s> resource=%s fill", rowType, jsxStringExpression(stringValue(page.table.Spec["title"])))
+	if contentToolbar {
+		fmt.Fprintf(&b, "\n  <%sToolbarSlot context={tableContext} />\n", goName(page.table.Name))
+	}
+	fmt.Fprintf(&b, "<QueryTable<%s%s> resource=%s fill", rowType, metadataTypeArgument, jsxStringExpression(stringValue(page.table.Spec["title"])))
 	if description := stringValue(page.table.Spec["description"]); description != "" {
 		fmt.Fprintf(&b, " description=%s", jsxStringExpression(description))
 	}
@@ -811,7 +863,7 @@ func renderReactTablePage(result *Result, target Resource, reactRoot string, pag
 		appearance := defaultString(stringValue(column["appearance"]), "auto")
 		fmt.Fprintf(&b, "    { field: %s, label: %s, appearance: %s", strconv.Quote(tsName(field)), strconv.Quote(label), strconv.Quote(appearance))
 		if column["component"] != nil {
-			fmt.Fprintf(&b, ", component: slots.cells.%s", tsName(field))
+			fmt.Fprintf(&b, ", component: %s%sCellSlot", goName(page.table.Name), goName(field))
 		}
 		if column["hidden"] == true {
 			b.WriteString(", hidden: true")
@@ -830,17 +882,22 @@ func renderReactTablePage(result *Result, target Resource, reactRoot string, pag
 		label := defaultString(stringValue(filter["label"]), humanLabel(field))
 		values := enumWireValues(resources, page.record.Module, fields[field]["type"])
 		statusMap := resolveReferencedStatusMap(resources, page.table, filter["status_map"])
-		if len(values) > 0 || statusMap.Address != "" {
+		fieldExpression := unwrapReactType(typeExpression(fields[field]["type"]))
+		customStringFilter := fieldExpression == "string" && (filter["component"] != nil || filter["hidden"] == true)
+		if len(values) > 0 || statusMap.Address != "" || customStringFilter {
 			options := reactFilterOptions(values, statusMap)
 			fmt.Fprintf(&b, "    { field: %s, label: %s, kind: \"enum\", options: [%s]", strconv.Quote(field), strconv.Quote(label), options)
 		} else {
 			fmt.Fprintf(&b, "    { field: %s, label: %s, kind: \"datetime\"", strconv.Quote(field), strconv.Quote(label))
 		}
 		if filter["component"] != nil {
-			fmt.Fprintf(&b, ", component: slots.filters.%s", tsName(field))
+			fmt.Fprintf(&b, ", component: %s%sFilterSlot", goName(page.table.Name), goName(field))
 		}
 		if filter["pinned"] == true {
 			b.WriteString(", pinned: true")
+		}
+		if filter["hidden"] == true {
+			b.WriteString(", hidden: true")
 		}
 		b.WriteString(" },\n")
 	}
@@ -874,6 +931,9 @@ func renderReactTablePage(result *Result, target Resource, reactRoot string, pag
 	shape := resolveOperationInputShape(resources, page.operation)
 	if reactTableSearchable(page, shape, reactTableMappedName(queryMapping, "search", "search")) {
 		b.WriteString(" searchable")
+		if queryMapping != nil && queryMapping["search_hidden"] == true {
+			b.WriteString(" hideSearch")
+		}
 	}
 	if rowLink := stringValue(page.table.Spec["row_link"]); rowLink != "" {
 		fmt.Fprintf(&b, " rowLink={(row) => %s}", renderReactRowLink(rowLink))
@@ -1180,15 +1240,10 @@ func referencedReactStatusMaps(resources map[string]Resource, page reactTablePag
 			set[reactStatusMapName(statusMap)] = true
 		}
 	}
-	for _, kind := range []string{"column", "filter"} {
-		for _, child := range orderedChildren(page.table.Spec, kind) {
-			add(page.table, child["status_map"])
-		}
-	}
-	for _, dialog := range page.dialogs {
-		for _, field := range orderedChildren(dialog.dialog.Spec, "field") {
-			add(dialog.dialog, field["status_map"])
-		}
+	// Columns pass status-map constants to QueryTable at runtime. Filters and
+	// dialog fields compile their maps into literal option lists instead.
+	for _, column := range orderedChildren(page.table.Spec, "column") {
+		add(page.table, column["status_map"])
 	}
 	names := make([]string, 0, len(set))
 	for name := range set {
@@ -1276,14 +1331,27 @@ func unwrapReactCollectionType(value, collection string) (string, bool) {
 }
 
 func reactTableResultExpression(page reactTablePage) string {
+	metadata := reactTableMetadataResultExpression(page)
 	if page.pagination == "cursor" {
 		return `{ kind: "result", items: outcome.value.items, nextCursor: outcome.value.nextCursor }`
 	}
 	if page.pagination == "page" {
 		pagination := firstReactTableChild(page.table.Spec, "pagination")
-		return fmt.Sprintf(`{ kind: "result", items: outcome.value.%s, total: reactTableSafeTotal(outcome.value.%s) }`, tsName(page.itemsField), tsName(stringValue(pagination["total"])))
+		return fmt.Sprintf(`{ kind: "result", items: outcome.value.%s, total: reactTableSafeTotal(outcome.value.%s)%s }`, tsName(page.itemsField), tsName(stringValue(pagination["total"])), metadata)
 	}
-	return fmt.Sprintf(`{ kind: "result", items: outcome.value.%s }`, tsName(page.itemsField))
+	return fmt.Sprintf(`{ kind: "result", items: outcome.value.%s%s }`, tsName(page.itemsField), metadata)
+}
+
+func reactTableMetadataResultExpression(page reactTablePage) string {
+	if len(page.metadataFields) == 0 {
+		return ""
+	}
+	fields := make([]string, 0, len(page.metadataFields))
+	for _, field := range page.metadataFields {
+		name := tsName(field)
+		fields = append(fields, name+": outcome.value."+name)
+	}
+	return ", metadata: { " + strings.Join(fields, ", ") + " }"
 }
 
 func firstReactTableChild(value map[string]any, kind string) map[string]any {
@@ -1324,6 +1392,9 @@ func reactTableIntegerExpression(expression string, value any) string {
 }
 
 func reactTableLiteral(value, valueType any) string {
+	if scalar, ok := value.(map[string]any); ok && stringValue(scalar["$scalar"]) != "" {
+		value = scalar["value"]
+	}
 	typeName := tsType(valueType)
 	switch typeName {
 	case "bigint":

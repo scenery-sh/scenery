@@ -104,6 +104,7 @@ var authoredFieldOverrides = map[authoredFieldKey]authoredFieldOverride{
 	{Revision: "scenery.crud.execution", Name: "mode"}:                                {Constraints: enumConstraint("direct", "durable")},
 	{Revision: "scenery.crud.list", Name: "max_page_size"}:                            {Default: 100, DefaultSource: "spec", Constraints: map[string]any{"minimum": 1, "maximum": 1000}},
 	{Revision: "scenery.source.table_page", Name: "page_size"}:                        {Default: 50, DefaultSource: "spec", Constraints: map[string]any{"minimum": 1}},
+	{Revision: "scenery.source.table_page", Name: "metadata"}:                         {Constraints: map[string]any{"min_items": 1, "unique_items": true}},
 	{Revision: "scenery.source.table_page", Name: "nav_order"}:                        {Constraints: map[string]any{"minimum": 0}},
 	{Revision: "scenery.source.split_page", Name: "nav_order"}:                        {Constraints: map[string]any{"minimum": 0}},
 	{Revision: "scenery.source.content_page", Name: "nav_order"}:                      {Constraints: map[string]any{"minimum": 0}},
@@ -112,6 +113,8 @@ var authoredFieldOverrides = map[authoredFieldKey]authoredFieldOverride{
 	{Revision: "scenery.table-page.column", Name: "export"}:                           {Default: true, DefaultSource: "spec"},
 	{Revision: "scenery.table-page.sort", Name: "default"}:                            {Constraints: enumConstraint("asc", "desc")},
 	{Revision: "scenery.table-page.group", Name: "default"}:                           {Default: false, DefaultSource: "spec"},
+	{Revision: "scenery.table-page.filter", Name: "hidden"}:                           {Default: false, DefaultSource: "spec"},
+	{Revision: "scenery.table-page.toolbar", Name: "placement"}:                       {Default: "header", DefaultSource: "spec", Constraints: enumConstraint("header", "content")},
 	{Revision: "scenery.table-page.row-detail", Name: "presentation"}:                 {Default: "inline", DefaultSource: "spec", Constraints: enumConstraint("inline", "panel")},
 	{Revision: "scenery.table-page.row-detail", Name: "panel_width"}:                  {Constraints: map[string]any{"minimum": 280, "maximum": 560}},
 	{Revision: "scenery.status-map.status", Name: "variant"}:                          {Constraints: enumConstraint(statusBadgeVariants...)},
@@ -894,6 +897,8 @@ func authoredAttributeType(revision, name string) (map[string]any, string) {
 		switch name {
 		case "source":
 			return map[string]any{"resource_ref_one_of": []string{"scenery.binding", "scenery.crud"}}, "exact"
+		case "metadata":
+			return list("string")
 		case "page_size":
 			return primitive("positive_int")
 		case "hide_header":
@@ -942,14 +947,19 @@ func authoredAttributeType(revision, name string) (map[string]any, string) {
 		default:
 			return primitive("string")
 		}
-	case "scenery.table-page.pagination", "scenery.table-page.query":
+	case "scenery.table-page.pagination":
+		return primitive("string")
+	case "scenery.table-page.query":
+		if name == "search_hidden" {
+			return primitive("bool")
+		}
 		return primitive("string")
 	case "scenery.table-page.predicate":
 		if name == "value" {
 			return map[string]any{"$ref": "scenery.value"}, "exact"
 		}
 		return primitive("string")
-	case "scenery.table-page.slot", "scenery.content-page.slot":
+	case "scenery.table-page.slot", "scenery.table-page.toolbar", "scenery.content-page.slot":
 		if name == "component" {
 			return resourceRef("react_component")
 		}

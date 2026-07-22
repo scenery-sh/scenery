@@ -7,6 +7,11 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
+- [0132 QueryTable Performance: Stable Identities, Memoized Row Rendering, and Virtualized Large Tables](0132-query-table-performance.md)
+  - Status: active
+  - Owner: scenery ui catalog
+  - Created: 2026-07-22
+  - Focus: measured, staged performance work on the catalog table stack — profiling baseline at 1k/5k/10k rows, stable `QueryTable` callback/column identities paired with a `React.memo` boundary on `DataTable` so search keystrokes stop re-rendering every row, then Astryx-first windowed rendering for large complete-list tables behind a row threshold (grouping, expansion, detail panel, keyboard navigation, and absolute row numbering preserved).
 - [0122 UI Catalog Dev Mode: Live ui/ Iteration Without Binary Rebuilds](0122-ui-catalog-dev-mode.md)
   - Status: completed (retain until first release ships it)
   - Owner: scenery generation / agent DX

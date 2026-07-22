@@ -169,10 +169,10 @@ func validateTablePage(resources map[string]Resource, table Resource) []Diagnost
 			if expression != "string" && !enumField || !validStatusMapReference(resources, table, filter["status_map"]) {
 				diagnostics = append(diagnostics, uiDiagnostic("SCN2622", "table_page filter status_map requires a string or enum field", table))
 			}
-		} else if expression == "string" {
+		} else if expression == "string" && filter["component"] == nil && filter["hidden"] != true {
 			diagnostics = append(diagnostics, uiDiagnostic("SCN2622", "table_page string filters require a status_map for their options", table))
 		}
-		if filter["pinned"] == true && (filter["component"] != nil || expression != "string" && !enumField) {
+		if filter["pinned"] == true && (filter["hidden"] == true || filter["component"] != nil || expression != "string" && !enumField) {
 			diagnostics = append(diagnostics, uiDiagnostic("SCN2622", "table_page pinned filters require a generated string or enum selector", table))
 		}
 	}
@@ -214,6 +214,12 @@ func validateTablePage(resources map[string]Resource, table Resource) []Diagnost
 	for _, slot := range []string{"toolbar", "footer", "empty", "row_detail", "row_action"} {
 		for _, value := range namedChildren(table.Spec, slot) {
 			diagnostics = append(diagnostics, validateTablePageComponent(resources, table, value["component"])...)
+		}
+	}
+	for _, toolbar := range orderedChildren(table.Spec, "toolbar") {
+		placement := defaultString(stringValue(toolbar["placement"]), "header")
+		if placement != "header" && placement != "content" {
+			diagnostics = append(diagnostics, uiDiagnostic("SCN2622", "table_page toolbar placement must be header or content", table))
 		}
 	}
 	if len(orderedChildren(table.Spec, "row_detail")) > 0 && len(orderedChildren(table.Spec, "row_action")) > 0 {
@@ -286,6 +292,9 @@ func resolveTablePageSource(resources map[string]Resource, table Resource) (tabl
 		if strings.TrimSpace(stringValue(table.Spec["items"])) != "" {
 			return tablePageSourceContract{}, []Diagnostic{uiDiagnostic("SCN2608", "table_page items is only valid with a binding source", table)}
 		}
+		if len(stringValues(table.Spec["metadata"])) > 0 {
+			return tablePageSourceContract{}, []Diagnostic{uiDiagnostic("SCN2622", "table_page metadata is available only with a binding source", table)}
+		}
 		entity := resources[resolveResourceRef(source, refString(source.Spec["entity"]), "entity")]
 		record := resources[resolveResourceRef(entity, refString(entity.Spec["type"]), "record")]
 		maxPageSize, _ := integerValue(list["max_page_size"])
@@ -347,9 +356,22 @@ func resolveBindingTablePageSource(resources map[string]Resource, table, binding
 	if record.Kind != "scenery.record" {
 		return tablePageSourceContract{}, []Diagnostic{uiDiagnostic("SCN2608", "table_page binding source items must contain records", table)}
 	}
+	metadataNames := stringValues(table.Spec["metadata"])
+	seenMetadata := map[string]bool{}
+	totalName := ""
+	if pagination := firstTablePageChild(table.Spec, "pagination"); pagination != nil {
+		totalName = strings.TrimSpace(stringValue(pagination["total"]))
+	}
+	var metadataDiagnostics []Diagnostic
+	for _, name := range metadataNames {
+		if name == "" || seenMetadata[name] || name == itemsName || name == totalName || namedChild(resultRecord.Spec, "field", name) == nil {
+			metadataDiagnostics = append(metadataDiagnostics, uiDiagnostic("SCN2622", "table_page metadata requires unique result fields other than items and pagination total", table))
+		}
+		seenMetadata[name] = true
+	}
 
 	shape := resolveOperationInputShape(resources, operation)
-	var diagnostics []Diagnostic
+	diagnostics := metadataDiagnostics
 	mappedInputs := map[string]string{}
 	claimInput := func(name, use string) bool {
 		if name == "" {
@@ -415,7 +437,7 @@ func resolveBindingTablePageSource(resources map[string]Resource, table, binding
 		if unwrapCRUDListType(typeExpression(search.Type)) != "string" {
 			diagnostics = append(diagnostics, uiDiagnostic("SCN2625", "table_page binding search mapping must target a string input field", table))
 		}
-	} else if query != nil && strings.TrimSpace(stringValue(query["search"])) != "" {
+	} else if query != nil && (strings.TrimSpace(stringValue(query["search"])) != "" || query["search_hidden"] == true) {
 		diagnostics = append(diagnostics, uiDiagnostic("SCN2625", "table_page binding search mapping must name an operation input field", table))
 	}
 

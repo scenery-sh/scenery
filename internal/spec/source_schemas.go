@@ -198,7 +198,7 @@ var (
 	tablePageColumnSourceSchema = sourceSchema("scenery.table-page.column", 1,
 		[]string{"label", "appearance", "component", "status_map", "hidden", "export"}, nil, nil)
 	tablePageFilterSourceSchema = sourceSchema("scenery.table-page.filter", 1,
-		[]string{"label", "component", "status_map", "pinned", "input"}, nil, nil)
+		[]string{"label", "component", "status_map", "pinned", "hidden", "input"}, nil, nil)
 	tablePageSortSourceSchema = sourceSchema("scenery.table-page.sort", 1,
 		[]string{"label", "default"}, nil, nil)
 	tablePageGroupSourceSchema = sourceSchema("scenery.table-page.group", 1,
@@ -208,9 +208,11 @@ var (
 	tablePagePredicateSourceSchema = sourceSchema("scenery.table-page.predicate", 1,
 		[]string{"value"}, []string{"value"}, nil)
 	tablePageQuerySourceSchema = sourceSchema("scenery.table-page.query", 0,
-		[]string{"search", "sort", "direction"}, nil, nil)
+		[]string{"search", "search_hidden", "sort", "direction"}, nil, nil)
 	tablePageSlotSourceSchema = sourceSchema("scenery.table-page.slot", 0,
 		[]string{"component"}, []string{"component"}, nil)
+	tablePageToolbarSourceSchema = sourceSchema("scenery.table-page.toolbar", 0,
+		[]string{"component", "placement"}, []string{"component"}, nil)
 	tablePageRowDetailSourceSchema = sourceSchema("scenery.table-page.row-detail", 0,
 		[]string{"component", "dialog", "presentation", "panel_width"}, []string{"component"}, nil)
 	tablePageStatsSourceSchema = sourceSchema("scenery.table-page.stats", 0,
@@ -258,7 +260,7 @@ var authoredResourceChildren = map[string]map[string]authoredChildSchema{
 	"page":              {"action": repeated(pageActionSourceSchema)},
 	"status_map":        {"status": repeated(statusMapStatusSourceSchema)},
 	"form_dialog":       {"field": repeated(formDialogFieldSourceSchema)},
-	"table_page":        {"column": repeated(tablePageColumnSourceSchema), "filter": repeated(tablePageFilterSourceSchema), "sort": repeated(tablePageSortSourceSchema), "group": repeated(tablePageGroupSourceSchema), "pagination": singleton(tablePagePaginationSourceSchema), "predicate": repeated(tablePagePredicateSourceSchema), "query": singleton(tablePageQuerySourceSchema), "action": repeated(tablePageActionSourceSchema), "stats": singleton(tablePageStatsSourceSchema), "row_detail": singleton(tablePageRowDetailSourceSchema), "row_action": singleton(tablePageSlotSourceSchema), "export": singleton(tablePageExportSourceSchema), "toolbar": singleton(tablePageSlotSourceSchema), "footer": singleton(tablePageSlotSourceSchema), "empty": singleton(tablePageSlotSourceSchema), "search": repeated(pageSearchSourceSchema)},
+	"table_page":        {"column": repeated(tablePageColumnSourceSchema), "filter": repeated(tablePageFilterSourceSchema), "sort": repeated(tablePageSortSourceSchema), "group": repeated(tablePageGroupSourceSchema), "pagination": singleton(tablePagePaginationSourceSchema), "predicate": repeated(tablePagePredicateSourceSchema), "query": singleton(tablePageQuerySourceSchema), "action": repeated(tablePageActionSourceSchema), "stats": singleton(tablePageStatsSourceSchema), "row_detail": singleton(tablePageRowDetailSourceSchema), "row_action": singleton(tablePageSlotSourceSchema), "export": singleton(tablePageExportSourceSchema), "toolbar": singleton(tablePageToolbarSourceSchema), "footer": singleton(tablePageSlotSourceSchema), "empty": singleton(tablePageSlotSourceSchema), "search": repeated(pageSearchSourceSchema)},
 	"split_page":        {"sidebar": singleton(tablePageSlotSourceSchema), "detail": singleton(tablePageSlotSourceSchema), "sidebar_actions": singleton(tablePageSlotSourceSchema), "detail_header": singleton(tablePageSlotSourceSchema), "search": repeated(pageSearchSourceSchema)},
 	"content_page":      {"content": singleton(contentPageSlotSourceSchema), "actions": singleton(contentPageSlotSourceSchema), "search": repeated(pageSearchSourceSchema)},
 }

@@ -313,7 +313,7 @@ table_page "orders" {
 }
 ```
 
-The binding must use call-delivery HTTP and have one result record. `items` must be a `list(record)` field. Use `query { search, sort, direction }` to map query controls when the operation input names are not the conventional names, and set `filter.input` when a filter's row field and operation input differ. A labeled `predicate` supplies a typed fixed input without exposing a control. The generated table sends only those declared inputs and preserves the rest of the result aggregate for response-aware app slots. Complete-list pages omit `pagination` and may declare one or more `group` fields; the runtime Group selector includes None, sections preserve the loaded sort order within each bucket, and declared `order` values lead before remaining labels. Cursor-paginated CRUD pages and numeric-page binding tables reject grouping because their section counts would describe only one page.
+The binding must use call-delivery HTTP and have one result record. `items` must be a `list(record)` field. Add `metadata = ["summary", "types", "manufacturers"]` when response-aware slots need those auxiliary result fields; Scenery validates the names, excludes `items`/pagination `total`, and types `context.metadata` from the result record. Use `query { search, sort, direction }` to map query controls when the operation input names are not the conventional names, and set `search_hidden = true` when an app toolbar renders search and calls `context.controls.setSearch`. Set `filter.input` when a filter's row field and operation input differ. Generated string filters use a `status_map`; a custom string-filter component may instead own dynamic options without inventing a static map. A labeled `predicate` supplies a typed fixed input without exposing a control. The generated table sends only those declared inputs and preserves the explicitly projected result metadata for response-aware app slots. Complete-list pages omit `pagination` and may declare one or more `group` fields; the runtime Group selector includes None, sections preserve the loaded sort order within each bucket, and declared `order` values lead before remaining labels. Cursor-paginated CRUD pages and numeric-page binding tables reject grouping because their section counts would describe only one page.
 
 When the existing binding uses page numbers, map its contract explicitly:
 
@@ -388,8 +388,12 @@ table_page "orders" {
   }
   filter "status" {
     label      = "Status"
-    pinned     = true
+    hidden     = true
     status_map = status_map.order_status
+  }
+  toolbar {
+    component = react_component.order_workbench
+    placement = "content"
   }
   action "create" {
     label   = "New order"
@@ -410,7 +414,7 @@ table_page "orders" {
 }
 ```
 
-The stats operation has unit input and one flat numeric/string record result. The form source is a call-delivery mutation HTTP binding whose input is a string/closed-enum record. Generated dialogs keep failures inline and invalidate both list and stats queries on success. Row detail defaults to inline expansion; panel presentation opens the same typed component in a right-hand surface that resizes from 280 to 560 pixels and closes by its button, row re-click, or Escape. A row-detail dialog remains inline-only. For an app-owned selected-row workflow, replace `row_detail` with mutually exclusive `row_action { component = ... }`; that component receives the exact row and `onClose` and remains mounted outside list request-state rendering. Filters, `empty`, and `footer` receive the current `TablePageResultContext`; a header `toolbar` receives that context once available. It exposes loaded rows, optional total/truncation metadata, filtered state, and the current query. Use `pinned = true` only for the few finite selectors that need inline quick access: pinned selectors also remain in the complete Filters popover, active filters appear as removable chips, and group/sort/direction stay visible as separate query controls. CSV export covers the rows returned by the current query: one cursor or numeric page for paginated sources, or the complete filtered result for a complete-list binding. Use `hidden = true` for export-only fields and `export = false` for display-only custom cells.
+The stats operation has unit input and one flat numeric/string record result. The form source is a call-delivery mutation HTTP binding whose input is a string/closed-enum record. Generated dialogs keep failures inline and invalidate both list and stats queries on success. Row detail defaults to inline expansion; panel presentation opens the same typed component in a right-hand surface that resizes from 280 to 560 pixels and closes by its button, row re-click, or Escape. A row-detail dialog remains inline-only. For an app-owned selected-row workflow, replace `row_detail` with mutually exclusive `row_action { component = ... }`; that component receives the exact row and `onClose` and remains mounted outside list request-state rendering. Filters, `empty`, and `footer` receive the current `TablePageResultContext`; a `toolbar` receives optional context plus controls for setting/clearing enum filters and refreshing the current query. Toolbars default to compact Page-header actions; `placement = "content"` renders a large workbench directly above the table. Set `filter.hidden = true` when that toolbar owns a filter: the filter remains typed and query-mapped but is omitted from built-in selectors, the popover, and chips. Use `pinned = true` only for the few finite catalog selectors that need inline quick access. CSV export covers the rows returned by the current query: one cursor or numeric page for paginated sources, or the complete filtered result for a complete-list binding. Use column `hidden = true` for export-only fields and `export = false` for display-only custom cells.
 
 For a two-pane page, keep the declaration generic and the domain UI app-owned:
 

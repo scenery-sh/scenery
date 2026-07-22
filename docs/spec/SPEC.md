@@ -2400,7 +2400,8 @@ A workbench `table_page` MAY declare:
   resources;
 - client-side export of the rows returned by the current source query, with
   per-column display and export participation;
-- response-aware filter, toolbar, empty, and footer components;
+- response-aware filter, toolbar, empty, and footer components; a toolbar MAY
+  choose header or content placement;
 - either one typed row-detail component or one typed row-action component,
   with at most one selected row at a time;
 - header actions that open `form_dialog` mutation resources.
@@ -2420,11 +2421,24 @@ against that input. No input may be claimed by more than one mapping. At least
 one column MUST remain visible. `hidden = true` excludes a column from the grid
 but not export by default; `export = false` excludes it from export.
 
+A binding-backed table MAY declare a non-empty unique `metadata` field list.
+Every name MUST resolve to the operation result record and MUST NOT name the
+`items` field or numeric-pagination `total` field. Generated adapters MUST
+project exactly those fields into typed metadata carried by every
+response-aware slot context. A mapped search MAY set `search_hidden = true` to
+hide only the catalog search input; the toolbar's typed query controls MUST
+still set search through the same debounce, pagination-reset, and transport
+mapping path.
+
 Only a binding-backed complete-list table MAY group. Cursor-paginated CRUD and
 numeric-page binding tables MUST reject grouping. Filters and empty/footer
 slots MUST receive the current result context: loaded rows, optional total and
-truncation metadata, filtered state, and the current query. A header toolbar
-receives the same context once a first result context exists. `row_action` is
+truncation metadata, explicitly projected typed result metadata, filtered
+state, the current query, and controls to set or clear a declared enum filter,
+set search text, and refresh that query. A toolbar defaults to the
+header; content placement MUST render it immediately above the table. A hidden
+filter MUST remain typed and query-mapped but MUST NOT appear in generated
+selectors, the Filters popover, or active chips. `row_action` is
 mutually exclusive with `row_detail`; it receives the selected row plus an
 `onClose` callback and MUST remain mounted independently of request-state
 rendering.

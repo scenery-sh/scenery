@@ -61,6 +61,9 @@ func TestTablePageValidationRejectsInvalidAuthoredContracts(t *testing.T) {
 		{"missing row action component", "SCN2611", func(spec map[string]any) {
 			spec["row_action"] = map[string]any{"component": map[string]any{"$ref": "react_component.missing"}}
 		}},
+		{"invalid toolbar placement", "SCN2622", func(spec map[string]any) {
+			spec["toolbar"] = map[string]any{"component": map[string]any{"$ref": "react_component.name_cell"}, "placement": "sidebar"}
+		}},
 		{"unknown row link field", "SCN2612", func(spec map[string]any) { spec["row_link"] = "/scenes/{missing}" }},
 		{"page size exceeds CRUD limit", "SCN2613", func(spec map[string]any) { spec["page_size"] = 101 }},
 	}
@@ -303,11 +306,38 @@ func TestTablePageValidatesWorkbenchContracts(t *testing.T) {
 		t.Fatalf("workbench diagnostics = %#v", diagnostics)
 	}
 
+	customStringFilter := table
+	customStringFilter.Spec = cloneMapValue(table.Spec)
+	customStringFilter.Spec["filter"] = map[string]any{
+		"name":      "name",
+		"label":     "Owner",
+		"component": map[string]any{"$ref": "react_component.detail"},
+	}
+	if diagnostics := validateTablePage(byAddress, customStringFilter); hasErrors(diagnostics) {
+		t.Fatalf("custom string filter diagnostics = %#v", diagnostics)
+	}
+
+	hiddenStringFilter := table
+	hiddenStringFilter.Spec = cloneMapValue(table.Spec)
+	hiddenStringFilter.Spec["filter"] = map[string]any{
+		"name": "name", "label": "State", "hidden": true,
+	}
+	if diagnostics := validateTablePage(byAddress, hiddenStringFilter); hasErrors(diagnostics) {
+		t.Fatalf("hidden string filter diagnostics = %#v", diagnostics)
+	}
+
 	invalidPinned := table
 	invalidPinned.Spec = cloneMapValue(table.Spec)
 	invalidPinned.Spec["filter"].(map[string]any)["component"] = map[string]any{"$ref": "react_component.detail"}
 	if diagnostics := validateTablePage(byAddress, invalidPinned); !hasDiagnostic(diagnostics, "SCN2622") {
 		t.Fatalf("pinned custom filter diagnostics = %#v", diagnostics)
+	}
+
+	hiddenPinned := table
+	hiddenPinned.Spec = cloneMapValue(table.Spec)
+	hiddenPinned.Spec["filter"].(map[string]any)["hidden"] = true
+	if diagnostics := validateTablePage(byAddress, hiddenPinned); !hasDiagnostic(diagnostics, "SCN2622") {
+		t.Fatalf("hidden pinned filter diagnostics = %#v", diagnostics)
 	}
 }
 
@@ -329,12 +359,69 @@ func TestTablePageBindingPaginationQueryAndPredicates(t *testing.T) {
 	if diagnostics := validateTablePage(byAddress, table); hasErrors(diagnostics) {
 		t.Fatalf("table page diagnostics = %#v", diagnostics)
 	}
+	hiddenSearch := table
+	hiddenSearch.Spec = cloneMapValue(table.Spec)
+	hiddenSearch.Spec["query"].(map[string]any)["search_hidden"] = true
+	if diagnostics := validateTablePage(byAddress, hiddenSearch); hasErrors(diagnostics) {
+		t.Fatalf("hidden mapped search diagnostics = %#v", diagnostics)
+	}
+	missingSearch := hiddenSearch
+	missingSearch.Spec = cloneMapValue(hiddenSearch.Spec)
+	missingSearch.Spec["query"].(map[string]any)["search"] = "missing"
+	if diagnostics := validateTablePage(byAddress, missingSearch); !hasDiagnostic(diagnostics, "SCN2625") {
+		t.Fatalf("hidden missing search diagnostics = %#v", diagnostics)
+	}
 
 	grouped := table
 	grouped.Spec = cloneMapValue(table.Spec)
 	grouped.Spec["group"] = map[string]any{"name": "name"}
 	if diagnostics := validateTablePage(byAddress, grouped); !hasDiagnostic(diagnostics, "SCN2623") {
 		t.Fatalf("paginated grouping diagnostics = %#v", diagnostics)
+	}
+}
+
+func TestTablePageBindingMetadataRequiresDistinctAuxiliaryResultFields(t *testing.T) {
+	resources := tablePageBindingPaginationFixtureResources()
+	for index := range resources {
+		if resources[index].Address == "house/table_page/scenes" {
+			resources[index].Spec["metadata"] = []any{"summary", "stages"}
+		}
+	}
+	expanded, diagnostics := expandDataResources(resources)
+	if hasErrors(diagnostics) {
+		t.Fatal(diagnostics)
+	}
+	byAddress := resourcesByAddress(&Manifest{Resources: expanded})
+	base := byAddress["house/table_page/scenes"]
+	if diagnostics := validateTablePage(byAddress, base); hasErrors(diagnostics) {
+		t.Fatalf("valid metadata diagnostics = %#v", diagnostics)
+	}
+	for name, metadata := range map[string][]any{
+		"missing":   {"unknown"},
+		"items":     {"rows"},
+		"total":     {"total_count"},
+		"duplicate": {"summary", "summary"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			table := base
+			table.Spec = cloneMapValue(base.Spec)
+			table.Spec["metadata"] = metadata
+			if diagnostics := validateTablePage(byAddress, table); !hasDiagnostic(diagnostics, "SCN2622") {
+				t.Fatalf("metadata diagnostics = %#v", diagnostics)
+			}
+		})
+	}
+
+	crud := byAddress["house/table_page/scenes"]
+	crud.Spec = cloneMapValue(crud.Spec)
+	crud.Spec["source"] = map[string]any{"$ref": "crud.scene_api"}
+	delete(crud.Spec, "items")
+	delete(crud.Spec, "pagination")
+	delete(crud.Spec, "query")
+	delete(crud.Spec, "predicate")
+	crud.Spec["metadata"] = []any{"summary"}
+	if diagnostics := validateTablePage(byAddress, crud); !hasDiagnostic(diagnostics, "SCN2622") {
+		t.Fatalf("CRUD metadata diagnostics = %#v", diagnostics)
 	}
 }
 
@@ -485,6 +572,8 @@ func tablePageBindingPaginationFixtureResources() []Resource {
 			"field": []any{
 				map[string]any{"name": "rows", "type": map[string]any{"$expression": "list(record.scene_row)"}},
 				map[string]any{"name": "total_count", "type": map[string]any{"$expression": "int64"}},
+				map[string]any{"name": "summary", "type": map[string]any{"$expression": "string"}},
+				map[string]any{"name": "stages", "type": map[string]any{"$expression": "list(string)"}},
 			},
 		}},
 		Resource{Address: "house/operation/page_scenes", Module: "house", Name: "page_scenes", Kind: "scenery.operation", Spec: map[string]any{

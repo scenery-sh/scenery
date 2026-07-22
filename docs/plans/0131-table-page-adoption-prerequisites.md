@@ -69,6 +69,16 @@ conversions become executable at full parity.
   tests, self-harness, Micro `make verify` plus `verify-scenery`, 101 frontend
   tests, production frontend build, and authenticated browser workflows all
   passed.
+- [x] (2026-07-21) Adoption follow-up: response-aware toolbar contexts now
+  expose singular query controls (`setFilter`, `clearFilter`, `refresh`),
+  `toolbar.placement = "content"` supports large workbenches above the table,
+  and `filter.hidden = true` delegates a typed filter's presentation to that
+  toolbar without duplicating catalog selectors, popover items, or chips.
+- [x] (2026-07-21) Adoption follow-up: binding tables may explicitly project
+  auxiliary result fields through `metadata = [...]`; generated slot contexts
+  carry the exact typed projection. App toolbars may also own mapped search
+  through `controls.setSearch` plus `query.search_hidden = true`, preserving
+  the catalog debounce, pagination reset, and single transport mapping.
 
 ## Surprises & Discoveries
 
@@ -110,6 +120,11 @@ conversions become executable at full parity.
   `query { search, sort, direction }`, filter `input`, and repeated
   `predicate "<input>" { value = ... }` blocks. `QueryTable` uses
   `pagination = "page" | "cursor"`; complete-list pages omit pagination.
+- (2026-07-21, agent) **Auxiliary binding result data is opt-in and exact.**
+  `metadata = ["field", ...]` is the sole projection surface; each field must
+  exist on the result record and cannot duplicate `items` or pagination
+  `total`. Generated `Pick<Result, ...>` metadata reaches every
+  response-aware slot without widening row types or exposing the whole result.
 - (2026-07-21, Petr + agent) **In Service is the real end-to-end fixture.** It
   exercises mapped search/sort/direction, numeric page pagination, backend
   totals, fixed predicates, response-aware toolbar/footer slots, and an
@@ -118,6 +133,11 @@ conversions become executable at full parity.
 - (2026-07-21, agent) **Static content has no synthetic data contract.** A
   `content_page` without `source` generates a prop-free content component and
   no client, query, or load adapter.
+- (2026-07-21, agent) **Custom workbenches still use QueryTable's one query
+  owner.** App toolbars act through typed result-context controls rather than
+  issuing requests. Header placement remains the default; content placement
+  is explicit, and hidden filters retain mapping/state while surrendering only
+  their built-in presentation.
 
 ## Outcomes & Retrospective
 
@@ -127,6 +147,12 @@ and delegated row actions. Cursor CRUD behavior remains intact, binding-backed
 grouping remains rejected, and shutdown/consumer APIs did not gain a parallel
 compatibility path. Source-less `content_page` generation removes the dummy
 operation requirement.
+
+The adoption follow-up keeps that ownership intact for visually larger legacy
+workbenches: app components can render status tabs or clickable metrics above
+the table, set/clear declared enum filters, and refresh without duplicating
+transport or pagination state. Hidden filters remain part of the same generated
+request contract.
 
 The Micro platform supplied two real acceptance pages without cutting over an
 existing production route: `/platform/in-service/generated` covered

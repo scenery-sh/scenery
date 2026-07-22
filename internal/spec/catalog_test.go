@@ -34,6 +34,9 @@ func TestDeclarativeTableResourceMetadataIsComplete(t *testing.T) {
 	}
 
 	table, _ := authoredResourceSourceSchema("table_page")
+	if metadata, ok := table.Attributes["metadata"]; !ok || metadata.Type["collection"] != "list" {
+		t.Errorf("table_page metadata must be a list attribute: %#v", metadata)
+	}
 	if child, ok := table.Children["group"]; !ok || !child.Repeatable || child.Schema.Labels != 1 {
 		t.Errorf("table_page group must be a repeated labeled block: %#v", child)
 	}
@@ -53,9 +56,14 @@ func TestDeclarativeTableResourceMetadataIsComplete(t *testing.T) {
 	}
 	if child, ok := table.Children["query"]; !ok || child.Repeatable || child.Schema.Labels != 0 {
 		t.Errorf("table_page query must be an unlabeled singleton block: %#v", child)
+	} else if attribute, ok := child.Schema.Attributes["search_hidden"]; !ok || attribute.Type["primitive"] != "bool" {
+		t.Errorf("table_page query search_hidden must be a boolean attribute: %#v", attribute)
 	}
 	if _, ok := table.Children["filter"].Schema.Attributes["input"]; !ok {
 		t.Error("table_page filter does not advertise explicit input mapping")
+	}
+	if _, ok := table.Children["filter"].Schema.Attributes["hidden"]; !ok {
+		t.Error("table_page filter does not advertise hidden control ownership")
 	}
 	rowDetail := table.Children["row_detail"].Schema
 	for _, name := range []string{"presentation", "panel_width"} {
@@ -63,12 +71,19 @@ func TestDeclarativeTableResourceMetadataIsComplete(t *testing.T) {
 			t.Errorf("table_page row_detail does not advertise %s", name)
 		}
 	}
-	for _, name := range []string{"toolbar", "footer", "empty", "row_action"} {
+	for _, name := range []string{"footer", "empty", "row_action"} {
 		if child, ok := table.Children[name]; !ok || child.Repeatable || child.Schema.Labels != 0 {
 			t.Errorf("table_page %s must be an unlabeled singleton block: %#v", name, child)
 		} else if len(child.Schema.Attributes) != 1 || !child.Schema.Required["component"] {
 			t.Errorf("table_page %s must use the component-only slot contract: %#v", name, child.Schema)
 		}
+	}
+	toolbar := table.Children["toolbar"]
+	if toolbar.Repeatable || toolbar.Schema.Labels != 0 || !toolbar.Schema.Required["component"] {
+		t.Errorf("table_page toolbar must be an unlabeled singleton requiring component: %#v", toolbar)
+	}
+	if _, ok := toolbar.Schema.Attributes["placement"]; !ok {
+		t.Error("table_page toolbar does not advertise placement")
 	}
 
 	split, _ := authoredResourceSourceSchema("split_page")
