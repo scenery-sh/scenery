@@ -79,6 +79,13 @@ type devSupervisor struct {
 	startupReady       <-chan error
 	victoriaStarted    bool
 	dbSetupFingerprint string
+	buildFailed        bool
+
+	// rebuildRequests wakes the watch loop for a rebuild that no watched
+	// file change would trigger (e.g. a ui catalog sync succeeding after the
+	// last app build failed). Buffered so requests never block; coalescing
+	// duplicate requests into one pending wake is the desired behavior.
+	rebuildRequests chan struct{}
 }
 
 const (
@@ -141,6 +148,7 @@ func newDevSupervisor(ctx context.Context, root string, cfg app.Config, env app.
 			Offline:    true,
 			UpdatedAt:  time.Now().UTC(),
 		},
+		rebuildRequests: make(chan struct{}, 1),
 	}
 	s.dashboard = newDashboardServer(s, "")
 	s.events = newDevEventSink(s)
@@ -474,6 +482,7 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 
 	s.mu.Lock()
 	s.current = current
+	s.buildFailed = false
 	s.mu.Unlock()
 
 	s.setCompiling(false, "")
@@ -1540,6 +1549,9 @@ func (s *devSupervisor) runURLs() runURLs {
 }
 
 func (s *devSupervisor) handleCompileError(ctx context.Context, metadata, apiEncoding json.RawMessage, err error) error {
+	s.mu.Lock()
+	s.buildFailed = true
+	s.mu.Unlock()
 	s.setCompiling(false, err.Error())
 	if len(metadata) > 0 || len(apiEncoding) > 0 {
 		s.setMetadata(metadata, apiEncoding)
@@ -1560,6 +1572,29 @@ func (s *devSupervisor) handleCompileError(ctx context.Context, metadata, apiEnc
 	}
 	s.updateAgentSession(ctx, "compile-error", "")
 	return err
+}
+
+// RequestRebuildIfBuildFailed wakes the watch loop for a full rebuild when the
+// last app build failed. External fix paths whose writes do not surface as
+// watched file changes (like a ui catalog sync succeeding after its earlier
+// failure kept the app build stale) call this so a failed session converges
+// instead of latching in compile-error until the next unrelated edit.
+func (s *devSupervisor) RequestRebuildIfBuildFailed() {
+	s.mu.RLock()
+	failed := s.buildFailed
+	s.mu.RUnlock()
+	if !failed {
+		return
+	}
+	select {
+	case s.rebuildRequests <- struct{}{}:
+	default:
+	}
+}
+
+// rebuildRequestChan exposes the wake signal for the watch loop.
+func (s *devSupervisor) rebuildRequestChan() <-chan struct{} {
+	return s.rebuildRequests
 }
 
 // compactAppStatus is appStatus without the Meta and APIEncoding blobs, which

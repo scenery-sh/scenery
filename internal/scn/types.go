@@ -17,5 +17,9 @@ type Diagnostic struct {
 	Code     string `json:"code"`
 	Severity string `json:"severity"`
 	Message  string `json:"message"`
-	Range    *Range `json:"range,omitempty"`
+	// Path is the root-relative source file the diagnostic points at. Range
+	// only carries the hashed SourceID, which consumers cannot reverse, so
+	// the readable path must travel with the diagnostic itself.
+	Path  string `json:"path,omitempty"`
+	Range *Range `json:"range,omitempty"`
 }

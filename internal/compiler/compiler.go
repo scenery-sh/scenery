@@ -62,6 +62,10 @@ func compileResult(root string) (*Result, error) {
 		return nil, err
 	}
 	result := &Result{Root: absRoot, ContractStatus: "invalid", ImplementationStatus: "not_requested"}
+	// Every return path benefits: diagnostics carry ranges keyed by hashed
+	// source ids, and the readable Path is backfilled from parsed sources so
+	// consumers can locate the offending file without a source-id lookup.
+	defer func() { backfillDiagnosticPaths(result) }()
 	paths, err := scn.SourceFiles(absRoot, true)
 	if err != nil {
 		if diagnostic, ok := legacyFilenameDiagnostic(err); ok {
@@ -130,6 +134,36 @@ func compileResult(root string) (*Result, error) {
 		manifest.Diagnostics = append([]Diagnostic{}, result.Diagnostics...)
 	}
 	return result, nil
+}
+
+// backfillDiagnosticPaths resolves each diagnostic's readable file path from
+// its range's hashed source id. Runs on every compile return path so that
+// even error-shortcut results locate their diagnostics.
+func backfillDiagnosticPaths(result *Result) {
+	if result == nil {
+		return
+	}
+	var relByID map[string]string
+	resolve := func(diagnostics []Diagnostic) {
+		for i := range diagnostics {
+			if diagnostics[i].Path != "" || diagnostics[i].Range == nil {
+				continue
+			}
+			if relByID == nil {
+				relByID = make(map[string]string, len(result.Sources))
+				for _, source := range result.Sources {
+					if source != nil {
+						relByID[source.ID] = source.Relative
+					}
+				}
+			}
+			diagnostics[i].Path = relByID[diagnostics[i].Range.SourceID]
+		}
+	}
+	resolve(result.Diagnostics)
+	if result.Manifest != nil {
+		resolve(result.Manifest.Diagnostics)
+	}
 }
 
 func validateStaticExpressions(sources []*Source) []Diagnostic {

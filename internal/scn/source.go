@@ -71,11 +71,11 @@ func Parse(root, path string) (*Source, []Diagnostic) {
 }
 
 func ParseLogical(path, relative string) (*Source, []Diagnostic) {
+	rel := filepath.ToSlash(relative)
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return nil, []Diagnostic{{Code: "SCN1001", Severity: "error", Message: err.Error()}}
+		return nil, []Diagnostic{{Code: "SCN1001", Severity: "error", Message: err.Error(), Path: rel}}
 	}
-	rel := filepath.ToSlash(relative)
 	id := SourceID(rel)
 	positions := NewPositionIndex(b)
 	file, diags := hclsyntax.ParseConfig(b, rel, hcl.Pos{Line: 1, Column: 1})
@@ -85,16 +85,28 @@ func ParseLogical(path, relative string) (*Source, []Diagnostic) {
 	source.CST, cstDiagnostics = buildConcreteSyntaxTree(id, rel, b, positions, file, diags.HasErrors())
 	resultDiags = append(resultDiags, cstDiagnostics...)
 	if file == nil {
-		return source, resultDiags
+		return source, stampDiagnosticPaths(resultDiags, rel)
 	}
 	body, ok := file.Body.(*hclsyntax.Body)
 	if !ok {
-		return source, append(resultDiags, Diagnostic{Code: "SCN9001", Severity: "error", Message: "parser returned an unsupported body"})
+		resultDiags = append(resultDiags, Diagnostic{Code: "SCN9001", Severity: "error", Message: "parser returned an unsupported body"})
+		return source, stampDiagnosticPaths(resultDiags, rel)
 	}
 	for _, block := range body.Blocks {
 		source.Blocks = append(source.Blocks, ConvertBlock(id, b, positions, block))
 	}
-	return source, resultDiags
+	return source, stampDiagnosticPaths(resultDiags, rel)
+}
+
+// stampDiagnosticPaths fills Path on diagnostics minted while parsing one
+// source file; diagnostics that already carry a path keep it.
+func stampDiagnosticPaths(diagnostics []Diagnostic, rel string) []Diagnostic {
+	for i := range diagnostics {
+		if diagnostics[i].Path == "" {
+			diagnostics[i].Path = rel
+		}
+	}
+	return diagnostics
 }
 
 func ConvertBlock(sourceID string, source []byte, positions *PositionIndex, block *hclsyntax.Block) *Block {

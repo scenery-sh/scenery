@@ -109,6 +109,10 @@ func syncUICatalog(ctx context.Context, console *runConsole, supervisor *devSupe
 	if len(result.Changed) > 0 {
 		supervisor.RebuildProductionFrontends(ctx, productionFrontendNames(env))
 	}
+	// A successful sync can be the fix for a failed app build (stale-client
+	// checks include the materialized catalog), so wake the watch loop when
+	// the session is latched in compile-error; a healthy session skips this.
+	supervisor.RequestRebuildIfBuildFailed()
 }
 
 func consolePrintError(console *runConsole, message string, err error) {

@@ -63,6 +63,7 @@ func compilerSyntaxDiagnostics(diagnostics []scn.Diagnostic) []Diagnostic {
 		if len(diagnostic.Code) >= 4 && diagnostic.Code[:4] == "SCN9" {
 			item := internalDiagnostic(diagnostic.Code, diagnostic.Message)
 			item.Range = diagnostic.Range
+			item.Path = diagnostic.Path
 			converted = append(converted, item)
 			continue
 		}
@@ -70,6 +71,7 @@ func compilerSyntaxDiagnostics(diagnostics []scn.Diagnostic) []Diagnostic {
 			Code:     diagnostic.Code,
 			Severity: diagnostic.Severity,
 			Message:  diagnostic.Message,
+			Path:     diagnostic.Path,
 			Range:    diagnostic.Range,
 		})
 	}

@@ -268,7 +268,10 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode bool, appRoot, envN
 
 	if err := supervisor.RebuildAndRestart(ctx, true, snapshot); err != nil {
 		supervisor.console.InitialBuildFailed(err, supervisor.runURLs())
-		if len(preparedSession.FrontendProcesses) > 0 {
+		// Detached children fail fast so the waiting parent reports the build
+		// error instead of hanging until its readiness timeout. Interactive
+		// runs keep watching, as InitialBuildFailed just promised.
+		if detachedDevChildMode() {
 			return err
 		}
 	}
@@ -284,7 +287,7 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode bool, appRoot, envN
 	}
 
 	for {
-		nextSnapshot, err := waitForStableChange(ctx, root, snapshot, watcher)
+		nextSnapshot, forced, err := waitForStableChange(ctx, root, snapshot, watcher, supervisor.rebuildRequestChan())
 		if err != nil {
 			if errors.Is(err, context.Canceled) {
 				return nil
@@ -297,7 +300,7 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode bool, appRoot, envN
 		if len(frontendNames) > 0 {
 			supervisor.RebuildProductionFrontends(ctx, frontendNames)
 		}
-		if len(appPaths) == 0 {
+		if len(appPaths) == 0 && !forced {
 			continue
 		}
 		supervisor.announceRebuild(appPaths)
@@ -531,66 +534,78 @@ func ensureDevAgentDashboardBackend(ctx context.Context, client *localagent.Clie
 	return nil
 }
 
-func waitForStableChange(ctx context.Context, root string, current fileSnapshot, watcher *fileChangeWatcher) (fileSnapshot, error) {
+// waitForStableChange blocks until watched files settle on a new state or a
+// wake arrives on the rebuild-request channel. The bool result is true for a
+// wake: the caller must rebuild even when no watched file changed, because the
+// requester fixed build inputs the watcher cannot see.
+func waitForStableChange(ctx context.Context, root string, current fileSnapshot, watcher *fileChangeWatcher, wake <-chan struct{}) (fileSnapshot, bool, error) {
 	if watcher != nil {
-		return waitForStableChangeEvents(ctx, root, current, watcher.Events())
+		return waitForStableChangeEvents(ctx, root, current, watcher.Events(), wake)
 	}
-	return waitForStableChangePolling(ctx, root, current)
+	return waitForStableChangePolling(ctx, root, current, wake)
 }
 
-func waitForStableChangePolling(ctx context.Context, root string, current fileSnapshot) (fileSnapshot, error) {
+func waitForStableChangePolling(ctx context.Context, root string, current fileSnapshot, wake <-chan struct{}) (fileSnapshot, bool, error) {
 	ticker := time.NewTicker(watchPollInterval)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
-			return fileSnapshot{}, ctx.Err()
+			return fileSnapshot{}, false, ctx.Err()
+		case <-wake:
+			next, err := scanWatchedFiles(root)
+			return next, true, err
 		case <-ticker.C:
 		}
 
 		next, err := scanWatchedFiles(root)
 		if err != nil {
-			return fileSnapshot{}, err
+			return fileSnapshot{}, false, err
 		}
 		if snapshotsEqual(current, next) {
 			continue
 		}
-		return waitForSnapshotToSettlePolling(ctx, root, next)
+		settled, err := waitForSnapshotToSettlePolling(ctx, root, next)
+		return settled, false, err
 	}
 }
 
-func waitForStableChangeEvents(ctx context.Context, root string, current fileSnapshot, events <-chan struct{}) (fileSnapshot, error) {
+func waitForStableChangeEvents(ctx context.Context, root string, current fileSnapshot, events <-chan struct{}, wake <-chan struct{}) (fileSnapshot, bool, error) {
 	ticker := time.NewTicker(watchBackupPollInterval)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
-			return fileSnapshot{}, ctx.Err()
+			return fileSnapshot{}, false, ctx.Err()
+		case <-wake:
+			next, err := scanWatchedFiles(root)
+			return next, true, err
 		case _, ok := <-events:
 			if !ok {
-				return waitForStableChangePolling(ctx, root, current)
+				return waitForStableChangePolling(ctx, root, current, wake)
 			}
 		case <-ticker.C:
 			next, err := scanWatchedFiles(root)
 			if err != nil {
-				return fileSnapshot{}, err
+				return fileSnapshot{}, false, err
 			}
 			if snapshotsEqual(current, next) {
 				continue
 			}
-			return waitForSnapshotToSettlePolling(ctx, root, next)
+			settled, err := waitForSnapshotToSettlePolling(ctx, root, next)
+			return settled, false, err
 		}
 
 		next, err := waitForSnapshotToSettleEvents(ctx, root, events)
 		if err != nil {
-			return fileSnapshot{}, err
+			return fileSnapshot{}, false, err
 		}
 		if snapshotsEqual(current, next) {
 			continue
 		}
-		return next, nil
+		return next, false, nil
 	}
 }
 
