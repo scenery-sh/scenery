@@ -6,6 +6,89 @@ Completed means implemented or shipped at least once. It does not imply stable
 support for every surface. Use [../local-contract.md](../local-contract.md) as
 the source of truth for stable, beta, and dev-only classification.
 
+## Runtime Infrastructure Consolidation
+
+- Status: completed
+- Owner: scenery runtime
+- Completed: 2026-07-22
+- Quality: B
+- ExecPlan: [0118 Runtime Infrastructure Consolidation and CLI Logic Extraction](0118-runtime-infra-consolidation.md)
+
+Consolidated migration locking, atomic writes, network probes, registry error
+handling, dashboard persistence, indexed generation, and runtime CLI logic into
+owned internal packages. The shared atomic-file and network-probe kernels now
+carry focused package-local tests.
+
+## Public Dev-Domain Exposure
+
+- Status: completed
+- Owner: scenery runtime / agent DX
+- Completed: 2026-07-22
+- Quality: B
+- ExecPlan: [0117 Public Dev Domain Exposure](0117-public-dev-domain-exposure.md)
+
+Shipped domain exposure controls and frontend development/production serve
+modes. The historical Cloudflare topology is superseded by the current named
+environment and publication contract.
+
+## Dev-Domain Path Hosts
+
+- Status: completed
+- Owner: scenery runtime / agent DX
+- Completed: 2026-07-22
+- Quality: B
+- ExecPlan: [0116 Dev Domain Hosts for Path-Mode Routing](0116-dev-domain-path-hosts.md)
+
+Shipped branded path-mode origins, verified host ownership, host-to-path
+routing, and localhost fallback. Later environment work superseded the plan's
+original configuration spelling and manual topology.
+
+## Supervised Agent Lifecycle
+
+- Status: completed
+- Owner: scenery runtime / edge
+- Completed: 2026-07-22
+- Quality: B
+- ExecPlan: [0114 Supervised Agent Lifecycle](0114-supervised-agent-lifecycle.md)
+
+Made launchd the availability owner for the local agent, exposed supervision
+truth through deploy status, and added cooperative restarts plus bounded edge
+retry behavior.
+
+## Dev Loop Performance
+
+- Status: completed
+- Owner: scenery runtime / agent DX
+- Completed: 2026-07-22
+- Quality: B
+- ExecPlan: [0096 Dev Loop Performance](0096-dev-loop-performance.md)
+
+Reduced fixture-app readiness to 3.12 seconds cold and 0.42 seconds warm through
+snapshot reuse, compile fast paths, parallel startup, and tighter probes.
+
+## Agent-First Development Control Plane
+
+- Status: completed
+- Owner: scenery maintainers / agent DX
+- Completed: 2026-07-22
+- Quality: B
+- ExecPlan: [0064 Agent-First Development Control Plane](0064-agent-first-development-control-plane.md)
+
+Aligned the repository's knowledge, plan, review, and drift contracts. The
+knowledge harness now enforces the active ExecPlan index bidirectionally.
+
+## Frozen Toolchain Manifest and Managed Tool Store
+
+- Status: completed
+- Owner: scenery runtime / release tooling / agent DX
+- Completed: 2026-07-22
+- Quality: B
+- ExecPlan: [0059 Frozen Toolchain Manifest and Managed Tool Store](0059-frozen-toolchain-manifest.md)
+
+Shipped the singular frozen toolchain manifest, deterministic managed tool
+store, strict integrity verification, and toolchain inspection commands without
+ambient PATH fallback.
+
 ## Table Page Adoption Prerequisites
 
 - Status: completed

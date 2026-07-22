@@ -7,13 +7,18 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
+- [0135 Governance Workspace Generation: From Generic Wire to Typed Module Contracts](0135-governance-workspace-generation.md)
+  - Status: active (Option A and migration decisions locked)
+  - Owner: scenery compiler / generate + platform governance package
+  - Created: 2026-07-22
+  - Focus: the platform's `/admin` and `/system` workspaces hide forty statically-known module tables behind one untyped `governance_read` wire — `governance/read.go` holds literal module registries and a 54-arm switch, so the audit's "response-defined columns" are self-imposed, not essential. Recommended end-state: typed per-module operations + `table_page`s composed via the 0134 `workspace_page` with a grouped-sidebar navigation presentation, migrating module-by-module until the generic wire is deleted. Alternatives (dynamic-columns template; generated shell over an app slot) documented with trade-offs.
 - [0133 Candidate Parity Fixes: Row Retention, Row-Intent Prefetch, Export Fidelity](0133-candidate-parity-fixes.md)
   - Status: active
   - Owner: scenery ui catalog / generate
   - Created: 2026-07-22
   - Focus: close the mechanism-parity gaps that keep the Micro platform's four `/generated` acceptance candidates from cutting over — TanStack `placeholderData` row retention during query transitions, a deduplicated row-intent (hover/focus) prefetch signal wired from `row_action`/panel slots, contract-controllable CSV filename and field formatting verified against the hand-written exports, plus an expansion-state and locale-ordering sweep. Ends with a platform handoff that converts or deletes every candidate (they expire; no third implementation state).
 - [0134 Tabbed Workspace Template: One Generated Page Kind for Multi-Tab Domain Workspaces](0134-tabbed-workspace-template.md)
-  - Status: active (design milestone first — contract spelling needs sign-off before code)
+  - Status: active (design decisions locked; implementation pending)
   - Owner: scenery compiler / generate / ui catalog
   - Created: 2026-07-22
   - Focus: a `workspace_page` source kind — route-owning generated page with shared header/stats/actions and an Astryx `TabList` where each tab embeds an existing `table_page`/`content_page` rendered chrome-less (composition over expansion): URL-synced tab selection, lazy mount with per-tab state retention, count badges from response metadata. Unblocks the platform's ten multi-tab workspaces (tickets, inventory, invoices, vendors, fleet, permits, NTP, commissions, job-costing, sales) for tab-by-tab conversion; Sales then Vendors as pilots.
@@ -22,61 +27,16 @@ reuse IDs; this list can still be ordered by current priority.
   - Owner: scenery ui catalog
   - Created: 2026-07-22
   - Focus: measured, staged performance work on the catalog table stack — profiling baseline at 1k/5k/10k rows, stable `QueryTable` callback/column identities paired with a `React.memo` boundary on `DataTable` so search keystrokes stop re-rendering every row, then Astryx-first windowed rendering for large complete-list tables behind a row threshold (grouping, expansion, detail panel, keyboard navigation, and absolute row numbering preserved).
-- [0122 UI Catalog Dev Mode: Live ui/ Iteration Without Binary Rebuilds](0122-ui-catalog-dev-mode.md)
-  - Status: completed (retain until first release ships it)
-  - Owner: scenery generation / agent DX
-  - Created: 2026-07-16
-  - Focus: `envs.local.ui_catalog` points generation at a live `@scenery/ui` source directory; `scenery up` watches it and re-materializes `react/scenery-ui/` in place (staged tsgo verification, embed fallback when the directory is absent) so catalog edits reach the browser through Vite HMR without rebuilding the Scenery binary or restarting the app.
-- [0120 Declarative Table Pages: CRUD List Contract, Binary-Owned UI Catalog, Verified React Generation](0120-declarative-table-pages.md)
-  - Status: completed 2026-07-16 (retain until first release ships it; follow-on slot/split work completed 2026-07-17)
-  - Owner: scenery compiler / generate
-  - Created: 2026-07-16
-  - Focus: `table_page` and `split_page` source kinds expand to ordinary page/renderer resources; the current split contract uses explicit `sidebar` / `detail` slots, while React-enabled TypeScript clients materialize the binary-owned component catalog and generated pages only after staged verification by the managed native TypeScript checker (`internal/tscheck`).
-- [0118 Runtime Infrastructure Consolidation and CLI Logic Extraction](0118-runtime-infra-consolidation.md)
-  - Status: active
-  - Owner: scenery runtime
-  - Created: 2026-07-15
-  - Focus: one campaign landing audit findings — Postgres migration locking via shared `postgresdb.Migrate`, registry marshal-error propagation, devdash coalesced persistence, `internal/atomicfile` and `internal/netprobe` kernels, a generate-time `resourceIndex` removing quadratic resource rescans, and extraction of edge/deploy/doctor/victoria/symphony/validate business logic from `cmd/scenery` into internal packages.
-- [0117 Public Dev Domain: Dash Hosts, Exposure Config, Frontend Serve Modes](0117-public-dev-domain-exposure.md)
-  - Status: active
-  - Owner: scenery runtime / agent DX
-  - Created: 2026-07-15
-  - Focus: amend 0116 for the Cloudflare-fronted topology — `<branch>-<domain>` dash hosts within Universal SSL's first-level wildcard, `dev.routing.expose` opt-in narrowing of what the internet-reachable domain origin serves (default everything; localhost always full), and per-frontend `serve: development|production` where production builds once and serves static output from a scenery-internal server.
-- [0116 Dev Domain Hosts for Path-Mode Routing](0116-dev-domain-path-hosts.md)
-  - Status: active
-  - Owner: scenery runtime / agent DX
-  - Created: 2026-07-15
-  - Focus: `dev.routing.domain` gives path-mode dev sessions a branded browser origin — `https://<branch>.<domain>` per worktree, bare `<domain>` on `main` — served through the managed HTTPS edge with user-owned public wildcard DNS to `127.0.0.1`; single-owner host claims with alias-style conflict reporting, localhost fallback when the edge is not ready.
-- [0114 Supervised Agent Lifecycle](0114-supervised-agent-lifecycle.md)
-  - Status: active
-  - Owner: scenery runtime / edge
-  - Created: 2026-07-14
-  - Focus: launchd-supervised scenery agent (`dev.scenery.agent` KeepAlive job) as the availability owner behind the public deploy edge — LaunchAgent installs that actually bootstrap, teardown that boots out, `scenery deploy status` supervision truth (`agent_supervisor`, `launch_agent.loaded`) gating readiness, cooperative `scenery system agent restart`, per-request dashboard backend refresh in local path routers, and bounded upstream dial retries on the Caddy edge so ordinary supervised restarts do not surface raw 502s.
 - [0101 Public Deploy Edge](0101-public-deploy-edge.md)
   - Status: active
   - Owner: scenery runtime / edge
   - Created: 2026-07-07
   - Focus: new `scenery deploy` surface — one privileged edge binds `0.0.0.0:80/443` (macOS root LaunchDaemon extending `dev.scenery.edge-helper`), Caddy terminates public ACME TLS, and requests route by `deploy.domain` in app config to the enabled app root's live dev session; login-time resume via user LaunchAgent, helper version-drift detection across `scenery upgrade`.
-- [0096 Dev Loop Performance](0096-dev-loop-performance.md)
-  - Status: active
-  - Owner: scenery runtime / agent DX
-  - Created: 2026-07-06
-  - Focus: speed up `scenery up` startup to full readiness through a single source snapshot, parse/compile fast paths, parallel startup phases, and tighter readiness probes. The test-suite target formerly referenced here is complete in plan 0050.
-- [0064 Agent-First Development Control Plane](0064-agent-first-development-control-plane.md)
-  - Status: active
-  - Owner: scenery maintainers / agent DX
-  - Created: 2026-06-07
-  - Focus: keep repo knowledge, active ExecPlans, review-due signals, tech debt, and doc-drift handling aligned so agents can rely on repo-local instructions before implementation.
 - [0048 Agent Runtime Operational Hardening](0048-agent-runtime-operational-hardening.md)
   - Status: active
   - Owner: scenery runtime / ONLV integration
   - Created: 2026-05-27
   - Focus: source-review gap closure around devdash storage, DB-aware prune, non-destructive restart, legacy proxy removal, and Scenery-owned parallel runtime validation. The former `dev.setup` policy work is obsolete because that surface was removed.
-- [0059 Frozen Toolchain Manifest and Managed Tool Store](0059-frozen-toolchain-manifest.md)
-  - Status: active
-  - Owner: scenery runtime / release tooling / agent DX
-  - Created: 2026-06-01
-  - Focus: add a root frozen toolchain manifest, managed local tool store, `scenery toolchain` CLI, and remove implicit system `PATH` resolution for Scenery-managed tools.
 
 ## Agent-Friendly Local Runtime
 
