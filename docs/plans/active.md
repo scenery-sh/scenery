@@ -7,11 +7,11 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
-- [0137 Role-Named Contract Files: app.scn, package.scn, app.lock.scn](0137-scn-file-naming.md)
-  - Status: active (naming decided; sequence after the in-flight 0132–0136 tree commits)
-  - Owner: scenery scn / compiler / cmd + consumer repos
+- [0138 Entity Detail Page Template: detail_page](0138-detail-page-template.md)
+  - Status: active (design decided; sequence after the `/sales` content-tab fix, the 0132–0136 tree commits, and 0137)
+  - Owner: scenery spec / compiler / generate / ui + Micro platform pilot
   - Created: 2026-07-22
-  - Focus: drop the redundant tool name from contract filenames — the branded `.scn` extension carries the tool, filenames carry the role: `scenery.scn` → `app.scn`, `scenery.package.scn` → `package.scn`, `scenery.lock.scn` → `app.lock.scn`. Clean break (no alias period) with a precise legacy-name rename-hint diagnostic; ~135 Go references hoisted onto filename constants, fixtures and docs swept, then the Micro platform repo migrates via one `git mv` pass. JSON config and generated-artifact names share the redundancy but are explicitly deferred.
+  - Focus: the last major read-surface template gap — a routed one-record view. New `detail_page` macro (path params, load binding, typed field sections, embedded related tables, `form_dialog` mutation actions, routed-page and controlled-dialog presentations from v1), dynamic path segments in the 0126 route contract, catalog detail-layout components, and a warranty-claim-detail pilot cutover in the Micro platform.
 - [0101 Public Deploy Edge](0101-public-deploy-edge.md)
   - Status: active
   - Owner: scenery runtime / edge
