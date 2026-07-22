@@ -16,6 +16,7 @@ import (
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/deploydiag"
 	"scenery.sh/internal/doctor"
+	"scenery.sh/internal/scn"
 	"scenery.sh/internal/toolchain"
 	"scenery.sh/internal/tscheck"
 )
@@ -188,6 +189,7 @@ func buildDoctorResponse(ctx context.Context, opts doctorOptions, deps doctor.Pr
 	resp.Checks = append(resp.Checks, doctor.PostgresServerCheck(ctx, deps, features))
 	if resp.App != nil {
 		resp.Checks = append(resp.Checks, doctor.EditorWorkspaceCheck(resp.App.Root))
+		resp.Checks = append(resp.Checks, doctorContractFilenameChecks(resp.App.Root)...)
 		resp.Checks = append(resp.Checks, doctorReactChecks(resp.App.Root)...)
 	}
 	resp.Checks = append(resp.Checks, doctorProcessOwnershipCheck(ctx, deps))
@@ -202,7 +204,7 @@ func buildDoctorResponse(ctx context.Context, opts doctorOptions, deps doctor.Pr
 }
 
 func doctorReactChecks(root string) []doctor.Check {
-	if _, err := os.Stat(filepath.Join(root, "scenery.scn")); err != nil {
+	if _, err := os.Stat(filepath.Join(root, scn.AppFilename)); err != nil {
 		return nil
 	}
 	result, err := compiler.Compile(root)
@@ -250,6 +252,34 @@ func doctorReactChecks(root string) []doctor.Check {
 		}
 	}
 	return append(checks, checker)
+}
+
+func doctorContractFilenameChecks(root string) []doctor.Check {
+	result, err := compiler.Compile(root)
+	if err != nil || result == nil {
+		return nil
+	}
+	var checks []doctor.Check
+	for _, diagnostic := range result.Diagnostics {
+		if diagnostic.Code != "SCN1021" {
+			continue
+		}
+		check := doctor.Check{
+			ID:              "source.contract_filename",
+			Category:        "source",
+			Name:            "Contract filenames",
+			Status:          doctor.StatusError,
+			Severity:        doctor.SeverityRequired,
+			Message:         diagnostic.Message,
+			SuggestedAction: "Rename the contract file to its current role-named filename.",
+			Observed:        map[string]any{"path": diagnostic.Path, "details": diagnostic.Details},
+		}
+		if len(diagnostic.Suggestions) > 0 {
+			check.SuggestedAction = diagnostic.Suggestions[0]
+		}
+		checks = append(checks, check)
+	}
+	return checks
 }
 
 // doctorProcessOwnershipCheck stays in cmd/scenery because it depends on

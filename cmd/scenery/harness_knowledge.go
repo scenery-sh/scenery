@@ -79,6 +79,11 @@ func runHarnessKnowledgeStep(repoRoot string) harnessStep {
 	for key, value := range execPlanSummary {
 		step.Summary[key] = value
 	}
+	indexDiagnostics, indexSummary := validateActiveExecPlanIndex(repoRoot)
+	diagnostics = append(diagnostics, indexDiagnostics...)
+	for key, value := range indexSummary {
+		step.Summary[key] = value
+	}
 	step.DurationMS = time.Since(started).Milliseconds()
 	step.Diagnostics = diagnostics
 	step.OK = !hasErrorDiagnostics(diagnostics)
@@ -250,6 +255,71 @@ func validateExecPlanContract(repoRoot string) ([]checkDiagnostic, map[string]an
 	}
 	summary["exec_plan_files"] = checked
 	return diagnostics, summary
+}
+
+func validateActiveExecPlanIndex(repoRoot string) ([]checkDiagnostic, map[string]any) {
+	summary := map[string]any{}
+	activePath := filepath.Join(repoRoot, "docs", "plans", "active.md")
+	activeData, err := os.ReadFile(activePath)
+	if err != nil {
+		return []checkDiagnostic{execPlanDiagnostic(repoRoot, "docs/plans/active.md", 0, err.Error(), "Restore the active ExecPlan index.")}, summary
+	}
+	index, err := readDocsKnowledgeIndex(repoRoot)
+	if err != nil {
+		return []checkDiagnostic{execPlanDiagnostic(repoRoot, "docs/knowledge.json", 0, err.Error(), "Fix the docs knowledge index so active ExecPlans can be validated.")}, summary
+	}
+
+	linked := map[string]bool{}
+	for _, raw := range markdownLinkTargets(string(activeData)) {
+		target, ok := normalizeHarnessMarkdownLink(raw)
+		if !ok || !strings.HasSuffix(target, ".md") {
+			continue
+		}
+		path := filepath.ToSlash(filepath.Clean(filepath.Join("docs", "plans", filepath.FromSlash(target))))
+		if path == "docs/plans/active.md" || path == "docs/plans/completed.md" || !strings.HasPrefix(path, "docs/plans/") {
+			continue
+		}
+		linked[path] = true
+	}
+
+	indexed := map[string]docsKnowledgeDocument{}
+	indexedActive := map[string]bool{}
+	for _, doc := range index.Documents {
+		indexed[doc.Path] = doc
+		if doc.Status == "active" && strings.HasPrefix(doc.Path, "docs/plans/") && knowledgeTagsContain(doc.Tags, "execplans") {
+			indexedActive[doc.Path] = true
+		}
+	}
+
+	var diagnostics []checkDiagnostic
+	for path := range linked {
+		doc, ok := indexed[path]
+		if !ok {
+			diagnostics = append(diagnostics, execPlanDiagnostic(repoRoot, "docs/plans/active.md", 0, "active ExecPlan is missing from docs/knowledge.json: "+path, "Add the plan to docs/knowledge.json in the same change that activates it."))
+			continue
+		}
+		if doc.Status != "active" {
+			diagnostics = append(diagnostics, execPlanDiagnostic(repoRoot, "docs/knowledge.json", 0, "linked active ExecPlan is not marked active in docs/knowledge.json: "+path, "Mark the knowledge entry active or move the plan out of docs/plans/active.md."))
+		}
+	}
+	for path := range indexedActive {
+		if linked[path] {
+			continue
+		}
+		diagnostics = append(diagnostics, execPlanDiagnostic(repoRoot, "docs/knowledge.json", 0, "indexed active ExecPlan is missing from docs/plans/active.md: "+path, "Link the plan from docs/plans/active.md or mark its knowledge entry completed."))
+	}
+	summary["active_exec_plan_links"] = len(linked)
+	summary["indexed_active_exec_plans"] = len(indexedActive)
+	return diagnostics, summary
+}
+
+func knowledgeTagsContain(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 var requiredSkillMentions = []string{

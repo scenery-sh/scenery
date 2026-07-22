@@ -1,25 +1,31 @@
 import type { LinkComponentType } from "@astryxdesign/core/Link";
+import { renderIconSlot } from "@astryxdesign/core/Icon";
 import {
   SideNav,
   SideNavItem,
-  type SideNavItemProps,
   SideNavSection,
 } from "@astryxdesign/core/SideNav";
 import * as stylex from "@stylexjs/stylex";
 import type { MouseEvent, ReactNode } from "react";
+import { t } from "../tokens.stylex.js";
 
-export type SideNavigationItem = Pick<
-  SideNavItemProps,
-  | "children"
-  | "endContent"
-  | "href"
-  | "icon"
-  | "isDisabled"
-  | "isSelected"
-  | "label"
-  | "onClick"
-  | "selectedIcon"
->;
+// Origin is intrinsic route provenance. Generated adapters stamp it; authored
+// navigation entries are normalized to "authored" by the generated app shell.
+export type NavigationOrigin = "generated" | "authored";
+
+export type SideNavigationItem = {
+  label: string;
+  children?: ReactNode;
+  endContent?: ReactNode;
+  href?: string;
+  icon?: ReactNode;
+  isDisabled?: boolean;
+  isSelected?: boolean;
+  onClick?: (event: MouseEvent) => void;
+  selectedIcon?: ReactNode;
+  /** Route provenance for styling and app-level inspection. */
+  origin?: NavigationOrigin;
+};
 
 export type SideNavigationSection = {
   title: string;
@@ -60,20 +66,36 @@ export function SideNavigation({
     >
       <SideNav xstyle={styles.sideNav}>
         {sections.map((section, sectionIndex) => {
-          const items = section.items.map((item, itemIndex) => (
-            <SideNavItem
-              {...item}
-              key={`${item.label}-${item.href ?? itemIndex}`}
-              as={linkComponent}
-              onClick={
-                item.onClick || (item.href && onNavigate)
-                  ? (event: MouseEvent) =>
-                      handleNavigate(event, item.onClick, onNavigate)
-                  : undefined
-              }
-              size="sm"
-            />
-          ));
+          const items = section.items.map((item, itemIndex) => {
+            const { icon, origin, ...sideNavItem } = item;
+            return (
+              <div
+                data-origin={origin}
+                key={`${item.label}-${item.href ?? itemIndex}`}
+              >
+                <SideNavItem
+                  {...sideNavItem}
+                  as={linkComponent}
+                  icon={
+                    origin === "generated" && icon ? (
+                      <span {...stylex.props(styles.generatedIcon)}>
+                        {renderIconSlot(icon, { color: "inherit", size: "sm" })}
+                      </span>
+                    ) : (
+                      icon
+                    )
+                  }
+                  onClick={
+                    item.onClick || (item.href && onNavigate)
+                      ? (event: MouseEvent) =>
+                          handleNavigate(event, item.onClick, onNavigate)
+                      : undefined
+                  }
+                  size="sm"
+                />
+              </div>
+            );
+          });
           return (
             <SideNavSection
               key={`${section.title}-${sectionIndex}`}
@@ -150,4 +172,5 @@ const styles = stylex.create({
     paddingBlock: 0,
   },
   sideGroup: { marginTop: 20 },
+  generatedIcon: { color: t.infoIcon },
 });

@@ -35,6 +35,7 @@ func TestRenderReactTablePageWiresResponseAwareSlotsAndRowAction(t *testing.T) {
 		`context={props.context}`,
 		`footer: SceneryOverride`,
 		`rowAction: SceneryOverride`,
+		`rowIntent: SceneryOverride`,
 		`const [tableContext, setTableContext] = useState<TablePageResultContext<WorkOrder>>();`,
 		`const onResultContextChange = useCallback((context: TablePageResultContext<WorkOrder>) => setTableContext(context), []);`,
 		`function requiredTablePageSlot<T>(value: T | undefined, name: string): T`,
@@ -44,6 +45,7 @@ func TestRenderReactTablePageWiresResponseAwareSlotsAndRowAction(t *testing.T) {
 		`footer={slots.footer}`,
 		`onResultContextChange={onResultContextChange}`,
 		`rowAction={slots.rowAction}`,
+		`onRowIntent={slots.rowIntent}`,
 		`const WorkOrdersOwnerFilterSlot = requiredTablePageSlot(slots.filters?.owner, "filters.owner");`,
 		`{ field: "owner", label: "Owner", kind: "enum", options: [], component: WorkOrdersOwnerFilterSlot }`,
 	} {
@@ -51,10 +53,94 @@ func TestRenderReactTablePageWiresResponseAwareSlotsAndRowAction(t *testing.T) {
 			t.Errorf("generated response-aware table page missing %q:\n%s", fragment, source)
 		}
 	}
+	if !strings.Contains(source, `RowAction as SceneryOverride`) || !strings.Contains(source, `prefetchRowAction as SceneryOverride`) {
+		t.Errorf("generated row-action import does not include its prefetch hook:\n%s", source)
+	}
 	for _, module := range []string{"empty", "footer", "row-action", "status-filter", "toolbar"} {
 		if !strings.Contains(source, `from "../../`+module+`.js"`) {
 			t.Errorf("generated response-aware table page did not import %s component:\n%s", module, source)
 		}
+	}
+}
+
+func TestRenderReactTablePageWiresExactCSVControls(t *testing.T) {
+	resources, binding := responseAwareTablePageResources(false)
+	for index := range resources {
+		if resources[index].Kind != "scenery.table-page" {
+			continue
+		}
+		columns := resources[index].Spec["column"].([]any)
+		columns[0].(map[string]any)["export_header"] = "Work Order ID"
+		columns[0].(map[string]any)["export_format"] = "raw"
+		columns[0].(map[string]any)["export_empty"] = "None"
+		columns[0].(map[string]any)["export_zero_empty"] = true
+		columns[1].(map[string]any)["export_format"] = "date"
+		resources[index].Spec["export"] = map[string]any{"file_name": "work-orders-{date}.csv"}
+	}
+	page := selectedReactTablePages(resources, []Resource{binding})[0]
+	target := Resource{Address: "app/typescript_client/public_api", Module: "app", Name: "public_api", Kind: "scenery.typescript-client"}
+	source, err := renderReactTablePage(&Result{Root: "/app", Manifest: &Manifest{Resources: resources}}, target, "/app/generated/react", page, []Resource{binding})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, fragment := range []string{
+		`exportHeader: "Work Order ID"`,
+		`exportFormat: "raw"`,
+		`exportEmpty: "None"`,
+		`exportZeroEmpty: true`,
+		`exportFormat: "date"`,
+		`exportAction={{ fileName: "work-orders-{date}.csv", label: "Export" }}`,
+	} {
+		if !strings.Contains(source, fragment) {
+			t.Errorf("generated CSV controls missing %q:\n%s", fragment, source)
+		}
+	}
+}
+
+func TestRenderReactTablePageWiresRequestStateCopy(t *testing.T) {
+	resources, binding := responseAwareTablePageResources(false)
+	for index := range resources {
+		if resources[index].Kind == "scenery.table-page" {
+			resources[index].Spec["loading_label"] = "Analyzing documents across projects…"
+			resources[index].Spec["error_title"] = "Unable to analyze project documents"
+		}
+	}
+	page := selectedReactTablePages(resources, []Resource{binding})[0]
+	target := Resource{Address: "app/typescript_client/public_api", Module: "app", Name: "public_api", Kind: "scenery.typescript-client"}
+	source, err := renderReactTablePage(&Result{Root: "/app", Manifest: &Manifest{Resources: resources}}, target, "/app/generated/react", page, []Resource{binding})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, fragment := range []string{
+		`loadingLabel={"Analyzing documents across projects…"}`,
+		`errorTitle={"Unable to analyze project documents"}`,
+	} {
+		if !strings.Contains(source, fragment) {
+			t.Errorf("generated request-state copy missing %q:\n%s", fragment, source)
+		}
+	}
+}
+
+func TestRenderReactTablePageMarksUnusedQueryParameter(t *testing.T) {
+	resources, binding := responseAwareTablePageResources(false)
+	for index := range resources {
+		switch resources[index].Kind {
+		case "scenery.record":
+			if resources[index].Name == "work_order_query" {
+				resources[index].Spec["field"] = []any{}
+			}
+		case "scenery.table-page":
+			delete(resources[index].Spec, "filter")
+		}
+	}
+	page := selectedReactTablePages(resources, []Resource{binding})[0]
+	target := Resource{Address: "app/typescript_client/public_api", Module: "app", Name: "public_api", Kind: "scenery.typescript-client"}
+	source, err := renderReactTablePage(&Result{Root: "/app", Manifest: &Manifest{Resources: resources}}, target, "/app/generated/react", page, []Resource{binding})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(source, `const load = useCallback(async (_query: TablePageQuery, signal?: AbortSignal)`) {
+		t.Fatalf("generated queryless table does not mark its callback query parameter unused:\n%s", source)
 	}
 }
 
@@ -138,7 +224,7 @@ func TestRenderReactTablePageProjectsTypedBindingMetadataIntoSlotContext(t *test
 		t.Fatal(err)
 	}
 	for _, fragment := range []string{
-		`import type { WorkOrder, WorkOrderResults`,
+		`import type { WorkOrder, WorkOrderQuery, WorkOrderResults`,
 		`type WorkOrdersMetadata = Pick<WorkOrderResults, "summary" | "types" | "manufacturers">;`,
 		`TablePageToolbarProps<WorkOrder, WorkOrdersMetadata>`,
 		`defineTablePageSlots<WorkOrder, never, { readonly "status": string; readonly "owner": string }, WorkOrdersMetadata>()`,
@@ -247,7 +333,7 @@ func responseAwareTablePageResources(withToolbar bool) ([]Resource, Resource) {
 		},
 		"empty":      map[string]any{"component": map[string]any{"$ref": "react_component.empty"}},
 		"footer":     map[string]any{"component": map[string]any{"$ref": "react_component.footer"}},
-		"row_action": map[string]any{"component": map[string]any{"$ref": "react_component.row_action"}},
+		"row_action": map[string]any{"component": map[string]any{"$ref": "react_component.row_action"}, "prefetch_export": "prefetchRowAction"},
 	}
 	if withToolbar {
 		components = append(components, Resource{Address: "app/react_component/toolbar", Module: "app", Name: "toolbar", Kind: "scenery.react-component", Spec: map[string]any{"module": "toolbar.tsx", "export": "Toolbar"}})

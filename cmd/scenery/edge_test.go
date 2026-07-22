@@ -134,6 +134,32 @@ func TestEdgePrivilegedInstallCommandUsesDeploySetupForDeploy(t *testing.T) {
 	}
 }
 
+func TestEdgeRestartReadyIgnoresLocalDNSOnlyForDeploy(t *testing.T) {
+	t.Parallel()
+	status := edgeStatusResult{
+		Ready: false,
+		Edge: edgeStatusCaddy{
+			State:       localagent.EdgeStatusRunning,
+			PID:         42,
+			HTTPSListen: "127.0.0.1:19443",
+			Upstream:    "127.0.0.1:9440",
+			AgentRouter: "127.0.0.1:9440",
+		},
+		DNS: edgeDNSStatusResult{Ready: false},
+		PrivilegedListener: edgeStatusPrivilegedListener{
+			State:     "running",
+			Target:    "127.0.0.1:19443",
+			TargetPID: 42,
+		},
+	}
+	if !edgeRestartReady(status, true) {
+		t.Fatal("public deploy restart must reach target recovery when optional local DNS is down")
+	}
+	if edgeRestartReady(status, false) {
+		t.Fatal("ordinary local edge restart must still require wildcard DNS")
+	}
+}
+
 func TestParseEdgeHelperPlistOptionsExtractsProgramArguments(t *testing.T) {
 	t.Parallel()
 

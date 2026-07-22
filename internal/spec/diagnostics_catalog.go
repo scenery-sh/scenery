@@ -154,6 +154,7 @@ SCN1017|authored_attribute_shape|An authored attribute is unknown or must be a c
 SCN1018|authored_child_block|An authored child block is not allowed by its parent schema
 SCN1019|source_formatting|Source formatting failed
 SCN1020|authored_attribute_constraint|An authored attribute violates a declared schema constraint
+SCN1021|legacy_contract_filename|An authored contract file uses a retired pre-cutover filename and must be renamed
 SCN1101|root_singleton_identity|A required root singleton is missing or repeated
 SCN1102|module_identity|A module declaration is duplicated
 SCN1103|module_resource_identity|A resource identity is duplicated within a module
@@ -265,7 +266,7 @@ SCN2605|page_route_identity|A page route is duplicated
 SCN2606|renderer_runtime_identity|A renderer runtime identity is duplicated
 SCN2607|react_component|A declared React component module or export is invalid
 SCN2608|table_page_contract|A table page source or required declaration is invalid
-SCN2609|table_page_column|A table page column field appearance or identity is invalid
+SCN2609|table_page_column|A table page column field appearance export formatting or identity is invalid
 SCN2610|table_page_query|A table page filter sort or default ordering is invalid
 SCN2611|table_page_slot|A table page slot does not resolve to a declared React component
 SCN2612|table_page_row_link|A table page row link references an unavailable field
@@ -279,9 +280,17 @@ SCN2619|page_route_contract|A generated page search or navigation contract is in
 SCN2620|status_map_contract|A status map declaration is invalid
 SCN2621|form_dialog_contract|A form dialog declaration or mutation binding is invalid
 SCN2622|table_page_workbench|A table page workbench declaration is invalid
-SCN2623|table_page_grouping_and_detail|A table page grouping or row detail presentation is invalid
+SCN2623|table_page_grouping_and_detail|A table page grouping row detail presentation or row-intent hook is invalid
 SCN2624|table_page_pagination|A table page pagination mapping is invalid
 SCN2625|table_page_input_mapping|A table page predicate or query mapping is invalid
+SCN2626|workspace_page_contract|A workspace page declaration tab or presentation is invalid
+SCN2627|workspace_page_stats|A workspace page stats count or availability field is invalid
+SCN2628|workspace_page_expansion_identity|A workspace-page-derived resource address collides
+SCN2629|detail_page_contract|A detail page source path parameter or presentation contract is invalid
+SCN2630|detail_page_section|A detail page section or result field declaration is invalid
+SCN2631|detail_page_action|A detail page action dialog or seed contract is invalid
+SCN2632|detail_page_table|A detail page related table or parameter mapping is invalid
+SCN2633|detail_page_expansion_identity|A detail-page-derived resource address collides
 SCN2701|event_contract|An event lacks a payload or positive version
 SCN2702|event_emission_shape|An event emission is incomplete
 SCN2703|event_binding_shape|An event binding is incomplete
@@ -302,7 +311,7 @@ SCN2907|patch_collision|Two patches write the same path
 SCN3001|module_labels|A module declaration has invalid labels
 SCN3002|module_source|A module source path is invalid or unsafe
 SCN3004|module_package_access|A module package source cannot be read
-SCN3005|module_package_manifest|A module lacks scenery.package.scn
+SCN3005|module_package_manifest|A module lacks package.scn
 SCN3006|module_package_singleton|A module has the wrong package block count
 SCN3007|module_input_required|A required module input is missing or unresolved
 SCN3008|module_input_value|A supplied module input is unknown or invalid

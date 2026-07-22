@@ -11,8 +11,8 @@ the names mentioned here.
 ## Bird's Eye View
 
 scenery is a Go-native local runtime and toolchain for current Scenery applications
-that declare their canonical resource graph in `scenery.scn` and package-local
-`scenery.package.scn` files. `.scenery.json` carries independent runtime config.
+that declare their canonical resource graph in `app.scn` and package-local
+`package.scn` files. `.scenery.json` carries independent runtime config.
 
 At a high level, scenery does four things:
 
@@ -25,7 +25,7 @@ At a high level, scenery does four things:
 The central flow is:
 
 ```text
-.scenery.json + scenery.scn + scenery.package.scn + Go implementations
+.scenery.json + app.scn + package.scn + app.lock.scn + Go implementations
         |
         v
 internal/app + internal/scn + internal/spec + compiler
@@ -112,7 +112,7 @@ strict `scenery.cli` and `scenery.cli.event` envelopes. Compiler, evolution,
 deployment, generation, and Go verification build on these foundational
 boundaries.
 
-Architecture invariant: `scenery.scn` is required. There is no Go-comment,
+Architecture invariant: `app.scn` is required. There is no Go-comment,
 package-init, or alternate application-model frontend. Generated roots are declared, confined,
 transactional, and reproducible from the canonical graph.
 
@@ -135,6 +135,11 @@ OpenAPI projections, generated React page adapters, and the binary-owned
 root component barrel and the direct `tokens.stylex.ts` defining module in the
 same artifact-set transaction. Its check path reports both diagnostics and
 whether native implementation verification was requested and valid.
+
+Generated React routes carry static or dynamic path contracts. A
+`detail_page` adapter receives decoded router params, loads one typed record,
+and feeds one shared content component into its routed-page and controlled-
+dialog wrappers; generated related tables remain scoped to those params.
 
 Declared Go libraries add a `scenerylib_<name>` facade with source/shared
 backends and an `export/` c-shared shim in the same external workspace.

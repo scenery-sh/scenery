@@ -6,7 +6,7 @@ import (
 )
 
 func TestDeclarativeTableResourceMetadataIsComplete(t *testing.T) {
-	for _, kind := range []string{"scenery.crud", "scenery.react-component", "scenery.status-map", "scenery.form-dialog", "scenery.table-page", "scenery.split-page", "scenery.content-page"} {
+	for _, kind := range []string{"scenery.crud", "scenery.react-component", "scenery.status-map", "scenery.form-dialog", "scenery.table-page", "scenery.split-page", "scenery.content-page", "scenery.workspace-page", "scenery.detail-page"} {
 		if !resourceCreateKindSupported(kind) {
 			t.Fatalf("%s is not advertised as a creatable resource kind", kind)
 		}
@@ -34,6 +34,11 @@ func TestDeclarativeTableResourceMetadataIsComplete(t *testing.T) {
 	}
 
 	table, _ := authoredResourceSourceSchema("table_page")
+	for _, name := range []string{"loading_label", "error_title"} {
+		if attribute, ok := table.Attributes[name]; !ok || attribute.Type["primitive"] != "string" {
+			t.Errorf("table_page %s must be a string attribute: %#v", name, attribute)
+		}
+	}
 	if metadata, ok := table.Attributes["metadata"]; !ok || metadata.Type["collection"] != "list" {
 		t.Errorf("table_page metadata must be a list attribute: %#v", metadata)
 	}
@@ -65,18 +70,27 @@ func TestDeclarativeTableResourceMetadataIsComplete(t *testing.T) {
 	if _, ok := table.Children["filter"].Schema.Attributes["hidden"]; !ok {
 		t.Error("table_page filter does not advertise hidden control ownership")
 	}
+	for _, name := range []string{"export_header", "export_format", "export_empty", "export_zero_empty"} {
+		if _, ok := table.Children["column"].Schema.Attributes[name]; !ok {
+			t.Errorf("table_page column does not advertise %s", name)
+		}
+	}
 	rowDetail := table.Children["row_detail"].Schema
-	for _, name := range []string{"presentation", "panel_width"} {
+	for _, name := range []string{"presentation", "panel_width", "prefetch_export"} {
 		if _, ok := rowDetail.Attributes[name]; !ok {
 			t.Errorf("table_page row_detail does not advertise %s", name)
 		}
 	}
-	for _, name := range []string{"footer", "empty", "row_action"} {
+	for _, name := range []string{"footer", "empty"} {
 		if child, ok := table.Children[name]; !ok || child.Repeatable || child.Schema.Labels != 0 {
 			t.Errorf("table_page %s must be an unlabeled singleton block: %#v", name, child)
 		} else if len(child.Schema.Attributes) != 1 || !child.Schema.Required["component"] {
 			t.Errorf("table_page %s must use the component-only slot contract: %#v", name, child.Schema)
 		}
+	}
+	rowAction := table.Children["row_action"].Schema
+	if !rowAction.Required["component"] || len(rowAction.Attributes) != 2 {
+		t.Errorf("table_page row_action must require component and optionally advertise prefetch_export: %#v", rowAction)
 	}
 	toolbar := table.Children["toolbar"]
 	if toolbar.Repeatable || toolbar.Schema.Labels != 0 || !toolbar.Schema.Required["component"] {
@@ -116,6 +130,42 @@ func TestDeclarativeTableResourceMetadataIsComplete(t *testing.T) {
 	if content.Required["source"] {
 		t.Error("content_page still requires source")
 	}
+	workspace, _ := authoredResourceSourceSchema("workspace_page")
+	tab := workspace.Children["tab"]
+	if !tab.Repeatable || !tab.Ordered || tab.Schema.Labels != 1 || tab.Schema.Required["page"] || !tab.Schema.Required["label"] {
+		t.Errorf("workspace_page tab must be an ordered labeled page or destination: %#v", tab)
+	}
+	if kinds, _ := tab.Schema.Attributes["page"].Type["resource_ref_one_of"].([]string); len(kinds) != 2 {
+		t.Errorf("workspace_page tab page must accept table_page and content_page: %#v", tab.Schema.Attributes["page"])
+	}
+	for _, name := range []string{"destination", "description", "group", "count", "available", "unavailable_reason"} {
+		if _, ok := tab.Schema.Attributes[name]; !ok {
+			t.Errorf("workspace_page tab does not advertise %s", name)
+		}
+	}
+	if got := tab.Schema.Attributes["destination"].Type["primitive"]; got != "route_path" {
+		t.Errorf("workspace_page tab destination type = %#v", tab.Schema.Attributes["destination"].Type)
+	}
+	if presentation := workspace.Attributes["presentation"]; presentation.Default != "tabs" {
+		t.Errorf("workspace_page presentation default = %#v", presentation.Default)
+	}
+	detail, _ := authoredResourceSourceSchema("detail_page")
+	if detail.Attributes["presentation"].Default != "page" || !detail.Required["source"] {
+		t.Errorf("detail_page presentation/source contract = %#v required=%t", detail.Attributes["presentation"], detail.Required["source"])
+	}
+	for name, labels := range map[string]int{"param": 1, "section": 1, "action": 1, "table": 1} {
+		child, ok := detail.Children[name]
+		if !ok || !child.Repeatable || child.Schema.Labels != labels {
+			t.Errorf("detail_page %s child = %#v", name, child)
+		}
+	}
+	if actions := detail.Children["actions"]; actions.Repeatable || actions.Schema.Labels != 0 || !actions.Schema.Required["component"] {
+		t.Errorf("detail_page actions slot = %#v", actions)
+	}
+	detailField := detail.Children["section"].Schema.Children["field"].Schema
+	if hideEmpty := detailField.Attributes["hide_empty"]; hideEmpty.Type["primitive"] != "bool" || hideEmpty.Default != false {
+		t.Errorf("detail_page field hide_empty contract = %#v", hideEmpty)
+	}
 	page, ok := resourceSchemas["scenery.page"]
 	if !ok {
 		t.Fatal("scenery.page schema is unavailable")
@@ -126,9 +176,11 @@ func TestDeclarativeTableResourceMetadataIsComplete(t *testing.T) {
 		}
 	}
 	for name, schema := range map[string]*authoredBlockSchema{
-		"table_page":   table,
-		"split_page":   split,
-		"content_page": content,
+		"table_page":     table,
+		"split_page":     split,
+		"content_page":   content,
+		"workspace_page": workspace,
+		"detail_page":    detail,
 	} {
 		search, ok := schema.Children["search"]
 		if !ok || !search.Repeatable || search.Schema.Labels != 1 {

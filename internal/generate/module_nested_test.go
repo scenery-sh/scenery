@@ -15,10 +15,10 @@ func TestNestedLocalModuleInstantiatesNamespacedExports(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	writeNestedModuleFile(t, filepath.Join(root, "scenery.scn"), `application "nested_app" {}
+	writeNestedModuleFile(t, filepath.Join(root, testAppFilename), `application "nested_app" {}
 module "parent" { source = "./parent" }
 `)
-	writeNestedModuleFile(t, filepath.Join(root, "parent", "scenery.package.scn"), `package "parent" {
+	writeNestedModuleFile(t, filepath.Join(root, "parent", testPackageFilename), `package "parent" {
 }
 module "geometry" { source = "../geometry" }
 record "shape" {
@@ -26,7 +26,7 @@ record "shape" {
 }
 export "shape" { value = record.shape }
 `)
-	writeNestedModuleFile(t, filepath.Join(root, "geometry", "scenery.package.scn"), `package "geometry" {
+	writeNestedModuleFile(t, filepath.Join(root, "geometry", testPackageFilename), `package "geometry" {
 }
 record "point" {
   field "x" { type = float64 }
@@ -72,7 +72,7 @@ func TestNestedExportedTypeGeneratesCompilableGoContractClosure(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeNestedModuleFile(t, filepath.Join(root, "go.mod"), "module example.test/cross\n\ngo 1.26.3\n\nrequire scenery.sh v0.0.0\nreplace scenery.sh => "+filepath.ToSlash(repositoryRoot)+"\n")
-	writeNestedModuleFile(t, filepath.Join(root, "scenery.scn"), `workspace {
+	writeNestedModuleFile(t, filepath.Join(root, testAppFilename), `workspace {
   managed_generated_roots = ["parent/scenerycontract", "internal/scenerygen"]
 }
 go_module "application" {
@@ -94,7 +94,7 @@ go_target "development" {
 application "cross_module" {}
 module "parent" { source = "./parent" }
 `)
-	writeNestedModuleFile(t, filepath.Join(root, "parent", "scenery.package.scn"), `package "parent" {
+	writeNestedModuleFile(t, filepath.Join(root, "parent", testPackageFilename), `package "parent" {
   go_contract { import_path = "example.test/cross/parent" }
 }
 module "geometry" {
@@ -140,7 +140,7 @@ func (*Service) Inspect(context.Context, contract.InspectInput) (contract.Inspec
   return contract.InspectOk{Value: contract.Point{}}, nil
 }
 `)
-	writeNestedModuleFile(t, filepath.Join(root, "geometry", "scenery.package.scn"), `package "geometry" {
+	writeNestedModuleFile(t, filepath.Join(root, "geometry", testPackageFilename), `package "geometry" {
 }
 record "point" {
   field "x" { type = float64 }
@@ -196,10 +196,10 @@ func TestNestedModuleDependencyCycleFails(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(root, "cycle"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeNestedModuleFile(t, filepath.Join(root, "scenery.scn"), `application "cycle_app" {}
+	writeNestedModuleFile(t, filepath.Join(root, testAppFilename), `application "cycle_app" {}
 module "cycle" { source = "./cycle" }
 `)
-	writeNestedModuleFile(t, filepath.Join(root, "cycle", "scenery.package.scn"), `package "cycle" {
+	writeNestedModuleFile(t, filepath.Join(root, "cycle", testPackageFilename), `package "cycle" {
 }
 module "again" { source = "." }
 `)
@@ -216,14 +216,14 @@ func TestRootModulesResolveExportDependenciesTopologically(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	writeNestedModuleFile(t, filepath.Join(root, "scenery.scn"), `application "root_modules" {}
+	writeNestedModuleFile(t, filepath.Join(root, testAppFilename), `application "root_modules" {}
 module "consumer" {
   source = "./consumer"
   inputs = { point = module.types.point }
 }
 module "types" { source = "./types" }
 `)
-	writeNestedModuleFile(t, filepath.Join(root, "types", "scenery.package.scn"), `package "types" {
+	writeNestedModuleFile(t, filepath.Join(root, "types", testPackageFilename), `package "types" {
 }
 record "point" {
   field "x" {
@@ -232,7 +232,7 @@ record "point" {
 }
 export "point" { value = record.point }
 `)
-	writeNestedModuleFile(t, filepath.Join(root, "consumer", "scenery.package.scn"), `package "consumer" {
+	writeNestedModuleFile(t, filepath.Join(root, "consumer", testPackageFilename), `package "consumer" {
 }
 input "point" { type = resource_ref("record") }
 export "point" { value = var.point }

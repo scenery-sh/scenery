@@ -8,7 +8,7 @@ import (
 
 func TestSnapshotWorkspaceIsStableAndRejectsSymlinks(t *testing.T) {
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "scenery.scn"), []byte("application \"test\" {}\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, appFilename), []byte("application \"test\" {}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	first, err := SnapshotWorkspace(root)
@@ -19,7 +19,7 @@ func TestSnapshotWorkspaceIsStableAndRejectsSymlinks(t *testing.T) {
 	if err != nil || !EqualWorkspaceSnapshots(first, second) {
 		t.Fatalf("stable snapshot = %v, %v", err, second)
 	}
-	if err := os.Symlink("scenery.scn", filepath.Join(root, "alias.scn")); err != nil {
+	if err := os.Symlink(appFilename, filepath.Join(root, "alias.scn")); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := SnapshotWorkspace(root); err == nil {

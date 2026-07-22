@@ -1,6 +1,6 @@
 # 0118 Runtime Infrastructure Consolidation and CLI Logic Extraction
 
-- Status: active
+- Status: completed
 - Owner: scenery runtime
 - Created: 2026-07-15
 
@@ -105,6 +105,10 @@ container via a `SCENERY_TEST_DATABASE_URL` DSN and
 ## Validation and Acceptance
 
 - `go test ./...` — full suite green (42 packages).
+- `go test ./internal/atomicfile ./internal/netprobe` — focused kernel tests
+  green, covering atomic parent creation/replacement/content/mode, synced
+  writes, failure cleanup, and TCP dial/bind/wait behavior including context
+  timeout.
 - `scenery harness self --summary --write` using the worktree-local
   `.scenery/harness/bin/scenery` binary rebuilt after the allowlist edits.
 - Acceptance: no CLI grammar, JSON envelope, or generated-artifact change;
@@ -162,6 +166,7 @@ items.
 - [x] 2026-07-15 symphony runner client/config extraction into internal/symphony (1077 → 739 lines)
 - [x] 2026-07-15 validate.go plan engine extraction into internal/validation (1188 → 689 lines)
 - [x] 2026-07-15 Full validation: go test ./... green (42 packages); scenery harness self --summary --write fully ok (21/21 steps)
+- [x] 2026-07-22 Added focused package-local atomicfile and netprobe kernel tests; cached package validation green
 
 ## Surprises & Discoveries
 
@@ -208,6 +213,8 @@ items.
 
 All seven items landed 2026-07-15 with full validation green (`go test ./...`
 42 packages ok; `scenery harness self --summary --write` 21/21 steps ok).
+Focused package-local tests added 2026-07-22 close the remaining kernel coverage
+gap for atomic replacement/durability/cleanup and TCP dial/bind/wait behavior.
 Net effect: one real cross-process locking bug fixed with a live-Postgres
 regression test; durable registry writes can no longer silently persist
 partial JSON; the devdash hot write path no longer rewrites the store file

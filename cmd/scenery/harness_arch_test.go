@@ -104,7 +104,7 @@ func TestCheckCurrentSurfaceResidue(t *testing.T) {
 		content string
 		want    string
 	}{
-		{name: "current source selectors", rel: "testdata/app/scenery.scn", content: "language " + "{\n  edition = \"2027\"\n  " + "require_" + "profiles = []\n}\npackage \"app\" { " + "scenery_" + "version = \"any\" }\n", want: "authored language selector"},
+		{name: "current source selectors", rel: "testdata/app/" + testAppFilename, content: "language " + "{\n  edition = \"2027\"\n  " + "require_" + "profiles = []\n}\npackage \"app\" { " + "scenery_" + "version = \"any\" }\n", want: "authored language selector"},
 		{name: "retired cookie", rel: "auth/session.go", content: "const cookie = \"" + "onlv_" + "refresh\"\n", want: "retired auth cookie name"},
 		{name: "release selection", rel: "docs/local-contract.md", content: "Run `scenery upgrade " + "--version v1.2.3`.\n", want: "historical release selection"},
 		{name: "active next name in path", rel: "internal/" + "v" + "next/compiler.go", content: "package compiler\n", want: "active next-generation name"},

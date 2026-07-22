@@ -108,9 +108,17 @@ var authoredFieldOverrides = map[authoredFieldKey]authoredFieldOverride{
 	{Revision: "scenery.source.table_page", Name: "nav_order"}:                        {Constraints: map[string]any{"minimum": 0}},
 	{Revision: "scenery.source.split_page", Name: "nav_order"}:                        {Constraints: map[string]any{"minimum": 0}},
 	{Revision: "scenery.source.content_page", Name: "nav_order"}:                      {Constraints: map[string]any{"minimum": 0}},
+	{Revision: "scenery.source.workspace_page", Name: "nav_order"}:                    {Constraints: map[string]any{"minimum": 0}},
+	{Revision: "scenery.source.workspace_page", Name: "presentation"}:                 {Default: "tabs", DefaultSource: "spec", Constraints: enumConstraint("tabs", "sidebar")},
+	{Revision: "scenery.source.detail_page", Name: "nav_order"}:                       {Constraints: map[string]any{"minimum": 0}},
+	{Revision: "scenery.source.detail_page", Name: "presentation"}:                    {Default: "page", DefaultSource: "spec", Constraints: enumConstraint("both", "dialog", "page")},
+	{Revision: "scenery.detail-page.field", Name: "appearance"}:                       {Default: "auto", DefaultSource: "spec", Constraints: enumConstraint("auto", "badge", "datetime", "number", "text")},
+	{Revision: "scenery.detail-page.field", Name: "hide_empty"}:                       {Default: false, DefaultSource: "spec"},
 	{Revision: "scenery.table-page.column", Name: "appearance"}:                       {Default: "auto", DefaultSource: "spec", Constraints: enumConstraint("auto", "badge", "datetime", "number", "text")},
 	{Revision: "scenery.table-page.column", Name: "hidden"}:                           {Default: false, DefaultSource: "spec"},
 	{Revision: "scenery.table-page.column", Name: "export"}:                           {Default: true, DefaultSource: "spec"},
+	{Revision: "scenery.table-page.column", Name: "export_format"}:                    {Default: "display", DefaultSource: "spec", Constraints: enumConstraint("display", "raw", "date")},
+	{Revision: "scenery.table-page.column", Name: "export_zero_empty"}:                {Default: false, DefaultSource: "spec"},
 	{Revision: "scenery.table-page.sort", Name: "default"}:                            {Constraints: enumConstraint("asc", "desc")},
 	{Revision: "scenery.table-page.group", Name: "default"}:                           {Default: false, DefaultSource: "spec"},
 	{Revision: "scenery.table-page.filter", Name: "hidden"}:                           {Default: false, DefaultSource: "spec"},
@@ -934,6 +942,68 @@ func authoredAttributeType(revision, name string) (map[string]any, string) {
 		default:
 			return primitive("string")
 		}
+	case "scenery.source.workspace_page":
+		switch name {
+		case "nav_order":
+			return primitive("non_negative_int")
+		case "nav_active_paths":
+			return list("route_path")
+		default:
+			return primitive("string")
+		}
+	case "scenery.source.detail_page":
+		switch name {
+		case "source":
+			return resourceRef("binding")
+		case "nav_order":
+			return primitive("non_negative_int")
+		case "nav_active_paths":
+			return list("route_path")
+		default:
+			return primitive("string")
+		}
+	case "scenery.detail-page.param", "scenery.page.param":
+		return primitive("string")
+	case "scenery.detail-page.section":
+		return primitive("string")
+	case "scenery.detail-page.field":
+		if name == "status_map" {
+			return resourceRef("status_map")
+		}
+		if name == "hide_empty" {
+			return primitive("bool")
+		}
+		return primitive("string")
+	case "scenery.detail-page.action":
+		switch name {
+		case "dialog":
+			return resourceRef("form_dialog")
+		case "primary":
+			return primitive("bool")
+		default:
+			return primitive("string")
+		}
+	case "scenery.detail-page.table":
+		if name == "page" {
+			return resourceRef("table_page")
+		}
+		return primitive("string")
+	case "scenery.workspace-page.tab":
+		switch name {
+		case "page":
+			return map[string]any{"resource_ref_one_of": []string{"scenery.table-page", "scenery.content-page"}}, "exact"
+		case "destination":
+			return primitive("route_path")
+		default:
+			return primitive("string")
+		}
+	case "scenery.workspace-page.stats":
+		if name == "source" {
+			return resourceRef("binding")
+		}
+		return primitive("string")
+	case "scenery.workspace-page.stats.tile":
+		return primitive("string")
 	case "scenery.page.search":
 		return typeExpression()
 	case "scenery.table-page.column", "scenery.table-page.filter":
@@ -942,7 +1012,7 @@ func authoredAttributeType(revision, name string) (map[string]any, string) {
 			return resourceRef("react_component")
 		case "status_map":
 			return resourceRef("status_map")
-		case "pinned", "hidden", "export":
+		case "pinned", "hidden", "export", "export_zero_empty":
 			return primitive("bool")
 		default:
 			return primitive("string")
@@ -959,7 +1029,7 @@ func authoredAttributeType(revision, name string) (map[string]any, string) {
 			return map[string]any{"$ref": "scenery.value"}, "exact"
 		}
 		return primitive("string")
-	case "scenery.table-page.slot", "scenery.table-page.toolbar", "scenery.content-page.slot":
+	case "scenery.table-page.slot", "scenery.table-page.row-action", "scenery.table-page.toolbar", "scenery.content-page.slot":
 		if name == "component" {
 			return resourceRef("react_component")
 		}

@@ -15,14 +15,14 @@ func BenchmarkParseManyTokenSource(b *testing.B) {
 			fmt.Fprintf(&source, "record \"item_%04d\" {\n  field \"value\" { type = string }\n}\n", index)
 		}
 		root := b.TempDir()
-		path := filepath.Join(root, "scenery.scn")
+		path := filepath.Join(root, appFilename)
 		if err := os.WriteFile(path, []byte(source.String()), 0o644); err != nil {
 			b.Fatal(err)
 		}
 		b.Run(fmt.Sprintf("blocks_%d", blocks), func(b *testing.B) {
 			b.ReportAllocs()
 			for range b.N {
-				parsed, diagnostics := parseSourceLogical(path, "scenery.scn")
+				parsed, diagnostics := parseSourceLogical(path, appFilename)
 				if parsed == nil || hasErrors(diagnostics) {
 					b.Fatalf("parse diagnostics = %#v", diagnostics)
 				}
@@ -50,7 +50,7 @@ func TestPortableSourceIDsDoNotCollideForPunctuationOrPaths(t *testing.T) {
 
 func TestSourceRangesUseUnicodeScalarColumnsAndUTF8ByteOffsets(t *testing.T) {
 	root := t.TempDir()
-	path := filepath.Join(root, "scenery.scn")
+	path := filepath.Join(root, appFilename)
 	sourceText := "record \"Čeština🙂e\u0301\" {}\r\n"
 	if err := os.WriteFile(path, []byte(sourceText), 0o644); err != nil {
 		t.Fatal(err)
@@ -100,7 +100,7 @@ func TestSourcePositionIndexUsesUnicodeColumnsWithinEachLine(t *testing.T) {
 
 func TestStaticCompositeValuesKeepBooleanLiteralsAsValues(t *testing.T) {
 	root := t.TempDir()
-	path := filepath.Join(root, "scenery.scn")
+	path := filepath.Join(root, appFilename)
 	if err := os.WriteFile(path, []byte(`module "house" {
   source = "./house"
   inputs = {
@@ -123,7 +123,7 @@ func TestStaticCompositeValuesKeepBooleanLiteralsAsValues(t *testing.T) {
 
 func TestPrimitiveConstructorsNormalizeBeforeIR(t *testing.T) {
 	root := t.TempDir()
-	path := filepath.Join(root, "scenery.scn")
+	path := filepath.Join(root, appFilename)
 	if err := os.WriteFile(path, []byte(`deployment "test" {
   environment = "test"
   timeout = duration("1h30m")
@@ -143,7 +143,7 @@ func TestPrimitiveConstructorsNormalizeBeforeIR(t *testing.T) {
 
 func TestBooleanKeywordsAreLiteralsRatherThanReferences(t *testing.T) {
 	root := t.TempDir()
-	path := filepath.Join(root, "scenery.scn")
+	path := filepath.Join(root, appFilename)
 	if err := os.WriteFile(path, []byte(`enum "mode" {
   open = true
 }`), 0o644); err != nil {
@@ -161,7 +161,7 @@ func TestBooleanKeywordsAreLiteralsRatherThanReferences(t *testing.T) {
 
 func TestDurableRuntimeKeysRemainTypedInputExpressions(t *testing.T) {
 	root := t.TempDir()
-	path := filepath.Join(root, "scenery.package.scn")
+	path := filepath.Join(root, packageFilename)
 	sourceText := `operation "run" {
   idempotency {
     mode = "keyed"
@@ -198,7 +198,7 @@ execution "run_durable" {
 
 func TestAuthoredKeyedIdempotencyRequiresKeyAttribute(t *testing.T) {
 	root := t.TempDir()
-	path := filepath.Join(root, "scenery.package.scn")
+	path := filepath.Join(root, packageFilename)
 	if err := os.WriteFile(path, []byte(`operation "run" {
   service = service.worker
   input   = record.run_input
@@ -224,7 +224,7 @@ func TestAuthoredKeyedIdempotencyRequiresKeyAttribute(t *testing.T) {
 
 func TestExactNumbersNormalizeToTaggedSemanticScalars(t *testing.T) {
 	root := t.TempDir()
-	path := filepath.Join(root, "scenery.scn")
+	path := filepath.Join(root, appFilename)
 	if err := os.WriteFile(path, []byte(`provider "numbers" {
   config = {
     large    = 9007199254740993
@@ -263,7 +263,7 @@ func TestDeclaredWorkspaceEntriesIncludeViewImplementationFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	source := &Source{
-		Path: filepath.Join(moduleRoot, "scenery.package.scn"), Relative: "house/scenery.package.scn",
+		Path: filepath.Join(moduleRoot, packageFilename), Relative: "house/" + packageFilename,
 		Blocks: []*Block{{Type: "view", Labels: []string{"scenes"}, Blocks: []*Block{{Type: "implementation", Attributes: map[string]Expression{"file": {Kind: "literal", Value: "queries/scene.sql"}}}}}},
 	}
 	entries, err := declaredWorkspaceEntries(root, []*Source{source})
@@ -277,7 +277,7 @@ func TestDeclaredWorkspaceEntriesIncludeViewImplementationFiles(t *testing.T) {
 
 func TestWorkspaceRevisionIncludesLockfileAndExplicitRevisionInputs(t *testing.T) {
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "scenery.lock.scn"), []byte("lock-v1\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, appLockFilename), []byte("lock-v1\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(root, "go.work"), []byte("go 1.25\n"), 0o644); err != nil {
@@ -286,12 +286,12 @@ func TestWorkspaceRevisionIncludesLockfileAndExplicitRevisionInputs(t *testing.T
 	workspace := &Block{Type: "workspace", Blocks: []*Block{{Type: "revision_input", Labels: []string{"go_workspace"}, Attributes: map[string]Expression{
 		"paths": {Kind: "literal", Value: []any{"go.work", "go.work.sum"}}, "optional": {Kind: "literal", Value: true},
 	}}}}
-	source := &Source{Path: filepath.Join(root, "scenery.scn"), Relative: "scenery.scn", Bytes: []byte("workspace {}\n"), Blocks: []*Block{workspace}}
+	source := &Source{Path: filepath.Join(root, appFilename), Relative: appFilename, Bytes: []byte("workspace {}\n"), Blocks: []*Block{workspace}}
 	first, err := computeWorkspaceRevision(root, []*Source{source})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "scenery.lock.scn"), []byte("lock-v2\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, appLockFilename), []byte("lock-v2\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	second, err := computeWorkspaceRevision(root, []*Source{source})
@@ -322,7 +322,7 @@ func TestWorkspaceRevisionExclusionsWinAndSymlinkedInputsFail(t *testing.T) {
 	workspace := &Block{Type: "workspace", Blocks: []*Block{{Type: "implementation_root", Labels: []string{"house"}, Attributes: map[string]Expression{
 		"path": {Kind: "literal", Value: "house"}, "revision_include": {Kind: "literal", Value: []any{"**/*.go"}}, "revision_exclude": {Kind: "literal", Value: []any{"**/*.go"}},
 	}}}}
-	source := &Source{Path: filepath.Join(root, "scenery.scn"), Relative: "scenery.scn", Blocks: []*Block{workspace}}
+	source := &Source{Path: filepath.Join(root, appFilename), Relative: appFilename, Blocks: []*Block{workspace}}
 	entries, err := declaredWorkspaceEntries(root, []*Source{source})
 	if err != nil {
 		t.Fatal(err)

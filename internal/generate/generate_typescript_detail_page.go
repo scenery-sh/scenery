@@ -1,0 +1,524 @@
+package generate
+
+import (
+	"fmt"
+	"sort"
+	"strconv"
+	"strings"
+)
+
+type reactDetailParam struct {
+	name  string
+	input string
+	field operationInputField
+}
+
+type reactDetailRelatedTable struct {
+	spec  map[string]any
+	page  reactTablePage
+	param reactDetailParam
+	input operationInputField
+}
+
+type reactDetailPage struct {
+	detail, operation, binding, record Resource
+	params                             []reactDetailParam
+	dialogs                            []reactTableDialog
+	actionsComponent                   Resource
+	related                            []reactDetailRelatedTable
+}
+
+func selectedReactDetailPages(resources, bindings []Resource, tablePages []reactTablePage) []reactDetailPage {
+	byAddress := resourcesByAddress(&Manifest{Resources: resources})
+	selectedBindings := map[string]Resource{}
+	for _, binding := range bindings {
+		selectedBindings[binding.Address] = binding
+	}
+	tables := map[string]reactTablePage{}
+	for _, page := range tablePages {
+		tables[page.table.Address] = page
+	}
+	var pages []reactDetailPage
+	for _, detail := range resources {
+		if detail.Kind != "scenery.detail-page" || detail.Origin.Kind == "expanded" {
+			continue
+		}
+		binding := selectedBindings[resolveResourceRef(detail, refString(detail.Spec["source"]), "binding")]
+		if binding.Address == "" {
+			continue
+		}
+		operation := byAddress[resolveResourceRef(binding, refString(binding.Spec["operation"]), "operation")]
+		results := namedChildren(operation.Spec, "result")
+		if len(results) != 1 {
+			continue
+		}
+		record := byAddress[resolveResourceRef(operation, refString(results[0]["type"]), "record")]
+		shape := resolveOperationInputShape(byAddress, operation)
+		page := reactDetailPage{detail: detail, operation: operation, binding: binding, record: record}
+		for _, param := range normalizedReactDetailParams(resources, detail) {
+			input := stringValue(param["input"])
+			page.params = append(page.params, reactDetailParam{name: stringValue(param["name"]), input: input, field: shape.Fields[input]})
+		}
+		for _, action := range orderedChildren(detail.Spec, "action") {
+			actionResource := Resource{Address: detail.Address + "/action/" + stringValue(action["name"]), Module: detail.Module, Name: stringValue(action["name"]), Spec: action}
+			dialog := byAddress[resolveResourceRef(detail, refString(action["dialog"]), "form_dialog")]
+			dialogBinding := selectedBindings[resolveResourceRef(dialog, refString(dialog.Spec["source"]), "binding")]
+			dialogOperation := byAddress[resolveResourceRef(dialogBinding, refString(dialogBinding.Spec["operation"]), "operation")]
+			dialogShape := resolveOperationInputShape(byAddress, dialogOperation)
+			if dialog.Address != "" && dialogBinding.Address != "" && dialogShape.Record != nil {
+				page.dialogs = append(page.dialogs, reactTableDialog{action: actionResource, dialog: dialog, binding: dialogBinding, operation: dialogOperation, input: *dialogShape.Record, seedFromRow: true})
+			}
+		}
+		if actions := orderedChildren(detail.Spec, "actions"); len(actions) == 1 {
+			page.actionsComponent = byAddress[resolveResourceRef(detail, refString(actions[0]["component"]), "react_component")]
+		}
+		params := map[string]reactDetailParam{}
+		for _, param := range page.params {
+			params[param.name] = param
+		}
+		for _, related := range orderedChildren(detail.Spec, "table") {
+			table := tables[resolveResourceRef(detail, refString(related["page"]), "table_page")]
+			param := params[stringValue(related["param"])]
+			relatedShape := resolveOperationInputShape(byAddress, table.operation)
+			if table.table.Address != "" && param.name != "" {
+				page.related = append(page.related, reactDetailRelatedTable{spec: related, page: table, param: param, input: relatedShape.Fields[stringValue(related["input"])]})
+			}
+		}
+		pages = append(pages, page)
+	}
+	sort.Slice(pages, func(i, j int) bool { return pages[i].detail.Address < pages[j].detail.Address })
+	return pages
+}
+
+func normalizedReactDetailParams(resources []Resource, detail Resource) []map[string]any {
+	for _, resource := range resources {
+		if resource.Kind != "scenery.page" || resource.Origin.Kind != "expanded" {
+			continue
+		}
+		for _, step := range resource.Origin.ExpansionLineage {
+			if step.Generator == detail.Address && step.GeneratorSchemaRevision == "scenery.detail-page" {
+				return orderedChildren(resource.Spec, "param")
+			}
+		}
+	}
+	return orderedChildren(detail.Spec, "param")
+}
+
+func renderReactDetailPage(result *Result, target Resource, reactRoot string, page reactDetailPage, bindings []Resource) (string, error) {
+	resources := resourcesByAddress(result.Manifest)
+	entityType := goName(page.record.Name)
+	componentName := goName(page.detail.Name)
+	paramsType := componentName + "Params"
+	clientType := goName(target.Name) + "Client"
+	presentation := defaultString(stringValue(page.detail.Spec["presentation"]), "page")
+	var b strings.Builder
+	b.WriteString("// Code generated by Scenery. DO NOT EDIT.\n")
+	tanstack := []string{"useQuery", "useQueryClient"}
+	if len(page.dialogs) > 0 {
+		tanstack = append(tanstack, "useMutation")
+	}
+	fmt.Fprintf(&b, "import { %s } from \"@tanstack/react-query\";\n", strings.Join(tanstack, ", "))
+	reactImports := []string{"useCallback", "useMemo"}
+	if len(page.dialogs) > 0 {
+		reactImports = append(reactImports, "useState")
+	}
+	if page.actionsComponent.Address != "" {
+		reactImports = append([]string{"type ComponentType"}, reactImports...)
+	}
+	fmt.Fprintf(&b, "import { %s } from \"react\";\n", strings.Join(reactImports, ", "))
+	runtimeImports := detailRuntimeImports(page)
+	clientImports := append([]string{clientType, "url"}, runtimeImports...)
+	fmt.Fprintf(&b, "import { %s } from \"../index.js\";\n", strings.Join(clientImports, ", "))
+	fmt.Fprintf(&b, "import type { %s } from \"../index.js\";\n", entityType)
+	uiImports := []string{"DetailDialog", "DetailField", "DetailPageLayout", "DetailSection", "Page", "QueryState", "StatusBadge", "queryStateProps", "requestStateFromQuery"}
+	if len(page.related) > 0 {
+		uiImports = append(uiImports, "DetailRelated")
+	}
+	if len(page.dialogs) > 0 {
+		uiImports = append(uiImports, "Button", "FormDialog", "FormProblem")
+		controls := reactDetailDialogControlUsage(page, resources)
+		for _, control := range []string{"SelectField", "TextAreaField", "TextField"} {
+			if controls[control] {
+				uiImports = append(uiImports, control)
+			}
+		}
+	}
+	if reactDetailUsesIcons(page.detail) {
+		uiImports = append(uiImports, "Icon")
+	}
+	fmt.Fprintf(&b, "import { %s } from \"./scenery-ui/index.js\";\n", strings.Join(uiImports, ", "))
+	if page.actionsComponent.Address != "" {
+		b.WriteString("import type { DetailPageActionProps } from \"./scenery-ui/index.js\";\n")
+	}
+	for _, related := range page.related {
+		fmt.Fprintf(&b, "import { %sPage } from %s;\n", goName(related.page.table.Name), strconv.Quote("./"+related.page.table.Name+".generated.js"))
+	}
+	statusMaps := referencedDetailStatusMaps(resources, page)
+	if len(statusMaps) > 0 {
+		fmt.Fprintf(&b, "import { %s } from \"./status-maps.generated.js\";\n", strings.Join(statusMaps, ", "))
+	}
+	if page.actionsComponent.Address != "" {
+		module, err := reactComponentImport(result, reactRoot, page.actionsComponent)
+		if err != nil {
+			return "", err
+		}
+		fmt.Fprintf(&b, "import { %s as SceneryDetailActions } from %s;\n", stringValue(page.actionsComponent.Spec["export"]), strconv.Quote(module))
+	}
+	b.WriteString("\n")
+	fmt.Fprintf(&b, "export type %s = {\n", paramsType)
+	for _, param := range page.params {
+		fmt.Fprintf(&b, "  readonly %s: string;\n", tsName(param.name))
+	}
+	b.WriteString("};\n\n")
+	if page.actionsComponent.Address != "" {
+		fmt.Fprintf(&b, "const DetailActions: ComponentType<DetailPageActionProps<%s, %s>> = SceneryDetailActions;\n\n", entityType, paramsType)
+	}
+	fmt.Fprintf(&b, "const detailQueryKeyPrefix = [\"scenery\", \"detail_page\", %s] as const;\n", strconv.Quote(page.detail.Address))
+	for _, related := range page.related {
+		fmt.Fprintf(&b, "const %sQueryKeyPrefix = [\"scenery\", \"table_page\", %s] as const;\n", tsName(stringValue(related.spec["name"])), strconv.Quote(related.page.table.Address))
+	}
+	b.WriteString("\nfunction detailValue(value: unknown): string { return value === undefined || value === null || value === \"\" ? \"—\" : String(value); }\n")
+	b.WriteString("function detailDateTime(value: unknown): string { if (value === undefined || value === null || value === \"\") return \"—\"; const parsed = new Date(String(value)); return Number.isNaN(parsed.getTime()) ? String(value) : parsed.toLocaleString(); }\n\n")
+
+	method := reactOperationClientMethod(page.operation, page.binding, bindings)
+	fmt.Fprintf(&b, "export function %sContent({ client: providedClient, params, onClose }: { readonly client?: %s; readonly params: %s; readonly onClose?: () => void }) {\n", componentName, clientType, paramsType)
+	fmt.Fprintf(&b, "  const defaultClient = useMemo(() => new %s({ baseUrl: url(new URL(\"/api/\", globalThis.location.origin).toString()), authentication: { credentials: \"include\" } }), []);\n", clientType)
+	b.WriteString("  const client = providedClient ?? defaultClient;\n")
+	paramDeps := detailParamDependencies(page.params, "params")
+	fmt.Fprintf(&b, "  const detailQueryKey = useMemo(() => [...detailQueryKeyPrefix, %s] as const, [%s]);\n", detailParamKeyValues(page.params, "params"), strings.Join(paramDeps, ", "))
+	for _, related := range page.related {
+		name := goName(stringValue(related.spec["name"]))
+		value := reactDetailParamValue(related.input.Type, "params."+tsName(related.param.name))
+		fmt.Fprintf(&b, "  const %sInput = useMemo(() => ({ %s: %s }), [params.%s]);\n", tsName(name), tsName(related.input.Name), value, tsName(related.param.name))
+		fmt.Fprintf(&b, "  const %sQueryKeySuffix = useMemo(() => [\"detail_page\", %s, params.%s] as const, [params.%s]);\n", tsName(name), strconv.Quote(page.detail.Address), tsName(related.param.name), tsName(related.param.name))
+	}
+	b.WriteString("  const queryClient = useQueryClient();\n")
+	b.WriteString("  const load = useCallback(async () => {\n")
+	fmt.Fprintf(&b, "    const outcome = await client.%s({\n", method)
+	for _, param := range page.params {
+		fmt.Fprintf(&b, "      %s: %s,\n", tsName(param.input), reactDetailParamValue(param.field.Type, "params."+tsName(param.name)))
+	}
+	b.WriteString("    });\n")
+	b.WriteString("    if (outcome.kind === \"result\") return { kind: \"result\", data: outcome.value } as const;\n")
+	b.WriteString("    return { kind: \"error\", name: outcome.name, problem: outcome.problem } as const;\n")
+	fmt.Fprintf(&b, "  }, [client, %s]);\n", strings.Join(paramDeps, ", "))
+	b.WriteString("  const query = useQuery({ queryKey: detailQueryKey, queryFn: load });\n")
+	fmt.Fprintf(&b, "  const state = requestStateFromQuery<{ readonly data: %s }>(query);\n", entityType)
+	b.WriteString("  const onMutated = useCallback(async () => {\n    await Promise.all([\n")
+	b.WriteString("      queryClient.invalidateQueries({ queryKey: detailQueryKey }),\n")
+	for _, related := range page.related {
+		name := tsName(stringValue(related.spec["name"]))
+		fmt.Fprintf(&b, "      queryClient.invalidateQueries({ queryKey: [...%sQueryKeyPrefix, ...%sQueryKeySuffix] }),\n", name, name)
+	}
+	b.WriteString("    ]);\n  }, [queryClient, detailQueryKey")
+	for _, related := range page.related {
+		fmt.Fprintf(&b, ", %sQueryKeySuffix", tsName(stringValue(related.spec["name"])))
+	}
+	b.WriteString("]);\n")
+	for _, dialog := range page.dialogs {
+		writeReactDetailDialogState(&b, page, dialog, bindings, resources)
+	}
+	b.WriteString("  return <QueryState {...queryStateProps(state, ")
+	b.WriteString(strconv.Quote(defaultString(stringValue(page.detail.Spec["title"]), page.detail.Name)))
+	b.WriteString(")} retry={() => void query.refetch()}")
+	if loading := stringValue(page.detail.Spec["loading_label"]); loading != "" {
+		fmt.Fprintf(&b, " loadingLabel=%s", jsxStringExpression(loading))
+	}
+	if title := stringValue(page.detail.Spec["error_title"]); title != "" {
+		fmt.Fprintf(&b, " errorTitle=%s", jsxStringExpression(title))
+	}
+	b.WriteString(">\n    {state.kind === \"result\" ? <DetailPageLayout")
+	if page.actionsComponent.Address != "" || len(page.dialogs) > 0 {
+		b.WriteString(" actions={<>\n")
+		if page.actionsComponent.Address != "" {
+			b.WriteString("      <DetailActions data={state.data} params={params} onMutated={onMutated} onClose={onClose} />\n")
+		}
+		primary := primaryDialogIndex(page.dialogs)
+		for index, dialog := range page.dialogs {
+			fmt.Fprintf(&b, "      <Button label=%s", strconv.Quote(stringValue(dialog.action.Spec["label"])))
+			if icon := stringValue(dialog.action.Spec["icon"]); icon != "" {
+				fmt.Fprintf(&b, " icon={<Icon icon=%s size=\"sm\" />}", strconv.Quote(icon))
+			}
+			fmt.Fprintf(&b, " onClick={() => open%s(state.data)} size=\"sm\" variant=%s />\n", goName(dialog.dialog.Name), strconv.Quote(map[bool]string{true: "primary", false: "secondary"}[index == primary]))
+		}
+		b.WriteString("    </>}")
+	}
+	b.WriteString(">\n")
+	for _, section := range orderedChildren(page.detail.Spec, "section") {
+		fmt.Fprintf(&b, "      <DetailSection title=%s", jsxStringExpression(stringValue(section["label"])))
+		if description := stringValue(section["description"]); description != "" {
+			fmt.Fprintf(&b, " description=%s", jsxStringExpression(description))
+		}
+		b.WriteString(">\n")
+		for _, field := range orderedChildren(section, "field") {
+			name := stringValue(field["name"])
+			label := defaultString(stringValue(field["label"]), humanLabel(name))
+			valueExpression := "state.data." + tsName(name)
+			fieldJSX := fmt.Sprintf("<DetailField label=%s>%s</DetailField>", jsxStringExpression(label), renderReactDetailField(resources, page, field, valueExpression))
+			if field["hide_empty"] == true {
+				fmt.Fprintf(&b, "        {%s !== undefined && %s !== null && String(%s) !== \"\" ? %s : null}\n", valueExpression, valueExpression, valueExpression, fieldJSX)
+			} else {
+				fmt.Fprintf(&b, "        %s\n", fieldJSX)
+			}
+		}
+		b.WriteString("      </DetailSection>\n")
+	}
+	for _, related := range page.related {
+		name := goName(stringValue(related.spec["name"]))
+		fmt.Fprintf(&b, "      <DetailRelated title=%s><%sPage client={client} injectedInput={%sInput} queryKeySuffix={%sQueryKeySuffix} /></DetailRelated>\n", jsxStringExpression(stringValue(related.spec["label"])), goName(related.page.table.Name), tsName(name), tsName(name))
+	}
+	for _, dialog := range page.dialogs {
+		writeReactDetailDialogJSX(&b, dialog, resources)
+	}
+	b.WriteString("    </DetailPageLayout> : null}\n  </QueryState>;\n}\n\n")
+
+	if presentation == "page" || presentation == "both" {
+		fmt.Fprintf(&b, "export function %sPage({ client, params }: { readonly client?: %s; readonly params: %s }) {\n", goName(page.detail.Name), clientType, paramsType)
+		fmt.Fprintf(&b, "  return <Page title=%s", jsxStringExpression(stringValue(page.detail.Spec["title"])))
+		if description := stringValue(page.detail.Spec["description"]); description != "" {
+			fmt.Fprintf(&b, " ariaLabel=%s", jsxStringExpression(description))
+		}
+		fmt.Fprintf(&b, "><%sContent client={client} params={params} /></Page>;\n}\n\n", componentName)
+	}
+	if presentation == "dialog" || presentation == "both" {
+		fmt.Fprintf(&b, "export function %sDialog({ open, onClose, client", componentName)
+		for _, param := range page.params {
+			fmt.Fprintf(&b, ", %s", tsName(param.name))
+		}
+		fmt.Fprintf(&b, " }: { readonly open: boolean; readonly onClose: () => void; readonly client?: %s", clientType)
+		for _, param := range page.params {
+			fmt.Fprintf(&b, "; readonly %s: string", tsName(param.name))
+		}
+		b.WriteString(" }) {\n")
+		fmt.Fprintf(&b, "  return <DetailDialog open={open} onOpenChange={(next) => { if (!next) onClose(); }} title=%s", jsxStringExpression(stringValue(page.detail.Spec["title"])))
+		if description := stringValue(page.detail.Spec["description"]); description != "" {
+			fmt.Fprintf(&b, " description=%s", jsxStringExpression(description))
+		}
+		b.WriteString(">\n")
+		fmt.Fprintf(&b, "    <%sContent client={client} onClose={onClose} params={{ ", componentName)
+		for index, param := range page.params {
+			if index > 0 {
+				b.WriteString(", ")
+			}
+			fmt.Fprintf(&b, "%s", tsName(param.name))
+		}
+		b.WriteString(" }} />\n  </DetailDialog>;\n}\n")
+	}
+	return b.String(), nil
+}
+
+func detailRuntimeImports(page reactDetailPage) []string {
+	set := map[string]bool{}
+	add := func(value any) {
+		switch unwrapReactType(typeExpression(value)) {
+		case "date":
+			set["date"] = true
+		case "datetime":
+			set["dateTime"] = true
+		case "decimal":
+			set["decimal"] = true
+		case "duration":
+			set["duration"] = true
+		case "relative_path":
+			set["relativePath"] = true
+		case "url":
+			set["url"] = true
+		case "uuid":
+			set["uuid"] = true
+		}
+	}
+	for _, param := range page.params {
+		add(param.field.Type)
+	}
+	for _, related := range page.related {
+		add(related.input.Type)
+	}
+	delete(set, "url") // url is always imported once as the client base-url constructor.
+	result := make([]string, 0, len(set))
+	for name := range set {
+		result = append(result, name)
+	}
+	sort.Strings(result)
+	return result
+}
+
+func reactDetailParamValue(value any, expression string) string {
+	switch unwrapReactType(typeExpression(value)) {
+	case "bool":
+		return expression + " === \"true\""
+	case "int", "int64", "uint64", "size":
+		return "BigInt(" + expression + ")"
+	case "int32", "uint32", "float32", "float64":
+		return "Number(" + expression + ")"
+	case "date":
+		return "date(" + expression + ")"
+	case "datetime":
+		return "dateTime(" + expression + ")"
+	case "decimal":
+		return "decimal(" + expression + ")"
+	case "duration":
+		return "duration(" + expression + ")"
+	case "relative_path":
+		return "relativePath(" + expression + ")"
+	case "url":
+		return "url(" + expression + ")"
+	case "uuid":
+		return "uuid(" + expression + ")"
+	default:
+		if typeName := tsType(value); typeName != "string" {
+			return expression + " as " + typeName
+		}
+		return expression
+	}
+}
+
+func detailParamDependencies(params []reactDetailParam, owner string) []string {
+	result := make([]string, 0, len(params))
+	for _, param := range params {
+		result = append(result, owner+"."+tsName(param.name))
+	}
+	return result
+}
+
+func detailParamKeyValues(params []reactDetailParam, owner string) string {
+	values := make([]string, 0, len(params))
+	for _, param := range params {
+		values = append(values, owner+"."+tsName(param.name))
+	}
+	return strings.Join(values, ", ")
+}
+
+func reactDetailUsesIcons(detail Resource) bool {
+	for _, action := range orderedChildren(detail.Spec, "action") {
+		if stringValue(action["icon"]) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func referencedDetailStatusMaps(resources map[string]Resource, page reactDetailPage) []string {
+	set := map[string]bool{}
+	for _, section := range orderedChildren(page.detail.Spec, "section") {
+		for _, field := range orderedChildren(section, "field") {
+			if statusMap := resolveReferencedStatusMap(resources, page.detail, field["status_map"]); statusMap.Address != "" {
+				set[reactStatusMapName(statusMap)] = true
+			}
+		}
+	}
+	result := make([]string, 0, len(set))
+	for name := range set {
+		result = append(result, name)
+	}
+	sort.Strings(result)
+	return result
+}
+
+func renderReactDetailField(resources map[string]Resource, page reactDetailPage, field map[string]any, expression string) string {
+	appearance := defaultString(stringValue(field["appearance"]), "auto")
+	if appearance == "badge" {
+		statusMap := resolveReferencedStatusMap(resources, page.detail, field["status_map"])
+		return fmt.Sprintf("<StatusBadge status={String(%s)} map={%s} />", expression, reactStatusMapName(statusMap))
+	}
+	recordField := namedResourceChild(page.record.Spec, "field", stringValue(field["name"]))
+	fieldType := unwrapReactType(typeExpression(recordField["type"]))
+	if appearance == "datetime" || appearance == "auto" && (fieldType == "date" || fieldType == "datetime") {
+		return "{detailDateTime(" + expression + ")}"
+	}
+	return "{detailValue(" + expression + ")}"
+}
+
+func reactDetailDialogControlUsage(page reactDetailPage, resources map[string]Resource) map[string]bool {
+	used := map[string]bool{}
+	for _, dialog := range page.dialogs {
+		for _, field := range reactDialogFields(dialog) {
+			control := defaultString(stringValue(field["control"]), "auto")
+			statusMap := resolveReferencedStatusMap(resources, dialog.dialog, field["status_map"])
+			enumValues := enumWireValues(resources, dialog.input.Module, field["type"])
+			switch {
+			case control == "select" || control == "auto" && (len(enumValues) > 0 || statusMap.Address != ""):
+				used["SelectField"] = true
+			case control == "textarea":
+				used["TextAreaField"] = true
+			default:
+				used["TextField"] = true
+			}
+		}
+	}
+	return used
+}
+
+func writeReactDetailDialogState(b *strings.Builder, page reactDetailPage, dialog reactTableDialog, bindings []Resource, resources map[string]Resource) {
+	name := goName(dialog.dialog.Name)
+	fields := reactDialogFields(dialog)
+	fmt.Fprintf(b, "  const [is%sOpen, set%sOpen] = useState(false);\n", name, name)
+	fmt.Fprintf(b, "  const [%sProblem, set%sProblem] = useState<{ readonly code: string; readonly message: string; readonly path?: string }>();\n", tsName(dialog.dialog.Name), name)
+	fmt.Fprintf(b, "  const [%sValues, set%sValues] = useState({\n", tsName(dialog.dialog.Name), name)
+	for _, field := range fields {
+		fmt.Fprintf(b, "    %s: %s,\n", tsName(stringValue(field["name"])), strconv.Quote(reactDialogInitialValue(dialog, field, resources)))
+	}
+	b.WriteString("  });\n")
+	fmt.Fprintf(b, "  const open%s = (data: %s) => {\n", name, goName(page.record.Name))
+	fmt.Fprintf(b, "    set%sValues({\n", name)
+	for _, field := range fields {
+		fieldName := stringValue(field["name"])
+		fmt.Fprintf(b, "      %s: detailValue(data.%s) === \"—\" ? %s : detailValue(data.%s),\n", tsName(fieldName), tsName(fieldName), strconv.Quote(reactDialogInitialValue(dialog, field, resources)), tsName(fieldName))
+	}
+	b.WriteString("    });\n")
+	fmt.Fprintf(b, "    set%sProblem(undefined);\n", name)
+	fmt.Fprintf(b, "    set%sOpen(true);\n", name)
+	b.WriteString("  };\n")
+	method := reactOperationClientMethod(dialog.operation, dialog.binding, bindings)
+	fmt.Fprintf(b, "  const %sMutation = useMutation({\n", tsName(dialog.dialog.Name))
+	b.WriteString("    mutationFn: async () => {\n")
+	fmt.Fprintf(b, "      const outcome = await client.%s({\n", method)
+	for _, field := range fields {
+		fieldName := stringValue(field["name"])
+		fmt.Fprintf(b, "        %s: %s,\n", tsName(fieldName), reactDialogSubmitValue(dialog, field, tsName(dialog.dialog.Name)+"Values."+tsName(fieldName), resources))
+	}
+	b.WriteString("      });\n")
+	b.WriteString("      if (outcome.kind === \"result\") return outcome.value;\n")
+	fmt.Fprintf(b, "      set%sProblem(outcome.problem);\n", name)
+	b.WriteString("      throw outcome.problem;\n")
+	b.WriteString("    },\n")
+	b.WriteString("    onError: (error) => {\n")
+	b.WriteString("      const failure = error as { readonly code?: unknown; readonly message?: unknown; readonly path?: unknown };\n")
+	fmt.Fprintf(b, "      set%sProblem({ code: typeof failure.code === \"string\" ? failure.code : \"request_failed\", message: typeof failure.message === \"string\" ? failure.message : \"Request failed.\", path: typeof failure.path === \"string\" ? failure.path : undefined });\n", name)
+	b.WriteString("    },\n")
+	b.WriteString("    onSuccess: async () => {\n      await onMutated();\n")
+	fmt.Fprintf(b, "      set%sProblem(undefined);\n      set%sOpen(false);\n", name, name)
+	b.WriteString("    },\n  });\n")
+}
+
+func writeReactDetailDialogJSX(b *strings.Builder, dialog reactTableDialog, resources map[string]Resource) {
+	name := goName(dialog.dialog.Name)
+	valueName := tsName(dialog.dialog.Name) + "Values"
+	mutationName := tsName(dialog.dialog.Name) + "Mutation"
+	fmt.Fprintf(b, "      {is%sOpen ? <FormDialog title=%s", name, jsxStringExpression(stringValue(dialog.dialog.Spec["title"])))
+	if description := stringValue(dialog.dialog.Spec["description"]); description != "" {
+		fmt.Fprintf(b, " subtitle=%s", jsxStringExpression(description))
+	}
+	fmt.Fprintf(b, " onOpenChange={set%sOpen} onSubmit={() => %s.mutate()} footer={<>\n", name, mutationName)
+	fmt.Fprintf(b, "        <Button label=\"Cancel\" onClick={() => set%sOpen(false)} variant=\"secondary\" />\n", name)
+	fmt.Fprintf(b, "        <Button isLoading={%s.isPending} label=%s type=\"submit\" variant=\"primary\" />\n", mutationName, strconv.Quote(defaultString(stringValue(dialog.dialog.Spec["submit_label"]), stringValue(dialog.action.Spec["label"]))))
+	b.WriteString("      </>}>\n")
+	for _, field := range reactDialogFields(dialog) {
+		fieldName := stringValue(field["name"])
+		label := defaultString(stringValue(field["label"]), humanLabel(fieldName))
+		control := defaultString(stringValue(field["control"]), "auto")
+		statusMap := resolveReferencedStatusMap(resources, dialog.dialog, field["status_map"])
+		enumValues := enumWireValues(resources, dialog.input.Module, field["type"])
+		if control == "select" || control == "auto" && (len(enumValues) > 0 || statusMap.Address != "") {
+			fmt.Fprintf(b, "        <SelectField label=%s onChange={(value) => set%sValues((values) => ({ ...values, %s: value }))} options={[%s]} value={%s.%s} />\n", strconv.Quote(label), name, tsName(fieldName), reactFilterOptions(enumValues, statusMap), valueName, tsName(fieldName))
+		} else if control == "textarea" {
+			fmt.Fprintf(b, "        <TextAreaField label=%s onChange={(value) => set%sValues((values) => ({ ...values, %s: value }))} placeholder=%s value={%s.%s} />\n", strconv.Quote(label), name, tsName(fieldName), strconv.Quote(stringValue(field["placeholder"])), valueName, tsName(fieldName))
+		} else {
+			inputType := "text"
+			if unwrapReactType(typeExpression(field["type"])) == "date" {
+				inputType = "date"
+			}
+			fmt.Fprintf(b, "        <TextField label=%s onChange={(value) => set%sValues((values) => ({ ...values, %s: value }))} placeholder=%s type=%s value={%s.%s} />\n", strconv.Quote(label), name, tsName(fieldName), strconv.Quote(stringValue(field["placeholder"])), strconv.Quote(inputType), valueName, tsName(fieldName))
+		}
+	}
+	fmt.Fprintf(b, "        <FormProblem problem={%sProblem} />\n      </FormDialog> : null}\n", tsName(dialog.dialog.Name))
+}

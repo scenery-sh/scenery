@@ -6,7 +6,7 @@ This ExecPlan is a living document. Update Progress, Surprises & Discoveries, De
 
 The current `main` branch is close to the intended agent-native local-dev local-runtime end state: `scenery dev` defaults to an agent-routed app-root runtime, owner metadata exists for internal runtime records and substrates, frontend routes are runtime-scoped, ONLV has moved to agent-native defaults, and the router preserves public host/proto/port context.
 
-The remaining work is operational hardening. The default path must stay agent-safe even when older environment variables are exported, cleanup must not leave managed databases behind, ordinary agent restarts must not interrupt live shared substrates, the legacy machine-global proxy must be removed from the normal `scenery dev` surface, and `dev.setup` needs a lifecycle policy. Scenery release validation must stay inside the Scenery repo and must not create client-application worktrees.
+The remaining work is operational hardening. Cleanup must not leave managed databases or stale substrate leases behind, ordinary agent restarts must not interrupt live shared substrates, the legacy machine-global proxy must stay removed from the normal `scenery up` surface, and pre-rebrand processes/state need an explicit safe cleanup path. Scenery release validation must stay inside the Scenery repo and must not create client-application worktrees.
 
 Release guard policy: keep the guard strict, but stop letting nondeterministic external substrate readiness masquerade as core release safety. Strictness belongs on Scenery-owned invariants, contracts, schemas, fixtures, and release artifacts; external app or host substrate readiness belongs in explicit evidence and diagnostics unless the release is intentionally validating that substrate boundary.
 
@@ -19,26 +19,34 @@ This file is the active ExecPlan for the 2026-05-28 source-review findings about
 - [x] 2026-05-27: Created this follow-on ExecPlan from a source review of current `main` and the remaining agent-native local-dev operational risks.
 - [x] 2026-05-28: Revalidated the missing-work list against source and refreshed this plan as the active source-review ExecPlan. The cleanup command is now `scenery prune`, and the obsolete spelling has no compatibility alias.
 - [x] 2026-06-11: Updated the active runtime contract for one live Scenery dev runtime per app root. Git worktrees are the supported way to run multiple live code copies; internal session IDs remain only for routing, state, and observability compatibility.
-- [ ] Phase 0: Record the current agent-safe default baseline with tests, install, harness, and live ONLV URL checks.
-- [ ] Phase 1.1: Make dev dashboard/log storage agent-owned in agent mode even when `SCENERY_DEV_CACHE_DIR` is exported.
-- [ ] Phase 1.2: Add DB-aware prune and prune stale managed Postgres substrate session metadata.
+- [x] 2026-07-22 Phase 0: Cached `go test ./...`, the worktree-local self-harness
+  second pass, explicit CLI installation/version proof, and live routed checks
+  completed. `https://local.clean.tech/next/` and
+  `https://micro.scenery.sh/platform/` returned 200 while doctor reported no
+  duplicate owners or required host errors.
+- [x] 2026-07-22 Phase 1.1 disposition: Retained the current documented explicit `SCENERY_DEV_CACHE_DIR` cache/store override. The earlier requirement to ignore it and force agent-owned storage is superseded.
+- [x] 2026-07-22 Phase 1.2: Made prune non-destructive by default, added explicit `--state`, `--db`, and `--all` scopes, reused managed-database refusal of external DSNs, and made session deletion atomically remove matching shared-substrate leases.
 - [x] Phase 1.3: Make `scenery agent restart` preserve shared substrates by default.
 - [x] Phase 1.4: Remove or hard-block the legacy local proxy from the normal `scenery dev` surface with no backwards-compatibility alias.
 - [x] 2026-07-07: Separate source grep and focused tests covered old CLI/env proxy paths: `scenery up --proxy` and `scenery up --trust` are unknown flags, and `SCENERY_LOCAL_PROXY` is absent from production `cmd/scenery` and `internal` source. App-config `proxy` removal did not close this phase by itself.
-- [ ] Phase 2: Add `dev.setup` run policy and update ONLV to use schema-change setup.
+- [x] 2026-07-22 Phase 2 disposition: `dev.setup` has been removed from the current product contract. No lifecycle policy, object form, manual subcommand, or compatibility path is reintroduced.
 - [x] 2026-06-25: Removed the ONLV client-app worktree smoke from Scenery release validation. `scripts/release-gate.sh` no longer creates ONLV worktrees, and the old smoke script was deleted.
 - [x] 2026-06-25: Added structured `scenery.dev.failure.v1` evidence artifacts for required managed ZeroFS preflight, toolchain/start, and bounded readiness failures, including phase, session, and substrate context.
-- [ ] Phase 3: Keep parallel runtime safety covered by Scenery-owned fixtures and self-harness checks, not client-app worktrees.
-- [ ] Phase 4: Consider optional `doctor dev`, browser-profile isolation, and later network sandbox hardening after the default path is stable.
+- [x] 2026-07-22 Phase 3: Existing Scenery-owned parallel runtime fixture/self-harness proof covers the retained parallel-runtime contract; client-app worktrees remain outside release validation.
+- [x] 2026-07-22 Phase 4 disposition: Optional `doctor dev`, browser-profile isolation, and network sandboxing are deferred outside this plan.
 - [x] 2026-07-14 Phase 5.1: Added lifetime single-instance locks for the local agent and Unix Caddy edge, fail-closed router binding, serialized edge operations, and fingerprint-verified same-user stale-owner reaping for current and pre-rebrand Caddy configuration paths.
-- [ ] Phase 5.2: Add a rebrand-migration sweep that detects and stops pre-rebrand `~/.onlava` processes and offers `~/.onlava` state cleanup.
+- [x] 2026-07-22 Phase 5.2: Added `scenery system agent cleanup [--remove-state]`, which stops only fingerprint-verified same-user processes tied to exact pre-rebrand managed paths, reports retained `~/.onlava` state by default, and removes it only on the explicit flag.
 - [x] 2026-07-14 Phase 5.3: `scenery doctor` now reports duplicate local-agent or managed-Caddy owners and foreign TCP/UDP listeners on Scenery-owned ports.
+- [x] 2026-07-22: Cached focused tests passed for prune flags/defaults, external-DSN refusal, atomic substrate-lease deletion, pre-rebrand path matching/state opt-in, and checked CLI payload schema revisions; `go test ./internal/agent` passed. A broad cached `go test ./cmd/scenery` was attempted but an unrelated concurrently edited compiler fixture test (`TestContractCheckJSONReportsValidNativeImplementation`) failed with `contract compilation failed`. Phase 0 still owns a clean broad run, self-harness, and live routed-runtime evidence.
 - [x] 2026-06-12: Hardened shared substrate and Postgres branch locks with bounded nonblocking acquisition, named wait diagnostics, real Windows file locking, short `branches.lock` registry sections, and a separate parent-database operation lock for branch DDL.
 - [x] 2026-07-13: Made running `scenery up` supervisors self-heal the shared Victoria stack after a component or agent-driven shutdown, using owner verification, the existing substrate locks/registry, and bounded retry backoff.
 - [x] 2026-07-13: Made each failed Victoria recovery attempt visible without Victoria through a red foreground warning, detached JSONL event, dashboard notification, and best-effort degraded registry state.
 - [x] 2026-07-13: Made generic agent close/restart control-plane-only by removing registered-substrate signaling and the obsolete restart wait. A process-backed regression test proves registered Postgres and Victoria PIDs plus an app route survive registry reload under a replacement agent.
 
 ## Surprises & Discoveries
+
+- 2026-07-22: Current Postgres substrate metadata is lease-based (`substrate.leases[session_id]`), not the older `session.<id>` endpoint shape described by the original plan. Removing the matching lease inside the registry's owner-checked session deletion makes cleanup atomic and preserves the shared substrate plus unrelated leases.
+- 2026-07-22: `SCENERY_DEV_CACHE_DIR` remains a documented, intentional override for local build/dashboard cache selection. Treating its presence as stale shell contamination would break explicit test and operator isolation, so the earlier agent-owned-regardless requirement is superseded.
 
 - 2026-07-12: Current contract note: `dev.setup` was removed rather than extended with lifecycle policy. Database initialization uses `database.apply`, seeds, and `scenery db setup`; app-local operational tasks are declared in `.scn`.
 - 2026-07-13: Victoria's exit monitor recorded `degraded` state but never returned control to the shared ensure path, so a healthy app supervisor could outlive all three observability processes indefinitely. The recovery path must serialize exit writes with replacement registration so late exits from the old generation cannot overwrite the new stack.
@@ -67,9 +75,21 @@ This file is the active ExecPlan for the 2026-05-28 source-review findings about
 - Decision: Prioritize the `SCENERY_DEV_CACHE_DIR` dashboard split first.
   Rationale: This can silently hide logs/traces/dashboard data for developers with legacy shell environments, while the fix is narrow and lowers confusion during all later validation.
   Date/Author: 2026-05-27 / Codex.
+- Decision: Supersede the earlier dashboard-split requirement and retain the current documented `SCENERY_DEV_CACHE_DIR` override.
+  Rationale: The variable is an intentional explicit cache/store override used for isolation. Current behavior is singular and documented; silently ignoring it in agent mode would make the override misleading.
+  Date/Author: 2026-07-22 / Petr + Codex.
 - Decision: Default prune remains non-destructive for databases.
   Rationale: Dropping databases must require an explicit `--db` or `--all` flag. Registry cleanup can be safe by default, but managed DB deletion is destructive.
   Date/Author: 2026-05-27 / Codex.
+- Decision: Default prune is also non-destructive for session state; registry records and matching substrate leases are the default cleanup scope.
+  Rationale: `--state`, `--db`, and `--all` make every filesystem or database deletion explicit, while atomic lease removal prevents stale shared-substrate metadata without stopping the substrate.
+  Date/Author: 2026-07-22 / Petr + Codex.
+- Decision: Remove Phase 2 rather than reintroducing `dev.setup` or a compatibility spelling.
+  Rationale: The current database lifecycle is expressed through `database.apply`, seeds, `scenery db setup`, and declared tasks. A removed config contract should not return as a parallel setup system.
+  Date/Author: 2026-07-22 / Petr + Codex.
+- Decision: Defer Phase 4 optional doctor/browser/network sandbox ideas outside this plan.
+  Rationale: They are optional follow-on hardening, not retained acceptance gaps for the current runtime contract.
+  Date/Author: 2026-07-22 / Petr + Codex.
 - Decision: The stale-session cleanup command is `scenery prune`, and no legacy alias is kept.
   Rationale: `prune` is the clearer user-facing operation. Carrying deprecated command aliases conflicts with the project rule to keep one current public surface.
   Date/Author: 2026-05-28 / Codex.
@@ -103,7 +123,14 @@ This file is the active ExecPlan for the 2026-05-28 source-review findings about
 
 ## Outcomes & Retrospective
 
-Not yet completed.
+The retained implementation gaps are closed: prune has explicit destructive
+scopes with a non-destructive default, session deletion atomically removes
+matching substrate leases, and pre-rebrand process/state cleanup is explicit
+and fingerprint-verified. The old dashboard override requirement and removed
+`dev.setup` proposal were retired instead of adding parallel contracts;
+optional Phase 4 hardening was deferred outside this plan. Cached full tests,
+the worktree-local self-harness, installed CLI identity, and simultaneous live
+ONLV/Micro routes complete the baseline evidence.
 
 ## Context and Orientation
 
@@ -111,22 +138,21 @@ The scenery repo is `/Users/petrbrazdil/Repos/scenery`. The primary real target 
 
 Relevant implementation files:
 
-- `cmd/scenery/watch.go` owns `scenery dev`, `prepareDevAgentSession`, session startup, and the current environment override behavior.
+- `cmd/scenery/watch.go` owns `scenery up`, session startup, and the current environment override behavior.
 - `cmd/scenery/devdash_store.go` owns dashboard/log/trace store root selection through `openDevdashStore()` and `devdashCacheRoot()`.
-- `cmd/scenery/agent.go` owns `scenery agent`, `scenery agent restart`, `scenery down`, and `scenery prune` argument parsing and command behavior.
-- `internal/agent/server.go` owns the agent control/router server lifecycle and currently signals verified substrate component processes from `Server.Close()`.
-- `cmd/scenery/dev_services.go` owns managed Postgres substrate setup and the runtime database metadata that must be pruned.
-- `cmd/scenery/dev_supervisor.go` owns `RebuildAndRestart` and the current unconditional `dev.setup` execution.
-- `internal/app/root.go` and `docs/schemas/scenery.config.v1.schema.json` define `.scenery.json` config shape, including the current `dev.setup` string list.
+- `cmd/scenery/agent.go` owns `scenery system agent`, `scenery down`, and `scenery prune` argument parsing and command behavior; `cmd/scenery/agent_cleanup.go` owns the explicit pre-rebrand sweep.
+- `internal/agent/server.go` owns the agent control/router server lifecycle and preserves registered substrate processes on close.
+- `cmd/scenery/dev_services_postgres.go` and `cmd/scenery/db_cli.go` own managed Postgres resolution and safe drop behavior.
+- `internal/agent/registry.go` owns atomic session and matching substrate-lease deletion.
 - `cmd/scenery/harness_parallel.go` contains the existing self-harness parallel worktree runtime check.
 - `docs/local-contract.md` and `docs/environment.md` document local runtime behavior and environment variables.
 
 Terms used in this plan:
 
-- Agent mode means the default local-dev path where `scenery dev` ensures the local scenery agent, registers an app-root runtime, and routes public URLs through the agent router.
+- Agent mode means the default local-dev path where `scenery up` ensures the local scenery agent, registers an app-root runtime, and routes public URLs through the agent router.
 - Dev dashboard store means the SQLite-backed local dashboard/log/trace store opened by `openDevdashStore()`.
 - Substrate means an agent-managed shared dependency such as Postgres, legacy async runtime, Victoria, or Grafana.
-- Managed runtime database means the per-runtime Postgres database recorded in substrate metadata as `session.<id>`.
+- Managed runtime database means the deterministic per-app-root/worktree Postgres database resolved by Scenery; the shared Postgres substrate separately records runtime leases keyed by session ID.
 - Legacy local proxy means the older local HTTPS proxy enabled through `--proxy`, `--trust`, or `SCENERY_LOCAL_PROXY`, with machine-global HTTP/HTTPS ports.
 
 ## Milestones
@@ -135,23 +161,23 @@ Milestone 0 locks the current improvement by recording the agent-safe baseline. 
 
 Milestone 1 fixes correctness edges in the runtime: dashboard store ownership, DB-aware prune, non-destructive agent restart, and removal or hard-blocking of the legacy proxy surface.
 
-Milestone 2 improves setup lifecycle so target apps can choose whether setup runs once per session, on schema changes, always, or manually.
+Milestone 2 is removed: `dev.setup` is no longer part of the current product contract.
 
 Milestone 3 keeps parallel runtime validation in Scenery-owned fixtures and self-harness checks. Client-app worktree smokes are explicitly outside the Scenery release gate.
 
-Milestone 4 contains optional hardening after stability: `scenery doctor dev --json`, browser-profile isolation, and later network sandboxing.
+Milestone 4 is deferred outside this plan: optional `scenery doctor dev --json`, browser-profile isolation, and later network sandboxing are not acceptance requirements here.
 
 ## Plan of Work
 
-Start with storage ownership because split logs and traces make every later check harder to interpret. Add `SCENERY_DEVDASH_CACHE_DIR` as the explicit dashboard/log store override, then make agent mode prefer `<agent-dir>/dashboard` before the old build cache env. Keep `SCENERY_DEV_CACHE_DIR` for build/cache compatibility and legacy agent-disabled fallback.
+The original storage-ownership change is superseded. Retain the current documented explicit `SCENERY_DEV_CACHE_DIR` override; do not add a second dashboard-cache environment variable.
 
 Next make cleanup complete but explicit. `prune` should default to stale registry cleanup only. `--state` removes stale session state directories, `--db` drops managed stale session databases, and `--all` combines registry, state, and DB cleanup. The same metadata pruning should happen when a session is deleted through `down --all` or equivalent session cleanup.
 
-Then split agent control-plane restart from substrate shutdown. Add command options so normal `agent restart` leaves substrates alone, `agent restart --substrates` restarts owned substrates too, and `agent stop --all` stops both agent and owned substrates. Keep owner verification before any signal.
+Agent control-plane restart remains separate from substrate shutdown. Normal restart leaves substrates alone; destructive operations stay with substrate-specific commands and verified lifecycle owners.
 
 After that, replace warning-only legacy proxy behavior with removal or a hard block. Do not keep `--proxy`, `--trust`, or `SCENERY_LOCAL_PROXY` as deprecated compatibility paths for normal `scenery dev`. If the machine-global proxy is still needed for tests, move it behind an internal test helper or a separately designed command rather than carrying old flags.
 
-Finally add setup policies and keep parallel runtime proof in the Scenery repo. `dev.setup` entries should support object form with `run` and `when`; legacy string entries need a deliberate compatibility decision. ONLV should use `schema-change` for `./scripts/db-safe-apply.sh`, but Scenery release validation must not create ONLV worktrees.
+Do not reintroduce setup policies: `dev.setup` was removed. Keep the already-implemented parallel runtime proof in Scenery-owned fixtures and self-harness checks; Scenery release validation must not create ONLV worktrees.
 
 ## Concrete Steps
 
@@ -159,14 +185,12 @@ Finally add setup policies and keep parallel runtime proof in the Scenery repo. 
    - Run from `/Users/petrbrazdil/Repos/scenery`: `go test ./...` and `scenery harness self --json --write`. Do not run `go install ./cmd/scenery` during agent validation unless a human explicitly asks.
    - Run from `/Users/petrbrazdil/Repos/onlv`: `just dev`, `just urls`, and `just psql`.
    - Record in this plan whether the default ONLV URLs are agent-routed runtime URLs for API, `pulse`, `blog`, and console, and confirm the default path does not require fixed `4000`, `4321`, `5173`, `5433`, `3000`, `9401`, `8428`, `9428`, `10428`, or `10429`.
-2. Dev dashboard store ownership:
-   - Change `devdashCacheRoot()` semantics to use `SCENERY_DEVDASH_CACHE_DIR` first, then `<agent-dir>/dashboard` when the agent is active, then `SCENERY_DEV_CACHE_DIR`, then the existing legacy user-cache fallback.
-   - Stop setting `SCENERY_DEV_CACHE_DIR` to the dashboard path in `prepareDevAgentSession`; if an override is needed for child process store selection, use `SCENERY_DEVDASH_CACHE_DIR`.
-   - Update `docs/environment.md`, `docs/local-contract.md`, and tests in `cmd/scenery/watch_test.go`, `cmd/scenery/dashboard_state_test.go`, `cmd/scenery/logs_test.go`, and related observability tests.
+2. Dev dashboard store ownership (superseded):
+   - Retain the current documented `SCENERY_DEV_CACHE_DIR` override and do not add `SCENERY_DEVDASH_CACHE_DIR`.
 3. DB-aware prune:
    - Extend `pruneOptions` and `parsePruneArgs` with `--db`, `--state`, and `--all`.
    - Keep default `prune --older-than` as stale registry cleanup only.
-   - Add managed Postgres cleanup helpers that find stale `session.<id>` substrate metadata, drop the session database, and prune the metadata entry.
+   - Resolve eligible managed databases through the existing database API, and remove matching lease metadata atomically with the session record.
    - Reuse the same cleanup from `scenery down --db`, `scenery down --all`, and session deletion paths where practical.
    - Add unit tests for argument parsing, non-destructive defaults, metadata pruning, and database-drop command construction. Add integration coverage when Docker/Postgres is available.
 4. Agent restart semantics:
@@ -178,12 +202,8 @@ Finally add setup policies and keep parallel runtime proof in the Scenery repo. 
    - Do not add acknowledgement aliases, compatibility aliases, or deprecated spellings.
    - If a machine-global proxy remains necessary for tests, keep it out of the public `scenery dev` CLI and document the internal test-only entrypoint.
    - Update `cmd/scenery/run_json_test.go`, `docs/local-contract.md`, and `docs/environment.md`.
-6. Setup lifecycle policy:
-   - Change `internal/app.DevConfig.Setup` to support structured entries, for example `{ "run": "./scripts/db-safe-apply.sh", "when": "schema-change" }`.
-   - Support `initial`, `schema-change`, `always`, and `manual`; expose manual setup through `scenery dev setup`.
-   - Decide and document legacy string behavior. Prefer interpreting strings as `initial` if this is acceptable; otherwise keep strings as `always` for compatibility and state the migration path.
-   - Detect schema changes using changed paths and configured/default migration patterns. Start with conservative file suffix/path matching such as `.sql`, migrations directories, Atlas files, and app-configured patterns if needed.
-   - Update `docs/schemas/scenery.config.v1.schema.json`, `docs/local-contract.md`, and ONLV `.scenery.json`.
+6. Setup lifecycle policy (removed):
+   - Do not reintroduce `dev.setup`, structured setup entries, compatibility parsing, or `scenery dev setup`.
 7. Parallel runtime validation:
    - Keep this coverage inside `scenery harness self --json --write` and Scenery-owned fixture apps.
    - Do not create or mutate ONLV worktrees from the Scenery repo.
@@ -237,11 +257,7 @@ scenery dev --proxy
 
 This fails with a short actionable error. The default recommendation remains the agent router, and there is no deprecated alias or backwards-compatible fallback for the old machine-global proxy path.
 
-Setup policy acceptance:
-
-- Editing a Go file restarts the app without re-running ONLV DB setup when setup policy is `schema-change`.
-- Editing migration/schema files runs setup before app restart.
-- `scenery dev setup` runs `manual` setup entries on demand and reports failures clearly.
+Setup policy acceptance is removed because `dev.setup` is no longer a current contract.
 
 Parallel runtime acceptance:
 
@@ -265,27 +281,11 @@ Expected artifacts include:
 
 ```text
 docs/plans/0048-agent-runtime-operational-hardening.md
-docs/plans/active.md
-docs/environment.md
 docs/local-contract.md
-docs/schemas/scenery.config.v1.schema.json
-scripts/release-gate.sh
-.scenery/harness/self-latest.json
-```
-
-The concrete ONLV config update belongs in `/Users/petrbrazdil/Repos/onlv/.scenery.json` once the setup policy schema exists. ONLV should set:
-
-```json
-{
-  "dev": {
-    "setup": [
-      {
-        "run": "./scripts/db-safe-apply.sh",
-        "when": "schema-change"
-      }
-    ]
-  }
-}
+docs/agent-guide.md
+README.md
+docs/schemas/scenery.prune.schema.json
+docs/schemas/scenery.agent.cleanup.schema.json
 ```
 
 ## Interfaces and Dependencies
@@ -294,14 +294,10 @@ No new external Go dependencies should be added for these changes unless a concr
 
 New or changed public/local interfaces:
 
-- `SCENERY_DEVDASH_CACHE_DIR`: explicit override for dashboard/log/trace SQLite storage.
 - `scenery prune --older-than <duration> --db`
 - `scenery prune --older-than <duration> --state`
 - `scenery prune --older-than <duration> --all`
-- `scenery agent restart --substrates`
-- `scenery agent stop --all`
+- `scenery system agent cleanup [--remove-state]`
 - Removal or hard-blocking of `scenery dev --proxy`, `scenery dev --trust`, and `SCENERY_LOCAL_PROXY` from normal `scenery dev`.
-- `.scenery.json` `dev.setup` object entries with `run` and `when`.
-- `scenery dev setup` for manual setup entries.
 
-Keep existing defaults stable: normal `scenery dev` should use the agent router, normal `scenery agent restart` should not stop shared substrates, and normal `scenery prune --older-than` should not drop databases.
+Keep existing defaults stable: normal `scenery up` uses the agent router, normal `scenery system agent restart` does not stop shared substrates, and normal `scenery prune --older-than` deletes neither databases nor session state.

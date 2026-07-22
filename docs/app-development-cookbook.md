@@ -4,7 +4,7 @@ Practical recipes for current Scenery applications. The normative language contr
 
 ## Start A Native App
 
-Create `.scenery.json` for runtime config, `scenery.scn` for the root graph, and one `scenery.package.scn` for each local module. The checked-in `testdata/apps/basic` app is the smallest runnable reference.
+Create `.scenery.json` for runtime config, `app.scn` for the root graph, and one `package.scn` for each local module. The checked-in `testdata/apps/basic` app is the smallest runnable reference.
 
 At minimum, root source declares:
 
@@ -471,6 +471,30 @@ content_page "privacy" {
 ```
 
 The static adapter creates no query or client requirement and invokes its content and actions components without request-state props.
+
+For a routed record, declare a call-delivery HTTP read binding whose input contains the path key and whose sole result is the displayed record:
+
+```hcl
+detail_page "order_detail" {
+  path         = "/orders/{order_id}"
+  source       = binding.order_read_http
+  title        = "Order"
+  presentation = "both"
+
+  param "order_id" { input = "id" }
+
+  section "summary" {
+    label = "Summary"
+    field "id"     { label = "Order ID" }
+    field "status" { label = "Status" appearance = "badge" status_map = status_map.order_status }
+    field "notes"  { label = "Notes" hide_empty = true }
+  }
+
+  actions { component = react_component.order_actions }
+}
+```
+
+Generation exports shared detail content plus the routed page and controlled dialog requested by `presentation`. The actions component receives the loaded record, typed route params, `onMutated`, and an optional dialog `onClose`; call `onMutated` after a successful domain mutation. Prefer a declared `action` referencing `form_dialog` when every mutation input can be seeded directly from the loaded record. A related `table` may map one route parameter into one otherwise-unclaimed input of a binding-backed `table_page`.
 
 For a collection, keep the higher-level `table_page` declaration. Its generated adapter uses the same `Page` shell and renders the chrome-less catalog `QueryTable` as content. Declared stats, header actions, generated form dialogs, and mutation invalidation stay in the adapter; search/filter/group/sort controls, loaded-row count, export, collapsible sections, selected-row presentation, cursor or numeric pagination, and list request state stay in `QueryTable`. Cell, filter, response-aware toolbar/empty/footer, and one of row-detail or row-action components remain app-owned typed slots. The built-in workbench uses Astryx components and semantic tokens, so customize the app theme through Astryx rather than catalog-specific CSS variables.
 

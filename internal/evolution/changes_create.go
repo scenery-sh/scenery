@@ -83,7 +83,7 @@ func createResourceBlock(root string, base *Result, operation SemanticOperation)
 
 func resourceCreateSource(base *Result, module string) (string, error) {
 	if module == "app" {
-		return "scenery.scn", nil
+		return scn.AppFilename, nil
 	}
 	for _, resource := range base.Manifest.Resources {
 		if resource.Address != graph.ModuleResourceAddress(module) || resource.Kind != "scenery.module" {
@@ -93,7 +93,7 @@ func resourceCreateSource(base *Result, module string) (string, error) {
 		if root == "" {
 			return "", fmt.Errorf("resource.create cannot write registry module %q", module)
 		}
-		return filepath.ToSlash(filepath.Join(root, "scenery.package.scn")), nil
+		return filepath.ToSlash(filepath.Join(root, scn.PackageFilename)), nil
 	}
 	return "", fmt.Errorf("resource.create module %q is not installed", module)
 }

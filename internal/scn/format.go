@@ -80,6 +80,9 @@ func formattingPaths(root string, selected []string) ([]string, error) {
 		if filepath.Ext(path) != ".scn" {
 			return nil, fmt.Errorf("format path %q is not Scenery source", item)
 		}
+		if legacyErr := legacyFilenameError(path); legacyErr != nil {
+			return nil, legacyErr
+		}
 		paths = append(paths, path)
 	}
 	return paths, nil

@@ -26,13 +26,24 @@ import {
 import * as stylex from "@stylexjs/stylex";
 import {
   type CSSProperties,
+  type FocusEvent as ReactFocusEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
+  type UIEvent as ReactUIEvent,
+  memo,
   useCallback,
+  useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
+import {
+  computeTableWindow,
+  defaultTableWindowThreshold,
+  precedingGroupHeaderIndex,
+  tableWindowRowHeight,
+} from "./table-window.js";
 
 export type Align = "left" | "right" | "center";
 export type SortDirection = "asc" | "desc";
@@ -71,29 +82,19 @@ type ExpandedRowRecord<T> = Record<string, unknown> & {
   groupKey: string;
 };
 
-type InternalRow<T> = TableRowRecord<T> | ExpandedRowRecord<T>;
+type SpacerRowRecord = Record<string, unknown> & {
+  kind: "spacer";
+  rowKey: string;
+  groupKey: string;
+  height: number;
+};
 
-export function DataTable<T>({
-  columns,
-  rows,
-  sections,
-  getRowKey,
-  minWidth,
-  sticky,
-  framed,
-  fill,
-  hideHeader,
-  layout = "auto",
-  onRowClick,
-  rowLabel,
-  sort,
-  onSort,
-  expandedKey,
-  renderExpanded,
-  selectedKey,
-  numbered,
-  empty = "No results",
-}: {
+type InternalRow<T> =
+  | TableRowRecord<T>
+  | ExpandedRowRecord<T>
+  | SpacerRowRecord;
+
+export interface DataTableProps<T> {
   columns: readonly Column<T>[];
   rows: readonly T[];
   sections?: readonly DataTableSection<T>[];
@@ -105,6 +106,7 @@ export function DataTable<T>({
   hideHeader?: boolean;
   layout?: "auto" | "fixed";
   onRowClick?: (row: T, index: number) => void;
+  onRowIntent?: (row: T, index: number) => void;
   rowLabel?: (row: T) => string;
   sort?: SortState;
   onSort?: (sortKey: string) => void;
@@ -113,7 +115,33 @@ export function DataTable<T>({
   selectedKey?: string | null;
   numbered?: boolean;
   empty?: string;
-}) {
+  /** Window rows above this count. Set to Infinity to disable. */
+  windowThreshold?: number;
+}
+
+function DataTableInner<T>({
+  columns,
+  rows,
+  sections,
+  getRowKey,
+  minWidth,
+  sticky,
+  framed,
+  fill,
+  hideHeader,
+  layout = "auto",
+  onRowClick,
+  onRowIntent,
+  rowLabel,
+  sort,
+  onSort,
+  expandedKey,
+  renderExpanded,
+  selectedKey,
+  numbered,
+  empty = "No results",
+  windowThreshold = defaultTableWindowThreshold,
+}: DataTableProps<T>) {
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(
     () => new Set(),
   );
@@ -147,29 +175,41 @@ export function DataTable<T>({
     [sections],
   );
   const internalRowKey = useCallback((item: InternalRow<T>) => item.rowKey, []);
-  const grouped = useTableGroupedRows<InternalRow<T>>({
-    data: sourceRows,
-    groupBy: (item: InternalRow<T>) => item.groupKey,
-    collapsedGroups,
-    onToggleGroup: (groupKey: string) =>
-      setCollapsedGroups((current) => {
-        const next = new Set(current);
-        if (next.has(groupKey)) next.delete(groupKey);
-        else next.add(groupKey);
-        return next;
-      }),
-    renderGroupHeader: (groupKey: string, count: number) => (
+  const toggleGroup = useCallback((groupKey: string) => {
+    setCollapsedGroups((current) => {
+      const next = new Set(current);
+      if (next.has(groupKey)) next.delete(groupKey);
+      else next.add(groupKey);
+      return next;
+    });
+  }, []);
+  const renderGroupHeader = useCallback(
+    (groupKey: string, count: number) => (
       <span {...stylex.props(styles.groupLabel)}>
         <span>{sectionLabels.get(groupKey) ?? groupKey}</span>
         <Badge label={count} variant="neutral" />
       </span>
     ),
+    [sectionLabels],
+  );
+  const groupBy = useCallback((item: InternalRow<T>) => item.groupKey, []);
+  const groupOrder = useMemo(
+    () => sections?.map((section) => section.key),
+    [sections],
+  );
+  const grouped = useTableGroupedRows<InternalRow<T>>({
+    data: sourceRows,
+    groupBy,
+    collapsedGroups,
+    onToggleGroup: toggleGroup,
+    renderGroupHeader,
     getRowKey: internalRowKey,
-    groupOrder: sections?.map((section) => section.key),
+    groupOrder,
   });
-  const groupedRows: InternalRow<T>[] = sections
-    ? (grouped.data as InternalRow<T>[])
-    : sourceRows;
+  const groupedRows = useMemo<InternalRow<T>[]>(
+    () => (sections ? (grouped.data as InternalRow<T>[]) : sourceRows),
+    [grouped.data, sections, sourceRows],
+  );
   const tableRows = useMemo<InternalRow<T>[]>(() => {
     if (!renderExpanded || expandedKey == null) return groupedRows;
     return groupedRows.flatMap((item: InternalRow<T>) => {
@@ -186,6 +226,96 @@ export function DataTable<T>({
       ];
     });
   }, [expandedKey, groupedRows, renderExpanded]);
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(600);
+  const windowed =
+    expandedKey == null && tableRows.length > Math.max(0, windowThreshold);
+  const window = useMemo(
+    () =>
+      windowed
+        ? computeTableWindow(tableRows.length, scrollTop, viewportHeight)
+        : {
+            start: 0,
+            end: tableRows.length,
+            topHeight: 0,
+            bottomHeight: 0,
+          },
+    [scrollTop, tableRows.length, viewportHeight, windowed],
+  );
+  const renderedRows = useMemo<InternalRow<T>[]>(() => {
+    if (!windowed) return tableRows;
+    const visible = tableRows.slice(window.start, window.end);
+    // If a grouped window starts inside a section, retain that section's
+    // preceding header so the visible rows never lose their group context.
+    const pinnedHeaderIndex = sections
+      ? precedingGroupHeaderIndex(tableRows, window.start, isGroupHeaderRow)
+      : undefined;
+    const pinnedHeader =
+      pinnedHeaderIndex === undefined ? undefined : tableRows[pinnedHeaderIndex];
+    const topHeight = Math.max(
+      0,
+      window.topHeight - (pinnedHeader ? tableWindowRowHeight : 0),
+    );
+    return [
+      ...(topHeight > 0
+        ? [
+            {
+              kind: "spacer",
+              rowKey: "__window_top",
+              groupKey: "",
+              height: topHeight,
+            } as SpacerRowRecord,
+          ]
+        : []),
+      ...(pinnedHeader ? [pinnedHeader] : []),
+      ...visible,
+      ...(window.bottomHeight > 0
+        ? [
+            {
+              kind: "spacer",
+              rowKey: "__window_bottom",
+              groupKey: "",
+              height: window.bottomHeight,
+            } as SpacerRowRecord,
+          ]
+        : []),
+    ];
+  }, [sections, tableRows, window, windowed]);
+  const setScrollContainer = useCallback((node: HTMLDivElement | null) => {
+    scrollContainerRef.current = node;
+    if (node) setViewportHeight(node.clientHeight || 600);
+  }, []);
+  useEffect(() => {
+    const node = scrollContainerRef.current;
+    if (!node || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      setViewportHeight(node.clientHeight || 600);
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+  const handleScroll = useCallback(
+    (event: ReactUIEvent<HTMLDivElement>) => {
+      setScrollTop(event.currentTarget.scrollTop);
+      setViewportHeight(event.currentTarget.clientHeight || 600);
+    },
+    [],
+  );
+  useEffect(() => {
+    if (!windowed || selectedKey == null) return;
+    const selectedIndex = tableRows.findIndex(
+      (item) => item.kind === "row" && item.rowKey === selectedKey,
+    );
+    const container = scrollContainerRef.current;
+    if (selectedIndex < 0 || !container) return;
+    if (selectedIndex >= window.start && selectedIndex < window.end) return;
+    container.scrollTop = Math.max(
+      0,
+      selectedIndex * tableWindowRowHeight - container.clientHeight / 2,
+    );
+    setScrollTop(container.scrollTop);
+  }, [selectedKey, tableRows, window.end, window.start, windowed]);
   const tableColumns = useMemo<TableColumn<InternalRow<T>>[]>(
     () =>
       columns.map((column) => ({
@@ -208,20 +338,45 @@ export function DataTable<T>({
     data: sourceRows,
     getRowKey: internalRowKey,
   });
-  const sortPlugin = useTableSortable<InternalRow<T>>({
-    sort: sort
-      ? [
-          {
-            sortKey: sort.key,
-            direction: sort.direction === "asc" ? "ascending" : "descending",
-          },
-        ]
-      : [],
-    onSortChange: (next: readonly { sortKey: string }[]) => {
+  const astryxSort = useMemo(
+    () =>
+      sort
+        ? [
+            {
+              sortKey: sort.key,
+              direction:
+                sort.direction === "asc"
+                  ? ("ascending" as const)
+                  : ("descending" as const),
+            },
+          ]
+        : [],
+    [sort],
+  );
+  const handleSortChange = useCallback(
+    (next: readonly { sortKey: string }[]) => {
       if (next[0]) onSort?.(next[0].sortKey);
     },
+    [onSort],
+  );
+  const sortPlugin = useTableSortable<InternalRow<T>>({
+    sort: astryxSort,
+    onSortChange: handleSortChange,
     allowUnsortedState: false,
   });
+  const selectedKeyRef = useRef(selectedKey);
+  selectedKeyRef.current = selectedKey;
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    for (const row of container.querySelectorAll<HTMLTableRowElement>(
+      "tr[data-scenery-row-key]",
+    )) {
+      const selected = row.dataset.sceneryRowKey === selectedKey;
+      if (selected) row.setAttribute("aria-selected", "true");
+      else row.removeAttribute("aria-selected");
+    }
+  }, [renderedRows, selectedKey]);
   const behaviorPlugin = useMemo<TablePlugin<InternalRow<T>>>(() => {
     const columnsByKey = new Map(columns.map((column) => [column.key, column]));
     return {
@@ -243,23 +398,33 @@ export function DataTable<T>({
         props: BodyCellRenderProps,
         column: TableColumn<InternalRow<T>>,
         item: InternalRow<T>,
-        columnIndex: number,
+        _columnIndex: number,
       ) => {
         if (item.kind !== "row") return props;
         const source = columnsByKey.get(column.key);
-        const selected = selectedKey != null && selectedKey === item.rowKey;
         return {
           ...props,
           xstyle: [
             ...props.xstyle,
             source?.mono && styles.mono,
             source?.nowrap && styles.nowrap,
-            selected && styles.selectedCell,
-            selected && columnIndex === 0 && styles.selectedFirstCell,
           ].filter(Boolean),
         };
       },
       transformBodyRow: (props: BodyRowRenderProps, item: InternalRow<T>) => {
+        if (item.kind === "spacer") {
+          return {
+            htmlProps: { "aria-hidden": true },
+            xstyle: [],
+            children: (
+              <TableCell
+                colSpan={999}
+                xstyle={styles.windowSpacer}
+                style={{ height: item.height }}
+              />
+            ),
+          };
+        }
         if (item.kind === "expanded") {
           return {
             htmlProps: {},
@@ -271,33 +436,60 @@ export function DataTable<T>({
             ),
           };
         }
-        if (item.kind !== "row" || !onRowClick) return props;
+        if (item.kind !== "row") return props;
         return {
           ...props,
           htmlProps: {
             ...props.htmlProps,
+            "aria-selected":
+              selectedKeyRef.current === item.rowKey ? true : undefined,
+            "data-scenery-row-key": item.rowKey,
             "aria-label": rowLabel?.(item.row),
-            onClick: (event: ReactMouseEvent<HTMLTableRowElement>) => {
-              if (interactiveTarget(event.target)) return;
-              onRowClick(item.row, item.rowIndex);
-            },
+            onClick: onRowClick
+              ? (event: ReactMouseEvent<HTMLTableRowElement>) => {
+                  if (interactiveClick(event)) return;
+                  onRowClick(item.row, item.rowIndex);
+                }
+              : undefined,
+            onFocus: onRowIntent
+              ? (event: ReactFocusEvent<HTMLTableRowElement>) => {
+                  if (event.target === event.currentTarget) {
+                    onRowIntent(item.row, item.rowIndex);
+                  }
+                }
+              : undefined,
             onKeyDown: (event: ReactKeyboardEvent<HTMLTableRowElement>) => {
+              if (!onRowClick) return;
               if (event.target !== event.currentTarget) return;
               if (event.key !== "Enter" && event.key !== " ") return;
               event.preventDefault();
               onRowClick(item.row, item.rowIndex);
             },
-            tabIndex: 0,
+            onPointerEnter: onRowIntent
+              ? () => onRowIntent(item.row, item.rowIndex)
+              : undefined,
+            tabIndex: onRowClick || onRowIntent ? 0 : undefined,
           },
-          xstyle: [...props.xstyle, styles.clickableRow],
+          xstyle: [
+            ...props.xstyle,
+            styles.dataRow,
+            (onRowClick || onRowIntent) && styles.clickableRow,
+          ].filter(Boolean),
         };
       },
       transformScrollWrapper: (props: ScrollWrapperRenderProps) => ({
         ...props,
+        htmlProps: {
+          ...props.htmlProps,
+          ref: setScrollContainer,
+          onScroll: handleScroll,
+          "data-scenery-windowed": windowed ? "true" : undefined,
+        },
         xstyle: [
           ...props.xstyle,
           styles.tableScroller,
           fill && styles.tableScrollerFill,
+          windowed && styles.tableScrollerWindowed,
         ].filter(Boolean),
       }),
       transformTable: (props: TableRenderProps) => ({
@@ -315,10 +507,13 @@ export function DataTable<T>({
     hideHeader,
     layout,
     onRowClick,
+    onRowIntent,
     renderExpanded,
     rowLabel,
-    selectedKey,
+    setScrollContainer,
     sticky,
+    handleScroll,
+    windowed,
   ]);
   const plugins = useMemo(
     () => ({
@@ -352,7 +547,7 @@ export function DataTable<T>({
     >
       <Table
         columns={tableColumns}
-        data={tableRows}
+        data={renderedRows}
         density="balanced"
         dividers="rows"
         emptyState={<EmptyState isCompact title={empty} />}
@@ -365,12 +560,23 @@ export function DataTable<T>({
   );
 }
 
-function interactiveTarget(target: EventTarget | null) {
+function interactiveTarget(target: EventTarget | null | undefined) {
   return (
     target instanceof Element &&
     target.closest("a, button, input, select, textarea, [role='button']") !=
       null
   );
+}
+
+function interactiveClick(event: ReactMouseEvent<HTMLTableRowElement>) {
+  if (interactiveTarget(event.target)) return true;
+  return event.nativeEvent.composedPath().some(interactiveTarget);
+}
+
+function isGroupHeaderRow(item: unknown) {
+  if (typeof item !== "object" || item == null) return false;
+  const kind = (item as { kind?: unknown }).kind;
+  return kind !== "row" && kind !== "expanded" && kind !== "spacer";
 }
 
 function cellText(row: unknown, key: string) {
@@ -416,6 +622,11 @@ const styles = stylex.create({
     scrollbarWidth: "thin",
   },
   tableScrollerFill: { flex: 1, minHeight: 0, overflow: "auto" },
+  tableScrollerWindowed: {
+    maxHeight: "min(70vh, 720px)",
+    overflowY: "auto",
+    position: "relative",
+  },
   table: {
     width: "100%",
     minWidth: "var(--table-min-width, 720px)",
@@ -439,11 +650,17 @@ const styles = stylex.create({
   },
   mono: { fontVariantNumeric: "tabular-nums" },
   nowrap: { whiteSpace: "nowrap" },
-  clickableRow: { cursor: "pointer" },
-  selectedCell: { backgroundColor: colorVars["--color-accent-muted"] },
-  selectedFirstCell: {
-    boxShadow: `inset 2px 0 0 ${colorVars["--color-accent"]}`,
+  dataRow: {
+    backgroundColor: {
+      default: null,
+      ':is([aria-selected="true"])': colorVars["--color-accent-muted"],
+    },
+    boxShadow: {
+      default: null,
+      ':is([aria-selected="true"])': `inset 2px 0 0 ${colorVars["--color-accent"]}`,
+    },
   },
+  clickableRow: { cursor: "pointer" },
   groupLabel: {
     display: "inline-flex",
     alignItems: "center",
@@ -454,4 +671,7 @@ const styles = stylex.create({
     padding: spacingVars["--spacing-4"],
     backgroundColor: colorVars["--color-background-muted"],
   },
+  windowSpacer: { padding: 0, border: 0 },
 });
+
+export const DataTable = memo(DataTableInner) as typeof DataTableInner;

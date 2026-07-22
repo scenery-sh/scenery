@@ -135,6 +135,13 @@ func validateTablePage(resources map[string]Resource, table Resource) []Diagnost
 		if !oneOfString(appearance, "auto", "text", "number", "datetime", "badge") {
 			diagnostics = append(diagnostics, uiDiagnostic("SCN2609", "table_page column appearance is invalid", table))
 		}
+		exportFormat := defaultString(stringValue(column["export_format"]), "display")
+		if !oneOfString(exportFormat, "display", "raw", "date") {
+			diagnostics = append(diagnostics, uiDiagnostic("SCN2609", "table_page column export_format must be display, raw, or date", table))
+		}
+		if strings.TrimSpace(stringValue(column["export_header"])) == "" && column["export_header"] != nil {
+			diagnostics = append(diagnostics, uiDiagnostic("SCN2609", "table_page column export_header must not be empty", table))
+		}
 		diagnostics = append(diagnostics, validateTablePageComponent(resources, table, column["component"])...)
 		if column["status_map"] != nil {
 			expression := ""
@@ -239,6 +246,26 @@ func validateTablePage(resources map[string]Resource, table Resource) []Diagnost
 		if presentation == "panel" && rowDetail["dialog"] != nil {
 			diagnostics = append(diagnostics, uiDiagnostic("SCN2623", "table_page row_detail dialog is available only with inline presentation", table))
 		}
+		if prefetch := stringValue(rowDetail["prefetch_export"]); prefetch != "" {
+			if presentation != "panel" || !reactExportPattern.MatchString(prefetch) {
+				diagnostics = append(diagnostics, uiDiagnostic("SCN2623", "table_page row_detail prefetch_export requires panel presentation and a valid module export", table))
+			}
+			diagnostics = append(diagnostics, validateDistinctTablePagePrefetchExport(resources, table, rowDetail, prefetch)...)
+		}
+	}
+	for _, rowAction := range orderedChildren(table.Spec, "row_action") {
+		if prefetch := stringValue(rowAction["prefetch_export"]); prefetch != "" {
+			if !reactExportPattern.MatchString(prefetch) {
+				diagnostics = append(diagnostics, uiDiagnostic("SCN2623", "table_page row_action prefetch_export must be a valid module export", table))
+			}
+			diagnostics = append(diagnostics, validateDistinctTablePagePrefetchExport(resources, table, rowAction, prefetch)...)
+		}
+	}
+	for _, export := range orderedChildren(table.Spec, "export") {
+		fileName := stringValue(export["file_name"])
+		if strings.Contains(strings.ReplaceAll(fileName, "{date}", ""), "{") || strings.Contains(strings.ReplaceAll(fileName, "{date}", ""), "}") {
+			diagnostics = append(diagnostics, uiDiagnostic("SCN2622", "table_page export file_name supports only the {date} dynamic token", table))
+		}
 	}
 	diagnostics = append(diagnostics, validateTablePageRowDialog(resources, table, fields)...)
 	diagnostics = append(diagnostics, validateTablePageStats(resources, table)...)
@@ -272,6 +299,14 @@ func validateTablePage(resources map[string]Resource, table Resource) []Diagnost
 		}
 	}
 	return diagnostics
+}
+
+func validateDistinctTablePagePrefetchExport(resources map[string]Resource, table Resource, slot map[string]any, prefetch string) []Diagnostic {
+	component := resources[resolveResourceRef(table, refString(slot["component"]), "react_component")]
+	if component.Kind == "scenery.react-component" && prefetch == stringValue(component.Spec["export"]) {
+		return []Diagnostic{uiDiagnostic("SCN2623", "table_page prefetch_export must differ from the slot component export", table)}
+	}
+	return nil
 }
 
 type tablePageSourceContract struct {

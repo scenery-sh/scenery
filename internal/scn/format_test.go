@@ -9,7 +9,7 @@ import (
 
 func TestFormatterCanonicalizesCommentsAndContextualPrimitiveLiterals(t *testing.T) {
 	root := t.TempDir()
-	path := filepath.Join(root, "scenery.scn")
+	path := filepath.Join(root, AppFilename)
 	before := `// settings
 record "settings" { /* exact values */
   field "timeout" {
@@ -54,14 +54,14 @@ func TestFormatterDiscoversNestedLocalPackageSources(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	writeNestedModuleFile(t, filepath.Join(root, "scenery.scn"), `application "format_app" {}
+	writeNestedModuleFile(t, filepath.Join(root, AppFilename), `application "format_app" {}
 module "parent" { source="./parent" }
 `)
-	writeNestedModuleFile(t, filepath.Join(root, "parent", "scenery.package.scn"), `package "parent" {
+	writeNestedModuleFile(t, filepath.Join(root, "parent", PackageFilename), `package "parent" {
 }
 module "child" { source="../child" }
 `)
-	writeNestedModuleFile(t, filepath.Join(root, "child", "scenery.package.scn"), `package "child" { }
+	writeNestedModuleFile(t, filepath.Join(root, "child", PackageFilename), `package "child" { }
 `)
 	result, err := Format(root, false)
 	if err != nil {
@@ -71,7 +71,7 @@ module "child" { source="../child" }
 	for _, path := range result.Changed {
 		seen[path] = true
 	}
-	if !seen["parent/scenery.package.scn"] || !seen["child/scenery.package.scn"] {
+	if !seen["parent/"+PackageFilename] || !seen["child/"+PackageFilename] {
 		t.Fatalf("formatted paths = %#v", result.Changed)
 	}
 }

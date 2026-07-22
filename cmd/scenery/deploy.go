@@ -110,9 +110,15 @@ type deployAgentStatus struct {
 // deployLaunchAgentStatus distinguishes plist presence (Installed) from a job
 // launchd actually loaded (Loaded); only the latter can recover anything.
 type deployLaunchAgentStatus struct {
-	Installed bool   `json:"installed"`
-	Loaded    bool   `json:"loaded"`
-	Path      string `json:"path"`
+	Installed    bool   `json:"installed"`
+	Loaded       bool   `json:"loaded"`
+	State        string `json:"state,omitempty"`
+	LastExitCode *int   `json:"last_exit_code,omitempty"`
+	Path         string `json:"path"`
+}
+
+func (status deployLaunchAgentStatus) failed() bool {
+	return status.Loaded && status.State != "running" && status.LastExitCode != nil && *status.LastExitCode != 0
 }
 
 // deployAgentSupervisorStatus reports the launchd job that continuously owns
@@ -174,11 +180,14 @@ var (
 	deployRemoveResumeLaunchAgentFunc    = removeDeployResumeLaunchAgent
 	deployInstallAgentSupervisorFunc     = installDeployAgentSupervisor
 	deployRemoveAgentSupervisorFunc      = localagent.RemoveAgentLaunchd
-	deployResumeLaunchAgentLoadedFunc    = deployResumeLaunchAgentLoaded
+	deployResumeLaunchAgentStatusFunc    = deployResumeLaunchAgentStatus
 	deployHelperReinstallNeededFunc      = deploySetupNeedsHelperReinstall
 	deployLaunchctlFunc                  = runDeployLaunchctl
 	deployEnsureAgentFunc                = func() error { return ensureEdgeAgent(localagent.RouterAddrFromEnv(), false) }
-	deployEdgeRestartFunc                = func() error { return edgeRestart(edgeOptions{Deploy: true}) }
+	deployEdgeRestartFunc                = func() error { return edgeRestart(edgeOptions{Deploy: true, Quiet: true}) }
+	deployPublicEdgeStatusFunc           = publicDeployEdgeStatus
+	deployEnsurePublicEdgeFunc           = ensurePublicDeployEdge
+	deployPublicEdgeRetryDelay           = 100 * time.Millisecond
 	deployRefreshEdgeAfterMutationFunc   = deployRefreshEdgeAfterMutation
 	deployRunUpDetachFunc                = deployRunUpDetach
 	deployPortListenerFunc               = deploydiag.DefaultPortListener
@@ -486,7 +495,8 @@ func runDeployResume(stdout io.Writer, opts deployOptions) error {
 	if err := deployEnsureAgentFunc(); err != nil {
 		return err
 	}
-	if err := deployEdgeRestartFunc(); err != nil {
+	edgeRestarted, err := deployEnsurePublicEdgeFunc(paths)
+	if err != nil {
 		return err
 	}
 	registry, err := localagent.LoadDeployRegistry(paths.DeployPath)
@@ -499,7 +509,7 @@ func runDeployResume(stdout io.Writer, opts deployOptions) error {
 		RegistryPath:       paths.DeployPath,
 		LogPath:            paths.DeployResumeLogPath,
 		AgentReady:         true,
-		EdgeRestarted:      true,
+		EdgeRestarted:      edgeRestarted,
 	}
 	// Resume runs unattended at login, so it cannot sudo; it must still
 	// refuse to report a quietly broken helper after an upgrade.
@@ -550,6 +560,47 @@ func runDeployResume(stdout io.Writer, opts deployOptions) error {
 		}
 	}
 	return nil
+}
+
+// ensurePublicDeployEdge makes login resume idempotent. A healthy public edge
+// is already the desired state, so reloading a RunAtLoad job must not tear it
+// down. After an actual reboot the recorded process is gone and the same path
+// falls through to the bounded edge restart.
+func ensurePublicDeployEdge(paths localagent.Paths) (bool, error) {
+	const attempts = 20
+	var lastStatus edgeStatusResult
+	var lastErr error
+	for attempt := 0; attempt < attempts; attempt++ {
+		status, err := deployPublicEdgeStatusFunc(paths)
+		lastStatus, lastErr = status, err
+		if err == nil && edgeRestartReady(status, true) {
+			return false, nil
+		}
+		if attempt+1 < attempts {
+			time.Sleep(deployPublicEdgeRetryDelay)
+		}
+	}
+	if lastErr != nil {
+		fmt.Fprintf(os.Stderr, "deploy resume: public edge state could not be reacquired: %v; restarting\n", lastErr)
+	} else {
+		fmt.Fprintf(os.Stderr, "deploy resume: public edge unavailable after bounded reacquisition (edge=%s pid=%d helper=%s target_pid=%d agent=%s upstream=%s); restarting\n",
+			lastStatus.Edge.State,
+			lastStatus.Edge.PID,
+			lastStatus.PrivilegedListener.State,
+			lastStatus.PrivilegedListener.TargetPID,
+			lastStatus.Edge.AgentRouter,
+			lastStatus.Edge.Upstream,
+		)
+	}
+	return true, deployEdgeRestartFunc()
+}
+
+func publicDeployEdgeStatus(paths localagent.Paths) (edgeStatusResult, error) {
+	state, err := localagent.LoadEdgeState(paths.EdgeStatePath)
+	if err != nil {
+		return edgeStatusResult{}, err
+	}
+	return edgeStatusForStateDomain(paths, state, ""), nil
 }
 
 func runDeployTeardown(stdout io.Writer, opts deployOptions) error {
@@ -785,6 +836,8 @@ func buildDeployStatusWithContext(ctx context.Context, paths localagent.Paths, r
 		status.Diagnostics = append(status.Diagnostics, fmt.Sprintf("deploy resume %s is not installed", supervisorWord))
 	case !launchAgent.Loaded:
 		status.Diagnostics = append(status.Diagnostics, fmt.Sprintf("deploy resume %s exists but is not loaded; run `scenery deploy setup`", supervisorWord))
+	case launchAgent.failed():
+		status.Diagnostics = append(status.Diagnostics, fmt.Sprintf("deploy resume %s completed with exit code %d; inspect its log and run `scenery deploy resume`", supervisorWord, *launchAgent.LastExitCode))
 	}
 	snapshot := deployDiagnosticsSnapshot(status)
 	if manager == "systemd" {

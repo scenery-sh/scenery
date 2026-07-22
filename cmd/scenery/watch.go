@@ -28,6 +28,7 @@ import (
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/generate"
 	"scenery.sh/internal/localproxy"
+	"scenery.sh/internal/scn"
 	"scenery.sh/internal/watchignore"
 )
 
@@ -801,10 +802,10 @@ func isWatchedFile(rel string) bool {
 		return true
 	}
 	// .scn app sources follow scn.SourceFiles discovery: every .scn file is
-	// a compiler input except the compiler-owned scenery.lock.scn, which
+	// a compiler input except the compiler-owned dependency lock, which
 	// must stay unwatched so compile-time lock rewrites cannot retrigger
 	// the loop.
-	if strings.HasSuffix(base, ".scn") && base != "scenery.lock.scn" {
+	if strings.HasSuffix(base, ".scn") && base != scn.AppLockFilename {
 		return true
 	}
 	switch filepath.Ext(rel) {

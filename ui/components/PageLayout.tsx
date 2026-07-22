@@ -15,7 +15,9 @@ import {
   type ReactNode,
   useContext,
 } from "react";
+import { createPortal } from "react-dom";
 import type { Problem, RequestState } from "./request-state.js";
+import { useWorkspaceEmbeddedPage } from "./workspace-context.js";
 
 export type ContentPageProblem = Problem;
 export type ContentPageState<Data> = RequestState<{ readonly data: Data }>;
@@ -178,19 +180,33 @@ export function Page({
   ariaLabel?: string;
   fill?: boolean;
 }) {
+  const workspace = useWorkspaceEmbeddedPage();
   const contentStyle = maxWidth
     ? ({ "--page-content-max": `${maxWidth}px` } as CSSProperties)
     : undefined;
+  const content = (
+    <div {...stylex.props(styles.scrollArea, fill && styles.scrollAreaFill)}>
+      <div
+        {...stylex.props(styles.content, fill && styles.contentFill)}
+        style={contentStyle}
+      >
+        {children}
+      </div>
+    </div>
+  );
+  if (workspace) {
+    return (
+      <>
+        {content}
+        {actions && workspace.actionsHost
+          ? createPortal(actions, workspace.actionsHost)
+          : null}
+      </>
+    );
+  }
   return (
     <PageShell title={title} actions={actions} label={ariaLabel}>
-      <div {...stylex.props(styles.scrollArea, fill && styles.scrollAreaFill)}>
-        <div
-          {...stylex.props(styles.content, fill && styles.contentFill)}
-          style={contentStyle}
-        >
-          {children}
-        </div>
-      </div>
+      {content}
     </PageShell>
   );
 }

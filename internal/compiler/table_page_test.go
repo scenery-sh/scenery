@@ -64,6 +64,12 @@ func TestTablePageValidationRejectsInvalidAuthoredContracts(t *testing.T) {
 		{"invalid toolbar placement", "SCN2622", func(spec map[string]any) {
 			spec["toolbar"] = map[string]any{"component": map[string]any{"$ref": "react_component.name_cell"}, "placement": "sidebar"}
 		}},
+		{"invalid export format", "SCN2609", func(spec map[string]any) {
+			spec["column"] = map[string]any{"name": "name", "export_format": "locale"}
+		}},
+		{"unknown filename token", "SCN2622", func(spec map[string]any) {
+			spec["export"] = map[string]any{"file_name": "scenes-{timestamp}.csv"}
+		}},
 		{"unknown row link field", "SCN2612", func(spec map[string]any) { spec["row_link"] = "/scenes/{missing}" }},
 		{"page size exceeds CRUD limit", "SCN2613", func(spec map[string]any) { spec["page_size"] = 101 }},
 	}
@@ -170,6 +176,26 @@ func TestTablePageValidatesGroupingAndDetailPresentation(t *testing.T) {
 				}
 				spec["row_action"] = map[string]any{
 					"component": map[string]any{"$ref": "react_component.name_cell"},
+				}
+			},
+		},
+		{
+			name: "prefetch on inline detail",
+			want: "requires panel presentation",
+			edit: func(spec map[string]any) {
+				spec["row_detail"] = map[string]any{
+					"component":       map[string]any{"$ref": "react_component.name_cell"},
+					"prefetch_export": "prefetchName",
+				}
+			},
+		},
+		{
+			name: "invalid row action prefetch export",
+			want: "valid module export",
+			edit: func(spec map[string]any) {
+				spec["row_action"] = map[string]any{
+					"component":       map[string]any{"$ref": "react_component.name_cell"},
+					"prefetch_export": "not-valid!",
 				}
 			},
 		},

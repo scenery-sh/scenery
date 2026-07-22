@@ -512,12 +512,17 @@ func findContractRoot(value string) (string, error) {
 		return "", err
 	}
 	for {
-		if pathExistsLocal(filepath.Join(abs, "scenery.scn")) {
+		if pathExistsLocal(filepath.Join(abs, scn.AppFilename)) {
+			return abs, nil
+		}
+		// A retired root name identifies where compilation should report
+		// SCN1021. It is never parsed or accepted as an application source.
+		if pathExistsLocal(filepath.Join(abs, scn.LegacyAppFilename)) {
 			return abs, nil
 		}
 		parent := filepath.Dir(abs)
 		if parent == abs {
-			return "", fmt.Errorf("no scenery.scn found from %s", start)
+			return "", fmt.Errorf("no %s found from %s", scn.AppFilename, start)
 		}
 		abs = parent
 	}

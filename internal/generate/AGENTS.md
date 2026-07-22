@@ -32,6 +32,7 @@ TypeScript clients, OpenAPI documents, and their generated-file transactions.
   unavailable.
 - Emit authored strings in JSX attributes as brace-wrapped JavaScript string expressions (`prop={"..."}`), never HTML-like quoted attributes; keep ordinary quoted literals only inside JavaScript object/array expressions. Generated URL-backed state that creates history entries must also subscribe to `popstate`.
 - Generated React page adapters must preserve typed client failures as data and let transport or decoding exceptions reach TanStack Query for the host retry policy. Map the final query state, including exhausted exceptions, into the page contract's renderable error state.
+- Generated `detail_page` adapters own typed dynamic route parameters and one shared content component used by routed and controlled-dialog wrappers. They compose declared sections, generated form-dialog actions, related table pages with exact input injection, and app-owned typed action slots; mutations invalidate the detail and every related query without moving domain workflows into generation.
 - Generated descriptors carry current machine identity and exact revisions.
 - Keep output beneath compiler-declared managed roots and reject symlinks.
 - Generation checks return diagnostics plus an explicit implementation state:

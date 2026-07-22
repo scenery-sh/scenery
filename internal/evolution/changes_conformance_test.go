@@ -46,10 +46,10 @@ func TestChangeRenameModuleRecordsDescendantContinuity(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(root, "house"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeNestedModuleFile(t, filepath.Join(root, "scenery.scn"), `application "module_rename" {}
+	writeNestedModuleFile(t, filepath.Join(root, testAppFilename), `application "module_rename" {}
 module "house" { source = "./house" }
 `)
-	writeNestedModuleFile(t, filepath.Join(root, "house", "scenery.package.scn"), `package "house" {
+	writeNestedModuleFile(t, filepath.Join(root, "house", testPackageFilename), `package "house" {
 }
 record "point" {
   field "x" { type = float64 }

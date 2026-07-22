@@ -30,7 +30,12 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { type Column, DataTable, type DataTableSection } from "./DataTable.js";
+import {
+	type Column,
+	DataTable,
+	type DataTableSection,
+	type SortState,
+} from "./DataTable.js";
 import {
 	FilterToolbar,
 	type FilterToolbarActiveFilter,
@@ -101,6 +106,8 @@ export interface TablePageResultContext<
 	readonly filtered: boolean;
 	readonly query: TablePageQuery;
 	readonly controls: TablePageQueryControls;
+	/** True while retained rows are shown for a newer query in flight. */
+	readonly isPlaceholderData: boolean;
 }
 
 export interface TablePageCellProps<Row, Value> {
@@ -156,6 +163,9 @@ export interface TablePageDetailPanelProps<Row> {
 }
 
 export type TablePageRowActionProps<Row> = TablePageDetailPanelProps<Row>;
+export type TablePageRowIntent<Row> = (row: Row) => void | Promise<void>;
+
+export type TablePageExportFormat = "display" | "raw" | "date";
 
 export type TablePageColumn<Row> = {
 	readonly [Key in keyof Row]: {
@@ -166,6 +176,10 @@ export type TablePageColumn<Row> = {
 		readonly statusMap?: StatusMap;
 		readonly hidden?: boolean;
 		readonly export?: boolean;
+		readonly exportHeader?: string;
+		readonly exportFormat?: TablePageExportFormat;
+		readonly exportEmpty?: string;
+		readonly exportZeroEmpty?: boolean;
 	};
 }[keyof Row];
 
@@ -233,6 +247,7 @@ export interface TablePageSlots<
 	readonly rowDetail?: ComponentType<TablePageRowDetailProps<Row>>;
 	readonly detailPanel?: ComponentType<TablePageDetailPanelProps<Row>>;
 	readonly rowAction?: ComponentType<TablePageRowActionProps<Row>>;
+	readonly rowIntent?: TablePageRowIntent<Row>;
 }
 
 type Exact<Shape, Actual extends Shape> = Actual &
@@ -255,6 +270,8 @@ export interface QueryTableProps<
 > {
 	readonly resource: string;
 	readonly description?: string;
+	readonly loadingLabel?: ReactNode;
+	readonly errorTitle?: string;
 	readonly columns: readonly TablePageColumn<Row>[];
 	readonly filters: readonly TablePageFilter<Row, Metadata>[];
 	readonly sorts: readonly TablePageSort[];
@@ -264,6 +281,7 @@ export interface QueryTableProps<
 	readonly rowDetail?: ComponentType<TablePageRowDetailProps<Row>>;
 	readonly detailPanel?: ComponentType<TablePageDetailPanelProps<Row>>;
 	readonly rowAction?: ComponentType<TablePageRowActionProps<Row>>;
+	readonly onRowIntent?: TablePageRowIntent<Row>;
 	readonly detailPanelWidth?: number;
 	readonly detailTitle?: (row: Row) => ReactNode;
 	readonly rowDetailAction?: (row: Row) => ReactNode;
@@ -303,6 +321,8 @@ export function QueryTable<
 >({
 	resource,
 	description,
+	loadingLabel,
+	errorTitle,
 	columns,
 	filters: declaredFilters,
 	sorts,
@@ -312,6 +332,7 @@ export function QueryTable<
 	rowDetail: RowDetail,
 	detailPanel: DetailPanel,
 	rowAction: RowAction,
+	onRowIntent,
 	detailPanelWidth,
 	detailTitle,
 	rowDetailAction,
@@ -349,7 +370,10 @@ export function QueryTable<
 	} | null>(null);
 	const declaredFiltersRef = useRef(declaredFilters);
 	declaredFiltersRef.current = declaredFilters;
-	const allowedGroups = pagination ? [] : groups;
+	const allowedGroups = useMemo<readonly TablePageGroup[]>(
+		() => (pagination ? [] : groups),
+		[groups, pagination],
+	);
 	const [activeGroupField, setActiveGroupField] = useState(
 		() => allowedGroups.find((group) => group.default)?.field ?? noGroupValue,
 	);
@@ -409,6 +433,7 @@ export function QueryTable<
 	const resultQuery = useQuery({
 		queryKey: [...queryKey, query],
 		queryFn: ({ signal }) => load(query, signal),
+		placeholderData: (previous) => previous,
 	});
 	const result = requestStateFromQuery<{
 		readonly items: readonly Row[];
@@ -416,7 +441,15 @@ export function QueryTable<
 		readonly total?: number;
 		readonly truncated?: boolean;
 		readonly metadata?: Metadata;
-	}>(resultQuery);
+	}>({
+		...resultQuery,
+		// A failed replacement request must surface its error instead of leaving
+		// the retained result looking current.
+		data:
+			resultQuery.isPlaceholderData && resultQuery.error
+				? undefined
+				: resultQuery.data,
+	});
 
 	const resetQuery = useCallback(() => {
 		setCursor(undefined);
@@ -498,19 +531,54 @@ export function QueryTable<
 			filtered,
 			query,
 			controls: queryControls,
+			isPlaceholderData: resultQuery.isPlaceholderData,
 		}),
-		[filtered, items, metadata, query, queryControls, total, truncated],
+		[
+			filtered,
+			items,
+			metadata,
+			query,
+			queryControls,
+			resultQuery.isPlaceholderData,
+			total,
+			truncated,
+		],
 	);
 	useEffect(() => {
 		onResultContextChange?.(resultContext);
 	}, [onResultContextChange, resultContext]);
-	const rowKey = (row: Row, index: number) => rowLink?.(row) ?? String(index);
-	const visibleColumns = columns.filter((column) => !column.hidden);
-	const visibleDeclaredFilters = declaredFilters.filter(
-		(filter) => !filter.hidden,
+	const rowKey = useCallback(
+		(row: Row, index: number) => rowLink?.(row) ?? String(index),
+		[rowLink],
 	);
-	const activeGroup = allowedGroups.find(
-		(group) => group.field === activeGroupField,
+	const rowIntentState = useRef<{
+		query: TablePageQuery;
+		keys: Set<string>;
+	}>({ query, keys: new Set() });
+	const emitRowIntent = useCallback(
+		(row: Row, index: number) => {
+			if (!onRowIntent) return;
+			if (rowIntentState.current.query !== query) {
+				rowIntentState.current = { query, keys: new Set() };
+			}
+			const key = rowKey(row, index);
+			if (rowIntentState.current.keys.has(key)) return;
+			rowIntentState.current.keys.add(key);
+			void onRowIntent(row);
+		},
+		[onRowIntent, query, rowKey],
+	);
+	const visibleColumns = useMemo(
+		() => columns.filter((column) => !column.hidden),
+		[columns],
+	);
+	const visibleDeclaredFilters = useMemo(
+		() => declaredFilters.filter((filter) => !filter.hidden),
+		[declaredFilters],
+	);
+	const activeGroup = useMemo(
+		() => allowedGroups.find((group) => group.field === activeGroupField),
+		[activeGroupField, allowedGroups],
 	);
 	const sections = useMemo<readonly DataTableSection<Row>[] | undefined>(() => {
 		if (!activeGroup) return undefined;
@@ -547,20 +615,24 @@ export function QueryTable<
 		};
 		window.addEventListener("keydown", onKeyDown);
 		return () => window.removeEventListener("keydown", onKeyDown);
-	});
-	const applySort = (field: string) => {
-		if (field === sort) {
-			setDirection((current) => (current === "asc" ? "desc" : "asc"));
-		} else {
-			setSort(field);
-			setDirection(
-				sorts.find((item) => item.field === field)?.default ?? "asc",
-			);
-		}
-		resetQuery();
-	};
-	const dataColumns = visibleColumns.map<Column<Row>>(
-		(column, columnIndex) => ({
+	}, [DetailPanel, RowAction, orderedRows, rowKey, selectedRow]);
+	const applySort = useCallback(
+		(field: string) => {
+			if (field === sort) {
+				setDirection((current) => (current === "asc" ? "desc" : "asc"));
+			} else {
+				setSort(field);
+				setDirection(
+					sorts.find((item) => item.field === field)?.default ?? "asc",
+				);
+			}
+			resetQuery();
+		},
+		[resetQuery, sort, sorts],
+	);
+	const hasInlineDetail = Boolean(RowDetail && !DetailPanel && !RowAction);
+	const dataColumns = useMemo<readonly Column<Row>[]>(() => {
+		const result = visibleColumns.map<Column<Row>>((column, columnIndex) => ({
 			key: String(column.field),
 			header: column.label,
 			align: column.appearance === "number" ? "right" : "left",
@@ -578,59 +650,81 @@ export function QueryTable<
 					value
 				);
 			},
-		}),
-	);
-	if (RowDetail && !DetailPanel && !RowAction) {
-		dataColumns.unshift({
-			key: "__expand",
-			header: "",
-			width: "40px",
-			render: (row, index) => {
-				const key = rowKey(row, index);
-				const expanded = expandedKey === key;
-				return (
-					<IconButton
-						icon={
-							<Icon
-								icon={expanded ? "chevronDown" : "chevronRight"}
-								size="sm"
-							/>
-						}
-						label={expanded ? "Collapse row" : "Expand row"}
-						onClick={(event: MouseEvent<HTMLButtonElement>) => {
-							event.stopPropagation();
-							setExpandedKey(expanded ? null : key);
-						}}
-						variant="ghost"
-					/>
-				);
-			},
-		});
-	}
-	const toolbarFilters: FilterToolbarFilter[] = visibleDeclaredFilters
-		.filter(
+		}));
+		if (hasInlineDetail) {
+			result.unshift({
+				key: "__expand",
+				header: "",
+				width: "40px",
+				render: (row, index) => {
+					const key = rowKey(row, index);
+					const expanded = expandedKey === key;
+					return (
+						<IconButton
+							icon={
+								<Icon
+									icon={expanded ? "chevronDown" : "chevronRight"}
+									size="sm"
+								/>
+							}
+							label={expanded ? "Collapse row" : "Expand row"}
+							onClick={(event: MouseEvent<HTMLButtonElement>) => {
+								event.stopPropagation();
+								setExpandedKey(expanded ? null : key);
+							}}
+							variant="ghost"
+						/>
+					);
+				},
+			});
+		}
+		return result;
+	}, [
+		expandedKey,
+		hasInlineDetail,
+		rowKey,
+		rowLink,
+		sorts,
+		visibleColumns,
+	]);
+	const toolbarFilters = useMemo<readonly FilterToolbarFilter[]>(
+		() =>
+			visibleDeclaredFilters
+				.filter(
 			(
 				filter,
 			): filter is Extract<
 				TablePageFilter<Row, Metadata>,
 				{ readonly kind: "enum" }
 			> => filter.kind === "enum",
-		)
-		.map((filter) => ({
-			custom: Boolean(filter.component),
-			field: filter.field,
-			label: filter.label,
-			options: filter.options.map(normalizeFilterOption),
-			pinned: filter.pinned,
-		}));
-	const toolbarValues = Object.fromEntries(
-		toolbarFilters.map((filter) => {
-			const value = filters[filter.field];
-			return [filter.field, Array.isArray(value) ? value[0] : undefined];
-		}),
+				)
+				.map((filter) => ({
+					custom: Boolean(filter.component),
+					field: filter.field,
+					label: filter.label,
+					options: filter.options.map(normalizeFilterOption),
+					pinned: filter.pinned,
+				})),
+		[visibleDeclaredFilters],
 	);
-	const activeDateTimeFilters: FilterToolbarActiveFilter[] =
-		visibleDeclaredFilters
+	const toolbarValues = useMemo(
+		() =>
+			Object.fromEntries(
+				toolbarFilters.map((filter) => {
+					const value = filters[filter.field];
+					return [
+						filter.field,
+						Array.isArray(value) ? value[0] : undefined,
+					];
+				}),
+			),
+		[filters, toolbarFilters],
+	);
+	const activeDateTimeFilters = useMemo<
+		readonly FilterToolbarActiveFilter[]
+	>(
+		() =>
+			visibleDeclaredFilters
 			.filter(
 				(
 					filter,
@@ -658,7 +752,36 @@ export function QueryTable<
 						},
 					},
 				];
-			});
+			}),
+		[filters, resetQuery, visibleDeclaredFilters],
+	);
+	const dataTableSort = useMemo<SortState | undefined>(
+		() => (sort ? { key: sort, direction } : undefined),
+		[direction, sort],
+	);
+	const handleRowClick = useCallback(
+		(row: Row, index: number) => {
+			const key = rowKey(row, index);
+			setSelectedRow((current) =>
+				current?.key === key ? null : { key, row },
+			);
+		},
+		[rowKey],
+	);
+	const renderInlineDetail = useCallback(
+		(row: Row) =>
+			hasInlineDetail && RowDetail ? (
+				<div {...stylex.props(styles.rowDetail)}>
+					<RowDetail row={row} />
+					{rowDetailAction ? (
+						<div {...stylex.props(styles.rowDetailAction)}>
+							{rowDetailAction(row)}
+						</div>
+					) : null}
+				</div>
+			) : null,
+		[RowDetail, hasInlineDetail, rowDetailAction],
+	);
 
 	return (
 		<section
@@ -707,7 +830,7 @@ export function QueryTable<
 									result.items.length === 1
 										? singular(resource)
 										: resource.toLocaleLowerCase()
-								}`
+								}${resultQuery.isPlaceholderData ? " · Refreshing…" : ""}`
 							: undefined
 					}
 					search={search}
@@ -817,6 +940,8 @@ export function QueryTable<
 				<div {...stylex.props(styles.content, fill && styles.contentFill)}>
 					<QueryState
 						{...queryStateProps(result, resource)}
+						errorTitle={errorTitle}
+						loadingLabel={loadingLabel}
 						empty={
 							Empty ? (
 								<Empty context={resultContext} filtered={filtered} />
@@ -842,30 +967,13 @@ export function QueryTable<
 							minWidth={720}
 							numbered={numbered}
 							onSort={sorts.length > 0 ? applySort : undefined}
-							sort={sort ? { key: sort, direction } : undefined}
+							sort={dataTableSort}
 							onRowClick={
-								DetailPanel || RowAction
-									? (row, index) => {
-											const key = rowKey(row, index);
-											setSelectedRow((current) =>
-												current?.key === key ? null : { key, row },
-											);
-										}
-									: undefined
+								DetailPanel || RowAction ? handleRowClick : undefined
 							}
+							onRowIntent={onRowIntent ? emitRowIntent : undefined}
 							renderExpanded={
-								RowDetail && !DetailPanel && !RowAction
-									? (row) => (
-											<div {...stylex.props(styles.rowDetail)}>
-												<RowDetail row={row} />
-												{rowDetailAction ? (
-													<div {...stylex.props(styles.rowDetailAction)}>
-														{rowDetailAction(row)}
-													</div>
-												) : null}
-											</div>
-										)
-									: undefined
+								hasInlineDetail ? renderInlineDetail : undefined
 							}
 							rows={items}
 							sections={sections}
@@ -873,6 +981,9 @@ export function QueryTable<
 								DetailPanel || RowAction ? (selectedRow?.key ?? null) : null
 							}
 							sticky
+							windowThreshold={
+								pagination ? Number.POSITIVE_INFINITY : undefined
+							}
 						/>
 					</QueryState>
 					{Footer && result.kind === "result" ? (
@@ -1174,19 +1285,47 @@ function exportRows<Row extends object>(
 	rows: readonly Row[],
 ) {
 	const csv = [
-		columns.map((column) => csvCell(column.label)).join(","),
+		columns.map((column) => csvCell(column.exportHeader ?? column.label)).join(","),
 		...rows.map((row) =>
 			columns
-				.map((column) => csvCell(cellText(row[column.field], column.statusMap)))
+				.map((column) => csvCell(exportCellText(column, row[column.field])))
 				.join(","),
 		),
 	].join("\n");
 	const href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
 	const link = document.createElement("a");
 	link.href = href;
-	link.download = fileName;
+	link.download = fileName.replaceAll(
+		"{date}",
+		new Date().toISOString().slice(0, 10),
+	);
 	link.click();
 	URL.revokeObjectURL(href);
+}
+
+function exportCellText<Row extends object>(
+	column: TablePageColumn<Row>,
+	value: unknown,
+): string {
+	const empty = column.exportEmpty ?? "";
+	if (column.exportZeroEmpty && value === 0) return empty;
+	if (
+		value === null ||
+		value === undefined ||
+		value === ""
+	) {
+		return column.exportEmpty !== undefined ||
+			(column.exportFormat && column.exportFormat !== "display")
+			? empty
+			: cellText(value, column.statusMap);
+	}
+	if (column.exportFormat === "raw") {
+		return typeof value === "object" ? JSON.stringify(value) : String(value);
+	}
+	if (column.exportFormat === "date") {
+		return typeof value === "string" ? value.slice(0, 10) : String(value);
+	}
+	return cellText(value, column.statusMap);
 }
 
 function csvCell(value: string) {

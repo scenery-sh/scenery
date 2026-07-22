@@ -1,11 +1,11 @@
 ---
 name: scenery
-description: Use when building, running, debugging, inspecting, validating, or generating clients for current scenery applications. Scenery is a Go-native runtime and CLI whose singular application model is declared in scenery.scn and package-local scenery.package.scn files.
+description: Use when building, running, debugging, inspecting, validating, or generating clients for current scenery applications. Scenery is a Go-native runtime and CLI whose singular application model is declared in app.scn and package-local package.scn files.
 ---
 
 # scenery
 
-Scenery runs one supervised local application runtime and exposes safe capabilities for inspection and action. Applications declare a canonical current graph in `scenery.scn` plus package-local `scenery.package.scn` files. Go packages implement generated native contracts; comments and package initialization do not register application resources.
+Scenery runs one supervised local application runtime and exposes safe capabilities for inspection and action. Applications declare a canonical current graph in `app.scn` plus package-local `package.scn` files. Go packages implement generated native contracts; comments and package initialization do not register application resources.
 
 This skill is shared runtime knowledge, not a replacement for app-local instructions. Read the target repository's root `AGENTS.md` and every child `AGENTS.md` on the path to files you will touch. Client apps should record only their app root, frontend roots, generated output paths, required environment names, validation commands, and product invariants locally.
 
@@ -41,7 +41,7 @@ Run `scenery doctor -o json` before deep troubleshooting when host readiness is 
 ## Mental Model
 
 - `.scenery.json` marks the app root.
-- `scenery.scn` is required and installs package-local `scenery.package.scn` modules.
+- `app.scn` is required, installs package-local `package.scn` modules, and pairs with the generated `app.lock.scn`. `SCN1021` means a retired contract filename must be renamed exactly as instructed; it is not an alias.
 - Source, effective, and expanded graph views are distinct. Effective resolves inputs, defaults, and patches; expanded adds generators. Provenance paths are RFC 6901 pointers into the selected resource spec.
 - Workspace, contract, implementation, deployment, and artifact revisions are separate. `scenery compile` does not invent an implementation revision; build supplies an exact target input manifest.
 - Services, operations, executions, HTTP/internal/CLI bindings, authentication, authorization, middleware, durable work, schedules, events, data, and UI resources are `.scn` declarations.
@@ -131,6 +131,11 @@ scenery deploy <ssh-target> [--app-root <path>]
 scenery deploy --env <name> [--app-root <path>]
 ```
 
+On a configured public host, `scenery deploy status -o json` includes the
+login-resume job's state and last exit code; a completed nonzero resume is not
+ready. Public recovery verifies the Caddy/helper/agent chain independently of
+the optional `local.dev` wildcard resolver.
+
 The beta SSH form requires the host alias in exactly one `envs.<name>.deploy.ssh`. It uses
 passwordless OpenSSH and rsync, honors `.gitignore`, preserves remote `.env*`
 and `.scenery`, then restarts with readiness waiting; expect brief downtime
@@ -165,7 +170,7 @@ Snapshots include only explicitly selected data. Verify checks every payload wit
 
 ## Generated TypeScript Clients
 
-Declare each `typescript_client` target in `scenery.scn`, including its gateway set, `materialization = "source" | "cache"`, and source-mode managed `output_root`:
+Declare each `typescript_client` target in `app.scn`, including its gateway set, `materialization = "source" | "cache"`, and source-mode managed `output_root`:
 
 ```sh
 scenery generate --target typescript_client.public_api -o json
@@ -180,6 +185,8 @@ For generated React pages, declare the page macro plus any typed `search` blocks
 For a generated two-pane screen, use the generic `split_page` kind with a unit-input HTTP operation and app-owned `sidebar` and `detail` `react_component` slots; `sidebar_actions` and `detail_header` are optional. Scenery owns transport, raw request state, URL-backed selection, and reusable layout. Each slot owns its loading/error/ready presentation and should use `QueryState` from `@scenery/ui` for consistency. Keep every domain-specific component in the client app.
 
 For a generated one-column screen, use `content_page` with a required app-owned `content` slot and optional `actions`. Omit `source` for static content; static slots receive no props. When `source` is present, it must use the unit-input HTTP plus inherited-internal operation contract and both slots receive typed `RequestState` props. Scenery renders the shared `Page` shell, and `max_width` optionally bounds the centered content well.
+
+For one routed record, use `detail_page` with a parameterized path, call-delivery HTTP load binding, and declared field sections. Path parameters map to operation inputs by name or explicit `param` blocks. Choose routed, controlled-dialog, or both presentations without duplicating content. Set `hide_empty = true` only for fields that should disappear when null or empty; zero and false remain visible. Related tables map one route param into one unclaimed table input. Use declared `form_dialog` actions for simple seeded mutations and the typed app-owned `actions` slot for conditional or domain-specific workflows; call `onMutated` after success so the detail and related queries refresh.
 
 For a generated operations workbench, use one of three list contracts: cursor-paginated CRUD (`list.search`, filters, and sorts), a call-delivery HTTP binding with numeric `pagination { page, page_size, total }` mappings, or a binding returning one complete typed list (`source = binding...` plus `items`) with no pagination. Binding pages may project named auxiliary result fields with `metadata = ["summary", "types"]`; slots receive those values as typed `context.metadata`, while `items` and pagination `total` remain singular. Use `query { search, sort, direction }` and `filter.input` when operation input names differ from presentation fields; `query.search_hidden = true` lets an app toolbar own the visible search input through `context.controls.setSearch` without duplicating transport. Use `predicate "input" { value = ... }` for typed fixed inputs that must not appear as controls. Only complete-list tables may declare `group "field"` blocks; cursor and numeric-page tables reject grouping. Reuse `status_map` resources for badge columns and finite filter/group labels; use `pinned = true` sparingly for inline filter quick access. Every declared filter remains in the Filters popover, active values appear as removable chips, and group/sort/direction remain separate query controls. Filters, `toolbar`, `empty`, and `footer` slots receive the typed current-result context: loaded rows, optional total/truncation/projected metadata, filtered state, and current query; toolbar context is optional before the first result. Use `row_detail` for inline or panel display, or mutually exclusive `row_action` for an app-owned selected-row workflow receiving `row` and `onClose`. Add a unit-input metrics binding under `table_page.stats`; `export` downloads the rows returned by the current query. Columns may be display-only with `export = false` or export-only with `hidden = true`. A `form_dialog` derives string/enum controls from a mutation input record; a table `action` opens it and successful mutations invalidate both list and stats queries. An optional `row_detail.dialog` must be seedable from matching row fields and stays inline-only. Keep generated page, route, dialog, and query wiring intact rather than rebuilding them in app code.
 

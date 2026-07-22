@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"scenery.sh/internal/scn"
 )
 
 func computeWorkspaceRevision(root string, sources []*Source) (string, error) {
@@ -22,16 +24,16 @@ func computeWorkspaceRevision(root string, sources []*Source) (string, error) {
 		}
 		entries[source.Relative] = source.Bytes
 	}
-	lockPath := filepath.Join(root, "scenery.lock.scn")
+	lockPath := filepath.Join(root, scn.AppLockFilename)
 	if info, err := os.Lstat(lockPath); err == nil {
 		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-			return "", fmt.Errorf("scenery.lock.scn must be a regular workspace file")
+			return "", fmt.Errorf("%s must be a regular workspace file", scn.AppLockFilename)
 		}
 		b, err := os.ReadFile(lockPath)
 		if err != nil {
 			return "", err
 		}
-		entries["scenery.lock.scn"] = b
+		entries[scn.AppLockFilename] = b
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return "", err
 	}
@@ -79,7 +81,7 @@ func declaredWorkspaceEntries(root string, sources []*Source) (map[string][]byte
 	}
 	var workspace *Block
 	for _, source := range sources {
-		if source.Relative != "scenery.scn" {
+		if source.Relative != scn.AppFilename {
 			continue
 		}
 		for _, block := range source.Blocks {

@@ -1,5 +1,6 @@
 import type {
 	ContentPageSlotProps,
+	DetailPageActionProps,
 	RequestState,
 	SplitPageSlotProps,
 	TablePageCellProps,
@@ -14,10 +15,16 @@ import {
 	defineContentPageSlots,
 	defineSplitPageSlots,
 	defineTablePageSlots,
+	DetailDialog,
+	DetailField,
+	DetailPageLayout,
+	DetailRelated,
+	DetailSection,
 	queryStateProps,
 	SplitPage,
 	Text,
 	VStack,
+	WorkspacePage,
 } from "../../../ui/index.js";
 import { t } from "../../../ui/tokens.stylex.js";
 import * as stylex from "@stylexjs/stylex";
@@ -186,8 +193,68 @@ const splitWithUnlabeledCustomTitle = (
 	/>
 );
 
+const workspace = (
+	<WorkspacePage
+		activeTab="orders"
+		onTabChange={() => {}}
+		presentation="sidebar"
+		tabs={[
+			{
+				name: "orders",
+				label: "Orders",
+				description: "Open work",
+				group: "Operations",
+				count: 3n,
+				available: true,
+				unavailableReason: "Orders are unavailable",
+				content: <div />,
+			},
+			{
+				name: "vendors",
+				label: "Vendors",
+				destination: "/vendors",
+				available: false,
+				unavailableReason: "Vendors live in their own workspace",
+			},
+			{
+				name: "rules",
+				label: "Business rules",
+				available: false,
+				unavailableReason: "No projected records",
+			},
+		]}
+		title="Workspace"
+	/>
+);
+
+function DetailActions(props: DetailPageActionProps<Row, { readonly id: string }>) {
+	return (
+		<Button
+			label={props.data.id}
+			onClick={() => void props.onMutated().then(props.onClose)}
+		/>
+	);
+}
+
+const detailContent = (
+	<DetailPageLayout actions={<DetailActions data={{ id: "1", status: "open" }} params={{ id: "1" }} onMutated={async () => {}} />}>
+		<DetailSection description="Record metadata" title="Summary">
+			<DetailField label="ID">1</DetailField>
+		</DetailSection>
+		<DetailRelated title="Related records"><div /></DetailRelated>
+	</DetailPageLayout>
+);
+
+const detailDialog = (
+	<DetailDialog onOpenChange={() => {}} open title="Record">
+		{detailContent}
+	</DetailDialog>
+);
+
 void splitWithDefaultLabels;
 void splitWithCustomTitle;
 void splitWithUnlabeledCustomTitle;
 void requestStateView;
 void blessedPrimitives;
+void workspace;
+void detailDialog;

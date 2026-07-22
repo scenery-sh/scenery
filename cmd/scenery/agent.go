@@ -29,6 +29,11 @@ type agentOptions struct {
 	JSON       bool
 }
 
+type agentCleanupOptions struct {
+	RemoveState bool
+	JSON        bool
+}
+
 type statusOptions struct {
 	AppRoot string
 	JSON    bool
@@ -57,7 +62,21 @@ type downResponse struct {
 type pruneOptions struct {
 	AppRoot   string
 	OlderThan time.Duration
+	DB        bool
+	State     bool
+	All       bool
 	JSON      bool
+}
+
+type pruneResponse struct {
+	cliPayloadIdentity
+	Cutoff           string   `json:"cutoff"`
+	Pruned           []string `json:"pruned"`
+	Skipped          []string `json:"skipped"`
+	DBCleanup        bool     `json:"db_cleanup"`
+	StateCleanup     bool     `json:"state_cleanup"`
+	DevEventsPruned  int64    `json:"dev_events_pruned"`
+	DevSourcesPruned int64    `json:"dev_sources_pruned"`
 }
 
 func agentCommand(args []string) error {
@@ -66,6 +85,9 @@ func agentCommand(args []string) error {
 	}
 	if len(args) > 0 && args[0] == "restart" {
 		return agentRestartCommand(args[1:])
+	}
+	if len(args) > 0 && args[0] == "cleanup" {
+		return agentCleanupCommand(args[1:])
 	}
 	opts, err := parseAgentArgs(args)
 	if err != nil {
@@ -816,6 +838,10 @@ func pruneCommandWithDeps(client *localagent.Client, stdout io.Writer, openStore
 		return err
 	}
 	ctx := context.Background()
+	if opts.All {
+		opts.DB = true
+		opts.State = true
+	}
 	appRoot := strings.TrimSpace(opts.AppRoot)
 	if appRoot != "" {
 		resolved, err := resolveStatusAppRoot(appRoot)
@@ -833,8 +859,12 @@ func pruneCommandWithDeps(client *localagent.Client, stdout io.Writer, openStore
 	var skipped []string
 	devEventsPruned := int64(0)
 	devSourcesPruned := int64(0)
-	store, storeErr := openStore()
-	if storeErr == nil {
+	var store *devdash.Store
+	if opts.State {
+		store, err = openStore()
+		if err != nil {
+			return err
+		}
 		defer store.Close()
 	}
 	for _, session := range sessions {
@@ -842,14 +872,19 @@ func pruneCommandWithDeps(client *localagent.Client, stdout io.Writer, openStore
 			skipped = append(skipped, session.SessionID)
 			continue
 		}
+		if opts.DB {
+			if _, err := dropSessionManagedDatabase(ctx, session.AppRoot); err != nil {
+				return err
+			}
+		}
 		deleted, err := client.Delete(ctx, session.SessionID, false)
 		if err != nil {
 			return err
 		}
-		if err := removeSessionStateRoot(deleted); err != nil {
-			return err
-		}
-		if store != nil {
+		if opts.State {
+			if err := removeSessionStateRoot(deleted); err != nil {
+				return err
+			}
 			events, sources, err := store.DeleteDevEventsForSession(ctx, deleted.BaseAppID, deleted.SessionID)
 			if err != nil {
 				return err
@@ -860,12 +895,15 @@ func pruneCommandWithDeps(client *localagent.Client, stdout io.Writer, openStore
 		pruned = append(pruned, deleted.SessionID)
 	}
 	if opts.JSON {
-		return writeCLIJSON(stdout, map[string]any{
-			"cutoff":             cutoff.Format(time.RFC3339Nano),
-			"pruned":             pruned,
-			"skipped":            skipped,
-			"dev_events_pruned":  devEventsPruned,
-			"dev_sources_pruned": devSourcesPruned,
+		return writeCLIJSON(stdout, pruneResponse{
+			cliPayloadIdentity: newCLIPayloadIdentity("scenery.prune"),
+			Cutoff:             cutoff.Format(time.RFC3339Nano),
+			Pruned:             pruned,
+			Skipped:            skipped,
+			DBCleanup:          opts.DB,
+			StateCleanup:       opts.State,
+			DevEventsPruned:    devEventsPruned,
+			DevSourcesPruned:   devSourcesPruned,
 		})
 	}
 	for _, id := range pruned {
@@ -881,6 +919,9 @@ func parsePruneArgs(args []string) (pruneOptions, error) {
 	flags := newCLIFlagSet("prune")
 	flags.StringVar(&opts.AppRoot, "app-root", "", "")
 	flags.StringVar(&age, "older-than", "", "")
+	flags.BoolVar(&opts.DB, "db", false, "")
+	flags.BoolVar(&opts.State, "state", false, "")
+	flags.BoolVar(&opts.All, "all", false, "")
 	registerJSONOutput(flags, &opts.JSON)
 	positionals, err := parseCLIFlags(flags, args)
 	if err != nil {

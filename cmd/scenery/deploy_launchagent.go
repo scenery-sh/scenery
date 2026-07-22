@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -26,11 +27,35 @@ func deployResumeLaunchAgentTarget() string {
 }
 
 func deployResumeLaunchAgentLoaded() bool {
+	return deployResumeLaunchAgentStatus().Loaded
+}
+
+func deployResumeLaunchAgentStatus() deployLaunchAgentStatus {
+	status := deployLaunchAgentStatus{}
 	if runtime.GOOS != "darwin" {
-		return false
+		return status
 	}
-	_, err := deployLaunchctlFunc("print", deployResumeLaunchAgentTarget())
-	return err == nil
+	out, err := deployLaunchctlFunc("print", deployResumeLaunchAgentTarget())
+	if err != nil {
+		return status
+	}
+	status.Loaded = true
+	for _, raw := range strings.Split(string(out), "\n") {
+		line := strings.TrimSpace(raw)
+		switch {
+		case strings.HasPrefix(line, "state ="):
+			status.State = strings.TrimSpace(strings.TrimPrefix(line, "state ="))
+		case strings.HasPrefix(line, "last exit code ="):
+			if code, err := strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(line, "last exit code ="))); err == nil {
+				status.LastExitCode = &code
+			}
+		case strings.HasPrefix(line, "last exit status ="):
+			if code, err := strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(line, "last exit status ="))); err == nil {
+				status.LastExitCode = &code
+			}
+		}
+	}
+	return status
 }
 
 func deployLaunchAgentStatusFor() deployLaunchAgentStatus {
@@ -41,11 +66,14 @@ func deployLaunchAgentStatusFor() deployLaunchAgentStatus {
 	path := deployResumeLaunchAgentPath()
 	_, err := os.Stat(path)
 	installed := err == nil
-	return deployLaunchAgentStatus{
-		Installed: installed,
-		Loaded:    installed && deployResumeLaunchAgentLoadedFunc(),
-		Path:      path,
+	status := deployLaunchAgentStatus{Installed: installed, Path: path}
+	if installed {
+		observed := deployResumeLaunchAgentStatusFunc()
+		status.Loaded = observed.Loaded
+		status.State = observed.State
+		status.LastExitCode = observed.LastExitCode
 	}
+	return status
 }
 
 func deployResumeLaunchAgentPath() string {
@@ -81,6 +109,13 @@ func installDeployResumeLaunchAgent(paths localagent.Paths) error {
 	}
 	if out, err := deployLaunchctlFunc("kickstart", deployResumeLaunchAgentTarget()); err != nil {
 		return fmt.Errorf("launchctl kickstart %s: %w: %s", deployResumeLaunchAgentTarget(), err, strings.TrimSpace(string(out)))
+	}
+	status := deployResumeLaunchAgentStatusFunc()
+	if !status.Loaded {
+		return fmt.Errorf("deploy resume LaunchAgent was accepted by launchctl but is not loaded")
+	}
+	if status.failed() {
+		return fmt.Errorf("deploy resume LaunchAgent completed with exit code %d; inspect %s", *status.LastExitCode, paths.DeployResumeLogPath)
 	}
 	return nil
 }

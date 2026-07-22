@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	scenery "scenery.sh"
+	"scenery.sh/internal/scn"
 )
 
 type applicationAdapter struct {
@@ -172,7 +173,7 @@ func isProviderCRUDService(service Resource) bool {
 func resolveApplicationGeneratedRoot(result *Result) (string, string, error) {
 	relativeRoot := "internal/scenerygen"
 	for _, source := range result.Sources {
-		if source.Relative != "scenery.scn" {
+		if source.Relative != scn.AppFilename {
 			continue
 		}
 		for _, block := range source.Blocks {

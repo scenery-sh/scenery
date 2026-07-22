@@ -146,6 +146,14 @@ export {
   TextField,
   type TextFieldType,
 } from "./components/FormDialog.js";
+export {
+  DetailDialog,
+  DetailField,
+  DetailPageLayout,
+  DetailRelated,
+  DetailSection,
+  type DetailPageActionProps,
+} from "./components/DetailPage.js";
 export type {
   ContentPageProblem,
   ContentPageSlotProps,
@@ -172,6 +180,7 @@ export type {
   TablePageDetailPanelProps,
   TablePageDirection,
   TablePageEmptyProps,
+  TablePageExportFormat,
   TablePageFilter,
   TablePageFilterValue,
   TablePageFilterProps,
@@ -184,6 +193,7 @@ export type {
   TablePageResultContext,
   TablePageRowActionProps,
   TablePageRowDetailProps,
+  TablePageRowIntent,
   TablePageSlots,
   TablePageSort,
   TablePageToolbarProps,
@@ -200,6 +210,7 @@ export {
 export {
   SideNavigation,
   type SideNavigationItem,
+  type NavigationOrigin,
   type SideNavigationSection,
 } from "./components/SideNavigation.js";
 export type {
@@ -218,6 +229,11 @@ export {
 } from "./components/StatusBadge.js";
 export { Theme, type ThemeProps } from "./components/Theme.js";
 export { TopBar, type TopBarSearch } from "./components/TopBar.js";
+export {
+  WorkspacePage,
+  type WorkspacePagePresentation,
+  type WorkspacePageTab,
+} from "./components/WorkspacePage.js";
 
 // Full Astryx component surface. Explicit exports above pin names that
 // predate this block; `export *` covers everything else so new Astryx

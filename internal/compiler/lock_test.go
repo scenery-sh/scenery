@@ -35,11 +35,11 @@ func TestLockedBuiltinProviderDerivesCapabilitiesAndSchema(t *testing.T) {
 
 func TestBuiltinProviderLockDigestsAreStable(t *testing.T) {
 	want := map[string]string{
-		"registry.scenery.dev/core/durable":  "sha256:d34daa04ca9f4caa0203c3e0fc854efb9fdbba9a947466bca143dc71aff250b8",
-		"registry.scenery.dev/core/kafka":    "sha256:6d7f468314ec30e68ee00e33e301392be6ff2be0fa54533441de48faf3d1dec0",
-		"registry.scenery.dev/core/postgres": "sha256:58a0fa86a23172ebfed3602b24e79f16f57f12937e58b70dc216642c99188545",
-		"registry.scenery.dev/core/storage":  "sha256:b7ffec4bc5ac47888882a8596f5a3aac0f758f50b5cef85fd661581b93608136",
-		"registry.scenery.dev/core/vault":    "sha256:a609b5072e39d0fe8d95b8b4901aa2f2d4fc97bd03518ec65725547bedb91913",
+		"registry.scenery.dev/core/durable":  "sha256:f9ceef836e9c19cc341cfebd988494dbda57b36259398a07c4f2012826f52f18",
+		"registry.scenery.dev/core/kafka":    "sha256:33ab47f7f5b94bbccba29c74c73f11af5eeb3a49ac005c1f4aa152ca59560cd8",
+		"registry.scenery.dev/core/postgres": "sha256:6f23141137bf500c64062199ba4bef21bdc6c721d55e77ac2b46a4c8fab172ed",
+		"registry.scenery.dev/core/storage":  "sha256:b334a4e699dcde4264162b3dc6f1ad3c4c355cf0e9cd83e075d4229b338e71fd",
+		"registry.scenery.dev/core/vault":    "sha256:f18e2b7d6f5ce713f77061e0afc757e96947af35b60a2dca4c3d83823e4a2f49",
 	}
 	for source, expected := range want {
 		integrity, ok := BuiltinProviderLock(source)
@@ -67,7 +67,7 @@ func TestProviderDescriptorDigestIgnoresProducer(t *testing.T) {
 
 func TestProviderCompilationFailsClosedForMissingOrTamperedLock(t *testing.T) {
 	root := deploymentPlanFixture(t, "external")
-	lockPath := filepath.Join(root, "scenery.lock.scn")
+	lockPath := filepath.Join(root, appLockFilename)
 	lockBytes, err := os.ReadFile(lockPath)
 	if err != nil {
 		t.Fatal(err)
@@ -91,7 +91,7 @@ func TestProviderCompilationFailsClosedForMissingOrTamperedLock(t *testing.T) {
 
 func TestRequiredCapabilityCannotBeGrantedByAssertion(t *testing.T) {
 	root := deploymentPlanFixture(t, "external")
-	path := filepath.Join(root, "scenery.scn")
+	path := filepath.Join(root, appFilename)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -188,7 +188,7 @@ export "point" {
   value = record.point
 }
 `
-	if err := os.WriteFile(filepath.Join(staging, "scenery.package.scn"), []byte(packageSource), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(staging, packageFilename), []byte(packageSource), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	resources, sources, diagnostics := compilePackage(root, staging, "geometry")
@@ -212,7 +212,7 @@ module "geometry" {
   source  = "registry.scenery.dev/geo/geometry"
 }
 `
-	if err := os.WriteFile(filepath.Join(root, "scenery.scn"), []byte(rootSource), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, appFilename), []byte(rootSource), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	lockfile := fmt.Sprintf(`lock {}
@@ -223,7 +223,7 @@ module "geometry" {
   compile_descriptor_digest = %q
 }
 `, integrity, compileDigest)
-	if err := os.WriteFile(filepath.Join(root, "scenery.lock.scn"), []byte(lockfile), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, appLockFilename), []byte(lockfile), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	result, err := Compile(root)
@@ -241,7 +241,7 @@ module "geometry" {
 		t.Fatalf("portable registry source map = %#v", result.Manifest.SourceMap)
 	}
 	workspaceRevision := result.WorkspaceRevision
-	if err := os.WriteFile(filepath.Join(cache, "scenery.package.scn"), append([]byte(packageSource), []byte("# tampered\n")...), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(cache, packageFilename), append([]byte(packageSource), []byte("# tampered\n")...), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	tampered, err := Compile(root)

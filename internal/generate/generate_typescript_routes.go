@@ -10,21 +10,60 @@ import (
 type reactRoutePage struct {
 	resource  Resource
 	component string
+	params    []reactRouteParam
 }
 
-func reactRoutePages(pages []reactTablePage, splitPages []reactSplitPage, contentPages []reactContentPage) []reactRoutePage {
-	result := make([]reactRoutePage, 0, len(pages)+len(splitPages)+len(contentPages))
+type reactRouteParam struct {
+	routeName string
+	propName  string
+}
+
+func reactRoutePages(pages []reactTablePage, splitPages []reactSplitPage, contentPages []reactContentPage, workspacePages ...reactWorkspacePage) []reactRoutePage {
+	embedded := map[string]bool{}
+	for _, workspace := range workspacePages {
+		for _, tab := range orderedChildren(workspace.workspace.Spec, "tab") {
+			if page := refString(tab["page"]); page != "" {
+				embedded[resolveResourceRef(workspace.workspace, page, "table_page")] = true
+			}
+		}
+	}
+	result := make([]reactRoutePage, 0, len(pages)+len(splitPages)+len(contentPages)+len(workspacePages))
 	for _, page := range pages {
+		if embedded[page.table.Address] {
+			continue
+		}
 		result = append(result, reactRoutePage{resource: page.table, component: goName(page.table.Name) + "Page"})
 	}
 	for _, page := range splitPages {
 		result = append(result, reactRoutePage{resource: page.split, component: goName(page.split.Name) + "Page"})
 	}
 	for _, page := range contentPages {
+		if embedded[page.content.Address] {
+			continue
+		}
 		result = append(result, reactRoutePage{resource: page.content, component: goName(page.content.Name) + "Page"})
+	}
+	for _, page := range workspacePages {
+		result = append(result, reactRoutePage{resource: page.workspace, component: goName(page.workspace.Name) + "Page"})
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].resource.Address < result[j].resource.Address })
 	return result
+}
+
+func appendReactDetailRoutePages(routes []reactRoutePage, details []reactDetailPage) []reactRoutePage {
+	for _, detail := range details {
+		presentation := defaultString(stringValue(detail.detail.Spec["presentation"]), "page")
+		if presentation != "page" && presentation != "both" {
+			continue
+		}
+		params := make([]reactRouteParam, 0, len(detail.params))
+		for _, param := range detail.params {
+			params = append(params, reactRouteParam{routeName: param.name, propName: param.name})
+		}
+		routes = append(routes, reactRoutePage{resource: detail.detail, component: goName(detail.detail.Name) + "Page", params: params})
+	}
+	sort.Slice(routes, func(i, j int) bool { return routes[i].resource.Address < routes[j].resource.Address })
+	return routes
 }
 
 func renderReactRoutes(result *Result, pages []reactRoutePage) string {
@@ -33,6 +72,7 @@ func renderReactRoutes(result *Result, pages []reactRoutePage) string {
 	b.WriteString("import { createElement } from \"react\";\n")
 	b.WriteString("import type { ComponentType, ReactNode } from \"react\";\n")
 	b.WriteString("import type { PublicApiClient } from \"../index.js\";\n")
+	b.WriteString("import type { NavigationOrigin } from \"./scenery-ui/index.js\";\n")
 	for _, page := range pages {
 		fmt.Fprintf(&b, "import { %s } from %q;\n", page.component, "./"+page.resource.Name+".generated.js")
 	}
@@ -40,7 +80,11 @@ func renderReactRoutes(result *Result, pages []reactRoutePage) string {
 export type ScenerySearch = Record<string, unknown>;
 export type ScenerySearchValidator = (search: ScenerySearch) => ScenerySearch;
 export type SceneryRouteParent = "root" | "shell";
-export type SceneryRouteComponent = () => ReactNode;
+export type SceneryRouteParams = Readonly<Record<string, string>>;
+export type SceneryRouteComponent = (props?: {
+  readonly params?: SceneryRouteParams;
+}) => ReactNode;
+export type SceneryRouteOrigin = NavigationOrigin;
 
 export type SceneryNavigationDescriptor = {
   readonly group: string;
@@ -48,12 +92,18 @@ export type SceneryNavigationDescriptor = {
   readonly label: string;
   readonly icon?: string;
   readonly activePaths: readonly string[];
+  /** Intrinsic generator provenance; authored routes omit it. */
+  readonly origin?: SceneryRouteOrigin;
 };
 
 export type SceneryRouteDescriptor = {
   readonly path: string;
   readonly component: SceneryRouteComponent;
+  /** Intrinsic route provenance; app-owned descriptors default to authored. */
+  readonly origin?: SceneryRouteOrigin;
   readonly validateSearch?: ScenerySearchValidator;
+  /** Dynamic path-segment names in their authored spelling. */
+  readonly params?: readonly string[];
   readonly navigation?: SceneryNavigationDescriptor;
   readonly parent?: SceneryRouteParent;
 };
@@ -65,7 +115,22 @@ export type SceneryRouteDescriptor = {
 	b.WriteString("export function createGeneratedRoutes(client?: PublicApiClient): readonly SceneryRouteDescriptor[] {\n  return [\n")
 	for _, page := range pages {
 		resource := page.resource
-		fmt.Fprintf(&b, "    {\n      path: %s,\n      component: () => createElement(%s as ComponentType<{ readonly client?: PublicApiClient }>, { client }),\n", strconv.Quote(stringValue(resource.Spec["path"])), page.component)
+		fmt.Fprintf(&b, "    {\n      path: %s,\n", strconv.Quote(reactRoutePath(stringValue(resource.Spec["path"]))))
+		if len(page.params) == 0 {
+			fmt.Fprintf(&b, "      component: () => createElement(%s as ComponentType<{ readonly client?: PublicApiClient }>, { client }),\n", page.component)
+		} else {
+			b.WriteString("      component: ({ params } = {}) => createElement(" + page.component + ", { client, params: {\n")
+			for _, param := range page.params {
+				fmt.Fprintf(&b, "        %s: params?.[%s] ?? \"\",\n", tsName(param.propName), strconv.Quote(param.routeName))
+			}
+			b.WriteString("      } }),\n")
+			paramNames := make([]string, 0, len(page.params))
+			for _, param := range page.params {
+				paramNames = append(paramNames, param.routeName)
+			}
+			fmt.Fprintf(&b, "      params: %s,\n", renderTypeScriptStringArray(paramNames))
+		}
+		b.WriteString("      origin: \"generated\",\n")
 		if len(namedChildren(resource.Spec, "search")) > 0 {
 			fmt.Fprintf(&b, "      validateSearch: validate%sSearch,\n", goName(resource.Name))
 		}
@@ -80,12 +145,16 @@ export type SceneryRouteDescriptor = {
 			if icon := stringValue(resource.Spec["nav_icon"]); icon != "" {
 				fmt.Fprintf(&b, ", icon: %s", strconv.Quote(icon))
 			}
-			fmt.Fprintf(&b, ", activePaths: %s },\n", renderTypeScriptStringArray(activePaths))
+			fmt.Fprintf(&b, ", activePaths: %s, origin: \"generated\" },\n", renderTypeScriptStringArray(activePaths))
 		}
 		b.WriteString("    },\n")
 	}
 	b.WriteString("  ] as const satisfies readonly SceneryRouteDescriptor[];\n}\n")
 	return b.String()
+}
+
+func reactRoutePath(path string) string {
+	return httpPathParameterPattern.ReplaceAllString(path, "$$$1")
 }
 
 func writeReactSearchValidator(b *strings.Builder, result *Result, page Resource) {
@@ -154,8 +223,9 @@ import {
   createRoute,
   createRouter,
   useRouterState,
+  useParams,
 } from "@tanstack/react-router";
-import type { ReactNode } from "react";
+import { createElement, type ComponentType, type ReactNode } from "react";
 import type { PublicApiClient } from "../index.js";
 import {
   ClientAppShell,
@@ -167,6 +237,7 @@ import {
   type SceneryNavigationDescriptor,
   type SceneryRouteComponent,
   type SceneryRouteDescriptor,
+  type SceneryRouteOrigin,
 } from "./routes.generated.js";
 
 export type SceneryNavigationGroupOptions = {
@@ -250,7 +321,9 @@ export function createSceneryApp(options: SceneryAppOptions = {}) {
       createRoute({
         getParentRoute: () => shellRoute,
         path: route.path,
-        component: route.component,
+        component: () => createElement(route.component as ComponentType<{ readonly params?: Readonly<Record<string, string>> }>, {
+          params: useParams({ strict: false }) as Readonly<Record<string, string>>,
+        }),
         validateSearch: route.validateSearch,
       }),
     );
@@ -260,7 +333,9 @@ export function createSceneryApp(options: SceneryAppOptions = {}) {
       createRoute({
         getParentRoute: () => rootRoute,
         path: route.path,
-        component: route.component,
+        component: () => createElement(route.component as ComponentType<{ readonly params?: Readonly<Record<string, string>> }>, {
+          params: useParams({ strict: false }) as Readonly<Record<string, string>>,
+        }),
         validateSearch: route.validateSearch,
       }),
     );
@@ -299,13 +374,14 @@ function navigationSections(
 ): readonly SideNavigationSection[] {
   const groups = new Map<string, Array<{
     descriptor: SceneryNavigationDescriptor;
+    origin: SceneryRouteOrigin;
     path: string;
   }>>();
   for (const route of routes) {
     if (!route.navigation) continue;
     if (navigationFilter && !navigationFilter(route.path, currentPath)) continue;
     const group = groups.get(route.navigation.group) ?? [];
-    group.push({ descriptor: route.navigation, path: route.path });
+    group.push({ descriptor: route.navigation, origin: route.origin ?? "authored", path: route.path });
     groups.set(route.navigation.group, group);
   }
   return [...groups.entries()]
@@ -326,11 +402,12 @@ function navigationSections(
             left.descriptor.order - right.descriptor.order ||
             left.descriptor.label.localeCompare(right.descriptor.label),
           )
-          .map(({ descriptor, path }) => ({
+          .map(({ descriptor, origin, path }) => ({
             href: path,
             icon: descriptor.icon && resolveIcon ? resolveIcon(descriptor.icon) : undefined,
             isSelected: descriptor.activePaths.includes(currentPath),
             label: descriptor.label,
+            origin: descriptor.origin ?? origin,
           })),
       };
     });

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"scenery.sh/internal/compiler"
+	"scenery.sh/internal/scn"
 	"scenery.sh/internal/tscheck"
 )
 
@@ -262,7 +263,7 @@ func managedTypeScriptOutputRoot(result *Result, outputRoot string) (string, err
 		return "", fmt.Errorf("output_root must be a normalized safe workspace-relative path")
 	}
 	for _, source := range result.Sources {
-		if source.Relative != "scenery.scn" {
+		if source.Relative != scn.AppFilename {
 			continue
 		}
 		for _, block := range source.Blocks {
@@ -418,6 +419,32 @@ func declaredReactPageBindings(resources []Resource, target Resource) map[string
 	for _, content := range resources {
 		if content.Kind == "scenery.content-page" && content.Origin.Kind != "expanded" {
 			result[resolveResourceRef(content, refString(content.Spec["source"]), "binding")] = true
+		}
+	}
+	for _, workspace := range resources {
+		if workspace.Kind != "scenery.workspace-page" || workspace.Origin.Kind == "expanded" {
+			continue
+		}
+		for _, stats := range orderedChildren(workspace.Spec, "stats") {
+			result[resolveResourceRef(workspace, refString(stats["source"]), "binding")] = true
+		}
+	}
+	for _, detail := range resources {
+		if detail.Kind != "scenery.detail-page" || detail.Origin.Kind == "expanded" {
+			continue
+		}
+		result[resolveResourceRef(detail, refString(detail.Spec["source"]), "binding")] = true
+		for _, action := range orderedChildren(detail.Spec, "action") {
+			dialog := byAddress[resolveResourceRef(detail, refString(action["dialog"]), "form_dialog")]
+			if dialog.Kind == "scenery.form-dialog" {
+				result[resolveResourceRef(dialog, refString(dialog.Spec["source"]), "binding")] = true
+			}
+		}
+		for _, related := range orderedChildren(detail.Spec, "table") {
+			table := byAddress[resolveResourceRef(detail, refString(related["page"]), "table_page")]
+			if table.Kind == "scenery.table-page" {
+				result[resolveResourceRef(table, refString(table.Spec["source"]), "binding")] = true
+			}
 		}
 	}
 	return result

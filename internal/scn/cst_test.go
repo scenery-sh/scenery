@@ -10,7 +10,7 @@ import (
 func TestConcreteSyntaxTreeIsLosslessAndRecordsCRLFTriviaComments(t *testing.T) {
 	root := t.TempDir()
 	sourceBytes := []byte("# leading\r\nrecord \"item\" {  # trailing\r\n\r\n  # detached\r\n\r\n  # field\r\n  field \"name\" {\r\n    type = string\r\n  }\r\n}\r\n")
-	path := filepath.Join(root, "scenery.scn")
+	path := filepath.Join(root, AppFilename)
 	if err := os.WriteFile(path, sourceBytes, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +46,7 @@ func TestParserRejectsBOMInvalidUTF8AndNonCanonicalComments(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			root := t.TempDir()
-			path := filepath.Join(root, "scenery.scn")
+			path := filepath.Join(root, AppFilename)
 			if err := os.WriteFile(path, test.data, 0o644); err != nil {
 				t.Fatal(err)
 			}
@@ -60,7 +60,7 @@ func TestParserRejectsBOMInvalidUTF8AndNonCanonicalComments(t *testing.T) {
 
 func TestParserRejectsNonCanonicalIdentifiers(t *testing.T) {
 	root := t.TempDir()
-	path := filepath.Join(root, "scenery.scn")
+	path := filepath.Join(root, AppFilename)
 	if err := os.WriteFile(path, []byte("record \"Not_Snake\" {}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}

@@ -33,7 +33,8 @@ static paths. This plan adds:
   component;
 - a pilot cutover: the warranty claim detail in the Micro platform, whose
   hand-written page already has field groups plus deploy/invoice
-  `FormDialog` mutations — the exact target shape.
+  workflows — an exact field-layout target whose richer actions exercise the
+  typed app-owned action-slot boundary.
 
 When complete, a domain can declare its record view in `.scn` and get a
 routed detail page with typed loading, generated field sections, embedded
@@ -42,17 +43,17 @@ moving the platform another step toward fully generated client apps.
 
 ## Progress
 
-- [ ] (2026-07-22) Plan authored; design decisions recorded with Petr.
-  Not started.
-- [ ] Milestone 1: spec + compiler (`detail_page` schema, path params,
+- [x] (2026-07-22) Plan authored; design decisions recorded with Petr.
+- [x] (2026-07-22) Milestone 1: spec + compiler (`detail_page` schema, path params,
   sections, actions, related tables, presentation; expansion; diagnostics;
   tests; SPEC.md).
-- [ ] Milestone 2: route + generator (dynamic segments, typed params,
+- [x] (2026-07-22) Milestone 2: route + generator (dynamic segments, typed params,
   generated page + dialog components, catalog detail-layout components,
   fixture app example).
-- [ ] Milestone 3: pilot cutover (warranty claim detail in the Micro
+- [x] (2026-07-22) Milestone 3: pilot cutover (warranty claim detail in the Micro
   platform, including any missing claim-read-by-id backend surface).
-- [ ] Milestone 4: docs/harness sync.
+- [x] (2026-07-22) Milestone 4: docs/harness sync, full cached validation,
+  installed-binary restart, and authenticated browser acceptance.
 
 ## Surprises & Discoveries
 
@@ -64,6 +65,25 @@ moving the platform another step toward fully generated client apps.
   presentation-agnostic enough to reuse. `warranty/package.scn` has claim
   create/transition mutations but list-only reads (`workmanship_claims_read`);
   the pilot needs a claim-read-by-id operation added on the platform side.
+- (2026-07-22) The pilot's existing action surface is intentionally richer
+  than `form_dialog`: status-dependent visibility, dynamic EPC choices,
+  positive amount constraints, confirmation, and direct transitions. The
+  smallest parity-preserving contract is the plan's existing hand-written-slot
+  escape hatch, exposed as one typed `actions { component = ... }` slot. It
+  avoids turning `form_dialog` into a domain workflow language.
+- (2026-07-22) Exact field parity also requires optional detail values to be
+  absent rather than displayed as empty placeholders. A generic
+  `hide_empty = true` field flag covers Replacement EPC, deployed date, and
+  notes without introducing warranty-specific rendering.
+- (2026-07-22) The first real consumer generation caught two fixture gaps:
+  `DetailRelated` was imported unconditionally on pages without related
+  tables, and implicit path params were read from authored overrides instead
+  of the compiler-normalized expanded page. The staged generator fixture now
+  covers an implicit param with no related table under the managed checker.
+- (2026-07-22) Embedded content must receive the app-owned authenticated
+  client explicitly; the generated routed page already receives it from
+  `createSceneryApp`, while the hand-written accordion/dialog mount passes the
+  same client itself.
 
 ## Decision Log
 
@@ -99,10 +119,45 @@ moving the platform another step toward fully generated client apps.
   covers mismatched names. Same claim-input discipline as table_page
   query mappings: no input claimed twice, diagnostics for unresolved or
   type-incompatible params.
+- (2026-07-22, Petr) **Richer action behavior uses one typed app-owned action
+  slot.** `detail_page` keeps simple declared `action` blocks backed by
+  `form_dialog`, and MAY also declare `actions { component = ... }`. The pilot
+  uses that slot, receiving the loaded entity and an invalidation callback, so
+  none of its status, dynamic-choice, validation, confirmation, or direct
+  transition behavior is lost. This is the explicit "richer than
+  dialog-with-fields stays hand-written" boundary; no generalized mutation
+  DSL is added.
+- (2026-07-22, Petr) **Empty detail fields are explicit.** Detail fields render
+  by default; `hide_empty = true` omits the labeled field only for absent,
+  null, or empty-string values. The warranty pilot uses it for
+  `deployed_epc_name`, `deployed_at`, and `notes`.
 
 ## Outcomes & Retrospective
 
-Not yet completed.
+Completed on 2026-07-22. Scenery now owns a singular `detail_page` contract
+with typed dynamic route params, one-record loading, field sections,
+`hide_empty`, status badges, related tables, simple generated form actions,
+and a typed app-owned action slot. Generation emits one shared content
+component plus routed-page and controlled-dialog wrappers, keeps related table
+queries scoped to the detail params, and invalidates the complete detail
+surface after mutations.
+
+The Micro workmanship-claim pilot added a typed read-by-ID backend and replaced
+the duplicated hand-written detail/action/dialog body while retaining the
+existing list summary, filters, create flow, and close-on-second-click
+accordion. The list page fell from 731 to 514 lines; the remaining 259-line
+domain action slot preserves the exact conditional deploy, invoice, recover,
+and void workflows without expanding the generic form language.
+
+Authenticated browser acceptance exercised the route, accordion, and dialog
+against the same record; proved empty optional fields stay absent; ran pending
+through deployed, invoiced, and recovered with live query refresh; rejected a
+zero invoice and accepted `$4,500`; and created a second claim whose exact
+native confirmation completed the void transition. The final list showed one
+recovered claim with `$4,500` and the voided claim exposed no lifecycle
+actions. Cached full Go tests, generated-client checks, catalog and app
+TypeScript checks, frontend lint/tests/build, both Micro verification targets,
+Scenery self-harness, docs inspection, and diff checks passed.
 
 ## Context and Orientation
 
@@ -151,8 +206,10 @@ Not yet completed.
 - **Pilot target**: `apps/platform/src/pages/warranty-claims.tsx` (731
   lines) renders an inline claim detail (field grid ~lines 382–410) with
   `DeployDialog` and `InvoiceDialog` FormDialog mutations backed by
-  `claim_transition_http` — the generated equivalent is a routed
-  `/warranty/claims/{claim_id}` detail with two declared actions. The
+  `claim_transition_http` plus status-dependent visibility, dynamic choices,
+  validation, confirmation, and direct transitions — the generated equivalent
+  is a routed `/warranty/claims/{claim_id}` detail with a typed app-owned
+  action component, not two weakened unconditional dialog declarations. The
   platform side needs a claim-read-by-id operation + HTTP binding in
   `warranty/` (service method, `package.scn`, tests), following the
   existing `warranty_project_read` pattern.
@@ -176,10 +233,13 @@ Not yet completed.
    green.
 3. **Pilot: warranty claim detail.** Platform repo: claim-read-by-id
    operation/binding/tests in `warranty/`; author the `detail_page` in
-   `warranty/package.scn` with sections, the two transition actions as
-   `form_dialog`s, and (if the claims list converts cleanly) a
-   `row_action` navigation from the claims table; regenerate; cut the
-   claim-detail portion out of `warranty-claims.tsx`; all four
+   `warranty/package.scn` with sections and the typed app-owned actions
+   component; if a simple mutation fits `form_dialog`, prove it separately.
+   If the claims list converts cleanly, add a `row_action` navigation from the
+   claims table; regenerate; cut the claim-detail portion out of
+   `warranty-claims.tsx`; preserve its richer mutations in the typed app-owned
+   `actions` slot rather than weakening them into unconditional generated
+   dialogs; all four
    `apps/platform` lanes plus `make verify`; browser-verify the routed
    page and the dialog presentation in the dev session. Functionality
    parity is non-negotiable (0051 rule): the generated detail must not
@@ -231,9 +291,10 @@ From `/Users/petrbrazdil/Repos/Micro/platform` (Milestone 3):
 - Generated house fixture compiles under staged tsc; full Go suite and
   `scenery harness self -o json` green.
 - Platform pilot: `/warranty/claims/{id}` routed page loads a real claim,
-  shows every field the hand-written detail showed, both transition
-  actions execute through generated dialogs with query invalidation
-  observed, and the dialog presentation opens/closes from a list surface.
+  shows every field the hand-written detail showed, simple declared actions
+  execute through generated dialogs where applicable, and the typed app-owned
+  action slot preserves every richer warranty transition with query
+  invalidation observed. The dialog presentation opens/closes from a list surface.
   All platform lanes plus `make verify` green; browser evidence captured
   in Artifacts.
 - Parity gate: no field, action, loading/error state, or navigation

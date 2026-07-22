@@ -68,7 +68,7 @@ func contextualScalarFixture(t *testing.T, durationDefault, uuidDefault, sizeDef
 	if err := os.MkdirAll(moduleRoot, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "scenery.scn"), []byte(`application "scalar_app" {}
+	if err := os.WriteFile(filepath.Join(root, appFilename), []byte(`application "scalar_app" {}
 module "types" { source = "./types" }
 `), 0o644); err != nil {
 		t.Fatal(err)
@@ -88,7 +88,7 @@ record "settings" {
   }
 }
 `
-	if err := os.WriteFile(filepath.Join(moduleRoot, "scenery.package.scn"), []byte(packageSource), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(moduleRoot, packageFilename), []byte(packageSource), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	return root

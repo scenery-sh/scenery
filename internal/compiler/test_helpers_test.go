@@ -35,7 +35,7 @@ func deploymentPlanFixture(t *testing.T, lifecycle string) string {
 	if err := os.WriteFile(goModPath, goMod, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(root, "scenery.scn")
+	path := filepath.Join(root, appFilename)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -77,7 +77,7 @@ provider "postgres" {
   deployment_abi = %q
 }
 `, integrity, integrity, deploymentProviderABI)
-	if err := os.WriteFile(filepath.Join(root, "scenery.lock.scn"), []byte(lockfile), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, appLockFilename), []byte(lockfile), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	return root

@@ -23,7 +23,7 @@
       "const": "scenery.deploy.status"
     },
     "schema_revision": {
-      "const": "sha256:44aec24f02fc8aabe19d395a08ba9fb40ebcb244e6acd90fbc5c113fd0eee529"
+      "const": "sha256:787bc617b0dc15c76d2a5fd9222d131d28024fb18dd24ef170bdd425dc7e6ff5"
     },
     "ready": {
       "type": "boolean"
@@ -252,6 +252,12 @@
         },
         "loaded": {
           "type": "boolean"
+        },
+        "state": {
+          "type": "string"
+        },
+        "last_exit_code": {
+          "type": "integer"
         },
         "path": {
           "type": "string"

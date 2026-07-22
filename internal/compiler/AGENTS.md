@@ -23,8 +23,10 @@ current application graph.
 - Every normal source read first asks `internal/workspacetx` to recover an
   abandoned transaction or reject a live owner. Staged validation admits only
   the current transaction owner.
-- Validate CRUD list and table-page field capabilities plus split-page and
-  content-page binding and slot contracts before expansion. Declarative page kinds are macros over
+- Validate CRUD list and table-page field capabilities plus split-page,
+  content-page, workspace-page, and detail-page binding, route-parameter,
+  field-section, action, related-table, and slot contracts before expansion.
+  Declarative page kinds are macros over
   ordinary page and renderer resources, not a parallel UI graph or query
   model. Split-page domain rendering belongs to app-owned component slots.
 - Never import evolution, generation, deployment planning, or

@@ -36,7 +36,7 @@ func discoverValidationTestApp(t *testing.T, config string) Planner {
 		t.Fatal(err)
 	}
 	writeValidationTestFile(t, root, ".scenery.json", string(encoded))
-	writeValidationTestFile(t, root, "scenery.scn", "application \"test\" {}\n")
+	writeValidationTestFile(t, root, testAppFilename, "application \"test\" {}\n")
 	appRoot, cfg, err := appcfg.DiscoverRoot(root)
 	if err != nil {
 		t.Fatalf("discover app: %v", err)

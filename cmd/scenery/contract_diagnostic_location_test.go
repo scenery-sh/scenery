@@ -13,12 +13,13 @@ import (
 func TestWriteContractResultPrintsDiagnosticLocations(t *testing.T) {
 	t.Parallel()
 
-	sourceID := scn.SourceID("services/scenery.package.scn")
+	packagePath := "services/" + testPackageFilename
+	sourceID := scn.SourceID(packagePath)
 	result := &compiler.Result{
 		ContractStatus: "invalid",
 		PartialGraph: &graph.PartialGraph{
 			SourceMap: map[string]graph.SourceRecord{
-				sourceID: {URI: "services/scenery.package.scn"},
+				sourceID: {URI: packagePath},
 			},
 		},
 		Diagnostics: []graph.Diagnostic{
@@ -45,7 +46,7 @@ func TestWriteContractResultPrintsDiagnosticLocations(t *testing.T) {
 		t.Fatal("invalid result must return an error")
 	}
 	out := buf.String()
-	if !strings.Contains(out, "services/scenery.package.scn:12:3: SCN3008: module supplies unknown input authorization") {
+	if !strings.Contains(out, packagePath+":12:3: SCN3008: module supplies unknown input authorization") {
 		t.Fatalf("missing one-based location prefix:\n%s", out)
 	}
 	if !strings.Contains(out, "SCN9001: internal failure") || strings.Contains(out, ": SCN9001: internal failure") {
@@ -56,15 +57,15 @@ func TestWriteContractResultPrintsDiagnosticLocations(t *testing.T) {
 func TestContractDiagnosticLocationFallsBackToLoadedSources(t *testing.T) {
 	t.Parallel()
 
-	sourceID := scn.SourceID("scenery.scn")
+	sourceID := scn.SourceID(testAppFilename)
 	result := &compiler.Result{
-		Sources: []*scn.Source{{ID: sourceID, Relative: "scenery.scn"}},
+		Sources: []*scn.Source{{ID: sourceID, Relative: testAppFilename}},
 	}
 	diag := graph.Diagnostic{
 		Range: &scn.Range{SourceID: sourceID, Start: scn.Position{Line: 0, Column: 0}},
 	}
-	if got := contractDiagnosticLocation(result, diag); got != "scenery.scn:1:1" {
-		t.Fatalf("location = %q, want scenery.scn:1:1", got)
+	if got := contractDiagnosticLocation(result, diag); got != testAppFilename+":1:1" {
+		t.Fatalf("location = %q, want %s:1:1", got, testAppFilename)
 	}
 	if got := contractDiagnosticLocation(result, graph.Diagnostic{}); got != "" {
 		t.Fatalf("rangeless location = %q, want empty", got)

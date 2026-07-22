@@ -416,12 +416,15 @@ func TestDeployResumeStartsMissingTargetsAndSkipsLiveSessions(t *testing.T) {
 	oldRestart := deployEdgeRestartFunc
 	oldRunUp := deployRunUpDetachFunc
 	oldDrift := deployHelperDriftStatusFunc
+	oldDelay := deployPublicEdgeRetryDelay
 	t.Cleanup(func() {
 		deployEnsureAgentFunc = oldEnsureAgent
 		deployEdgeRestartFunc = oldRestart
 		deployRunUpDetachFunc = oldRunUp
 		deployHelperDriftStatusFunc = oldDrift
+		deployPublicEdgeRetryDelay = oldDelay
 	})
+	deployPublicEdgeRetryDelay = 0
 	deployEnsureAgentFunc = func() error { return nil }
 	deployEdgeRestartFunc = func() error { return nil }
 	// The installed helper predates the current handoff contract: resume
@@ -502,6 +505,179 @@ func TestDeployResumeStartsMissingTargetsAndSkipsLiveSessions(t *testing.T) {
 	}
 	if _, err := os.Stat(paths.DeployResumeLogPath); err != nil {
 		t.Fatalf("resume log missing: %v", err)
+	}
+}
+
+func TestEnsurePublicDeployEdgeReusesHealthyManagedEdge(t *testing.T) {
+	oldStatus := deployPublicEdgeStatusFunc
+	oldRestart := deployEdgeRestartFunc
+	oldDelay := deployPublicEdgeRetryDelay
+	t.Cleanup(func() {
+		deployPublicEdgeStatusFunc = oldStatus
+		deployEdgeRestartFunc = oldRestart
+		deployPublicEdgeRetryDelay = oldDelay
+	})
+	deployPublicEdgeRetryDelay = 0
+
+	deployPublicEdgeStatusFunc = func(localagent.Paths) (edgeStatusResult, error) {
+		return edgeStatusResult{
+			Edge: edgeStatusCaddy{
+				State:       localagent.EdgeStatusRunning,
+				PID:         42,
+				HTTPSListen: "127.0.0.1:19443",
+				Upstream:    "127.0.0.1:9440",
+				AgentRouter: "127.0.0.1:9440",
+			},
+			PrivilegedListener: edgeStatusPrivilegedListener{
+				State:     "running",
+				Target:    "127.0.0.1:19443",
+				TargetPID: 42,
+			},
+		}, nil
+	}
+	restarted := false
+	deployEdgeRestartFunc = func() error {
+		restarted = true
+		return nil
+	}
+
+	didRestart, err := ensurePublicDeployEdge(localagent.Paths{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if didRestart || restarted {
+		t.Fatal("healthy public edge was reported or observed as restarted")
+	}
+}
+
+func TestEnsurePublicDeployEdgeRestartsUnavailableEdge(t *testing.T) {
+	oldStatus := deployPublicEdgeStatusFunc
+	oldRestart := deployEdgeRestartFunc
+	oldDelay := deployPublicEdgeRetryDelay
+	t.Cleanup(func() {
+		deployPublicEdgeStatusFunc = oldStatus
+		deployEdgeRestartFunc = oldRestart
+		deployPublicEdgeRetryDelay = oldDelay
+	})
+	deployPublicEdgeRetryDelay = 0
+
+	deployPublicEdgeStatusFunc = func(localagent.Paths) (edgeStatusResult, error) {
+		return edgeStatusResult{}, nil
+	}
+	restarted := false
+	deployEdgeRestartFunc = func() error {
+		restarted = true
+		return nil
+	}
+
+	didRestart, err := ensurePublicDeployEdge(localagent.Paths{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !didRestart || !restarted {
+		t.Fatal("unavailable public edge was not restarted")
+	}
+}
+
+func TestEnsurePublicDeployEdgeWaitsForTransientAgentHealth(t *testing.T) {
+	oldStatus := deployPublicEdgeStatusFunc
+	oldRestart := deployEdgeRestartFunc
+	oldDelay := deployPublicEdgeRetryDelay
+	t.Cleanup(func() {
+		deployPublicEdgeStatusFunc = oldStatus
+		deployEdgeRestartFunc = oldRestart
+		deployPublicEdgeRetryDelay = oldDelay
+	})
+	deployPublicEdgeRetryDelay = 0
+
+	checks := 0
+	deployPublicEdgeStatusFunc = func(localagent.Paths) (edgeStatusResult, error) {
+		checks++
+		if checks == 1 {
+			return edgeStatusResult{}, nil
+		}
+		return edgeStatusResult{
+			Edge: edgeStatusCaddy{
+				State:       localagent.EdgeStatusRunning,
+				PID:         42,
+				HTTPSListen: "127.0.0.1:19443",
+				Upstream:    "127.0.0.1:9440",
+				AgentRouter: "127.0.0.1:9440",
+			},
+			PrivilegedListener: edgeStatusPrivilegedListener{
+				State:     "running",
+				Target:    "127.0.0.1:19443",
+				TargetPID: 42,
+			},
+		}, nil
+	}
+	restarted := false
+	deployEdgeRestartFunc = func() error {
+		restarted = true
+		return nil
+	}
+
+	didRestart, err := ensurePublicDeployEdge(localagent.Paths{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if checks != 2 || didRestart || restarted {
+		t.Fatalf("checks=%d reported_restart=%v restarted=%v, want bounded reacquisition without restart", checks, didRestart, restarted)
+	}
+}
+
+func TestDeployResumeReacquiresHealthyEdgeWithoutRestart(t *testing.T) {
+	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
+	oldEnsureAgent := deployEnsureAgentFunc
+	oldStatus := deployPublicEdgeStatusFunc
+	oldRestart := deployEdgeRestartFunc
+	oldDrift := deployHelperDriftStatusFunc
+	oldDelay := deployPublicEdgeRetryDelay
+	t.Cleanup(func() {
+		deployEnsureAgentFunc = oldEnsureAgent
+		deployPublicEdgeStatusFunc = oldStatus
+		deployEdgeRestartFunc = oldRestart
+		deployHelperDriftStatusFunc = oldDrift
+		deployPublicEdgeRetryDelay = oldDelay
+	})
+	deployPublicEdgeRetryDelay = 0
+	deployEnsureAgentFunc = func() error { return nil }
+	deployHelperDriftStatusFunc = func(localagent.Paths) deploydiag.HelperDrift { return deploydiag.HelperDrift{} }
+	deployPublicEdgeStatusFunc = func(localagent.Paths) (edgeStatusResult, error) {
+		return edgeStatusResult{
+			Edge: edgeStatusCaddy{
+				State:       localagent.EdgeStatusRunning,
+				PID:         42,
+				HTTPSListen: "127.0.0.1:19443",
+				Upstream:    "127.0.0.1:9440",
+				AgentRouter: "127.0.0.1:9440",
+			},
+			PrivilegedListener: edgeStatusPrivilegedListener{
+				State:     "running",
+				Target:    "127.0.0.1:19443",
+				TargetPID: 42,
+			},
+		}, nil
+	}
+	restarted := false
+	deployEdgeRestartFunc = func() error {
+		restarted = true
+		return nil
+	}
+
+	var out bytes.Buffer
+	if err := runDeployResume(&out, deployOptions{JSON: true}); err != nil {
+		t.Fatal(err)
+	}
+	if restarted {
+		t.Fatal("deploy resume restarted a healthy public edge")
+	}
+	var payload deployResumeResponse
+	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if !payload.AgentReady || payload.EdgeRestarted {
+		t.Fatalf("resume payload = %+v", payload)
 	}
 }
 

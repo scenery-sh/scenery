@@ -28,15 +28,33 @@ regenerated client artifacts).
 
 ## Progress
 
-- [ ] (2026-07-22) Plan authored; not started.
-- [ ] Milestone 1: `origin` on generated navigation descriptors + catalog
+- [x] (2026-07-22) Generator and catalog implementation started.
+- [x] Milestone 1: `origin` on generated navigation descriptors + catalog
   `SideNavigationItem`.
-- [ ] Milestone 2: icon tint for generated entries in `SideNavigation`.
-- [ ] Milestone 3: platform adapter pass-through and browser acceptance.
+- [x] Milestone 2: icon tint for generated entries in `SideNavigation`.
+- [x] Milestone 3 (code): platform adapter pass-through is emitted by the
+  generated app adapter; the coordinated platform regeneration includes every
+  generated navigation route, including 0134 workspace shells.
+- [x] Focused proof: `go test ./internal/generate`, catalog TypeScript checking,
+  and the platform generated-route ownership/provenance test are green.
+- [x] (2026-07-22) Milestone 3 acceptance: the authoritative platform client
+  regeneration stamped every generated route. Live navigation exposed 46
+  `data-origin` entries; generated icons were `rgb(0, 69, 140)` in light mode
+  and `rgb(158, 183, 255)` in dark mode while authored icons retained their
+  ordinary foreground colors.
+- [x] (2026-07-22) Review follow-up re-ran the browser acceptance against the
+  current `/platform/sales` route and reproduced the same 46-entry provenance
+  split and light/dark computed colors.
 
 ## Surprises & Discoveries
 
-- (2026-07-22) Nothing yet.
+- (2026-07-22) Astryx's `SideNavItem` deliberately accepts no arbitrary DOM
+  pass-through after destructuring its props. The catalog therefore owns a thin
+  entry wrapper for `data-origin`; the icon remains an Astryx slot and inherits
+  the catalog's semantic info-icon tint through `currentColor`.
+- (2026-07-22) The generated route module imports the catalog's
+  `NavigationOrigin` type-only, so the catalog owns one union instead of a
+  duplicated generator-local union.
 
 ## Decision Log
 
@@ -56,10 +74,19 @@ regenerated client artifacts).
   token, not a hardcoded color) and also stamps a
   `data-origin="generated"` attribute on the entry, so app-level styling or
   tooling can hook the same signal without new props.
+- (2026-07-22, agent) **The generated app adapter is the merge seam.** It
+  maps every descriptor to a `SideNavigationItem`, preserving its stamped value
+  and normalizing omitted app-owned descriptors to `"authored"`; the platform
+  router remains a plain descriptor list rather than acquiring a duplicate
+  provenance mapper.
 
 ## Outcomes & Retrospective
 
-Not yet completed.
+Generated route provenance is now a singular reusable catalog signal rather
+than a styling convention. Every generated route, including workspaces, carries
+the typed origin through the generated adapter; authored routes normalize to
+`"authored"`. The live Micro navigation proved the data attribute and distinct
+semantic tint in both themes without changing layout or accessible labels.
 
 ## Context and Orientation
 

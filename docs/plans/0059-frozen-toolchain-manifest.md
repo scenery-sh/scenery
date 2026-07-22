@@ -39,7 +39,9 @@ Downloaded binaries, extracted tool homes, image presence metadata, and installa
 - [x] (2026-06-01 09:02Z) Add tests and self-harness coverage.
 - [x] (2026-06-24) Promote ZeroFS into the frozen toolchain manifest and remove `SCENERY_DEV_ZEROFS_BIN`, `SCENERY_LEGACY_ASYNC_RUNTIME_BIN`, `SCENERY_DEV_POSTGRES_BIN`, and `SCENERY_DEV_POSTGRES_INITDB` as managed-substrate binary overrides. ZeroFS and legacy async runtime CLI now resolve through the managed toolchain store, and managed Postgres starts from the manifest-pinned Docker image unless an explicit admin URL or external database mode is configured.
 - [x] (2026-06-24) Add `scenery upgrade` to fetch a verified release binary, replace the local executable, and run the upgraded binary's managed toolchain sync for already-installed tools by default or the whole manifest with `--toolchain all`.
-- [ ] (YYYY-MM-DD HH:MMZ) Complete validation and update retrospective.
+- [x] (2026-07-22) Complete validation and update retrospective against the
+  current singular toolchain surface; the worktree-local self-harness is the
+  final repository gate.
 ## Surprises & Discoveries
 - Observation: Scenery already has a partial internal pin file at `internal/devtools/versions.json`.
   Evidence: It currently pins Grafana, Grafana plugins, VictoriaMetrics, VictoriaLogs, and VictoriaTraces.
@@ -101,7 +103,15 @@ Downloaded binaries, extracted tool homes, image presence metadata, and installa
   Rationale: Digest-pinning every image is desirable, but strict verification already fails on tag-only refs and the manifest exposes the instability instead of hiding it.
   Date/Author: 2026-06-01 / Codex.
 ## Outcomes & Retrospective
-Not yet completed. The implementation, docs, focused tests, full `go test ./...`, `go install ./cmd/scenery`, toolchain smoke checks, isolated `legacy-async-runtime-cli` sync, docs inspection, and `git diff --check` have been run. `scenery harness self --json --write` still reports `ok: false` because the full Go suite exceeded the repo-wide 7s harness timing target; after fixing the `SKILL.md` capability phrase and removing duplicate real parallel-dev work from the unit test path, the remaining self-harness next action points to the existing `docs/plans/0050-test-suite-speed-hardening.md` work.
+Completed 2026-07-22. The frozen manifest, managed artifact store, checksum and
+archive verification, Docker runner injection, version metadata, CLI, upgrade
+sync, and no-ambient-PATH contract are the current implementation. Later
+plans removed Grafana, ZeroFS, and the legacy async runtime; those historical
+entries do not remain as compatibility paths. Victoria runs the manifest-owned
+managed binaries. Optional tag-only Victoria image references are deliberately
+non-installable and rejected by strict image verification, so they do not
+weaken the executable toolchain identity. Test-suite timing was resolved by
+ExecPlan 0050 and no longer blocks this plan's harness acceptance.
 ## Context and Orientation
 Scenery is a Go-native service runtime and local development platform. App roots are marked by `.scenery.json`. The CLI starts local development services, generated app processes, observability sidecars, managed Postgres services, legacy async runtime workers, frontends, and dashboards.
 The relevant repository files and packages are:

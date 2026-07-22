@@ -28,7 +28,7 @@ func TestChangePlanDoesNotWriteAndApplyIsRevisionBound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(root, "house", "scenery.package.scn")
+	path := filepath.Join(root, "house", testPackageFilename)
 	before, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -157,7 +157,7 @@ func TestChangeRenameUpdatesTypedReferences(t *testing.T) {
 	if _, err := ApplyChangePlan(root, plan, base.WorkspaceRevision, base.Manifest.ContractRevision); err != nil {
 		t.Fatal(err)
 	}
-	b, err := os.ReadFile(filepath.Join(root, "house", "scenery.package.scn"))
+	b, err := os.ReadFile(filepath.Join(root, "house", testPackageFilename))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,14 +173,14 @@ func TestChangeRenameUpdatesNestedAndCompositeReferencesAndRecordsEvidence(t *te
 			t.Fatal(err)
 		}
 	}
-	writeNestedModuleFile(t, filepath.Join(root, "scenery.scn"), `application "nested_rename" {}
+	writeNestedModuleFile(t, filepath.Join(root, testAppFilename), `application "nested_rename" {}
 module "parent" { source = "./parent" }
 `)
-	writeNestedModuleFile(t, filepath.Join(root, "parent", "scenery.package.scn"), `package "parent" {
+	writeNestedModuleFile(t, filepath.Join(root, "parent", testPackageFilename), `package "parent" {
 }
 module "geometry" { source = "../geometry" }
 `)
-	geometryPath := filepath.Join(root, "geometry", "scenery.package.scn")
+	geometryPath := filepath.Join(root, "geometry", testPackageFilename)
 	writeNestedModuleFile(t, geometryPath, `package "geometry" {
 }
 record "point" {
@@ -197,7 +197,7 @@ export "shapes" {
   }
 }
 `)
-	writeNestedModuleFile(t, filepath.Join(root, "consumer", "scenery.package.scn"), `package "consumer" {
+	writeNestedModuleFile(t, filepath.Join(root, "consumer", testPackageFilename), `package "consumer" {
 }
 input "point" { type = resource_ref("record") }
 `)
@@ -278,11 +278,11 @@ func TestChangeRenameRejectsSourceSharedByMultipleModuleInstances(t *testing.T) 
 	if err := os.MkdirAll(filepath.Join(root, "geometry"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeNestedModuleFile(t, filepath.Join(root, "scenery.scn"), `application "shared" {}
+	writeNestedModuleFile(t, filepath.Join(root, testAppFilename), `application "shared" {}
 module "first" { source = "./geometry" }
 module "second" { source = "./geometry" }
 `)
-	packagePath := filepath.Join(root, "geometry", "scenery.package.scn")
+	packagePath := filepath.Join(root, "geometry", testPackageFilename)
 	writeNestedModuleFile(t, packagePath, `package "geometry" {
 }
 record "point" {
@@ -385,7 +385,7 @@ func TestChangeCreateAddsStructuredOperation(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(root, "catalog"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeNestedModuleFile(t, filepath.Join(root, "scenery.scn"), `application "catalog" {}
+	writeNestedModuleFile(t, filepath.Join(root, testAppFilename), `application "catalog" {}
 workspace {
   managed_generated_roots = ["catalog/scenerycontract", "internal/scenerygen"]
 }
@@ -395,7 +395,7 @@ go_module "application" {
 }
 module "catalog" { source = "./catalog" }
 `)
-	writeNestedModuleFile(t, filepath.Join(root, "catalog", "scenery.package.scn"), `package "catalog" {
+	writeNestedModuleFile(t, filepath.Join(root, "catalog", testPackageFilename), `package "catalog" {
   go_contract {
     import_path = "example.test/catalog/catalog"
   }
@@ -454,7 +454,7 @@ record "lookup_result" {
 	}
 	result, err := compiler.Compile(root)
 	if err != nil || !result.Valid() {
-		written, _ := os.ReadFile(filepath.Join(root, "catalog", "scenery.package.scn"))
+		written, _ := os.ReadFile(filepath.Join(root, "catalog", testPackageFilename))
 		t.Fatalf("compile: %v diagnostics=%#v\nsource:\n%s", err, result.Diagnostics, written)
 	}
 	operation := resourcesByAddress(result.Manifest)["catalog/operation/lookup"]
@@ -501,7 +501,7 @@ func TestStructuredResourceRendererUsesHTTPWireLabelPolicies(t *testing.T) {
 		}
 	}
 	root := t.TempDir()
-	path := filepath.Join(root, "scenery.package.scn")
+	path := filepath.Join(root, testPackageFilename)
 	if err := os.WriteFile(path, hclwrite.Format(block.BuildTokens(nil).Bytes()), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -567,7 +567,7 @@ func TestChangeCreateLowersCanonicalReferenceAndDurationScalar(t *testing.T) {
 	}
 	execution := resourcesByAddress(result.Manifest)["house/execution/process_scene_copy"]
 	timeout, _ := execution.Spec["timeout"].(map[string]any)
-	written, err := os.ReadFile(filepath.Join(root, "house", "scenery.package.scn"))
+	written, err := os.ReadFile(filepath.Join(root, "house", testPackageFilename))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -636,7 +636,7 @@ func TestChangeCreateAddsStructuredHTTPBinding(t *testing.T) {
 func TestChangeCreateAddsServiceDynamicConfigBlock(t *testing.T) {
 	root := t.TempDir()
 	copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), root)
-	packagePath := filepath.Join(root, "house", "scenery.package.scn")
+	packagePath := filepath.Join(root, "house", testPackageFilename)
 	packageSource, err := os.ReadFile(packagePath)
 	if err != nil {
 		t.Fatal(err)
@@ -695,7 +695,7 @@ func TestChangeCreateResolvesNestedModuleSource(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	writeNestedModuleFile(t, filepath.Join(root, "scenery.scn"), `workspace {
+	writeNestedModuleFile(t, filepath.Join(root, testAppFilename), `workspace {
   managed_generated_roots = ["parent/scenerycontract", "geometry/scenerycontract", "internal/scenerygen"]
 }
 go_module "application" {
@@ -705,12 +705,12 @@ go_module "application" {
 application "nested" {}
 module "parent" { source = "./parent" }
 `)
-	writeNestedModuleFile(t, filepath.Join(root, "parent", "scenery.package.scn"), `package "parent" {
+	writeNestedModuleFile(t, filepath.Join(root, "parent", testPackageFilename), `package "parent" {
   go_contract { import_path = "example.test/nested/parent" }
 }
 module "geometry" { source = "../geometry" }
 `)
-	geometryPath := filepath.Join(root, "geometry", "scenery.package.scn")
+	geometryPath := filepath.Join(root, "geometry", testPackageFilename)
 	writeNestedModuleFile(t, geometryPath, `package "geometry" {
   go_contract { import_path = "example.test/nested/geometry" }
 }
@@ -804,7 +804,7 @@ func TestChangeApplyRequiresBoundApprovalAndRejectsReplay(t *testing.T) {
 func TestRepairPlanUsesNullContractRevisionAndEstablishesContract(t *testing.T) {
 	root := t.TempDir()
 	copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), root)
-	path := filepath.Join(root, "house", "scenery.package.scn")
+	path := filepath.Join(root, "house", testPackageFilename)
 	source, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)

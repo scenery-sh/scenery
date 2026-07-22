@@ -3,7 +3,7 @@
 This ExecPlan is a living document; update Progress, Surprises & Discoveries,
 and the Decision Log as work proceeds.
 
-- Status: active (implementation landed; live acceptance recorded below)
+- Status: completed 2026-07-14 (implementation and live acceptance recorded below)
 - Owner: scenery runtime / edge
 - Created: 2026-07-14
 

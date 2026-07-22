@@ -1,0 +1,587 @@
+package "house" {
+
+  go_contract {
+    import_path = "example.test/clean-tech/house"
+  }
+}
+
+input "gateway" {
+  type = resource_ref("http_gateway")
+}
+
+service "house" {
+  runtime = "go"
+
+  implementation {
+    constructor = "NewService"
+  }
+}
+
+record "process_scene_input" {
+  field "scene_id" {
+    type = string
+  }
+}
+
+record "process_scene_result" {
+  field "status" {
+    type = string
+  }
+}
+
+operation "process_scene" {
+  service = service.house
+  input   = record.process_scene_input
+
+  handler {
+    method = "ProcessScene"
+  }
+
+  result "processed" {
+    type = record.process_scene_result
+  }
+}
+
+execution "process_scene_direct" {
+  operation = operation.process_scene
+  mode      = "direct"
+  timeout   = "40m"
+}
+
+binding "process_scene_http" {
+  gateway   = var.gateway
+  operation = operation.process_scene
+  execution = execution.process_scene_direct
+  protocol  = "http"
+  delivery  = "call"
+
+  authentication = std.authentication.none
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+
+  http {
+    method        = "POST"
+    path          = "/house/process"
+    codec_profile = std.codec.http_json_v1
+
+    body {
+      codec = "json"
+      to    = operation.process_scene.input
+    }
+
+    response "processed" {
+      when   = result.processed
+      status = 200
+
+      body {
+        codec = "json"
+        from  = result.processed
+      }
+    }
+  }
+}
+
+export "service" {
+  value = service.house
+}
+
+record "workspace_item" {
+  field "id" {
+    type = string
+  }
+
+  field "name" {
+    type = string
+  }
+}
+
+record "workspace_items" {
+  field "items" {
+    type = list(record.workspace_item)
+  }
+}
+
+record "workspace_stats" {
+  field "orders_total" {
+    type = int64
+  }
+
+  field "orders_available" {
+    type = bool
+  }
+}
+
+operation "list_workspace_items" {
+  service = service.house
+  input   = std.type.unit
+
+  handler {
+    method = "ListWorkspaceItems"
+  }
+
+  result "success" {
+    type = record.workspace_items
+  }
+}
+
+operation "read_workspace_stats" {
+  service = service.house
+  input   = std.type.unit
+
+  handler {
+    method = "ReadWorkspaceStats"
+  }
+
+  result "success" {
+    type = record.workspace_stats
+  }
+}
+
+execution "list_workspace_items_direct" {
+  operation = operation.list_workspace_items
+  mode      = "direct"
+}
+
+execution "read_workspace_stats_direct" {
+  operation = operation.read_workspace_stats
+  mode      = "direct"
+}
+
+binding "list_workspace_items_http" {
+  gateway   = var.gateway
+  operation = operation.list_workspace_items
+  execution = execution.list_workspace_items_direct
+  protocol  = "http"
+  delivery  = "call"
+
+  authentication = std.authentication.none
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+
+  http {
+    method        = "GET"
+    path          = "/workspace/items"
+    codec_profile = std.codec.http_json_v1
+
+    response "success" {
+      when   = result.success
+      status = 200
+
+      body {
+        codec = "json"
+        from  = result.success
+      }
+    }
+  }
+}
+
+binding "read_workspace_stats_http" {
+  gateway   = var.gateway
+  operation = operation.read_workspace_stats
+  execution = execution.read_workspace_stats_direct
+  protocol  = "http"
+  delivery  = "call"
+
+  authentication = std.authentication.none
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+
+  http {
+    method        = "GET"
+    path          = "/workspace/stats"
+    codec_profile = std.codec.http_json_v1
+
+    response "success" {
+      when   = result.success
+      status = 200
+
+      body {
+        codec = "json"
+        from  = result.success
+      }
+    }
+  }
+}
+
+react_component "workspace_summary" {
+  module = "workspace-slots.tsx"
+  export = "WorkspaceSummary"
+}
+
+table_page "workspace_orders" {
+  path   = "/workspace/orders"
+  source = binding.list_workspace_items_http
+  items  = "items"
+  title  = "Orders"
+
+  column "id" {
+    label = "ID"
+  }
+
+  column "name" {
+    label = "Name"
+  }
+}
+
+content_page "workspace_summary" {
+  path  = "/workspace/summary"
+  title = "Summary"
+
+  content {
+    component = react_component.workspace_summary
+  }
+}
+
+workspace_page "workspace" {
+  path         = "/workspace"
+  title        = "Workspace"
+  presentation = "sidebar"
+
+  stats {
+    source = binding.read_workspace_stats_http
+
+    tile "orders_total" {
+      label = "Orders"
+    }
+  }
+
+  tab "orders" {
+    page               = table_page.workspace_orders
+    label              = "Orders"
+    description        = "Open work"
+    group              = "Operations"
+    count              = "orders_total"
+    available          = "orders_available"
+    unavailable_reason = "Orders are not projected"
+  }
+
+  tab "summary" {
+    page  = content_page.workspace_summary
+    label = "Summary"
+    group = "Insights"
+  }
+
+  tab "vendors" {
+    destination        = "/vendors"
+    label              = "Vendors"
+    group              = "Related"
+    available          = "orders_available"
+    unavailable_reason = "Vendors live in their own workspace"
+  }
+
+  tab "rules" {
+    label              = "Business rules"
+    group              = "Unavailable"
+    available          = "orders_available"
+    unavailable_reason = "No projected records"
+  }
+}
+
+record "scene_read_input" {
+  field "id" {
+    type = string
+  }
+}
+
+record "scene_detail" {
+  field "id" {
+    type = string
+  }
+
+  field "name" {
+    type = string
+  }
+
+  field "status" {
+    type = string
+  }
+}
+
+record "scene_update_input" {
+  field "id" {
+    type = string
+  }
+
+  field "name" {
+    type = string
+  }
+}
+
+record "scene_event" {
+  field "id" {
+    type = string
+  }
+
+  field "message" {
+    type = string
+  }
+}
+
+record "scene_events_input" {
+  field "scene_id" {
+    type = string
+  }
+}
+
+record "scene_events_result" {
+  field "items" {
+    type = list(record.scene_event)
+  }
+}
+
+operation "read_scene" {
+  service = service.house
+  input   = record.scene_read_input
+
+  handler {
+    method = "ReadScene"
+  }
+
+  result "success" {
+    type = record.scene_detail
+  }
+}
+
+operation "update_scene" {
+  service = service.house
+  input   = record.scene_update_input
+
+  handler {
+    method = "UpdateScene"
+  }
+
+  result "success" {
+    type = record.scene_detail
+  }
+}
+
+operation "list_scene_events" {
+  service = service.house
+  input   = record.scene_events_input
+
+  handler {
+    method = "ListSceneEvents"
+  }
+
+  result "success" {
+    type = record.scene_events_result
+  }
+}
+
+execution "read_scene_direct" {
+  operation = operation.read_scene
+  mode      = "direct"
+}
+
+execution "update_scene_direct" {
+  operation = operation.update_scene
+  mode      = "direct"
+}
+
+execution "list_scene_events_direct" {
+  operation = operation.list_scene_events
+  mode      = "direct"
+}
+
+binding "read_scene_http" {
+  gateway   = var.gateway
+  operation = operation.read_scene
+  execution = execution.read_scene_direct
+  protocol  = "http"
+  delivery  = "call"
+
+  authentication = std.authentication.none
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+
+  http {
+    method        = "GET"
+    path          = "/house/scenes/{scene_id}"
+    codec_profile = std.codec.http_json_v1
+
+    path_parameter "scene_id" {
+      to = operation.read_scene.input.id
+    }
+
+    response "success" {
+      when   = result.success
+      status = 200
+
+      body {
+        codec = "json"
+        from  = result.success
+      }
+    }
+  }
+}
+
+binding "read_scene_internal" {
+  operation = operation.read_scene
+  execution = execution.read_scene_direct
+  protocol  = "internal"
+  delivery  = "call"
+
+  exposure       = "application"
+  authentication = std.authentication.inherit
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+
+  internal {
+    visibility = "application"
+    principal  = "inherit"
+  }
+}
+
+binding "update_scene_http" {
+  gateway   = var.gateway
+  operation = operation.update_scene
+  execution = execution.update_scene_direct
+  protocol  = "http"
+  delivery  = "call"
+
+  authentication = std.authentication.none
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+
+  http {
+    method        = "POST"
+    path          = "/house/scenes/update"
+    codec_profile = std.codec.http_json_v1
+
+    body {
+      codec = "json"
+      to    = operation.update_scene.input
+    }
+
+    response "success" {
+      when   = result.success
+      status = 200
+
+      body {
+        codec = "json"
+        from  = result.success
+      }
+    }
+  }
+}
+
+binding "list_scene_events_http" {
+  gateway   = var.gateway
+  operation = operation.list_scene_events
+  execution = execution.list_scene_events_direct
+  protocol  = "http"
+  delivery  = "call"
+
+  authentication = std.authentication.none
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+
+  http {
+    method        = "GET"
+    path          = "/house/scenes/{scene_id}/events"
+    codec_profile = std.codec.http_json_v1
+
+    path_parameter "scene_id" {
+      to = operation.list_scene_events.input.scene_id
+    }
+
+    response "success" {
+      when   = result.success
+      status = 200
+
+      body {
+        codec = "json"
+        from  = result.success
+      }
+    }
+  }
+}
+
+status_map "scene_status" {
+  status "ready" {
+    label   = "Ready"
+    variant = "success"
+  }
+}
+
+form_dialog "update_scene" {
+  source       = binding.update_scene_http
+  title        = "Update scene"
+  submit_label = "Save"
+
+  field "id" {
+    label = "Scene ID"
+  }
+
+  field "name" {
+    label = "Name"
+  }
+}
+
+react_component "scene_actions" {
+  module = "workspace-slots.tsx"
+  export = "SceneActions"
+}
+
+table_page "scene_events" {
+  path   = "/house/scene-events"
+  source = binding.list_scene_events_http
+  items  = "items"
+  title  = "Scene events"
+
+  column "id" {
+    label = "ID"
+  }
+
+  column "message" {
+    label = "Message"
+  }
+}
+
+detail_page "scene_detail" {
+  path         = "/house/scenes/{scene_id}"
+  source       = binding.read_scene_http
+  title        = "Scene detail"
+  description  = "Inspect one scene and its recent events."
+  presentation = "both"
+
+  param "scene_id" {
+    input = "id"
+  }
+
+  section "overview" {
+    label = "Overview"
+
+    field "id" {
+      label = "Scene ID"
+    }
+
+    field "name" {
+      label      = "Name"
+      hide_empty = true
+    }
+
+    field "status" {
+      label      = "Status"
+      appearance = "badge"
+      status_map = status_map.scene_status
+    }
+  }
+
+  action "update" {
+    label   = "Update"
+    dialog  = form_dialog.update_scene
+    primary = true
+  }
+
+  actions {
+    component = react_component.scene_actions
+  }
+
+  table "events" {
+    label = "Events"
+    page  = table_page.scene_events
+    param = "scene_id"
+    input = "scene_id"
+  }
+}

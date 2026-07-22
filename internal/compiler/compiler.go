@@ -31,7 +31,7 @@ var packageResourceKinds = map[string]bool{
 	"operation": true, "execution": true, "binding": true,
 	"schedule": true, "event": true, "event_emission": true,
 	"entity": true, "view": true, "crud": true, "fixture": true,
-	"page": true, "renderer": true, "react_component": true, "status_map": true, "form_dialog": true, "table_page": true, "split_page": true, "content_page": true, "middleware": true,
+	"page": true, "renderer": true, "react_component": true, "status_map": true, "form_dialog": true, "table_page": true, "split_page": true, "content_page": true, "workspace_page": true, "detail_page": true, "middleware": true,
 }
 
 func Compile(root string) (*Result, error) {
@@ -64,10 +64,14 @@ func compileResult(root string) (*Result, error) {
 	result := &Result{Root: absRoot, ContractStatus: "invalid", ImplementationStatus: "not_requested"}
 	paths, err := scn.SourceFiles(absRoot, true)
 	if err != nil {
+		if diagnostic, ok := legacyFilenameDiagnostic(err); ok {
+			result.Diagnostics = append(result.Diagnostics, diagnostic)
+			return result, nil
+		}
 		return nil, err
 	}
-	if !containsBase(paths, "scenery.scn") {
-		return nil, fmt.Errorf("%s does not contain scenery.scn", absRoot)
+	if !containsBase(paths, scn.AppFilename) {
+		return nil, fmt.Errorf("%s does not contain %s", absRoot, scn.AppFilename)
 	}
 	for _, path := range paths {
 		source, syntaxDiagnostics := scn.Parse(absRoot, path)
@@ -347,6 +351,10 @@ func compileSources(root string, sources []*Source, lockfile *Lockfile) (*Manife
 	diagnostics = append(diagnostics, resourceDiagnostics...)
 	resources, resourceDiagnostics = expandContentPageResources(resources)
 	diagnostics = append(diagnostics, resourceDiagnostics...)
+	resources, resourceDiagnostics = expandWorkspacePageResources(resources)
+	diagnostics = append(diagnostics, resourceDiagnostics...)
+	resources, resourceDiagnostics = expandDetailPageResources(resources)
+	diagnostics = append(diagnostics, resourceDiagnostics...)
 	resources, resourceDiagnostics = enrichDataImplementationDigests(root, resources)
 	diagnostics = append(diagnostics, resourceDiagnostics...)
 	resources, resourceDiagnostics = enrichUIImplementationDigests(root, resources)
@@ -479,10 +487,13 @@ func compilePackage(root, dir, module string) ([]Resource, []*Source, []Diagnost
 func compilePackageLogical(root, dir, module, logicalBase string) ([]Resource, []*Source, []Diagnostic) {
 	paths, err := scn.SourceFiles(dir, false)
 	if err != nil {
+		if diagnostic, ok := legacyFilenameDiagnostic(err); ok {
+			return nil, nil, []Diagnostic{diagnostic}
+		}
 		return nil, nil, []Diagnostic{{Code: "SCN3004", Severity: "error", Message: err.Error()}}
 	}
-	if !containsBase(paths, "scenery.package.scn") {
-		return nil, nil, []Diagnostic{{Code: "SCN3005", Severity: "error", Message: fmt.Sprintf("module %s is missing scenery.package.scn", module)}}
+	if !containsBase(paths, scn.PackageFilename) {
+		return nil, nil, []Diagnostic{{Code: "SCN3005", Severity: "error", Message: fmt.Sprintf("module %s is missing %s", module, scn.PackageFilename)}}
 	}
 	var sources []*Source
 	var diagnostics []Diagnostic

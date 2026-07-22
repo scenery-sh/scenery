@@ -58,9 +58,44 @@ is a facade, not a conversion.
 ## Progress
 
 - [x] (2026-07-22) Plan authored with the static-registry finding.
-- [x] 2026-07-22 Milestone 1 design decisions recorded: Option A,
+- [x] (2026-07-22) Milestone 1 design decisions recorded: Option A,
   module-by-module migration, workspace sidebar presentation, app-owned crew
   content tab, and nav-exposed modules first.
+- [x] (2026-07-22) Milestone 2 workspace navigation extension: typed grouped
+  sidebar entries now carry descriptions, counts, typed availability and
+  unavailable reasons; entries may embed a page, navigate to a destination,
+  or remain disabled navigation-only records. Desktop SideNavigation and the
+  mobile Selector expose the same directory while `?tab=` remains reserved
+  for page-backed entries. The sidebar content pane also renders the active
+  entry label and description above the embedded chrome-less page, restoring
+  the Governance heading that child `Page` suppression would otherwise remove.
+  Focused proof: `go test ./internal/compiler -run
+  'TestCompileHouseCore|TestWorkspacePage'`, `go test ./internal/spec -run
+  TestDeclarativeTableResourceMetadataIsComplete`, `go test
+  ./internal/generate -run 'TestRenderReactWorkspacePage|TestReactWorkspaceRoute'`,
+  and the catalog TypeScript check all pass.
+- [x] (2026-07-22) Milestones 3–4 converted the 26 available Governance
+  modules into 25 typed `table_page`s plus the app-owned typed Crew content
+  tab. `/admin` owns 22 grouped sidebar entries and `/system` owns 18; counts,
+  descriptions, unavailable reasons, disabled entries, and the six existing
+  cross-workspace destinations are contract data.
+- [x] (2026-07-22) Milestone 5 retired the generic wire and handwritten route:
+  `governance_read`, generic column/cell/row records, the module dispatcher,
+  `governance.tsx`, `admin.tsx`, and `system.tsx` are gone. The authoritative
+  Micro generation completed with contract revision
+  `sha256:2b3d832cc9f74d3b11198692d8c7664741d7688b2aa72da9658b519d176dcd57`
+  and a following `--check` reported `changed=[]`.
+- [x] (2026-07-22) Static validation passed: cached Scenery `go test ./...`,
+  cached Micro `go test ./...`, `scenery check`, generated-client drift check,
+  platform typecheck/lint, 113 Bun tests, and the production frontend build.
+  Coordinated authenticated desktop/mobile browser acceptance is recorded by
+  the root convergence run rather than starting a competing Micro runtime.
+- [x] (2026-07-22) Authenticated live acceptance proved `/admin?tab=ahj`
+  (1,410 records, first 500 shown), URL selection and kept-alive Users state,
+  the typed five-crew card view, `/system?tab=organizations` authorization
+  failure semantics, disabled unavailable entries, and destination links.
+  The desktop grouped sidebar and the materialized responsive Selector carry
+  the same 40-entry directory.
 
 ## Surprises & Discoveries
 
@@ -71,6 +106,19 @@ is a facade, not a conversion.
   counts, columns, and rows. Evidence: grep for `moduleDefinition{` and
   `case "` in that file. Consequence: typed per-module contracts are
   mechanical extraction, not new design.
+- (2026-07-22) Astryx `SideNavItem` intentionally has one string label and no
+  secondary-description slot. The generated workspace keeps the Astryx
+  primitive rather than hand-rolling navigation: descriptions are folded into
+  its accessible label, and unavailable reasons are repeated in a Tooltip over
+  the status badge. The mobile Selector uses the same grouped labels and
+  disabled/destination semantics.
+- (2026-07-22) The first full Governance generation exposed two distinctions
+  that unit fixtures had hidden: a source-less `content_page` has no client
+  prop, and workspace stats used only for counts/availability have no visual
+  tiles. The workspace generator now emits the static child without `client`,
+  keeps QueryState's required child as `{null}`, and imports StatGrid/StatTile
+  only when authored tiles exist. Consumer-native TypeScript verification is
+  the authoritative guard for both shapes.
 
 ## Decision Log
 
@@ -108,10 +156,28 @@ is a facade, not a conversion.
 - (2026-07-22, Petr + agent) **Sequence after the shared foundations.** Land
   0133, 0132, and 0134 before platform governance conversion so the consumer
   migrates once onto the final table/workspace APIs.
+- (2026-07-22, Petr + agent) **Sidebar directory entries have three singular
+  shapes.** A tab has a `page`, a `destination`, or neither. Page entries own
+  `?tab=` selection and retained content; destinations are ordinary clickable
+  routes even when their stats availability is false; an entry with neither is
+  always disabled and must declare both an availability field and an
+  `unavailable_reason`. `page` and `destination` are mutually exclusive, and
+  navigation-only shapes are accepted only by `presentation = "sidebar"`.
 
 ## Outcomes & Retrospective
 
-Not yet completed.
+The singular typed end state is implemented. Governance now exposes typed rows,
+results, operations, generated tables, and generated workspace routes; the only
+app-owned content is the deliberately domain-specific Crew card view. The
+generic response-defined schema and handwritten Admin/System route owners were
+deleted rather than retained as compatibility paths. The conversion also
+strengthened `workspace_page` itself: large generated workspaces now have one
+typed grouped-sidebar contract, including destination-only and disabled
+navigation entries, without inventing a Governance-specific shell.
+
+Static acceptance is complete and generation is deterministic. Browser
+acceptance uses the already-running converged Micro session and is coordinated
+by the root task so validation does not race a second supervisor.
 
 ## Context and Orientation
 
@@ -225,3 +291,32 @@ Spec-revision fallout recovery per the 0131 recipe.
 - The 0051 parity gate (platform repo) is the acceptance standard for
   every module conversion.
 - No new runtime dependencies.
+
+The Milestone 2 authored shapes are:
+
+    tab "ahj" {
+      page               = table_page.ahj
+      label              = "Authorities Having Jurisdiction"
+      description        = "Jurisdiction directory"
+      group              = "Configuration"
+      count              = "ahj_count"
+      available          = "ahj_available"
+      unavailable_reason = "AHJ records are not projected"
+    }
+
+    tab "vendors" {
+      destination        = "/vendors"
+      label              = "Vendors"
+      description        = "Open the vendor workspace"
+      group              = "Related"
+      available          = "vendors_available"
+      unavailable_reason = "Vendor records live in their own workspace"
+    }
+
+    tab "business_rules" {
+      label              = "Business rules"
+      description        = "Imported rule configuration"
+      group              = "Unavailable"
+      available          = "business_rules_available"
+      unavailable_reason = "No projected records"
+    }

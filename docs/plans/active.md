@@ -7,11 +7,6 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
-- [0138 Entity Detail Page Template: detail_page](0138-detail-page-template.md)
-  - Status: active (design decided; sequence after the `/sales` content-tab fix, the 0132–0136 tree commits, and 0137)
-  - Owner: scenery spec / compiler / generate / ui + Micro platform pilot
-  - Created: 2026-07-22
-  - Focus: the last major read-surface template gap — a routed one-record view. New `detail_page` macro (path params, load binding, typed field sections, embedded related tables, `form_dialog` mutation actions, routed-page and controlled-dialog presentations from v1), dynamic path segments in the 0126 route contract, catalog detail-layout components, and a warranty-claim-detail pilot cutover in the Micro platform.
 - [0101 Public Deploy Edge](0101-public-deploy-edge.md)
   - Status: active
   - Owner: scenery runtime / edge

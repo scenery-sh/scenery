@@ -6,6 +6,107 @@ Completed means implemented or shipped at least once. It does not imply stable
 support for every surface. Use [../local-contract.md](../local-contract.md) as
 the source of truth for stable, beta, and dev-only classification.
 
+## Entity Detail Page Template
+
+- Status: completed
+- Owner: scenery spec / compiler / generate / ui + Micro platform pilot
+- Completed: 2026-07-22
+- Quality: B
+- ExecPlan: [0138 Entity Detail Page Template](0138-detail-page-template.md)
+
+Shipped the singular one-record `detail_page` macro with typed dynamic route
+params, field sections, related tables, simple form actions, a typed app-owned
+action slot, and shared routed-page/controlled-dialog output. Micro's live
+workmanship-claim pilot preserves the complete lifecycle and passed static,
+runtime, and authenticated browser acceptance.
+
+## Role-Named Contract Files
+
+- Status: completed
+- Owner: scenery scn / compiler / cmd + consumer repos
+- Completed: 2026-07-22
+- Quality: B
+- ExecPlan: [0137 Role-Named Contract Files](0137-scn-file-naming.md)
+
+Renamed authored contracts to the singular role-named `app.scn`, `package.scn`,
+and `app.lock.scn` model. Retired filenames fail closed with exact `SCN1021`
+rename instructions and no aliases; Scenery fixtures and all 30 Micro consumer
+contract files migrated and passed static, runtime, and browser acceptance.
+
+## Generated Page Provenance
+
+- Status: completed
+- Owner: scenery generate / ui catalog
+- Completed: 2026-07-22
+- Quality: B
+- ExecPlan: [0136 Generated Page Provenance](0136-generated-page-provenance.md)
+
+Stamped every generated route with intrinsic typed provenance, normalized
+handwritten routes to authored provenance, and exposed the signal through
+`data-origin` plus a semantic navigation-icon tint proven in light and dark.
+
+## Governance Workspace Generation
+
+- Status: completed
+- Owner: scenery compiler / generate + platform governance package
+- Completed: 2026-07-22
+- Quality: B
+- ExecPlan: [0135 Governance Workspace Generation](0135-governance-workspace-generation.md)
+
+Replaced Micro's generic governance wire and handwritten Admin/System pages
+with 25 typed generated tables, one typed Crew content view, and generated
+grouped-sidebar workspaces preserving all 40 entries and authorization states.
+
+## Tabbed Workspace Template
+
+- Status: completed
+- Owner: scenery compiler / generate / ui catalog
+- Completed: 2026-07-22
+- Quality: B
+- ExecPlan: [0134 Tabbed Workspace Template](0134-tabbed-workspace-template.md)
+
+Shipped the singular `workspace_page` composition contract with URL-synced
+selection, lazy-once kept-alive children, typed stats, tabs and grouped sidebar
+presentations. Sales, Vendors, and Documents are the live production pilots.
+
+## Candidate Parity Fixes
+
+- Status: completed
+- Owner: scenery ui catalog / generation
+- Completed: 2026-07-22
+- Quality: B
+- ExecPlan: [0133 Candidate Parity Fixes](0133-candidate-parity-fixes.md)
+
+Added retained query rows, deduplicated row-intent prefetch, and exact CSV
+controls, then cut In Service, Warranty, Service, and Documents over with no
+handwritten owner or `/generated` acceptance twin left behind.
+
+## Agent Runtime Operational Hardening
+
+- Status: completed
+- Owner: scenery runtime / ONLV integration
+- Completed: 2026-07-22
+- Quality: B
+- ExecPlan: [0048 Agent Runtime Operational Hardening](0048-agent-runtime-operational-hardening.md)
+
+Closed the runtime hardening gaps around explicit safe prune scopes,
+fingerprint-verified cleanup, substrate-preserving restarts, duplicate-owner
+diagnosis, visible Victoria self-healing, and Scenery-owned runtime validation.
+
+## QueryTable Performance
+
+- Status: completed
+- Owner: scenery ui catalog
+- Completed: 2026-07-22
+- Quality: B
+- ExecPlan: [0132 QueryTable Performance](0132-query-table-performance.md)
+
+Stabilized the generated table render boundary, composed Astryx's row
+memoization with a typed catalog memo boundary, and added dependency-free
+windowing for complete lists above 200 rows. The deterministic 1k/5k/10k
+harness bounds the rendered window at 32 rows while preserving grouping,
+absolute numbering, keyboard reveal, and expansion correctness.
+
 ## Runtime Infrastructure Consolidation
 
 - Status: completed

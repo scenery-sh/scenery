@@ -14,7 +14,7 @@ import (
 func TestCompileRecoversStaleInterruptedWorkspaceTransactionBeforeReadingSource(t *testing.T) {
 	root := t.TempDir()
 	copyTree(t, filepath.Join("testdata", "house"), root)
-	target := filepath.Join(root, "scenery.scn")
+	target := filepath.Join(root, appFilename)
 	before, err := os.ReadFile(target)
 	if err != nil {
 		t.Fatal(err)
@@ -40,7 +40,7 @@ func TestCompileRecoversStaleInterruptedWorkspaceTransactionBeforeReadingSource(
 	lock.Owner.PID = 999999
 	journal.Owner = lock.Owner
 	journal.Entries = []workspacetx.Entry{{
-		Path: "scenery.scn", Stage: stage, Backup: backup,
+		Path: appFilename, Stage: stage, Backup: backup,
 		BeforeDigest: testByteDigest(before), AfterDigest: testByteDigest(after), BeforeExists: true, AfterExists: true,
 	}}
 	writeTransactionJSON(t, filepath.Join(transactionRoot, "change.lock"), lock)

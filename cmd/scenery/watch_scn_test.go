@@ -4,13 +4,13 @@ import "testing"
 
 // scenery up must rebuild on .scn-only edits: .scn is the singular app
 // model, and until 2026-07-15 the watch set silently omitted it (verified
-// live — a scenery.scn comment edit produced no rebuild while Go edits did).
+// live — an app contract comment edit produced no rebuild while Go edits did).
 func TestIsWatchedFileIncludesScenerySources(t *testing.T) {
 	t.Parallel()
 
 	watched := []string{
-		"scenery.scn",
-		"service/scenery.package.scn",
+		testAppFilename,
+		"service/" + testPackageFilename,
 		"service/extra.scn",
 		"main.go",
 		".scenery.json",
@@ -21,8 +21,8 @@ func TestIsWatchedFileIncludesScenerySources(t *testing.T) {
 		}
 	}
 	unwatched := []string{
-		"scenery.lock.scn",
-		"nested/scenery.lock.scn",
+		testAppLockFilename,
+		"nested/" + testAppLockFilename,
 		"apps/web/src/App.tsx",
 	}
 	for _, rel := range unwatched {

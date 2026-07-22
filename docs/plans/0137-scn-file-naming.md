@@ -34,12 +34,12 @@ silent ignore and not a working alias.
 
 ## Progress
 
-- [ ] (2026-07-22) Plan authored; naming decided with Petr. Not started.
-- [ ] Milestone 1: core rename (discovery, lock, compiler diagnostics,
+- [x] (2026-07-22) Plan authored; naming decided with Petr.
+- [x] (2026-07-22) Milestone 1: core rename (discovery, lock, compiler diagnostics,
   legacy-name rename hints).
-- [ ] Milestone 2: repo sweep (cmd tools, evolution/generate, fixtures,
+- [x] (2026-07-22) Milestone 2: repo sweep (cmd tools, evolution/generate, fixtures,
   docs, harness knowledge contract).
-- [ ] Milestone 3: consumer migration (Micro platform repo) and live
+- [x] (2026-07-22) Milestone 3: consumer migration (Micro platform repo) and live
   verification.
 
 ## Surprises & Discoveries
@@ -52,6 +52,24 @@ silent ignore and not a working alias.
   scenery.package.scn"), plus `cmd/scenery/{doctor,watch,contract_commands}.go`,
   `internal/evolution/changes_create.go`, and
   `internal/generate/generate_{typescript,application}.go`.
+- (2026-07-22) Adding `SCN1021` changes the current diagnostic catalog and
+  therefore the spec identity embedded in builtin provider descriptors. The
+  Micro Postgres lock consequently changed from `sha256:4270…` to the exact
+  compiler-derived `sha256:cc532053539e876e0f1ed5ec6cc460c397ba97ae3da537cdcfbce761ae892f6d`.
+  This was real lock churn even though filenames themselves are not schema
+  fields; the planning-time expectation below was wrong.
+- (2026-07-22) Explicit `scenery check --app-root` initially wrapped a retired
+  root filename as `SCN9000` because contract-root discovery rejected the tree
+  before compilation. Root discovery now recognizes that location only to
+  route it into the fail-closed compiler, which emits `SCN1021`; the retired
+  file is never parsed or accepted.
+- (2026-07-22) Micro has three tracked immutable binaries whose embedded debug
+  provenance still contains old source paths: `microgrid-platform`,
+  `pkg/maps3d/libmaps3d_darwin_arm64.dylib`, and
+  `pkg/maps3d/libmaps3d_linux_amd64.so`. The maps3d ownership contract forbids
+  rebuilding those release artifacts for a text rename. Authored-source
+  acceptance therefore uses `git grep -I`; these bytes are provenance, not
+  supported filename aliases.
 
 ## Decision Log
 
@@ -74,10 +92,34 @@ silent ignore and not a working alias.
   rides different machinery (env loading, toolchain, generator manifests).
   Decide separately after this lands rather than growing this plan's blast
   radius. Recorded here so the inconsistency is deliberate, not overlooked.
+- (2026-07-22, agent) **Sweep gates inspect authored text, not immutable
+  binary provenance.** Use `git grep -I` in the Micro consumer. The three
+  binary exceptions above remain immutable and do not weaken the clean-break
+  parser/compiler contract.
 
 ## Outcomes & Retrospective
 
-Not yet completed.
+Completed on 2026-07-22. Scenery now accepts exactly `app.scn`, `package.scn`,
+and `app.lock.scn` for the three contract roles. The names live in
+`internal/scn` constants and all production consumers use them. Retired names
+are never parsed as aliases: source discovery, formatting, compiler entry,
+explicit `--app-root` lookup, and doctor converge on the precise `SCN1021`
+rename instruction. Tests prove all three spellings fail closed and no manifest
+is produced.
+
+The Scenery fixtures and Micro consumer migrated atomically. Micro contains 30
+tracked `R100` moves (root app, root lock, and 28 packages), its generated
+client is clean, and its contract revision moved from `2b3d832c…` to
+`5e877f20…`. The diagnostic-catalog addition unexpectedly required refreshing
+Micro's builtin Postgres lock digest; that exact compiler-derived migration is
+recorded above rather than hidden as incidental churn.
+
+All Scenery and Micro static lanes passed, a clean detached Micro restart
+reached ready, public root and Admin routes returned 200, and authenticated
+browser acceptance proved the generated Admin/AHJ route. The only old strings
+remaining in Micro are immutable binary debug provenance explicitly excluded
+by its maps3d artifact contract; the runtime/compiler provide no old-name
+compatibility path.
 
 ## Context and Orientation
 
@@ -107,8 +149,9 @@ Not yet completed.
   `scenery.lock.scn`, and ~27 `<domain>/scenery.package.scn` files. Watch
   paths, `make verify-scenery`, and any editor associations keyed on full
   filenames need the sweep there.
-- Spec-revision note: filenames are not part of resource schemas, so **no
-  builtin-lock digest churn is expected**; source IDs in diagnostics and
+- Spec-revision note (planning-time expectation, corrected in Surprises):
+  filenames are not part of resource schemas, so no builtin-lock digest churn
+  was expected; source IDs in diagnostics and
   workspace-revision hashing (`internal/compiler/compiler_workspace_revision.go`)
   DO include paths — expect contract-revision changes in consumers and
   regenerate their clients as usual.
@@ -125,8 +168,10 @@ Not yet completed.
    constants; `git mv` the fixture apps' files; regenerate fixture clients;
    update all repo docs and the harness knowledge contract; full
    `go test ./...` plus `scenery harness self` green. Verify no literal
-   `scenery.package.scn` remains outside historical plans/changelogs:
-   `git grep -l 'scenery\.package\.scn' -- ':!docs/plans'` returns empty.
+   retired source filename remains outside historical plans/changelogs and
+   the one constants file that defines the rejection map:
+   `git grep -InE 'scenery\.scn|scenery\.package\.scn|scenery\.lock\.scn' -- ':!docs/plans' ':!internal/scn/filenames.go'`
+   returns empty.
 3. **Consumer migration.** In the Micro platform repo: `git mv scenery.scn
    app.scn && git mv scenery.lock.scn app.lock.scn` plus the ~27 package
    files (one `find -execdir git mv` sweep); update its
@@ -175,9 +220,11 @@ From `/Users/petrbrazdil/Repos/Micro/platform` (Milestone 3):
 - Discovery/lock/diagnostic unit tests for the new names and every legacy
   hint pass; full Go suite green; harness self green with the knowledge
   contract updated.
-- `git grep -l 'scenery\.package\.scn\|scenery\.lock\.scn' -- ':!docs/plans'`
-  empty in the scenery repo; the equivalent grep (excluding
-  `docs/agent/exec-plans`) empty in the platform repo.
+- `git grep -InE 'scenery\.scn|scenery\.package\.scn|scenery\.lock\.scn' -- ':!docs/plans' ':!internal/scn/filenames.go'`
+  is empty in the scenery repo. `git grep -IlnE` with the same retired names
+  (excluding `docs/agent/exec-plans`) is empty in the platform repo; the three
+  immutable binary provenance exceptions listed in Surprises are deliberately
+  outside that text-only gate.
 - Platform validates, regenerates with `--check` clean, all lanes green,
   dev session serves, one generated route browser-checked.
 - Running the new binary against a legacy-named tree produces the exact
@@ -195,9 +242,41 @@ regeneration is deterministic; re-run on any interruption.
 ## Artifacts and Notes
 
 - Naming decision table and rejected alternatives are in `Purpose` /
-  `Decision Log`. Capture here during Milestone 3: the legacy-hint
-  diagnostic output verbatim, and the platform contract-revision
-  before/after.
+  `Decision Log`.
+- A current worktree binary was run against isolated retired root, lock, and
+  package trees. All three exited `2`, returned `ok:false`, and emitted these
+  exact messages (with matching `path`, `suggestions`, and structured
+  `legacy_filename` / `replacement_filename` details):
+
+      SCN1021: legacy Scenery contract filename "scenery.scn" is not supported; rename "scenery.scn" to "app.scn"
+      SCN1021: legacy Scenery contract filename "scenery.lock.scn" is not supported; rename "scenery.lock.scn" to "app.lock.scn"
+      SCN1021: legacy Scenery contract filename "scenery.package.scn" is not supported; rename "scenery.package.scn" to "package.scn"
+
+- Scenery validation completed with cached `go test ./...` and a current
+  worktree binary's `harness self --summary --write`; both were green. Fixture
+  TypeScript clients for `internal/compiler/testdata/native` and `house` were
+  regenerated after their source-path revision changed.
+- Micro migrated exactly 30 tracked files at `R100`: one `app.scn`, one
+  `app.lock.scn`, and 28 `package.scn` files. `git ls-files` reports zero
+  retired contract filenames and 30 current role-named files; authored/text
+  `git grep -I` is empty for all retired names.
+- The installed acceptance binary had SHA-256
+  `3acae55a2537196d1f24e8fddcb472e285b18a910a090566053447440d274729`.
+  Micro refreshed both Postgres lock digest fields from
+  `sha256:4270e0b10302526c76063e1eda532b9609c065ac35a507c43ad63765792654f6` to
+  `sha256:cc532053539e876e0f1ed5ec6cc460c397ba97ae3da537cdcfbce761ae892f6d`.
+  Its contract revision changed from
+  `sha256:2b3d832cc9f74d3b11198692d8c7664741d7688b2aa72da9658b519d176dcd57`
+  to `sha256:5e877f20b9c68e59c14479f7e7d289101d398fb9eb25bf902dfb78a198cde45f`;
+  regeneration changed only `metadata.ts` and the generated manifest, and the
+  final generation check reported `changed=[]`.
+- Micro passed cached `go test ./...`, frontend typecheck/lint (113 tests and
+  302 expectations)/build, `make verify`, `make verify-scenery`, and
+  `git diff --check`. A clean down/up reached ready as session `main-2826af`;
+  the public root and `/platform/admin` returned 200 (`/api/auth/me` returned
+  the expected unauthenticated 401). Authenticated Chrome at
+  `/platform/admin?tab=ahj` rendered AHJ Manager, its six-column 32-row table,
+  15 generated navigation entries, and no alerts.
 
 ## Interfaces and Dependencies
 

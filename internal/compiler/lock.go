@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"scenery.sh/internal/machine"
+	"scenery.sh/internal/scn"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
@@ -91,7 +92,7 @@ func resolveModuleLocation(root, callerDirectory, source string, lockfile *Lockf
 }
 
 func loadLockfile(root string) (*Lockfile, []Diagnostic, error) {
-	path := filepath.Join(root, "scenery.lock.scn")
+	path := filepath.Join(root, scn.AppLockFilename)
 	info, lstatErr := os.Lstat(path)
 	if lstatErr == nil {
 		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
@@ -110,9 +111,9 @@ func loadLockfile(root string) (*Lockfile, []Diagnostic, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	sourceID := sourceID("scenery.lock.scn")
+	sourceID := sourceID(scn.AppLockFilename)
 	positions := newSourcePositionIndex(data)
-	file, hclDiagnostics := hclsyntax.ParseConfig(data, "scenery.lock.scn", hcl.Pos{Line: 1, Column: 1})
+	file, hclDiagnostics := hclsyntax.ParseConfig(data, scn.AppLockFilename, hcl.Pos{Line: 1, Column: 1})
 	diagnostics := diagnosticsFromHCL(sourceID, positions, hclDiagnostics)
 	if file == nil || hclDiagnostics.HasErrors() {
 		return nil, diagnostics, nil

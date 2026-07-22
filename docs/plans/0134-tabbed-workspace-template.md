@@ -28,30 +28,60 @@ grouping).
 
 ## Progress
 
-- [ ] (2026-07-22) Plan authored. No implementation started.
-- [ ] Milestone 1: design decision — embedding contract (chrome-less page
+- [x] (2026-07-22) Plan authored.
+- [x] 2026-07-22 Milestone 1: design decision — embedding contract (chrome-less page
   rendering) and the `workspace_page` source-kind spelling, recorded here
   before code.
-- [ ] Milestone 2: compiler + schema — `workspace_page` kind, tab
+- [x] 2026-07-22 Milestone 2: compiler + schema — `workspace_page` kind, tab
   references, diagnostics.
-- [ ] Milestone 3: generator — embeddable tab components from existing
+- [x] 2026-07-22 Milestone 3: generator — embeddable tab components from existing
   page kinds; the workspace adapter (tab strip, URL state, lazy tabs,
   shared header/stats).
-- [ ] Milestone 4: catalog — `WorkspacePage` shell (Astryx `TabList`),
+- [x] 2026-07-22 Milestone 4: catalog — `WorkspacePage` shell (Astryx `TabList`),
   tab-count badges from response metadata, slot pass-throughs.
-- [ ] Milestone 5: fixture + demo — a workspace fixture in the compiler
-  testdata apps and a `/scenery-ui` demo entry.
-- [ ] Milestone 6: platform pilot handoff — convert one real workspace
-  (recommended: Sales first as the read-only pilot, then Vendors as the
-  CRUD pilot) under the parity gate, in a platform ExecPlan.
+- [x] 2026-07-22 Milestone 5: fixture + catalog contract demo.
+  - [x] 2026-07-22 A table + content workspace with typed stats, counts,
+    availability, and grouped sidebar presentation compiles in the house
+    fixture.
+  - [x] The catalog TypeScript contract fixture renders both sidebar and tab
+    workspace inputs. The visible `/scenery-ui` consumer entry moves with the
+    Milestone 6 platform pilot so it cannot drift from the real generated page.
+- [x] (2026-07-22) Milestone 6: Sales, Vendors, and Documents are generated
+  production workspaces with their handwritten route owners removed. Live
+  browser proof exercised all seven Sales views, Vendors directory/scorecard
+  state retention, Documents Files/Missing deep links and search retention,
+  and the visible `/scenery-ui` Workspace template entry.
+- [x] (2026-07-22) Review follow-up hard-loaded the two Sales `content_page`
+  tabs through their workspace owner: `/platform/sales` rendered Teams data
+  and `?tab=compensation` rendered its content. Neither remained blank, and
+  the sibling generated table tabs stayed intact.
 
 ## Surprises & Discoveries
 
-- (2026-07-22) Nothing yet.
+- (2026-07-22) The reference workspaces confirm that tab-local state is a
+  real contract requirement: Sales has six read-only table views, Vendors
+  keeps independent directory/scorecard controls, and Inventory carries
+  substantial per-tab dialogs and scanner state. Remount-on-switch would be
+  a functional regression.
+- (2026-07-22) A catalog-owned embedding context is smaller than forking every
+  generated page adapter into shell and content forms. The ordinary generated
+  page mounts unchanged; inside `WorkspacePage`, its `Page` suppresses its
+  shell and portals only active actions into the workspace header. Outside a
+  workspace it retains its standalone behavior, while route generation omits
+  embedded resources entirely.
+- (2026-07-22) The first production pilot exposed two generator reachability
+  edges that fixtures had not exercised: workspace stats bindings must be
+  selected into React TypeScript clients, and a queryless complete-list table
+  must mark its required `TablePageQuery` callback argument unused. Focused
+  generator tests now lock both behaviors.
+- (2026-07-22) Exact Documents parity required authored request-state copy.
+  `table_page.loading_label` and `table_page.error_title` now flow through the
+  generated adapter into `QueryState` while omitted values retain existing
+  defaults.
 
 ## Decision Log
 
-- (2026-07-22, agent, needs Petr's confirmation in Milestone 1)
+- (2026-07-22, Petr + agent)
   **Composition over expansion.** A tab references an existing
   `table_page`/`content_page` resource; the workspace does not inline a
   second copy of the table grammar. Rationale: every table capability
@@ -59,23 +89,53 @@ grouping).
   contract spelling and one generator path; tabs stay individually
   testable; a tab can later be promoted to a standalone route (or
   demoted) by moving one reference.
-- (2026-07-22, agent) **Embedded pages surrender their own route and
-  chrome.** A page referenced by a workspace tab must not also register
-  its own route/nav entry (compiler-enforced, with an explicit attr to
-  keep a standalone route too if a real case appears — decide in
-  Milestone 1 whether to allow dual-mounting at all; default no).
-- (2026-07-22, agent) **One tab active, others lazy.** Only the active
-  tab mounts and queries; switching preserves each previously-mounted
-  tab's state for the life of the page (this directly addresses the
-  Documents-style "shared state lost when switching views" class of
-  blocker — a two-view page is a two-tab workspace).
+- (2026-07-22, Petr + agent) **Embedded pages surrender their own route and
+  chrome.** A page referenced by a workspace tab does not register its own
+  route or navigation entry. There is no dual-mount compatibility switch;
+  authors create a distinct page resource if they genuinely need a second
+  route.
+- (2026-07-22, Petr + agent) **Lazy once, then keep alive.** The selected tab
+  mounts on first visit; never-visited tabs neither mount nor query. A visited
+  tab remains mounted but hidden so its search, filter, selection, expansion,
+  dialogs, and scanner state survive switches. Its existing query observer may
+  retain/refetch cached data; the contract does not promise suspended network
+  activity for hidden visited tabs.
 - (2026-07-22, agent) **Tab selection is URL state** (`?tab=<name>`, the
   first declared tab as default) so deep links and refresh keep the
   active tab — the hand-written workspaces' behavior.
+- (2026-07-22, Petr + agent) **Counts come from workspace stats.** Optional
+  `tab.count` names a typed field on the result of the workspace `stats`
+  source. This gives the shell one bounded request and avoids mounting every
+  tab merely to discover its count.
+- (2026-07-22, Petr + agent) **Actions merge into one header.** Workspace
+  actions are always visible; the active embedded page contributes its normal
+  page actions to the same action area. Inactive-page actions are absent.
+- (2026-07-22, Petr + agent) **The URL key is singular and fixed.** Workspaces
+  use `?tab=<tab-name>`; it is not configurable per page.
+- (2026-07-22, Petr + agent) **Only table and content pages embed.** `split_page`
+  is excluded until a concrete consumer proves it is needed.
+- (2026-07-22, Petr + agent) **One presentation field serves small and large
+  workspaces.** `presentation = "tabs"` is the default; `"sidebar"` groups
+  entries through `tab.group` and projects optional integer `count` and boolean
+  `available` fields from the same typed stats result. There is no Governance-
+  specific shell.
+- (2026-07-22, agent) **Embedding is catalog context, not duplicated generated
+  bodies.** This preserves one query/dialog/state implementation per child page
+  and makes lazy-once keep-alive a property of the workspace shell. The route
+  generator still enforces the product contract by registering only the
+  workspace route for referenced pages.
 
 ## Outcomes & Retrospective
 
-Not yet completed.
+All milestones are complete. Scenery now has one typed `workspace_page`
+contract, compiler validation/expansion, singular route generation, lazy-once
+kept-alive child pages, fixed `?tab=` deep links, typed counts/availability,
+merged active-child actions, and tab/sidebar Astryx-native presentations. The
+house fixture proves table + content composition and the catalog contract
+fixture typechecks the public shell. Sales, Vendors, and Documents proved the
+contract in production: visited child state survives tab switches, `?tab=`
+deep links select the intended child, and the generated workspace is the only
+route owner.
 
 ## Context and Orientation
 
@@ -86,13 +146,13 @@ Not yet completed.
   generated adapters wrap content in the catalog `Page` shell
   (`fill` mode for tables) and register routes/nav via
   `routes.generated.ts`.
-- **The generated table adapter** is a single exported `<Name>Page`
+- **The generated table adapter** remains a single exported `<Name>Page`
   component that owns its client, query state, dialogs, and `Page` shell
-  (see `renderReactTablePage`). Embedding requires splitting that into
-  shell + content so a workspace can mount the content under its own
-  shell — this split is the heart of Milestone 3 and must not fork the
-  generator (one path emits both the standalone page and, when referenced
-  by a workspace, the chrome-less content component).
+  (see `renderReactTablePage`). Embedding uses the catalog workspace context:
+  the same `Page` suppresses its shell only while mounted inside a workspace,
+  so query/dialog/content generation is not duplicated. Route generation
+  omits referenced child routes and imports those child components only into
+  their owning workspace.
 - **Catalog pieces to reuse**: `Page`/`PageShell` (`ui/components/PageLayout.tsx`),
   Astryx `TabList`/`Tab` (re-exported), `StatGrid` stats, and the
   response-aware contexts from 0131 (tab-count badges read the same

@@ -126,6 +126,11 @@ wildcard to `127.0.0.1` (DNS-only) and run `scenery system edge install` +
 `handlePublicPathRoute`/`publicRouteManifest` precedent made the router work
 small; the only genuinely new machinery was claim-time host ownership.
 
+Closeout 2026-07-22: the historical DNS-only loopback recipe was superseded by
+the current `envs.<name>.domain` and public-edge model in ExecPlans 0117 and
+0121. Its absence is not unfinished implementation; the shipped host ownership,
+rebasing, probe, and localhost fallback remain covered by current tests.
+
 ## Context and Orientation
 
 Terms:

@@ -111,6 +111,12 @@ machinery was the in-process static frontend server and the watcher's
 production-frontend partition. The `.scn` watch-set gap discovered on the way
 is tracked separately.
 
+Closeout 2026-07-22: the unrecorded owner-machine topology was superseded by
+the current `envs.<name>` configuration and Caddy-published production
+artifacts. The mechanisms this plan owned—dash host derivation, exposure
+narrowing, production build serving, and watch partitioning—shipped and remain
+covered; no obsolete Cloudflare recipe is required to keep the plan active.
+
 ## Context and Orientation
 
 Read docs/plans/0116-dev-domain-path-hosts.md first; this plan amends it.

@@ -49,7 +49,7 @@ func TestAgentCapabilitiesAdvertiseOpenDraftSurfacesAsUnsupported(t *testing.T) 
 func TestDeclarativeExtensionSyntaxIsKnownButUnsupported(t *testing.T) {
 	root := t.TempDir()
 	copyTree(t, filepath.Join("testdata", "house"), root)
-	path := filepath.Join(root, "scenery.scn")
+	path := filepath.Join(root, testAppFilename)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -99,7 +99,7 @@ func TestPlatformListenerDraftFieldsAreDescribedAndRejected(t *testing.T) {
 
 	root := t.TempDir()
 	copyTree(t, filepath.Join("testdata", "house"), root)
-	path := filepath.Join(root, "scenery.scn")
+	path := filepath.Join(root, testAppFilename)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)

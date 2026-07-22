@@ -10,7 +10,7 @@ import (
 func TestCompilerSeparatesAuthoredInputsAndDefaultsAcrossViews(t *testing.T) {
 	root := t.TempDir()
 	copyTree(t, filepath.Join("testdata", "house"), root)
-	path := filepath.Join(root, "scenery.scn")
+	path := filepath.Join(root, appFilename)
 	sourceBytes, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -24,7 +24,7 @@ authorization "member" {
 	if err := os.WriteFile(path, sourceBytes, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	packagePath := filepath.Join(root, "house", "scenery.package.scn")
+	packagePath := filepath.Join(root, "house", packageFilename)
 	packageBytes, err := os.ReadFile(packagePath)
 	if err != nil {
 		t.Fatal(err)
@@ -122,7 +122,7 @@ union "choice" {
 func TestCompilerExplainsPackageDefaultAndModuleInputFieldProvenance(t *testing.T) {
 	root := t.TempDir()
 	copyTree(t, filepath.Join("testdata", "house"), root)
-	rootPath := filepath.Join(root, "scenery.scn")
+	rootPath := filepath.Join(root, appFilename)
 	rootSource, err := os.ReadFile(rootPath)
 	if err != nil {
 		t.Fatal(err)
@@ -132,7 +132,7 @@ func TestCompilerExplainsPackageDefaultAndModuleInputFieldProvenance(t *testing.
 	if err := os.WriteFile(rootPath, rootSource, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	packagePath := filepath.Join(root, "house", "scenery.package.scn")
+	packagePath := filepath.Join(root, "house", packageFilename)
 	packageSource, err := os.ReadFile(packagePath)
 	if err != nil {
 		t.Fatal(err)
@@ -222,14 +222,14 @@ func TestSourceViewPreservesModuleExportExpressionsBeforeDependencyResolution(t 
 			t.Fatal(err)
 		}
 	}
-	writeNestedModuleFile(t, filepath.Join(root, "scenery.scn"), `application "module_views" {}
+	writeNestedModuleFile(t, filepath.Join(root, appFilename), `application "module_views" {}
 module "types" { source = "./types" }
 module "consumer" {
   source = "./consumer"
   inputs = { shape = module.types.shape }
 }
 `)
-	writeNestedModuleFile(t, filepath.Join(root, "types", "scenery.package.scn"), `package "types" {
+	writeNestedModuleFile(t, filepath.Join(root, "types", packageFilename), `package "types" {
 }
 record "shape" {
   field "id" {
@@ -240,7 +240,7 @@ export "shape" {
   value = record.shape
 }
 `)
-	writeNestedModuleFile(t, filepath.Join(root, "consumer", "scenery.package.scn"), `package "consumer" {
+	writeNestedModuleFile(t, filepath.Join(root, "consumer", packageFilename), `package "consumer" {
 }
 input "shape" { type = resource_ref("record") }
 `)

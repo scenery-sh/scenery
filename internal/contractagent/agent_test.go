@@ -38,7 +38,7 @@ func TestAgentCapabilitiesAdvertiseCurrentSurface(t *testing.T) {
 func TestAgentDiagnosticsAndRepairPlanRemainAvailableWithoutManifest(t *testing.T) {
 	root := t.TempDir()
 	copyTree(t, filepath.Join("testdata", "house"), root)
-	path := filepath.Join(root, "house", "scenery.package.scn")
+	path := filepath.Join(root, "house", testPackageFilename)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)

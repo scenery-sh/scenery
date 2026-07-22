@@ -62,7 +62,7 @@ func TestDeploySSHRejectsBeforeCommands(t *testing.T) {
 		t.Fatalf("unlisted target ran commands:\n%s", log)
 	}
 
-	writeTestAppFile(t, root, "scenery.scn", "not valid scenery source")
+	writeTestAppFile(t, root, testAppFilename, "not valid scenery source")
 	err = runDeploySSH(&bytes.Buffer{}, "some-id", []string{"--app-root", root})
 	if err == nil || !strings.Contains(err.Error(), "local scenery check") {
 		t.Fatalf("invalid app error = %v", err)

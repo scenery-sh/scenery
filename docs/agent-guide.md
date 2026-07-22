@@ -19,12 +19,17 @@ When prose and current JSON/tests disagree, fix the affected documentation in th
 Every supported app has:
 
 - `.scenery.json` for independent runtime config;
-- a required root `scenery.scn`;
-- package-local `scenery.package.scn` files installed through root module blocks;
+- a required root `app.scn`;
+- package-local `package.scn` files installed through root module blocks;
+- an optional generated `app.lock.scn` dependency lock;
 - Go implementations of generated native service contracts;
 - generated outputs only beneath declared `workspace.managed_generated_roots`.
 
 The `.scn` graph is the singular source of application semantics. Go comments and package initialization do not declare services, operations, routes, auth, middleware, data, durable work, schedules, events, pages, or renderers.
+
+The role-named files are the only accepted spellings. `SCN1021` identifies a
+retired pre-cutover filename and provides the exact rename; rename it rather
+than adding an alias or fallback path.
 
 Read root and package declarations before editing. Use graph commands instead of inferring ownership or references from text search:
 
@@ -165,7 +170,9 @@ Use `-o json` for compiler commands and command-specific current protocols. Neve
 - Use `scenery up --detach` when the local agent should retain it; the default wait returns only after every advertised route and one declared frontend asset are reachable.
 - `scenery up` reruns against an already-live app root are idempotent instead of failing: human foreground reruns report the existing runtime and attach to its logs (Ctrl+C detaches without stopping it), while `-o jsonl` and `--detach` reruns report and exit `0` (detached JSON sets `already_running: true`).
 - Use `scenery ps -o json` to discover the current base URL, route manifest, child health, and substrate state.
-- Use `scenery system agent restart` to restart only the control plane/router; registered Postgres and Victoria processes survive. On machines set up with `scenery deploy setup`, the agent is continuously owned by the `dev.scenery.agent` launchd LaunchAgent and restart cooperates with it (`supervised: true` in the JSON payload); `scenery deploy status -o json` reports supervision truth under `agent_supervisor` and refuses `ready` when the supervisor is not loaded.
+- Use `scenery system agent restart` to restart only the control plane/router; registered Postgres and Victoria processes survive. On machines set up with `scenery deploy setup`, the agent is continuously owned by the `dev.scenery.agent` launchd LaunchAgent and restart cooperates with it (`supervised: true` in the JSON payload); `scenery deploy status -o json` reports supervision truth under `agent_supervisor`, reports the login-resume job's state and last exit code, and refuses `ready` when either supervisor is unloaded or the last resume completed unsuccessfully. Public resume is independent of optional `local.dev` wildcard DNS.
+- Use `scenery system agent cleanup` to stop fingerprint-verified same-user processes tied to the pre-rebrand `~/.onlava` config or socket. It only reports old state by default; pass `--remove-state` to remove that directory explicitly.
+- Use `scenery prune --older-than <duration>` for non-destructive stale record and substrate-lease cleanup. Add `--state`, `--db`, or `--all` only when the corresponding deletion is intended; database cleanup refuses external DSNs.
 - Use `scenery doctor -o json` when startup reports an occupied Scenery port; it distinguishes duplicate Scenery owners from foreign listeners, and startup never falls back to an unadvertised router port.
 - Use `scenery logs --follow` for the current runtime.
 - Use `scenery down` to stop it; add destructive cleanup flags only intentionally.
@@ -220,7 +227,7 @@ Go generation lives in Scenery's external build/editor caches and is never ordin
 
 ## TypeScript Client Integration
 
-Declare each target in root `scenery.scn`, select exact gateways, and choose `materialization = "source"` for a checked-in SDK or `materialization = "cache"` for `.scenery/gen/typescript/<name>`. Source output must remain beneath a managed root. Generated clients derive only from reachable canonical resources and exact binding codecs; they do not infer routes or auth from Go symbols.
+Declare each target in root `app.scn`, select exact gateways, and choose `materialization = "source"` for a checked-in SDK or `materialization = "cache"` for `.scenery/gen/typescript/<name>`. Source output must remain beneath a managed root. Generated clients derive only from reachable canonical resources and exact binding codecs; they do not infer routes or auth from Go symbols.
 
 ```sh
 scenery generate --target typescript_client.public_api -o json
@@ -234,6 +241,8 @@ For a declarative frontend, add `react { tsconfig = "..." }` to the TypeScript t
 For a generated two-pane screen, declare a unit-input operation with HTTP and inherited internal bindings, app-owned `react_component` slots for `sidebar` and `detail`, and a generic `split_page`. Optional `sidebar_actions` and `detail_header` slots share the raw request state and URL-backed selection state. Scenery generates transport, request/selection state, and the reusable split layout only; each domain-specific slot owns its loading/error/ready rendering and should wrap those branches with `QueryState` from `@scenery/ui`.
 
 For a generated one-column screen, use `content_page` with one app-owned `content` slot. Omit `source` for static content: `content` and optional header `actions` then receive no props. For loaded content, declare the unit-input HTTP plus inherited-internal operation pair and set `source`; both slots receive the shared typed request state and should adapt it to `QueryState` with `queryStateProps`. `max_width` bounds the centered content well.
+
+For one routed record, use `detail_page` with a parameterized path, a call-delivery HTTP load binding, and declared field sections. Route parameters map to operation inputs by name or through `param` overrides. `presentation = "page" | "dialog" | "both"` selects the generated routed page, controlled dialog, or both without duplicating content. `hide_empty = true` omits an empty field while preserving zero and false values. Related `table_page` entries map a route parameter into one otherwise-unclaimed table input and render without nested page chrome. Simple declared actions open generated `form_dialog`s; use the typed app-owned `actions` slot for conditional choices, confirmations, or other domain workflows, and call its `onMutated` callback after success.
 
 For a generated operations workbench, choose one explicit list contract. CRUD sources use fingerprint-bound cursor pagination. A call-delivery HTTP binding can either map numeric pagination through `pagination { page, page_size, total }`, or return one complete typed list with no pagination. Set `source` and the result-record `items` field in both binding forms. Use `metadata = ["summary", "types"]` on a binding table to project only those auxiliary operation-result fields into typed `context.metadata`; `items` and pagination `total` cannot be projected again. Map nonstandard operation input names with `query { search, sort, direction }` and `filter.input`; set `query.search_hidden = true` only when an app toolbar owns the visible search input, and drive it through `context.controls.setSearch`. Supply typed invisible fixed inputs with labeled `predicate` blocks. Only complete-list tables may declare `group "field"`, because a cursor or numeric page cannot provide honest section counts. Reuse `status_map` resources for badge/filter/group presentation; set `pinned = true` only on the zero-to-two generated selectors that deserve inline quick access. A filter with `hidden = true` stays typed and query-mapped but is omitted from built-in controls so a custom toolbar can own it. Every non-hidden filter remains in the Filters popover, active values remain visible as removable chips, and group/sort/direction stay separate from the filter count. Filters, toolbar, empty, and footer slots receive `TablePageResultContext` with current rows, optional total/truncation/projected metadata, filtered state, query, and query controls for setting/clearing enum filters, setting search, or refreshing. A toolbar defaults to the Page header; use `placement = "content"` for a large workbench above the table. `row_detail` owns inline or panel presentation. Use mutually exclusive `row_action` for a selected-row workflow that receives `row` and `onClose`; it remains mounted outside request-state rendering. Bind `table_page.stats` to a unit-input metrics operation; declare loaded-result CSV `export`; use `hidden = true` for export-only columns and `export = false` for display-only columns. `form_dialog` derives string/enum fields from a mutation input record, table actions open it, failures stay inline, and success invalidates list and stats query keys. `row_detail.dialog` is the inline-only edit path when every mutation input can be seeded from a matching row field. Regenerate instead of editing emitted files.
 

@@ -15,7 +15,7 @@ func TestGoServiceConfigCompilesFromAuthoredSource(t *testing.T) {
 	root := t.TempDir()
 	copyTree(t, filepath.Join("testdata", "native"), root)
 
-	rootPath := filepath.Join(root, "scenery.scn")
+	rootPath := filepath.Join(root, appFilename)
 	rootSource, err := os.ReadFile(rootPath)
 	if err != nil {
 		t.Fatal(err)
@@ -48,7 +48,7 @@ secret "provider_token" {
 		t.Fatal(err)
 	}
 
-	packagePath := filepath.Join(root, "house", "scenery.package.scn")
+	packagePath := filepath.Join(root, "house", packageFilename)
 	packageSource, err := os.ReadFile(packagePath)
 	if err != nil {
 		t.Fatal(err)
@@ -103,7 +103,7 @@ provider "vault" {
   deployment_abi            = %q
 }
 `, integrity, integrity, deploymentProviderABI)
-	if err := os.WriteFile(filepath.Join(root, "scenery.lock.scn"), []byte(lock), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, appLockFilename), []byte(lock), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -164,12 +164,12 @@ func TestGoServiceConfigSourceRejectsNonLowerSnakeKey(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(root, "house"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "scenery.scn"), []byte(`application "config_test" {}
+	if err := os.WriteFile(filepath.Join(root, appFilename), []byte(`application "config_test" {}
 module "house" { source = "./house" }
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "house", "scenery.package.scn"), []byte(`package "house" {
+	if err := os.WriteFile(filepath.Join(root, "house", packageFilename), []byte(`package "house" {
 }
 input "process_concurrency" { type = uint32 }
 service "house" {

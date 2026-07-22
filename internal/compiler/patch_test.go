@@ -85,7 +85,7 @@ func TestCompileAppliesEffectiveDefaultsBeforeExactPatches(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(root, "house"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "scenery.scn"), []byte(fmt.Sprintf(`application "patch_defaults" {}
+	if err := os.WriteFile(filepath.Join(root, appFilename), []byte(fmt.Sprintf(`application "patch_defaults" {}
 module "house" { source = "./house" }
 patch "record_openness" {
   target         = module.house.model
@@ -102,7 +102,7 @@ patch "record_openness" {
 `, testResourceSchemaRevision(t, "scenery.record"))), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "house", "scenery.package.scn"), []byte(`package "house" {
+	if err := os.WriteFile(filepath.Join(root, "house", packageFilename), []byte(`package "house" {
 }
 record "model" {
   field "value" { type = string }

@@ -29,6 +29,10 @@ func validateUISemantics(root string, resources []Resource) []Diagnostic {
 			diagnostics = append(diagnostics, validateSplitPage(byAddress, resource)...)
 		case "scenery.content-page":
 			diagnostics = append(diagnostics, validateContentPage(byAddress, resource)...)
+		case "scenery.workspace-page":
+			diagnostics = append(diagnostics, validateWorkspacePage(byAddress, resource)...)
+		case "scenery.detail-page":
+			diagnostics = append(diagnostics, validateDetailPage(byAddress, resource)...)
 		case "scenery.page":
 			path := stringValue(resource.Spec["path"])
 			canonical := canonicalRoute(path)
@@ -73,6 +77,31 @@ func validateUISemantics(root string, resources []Resource) []Diagnostic {
 
 func validatePageBindings(resources map[string]Resource, page Resource) []Diagnostic {
 	var diagnostics []Diagnostic
+	pathParams := detailPagePathParams(stringValue(page.Spec["path"]))
+	routeNames, paramInputs, claimedInputs := map[string]bool{}, map[string]string{}, map[string]bool{}
+	for _, name := range pathParams {
+		if routeNames[name] {
+			diagnostics = append(diagnostics, uiDiagnostic("SCN2603", "page path parameters must be unique", page))
+		}
+		routeNames[name] = true
+	}
+	for _, param := range namedChildren(page.Spec, "param") {
+		name, input := stringValue(param["name"]), strings.TrimSpace(stringValue(param["input"]))
+		if name == "" || input == "" || !routeNames[name] || paramInputs[name] != "" || claimedInputs[input] {
+			diagnostics = append(diagnostics, uiDiagnostic("SCN2603", "page param mappings require unique path parameters and operation inputs", page))
+			continue
+		}
+		paramInputs[name] = input
+		claimedInputs[input] = true
+	}
+	normalizedClaims := map[string]bool{}
+	for _, name := range pathParams {
+		input := defaultString(paramInputs[name], name)
+		if normalizedClaims[input] {
+			diagnostics = append(diagnostics, uiDiagnostic("SCN2603", "page path parameters must not claim the same operation input", page))
+		}
+		normalizedClaims[input] = true
+	}
 	if page.Spec["load"] != nil {
 		loadRef := refString(page.Spec["load"])
 		load := resources[resolveResourceRef(page, loadRef, "binding")]
@@ -85,8 +114,12 @@ func validatePageBindings(resources map[string]Resource, page Resource) []Diagno
 				if len(match) != 2 {
 					continue
 				}
-				if _, exists := shape.Fields[match[1]]; shape.Record == nil || !exists {
+				input := defaultString(paramInputs[match[1]], match[1])
+				field, exists := shape.Fields[input]
+				if shape.Record == nil || !exists {
 					diagnostics = append(diagnostics, uiDiagnostic("SCN2603", "page path parameter "+match[1]+" is not present in the load operation input", page))
+				} else if !httpPathScalarType(field.Type, resources, operation.Module) {
+					diagnostics = append(diagnostics, uiDiagnostic("SCN2603", "page path parameter "+match[1]+" does not use a supported scalar input", page))
 				}
 			}
 		}
@@ -149,7 +182,7 @@ func builtinTablePageRenderer(renderer Resource) bool {
 }
 
 func builtinUIRenderer(renderer Resource) bool {
-	return builtinTablePageRenderer(renderer) || builtinSplitPageRenderer(renderer) || builtinContentPageRenderer(renderer)
+	return builtinTablePageRenderer(renderer) || builtinSplitPageRenderer(renderer) || builtinContentPageRenderer(renderer) || builtinWorkspacePageRenderer(renderer) || builtinDetailPageRenderer(renderer)
 }
 
 func rendererModulePath(root string, resources map[string]Resource, renderer Resource) (string, error) {

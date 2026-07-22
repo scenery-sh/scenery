@@ -79,7 +79,9 @@ func TestBindingBackedReactTableLoadsCompleteTypedResultWithoutPagination(t *tes
 	for _, fragment := range []string{
 		"client.searchWorkOrders({",
 		"const load = useCallback(async (query: TablePageQuery, signal?: AbortSignal)",
-		"}, { signal });",
+		"} as WorkOrderQuery, { signal });",
+		"readonly injectedInput?: Partial<WorkOrderQuery>",
+		"queryKey={scopedQueryKey}",
 		"search: query.search",
 		"value is WorkOrderStatus",
 		`sort: query.sort !== undefined && (query.sort === "created_at")`,
@@ -92,6 +94,7 @@ func TestBindingBackedReactTableLoadsCompleteTypedResultWithoutPagination(t *tes
 		`detailPanel={slots.detailPanel}`,
 		`detailPanelWidth={420}`,
 		`{ field: "createdAt", label: "Created At", appearance: "auto", hidden: true, export: false }`,
+		`{ field: "createdAt", label: "Created At", default: "desc" }`,
 	} {
 		if !strings.Contains(source, fragment) {
 			t.Errorf("generated binding table missing %q:\n%s", fragment, source)
@@ -101,6 +104,29 @@ func TestBindingBackedReactTableLoadsCompleteTypedResultWithoutPagination(t *tes
 		if strings.Contains(source, fragment) {
 			t.Errorf("generated binding table unexpectedly contains %q:\n%s", fragment, source)
 		}
+	}
+}
+
+func TestBindingBackedReactTableMapsMultiwordSortFieldToTypeScriptRowKey(t *testing.T) {
+	resources := bindingTableResources()
+	recordFields := resources[4].Spec["field"].([]any)
+	recordFields[2].(map[string]any)["name"] = "warranty_end_date"
+	resources[10].Spec = cloneMapValue(resources[10].Spec)
+	columns := resources[10].Spec["column"].([]any)
+	columns[2].(map[string]any)["name"] = "warranty_end_date"
+	resources[10].Spec["sort"] = map[string]any{"name": "warranty_end_date", "default": "desc"}
+
+	binding := resources[7]
+	page := selectedReactTablePages(resources, []Resource{binding})[0]
+	source, err := renderReactTablePage(&Result{Manifest: &Manifest{Resources: resources}}, Resource{Name: "public_api"}, "react", page, []Resource{binding})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(source, `{ field: "warrantyEndDate", label: "Warranty End Date", default: "desc" }`) {
+		t.Fatalf("generated multiword sort does not use the TypeScript row key:\n%s", source)
+	}
+	if strings.Contains(source, `{ field: "warranty_end_date", label: "Warranty End Date"`) {
+		t.Fatalf("generated multiword sort retained the wire key:\n%s", source)
 	}
 }
 

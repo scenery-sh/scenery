@@ -21,24 +21,36 @@ work.
 - [x] 2026-06-07: Reconciled roadmap and tech-debt language so the browser UI harness is implemented baseline. Later route-specific journey work moved the remaining debt to fixture-backed mutation depth.
 - [x] 2026-06-07: Added active ExecPlans to `docs/knowledge.json` for machine-readable discovery.
 - [x] 2026-06-07: Documented `review_due` visibility and the docs/behavior drift rule in agent-facing docs.
-- [ ] Add generated or self-harness-enforced active ExecPlan indexing once a later PR is allowed to change code.
+- [x] 2026-07-22: Self-harness now cross-checks active-plan links and
+  `docs/knowledge.json` in both directions; focused tests cover missing links,
+  missing metadata, and a matching index.
 
 ## Surprises & Discoveries
 
 - 2026-06-07: `scenery inspect docs --json` already exposes `summary.review_due_count` plus per-document `review_due` and `stale`; the needed change is to make that behavior visible in the repo knowledge docs.
 - 2026-06-07: The completed-plan record already marks `scenery harness ui --json` as shipped, while the root harness roadmap and tech-debt tracker still described it as missing.
+- 2026-07-22: Plans 0133–0135 exposed the exact failure mode the deferred
+  enforcement was meant to catch: all were linked from `active.md`, but their
+  knowledge entries had not been added. The new check diagnosed that drift
+  deterministically.
 
 ## Decision Log
 
 - 2026-06-07: Do not implement code in the first PR. The user explicitly scoped this change to repo-knowledge alignment files plus this new ExecPlan.
 - 2026-06-07: Index active ExecPlans directly in `docs/knowledge.json` for now. Deterministic generation or validation can be implemented in a follow-up PR.
 - 2026-06-07: Keep plan IDs permanent historical sequence IDs. The next plan is `0064`; existing plans are not renumbered.
+- 2026-07-22 (Petr + agent): Enforce both directions rather than generating
+  either file. `active.md` remains the human-curated priority list and
+  `docs/knowledge.json` remains machine metadata; self-harness rejects drift
+  without hiding either source behind generated output.
 
 ## Outcomes & Retrospective
 
-Pending. This plan becomes successful when agents can run docs inspection, read
-the active plan list, and stop treating browser UI harness functionality as
-unimplemented.
+Completed 2026-07-22. Agents can inspect review state, discover current plans,
+and rely on self-harness to reject an active ExecPlan missing from the
+machine-readable knowledge index or an indexed active plan missing from the
+human priority list. The focused enforcement caught and drove correction of
+the live 0133–0135 metadata drift.
 
 ## Context and Orientation
 

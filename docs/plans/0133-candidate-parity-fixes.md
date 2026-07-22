@@ -42,20 +42,31 @@ platform follow-up — they must not persist as a third implementation state.
 
 ## Progress
 
-- [ ] (2026-07-22) Plan authored from 0051's final-disposition audit and
+- [x] (2026-07-22) Plan authored from 0051's final-disposition audit and
   Petr's green light.
-- [ ] Milestone 1: row retention (`placeholderData`) in `QueryTable`.
-- [ ] Milestone 2: row-intent prefetch hook (catalog + contract + generator).
-- [ ] Milestone 3: export fidelity (contract-controllable filename and
+- [x] (2026-07-22) Milestone 1: row retention (`placeholderData`) in `QueryTable`, with retained-result refresh state exposed to slots and visible in the result label.
+- [x] (2026-07-22) Milestone 2: row-intent prefetch hook (catalog + contract + generator), deduplicated by row key for each query result.
+- [x] (2026-07-22) Milestone 3: export fidelity (contract-controllable filename and
   field formatting; verified against the hand-written CSVs).
-- [ ] Milestone 4: small-gap sweep — expansion-state scoping, locale
+- [x] (2026-07-22) Milestone 4: small-gap sweep — expansion-state scoping, locale
   ordering guidance, sortable-header parity notes for the platform pass.
-- [ ] Milestone 5: hand off to the platform repo — re-audit and cut over or
-  delete each candidate (new platform ExecPlan; candidates expire there).
+- [x] (2026-07-22) Milestone 5: the platform re-audit cut In Service,
+  Warranty, Service, and Documents over to their generated production routes;
+  every handwritten owner and `*_candidate` acceptance twin was deleted.
+  Authenticated browser acceptance covered their live tables, filters,
+  pagination, exact interaction boundaries, and retained workspace state.
 
 ## Surprises & Discoveries
 
-- (2026-07-22) Nothing yet; record findings with evidence as work proceeds.
+- (2026-07-22) Service's expansion state is not module-global in the catalog: `expandedKey` is component-local `QueryTable` state, every search/filter/sort/page transition clears it, and unmount discards it. No Scenery fix was required.
+- (2026-07-22) Generated sortable headers already use Astryx `useTableSortable` and call the same `applySort` state transition as the compact sort menu. The platform pass still needs browser comparison of density/copy, but there is no second sort implementation in Scenery.
+- (2026-07-22) Warranty and Service server sorting uses Go `cmp.Compare` over strings (`warranty/service.go` and `tickets/service.go`), while the accepted clients used JavaScript `localeCompare`. Exact locale/case/accent ordering is therefore an operation-level platform requirement, not something the generated header can repair.
+- (2026-07-22) The legacy CSVs quote every cell. Warranty exports twelve fields, uses empty strings for zero years/missing days, maps status semantically, and downloads `warranties-YYYY-MM-DD.csv`; Service exports eleven fields, truncates `created` to an ISO date, preserves raw scheduled/resolution text, and downloads `service-calls-YYYY-MM-DD.csv`.
+- (2026-07-22) Live Service acceptance found that the app-owned Issue button's
+  `minWidth: 470` hit box overlapped adjacent project-opening cells. Removing
+  that oversized hit area restored component-local expansion; a query change
+  reset it, and clicking Issue no longer opened project detail. The shared
+  table row guard now also checks the native composed path before activation.
 
 ## Decision Log
 
@@ -70,10 +81,16 @@ platform follow-up — they must not persist as a third implementation state.
 - (2026-07-22, agent) **Documents' two-view shared state is out of scope**
   here (template-concept work, not a catalog fix); it is the one blocker
   this plan knowingly leaves standing.
+- (2026-07-22, agent) **Use one explicit slot-module hook named by `prefetch_export`.** It is valid only on `row_action` or panel `row_detail`, is imported from the same module as the component, and is typed as `(row) => void | Promise<void>` through `defineTablePageSlots`; inline detail cannot opt in.
+- (2026-07-22, agent) **Keep CSV controls column-local and literal.** `export_header`, `export_format = "display" | "raw" | "date"`, `export_empty`, and `export_zero_empty` cover the measured Warranty/Service differences. Existing `status_map` supplies semantic labels, and `{date}` in `file_name` is the sole dynamic filename token.
 
 ## Outcomes & Retrospective
 
-Not yet completed.
+The catalog mechanisms and every platform candidate are complete. Generated
+production owners now preserve retained rows, deduplicated row intent, exact
+CSV bytes, locale-equivalent ordering, and component-local interaction state.
+The final browser pass found and fixed the Service hit-box overlap instead of
+weakening the parity gate; no `/generated` adoption twin remains.
 
 ## Context and Orientation
 
@@ -201,6 +218,14 @@ never fork the file.
 - Source of requirements: platform 0051 `Decision Log`, "Final disposition"
   entries (2026-07-21, Codex final parity audit) — quoted in `Purpose`.
 - CSV diff for Milestone 3 lands here.
+- CSV contract diff for Milestone 3:
+
+      Warranty generated before: Project, Serial #, Start, End, Days Left headers; display em dashes for empty cells; static warranties.csv.
+      Warranty legacy: Project ID, Serial Number, Warranty Start, Warranty End, Days Remaining; raw empty cells; zero Years empty; status label from the status map; warranties-YYYY-MM-DD.csv.
+      Service generated before: display text for every exported field, including full Created; static service-calls.csv.
+      Service legacy: raw eleven-field order, Created sliced to YYYY-MM-DD, raw empty Scheduled/Resolution, service-calls-YYYY-MM-DD.csv.
+
+  Platform Milestone 5 should set the measured header overrides, `raw` for scalar legacy fields, `date` for Service `created`, `export_zero_empty` for Warranty years, `{date}` filenames, and change Warranty status-map `unknown` from `Unknown` to `No End Date`. These are consumer declarations, not changes to this Scenery milestone.
 
 ## Interfaces and Dependencies
 

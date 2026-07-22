@@ -56,6 +56,7 @@ type edgeOptions struct {
 	JSON   bool
 	Domain string
 	Deploy bool
+	Quiet  bool
 }
 
 func edgeCommand(args []string) error {
@@ -255,22 +256,42 @@ func edgeRestart(opts edgeOptions) error {
 		return writeEdgeStatusJSON(edgeStatusForStateDomain(paths, state, opts.Domain))
 	}
 	status := edgeStatusForStateDomain(paths, state, opts.Domain)
-	if status.Ready {
-		fmt.Fprintf(os.Stdout, "scenery system edge running at https://%s\n", state.PublicAddr)
+	if edgeRestartReady(status, opts.Deploy) {
+		if !opts.Quiet {
+			fmt.Fprintf(os.Stdout, "scenery system edge running at https://%s\n", state.PublicAddr)
+		}
 		return nil
 	}
 	if !status.DNS.Ready {
-		fmt.Fprintln(os.Stdout, "scenery system edge Caddy is prepared, but wildcard local DNS is not installed or healthy.")
-		fmt.Fprintln(os.Stdout, "Run:")
-		fmt.Fprintln(os.Stdout, "  scenery system edge dns install")
+		if !opts.Quiet {
+			fmt.Fprintln(os.Stdout, "scenery system edge Caddy is prepared, but wildcard local DNS is not installed or healthy.")
+			fmt.Fprintln(os.Stdout, "Run:")
+			fmt.Fprintln(os.Stdout, "  scenery system edge dns install")
+		}
 		return fmt.Errorf("scenery system edge dns is required for browser HTTPS routes under %s", defaultEdgeDNSDomain)
 	}
-	fmt.Fprintln(os.Stdout, "scenery system edge Caddy is prepared, but the privileged port 443 listener is not installed or healthy.")
-	fmt.Fprintln(os.Stdout, "Run:")
-	fmt.Fprintf(os.Stdout, "  %s\n", edgePrivilegedInstallCommand(opts.Deploy))
-	fmt.Fprintln(os.Stdout, "Do not run:")
-	fmt.Fprintln(os.Stdout, "  sudo scenery system edge install")
+	if !opts.Quiet {
+		fmt.Fprintln(os.Stdout, "scenery system edge Caddy is prepared, but the privileged port 443 listener is not installed or healthy.")
+		fmt.Fprintln(os.Stdout, "Run:")
+		fmt.Fprintf(os.Stdout, "  %s\n", edgePrivilegedInstallCommand(opts.Deploy))
+		fmt.Fprintln(os.Stdout, "Do not run:")
+		fmt.Fprintln(os.Stdout, "  sudo scenery system edge install")
+	}
 	return fmt.Errorf("scenery system edge privileged listener is required for browser HTTPS on 127.0.0.1:443")
+}
+
+// Public deploy recovery does not depend on the optional local.dev resolver.
+// The same Caddy/helper/agent chain serves public hosts, while ordinary local
+// edge restart keeps wildcard DNS as part of its browser-route contract.
+func edgeRestartReady(status edgeStatusResult, deploy bool) bool {
+	if !deploy {
+		return status.Ready
+	}
+	return status.Edge.State == localagent.EdgeStatusRunning &&
+		status.PrivilegedListener.State == "running" &&
+		status.PrivilegedListener.Target == status.Edge.HTTPSListen &&
+		status.PrivilegedListener.TargetPID == status.Edge.PID &&
+		status.Edge.AgentRouter == status.Edge.Upstream
 }
 
 func edgePrivilegedInstallCommand(deploy bool) string {

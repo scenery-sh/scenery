@@ -415,6 +415,6 @@ func nativeApplicationGenerationFixture(root string) *Result {
 	packageBlock := &Block{Type: "package", Labels: []string{"house"}, Attributes: map[string]Expression{"version": {Kind: "literal", Value: "1.0.0"}}, Blocks: []*Block{{Type: "go_contract", Attributes: map[string]Expression{"import_path": {Kind: "literal", Value: "clean.tech/house"}}}}}
 	return &Result{
 		Root: root, ContractStatus: "valid", Manifest: &Manifest{ContractRevision: "sha256:contract", Application: ApplicationIdentity{Name: "clean_tech"}, Resources: []Resource{goModule, module, service, input, output, operation, execution, binding}},
-		Sources: []*Source{{Relative: "house/scenery.package.scn", Blocks: []*Block{packageBlock}}},
+		Sources: []*Source{{Relative: "house/" + testPackageFilename, Blocks: []*Block{packageBlock}}},
 	}
 }

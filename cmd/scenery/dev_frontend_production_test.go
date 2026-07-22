@@ -137,14 +137,14 @@ func TestSplitProductionFrontendPaths(t *testing.T) {
 
 	names, appPaths := splitProductionFrontendPaths(root, []string{
 		"apps/blog/src/page.astro",
-		"apps/blog/scenery.package.scn",
+		"apps/blog/" + testPackageFilename,
 		"apps/next/src/App.tsx",
 		"internal/service/service.go",
 	})
 	if len(names) != 1 || names[0] != "blog" {
 		t.Fatalf("names = %v", names)
 	}
-	wantApp := []string{"apps/blog/scenery.package.scn", "apps/next/src/App.tsx", "internal/service/service.go"}
+	wantApp := []string{"apps/blog/" + testPackageFilename, "apps/next/src/App.tsx", "internal/service/service.go"}
 	if !reflect.DeepEqual(appPaths, wantApp) {
 		t.Fatalf("appPaths = %v, want %v", appPaths, wantApp)
 	}

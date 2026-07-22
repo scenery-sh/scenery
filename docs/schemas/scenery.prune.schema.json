@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.prune.schema.json",
+  "title": "scenery.prune",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "cutoff",
+    "pruned",
+    "skipped",
+    "db_cleanup",
+    "state_cleanup",
+    "dev_events_pruned",
+    "dev_sources_pruned"
+  ],
+  "properties": {
+    "kind": {"const": "scenery.prune"},
+    "schema_revision": {"const": "sha256:f95645cc22daa246351423eb37128ae94a68c79c3587613f4c9fcfe1d17fc8f7"},
+    "cutoff": {"type": "string", "format": "date-time"},
+    "pruned": {"type": "array", "items": {"type": "string"}},
+    "skipped": {"type": "array", "items": {"type": "string"}},
+    "db_cleanup": {"type": "boolean"},
+    "state_cleanup": {"type": "boolean"},
+    "dev_events_pruned": {"type": "integer", "minimum": 0},
+    "dev_sources_pruned": {"type": "integer", "minimum": 0}
+  },
+  "additionalProperties": false
+}

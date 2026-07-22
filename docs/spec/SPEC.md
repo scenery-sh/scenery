@@ -148,17 +148,17 @@ No resource is allowed to acquire unrelated meanings merely for convenience. In 
 
 ### 3.1 File names
 
-The application root MUST contain a file named scenery.scn and MAY contain additional files ending in .scn.
+The application root MUST contain a file named app.scn and MAY contain additional files ending in .scn.
 
-A package directory MUST contain scenery.package.scn and MAY contain any number of files ending in .scn.
+A package directory MUST contain package.scn and MAY contain any number of files ending in .scn.
 
 Example:
 
 ~~~text
-scenery.scn
-scenery.lock.scn
+app.scn
+app.lock.scn
 house/
-  scenery.package.scn
+  package.scn
   service.scn
   types.scn
   scenes.scn
@@ -167,11 +167,16 @@ house/
 
 The lock file is generated. Authors and agents MUST change dependency intent in source files and let Scenery update the lock file.
 
+The retired pre-cutover contract filenames are not aliases. Encountering one
+MUST emit `SCN1021` with the exact old and replacement filenames and MUST NOT
+compile it: rename the application contract to `app.scn`, a package contract
+to `package.scn`, or the application lock to `app.lock.scn` as directed.
+
 ### 3.2 File composition
 
-The root scenery.scn file and all other .scn files directly inside the application root form one unordered application body. scenery.lock.scn is generated metadata and is excluded.
+The root app.scn file and all other .scn files directly inside the application root form one unordered application body. app.lock.scn is generated metadata and is excluded.
 
-The scenery.package.scn file and all other .scn files directly inside one package directory form one unordered package body.
+The package.scn file and all other .scn files directly inside one package directory form one unordered package body.
 
 - Filenames are organizational only.
 - Source order across files has no meaning.
@@ -256,7 +261,7 @@ go_module "application" {
 }
 ~~~
 
-All application and package .scn files, scenery.lock.scn, accepted migrations, and migration ledgers are workspace-revision inputs automatically. An implementation_root declares source ownership. Its files enter workspace_revision only when they match revision_include and do not match revision_exclude. Merely creating a log, cache, model, test result, native build output, or other unmatched file beneath the root MUST NOT change workspace_revision.
+All application and package .scn files, app.lock.scn, accepted migrations, and migration ledgers are workspace-revision inputs automatically. An implementation_root declares source ownership. Its files enter workspace_revision only when they match revision_include and do not match revision_exclude. Merely creating a log, cache, model, test result, native build output, or other unmatched file beneath the root MUST NOT change workspace_revision.
 
 revision_input declares additional exact files. An absent required path is an error; an absent optional path contributes nothing. A path cannot be both included and excluded, and exclusions cannot remove automatic language, lockfile, migration, or accepted artifact-descriptor inputs.
 
@@ -2374,10 +2379,88 @@ renderer "scene_detail_web" {
 
 Page loads and actions invoke typed internal bindings, which already select operation, execution, and policy. They do not call bare operations or arbitrary backend methods. One page MAY have multiple renderers.
 
-The current source language also provides `content_page`, `split_page`, and
-`table_page` declarations. They are authored sugar: expansion MUST emit
+The current source language also provides `content_page`, `split_page`,
+`table_page`, `workspace_page`, and `detail_page` declarations. They are
+authored sugar: expansion MUST emit
 ordinary page and renderer resources with lineage back to the source
 declaration. No page macro creates a second runtime path.
+
+A `detail_page` MUST declare a dynamic absolute `path`, a call-delivery HTTP
+`source`, a title, and at least one field `section`. Its source operation MUST
+have record input and exactly one result whose type directly names the entity
+record. Every path parameter MUST claim exactly one scalar operation input
+with a supported path codec. Same-name inputs are implicit; a labeled `param`
+block MAY explicitly map a path parameter to a differently named input. A path
+parameter or operation input MUST NOT be claimed twice.
+
+Each detail section MUST have a unique name, a non-empty label, and at least
+one unique top-level entity field. Current field appearances are `auto`,
+`text`, `number`, `datetime`, and `badge`; a status map is valid only for a
+badge-rendered string or enum field. `hide_empty = true` omits the entire
+labeled field when its value is absent, null, or the empty string; its default
+is `false`. Nested field paths are unsupported.
+The `presentation` value MUST be `page`, `dialog`, or `both`, and defaults to
+`page`. All presentations share one generated content component; `dialog` and
+`both` additionally export the controlled dialog wrapper.
+
+A detail `action` MUST reference a same-module `form_dialog`. Every dialog
+input MUST have a same-name, type-compatible entity field so generated forms
+can be seeded without inference. Simple declared actions and the optional
+typed `actions` React-component slot MAY coexist. The slot receives the loaded
+entity and an invalidation callback and is the required escape hatch for
+domain mutations whose visibility, dynamic choices, confirmation, or direct
+execution cannot be expressed by `form_dialog`; such behavior MUST NOT be
+silently reduced to an unconditional generated dialog.
+
+A detail `table` MUST reference a same-module, binding-backed `table_page` and
+map one detail path parameter to one type-compatible operation input not
+already claimed by that table's filters, query, pagination, or predicates.
+Generated related tables reuse the referenced table contract without their
+standalone page chrome. Successful declared or app-owned actions invalidate
+the detail query and every related-table query.
+
+~~~hcl
+detail_page "scene_detail" {
+  path         = "/house/scenes/{scene_id}"
+  source       = binding.read_scene_http
+  title        = "Scene detail"
+  presentation = "both"
+
+  param "scene_id" {
+    input = "id"
+  }
+
+  section "overview" {
+    label = "Overview"
+
+    field "id" {
+      label = "Scene ID"
+    }
+
+    field "status" {
+      label      = "Status"
+      appearance = "badge"
+      status_map = status_map.scene_status
+    }
+  }
+
+  action "edit" {
+    label  = "Edit"
+    dialog = form_dialog.edit_scene
+  }
+
+  actions {
+    component = react_component.scene_workflow_actions
+  }
+
+  table "events" {
+    label = "Events"
+    page  = table_page.scene_events
+    param = "scene_id"
+    input = "scene_id"
+  }
+}
+~~~
 
 A `content_page` MUST declare one content component and MAY omit `source`. A
 sourced content page MUST resolve to a call-delivery HTTP binding whose
@@ -2400,6 +2483,7 @@ A workbench `table_page` MAY declare:
   resources;
 - client-side export of the rows returned by the current source query, with
   per-column display and export participation;
+- optional loading and error copy for the generated request-state surface;
 - response-aware filter, toolbar, empty, and footer components; a toolbar MAY
   choose header or content placement;
 - either one typed row-detail component or one typed row-action component,
@@ -2884,7 +2968,7 @@ Deployable binaries and runtime bundles are keyed by implementation_revision.
 workspace_revision identifies exact managed workspace bytes. Its projection contains normalized relative paths and exact bytes for:
 
 - application and package .scn files;
-- scenery.lock.scn;
+- app.lock.scn;
 - patch inputs;
 - files matched by implementation_root revision_include/revision_exclude rules and explicit revision_input declarations;
 - accepted migrations and migration ledger;
@@ -3838,7 +3922,7 @@ House Core is a complete minimal fixture. House Full adds durable execution, dat
 
 ### 27.1 House Core
 
-The root scenery.scn begins with the application workspace:
+The root app.scn begins with the application workspace:
 
 ~~~hcl
 workspace {
@@ -3897,7 +3981,7 @@ module "house" {
 }
 ~~~
 
-The package file house/scenery.package.scn is independently reusable:
+The package file house/package.scn is independently reusable:
 
 ~~~hcl
 package "house" {

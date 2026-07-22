@@ -2,7 +2,7 @@
 
 **One CLI for building, running, and inspecting Go services — built for humans and AI agents.**
 
-Scenery applications use one current specification: `scenery.scn` and package-local `scenery.package.scn` files compile into one canonical typed resource graph with Go and TypeScript generation, HTTP, durable execution, events, data, deployment, UI, semantic inspection, and revision-bound mutation.
+Scenery applications use one current specification: `app.scn` and package-local `package.scn` files compile into one canonical typed resource graph, with dependencies captured in generated `app.lock.scn`. Retired contract filenames fail with an exact `SCN1021` rename instruction rather than acting as aliases. The graph drives Go and TypeScript generation, HTTP, durable execution, events, data, deployment, UI, semantic inspection, and revision-bound mutation.
 
 Unavailable future surfaces—such as declarative extensions, workflows, streaming/WebSockets, full registry trust, entity-evolution syntax, platform listener/certificate schemas, and fixed-target native toolchain identities—fail explicitly instead of receiving invented defaults.
 
@@ -19,7 +19,7 @@ The Go-comment declaration frontend is not supported. The local dashboard, nativ
 - **Typed HTTP by default.** scenery decodes path params, query params, headers, cookies, and JSON bodies into Go structs, then encodes typed responses.
 - **Generated internal calls.** Binding clients preserve private access, auth context, tracing, and delivery semantics.
 - **Inspectable by tools and agents.** `scenery inspect`, `scenery check`, `scenery logs`, `scenery harness`, and `scenery validate` expose machine-readable JSON contracts.
-- **Generated clients.** scenery can generate a TypeScript client for typed routes.
+- **Generated clients and pages.** scenery generates typed TypeScript clients plus routed table, content, split, workspace, and entity-detail pages from the same graph.
 
 ## Status
 
@@ -129,7 +129,7 @@ scenery deploy status -o json
 
 Detached startup waits for every advertised route and one frontend script or stylesheet by default, so a successful return means the printed URLs are reachable end to end.
 
-Point DNS A/AAAA records at the reported public IP and forward router TCP 80/443 to the reported LAN IP. `scenery deploy status -o json` reports listener, DNS, reachability, sleep, firewall, and certificate diagnostics. Switch to `--acme-ca production` after staging works.
+Point DNS A/AAAA records at the reported public IP and forward router TCP 80/443 to the reported LAN IP. `scenery deploy status -o json` reports listener, DNS, reachability, sleep, firewall, certificate diagnostics, and the login-resume job's last exit; a failed resume makes status not ready. Public resume does not depend on optional `local.dev` wildcard DNS. Switch to `--acme-ca production` after staging works.
 
 ## Agent Skill
 
@@ -161,7 +161,7 @@ require scenery.sh v0.0.0
 replace scenery.sh => /path/to/scenery
 ```
 
-Create `scenery.scn`:
+Create `app.scn`:
 
 ```hcl
 workspace {
@@ -201,7 +201,7 @@ module "service" {
 }
 ```
 
-Create `service/scenery.package.scn` with one service, operation, execution, and HTTP binding:
+Create `service/package.scn` with one service, operation, execution, and HTTP binding:
 
 ```hcl
 package "service" {
@@ -340,11 +340,12 @@ scenery logs --follow [--app-root <path>] [--limit <n>] [--stream all|stdout|std
 scenery console [--app-root <path>] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>]
 scenery system agent [--socket <path>] [--router-listen <addr>] [--router-tls|--router-http] [--trust] [-o json]
 scenery system agent restart [--socket <path>] [--router-listen <addr>] [--router-tls|--router-http] [--trust] [-o json]
+scenery system agent cleanup [--remove-state] [-o json]
 scenery system edge install|trust|status|restart|uninstall|dns|privileged [-o json]
 scenery help <command>|all|-o json
 scenery ps [-o json] [--app-root <path>] [--watch]
 scenery down [--app-root <path>] [--db] [--state] [--all] [-o json]
-scenery prune --older-than <duration> [--app-root <path>] [-o json]
+scenery prune --older-than <duration> [--app-root <path>] [--db] [--state] [--all] [-o json]
 scenery worker [--app-root <path>] [--env <name>] [--log-format text|json]
 scenery worker durable --endpoint <url> --token <token> [--service <name>]... [--app-root <path>] [--env <name>] [--log-format text|json]
 scenery worker durable jobs list|inspect|cancel|retry [job-id] --service <name> [--app-root <path>] -o json
@@ -406,6 +407,10 @@ Each invocation best-effort appends command, duration, exit code, version, and `
 
 `scenery system agent restart` restarts only the local control plane and router; registered shared Postgres and Victoria processes keep their PIDs. Destructive substrate shutdown stays with substrate-specific commands.
 
+`scenery system agent cleanup` stops only fingerprint-verified same-user processes tied to the pre-rebrand `~/.onlava` config or socket. It reports old state by default and removes it only with `--remove-state`.
+
+`scenery prune --older-than 14d` removes stale runtime records and substrate leases without deleting databases or state. Add `--state`, `--db`, or `--all` for those explicit destructive cleanup scopes; managed database cleanup refuses external DSNs.
+
 The agent and managed Caddy edge are single-owner processes. Startup fails closed instead of choosing an unadvertised port, safely reaps only fingerprint-verified stale Scenery owners, and `scenery doctor -o json` reports duplicate or foreign listeners.
 
 `scenery db list -o json` reports the app's Postgres database and service schemas.
@@ -419,7 +424,7 @@ See [docs/local-contract.md](docs/local-contract.md) for the full command contra
 ## Source Or Shared Go Libraries
 
 A package beneath `pkg/` can declare a Go `library` and record-shaped
-operations in `scenery.package.scn`. Scenery generates one typed
+operations in `package.scn`. Scenery generates one typed
 `scenerylib_<name>` facade, so consumers keep the same import and call surface
 while `.scenery.json` selects `source` or `shared` linkage per environment.
 
@@ -445,7 +450,7 @@ for the declaration and config recipe.
 
 ## TypeScript Client Generation
 
-Declare each TypeScript target in `scenery.scn`. Use `materialization = "source"` with an `output_root` beneath a declared managed generated root for a checked-in SDK, or `materialization = "cache"` for disposable output under `.scenery/gen/typescript/<name>`, then run:
+Declare each TypeScript target in `app.scn`. Use `materialization = "source"` with an `output_root` beneath a declared managed generated root for a checked-in SDK, or `materialization = "cache"` for disposable output under `.scenery/gen/typescript/<name>`, then run:
 
 ```sh
 scenery inspect endpoints -o json

@@ -80,14 +80,14 @@ func TestChangeTransactionRecoveryKeepsReceiptedApply(t *testing.T) {
 
 func TestCompileRejectsActiveTransactionOwnedByCurrentProcess(t *testing.T) {
 	root := t.TempDir()
-	path := filepath.Join(root, "scenery.scn")
+	path := filepath.Join(root, testAppFilename)
 	before := []byte("application \"app\" {}\n")
 	after := []byte("application \"app\" {}\n\n")
 	if err := os.WriteFile(path, before, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	rollback, _, err := commitPlannedEdits(root, []SourceEdit{{
-		Path: "scenery.scn", BeforeDigest: byteDigest(before), BeforeExists: true,
+		Path: testAppFilename, BeforeDigest: byteDigest(before), BeforeExists: true,
 		AfterExists: true, After: after, Mode: 0o644,
 	}}, filepath.Join(root, ".scenery", "receipt.json"))
 	if err != nil {

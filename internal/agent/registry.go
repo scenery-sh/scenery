@@ -337,6 +337,16 @@ func (r *Registry) delete(id string, ownerPID int, requestedOwner Owner, strict 
 		return session, false, nil
 	}
 	delete(r.sessions, id)
+	for kind, substrate := range r.substrates {
+		if _, ok := substrate.Leases[id]; !ok {
+			continue
+		}
+		delete(substrate.Leases, id)
+		if len(substrate.Leases) == 0 {
+			substrate.Leases = nil
+		}
+		r.substrates[kind] = substrate
+	}
 	for host, alias := range r.aliases {
 		if alias.SessionID == id {
 			delete(r.aliases, host)

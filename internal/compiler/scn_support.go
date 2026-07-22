@@ -17,6 +17,12 @@ type ConcreteComment = scn.ConcreteComment
 type FormatResult = scn.FormatResult
 type sourcePositionIndex = scn.PositionIndex
 
+const (
+	appFilename     = scn.AppFilename
+	packageFilename = scn.PackageFilename
+	appLockFilename = scn.AppLockFilename
+)
+
 var (
 	newSourcePositionIndex   = scn.NewPositionIndex
 	convertBlock             = scn.ConvertBlock

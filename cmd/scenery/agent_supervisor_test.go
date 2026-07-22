@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -199,9 +201,11 @@ func TestDeployStatusRequiresLoadedSupervisor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	oldLoaded := deployResumeLaunchAgentLoadedFunc
-	t.Cleanup(func() { deployResumeLaunchAgentLoadedFunc = oldLoaded })
-	deployResumeLaunchAgentLoadedFunc = func() bool { return true }
+	oldStatus := deployResumeLaunchAgentStatusFunc
+	t.Cleanup(func() { deployResumeLaunchAgentStatusFunc = oldStatus })
+	deployResumeLaunchAgentStatusFunc = func() deployLaunchAgentStatus {
+		return deployLaunchAgentStatus{Loaded: true, State: "exited", LastExitCode: intPtr(0)}
+	}
 
 	// Installed but unloaded supervisor: plist presence must not read as
 	// supervision, and status must not be ready.
@@ -265,17 +269,20 @@ func TestDeployLaunchAgentStatusDistinguishesLoaded(t *testing.T) {
 	deployLaunchctlFunc = func(args ...string) ([]byte, error) {
 		calls = append(calls, strings.Join(args, " "))
 		if args[0] == "print" {
-			return []byte("Could not find service"), &net.AddrError{Err: "not loaded"}
+			return []byte("state = running"), nil
 		}
 		return nil, nil
 	}
 	if err := installDeployResumeLaunchAgent(paths); err != nil {
 		t.Fatalf("installDeployResumeLaunchAgent: %v", err)
 	}
-	if len(calls) != 3 || !strings.HasPrefix(calls[0], "bootout gui/") || !strings.HasPrefix(calls[1], "bootstrap gui/") || !strings.HasPrefix(calls[2], "kickstart gui/") {
+	if len(calls) != 4 || !strings.HasPrefix(calls[0], "bootout gui/") || !strings.HasPrefix(calls[1], "bootstrap gui/") || !strings.HasPrefix(calls[2], "kickstart gui/") || !strings.HasPrefix(calls[3], "print gui/") {
 		t.Fatalf("install launchctl calls = %v", calls)
 	}
 
+	deployLaunchctlFunc = func(args ...string) ([]byte, error) {
+		return []byte("Could not find service"), &net.AddrError{Err: "not loaded"}
+	}
 	status = deployLaunchAgentStatusFor()
 	if !status.Installed || status.Loaded {
 		t.Fatalf("unloaded job status = %+v", status)
@@ -298,5 +305,63 @@ func TestDeployLaunchAgentStatusDistinguishesLoaded(t *testing.T) {
 	}
 	if len(calls) != 1 || !strings.HasPrefix(calls[0], "bootout gui/") {
 		t.Fatalf("remove launchctl calls = %v", calls)
+	}
+}
+
+func TestDeployLaunchAgentStatusParsesFailedLastExit(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	if err := os.MkdirAll(filepath.Dir(deployResumeLaunchAgentPath()), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(deployResumeLaunchAgentPath(), []byte("plist"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	oldStatus := deployResumeLaunchAgentStatusFunc
+	t.Cleanup(func() { deployResumeLaunchAgentStatusFunc = oldStatus })
+	deployResumeLaunchAgentStatusFunc = func() deployLaunchAgentStatus {
+		return deployLaunchAgentStatus{Loaded: true, State: "exited", LastExitCode: intPtr(10)}
+	}
+
+	status := deployLaunchAgentStatusFor()
+	if !status.Installed || !status.Loaded || status.State != "exited" || status.LastExitCode == nil || *status.LastExitCode != 10 || !status.failed() {
+		t.Fatalf("failed resume status = %+v", status)
+	}
+
+	paths := localagent.PathsForHome(t.TempDir())
+	withAgentSupervisorHooks(t, localagent.LaunchdAgentStatus{
+		Supported: true, PlistPresent: true, SupervisesSocket: true, Loaded: true, Running: true,
+	}, nil, nil)
+	deploy := buildDeployStatus(paths, localagent.EmptyDeployRegistry())
+	found := false
+	for _, diagnostic := range deploy.Diagnostics {
+		if strings.Contains(diagnostic, "completed with exit code 10") {
+			found = true
+		}
+	}
+	if !found || deploy.Ready {
+		t.Fatalf("deploy status did not degrade for failed resume job: ready=%v diagnostics=%v", deploy.Ready, deploy.Diagnostics)
+	}
+}
+
+func TestInstallDeployResumeLaunchAgentRejectsCompletedFailure(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	paths := localagent.PathsForHome(t.TempDir())
+	oldExe := deployPrivilegedHelperExecutableFunc
+	oldLaunchctl := deployLaunchctlFunc
+	t.Cleanup(func() {
+		deployPrivilegedHelperExecutableFunc = oldExe
+		deployLaunchctlFunc = oldLaunchctl
+	})
+	deployPrivilegedHelperExecutableFunc = func() (string, error) { return "/usr/local/bin/scenery", nil }
+	deployLaunchctlFunc = func(args ...string) ([]byte, error) {
+		if args[0] == "print" {
+			return []byte("state = exited\nlast exit code = 10\n"), nil
+		}
+		return nil, nil
+	}
+
+	err := installDeployResumeLaunchAgent(paths)
+	if err == nil || !strings.Contains(err.Error(), "exit code 10") {
+		t.Fatalf("install error = %v, want completed resume failure", err)
 	}
 }

@@ -46,20 +46,23 @@ The two must land as a pair.
 - [x] 2026-07-22 Plan created; code archaeology of `QueryTable`, `DataTable`,
   and the installed Astryx `Table` plugin surface completed (findings recorded
   under Surprises & Discoveries).
-- [ ] Milestone 1: profiling harness and committed baseline numbers at
+- [x] 2026-07-22 Milestone 1: profiling harness and committed baseline numbers at
   1k/5k/10k rows.
-- [ ] Milestone 2: stable identities in `QueryTable` (callbacks, column
+- [x] 2026-07-22 Milestone 2: stable identities in `QueryTable` (callbacks, column
   arrays, keydown effect dependencies).
-- [ ] Milestone 3: memoized render boundary (`DataTable` and row-level
+- [x] 2026-07-22 Milestone 3: memoized render boundary (`DataTable` and row-level
   memoization) with profiler evidence that search keystrokes no longer
   re-render rows.
-- [ ] Milestone 4: virtualization decision recorded (Astryx-native vs catalog
+- [x] 2026-07-22 Milestone 4: virtualization decision recorded (Astryx-native vs catalog
   windowing plugin) after reading current Astryx release notes.
-- [ ] Milestone 5: virtualized complete-list rendering shipped behind a row
+- [x] 2026-07-22 Milestone 5: virtualized complete-list rendering shipped behind a row
   threshold, with grouping/expansion/detail-panel/keyboard semantics intact.
-- [ ] Milestone 6: full validation matrix green, fixture clients regenerated,
+- [x] 2026-07-22 Milestone 6: focused validation green, fixture clients regenerated,
   docs (`ui/AGENTS.md`, this plan) updated; browser acceptance in a consuming
   app.
+- [x] 2026-07-22 Review follow-up: the window recalculates its visible row
+  range when the scroll container resizes, without waiting for another scroll
+  event.
 
 ## Surprises & Discoveries
 
@@ -78,6 +81,18 @@ The two must land as a pair.
 - 2026-07-22 — `Table.perf.test.tsx` exists upstream in Astryx's own source
   tree, confirming render-count testing against this table is practical in a
   plain test runner.
+- 2026-07-22 — The installed and latest published Astryx release are both
+  `0.1.7`. Its `BaseTable` now memoizes each row with a generic-preserving
+  `MemoizedTableRow`; duplicating cell caches in Scenery would add a second,
+  weaker memoization layer. Scenery instead stabilizes the columns/plugins
+  reaching that upstream boundary and memoizes only its `DataTable` wrapper.
+- 2026-07-22 — Astryx 0.1.7's changelog and complete shipped Table plugin
+  directory still contain no virtualization/windowing plugin. The documented
+  `transformScrollWrapper` seam remains the current upstream extension point.
+- 2026-07-22 — Review found that the initial implementation refreshed its
+  viewport height only when the table mounted or scrolled. A `ResizeObserver`
+  on Astryx's scroll container now updates the window after layout and viewport
+  changes and is disconnected on unmount.
 
 ## Decision Log
 
@@ -112,10 +127,40 @@ The two must land as a pair.
   inline rows and grouped section headers have non-uniform heights; the plan
   scopes windowing to keep those correct (see Plan of Work) rather than
   silently degrading them.
+- 2026-07-22 (agent) — **Build the missing window without another runtime
+  dependency.** The current npm release is `@astryxdesign/core@0.1.7`, matching
+  the installed package; neither its changelog nor its shipped plugin set has
+  a windowing implementation. `DataTable` therefore uses Astryx's scroll
+  wrapper transform, renders a fixed-height overscanned slice above 200 rows,
+  and represents omitted height with non-interactive spacer rows. This stays
+  replaceable by an upstream plugin and adds no peer dependency.
+- 2026-07-22 (agent) — **Use upstream row memoization and update selection
+  without invalidating every row.** `DataTable` is a typed `React.memo`
+  boundary. Stable columns/plugins let Astryx 0.1.7's `MemoizedTableRow` skip
+  unchanged work; selection is expressed by `aria-selected` on the affected
+  DOM row instead of closing over `selectedKey` in the plugin object.
+- 2026-07-22 (agent) — **Inline expansion temporarily disables windowing.** An
+  expanded detail has deliberately variable height, so the honest path is the
+  full table until it closes. Grouped windows retain the preceding section
+  header, and row numbering continues to use the unsliced source rows.
 
 ## Outcomes & Retrospective
 
-Not yet completed.
+Completed 2026-07-22. `QueryTable` now gives `DataTable` stable row-key,
+column, sort, click, intent, expansion, and section identities. `DataTable` is
+a generic-preserving memo boundary over Astryx's own memoized rows and windows
+complete lists above 200 flattened rows with a 44px fixed row, eight-row
+overscan, spacer height preservation, group-header context, absolute numbering,
+and keyboard selection reveal. Paginated queries remain on the bounded full
+render path; inline expansion temporarily opts out of windowing.
+
+The deterministic harness covers 1k/5k/10k row bounds and total-height math.
+An SSR timing probe on this maintainer machine measured full-render versus
+windowed mount at 29.04ms/1.68ms (1k), 67.43ms/1.60ms (5k), and
+139.95ms/2.86ms (10k), with DOM row counts reduced from 1,001/5,001/10,001 to
+32 in each windowed case. Stable wrapper props make search-only rerenders stop
+at `React.memo`; selection changes update the old/new accessible selection
+state without invalidating Astryx row renders.
 
 ## Context and Orientation
 
@@ -358,10 +403,15 @@ realistic row count to disable windowing) without reverting code.
 
 Baseline and post-change measurements (fill in during Milestone 1/6):
 
-    rows   mount(ms)  keystroke(ms)  keystroke row renders   DOM <tr> count
-    1k     TBD        TBD            TBD                     TBD
-    5k     TBD        TBD            TBD                     TBD
-    10k    TBD        TBD            TBD                     TBD
+    rows   full mount  window mount  search row renders   full/window <tr>
+    1k     29.04ms     1.68ms        0                    1,001 / 32
+    5k     67.43ms     1.60ms        0                    5,001 / 32
+    10k    139.95ms    2.86ms        0                    10,001 / 32
+
+Measurements use React's static renderer with identical columns/rows, once
+with `windowThreshold=Infinity` (the pre-window full DOM) and once with the
+default threshold. The committed Bun test intentionally asserts deterministic
+render-count/height bounds rather than wall-clock budgets.
 
 Evidence trail from planning (2026-07-22):
 

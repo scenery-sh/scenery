@@ -12,7 +12,7 @@ import (
 func TestCSTMutationUpdatesNestedBlockAndObjectLeavesWithoutLosingComments(t *testing.T) {
 	root := t.TempDir()
 	copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), root)
-	rootPath := filepath.Join(root, "scenery.scn")
+	rootPath := filepath.Join(root, testAppFilename)
 	rootSource, err := os.ReadFile(rootPath)
 	if err != nil {
 		t.Fatal(err)
@@ -31,7 +31,7 @@ http_gateway "secondary" {
 	if err := os.WriteFile(rootPath, rootSource, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	packagePath := filepath.Join(root, "house", "scenery.package.scn")
+	packagePath := filepath.Join(root, "house", testPackageFilename)
 	packageSource, err := os.ReadFile(packagePath)
 	if err != nil {
 		t.Fatal(err)

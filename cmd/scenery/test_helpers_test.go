@@ -92,7 +92,7 @@ func writeTestAppFile(t *testing.T, root, rel, contents string) {
 		t.Fatalf("WriteFile(%q): %v", path, err)
 	}
 	if rel == ".scenery.json" {
-		contractPath := filepath.Join(root, "scenery.scn")
+		contractPath := filepath.Join(root, testAppFilename)
 		if _, err := os.Stat(contractPath); os.IsNotExist(err) {
 			contract := "application \"test\" {}\n"
 			if err := os.WriteFile(contractPath, []byte(contract), 0o644); err != nil {
@@ -167,7 +167,7 @@ func nativeHarnessTestFiles(t *testing.T, name, body string) map[string]string {
 	return map[string]string{
 		".scenery.json": `{"name":"` + name + `","id":"` + name + `-id"}`,
 		"go.mod":        "module " + module + "\n\ngo 1.26.3\n\nrequire scenery.sh v0.0.0\n\nreplace scenery.sh => " + filepath.ToSlash(repoRootForTest(t)) + "\n",
-		"scenery.scn": `workspace {
+		testAppFilename: `workspace {
   implementation_root "application" {
     path = "."
     revision_include = ["**/*.go", "go.mod"]

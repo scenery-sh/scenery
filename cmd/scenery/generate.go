@@ -17,6 +17,7 @@ import (
 	"scenery.sh/internal/appwalk"
 	"scenery.sh/internal/envpolicy"
 	inspectdata "scenery.sh/internal/inspect"
+	"scenery.sh/internal/scn"
 )
 
 type generateOptions struct {
@@ -186,7 +187,7 @@ func parseGenerateArgs(args []string) (generateOptions, error) {
 		positionals = positionals[1:]
 	}
 	if cliFlagSet(flags, "lang") || cliFlagSet(flags, "output") {
-		return generateOptions{}, fmt.Errorf("client output flags are not supported here; declare a typescript_client in scenery.scn")
+		return generateOptions{}, fmt.Errorf("client output flags are not supported here; declare a typescript_client in %s", scn.AppFilename)
 	}
 	if len(positionals) > 0 {
 		return generateOptions{}, fmt.Errorf("unexpected argument %q", positionals[0])

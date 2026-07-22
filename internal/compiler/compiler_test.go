@@ -61,11 +61,11 @@ func TestCompileHouseCore(t *testing.T) {
 
 func TestCompileRejectsSymlinkedSourceFiles(t *testing.T) {
 	root := t.TempDir()
-	external := filepath.Join(t.TempDir(), "scenery.scn")
+	external := filepath.Join(t.TempDir(), appFilename)
 	if err := os.WriteFile(external, []byte("application \"external\" {}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(external, filepath.Join(root, "scenery.scn")); err != nil {
+	if err := os.Symlink(external, filepath.Join(root, appFilename)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Compile(root); err == nil || !strings.Contains(err.Error(), "regular non-symlink") {
@@ -129,7 +129,7 @@ func TestContractRevisionIgnoresFormatting(t *testing.T) {
 	}
 	temp := t.TempDir()
 	copyTree(t, source, temp)
-	path := filepath.Join(temp, "scenery.scn")
+	path := filepath.Join(temp, appFilename)
 	b, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -183,7 +183,7 @@ func TestContractRevisionUsesOnlyContractDomains(t *testing.T) {
 func TestImplementationRevisionRequiresBuildSuppliedInputManifest(t *testing.T) {
 	temp := t.TempDir()
 	copyTree(t, filepath.Join("testdata", "house"), temp)
-	path := filepath.Join(temp, "scenery.scn")
+	path := filepath.Join(temp, appFilename)
 	b, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -267,7 +267,7 @@ go_target "development" {
 func TestWorkspaceRevisionExcludesManagedGeneratedFiles(t *testing.T) {
 	temp := t.TempDir()
 	copyTree(t, filepath.Join("testdata", "house"), temp)
-	rootSource := filepath.Join(temp, "scenery.scn")
+	rootSource := filepath.Join(temp, appFilename)
 	data, err := os.ReadFile(rootSource)
 	if err != nil {
 		t.Fatal(err)
@@ -355,7 +355,7 @@ func TestDuplicateParameterizedRoutesConflict(t *testing.T) {
 func TestFormatPreservesCommentsAndIsIdempotent(t *testing.T) {
 	temp := t.TempDir()
 	copyTree(t, filepath.Join("testdata", "house"), temp)
-	path := filepath.Join(temp, "scenery.scn")
+	path := filepath.Join(temp, appFilename)
 	before, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -385,7 +385,7 @@ func TestFormatPreservesCommentsAndIsIdempotent(t *testing.T) {
 
 func TestFormatCanonicalizesDurationBeyondMachineIntegerRange(t *testing.T) {
 	root := t.TempDir()
-	path := filepath.Join(root, "scenery.scn")
+	path := filepath.Join(root, appFilename)
 	source := `execution "huge" {
   timeout = "9223372036854775808ns"
 }
@@ -426,7 +426,7 @@ func TestFormatRejectsEscapingModuleSources(t *testing.T) {
 			if err := os.MkdirAll(outside, 0o755); err != nil {
 				t.Fatal(err)
 			}
-			outsidePath := filepath.Join(outside, "scenery.package.scn")
+			outsidePath := filepath.Join(outside, packageFilename)
 			before := []byte("package\"outside\"{}\n")
 			if err := os.WriteFile(outsidePath, before, 0o644); err != nil {
 				t.Fatal(err)
@@ -437,7 +437,7 @@ func TestFormatRejectsEscapingModuleSources(t *testing.T) {
 				}
 			}
 			source := fmt.Sprintf("module \"x\" { source = %q }\n", test.source)
-			if err := os.WriteFile(filepath.Join(root, "scenery.scn"), []byte(source), 0o644); err != nil {
+			if err := os.WriteFile(filepath.Join(root, appFilename), []byte(source), 0o644); err != nil {
 				t.Fatal(err)
 			}
 			if _, err := Format(root, false); err == nil {
@@ -624,7 +624,7 @@ func TestCompilerRejectsDynamicHCLExpressions(t *testing.T) {
 
 func TestCompilerAllowsRuntimeAuthorizationExpressionsOnlyInRules(t *testing.T) {
 	root := t.TempDir()
-	path := filepath.Join(root, "scenery.scn")
+	path := filepath.Join(root, appFilename)
 	if err := os.WriteFile(path, []byte(`authorization "member" {
   principal = std.type.authenticated_principal
   strategy  = "deny_unless_allowed"
@@ -667,7 +667,7 @@ func TestCompileValidatesIdempotencyKeysAgainstInputRecord(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			root := t.TempDir()
 			copyTree(t, filepath.Join("testdata", "house"), root)
-			path := filepath.Join(root, "house", "scenery.package.scn")
+			path := filepath.Join(root, "house", packageFilename)
 			data, err := os.ReadFile(path)
 			if err != nil {
 				t.Fatal(err)
