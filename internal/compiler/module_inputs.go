@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -208,7 +209,7 @@ func collectModuleInputFieldProvenance(resource *Resource, authored any, path st
 		}
 	case []any:
 		for index, child := range value {
-			collectModuleInputFieldProvenance(resource, child, provenanceChildPath(path, fmt.Sprintf("%d", index)), provenance)
+			collectModuleInputFieldProvenance(resource, child, provenanceChildPath(path, strconv.Itoa(index)), provenance)
 		}
 	}
 }

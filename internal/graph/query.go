@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -444,7 +445,7 @@ func WalkReferences(value any, path string, visit func(string, string)) {
 		}
 	case []any:
 		for index, item := range typed {
-			WalkReferences(item, fmt.Sprintf("%s/%d", path, index), visit)
+			WalkReferences(item, path+"/"+strconv.Itoa(index), visit)
 		}
 	}
 }
@@ -453,15 +454,15 @@ func resolveGraphReference(resource Resource, reference string) string {
 	if strings.Contains(reference, "/") {
 		return reference
 	}
-	parts := strings.Split(reference, ".")
-	if len(parts) != 2 {
+	blockType, name, ok := strings.Cut(reference, ".")
+	if !ok || strings.Contains(name, ".") {
 		return ""
 	}
 	module := resource.Module
-	if rootResourceKinds[parts[0]] {
+	if rootResourceKinds[blockType] {
 		module = "app"
 	}
-	return ResourceAddress(module, parts[0], parts[1])
+	return ResourceAddress(module, blockType, name)
 }
 
 func contextDirection(include []string) string {

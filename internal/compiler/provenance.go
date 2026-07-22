@@ -1,8 +1,8 @@
 package compiler
 
 import (
-	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -33,7 +33,7 @@ func authoredFieldProvenance(block *Block, path, sourceAddress, module string) m
 		for _, child := range current.Blocks {
 			childPath := provenanceChildPath(currentPath, child.Type)
 			if counts[child.Type] > 1 {
-				childPath = provenanceChildPath(childPath, fmt.Sprintf("%d", indexes[child.Type]))
+				childPath = provenanceChildPath(childPath, strconv.Itoa(indexes[child.Type]))
 			}
 			indexes[child.Type]++
 			rng := child.Range
@@ -100,7 +100,7 @@ func collectAuthoredExpressionProvenance(result map[string]FieldProvenance, expr
 			}
 		case []any:
 			for index, child := range typed {
-				segment := fmt.Sprintf("%d", index)
+				segment := strconv.Itoa(index)
 				childPath := provenanceChildPath(currentPath, segment)
 				childRelative := provenanceChildPath(relativePath, segment)
 				field := authoredExpressionProvenance(expression, sourceAddress, module)
@@ -221,7 +221,7 @@ func markResolvedReferenceProvenance(resource *Resource, before, after any, path
 			if index < len(newValue) {
 				resolved = newValue[index]
 			}
-			markResolvedReferenceProvenance(resource, child, resolved, provenanceChildPath(path, fmt.Sprintf("%d", index)), module, inputProvenance)
+			markResolvedReferenceProvenance(resource, child, resolved, provenanceChildPath(path, strconv.Itoa(index)), module, inputProvenance)
 		}
 	}
 }
@@ -261,7 +261,7 @@ func markContextualScalarProvenance(before, after []Resource) {
 					if itemIndex < len(oldItems) {
 						oldChild = oldItems[itemIndex]
 					}
-					visit(oldChild, child, provenanceChildPath(path, fmt.Sprintf("%d", itemIndex)))
+					visit(oldChild, child, provenanceChildPath(path, strconv.Itoa(itemIndex)))
 				}
 			}
 		}
@@ -290,7 +290,7 @@ func completeFieldProvenance(resources []Resource, stage string) {
 				}
 			case []any:
 				for itemIndex, child := range typed {
-					childPath := provenanceChildPath(path, fmt.Sprintf("%d", itemIndex))
+					childPath := provenanceChildPath(path, strconv.Itoa(itemIndex))
 					ensureFieldProvenance(&resources[index], childPath, stage)
 					visit(child, childPath)
 				}
@@ -318,7 +318,7 @@ func provenanceNamedChildren(parent map[string]any, key, parentPath string) []pr
 		for index, item := range value {
 			child, ok := item.(map[string]any)
 			if ok {
-				result = append(result, provenanceNamedChild{Value: child, Path: provenanceChildPath(base, fmt.Sprintf("%d", index))})
+				result = append(result, provenanceNamedChild{Value: child, Path: provenanceChildPath(base, strconv.Itoa(index))})
 			}
 		}
 		return result

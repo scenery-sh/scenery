@@ -27,8 +27,8 @@ func cachedGoEmbedPatterns(path string, stamp fileStamp) ([]string, bool) {
 	if !ok {
 		return nil, false
 	}
-	entry := value.(embedPatternCacheEntry)
-	if entry.stamp.hash != stamp.hash {
+	entry, ok := value.(embedPatternCacheEntry)
+	if !ok || entry.stamp.hash != stamp.hash {
 		return nil, false
 	}
 	return entry.patterns, true
@@ -40,7 +40,9 @@ func storeGoEmbedPatterns(path string, stamp fileStamp, patterns []string) {
 
 func parseGoEmbedPatterns(src string) []string {
 	var patterns []string
-	for _, line := range strings.Split(src, "\n") {
+	for remaining := src; remaining != ""; {
+		var line string
+		line, remaining, _ = strings.Cut(remaining, "\n")
 		line = strings.TrimSpace(line)
 		if !strings.HasPrefix(line, "//go:embed") {
 			continue
@@ -255,7 +257,10 @@ func addEmbeddedPath(root, path string, includeHidden bool, files map[string]str
 }
 
 func hasHiddenOrUnderscorePart(rel string) bool {
-	for _, part := range strings.Split(filepath.ToSlash(rel), "/") {
+	rest := filepath.ToSlash(rel)
+	for rest != "" {
+		part, next, _ := strings.Cut(rest, "/")
+		rest = next
 		if strings.HasPrefix(part, ".") || strings.HasPrefix(part, "_") {
 			return true
 		}

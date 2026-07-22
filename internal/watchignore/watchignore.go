@@ -1,10 +1,13 @@
 package watchignore
 
 import (
+	"io/fs"
 	"os"
 	pathpkg "path"
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 
 	"scenery.sh/internal/app"
 )
@@ -36,9 +39,54 @@ func New(root string) *Matcher {
 	return m
 }
 
+// ignoreRuleCache memoizes parsed rules per ignore-bearing file (keyed by
+// absolute path) so steady-state watch rescans stat unchanged files instead
+// of re-reading and re-parsing them every tick. Entries are validated by
+// size+mtime, matching the watcher's file-stamp heuristic, plus the base dir
+// the rules were parsed against (the same file yields different bases under
+// nested roots). Rules are immutable after parse, so sharing is safe.
+var ignoreRuleCache sync.Map
+
+type ignoreRuleCacheEntry struct {
+	size    int64
+	modTime time.Time
+	base    string
+	rules   []watchIgnoreRule
+}
+
+func cachedIgnoreRules(path, base string, info fs.FileInfo) ([]watchIgnoreRule, bool) {
+	value, ok := ignoreRuleCache.Load(path)
+	if !ok {
+		return nil, false
+	}
+	entry, ok := value.(ignoreRuleCacheEntry)
+	if !ok || entry.base != base || entry.size != info.Size() || !entry.modTime.Equal(info.ModTime()) {
+		return nil, false
+	}
+	return entry.rules, true
+}
+
+func storeIgnoreRules(path, base string, info fs.FileInfo, rules []watchIgnoreRule) {
+	ignoreRuleCache.Store(path, ignoreRuleCacheEntry{
+		size:    info.Size(),
+		modTime: info.ModTime(),
+		base:    base,
+		rules:   rules,
+	})
+}
+
 func watchConfigIgnoreRules(root string) []watchIgnoreRule {
+	path := app.ConfigPath(root)
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() {
+		return nil
+	}
+	if rules, ok := cachedIgnoreRules(path, "", info); ok {
+		return rules
+	}
 	patterns, err := app.ReadWatchIgnorePatterns(root)
 	if err != nil {
+		// Leave broken configs uncached so the next scan retries them.
 		return nil
 	}
 	rules := make([]watchIgnoreRule, 0, len(patterns))
@@ -47,6 +95,7 @@ func watchConfigIgnoreRules(root string) []watchIgnoreRule {
 			rules = append(rules, rule)
 		}
 	}
+	storeIgnoreRules(path, "", info, rules)
 	return rules
 }
 
@@ -60,19 +109,34 @@ func (m *Matcher) LoadDir(rel string) {
 	}
 	m.loaded[rel] = struct{}{}
 
-	data, err := os.ReadFile(filepath.Join(m.root, filepath.FromSlash(rel), ".gitignore"))
+	path := filepath.Join(m.root, filepath.FromSlash(rel), ".gitignore")
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() {
+		return
+	}
+	if rules, ok := cachedIgnoreRules(path, rel, info); ok {
+		m.gitRules = append(m.gitRules, rules...)
+		return
+	}
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return
 	}
+	var rules []watchIgnoreRule
 	for _, line := range strings.Split(string(data), "\n") {
 		if rule, ok := parseWatchIgnoreRule(rel, line); ok {
-			m.gitRules = append(m.gitRules, rule)
+			rules = append(rules, rule)
 		}
 	}
+	storeIgnoreRules(path, rel, info, rules)
+	m.gitRules = append(m.gitRules, rules...)
 }
 
 func (m *Matcher) Ignored(rel string, isDir bool) bool {
 	if m == nil {
+		return false
+	}
+	if len(m.configRules) == 0 && len(m.gitRules) == 0 {
 		return false
 	}
 	rel = normalizeWatchRel(rel)
@@ -85,14 +149,13 @@ func (m *Matcher) Ignored(rel string, isDir bool) bool {
 			return true
 		}
 	}
-	ignored := false
-	for _, rule := range m.gitRules {
-		if !rule.matches(relParts, isDir) {
-			continue
+	// Last matching rule wins, so walk in reverse and stop at the first hit.
+	for i := len(m.gitRules) - 1; i >= 0; i-- {
+		if m.gitRules[i].matches(relParts, isDir) {
+			return !m.gitRules[i].negated
 		}
-		ignored = !rule.negated
 	}
-	return ignored
+	return false
 }
 
 func parseWatchConfigIgnoreRule(line string) (watchIgnoreRule, bool) {
@@ -264,6 +327,9 @@ func matchGitignorePathParts(patternParts, relParts []string) bool {
 }
 
 func matchGitignoreSegment(pattern, name string) bool {
+	if !strings.ContainsAny(pattern, `*?[\`) {
+		return pattern == name
+	}
 	ok, err := pathpkg.Match(pattern, name)
 	if err != nil {
 		return pattern == name

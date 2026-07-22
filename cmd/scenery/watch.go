@@ -677,8 +677,8 @@ func scanWatchedFiles(root string) (fileSnapshot, error) {
 // unchanged, so steady-state watch ticks stat files instead of re-reading and
 // re-hashing the whole workspace.
 func scanWatchedFilesReusing(root string, previous fileSnapshot) (fileSnapshot, error) {
-	snapshot := fileSnapshot{files: make(map[string]fileStamp)}
-	dirs := map[string]struct{}{}
+	snapshot := fileSnapshot{files: make(map[string]fileStamp, len(previous.files))}
+	var dirs []string
 	ignore := watchignore.New(root)
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -707,7 +707,7 @@ func scanWatchedFilesReusing(root string, previous fileSnapshot) (fileSnapshot, 
 				return filepath.SkipDir
 			}
 			ignore.LoadDir(rel)
-			dirs[rel] = struct{}{}
+			dirs = append(dirs, rel)
 			return nil
 		}
 		if d.Type()&os.ModeSymlink != 0 {
@@ -761,11 +761,10 @@ func scanWatchedFilesReusing(root string, previous fileSnapshot) (fileSnapshot, 
 	if err != nil {
 		return fileSnapshot{}, err
 	}
-	snapshot.dirs = make([]string, 0, len(dirs))
-	for dir := range dirs {
-		snapshot.dirs = append(snapshot.dirs, dir)
-	}
-	sort.Strings(snapshot.dirs)
+	// WalkDir visits each directory exactly once, so the list is already
+	// unique; DFS pre-order is not string-sorted, so sort stays.
+	sort.Strings(dirs)
+	snapshot.dirs = dirs
 	return snapshot, nil
 }
 
@@ -814,12 +813,14 @@ func shouldIgnoreWatchPathBuiltin(rel string, isDir bool) bool {
 	if !isDir && isWatchedRootDotFile(rel) {
 		return false
 	}
-	parts := strings.Split(rel, "/")
-	for i, part := range parts {
+	rest := rel
+	for rest != "" {
+		part, next, found := strings.Cut(rest, "/")
+		rest = next
 		if part == "" || part == "." {
 			continue
 		}
-		if !isDir && i == len(parts)-1 && part == ".gitignore" {
+		if !isDir && !found && part == ".gitignore" {
 			continue
 		}
 		if strings.HasPrefix(part, ".") {
@@ -917,11 +918,11 @@ func snapshotFingerprint(snapshot fileSnapshot) string {
 	var scratch []byte
 	for _, path := range paths {
 		stamp := snapshot.files[path]
-		_, _ = h.Write([]byte(path))
-		_, _ = h.Write([]byte{0})
-		_, _ = h.Write([]byte(stamp.hash))
-		_, _ = h.Write([]byte{0})
-		scratch = strconv.AppendInt(scratch[:0], stamp.size, 10)
+		scratch = append(scratch[:0], path...)
+		scratch = append(scratch, 0)
+		scratch = append(scratch, stamp.hash...)
+		scratch = append(scratch, 0)
+		scratch = strconv.AppendInt(scratch, stamp.size, 10)
 		scratch = append(scratch, ':')
 		scratch = strconv.AppendInt(scratch, stamp.modTime.UnixNano(), 10)
 		scratch = append(scratch, ':')

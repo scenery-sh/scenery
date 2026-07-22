@@ -1,8 +1,8 @@
 package graph
 
 import (
-	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -33,7 +33,7 @@ func SetFieldProvenanceTree(origin *Origin, value any, path string, field FieldP
 			}
 		case []any:
 			for index, item := range typed {
-				childPath := ProvenanceChildPath(currentPath, fmt.Sprintf("%d", index))
+				childPath := ProvenanceChildPath(currentPath, strconv.Itoa(index))
 				origin.FieldProvenance[childPath] = field
 				walk(item, childPath)
 			}

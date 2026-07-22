@@ -148,7 +148,11 @@ func (s *dashboardServer) runSymphonyAutoOnce(ctx context.Context) (bool, error)
 			continue
 		}
 		status, err := s.dashboardStatusFor(ctx, requested)
-		if err != nil || !status.Running {
+		if err != nil {
+			errs = append(errs, fmt.Errorf("app %s: %w", requested, err))
+			continue
+		}
+		if !status.Running {
 			continue
 		}
 		auto, err := s.runSymphonyAutoForApp(ctx, store, status)
@@ -384,7 +388,11 @@ func startSymphonyRunHeartbeat(ctx context.Context, store *symphony.Store, req s
 }
 
 func completeSymphonyRun(store *symphony.Store, req symphonyRunRequest, status, summary, runError, nextStatus string) {
-	if diffStat, diff, err := collectSymphonyRunArtifacts(context.Background(), req.AppWorkspace); err == nil {
+	// Bound the three git execs so a hung git (lock contention, fsmonitor)
+	// cannot stall run completion indefinitely.
+	artifactCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if diffStat, diff, err := collectSymphonyRunArtifacts(artifactCtx, req.AppWorkspace); err == nil {
 		if diffStat != "" || diff != "" {
 			if _, err := store.RecordRunArtifacts(context.Background(), req.AppID, req.Run.ID, diffStat, diff); err != nil {
 				slog.Warn("symphony run artifact recording failed", "task", req.Task.Identifier, "run", req.Run.ID, "err", err)

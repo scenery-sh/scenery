@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestWatchIgnoreMatcherUsesGitignoreRules(t *testing.T) {
@@ -118,5 +119,102 @@ func writeWatchFile(t testing.TB, root, rel, contents string) {
 	}
 	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
 		t.Fatalf("write %s: %v", rel, err)
+	}
+}
+
+// A same-size rewrite that restores the original mtime must hit the rule
+// cache (proving unchanged files are not re-read per scan), while an mtime
+// bump must invalidate it so edits take effect on the next scan.
+func TestWatchIgnoreRuleCacheStampValidation(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeWatchFile(t, root, ".gitignore", "dist/\n")
+	writeWatchFile(t, root, ".scenery.json", `{"name":"cacheapp","watch":{"ignore":["logs/"]}}`)
+
+	first := New(root)
+	if !first.Ignored("dist", true) || !first.Ignored("logs", true) {
+		t.Fatal("initial rules did not apply")
+	}
+
+	gitPath := filepath.Join(root, ".gitignore")
+	gitInfo, err := os.Stat(gitPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Same byte length, same mtime: the stamp heuristic must reuse the old
+	// parsed rules without re-reading the file.
+	writeWatchFile(t, root, ".gitignore", "docs/\n")
+	if err := os.Chtimes(gitPath, gitInfo.ModTime(), gitInfo.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	cached := New(root)
+	if !cached.Ignored("dist", true) {
+		t.Fatal("stamp-identical rewrite must reuse cached gitignore rules")
+	}
+	if cached.Ignored("docs", true) {
+		t.Fatal("stamp-identical rewrite must not surface the new rules yet")
+	}
+
+	if err := os.Chtimes(gitPath, gitInfo.ModTime().Add(2*time.Second), gitInfo.ModTime().Add(2*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	fresh := New(root)
+	if fresh.Ignored("dist", true) {
+		t.Fatal("mtime bump must drop the stale cached gitignore rules")
+	}
+	if !fresh.Ignored("docs", true) {
+		t.Fatal("mtime bump must load the edited gitignore rules")
+	}
+
+	configPath := filepath.Join(root, ".scenery.json")
+	configInfo, err := os.Stat(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeWatchFile(t, root, ".scenery.json", `{"name":"cacheapp","watch":{"ignore":["temp/"]}}`)
+	if err := os.Chtimes(configPath, configInfo.ModTime(), configInfo.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	cachedConfig := New(root)
+	if !cachedConfig.Ignored("logs", true) || cachedConfig.Ignored("temp", true) {
+		t.Fatal("stamp-identical config rewrite must reuse cached config rules")
+	}
+	if err := os.Chtimes(configPath, configInfo.ModTime().Add(2*time.Second), configInfo.ModTime().Add(2*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	freshConfig := New(root)
+	if freshConfig.Ignored("logs", true) || !freshConfig.Ignored("temp", true) {
+		t.Fatal("config mtime bump must load the edited watch.ignore rules")
+	}
+}
+
+// The same .gitignore file loaded under nested roots parses against
+// different base dirs; the cache must not serve one root's rules to the
+// other.
+func TestWatchIgnoreRuleCacheNestedRootBases(t *testing.T) {
+	t.Parallel()
+
+	parent := t.TempDir()
+	writeWatchFile(t, parent, "sub/.gitignore", "build/\n")
+
+	outer := New(parent)
+	outer.LoadDir("sub")
+	if !outer.Ignored("sub/build", true) {
+		t.Fatal("parent-rooted matcher must scope sub/.gitignore rules under sub/")
+	}
+	if outer.Ignored("build", true) {
+		t.Fatal("parent-rooted matcher must not apply sub rules at the root")
+	}
+
+	inner := New(filepath.Join(parent, "sub"))
+	if !inner.Ignored("build", true) {
+		t.Fatal("sub-rooted matcher must apply its own .gitignore at its root")
+	}
+
+	again := New(parent)
+	again.LoadDir("sub")
+	if !again.Ignored("sub/build", true) || again.Ignored("build", true) {
+		t.Fatal("cache must not leak the sub-rooted base back to the parent root")
 	}
 }

@@ -1,7 +1,6 @@
 package graph
 
 import (
-	"fmt"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -31,7 +30,7 @@ func ResourceAddress(module, blockType, name string) string {
 	if module == "" {
 		module = "app"
 	}
-	return filepath.ToSlash(fmt.Sprintf("%s/%s/%s", module, blockType, name))
+	return filepath.ToSlash(module + "/" + blockType + "/" + name)
 }
 
 func ModuleResourceAddress(instance string) string {
