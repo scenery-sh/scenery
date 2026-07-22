@@ -25,13 +25,17 @@ Use the narrowest current source of truth that applies:
 
 When implementation and docs disagree, the same PR must either fix the affected docs or open/update an ExecPlan that records the drift, owner, and intended resolution path.
 
+Before editing, read what covers the surface you are changing:
+
+1. Any `AGENTS.md` between the repository root and the paths you will touch that you have not already applied (see AGENTS Hierarchy).
+2. The `docs/local-contract.md` and `docs/agent-guide.md` sections for that surface when your change touches their contracts; `ARCHITECTURE.md` when deciding where a change belongs.
+3. `docs/plans/active.md` when the area may have an active ExecPlan, and `docs/tech-debt.md` before large refactors.
+
+For complex features, migrations, multi-hour work, or significant refactors, create or update an ExecPlan as described in `PLANS.md`: active plans live under `docs/plans/<0000-short-slug>.md`, linked from `docs/plans/active.md`, with Progress, Surprises & Discoveries, Decision Log, and Outcomes kept current. `PLAN.md` is the strategic roadmap, not an executable task plan. Run `scenery inspect docs -o json` only when choosing doc-gardening work; use its `summary.review_due_count`, `review_due`, and `stale` fields.
+
 ## AGENTS Hierarchy
 
-`AGENTS.md` files are scoped operating contracts for the subtree that contains them.
-
-Before editing: identify the paths you will touch and read every `AGENTS.md` from the repository root down to each of them, in the current session — do not rely on memory. The closest file controls local details; parents still apply for repo-wide rules, and child docs must not weaken root engineering rules, public contracts, generated-artifact rules, or validation requirements. When docs conflict, current implementation, tests, CLI JSON output, and schemas win.
-
-After meaningful changes, update the nearest owning `AGENTS.md` (and this root file when repo-wide rules, instruction layering, public behavior, validation policy, or the child index change), keeping `docs/knowledge.json`, `SKILL.md`, `docs/agent-guide.md`, and child docs synchronized when the same contract is affected. Small implementation-only edits need no instruction-doc updates; still report that docs were intentionally left unchanged.
+`AGENTS.md` files are scoped operating contracts for the subtree that contains them. The closest file controls local details; parents still apply for repo-wide rules, and child docs must not weaken root engineering rules, public contracts, generated-artifact rules, or validation requirements. When docs conflict, current implementation, tests, CLI JSON output, and schemas win.
 
 Add a child `AGENTS.md` only when a directory becomes a durable boundary with its own purpose, contracts, workflow, verification, or quality standards. Keep child docs short and operational, preferring the section order: Purpose, Ownership, Local Contracts, Work Guidance, Verification, Child Agent Index.
 
@@ -94,18 +98,6 @@ Scenery does not have legacy support. It has **one rolling Scenery specification
 - Do not commit machine-local state or generated cache output from `.scenery/`, Victoria, node modules, coverage, `.DS_Store`, or local environment files.
 - When editing source that changes the public app model, run the Public Surface Checklist in `docs/agent-guide.md`.
 
-## Before Making Changes
-
-Scope your reading to the surface you are changing:
-
-1. Walk the `AGENTS.md` chain for each path you will touch (see AGENTS Hierarchy).
-2. Read the `docs/local-contract.md` and `docs/agent-guide.md` sections that cover that surface; `ARCHITECTURE.md` maps where a change belongs.
-3. Check `docs/plans/active.md` when the area may have an active ExecPlan, and `docs/tech-debt.md` before large refactors.
-
-Run `scenery inspect docs -o json` only when choosing doc-gardening work; use its `summary.review_due_count`, `review_due`, and `stale` fields.
-
-For complex features, migrations, multi-hour work, or significant refactors, create or update an ExecPlan as described in `PLANS.md`: active plans live under `docs/plans/<0000-short-slug>.md`, linked from `docs/plans/active.md`, with Progress, Surprises & Discoveries, Decision Log, and Outcomes kept current. `PLAN.md` is the strategic roadmap, not an executable task plan.
-
 ## CLI Surfaces
 
 Prefer `-o json` (the singular `scenery.cli` envelope) and `-o jsonl` (streaming `scenery.cli.event` envelopes) for inspection and automation; both carry exact schema/spec revisions and producer identity, with command-specific schemas under the envelope `data` field. The full implemented grammar is in `docs/local-contract.md` § CLI Grammar; runtime-command selection guidance is in `docs/agent-guide.md` § Runtime Command Choice.
@@ -125,10 +117,12 @@ scenery harness self --summary --write
 
 ## Documentation Update Rules
 
-When changing behavior, update every affected layer in the same change:
+When changing behavior, update every affected layer in the same change. Small implementation-only edits need no instruction-doc updates; still report that docs were intentionally left unchanged.
 
 | What changed | Update |
 |---|---|
+| Subtree contracts, workflow, or verification | nearest owning `AGENTS.md` |
+| Repo-wide rules, instruction layering, public behavior, validation policy, child index | root `AGENTS.md` |
 | CLI grammar, JSON schemas, artifact paths, stability semantics | `docs/local-contract.md` (+ `docs/schemas/`) |
 | Agent workflows, repo mental model, client-app integration | `docs/agent-guide.md` |
 | Behavior agents rely on inside target apps | `SKILL.md` |
