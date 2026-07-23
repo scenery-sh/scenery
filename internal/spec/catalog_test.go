@@ -42,6 +42,11 @@ func TestDeclarativeTableResourceMetadataIsComplete(t *testing.T) {
 	if metadata, ok := table.Attributes["metadata"]; !ok || metadata.Type["collection"] != "list" {
 		t.Errorf("table_page metadata must be a list attribute: %#v", metadata)
 	}
+	if scroll, ok := table.Attributes["scroll"]; !ok || scroll.Type["primitive"] != "string" || scroll.Default != "table" {
+		t.Errorf("table_page scroll must be a defaulted string attribute: %#v", scroll)
+	} else if values, ok := scroll.Constraints["enum"].([]string); !ok || len(values) != 2 || values[0] != "page" || values[1] != "table" {
+		t.Errorf("table_page scroll must advertise page and table values: %#v", scroll.Constraints)
+	}
 	if child, ok := table.Children["group"]; !ok || !child.Repeatable || child.Schema.Labels != 1 {
 		t.Errorf("table_page group must be a repeated labeled block: %#v", child)
 	}

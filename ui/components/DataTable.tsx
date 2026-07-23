@@ -157,6 +157,10 @@ function DataTableInner<T>({
 		Set<string>
 	>(() => new Set());
 	const collapsedGroups = controlledCollapsedGroups ?? internalCollapsedGroups;
+	const mutableCollapsedGroups = useMemo(
+		() => new Set(collapsedGroups),
+		[collapsedGroups],
+	);
 	const sourceRows = useMemo<InternalRow<T>[]>(() => {
 		if (!sections) {
 			return rows.map((row, rowIndex) => ({
@@ -220,7 +224,7 @@ function DataTableInner<T>({
 	const grouped = useTableGroupedRows<InternalRow<T>>({
 		data: sourceRows,
 		groupBy,
-		collapsedGroups,
+		collapsedGroups: mutableCollapsedGroups,
 		onToggleGroup: toggleGroup,
 		renderGroupHeader,
 		getRowKey: internalRowKey,

@@ -106,6 +106,7 @@ var authoredFieldOverrides = map[authoredFieldKey]authoredFieldOverride{
 	{Revision: "scenery.source.table_page", Name: "page_size"}:                        {Default: 50, DefaultSource: "spec", Constraints: map[string]any{"minimum": 1}},
 	{Revision: "scenery.source.table_page", Name: "metadata"}:                         {Constraints: map[string]any{"min_items": 1, "unique_items": true}},
 	{Revision: "scenery.source.table_page", Name: "nav_order"}:                        {Constraints: map[string]any{"minimum": 0}},
+	{Revision: "scenery.source.table_page", Name: "scroll"}:                           {Default: "table", DefaultSource: "spec", Constraints: enumConstraint("page", "table")},
 	{Revision: "scenery.source.split_page", Name: "nav_order"}:                        {Constraints: map[string]any{"minimum": 0}},
 	{Revision: "scenery.source.content_page", Name: "nav_order"}:                      {Constraints: map[string]any{"minimum": 0}},
 	{Revision: "scenery.source.workspace_page", Name: "nav_order"}:                    {Constraints: map[string]any{"minimum": 0}},

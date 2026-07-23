@@ -2492,6 +2492,9 @@ A workbench `table_page` MAY declare:
 - client-side export of the rows returned by the current source query, with
   per-column display and export participation;
 - optional loading and error copy for the generated request-state surface;
+- vertical scroll ownership through `scroll = "table"|"page"`, defaulting to
+  the table while allowing stats, controls, and rows to share the page
+  scrollport;
 - response-aware filter, toolbar, empty, and footer components; a toolbar MAY
   choose header or content placement;
 - either one typed row-detail component or one typed row-action component,

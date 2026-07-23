@@ -107,6 +107,29 @@ func TestBindingBackedReactTableLoadsCompleteTypedResultWithoutPagination(t *tes
 	}
 }
 
+func TestBindingBackedReactTableCanDelegateVerticalScrollingToPage(t *testing.T) {
+	resources := bindingTableResources()
+	resources[10].Spec["scroll"] = "page"
+	binding := resources[7]
+	page := selectedReactTablePages(resources, []Resource{binding})[0]
+	result := &Result{Manifest: &Manifest{Resources: resources}}
+	target := Resource{Address: "app/typescript_client/public_api", Module: "app", Name: "public_api", Kind: "scenery.typescript-client"}
+	source, err := renderReactTablePage(result, target, "react", page, []Resource{binding})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, fragment := range []string{`<Page title={"Work Orders"}>`, `<QueryTable<WorkOrder> resource={"Work Orders"} resourceSingular={"Work Order"}`} {
+		if !strings.Contains(source, fragment) {
+			t.Errorf("page-scroll table missing %q:\n%s", fragment, source)
+		}
+	}
+	for _, fragment := range []string{`<Page title={"Work Orders"} fill>`, `resourceSingular={"Work Order"} fill`} {
+		if strings.Contains(source, fragment) {
+			t.Errorf("page-scroll table unexpectedly contains %q:\n%s", fragment, source)
+		}
+	}
+}
+
 func TestBindingBackedReactTableMapsMultiwordSortFieldToTypeScriptRowKey(t *testing.T) {
 	resources := bindingTableResources()
 	recordFields := resources[4].Spec["field"].([]any)

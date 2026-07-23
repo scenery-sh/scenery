@@ -1,3 +1,5 @@
+import type { ISODateTimeString } from "@astryxdesign/core/DateTimeInput";
+
 export function dateTimePreset(
 	range: "today" | "last_7_days" | "month_to_date",
 	now = new Date(),
@@ -17,13 +19,15 @@ export function formatLocalDateTime(value: string | undefined) {
 	return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 }
 
-export function localDateTime(value: string | undefined) {
+export function localDateTime(
+	value: string | undefined,
+): ISODateTimeString | undefined {
 	if (!value) return undefined;
 	const instant = new Date(value);
 	if (Number.isNaN(instant.getTime())) return undefined;
 	return new Date(instant.getTime() - instant.getTimezoneOffset() * 60_000)
 		.toISOString()
-		.slice(0, 16);
+		.slice(0, 16) as ISODateTimeString;
 }
 
 export function exactDateTime(value: string | undefined, original?: string) {

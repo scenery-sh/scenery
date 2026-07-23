@@ -82,7 +82,7 @@ var resourceSchemas = map[string]resourceSchema{
 	"scenery.react-component": {"implementation", []string{"module", "export"}, []string{"module", "export"}, nil},
 	"scenery.status-map":      {"contract", []string{"status"}, nil, nil},
 	"scenery.form-dialog":     {"contract", []string{"source", "title"}, []string{"source", "title", "description", "submit_label"}, nil},
-	"scenery.table-page":      {"contract", []string{"path", "source", "title", "column"}, []string{"path", "source", "items", "metadata", "title", "description", "loading_label", "error_title", "page_size", "row_link", "hide_header", "nav_group", "nav_order", "nav_label", "nav_icon", "nav_active_paths"}, nil},
+	"scenery.table-page":      {"contract", []string{"path", "source", "title", "column"}, []string{"path", "source", "items", "metadata", "title", "description", "loading_label", "error_title", "page_size", "row_link", "hide_header", "scroll", "nav_group", "nav_order", "nav_label", "nav_icon", "nav_active_paths"}, nil},
 	"scenery.split-page":      {"contract", []string{"path", "source", "title", "sidebar", "detail"}, []string{"path", "source", "title", "aria_label", "sidebar_label", "query_parameter", "nav_group", "nav_order", "nav_label", "nav_icon", "nav_active_paths"}, nil},
 	"scenery.content-page":    {"contract", []string{"path", "title", "content"}, []string{"path", "source", "title", "aria_label", "max_width", "nav_group", "nav_order", "nav_label", "nav_icon", "nav_active_paths"}, nil},
 	"scenery.workspace-page":  {"contract", []string{"path", "title", "tab"}, []string{"path", "title", "presentation", "nav_group", "nav_order", "nav_label", "nav_icon", "nav_active_paths"}, nil},
