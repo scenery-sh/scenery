@@ -27,15 +27,39 @@ type helpReferenceGroup struct {
 }
 
 type helpCommandEntry struct {
-	Command     string   `json:"command"`
-	Group       string   `json:"group"`
-	Summary     string   `json:"summary"`
-	Usage       []string `json:"usage"`
-	Subcommands []string `json:"subcommands,omitempty"`
-	Flags       []string `json:"flags,omitempty"`
-	Notes       []string `json:"notes,omitempty"`
-	JSON        bool     `json:"json"`
-	Stability   string   `json:"stability"`
+	Command              string                    `json:"command"`
+	Group                string                    `json:"group"`
+	Summary              string                    `json:"summary"`
+	Usage                []string                  `json:"usage"`
+	Subcommands          []string                  `json:"subcommands,omitempty"`
+	Flags                []string                  `json:"flags,omitempty"`
+	RequiredCombinations []helpRequiredCombination `json:"required_combinations,omitempty"`
+	SideEffectClass      string                    `json:"side_effect_class,omitempty"`
+	AppRootRequirement   string                    `json:"app_root_requirement,omitempty"`
+	OutputSchemas        []helpOutputSchema        `json:"output_schemas,omitempty"`
+	CommonExitCategories []helpExitCategory        `json:"common_exit_categories,omitempty"`
+	RelatedCommands      []string                  `json:"related_commands,omitempty"`
+	Notes                []string                  `json:"notes,omitempty"`
+	JSON                 bool                      `json:"json"`
+	Stability            string                    `json:"stability"`
+}
+
+type helpRequiredCombination struct {
+	When          string   `json:"when"`
+	Requires      []string `json:"requires,omitempty"`
+	ConflictsWith []string `json:"conflicts_with,omitempty"`
+}
+
+type helpOutputSchema struct {
+	Mode           string `json:"mode"`
+	Kind           string `json:"kind"`
+	SchemaRevision string `json:"schema_revision"`
+}
+
+type helpExitCategory struct {
+	Category       string `json:"category"`
+	ExitCode       int    `json:"exit_code"`
+	DiagnosticCode string `json:"diagnostic_code,omitempty"`
 }
 
 type helpManifest struct {
@@ -388,12 +412,50 @@ var helpCommands = []helpCommandEntry{
 	{
 		Command: "build",
 		Group:   "Build and checks",
-		Summary: "Build the deployable binary or a declared shared library.",
+		Summary: "Build a deployable binary, declared shared library, or configured desktop shell.",
 		Usage: []string{
-			"scenery build [--app-root <path>] [--output <path>] [-o human|json]",
-			"scenery build --lib <name> [--version <semver>] [--platform all|host|darwin/arm64,linux/amd64] [--app-root <path>] [--output <dir>] [-o human|json]",
+			"scenery build [--target <go-target>] [--app-root <path>] [--output <binary>] [-o human|json]",
+			"scenery build --lib <name|address|artifact> [--version <vN.N.N>] [--platform all|host|darwin/arm64|linux/amd64|<csv>] [--app-root <path>] [--output <directory>] [-o human|json]",
+			"scenery build --desktop [--env <name>] [--app-root <path>] [-o human|json]",
 		},
-		Flags:     []string{"--app-root <path>", "--output <path>", "--lib <name>", "--version <semver>", "--platform <matrix>", "-o human|json"},
+		Flags: []string{
+			"--target <go-target>",
+			"--output <binary|directory>",
+			"--lib <name|address|artifact>",
+			"--version <vN.N.N>",
+			"--platform all|host|darwin/arm64|linux/amd64|<csv>",
+			"--desktop",
+			"--env <name>",
+			"--app-root <path>",
+			"-o human|json",
+		},
+		RequiredCombinations: []helpRequiredCombination{
+			{When: "--version", Requires: []string{"--lib"}},
+			{When: "--platform", Requires: []string{"--lib"}},
+			{When: "--env", Requires: []string{"--desktop"}},
+			{When: "--lib", ConflictsWith: []string{"--target", "--desktop"}},
+			{When: "--desktop", ConflictsWith: []string{"--target", "--lib", "--version", "--platform", "--output"}},
+		},
+		SideEffectClass:    "local_artifacts",
+		AppRootRequirement: "required",
+		OutputSchemas: []helpOutputSchema{
+			{Mode: "application", Kind: "scenery.build.result"},
+			{Mode: "library", Kind: "scenery.library.build.result"},
+			{Mode: "desktop", Kind: "scenery.build.desktop"},
+		},
+		CommonExitCategories: []helpExitCategory{
+			{Category: "success", ExitCode: 0},
+			{Category: "invalid_request", ExitCode: 2, DiagnosticCode: "SCN8001"},
+			{Category: "failed_precondition", ExitCode: 3, DiagnosticCode: "SCN8003"},
+			{Category: "internal", ExitCode: 10, DiagnosticCode: "SCN9000"},
+		},
+		RelatedCommands: []string{
+			"scenery inspect build -o json",
+			"scenery inspect paths -o json",
+			"scenery check -o json",
+			"scenery generate --check -o json",
+		},
+		JSON:      true,
 		Stability: "stable",
 	},
 	{
@@ -430,11 +492,11 @@ var helpCommands = []helpCommandEntry{
 		Usage: []string{
 			"scenery inspect app|routes|services|endpoints|build|paths|generators|durable|storage|observability|validation -o json [--app-root <path>]",
 			"scenery inspect ui [--frontend <name>] [--app-root <path>] [-o human|json]",
-			"scenery inspect docs -o json [--repo-root <path>]",
+			"scenery inspect docs -o json [--repo-root <path>] [--for-path <path>|--tag <tag>|--status active|reference|completed|deprecated|--review-due|--all]",
 			"scenery inspect harness [artifact <name>|diagnostics --severity error|warning|timing --top <n>] -o json [--app-root <path>] [--repo-root <path>]",
 		},
 		Subcommands: []string{"app", "routes", "services", "endpoints", "build", "paths", "generators", "durable", "observability", "validation", "ui", "docs", "harness"},
-		Flags:       []string{"-o", "human|json", "--app-root <path>", "--frontend <name>", "--repo-root <path>"},
+		Flags:       []string{"-o", "human|json", "--app-root <path>", "--frontend <name>", "--repo-root <path>", "--for-path <path>", "--tag <tag>", "--status active|reference|completed|deprecated", "--review-due", "--all"},
 		JSON:        true,
 		Stability:   "stable",
 	},
@@ -520,29 +582,104 @@ var helpCommands = []helpCommandEntry{
 }
 
 func helpCommand(args []string) error {
-	if len(args) == 0 {
+	topics, jsonOutput, err := parseHelpCommandArgs(args)
+	if err != nil {
+		return err
+	}
+	if len(topics) == 0 {
+		if jsonOutput {
+			return writeHelpJSON(os.Stdout)
+		}
 		writeRootHelp(os.Stdout)
 		return nil
 	}
-	if (len(args) == 2 && args[0] == "-o" && args[1] == "json") || (len(args) == 1 && args[0] == "-o=json") {
-		return writeHelpJSON(os.Stdout)
-	}
-	if len(args) == 1 && args[0] == "all" {
+	if len(topics) == 1 && topics[0] == "all" {
+		if jsonOutput {
+			return writeHelpJSON(os.Stdout)
+		}
 		writeHelpAll(os.Stdout)
 		return nil
 	}
-	if len(args) > 0 && strings.HasPrefix(args[0], "-") {
-		return fmt.Errorf("unknown help flag %q", args[0])
-	}
-	entry, ok := findHelpCommand(args)
+	entry, ok := findHelpCommand(topics)
 	if !ok {
-		if handled, err := runBindingCLI(os.Stdout, os.Stderr, append(append([]string(nil), args...), "--help")); handled {
-			return err
+		if !jsonOutput {
+			if handled, err := runBindingCLI(os.Stdout, os.Stderr, append(append([]string(nil), topics...), "--help")); handled {
+				return err
+			}
 		}
-		return fmt.Errorf("unknown help topic %q", strings.Join(args, " "))
+		return fmt.Errorf("invalid_request: unknown help topic %q", strings.Join(topics, " "))
+	}
+	if jsonOutput {
+		return writeScopedHelpJSON(os.Stdout, entry)
 	}
 	writeCommandHelp(os.Stdout, entry)
 	return nil
+}
+
+func parseHelpCommandArgs(args []string) ([]string, bool, error) {
+	jsonOutput := false
+	flags := newCLIFlagSet("help")
+	registerJSONOutput(flags, &jsonOutput)
+	topics, err := parseCLIFlags(flags, args)
+	if err != nil {
+		return nil, false, fmt.Errorf("invalid_request: %w", err)
+	}
+	return topics, jsonOutput, nil
+}
+
+func helpCommandDescriptor(entry helpCommandEntry) helpCommandEntry {
+	entry.OutputSchemas = append([]helpOutputSchema(nil), entry.OutputSchemas...)
+	for index := range entry.OutputSchemas {
+		identity := newCLIPayloadIdentity(entry.OutputSchemas[index].Kind)
+		entry.OutputSchemas[index].SchemaRevision = identity.SchemaRevision
+	}
+	return entry
+}
+
+func helpCommandDescriptors(entries []helpCommandEntry) []helpCommandEntry {
+	descriptors := make([]helpCommandEntry, 0, len(entries))
+	for _, entry := range entries {
+		descriptors = append(descriptors, helpCommandDescriptor(entry))
+	}
+	return descriptors
+}
+
+func writeScopedHelpJSON(w io.Writer, entry helpCommandEntry) error {
+	manifest := helpManifest{
+		cliPayloadIdentity: newCLIPayloadIdentity(helpManifestKind),
+		Commands:           []helpCommandEntry{helpCommandDescriptor(entry)},
+	}
+	return writeCLIJSON(w, manifest)
+}
+
+func helpEntryAcceptsTail(entry helpCommandEntry, topic string) bool {
+	if topic == entry.Command {
+		return true
+	}
+	tail := strings.TrimSpace(strings.TrimPrefix(topic, entry.Command))
+	if tail == topic || tail == "" {
+		return false
+	}
+	subcommand, _, _ := strings.Cut(tail, " ")
+	for _, candidate := range entry.Subcommands {
+		if candidate == subcommand {
+			return true
+		}
+	}
+	return false
+}
+
+func findHelpCommand(parts []string) (helpCommandEntry, bool) {
+	topic := strings.TrimSpace(strings.Join(parts, " "))
+	var selected helpCommandEntry
+	found := false
+	for _, entry := range helpCommands {
+		if helpEntryAcceptsTail(entry, topic) && (!found || len(entry.Command) > len(selected.Command)) {
+			selected = entry
+			found = true
+		}
+	}
+	return selected, found
 }
 
 func writeRootHelp(w io.Writer) {
@@ -550,7 +687,7 @@ func writeRootHelp(w io.Writer) {
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Usage:")
 	fmt.Fprintln(w, "  scenery <command> [args] [flags]")
-	fmt.Fprintln(w, "  scenery help <command>")
+	fmt.Fprintln(w, "  scenery help <command> [-o human|json]")
 	fmt.Fprintln(w, "  scenery help all")
 	fmt.Fprintln(w, "  scenery help -o json")
 	for _, group := range rootHelpGroups {
@@ -569,7 +706,7 @@ func writeHelpAll(w io.Writer) {
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Usage:")
 	fmt.Fprintln(w, "  scenery <command> [args] [flags]")
-	fmt.Fprintln(w, "  scenery help <command>")
+	fmt.Fprintln(w, "  scenery help <command> [-o human|json]")
 	for _, group := range helpReferenceGroups {
 		fmt.Fprintln(w)
 		fmt.Fprintf(w, "%s:\n", group.Name)
@@ -578,7 +715,8 @@ func writeHelpAll(w io.Writer) {
 		}
 	}
 	fmt.Fprintln(w)
-	fmt.Fprintln(w, `Use "scenery help <command>" for exact flags.`)
+	fmt.Fprintln(w, `Use "scenery help <command>" for exact human-readable flags.`)
+	fmt.Fprintln(w, `Use "scenery help <command> -o json" for one machine-readable command descriptor.`)
 	fmt.Fprintln(w, `Use "scenery help -o json" for the machine-readable command manifest.`)
 }
 
@@ -615,24 +753,7 @@ func writeCommandHelp(w io.Writer, entry helpCommandEntry) {
 func writeHelpJSON(w io.Writer) error {
 	manifest := helpManifest{
 		cliPayloadIdentity: newCLIPayloadIdentity(helpManifestKind),
-		Commands:           append([]helpCommandEntry(nil), helpCommands...),
+		Commands:           helpCommandDescriptors(helpCommands),
 	}
 	return writeCLIJSON(w, manifest)
-}
-
-func findHelpCommand(parts []string) (helpCommandEntry, bool) {
-	topic := strings.TrimSpace(strings.Join(parts, " "))
-	for topic != "" {
-		for _, entry := range helpCommands {
-			if entry.Command == topic {
-				return entry, true
-			}
-		}
-		cut := strings.LastIndex(topic, " ")
-		if cut < 0 {
-			break
-		}
-		topic = topic[:cut]
-	}
-	return helpCommandEntry{}, false
 }

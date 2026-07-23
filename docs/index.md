@@ -5,9 +5,13 @@ This is the human entry point for scenery's local knowledge base. The docs are a
 For agents, the machine-readable source of truth is [knowledge.json](knowledge.json). Validate it with:
 
 ```text
-scenery inspect docs -o json
+scenery inspect docs --all -o json
 scenery harness self --summary
 ```
+
+For ordinary work, discover only the applicable material with `scenery inspect
+docs --for-path <repository-relative-path> -o json`. Filter the index with
+`--tag`, `--status`, or `--review-due`; reserve `--all` for the complete catalog.
 
 ## Agent Entry Points
 

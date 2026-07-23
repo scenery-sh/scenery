@@ -31,7 +31,7 @@ Before editing, read what covers the surface you are changing:
 2. The `docs/local-contract.md` and `docs/agent-guide.md` sections for that surface when your change touches their contracts; `ARCHITECTURE.md` when deciding where a change belongs.
 3. `docs/plans/active.md` when the area may have an active ExecPlan, and `docs/tech-debt.md` before large refactors.
 
-For complex features, migrations, multi-hour work, or significant refactors, create or update an ExecPlan as described in `PLANS.md`: active plans live under `docs/plans/<0000-short-slug>.md`, linked from `docs/plans/active.md`, with Progress, Surprises & Discoveries, Decision Log, and Outcomes kept current. `PLAN.md` is the strategic roadmap, not an executable task plan. Run `scenery inspect docs -o json` only when choosing doc-gardening work; use its `summary.review_due_count`, `review_due`, and `stale` fields.
+For complex features, migrations, multi-hour work, or significant refactors, create or update an ExecPlan as described in `PLANS.md`: active plans live under `docs/plans/<0000-short-slug>.md`, linked from `docs/plans/active.md`, with Progress, Surprises & Discoveries, Decision Log, and Outcomes kept current. `PLAN.md` is the strategic roadmap, not an executable task plan. Use `scenery inspect docs --for-path <path> -o json` for task-scoped documentation discovery, `--review-due` for doc gardening, and `--all` only when the complete catalog is required.
 
 ## AGENTS Hierarchy
 
@@ -157,6 +157,14 @@ go run ./cmd/scenery generate --target typescript_client.public_api --app-root i
 ```
 
 Fresh worktrees need one-time provisioning before UI and self-harness lanes pass; see `docs/agent-guide.md` § Fresh Worktree Preflight. If a command cannot be run in the current environment, say exactly which command was skipped and why.
+
+## Completion Contract
+
+- Lead with the actual outcome.
+- Name the changed contract or behavior.
+- Report every validation command and result.
+- Name applicable validation that was skipped and why.
+- Report remaining risk, unresolved decisions, or follow-up work.
 
 ## Client Repositories
 

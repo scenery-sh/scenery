@@ -69,6 +69,11 @@ func runHarnessKnowledgeStep(repoRoot string) harnessStep {
 	for key, value := range budgetSummary {
 		step.Summary[key] = value
 	}
+	installPolicyDiagnostics, installPolicySummary := validateSharedCLIInstallPolicy(repoRoot)
+	diagnostics = append(diagnostics, installPolicyDiagnostics...)
+	for key, value := range installPolicySummary {
+		step.Summary[key] = value
+	}
 	docsDiagnostics, docsSummary := validateDocsKnowledge(repoRoot)
 	diagnostics = append(diagnostics, docsDiagnostics...)
 	step.Summary["links_checked"] = linksChecked
@@ -267,6 +272,91 @@ func validateInstructionDocBudgets(repoRoot string) ([]checkDiagnostic, map[stri
 	summary["instruction_docs_checked"] = checked
 	summary["instruction_doc_budget_warnings"] = warned
 	return diagnostics, summary
+}
+
+const sharedCLIInstallCommand = "go install ./cmd/scenery"
+
+var repositoryValidationInstructionDocs = []string{
+	"AGENTS.md",
+	"ARCHITECTURE.md",
+	"PLANS.md",
+	"SKILL.md",
+	"docs/agent-guide.md",
+	"docs/harness-engineering.md",
+	"docs/local-contract.md",
+}
+
+// validateSharedCLIInstallPolicy keeps repository validation instructions from
+// overwriting the shared installed CLI. Every occurrence must state its
+// prohibition or human-only exception on the same line.
+func validateSharedCLIInstallPolicy(repoRoot string) ([]checkDiagnostic, map[string]any) {
+	summary := map[string]any{}
+	var diagnostics []checkDiagnostic
+	checked := 0
+	occurrences := 0
+	violations := 0
+
+	for _, rel := range repositoryValidationInstructionDocs {
+		path := filepath.Join(repoRoot, filepath.FromSlash(rel))
+		data, err := os.ReadFile(path)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			diagnostics = append(diagnostics, checkDiagnostic{
+				Stage:           "knowledge contract",
+				Severity:        "error",
+				File:            filepath.ToSlash(path),
+				Message:         err.Error(),
+				SuggestedAction: "Fix the repository validation instruction so the self harness can verify the shared CLI install policy.",
+			})
+			continue
+		}
+		checked++
+		lines := strings.Split(string(data), "\n")
+		for index, line := range lines {
+			if !strings.Contains(line, sharedCLIInstallCommand) {
+				continue
+			}
+			occurrences++
+			if sharedCLIInstallPolicyQualified(strings.ToLower(line)) {
+				continue
+			}
+			violations++
+			diagnostics = append(diagnostics, checkDiagnostic{
+				Stage:           "knowledge contract",
+				Severity:        "error",
+				File:            filepath.ToSlash(path),
+				Line:            index + 1,
+				Message:         "repository validation instructions recommend overwriting the shared scenery CLI with `" + sharedCLIInstallCommand + "`",
+				SuggestedAction: "Use the worktree-local `.scenery/harness/bin/scenery` for validation; reserve the shared install command for an explicit human request.",
+			})
+		}
+	}
+
+	summary["shared_cli_install_policy_docs_checked"] = checked
+	summary["shared_cli_install_policy_occurrences"] = occurrences
+	summary["shared_cli_install_policy_violations"] = violations
+	return diagnostics, summary
+}
+
+func sharedCLIInstallPolicyQualified(context string) bool {
+	for _, qualifier := range []string{
+		"do not run `" + sharedCLIInstallCommand + "`",
+		"must not run `" + sharedCLIInstallCommand + "`",
+		"must not recommend `" + sharedCLIInstallCommand + "`",
+		"do not write the shared `scenery` binary with `" + sharedCLIInstallCommand + "`",
+		"unless a human explicitly",
+		"only when a human explicitly",
+		"only if a human explicitly",
+		"reserved for an explicit human request",
+		"reserved for an explicitly requested shared install",
+	} {
+		if strings.Contains(context, qualifier) {
+			return true
+		}
+	}
+	return false
 }
 
 func markdownLinkTargets(text string) []string {

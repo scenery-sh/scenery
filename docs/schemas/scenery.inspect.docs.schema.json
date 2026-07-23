@@ -7,18 +7,17 @@
     "kind",
     "schema_revision",
     "repo",
+    "query",
     "summary",
     "agents",
-    "documents",
-    "plans",
-    "tech_debt"
+    "documents"
   ],
   "properties": {
     "kind": {
       "const": "scenery.inspect.docs"
     },
     "schema_revision": {
-      "const": "sha256:a13fe6effd00df3811d1cf3d163c9898503f09f7adae939b075b64eb9789996a"
+      "const": "sha256:9f4e4a0077e927960acb17ffa2bb12b96b61360917e33139f0b7d6253d3d2180"
     },
     "repo": {
       "type": "object",
@@ -40,10 +39,48 @@
       },
       "additionalProperties": false
     },
+    "query": {
+      "type": "object",
+      "required": [
+        "mode"
+      ],
+      "properties": {
+        "mode": {
+          "enum": [
+            "summary",
+            "all",
+            "filter",
+            "path"
+          ]
+        },
+        "for_path": {
+          "type": "string"
+        },
+        "tag": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "active",
+            "reference",
+            "completed",
+            "deprecated"
+          ]
+        },
+        "review_due": {
+          "type": "boolean"
+        },
+        "all": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
     "summary": {
       "type": "object",
       "required": [
         "document_count",
+        "selected_document_count",
         "missing_count",
         "review_due_count",
         "stale_count",
@@ -54,6 +91,9 @@
       ],
       "properties": {
         "document_count": {
+          "type": "integer"
+        },
+        "selected_document_count": {
           "type": "integer"
         },
         "missing_count": {
@@ -92,11 +132,7 @@
     "agents": {
       "type": "object",
       "required": [
-        "scopes",
-        "child_index_path",
-        "child_index_entries",
-        "stale_child_index_entries",
-        "missing_child_index_entries"
+        "scopes"
       ],
       "properties": {
         "scopes": {
@@ -133,6 +169,12 @@
       "type": "array",
       "items": {
         "$ref": "#/$defs/document"
+      }
+    },
+    "verification_commands": {
+      "type": "array",
+      "items": {
+        "type": "string"
       }
     },
     "plans": {
@@ -260,6 +302,50 @@
         },
         "stale": {
           "type": "boolean"
+        },
+        "role": {
+          "enum": [
+            "direct",
+            "architecture",
+            "contract",
+            "active_execplan",
+            "schema"
+          ]
+        },
+        "reason": {
+          "type": "string"
+        },
+        "sections": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/section"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "section": {
+      "type": "object",
+      "required": [
+        "heading",
+        "anchor",
+        "start_line",
+        "end_line"
+      ],
+      "properties": {
+        "heading": {
+          "type": "string"
+        },
+        "anchor": {
+          "type": "string"
+        },
+        "start_line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "end_line": {
+          "type": "integer",
+          "minimum": 1
         }
       },
       "additionalProperties": false

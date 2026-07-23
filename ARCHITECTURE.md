@@ -73,6 +73,11 @@ Architecture invariant: the CLI stays hand-rolled unless a new dependency has a
 clear payoff. The command grammar is part of scenery's local contract and should
 remain easy to audit.
 
+`scenery inspect docs --for-path` combines the indexed knowledge base with the
+same changed-area relevance and verification-command logic used by self-harness,
+then narrows Markdown results to owning sections. It does not maintain a second
+path-routing catalog.
+
 ### `internal/app`
 
 `internal/app` owns repository and app-root discovery. It walks upward to find
@@ -85,6 +90,18 @@ loading should fail clearly when the marker is missing or invalid.
 Architecture invariant: configuration parsing must not import the PostgreSQL
 driver layer. Pure database, schema, and environment name derivation lives in
 `internal/postgresname`; database IO lives in `internal/postgresdb`.
+
+### `internal/desktop`
+
+`internal/desktop` owns the Tauri-specific project contract: resolving a
+configured desktop project, producing exact Tauri 2 dev/build overlays and
+commands, running those commands, and discovering installer bundles. The CLI
+package supplies frontend builds, session process registration, and output
+rendering around that package.
+
+Architecture invariant: Tauri project and command behavior stays independent
+of the `cmd/scenery` dev supervisor. Agent/session lifecycle remains CLI
+orchestration and does not leak into the desktop integration package.
 
 ### `internal/parse`
 
@@ -375,9 +392,10 @@ Prefer tests at stable boundaries: `.scn` parsing and validation, canonical
 graphs, generated code, CLI JSON contracts, runtime HTTP behavior, and fixture apps. Use helper
 checks to keep tests data-driven and easy to update when internals move.
 
-After repository changes, rebuild the CLI with `go install ./cmd/scenery`. For
-substantial changes, run `scenery harness self -o json --write` when practical so
-`.scenery/harness/self-latest.json` captures one stable validation snapshot.
+After repository changes, run `go test ./...`. For substantial changes, follow
+the [Fresh Worktree Preflight](docs/agent-guide.md#fresh-worktree-preflight) and
+validate through the worktree-local
+`.scenery/harness/bin/scenery harness self --summary --write` binary.
 
 ### Generated Artifacts
 

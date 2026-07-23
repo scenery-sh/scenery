@@ -19,6 +19,30 @@
   },
   "documents": [
     {
+      "path": "docs/schemas/scenery.inspect.docs.schema.json",
+      "title": "scenery.inspect.docs Schema",
+      "owner": "scenery CLI / agent DX",
+      "status": "active",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-07-23",
+      "review_after": "2026-08-22",
+      "summary": "Current machine-output schema for compact documentation health summaries, catalog filters, bounded path-scoped document routing, section references, and verification commands.",
+      "tags": ["schemas", "docs", "inspection", "agent-dx", "task-routing"]
+    },
+    {
+      "path": "docs/plans/0142-tauri-desktop.md",
+      "title": "Tauri 2.0 Desktop Shells for Configured Frontends",
+      "owner": "scenery runtime / CLI",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-07-23",
+      "review_after": "2026-08-22",
+      "summary": "Completed ExecPlan adding per-frontend tauri app config, managed scenery up --desktop windows over configured frontend dev servers, and scenery build --desktop production bundling with the checked scenery.build.desktop envelope.",
+      "tags": ["plans", "execplans", "tauri", "desktop", "frontends", "cli", "app-config"]
+    },
+    {
       "path": "docs/plans/0141-schema-catalog-performance.md",
       "title": "Schema Catalog Canonicalization and Performance Baselines",
       "owner": "scenery spec / compiler / performance validation",
@@ -692,7 +716,8 @@
         "schema",
         "compiler",
         "typescript",
-        "clientgen"
+        "clientgen",
+        "typescript-client"
       ]
     },
     {
@@ -872,7 +897,8 @@
       "tags": [
         "spec",
         "typescript",
-        "clientgen"
+        "clientgen",
+        "typescript-client"
       ]
     },
     {
@@ -1064,9 +1090,9 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-07-12",
-      "review_after": "2026-08-11",
-      "summary": "Human entry point for the repo knowledge base, with explicit agent entry points and the evolving current specification plus its Go, HTTP, path-tail, TypeScript, and evolution companions.",
+      "last_reviewed": "2026-07-23",
+      "review_after": "2026-08-22",
+      "summary": "Human entry point for the repo knowledge base, with task-scoped path discovery, explicit full-catalog validation, agent entry points, and the evolving current specification plus its normative companions.",
       "tags": [
         "docs",
         "agents",
@@ -1100,9 +1126,9 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-07-22",
-      "review_after": "2026-08-21",
-      "summary": "Compact repo-local operating manual for agents changing Scenery itself: instruction layering with selective reading, AGENTS hierarchy and child index, autonomy policy, condensed mental model pointing to the full model in the agent guide, engineering rules, scoped pre-change reading, tabular documentation-update and validation matrices, and client-app instruction rules.",
+      "last_reviewed": "2026-07-23",
+      "review_after": "2026-08-22",
+      "summary": "Compact repo-local operating manual for agents changing Scenery itself: instruction layering, path-scoped documentation discovery, AGENTS hierarchy, autonomy and engineering rules, validation matrices, client-app boundaries, and a concise outcome-first completion contract.",
       "tags": [
         "agents",
         "repo",
@@ -1117,9 +1143,9 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-07-22",
-      "review_after": "2026-08-21",
-      "summary": "Concise installed-skill entrypoint for current Scenery apps, including target-app AGENTS checks, graph views and provenance, schema-driven authoring, trusted transactions, runtime capabilities, deploy, storage, compact page-macro summaries deferring to scenery schema and the local contract, read-only UI adherence triage, managed native checking, and cached-by-default validation loops.",
+      "last_reviewed": "2026-07-23",
+      "review_after": "2026-08-22",
+      "summary": "Concise installed-skill entrypoint for current Scenery apps, with intent-based task routing, target-app AGENTS checks, graph views and provenance, schema-driven authoring, trusted transactions, runtime, deploy, storage, generated-client and page-macro invariants, UI triage, scoped machine-readable command help, a lower command catalog, and cached validation.",
       "tags": [
         "skill",
         "agents",
@@ -1136,9 +1162,9 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-07-22",
-      "review_after": "2026-08-21",
-      "summary": "Agent workflow guide for current app roots, including CLI JSON, graph provenance, schema-driven authoring, runtime diagnosis, capabilities, deploy, storage, TypeScript clients, fully generated React routes shells and workbench pages, read-only UI adherence triage, managed native verification, cached-by-default tests, app-local AGENTS hierarchy, and the full scenery repository mental model with generated-client rules, public surface checklist, fresh worktree preflight, and self-harness timing.",
+      "last_reviewed": "2026-07-23",
+      "review_after": "2026-08-22",
+      "summary": "Agent workflow guide for current app roots and the Scenery repo, including task-scoped documentation routing, CLI JSON, graph provenance, runtime diagnosis, deploy, storage, TypeScript clients, generated React routes and workbench pages, app-local AGENTS hierarchy, public-surface checks, and self-harness validation.",
       "tags": [
         "agents",
         "cli",
@@ -1190,9 +1216,9 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-07-13",
-      "review_after": "2026-08-12",
-      "summary": "High-level repo map and current specification architecture boundaries, including source parsing, compiler transaction recovery, the digest-addressed catalog and canonical graph, generation, evolution, deployment planning, contract-agent composition, managed edge, public local-filesystem storage, and repository test execution.",
+      "last_reviewed": "2026-07-23",
+      "review_after": "2026-08-22",
+      "summary": "High-level repo map and current specification architecture boundaries, including source parsing, canonical graphs, generation, evolution, deployment, runtime, repository tests, and task-scoped documentation discovery built on the shared changed-area router.",
       "tags": [
         "architecture",
         "agents",
@@ -1207,9 +1233,9 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-07-22",
-      "review_after": "2026-08-21",
-      "summary": "Frozen local developer and agent-facing contract for current applications and exact CLI JSON surfaces, including schema identities, graph provenance, runtime and deploy behavior, data and snapshots, CRUD search and pagination, declarative workbench pages and form dialogs, fully generated React route trees and shells, read-only UI adherence inspection, managed native TypeScript verification, harness validation, generators, and code tasks.",
+      "last_reviewed": "2026-07-23",
+      "review_after": "2026-08-22",
+      "summary": "Current local developer and agent-facing contract for exact CLI JSON surfaces, including scoped command help, compact and filtered docs inspection, bounded path-scoped routing, schema identities, graph provenance, runtime and deploy behavior, data, generated clients and pages, harness validation, generators, and code tasks.",
       "tags": [
         "contract",
         "cli",
@@ -1236,6 +1262,7 @@
         "docs/schemas/scenery.library-generated.schema.json",
         "docs/schemas/scenery.library.artifact.schema.json",
         "docs/schemas/scenery.library.build.result.schema.json",
+        "docs/schemas/scenery.inspect.docs.schema.json",
         "docs/schemas/scenery.inspect.harness.schema.json",
         "docs/schemas/scenery.inspect.observability.schema.json",
         "docs/schemas/scenery.inspect.ui.schema.json",
@@ -1335,9 +1362,9 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-07-13",
-      "review_after": "2026-08-12",
-      "summary": "Agent validation loop with native Go result caching by default, explicit fresh execution from content-addressed linked test binaries, fresh-only isolated hotspot confirmation, release timing, shared harness evidence, agent-context handoff, browser UI journeys, parallel managed Postgres proof, local storage restart durability proof, and doc-gardening rules.",
+      "last_reviewed": "2026-07-23",
+      "review_after": "2026-08-22",
+      "summary": "Agent validation loop with cached and explicit fresh Go execution, shared harness evidence, agent-context handoff, browser and data proofs, task-scoped documentation routing through changed-area logic, full-catalog validation, and review-due doc gardening.",
       "tags": [
         "harness",
         "agents",
@@ -1346,6 +1373,7 @@
       "schema_refs": [
         "docs/schemas/scenery.harness.artifact.schema.json",
         "docs/schemas/scenery.harness.self.summary.schema.json",
+        "docs/schemas/scenery.inspect.docs.schema.json",
         "docs/schemas/scenery.inspect.harness.schema.json",
         "docs/schemas/scenery.agent_context.schema.json",
         "docs/schemas/scenery.harness.ui.schema.json",

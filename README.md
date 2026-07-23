@@ -342,7 +342,9 @@ scenery system agent [--socket <path>] [--router-listen <addr>] [--router-tls|--
 scenery system agent restart [--socket <path>] [--router-listen <addr>] [--router-tls|--router-http] [--trust] [-o json]
 scenery system agent cleanup [--remove-state] [-o json]
 scenery system edge install|trust|status|restart|uninstall|dns|privileged [-o json]
-scenery help <command>|all|-o json
+scenery help <command> [-o human|json]
+scenery help all
+scenery help -o json
 scenery ps [-o json] [--app-root <path>] [--watch]
 scenery down [--app-root <path>] [--db] [--state] [--all] [-o json]
 scenery prune --older-than <duration> [--app-root <path>] [--db] [--state] [--all] [-o json]
@@ -381,7 +383,7 @@ scenery harness [--app-root <path>] [-o json] [--write] [--with-validation[=<pro
 scenery harness self [--repo-root <path>] [-o json] [--write] [--quick|--race|--release] [--fresh-tests]
 scenery harness ui -o json [--app-root <path>] [--dashboard-url <url>] [--headed] [--write]
 scenery inspect app|routes|services|endpoints|build|paths|durable -o json [--app-root <path>]
-scenery inspect docs -o json [--repo-root <path>]
+scenery inspect docs -o json [--repo-root <path>] [--for-path <path>|--tag <tag>|--status active|reference|completed|deprecated|--review-due|--all]
 scenery traces list -o json [--app-root <path>]
 scenery metrics list -o json [--app-root <path>]
 scenery traces clear -o json [--app-root <path>]

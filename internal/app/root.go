@@ -187,10 +187,18 @@ type WatchConfig struct {
 }
 
 type FrontendConfig struct {
-	Root                string `json:"root"`
-	Upstream            string `json:"upstream"`
-	AllowSharedUpstream bool   `json:"allow_shared_upstream"`
-	Serve               string `json:"-"`
+	Root                string               `json:"root"`
+	Upstream            string               `json:"upstream"`
+	AllowSharedUpstream bool                 `json:"allow_shared_upstream"`
+	Tauri               *FrontendTauriConfig `json:"tauri,omitempty"`
+	Serve               string               `json:"-"`
+}
+
+// FrontendTauriConfig marks a frontend as the web surface of a Tauri 2
+// desktop shell. Root is the app-root-relative directory containing
+// src-tauri/; empty means the frontend root.
+type FrontendTauriConfig struct {
+	Root string `json:"root"`
 }
 
 type DevConfig struct {
@@ -262,6 +270,10 @@ func (c Config) ResolveEnv(name string) (ResolvedEnv, error) {
 		frontend.Serve = "development"
 		if override, exists := env.Frontends[frontendName]; exists && strings.TrimSpace(override.Serve) != "" {
 			frontend.Serve = strings.ToLower(strings.TrimSpace(override.Serve))
+		}
+		if frontend.Tauri != nil {
+			tauri := *frontend.Tauri
+			frontend.Tauri = &tauri
 		}
 		frontends[frontendName] = frontend
 	}
@@ -500,6 +512,9 @@ func (c Config) Validate() error {
 	if err := c.validateWatch(); err != nil {
 		return err
 	}
+	if err := c.validateFrontends(); err != nil {
+		return err
+	}
 	if err := c.validateDevServices(); err != nil {
 		return err
 	}
@@ -521,6 +536,25 @@ func (c Config) validateWatch() error {
 		}
 		if strings.HasPrefix(pattern, "!") {
 			return fmt.Errorf("watch.ignore pattern %q is invalid; watch.ignore only supports exclusions", pattern)
+		}
+	}
+	return nil
+}
+
+func (c Config) validateFrontends() error {
+	for name, frontend := range c.Frontends {
+		if frontend.Tauri == nil {
+			continue
+		}
+		root := strings.TrimSpace(frontend.Tauri.Root)
+		if root == "" {
+			continue
+		}
+		if filepath.IsAbs(root) {
+			return fmt.Errorf("frontends.%s.tauri.root must be relative to the app root", name)
+		}
+		if cleaned := filepath.Clean(root); cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
+			return fmt.Errorf("frontends.%s.tauri.root must stay beneath the app root", name)
 		}
 	}
 	return nil

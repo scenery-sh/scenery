@@ -66,7 +66,7 @@ func buildHarnessSchemaValidationReport(repoRoot string, resp harnessSelfRespons
 			Stage:           "schema validation",
 			Severity:        "error",
 			Message:         "failed to build inspect docs JSON for schema validation: " + inspectDocsErr.Error(),
-			SuggestedAction: "Run `scenery inspect docs -o json` and fix the command before relying on schema validation.",
+			SuggestedAction: "Run `scenery inspect docs --all -o json` and fix the command before relying on schema validation.",
 		})
 	}
 	environmentRegistryPayload, environmentRegistryErr := harnessJSONFilePayload(filepath.Join(repoRoot, "docs", "environment.registry.json"))
@@ -235,6 +235,13 @@ func buildHarnessSchemaValidationReport(repoRoot string, resp harnessSelfRespons
 		{name: "version", schemaRel: "docs/schemas/scenery.version.schema.json", payload: versionPayload},
 		{name: "build.result", schemaRel: "docs/schemas/scenery.build.result.schema.json", payload: withCLIPayloadIdentity("scenery.build.result", map[string]any{
 			"output_path": "/tmp/scenery-app", "descriptor_path": "/tmp/scenery-app.scenery.runtime-bundle.json", "copied": true,
+		})},
+		{name: "build.desktop", schemaRel: "docs/schemas/scenery.build.desktop.schema.json", payload: withCLIPayloadIdentity("scenery.build.desktop", map[string]any{
+			"environment": "production",
+			"frontends": []map[string]any{{
+				"name": "app", "tauri_root": "/tmp/app", "frontend_dist": "/tmp/app/dist",
+				"artifacts": []string{"/tmp/app/src-tauri/target/release/bundle/dmg/app.dmg"},
+			}},
 		})},
 		{name: "doctor", schemaRel: "docs/schemas/scenery.doctor.result.schema.json", payload: buildHarnessDoctorSchemaPayload(versionPayload)},
 		{name: "deploy.registry", schemaRel: "docs/schemas/scenery.deploy.registry.schema.json", payload: buildHarnessDeployRegistrySchemaPayload()},
@@ -464,7 +471,7 @@ func buildHarnessDeployStatusSchemaPayload() deployStatusResponse {
 
 func harnessInspectDocsPayload(repoRoot string) (map[string]any, error) {
 	var out bytes.Buffer
-	if err := runSceneryInspect([]string{"docs", "--repo-root", repoRoot, "-o", "json"}, &out); err != nil {
+	if err := runSceneryInspect([]string{"docs", "--repo-root", repoRoot, "--all", "-o", "json"}, &out); err != nil {
 		return nil, err
 	}
 	var payload map[string]any

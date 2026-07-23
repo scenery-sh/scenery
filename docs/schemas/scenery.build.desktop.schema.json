@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.build.desktop.schema.json",
+  "title": "scenery.build.desktop",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "environment",
+    "frontends"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "kind": {
+      "const": "scenery.build.desktop"
+    },
+    "schema_revision": {
+      "const": "sha256:7cfea8f3c11ee0afce6b9718565506a3ef86ae2de7da0265f896c67ca3eccfe7"
+    },
+    "environment": {
+      "type": "string",
+      "minLength": 1
+    },
+    "frontends": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/frontend"
+      }
+    }
+  },
+  "$defs": {
+    "frontend": {
+      "type": "object",
+      "required": [
+        "name",
+        "tauri_root",
+        "frontend_dist",
+        "artifacts"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tauri_root": {
+          "type": "string",
+          "minLength": 1
+        },
+        "frontend_dist": {
+          "type": "string",
+          "minLength": 1
+        },
+        "artifacts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  }
+}

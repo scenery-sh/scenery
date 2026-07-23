@@ -34,6 +34,7 @@ scenery changes rename <address> <new-name> [--dry-run] [--approval-token <file>
 scenery generate [--target contracts|typescript_client.<name>] [--materialize] [--prune-materialized-go] [--merge-editor-workspace] [--check] [--app-root <path>] [-o human|json]
 scenery build [--target <go-target>] [--output <binary>] [-o human|json]
 scenery build --lib <name|address|artifact> [--version <vN.N.N>] [--platform all|host|darwin/arm64|linux/amd64|<csv>] [--output <directory>] [-o human|json]
+scenery build --desktop [--env <name>] [--app-root <path>] [-o human|json]
 scenery snapshot save --output <file.zip> [--db] [--storage] [--app-root <path>] [-o human|json]
 scenery snapshot verify --input <file.zip> [-o human|json]
 scenery snapshot load --input <file.zip> [--db] [--storage] --mode overwrite|merge [--on-conflict fail|skip|overwrite] [--yes] [--dry-run] [--app-root <path>] [-o human|json]
@@ -111,7 +112,7 @@ Implemented now:
 - `scenery worker durable jobs ... -o json`
 - `scenery worker durable token create -o json`
 - `scenery version -o json`
-- `scenery help -o json`
+- `scenery help [<command>] -o json`
 - `scenery system toolchain list|sync|verify|path`
 - `scenery doctor -o json`
 - `scenery check -o json`
@@ -148,7 +149,7 @@ Implemented now:
 - `scenery storage status|webui|ls|stat|put|get|rm|cleanup -o json`
 - `scenery traces list -o json`
 - `scenery metrics list -o json`
-- `scenery inspect docs -o json`
+- `scenery inspect docs --for-path <path> -o json`
 - `scenery logs -o jsonl`
 
 Reserved by contract, implementation pending:
@@ -354,6 +355,12 @@ Rules:
 - If `name` is empty, scenery falls back to `id`.
 - App identity for runtime environment, dashboard routes, local logs, browser harness routes, and local observability is `id` when present, otherwise `name`. `name` remains the display name and source/build package identity.
 - `frontends` is optional.
+- A configured frontend may declare `"tauri": { "root": "apps/desktop" }`
+  to make it the web surface of a Tauri 2 desktop shell. `tauri.root` is
+  app-root-relative, must remain beneath the app root, and defaults to the
+  frontend root when empty. The resolved directory must contain
+  `src-tauri/tauri.conf.json`; Scenery uses only an app-local
+  `node_modules/.bin/tauri` supplied by `@tauri-apps/cli`.
 - `build.go_flags` is an optional array of literal Go argv entries used for Scenery-owned app compilation. Values are not shell-split; write one argument per item, for example `["-tags=roofmapnet_native"]`. Scenery passes these flags to generated app `go build` invocations and generated-workspace `scenery test` `go test` invocations, while process `GOFLAGS` still applies for local one-off overrides. The normalized flag list participates in the build fingerprint/cache key.
 - `watch.ignore` is an optional array of app-root-relative exclusion patterns for `scenery up`. Directory patterns such as `reference/` skip that subtree during watcher setup and rebuild fingerprint scans while leaving Git tracking untouched. `watch.ignore` is exclusion-only; use `.gitignore` for Git behavior.
 - `auth` is optional. When `auth.enabled` is true, scenery registers the built-in standard auth handler and standard auth endpoints. Google OAuth endpoints are registered only when `auth.google_oauth.enabled` is true.
@@ -417,7 +424,7 @@ Current implemented grammar, grouped by surface:
 ### Runtime and sessions
 
 ```text
-scenery up [--env <name>] [--port <n>] [--listen <addr>] [--app-root <path>] [--claim-aliases] [--verbose] [-o jsonl] [--detach] [--wait ready|registered]
+scenery up [--env <name>] [--port <n>] [--listen <addr>] [--app-root <path>] [--claim-aliases] [--desktop] [--verbose] [-o jsonl] [--detach] [--wait ready|registered]
 scenery logs --follow [--app-root <path>] [--limit <n>] [--stream all|stdout|stderr] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>] [-o jsonl|-o json]
 scenery logs query [--app-root <path>] --query <logsql> [--since <duration>] [--start <time>] [--end <time>] [--limit <n>] [--timeout <duration>] [--fields <csv>] [-o json|-o jsonl]
 scenery logs tail [--app-root <path>] --query <logsql> [--since <duration>] [--timeout <duration>] [--fields <csv>] [-o jsonl]
@@ -439,7 +446,7 @@ scenery system agent [--socket <path>] [--router-listen <addr>] [--router-tls|--
 scenery system agent restart [--socket <path>] [--router-listen <addr>] [--router-tls|--router-http] [--trust] [-o json]
 scenery system agent cleanup [--remove-state] [-o json]
 scenery system edge install|trust|status|restart|uninstall|dns|privileged [-o json]
-scenery help <command>
+scenery help <command> [-o human|json]
 scenery help all
 scenery help -o json
 scenery version [-o json]
@@ -470,6 +477,7 @@ scenery deploy teardown [-o json]
 ```text
 scenery build [--app-root <path>] [--target <go-target>] [--output <path>] [-o human|json]
 scenery build --lib <name|address|artifact> [--version <vN.N.N>] [--platform all|host|darwin/arm64|linux/amd64|<csv>] [--app-root <path>] [--output <directory>] [-o human|json]
+scenery build --desktop [--env <name>] [--app-root <path>] [-o human|json]
 scenery check [--app-root <path>] [-o json]
 scenery generate [--app-root <path>] [--dry-run] [-o json]
 scenery generate sqlc [--app-root <path>] [--dry-run] [-o json]
@@ -524,7 +532,7 @@ scenery harness self [--repo-root <path>] [--summary] [-o human|json] [--write] 
 scenery harness ui -o json [--app-root <path>] [--dashboard-url <url>] [--headed] [--write]
 scenery inspect app|routes|services|endpoints|build|paths|generators|durable|storage|observability|validation -o json [--app-root <path>]
 scenery inspect ui [--frontend <name>] [--app-root <path>] [-o human|json]
-scenery inspect docs -o json [--repo-root <path>]
+scenery inspect docs -o json [--repo-root <path>] [--for-path <path>|--tag <tag>|--status active|reference|completed|deprecated|--review-due|--all]
 scenery inspect harness [artifact <name>|diagnostics --severity error|warning|timing --top <n>] -o json [--app-root <path>] [--repo-root <path>]
 scenery traces list -o json [--app-root <path>] [--service <name>] [--endpoint <name>] [--trace-id <id>] [--status ok|error] [--min-duration-ms <n>] [--since <duration>] [--limit <n>] [--slowest]
 scenery metrics list -o json [--app-root <path>] [--service <name>] [--endpoint <name>] [--status ok|error] [--since <duration>] [--limit <n>]
@@ -644,7 +652,7 @@ Command split:
 - `scenery prune --older-than <duration>` prunes old agent session records whose recorded owner is gone or mismatched and atomically removes their leases from shared substrate metadata. It accepts Go durations such as `336h` plus day shorthand such as `14d`. The default does not delete session state or databases. `--state` also removes each eligible `.scenery/sessions/<id>` state root and its local dev-event records; `--db` also drops each eligible app root's Scenery-managed Postgres database; `--all` enables both. Database cleanup reuses the managed database resolver and refuses external DSNs, so prune never drops an external or unverifiable database. VictoriaLogs storage remains outside prune. `-o json` reports `scenery.prune`, including the effective cleanup scopes and counts.
 - Starting `scenery up` for an app root requires exclusive ownership of that app root's live dev runtime. If another verified live owner already controls the same app root, the new invocation does not start a second supervisor and does not steal ownership: it reports the existing runtime and exits `0` (see the `scenery up` and `--detach` entries above). Ownership races that reach session registration still fail closed with an "already running" error. If the recorded owner is dead or its fingerprint no longer matches, the new owner may claim the runtime and clean recorded app, worker, and managed frontend child processes from the stale owner, plus Scenery-owned runtime processes whose injected app root/internal session environment matches. It must not clean other app roots, other worktrees, or unrelated user processes.
 - Session owner checks treat `owner_pid` as the effective owner. `owner.pid` is the fingerprint for that same PID, not an independent owner field. If the stored owner fingerprint object points at a different stale PID, Scenery refreshes it on the next registration and must not delete or prune the session while the effective `owner_pid` is still live. Dev supervisors unregister sessions with an owner-conditional delete that includes the recorded owner fingerprint; if an older owner exits after ownership moved, or if the same PID now has a different recorded fingerprint, the delete is ignored and the newer session record remains registered.
-- `scenery help -o json` returns `scenery.help`, a machine-readable command manifest for agents and contract checks. Human root help is intentionally orienting and does not contain the full command grammar; use `scenery help all` for the grouped command reference and `scenery help <command>` for exact flags and subcommands.
+- `scenery help -o json` returns `scenery.help`, the complete machine-readable command manifest for agents and contract checks. `scenery help <command> -o json` returns the same payload identity with exactly one command descriptor; unknown topics fail instead of falling back to unrelated human help. The `build` descriptor records exact usage variants, flags and required combinations, side-effect class, app-root requirement, mode-specific output schema identities, stability, common exit categories, and related inspection or validation commands. Human root help remains intentionally orienting; use `scenery help all` for the grouped reference and `scenery help <command>` for human-readable flags and subcommands.
 - `scenery ps` renders a headed table with app, worktree, status, base URL, service URLs, and update age by default. `scenery ps -o json` treats a `starting` or `running` runtime with a missing or dead effective owner as `stale`, and a live but fingerprint-mismatched owner, dead app PID, dead registered child process, registered child process owner mismatch, or configured custom route base domain whose routes point at a non-default internal router port as `degraded`. Duplicate `scenery up` startup prevention uses the recorded runtime owner and owner fingerprint, not shell command text. Status JSON includes `status_reason` when scenery rewrites the runtime status. Status JSON also includes the agent substrate registry as `substrates`; failed shared substrates expose `status`, `last_exit`, and `component_exits` with component, PID, started/exited timestamps, exit code or signal, error text, and stdout/stderr log paths.
 - When the local agent is active, the agent starts the visible dashboard backend and exposes the dashboard through the console route from `route_namespace`, for example `https://console.<route-id>.<route_namespace.base_domain>/`. Release binaries serve the embedded dashboard UI produced from `apps/console/` before the Go binary is compiled; dashboard startup does not build UI assets at runtime, though `SCENERY_DEV_DASHBOARD_UI_DIR` may point at an explicit local UI build. The old path-shaped `console.../s/<session_id>` form is not the canonical dashboard URL. The Unix-socket control API remains protected by filesystem permissions.
 - Dashboard HTTP responses carry `X-Scenery-Dashboard-Bundle-Hash`, plus `X-Scenery-Dashboard-Bundle-Stale: true` and `X-Scenery-Dashboard-Bundle-Warning` when the running binary's embedded bundle differs from `apps/console/dist` in a scenery repo checkout; dashboard HTML includes matching meta tags, and `devdash.AppStatus` exposes the same object as optional `dashboardBundle`. Staleness detection is a no-op outside a scenery repo checkout. The self-harness `dashboard ui fresh` step uses the same hash comparison.
@@ -655,6 +663,12 @@ Command split:
 - `scenery up` exposes native local observability for the dev runtime. The current substrate may start local VictoriaMetrics, VictoriaLogs, and VictoriaTraces when their managed toolchain binaries are installed or can be downloaded. When the local agent is active, shared substrates are registered through one managed substrate lifecycle: owner fingerprint verification before reuse, service-specific reachability probing, stale-record deletion, ready/degraded/exited upserts, component exit monitoring, bounded whole-stack recovery, and structured dev events. Dashboard runtime metadata is stored as compact, bounded JSON under the agent directory when the agent is active and `SCENERY_DEV_CACHE_DIR` is unset, with large app-model `Metadata` and `APIEncoding` blobs stored content-addressed under the same dashboard cache root. The agent dashboard process owns global dashboard-store writes; agent-backed dev supervisors send app/session and small process-diagnostic mutations to its authenticated internal control-plane endpoint instead of opening the store directly. Agent/global dashboard app summaries and app status payloads expose `sessionStatus` and `sessionStatusReason` computed from the same owner/process/edge-route classification as `scenery ps`, so dashboard status indicators do not mark degraded or stale sessions as running. Trace summaries, trace events, and report log events are not persisted in `devdash.json`; they are exported to Victoria. Multiple worktrees for the same base app can appear in the global dashboard without session records duplicating full app models or report writes growing unbounded. These details are documented for intentional substrate debugging and are not the stable app-facing API.
 - The local agent home defaults to `~/.scenery` unless `SCENERY_AGENT_HOME` is set. `SCENERY_DEV_CACHE_DIR` controls build and dashboard cache locations, not machine-wide agent identity.
 - Managed frontend services start on runtime-private hidden loopback ports and are restarted by the dev supervisor if their process exits unexpectedly. A manual `SCENERY_FRONTEND_<NAME>_ADDR` override is accepted, but configured frontend upstreams are ignored unless that frontend sets `"allow_shared_upstream": true`.
+- `scenery up --desktop` waits for configured frontend readiness and launches
+  each `frontends.<name>.tauri` shell with a `devUrl` overlay targeting that
+  hidden backend. The desktop PID is registered as `desktop-<name>`, its output
+  is captured with the session logs, and session shutdown stops it. Closing a
+  desktop window is a normal exit: the app and frontend stay running and the
+  desktop process is not restarted.
 - Dev app children are launched through an internal runtime executable path under `.scenery/sessions/<session_id>/run/app/` so stale same-runtime app processes can be identified without broad process-name matching.
 - Use default agent-routed app URLs, and run `scenery system edge dns install`, `scenery system edge privileged install`, `scenery system edge install`, and `scenery system edge trust` when trusted local HTTPS on the default port is needed.
 - `scenery up --port <n>` and `scenery up --listen <addr>` force a manual TCP app backend. The default agent path uses a runtime-private Unix socket and should be preferred for worktree-safe development.
@@ -778,7 +792,7 @@ scenery harness self -o json --write
 - summary output is the agent-facing default and must reference artifacts instead of embedding full drift inventories, successful stdout/stderr tails, complete timing package lists, or full large-file lists
 - green summary output should stay under 12 KB; failed summary output should stay under 32 KB while preserving the first actionable failure and artifact references
 - it validates the scenery repo itself instead of a target app
-- it runs docs knowledge validation, `scenery inspect docs -o json`, architecture checks, Go package tests, parallel dev-session safety, dashboard UI typecheck/build, UI freshness checks, worktree-local `go build -o .scenery/harness/bin/scenery ./cmd/scenery`, and local binary freshness checks
+- it runs docs knowledge validation, `scenery inspect docs --all -o json`, architecture checks, Go package tests, parallel dev-session safety, dashboard UI typecheck/build, UI freshness checks, worktree-local `go build -o .scenery/harness/bin/scenery ./cmd/scenery`, and local binary freshness checks
 - the `console dependencies` step runs `bun install --frozen-lockfile` in `apps/console` before the dashboard and TypeScript lanes so fresh worktrees need no manual install preflight; it honors `bun.lock` and fails on lockfile drift instead of rewriting it. When bun is missing from PATH or the install fails, the dashboard UI typecheck/build/fresh, TypeScript client conformance/typecheck, and UI catalog typecheck lanes are skipped, and the step reports the skipped lanes in `skipped_lanes` with one actionable diagnostic
 - it validates committed examples for every current JSON schema, runs the Bun TypeScript client conformance suite, and typechecks both committed native and House generated clients against the shared generated-client configuration
 - default, quick, race, release, ordinary, focused, and substantial final Go validation uses Go's native test result cache. The full self-harness command is `go test -json ./...`; quick mode uses cached `go test` for affected packages.
@@ -790,7 +804,7 @@ scenery harness self -o json --write
 - the default, race, and release self-harness modes exercise parallel managed Postgres dev sessions and tear the temporary state down. `--quick` intentionally skips the heavier live-runtime checks.
 - the postgres service probe runs a disposable throwaway-tuned container (tmpfs data directory, fsync off) with the local agent disabled, and its step summary reports `proof` plus ordered `segments` with per-segment `duration_ms` and a `cleanup_ms` timing. Default and race modes run the smoke proof: container start, two isolated worktree databases, schema existence, and cross-database isolation. `--release` runs the full proof, adding the durable round trip, standard auth bootstrap, service-schema `db reset` semantics, and the snapshot save/load round trip.
 - the default self-harness storage probe exercises configured storage through an app task, storage CLI import/export, and a live local-backend app route. The restart proof writes an object through the app route, stops the dev runtime with `scenery down`, restarts it, and reads the same fsync'd object back through the app route.
-- agents must not run `go install ./cmd/scenery` unless a human explicitly requests updating the shared installed `scenery` binary; multiple worktrees may otherwise overwrite each other's CLI
+- agents must not run `go install ./cmd/scenery` unless a human explicitly requests updating the shared installed `scenery` binary; multiple worktrees may otherwise overwrite each other's CLI, and the knowledge-contract step fails when current repository-validation instructions contain an unqualified recommendation to do so
 - architecture checks fail on unapproved direct dependencies, forbidden framework imports, CLI package boundary violations, missing generated/vendored ignore markers, and non-generated source/code files over 2500 lines; Markdown docs are not subject to line-count size checks
 - architecture checks warn on non-generated source/code files over 1000 lines, cgo imports, `.DS_Store` artifacts, and compatibility imports outside known migration paths; unchanged warnings outside the changed area are debt summary in compact output, not agent attention
 - local harness/report artifacts matching `.scenery/**`, `coverage/**`, `test-results/**`, `*.harness*.json`, or `scenery-harness-self-*.json` are reported as ignored local artifacts and do not drive changed-area recommended commands
@@ -953,6 +967,7 @@ Implemented now:
 - [scenery.change-plan.schema.json](schemas/scenery.change-plan.schema.json)
 - [scenery.change-receipt.schema.json](schemas/scenery.change-receipt.schema.json)
 - [scenery.build.result.schema.json](schemas/scenery.build.result.schema.json)
+- [scenery.build.desktop.schema.json](schemas/scenery.build.desktop.schema.json)
 - [scenery.cli.schema.json](schemas/scenery.cli.schema.json)
 - [scenery.cli.event.schema.json](schemas/scenery.cli.event.schema.json)
 - [scenery.deployment-plan.schema.json](schemas/scenery.deployment-plan.schema.json)
@@ -1328,7 +1343,19 @@ the backend `result_type`, and returns normalized metric series and samples.
 
 ### `scenery inspect docs -o json`
 
-Use this when an agent needs to understand the repo knowledge base before making changes.
+Use task-scoped inspection before changing a repository path:
+
+```text
+scenery inspect docs --for-path internal/generate/client.go -o json
+```
+
+The unfiltered command returns a compact catalog-health summary with no
+documents. `--tag <tag>`, `--status
+active|reference|completed|deprecated`, and `--review-due` select catalog
+entries and may be combined. `--for-path` is exclusive with those catalog
+filters. `--all` is exclusive with every filter and is the only command that
+returns the complete catalog, child-index inventories, plan indexes, and
+tech-debt reference.
 
 Source files:
 
@@ -1342,34 +1369,40 @@ Source files:
 and the exact digest `schema_revision`; old semantic `schema_version` labels and
 unknown fields are rejected.
 
-Example:
-
-```text
-scenery inspect docs -o json
-```
+Path-query output contains only applicable `AGENTS.md` scopes, the owning
+`ARCHITECTURE.md` section, matching current-contract sections, relevant active
+ExecPlans, related schemas, and applicable verification commands. A completed
+historical plan is omitted unless its own path is queried directly. Ordinary
+path queries are capped at eight documents and should remain below 10 KiB.
+Routing and commands reuse self-harness changed-area logic.
 
 Example output:
 
 ```json
 {
   "kind": "scenery.inspect.docs",
-  "schema_revision": "sha256:a13fe6effd00df3811d1cf3d163c9898503f09f7adae939b075b64eb9789996a",
+  "schema_revision": "sha256:9f4e4a0077e927960acb17ffa2bb12b96b61360917e33139f0b7d6253d3d2180",
   "repo": {
     "root": "/repo/scenery",
     "module_path": "scenery.sh",
     "go_mod_path": "/repo/scenery/go.mod"
   },
+  "query": {
+    "mode": "path",
+    "for_path": "internal/generate/client.go"
+  },
   "summary": {
-    "document_count": 9,
+    "document_count": 134,
+    "selected_document_count": 5,
     "missing_count": 0,
-    "review_due_count": 0,
+    "review_due_count": 3,
     "stale_count": 0,
-    "agent_scope_count": 1,
+    "agent_scope_count": 19,
     "stale_child_index_entry_count": 0,
     "missing_child_index_entry_count": 0,
     "quality": {
-      "A": 4,
-      "B": 5
+      "A": 40,
+      "B": 93
     }
   },
   "agents": {
@@ -1377,50 +1410,52 @@ Example output:
       {
         "path": "AGENTS.md",
         "scope": "."
+      },
+      {
+        "path": "internal/generate/AGENTS.md",
+        "scope": "internal/generate"
       }
-    ],
-    "child_index_path": "AGENTS.md#child-agent-index",
-    "child_index_entries": [],
-    "stale_child_index_entries": [],
-    "missing_child_index_entries": []
+    ]
   },
   "documents": [
     {
-      "path": "docs/local-contract.md",
-      "title": "scenery Local Contract",
-      "owner": "scenery runtime",
+      "path": "ARCHITECTURE.md",
+      "title": "scenery Architecture",
+      "owner": "scenery maintainers",
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-04-27",
-      "review_after": "2026-05-27",
-      "summary": "Frozen local developer and agent-facing contract.",
-      "tags": ["contract", "cli", "agents", "schemas"],
+      "last_reviewed": "2026-07-23",
+      "review_after": "2026-08-22",
+      "summary": "High-level repository code map.",
+      "tags": ["architecture", "agents", "boundaries", "codemap"],
       "exists": true,
       "review_due": false,
-      "stale": false
+      "stale": false,
+      "role": "architecture",
+      "reason": "owning architecture section",
+      "sections": [
+        {
+          "heading": "`internal/generate`",
+          "anchor": "internalgenerate",
+          "start_line": 147,
+          "end_line": 169
+        }
+      ]
     }
   ],
-  "plans": {
-    "active": {
-      "path": "docs/plans/active.md",
-      "exists": true
-    },
-    "completed": {
-      "path": "docs/plans/completed.md",
-      "exists": true
-    }
-  },
-  "tech_debt": {
-    "path": "docs/tech-debt.md",
-    "exists": true
-  }
+  "verification_commands": [
+    ".scenery/harness/bin/scenery harness self --summary --write",
+    "go test ./...",
+    "go test ./internal/generate"
+  ]
 }
 ```
 
-The `agents` object reports every discovered `AGENTS.md` scope, compares child
-scopes against the root `AGENTS.md` Child Agent Index, and reports stale index
-entries plus discovered child scopes that are missing from the index.
+With `--all`, the `agents` object reports every discovered `AGENTS.md` scope,
+compares child scopes against the root Child Agent Index, and reports stale or
+missing index entries. Summary health counts always describe the complete
+catalog; `selected_document_count` describes the current query.
 
 ### `scenery inspect harness -o json`
 

@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -148,5 +149,37 @@ func TestShippedInstructionDocsWithinLeanBudgets(t *testing.T) {
 	diagnostics, _ := validateInstructionDocBudgets(repoRoot)
 	for _, diag := range diagnostics {
 		t.Errorf("unexpected instruction-doc diagnostic: %s: %s", diag.File, diag.Message)
+	}
+}
+
+func TestValidateSharedCLIInstallPolicyRejectsValidationRecommendation(t *testing.T) {
+	root := t.TempDir()
+	writeTestAppFile(t, root, "AGENTS.md", "Do not run `go install ./cmd/scenery` unless a human explicitly requests it.\n")
+	writeTestAppFile(t, root, "ARCHITECTURE.md", "After repository changes, rebuild with `go install ./cmd/scenery`.\n")
+
+	diagnostics, summary := validateSharedCLIInstallPolicy(root)
+	assertDiagnosticContains(t, diagnostics, "repository validation instructions recommend overwriting the shared scenery CLI")
+	if len(diagnostics) != 1 {
+		t.Fatalf("diagnostics = %d, want 1: %+v", len(diagnostics), diagnostics)
+	}
+	if diagnostics[0].File != filepath.ToSlash(filepath.Join(root, "ARCHITECTURE.md")) || diagnostics[0].Line != 1 {
+		t.Fatalf("diagnostic location = %s:%d", diagnostics[0].File, diagnostics[0].Line)
+	}
+	if summary["shared_cli_install_policy_docs_checked"] != 2 {
+		t.Fatalf("docs checked = %v, want 2", summary["shared_cli_install_policy_docs_checked"])
+	}
+	if summary["shared_cli_install_policy_occurrences"] != 2 {
+		t.Fatalf("occurrences = %v, want 2", summary["shared_cli_install_policy_occurrences"])
+	}
+	if summary["shared_cli_install_policy_violations"] != 1 {
+		t.Fatalf("violations = %v, want 1", summary["shared_cli_install_policy_violations"])
+	}
+}
+
+func TestShippedValidationInstructionsPreserveSharedCLIInstallPolicy(t *testing.T) {
+	repoRoot := repoRootForTest(t)
+	diagnostics, _ := validateSharedCLIInstallPolicy(repoRoot)
+	for _, diag := range diagnostics {
+		t.Errorf("unexpected shared CLI install policy diagnostic: %s:%d: %s", diag.File, diag.Line, diag.Message)
 	}
 }

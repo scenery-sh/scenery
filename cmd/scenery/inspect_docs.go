@@ -60,19 +60,39 @@ type docsKnowledgeDocument struct {
 	SchemaRefs   []string `json:"schema_refs,omitempty"`
 }
 
+type inspectDocsOptions struct {
+	ForPath   string
+	Tag       string
+	Status    string
+	ReviewDue bool
+	All       bool
+}
+
+type inspectDocsQuery struct {
+	Mode      string `json:"mode"`
+	ForPath   string `json:"for_path,omitempty"`
+	Tag       string `json:"tag,omitempty"`
+	Status    string `json:"status,omitempty"`
+	ReviewDue bool   `json:"review_due,omitempty"`
+	All       bool   `json:"all,omitempty"`
+}
+
 type inspectDocsResponse struct {
 	cliPayloadIdentity
-	Repo      harnessSelfRepo        `json:"repo"`
-	Summary   inspectDocsSummary     `json:"summary"`
-	Warnings  []string               `json:"warnings,omitempty"`
-	Agents    inspectDocsAgents      `json:"agents"`
-	Documents []inspectDocsDocument  `json:"documents"`
-	Plans     inspectDocsPlans       `json:"plans"`
-	TechDebt  inspectDocsArtifactRef `json:"tech_debt"`
+	Repo                 harnessSelfRepo         `json:"repo"`
+	Query                inspectDocsQuery        `json:"query"`
+	Summary              inspectDocsSummary      `json:"summary"`
+	Warnings             []string                `json:"warnings,omitempty"`
+	Agents               inspectDocsAgents       `json:"agents"`
+	Documents            []inspectDocsDocument   `json:"documents"`
+	VerificationCommands []string                `json:"verification_commands,omitempty"`
+	Plans                *inspectDocsPlans       `json:"plans,omitempty"`
+	TechDebt             *inspectDocsArtifactRef `json:"tech_debt,omitempty"`
 }
 
 type inspectDocsSummary struct {
 	DocumentCount               int            `json:"document_count"`
+	SelectedDocumentCount       int            `json:"selected_document_count"`
 	MissingCount                int            `json:"missing_count"`
 	ReviewDueCount              int            `json:"review_due_count"`
 	StaleCount                  int            `json:"stale_count"`
@@ -94,10 +114,10 @@ type inspectDocsArtifactRef struct {
 
 type inspectDocsAgents struct {
 	Scopes                   []inspectDocsAgentScope `json:"scopes"`
-	ChildIndexPath           string                  `json:"child_index_path"`
-	ChildIndexEntries        []string                `json:"child_index_entries"`
-	StaleChildIndexEntries   []string                `json:"stale_child_index_entries"`
-	MissingChildIndexEntries []string                `json:"missing_child_index_entries"`
+	ChildIndexPath           string                  `json:"child_index_path,omitempty"`
+	ChildIndexEntries        []string                `json:"child_index_entries,omitempty"`
+	StaleChildIndexEntries   []string                `json:"stale_child_index_entries,omitempty"`
+	MissingChildIndexEntries []string                `json:"missing_child_index_entries,omitempty"`
 }
 
 type inspectDocsAgentScope struct {
@@ -107,18 +127,40 @@ type inspectDocsAgentScope struct {
 
 type inspectDocsDocument struct {
 	docsKnowledgeDocument
-	Exists     bool   `json:"exists"`
-	SizeBytes  int64  `json:"size_bytes,omitempty"`
-	ModifiedAt string `json:"modified_at,omitempty"`
-	ReviewDue  bool   `json:"review_due"`
-	Stale      bool   `json:"stale"`
+	Exists     bool                 `json:"exists"`
+	SizeBytes  int64                `json:"size_bytes,omitempty"`
+	ModifiedAt string               `json:"modified_at,omitempty"`
+	ReviewDue  bool                 `json:"review_due"`
+	Stale      bool                 `json:"stale"`
+	Role       string               `json:"role,omitempty"`
+	Reason     string               `json:"reason,omitempty"`
+	Sections   []inspectDocsSection `json:"sections,omitempty"`
+}
+
+type inspectDocsSection struct {
+	Heading   string `json:"heading"`
+	Anchor    string `json:"anchor"`
+	StartLine int    `json:"start_line"`
+	EndLine   int    `json:"end_line"`
 }
 
 func buildInspectDocsResponse(repoRoot string) (inspectDocsResponse, error) {
+	return buildInspectDocsResponseForOptions(repoRoot, inspectDocsOptions{All: true})
+}
+
+func buildInspectDocsResponseForOptions(repoRoot string, opts inspectDocsOptions) (inspectDocsResponse, error) {
+	if err := validateInspectDocsOptions(opts); err != nil {
+		return inspectDocsResponse{}, err
+	}
 	index, err := readDocsKnowledgeIndex(repoRoot)
 	if err != nil {
 		return inspectDocsResponse{}, err
 	}
+	query, err := buildInspectDocsQuery(repoRoot, opts)
+	if err != nil {
+		return inspectDocsResponse{}, err
+	}
+	allAgents := buildInspectDocsAgents(repoRoot)
 	resp := inspectDocsResponse{
 		cliPayloadIdentity: newCLIPayloadIdentity(inspectDocsKind),
 		Repo: harnessSelfRepo{
@@ -129,16 +171,13 @@ func buildInspectDocsResponse(repoRoot string) (inspectDocsResponse, error) {
 		Summary: inspectDocsSummary{
 			Quality: map[string]int{},
 		},
-		Agents: buildInspectDocsAgents(repoRoot),
-		Plans: inspectDocsPlans{
-			Active:    inspectDocsArtifact(repoRoot, index.Plans.Active),
-			Completed: inspectDocsArtifact(repoRoot, index.Plans.Completed),
-		},
-		TechDebt:  inspectDocsArtifact(repoRoot, index.TechDebt),
+		Query:     query,
+		Agents:    inspectDocsAgents{Scopes: []inspectDocsAgentScope{}},
 		Documents: []inspectDocsDocument{},
 	}
 
 	today := time.Now().UTC()
+	allDocuments := make([]inspectDocsDocument, 0, len(index.Documents))
 	for _, doc := range index.Documents {
 		item := inspectDocsDocument{docsKnowledgeDocument: doc}
 		if info, err := os.Stat(filepath.Join(repoRoot, filepath.FromSlash(doc.Path))); err == nil {
@@ -158,18 +197,44 @@ func buildInspectDocsResponse(repoRoot string) (inspectDocsResponse, error) {
 			resp.Summary.StaleCount++
 		}
 		resp.Summary.Quality[doc.Quality]++
-		resp.Documents = append(resp.Documents, item)
+		allDocuments = append(allDocuments, item)
 	}
-	resp.Summary.DocumentCount = len(resp.Documents)
-	resp.Summary.AgentScopeCount = len(resp.Agents.Scopes)
-	resp.Summary.StaleChildIndexEntryCount = len(resp.Agents.StaleChildIndexEntries)
-	resp.Summary.MissingChildIndexEntryCount = len(resp.Agents.MissingChildIndexEntries)
-	for _, path := range resp.Agents.StaleChildIndexEntries {
+	resp.Summary.DocumentCount = len(allDocuments)
+	resp.Summary.AgentScopeCount = len(allAgents.Scopes)
+	resp.Summary.StaleChildIndexEntryCount = len(allAgents.StaleChildIndexEntries)
+	resp.Summary.MissingChildIndexEntryCount = len(allAgents.MissingChildIndexEntries)
+	for _, path := range allAgents.StaleChildIndexEntries {
 		resp.Warnings = append(resp.Warnings, "child AGENTS.md index entry is stale: "+path)
 	}
-	for _, path := range resp.Agents.MissingChildIndexEntries {
+	for _, path := range allAgents.MissingChildIndexEntries {
 		resp.Warnings = append(resp.Warnings, "child AGENTS.md is missing from Child Agent Index: "+path)
 	}
+	switch query.Mode {
+	case "all":
+		resp.Agents = allAgents
+		resp.Documents = allDocuments
+		plans := inspectDocsPlans{
+			Active:    inspectDocsArtifact(repoRoot, index.Plans.Active),
+			Completed: inspectDocsArtifact(repoRoot, index.Plans.Completed),
+		}
+		techDebt := inspectDocsArtifact(repoRoot, index.TechDebt)
+		resp.Plans = &plans
+		resp.TechDebt = &techDebt
+	case "filter":
+		resp.Documents = filterInspectDocsDocuments(allDocuments, query)
+	case "path":
+		route, err := buildInspectDocsPathRoute(repoRoot, query.ForPath, allDocuments, allAgents)
+		if err != nil {
+			return inspectDocsResponse{}, err
+		}
+		resp.Agents.Scopes = route.AgentScopes
+		resp.Documents = route.Documents
+		resp.VerificationCommands = route.VerificationCommands
+	case "summary":
+	default:
+		return inspectDocsResponse{}, fmt.Errorf("unsupported inspect docs query mode %q", query.Mode)
+	}
+	resp.Summary.SelectedDocumentCount = len(resp.Documents)
 	return resp, nil
 }
 

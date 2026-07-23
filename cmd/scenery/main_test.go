@@ -416,7 +416,7 @@ func TestUpCommandDelegatesValidationToWatchLoop(t *testing.T) {
 	original := runWithWatchFunc
 	t.Cleanup(func() { runWithWatchFunc = original })
 	called := false
-	runWithWatchFunc = func(_ devListenRequest, _ bool, _ bool, _, _ string) error {
+	runWithWatchFunc = func(_ devListenRequest, _ bool, _ bool, _ bool, _, _ string) error {
 		called = true
 		return nil
 	}

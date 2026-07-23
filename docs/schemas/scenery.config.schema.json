@@ -217,7 +217,31 @@
         },
         "allow_shared_upstream": {
           "type": "boolean"
+        },
+        "tauri": {
+          "$ref": "#/$defs/frontendTauri"
 		}
+      },
+      "additionalProperties": false
+    },
+    "frontendTauri": {
+      "type": "object",
+      "description": "Tauri 2 desktop shell using this configured frontend as its web surface.",
+      "properties": {
+        "root": {
+          "type": "string",
+          "description": "App-root-relative directory containing src-tauri. Empty defaults to the frontend root.",
+          "not": {
+            "anyOf": [
+              {
+                "pattern": "^/"
+              },
+              {
+                "pattern": "(^|/)\\.\\.(/|$)"
+              }
+            ]
+          }
+        }
       },
       "additionalProperties": false
     },

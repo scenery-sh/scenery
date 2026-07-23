@@ -363,7 +363,7 @@ func summarizeTestTiming(report *harnessTestTimingReport) *harnessSelfTestTiming
 }
 
 func summarizeKnowledge(resp harnessSelfResponse) harnessSelfKnowledgeSummary {
-	out := harnessSelfKnowledgeSummary{EntrypointCount: len(resp.Knowledge.Entrypoints), SchemaCount: len(resp.Knowledge.Schemas), Drilldown: "scenery inspect docs -o json"}
+	out := harnessSelfKnowledgeSummary{EntrypointCount: len(resp.Knowledge.Entrypoints), SchemaCount: len(resp.Knowledge.Schemas), Drilldown: "scenery inspect docs --all -o json"}
 	for _, step := range resp.Steps {
 		if step.Name != "inspect docs" || step.Summary == nil {
 			continue

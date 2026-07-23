@@ -348,7 +348,7 @@ func upCommand(args []string) error {
 		return runDetachedDevFunc(args, opts)
 	}
 	listen := resolveDevListenRequest(opts)
-	return runWithWatchFunc(listen, opts.Verbose, opts.JSON, opts.AppRoot, opts.Env)
+	return runWithWatchFunc(listen, opts.Verbose, opts.JSON, opts.Desktop, opts.AppRoot, opts.Env)
 }
 
 func validateRuntimePlan(appRootOption string) error {
@@ -380,6 +380,7 @@ type devOptions struct {
 	Output       string
 	AppRoot      string
 	Env          string
+	Desktop      bool
 	Detach       bool
 	Wait         string
 	ClaimAliases bool
@@ -404,6 +405,7 @@ func parseDevArgs(args []string) (devOptions, error) {
 	flags.StringVar(&opts.Wait, "wait", opts.Wait, "")
 	flags.StringVar(&opts.AppRoot, "app-root", "", "")
 	flags.StringVar(&opts.Env, "env", "", "")
+	flags.BoolVar(&opts.Desktop, "desktop", false, "")
 	flags.BoolVar(&opts.ClaimAliases, "claim-aliases", false, "")
 	positionals, err := parseCLIFlags(flags, args)
 	if err != nil {

@@ -107,6 +107,67 @@ func TestResolveEnvAppliesFrontendModesAndDotenvStack(t *testing.T) {
 	}
 }
 
+func TestDiscoverRootAcceptsFrontendTauriConfig(t *testing.T) {
+	root := t.TempDir()
+	writeAppTestFile(t, root, ".scenery.json", `{
+		"name": "desktopapp",
+		"frontends": {
+			"app": {
+				"root": "apps/app",
+				"tauri": {"root": "apps/desktop"}
+			},
+			"web": {
+				"root": "apps/web",
+				"tauri": {}
+			}
+		},
+		"envs": {
+			"local": {"default": true}
+		}
+	}`)
+
+	_, cfg, err := DiscoverRoot(root)
+	if err != nil {
+		t.Fatalf("DiscoverRoot returned error: %v", err)
+	}
+	if cfg.Frontends["app"].Tauri == nil || cfg.Frontends["app"].Tauri.Root != "apps/desktop" {
+		t.Fatalf("frontends.app.tauri = %+v", cfg.Frontends["app"].Tauri)
+	}
+	if cfg.Frontends["web"].Tauri == nil || cfg.Frontends["web"].Tauri.Root != "" {
+		t.Fatalf("frontends.web.tauri = %+v", cfg.Frontends["web"].Tauri)
+	}
+	env, err := cfg.ResolveEnv("")
+	if err != nil {
+		t.Fatalf("ResolveEnv returned error: %v", err)
+	}
+	if env.Frontends["app"].Tauri == nil || env.Frontends["app"].Tauri.Root != "apps/desktop" {
+		t.Fatalf("resolved frontends.app.tauri = %+v", env.Frontends["app"].Tauri)
+	}
+	if env.Frontends["app"].Tauri == cfg.Frontends["app"].Tauri {
+		t.Fatal("resolved env aliases the config tauri pointer")
+	}
+}
+
+func TestDiscoverRootRejectsInvalidFrontendTauriConfig(t *testing.T) {
+	tests := []struct{ name, config, want string }{
+		{"unknown field", `{"name":"demo","frontends":{"app":{"root":"apps/app","tauri":{"extra":true}}},"envs":{"local":{"default":true}}}`, `unknown .scenery.json field "frontends.app.tauri.extra"`},
+		{"absolute root", `{"name":"demo","frontends":{"app":{"root":"apps/app","tauri":{"root":"/tmp/desktop"}}},"envs":{"local":{"default":true}}}`, "frontends.app.tauri.root must be relative to the app root"},
+		{"escaping root", `{"name":"demo","frontends":{"app":{"root":"apps/app","tauri":{"root":"../desktop"}}},"envs":{"local":{"default":true}}}`, "frontends.app.tauri.root must stay beneath the app root"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			if err := os.WriteFile(filepath.Join(root, ".scenery.json"), []byte(tt.config), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			_, _, err := DiscoverRoot(root)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
 func TestDiscoverRootRejectsInvalidEnvironmentOwnership(t *testing.T) {
 	tests := []struct{ name, config, want string }{
 		{"missing envs", `{"name":"demo"}`, "envs must declare environments"},

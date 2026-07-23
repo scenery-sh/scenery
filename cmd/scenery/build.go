@@ -24,6 +24,8 @@ func buildCommand(args []string) error {
 	libraryName := ""
 	libraryVersion := ""
 	libraryPlatforms := ""
+	envName := ""
+	desktop := false
 	jsonOutput := false
 	flags := newCLIFlagSet("build")
 	flags.StringVar(&outputPath, "output", "", "")
@@ -33,24 +35,68 @@ func buildCommand(args []string) error {
 	flags.StringVar(&libraryName, "lib", "", "")
 	flags.StringVar(&libraryVersion, "version", "", "")
 	flags.StringVar(&libraryPlatforms, "platform", "", "")
+	flags.StringVar(&envName, "env", "", "")
+	flags.BoolVar(&desktop, "desktop", false, "")
 	positionals, err := parseCLIFlags(flags, args)
 	if err != nil {
-		return err
+		return fmt.Errorf("invalid_request: %w", err)
 	}
 	if err := rejectCLIPositionals(positionals); err != nil {
-		return err
+		return fmt.Errorf("invalid_request: %w", err)
+	}
+	if desktop {
+		for _, name := range []string{"target", "lib", "version", "platform", "output"} {
+			if cliFlagSet(flags, name) {
+				return fmt.Errorf("invalid_request: --desktop cannot be combined with --%s", name)
+			}
+		}
+	} else if cliFlagSet(flags, "env") {
+		return fmt.Errorf("invalid_request: --env is only supported with --desktop")
+	} else {
+		if cliFlagSet(flags, "lib") && strings.TrimSpace(libraryName) == "" {
+			return fmt.Errorf("invalid_request: --lib requires a non-empty selector")
+		}
+		if cliFlagSet(flags, "version") && !cliFlagSet(flags, "lib") {
+			return fmt.Errorf("invalid_request: --version requires --lib")
+		}
+		if cliFlagSet(flags, "platform") && !cliFlagSet(flags, "lib") {
+			return fmt.Errorf("invalid_request: --platform requires --lib")
+		}
+		if cliFlagSet(flags, "lib") && cliFlagSet(flags, "target") {
+			return fmt.Errorf("invalid_request: --lib cannot be combined with --target")
+		}
 	}
 
 	start, err := resolveAppRoot(appRootFlag)
 	if err != nil {
-		return err
+		return fmt.Errorf("invalid_request: resolve app root: %w", err)
 	}
 	appRoot, cfg, err := app.DiscoverRoot(start)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed_precondition: discover app root: %w", err)
 	}
 	if err := validateRuntimePlan(appRoot); err != nil {
-		return err
+		return fmt.Errorf("failed_precondition: validate runtime plan: %w", err)
+	}
+	if desktop {
+		resolvedEnv, err := cfg.ResolveEnv(envName)
+		if err != nil {
+			return err
+		}
+		cfg.Frontends = resolvedEnv.Frontends
+		result, err := buildDesktop(context.Background(), appRoot, cfg, resolvedEnv, os.Stderr)
+		if err != nil {
+			return err
+		}
+		if jsonOutput {
+			return writeCLIJSON(os.Stdout, desktopBuildPayload(result))
+		}
+		for _, frontend := range result.Frontends {
+			for _, artifact := range frontend.Artifacts {
+				fmt.Fprintf(os.Stdout, "scenery: built desktop %s at %s\n", frontend.Name, artifact)
+			}
+		}
+		return nil
 	}
 	if outputPath != "" && !filepath.IsAbs(outputPath) {
 		outputPath, err = filepath.Abs(outputPath)

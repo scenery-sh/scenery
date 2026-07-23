@@ -159,7 +159,7 @@ func (b devBackend) normalized() devBackend {
 	return b
 }
 
-func runWithWatch(listen devListenRequest, verbose, jsonMode bool, appRoot, envName string) (runErr error) {
+func runWithWatch(listen devListenRequest, verbose, jsonMode, desktop bool, appRoot, envName string) (runErr error) {
 	applyWatchTimingOverridesFromEnv()
 
 	start, err := resolveAppRoot(appRoot)
@@ -175,6 +175,11 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode bool, appRoot, envN
 		return err
 	}
 	cfg.Frontends = resolvedEnv.Frontends
+	if desktop {
+		if _, err := configuredDesktopShells(root, cfg); err != nil {
+			return err
+		}
+	}
 	setProductionFrontendWatch(root, cfg)
 	uiCatalogDir, uiCatalogMissing, err := resolvedEnv.UICatalogDir(root)
 	if err != nil {
@@ -257,7 +262,11 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode bool, appRoot, envN
 	if err := supervisor.Start(ctx); err != nil {
 		return err
 	}
-	supervisor.addStartupReady(preparedSession.FrontendReady)
+	if desktop {
+		supervisor.addStartupReady(supervisor.startDesktopShellsAfterFrontends(ctx, preparedSession.FrontendReady))
+	} else {
+		supervisor.addStartupReady(preparedSession.FrontendReady)
+	}
 	startAgentAvailabilityWatchdog(ctx, agentClient)
 	if uiCatalogDir != "" {
 		if !console.json {

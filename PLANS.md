@@ -61,8 +61,9 @@ Prefer additive milestones that keep the repo testable. If a prototype is needed
 Every ExecPlan must include project-specific validation commands. For scenery repo changes, the default validation set is:
 
 - `go test ./...`
-- `go install ./cmd/scenery`
-- `scenery harness self -o json --write` when practical
+- `.scenery/harness/bin/scenery harness self --summary --write` for substantial
+  changes, after the
+  [Fresh Worktree Preflight](docs/agent-guide.md#fresh-worktree-preflight)
 
 For frontend changes, include the relevant `bun run typecheck` and `bun run build` commands in `ui/`.
 

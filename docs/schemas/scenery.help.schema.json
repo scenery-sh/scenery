@@ -13,7 +13,7 @@
       "const": "scenery.help"
     },
     "schema_revision": {
-      "const": "sha256:b2d01675a4f18a153fc6ab90070bd32c757174a0889532b3c33210b09b7ce808"
+      "const": "sha256:dd5d2e7b08e3ac88e7722ec62c1068ebcb8b1878b5a5269676ad940a1589e5f2"
     },
     "commands": {
       "type": "array",
@@ -62,6 +62,149 @@
               "minLength": 1
             }
           },
+          "required_combinations": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": [
+                "when"
+              ],
+              "properties": {
+                "when": {
+                  "type": "string",
+                  "pattern": "^--"
+                },
+                "requires": {
+                  "type": "array",
+                  "minItems": 1,
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "pattern": "^--"
+                  }
+                },
+                "conflicts_with": {
+                  "type": "array",
+                  "minItems": 1,
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "pattern": "^--"
+                  }
+                }
+              },
+              "anyOf": [
+                {
+                  "required": [
+                    "requires"
+                  ]
+                },
+                {
+                  "required": [
+                    "conflicts_with"
+                  ]
+                }
+              ],
+              "additionalProperties": false
+            }
+          },
+          "side_effect_class": {
+            "enum": [
+              "read_only",
+              "local_artifacts",
+              "workspace_mutation",
+              "local_runtime",
+              "machine_state",
+              "remote_state",
+              "mixed"
+            ]
+          },
+          "app_root_requirement": {
+            "enum": [
+              "required",
+              "optional",
+              "not_used",
+              "varies_by_usage"
+            ]
+          },
+          "output_schemas": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": [
+                "mode",
+                "kind",
+                "schema_revision"
+              ],
+              "properties": {
+                "mode": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "kind": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "schema_revision": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "common_exit_categories": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": [
+                "category",
+                "exit_code"
+              ],
+              "properties": {
+                "category": {
+                  "enum": [
+                    "success",
+                    "difference",
+                    "invalid_request",
+                    "revision_conflict",
+                    "failed_precondition",
+                    "capability_unavailable",
+                    "permission_denied",
+                    "internal"
+                  ]
+                },
+                "exit_code": {
+                  "enum": [
+                    0,
+                    1,
+                    2,
+                    3,
+                    4,
+                    5,
+                    10
+                  ]
+                },
+                "diagnostic_code": {
+                  "type": "string",
+                  "pattern": "^SCN[0-9]{4}$"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "related_commands": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
           "notes": {
             "type": "array",
             "items": {
@@ -77,6 +220,30 @@
             "minLength": 1
           }
         },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "command": {
+                  "const": "build"
+                }
+              },
+              "required": [
+                "command"
+              ]
+            },
+            "then": {
+              "required": [
+                "required_combinations",
+                "side_effect_class",
+                "app_root_requirement",
+                "output_schemas",
+                "common_exit_categories",
+                "related_commands"
+              ]
+            }
+          }
+        ],
         "additionalProperties": false
       }
     }

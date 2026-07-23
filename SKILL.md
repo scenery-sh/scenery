@@ -5,9 +5,9 @@ description: Use when building, running, debugging, inspecting, validating, or g
 
 # scenery
 
-Scenery runs one supervised local application runtime and exposes safe capabilities for inspection and action. Applications declare a canonical current graph in `app.scn` plus package-local `package.scn` files. Go packages implement generated native contracts; comments and package initialization do not register application resources.
+Scenery runs one supervised local runtime from the canonical graph in `app.scn` and package-local `package.scn` files. Go packages implement generated contracts; comments and package initialization register nothing.
 
-This skill is shared runtime knowledge, not a replacement for app-local instructions. Read the target repository's root `AGENTS.md` and every child `AGENTS.md` on the path to files you will touch. Client apps should record only their app root, frontend roots, generated output paths, required environment names, validation commands, and product invariants locally.
+This skill complements app-local instructions. Read the root `AGENTS.md` and every child scope on the path to files you will touch. Keep app-specific roots, outputs, environment names, validation, and product invariants in the client repository.
 
 Read next when needed:
 
@@ -16,40 +16,30 @@ Read next when needed:
 - `docs/app-development-cookbook.md` for native app recipes.
 - `docs/ui-agent-contract.md` before changing Scenery's generated UI catalog.
 
-## Agent Fast Path
+## Route by Task
 
-```sh
-scenery doctor -o json
-scenery fmt --check -o json
-scenery check -o json
-scenery compile --view expanded -o json
-scenery inspect app -o json
-scenery inspect routes -o json
-scenery inspect services -o json
-scenery inspect endpoints -o json
-scenery inspect durable -o json
-scenery inspect storage -o json
-scenery inspect ui -o json
-scenery logs -o jsonl --limit 200
-scenery harness -o json --write
-```
+| Intent | Start with |
+|---|---|
+| Understand the application | `scenery inspect app -o json` |
+| Investigate routing | `scenery inspect routes -o json` |
+| Investigate an operation | `scenery inspect endpoints -o json` |
+| Investigate a runtime failure | `scenery doctor -o json`, then bounded `scenery logs -o jsonl --limit 200` |
+| Change the source contract | `scenery fmt --check -o json`, `scenery check -o json`, then the applicable `scenery compile --view source\|effective\|expanded -o json` |
+| Validate a completed application change | Focused tests, `scenery generate --check -o json`, then the applicable `scenery harness -o json --write` |
+| Validate a substantial Scenery change | `go test ./...`, then `.scenery/harness/bin/scenery harness self --summary --write` |
 
-Prefer machine-readable output for decisions. `-o json` selects the singular `scenery.cli` envelope; command-specific results live under `data`. `-o jsonl` emits `scenery.cli.event` envelopes for streaming commands. Verify exact schema/spec revisions and producer identity, and branch on stable `SCNxxxx` diagnostics rather than message text. Resolve opaque source IDs through the returned source map.
-
-Run `scenery doctor -o json` before deep troubleshooting when host readiness is uncertain. For scenery repository changes, use `scenery inspect docs -o json` before editing current contracts and `scenery harness self --summary --write` after substantial work.
+Run only the route relevant to the task; expand when its evidence points elsewhere. Prefer `-o json` and `-o jsonl`, verify schema/spec revisions and producer identity, branch on stable `SCNxxxx` diagnostics, and resolve opaque source IDs through the returned source map.
 
 ## Mental Model
 
 - `.scenery.json` marks the app root.
-- `app.scn` is required, installs package-local `package.scn` modules, and pairs with the generated `app.lock.scn`. `SCN1021` means a retired contract filename must be renamed exactly as instructed; it is not an alias.
-- Source, effective, and expanded graph views are distinct. Effective resolves inputs, defaults, and patches; expanded adds generators. Provenance paths are RFC 6901 pointers into the selected resource spec.
+- `app.scn` installs package-local modules and pairs with generated `app.lock.scn`; `SCN1021` requires an exact filename migration, not an alias.
+- Choose graph views intentionally: source preserves authored expressions, effective resolves inputs/defaults/patches, and expanded adds generators. Provenance paths are RFC 6901 pointers into the selected resource spec.
 - Workspace, contract, implementation, deployment, and artifact revisions are separate. `scenery compile` does not invent an implementation revision; build supplies an exact target input manifest.
-- Services, operations, executions, HTTP/internal/CLI bindings, authentication, authorization, middleware, durable work, schedules, events, data, and UI resources are `.scn` declarations.
+- Declare services, operations, bindings, auth, middleware, durable work, schedules, events, data, and UI in `.scn`.
 - Generated Go contract and application-composition files are outputs, never source of truth.
-- Declared `pkg/` Go libraries expose generated `scenerylib_<name>` facades;
-  environments select source or verified shared linkage without changing app
-  imports.
-- `scenery up` starts the app process, rebuild loop, dashboard, API explorer, logs, traces, metrics, managed dev services, and configured frontends for one app root.
+- Declared `pkg/` libraries expose generated `scenerylib_<name>` facades; environments choose source or verified shared linkage without changing imports.
+- `scenery up` starts the app process, rebuild loop, dashboard, API explorer, logs, traces, metrics, managed dev services, and configured frontends for one app root. `scenery up --desktop` additionally opens every frontend declaring `tauri` through the app-local Tauri 2 CLI; closing that window leaves the runtime running.
 - Public and auth HTTP bindings are externally reachable. Internal bindings are called through generated clients so auth, visibility, tracing, delivery, and error semantics remain intact.
 - Use Git worktrees for multiple live code copies.
 
@@ -57,13 +47,7 @@ App-required build flags belong in `build.go_flags` in app config. Non-runtime t
 
 ## Native Source and Generated Artifacts
 
-Start from the checked-in `testdata/apps/basic` fixture or the minimal example in `README.md`. A native Go service has:
-
-- root workspace/application/toolchain/target/gateway/module declarations;
-- package metadata with a `go_contract.import_path`;
-- a service constructor declaration;
-- typed records, an operation, an execution, and one or more bindings;
-- a Go constructor and methods using generated `scenerycontract` input/outcome types.
+Start from `testdata/apps/basic` or the minimal `README.md` example. Declare the workspace, app, toolchain, target, gateway, module, package import path, service constructor, typed records, operation, execution, and bindings; implement the constructor and methods with generated `scenerycontract` types.
 
 Use this loop:
 
@@ -76,19 +60,13 @@ scenery check -o json
 go test ./...
 ```
 
-Go contracts, adapters, and composition are rendered into Scenery's external build/editor caches; do not commit or hand-edit `scenerycontract` or `internal/scenerygen`. A successful compile maintains a locally excluded root `go.work` for raw Go/editor resolution. Use `scenery generate --target contracts --materialize` only to export a published module, and `scenery generate --prune-materialized-go` for the descriptor-verified one-time migration. TypeScript targets choose `materialization = "source"` beneath `workspace.managed_generated_roots` or `"cache"` beneath `.scenery/gen/typescript/`.
+Never commit or hand-edit cached `scenerycontract` or `internal/scenerygen` output. Use contract materialization only to publish a module. TypeScript targets use source materialization beneath a declared managed root or cache materialization beneath `.scenery/gen/typescript/`.
 
-For a declared library, import the generated `scenerylib_<name>` facade and
-set `envs.<env>.libraries.<name>.linkage` to `source` or `shared`. Shared mode
-also requires an app-root-relative artifact manifest. Build the fixed
-darwin/arm64 + linux/amd64 matrix with
-`scenery build --lib <name> --version <vN.N.N> -o json`. The generated
-`UseShared` entry point swaps verified versions alongside each other; never
-attempt to unload a Go c-shared runtime.
+Import a declared library through its generated facade. Shared linkage requires an app-root-relative artifact manifest; build the fixed darwin/arm64 and linux/amd64 matrix with `scenery build --lib <name> --version <vN.N.N> -o json`. Swap verified versions alongside each other; never unload a Go c-shared runtime.
 
 Use `scenery list|get|explain|graph ... -o json` for graph facts and `scenery diff --semantic` for compatibility. Semantic changes and deployments use immutable revision-bound plan/apply. Apply accepts only the exact app-local issued plan and rejects caller-recomputed approvals, operations, edits, or provider actions.
 
-For semantic creation, read agent `resource_create_kinds` and `schema.get` first. Unadvertised kinds are intentionally unavailable. For terminal HTTP path tails, use final `{name...}` syntax and declare one matching typed `path_tail` mapping; path tails are part of the current HTTP contract and require no extra source selector. Do not substitute router globs or pre-encoded fragments.
+Before semantic creation, read `resource_create_kinds` and `schema.get`; unadvertised kinds are unavailable. A terminal HTTP path tail uses final `{name...}` syntax plus one typed `path_tail` mapping, never a router glob or pre-encoded fragment.
 
 ## Public Go Capabilities
 
@@ -102,75 +80,29 @@ For semantic creation, read agent `resource_create_kinds` and `schema.get` first
 - `scenery.sh/datasource` and `scenery.sh/object` for typed constructor capabilities.
 - `scenery.sh/storage` for app storage.
 
-Standard auth can be enabled through app config. Its tenant tables are framework-owned under the app database's `scenery` schema. When Google OAuth is enabled, app code can use `auth.GoogleAccessToken` or `auth.GoogleAccessTokenForUser`; clients should treat `google_reauth_required` as a reconnect prompt.
+Standard-auth tenant tables are framework-owned under the app database's `scenery` schema. Google-enabled apps use `auth.GoogleAccessToken` or `auth.GoogleAccessTokenForUser`; clients treat `google_reauth_required` as a reconnect prompt.
 
 ## Local Development and Debugging
 
-```sh
-scenery up
-scenery up --detach
-scenery ps -o json
-scenery logs --follow
-scenery console
-scenery traces list -o json --since 15m --slowest
-scenery metrics list -o json --since 1h
-scenery down
-```
+Use `scenery up` for the live loop, `--detach` for a background runtime, and `--desktop` for configured Tauri shells. The default wait proves advertised routes and one frontend asset; use `--wait registered` only when readiness is intentionally deferred.
 
-The default detached wait verifies every advertised route and one script or stylesheet asset from each frontend before returning. Use `--wait registered` only when route readiness is intentionally deferred.
+`scenery up` is idempotent per app root. Foreground reruns attach to its logs, Ctrl+C detaches without stopping it, and detached reruns report `already_running: true`. Use a worktree for a second live code copy.
 
-`scenery up` is idempotent per app root: when a live runtime already owns the app root, it reports that runtime instead of failing. Human foreground reruns attach to the running runtime's logs, and Ctrl+C detaches without stopping it; `-o jsonl` and `--detach` reruns report and exit `0` (detached JSON sets `already_running: true`). Use a Git worktree when a second live code copy is needed.
+The selected environment owns domains, exposure, ports, frontend serving, and deployment. Discover URLs with `scenery ps -o json`; never guess hidden ports or substrate paths. Diagnose with bounded logs, traces, and metrics before widening the search.
 
-Default local routing uses the one `envs` entry marked `default` and gives each live app root one localhost base URL. `scenery up --env <name>` selects another declared environment. The selected env owns `domain`, `expose`, ports, frontend `serve` modes, and deploy settings; session JSON records `environment`. A failed domain probe keeps localhost content and never falls through to another env's domain. Discover routes through `scenery ps -o json`; do not guess hidden ports or substrate paths.
-
-```sh
-scenery system toolchain verify -o json
-scenery system edge status -o json
-scenery deploy status -o json
-scenery deploy <ssh-target> [--app-root <path>]
-scenery deploy --env <name> [--app-root <path>]
-```
-
-On a configured public host, `scenery deploy status -o json` includes the
-login-resume job's state and last exit code; a completed nonzero resume is not
-ready. Public recovery verifies the Caddy/helper/agent chain independently of
-the optional `local.dev` wildcard resolver.
-
-The beta SSH form requires the host alias in exactly one `envs.<name>.deploy.ssh`. It uses
-passwordless OpenSSH and rsync, honors `.gitignore`, preserves remote `.env*`
-and `.scenery`, then restarts with readiness waiting; expect brief downtime
-and no backend rollback. When that env declares `domain` and a frontend
-with `serve: "production"`, the deploy also builds that frontend on the remote
-host and publishes it atomically for direct managed-Caddy static serving
-(`scenery deploy publish`); a failed publish keeps the previous public
-frontend, and `scenery deploy status -o json` reports each frontend's serving
-mode (`caddy_static` or `agent_proxy`).
+Deploy through a configured environment or its singular SSH target. SSH uses passwordless OpenSSH and rsync, preserves remote `.env*` and `.scenery`, waits for readiness, and provides no backend rollback. Verify with `scenery deploy status -o json`.
 
 ## Storage and Databases
 
-App config declares local storage cells and stores. App code uses `scenery.sh/storage`; it should not inspect proxy sockets or object directories. Tenant-scoped private calls require standard-auth context or `storage.WithTenantID`. Inspect and operate through:
-
-```sh
-scenery inspect storage -o json
-scenery storage status -o json
-scenery storage ls <store> -o json
-```
+Declare storage cells and stores in app config. App code uses `scenery.sh/storage`, never proxy sockets or object directories. Tenant-scoped private calls require auth context or `storage.WithTenantID`. Inspect with `scenery inspect storage -o json`; operate through `scenery storage status|ls|stat|put|get|rm`.
 
 An explicit app `DATABASE_URL` is external. Otherwise `scenery up` manages one Postgres database per app root/worktree and service-scoped schemas. Use `scenery db apply` for schema mutation, `scenery db seed` for initial data, and `scenery db setup` for both. Do not make file generation apply database state.
 
-```sh
-scenery db list -o json
-scenery db seed --env development --dry-run -o json
-scenery db setup -o json
-scenery snapshot save --db --storage --output app.zip -o json
-scenery snapshot verify --input app.zip -o json
-```
-
-Snapshots include only explicitly selected data. Verify checks every payload without discovering or stopping a target app. Stop the app before loading; use `--dry-run` for target-specific preflight and `--mode overwrite --yes` for an exact managed-database and storage replacement. Payload checksums are verified again before mutation, and interrupted overwrite loads are safe to rerun.
+Snapshots include only selected data. Verify checks every payload without stopping a target app. Stop the app before loading; use `--dry-run` first and `--mode overwrite --yes` only for exact replacement. Interrupted overwrite loads are safe to rerun.
 
 ## Generated TypeScript Clients
 
-Declare each `typescript_client` target in `app.scn`, including its gateway set, `materialization = "source" | "cache"`, and source-mode managed `output_root`:
+Declare each `typescript_client` target in `app.scn`, including gateways, materialization, and a managed output root for source mode:
 
 ```sh
 scenery generate --target typescript_client.public_api -o json
@@ -178,29 +110,22 @@ scenery generate --target typescript_client.public_api --check -o json
 bun test internal/generate/testdata/typescript_client_conformance.test.ts
 ```
 
-Generated clients implement the exact declared HTTP mappings and typed outcomes. They do not infer routes or authentication from Go names. Regenerate after any reachable binding, type, codec, or auth contract changes.
+Generated clients implement declared HTTP mappings and outcomes; they never infer routes or auth from Go names. Regenerate after reachable binding, type, codec, or auth changes.
 
-For generated React pages, declare the page macro plus any typed `search` blocks and `nav_*` metadata, then add `react { tsconfig = "path/to/tsconfig.json" }` to the client target. Scenery materializes page adapters, `routes.generated.ts`, `app.generated.tsx`, and its binary-owned `scenery-ui` catalog, then typechecks the staged target with managed `tsgo`. Create the app with `createSceneryApp`, register hand-written pages through its one `SceneryRouteDescriptor` array, and fill only its fixed auth/top-bar/content/link/icon slots; do not build another route tree, navigation list, shell, or page-selection system. TanStack Router remains an app peer. Treat `SCN2619` as invalid page search/navigation metadata, `SCN6320` as an override contract error, `SCN6321` as a reachable app TypeScript error, and `SCN6322` as checker/config/dependency readiness. Generated page loaders target the browser `/api/` route and accept an optional client prop. Vite apps alias `@scenery/ui` and its token subpath to the materialized catalog in TypeScript, Vite, and StyleX; the app supplies React, Astryx, StyleX, TanStack Query, and TanStack Router peers.
+For React, declare a page macro and any typed search/navigation metadata, then set the target's React tsconfig. Scenery owns generated adapters, routes, app shell, catalog, and staged typecheck. Use `createSceneryApp`, one authored route descriptor array, and the fixed slots; do not rebuild route selection, navigation, or the shell. Vite apps alias `@scenery/ui` and its token subpath to the materialized catalog and provide its peer dependencies.
 
-Choose the page macro by shape, get its authored schema from `scenery schema <kind> -o json`, and read the full behavior contract in `docs/local-contract.md` (recipes in `docs/app-development-cookbook.md`):
+Choose the page macro by shape, inspect it with `scenery schema <kind> -o json`, and read the full contract only for that macro:
 
-- `split_page` — two-pane screen with app-owned `sidebar` and `detail` slots; Scenery owns transport, URL-backed selection, and layout, while each slot owns its request-state presentation (use `QueryState` from `@scenery/ui`).
-- `content_page` — one-column screen with a required app-owned `content` slot; omit `source` for static content (static slots receive no props), otherwise both slots receive typed `RequestState` props.
-- `detail_page` — one routed record from a parameterized path and call-delivery HTTP load binding; the load operation must declare a business error the binding maps to HTTP 404. Use `form_dialog` actions for simple seeded mutations and the typed app-owned `actions` slot for domain workflows; call `onMutated` after success so detail and related queries refresh.
-- `table_page` — operations workbench over cursor-paginated CRUD, a numeric-`pagination` binding, or one complete typed list; only complete-list tables may group. Composes declarative filters and typed fixed `predicate` inputs, `status_map` badges, CSV export, result-context slots, `row_detail` or mutually exclusive `row_action`, `form_dialog` actions, and `stats` tiles that format values and set, toggle, or clear typed filters through the table's single query state (date/datetime filters may declare local-calendar presets).
+- `split_page` — two panes with app-owned sidebar/detail request-state slots; Scenery owns selection and layout.
+- `content_page` — one required content slot; omit the source for static content.
+- `detail_page` — one routed record whose declared business error maps to HTTP 404; use simple form dialogs or a typed app-owned action slot and refresh after mutation.
+- `table_page` — a cursor-paginated, numeric-pagination, or complete-list workbench with typed filters/actions; only complete lists may group.
 
 Keep generated page, route, dialog, and query wiring intact rather than rebuilding it in app code.
 
 ## Tasks and Workers
 
-Use `scenery task` for app-local code tasks. Targets use `<domain>:<name>` and may run even when the application graph is temporarily invalid.
-
-```sh
-scenery task list -o json
-scenery task inspect <target> -o json
-scenery task run <domain>:<name> -- [args...]
-scenery worker --app-root <path> --env <name>
-```
+Use `scenery task list|inspect|run` for app-local `<domain>:<name>` code tasks; they may run while the graph is temporarily invalid. Use `scenery worker --app-root <path> --env <name>` for the worker role.
 
 Single-file Go code tasks live under a domain `tasks` directory and use `//go:build ignore`; that build constraint is not an application declaration.
 
@@ -208,11 +133,7 @@ Single-file Go code tasks live under a domain `tasks` directory and use `//go:bu
 
 Follow `apps/console/AGENTS.md` for dashboard work. Generated table pages use Scenery's binary-owned catalog; mount `generatedPages` and customize declared slots or CSS tokens instead of editing materialized catalog files.
 
-Before rewriting an app frontend, run
-`scenery inspect ui --frontend <name> -o human` for the ranked cleanup queue.
-Use its markup and style shares independently, move the top offender onto
-Astryx/`@scenery/ui` and StyleX tokens, then re-run. The score is triage
-guidance, not enforcement.
+Before rewriting an app frontend, run `scenery inspect ui --frontend <name> -o human`. Move the top offender onto Astryx/`@scenery/ui` and StyleX tokens, then rerun; the score is triage guidance, not enforcement.
 
 ```sh
 cd apps/console
@@ -225,13 +146,20 @@ scenery harness ui -o json --write
 
 ## Command Reference
 
-Use `docs/local-contract.md` for full grammar. Lifecycle and mutation commands beyond the Agent Fast Path above:
+Use `scenery help <command> -o json` for one scoped machine-readable command descriptor, omit `-o json` for human help, and use `docs/local-contract.md` for the full grammar:
 
 ```text
-scenery up [--env <name>] [--app-root <path>] [-o jsonl] [--detach]
+scenery doctor -o json
+scenery fmt --check -o json
+scenery check -o json
+scenery compile --view source|effective|expanded -o json
+scenery inspect app|routes|services|endpoints|durable|storage|ui -o json
+scenery logs [-o jsonl] [--limit <n>] [--follow]
+scenery up [--env <name>] [--app-root <path>] [--desktop] [-o jsonl] [--detach]
 scenery ps [--app-root <path>] [-o json]
 scenery down [--app-root <path>] [-o json]
 scenery build [--app-root <path>] [--target <go-target>] [--output <path>] [-o human|json]
+scenery build --desktop [--env <name>] [--app-root <path>] [-o human|json]
 scenery list|get|explain|graph ... [--app-root <path>] -o json
 scenery diff --semantic BASE TARGET [--rename-receipts <path>] -o json
 scenery generate [--app-root <path>] [--target contracts|typescript_client.<name>] [--materialize] [--prune-materialized-go] [--merge-editor-workspace] [--check] -o json
@@ -241,6 +169,9 @@ scenery task list|inspect|run ...
 scenery db list|path|shell|apply|seed|setup|reset|drop ...
 scenery snapshot save|verify|load ...
 scenery test [--app-root <path>] [go test flags/packages...]
+scenery harness -o json --write
+scenery harness ui -o json --write
+.scenery/harness/bin/scenery harness self --summary --write
 ```
 
 ## Validation Before Finishing
@@ -254,16 +185,6 @@ go test ./...
 scenery harness -o json --write
 ```
 
-For scenery repository changes:
-
-```sh
-go test ./...
-go vet ./...
-scenery harness self --summary --write
-```
-
-Keep Go's test result cache enabled for ordinary, focused, and substantial
-final validation. Use `-count=1` or `--fresh-tests` only for explicit fresh
-measurement or nondeterminism investigation.
+For Scenery repository changes, follow the root `AGENTS.md`; substantial changes use the worktree-local self-harness command above. Keep Go's test cache enabled. Use `-count=1` or `--fresh-tests` only for explicit measurement or nondeterminism investigation.
 
 Do not run `go install ./cmd/scenery` unless the human explicitly asks. Multiple worktrees share the installed binary; self-harness builds a worktree-local binary.

@@ -220,10 +220,10 @@ func harnessSelfGoTestEnv() []string {
 func runHarnessInspectDocsStep(repoRoot string) harnessStep {
 	started := time.Now()
 	var out bytes.Buffer
-	err := runSceneryInspect([]string{"docs", "--repo-root", repoRoot, "-o", "json"}, &out)
+	err := runSceneryInspect([]string{"docs", "--repo-root", repoRoot, "--all", "-o", "json"}, &out)
 	step := harnessStep{
 		Name:       "inspect docs",
-		Command:    []string{"scenery", "inspect", "docs", "--repo-root", repoRoot, "-o", "json"},
+		Command:    []string{"scenery", "inspect", "docs", "--repo-root", repoRoot, "--all", "-o", "json"},
 		OK:         err == nil,
 		DurationMS: time.Since(started).Milliseconds(),
 	}
@@ -234,7 +234,7 @@ func runHarnessInspectDocsStep(repoRoot string) harnessStep {
 			Stage:           step.Name,
 			Severity:        "error",
 			Message:         firstNonEmpty(step.OutputTail, step.Error),
-			SuggestedAction: "Run `scenery inspect docs -o json`, fix the reported docs issue, then rerun `scenery harness self -o json`.",
+			SuggestedAction: "Run `scenery inspect docs --all -o json`, fix the reported docs issue, then rerun `scenery harness self -o json`.",
 		}}
 		return step
 	}
@@ -246,7 +246,7 @@ func runHarnessInspectDocsStep(repoRoot string) harnessStep {
 			Stage:           step.Name,
 			Severity:        "error",
 			Message:         step.Error,
-			SuggestedAction: "Fix `scenery inspect docs -o json` output so it conforms to the current scenery.inspect.docs schema.",
+			SuggestedAction: "Fix `scenery inspect docs --all -o json` output so it conforms to the current scenery.inspect.docs schema.",
 		}}
 		return step
 	}
@@ -268,7 +268,7 @@ func runHarnessInspectDocsStep(repoRoot string) harnessStep {
 			Stage:           step.Name,
 			Severity:        "error",
 			Message:         "docs knowledge base has missing or stale entries",
-			SuggestedAction: "Run `scenery inspect docs -o json`, update docs/knowledge.json or the referenced docs, then rerun `scenery harness self -o json`.",
+			SuggestedAction: "Run `scenery inspect docs --all -o json`, update docs/knowledge.json or the referenced docs, then rerun `scenery harness self -o json`.",
 		}}
 	}
 	return step
@@ -710,6 +710,7 @@ func buildHarnessSelfKnowledge(repoRoot string) harnessKnowledge {
 	}
 	schemas := []string{
 		"docs/schemas/scenery.config.schema.json",
+		"docs/schemas/scenery.build.desktop.schema.json",
 		"docs/schemas/scenery.build.latest.schema.json",
 		"docs/schemas/scenery.docs.index.schema.json",
 		"docs/schemas/scenery.environment.registry.schema.json",

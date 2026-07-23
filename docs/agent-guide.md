@@ -150,6 +150,7 @@ Use `-o json` for compiler commands and command-specific current protocols. Neve
 | Inspect canonical graph | `scenery compile --view expanded -o json` |
 | Query resources and provenance | `scenery list|get|explain|graph ... -o json` |
 | Inspect routed app views | `scenery inspect app|routes|services|endpoints -o json` |
+| Discover docs for a repository path | `scenery inspect docs --for-path <path> -o json` |
 | Rank React UI guardrail drift | `scenery inspect ui [--frontend <name>] -o human|json` |
 | Inspect build and paths | `scenery inspect build -o json`, `scenery inspect paths -o json` |
 | Inspect durable/storage capabilities | `scenery inspect durable -o json`, `scenery inspect storage -o json` |
@@ -167,6 +168,10 @@ Use `-o json` for compiler commands and command-specific current protocols. Neve
 ## Runtime Command Choice
 
 - Use `scenery up` for the app root's one live development runtime and all safe local capabilities.
+- Use `scenery up --desktop` when a configured
+  `frontends.<name>.tauri` shell should open against that same managed frontend
+  dev server. Scenery owns the frontend process and desktop child for the
+  session; closing the window does not stop or restart the app.
 - Use `scenery up --detach` when the local agent should retain it; the default wait returns only after every advertised route and one declared frontend asset are reachable.
 - `scenery up` reruns against an already-live app root are idempotent instead of failing: human foreground reruns report the existing runtime and attach to its logs (Ctrl+C detaches without stopping it), while `-o jsonl` and `--detach` reruns report and exit `0` (detached JSON sets `already_running: true`).
 - Use `scenery ps -o json` to discover the current base URL, route manifest, child health, and substrate state.
@@ -178,6 +183,9 @@ Use `-o json` for compiler commands and command-specific current protocols. Neve
 - Use `scenery down` to stop it; add destructive cleanup flags only intentionally.
 - Use `scenery worker` for a worker-role runtime serving declared durable executions and schedules.
 - Use `scenery build` for a deployable binary.
+- Use `scenery build --desktop --env <name> -o json` to build each
+  Tauri-enabled frontend at base `/`, run the app-local Tauri 2 CLI, and receive
+  exact installer paths under `data.frontends[].artifacts`.
 - Use `scenery deploy <ssh-target>` only for configured beta single-server source sync. The target must belong to exactly one `envs.<name>.deploy.ssh`; `scenery deploy --env <name>` is the equivalent shortcut when that env has one target. Scenery preserves remote `.env*`, `.scenery`, and Scenery-owned `go.work`, restarts with `--env <name>`, and publishes only that env's production frontends.
 - Use `scenery generate` only for file generation. It must not apply database state.
 - Use `scenery task` for app-local code tasks.
@@ -275,7 +283,7 @@ Do not copy scenery's full skill or repository manual into every app.
 
 ## Working In The scenery Repository
 
-Read root `AGENTS.md` plus every applicable child instruction file, then read the `docs/local-contract.md` and `docs/agent-guide.md` sections covering the surface you are changing. Check `docs/plans/active.md` when the area may have an active ExecPlan; run `scenery inspect docs -o json` when choosing doc-gardening work. Use an ExecPlan for complex features, migrations, or substantial refactors.
+Start with `scenery inspect docs --for-path <path> -o json`; it returns the applicable instruction scopes, owning architecture and current-contract sections, relevant active ExecPlans, related schemas, and verification commands without loading the full catalog. Read those scopes and sections before editing. Use `--review-due` for doc gardening and `--all` only for complete catalog validation. Use an ExecPlan for complex features, migrations, or substantial refactors.
 
 Validate ordinary changes with:
 
@@ -315,6 +323,9 @@ scenery is a Go-native service runtime and local development platform. Think in 
 - `scenery system agent restart` restarts only the local control plane and router. Registered shared substrate processes survive; destructive shutdown stays with substrate-specific commands and verified lifecycle owners.
 - Every CLI invocation best-effort appends one coarse, argument-free usage record to `~/.scenery/telemetry.jsonl`; telemetry write failures never affect the command result.
 - `.scenery.json` declares named `envs`; exactly one reserved `local` env is default. The selected env owns domain/exposure/ports, frontend serve modes, deploy targets, dotenv layering, and secret strictness. `scenery up --env <name>` selects it, session manifests record it, and failed branded-domain validation stays on localhost without redirecting to another env.
+- A frontend-level `tauri` block marks that frontend as a Tauri 2 web surface.
+  Its optional app-root-relative `root` contains `src-tauri`; both dev and build
+  require the app-local `node_modules/.bin/tauri` from `@tauri-apps/cli`.
 - Public and auth endpoints are externally reachable. Private endpoints are internal-only and must be called through generated helpers.
 - Typed endpoints decode path/query/header/cookie/body inputs into Go values and encode typed responses.
 - CRUD resources can declare explicit search/filter/sort capabilities with fingerprint-bound cursor pagination. `table_page` can use that cursor-paginated CRUD list, a call-delivery HTTP binding with explicit numeric `pagination` mappings, or a binding whose named result field is one complete typed list. Binding input names are explicit through `query`, `filter.input`, and typed fixed `predicate` declarations. It can compose server metrics, declarative filters, reusable `status_map` badges, loaded-result CSV, visible/export-only columns, response-aware filter/toolbar/empty/footer slots, inline or resizable-panel row detail, an app-owned `row_action`, and generated mutation `form_dialog` actions. Only complete-list tables may group; cursor and numeric-page tables cannot. `content_page.source` is optional: sourced pages pass request state to their slots, while static slots receive no request-state props. `workspace_page` composes declared pages into one generated tabs/sidebar workspace. `detail_page` maps dynamic route parameters into one typed load operation, renders declared field sections and related tables, and shares one generated content component between routed-page and controlled-dialog presentations; simple mutations reuse `form_dialog`, while richer domain workflows stay in its typed app-owned actions slot. These page macros expand to ordinary page/renderer resources. React-enabled TypeScript clients materialize the binary-owned catalog, generated pages, typed route descriptors, TanStack route tree, navigation, and app shell only after staged verification by Scenery's exact managed native TypeScript checker. The catalog exposes composed components plus blessed Astryx primitives from `@scenery/ui` and semantic StyleX variables from the sole `@scenery/ui/tokens.stylex` subpath. Domain-specific UI remains in app-owned `react_component` slots or the generated app's fixed extension/visual slots, never in Scenery's catalog or compiler.

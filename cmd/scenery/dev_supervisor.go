@@ -66,6 +66,7 @@ type devSupervisor struct {
 	// was not serving it at startup.
 	devDomainURL string
 	frontends    map[string]*managedFrontendProcess
+	desktops     map[string]*managedDesktopProcess
 	// productionFrontends holds in-process static servers for frontends with
 	// serve mode "production", keyed by normalized frontend name; guarded by mu.
 	productionFrontends map[string]*staticFrontendServer
@@ -174,6 +175,7 @@ func (s *devSupervisor) Close() error {
 
 		app := s.detachCurrentApp()
 		frontends := s.detachManagedFrontends()
+		desktops := s.detachManagedDesktops()
 		s.mu.RLock()
 		victoria := s.victoria
 		s.mu.RUnlock()
@@ -237,6 +239,11 @@ func (s *devSupervisor) Close() error {
 		}
 		for _, frontend := range frontends {
 			if err := frontend.Stop(); err != nil {
+				errs = append(errs, err)
+			}
+		}
+		for _, desktop := range desktops {
+			if err := desktop.Stop(); err != nil {
 				errs = append(errs, err)
 			}
 		}

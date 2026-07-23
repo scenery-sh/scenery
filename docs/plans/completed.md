@@ -6,6 +6,21 @@ Completed means implemented or shipped at least once. It does not imply stable
 support for every surface. Use [../local-contract.md](../local-contract.md) as
 the source of truth for stable, beta, and dev-only classification.
 
+## Tauri 2.0 Desktop Shells for Configured Frontends
+
+- Status: completed
+- Owner: scenery runtime / CLI
+- Completed: 2026-07-23
+- Quality: B
+- ExecPlan: [0142 Tauri 2.0 Desktop Shells](0142-tauri-desktop.md)
+
+Added per-frontend Tauri 2 configuration, managed `scenery up --desktop`
+windows over the existing frontend dev loop, and
+`scenery build --desktop --env <name>` installer bundling with a checked
+machine payload. Tauri command behavior lives in `internal/desktop`; the CLI
+retains only supervisor, agent-session, frontend-build, and output
+orchestration.
+
 ## Schema Catalog Canonicalization and Performance Baselines
 
 - Status: completed

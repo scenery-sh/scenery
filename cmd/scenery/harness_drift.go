@@ -283,9 +283,9 @@ func buildHarnessCLIContractReport(repoRoot string, diagnostics []checkDiagnosti
 			}
 			return err
 		}},
-		{name: "inspect docs", needle: "scenery inspect docs -o json [--repo-root <path>]", mode: "execute", smoke: func() error {
+		{name: "inspect docs", needle: "scenery inspect docs -o json [--repo-root <path>] [--for-path <path>|--tag <tag>|--status active|reference|completed|deprecated|--review-due|--all]", mode: "execute", smoke: func() error {
 			var out bytes.Buffer
-			return runSceneryInspect([]string{"docs", "--repo-root", repoRoot, "-o", "json"}, &out)
+			return runSceneryInspect([]string{"docs", "--repo-root", repoRoot, "--all", "-o", "json"}, &out)
 		}},
 		{name: "inspect ui", needle: "scenery inspect ui [--frontend <name>] [--app-root <path>] [-o human|json]", mode: "parse", smoke: func() error {
 			_, err := parseInspectArgs([]string{"ui", "--frontend", "web", "--app-root", filepath.Join(repoRoot, "testdata", "apps", "basic"), "-o", "json"})
