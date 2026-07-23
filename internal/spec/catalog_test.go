@@ -299,6 +299,43 @@ func TestSourceSchemaRevisionsIdentifyConcreteContent(t *testing.T) {
 	}
 }
 
+func TestCanonicalSourceSchemaCatalogReusesIdentityAndDetachesExports(t *testing.T) {
+	canonical, ok := authoredResourceSourceSchema("operation")
+	if !ok {
+		t.Fatal("operation source schema is unavailable")
+	}
+	again, _ := authoredResourceSourceSchema("operation")
+	if canonical != again {
+		t.Fatal("internal resource schema lookup rebuilt the canonical root")
+	}
+	revision := SourceSchemaRevision(canonical)
+	if allocations := testing.AllocsPerRun(100, func() {
+		if SourceSchemaRevision(canonical) != revision {
+			t.Fatal("canonical source schema revision changed")
+		}
+	}); allocations != 0 {
+		t.Fatalf("canonical source schema revision lookup allocates %.2f times, want 0", allocations)
+	}
+
+	detached := ResourceSourceSchemas()
+	if detached["operation"] == canonical {
+		t.Fatal("exported resource schema catalog aliases canonical storage")
+	}
+	if detached["table_page"].Children["search"].Schema != detached["split_page"].Children["search"].Schema {
+		t.Fatal("detached resource catalog did not preserve shared child identity")
+	}
+	detached["operation"].Revision = "mutated"
+	if canonical.Revision == "mutated" {
+		t.Fatal("mutating an exported catalog changed canonical storage")
+	}
+	if SourceSchemaRevision(detached["operation"]) == revision {
+		t.Fatal("a detached schema mutation reused the canonical revision")
+	}
+	if got := SourceSchemaRevision(ResourceSourceSchemas()["operation"]); got != revision {
+		t.Fatalf("detached source schema revision = %q, want %q", got, revision)
+	}
+}
+
 func canonicalDigest(value string) bool {
 	if len(value) != len("sha256:")+64 || !strings.HasPrefix(value, "sha256:") {
 		return false

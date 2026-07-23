@@ -72,6 +72,7 @@ function useIsCompactTopBar() {
   return useSyncExternalStore(
     subscribeToCompactTopBar,
     () => window.matchMedia(compactTopBarQuery).matches,
+    () => false,
   );
 }
 

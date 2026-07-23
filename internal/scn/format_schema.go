@@ -6,45 +6,41 @@ import (
 	"scenery.sh/internal/spec"
 )
 
-func formatterSchemaForBlock(parent, blockType string) (*spec.SourceBlockSchema, bool) {
+type formatterSchemaKey struct {
+	parent    string
+	blockType string
+}
+
+var formatterSchemas = buildFormatterSchemaIndex()
+
+func buildFormatterSchemaIndex() map[formatterSchemaKey]*spec.SourceBlockSchema {
+	index := map[formatterSchemaKey]*spec.SourceBlockSchema{}
 	structural := spec.StructuralSourceSchemas()
-	if parent == "" {
-		if schema, ok := structural[blockType]; ok {
-			return schema, true
-		}
-		return spec.ResourceSourceSchema(blockType)
-	}
-	find := func(rootType string, root *spec.SourceBlockSchema) (*spec.SourceBlockSchema, bool) {
-		var visit func(string, *spec.SourceBlockSchema) (*spec.SourceBlockSchema, bool)
-		visit = func(currentType string, current *spec.SourceBlockSchema) (*spec.SourceBlockSchema, bool) {
-			if currentType == parent {
-				if child, ok := current.Children[blockType]; ok {
-					return child.Schema, true
-				}
+	resources := spec.ResourceSourceSchemas()
+	var visit func(string, *spec.SourceBlockSchema)
+	visit = func(parent string, schema *spec.SourceBlockSchema) {
+		for blockType, child := range schema.Children {
+			key := formatterSchemaKey{parent: parent, blockType: blockType}
+			if _, exists := index[key]; !exists {
+				index[key] = child.Schema
 			}
-			for childType, child := range current.Children {
-				if found, ok := visit(childType, child.Schema); ok {
-					return found, true
-				}
-			}
-			return nil, false
-		}
-		return visit(rootType, root)
-	}
-	for rootType := range spec.ResourceSourceChildren() {
-		root, ok := spec.ResourceSourceSchema(rootType)
-		if ok {
-			if schema, found := find(rootType, root); found {
-				return schema, true
-			}
+			visit(blockType, child.Schema)
 		}
 	}
-	for rootType, root := range structural {
-		if schema, ok := find(rootType, root); ok {
-			return schema, true
-		}
+	for blockType, schema := range resources {
+		index[formatterSchemaKey{blockType: blockType}] = schema
+		visit(blockType, schema)
 	}
-	return nil, false
+	for blockType, schema := range structural {
+		index[formatterSchemaKey{blockType: blockType}] = schema
+		visit(blockType, schema)
+	}
+	return index
+}
+
+func formatterSchemaForBlock(parent, blockType string) (*spec.SourceBlockSchema, bool) {
+	schema, ok := formatterSchemas[formatterSchemaKey{parent: parent, blockType: blockType}]
+	return schema, ok
 }
 
 func validFormatterLabel(schema *spec.SourceBlockSchema, label string) bool {

@@ -26,6 +26,7 @@ var (
 	authoredConditionalRequirements  = spec.AuthoredConditionalRequirements()
 	dynamicResourceRevisionDomains   = spec.DynamicResourceRevisionDomains()
 	authoredStructuralSchemas        = spec.StructuralSourceSchemas()
+	authoredResourceSchemas          = spec.ResourceSourceSchemas()
 	authoredResourceChildren         = spec.ResourceSourceChildren()
 	deploymentListenerSourceSchema   = spec.NamedSourceSchemas()["deployment_listener"]
 	httpSourceSchema                 = spec.NamedSourceSchemas()["http"]
@@ -56,14 +57,16 @@ func resourceSchemaAllowedFields(kind string) []string {
 func ResourceCreateKindSupported(kind string) bool { return spec.ResourceCreateKindSupported(kind) }
 
 func authoredResourceSourceSchema(blockType string) (*authoredBlockSchema, bool) {
-	return spec.ResourceSourceSchema(blockType)
+	schema, ok := authoredResourceSchemas[blockType]
+	return schema, ok
 }
 
 // AuthoredResourceSourceSchema returns the canonical authored-source shape for
 // one resource block. Evolution uses it to render source mutations without
-// duplicating compiler schema policy.
+// duplicating compiler schema policy. The result is shared read-only compiler
+// metadata; callers must not mutate it.
 func AuthoredResourceSourceSchema(blockType string) (*AuthoredBlockSchema, bool) {
-	return spec.ResourceSourceSchema(blockType)
+	return authoredResourceSourceSchema(blockType)
 }
 
 func validAuthoredLabel(schema *authoredBlockSchema, label string) bool {

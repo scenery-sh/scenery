@@ -60,13 +60,13 @@ func ContractProjectionHash(manifest *Manifest) string {
 }
 
 func ContractResourceProjection(resource Resource) (Resource, bool) {
-	schema, ok := spec.ResourceSchemas()[resource.Kind]
+	schema, ok := spec.ResourceSchemaForKind(resource.Kind)
 	if !ok {
 		return Resource{}, false
 	}
 	projected := Resource{Address: resource.Address, Kind: resource.Kind, Name: resource.Name, Module: resource.Module, Spec: make(map[string]any, len(resource.Spec))}
 	for key, value := range resource.Spec {
-		if rule, dynamic := spec.DynamicResourceRevisionDomains()[resource.Kind][key]; dynamic {
+		if rule, dynamic := spec.DynamicResourceRevisionDomain(resource.Kind, key); dynamic {
 			if contractValue, include := dynamicContractFieldProjection(resource, key, value, rule); include {
 				projected.Spec[key] = contractValue
 			}

@@ -19,6 +19,18 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0141-schema-catalog-performance.md",
+      "title": "Schema Catalog Canonicalization and Performance Baselines",
+      "owner": "scenery spec / compiler / performance validation",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-07-23",
+      "review_after": "2026-08-22",
+      "summary": "Completed ExecPlan canonicalizing static source schemas and revisions, removing compiler, formatter, graph, and evolution hot-path clones, isolating deploy-resume tests, and preserving reproducible watch and React performance evidence.",
+      "tags": ["plans", "execplans", "spec", "compiler", "performance", "schemas", "react"]
+    },
+    {
       "path": "docs/plans/0140-query-table-review-hardening.md",
       "title": "QueryTable Review Hardening",
       "owner": "scenery UI catalog / generation",

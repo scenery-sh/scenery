@@ -100,7 +100,7 @@ var (
 		[]string{"constructor", "adapter", "root", "package", "symbol"}, nil, nil)
 	serviceDependencySourceSchema = sourceSchema("scenery.service.dependency", 1,
 		[]string{"instance", "requires"}, []string{"instance"}, nil)
-	serviceConfigSourceSchema    = sourceSchema("scenery.service.config", 0, nil, nil, nil)
+	serviceConfigSourceSchema    = serviceConfigSchema()
 	serviceClientSourceSchema    = sourceSchema("scenery.service.client", 1, []string{"binding"}, []string{"binding"}, nil)
 	serviceLifecycleSourceSchema = sourceSchema("scenery.service.lifecycle", 0, []string{"start", "stop"}, nil, nil)
 	libraryArtifactSourceSchema  = sourceSchema("scenery.library.artifact", 0, []string{"name"}, []string{"name"}, nil)
@@ -253,12 +253,14 @@ var (
 		[]string{"type"}, []string{"type"}, nil)
 )
 
-func init() {
-	serviceConfigSourceSchema.AllowUnknownAttributes = true
-	serviceConfigSourceSchema.DynamicAttribute = &authoredAttributeSchema{
+func serviceConfigSchema() *authoredBlockSchema {
+	schema := sourceSchema("scenery.service.config", 0, nil, nil, nil)
+	schema.AllowUnknownAttributes = true
+	schema.DynamicAttribute = &authoredAttributeSchema{
 		Type: map[string]any{"$ref": "scenery.value", "type_source": "package_input"}, Phase: "compile", InputPhaseSource: "package_input", RevisionSource: "package_input",
 		SensitivitySource: "package_input", Patchable: true, DefaultSource: "none", Constraints: map[string]any{"name_pattern": "^[a-z][a-z0-9_]*$"}, MetadataStatus: "dynamic",
 	}
+	return schema
 }
 
 var authoredResourceChildren = map[string]map[string]authoredChildSchema{
@@ -302,13 +304,26 @@ var authoredStructuralSchemas = map[string]*authoredBlockSchema{
 	"export": sourceSchema("scenery.source.export", 1, []string{"value", "patchable"}, []string{"value"}, nil),
 }
 
-func authoredResourceSourceSchema(blockType string) (*authoredBlockSchema, bool) {
-	schema, ok := resourceSchemas[kindForBlock(blockType)]
-	if !ok {
-		return nil, false
+var authoredResourceSchemas = buildAuthoredResourceSchemas()
+
+func buildAuthoredResourceSchemas() map[string]*authoredBlockSchema {
+	schemas := make(map[string]*authoredBlockSchema, len(resourceSchemas))
+	for kind, resource := range resourceSchemas {
+		blockType := blockTypeForKind(kind)
+		schemas[blockType] = sourceSchema(
+			"scenery.source."+blockType,
+			1,
+			resource.Attributes,
+			resource.Required,
+			authoredResourceChildren[blockType],
+		)
 	}
-	children := authoredResourceChildren[blockType]
-	return sourceSchema("scenery.source."+blockType, 1, schema.Attributes, schema.Required, children), true
+	return schemas
+}
+
+func authoredResourceSourceSchema(blockType string) (*authoredBlockSchema, bool) {
+	schema, ok := authoredResourceSchemas[blockType]
+	return schema, ok
 }
 
 type SourceBlockSchema = authoredBlockSchema
@@ -321,6 +336,18 @@ func ResourceSourceSchema(blockType string) (*SourceBlockSchema, bool) {
 		return nil, false
 	}
 	return cloneSourceBlockSchema(schema, map[*authoredBlockSchema]*authoredBlockSchema{}), true
+}
+
+// ResourceSourceSchemas returns one detached resource-schema catalog. Shared
+// child schemas remain shared within the returned catalog, while no pointer or
+// nested value aliases the canonical specification storage.
+func ResourceSourceSchemas() map[string]*SourceBlockSchema {
+	result := make(map[string]*SourceBlockSchema, len(authoredResourceSchemas))
+	cloned := map[*authoredBlockSchema]*authoredBlockSchema{}
+	for blockType, schema := range authoredResourceSchemas {
+		result[blockType] = cloneSourceBlockSchema(schema, cloned)
+	}
+	return result
 }
 
 func StructuralSourceSchemas() map[string]*SourceBlockSchema {

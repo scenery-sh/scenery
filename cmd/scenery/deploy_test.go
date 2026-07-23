@@ -416,15 +416,20 @@ func TestDeployResumeStartsMissingTargetsAndSkipsLiveSessions(t *testing.T) {
 	oldRestart := deployEdgeRestartFunc
 	oldRunUp := deployRunUpDetachFunc
 	oldDrift := deployHelperDriftStatusFunc
+	oldStatus := deployPublicEdgeStatusFunc
 	oldDelay := deployPublicEdgeRetryDelay
 	t.Cleanup(func() {
 		deployEnsureAgentFunc = oldEnsureAgent
 		deployEdgeRestartFunc = oldRestart
 		deployRunUpDetachFunc = oldRunUp
 		deployHelperDriftStatusFunc = oldDrift
+		deployPublicEdgeStatusFunc = oldStatus
 		deployPublicEdgeRetryDelay = oldDelay
 	})
 	deployPublicEdgeRetryDelay = 0
+	deployPublicEdgeStatusFunc = func(localagent.Paths) (edgeStatusResult, error) {
+		return edgeStatusResult{}, nil
+	}
 	deployEnsureAgentFunc = func() error { return nil }
 	deployEdgeRestartFunc = func() error { return nil }
 	// The installed helper predates the current handoff contract: resume

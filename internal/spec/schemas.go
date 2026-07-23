@@ -106,6 +106,68 @@ var dynamicResourceRevisionDomains = map[string]map[string]dynamicRevisionDomain
 	},
 }
 
+type sourceSchemaCatalogIndex struct {
+	revisions     map[*authoredBlockSchema]Revision
+	byRevision    map[string]*authoredBlockSchema
+	byInternal    map[string]Revision
+	dynamicFields map[authoredFieldKey]dynamicRevisionDomain
+}
+
+var sourceSchemaIndex = buildSourceSchemaCatalogIndex()
+
+func buildSourceSchemaCatalogIndex() sourceSchemaCatalogIndex {
+	index := sourceSchemaCatalogIndex{
+		revisions:     map[*authoredBlockSchema]Revision{},
+		byRevision:    map[string]*authoredBlockSchema{},
+		byInternal:    map[string]Revision{},
+		dynamicFields: map[authoredFieldKey]dynamicRevisionDomain{},
+	}
+	for kind, fields := range dynamicResourceRevisionDomains {
+		root := authoredResourceSchemas[blockTypeForKind(kind)]
+		if root == nil {
+			continue
+		}
+		for name, rule := range fields {
+			index.dynamicFields[authoredFieldKey{Revision: root.Revision, Name: name}] = rule
+		}
+	}
+	visiting := map[*authoredBlockSchema]bool{}
+	var indexSchema func(*authoredBlockSchema) Revision
+	indexSchema = func(schema *authoredBlockSchema) Revision {
+		if schema == nil {
+			return ""
+		}
+		if revision, ok := index.revisions[schema]; ok {
+			return revision
+		}
+		if visiting[schema] {
+			panic("source schema catalog contains a child cycle at " + schema.Revision)
+		}
+		visiting[schema] = true
+		for _, child := range schema.Children {
+			indexSchema(child.Schema)
+		}
+		public := publicAuthoredBlockSchemaWithIndex(schema, index.revisions, index.dynamicFields)
+		delete(public, "schema_revision")
+		revision := SchemaRevision(public)
+		index.revisions[schema] = revision
+		index.byRevision[string(revision)] = schema
+		if existing, ok := index.byInternal[schema.Revision]; ok && existing != revision {
+			panic("source schema internal name has conflicting content: " + schema.Revision)
+		}
+		index.byInternal[schema.Revision] = revision
+		delete(visiting, schema)
+		return revision
+	}
+	for _, schema := range authoredStructuralSchemas {
+		indexSchema(schema)
+	}
+	for _, schema := range authoredResourceSchemas {
+		indexSchema(schema)
+	}
+	return index
+}
+
 func CoreSchema(kind string) (map[string]any, bool) {
 	schema, ok := resourceSchemas[kind]
 	if !ok {
@@ -198,47 +260,26 @@ func resourceFieldRevisionDomain(kind, name string) (string, bool) {
 }
 
 func authoredPublicSchema(revision string) (map[string]any, bool) {
-	kinds := make([]string, 0, len(resourceSchemas))
-	for kind := range resourceSchemas {
-		kinds = append(kinds, kind)
-	}
-	sort.Strings(kinds)
-	seen := map[*authoredBlockSchema]bool{}
-	var find func(*authoredBlockSchema) (*authoredBlockSchema, bool)
-	find = func(schema *authoredBlockSchema) (*authoredBlockSchema, bool) {
-		if schema == nil || seen[schema] {
-			return nil, false
-		}
-		seen[schema] = true
-		if string(SourceSchemaRevision(schema)) == revision {
-			return schema, true
-		}
-		children := make([]string, 0, len(schema.Children))
-		for name := range schema.Children {
-			children = append(children, name)
-		}
-		sort.Strings(children)
-		for _, name := range children {
-			if found, ok := find(schema.Children[name].Schema); ok {
-				return found, true
-			}
-		}
+	schema, ok := sourceSchemaIndex.byRevision[revision]
+	if !ok {
 		return nil, false
 	}
-	for _, kind := range kinds {
-		blockType := strings.ReplaceAll(strings.TrimPrefix(kind, "scenery."), "-", "_")
-		root, ok := authoredResourceSourceSchema(blockType)
-		if !ok {
-			continue
-		}
-		if schema, ok := find(root); ok {
-			return publicAuthoredBlockSchema(schema), true
-		}
-	}
-	return nil, false
+	return publicAuthoredBlockSchemaWithIndex(schema, sourceSchemaIndex.revisions, sourceSchemaIndex.dynamicFields), true
 }
 
 func publicAuthoredBlockSchema(schema *authoredBlockSchema) map[string]any {
+	revisions := sourceSchemaIndex.revisions
+	if _, canonical := revisions[schema]; !canonical {
+		revisions = sourceSchemaRevisions(schema, sourceSchemaIndex.dynamicFields)
+	}
+	return publicAuthoredBlockSchemaWithIndex(schema, revisions, sourceSchemaIndex.dynamicFields)
+}
+
+func publicAuthoredBlockSchemaWithIndex(
+	schema *authoredBlockSchema,
+	revisions map[*authoredBlockSchema]Revision,
+	dynamicFields map[authoredFieldKey]dynamicRevisionDomain,
+) map[string]any {
 	fields := map[string]any{}
 	attributeNames := make([]string, 0, len(schema.Attributes))
 	for name := range schema.Attributes {
@@ -273,11 +314,11 @@ func publicAuthoredBlockSchema(schema *authoredBlockSchema) map[string]any {
 		}
 		domain := authoredRevisionDomain(schema.Revision, name)
 		var domainSource any
-		if rule, dynamic := dynamicRevisionRuleForSource(schema.Revision, name); dynamic {
+		if rule, dynamic := dynamicFields[authoredFieldKey{Revision: schema.Revision, Name: name}]; dynamic {
 			domain = ""
 			domainSource = rule.SchemaField + "." + rule.DomainField
 		}
-		childRevision := string(SourceSchemaRevision(child.Schema))
+		childRevision := string(revisions[child.Schema])
 		fields[name] = map[string]any{
 			"source_shape": shape, "type": map[string]any{"schema_ref": childRevision}, "child_schema": childRevision,
 			"labels": child.Schema.Labels, "label_source": map[bool]any{true: "name", false: nil}[child.Schema.Labels > 0],
@@ -323,41 +364,45 @@ func SourceSchemaRevision(schema *SourceBlockSchema) Revision {
 	if schema == nil {
 		return ""
 	}
-	public := publicAuthoredBlockSchema(schema)
-	delete(public, "schema_revision")
-	return SchemaRevision(public)
+	if revision, ok := sourceSchemaIndex.revisions[schema]; ok {
+		return revision
+	}
+	return sourceSchemaRevisions(schema, sourceSchemaIndex.dynamicFields)[schema]
 }
 
 func SourceSchemaRevisionForInternalName(name string) Revision {
-	seen := map[*SourceBlockSchema]bool{}
-	var find func(*SourceBlockSchema) Revision
-	find = func(schema *SourceBlockSchema) Revision {
-		if schema == nil || seen[schema] {
+	return sourceSchemaIndex.byInternal[name]
+}
+
+func sourceSchemaRevisions(
+	root *authoredBlockSchema,
+	dynamicFields map[authoredFieldKey]dynamicRevisionDomain,
+) map[*authoredBlockSchema]Revision {
+	revisions := map[*authoredBlockSchema]Revision{}
+	visiting := map[*authoredBlockSchema]bool{}
+	var calculate func(*authoredBlockSchema) Revision
+	calculate = func(schema *authoredBlockSchema) Revision {
+		if schema == nil {
 			return ""
 		}
-		seen[schema] = true
-		if schema.Revision == name {
-			return SourceSchemaRevision(schema)
+		if revision, ok := revisions[schema]; ok {
+			return revision
 		}
+		if visiting[schema] {
+			panic("source schema contains a child cycle at " + schema.Revision)
+		}
+		visiting[schema] = true
 		for _, child := range schema.Children {
-			if revision := find(child.Schema); revision != "" {
-				return revision
-			}
+			calculate(child.Schema)
 		}
-		return ""
+		public := publicAuthoredBlockSchemaWithIndex(schema, revisions, dynamicFields)
+		delete(public, "schema_revision")
+		revisions[schema] = SchemaRevision(public)
+		delete(visiting, schema)
+		return revisions[schema]
 	}
-	for _, schema := range authoredStructuralSchemas {
-		if revision := find(schema); revision != "" {
-			return revision
-		}
-	}
-	for kind := range resourceSchemas {
-		schema, _ := authoredResourceSourceSchema(blockTypeForKind(kind))
-		if revision := find(schema); revision != "" {
-			return revision
-		}
-	}
-	return ""
+	calculate(root)
+	return revisions
 }
 
 func publicConditionalRequirements(requirements []resourceConditionalRequirement) []any {
@@ -400,14 +445,8 @@ func publicAuthoredAttribute(attribute authoredAttributeSchema, required bool) m
 }
 
 func dynamicRevisionRuleForSource(revision, name string) (dynamicRevisionDomain, bool) {
-	for kind := range resourceSchemas {
-		schema, ok := authoredResourceSourceSchema(blockTypeForKind(kind))
-		if ok && schema.Revision == revision {
-			rule, dynamic := dynamicResourceRevisionDomains[kind][name]
-			return rule, dynamic
-		}
-	}
-	return dynamicRevisionDomain{}, false
+	rule, ok := sourceSchemaIndex.dynamicFields[authoredFieldKey{Revision: revision, Name: name}]
+	return rule, ok
 }
 
 func authoredPhase(schema *authoredBlockSchema) string {
@@ -520,6 +559,19 @@ func ResourceSchemas() map[string]ResourceSchema {
 	return result
 }
 
+func ResourceSchemaForKind(kind string) (ResourceSchema, bool) {
+	schema, ok := resourceSchemas[kind]
+	if !ok {
+		return ResourceSchema{}, false
+	}
+	schema.Required = append([]string(nil), schema.Required...)
+	schema.Attributes = append([]string(nil), schema.Attributes...)
+	if schema.CanonicalOnly != nil {
+		schema.CanonicalOnly = cloneSemanticValue(schema.CanonicalOnly).(map[string]string)
+	}
+	return schema, true
+}
+
 func ConditionalRequirements() map[string][]ConditionalRequirement {
 	return cloneConditionalRequirements(resourceConditionalRequirements)
 }
@@ -554,6 +606,11 @@ func DynamicResourceRevisionDomains() map[string]map[string]DynamicRevisionDomai
 		result[kind] = fieldCopies
 	}
 	return result
+}
+
+func DynamicResourceRevisionDomain(kind, field string) (DynamicRevisionDomain, bool) {
+	rule, ok := dynamicResourceRevisionDomains[kind][field]
+	return rule, ok
 }
 
 func cloneConditionalRequirements(source map[string][]resourceConditionalRequirement) map[string][]resourceConditionalRequirement {

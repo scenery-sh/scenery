@@ -36,6 +36,12 @@ bun run typecheck
 bun run build
 ```
 
+For repeatable QueryTable commit-cost evidence after catalog performance work,
+run `bun run profile:query-table`. This is a dev-only React Profiler harness:
+it typechecks the real catalog source, uses deterministic Astryx host mocks,
+and reports full versus windowed mount/update commits at 1k, 5k, and 10k rows.
+It is not a wall-clock regression gate.
+
 ## Child Agent Index
 
 - No child `AGENTS.md` files are currently indexed under this directory.

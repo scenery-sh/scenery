@@ -6,6 +6,21 @@ Completed means implemented or shipped at least once. It does not imply stable
 support for every surface. Use [../local-contract.md](../local-contract.md) as
 the source of truth for stable, beta, and dev-only classification.
 
+## Schema Catalog Canonicalization and Performance Baselines
+
+- Status: completed
+- Owner: scenery spec / compiler / performance validation
+- Completed: 2026-07-23
+- Quality: B
+- ExecPlan: [0141 Schema Catalog Canonicalization and Performance Baselines](0141-schema-catalog-performance.md)
+
+Canonicalized static authored schemas and revision indexes, removed
+full-catalog cloning from compiler/evolution/formatter/graph hot paths, isolated
+the deploy-resume test from real process status, and added reproducible watch
+and React Profiler evidence. Metadata allocation fell from 2.70 GB to 36.5 MB
+and the evolution suite from 4.57 GB to 1.84 GB without changing generated
+artifacts or specification revisions.
+
 ## QueryTable Review Hardening
 
 - Status: completed
