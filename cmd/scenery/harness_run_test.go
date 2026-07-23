@@ -288,7 +288,7 @@ func TestChangedAreaSelectsDeterministicValidationByPath(t *testing.T) {
 	}{
 		{
 			name:           "documentation only",
-			paths:          []string{"AGENTS.md", "PLANS.md"},
+			paths:          []string{"AGENTS.md", "PLANS.md", "ui/AGENTS.md", "ui/components/AGENTS.md"},
 			wantClasses:    []string{harnessValidationDocumentation},
 			wantCommands:   []string{harnessValidationQuickCommand},
 			forbidCommands: []string{"go test ./...", harnessValidationFullCommand},
@@ -303,7 +303,7 @@ func TestChangedAreaSelectsDeterministicValidationByPath(t *testing.T) {
 		},
 		{
 			name:             "cli json contract",
-			paths:            []string{"cmd/scenery/help.go"},
+			paths:            []string{"cmd/scenery/help.go", "ui/components/AGENTS.md"},
 			packageDirs:      []string{"cmd/scenery"},
 			wantClasses:      []string{harnessValidationCLIJSONContract, harnessValidationGoPackage},
 			wantCommands:     []string{"go test ./cmd/scenery", "go test ./...", harnessValidationQuickCommand},

@@ -371,4 +371,4 @@ Self-harness timing keeps a five-second optimization target separate from its op
 
 ## Keeping Agent Docs Fresh
 
-When behavior changes, update the current owning layers together: root/child `AGENTS.md`, `SKILL.md`, this guide, `docs/local-contract.md`, app cookbook, schemas, and `docs/knowledge.json` as applicable. Historical ExecPlans remain historical; add a short current-contract pointer rather than rewriting their original decisions.
+When behavior changes, update the current owning layers together: root/child `AGENTS.md`, `SKILL.md`, this guide, `docs/local-contract.md`, app cookbook, schemas, and `docs/knowledge.json` as applicable. Completed ExecPlans are immutable history and have no scheduled review deadline; put current-contract pointers in living guidance or `docs/plans/completed.md`, and use stale knowledge metadata to flag a known contradiction instead of rewriting original decisions.

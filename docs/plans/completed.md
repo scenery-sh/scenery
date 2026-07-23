@@ -6,6 +6,11 @@ Completed means implemented or shipped at least once. It does not imply stable
 support for every surface. Use [../local-contract.md](../local-contract.md) as
 the source of truth for stable, beta, and dev-only classification.
 
+This index remains living, but the completed ExecPlans it links are immutable
+historical records. Do not refresh their review dates or rewrite them as current
+contract prose. Record later guidance here or in the owning current contract;
+use stale knowledge metadata to flag a known contradiction.
+
 ## Tauri 2.0 Desktop Shells for Configured Frontends
 
 - Status: completed

@@ -8,13 +8,13 @@ Use an ExecPlan when the work is likely to span multiple hours, touch multiple s
 
 ## Storage
 
-Put active ExecPlans in `docs/plans/<0000-short-slug>.md` and link them from [docs/plans/active.md](docs/plans/active.md). The four-digit number is a permanent historical sequence ID: allocate the next number once, do not renumber existing plans, and do not reuse numbers after a plan is completed, abandoned, merged, or superseded. `active.md` may still order plans by current priority rather than historical sequence. When a plan is complete, update its `Outcomes & Retrospective` section and move or reference it from [docs/plans/completed.md](docs/plans/completed.md).
+Put active ExecPlans in `docs/plans/<0000-short-slug>.md` and link them from [docs/plans/active.md](docs/plans/active.md). The four-digit number is a permanent historical sequence ID: allocate the next number once, do not renumber existing plans, and do not reuse numbers after a plan is completed, abandoned, merged, or superseded. `active.md` may still order plans by current priority rather than historical sequence. When a plan is complete, update its `Outcomes & Retrospective` section and move or reference it from [docs/plans/completed.md](docs/plans/completed.md). The completed plan then becomes immutable historical evidence: do not refresh its review dates or rewrite it to match later behavior. Put later guidance in current contract docs or the living completed-plan index.
 
 ## Non-Negotiable Rules
 
 Every ExecPlan must be self-contained. A reader should need only the current working tree and the ExecPlan file. Do not rely on chat history, hidden assumptions, or external docs for required context.
 
-Every ExecPlan must be a living document. Update it as implementation progresses, as surprises appear, and as decisions are made. A future agent should be able to resume from the file without asking what happened.
+While active, every ExecPlan must be a living document. Update it as implementation progresses, as surprises appear, and as decisions are made. A future agent should be able to resume from the file without asking what happened.
 
 Every ExecPlan must produce observable behavior. Compilation alone is not enough unless the change is purely internal and the plan explains the test or command that proves the internal behavior.
 
@@ -73,6 +73,7 @@ For app-facing runtime changes, include an example command against a fixture app
 - `PLANS.md` must exist and define the required ExecPlan sections.
 - Any Markdown file directly under `docs/plans/` except `active.md` and `completed.md` must contain all required ExecPlan section headings.
 - Current ExecPlan validation requirements must not use subjective skip phrases in place of exact commands or conditions.
+- Completed numbered ExecPlans are excluded from scheduled freshness review. Broken completed-index links, stale knowledge metadata that flags a current contradiction, and completed plans linked from the active index remain actionable diagnostics.
 - Missing sections are reported as knowledge-contract diagnostics with file paths and suggested actions.
 
 The harness enforces resumable structure and rejects known subjective validation phrases. Engineering acceptance criteria remain the plan author's responsibility.

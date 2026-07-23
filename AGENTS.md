@@ -59,6 +59,7 @@ Add a child `AGENTS.md` only when a directory becomes a durable boundary with it
 - `internal/workspacetx/AGENTS.md` owns crash-safe source transaction metadata, ownership checks, and recovery before compiler reads.
 - `docs/spec/AGENTS.md` owns the evolving current specification set and conformance update rules.
 - `ui/AGENTS.md` owns the binary-embedded Astryx + StyleX component catalog materialized into React-enabled TypeScript clients.
+- `ui/components/AGENTS.md` owns reusable request-state, shell/navigation, table, workspace, and detail-page component behavior.
 
 ## Autonomy Policy
 
@@ -133,6 +134,8 @@ When changing behavior, update every affected layer in the same change. Small im
 | Adding or activating an ExecPlan | `docs/plans/active.md` + `docs/knowledge.json` |
 
 If a historical product note appears in an ExecPlan, do not silently rewrite it into current contract prose; add a short "current contract lives in ..." note or update the docs index instead.
+
+Completed numbered ExecPlans are immutable historical records. They do not receive scheduled freshness reviews; record current guidance or contradiction signals in living docs, `docs/plans/completed.md`, or `docs/knowledge.json` instead of rewriting the completed plan.
 
 ## Validation Matrix
 

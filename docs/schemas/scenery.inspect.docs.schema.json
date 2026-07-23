@@ -17,7 +17,7 @@
       "const": "scenery.inspect.docs"
     },
     "schema_revision": {
-      "const": "sha256:9f4e4a0077e927960acb17ffa2bb12b96b61360917e33139f0b7d6253d3d2180"
+      "const": "sha256:cef606ca6894f7126a86ead96efcc6c7eacababa97be5c68b19db7514e734112"
     },
     "repo": {
       "type": "object",
@@ -100,7 +100,8 @@
           "type": "integer"
         },
         "review_due_count": {
-          "type": "integer"
+          "type": "integer",
+          "description": "Living documents whose scheduled review date has arrived; completed numbered ExecPlans are excluded."
         },
         "stale_count": {
           "type": "integer"
@@ -298,7 +299,8 @@
           "type": "string"
         },
         "review_due": {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "Whether this living document has reached its scheduled review date. Always false for a completed numbered ExecPlan."
         },
         "stale": {
           "type": "boolean"

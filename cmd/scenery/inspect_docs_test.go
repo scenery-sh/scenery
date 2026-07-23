@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestRunSceneryInspectDocs(t *testing.T) {
@@ -258,11 +259,18 @@ func TestRunSceneryInspectDocsCatalogFiltersAndDirectCompletedPlan(t *testing.T)
 	root := writeHarnessSelfRepo(t, `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object"}`)
 	writeTestAppFile(t, root, "docs/spec/typescript-client.md", "# TypeScript Client\n")
 	writeTestAppFile(t, root, "docs/plans/0002-typescript-client-history.md", "# Completed\n")
+	writeTestAppFile(t, root, "docs/plans/0003-typescript-client-stale-history.md", "# Stale Completed\n")
 	reviewDueDocument := inspectDocsTestDocument("docs/spec/typescript-client.md", "TypeScript Client", "reference", []string{"spec", "typescript-client"})
 	reviewDueDocument.ReviewAfter = "2026-07-01"
+	historicalDocument := inspectDocsTestDocument("docs/plans/0002-typescript-client-history.md", "TypeScript Client History", "completed", []string{"plans", "typescript-client"})
+	historicalDocument.ReviewAfter = "2026-07-01"
+	staleHistoricalDocument := inspectDocsTestDocument("docs/plans/0003-typescript-client-stale-history.md", "Stale TypeScript Client History", "completed", []string{"plans", "typescript-client"})
+	staleHistoricalDocument.Freshness = "stale"
+	staleHistoricalDocument.ReviewAfter = "2026-07-01"
 	appendInspectDocsTestDocuments(t, root,
 		reviewDueDocument,
-		inspectDocsTestDocument("docs/plans/0002-typescript-client-history.md", "TypeScript Client History", "completed", []string{"plans", "typescript-client"}),
+		historicalDocument,
+		staleHistoricalDocument,
 	)
 
 	for _, tc := range []struct {
@@ -272,6 +280,7 @@ func TestRunSceneryInspectDocsCatalogFiltersAndDirectCompletedPlan(t *testing.T)
 	}{
 		{name: "tag", args: []string{"--tag", "typescript-client"}, want: "docs/spec/typescript-client.md"},
 		{name: "status", args: []string{"--status", "reference"}, want: "docs/spec/typescript-client.md"},
+		{name: "completed status", args: []string{"--status", "completed"}, want: "docs/plans/0002-typescript-client-history.md"},
 		{name: "review due", args: []string{"--review-due"}, want: "docs/spec/typescript-client.md"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -288,6 +297,26 @@ func TestRunSceneryInspectDocsCatalogFiltersAndDirectCompletedPlan(t *testing.T)
 			if payload.Query.Mode != "filter" || !inspectDocsHasDocument(payload.Documents, tc.want) {
 				t.Fatalf("query=%+v documents=%+v", payload.Query, payload.Documents)
 			}
+			switch tc.name {
+			case "tag":
+				if inspectDocsHasDocument(payload.Documents, historicalDocument.Path) {
+					t.Fatalf("current historical plan leaked into tag results: %+v", payload.Documents)
+				}
+				if !inspectDocsHasDocument(payload.Documents, staleHistoricalDocument.Path) {
+					t.Fatalf("explicitly stale historical plan missing from tag results: %+v", payload.Documents)
+				}
+			case "review due":
+				if inspectDocsHasDocument(payload.Documents, historicalDocument.Path) ||
+					inspectDocsHasDocument(payload.Documents, staleHistoricalDocument.Path) {
+					t.Fatalf("historical plan leaked into review-due results: %+v", payload.Documents)
+				}
+			case "completed status":
+				for _, document := range payload.Documents {
+					if isCompletedExecPlanDocument(document.docsKnowledgeDocument) && document.ReviewDue {
+						t.Fatalf("completed plan is review due: %+v", document)
+					}
+				}
+			}
 		})
 	}
 
@@ -301,6 +330,58 @@ func TestRunSceneryInspectDocsCatalogFiltersAndDirectCompletedPlan(t *testing.T)
 	}
 	if !inspectDocsHasDocument(payload.Documents, "docs/plans/0002-typescript-client-history.md") {
 		t.Fatalf("directly queried completed plan missing: %+v", payload.Documents)
+	}
+}
+
+func TestCompletedExecPlanFreshnessPolicy(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 7, 23, 12, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		name string
+		doc  docsKnowledgeDocument
+		want bool
+	}{
+		{
+			name: "completed ExecPlan is historical",
+			doc:  inspectDocsTestDocument("docs/plans/0002-history.md", "History", "completed", []string{"plans", "execplans"}),
+			want: false,
+		},
+		{
+			name: "active ExecPlan retains deadline",
+			doc:  inspectDocsTestDocument("docs/plans/0003-active.md", "Active", "active", []string{"plans", "execplans"}),
+			want: true,
+		},
+		{
+			name: "living contract retains deadline",
+			doc:  inspectDocsTestDocument("docs/local-contract.md", "Contract", "active", []string{"contract"}),
+			want: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.doc.ReviewAfter = "2026-07-23"
+			if got := docsDocumentReviewDue(tc.doc, now); got != tc.want {
+				t.Fatalf("docsDocumentReviewDue(%+v) = %t, want %t", tc.doc, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestValidateDocsKnowledgeDoesNotRequestHistoricalPlanReview(t *testing.T) {
+	t.Parallel()
+
+	root := writeHarnessSelfRepo(t, `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object"}`)
+	const planPath = "docs/plans/0002-history.md"
+	writeTestAppFile(t, root, planPath, "# Completed\n")
+	document := inspectDocsTestDocument(planPath, "History", "completed", []string{"plans", "execplans"})
+	document.ReviewAfter = "2026-07-01"
+	appendInspectDocsTestDocuments(t, root, document)
+
+	diagnostics, _ := validateDocsKnowledge(root)
+	for _, diagnostic := range diagnostics {
+		if strings.Contains(diagnostic.Message, "document review is due") && strings.Contains(diagnostic.Message, planPath) {
+			t.Fatalf("historical plan received review warning: %+v", diagnostic)
+		}
 	}
 }
 

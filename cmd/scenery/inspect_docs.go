@@ -188,7 +188,7 @@ func buildInspectDocsResponseForOptions(repoRoot string, opts inspectDocsOptions
 			resp.Summary.MissingCount++
 			resp.Warnings = append(resp.Warnings, "indexed document is missing: "+doc.Path)
 		}
-		item.ReviewDue = docsReviewDue(doc.ReviewAfter, today)
+		item.ReviewDue = docsDocumentReviewDue(doc, today)
 		item.Stale = doc.Freshness == "stale"
 		if item.ReviewDue {
 			resp.Summary.ReviewDueCount++
@@ -514,7 +514,7 @@ func validateDocsKnowledge(repoRoot string) ([]checkDiagnostic, map[string]any) 
 		}
 		if !validDocsDate(doc.LastReviewed) || !validDocsDate(doc.ReviewAfter) {
 			diagnostics = append(diagnostics, docsIndexDiagnostic(repoRoot, "docs/knowledge.json", "invalid review date for "+doc.Path, "Use YYYY-MM-DD dates for last_reviewed and review_after."))
-		} else if docsReviewDue(doc.ReviewAfter, today) && doc.Freshness == "current" {
+		} else if docsDocumentReviewDue(doc, today) && doc.Freshness == "current" {
 			diagnostics = append(diagnostics, checkDiagnostic{
 				Stage:           "knowledge contract",
 				Severity:        "warning",
@@ -597,4 +597,15 @@ func docsReviewDue(value string, now time.Time) bool {
 		return false
 	}
 	return !reviewAfter.After(now)
+}
+
+func docsDocumentReviewDue(doc docsKnowledgeDocument, now time.Time) bool {
+	if isCompletedExecPlanDocument(doc) {
+		return false
+	}
+	return docsReviewDue(doc.ReviewAfter, now)
+}
+
+func isCompletedExecPlanDocument(doc docsKnowledgeDocument) bool {
+	return doc.Status == "completed" && inspectDocsExecPlanPathPattern.MatchString(doc.Path)
 }

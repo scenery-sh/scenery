@@ -117,6 +117,13 @@ func filterInspectDocsDocuments(documents []inspectDocsDocument, query inspectDo
 		if query.Status != "" && doc.Status != query.Status {
 			continue
 		}
+		// Historical plans stay out of ordinary catalog discovery. A stale
+		// entry is an explicit index signal that the history contradicts the
+		// current contract; --status completed remains the intentional archive
+		// query.
+		if query.Status == "" && isCompletedExecPlanDocument(doc.docsKnowledgeDocument) && !doc.Stale {
+			continue
+		}
 		if query.ReviewDue && !doc.ReviewDue {
 			continue
 		}

@@ -38,7 +38,7 @@ var cliPayloadSchemaRevisions = map[string]string{
 	"scenery.inspect.endpoints":           "sha256:af1066b46918c1a19a1e24c22e7316c35a406a6d8cfdd04c49e1a1623a797d13",
 	"scenery.inspect.observability":       "sha256:d4a30b220fd68c3155a257fdbfdece6d58ecf9f6c851fa569f7eacfe9ed7f5aa",
 	"scenery.inspect.durable":             "sha256:2e767f9bda8f938a8ef91a1c386f509dd1aafd7ae032d6e56ed14e79fca35c56",
-	"scenery.inspect.docs":                "sha256:9f4e4a0077e927960acb17ffa2bb12b96b61360917e33139f0b7d6253d3d2180",
+	"scenery.inspect.docs":                "sha256:cef606ca6894f7126a86ead96efcc6c7eacababa97be5c68b19db7514e734112",
 	"scenery.inspect.paths":               "sha256:608b88133556842c287301f9d5dc62e97e76afec107695192b272d2fd6896d38",
 	"scenery.inspect.metrics":             "sha256:6af4d264dbb1fd08f82a3b69eac6114dd400100145476bae5f8cdd2fb8f337bd",
 	"scenery.inspect.traces":              "sha256:f3a83468f7bc3d018825b0536c47515a3d6e5e9d053a3e3442a6fa3a6a9bd816",

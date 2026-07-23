@@ -51,9 +51,15 @@
         "owner": { "type": "string" },
         "status": { "enum": ["active", "reference", "completed", "deprecated"] },
         "quality": { "enum": ["A", "B", "C", "D"] },
-        "freshness": { "enum": ["current", "review_due", "stale"] },
+        "freshness": {
+          "enum": ["current", "review_due", "stale"],
+          "description": "Living-document freshness. Completed numbered ExecPlans ignore scheduled review; stale may explicitly flag a known contradiction with current guidance."
+        },
         "last_reviewed": { "type": "string" },
-        "review_after": { "type": "string" },
+        "review_after": {
+          "type": "string",
+          "description": "Scheduled review date for living documents. For a completed numbered ExecPlan, this is retained as historical metadata and does not create review-due work."
+        },
         "summary": { "type": "string" },
         "tags": {
           "type": "array",

@@ -1378,12 +1378,22 @@ historical plan is omitted unless its own path is queried directly. Ordinary
 path queries are capped at eight documents and should remain below 10 KiB.
 Routing and commands reuse self-harness changed-area logic.
 
+Scheduled freshness applies to living contracts, instructions, schemas, and
+active plans. A completed numbered ExecPlan is immutable historical evidence:
+its `review_due` value is always false even after its recorded `review_after`
+date, it does not contribute to `review_due_count`, and ordinary tag or
+review-due filters omit it. `--status completed`, `--all`, and a direct plan
+path provide explicit archive access. A completed plan is still surfaced as an
+actionable exception when `freshness: "stale"` records a known contradiction,
+the completed index contains a broken link, or the active index references it
+as current.
+
 Example output:
 
 ```json
 {
   "kind": "scenery.inspect.docs",
-  "schema_revision": "sha256:9f4e4a0077e927960acb17ffa2bb12b96b61360917e33139f0b7d6253d3d2180",
+  "schema_revision": "sha256:cef606ca6894f7126a86ead96efcc6c7eacababa97be5c68b19db7514e734112",
   "repo": {
     "root": "/repo/scenery",
     "module_path": "scenery.sh",
@@ -1397,9 +1407,9 @@ Example output:
     "document_count": 134,
     "selected_document_count": 5,
     "missing_count": 0,
-    "review_due_count": 3,
+    "review_due_count": 0,
     "stale_count": 0,
-    "agent_scope_count": 19,
+    "agent_scope_count": 20,
     "stale_child_index_entry_count": 0,
     "missing_child_index_entry_count": 0,
     "quality": {
