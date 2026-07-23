@@ -395,7 +395,7 @@ go test ./cmd/scenery
 go test ./internal/agent ./internal/app
 ```
 
-For substantial steps: `scenery harness self --summary --write` (use the worktree-local `.scenery/harness/bin/scenery`; do not `go install` during agent validation). JSON sanity: `jq empty docs/knowledge.json docs/schemas/scenery.config.v1.schema.json`.
+Because this plan changes release-sensitive runtime paths, every landed implementation step must pass `.scenery/harness/bin/scenery harness self --summary --write`. JSON sanity: `jq empty docs/knowledge.json docs/schemas/scenery.config.v1.schema.json`. If an environment-gated real-process step cannot run, keep the step incomplete and record the harness diagnostic plus the exact unavailable dependency in Progress.
 
 Feature acceptance is Milestone 10's script. The plan is done when: a real domain serves an app over public HTTPS with a Let's Encrypt production cert; two apps with two domains serve simultaneously through the one edge; reboot + login restores service untouched; containment checks pass; `scenery deploy status --json` reflects all of it truthfully; and docs/schema layers are updated together.
 

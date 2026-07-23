@@ -285,20 +285,16 @@ Do not copy scenery's full skill or repository manual into every app.
 
 Start with `scenery inspect docs --for-path <path> -o json`; it returns the applicable instruction scopes, owning architecture and current-contract sections, relevant active ExecPlans, related schemas, and verification commands without loading the full catalog. Read those scopes and sections before editing. Use `--review-due` for doc gardening and `--all` only for complete catalog validation. Use an ExecPlan for complex features, migrations, or substantial refactors.
 
-Validate ordinary changes with:
+Refresh the worktree-local validation oracle with:
 
 ```sh
-go test ./...
-go vet ./...
+.scenery/harness/bin/scenery harness self --quick --summary --write
+cat .scenery/harness/agent-context.json
 ```
 
-For substantial changes, also run:
-
-```sh
-scenery harness self --summary --write
-```
-
-Ordinary, focused, and substantial final validation uses Go's test result
+Run the exact union in `changed_area.recommended_commands`. The calculated
+`validation_classification` explains which root `AGENTS.md` changed-area rows
+apply; multiple matches are cumulative. Final validation uses Go's test result
 cache. Use `-count=1` or `scenery harness self --fresh-tests` only when
 explicitly measuring fresh execution or investigating nondeterminism.
 

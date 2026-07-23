@@ -795,7 +795,7 @@ scenery harness self -o json --write
 - it runs docs knowledge validation, `scenery inspect docs --all -o json`, architecture checks, Go package tests, parallel dev-session safety, dashboard UI typecheck/build, UI freshness checks, worktree-local `go build -o .scenery/harness/bin/scenery ./cmd/scenery`, and local binary freshness checks
 - the `console dependencies` step runs `bun install --frozen-lockfile` in `apps/console` before the dashboard and TypeScript lanes so fresh worktrees need no manual install preflight; it honors `bun.lock` and fails on lockfile drift instead of rewriting it. When bun is missing from PATH or the install fails, the dashboard UI typecheck/build/fresh, TypeScript client conformance/typecheck, and UI catalog typecheck lanes are skipped, and the step reports the skipped lanes in `skipped_lanes` with one actionable diagnostic
 - it validates committed examples for every current JSON schema, runs the Bun TypeScript client conformance suite, and typechecks both committed native and House generated clients against the shared generated-client configuration
-- default, quick, race, release, ordinary, focused, and substantial final Go validation uses Go's native test result cache. The full self-harness command is `go test -json ./...`; quick mode uses cached `go test` for affected packages.
+- default, quick, race, release, focused, and changed-area-selected final Go validation uses Go's native test result cache. The full self-harness command is `go test -json ./...`; quick mode uses cached `go test` for affected packages.
 - `--fresh-tests` is the explicit fresh measurement or nondeterminism-investigation lane. It discovers the complete `./...` graph, reuses linked test binaries by Go build ID, executes every test body with `-test.count=1`, preserves packages without tests in JSON evidence, and uses package parallelism three selected by repeated measurement on the maintainer machine.
 - linked binaries, the workspace manifest, and package timing estimates for the explicit fresh lane are disposable under `.scenery/harness/test-binaries/`. The manifest covers toolchain/build environment and tracked/untracked workspace contents. Disposable test binaries disable VCS stamping so committing unchanged contents does not relink the repository.
 - `.scenery/harness/test-timing-latest.json` identifies the timing lane. Cached and fresh runs use a five-second advisory budget and target; release runs keep the 30-second enforced budget and five-second optimization target.
@@ -811,22 +811,24 @@ scenery harness self -o json --write
 - `scenery harness ui -o json` is not part of the default self-harness path. It needs a local Chrome/Chromium-compatible browser and is intended for explicit dashboard route validation. The route journeys cover dashboard home app selector/status, API Explorer endpoint/form behavior, service catalog metadata, traces empty/table/detail behavior, DB list or unavailable states, schedule status/empty states, and durable/worker status cards.
 - `--write` persists the full archive to `.scenery/harness/self-latest.json`, the compact summary to `.scenery/harness/self-summary-latest.json`, and topic artifacts such as `.scenery/harness/test-timing-latest.json`
 - failed and expensive steps include `evidence` conforming to `scenery.harness.artifact`; Go test JSONL evidence is written as `.scenery/harness/artifacts/<run-id>/go-test.jsonl` when `--write` is present
-- `--write` refreshes `.scenery/harness/agent-context.json` as the one-file agent handoff. It includes current failing steps, first files to read, exact rerun commands, changed-area recommended commands, relevant active ExecPlans, recent failed harness artifacts, docs freshness, and risk classifications: `runtime`, `CLI contract`, `dashboard`, `schema`, `release`, and `onlv-impacting`.
+- changed-area output classifies paths as `documentation-only`, `go-package`, `cli-json-contract`, `compiler-or-generator`, `ui-catalog`, `dashboard`, `release-sensitive-or-runtime`, or `repository-fallback`; multiple classes are cumulative and `recommended_commands` is their exact deduplicated union, with the full self-harness replacing the quick self-harness when both match
+- documentation-only paths select full knowledge/index inspection plus quick self-harness; Go packages select every affected-package test plus `go test ./...`; CLI JSON contracts select command tests, schema validation, and `docs/local-contract.md`; compiler/generator and UI catalog paths select committed consumer regeneration; dashboard paths select lint, typecheck, build, and browser acceptance; release-sensitive/runtime paths select the full worktree-local self-harness and its applicable real-process proof
+- `--write` refreshes `.scenery/harness/agent-context.json` as the one-file agent handoff. It includes current failing steps, first files to read, exact rerun commands, `validation_classification`, the changed-area command union, relevant active ExecPlans, recent failed harness artifacts, docs freshness, and separate risk classifications: `runtime`, `CLI contract`, `dashboard`, `schema`, `release`, and `onlv-impacting`.
 
 Default agent loop:
 
 ```text
 scenery doctor -o json
-scenery harness self --quick --summary --write
+.scenery/harness/bin/scenery harness self --quick --summary --write
 cat .scenery/harness/agent-context.json
 # implement
-scenery harness self --summary --write
+# run changed_area.recommended_commands
 ```
 
-Release-risk loop:
+`release-sensitive-or-runtime` loop:
 
 ```text
-scenery harness self --release --summary --write
+.scenery/harness/bin/scenery harness self --release --summary --write
 scripts/release-gate.sh
 ```
 

@@ -392,10 +392,11 @@ Prefer tests at stable boundaries: `.scn` parsing and validation, canonical
 graphs, generated code, CLI JSON contracts, runtime HTTP behavior, and fixture apps. Use helper
 checks to keep tests data-driven and easy to update when internals move.
 
-After repository changes, run `go test ./...`. For substantial changes, follow
+After repository changes, refresh `.scenery/harness/agent-context.json` and run
+the exact changed-area command union. Release-sensitive or runtime paths require
 the [Fresh Worktree Preflight](docs/agent-guide.md#fresh-worktree-preflight) and
-validate through the worktree-local
-`.scenery/harness/bin/scenery harness self --summary --write` binary.
+the worktree-local
+`.scenery/harness/bin/scenery harness self --summary --write` proof.
 
 ### Generated Artifacts
 

@@ -8,6 +8,7 @@
     "schema_revision",
     "changed_files",
     "affected_packages",
+    "validation_classes",
     "recommended_commands",
     "relevant_docs",
     "risk_flags"
@@ -17,7 +18,7 @@
       "const": "scenery.harness.changed_area"
     },
     "schema_revision": {
-      "const": "sha256:c215f07dddb5b11acca4d74c93159b1506aa0c13321bbf6b1af5d9669984bb9e"
+      "const": "sha256:5c5d834d0db2d94a819c3ffb50841d3cb61870c83cf0cd746107131cd7679106"
     },
     "changed_files": {
       "type": "array",
@@ -36,6 +37,22 @@
       "items": {
         "type": "string"
       }
+    },
+    "validation_classes": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "documentation-only",
+          "go-package",
+          "cli-json-contract",
+          "compiler-or-generator",
+          "ui-catalog",
+          "dashboard",
+          "release-sensitive-or-runtime",
+          "repository-fallback"
+        ]
+      },
+      "uniqueItems": true
     },
     "recommended_commands": {
       "type": "array",

@@ -434,9 +434,12 @@ func validateExecPlanContract(repoRoot string) ([]checkDiagnostic, map[string]an
 			SuggestedAction: "Create PLANS.md with the scenery ExecPlan contract.",
 		})
 	} else {
-		diagnostics = append(diagnostics, validateExecPlanSections(repoRoot, "PLANS.md", string(standardData), true)...)
+		standardText := string(standardData)
+		diagnostics = append(diagnostics, validateExecPlanSections(repoRoot, "PLANS.md", standardText, true)...)
+		diagnostics = append(diagnostics, validateExecPlanValidationLanguage(repoRoot, "PLANS.md", standardText, "## Validation Requirements")...)
 	}
 
+	activePlans := activeExecPlanPathSet(repoRoot)
 	planFiles, err := filepath.Glob(filepath.Join(repoRoot, "docs", "plans", "*.md"))
 	if err != nil {
 		diagnostics = append(diagnostics, checkDiagnostic{
@@ -468,10 +471,85 @@ func validateExecPlanContract(repoRoot string) ([]checkDiagnostic, map[string]an
 			})
 			continue
 		}
-		diagnostics = append(diagnostics, validateExecPlanSections(repoRoot, relPath, string(data), false)...)
+		planText := string(data)
+		diagnostics = append(diagnostics, validateExecPlanSections(repoRoot, relPath, planText, false)...)
+		if activePlans[relPath] {
+			diagnostics = append(diagnostics, validateExecPlanValidationLanguage(repoRoot, relPath, planText, "## Validation and Acceptance")...)
+		}
 	}
 	summary["exec_plan_files"] = checked
 	return diagnostics, summary
+}
+
+var subjectiveExecPlanValidationPhrases = []string{
+	"when practical",
+	"where practical",
+	"if practical",
+	"as practical",
+	"as appropriate",
+	"relevant validation",
+	"substantial change",
+	"substantial step",
+}
+
+func validateExecPlanValidationLanguage(repoRoot, relPath, text, heading string) []checkDiagnostic {
+	lines := strings.Split(text, "\n")
+	start := -1
+	for index, line := range lines {
+		if strings.TrimSpace(line) == heading {
+			start = index + 1
+			break
+		}
+	}
+	if start < 0 {
+		return nil
+	}
+
+	var diagnostics []checkDiagnostic
+	for index := start; index < len(lines); index++ {
+		line := strings.TrimSpace(lines[index])
+		if strings.HasPrefix(line, "## ") {
+			break
+		}
+		lower := strings.ToLower(line)
+		if strings.Contains(lower, "do not use phrases") || strings.Contains(lower, "must not use") {
+			continue
+		}
+		for _, phrase := range subjectiveExecPlanValidationPhrases {
+			if !strings.Contains(lower, phrase) {
+				continue
+			}
+			diagnostics = append(diagnostics, execPlanDiagnostic(
+				repoRoot,
+				relPath,
+				index+1,
+				"ExecPlan validation uses subjective selection phrase: "+phrase,
+				"Name the exact command, or state the exact observable skip condition and its recorded evidence.",
+			))
+		}
+	}
+	return diagnostics
+}
+
+func activeExecPlanPathSet(repoRoot string) map[string]bool {
+	activePath := filepath.Join(repoRoot, "docs", "plans", "active.md")
+	data, err := os.ReadFile(activePath)
+	if err != nil {
+		return map[string]bool{}
+	}
+	active := map[string]bool{}
+	for _, raw := range markdownLinkTargets(string(data)) {
+		target, ok := normalizeHarnessMarkdownLink(raw)
+		if !ok || !strings.HasSuffix(target, ".md") {
+			continue
+		}
+		path := filepath.ToSlash(filepath.Clean(filepath.Join("docs", "plans", filepath.FromSlash(target))))
+		if path == "docs/plans/active.md" || path == "docs/plans/completed.md" || !strings.HasPrefix(path, "docs/plans/") {
+			continue
+		}
+		active[path] = true
+	}
+	return active
 }
 
 func validateActiveExecPlanIndex(repoRoot string) ([]checkDiagnostic, map[string]any) {

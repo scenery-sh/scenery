@@ -9,7 +9,7 @@ type cliPayloadIdentity struct {
 
 var cliPayloadSchemaRevisions = map[string]string{
 	"scenery.help":                        "sha256:dd5d2e7b08e3ac88e7722ec62c1068ebcb8b1878b5a5269676ad940a1589e5f2",
-	"scenery.agent_context":               "sha256:9c67d27f74dcfef4ae20c8a017e38efabee8b482de9f3294fd47d38a7d0338d6",
+	"scenery.agent_context":               "sha256:52ba6c27a29a23ce2450a3207cf6b2f6d07b0dbd4d7bf0788f03d035b3b34461",
 	"scenery.db.apply.result":             "sha256:8e9223ebba90b7f493b14f0bbc0347da0ea53d0bc5769ad42e080c99f73b71a4",
 	"scenery.db.list":                     "sha256:01b0f8b9cbd30278207c2e5b3b2ae00a9af81ff624e27c3bfc2995e826598e15",
 	"scenery.db.seed.result":              "sha256:38c33fe664ee1c2f8122d07188546cc8768192bbc984af6b1ca2e3c4e2cf7765",
@@ -50,12 +50,12 @@ var cliPayloadSchemaRevisions = map[string]string{
 	"scenery.metrics.series":              "sha256:ccb53b231affc674aa36da784d17aa57f6ed5d9425127327ddace8983d00bb39",
 	"scenery.inspect.harness":             "sha256:f85ff889bd47c12fef97c8f922a235989ad736775207a7cf6c2e24a5d48e4897",
 	"scenery.harness.artifact":            "sha256:5fdbd3fbabd171b9226331c8d821c2a59744e7682943593896c332b8ac69eaa8",
-	"scenery.harness.changed_area":        "sha256:c215f07dddb5b11acca4d74c93159b1506aa0c13321bbf6b1af5d9669984bb9e",
+	"scenery.harness.changed_area":        "sha256:5c5d834d0db2d94a819c3ffb50841d3cb61870c83cf0cd746107131cd7679106",
 	"scenery.harness.drift":               "sha256:2218980db0b2af538f8773e3a3412f1a15c2d0c66ef6574bd8910805b8eebf71",
 	"scenery.harness.fixture_matrix":      "sha256:0317781d4d92e84a88e03e368cc06c8371a325ac37d48ca8982dbb70eeefb729",
 	"scenery.harness.result":              "sha256:19f4764781db12ff44ec727ecfff77b0a633a238ad4b316323c862288f54afc6",
 	"scenery.harness.schema_validation":   "sha256:0b8037ff35c8ad553fa023abf7886d3fe7e28649400fa8d69d3a7994062d91bd",
-	"scenery.harness.self":                "sha256:eb4b9f75f356960f0b857cada85330979a7f9a9d31ec8f3c48b12dbcd40b8b08",
+	"scenery.harness.self":                "sha256:ef071943f9a9e29d06b11cb8c0da4a051bc29f2b16cbd12da579a4dd15d34a3f",
 	"scenery.harness.self.summary":        "sha256:ca2ec5d5f851b1b3f060b4fca17e63b656b40fcd54d5d89762b12280626bc050",
 	"scenery.harness.test_timing":         "sha256:c0e41b1643dd776e82331cd0e1ba8048446a398f4f0a482e092ed11e97cbaf3b",
 	"scenery.harness.toolchain":           "sha256:edb5bd2a880e5ed8d87baa7906437520766479ffe7f9a26d754ce35c3656e3a3",

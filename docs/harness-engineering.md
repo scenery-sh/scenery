@@ -19,8 +19,8 @@ scenery harness ui [--app-root <path>] [--dashboard-url <url>] [--headed] [-o js
 scenery inspect harness [artifact <name>|diagnostics --severity error|warning|timing --top <n>] -o json [--app-root <path>] [--repo-root <path>]
 ```
 
-Self-harness uses Go's native test result cache by default, including substantial
-final and release validation. `--fresh-tests` is reserved for explicit fresh
+Self-harness uses Go's native test result cache by default, including
+changed-area-selected final and release validation. `--fresh-tests` is reserved for explicit fresh
 measurement or nondeterminism investigation; that lane reuses content-addressed
 linked test binaries, executes test bodies with `-test.count=1`, and uses the
 locally measured package parallelism of three. Cached and fresh lanes have a
@@ -33,16 +33,16 @@ Recommended agent loop:
 
 ```text
 scenery doctor -o json
-scenery harness self --quick --summary --write
+.scenery/harness/bin/scenery harness self --quick --summary --write
 cat .scenery/harness/agent-context.json
 # implement
-scenery harness self --summary --write
+# run changed_area.recommended_commands
 ```
 
-For release-risk changes, also run:
+When `validation_classification` contains `release-sensitive-or-runtime`, also run:
 
 ```text
-scenery harness self --release --summary --write
+.scenery/harness/bin/scenery harness self --release --summary --write
 scripts/release-gate.sh
 ```
 
@@ -156,10 +156,9 @@ repair, restart, and verify browser behavior from machine-readable route state.
 
 The self-harness writes `.scenery/harness/agent-context.json` as the default
 handoff file for agents. It includes current failing steps, the first file to
-read for each failure, exact rerun commands, changed-area recommended commands,
-relevant active ExecPlans, recent failed harness artifacts, docs freshness, and
-risk classification across runtime, CLI contract, dashboard, schema, release,
-and ONLV-impacting changes.
+read for each failure, exact rerun commands, deterministic validation classes,
+their changed-area command union, relevant active ExecPlans, recent failed
+harness artifacts, docs freshness, and separate risk classification.
 
 For the scenery repo itself, `scenery harness self --summary --write` prints the
 compact `scenery.harness.self.summary` decision packet and writes:

@@ -29,8 +29,10 @@ func buildHarnessAgentContext(repoRoot string, resp harnessSelfResponse) harness
 	relevantPlans := buildHarnessAgentRelevantExecPlans(repoRoot, resp.ChangedArea)
 	failedArtifacts := buildHarnessAgentFailedArtifacts(repoRoot, failingSteps)
 	changedAreaCommands := []string{}
+	validationClassification := []string{}
 	if resp.ChangedArea != nil {
 		changedAreaCommands = append(changedAreaCommands, resp.ChangedArea.RecommendedCommands...)
+		validationClassification = append(validationClassification, resp.ChangedArea.ValidationClasses...)
 	}
 	contextPack := harnessAgentContext{
 		cliPayloadIdentity: newCLIPayloadIdentity(harnessAgentContextKind),
@@ -51,16 +53,17 @@ func buildHarnessAgentContext(repoRoot string, resp harnessSelfResponse) harness
 		RelevantActiveExecPlans:        relevantPlans,
 		RecentFailedHarnessArtifacts:   failedArtifacts,
 		DocsFreshness:                  docsFreshness,
+		ValidationClassification:       validationClassification,
 		RiskClassification:             riskClassification,
 		DocsEntrypoints:                entrypoints,
 		Schemas:                        schemas,
-		KnownFastLoop:                  "scenery doctor -o json\nscenery harness self --quick --summary --write\ncat .scenery/harness/agent-context.json\n# implement\nscenery harness self --summary --write",
-		KnownReleaseLoop:               "scenery harness self --release --summary --write\nscripts/release-gate.sh",
+		KnownFastLoop:                  "scenery doctor -o json\n.scenery/harness/bin/scenery harness self --quick --summary --write\ncat .scenery/harness/agent-context.json\n# implement\n# run changed_area.recommended_commands",
+		KnownReleaseLoop:               ".scenery/harness/bin/scenery harness self --release --summary --write\nscripts/release-gate.sh",
 		ArchitectureRules: []string{
 			"Prefer Go standard library dependencies unless the payoff is concrete.",
 			"Do not add legacy aliases or backwards-compatibility shims for renamed scenery APIs.",
 			"Do not write the shared `scenery` binary with `go install ./cmd/scenery` unless a human explicitly asks; use self-harness' worktree-local `.scenery/harness/bin/scenery` build instead.",
-			"For substantial repository changes, run scenery harness self --summary --write when practical.",
+			"Run the exact union in changed_area.recommended_commands for the calculated validation_classification; report an exact blocking condition for every skipped command.",
 		},
 		RecentFailures: recentFailures,
 	}
@@ -70,7 +73,7 @@ func buildHarnessAgentContext(repoRoot string, resp harnessSelfResponse) harness
 	}
 	contextPack.RecommendedCommands = appendUniqueSorted(contextPack.RecommendedCommands, contextPack.RerunCommands...)
 	if len(contextPack.RecommendedCommands) == 0 {
-		contextPack.RecommendedCommands = []string{"scenery doctor -o json", "scenery harness self --quick --summary --write", "scenery harness self --summary --write"}
+		contextPack.RecommendedCommands = []string{"scenery doctor -o json", harnessValidationQuickCommand}
 	}
 	sort.Strings(contextPack.DocsEntrypoints)
 	sort.Strings(contextPack.Schemas)
@@ -78,6 +81,7 @@ func buildHarnessAgentContext(repoRoot string, resp harnessSelfResponse) harness
 	sort.Strings(contextPack.ChangedAreaRecommendedCommands)
 	sort.Strings(contextPack.RerunCommands)
 	sort.Strings(contextPack.RiskClassification)
+	sort.Strings(contextPack.ValidationClassification)
 	return contextPack
 }
 
@@ -317,21 +321,21 @@ func classifyHarnessAgentRisk(changedArea *harnessChangedAreaReport) []string {
 		return nil
 	}
 	classes := map[string]bool{}
-	for _, file := range changedArea.ChangedFiles {
-		switch file.Category {
-		case "runtime", "internal", "dependency":
-			classes["runtime"] = true
-		case "cli":
+	for _, validationClass := range changedArea.ValidationClasses {
+		switch validationClass {
+		case harnessValidationCLIJSONContract:
 			classes["CLI contract"] = true
-		case "ui":
+		case harnessValidationDashboard, harnessValidationUICatalog:
 			classes["dashboard"] = true
-		case "schema":
-			classes["schema"] = true
-		case "script":
+		case harnessValidationReleaseRuntime:
+			classes["runtime"] = true
 			classes["release"] = true
 		}
-		if strings.HasPrefix(file.Path, "cmd/scenery/harness") || strings.HasPrefix(file.Path, "cmd/scenery/inspect") || strings.HasPrefix(file.Path, "docs/local-contract.md") {
-			classes["CLI contract"] = true
+	}
+	for _, file := range changedArea.ChangedFiles {
+		switch file.Category {
+		case "schema":
+			classes["schema"] = true
 		}
 		if strings.HasPrefix(file.Path, "docs/schemas/") || file.Path == "docs/knowledge.json" {
 			classes["schema"] = true
@@ -353,12 +357,7 @@ func classifyHarnessAgentRisk(changedArea *harnessChangedAreaReport) []string {
 			classes["dashboard"] = true
 		case "json-schema-contract":
 			classes["schema"] = true
-		case "exec-plan":
-			classes["release"] = true
 		}
-	}
-	if classes["schema"] || classes["CLI contract"] || classes["runtime"] {
-		classes["release"] = true
 	}
 	return sortedStringSet(classes)
 }

@@ -58,14 +58,11 @@ Prefer additive milestones that keep the repo testable. If a prototype is needed
 
 ## Validation Requirements
 
-Every ExecPlan must include project-specific validation commands. For scenery repo changes, the default validation set is:
+Every ExecPlan must include project-specific validation commands. For scenery repo changes, name the expected changed-area classes from the root [Validation Matrix](AGENTS.md#validation-matrix), refresh `.scenery/harness/agent-context.json`, and run the exact union in `changed_area.recommended_commands`. A plan that spans more than one class must carry every matching command.
 
-- `go test ./...`
-- `.scenery/harness/bin/scenery harness self --summary --write` for substantial
-  changes, after the
-  [Fresh Worktree Preflight](docs/agent-guide.md#fresh-worktree-preflight)
+Every validation item must name its exact command and working directory. A conditional item must state the exact observable condition that permits it to be skipped and the evidence that will record that condition. Do not use phrases such as “when practical,” “as appropriate,” “relevant validation,” or “for substantial changes” as substitutes for a command or skip condition.
 
-For frontend changes, include the relevant `bun run typecheck` and `bun run build` commands in `ui/`.
+Release-sensitive or runtime plans must include `.scenery/harness/bin/scenery harness self --summary --write` after the [Fresh Worktree Preflight](docs/agent-guide.md#fresh-worktree-preflight), plus the plan-specific real-process proof. Dashboard plans must include the exact lint, typecheck, build, and browser-acceptance commands from the root matrix.
 
 For app-facing runtime changes, include an example command against a fixture app or another read-only scenery app available to the contributor.
 
@@ -75,6 +72,7 @@ For app-facing runtime changes, include an example command against a fixture app
 
 - `PLANS.md` must exist and define the required ExecPlan sections.
 - Any Markdown file directly under `docs/plans/` except `active.md` and `completed.md` must contain all required ExecPlan section headings.
+- Current ExecPlan validation requirements must not use subjective skip phrases in place of exact commands or conditions.
 - Missing sections are reported as knowledge-contract diagnostics with file paths and suggested actions.
 
-The harness intentionally does not validate prose quality. It enforces the structure that makes plans resumable, then leaves engineering judgment to the author.
+The harness enforces resumable structure and rejects known subjective validation phrases. Engineering acceptance criteria remain the plan author's responsibility.

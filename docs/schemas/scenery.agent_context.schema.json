@@ -16,6 +16,7 @@
     "relevant_active_execplans",
     "recent_failed_harness_artifacts",
     "docs_freshness",
+    "validation_classification",
     "risk_classification",
     "docs_entrypoints",
     "schemas",
@@ -28,7 +29,7 @@
       "const": "scenery.agent_context"
     },
     "schema_revision": {
-      "const": "sha256:9c67d27f74dcfef4ae20c8a017e38efabee8b482de9f3294fd47d38a7d0338d6"
+      "const": "sha256:52ba6c27a29a23ce2450a3207cf6b2f6d07b0dbd4d7bf0788f03d035b3b34461"
     },
     "generated_at": {
       "type": "string"
@@ -107,6 +108,22 @@
     },
     "docs_freshness": {
       "$ref": "#/$defs/docs_freshness"
+    },
+    "validation_classification": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "documentation-only",
+          "go-package",
+          "cli-json-contract",
+          "compiler-or-generator",
+          "ui-catalog",
+          "dashboard",
+          "release-sensitive-or-runtime",
+          "repository-fallback"
+        ]
+      },
+      "uniqueItems": true
     },
     "risk_classification": {
       "type": "array",

@@ -1128,7 +1128,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-23",
       "review_after": "2026-08-22",
-      "summary": "Compact repo-local operating manual for agents changing Scenery itself: instruction layering, path-scoped documentation discovery, AGENTS hierarchy, autonomy and engineering rules, validation matrices, client-app boundaries, and a concise outcome-first completion contract.",
+      "summary": "Compact repo-local operating manual for agents changing Scenery itself: instruction layering, path-scoped documentation discovery, AGENTS hierarchy, autonomy and engineering rules, deterministic changed-area validation classes, client-app boundaries, and a concise outcome-first completion contract.",
       "tags": [
         "agents",
         "repo",
@@ -1201,7 +1201,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-18",
       "review_after": "2026-08-17",
-      "summary": "Required structure for long-running agent-executable implementation plans; reviewed against current self-harness ExecPlan section enforcement.",
+      "summary": "Required structure for long-running agent-executable implementation plans, including exact changed-area validation commands, observable skip conditions, and self-harness rejection of subjective validation selection.",
       "tags": [
         "plans",
         "execplans",
@@ -1235,7 +1235,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-23",
       "review_after": "2026-08-22",
-      "summary": "Current local developer and agent-facing contract for exact CLI JSON surfaces, including scoped command help, compact and filtered docs inspection, bounded path-scoped routing, schema identities, graph provenance, runtime and deploy behavior, data, generated clients and pages, harness validation, generators, and code tasks.",
+      "summary": "Current local developer and agent-facing contract for exact CLI JSON surfaces, including scoped command help, compact and filtered docs inspection, deterministic changed-area validation classification, schema identities, graph provenance, runtime and deploy behavior, data, generated clients and pages, generators, and code tasks.",
       "tags": [
         "contract",
         "cli",
@@ -1258,7 +1258,10 @@
         "docs/schemas/scenery.worktree.list.schema.json",
         "docs/schemas/scenery.worktree.remove.schema.json",
         "docs/schemas/scenery.harness.artifact.schema.json",
+        "docs/schemas/scenery.harness.changed_area.schema.json",
+        "docs/schemas/scenery.harness.self.schema.json",
         "docs/schemas/scenery.harness.self.summary.schema.json",
+        "docs/schemas/scenery.agent_context.schema.json",
         "docs/schemas/scenery.library-generated.schema.json",
         "docs/schemas/scenery.library.artifact.schema.json",
         "docs/schemas/scenery.library.build.result.schema.json",
@@ -1364,7 +1367,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-23",
       "review_after": "2026-08-22",
-      "summary": "Agent validation loop with cached and explicit fresh Go execution, shared harness evidence, agent-context handoff, browser and data proofs, task-scoped documentation routing through changed-area logic, full-catalog validation, and review-due doc gardening.",
+      "summary": "Agent validation loop with cached and explicit fresh Go execution, deterministic changed-area classes and command unions, agent-context handoff, browser and data proofs, task-scoped documentation routing, full-catalog validation, and review-due doc gardening.",
       "tags": [
         "harness",
         "agents",
@@ -1372,6 +1375,8 @@
       ],
       "schema_refs": [
         "docs/schemas/scenery.harness.artifact.schema.json",
+        "docs/schemas/scenery.harness.changed_area.schema.json",
+        "docs/schemas/scenery.harness.self.schema.json",
         "docs/schemas/scenery.harness.self.summary.schema.json",
         "docs/schemas/scenery.inspect.docs.schema.json",
         "docs/schemas/scenery.inspect.harness.schema.json",

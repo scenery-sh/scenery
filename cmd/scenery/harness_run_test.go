@@ -274,6 +274,132 @@ func TestChangedAreaIgnoresLocalHarnessArtifacts(t *testing.T) {
 	}
 }
 
+func TestChangedAreaSelectsDeterministicValidationByPath(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		paths            []string
+		packageDirs      []string
+		wantClasses      []string
+		wantCommands     []string
+		forbidCommands   []string
+		wantRelevantDocs []string
+	}{
+		{
+			name:           "documentation only",
+			paths:          []string{"AGENTS.md", "PLANS.md"},
+			wantClasses:    []string{harnessValidationDocumentation},
+			wantCommands:   []string{harnessValidationQuickCommand},
+			forbidCommands: []string{"go test ./...", harnessValidationFullCommand},
+		},
+		{
+			name:           "one go package",
+			paths:          []string{"errs/example.go"},
+			packageDirs:    []string{"errs"},
+			wantClasses:    []string{harnessValidationGoPackage},
+			wantCommands:   []string{"go test ./errs", "go test ./..."},
+			forbidCommands: []string{harnessValidationQuickCommand, harnessValidationFullCommand},
+		},
+		{
+			name:             "cli json contract",
+			paths:            []string{"cmd/scenery/help.go"},
+			packageDirs:      []string{"cmd/scenery"},
+			wantClasses:      []string{harnessValidationCLIJSONContract, harnessValidationGoPackage},
+			wantCommands:     []string{"go test ./cmd/scenery", "go test ./...", harnessValidationQuickCommand},
+			forbidCommands:   []string{harnessValidationFullCommand},
+			wantRelevantDocs: []string{"docs/local-contract.md"},
+		},
+		{
+			name:         "compiler",
+			paths:        []string{"internal/compiler/compiler.go"},
+			packageDirs:  []string{"internal/compiler"},
+			wantClasses:  []string{harnessValidationCompilerGenerator, harnessValidationGoPackage},
+			wantCommands: append([]string{"go test ./internal/compiler", "go test ./..."}, harnessFixtureRegenerationCommands...),
+			forbidCommands: []string{
+				harnessValidationQuickCommand,
+				harnessValidationFullCommand,
+			},
+		},
+		{
+			name:        "ui catalog",
+			paths:       []string{"ui/src/button.tsx"},
+			wantClasses: []string{harnessValidationUICatalog},
+			wantCommands: append([]string{
+				"apps/console/node_modules/.bin/tsc -p internal/generate/testdata/tsconfig.catalog.json",
+				"go test ./internal/generate",
+			}, harnessFixtureRegenerationCommands...),
+			forbidCommands: []string{harnessValidationFullCommand},
+		},
+		{
+			name:        "dashboard",
+			paths:       []string{"apps/console/src/App.tsx"},
+			wantClasses: []string{harnessValidationDashboard},
+			wantCommands: []string{
+				"cd apps/console && bun run lint && bun run typecheck && bun run build",
+				harnessValidationUICommand,
+			},
+			forbidCommands: []string{harnessValidationFullCommand},
+		},
+		{
+			name:           "release sensitive runtime",
+			paths:          []string{"runtime/server.go"},
+			packageDirs:    []string{"runtime"},
+			wantClasses:    []string{harnessValidationGoPackage, harnessValidationReleaseRuntime},
+			wantCommands:   []string{"go test ./runtime", "go test ./...", harnessValidationFullCommand},
+			forbidCommands: []string{harnessValidationQuickCommand},
+		},
+		{
+			name:           "repository fallback",
+			paths:          []string{"Makefile"},
+			wantClasses:    []string{harnessValidationRepositoryFallback},
+			wantCommands:   []string{"go test ./..."},
+			forbidCommands: []string{harnessValidationQuickCommand, harnessValidationFullCommand},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			root := t.TempDir()
+			var packages []harnessPackageInfo
+			for _, rel := range tt.packageDirs {
+				packages = append(packages, harnessPackageInfo{
+					ImportPath: "scenery.sh/" + rel,
+					Dir:        filepath.Join(root, filepath.FromSlash(rel)),
+					RelDir:     rel,
+				})
+			}
+			changes := make([]harnessChangedFile, 0, len(tt.paths))
+			for _, path := range tt.paths {
+				changes = append(changes, harnessChangedFile{Path: path, Status: "modified"})
+			}
+			report := &harnessChangedAreaReport{}
+			populateHarnessChangedAreaReport(root, report, changes, packages, nil)
+
+			if strings.Join(report.ValidationClasses, "\n") != strings.Join(tt.wantClasses, "\n") {
+				t.Fatalf("validation classes = %v, want %v", report.ValidationClasses, tt.wantClasses)
+			}
+			for _, command := range tt.wantCommands {
+				if !stringSliceContains(report.RecommendedCommands, command) {
+					t.Errorf("recommended commands %v missing %q", report.RecommendedCommands, command)
+				}
+			}
+			for _, command := range tt.forbidCommands {
+				if stringSliceContains(report.RecommendedCommands, command) {
+					t.Errorf("recommended commands %v unexpectedly contain %q", report.RecommendedCommands, command)
+				}
+			}
+			for _, path := range tt.wantRelevantDocs {
+				if !stringSliceContains(report.RelevantDocs, path) {
+					t.Errorf("relevant docs %v missing %q", report.RelevantDocs, path)
+				}
+			}
+		})
+	}
+}
+
 func TestHarnessLocalArtifactIgnoreDoesNotHideSchemas(t *testing.T) {
 	t.Parallel()
 

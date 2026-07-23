@@ -60,6 +60,44 @@ func TestValidateActiveExecPlanIndexAcceptsMatchingIndex(t *testing.T) {
 	}
 }
 
+func TestValidateExecPlanValidationLanguageRejectsSubjectiveSelection(t *testing.T) {
+	root := t.TempDir()
+	text := strings.Join([]string{
+		"# Plan",
+		"",
+		"## Validation and Acceptance",
+		"",
+		"Run the browser check when practical.",
+		"",
+		"## Idempotence and Recovery",
+	}, "\n")
+
+	diagnostics := validateExecPlanValidationLanguage(root, "docs/plans/0001-plan.md", text, "## Validation and Acceptance")
+	assertDiagnosticContains(t, diagnostics, "ExecPlan validation uses subjective selection phrase: when practical")
+	if len(diagnostics) != 1 || diagnostics[0].Line != 5 {
+		t.Fatalf("diagnostics = %#v", diagnostics)
+	}
+}
+
+func TestValidateExecPlanValidationLanguageAllowsExactSkipCondition(t *testing.T) {
+	root := t.TempDir()
+	text := strings.Join([]string{
+		"# Plan",
+		"",
+		"## Validation and Acceptance",
+		"",
+		"Run `.scenery/harness/bin/scenery harness ui -o json --write`.",
+		"If Chrome is absent, keep acceptance incomplete and attach the harness missing-browser diagnostic.",
+		"",
+		"## Idempotence and Recovery",
+	}, "\n")
+
+	diagnostics := validateExecPlanValidationLanguage(root, "docs/plans/0001-plan.md", text, "## Validation and Acceptance")
+	if len(diagnostics) != 0 {
+		t.Fatalf("diagnostics = %#v", diagnostics)
+	}
+}
+
 func testDocsIndexJSON(documents string) string {
 	return fmt.Sprintf(`{
   "kind":"scenery.docs.index","schema_revision":%q,"generated_at":"2026-07-22T00:00:00Z",

@@ -26,7 +26,7 @@ Read next when needed:
 | Investigate a runtime failure | `scenery doctor -o json`, then bounded `scenery logs -o jsonl --limit 200` |
 | Change the source contract | `scenery fmt --check -o json`, `scenery check -o json`, then the applicable `scenery compile --view source\|effective\|expanded -o json` |
 | Validate a completed application change | Focused tests, `scenery generate --check -o json`, then the applicable `scenery harness -o json --write` |
-| Validate a substantial Scenery change | `go test ./...`, then `.scenery/harness/bin/scenery harness self --summary --write` |
+| Validate a Scenery repository change | Refresh `.scenery/harness/agent-context.json`, then run its exact `changed_area.recommended_commands` union |
 
 Run only the route relevant to the task; expand when its evidence points elsewhere. Prefer `-o json` and `-o jsonl`, verify schema/spec revisions and producer identity, branch on stable `SCNxxxx` diagnostics, and resolve opaque source IDs through the returned source map.
 
@@ -185,6 +185,6 @@ go test ./...
 scenery harness -o json --write
 ```
 
-For Scenery repository changes, follow the root `AGENTS.md`; substantial changes use the worktree-local self-harness command above. Keep Go's test cache enabled. Use `-count=1` or `--fresh-tests` only for explicit measurement or nondeterminism investigation.
+For Scenery repository changes, follow the root `AGENTS.md`; changed paths and contract surfaces calculate the validation classes and exact command union. Keep Go's test cache enabled. Use `-count=1` or `--fresh-tests` only for explicit measurement or nondeterminism investigation.
 
 Do not run `go install ./cmd/scenery` unless the human explicitly asks. Multiple worktrees share the installed binary; self-harness builds a worktree-local binary.

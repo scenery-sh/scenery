@@ -110,7 +110,7 @@ scenery compile --view expanded -o json
 scenery inspect app|routes|services|endpoints|build|paths|docs -o json
 scenery up [--env <name>] [--detach] [--wait ready]
 scenery logs -o jsonl --limit 200
-scenery harness self --summary --write
+.scenery/harness/bin/scenery harness self --summary --write
 ```
 
 `scenery up` is the preferred local loop: one live dev runtime with dashboard, logs, traces, metrics, routed local URLs, and managed dev services; use a Git worktree for another live code copy. Use `scenery doctor -o json` before expensive troubleshooting when the failure may be local environment readiness.
@@ -136,16 +136,19 @@ If a historical product note appears in an ExecPlan, do not silently rewrite it 
 
 ## Validation Matrix
 
-| Scope | Commands |
+Validation selection is calculated from changed paths and contract surfaces. Refresh `.scenery/harness/agent-context.json`, use `changed_area.validation_classes` to see which rows matched, and run the exact `changed_area.recommended_commands` union; when several rows match, all apply.
+
+| Changed area | Minimum proof |
 |---|---|
-| Ordinary repo change | `go test ./...` |
-| Focused | `go test ./<package> -run '<TestName>'` |
-| Substantial repo change | `scenery harness self --summary --write` |
-| Target app change | `scenery check -o json`, `go test ./...`, `scenery harness -o json --write` |
-| Generated TS client | `scenery generate --target typescript_client.<name> --check -o json`, `bun test internal/generate/testdata/typescript_client_conformance.test.ts`, `apps/console/node_modules/.bin/tsc -p internal/generate/testdata/tsconfig.generated-clients.json` |
-| Dashboard UI | `cd apps/console && bun run lint && bun run typecheck && bun run build`, then self-harness |
-| `ui/` catalog | `apps/console/node_modules/.bin/tsc -p internal/generate/testdata/tsconfig.catalog.json` |
-| Browser/dashboard acceptance | `scenery harness ui -o json --write` |
+| Documentation only | `.scenery/harness/bin/scenery harness self --quick --summary --write` proves the knowledge index, links, referenced schemas, and commands |
+| One Go package | `go test ./<package>`, then `go test ./...` before completion; for multiple packages, run every affected-package command before the repository suite |
+| CLI JSON contract | `go test ./cmd/scenery`, `.scenery/harness/bin/scenery harness self --quick --summary --write` for schema validation, and the matching `docs/local-contract.md` update |
+| Compiler or generator | affected-package tests, both committed fixture regeneration commands below, then `go test ./...` |
+| UI catalog | `apps/console/node_modules/.bin/tsc -p internal/generate/testdata/tsconfig.catalog.json`, `go test ./internal/generate`, and both consumer fixture regenerations below |
+| Dashboard | `cd apps/console && bun run lint && bun run typecheck && bun run build`, then `.scenery/harness/bin/scenery harness ui -o json --write` |
+| Release-sensitive or runtime | `.scenery/harness/bin/scenery harness self --summary --write`; its applicable real-process steps are required proof |
+
+The full self-harness supersedes the quick self-harness when both would otherwise be selected. Any source, configuration, or fixture path not matched by a specialized row gets the deterministic fallback `go test ./...`. Target-app changes use `scenery check -o json`, `go test ./...`, and `scenery harness -o json --write`.
 
 Rely on Go's test result cache; pass `-count=1` only when explicitly measuring fresh execution or investigating nondeterminism (`scenery harness self --fresh-tests` is the explicit fresh lane; see `docs/agent-guide.md` § Self-Harness Timing).
 
