@@ -75,15 +75,18 @@ func TestLocalPathRouterRedirectKeepsControlRoutesLocal(t *testing.T) {
 		"/console/__scenery",
 		"/runtime/health",
 		"/__scenery",
-		"/assets/index.js",
-		"/site.webmanifest",
-		"/favicon.ico",
-		"/apple-touch-icon.png",
 	} {
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "http://localhost:4748"+path, nil))
 		if response.Code != http.StatusNoContent {
 			t.Errorf("%s response = %d, want %d", path, response.Code, http.StatusNoContent)
+		}
+	}
+	for _, path := range []string{"/assets/index.js", "/site.webmanifest", "/favicon.ico", "/apple-touch-icon.png"} {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "http://localhost:4748"+path, nil))
+		if response.Code != http.StatusTemporaryRedirect {
+			t.Errorf("%s response = %d, want %d", path, response.Code, http.StatusTemporaryRedirect)
 		}
 	}
 }

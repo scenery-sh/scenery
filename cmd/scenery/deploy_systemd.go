@@ -267,6 +267,7 @@ func deployTargetFrontendStatuses(target localagent.DeployTarget) []deployTarget
 			Environment:  firstNonEmpty(frontend.Environment, target.Environment),
 			Name:         frontend.Name,
 			Route:        "/" + frontend.Name + "/",
+			BasePath:     frontend.BasePath,
 			Mode:         "agent_proxy",
 			ArtifactPath: frontend.Path,
 			ReleaseID:    frontend.ReleaseID,

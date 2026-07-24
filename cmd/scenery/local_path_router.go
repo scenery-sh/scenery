@@ -122,6 +122,14 @@ func startLocalPathRouter(ctx context.Context, opts localPathRouterOptions) (fun
 		dashboardProxyFor := func(backend localagent.Backend) *httputil.ReverseProxy {
 			dashboardProxy := reverseProxyForLocalBackend(backend)
 			configureQuietLocalProxy(dashboardProxy, "dashboard backend "+backend.Addr)
+			dashboardProxy.ModifyResponse = func(resp *http.Response) error {
+				if !strings.Contains(strings.ToLower(resp.Header.Get("Content-Type")), "text/html") {
+					return nil
+				}
+				return localPathRouterRewriteResponseBody(resp, func(body []byte) []byte {
+					return localPathRouterRewriteHTMLRootRefs(body, localagent.PathModeDashboardPrefix)
+				})
+			}
 			dashboardDirector := dashboardProxy.Director
 			dashboardProxy.Director = func(req *http.Request) {
 				originalHost := req.Host
@@ -133,6 +141,7 @@ func startLocalPathRouter(ctx context.Context, opts localPathRouterOptions) (fun
 				req.Header.Set("X-Forwarded-Port", strconv.Itoa(lease.Port))
 				req.Header.Set("X-Scenery-Base-URL", baseURL)
 				req.Header.Set("X-Scenery-Public-URL", joinDashboardPublicURL(baseURL, req.URL.Path))
+				req.Header.Set("X-Scenery-Route-Prefix", localagent.PathModeDashboardPrefix)
 				if originalPath == localagent.PathModeRuntimePrefix {
 					req.URL.Path = "/__scenery"
 				}
@@ -166,7 +175,7 @@ func startLocalPathRouter(ctx context.Context, opts localPathRouterOptions) (fun
 				}
 				return
 			}
-			if requestPath == localagent.PathModeRuntimePrefix || requestPath == dashboardPrefix || strings.HasPrefix(rawPath, dashboardPrefix+"/") || localPathRouterDashboardAssetPath(requestPath) {
+			if requestPath == localagent.PathModeRuntimePrefix || requestPath == dashboardPrefix || strings.HasPrefix(rawPath, dashboardPrefix+"/") {
 				dashboardHandler.ServeHTTP(w, req)
 				return
 			}
@@ -249,7 +258,7 @@ func localPathRouterLocalOnlyPath(value string) bool {
 			return true
 		}
 	}
-	return localPathRouterDashboardAssetPath(requestPath)
+	return false
 }
 
 // dashboardBackendSource tracks the agent's current dashboard backend across
@@ -397,14 +406,6 @@ func localPathRouterCurrentSession(ctx context.Context, client *localagent.Clien
 		}
 	}
 	return fallback
-}
-
-func localPathRouterDashboardAssetPath(requestPath string) bool {
-	requestPath = cleanLocalPath(requestPath)
-	return strings.HasPrefix(requestPath, "/assets/") ||
-		requestPath == "/site.webmanifest" ||
-		requestPath == "/favicon.ico" ||
-		requestPath == "/apple-touch-icon.png"
 }
 
 func isUpgradeRequest(req *http.Request) bool {

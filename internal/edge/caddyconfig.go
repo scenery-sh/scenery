@@ -46,6 +46,7 @@ type PublicDomainSite struct {
 type StaticFrontendRoute struct {
 	Name     string
 	Root     string
+	BasePath string
 	OwnsRoot bool
 }
 
@@ -153,8 +154,9 @@ func writePublicDomainSite(b *strings.Builder, site PublicDomainSite, opts Caddy
 		b.WriteString(indentBlock(proxy, 1))
 		b.WriteString("}\n")
 	} else {
-		b.WriteString(`	@scenery_blocked path /runtime /runtime/* /dashboard /dashboard/* /console /console/* /__scenery /__scenery/*
-	handle @scenery_blocked {
+		blockedPaths := caddyBlockedPaths(frontends)
+		fmt.Fprintf(b, "\t@scenery_blocked path %s\n", strings.Join(blockedPaths, " "))
+		b.WriteString(`	handle @scenery_blocked {
 		respond "not found" 404
 	}
 	handle /api/* {
@@ -164,7 +166,9 @@ func writePublicDomainSite(b *strings.Builder, site PublicDomainSite, opts Caddy
 		for _, frontend := range frontends {
 			if frontend.OwnsRoot {
 				root = frontend
-				continue
+				if frontend.BasePath == "/" {
+					continue
+				}
 			}
 			fmt.Fprintf(b, "\tredir /%s /%s/ 308\n", frontend.Name, frontend.Name)
 			fmt.Fprintf(b, "\thandle_path /%s/* {\n", frontend.Name)
@@ -251,11 +255,35 @@ func renderableStaticFrontends(frontends []StaticFrontendRoute) []StaticFrontend
 		if _, entryPresent, err := CurrentPublishedRelease(root); err != nil || !entryPresent {
 			continue
 		}
+		basePath := strings.TrimSpace(frontend.BasePath)
+		if basePath != "/" && basePath != "/"+name {
+			continue
+		}
 		seen[name] = true
-		out = append(out, StaticFrontendRoute{Name: name, Root: root, OwnsRoot: frontend.OwnsRoot})
+		out = append(out, StaticFrontendRoute{Name: name, Root: root, BasePath: basePath, OwnsRoot: frontend.OwnsRoot})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
+}
+
+func caddyBlockedPaths(frontends []StaticFrontendRoute) []string {
+	paths := make([]string, 0, 16)
+	appendPrefix := func(prefix string) {
+		paths = append(paths, prefix, prefix+"/*")
+	}
+	for _, prefix := range localagent.PublicBlockedPathPrefixes() {
+		appendPrefix(prefix)
+	}
+	for _, frontend := range frontends {
+		if !frontend.OwnsRoot {
+			continue
+		}
+		legacyPrefix := "/" + frontend.Name
+		for _, protected := range localagent.FrontendProtectedPathPrefixes() {
+			appendPrefix(legacyPrefix + protected)
+		}
+	}
+	return paths
 }
 
 func safeStaticFrontendName(name string) bool {
@@ -291,6 +319,13 @@ func CaddyConfigForRegistry(paths localagent.Paths, targetAddr, httpTargetAddr, 
 	if err != nil {
 		return "", err
 	}
+	return CaddyConfigForDeployRegistry(deployRegistry, paths, targetAddr, httpTargetAddr, upstreamAddr, adminSocket, token), nil
+}
+
+// CaddyConfigForDeployRegistry renders a candidate registry without first
+// committing it. Deploy publish uses this to activate and probe candidate
+// routing before the durable registry changes.
+func CaddyConfigForDeployRegistry(deployRegistry localagent.DeployRegistry, paths localagent.Paths, targetAddr, httpTargetAddr, upstreamAddr, adminSocket, token string) string {
 	publicDomains := publicDomainSitesForDeployRegistry(deployRegistry)
 	_, httpPort := splitHostPort(httpTargetAddr)
 	storageDir := ""
@@ -310,7 +345,7 @@ func CaddyConfigForRegistry(paths localagent.Paths, targetAddr, httpTargetAddr, 
 		StorageDir:     storageDir,
 		HTTPListenPort: httpPort,
 		PublicDirect:   publicDirectDefault(),
-	}), nil
+	})
 }
 
 func normalizedPublicDomainSites(sites []PublicDomainSite) []PublicDomainSite {
@@ -341,6 +376,7 @@ func publicDomainSitesForDeployRegistry(registry localagent.DeployRegistry) []Pu
 			site.Frontends = append(site.Frontends, StaticFrontendRoute{
 				Name:     frontend.Name,
 				Root:     frontend.Path,
+				BasePath: frontend.BasePath,
 				OwnsRoot: frontend.Root,
 			})
 		}

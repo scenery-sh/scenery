@@ -32,7 +32,7 @@ func pathRouteManifestForLease(lease localagent.PortLease, domainHost string, pu
 		PublicRoutes:     publicRoutes,
 		PortLease:        &lease,
 	}
-	if rootFrontend = sanitizeRouteLabel(rootFrontend); rootFrontend != "" {
+	if rootFrontend = localagentLabel(rootFrontend); rootFrontend != "" {
 		manifest.Root = rootFrontend
 		manifest.Routes = map[string]localagent.RouteRecord{
 			"root": {
@@ -64,9 +64,9 @@ func devExposeRouteNames(cfg app.Config, env app.ResolvedEnv) ([]string, error) 
 		localagent.RouteDashboard: true,
 		"runtime":                 true,
 	}
-	rootFrontend := sanitizeRouteLabel(cfg.RootFrontend())
+	rootFrontend := localagentLabel(cfg.RootFrontend())
 	for name := range cfg.Frontends {
-		if label := sanitizeRouteLabel(name); label != "" {
+		if label := localagentLabel(name); label != "" {
 			if label == rootFrontend {
 				continue
 			}
@@ -76,7 +76,7 @@ func devExposeRouteNames(cfg app.Config, env app.ResolvedEnv) ([]string, error) 
 	seen := map[string]bool{}
 	var out []string
 	for _, raw := range entries {
-		name := sanitizeRouteLabel(raw)
+		name := localagentLabel(raw)
 		if name == "console" {
 			name = localagent.RouteDashboard
 		}

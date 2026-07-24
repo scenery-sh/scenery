@@ -893,7 +893,7 @@ func rejectUnknownFieldsValue(value any, typ reflect.Type, path []string, config
 			field, ok := fields[name]
 			childPath := appendJSONPath(path, name)
 			if !ok {
-				return unknownConfigFieldError(childPath, configName)
+				return unknownConfigFieldError(childPath, configName, child)
 			}
 			if err := rejectUnknownFieldsValue(child, field.Type, childPath, configName); err != nil {
 				return err
@@ -927,9 +927,12 @@ func rejectUnknownFieldsValue(value any, typ reflect.Type, path []string, config
 	return nil
 }
 
-func unknownConfigFieldError(path []string, configName string) error {
+func unknownConfigFieldError(path []string, configName string, value any) error {
 	jsonPath := strings.Join(path, ".")
 	if len(path) == 4 && path[0] == "envs" && path[2] == "deploy" && path[3] == "root" {
+		if root, _ := value.(string); strings.TrimSpace(root) == "api" {
+			return fmt.Errorf("unknown %s field %q; remove it because public / now uses the root frontend (or the default agent page when no root frontend is configured), while /api/ remains routed automatically", configName, jsonPath)
+		}
 		return fmt.Errorf("unknown %s field %q; move the frontend name to top-level \"root\"", configName, jsonPath)
 	}
 	return fmt.Errorf("unknown %s field %q", configName, jsonPath)

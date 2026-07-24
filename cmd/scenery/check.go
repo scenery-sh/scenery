@@ -61,9 +61,6 @@ func deployConfigInfoDiagnostics(appRoot string, cfg appcfg.Config) []checkDiagn
 			continue
 		}
 		frontends := len(cfg.Frontends)
-		if frontends == 1 {
-			continue
-		}
 		reason := "no frontends are configured"
 		if frontends > 1 {
 			reason = "multiple frontends are configured"

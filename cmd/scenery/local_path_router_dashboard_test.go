@@ -112,6 +112,97 @@ func TestLocalPathRouterDashboardFollowsAgentRestart(t *testing.T) {
 	}
 }
 
+func TestLocalPathRouterRootFrontendOwnsRootAssets(t *testing.T) {
+	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
+	paths, err := localagent.DefaultPaths()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := localagent.EnsureDirs(paths); err != nil {
+		t.Fatal(err)
+	}
+	fake := startFakeAgentHealthServer(t, paths.SocketPath, 111)
+
+	dashboardServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		switch req.URL.Path {
+		case "/":
+			w.Header().Set("Content-Type", "text/html")
+			fmt.Fprint(w, `<script src="/assets/dashboard.js"></script>`)
+		case "/assets/dashboard.js":
+			w.Header().Set("Content-Type", "text/javascript")
+			fmt.Fprint(w, "dashboard-js")
+		default:
+			http.NotFound(w, req)
+		}
+	}))
+	defer dashboardServer.Close()
+	dashboard := localagent.Backend{Network: "tcp", Addr: strings.TrimPrefix(dashboardServer.URL, "http://")}
+	fake.setDashboard(dashboard)
+
+	frontend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		switch req.URL.Path {
+		case "/":
+			w.Header().Set("Content-Type", "text/html")
+			fmt.Fprint(w, `<script src="/assets/app.js"></script>`)
+		case "/assets/app.js":
+			w.Header().Set("Content-Type", "text/javascript")
+			fmt.Fprint(w, "frontend-js")
+		case "/favicon.ico":
+			w.Header().Set("Content-Type", "image/x-icon")
+			fmt.Fprint(w, "frontend-icon")
+		default:
+			http.NotFound(w, req)
+		}
+	}))
+	defer frontend.Close()
+
+	port, err := freeLoopbackPort()
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := localagent.Session{
+		SessionID: "root-assets",
+		AppRoot:   t.TempDir(),
+		StateRoot: t.TempDir(),
+		RouteManifest: localagent.RouteManifest{
+			Mode:    localagent.RouteModePath,
+			BaseURL: fmt.Sprintf("http://localhost:%d", port),
+			Routes: map[string]localagent.RouteRecord{
+				"root": {
+					Name: "root", Kind: "frontend", Path: "/", Backend: "web",
+				},
+			},
+		},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cleanup, err := startLocalPathRouter(ctx, localPathRouterOptions{
+		Session:          session,
+		PortLease:        localagent.PortLease{Port: port, URL: session.RouteManifest.BaseURL},
+		EdgeToken:        "test-token",
+		UpstreamAddr:     strings.TrimPrefix(frontend.URL, "http://"),
+		DashboardBackend: dashboard,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+
+	baseURL := fmt.Sprintf("http://127.0.0.1:%d", port)
+	for path, want := range map[string]string{
+		"/":                            "/assets/app.js",
+		"/assets/app.js":               "frontend-js",
+		"/favicon.ico":                 "frontend-icon",
+		"/console/":                    "/console/assets/dashboard.js",
+		"/console/assets/dashboard.js": "dashboard-js",
+	} {
+		status, body := localPathRouterTestGet(t, baseURL+path)
+		if status != http.StatusOK || !strings.Contains(body, want) {
+			t.Fatalf("%s = %d %q, want 200 containing %q", path, status, body, want)
+		}
+	}
+}
+
 // TestLocalPathRouterUpstreamDialRetryBridgesRestart proves a briefly-down
 // agent router upstream is bridged by the bounded dial retry instead of
 // answering 502 immediately.

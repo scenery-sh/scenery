@@ -3,6 +3,7 @@ package agent
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -72,5 +73,40 @@ func TestLoadDeployRegistryMigratesLegacyWithoutLosingOwnership(t *testing.T) {
 	}
 	if _, err := LoadDeployRegistry(path); err != nil {
 		t.Fatalf("idempotent reload: %v", err)
+	}
+}
+
+func TestLoadDeployRegistryMigratesMissingPublishedBasePath(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "deploy.json")
+	registry := EmptyDeployRegistry()
+	registry.Targets = []DeployTarget{{
+		Domain: "onlv.dev", AppRoot: "/repo/onlv", Enabled: true,
+		CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
+		Frontends: []DeployTargetFrontend{{Name: "web", Path: "/artifacts/web/current", Root: true}},
+	}}
+	if err := WriteDeployRegistry(path, registry); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data = []byte(strings.Replace(string(data), "          \"base_path\": \"/web\",\n", "", 1))
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := LoadDeployRegistry(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Targets[0].Frontends[0].BasePath != "/web" {
+		t.Fatalf("base path = %q", got.Targets[0].Frontends[0].BasePath)
+	}
+	persisted, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(persisted), `"base_path": "/web"`) {
+		t.Fatalf("migrated base path was not persisted:\n%s", persisted)
 	}
 }

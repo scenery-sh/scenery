@@ -1109,6 +1109,14 @@ func startCaddyEdge(caddyBin string, paths localagent.Paths, publicAddr, targetA
 }
 
 func edgeReloadFromRegistry(paths localagent.Paths, state localagent.EdgeState) error {
+	registry, err := localagent.LoadDeployRegistry(paths.DeployPath)
+	if err != nil {
+		return err
+	}
+	return edgeReloadForDeployRegistry(paths, state, registry, true)
+}
+
+func edgeReloadForDeployRegistry(paths localagent.Paths, state localagent.EdgeState, registry localagent.DeployRegistry, restartOnReloadFailure bool) error {
 	caddyBin, err := resolveCaddyBinary(context.Background(), paths, true)
 	if err != nil {
 		return err
@@ -1121,10 +1129,7 @@ func edgeReloadFromRegistry(paths localagent.Paths, state localagent.EdgeState) 
 	httpTargetAddr := defaultEdgeHTTPTargetAddr
 	upstreamAddr := firstNonEmpty(state.UpstreamAddr, localagent.RouterAddrFromEnv())
 	adminSocket := firstNonEmpty(state.AdminSocket, filepath.Join(paths.RunDir, "caddy-admin.sock"))
-	config, err := edgelifecycle.CaddyConfigForRegistry(paths, targetAddr, httpTargetAddr, upstreamAddr, adminSocket, token)
-	if err != nil {
-		return err
-	}
+	config := edgelifecycle.CaddyConfigForDeployRegistry(registry, paths, targetAddr, httpTargetAddr, upstreamAddr, adminSocket, token)
 	nextPath := paths.EdgeConfigPath + ".next"
 	if err := os.MkdirAll(filepath.Dir(nextPath), 0o700); err != nil {
 		return err
@@ -1140,7 +1145,10 @@ func edgeReloadFromRegistry(paths localagent.Paths, state localagent.EdgeState) 
 	}
 	if err := reloadCaddyEdgeConfigFunc(caddyBin, nextPath, adminSocket); err != nil {
 		_ = os.Remove(nextPath)
-		return edgeRestart(edgeOptions{})
+		if restartOnReloadFailure {
+			return edgeRestart(edgeOptions{})
+		}
+		return err
 	}
 	if err := os.Rename(nextPath, paths.EdgeConfigPath); err != nil {
 		return err

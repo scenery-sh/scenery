@@ -20,7 +20,7 @@
       "const": "scenery.deploy.publish"
     },
     "schema_revision": {
-      "const": "sha256:e955649b692bd4fb98e3f5df375f74a62d447bd4e8818f2f55713214051a57c0"
+      "const": "sha256:4f2e0fe237c866ac904547fa7bea4d9aff734d66ad8513602ef1e97ed6960c01"
     },
 	"environment": {
 	  "type": "string",
@@ -70,6 +70,7 @@
       "required": [
         "name",
         "route",
+        "base_path",
         "mode",
         "release_id",
         "artifact_path",
@@ -85,6 +86,10 @@
         "route": {
           "type": "string",
           "minLength": 1
+        },
+        "base_path": {
+          "type": "string",
+          "pattern": "^/[a-z0-9._-]*$"
         },
         "mode": {
           "enum": [

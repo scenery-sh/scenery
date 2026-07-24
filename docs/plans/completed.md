@@ -11,6 +11,21 @@ historical records. Do not refresh their review dates or rewrite them as current
 contract prose. Record later guidance here or in the owning current contract;
 use stale knowledge metadata to flag a known contradiction.
 
+## Root Frontend Hardening
+
+- Status: completed
+- Owner: scenery runtime / edge / CLI
+- Completed: 2026-07-24
+- Quality: B
+- ExecPlan: [0144 Root Frontend Hardening](0144-root-frontend-hardening.md)
+
+Made root frontend publication and routing coherent across upgrades, rollback,
+localhost production assets, dev-domain exposure narrowing, agent-proxied
+deploys, and static Caddy sites. Publication records now carry their actual
+build base, candidate routing is probed before registry commit, the dashboard
+owns only `/console/*`, and agent/Caddy protected-path behavior shares one
+contract.
+
 ## Root Frontend
 
 - Status: completed
@@ -25,6 +40,10 @@ deploy targets, and published static edge sites. Root SPA deep links now use a
 lowest-precedence catch-all while API, runtime, dashboard, and sibling
 frontend mounts retain precedence; ONLV migrated `next` and passed matched
 runtime acceptance.
+
+Post-completion review (2026-07-24) found follow-up defects the acceptance did
+not cover; they were resolved in
+[0144 Root Frontend Hardening](0144-root-frontend-hardening.md).
 
 ## Tauri 2.0 Desktop Shells for Configured Frontends
 

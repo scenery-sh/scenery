@@ -39,12 +39,13 @@
     },
     "published_frontend": {
       "type": "object",
-      "required": ["name", "path"],
+      "required": ["name", "path", "base_path"],
       "additionalProperties": false,
       "properties": {
 		"environment": { "type": "string" },
 		"name": { "type": "string", "minLength": 1 },
         "path": { "type": "string", "minLength": 1 },
+        "base_path": { "type": "string", "pattern": "^/[a-z0-9._-]*$" },
         "root": { "type": "boolean" },
         "release_id": { "type": "string" },
         "published_at": { "type": "string", "format": "date-time" }

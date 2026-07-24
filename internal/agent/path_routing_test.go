@@ -90,6 +90,51 @@ func TestPathRouteManifestRootFrontendIsCatchAllWithoutNamedMount(t *testing.T) 
 	}
 }
 
+func TestProtectedRootFrontendLegacyPrefixUsesSegmentBoundary(t *testing.T) {
+	t.Parallel()
+
+	record := RouteRecord{Name: "root", Kind: "frontend", Path: "/", Backend: "web"}
+	for path, want := range map[string]bool{
+		"/web/api/users":        true,
+		"/web/runtime":          true,
+		"/web/__scenery/config": true,
+		"/webapi/users":         false,
+		"/webruntime":           false,
+		"/web__scenery/config":  false,
+		"/webapp/settings":      false,
+		"/projects/42":          false,
+	} {
+		if got := isProtectedFrontendRoutePath(path, record); got != want {
+			t.Errorf("%s protected = %v, want %v", path, got, want)
+		}
+	}
+}
+
+func TestPublicPathExposureUsesBestUnfilteredRoute(t *testing.T) {
+	t.Parallel()
+
+	manifest := RouteManifest{
+		PublicRoutes: []string{"root"},
+		Routes: map[string]RouteRecord{
+			"root":    {Name: "root", Kind: "frontend", Path: "/", Backend: "web"},
+			"admin":   {Name: "admin", Kind: "frontend", Path: "/admin/", Backend: "admin"},
+			"console": {Name: RouteDashboard, Kind: "scenery-console", Path: "/console/", Backend: RouteDashboard},
+		},
+	}
+	for path, want := range map[string]bool{
+		"/":                 true,
+		"/projects/42":      true,
+		"/admin/":           false,
+		"/admin/settings":   false,
+		"/console/":         false,
+		"/console/services": false,
+	} {
+		if got := publicPathExposed(manifest, path); got != want {
+			t.Errorf("%s exposed = %v, want %v", path, got, want)
+		}
+	}
+}
+
 func TestPathProxyOptionsPreserveFrontendPrefix(t *testing.T) {
 	t.Parallel()
 

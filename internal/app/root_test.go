@@ -444,6 +444,11 @@ func TestDiscoverRootRejectsInvalidDeployConfig(t *testing.T) {
 			want:   `unknown .scenery.json field "envs.production.deploy.root"; move the frontend name to top-level "root"`,
 		},
 		{
+			name:   "removed api deploy root",
+			config: `{"name":"deployapp","frontends":{"web":{"root":"web"}},"envs":{"local":{"default":true},"production":{"domain":"onlv.dev","deploy":{"root":"api"}}}}`,
+			want:   `unknown .scenery.json field "envs.production.deploy.root"; remove it because public / now uses the root frontend (or the default agent page when no root frontend is configured), while /api/ remains routed automatically`,
+		},
+		{
 			name:   "unsafe ssh target",
 			config: `{"name":"deployapp","envs":{"local":{"default":true},"production":{"deploy":{"ssh":["-oProxyCommand=bad"]}}}}`,
 			want:   `envs.production.deploy.ssh[0] "-oProxyCommand=bad" must be a safe OpenSSH host alias`,

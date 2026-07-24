@@ -25,3 +25,12 @@ func TestPathRouteManifestForLeaseRegistersRootFrontendOnce(t *testing.T) {
 		t.Fatalf("public app URL = %q", got)
 	}
 }
+
+func TestPathRouteManifestRootFrontendUsesBackendLabelSanitizer(t *testing.T) {
+	t.Parallel()
+
+	manifest := pathRouteManifestForLease(localagent.PortLease{URL: "http://localhost:4748"}, "", nil, "web@2")
+	if got, want := manifest.Routes["root"].Backend, localagentLabel("web@2"); got != want {
+		t.Fatalf("root backend = %q, want %q", got, want)
+	}
+}

@@ -147,3 +147,21 @@ func TestServerPublicDeployRoutesByHostWithContainment(t *testing.T) {
 		t.Fatalf("down status=%d body=%q", status, body)
 	}
 }
+
+func TestPublicRouteManifestDropsRemovedNonFrontendRootService(t *testing.T) {
+	t.Parallel()
+
+	session := Session{
+		Backends: map[string]Backend{
+			RouteAPI: {Network: "tcp", Addr: "127.0.0.1:4000"},
+			"web":    {Network: "tcp", Addr: "127.0.0.1:5173"},
+		},
+	}
+	manifest := publicRouteManifest(session, DeployTarget{Domain: "app.example.com", RootService: RouteAPI})
+	if _, ok := manifest.Routes["root"]; ok {
+		t.Fatalf("removed non-frontend root service produced a root route: %+v", manifest.Routes)
+	}
+	if _, ok := manifest.Routes[RouteAPI]; !ok {
+		t.Fatalf("API route missing: %+v", manifest.Routes)
+	}
+}

@@ -159,6 +159,7 @@ type deployTargetFrontendStatus struct {
 	Environment   string `json:"environment,omitempty"`
 	Name          string `json:"name"`
 	Route         string `json:"route"`
+	BasePath      string `json:"base_path"`
 	Mode          string `json:"mode"`
 	ArtifactPath  string `json:"artifact_path,omitempty"`
 	ReleaseID     string `json:"release_id,omitempty"`
@@ -189,6 +190,7 @@ var (
 	deployEnsurePublicEdgeFunc           = ensurePublicDeployEdge
 	deployPublicEdgeRetryDelay           = 100 * time.Millisecond
 	deployRefreshEdgeAfterMutationFunc   = deployRefreshEdgeAfterMutation
+	deployActivateRegistryCandidateFunc  = deployActivateRegistryCandidate
 	deployRunUpDetachFunc                = deployRunUpDetach
 	deployPortListenerFunc               = deploydiag.DefaultPortListener
 	deployPrivilegedHelperExecutableFunc = os.Executable
@@ -1027,6 +1029,17 @@ func deployRefreshEdgeAfterMutation(paths localagent.Paths) error {
 		return nil
 	}
 	return edgeReloadFromRegistry(paths, state)
+}
+
+func deployActivateRegistryCandidate(paths localagent.Paths, registry localagent.DeployRegistry) error {
+	state, err := localagent.LoadEdgeState(paths.EdgeStatePath)
+	if err != nil {
+		return err
+	}
+	if !localagent.EdgeStateRunning(state) {
+		return fmt.Errorf("managed edge is not running")
+	}
+	return edgeReloadForDeployRegistry(paths, state, registry, false)
 }
 
 func deployPrivilegedHelperInstall(paths localagent.Paths, helperVersion string) error {

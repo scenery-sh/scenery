@@ -48,7 +48,7 @@ func TestCaddyConfigRendersStaticFrontendRoutes(t *testing.T) {
 		PublicDomains: []PublicDomainSite{{
 			Domain: "platform.onegraph.dev",
 			Frontends: []StaticFrontendRoute{
-				{Name: "platform", Root: current, OwnsRoot: true},
+				{Name: "platform", Root: current, BasePath: "/", OwnsRoot: true},
 			},
 		}},
 		HTTPListenPort: "19080",
@@ -65,6 +65,9 @@ func TestCaddyConfigRendersStaticFrontendRoutes(t *testing.T) {
 		"header @fe_platform_revalidate Cache-Control \"no-cache\"",
 		"file_server",
 		"header_up X-Scenery-Public-Edge 1",
+		"/platform/api /platform/api/*",
+		"/platform/runtime /platform/runtime/*",
+		"/platform/__scenery /platform/__scenery/*",
 	} {
 		if !strings.Contains(config, want) {
 			t.Fatalf("static Caddy config missing %q:\n%s", want, config)
@@ -82,6 +85,35 @@ func TestCaddyConfigRendersStaticFrontendRoutes(t *testing.T) {
 	}
 }
 
+func TestCaddyConfigPreservesNamedMountForRootArtifactBuiltWithNamedBase(t *testing.T) {
+	t.Parallel()
+
+	artifacts := t.TempDir()
+	current := publishTestFrontend(t, artifacts, "microgrid-platform", "platform")
+	config := CaddyConfig(CaddyConfigOptions{
+		ListenAddr:  "127.0.0.1:19443",
+		Upstream:    "127.0.0.1:9440",
+		AdminSocket: "/tmp/scenery-caddy.sock",
+		Token:       "secret-token",
+		PublicDomains: []PublicDomainSite{{
+			Domain: "platform.onegraph.dev",
+			Frontends: []StaticFrontendRoute{
+				{Name: "platform", Root: current, BasePath: "/platform", OwnsRoot: true},
+			},
+		}},
+	})
+	for _, want := range []string{
+		"redir /platform /platform/ 308",
+		"handle_path /platform/* {",
+		"\thandle {\n",
+		"root * " + current,
+	} {
+		if !strings.Contains(config, want) {
+			t.Fatalf("named-base root config missing %q:\n%s", want, config)
+		}
+	}
+}
+
 func TestCaddyConfigStaticFrontendWithoutRootKeepsAgentCatchAll(t *testing.T) {
 	t.Parallel()
 	artifacts := t.TempDir()
@@ -93,7 +125,7 @@ func TestCaddyConfigStaticFrontendWithoutRootKeepsAgentCatchAll(t *testing.T) {
 		Token:       "secret-token",
 		PublicDomains: []PublicDomainSite{{
 			Domain:    "app.example.com",
-			Frontends: []StaticFrontendRoute{{Name: "web", Root: current}},
+			Frontends: []StaticFrontendRoute{{Name: "web", Root: current, BasePath: "/web"}},
 		}},
 	})
 	if got := strings.Count(config, "X-Scenery-Public-Edge 1"); got != 2 {
@@ -111,9 +143,9 @@ func TestCaddyConfigSkipsInvalidOrIncompleteStaticFrontends(t *testing.T) {
 		PublicDomains: []PublicDomainSite{{
 			Domain: "app.example.com",
 			Frontends: []StaticFrontendRoute{
-				{Name: "web", Root: filepath.Join(t.TempDir(), "missing", "current")},
-				{Name: "../escape", Root: "/tmp"},
-				{Name: "api", Root: "/tmp"},
+				{Name: "web", Root: filepath.Join(t.TempDir(), "missing", "current"), BasePath: "/web"},
+				{Name: "../escape", Root: "/tmp", BasePath: "/../escape"},
+				{Name: "api", Root: "/tmp", BasePath: "/api"},
 			},
 		}},
 	})
@@ -156,7 +188,7 @@ func TestPublicDomainSitesForDeployRegistryCarriesFrontends(t *testing.T) {
 	sites := publicDomainSitesForDeployRegistry(localagent.DeployRegistry{
 		Targets: []localagent.DeployTarget{
 			{Domain: "a.dev", Enabled: true, Frontends: []localagent.DeployTargetFrontend{
-				{Name: "web", Path: "/x/current", Root: true},
+				{Name: "web", Path: "/x/current", BasePath: "/", Root: true},
 			}},
 			{Domain: "b.dev", Enabled: true},
 		},
@@ -197,7 +229,7 @@ func TestCaddyValidateGeneratedStaticConfig(t *testing.T) {
 			Token:       "secret-token",
 			PublicDomains: []PublicDomainSite{{
 				Domain:    "platform.onegraph.dev",
-				Frontends: []StaticFrontendRoute{{Name: "platform", Root: current, OwnsRoot: true}},
+				Frontends: []StaticFrontendRoute{{Name: "platform", Root: current, BasePath: "/", OwnsRoot: true}},
 			}},
 			StorageDir:     t.TempDir(),
 			HTTPListenPort: "19080",
@@ -252,7 +284,7 @@ func TestCaddyStaticFrontendIntegration(t *testing.T) {
 }
 
 http://127.0.0.1:%d {
-	@scenery_blocked path /runtime /runtime/* /dashboard /dashboard/* /console /console/* /__scenery /__scenery/*
+	@scenery_blocked path %s
 	handle @scenery_blocked {
 		respond "not found" 404
 	}
@@ -262,8 +294,9 @@ http://127.0.0.1:%d {
 %s	}
 }
 `, adminSocket, port,
+		strings.Join(caddyBlockedPaths([]StaticFrontendRoute{{Name: "platform", Root: current, BasePath: "/", OwnsRoot: true}}), " "),
 		indentBlock(proxy, 2),
-		staticFrontendBody(StaticFrontendRoute{Name: "platform", Root: current}))
+		staticFrontendBody(StaticFrontendRoute{Name: "platform", Root: current, BasePath: "/"}))
 	configPath := filepath.Join(dir, "Caddyfile")
 	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
 		t.Fatal(err)
@@ -343,7 +376,7 @@ http://127.0.0.1:%d {
 	if resp := get("GET", "/api/things", nil); resp.StatusCode != 200 || body(resp) != "agent:/api/things" {
 		t.Fatalf("API proxy: %d", resp.StatusCode)
 	}
-	for _, blocked := range []string{"/runtime", "/dashboard/x", "/__scenery/config", "/console"} {
+	for _, blocked := range []string{"/runtime", "/dashboard/x", "/__scenery/config", "/console", "/platform/api/x", "/platform/runtime", "/platform/__scenery/config"} {
 		if resp := get("GET", blocked, nil); resp.StatusCode != 404 {
 			t.Fatalf("blocked path %s must 404, got %d", blocked, resp.StatusCode)
 		}

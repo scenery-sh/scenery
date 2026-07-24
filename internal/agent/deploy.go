@@ -43,6 +43,7 @@ type DeployTargetFrontend struct {
 	Environment string    `json:"environment,omitempty"`
 	Name        string    `json:"name"`
 	Path        string    `json:"path"`
+	BasePath    string    `json:"base_path"`
 	Root        bool      `json:"root,omitempty"`
 	ReleaseID   string    `json:"release_id,omitempty"`
 	PublishedAt time.Time `json:"published_at,omitempty"`
@@ -73,6 +74,7 @@ func LoadDeployRegistry(path string) (DeployRegistry, error) {
 	if registry.ACMECA == "" {
 		registry.ACMECA = "production"
 	}
+	migratedBasePaths := false
 	for i := range registry.Targets {
 		registry.Targets[i].Domain = strings.ToLower(strings.TrimSpace(registry.Targets[i].Domain))
 		registry.Targets[i].AppRoot = filepath.Clean(strings.TrimSpace(registry.Targets[i].AppRoot))
@@ -81,11 +83,21 @@ func LoadDeployRegistry(path string) (DeployRegistry, error) {
 			frontend := &registry.Targets[i].Frontends[j]
 			frontend.Name = strings.TrimSpace(frontend.Name)
 			frontend.Path = filepath.Clean(strings.TrimSpace(frontend.Path))
+			missingBasePath := strings.TrimSpace(frontend.BasePath) == ""
+			frontend.BasePath = normalizePublishedFrontendBasePath(frontend.Name, frontend.BasePath)
+			if missingBasePath {
+				migratedBasePaths = true
+			}
 		}
 	}
 	sortDeployTargets(registry.Targets)
 	if registry.Targets == nil {
 		registry.Targets = []DeployTarget{}
+	}
+	if migratedBasePaths {
+		if err := WriteDeployRegistry(path, registry); err != nil {
+			return DeployRegistry{}, err
+		}
 	}
 	return registry, nil
 }
@@ -98,6 +110,12 @@ func WriteDeployRegistry(path string, registry DeployRegistry) error {
 	if registry.Targets == nil {
 		registry.Targets = []DeployTarget{}
 	}
+	for i := range registry.Targets {
+		for j := range registry.Targets[i].Frontends {
+			frontend := &registry.Targets[i].Frontends[j]
+			frontend.BasePath = normalizePublishedFrontendBasePath(frontend.Name, frontend.BasePath)
+		}
+	}
 	sortDeployTargets(registry.Targets)
 	data, err := json.MarshalIndent(registry, "", "  ")
 	if err != nil {
@@ -105,6 +123,18 @@ func WriteDeployRegistry(path string, registry DeployRegistry) error {
 	}
 	data = append(data, '\n')
 	return atomicWriteFile(path, data, 0o600)
+}
+
+// normalizePublishedFrontendBasePath records the path baked into one
+// published artifact. Publications created before this field existed were
+// always built at /<name>; persisting that fact once keeps edge re-renders
+// coherent until the next publish replaces it with an explicit current base.
+func normalizePublishedFrontendBasePath(name, basePath string) string {
+	basePath = strings.TrimSpace(basePath)
+	if basePath == "/" {
+		return "/"
+	}
+	return "/" + strings.Trim(strings.TrimSpace(name), "/")
 }
 
 func sortDeployTargets(targets []DeployTarget) {

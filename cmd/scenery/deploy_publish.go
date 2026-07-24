@@ -39,6 +39,7 @@ type deployPublishResponse struct {
 type deployPublishFrontend struct {
 	Name         string `json:"name"`
 	Route        string `json:"route"`
+	BasePath     string `json:"base_path"`
 	Mode         string `json:"mode"`
 	ReleaseID    string `json:"release_id"`
 	ArtifactPath string `json:"artifact_path"`
@@ -124,6 +125,7 @@ func runDeployPublish(stdout io.Writer, opts deployOptions) error {
 			Environment: env.Name,
 			Name:        name,
 			Path:        record.CurrentPath,
+			BasePath:    basePath,
 			Root:        rootService == name,
 			ReleaseID:   record.ReleaseID,
 			PublishedAt: time.Now().UTC(),
@@ -131,6 +133,7 @@ func runDeployPublish(stdout io.Writer, opts deployOptions) error {
 		results = append(results, deployPublishFrontend{
 			Name:         name,
 			Route:        route,
+			BasePath:     basePath,
 			Mode:         "caddy_static",
 			ReleaseID:    record.ReleaseID,
 			ArtifactPath: record.CurrentPath,
@@ -153,9 +156,6 @@ func runDeployPublish(stdout io.Writer, opts deployOptions) error {
 	}); err != nil {
 		return err
 	}
-	if err := localagent.WriteDeployRegistry(paths.DeployPath, registry); err != nil {
-		return err
-	}
 	rollback := func(cause error) error {
 		var errs []string
 		for _, frontend := range published {
@@ -167,10 +167,10 @@ func runDeployPublish(stdout io.Writer, opts deployOptions) error {
 				errs = append(errs, err.Error())
 			}
 		}
-		if err := localagent.WriteDeployRegistry(paths.DeployPath, previousRegistry); err != nil {
+		if err := deployActivateRegistryCandidateFunc(paths, previousRegistry); err != nil {
 			errs = append(errs, err.Error())
 		}
-		if err := deployRefreshEdgeAfterMutationFunc(paths); err != nil {
+		if err := localagent.WriteDeployRegistry(paths.DeployPath, previousRegistry); err != nil {
 			errs = append(errs, err.Error())
 		}
 		if len(errs) > 0 {
@@ -178,7 +178,7 @@ func runDeployPublish(stdout io.Writer, opts deployOptions) error {
 		}
 		return fmt.Errorf("%w; rolled back to the previous publication", cause)
 	}
-	if err := deployRefreshEdgeAfterMutationFunc(paths); err != nil {
+	if err := deployActivateRegistryCandidateFunc(paths, registry); err != nil {
 		return rollback(fmt.Errorf("reload managed edge: %w", err))
 	}
 	resp := deployPublishResponse{
@@ -193,6 +193,9 @@ func runDeployPublish(stdout io.Writer, opts deployOptions) error {
 	resp.Probe = deployPublishProbe(paths, domain)
 	if strings.HasPrefix(resp.Probe.Document, "failed") {
 		return rollback(fmt.Errorf("public document probe %s", resp.Probe.Document))
+	}
+	if err := localagent.WriteDeployRegistry(paths.DeployPath, registry); err != nil {
+		return rollback(fmt.Errorf("commit deploy registry: %w", err))
 	}
 	if opts.JSON {
 		return writeCLIJSON(stdout, resp)

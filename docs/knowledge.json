@@ -43,6 +43,18 @@
       "tags": ["plans", "execplans", "frontends", "routing", "edge", "deploy", "app-config"]
     },
     {
+      "path": "docs/plans/0144-root-frontend-hardening.md",
+      "title": "Root Frontend Hardening: Fix Defects Found In Post-Completion Review",
+      "owner": "scenery runtime / edge / CLI",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-07-24",
+      "review_after": "2026-08-23",
+      "summary": "Completed ExecPlan making root frontend publication and routing coherent across upgrades and rollback through explicit artifact base paths, pre-commit candidate probing, localhost dashboard asset namespacing, segment-boundary containment, exposure narrowing, protected-path parity, and exact deploy.root migration guidance.",
+      "tags": ["plans", "execplans", "frontends", "routing", "edge", "deploy", "app-config", "review"]
+    },
+    {
       "path": "docs/plans/0142-tauri-desktop.md",
       "title": "Tauri 2.0 Desktop Shells for Configured Frontends",
       "owner": "scenery runtime / CLI",
