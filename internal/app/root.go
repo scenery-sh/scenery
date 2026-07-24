@@ -26,6 +26,7 @@ type Config struct {
 	ConfigPath    string                    `json:"-"`
 	Name          string                    `json:"name"`
 	ID            string                    `json:"id"`
+	Root          string                    `json:"root,omitempty"`
 	Build         BuildConfig               `json:"build"`
 	Frontends     map[string]FrontendConfig `json:"frontends"`
 	Envs          map[string]EnvConfig      `json:"envs"`
@@ -45,6 +46,7 @@ func (c Config) MarshalJSON() ([]byte, error) {
 	type configJSON struct {
 		Name          string                    `json:"name"`
 		ID            string                    `json:"id"`
+		Root          string                    `json:"root,omitempty"`
 		Build         BuildConfig               `json:"build"`
 		Frontends     map[string]FrontendConfig `json:"frontends"`
 		Envs          map[string]EnvConfig      `json:"envs"`
@@ -58,7 +60,7 @@ func (c Config) MarshalJSON() ([]byte, error) {
 		Observability ObservabilityConfig       `json:"observability"`
 	}
 	out := configJSON{
-		Name: c.Name, ID: c.ID, Build: c.Build, Frontends: c.Frontends, Envs: c.Envs,
+		Name: c.Name, ID: c.ID, Root: c.Root, Build: c.Build, Frontends: c.Frontends, Envs: c.Envs,
 		Watch: c.Watch, Dev: c.Dev, Generators: c.Generators,
 		Database: c.Database, Validation: c.Validation, Auth: c.Auth,
 		Observability: c.Observability,
@@ -78,6 +80,21 @@ func (c Config) AppID() string {
 		return c.ID
 	}
 	return c.Name
+}
+
+// RootFrontend returns the frontend that owns / across local development and
+// deployment. A single configured frontend owns / by default.
+func (c Config) RootFrontend() string {
+	if root := strings.TrimSpace(c.Root); root != "" {
+		return root
+	}
+	if len(c.Frontends) != 1 {
+		return ""
+	}
+	for name := range c.Frontends {
+		return name
+	}
+	return ""
 }
 
 func (c Config) SourcePath(appRoot string) string {
@@ -232,8 +249,7 @@ type EnvLibraryConfig struct {
 }
 
 type EnvDeployConfig struct {
-	Root string   `json:"root,omitempty"`
-	SSH  []string `json:"ssh,omitempty"`
+	SSH []string `json:"ssh,omitempty"`
 }
 
 type ResolvedEnv struct {
@@ -542,6 +558,20 @@ func (c Config) validateWatch() error {
 }
 
 func (c Config) validateFrontends() error {
+	if root := strings.TrimSpace(c.Root); root != "" {
+		if _, ok := c.Frontends[root]; !ok {
+			names := make([]string, 0, len(c.Frontends))
+			for name := range c.Frontends {
+				names = append(names, name)
+			}
+			sort.Strings(names)
+			available := strings.Join(names, ", ")
+			if available == "" {
+				available = "none configured"
+			}
+			return fmt.Errorf("root %q must name a configured frontend (one of: %s)", root, available)
+		}
+	}
 	for name, frontend := range c.Frontends {
 		if frontend.Tauri == nil {
 			continue
@@ -655,17 +685,6 @@ func (c Config) validateEnvs() error {
 		}
 		if len(env.Deploy.SSH) > 0 && !validDeploySSHAppID(c.AppID()) {
 			return fmt.Errorf("app id %q must start with a lowercase letter or number and use only lowercase letters, numbers, dots, underscores, or dashes for SSH deployment", c.AppID())
-		}
-		root := strings.TrimSpace(env.Deploy.Root)
-		switch root {
-		case "":
-		case "console", "dashboard", "runtime", "__scenery":
-			return fmt.Errorf("envs.%s.deploy.root %q is reserved by Scenery", name, root)
-		case "api":
-		default:
-			if _, ok := c.Frontends[root]; !ok {
-				return fmt.Errorf("envs.%s.deploy.root %q must be \"api\" or a configured frontend", name, root)
-			}
 		}
 	}
 	if defaults != 1 {
@@ -910,6 +929,9 @@ func rejectUnknownFieldsValue(value any, typ reflect.Type, path []string, config
 
 func unknownConfigFieldError(path []string, configName string) error {
 	jsonPath := strings.Join(path, ".")
+	if len(path) == 4 && path[0] == "envs" && path[2] == "deploy" && path[3] == "root" {
+		return fmt.Errorf("unknown %s field %q; move the frontend name to top-level \"root\"", configName, jsonPath)
+	}
 	return fmt.Errorf("unknown %s field %q", configName, jsonPath)
 }
 

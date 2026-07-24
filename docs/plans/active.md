@@ -7,11 +7,6 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
-- [0143 Root Frontend](0143-root-frontend.md)
-  - Status: draft
-  - Owner: scenery runtime / edge / CLI
-  - Created: 2026-07-23
-  - Focus: top-level `.scenery.json` `root` names one frontend served at `/` on every surface (local base URL, dev domains, agent-proxied deploy targets, published static edge); the root frontend's `/<name>/` mount and `envs.*.deploy.root` are removed; root record becomes a lowest-precedence catch-all so SPA deep links resolve.
 - [0101 Public Deploy Edge](0101-public-deploy-edge.md)
   - Status: active
   - Owner: scenery runtime / edge

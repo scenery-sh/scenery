@@ -180,7 +180,7 @@ func (s *Server) handlePublicPathRoute(w http.ResponseWriter, req *http.Request,
 			http.Redirect(w, req, record.Path, http.StatusMovedPermanently)
 			return
 		}
-		if isProtectedFrontendPath(strings.TrimPrefix(requestPath, strings.TrimSuffix(record.Path, "/"))) {
+		if isProtectedFrontendRoutePath(requestPath, record) {
 			http.NotFound(w, req)
 			return
 		}
@@ -214,7 +214,7 @@ func publicRouteManifest(session Session, target DeployTarget) RouteManifest {
 	}
 	for name := range session.Backends {
 		name = normalizeRouteName(name)
-		if !isFrontendRouteName(name) {
+		if !isFrontendRouteName(name) || name == root {
 			continue
 		}
 		routePath := "/" + name + "/"
@@ -500,6 +500,22 @@ func isProtectedFrontendPath(value string) bool {
 	return false
 }
 
+func isProtectedFrontendRoutePath(requestPath string, record RouteRecord) bool {
+	relative := strings.TrimPrefix(requestPath, strings.TrimSuffix(record.Path, "/"))
+	if isProtectedFrontendPath(relative) {
+		return true
+	}
+	// A root frontend no longer has /<name>/ as a mount, but keep its former
+	// control-path shape contained instead of letting it reach the frontend.
+	if normalizeRoutePath(record.Path) == "/" {
+		legacyPrefix := "/" + normalizeRouteName(record.Backend)
+		if stripped := strings.TrimPrefix(relative, legacyPrefix); stripped != relative {
+			return isProtectedFrontendPath(stripped)
+		}
+	}
+	return false
+}
+
 func shouldUseSPAFallback(req *http.Request) bool {
 	if req == nil || req.URL == nil {
 		return false
@@ -641,7 +657,7 @@ func (s *Server) handlePathModeRoute(w http.ResponseWriter, req *http.Request, s
 		_, _ = fmt.Fprintf(w, "unknown Scenery route %s\n\nAvailable routes:\n%s", requestPath, pathRouteList(session.RouteManifest))
 		return
 	}
-	if record.Name == "root" {
+	if record.Name == "root" && record.Kind != "frontend" {
 		s.handlePathModeRoot(w, req, session)
 		return
 	}
@@ -672,7 +688,7 @@ func (s *Server) handlePathModeRoute(w http.ResponseWriter, req *http.Request, s
 			http.Redirect(w, req, record.Path, http.StatusMovedPermanently)
 			return
 		}
-		if isProtectedFrontendPath(strings.TrimPrefix(requestPath, strings.TrimSuffix(record.Path, "/"))) {
+		if isProtectedFrontendRoutePath(requestPath, record) {
 			http.NotFound(w, req)
 			return
 		}
@@ -746,7 +762,11 @@ func routeForPath(manifest RouteManifest, requestPath string) (RouteRecord, bool
 	bestLen := -1
 	for _, record := range manifest.Routes {
 		if record.Name == "root" {
-			if requestPath == "/" && bestLen < 1 {
+			if record.Kind == "frontend" {
+				if bestLen < 0 {
+					best, bestLen = record, 0
+				}
+			} else if requestPath == "/" && bestLen < 1 {
 				best, bestLen = record, 1
 			}
 			continue

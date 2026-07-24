@@ -307,7 +307,7 @@ func runDeployEnable(stdout io.Writer, opts deployOptions) error {
 	if err != nil {
 		return err
 	}
-	rootService := deployRootService(cfg, env)
+	rootService := deployRootService(cfg)
 	if err := upsertDeployTarget(&registry, localagent.DeployTarget{
 		Environment: env.Name,
 		Domain:      domain,
@@ -690,21 +690,8 @@ func upsertDeployTarget(registry *localagent.DeployRegistry, next localagent.Dep
 	return nil
 }
 
-func deployRootService(cfg appcfg.Config, env appcfg.ResolvedEnv) string {
-	if env.Deploy != nil {
-		if root := strings.TrimSpace(env.Deploy.Root); root != "" {
-			return root
-		}
-	}
-	if len(cfg.Frontends) != 1 {
-		return ""
-	}
-	names := make([]string, 0, len(cfg.Frontends))
-	for name := range cfg.Frontends {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names[0]
+func deployRootService(cfg appcfg.Config) string {
+	return cfg.RootFrontend()
 }
 
 func resolveDeployEnv(cfg appcfg.Config, name string) (appcfg.ResolvedEnv, error) {

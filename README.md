@@ -115,7 +115,7 @@ Deployment has brief downtime and no rollback.
 `scenery deploy` is a beta operator surface for serving a live app on a public domain from a macOS (launchd) or Linux (systemd, run setup as root) machine. An environment-scoped frontend with `serve: "production"` is built on the serving host and served directly by the managed Caddy edge as static files; dynamic `/api/*` traffic stays on the Scenery router.
 
 ```json
-{"name":"hello","frontends":{"app":{"root":"apps/app"}},"envs":{"local":{"default":true},"production":{"domain":"hello.example.com","frontends":{"app":{"serve":"production"}},"deploy":{"root":"app"}}}}
+{"name":"hello","root":"app","frontends":{"app":{"root":"apps/app"}},"envs":{"local":{"default":true},"production":{"domain":"hello.example.com","frontends":{"app":{"serve":"production"}},"deploy":{}}}}
 ```
 
 Then configure the machine once, enable the app, and keep a live dev runtime running:
@@ -308,7 +308,7 @@ scenery console
 
 `--detach` starts the app root's agent-backed dev runtime in the background and, by default, returns after the API and configured frontends are ready; use `--wait registered` for the faster registration-only path. `scenery logs --follow` follows that app root's logs from VictoriaLogs. `scenery console` opens a source-aware terminal console when attached to a real TTY. `scenery down` stops the app root's one live runtime; for shared storage cells, it releases only that runtime's lease and preserves shared data. Use Git worktrees when you need multiple live code copies.
 
-`scenery up` runs the single default named environment from `.scenery.json` (normally `local`); `--env <name>` selects another. Environment fields `port`, `port_start`, and `port_end` constrain its localhost port, `domain` adds the branded HTTPS origin, `expose` narrows that origin, and `frontends.<name>.serve` selects HMR development or built static production serving. A failed domain-edge probe keeps serving localhost and never redirects into another environment.
+`scenery up` runs the single default named environment from `.scenery.json` (normally `local`); `--env <name>` selects another. Top-level `root` names the frontend served only at `/` on every surface; when exactly one frontend exists it is the default root. Other frontends remain at `/<name>/`. Environment fields `port`, `port_start`, and `port_end` constrain its localhost port, `domain` adds the branded HTTPS origin, `expose` narrows that origin, and `frontends.<name>.serve` selects HMR development or built static production serving. A failed domain-edge probe keeps serving localhost and never redirects into another environment.
 
 In host mode, generated routes use the local edge/DNS path under `local.dev`. Use `scenery system edge dns install`, `scenery system edge privileged install`, `scenery system edge install`, and `scenery system edge trust` when you want trusted wildcard local HTTPS routes on the default HTTPS port; edge syncs managed dnsmasq and Caddy when needed and keeps Caddy user-owned.
 
@@ -317,6 +317,7 @@ Example frontend config:
 ```json
 {
   "name": "myapp",
+  "root": "web",
 	"frontends": {
     "web": {
       "root": "apps/web"

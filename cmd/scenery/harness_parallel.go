@@ -199,7 +199,7 @@ func runHarnessParallelDevCheck(parent context.Context) (map[string]any, []check
 		"sessions":        2,
 		"databases":       databaseCount,
 		"api_backends":    []string{sessionA.Backends[localagent.RouteAPI].Network, sessionB.Backends[localagent.RouteAPI].Network},
-		"frontend_routes": []string{sessionA.RouteManifest.Routes["web"].URL, sessionB.RouteManifest.Routes["web"].URL},
+		"frontend_routes": []string{sessionA.RouteManifest.Routes["root"].URL, sessionB.RouteManifest.Routes["root"].URL},
 		"diagnostics":     len(diagnostics),
 	}
 	if hasErrorDiagnostics(diagnostics) {
@@ -212,6 +212,7 @@ func harnessParallelConfig(frontendAddr string) app.Config {
 	return app.Config{
 		Name: "parallel",
 		ID:   "parallel-app",
+		Root: "web",
 		Frontends: map[string]app.FrontendConfig{
 			"web": {
 				Root:                "apps/web",
@@ -301,7 +302,13 @@ func validateHarnessParallelState(ctx context.Context, server *localagent.Server
 	check(sessionA.Backends[localagent.RouteAPI].Network == "unix" && sessionB.Backends[localagent.RouteAPI].Network == "unix", "default API backends must use Unix sockets")
 	check(sessionA.Backends[localagent.RouteAPI].Addr != sessionB.Backends[localagent.RouteAPI].Addr, "API backends must be distinct")
 	check(sessionA.Backends["web"].Addr != sessionB.Backends["web"].Addr, "frontend backends must be distinct")
-	check(routeIsSessionScoped(sessionA, "web") && routeIsSessionScoped(sessionB, "web") && sessionA.RouteManifest.Routes["web"].URL != sessionB.RouteManifest.Routes["web"].URL, "frontend routes must be session-scoped")
+	rootA, rootAOK := sessionA.RouteManifest.Routes["root"]
+	rootB, rootBOK := sessionB.RouteManifest.Routes["root"]
+	check(rootAOK && rootBOK && rootA.Kind == "frontend" && rootB.Kind == "frontend" && rootA.Backend == "web" && rootB.Backend == "web", "root frontend routes must target the configured frontend")
+	check(routeIsSessionScoped(sessionA, "root") && routeIsSessionScoped(sessionB, "root") && rootA.URL != rootB.URL, "frontend routes must be session-scoped")
+	_, namedA := sessionA.RouteManifest.Routes["web"]
+	_, namedB := sessionB.RouteManifest.Routes["web"]
+	check(!namedA && !namedB, "root frontends must not retain duplicate named routes")
 	if dockerAvailable {
 		check(databaseA.Database != "" && databaseB.Database != "" && databaseA.Database != databaseB.Database, "managed Postgres app databases must be distinct")
 		check(envValueFromList(databaseEnvA, "DATABASE_URL") != "" && envValueFromList(databaseEnvB, "DATABASE_URL") != "" && envValueFromList(databaseEnvA, "DATABASE_URL") != envValueFromList(databaseEnvB, "DATABASE_URL"), "managed Postgres database URLs must be distinct")

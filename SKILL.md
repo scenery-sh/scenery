@@ -40,6 +40,7 @@ Run only the route relevant to the task; expand when its evidence points elsewhe
 - Generated Go contract and application-composition files are outputs, never source of truth.
 - Declared `pkg/` libraries expose generated `scenerylib_<name>` facades; environments choose source or verified shared linkage without changing imports.
 - `scenery up` starts the app process, rebuild loop, dashboard, API explorer, logs, traces, metrics, managed dev services, and configured frontends for one app root. `scenery up --desktop` additionally opens every frontend declaring `tauri` through the app-local Tauri 2 CLI; closing that window leaves the runtime running.
+- Top-level `.scenery.json` `root` names the frontend served only at `/` across local, branded-domain, agent-proxied, and published-edge surfaces. A single frontend is the default root; other frontends remain at `/<name>/`.
 - Public and auth HTTP bindings are externally reachable. Internal bindings are called through generated clients so auth, visibility, tracing, delivery, and error semantics remain intact.
 - Use Git worktrees for multiple live code copies.
 

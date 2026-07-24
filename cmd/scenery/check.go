@@ -57,7 +57,7 @@ func checkWarningDiagnostics(appRoot string, cfg appcfg.Config) ([]checkDiagnost
 
 func deployConfigInfoDiagnostics(appRoot string, cfg appcfg.Config) []checkDiagnostic {
 	for name, raw := range cfg.Envs {
-		if raw.Deploy == nil || strings.TrimSpace(raw.Domain) == "" || strings.TrimSpace(raw.Deploy.Root) != "" {
+		if raw.Deploy == nil || strings.TrimSpace(raw.Domain) == "" || cfg.RootFrontend() != "" {
 			continue
 		}
 		frontends := len(cfg.Frontends)
@@ -72,8 +72,8 @@ func deployConfigInfoDiagnostics(appRoot string, cfg appcfg.Config) []checkDiagn
 			Stage:           "config",
 			Severity:        "info",
 			File:            cfg.SourcePath(appRoot),
-			Message:         "envs." + name + ".domain is set but deploy.root is unset; public / will serve a minimal page because " + reason,
-			SuggestedAction: "Set envs." + name + ".deploy.root to \"api\" or the frontend that should own / on the public domain.",
+			Message:         "envs." + name + ".domain is set but top-level root is unset; public / will serve a minimal page because " + reason,
+			SuggestedAction: "Set top-level \"root\" to the frontend that should own / across local development and deployment.",
 		}}
 	}
 	return nil

@@ -66,12 +66,12 @@ func TestDevExposeRouteNames(t *testing.T) {
 	cfg := app.Config{
 		Frontends: map[string]app.FrontendConfig{"next": {Root: "apps/next"}},
 	}
-	env := app.ResolvedEnv{Name: "local", Domain: "local.clean.tech", Expose: []string{"api", "console", "next", "runtime", "api"}}
+	env := app.ResolvedEnv{Name: "local", Domain: "local.clean.tech", Expose: []string{"api", "console", "root", "runtime", "api"}}
 	names, err := devExposeRouteNames(cfg, env)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"api", "dashboard", "next", "runtime"}
+	want := []string{"api", "dashboard", "root", "runtime"}
 	if len(names) != len(want) {
 		t.Fatalf("names = %v, want %v", names, want)
 	}
@@ -79,6 +79,11 @@ func TestDevExposeRouteNames(t *testing.T) {
 		if names[i] != want[i] {
 			t.Fatalf("names = %v, want %v", names, want)
 		}
+	}
+
+	env.Expose = []string{"next"}
+	if _, err := devExposeRouteNames(cfg, env); err == nil || !strings.Contains(err.Error(), `use "root"`) {
+		t.Fatalf("root frontend expose error = %v", err)
 	}
 
 	env.Expose = []string{"pulse"}

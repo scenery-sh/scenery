@@ -433,9 +433,10 @@ func completePathRouteRecords(baseURL string, records map[string]RouteRecord, ba
 	if _, ok := records[RouteDashboard]; !ok {
 		records[RouteDashboard] = RouteRecord{Name: RouteDashboard, Kind: "scenery-console", URL: joinRouteURL(baseURL, PathModeDashboardPrefix+"/"), Path: PathModeDashboardPrefix + "/", StripPrefix: PathModeDashboardPrefix, Backend: RouteDashboard}
 	}
+	rootBackend := normalizeRouteName(records["root"].Backend)
 	for name := range backends {
 		name = normalizeRouteName(name)
-		if name == "" {
+		if name == "" || name == rootBackend {
 			continue
 		}
 		if _, ok := records[name]; ok {

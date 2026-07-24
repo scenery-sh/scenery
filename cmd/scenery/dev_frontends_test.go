@@ -35,6 +35,51 @@ func TestManagedFrontendCommandUsesViteLocalBin(t *testing.T) {
 	}
 }
 
+func TestManagedRootFrontendUsesSlashWithoutViteBaseFlag(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeFrontendPackage(t, root, `{"scripts":{"dev":"vite"}}`)
+	bin := writeFrontendBin(t, root, "vite")
+	session := localagent.Session{
+		SessionID: "main-abc123",
+		RouteManifest: localagent.RouteManifest{
+			Mode:    localagent.RouteModePath,
+			BaseURL: "http://localhost:4747",
+			Routes: map[string]localagent.RouteRecord{
+				"root":              {Name: "root", Kind: "frontend", URL: "http://localhost:4747/", Path: "/", Backend: "web"},
+				localagent.RouteAPI: {Name: localagent.RouteAPI, URL: "http://localhost:4747/api/", Path: "/api/"},
+			},
+		},
+	}
+	if got := managedFrontendBasePath(session, "web"); got != "/" {
+		t.Fatalf("base path = %q, want /", got)
+	}
+	if got := managedFrontendAllowedHost(session, "web"); got != "localhost" {
+		t.Fatalf("allowed host = %q, want localhost", got)
+	}
+	cmd, args, err := managedFrontendCommand(root, "49231", managedFrontendAllowedHost(session, "web"), managedFrontendBasePath(session, "web"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cmd != bin {
+		t.Fatalf("command = %q, want %q", cmd, bin)
+	}
+	if strings.Contains(strings.Join(args, " "), "--base") {
+		t.Fatalf("root frontend command unexpectedly includes --base: %#v", args)
+	}
+	env := frontendDevEnv(nil, "/repo/app", "127.0.0.1:49231", session, "web")
+	for _, want := range []string{
+		"SCENERY_FRONTEND_BASE_PATH=/",
+		"VITE_SCENERY_FRONTEND_BASE_PATH=/",
+		"SCENERY_FRONTEND_PUBLIC_URL=http://localhost:4747/",
+	} {
+		if !containsString(env, want) {
+			t.Fatalf("frontendDevEnv() missing %q in %s", want, strings.Join(env, "\n"))
+		}
+	}
+}
+
 func TestManagedFrontendCommandUsesHoistedViteLocalBin(t *testing.T) {
 	t.Parallel()
 

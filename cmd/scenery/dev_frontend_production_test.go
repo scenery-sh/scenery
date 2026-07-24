@@ -32,6 +32,24 @@ func TestManagedFrontendBuildCommandUsesViteLocalBin(t *testing.T) {
 	}
 }
 
+func TestManagedRootFrontendBuildOmitsViteBaseFlag(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeFrontendPackage(t, root, `{"scripts":{"dev":"vite","build":"vite build"}}`)
+	bin := writeFrontendBin(t, root, "vite")
+	cmd, args, err := managedFrontendBuildCommand(root, "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cmd != bin {
+		t.Fatalf("command = %q, want %q", cmd, bin)
+	}
+	if !reflect.DeepEqual(args, []string{"build"}) {
+		t.Fatalf("args = %#v, want build without --base", args)
+	}
+}
+
 func TestManagedFrontendBuildCommandFallsBackToPackageManager(t *testing.T) {
 	t.Parallel()
 

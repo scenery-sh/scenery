@@ -23,8 +23,8 @@ func devRoutingMode(env app.ResolvedEnv) (localagent.RouteMode, error) {
 	}
 }
 
-func pathRouteManifestForLease(lease localagent.PortLease, domainHost string, publicRoutes []string) localagent.RouteManifest {
-	return localagent.RouteManifest{
+func pathRouteManifestForLease(lease localagent.PortLease, domainHost string, publicRoutes []string, rootFrontend string) localagent.RouteManifest {
+	manifest := localagent.RouteManifest{
 		ArtifactIdentity: localagent.NewRouteManifestIdentity(),
 		Mode:             localagent.RouteModePath,
 		BaseURL:          lease.URL,
@@ -32,6 +32,19 @@ func pathRouteManifestForLease(lease localagent.PortLease, domainHost string, pu
 		PublicRoutes:     publicRoutes,
 		PortLease:        &lease,
 	}
+	if rootFrontend = sanitizeRouteLabel(rootFrontend); rootFrontend != "" {
+		manifest.Root = rootFrontend
+		manifest.Routes = map[string]localagent.RouteRecord{
+			"root": {
+				Name:    "root",
+				Kind:    "frontend",
+				URL:     strings.TrimRight(lease.URL, "/") + "/",
+				Path:    "/",
+				Backend: rootFrontend,
+			},
+		}
+	}
+	return manifest
 }
 
 // devExposeRouteNames validates dev.routing.expose against the routes this
@@ -51,8 +64,12 @@ func devExposeRouteNames(cfg app.Config, env app.ResolvedEnv) ([]string, error) 
 		localagent.RouteDashboard: true,
 		"runtime":                 true,
 	}
+	rootFrontend := sanitizeRouteLabel(cfg.RootFrontend())
 	for name := range cfg.Frontends {
 		if label := sanitizeRouteLabel(name); label != "" {
+			if label == rootFrontend {
+				continue
+			}
 			valid[label] = true
 		}
 	}
@@ -62,6 +79,9 @@ func devExposeRouteNames(cfg app.Config, env app.ResolvedEnv) ([]string, error) 
 		name := sanitizeRouteLabel(raw)
 		if name == "console" {
 			name = localagent.RouteDashboard
+		}
+		if name == rootFrontend {
+			return nil, fmt.Errorf("envs.%s.expose entry %q names the root frontend; use \"root\" because it has no /%s/ mount", env.Name, raw, rootFrontend)
 		}
 		if name == "" || !valid[name] {
 			return nil, fmt.Errorf("envs.%s.expose entry %q is not root, api, console, runtime, or a configured frontend name", env.Name, raw)

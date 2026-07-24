@@ -191,7 +191,7 @@ Use `-o json` for compiler commands and command-specific current protocols. Neve
 - Use `scenery task` for app-local code tasks.
 - Use Git worktrees for another live code copy.
 
-Default local routing resolves the single default named env and gives one app root/worktree one localhost base URL. `scenery up --env <name>` selects another declared env. Its `domain`, `expose`, port fields, and frontend `serve` modes determine routing; session JSON includes `environment`. Domain-edge unreadiness degrades to localhost without a cross-env redirect.
+Default local routing resolves the single default named env and gives one app root/worktree one localhost base URL. Top-level `.scenery.json` `root` names the frontend served only at `/` on that base URL and every deploy surface; a single frontend is the default root, while other frontends remain at `/<name>/`. The root record is the lowest-precedence SPA catch-all, behind runtime, dashboard, API, and non-root frontend routes. `scenery up --env <name>` selects another declared env. Its `domain`, `expose`, port fields, and frontend `serve` modes determine routing; session JSON includes `environment`. Domain-edge unreadiness degrades to localhost without a cross-env redirect.
 
 Treat Caddy, dnsmasq, Victoria, proxy sockets, hidden ports, and local stores as substrate unless the task explicitly diagnoses them. Prefer scenery inspection and status commands over direct substrate access.
 
@@ -318,7 +318,7 @@ scenery is a Go-native service runtime and local development platform. Think in 
 - Portable snapshots can be verified without a target app or stopped runtime. Scheduled retention, off-machine copy, and restore drills remain operator-owned through `scripts/snapshot-backup.sh` plus the host scheduler.
 - `scenery system agent restart` restarts only the local control plane and router. Registered shared substrate processes survive; destructive shutdown stays with substrate-specific commands and verified lifecycle owners.
 - Every CLI invocation best-effort appends one coarse, argument-free usage record to `~/.scenery/telemetry.jsonl`; telemetry write failures never affect the command result.
-- `.scenery.json` declares named `envs`; exactly one reserved `local` env is default. The selected env owns domain/exposure/ports, frontend serve modes, deploy targets, dotenv layering, and secret strictness. `scenery up --env <name>` selects it, session manifests record it, and failed branded-domain validation stays on localhost without redirecting to another env.
+- `.scenery.json` declares named `envs`; exactly one reserved `local` env is default. Top-level `root` selects one configured frontend for `/` across all envs and surfaces, with a single-frontend default. The selected env owns domain/exposure/ports, frontend serve modes, deploy targets, dotenv layering, and secret strictness. `scenery up --env <name>` selects it, session manifests record it, and failed branded-domain validation stays on localhost without redirecting to another env.
 - A frontend-level `tauri` block marks that frontend as a Tauri 2 web surface.
   Its optional app-root-relative `root` contains `src-tauri`; both dev and build
   require the app-local `node_modules/.bin/tauri` from `@tauri-apps/cli`.

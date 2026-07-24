@@ -141,7 +141,7 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 		if err != nil {
 			return prepared, err
 		}
-		routeManifest = pathRouteManifestForLease(portLease, domainHost, publicRoutes)
+		routeManifest = pathRouteManifestForLease(portLease, domainHost, publicRoutes, cfg.RootFrontend())
 	}
 	if localagent.DisabledByEnv() {
 		if requiresPortlessEdge {

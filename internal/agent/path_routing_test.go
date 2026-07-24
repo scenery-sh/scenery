@@ -50,6 +50,46 @@ func TestPathRouteManifestForSession(t *testing.T) {
 	}
 }
 
+func TestPathRouteManifestRootFrontendIsCatchAllWithoutNamedMount(t *testing.T) {
+	t.Parallel()
+
+	session, err := NewSession(RegisterRequest{
+		BaseAppID: "demo",
+		AppRoot:   t.TempDir(),
+		SessionID: "main",
+		Backends: map[string]Backend{
+			RouteAPI: {Network: "tcp", Addr: "127.0.0.1:4000"},
+			"ui":     {Network: "tcp", Addr: "127.0.0.1:5173"},
+		},
+		RouteManifest: RouteManifest{
+			Mode:    RouteModePath,
+			BaseURL: "http://localhost:4001",
+			Routes: map[string]RouteRecord{
+				"root": {Name: "root", Kind: "frontend", URL: "http://localhost:4001/", Path: "/", Backend: "ui"},
+			},
+		},
+	}, "127.0.0.1:9440", "http", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := session.RouteManifest.Routes["root"]
+	if root.Backend != "ui" || root.Kind != "frontend" || root.Path != "/" {
+		t.Fatalf("root route = %+v", root)
+	}
+	if _, ok := session.RouteManifest.Routes["ui"]; ok {
+		t.Fatalf("root frontend unexpectedly retained a named route: %+v", session.RouteManifest.Routes)
+	}
+	if got, ok := routeForPath(session.RouteManifest, "/projects/42"); !ok || got.Name != "root" {
+		t.Fatalf("deep link route = %+v, ok=%v", got, ok)
+	}
+	if got, ok := routeForPath(session.RouteManifest, "/api/users"); !ok || got.Name != RouteAPI {
+		t.Fatalf("api route = %+v, ok=%v", got, ok)
+	}
+	if got, ok := routeForPath(session.RouteManifest, PathModeDashboardPrefix+"/"); !ok || got.Name != RouteDashboard {
+		t.Fatalf("dashboard route = %+v, ok=%v", got, ok)
+	}
+}
+
 func TestPathProxyOptionsPreserveFrontendPrefix(t *testing.T) {
 	t.Parallel()
 

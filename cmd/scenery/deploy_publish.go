@@ -87,7 +87,7 @@ func runDeployPublish(stdout io.Writer, opts deployOptions) error {
 	if err := localagent.EnsureDirs(paths); err != nil {
 		return err
 	}
-	rootService := deployRootService(cfg, env)
+	rootService := deployRootService(cfg)
 	published := make([]localagent.DeployTargetFrontend, 0, len(names))
 	results := make([]deployPublishFrontend, 0, len(names))
 	previousReleases := map[string]string{}
@@ -96,7 +96,11 @@ func runDeployPublish(stdout io.Writer, opts deployOptions) error {
 		if frontendRoot == "" {
 			return fmt.Errorf("frontend %q has no root", name)
 		}
-		if err := runDeployPublishBuild(frontendRoot, "/"+name, stdout); err != nil {
+		basePath := "/" + name
+		if rootService == name {
+			basePath = "/"
+		}
+		if err := runDeployPublishBuild(frontendRoot, basePath, stdout); err != nil {
 			return fmt.Errorf("build frontend %q: %w", name, err)
 		}
 		currentPath := filepath.Join(paths.DeployArtifactsDir, cfg.AppID(), env.Name, name, "current")

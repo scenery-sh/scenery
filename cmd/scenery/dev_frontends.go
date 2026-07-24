@@ -544,8 +544,8 @@ func managedFrontendViteBaseArg(basePath string) string {
 }
 
 func managedFrontendBasePath(session localagent.Session, frontendName string) string {
-	if got := routeBasePath(&session, frontendName); got != "" {
-		return got
+	if record, ok := managedFrontendRouteRecord(session, frontendName); ok {
+		return strings.TrimSpace(record.Path)
 	}
 	if session.RouteManifest.Mode != localagent.RouteModePath {
 		return ""
@@ -555,6 +555,22 @@ func managedFrontendBasePath(session localagent.Session, frontendName string) st
 		return ""
 	}
 	return "/" + frontendName
+}
+
+func managedFrontendRouteRecord(session localagent.Session, frontendName string) (localagent.RouteRecord, bool) {
+	frontendName = localagentLabel(frontendName)
+	if frontendName == "" {
+		return localagent.RouteRecord{}, false
+	}
+	if record, ok := session.RouteManifest.Routes[frontendName]; ok {
+		return record, true
+	}
+	if record, ok := session.RouteManifest.Routes["root"]; ok &&
+		strings.TrimSpace(record.Kind) == "frontend" &&
+		localagentLabel(record.Backend) == frontendName {
+		return record, true
+	}
+	return localagent.RouteRecord{}, false
 }
 
 func managedFrontendDevScript(root string) (string, error) {
@@ -698,7 +714,8 @@ func frontendDevEnv(baseEnv []string, appRoot, addr string, session localagent.S
 	}
 	if session.RouteManifest.Mode != "" {
 		frontendPath := managedFrontendBasePath(session, frontendName)
-		frontendURL := strings.TrimSpace(session.RouteManifest.Routes[localagentLabel(frontendName)].URL)
+		record, _ := managedFrontendRouteRecord(session, frontendName)
+		frontendURL := strings.TrimSpace(record.URL)
 		env = append(env,
 			"SCENERY_ROUTE_MODE="+string(session.RouteManifest.Mode),
 			"SCENERY_BASE_URL="+strings.TrimSpace(session.RouteManifest.BaseURL),
@@ -723,7 +740,8 @@ func managedFrontendAllowedHost(session localagent.Session, frontendName string)
 	if frontendName == "" {
 		return ""
 	}
-	if route := strings.TrimSpace(session.RouteManifest.Routes[frontendName].URL); route != "" {
+	if record, ok := managedFrontendRouteRecord(session, frontendName); ok {
+		route := strings.TrimSpace(record.URL)
 		u, err := url.Parse(route)
 		if err == nil {
 			return strings.TrimSpace(u.Hostname())

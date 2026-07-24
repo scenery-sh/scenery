@@ -34,12 +34,12 @@
       "path": "docs/plans/0143-root-frontend.md",
       "title": "Root Frontend: Serve One Declared Frontend At / On Every Surface",
       "owner": "scenery runtime / edge / CLI",
-      "status": "active",
+      "status": "completed",
       "quality": "B",
       "freshness": "current",
       "last_reviewed": "2026-07-23",
       "review_after": "2026-08-22",
-      "summary": "Active ExecPlan adding a top-level .scenery.json root field naming one frontend served at / with base-/ URLs on the local base URL, dev domains, agent-proxied deploy targets, and the published static edge; removes the root frontend's /<name>/ mount and envs.*.deploy.root, and makes the root route record a lowest-precedence catch-all so SPA deep links resolve.",
+      "summary": "Completed ExecPlan adding a top-level .scenery.json root field naming one frontend served only at / with base-/ URLs on the local base URL, dev domains, agent-proxied deploy targets, and the published static edge; API, runtime, dashboard, and sibling frontend routes retain precedence over the root SPA catch-all.",
       "tags": ["plans", "execplans", "frontends", "routing", "edge", "deploy", "app-config"]
     },
     {

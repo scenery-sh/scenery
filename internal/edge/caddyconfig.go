@@ -42,7 +42,7 @@ type PublicDomainSite struct {
 
 // StaticFrontendRoute serves one published production frontend. Root is the
 // directory Caddy serves (normally the publication `current` symlink);
-// OwnsRoot additionally serves the frontend at `/`.
+// OwnsRoot serves the frontend only at `/`; non-root frontends use /<name>/.
 type StaticFrontendRoute struct {
 	Name     string
 	Root     string
@@ -162,13 +162,14 @@ func writePublicDomainSite(b *strings.Builder, site PublicDomainSite, opts Caddy
 `)
 		root := StaticFrontendRoute{}
 		for _, frontend := range frontends {
+			if frontend.OwnsRoot {
+				root = frontend
+				continue
+			}
 			fmt.Fprintf(b, "\tredir /%s /%s/ 308\n", frontend.Name, frontend.Name)
 			fmt.Fprintf(b, "\thandle_path /%s/* {\n", frontend.Name)
 			b.WriteString(staticFrontendBody(frontend))
 			b.WriteString("\t}\n")
-			if frontend.OwnsRoot {
-				root = frontend
-			}
 		}
 		if root.Name != "" {
 			b.WriteString("\thandle {\n")

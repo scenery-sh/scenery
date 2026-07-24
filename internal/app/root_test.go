@@ -61,6 +61,7 @@ func TestDiscoverRootAcceptsDeployConfig(t *testing.T) {
 	root := t.TempDir()
 	writeAppTestFile(t, root, ".scenery.json", `{
 		"name": "deployapp",
+		"root": "web",
 		"frontends": {
 			"web": {
 				"root": "web"
@@ -71,7 +72,7 @@ func TestDiscoverRootAcceptsDeployConfig(t *testing.T) {
 			"production": {
 				"domain": "onlv.dev",
 				"frontends": {"web": {"serve": "production"}},
-				"deploy": {"root": "web", "ssh": ["some-id"]}
+				"deploy": {"ssh": ["some-id"]}
 			}
 		}
 	}`)
@@ -81,8 +82,30 @@ func TestDiscoverRootAcceptsDeployConfig(t *testing.T) {
 		t.Fatalf("DiscoverRoot returned error: %v", err)
 	}
 	env, err := cfg.EnvForSSHTarget("some-id")
-	if err != nil || env.Domain != "onlv.dev" || env.Deploy.Root != "web" || strings.Join(env.Deploy.SSH, ",") != "some-id" {
+	if err != nil || env.Domain != "onlv.dev" || cfg.RootFrontend() != "web" || strings.Join(env.Deploy.SSH, ",") != "some-id" {
 		t.Fatalf("production env = %+v, err = %v", env, err)
+	}
+}
+
+func TestConfigRootFrontend(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		cfg  Config
+		want string
+	}{
+		{name: "explicit", cfg: Config{Root: "admin", Frontends: map[string]FrontendConfig{"web": {}, "admin": {}}}, want: "admin"},
+		{name: "single frontend default", cfg: Config{Frontends: map[string]FrontendConfig{"web": {}}}, want: "web"},
+		{name: "multiple without root", cfg: Config{Frontends: map[string]FrontendConfig{"web": {}, "admin": {}}}},
+		{name: "none", cfg: Config{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := tt.cfg.RootFrontend(); got != tt.want {
+				t.Fatalf("RootFrontend() = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
 
@@ -411,14 +434,14 @@ func TestDiscoverRootRejectsInvalidDeployConfig(t *testing.T) {
 			want:   `envs.production.domain: "notadomain" must be a valid lowercase FQDN`,
 		},
 		{
-			name:   "reserved root",
-			config: `{"name":"deployapp","envs":{"local":{"default":true},"production":{"domain":"onlv.dev","deploy":{"root":"runtime"}}}}`,
-			want:   `envs.production.deploy.root "runtime" is reserved by Scenery`,
+			name:   "unknown root",
+			config: `{"name":"deployapp","root":"web","frontends":{"admin":{"root":"admin"}},"envs":{"local":{"default":true},"production":{"domain":"onlv.dev","deploy":{}}}}`,
+			want:   `root "web" must name a configured frontend (one of: admin)`,
 		},
 		{
-			name:   "unknown root",
-			config: `{"name":"deployapp","envs":{"local":{"default":true},"production":{"domain":"onlv.dev","deploy":{"root":"web"}}}}`,
-			want:   `envs.production.deploy.root "web" must be "api" or a configured frontend`,
+			name:   "legacy deploy root",
+			config: `{"name":"deployapp","frontends":{"web":{"root":"web"}},"envs":{"local":{"default":true},"production":{"domain":"onlv.dev","deploy":{"root":"web"}}}}`,
+			want:   `unknown .scenery.json field "envs.production.deploy.root"; move the frontend name to top-level "root"`,
 		},
 		{
 			name:   "unsafe ssh target",

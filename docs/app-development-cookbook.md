@@ -660,6 +660,7 @@ To serve local dev at your own domain instead of `localhost:<port>`, add a path-
 
 ```json
 {
+	"root": "next",
 	"frontends": {
 	  "next": { "root": "apps/next" },
 	  "blog": { "root": "apps/blog" }
@@ -675,7 +676,7 @@ To serve local dev at your own domain instead of `localhost:<port>`, add a path-
 }
 ```
 
-Branch `main` serves `https://local.example.com/`; a worktree on branch `pricing` serves `https://pricing-local.example.com/` (dash join — every host stays one DNS label deep, inside a single `*.example.com` wildcard and Cloudflare Universal SSL). The URL structure is unchanged path mode: `/api/`, `/console/`, `/<frontend>/`.
+Branch `main` serves the `next` frontend at `https://local.example.com/`; a worktree on branch `pricing` serves it at `https://pricing-local.example.com/` (dash join — every host stays one DNS label deep, inside a single `*.example.com` wildcard and Cloudflare Universal SSL). The root frontend exists only at `/`; `/api/` and `/console/` keep precedence, and non-root frontends remain at `/<frontend>/`.
 
 `expose` narrows what the domain origin serves; absent means everything, and `localhost:<port>` always serves everything. `serve: "production"` builds that frontend once and serves the built `dist/` statically — no dev server, no HMR; editing its sources rebuilds the bundle in place.
 
@@ -699,15 +700,16 @@ For a public deployment that should not ship the Vite dev runtime, mark the fron
 
 ```json
 {
+  "root": "app",
   "frontends": { "app": { "root": "apps/app" } },
   "envs": {
 	"local": {"default": true, "frontends": {"app": {"serve": "development"}}},
-	"production": {"domain": "app.example.com", "frontends": {"app": {"serve": "production"}}, "deploy": {"root": "app", "ssh": ["my-server"]}}
+	"production": {"domain": "app.example.com", "frontends": {"app": {"serve": "production"}}, "deploy": {"ssh": ["my-server"]}}
   }
 }
 ```
 
-`scenery deploy my-server` then syncs source, waits for remote readiness, and runs remote `scenery deploy publish`: the frontend builds on the server (`vite build --base /<name>/`), lands as an immutable release under the Scenery agent home, and the managed Caddy edge serves it directly — compressed, cached (`/assets/*` immutable, entry document revalidated), with SPA fallback and byte ranges — while `/api/*` keeps flowing through the Scenery router. A failed build, invalid Caddyfile, or failed probe leaves the previous frontend public. On a Linux server, run `scenery deploy setup` once as root first (systemd units for the agent, edge, and boot resume). Verify with `scenery deploy status -o json`: each target's `frontends[].mode` should be `caddy_static`.
+`scenery deploy my-server` then syncs source, waits for remote readiness, and runs remote `scenery deploy publish`: the root frontend builds with Vite base `/`, lands as an immutable release under the Scenery agent home, and the managed Caddy edge serves it only at `/` — compressed, cached (`/assets/*` immutable, entry document revalidated), with SPA fallback and byte ranges — while `/api/*` keeps flowing through the Scenery router. Non-root frontends build and serve at `/<name>/`. A failed build, invalid Caddyfile, or failed probe leaves the previous frontend public. On a Linux server, run `scenery deploy setup` once as root first (systemd units for the agent, edge, and boot resume). Verify with `scenery deploy status -o json`: each target's `frontends[].mode` should be `caddy_static`.
 
 ## Debug A Failing App
 

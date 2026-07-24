@@ -897,6 +897,9 @@ func publicAppURLForSession(session *localagent.Session) string {
 	if session == nil {
 		return ""
 	}
+	if root := session.RouteManifest.Routes["root"]; strings.TrimSpace(root.Kind) == "frontend" && strings.TrimSpace(root.URL) != "" {
+		return strings.TrimSpace(root.URL)
+	}
 	names := make([]string, 0, len(session.RouteManifest.Routes))
 	for name, record := range session.RouteManifest.Routes {
 		if name == localagent.RouteAPI || name == localagent.RouteDashboard || name == "root" {

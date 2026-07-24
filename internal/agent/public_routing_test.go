@@ -72,6 +72,13 @@ func TestServerPublicDeployRoutesByHostWithContainment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	manifest := publicRouteManifest(session, registry.Targets[0])
+	if _, ok := manifest.Routes["ui"]; ok {
+		t.Fatalf("root frontend unexpectedly retained /ui route: %+v", manifest.Routes)
+	}
+	if got := manifest.Routes["root"]; got.Backend != "ui" || got.Kind != "frontend" {
+		t.Fatalf("root route = %+v", got)
+	}
 
 	request := func(host, targetPath string, publicEdge, spoofLocalSession bool) (int, string) {
 		t.Helper()
@@ -109,7 +116,7 @@ func TestServerPublicDeployRoutesByHostWithContainment(t *testing.T) {
 	}
 	status, body = request("onlv.dev", "/ui/settings", true, false)
 	if status != http.StatusOK || body != "frontend:/ui/settings" {
-		t.Fatalf("frontend status=%d body=%q", status, body)
+		t.Fatalf("root catch-all status=%d body=%q", status, body)
 	}
 	status, _ = request("onlv.dev", PathModeRuntimePrefix+"/health", true, true)
 	if status != http.StatusNotFound {

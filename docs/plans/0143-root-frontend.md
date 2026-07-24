@@ -30,14 +30,22 @@ without a declared root keep today's behavior exactly.
 
 ## Progress
 
-- [ ] Milestone 1 — Config surface: top-level `root`, `deploy.root` removed (not started)
-- [ ] Milestone 2 — Agent routing: root frontend owns `/` and unmatched paths (not started)
-- [ ] Milestone 3 — Dev serve: root frontend runs at base `/` (not started)
-- [ ] Milestone 4 — Publish + managed edge: base-`/` build, root-only mount (not started)
-- [ ] Milestone 5 — Docs, validation sweep, client migration notes (not started)
+- [x] Milestone 1 — Config surface: top-level `root`, `deploy.root` removed (2026-07-23)
+- [x] Milestone 2 — Agent routing: root frontend owns `/` and unmatched paths (2026-07-23)
+- [x] Milestone 3 — Dev serve: root frontend runs at base `/` (2026-07-23)
+- [x] Milestone 4 — Publish + managed edge: base-`/` build, root-only mount (2026-07-23)
+- [x] Milestone 5 — Docs, validation sweep, client migration notes (2026-07-23)
 
 2026-07-23: Plan drafted from a live diagnosis of `local.clean.tech` (see
 Surprises & Discoveries). No implementation yet.
+
+2026-07-23: Implemented milestones 1–4 plus the living-doc and ONLV config
+migration portions of milestone 5. Focused validation is running before the
+runtime acceptance and completed-plan move.
+
+2026-07-23: Completed the focused and repository validation suites, the full
+self-harness, the ONLV consumer harness, and matched-binary runtime acceptance.
+Moved the plan to the completed index.
 
 ## Surprises & Discoveries
 
@@ -59,6 +67,19 @@ Surprises & Discoveries). No implementation yet.
   matches the `root` record only for the exact path `/`. On a public deploy
   domain whose frontends are agent-proxied (development serve), SPA deep links
   like `/projects/42` match no record and 404.
+- 2026-07-23 — The localhost listener has a small in-process router in front
+  of the agent. It already delegates unmatched paths to the agent, so the new
+  root catch-all required no second routing implementation there; explicit
+  non-root frontend and dashboard fast paths remain unchanged.
+- 2026-07-23 — `SCENERY_PUBLIC_APP_URL` previously selected the first named
+  frontend and skipped `root`. Once the root frontend loses its named route,
+  that would advertise a sibling frontend. It now selects the frontend-kind
+  root record first.
+- 2026-07-23 — The parallel-worktree self-harness fixture had one frontend and
+  therefore became a root-frontend fixture under the existing single-frontend
+  default. Its assertion still looked for the retired `web` named route. The
+  harness now asserts two distinct session-scoped `root` URLs, the `web`
+  backend identity, and absence of duplicate named mounts.
 
 ## Decision Log
 
@@ -85,7 +106,37 @@ Surprises & Discoveries). No implementation yet.
 
 ## Outcomes & Retrospective
 
-Not yet completed.
+Completed 2026-07-23.
+
+Scenery now has one current root-frontend contract. Top-level
+`.scenery.json` `root` names the frontend that owns `/` across local path-mode
+development, domain routing, agent-proxied deploy targets, publish builds, and
+managed static edge output. An unambiguous single frontend remains the
+default. The root frontend is not duplicated at `/<name>/`; sibling
+frontends retain their named mounts. API, runtime, dashboard, and sibling
+frontend routes outrank the root SPA catch-all.
+
+ONLV migrated from `envs.production.deploy.root` to top-level
+`"root": "next"`. A matched 0143 binary and isolated agent proved the live
+route manifest contains `root -> next` with no `next` named route. On the
+running app, `/`, `/projects`, `/pulse/`, `/blog/`, `/ui/`, `/console/`, and
+`/runtime/health` returned the expected responses without restarting the app
+between route checks; `/api/` remained owned by the API surface rather than
+falling through to the SPA. Replaying public-edge headers directly against
+that matched agent proved `/` and `/projects` serve the root frontend while
+`/pulse/` remains a sibling frontend and protected API/runtime paths do not
+fall through.
+
+Validation completed:
+
+- `go test ./internal/app ./internal/agent ./internal/edge ./cmd/scenery`
+- `go test ./...`
+- `.scenery/harness/bin/scenery harness self --summary --write`
+- ONLV `scenery check -o json`, `go test ./...`, and
+  `scenery harness -o json --write`
+
+No generated TypeScript runtime change was needed. The deploy registry shape
+remains unchanged; only app config grammar and routing behavior changed.
 
 ## Context and Orientation
 

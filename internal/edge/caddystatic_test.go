@@ -57,8 +57,6 @@ func TestCaddyConfigRendersStaticFrontendRoutes(t *testing.T) {
 		"platform.onegraph.dev:19443 {",
 		"@scenery_blocked path /runtime /runtime/* /dashboard /dashboard/* /console /console/* /__scenery /__scenery/*",
 		"handle /api/* {",
-		"redir /platform /platform/ 308",
-		"handle_path /platform/* {",
 		"root * " + current,
 		"respond @fe_platform_method \"method not allowed\" 405",
 		"encode zstd gzip",
@@ -70,6 +68,11 @@ func TestCaddyConfigRendersStaticFrontendRoutes(t *testing.T) {
 	} {
 		if !strings.Contains(config, want) {
 			t.Fatalf("static Caddy config missing %q:\n%s", want, config)
+		}
+	}
+	for _, absent := range []string{"redir /platform /platform/ 308", "handle_path /platform/* {"} {
+		if strings.Contains(config, absent) {
+			t.Fatalf("root frontend retained named mount %q:\n%s", absent, config)
 		}
 	}
 	// The root-owning frontend serves `/` statically: no catch-all proxy
@@ -255,15 +258,11 @@ http://127.0.0.1:%d {
 	}
 	handle /api/* {
 %s	}
-	redir /platform /platform/ 308
-	handle_path /platform/* {
-%s	}
 	handle {
 %s	}
 }
 `, adminSocket, port,
 		indentBlock(proxy, 2),
-		staticFrontendBody(StaticFrontendRoute{Name: "platform", Root: current}),
 		staticFrontendBody(StaticFrontendRoute{Name: "platform", Root: current}))
 	configPath := filepath.Join(dir, "Caddyfile")
 	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
@@ -316,36 +315,30 @@ http://127.0.0.1:%d {
 		return string(data)
 	}
 
-	if resp := get("GET", "/platform/", nil); resp.StatusCode != 200 || !strings.Contains(body(resp), "app-platform") {
-		t.Fatalf("document: %d", resp.StatusCode)
-	}
 	if resp := get("GET", "/", nil); resp.StatusCode != 200 || !strings.Contains(body(resp), "app-platform") {
 		t.Fatalf("root SPA document: %d", resp.StatusCode)
 	}
-	if resp := get("GET", "/platform/assets/app-abc123.js", nil); resp.StatusCode != 200 ||
+	if resp := get("GET", "/assets/app-abc123.js", nil); resp.StatusCode != 200 ||
 		!strings.Contains(resp.Header.Get("Cache-Control"), "immutable") || resp.Header.Get("Etag") == "" {
 		t.Fatalf("hashed asset: %d cache=%q etag=%q", resp.StatusCode, resp.Header.Get("Cache-Control"), resp.Header.Get("Etag"))
 	}
-	if resp := get("GET", "/platform/deep/spa/route", nil); resp.StatusCode != 200 || !strings.Contains(body(resp), "app-platform") {
+	if resp := get("GET", "/deep/spa/route", nil); resp.StatusCode != 200 || !strings.Contains(body(resp), "app-platform") {
 		t.Fatalf("SPA fallback: %d", resp.StatusCode)
 	}
-	if resp := get("GET", "/platform/", nil); !strings.Contains(resp.Header.Get("Cache-Control"), "no-cache") {
+	if resp := get("GET", "/", nil); !strings.Contains(resp.Header.Get("Cache-Control"), "no-cache") {
 		t.Fatalf("entry document must revalidate, cache=%q", resp.Header.Get("Cache-Control"))
 	}
-	if resp := get("HEAD", "/platform/models/scene.glb", nil); resp.StatusCode != 200 || resp.ContentLength != 4096 {
+	if resp := get("HEAD", "/models/scene.glb", nil); resp.StatusCode != 200 || resp.ContentLength != 4096 {
 		t.Fatalf("HEAD: %d len=%d", resp.StatusCode, resp.ContentLength)
 	}
-	if resp := get("GET", "/platform/models/scene.glb", http.Header{"Range": []string{"bytes=0-99"}}); resp.StatusCode != 206 || resp.ContentLength != 100 {
+	if resp := get("GET", "/models/scene.glb", http.Header{"Range": []string{"bytes=0-99"}}); resp.StatusCode != 206 || resp.ContentLength != 100 {
 		t.Fatalf("range: %d len=%d", resp.StatusCode, resp.ContentLength)
 	}
-	if resp := get("GET", "/platform/assets/missing-xyz.js", nil); resp.StatusCode != 404 {
+	if resp := get("GET", "/assets/missing-xyz.js", nil); resp.StatusCode != 404 {
 		t.Fatalf("missing concrete asset must 404, got %d", resp.StatusCode)
 	}
-	if resp := get("POST", "/platform/", nil); resp.StatusCode != 405 {
+	if resp := get("POST", "/", nil); resp.StatusCode != 405 {
 		t.Fatalf("POST must 405, got %d", resp.StatusCode)
-	}
-	if resp := get("GET", "/platform", nil); resp.StatusCode != 308 {
-		t.Fatalf("bare prefix must redirect, got %d", resp.StatusCode)
 	}
 	if resp := get("GET", "/api/things", nil); resp.StatusCode != 200 || body(resp) != "agent:/api/things" {
 		t.Fatalf("API proxy: %d", resp.StatusCode)
@@ -361,14 +354,14 @@ http://127.0.0.1:%d {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fmt.Fprintf(conn, "GET /platform/..%%2f..%%2fsecret HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n")
+	fmt.Fprintf(conn, "GET /..%%2f..%%2fsecret HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n")
 	raw, _ := io.ReadAll(conn)
 	_ = conn.Close()
 	status := strings.SplitN(string(raw), "\r\n", 2)[0]
 	if strings.Contains(status, " 200 ") && !strings.Contains(string(raw), "app-platform") {
 		t.Fatalf("raw traversal must not expose files outside the release root: %s", status)
 	}
-	if resp := get("GET", "/platform/.hidden", nil); resp.StatusCode == 200 {
+	if resp := get("GET", "/.hidden", nil); resp.StatusCode == 200 {
 		t.Fatal("dotfile must not be served")
 	}
 }

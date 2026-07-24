@@ -41,7 +41,7 @@ func TestDeployConfigInfoDiagnosticsReportsUnsetRoot(t *testing.T) {
 		t.Fatalf("diagnostics = %+v", diagnostics)
 	}
 	diag := diagnostics[0]
-	if diag.Stage != "config" || diag.Severity != "info" || !strings.Contains(diag.Message, "deploy.root is unset") {
+	if diag.Stage != "config" || diag.Severity != "info" || !strings.Contains(diag.Message, "top-level root is unset") {
 		t.Fatalf("diagnostic = %+v", diag)
 	}
 }

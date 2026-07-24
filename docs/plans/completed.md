@@ -11,6 +11,21 @@ historical records. Do not refresh their review dates or rewrite them as current
 contract prose. Record later guidance here or in the owning current contract;
 use stale knowledge metadata to flag a known contradiction.
 
+## Root Frontend
+
+- Status: completed
+- Owner: scenery runtime / edge / CLI
+- Completed: 2026-07-23
+- Quality: B
+- ExecPlan: [0143 Root Frontend](0143-root-frontend.md)
+
+Added one top-level `.scenery.json` `root` declaration that serves a configured
+frontend only at `/` across local development, dev domains, agent-proxied
+deploy targets, and published static edge sites. Root SPA deep links now use a
+lowest-precedence catch-all while API, runtime, dashboard, and sibling
+frontend mounts retain precedence; ONLV migrated `next` and passed matched
+runtime acceptance.
+
 ## Tauri 2.0 Desktop Shells for Configured Frontends
 
 - Status: completed
