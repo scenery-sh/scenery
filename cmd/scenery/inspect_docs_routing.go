@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -158,7 +159,7 @@ func buildInspectDocsPathRoute(repoRoot, targetPath string, documents []inspectD
 		documentByPath[doc.Path] = doc
 	}
 
-	packages, _ := harnessListGoPackages(context.Background(), repoRoot)
+	packages, _ := inspectDocsGoPackagesForPath(context.Background(), repoRoot, targetPath)
 	changedArea := &harnessChangedAreaReport{
 		cliPayloadIdentity:  newCLIPayloadIdentity(harnessChangedAreaKind),
 		ChangedFiles:        []harnessChangedFile{},
@@ -237,6 +238,41 @@ func buildInspectDocsPathRoute(repoRoot, targetPath string, documents []inspectD
 		add(match.Document, "schema", "related machine contract schema", nil)
 	}
 	return route, nil
+}
+
+func inspectDocsGoPackagesForPath(ctx context.Context, repoRoot, targetPath string) ([]harnessPackageInfo, error) {
+	if !strings.EqualFold(filepath.Ext(targetPath), ".go") {
+		return nil, nil
+	}
+	goPath, err := exec.LookPath("go")
+	if err != nil {
+		return nil, err
+	}
+	relDir := filepath.ToSlash(filepath.Dir(targetPath))
+	pattern := "."
+	if relDir != "." {
+		pattern = "./" + strings.TrimPrefix(relDir, "./")
+	}
+	cmd := commandTreeContext(ctx, goPath, "list", "-find", "-f", "{{.ImportPath}}\t{{.Dir}}", pattern)
+	cmd.Dir = repoRoot
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("go list package for %s: %w: %s", targetPath, err, strings.TrimSpace(string(output)))
+	}
+	fields := strings.SplitN(strings.TrimSpace(string(output)), "\t", 2)
+	if len(fields) != 2 || strings.TrimSpace(fields[0]) == "" || strings.TrimSpace(fields[1]) == "" {
+		return nil, fmt.Errorf("go list package for %s returned malformed output", targetPath)
+	}
+	dir := filepath.Clean(strings.TrimSpace(fields[1]))
+	rel, err := filepath.Rel(repoRoot, dir)
+	if err != nil {
+		rel = dir
+	}
+	return []harnessPackageInfo{{
+		ImportPath: strings.TrimSpace(fields[0]),
+		Dir:        dir,
+		RelDir:     filepath.ToSlash(filepath.Clean(rel)),
+	}}, nil
 }
 
 func applicableInspectDocsAgentScopes(targetPath string, scopes []inspectDocsAgentScope) []inspectDocsAgentScope {

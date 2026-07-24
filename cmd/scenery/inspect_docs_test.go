@@ -253,6 +253,29 @@ Generate and check the target before handoff.
 	}
 }
 
+func TestInspectDocsGoPackagesForPath(t *testing.T) {
+	t.Parallel()
+
+	if packages, err := inspectDocsGoPackagesForPath(t.Context(), t.TempDir(), "docs/local-contract.md"); err != nil || len(packages) != 0 {
+		t.Fatalf("non-Go packages = %+v, err = %v", packages, err)
+	}
+
+	repoRoot, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	packages, err := inspectDocsGoPackagesForPath(t.Context(), repoRoot, "cmd/scenery/inspect_docs.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(packages) != 1 {
+		t.Fatalf("packages = %+v, want one targeted package", packages)
+	}
+	if got := packages[0]; got.ImportPath != "scenery.sh/cmd/scenery" || got.RelDir != "cmd/scenery" {
+		t.Fatalf("package = %+v", got)
+	}
+}
+
 func TestRunSceneryInspectDocsCatalogFiltersAndDirectCompletedPlan(t *testing.T) {
 	t.Parallel()
 
