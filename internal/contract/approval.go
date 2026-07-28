@@ -1,4 +1,4 @@
-package scenery
+package contract
 
 import (
 	"crypto/ed25519"

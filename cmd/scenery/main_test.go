@@ -123,7 +123,7 @@ func TestContractJSONEnvelopeHasStableFields(t *testing.T) {
 }
 
 func TestContractCheckJSONReportsValidNativeImplementation(t *testing.T) {
-	root := filepath.Join(filepath.Dir(contractFixtureRoot(t)), "native")
+	root := nativeFixtureRoot(t)
 	var output strings.Builder
 	if err := runContractCheck(&output, []string{"--app-root", root, "-o", "json", "--non-interactive", "--quiet"}); err != nil {
 		t.Fatal(err)
@@ -357,13 +357,86 @@ func TestContractQuietSuppressesHumanOutput(t *testing.T) {
 	}
 }
 
+// contractFixtureRoot returns a writable copy of the checked-in `house`
+// fixture app root. Compile, check, and inspect paths treat their app root as
+// a workspace: they probe and create `.scenery/transactions` state and write
+// `.scenery/` cache. Pointing them at the checked-in tree mutates the
+// repository from a unit test and records those paths as Go test-cache
+// inputs, so every execution invalidated this package's cache entry for the
+// next run. Each test gets its own copy instead.
 func contractFixtureRoot(t *testing.T) string {
+	t.Helper()
+	return copyFixtureRoot(t, "house")
+}
+
+// nativeFixtureRoot returns a writable copy of the `native` fixture app root.
+func nativeFixtureRoot(t *testing.T) string {
+	t.Helper()
+	return copyFixtureRoot(t, "native")
+}
+
+// fixtureSourceRoot locates a checked-in compiler fixture. Use it only for
+// read-only assertions about committed fixture content; anything that
+// compiles, checks, or generates must use a copy.
+func fixtureSourceRoot(t *testing.T, name string) string {
 	t.Helper()
 	_, file, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("runtime.Caller failed")
 	}
-	return filepath.Join(filepath.Dir(file), "..", "..", "internal", "compiler", "testdata", "house")
+	return filepath.Join(filepath.Dir(file), "..", "..", "internal", "compiler", "testdata", name)
+}
+
+func copyFixtureRoot(t *testing.T, name string) string {
+	t.Helper()
+	source := fixtureSourceRoot(t, name)
+	root := t.TempDir()
+	if err := os.CopyFS(root, os.DirFS(source)); err != nil {
+		t.Fatal(err)
+	}
+	// `.scenery/` is machine-local cache and transaction state, never fixture
+	// input: start every copy from a clean workspace.
+	if err := os.RemoveAll(filepath.Join(root, ".scenery")); err != nil {
+		t.Fatal(err)
+	}
+	rebaseFixtureModuleReplacements(t, root, source)
+	return root
+}
+
+// rebaseFixtureModuleReplacements rewrites relative `replace` directives onto
+// absolute paths. A fixture's `replace scenery.sh => ../../../..` resolves
+// only from its checked-in location, so a copy outside the repository tree
+// cannot load the module without this.
+func rebaseFixtureModuleReplacements(t *testing.T, root, source string) {
+	t.Helper()
+	path := filepath.Join(root, "go.mod")
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(string(data), "\n")
+	rewrote := false
+	for i, line := range lines {
+		fields := strings.Fields(line)
+		if len(fields) != 4 || fields[0] != "replace" || fields[2] != "=>" || filepath.IsAbs(fields[3]) {
+			continue
+		}
+		absolute, err := filepath.Abs(filepath.Join(source, fields[3]))
+		if err != nil {
+			t.Fatal(err)
+		}
+		lines[i] = strings.Join([]string{fields[0], fields[1], fields[2], absolute}, " ")
+		rewrote = true
+	}
+	if !rewrote {
+		return
+	}
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o644); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestResolveAppRoot(t *testing.T) {

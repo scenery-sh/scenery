@@ -137,10 +137,7 @@ func TestContractInspectIncludesFrameworkOwnedGoogleEndpoints(t *testing.T) {
 func TestInspectInvalidGraphSurfacesCompilerDiagnostics(t *testing.T) {
 	t.Parallel()
 
-	root := t.TempDir()
-	if err := os.CopyFS(root, os.DirFS(contractFixtureRoot(t))); err != nil {
-		t.Fatal(err)
-	}
+	root := contractFixtureRoot(t)
 	if err := os.WriteFile(filepath.Join(root, ".scenery.json"), []byte(`{"name": "house", "id": "house-id", "envs": {"local": {"default": true}}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}

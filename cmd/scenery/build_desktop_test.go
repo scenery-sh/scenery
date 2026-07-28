@@ -112,20 +112,7 @@ func TestBuildDesktopRejectsConflictingFlags(t *testing.T) {
 }
 
 func TestBuildDesktopCommandEmitsSchemaValidJSON(t *testing.T) {
-	root := t.TempDir()
-	fixture := filepath.Join(repoRootForTest(t), "internal", "compiler", "testdata", "native")
-	if err := os.CopyFS(root, os.DirFS(fixture)); err != nil {
-		t.Fatal(err)
-	}
-	goModPath := filepath.Join(root, "go.mod")
-	goMod, err := os.ReadFile(goModPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	goMod = []byte(strings.Replace(string(goMod), "replace scenery.sh => ../../../..", "replace scenery.sh => "+repoRootForTest(t), 1))
-	if err := os.WriteFile(goModPath, goMod, 0o644); err != nil {
-		t.Fatal(err)
-	}
+	root := nativeFixtureRoot(t)
 	writeDesktopTestFile(t, filepath.Join(root, ".scenery.json"), `{
 		"name": "nativeapp",
 		"frontends": {

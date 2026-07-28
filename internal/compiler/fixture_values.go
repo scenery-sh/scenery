@@ -8,7 +8,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	scenery "scenery.sh"
+	scenery "scenery.sh/internal/contract"
 )
 
 func validateFixtureFieldValue(value any, field map[string]any, module string, resources map[string]Resource) error {

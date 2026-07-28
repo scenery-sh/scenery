@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	scenery "scenery.sh"
+	scenery "scenery.sh/internal/contract"
 )
 
 var httpPathParameterPattern = regexp.MustCompile(`\{([a-z][a-z0-9_]*)\}`)

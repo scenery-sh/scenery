@@ -8,15 +8,141 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
 	"time"
 
 	"scenery.sh/internal/envpolicy"
+	"scenery.sh/internal/testsuite"
 )
 
 type harnessTimingCommandRunner func(context.Context, string, []string) ([]byte, error)
+
+// A candidate is re-confirmed only when it is materially worse than the last
+// recorded run: both thresholds must be crossed so that neither ordinary
+// scheduling jitter on a fast test nor a small absolute drift on a slow one
+// buys a full multi-run confirmation pass.
+const (
+	harnessTimingRegressionRatio   = 1.25
+	harnessTimingRegressionSeconds = 0.5
+)
+
+func harnessTestBinaryTimingFromResult(result testsuite.Result) *harnessTestBinaryTiming {
+	timing := &harnessTestBinaryTiming{
+		ManifestHit:    result.ManifestHit,
+		PrepareSeconds: roundSeconds(result.Prepare.Elapsed.Seconds()),
+		ListSeconds:    roundSeconds(result.Prepare.ListElapsed.Seconds()),
+		BuildSeconds:   roundSeconds(result.Prepare.BuildElapsed().Seconds()),
+		BuiltCount:     len(result.Prepare.Builds),
+	}
+	for _, build := range result.Prepare.Builds {
+		timing.Builds = append(timing.Builds, harnessTestBinaryBuild{
+			Package: build.Package,
+			BuildID: build.BuildID,
+			Seconds: roundSeconds(build.Elapsed.Seconds()),
+		})
+	}
+	return timing
+}
+
+// readHarnessTimingBaseline loads the previous run's report. A missing or
+// unreadable artifact is not an error: without a baseline every candidate is
+// new, which is the conservative direction.
+func readHarnessTimingBaseline(repoRoot string) *harnessTestTimingReport {
+	report, err := readHarnessJSON[harnessTestTimingReport](filepath.Join(repoRoot, ".scenery", "harness", "test-timing-latest.json"))
+	if err != nil {
+		return nil
+	}
+	return &report
+}
+
+// selectHarnessTimingConfirmations narrows the confirmation pass to candidates
+// that are new or materially worse than the baseline, and records every skip
+// in the report. Under the "all" scope it keeps every candidate.
+func selectHarnessTimingConfirmations(report *harnessTestTimingReport, baseline *harnessTestTimingReport) {
+	if report == nil || report.Budgets.ConfirmationScope == harnessConfirmationScopeAll {
+		return
+	}
+	baselinePackages := map[string]float64{}
+	baselineTests := map[string]float64{}
+	if baseline != nil {
+		for _, pkg := range baseline.Packages {
+			if pkg.BudgetSeconds > 0 && harnessPackageTimingEffectiveSeconds(pkg) >= pkg.BudgetSeconds {
+				baselinePackages[pkg.Package] = harnessPackageTimingEffectiveSeconds(pkg)
+			}
+		}
+		for _, test := range baseline.ObservedSlowTests {
+			baselineTests[test.Package+"."+test.Name] = harnessTestTimingEffectiveSeconds(test)
+		}
+	}
+
+	for i := range report.Packages {
+		pkg := &report.Packages[i]
+		if pkg.BudgetSeconds <= 0 || pkg.Seconds < pkg.BudgetSeconds {
+			continue
+		}
+		known, ok := baselinePackages[pkg.Package]
+		if !ok || harnessTimingIsRegression(pkg.Seconds, known) {
+			continue
+		}
+		report.DeferredConfirmations = append(report.DeferredConfirmations, harnessTimingDeferral{
+			Package:         pkg.Package,
+			Seconds:         pkg.Seconds,
+			BaselineSeconds: known,
+			Reason:          "package was already over budget at this level in the recorded baseline",
+		})
+	}
+
+	kept := report.ObservedSlowTests[:0]
+	for _, test := range report.ObservedSlowTests {
+		known, ok := baselineTests[test.Package+"."+test.Name]
+		if !ok || harnessTimingIsRegression(test.Seconds, known) {
+			kept = append(kept, test)
+			continue
+		}
+		report.DeferredConfirmations = append(report.DeferredConfirmations, harnessTimingDeferral{
+			Package:         test.Package,
+			Name:            test.Name,
+			Seconds:         test.Seconds,
+			BaselineSeconds: known,
+			Reason:          "test was already over budget at this level in the recorded baseline",
+		})
+	}
+	report.ObservedSlowTests = kept
+
+	if len(report.DeferredConfirmations) == 0 {
+		return
+	}
+	sort.Slice(report.DeferredConfirmations, func(i, j int) bool {
+		if report.DeferredConfirmations[i].Seconds == report.DeferredConfirmations[j].Seconds {
+			return report.DeferredConfirmations[i].Package+"."+report.DeferredConfirmations[i].Name <
+				report.DeferredConfirmations[j].Package+"."+report.DeferredConfirmations[j].Name
+		}
+		return report.DeferredConfirmations[i].Seconds > report.DeferredConfirmations[j].Seconds
+	})
+	report.Diagnostics = append(report.Diagnostics, checkDiagnostic{
+		Stage:           "go tests",
+		Severity:        "info",
+		Message:         fmt.Sprintf("skipped isolated confirmation for %d known timing outlier(s) at their recorded level", len(report.DeferredConfirmations)),
+		SuggestedAction: "Run `.scenery/harness/bin/scenery harness self --release --fresh-tests -o json --write` for a full timing audit, or read `deferred_confirmations` in `.scenery/harness/test-timing-latest.json`.",
+	})
+}
+
+func harnessTimingIsRegression(seconds, baselineSeconds float64) bool {
+	if baselineSeconds <= 0 {
+		return true
+	}
+	return seconds >= baselineSeconds*harnessTimingRegressionRatio && seconds >= baselineSeconds+harnessTimingRegressionSeconds
+}
+
+func harnessPackageTimingEffectiveSeconds(timing harnessPackageTiming) float64 {
+	if timing.IsolatedSeconds != nil {
+		return *timing.IsolatedSeconds
+	}
+	return timing.Seconds
+}
 
 func confirmHarnessTimingOutliers(ctx context.Context, repoRoot string, report *harnessTestTimingReport, run harnessTimingCommandRunner) {
 	if report == nil || run == nil {
@@ -27,10 +153,16 @@ func confirmHarnessTimingOutliers(ctx context.Context, repoRoot string, report *
 	if confirmationRuns <= 0 {
 		return
 	}
+	deferredPackages := map[string]bool{}
+	for _, deferral := range report.DeferredConfirmations {
+		if deferral.Name == "" {
+			deferredPackages[deferral.Package] = true
+		}
+	}
 	var packageIndices []int
 	command := []string{"go", "test", "-count=1", "-p", "1", "-json"}
 	for i, pkg := range report.Packages {
-		if pkg.Seconds >= pkg.BudgetSeconds {
+		if pkg.Seconds >= pkg.BudgetSeconds && !deferredPackages[pkg.Package] {
 			packageIndices = append(packageIndices, i)
 			command = append(command, pkg.Package)
 		}

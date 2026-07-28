@@ -6,7 +6,7 @@ import (
 
 	"golang.org/x/mod/module"
 	"golang.org/x/mod/semver"
-	scenery "scenery.sh"
+	scenery "scenery.sh/internal/contract"
 )
 
 func validateResourceSemantics(resources []Resource) []Diagnostic {

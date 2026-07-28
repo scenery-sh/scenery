@@ -33,6 +33,11 @@ const (
 	harnessTimingConfirmationRuns    = 3
 )
 
+const (
+	harnessConfirmationScopeRegressions = "regressions"
+	harnessConfirmationScopeAll         = "all"
+)
+
 type harnessChangedAreaReport struct {
 	cliPayloadIdentity
 	ChangedFiles        []harnessChangedFile `json:"changed_files"`
@@ -65,15 +70,48 @@ var (
 
 type harnessTestTimingReport struct {
 	cliPayloadIdentity
-	Command             []string                 `json:"command"`
-	Env                 []string                 `json:"env,omitempty"`
-	TotalSeconds        float64                  `json:"total_seconds"`
-	ConfirmationSeconds float64                  `json:"confirmation_seconds,omitempty"`
-	Packages            []harnessPackageTiming   `json:"packages"`
-	ObservedSlowTests   []harnessTestTiming      `json:"observed_slow_tests,omitempty"`
-	SlowTests           []harnessTestTiming      `json:"slow_tests,omitempty"`
-	Budgets             harnessTestTimingBudgets `json:"budgets"`
-	Diagnostics         []checkDiagnostic        `json:"diagnostics,omitempty"`
+	Command               []string                 `json:"command"`
+	Env                   []string                 `json:"env,omitempty"`
+	TotalSeconds          float64                  `json:"total_seconds"`
+	ConfirmationSeconds   float64                  `json:"confirmation_seconds,omitempty"`
+	TestBinaries          *harnessTestBinaryTiming `json:"test_binaries,omitempty"`
+	Packages              []harnessPackageTiming   `json:"packages"`
+	ObservedSlowTests     []harnessTestTiming      `json:"observed_slow_tests,omitempty"`
+	SlowTests             []harnessTestTiming      `json:"slow_tests,omitempty"`
+	DeferredConfirmations []harnessTimingDeferral  `json:"deferred_confirmations,omitempty"`
+	Budgets               harnessTestTimingBudgets `json:"budgets"`
+	Diagnostics           []checkDiagnostic        `json:"diagnostics,omitempty"`
+}
+
+// harnessTestBinaryTiming attributes the fresh lane's pre-execution cost.
+// Package listing and per-binary linking happen before any test runs, so they
+// never appear in Go's per-package elapsed times; without this breakdown a
+// cold-run penalty cannot be traced to the links that caused it.
+type harnessTestBinaryTiming struct {
+	ManifestHit    bool                     `json:"manifest_hit"`
+	PrepareSeconds float64                  `json:"prepare_seconds"`
+	ListSeconds    float64                  `json:"list_seconds,omitempty"`
+	BuildSeconds   float64                  `json:"build_seconds,omitempty"`
+	BuiltCount     int                      `json:"built_count"`
+	Builds         []harnessTestBinaryBuild `json:"builds,omitempty"`
+}
+
+type harnessTestBinaryBuild struct {
+	Package string  `json:"package"`
+	BuildID string  `json:"build_id"`
+	Seconds float64 `json:"seconds"`
+}
+
+// harnessTimingDeferral records a candidate the confirmation pass did not
+// re-run. Confirmation costs multiple isolated executions per candidate, so
+// the regression scope skips outliers already at their known level; recording
+// each skip keeps the report from reading as "nothing was over budget".
+type harnessTimingDeferral struct {
+	Package         string  `json:"package"`
+	Name            string  `json:"name,omitempty"`
+	Seconds         float64 `json:"seconds"`
+	BaselineSeconds float64 `json:"baseline_seconds"`
+	Reason          string  `json:"reason"`
 }
 
 type harnessPackageTiming struct {
@@ -101,7 +139,12 @@ type harnessTestTimingBudgets struct {
 	PackageOverrides map[string]float64 `json:"package_overrides,omitempty"`
 	TestSeconds      float64            `json:"test_seconds"`
 	ConfirmationRuns int                `json:"confirmation_runs,omitempty"`
-	Mode             string             `json:"mode"`
+	// ConfirmationScope is "regressions" (confirm only candidates that are new
+	// or materially worse than the last recorded run) or "all" (confirm every
+	// candidate). Everyday fresh runs use the former; the release audit lane
+	// uses the latter.
+	ConfirmationScope string `json:"confirmation_scope,omitempty"`
+	Mode              string `json:"mode"`
 }
 
 type goTestJSONEvent struct {
@@ -543,11 +586,15 @@ func harnessTestTimingBudgetsForMode(mode string, freshTests bool) harnessTestTi
 		budgets.Lane = "fresh"
 		budgets.TotalSeconds = freshHarnessTotalSeconds
 		budgets.ConfirmationRuns = harnessTimingConfirmationRuns
+		budgets.ConfirmationScope = harnessConfirmationScopeRegressions
 	}
 	if mode == harnessSelfModeRelease {
 		budgets.Lane = "release"
 		budgets.TotalSeconds = releaseHarnessTotalSeconds
 		budgets.Mode = "enforce-total"
+		if budgets.ConfirmationRuns > 0 {
+			budgets.ConfirmationScope = harnessConfirmationScopeAll
+		}
 	}
 	return budgets
 }
@@ -638,7 +685,11 @@ func runHarnessGoTestTimingStepWithBudgets(ctx context.Context, repoRoot string,
 	}
 	report := parseHarnessGoTestTimingWithBudgets(output, command, suiteElapsed, budgets)
 	report.Env = append([]string{}, testEnv...)
+	if freshTests {
+		report.TestBinaries = harnessTestBinaryTimingFromResult(testResult)
+	}
 	if runErr == nil && freshTests {
+		selectHarnessTimingConfirmations(report, readHarnessTimingBaseline(repoRoot))
 		confirmHarnessTimingOutliers(ctx, repoRoot, report, runHarnessTimingConfirmationCommand)
 	}
 	elapsed := time.Since(started)
@@ -656,6 +707,9 @@ func runHarnessGoTestTimingStepWithBudgets(ctx context.Context, repoRoot string,
 		step.Summary["test_results"] = testResult.TestResultCount
 		step.Summary["test_binaries_built"] = testResult.BuiltCount
 		step.Summary["test_manifest_hit"] = testResult.ManifestHit
+		step.Summary["test_binary_prepare_seconds"] = roundSeconds(testResult.Prepare.Elapsed.Seconds())
+		step.Summary["test_binary_build_seconds"] = roundSeconds(testResult.Prepare.BuildElapsed().Seconds())
+		step.Summary["deferred_confirmations"] = len(report.DeferredConfirmations)
 	}
 	step.Diagnostics = report.Diagnostics
 	artifacts, artifactDiagnostics := writeHarnessOutputEvidenceArtifacts(optionalHarnessArtifactContext(artifactCtxs), step.Name, "go-test.jsonl", "go.test.jsonl", output, nil)

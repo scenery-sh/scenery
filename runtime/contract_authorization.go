@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 
 	"scenery.sh/errs"
+	"scenery.sh/internal/contractpolicy"
 )
 
 func authorizeContractInvocation(policy *ContractHTTPPolicy, input any) error {
@@ -30,7 +31,7 @@ func authorizeContractInvocation(policy *ContractHTTPPolicy, input any) error {
 	}
 	allowed := make([]bool, 0, len(policy.AuthorizationRules))
 	for _, rule := range policy.AuthorizationRules {
-		value, err := evaluateContractAuthorizationRule(rule.Expression, variables)
+		value, err := contractpolicy.EvaluateContractAuthorizationRule(rule.Expression, variables)
 		if err != nil {
 			return contractAuthorizationDenied("authorization rule evaluation failed")
 		}

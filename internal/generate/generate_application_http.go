@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	scenery "scenery.sh"
+	scenery "scenery.sh/internal/contract"
 )
 
 func renderServiceOperationAdapters(b *strings.Builder, operations []Resource) error {

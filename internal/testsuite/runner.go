@@ -15,7 +15,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"scenery.sh/internal/envpolicy"
@@ -44,11 +43,39 @@ type Result struct {
 	BuiltCount      int
 	ManifestHit     bool
 	Packages        []PackageTiming
+	Prepare         PrepareTiming
 }
 
 type PackageTiming struct {
 	Package string
 	Elapsed time.Duration
+}
+
+// PrepareTiming attributes the pre-execution cost of a fresh run. A cold run
+// pays for package listing and for linking one test binary per package; both
+// are invisible in Go's per-package test elapsed times, so they must be
+// measured here to be attributable at all.
+type PrepareTiming struct {
+	Elapsed     time.Duration
+	ListElapsed time.Duration
+	Builds      []BinaryBuild
+}
+
+// BinaryBuild records one linked test binary. BuildID is the Go test build ID
+// the binary is content-addressed by, so a rebuild can be traced to the input
+// change that produced a new identity.
+type BinaryBuild struct {
+	Package string
+	BuildID string
+	Elapsed time.Duration
+}
+
+func (t PrepareTiming) BuildElapsed() time.Duration {
+	var total time.Duration
+	for _, build := range t.Builds {
+		total += build.Elapsed
+	}
+	return total
 }
 
 type packageRun struct {
@@ -64,7 +91,7 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	manifest, hit, built, err := prepare(ctx, opts)
+	manifest, hit, prepared, err := prepare(ctx, opts)
 	if err != nil {
 		return Result{}, err
 	}
@@ -74,8 +101,9 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 	runs := runPackages(ctx, opts, manifest.Packages)
 	result := Result{
 		PackageCount: len(manifest.Packages) + len(manifest.NoTestPackages),
-		BuiltCount:   built,
+		BuiltCount:   len(prepared.Builds),
 		ManifestHit:  hit,
+		Prepare:      prepared,
 	}
 	var runErrors []error
 	for _, run := range runs {
@@ -148,52 +176,62 @@ func environmentWithOverride(environment []string, name, value string) []string 
 	return append(result, prefix+value)
 }
 
-func prepare(ctx context.Context, opts Options) (cacheManifest, bool, int, error) {
+func prepare(ctx context.Context, opts Options) (cacheManifest, bool, PrepareTiming, error) {
+	started := time.Now()
+	timing := PrepareTiming{}
+	fail := func(err error) (cacheManifest, bool, PrepareTiming, error) {
+		timing.Elapsed = time.Since(started)
+		return cacheManifest{}, false, timing, err
+	}
 	unlock, err := lockCache(ctx, filepath.Join(opts.CacheDir, "cache.lock"))
 	if err != nil {
-		return cacheManifest{}, false, 0, err
+		return fail(err)
 	}
 	defer unlock()
 	fingerprint, err := workspaceFingerprint(ctx, opts.RepoRoot)
 	if err != nil {
-		return cacheManifest{}, false, 0, err
+		return fail(err)
 	}
 	manifestPath := filepath.Join(opts.CacheDir, "manifest.json")
 	manifest, hit := readManifest(manifestPath, fingerprint, opts.RefreshManifest)
 	if !hit {
+		listStarted := time.Now()
 		manifest, err = listTestPackages(ctx, opts.RepoRoot, opts.CacheDir, fingerprint, opts.Env)
+		timing.ListElapsed = time.Since(listStarted)
 		if err != nil {
-			return cacheManifest{}, false, 0, err
+			return fail(err)
 		}
 	}
-	built, err := buildMissingBinaries(ctx, opts, manifest.Packages)
+	timing.Builds, err = buildMissingBinaries(ctx, opts, manifest.Packages)
 	if err != nil {
-		return cacheManifest{}, false, built, err
+		return fail(err)
 	}
-	if !hit || built > 0 {
+	if !hit || len(timing.Builds) > 0 {
 		if current, err := workspaceFingerprint(ctx, opts.RepoRoot); err != nil {
-			return cacheManifest{}, false, built, err
+			return fail(err)
 		} else if current != fingerprint {
-			return cacheManifest{}, false, built, fmt.Errorf("repository inputs changed while preparing test binaries")
+			return fail(fmt.Errorf("repository inputs changed while preparing test binaries"))
 		}
 	}
 	if !hit {
 		if err := writeManifest(manifestPath, manifest); err != nil {
-			return cacheManifest{}, false, built, err
+			return fail(err)
 		}
 		pruneUnreferencedBinaries(opts.CacheDir, manifest.Packages)
 	}
-	return manifest, hit, built, nil
+	timing.Elapsed = time.Since(started)
+	return manifest, hit, timing, nil
 }
 
-func buildMissingBinaries(ctx context.Context, opts Options, packages []testPackage) (int, error) {
+func buildMissingBinaries(ctx context.Context, opts Options, packages []testPackage) ([]BinaryBuild, error) {
 	var missing []testPackage
 	for _, pkg := range packages {
 		if _, err := os.Stat(pkg.Binary); err != nil {
 			missing = append(missing, pkg)
 		}
 	}
-	var built atomic.Int64
+	var mu sync.Mutex
+	builds := make([]BinaryBuild, 0, len(missing))
 	errs := parallelPackages(missing, opts.BuildParallelism, func(pkg testPackage) error {
 		temp, err := os.CreateTemp(opts.CacheDir, ".test-binary-*.tmp")
 		if err != nil {
@@ -204,11 +242,13 @@ func buildMissingBinaries(ctx context.Context, opts Options, packages []testPack
 			return err
 		}
 		defer os.Remove(tempPath)
+		started := time.Now()
 		cmd := exec.CommandContext(ctx, "go", testBinaryBuildArgs(tempPath, pkg.ImportPath)...)
 		configureCommandCancellation(cmd)
 		cmd.Dir = opts.RepoRoot
 		cmd.Env = opts.Env
 		output, err := cmd.CombinedOutput()
+		elapsed := time.Since(started)
 		if err != nil {
 			return fmt.Errorf("build %s: %w: %s", pkg.ImportPath, err, strings.TrimSpace(string(output)))
 		}
@@ -218,10 +258,18 @@ func buildMissingBinaries(ctx context.Context, opts Options, packages []testPack
 		if err := os.Rename(tempPath, pkg.Binary); err != nil {
 			return err
 		}
-		built.Add(1)
+		mu.Lock()
+		builds = append(builds, BinaryBuild{Package: pkg.ImportPath, BuildID: pkg.BuildID, Elapsed: elapsed})
+		mu.Unlock()
 		return nil
 	})
-	return int(built.Load()), errors.Join(errs...)
+	sort.Slice(builds, func(i, j int) bool {
+		if builds[i].Elapsed == builds[j].Elapsed {
+			return builds[i].Package < builds[j].Package
+		}
+		return builds[i].Elapsed > builds[j].Elapsed
+	})
+	return builds, errors.Join(errs...)
 }
 
 func testBinaryBuildArgs(output, importPath string) []string {

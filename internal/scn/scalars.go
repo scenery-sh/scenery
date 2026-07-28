@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	scenery "scenery.sh"
+	scenery "scenery.sh/internal/contract"
 )
 
 var contextualPrimitiveTypes = map[string]bool{"bytes": true, "uuid": true, "date": true, "datetime": true, "duration": true, "size": true, "url": true, "relative_path": true}

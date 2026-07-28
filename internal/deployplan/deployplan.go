@@ -14,9 +14,9 @@ import (
 	"strings"
 	"time"
 
-	scenery "scenery.sh"
 	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/compiler"
+	scenery "scenery.sh/internal/contract"
 	"scenery.sh/internal/evolution"
 	"scenery.sh/internal/machine"
 )

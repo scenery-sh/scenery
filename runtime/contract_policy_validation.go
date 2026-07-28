@@ -1,6 +1,10 @@
 package runtime
 
-import "fmt"
+import (
+	"fmt"
+
+	"scenery.sh/internal/contractpolicy"
+)
 
 func validateContractHTTPPolicy(policy *ContractHTTPPolicy) error {
 	if policy == nil {
@@ -31,7 +35,7 @@ func validateContractHTTPPolicy(policy *ContractHTTPPolicy) error {
 		if rule.Name == "" {
 			return fmt.Errorf("authorization rule name is required")
 		}
-		if err := ValidateContractAuthorizationExpression(rule.Expression); err != nil {
+		if err := contractpolicy.ValidateContractAuthorizationExpression(rule.Expression); err != nil {
 			return fmt.Errorf("authorization rule %s: %w", rule.Name, err)
 		}
 	}

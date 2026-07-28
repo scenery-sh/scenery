@@ -1,4 +1,4 @@
-package scenery
+package contract
 
 import (
 	"encoding/base64"

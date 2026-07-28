@@ -7,6 +7,11 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
+- [0145 Developer Test Loop Attribution](0145-test-loop-attribution.md)
+  - Status: active
+  - Owner: scenery harness
+  - Created: 2026-07-28
+  - Focus: attribute and reduce the developer test loop — confirmation scoped to regressions, test-binary link instrumentation, and the remaining `cmd/scenery` serial critical path.
 - [0101 Public Deploy Edge](0101-public-deploy-edge.md)
   - Status: active
   - Owner: scenery runtime / edge

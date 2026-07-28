@@ -9,7 +9,7 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 
-	sceneryruntime "scenery.sh/runtime"
+	"scenery.sh/internal/contractpolicy"
 )
 
 func validateSecurityResources(resources []Resource) []Diagnostic {
@@ -73,7 +73,7 @@ func validateBindingAuthorizationTypes(resources map[string]Resource, binding Re
 		if source == "" {
 			continue
 		}
-		if err := sceneryruntime.ValidateContractAuthorizationExpressionAgainst(source, variables); err != nil {
+		if err := contractpolicy.ValidateContractAuthorizationExpressionAgainst(source, variables); err != nil {
 			name := stringValue(rule["name"])
 			diagnostics = append(diagnostics, securityDiagnostic("SCN4107", "authorization rule "+name+" is not type-correct for binding "+binding.Address+": "+err.Error(), authorization, "/spec/rule/"+name+"/"+field))
 		}
@@ -224,7 +224,7 @@ func validateAuthorizationResource(resource Resource) []Diagnostic {
 			}
 			return nil
 		})
-		if err := sceneryruntime.ValidateContractAuthorizationExpression(source); err != nil {
+		if err := contractpolicy.ValidateContractAuthorizationExpression(source); err != nil {
 			diagnostics = append(diagnostics, securityDiagnostic("SCN4105", "authorization rule "+name+" is outside the runtime expression subset: "+err.Error(), resource, "/spec/rule/"+name+"/allow"))
 		}
 	}

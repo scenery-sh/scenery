@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	scenery "scenery.sh"
+	scenery "scenery.sh/internal/contract"
 	"scenery.sh/internal/scn"
 )
 

@@ -1,4 +1,4 @@
-package runtime
+package contractpolicy
 
 import (
 	"encoding/json"
@@ -174,7 +174,9 @@ type authorizationParser struct {
 	validateOnly bool
 }
 
-func evaluateContractAuthorizationRule(source string, variables map[string]any) (bool, error) {
+// EvaluateContractAuthorizationRule evaluates one authorization rule against
+// live request variables.
+func EvaluateContractAuthorizationRule(source string, variables map[string]any) (bool, error) {
 	value, err := parseContractAuthorizationExpression(source, variables, false)
 	if err != nil {
 		return false, err

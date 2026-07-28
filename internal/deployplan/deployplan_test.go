@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	scenery "scenery.sh"
 	"scenery.sh/internal/compiler"
+	scenery "scenery.sh/internal/contract"
 	"scenery.sh/internal/machine"
 )
 

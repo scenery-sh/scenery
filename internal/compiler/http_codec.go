@@ -17,7 +17,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	scenery "scenery.sh"
+	scenery "scenery.sh/internal/contract"
 )
 
 type HTTPMultipartPart struct {

@@ -12,7 +12,7 @@ import (
 	"strings"
 	"unicode"
 
-	scenery "scenery.sh"
+	scenery "scenery.sh/internal/contract"
 	"scenery.sh/internal/machine"
 	"scenery.sh/internal/scn"
 )

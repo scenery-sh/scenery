@@ -1,6 +1,6 @@
 package evolution
 
-import scenery "scenery.sh"
+import scenery "scenery.sh/internal/contract"
 
 type ApprovalToken = scenery.ApprovalToken
 

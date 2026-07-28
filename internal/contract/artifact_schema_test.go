@@ -1,4 +1,4 @@
-package scenery
+package contract
 
 import (
 	"os"
@@ -10,7 +10,7 @@ import (
 )
 
 func TestApprovalTokenSchemaRevisionMatchesCheckedSchema(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join("docs", "schemas", "scenery.approval-token.schema.json"))
+	data, err := os.ReadFile(filepath.Join("..", "..", "docs", "schemas", "scenery.approval-token.schema.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

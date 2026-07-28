@@ -19,6 +19,7 @@ func main() {
 	flag.IntVar(&opts.BuildParallelism, "build-p", 8, "parallel missing binary builds")
 	flag.BoolVar(&opts.RefreshManifest, "refresh", false, "force Go build-ID refresh")
 	flag.BoolVar(&opts.RecordTimings, "record-timings", true, "record package durations for longest-first scheduling")
+	builds := flag.Int("builds", 0, "print the N slowest test-binary builds to stderr")
 	flag.Parse()
 	root, err := filepath.Abs(opts.RepoRoot)
 	if err != nil {
@@ -27,8 +28,24 @@ func main() {
 	}
 	opts.RepoRoot = root
 	opts.Output = os.Stdout
-	if _, err := testsuite.Run(context.Background(), opts); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+	result, runErr := testsuite.Run(context.Background(), opts)
+	reportPrepare(result, *builds)
+	if runErr != nil {
+		fmt.Fprintln(os.Stderr, runErr)
 		os.Exit(1)
+	}
+}
+
+// reportPrepare prints the pre-execution breakdown on stderr so it stays out of
+// the Go JSON event stream on stdout.
+func reportPrepare(result testsuite.Result, builds int) {
+	fmt.Fprintf(os.Stderr, "prepare %.3fs (list %.3fs, %d builds totalling %.3fs, manifest_hit=%v)\n",
+		result.Prepare.Elapsed.Seconds(), result.Prepare.ListElapsed.Seconds(),
+		len(result.Prepare.Builds), result.Prepare.BuildElapsed().Seconds(), result.ManifestHit)
+	for i, build := range result.Prepare.Builds {
+		if i >= builds {
+			break
+		}
+		fmt.Fprintf(os.Stderr, "  build %6.3fs %s %s\n", build.Elapsed.Seconds(), build.Package, build.BuildID)
 	}
 }

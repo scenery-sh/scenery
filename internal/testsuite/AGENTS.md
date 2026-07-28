@@ -28,6 +28,10 @@ Go test binaries so fresh measurement does not relink unchanged packages.
 - Test-binary manifests use the current `scenery.test-binary-cache` artifact
   identity; an identity mismatch invalidates the disposable cache and rebuilds it.
 - Route process environment reads through `internal/envpolicy`.
+- Report pre-execution cost on `Result.Prepare`: total elapsed, package-listing
+  elapsed, and one `BinaryBuild{Package, BuildID, Elapsed}` per linked binary,
+  ranked slowest first. Linking is invisible to Go's per-package test timings,
+  so a cold-run penalty is unattributable without it.
 
 ## Work Guidance
 
@@ -42,4 +46,10 @@ Go test binaries so fresh measurement does not relink unchanged packages.
 go test ./internal/testsuite
 go run ./scripts/testsuite -run 'a^' -record-timings=false
 go run ./scripts/testsuite
+```
+
+`-builds N` prints the prepare breakdown and the N slowest links to stderr:
+
+```sh
+go run ./scripts/testsuite -run 'a^' -builds 20 -record-timings=false
 ```

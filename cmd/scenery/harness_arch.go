@@ -163,6 +163,25 @@ type packageLayerRule struct {
 
 var packageLayerRules = []packageLayerRule{
 	{
+		// The root scenery.sh façade links the app runtime, its HTTP stack, and
+		// the PostgreSQL driver. Compiler-side packages need only the contract
+		// value types, so they depend on internal/contract and
+		// internal/contractpolicy directly and stay runtime-free. Importing the
+		// façade here silently relinks that whole closure into every one of
+		// these test binaries.
+		Name: "compiler-side packages stay free of the app runtime",
+		PathPrefixes: []string{
+			"internal/scn/", "internal/graph/", "internal/compiler/", "internal/generate/",
+			"internal/evolution/", "internal/deployplan/", "internal/contractagent/",
+			"internal/build/", "internal/workspacetx/", "internal/librarybuild/",
+			"internal/contract/", "internal/contractpolicy/",
+		},
+		ForbiddenImports: []string{
+			"scenery.sh",
+			"scenery.sh/runtime",
+		},
+	},
+	{
 		Name:         "internal/scn stays foundational",
 		PathPrefixes: []string{"internal/scn/"},
 		ForbiddenImports: []string{
@@ -678,6 +697,11 @@ func checkArchitectureGoImports(path, rel string) ([]checkDiagnostic, error) {
 
 func pathMatchesLayerRule(rel string, rule packageLayerRule) bool {
 	rel = filepath.ToSlash(rel)
+	// Fixture apps under testdata are generated client code. They legitimately
+	// import the app-facing scenery.sh façade and are not scenery's own layering.
+	if strings.Contains(rel, "/testdata/") {
+		return false
+	}
 	for _, prefix := range rule.PathPrefixes {
 		if strings.HasPrefix(rel, prefix) {
 			return true
@@ -764,6 +788,13 @@ func architectureSkipDir(rel string) bool {
 	}
 	for _, part := range strings.Split(rel, "/") {
 		if appwalk.SkipDirName(part) || part == ".codex-tmp" || part == "coverage" || part == "oracle" {
+			return true
+		}
+		// Untracked local tool state: agent scratch, Codex config, and browser
+		// artifacts. They hold no reviewable source, and walking them records
+		// them as Go test-cache inputs, so ordinary agent or browser activity
+		// invalidated the cached result of every test that runs this walk.
+		if part == ".scratch" || part == ".codex" || strings.HasPrefix(part, ".playwright-") {
 			return true
 		}
 	}

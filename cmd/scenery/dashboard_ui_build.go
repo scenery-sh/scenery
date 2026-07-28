@@ -32,7 +32,7 @@ func dashboardBundleStatusForCurrentRepo() (devdash.DashboardBundle, error) {
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return status, err
 	}
-	distDir, ok := dashboardConsoleDistDir()
+	distDir, ok := dashboardConsoleDistDirFunc()
 	if !ok {
 		return status, nil
 	}
@@ -107,6 +107,14 @@ func dashboardBundleHash(fsys fs.FS) (string, error) {
 	}
 	return fmt.Sprintf("%x", h.Sum(nil)), nil
 }
+
+// dashboardConsoleDistDirFunc resolves the working repository's built
+// dashboard bundle. Tests replace it so the dashboard never reads the live
+// `apps/console/dist`: that directory is rewritten by every `bun run build`
+// (including the self-harness's own dashboard build step), and reading it
+// records it as a Go test-cache input, so each dashboard build invalidated
+// this package's cached test result.
+var dashboardConsoleDistDirFunc = dashboardConsoleDistDir
 
 func dashboardConsoleDistDir() (string, bool) {
 	candidates := []string{}

@@ -133,6 +133,27 @@ Architecture invariant: `app.scn` is required. There is no Go-comment,
 package-init, or alternate application-model frontend. Generated roots are declared, confined,
 transactional, and reproducible from the canonical graph.
 
+### `internal/contract` and `internal/contractpolicy`
+
+`internal/contract` owns the contract value types, their canonical JSON wire
+form, schema-directed marshalling, constraint validation, composite keys, and
+approval tokens. `internal/contractpolicy` owns the authorization expression
+lexer, parser, and evaluator. Both depend only on `internal/spec`,
+`internal/machine`, and `internal/runtimeapi`.
+
+The root `scenery.sh` package is the app-facing spelling of the contract
+surface: it re-exports `internal/contract` as type aliases and thin forwarders,
+so generated app code keeps using `scenery.Duration`, `scenery.Registry`, and
+`scenery.MarshalContractValue` unchanged. `scenery.sh/runtime` is the only
+consumer of `internal/contractpolicy`'s evaluator.
+
+Architecture invariant: compiler-side packages depend on `internal/contract` and
+`internal/contractpolicy` directly, never on the root `scenery.sh` façade or on
+`scenery.sh/runtime`. The façade links the app runtime; the leaves do not, so
+source, compiler, generator, and deployment packages must not link the runtime,
+its HTTP stack, or the PostgreSQL driver. `contract_surface_test.go` pins the
+façade to the leaf so the app-facing spelling cannot silently drift.
+
 ### `internal/compiler`
 
 `internal/compiler` loads the current `.scn` workspace and produces immutable

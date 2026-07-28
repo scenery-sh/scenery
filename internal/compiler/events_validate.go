@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	scenery "scenery.sh"
 	"scenery.sh/internal/calendartrigger"
+	scenery "scenery.sh/internal/contract"
 )
 
 func validateScheduleAndEventSemantics(resources []Resource) []Diagnostic {
