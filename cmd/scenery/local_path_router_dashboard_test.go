@@ -42,11 +42,9 @@ func localPathRouterTestGet(t *testing.T, url string) (int, string) {
 // proxying to the dead old backend and follow the current one, and a dead
 // backend answers with a terse 502 instead of the default proxy error.
 func TestLocalPathRouterDashboardFollowsAgentRestart(t *testing.T) {
-	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
-	paths, err := localagent.DefaultPaths()
-	if err != nil {
-		t.Fatal(err)
-	}
+	t.Parallel()
+
+	paths := localagent.PathsForHome(t.TempDir())
 	if err := localagent.EnsureDirs(paths); err != nil {
 		t.Fatal(err)
 	}
@@ -54,12 +52,7 @@ func TestLocalPathRouterDashboardFollowsAgentRestart(t *testing.T) {
 	_, backendA := startDashboardTestBackend(t, "dash-a")
 	fake.setDashboard(backendA)
 
-	oldBudget, oldInterval := localProxyDialRetryBudget, localProxyDialRetryInterval
-	t.Cleanup(func() {
-		localProxyDialRetryBudget, localProxyDialRetryInterval = oldBudget, oldInterval
-	})
-	localProxyDialRetryBudget = 400 * time.Millisecond
-	localProxyDialRetryInterval = 50 * time.Millisecond
+	dialRetry := localDialRetryPolicy{Budget: 400 * time.Millisecond, Interval: 50 * time.Millisecond}
 
 	port, err := freeLoopbackPort()
 	if err != nil {
@@ -79,6 +72,8 @@ func TestLocalPathRouterDashboardFollowsAgentRestart(t *testing.T) {
 		EdgeToken:        "test-token",
 		UpstreamAddr:     "127.0.0.1:1",
 		DashboardBackend: backendA,
+		DialRetry:        dialRetry,
+		Agent:            localagent.NewClient(paths.SocketPath),
 	})
 	if err != nil {
 		t.Fatalf("startLocalPathRouter: %v", err)
@@ -113,11 +108,9 @@ func TestLocalPathRouterDashboardFollowsAgentRestart(t *testing.T) {
 }
 
 func TestLocalPathRouterRootFrontendOwnsRootAssets(t *testing.T) {
-	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
-	paths, err := localagent.DefaultPaths()
-	if err != nil {
-		t.Fatal(err)
-	}
+	t.Parallel()
+
+	paths := localagent.PathsForHome(t.TempDir())
 	if err := localagent.EnsureDirs(paths); err != nil {
 		t.Fatal(err)
 	}
@@ -182,6 +175,7 @@ func TestLocalPathRouterRootFrontendOwnsRootAssets(t *testing.T) {
 		EdgeToken:        "test-token",
 		UpstreamAddr:     strings.TrimPrefix(frontend.URL, "http://"),
 		DashboardBackend: dashboard,
+		Agent:            localagent.NewClient(paths.SocketPath),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -207,11 +201,9 @@ func TestLocalPathRouterRootFrontendOwnsRootAssets(t *testing.T) {
 // agent router upstream is bridged by the bounded dial retry instead of
 // answering 502 immediately.
 func TestLocalPathRouterUpstreamDialRetryBridgesRestart(t *testing.T) {
-	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
-	paths, err := localagent.DefaultPaths()
-	if err != nil {
-		t.Fatal(err)
-	}
+	t.Parallel()
+
+	paths := localagent.PathsForHome(t.TempDir())
 	if err := localagent.EnsureDirs(paths); err != nil {
 		t.Fatal(err)
 	}
@@ -219,12 +211,7 @@ func TestLocalPathRouterUpstreamDialRetryBridgesRestart(t *testing.T) {
 	_, dashboard := startDashboardTestBackend(t, "dash")
 	fake.setDashboard(dashboard)
 
-	oldBudget, oldInterval := localProxyDialRetryBudget, localProxyDialRetryInterval
-	t.Cleanup(func() {
-		localProxyDialRetryBudget, localProxyDialRetryInterval = oldBudget, oldInterval
-	})
-	localProxyDialRetryBudget = 2 * time.Second
-	localProxyDialRetryInterval = 50 * time.Millisecond
+	dialRetry := localDialRetryPolicy{Budget: 2 * time.Second, Interval: 50 * time.Millisecond}
 
 	upstreamPort, err := freeLoopbackPort()
 	if err != nil {
@@ -244,6 +231,8 @@ func TestLocalPathRouterUpstreamDialRetryBridgesRestart(t *testing.T) {
 		EdgeToken:        "test-token",
 		UpstreamAddr:     upstreamAddr,
 		DashboardBackend: dashboard,
+		DialRetry:        dialRetry,
+		Agent:            localagent.NewClient(paths.SocketPath),
 	})
 	if err != nil {
 		t.Fatalf("startLocalPathRouter: %v", err)

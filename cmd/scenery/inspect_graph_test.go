@@ -16,6 +16,8 @@ import (
 )
 
 func TestContractCommandsRejectUnsupportedOutputBeforeWork(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name string
 		run  func(io.Writer, []string) error
@@ -36,6 +38,8 @@ func TestContractCommandsRejectUnsupportedOutputBeforeWork(t *testing.T) {
 }
 
 func TestContractInspectDurableProjectsMergedExecution(t *testing.T) {
+	t.Parallel()
+
 	result := &compiler.Result{Root: t.TempDir(), Manifest: &graph.Manifest{Resources: []graph.Resource{
 		{Address: "house/service/house", Module: "house", Kind: "scenery.service", Name: "house", Spec: map[string]any{}},
 		{Address: "house/operation/process", Module: "house", Kind: "scenery.operation", Name: "process", Spec: map[string]any{

@@ -75,7 +75,7 @@ func TestRunUpgradeInstallsVerifiedReleaseAndSyncsToolchain(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "sync.args")
 	script := "#!/bin/sh\n" +
 		"if [ \"$1\" = \"system\" ] && [ \"$2\" = \"toolchain\" ] && [ \"$3\" = \"sync\" ]; then\n" +
-		"  printf '%s\\n' \"$*\" > \"$UPGRADE_TEST_MARKER\"\n" +
+		"  printf '%s\\n' \"$*\" > \"" + marker + "\"\n" +
 		"  echo '{\"kind\":\"scenery.toolchain.status\",\"schema_revision\":\"sha256:016d9a4dcfe775dd3847bd0ff320dd889d7945e9df22b8774a1d42b210c3f0f0\",\"artifacts\":[]}'\n" +
 		"  exit 0\n" +
 		"fi\n" +
@@ -89,7 +89,6 @@ func TestRunUpgradeInstallsVerifiedReleaseAndSyncsToolchain(t *testing.T) {
 	server := newUpgradeReleaseServer(t, tag, assets)
 	restore := overrideUpgradeGlobals(t, server, "v0.2.0")
 	defer restore()
-	t.Setenv("UPGRADE_TEST_MARKER", marker)
 
 	target := filepath.Join(t.TempDir(), "bin", "scenery")
 	var out bytes.Buffer

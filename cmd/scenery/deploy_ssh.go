@@ -17,7 +17,7 @@ type deploySSHOptions struct {
 	Env     string
 }
 
-func runDeploySSH(stdout io.Writer, target string, args []string) error {
+func runDeploySSH(stdout io.Writer, target string, args []string, tools deploySSHTools) error {
 	opts, err := parseDeploySSHOptions(target, args)
 	if err != nil {
 		return err
@@ -52,10 +52,34 @@ func runDeploySSH(stdout io.Writer, target string, args []string) error {
 		return fmt.Errorf("local scenery check: %w", err)
 	}
 	publishFrontends := strings.TrimSpace(env.Domain) != "" && len(productionFrontendNames(env)) > 0
-	return runDeploySSHCommands(stdout, appRoot, cfg.AppID(), target, env.Name, publishFrontends)
+	return runDeploySSHCommands(stdout, appRoot, cfg.AppID(), target, env.Name, publishFrontends, tools)
 }
 
-func runDeploySSHCommands(stdout io.Writer, appRoot, appID, target, envName string, publishFrontends bool) error {
+// deploySSHTools names the external programs a deploy shells out to and any
+// extra environment they need. The zero value resolves "ssh" and "rsync" from
+// PATH, which is what the CLI uses; tests set explicit paths so they can inject
+// fakes without mutating the process PATH.
+type deploySSHTools struct {
+	SSH   string
+	Rsync string
+	Env   []string
+}
+
+func (t deploySSHTools) ssh() string {
+	if strings.TrimSpace(t.SSH) == "" {
+		return "ssh"
+	}
+	return t.SSH
+}
+
+func (t deploySSHTools) rsync() string {
+	if strings.TrimSpace(t.Rsync) == "" {
+		return "rsync"
+	}
+	return t.Rsync
+}
+
+func runDeploySSHCommands(stdout io.Writer, appRoot, appID, target, envName string, publishFrontends bool, tools deploySSHTools) error {
 	remoteApp := "$HOME/.scenery/apps/" + appID
 	steps := []struct {
 		name string
@@ -63,22 +87,22 @@ func runDeploySSHCommands(stdout io.Writer, appRoot, appID, target, envName stri
 	}{
 		{
 			name: "SSH preflight",
-			cmd: exec.Command("ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "--", target,
+			cmd: exec.Command(tools.ssh(), "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "--", target,
 				`command -v scenery >/dev/null && command -v rsync >/dev/null && mkdir -p "`+remoteApp+`"`),
 		},
 		{
 			name: "remote scenery down",
-			cmd: exec.Command("ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "--", target,
+			cmd: exec.Command(tools.ssh(), "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "--", target,
 				`if [ -f "`+remoteApp+`/.scenery.json" ] && [ -S "$HOME/.scenery/run/agent.sock" ]; then scenery down --app-root "`+remoteApp+`"; fi`),
 		},
 		{
 			name: "rsync",
-			cmd: exec.Command("rsync", "-az", "--delete", "--filter=:- .gitignore", "--exclude=.git/", "--exclude=.scenery/", "--exclude=.env*", "--exclude=node_modules/", "--exclude=go.work", "--exclude=go.work.sum",
+			cmd: exec.Command(tools.rsync(), "-az", "--delete", "--filter=:- .gitignore", "--exclude=.git/", "--exclude=.scenery/", "--exclude=.env*", "--exclude=node_modules/", "--exclude=go.work", "--exclude=go.work.sum",
 				"-e", "ssh -o BatchMode=yes -o ConnectTimeout=10", "--", "./", target+":.scenery/apps/"+appID+"/"),
 		},
 		{
 			name: "remote scenery up",
-			cmd: exec.Command("ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "--", target,
+			cmd: exec.Command(tools.ssh(), "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "--", target,
 				`scenery up --detach --wait ready --env "`+envName+`" --app-root "`+remoteApp+`"`),
 		},
 	}
@@ -92,12 +116,20 @@ func runDeploySSHCommands(stdout io.Writer, appRoot, appID, target, envName stri
 			cmd  *exec.Cmd
 		}{
 			name: "remote scenery deploy publish",
-			cmd: exec.Command("ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "--", target,
+			cmd: exec.Command(tools.ssh(), "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "--", target,
 				`scenery deploy publish --env "`+envName+`" --app-root "`+remoteApp+`" -o json`),
 		})
 	}
 	for _, step := range steps {
 		step.cmd.Dir = filepath.Clean(appRoot)
+		if len(tools.Env) > 0 {
+			// Extend the command's own environment rather than the process
+			// environment: with a nil Env the exec package derives PWD from
+			// Dir, and rsync's logged working directory depends on it. Copying
+			// the raw process environment would silently switch the child to
+			// getcwd()'s symlink-resolved path.
+			step.cmd.Env = append(step.cmd.Environ(), tools.Env...)
+		}
 		step.cmd.Stdin = os.Stdin
 		step.cmd.Stdout = stdout
 		step.cmd.Stderr = cliStderr

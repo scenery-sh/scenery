@@ -213,7 +213,17 @@ func (s *devSupervisor) monitorVictoriaRecovery(root string, interval, maxBackof
 		maxBackoff = interval
 	}
 	go func() {
-		defer close(done)
+		// Substrate monitors started for a recovered stack outlive the loop
+		// that started them: each one waits on its components and then writes
+		// a substrate lock under root. Join them before reporting done, so a
+		// caller that cancels and waits is not still racing a writer.
+		var substrateMonitors []<-chan struct{}
+		defer func() {
+			for _, monitor := range substrateMonitors {
+				<-monitor
+			}
+			close(done)
+		}()
 		delay := interval
 		for {
 			timer := time.NewTimer(delay)
@@ -254,7 +264,7 @@ func (s *devSupervisor) monitorVictoriaRecovery(root string, interval, maxBackof
 			}
 			s.victoria = stack
 			s.mu.Unlock()
-			monitorVictoriaSubstrate(root, s.agent, s.eventSink(), stack)
+			substrateMonitors = append(substrateMonitors, monitorVictoriaSubstrate(root, s.agent, s.eventSink(), stack))
 			emitVictoriaSubstrateEvent(s.eventSink(), s.ctx, "running", "shared Victoria stack recovered", map[string]any{
 				"reused":    reused,
 				"endpoints": stack.SubstrateRequest(os.Getpid()).Endpoints,

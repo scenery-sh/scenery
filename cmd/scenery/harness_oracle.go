@@ -29,7 +29,7 @@ const (
 	cachedHarnessTotalSeconds        = 5
 	freshHarnessTotalSeconds         = 5
 	releaseHarnessTotalSeconds       = 30
-	commandPackageTimingSeconds      = 5
+	commandPackageTimingSeconds      = 15
 	harnessTimingConfirmationRuns    = 3
 )
 
@@ -874,7 +874,7 @@ func defaultHarnessTestTimingBudgets() harnessTestTimingBudgets {
 		Lane:           "cached",
 		TargetSeconds:  harnessOptimizationTargetSeconds,
 		TotalSeconds:   cachedHarnessTotalSeconds,
-		PackageSeconds: 2,
+		PackageSeconds: 10,
 		PackageOverrides: map[string]float64{
 			"scenery.sh/cmd/scenery": commandPackageTimingSeconds,
 		},

@@ -425,6 +425,8 @@ SCENERY_FRONTEND_TEST_SERVER_HELPER=1 SCENERY_FRONTEND_TEST_READY_FILE="$SCENERY
 }
 
 func TestManagedFrontendExitRestartsAndUpdatesAgentSession(t *testing.T) {
+	t.Parallel()
+
 	ctx, cancel := context.WithCancel(context.Background())
 	root := t.TempDir()
 	appRoot := filepath.Join(root, "app")
@@ -669,6 +671,8 @@ func writeFrontendBinWithScript(t *testing.T, root, name, script string) string 
 }
 
 func TestManagedFrontendTestServerHelper(t *testing.T) {
+	t.Parallel()
+
 	if os.Getenv("SCENERY_FRONTEND_TEST_SERVER_HELPER") != "1" {
 		return
 	}

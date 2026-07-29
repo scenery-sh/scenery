@@ -8,6 +8,8 @@ import (
 )
 
 func TestUICatalogSnapshotDetectsChangesAndSkipsBuildDirs(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	write := func(rel, contents string) {
 		t.Helper()

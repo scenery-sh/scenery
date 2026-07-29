@@ -186,7 +186,7 @@ func run(args []string) error {
 	case "doctor":
 		return doctorCommand(args[1:])
 	case "build":
-		return buildCommand(args[1:])
+		return buildCommand(os.Stdout, args[1:])
 	case "check":
 		return checkCommand(args[1:])
 	case "fmt":

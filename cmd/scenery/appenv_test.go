@@ -10,6 +10,8 @@ import (
 )
 
 func TestNamedEnvironmentDotenvPrecedenceAndInjection(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	for name, value := range map[string]string{
 		".env":                  "VALUE=base\n",
@@ -54,6 +56,8 @@ func TestNamedEnvironmentDotenvPrecedenceAndInjection(t *testing.T) {
 }
 
 func TestAppProcessEnvInjectsResolvedLibraryLinkage(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, ".env"), nil, 0o600); err != nil {
 		t.Fatal(err)

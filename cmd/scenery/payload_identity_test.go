@@ -10,6 +10,8 @@ import (
 )
 
 func TestCLIPayloadSchemaRevisionsMatchCheckedSchemas(t *testing.T) {
+	t.Parallel()
+
 	for kind, expected := range cliPayloadSchemaRevisions {
 		t.Run(kind, func(t *testing.T) {
 			path := filepath.Join("..", "..", "docs", "schemas", kind+".schema.json")

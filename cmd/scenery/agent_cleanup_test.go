@@ -27,6 +27,8 @@ func TestPreRebrandProcessesRequireExactOwnedPaths(t *testing.T) {
 }
 
 func TestRunAgentCleanupReportsStateBeforeExplicitRemoval(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	legacy := filepath.Join(root, ".onlava")
 	if err := os.MkdirAll(filepath.Join(legacy, "agent"), 0o700); err != nil {

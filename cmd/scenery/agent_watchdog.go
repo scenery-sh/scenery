@@ -8,14 +8,48 @@ import (
 	localagent "scenery.sh/internal/agent"
 )
 
-var (
-	agentWatchdogInterval           = 2 * time.Second
-	agentWatchdogFailThreshold      = 2
-	agentWatchdogRecoveryBackoff    = 10 * time.Second
-	agentWatchdogRecoveryBackoffMax = 5 * time.Minute
-	agentWatchdogStartFunc          = localagent.StartProcess
-	agentWatchdogLog                = newComponentFailureLog("scenery-agent-watchdog", 30*time.Second, time.Now)
-)
+var agentWatchdogLog = newComponentFailureLog("scenery-agent-watchdog", 30*time.Second, time.Now)
+
+// agentWatchdogPolicy is the watchdog's timing and recovery seam. It is passed
+// explicitly rather than held in package state so two watchdogs can run with
+// different settings in one process.
+type agentWatchdogPolicy struct {
+	Interval           time.Duration
+	FailThreshold      int
+	RecoveryBackoff    time.Duration
+	RecoveryBackoffMax time.Duration
+	Start              func(localagent.Paths, localagent.StartOptions) error
+}
+
+func defaultAgentWatchdogPolicy() agentWatchdogPolicy {
+	return agentWatchdogPolicy{
+		Interval:           2 * time.Second,
+		FailThreshold:      2,
+		RecoveryBackoff:    10 * time.Second,
+		RecoveryBackoffMax: 5 * time.Minute,
+		Start:              localagent.StartProcess,
+	}
+}
+
+func (p agentWatchdogPolicy) orDefault() agentWatchdogPolicy {
+	d := defaultAgentWatchdogPolicy()
+	if p.Interval <= 0 {
+		p.Interval = d.Interval
+	}
+	if p.FailThreshold <= 0 {
+		p.FailThreshold = d.FailThreshold
+	}
+	if p.RecoveryBackoff <= 0 {
+		p.RecoveryBackoff = d.RecoveryBackoff
+	}
+	if p.RecoveryBackoffMax <= 0 {
+		p.RecoveryBackoffMax = d.RecoveryBackoffMax
+	}
+	if p.Start == nil {
+		p.Start = d.Start
+	}
+	return p
+}
 
 // startAgentAvailabilityWatchdog keeps the local agent alive from inside the
 // long-running dev supervisor. launchd can pend the supervised gui
@@ -26,18 +60,21 @@ var (
 // socket, an ordinary lock-protected spawn otherwise. Concurrent watchdogs
 // are safe: kickstart on a running job is a no-op and unsupervised spawns
 // fail closed on the agent lock.
-func startAgentAvailabilityWatchdog(ctx context.Context, client *localagent.Client) {
+// The returned channel closes once the watchdog goroutine has exited, so a
+// caller that cancels ctx can wait for the loop to stop touching shared state
+// instead of racing it.
+func startAgentAvailabilityWatchdog(ctx context.Context, client *localagent.Client, paths localagent.Paths, policy agentWatchdogPolicy) <-chan struct{} {
+	policy = policy.orDefault()
+	stopped := make(chan struct{})
 	if client == nil || localagent.DisabledByEnv() {
-		return
-	}
-	paths, err := localagent.DefaultPaths()
-	if err != nil {
-		return
+		close(stopped)
+		return stopped
 	}
 	go func() {
+		defer close(stopped)
 		failures := 0
-		backoff := agentWatchdogRecoveryBackoff
-		ticker := time.NewTicker(agentWatchdogInterval)
+		backoff := policy.RecoveryBackoff
+		ticker := time.NewTicker(policy.Interval)
 		defer ticker.Stop()
 		for {
 			select {
@@ -50,11 +87,11 @@ func startAgentAvailabilityWatchdog(ctx context.Context, client *localagent.Clie
 			cancel()
 			if err == nil {
 				failures = 0
-				backoff = agentWatchdogRecoveryBackoff
+				backoff = policy.RecoveryBackoff
 				continue
 			}
 			failures++
-			if failures < agentWatchdogFailThreshold {
+			if failures < policy.FailThreshold {
 				continue
 			}
 			failures = 0
@@ -67,7 +104,7 @@ func startAgentAvailabilityWatchdog(ctx context.Context, client *localagent.Clie
 				return
 			}
 			agentWatchdogLog.report(os.Stderr, paths.SocketPath, "scenery agent unreachable; starting recovery", err)
-			if startErr := agentWatchdogStartFunc(paths, localagent.StartOptions{}); startErr != nil {
+			if startErr := policy.Start(paths, localagent.StartOptions{}); startErr != nil {
 				agentWatchdogLog.report(os.Stderr, paths.SocketPath, "scenery agent recovery start failed", startErr)
 			}
 			// Recovery that is not converging must never stop the watchdog
@@ -79,7 +116,8 @@ func startAgentAvailabilityWatchdog(ctx context.Context, client *localagent.Clie
 				return
 			case <-time.After(backoff):
 			}
-			backoff = min(backoff*2, agentWatchdogRecoveryBackoffMax)
+			backoff = min(backoff*2, policy.RecoveryBackoffMax)
 		}
 	}()
+	return stopped
 }

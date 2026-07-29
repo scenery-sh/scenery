@@ -54,6 +54,8 @@ func TestLocalPathRouterRedirect(t *testing.T) {
 }
 
 func TestLocalPathRouterWithoutValidatedDomainDoesNotRedirect(t *testing.T) {
+	t.Parallel()
+
 	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
 	response := httptest.NewRecorder()
 	localPathRouterRedirect(next, "").ServeHTTP(response, httptest.NewRequest(http.MethodGet, "http://localhost:4748/platform/", nil))
@@ -343,7 +345,7 @@ func newRetryHandlerForBackend(t *testing.T, backend *httptest.Server) http.Hand
 		proxy := httputil.NewSingleHostReverseProxy(target)
 		proxy.Transport = &http.Transport{}
 		return proxy
-	}, nil)
+	}, nil, localDialRetryPolicy{})
 }
 
 func TestLocalDialRetryHandlerNeverReplaysMutationAfterMidRequestFailure(t *testing.T) {
@@ -383,6 +385,8 @@ func TestLocalDialRetryHandlerRetriesSafeMethodAfterMidRequestFailure(t *testing
 }
 
 func TestIsLocalBackendUnavailableMatchesReusedDeadConn(t *testing.T) {
+	t.Parallel()
+
 	cases := []struct {
 		name string
 		err  error

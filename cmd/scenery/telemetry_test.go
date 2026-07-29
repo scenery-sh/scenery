@@ -10,6 +10,8 @@ import (
 )
 
 func TestTelemetryClassification(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		args        []string
 		wantCommand string

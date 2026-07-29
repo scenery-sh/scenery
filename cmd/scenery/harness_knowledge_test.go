@@ -8,6 +8,8 @@ import (
 )
 
 func TestValidateActiveExecPlanIndexRejectsLinkedPlanMissingKnowledgeEntry(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	writeTestAppFile(t, root, "docs/plans/active.md", "## Active ExecPlans\n\n- [Plan](0001-plan.md)\n")
 	writeTestAppFile(t, root, "docs/knowledge.json", testDocsIndexJSON(`[]`))
@@ -17,6 +19,8 @@ func TestValidateActiveExecPlanIndexRejectsLinkedPlanMissingKnowledgeEntry(t *te
 }
 
 func TestValidateActiveExecPlanIndexRejectsIndexedPlanMissingActiveLink(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	writeTestAppFile(t, root, "docs/plans/active.md", "## Active ExecPlans\n")
 	writeTestAppFile(t, root, "docs/knowledge.json", testDocsIndexJSON(`[{
@@ -30,6 +34,8 @@ func TestValidateActiveExecPlanIndexRejectsIndexedPlanMissingActiveLink(t *testi
 }
 
 func TestValidateActiveExecPlanIndexRejectsLinkedPlanMarkedCompleted(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	writeTestAppFile(t, root, "docs/plans/active.md", "## Active ExecPlans\n\n- [Plan](0001-plan.md)\n")
 	writeTestAppFile(t, root, "docs/knowledge.json", testDocsIndexJSON(`[{
@@ -43,6 +49,8 @@ func TestValidateActiveExecPlanIndexRejectsLinkedPlanMarkedCompleted(t *testing.
 }
 
 func TestValidateActiveExecPlanIndexAcceptsMatchingIndex(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	writeTestAppFile(t, root, "docs/plans/active.md", "## Active ExecPlans\n\n- [Plan](0001-plan.md)\n")
 	writeTestAppFile(t, root, "docs/knowledge.json", testDocsIndexJSON(`[{
@@ -61,6 +69,8 @@ func TestValidateActiveExecPlanIndexAcceptsMatchingIndex(t *testing.T) {
 }
 
 func TestValidateExecPlanValidationLanguageRejectsSubjectiveSelection(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	text := strings.Join([]string{
 		"# Plan",
@@ -80,6 +90,8 @@ func TestValidateExecPlanValidationLanguageRejectsSubjectiveSelection(t *testing
 }
 
 func TestValidateExecPlanValidationLanguageAllowsExactSkipCondition(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	text := strings.Join([]string{
 		"# Plan",
@@ -118,6 +130,8 @@ func assertDiagnosticContains(t *testing.T, diagnostics []checkDiagnostic, want 
 }
 
 func TestCheckHarnessMarkdownLinksValidatesIntraDocumentAnchors(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	writeTestAppFile(t, root, "docs/guide.md", strings.Join([]string{
 		"# Guide",
@@ -146,6 +160,8 @@ func TestCheckHarnessMarkdownLinksValidatesIntraDocumentAnchors(t *testing.T) {
 }
 
 func TestMarkdownHeadingSlugMirrorsGitHubAnchors(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct{ title, want string }{
 		{"Current Scenery contract", "current-scenery-contract"},
 		{"`scenery inspect ui`", "scenery-inspect-ui"},
@@ -160,6 +176,8 @@ func TestMarkdownHeadingSlugMirrorsGitHubAnchors(t *testing.T) {
 }
 
 func TestValidateInstructionDocBudgetsWarnsOnOversizedDocs(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	small := strings.Repeat("word ", 100)
 	big := strings.Repeat("word ", childInstructionDocWarnWords+1)
@@ -183,6 +201,8 @@ func TestValidateInstructionDocBudgetsWarnsOnOversizedDocs(t *testing.T) {
 // The shipped instruction docs must stay within the budgets this harness
 // enforces, so the check never cries wolf on a clean tree.
 func TestShippedInstructionDocsWithinLeanBudgets(t *testing.T) {
+	t.Parallel()
+
 	repoRoot := repoRootForTest(t)
 	diagnostics, _ := validateInstructionDocBudgets(repoRoot)
 	for _, diag := range diagnostics {
@@ -191,6 +211,8 @@ func TestShippedInstructionDocsWithinLeanBudgets(t *testing.T) {
 }
 
 func TestValidateSharedCLIInstallPolicyRejectsValidationRecommendation(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	writeTestAppFile(t, root, "AGENTS.md", "Do not run `go install ./cmd/scenery` unless a human explicitly requests it.\n")
 	writeTestAppFile(t, root, "ARCHITECTURE.md", "After repository changes, rebuild with `go install ./cmd/scenery`.\n")
@@ -215,6 +237,8 @@ func TestValidateSharedCLIInstallPolicyRejectsValidationRecommendation(t *testin
 }
 
 func TestShippedValidationInstructionsPreserveSharedCLIInstallPolicy(t *testing.T) {
+	t.Parallel()
+
 	repoRoot := repoRootForTest(t)
 	diagnostics, _ := validateSharedCLIInstallPolicy(repoRoot)
 	for _, diag := range diagnostics {

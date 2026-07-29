@@ -17,7 +17,7 @@ func TestHarnessTimingBudgetsUseSeparateLanes(t *testing.T) {
 	if cached.Lane != "cached" || cached.TotalSeconds != 5 || cached.TargetSeconds != 5 || cached.Mode != "observe-total" {
 		t.Fatalf("cached budgets = %+v", cached)
 	}
-	if cached.PackageOverrides["scenery.sh/cmd/scenery"] != 5 || cached.ConfirmationRuns != 0 {
+	if cached.PackageSeconds != 10 || cached.PackageOverrides["scenery.sh/cmd/scenery"] != 15 || cached.ConfirmationRuns != 0 {
 		t.Fatalf("cached package/test confirmation budgets = %+v", cached)
 	}
 
@@ -50,15 +50,15 @@ func TestSelectHarnessTimingConfirmationsDefersKnownOutliers(t *testing.T) {
 		`{"Action":"pass","Package":"example.com/app","Test":"TestKnownSlow","Elapsed":0.8}`,
 		`{"Action":"pass","Package":"example.com/app","Test":"TestWorse","Elapsed":2.0}`,
 		`{"Action":"pass","Package":"example.com/app","Test":"TestNew","Elapsed":0.7}`,
-		`{"Action":"pass","Package":"example.com/app","Elapsed":3.2}`,
-		`{"Action":"pass","Package":"example.com/known","Elapsed":3.1}`,
+		`{"Action":"pass","Package":"example.com/app","Elapsed":13.2}`,
+		`{"Action":"pass","Package":"example.com/known","Elapsed":13.1}`,
 	}, "\n")
 	budgets := harnessTestTimingBudgetsForMode(harnessSelfModeDefault, true)
 	report := parseHarnessGoTestTimingWithBudgets([]byte(output), harnessSelfGoTestCommandWithCacheMode(true), 13*time.Second, budgets)
 
 	baseline := &harnessTestTimingReport{
 		Packages: []harnessPackageTiming{
-			{Package: "example.com/known", Seconds: 3.0, BudgetSeconds: 2},
+			{Package: "example.com/known", Seconds: 13.0, BudgetSeconds: 10},
 		},
 		ObservedSlowTests: []harnessTestTiming{
 			{Name: "TestKnownSlow", Package: "example.com/app", Seconds: 0.8},
@@ -78,7 +78,7 @@ func TestSelectHarnessTimingConfirmationsDefersKnownOutliers(t *testing.T) {
 	for _, entry := range report.DeferredConfirmations {
 		deferred[entry.Package+"."+entry.Name] = entry.BaselineSeconds
 	}
-	if len(deferred) != 2 || deferred["example.com/app.TestKnownSlow"] != 0.8 || deferred["example.com/known."] != 3.0 {
+	if len(deferred) != 2 || deferred["example.com/app.TestKnownSlow"] != 0.8 || deferred["example.com/known."] != 13.0 {
 		t.Fatalf("deferred confirmations = %+v", report.DeferredConfirmations)
 	}
 	if !hasDiagnosticContaining(report.Diagnostics, "skipped isolated confirmation for 2 known timing outlier(s)") {
@@ -160,7 +160,7 @@ func TestConfirmHarnessTimingOutliersUsesIsolatedEvidence(t *testing.T) {
 	output := strings.Join([]string{
 		`{"Action":"pass","Package":"example.com/app","Test":"TestSlow","Elapsed":0.8}`,
 		`{"Action":"pass","Package":"example.com/app","Test":"TestAlsoObserved","Elapsed":0.7}`,
-		`{"Action":"pass","Package":"example.com/app","Elapsed":3.2}`,
+		`{"Action":"pass","Package":"example.com/app","Elapsed":13.2}`,
 	}, "\n")
 	report := parseHarnessGoTestTimingWithBudgets([]byte(output), harnessSelfGoTestCommandWithCacheMode(true), 13*time.Second, harnessTestTimingBudgetsForMode(harnessSelfModeDefault, true))
 	if len(report.ObservedSlowTests) != 2 || len(report.SlowTests) != 0 {
@@ -173,7 +173,7 @@ func TestConfirmHarnessTimingOutliersUsesIsolatedEvidence(t *testing.T) {
 		commands = append(commands, joined)
 		switch joined {
 		case "go test -count=1 -p 1 -json example.com/app":
-			return []byte(`{"Action":"pass","Package":"example.com/app","Elapsed":1.1}`), nil
+			return []byte(`{"Action":"pass","Package":"example.com/app","Elapsed":9.1}`), nil
 		case "go test -count=3 -parallel=1 -run ^(TestAlsoObserved|TestSlow)$ -json example.com/app":
 			return []byte(strings.Join([]string{
 				`{"Action":"pass","Package":"example.com/app","Test":"TestSlow","Elapsed":0.7}`,
@@ -192,7 +192,7 @@ func TestConfirmHarnessTimingOutliersUsesIsolatedEvidence(t *testing.T) {
 	if len(commands) != 2 {
 		t.Fatalf("commands = %+v", commands)
 	}
-	if report.Packages[0].IsolatedSeconds == nil || *report.Packages[0].IsolatedSeconds != 1.1 {
+	if report.Packages[0].IsolatedSeconds == nil || *report.Packages[0].IsolatedSeconds != 9.1 {
 		t.Fatalf("package confirmation = %+v", report.Packages[0])
 	}
 	if len(report.SlowTests) != 1 || report.SlowTests[0].IsolatedMedian == nil || *report.SlowTests[0].IsolatedMedian != 0.7 {
@@ -212,12 +212,12 @@ func TestConfirmHarnessTimingOutliersUsesIsolatedEvidence(t *testing.T) {
 func TestConfirmHarnessTimingOutliersWarnsOnlyForConfirmedPackage(t *testing.T) {
 	t.Parallel()
 
-	output := []byte(`{"Action":"pass","Package":"example.com/app","Elapsed":3.2}`)
+	output := []byte(`{"Action":"pass","Package":"example.com/app","Elapsed":13.2}`)
 	report := parseHarnessGoTestTimingWithBudgets(output, harnessSelfGoTestCommandWithCacheMode(true), time.Second, harnessTestTimingBudgetsForMode(harnessSelfModeDefault, true))
 	confirmHarnessTimingOutliers(context.Background(), "/repo", report, func(_ context.Context, _ string, command []string) ([]byte, error) {
-		return []byte(`{"Action":"pass","Package":"example.com/app","Elapsed":2.5}`), nil
+		return []byte(`{"Action":"pass","Package":"example.com/app","Elapsed":12.5}`), nil
 	})
-	if !hasDiagnosticContaining(report.Diagnostics, "package example.com/app took 2.500s in isolation") {
+	if !hasDiagnosticContaining(report.Diagnostics, "package example.com/app took 12.500s in isolation") {
 		t.Fatalf("confirmed package warning missing: %+v", report.Diagnostics)
 	}
 }
@@ -225,14 +225,16 @@ func TestConfirmHarnessTimingOutliersWarnsOnlyForConfirmedPackage(t *testing.T) 
 func TestCommandPackageUsesExplicitTimingBudget(t *testing.T) {
 	t.Parallel()
 
-	output := []byte(`{"Action":"pass","Package":"scenery.sh/cmd/scenery","Elapsed":4.9}`)
+	// 12.0s is over the 10s default package budget but under the command
+	// package's explicit 15s budget, so only the override can keep it silent.
+	output := []byte(`{"Action":"pass","Package":"scenery.sh/cmd/scenery","Elapsed":12.0}`)
 	report := parseHarnessGoTestTimingWithBudgets(output, harnessSelfGoTestCommand(), time.Second, defaultHarnessTestTimingBudgets())
 	called := false
 	confirmHarnessTimingOutliers(context.Background(), "/repo", report, func(context.Context, string, []string) ([]byte, error) {
 		called = true
 		return nil, nil
 	})
-	if called || len(report.Packages) != 1 || report.Packages[0].BudgetSeconds != 5 {
+	if called || len(report.Packages) != 1 || report.Packages[0].BudgetSeconds != 15 {
 		t.Fatalf("command package budget = %+v, called = %v", report.Packages, called)
 	}
 }

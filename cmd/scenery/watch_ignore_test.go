@@ -137,6 +137,8 @@ func TestSnapshotFingerprintUsesContentHash(t *testing.T) {
 }
 
 func TestFileChangeWatcherIgnoresGitignoredEventPaths(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	writeWatchFile(t, root, ".gitignore", "/ignored/\n")
 	writeWatchFile(t, root, "ignored/api.go", "package ignored\n")
@@ -157,6 +159,8 @@ func TestFileChangeWatcherIgnoresGitignoredEventPaths(t *testing.T) {
 }
 
 func TestFileChangeWatcherIgnoresConfiguredWatchIgnoreEventPaths(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	writeWatchFile(t, root, ".scenery.json", `{
 		"name": "watchapp",

@@ -17,7 +17,7 @@ import (
 	"scenery.sh/internal/librarybuild"
 )
 
-func buildCommand(args []string) error {
+func buildCommand(out io.Writer, args []string) error {
 	outputPath := ""
 	appRootFlag := ""
 	targetName := ""
@@ -89,11 +89,11 @@ func buildCommand(args []string) error {
 			return err
 		}
 		if jsonOutput {
-			return writeCLIJSON(os.Stdout, desktopBuildPayload(result))
+			return writeCLIJSON(out, desktopBuildPayload(result))
 		}
 		for _, frontend := range result.Frontends {
 			for _, artifact := range frontend.Artifacts {
-				fmt.Fprintf(os.Stdout, "scenery: built desktop %s at %s\n", frontend.Name, artifact)
+				fmt.Fprintf(out, "scenery: built desktop %s at %s\n", frontend.Name, artifact)
 			}
 		}
 		return nil
@@ -151,12 +151,12 @@ func buildCommand(args []string) error {
 			return err
 		}
 		if jsonOutput {
-			return writeCLIJSON(os.Stdout, withCLIPayloadIdentity("scenery.library.build.result", map[string]any{
+			return writeCLIJSON(out, withCLIPayloadIdentity("scenery.library.build.result", map[string]any{
 				"library": selected.Name, "version": version,
 				"manifest_path": libraryResult.ManifestPath, "artifacts": libraryResult.Manifest.Artifacts,
 			}))
 		}
-		fmt.Fprintf(os.Stdout, "scenery: built library %s at %s\n", selected.Name, libraryResult.ManifestPath)
+		fmt.Fprintf(out, "scenery: built library %s at %s\n", selected.Name, libraryResult.ManifestPath)
 		return nil
 	}
 	if outputPath == "" {
@@ -194,13 +194,13 @@ func buildCommand(args []string) error {
 		}
 	}
 	if jsonOutput {
-		return writeCLIJSON(os.Stdout, withCLIPayloadIdentity("scenery.build.result", map[string]any{
+		return writeCLIJSON(out, withCLIPayloadIdentity("scenery.build.result", map[string]any{
 			"output_path":     outputPath,
 			"descriptor_path": descriptorPath,
 			"copied":          copied,
 		}))
 	}
-	fmt.Fprintf(os.Stdout, "scenery: built %s\n", outputPath)
+	fmt.Fprintf(out, "scenery: built %s\n", outputPath)
 	return nil
 }
 

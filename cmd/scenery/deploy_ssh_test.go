@@ -13,12 +13,14 @@ import (
 )
 
 func TestDeploySSHRunsCheckAndCommandsInOrder(t *testing.T) {
+	t.Parallel()
+
 	root := copyDeploySSHTestApp(t)
-	logPath := installDeploySSHTestCommands(t)
+	logPath, tools := installDeploySSHTestCommands(t)
 
 	var stdout bytes.Buffer
-	if err := runDeployCommand(&stdout, []string{"some-id", "--app-root", root}); err != nil {
-		t.Fatalf("runDeployCommand: %v\n%s", err, stdout.String())
+	if err := runDeploySSH(&stdout, "some-id", []string{"--app-root", root}, tools); err != nil {
+		t.Fatalf("runDeploySSH: %v\n%s", err, stdout.String())
 	}
 	log := readDeploySSHTestLog(t, logPath)
 	for _, want := range []string{
@@ -50,11 +52,13 @@ func TestDeploySSHRunsCheckAndCommandsInOrder(t *testing.T) {
 }
 
 func TestDeploySSHRejectsBeforeCommands(t *testing.T) {
-	logPath := installDeploySSHTestCommands(t)
+	t.Parallel()
+
+	logPath, tools := installDeploySSHTestCommands(t)
 	root := t.TempDir()
 	writeTestAppFile(t, root, ".scenery.json", `{"name":"basicapp","envs":{"local":{"default":true},"production":{"deploy":{"ssh":["some-id"]}}}}`)
 
-	err := runDeploySSH(&bytes.Buffer{}, "other-id", []string{"--app-root", root})
+	err := runDeploySSH(&bytes.Buffer{}, "other-id", []string{"--app-root", root}, tools)
 	if err == nil || !strings.Contains(err.Error(), "not configured") {
 		t.Fatalf("unlisted target error = %v", err)
 	}
@@ -63,7 +67,7 @@ func TestDeploySSHRejectsBeforeCommands(t *testing.T) {
 	}
 
 	writeTestAppFile(t, root, testAppFilename, "not valid scenery source")
-	err = runDeploySSH(&bytes.Buffer{}, "some-id", []string{"--app-root", root})
+	err = runDeploySSH(&bytes.Buffer{}, "some-id", []string{"--app-root", root}, tools)
 	if err == nil || !strings.Contains(err.Error(), "local scenery check") {
 		t.Fatalf("invalid app error = %v", err)
 	}
@@ -73,6 +77,8 @@ func TestDeploySSHRejectsBeforeCommands(t *testing.T) {
 }
 
 func TestDeploySSHStopsAfterChildFailureAndPreservesExitCode(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name      string
 		env       string
@@ -89,9 +95,9 @@ func TestDeploySSHStopsAfterChildFailureAndPreservesExitCode(t *testing.T) {
 			if err := os.MkdirAll(root, 0o755); err != nil {
 				t.Fatal(err)
 			}
-			logPath := installDeploySSHTestCommands(t)
-			t.Setenv(tt.env, "7")
-			err := runDeploySSHCommands(&bytes.Buffer{}, root, "basicapp", "some-id", "production", false)
+			logPath, tools := installDeploySSHTestCommands(t)
+			tools.Env = append(tools.Env, tt.env+"=7")
+			err := runDeploySSHCommands(&bytes.Buffer{}, root, "basicapp", "some-id", "production", false, tools)
 			var exitErr *exec.ExitError
 			if !errors.As(err, &exitErr) || exitErr.ExitCode() != 7 || cliExitCode(err) != 7 {
 				t.Fatalf("error = %v, want child exit 7", err)
@@ -108,12 +114,14 @@ func TestDeploySSHStopsAfterChildFailureAndPreservesExitCode(t *testing.T) {
 }
 
 func TestDeploySSHRunsRemotePublishAfterUp(t *testing.T) {
+	t.Parallel()
+
 	root := filepath.Join(t.TempDir(), "app")
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	logPath := installDeploySSHTestCommands(t)
-	if err := runDeploySSHCommands(&bytes.Buffer{}, root, "basicapp", "some-id", "production", true); err != nil {
+	logPath, tools := installDeploySSHTestCommands(t)
+	if err := runDeploySSHCommands(&bytes.Buffer{}, root, "basicapp", "some-id", "production", true, tools); err != nil {
 		t.Fatalf("runDeploySSHCommands: %v", err)
 	}
 	log := readDeploySSHTestLog(t, logPath)
@@ -144,12 +152,13 @@ func copyDeploySSHTestApp(t *testing.T) string {
 	return root
 }
 
-func installDeploySSHTestCommands(t *testing.T) string {
+// installDeploySSHTestCommands writes fake ssh/rsync programs and returns the
+// log they append to plus the tools that select them. Nothing is injected
+// through the process environment, so these tests run in parallel.
+func installDeploySSHTestCommands(t *testing.T) (string, deploySSHTools) {
 	t.Helper()
 	bin := t.TempDir()
 	logPath := filepath.Join(t.TempDir(), "commands.log")
-	t.Setenv("DEPLOY_COMMAND_LOG", logPath)
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	writeTestAppFile(t, bin, "ssh", `#!/bin/sh
 command="$*"
 case "$command" in
@@ -172,7 +181,11 @@ exit "${DEPLOY_RSYNC_EXIT:-0}"
 			t.Fatal(err)
 		}
 	}
-	return logPath
+	return logPath, deploySSHTools{
+		SSH:   filepath.Join(bin, "ssh"),
+		Rsync: filepath.Join(bin, "rsync"),
+		Env:   []string{"DEPLOY_COMMAND_LOG=" + logPath},
+	}
 }
 
 func readDeploySSHTestLog(t *testing.T, path string) string {

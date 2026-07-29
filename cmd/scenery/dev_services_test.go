@@ -14,6 +14,8 @@ import (
 )
 
 func TestManagedDatabaseEnvUsesExternalDSN(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	cfg := app.Config{
 		Name: "demo",
@@ -39,6 +41,8 @@ func TestManagedDatabaseEnvUsesExternalDSN(t *testing.T) {
 }
 
 func TestManagedDatabaseEnvUsesCanonicalAppURLEnv(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	cfg := app.Config{
 		Name:     "demo",
@@ -145,6 +149,8 @@ func TestWaitForPostgresServerBacksOffFromFastPoll(t *testing.T) {
 }
 
 func TestValidateHeadlessPostgresEnvRequiresExplicitDSN(t *testing.T) {
+	t.Parallel()
+
 	cfg := app.Config{
 		Name: "demo",
 		Dev: app.DevConfig{Services: map[string]app.DevServiceConfig{
@@ -161,6 +167,8 @@ func TestValidateHeadlessPostgresEnvRequiresExplicitDSN(t *testing.T) {
 }
 
 func TestLoadPostgresServerStateMigratesWithoutChangingCredentials(t *testing.T) {
+	t.Parallel()
+
 	path := filepath.Join(t.TempDir(), "server.json")
 	legacy := []byte(`{"schema_version":"scenery.dev.postgres.server.v1","container":"scenery-postgres","volume":"scenery-postgres-data","image":"postgres:test","port":5432,"user":"scenery","password":"keep-me","created_at":"2026-07-13T00:00:00Z"}`)
 	if err := os.WriteFile(path, legacy, 0o600); err != nil {

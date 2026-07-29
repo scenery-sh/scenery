@@ -94,6 +94,8 @@ func TestInspectValidationReturnsEmptyArrays(t *testing.T) {
 }
 
 func TestValidateDryRunDoesNotExecute(t *testing.T) {
+	t.Parallel()
+
 	root := validationFixtureRoot(t, `{
 		"name": "demo",
 		"validation": {
@@ -121,6 +123,8 @@ func TestValidateDryRunDoesNotExecute(t *testing.T) {
 }
 
 func TestValidateRunsCodeTaskAndWritesResult(t *testing.T) {
+	t.Parallel()
+
 	root := validationFixtureRoot(t, `{
 		"name": "demo",
 		"validation": {
@@ -149,6 +153,8 @@ func TestValidateRunsCodeTaskAndWritesResult(t *testing.T) {
 }
 
 func TestValidateProfileEnvFlowsToNestedTasks(t *testing.T) {
+	t.Parallel()
+
 	root := validationFixtureRoot(t, `{
 		"name": "demo",
 		"validation": {
@@ -181,6 +187,8 @@ func TestValidateProfileEnvFlowsToNestedTasks(t *testing.T) {
 }
 
 func TestValidateChangedSelectsMatchingProfiles(t *testing.T) {
+	t.Parallel()
+
 	root := validationFixtureRoot(t, `{
 		"name": "demo",
 		"validation": {

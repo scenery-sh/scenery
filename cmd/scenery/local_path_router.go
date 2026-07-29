@@ -57,6 +57,31 @@ type localPathRouterOptions struct {
 	UpstreamAddr     string
 	DashboardBackend localagent.Backend
 	RedirectURL      string
+	// DialRetry bounds how long a request waits out a restarting backend. The
+	// zero value means the default policy; tests set it explicitly so they can
+	// shorten the window without mutating process-wide state.
+	DialRetry localDialRetryPolicy
+	// Agent re-resolves the dashboard backend across an agent restart. Nil
+	// means the environment's default agent, which is what every command uses;
+	// tests pass their own so the router follows a specific agent rather than
+	// whichever one the process environment names.
+	Agent *localagent.Client
+}
+
+// localDialRetryPolicy bounds the bridged dial-retry window for one router.
+type localDialRetryPolicy struct {
+	Budget   time.Duration
+	Interval time.Duration
+}
+
+func (p localDialRetryPolicy) orDefault() localDialRetryPolicy {
+	if p.Budget <= 0 {
+		p.Budget = 3 * time.Second
+	}
+	if p.Interval <= 0 {
+		p.Interval = 200 * time.Millisecond
+	}
+	return p
 }
 
 func startLocalPathRouter(ctx context.Context, opts localPathRouterOptions) (func(), error) {
@@ -85,7 +110,10 @@ func startLocalPathRouter(ctx context.Context, opts localPathRouterOptions) (fun
 	if err != nil {
 		return nil, err
 	}
-	agentClient, _ := localagent.DefaultClient()
+	agentClient := opts.Agent
+	if agentClient == nil {
+		agentClient, _ = localagent.DefaultClient()
+	}
 	ln, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(lease.Port)))
 	if err != nil {
 		return nil, fmt.Errorf("start local path router on %s: %w", baseURL, err)
@@ -110,7 +138,7 @@ func startLocalPathRouter(ctx context.Context, opts localPathRouterOptions) (fun
 	}
 	// A supervised agent restart briefly refuses router dials; the bounded
 	// dial retry bridges that window instead of surfacing raw 502s.
-	upstreamHandler := newLocalDialRetryHandler(upstreamProxyFor, nil)
+	upstreamHandler := newLocalDialRetryHandler(upstreamProxyFor, nil, opts.DialRetry)
 	handler := http.Handler(upstreamHandler)
 	if strings.TrimSpace(opts.DashboardBackend.Addr) != "" {
 		// An agent restart moves the dashboard to a new loopback address, so
@@ -155,7 +183,7 @@ func startLocalPathRouter(ctx context.Context, opts localPathRouterOptions) (fun
 			}
 			return dashboardProxy
 		}
-		dashboardHandler := newLocalDialRetryHandler(dashboardProxyFor, dashboardBackends)
+		dashboardHandler := newLocalDialRetryHandler(dashboardProxyFor, dashboardBackends, opts.DialRetry)
 		handler = http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			rawPath := cleanLocalPathPreserveSlash(req.URL.Path)
 			requestPath := cleanLocalPath(req.URL.Path)
@@ -291,9 +319,6 @@ func (s *dashboardBackendSource) refresh(ctx context.Context) localagent.Backend
 	return s.current()
 }
 
-var localProxyDialRetryBudget = 3 * time.Second
-var localProxyDialRetryInterval = 200 * time.Millisecond
-
 // localProxyFailureLog rate-limits backend-unavailable logging so a dead
 // backend explains itself without flooding the runtime log on every request.
 var localProxyFailureLog = newComponentFailureLog("scenery-local-router", 30*time.Second, time.Now)
@@ -356,9 +381,10 @@ func localRequestRetryable(req *http.Request, err error) bool {
 // before answering, re-resolving the backend between attempts when a source
 // is provided. build must return a fresh proxy per call; the retry handler
 // owns its ErrorHandler for the duration of one request.
-func newLocalDialRetryHandler(build func(localagent.Backend) *httputil.ReverseProxy, source *dashboardBackendSource) http.Handler {
+func newLocalDialRetryHandler(build func(localagent.Backend) *httputil.ReverseProxy, source *dashboardBackendSource, policy localDialRetryPolicy) http.Handler {
+	policy = policy.orDefault()
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		deadline := time.Now().Add(localProxyDialRetryBudget)
+		deadline := time.Now().Add(policy.Budget)
 		for {
 			var backend localagent.Backend
 			if source != nil {
@@ -382,7 +408,7 @@ func newLocalDialRetryHandler(build func(localagent.Backend) *httputil.ReversePr
 			if !retry {
 				return
 			}
-			time.Sleep(localProxyDialRetryInterval)
+			time.Sleep(policy.Interval)
 			if source != nil {
 				refreshCtx, cancel := context.WithTimeout(req.Context(), 500*time.Millisecond)
 				source.refresh(refreshCtx)

@@ -687,6 +687,8 @@ func TestDeployResumeReacquiresHealthyEdgeWithoutRestart(t *testing.T) {
 }
 
 func TestDeployResumeLaunchAgentPlist(t *testing.T) {
+	t.Parallel()
+
 	plist := deployResumeLaunchAgentPlist("/usr/local/bin/scenery", "/tmp/deploy-resume.log")
 	for _, want := range []string{
 		"<string>dev.scenery.deploy-resume</string>",
@@ -743,6 +745,8 @@ func TestDeployRefreshEdgeAfterMutationSkipsWhenSetupAbsent(t *testing.T) {
 }
 
 func TestDeployPrivilegedHelperInstallArgsUsePublicHelper(t *testing.T) {
+	t.Parallel()
+
 	paths := localagent.PathsForHome(filepath.Join(t.TempDir(), "agent-home"))
 	args := deployPrivilegedHelperInstallArgs("/bin/scenery", paths, "1.2.3")
 	joined := strings.Join(args, "\n")
@@ -767,6 +771,8 @@ func TestDeployPrivilegedHelperInstallArgsUsePublicHelper(t *testing.T) {
 }
 
 func TestDeployLoopbackHelperInstallArgsDoNotUsePublicFlag(t *testing.T) {
+	t.Parallel()
+
 	paths := localagent.PathsForHome(filepath.Join(t.TempDir(), "agent-home"))
 	args := deployLoopbackHelperInstallArgs("/bin/scenery", paths, "1.2.3")
 	joined := strings.Join(args, "\n")

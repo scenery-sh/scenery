@@ -28,6 +28,8 @@ func TestHarnessConsoleDepsStepMissingBun(t *testing.T) {
 }
 
 func TestHarnessConsoleDepsStepInstallFailure(t *testing.T) {
+	t.Parallel()
+
 	// An empty directory has no package.json, so a real bun install fails and
 	// the step must gate the dependent lanes with an actionable diagnostic.
 	if _, err := exec.LookPath("bun"); err != nil {

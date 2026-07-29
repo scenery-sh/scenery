@@ -215,13 +215,13 @@ func runDeployCommand(stdout io.Writer, args []string) error {
 	}
 	subcommand := args[0]
 	if strings.HasPrefix(subcommand, "-") {
-		return runDeploySSH(stdout, "", args)
+		return runDeploySSH(stdout, "", args, deploySSHTools{})
 	}
 	if subcommand == "plan" || subcommand == "apply" {
 		return runDeployment(stdout, args)
 	}
 	if !isDeploySubcommand(subcommand) {
-		return runDeploySSH(stdout, subcommand, args[1:])
+		return runDeploySSH(stdout, subcommand, args[1:], deploySSHTools{})
 	}
 	opts, err := parseDeployOptions(subcommand, args[1:])
 	if err != nil {

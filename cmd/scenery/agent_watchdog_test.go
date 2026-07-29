@@ -14,27 +14,23 @@ import (
 // issues a demand start when the agent stays unreachable, and stays quiet
 // while the agent answers health.
 func TestAgentWatchdogRecoversDeadAgent(t *testing.T) {
-	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
-	paths, err := localagent.DefaultPaths()
-	if err != nil {
-		t.Fatal(err)
-	}
+	t.Parallel()
+
+	paths := localagent.PathsForHome(t.TempDir())
 	if err := localagent.EnsureDirs(paths); err != nil {
 		t.Fatal(err)
 	}
 
-	oldInterval, oldBackoff, oldStart := agentWatchdogInterval, agentWatchdogRecoveryBackoff, agentWatchdogStartFunc
-	t.Cleanup(func() {
-		agentWatchdogInterval, agentWatchdogRecoveryBackoff, agentWatchdogStartFunc = oldInterval, oldBackoff, oldStart
-	})
-	agentWatchdogInterval = 20 * time.Millisecond
-	agentWatchdogRecoveryBackoff = 50 * time.Millisecond
 	var starts atomic.Int32
 	started := make(chan struct{}, 8)
-	agentWatchdogStartFunc = func(localagent.Paths, localagent.StartOptions) error {
-		starts.Add(1)
-		started <- struct{}{}
-		return nil
+	policy := agentWatchdogPolicy{
+		Interval:        20 * time.Millisecond,
+		RecoveryBackoff: 50 * time.Millisecond,
+		Start: func(localagent.Paths, localagent.StartOptions) error {
+			starts.Add(1)
+			started <- struct{}{}
+			return nil
+		},
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -43,20 +39,17 @@ func TestAgentWatchdogRecoversDeadAgent(t *testing.T) {
 
 	// Dead agent: no server on the socket. The watchdog must attempt a
 	// recovery start after the failure threshold.
-	startAgentAvailabilityWatchdog(ctx, client)
+	stopped := startAgentAvailabilityWatchdog(ctx, client, paths, policy)
 	select {
 	case <-started:
 	case <-time.After(5 * time.Second):
 		t.Fatal("watchdog never attempted recovery for a dead agent")
 	}
 	cancel()
+	<-stopped
 
 	// Healthy agent: no recovery attempts.
-	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
-	paths, err = localagent.DefaultPaths()
-	if err != nil {
-		t.Fatal(err)
-	}
+	paths = localagent.PathsForHome(t.TempDir())
 	if err := localagent.EnsureDirs(paths); err != nil {
 		t.Fatal(err)
 	}
@@ -64,11 +57,13 @@ func TestAgentWatchdogRecoversDeadAgent(t *testing.T) {
 	healthyCtx, healthyCancel := context.WithCancel(context.Background())
 	defer healthyCancel()
 	starts.Store(0)
-	startAgentAvailabilityWatchdog(healthyCtx, localagent.NewClient(paths.SocketPath))
+	healthyStopped := startAgentAvailabilityWatchdog(healthyCtx, localagent.NewClient(paths.SocketPath), paths, policy)
 	time.Sleep(200 * time.Millisecond)
 	if got := starts.Load(); got != 0 {
 		t.Fatalf("watchdog attempted %d recoveries against a healthy agent", got)
 	}
+	healthyCancel()
+	<-healthyStopped
 }
 
 // TestAgentWatchdogStopsWhenHomeIsGoneOrNotConverging proves the two runaway
@@ -78,25 +73,21 @@ func TestAgentWatchdogRecoversDeadAgent(t *testing.T) {
 // instead of stopping — a permanent stop would disable the only unattended
 // recovery path after a long external outage.
 func TestAgentWatchdogStopsWhenHomeIsGoneOrNotConverging(t *testing.T) {
-	oldInterval, oldBackoff, oldStart := agentWatchdogInterval, agentWatchdogRecoveryBackoff, agentWatchdogStartFunc
-	t.Cleanup(func() {
-		agentWatchdogInterval, agentWatchdogRecoveryBackoff, agentWatchdogStartFunc = oldInterval, oldBackoff, oldStart
-	})
-	agentWatchdogInterval = 10 * time.Millisecond
-	agentWatchdogRecoveryBackoff = 10 * time.Millisecond
+	t.Parallel()
+
 	var starts atomic.Int32
-	agentWatchdogStartFunc = func(localagent.Paths, localagent.StartOptions) error {
-		starts.Add(1)
-		return nil
+	policy := agentWatchdogPolicy{
+		Interval:        10 * time.Millisecond,
+		RecoveryBackoff: 10 * time.Millisecond,
+		Start: func(localagent.Paths, localagent.StartOptions) error {
+			starts.Add(1)
+			return nil
+		},
 	}
 
 	// Deleted home: no recovery at all.
 	home := t.TempDir()
-	t.Setenv("SCENERY_AGENT_HOME", home)
-	paths, err := localagent.DefaultPaths()
-	if err != nil {
-		t.Fatal(err)
-	}
+	paths := localagent.PathsForHome(home)
 	if err := localagent.EnsureDirs(paths); err != nil {
 		t.Fatal(err)
 	}
@@ -105,31 +96,33 @@ func TestAgentWatchdogStopsWhenHomeIsGoneOrNotConverging(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	startAgentAvailabilityWatchdog(ctx, localagent.NewClient(paths.SocketPath))
+	stopped := startAgentAvailabilityWatchdog(ctx, localagent.NewClient(paths.SocketPath), paths, policy)
 	time.Sleep(200 * time.Millisecond)
 	if got := starts.Load(); got != 0 {
 		t.Fatalf("watchdog recovered %d times for a deleted agent home", got)
 	}
 	cancel()
+	<-stopped
 
 	// Dead agent that never comes back: recovery keeps retrying with
 	// backoff and never stops outright.
-	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
-	paths, err = localagent.DefaultPaths()
-	if err != nil {
-		t.Fatal(err)
-	}
+	paths = localagent.PathsForHome(t.TempDir())
 	if err := localagent.EnsureDirs(paths); err != nil {
 		t.Fatal(err)
 	}
 	starts.Store(0)
 	capCtx, capCancel := context.WithCancel(context.Background())
 	defer capCancel()
-	startAgentAvailabilityWatchdog(capCtx, localagent.NewClient(paths.SocketPath))
-	time.Sleep(500 * time.Millisecond)
-	if got := starts.Load(); got < 4 {
-		t.Fatalf("watchdog recovery attempts = %d, want continued retries (>= 4)", got)
-	}
+	capStopped := startAgentAvailabilityWatchdog(capCtx, localagent.NewClient(paths.SocketPath), paths, policy)
+	t.Cleanup(func() { capCancel(); <-capStopped })
+	// Positive assertion: poll instead of sleeping a fixed 500ms. The retries
+	// are the thing under test, so finish as soon as enough have landed and
+	// still tolerate a loaded machine. The watchdog interval is deliberately
+	// left alone: shortening it makes the negative assertions above flaky
+	// under -race, where setup itself takes several intervals.
+	waitForTestCondition(t, 5*time.Second, "watchdog recovery to keep retrying", func() bool {
+		return starts.Load() >= 4
+	})
 }
 
 // TestAgentWatchdogDisabled proves the watchdog respects SCENERY_AGENT_DISABLE
@@ -137,13 +130,13 @@ func TestAgentWatchdogStopsWhenHomeIsGoneOrNotConverging(t *testing.T) {
 func TestAgentWatchdogDisabled(t *testing.T) {
 	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
 	t.Setenv("SCENERY_AGENT_DISABLE", "1")
-	oldInterval, oldStart := agentWatchdogInterval, agentWatchdogStartFunc
-	t.Cleanup(func() { agentWatchdogInterval, agentWatchdogStartFunc = oldInterval, oldStart })
-	agentWatchdogInterval = 10 * time.Millisecond
 	var starts atomic.Int32
-	agentWatchdogStartFunc = func(localagent.Paths, localagent.StartOptions) error {
-		starts.Add(1)
-		return nil
+	policy := agentWatchdogPolicy{
+		Interval: 10 * time.Millisecond,
+		Start: func(localagent.Paths, localagent.StartOptions) error {
+			starts.Add(1)
+			return nil
+		},
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -151,10 +144,13 @@ func TestAgentWatchdogDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	startAgentAvailabilityWatchdog(ctx, localagent.NewClient(paths.SocketPath))
-	startAgentAvailabilityWatchdog(ctx, nil)
+	disabledStopped := startAgentAvailabilityWatchdog(ctx, localagent.NewClient(paths.SocketPath), paths, policy)
+	nilStopped := startAgentAvailabilityWatchdog(ctx, nil, paths, policy)
 	time.Sleep(100 * time.Millisecond)
 	if got := starts.Load(); got != 0 {
 		t.Fatalf("disabled watchdog attempted %d recoveries", got)
 	}
+	cancel()
+	<-disabledStopped
+	<-nilStopped
 }

@@ -13,6 +13,8 @@ import (
 )
 
 func TestReadApprovalTokensEnforcesSchemaShape(t *testing.T) {
+	t.Parallel()
+
 	signature := "ed25519:test:" + base64.RawStdEncoding.EncodeToString(make([]byte, 64))
 	token := scenery.NewApprovalToken("sha256:"+strings.Repeat("a", 64), "agent:test", []string{"deploy"}, time.Date(2026, 7, 10, 12, 30, 0, 0, time.UTC))
 	token.Signature = signature

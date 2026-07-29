@@ -10,6 +10,8 @@ import (
 )
 
 func TestCheckWarningDiagnosticsReportsMissingGoogleOAuthCredentials(t *testing.T) {
+	t.Parallel()
+
 	for _, name := range []string{"GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET"} {
 		value, exists := os.LookupEnv(name)
 		if err := os.Unsetenv(name); err != nil {

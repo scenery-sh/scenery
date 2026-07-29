@@ -19,6 +19,19 @@ type DevSessionController struct {
 	env     app.ResolvedEnv
 	listen  devListenRequest
 	console *runConsole
+	// paths overrides the agent home resolution. Nil means resolve from the
+	// environment, which is what every command does; tests set it so two
+	// sessions can use different agent homes in the same process.
+	paths *localagent.Paths
+}
+
+// agentPaths returns the controller's explicit agent paths, falling back to the
+// environment-derived default.
+func (c *DevSessionController) agentPaths() (localagent.Paths, error) {
+	if c.paths != nil {
+		return *c.paths, nil
+	}
+	return localagent.DefaultPaths()
 }
 
 var devSessionTestHooks struct {
@@ -47,6 +60,9 @@ type PreparedDevSession struct {
 	// edge is not serving it yet.
 	DomainURL string
 	Cleanup   func()
+	// Paths is the agent home this session resolved against, so callers extend
+	// the same session instead of re-deriving it from the environment.
+	Paths localagent.Paths
 }
 
 func devAPIUnixSocketPath(stateRoot string) string {
@@ -110,7 +126,7 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 		return prepared, err
 	}
 	requiresPortlessEdge := routingMode == localagent.RouteModeHost && configRequiresPortlessEdge(cfg)
-	paths, err := localagent.DefaultPaths()
+	paths, err := c.agentPaths()
 	if err != nil {
 		return prepared, err
 	}
@@ -368,6 +384,7 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 	}
 	prepared.Client = client
 	prepared.Session = &session
+	prepared.Paths = paths
 	prepared.Backend = backend.normalized()
 	return prepared, nil
 }

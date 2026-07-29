@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,26 +14,28 @@ import (
 )
 
 func TestBuildDesktopBuildsFrontendAndTauriBundle(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	frontendRoot := filepath.Join(root, "apps", "web")
 	writeDesktopTestFile(t, filepath.Join(frontendRoot, "package.json"), `{"scripts":{"build":"vite build"}}`)
 	writeDesktopTestFile(t, filepath.Join(frontendRoot, "src-tauri", "tauri.conf.json"), `{}`)
 	frontendMarker := filepath.Join(root, "frontend-build.json")
 	tauriMarker := filepath.Join(root, "tauri-build.json")
+	// The marker path is baked into the script rather than passed through the
+	// process environment, so this test needs no t.Setenv and can run parallel.
 	writeDesktopTestExecutable(t, filepath.Join(frontendRoot, "node_modules", ".bin", "vite"), `#!/bin/sh
 set -eu
 mkdir -p dist
 printf '<html>desktop</html>' > dist/index.html
-printf '%s\n%s\n' "$1" "$VITE_API_BASE_URL" > "$FRONTEND_BUILD_MARKER"
+printf '%s\n%s\n' "$1" "$VITE_API_BASE_URL" > "`+frontendMarker+`"
 `)
 	writeDesktopTestExecutable(t, filepath.Join(frontendRoot, "node_modules", ".bin", "tauri"), `#!/bin/sh
 set -eu
 mkdir -p src-tauri/target/release/bundle/dmg
 printf 'bundle' > src-tauri/target/release/bundle/dmg/desktop.dmg
-printf '%s\n%s\n%s\n%s\n%s\n' "$PWD" "$1" "$2" "$3" "$SCENERY_ENV" > "$TAURI_BUILD_MARKER"
+printf '%s\n%s\n%s\n%s\n%s\n' "$PWD" "$1" "$2" "$3" "$SCENERY_ENV" > "`+tauriMarker+`"
 `)
-	t.Setenv("FRONTEND_BUILD_MARKER", frontendMarker)
-	t.Setenv("TAURI_BUILD_MARKER", tauriMarker)
 	cfg := app.Config{
 		Name: "desktop-demo",
 		Frontends: map[string]app.FrontendConfig{
@@ -97,21 +100,25 @@ printf '%s\n%s\n%s\n%s\n%s\n' "$PWD" "$1" "$2" "$3" "$SCENERY_ENV" > "$TAURI_BUI
 }
 
 func TestBuildDesktopRejectsConflictingFlags(t *testing.T) {
+	t.Parallel()
+
 	for _, args := range [][]string{
 		{"--desktop", "--target", "development"},
 		{"--desktop", "--lib", "geometry"},
 		{"--desktop", "--output", "dist"},
 	} {
-		if err := buildCommand(args); err == nil || !strings.Contains(err.Error(), "--desktop cannot be combined") {
+		if err := buildCommand(io.Discard, args); err == nil || !strings.Contains(err.Error(), "--desktop cannot be combined") {
 			t.Fatalf("buildCommand(%v) error = %v", args, err)
 		}
 	}
-	if err := buildCommand([]string{"--env", "production"}); err == nil || !strings.Contains(err.Error(), "--env is only supported") {
+	if err := buildCommand(io.Discard, []string{"--env", "production"}); err == nil || !strings.Contains(err.Error(), "--env is only supported") {
 		t.Fatalf("non-desktop --env error = %v", err)
 	}
 }
 
 func TestBuildDesktopCommandEmitsSchemaValidJSON(t *testing.T) {
+	t.Parallel()
+
 	root := nativeFixtureRoot(t)
 	writeDesktopTestFile(t, filepath.Join(root, ".scenery.json"), `{
 		"name": "nativeapp",
@@ -133,9 +140,11 @@ set -eu
 mkdir -p src-tauri/target/release/bundle/dmg
 printf 'bundle' > src-tauri/target/release/bundle/dmg/nativeapp.dmg
 `)
-	output := captureStdout(t, func() error {
-		return buildCommand([]string{"--desktop", "--app-root", root, "-o", "json"})
-	})
+	var stdout bytes.Buffer
+	if err := buildCommand(&stdout, []string{"--desktop", "--app-root", root, "-o", "json"}); err != nil {
+		t.Fatalf("build --desktop: %v", err)
+	}
+	output := stdout.String()
 	var envelope struct {
 		OK   bool           `json:"ok"`
 		Data map[string]any `json:"data"`

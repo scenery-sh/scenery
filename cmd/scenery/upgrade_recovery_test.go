@@ -8,6 +8,8 @@ import (
 )
 
 func TestCheckLegacyRecoveryStateFindsEveryUpgradeHazard(t *testing.T) {
+	t.Parallel()
+
 	for _, test := range []struct {
 		name, relative, apiVersion string
 	}{

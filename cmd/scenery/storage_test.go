@@ -240,6 +240,8 @@ func TestRunStorageCleanupYesRemovesCellRoot(t *testing.T) {
 }
 
 func TestStorageCapabilityEnvPointsAtSharedCell(t *testing.T) {
+	t.Parallel()
+
 	agentHome := t.TempDir()
 	cfg := appcfg.Config{
 		Name: "storageapp",
@@ -272,6 +274,8 @@ func TestStorageCapabilityEnvPointsAtSharedCell(t *testing.T) {
 }
 
 func TestStorageCapabilityEnvUsesProxyForSessionStateRoot(t *testing.T) {
+	t.Parallel()
+
 	agentHome := t.TempDir()
 	stateRoot := filepath.Join(t.TempDir(), ".scenery", "sessions", "dev")
 	cfg := appcfg.Config{

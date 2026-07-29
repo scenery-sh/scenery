@@ -267,7 +267,7 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode, desktop bool, appR
 	} else {
 		supervisor.addStartupReady(preparedSession.FrontendReady)
 	}
-	startAgentAvailabilityWatchdog(ctx, agentClient)
+	startAgentAvailabilityWatchdog(ctx, agentClient, preparedSession.Paths, agentWatchdogPolicy{})
 	if uiCatalogDir != "" {
 		if !console.json {
 			console.printSetupDone("ui catalog dev mode: " + uiCatalogDir)
@@ -413,13 +413,20 @@ func followAlreadyRunningDevSession(ctx context.Context, console *runConsole, ro
 	followCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	ownerExited := make(chan struct{})
+	// watcherDone lets this function outlive nothing: the owner watch reads
+	// process state, so it must be stopped and joined before returning rather
+	// than left running past the call.
+	watcherDone := make(chan struct{})
 	go func() {
+		defer close(watcherDone)
 		if devSessionOwnerGone(followCtx, root) {
 			close(ownerExited)
 			cancel()
 		}
 	}()
 	err := runSceneryLogsFunc(followCtx, os.Stdout, []string{"--follow", "--app-root", root})
+	cancel()
+	<-watcherDone
 	select {
 	case <-ownerExited:
 		console.printf(console.out, "\n  %s\n", console.palette.Dim("The running dev runtime stopped; detaching."))

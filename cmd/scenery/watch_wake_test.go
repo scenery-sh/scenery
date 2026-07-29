@@ -13,6 +13,8 @@ import (
 // forced=true even though no watched file changed: the requester fixed
 // build inputs the watcher cannot see (e.g. a ui catalog sync).
 func TestWaitForStableChangePollingWakes(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	snapshot, err := scanWatchedFiles(root)
 	if err != nil {
@@ -37,6 +39,8 @@ func TestWaitForStableChangePollingWakes(t *testing.T) {
 // RequestRebuildIfBuildFailed is a no-op on a healthy session and coalesces
 // repeated requests into one pending wake on a failed one.
 func TestRequestRebuildIfBuildFailedGatesOnFailure(t *testing.T) {
+	t.Parallel()
+
 	s := &devSupervisor{rebuildRequests: make(chan struct{}, 1)}
 
 	s.RequestRebuildIfBuildFailed()
@@ -64,6 +68,8 @@ func TestRequestRebuildIfBuildFailedGatesOnFailure(t *testing.T) {
 }
 
 func TestCompilerDiagnosticLocation(t *testing.T) {
+	t.Parallel()
+
 	if got := compilerDiagnosticLocation(graph.Diagnostic{}); got != "" {
 		t.Fatalf("no path should render empty, got %q", got)
 	}

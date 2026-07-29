@@ -145,6 +145,8 @@ func TestValidateFrontendServeModes(t *testing.T) {
 }
 
 func TestSplitProductionFrontendPaths(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	cfg := app.Config{Frontends: map[string]app.FrontendConfig{
 		"blog": {Root: "apps/blog", Serve: "production"},

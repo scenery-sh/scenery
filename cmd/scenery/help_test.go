@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"io"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -141,6 +142,8 @@ func TestHelpBuildHumanOutputRemainsHuman(t *testing.T) {
 }
 
 func TestUnknownScopedHelpIsAnInvalidRequestEnvelope(t *testing.T) {
+	t.Parallel()
+
 	err := helpCommand([]string{"build", "unknown", "-o", "json"})
 	if err == nil || cliExitCode(err) != 2 {
 		t.Fatalf("help error = %v, exit = %d", err, cliExitCode(err))
@@ -165,6 +168,8 @@ func TestUnknownScopedHelpIsAnInvalidRequestEnvelope(t *testing.T) {
 }
 
 func TestBuildRequiredFlagCombinationsAreEnforced(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		args []string
 		want string
@@ -177,7 +182,7 @@ func TestBuildRequiredFlagCombinationsAreEnforced(t *testing.T) {
 		{args: []string{"--lib="}, want: "--lib requires a non-empty selector"},
 	}
 	for _, test := range tests {
-		err := buildCommand(test.args)
+		err := buildCommand(io.Discard, test.args)
 		if err == nil || !strings.HasPrefix(err.Error(), "invalid_request:") || !strings.Contains(err.Error(), test.want) {
 			t.Errorf("buildCommand(%#v) error = %v, want invalid_request containing %q", test.args, err, test.want)
 		}

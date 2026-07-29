@@ -36,6 +36,8 @@ func edgeTestTLSCertificate(t *testing.T) tls.Certificate {
 }
 
 func TestProbeEdgeTLSClassifiesOutcomes(t *testing.T) {
+	t.Parallel()
+
 	timeout := 2 * time.Second
 
 	// unreachable: nothing listens on the address.

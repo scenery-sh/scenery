@@ -9,6 +9,8 @@ import (
 )
 
 func TestMetadataWithRuntimePostgresDatabasesIncludesSchemas(t *testing.T) {
+	t.Parallel()
+
 	root := filepath.Join(t.TempDir(), "app")
 	cfg := app.Config{
 		Name: "demo",

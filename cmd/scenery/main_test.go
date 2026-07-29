@@ -19,6 +19,8 @@ import (
 )
 
 func TestCLIExitStatusMatchesEdition2027Contract(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		err  error
 		want int
@@ -42,6 +44,8 @@ func TestCLIExitStatusMatchesEdition2027Contract(t *testing.T) {
 }
 
 func TestCLIProcessExitStatusMatchesEdition2027Contract(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name        string
 		args        []string
@@ -85,6 +89,8 @@ func TestCLIProcessExitStatusMatchesEdition2027Contract(t *testing.T) {
 }
 
 func TestCLIProcessHelper(t *testing.T) {
+	t.Parallel()
+
 	if os.Getenv("SCENERY_TEST_CLI_PROCESS") != "1" {
 		return
 	}
@@ -103,6 +109,8 @@ func TestCLIProcessHelper(t *testing.T) {
 }
 
 func TestContractJSONEnvelopeHasStableFields(t *testing.T) {
+	t.Parallel()
+
 	var output strings.Builder
 	err := runContractCompile(&output, []string{"--app-root", contractFixtureRoot(t), "-o", "json", "--non-interactive", "--quiet"})
 	if err != nil {
@@ -123,6 +131,8 @@ func TestContractJSONEnvelopeHasStableFields(t *testing.T) {
 }
 
 func TestContractCheckJSONReportsValidNativeImplementation(t *testing.T) {
+	t.Parallel()
+
 	root := nativeFixtureRoot(t)
 	var output strings.Builder
 	if err := runContractCheck(&output, []string{"--app-root", root, "-o", "json", "--non-interactive", "--quiet"}); err != nil {
@@ -156,6 +166,8 @@ func TestContractCheckJSONReportsValidNativeImplementation(t *testing.T) {
 }
 
 func TestCLIJSONWrapsCommandData(t *testing.T) {
+	t.Parallel()
+
 	var output strings.Builder
 	if err := writeCLIJSON(&output, map[string]any{"schema_version": "example.v1"}); err != nil {
 		t.Fatal(err)
@@ -174,6 +186,8 @@ func TestCLIJSONWrapsCommandData(t *testing.T) {
 }
 
 func TestCLIJSONLSequencesEventsAndTerminates(t *testing.T) {
+	t.Parallel()
+
 	var output strings.Builder
 	events := newCLIEventWriter(&output)
 	if err := events.event(map[string]any{"message": "one"}); err != nil {
@@ -203,6 +217,8 @@ func TestCLIJSONLSequencesEventsAndTerminates(t *testing.T) {
 }
 
 func TestMachineEnvelopeSchemasMatchConstructors(t *testing.T) {
+	t.Parallel()
+
 	root := repoRootForTest(t)
 	specRevision := currentMachineSpecRevision()
 	producer := cliProducer()
@@ -217,6 +233,8 @@ func TestMachineEnvelopeSchemasMatchConstructors(t *testing.T) {
 }
 
 func TestContractSchemaPublishesDiagnosticCatalog(t *testing.T) {
+	t.Parallel()
+
 	var output strings.Builder
 	if err := runContractSchema(&output, []string{graph.DiagnosticCatalog, "-o", "json"}); err != nil {
 		t.Fatal(err)
@@ -242,6 +260,8 @@ func TestContractSchemaPublishesDiagnosticCatalog(t *testing.T) {
 }
 
 func TestContractDiffConsumesRenameReceiptFile(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	before := graph.Resource{Address: "house/record/old", Kind: "scenery.record", Module: "house", Name: "old", Spec: map[string]any{}}
 	after := before
@@ -297,6 +317,8 @@ func TestContractDiffConsumesRenameReceiptFile(t *testing.T) {
 }
 
 func TestContractJSONFailureWritesExactlyOneStableEnvelope(t *testing.T) {
+	t.Parallel()
+
 	var output strings.Builder
 	err := renderMachineError(&output, []string{"migrate", "activate", "missing", "-o", "json"}, errors.New("failed_precondition: candidate unavailable"))
 	if err == nil || cliExitCode(err) != 3 {
@@ -312,6 +334,8 @@ func TestContractJSONFailureWritesExactlyOneStableEnvelope(t *testing.T) {
 }
 
 func TestContractJSONFailureCodesMatchTransportErrorKinds(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		err        error
 		wantCode   string
@@ -348,6 +372,8 @@ func TestContractJSONFailureCodesMatchTransportErrorKinds(t *testing.T) {
 }
 
 func TestContractQuietSuppressesHumanOutput(t *testing.T) {
+	t.Parallel()
+
 	var output strings.Builder
 	if err := runContractCompile(&output, []string{"--app-root", contractFixtureRoot(t), "--quiet"}); err != nil {
 		t.Fatal(err)

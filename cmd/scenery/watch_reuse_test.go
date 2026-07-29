@@ -11,6 +11,8 @@ import (
 // files while still detecting real edits, including //go:embed additions
 // whose patterns come from the per-process embed cache.
 func TestScanWatchedFilesReusingDetectsChanges(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	appPath := filepath.Join(root, "app.scn")
 	goPath := filepath.Join(root, "main.go")

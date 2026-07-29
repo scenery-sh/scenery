@@ -9,6 +9,8 @@ import (
 )
 
 func TestInspectUIJSONContract(t *testing.T) {
+	t.Parallel()
+
 	root := writeInspectUIFixture(t)
 	var output bytes.Buffer
 	if err := runSceneryInspect([]string{"ui", "--app-root", root, "--frontend", "web", "-o", "json"}, &output); err != nil {
@@ -39,6 +41,8 @@ func TestInspectUIJSONContract(t *testing.T) {
 }
 
 func TestInspectUIHumanAndEmptyApp(t *testing.T) {
+	t.Parallel()
+
 	root := writeInspectUIFixture(t)
 	var output bytes.Buffer
 	if err := runSceneryInspect([]string{"ui", "--app-root", root}, &output); err != nil {
@@ -77,6 +81,8 @@ func TestInspectUIHumanAndEmptyApp(t *testing.T) {
 }
 
 func TestInspectUIRejectsInvalidFrontendFlag(t *testing.T) {
+	t.Parallel()
+
 	root := writeInspectUIFixture(t)
 	var output bytes.Buffer
 	if err := runSceneryInspect([]string{"ui", "--app-root", root, "--frontend", "missing"}, &output); err == nil {

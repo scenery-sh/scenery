@@ -568,6 +568,24 @@ func processAliveForTest(pid int) bool {
 	return err == nil || errors.Is(err, syscall.EPERM)
 }
 
+// waitForTestCondition polls until condition holds. A test that asserts
+// something eventually happens should poll rather than sleep a fixed interval:
+// it finishes as soon as the condition is true, and it still tolerates a loaded
+// machine instead of encoding one machine's timing into the assertion.
+func waitForTestCondition(t *testing.T, timeout time.Duration, what string, condition func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for {
+		if condition() {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out after %s waiting for %s", timeout, what)
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+}
+
 func diagnosticMessages(diagnostics []checkDiagnostic) string {
 	messages := make([]string, 0, len(diagnostics))
 	for _, diag := range diagnostics {

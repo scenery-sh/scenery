@@ -229,7 +229,7 @@ func TestVictoriaSupervisorRecoversExitedComponent(t *testing.T) {
 		t.Fatalf("initial ensure stack=%T reused=%v err=%v", stack, reused, err)
 	}
 	supervisor.victoria = stack
-	monitorVictoriaSubstrate(root, client, nil, stack)
+	substrateDone := monitorVictoriaSubstrate(root, client, nil, stack)
 	recoveryDone := supervisor.monitorVictoriaRecovery(root, 10*time.Millisecond, 50*time.Millisecond)
 
 	before, err := client.GetSubstrate(ctx, localagent.SubstrateVictoria)
@@ -254,7 +254,10 @@ func TestVictoriaSupervisorRecoversExitedComponent(t *testing.T) {
 		t.Fatalf("registered substrates = %+v, want one Victoria stack", substrates)
 	}
 	cancel()
+	// Both monitors write a substrate lock under root when their components
+	// exit, so both must finish before t.TempDir removes it.
 	waitForMonitorDone(t, recoveryDone)
+	waitForMonitorDone(t, substrateDone)
 }
 
 func TestVictoriaRecoverySerializesConcurrentAttempts(t *testing.T) {
@@ -440,6 +443,8 @@ func configureManagedVictoriaTestProcesses(t *testing.T) {
 }
 
 func TestVictoriaManagedProcessHelper(t *testing.T) {
+	t.Parallel()
+
 	if os.Getenv("SCENERY_VICTORIA_PROCESS_HELPER") != "1" {
 		return
 	}

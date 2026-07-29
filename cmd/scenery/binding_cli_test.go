@@ -9,6 +9,8 @@ import (
 )
 
 func TestBuildCLIInputAcceptsCanonicalSingletonBlocks(t *testing.T) {
+	t.Parallel()
+
 	operation := graph.Resource{
 		Address: "house/operation/process_scene", Kind: "scenery.operation", Name: "process_scene", Module: "house",
 		Spec: map[string]any{"input": map[string]any{"$ref": "record.process_scene_input"}},
@@ -38,6 +40,8 @@ func TestBuildCLIInputAcceptsCanonicalSingletonBlocks(t *testing.T) {
 }
 
 func TestSelectCLIOutputUsesOutcomeRelativePath(t *testing.T) {
+	t.Parallel()
+
 	mapping := map[string]any{"stdout": map[string]any{"codec": "json", "from": map[string]any{"$ref": "result.processed.status"}}}
 	got, err := selectCLIOutput(json.RawMessage(`{"status":"complete"}`), "result.processed", mapping)
 	if err != nil {

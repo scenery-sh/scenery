@@ -16,6 +16,8 @@ import (
 )
 
 func TestSnapshotParsersRequireExplicitDestructiveChoices(t *testing.T) {
+	t.Parallel()
+
 	for _, test := range []struct {
 		name string
 		load bool
@@ -50,6 +52,8 @@ func TestSnapshotParsersRequireExplicitDestructiveChoices(t *testing.T) {
 }
 
 func TestSnapshotVerifyRequiresInput(t *testing.T) {
+	t.Parallel()
+
 	if _, err := parseSnapshotVerifyArgs(nil); err == nil || !strings.Contains(err.Error(), "--input") {
 		t.Fatalf("parseSnapshotVerifyArgs error = %v", err)
 	}
@@ -141,6 +145,8 @@ func TestSnapshotStorageMergeConflictPolicies(t *testing.T) {
 }
 
 func TestSnapshotRejectsChecksumMismatchBeforeLoad(t *testing.T) {
+	t.Parallel()
+
 	manifest := snapshotManifest{
 		Kind: snapshotManifestKind, SchemaRevision: snapshotManifestSchemaRevision,
 		App:     snapshotManifestApp{Name: "app", ID: "app"},
@@ -155,6 +161,8 @@ func TestSnapshotRejectsChecksumMismatchBeforeLoad(t *testing.T) {
 }
 
 func TestSnapshotRejectsUnsafeArchivePath(t *testing.T) {
+	t.Parallel()
+
 	archivePath := filepath.Join(t.TempDir(), "unsafe.zip")
 	writeSnapshotTestArchive(t, archivePath, snapshotManifest{Kind: snapshotManifestKind, SchemaRevision: snapshotManifestSchemaRevision}, map[string]string{"../outside": "nope"})
 	if _, err := openSnapshotArchive(archivePath); err == nil || !strings.Contains(err.Error(), "invalid snapshot archive path") {
@@ -198,6 +206,8 @@ func TestSnapshotContainerDatabaseURLUsesContainerPort(t *testing.T) {
 }
 
 func TestSnapshotManifestSchemaRevisionMatchesCheckedSchema(t *testing.T) {
+	t.Parallel()
+
 	encoded, err := os.ReadFile(filepath.Join("..", "..", "docs", "schemas", "scenery.snapshot.manifest.schema.json"))
 	if err != nil {
 		t.Fatal(err)

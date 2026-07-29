@@ -11,6 +11,8 @@ import (
 )
 
 func TestDoctorSurfacesLegacyContractFilenameRename(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, scn.LegacyAppFilename), []byte(`application "legacy" {}`), 0o644); err != nil {
 		t.Fatal(err)

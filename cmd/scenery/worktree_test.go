@@ -25,8 +25,8 @@ func TestParseWorktreeArgs(t *testing.T) {
 }
 
 func TestWorktreeCreateListAndRemoveWithoutDBPin(t *testing.T) {
-	agentHome := t.TempDir()
-	t.Setenv("SCENERY_AGENT_HOME", agentHome)
+	t.Parallel()
+
 	root := filepath.Join(t.TempDir(), "demo")
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
@@ -122,7 +122,8 @@ func TestWorktreeCreateListAndRemoveWithoutDBPin(t *testing.T) {
 }
 
 func TestWorktreeCreateDoesNotEnsureDatabaseBranch(t *testing.T) {
-	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
+	t.Parallel()
+
 	root := filepath.Join(t.TempDir(), "demo")
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
@@ -156,7 +157,8 @@ func TestWorktreeCreateDoesNotEnsureDatabaseBranch(t *testing.T) {
 }
 
 func TestWorktreeCreateSkipsDBPinForManualBranchPolicy(t *testing.T) {
-	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
+	t.Parallel()
+
 	root := filepath.Join(t.TempDir(), "demo")
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
@@ -182,7 +184,8 @@ func TestWorktreeCreateSkipsDBPinForManualBranchPolicy(t *testing.T) {
 }
 
 func TestWorktreeRemoveRestoresDBStateWhenGitRemoveFails(t *testing.T) {
-	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
+	t.Parallel()
+
 	root := filepath.Join(t.TempDir(), "demo")
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)

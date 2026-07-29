@@ -14,6 +14,8 @@ import (
 )
 
 func TestParseDevArgsAcceptsDesktop(t *testing.T) {
+	t.Parallel()
+
 	opts, err := parseDevArgs([]string{"--desktop", "--detach"})
 	if err != nil {
 		t.Fatal(err)
@@ -24,6 +26,8 @@ func TestParseDevArgsAcceptsDesktop(t *testing.T) {
 }
 
 func TestConfiguredDesktopShellsRequiresConfiguredTauriProject(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	if _, err := configuredDesktopShells(root, app.Config{}); err == nil || !strings.Contains(err.Error(), "frontends.<name>.tauri") {
 		t.Fatalf("no desktop config error = %v", err)
@@ -61,7 +65,7 @@ func TestDesktopShellUsesFrontendBackendAndRegistersProcess(t *testing.T) {
 	marker := filepath.Join(root, "tauri-invocation.json")
 	writeDesktopTestExecutable(t, filepath.Join(frontendRoot, "node_modules", ".bin", "tauri"), `#!/bin/sh
 set -eu
-printf '%s\n%s\n%s\n%s\n%s\n%s\n' "$PWD" "$1" "$2" "$3" "$SCENERY_ENV" "$VITE_API_BASE_URL" > "$TAURI_TEST_MARKER"
+printf '%s\n%s\n%s\n%s\n%s\n%s\n' "$PWD" "$1" "$2" "$3" "$SCENERY_ENV" "$VITE_API_BASE_URL" > "`+marker+`"
 trap 'exit 0' INT TERM
 while :; do sleep 1; done
 `)
@@ -97,7 +101,6 @@ while :; do sleep 1; done
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("TAURI_TEST_MARKER", marker)
 	supervisor, err := newDevSupervisor(ctx, root, cfg, env, devBackend{Network: "tcp", Addr: "127.0.0.1:4000"}, nil, client, &session)
 	if err != nil {
 		t.Fatal(err)
@@ -179,9 +182,8 @@ func TestDesktopShellExitDoesNotRestart(t *testing.T) {
 	marker := filepath.Join(root, "desktop-starts.log")
 	writeDesktopTestExecutable(t, filepath.Join(frontendRoot, "node_modules", ".bin", "tauri"), `#!/bin/sh
 set -eu
-echo start >> "$TAURI_TEST_MARKER"
+echo start >> "`+marker+`"
 `)
-	t.Setenv("TAURI_TEST_MARKER", marker)
 	cfg := app.Config{
 		Name: "desktop-exit",
 		Frontends: map[string]app.FrontendConfig{

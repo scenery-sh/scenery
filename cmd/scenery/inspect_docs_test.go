@@ -75,6 +75,8 @@ func TestRunSceneryInspectDocsDefaultsToCompactSummary(t *testing.T) {
 }
 
 func TestReadDocsKnowledgeIndexRejectsLegacyAndUnknownFields(t *testing.T) {
+	t.Parallel()
+
 	for _, content := range []string{
 		`{"schema_version":"scenery.docs.index.` + "v1" + `"}`,
 		`{"kind":"` + docsIndexKind + `","schema_revision":"` + docsIndexSchemaRevision + `","extra":true}`,

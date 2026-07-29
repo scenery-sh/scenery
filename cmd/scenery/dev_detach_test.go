@@ -237,6 +237,8 @@ func TestWaitForDetachedDevSessionReadyModeWaitsForAdvertisedRoutes(t *testing.T
 }
 
 func TestProbeDetachedDevRoutesFetchesFrontendAsset(t *testing.T) {
+	t.Parallel()
+
 	assetRequests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		switch req.URL.Path {
@@ -267,6 +269,8 @@ func TestProbeDetachedDevRoutesFetchesFrontendAsset(t *testing.T) {
 }
 
 func TestProbeDetachedDevRoutesRejectsBrokenRouteOrAsset(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name string
 		html string
