@@ -105,6 +105,7 @@ func declaredWorkspaceEntries(root string, sources []*Source) (map[string][]byte
 		if err := validateWorkspaceGlobs(append(append([]string(nil), includes...), excludes...)); err != nil {
 			return nil, err
 		}
+		includeMatcher, excludeMatcher := newGlobMatcher(includes), newGlobMatcher(excludes)
 		walkRoot := filepath.Join(root, filepath.FromSlash(rootPath))
 		if err := rejectPathSymlinks(root, walkRoot); err != nil {
 			return nil, fmt.Errorf("workspace implementation_root %s: %w", rootPath, err)
@@ -124,7 +125,7 @@ func declaredWorkspaceEntries(root string, sources []*Source) (map[string][]byte
 				return err
 			}
 			relToImplementation = filepath.ToSlash(relToImplementation)
-			included, excluded := matchesAnyGlob(includes, relToImplementation), matchesAnyGlob(excludes, relToImplementation)
+			included, excluded := includeMatcher.matches(relToImplementation), excludeMatcher.matches(relToImplementation)
 			if !included || excluded {
 				return nil
 			}

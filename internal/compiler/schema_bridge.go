@@ -3,9 +3,34 @@ package compiler
 import (
 	"regexp"
 	"strings"
+	"sync"
 
 	"scenery.sh/internal/spec"
 )
+
+// labelPatternCache compiles each schema label pattern once per process. The
+// patterns are schema constants, so validating one block per resource would
+// otherwise recompile the same handful of expressions for every label in the
+// workspace.
+var labelPatternCache sync.Map // pattern string -> *regexp.Regexp (nil when invalid)
+
+func labelPatternMatches(pattern, label string) bool {
+	cached, ok := labelPatternCache.Load(pattern)
+	if !ok {
+		compiled, err := regexp.Compile(pattern)
+		if err != nil {
+			compiled = nil
+		}
+		cached, _ = labelPatternCache.LoadOrStore(pattern, compiled)
+	}
+	expression, _ := cached.(*regexp.Regexp)
+	if expression == nil {
+		// Mirror regexp.MatchString's error contract: an invalid pattern never
+		// matches.
+		return false
+	}
+	return expression.MatchString(label)
+}
 
 type authoredBlockSchema = spec.SourceBlockSchema
 type authoredAttributeSchema = spec.SourceAttributeSchema
@@ -82,8 +107,7 @@ func validAuthoredLabel(schema *authoredBlockSchema, label string) bool {
 	if schema.LabelPattern == "" {
 		return true
 	}
-	matched, err := regexp.MatchString(schema.LabelPattern, label)
-	return err == nil && matched
+	return labelPatternMatches(schema.LabelPattern, label)
 }
 
 func ValidAuthoredLabel(schema *AuthoredBlockSchema, label string) bool {

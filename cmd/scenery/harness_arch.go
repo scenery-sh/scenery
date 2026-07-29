@@ -750,7 +750,7 @@ func checkArchitectureGeneratedHygiene(repoRoot string, summary *architectureSum
 	dsStoreCount := 0
 	var dsStoreExamples []string
 	_ = filepath.WalkDir(repoRoot, func(path string, entry os.DirEntry, err error) error {
-		if err != nil || entry.IsDir() {
+		if err != nil {
 			return nil
 		}
 		rel, relErr := filepath.Rel(repoRoot, path)
@@ -758,6 +758,15 @@ func checkArchitectureGeneratedHygiene(repoRoot string, summary *architectureSum
 			return nil
 		}
 		rel = filepath.ToSlash(rel)
+		if entry.IsDir() {
+			// Prune skipped trees instead of enumerating them and discarding
+			// each file: node_modules, .git, and .scenery hold tens of
+			// thousands of entries that can never match.
+			if rel != "." && architectureSkipDir(rel) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
 		if architectureSkipDir(filepath.Dir(rel)) {
 			return nil
 		}

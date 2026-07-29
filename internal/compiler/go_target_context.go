@@ -11,10 +11,61 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
+	"sync"
 
 	"scenery.sh/internal/parse"
 )
+
+// Toolchain identity is resolved several times per command — implementation
+// revisions, the build target, and Go verification each resolve it — always
+// from the same declared toolchain. Resolving costs a `go env` subprocess plus
+// a SHA-256 over the ~15MB go binary and ~20MB compiler, so the repeats are
+// pure duplicate work.
+//
+// Both caches revalidate against the filesystem rather than trusting their key:
+// a `scenery up` session lives for hours and a toolchain can be replaced under
+// it. The digest cache keys on path+size+mtime, and the environment cache
+// re-stats the go binary it resolved before reusing a hit. That makes a cache
+// hit strictly more consistent than today's behavior, which can already return
+// different digests for two resolutions in the same command.
+var (
+	goToolEnvCache        sync.Map // environment key -> *goToolEnvEntry
+	executableDigestCache sync.Map // path+size+mtime -> digest string
+)
+
+type goToolEnvEntry struct {
+	GOROOT       string
+	CC           string
+	CXX          string
+	goBinaryPath string
+	goBinarySize int64
+	goBinaryMod  int64
+}
+
+func executableStatKey(path string, info os.FileInfo) string {
+	return path + "\x00" + strconv.FormatInt(info.Size(), 10) + "\x00" + strconv.FormatInt(info.ModTime().UnixNano(), 10)
+}
+
+// goToolchainBinaryPath is the `go` command implied by a GOROOT.
+func goToolchainBinaryPath(goroot string) string {
+	name := "go"
+	if runtime.GOOS == "windows" {
+		name = "go.exe"
+	}
+	return filepath.Join(goroot, "bin", name)
+}
+
+// stillCurrent reports whether the resolved go binary is unchanged since this
+// entry was recorded.
+func (e *goToolEnvEntry) stillCurrent() bool {
+	info, err := os.Stat(e.goBinaryPath)
+	if err != nil {
+		return false
+	}
+	return info.Size() == e.goBinarySize && info.ModTime().UnixNano() == e.goBinaryMod
+}
 
 type goVerificationTarget struct {
 	Resource  Resource
@@ -172,21 +223,11 @@ func resolveGoToolIdentities(target *parse.GoTargetContext) error {
 	if target == nil {
 		return fmt.Errorf("Go target context is required")
 	}
-	command := exec.Command("go", "env", "-json", "GOROOT", "CC", "CXX")
-	command.Env = parse.GoTargetEnvironment(*target)
-	output, err := command.CombinedOutput()
+	environment, err := resolveGoToolEnvironment(target)
 	if err != nil {
-		return fmt.Errorf("resolve declared Go toolchain: %w: %s", err, strings.TrimSpace(string(output)))
+		return err
 	}
-	var environment struct {
-		GOROOT string
-		CC     string
-		CXX    string
-	}
-	if err := json.Unmarshal(output, &environment); err != nil || environment.GOROOT == "" {
-		return fmt.Errorf("resolve declared Go toolchain metadata")
-	}
-	goBinary := filepath.Join(environment.GOROOT, "bin", map[bool]string{true: "go.exe", false: "go"}[runtime.GOOS == "windows"])
+	goBinary := goToolchainBinaryPath(environment.GOROOT)
 	compiler := filepath.Join(environment.GOROOT, "pkg", "tool", runtime.GOOS+"_"+runtime.GOARCH, map[bool]string{true: "compile.exe", false: "compile"}[runtime.GOOS == "windows"])
 	goDigest, goPath, err := digestExecutable(goBinary)
 	if err != nil {
@@ -223,6 +264,41 @@ func resolveGoToolIdentities(target *parse.GoTargetContext) error {
 	return nil
 }
 
+// resolveGoToolEnvironment returns GOROOT/CC/CXX for the target's hermetic
+// environment, reusing a previous resolution when the resolved go binary is
+// unchanged. Failures are never cached, so a transient error does not stick.
+func resolveGoToolEnvironment(target *parse.GoTargetContext) (*goToolEnvEntry, error) {
+	targetEnvironment := parse.GoTargetEnvironment(*target)
+	key := strings.Join(targetEnvironment, "\x00")
+	if cached, ok := goToolEnvCache.Load(key); ok {
+		if entry, valid := cached.(*goToolEnvEntry); valid && entry.stillCurrent() {
+			return entry, nil
+		}
+		goToolEnvCache.Delete(key)
+	}
+	command := exec.Command("go", "env", "-json", "GOROOT", "CC", "CXX")
+	command.Env = targetEnvironment
+	output, err := command.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("resolve declared Go toolchain: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	var decoded struct {
+		GOROOT string
+		CC     string
+		CXX    string
+	}
+	if err := json.Unmarshal(output, &decoded); err != nil || decoded.GOROOT == "" {
+		return nil, fmt.Errorf("resolve declared Go toolchain metadata")
+	}
+	entry := &goToolEnvEntry{GOROOT: decoded.GOROOT, CC: decoded.CC, CXX: decoded.CXX}
+	entry.goBinaryPath = goToolchainBinaryPath(decoded.GOROOT)
+	if info, statErr := os.Stat(entry.goBinaryPath); statErr == nil {
+		entry.goBinarySize, entry.goBinaryMod = info.Size(), info.ModTime().UnixNano()
+		goToolEnvCache.Store(key, entry)
+	}
+	return entry, nil
+}
+
 func digestExecutable(path string) (string, string, error) {
 	resolved, err := filepath.EvalSymlinks(path)
 	if err != nil {
@@ -232,12 +308,22 @@ func digestExecutable(path string) (string, string, error) {
 	if err != nil || !info.Mode().IsRegular() {
 		return "", "", fmt.Errorf("%s is not a regular file", resolved)
 	}
+	// The stat above already establishes identity, so keying on it is free and
+	// a replaced binary invalidates itself.
+	key := executableStatKey(resolved, info)
+	if cached, ok := executableDigestCache.Load(key); ok {
+		if digest, valid := cached.(string); valid {
+			return digest, resolved, nil
+		}
+	}
 	data, err := os.ReadFile(resolved)
 	if err != nil {
 		return "", "", err
 	}
 	digest := sha256.Sum256(data)
-	return "sha256:" + hex.EncodeToString(digest[:]), resolved, nil
+	encoded := "sha256:" + hex.EncodeToString(digest[:])
+	executableDigestCache.Store(key, encoded)
+	return encoded, resolved, nil
 }
 
 func goArchitectureContext(goarch string, features []string) (map[string]string, []string, error) {

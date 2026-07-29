@@ -123,6 +123,32 @@ optimize a number nothing can explain.
 - [ ] `configureManagedVictoriaTestProcesses` (2.16s) is deliberately not
       converted; see Decision Log.
 
+- [x] 2026-07-29: Optimized runtime hot paths on the developer loop, separate
+      from test scheduling. Six changes, each with byte-identical output proven
+      before landing:
+      1. `internal/compiler` label patterns compile once per process instead of
+         `regexp.MatchString` per block label.
+      2. Workspace-revision glob matching pre-splits patterns once per
+         implementation root and matches segments with iterative star
+         backtracking instead of a memoized recursion that allocated two maps
+         per segment: **10074ns -> 329ns per file (30x), 64 allocs -> 1**.
+      3. Go toolchain identity is memoized per process, so the `go env`
+         subprocess and the SHA-256 over the ~15MB `go` binary and ~20MB
+         compiler run once instead of 3+ times per command:
+         **29.4ms -> 0.02ms per redundant resolution, 39MB -> 11KB allocated**.
+         Both cache layers revalidate against the filesystem (digests key on
+         path+size+mtime; the env cache re-stats its resolved `go` binary), so a
+         replaced toolchain still invalidates.
+      4. The `.DS_Store` scan and the embed-report walk now prune skipped trees
+         instead of enumerating and discarding: **37,362 -> 1,802 entries per
+         walk (95.2% fewer), on two walks**.
+      5. The changed-area oracle asks `go list` for only the two fields it
+         decodes (`-json=ImportPath,Dir`): **363KB -> 7.7KB of output, 0.70s ->
+         0.32s**, verified to produce an identical package set and order.
+      Harness step effect, stable across three runs: `contract drift checks`
+      141ms then 106-109ms (was 220-1270ms), `changed area oracle` 335-347ms
+      (was 610-880ms), `architecture checks` 1610-1645ms (was 1690-1840ms).
+
 ## Surprises & Discoveries
 
 - 2026-07-28: The cold penalty is linking, and package listing is nearly free.
@@ -296,6 +322,27 @@ optimize a number nothing can explain.
   process environment outside internal/envpolicy". The checker itself dodges
   its own scan by splitting the token (`"os." + "Getenv("`), which is the
   convention to follow when the name has to appear in scenery's own source.
+- 2026-07-29: A differential test against the replaced implementation caught a
+  real bug in the glob rewrite that the existing suite did not. The iterative
+  matcher initially tested the literal/`?` case before `*`, so a `*` in the
+  pattern consumed a literal `*` in the value as a character match:
+  `matchGlobSegment("aa*", "aa*a")` returned false where the memoized recursion
+  returned true. The package's own tests passed. Keeping the old algorithm in
+  the test file as an oracle and comparing over 390k exhaustive pairs plus 200k
+  randomized ones found it immediately. Any rewrite of a matcher in this repo
+  should carry its predecessor as a differential oracle.
+- 2026-07-29: `inspect build` output is not byte-stable, which makes naive
+  before/after comparison useless. Two fixtures produce a fresh random
+  `report_token` per run on the internal-error path, so the *same* binary
+  disagrees with itself. Comparing old against new only became meaningful after
+  masking `rpt_[a-z0-9]+`; with it masked all four fixtures matched.
+- 2026-07-29: Two `cmd/scenery` desktop tests fail under full-suite package
+  contention and always have. `TestDesktopShellUsesFrontendBackendAndRegistersProcess`
+  and `TestDesktopShellExitDoesNotRestart` use a 3s `waitForDesktopTest` window
+  and time out under `go test ./...` at default `-p`, while passing when the
+  package runs alone or at `-p 2`. Confirmed pre-existing by stashing the
+  performance changes and reproducing both failures on the clean tree, so they
+  are a fixture-timeout sensitivity rather than a regression from this work.
 - 2026-07-28: This machine cannot resolve the remaining gap. Repeated
   `go test ./cmd/scenery -count=1` runs spanned 16.0s to 20.8s depending on
   ambient load (load average around 10 from unrelated long-lived dev sessions).
@@ -385,6 +432,16 @@ optimize a number nothing can explain.
   semantics and must stay serial regardless, so the realistic gain is well under
   the 2.16s the cluster holds.
   Date/Author: 2026-07-28 / Claude.
+- Toolchain identity is memoized with self-validating caches rather than an
+  invocation-scoped cache. A `scenery up` session lives for hours and a
+  toolchain can be replaced under it, so keying digests on path+size+mtime and
+  re-stating the resolved `go` binary before reusing an environment hit keeps a
+  swap detectable. This is strictly more consistent than the previous behavior,
+  which recomputed independently per resolution and could therefore report two
+  different toolchain digests within one command if a binary changed mid-run.
+  Resolution failures are deliberately never cached so a transient error does
+  not stick for the process lifetime.
+  Date/Author: 2026-07-29 / Claude.
 - The next reduction target is the `cmd/scenery` serial phase, not fixture
   reuse. The measurement above contradicts the fixture/duplicate-compile
   hypothesis for this package. The candidate work is removing `t.Setenv` from

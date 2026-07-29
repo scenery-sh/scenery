@@ -603,7 +603,7 @@ func forbiddenTrackedArtifact(path string) bool {
 func buildHarnessEmbedReport(repoRoot string, diagnostics []checkDiagnostic) (harnessEmbedReport, []checkDiagnostic) {
 	var report harnessEmbedReport
 	_ = filepath.WalkDir(repoRoot, func(path string, entry os.DirEntry, err error) error {
-		if err != nil || entry.IsDir() {
+		if err != nil {
 			return nil
 		}
 		rel, relErr := filepath.Rel(repoRoot, path)
@@ -611,6 +611,14 @@ func buildHarnessEmbedReport(repoRoot string, diagnostics []checkDiagnostic) (ha
 			return nil
 		}
 		rel = filepath.ToSlash(rel)
+		if entry.IsDir() {
+			// Prune skipped trees rather than walking into them; every file
+			// under them is discarded by the check below anyway.
+			if rel != "." && architectureSkipDir(rel) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
 		if architectureSkipDir(filepath.Dir(rel)) || filepath.Ext(rel) != ".go" || strings.HasSuffix(rel, "_test.go") {
 			return nil
 		}

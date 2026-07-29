@@ -754,13 +754,37 @@ func literalStringList(block *Block, name string) []string {
 	return result
 }
 
-func matchesAnyGlob(patterns []string, value string) bool {
+// globMatcher holds pattern segments split once. A workspace-revision walk
+// tests every file against the same constant include/exclude patterns, so
+// splitting them per file is pure repeated work.
+type globMatcher [][]string
+
+func newGlobMatcher(patterns []string) globMatcher {
+	if len(patterns) == 0 {
+		return nil
+	}
+	matcher := make(globMatcher, 0, len(patterns))
 	for _, pattern := range patterns {
-		if matchGlobSegments(strings.Split(filepath.ToSlash(pattern), "/"), strings.Split(filepath.ToSlash(value), "/")) {
+		matcher = append(matcher, strings.Split(filepath.ToSlash(pattern), "/"))
+	}
+	return matcher
+}
+
+func (m globMatcher) matches(value string) bool {
+	if len(m) == 0 {
+		return false
+	}
+	segments := strings.Split(filepath.ToSlash(value), "/")
+	for _, pattern := range m {
+		if matchGlobSegments(pattern, segments) {
 			return true
 		}
 	}
 	return false
+}
+
+func matchesAnyGlob(patterns []string, value string) bool {
+	return newGlobMatcher(patterns).matches(value)
 }
 
 func matchGlobSegments(pattern, value []string) bool {
@@ -781,31 +805,36 @@ func matchGlobSegments(pattern, value []string) bool {
 	return matchGlobSegment(pattern[0], value[0]) && matchGlobSegments(pattern[1:], value[1:])
 }
 
+// matchGlobSegment matches one path segment against a `*`/`?` pattern with
+// rune semantics: `?` is exactly one rune, `*` is any run of runes. It uses
+// iterative star backtracking rather than a memoized recursion so a walk over
+// many files allocates nothing per comparison beyond the two rune slices.
 func matchGlobSegment(pattern, value string) bool {
 	patternRunes, valueRunes := []rune(pattern), []rune(value)
-	type state struct{ pattern, value int }
-	memo := map[state]bool{}
-	visited := map[state]bool{}
-	var match func(int, int) bool
-	match = func(patternIndex, valueIndex int) bool {
-		key := state{patternIndex, valueIndex}
-		if visited[key] {
-			return memo[key]
-		}
-		visited[key] = true
-		matched := false
+	patternIndex, valueIndex := 0, 0
+	starPattern, starValue := -1, 0
+	for valueIndex < len(valueRunes) {
 		switch {
-		case patternIndex == len(patternRunes):
-			matched = valueIndex == len(valueRunes)
-		case patternRunes[patternIndex] == '*':
-			matched = match(patternIndex+1, valueIndex) || valueIndex < len(valueRunes) && match(patternIndex, valueIndex+1)
-		case valueIndex < len(valueRunes) && (patternRunes[patternIndex] == '?' || patternRunes[patternIndex] == valueRunes[valueIndex]):
-			matched = match(patternIndex+1, valueIndex+1)
+		// `*` is tested before the literal case: a literal `*` in the value must
+		// never be consumed as a character match by a `*` in the pattern.
+		case patternIndex < len(patternRunes) && patternRunes[patternIndex] == '*':
+			// Remember this star so a later mismatch can extend what it consumed.
+			starPattern, starValue = patternIndex, valueIndex
+			patternIndex++
+		case patternIndex < len(patternRunes) && (patternRunes[patternIndex] == '?' || patternRunes[patternIndex] == valueRunes[valueIndex]):
+			patternIndex++
+			valueIndex++
+		case starPattern >= 0:
+			starValue++
+			patternIndex, valueIndex = starPattern+1, starValue
+		default:
+			return false
 		}
-		memo[key] = matched
-		return matched
 	}
-	return match(0, 0)
+	for patternIndex < len(patternRunes) && patternRunes[patternIndex] == '*' {
+		patternIndex++
+	}
+	return patternIndex == len(patternRunes)
 }
 
 func containsBase(paths []string, base string) bool {
