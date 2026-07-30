@@ -5,6 +5,7 @@ import (
 	"math/big"
 	"reflect"
 	"regexp"
+	"sync"
 	"unicode/utf8"
 )
 
@@ -99,8 +100,7 @@ func validateContractReflect(value reflect.Value, typeValue contractWireType, co
 		if value.Kind() != reflect.String {
 			return fmt.Errorf("pattern requires a string value")
 		}
-		pattern, err := regexp.Compile(constraints.Pattern)
-		if err != nil || !pattern.MatchString(value.String()) {
+		if !contractPatternMatches(constraints.Pattern, value.String()) {
 			return fmt.Errorf("value does not match pattern %q", constraints.Pattern)
 		}
 	}
@@ -204,4 +204,28 @@ func validateContractStringFormat(value, format string) error {
 		return fmt.Errorf("value does not satisfy %s format: %w", format, err)
 	}
 	return nil
+}
+
+// contractPatternCache compiles each constraint pattern once per process.
+// Patterns are constants emitted by generated contract packages, so a request
+// that validates a record would otherwise recompile the same expressions for
+// every field on every call.
+var contractPatternCache sync.Map // pattern -> *regexp.Regexp (nil when invalid)
+
+// contractPatternMatches preserves the previous contract exactly: an invalid
+// pattern is reported as a non-match rather than as a distinct error.
+func contractPatternMatches(pattern, value string) bool {
+	cached, ok := contractPatternCache.Load(pattern)
+	if !ok {
+		compiled, err := regexp.Compile(pattern)
+		if err != nil {
+			compiled = nil
+		}
+		cached, _ = contractPatternCache.LoadOrStore(pattern, compiled)
+	}
+	expression, _ := cached.(*regexp.Regexp)
+	if expression == nil {
+		return false
+	}
+	return expression.MatchString(value)
 }

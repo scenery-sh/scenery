@@ -1133,8 +1133,10 @@ func stripANSI(data []byte) []byte {
 	if len(data) == 0 {
 		return nil
 	}
-	clean := ansiEscapeRE.ReplaceAll(data, nil)
-	return append([]byte(nil), clean...)
+	// ReplaceAll always builds a fresh buffer and never aliases data, so the
+	// result is already safe to retain; copying it again doubled the allocation
+	// for every process output line.
+	return ansiEscapeRE.ReplaceAll(data, nil)
 }
 
 func (s *devSupervisor) handleExit(ctx context.Context, app *runningApp) {

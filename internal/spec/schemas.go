@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 )
 
 type resourceSchema struct {
@@ -209,8 +210,27 @@ func CoreSchema(kind string) (map[string]any, bool) {
 	result["canonical_field_revision_domains"] = canonicalDomains
 	result["field_revision_domain_sources"] = canonicalDomainSources
 	delete(result, "schema_revision")
-	result["schema_revision"] = string(SchemaRevision(result))
+	result["schema_revision"] = coreSchemaRevision(kind, result)
 	return result, true
+}
+
+// coreSchemaRevisionCache memoizes the schema revision per resource kind. The
+// revision is a canonical marshal plus SHA-256 over the schema map, which is
+// about half the cost of building it, and the map is rebuilt identically from
+// static tables on every call — so the digest is a constant per kind. Only the
+// digest is cached: callers keep receiving a freshly built map, so nothing they
+// store or mutate can alias shared state.
+var coreSchemaRevisionCache sync.Map // kind -> revision string
+
+func coreSchemaRevision(kind string, schema map[string]any) string {
+	if cached, ok := coreSchemaRevisionCache.Load(kind); ok {
+		if revision, valid := cached.(string); valid {
+			return revision
+		}
+	}
+	revision := string(SchemaRevision(schema))
+	coreSchemaRevisionCache.Store(kind, revision)
+	return revision
 }
 
 func blockTypeForKind(kind string) string {

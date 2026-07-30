@@ -147,7 +147,26 @@ func canonicalJSONNumber(source string) (string, error) {
 	return result, nil
 }
 
+// asciiOnly reports whether every byte is below 0x80, in which case UTF-8 byte
+// order, code-point order, and UTF-16 code-unit order all coincide.
+func asciiOnly(value string) bool {
+	for index := 0; index < len(value); index++ {
+		if value[index] >= 0x80 {
+			return false
+		}
+	}
+	return true
+}
+
+// lessUTF16 orders strings by UTF-16 code unit, which is what the canonical JSON
+// object-key contract requires. Encoding both operands allocates four slices per
+// comparison, and a key sort calls this O(n log n) times; ASCII keys — nearly all
+// of them — are ordered identically by a plain byte compare, so take that path
+// without allocating and fall back to the exact encoding otherwise.
 func lessUTF16(left, right string) bool {
+	if asciiOnly(left) && asciiOnly(right) {
+		return left < right
+	}
 	a := utf16.Encode([]rune(left))
 	b := utf16.Encode([]rune(right))
 	for index := 0; index < len(a) && index < len(b); index++ {

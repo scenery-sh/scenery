@@ -149,6 +149,35 @@ optimize a number nothing can explain.
       141ms then 106-109ms (was 220-1270ms), `changed area oracle` 335-347ms
       (was 610-880ms), `architecture checks` 1610-1645ms (was 1690-1840ms).
 
+- [x] 2026-07-29: Worked the unverified remainder of the performance scan.
+      Landed, each measured and output-compared:
+      1. Canonical JSON object-key comparison takes an ASCII fast path in both
+         `internal/spec` and `internal/contract`: **90.3ns -> 12.4ns, 2 allocs
+         -> 0**. ASCII keys sort identically under a byte compare; non-ASCII
+         still uses the exact UTF-16 encoding.
+      2. Contract constraint patterns compile once per process:
+         **1614ns -> 180ns, 37 allocs -> 0**, preserving the previous contract
+         that an invalid pattern reports as a non-match.
+      3. Contract wire type expressions parse once per process:
+         **91.7ns -> 12.6ns, 2 allocs -> 0**. Parsed values are read-only
+         everywhere they are used.
+      4. Compiled validation programs decode once per encoded program instead of
+         per `ValidateContractRecord` call.
+      5. `spec.CoreSchema` memoizes only the schema revision digest, which was
+         half its cost: **276us/4380 allocs -> 126us/2138 allocs**. The map
+         itself is still rebuilt per call, so nothing a caller stores can alias
+         shared state.
+      6. Route matching splits the request path once per request instead of once
+         per candidate route, and contract CORS patterns parse at registration
+         instead of per preflight.
+      7. `stripANSI` returns `ReplaceAll`'s buffer instead of copying it again
+         for every process output line.
+      Equivalence proof: 10 CLI commands x 4 fixture apps byte-identical between
+      the pre-change and post-change binaries (masking the embedded build
+      version/commit/timestamp and the random `report_token`), both committed
+      TypeScript fixtures regenerate with `changed: []`, and two consecutive
+      full self-harness runs are green.
+
 ## Surprises & Discoveries
 
 - 2026-07-28: The cold penalty is linking, and package listing is nearly free.
@@ -322,6 +351,29 @@ optimize a number nothing can explain.
   process environment outside internal/envpolicy". The checker itself dodges
   its own scan by splitting the token (`"os." + "Getenv("`), which is the
   convention to follow when the name has to appear in scenery's own source.
+- 2026-07-29: Precomputing derived state into a struct field is a silent-failure
+  trap, and a test caught it. Adding a parsed `pattern` field to
+  `contractCORSRoute` broke
+  `TestContractPathTailCORSUsesSelectedMethodAndRoutePrecedence`, because the
+  test builds route literals directly and a zero `routePattern` matches nothing
+  — the CORS policy silently became nil rather than erroring. Making the field a
+  pointer with a parse-on-demand fallback means any construction site that omits
+  it stays correct, just uncached. Prefer that shape over requiring every caller
+  to remember the cache field.
+- 2026-07-29: Comparing two CLI binaries byte-for-byte needs the build metadata
+  masked or every command "differs". `inspect`/`compile`/`check` envelopes embed
+  the producer `version`, `commit`, and `built_at`, which change on every `go
+  build`, so the first comparison reported all 10 commands as regressions. The
+  only real diff was those three fields; with them and the random `report_token`
+  masked, all 10 commands across 4 fixtures matched exactly.
+- 2026-07-29: `spec.CoreSchema` costs 276us and 4380 allocations per call, and
+  it is called per resource during graph context bundling and per resource kind
+  on agent requests. Half the cost is the `SchemaRevision` canonical marshal
+  plus SHA-256 over the schema map it just built. Caching the whole map is
+  unsafe — `internal/graph/query.go:391` stores the returned map into a bundle,
+  so a shared map could be mutated by a caller — but the digest is a pure
+  function of a map rebuilt identically from static tables, so caching only the
+  digest is both safe and half the win.
 - 2026-07-29: A differential test against the replaced implementation caught a
   real bug in the glob rewrite that the existing suite did not. The iterative
   matcher initially tested the literal/`?` case before `*`, so a `*` in the
@@ -441,6 +493,18 @@ optimize a number nothing can explain.
   different toolchain digests within one command if a binary changed mid-run.
   Resolution failures are deliberately never cached so a transient error does
   not stick for the process lifetime.
+  Date/Author: 2026-07-29 / Claude.
+- The `ps` fork in agent owner verification is deliberately left in place.
+  `sessionOwnerVerifies` runs on every proxied request and reaches
+  `processOwnerInfo`, which forks `ps -p <pid> -o lstart= -o command=` on unix —
+  genuinely hot and genuinely expensive. It is not fixed because both available
+  fixes break something the repo guarantees. Caching per PID reintroduces a
+  PID-reuse window into a check whose whole purpose is to fail closed on
+  ownership conflicts, and replacing `ps` with a `sysctl` lookup would have to
+  reproduce `lstart`'s exact string byte-for-byte, because `Owner.StartedAt` is
+  persisted and compared for equality — a format change would make every
+  recorded owner mismatch and stop running sessions. Both are contract changes,
+  not optimizations, so they need explicit direction.
   Date/Author: 2026-07-29 / Claude.
 - The next reduction target is the `cmd/scenery` serial phase, not fixture
   reuse. The measurement above contradicts the fixture/duplicate-compile

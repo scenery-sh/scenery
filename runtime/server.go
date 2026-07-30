@@ -28,6 +28,23 @@ type contractCORSRoute struct {
 	pathTail bool
 	methods  []string
 	policy   *ContractHTTPPolicy
+	// pattern is parsed once at registration. A CORS preflight tests the
+	// request against every registered route, so parsing the pattern strings
+	// per request scales the cost with the endpoint count. It is a pointer so a
+	// route built without it still matches correctly, just without the cache —
+	// a zero routePattern would silently never match.
+	pattern *routePattern
+}
+
+// matchPattern returns the route's parsed pattern, parsing on demand when it was
+// not precomputed at registration.
+func (r contractCORSRoute) matchPattern() routePattern {
+	if r.pattern != nil {
+		return *r.pattern
+	}
+	pattern := parseRoutePattern(r.path)
+	pattern.pathTail = r.pathTail
+	return pattern
 }
 
 // beginDrain cancels the contexts of in-flight streaming raw requests so
@@ -430,7 +447,9 @@ func (s *server) registerTyped(ep *Endpoint) {
 	}
 
 	if ep.ContractPolicy != nil && ep.Access != Private {
-		s.contractCORS = append(s.contractCORS, contractCORSRoute{path: ep.Path, pathTail: ep.ContractPathTail != nil, methods: append([]string(nil), ep.Methods...), policy: ep.ContractPolicy})
+		corsPattern := parseRoutePattern(ep.Path)
+		corsPattern.pathTail = ep.ContractPathTail != nil
+		s.contractCORS = append(s.contractCORS, contractCORSRoute{path: ep.Path, pathTail: ep.ContractPathTail != nil, methods: append([]string(nil), ep.Methods...), policy: ep.ContractPolicy, pattern: &corsPattern})
 	}
 	registerEndpointRoute(s.selectRouter(ep), ep, handler)
 }
@@ -476,13 +495,13 @@ func contractAdmissionHTTPStatus(endpoint *Endpoint, err error) (int, bool) {
 func (s *server) contractCORSPolicy(requestPath, method string) *ContractHTTPPolicy {
 	var matches []*route
 	policies := map[*route]*ContractHTTPPolicy{}
+	requestSegments := splitRoutePath(requestPath)
 	for _, corsRoute := range s.contractCORS {
 		if method != "" && !routeAllowsMethod(expandMethods(corsRoute.methods), strings.ToUpper(method)) {
 			continue
 		}
-		pattern := parseRoutePattern(corsRoute.path)
-		pattern.pathTail = corsRoute.pathTail
-		if _, matched := pattern.match(requestPath); matched {
+		pattern := corsRoute.matchPattern()
+		if _, matched := pattern.matchSegments(requestSegments); matched {
 			candidate := &route{pattern: pattern}
 			matches = append(matches, candidate)
 			policies[candidate] = corsRoute.policy

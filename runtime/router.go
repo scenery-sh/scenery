@@ -144,8 +144,9 @@ type routeMatch struct {
 
 func (r *routeTable) matchingRoutes(path string) []routeMatch {
 	var matches []routeMatch
+	requestSegments := splitRoutePath(path)
 	for _, candidate := range r.routes {
-		params, ok := candidate.pattern.match(path)
+		params, ok := candidate.pattern.matchSegments(requestSegments)
 		if !ok {
 			continue
 		}
@@ -256,7 +257,13 @@ func splitRoutePath(path string) []string {
 }
 
 func (p routePattern) match(path string) (routeParams, bool) {
-	requestSegments := splitRoutePath(path)
+	return p.matchSegments(splitRoutePath(path))
+}
+
+// matchSegments matches pre-split request segments. Route resolution tests one
+// request against every candidate route, so splitting the path per candidate is
+// repeated work proportional to the route table.
+func (p routePattern) matchSegments(requestSegments []string) (routeParams, bool) {
 	if p.pathTail {
 		for _, segment := range requestSegments {
 			if segment == "" {

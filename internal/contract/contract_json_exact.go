@@ -272,7 +272,13 @@ func joinContractJSONObject(members map[string][]byte) ([]byte, error) {
 	return output.Bytes(), nil
 }
 
+// contractUTF16Less orders object keys by UTF-16 code unit. ASCII keys sort
+// identically under a byte compare, so that path avoids the four slice
+// allocations the encoding otherwise costs on every comparison of a key sort.
 func contractUTF16Less(left, right string) bool {
+	if contractASCIIOnly(left) && contractASCIIOnly(right) {
+		return left < right
+	}
 	a, b := utf16.Encode([]rune(left)), utf16.Encode([]rune(right))
 	for index := 0; index < len(a) && index < len(b); index++ {
 		if a[index] != b[index] {
@@ -280,4 +286,13 @@ func contractUTF16Less(left, right string) bool {
 		}
 	}
 	return len(a) < len(b)
+}
+
+func contractASCIIOnly(value string) bool {
+	for index := 0; index < len(value); index++ {
+		if value[index] >= 0x80 {
+			return false
+		}
+	}
+	return true
 }

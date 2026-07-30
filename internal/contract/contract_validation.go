@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"sync"
 )
 
 // ContractValidationError is a declared record-validation failure. Code,
@@ -51,18 +52,43 @@ type contractValidationEntry struct {
 	Value contractValidationNode `json:"value"`
 }
 
+// contractValidationProgramCache memoizes decoded validation programs. The
+// encoded program is a constant in the generated contract package, so a request
+// that validates a record would otherwise re-decode the same JSON every call.
+// Programs are read-only during evaluation, so sharing one is safe.
+var contractValidationProgramCache sync.Map // encoded program -> cachedContractValidationProgram
+
+type cachedContractValidationProgram struct {
+	program contractValidationProgram
+	err     error
+}
+
+func parseContractValidationProgram(encodedProgram string) (contractValidationProgram, error) {
+	if cached, ok := contractValidationProgramCache.Load(encodedProgram); ok {
+		if entry, valid := cached.(cachedContractValidationProgram); valid {
+			return entry.program, entry.err
+		}
+	}
+	decoder := json.NewDecoder(bytes.NewBufferString(encodedProgram))
+	decoder.DisallowUnknownFields()
+	var program contractValidationProgram
+	err := error(nil)
+	if decodeErr := decoder.Decode(&program); decodeErr != nil {
+		err = fmt.Errorf("decode compiled validation expression: %w", decodeErr)
+	} else if program.Source == "" || program.Expression.Kind == "" {
+		err = fmt.Errorf("decode compiled validation expression: source or expression is absent")
+	}
+	contractValidationProgramCache.Store(encodedProgram, cachedContractValidationProgram{program: program, err: err})
+	return program, err
+}
+
 // ValidateContractRecord evaluates a compiler-validated, data-only expression
 // over generated record fields. The public runtime deliberately does not
 // include the HCL compiler; generated packages carry the compiled expression.
 func ValidateContractRecord(fields map[string]any, fieldTypes map[string]string, encodedProgram, code, message, path string) error {
-	decoder := json.NewDecoder(bytes.NewBufferString(encodedProgram))
-	decoder.DisallowUnknownFields()
-	var program contractValidationProgram
-	if err := decoder.Decode(&program); err != nil {
-		return fmt.Errorf("decode compiled validation expression: %w", err)
-	}
-	if program.Source == "" || program.Expression.Kind == "" {
-		return fmt.Errorf("decode compiled validation expression: source or expression is absent")
+	program, err := parseContractValidationProgram(encodedProgram)
+	if err != nil {
+		return err
 	}
 	values := make(map[string]any, len(fieldTypes))
 	for name, typeExpression := range fieldTypes {

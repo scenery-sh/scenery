@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"unicode/utf8"
 )
 
@@ -53,7 +54,29 @@ func UnmarshalContractValueWithNamed(data []byte, target any, typeExpression str
 	return unmarshalContractReflect(data, targetValue.Elem(), typeValue, named)
 }
 
+// contractWireTypeCache memoizes parsed type expressions. The expressions are
+// constants in generated contract packages, so every marshal and unmarshal on a
+// request path re-parses the same handful of strings. Parsed values are treated
+// as immutable everywhere they are used, so sharing them is safe.
+var contractWireTypeCache sync.Map // source -> contractWireType
+
+type cachedContractWireType struct {
+	value contractWireType
+	err   error
+}
+
 func parseContractWireType(source string) (contractWireType, error) {
+	if cached, ok := contractWireTypeCache.Load(source); ok {
+		if entry, valid := cached.(cachedContractWireType); valid {
+			return entry.value, entry.err
+		}
+	}
+	value, err := parseContractWireTypeUncached(source)
+	contractWireTypeCache.Store(source, cachedContractWireType{value: value, err: err})
+	return value, err
+}
+
+func parseContractWireTypeUncached(source string) (contractWireType, error) {
 	source = strings.TrimSpace(source)
 	if source == "" {
 		return contractWireType{}, fmt.Errorf("empty contract type expression")
