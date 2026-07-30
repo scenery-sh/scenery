@@ -110,7 +110,7 @@ while :; do sleep 1; done
 	}
 
 	var invocation []string
-	waitForDesktopTest(t, 3*time.Second, func() bool {
+	waitForDesktopTest(t, 30*time.Second, func() bool {
 		data, err := os.ReadFile(marker)
 		if err != nil {
 			return false
@@ -212,7 +212,7 @@ echo start >> "`+marker+`"
 	if err := supervisor.startDesktopShells(ctx); err != nil {
 		t.Fatal(err)
 	}
-	waitForDesktopTest(t, 3*time.Second, func() bool {
+	waitForDesktopTest(t, 30*time.Second, func() bool {
 		sessions, err := client.List(ctx, root)
 		if err != nil || len(sessions) != 1 {
 			return false

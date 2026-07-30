@@ -178,6 +178,27 @@ optimize a number nothing can explain.
       TypeScript fixtures regenerate with `changed: []`, and two consecutive
       full self-harness runs are green.
 
+- [x] 2026-07-30: Fixed the two desktop tests that failed under full-suite
+      package contention. Both used `waitForDesktopTest` with a 3s deadline on a
+      positive condition — a freshly forked fake desktop process writing its
+      marker and registering — so the deadline encoded an unloaded machine's
+      fork/exec latency. Raised to 30s: the wait is a condition poll, so passing
+      runs finish as soon as the condition holds and the deadline only fires on
+      genuine failure. `go test ./...` at default parallelism is green three
+      consecutive runs — the first time that configuration passes without
+      `-p 2`.
+
+- [x] 2026-07-30: Closed the preflight gap the module-cache wipe exposed. The
+      `toolchain preflight` step now verifies the go.mod-declared Go toolchain
+      resolves with `GOPROXY=off` — the same hermetic constraint the fixture
+      apps compile under — and fails with the exact
+      `GOTOOLCHAIN=go<version> go version` restore command. Previously the wipe
+      passed preflight and surfaced as three SCN6202 fixture failures deep in
+      the suite. Tested in both directions: healthy checkout silent, a
+      never-released declared version produces one error diagnostic with the
+      restore command, missing go.mod stays silent. Documented in
+      `docs/local-contract.md` § harness self.
+
 ## Surprises & Discoveries
 
 - 2026-07-28: The cold penalty is linking, and package listing is nearly free.
@@ -374,6 +395,17 @@ optimize a number nothing can explain.
   so a shared map could be mutated by a caller — but the digest is a pure
   function of a map rebuilt identically from static tables, so caching only the
   digest is both safe and half the win.
+- 2026-07-30: The Go module cache was manually wiped to reclaim disk space, and
+  the failure it produced looked like a code regression. Three
+  tests that run `scenery check` against fixtures started failing in ~0.05s
+  with SCN6202 "resolve declared Go toolchain ... toolchain not available":
+  the fixtures declare `go1.26.3`, the hermetic resolution env sets
+  `GOPROXY=off`, and the toolchain module had vanished from the cache along
+  with most of `~/go/pkg/mod`. The tell was `go: downloading golang.org/x/mod`
+  during an ordinary vet — dependencies that had been cached for days.
+  `GOTOOLCHAIN=go1.26.3 go version` (with the default proxy) restored it. When
+  previously-green tests fail immediately after an environment hiccup, check
+  the module cache before bisecting code.
 - 2026-07-29: A differential test against the replaced implementation caught a
   real bug in the glob rewrite that the existing suite did not. The iterative
   matcher initially tested the literal/`?` case before `*`, so a `*` in the

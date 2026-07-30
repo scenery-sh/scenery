@@ -10,7 +10,9 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/mod/modfile"
 	appcfg "scenery.sh/internal/app"
+
 	"scenery.sh/internal/envpolicy"
 )
 
@@ -177,6 +179,7 @@ func buildHarnessToolchainPreflightReport(ctx context.Context, repoRoot string) 
 		}
 		report.Tools = append(report.Tools, tool)
 	}
+	report.Diagnostics = append(report.Diagnostics, checkDeclaredGoToolchainAvailable(ctx, repoRoot)...)
 	registry, _ := envpolicy.LoadRegistry(envpolicy.RegistryPath(repoRoot))
 	for _, name := range sortedHarnessEnv(envpolicy.Environ()) {
 		value := envpolicy.Get(name)
@@ -917,4 +920,37 @@ func firstLine(value string) string {
 		return strings.TrimSpace(value[:idx])
 	}
 	return value
+}
+
+// checkDeclaredGoToolchainAvailable verifies that the repo's declared Go
+// toolchain resolves without the network. Fixture apps pin the same toolchain
+// version as go.mod and scenery resolves it under a hermetic GOPROXY=off
+// environment, so a pruned module cache turns into SCN6202 failures deep inside
+// the test suite. Catching it here converts that into one preflight diagnostic
+// with the exact restore command.
+func checkDeclaredGoToolchainAvailable(ctx context.Context, repoRoot string) []checkDiagnostic {
+	data, err := os.ReadFile(filepath.Join(repoRoot, "go.mod"))
+	if err != nil {
+		return nil
+	}
+	parsed, err := modfile.Parse("go.mod", data, nil)
+	if err != nil || parsed.Go == nil || strings.TrimSpace(parsed.Go.Version) == "" {
+		return nil
+	}
+	version := "go" + strings.TrimPrefix(strings.TrimSpace(parsed.Go.Version), "go")
+	checkCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	cmd := commandTreeContext(checkCtx, "go", "env", "GOROOT")
+	cmd.Env = append(envpolicy.Environ(), "GOTOOLCHAIN="+version, "GOPROXY=off", "GOFLAGS=")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return []checkDiagnostic{{
+			Stage:           "toolchain preflight",
+			Severity:        "error",
+			File:            "go.mod",
+			Message:         "declared Go toolchain " + version + " does not resolve without the network: " + firstLine(strings.TrimSpace(string(output))),
+			SuggestedAction: "Run `GOTOOLCHAIN=" + version + " go version` once to restore the toolchain in the module cache.",
+		}}
+	}
+	return nil
 }

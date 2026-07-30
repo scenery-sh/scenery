@@ -444,3 +444,32 @@ func TestBuildHarnessFixtureMatrixReport(t *testing.T) {
 		t.Fatalf("fixture result = %+v", report.Fixtures[0])
 	}
 }
+
+func TestCheckDeclaredGoToolchainAvailable(t *testing.T) {
+	t.Parallel()
+
+	// The real repo's declared toolchain must resolve without diagnostics.
+	if diagnostics := checkDeclaredGoToolchainAvailable(context.Background(), repoRootForTest(t)); len(diagnostics) != 0 {
+		t.Fatalf("declared toolchain reported unavailable on a healthy checkout: %+v", diagnostics)
+	}
+
+	// A declared toolchain absent from the module cache must fail preflight
+	// with the restore command, since GOPROXY=off forbids fetching it. The
+	// version is deliberately one that was never released.
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.test/preflight\n\ngo 1.24.99\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	diagnostics := checkDeclaredGoToolchainAvailable(context.Background(), root)
+	if len(diagnostics) != 1 || diagnostics[0].Severity != "error" {
+		t.Fatalf("missing toolchain diagnostics = %+v", diagnostics)
+	}
+	if !strings.Contains(diagnostics[0].Message, "go1.24.99") || !strings.Contains(diagnostics[0].SuggestedAction, "GOTOOLCHAIN=go1.24.99 go version") {
+		t.Fatalf("diagnostic lacks version or restore command: %+v", diagnostics[0])
+	}
+
+	// A repo without go.mod stays silent rather than failing preflight.
+	if diagnostics := checkDeclaredGoToolchainAvailable(context.Background(), t.TempDir()); len(diagnostics) != 0 {
+		t.Fatalf("missing go.mod produced diagnostics: %+v", diagnostics)
+	}
+}
