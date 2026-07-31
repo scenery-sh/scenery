@@ -480,6 +480,13 @@ func patchGoModData(data []byte, repoRoot string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Source checkouts replace the framework so app builds see local Scenery
+	// edits. Release binaries are built with -trimpath and expose a module-
+	// relative caller path (for example "scenery.sh"); preserve the app's exact
+	// published requirement instead of emitting an invalid filesystem replace.
+	if !filepath.IsAbs(repoRoot) || !pathExists(filepath.Join(repoRoot, "go.mod")) {
+		return file.Format()
+	}
 	if err := file.AddRequire("scenery.sh", "v0.0.0"); err != nil && !strings.Contains(err.Error(), "already exists") {
 		return nil, err
 	}

@@ -27,6 +27,20 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
+func TestPatchGoModDataPreservesPublishedDependencyForTrimpathBinary(t *testing.T) {
+	input := []byte("module example.com/buildtest\n\ngo 1.26.3\n\nrequire scenery.sh v0.3.3\n")
+	got, err := patchGoModData(input, "scenery.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(got), "scenery.sh v0.3.3") {
+		t.Fatalf("published requirement was not preserved:\n%s", got)
+	}
+	if strings.Contains(string(got), "replace scenery.sh") {
+		t.Fatalf("trimpath framework root produced invalid replacement:\n%s", got)
+	}
+}
+
 func newBuildTestApp(t *testing.T) string {
 	t.Helper()
 	return newBuildTestAppNamed(t, "")
