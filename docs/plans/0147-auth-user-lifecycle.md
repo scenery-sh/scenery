@@ -14,7 +14,7 @@ Completion is observable when MicroGRID Platform can call the public API from it
 - [x] 2026-07-31: Implemented typed public lifecycle functions, generated sqlc queries, transactional revocation, access-token session validation, and focused database tests.
 - [x] 2026-07-31: Documented the app-owned authorization boundary and provider-neutral semantics.
 - [x] 2026-07-31: Passed focused live-Postgres lifecycle tests, auth race tests, the full Go suite, the release-mode self-harness, and Platform consumer compilation.
-- [ ] Release Scenery and record the exact tag/commit.
+- [x] 2026-07-31: Released `v0.3.2` from commit `80a2923b8cf726c711306bee95abbf823e6bc3f1` with checksummed darwin/arm64 archive.
 
 ## Surprises & Discoveries
 
@@ -49,7 +49,20 @@ Completion is observable when MicroGRID Platform can call the public API from it
 
 ## Outcomes & Retrospective
 
-Not yet completed.
+Released in Scenery `v0.3.2`. Applications now have a three-function,
+provider-neutral lifecycle surface without direct auth-table access. Disabling
+and session revocation are atomic; revocation includes actor-side
+impersonation sessions; session-backed access tokens consult live user and
+session state; enabling never revives old sessions. The focused auth tests,
+real PostgreSQL lifecycle test, changed-code lint, full Go suite, and
+release-mode self-harness passed. The broader release script reached an
+unrelated pre-existing repository lint backlog, recorded under Surprises.
+
+GitHub Actions was disabled at release time, so the same checked-in GoReleaser
+configuration was run locally. Release `v0.3.2` contains
+`scenery_0.3.2_darwin_arm64.tar.gz` (SHA-256
+`92e99c8ca2797004c4806e64cf1175076273cfd89b342f69189626647fc9d3ba`)
+and `checksums.txt`.
 
 ## Context and Orientation
 

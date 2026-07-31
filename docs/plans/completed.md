@@ -11,6 +11,21 @@ historical records. Do not refresh their review dates or rewrite them as current
 contract prose. Record later guidance here or in the owning current contract;
 use stale knowledge metadata to flag a known contradiction.
 
+## Standard Auth User Lifecycle
+
+- Status: completed
+- Owner: scenery auth
+- Completed: 2026-07-31
+- Quality: B
+- ExecPlan: [0147 Standard Auth User Lifecycle](0147-auth-user-lifecycle.md)
+
+Released provider-neutral `DisableUser`, `EnableUser`, and
+`RevokeUserSessions` APIs in v0.3.2. Company disable and refresh-session
+revocation are atomic, actor-side impersonation sessions are revoked, and
+session-backed access tokens validate live user and session state so re-enable
+cannot resurrect old tokens. Applications retain authorization and audit
+ownership.
+
 ## Application Permission Checks in Standard Auth
 
 - Status: completed

@@ -22,12 +22,12 @@
       "path": "docs/plans/0147-auth-user-lifecycle.md",
       "title": "Standard Auth User Lifecycle",
       "owner": "scenery auth",
-      "status": "active",
+      "status": "completed",
       "quality": "B",
       "freshness": "current",
       "last_reviewed": "2026-07-31",
       "review_after": "2026-08-30",
-      "summary": "Active ExecPlan adding provider-neutral standard-auth user disable, enable, and refresh-session revocation APIs for application-owned audited company offboarding.",
+      "summary": "Completed ExecPlan releasing provider-neutral standard-auth user disable, enable, refresh-session revocation, and live session-backed access-token invalidation for application-owned audited company offboarding.",
       "tags": ["plans", "execplans", "auth", "offboarding", "sessions", "application-api"]
     },
     {
