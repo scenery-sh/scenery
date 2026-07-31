@@ -13,6 +13,10 @@ import { t } from "../tokens.stylex.js";
 // navigation entries are normalized to "authored" by the generated app shell.
 export type NavigationOrigin = "generated" | "authored";
 
+// Keep route provenance available without visually distinguishing authored pages.
+// Flip this back on when the generated-route migration indicator is useful again.
+const highlightAuthoredIcons = false;
+
 export type SideNavigationItem = {
   label: string;
   children?: ReactNode;
@@ -77,7 +81,7 @@ export function SideNavigation({
                   {...sideNavItem}
                   as={linkComponent}
                   icon={
-                    origin === "authored" && icon ? (
+                    highlightAuthoredIcons && origin === "authored" && icon ? (
                       <span {...stylex.props(styles.authoredIcon)}>
                         {renderIconSlot(icon, { color: "inherit", size: "sm" })}
                       </span>

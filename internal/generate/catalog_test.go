@@ -58,6 +58,8 @@ func TestBinaryOwnedUICatalogContainsComposableQueryTable(t *testing.T) {
 		`<SideNavigation sections={sections} />`,
 		`<Selector`,
 		`actionsHost={active ? actionsHost : null}`,
+		`!active && styles.panelHidden`,
+		`panelHidden: { display: "none" }`,
 		"panel: {\n    display: \"flex\",\n    flexDirection: \"column\"",
 	} {
 		if !strings.Contains(workspacePage, fragment) {
@@ -68,7 +70,8 @@ func TestBinaryOwnedUICatalogContainsComposableQueryTable(t *testing.T) {
 	for _, fragment := range []string{
 		`export type NavigationOrigin = "generated" | "authored"`,
 		`data-origin={origin}`,
-		`origin === "authored" && icon`,
+		`const highlightAuthoredIcons = false`,
+		`highlightAuthoredIcons && origin === "authored" && icon`,
 		`renderIconSlot(icon, { color: "inherit", size: "sm" })`,
 		`authoredIcon: { color: t.dangerIcon }`,
 	} {
@@ -98,6 +101,8 @@ func TestBinaryOwnedUICatalogContainsComposableQueryTable(t *testing.T) {
 		`data: resultQuery.error ? undefined : resultQuery.data`,
 		`<DataTable`,
 		`<QueryState`,
+		`useWorkspaceEmbeddedPage`,
+		`!workspace && description`,
 		`pagination?: "cursor" | "page"`,
 		`pagination && result.kind === "result"`,
 		`export interface TablePageQueryControls`,

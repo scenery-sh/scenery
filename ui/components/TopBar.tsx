@@ -10,7 +10,7 @@ import { type ReactNode, useSyncExternalStore } from "react";
 export type TopBarSearch = {
   icon?: ReactNode;
   label?: string;
-  shortcut?: string;
+  shortcut?: string | false;
   onOpen: () => void;
 };
 
@@ -79,7 +79,11 @@ function useIsCompactTopBar() {
 function SearchField({ search }: { search: TopBarSearch }) {
   return (
     <Button
-      endContent={<Kbd keys={search.shortcut ?? "mod+k"} />}
+      endContent={
+        search.shortcut === false ? undefined : (
+          <Kbd keys={search.shortcut ?? "mod+k"} />
+        )
+      }
       icon={search.icon}
       label={search.label ?? "Search"}
       onClick={search.onOpen}

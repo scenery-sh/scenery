@@ -181,7 +181,7 @@ export function WorkspacePage({
             key={tab.name}
             aria-hidden={!active}
             hidden={!active}
-            {...stylex.props(styles.panel)}
+            {...stylex.props(styles.panel, !active && styles.panelHidden)}
           >
             <WorkspaceEmbeddedPageProvider
               actionsHost={active ? actionsHost : null}
@@ -371,6 +371,7 @@ const styles = stylex.create({
     height: "100%",
     minHeight: 0,
   },
+  panelHidden: { display: "none" },
   actionsHost: {
     display: "contents",
   },

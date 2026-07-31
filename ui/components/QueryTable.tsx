@@ -49,6 +49,7 @@ import {
 	formatLocalDateTime,
 } from "./query-table-filters.js";
 import { queryTableStyles as styles } from "./query-table-styles.js";
+import { useWorkspaceEmbeddedPage } from "./workspace-context.js";
 
 // Keystrokes update the visible input immediately; the query key only moves
 // after this idle window, so typing does not launch one request per character.
@@ -100,6 +101,7 @@ function QueryTableScope<
 	footer: Footer,
 	onResultContextChange,
 }: QueryTableProps<Row, Metadata>) {
+	const workspace = useWorkspaceEmbeddedPage();
 	const defaultSort = sorts.find((sort) => sort.default);
 	const [search, setSearch] = useState("");
 	const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -532,7 +534,7 @@ function QueryTableScope<
 			aria-label={resource}
 			{...stylex.props(styles.root, fill && styles.rootFill)}
 		>
-			{description ? (
+			{!workspace && description ? (
 				<Text color="secondary" type="supporting">
 					{description}
 				</Text>
