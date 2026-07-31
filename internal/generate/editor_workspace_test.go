@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -101,6 +102,31 @@ func TestEditorWorkspaceNeverReplacesUnverifiedWorkFile(t *testing.T) {
 	data, err := os.ReadFile(path)
 	if err != nil || string(data) != authored {
 		t.Fatalf("user workfile changed: %q, %v", data, err)
+	}
+}
+
+func TestRenderEditorWorkFileOmitsInvalidTrimpathReplacement(t *testing.T) {
+	moduleDir := filepath.Join(t.TempDir(), "contract")
+	workFile := string(renderEditorWorkFile("1.26.3", []string{moduleDir}, "scenery.sh"))
+	if strings.Contains(workFile, "replace scenery.sh") {
+		t.Fatalf("trimpath framework root produced invalid replacement:\n%s", workFile)
+	}
+	if !strings.Contains(workFile, strconv.Quote(filepath.ToSlash(moduleDir))) {
+		t.Fatalf("contract module missing from workfile:\n%s", workFile)
+	}
+}
+
+func TestRequiredSceneryVersion(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.test/app\n\ngo 1.26.3\n\nrequire scenery.sh v0.3.2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	version, err := requiredSceneryVersion(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if version != "v0.3.2" {
+		t.Fatalf("version = %q, want v0.3.2", version)
 	}
 }
 
