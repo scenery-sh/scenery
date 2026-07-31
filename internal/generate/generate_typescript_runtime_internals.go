@@ -73,6 +73,7 @@ function replayableRequestInit(init: RequestInit): RequestInit {
     throw new SceneryClientError("invalid_options", "", "retry cannot replay a streaming request body");
   }
   let replayBody = body;
+  if (body instanceof ArrayBuffer) replayBody = body.slice(0);
   if (body instanceof Uint8Array) replayBody = new Uint8Array(body);
   if (body instanceof URLSearchParams) replayBody = new URLSearchParams(body);
   return { ...init, headers: new Headers(init.headers), body: replayBody };

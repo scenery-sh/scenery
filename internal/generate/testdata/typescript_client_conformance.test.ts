@@ -12,6 +12,7 @@ import {
 	decodeResponseBody,
   encodeJSON,
 	encodeMultipartRequestBody,
+	encodeRequestBody,
   encodeTypedJSON,
 	jsonNumber,
 	mergeResponseValue,
@@ -172,6 +173,7 @@ describe("Scenery TypeScript client exact codecs", () => {
 			descriptor,
 			registry,
 		);
+		expect(encoded.body).toBeInstanceOf(ArrayBuffer);
 		expect(encoded.contentType).toStartWith("multipart/form-data; boundary=scenery-boundary");
 		const source = new TextDecoder().decode(encoded.body);
 		expect(source).toContain('name="note-field"');
@@ -187,6 +189,14 @@ describe("Scenery TypeScript client exact codecs", () => {
 			descriptor,
 			registry,
 		)).toThrow(expect.objectContaining({ code: "invalid_input" }));
+	});
+
+	test("copies raw byte request bodies into owned ArrayBuffers", () => {
+		const source = new Uint8Array([1, 2, 3]);
+		const encoded = encodeRequestBody(source, "bytes", { kind: "primitive", name: "bytes" }, registry);
+		expect(encoded).toBeInstanceOf(ArrayBuffer);
+		source[0] = 9;
+		expect([...new Uint8Array(encoded as ArrayBuffer)]).toEqual([1, 2, 3]);
 	});
 
 	test("validates response media and decodes exact values", async () => {

@@ -1,6 +1,6 @@
 {
   "compatibility_catalog": "scenery.compatibility-core",
-  "content_digest": "sha256:09f3aadf5cb4ed99dc5b360ed6a3557965a457ba5e0706f6cfdf3b29caf0a0e1",
+  "content_digest": "sha256:21d80cf91052cfd2ad18148af4f53e56f9a4376d79cc21a34d135d01beac36d0",
   "contract_revision": "sha256:b504399530e7736a311ddeac9018da3677c136f193787017e6b5af5c104c2f33",
   "covered_bindings": [
     "house/binding/process_scene_http"
@@ -33,11 +33,9 @@
   },
   "package": "@example/native-client",
   "producer": {
-    "version": "v0.3.2-0.20260722190718-d9b9c3f0093b+dirty",
-    "commit": "d9b9c3f0093bae8150e58b313c6f77f749a7c382",
-    "built_at": "2026-07-22T19:07:18Z",
+    "version": "dev",
     "toolchain": {
-      "go_version": "go1.26.3"
+      "go_version": "go1.26.5"
     }
   },
   "schema_revision": "sha256:02994dd4a50ed41bdbeab0ba09020de6d9b8366353b2d44bd7022981ca17e801",

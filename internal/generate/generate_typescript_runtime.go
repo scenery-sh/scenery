@@ -337,7 +337,7 @@ export function encodeRequestBody(
   }
   if (codec === "bytes") {
     if (!(value instanceof Uint8Array)) invalid("$", "bytes body requires Uint8Array");
-    return new Uint8Array(value);
+    return ownedArrayBuffer(value);
   }
   const resolved = resolveDescriptor(descriptor, registry, new Set());
   if (resolved.kind !== "record" || !isObject(value)) invalid("$", §${codec} body requires a record§);
@@ -361,7 +361,7 @@ export function encodeMultipartRequestBody(
   value: unknown,
   descriptor: MultipartBodyDescriptor,
   registry: TypeRegistry,
-): Readonly<{ body: Uint8Array; contentType: string }> {
+): Readonly<{ body: ArrayBuffer; contentType: string }> {
   if (!isObject(value) || Array.isArray(value)) invalid("$", "multipart body requires a record");
   encodeTypedValue(value, descriptor.value, registry, "$", new Set());
   if (!Number.isSafeInteger(descriptor.maxParts) || descriptor.maxParts <= 0) invalid("$", "invalid multipart part limit");
@@ -426,10 +426,17 @@ export function encodeMultipartRequestBody(
     append(encoder.encode("\r\n"));
   }
   append(encoder.encode(§--${boundary}--\r\n§));
-  const body = new Uint8Array(total);
+  const body = new ArrayBuffer(total);
+  const bodyBytes = new Uint8Array(body);
   let offset = 0;
-  for (const chunk of chunks) { body.set(chunk, offset); offset += chunk.byteLength; }
+  for (const chunk of chunks) { bodyBytes.set(chunk, offset); offset += chunk.byteLength; }
   return Object.freeze({ body, contentType: §multipart/form-data; boundary=${boundary}§ });
+}
+
+function ownedArrayBuffer(value: Uint8Array): ArrayBuffer {
+  const buffer = new ArrayBuffer(value.byteLength);
+  new Uint8Array(buffer).set(value);
+  return buffer;
 }
 
 function multipartQuoted(value: string): string {

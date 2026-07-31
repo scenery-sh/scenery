@@ -9,6 +9,7 @@
   },
   "files": [
     "../../compiler/testdata/house/clients/generated/public_api/index.ts",
-    "../../compiler/testdata/native/clients/generated/public_api/index.ts"
+    "../../compiler/testdata/native/clients/generated/public_api/index.ts",
+    "./typescript_request_body_typecheck.ts"
   ]
 }
