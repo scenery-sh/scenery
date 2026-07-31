@@ -11,6 +11,21 @@ historical records. Do not refresh their review dates or rewrite them as current
 contract prose. Record later guidance here or in the owning current contract;
 use stale knowledge metadata to flag a known contradiction.
 
+## Application Permission Checks in Standard Auth
+
+- Status: completed
+- Owner: scenery auth
+- Completed: 2026-07-31
+- Quality: B
+- ExecPlan: [0146 Application Permission Checks in Standard Auth](0146-auth-permission-checker.md)
+
+Added one process-wide, concurrency-safe application permission checker and a
+live current-user profile accessor to `scenery.sh/auth`. Permission names and
+storage remain application-owned; Scenery supplies the exact provider-neutral
+auth context, batches every requested name into one all-of check, and fails
+closed with stable coded errors. The API adds no policy language, roles,
+wildcards, cache, persistence, schema, endpoint, or generated-client surface.
+
 ## Root Frontend Hardening
 
 - Status: completed

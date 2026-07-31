@@ -72,7 +72,10 @@ Before semantic creation, read `resource_create_kinds` and `schema.get`; unadver
 ## Public Go Capabilities
 
 - `scenery.sh` for runtime metadata and contract wire helpers.
-- `scenery.sh/auth` for request auth and standard-auth/Google connection helpers.
+- `scenery.sh/auth` for request auth, live standard-auth profiles, application
+  permission checks, and Google connection helpers. Configure one read-only
+  `auth.PermissionChecker` during startup; permission names and storage remain
+  application-owned, and `auth.HasPermissions` requires every supplied name.
 - `scenery.sh/errs` for coded errors.
 - `scenery.sh/library` for generated facade loading and load-alongside swaps;
   app code normally uses its typed facade instead of this package directly.
@@ -81,7 +84,7 @@ Before semantic creation, read `resource_create_kinds` and `schema.get`; unadver
 - `scenery.sh/datasource` and `scenery.sh/object` for typed constructor capabilities.
 - `scenery.sh/storage` for app storage.
 
-Standard-auth tenant tables are framework-owned under the app database's `scenery` schema. Google-enabled apps use `auth.GoogleAccessToken` or `auth.GoogleAccessTokenForUser`; clients treat `google_reauth_required` as a reconnect prompt.
+Standard-auth tenant tables are framework-owned under the app database's `scenery` schema. Use `auth.CurrentUser(ctx)` instead of querying the framework-owned user table. Google-enabled apps use `auth.GoogleAccessToken` or `auth.GoogleAccessTokenForUser`; clients treat `google_reauth_required` as a reconnect prompt.
 
 ## Local Development and Debugging
 

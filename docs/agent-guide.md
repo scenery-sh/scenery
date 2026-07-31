@@ -357,6 +357,23 @@ When editing source that changes the public app model, confirm the docs and test
 - private/internal call behavior
 - worker, durable, schedule, middleware, and generated TypeScript client behavior when touched
 
+### Standard Auth Application Permissions
+
+An application may configure one process-wide `auth.PermissionChecker` during
+startup, before `runtime.Main` serves requests. `auth.HasPermissions` validates
+that at least one nonblank name was requested, loads the current provider-neutral
+`*auth.AuthData`, and calls the checker once with every exact, case-sensitive
+name. The checker owns its permission vocabulary, storage, role or membership
+resolution, and all-of evaluation; it should perform a read-only check. Scenery
+does not add roles, wildcards, a policy language, persistence, or caching.
+
+No authenticated identity returns `unauthenticated`, no configured checker
+returns `failed_precondition`, and a denied check returns `false, nil`. Checker
+errors are returned unchanged. `auth.CurrentUser(ctx)` reads and returns the live
+standard-auth `auth.UserProfile`; it does not rotate a session, create a tenant,
+or issue a token. Applications must use that accessor rather than querying
+Scenery-owned `scenery_auth_*` tables.
+
 ### Fresh Worktree Preflight
 
 A fresh worktree fails UI and self-harness lanes for environment reasons, not code reasons, until:

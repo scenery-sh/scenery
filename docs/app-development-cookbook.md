@@ -221,6 +221,39 @@ Bindings reference explicit authentication and authorization resources or standa
 
 Standard auth is enabled in app config because it is a runtime capability. Its framework tables live in the app database's `scenery` schema. Google connections expose app-owned access tokens through `auth.GoogleAccessToken`; do not store third-party refresh tokens in product tables.
 
+Register one application-owned permission checker during startup:
+
+```go
+type appPermissions struct{}
+
+func (appPermissions) HasPermissions(
+    ctx context.Context,
+    data *auth.AuthData,
+    permissions ...string,
+) (bool, error) {
+    // Query application-owned permission data with data.UserID. Return true
+    // only when the user has every requested permission.
+    return true, nil
+}
+
+func init() {
+    auth.SetPermissionChecker(appPermissions{})
+}
+```
+
+Protected application code can then call
+`allowed, err := auth.HasPermissions(ctx, "Fleet")`. Scenery passes all exact,
+case-sensitive names to the checker once and does not define roles, wildcards,
+storage, caching, or a policy language. The checker is provider-neutral: Google
+and email/password logins both produce the same `*auth.AuthData` identity.
+
+Use `auth.CurrentUser(ctx)` to read the live `auth.UserProfile`, including its
+verified-email state, for the authenticated user. Do not query
+`scenery.scenery_auth_*` tables from
+application code. Missing auth returns `unauthenticated`, a missing checker or
+standard-auth configuration returns `failed_precondition`, denial returns
+`false, nil`, and checker errors are returned unchanged.
+
 ## Durable Work, Schedules, And Events
 
 Declare durable executions, schedules, event contracts, consumers, and emissions in package `.scn`. Use `external_name` when a durable identity must remain stable. If persisted input changes incompatibly, increment `revision` and drain or migrate active rows first.

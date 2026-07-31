@@ -10,6 +10,8 @@ import (
 
 type UID string
 
+type authDataContextKey struct{}
+
 func init() {
 	authbridge.Register(authbridge.Provider{
 		UserID: func() (string, bool) {
@@ -49,10 +51,25 @@ func CurrentAuthData() (*AuthData, bool) {
 }
 
 func WithContext(ctx context.Context, uid UID, data any) context.Context {
-	return runtime.WithAuthContext(ctx, runtime.AuthInfo{
+	ctx = runtime.WithAuthContext(ctx, runtime.AuthInfo{
 		UID:  string(uid),
 		Data: data,
 	})
+	if authData, ok := data.(*AuthData); ok && authData != nil {
+		ctx = context.WithValue(ctx, authDataContextKey{}, authData)
+	}
+	return ctx
+}
+
+func currentAuthDataFromContext(ctx context.Context) (*AuthData, bool) {
+	if data, ok := CurrentAuthData(); ok {
+		return data, true
+	}
+	if ctx == nil {
+		return nil, false
+	}
+	data, ok := ctx.Value(authDataContextKey{}).(*AuthData)
+	return data, ok && data != nil
 }
 
 func tenantIDFromAuthData(data any) (string, bool) {

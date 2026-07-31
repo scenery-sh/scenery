@@ -19,6 +19,18 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0146-auth-permission-checker.md",
+      "title": "Application Permission Checks in Standard Auth",
+      "owner": "scenery auth",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-07-31",
+      "review_after": "2026-08-30",
+      "summary": "Completed ExecPlan adding one concurrency-safe, provider-neutral application permission checker and a live standard-auth current-user accessor while leaving permission vocabulary, storage, and policy semantics application-owned.",
+      "tags": ["plans", "execplans", "auth", "permissions", "authorization", "application-api"]
+    },
+    {
       "path": "docs/schemas/scenery.inspect.docs.schema.json",
       "title": "scenery.inspect.docs Schema",
       "owner": "scenery CLI / agent DX",
