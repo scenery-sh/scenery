@@ -374,6 +374,16 @@ standard-auth `auth.UserProfile`; it does not rotate a session, create a tenant,
 or issue a token. Applications must use that accessor rather than querying
 Scenery-owned `scenery_auth_*` tables.
 
+For company offboarding, an application-owned authorized and audited command
+may call `auth.DisableUser(ctx, userID, reason)`. It atomically disables the
+standard-auth user and revokes both their own sessions and impersonation
+sessions where they are the actor. `auth.RevokeUserSessions` performs only the
+revocation; `auth.EnableUser` clears the disabled state but never restores old
+sessions. Protected requests validate the effective user, an impersonation
+actor when present, and any session carried by the access token, so revoked
+tokens remain invalid after re-enabling. These APIs are provider-neutral and do
+not decide the application's business authorization or audit policy.
+
 ### Fresh Worktree Preflight
 
 A fresh worktree fails UI and self-harness lanes for environment reasons, not code reasons, until:

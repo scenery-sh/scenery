@@ -254,6 +254,20 @@ application code. Missing auth returns `unauthenticated`, a missing checker or
 standard-auth configuration returns `failed_precondition`, denial returns
 `false, nil`, and checker errors are returned unchanged.
 
+Complete company offboarding from an application-owned audited command:
+
+```go
+if err := auth.DisableUser(ctx, auth.AuthUserID(linkedAuthUserID), "company_offboarding"); err != nil {
+    return err
+}
+```
+
+This globally disables the standard-auth user and atomically revokes their
+normal and actor-side impersonation sessions. `auth.RevokeUserSessions` leaves
+the user enabled. `auth.EnableUser` restores eligibility but not sessions, so
+the person must sign in again. The application must authorize and audit these
+calls; it must not query or update Scenery auth tables directly.
+
 ## Durable Work, Schedules, And Events
 
 Declare durable executions, schedules, event contracts, consumers, and emissions in package `.scn`. Use `external_name` when a durable identity must remain stable. If persisted input changes incompatibly, increment `revision` and drain or migrate active rows first.

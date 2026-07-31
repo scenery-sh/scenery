@@ -7,6 +7,11 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
+- [0147 Standard Auth User Lifecycle](0147-auth-user-lifecycle.md)
+  - Status: active
+  - Owner: scenery auth
+  - Created: 2026-07-31
+  - Focus: provider-neutral user disable/enable and per-user refresh-session revocation for application-owned audited offboarding.
 - [0145 Developer Test Loop Attribution](0145-test-loop-attribution.md)
   - Status: active
   - Owner: scenery harness

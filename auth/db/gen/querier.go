@@ -23,7 +23,9 @@ type Querier interface {
 	CreateUser(ctx context.Context, arg CreateUserParams) (ScenerySceneryAuthUser, error)
 	DeleteExpiredOAuthStates(ctx context.Context) error
 	DisableMembership(ctx context.Context, arg DisableMembershipParams) (ScenerySceneryAuthOrganizationMembership, error)
+	DisableUserByID(ctx context.Context, id UUID) (ScenerySceneryAuthUser, error)
 	DisconnectGoogleConnection(ctx context.Context, userID UUID) (ScenerySceneryAuthGoogleConnection, error)
+	EnableUserByID(ctx context.Context, id UUID) (ScenerySceneryAuthUser, error)
 	EnsureDevBootstrapTenant(ctx context.Context, arg EnsureDevBootstrapTenantParams) (ScenerySceneryAuthTenant, error)
 	EnsureDevBootstrapUser(ctx context.Context, arg EnsureDevBootstrapUserParams) (ScenerySceneryAuthUser, error)
 	GetActiveMembership(ctx context.Context, arg GetActiveMembershipParams) (ScenerySceneryAuthOrganizationMembership, error)

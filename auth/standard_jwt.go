@@ -57,12 +57,67 @@ func (d *AuthData) AuditTenantID() string {
 }
 
 // AuthHandler authenticates a user based on a standard-auth JWT token.
-func AuthHandler(_ context.Context, token string) (UID, *AuthData, error) {
+func AuthHandler(ctx context.Context, token string) (UID, *AuthData, error) {
 	data, err := ValidateToken(token)
 	if err != nil {
 		return "", nil, err
 	}
+	// DevBootstrap uses a deliberately sessionless token and may use a
+	// non-database identifier. Standard interactive sessions always carry sid.
+	if strings.TrimSpace(data.SessionID) == "" {
+		return UID(data.UserID), data, nil
+	}
+	svc, err := lifecycleService(ctx)
+	if err != nil {
+		return "", nil, err
+	}
+	if err := requireEnabledAuthUser(ctx, svc, data.UserID); err != nil {
+		return "", nil, err
+	}
+	if data.Impersonating() {
+		if err := requireEnabledAuthUser(ctx, svc, data.ActorUserID); err != nil {
+			return "", nil, err
+		}
+	}
+	if err := requireActiveAuthSession(ctx, svc, data); err != nil {
+		return "", nil, err
+	}
 	return UID(data.UserID), data, nil
+}
+
+func requireEnabledAuthUser(ctx context.Context, svc *Service, userID AuthUserID) error {
+	id, err := lifecycleUserID(userID)
+	if err != nil {
+		return unauthenticated("invalid user id")
+	}
+	_, err = currentUser(ctx, svc, id)
+	return err
+}
+
+// requireActiveAuthSession makes refresh-session revocation invalidate access
+// tokens immediately.
+func requireActiveAuthSession(ctx context.Context, svc *Service, data *AuthData) error {
+	sessionID, err := parseUUID(data.SessionID)
+	if err != nil {
+		return unauthenticated("auth session is invalid")
+	}
+	session, err := svc.query.GetRefreshSessionByID(ctx, sessionID)
+	if err != nil {
+		if isNoRows(err) {
+			return unauthenticated("auth session is invalid")
+		}
+		return err
+	}
+	if session.RevokedAt.Valid || !session.ExpiresAt.After(svc.clock()) {
+		return unauthenticated("auth session is expired")
+	}
+	if uuidString(session.UserID) != strings.TrimSpace(string(data.UserID)) ||
+		uuidString(session.ActiveTenantID) != strings.TrimSpace(string(data.TenantID)) ||
+		uuidString(session.ActorUserID) != strings.TrimSpace(string(data.ActorUserID)) ||
+		uuidString(session.ImpersonationID) != strings.TrimSpace(data.ImpersonationID) {
+		return unauthenticated("auth session does not match token")
+	}
+	return nil
 }
 
 // ValidateToken parses and validates a signed user JWT.

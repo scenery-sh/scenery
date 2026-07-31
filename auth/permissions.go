@@ -2,8 +2,11 @@ package auth
 
 import (
 	"context"
+	"log/slog"
 	"strings"
 	"sync"
+
+	"scenery.sh/errs"
 )
 
 // PermissionChecker resolves application-owned permission names for the
@@ -52,7 +55,33 @@ func hasPermissions(ctx context.Context, data *AuthData, authenticated bool, per
 	checker := permissionCheckerState.checker
 	permissionCheckerState.mu.RUnlock()
 	if checker == nil {
+		slog.ErrorContext(ctx, "permission_checker_unconfigured",
+			"auth_user_id", strings.TrimSpace(string(data.UserID)),
+			"tenant_id", strings.TrimSpace(string(data.TenantID)),
+			"permission_count", len(permissions))
 		return false, failedPrecondition("application permission checker is not configured")
 	}
-	return checker.HasPermissions(ctx, data, permissions...)
+	allowed, err := checker.HasPermissions(ctx, data, permissions...)
+	if err != nil {
+		slog.ErrorContext(ctx, "permission_checker_error",
+			"auth_user_id", strings.TrimSpace(string(data.UserID)),
+			"tenant_id", strings.TrimSpace(string(data.TenantID)),
+			"permission_count", len(permissions),
+			"error_code", errorCode(err))
+		return false, err
+	}
+	if !allowed {
+		slog.WarnContext(ctx, "permission_denied",
+			"auth_user_id", strings.TrimSpace(string(data.UserID)),
+			"tenant_id", strings.TrimSpace(string(data.TenantID)),
+			"permission_count", len(permissions))
+	}
+	return allowed, nil
+}
+
+func errorCode(err error) string {
+	if err == nil {
+		return ""
+	}
+	return string(errs.Code(err))
 }

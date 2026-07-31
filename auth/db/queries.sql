@@ -48,6 +48,20 @@ SET display_name = CASE WHEN sqlc.arg(display_name) <> '' THEN sqlc.arg(display_
 WHERE id = $1
 RETURNING id, display_name, avatar_url, primary_email, normalized_primary_email, email_verified_at, disabled_at, can_impersonate_users, created_at, updated_at;
 
+-- name: DisableUserByID :one
+UPDATE scenery.scenery_auth_users
+SET disabled_at = COALESCE(disabled_at, now()),
+    updated_at = now()
+WHERE id = sqlc.arg(id)
+RETURNING id, display_name, avatar_url, primary_email, normalized_primary_email, email_verified_at, disabled_at, can_impersonate_users, created_at, updated_at;
+
+-- name: EnableUserByID :one
+UPDATE scenery.scenery_auth_users
+SET disabled_at = NULL,
+    updated_at = now()
+WHERE id = sqlc.arg(id)
+RETURNING id, display_name, avatar_url, primary_email, normalized_primary_email, email_verified_at, disabled_at, can_impersonate_users, created_at, updated_at;
+
 -- name: CreateAuthIdentity :one
 INSERT INTO scenery.scenery_auth_auth_identities (
   id,
@@ -254,7 +268,7 @@ UPDATE scenery.scenery_auth_refresh_sessions
 SET revoked_at = COALESCE(revoked_at, now()),
     revoked_reason = $1,
     updated_at = now()
-WHERE user_id = $2
+WHERE (user_id = $2 OR actor_user_id = $2)
   AND revoked_at IS NULL;
 
 -- name: CreateOneTimeToken :one

@@ -73,7 +73,7 @@ Before semantic creation, read `resource_create_kinds` and `schema.get`; unadver
 
 - `scenery.sh` for runtime metadata and contract wire helpers.
 - `scenery.sh/auth` for request auth, live standard-auth profiles, application
-  permission checks, and Google connection helpers. Configure one read-only
+  permission checks, user lifecycle controls, and Google connection helpers. Configure one read-only
   `auth.PermissionChecker` during startup; permission names and storage remain
   application-owned, and `auth.HasPermissions` requires every supplied name.
 - `scenery.sh/errs` for coded errors.
@@ -84,7 +84,7 @@ Before semantic creation, read `resource_create_kinds` and `schema.get`; unadver
 - `scenery.sh/datasource` and `scenery.sh/object` for typed constructor capabilities.
 - `scenery.sh/storage` for app storage.
 
-Standard-auth tenant tables are framework-owned under the app database's `scenery` schema. Use `auth.CurrentUser(ctx)` instead of querying the framework-owned user table. Google-enabled apps use `auth.GoogleAccessToken` or `auth.GoogleAccessTokenForUser`; clients treat `google_reauth_required` as a reconnect prompt.
+Standard-auth tenant tables are framework-owned under the app database's `scenery` schema. Use `auth.CurrentUser(ctx)` instead of querying the framework-owned user table. An app-owned, authorized lifecycle command may call `auth.DisableUser`, `auth.EnableUser`, or `auth.RevokeUserSessions`; disabling and session revocation are atomic, and enabling requires a fresh sign-in. Google-enabled apps use `auth.GoogleAccessToken` or `auth.GoogleAccessTokenForUser`; clients treat `google_reauth_required` as a reconnect prompt.
 
 ## Local Development and Debugging
 

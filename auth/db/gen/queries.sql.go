@@ -560,6 +560,32 @@ func (q *Queries) DisableMembership(ctx context.Context, arg DisableMembershipPa
 	return i, err
 }
 
+const disableUserByID = `-- name: DisableUserByID :one
+UPDATE scenery.scenery_auth_users
+SET disabled_at = COALESCE(disabled_at, now()),
+    updated_at = now()
+WHERE id = $1
+RETURNING id, display_name, avatar_url, primary_email, normalized_primary_email, email_verified_at, disabled_at, can_impersonate_users, created_at, updated_at
+`
+
+func (q *Queries) DisableUserByID(ctx context.Context, id UUID) (ScenerySceneryAuthUser, error) {
+	row := q.db.QueryRowContext(ctx, disableUserByID, id)
+	var i ScenerySceneryAuthUser
+	err := row.Scan(
+		&i.ID,
+		&i.DisplayName,
+		&i.AvatarUrl,
+		&i.PrimaryEmail,
+		&i.NormalizedPrimaryEmail,
+		&i.EmailVerifiedAt,
+		&i.DisabledAt,
+		&i.CanImpersonateUsers,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const disconnectGoogleConnection = `-- name: DisconnectGoogleConnection :one
 UPDATE scenery.scenery_auth_google_connections
 SET status = 'disconnected',
@@ -590,6 +616,32 @@ func (q *Queries) DisconnectGoogleConnection(ctx context.Context, userID UUID) (
 		&i.LastRefreshError,
 		&i.ConnectedAt,
 		&i.DisconnectedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const enableUserByID = `-- name: EnableUserByID :one
+UPDATE scenery.scenery_auth_users
+SET disabled_at = NULL,
+    updated_at = now()
+WHERE id = $1
+RETURNING id, display_name, avatar_url, primary_email, normalized_primary_email, email_verified_at, disabled_at, can_impersonate_users, created_at, updated_at
+`
+
+func (q *Queries) EnableUserByID(ctx context.Context, id UUID) (ScenerySceneryAuthUser, error) {
+	row := q.db.QueryRowContext(ctx, enableUserByID, id)
+	var i ScenerySceneryAuthUser
+	err := row.Scan(
+		&i.ID,
+		&i.DisplayName,
+		&i.AvatarUrl,
+		&i.PrimaryEmail,
+		&i.NormalizedPrimaryEmail,
+		&i.EmailVerifiedAt,
+		&i.DisabledAt,
+		&i.CanImpersonateUsers,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -1166,7 +1218,7 @@ UPDATE scenery.scenery_auth_refresh_sessions
 SET revoked_at = COALESCE(revoked_at, now()),
     revoked_reason = $1,
     updated_at = now()
-WHERE user_id = $2
+WHERE (user_id = $2 OR actor_user_id = $2)
   AND revoked_at IS NULL
 `
 
