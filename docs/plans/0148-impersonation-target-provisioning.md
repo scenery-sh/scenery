@@ -11,10 +11,10 @@ Completion is observable when a privileged actor can prepare and impersonate an 
 ## Progress
 
 - [x] (2026-08-02 12:30Z) Audited the standard auth user, membership, Google-link, session, and impersonation paths.
-- [ ] Implement the public target-preparation API and unverified-target impersonation rules.
-- [ ] Preserve normal Google and email verification semantics and add focused tests.
-- [ ] Update current auth documentation, generate sqlc output, and run repository validation.
-- [ ] Release the exact Scenery revision consumed by Platform.
+- [x] (2026-08-02 22:27Z) Implemented the public target-preparation API and unverified-target impersonation rules.
+- [x] (2026-08-02 22:27Z) Preserved normal Google and email verification semantics and added focused real-Postgres tests.
+- [x] (2026-08-02 22:27Z) Updated current auth documentation, generated sqlc output, and passed the full Go suite and self-harness.
+- [x] (2026-08-02 22:27Z) Released v0.3.5 from commit `83530468` and consumed it from Platform.
 
 ## Surprises & Discoveries
 
@@ -37,7 +37,9 @@ Completion is observable when a privileged actor can prepare and impersonate an 
 
 ## Outcomes & Retrospective
 
-Not yet completed.
+Released in Scenery v0.3.5 at commit `83530468`. `auth.PrepareImpersonationTarget` now creates or resolves an unverified provider-free user, ensures an active membership in the actor's current tenant, and emits an auth event. Existing impersonation sessions accept that target only for the exact prepared tenant and retain actor attribution; nested and self impersonation fail closed. A later verified Google callback may claim the prepared user only while it still has zero provider identities, so ordinary unverified password users cannot bypass verification.
+
+Focused real-Postgres tests covered privileged preparation/start, non-privileged denial, zero provider identities, active membership, session actor/effective identity, and verified Google attachment. `go test ./...` and `.scenery/harness/bin/scenery harness self --summary --write` passed. Platform then completed a browser start/navigate/stop cycle against an unlinked business user and confirmed the prepared user remained unverified with zero provider identities and no live impersonation session after stopping.
 
 ## Context and Orientation
 

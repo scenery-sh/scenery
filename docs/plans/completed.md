@@ -11,6 +11,20 @@ historical records. Do not refresh their review dates or rewrite them as current
 contract prose. Record later guidance here or in the owning current contract;
 use stale knowledge metadata to flag a known contradiction.
 
+## Impersonation Target Provisioning
+
+- Status: completed
+- Owner: scenery auth
+- Completed: 2026-08-02
+- Quality: B
+- ExecPlan: [0148 Impersonation Target Provisioning](0148-impersonation-target-provisioning.md)
+
+Released `auth.PrepareImpersonationTarget` in v0.3.5 so explicitly privileged
+applications can prepare unverified, provider-free users for short-lived,
+actor-attributed impersonation. Preparation creates no login identity, ordinary
+verification remains intact, and later verified Google linking is allowed only
+while the prepared user still has zero provider identities.
+
 ## Standard Auth User Lifecycle
 
 - Status: completed

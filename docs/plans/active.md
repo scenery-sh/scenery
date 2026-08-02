@@ -7,11 +7,6 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
-- [0148 Impersonation Target Provisioning](0148-impersonation-target-provisioning.md)
-  - Status: active
-  - Owner: standard auth
-  - Created: 2026-08-02
-  - Focus: provider-free target preparation for existing business users while preserving normal sign-in verification and audited actor sessions.
 - [0145 Developer Test Loop Attribution](0145-test-loop-attribution.md)
   - Status: active
   - Owner: scenery harness
