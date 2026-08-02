@@ -87,6 +87,19 @@ func (q *Queries) CountActiveOwners(ctx context.Context, tenantID UUID) (int64, 
 	return count, err
 }
 
+const countAuthIdentitiesByUser = `-- name: CountAuthIdentitiesByUser :one
+SELECT count(*)
+FROM scenery.scenery_auth_auth_identities
+WHERE user_id = $1
+`
+
+func (q *Queries) CountAuthIdentitiesByUser(ctx context.Context, userID UUID) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countAuthIdentitiesByUser, userID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createAuthEvent = `-- name: CreateAuthEvent :exec
 INSERT INTO scenery.scenery_auth_auth_events (
   id,

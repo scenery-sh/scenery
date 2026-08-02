@@ -364,9 +364,9 @@ func refreshTokenFromParams(params *RefreshParams) string {
 
 // Me returns the current auth bootstrap state for an access token.
 func (s *Service) Me(ctx context.Context) (*AuthBootstrapResponse, error) {
-	authData, err := currentAuthData()
-	if err != nil {
-		return nil, err
+	authData, ok := currentAuthDataFromContext(ctx)
+	if !ok || authData == nil {
+		return nil, unauthenticated("authentication required")
 	}
 	userID, err := parseUUID(string(authData.UserID))
 	if err != nil {

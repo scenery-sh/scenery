@@ -384,6 +384,16 @@ actor when present, and any session carried by the access token, so revoked
 tokens remain invalid after re-enabling. These APIs are provider-neutral and do
 not decide the application's business authorization or audit policy.
 
+An application that owns a separate business-user directory may call
+`auth.PrepareImpersonationTarget` after its own authorization check. The call
+requires a live, non-impersonating Scenery actor with
+`can_impersonate_users`, resolves or creates a provider-free unverified auth
+user, and ensures membership only in the actor's current tenant. It does not
+issue a session or grant normal sign-in. The application then uses the existing
+`/auth/impersonation/start` route; those short-lived sessions retain actor and
+reason attribution. A later verified Google login may attach to a prepared
+user only while it still has no provider identities.
+
 ### Fresh Worktree Preflight
 
 A fresh worktree fails UI and self-harness lanes for environment reasons, not code reasons, until:

@@ -91,6 +91,36 @@ func TestGoogleOAuthBrowserFlowWithFakeGoogle(t *testing.T) {
 		t.Fatalf("linked google identity user = %s, want %s", uuidString(identity.UserID), verifiedUserID)
 	}
 
+	preparedUserID, err := newUUID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := svc.query.CreateUser(ctx, authdb.CreateUserParams{
+		ID: preparedUserID, DisplayName: "Prepared User", PrimaryEmail: "prepared@example.test",
+		NormalizedPrimaryEmail: "prepared@example.test",
+	})
+	if err != nil {
+		t.Fatalf("create prepared user: %v", err)
+	}
+	fake.subject = "prepared-google-subject"
+	fake.email = "prepared@example.test"
+	fake.emailVerified = true
+	_, preparedRec := runFakeGoogleFlow(t, fake, "/")
+	assertRedirect(t, preparedRec, "https://app.example.test/")
+	preparedIdentity, err := svc.query.GetAuthIdentityByProviderSubject(ctx, authdb.GetAuthIdentityByProviderSubjectParams{
+		Provider: identityProviderGoogle, ProviderSubject: "prepared-google-subject",
+	})
+	if err != nil {
+		t.Fatalf("prepared google identity: %v", err)
+	}
+	if uuidString(preparedIdentity.UserID) != uuidString(prepared.ID) {
+		t.Fatalf("prepared google identity user=%s want=%s", uuidString(preparedIdentity.UserID), uuidString(prepared.ID))
+	}
+	prepared, err = svc.query.GetUserByID(ctx, prepared.ID)
+	if err != nil || !prepared.EmailVerifiedAt.Valid {
+		t.Fatalf("prepared user verification=%v err=%v", prepared.EmailVerifiedAt.Valid, err)
+	}
+
 	signupEmailUser(t, svc, "unverified@example.test", false)
 	fake.subject = "unverified-google-subject"
 	fake.email = "unverified@example.test"

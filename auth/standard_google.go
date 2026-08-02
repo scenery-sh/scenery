@@ -412,7 +412,19 @@ func (s *Service) finishGoogleSignIn(ctx context.Context, claims *googleIDClaims
 				return nil, err
 			}
 		} else if !user.EmailVerifiedAt.Valid {
-			return nil, failedPrecondition("verify the email/password account before linking Google")
+			identityCount, countErr := q.CountAuthIdentitiesByUser(ctx, user.ID)
+			if countErr != nil {
+				return nil, countErr
+			}
+			if identityCount != 0 {
+				return nil, failedPrecondition("verify the email/password account before linking Google")
+			}
+			// A provider-free user may have been prepared by an application for
+			// impersonation. Google's verified email is the first login proof.
+			user, err = q.MarkUserEmailVerified(ctx, user.ID)
+			if err != nil {
+				return nil, err
+			}
 		}
 		identityID, idErr := newUUID()
 		if idErr != nil {

@@ -12,6 +12,7 @@ type Querier interface {
 	ConsumeOAuthState(ctx context.Context, stateHash string) (ScenerySceneryAuthOauthState, error)
 	ConsumeOneTimeToken(ctx context.Context, arg ConsumeOneTimeTokenParams) (ScenerySceneryAuthOneTimeToken, error)
 	CountActiveOwners(ctx context.Context, tenantID UUID) (int64, error)
+	CountAuthIdentitiesByUser(ctx context.Context, userID UUID) (int64, error)
 	CreateAuthEvent(ctx context.Context, arg CreateAuthEventParams) error
 	CreateAuthIdentity(ctx context.Context, arg CreateAuthIdentityParams) (ScenerySceneryAuthAuthIdentity, error)
 	CreateGoogleConnectionOAuthState(ctx context.Context, arg CreateGoogleConnectionOAuthStateParams) (ScenerySceneryAuthOauthState, error)

@@ -19,6 +19,18 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0148-impersonation-target-provisioning.md",
+      "title": "Impersonation Target Provisioning",
+      "owner": "scenery auth",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-08-02",
+      "review_after": "2026-09-01",
+      "summary": "Active ExecPlan for preparing provider-free standard-auth users as privileged impersonation targets without granting normal login or weakening provider verification.",
+      "tags": ["plans", "execplans", "auth", "impersonation", "sessions", "application-api"]
+    },
+    {
       "path": "docs/plans/0147-auth-user-lifecycle.md",
       "title": "Standard Auth User Lifecycle",
       "owner": "scenery auth",

@@ -21,9 +21,12 @@ func (s *Service) StartImpersonation(ctx context.Context, params *StartImpersona
 	if reason == "" {
 		return nil, invalidArgument("reason is required")
 	}
-	authData, err := currentAuthData()
-	if err != nil {
-		return nil, err
+	authData, ok := currentAuthDataFromContext(ctx)
+	if !ok || authData == nil {
+		return nil, unauthenticated("authentication required")
+	}
+	if authData.Impersonating() {
+		return nil, permissionDenied("nested impersonation is not allowed")
 	}
 	actorUserID, err := parseUUID(string(authData.UserID))
 	if err != nil {
@@ -36,6 +39,9 @@ func (s *Service) StartImpersonation(ctx context.Context, params *StartImpersona
 	preferredTenantID, err := nullableUUID(params.TenantID)
 	if err != nil {
 		return nil, invalidArgument("tenant_id is invalid")
+	}
+	if uuidString(actorUserID) == uuidString(targetUserID) {
+		return nil, invalidArgument("cannot impersonate the current user")
 	}
 
 	tx, q, err := s.beginTx(ctx)
@@ -59,7 +65,7 @@ func (s *Service) StartImpersonation(ctx context.Context, params *StartImpersona
 	if target.DisabledAt.Valid {
 		return nil, permissionDenied("target user is disabled")
 	}
-	tenantID, err := s.ensureActiveTenant(ctx, q, target, preferredTenantID)
+	tenantID, err := s.ensureImpersonationTenant(ctx, q, target, preferredTenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -78,11 +84,30 @@ func (s *Service) StartImpersonation(ctx context.Context, params *StartImpersona
 	return response, nil
 }
 
+// ensureImpersonationTenant deliberately omits email verification: the
+// privileged actor, not the target, authenticates this short-lived session.
+// Unlike ordinary sign-in it never creates a personal tenant.
+func (s *Service) ensureImpersonationTenant(ctx context.Context, q authdb.Querier, user authdb.ScenerySceneryAuthUser, preferred authdb.UUID) (authdb.UUID, error) {
+	if user.DisabledAt.Valid {
+		return authdb.UUID{}, permissionDenied("target user is disabled")
+	}
+	if !preferred.Valid {
+		return authdb.UUID{}, invalidArgument("tenant_id is required")
+	}
+	if _, err := q.GetActiveMembership(ctx, authdb.GetActiveMembershipParams{UserID: user.ID, TenantID: preferred}); err != nil {
+		if isNoRows(err) {
+			return authdb.UUID{}, permissionDenied("target user is not an active member of the requested tenant")
+		}
+		return authdb.UUID{}, err
+	}
+	return preferred, nil
+}
+
 // StopImpersonation stops an impersonation session and starts a normal actor session.
 func (s *Service) StopImpersonation(ctx context.Context, params *RefreshParams) (*AuthSessionResponse, error) {
-	authData, err := currentAuthData()
-	if err != nil {
-		return nil, err
+	authData, ok := currentAuthDataFromContext(ctx)
+	if !ok || authData == nil {
+		return nil, unauthenticated("authentication required")
 	}
 	if !authData.Impersonating() {
 		return nil, failedPrecondition("not impersonating")

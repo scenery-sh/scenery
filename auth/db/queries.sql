@@ -87,6 +87,11 @@ FROM scenery.scenery_auth_auth_identities
 WHERE user_id = $1
   AND provider = $2;
 
+-- name: CountAuthIdentitiesByUser :one
+SELECT count(*)
+FROM scenery.scenery_auth_auth_identities
+WHERE user_id = $1;
+
 -- name: GetEmailIdentityForLogin :one
 SELECT id, user_id, provider, provider_subject, email, normalized_email, password_hash, created_at, updated_at
 FROM scenery.scenery_auth_auth_identities
