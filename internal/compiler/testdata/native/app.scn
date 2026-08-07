@@ -49,6 +49,60 @@ module "house" {
   }
 }
 
+mcp_connection "docs" {
+  transport = "streamable_http"
+  url       = "https://docs.example.test/mcp"
+
+  auth {
+    scheme = "none"
+  }
+
+  tools {
+    allow = ["search", "fetch"]
+  }
+
+  connect_timeout = "5s"
+  call_timeout    = "30s"
+}
+
+mcp_server "support" {
+  capability "process_scene" {
+    binding  = module.house.process_scene_mcp
+    name     = "house__process_scene"
+    approval = "always"
+  }
+
+  connection "docs" {
+    connection = mcp_connection.docs
+    namespace  = "docs"
+    required   = false
+  }
+
+  max_input_bytes  = 262144
+  max_result_bytes = 1048576
+}
+
+assistant "support" {
+  mcp_server = mcp_server.support
+
+  implementation {
+    adapter      = "eve"
+    source       = "./assistants/support"
+    package      = "./assistants/support/package.json"
+    package_lock = "./assistants/support/package-lock.json"
+  }
+
+  surface {
+    gateway        = http_gateway.public_api
+    path           = "/assistants/support"
+    authentication = std.authentication.none
+    authorization  = std.authorization.public
+    pipeline       = std.pipeline.empty
+    session_access = "initiator"
+    client         = typescript_client.public_api
+  }
+}
+
 typescript_client "public_api" {
   gateways    = [http_gateway.public_api]
   package     = "@example/native-client"

@@ -1,0 +1,617 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.assistant.control.response.schema.json",
+  "title": "Scenery private assistant control response",
+  "description": "Strict line-oriented responses returned by an assistant helper.",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "type",
+    "request_id",
+    "assistant_address",
+    "runtime_revision",
+    "capability_revision"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.assistant.control.response"
+    },
+    "schema_revision": {
+      "const": "sha256:8b0cefb8d74e4097e7c058205e55b26675c671e2922b9df8fcd8a86403390e4d"
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "conversation.created",
+        "conversation.turn.accepted",
+        "events.resumed",
+        "approval.resolved",
+        "run.cancelled",
+        "health",
+        "info",
+        "error"
+      ]
+    },
+    "request_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "assistant_address": {
+      "$ref": "#/$defs/identifier"
+    },
+    "runtime_revision": {
+      "$ref": "#/$defs/identifier"
+    },
+    "capability_revision": {
+      "$ref": "#/$defs/identifier"
+    },
+    "private_session_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "continuation_token": {
+      "$ref": "#/$defs/identifier"
+    },
+    "run_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "approval_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "decision": {
+      "type": "string",
+      "enum": [
+        "allow",
+        "deny"
+      ]
+    },
+    "next_sequence": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 18446744073709551615
+    },
+    "events": {
+      "type": "array",
+      "items": {
+        "$ref": "scenery.assistant.control.event.schema.json"
+      }
+    },
+    "health": {
+      "$ref": "#/$defs/health"
+    },
+    "descriptor": {
+      "$ref": "#/$defs/descriptor"
+    },
+    "data": {},
+    "error": {
+      "$ref": "#/$defs/error"
+    }
+  },
+  "additionalProperties": false,
+  "oneOf": [
+    {
+      "$ref": "#/$defs/conversation_created"
+    },
+    {
+      "$ref": "#/$defs/turn_accepted"
+    },
+    {
+      "$ref": "#/$defs/events_resumed"
+    },
+    {
+      "$ref": "#/$defs/approval_resolved"
+    },
+    {
+      "$ref": "#/$defs/run_cancelled"
+    },
+    {
+      "$ref": "#/$defs/health_response"
+    },
+    {
+      "$ref": "#/$defs/info_response"
+    },
+    {
+      "$ref": "#/$defs/error_response"
+    }
+  ],
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "message": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 65536,
+      "pattern": "[\\s\\S]*\\S[\\s\\S]*"
+    },
+    "health": {
+      "type": "object",
+      "required": [
+        "ready",
+        "runtime_revision",
+        "capability_revision"
+      ],
+      "properties": {
+        "ready": {
+          "type": "boolean"
+        },
+        "runtime_revision": {
+          "$ref": "#/$defs/identifier"
+        },
+        "capability_revision": {
+          "$ref": "#/$defs/identifier"
+        },
+        "status": {
+          "$ref": "#/$defs/identifier"
+        },
+        "detail": {
+          "$ref": "#/$defs/message"
+        }
+      },
+      "additionalProperties": false
+    },
+    "descriptor": {
+      "$ref": "scenery.assistant.runtime-descriptor.schema.json"
+    },
+    "error": {
+      "type": "object",
+      "required": [
+        "code",
+        "message"
+      ],
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/identifier"
+        },
+        "message": {
+          "$ref": "#/$defs/message"
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "conversation_created": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "conversation.created"
+        }
+      },
+      "required": [
+        "private_session_id",
+        "continuation_token",
+        "run_id"
+      ],
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "approval_id"
+            ]
+          },
+          {
+            "required": [
+              "decision"
+            ]
+          },
+          {
+            "required": [
+              "next_sequence"
+            ]
+          },
+          {
+            "required": [
+              "events"
+            ]
+          },
+          {
+            "required": [
+              "health"
+            ]
+          },
+          {
+            "required": [
+              "descriptor"
+            ]
+          },
+          {
+            "required": [
+              "error"
+            ]
+          }
+        ]
+      }
+    },
+    "turn_accepted": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "conversation.turn.accepted"
+        }
+      },
+      "required": [
+        "private_session_id",
+        "continuation_token",
+        "run_id"
+      ],
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "approval_id"
+            ]
+          },
+          {
+            "required": [
+              "decision"
+            ]
+          },
+          {
+            "required": [
+              "next_sequence"
+            ]
+          },
+          {
+            "required": [
+              "events"
+            ]
+          },
+          {
+            "required": [
+              "health"
+            ]
+          },
+          {
+            "required": [
+              "descriptor"
+            ]
+          },
+          {
+            "required": [
+              "error"
+            ]
+          }
+        ]
+      }
+    },
+    "events_resumed": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "events.resumed"
+        }
+      },
+      "required": [
+        "private_session_id",
+        "continuation_token"
+      ],
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "run_id"
+            ]
+          },
+          {
+            "required": [
+              "approval_id"
+            ]
+          },
+          {
+            "required": [
+              "decision"
+            ]
+          },
+          {
+            "required": [
+              "health"
+            ]
+          },
+          {
+            "required": [
+              "descriptor"
+            ]
+          },
+          {
+            "required": [
+              "error"
+            ]
+          }
+        ]
+      }
+    },
+    "approval_resolved": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "approval.resolved"
+        }
+      },
+      "required": [
+        "private_session_id",
+        "continuation_token",
+        "approval_id",
+        "decision"
+      ],
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "next_sequence"
+            ]
+          },
+          {
+            "required": [
+              "events"
+            ]
+          },
+          {
+            "required": [
+              "health"
+            ]
+          },
+          {
+            "required": [
+              "descriptor"
+            ]
+          },
+          {
+            "required": [
+              "error"
+            ]
+          }
+        ]
+      }
+    },
+    "run_cancelled": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "run.cancelled"
+        }
+      },
+      "required": [
+        "private_session_id",
+        "continuation_token",
+        "run_id"
+      ],
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "approval_id"
+            ]
+          },
+          {
+            "required": [
+              "decision"
+            ]
+          },
+          {
+            "required": [
+              "next_sequence"
+            ]
+          },
+          {
+            "required": [
+              "events"
+            ]
+          },
+          {
+            "required": [
+              "health"
+            ]
+          },
+          {
+            "required": [
+              "descriptor"
+            ]
+          },
+          {
+            "required": [
+              "error"
+            ]
+          }
+        ]
+      }
+    },
+    "health_response": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "health"
+        }
+      },
+      "required": [
+        "health"
+      ],
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "private_session_id"
+            ]
+          },
+          {
+            "required": [
+              "continuation_token"
+            ]
+          },
+          {
+            "required": [
+              "run_id"
+            ]
+          },
+          {
+            "required": [
+              "approval_id"
+            ]
+          },
+          {
+            "required": [
+              "decision"
+            ]
+          },
+          {
+            "required": [
+              "next_sequence"
+            ]
+          },
+          {
+            "required": [
+              "events"
+            ]
+          },
+          {
+            "required": [
+              "descriptor"
+            ]
+          },
+          {
+            "required": [
+              "data"
+            ]
+          },
+          {
+            "required": [
+              "error"
+            ]
+          }
+        ]
+      }
+    },
+    "info_response": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "info"
+        }
+      },
+      "required": [
+        "descriptor"
+      ],
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "private_session_id"
+            ]
+          },
+          {
+            "required": [
+              "continuation_token"
+            ]
+          },
+          {
+            "required": [
+              "run_id"
+            ]
+          },
+          {
+            "required": [
+              "approval_id"
+            ]
+          },
+          {
+            "required": [
+              "decision"
+            ]
+          },
+          {
+            "required": [
+              "next_sequence"
+            ]
+          },
+          {
+            "required": [
+              "events"
+            ]
+          },
+          {
+            "required": [
+              "health"
+            ]
+          },
+          {
+            "required": [
+              "data"
+            ]
+          },
+          {
+            "required": [
+              "error"
+            ]
+          }
+        ]
+      }
+    },
+    "error_response": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "error"
+        }
+      },
+      "required": [
+        "error"
+      ],
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "private_session_id"
+            ]
+          },
+          {
+            "required": [
+              "continuation_token"
+            ]
+          },
+          {
+            "required": [
+              "run_id"
+            ]
+          },
+          {
+            "required": [
+              "approval_id"
+            ]
+          },
+          {
+            "required": [
+              "decision"
+            ]
+          },
+          {
+            "required": [
+              "next_sequence"
+            ]
+          },
+          {
+            "required": [
+              "events"
+            ]
+          },
+          {
+            "required": [
+              "health"
+            ]
+          },
+          {
+            "required": [
+              "descriptor"
+            ]
+          },
+          {
+            "required": [
+              "data"
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

@@ -1,14 +1,20 @@
 package parse
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
 	"strconv"
 	"strings"
 
+	"golang.org/x/mod/modfile"
 	"golang.org/x/tools/go/packages"
 
 	"scenery.sh/internal/envpolicy"
@@ -33,6 +39,8 @@ type GoTargetContext struct {
 
 const goAnalysisMaxProcs = 2
 
+const moduleLookupDisabled = "module lookup disabled by GOPROXY=off"
+
 func Analyze(root, name string) (*model.App, error) {
 	return analyze(root, name, nil, []string{"./..."}, nil)
 }
@@ -42,6 +50,67 @@ func AnalyzeTarget(root, name string, overlay map[string][]byte, target GoTarget
 		return nil, errors.New("Go target has no package patterns")
 	}
 	return analyze(root, name, overlay, target.Patterns, &target)
+}
+
+// MissingHermeticModulePackages returns imports that the declared target needs
+// but the local module cache cannot provide while network lookup is disabled.
+// It intentionally checks only the target's authored package patterns; staged
+// generated packages are supplied through an overlay during AnalyzeTarget.
+func MissingHermeticModulePackages(target GoTargetContext) ([]string, error) {
+	if len(target.Patterns) == 0 {
+		return nil, errors.New("Go target has no package patterns")
+	}
+	args := []string{"list"}
+	args = append(args, target.BuildFlags...)
+	if len(target.BuildTags) > 0 {
+		args = append(args, "-tags="+strings.Join(target.BuildTags, ","))
+	}
+	args = append(args, "-deps", "-e", "-json")
+	args = append(args, target.Patterns...)
+	command := exec.Command("go", args...)
+	command.Dir = target.ModuleRoot
+	command.Env = hermeticGoEnvironment(&target)
+	moduleFile, err := os.ReadFile(filepath.Join(target.ModuleRoot, "go.mod"))
+	if err != nil {
+		return nil, fmt.Errorf("read target Go module: %w", err)
+	}
+	modulePath := strings.TrimSpace(modfile.ModulePath(moduleFile))
+	if modulePath == "" {
+		return nil, errors.New("target go.mod has no module path")
+	}
+	output, err := command.Output()
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && len(exitErr.Stderr) > 0 {
+			return nil, fmt.Errorf("inspect hermetic Go dependencies: %w: %s", err, strings.TrimSpace(string(exitErr.Stderr)))
+		}
+		return nil, fmt.Errorf("inspect hermetic Go dependencies: %w", err)
+	}
+
+	decoder := json.NewDecoder(bytes.NewReader(output))
+	var missing []string
+	for {
+		var pkg struct {
+			ImportPath string `json:"ImportPath"`
+			Error      *struct {
+				Err string `json:"Err"`
+			} `json:"Error"`
+		}
+		if err := decoder.Decode(&pkg); errors.Is(err, io.EOF) {
+			break
+		} else if err != nil {
+			return nil, fmt.Errorf("decode hermetic Go dependencies: %w", err)
+		}
+		if pkg.Error != nil &&
+			strings.Contains(pkg.Error.Err, moduleLookupDisabled) &&
+			pkg.ImportPath != "" &&
+			pkg.ImportPath != modulePath &&
+			!strings.HasPrefix(pkg.ImportPath, modulePath+"/") {
+			missing = append(missing, pkg.ImportPath)
+		}
+	}
+	slices.Sort(missing)
+	return slices.Compact(missing), nil
 }
 
 func analyze(root, name string, overlay map[string][]byte, patterns []string, target *GoTargetContext) (*model.App, error) {

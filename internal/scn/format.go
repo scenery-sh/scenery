@@ -358,6 +358,18 @@ func formatterExpectedPrimitive(source []byte, positions *PositionIndex, block *
 	case block.Type == "renderer" && attribute == "module":
 		return "relative_path"
 	}
+	// Source schemas carry the primitive type for authored attributes. Use that
+	// metadata for contextual values so newly-added singleton blocks do not need
+	// another formatter-specific switch entry. Only primitives with a source
+	// normalization rule are eligible; references, collections, and generic
+	// values remain untouched.
+	if schema, ok := formatterSchemaForBlock(parent, block.Type); ok && schema != nil {
+		if field, ok := schema.Attributes[attribute]; ok {
+			if primitive, _ := field.Type["primitive"].(string); contextualPrimitiveTypes[primitive] {
+				return primitive
+			}
+		}
+	}
 	return ""
 }
 

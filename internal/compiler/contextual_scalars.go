@@ -73,6 +73,11 @@ func contextualizeResourceScalars(resources []Resource) ([]Resource, []Diagnosti
 					convert(timeouts, field, "duration")
 				}
 			}
+		case "scenery.mcp-connection":
+			convert(resource.Spec, "url", "url")
+			for _, field := range []string{"connect_timeout", "call_timeout"} {
+				convert(resource.Spec, field, "duration")
+			}
 		case "scenery.binding":
 			if httpSpec, ok := resource.Spec["http"].(map[string]any); ok {
 				if timeouts, ok := httpSpec["timeouts"].(map[string]any); ok {

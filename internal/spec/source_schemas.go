@@ -117,6 +117,26 @@ var (
 	operationOutcomeSourceSchema     = sourceSchema("scenery.operation.outcome", 1, []string{"type"}, []string{"type"}, nil)
 	operationIdempotencySourceSchema = sourceSchema("scenery.operation.idempotency", 0, []string{"mode", "key"}, []string{"mode"}, nil)
 
+	// MCP is a binding protocol rather than a parallel tool declaration. The
+	// child schemas below keep the authored source shape explicit while the
+	// parent binding/server/assistant resources remain ordinary graph records.
+	mcpBindingSourceSchema = sourceSchema("scenery.binding.mcp", 0,
+		[]string{"name", "title", "description", "read_only", "destructive", "idempotent", "open_world", "allow_sensitive_output"},
+		[]string{"name", "read_only", "destructive", "idempotent", "open_world"}, nil)
+	mcpConnectionAuthSourceSchema = sourceSchema("scenery.mcp-connection.auth", 0,
+		[]string{"scheme", "secret", "header"}, []string{"scheme"}, nil)
+	mcpConnectionToolsSourceSchema = sourceSchema("scenery.mcp-connection.tools", 0,
+		[]string{"allow", "block"}, nil, nil)
+	mcpServerCapabilitySourceSchema = sourceSchema("scenery.mcp-server.capability", 1,
+		[]string{"binding", "name", "approval"}, []string{"binding", "name", "approval"}, nil)
+	mcpServerConnectionSourceSchema = sourceSchema("scenery.mcp-server.connection", 1,
+		[]string{"connection", "namespace", "required"}, []string{"connection", "namespace"}, nil)
+	assistantImplementationSourceSchema = sourceSchema("scenery.assistant.implementation", 0,
+		[]string{"adapter", "source", "package", "package_lock"}, []string{"adapter", "source", "package", "package_lock"}, nil)
+	assistantSurfaceSourceSchema = sourceSchema("scenery.assistant.surface", 0,
+		[]string{"gateway", "path", "authentication", "authorization", "pipeline", "session_access", "client"},
+		[]string{"gateway", "path", "authentication", "authorization", "pipeline", "session_access", "client"}, nil)
+
 	executionRetrySourceSchema = sourceSchema("scenery.execution.retry", 0,
 		[]string{"strategy", "initial", "factor", "maximum", "jitter"}, []string{"strategy"}, nil)
 	executionConcurrencySourceSchema   = sourceSchema("scenery.execution.concurrency", 0, []string{"key", "limit"}, []string{"key", "limit"}, nil)
@@ -277,7 +297,7 @@ var authoredResourceChildren = map[string]map[string]authoredChildSchema{
 	"union":             {"variant": repeated(unionVariantSourceSchema)},
 	"operation":         {"handler": singleton(operationHandlerSourceSchema), "result": repeated(operationOutcomeSourceSchema), "error": repeated(operationOutcomeSourceSchema), "idempotency": singleton(operationIdempotencySourceSchema)},
 	"execution":         {"retry": singleton(executionRetrySourceSchema), "concurrency": singleton(executionConcurrencySourceSchema), "retention": singleton(executionRetentionSourceSchema), "deduplication": singleton(executionDeduplicationSourceSchema)},
-	"binding":           {"http": singleton(httpSourceSchema), "internal": singleton(internalSourceSchema), "cli": singleton(cliSourceSchema), "event": singleton(eventBindingSourceSchema)},
+	"binding":           {"http": singleton(httpSourceSchema), "internal": singleton(internalSourceSchema), "cli": singleton(cliSourceSchema), "event": singleton(eventBindingSourceSchema), "mcp": singleton(mcpBindingSourceSchema)},
 	"schedule":          {"trigger": singleton(scheduleTriggerSourceSchema), "invoke": singleton(scheduleInvokeSourceSchema), "catchup": singleton(scheduleCatchupSourceSchema)},
 	"event_emission":    {"broker_retry": singleton(eventRetrySourceSchema), "from": singleton(eventEmissionFromSourceSchema)},
 	"entity":            {"mapping": singleton(entityMappingSourceSchema), "field": repeated(entityFieldSourceSchema), "index": repeated(entityIndexSourceSchema), "unique": repeated(entityUniqueSourceSchema), "foreign_key": repeated(entityForeignKeySourceSchema), "deletion": singleton(entityDeletionSourceSchema)},
@@ -291,6 +311,9 @@ var authoredResourceChildren = map[string]map[string]authoredChildSchema{
 	"content_page":      {"content": singleton(contentPageSlotSourceSchema), "actions": singleton(contentPageSlotSourceSchema), "search": repeated(pageSearchSourceSchema)},
 	"workspace_page":    {"tab": ordered(workspacePageTabSourceSchema), "stats": singleton(workspacePageStatsSourceSchema), "actions": singleton(contentPageSlotSourceSchema), "search": repeated(pageSearchSourceSchema)},
 	"detail_page":       {"param": repeated(detailPageParamSourceSchema), "section": ordered(detailPageSectionSourceSchema), "action": ordered(detailPageActionSourceSchema), "actions": singleton(contentPageSlotSourceSchema), "table": ordered(detailPageTableSourceSchema), "search": repeated(pageSearchSourceSchema)},
+	"mcp_connection":    {"auth": singleton(mcpConnectionAuthSourceSchema), "tools": singleton(mcpConnectionToolsSourceSchema)},
+	"mcp_server":        {"capability": repeated(mcpServerCapabilitySourceSchema), "connection": repeated(mcpServerConnectionSourceSchema)},
+	"assistant":         {"implementation": singleton(assistantImplementationSourceSchema), "surface": singleton(assistantSurfaceSourceSchema)},
 }
 
 var authoredStructuralSchemas = map[string]*authoredBlockSchema{
@@ -388,17 +411,24 @@ func AuthoredEnumAllows(field SourceAttributeSchema, value string) bool {
 
 func NamedSourceSchemas() map[string]*SourceBlockSchema {
 	live := map[string]*SourceBlockSchema{
-		"deployment_listener":   deploymentListenerSourceSchema,
-		"http":                  httpSourceSchema,
-		"http_cookie":           httpCookieSourceSchema,
-		"http_header":           httpHeaderSourceSchema,
-		"http_multipart_part":   httpMultipartPartSourceSchema,
-		"http_path_parameter":   httpPathParameterSourceSchema,
-		"http_path_tail":        httpPathTailSourceSchema,
-		"http_query_parameter":  httpQueryParameterSourceSchema,
-		"http_response_cookie":  httpResponseCookieSourceSchema,
-		"http_response_header":  httpResponseHeaderSourceSchema,
-		"operation_idempotency": operationIdempotencySourceSchema,
+		"deployment_listener":      deploymentListenerSourceSchema,
+		"http":                     httpSourceSchema,
+		"http_cookie":              httpCookieSourceSchema,
+		"http_header":              httpHeaderSourceSchema,
+		"http_multipart_part":      httpMultipartPartSourceSchema,
+		"http_path_parameter":      httpPathParameterSourceSchema,
+		"http_path_tail":           httpPathTailSourceSchema,
+		"http_query_parameter":     httpQueryParameterSourceSchema,
+		"http_response_cookie":     httpResponseCookieSourceSchema,
+		"http_response_header":     httpResponseHeaderSourceSchema,
+		"mcp":                      mcpBindingSourceSchema,
+		"mcp_connection_auth":      mcpConnectionAuthSourceSchema,
+		"mcp_connection_tools":     mcpConnectionToolsSourceSchema,
+		"mcp_server_capability":    mcpServerCapabilitySourceSchema,
+		"mcp_server_connection":    mcpServerConnectionSourceSchema,
+		"assistant_implementation": assistantImplementationSourceSchema,
+		"assistant_surface":        assistantSurfaceSourceSchema,
+		"operation_idempotency":    operationIdempotencySourceSchema,
 	}
 	result := make(map[string]*SourceBlockSchema, len(live))
 	cloned := map[*authoredBlockSchema]*authoredBlockSchema{}

@@ -105,6 +105,9 @@ The core language defines the following resource families.
 | record, enum, union | Boundary and domain types |
 | operation | A logical callable capability |
 | binding | A transport-facing entry point |
+| mcp_connection | An external MCP endpoint federated through Scenery |
+| mcp_server | A provider-neutral composition of MCP capabilities |
+| assistant | A Scenery-owned conversation surface bound to an MCP server |
 | http_gateway | A logical HTTP route, trust, and exposure namespace |
 | execution | A direct, durable, or workflow execution policy |
 | schedule | A time trigger invoking an operation |
@@ -1346,7 +1349,8 @@ The core protocols are:
 - http;
 - internal;
 - cli;
-- event.
+- event;
+- mcp.
 
 Extensions MAY add protocols through exact content-revisioned binding schemas.
 
@@ -1898,6 +1902,80 @@ empty and dot segments, and downstream double-decoding attacks, then joins the
 semantic segments with structural `/`. Generated TypeScript clients perform
 the inverse operation by encoding each segment independently and joining with
 literal `/`; an empty tail emits the fixed prefix without a trailing slash.
+
+### 12.12 MCP and assistant surfaces
+
+An MCP capability is an ordinary binding with `protocol = "mcp"` and
+`delivery = "call"`. It MUST have exactly one `mcp` child. The child declares a
+stable tool `name`, optional `title` and `description`, and effect metadata
+(`read_only`, `destructive`, `idempotent`, `open_world`, and
+`allow_sensitive_output`). Its input and result remain the operation's typed
+records; generated MCP projection uses their exact JSON schemas and MUST NOT
+infer a second tool contract. Every call re-evaluates the binding's
+authentication, authorization, pipeline, and sensitive-output policy.
+
+An `mcp_server` composes local MCP bindings and optional `mcp_connection`
+resources. A connection currently uses Streamable HTTP only and declares
+`none`, `bearer`, or one named `header` authentication. Bearer tokens and
+header values MUST be typed Scenery secret references; a header connection MUST
+declare one valid header name. Tool projection uses exactly one of `allow` or
+`block`, never both, and retains the declared namespace/filter semantics.
+Connection and call timeouts, readiness (`required` or `optional`), and remote
+credential handling are Scenery-owned. An unavailable optional connection is
+reported as degraded readiness; a required connection prevents the assistant
+from becoming ready.
+
+An `assistant` binds one `mcp_server` to an authored implementation and a
+Scenery-owned public surface. Its implementation block contains adapter,
+source, package, and package-lock paths; its surface contains gateway, path,
+authentication, authorization, pipeline, `session_access = "initiator"`, and
+an optional generated TypeScript client target. Implementation fields are
+developer/operator data. The current adapter name `eve` is accepted by the
+implementation boundary, but it is not a public provider contract and MUST
+NOT appear in default inspection or generated public artifacts.
+
+The public surface consists of these provider-neutral routes beneath
+`<surface.path>/v1/conversations`:
+
+| Method | Path | Contract |
+| --- | --- | --- |
+| POST | `/` | create a conversation and first run |
+| POST | `/:conversation_id/turns` | submit a follow-up turn |
+| GET | `/:conversation_id/events?after=<cursor>` | stream normalized NDJSON events |
+| POST | `/:conversation_id/approvals/:approval_id` | approve or deny a proposal |
+| POST | `/:conversation_id/runs/:run_id/cancel` | cancel an active run |
+
+Conversation handles use `conv1_`, run handles use `run_`, and approval handles
+use `appr1_` followed by lowercase hexadecimal data. Events use the closed
+`scenery.assistant.public-event` vocabulary and errors use the closed
+`scenery.assistant.public-error` codes. Event responses are
+`application/x-ndjson`, have monotonic sequences, and treat `after` as an
+exclusive cursor so reconnects do not duplicate events. Public approval values
+are `approve` and `deny`; private helper control uses `allow` and `deny`.
+
+Anonymous surfaces issue an HttpOnly, SameSite=Lax
+`scenery_assistant_initiator` cookie and bind conversations, approvals, and
+cancellation to that initiator. Authenticated surfaces bind them to the
+admitted principal. Authorization is evaluated independently for every tool
+call; model visibility or an approval decision never grants application
+access.
+
+The assistant implementation MUST run as a managed child process. Its
+provider-neutral Scenery control protocol and MCP listener are authenticated
+private loopback services with exact protocol/revision handshakes. The current
+The private control protocol identity is `scenery.assistant.control`; each
+request, response, event, and runtime descriptor carries its exact checked
+schema revision, and the MCP protocol is `2025-11-25`.
+Scenery terminates external MCP credentials and federation; it MUST NOT expose
+the private MCP listener or a provider-specific public listener. A child crash
+or restart becomes typed assistant unavailability while the Go application
+continues to serve other surfaces.
+
+Public route, client, OpenAPI, schema, cookie, body, event, error, and default
+inspection projections MUST omit provider names, package paths, private
+listeners, control tokens, and recognizable provider signatures. The explicit
+`inspect assistants --implementation` view is the developer/operator escape
+hatch for those fields and is not a public application contract.
 
 ## 13. Exposure, authentication, and authorization
 
@@ -3247,6 +3325,13 @@ scenery changes apply plan.json \
 
 plan MUST NOT write source files. apply MUST use the atomic transaction and revision rules in Section 22.
 
+The CLI plan file is a trusted operator and review artifact. It MAY contain the
+complete canonical plan, semantic diff, diagnostics, risk records, and concrete
+source edits. The model-facing agent protocol does not echo that artifact: its
+normal planning response is a bounded summary keyed by `plan_id`, and apply
+accepts that opaque identifier. A trusted review surface or an explicit plan
+retrieval operation MAY fetch the retained canonical plan and source diff.
+
 ### 21.7 Streams and output
 
 Machine-readable output goes to stdout. Human progress and logs go to stderr.
@@ -3340,7 +3425,9 @@ These operations are required only by mutation-capable agents:
 | Operation | Purpose |
 |---|---|
 | changes.plan | Validate semantic changes without writing |
+| plans.get | Fetch the exact retained plan for a trusted review surface |
 | changes.apply | Atomically apply an accepted plan |
+| changes.receipt.get | Fetch and strictly validate a durable apply receipt |
 | resource.create | Construct a typed resource change |
 | resource.delete | Delete a resource with dependency checks |
 | resource.rename | Rename an address and update typed references |
@@ -3351,7 +3438,13 @@ These operations are required only by mutation-capable agents:
 
 These may be separate protocol methods or typed operations inside one plan request.
 
-changes.apply is the only required operation that writes source. The other mutation operations construct, normalize, or validate change objects for a plan.
+changes.apply is the only required operation that writes source. The other
+mutation operations construct, normalize, or validate change objects for a
+plan. `plans.get` and `changes.receipt.get` are recovery/review reads;
+their complete payloads MUST be directed to a trusted channel and MUST NOT be
+placed in ordinary model history. Implementations advertise these operations in
+`capabilities` when enabled; `plans.get` MUST be gated out of ordinary model
+sessions and advertised only to a trusted review/approval context.
 
 ### 22.3 Context bundles
 
@@ -3419,23 +3512,42 @@ A normal plan request MUST include base workspace_revision and contract_revision
 
 When compilation has no valid contract_revision, a repair request sets base contract_revision to null and is bound only to workspace_revision. It may contain diagnostic machine fixes or source-view CST/schema edits, but cannot target effective or expanded resources that require a valid contract. Planning simulates all edits as one transaction. It returns an applicable plan only when the resulting source compiles to a complete valid graph, in which case predicted contract_revision is non-null. If the edits leave any effective error, planning returns failed_precondition with the resulting diagnostics and predicted source edits for inspection, but no plan ID and nothing that changes.apply can commit. An agent may combine several fixes into one repair request; partial invalid-to-less-invalid commits are not supported.
 
-Successful planning returns:
+The model-facing `changes.plan` request accepts exactly the base
+`workspace_revision`, the base `contract_revision` (or null for repair), and
+normalized semantic `operations`; unknown fields, caller identity, claimed
+capabilities, and approval tokens are rejected. `plans.get`,
+`changes.apply`, and `changes.receipt.get` each accept exactly
+`{ "plan_id": "..." }` in model-controlled parameters.
 
-- plan ID;
-- base workspace_revision;
-- base contract_revision, possibly null for repair;
-- predicted workspace_revision;
-- predicted contract_revision, always non-null for an applicable plan;
-- implementation_revision and deployment_revision invalidation status;
-- normalized semantic operations, each with mandatory resolved `expected_kind`, `expected_schema_revision`, and `view: "source"` fields;
-- revision-bound rename receipts containing old/new addresses and their digest;
-- semantic diff;
-- affected resources;
-- diagnostics;
-- concrete source edits;
-- formatting effects;
-- required approvals or capability changes;
-- structured risk records.
+Successful planning MUST retain an exact canonical plan under trusted
+app-local state. The normal model-facing `changes.plan` response is a compact
+summary containing only:
+
+- `plan_id`;
+- optional application identity;
+- base and predicted workspace and contract revisions;
+- implementation/deployment invalidation status;
+- a semantic summary;
+- bounded affected resources with `affected_resource_count` and
+  `affected_resources_truncated`;
+- required approval scopes and bounded risk records with `risk_count` and
+  `risk_records_truncated`;
+- required capability names; and
+- `expires_at`.
+
+The retained plan (and an explicit CLI `--out` plan file) contains the complete
+normalized semantic operations, revision-bound rename receipts, semantic diff,
+diagnostics, concrete source edits, formatting effects, required capabilities,
+and risk records. `plans.get` is the explicit trusted review path for
+that full object; a model MUST NOT be asked to echo it into apply.
+
+For the model-facing protocol, `changes.apply` accepts only `{ "plan_id": ... }`
+in model-controlled parameters. It MUST NOT accept a caller-supplied full plan,
+caller identity, claimed capabilities, or approval tokens. The server loads the
+exact retained plan by ID and obtains the caller, granted capabilities, and
+approval state from its authenticated execution context. A CLI or trusted
+operator adapter MAY submit the retained plan file through its separate
+operator interface.
 
 Applying a plan MUST:
 
@@ -3458,11 +3570,45 @@ A source-only change plan MUST NOT invent a predicted implementation_revision or
 
 If either base revision changed, the agent API returns revision_conflict and the CLI exits with status 3. It MUST NOT attempt a best-effort merge.
 
-A plan is immutable and bound to one application, normalized-operation digest, rename receipts, both base revisions, negotiated capability set, caller identity, required approvals, concrete source/provider actions, and expiry. Presentation-equivalent contextual and tagged scalar values, and source-local versus canonical references, normalize before the operation digest is computed. Applying an expired or already-applied plan fails without writing.
+A plan is immutable and bound to one application, normalized-operation digest, rename receipts, both base revisions, negotiated capability set, caller identity, required approvals, concrete source/provider actions, and expiry. Presentation-equivalent contextual and tagged scalar values, and source-local versus canonical references, normalize before the operation digest is computed. A plan has one durable commit and may have unlimited authenticated receipt replays.
 
 The plan ID MAY remain a domain-separated content digest, but that public digest is not proof that a trusted planner issued the supplied object. Before trusting expiry, approvals, operations, source edits, provider actions, or predicted revisions, apply MUST authenticate issuance by either loading the exact canonical plan retained in trusted app-local state under that ID or verifying an issuer signature/MAC with key material unavailable to callers. If the caller supplies the full plan, it MUST match the authenticated canonical plan exactly; decoding rejects unknown fields and trailing values rather than normalizing an expanded caller object into the trusted shape. Missing issuance state, a changed field, or a caller-recomputed ID fails before staging. Change, deployment, and every future approval-bearing plan family use the same rule.
 
-If required_approvals is non-empty, apply MUST reject missing or invalid approval tokens. A token is bound to the plan digest, caller, approved risk scopes, and expiry.
+If an apply receipt already exists for the same `plan_id`, apply MUST first
+strictly decode and validate that receipt against the authenticated canonical
+plan (including its plan ID, revisions, receipt identity, and immutable
+fields), then return that receipt successfully. The response MAY mark this
+outcome with `replayed: true`; that marker is response metadata and is not
+written into the durable receipt. Replay occurs after trusted caller binding and
+canonical-plan authentication, but before first-apply expiry, approval-token,
+base-revision, provider, or workspace checks. A malformed, mismatched, or
+unverifiable receipt MUST fail closed and MUST NOT reapply the plan. If no
+receipt exists, apply continues with expiry, approvals, revision checks, and
+the atomic transaction below. `changes.receipt.get` exposes the same strict
+receipt validation for explicit recovery without attempting a mutation.
+
+The model-facing apply response is `{ "receipt": <receipt>, "replayed": <bool> }`.
+The `changes.receipt.get` response is `{ "plan_id": <id>, "status":
+"applied", "receipt": <receipt> }` after the same strict plan/receipt
+validation.
+
+If required_approvals is non-empty, first apply MUST reject missing or invalid
+approval tokens. A token is bound to the plan digest, authenticated caller,
+approved risk scopes, and expiry. An approval handler obtains or mints that
+plan-bound token only after an authenticated user approves; the token is not a
+model-controlled input. Eve's ordinary MCP tool-approval decision is not such a
+token: the current application-MCP adapter and the contract-agent mutation
+protocol are separate boundaries. Until a server-owned approval broker binds
+the trusted plan and risk scopes to that decision, an approval-bearing
+contract-agent apply requires a trusted adapter or operator to supply the
+signed token through execution context.
+
+Deployment plans use the same single-commit/replayable-receipt rule. Once a
+durable deployment receipt exists, a retry of the same authenticated `plan_id`
+returns the validated receipt without re-running provider actions, even when
+the plan has since expired or the workspace has advanced. A missing or corrupt
+deployment receipt fails closed and never guesses whether provider side effects
+completed.
 
 ### 22.6 Rename
 
@@ -3493,8 +3639,10 @@ An agent changing a Scenery application SHOULD:
 4. Include current workspace_revision and contract_revision in its plan.
 5. Use semantic operations rather than textual search-and-replace.
 6. Inspect semantic diff and diagnostics.
-7. Apply atomically.
-8. Verify returned workspace_revision and contract_revision with check.
+7. Send the compact `plan_id` to apply; keep the full plan in a trusted review
+   channel.
+8. Apply atomically and treat a replayed receipt as success.
+9. Verify returned workspace_revision and contract_revision with check.
 
 When semantic tooling is unavailable, an agent MAY edit .scn source directly, but it MUST run scenery fmt and scenery check before claiming success.
 
@@ -3506,7 +3654,21 @@ A CLI exposing agent read capabilities MUST provide:
 scenery agent serve --stdio
 ~~~
 
-Server mode keeps schemas and the graph cached, watches source revisions, and exposes the agent interface without changing its semantics.
+Server mode keeps schemas and the graph cached, watches source revisions, and exposes the agent interface without changing its semantics. Before any
+mutation, the transport or launcher MUST establish a server-owned execution
+context containing the authenticated principal, app root, and granted
+capabilities. It SHOULD also bind client identity, protocol version,
+trace/session identity, and a per-request or per-call correlation ID when the
+transport exposes them safely. `changes.plan`, `changes.apply`, and approval
+handling derive their caller and grants from that context; model parameters
+cannot override them. An override attempt fails with permission_denied before
+plan lookup or staging. `initialize` or `session.open` MAY be the handshake
+method, but the bound fields and override prohibition are transport-independent.
+If an adapter does not expose a per-action call ID, the Scenery boundary mints a
+fresh request ID for each invocation; it MUST NOT substitute a turn- or
+session-level value that can collide across parallel actions. Stdio inherits
+the launcher/process principal and app-root binding; it does not make identity
+selection a model parameter.
 
 Stdio mode inherits local process identity. Any network transport MUST authenticate and authorize callers. Every mutation transport MUST confine reads and writes to the declared workspace using symlink-safe path resolution and MUST reject path escape.
 
@@ -3916,7 +4078,10 @@ The current implementation includes:
 - local packages and modules;
 - services and explicit dependencies;
 - operations and direct executions;
-- HTTP and internal bindings;
+- HTTP, internal, and MCP bindings;
+- local/remote MCP servers and connections;
+- assistant surfaces with generated provider-neutral conversation routes,
+  public JSON/NDJSON schemas, and TypeScript client projections;
 - authentication/authorization references and pipelines;
 - canonical IR and contract_revision;
 - source maps and structured diagnostics;
@@ -3925,7 +4090,7 @@ The current implementation includes:
 - generated Go contract/adapter packages;
 - one generated TypeScript client.
 
-It also includes graph traversal, semantic diff, retained-revision comparison, bounded context bundles, agent server mode, durable execution, events, entities, deployments, pages, exact patches, approval-bound mutation, and generated clients. Unavailable future behavior such as workflows, remote registries, sandboxed extensions, custom middleware ABIs, internal RPC, or streaming MUST fail explicitly; a tool MUST NOT silently omit or approximate a recognized resource.
+It also includes graph traversal, semantic diff, retained-revision comparison, bounded context bundles, agent server mode, durable execution, events, entities, deployments, pages, exact patches, approval-bound mutation, generated clients, supervised assistant children, private control/loopback MCP, and federated remote MCP readiness. The current assistant adapter is provider-specific only behind the developer/operator implementation boundary; public routes, events, errors, schemas, and clients remain provider-neutral. Unavailable future behavior such as workflows, remote registries, sandboxed extensions, custom middleware ABIs, internal RPC, or arbitrary streaming MUST fail explicitly; a tool MUST NOT silently omit or approximate a recognized resource.
 
 Exact content and ABI revisions identify the compiler catalog, schemas, generated artifacts, and runtime contracts. A revision mismatch fails closed and never selects another parser, generator, or runtime path.
 

@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.assistant.public.request.schema.json",
+  "title": "Scenery public assistant request",
+  "description": "Request bodies accepted by the provider-neutral assistant conversation API.",
+  "type": "object",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/message_request"
+    },
+    {
+      "$ref": "#/$defs/approval_request"
+    }
+  ],
+  "properties": {
+    "message": {
+      "$ref": "#/$defs/message"
+    },
+    "decision": {
+      "type": "string",
+      "enum": [
+        "approve",
+        "deny"
+      ]
+    }
+  },
+  "additionalProperties": false,
+  "unevaluatedProperties": false,
+  "$defs": {
+    "message": {
+      "type": "object",
+      "required": [
+        "role",
+        "content"
+      ],
+      "properties": {
+        "role": {
+          "const": "user"
+        },
+        "content": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "[\\s\\S]*\\S[\\s\\S]*"
+        }
+      },
+      "additionalProperties": false
+    },
+    "message_request": {
+      "type": "object",
+      "required": [
+        "message"
+      ],
+      "properties": {
+        "message": {
+          "$ref": "#/$defs/message"
+        }
+      },
+      "additionalProperties": false
+    },
+    "approval_request": {
+      "type": "object",
+      "required": [
+        "decision"
+      ],
+      "properties": {
+        "decision": {
+          "type": "string",
+          "enum": [
+            "approve",
+            "deny"
+          ]
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

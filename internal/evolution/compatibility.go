@@ -32,6 +32,37 @@ const (
 
 var compatibilityDimensions = []string{"source", "request_wire", "response_wire", "generated_client", "internal_call", "runtime", "security", "storage", "deployment"}
 
+// compatibilityRuleCatalog is intentionally kept next to the comparison
+// implementation. The catalog digest is part of every semantic diff, so a
+// rule that changes the result must also change the digest. MCP and assistant
+// rules live here rather than in a provider adapter: they describe the
+// provider-neutral contract and therefore remain useful to every adapter.
+var compatibilityRuleCatalog = []string{
+	"SCN_COMPAT_ASSISTANT_CHANGE_UNKNOWN",
+	"SCN_COMPAT_ASSISTANT_IMPLEMENTATION_REBUILD_REQUIRED",
+	"SCN_COMPAT_ASSISTANT_PUBLIC_SURFACE_CHANGED",
+	"SCN_COMPAT_MCP_APPROVAL_POLICY_CHANGED",
+	"SCN_COMPAT_MCP_CAPABILITY_ADDED",
+	"SCN_COMPAT_MCP_CAPABILITY_BINDING_CHANGED",
+	"SCN_COMPAT_MCP_CAPABILITY_REMOVED",
+	"SCN_COMPAT_MCP_CONNECTION_IMPLEMENTATION_CHANGED",
+	"SCN_COMPAT_MCP_CONNECTION_CHANGE_UNKNOWN",
+	"SCN_COMPAT_MCP_CONNECTION_READINESS_CHANGED",
+	"SCN_COMPAT_MCP_EFFECT_METADATA_CHANGED",
+	"SCN_COMPAT_MCP_FILTER_CHANGED",
+	"SCN_COMPAT_MCP_LIMIT_CHANGED",
+	"SCN_COMPAT_MCP_SERVER_CHANGE_UNKNOWN",
+	"SCN_COMPAT_MCP_TOOL_NAME_CHANGED",
+}
+
+var compatibilityConsequenceCatalog = map[string][]string{
+	"mcp_binding":              {"mcp_capability_revision[*]"},
+	"mcp_server":               {"mcp_capability_revision[*]"},
+	"mcp_connection":           {"assistant_readiness[*]", "implementation_revision[*]"},
+	"assistant_surface":        {"assistant_public_revision[*]", "http_surface_revision[*]", "openapi_revision[*]", "typescript_client_revision[*]"},
+	"assistant_implementation": {"implementation_revision[*]"},
+}
+
 type RenameReceipt struct {
 	From                   string `json:"from"`
 	To                     string `json:"to"`
@@ -401,9 +432,54 @@ func classifyChange(ctx comparisonContext, operation string, before, after *Reso
 	for _, dimension := range ctx.dimensions {
 		change.Classifications[dimension] = classifyDimension(ctx, dimension, operation, before, after, path, base, target)
 	}
+	change.Evidence = append(change.Evidence, compatibilityEvidence(before, after, path, base, target)...)
+	change.Evidence = compactEvidence(change.Evidence)
 	change.AffectedArtifacts = affectedArtifacts(before, after, path)
 	change.ChangeID = stableChangeID(change)
 	return change
+}
+
+func compatibilityEvidence(before, after *Resource, path string, base, target any) []any {
+	resource := after
+	if resource == nil {
+		resource = before
+	}
+	if resource == nil {
+		return nil
+	}
+	kind := canonicalResourceKind(resource.Kind)
+	field := pathLeaf(path)
+	switch {
+	case kind == "binding" && isMCPBinding(*resource) && strings.HasPrefix(path, "/spec/mcp/"):
+		if isMCPEffectField(field) {
+			return []any{map[string]any{"kind": "mcp_effect", "field": field, "base": base, "target": target}}
+		}
+	case kind == "mcp-server" && strings.HasSuffix(path, "/approval"):
+		return []any{map[string]any{"kind": "mcp_approval", "field": "approval", "base": base, "target": target}}
+	case kind == "mcp-connection" && isMCPConnectionImplementationPath(path):
+		return []any{map[string]any{"kind": "mcp_connection_identity", "field": field, "base": base, "target": target}}
+	case kind == "assistant" && isAssistantImplementationPath(path):
+		return []any{map[string]any{"kind": "assistant_implementation", "field": field, "base": base, "target": target}}
+	}
+	return nil
+}
+
+func compactEvidence(values []any) []any {
+	result := values[:0]
+	for _, value := range values {
+		if value != nil {
+			result = append(result, value)
+		}
+	}
+	return result
+}
+
+func pathLeaf(path string) string {
+	path = strings.TrimSuffix(path, "/")
+	if index := strings.LastIndexByte(path, '/'); index >= 0 {
+		return path[index+1:]
+	}
+	return path
 }
 
 func classifyDimension(ctx comparisonContext, dimension, operation string, before, after *Resource, path string, base, target any) Classification {
@@ -415,6 +491,9 @@ func classifyDimension(ctx comparisonContext, dimension, operation string, befor
 		return notApplicable()
 	}
 	if dimension == "security" {
+		if classification, handled := classifyMCPMetadataChange(dimension, operation, *resource, path, base, target); handled {
+			return classification
+		}
 		return classifySecurityChange(operation, path, base, target)
 	}
 	if operation == "rename" {
@@ -433,6 +512,9 @@ func classifyDimension(ctx comparisonContext, dimension, operation string, befor
 	if operation == "remove" && path == "" || path == "/kind" {
 		return classified(CompatibilityBreaking, "SCN_COMPAT_RESOURCE_REMOVED_OR_REPLACED")
 	}
+	if classification, handled := classifyMCPMetadataChange(dimension, operation, *resource, path, base, target); handled {
+		return classification
+	}
 	switch resource.Kind {
 	case "scenery.record":
 		return classifyRecordChange(dimension, operation, before, after, path, base, target)
@@ -441,6 +523,9 @@ func classifyDimension(ctx comparisonContext, dimension, operation string, befor
 	case "scenery.operation":
 		return classifyOperationChange(dimension, operation, path, base, target)
 	case "scenery.binding":
+		if isMCPBinding(*resource) {
+			return classifyMCPBindingChange(dimension, operation, *resource, path, base, target)
+		}
 		return classifyBindingChange(dimension, operation, *resource, path, base, target)
 	case "scenery.execution":
 		return classifyExecutionChange(dimension, path, base, target)
@@ -474,10 +559,24 @@ func classifyDimension(ctx comparisonContext, dimension, operation string, befor
 			return notApplicable()
 		}
 	}
+	if classification, handled := classifyMCPResourceChange(dimension, operation, *resource, path, base, target); handled {
+		return classification
+	}
 	return classified(CompatibilityUnknown, "SCN_COMPAT_UNKNOWN")
 }
 
 func classifyResourceAddition(dimension string, resource Resource) Classification {
+	if isMCPBinding(resource) {
+		return classified(CompatibilityCompatible, "SCN_COMPAT_MCP_CAPABILITY_ADDED")
+	}
+	switch canonicalResourceKind(resource.Kind) {
+	case "mcp-server":
+		return classified(CompatibilityCompatible, "SCN_COMPAT_MCP_CAPABILITY_ADDED")
+	case "mcp-connection":
+		return classified(CompatibilityCompatible, "SCN_COMPAT_MCP_CONNECTION_READINESS_CHANGED")
+	case "assistant":
+		return classified(CompatibilityCompatible, "SCN_COMPAT_ADDITION")
+	}
 	switch resource.Kind {
 	case "scenery.operation", "scenery.binding", "scenery.record", "scenery.enum", "scenery.union":
 		return classified(CompatibilityCompatible, "SCN_COMPAT_ADDITION")
@@ -487,6 +586,218 @@ func classifyResourceAddition(dimension string, resource Resource) Classificatio
 		}
 	}
 	return classified(CompatibilityCompatible, "SCN_COMPAT_ADDITION")
+}
+
+func canonicalResourceKind(kind string) string {
+	return strings.TrimPrefix(kind, "scenery.")
+}
+
+func isMCPBinding(resource Resource) bool {
+	if canonicalResourceKind(resource.Kind) != "binding" {
+		return false
+	}
+	return stringValue(resource.Spec["protocol"]) == "mcp"
+}
+
+func isMCPEffectField(field string) bool {
+	return oneOf(field, "read_only", "destructive", "idempotent", "open_world", "allow_sensitive_output")
+}
+
+func isAssistantImplementationPath(path string) bool {
+	return path == "/spec/implementation" || strings.HasPrefix(path, "/spec/implementation/") && oneOf(pathLeaf(path), "adapter", "source", "package", "package_lock")
+}
+
+func isMCPConnectionImplementationPath(path string) bool {
+	return oneOf(path, "/spec/transport", "/spec/url", "/spec/connect_timeout", "/spec/call_timeout", "/spec/auth") ||
+		strings.HasPrefix(path, "/spec/auth/")
+}
+
+func classifyMCPMetadataChange(dimension, operation string, resource Resource, path string, base, target any) (Classification, bool) {
+	kind := canonicalResourceKind(resource.Kind)
+	if kind == "binding" && isMCPBinding(resource) {
+		if path == "/spec/mcp" {
+			if operation == "remove" {
+				return classified(CompatibilityBreaking, "SCN_COMPAT_MCP_CAPABILITY_REMOVED"), true
+			}
+			return classified(CompatibilityCompatible, "SCN_COMPAT_MCP_CAPABILITY_ADDED"), true
+		}
+		if strings.HasPrefix(path, "/spec/mcp/") {
+			field := pathLeaf(path)
+			switch {
+			case isNamedMCPToolPath(path) && oneOf(operation, "add", "remove"):
+				return classified(CompatibilityBreaking, "SCN_COMPAT_MCP_TOOL_NAME_CHANGED"), true
+			case field == "name":
+				return classified(CompatibilityBreaking, "SCN_COMPAT_MCP_TOOL_NAME_CHANGED"), true
+			case isMCPEffectField(field):
+				if oneOf(dimension, "runtime", "security", "generated_client") {
+					return classified(CompatibilityBreaking, "SCN_COMPAT_MCP_EFFECT_METADATA_CHANGED"), true
+				}
+				return classified(CompatibilityCompatible, "SCN_COMPAT_MCP_EFFECT_METADATA_CHANGED"), true
+			}
+		}
+	}
+	if kind == "mcp-server" && strings.HasSuffix(path, "/approval") {
+		if oneOf(dimension, "runtime", "security", "generated_client") {
+			return classified(CompatibilityBreaking, "SCN_COMPAT_MCP_APPROVAL_POLICY_CHANGED"), true
+		}
+		return classified(CompatibilityCompatible, "SCN_COMPAT_MCP_APPROVAL_POLICY_CHANGED"), true
+	}
+	if kind == "mcp-connection" && isMCPConnectionImplementationPath(path) {
+		if dimension == "security" && strings.HasPrefix(path, "/spec/auth") {
+			return classified(CompatibilityBreaking, "SCN_COMPAT_MCP_CONNECTION_IMPLEMENTATION_CHANGED"), true
+		}
+		if dimension == "security" {
+			return classified(CompatibilityCompatible, "SCN_COMPAT_MCP_CONNECTION_IMPLEMENTATION_CHANGED"), true
+		}
+		if oneOf(dimension, "runtime", "deployment") {
+			return classified(CompatibilityMigrationRequired, "SCN_COMPAT_MCP_CONNECTION_READINESS_CHANGED"), true
+		}
+		return classified(CompatibilityCompatible, "SCN_COMPAT_MCP_CONNECTION_IMPLEMENTATION_CHANGED"), true
+	}
+	if kind == "assistant" {
+		if isAssistantImplementationPath(path) {
+			if oneOf(dimension, "runtime", "deployment") {
+				return classified(CompatibilityMigrationRequired, "SCN_COMPAT_ASSISTANT_IMPLEMENTATION_REBUILD_REQUIRED"), true
+			}
+			return classified(CompatibilityCompatible, "SCN_COMPAT_ASSISTANT_IMPLEMENTATION_REBUILD_REQUIRED"), true
+		}
+		if path == "/spec/surface" || strings.HasPrefix(path, "/spec/surface/") || path == "/spec/mcp_server" {
+			return classified(CompatibilityBreaking, "SCN_COMPAT_ASSISTANT_PUBLIC_SURFACE_CHANGED"), true
+		}
+	}
+	_ = operation
+	_ = base
+	_ = target
+	return Classification{}, false
+}
+
+func classifyMCPBindingChange(dimension, operation string, resource Resource, path string, base, target any) Classification {
+	if path == "/spec/mcp" {
+		if operation == "remove" {
+			return classified(CompatibilityBreaking, "SCN_COMPAT_MCP_CAPABILITY_REMOVED")
+		}
+		return classified(CompatibilityCompatible, "SCN_COMPAT_MCP_CAPABILITY_ADDED")
+	}
+	if isNamedMCPToolPath(path) && oneOf(operation, "add", "remove") {
+		return classified(CompatibilityBreaking, "SCN_COMPAT_MCP_TOOL_NAME_CHANGED")
+	}
+	if strings.HasPrefix(path, "/spec/mcp/") {
+		return classified(CompatibilityCompatible, "SCN_COMPAT_MCP_EFFECT_METADATA_CHANGED")
+	}
+	if path == "/spec/operation" || path == "/spec/execution" || path == "/spec/delivery" {
+		return classified(CompatibilityBreaking, "SCN_COMPAT_MCP_CAPABILITY_BINDING_CHANGED")
+	}
+	return classifyBindingChange(dimension, operation, resource, path, base, target)
+}
+
+func isNamedMCPToolPath(path string) bool {
+	parts := strings.Split(strings.TrimPrefix(path, "/spec/"), "/")
+	return len(parts) == 2 && parts[0] == "mcp" && parts[1] != ""
+}
+
+func classifyMCPResourceChange(dimension, operation string, resource Resource, path string, base, target any) (Classification, bool) {
+	switch canonicalResourceKind(resource.Kind) {
+	case "mcp-server":
+		return classifyMCPServerChange(dimension, operation, path, base, target), true
+	case "mcp-connection":
+		return classifyMCPConnectionChange(dimension, operation, path, base, target), true
+	case "assistant":
+		return classifyAssistantChange(dimension, operation, path, base, target), true
+	}
+	return Classification{}, false
+}
+
+func classifyMCPServerChange(dimension, operation, path string, base, target any) Classification {
+	if path == "/spec/capability" {
+		if operation == "remove" {
+			return classified(CompatibilityBreaking, "SCN_COMPAT_MCP_CAPABILITY_REMOVED")
+		}
+		return classified(CompatibilityCompatible, "SCN_COMPAT_MCP_CAPABILITY_ADDED")
+	}
+	if strings.HasPrefix(path, "/spec/capability/") {
+		parts := strings.Split(strings.TrimPrefix(path, "/spec/"), "/")
+		if len(parts) == 2 {
+			if operation == "add" {
+				return classified(CompatibilityCompatible, "SCN_COMPAT_MCP_CAPABILITY_ADDED")
+			}
+			if operation == "remove" {
+				return classified(CompatibilityBreaking, "SCN_COMPAT_MCP_CAPABILITY_REMOVED")
+			}
+		}
+		if pathLeaf(path) == "name" || pathLeaf(path) == "binding" {
+			return classified(CompatibilityBreaking, "SCN_COMPAT_MCP_CAPABILITY_BINDING_CHANGED")
+		}
+		if pathLeaf(path) == "approval" {
+			return classified(CompatibilityBreaking, "SCN_COMPAT_MCP_APPROVAL_POLICY_CHANGED")
+		}
+	}
+	if path == "/spec/connection" {
+		if operation == "remove" {
+			return classified(CompatibilityBreaking, "SCN_COMPAT_MCP_CAPABILITY_REMOVED")
+		}
+		return classified(CompatibilityCompatible, "SCN_COMPAT_MCP_CAPABILITY_ADDED")
+	}
+	if strings.HasPrefix(path, "/spec/connection/") {
+		if operation == "add" {
+			return classified(CompatibilityCompatible, "SCN_COMPAT_MCP_CAPABILITY_ADDED")
+		}
+		if operation == "remove" {
+			return classified(CompatibilityBreaking, "SCN_COMPAT_MCP_CAPABILITY_REMOVED")
+		}
+		return classified(CompatibilityMigrationRequired, "SCN_COMPAT_MCP_CONNECTION_READINESS_CHANGED")
+	}
+	if oneOf(path, "/spec/max_input_bytes", "/spec/max_result_bytes") {
+		comparison, ok := compareNumbers(base, target)
+		if !ok {
+			return classified(CompatibilityUnknown, "SCN_COMPAT_MCP_LIMIT_CHANGED")
+		}
+		if comparison < 0 {
+			return classified(CompatibilityBreaking, "SCN_COMPAT_MCP_LIMIT_CHANGED")
+		}
+		return classified(CompatibilityCompatible, "SCN_COMPAT_MCP_LIMIT_CHANGED")
+	}
+	return classified(CompatibilityUnknown, "SCN_COMPAT_MCP_SERVER_CHANGE_UNKNOWN")
+}
+
+func classifyMCPConnectionChange(dimension, operation, path string, base, target any) Classification {
+	if strings.HasPrefix(path, "/spec/tools/") {
+		if oneOf(dimension, "runtime", "generated_client", "response_wire", "deployment") {
+			return classified(CompatibilityBreaking, "SCN_COMPAT_MCP_FILTER_CHANGED")
+		}
+		return classified(CompatibilityCompatible, "SCN_COMPAT_MCP_FILTER_CHANGED")
+	}
+	if isMCPConnectionImplementationPath(path) {
+		if dimension == "security" && strings.HasPrefix(path, "/spec/auth") {
+			return classified(CompatibilityBreaking, "SCN_COMPAT_MCP_CONNECTION_IMPLEMENTATION_CHANGED")
+		}
+		if dimension == "security" {
+			return classified(CompatibilityCompatible, "SCN_COMPAT_MCP_CONNECTION_IMPLEMENTATION_CHANGED")
+		}
+		if oneOf(dimension, "runtime", "deployment") {
+			return classified(CompatibilityMigrationRequired, "SCN_COMPAT_MCP_CONNECTION_READINESS_CHANGED")
+		}
+		return classified(CompatibilityCompatible, "SCN_COMPAT_MCP_CONNECTION_IMPLEMENTATION_CHANGED")
+	}
+	if operation == "add" {
+		return classified(CompatibilityCompatible, "SCN_COMPAT_ADDITION")
+	}
+	return classified(CompatibilityUnknown, "SCN_COMPAT_MCP_CONNECTION_CHANGE_UNKNOWN")
+}
+
+func classifyAssistantChange(dimension, operation, path string, base, target any) Classification {
+	if isAssistantImplementationPath(path) {
+		if oneOf(dimension, "runtime", "deployment") {
+			return classified(CompatibilityMigrationRequired, "SCN_COMPAT_ASSISTANT_IMPLEMENTATION_REBUILD_REQUIRED")
+		}
+		return classified(CompatibilityCompatible, "SCN_COMPAT_ASSISTANT_IMPLEMENTATION_REBUILD_REQUIRED")
+	}
+	if path == "/spec/surface" || strings.HasPrefix(path, "/spec/surface/") || path == "/spec/mcp_server" {
+		return classified(CompatibilityBreaking, "SCN_COMPAT_ASSISTANT_PUBLIC_SURFACE_CHANGED")
+	}
+	if operation == "add" {
+		return classified(CompatibilityCompatible, "SCN_COMPAT_ADDITION")
+	}
+	return classified(CompatibilityUnknown, "SCN_COMPAT_ASSISTANT_CHANGE_UNKNOWN")
 }
 
 func classifyRecordChange(dimension, operation string, before, after *Resource, path string, base, target any) Classification {
@@ -985,6 +1296,8 @@ func dimensionApplicable(ctx comparisonContext, dimension string, resource Resou
 		switch protocol {
 		case "http":
 			return oneOf(dimension, "source", "request_wire", "response_wire", "generated_client", "runtime", "security", "deployment")
+		case "mcp":
+			return oneOf(dimension, "source", "request_wire", "response_wire", "generated_client", "internal_call", "runtime", "security", "deployment")
 		case "internal":
 			return oneOf(dimension, "source", "generated_client", "internal_call", "runtime", "security", "deployment")
 		case "cli":
@@ -992,6 +1305,12 @@ func dimensionApplicable(ctx comparisonContext, dimension string, resource Resou
 		case "event":
 			return oneOf(dimension, "request_wire", "response_wire", "internal_call", "runtime", "security", "deployment")
 		}
+	case "scenery.mcp-server":
+		return oneOf(dimension, "source", "request_wire", "response_wire", "generated_client", "internal_call", "runtime", "security", "deployment")
+	case "scenery.mcp-connection":
+		return oneOf(dimension, "source", "runtime", "security", "deployment")
+	case "scenery.assistant":
+		return oneOf(dimension, "source", "request_wire", "response_wire", "generated_client", "runtime", "security", "deployment")
 	case "scenery.http-gateway", "scenery.authentication", "scenery.authorization", "scenery.pipeline", "scenery.secret", "scenery.secret-store":
 		return oneOf(dimension, "source", "request_wire", "runtime", "security", "deployment")
 	case "scenery.execution", "scenery.execution-engine", "scenery.go-target", "scenery.go-toolchain", "scenery.go-module":

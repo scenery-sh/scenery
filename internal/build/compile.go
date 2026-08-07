@@ -88,6 +88,20 @@ func CompileContext(ctx context.Context, result *Result) error {
 	if previousState.BuildFingerprint != "" {
 		previousBinary = filepath.Join(result.Dir, workspaceBinaryName(result.AppRoot, previousState.BuildFingerprint))
 	}
+	if !result.ReuseCompiled && result.ProductionAssets && result.Contract != nil && result.Target != nil {
+		generatedBefore := len(result.GeneratedFiles)
+		if err := prepareAssistantRuntimeAssets(ctx, result); err != nil {
+			return err
+		}
+		if len(result.GeneratedFiles) != generatedBefore || len(result.AssistantAssets) > 0 {
+			fingerprint, fingerprintErr := workspaceBuildFingerprint(result.Dir, result.GoBuildFlags, result.SourceFiles, result.GeneratedFiles)
+			if fingerprintErr != nil {
+				return fingerprintErr
+			}
+			result.BuildFingerprint = fingerprint
+			result.Binary = filepath.Join(result.Dir, workspaceBinaryName(result.AppRoot, fingerprint))
+		}
+	}
 	if result.ReuseCompiled {
 		result.NeedsTidy = false
 		if err := savePrimedWorkspace(result); err != nil {

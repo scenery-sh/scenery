@@ -17,6 +17,7 @@ var rootResourceKinds = map[string]bool{
 	"authentication": true, "authorization": true, "workload_identity": true, "pipeline": true,
 	"provider": true, "data_source": true, "execution_engine": true, "event_bus": true,
 	"secret_store": true, "secret": true, "deployment": true, "typescript_client": true, "patch": true,
+	"mcp_connection": true, "mcp_server": true, "assistant": true,
 }
 
 func resourcesByAddress(manifest *Manifest) map[string]Resource {

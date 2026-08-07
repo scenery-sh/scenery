@@ -7,6 +7,7 @@ changing. Each section is self-contained.
 - [Status](#status) — what is implemented now versus explicitly out of scope.
 - [App Config](#app-config) — the `.scenery.json` schema: envs, watch, frontends, deploy targets, and dev services.
 - [CLI Grammar](#cli-grammar) — the full implemented command grammar with flags, output modes, and exit semantics.
+- [Assistant model](#assistant-model) — provider-neutral MCP capabilities, public conversation routes, helper isolation, and inspection boundaries.
 - [Artifact Locations](#artifact-locations) — generated artifact paths and repo-local cache locations.
 - [JSON Schemas](#json-schemas) — machine-readable envelope and payload schemas under `docs/schemas/`.
 - [Examples](#examples) — representative `-o json` outputs per inspect and observability command.
@@ -72,7 +73,43 @@ External manifest references accept exactly either a current `scenery.manifest` 
 
 The compiler retains lossless CST/source maps and exposes distinct source, effective, and expanded graphs. Source preserves authored `var.*`/export expressions and omits defaults; effective resolves module inputs, applies effective defaults, then applies inheritance/exact patches; expanded adds generated resources. Every graph field carries `origin.field_provenance` keyed by an RFC 6901 pointer that resolves inside that resource's `spec` in the same view; arrays use numeric indexes, never labels. Entries include declaring range/input, supplier, source address, and transformation chain for defaults, inputs/exports, patches, expansions, and provider descriptors. Generated Go config-schema fields point to the exact referenced package-input declaration/attribute, including through config aliases. Portable source IDs are lower-case unpadded base32 SHA-256 identities over a domain-separated, length-framed normalized relative URI; they never sanitize punctuation or path separators into a collision-prone filename. Source-map ranges use zero-based Unicode-scalar lines and columns plus zero-based UTF-8 byte offsets, including for combining marks and CRLF sources. Canonical `contract_revision` excludes implementation and deployment inputs; compilation therefore reports `implementation_revision` as null. `scenery build` selects an exact declared Go target, hashes its complete non-standard package/module/embed/native-input graph, and combines that build-input digest with the resolved target to produce the target-specific `implementation_revision`. The resolved target records the selected Go command and compiler paths and SHA-256 identities; host CGO additionally records the resolved C and C++ compiler paths and identities while ambient compiler, linker, include, library, and pkg-config settings are scrubbed. A fixed non-host target with CGO enabled fails until a native-toolchain schema is available. The runtime bundle is written to `.scenery/build/runtime/<target>.json` and copied beside an explicit build output as `<binary>.scenery.runtime-bundle.json`; its schemas are `scenery.go-build-input-manifest` and `scenery.runtime-bundle`.
 
-Resolved `deployment_revision` and artifact/schema revisions are reported independently. Semantic diff, agent reads, and mutation plans use the same canonical graph and compatibility classifications. Change planning validates optional requested kind/schema identities, canonicalizes typed scalars/references, and returns every normalized operation with mandatory resolved kind, schema revision, and `view: "source"` before hashing it. A containing-module rename derives receipts for every descendant through stable source/package lineage; each receipt records old/new addresses, base/target contract revisions, and a digest in both plan and apply receipt. Diff recomputes the digest and revision bindings, loads matching applied receipts from an app root, or accepts `--rename-receipts`; invalid evidence remains remove-plus-add. A declaration shared by multiple module instances cannot be renamed through one instance address because that would mutate all instances ambiguously. Change and deployment plans are immutable, revision-bound, caller-bound, expiring, single-use transactions with staged validation and receipt output. Planning retains the exact canonical issued plan at `.scenery/plans/issued/<family>/<plan-digest>.json` with owner-only permissions. Apply requires an exact match before trusting expiry, approvals, operations, source edits, or provider actions; a caller-recomputed content hash is not proof of plan issuance.
+Resolved `deployment_revision` and artifact/schema revisions are reported independently. Semantic diff, agent reads, and mutation plans use the same canonical graph and compatibility classifications. Change planning validates optional requested kind/schema identities, canonicalizes typed scalars/references, and returns every normalized operation with mandatory resolved kind, schema revision, and `view: "source"` before hashing it. A containing-module rename derives receipts for every descendant through stable source/package lineage; each receipt records old/new addresses, base/target contract revisions, and a digest in both plan and apply receipt. Diff recomputes the digest and revision bindings, loads matching applied receipts from an app root, or accepts `--rename-receipts`; invalid evidence remains remove-plus-add. A declaration shared by multiple module instances cannot be renamed through one instance address because that would mutate all instances ambiguously. Change and deployment plans are immutable, revision-bound, caller-bound, expiring, single-commit transactions with replayable authenticated receipts. Planning retains the exact canonical issued plan at `.scenery/plans/issued/<family>/<plan-digest>.json` with owner-only permissions. Apply requires an exact canonical retained plan before trusting expiry, approvals, operations, source edits, or provider actions; a caller-recomputed content hash is not proof of plan issuance.
+
+The model-facing agent flow deliberately carries only handles and bounded
+summaries. `changes.plan` accepts exactly `base_workspace_revision`,
+`base_contract_revision` (or null for repair), and `operations`; its response
+contains `plan_id`, base/predicted revisions, implementation/deployment status,
+a semantic summary, bounded affected resources plus
+`affected_resource_count`/`affected_resources_truncated`, risk records plus
+`risk_count`/`risk_records_truncated`, required approval scopes, and
+required capability names, and `expires_at`. The complete canonical plan, semantic diff,
+diagnostics, and source edits remain in trusted app-local state for the
+approval/review UI and the explicit `plans.get({plan_id})` operation. The
+model-facing `changes.apply` request is exactly `{ "plan_id": "..." }`.
+`changes.receipt.get({plan_id})` is the explicit recovery read. It never
+requires the model to echo source bytes, caller
+identity, claimed capabilities, or approval credentials.
+Its response is `{plan_id, status: "applied", receipt}`; apply returns
+`{receipt, replayed}`.
+
+Apply authenticates the server-owned execution context and loads the exact
+retained plan before any model-controlled value is trusted. When a durable
+receipt for the same plan ID exists, Scenery strictly decodes and validates it
+against that plan and returns it as success (the response may include
+`replayed: true`) before checking first-apply expiry, approvals, base
+revisions, or provider actions. A malformed or mismatched receipt fails closed
+and is never followed by a second application. The persisted receipt is
+immutable. Approval handlers mint or attach plan-bound approval tokens after
+user approval; tokens never enter model-visible parameters. The same replay
+rule applies to deployment provider actions.
+
+Eve's generated application-MCP `user-approval` response is a provider tool
+decision, not an evolution approval token. The current application MCP gateway
+does not expose contract-agent mutation methods and no broker converts its
+opaque `appr1_` handle into a signed plan token. Approval-bearing
+contract-agent applies therefore require a trusted adapter/operator to attach
+the token through execution context until a dedicated plan/risk-bound broker
+is implemented.
 
 Risk-bearing apply commands accept repeatable `--approval-token <file>` values. Each file conforms to `docs/schemas/scenery.approval-token.schema.json`. Scenery verifies its detached Ed25519 signature against the app-local, non-symlink trust store `.scenery/approval-trust.json`, whose exact shape is `docs/schemas/scenery.approval-trust.schema.json`. Key values are raw 32-byte Ed25519 public keys encoded with standard padded or unpadded base64. A signature has the form `ed25519:<key-id>:<base64-signature>`.
 
@@ -150,6 +187,8 @@ Implemented now:
 - `scenery traces list -o json`
 - `scenery metrics list -o json`
 - `scenery inspect docs --for-path <path> -o json`
+- `scenery assistant init|sync|status -o json`
+- `scenery inspect assistants [--implementation] -o json`
 - `scenery logs -o jsonl`
 
 Reserved by contract, implementation pending:
@@ -485,6 +524,123 @@ scenery generate sqlc [--app-root <path>] [--dry-run] [-o json]
 scenery test [--app-root <path>] [go test flags/packages...]
 ```
 
+### Assistants
+
+```text
+scenery assistant init <name> --mcp-server <name> --client <name> [--dry-run] [--app-root <path>] -o json
+scenery assistant sync <name> [--app-root <path>] -o json
+scenery assistant status <name> [--app-root <path>] -o json
+```
+
+`assistant init` creates a provider-neutral assistant declaration and the
+minimal authored scaffold through the revision-bound workspace transaction.
+`--dry-run` plans the same edits without changing source or issued-plan state;
+an existing authored file is always preserved. `assistant sync` validates the
+exact package and lock bytes, resolves Scenery's managed Node/npm toolchain,
+and installs into the content-addressed `.scenery/assistant-cache/<lock-digest>`
+directory. Repeating sync with unchanged bytes reuses that cache; it never
+modifies the assistant's authored package files. `assistant status` is the
+read-only provider-neutral runtime snapshot; implementation details require
+the explicit `scenery inspect assistants --implementation` surface.
+
+## Assistant model
+
+Assistants are application resources in the current `.scn` graph. A package
+operation becomes an MCP capability through an ordinary binding with
+`protocol = "mcp"`, `delivery = "call"`, and exactly one `mcp` child. A root
+`mcp_server` composes local bindings and optional `mcp_connection` resources.
+Connections currently support Streamable HTTP, `none`, `bearer`, or one named
+header backed by a typed Scenery secret; Scenery owns the remote client,
+namespace/filter projection, readiness, and credential handling. The helper
+receives only the private provider-neutral Scenery MCP surface.
+
+An `assistant` binds one MCP server to an authored implementation and a
+Scenery-owned public conversation surface. The supported source shape is:
+
+```hcl
+assistant "support" {
+  mcp_server = mcp_server.support
+
+  implementation {
+    adapter      = "eve"
+    source       = "./assistants/support"
+    package      = "./assistants/support/package.json"
+    package_lock = "./assistants/support/package-lock.json"
+  }
+
+  surface {
+    gateway        = http_gateway.public_api
+    path           = "/assistants/support"
+    authentication = std.authentication.none
+    authorization  = std.authorization.public
+    pipeline       = std.pipeline.empty
+    session_access = "initiator"
+    client         = typescript_client.public_api
+  }
+}
+```
+
+The `implementation.adapter` value is developer/operator data. The current
+managed adapter is `eve`, but that name is not part of the supported public
+contract. It may appear in authored source, implementation graph views, the
+private runtime descriptor, private logs, and the explicit
+`inspect assistants --implementation` view only. Public routes, generated
+browser code, OpenAPI, public schemas, response headers/cookies/bodies, public
+events/errors, and default inspection omit provider identity and known provider
+signatures.
+
+The public surface is five routes beneath `<surface.path>/v1/conversations`:
+
+| Route | Method | Purpose |
+| --- | --- | --- |
+| `/` | `POST` | create a conversation and first run |
+| `/:conversation_id/turns` | `POST` | submit a follow-up user turn |
+| `/:conversation_id/events?after=<cursor>` | `GET` | stream normalized NDJSON events after a cursor |
+| `/:conversation_id/approvals/:approval_id` | `POST` | approve or deny one capability proposal |
+| `/:conversation_id/runs/:run_id/cancel` | `POST` | cancel one active run |
+
+Create and turn requests carry a bounded user message. Responses use opaque
+`conv1_`, `run_`, and `appr1_` handles. Event streams use
+`application/x-ndjson`, monotonic sequences, and the provider-neutral event
+types in `scenery.assistant.public-event`; `after` is strictly exclusive, so
+clients can reconnect without duplicate events. Public approval values are
+`approve` and `deny`; helper control uses the private `allow` and `deny`
+vocabulary. Public errors use the closed codes in
+`scenery.assistant.public-error` and stable, redacted messages.
+
+Anonymous public surfaces issue the HttpOnly, SameSite=Lax
+`scenery_assistant_initiator` cookie and bind every conversation, approval, and
+cancel operation to that initiator. Authenticated surfaces use the admitted
+principal instead. Authorization is evaluated independently for every MCP tool
+call; model visibility and an approval decision never grant application access.
+
+The helper is always a managed child process. Its versioned control protocol
+(`scenery.assistant.control.*`) and MCP listener are private loopback services;
+they require per-process authentication and exact runtime/capability revision
+handshakes. A helper outage is reported as typed assistant unavailability while
+the Go app remains alive. `scenery up` and `scenery build` use managed Node/npm
+and exact assistant package locks without rewriting authored package files.
+
+Use `scenery assistant status <name> -o json` or default
+`scenery inspect assistants -o json` for provider-neutral readiness, policy,
+restart, failure-code, and expected/actual revision state. Add
+`--implementation` only when debugging the developer/operator boundary; that
+payload may include adapter name, authored paths, lock digest, private listener
+addresses, and child PID. The machine schema is
+`scenery.inspect.assistants`.
+
+Mutation-capable assistant adapters receive a server-owned execution context,
+not model-selected identity. The context binds the authenticated principal,
+app root, and granted capabilities, plus client/protocol and correlation
+metadata when the transport exposes it safely. Any request attempting to
+override those values fails before plan lookup. The pinned Eve MCP connection
+API does not expose per-action `callId` or a configurable `toModelOutput` hook
+to connection definitions. Scenery therefore returns a compact plan from the
+protocol itself and mints a fresh gateway request ID per invocation; it never
+uses a turn- or session-level value as a substitute call ID. A separately
+authored Eve tool may use `toModelOutput` while sending richer review data to a
+hook or approval UI.
+
 ### Databases, snapshots, and storage
 
 ```text
@@ -531,7 +687,8 @@ scenery validate changed [--base <ref>] [--app-root <path>] [-o json] [--write] 
 scenery harness [--app-root <path>] [-o json] [--write] [--with-validation[=<profile>]]
 scenery harness self [--repo-root <path>] [--summary] [-o human|json] [--write] [--quick|--race|--release] [--fresh-tests]
 scenery harness ui -o json [--app-root <path>] [--dashboard-url <url>] [--headed] [--write]
-scenery inspect app|routes|services|endpoints|build|paths|generators|durable|storage|observability|validation -o json [--app-root <path>]
+scenery inspect app|routes|services|endpoints|build|paths|generators|durable|storage|observability|validation|assistants -o json [--app-root <path>]
+scenery inspect assistants [--implementation] -o json [--app-root <path>]
 scenery inspect ui [--frontend <name>] [--app-root <path>] [-o human|json]
 scenery inspect docs -o json [--repo-root <path>] [--for-path <path>|--tag <tag>|--status active|reference|completed|deprecated|--review-due|--all]
 scenery inspect harness [artifact <name>|diagnostics --severity error|warning|timing --top <n>] -o json [--app-root <path>] [--repo-root <path>]
@@ -760,6 +917,7 @@ scenery check -o json
 - success returns `ok: true`; failure returns `ok: false` with catalogued `SCNxxxx` diagnostics
 - the `data` payload contains the contract and implementation status, a compact `manifest_summary` (application identity plus resource counts by kind), the `partial_graph` on failure, and HTTP/OpenAPI revisions. `check` does not embed the full manifest; the complete graph stays on `scenery compile --view <view> -o json` and the `list`/`get`/`explain` surfaces
 - native implementation verification reports `valid` on success and `invalid` on error; when no native implementation check applies, the status is `not_requested`
+- native verification is hermetic (`GOPROXY=off`). When an authored package needs dependencies absent from the local module cache, `SCN6202` reports one bounded package summary, preserves the complete package list in diagnostic `details.missing_packages`, and suggests `go mod download` before retrying instead of emitting cascaded Go type errors
 
 Implemented `harness -o json` rules:
 
@@ -932,6 +1090,15 @@ Implemented now:
     latest.json
     runtime/
       <go-target>.json
+    assets/
+      <go-target>/
+        runtime-descriptor-<capsule-digest>.json
+  assistant-cache/
+    <package-lock-digest>/
+  assistants/
+    <private helper state>
+  run/
+    assistants.json
   harness/
     latest.json
     validation/
@@ -958,7 +1125,15 @@ Rules:
   observability metadata.
 - Agent/global dashboard state uses `<dashboard-cache-root>/devdash.json` for compact control-plane records and `<dashboard-cache-root>/app-model/<metadata|api-encoding>/sha256/<hash>.json` for large app-model blobs. The agent dashboard process is the global dashboard-store writer; other agent-backed runtime processes mutate it through the internal dashboard control-plane endpoint. Treat these files as internal cache artifacts; use dashboard APIs and CLI JSON instead of reading them directly.
 - Use `scenery inspect build -o json` for build metadata. `build/latest.json` is a local cache pointer to the latest prepared or compiled build workspace.
-- `build/runtime/<go-target>.json` is the exact runtime-bundle descriptor for the latest local build of that target. Treat it as build output, not a contract source; distribute the copied `<binary>.scenery.runtime-bundle.json` sidecar with an explicit binary output.
+- `build/runtime/<go-target>.json` is the exact runtime-bundle descriptor for the latest local build of that target. Treat it as build output, not a contract source; distribute the copied `<binary>.scenery.runtime-bundle.json` sidecar with an explicit binary output. When the application declares assistants, its optional `assistant_assets` array contains provider-neutral runtime-asset descriptors with the selected target plus Node/capsule archive and tree digests; the descriptor shape is strict and carries its exact structural schema revision.
+- `assistant-cache/<package-lock-digest>/` is the content-addressed managed
+  Node/npm dependency cache. It is never authored source and `assistant sync`
+  reuses it only when the exact package and lock bytes match.
+- `assistants/` and `run/assistants.json` are private helper/supervisor state.
+  They may contain control tokens, process state, or implementation metadata;
+  use `scenery assistant status` and `scenery inspect assistants` instead of
+  reading them directly. The default inspection payload intentionally omits
+  those private details.
 - Every checked cross-process artifact binds `schema_revision` to the static
   digest of its complete self-normalized JSON Schema. Transient private
   artifacts without a checked schema bind a complete structural descriptor;
@@ -975,6 +1150,17 @@ Implemented now:
 - [scenery.change-receipt.schema.json](schemas/scenery.change-receipt.schema.json)
 - [scenery.build.result.schema.json](schemas/scenery.build.result.schema.json)
 - [scenery.build.desktop.schema.json](schemas/scenery.build.desktop.schema.json)
+- [scenery.assistant.control.event.schema.json](schemas/scenery.assistant.control.event.schema.json)
+- [scenery.assistant.control.request.schema.json](schemas/scenery.assistant.control.request.schema.json)
+- [scenery.assistant.control.response.schema.json](schemas/scenery.assistant.control.response.schema.json)
+- [scenery.assistant.init.schema.json](schemas/scenery.assistant.init.schema.json)
+- [scenery.assistant.public-error.schema.json](schemas/scenery.assistant.public-error.schema.json)
+- [scenery.assistant.public-event.schema.json](schemas/scenery.assistant.public-event.schema.json)
+- [scenery.assistant.public.request.schema.json](schemas/scenery.assistant.public.request.schema.json)
+- [scenery.assistant.public.response.schema.json](schemas/scenery.assistant.public.response.schema.json)
+- [scenery.assistant.runtime-descriptor.schema.json](schemas/scenery.assistant.runtime-descriptor.schema.json)
+- [scenery.assistant.status.schema.json](schemas/scenery.assistant.status.schema.json)
+- [scenery.assistant.sync.schema.json](schemas/scenery.assistant.sync.schema.json)
 - [scenery.cli.schema.json](schemas/scenery.cli.schema.json)
 - [scenery.cli.event.schema.json](schemas/scenery.cli.event.schema.json)
 - [scenery.deployment-plan.schema.json](schemas/scenery.deployment-plan.schema.json)
@@ -992,6 +1178,7 @@ Implemented now:
 - [scenery.inspect.routes.schema.json](schemas/scenery.inspect.routes.schema.json)
 - [scenery.inspect.services.schema.json](schemas/scenery.inspect.services.schema.json)
 - [scenery.inspect.endpoints.schema.json](schemas/scenery.inspect.endpoints.schema.json)
+- [scenery.inspect.assistants.schema.json](schemas/scenery.inspect.assistants.schema.json)
 - [scenery.inspect.traces.schema.json](schemas/scenery.inspect.traces.schema.json)
 - [scenery.inspect.metrics.schema.json](schemas/scenery.inspect.metrics.schema.json)
 - [scenery.inspect.observability.schema.json](schemas/scenery.inspect.observability.schema.json)

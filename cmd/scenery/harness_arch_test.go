@@ -16,6 +16,7 @@ func TestRunHarnessArchitectureStepValidAndInvalidFixtures(t *testing.T) {
 		writeArchitectureSupportFiles(t, root)
 		writeTestAppFile(t, root, "internal/example/example.go", "package example\n\nimport \"fmt\"\n\nfunc Format(v string) string { return fmt.Sprintf(\"%s\", v) }\n")
 		writeTestAppFile(t, root, "apps/console/node_modules/pkg/README.md", "model context "+"protocol\n")
+		writeTestAppFile(t, root, "docs/current.md", "MCP uses the Model Context Protocol.\n")
 
 		step := runHarnessArchitectureStep(root)
 		if !step.OK {
@@ -138,6 +139,15 @@ func TestCheckCurrentSurfaceResidue(t *testing.T) {
 				t.Fatalf("missing %q diagnostic: %+v", test.want, diagnostics)
 			}
 		})
+	}
+}
+
+func TestRemovedAgentTransportTermUsesTokenBoundaries(t *testing.T) {
+	if containsRemovedAgentTransportTerm("renderMCPToolRegistrations", "r"+"m"+"cp") {
+		t.Fatal("canonical renderMCP identifier matched retired transport token")
+	}
+	if !containsRemovedAgentTransportTerm("the retired r"+"m"+"cp transport", "r"+"m"+"cp") {
+		t.Fatal("retired transport token was not detected")
 	}
 }
 

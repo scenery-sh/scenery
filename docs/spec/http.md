@@ -35,6 +35,13 @@ Terminal zero-or-more path segments are an additive extension defined by
 [http-path-tail.md](http-path-tail.md). The extension
 continues to use this codec for all non-tail HTTP semantics.
 
+Assistant conversation routes are a dedicated Scenery runtime contract layered
+on this HTTP boundary. They normalize a fixed provider-neutral NDJSON event
+stream and cursor protocol; they do not make generic streaming, arbitrary
+server-sent events, or transport handles available to ordinary operation
+bindings. Their route, event, approval, cancellation, and public-error rules
+are defined by the assistant schemas and the umbrella specification.
+
 A manifest and generated client MUST record the exact codec revision. A runtime MUST reject an unsupported codec rather than approximating it.
 
 ## 3. HTTP gateways
@@ -254,7 +261,7 @@ The HTTP contract defines:
 - `form`;
 - `multipart`.
 
-`server_sent_events` requires future explicit streaming support even though its schema name is reserved.
+`server_sent_events` requires future explicit streaming support even though its schema name is reserved. The dedicated assistant event route is the only current streaming-shaped HTTP projection; it is not a `server_sent_events` binding and does not relax this requirement.
 
 ### 9.2 No raw transport handle
 

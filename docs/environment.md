@@ -65,6 +65,28 @@ between resolved app config and the app child. Users should configure
 `envs.<env>.libraries` rather than set them manually. `<NAME>` is the declared
 library name uppercased with non-alphanumeric characters replaced by `_`.
 
+## Assistant Runtime Handoff
+
+These names are a private, provider-neutral boundary between the scenery
+supervisor/launcher, the generated app child, and a managed assistant helper.
+They are not public API configuration, must not be copied into browser-facing
+configuration or ordinary logs, and helper control values are always loopback
+scoped. Only the two token-key names are operator-supplied secret inputs; all
+other names in this section are injected handoff values.
+
+| Variable | Direction | Description |
+| --- | --- | --- |
+| `SCENERY_ASSISTANT_RUNTIME_CONFIG` | injected | App-child path to a private mode-0600 JSON descriptor written by the supervisor or production launcher. It contains helper control addresses and credentials and must never be exposed publicly or logged. |
+| `SCENERY_ASSISTANT_TOKEN_KEY` | user input secret | Stable 32-byte framework token key, supplied as raw text or hex/base64 encoding through the operator's existing secret mechanism. Never log or expose it. |
+| `SCENERY_ASSISTANT_TOKEN_KEY_FILE` | user input secret | Private mode-0600 file containing the stable framework token key. The supervisor may inject the resolved path into the app child; never expose the file or its contents. |
+| `SCENERY_ASSISTANT_ID` | injected child-only | Provider-neutral assistant address injected into the managed helper. It is an internal identity, not a user-configurable public name. |
+| `SCENERY_ASSISTANT_CONTROL_TOKEN` | injected child-only secret | Short-lived loopback control bearer token for the managed helper. It must never appear in logs, status, browser responses, or public inspection. |
+| `SCENERY_ASSISTANT_CONTROL_ADDR` | injected child-only | Private loopback control address for the managed helper. It is not a public route and must not be emitted in provider-neutral inspection or logs. |
+| `SCENERY_MCP_URL` | injected child-only | Private loopback Scenery MCP gateway URL used by the helper. It is a parent-child handoff value and must not be exposed publicly or logged. |
+| `SCENERY_MCP_BRIDGE_SECRET` | injected child-only secret | Short-lived HMAC bridge secret used for helper-to-gateway assertions. Never log or expose it. |
+| `SCENERY_CAPABILITY_REVISION` | injected child-only | Expected capability revision supplied to the helper for strict handshake and event validation. |
+| `SCENERY_RUNTIME_REVISION` | injected child-only | Expected helper runtime revision supplied for strict handshake and restart validation. |
+
 ## App Service URLs And Auth
 
 | Variable | Direction | Description |

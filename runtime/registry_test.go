@@ -7,6 +7,8 @@ import (
 	"testing"
 	"testing/synctest"
 
+	"scenery.sh/internal/mcpcontract"
+	"scenery.sh/internal/mcpgateway"
 	"scenery.sh/runtime/shared"
 )
 
@@ -237,12 +239,35 @@ func TestSetAppConfigUsesSessionIdentityEnv(t *testing.T) {
 
 func replaceGlobalRegistryForTest() func() {
 	prev := global
+	mcpDurableOwners.Lock()
+	prevMCPDurableOwners := make(map[string]mcpDurableOwner, len(mcpDurableOwners.values))
+	for key, owner := range mcpDurableOwners.values {
+		prevMCPDurableOwners[key] = owner
+	}
+	mcpDurableOwners.values = make(map[string]mcpDurableOwner)
+	mcpDurableOwners.Unlock()
+	activeAssistantMCPGateways.Lock()
+	prevAssistantMCPGateways := activeAssistantMCPGateways.values
+	activeAssistantMCPGateways.values = make(map[string]*mcpgateway.Gateway)
+	activeAssistantMCPGateways.Unlock()
+	assistantMCPGatewayReadinessState.Lock()
+	prevAssistantMCPGatewayReadiness := assistantMCPGatewayReadinessState.values
+	assistantMCPGatewayReadinessState.values = make(map[string]assistantMCPGatewayReadiness)
+	assistantMCPGatewayReadinessState.Unlock()
 	global = &registry{
 		endpoints:                 make(map[string]*Endpoint),
 		cronJobs:                  make(map[string]*CronJob),
 		durableTasks:              make(map[string]*DurableTask),
 		contractDurableExecutions: make(map[string]ContractDurableRegistration),
 		contractBindings:          make(map[string]ContractInternalBindingRegistration),
+		mcpTools:                  make(map[string]MCPToolRegistration),
+		mcpFederationSpecs:        make(map[string]MCPFederationRegistration),
+		mcpFederations:            make(map[string]*mcpFederationState),
+		mcpFederationAssistants:   make(map[string]string),
+		mcpSecretResolvers:        make(map[string]MCPSecretResolver),
+		assistantMCPManifests:     make(map[string]mcpcontract.Manifest),
+		assistants:                make(map[string]AssistantRegistration),
+		assistantClients:          make(map[string]AssistantClient),
 		contractCLIBindings:       make(map[string]ContractCLIBindingRegistration),
 		contractPages:             make(map[string]ContractPageRegistration),
 		contractEventBuses:        make(map[string]ContractEventBus),
@@ -257,5 +282,14 @@ func replaceGlobalRegistryForTest() func() {
 	}
 	return func() {
 		global = prev
+		mcpDurableOwners.Lock()
+		mcpDurableOwners.values = prevMCPDurableOwners
+		mcpDurableOwners.Unlock()
+		activeAssistantMCPGateways.Lock()
+		activeAssistantMCPGateways.values = prevAssistantMCPGateways
+		activeAssistantMCPGateways.Unlock()
+		assistantMCPGatewayReadinessState.Lock()
+		assistantMCPGatewayReadinessState.values = prevAssistantMCPGatewayReadiness
+		assistantMCPGatewayReadinessState.Unlock()
 	}
 }

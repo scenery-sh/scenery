@@ -191,6 +191,7 @@ func buildDoctorResponse(ctx context.Context, opts doctorOptions, deps doctor.Pr
 		resp.Checks = append(resp.Checks, doctor.EditorWorkspaceCheck(resp.App.Root))
 		resp.Checks = append(resp.Checks, doctorContractFilenameChecks(resp.App.Root)...)
 		resp.Checks = append(resp.Checks, doctorReactChecks(resp.App.Root)...)
+		resp.Checks = append(resp.Checks, doctorAssistantChecks(ctx, resp.App.Root, cfg, runtimeInfo)...)
 	}
 	resp.Checks = append(resp.Checks, doctorProcessOwnershipCheck(ctx, deps))
 	if deployInfo, deployChecks := doctorDeployDiagnostics(ctx, deps); deployInfo != nil {

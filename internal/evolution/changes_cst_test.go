@@ -90,6 +90,26 @@ func TestSemanticPointerAddressesNamedChildren(t *testing.T) {
 	}
 }
 
+func TestCSTMutationRecognizesAssistantAndMCPSingletonBlocks(t *testing.T) {
+	tests := []struct {
+		kind, field string
+	}{
+		{"scenery.binding", "mcp"},
+		{"scenery.mcp-connection", "auth"},
+		{"scenery.mcp-connection", "tools"},
+		{"scenery.assistant", "implementation"},
+		{"scenery.assistant", "surface"},
+	}
+	for _, test := range tests {
+		if !semanticSingularBlockField(test.kind, test.field) {
+			t.Errorf("semantic block %s.%s was not recognized", test.kind, test.field)
+		}
+	}
+	if semanticSingularBlockField("scenery.mcp-server", "capability") {
+		t.Error("repeatable MCP capability block was treated as singleton")
+	}
+}
+
 func TestChangePlanAppliesNestedBlockEditAtomically(t *testing.T) {
 	root := t.TempDir()
 	copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), root)
@@ -109,6 +129,7 @@ func TestChangePlanAppliesNestedBlockEditAtomically(t *testing.T) {
 	}
 	receipt, err := ApplyChangePlanWithOptions(root, plan, ApplyOptions{
 		ExpectedWorkspaceRevision: base.WorkspaceRevision, ExpectedContractRevision: stringPointer(base.Manifest.ContractRevision), Caller: "test",
+		GrantedCapabilities: []string{requiredChangeCapability},
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -6,6 +6,7 @@ import (
 
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/compiler"
+	"scenery.sh/internal/generate"
 	"scenery.sh/internal/machine"
 )
 
@@ -40,6 +41,8 @@ type Result struct {
 	Target                  *compiler.GoBuildTarget
 	BuildInput              *BuildInputManifest
 	ImplementationRevisions map[string]string
+	AssistantAssets         []generate.AssistantAssetDescriptor
+	ProductionAssets        bool
 }
 
 // SourceStamp records the size/mtime/permissions of an app source file as
@@ -124,6 +127,17 @@ type LatestBuildManifestRecord struct {
 }
 
 func AppForTarget(appRoot string, cfg app.Config, targetName, defaultRole string) (*Result, error) {
+	return appForTarget(appRoot, cfg, targetName, defaultRole, false)
+}
+
+// BuildArtifactForTarget prepares and compiles one production app binary.
+// Unlike the development/worker AppForTarget path, it materializes the
+// platform-matched assistant runtime assets before linking the Go binary.
+func BuildArtifactForTarget(appRoot string, cfg app.Config, targetName, defaultRole string) (*Result, error) {
+	return appForTarget(appRoot, cfg, targetName, defaultRole, true)
+}
+
+func appForTarget(appRoot string, cfg app.Config, targetName, defaultRole string, productionAssets bool) (*Result, error) {
 	contract, err := compiler.Check(appRoot)
 	if err != nil {
 		return nil, err
@@ -142,6 +156,7 @@ func AppForTarget(appRoot string, cfg app.Config, targetName, defaultRole string
 	if err != nil {
 		return nil, err
 	}
+	result.ProductionAssets = productionAssets
 	if err := Compile(result); err != nil {
 		return nil, err
 	}

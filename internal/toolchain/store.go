@@ -634,7 +634,8 @@ func extractSelectedArtifact(data []byte, artifact Artifact, entry PlatformArtif
 			continue
 		}
 		if entry.Home {
-			if err := extractTarEntry(tr, header, filepath.Join(dir, "home", name)); err != nil {
+			homeDir := filepath.Join(dir, "home")
+			if err := extractTarEntry(tr, header, filepath.Join(homeDir, name), homeDir); err != nil {
 				return err
 			}
 			if filepath.ToSlash(name) == cleanExtract(entry.Extract) {
@@ -646,7 +647,7 @@ func extractSelectedArtifact(data []byte, artifact Artifact, entry PlatformArtif
 			continue
 		}
 		target := filepath.Join(dir, "bin", artifact.DefaultBinary)
-		if err := extractTarEntry(tr, header, target); err != nil {
+		if err := extractTarEntry(tr, header, target, filepath.Join(dir, "bin")); err != nil {
 			return err
 		}
 		found = true
@@ -676,7 +677,7 @@ func extractTarArchive(data []byte, stripComponents int, dir string) error {
 		if !ok {
 			continue
 		}
-		if err := extractTarEntry(tr, header, filepath.Join(dir, name)); err != nil {
+		if err := extractTarEntry(tr, header, filepath.Join(dir, name), dir); err != nil {
 			return err
 		}
 	}
@@ -714,8 +715,9 @@ func copyExecutableFile(source, target string) error {
 	return closeErr
 }
 
-func extractTarEntry(r io.Reader, header *tar.Header, target string) error {
+func extractTarEntry(r io.Reader, header *tar.Header, target, root string) error {
 	cleanTarget := filepath.Clean(target)
+	cleanRoot := filepath.Clean(root)
 	switch header.Typeflag {
 	case tar.TypeDir:
 		return os.MkdirAll(cleanTarget, header.FileInfo().Mode().Perm())
@@ -738,7 +740,12 @@ func extractTarEntry(r io.Reader, header *tar.Header, target string) error {
 		}
 		return closeErr
 	case tar.TypeSymlink:
-		if header.Linkname == "" || filepath.IsAbs(header.Linkname) || strings.Contains(filepath.ToSlash(header.Linkname), "../") {
+		linkName := filepath.FromSlash(strings.TrimSpace(header.Linkname))
+		if linkName == "" || filepath.IsAbs(linkName) {
+			return nil
+		}
+		resolved := filepath.Clean(filepath.Join(filepath.Dir(cleanTarget), linkName))
+		if resolved != cleanRoot && !strings.HasPrefix(resolved, cleanRoot+string(filepath.Separator)) {
 			return nil
 		}
 		if err := os.MkdirAll(filepath.Dir(cleanTarget), 0o755); err != nil {

@@ -1,0 +1,9 @@
+{
+  "name": "@scenery/eve-adapter-fixture",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "dependencies": {
+    "eve": "0.29.5"
+  }
+}

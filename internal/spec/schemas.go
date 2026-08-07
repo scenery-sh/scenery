@@ -67,6 +67,9 @@ var resourceSchemas = map[string]resourceSchema{
 	"scenery.operation":      {"contract", []string{"input", "handler"}, []string{"service", "library", "input"}, nil},
 	"scenery.execution":      {"contract", []string{"operation", "mode"}, []string{"operation", "mode", "engine", "revision", "timeout", "lease", "attempts", "external_name"}, nil},
 	"scenery.binding":        {"contract", []string{"operation", "execution", "protocol", "delivery", "authentication", "authorization", "pipeline"}, []string{"gateway", "operation", "execution", "protocol", "delivery", "exposure", "authentication", "authorization", "pipeline"}, nil},
+	"scenery.mcp-connection": {"deployment", []string{"transport", "url", "auth", "connect_timeout", "call_timeout"}, []string{"transport", "url", "connect_timeout", "call_timeout"}, nil},
+	"scenery.mcp-server":     {"contract", []string{"capability", "max_input_bytes", "max_result_bytes"}, []string{"max_input_bytes", "max_result_bytes"}, nil},
+	"scenery.assistant":      {"contract", []string{"mcp_server", "implementation", "surface"}, []string{"mcp_server"}, nil},
 	"scenery.schedule":       {"contract", []string{"trigger", "invoke", "overlap"}, []string{"overlap"}, nil},
 	"scenery.event":          {"contract", []string{"payload", "version"}, []string{"payload", "version"}, nil},
 	"scenery.event-emission": {"contract", []string{"bus", "channel", "contract", "guarantee", "from"}, []string{"bus", "channel", "contract", "guarantee", "ordering_key", "deduplication_key", "dead_letter_channel"}, nil},
@@ -92,12 +95,19 @@ var resourceSchemas = map[string]resourceSchema{
 }
 
 var resourceConditionalRequirements = map[string][]resourceConditionalRequirement{
-	"scenery.binding": {{Field: "protocol", Equals: "http", Required: []string{"gateway"}}},
+	"scenery.binding": {
+		{Field: "protocol", Equals: "http", Required: []string{"gateway"}},
+		{Field: "protocol", Equals: "mcp", Required: []string{"mcp"}},
+	},
 }
 
 var authoredConditionalRequirements = map[string][]resourceConditionalRequirement{
 	"scenery.operation.idempotency": {{Field: "mode", Equals: "keyed", Required: []string{"key"}}},
 	"scenery.source.binding":        resourceConditionalRequirements["scenery.binding"],
+	"scenery.mcp-connection.auth": {
+		{Field: "scheme", Equals: "bearer", Required: []string{"secret"}},
+		{Field: "scheme", Equals: "header", Required: []string{"secret", "header"}},
+	},
 }
 
 var dynamicResourceRevisionDomains = map[string]map[string]dynamicRevisionDomain{

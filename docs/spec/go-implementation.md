@@ -599,6 +599,38 @@ invocation. The adapter MUST NOT re-read or re-decode the raw URI, and the
 handler receives no request object, response writer, wildcard map, raw URI, or
 transport wrapper solely because the binding uses a path tail.
 
+### 15.2 Assistant runtime boundary
+
+When the graph contains `mcp_server` or `assistant` resources, generated
+composition registers a provider-neutral assistant route/gateway, MCP
+capability manifest, public JSON/NDJSON schemas, and the private runtime
+descriptor. Go runtime packages expose only provider-neutral lifecycle and
+dispatch interfaces; compiler, graph, and public assistant API packages MUST
+NOT import an adapter SDK.
+
+The assistant implementation always runs in a supervised child process. The Go
+runtime and child exchange the unversioned `scenery.assistant.control`
+protocol, authenticate every private loopback connection, and complete exact
+runtime/capability revision handshakes before dispatch. The child may receive
+an internal MCP loopback endpoint, but it MUST NOT publish a public MCP
+listener. Scenery owns application-local dispatch, remote MCP federation,
+credential termination, authorization, approval, cancellation, and the
+provider-neutral health/restart state. A child crash degrades only assistant
+routes and returns typed unavailability to callers.
+
+`internal/assistantadapter/eve` is the current provider-only package. Its
+adapter name, authored source/package/lock paths, private listener, and runtime
+identity belong to the implementation/deployment projection and explicit
+developer/operator inspection. They MUST NOT flow into public routes, generated
+clients, OpenAPI, public schemas/events/errors, default status, or the public
+runtime descriptor. The adapter package MUST NOT be imported by
+`internal/compiler`, `internal/graph`, or the provider-neutral assistant API.
+
+Production builds archive the managed Node/toolchain and assistant capsule with
+content-addressed digests and detached runtime-assets descriptors. Authored
+package manifests and lockfiles remain source inputs and are never rewritten by
+`up`, `build`, or `assistant sync`.
+
 ## 16. Generated artifact descriptors
 
 ### 16.1 Package contract descriptor
@@ -753,6 +785,10 @@ A conforming tool passes fixtures for:
 - no package ABI change for an unreachable private type;
 - descriptor and runtime registration mismatch failures;
 - for path-tail bindings, typed input population, unchanged handler ABI, and route-table conflict verification;
+- provider-neutral assistant route registration and generated public schemas;
+- supervised assistant child startup, revision handshake, crash/restart, and typed unavailability;
+- private control/loopback MCP isolation and public provider-identity leak rejection;
+- managed assistant runtime-assets descriptor and exact package/lock cache reuse;
 - clean-clone `go test ./...` and gopls-visible committed contracts;
 - overlay-based check with stale committed contracts;
 - atomic generate and `scenery generate --check`;

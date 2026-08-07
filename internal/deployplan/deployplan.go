@@ -267,6 +267,12 @@ func ApplyDeploymentPlan(ctx context.Context, root string, plan DeploymentPlan, 
 	if err := evolution.RequireIssuedPlan(root, evolution.IssuedDeploymentPlan, plan.PlanID, plan); err != nil {
 		return DeploymentReceipt{}, err
 	}
+	if plan.PlanID == "" || deploymentPlanID(plan) != plan.PlanID {
+		return DeploymentReceipt{}, fmt.Errorf("failed_precondition: deployment plan identity mismatch")
+	}
+	if options.Caller != plan.Caller {
+		return DeploymentReceipt{}, fmt.Errorf("permission_denied: deployment plan caller mismatch")
+	}
 	release, err := acquireDeploymentApplyLock(root)
 	if err != nil {
 		return DeploymentReceipt{}, err
@@ -275,21 +281,21 @@ func ApplyDeploymentPlan(ctx context.Context, root string, plan DeploymentPlan, 
 	if err := recoverDeploymentJournals(ctx, root, providers); err != nil {
 		return DeploymentReceipt{}, err
 	}
+	// The applied receipt is the durable commit marker. Once it exists, a
+	// retry must return that exact result even if the plan has since expired or
+	// the workspace has drifted. Caller and issued-plan validation above still
+	// bind replay to the authenticated request and the original plan.
+	appliedPath := deploymentAppliedPlanPath(root, plan.PlanID)
+	if receipt, exists, err := readDeploymentReceipt(root, appliedPath, plan); err != nil {
+		return DeploymentReceipt{}, err
+	} else if exists {
+		return receipt, nil
+	}
 	if time.Now().UTC().After(plan.ExpiresAt) {
 		return DeploymentReceipt{}, fmt.Errorf("failed_precondition: deployment plan expired")
 	}
-	if plan.PlanID == "" || deploymentPlanID(plan) != plan.PlanID {
-		return DeploymentReceipt{}, fmt.Errorf("failed_precondition: deployment plan identity mismatch")
-	}
-	if options.Caller != plan.Caller {
-		return DeploymentReceipt{}, fmt.Errorf("permission_denied: deployment plan caller mismatch")
-	}
 	if err := validateDeploymentApprovals(plan, options); err != nil {
 		return DeploymentReceipt{}, err
-	}
-	appliedPath := deploymentAppliedPlanPath(root, plan.PlanID)
-	if pathExists(appliedPath) {
-		return DeploymentReceipt{}, fmt.Errorf("failed_precondition: deployment plan was already applied")
 	}
 	current, err := compiler.CompileContractGraph(root)
 	if err != nil {
@@ -454,11 +460,17 @@ func recoverDeploymentJournals(ctx context.Context, root string, providers Deplo
 		if err := decoder.Decode(&journal); err != nil || decoder.Decode(&struct{}{}) != io.EOF || machine.ValidateArtifactIdentity(journal.ArtifactIdentity, deploymentApplyJournalKind, deploymentJournalSchemaDescriptor, "re-plan") != nil || machine.ValidateArtifactIdentity(journal.Plan.ArtifactIdentity, deploymentPlanKind, deploymentPlanSchemaDescriptor, "re-plan") != nil || journal.Plan.PlanID == "" || deploymentPlanID(journal.Plan) != journal.Plan.PlanID {
 			return fmt.Errorf("internal: invalid deployment recovery journal %s", entry.Name())
 		}
-		if journal.Committed || pathExists(deploymentAppliedPlanPath(root, journal.Plan.PlanID)) {
+		appliedPath := deploymentAppliedPlanPath(root, journal.Plan.PlanID)
+		if _, exists, receiptErr := readDeploymentReceipt(root, appliedPath, journal.Plan); receiptErr != nil {
+			return fmt.Errorf("internal: validate committed deployment receipt: %w", receiptErr)
+		} else if exists {
 			if err := removeDeploymentFile(root, path); err != nil && !os.IsNotExist(err) {
 				return fmt.Errorf("internal: remove committed deployment journal: %w", err)
 			}
 			continue
+		}
+		if journal.Committed {
+			return fmt.Errorf("internal: committed deployment journal %s has no receipt", entry.Name())
 		}
 		if journal.RestoreState {
 			if err := restoreDeploymentState(root, journal); err != nil {
@@ -592,11 +604,69 @@ func readDeploymentFile(root, path string) ([]byte, bool, error) {
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 		return nil, false, fmt.Errorf("failed_precondition: deployment target is not a regular file")
 	}
+	if err := rejectPathSymlinks(root, filepath.Dir(target)); err != nil {
+		return nil, false, fmt.Errorf("failed_precondition: deployment path is unsafe: %w", err)
+	}
 	data, err := os.ReadFile(target)
 	if err != nil {
 		return nil, false, err
 	}
 	return data, true, nil
+}
+
+func readDeploymentReceipt(root, path string, plan DeploymentPlan) (DeploymentReceipt, bool, error) {
+	encoded, exists, err := readDeploymentFile(root, path)
+	if err != nil {
+		return DeploymentReceipt{}, false, err
+	}
+	if !exists {
+		return DeploymentReceipt{}, false, nil
+	}
+	var receipt DeploymentReceipt
+	if err := machine.DecodeArtifact(encoded, &receipt, &receipt.ArtifactIdentity, deploymentReceiptKind, deploymentReceiptSchemaDescriptor, "re-apply"); err != nil {
+		return DeploymentReceipt{}, true, fmt.Errorf("failed_precondition: deployment receipt is invalid: %w", err)
+	}
+	if err := validateDeploymentReceipt(plan, receipt); err != nil {
+		return DeploymentReceipt{}, true, fmt.Errorf("failed_precondition: deployment receipt is invalid: %w", err)
+	}
+	return receipt, true, nil
+}
+
+func validateDeploymentReceipt(plan DeploymentPlan, receipt DeploymentReceipt) error {
+	if receipt.PlanID != plan.PlanID || !isCanonicalSHA256Digest(receipt.PlanID) {
+		return fmt.Errorf("plan identity mismatch")
+	}
+	if receipt.Application == "" || receipt.Application != plan.Application {
+		return fmt.Errorf("application mismatch")
+	}
+	if receipt.Deployment == "" || receipt.Deployment != plan.Deployment {
+		return fmt.Errorf("deployment mismatch")
+	}
+	if receipt.WorkspaceRevision != plan.BaseWorkspaceRevision || !isCanonicalSHA256Digest(receipt.WorkspaceRevision) {
+		return fmt.Errorf("workspace revision mismatch")
+	}
+	if receipt.ContractRevision != plan.ContractRevision || !isCanonicalSHA256Digest(receipt.ContractRevision) {
+		return fmt.Errorf("contract revision mismatch")
+	}
+	if !canonicalRevisionMap(receipt.ImplementationRevision) || !reflect.DeepEqual(receipt.ImplementationRevision, plan.ImplementationRevision) {
+		return fmt.Errorf("implementation revision mismatch")
+	}
+	if receipt.DeploymentRevision != plan.DeploymentRevision || !isCanonicalSHA256Digest(receipt.DeploymentRevision) {
+		return fmt.Errorf("deployment revision mismatch")
+	}
+	expectedDigests := deploymentProviderPlanDigests(plan.ProviderPlans)
+	if !reflect.DeepEqual(receipt.ProviderPlanDigests, expectedDigests) {
+		return fmt.Errorf("provider plan digests mismatch")
+	}
+	for index, digest := range receipt.ProviderPlanDigests {
+		if !isCanonicalSHA256Digest(digest) || (index > 0 && receipt.ProviderPlanDigests[index-1] >= digest) {
+			return fmt.Errorf("provider plan digests are not canonical")
+		}
+	}
+	if receipt.AppliedAt.IsZero() {
+		return fmt.Errorf("applied_at is missing")
+	}
+	return nil
 }
 
 func removeDeploymentFile(root, path string) error {

@@ -342,6 +342,35 @@ func TestStoreRejectsArchiveTraversal(t *testing.T) {
 	}
 }
 
+func TestExtractTarEntryAllowsContainedParentSymlinkAndRejectsEscape(t *testing.T) {
+	root := t.TempDir()
+	binDir := filepath.Join(root, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatalf("mkdir bin: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "lib", "npm"), 0o755); err != nil {
+		t.Fatalf("mkdir npm: %v", err)
+	}
+
+	contained := &tar.Header{Name: "bin/npm", Linkname: "../lib/npm/cli.js", Typeflag: tar.TypeSymlink}
+	containedPath := filepath.Join(binDir, "npm")
+	if err := extractTarEntry(strings.NewReader(""), contained, containedPath, root); err != nil {
+		t.Fatalf("contained symlink: %v", err)
+	}
+	if target, err := os.Readlink(containedPath); err != nil || target != contained.Linkname {
+		t.Fatalf("contained symlink target = %q, err = %v", target, err)
+	}
+
+	escape := &tar.Header{Name: "bin/escape", Linkname: "../../outside", Typeflag: tar.TypeSymlink}
+	escapePath := filepath.Join(binDir, "escape")
+	if err := extractTarEntry(strings.NewReader(""), escape, escapePath, root); err != nil {
+		t.Fatalf("escape symlink: %v", err)
+	}
+	if _, err := os.Lstat(escapePath); !os.IsNotExist(err) {
+		t.Fatalf("escaping symlink exists, err = %v", err)
+	}
+}
+
 func TestStoreImageStatusAndSyncUseDockerRunner(t *testing.T) {
 	manifest := Manifest{
 		Kind:           ManifestKind,

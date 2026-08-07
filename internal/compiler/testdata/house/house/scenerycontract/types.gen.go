@@ -105,6 +105,673 @@ func (value ProcessSceneResult) Validate() error {
 	return nil
 }
 
+type SceneDetail struct {
+	Id     string `json:"id"`
+	Name   string `json:"name"`
+	Status string `json:"status"`
+}
+
+func (value SceneDetail) MarshalJSON() ([]byte, error) {
+	if err := value.Validate(); err != nil {
+		return nil, err
+	}
+	object := map[string]json.RawMessage{}
+	rawId, err := scenery.MarshalContractValue(value.Id, "string")
+	if err != nil {
+		return nil, fmt.Errorf("encode field id: %w", err)
+	}
+	object["id"] = rawId
+	rawName, err := scenery.MarshalContractValue(value.Name, "string")
+	if err != nil {
+		return nil, fmt.Errorf("encode field name: %w", err)
+	}
+	object["name"] = rawName
+	rawStatus, err := scenery.MarshalContractValue(value.Status, "string")
+	if err != nil {
+		return nil, fmt.Errorf("encode field status: %w", err)
+	}
+	object["status"] = rawStatus
+	encoded, err := json.Marshal(object)
+	if err != nil {
+		return nil, err
+	}
+	return scenery.MarshalContractValue(scenery.JSON(encoded), "json")
+}
+
+func (value *SceneDetail) UnmarshalJSON(data []byte) error {
+	object, err := scenery.DecodeJSONObject(data)
+	if err != nil {
+		return err
+	}
+	*value = SceneDetail{}
+	rawId, exists := object["id"]
+	if !exists {
+		return fmt.Errorf("missing required field id")
+	}
+	if err := unmarshalGeneratedContractValue(rawId, &value.Id, "string"); err != nil {
+		return fmt.Errorf("decode field id: %w", err)
+	}
+	delete(object, "id")
+	rawName, exists := object["name"]
+	if !exists {
+		return fmt.Errorf("missing required field name")
+	}
+	if err := unmarshalGeneratedContractValue(rawName, &value.Name, "string"); err != nil {
+		return fmt.Errorf("decode field name: %w", err)
+	}
+	delete(object, "name")
+	rawStatus, exists := object["status"]
+	if !exists {
+		return fmt.Errorf("missing required field status")
+	}
+	if err := unmarshalGeneratedContractValue(rawStatus, &value.Status, "string"); err != nil {
+		return fmt.Errorf("decode field status: %w", err)
+	}
+	delete(object, "status")
+	for key := range object {
+		return fmt.Errorf("unknown field %q", key)
+	}
+	return value.Validate()
+}
+
+func (value SceneDetail) Validate() error {
+	if err := scenery.ValidateContractValue(value.Id, "string", scenery.ContractConstraints{}); err != nil {
+		return fmt.Errorf("validate field id: %w", err)
+	}
+	if err := scenery.ValidateContractValue(value.Name, "string", scenery.ContractConstraints{}); err != nil {
+		return fmt.Errorf("validate field name: %w", err)
+	}
+	if err := scenery.ValidateContractValue(value.Status, "string", scenery.ContractConstraints{}); err != nil {
+		return fmt.Errorf("validate field status: %w", err)
+	}
+	return nil
+}
+
+type SceneEvent struct {
+	Id      string `json:"id"`
+	Message string `json:"message"`
+}
+
+func (value SceneEvent) MarshalJSON() ([]byte, error) {
+	if err := value.Validate(); err != nil {
+		return nil, err
+	}
+	object := map[string]json.RawMessage{}
+	rawId, err := scenery.MarshalContractValue(value.Id, "string")
+	if err != nil {
+		return nil, fmt.Errorf("encode field id: %w", err)
+	}
+	object["id"] = rawId
+	rawMessage, err := scenery.MarshalContractValue(value.Message, "string")
+	if err != nil {
+		return nil, fmt.Errorf("encode field message: %w", err)
+	}
+	object["message"] = rawMessage
+	encoded, err := json.Marshal(object)
+	if err != nil {
+		return nil, err
+	}
+	return scenery.MarshalContractValue(scenery.JSON(encoded), "json")
+}
+
+func (value *SceneEvent) UnmarshalJSON(data []byte) error {
+	object, err := scenery.DecodeJSONObject(data)
+	if err != nil {
+		return err
+	}
+	*value = SceneEvent{}
+	rawId, exists := object["id"]
+	if !exists {
+		return fmt.Errorf("missing required field id")
+	}
+	if err := unmarshalGeneratedContractValue(rawId, &value.Id, "string"); err != nil {
+		return fmt.Errorf("decode field id: %w", err)
+	}
+	delete(object, "id")
+	rawMessage, exists := object["message"]
+	if !exists {
+		return fmt.Errorf("missing required field message")
+	}
+	if err := unmarshalGeneratedContractValue(rawMessage, &value.Message, "string"); err != nil {
+		return fmt.Errorf("decode field message: %w", err)
+	}
+	delete(object, "message")
+	for key := range object {
+		return fmt.Errorf("unknown field %q", key)
+	}
+	return value.Validate()
+}
+
+func (value SceneEvent) Validate() error {
+	if err := scenery.ValidateContractValue(value.Id, "string", scenery.ContractConstraints{}); err != nil {
+		return fmt.Errorf("validate field id: %w", err)
+	}
+	if err := scenery.ValidateContractValue(value.Message, "string", scenery.ContractConstraints{}); err != nil {
+		return fmt.Errorf("validate field message: %w", err)
+	}
+	return nil
+}
+
+type SceneEventsInput struct {
+	SceneId string `json:"scene_id"`
+}
+
+func (value SceneEventsInput) MarshalJSON() ([]byte, error) {
+	if err := value.Validate(); err != nil {
+		return nil, err
+	}
+	object := map[string]json.RawMessage{}
+	rawSceneId, err := scenery.MarshalContractValue(value.SceneId, "string")
+	if err != nil {
+		return nil, fmt.Errorf("encode field scene_id: %w", err)
+	}
+	object["scene_id"] = rawSceneId
+	encoded, err := json.Marshal(object)
+	if err != nil {
+		return nil, err
+	}
+	return scenery.MarshalContractValue(scenery.JSON(encoded), "json")
+}
+
+func (value *SceneEventsInput) UnmarshalJSON(data []byte) error {
+	object, err := scenery.DecodeJSONObject(data)
+	if err != nil {
+		return err
+	}
+	*value = SceneEventsInput{}
+	rawSceneId, exists := object["scene_id"]
+	if !exists {
+		return fmt.Errorf("missing required field scene_id")
+	}
+	if err := unmarshalGeneratedContractValue(rawSceneId, &value.SceneId, "string"); err != nil {
+		return fmt.Errorf("decode field scene_id: %w", err)
+	}
+	delete(object, "scene_id")
+	for key := range object {
+		return fmt.Errorf("unknown field %q", key)
+	}
+	return value.Validate()
+}
+
+func (value SceneEventsInput) Validate() error {
+	if err := scenery.ValidateContractValue(value.SceneId, "string", scenery.ContractConstraints{}); err != nil {
+		return fmt.Errorf("validate field scene_id: %w", err)
+	}
+	return nil
+}
+
+type SceneEventsResult struct {
+	Items []SceneEvent `json:"items"`
+}
+
+func (value SceneEventsResult) MarshalJSON() ([]byte, error) {
+	if err := value.Validate(); err != nil {
+		return nil, err
+	}
+	object := map[string]json.RawMessage{}
+	rawItems, err := scenery.MarshalContractValue(value.Items, "list(record.scene_event)")
+	if err != nil {
+		return nil, fmt.Errorf("encode field items: %w", err)
+	}
+	object["items"] = rawItems
+	encoded, err := json.Marshal(object)
+	if err != nil {
+		return nil, err
+	}
+	return scenery.MarshalContractValue(scenery.JSON(encoded), "json")
+}
+
+func (value *SceneEventsResult) UnmarshalJSON(data []byte) error {
+	object, err := scenery.DecodeJSONObject(data)
+	if err != nil {
+		return err
+	}
+	*value = SceneEventsResult{}
+	rawItems, exists := object["items"]
+	if !exists {
+		return fmt.Errorf("missing required field items")
+	}
+	if err := unmarshalGeneratedContractValue(rawItems, &value.Items, "list(record.scene_event)"); err != nil {
+		return fmt.Errorf("decode field items: %w", err)
+	}
+	delete(object, "items")
+	for key := range object {
+		return fmt.Errorf("unknown field %q", key)
+	}
+	return value.Validate()
+}
+
+func (value SceneEventsResult) Validate() error {
+	if err := scenery.ValidateContractValue(value.Items, "list(record.scene_event)", scenery.ContractConstraints{}); err != nil {
+		return fmt.Errorf("validate field items: %w", err)
+	}
+	return nil
+}
+
+type SceneReadInput struct {
+	Id string `json:"id"`
+}
+
+func (value SceneReadInput) MarshalJSON() ([]byte, error) {
+	if err := value.Validate(); err != nil {
+		return nil, err
+	}
+	object := map[string]json.RawMessage{}
+	rawId, err := scenery.MarshalContractValue(value.Id, "string")
+	if err != nil {
+		return nil, fmt.Errorf("encode field id: %w", err)
+	}
+	object["id"] = rawId
+	encoded, err := json.Marshal(object)
+	if err != nil {
+		return nil, err
+	}
+	return scenery.MarshalContractValue(scenery.JSON(encoded), "json")
+}
+
+func (value *SceneReadInput) UnmarshalJSON(data []byte) error {
+	object, err := scenery.DecodeJSONObject(data)
+	if err != nil {
+		return err
+	}
+	*value = SceneReadInput{}
+	rawId, exists := object["id"]
+	if !exists {
+		return fmt.Errorf("missing required field id")
+	}
+	if err := unmarshalGeneratedContractValue(rawId, &value.Id, "string"); err != nil {
+		return fmt.Errorf("decode field id: %w", err)
+	}
+	delete(object, "id")
+	for key := range object {
+		return fmt.Errorf("unknown field %q", key)
+	}
+	return value.Validate()
+}
+
+func (value SceneReadInput) Validate() error {
+	if err := scenery.ValidateContractValue(value.Id, "string", scenery.ContractConstraints{}); err != nil {
+		return fmt.Errorf("validate field id: %w", err)
+	}
+	return nil
+}
+
+type SceneUpdateInput struct {
+	Id   string `json:"id"`
+	Name string `json:"name"`
+}
+
+func (value SceneUpdateInput) MarshalJSON() ([]byte, error) {
+	if err := value.Validate(); err != nil {
+		return nil, err
+	}
+	object := map[string]json.RawMessage{}
+	rawId, err := scenery.MarshalContractValue(value.Id, "string")
+	if err != nil {
+		return nil, fmt.Errorf("encode field id: %w", err)
+	}
+	object["id"] = rawId
+	rawName, err := scenery.MarshalContractValue(value.Name, "string")
+	if err != nil {
+		return nil, fmt.Errorf("encode field name: %w", err)
+	}
+	object["name"] = rawName
+	encoded, err := json.Marshal(object)
+	if err != nil {
+		return nil, err
+	}
+	return scenery.MarshalContractValue(scenery.JSON(encoded), "json")
+}
+
+func (value *SceneUpdateInput) UnmarshalJSON(data []byte) error {
+	object, err := scenery.DecodeJSONObject(data)
+	if err != nil {
+		return err
+	}
+	*value = SceneUpdateInput{}
+	rawId, exists := object["id"]
+	if !exists {
+		return fmt.Errorf("missing required field id")
+	}
+	if err := unmarshalGeneratedContractValue(rawId, &value.Id, "string"); err != nil {
+		return fmt.Errorf("decode field id: %w", err)
+	}
+	delete(object, "id")
+	rawName, exists := object["name"]
+	if !exists {
+		return fmt.Errorf("missing required field name")
+	}
+	if err := unmarshalGeneratedContractValue(rawName, &value.Name, "string"); err != nil {
+		return fmt.Errorf("decode field name: %w", err)
+	}
+	delete(object, "name")
+	for key := range object {
+		return fmt.Errorf("unknown field %q", key)
+	}
+	return value.Validate()
+}
+
+func (value SceneUpdateInput) Validate() error {
+	if err := scenery.ValidateContractValue(value.Id, "string", scenery.ContractConstraints{}); err != nil {
+		return fmt.Errorf("validate field id: %w", err)
+	}
+	if err := scenery.ValidateContractValue(value.Name, "string", scenery.ContractConstraints{}); err != nil {
+		return fmt.Errorf("validate field name: %w", err)
+	}
+	return nil
+}
+
+type WorkspaceItem struct {
+	CreatedAt scenery.DateTime `json:"created_at"`
+	Id        string           `json:"id"`
+	Name      string           `json:"name"`
+	Status    string           `json:"status"`
+}
+
+func (value WorkspaceItem) MarshalJSON() ([]byte, error) {
+	if err := value.Validate(); err != nil {
+		return nil, err
+	}
+	object := map[string]json.RawMessage{}
+	rawCreatedAt, err := scenery.MarshalContractValue(value.CreatedAt, "datetime")
+	if err != nil {
+		return nil, fmt.Errorf("encode field created_at: %w", err)
+	}
+	object["created_at"] = rawCreatedAt
+	rawId, err := scenery.MarshalContractValue(value.Id, "string")
+	if err != nil {
+		return nil, fmt.Errorf("encode field id: %w", err)
+	}
+	object["id"] = rawId
+	rawName, err := scenery.MarshalContractValue(value.Name, "string")
+	if err != nil {
+		return nil, fmt.Errorf("encode field name: %w", err)
+	}
+	object["name"] = rawName
+	rawStatus, err := scenery.MarshalContractValue(value.Status, "string")
+	if err != nil {
+		return nil, fmt.Errorf("encode field status: %w", err)
+	}
+	object["status"] = rawStatus
+	encoded, err := json.Marshal(object)
+	if err != nil {
+		return nil, err
+	}
+	return scenery.MarshalContractValue(scenery.JSON(encoded), "json")
+}
+
+func (value *WorkspaceItem) UnmarshalJSON(data []byte) error {
+	object, err := scenery.DecodeJSONObject(data)
+	if err != nil {
+		return err
+	}
+	*value = WorkspaceItem{}
+	rawCreatedAt, exists := object["created_at"]
+	if !exists {
+		return fmt.Errorf("missing required field created_at")
+	}
+	if err := unmarshalGeneratedContractValue(rawCreatedAt, &value.CreatedAt, "datetime"); err != nil {
+		return fmt.Errorf("decode field created_at: %w", err)
+	}
+	delete(object, "created_at")
+	rawId, exists := object["id"]
+	if !exists {
+		return fmt.Errorf("missing required field id")
+	}
+	if err := unmarshalGeneratedContractValue(rawId, &value.Id, "string"); err != nil {
+		return fmt.Errorf("decode field id: %w", err)
+	}
+	delete(object, "id")
+	rawName, exists := object["name"]
+	if !exists {
+		return fmt.Errorf("missing required field name")
+	}
+	if err := unmarshalGeneratedContractValue(rawName, &value.Name, "string"); err != nil {
+		return fmt.Errorf("decode field name: %w", err)
+	}
+	delete(object, "name")
+	rawStatus, exists := object["status"]
+	if !exists {
+		return fmt.Errorf("missing required field status")
+	}
+	if err := unmarshalGeneratedContractValue(rawStatus, &value.Status, "string"); err != nil {
+		return fmt.Errorf("decode field status: %w", err)
+	}
+	delete(object, "status")
+	for key := range object {
+		return fmt.Errorf("unknown field %q", key)
+	}
+	return value.Validate()
+}
+
+func (value WorkspaceItem) Validate() error {
+	if err := scenery.ValidateContractValue(value.CreatedAt, "datetime", scenery.ContractConstraints{}); err != nil {
+		return fmt.Errorf("validate field created_at: %w", err)
+	}
+	if err := scenery.ValidateContractValue(value.Id, "string", scenery.ContractConstraints{}); err != nil {
+		return fmt.Errorf("validate field id: %w", err)
+	}
+	if err := scenery.ValidateContractValue(value.Name, "string", scenery.ContractConstraints{}); err != nil {
+		return fmt.Errorf("validate field name: %w", err)
+	}
+	if err := scenery.ValidateContractValue(value.Status, "string", scenery.ContractConstraints{}); err != nil {
+		return fmt.Errorf("validate field status: %w", err)
+	}
+	return nil
+}
+
+type WorkspaceItems struct {
+	Items []WorkspaceItem `json:"items"`
+}
+
+func (value WorkspaceItems) MarshalJSON() ([]byte, error) {
+	if err := value.Validate(); err != nil {
+		return nil, err
+	}
+	object := map[string]json.RawMessage{}
+	rawItems, err := scenery.MarshalContractValue(value.Items, "list(record.workspace_item)")
+	if err != nil {
+		return nil, fmt.Errorf("encode field items: %w", err)
+	}
+	object["items"] = rawItems
+	encoded, err := json.Marshal(object)
+	if err != nil {
+		return nil, err
+	}
+	return scenery.MarshalContractValue(scenery.JSON(encoded), "json")
+}
+
+func (value *WorkspaceItems) UnmarshalJSON(data []byte) error {
+	object, err := scenery.DecodeJSONObject(data)
+	if err != nil {
+		return err
+	}
+	*value = WorkspaceItems{}
+	rawItems, exists := object["items"]
+	if !exists {
+		return fmt.Errorf("missing required field items")
+	}
+	if err := unmarshalGeneratedContractValue(rawItems, &value.Items, "list(record.workspace_item)"); err != nil {
+		return fmt.Errorf("decode field items: %w", err)
+	}
+	delete(object, "items")
+	for key := range object {
+		return fmt.Errorf("unknown field %q", key)
+	}
+	return value.Validate()
+}
+
+func (value WorkspaceItems) Validate() error {
+	if err := scenery.ValidateContractValue(value.Items, "list(record.workspace_item)", scenery.ContractConstraints{}); err != nil {
+		return fmt.Errorf("validate field items: %w", err)
+	}
+	return nil
+}
+
+type WorkspaceItemsInput struct {
+	CreatedAtFrom scenery.Optional[scenery.DateTime] `json:"created_at_from,omitempty"`
+	CreatedAtTo   scenery.Optional[scenery.DateTime] `json:"created_at_to,omitempty"`
+	Status        scenery.Optional[string]           `json:"status,omitempty"`
+}
+
+func (value WorkspaceItemsInput) MarshalJSON() ([]byte, error) {
+	if err := value.Validate(); err != nil {
+		return nil, err
+	}
+	object := map[string]json.RawMessage{}
+	if value.CreatedAtFrom.Set {
+		raw, err := scenery.MarshalContractValue(value.CreatedAtFrom, "optional(datetime)")
+		if err != nil {
+			return nil, fmt.Errorf("encode field created_at_from: %w", err)
+		}
+		object["created_at_from"] = raw
+	}
+	if value.CreatedAtTo.Set {
+		raw, err := scenery.MarshalContractValue(value.CreatedAtTo, "optional(datetime)")
+		if err != nil {
+			return nil, fmt.Errorf("encode field created_at_to: %w", err)
+		}
+		object["created_at_to"] = raw
+	}
+	if value.Status.Set {
+		raw, err := scenery.MarshalContractValue(value.Status, "optional(string)")
+		if err != nil {
+			return nil, fmt.Errorf("encode field status: %w", err)
+		}
+		object["status"] = raw
+	}
+	encoded, err := json.Marshal(object)
+	if err != nil {
+		return nil, err
+	}
+	return scenery.MarshalContractValue(scenery.JSON(encoded), "json")
+}
+
+func (value *WorkspaceItemsInput) UnmarshalJSON(data []byte) error {
+	object, err := scenery.DecodeJSONObject(data)
+	if err != nil {
+		return err
+	}
+	*value = WorkspaceItemsInput{}
+	if raw, exists := object["created_at_from"]; exists {
+		if err := unmarshalGeneratedContractValue(raw, &value.CreatedAtFrom, "optional(datetime)"); err != nil {
+			return fmt.Errorf("decode field created_at_from: %w", err)
+		}
+		delete(object, "created_at_from")
+	}
+	if raw, exists := object["created_at_to"]; exists {
+		if err := unmarshalGeneratedContractValue(raw, &value.CreatedAtTo, "optional(datetime)"); err != nil {
+			return fmt.Errorf("decode field created_at_to: %w", err)
+		}
+		delete(object, "created_at_to")
+	}
+	if raw, exists := object["status"]; exists {
+		if err := unmarshalGeneratedContractValue(raw, &value.Status, "optional(string)"); err != nil {
+			return fmt.Errorf("decode field status: %w", err)
+		}
+		delete(object, "status")
+	}
+	for key := range object {
+		return fmt.Errorf("unknown field %q", key)
+	}
+	return value.Validate()
+}
+
+func (value WorkspaceItemsInput) Validate() error {
+	if err := scenery.ValidateContractValue(value.CreatedAtFrom, "optional(datetime)", scenery.ContractConstraints{}); err != nil {
+		return fmt.Errorf("validate field created_at_from: %w", err)
+	}
+	if err := scenery.ValidateContractValue(value.CreatedAtTo, "optional(datetime)", scenery.ContractConstraints{}); err != nil {
+		return fmt.Errorf("validate field created_at_to: %w", err)
+	}
+	if err := scenery.ValidateContractValue(value.Status, "optional(string)", scenery.ContractConstraints{}); err != nil {
+		return fmt.Errorf("validate field status: %w", err)
+	}
+	return nil
+}
+
+type WorkspaceStats struct {
+	OrdersAvailable bool  `json:"orders_available"`
+	OrdersMatching  int64 `json:"orders_matching"`
+	OrdersTotal     int64 `json:"orders_total"`
+}
+
+func (value WorkspaceStats) MarshalJSON() ([]byte, error) {
+	if err := value.Validate(); err != nil {
+		return nil, err
+	}
+	object := map[string]json.RawMessage{}
+	rawOrdersAvailable, err := scenery.MarshalContractValue(value.OrdersAvailable, "bool")
+	if err != nil {
+		return nil, fmt.Errorf("encode field orders_available: %w", err)
+	}
+	object["orders_available"] = rawOrdersAvailable
+	rawOrdersMatching, err := scenery.MarshalContractValue(value.OrdersMatching, "int64")
+	if err != nil {
+		return nil, fmt.Errorf("encode field orders_matching: %w", err)
+	}
+	object["orders_matching"] = rawOrdersMatching
+	rawOrdersTotal, err := scenery.MarshalContractValue(value.OrdersTotal, "int64")
+	if err != nil {
+		return nil, fmt.Errorf("encode field orders_total: %w", err)
+	}
+	object["orders_total"] = rawOrdersTotal
+	encoded, err := json.Marshal(object)
+	if err != nil {
+		return nil, err
+	}
+	return scenery.MarshalContractValue(scenery.JSON(encoded), "json")
+}
+
+func (value *WorkspaceStats) UnmarshalJSON(data []byte) error {
+	object, err := scenery.DecodeJSONObject(data)
+	if err != nil {
+		return err
+	}
+	*value = WorkspaceStats{}
+	rawOrdersAvailable, exists := object["orders_available"]
+	if !exists {
+		return fmt.Errorf("missing required field orders_available")
+	}
+	if err := unmarshalGeneratedContractValue(rawOrdersAvailable, &value.OrdersAvailable, "bool"); err != nil {
+		return fmt.Errorf("decode field orders_available: %w", err)
+	}
+	delete(object, "orders_available")
+	rawOrdersMatching, exists := object["orders_matching"]
+	if !exists {
+		return fmt.Errorf("missing required field orders_matching")
+	}
+	if err := unmarshalGeneratedContractValue(rawOrdersMatching, &value.OrdersMatching, "int64"); err != nil {
+		return fmt.Errorf("decode field orders_matching: %w", err)
+	}
+	delete(object, "orders_matching")
+	rawOrdersTotal, exists := object["orders_total"]
+	if !exists {
+		return fmt.Errorf("missing required field orders_total")
+	}
+	if err := unmarshalGeneratedContractValue(rawOrdersTotal, &value.OrdersTotal, "int64"); err != nil {
+		return fmt.Errorf("decode field orders_total: %w", err)
+	}
+	delete(object, "orders_total")
+	for key := range object {
+		return fmt.Errorf("unknown field %q", key)
+	}
+	return value.Validate()
+}
+
+func (value WorkspaceStats) Validate() error {
+	if err := scenery.ValidateContractValue(value.OrdersAvailable, "bool", scenery.ContractConstraints{}); err != nil {
+		return fmt.Errorf("validate field orders_available: %w", err)
+	}
+	if err := scenery.ValidateContractValue(value.OrdersMatching, "int64", scenery.ContractConstraints{}); err != nil {
+		return fmt.Errorf("validate field orders_matching: %w", err)
+	}
+	if err := scenery.ValidateContractValue(value.OrdersTotal, "int64", scenery.ContractConstraints{}); err != nil {
+		return fmt.Errorf("validate field orders_total: %w", err)
+	}
+	return nil
+}
+
 func unmarshalGeneratedContractValue(data []byte, target any, typeExpression string) error {
 	return scenery.UnmarshalContractValue(data, target, typeExpression)
 }

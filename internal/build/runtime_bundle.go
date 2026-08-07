@@ -11,12 +11,13 @@ import (
 	"strings"
 
 	"scenery.sh/internal/compiler"
+	"scenery.sh/internal/generate"
 	"scenery.sh/internal/machine"
 )
 
 const (
 	runtimeBundleKind             = "scenery.runtime-bundle"
-	runtimeBundleSchemaDescriptor = machine.ExactSchemaRevision("sha256:6e30118e507d6c984dd95f474b687d57f122dc14cfb8f92a60e17a3651899ba5")
+	runtimeBundleSchemaDescriptor = machine.ExactSchemaRevision("sha256:d3a75252eaff28fb5f800840c51a78c5bf13f0ac7dd76a054e05fb82fbec2594")
 )
 
 var runtimeLinkerMetadataKeys = [...]string{
@@ -28,14 +29,15 @@ var runtimeLinkerMetadataKeys = [...]string{
 
 type RuntimeBundleDescriptor struct {
 	machine.ArtifactIdentity
-	ArtifactKind           string              `json:"artifact_kind"`
-	Application            string              `json:"application"`
-	Target                 string              `json:"target"`
-	ContractRevision       string              `json:"contract_revision"`
-	ImplementationRevision string              `json:"implementation_revision"`
-	BuildInput             *BuildInputManifest `json:"build_input_manifest"`
-	ResolvedGoTarget       map[string]any      `json:"resolved_go_target"`
-	RuntimeABI             string              `json:"runtime_abi"`
+	ArtifactKind           string                              `json:"artifact_kind"`
+	Application            string                              `json:"application"`
+	Target                 string                              `json:"target"`
+	ContractRevision       string                              `json:"contract_revision"`
+	ImplementationRevision string                              `json:"implementation_revision"`
+	BuildInput             *BuildInputManifest                 `json:"build_input_manifest"`
+	ResolvedGoTarget       map[string]any                      `json:"resolved_go_target"`
+	RuntimeABI             string                              `json:"runtime_abi"`
+	AssistantAssets        []generate.AssistantAssetDescriptor `json:"assistant_assets,omitempty"`
 }
 
 func prepareRuntimeBundle(ctx context.Context, result *Result) error {
@@ -95,7 +97,7 @@ func writeRuntimeBundle(result *Result) error {
 		Application: result.Contract.Manifest.Application.Name, Target: result.Target.Name,
 		ContractRevision:       result.Contract.Manifest.ContractRevision,
 		ImplementationRevision: result.ImplementationRevisions[result.Target.Name], BuildInput: result.BuildInput,
-		ResolvedGoTarget: result.Target.Resolved, RuntimeABI: "scenery.go-runtime/v1",
+		ResolvedGoTarget: result.Target.Resolved, RuntimeABI: "scenery.go-runtime/v1", AssistantAssets: append([]generate.AssistantAssetDescriptor(nil), result.AssistantAssets...),
 	}
 	data, err := json.MarshalIndent(descriptor, "", "  ")
 	if err != nil {

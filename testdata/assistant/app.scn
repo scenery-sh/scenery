@@ -1,0 +1,140 @@
+workspace {
+  implementation_root "application" {
+    path             = "."
+    revision_include = ["**/*.go", "go.mod", "go.sum"]
+  }
+
+  managed_generated_roots = [
+    "clients/generated/public_api",
+    "house/scenerycontract",
+    "internal/scenerygen",
+  ]
+}
+
+go_module "application" {
+  root        = "."
+  import_path = "example.test/assistantfixture"
+}
+
+go_toolchain "application" {
+  version     = "1.26.3"
+  experiments = []
+}
+
+go_target "development" {
+  role      = "development"
+  platform  = "host"
+  toolchain = go_toolchain.application
+  module    = go_module.application
+  packages  = ["./..."]
+  cgo       = "disabled"
+}
+
+go_target "artifact" {
+  role      = "artifact"
+  platform  = "host"
+  toolchain = go_toolchain.application
+  module    = go_module.application
+  packages  = ["./..."]
+  cgo       = "disabled"
+}
+
+application "assistant_fixture" {
+}
+
+http_gateway "public_api" {
+  exposure        = "internet"
+  base_path       = "/"
+  cors            = std.cors.none
+  trusted_proxies = std.trusted_proxies.none
+  forwarded       = std.forwarded_headers.reject
+}
+
+provider "durable" {
+  source = "registry.scenery.dev/core/durable"
+}
+
+execution_engine "durable_tasks" {
+  provider  = provider.durable
+  lifecycle = "managed"
+
+  require_capabilities = [
+    "execution.durable/v1",
+  ]
+}
+
+module "house" {
+  source = "./house"
+
+  inputs = {
+    task_engine = execution_engine.durable_tasks
+  }
+}
+
+mcp_connection "docs" {
+  transport = "streamable_http"
+  url       = "https://docs.example.test/mcp"
+
+  auth {
+    scheme = "none"
+  }
+
+  tools {
+    allow = ["search", "fetch"]
+  }
+
+  connect_timeout = "5s"
+  call_timeout    = "30s"
+}
+
+mcp_server "support" {
+  capability "process_scene" {
+    binding  = module.house.process_scene_mcp
+    name     = "house__process_scene"
+    approval = "always"
+  }
+
+  capability "process_scene_durable" {
+    binding  = module.house.process_scene_durable_mcp
+    name     = "house__process_scene_durable"
+    approval = "never"
+  }
+
+  connection "docs" {
+    connection = mcp_connection.docs
+    namespace  = "docs"
+    required   = false
+  }
+
+  max_input_bytes  = 262144
+  max_result_bytes = 1048576
+}
+
+assistant "support" {
+  mcp_server = mcp_server.support
+
+  implementation {
+    adapter      = "eve"
+    source       = "./assistants/support"
+    package      = "./assistants/support/package.json"
+    package_lock = "./assistants/support/package-lock.json"
+  }
+
+  surface {
+    gateway        = http_gateway.public_api
+    path           = "/assistants/support"
+    authentication = std.authentication.none
+    authorization  = std.authorization.public
+    pipeline       = std.pipeline.empty
+    session_access = "initiator"
+    client         = typescript_client.public_api
+  }
+}
+
+typescript_client "public_api" {
+  gateways    = [http_gateway.public_api]
+  package     = "@example/assistant-client"
+  module      = "esm"
+  runtime     = "fetch"
+  output_root = "clients/generated/public_api"
+}

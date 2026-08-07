@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.assistant.sync.schema.json",
+  "title": "scenery.assistant.sync",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "schema_revision", "assistant", "address", "source", "package", "package_lock", "lock_digest", "package_digest", "cache_path", "status", "reused", "node_path", "npm_path"],
+  "properties": {
+    "kind": {"const": "scenery.assistant.sync"},
+    "schema_revision": {"const": "sha256:765783aec8c37ad69352da2a1331fc76946966c2fd80aac34166ffd861cace64"},
+    "assistant": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+    "address": {"type": "string"},
+    "source": {"type": "string"},
+    "package": {"type": "string"},
+    "package_lock": {"type": "string"},
+    "lock_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "package_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "cache_path": {"type": "string"},
+    "status": {"enum": ["synced", "reused"]},
+    "reused": {"type": "boolean"},
+    "node_path": {"type": "string"},
+    "npm_path": {"type": "string"}
+  }
+}

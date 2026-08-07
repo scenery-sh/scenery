@@ -1,0 +1,496 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.assistant.control.request.schema.json",
+  "title": "Scenery private assistant control request",
+  "description": "Strict line-oriented requests sent from Scenery to an assistant helper.",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "type",
+    "request_id",
+    "assistant_address",
+    "runtime_revision",
+    "capability_revision"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.assistant.control.request"
+    },
+    "schema_revision": {
+      "const": "sha256:eb03bc81084232c8d046780dd51041a069f8bc8cc5fc979f5a6d7106d17dd953"
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "conversation.create",
+        "conversation.turn",
+        "events.resume",
+        "approval.resolve",
+        "run.cancel",
+        "health",
+        "info"
+      ]
+    },
+    "request_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "assistant_address": {
+      "$ref": "#/$defs/identifier"
+    },
+    "runtime_revision": {
+      "$ref": "#/$defs/identifier"
+    },
+    "capability_revision": {
+      "$ref": "#/$defs/identifier"
+    },
+    "principal": {
+      "$ref": "#/$defs/identifier"
+    },
+    "conversation_digest": {
+      "$ref": "#/$defs/identifier"
+    },
+    "private_session_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "continuation_token": {
+      "$ref": "#/$defs/identifier"
+    },
+    "run_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "approval_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "decision": {
+      "type": "string",
+      "enum": [
+        "allow",
+        "deny"
+      ]
+    },
+    "after": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 18446744073709551615
+    },
+    "message": {
+      "$ref": "#/$defs/message"
+    },
+    "data": {}
+  },
+  "additionalProperties": false,
+  "oneOf": [
+    {
+      "$ref": "#/$defs/create"
+    },
+    {
+      "$ref": "#/$defs/turn"
+    },
+    {
+      "$ref": "#/$defs/resume"
+    },
+    {
+      "$ref": "#/$defs/approval"
+    },
+    {
+      "$ref": "#/$defs/cancel"
+    },
+    {
+      "$ref": "#/$defs/health"
+    },
+    {
+      "$ref": "#/$defs/info"
+    }
+  ],
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "message": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 65536,
+      "pattern": "[\\s\\S]*\\S[\\s\\S]*"
+    },
+    "create": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "conversation.create"
+        }
+      },
+      "required": [
+        "principal",
+        "conversation_digest",
+        "run_id"
+      ],
+      "anyOf": [
+        {
+          "required": [
+            "message"
+          ]
+        },
+        {
+          "required": [
+            "data"
+          ]
+        }
+      ],
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "private_session_id"
+            ]
+          },
+          {
+            "required": [
+              "continuation_token"
+            ]
+          },
+          {
+            "required": [
+              "approval_id"
+            ]
+          },
+          {
+            "required": [
+              "decision"
+            ]
+          },
+          {
+            "required": [
+              "after"
+            ]
+          }
+        ]
+      }
+    },
+    "turn": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "conversation.turn"
+        }
+      },
+      "required": [
+        "private_session_id",
+        "continuation_token"
+      ],
+      "anyOf": [
+        {
+          "required": [
+            "message"
+          ]
+        },
+        {
+          "required": [
+            "data"
+          ]
+        }
+      ],
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "principal"
+            ]
+          },
+          {
+            "required": [
+              "conversation_digest"
+            ]
+          },
+          {
+            "required": [
+              "approval_id"
+            ]
+          },
+          {
+            "required": [
+              "decision"
+            ]
+          },
+          {
+            "required": [
+              "after"
+            ]
+          }
+        ]
+      }
+    },
+    "resume": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "events.resume"
+        }
+      },
+      "required": [
+        "private_session_id",
+        "continuation_token"
+      ],
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "principal"
+            ]
+          },
+          {
+            "required": [
+              "conversation_digest"
+            ]
+          },
+          {
+            "required": [
+              "run_id"
+            ]
+          },
+          {
+            "required": [
+              "approval_id"
+            ]
+          },
+          {
+            "required": [
+              "decision"
+            ]
+          },
+          {
+            "required": [
+              "message"
+            ]
+          },
+          {
+            "required": [
+              "data"
+            ]
+          }
+        ]
+      }
+    },
+    "approval": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "approval.resolve"
+        }
+      },
+      "required": [
+        "private_session_id",
+        "continuation_token",
+        "approval_id",
+        "decision"
+      ],
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "principal"
+            ]
+          },
+          {
+            "required": [
+              "conversation_digest"
+            ]
+          },
+          {
+            "required": [
+              "after"
+            ]
+          },
+          {
+            "required": [
+              "message"
+            ]
+          },
+          {
+            "required": [
+              "data"
+            ]
+          }
+        ]
+      }
+    },
+    "cancel": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "run.cancel"
+        }
+      },
+      "required": [
+        "private_session_id",
+        "continuation_token",
+        "run_id"
+      ],
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "principal"
+            ]
+          },
+          {
+            "required": [
+              "conversation_digest"
+            ]
+          },
+          {
+            "required": [
+              "approval_id"
+            ]
+          },
+          {
+            "required": [
+              "decision"
+            ]
+          },
+          {
+            "required": [
+              "after"
+            ]
+          },
+          {
+            "required": [
+              "message"
+            ]
+          },
+          {
+            "required": [
+              "data"
+            ]
+          }
+        ]
+      }
+    },
+    "health": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "health"
+        }
+      },
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "principal"
+            ]
+          },
+          {
+            "required": [
+              "conversation_digest"
+            ]
+          },
+          {
+            "required": [
+              "private_session_id"
+            ]
+          },
+          {
+            "required": [
+              "continuation_token"
+            ]
+          },
+          {
+            "required": [
+              "run_id"
+            ]
+          },
+          {
+            "required": [
+              "approval_id"
+            ]
+          },
+          {
+            "required": [
+              "decision"
+            ]
+          },
+          {
+            "required": [
+              "after"
+            ]
+          },
+          {
+            "required": [
+              "message"
+            ]
+          },
+          {
+            "required": [
+              "data"
+            ]
+          }
+        ]
+      }
+    },
+    "info": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "info"
+        }
+      },
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "principal"
+            ]
+          },
+          {
+            "required": [
+              "conversation_digest"
+            ]
+          },
+          {
+            "required": [
+              "private_session_id"
+            ]
+          },
+          {
+            "required": [
+              "continuation_token"
+            ]
+          },
+          {
+            "required": [
+              "run_id"
+            ]
+          },
+          {
+            "required": [
+              "approval_id"
+            ]
+          },
+          {
+            "required": [
+              "decision"
+            ]
+          },
+          {
+            "required": [
+              "after"
+            ]
+          },
+          {
+            "required": [
+              "message"
+            ]
+          },
+          {
+            "required": [
+              "data"
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,128 @@
+package "house" {
+  go_contract {
+    import_path = "example.test/assistantfixture/house"
+  }
+}
+
+input "task_engine" {
+  type  = resource_ref("execution_engine")
+  phase = "deployment"
+  requires = [
+    "execution.durable/v1",
+  ]
+}
+
+service "house" {
+  runtime = "go"
+
+  implementation {
+    constructor = "NewService"
+  }
+}
+
+record "process_scene_input" {
+  field "scene_id" {
+    type = string
+  }
+}
+
+record "process_scene_result" {
+  field "status" {
+    type = string
+  }
+}
+
+operation "process_scene" {
+  service = service.house
+  input   = record.process_scene_input
+
+  handler {
+    method = "ProcessScene"
+  }
+
+  result "processed" {
+    type = record.process_scene_result
+  }
+
+  error "invalid_scene" {
+    type = std.type.problem
+  }
+}
+
+execution "process_scene_direct" {
+  operation = operation.process_scene
+  mode      = "direct"
+  timeout   = "30s"
+}
+
+execution "process_scene_durable" {
+  operation = operation.process_scene
+  mode      = "durable"
+
+  engine   = var.task_engine
+  revision = 1
+  timeout  = "30s"
+  lease    = "15s"
+  attempts = 1
+
+  retry {
+    strategy = "none"
+  }
+
+  retention {
+    success = "1h"
+    failure = "1h"
+  }
+}
+
+binding "process_scene_mcp" {
+  operation = operation.process_scene
+  execution = execution.process_scene_direct
+  protocol  = "mcp"
+  delivery  = "call"
+
+  exposure       = "application"
+  authentication = std.authentication.inherit
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+
+  mcp {
+    name        = "process_scene"
+    title       = "Process a scene"
+    description = "Process one scene and return its declared outcome."
+    read_only   = false
+    destructive = false
+    idempotent  = false
+    open_world  = false
+  }
+}
+
+binding "process_scene_durable_mcp" {
+  operation = operation.process_scene
+  execution = execution.process_scene_durable
+  protocol  = "mcp"
+  delivery  = "call"
+
+  exposure       = "application"
+  authentication = std.authentication.inherit
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+
+  mcp {
+    name        = "process_scene_durable"
+    title       = "Process a scene durably"
+    description = "Enqueue scene processing and return a durable receipt."
+    read_only   = false
+    destructive = false
+    idempotent  = false
+    open_world  = false
+  }
+}
+
+export "process_scene_mcp" {
+  value = binding.process_scene_mcp
+}
+
+export "process_scene_durable_mcp" {
+  value = binding.process_scene_durable_mcp
+}

@@ -1,41 +1,44 @@
 {
   "artifact_kind": "go_application_adapters",
-  "content_digest": "sha256:06a6154fc27270c08a61d113468f97cdfe9ad4e345141239fe70e986f05264ab",
-  "contract_revision": "sha256:1fd62db00ac84b74cc80b7a04e0bae8975bd97e79d44662b85a110169b0347de",
+  "content_digest": "sha256:3c9265b2f66bbd45d1d152b7245273465cac39f497da22cf63901f7e19919c0d",
+  "contract_revision": "sha256:20e421c6848bc48cd6b002ae9ba16bcf69f326ac098d6d96d2ce9cb7ba73c542",
   "covered": [
+    "app/assistant/support",
+    "app/mcp_connection/docs",
+    "app/mcp_server/support",
     "house/binding/process_scene_http",
     "house/binding/process_scene_internal",
+    "house/binding/process_scene_mcp",
     "house/execution/process_scene_direct",
     "house/operation/process_scene",
     "house/service/house"
   ],
   "files": [
+    "assets/assets.gen.go",
     "composition/composition.gen.go",
     "house_house_adapter/adapter.gen.go"
   ],
   "generator": "scenery.generate.go-application",
   "http_surface_revisions": {
-    "app/http_gateway/public_api": "sha256:b359d846c98fa1db47666ebdc71b50df3105d70a4235f8ae2db0b37e13c2d981"
+    "app/http_gateway/public_api": "sha256:bee16d8a1b9253c4d98785816cf5bf93218aa3deeb7566f8343b9681a332cad3"
   },
   "implementation_revision": null,
   "kind": "scenery.generated",
   "openapi_revisions": {
-    "app/http_gateway/public_api": "sha256:f98a812c49a3ad42ab7ed8aa77731d508d60b46f0deac659f981e31267f5c270"
+    "app/http_gateway/public_api": "sha256:b75d8452d8f25fd282b5d0e622ccfe6dc82a6d5af4f1de468b7d80120b54e846"
   },
   "package_contract_abi_revisions": {
     "example.test/nativeapp/house/scenerycontract": "sha256:76f2aa33a3093803149d651d1ef3c49b46eb9abbba6adf798b4d4b13815f5b10"
   },
   "producer": {
-    "version": "v0.3.2-0.20260713172739-2c209fc91a9e+dirty",
-    "commit": "2c209fc91a9eca2bd00f057afdf464e012d94e3f",
-    "built_at": "2026-07-13T17:27:39Z",
+    "version": "dev",
     "toolchain": {
-      "go_version": "go1.26.3"
+      "go_version": "go1.26.5"
     }
   },
   "provider_capability_abis": {},
   "runtime_abi": "scenery.go-runtime/v1",
   "runtime_abi_range": "scenery.go-runtime/v1",
   "schema_revision": "sha256:e5ec71660dc6740e8fa94a5e0c924f604c696225e4b1799d2908a9b3a5419f3d",
-  "spec_revision": "sha256:e04518667a8b5c7f76d9ed3039a06cd7f98afe6f3d3be85867126b06eeb830aa"
+  "spec_revision": "sha256:351b04a1172e8db7c4a15a1c0295ceb3c7d9c765d162ac3c0c01d63be04331ba"
 }

@@ -20,7 +20,7 @@
       "const": "scenery.agent.capabilities"
     },
     "schema_revision": {
-      "const": "sha256:2039fe024772db03d46bb431ccb58381ea24a7452c58fc999db08824f90415c8"
+      "const": "sha256:c510c09edae970695642f4d6a805fcba8f6497c99c217486393968c41a1428dc"
     },
     "spec_revision": {
       "type": "string",
@@ -56,8 +56,32 @@
     "operations": {
       "type": "array",
       "items": {
-        "type": "string"
-      }
+        "type": "string",
+        "enum": [
+          "capabilities",
+          "schema.get",
+          "resources.list",
+          "resources.get",
+          "resources.explain",
+          "graph.get",
+          "revisions.diff",
+          "diagnostics.get",
+          "context.get",
+          "changes.plan",
+          "plans.get",
+          "changes.apply",
+          "changes.receipt.get",
+          "resource.create",
+          "resource.delete",
+          "resource.rename",
+          "value.set",
+          "value.unset",
+          "module.configure"
+        ],
+        "minLength": 1
+      },
+      "uniqueItems": true,
+      "minItems": 1
     },
     "transport_limits": {
       "type": "object"

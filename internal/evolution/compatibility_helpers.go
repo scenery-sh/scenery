@@ -111,7 +111,12 @@ func semanticDiffDigest(diff SemanticDiff) string {
 }
 
 func compatibilityCatalogDigest() string {
-	projection := map[string]any{"revision": "0.4-draft", "dimensions": compatibilityDimensions}
+	projection := map[string]any{
+		"revision":     "0.5-mcp-assistant",
+		"dimensions":   compatibilityDimensions,
+		"rules":        compatibilityRuleCatalog,
+		"consequences": compatibilityConsequenceCatalog,
+	}
 	b, _ := spec.MarshalCanonical(projection)
 	sum := sha256.Sum256(append([]byte("scenery.compatibility-catalog\x00"), b...))
 	return "sha256:" + hex.EncodeToString(sum[:])

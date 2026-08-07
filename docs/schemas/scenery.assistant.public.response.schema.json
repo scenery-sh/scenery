@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.assistant.public.response.schema.json",
+  "title": "Scenery public assistant response",
+  "description": "Response bodies returned by the provider-neutral assistant conversation API.",
+  "type": "object",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/conversation_created"
+    },
+    {
+      "$ref": "#/$defs/run_accepted"
+    },
+    {
+      "$ref": "#/$defs/approval_resolved"
+    },
+    {
+      "$ref": "#/$defs/run_cancelled"
+    }
+  ],
+  "properties": {
+    "conversation_id": {
+      "$ref": "#/$defs/conversation_id"
+    },
+    "run_id": {
+      "$ref": "#/$defs/run_id"
+    },
+    "events_url": {
+      "$ref": "#/$defs/events_url"
+    },
+    "approval_id": {
+      "$ref": "#/$defs/approval_id"
+    },
+    "decision": {
+      "type": "string",
+      "enum": [
+        "approve",
+        "deny"
+      ]
+    },
+    "state": {
+      "type": "string",
+      "const": "cancelled"
+    }
+  },
+  "additionalProperties": false,
+  "unevaluatedProperties": false,
+  "$defs": {
+    "conversation_id": {
+      "type": "string",
+      "maxLength": 8198,
+      "pattern": "^conv1_(?:[0-9a-f]{2})+$"
+    },
+    "run_id": {
+      "type": "string",
+      "maxLength": 8196,
+      "pattern": "^run_(?:[0-9a-f]{2})+$"
+    },
+    "events_url": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 16384,
+      "pattern": "^/assistants/[a-z][a-z0-9_./-]{0,127}/v1/conversations/conv1_(?:[0-9a-f]{2})+/events$"
+    },
+    "approval_id": {
+      "type": "string",
+      "maxLength": 8198,
+      "pattern": "^appr1_(?:[0-9a-f]{2})+$"
+    },
+    "conversation_created": {
+      "type": "object",
+      "required": [
+        "conversation_id",
+        "run_id",
+        "events_url"
+      ],
+      "properties": {
+        "conversation_id": {
+          "$ref": "#/$defs/conversation_id"
+        },
+        "run_id": {
+          "$ref": "#/$defs/run_id"
+        },
+        "events_url": {
+          "$ref": "#/$defs/events_url"
+        }
+      },
+      "additionalProperties": false
+    },
+    "run_accepted": {
+      "type": "object",
+      "required": [
+        "run_id"
+      ],
+      "properties": {
+        "run_id": {
+          "$ref": "#/$defs/run_id"
+        }
+      },
+      "additionalProperties": false
+    },
+    "approval_resolved": {
+      "type": "object",
+      "required": [
+        "approval_id",
+        "decision"
+      ],
+      "properties": {
+        "approval_id": {
+          "$ref": "#/$defs/approval_id"
+        },
+        "decision": {
+          "type": "string",
+          "enum": [
+            "approve",
+            "deny"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "run_cancelled": {
+      "type": "object",
+      "required": [
+        "run_id",
+        "state"
+      ],
+      "properties": {
+        "run_id": {
+          "$ref": "#/$defs/run_id"
+        },
+        "state": {
+          "type": "string",
+          "const": "cancelled"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

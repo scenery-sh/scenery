@@ -98,6 +98,8 @@ func TestBuildHarnessSchemaValidationReport(t *testing.T) {
 		"scenery.agent_context.schema.json",
 		"scenery.approval-token.schema.json",
 		"scenery.approval-trust.schema.json",
+		"scenery.assistant.init.schema.json",
+		"scenery.assistant.sync.schema.json",
 		"scenery.build.desktop.schema.json",
 		"scenery.build.result.schema.json",
 		"scenery.deploy.registry.schema.json",
@@ -142,7 +144,7 @@ func TestBuildHarnessSchemaValidationReport(t *testing.T) {
 		Artifacts: []harnessArtifact{{Name: "self-harness", Path: ".scenery/harness/self-latest.json", Exists: true}},
 	}
 	report := buildHarnessSchemaValidationReport(root, resp)
-	if len(report.Validated) != 24 {
+	if len(report.Validated) != 26 {
 		t.Fatalf("validated = %+v", report.Validated)
 	}
 	if hasErrorDiagnostics(report.Diagnostics) {

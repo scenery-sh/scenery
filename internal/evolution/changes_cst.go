@@ -112,7 +112,7 @@ func semanticSingularBlockField(kind, name string) bool {
 		"scenery.service":          {"implementation": true, "config": true, "lifecycle": true},
 		"scenery.operation":        {"handler": true, "idempotency": true},
 		"scenery.execution":        {"retry": true, "concurrency": true, "retention": true, "deduplication": true},
-		"scenery.binding":          {"http": true, "internal": true, "cli": true, "event": true},
+		"scenery.binding":          {"http": true, "internal": true, "cli": true, "event": true, "mcp": true},
 		"scenery.schedule":         {"trigger": true, "invoke": true, "catchup": true},
 		"scenery.data-source":      {"config": true},
 		"scenery.execution-engine": {"config": true},
@@ -122,6 +122,8 @@ func semanticSingularBlockField(kind, name string) bool {
 		"scenery.renderer":         {"config": true},
 		"scenery.view":             {"input": true, "result": true, "implementation": true},
 		"scenery.page":             {"load": true},
+		"scenery.mcp-connection":   {"auth": true, "tools": true},
+		"scenery.assistant":        {"implementation": true, "surface": true},
 	}
 	return fields[kind][name]
 }

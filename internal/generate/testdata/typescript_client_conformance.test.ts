@@ -314,4 +314,59 @@ describe("Scenery TypeScript client exact codecs", () => {
 		expect(requested).toBe(false);
 	});
 
+	test("generates the provider-neutral assistant surface and exact request envelope", async () => {
+		let request: Request | undefined;
+		const client = new PublicApiClient({
+			baseUrl: "https://example.test" as URLString,
+			fetch: async (input, init) => {
+				request = new Request(input, init);
+				return new Response(JSON.stringify({ conversation_id: "conv1_abcd", run_id: "run_11111111111111111111111111111111", events_url: "/assistants/support/v1/conversations/conv1_abcd/events" }), { headers: { "content-type": "application/json; charset=utf-8" } });
+			},
+		});
+		const created = await client.assistants.support.createConversation({ message: "hello" });
+		expect(created).toEqual({ conversationId: "conv1_abcd", runId: "run_11111111111111111111111111111111", eventsUrl: "/assistants/support/v1/conversations/conv1_abcd/events" });
+		expect(request?.url).toBe("https://example.test/assistants/support/v1/conversations");
+		expect(await request?.json()).toEqual({ message: { role: "user", content: "hello" } });
+	});
+
+	test("streams strict events, reconnects from the cursor, and suppresses duplicates", async () => {
+		const runID = "run_11111111111111111111111111111111";
+		const event = (sequence: number) => JSON.stringify({ type: sequence === 1 ? "assistant.run.started" : "assistant.run.completed", assistant: "support", conversation_id: "conv1_abcd", run_id: runID, sequence, occurred_at: "2026-08-04T00:00:00Z", data: { state: sequence === 1 ? "started" : "completed" } });
+		let calls = 0;
+		const urls: string[] = [];
+		const controller = new AbortController();
+		const client = new PublicApiClient({
+			baseUrl: "https://example.test" as URLString,
+			fetch: async (input) => {
+				urls.push(String(input));
+				calls++;
+				const source = calls === 1 ? `${event(1)}\n${event(1)}\n` : `${event(2)}\n`;
+				return new Response(new ReadableStream({ start(stream) { const encoded = new TextEncoder().encode(source); stream.enqueue(encoded.slice(0, Math.max(1, Math.floor(encoded.length / 2)))); stream.enqueue(encoded.slice(Math.max(1, Math.floor(encoded.length / 2)))); stream.close(); } }), { headers: { "content-type": "application/x-ndjson; charset=utf-8" } });
+			},
+		});
+		const received: number[] = [];
+		await expect((async () => {
+			for await (const item of client.assistants.support.streamEvents("conv1_abcd", { signal: controller.signal })) {
+				received.push(item.sequence);
+				if (received.length === 2) controller.abort();
+			}
+		})()).rejects.toMatchObject({ code: "cancelled" });
+		expect(received).toEqual([1, 2]);
+		expect(urls[0]).toBe("https://example.test/assistants/support/v1/conversations/conv1_abcd/events?after=0");
+		expect(urls[1]).toBe("https://example.test/assistants/support/v1/conversations/conv1_abcd/events?after=1");
+	});
+
+	test("rejects malformed UTF-8 in an assistant event stream", async () => {
+		const controller = new AbortController();
+		const client = new PublicApiClient({
+			baseUrl: "https://example.test" as URLString,
+			fetch: async () => new Response(new Uint8Array([0xff, 0x0a]), { headers: { "content-type": "application/x-ndjson" } }),
+		});
+		await expect((async () => {
+			for await (const _item of client.assistants.support.streamEvents("conv1_abcd", { signal: controller.signal })) {
+				controller.abort();
+			}
+		})()).rejects.toMatchObject({ code: "contract_violation" });
+	});
+
 });

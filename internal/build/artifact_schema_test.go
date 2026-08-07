@@ -38,6 +38,37 @@ func TestBuildArtifactSchemaRevisionsMatchCheckedSchemas(t *testing.T) {
 	}
 }
 
+func TestRuntimeBundleSchemaCoversAssistantAssetDescriptors(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "docs", "schemas", "scenery.runtime-bundle.schema.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document struct {
+		Properties map[string]struct {
+			Items map[string]string `json:"items"`
+		} `json:"properties"`
+		Defs map[string]struct {
+			Required []string `json:"required"`
+		} `json:"$defs"`
+	}
+	if err := json.Unmarshal(data, &document); err != nil {
+		t.Fatal(err)
+	}
+	assets, ok := document.Properties["assistant_assets"]
+	if !ok || assets.Items["$ref"] != "#/$defs/assistantAssetDescriptor" {
+		t.Fatalf("assistant_assets schema does not reference the strict descriptor definition: %#v", document.Properties["assistant_assets"])
+	}
+	definition, ok := document.Defs["assistantAssetDescriptor"]
+	if !ok {
+		t.Fatal("assistant asset descriptor definition is missing")
+	}
+	for _, field := range []string{"kind", "schema_revision", "assistant_address", "target", "runtime_revision", "capability_revision", "node_archive_digest", "node_tree_digest", "capsule_archive_digest", "capsule_tree_digest", "capsule_entry", "package_lock_digest"} {
+		if !slices.Contains(definition.Required, field) {
+			t.Fatalf("assistant asset descriptor does not require %q: %v", field, definition.Required)
+		}
+	}
+}
+
 func TestPrivateBuildArtifactDescriptorsCoverTypeShapes(t *testing.T) {
 	assertBuildDescriptorFields(t, generatorFingerprintCacheSchemaDescriptor, generatorFingerprintCache{})
 	assertBuildDescriptorFields(t, frameworkFingerprintCacheSchemaDescriptor, frameworkFingerprintCache{})

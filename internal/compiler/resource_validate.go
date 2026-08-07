@@ -22,6 +22,9 @@ func validateResourceSemantics(resources []Resource) []Diagnostic {
 			diagnostics = append(diagnostics, validateExecution(resource)...)
 		case "scenery.binding":
 			diagnostics = append(diagnostics, validateBinding(resource)...)
+			diagnostics = append(diagnostics, validateMCPBinding(resource, byAddress)...)
+		case "scenery.mcp-connection", "scenery.mcp-server", "scenery.assistant":
+			diagnostics = append(diagnostics, validateMCPResource(resource, byAddress)...)
 		case "scenery.schedule":
 			diagnostics = append(diagnostics, validateSchedule(resource)...)
 		case "scenery.event":
@@ -74,6 +77,7 @@ func validateResourceSemantics(resources []Resource) []Diagnostic {
 	diagnostics = append(diagnostics, validateCLIBindings(resources)...)
 	diagnostics = append(diagnostics, validateDurableExecutions(resources)...)
 	diagnostics = append(diagnostics, validateScheduleAndEventSemantics(resources)...)
+	diagnostics = append(diagnostics, validateMCPGraph(resources)...)
 	return diagnostics
 }
 
@@ -272,6 +276,12 @@ func validateExecutionBindings(resources []Resource) []Diagnostic {
 		}
 		delivery, mode := stringValue(binding.Spec["delivery"]), stringValue(execution.Spec["mode"])
 		compatible := mode == "direct" && delivery == "call" || mode == "durable" && (delivery == "enqueue" || delivery == "wait")
+		// MCP keeps one synchronous tool-call surface even when the selected
+		// execution is durable; the gateway projects the resulting receipt and
+		// status/cancel capabilities instead of exposing enqueue/wait spellings.
+		if stringValue(binding.Spec["protocol"]) == "mcp" && mode == "durable" && delivery == "call" {
+			compatible = true
+		}
 		if !compatible {
 			diagnostics = append(diagnostics, resourceDiagnostic("SCN2404", "binding delivery is not supported by its selected execution", binding))
 		}

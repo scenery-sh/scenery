@@ -4,16 +4,19 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"scenery.sh/internal/compiler"
 	scenery "scenery.sh/internal/contract"
+	"scenery.sh/internal/evolution"
 	"scenery.sh/internal/machine"
 )
 
@@ -106,12 +109,82 @@ func TestDeploymentPlanAndApplyBindExactRevisions(t *testing.T) {
 	if state.Plan.PlanID != plan.PlanID || state.Receipt.PlanID != receipt.PlanID {
 		t.Fatalf("deployment state = %#v", state)
 	}
-	if _, err := ApplyDeploymentPlan(context.Background(), root, plan, DeploymentApplyOptions{ExpectedWorkspaceRevision: result.WorkspaceRevision, ExpectedContractRevision: result.Manifest.ContractRevision, ExpectedImplementation: testDeploymentImplementationRevision(), Caller: "test"}, nil); err == nil || !strings.Contains(err.Error(), "already applied") {
+	replayed, err := ApplyDeploymentPlan(context.Background(), root, plan, DeploymentApplyOptions{ExpectedWorkspaceRevision: result.WorkspaceRevision, ExpectedContractRevision: result.Manifest.ContractRevision, ExpectedImplementation: testDeploymentImplementationRevision(), Caller: "test"}, nil)
+	if err != nil {
 		t.Fatalf("replay error = %v", err)
+	}
+	if !reflect.DeepEqual(replayed, receipt) {
+		t.Fatalf("replayed receipt = %#v, want original %#v", replayed, receipt)
 	}
 	after, err := compiler.CompileContractGraph(root)
 	if err != nil || after.WorkspaceRevision != result.WorkspaceRevision {
 		t.Fatalf("deployment ledger changed managed workspace: %v before=%s after=%s", err, result.WorkspaceRevision, after.WorkspaceRevision)
+	}
+}
+
+func TestDeploymentReceiptReplaySucceedsAfterExpiryAndWorkspaceDrift(t *testing.T) {
+	parallelVNextIntegrationTest(t)
+
+	root := deploymentPlanFixture(t, "managed")
+	provider := &testDeploymentProvider{}
+	registry := DeploymentProviderRegistry{"app/provider/postgres": provider}
+	plan, err := PlanDeployment(context.Background(), root, DeploymentPlanRequest{Deployment: "preview", ImplementationRevisions: testDeploymentImplementationRevision(), Caller: "test"}, registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	options := DeploymentApplyOptions{ExpectedWorkspaceRevision: plan.BaseWorkspaceRevision, ExpectedContractRevision: plan.ContractRevision, ExpectedImplementation: testDeploymentImplementationRevision(), Caller: "test"}
+	receipt, err := ApplyDeploymentPlan(context.Background(), root, plan, options, registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Model a receipt committed before the retry window elapsed, then retry
+	// with the same plan after its expiry. Re-issue the exact expired plan under
+	// its content-derived ID so RequireIssuedPlan still authenticates it.
+	expiredPlan := plan
+	expiredPlan.ExpiresAt = time.Now().UTC().Add(-time.Hour)
+	expiredPlan.PlanID = deploymentPlanID(expiredPlan)
+	if err := evolution.RetainIssuedPlan(root, evolution.IssuedDeploymentPlan, expiredPlan.PlanID, expiredPlan); err != nil {
+		t.Fatal(err)
+	}
+	expiredReceipt := receipt
+	expiredReceipt.PlanID = expiredPlan.PlanID
+	receiptBytes, err := json.MarshalIndent(expiredReceipt, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeDeploymentFile(root, deploymentAppliedPlanPath(root, expiredPlan.PlanID), append(receiptBytes, '\n')); err != nil {
+		t.Fatal(err)
+	}
+
+	// Drift a revision-bound source input. Replay must not compile or compare
+	// the current graph once the durable receipt has been found.
+	servicePath := filepath.Join(root, "house", "service.go")
+	service, err := os.ReadFile(servicePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(servicePath, append(service, []byte("\n// live deployment drift\n")...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	current, err := compiler.CompileContractGraph(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.WorkspaceRevision == plan.BaseWorkspaceRevision {
+		t.Fatalf("workspace drift did not change revision: %s", current.WorkspaceRevision)
+	}
+
+	provider.applied = false
+	replayed, err := ApplyDeploymentPlan(context.Background(), root, expiredPlan, options, registry)
+	if err != nil {
+		t.Fatalf("expired/drifted replay error = %v", err)
+	}
+	if !reflect.DeepEqual(replayed, expiredReceipt) {
+		t.Fatalf("replayed receipt = %#v, want %#v", replayed, expiredReceipt)
+	}
+	if provider.applied {
+		t.Fatal("expired/drifted replay triggered a second provider apply")
 	}
 }
 
@@ -139,6 +212,107 @@ func TestManagedDeploymentRequiresAndInvokesProviderAdapter(t *testing.T) {
 	}
 	if !provider.applied {
 		t.Fatal("provider apply was not invoked")
+	}
+}
+
+func TestDeploymentReceiptReplayRejectsCorruptionWithoutReapplying(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		mutate func([]byte) []byte
+	}{
+		{
+			name: "trailing json",
+			mutate: func(receipt []byte) []byte {
+				return append(receipt, []byte("{}\n")...)
+			},
+		},
+		{
+			name: "plan mismatch",
+			mutate: func(receipt []byte) []byte {
+				var decoded DeploymentReceipt
+				if err := json.Unmarshal(receipt, &decoded); err != nil {
+					panic(err)
+				}
+				decoded.PlanID = "sha256:" + strings.Repeat("b", 64)
+				encoded, err := json.MarshalIndent(decoded, "", "  ")
+				if err != nil {
+					panic(err)
+				}
+				return append(encoded, '\n')
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			parallelVNextIntegrationTest(t)
+
+			root := deploymentPlanFixture(t, "managed")
+			provider := &testDeploymentProvider{}
+			registry := DeploymentProviderRegistry{"app/provider/postgres": provider}
+			plan, err := PlanDeployment(context.Background(), root, DeploymentPlanRequest{Deployment: "preview", ImplementationRevisions: testDeploymentImplementationRevision(), Caller: "test"}, registry)
+			if err != nil {
+				t.Fatal(err)
+			}
+			options := DeploymentApplyOptions{ExpectedWorkspaceRevision: plan.BaseWorkspaceRevision, ExpectedContractRevision: plan.ContractRevision, ExpectedImplementation: testDeploymentImplementationRevision(), Caller: "test"}
+			if _, err := ApplyDeploymentPlan(context.Background(), root, plan, options, registry); err != nil {
+				t.Fatal(err)
+			}
+			provider.applied = false
+			path := deploymentAppliedPlanPath(root, plan.PlanID)
+			persisted, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := writeDeploymentFile(root, path, test.mutate(persisted)); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := ApplyDeploymentPlan(context.Background(), root, plan, options, registry); err == nil || !strings.Contains(err.Error(), "deployment receipt is invalid") {
+				t.Fatalf("invalid receipt error = %v", err)
+			}
+			if provider.applied {
+				t.Fatal("invalid receipt triggered a second provider apply")
+			}
+		})
+	}
+}
+
+func TestDeploymentRecoveryRejectsCorruptReceiptWithoutDroppingJournal(t *testing.T) {
+	parallelVNextIntegrationTest(t)
+
+	root := deploymentPlanFixture(t, "managed")
+	provider := &testDeploymentProvider{}
+	registry := DeploymentProviderRegistry{"app/provider/postgres": provider}
+	plan, err := PlanDeployment(context.Background(), root, DeploymentPlanRequest{Deployment: "preview", ImplementationRevisions: testDeploymentImplementationRevision(), Caller: "test"}, registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	options := DeploymentApplyOptions{ExpectedWorkspaceRevision: plan.BaseWorkspaceRevision, ExpectedContractRevision: plan.ContractRevision, ExpectedImplementation: testDeploymentImplementationRevision(), Caller: "test"}
+	if _, err := ApplyDeploymentPlan(context.Background(), root, plan, options, registry); err != nil {
+		t.Fatal(err)
+	}
+	provider.rolledBack = false
+	receiptPath := deploymentAppliedPlanPath(root, plan.PlanID)
+	receipt, err := os.ReadFile(receiptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeDeploymentFile(root, receiptPath, append(receipt, []byte("{}\n")...)); err != nil {
+		t.Fatal(err)
+	}
+	journalPath := deploymentJournalPath(root, plan.PlanID)
+	if err := writeDeploymentJournal(root, journalPath, deploymentApplyJournal{
+		ArtifactIdentity: machine.NewArtifactIdentity(deploymentApplyJournalKind, deploymentJournalSchemaDescriptor),
+		Plan:             plan,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := recoverDeploymentJournals(context.Background(), root, registry); err == nil || !strings.Contains(err.Error(), "validate committed deployment receipt") {
+		t.Fatalf("corrupt receipt recovery error = %v", err)
+	}
+	if provider.rolledBack {
+		t.Fatal("corrupt receipt recovery invoked provider rollback")
+	}
+	if _, err := os.Stat(journalPath); err != nil {
+		t.Fatalf("corrupt receipt recovery removed journal: %v", err)
 	}
 }
 

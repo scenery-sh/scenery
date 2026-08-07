@@ -472,6 +472,226 @@
       ]
     },
     {
+      "name": "SCENERY_ASSISTANT_CONTROL_ADDR",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "injected",
+      "category": "assistant.runtime",
+      "stability": "injected",
+      "secret": false,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime",
+      "rationale": "Private loopback control address injected into a managed assistant helper; it is an internal child-only handoff and never a public route.",
+      "preferred_surface": "scenery supervisor or production launcher handoff; do not set manually",
+      "replacement": "",
+      "sunset": "",
+      "docs": [
+        "docs/environment.md"
+      ]
+    },
+    {
+      "name": "SCENERY_ASSISTANT_CONTROL_TOKEN",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "injected",
+      "category": "assistant.runtime",
+      "stability": "injected",
+      "secret": true,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime",
+      "rationale": "Short-lived private loopback control bearer token injected into a managed assistant helper; never expose it in logs, status, or public responses.",
+      "preferred_surface": "scenery supervisor or production launcher handoff; do not set manually",
+      "replacement": "",
+      "sunset": "",
+      "docs": [
+        "docs/environment.md"
+      ]
+    },
+    {
+      "name": "SCENERY_ASSISTANT_ID",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "injected",
+      "category": "assistant.runtime",
+      "stability": "injected",
+      "secret": false,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime",
+      "rationale": "Provider-neutral assistant address injected into the managed helper as a child-only internal identity, not a public configuration name.",
+      "preferred_surface": "scenery supervisor or production launcher handoff; do not set manually",
+      "replacement": "",
+      "sunset": "",
+      "docs": [
+        "docs/environment.md"
+      ]
+    },
+    {
+      "name": "SCENERY_ASSISTANT_RUNTIME_CONFIG",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "injected",
+      "category": "assistant.runtime",
+      "stability": "injected",
+      "secret": true,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime",
+      "rationale": "Private mode-0600 JSON descriptor path handed from the supervisor or production launcher to the app child; the file carries helper control addresses and credentials and must not be logged or exposed publicly.",
+      "preferred_surface": "scenery supervisor or production launcher handoff; do not set manually",
+      "replacement": "",
+      "sunset": "",
+      "docs": [
+        "docs/environment.md"
+      ]
+    },
+    {
+      "name": "SCENERY_ASSISTANT_TOKEN_KEY",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "user_input",
+      "category": "assistant.runtime",
+      "stability": "stable",
+      "secret": true,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime",
+      "rationale": "Operator-supplied stable 32-byte framework token key, accepted in raw, hex, or base64 form for assistant continuation handles; never log or expose it.",
+      "preferred_surface": "app-root `.env` or process environment through the existing secret mechanism",
+      "replacement": "",
+      "sunset": "",
+      "docs": [
+        "docs/environment.md"
+      ]
+    },
+    {
+      "name": "SCENERY_ASSISTANT_TOKEN_KEY_FILE",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "user_input",
+      "category": "assistant.runtime",
+      "stability": "stable",
+      "secret": true,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime",
+      "rationale": "Operator-supplied path to a private mode-0600 file containing the stable framework token key; the supervisor may inject the resolved path into the app child, but never expose the file or contents.",
+      "preferred_surface": "app-root `.env` or process environment through the existing secret mechanism",
+      "replacement": "",
+      "sunset": "",
+      "docs": [
+        "docs/environment.md"
+      ]
+    },
+    {
+      "name": "SCENERY_CAPABILITY_REVISION",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "injected",
+      "category": "assistant.runtime",
+      "stability": "injected",
+      "secret": false,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime",
+      "rationale": "Expected capability revision handed to the managed helper for strict handshake and event validation; it is internal metadata, not a public configuration surface.",
+      "preferred_surface": "scenery supervisor or production launcher handoff; do not set manually",
+      "replacement": "",
+      "sunset": "",
+      "docs": [
+        "docs/environment.md"
+      ]
+    },
+    {
+      "name": "SCENERY_MCP_BRIDGE_SECRET",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "injected",
+      "category": "assistant.runtime",
+      "stability": "injected",
+      "secret": true,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime",
+      "rationale": "Short-lived HMAC bridge secret injected into the managed helper for private gateway assertions; never log or expose it.",
+      "preferred_surface": "scenery supervisor or production launcher handoff; do not set manually",
+      "replacement": "",
+      "sunset": "",
+      "docs": [
+        "docs/environment.md"
+      ]
+    },
+    {
+      "name": "SCENERY_MCP_URL",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "injected",
+      "category": "assistant.runtime",
+      "stability": "injected",
+      "secret": false,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime",
+      "rationale": "Private loopback Scenery MCP gateway URL injected into the managed helper; it is an internal handoff and never a public route or log field.",
+      "preferred_surface": "scenery supervisor or production launcher handoff; do not set manually",
+      "replacement": "",
+      "sunset": "",
+      "docs": [
+        "docs/environment.md"
+      ]
+    },
+    {
+      "name": "SCENERY_RUNTIME_REVISION",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "injected",
+      "category": "assistant.runtime",
+      "stability": "injected",
+      "secret": false,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime",
+      "rationale": "Expected helper runtime revision handed to the managed child for strict handshake and restart validation; it is internal metadata, not public configuration.",
+      "preferred_surface": "scenery supervisor or production launcher handoff; do not set manually",
+      "replacement": "",
+      "sunset": "",
+      "docs": [
+        "docs/environment.md"
+      ]
+    },
+    {
       "name": "SCENERY_API_BASE_PATH",
       "match": "exact",
       "scope": "runtime",

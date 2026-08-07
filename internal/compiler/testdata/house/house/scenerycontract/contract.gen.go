@@ -7,7 +7,7 @@ import (
 )
 
 const PackageIdentity = "house"
-const PackageContractABIRevision = "sha256:d43a92017fa285e5aa22324d672bd576af1a14078863d0213b197a0babca71d8"
+const PackageContractABIRevision = "sha256:28dc905cda8be29ee0cb23bc7dfd28e5b9d8e35c6d075e8caadd6fff39c7ecb0"
 const PackageImportPath = "example.test/clean-tech/house"
 const GoImplementationABIRange = ">=1.0.0, <2.0.0"
 const RuntimeABIRange = "scenery.go-runtime/v1"
@@ -23,6 +23,132 @@ type HouseConstructorInput struct {
 	Dependencies HouseDependencies
 	Config       HouseConfig
 	Clients      HouseClients
+}
+
+type ListSceneEventsInput = SceneEventsInput
+
+func UnmarshalListSceneEventsInput(data []byte) (ListSceneEventsInput, error) {
+	var value ListSceneEventsInput
+	if err := unmarshalGeneratedContractValue(data, &value, "record.scene_events_input"); err != nil {
+		return value, err
+	}
+	return value, nil
+}
+
+func CloneListSceneEventsInput(value ListSceneEventsInput) (ListSceneEventsInput, error) {
+	raw, err := scenery.MarshalContractValue(value, "record.scene_events_input")
+	if err != nil {
+		return value, err
+	}
+	return UnmarshalListSceneEventsInput(raw)
+}
+
+type ListSceneEventsOutcome interface{ isListSceneEventsOutcome() }
+
+type ListSceneEventsSuccess struct{ Value SceneEventsResult }
+
+func (ListSceneEventsSuccess) isListSceneEventsOutcome() {}
+
+func MarshalListSceneEventsOutcome(value ListSceneEventsOutcome) ([]byte, error) {
+	switch typed := value.(type) {
+	case ListSceneEventsSuccess:
+		return scenery.MarshalContractOutcomeVariant("result", "success", typed.Value, "record.scene_events_result")
+	case *ListSceneEventsSuccess:
+		if typed == nil {
+			return nil, fmt.Errorf("nil ListSceneEventsSuccess outcome")
+		}
+		return scenery.MarshalContractOutcomeVariant("result", "success", typed.Value, "record.scene_events_result")
+	default:
+		return nil, fmt.Errorf("unknown operation outcome %T", value)
+	}
+}
+
+func UnmarshalListSceneEventsOutcome(data []byte) (ListSceneEventsOutcome, error) {
+	kind, name, payload, err := scenery.DecodeContractOutcomeEnvelope(data)
+	if err != nil {
+		return nil, err
+	}
+	switch {
+	case kind == "result" && name == "success":
+		var value SceneEventsResult
+		if err := unmarshalGeneratedContractValue(payload, &value, "record.scene_events_result"); err != nil {
+			return nil, err
+		}
+		return ListSceneEventsSuccess{Value: value}, nil
+	default:
+		return nil, fmt.Errorf("unknown operation outcome %s.%s", kind, name)
+	}
+}
+
+func CloneListSceneEventsOutcome(value ListSceneEventsOutcome) (ListSceneEventsOutcome, error) {
+	raw, err := MarshalListSceneEventsOutcome(value)
+	if err != nil {
+		return nil, err
+	}
+	return UnmarshalListSceneEventsOutcome(raw)
+}
+
+type ListWorkspaceItemsInput = WorkspaceItemsInput
+
+func UnmarshalListWorkspaceItemsInput(data []byte) (ListWorkspaceItemsInput, error) {
+	var value ListWorkspaceItemsInput
+	if err := unmarshalGeneratedContractValue(data, &value, "record.workspace_items_input"); err != nil {
+		return value, err
+	}
+	return value, nil
+}
+
+func CloneListWorkspaceItemsInput(value ListWorkspaceItemsInput) (ListWorkspaceItemsInput, error) {
+	raw, err := scenery.MarshalContractValue(value, "record.workspace_items_input")
+	if err != nil {
+		return value, err
+	}
+	return UnmarshalListWorkspaceItemsInput(raw)
+}
+
+type ListWorkspaceItemsOutcome interface{ isListWorkspaceItemsOutcome() }
+
+type ListWorkspaceItemsSuccess struct{ Value WorkspaceItems }
+
+func (ListWorkspaceItemsSuccess) isListWorkspaceItemsOutcome() {}
+
+func MarshalListWorkspaceItemsOutcome(value ListWorkspaceItemsOutcome) ([]byte, error) {
+	switch typed := value.(type) {
+	case ListWorkspaceItemsSuccess:
+		return scenery.MarshalContractOutcomeVariant("result", "success", typed.Value, "record.workspace_items")
+	case *ListWorkspaceItemsSuccess:
+		if typed == nil {
+			return nil, fmt.Errorf("nil ListWorkspaceItemsSuccess outcome")
+		}
+		return scenery.MarshalContractOutcomeVariant("result", "success", typed.Value, "record.workspace_items")
+	default:
+		return nil, fmt.Errorf("unknown operation outcome %T", value)
+	}
+}
+
+func UnmarshalListWorkspaceItemsOutcome(data []byte) (ListWorkspaceItemsOutcome, error) {
+	kind, name, payload, err := scenery.DecodeContractOutcomeEnvelope(data)
+	if err != nil {
+		return nil, err
+	}
+	switch {
+	case kind == "result" && name == "success":
+		var value WorkspaceItems
+		if err := unmarshalGeneratedContractValue(payload, &value, "record.workspace_items"); err != nil {
+			return nil, err
+		}
+		return ListWorkspaceItemsSuccess{Value: value}, nil
+	default:
+		return nil, fmt.Errorf("unknown operation outcome %s.%s", kind, name)
+	}
+}
+
+func CloneListWorkspaceItemsOutcome(value ListWorkspaceItemsOutcome) (ListWorkspaceItemsOutcome, error) {
+	raw, err := MarshalListWorkspaceItemsOutcome(value)
+	if err != nil {
+		return nil, err
+	}
+	return UnmarshalListWorkspaceItemsOutcome(raw)
 }
 
 func UnmarshalProcessSceneInput(data []byte) (ProcessSceneInput, error) {
@@ -84,4 +210,210 @@ func CloneProcessSceneOutcome(value ProcessSceneOutcome) (ProcessSceneOutcome, e
 		return nil, err
 	}
 	return UnmarshalProcessSceneOutcome(raw)
+}
+
+type ReadSceneInput = SceneReadInput
+
+func UnmarshalReadSceneInput(data []byte) (ReadSceneInput, error) {
+	var value ReadSceneInput
+	if err := unmarshalGeneratedContractValue(data, &value, "record.scene_read_input"); err != nil {
+		return value, err
+	}
+	return value, nil
+}
+
+func CloneReadSceneInput(value ReadSceneInput) (ReadSceneInput, error) {
+	raw, err := scenery.MarshalContractValue(value, "record.scene_read_input")
+	if err != nil {
+		return value, err
+	}
+	return UnmarshalReadSceneInput(raw)
+}
+
+type ReadSceneOutcome interface{ isReadSceneOutcome() }
+
+type ReadSceneSuccess struct{ Value SceneDetail }
+
+func (ReadSceneSuccess) isReadSceneOutcome() {}
+
+type ReadSceneNotFound struct{ Problem scenery.Problem }
+
+func (ReadSceneNotFound) isReadSceneOutcome() {}
+
+func MarshalReadSceneOutcome(value ReadSceneOutcome) ([]byte, error) {
+	switch typed := value.(type) {
+	case ReadSceneSuccess:
+		return scenery.MarshalContractOutcomeVariant("result", "success", typed.Value, "record.scene_detail")
+	case *ReadSceneSuccess:
+		if typed == nil {
+			return nil, fmt.Errorf("nil ReadSceneSuccess outcome")
+		}
+		return scenery.MarshalContractOutcomeVariant("result", "success", typed.Value, "record.scene_detail")
+	case ReadSceneNotFound:
+		return scenery.MarshalContractOutcomeVariant("error", "not_found", typed.Problem, "std.type.problem")
+	case *ReadSceneNotFound:
+		if typed == nil {
+			return nil, fmt.Errorf("nil ReadSceneNotFound outcome")
+		}
+		return scenery.MarshalContractOutcomeVariant("error", "not_found", typed.Problem, "std.type.problem")
+	default:
+		return nil, fmt.Errorf("unknown operation outcome %T", value)
+	}
+}
+
+func UnmarshalReadSceneOutcome(data []byte) (ReadSceneOutcome, error) {
+	kind, name, payload, err := scenery.DecodeContractOutcomeEnvelope(data)
+	if err != nil {
+		return nil, err
+	}
+	switch {
+	case kind == "result" && name == "success":
+		var value SceneDetail
+		if err := unmarshalGeneratedContractValue(payload, &value, "record.scene_detail"); err != nil {
+			return nil, err
+		}
+		return ReadSceneSuccess{Value: value}, nil
+	case kind == "error" && name == "not_found":
+		var value scenery.Problem
+		if err := unmarshalGeneratedContractValue(payload, &value, "std.type.problem"); err != nil {
+			return nil, err
+		}
+		return ReadSceneNotFound{Problem: value}, nil
+	default:
+		return nil, fmt.Errorf("unknown operation outcome %s.%s", kind, name)
+	}
+}
+
+func CloneReadSceneOutcome(value ReadSceneOutcome) (ReadSceneOutcome, error) {
+	raw, err := MarshalReadSceneOutcome(value)
+	if err != nil {
+		return nil, err
+	}
+	return UnmarshalReadSceneOutcome(raw)
+}
+
+type ReadWorkspaceStatsInput = scenery.Unit
+
+func UnmarshalReadWorkspaceStatsInput(data []byte) (ReadWorkspaceStatsInput, error) {
+	var value ReadWorkspaceStatsInput
+	if err := unmarshalGeneratedContractValue(data, &value, "std.type.unit"); err != nil {
+		return value, err
+	}
+	return value, nil
+}
+
+func CloneReadWorkspaceStatsInput(value ReadWorkspaceStatsInput) (ReadWorkspaceStatsInput, error) {
+	raw, err := scenery.MarshalContractValue(value, "std.type.unit")
+	if err != nil {
+		return value, err
+	}
+	return UnmarshalReadWorkspaceStatsInput(raw)
+}
+
+type ReadWorkspaceStatsOutcome interface{ isReadWorkspaceStatsOutcome() }
+
+type ReadWorkspaceStatsSuccess struct{ Value WorkspaceStats }
+
+func (ReadWorkspaceStatsSuccess) isReadWorkspaceStatsOutcome() {}
+
+func MarshalReadWorkspaceStatsOutcome(value ReadWorkspaceStatsOutcome) ([]byte, error) {
+	switch typed := value.(type) {
+	case ReadWorkspaceStatsSuccess:
+		return scenery.MarshalContractOutcomeVariant("result", "success", typed.Value, "record.workspace_stats")
+	case *ReadWorkspaceStatsSuccess:
+		if typed == nil {
+			return nil, fmt.Errorf("nil ReadWorkspaceStatsSuccess outcome")
+		}
+		return scenery.MarshalContractOutcomeVariant("result", "success", typed.Value, "record.workspace_stats")
+	default:
+		return nil, fmt.Errorf("unknown operation outcome %T", value)
+	}
+}
+
+func UnmarshalReadWorkspaceStatsOutcome(data []byte) (ReadWorkspaceStatsOutcome, error) {
+	kind, name, payload, err := scenery.DecodeContractOutcomeEnvelope(data)
+	if err != nil {
+		return nil, err
+	}
+	switch {
+	case kind == "result" && name == "success":
+		var value WorkspaceStats
+		if err := unmarshalGeneratedContractValue(payload, &value, "record.workspace_stats"); err != nil {
+			return nil, err
+		}
+		return ReadWorkspaceStatsSuccess{Value: value}, nil
+	default:
+		return nil, fmt.Errorf("unknown operation outcome %s.%s", kind, name)
+	}
+}
+
+func CloneReadWorkspaceStatsOutcome(value ReadWorkspaceStatsOutcome) (ReadWorkspaceStatsOutcome, error) {
+	raw, err := MarshalReadWorkspaceStatsOutcome(value)
+	if err != nil {
+		return nil, err
+	}
+	return UnmarshalReadWorkspaceStatsOutcome(raw)
+}
+
+type UpdateSceneInput = SceneUpdateInput
+
+func UnmarshalUpdateSceneInput(data []byte) (UpdateSceneInput, error) {
+	var value UpdateSceneInput
+	if err := unmarshalGeneratedContractValue(data, &value, "record.scene_update_input"); err != nil {
+		return value, err
+	}
+	return value, nil
+}
+
+func CloneUpdateSceneInput(value UpdateSceneInput) (UpdateSceneInput, error) {
+	raw, err := scenery.MarshalContractValue(value, "record.scene_update_input")
+	if err != nil {
+		return value, err
+	}
+	return UnmarshalUpdateSceneInput(raw)
+}
+
+type UpdateSceneOutcome interface{ isUpdateSceneOutcome() }
+
+type UpdateSceneSuccess struct{ Value SceneDetail }
+
+func (UpdateSceneSuccess) isUpdateSceneOutcome() {}
+
+func MarshalUpdateSceneOutcome(value UpdateSceneOutcome) ([]byte, error) {
+	switch typed := value.(type) {
+	case UpdateSceneSuccess:
+		return scenery.MarshalContractOutcomeVariant("result", "success", typed.Value, "record.scene_detail")
+	case *UpdateSceneSuccess:
+		if typed == nil {
+			return nil, fmt.Errorf("nil UpdateSceneSuccess outcome")
+		}
+		return scenery.MarshalContractOutcomeVariant("result", "success", typed.Value, "record.scene_detail")
+	default:
+		return nil, fmt.Errorf("unknown operation outcome %T", value)
+	}
+}
+
+func UnmarshalUpdateSceneOutcome(data []byte) (UpdateSceneOutcome, error) {
+	kind, name, payload, err := scenery.DecodeContractOutcomeEnvelope(data)
+	if err != nil {
+		return nil, err
+	}
+	switch {
+	case kind == "result" && name == "success":
+		var value SceneDetail
+		if err := unmarshalGeneratedContractValue(payload, &value, "record.scene_detail"); err != nil {
+			return nil, err
+		}
+		return UpdateSceneSuccess{Value: value}, nil
+	default:
+		return nil, fmt.Errorf("unknown operation outcome %s.%s", kind, name)
+	}
+}
+
+func CloneUpdateSceneOutcome(value UpdateSceneOutcome) (UpdateSceneOutcome, error) {
+	raw, err := MarshalUpdateSceneOutcome(value)
+	if err != nil {
+		return nil, err
+	}
+	return UnmarshalUpdateSceneOutcome(raw)
 }

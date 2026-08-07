@@ -53,10 +53,21 @@ func runContractAgentServer(stdin io.Reader, stdout io.Writer, args []string) er
 	if !stdio || len(positionals) != 0 {
 		return fmt.Errorf("usage: scenery agent serve --stdio [--app-root <path>]")
 	}
+	// Resolve the application root before accepting requests. The root is a
+	// process-owned boundary of this stdio server; it must not be selected or
+	// overridden by model-controlled request parameters.
+	root, err := findContractRoot(appRoot)
+	if err != nil {
+		return err
+	}
 	scanner := bufio.NewScanner(stdin)
 	scanner.Buffer(make([]byte, 64*1024), 2_000_000)
 	encoder := json.NewEncoder(stdout)
-	session := contractagent.NewAgentSession()
+	session := contractagent.NewAgentSessionWithContext(contractagent.AgentExecutionContext{
+		Principal:           "local",
+		GrantedCapabilities: []string{"scenery.agent-mutation"},
+		AppRoot:             root,
+	})
 	for scanner.Scan() {
 		var request contractagent.AgentRequest
 		if err := json.Unmarshal(scanner.Bytes(), &request); err != nil {
@@ -65,7 +76,7 @@ func runContractAgentServer(stdin io.Reader, stdout io.Writer, args []string) er
 			}
 			continue
 		}
-		result, compileErr := compileContractRoot(appRoot)
+		result, compileErr := compiler.Compile(root)
 		if compileErr != nil {
 			return compileErr
 		}

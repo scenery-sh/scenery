@@ -187,3 +187,29 @@ binding "process_scene_cli" {
     }
   }
 }
+
+binding "process_scene_mcp" {
+  operation = operation.process_scene
+  execution = execution.process_scene_direct
+  protocol  = "mcp"
+  delivery  = "call"
+
+  exposure       = "application"
+  authentication = std.authentication.inherit
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+
+  mcp {
+    name        = "process_scene"
+    title       = "Process a scene"
+    description = "Process one scene and return its declared outcome."
+    read_only   = false
+    destructive = false
+    idempotent  = false
+    open_world  = false
+  }
+}
+
+export "process_scene_mcp" {
+  value = binding.process_scene_mcp
+}

@@ -108,7 +108,7 @@ func buildCommand(out io.Writer, args []string) error {
 	if libraryName != "" {
 		result, err = build.Prepare(appRoot, nil, cfg)
 	} else {
-		result, err = build.AppForTarget(appRoot, cfg, targetName, "artifact")
+		result, err = build.BuildArtifactForTarget(appRoot, cfg, targetName, "artifact")
 	}
 	if err != nil {
 		return err

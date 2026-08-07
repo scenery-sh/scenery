@@ -41,7 +41,7 @@ func TestAgentSchemasExposeCompilerEnums(t *testing.T) {
 		values          []string
 	}{
 		{"scenery.source.execution", "mode", []string{"direct", "durable", "workflow"}},
-		{"scenery.source.binding", "protocol", []string{"cli", "event", "http", "internal"}},
+		{"scenery.source.binding", "protocol", []string{"cli", "event", "http", "internal", "mcp"}},
 		{"scenery.source.fixture", "mode", []string{"insert", "replace", "upsert"}},
 		{"scenery.source.typescript_client", "runtime", []string{"fetch"}},
 	} {

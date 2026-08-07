@@ -11,6 +11,39 @@ historical records. Do not refresh their review dates or rewrite them as current
 contract prose. Record later guidance here or in the owning current contract;
 use stale knowledge metadata to flag a known contradiction.
 
+## Replayable Plan Apply and Trusted Agent Context
+
+- Status: completed
+- Owner: scenery evolution / contract agent / assistant adapter
+- Completed: 2026-08-07
+- Quality: B
+- ExecPlan: [0150 Replayable Plan Apply and Trusted Agent Context](0150-replayable-plan-apply.md)
+
+Made source and deployment apply single-commit with authenticated receipt
+replay, moved the model protocol to compact plan handles and plan-ID apply,
+bound mutation authority outside model parameters, and hardened private MCP
+session/request identity. Pinned Eve cannot connect per-action call IDs or
+plan-token approval brokering through its MCP connection API; current docs
+record the gateway-generated request-ID boundary and trusted-operator approval
+path.
+
+## MCP-Native Scenery Assistants with a Managed Node/V8 Helper
+
+- Status: completed
+- Owner: scenery assistants / runtime
+- Completed: 2026-08-04
+- Quality: B
+- ExecPlan: [0149 MCP-Native Scenery Assistants with a Managed Node/V8 Helper](0149-mcp-native-scenery-assistants.md)
+
+Added canonical MCP bindings, private local and federated MCP dispatch,
+provider-neutral application assistants, generated public conversation clients,
+and assistant init/sync tooling. Development supervises managed Node/V8 helpers;
+artifact builds embed verified Node and assistant capsules while preserving the
+single app-binary contract. The complete real-process suite passed twice,
+including ownership, approvals, durable work, reconnect, crash recovery,
+clean-PATH production launch, extraction reuse/tamper recovery, and the public
+provider-leak gate.
+
 ## Impersonation Target Provisioning
 
 - Status: completed

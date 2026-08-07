@@ -90,9 +90,21 @@ var authoredFieldOverrides = map[authoredFieldKey]authoredFieldOverride{
 	{Revision: "scenery.source.execution", Name: "mode"}:                              {Constraints: enumConstraint("direct", "durable", "workflow")},
 	{Revision: "scenery.execution.retry", Name: "strategy"}:                           {Constraints: enumConstraint("exponential", "none")},
 	{Revision: "scenery.execution.deduplication", Name: "conflict"}:                   {Constraints: enumConstraint("return_existing")},
-	{Revision: "scenery.source.binding", Name: "protocol"}:                            {Constraints: enumConstraint("cli", "event", "http", "internal")},
 	{Revision: "scenery.source.binding", Name: "delivery"}:                            {Constraints: enumConstraint("call", "enqueue", "stream", "wait")},
 	{Revision: "scenery.source.binding", Name: "exposure"}:                            {Constraints: enumConstraint("application", "internet", "local", "package", "private_network")},
+	{Revision: "scenery.source.binding", Name: "protocol"}:                            {Constraints: enumConstraint("cli", "event", "http", "internal", "mcp")},
+	{Revision: "scenery.binding.mcp", Name: "name"}:                                   {Constraints: map[string]any{"name_pattern": "^[a-z][a-z0-9_]{0,127}$"}},
+	{Revision: "scenery.binding.mcp", Name: "allow_sensitive_output"}:                 {Default: false, DefaultSource: "spec"},
+	{Revision: "scenery.source.mcp_connection", Name: "transport"}:                    {Constraints: enumConstraint("streamable_http")},
+	{Revision: "scenery.source.mcp_connection", Name: "tools"}:                        {RevisionDomain: "contract"},
+	{Revision: "scenery.mcp-connection.auth", Name: "scheme"}:                         {Constraints: enumConstraint("none", "bearer", "header")},
+	{Revision: "scenery.mcp-connection.auth", Name: "header"}:                         {Constraints: map[string]any{"pattern": httpHeaderLabelPattern}},
+	{Revision: "scenery.mcp-server.capability", Name: "approval"}:                     {Constraints: enumConstraint("always", "never")},
+	{Revision: "scenery.mcp-server.capability", Name: "name"}:                         {Constraints: map[string]any{"name_pattern": "^[a-z][a-z0-9_]{0,127}$"}},
+	{Revision: "scenery.mcp-server.connection", Name: "required"}:                     {Default: false, DefaultSource: "spec"},
+	{Revision: "scenery.mcp-server.connection", Name: "namespace"}:                    {Constraints: map[string]any{"name_pattern": semanticLabelPattern}},
+	{Revision: "scenery.source.assistant", Name: "implementation"}:                    {RevisionDomain: "implementation"},
+	{Revision: "scenery.assistant.surface", Name: "session_access"}:                   {Constraints: enumConstraint("initiator")},
 	{Revision: "scenery.binding.internal", Name: "visibility"}:                        {Constraints: enumConstraint("application", "package")},
 	{Revision: "scenery.binding.internal", Name: "principal"}:                         {Constraints: enumConstraint("inherit")},
 	{Revision: "scenery.binding.event", Name: "direction"}:                            {Constraints: enumConstraint("consume")},
@@ -229,6 +241,8 @@ func authoredPrimitiveConstraints(typeDefinition map[string]any) map[string]any 
 		constraints["format"] = "normalized_relative_path"
 	case "route_path":
 		constraints["format"] = "absolute_normalized_route"
+	case "url":
+		constraints["format"] = "absolute_url"
 	case "json_pointer":
 		constraints["format"] = "json_pointer"
 	}
@@ -630,6 +644,85 @@ func authoredAttributeType(revision, name string) (map[string]any, string) {
 		case "pipeline":
 			return resourceRef("pipeline")
 		case "protocol", "delivery", "exposure":
+			return primitive("string")
+		}
+	case "scenery.binding.mcp":
+		switch name {
+		case "read_only", "destructive", "idempotent", "open_world", "allow_sensitive_output":
+			return primitive("bool")
+		default:
+			return primitive("string")
+		}
+	case "scenery.source.mcp_connection":
+		switch name {
+		case "url":
+			return primitive("url")
+		case "connect_timeout", "call_timeout":
+			return primitive("duration")
+		default:
+			return primitive("string")
+		}
+	case "scenery.mcp-connection.auth":
+		switch name {
+		case "secret":
+			return resourceRef("secret")
+		default:
+			return primitive("string")
+		}
+	case "scenery.mcp-connection.tools":
+		if name == "allow" || name == "block" {
+			return map[string]any{"collection": "set", "items": map[string]any{"primitive": "string"}}, "exact"
+		}
+	case "scenery.source.mcp_server":
+		switch name {
+		case "max_input_bytes", "max_result_bytes":
+			return primitive("positive_int")
+		default:
+			return primitive("string")
+		}
+	case "scenery.mcp-server.capability":
+		switch name {
+		case "binding":
+			return resourceRef("binding")
+		default:
+			return primitive("string")
+		}
+	case "scenery.mcp-server.connection":
+		switch name {
+		case "connection":
+			return resourceRef("mcp_connection")
+		case "required":
+			return primitive("bool")
+		default:
+			return primitive("string")
+		}
+	case "scenery.source.assistant":
+		if name == "mcp_server" {
+			return resourceRef("mcp_server")
+		}
+		return primitive("string")
+	case "scenery.assistant.implementation":
+		switch name {
+		case "source", "package", "package_lock":
+			return primitive("relative_path")
+		default:
+			return primitive("string")
+		}
+	case "scenery.assistant.surface":
+		switch name {
+		case "gateway":
+			return resourceRef("http_gateway")
+		case "path":
+			return primitive("route_path")
+		case "authentication":
+			return resourceRef("authentication")
+		case "authorization":
+			return resourceRef("authorization")
+		case "pipeline":
+			return resourceRef("pipeline")
+		case "client":
+			return resourceRef("typescript_client")
+		default:
 			return primitive("string")
 		}
 	case "scenery.binding.http":
@@ -1156,7 +1249,10 @@ func authoredRevisionDomain(revision, name string) string {
 }
 
 func authoredDefaultRevisionDomain(revision string) string {
-	if strings.HasPrefix(revision, "scenery.deployment.") || revision == "scenery.source.deployment" {
+	if revision == "scenery.mcp-connection.tools" {
+		return "contract"
+	}
+	if strings.HasPrefix(revision, "scenery.deployment.") || revision == "scenery.source.deployment" || strings.HasPrefix(revision, "scenery.mcp-connection.") || revision == "scenery.source.mcp_connection" {
 		return "deployment"
 	}
 	if revision == "scenery.source.secret" {
@@ -1168,7 +1264,7 @@ func authoredDefaultRevisionDomain(revision string) string {
 	if revision == "scenery.patch.operation" {
 		return "workspace_only"
 	}
-	if strings.HasPrefix(revision, "scenery.source.go-") || strings.HasPrefix(revision, "scenery.go-target.") || revision == "scenery.source.typescript_client" {
+	if strings.HasPrefix(revision, "scenery.source.go-") || strings.HasPrefix(revision, "scenery.go-target.") || revision == "scenery.source.typescript_client" || revision == "scenery.assistant.implementation" {
 		return "implementation"
 	}
 	if revision == "scenery.typescript-client.retry" || revision == "scenery.typescript-client.react" {

@@ -318,6 +318,50 @@ func TestWorkspaceRevisionExcludesManagedGeneratedFiles(t *testing.T) {
 	}
 }
 
+func TestWorkspaceRevisionExcludesManagedGeneratedFilesInsideImplementationRoot(t *testing.T) {
+	temp := t.TempDir()
+	copyTree(t, filepath.Join("testdata", "house"), temp)
+	rootSource := filepath.Join(temp, appFilename)
+	data, err := os.ReadFile(rootSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data = append(data, []byte(`
+workspace {
+  implementation_root "application" {
+    path = "."
+    revision_include = ["**/*.go"]
+  }
+  managed_generated_roots = ["internal/scenerygen"]
+}
+`)...)
+	if err := os.WriteFile(rootSource, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	generated := filepath.Join(temp, "internal", "scenerygen")
+	if err := os.MkdirAll(generated, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	generatedGo := filepath.Join(generated, "composition.gen.go")
+	if err := os.WriteFile(generatedGo, []byte("package scenerygen\nconst revision = \"one\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	base, err := Compile(temp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(generatedGo, []byte("package scenerygen\nconst revision = \"two\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	changed, err := Compile(temp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed.WorkspaceRevision != base.WorkspaceRevision {
+		t.Fatalf("managed generated Go changed workspace revision: %s != %s", changed.WorkspaceRevision, base.WorkspaceRevision)
+	}
+}
+
 func TestDuplicateParameterizedRoutesConflict(t *testing.T) {
 	temp := t.TempDir()
 	copyTree(t, filepath.Join("testdata", "house"), temp)

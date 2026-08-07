@@ -52,8 +52,12 @@ func TestChangePlanDoesNotWriteAndApplyIsRevisionBound(t *testing.T) {
 	if receipt.WorkspaceRevision != plan.PredictedWorkspaceRevision || receipt.ContractRevision != plan.PredictedContractRevision {
 		t.Fatalf("receipt = %#v plan = %#v", receipt, plan)
 	}
-	if _, err := ApplyChangePlan(root, plan, base.WorkspaceRevision, base.Manifest.ContractRevision); err == nil {
-		t.Fatal("stale plan applied twice")
+	replayed, err := ApplyChangePlan(root, plan, base.WorkspaceRevision, base.Manifest.ContractRevision)
+	if err != nil {
+		t.Fatalf("replaying applied plan: %v", err)
+	}
+	if !semanticEqual(replayed, receipt) {
+		t.Fatalf("replayed receipt = %#v, original = %#v", replayed, receipt)
 	}
 }
 
@@ -377,6 +381,27 @@ func TestChangeCreateAddsStructuredRecord(t *testing.T) {
 	fields := namedChildren(record.Spec, "field")
 	if len(fields) != 2 || stringValue(fields[0]["name"]) != "id" || stringValue(fields[1]["name"]) != "message" {
 		t.Fatalf("created record fields = %#v", fields)
+	}
+}
+
+func TestChangePlanCommitsAdditionalAuthoredFilesTransactionally(t *testing.T) {
+	root := t.TempDir()
+	copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), root)
+	base, err := compiler.Compile(root)
+	if err != nil || !base.Valid() {
+		t.Fatalf("compile: %v diagnostics=%#v", err, base.Diagnostics)
+	}
+	edit := SourceEdit{Path: "assistants/support/package.json", BeforeDigest: byteDigest(nil), After: []byte(`{"name":"fixture","private":true}`), BeforeExists: false, AfterExists: true, Mode: 0o644}
+	plan, err := PlanChanges(root, ChangeRequest{BaseWorkspaceRevision: base.WorkspaceRevision, BaseContractRevision: stringPointer(base.Manifest.ContractRevision), AdditionalEdits: []SourceEdit{edit}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ApplyChangePlan(root, plan, base.WorkspaceRevision, base.Manifest.ContractRevision); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(root, "assistants/support/package.json"))
+	if err != nil || string(data) != string(edit.After) {
+		t.Fatalf("additional file = %q err=%v", data, err)
 	}
 }
 
@@ -773,7 +798,7 @@ func TestChangeApplyRequiresBoundApprovalAndRejectsReplay(t *testing.T) {
 	if err := RetainIssuedPlan(root, IssuedChangePlan, plan.PlanID, plan); err != nil {
 		t.Fatal(err)
 	}
-	options := ApplyOptions{ExpectedWorkspaceRevision: base.WorkspaceRevision, ExpectedContractRevision: stringPointer(base.Manifest.ContractRevision), Caller: plan.Caller}
+	options := ApplyOptions{ExpectedWorkspaceRevision: base.WorkspaceRevision, ExpectedContractRevision: stringPointer(base.Manifest.ContractRevision), Caller: plan.Caller, GrantedCapabilities: []string{requiredChangeCapability}}
 	tampered := plan
 	tampered.RequiredApprovals = nil
 	tampered.PlanID = changePlanID(tampered)
@@ -796,8 +821,12 @@ func TestChangeApplyRequiresBoundApprovalAndRejectsReplay(t *testing.T) {
 	if _, err := ApplyChangePlanWithOptions(root, plan, options); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ApplyChangePlanWithOptions(root, plan, options); err == nil || !strings.Contains(err.Error(), "already applied") {
+	replayed, err := ApplyChangePlanWithOptions(root, plan, options)
+	if err != nil {
 		t.Fatalf("replay error = %v", err)
+	}
+	if replayed.PlanID != plan.PlanID {
+		t.Fatalf("replayed receipt = %#v", replayed)
 	}
 }
 
@@ -838,7 +867,7 @@ func TestRepairPlanUsesNullContractRevisionAndEstablishesContract(t *testing.T) 
 	if plan.BaseContractRevision != nil || plan.PredictedContractRevision == "" {
 		t.Fatalf("repair plan revisions = %#v", plan)
 	}
-	receipt, err := ApplyChangePlanWithOptions(root, plan, ApplyOptions{ExpectedWorkspaceRevision: base.WorkspaceRevision, ExpectedContractRevision: nil, Caller: plan.Caller})
+	receipt, err := ApplyChangePlanWithOptions(root, plan, ApplyOptions{ExpectedWorkspaceRevision: base.WorkspaceRevision, ExpectedContractRevision: nil, Caller: plan.Caller, GrantedCapabilities: []string{requiredChangeCapability}})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,0 +1,13 @@
+{
+  "name": "assistant-fixture",
+  "envs": {
+    "local": {
+      "default": true
+    }
+  },
+  "dev": {
+    "services": {
+      "assistant_runtime": {}
+    }
+  }
+}

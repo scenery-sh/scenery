@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.assistant.runtime-descriptor.schema.json",
+  "title": "Scenery assistant runtime descriptor",
+  "description": "The helper startup descriptor exchanged before a private assistant session is ready.",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "assistant_address",
+    "runtime_revision",
+    "capability_revision",
+    "control_protocol",
+    "mcp_protocol"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.assistant.runtime-descriptor"
+    },
+    "schema_revision": {
+      "const": "sha256:886be15df5243d0c0e321c738e4807339262f47c09b15df50364ef405b54492e"
+    },
+    "assistant_address": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "runtime_revision": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "capability_revision": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "control_protocol": {
+      "const": "scenery.assistant.control"
+    },
+    "mcp_protocol": {
+      "const": "2025-11-25"
+    }
+  },
+  "additionalProperties": false
+}

@@ -12,6 +12,7 @@ var rootResourceKinds = map[string]bool{
 	"workload_identity": true, "pipeline": true, "provider": true,
 	"data_source": true, "execution_engine": true, "event_bus": true,
 	"secret_store": true, "secret": true, "deployment": true,
+	"mcp_connection": true, "mcp_server": true, "assistant": true,
 	"typescript_client": true, "patch": true,
 }
 

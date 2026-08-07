@@ -60,6 +60,26 @@ func TestGeneratedDescriptorStalenessIgnoresProducerProvenance(t *testing.T) {
 	}
 }
 
+func TestHermeticModuleCacheDiagnosticIsActionableAndBounded(t *testing.T) {
+	missing := []string{"example.test/a", "example.test/b", "example.test/c", "example.test/d", "example.test/e", "example.test/f"}
+	diagnostic := hermeticModuleCacheDiagnostic("app/go_target/development", missing)
+	if diagnostic.Code != "SCN6202" || diagnostic.Address != "app/go_target/development" {
+		t.Fatalf("diagnostic identity = %#v", diagnostic)
+	}
+	if !strings.Contains(diagnostic.Message, "hermetic module cache is missing 6 imported packages") ||
+		!strings.Contains(diagnostic.Message, "example.test/a") ||
+		!strings.Contains(diagnostic.Message, "(+1 more)") ||
+		strings.Contains(diagnostic.Message, "example.test/f") {
+		t.Fatalf("diagnostic message = %q", diagnostic.Message)
+	}
+	if len(diagnostic.Suggestions) != 1 || !strings.Contains(diagnostic.Suggestions[0], "go mod download") {
+		t.Fatalf("diagnostic suggestions = %#v", diagnostic.Suggestions)
+	}
+	if got, ok := diagnostic.Details["missing_packages"].([]string); !ok || !slices.Equal(got, missing) {
+		t.Fatalf("missing package details = %#v", diagnostic.Details)
+	}
+}
+
 func TestGenerateContractsAndTypeScriptAreStable(t *testing.T) {
 	temp := t.TempDir()
 	copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), temp)
@@ -288,8 +308,11 @@ func TestNativeFixtureRendersContractAndApplicationArtifacts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(files) != 6 {
+	if len(files) != 7 {
 		t.Fatalf("generated paths = %#v", files)
+	}
+	if _, ok := files["internal/scenerygen/assets/assets.gen.go"]; !ok {
+		t.Fatalf("generated paths do not include the empty assistant asset registry: %#v", files)
 	}
 	plan, err := BuildRuntimeIntegrationPlan(result)
 	if err != nil {

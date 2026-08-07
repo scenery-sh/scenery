@@ -1,0 +1,3 @@
+Content-Type: application/x-ndjson
+Set-Cookie: scenery_assistant_session=opaque
+X-Request-Id: req-hex

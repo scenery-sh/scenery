@@ -46,7 +46,7 @@ var splitPageSlotNames = []string{"sidebar", "detail", "sidebar_actions", "detai
 // content_page source schema; order fixes the generated import alias numbering.
 var contentPageSlotNames = []string{"content", "actions"}
 
-func renderTypeScriptReact(result *Result, target Resource, root string, bindings []Resource) ([]generatedFile, []string, error) {
+func renderTypeScriptReact(result *Result, target Resource, root string, bindings []Resource, assistants []Resource) ([]generatedFile, []string, error) {
 	if _, ok := target.Spec["react"].(map[string]any); !ok {
 		return nil, []string{}, nil
 	}
@@ -106,6 +106,17 @@ func renderTypeScriptReact(result *Result, target Resource, root string, binding
 		generatedFile{Path: filepath.Join(reactRoot, "app.generated.tsx"), Bytes: []byte(renderReactAppAdapter())},
 		generatedFile{Path: filepath.Join(reactRoot, "index.ts"), Bytes: []byte(renderReactIndex(result.Manifest.Resources, detailPages))},
 	)
+	if len(assistants) > 0 {
+		files = append(files,
+			generatedFile{Path: filepath.Join(reactRoot, "assistants.generated.tsx"), Bytes: []byte(renderReactAssistantAdapter(assistants))},
+		)
+		for index := range files {
+			if files[index].Path == filepath.Join(reactRoot, "index.ts") {
+				files[index].Bytes = append(files[index].Bytes, []byte("export * from \"./assistants.generated.js\";\n")...)
+				break
+			}
+		}
+	}
 	return files, []string{"react/scenery-ui"}, nil
 }
 

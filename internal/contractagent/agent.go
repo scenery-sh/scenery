@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -40,6 +41,7 @@ type AgentSession struct {
 	mu        sync.Mutex
 	snapshots map[string]*agentSnapshot
 	order     []*agentSnapshot
+	execution AgentExecutionContext
 }
 
 type agentSnapshot struct {
@@ -51,7 +53,75 @@ type agentSnapshot struct {
 }
 
 func NewAgentSession() *AgentSession {
-	return &AgentSession{snapshots: map[string]*agentSnapshot{}}
+	// The convenience session has no app-root authority and is therefore
+	// read-only for mutation/recovery methods. Real mutation callers must use
+	// NewAgentSessionWithContext with a launcher-bound absolute AppRoot.
+	return NewAgentSessionWithContext(AgentExecutionContext{
+		Principal:           "local",
+		GrantedCapabilities: []string{"scenery.agent-mutation"},
+	})
+}
+
+// NewAgentSessionWithContext creates a session whose identity and authority
+// come from the authenticated caller. The context is copied and normalized so
+// later model requests cannot mutate the server-owned slices or credentials.
+func NewAgentSessionWithContext(context AgentExecutionContext) *AgentSession {
+	context.Principal = strings.TrimSpace(context.Principal)
+	context.AppRoot = strings.TrimSpace(context.AppRoot)
+	context.ClientIdentity = strings.TrimSpace(context.ClientIdentity)
+	context.ProtocolVersion = strings.TrimSpace(context.ProtocolVersion)
+	context.SessionID = strings.TrimSpace(context.SessionID)
+	context.AssistantAddress = strings.TrimSpace(context.AssistantAddress)
+	context.ConversationDigest = strings.TrimSpace(context.ConversationDigest)
+	context.CapabilityRevision = strings.TrimSpace(context.CapabilityRevision)
+	context.RequestID = strings.TrimSpace(context.RequestID)
+	context.CallID = strings.TrimSpace(context.CallID)
+	context.TraceID = strings.TrimSpace(context.TraceID)
+	context.IdempotencyKey = strings.TrimSpace(context.IdempotencyKey)
+	context.AppRoot = canonicalExecutionRoot(context.AppRoot)
+	context.GrantedCapabilities = canonicalStrings(context.GrantedCapabilities)
+	context.ApprovalTokens = cloneApprovalTokens(context.ApprovalTokens)
+	context.TraceContext = cloneTraceContext(context.TraceContext)
+	return &AgentSession{snapshots: map[string]*agentSnapshot{}, execution: context}
+}
+
+// ExecutionContext returns a defensive copy of the server-owned execution
+// context for transport adapters and tests. Approval verifier functions are
+// immutable function values and are copied as-is.
+func (session *AgentSession) ExecutionContext() AgentExecutionContext {
+	if session == nil {
+		return AgentExecutionContext{}
+	}
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	context := session.execution
+	context.GrantedCapabilities = append([]string(nil), context.GrantedCapabilities...)
+	context.ApprovalTokens = cloneApprovalTokens(context.ApprovalTokens)
+	context.TraceContext = cloneTraceContext(context.TraceContext)
+	return context
+}
+
+func cloneTraceContext(values map[string]string) map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+	clone := make(map[string]string, len(values))
+	for key, value := range values {
+		clone[key] = value
+	}
+	return clone
+}
+
+func cloneApprovalTokens(values []ApprovalToken) []ApprovalToken {
+	if len(values) == 0 {
+		return nil
+	}
+	clone := make([]ApprovalToken, len(values))
+	for index, value := range values {
+		clone[index] = value
+		clone[index].RiskScopes = append([]string(nil), value.RiskScopes...)
+	}
+	return clone
 }
 
 func HandleAgentRequest(result *Result, request AgentRequest) AgentResponse {
@@ -64,6 +134,11 @@ func (session *AgentSession) Handle(result *Result, request AgentRequest) AgentR
 		response.Error = agentError("failed_precondition", "no valid manifest is available")
 		return response
 	}
+	execution := session.ExecutionContext()
+	if execution.AppRoot != "" && execution.AppRoot != canonicalExecutionRoot(result.Root) {
+		response.Error = agentError("permission_denied", "execution context app root mismatch")
+		return response
+	}
 	if result.Manifest == nil && !agentMethodAllowsInvalidManifest(request.Method) {
 		response.Error = agentError("failed_precondition", "no valid manifest is available")
 		return response
@@ -73,7 +148,7 @@ func (session *AgentSession) Handle(result *Result, request AgentRequest) AgentR
 	}
 	switch request.Method {
 	case "capabilities":
-		response.Result = agentCapabilities(result.Manifest)
+		response.Result = agentCapabilities(result.Manifest, execution)
 	case "schema.get":
 		var params struct {
 			Kind string `json:"kind"`
@@ -262,47 +337,109 @@ func (session *AgentSession) Handle(result *Result, request AgentRequest) AgentR
 		}
 		response.Result = operation
 	case "changes.plan":
-		var params ChangeRequest
+		var params PlanRequest
 		if err := decodeAgentParams(request.Params, &params); err != nil {
 			response.Error = agentError("invalid_request", err.Error())
 			break
 		}
-		plan, err := evolution.PlanChanges(result.Root, params)
+		if err := validateMutationExecutionContext(execution); err != nil {
+			response.Error = agentErrorFrom(err)
+			break
+		}
+		plan, err := evolution.PlanChanges(result.Root, evolution.ChangeRequest{
+			BaseWorkspaceRevision: params.BaseWorkspaceRevision,
+			BaseContractRevision:  params.BaseContractRevision,
+			Capabilities:          append([]string(nil), execution.GrantedCapabilities...),
+			Caller:                execution.Principal,
+			Operations:            append([]SemanticOperation(nil), params.Operations...),
+		})
 		if err != nil {
 			response.Error = agentErrorFrom(err)
+			break
+		}
+		response.Result = compactChangePlan(plan)
+	case "changes.apply":
+		var params ChangeApplyRequest
+		if err := decodeAgentParams(request.Params, &params); err != nil {
+			response.Error = agentError("invalid_request", err.Error())
+			break
+		}
+		if err := validatePlanID(params.PlanID); err != nil {
+			response.Error = agentError("invalid_request", err.Error())
+			break
+		}
+		if err := validateMutationExecutionContext(execution); err != nil {
+			response.Error = agentErrorFrom(err)
+			break
+		}
+		resultValue, err := evolution.ApplyIssuedChangePlanWithOptions(result.Root, params.PlanID, ApplyOptions{
+			Caller:              execution.Principal,
+			GrantedCapabilities: append([]string(nil), execution.GrantedCapabilities...),
+			ApprovalTokens:      cloneApprovalTokens(execution.ApprovalTokens),
+			VerifyApproval:      execution.ApprovalVerifier,
+		})
+		if err != nil {
+			response.Error = agentErrorFrom(err)
+			break
+		}
+		response.Result = ChangeApplyResponse{Receipt: resultValue.Receipt, Replayed: resultValue.Replayed}
+	case "plans.get":
+		if !execution.AllowPlanInspection {
+			response.Error = agentError("permission_denied", "full plan inspection is restricted to a trusted review channel")
+			break
+		}
+		var params ChangeApplyRequest
+		if err := decodeAgentParams(request.Params, &params); err != nil {
+			response.Error = agentError("invalid_request", err.Error())
+			break
+		}
+		if err := validatePlanID(params.PlanID); err != nil {
+			response.Error = agentError("invalid_request", err.Error())
+			break
+		}
+		if err := validateMutationExecutionContext(execution); err != nil {
+			response.Error = agentErrorFrom(err)
+			break
+		}
+		plan, err := evolution.LoadIssuedChangePlan(result.Root, params.PlanID)
+		if err != nil {
+			response.Error = agentErrorFrom(err)
+			break
+		}
+		if plan.Caller != execution.Principal {
+			response.Error = agentError("permission_denied", "plan caller mismatch")
 			break
 		}
 		response.Result = plan
-	case "changes.apply":
-		var params struct {
-			Plan                    ChangePlan      `json:"plan"`
-			ExpectWorkspaceRevision string          `json:"expect_workspace_revision"`
-			ExpectContractRevision  *string         `json:"expect_contract_revision"`
-			Caller                  string          `json:"caller"`
-			ApprovalTokens          []ApprovalToken `json:"approval_tokens"`
-		}
+	case "changes.receipt.get":
+		var params ChangeApplyRequest
 		if err := decodeAgentParams(request.Params, &params); err != nil {
 			response.Error = agentError("invalid_request", err.Error())
 			break
 		}
-		if params.Caller == "" {
-			params.Caller = params.Plan.Caller
+		if err := validatePlanID(params.PlanID); err != nil {
+			response.Error = agentError("invalid_request", err.Error())
+			break
 		}
-		var verifier ApprovalVerifier
-		if len(params.ApprovalTokens) > 0 {
-			loaded, loadErr := evolution.LoadApprovalVerifier(result.Root)
-			if loadErr != nil {
-				response.Error = agentError("permission_denied", loadErr.Error())
-				break
-			}
-			verifier = ApprovalVerifier(loaded)
+		if err := validateReceiptReadExecutionContext(execution); err != nil {
+			response.Error = agentErrorFrom(err)
+			break
 		}
-		receipt, err := evolution.ApplyChangePlanWithOptions(result.Root, params.Plan, ApplyOptions{ExpectedWorkspaceRevision: params.ExpectWorkspaceRevision, ExpectedContractRevision: params.ExpectContractRevision, Caller: params.Caller, ApprovalTokens: params.ApprovalTokens, VerifyApproval: verifier})
+		plan, err := evolution.LoadIssuedChangePlan(result.Root, params.PlanID)
 		if err != nil {
 			response.Error = agentErrorFrom(err)
 			break
 		}
-		response.Result = receipt
+		if plan.Caller != execution.Principal {
+			response.Error = agentError("permission_denied", "plan caller mismatch")
+			break
+		}
+		receipt, err := evolution.LoadAppliedChangeReceipt(result.Root, params.PlanID)
+		if err != nil {
+			response.Error = agentErrorFrom(err)
+			break
+		}
+		response.Result = ChangeReceiptResponse{PlanID: params.PlanID, Status: "applied", Receipt: receipt}
 	default:
 		response.Error = agentError("invalid_request", "unknown method "+request.Method)
 	}
@@ -319,7 +456,173 @@ func (session *AgentSession) Handle(result *Result, request AgentRequest) AgentR
 }
 
 func agentMethodAllowsInvalidManifest(method string) bool {
-	return method == "capabilities" || method == "schema.get" || method == "diagnostics.get" || method == "changes.plan" || method == "changes.apply"
+	return method == "capabilities" || method == "schema.get" || method == "diagnostics.get" || method == "changes.plan" || method == "changes.apply" || method == "plans.get" || method == "changes.receipt.get"
+}
+
+func validateMutationExecutionContext(context AgentExecutionContext) error {
+	if context.Principal == "" {
+		return fmt.Errorf("permission_denied: execution context principal is unavailable")
+	}
+	if canonicalExecutionRoot(context.AppRoot) == "" {
+		return fmt.Errorf("permission_denied: execution context app root is unavailable")
+	}
+	if !hasAgentCapability(context.GrantedCapabilities, "scenery.agent-mutation") {
+		return fmt.Errorf("permission_denied: execution context lacks scenery.agent-mutation")
+	}
+	return nil
+}
+
+func validateReceiptReadExecutionContext(context AgentExecutionContext) error {
+	if context.Principal == "" {
+		return fmt.Errorf("permission_denied: execution context principal is unavailable")
+	}
+	if canonicalExecutionRoot(context.AppRoot) == "" {
+		return fmt.Errorf("permission_denied: execution context app root is unavailable")
+	}
+	return nil
+}
+
+func hasAgentCapability(capabilities []string, want string) bool {
+	for _, capability := range capabilities {
+		if capability == want {
+			return true
+		}
+	}
+	return false
+}
+
+func canonicalExecutionRoot(root string) string {
+	root = strings.TrimSpace(root)
+	if root == "" {
+		return ""
+	}
+	absolute, err := filepath.Abs(root)
+	if err != nil {
+		return filepath.Clean(root)
+	}
+	if resolved, resolveErr := filepath.EvalSymlinks(absolute); resolveErr == nil {
+		absolute = resolved
+	}
+	return filepath.Clean(absolute)
+}
+
+func validatePlanID(planID string) error {
+	if !graph.IsCanonicalSHA256Digest(planID) {
+		return fmt.Errorf("plan_id must be a canonical sha256 digest")
+	}
+	return nil
+}
+
+func compactChangePlan(plan evolution.ChangePlan) ChangePlan {
+	affected := canonicalStrings(plan.AffectedResources)
+	affectedCount := len(affected)
+	affectedTruncated := affectedCount > 256
+	if len(affected) > 256 {
+		affected = affected[:256]
+	}
+	approvals := canonicalStrings(plan.RequiredApprovals)
+	if len(approvals) > 256 {
+		approvals = approvals[:256]
+	}
+	capabilities := canonicalStrings(plan.RequiredCapabilities)
+	if len(capabilities) > 256 {
+		capabilities = capabilities[:256]
+	}
+	for index := range affected {
+		affected[index] = boundedAgentString(affected[index], 256)
+	}
+	for index := range approvals {
+		approvals[index] = boundedAgentString(approvals[index], 256)
+	}
+	for index := range capabilities {
+		capabilities[index] = boundedAgentString(capabilities[index], 256)
+	}
+	risks := compactRiskRecords(plan.RiskRecords)
+	riskCount := len(plan.RiskRecords)
+	riskTruncated := riskCount > 256
+	if len(risks) > 256 {
+		risks = risks[:256]
+	}
+	return ChangePlan{
+		PlanID:                     plan.PlanID,
+		Application:                boundedAgentString(plan.Application, 256),
+		Summary:                    plan.SemanticDiff.Summary,
+		BaseWorkspaceRevision:      plan.BaseWorkspaceRevision,
+		BaseContractRevision:       cloneStringPointer(plan.BaseContractRevision),
+		PredictedWorkspaceRevision: plan.PredictedWorkspaceRevision,
+		PredictedContractRevision:  plan.PredictedContractRevision,
+		ImplementationStatus:       plan.ImplementationStatus,
+		DeploymentStatus:           plan.DeploymentStatus,
+		AffectedResources:          affected,
+		AffectedResourceCount:      affectedCount,
+		AffectedResourcesTruncated: affectedTruncated,
+		RequiredApprovals:          approvals,
+		RequiredCapabilities:       capabilities,
+		RiskRecords:                risks,
+		RiskCount:                  riskCount,
+		RiskRecordsTruncated:       riskTruncated,
+		ExpiresAt:                  plan.ExpiresAt,
+	}
+}
+
+func cloneStringPointer(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	copy := *value
+	return &copy
+}
+
+func compactRiskRecords(records []any) []ChangeRiskSummary {
+	result := make([]ChangeRiskSummary, 0, len(records))
+	for _, raw := range records {
+		values, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		risk := ChangeRiskSummary{
+			RiskID:             stringValue(values["risk_id"]),
+			Kind:               stringValue(values["kind"]),
+			Address:            stringValue(values["address"]),
+			Path:               stringValue(values["path"]),
+			ComparisonChangeID: stringValue(values["comparison_change_id"]),
+		}
+		if requires, ok := values["requires_approval"].(bool); ok {
+			risk.RequiresApproval = requires
+		}
+		result = append(result, risk)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].RiskID != result[j].RiskID {
+			return result[i].RiskID < result[j].RiskID
+		}
+		if result[i].Address != result[j].Address {
+			return result[i].Address < result[j].Address
+		}
+		return result[i].Path < result[j].Path
+	})
+	for index := range result {
+		result[index].RiskID = boundedAgentString(result[index].RiskID, 256)
+		result[index].Kind = boundedAgentString(result[index].Kind, 256)
+		result[index].Address = boundedAgentString(result[index].Address, 256)
+		result[index].Path = boundedAgentString(result[index].Path, 256)
+		result[index].ComparisonChangeID = boundedAgentString(result[index].ComparisonChangeID, 256)
+	}
+	return result
+}
+
+func boundedAgentString(value string, max int) string {
+	value = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return -1
+		}
+		return r
+	}, value)
+	runes := []rune(value)
+	if len(runes) > max {
+		runes = runes[:max]
+	}
+	return string(runes)
 }
 
 func (session *AgentSession) retain(result *Result) {
@@ -414,10 +717,16 @@ func cloneAgentManifest(manifest *Manifest) *Manifest {
 	return &cloned
 }
 
-func agentCapabilities(manifest *Manifest) map[string]any {
+func agentCapabilities(manifest *Manifest, execution AgentExecutionContext) map[string]any {
+	operations := []string{"capabilities", "schema.get", "resources.list", "resources.get", "resources.explain", "graph.get", "revisions.diff", "diagnostics.get", "context.get", "changes.plan", "changes.apply", "changes.receipt.get", "resource.create", "resource.delete", "resource.rename", "value.set", "value.unset", "module.configure"}
+	if execution.AllowPlanInspection {
+		// Full plan inspection is intentionally omitted from ordinary sessions;
+		// trusted review adapters opt in through the execution context.
+		operations = append(operations, "plans.get")
+	}
 	return map[string]any{
 		"kind":                      "scenery.agent.capabilities",
-		"schema_revision":           "sha256:2039fe024772db03d46bb431ccb58381ea24a7452c58fc999db08824f90415c8",
+		"schema_revision":           "sha256:c510c09edae970695642f4d6a805fcba8f6497c99c217486393968c41a1428dc",
 		"spec_revision":             string(spec.CurrentRevision()),
 		"producer":                  machine.RuntimeProducer(),
 		"resource_schema_revisions": allResourceSchemaRevisions(),
@@ -437,7 +746,7 @@ func agentCapabilities(manifest *Manifest) map[string]any {
 			"streaming_and_websockets",
 			"workflow_runtime",
 		},
-		"operations":       []string{"capabilities", "schema.get", "resources.list", "resources.get", "resources.explain", "graph.get", "revisions.diff", "diagnostics.get", "context.get", "changes.plan", "changes.apply", "resource.create", "resource.delete", "resource.rename", "value.set", "value.unset", "module.configure"},
+		"operations":       operations,
 		"transport_limits": map[string]any{"max_resources": 1000, "max_bytes": 2_000_000, "max_depth": 16, "continuation_ttl_seconds": int(graph.ContextTokenTTL.Seconds()), "retained_snapshots": 32},
 	}
 }

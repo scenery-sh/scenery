@@ -31,7 +31,9 @@ type RuntimeIntegrationPlan struct {
 
 func BuildRuntimeIntegrationPlan(result *Result) (RuntimeIntegrationPlan, error) {
 	services := nativeApplicationServices(result)
-	if len(services) == 0 {
+	assistants := canonicalAssistantResources(result.Manifest.Resources)
+	mcpServers := canonicalMCPServers(result.Manifest.Resources)
+	if len(services) == 0 && len(assistants) == 0 && len(mcpServers) == 0 {
 		return RuntimeIntegrationPlan{}, nil
 	}
 	_, generatedImport, err := resolveApplicationGeneratedRoot(result)
@@ -43,7 +45,9 @@ func BuildRuntimeIntegrationPlan(result *Result) (RuntimeIntegrationPlan, error)
 
 func generateApplicationArtifacts(result *Result, idx *resourceIndex) ([]generatedFile, error) {
 	services := nativeApplicationServices(result)
-	if len(services) == 0 {
+	assistants := canonicalAssistantResources(result.Manifest.Resources)
+	mcpServers := canonicalMCPServers(result.Manifest.Resources)
+	if len(services) == 0 && len(assistants) == 0 && len(mcpServers) == 0 {
 		return nil, nil
 	}
 	generatedRoot, generatedImport, err := resolveApplicationGeneratedRoot(result)
@@ -71,11 +75,24 @@ func generateApplicationArtifacts(result *Result, idx *resourceIndex) ([]generat
 	for _, adapter := range adapters {
 		files = append(files, generatedFile{Path: filepath.Join(generatedRoot, filepath.FromSlash(adapter.RelativeDir), "adapter.gen.go"), Bytes: adapter.Source})
 	}
-	composition, err := renderApplicationComposition(result.Manifest.ContractRevision, providerRuntimeABIs(result.Manifest.Resources), adapters)
+	composition, err := renderApplicationComposition(result, providerRuntimeABIs(result.Manifest.Resources), adapters, assistants)
 	if err != nil {
 		return nil, err
 	}
 	files = append(files, generatedFile{Path: filepath.Join(generatedRoot, "composition", "composition.gen.go"), Bytes: composition})
+	// Keep the provider-neutral assets package present in every generated
+	// workspace. Development and worker lanes receive an empty registry; the
+	// production build lane replaces this artifact set with verified embeds
+	// before compiling the binary.
+	if len(assistants) > 0 {
+		emptyAssets, err := RenderAssistantAssetRegistry(result, nil)
+		if err != nil {
+			return nil, err
+		}
+		for relative, contents := range emptyAssets {
+			files = append(files, generatedFile{Path: filepath.Join(result.Root, filepath.FromSlash(relative)), Bytes: contents})
+		}
+	}
 	covered := map[string]bool{}
 	packageABIs := map[string]string{}
 	for _, adapter := range adapters {
@@ -83,6 +100,18 @@ func generateApplicationArtifacts(result *Result, idx *resourceIndex) ([]generat
 			covered[address] = true
 		}
 		packageABIs[adapter.Contract] = adapter.PackageABI
+	}
+	for _, assistant := range assistants {
+		covered[assistant.Address] = true
+	}
+	federations, err := mcpFederationTargets(result)
+	if err != nil {
+		return nil, err
+	}
+	for _, federation := range federations {
+		for _, address := range federation.CoveredAddresses {
+			covered[address] = true
+		}
 	}
 	coveredAddresses := sortedBoolKeys(covered)
 	descriptor := addGeneratedArtifactIdentity(map[string]any{
@@ -247,19 +276,22 @@ func renderApplicationAdapter(result *Result, idx *resourceIndex, module, servic
 	if isProviderCRUDService(service) {
 		bindings := serviceHTTPBindings(result.Manifest.Resources, operations)
 		internalBindings := internalBindingsForOperations(result.Manifest.Resources, operations)
+		mcpBindings := mcpBindingsForService(result.Manifest.Resources, service, operations)
 		covered := []string{service.Address}
 		covered = append(covered, resourceAddresses(operations)...)
 		covered = append(covered, resourceAddresses(bindings)...)
 		covered = append(covered, resourceAddresses(internalBindings)...)
+		mcpResources := mcpBindingResources(mcpBindings)
+		covered = append(covered, resourceAddresses(mcpResources)...)
 		covered = append(covered, pageOwnedResourceAddresses(result.Manifest.Resources, operations)...)
-		allBindings := append(append([]Resource(nil), bindings...), internalBindings...)
+		allBindings := append(append(append([]Resource(nil), bindings...), internalBindings...), mcpResources...)
 		covered = append(covered, referencedExecutions(result.Manifest.Resources, allBindings)...)
 		covered = canonicalStrings(covered)
 		dirName := semanticPathName(moduleInstancePath(module) + "_" + service.Name + "_adapter")
 		packageName := goPackageName(moduleInstancePath(module) + "_" + service.Name + "_adapter")
 		contractImport := implementationImport + "/scenerycontract"
 		adapterImport := generatedImport + "/" + dirName
-		source, renderErr := renderProviderCRUDAdapterSource(result.Manifest.ContractRevision, packageIdentity, packageABI, contractImport, packageName, service, operations, bindings, result.Manifest.Resources, covered, providerRuntimeABIs(result.Manifest.Resources))
+		source, renderErr := renderProviderCRUDAdapterSource(result.Manifest.ContractRevision, packageIdentity, packageABI, contractImport, packageName, service, operations, bindings, mcpBindings, result.Manifest.Resources, covered, providerRuntimeABIs(result.Manifest.Resources))
 		if renderErr != nil {
 			return applicationAdapter{}, renderErr
 		}
@@ -267,6 +299,7 @@ func renderApplicationAdapter(result *Result, idx *resourceIndex, module, servic
 	}
 	bindings := serviceHTTPBindings(result.Manifest.Resources, operations)
 	internalBindings := internalBindingsForOperations(result.Manifest.Resources, operations)
+	mcpBindings := mcpBindingsForService(result.Manifest.Resources, service, operations)
 	eventBindings := eventBindingsForOperations(result.Manifest.Resources, operations)
 	schedules := schedulesForOperations(result.Manifest.Resources, operations)
 	emissions := eventEmissionsForOperations(result.Manifest.Resources, operations)
@@ -274,18 +307,20 @@ func renderApplicationAdapter(result *Result, idx *resourceIndex, module, servic
 	covered = append(covered, resourceAddresses(operations)...)
 	covered = append(covered, resourceAddresses(bindings)...)
 	covered = append(covered, resourceAddresses(internalBindings)...)
+	mcpResources := mcpBindingResources(mcpBindings)
+	covered = append(covered, resourceAddresses(mcpResources)...)
 	covered = append(covered, resourceAddresses(eventBindings)...)
 	covered = append(covered, resourceAddresses(schedules)...)
 	covered = append(covered, resourceAddresses(emissions)...)
 	covered = append(covered, pageOwnedResourceAddresses(result.Manifest.Resources, operations)...)
-	allBindings := append(append(append([]Resource(nil), bindings...), internalBindings...), eventBindings...)
+	allBindings := append(append(append(append([]Resource(nil), bindings...), internalBindings...), mcpResources...), eventBindings...)
 	covered = append(covered, referencedExecutions(result.Manifest.Resources, allBindings)...)
 	covered = canonicalStrings(covered)
 	dirName := semanticPathName(moduleInstancePath(module) + "_" + service.Name + "_adapter")
 	packageName := goPackageName(moduleInstancePath(module) + "_" + service.Name + "_adapter")
 	contractImport := implementationImport + "/scenerycontract"
 	adapterImport := generatedImport + "/" + dirName
-	source, err := renderApplicationAdapterSource(result.Manifest.ContractRevision, packageIdentity, packageABI, implementationImport, contractImport, packageName, service, operations, bindings, result.Manifest.Resources, idx, covered, providerRuntimeABIs(result.Manifest.Resources))
+	source, err := renderApplicationAdapterSource(result.Manifest.ContractRevision, packageIdentity, packageABI, implementationImport, contractImport, packageName, service, operations, bindings, mcpBindings, result.Manifest.Resources, idx, covered, providerRuntimeABIs(result.Manifest.Resources))
 	if err != nil {
 		return applicationAdapter{}, err
 	}
@@ -295,7 +330,7 @@ func renderApplicationAdapter(result *Result, idx *resourceIndex, module, servic
 	}, nil
 }
 
-func renderApplicationAdapterSource(contractRevision, packageIdentity, packageABI, implementationImport, contractImport, packageName string, service Resource, operations, bindings, resources []Resource, idx *resourceIndex, covered []string, providerABIs map[string]string) ([]byte, error) {
+func renderApplicationAdapterSource(contractRevision, packageIdentity, packageABI, implementationImport, contractImport, packageName string, service Resource, operations, bindings []Resource, mcpBindings []mcpToolTarget, resources []Resource, idx *resourceIndex, covered []string, providerABIs map[string]string) ([]byte, error) {
 	implementation, _ := service.Spec["implementation"].(map[string]any)
 	constructor, _ := implementation["constructor"].(string)
 	if constructor == "" {
@@ -441,6 +476,9 @@ func renderApplicationAdapterSource(contractRevision, packageIdentity, packageAB
 	if err := renderDurableExecutionRegistrations(&b, service, operations, resources); err != nil {
 		return nil, err
 	}
+	if err := renderMCPToolRegistrations(&b, contractRevision, service, mcpBindings, resources); err != nil {
+		return nil, err
+	}
 	if err := renderScheduleAndEventRegistrations(&b, operations, resources); err != nil {
 		return nil, err
 	}
@@ -496,8 +534,12 @@ func renderApplicationAdapterSource(contractRevision, packageIdentity, packageAB
 	return formatted, nil
 }
 
-func renderApplicationComposition(contractRevision string, providerABIs map[string]string, adapters []applicationAdapter) ([]byte, error) {
+func renderApplicationComposition(result *Result, providerABIs map[string]string, adapters []applicationAdapter, assistants []Resource) ([]byte, error) {
 	covered := map[string]bool{}
+	federations, err := mcpFederationTargets(result)
+	if err != nil {
+		return nil, err
+	}
 	var b strings.Builder
 	b.WriteString("// Code generated by Scenery. DO NOT EDIT.\npackage composition\n\nimport (\n\tscenery \"scenery.sh\"\n")
 	for index, adapter := range adapters {
@@ -506,13 +548,61 @@ func renderApplicationComposition(contractRevision string, providerABIs map[stri
 			covered[address] = true
 		}
 	}
+	assistants = canonicalAssistantResources(assistants)
+	assetsImport := ""
+	if len(assistants) > 0 {
+		_, generatedImport, importErr := resolveApplicationGeneratedRoot(result)
+		if importErr != nil {
+			return nil, importErr
+		}
+		assetsImport = generatedImport + "/assets"
+	}
+	if len(assistants) > 0 || len(federations) > 0 {
+		b.WriteString("\tsceneryruntime \"scenery.sh/runtime\"\n")
+		if assetsImport != "" {
+			fmt.Fprintf(&b, "\tsceneryassets %q\n", assetsImport)
+		}
+		for _, assistant := range assistants {
+			covered[assistant.Address] = true
+		}
+		for _, federation := range federations {
+			for _, address := range federation.CoveredAddresses {
+				covered[address] = true
+			}
+		}
+	}
 	b.WriteString(")\n\n")
-	fmt.Fprintf(&b, "const ContractRevision = %q\n\n", contractRevision)
+	fmt.Fprintf(&b, "const ContractRevision = %q\n\n", result.Manifest.ContractRevision)
 	fmt.Fprintf(&b, "var RequiredAddresses = %#v\n\n", sortedBoolKeys(covered))
 	fmt.Fprintf(&b, "var RequiredProviderABIs = %s\n\n", goStringStringMap(providerABIs))
 	b.WriteString("func Register(registry scenery.Registry) error {\n")
 	for index := range adapters {
 		fmt.Fprintf(&b, "\tif err := adapter%d.Register(registry); err != nil { return err }\n", index)
+	}
+	if len(assistants) > 0 {
+		resources := resourcesByAddress(&Manifest{Resources: result.Manifest.Resources})
+		b.WriteString("\tif err := registry.Register(\"scenery/assistants\", sceneryruntime.ContractRegistration{\n")
+		fmt.Fprintf(&b, "\t\tContractRevision: ContractRevision, PackageContractABIRevision: ContractRevision, RuntimeABI: sceneryruntime.ContractRuntimeABI, CoveredAddresses: %#v,\n", resourceAddresses(assistants))
+		b.WriteString("\t\tApply: func() error {\n")
+		for _, assistant := range assistants {
+			registration, err := renderAssistantRegistration(result, resources, assistant)
+			if err != nil {
+				return nil, err
+			}
+			b.WriteString("\t\t\t")
+			b.WriteString(registration)
+		}
+		b.WriteString("\t\tembeddedAssets := sceneryassets.Assets()\n")
+		b.WriteString("\t\truntimeAssets := make([]sceneryruntime.AssistantEmbeddedAsset, 0, len(embeddedAssets))\n")
+		b.WriteString("\t\tfor _, asset := range embeddedAssets {\n")
+		b.WriteString("\t\t\truntimeAssets = append(runtimeAssets, sceneryruntime.AssistantEmbeddedAsset{\n")
+		b.WriteString("\t\t\tDescriptor: sceneryruntime.AssistantAssetDescriptor{Kind: asset.Descriptor.Kind, SchemaRevision: asset.Descriptor.SchemaRevision, AssistantAddress: asset.Descriptor.AssistantAddress, Target: asset.Descriptor.Target, RuntimeRevision: asset.Descriptor.RuntimeRevision, CapabilityRevision: asset.Descriptor.CapabilityRevision, NodeArchiveDigest: asset.Descriptor.NodeArchiveDigest, NodeTreeDigest: asset.Descriptor.NodeTreeDigest, CapsuleArchiveDigest: asset.Descriptor.CapsuleArchiveDigest, CapsuleTreeDigest: asset.Descriptor.CapsuleTreeDigest, CapsuleEntry: asset.Descriptor.CapsuleEntry, PackageLockDigest: asset.Descriptor.PackageLockDigest}, DescriptorJSON: asset.DescriptorJSON, NodeArchive: asset.NodeArchive, NodeDescriptorJSON: asset.NodeDescriptorJSON, CapsuleArchive: asset.CapsuleArchive, CapsuleDescriptorJSON: asset.CapsuleDescriptorJSON})\n")
+		b.WriteString("\t\t}\n")
+		fmt.Fprintf(&b, "\t\tif err := sceneryruntime.RegisterEmbeddedAssistantAssets(sceneryruntime.AssistantProductionOptions{ApplicationID: %q}, runtimeAssets); err != nil { return err }\n", result.Manifest.Application.Name)
+		b.WriteString("\t\t\treturn nil\n\t\t},\n\t}); err != nil { return err }\n")
+	}
+	if err := renderMCPFederationRegistrations(result, &b); err != nil {
+		return nil, err
 	}
 	b.WriteString("\treturn nil\n}\n")
 	formatted, err := format.Source([]byte(b.String()))

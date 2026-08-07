@@ -23,7 +23,7 @@ var rootResourceKinds = map[string]bool{
 	"pipeline":          true, "provider": true, "data_source": true,
 	"execution_engine": true, "event_bus": true, "secret_store": true,
 	"secret": true, "deployment": true, "typescript_client": true,
-	"patch": true,
+	"patch": true, "mcp_connection": true, "mcp_server": true, "assistant": true,
 }
 
 var packageResourceKinds = map[string]bool{
@@ -640,7 +640,18 @@ func blockSpec(block *Block) map[string]any {
 	for _, child := range block.Blocks {
 		value := blockSpec(child)
 		if len(child.Labels) > 0 {
-			value["name"] = child.Labels[0]
+			// MCP capabilities have both an identity label and an explicit
+			// public tool name. Preserve the latter; namedChildren reads the
+			// explicit name while the label remains available for provenance.
+			if child.Type == "capability" {
+				if _, explicitName := value["name"]; explicitName {
+					value["label"] = child.Labels[0]
+				} else {
+					value["name"] = child.Labels[0]
+				}
+			} else {
+				value["name"] = child.Labels[0]
+			}
 		}
 		if existing, ok := spec[child.Type]; ok {
 			switch current := existing.(type) {
@@ -706,6 +717,7 @@ func validateResources(root string, resources []Resource) []Diagnostic {
 	diagnostics = append(diagnostics, validateDataSemantics(root, resources)...)
 	diagnostics = append(diagnostics, validateDeploymentSemantics(&Manifest{Resources: resources})...)
 	diagnostics = append(diagnostics, validateUISemantics(root, resources)...)
+	diagnostics = append(diagnostics, validateMCPAssistantPaths(root, resources)...)
 	byAddress := map[string]Resource{}
 	for _, resource := range resources {
 		if previous, ok := byAddress[resource.Address]; ok {

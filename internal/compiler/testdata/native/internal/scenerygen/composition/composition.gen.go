@@ -2,18 +2,56 @@
 package composition
 
 import (
+	sceneryassets "example.test/nativeapp/internal/scenerygen/assets"
 	adapter0 "example.test/nativeapp/internal/scenerygen/house_house_adapter"
 	scenery "scenery.sh"
+	sceneryruntime "scenery.sh/runtime"
 )
 
-const ContractRevision = "sha256:1fd62db00ac84b74cc80b7a04e0bae8975bd97e79d44662b85a110169b0347de"
+const ContractRevision = "sha256:20e421c6848bc48cd6b002ae9ba16bcf69f326ac098d6d96d2ce9cb7ba73c542"
 
-var RequiredAddresses = []string{"house/binding/process_scene_http", "house/binding/process_scene_internal", "house/execution/process_scene_direct", "house/operation/process_scene", "house/service/house"}
+var RequiredAddresses = []string{"app/assistant/support", "app/mcp_connection/docs", "app/mcp_server/support", "house/binding/process_scene_http", "house/binding/process_scene_internal", "house/binding/process_scene_mcp", "house/execution/process_scene_direct", "house/operation/process_scene", "house/service/house"}
 
 var RequiredProviderABIs = map[string]string{}
 
 func Register(registry scenery.Registry) error {
 	if err := adapter0.Register(registry); err != nil {
+		return err
+	}
+	if err := registry.Register("scenery/assistants", sceneryruntime.ContractRegistration{
+		ContractRevision: ContractRevision, PackageContractABIRevision: ContractRevision, RuntimeABI: sceneryruntime.ContractRuntimeABI, CoveredAddresses: []string{"app/assistant/support"},
+		Apply: func() error {
+			if err := sceneryruntime.RegisterAssistantChecked(sceneryruntime.AssistantRegistration{Address: "app/assistant/support", Name: "support", Path: "/assistants/support", Access: sceneryruntime.Public, Policy: &sceneryruntime.ContractHTTPPolicy{BindingAddress: "app/assistant/support", GatewayAddress: "app/http_gateway/public_api", CORS: "none", AllowedOrigins: []string{}, Forwarded: "reject", TrustedProxyPrefixes: []string{}, MaxRequestHeaderBytes: 65536, MaxResponseBytes: 16777216, CompressionAlgorithms: []string{"gzip"}, CompressionThreshold: 1024, TotalInvocationTimeoutNanos: 2400000000000, ReadTimeoutNanos: 30000000000, WriteTimeoutNanos: 30000000000, IdleTimeoutNanos: 120000000000, AuthorizationStrategy: "public", AuthorizationRuleCount: 0, AuthorizationRules: []sceneryruntime.ContractAuthorizationRule{}, PipelineSteps: []string{}, FrameworkGuarantee: "", TransportStatuses: nil}, AssistantAddress: "app/assistant/support", RuntimeRevision: "runtime-1", CapabilityRevision: "sha256:20e421c6848bc48cd6b002ae9ba16bcf69f326ac098d6d96d2ce9cb7ba73c542", Required: true}); err != nil {
+				return err
+			}
+			if err := sceneryruntime.RegisterAssistantMCPManifestChecked("app/assistant/support", "app/mcp_server/support", []byte("{\"capabilities\":[{\"allow_sensitive_output\":false,\"approval\":\"always\",\"auth\":{\"authentication\":\"std.authentication.inherit\",\"authorization\":\"std.authorization.public\"},\"description\":\"Process one scene and return its declared outcome.\",\"durable\":false,\"effect\":{\"destructive\":false,\"idempotent\":false,\"open_world\":false,\"read_only\":false},\"execution_address\":\"house/execution/process_scene_direct\",\"id\":\"house/binding/process_scene_mcp\",\"input_schema\":{\"additionalProperties\":false,\"properties\":{\"scene_id\":{\"type\":\"string\"}},\"required\":[\"scene_id\"],\"type\":\"object\"},\"limits\":{\"max_input_bytes\":262144,\"max_result_bytes\":1048576},\"name\":\"house__process_scene\",\"operation_address\":\"house/operation/process_scene\",\"origin\":{\"address\":\"house/binding/process_scene_mcp\",\"kind\":\"local\"},\"output_schema\":{\"oneOf\":[{\"additionalProperties\":false,\"properties\":{\"outcome\":{\"const\":\"processed\",\"type\":\"string\"},\"value\":{\"additionalProperties\":false,\"properties\":{\"status\":{\"type\":\"string\"}},\"required\":[\"status\"],\"type\":\"object\"}},\"required\":[\"outcome\",\"value\"],\"type\":\"object\"}],\"type\":\"object\"},\"title\":\"Process a scene\"}],\"connections\":[{\"address\":\"app/mcp_connection/docs\",\"allow\":[\"fetch\",\"search\"],\"namespace\":\"docs\",\"required\":false}],\"contract_revision\":\"sha256:20e421c6848bc48cd6b002ae9ba16bcf69f326ac098d6d96d2ce9cb7ba73c542\",\"kind\":\"scenery.mcp-capability-manifest\",\"protocol_version\":\"2025-11-25\",\"schema_revision\":\"sha256:c6732cd334906bb73ebf08e08ed44bdab3b69f3d06c908cc5b1b1bd164f76ccc\",\"source_revision\":\"sha256:fcb0641abd841af64e449d2f23bc0cd4b63282e9578d16b9dfdd83d9e609c7ec\"}")); err != nil {
+				return err
+			}
+			embeddedAssets := sceneryassets.Assets()
+			runtimeAssets := make([]sceneryruntime.AssistantEmbeddedAsset, 0, len(embeddedAssets))
+			for _, asset := range embeddedAssets {
+				runtimeAssets = append(runtimeAssets, sceneryruntime.AssistantEmbeddedAsset{
+					Descriptor: sceneryruntime.AssistantAssetDescriptor{Kind: asset.Descriptor.Kind, SchemaRevision: asset.Descriptor.SchemaRevision, AssistantAddress: asset.Descriptor.AssistantAddress, Target: asset.Descriptor.Target, RuntimeRevision: asset.Descriptor.RuntimeRevision, CapabilityRevision: asset.Descriptor.CapabilityRevision, NodeArchiveDigest: asset.Descriptor.NodeArchiveDigest, NodeTreeDigest: asset.Descriptor.NodeTreeDigest, CapsuleArchiveDigest: asset.Descriptor.CapsuleArchiveDigest, CapsuleTreeDigest: asset.Descriptor.CapsuleTreeDigest, CapsuleEntry: asset.Descriptor.CapsuleEntry, PackageLockDigest: asset.Descriptor.PackageLockDigest}, DescriptorJSON: asset.DescriptorJSON, NodeArchive: asset.NodeArchive, NodeDescriptorJSON: asset.NodeDescriptorJSON, CapsuleArchive: asset.CapsuleArchive, CapsuleDescriptorJSON: asset.CapsuleDescriptorJSON})
+			}
+			if err := sceneryruntime.RegisterEmbeddedAssistantAssets(sceneryruntime.AssistantProductionOptions{ApplicationID: "nativeapp"}, runtimeAssets); err != nil {
+				return err
+			}
+			return nil
+		},
+	}); err != nil {
+		return err
+	}
+	if err := registry.Register("scenery/mcp-federation", sceneryruntime.ContractRegistration{
+		ContractRevision: ContractRevision, PackageContractABIRevision: ContractRevision, RuntimeABI: sceneryruntime.ContractRuntimeABI, CoveredAddresses: []string{"app/mcp_connection/docs", "app/mcp_server/support"},
+		Apply: func() error {
+			if err := sceneryruntime.RegisterMCPFederationChecked(sceneryruntime.MCPFederationRegistration{Address: "app/mcp_server/support", AssistantAddresses: []string{"app/assistant/support"}, CapabilityRevision: ContractRevision, LocalToolNames: []string{"house__process_scene"}, MaxInputBytes: 262144, MaxResultBytes: 1048576, Connections: []sceneryruntime.MCPConnectionSpec{
+				{Address: "app/mcp_connection/docs", Namespace: "docs", URL: "https://docs.example.test/mcp", Required: false, Allow: []string{"fetch", "search"}, Block: []string{}, ConnectTimeout: 5000000000, CallTimeout: 30000000000, RefreshTTL: 0, AuthScheme: "none", AuthHeader: "", Secret: sceneryruntime.MCPSecretReference{ResourceAddress: "", StoreAddress: "", Key: ""}},
+			}}); err != nil {
+				return err
+			}
+			return nil
+		},
+	}); err != nil {
 		return err
 	}
 	return nil

@@ -217,6 +217,40 @@ Two path templates are equivalent only when their canonical gateway, method, lit
 
 Removing or changing an internal callable binding incompatibly is internal-call-breaking. CLI command or flag identity changes are source and CLI-wire breaking. Event topic, key, envelope, ordering, or delivery changes are runtime/wire breaking or migration-required. Schedule expression or timezone changes are runtime behavior changes and normally migration-required when catch-up state exists.
 
+### 8.4 MCP and assistant resources
+
+Adding an MCP binding, `mcp_server`, optional `mcp_connection`, or assistant
+that passes graph and route-conflict validation is compatible for existing
+consumers. Removing or renaming a tool/binding/capability is breaking. Changes
+to an MCP input/result schema use the directional type rules in Section 7;
+effect metadata, approval policy, or sensitive-output policy changes are
+runtime-, security-, and generated-client-breaking when they alter what a
+caller can invoke or observe. Changing a remote connection's transport,
+endpoint namespace, allow/block filter, readiness requirement, or timeout is
+runtime- and generated-client-breaking when the projected capability set
+changes. Changing authentication or secret termination is security-breaking;
+remote readiness or credential migration is deployment- or
+`migration_required` when live state exists.
+
+Changing assistant implementation adapter, source, package, or lock bytes is
+source-compatible but invalidates the selected runtime/build projection. The
+implementation comparison reports `migration_required` with rule
+`SCN_COMPAT_ASSISTANT_IMPLEMENTATION_REBUILD_REQUIRED` and updates the affected
+`implementation_revision[*]`/deployment consequence; it MUST NOT change the
+public assistant revision when the declared surface and public schemas are
+unchanged.
+
+Changing assistant surface path, gateway, authentication, authorization,
+pipeline, session ownership, client target, or bound MCP server is a public
+surface change. It reports breaking with rule
+`SCN_COMPAT_ASSISTANT_PUBLIC_SURFACE_CHANGED` and invalidates the assistant
+public revision plus affected HTTP/OpenAPI/TypeScript-client projections.
+Adding a new assistant event/error variant, changing handle grammar, cursor
+exclusivity, approval decision, cookie ownership, or public JSON/NDJSON schema
+is likewise response- and generated-client-breaking. A helper restart or
+provider package update without any public-projection change remains
+implementation/runtime-only.
+
 ## 9. Security
 
 Security comparison resolves the effective gateway, exposure, authentication, principal type, authorization capabilities, policy inputs, and pipeline admission steps.

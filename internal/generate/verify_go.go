@@ -2,6 +2,8 @@ package generate
 
 import (
 	"fmt"
+	"slices"
+	"strings"
 
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/parse"
@@ -52,9 +54,15 @@ func VerifyImplementation(result *compiler.Result) []Diagnostic {
 	}
 	var diagnostics []Diagnostic
 	for _, target := range targets {
-		target.Context.Patterns = append(target.Context.Patterns, generatedLibraryPackagePatterns(result.Root, files)...)
-		appModel, appModelErr := parse.AnalyzeTarget(result.Root, result.Manifest.Application.Name, overlay, target.Context)
+		sourceContext := target.Context
+		verificationContext := sourceContext
+		verificationContext.Patterns = append(slices.Clone(sourceContext.Patterns), generatedLibraryPackagePatterns(result.Root, files)...)
+		appModel, appModelErr := parse.AnalyzeTarget(result.Root, result.Manifest.Application.Name, overlay, verificationContext)
 		if appModelErr != nil {
+			if missing, err := parse.MissingHermeticModulePackages(sourceContext); err == nil && len(missing) > 0 {
+				diagnostics = append(diagnostics, hermeticModuleCacheDiagnostic(target.Address, missing))
+				continue
+			}
 			diagnostics = append(diagnostics, Diagnostic{Code: "SCN6202", Severity: "error", Message: fmt.Sprintf("staged Go implementation verification failed for %s: %v", target.Address, appModelErr), Address: target.Address})
 			continue
 		}
@@ -66,6 +74,33 @@ func VerifyImplementation(result *compiler.Result) []Diagnostic {
 		diagnostics = append(diagnostics, validateNativeGoLibraries(appModel, result.Manifest.Resources)...)
 	}
 	return diagnostics
+}
+
+func hermeticModuleCacheDiagnostic(address string, missing []string) Diagnostic {
+	const previewLimit = 5
+	preview := missing
+	if len(preview) > previewLimit {
+		preview = preview[:previewLimit]
+	}
+	summary := strings.Join(preview, ", ")
+	if remaining := len(missing) - len(preview); remaining > 0 {
+		summary += fmt.Sprintf(" (+%d more)", remaining)
+	}
+	return Diagnostic{
+		Code:     "SCN6202",
+		Severity: "error",
+		Message: fmt.Sprintf(
+			"staged Go implementation verification cannot run for %s: hermetic module cache is missing %d imported packages: %s",
+			address,
+			len(missing),
+			summary,
+		),
+		Address: address,
+		Suggestions: []string{
+			"Run `go mod download` in the target Go module, then rerun `scenery check -o json`.",
+		},
+		Details: map[string]any{"missing_packages": slices.Clone(missing)},
+	}
 }
 
 func usesGoImplementation(resources []Resource) bool {

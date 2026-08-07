@@ -30,12 +30,48 @@
     "implementation_revision": { "$ref": "#/$defs/digest" },
     "build_input_manifest": { "$ref": "scenery.go-build-input-manifest.schema.json" },
     "resolved_go_target": { "type": "object" },
-    "runtime_abi": { "const": "scenery.go-runtime/v1" }
+    "runtime_abi": { "const": "scenery.go-runtime/v1" },
+    "assistant_assets": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/assistantAssetDescriptor" }
+    }
   },
   "$defs": {
     "digest": {
       "type": "string",
       "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "assistantAssetDescriptor": {
+      "type": "object",
+      "required": [
+        "kind",
+        "schema_revision",
+        "assistant_address",
+        "target",
+        "runtime_revision",
+        "capability_revision",
+        "node_archive_digest",
+        "node_tree_digest",
+        "capsule_archive_digest",
+        "capsule_tree_digest",
+        "capsule_entry",
+        "package_lock_digest"
+      ],
+      "properties": {
+        "kind": { "const": "scenery.assistant.runtime-assets" },
+        "schema_revision": { "const": "sha256:e87f196dd8f168de9a4b6298f53b218f541bfd14686934743946a6444ee13804" },
+        "assistant_address": { "type": "string", "minLength": 1 },
+        "target": { "type": "string", "minLength": 1 },
+        "runtime_revision": { "type": "string", "minLength": 1 },
+        "capability_revision": { "$ref": "#/$defs/digest" },
+        "node_archive_digest": { "$ref": "#/$defs/digest" },
+        "node_tree_digest": { "$ref": "#/$defs/digest" },
+        "capsule_archive_digest": { "$ref": "#/$defs/digest" },
+        "capsule_tree_digest": { "$ref": "#/$defs/digest" },
+        "capsule_entry": { "const": ".scenery/bootstrap.mjs" },
+        "package_lock_digest": { "$ref": "#/$defs/digest" }
+      },
+      "additionalProperties": false
     }
   }
 }

@@ -22,6 +22,7 @@ Read next when needed:
 |---|---|
 | Understand the application | `scenery inspect app -o json` |
 | Investigate routing | `scenery inspect routes -o json` |
+| Declare or debug an assistant | Read the assistant sections of `docs/local-contract.md` and `docs/spec/SPEC.md`; use `scenery inspect assistants -o json` |
 | Investigate an operation | `scenery inspect endpoints -o json` |
 | Investigate a runtime failure | `scenery doctor -o json`, then bounded `scenery logs -o jsonl --limit 200` |
 | Change the source contract | `scenery fmt --check -o json`, `scenery check -o json`, then the applicable `scenery compile --view source\|effective\|expanded -o json` |
@@ -37,6 +38,10 @@ Run only the route relevant to the task; expand when its evidence points elsewhe
 - Choose graph views intentionally: source preserves authored expressions, effective resolves inputs/defaults/patches, and expanded adds generators. Provenance paths are RFC 6901 pointers into the selected resource spec.
 - Workspace, contract, implementation, deployment, and artifact revisions are separate. `scenery compile` does not invent an implementation revision; build supplies an exact target input manifest.
 - Declare services, operations, bindings, auth, middleware, durable work, schedules, events, data, and UI in `.scn`.
+- Declare MCP bindings, `mcp_server`/`mcp_connection` resources, and `assistant`
+  surfaces in `.scn`. Scenery exposes a provider-neutral conversation API and
+  keeps the selected implementation adapter in a supervised child behind
+  private control and loopback MCP protocols.
 - Generated Go contract and application-composition files are outputs, never source of truth.
 - Declared `pkg/` libraries expose generated `scenerylib_<name>` facades; environments choose source or verified shared linkage without changing imports.
 - `scenery up` starts the app process, rebuild loop, dashboard, API explorer, logs, traces, metrics, managed dev services, and configured frontends for one app root. `scenery up --desktop` additionally opens every frontend declaring `tauri` through the app-local Tauri 2 CLI; closing that window leaves the runtime running.
@@ -65,9 +70,48 @@ Never commit or hand-edit cached `scenerycontract` or `internal/scenerygen` outp
 
 Import a declared library through its generated facade. Shared linkage requires an app-root-relative artifact manifest; build the fixed darwin/arm64 and linux/amd64 matrix with `scenery build --lib <name> --version <vN.N.N> -o json`. Swap verified versions alongside each other; never unload a Go c-shared runtime.
 
-Use `scenery list|get|explain|graph ... -o json` for graph facts and `scenery diff --semantic` for compatibility. Semantic changes and deployments use immutable revision-bound plan/apply. Apply accepts only the exact app-local issued plan and rejects caller-recomputed approvals, operations, edits, or provider actions.
+Use `scenery list|get|explain|graph ... -o json` for graph facts and `scenery diff --semantic` for compatibility. Semantic changes and deployments use immutable revision-bound plan/apply with one durable commit and authenticated receipt replay. The model-facing flow is `changes.plan` (compact summary), optional trusted `plans.get` (full review artifact), `changes.apply({plan_id})`, and `changes.receipt.get` for recovery. Apply loads the exact app-local issued plan, binds the server-owned caller/capabilities context, and rejects caller-recomputed approvals, operations, edits, or provider actions. A retry of an already committed plan returns its validated receipt without repeating side effects; corrupt or mismatched receipts fail closed.
 
 Before semantic creation, read `resource_create_kinds` and `schema.get`; unadvertised kinds are unavailable. A terminal HTTP path tail uses final `{name...}` syntax plus one typed `path_tail` mapping, never a router glob or pre-encoded fragment.
+
+Mutation-capable Eve adapters derive the principal from `ctx.session.auth` and
+bind identity, app root, granted capabilities, and available session metadata
+in server-owned execution context. `caller`, claimed capabilities, and approval
+tokens are not model-visible tool inputs. The approval handler obtains a
+plan-bound token only after user approval. Eve MCP connection definitions do
+not currently expose per-action `callId` or configurable `toModelOutput`; use
+Scenery's compact plan response and gateway-generated request ID. A separately
+authored Eve tool may project richer review data with `toModelOutput`. Eve's
+ordinary MCP tool approval is not an evolution approval token; approval-bearing
+contract-agent apply still needs a trusted adapter/operator context until a
+dedicated plan-bound broker exists.
+
+## Assistant Surfaces
+
+An assistant is a graph resource that binds one `mcp_server` to an authored
+implementation and a Scenery-owned public conversation surface. Expose each
+local operation through an ordinary `protocol = "mcp"`, `delivery = "call"`
+binding. Use `mcp_connection` for remote Streamable HTTP tools; Scenery owns
+credential termination, filtering, readiness, and authorization.
+
+Use the provider-neutral lifecycle commands:
+
+```sh
+scenery assistant init <name> --mcp-server <name> --client <name> -o json
+scenery assistant sync <name> -o json
+scenery assistant status <name> -o json
+scenery inspect assistants -o json
+scenery inspect assistants --implementation -o json
+```
+
+Public conversation routes use opaque Scenery handles and normalized NDJSON
+events with exclusive-cursor reconnects. Approval and cancellation are typed
+public operations. The implementation adapter (currently `eve`) is private
+developer/operator data: it may appear in authored source and explicit
+implementation inspection, but not in public routes, generated clients,
+OpenAPI/schemas, cookies, events, errors, or default status. `sync` reuses the
+exact package/lock bytes in Scenery's content-addressed Node/npm cache and
+never rewrites authored package files.
 
 ## Public Go Capabilities
 
@@ -116,6 +160,13 @@ bun test internal/generate/testdata/typescript_client_conformance.test.ts
 
 Generated clients implement declared HTTP mappings and outcomes; they never infer routes or auth from Go names. Regenerate after reachable binding, type, codec, or auth changes.
 
+When an assistant is reachable from a target, the generated client also exposes
+provider-neutral `client.assistants.<name>.createConversation`, `sendTurn`,
+`streamEvents`, `resolveApproval`, and `cancelRun` methods. Its event/error
+unions and NDJSON cursor handling are generated from the assistant public
+schemas; no provider adapter import, URL, token, or private control field is
+emitted.
+
 For React, declare a page macro and any typed search/navigation metadata, then set the target's React tsconfig. Scenery owns generated adapters, routes, app shell, catalog, and staged typecheck. Use `createSceneryApp`, one authored route descriptor array, and the fixed slots; do not rebuild route selection, navigation, or the shell. Vite apps alias `@scenery/ui` and its token subpath to the materialized catalog and provide its peer dependencies.
 
 Choose the page macro by shape, inspect it with `scenery schema <kind> -o json`, and read the full contract only for that macro:
@@ -158,6 +209,8 @@ scenery fmt --check -o json
 scenery check -o json
 scenery compile --view source|effective|expanded -o json
 scenery inspect app|routes|services|endpoints|durable|storage|ui -o json
+scenery inspect assistants [--implementation] -o json
+scenery assistant init|sync|status ... -o json
 scenery logs [-o jsonl] [--limit <n>] [--follow]
 scenery up [--env <name>] [--app-root <path>] [--desktop] [-o jsonl] [--detach]
 scenery ps [--app-root <path>] [-o json]
@@ -188,6 +241,12 @@ scenery generate --check -o json
 go test ./...
 scenery harness -o json --write
 ```
+
+When an assistant surface is changed, also run `scenery inspect assistants
+-o json`, inspect the explicit `--implementation` view when debugging the
+helper, regenerate the declared TypeScript client, and run
+`./scripts/test-assistant-public-surface.sh` to prove provider identity and
+signatures stay out of public artifacts.
 
 For Scenery repository changes, follow the root `AGENTS.md`; changed paths and contract surfaces calculate the validation classes and exact command union. Keep Go's test cache enabled. Use `-count=1` or `--fresh-tests` only for explicit measurement or nondeterminism investigation.
 

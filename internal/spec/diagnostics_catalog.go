@@ -243,6 +243,18 @@ SCN2415|cli_input_coverage|CLI mappings do not populate operation input exactly 
 SCN2416|cli_outcome_exit|A CLI outcome condition or exit status is invalid or duplicated
 SCN2417|cli_output_codec|CLI output does not use a supported typed codec
 SCN2418|cli_outcome_coverage|A reachable operation outcome has no CLI mapping
+SCN2419|mcp_binding_shape|An MCP binding lacks its required child or uses an invalid protocol shape
+SCN2420|mcp_tool_identity|An MCP tool name is invalid or duplicated
+SCN2421|mcp_projection_type|An MCP tool input or output type cannot be projected to JSON Schema
+SCN2422|mcp_sensitive_output|An MCP projection exposes sensitive output without explicit opt-in
+SCN2423|mcp_effect_metadata|An MCP effect hint is invalid or contradicts operation semantics
+SCN2424|assistant_route_collision|An assistant public route collides with another route
+SCN2425|assistant_source_path|An assistant source path escapes its declared source root
+SCN2426|assistant_package_lock|An assistant package lock is missing or not exact
+SCN2427|assistant_adapter|An assistant implementation adapter is unsupported
+SCN2428|mcp_connection_transport|An external MCP connection uses an unsupported transport
+SCN2429|mcp_connection_auth|An external MCP connection uses unsupported authentication
+SCN2430|mcp_reference_cycle|MCP servers and connections contain a cyclic reference
 SCN2501|entity_record|An entity has no record type
 SCN2502|entity_data_source|An entity has no data source
 SCN2503|view_shape|A view is missing a typed data source input result or implementation

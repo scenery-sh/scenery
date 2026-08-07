@@ -1,0 +1,35 @@
+{
+  "artifact_kind": "go_package_contract",
+  "capability_interface_abi_ranges": {},
+  "content_digest": "sha256:d31eba84912c9ca4032e6dcf4ff8a6bcd34f53923a7469ba4d48c04f40eb9a44",
+  "covered": [
+    "binding.process_scene_durable_mcp",
+    "binding.process_scene_mcp",
+    "execution.process_scene_direct",
+    "execution.process_scene_durable",
+    "operation.process_scene",
+    "record.process_scene_input",
+    "record.process_scene_result",
+    "service.house"
+  ],
+  "files": [
+    "contract.gen.go",
+    "types.gen.go"
+  ],
+  "generator": "scenery.generate.go",
+  "go_implementation_abi_range": "\u003e=1.0.0, \u003c2.0.0",
+  "import_path": "example.test/assistantfixture/house/scenerycontract",
+  "kind": "scenery.package-generated",
+  "package": "house",
+  "package_contract_abi_revision": "sha256:7dad4c4e4896c9b8de8b3eab27221407c2a0273feac0fa7518b57cea8fa61f55",
+  "package_identity": "house",
+  "producer": {
+    "version": "dev",
+    "toolchain": {
+      "go_version": "go1.26.5"
+    }
+  },
+  "runtime_abi_range": "scenery.go-runtime/v1",
+  "schema_revision": "sha256:fa325f0aa48e8489c7ae85ab996efe2bd50962483ba9a3fcfc0e162384ffdca0",
+  "spec_revision": "sha256:351b04a1172e8db7c4a15a1c0295ceb3c7d9c765d162ac3c0c01d63be04331ba"
+}

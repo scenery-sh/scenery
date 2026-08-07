@@ -2,6 +2,8 @@
 import * as Runtime from "./runtime.js";
 import type * as Types from "./types.js";
 
+import { createAssistantClients, type AssistantClients, type AssistantTransportOptions } from "./assistant.js";
+
 export interface PublicApiClientOptions { readonly baseUrl: Types.URLString; readonly fetch?: typeof globalThis.fetch; readonly defaultHeaders?: Readonly<Record<string, string>>; readonly authentication?: Runtime.AuthenticationOptions }
 
 const typeRegistry: Runtime.TypeRegistry = Object.freeze({"house/record/process_scene_input":{"fields":[{"optional":false,"property":"sceneId","value":{"kind":"primitive","name":"string"},"wire":"scene_id"}],"kind":"record","preserveUnknown":false},"house/record/process_scene_result":{"fields":[{"optional":false,"property":"status","value":{"kind":"primitive","name":"string"},"wire":"status"}],"kind":"record","preserveUnknown":false}} as const);
@@ -11,12 +13,15 @@ export class PublicApiClient {
   readonly #fetch: typeof globalThis.fetch;
   readonly #headers: Readonly<Record<string, string>>;
   readonly #authentication?: Runtime.AuthenticationOptions;
+  readonly assistants: AssistantClients;
   constructor(options: PublicApiClientOptions) {
     if (!/^https?:\/\/[^/?#]+(?:\/[^?#]*)?$/.test(options.baseUrl)) throw new Runtime.SceneryClientError("invalid_options", "", "baseUrl must be an absolute hierarchical HTTP URL without query or fragment");
     this.#baseUrl = options.baseUrl.replace(/\/$/, "");
     this.#fetch = options.fetch ?? globalThis.fetch.bind(globalThis);
     this.#headers = Object.freeze({ ...(options.defaultHeaders ?? {}) });
     this.#authentication = options.authentication === undefined ? undefined : Object.freeze({ ...options.authentication });
+    const assistantOptions: AssistantTransportOptions = { baseUrl: this.#baseUrl, fetch: this.#fetch, defaultHeaders: this.#headers, authentication: this.#authentication };
+    this.assistants = createAssistantClients(assistantOptions);
   }
   async processScene(input: Types.ProcessSceneInput, options: Runtime.CallOptions = {}): Promise<Types.ProcessSceneOutcome> {
     const binding = "house/binding/process_scene_http";

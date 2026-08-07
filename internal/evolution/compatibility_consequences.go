@@ -30,13 +30,60 @@ func affectedArtifacts(before, after *Resource, path string) []string {
 		return nil
 	}
 	set := map[string]bool{}
+	kind := canonicalResourceKind(resource.Kind)
+	if kind == "binding" && isMCPBinding(*resource) {
+		set["mcp_capability_revision[*]"] = true
+	}
+	if kind == "mcp-server" {
+		set["mcp_capability_revision[*]"] = true
+		if strings.HasPrefix(path, "/spec/capability/") || strings.HasPrefix(path, "/spec/connection/") || strings.HasPrefix(path, "/spec/max_") {
+			set["mcp_capability_revision[*]"] = true
+		}
+	}
+	if kind == "mcp-connection" {
+		set["implementation_revision[*]"] = true
+		set["assistant_readiness[*]"] = true
+		if isMCPConnectionImplementationPath(path) || strings.HasPrefix(path, "/spec/tools/") {
+			set["implementation_revision[*]"] = true
+			set["assistant_readiness[*]"] = true
+		}
+	}
+	if kind == "assistant" {
+		if path == "" || strings.HasPrefix(path, "/spec/surface/") || path == "/spec/mcp_server" {
+			set["assistant_public_revision["+resource.Name+"]"] = true
+		}
+		if isAssistantImplementationPath(path) {
+			set["implementation_revision[*]"] = true
+		}
+		if strings.HasPrefix(path, "/spec/surface/") || path == "/spec/mcp_server" {
+			set["assistant_public_revision["+resource.Name+"]"] = true
+		}
+	}
 	switch resource.Kind {
-	case "scenery.binding", "scenery.http-gateway", "scenery.record", "scenery.enum", "scenery.union", "scenery.operation":
+	case "scenery.binding":
+		if isMCPBinding(*resource) {
+			break
+		}
 		gateway := "*"
 		if ref := refString(resource.Spec["gateway"]); ref != "" {
 			parts := strings.Split(ref, ".")
 			gateway = parts[len(parts)-1]
 		}
+		set["typescript_client_revision["+gateway+"]"] = true
+		set["openapi_revision["+gateway+"]"] = true
+		set["http_surface_revision["+gateway+"]"] = true
+	case "scenery.http-gateway", "scenery.record", "scenery.enum", "scenery.union", "scenery.operation":
+		gateway := "*"
+		if ref := refString(resource.Spec["gateway"]); ref != "" {
+			parts := strings.Split(ref, ".")
+			gateway = parts[len(parts)-1]
+		}
+		set["typescript_client_revision["+gateway+"]"] = true
+		set["openapi_revision["+gateway+"]"] = true
+		set["http_surface_revision["+gateway+"]"] = true
+	}
+	if kind == "assistant" && (strings.HasPrefix(path, "/spec/surface/") || path == "/spec/mcp_server") {
+		gateway := assistantSurfaceGateway(*resource)
 		set["typescript_client_revision["+gateway+"]"] = true
 		set["openapi_revision["+gateway+"]"] = true
 		set["http_surface_revision["+gateway+"]"] = true
@@ -53,4 +100,17 @@ func affectedArtifacts(before, after *Resource, path string) []string {
 	}
 	sort.Strings(result)
 	return result
+}
+
+func assistantSurfaceGateway(resource Resource) string {
+	surface, _ := resource.Spec["surface"].(map[string]any)
+	if ref := refString(surface["gateway"]); ref != "" {
+		parts := strings.Split(ref, ".")
+		return parts[len(parts)-1]
+	}
+	if name := stringValue(surface["gateway"]); name != "" {
+		parts := strings.Split(name, ".")
+		return parts[len(parts)-1]
+	}
+	return "*"
 }

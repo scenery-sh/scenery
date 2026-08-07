@@ -43,6 +43,13 @@ generated workspace + scenery.sh/runtime
 single local server + dev/inspect/harness tooling
 ```
 
+Declared assistants add one provider-neutral path to that flow: ordinary MCP
+bindings and MCP servers are compiled into a capability manifest, generated
+conversation routes and browser clients are registered in the app runtime, and
+each assistant implementation runs in a supervised child behind private
+control and loopback MCP listeners. The public app never depends on the child
+adapter's package or event vocabulary.
+
 Architecture invariant: the public scenery surface is scenery-named. User apps
 should depend on `scenery.sh/...` packages and current `.scn` resources,
 without alternate declaration frontends or compatibility syntax.
@@ -64,6 +71,11 @@ commands such as `up`, `worker`, `build`, `check`, `inspect`,
 app session around the app runtime: dashboard, agent routing, live rebuild behavior,
 logs, traces, metrics, managed dev services, optional frontend routing, and
 process supervision.
+
+The same supervisor owns managed assistant children. `scenery assistant init`,
+`assistant sync`, and `assistant status` are provider-neutral CLI surfaces;
+`inspect assistants --implementation` is the explicit developer/operator view
+for implementation paths and private process descriptors.
 
 Architecture invariant: non-CLI packages must not import `cmd/scenery`. Shared
 logic belongs in `internal/` or a public package, depending on whether user apps
@@ -124,10 +136,12 @@ compiler layers, not this package.
 `internal/scn` owns safe `.scn` discovery, parsing, lossless CSTs, positions, and
 formatting. `internal/spec` owns the singular current schema and diagnostic
 catalog with digest revisions. `internal/graph` owns canonical resources, graph
-views, provenance, and general revision projections. `internal/machine` owns the
-strict `scenery.cli` and `scenery.cli.event` envelopes. Compiler, evolution,
-deployment, generation, and Go verification build on these foundational
-boundaries.
+views, provenance, and general revision projections, including the
+`mcp_connection`, `mcp_server`, and `assistant` resource families.
+`internal/machine` owns the strict `scenery.cli` and `scenery.cli.event`
+envelopes. Compiler, evolution, generation, deployment, and Go verification
+build on these foundational boundaries; compiler packages remain independent
+of MCP SDKs, Node, and provider adapters.
 
 Architecture invariant: `app.scn` is required. There is no Go-comment,
 package-init, or alternate application-model frontend. Generated roots are declared, confined,
@@ -184,9 +198,36 @@ backends and an `export/` c-shared shim in the same external workspace.
 Application source imports only the facade; these files remain generated
 projections rather than declaration or edit surfaces.
 
+For assistants, generation also emits the provider-neutral conversation client,
+public route registration, MCP capability projection, private runtime
+descriptor, and (for a build target) the assistant asset registry. Provider
+implementation overlays are generated projections and never declaration
+surfaces.
+
 Architecture invariant: render every selected output before one atomic commit;
 verification is read-only and generated paths stay beneath declared managed
 roots.
+
+### `internal/mcpcontract`, `internal/mcpprojection`, `internal/mcpgateway`, and `internal/mcpfederation`
+
+These packages own the provider-neutral MCP ABI. `internal/mcpcontract` defines
+the manifest, tool policy, assertions, and limits; `internal/mcpprojection`
+projects the expanded graph; `internal/mcpgateway` dispatches local generated
+bindings and federated tools; and `internal/mcpfederation` owns Scenery's
+external Streamable HTTP clients, namespaces, filters, auth, readiness, and
+refresh lifecycle. They do not expose a public MCP listener and do not import
+the developer adapter.
+
+### `internal/assistantapi`, `internal/assistantcontrol`, `internal/assistantruntime`, and `internal/assistantadapter`
+
+`internal/assistantapi` owns the provider-neutral public conversation JSON and
+NDJSON contracts, opaque handles, normalized errors, and streaming redaction.
+`internal/assistantcontrol` owns the private versioned helper protocol, while
+`internal/assistantruntime` owns helper lifecycle interfaces, typed requests,
+revision handshakes, and supervision-facing states. Provider code is isolated
+below `internal/assistantadapter/<provider>`; the current developer/operator
+adapter is `internal/assistantadapter/eve` and is not imported by public API,
+compiler, graph, or generic runtime packages.
 
 ### `internal/evolution`
 
@@ -236,6 +277,12 @@ not bypass auth context, private access rules, tracing, or delivery semantics.
 current generated overlay, syncs source and generated files, tracks
 build fingerprints, runs `go mod tidy` when needed, compiles the app binary, and
 writes latest-build metadata.
+
+When assistants are declared, it also archives the managed child runtime and
+authored assistant capsule, writes verified content-addressed descriptors, and
+adds provider-neutral assistant asset metadata to the runtime bundle. The Go
+binary still launches the child out of process; Node/V8 is never linked into
+the Go process.
 
 Architecture invariant: build outputs are disposable and reproducible from the
 app root, config, source, and generated model. Do not make the transient
@@ -290,6 +337,12 @@ events, data resources, and pages, then starts one local HTTP server.
 Important runtime concerns include route matching, request decode/encode, auth
 context, current request metadata, structured error responses, middleware,
 observability reports, secrets, DB tracing, durable workers, schedules, and graceful shutdown.
+
+Assistant routes are registered in this same runtime server. The runtime owns
+the five public conversation endpoints, initiator ownership and sealed handles,
+NDJSON normalization/redaction, approval and cancellation, and revision-bound
+dispatch. Helper control and MCP listeners are private loopback services, so a
+helper crash can degrade an assistant without exposing a second public server.
 
 Architecture invariant: there is one local app server per generated app process.
 `scenery up` may run extra development services around it, but app API execution

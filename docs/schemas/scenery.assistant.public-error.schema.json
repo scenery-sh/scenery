@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.assistant.public-error.schema.json",
+  "title": "Scenery public assistant error",
+  "description": "A normalized error body returned by the provider-neutral assistant API.",
+  "type": "object",
+  "required": [
+    "code",
+    "message"
+  ],
+  "properties": {
+    "code": {
+      "type": "string",
+      "enum": [
+        "invalid_request",
+        "unauthorized",
+        "forbidden",
+        "not_found",
+        "conflict",
+        "approval_required",
+        "cancelled",
+        "unavailable",
+        "rate_limited",
+        "internal"
+      ]
+    },
+    "message": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 8192,
+      "pattern": "[\\s\\S]*\\S[\\s\\S]*"
+    }
+  },
+  "additionalProperties": false
+}

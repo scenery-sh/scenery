@@ -20,14 +20,15 @@ import (
 )
 
 type inspectOptions struct {
-	Subject  string
-	AppRoot  string
-	RepoRoot string
-	JSON     bool
-	Docs     inspectDocsOptions
-	UI       inspectUIOptions
-	Trace    inspectTraceQueryOptions
-	Harness  inspectHarnessOptions
+	Subject        string
+	AppRoot        string
+	RepoRoot       string
+	JSON           bool
+	Implementation bool
+	Docs           inspectDocsOptions
+	UI             inspectUIOptions
+	Trace          inspectTraceQueryOptions
+	Harness        inspectHarnessOptions
 }
 
 type inspectBuildResponse struct {
@@ -184,7 +185,7 @@ func runSceneryInspect(args []string, stdout io.Writer) error {
 		return err
 	}
 	var merged *compiler.Result
-	if opts.Subject == "app" || opts.Subject == "services" || opts.Subject == "routes" || opts.Subject == "endpoints" || opts.Subject == "durable" {
+	if opts.Subject == "app" || opts.Subject == "services" || opts.Subject == "routes" || opts.Subject == "endpoints" || opts.Subject == "durable" || opts.Subject == "assistants" {
 		compiled, compileErr := compiler.Compile(appRoot)
 		if compileErr != nil {
 			return compileErr
@@ -232,6 +233,12 @@ func runSceneryInspect(args []string, stdout io.Writer) error {
 		return writeInspectJSON(stdout, resp)
 	case "durable":
 		return writeInspectJSON(stdout, buildInspectDurableResponse(appRoot, cfg, merged))
+	case "assistants":
+		resp, err := buildInspectAssistantsResponse(appRoot, cfg, merged, opts.Implementation)
+		if err != nil {
+			return err
+		}
+		return writeInspectJSON(stdout, resp)
 	case "storage":
 		return writeInspectJSON(stdout, buildInspectStorageResponse(context.Background(), appRoot, cfg))
 	case "validation":
@@ -312,6 +319,7 @@ func parseInspectArgsInternal(args []string, allowObservability bool) (inspectOp
 	registerJSONOutput(flags, &opts.JSON)
 	flags.StringVar(&opts.AppRoot, "app-root", "", "")
 	flags.StringVar(&opts.RepoRoot, "repo-root", "", "")
+	flags.BoolVar(&opts.Implementation, "implementation", false, "")
 	flags.StringVar(&opts.Docs.ForPath, "for-path", "", "")
 	flags.StringVar(&opts.Docs.Tag, "tag", "", "")
 	flags.BoolVar(&opts.Docs.ReviewDue, "review-due", false, "")
@@ -335,6 +343,9 @@ func parseInspectArgsInternal(args []string, allowObservability bool) (inspectOp
 	}
 	if cliFlagSet(flags, "frontend") && opts.Subject != "ui" {
 		return inspectOptions{}, fmt.Errorf("--frontend is only supported for inspect ui")
+	}
+	if cliFlagSet(flags, "implementation") && opts.Subject != "assistants" {
+		return inspectOptions{}, fmt.Errorf("--implementation is only supported for inspect assistants")
 	}
 	for _, name := range []string{"for-path", "tag", "review-due", "all"} {
 		if cliFlagSet(flags, name) && opts.Subject != "docs" {

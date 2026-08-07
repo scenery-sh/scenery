@@ -17,7 +17,7 @@ func TestAgentCapabilitiesSchemaRevisionMatchesCheckedSchema(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const expected = "sha256:2039fe024772db03d46bb431ccb58381ea24a7452c58fc999db08824f90415c8"
+	const expected = "sha256:c510c09edae970695642f4d6a805fcba8f6497c99c217486393968c41a1428dc"
 	if string(revision) != expected {
 		t.Fatalf("agent capabilities schema revision = %s, want %s", revision, expected)
 	}

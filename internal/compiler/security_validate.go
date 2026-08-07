@@ -160,6 +160,7 @@ func validateBindingAuthentication(resources map[string]Resource, binding Resour
 		"internal": {"std.authentication.inherit": true},
 		"event":    {"std.authentication.service_identity": true},
 		"cli":      {"std.authentication.local_developer": true},
+		"mcp":      {"std.authentication.inherit": true},
 	}
 	if strings.HasPrefix(reference, "std.authentication.") {
 		if standard[protocol][reference] {

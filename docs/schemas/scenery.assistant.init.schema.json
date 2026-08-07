@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.assistant.init.schema.json",
+  "title": "scenery.assistant.init",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "schema_revision", "assistant", "address", "mcp_server", "client", "source", "package", "package_lock", "eval_directory", "dry_run", "applied", "idempotent", "created", "preserved", "base_workspace_revision", "predicted_workspace_revision", "contract_revision", "files"],
+  "properties": {
+    "kind": {"const": "scenery.assistant.init"},
+    "schema_revision": {"const": "sha256:2a9688136a37271fbb25f7066955c9068cd38bc7bb09a665477a9b5f139d7245"},
+    "assistant": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+    "address": {"type": "string"},
+    "mcp_server": {"type": "string"},
+    "client": {"type": "string"},
+    "source": {"type": "string"},
+    "package": {"type": "string"},
+    "package_lock": {"type": "string"},
+    "eval_directory": {"type": "string"},
+    "dry_run": {"type": "boolean"},
+    "applied": {"type": "boolean"},
+    "idempotent": {"type": "boolean"},
+    "created": {"type": "array", "items": {"type": "string"}},
+    "preserved": {"type": "array", "items": {"type": "string"}},
+    "plan_id": {"type": "string"},
+    "base_workspace_revision": {"type": "string"},
+    "predicted_workspace_revision": {"type": "string"},
+    "contract_revision": {"type": "string"},
+    "files": {"type": "array", "items": {"$ref": "#/$defs/file"}}
+  },
+  "$defs": {
+    "file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "action"],
+      "properties": {
+        "path": {"type": "string"},
+        "action": {"enum": ["create", "preserve"]}
+      }
+    }
+  }
+}

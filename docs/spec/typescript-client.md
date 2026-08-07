@@ -23,6 +23,13 @@ Bindings using terminal path tails follow
 [http-path-tail.md](http-path-tail.md). Enqueue receipts
 are included for enqueue delivery.
 
+An assistant conversation client is a dedicated provider-neutral projection of
+the assistant public protocol. It is not generic HTTP streaming: the generator
+emits the fixed assistant event stream and its cursor/reconnect semantics only
+when an assistant is reachable from the selected target. The projection never
+imports or names an implementation adapter, provider URL, token, or private
+control field.
+
 It does not generate:
 
 - server-side internal binding clients;
@@ -283,6 +290,37 @@ slash. A non-optional `relative_path` cannot be empty. Generated metadata
 records both the base codec and path-tail schema revisions, and the path tail
 participates in `typescriptClientRevision`.
 
+### 13.2 Assistant conversation client
+
+For each reachable `assistant` resource, the target emits a namespaced client
+whose methods are provider-neutral and generated from the assistant public
+schemas:
+
+~~~ts
+client.assistants.support.createConversation(input, options?)
+client.assistants.support.sendTurn(conversationId, input, options?)
+client.assistants.support.streamEvents(conversationId, options?)
+client.assistants.support.resolveApproval(conversationId, approvalId, decision, options?)
+client.assistants.support.cancelRun(conversationId, runId, options?)
+~~~
+
+`createConversation` and `sendTurn` return typed Scenery conversation/run
+handles. `streamEvents` returns an `AsyncIterable` of the closed
+`scenery.assistant.public-event` union, consumes
+`application/x-ndjson`, and accepts an exclusive `after` cursor for
+reconnection. It MUST reject malformed sequences, suppress a repeated sequence
+when reconnecting, and surface closed public error codes rather than helper
+vocabulary. Approval decisions are `approve` or `deny`; cancellation is
+idempotent for a known run. `AbortSignal` remains the caller cancellation
+mechanism.
+
+The generated assistant surface records the assistant public-protocol and
+client projection revisions in metadata. It contains no adapter package name,
+private listener address, control token, provider event label, or provider
+signature. Implementation-only changes invalidate the assistant build/runtime
+projection but MUST NOT alter these public client types unless the declared
+assistant surface or public schemas change.
+
 ## 14. Cancellation, time, and retries
 
 `AbortSignal` is the only v1 caller cancellation mechanism. An already-aborted signal performs no request. Cancellation rejects with `SceneryClientError` code `cancelled` and retains the platform cause without exposing secret data.
@@ -354,10 +392,13 @@ A conforming generator/runtime passes fixtures for:
 - artifact projection and descriptor revisions;
 - compatibility classifications from the current evolution rules;
 - public-only and framework-enforced filtering;
+- assistant client method names, handle validation, NDJSON event decoding,
+  exclusive-cursor reconnects, approval/cancel decisions, redaction, and
+  provider-identity absence;
 - for path-tail bindings, independent tail-segment encoding, structural slash preservation, and empty-tail prefix behavior;
 - overlay check, atomic generation, stale detection, and clean-tree CI;
 - byte-identical output from at least two supported host platforms.
 
 ## Appendix A: Deliberate exclusions
 
-The current TypeScript client contract does not define React hooks, framework-specific caches, Node-only internal clients, streaming, WebSockets, raw responses, automatic credential storage, implicit retries, CommonJS output, or publishing to a package registry.
+The current TypeScript client contract does not define React hooks, framework-specific caches, Node-only internal clients, generic streaming, WebSockets, raw responses, automatic credential storage, implicit retries, CommonJS output, or publishing to a package registry. The dedicated assistant event stream in Section 13.2 is the sole streaming-shaped projection and does not make arbitrary binding streaming available.

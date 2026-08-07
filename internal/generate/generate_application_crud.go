@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-func renderProviderCRUDAdapterSource(contractRevision, packageIdentity, packageABI, contractImport, packageName string, service Resource, operations, bindings, resources []Resource, covered []string, providerABIs map[string]string) ([]byte, error) {
+func renderProviderCRUDAdapterSource(contractRevision, packageIdentity, packageABI, contractImport, packageName string, service Resource, operations, bindings []Resource, mcpBindings []mcpToolTarget, resources []Resource, covered []string, providerABIs map[string]string) ([]byte, error) {
 	providerOperations := providerCRUDOperations(operations)
 	crudSpec, databaseName, err := providerCRUDRuntimeSpec(resources, providerOperations)
 	if err != nil {
@@ -62,6 +62,9 @@ func renderProviderCRUDAdapterSource(contractRevision, packageIdentity, packageA
 	fmt.Fprintf(&b, "\t\t\tif contract.PackageContractABIRevision != PackageContractABIRevision { return fmt.Errorf(\"package contract ABI mismatch\") }\n")
 	fmt.Fprintf(&b, "\t\t\tif err := sceneryruntime.RegisterNativeService(sceneryruntime.NativeServiceRegistration{Address: %q, Initialize: func(ctx context.Context) error { database, err := scenerydb.Get(ctx, %q); if err != nil { return err }; service = providerCRUDService{database: database}; return nil }}); err != nil { return err }\n", service.Address, databaseName)
 	if err := renderDurableExecutionRegistrations(&b, service, providerOperations, resources); err != nil {
+		return nil, err
+	}
+	if err := renderMCPToolRegistrations(&b, contractRevision, service, mcpBindings, resources); err != nil {
 		return nil, err
 	}
 	if err := renderProviderCRUDInternalBindings(&b, providerOperations, resources); err != nil {

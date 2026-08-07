@@ -7,6 +7,37 @@ import (
 	"time"
 )
 
+func TestResourceEdgesResolveAssistantRootsFromNestedModules(t *testing.T) {
+	resources := []Resource{
+		{Address: "app/mcp_connection/docs", Module: "app", Kind: "scenery.mcp-connection"},
+		{Address: "app/mcp_server/support", Module: "app", Kind: "scenery.mcp-server"},
+		{Address: "app/assistant/support", Module: "app", Kind: "scenery.assistant"},
+		{
+			Address: "house/record/request", Module: "house", Kind: "scenery.record",
+			Spec: map[string]any{
+				"connection": map[string]any{"$ref": "mcp_connection.docs"},
+				"server":     map[string]any{"$ref": "mcp_server.support"},
+				"assistant":  map[string]any{"$ref": "assistant.support"},
+			},
+		},
+	}
+
+	edges := ResourceEdges(resources)
+	want := []GraphEdge{
+		{From: "house/record/request", To: "app/assistant/support", Path: "/spec/assistant"},
+		{From: "house/record/request", To: "app/mcp_connection/docs", Path: "/spec/connection"},
+		{From: "house/record/request", To: "app/mcp_server/support", Path: "/spec/server"},
+	}
+	if len(edges) != len(want) {
+		t.Fatalf("edges = %#v, want %#v", edges, want)
+	}
+	for i := range want {
+		if edges[i] != want[i] {
+			t.Fatalf("edges = %#v, want %#v", edges, want)
+		}
+	}
+}
+
 func TestGraphClosureIncludesDependenciesAndDependents(t *testing.T) {
 	manifest := &Manifest{Resources: []Resource{
 		{Address: "house/service/house", Module: "house", Kind: "scenery.service"},

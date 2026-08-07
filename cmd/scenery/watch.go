@@ -51,6 +51,110 @@ var productionFrontendWatch struct {
 	dirs map[string]string // slash-relative frontend dir -> frontend name
 }
 
+const (
+	assistantWatchHelperOnly = "helper-only"
+	assistantWatchDependency = "dependency-helper"
+	assistantWatchApp        = "app"
+)
+
+// assistantImplementationWatch is populated after the first valid graph
+// compile. It is intentionally independent from the provider adapter: watch
+// decisions are based on authored implementation paths only.
+var assistantImplementationWatch struct {
+	sync.RWMutex
+	root  string
+	roots map[string]string // slash-relative source root -> assistant address
+}
+
+func setAssistantImplementationWatch(root string, definitions []assistantDefinition) {
+	roots := make(map[string]string, len(definitions))
+	for _, definition := range definitions {
+		rel, err := filepath.Rel(root, definition.SourceRoot)
+		if err != nil || rel == "." || strings.HasPrefix(filepath.ToSlash(rel), "../") {
+			continue
+		}
+		roots[filepath.ToSlash(rel)] = definition.Address
+	}
+	assistantImplementationWatch.Lock()
+	assistantImplementationWatch.root = filepath.Clean(root)
+	assistantImplementationWatch.roots = roots
+	assistantImplementationWatch.Unlock()
+}
+
+func assistantWatchAddressForPath(root, rel string) (string, bool) {
+	assistantImplementationWatch.RLock()
+	defer assistantImplementationWatch.RUnlock()
+	if filepath.Clean(root) != assistantImplementationWatch.root || len(assistantImplementationWatch.roots) == 0 {
+		return "", false
+	}
+	rel = filepath.ToSlash(filepath.Clean(rel))
+	for sourceRoot, address := range assistantImplementationWatch.roots {
+		if rel == sourceRoot || strings.HasPrefix(rel, sourceRoot+"/") {
+			return address, true
+		}
+	}
+	return "", false
+}
+
+// classifyAssistantWatchPath returns the independent rebuild lane for an
+// authored assistant file. Go files remain ordinary app rebuild inputs even
+// when they happen to be beneath an assistant source directory.
+func classifyAssistantWatchPath(root, rel string) string {
+	address, ok := assistantWatchAddressForPath(root, rel)
+	if !ok || address == "" {
+		return ""
+	}
+	rel = filepath.ToSlash(filepath.Clean(rel))
+	assistantRoot := ""
+	assistantImplementationWatch.RLock()
+	for sourceRoot, candidate := range assistantImplementationWatch.roots {
+		if candidate == address && (rel == sourceRoot || strings.HasPrefix(rel, sourceRoot+"/")) {
+			assistantRoot = sourceRoot
+			break
+		}
+	}
+	assistantImplementationWatch.RUnlock()
+	if assistantRoot == "" {
+		return ""
+	}
+	inside := strings.TrimPrefix(strings.TrimPrefix(rel, assistantRoot), "/")
+	// The runtime MCP manifest is graph-derived and consumed by the app-owned
+	// gateway. A source edit here therefore takes the app lane so the child
+	// gateway is rebuilt with the new manifest; no live gateway refresh API
+	// exists yet. Generated provider channels/connections remain helper-only.
+	if inside == ".scenery/runtime-manifest.json" {
+		return assistantWatchApp
+	}
+	if strings.HasSuffix(inside, ".go") {
+		return assistantWatchApp
+	}
+	base := filepath.Base(inside)
+	if base == "package.json" || base == "package-lock.json" {
+		return assistantWatchDependency
+	}
+	parts := strings.Split(inside, "/")
+	for _, part := range parts {
+		switch strings.ToLower(part) {
+		case "instructions", "skills", "tools":
+			return assistantWatchHelperOnly
+		}
+	}
+	// The remainder of a provider source tree is helper implementation code.
+	return assistantWatchHelperOnly
+}
+
+func splitAssistantWatchPaths(root string, paths []string) (assistantPaths, appPaths []string) {
+	for _, path := range paths {
+		lane := classifyAssistantWatchPath(root, path)
+		if lane == "" || lane == assistantWatchApp {
+			appPaths = append(appPaths, path)
+			continue
+		}
+		assistantPaths = append(assistantPaths, path)
+	}
+	return assistantPaths, appPaths
+}
+
 func setProductionFrontendWatch(root string, cfg app.Config) {
 	dirs := map[string]string{}
 	for name, frontend := range cfg.Frontends {
@@ -308,6 +412,10 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode, desktop bool, appR
 		frontendNames, appPaths := splitProductionFrontendPaths(root, paths)
 		if len(frontendNames) > 0 {
 			supervisor.RebuildProductionFrontends(ctx, frontendNames)
+		}
+		assistantPaths, appPaths := splitAssistantWatchPaths(root, appPaths)
+		if len(assistantPaths) > 0 && supervisor.assistants != nil {
+			supervisor.assistants.HandleChanges(ctx, assistantPaths)
 		}
 		if len(appPaths) == 0 && !forced {
 			continue
@@ -735,7 +843,7 @@ func scanWatchedFilesReusing(root string, previous fileSnapshot) (fileSnapshot, 
 		if generate.IsManagedEditorWorkFile(root, rel) {
 			return nil
 		}
-		if !isWatchedFile(rel) {
+		if !isWatchedFile(rel) && classifyAssistantWatchPath(root, rel) == "" {
 			if _, ok := productionFrontendForWatchPath(root, rel); !ok {
 				return nil
 			}

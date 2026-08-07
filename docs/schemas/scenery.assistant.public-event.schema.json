@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.assistant.public-event.schema.json",
+  "title": "Scenery public assistant event",
+  "description": "One normalized line in the provider-neutral assistant event stream.",
+  "type": "object",
+  "required": [
+    "type",
+    "assistant",
+    "conversation_id",
+    "run_id",
+    "sequence",
+    "occurred_at",
+    "data"
+  ],
+  "properties": {
+    "type": {
+      "type": "string",
+      "enum": [
+        "assistant.run.started",
+        "assistant.message.delta",
+        "assistant.message.completed",
+        "assistant.capability.proposed",
+        "assistant.approval.required",
+        "assistant.capability.started",
+        "assistant.capability.completed",
+        "assistant.run.completed",
+        "assistant.run.cancelled",
+        "assistant.run.failed",
+        "assistant.runtime.restarting"
+      ]
+    },
+    "assistant": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_./-]{0,127}$"
+    },
+    "conversation_id": {
+      "type": "string",
+      "maxLength": 8198,
+      "pattern": "^conv1_(?:[0-9a-f]{2})+$"
+    },
+    "run_id": {
+      "type": "string",
+      "maxLength": 8196,
+      "pattern": "^run_(?:[0-9a-f]{2})+$"
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 18446744073709551615
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "data": {
+      "type": "object",
+      "description": "Normalized event data owned by the public assistant contract."
+    }
+  },
+  "additionalProperties": false
+}

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"scenery.sh/internal/envpolicy"
+	"scenery.sh/internal/mcpcontract"
 	"scenery.sh/internal/runtimeapi"
 	"scenery.sh/runtime/shared"
 )
@@ -164,6 +165,14 @@ type registry struct {
 	durableTasks              map[string]*DurableTask
 	contractDurableExecutions map[string]ContractDurableRegistration
 	contractBindings          map[string]ContractInternalBindingRegistration
+	mcpTools                  map[string]MCPToolRegistration
+	mcpFederationSpecs        map[string]MCPFederationRegistration
+	mcpFederations            map[string]*mcpFederationState
+	mcpFederationAssistants   map[string]string
+	mcpSecretResolvers        map[string]MCPSecretResolver
+	assistantMCPManifests     map[string]mcpcontract.Manifest
+	assistants                map[string]AssistantRegistration
+	assistantClients          map[string]AssistantClient
 	contractCLIBindings       map[string]ContractCLIBindingRegistration
 	contractPages             map[string]ContractPageRegistration
 	contractEventBuses        map[string]ContractEventBus
@@ -181,6 +190,14 @@ var global = &registry{
 	durableTasks:              make(map[string]*DurableTask),
 	contractDurableExecutions: make(map[string]ContractDurableRegistration),
 	contractBindings:          make(map[string]ContractInternalBindingRegistration),
+	mcpTools:                  make(map[string]MCPToolRegistration),
+	mcpFederationSpecs:        make(map[string]MCPFederationRegistration),
+	mcpFederations:            make(map[string]*mcpFederationState),
+	mcpFederationAssistants:   make(map[string]string),
+	mcpSecretResolvers:        make(map[string]MCPSecretResolver),
+	assistantMCPManifests:     make(map[string]mcpcontract.Manifest),
+	assistants:                make(map[string]AssistantRegistration),
+	assistantClients:          make(map[string]AssistantClient),
 	contractCLIBindings:       make(map[string]ContractCLIBindingRegistration),
 	contractPages:             make(map[string]ContractPageRegistration),
 	contractEventBuses:        make(map[string]ContractEventBus),

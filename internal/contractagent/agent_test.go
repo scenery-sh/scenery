@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -55,11 +56,12 @@ func TestAgentDiagnosticsAndRepairPlanRemainAvailableWithoutManifest(t *testing.
 	if diagnostics.Error != nil {
 		t.Fatalf("diagnostics response = %#v", diagnostics)
 	}
-	params, _ := json.Marshal(ChangeRequest{
-		BaseWorkspaceRevision: result.WorkspaceRevision, BaseContractRevision: nil, Caller: "test",
+	params, _ := json.Marshal(PlanRequest{
+		BaseWorkspaceRevision: result.WorkspaceRevision, BaseContractRevision: nil,
 		Operations: []SemanticOperation{{Op: "value.set", Address: "house/execution/process_scene_direct", Path: "/spec/timeout", Value: "40m"}},
 	})
-	planned := HandleAgentRequest(result, AgentRequest{Method: "changes.plan", Params: params})
+	session := NewAgentSessionWithContext(AgentExecutionContext{Principal: "test", GrantedCapabilities: []string{"scenery.agent-mutation"}, AppRoot: root})
+	planned := session.Handle(result, AgentRequest{Method: "changes.plan", Params: params})
 	if planned.Error != nil {
 		t.Fatalf("repair plan response = %#v", planned)
 	}
@@ -151,19 +153,28 @@ func TestAgentSchemaDescribesStructuredResourceAuthoring(t *testing.T) {
 		}
 	}
 	gateway, _ := bindingFields["gateway"].(map[string]any)
+	mcp, _ := bindingFields["mcp"].(map[string]any)
 	conditional, _ := binding["conditional_requirements"].([]any)
-	if gateway["required"] != false || len(conditional) != 1 {
+	if gateway["required"] != false || mcp["required"] != false || len(conditional) != 2 {
 		t.Fatalf("binding conditional authoring schema = %#v", binding)
 	}
-	requirement, _ := conditional[0].(map[string]any)
-	when, _ := requirement["when"].(map[string]any)
-	required, _ := requirement["required"].([]string)
-	if when["field"] != "protocol" || when["equals"] != "http" || len(required) != 1 || required[0] != "gateway" {
-		t.Fatalf("binding conditional requirement = %#v", requirement)
+	wants := map[string]string{"http": "gateway", "mcp": "mcp"}
+	for _, item := range conditional {
+		requirement, _ := item.(map[string]any)
+		when, _ := requirement["when"].(map[string]any)
+		required, _ := requirement["required"].([]string)
+		equals, _ := when["equals"].(string)
+		if when["field"] != "protocol" || len(required) != 1 || required[0] != wants[equals] {
+			t.Fatalf("binding conditional requirement = %#v", requirement)
+		}
+		delete(wants, equals)
+	}
+	if len(wants) != 0 {
+		t.Fatalf("missing binding conditional requirements %#v", wants)
 	}
 	sourceBinding, _ := AgentSchema(sourceSchemaRevisionForInternalName("scenery.source.binding"))
 	sourceConditional, _ := sourceBinding["conditional_requirements"].([]any)
-	if len(sourceConditional) != 1 {
+	if len(sourceConditional) != 2 {
 		t.Fatalf("source binding conditional requirement = %#v", sourceBinding)
 	}
 }
@@ -380,6 +391,158 @@ func TestAgentMutationConvenienceMethodsValidateAndNormalizeWithoutWriting(t *te
 	if unknown.Error == nil || unknown.Error.Kind != "invalid_request" {
 		t.Fatalf("unknown parameter response = %#v", unknown)
 	}
+}
+
+func TestAgentChangePlanRequestRejectsModelIdentityAndSourceEdits(t *testing.T) {
+	result, err := Compile("testdata/house")
+	if err != nil {
+		t.Fatal(err)
+	}
+	params := map[string]any{
+		"base_workspace_revision": result.WorkspaceRevision,
+		"base_contract_revision":  result.Manifest.ContractRevision,
+		"operations":              []SemanticOperation{},
+		"caller":                  "model-selected",
+		"capabilities":            []string{"scenery.agent-mutation"},
+		"additional_source_edits": []any{},
+	}
+	encoded, _ := json.Marshal(params)
+	response := HandleAgentRequest(result, AgentRequest{Method: "changes.plan", Params: encoded})
+	if response.Error == nil || response.Error.Kind != "invalid_request" {
+		t.Fatalf("identity-bearing plan request = %#v", response)
+	}
+}
+
+func TestCompactChangePlanOmitsFullSourceArtifactAndBoundsEvidence(t *testing.T) {
+	long := strings.Repeat("sensitive-source-byte-", 10_000)
+	riskRecords := make([]any, 0, 300)
+	for index := 0; index < 300; index++ {
+		riskRecords = append(riskRecords, map[string]any{
+			"risk_id": "risk_" + strings.Repeat("x", 300), "kind": "security_weaker", "address": "house/record/item", "path": "/spec/value", "requires_approval": true,
+			"evidence": long,
+		})
+	}
+	full := evolution.ChangePlan{
+		PlanID:                     "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		Application:                "house",
+		BaseWorkspaceRevision:      "sha256:base",
+		PredictedWorkspaceRevision: "sha256:predicted",
+		PredictedContractRevision:  "sha256:contract",
+		AffectedResources:          make([]string, 300),
+		RiskRecords:                riskRecords,
+		Operations:                 []SemanticOperation{{Op: "value.set", Address: "house/record/item", Path: "/spec/value", Value: long}},
+		Edits:                      []evolution.SourceEdit{{Path: "house/package.scn", After: []byte(long)}},
+		Diagnostics:                []Diagnostic{{Code: "SCN0001", Message: long}},
+		Caller:                     "alice",
+		Capabilities:               []string{"scenery.agent-mutation"},
+		RequiredCapabilities:       []string{"scenery.agent-mutation"},
+	}
+	for index := range full.AffectedResources {
+		full.AffectedResources[index] = "house/record/" + strconv.Itoa(index)
+	}
+	summary := compactChangePlan(full)
+	encoded, _ := json.Marshal(summary)
+	if len(encoded) > 300_000 || containsJSONText(encoded, long) || containsJSONText(encoded, "source_edits") || containsJSONText(encoded, "semantic_diff") || containsJSONText(encoded, "diagnostics") || containsJSONText(encoded, "caller") || containsJSONText(encoded, "operations") || containsJSONText(encoded, "\"capabilities\":") {
+		t.Fatalf("compact plan leaked or exceeded bound (%d bytes): %s", len(encoded), encoded[:minInt(len(encoded), 2000)])
+	}
+	if !summary.AffectedResourcesTruncated || summary.AffectedResourceCount != 300 || !summary.RiskRecordsTruncated || summary.RiskCount != 300 || len(summary.AffectedResources) != 256 || len(summary.RiskRecords) != 256 {
+		t.Fatalf("compact bounds = %#v", summary)
+	}
+}
+
+func TestAgentExecutionContextBindsAppRootAndPlanInspection(t *testing.T) {
+	result := &Result{Root: "/tmp/scenery-context-root", Manifest: &Manifest{ContractRevision: "sha256:contract"}}
+	session := NewAgentSessionWithContext(AgentExecutionContext{Principal: "alice", GrantedCapabilities: []string{"scenery.agent-mutation"}, AppRoot: "/tmp/other-root"})
+	response := session.Handle(result, AgentRequest{Method: "capabilities"})
+	if response.Error == nil || response.Error.Kind != "permission_denied" {
+		t.Fatalf("app-root mismatch = %#v", response)
+	}
+	inspection := NewAgentSessionWithContext(AgentExecutionContext{Principal: "alice", GrantedCapabilities: []string{"scenery.agent-mutation"}, AllowPlanInspection: false})
+	params := json.RawMessage(`{"plan_id":"sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}`)
+	response = inspection.Handle(&Result{Root: t.TempDir(), Manifest: &Manifest{ContractRevision: "sha256:contract"}}, AgentRequest{Method: "plans.get", Params: params})
+	if response.Error == nil || response.Error.Kind != "permission_denied" {
+		t.Fatalf("ungated plan inspection = %#v", response)
+	}
+}
+
+func TestReceiptRecoveryRequiresPrincipalButNotMutationGrant(t *testing.T) {
+	if err := validateReceiptReadExecutionContext(AgentExecutionContext{Principal: "alice", AppRoot: t.TempDir()}); err != nil {
+		t.Fatalf("owner receipt read without mutation grant = %v", err)
+	}
+	if err := validateReceiptReadExecutionContext(AgentExecutionContext{}); err == nil {
+		t.Fatal("anonymous receipt read unexpectedly authorized")
+	}
+	if err := validateMutationExecutionContext(AgentExecutionContext{Principal: "alice", AppRoot: t.TempDir()}); err == nil {
+		t.Fatal("mutation without scenery.agent-mutation unexpectedly authorized")
+	}
+}
+
+func TestMutationRequiresBoundAppRoot(t *testing.T) {
+	if err := validateMutationExecutionContext(AgentExecutionContext{Principal: "alice", GrantedCapabilities: []string{"scenery.agent-mutation"}}); err == nil {
+		t.Fatal("mutation context without app root unexpectedly authorized")
+	}
+	if err := validateReceiptReadExecutionContext(AgentExecutionContext{Principal: "alice"}); err == nil {
+		t.Fatal("receipt context without app root unexpectedly authorized")
+	}
+	result := &Result{Root: "", Manifest: &Manifest{ContractRevision: "sha256:contract"}}
+	session := NewAgentSessionWithContext(AgentExecutionContext{Principal: "alice", GrantedCapabilities: []string{"scenery.agent-mutation"}})
+	response := session.Handle(result, AgentRequest{Method: "changes.apply", Params: json.RawMessage(`{"plan_id":"sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}`)})
+	if response.Error == nil || response.Error.Kind != "permission_denied" {
+		t.Fatalf("rootless apply context = %#v", response)
+	}
+}
+
+func TestReceiptRecoveryOwnerDoesNotRequireMutationGrant(t *testing.T) {
+	root := t.TempDir()
+	copyTree(t, filepath.Join("testdata", "house"), root)
+	result, err := Compile(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseContract := result.Manifest.ContractRevision
+	session := NewAgentSessionWithContext(AgentExecutionContext{Principal: "alice", GrantedCapabilities: []string{"scenery.agent-mutation"}, AppRoot: root})
+	params, _ := json.Marshal(PlanRequest{
+		BaseWorkspaceRevision: result.WorkspaceRevision,
+		BaseContractRevision:  &baseContract,
+		Operations:            []SemanticOperation{{Op: "value.set", Address: "house/execution/process_scene_direct", Path: "/spec/timeout", Value: "30m"}},
+	})
+	planned := session.Handle(result, AgentRequest{Method: "changes.plan", Params: params})
+	if planned.Error != nil {
+		t.Fatal(planned.Error)
+	}
+	summary, ok := planned.Result.(ChangePlan)
+	if !ok {
+		t.Fatalf("plan result = %#v", planned.Result)
+	}
+	applyParams, _ := json.Marshal(ChangeApplyRequest{PlanID: summary.PlanID})
+	applied := session.Handle(result, AgentRequest{Method: "changes.apply", Params: applyParams})
+	if applied.Error != nil {
+		t.Fatal(applied.Error)
+	}
+	updated, err := Compile(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader := NewAgentSessionWithContext(AgentExecutionContext{Principal: "alice", AppRoot: root})
+	recovered := reader.Handle(updated, AgentRequest{Method: "changes.receipt.get", Params: applyParams})
+	if recovered.Error != nil {
+		t.Fatalf("receipt recovery without mutation grant = %#v", recovered)
+	}
+	if value, ok := recovered.Result.(ChangeReceiptResponse); !ok || value.Status != "applied" || value.Receipt.PlanID != summary.PlanID {
+		t.Fatalf("receipt recovery result = %#v", recovered.Result)
+	}
+	other := NewAgentSessionWithContext(AgentExecutionContext{Principal: "bob", AppRoot: root})
+	denied := other.Handle(updated, AgentRequest{Method: "changes.receipt.get", Params: applyParams})
+	if denied.Error == nil || denied.Error.Kind != "permission_denied" {
+		t.Fatalf("cross-principal receipt recovery = %#v", denied)
+	}
+}
+
+func minInt(left, right int) int {
+	if left < right {
+		return left
+	}
+	return right
 }
 
 func containsJSONText(value []byte, want string) bool {

@@ -23,21 +23,22 @@ const (
 )
 
 var allowedDirectGoDeps = map[string]string{
-	"github.com/ebitengine/purego": "cgo-free dlopen and symbol binding for verified generated shared-library facades",
-	"github.com/fsnotify/fsnotify": "file watching for scenery up live rebuilds",
-	"github.com/jackc/pgx/v5":      "database/sql Postgres driver for the plan 0097 Postgres-only data platform",
-	"github.com/golang-jwt/jwt/v5": "JWT signing and verification for standard auth",
-	"github.com/google/uuid":       "UUID generation and parsing for standard auth database records",
-	"github.com/gorilla/websocket": "dashboard JSON-RPC websocket transport",
-	"github.com/hashicorp/hcl/v2":  "lossless .scn syntax parsing and deterministic source formatting",
-	"github.com/zclconf/go-cty":    "typed literal values exposed by the HCL v2 syntax API",
-	"golang.org/x/crypto":          "password hashing primitives for standard auth",
-	"golang.org/x/mod":             "Go module parsing for self-harness dependency checks",
-	"golang.org/x/net":             "IDNA2008 non-transitional URL host normalization required by the current scalar contract",
-	"golang.org/x/sys":             "portable OS syscalls for doctor disk and memory readiness probes",
-	"golang.org/x/text":            "Unicode 15.0 NFC normalization required by the current relative_path scalar contract",
-	"golang.org/x/tools":           "Go package loading/parser pipeline",
-	"gopkg.in/yaml.v3":             "SQLC generator graph inspection from sqlc.yaml without shell parsing",
+	"github.com/ebitengine/purego":           "cgo-free dlopen and symbol binding for verified generated shared-library facades",
+	"github.com/fsnotify/fsnotify":           "file watching for scenery up live rebuilds",
+	"github.com/jackc/pgx/v5":                "database/sql Postgres driver for the plan 0097 Postgres-only data platform",
+	"github.com/golang-jwt/jwt/v5":           "JWT signing and verification for standard auth",
+	"github.com/google/uuid":                 "UUID generation and parsing for standard auth database records",
+	"github.com/gorilla/websocket":           "dashboard JSON-RPC websocket transport",
+	"github.com/hashicorp/hcl/v2":            "lossless .scn syntax parsing and deterministic source formatting",
+	"github.com/modelcontextprotocol/go-sdk": "private Streamable HTTP MCP gateway transport and protocol implementation",
+	"github.com/zclconf/go-cty":              "typed literal values exposed by the HCL v2 syntax API",
+	"golang.org/x/crypto":                    "password hashing primitives for standard auth",
+	"golang.org/x/mod":                       "Go module parsing for self-harness dependency checks",
+	"golang.org/x/net":                       "IDNA2008 non-transitional URL host normalization required by the current scalar contract",
+	"golang.org/x/sys":                       "portable OS syscalls for doctor disk and memory readiness probes",
+	"golang.org/x/text":                      "Unicode 15.0 NFC normalization required by the current relative_path scalar contract",
+	"golang.org/x/tools":                     "Go package loading/parser pipeline",
+	"gopkg.in/yaml.v3":                       "SQLC generator graph inspection from sqlc.yaml without shell parsing",
 }
 
 var forbiddenSourceImports = map[string]string{
@@ -49,19 +50,12 @@ var forbiddenSourceImports = map[string]string{
 }
 
 var removedAgentTransportTerms = []string{
-	"m" + "cp",
 	"r" + "m" + "cp",
-	"model context" + " protocol",
 	"m" + "cp_host",
-	"m" + "cpservers",
-	"m" + "cp_servers",
 	"experimental_use_r" + "m" + "cp_client",
 	"chrome-devtools-" + "m" + "cp",
 	"sse" + "?appid",
 }
-
-var removedAgentTransportToken = "m" + "cp"
-var removedAgentTransportTokenWithPrefix = "r" + removedAgentTransportToken
 
 var rawUICatalogInteractiveElement = regexp.MustCompile(`<\s*(button|input|select|textarea|table)\b`)
 
@@ -581,33 +575,28 @@ func checkRemovedAgentTransportTerms(path, rel string) []checkDiagnostic {
 }
 
 func containsRemovedAgentTransportTerm(line, term string) bool {
-	if term == removedAgentTransportToken || term == removedAgentTransportTokenWithPrefix {
-		offset := 0
-		for {
-			relative := strings.Index(line[offset:], term)
-			if relative < 0 {
+	if term == "r"+"m"+"cp" {
+		for offset := 0; offset < len(line); {
+			index := strings.Index(line[offset:], term)
+			if index < 0 {
 				return false
 			}
-			start := offset + relative
-			end := start + len(term)
-			if isTokenBoundary(line, start-1) && isTokenBoundary(line, end) {
+			index += offset
+			beforeOK := index == 0 || !asciiLetterOrDigit(line[index-1])
+			after := index + len(term)
+			afterOK := after == len(line) || !asciiLetterOrDigit(line[after])
+			if beforeOK && afterOK {
 				return true
 			}
-			if end >= len(line) {
-				return false
-			}
-			offset = start + 1
+			offset = index + 1
 		}
+		return false
 	}
 	return strings.Contains(line, term)
 }
 
-func isTokenBoundary(line string, index int) bool {
-	if index < 0 || index >= len(line) {
-		return true
-	}
-	ch := line[index]
-	return !(ch >= 'a' && ch <= 'z' || ch >= '0' && ch <= '9' || ch == '_')
+func asciiLetterOrDigit(value byte) bool {
+	return value >= 'a' && value <= 'z' || value >= '0' && value <= '9'
 }
 
 func architectureAllowsLongFile(rel string) bool {

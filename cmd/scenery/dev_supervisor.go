@@ -22,6 +22,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/app"
@@ -32,6 +33,7 @@ import (
 	"scenery.sh/internal/netprobe"
 	"scenery.sh/internal/postgresname"
 	"scenery.sh/internal/victoria"
+	"scenery.sh/runtime"
 )
 
 type runningApp struct {
@@ -67,6 +69,10 @@ type devSupervisor struct {
 	devDomainURL string
 	frontends    map[string]*managedFrontendProcess
 	desktops     map[string]*managedDesktopProcess
+	assistants   *assistantSupervisor
+	// assistantTokenKeyPath is the supervisor-owned stable sealing key handed
+	// to the app child. It is kept out of ordinary status and log payloads.
+	assistantTokenKeyPath string
 	// productionFrontends holds in-process static servers for frontends with
 	// serve mode "production", keyed by normalized frontend name; guarded by mu.
 	productionFrontends map[string]*staticFrontendServer
@@ -151,6 +157,49 @@ func newDevSupervisor(ctx context.Context, root string, cfg app.Config, env app.
 		},
 		rebuildRequests: make(chan struct{}, 1),
 	}
+	assistantStateRoot := filepath.Join(root, ".scenery", "assistants")
+	if agentSession != nil && strings.TrimSpace(agentSession.StateRoot) != "" {
+		assistantStateRoot = filepath.Join(agentSession.StateRoot, "assistants")
+	}
+	assistantTokenKeyPath, keyErr := ensureAssistantTokenKey(assistantStateRoot)
+	if keyErr != nil {
+		cancel()
+		if store != nil {
+			_ = store.Close()
+		}
+		return nil, fmt.Errorf("assistant token key: %w", keyErr)
+	}
+	assistantAppEnv, envErr := appEnvWithDotEnv(envpolicy.Environ(), root, env.DotEnvFiles()...)
+	if envErr != nil {
+		cancel()
+		if store != nil {
+			_ = store.Close()
+		}
+		return nil, fmt.Errorf("assistant provider environment: %w", envErr)
+	}
+	s.assistants = newAssistantSupervisor(supervisorCtx, assistantSupervisorConfig{
+		Root:          root,
+		StateRoot:     assistantStateRoot,
+		ProviderEnv:   assistantProviderEnv(assistantAppEnv),
+		UseAppGateway: true,
+		OnProcess: func(name string, pid int) {
+			if s == nil {
+				return
+			}
+			if s.agent != nil {
+				s.updateAgentSession(context.Background(), "running", s.currentPID())
+			}
+		},
+		OnEvent: func(ctx context.Context, source devdash.DevSource, level, message string, fields map[string]any) {
+			s.eventSink().Emit(ctx, source, level, message, fields)
+		},
+		OnStatus: func(statuses []AssistantStatusRecord) {
+			s.persistAssistantStatusSnapshot(statuses)
+		},
+		Output:    os.Stdout,
+		ErrOutput: os.Stderr,
+	})
+	s.assistantTokenKeyPath = assistantTokenKeyPath
 	s.dashboard = newDashboardServer(s, "")
 	s.events = newDevEventSink(s)
 	return s, nil
@@ -171,6 +220,14 @@ func (s *devSupervisor) Close() error {
 	s.closeOnce.Do(func() {
 		if s.cancel != nil {
 			s.cancel()
+		}
+		// Assistant helpers own private gateways and control clients. Stop them
+		// before tearing down the ordinary app so no helper can outlive the
+		// session it serves.
+		if s.assistants != nil {
+			if err := s.assistants.Close(); err != nil {
+				closeErr = errors.Join(closeErr, err)
+			}
 		}
 
 		app := s.detachCurrentApp()
@@ -263,7 +320,7 @@ func (s *devSupervisor) Close() error {
 				errs = append(errs, err)
 			}
 		}
-		closeErr = errors.Join(errs...)
+		closeErr = errors.Join(append([]error{closeErr}, errs...)...)
 	})
 	return closeErr
 }
@@ -466,6 +523,14 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 			return err
 		}
 	}
+	if s.assistants != nil {
+		// Prepare private descriptors, managed Node, and helper overlays before
+		// the app child starts. The app-owned MCP gateway then binds those slots;
+		// helper processes start only after the app is accepting connections.
+		_ = s.assistants.Prepare(ctx, plan.Result.Contract)
+		setAssistantImplementationWatch(s.root, assistantDefinitionsFromResult(plan.Result.Contract, s.root))
+		s.refreshAssistantRuntimeConfig()
+	}
 
 	// Detach before stopping so the exit watchers treat this as an intentional
 	// restart rather than a crash; otherwise handleExit races the restart and
@@ -485,6 +550,13 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 		return nil
 	}); err != nil {
 		return s.handleCompileError(ctx, plan.Metadata, plan.APIEncoding, err)
+	}
+	if s.assistants != nil {
+		// The generated app composition has now initialized the private gateway;
+		// start helper children against its stable loopback URL. Any helper
+		// outage remains an assistant status/event, never an app startup failure.
+		_ = s.assistants.StartPrepared(ctx)
+		s.refreshAssistantRuntimeConfig()
 	}
 
 	s.mu.Lock()
@@ -586,6 +658,15 @@ func (s *devSupervisor) startApp(ctx context.Context, result *build.Result, meta
 		env = append(env, "SCENERY_PUBLIC_BASE_URL="+agentSession.RouteManifest.Routes[localagent.RouteAPI].URL)
 	}
 	env = append(env, s.sessionAuthEnv()...)
+	// Framework-owned assistant handoff values are appended last so a dotenv
+	// file or app-managed env map cannot override the private descriptor/key
+	// path with ambient user input.
+	if path := s.assistantRuntimeConfigPath(); path != "" {
+		env = append(env, runtime.AssistantRuntimeConfigEnv+"="+path)
+	}
+	if path := strings.TrimSpace(s.assistantTokenKeyPath); path != "" {
+		env = append(env, runtime.AssistantTokenKeyFileEnv+"="+path)
+	}
 	if err := backendAvailableBeforeStartup(s.backend); err != nil {
 		return nil, fmt.Errorf("app listen address %s is unavailable before startup: %w", s.addr, err)
 	}
@@ -631,6 +712,26 @@ func (s *devSupervisor) startApp(ctx context.Context, result *build.Result, meta
 		return nil, err
 	}
 	return app, nil
+}
+
+func (s *devSupervisor) assistantRuntimeConfigPath() string {
+	if s == nil || s.assistants == nil {
+		return ""
+	}
+	return filepath.Join(s.root, ".scenery", "run", "assistant-runtime.json")
+}
+
+func (s *devSupervisor) refreshAssistantRuntimeConfig() {
+	if s == nil || s.assistants == nil {
+		return
+	}
+	path := s.assistantRuntimeConfigPath()
+	if path == "" {
+		return
+	}
+	if err := runtime.WriteAssistantRuntimeConfig(path, s.assistants.RuntimeConfig()); err != nil {
+		s.eventSink().Emit(context.Background(), devdash.DevSource{ID: "assistant-runtime", Kind: "assistant", Name: "assistant-runtime", Role: "assistant-bootstrap", Status: "error"}, "error", "assistant runtime config unavailable", map[string]any{"error": err.Error()})
+	}
 }
 
 func prepareSessionAppBinary(session *localagent.Session, binary string) (string, error) {
@@ -1861,6 +1962,76 @@ func randomToken() (string, error) {
 	return hex.EncodeToString(buf[:]), nil
 }
 
+// ensureAssistantTokenKey creates or validates the supervisor-owned stable
+// assistant sealing key. The generated key is hex-encoded text containing
+// exactly 32 bytes of entropy. Invalid existing material fails closed with an
+// error so the caller cannot start an app child with an ambiguous key.
+func ensureAssistantTokenKey(stateRoot string) (string, error) {
+	stateRoot = strings.TrimSpace(stateRoot)
+	if stateRoot == "" {
+		return "", errors.New("assistant token key state root is required")
+	}
+	if err := os.MkdirAll(stateRoot, 0o700); err != nil {
+		return "", fmt.Errorf("assistant token key state root: %w", err)
+	}
+	if info, err := os.Lstat(stateRoot); err != nil || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return "", errors.New("assistant token key state root is not a private directory")
+	} else if err := os.Chmod(stateRoot, 0o700); err != nil {
+		return "", fmt.Errorf("protect assistant token key state root: %w", err)
+	}
+	path := filepath.Join(stateRoot, "token-key")
+	if info, err := os.Lstat(path); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 {
+			return "", errors.New("assistant token key file is not a private regular file")
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return "", fmt.Errorf("read assistant token key: %w", err)
+		}
+		if len(data) == 32 && utf8.Valid(data) && strings.TrimSpace(string(data)) == string(data) {
+			return path, nil
+		}
+		key, err := hex.DecodeString(strings.TrimSpace(string(data)))
+		if err != nil || len(key) != 32 {
+			return "", errors.New("assistant token key file contains invalid key material")
+		}
+		return path, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", fmt.Errorf("inspect assistant token key: %w", err)
+	}
+
+	var key [32]byte
+	if _, err := rand.Read(key[:]); err != nil {
+		return "", fmt.Errorf("generate assistant token key: %w", err)
+	}
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return ensureAssistantTokenKey(stateRoot)
+		}
+		return "", fmt.Errorf("create assistant token key: %w", err)
+	}
+	data := []byte(hex.EncodeToString(key[:]))
+	remove := true
+	defer func() {
+		_ = file.Close()
+		if remove {
+			_ = os.Remove(path)
+		}
+	}()
+	if _, err := file.Write(data); err != nil {
+		return "", fmt.Errorf("write assistant token key: %w", err)
+	}
+	if err := file.Sync(); err != nil {
+		return "", fmt.Errorf("sync assistant token key: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		return "", fmt.Errorf("close assistant token key: %w", err)
+	}
+	remove = false
+	return path, nil
+}
+
 func (s *devSupervisor) updateAgentSession(ctx context.Context, status, appPID string) {
 	if s == nil || s.agent == nil {
 		return
@@ -1898,10 +2069,27 @@ func (s *devSupervisor) sessionProcessesFor(session *localagent.Session, appPID 
 	if pid := atoiPID(appPID); pid > 0 {
 		processes[localagent.RouteAPI] = localagent.Process{PID: pid}
 	}
+	if s.assistants != nil {
+		for key, process := range s.assistants.ProcessSnapshot() {
+			processes[key] = process
+		}
+	}
 	if len(processes) == 0 {
 		return nil
 	}
 	return processes
+}
+
+func (s *devSupervisor) currentPID() string {
+	if s == nil {
+		return ""
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.current == nil {
+		return ""
+	}
+	return s.current.pid
 }
 
 func copySessionProcesses(values map[string]localagent.Process) map[string]localagent.Process {

@@ -213,6 +213,8 @@ func run(args []string) error {
 		return harnessCommand(args[1:])
 	case "inspect":
 		return inspectCommand(args[1:])
+	case "assistant":
+		return assistantCommand(args[1:])
 	case "logs":
 		return logsCommand(args[1:])
 	case "test":
@@ -318,7 +320,7 @@ func knownCLINotFound(message string) bool {
 	if !strings.HasSuffix(message, " not found") {
 		return false
 	}
-	for _, prefix := range []string{"resource ", "schema ", "migration service ", "typescript client target ", "http gateway "} {
+	for _, prefix := range []string{"resource ", "schema ", "migration service ", "typescript client target ", "http gateway ", "assistant "} {
 		if strings.HasPrefix(message, prefix) {
 			return true
 		}

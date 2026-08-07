@@ -19,6 +19,30 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0150-replayable-plan-apply.md",
+      "title": "Replayable Plan Apply and Trusted Agent Context",
+      "owner": "scenery evolution / contract agent / assistant adapter",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-08-07",
+      "review_after": "2026-09-06",
+      "summary": "Completed ExecPlan making receipt-backed change and deployment apply replay-safe, replacing model-carried plans with compact handles, and binding agent identity, grants, approvals, and request correlation to trusted transport context.",
+      "tags": ["plans", "execplans", "evolution", "contract-agent", "idempotency", "approvals", "eve"]
+    },
+    {
+      "path": "docs/plans/0149-mcp-native-scenery-assistants.md",
+      "title": "MCP-Native Scenery Assistants with a Managed Node/V8 Helper",
+      "owner": "scenery assistants / runtime",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-08-04",
+      "review_after": "2026-09-03",
+      "summary": "Completed ExecPlan adding canonical MCP capability bindings and provider-neutral application assistants with Scenery-owned public conversations, managed out-of-process Node/V8 helpers, embedded verified production assets, generated browser clients, and public provider-leak conformance.",
+      "tags": ["plans", "execplans", "assistants", "mcp", "runtime", "node", "generated-clients"]
+    },
+    {
       "path": "docs/plans/0148-impersonation-target-provisioning.md",
       "title": "Impersonation Target Provisioning",
       "owner": "scenery auth",
@@ -548,6 +572,150 @@
       "tags": ["schema", "build", "cli", "json"]
     },
     {
+      "path": "docs/schemas/scenery.assistant.init.schema.json",
+      "title": "scenery.assistant.init Schema",
+      "owner": "scenery assistants / CLI",
+      "status": "active",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-08-04",
+      "review_after": "2026-09-03",
+      "summary": "Strict JSON data payload for idempotent assistant scaffolding, dry runs, source transaction revisions, and authored-file preservation.",
+      "tags": ["schema", "assistant", "cli", "scaffolding"]
+    },
+    {
+      "path": "docs/schemas/scenery.assistant.sync.schema.json",
+      "title": "scenery.assistant.sync Schema",
+      "owner": "scenery assistants / CLI",
+      "status": "active",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-08-04",
+      "review_after": "2026-09-03",
+      "summary": "Strict JSON data payload for managed Node/npm dependency synchronization, exact lock digests, and content-addressed cache reuse.",
+      "tags": ["schema", "assistant", "cli", "dependencies"]
+    },
+    {
+      "path": "docs/schemas/scenery.assistant.control.event.schema.json",
+      "title": "scenery.assistant.control.event Schema",
+      "owner": "scenery assistants / runtime",
+      "status": "active",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-08-04",
+      "review_after": "2026-09-03",
+      "summary": "Strict private control-protocol event envelope for supervised assistant helpers, revision handshakes, lifecycle, and typed failures.",
+      "tags": ["schema", "assistant", "control", "runtime", "private"]
+    },
+    {
+      "path": "docs/schemas/scenery.assistant.control.request.schema.json",
+      "title": "scenery.assistant.control.request Schema",
+      "owner": "scenery assistants / runtime",
+      "status": "active",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-08-04",
+      "review_after": "2026-09-03",
+      "summary": "Strict private control-protocol request envelope for provider-neutral assistant runtime commands and capability dispatch.",
+      "tags": ["schema", "assistant", "control", "runtime", "private"]
+    },
+    {
+      "path": "docs/schemas/scenery.assistant.control.response.schema.json",
+      "title": "scenery.assistant.control.response Schema",
+      "owner": "scenery assistants / runtime",
+      "status": "active",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-08-04",
+      "review_after": "2026-09-03",
+      "summary": "Strict private control-protocol response envelope for supervised assistant helper commands, revisions, and typed failures.",
+      "tags": ["schema", "assistant", "control", "runtime", "private"]
+    },
+    {
+      "path": "docs/schemas/scenery.assistant.public-error.schema.json",
+      "title": "scenery.assistant.public-error Schema",
+      "owner": "scenery assistants / public API",
+      "status": "active",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-08-04",
+      "review_after": "2026-09-03",
+      "summary": "Closed provider-neutral public assistant error codes and redacted safe messages for conversation, approval, and cancellation routes.",
+      "tags": ["schema", "assistant", "public-api", "errors", "redaction"]
+    },
+    {
+      "path": "docs/schemas/scenery.assistant.public-event.schema.json",
+      "title": "scenery.assistant.public-event Schema",
+      "owner": "scenery assistants / public API",
+      "status": "active",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-08-04",
+      "review_after": "2026-09-03",
+      "summary": "Closed provider-neutral assistant NDJSON event union with monotonic sequences, opaque handles, approvals, lifecycle, cancellation, and restart signals.",
+      "tags": ["schema", "assistant", "public-api", "events", "ndjson"]
+    },
+    {
+      "path": "docs/schemas/scenery.assistant.public.request.schema.json",
+      "title": "scenery.assistant.public.request Schema",
+      "owner": "scenery assistants / public API",
+      "status": "active",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-08-04",
+      "review_after": "2026-09-03",
+      "summary": "Strict provider-neutral request payloads for assistant conversation creation, follow-up turns, approval decisions, and run cancellation.",
+      "tags": ["schema", "assistant", "public-api", "requests"]
+    },
+    {
+      "path": "docs/schemas/scenery.assistant.public.response.schema.json",
+      "title": "scenery.assistant.public.response Schema",
+      "owner": "scenery assistants / public API",
+      "status": "active",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-08-04",
+      "review_after": "2026-09-03",
+      "summary": "Strict provider-neutral response payloads for assistant conversation/run handles, approvals, cancellation, and redacted public failures.",
+      "tags": ["schema", "assistant", "public-api", "responses"]
+    },
+    {
+      "path": "docs/schemas/scenery.assistant.runtime-descriptor.schema.json",
+      "title": "scenery.assistant.runtime-descriptor Schema",
+      "owner": "scenery assistants / runtime",
+      "status": "active",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-08-04",
+      "review_after": "2026-09-03",
+      "summary": "Strict private descriptor for assistant child identity, capability/runtime revisions, authenticated loopback endpoints, and managed assets.",
+      "tags": ["schema", "assistant", "runtime", "descriptor", "private"]
+    },
+    {
+      "path": "docs/schemas/scenery.assistant.status.schema.json",
+      "title": "scenery.assistant.status Schema",
+      "owner": "scenery assistants / CLI",
+      "status": "active",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-08-04",
+      "review_after": "2026-09-03",
+      "summary": "Provider-neutral assistant status snapshot for readiness, policy, revisions, restarts, and typed failure state, with implementation fields isolated to explicit inspection.",
+      "tags": ["schema", "assistant", "cli", "status", "inspection"]
+    },
+    {
+      "path": "docs/schemas/scenery.inspect.assistants.schema.json",
+      "title": "scenery.inspect.assistants Schema",
+      "owner": "scenery assistants / CLI",
+      "status": "active",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-08-04",
+      "review_after": "2026-09-03",
+      "summary": "Provider-neutral assistant inspection envelope with an explicit developer/operator implementation view for adapter, lock, private listener, and child diagnostics.",
+      "tags": ["schema", "assistant", "cli", "inspection", "public-private"]
+    },
+    {
       "path": "docs/plans/0108-remove-remaining-v0-compatibility.md",
       "title": "Remove Remaining v0 Compatibility",
       "owner": "scenery maintainers / CLI / runtime / auth",
@@ -893,14 +1061,17 @@
       "status": "reference",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-07-20",
-      "review_after": "2026-08-19",
-      "summary": "Normative evolving current Scenery specification, including the singular .scn declaration surface, complete resource, structural, diagnostic-rule, and behavioral specification identity, strict current manifests and machine envelopes, typed HTTP path tails, CRUD search and generated workbench page/form contracts, graph provenance, authenticated transactions, synchronized Go implementation, and the House example.",
+      "last_reviewed": "2026-08-04",
+      "review_after": "2026-09-03",
+      "summary": "Normative evolving current Scenery specification, including the singular .scn declaration surface, MCP bindings/servers/connections, provider-neutral assistant conversation surfaces, private supervised adapters, strict manifests and machine envelopes, typed HTTP path tails, generated clients/pages, graph provenance, authenticated transactions, and the synchronized Go implementation boundary.",
       "tags": [
         "spec",
         "language",
         "compiler",
-        "canonical-ir"
+        "canonical-ir",
+        "mcp",
+        "assistants",
+        "public-private-boundary"
       ]
     },
     {
@@ -910,14 +1081,17 @@
       "status": "reference",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-07-14",
-      "review_after": "2026-08-13",
-      "summary": "Normative current Go implementation contract for externally cached generated contracts, stable import identities, ownership-verified editor workspaces, explicit published-module materialization, verified pruning, aliased typed config inputs, handlers, adapters, descriptors, and staged verification.",
+      "last_reviewed": "2026-08-04",
+      "review_after": "2026-09-03",
+      "summary": "Normative current Go implementation contract for externally cached generated contracts, stable import identities, staged verification, assistant provider-neutral route/composition boundaries, supervised child adapters, private control/loopback MCP, managed runtime assets, descriptors, and explicit published-module materialization.",
       "tags": [
         "spec",
         "go",
         "abi",
-        "codegen"
+        "codegen",
+        "assistants",
+        "runtime-boundary",
+        "managed-assets"
       ]
     },
     {
@@ -927,14 +1101,16 @@
       "status": "reference",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-07-13",
-      "review_after": "2026-08-12",
-      "summary": "Normative HTTP gateway, single-segment routing, request mapping, codec, response, negotiation, limit, and security-boundary contract, with typed terminal path tails specified separately.",
+      "last_reviewed": "2026-08-04",
+      "review_after": "2026-09-03",
+      "summary": "Normative HTTP gateway, single-segment routing, request mapping, codec, response, negotiation, limit, and security-boundary contract, with typed terminal path tails and the dedicated provider-neutral assistant NDJSON route boundary specified separately.",
       "tags": [
         "spec",
         "http",
         "codec",
-        "runtime"
+        "runtime",
+        "assistants",
+        "ndjson"
       ]
     },
     {
@@ -963,14 +1139,16 @@
       "status": "reference",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-07-13",
-      "review_after": "2026-08-12",
-      "summary": "Normative deterministic TypeScript client API, type mapping, outcomes, metadata, compatibility, cancellation, independently encoded terminal path-tail segments, and generation workflow for public HTTP bindings.",
+      "last_reviewed": "2026-08-04",
+      "review_after": "2026-09-03",
+      "summary": "Normative deterministic TypeScript client API, type mapping, outcomes, metadata, compatibility, cancellation, independently encoded terminal path-tail segments, and the dedicated provider-neutral assistant conversation client with NDJSON cursor events.",
       "tags": [
         "spec",
         "typescript",
         "clientgen",
-        "typescript-client"
+        "typescript-client",
+        "assistants",
+        "ndjson"
       ]
     },
     {
@@ -980,13 +1158,15 @@
       "status": "reference",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-07-13",
-      "review_after": "2026-08-12",
-      "summary": "Normative multidimensional semantic evolution rules for canonical Scenery resource graphs, including revision-bound rename receipts.",
+      "last_reviewed": "2026-08-04",
+      "review_after": "2026-09-03",
+      "summary": "Normative multidimensional semantic evolution rules for canonical Scenery resource graphs, including MCP capability/server changes, assistant public-surface compatibility, private adapter rebuild consequences, and revision-bound rename receipts.",
       "tags": [
         "spec",
         "evolution",
-        "semantic-diff"
+        "semantic-diff",
+        "mcp",
+        "assistants"
       ]
     },
     {
@@ -1215,16 +1395,18 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-07-23",
-      "review_after": "2026-08-22",
-      "summary": "Concise installed-skill entrypoint for current Scenery apps, with intent-based task routing, target-app AGENTS checks, graph views and provenance, schema-driven authoring, trusted transactions, runtime, deploy, storage, generated-client and page-macro invariants, UI triage, scoped machine-readable command help, a lower command catalog, and cached validation.",
+      "last_reviewed": "2026-08-04",
+      "review_after": "2026-09-03",
+      "summary": "Concise installed-skill entrypoint for current Scenery apps, with intent-based task routing, MCP/assistant public-private boundaries, graph views and provenance, schema-driven authoring, trusted transactions, runtime, deploy, storage, generated clients, page macros, UI triage, scoped command help, and cached validation.",
       "tags": [
         "skill",
         "agents",
         "onboarding",
         "toolchain",
         "storage",
-        "deploy"
+        "deploy",
+        "assistants",
+        "mcp"
       ]
     },
     {
@@ -1234,9 +1416,9 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-07-23",
-      "review_after": "2026-08-22",
-      "summary": "Agent workflow guide for current app roots and the Scenery repo, including task-scoped documentation routing, immutable completed-plan history, CLI JSON, graph provenance, runtime diagnosis, deploy, storage, TypeScript clients, generated React routes and workbench pages, app-local AGENTS hierarchy, public-surface checks, and self-harness validation.",
+      "last_reviewed": "2026-08-04",
+      "review_after": "2026-09-03",
+      "summary": "Agent workflow guide for current app roots and the Scenery repo, including task-scoped documentation routing, MCP/assistant provider-neutral public surfaces and private helper boundaries, CLI JSON, graph provenance, runtime diagnosis, deploy, storage, generated clients/pages, app-local AGENTS hierarchy, public-surface checks, and self-harness validation.",
       "tags": [
         "agents",
         "cli",
@@ -1244,7 +1426,9 @@
         "client-integration",
         "toolchain",
         "storage",
-        "deploy"
+        "deploy",
+        "assistants",
+        "mcp"
       ]
     },
     {
@@ -1288,14 +1472,16 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-07-23",
-      "review_after": "2026-08-22",
-      "summary": "High-level repo map and current specification architecture boundaries, including source parsing, canonical graphs, generation, evolution, deployment, runtime, repository tests, and task-scoped documentation discovery built on the shared changed-area router.",
+      "last_reviewed": "2026-08-04",
+      "review_after": "2026-09-03",
+      "summary": "High-level repo map and current specification architecture boundaries, including MCP/assistant provider-neutral API and private adapter packages, source parsing, canonical graphs, generation, evolution, deployment, runtime, repository tests, and task-scoped documentation discovery built on the shared changed-area router.",
       "tags": [
         "architecture",
         "agents",
         "boundaries",
-        "codemap"
+        "codemap",
+        "assistants",
+        "mcp"
       ]
     },
     {
@@ -1305,9 +1491,9 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-07-23",
-      "review_after": "2026-08-22",
-      "summary": "Current local developer and agent-facing contract for exact CLI JSON surfaces, including scoped command help, living-document freshness with immutable completed-plan history, deterministic changed-area validation, schema identities, graph provenance, runtime and deploy behavior, data, generated clients and pages, generators, and code tasks.",
+      "last_reviewed": "2026-08-04",
+      "review_after": "2026-09-03",
+      "summary": "Current local developer and agent-facing contract for exact CLI JSON surfaces, including provider-neutral assistant commands/routes/inspection, private implementation boundaries, scoped command help, living-document freshness, deterministic validation, schema identities, graph provenance, runtime/deploy behavior, generated clients/pages, generators, and code tasks.",
       "tags": [
         "contract",
         "cli",
@@ -1315,7 +1501,9 @@
         "schemas",
         "toolchain",
         "storage",
-        "deploy"
+        "deploy",
+        "assistants",
+        "mcp"
       ],
       "schema_refs": [
         "docs/schemas/scenery.config.schema.json",
@@ -1384,7 +1572,19 @@
         "docs/schemas/scenery.storage.inspect.schema.json",
         "docs/schemas/scenery.storage.object.schema.json",
         "docs/schemas/scenery.storage.list.schema.json",
-        "docs/schemas/scenery.storage.delete.schema.json"
+        "docs/schemas/scenery.storage.delete.schema.json",
+        "docs/schemas/scenery.assistant.control.event.schema.json",
+        "docs/schemas/scenery.assistant.control.request.schema.json",
+        "docs/schemas/scenery.assistant.control.response.schema.json",
+        "docs/schemas/scenery.assistant.init.schema.json",
+        "docs/schemas/scenery.assistant.public-error.schema.json",
+        "docs/schemas/scenery.assistant.public-event.schema.json",
+        "docs/schemas/scenery.assistant.public.request.schema.json",
+        "docs/schemas/scenery.assistant.public.response.schema.json",
+        "docs/schemas/scenery.assistant.runtime-descriptor.schema.json",
+        "docs/schemas/scenery.assistant.status.schema.json",
+        "docs/schemas/scenery.assistant.sync.schema.json",
+        "docs/schemas/scenery.inspect.assistants.schema.json"
       ]
     },
     {
@@ -1464,15 +1664,17 @@
       "status": "active",
       "quality": "B",
       "freshness": "current",
-      "last_reviewed": "2026-07-20",
-      "review_after": "2026-08-19",
-      "summary": "Practical recipes for building current Scenery apps, including .scn source, generated contracts, bindings, capabilities, auth, storage, Postgres, snapshots, durable work, CRUD search, generated workbench pages and form dialogs, generated React app mounting and extension routes, observability, and validation workflows.",
+      "last_reviewed": "2026-08-04",
+      "review_after": "2026-09-03",
+      "summary": "Practical recipes for building current Scenery apps, including .scn source, MCP capabilities and provider-neutral assistants, generated contracts/clients, bindings, auth, storage, Postgres, snapshots, durable work, CRUD search, generated workbench pages/form dialogs, React mounting, observability, and validation workflows.",
       "tags": [
         "cookbook",
         "apps",
         "agents",
         "runtime",
-        "storage"
+        "storage",
+        "assistants",
+        "mcp"
       ]
     },
     {

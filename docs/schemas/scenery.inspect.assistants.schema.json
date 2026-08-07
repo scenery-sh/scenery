@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.inspect.assistants.schema.json",
+  "title": "scenery.inspect.assistants",
+  "type": "object",
+  "required": ["kind", "schema_revision", "app", "assistants"],
+  "properties": {
+    "kind": {"const": "scenery.inspect.assistants"},
+    "schema_revision": {"const": "sha256:fbe7fcedc14de7c58744a7f1d6b5cc24178a5cdeb45856914d090f27de320820"},
+    "app": {"$ref": "#/$defs/appRef"},
+    "assistants": {"type": "array", "items": {"$ref": "#/$defs/assistant"}}
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "appRef": {
+      "type": "object",
+      "required": ["name", "root", "config_path"],
+      "properties": {
+        "name": {"type": "string"},
+        "id": {"type": "string"},
+        "root": {"type": "string"},
+        "config_path": {"type": "string"},
+        "module_path": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "policy": {
+      "type": "object",
+      "required": ["authentication", "authorization", "pipeline"],
+      "properties": {
+        "authentication": {"type": "string"},
+        "authorization": {"type": "string"},
+        "pipeline": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "revisions": {
+      "type": "object",
+      "required": ["expected_runtime_revision", "expected_capability_revision", "actual_runtime_revision", "actual_capability_revision"],
+      "properties": {
+        "expected_runtime_revision": {"type": "string"},
+        "expected_capability_revision": {"type": "string"},
+        "actual_runtime_revision": {"type": "string"},
+        "actual_capability_revision": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "implementation": {
+      "type": "object",
+      "properties": {
+        "adapter": {"type": "string"},
+        "source": {"type": "string"},
+        "package": {"type": "string"},
+        "package_lock": {"type": "string"},
+        "node_version": {"type": "string"},
+        "runtime_package": {"type": "string"},
+        "package_lock_digest": {"type": "string"},
+        "overlay_path": {"type": "string"},
+        "private_control_addr": {"type": "string"},
+        "private_mcp_addr": {"type": "string"},
+        "pid": {"type": "integer", "minimum": 1}
+      },
+      "additionalProperties": false
+    },
+    "assistant": {
+      "type": "object",
+      "required": ["address", "name", "path", "access", "session_access", "policy", "revisions", "ready", "status", "restart_count", "last_failure", "log_source"],
+      "properties": {
+        "address": {"type": "string"},
+        "name": {"type": "string"},
+        "path": {"type": "string"},
+        "access": {"enum": ["public", "auth"]},
+        "session_access": {"const": "initiator"},
+        "policy": {"$ref": "#/$defs/policy"},
+        "revisions": {"$ref": "#/$defs/revisions"},
+        "ready": {"type": "boolean"},
+        "status": {"type": "string"},
+        "restart_count": {"type": "integer", "minimum": 0},
+        "last_failure": {"type": "string"},
+        "log_source": {"type": "string"},
+        "implementation": {"$ref": "#/$defs/implementation"}
+      },
+      "additionalProperties": false
+    }
+  }
+}

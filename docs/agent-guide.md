@@ -23,7 +23,12 @@ Every supported app has:
 - package-local `package.scn` files installed through root module blocks;
 - an optional generated `app.lock.scn` dependency lock;
 - Go implementations of generated native service contracts;
-- generated outputs only beneath declared `workspace.managed_generated_roots`.
+- generated outputs only beneath declared `workspace.managed_generated_roots`;
+- provider-neutral `mcp_connection`, `mcp_server`, and `assistant` resources. An
+  assistant projects declared MCP capabilities into a Scenery-owned
+  conversation API; its implementation adapter is a private developer/operator
+  boundary and is not part of the public route, event, error, or generated-client
+  contract.
 
 The `.scn` graph is the singular source of application semantics. Go comments and package initialization do not declare services, operations, routes, auth, middleware, data, durable work, schedules, events, pages, or renderers.
 
@@ -73,6 +78,32 @@ No-input operations use exact `std.type.unit`. CLI bindings own their help, comp
 For terminal HTTP path tails, use only final `{name...}` syntax and add one matching `path_tail` mapping. Path tails are part of the current HTTP codec/runtime contract and require no extra source selector. Do not substitute router wildcards, pre-encoded fragments, or filesystem cleaning.
 
 Generated Go constructor config fields reference typed package inputs. The input owns phase, type, constraints, and sensitivity; plaintext sensitive values fail compilation.
+
+### Assistant change loop
+
+Declare MCP capabilities with ordinary `protocol = "mcp"`, `delivery =
+"call"` bindings, compose them in an `mcp_server`, and bind one server to an
+`assistant` implementation and surface. Remote `mcp_connection` resources are
+federated by Scenery; the helper never owns public MCP or HTTP listeners.
+
+Use the provider-neutral workflow:
+
+```sh
+scenery assistant init support --mcp-server support --client public_api -o json
+scenery assistant sync support -o json
+scenery assistant status support -o json
+scenery inspect assistants -o json
+scenery inspect assistants --implementation -o json
+```
+
+`status` and default inspection report readiness, policy, revision, restart,
+and failure state without provider identity. The explicit implementation view is
+for developer/operator diagnostics and may expose the current adapter (`eve`),
+authored package/lock paths, private listener addresses, and child PID. `up` and
+`build` use the exact authored lock through Scenery's managed Node/npm cache and
+do not rewrite package manifests. Generated clients expose the public
+conversation routes, normalized NDJSON event stream, approvals, and cancellation;
+their types and errors do not import or name the provider adapter.
 
 ### Declared Go libraries
 
@@ -128,14 +159,40 @@ Internal diagnostics publish a sanitized message and opaque report token.
 
 For semantic creation, first read agent capabilities and verify the kind appears in `resource_create_kinds`, then fetch `schema.get`. Recursive schemas distinguish source attributes from child blocks, labels, cardinality, ordering, phases, defaults, constraints, sensitivity, and patchability. Unadvertised kinds are intentionally unavailable.
 
-Semantic changes and deployments use revision-bound plan/apply. Planning retains the exact issued object beneath app-local trusted state. Apply rejects caller-recomputed plans before trusting expiry, approvals, operations, edits, or provider actions. Plans are single-use and invalid after bound state changes.
+Semantic changes and deployments use revision-bound plan/apply. Planning retains
+the exact issued object beneath app-local trusted state but projects only a
+bounded summary and opaque `plan_id` to the model. `changes.plan` accepts only
+base workspace/contract revisions and operations. `plans.get` is the explicit
+trusted review path for the full plan and source diff; `changes.receipt.get`
+provides the recovery read. `changes.apply` accepts only
+`{plan_id}` from the model.
+
+Apply binds the authenticated execution context (principal, app root, and
+granted capabilities, plus client/protocol and correlation metadata when the
+transport safely exposes it) before loading the canonical plan. If a validated durable receipt already exists,
+apply returns that receipt successfully, optionally marked `replayed`, before
+first-apply expiry, approval, revision, or provider checks. A corrupt or
+mismatched receipt fails closed and is never reapplied. A fresh apply then
+checks expiry, user-approved plan-bound scopes, and current revisions before its
+atomic transaction. Caller identity, capabilities, and approval tokens are
+server/approval-handler context, never model-controlled parameters.
 
 ```sh
 scenery changes plan ... -o json
-scenery changes apply <plan> ... -o json
+scenery changes apply <plan> ... -o json  # trusted CLI plan-file path
 scenery deploy plan ... -o json
 scenery deploy apply <plan> ... -o json
 ```
+
+For an agent adapter, use the protocol methods `changes.plan`, `plans.get`,
+`changes.apply`, and `changes.receipt.get`; do not route the
+complete CLI plan through ordinary model history. Direct MCP connection tools
+already receive the compact `changes.plan` result. An authored Eve tool may use
+`toModelOutput` to project that result while sending richer review data to a
+hook or UI, but Eve MCP connection definitions do not expose that projection.
+The pinned Eve connection API also does not expose the per-action `callId` to
+connection headers, so the Scenery gateway mints a fresh request ID per tool
+invocation rather than reusing a turn or session ID.
 
 Use `scenery diff --semantic` for compatibility. Rename evidence is revision-bound and digest-checked; later diffs can load applied receipts or accept `--rename-receipts` explicitly.
 
@@ -150,6 +207,7 @@ Use `-o json` for compiler commands and command-specific current protocols. Neve
 | Inspect canonical graph | `scenery compile --view expanded -o json` |
 | Query resources and provenance | `scenery list|get|explain|graph ... -o json` |
 | Inspect routed app views | `scenery inspect app|routes|services|endpoints -o json` |
+| Inspect assistant surfaces | `scenery inspect assistants [--implementation] -o json` |
 | Discover docs for a repository path | `scenery inspect docs --for-path <path> -o json` |
 | Rank React UI guardrail drift | `scenery inspect ui [--frontend <name>] -o human|json` |
 | Inspect build and paths | `scenery inspect build -o json`, `scenery inspect paths -o json` |
@@ -157,6 +215,7 @@ Use `-o json` for compiler commands and command-specific current protocols. Neve
 | Generate/check Go artifacts | `scenery generate --target go [--check] -o json` |
 | Generate/check a TypeScript target | `scenery generate --target typescript_client.<name> [--check] -o json` |
 | Run app validation | `scenery harness -o json --write` |
+| Initialize/sync an assistant | `scenery assistant init|sync|status ... -o json` |
 | Follow logs | `scenery logs -o jsonl --limit 200` |
 | Inspect traces and metrics | `scenery traces list -o json`, `scenery metrics list -o json` |
 | Run code tasks | `scenery task list -o json`, `scenery task run <domain>:<name> -- [args...]` |
@@ -233,9 +292,25 @@ Generated/cache outputs include:
 
 Go generation lives in Scenery's external build/editor caches and is never ordinary source. App-local `.scenery/` state is cache/evidence, not source; it may contain TypeScript cache materialization, editor ownership, build records, sessions, issued plans, logs, and harness outputs. Do not commit it. A migration may safely remove descriptor-authenticated legacy Go trees with `scenery generate --prune-materialized-go`.
 
+Assistant builds add provider-neutral runtime asset descriptors under the
+managed build cache and content-addressed Node/npm dependencies under
+`.scenery/assistant-cache/<package-lock-digest>/`. Private helper state and
+supervisor descriptors under `.scenery/assistants/` and `.scenery/run/` are
+machine-local evidence; inspect them through the assistant status/inspection
+commands rather than treating their fields as an application contract.
+
 ## TypeScript Client Integration
 
 Declare each target in root `app.scn`, select exact gateways, and choose `materialization = "source"` for a checked-in SDK or `materialization = "cache"` for `.scenery/gen/typescript/<name>`. Source output must remain beneath a managed root. Generated clients derive only from reachable canonical resources and exact binding codecs; they do not infer routes or auth from Go symbols.
+
+When an assistant is reachable from the target, generation also emits a
+provider-neutral assistant client such as
+`client.assistants.support.createConversation`, `sendTurn`, `streamEvents`,
+`resolveApproval`, and `cancelRun`. `streamEvents` consumes normalized NDJSON
+events and accepts an exclusive cursor for reconnects; it suppresses duplicate
+sequences. The generated surface contains only Scenery handles, event/error
+unions, and declared auth/policy behavior. It never imports the helper adapter,
+embeds provider URLs/tokens, or exposes private control protocol fields.
 
 ```sh
 scenery generate --target typescript_client.public_api -o json
@@ -306,6 +381,10 @@ scenery is a Go-native service runtime and local development platform. Think in 
 
 - App roots are marked by `.scenery.json`.
 - `.scn` source is the singular current app model. Root `app.scn` installs package-local `package.scn` modules and pairs with generated `app.lock.scn`; retired contract filenames fail with `SCN1021` instead of acting as aliases. Go source implements the generated native contracts but is not scanned for declarations.
+- MCP bindings, `mcp_server`/`mcp_connection` resources, and `assistant` surfaces
+  are part of the same graph. Scenery owns their provider-neutral public
+  conversation API and generated client; the selected adapter runs only in a
+  supervised child behind private control and loopback MCP protocols.
 - Generated Go contracts, adapters, composition, descriptors, and entrypoints live in external build/editor caches. Successful compilation maintains an ownership-verified, locally excluded root `go.work` for raw Go/editor resolution; source materialization is explicit export mode only.
 - The compiler exposes source/effective/expanded graphs and separate workspace, contract, implementation, deployment, and artifact revisions. Source retains authored expressions, effective resolves inputs/defaults/patches, expanded adds generators, and every provenance key is an RFC 6901 pointer into that view's resource spec.
 - `scenery task run <domain>:<name> -- [args...]` runs an app-local code task.
@@ -333,6 +412,15 @@ scenery is a Go-native service runtime and local development platform. Think in 
 - Go packages beneath `pkg/` may declare a contract-bearing `library` whose generated typed facade selects source linkage or a verified hot-swappable c-shared artifact per environment. Shared linkage supports exactly darwin/arm64 and linux/amd64, loads through `scenery.sh/library`, and never unloads a Go runtime.
 - Agent capabilities expose exact `resource_create_kinds`; `scenery schema` / `schema.get` provide the recursive authored shape, and semantic creation must reject unadvertised kinds instead of guessing blocks, labels, or source destinations.
 - Mutation plans normalize typed values/references and resolved kind/schema identities before hashing. Planning retains the exact canonical plan under app-local trusted state, and apply rejects caller-recomputed plans before trusting expiry, approvals, operations, edits, or provider actions. Approval-bearing migration transitions use `--out <plan>` followed by `migrate apply <plan>` so the detached token binds the exact issued plan instead of a replanned expiry. Semantic renames emit revision-bound, digest-checked plan/apply receipts, including migration-manifest references and containing-module descendants; later diffs load matching app-local receipts or accept `--rename-receipts` explicitly.
+- Mutation apply is one durable commit with authenticated receipt replay. A
+  retry of the same `plan_id` returns the strictly validated receipt—even after
+  expiry or workspace drift—without repeating source/provider side effects.
+  `plans.get` is privileged review data and `changes.receipt.get` is the
+  recovery read. Approval handlers obtain plan-bound
+  tokens only after user approval, outside model-visible tool parameters.
+  Eve's ordinary MCP tool approval is a distinct decision and is not converted
+  into an evolution token by the current adapter; use a trusted operator or
+  adapter context for approval-bearing contract-agent apply.
 
 ### Fully Generated Client Rules
 
@@ -349,6 +437,9 @@ React-enabled client apps use the generated route tree, navigation, and shell, w
 When editing source that changes the public app model, confirm the docs and tests cover:
 
 - services, operations, executions, HTTP/internal/CLI bindings, authentication, authorization, and middleware resources
+- MCP bindings, local/remote MCP servers, assistant surfaces, and their public
+  conversation routes, client methods, event/error schemas, approvals, and
+  cancellation semantics
 - CLI bindings, including generated help/completion, typed input, trusted context, delivery, outcomes, and exit codes
 - `std.type.unit`, data sources, entities/views/CRUD/fixtures, pages/renderers, and typed constructor capability injection
 - generated contract input/outcome types and explicit `.scn` HTTP request/response mappings
@@ -356,6 +447,9 @@ When editing source that changes the public app model, confirm the docs and test
 - standard auth configuration and generated endpoints
 - private/internal call behavior
 - worker, durable, schedule, middleware, and generated TypeScript client behavior when touched
+- assistant helper lifecycle, private control/MCP boundary, managed runtime assets,
+  implementation-only inspection fields, and a scan proving provider identity or
+  signatures cannot leak into public artifacts
 
 ### Standard Auth Application Permissions
 

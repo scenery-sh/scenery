@@ -148,6 +148,86 @@ binding "quote_internal" {
 
 Use the generated constructor client. It preserves visibility, auth context, tracing, typed cloning, outcomes, and delivery semantics.
 
+## Declare A Scenery Assistant
+
+Expose a capability to an assistant through an ordinary MCP call binding, then
+compose local and optional remote capabilities in an `mcp_server`:
+
+```hcl
+binding "orders_lookup_mcp" {
+  gateway   = var.gateway
+  operation = operation.orders_lookup
+  execution = execution.orders_lookup_direct
+  protocol  = "mcp"
+  delivery  = "call"
+
+  authentication = std.authentication.none
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+
+  mcp {
+    name        = "orders.lookup"
+    title       = "Look up an order"
+    description = "Read one order by its public number."
+    read_only   = true
+    destructive  = false
+    idempotent   = true
+    open_world   = false
+    allow_sensitive_output = false
+  }
+}
+
+mcp_server "support" {
+  bindings = [binding.orders_lookup_mcp]
+  # connections = [mcp_connection.vendor]
+}
+
+assistant "support" {
+  mcp_server = mcp_server.support
+  implementation {
+    adapter      = "eve"
+    source       = "./assistants/support"
+    package      = "./assistants/support/package.json"
+    package_lock = "./assistants/support/package-lock.json"
+  }
+  surface {
+    gateway        = http_gateway.public_api
+    path           = "/assistants/support"
+    authentication = std.authentication.none
+    authorization  = std.authorization.public
+    pipeline       = std.pipeline.empty
+    session_access = "initiator"
+    client         = typescript_client.public_api
+  }
+}
+```
+
+The implementation adapter and lock are a developer/operator boundary. The
+current managed adapter is `eve`, but public routes, generated clients,
+OpenAPI, schemas, cookies, handles, events, and errors are provider-neutral.
+Scenery owns the five conversation routes, normalized NDJSON cursor stream,
+approval and cancellation semantics, per-call authorization, and anonymous
+initiator ownership. Remote Streamable HTTP connections terminate credentials
+and readiness in Scenery; the helper is always a supervised child and never
+publishes a second MCP listener.
+
+Initialize and maintain the authored scaffold with the CLI:
+
+```sh
+scenery assistant init support --mcp-server support --client public_api -o json
+scenery assistant sync support -o json
+scenery assistant status support -o json
+scenery inspect assistants -o json
+scenery inspect assistants --implementation -o json
+```
+
+`sync` installs exact package/lock bytes into Scenery's managed,
+content-addressed Node/npm cache and never rewrites authored package files.
+Use the explicit implementation inspection only for provider/runtime debugging;
+default status and inspection are safe to expose to application operators.
+When an assistant surface changes, run the public-surface regression scan and
+regenerate the declared TypeScript client.
+
 ## Build Or Consume A Shared Go Library
 
 Use a declared library when a `pkg/` package needs one typed API that can
@@ -603,7 +683,46 @@ scenery changes apply <plan> ... -o json
 scenery diff --semantic <base> <target> -o json
 ```
 
-Plan/apply is revision-bound, single-use, and tied to the exact issued plan. Inspect required approvals and risk records before apply. Use rename receipts for semantic identity changes; do not approximate a rename as unrelated delete/create when continuity matters.
+The CLI plan file is a trusted operator/review artifact. Plan/apply is
+revision-bound and tied to the exact issued plan, with one durable commit and
+authenticated receipt replay. A retry of an applied change or deployment plan
+returns its validated receipt without repeating side effects, even if expiry or
+workspace revisions have since changed. A corrupt receipt fails closed. Inspect
+required approvals and risk records before first apply. Use rename receipts for
+semantic identity changes; do not approximate a rename as unrelated
+delete/create when continuity matters.
+
+For an assistant or other model-facing adapter, keep the full plan out of the
+agent loop:
+
+```text
+changes.plan({base_workspace_revision, base_contract_revision, operations})
+  -> {plan_id, base/predicted revisions, summary, affected_resources,
+      affected_resource_count, affected_resources_truncated, risk_records,
+      risk_count, risk_records_truncated, required_approvals, expires_at}
+plans.get({plan_id})
+  -> full canonical plan for a trusted review UI or approval hook
+changes.apply({plan_id})
+  -> {receipt, replayed}
+changes.receipt.get({plan_id})
+  -> {plan_id, status: "applied", receipt}
+```
+
+The adapter may project the complete plan and source diff to the review channel,
+but its model projection contains only the bounded summary and opaque ID.
+Caller identity, granted capabilities, and approval tokens come from the
+server-owned execution context and authenticated approval handler; they are not
+JSON parameters selected by the model. Bind the app root and principal plus any
+protocol/client/session metadata the transport safely exposes. Eve MCP
+connection headers do not currently receive the per-action `callId`, so let the
+Scenery gateway generate a fresh request ID for every tool invocation; do not
+reuse a turn or session ID as a substitute.
+
+Do not reinterpret Eve's opaque tool-approval handle as a change-plan approval
+token. The generated application MCP path and the contract-agent mutation path
+are separate today. For a plan with required approvals, a trusted operator or
+adapter must sign and attach the exact plan/risk-bound token outside model
+input until a server-owned approval broker is added.
 
 ## App-Local Code Tasks
 

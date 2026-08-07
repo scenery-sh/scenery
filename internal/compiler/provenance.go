@@ -39,7 +39,11 @@ func authoredFieldProvenance(block *Block, path, sourceAddress, module string) m
 			rng := child.Range
 			result[childPath] = FieldProvenance{Kind: "authored", DeclaredAt: &rng, SourceAddress: sourceAddress}
 			if len(child.Labels) > 0 {
-				result[provenanceChildPath(childPath, "name")] = FieldProvenance{Kind: "authored", DeclaredAt: &rng, SourceAddress: sourceAddress}
+				labelPath := "name"
+				if child.Type == "capability" {
+					labelPath = "label"
+				}
+				result[provenanceChildPath(childPath, labelPath)] = FieldProvenance{Kind: "authored", DeclaredAt: &rng, SourceAddress: sourceAddress}
 			}
 			visit(child, childPath)
 		}

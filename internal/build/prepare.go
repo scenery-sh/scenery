@@ -88,7 +88,6 @@ func prepareWithContractTarget(appRoot string, model *model.App, cfg app.Config,
 		}
 		gen.Generated[relative] = contents
 	}
-
 	workspaceDir, err := workspaceDir(appRoot, cfg.Name)
 	if err != nil {
 		return nil, err

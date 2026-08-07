@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 
+	"scenery.sh/internal/mcpcontract"
 	"scenery.sh/internal/runtimeapi"
 )
 
@@ -167,6 +168,14 @@ type contractRuntimeSnapshot struct {
 	durableTasks              map[string]*DurableTask
 	contractDurableExecutions map[string]ContractDurableRegistration
 	contractBindings          map[string]ContractInternalBindingRegistration
+	mcpTools                  map[string]MCPToolRegistration
+	mcpFederationSpecs        map[string]MCPFederationRegistration
+	mcpFederations            map[string]*mcpFederationState
+	mcpFederationAssistants   map[string]string
+	mcpSecretResolvers        map[string]MCPSecretResolver
+	assistantMCPManifests     map[string]mcpcontract.Manifest
+	assistants                map[string]AssistantRegistration
+	assistantClients          map[string]AssistantClient
 	contractCLIBindings       map[string]ContractCLIBindingRegistration
 	contractPages             map[string]ContractPageRegistration
 	contractEventBuses        map[string]ContractEventBus
@@ -183,6 +192,13 @@ func snapshotContractRuntimeState() contractRuntimeSnapshot {
 	return contractRuntimeSnapshot{
 		endpoints: cloneContractMap(global.endpoints), cronJobs: cloneContractMap(global.cronJobs), durableTasks: cloneContractMap(global.durableTasks),
 		contractDurableExecutions: cloneContractMap(global.contractDurableExecutions), contractBindings: cloneContractMap(global.contractBindings),
+		mcpTools:                cloneMCPToolRegistrations(global.mcpTools),
+		mcpFederationSpecs:      cloneMCPFederationRegistrations(global.mcpFederationSpecs),
+		mcpFederations:          cloneMCPFederationStates(global.mcpFederations),
+		mcpFederationAssistants: cloneContractMap(global.mcpFederationAssistants),
+		mcpSecretResolvers:      cloneContractMap(global.mcpSecretResolvers),
+		assistantMCPManifests:   cloneMCPManifests(global.assistantMCPManifests),
+		assistants:              cloneContractMap(global.assistants), assistantClients: cloneContractMap(global.assistantClients),
 		contractCLIBindings: cloneContractMap(global.contractCLIBindings),
 		contractPages:       cloneContractMap(global.contractPages),
 		contractEventBuses:  cloneContractMap(global.contractEventBuses), contractEventConsumers: cloneContractMap(global.contractEventConsumers),
@@ -199,6 +215,14 @@ func restoreContractRuntimeState(snapshot contractRuntimeSnapshot) {
 	global.durableTasks = snapshot.durableTasks
 	global.contractDurableExecutions = snapshot.contractDurableExecutions
 	global.contractBindings = snapshot.contractBindings
+	global.mcpTools = snapshot.mcpTools
+	global.mcpFederationSpecs = snapshot.mcpFederationSpecs
+	global.mcpFederations = snapshot.mcpFederations
+	global.mcpFederationAssistants = snapshot.mcpFederationAssistants
+	global.mcpSecretResolvers = snapshot.mcpSecretResolvers
+	global.assistantMCPManifests = snapshot.assistantMCPManifests
+	global.assistants = snapshot.assistants
+	global.assistantClients = snapshot.assistantClients
 	global.contractCLIBindings = snapshot.contractCLIBindings
 	global.contractPages = snapshot.contractPages
 	global.contractEventBuses = snapshot.contractEventBuses
@@ -213,6 +237,24 @@ func cloneContractMap[K comparable, V any](values map[K]V) map[K]V {
 	clone := make(map[K]V, len(values))
 	for key, value := range values {
 		clone[key] = value
+	}
+	return clone
+}
+
+func cloneMCPManifests(values map[string]mcpcontract.Manifest) map[string]mcpcontract.Manifest {
+	clone := make(map[string]mcpcontract.Manifest, len(values))
+	for address, manifest := range values {
+		manifest.Capabilities = append([]mcpcontract.Capability(nil), manifest.Capabilities...)
+		for index := range manifest.Capabilities {
+			manifest.Capabilities[index].InputSchema = append([]byte(nil), manifest.Capabilities[index].InputSchema...)
+			manifest.Capabilities[index].OutputSchema = append([]byte(nil), manifest.Capabilities[index].OutputSchema...)
+		}
+		manifest.Connections = append([]mcpcontract.Connection(nil), manifest.Connections...)
+		for index := range manifest.Connections {
+			manifest.Connections[index].Allow = append([]string(nil), manifest.Connections[index].Allow...)
+			manifest.Connections[index].Block = append([]string(nil), manifest.Connections[index].Block...)
+		}
+		clone[address] = manifest
 	}
 	return clone
 }

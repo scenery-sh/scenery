@@ -2,6 +2,7 @@ package evolution
 
 import (
 	stdjson "encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -44,6 +45,11 @@ type ChangeRequest struct {
 	Caller                string              `json:"caller,omitempty"`
 	Capabilities          []string            `json:"capabilities,omitempty"`
 	Operations            []SemanticOperation `json:"operations"`
+	// AdditionalEdits carries non-.scn authored files that belong to the same
+	// source transaction as semantic operations. It is intentionally kept
+	// below the CLI protocol; callers must bind each edit to the current
+	// workspace bytes before planning.
+	AdditionalEdits []SourceEdit `json:"additional_source_edits,omitempty"`
 }
 type SourceEdit struct {
 	Path         string `json:"path"`
@@ -93,8 +99,16 @@ type ApplyOptions struct {
 	ExpectedWorkspaceRevision string
 	ExpectedContractRevision  *string
 	Caller                    string
-	ApprovalTokens            []ApprovalToken
-	VerifyApproval            ApprovalVerifier
+	// GrantedCapabilities is supplied by the authenticated execution
+	// context. It is intentionally separate from ChangePlan.Capabilities,
+	// which is retained input and must not be treated as an authority claim.
+	GrantedCapabilities []string
+	ApprovalTokens      []ApprovalToken
+	VerifyApproval      ApprovalVerifier
+	// SkipGeneratedValidation is reserved for source scaffolding that adds
+	// authored implementation files before its generated artifact set exists.
+	// Contract compilation and source transaction validation still run.
+	SkipGeneratedValidation bool
 }
 
 type ChangePlanFailure struct {
@@ -111,6 +125,17 @@ func (failure *ChangePlanFailure) Error() string {
 }
 
 func PlanChanges(root string, request ChangeRequest) (ChangePlan, error) {
+	return planChanges(root, request, true)
+}
+
+// PlanChangesDryRun performs the complete source/graph validation without
+// retaining an issued plan in .scenery state. It is used by commands whose
+// --dry-run contract promises no filesystem writes.
+func PlanChangesDryRun(root string, request ChangeRequest) (ChangePlan, error) {
+	return planChanges(root, request, false)
+}
+
+func planChanges(root string, request ChangeRequest, retainIssuedPlan bool) (ChangePlan, error) {
 	base, err := compiler.Compile(root)
 	if err != nil {
 		return ChangePlan{}, err
@@ -166,6 +191,9 @@ func PlanChanges(root string, request ChangeRequest) (ChangePlan, error) {
 		normalizedOperations = append(normalizedOperations, operation)
 	}
 	if _, err := scn.Format(temp, false); err != nil {
+		return ChangePlan{}, err
+	}
+	if err := applyAdditionalEdits(temp, root, request.AdditionalEdits); err != nil {
 		return ChangePlan{}, err
 	}
 	predicted, err := compiler.Compile(temp)
@@ -239,13 +267,15 @@ func PlanChanges(root string, request ChangeRequest) (ChangePlan, error) {
 		ImplementationStatus: implementationStatus, DeploymentStatus: deploymentStatus,
 		Caller: caller, Capabilities: capabilities, Operations: normalizedOperations, Renames: renames,
 		SemanticDiff: diff, AffectedResources: affected, Diagnostics: append([]Diagnostic(nil), predicted.Diagnostics...), Edits: edits,
-		FormattingEffects: formatting, RequiredApprovals: canonicalStrings(requiredApprovals), RequiredCapabilities: []string{},
+		FormattingEffects: formatting, RequiredApprovals: canonicalStrings(requiredApprovals), RequiredCapabilities: []string{"scenery.agent-mutation"},
 		RiskRecords: diff.RiskRecords, ExpiresAt: time.Now().UTC().Add(15 * time.Minute),
 	}
 	plan.OperationsDigest = semanticOperationsDigest(plan.Operations)
 	plan.PlanID = changePlanID(plan)
-	if err := RetainIssuedPlan(root, IssuedChangePlan, plan.PlanID, plan); err != nil {
-		return ChangePlan{}, err
+	if retainIssuedPlan {
+		if err := RetainIssuedPlan(root, IssuedChangePlan, plan.PlanID, plan); err != nil {
+			return ChangePlan{}, err
+		}
 	}
 	return plan, nil
 }
@@ -299,68 +329,133 @@ func ApplyChangePlan(root string, plan ChangePlan, expectedWorkspace, expectedCo
 	return ApplyChangePlanWithOptions(root, plan, ApplyOptions{ExpectedWorkspaceRevision: expectedWorkspace, ExpectedContractRevision: stringPointer(expectedContract), Caller: plan.Caller})
 }
 
+// ChangeApplyResult keeps replay metadata out of the durable receipt. The
+// receipt is the immutable commit record; Replayed only describes this API
+// response.
+type ChangeApplyResult struct {
+	Receipt  ChangeReceipt `json:"receipt"`
+	Replayed bool          `json:"replayed,omitempty"`
+}
+
 func ApplyChangePlanWithOptions(root string, plan ChangePlan, options ApplyOptions) (ChangeReceipt, error) {
+	result, err := applyChangePlanWithOptions(root, plan, options)
+	if err != nil {
+		return ChangeReceipt{}, err
+	}
+	return result.Receipt, nil
+}
+
+// ApplyIssuedChangePlanWithOptions loads the canonical plan retained by
+// Scenery and applies it by opaque plan ID. Expected revisions default to the
+// retained plan, so model-visible callers only need to submit plan_id; a
+// trusted adapter may still provide stricter expectations.
+func ApplyIssuedChangePlanWithOptions(root, planID string, options ApplyOptions) (ChangeApplyResult, error) {
+	plan, err := LoadIssuedChangePlan(root, planID)
+	if err != nil {
+		return ChangeApplyResult{}, err
+	}
+	if options.ExpectedWorkspaceRevision == "" {
+		options.ExpectedWorkspaceRevision = plan.BaseWorkspaceRevision
+	}
+	if options.ExpectedContractRevision == nil {
+		options.ExpectedContractRevision = cloneStringPointer(plan.BaseContractRevision)
+	}
+	return applyChangePlanWithOptions(root, plan, options)
+}
+
+func applyChangePlanWithOptions(root string, plan ChangePlan, options ApplyOptions) (ChangeApplyResult, error) {
 	if !machine.UsesCurrentSpec(plan.ArtifactIdentity) {
-		return ChangeReceipt{}, fmt.Errorf("failed_precondition: revision_scheme_changed: pending change plan must be recreated with the current Scenery CLI")
+		return ChangeApplyResult{}, fmt.Errorf("failed_precondition: revision_scheme_changed: pending change plan must be recreated with the current Scenery CLI")
 	}
 	if err := machine.ValidateArtifactIdentity(plan.ArtifactIdentity, changePlanKind, changePlanSchemaDescriptor, "re-plan"); err != nil {
-		return ChangeReceipt{}, fmt.Errorf("failed_precondition: %w", err)
+		return ChangeApplyResult{}, fmt.Errorf("failed_precondition: %w", err)
 	}
 	if err := RequireIssuedPlan(root, IssuedChangePlan, plan.PlanID, plan); err != nil {
-		return ChangeReceipt{}, err
-	}
-	if time.Now().UTC().After(plan.ExpiresAt) {
-		return ChangeReceipt{}, fmt.Errorf("failed_precondition: plan expired")
-	}
-	if pathExists(appliedPlanPath(root, plan.PlanID)) {
-		return ChangeReceipt{}, fmt.Errorf("failed_precondition: plan was already applied")
+		return ChangeApplyResult{}, err
 	}
 	if plan.Caller == "" || options.Caller != plan.Caller {
-		return ChangeReceipt{}, fmt.Errorf("permission_denied: plan caller mismatch")
+		return ChangeApplyResult{}, fmt.Errorf("permission_denied: plan caller mismatch")
+	}
+	options = normalizeApplyCapabilities(plan, options)
+	if err := validatePlanCapabilities(plan, options); err != nil {
+		return ChangeApplyResult{}, err
+	}
+	if receipt, found, err := loadAppliedChangeReceiptForPlan(root, plan); err != nil {
+		return ChangeApplyResult{}, err
+	} else if found {
+		return ChangeApplyResult{Receipt: receipt, Replayed: true}, nil
+	}
+	if time.Now().UTC().After(plan.ExpiresAt) {
+		return ChangeApplyResult{}, fmt.Errorf("failed_precondition: plan expired")
 	}
 	if err := validateApprovals(plan, options); err != nil {
-		return ChangeReceipt{}, err
+		return ChangeApplyResult{}, err
 	}
 	current, err := compiler.CompileContractGraph(root)
 	if err != nil {
-		return ChangeReceipt{}, err
+		return ChangeApplyResult{}, err
 	}
 	currentContract := resultContractRevision(current)
 	if current.WorkspaceRevision != options.ExpectedWorkspaceRevision || !sameOptionalString(currentContract, options.ExpectedContractRevision) || options.ExpectedWorkspaceRevision != plan.BaseWorkspaceRevision || !sameOptionalString(options.ExpectedContractRevision, plan.BaseContractRevision) {
-		return ChangeReceipt{}, fmt.Errorf("revision_conflict: expected revisions do not match")
+		return ChangeApplyResult{}, fmt.Errorf("revision_conflict: expected revisions do not match")
 	}
 	if resultApplication(current) != plan.Application || changePlanID(plan) != plan.PlanID || semanticOperationsDigest(plan.Operations) != plan.OperationsDigest {
-		return ChangeReceipt{}, fmt.Errorf("failed_precondition: plan identity mismatch")
+		return ChangeApplyResult{}, fmt.Errorf("failed_precondition: plan identity mismatch")
 	}
 	if err := revalidateChangePreconditions(current, plan.Operations); err != nil {
-		return ChangeReceipt{}, err
+		return ChangeApplyResult{}, err
 	}
 	stagedRoot, err := cloneWorkspace(root)
 	if err != nil {
-		return ChangeReceipt{}, err
+		return ChangeApplyResult{}, err
 	}
 	defer os.RemoveAll(stagedRoot)
 	if err := applyPlannedEdits(stagedRoot, plan.Edits, true); err != nil {
-		return ChangeReceipt{}, err
+		return ChangeApplyResult{}, err
 	}
-	stagedResult, checkedFiles, err := validateStagedWorkspace(stagedRoot, true)
+	stagedResult, checkedFiles, err := validateStagedWorkspace(stagedRoot, !options.SkipGeneratedValidation)
 	if err != nil || !stagedResult.Valid() || stagedResult.WorkspaceRevision != plan.PredictedWorkspaceRevision || stagedResult.Manifest.ContractRevision != plan.PredictedContractRevision {
 		if err != nil {
-			return ChangeReceipt{}, err
+			return ChangeApplyResult{}, err
 		}
-		return ChangeReceipt{}, fmt.Errorf("failed_precondition: staged plan no longer validates: %s", firstError(stagedResult.Diagnostics))
+		return ChangeApplyResult{}, fmt.Errorf("failed_precondition: staged plan no longer validates: %s", firstError(stagedResult.Diagnostics))
 	}
-	rollback, finalize, err := commitPlannedEdits(root, plan.Edits, appliedPlanPath(root, plan.PlanID))
-	if err != nil {
-		return ChangeReceipt{}, err
+	var rollback func()
+	var finalize func()
+	commitDeadline := time.Now().Add(5 * time.Second)
+	for {
+		rollback, finalize, err = commitPlannedEdits(root, plan.Edits, appliedPlanPath(root, plan.PlanID))
+		if err == nil {
+			break
+		}
+		if errors.Is(err, errChangeReceiptExists) {
+			if persisted, found, loadErr := loadAppliedChangeReceiptForPlan(root, plan); loadErr != nil {
+				return ChangeApplyResult{}, loadErr
+			} else if found {
+				return ChangeApplyResult{Receipt: persisted, Replayed: true}, nil
+			}
+			return ChangeApplyResult{}, err
+		}
+		if !strings.Contains(err.Error(), "workspace change transaction is active") {
+			return ChangeApplyResult{}, err
+		}
+		if persisted, found, loadErr := loadAppliedChangeReceiptForPlan(root, plan); loadErr != nil {
+			return ChangeApplyResult{}, loadErr
+		} else if found {
+			return ChangeApplyResult{Receipt: persisted, Replayed: true}, nil
+		}
+		if time.Now().After(commitDeadline) {
+			return ChangeApplyResult{}, err
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 	actual, err := revalidateCommittedResult(root, stagedResult, checkedFiles)
 	if err != nil || !actual.Valid() || actual.WorkspaceRevision != plan.PredictedWorkspaceRevision || actual.Manifest.ContractRevision != plan.PredictedContractRevision {
 		rollback()
 		if err != nil {
-			return ChangeReceipt{}, err
+			return ChangeApplyResult{}, err
 		}
-		return ChangeReceipt{}, fmt.Errorf("internal: applied revisions differ from plan")
+		return ChangeApplyResult{}, fmt.Errorf("internal: applied revisions differ from plan")
 	}
 	applied := make([]string, 0, len(plan.Edits))
 	for _, edit := range plan.Edits {
@@ -368,17 +463,24 @@ func ApplyChangePlanWithOptions(root string, plan ChangePlan, options ApplyOptio
 	}
 	sort.Strings(applied)
 	receipt := ChangeReceipt{ArtifactIdentity: machine.NewArtifactIdentity(changeReceiptKind, changeReceiptSchemaDescriptor), PlanID: plan.PlanID, WorkspaceRevision: actual.WorkspaceRevision, ContractRevision: actual.Manifest.ContractRevision, ImplementationStatus: plan.ImplementationStatus, DeploymentStatus: plan.DeploymentStatus, Applied: applied, Renames: append([]RenameReceipt{}, plan.Renames...)}
-	receiptBytes, marshalErr := stdjson.MarshalIndent(receipt, "", "  ")
+	receiptBytes, marshalErr := spec.MarshalCanonical(receipt)
 	if marshalErr != nil {
 		rollback()
-		return ChangeReceipt{}, marshalErr
+		return ChangeApplyResult{}, marshalErr
 	}
-	if writeErr := atomicWriteSynced(appliedPlanPath(root, plan.PlanID), append(receiptBytes, '\n'), 0o644); writeErr != nil {
+	if writeErr := writeChangeReceiptOnce(root, plan.PlanID, append(receiptBytes, '\n')); writeErr != nil {
 		rollback()
-		return ChangeReceipt{}, writeErr
+		if errors.Is(writeErr, errChangeReceiptExists) {
+			if persisted, found, loadErr := loadAppliedChangeReceiptForPlan(root, plan); loadErr != nil {
+				return ChangeApplyResult{}, loadErr
+			} else if found {
+				return ChangeApplyResult{Receipt: persisted, Replayed: true}, nil
+			}
+		}
+		return ChangeApplyResult{}, writeErr
 	}
 	finalize()
-	return receipt, nil
+	return ChangeApplyResult{Receipt: receipt}, nil
 }
 
 func applySemanticOperation(root string, base *Result, operation SemanticOperation) error {
@@ -948,22 +1050,12 @@ func appliedPlanPath(root, planID string) string {
 }
 
 func changePlanID(plan ChangePlan) string {
-	projection := struct {
-		Application                                           string
-		BaseWorkspace, PredictedWorkspace, PredictedContract  string
-		BaseContract                                          *string
-		Caller                                                string
-		Capabilities, RequiredApprovals, RequiredCapabilities []string
-		OperationsDigest, ComparisonDigest                    string
-		Operations                                            []SemanticOperation
-		Renames                                               []RenameReceipt
-		Edits                                                 []SourceEdit
-		ExpiresAt                                             time.Time
-	}{
-		plan.Application, plan.BaseWorkspaceRevision, plan.PredictedWorkspaceRevision, plan.PredictedContractRevision,
-		plan.BaseContractRevision, plan.Caller, plan.Capabilities, plan.RequiredApprovals, plan.RequiredCapabilities,
-		plan.OperationsDigest, plan.SemanticDiff.Digest, plan.Operations, plan.Renames, plan.Edits, plan.ExpiresAt.UTC(),
-	}
+	// The plan ID is the complete canonical plan-content digest. Keeping every
+	// field except the self-referential PlanID bound prevents retained audit,
+	// risk, status, or source-edit fields from being changed without changing
+	// the opaque handle.
+	projection := plan
+	projection.PlanID = ""
 	b, _ := spec.MarshalCanonical(projection)
 	return byteDigest(append([]byte("scenery.change-plan\x00"), b...))
 }

@@ -1,0 +1,336 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.assistant.control.event.schema.json",
+  "title": "Scenery private assistant control event",
+  "description": "Strict helper events normalized on the private Scenery control channel.",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "type",
+    "assistant_address",
+    "runtime_revision",
+    "capability_revision",
+    "private_session_id",
+    "run_id",
+    "sequence",
+    "occurred_at",
+    "data"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.assistant.control.event"
+    },
+    "schema_revision": {
+      "const": "sha256:0a6e5fc603f3bb2ea15292b5910af273887003be5a7ae604745501b831a65df8"
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "run.started",
+        "text.delta",
+        "message.completed",
+        "capability.proposal",
+        "approval.wait",
+        "capability.started",
+        "capability.completed",
+        "run.completed",
+        "run.failed",
+        "run.cancelled",
+        "runtime.crashed",
+        "runtime.restarting",
+        "protocol.malformed"
+      ]
+    },
+    "assistant_address": {
+      "$ref": "#/$defs/identifier"
+    },
+    "runtime_revision": {
+      "$ref": "#/$defs/identifier"
+    },
+    "capability_revision": {
+      "$ref": "#/$defs/identifier"
+    },
+    "private_session_id": {
+      "type": "string",
+      "maxLength": 256
+    },
+    "continuation_token": {
+      "$ref": "#/$defs/identifier"
+    },
+    "run_id": {
+      "type": "string",
+      "maxLength": 256
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 18446744073709551615
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "capability_name": {
+      "$ref": "#/$defs/identifier"
+    },
+    "approval_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "capability_proposal": {
+      "$ref": "#/$defs/capability_proposal"
+    },
+    "approval_wait": {
+      "$ref": "#/$defs/approval_wait"
+    },
+    "crash": {
+      "$ref": "#/$defs/crash"
+    },
+    "malformed": {
+      "$ref": "#/$defs/malformed"
+    },
+    "data": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "oneOf": [
+    {
+      "$ref": "#/$defs/session_event"
+    },
+    {
+      "$ref": "#/$defs/proposal_event"
+    },
+    {
+      "$ref": "#/$defs/approval_event"
+    },
+    {
+      "$ref": "#/$defs/crash_event"
+    },
+    {
+      "$ref": "#/$defs/restart_event"
+    },
+    {
+      "$ref": "#/$defs/malformed_event"
+    }
+  ],
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "message": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 65536,
+      "pattern": "[\\s\\S]*\\S[\\s\\S]*"
+    },
+    "capability_proposal": {
+      "type": "object",
+      "required": [
+        "approval_id",
+        "capability_name",
+        "input",
+        "requires_approval"
+      ],
+      "properties": {
+        "approval_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "capability_name": {
+          "$ref": "#/$defs/identifier"
+        },
+        "input": {},
+        "requires_approval": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "approval_wait": {
+      "type": "object",
+      "required": [
+        "approval_id"
+      ],
+      "properties": {
+        "approval_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "expires_at": {
+          "type": "string",
+          "maxLength": 256
+        }
+      },
+      "additionalProperties": false
+    },
+    "crash": {
+      "type": "object",
+      "required": [
+        "code",
+        "message",
+        "restartable"
+      ],
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/identifier"
+        },
+        "message": {
+          "$ref": "#/$defs/message"
+        },
+        "restartable": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "malformed": {
+      "type": "object",
+      "required": [
+        "code",
+        "message"
+      ],
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/identifier"
+        },
+        "message": {
+          "$ref": "#/$defs/message"
+        },
+        "observed_type": {
+          "$ref": "#/$defs/identifier"
+        }
+      },
+      "additionalProperties": false
+    },
+    "session_event": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "enum": [
+            "run.started",
+            "text.delta",
+            "message.completed",
+            "capability.started",
+            "capability.completed",
+            "run.completed",
+            "run.failed",
+            "run.cancelled"
+          ]
+        },
+        "private_session_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "run_id": {
+          "$ref": "#/$defs/identifier"
+        }
+      },
+      "required": [
+        "private_session_id",
+        "run_id"
+      ]
+    },
+    "proposal_event": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "capability.proposal"
+        },
+        "private_session_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "run_id": {
+          "$ref": "#/$defs/identifier"
+        }
+      },
+      "required": [
+        "private_session_id",
+        "run_id"
+      ],
+      "anyOf": [
+        {
+          "required": [
+            "capability_proposal"
+          ]
+        },
+        {
+          "required": [
+            "approval_id",
+            "capability_name"
+          ]
+        }
+      ]
+    },
+    "approval_event": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "approval.wait"
+        },
+        "private_session_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "run_id": {
+          "$ref": "#/$defs/identifier"
+        }
+      },
+      "required": [
+        "private_session_id",
+        "run_id"
+      ],
+      "anyOf": [
+        {
+          "required": [
+            "approval_wait"
+          ]
+        },
+        {
+          "required": [
+            "approval_id"
+          ]
+        }
+      ]
+    },
+    "crash_event": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "runtime.crashed"
+        }
+      },
+      "required": [
+        "crash"
+      ]
+    },
+    "restart_event": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "runtime.restarting"
+        },
+        "private_session_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "run_id": {
+          "$ref": "#/$defs/identifier"
+        }
+      },
+      "required": [
+        "private_session_id",
+        "run_id",
+        "crash"
+      ]
+    },
+    "malformed_event": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "protocol.malformed"
+        }
+      },
+      "required": [
+        "malformed"
+      ]
+    }
+  }
+}

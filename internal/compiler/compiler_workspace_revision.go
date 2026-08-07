@@ -92,6 +92,10 @@ func declaredWorkspaceEntries(root string, sources []*Source) (map[string][]byte
 	if workspace == nil {
 		return entries, nil
 	}
+	managedRoots, err := workspaceManagedGeneratedRoots(workspace)
+	if err != nil {
+		return nil, err
+	}
 	for _, implementationRoot := range workspace.Blocks {
 		if implementationRoot.Type != "implementation_root" {
 			continue
@@ -114,6 +118,17 @@ func declaredWorkspaceEntries(root string, sources []*Source) (map[string][]byte
 			if walkErr != nil {
 				return walkErr
 			}
+			workspaceRelative, err := filepath.Rel(root, filePath)
+			if err != nil {
+				return err
+			}
+			workspaceRelative = filepath.ToSlash(workspaceRelative)
+			if workspacePathWithinManagedRoot(workspaceRelative, managedRoots) {
+				if entry.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
+			}
 			if entry.IsDir() {
 				if entry.Name() == ".git" || entry.Name() == ".scenery" || entry.Name() == "node_modules" {
 					return filepath.SkipDir
@@ -131,10 +146,6 @@ func declaredWorkspaceEntries(root string, sources []*Source) (map[string][]byte
 			}
 			if entry.Type()&os.ModeSymlink != 0 {
 				return fmt.Errorf("workspace revision input is a symlink: %s", filePath)
-			}
-			workspaceRelative, err := filepath.Rel(root, filePath)
-			if err != nil {
-				return err
 			}
 			b, err := os.ReadFile(filePath)
 			if err != nil {
@@ -187,6 +198,37 @@ func declaredWorkspaceEntries(root string, sources []*Source) (map[string][]byte
 		}
 	}
 	return entries, nil
+}
+
+func workspaceManagedGeneratedRoots(workspace *Block) ([]string, error) {
+	if workspace == nil {
+		return nil, nil
+	}
+	roots := literalStringList(workspace, "managed_generated_roots")
+	result := make([]string, 0, len(roots))
+	seen := map[string]bool{}
+	for _, declared := range roots {
+		clean := filepath.ToSlash(filepath.Clean(declared))
+		if declared == "" || filepath.IsAbs(declared) || clean == "." || clean == ".." || strings.HasPrefix(clean, "../") || forbiddenWorkspacePath(clean) {
+			return nil, fmt.Errorf("managed_generated_roots requires a safe workspace-relative path: %s", declared)
+		}
+		if !seen[clean] {
+			seen[clean] = true
+			result = append(result, clean)
+		}
+	}
+	sort.Strings(result)
+	return result, nil
+}
+
+func workspacePathWithinManagedRoot(path string, roots []string) bool {
+	path = filepath.ToSlash(filepath.Clean(path))
+	for _, root := range roots {
+		if path == root || strings.HasPrefix(path, root+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 func validateWorkspaceGlobs(patterns []string) error {
