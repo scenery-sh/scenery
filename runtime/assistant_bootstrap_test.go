@@ -243,7 +243,7 @@ func TestAssistantBootstrapUnavailableAndRevisionMismatchLeavePublicSurfaceAlive
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			bootstrap := NewAssistantBootstrap(AssistantBootstrapOptions{Factory: test.factory, ProbeTimeout: time.Second})
+			bootstrap := NewAssistantBootstrap(AssistantBootstrapOptions{Factory: test.factory, ProbeTimeout: 10 * time.Millisecond})
 			if err := bootstrap.Apply(context.Background(), config); err != nil {
 				t.Fatalf("Apply() = %v", err)
 			}

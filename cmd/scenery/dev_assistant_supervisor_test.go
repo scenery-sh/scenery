@@ -214,6 +214,7 @@ func TestAssistantRuntimeConfigUsesControlTokenNotBridgeSecret(t *testing.T) {
 	supervisor := newAssistantSupervisor(context.Background(), assistantSupervisorConfig{Root: t.TempDir()})
 	definition := assistantDefinition{Address: "app/assistant/support", Name: "support", RuntimeRevision: "runtime-1", CapabilityRevision: "capability-1"}
 	process := &devManagedProcess{PID: 42, done: make(chan struct{}), outputDone: make(chan struct{})}
+	close(process.done)
 	bridgeSecret := "bridge-secret"
 	client, err := assistantruntime.NewHTTPClient(assistantruntime.HTTPClientConfig{ControlBase: "http://127.0.0.1:4101", ControlToken: "control-token", AssistantAddress: definition.Address, RuntimeRevision: definition.RuntimeRevision, CapabilityRevision: definition.CapabilityRevision})
 	if err != nil {
