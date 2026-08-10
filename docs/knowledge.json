@@ -22,12 +22,12 @@
       "path": "docs/plans/0151-route-access-audit-identity.md",
       "title": "Generated Route Access and Audit Identity",
       "owner": "scenery generated clients / auth",
-      "status": "active",
+      "status": "completed",
       "quality": "B",
       "freshness": "current",
       "last_reviewed": "2026-08-10",
       "review_after": "2026-09-09",
-      "summary": "Active ExecPlan adding opaque route and workspace-tab access metadata, one synchronous generated-client presentation resolver, deterministic route matching, and impersonation-aware audit identity.",
+      "summary": "Completed ExecPlan released in v0.3.6 with opaque route and workspace-tab access metadata, one synchronous generated presentation resolver, deterministic route matching, and impersonation-aware audit identity.",
       "tags": ["plans", "execplans", "generated-clients", "routes", "access", "auth", "audit", "impersonation"]
     },
     {

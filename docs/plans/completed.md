@@ -11,6 +11,20 @@ historical records. Do not refresh their review dates or rewrite them as current
 contract prose. Record later guidance here or in the owning current contract;
 use stale knowledge metadata to flag a known contradiction.
 
+## Generated Route Access and Audit Identity
+
+- Status: completed
+- Owner: scenery generated clients / auth
+- Completed: 2026-08-10
+- Quality: B
+- ExecPlan: [0151 Generated Route Access and Audit Identity](0151-route-access-audit-identity.md)
+
+Released `v0.3.6` with opaque page/workspace access metadata, one synchronous
+generated presentation resolver for navigation, direct routes, and workspace
+tabs, deterministic route catalog matching, and explicit effective/actor audit
+identity. Platform consumed the tagged module without a local replacement and
+passed its complete Go and frontend suites.
+
 ## Replayable Plan Apply and Trusted Agent Context
 
 - Status: completed

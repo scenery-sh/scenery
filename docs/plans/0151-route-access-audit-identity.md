@@ -42,7 +42,7 @@ This is a current-specification change. Do not add deprecated aliases, dual sign
 - [x] (2026-08-10 11:27Z) Updated current specification, TypeScript-client contract, local contract, agent guide, cookbook, skill, knowledge catalog, fixture declarations, provider pins, native contracts, and MCP golden output.
 - [x] (2026-08-10 11:27Z) Regenerated both committed TypeScript clients plus the native contract fixture. Targeted tests, fixture checks, `go test ./...`, generated-client typechecks/conformance, and the 22-step full self-harness all passed with cached test policy.
 - [x] (2026-08-10 11:27Z) Deterministic rendered-client proof under `/tmp/0151-fixture-browser` passed three tests: static/parameterized matching, zero protected-component invocations for a denied direct route, and denied/zero-access workspace behavior. Platform then passed 203 frontend tests, typecheck, lint, production build, and a source-revision `scenery check`.
-- [ ] Release the completed Scenery revision, record the released semantic version and commit, move the plan to the completed index, and update `Outcomes & Retrospective`.
+- [x] (2026-08-10 11:31Z) Released `v0.3.6` from commit `b8a46807616febe39789a75f05fcf8e49f9ae48e`, verified public Go-proxy resolution to that exact tag, pinned Platform without a `replace`, regenerated both contract families from the release, and moved this plan to the completed index.
 
 ## Surprises & Discoveries
 
@@ -151,19 +151,17 @@ Append findings here with commands, test names, fixture paths, or diagnostics. N
 
 ## Outcomes & Retrospective
 
-Not yet completed.
+Released in Scenery `v0.3.6` at commit `b8a46807616febe39789a75f05fcf8e49f9ae48e`. The current grammar accepts optional, opaque, case-sensitive `application_key` and `access_key` on all five generated page macros and workspace tabs. Blank authored values fail compilation. Expanded route-owning `scenery.page` resources preserve exact values; a tab inherits only its workspace's application key.
 
-At completion record:
+Generated React clients now expose `SceneryAccessMetadata`, `SceneryAccessTarget`, the `allowed`/`pending`/`denied` `SceneryAccessResult`, `SceneryAccessResolver`, descriptor-aware `contentGroup` and `navigationFilter`, `matchSceneryRoute`, and `createSceneryApp(...).routes`. One synchronous resolver controls navigation inclusion, direct-route component invocation, and workspace-tab inclusion. Redirects replace history, denied/pending page components are never invoked, denied tab URLs recover to the first allowed tab with replacement, and a zero-access workspace renders the configured denial. These remain presentation rules; backend authorization stays application-owned.
 
-- the final grammar and generated TypeScript signatures;
-- the exact fixture declarations used;
-- generated route and tab output excerpts;
-- the direct-route and workspace-tab test names;
-- the normal and impersonation audit-identity test names;
-- fixture regeneration commands and changed fixture files;
-- all harness-selected validation classes and commands;
-- the released Scenery version and commit;
-- downstream Platform plan and pinned version.
+The house fixture declares workspace `application_key = "microgrid"` and `access_key = "projects"`; its `orders` tab declares `access_key = "orders"`, `summary` overrides both keys with `analytics`/`summary`, and `vendors` declares `access_key = "vendors"`. `/tmp/0151-route-output-after.txt` and `/tmp/0151-workspace-output-after.txt` record the generated output. `TestRenderReactRoutesCarriesAccessMetadataAndMatcher`, `TestRenderReactAppAdapterGatesRoutesBeforeComponentInvocation`, `TestRenderReactWorkspacePage`, and the three rendered-client tests in `/tmp/0151-route-access-runtime.txt` prove exact metadata, deterministic matching, denied direct-route non-invocation, tab filtering, replacement, and zero-access denial.
+
+Auth now exposes `AuditIdentity` plus `CurrentAuditIdentity(ctx)` and has no `AuditUserID` alias. `TestAuditIdentityNormalSessionUsesEffectiveUserAsActor`, `TestAuditIdentityImpersonationPreservesEffectiveAndActorUsers`, and `TestCurrentAuditIdentityFailsClosedWithoutAuth` prove equal normal actor/effective identity, real-actor attribution while impersonating, exact tenant/session/impersonation preservation, explicit context support, nil method safety, and fail-closed missing auth.
+
+Both required TypeScript fixture commands were rerun. Changed fixture outputs were the native/house TypeScript metadata and descriptors; spec-revision fallout additionally regenerated native `scenerycontract`/composition/adapter manifests, the assistant durable-provider lock, and the native MCP golden. Harness selection resolved to `cli-json-contract`, `compiler-or-generator`, `go-package`, `release-sensitive-or-runtime`, and `ui-catalog`. The exact recommended union was the full self-harness, both fixture generation commands, catalog typecheck, `go test ./...`, and focused `auth`, `cmd/scenery`, `internal/compiler`, `internal/generate`, and `internal/spec` tests. All passed; the full harness recorded 22 successful steps in `/tmp/0151-self-harness.txt`.
+
+Platform ExecPlan 0074 is pinned to released `v0.3.6` without a local replacement. Its shell supplies one `SceneryAccessResolver` and the descriptor-aware callbacks while retaining its typed application/feature manifest and backend authorization. Contracts and clients were regenerated from the tag; `GOWORK=off go test ./...`, app typecheck, lint, 203 tests, production build, tagged `scenery check`, and public module fetch all passed.
 
 ## Context and Orientation
 
