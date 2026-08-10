@@ -307,9 +307,13 @@ content_page "workspace_summary" {
 }
 
 workspace_page "workspace" {
-  path         = "/workspace"
-  title        = "Workspace"
-  presentation = "sidebar"
+  path            = "/workspace"
+  title           = "Workspace"
+  presentation    = "sidebar"
+  application_key = "microgrid"
+  access_key      = "projects"
+  nav_group       = "UI"
+  nav_order       = 35
 
   stats {
     source = binding.read_workspace_stats_http
@@ -332,12 +336,15 @@ workspace_page "workspace" {
     count              = "orders_total"
     available          = "orders_available"
     unavailable_reason = "Orders are not projected"
+    access_key          = "orders"
   }
 
   tab "summary" {
-    page  = content_page.workspace_summary
-    label = "Summary"
-    group = "Insights"
+    page            = content_page.workspace_summary
+    label           = "Summary"
+    group           = "Insights"
+    application_key = "analytics"
+    access_key      = "summary"
   }
 
   tab "vendors" {
@@ -346,6 +353,7 @@ workspace_page "workspace" {
     group              = "Related"
     available          = "orders_available"
     unavailable_reason = "Vendors live in their own workspace"
+    access_key          = "vendors"
   }
 
   tab "rules" {

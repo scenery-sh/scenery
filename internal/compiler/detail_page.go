@@ -48,6 +48,7 @@ func expandDetailPageResources(resources []Resource) ([]Resource, []Diagnostic) 
 			"load":  map[string]any{"$ref": load},
 			"param": detailPageNormalizedParams(detail),
 		}
+		pageSpec = generatedPageSpec(detail, pageSpec)
 		generated := []Resource{
 			{Address: pageAddress, Module: detail.Module, Name: detail.Name, Kind: "scenery.page", Origin: lineage(pageAddress, "page"), Spec: pageSpec},
 			{Address: rendererAddress, Module: detail.Module, Name: detail.Name + "_web", Kind: "scenery.renderer", Origin: lineage(rendererAddress, "renderer"), Spec: map[string]any{"page": map[string]any{"$ref": pageAddress}, "runtime": "web", "module": detailPageRendererModule, "config": cloneMapValue(detail.Spec)}},

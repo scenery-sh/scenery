@@ -6,6 +6,8 @@ func TestWorkspacePageValidatesAndExpands(t *testing.T) {
 	resources := workspacePageFixture()
 	byAddress := resourcesByAddress(&Manifest{Resources: resources})
 	workspace := byAddress["house/workspace_page/operations"]
+	workspace.Spec["application_key"] = "microgrid"
+	workspace.Spec["access_key"] = "workspace"
 	if diagnostics := validateWorkspacePage(byAddress, workspace); len(diagnostics) != 0 {
 		t.Fatalf("validate workspace page: %#v", diagnostics)
 	}
@@ -14,8 +16,31 @@ func TestWorkspacePageValidatesAndExpands(t *testing.T) {
 		t.Fatalf("expand workspace page: %#v", diagnostics)
 	}
 	byAddress = resourcesByAddress(&Manifest{Resources: expanded})
-	if byAddress["house/page/operations"].Kind != "scenery.page" || stringValue(byAddress["house/renderer/operations_web"].Spec["module"]) != workspacePageRendererModule {
+	page := byAddress["house/page/operations"]
+	if page.Kind != "scenery.page" || page.Spec["application_key"] != "microgrid" || page.Spec["access_key"] != "workspace" || stringValue(byAddress["house/renderer/operations_web"].Spec["module"]) != workspacePageRendererModule {
 		t.Fatalf("missing expanded workspace resources: %#v", byAddress)
+	}
+}
+
+func TestWorkspacePageRejectsBlankTabAccessMetadata(t *testing.T) {
+	resources := workspacePageFixture()
+	for index := range resources {
+		if resources[index].Address == "house/workspace_page/operations" {
+			tab := resources[index].Spec["tab"].([]any)[0].(map[string]any)
+			tab["application_key"] = "  "
+			tab["access_key"] = "\t"
+		}
+	}
+	byAddress := resourcesByAddress(&Manifest{Resources: resources})
+	diagnostics := validateWorkspacePage(byAddress, byAddress["house/workspace_page/operations"])
+	got := 0
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Code == "SCN2626" {
+			got++
+		}
+	}
+	if got != 2 {
+		t.Fatalf("blank access metadata diagnostics = %#v", diagnostics)
 	}
 }
 

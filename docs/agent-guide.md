@@ -321,6 +321,8 @@ Regenerate after changes to reachable types, bindings, codec mappings, authentic
 
 For a declarative frontend, add `react { tsconfig = "..." }` to the TypeScript target and put URL search types plus optional navigation placement on each generated page declaration. Generation writes page adapters, `routes.generated.ts`, `app.generated.tsx`, and the binary-owned catalog in one managed transaction. Use `createSceneryApp`; pass its optional `client` when generated pages need the app's authenticated or customized `PublicApiClient`, register app-owned pages through its one descriptor-array extension, and fill the fixed auth/top-bar/content/link/icon slots. The generated layer owns the TanStack route tree, intent preloading, `Outlet`, active navigation, and `ClientAppShell`; do not keep a second route tree, navigation list, or hidden-page mount system. Keep one app-owned `QueryClientProvider`, supply the React/Astryx/StyleX/TanStack peers, and never edit generated output.
 
+For coarse product presentation, declare opaque `application_key` and `access_key` values on generated page macros and, when needed, workspace tabs. Load the application's typed access snapshot in the auth gate, then pass one synchronous `resolveAccess` function to `createSceneryApp`; it controls navigation, direct-route invocation, and workspace tabs from the same generated route catalog. Use the returned `routes` and `matchSceneryRoute` for app switchers or command menus instead of classifying URL prefixes. A workspace tab inherits only its workspace's application key. Treat this as UI gating only: backend bindings still require application-owned authorization.
+
 For a generated two-pane screen, declare a unit-input operation with HTTP and inherited internal bindings, app-owned `react_component` slots for `sidebar` and `detail`, and a generic `split_page`. Optional `sidebar_actions` and `detail_header` slots share the raw request state and URL-backed selection state. Scenery generates transport, request/selection state, and the reusable split layout only; each domain-specific slot owns its loading/error/ready rendering and should wrap those branches with `QueryState` from `@scenery/ui`.
 
 For a generated one-column screen, use `content_page` with one app-owned `content` slot. Omit `source` for static content: `content` and optional header `actions` then receive no props. For loaded content, declare the unit-input HTTP plus inherited-internal operation pair and set `source`; both slots receive the shared typed request state and should adapt it to `QueryState` with `queryStateProps`. `max_width` bounds the centered content well.
@@ -467,6 +469,13 @@ errors are returned unchanged. `auth.CurrentUser(ctx)` reads and returns the liv
 standard-auth `auth.UserProfile`; it does not rotate a session, create a tenant,
 or issue a token. Applications must use that accessor rather than querying
 Scenery-owned `scenery_auth_*` tables.
+
+Persist `auth.CurrentAuditIdentity(ctx)` with audited actions. It reports the
+effective subject separately from the real actor, so a normal session has equal
+IDs while an impersonation session keeps the target in `EffectiveUserID` and
+the administrator in `ActorUserID`; tenant, session, and impersonation IDs are
+carried unchanged. These authentication facts do not encode application roles,
+entitlements, business organizations, or business-user identities.
 
 For company offboarding, an application-owned authorized and audited command
 may call `auth.DisableUser(ctx, userID, reason)`. It atomically disables the

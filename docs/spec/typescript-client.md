@@ -321,6 +321,48 @@ signature. Implementation-only changes invalidate the assistant build/runtime
 projection but MUST NOT alter these public client types unless the declared
 assistant surface or public schemas change.
 
+### 13.3 Generated route access
+
+A React target emits one merged route catalog. `createSceneryApp` MUST return
+`{router, App, routes}`, and `routes` MUST contain generated and authored
+descriptors with optional exact `applicationKey` and `accessKey` metadata.
+`matchSceneryRoute(routes, path)` MUST ignore query/hash suffixes, normalize a
+non-root trailing slash, match `$parameter` as one nonempty segment, and prefer
+an exact static route over a parameterized route.
+
+The access contract is synchronous:
+
+~~~ts
+type SceneryAccessResult =
+  | { readonly status: "allowed" }
+  | { readonly status: "pending" }
+  | { readonly status: "denied"; readonly reason?: string; readonly redirectTo?: string };
+
+type SceneryAccessTarget =
+  | { readonly kind: "route"; readonly route: SceneryRouteDescriptor }
+  | {
+      readonly kind: "workspace-tab";
+      readonly route: SceneryRouteDescriptor;
+      readonly name: string;
+      readonly label: string;
+      readonly applicationKey?: string;
+      readonly accessKey?: string;
+    };
+~~~
+
+One optional `resolveAccess(target, currentPath)` callback MUST control generated
+navigation inclusion, direct-route rendering, and workspace-tab inclusion. A
+pending or denied route MUST NOT invoke its page component. A denial with
+`redirectTo` uses replace navigation; otherwise the target renders the
+application denial slot or the semantic generated fallback. Pending renders the
+pending slot or `null`. Denied and pending tabs are omitted; a selected omitted
+tab is replaced by the first allowed tab, while zero allowed tabs render the
+pending or denial state. Operational tab availability remains a distinct
+contract. The resolver MUST NOT fetch, mutate, cache, or authorize backend
+records. `navigationFilter(route, currentRoute, currentPath)` runs only after
+access gating, and `contentGroup(currentRoute, currentPath)` receives the same
+matched descriptor.
+
 ## 14. Cancellation, time, and retries
 
 `AbortSignal` is the only v1 caller cancellation mechanism. An already-aborted signal performs no request. Cancellation rejects with `SceneryClientError` code `cancelled` and retains the platform cause without exposing secret data.

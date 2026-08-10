@@ -53,7 +53,7 @@ func expandTablePageResources(resources []Resource) ([]Resource, []Diagnostic) {
 		pageAddress := resourceAddress(table.Module, "page", table.Name)
 		rendererAddress := resourceAddress(table.Module, "renderer", table.Name+"_web")
 		generated := []Resource{
-			{Address: pageAddress, Module: table.Module, Name: table.Name, Kind: "scenery.page", Origin: lineage(pageAddress, "page"), Spec: map[string]any{"path": table.Spec["path"], "load": map[string]any{"$ref": load}}},
+			{Address: pageAddress, Module: table.Module, Name: table.Name, Kind: "scenery.page", Origin: lineage(pageAddress, "page"), Spec: generatedPageSpec(table, map[string]any{"path": table.Spec["path"], "load": map[string]any{"$ref": load}})},
 			{Address: rendererAddress, Module: table.Module, Name: table.Name + "_web", Kind: "scenery.renderer", Origin: lineage(rendererAddress, "renderer"), Spec: map[string]any{"page": map[string]any{"$ref": pageAddress}, "runtime": "web", "module": tablePageRendererModule, "config": cloneMapValue(table.Spec)}},
 		}
 		if bindingSource {

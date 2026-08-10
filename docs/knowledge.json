@@ -19,6 +19,18 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0151-route-access-audit-identity.md",
+      "title": "Generated Route Access and Audit Identity",
+      "owner": "scenery generated clients / auth",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-08-10",
+      "review_after": "2026-09-09",
+      "summary": "Active ExecPlan adding opaque route and workspace-tab access metadata, one synchronous generated-client presentation resolver, deterministic route matching, and impersonation-aware audit identity.",
+      "tags": ["plans", "execplans", "generated-clients", "routes", "access", "auth", "audit", "impersonation"]
+    },
+    {
       "path": "docs/plans/0150-replayable-plan-apply.md",
       "title": "Replayable Plan Apply and Trusted Agent Context",
       "owner": "scenery evolution / contract agent / assistant adapter",
@@ -1063,7 +1075,7 @@
       "freshness": "current",
       "last_reviewed": "2026-08-04",
       "review_after": "2026-09-03",
-      "summary": "Normative evolving current Scenery specification, including the singular .scn declaration surface, MCP bindings/servers/connections, provider-neutral assistant conversation surfaces, private supervised adapters, strict manifests and machine envelopes, typed HTTP path tails, generated clients/pages, graph provenance, authenticated transactions, and the synchronized Go implementation boundary.",
+      "summary": "Normative evolving current Scenery specification, including the singular .scn declaration surface, MCP bindings/servers/connections, provider-neutral assistant conversation surfaces, private supervised adapters, strict manifests and machine envelopes, typed HTTP path tails, generated clients/pages with opaque access metadata, graph provenance, authenticated transactions, and the synchronized Go implementation boundary.",
       "tags": [
         "spec",
         "language",
@@ -1141,7 +1153,7 @@
       "freshness": "current",
       "last_reviewed": "2026-08-04",
       "review_after": "2026-09-03",
-      "summary": "Normative deterministic TypeScript client API, type mapping, outcomes, metadata, compatibility, cancellation, independently encoded terminal path-tail segments, and the dedicated provider-neutral assistant conversation client with NDJSON cursor events.",
+      "summary": "Normative deterministic TypeScript client API, type mapping, outcomes, metadata, compatibility, cancellation, generated route catalogs and synchronous presentation access, independently encoded terminal path-tail segments, and the dedicated provider-neutral assistant conversation client with NDJSON cursor events.",
       "tags": [
         "spec",
         "typescript",
@@ -1397,7 +1409,7 @@
       "freshness": "current",
       "last_reviewed": "2026-08-04",
       "review_after": "2026-09-03",
-      "summary": "Concise installed-skill entrypoint for current Scenery apps, with intent-based task routing, MCP/assistant public-private boundaries, graph views and provenance, schema-driven authoring, trusted transactions, runtime, deploy, storage, generated clients, page macros, UI triage, scoped command help, and cached validation.",
+      "summary": "Concise installed-skill entrypoint for current Scenery apps, with intent-based task routing, MCP/assistant public-private boundaries, graph views and provenance, schema-driven authoring, trusted transactions, runtime, deploy, storage, generated clients, page access metadata, audit identity, UI triage, scoped command help, and cached validation.",
       "tags": [
         "skill",
         "agents",
@@ -1418,7 +1430,7 @@
       "freshness": "current",
       "last_reviewed": "2026-08-04",
       "review_after": "2026-09-03",
-      "summary": "Agent workflow guide for current app roots and the Scenery repo, including task-scoped documentation routing, MCP/assistant provider-neutral public surfaces and private helper boundaries, CLI JSON, graph provenance, runtime diagnosis, deploy, storage, generated clients/pages, app-local AGENTS hierarchy, public-surface checks, and self-harness validation.",
+      "summary": "Agent workflow guide for current app roots and the Scenery repo, including task-scoped documentation routing, MCP/assistant provider-neutral public surfaces and private helper boundaries, CLI JSON, graph provenance, runtime diagnosis, deploy, storage, generated route access, impersonation-aware audit identity, app-local AGENTS hierarchy, public-surface checks, and self-harness validation.",
       "tags": [
         "agents",
         "cli",
@@ -1493,7 +1505,7 @@
       "freshness": "current",
       "last_reviewed": "2026-08-04",
       "review_after": "2026-09-03",
-      "summary": "Current local developer and agent-facing contract for exact CLI JSON surfaces, including provider-neutral assistant commands/routes/inspection, private implementation boundaries, scoped command help, living-document freshness, deterministic validation, schema identities, graph provenance, runtime/deploy behavior, generated clients/pages, generators, and code tasks.",
+      "summary": "Current local developer and agent-facing contract for exact CLI JSON surfaces, including provider-neutral assistant commands/routes/inspection, private implementation boundaries, scoped command help, living-document freshness, deterministic validation, schema identities, graph provenance, runtime/deploy behavior, generated route access, audit identity, generators, and code tasks.",
       "tags": [
         "contract",
         "cli",
@@ -1666,7 +1678,7 @@
       "freshness": "current",
       "last_reviewed": "2026-08-04",
       "review_after": "2026-09-03",
-      "summary": "Practical recipes for building current Scenery apps, including .scn source, MCP capabilities and provider-neutral assistants, generated contracts/clients, bindings, auth, storage, Postgres, snapshots, durable work, CRUD search, generated workbench pages/form dialogs, React mounting, observability, and validation workflows.",
+      "summary": "Practical recipes for building current Scenery apps, including .scn source, MCP capabilities and provider-neutral assistants, generated contracts/clients, bindings, auth and audit identity, storage, Postgres, snapshots, durable work, CRUD search, generated page access, React mounting, observability, and validation workflows.",
       "tags": [
         "cookbook",
         "apps",

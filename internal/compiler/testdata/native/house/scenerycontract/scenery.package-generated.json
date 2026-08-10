@@ -36,5 +36,5 @@
   },
   "runtime_abi_range": "scenery.go-runtime/v1",
   "schema_revision": "sha256:fa325f0aa48e8489c7ae85ab996efe2bd50962483ba9a3fcfc0e162384ffdca0",
-  "spec_revision": "sha256:351b04a1172e8db7c4a15a1c0295ceb3c7d9c765d162ac3c0c01d63be04331ba"
+  "spec_revision": "sha256:33bd6d2f6368d221a9359b0e97072fd51ec36c268d7f5d13dbe9425fcb112340"
 }

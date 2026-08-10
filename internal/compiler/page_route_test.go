@@ -17,6 +17,8 @@ func TestValidateGeneratedPageRoute(t *testing.T) {
 		Module:  "mail",
 		Kind:    "scenery.content-page",
 		Spec: map[string]any{
+			"application_key":  " MicroGRID ",
+			"access_key":       "projects.Read",
 			"nav_group":        "UI",
 			"nav_order":        int64(2),
 			"nav_active_paths": []any{"/mailsnext/summary"},
@@ -35,17 +37,23 @@ func TestValidateGeneratedPageRoute(t *testing.T) {
 	invalid.Spec["nav_group"] = ""
 	invalid.Spec["nav_order"] = -1
 	invalid.Spec["nav_active_paths"] = []any{"relative"}
+	invalid.Spec["application_key"] = " \t "
+	invalid.Spec["access_key"] = ""
 	invalid.Spec["search"] = []any{
 		map[string]any{"name": "view", "type": map[string]any{"$ref": "enum.missing"}},
 		map[string]any{"name": "view", "type": map[string]any{"$ref": "list(string)"}},
 	}
 	diagnostics := validateGeneratedPageRoute(resources, invalid)
-	if len(diagnostics) != 6 {
+	if len(diagnostics) != 8 {
 		t.Fatalf("invalid route diagnostics = %#v", diagnostics)
 	}
 	for _, diagnostic := range diagnostics {
 		if diagnostic.Code != "SCN2619" {
 			t.Fatalf("diagnostic code = %q, want SCN2619", diagnostic.Code)
 		}
+	}
+	pageSpec := generatedPageSpec(valid, map[string]any{"path": "/summary"})
+	if pageSpec["application_key"] != " MicroGRID " || pageSpec["access_key"] != "projects.Read" {
+		t.Fatalf("generated page access metadata = %#v", pageSpec)
 	}
 }

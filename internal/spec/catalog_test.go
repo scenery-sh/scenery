@@ -135,6 +135,14 @@ func TestDeclarativeTableResourceMetadataIsComplete(t *testing.T) {
 	if content.Required["source"] {
 		t.Error("content_page still requires source")
 	}
+	for _, block := range []string{"table_page", "split_page", "content_page", "workspace_page", "detail_page"} {
+		schema, _ := authoredResourceSourceSchema(block)
+		for _, name := range []string{"application_key", "access_key"} {
+			if attribute, ok := schema.Attributes[name]; !ok || attribute.Type["primitive"] != "string" {
+				t.Errorf("%s does not advertise string %s: %#v", block, name, attribute)
+			}
+		}
+	}
 	workspace, _ := authoredResourceSourceSchema("workspace_page")
 	tab := workspace.Children["tab"]
 	if !tab.Repeatable || !tab.Ordered || tab.Schema.Labels != 1 || tab.Schema.Required["page"] || !tab.Schema.Required["label"] {
@@ -143,7 +151,7 @@ func TestDeclarativeTableResourceMetadataIsComplete(t *testing.T) {
 	if kinds, _ := tab.Schema.Attributes["page"].Type["resource_ref_one_of"].([]string); len(kinds) != 2 {
 		t.Errorf("workspace_page tab page must accept table_page and content_page: %#v", tab.Schema.Attributes["page"])
 	}
-	for _, name := range []string{"destination", "description", "group", "count", "available", "unavailable_reason"} {
+	for _, name := range []string{"destination", "description", "group", "count", "available", "unavailable_reason", "application_key", "access_key"} {
 		if _, ok := tab.Schema.Attributes[name]; !ok {
 			t.Errorf("workspace_page tab does not advertise %s", name)
 		}

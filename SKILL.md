@@ -120,6 +120,8 @@ never rewrites authored package files.
   permission checks, user lifecycle controls, and Google connection helpers. Configure one read-only
   `auth.PermissionChecker` during startup; permission names and storage remain
   application-owned, and `auth.HasPermissions` requires every supplied name.
+  Persist `auth.CurrentAuditIdentity(ctx)` for audited work so impersonation
+  retains separate effective and actor users.
 - `scenery.sh/errs` for coded errors.
 - `scenery.sh/library` for generated facade loading and load-alongside swaps;
   app code normally uses its typed facade instead of this package directly.
@@ -168,6 +170,12 @@ schemas; no provider adapter import, URL, token, or private control field is
 emitted.
 
 For React, declare a page macro and any typed search/navigation metadata, then set the target's React tsconfig. Scenery owns generated adapters, routes, app shell, catalog, and staged typecheck. Use `createSceneryApp`, one authored route descriptor array, and the fixed slots; do not rebuild route selection, navigation, or the shell. Vite apps alias `@scenery/ui` and its token subpath to the materialized catalog and provide its peer dependencies.
+
+Generated page macros and workspace tabs may carry opaque `application_key`
+and `access_key` values. Supply one synchronous `resolveAccess` callback after
+loading app-owned entitlements; Scenery uses it for navigation, direct-route
+invocation, and tabs, but never as backend authorization. Reuse the returned
+`routes` catalog and `matchSceneryRoute` instead of URL-prefix maps.
 
 Choose the page macro by shape, inspect it with `scenery schema <kind> -o json`, and read the full contract only for that macro:
 

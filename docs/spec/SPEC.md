@@ -2463,6 +2463,14 @@ authored sugar: expansion MUST emit
 ordinary page and renderer resources with lineage back to the source
 declaration. No page macro creates a second runtime path.
 
+Every page macro MAY declare opaque `application_key` and `access_key` string
+attributes. A workspace `tab` MAY declare the same attributes. Blank or
+whitespace-only values MUST be rejected, while every nonblank value MUST be
+preserved exactly without trimming or case normalization. An omitted tab
+`application_key` inherits the containing workspace's `application_key`; an
+`access_key` MUST NOT inherit. These values are generated presentation metadata
+only and MUST NOT replace authorization on an operation or binding.
+
 A `detail_page` MUST declare a dynamic absolute `path`, a call-delivery HTTP
 `source`, a title, and at least one field `section`. Its source operation MUST
 have record input and exactly one result whose type directly names the entity

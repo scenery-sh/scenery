@@ -7,6 +7,11 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
+- [0151 Generated Route Access and Audit Identity](0151-route-access-audit-identity.md)
+  - Status: active
+  - Owner: scenery generated clients / auth
+  - Created: 2026-08-10
+  - Focus: propagate opaque application and access metadata through generated routes and workspace tabs, enforce one synchronous presentation-access resolver, export deterministic route matching, and expose impersonation-aware audit identity.
 - [0145 Developer Test Loop Attribution](0145-test-loop-attribution.md)
   - Status: active
   - Owner: scenery harness

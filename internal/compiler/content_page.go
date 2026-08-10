@@ -37,7 +37,7 @@ func expandContentPageResources(resources []Resource) ([]Resource, []Diagnostic)
 		}
 		pageAddress := resourceAddress(content.Module, "page", content.Name)
 		rendererAddress := resourceAddress(content.Module, "renderer", content.Name+"_web")
-		pageSpec := map[string]any{"path": content.Spec["path"]}
+		pageSpec := generatedPageSpec(content, map[string]any{"path": content.Spec["path"]})
 		if load != "" {
 			pageSpec["load"] = map[string]any{"$ref": load}
 		}

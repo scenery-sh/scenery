@@ -1,6 +1,9 @@
 package compiler
 
-import "sort"
+import (
+	"sort"
+	"strings"
+)
 
 const workspacePageRendererModule = "scenery.ui.workspace_page"
 
@@ -21,7 +24,7 @@ func expandWorkspacePageResources(resources []Resource) ([]Resource, []Diagnosti
 		pageAddress := resourceAddress(workspace.Module, "page", workspace.Name)
 		rendererAddress := resourceAddress(workspace.Module, "renderer", workspace.Name+"_web")
 		generated := []Resource{
-			{Address: pageAddress, Module: workspace.Module, Name: workspace.Name, Kind: "scenery.page", Origin: lineage(pageAddress, "page"), Spec: map[string]any{"path": workspace.Spec["path"]}},
+			{Address: pageAddress, Module: workspace.Module, Name: workspace.Name, Kind: "scenery.page", Origin: lineage(pageAddress, "page"), Spec: generatedPageSpec(workspace, map[string]any{"path": workspace.Spec["path"]})},
 			{Address: rendererAddress, Module: workspace.Module, Name: workspace.Name + "_web", Kind: "scenery.renderer", Origin: lineage(rendererAddress, "renderer"), Spec: map[string]any{"page": map[string]any{"$ref": pageAddress}, "runtime": "web", "module": workspacePageRendererModule, "config": cloneMapValue(workspace.Spec)}},
 		}
 		collision := false
@@ -59,6 +62,11 @@ func validateWorkspacePage(resources map[string]Resource, workspace Resource) []
 	seenPages := map[string]bool{}
 	pageTabs := 0
 	for _, tab := range tabs {
+		for _, key := range []string{"application_key", "access_key"} {
+			if value, exists := tab[key]; exists && strings.TrimSpace(stringValue(value)) == "" {
+				diagnostics = append(diagnostics, uiDiagnostic("SCN2626", "workspace_page tab "+key+" must not be blank", workspace))
+			}
+		}
 		name := stringValue(tab["name"])
 		if name == "" || seenNames[name] {
 			diagnostics = append(diagnostics, uiDiagnostic("SCN2626", "workspace_page tabs require unique names", workspace))

@@ -13,10 +13,10 @@ func TestRenderReactWorkspacePageKeepsTabsAliveAndUsesTypedStats(t *testing.T) {
 	content := Resource{Address: "work/content_page/summary", Module: "work", Name: "summary", Kind: "scenery.content-page", Spec: map[string]any{"path": "/summary", "title": "Summary"}}
 	actions := Resource{Address: "work/react_component/actions", Module: "work", Name: "actions", Kind: "scenery.react-component", Spec: map[string]any{"module": "slots.tsx", "export": "Actions"}}
 	workspace := Resource{Address: "work/workspace_page/operations", Module: "work", Name: "operations", Kind: "scenery.workspace-page", Spec: map[string]any{
-		"path": "/operations", "title": "Operations", "presentation": "sidebar",
+		"path": "/operations", "title": "Operations", "presentation": "sidebar", "application_key": "microgrid", "access_key": "workspace",
 		"tab": []any{
-			map[string]any{"name": "orders", "page": map[string]any{"$ref": table.Address}, "label": "Orders", "description": "Open work", "group": "Work", "count": "orders_total", "available": "orders_available", "unavailable_reason": "Orders are not projected"},
-			map[string]any{"name": "summary", "page": map[string]any{"$ref": content.Address}, "label": "Summary"},
+			map[string]any{"name": "orders", "page": map[string]any{"$ref": table.Address}, "label": "Orders", "description": "Open work", "group": "Work", "count": "orders_total", "available": "orders_available", "unavailable_reason": "Orders are not projected", "access_key": "orders"},
+			map[string]any{"name": "summary", "page": map[string]any{"$ref": content.Address}, "label": "Summary", "application_key": "analytics", "access_key": "summary"},
 			map[string]any{"name": "vendors", "destination": "/vendors", "label": "Vendors", "available": "orders_available", "unavailable_reason": "Use the vendor workspace"},
 			map[string]any{"name": "rules", "label": "Business rules", "available": "orders_available", "unavailable_reason": "No projected records"},
 		},
@@ -35,16 +35,23 @@ func TestRenderReactWorkspacePageKeepsTabsAliveAndUsesTypedStats(t *testing.T) {
 		`new URLSearchParams(globalThis.location.search).get("tab")`,
 		`globalThis.addEventListener("popstate", sync)`,
 		`next.searchParams.set("tab", name)`,
+		`globalThis.history[options?.replace ? "replaceState" : "pushState"]`,
 		`const tabNames = useMemo(() => ["orders", "summary"] as const, [])`,
+		`const sceneryAccess = useSceneryAccess()`,
+		`const workspaceAccess = resolveSceneryWorkspaceAccess(sceneryAccess, [`,
+		`name: "orders", label: "Orders", description: "Open work", group: "Work", applicationKey: "microgrid", accessKey: "orders"`,
+		`name: "summary", label: "Summary", applicationKey: "analytics", accessKey: "summary"`,
 		`count: statsState.kind === "result" ? statsState.value.ordersTotal : undefined`,
 		`available: statsState.kind === "result" ? statsState.value.ordersAvailable : undefined`,
 		`description: "Open work"`,
 		`unavailableReason: "Orders are not projected"`,
 		`destination: "/vendors"`,
-		`name: "rules", label: "Business rules", available: statsState.kind === "result" ? statsState.value.ordersAvailable : undefined, unavailableReason: "No projected records" },`,
+		`name: "rules", label: "Business rules", applicationKey: "microgrid", available: statsState.kind === "result" ? statsState.value.ordersAvailable : undefined, unavailableReason: "No projected records" },`,
 		`content: <SceneryWorkspaceTab1 client={client} />`,
 		`content: <SceneryWorkspaceTab2 />`,
 		`actions={<SceneryWorkspaceActions />}`,
+		`emptyState={workspaceAccess.emptyState}`,
+		`tabs={workspaceAccess.tabs}`,
 	} {
 		if !strings.Contains(source, fragment) {
 			t.Errorf("generated workspace page missing %q:\n%s", fragment, source)

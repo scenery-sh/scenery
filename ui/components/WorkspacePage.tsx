@@ -58,15 +58,20 @@ export function WorkspacePage({
   presentation = "tabs",
   actions,
   stats,
+  emptyState,
   onNavigateDestination,
 }: {
   readonly title: string;
   readonly tabs: readonly WorkspacePageTab[];
   readonly activeTab: string;
-  readonly onTabChange: (name: string) => void;
+  readonly onTabChange: (
+    name: string,
+    options?: { readonly replace?: boolean },
+  ) => void;
   readonly presentation?: WorkspacePagePresentation;
   readonly actions?: ReactNode;
   readonly stats?: ReactNode;
+  readonly emptyState?: ReactNode;
   readonly onNavigateDestination?: (destination: string) => void;
 }) {
   const [visited, setVisited] = useState<ReadonlySet<string>>(
@@ -94,7 +99,7 @@ export function WorkspacePage({
   useEffect(() => {
     if (enabledTabs.some((tab) => tab.name === activeTab)) return;
     const first = enabledTabs[0];
-    if (first) onTabChange(first.name);
+    if (first) onTabChange(first.name, { replace: true });
   }, [activeTab, enabledTabs, onTabChange]);
 
   const selectEntry = useCallback(
@@ -172,6 +177,7 @@ export function WorkspacePage({
 
   const content = (
     <div {...stylex.props(styles.content)}>
+      {tabs.length === 0 ? emptyState : null}
       {tabs.map((tab) => {
         if (!workspaceEntryHasContent(tab)) return null;
         if (!visited.has(tab.name)) return null;

@@ -1675,6 +1675,8 @@ func (service *Service) SceneQuickCreate(_ context.Context, _ housecontract.Scen
 		`validateSceneSummarySearch`,
 		`navigation: { group: "UI", order: 30, label: "Summary", icon: "report", activePaths: ["/scene-summary", "/scene-summary/detail"], origin: "generated" }`,
 		`export type SceneryRouteOrigin = NavigationOrigin;`,
+		`export type SceneryAccessMetadata =`,
+		`export function matchSceneryRoute(`,
 	} {
 		if !strings.Contains(string(routesSource), fragment) {
 			t.Errorf("generated routes descriptor missing %q:\n%s", fragment, routesSource)
@@ -1691,11 +1693,27 @@ func (service *Service) SceneQuickCreate(_ context.Context, _ housecontract.Scen
 		"createSceneryApp",
 		"ClientAppShell",
 		"navigationSections",
+		"SceneryRouteAccessBoundary",
+		"SceneryAccessProvider",
+		`return { router, App: SceneryApp, routes }`,
 		`origin: descriptor.origin ?? origin`,
 		"<Outlet />",
 	} {
 		if !strings.Contains(string(appSource), fragment) {
 			t.Errorf("generated app adapter missing %q:\n%s", fragment, appSource)
+		}
+	}
+	accessSource, err := os.ReadFile(filepath.Join(root, "clients", "generated", "public_api", "react", "access.generated.tsx"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, fragment := range []string{
+		"export type SceneryAccessTarget",
+		"export type SceneryAccessResult",
+		"resolveSceneryWorkspaceAccess",
+	} {
+		if !strings.Contains(string(accessSource), fragment) {
+			t.Errorf("generated access adapter missing %q:\n%s", fragment, accessSource)
 		}
 	}
 	descriptorBytes, err := os.ReadFile(filepath.Join(root, "clients", "generated", "public_api", "scenery.typescript-client-generated.json"))

@@ -327,6 +327,12 @@ case-sensitive names to the checker once and does not define roles, wildcards,
 storage, caching, or a policy language. The checker is provider-neutral: Google
 and email/password logins both produce the same `*auth.AuthData` identity.
 
+For audit records, call `auth.CurrentAuditIdentity(ctx)` and store both
+`EffectiveUserID` and `ActorUserID`. They are identical normally; during
+impersonation the effective user is the target and the actor is the initiating
+administrator. Do not infer app entitlements or business organizations from
+Scenery auth tenants or JWT claims.
+
 Use `auth.CurrentUser(ctx)` to read the live `auth.UserProfile`, including its
 verified-email state, for the authenticated user. Do not query
 `scenery.scenery_auth_*` tables from
@@ -582,6 +588,32 @@ validator, and generated navigation. Mount the frontend with
 `createSceneryApp`; put any remaining app-owned pages in its single
 `SceneryRouteDescriptor` extension array and supply fixed shell slots such as
 the auth gate, top bar, router-aware link, and icon resolver.
+
+To gate product destinations from one already-loaded access snapshot, attach
+opaque keys to the page and workspace tabs:
+
+```hcl
+workspace_page "projects" {
+  path            = "/projects"
+  title           = "Projects"
+  application_key = "microgrid"
+  access_key      = "projects"
+
+  tab "list" {
+    page       = table_page.projects
+    label      = "Projects"
+    access_key = "projects.read"
+  }
+}
+```
+
+Then pass `resolveAccess: (target) => snapshot.allows(target) ? {status:
+"allowed"} : {status: "denied"}` to `createSceneryApp`. The resolver must be
+synchronous and side-effect-free; load or refresh the snapshot outside it.
+Navigation, direct routes, and tabs use that same result, while backend
+operations remain independently authorized. `createSceneryApp` also returns
+the merged `routes` catalog, and `matchSceneryRoute` resolves static and
+`$parameter` paths for app switchers and command menus.
 
 For a centered one-column page, reuse that operation/binding shape and declare only the page shell slots:
 

@@ -50,6 +50,16 @@ func CurrentAuthData() (*AuthData, bool) {
 	return data, ok && data != nil
 }
 
+// CurrentAuditIdentity returns the authenticated request's complete,
+// impersonation-aware audit identity.
+func CurrentAuditIdentity(ctx context.Context) (AuditIdentity, error) {
+	data, ok := currentAuthDataFromContext(ctx)
+	if !ok {
+		return AuditIdentity{}, unauthenticated("authentication required")
+	}
+	return data.AuditIdentity(), nil
+}
+
 func WithContext(ctx context.Context, uid UID, data any) context.Context {
 	ctx = runtime.WithAuthContext(ctx, runtime.AuthInfo{
 		UID:  string(uid),

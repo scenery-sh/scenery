@@ -35,7 +35,7 @@ func expandSplitPageResources(resources []Resource) ([]Resource, []Diagnostic) {
 		pageAddress := resourceAddress(split.Module, "page", split.Name)
 		rendererAddress := resourceAddress(split.Module, "renderer", split.Name+"_web")
 		generated := []Resource{
-			{Address: pageAddress, Module: split.Module, Name: split.Name, Kind: "scenery.page", Origin: lineage(pageAddress, "page"), Spec: map[string]any{"path": split.Spec["path"], "load": map[string]any{"$ref": load}}},
+			{Address: pageAddress, Module: split.Module, Name: split.Name, Kind: "scenery.page", Origin: lineage(pageAddress, "page"), Spec: generatedPageSpec(split, map[string]any{"path": split.Spec["path"], "load": map[string]any{"$ref": load}})},
 			{Address: rendererAddress, Module: split.Module, Name: split.Name + "_web", Kind: "scenery.renderer", Origin: lineage(rendererAddress, "renderer"), Spec: map[string]any{"page": map[string]any{"$ref": pageAddress}, "runtime": "web", "module": splitPageRendererModule, "config": cloneMapValue(split.Spec)}},
 		}
 		collision := false

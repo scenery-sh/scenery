@@ -7,6 +7,11 @@ import "strings"
 // boundary, but their declared values use the ordinary Scenery type system.
 func validateGeneratedPageRoute(resources map[string]Resource, page Resource) []Diagnostic {
 	var diagnostics []Diagnostic
+	for _, name := range []string{"application_key", "access_key"} {
+		if value, exists := page.Spec[name]; exists && strings.TrimSpace(stringValue(value)) == "" {
+			diagnostics = append(diagnostics, uiDiagnostic("SCN2619", "page "+name+" must not be blank", page))
+		}
+	}
 	seen := map[string]bool{}
 	for _, search := range namedChildren(page.Spec, "search") {
 		name := stringValue(search["name"])
@@ -40,6 +45,15 @@ func validateGeneratedPageRoute(resources map[string]Resource, page Resource) []
 		}
 	}
 	return diagnostics
+}
+
+func generatedPageSpec(page Resource, spec map[string]any) map[string]any {
+	for _, name := range []string{"application_key", "access_key"} {
+		if value, exists := page.Spec[name]; exists {
+			spec[name] = value
+		}
+	}
+	return spec
 }
 
 func generatedPageSearchTypeSupported(resources map[string]Resource, module string, value any) bool {

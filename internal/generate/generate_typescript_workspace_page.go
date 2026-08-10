@@ -66,6 +66,7 @@ func renderReactWorkspacePage(result *Result, target Resource, reactRoot string,
 		b.WriteString("import { useQuery } from \"@tanstack/react-query\";\n")
 	}
 	b.WriteString("import { useCallback, useEffect, useMemo, useState } from \"react\";\n")
+	b.WriteString("import { resolveSceneryWorkspaceAccess, useSceneryAccess } from \"./access.generated.js\";\n")
 	fmt.Fprintf(&b, "import { %sClient, url } from \"../index.js\";\n", goName(target.Name))
 	if page.statsRecord.Address != "" {
 		fmt.Fprintf(&b, "import type { %s } from \"../index.js\";\n", goName(page.statsRecord.Name))
@@ -113,6 +114,7 @@ func renderReactWorkspacePage(result *Result, target Resource, reactRoot string,
 		}
 	}
 	writeReactPageOpen(&b, goName(page.workspace.Name), goName(target.Name))
+	b.WriteString("  const sceneryAccess = useSceneryAccess();\n")
 	var pageTabs []map[string]any
 	for _, tab := range tabs {
 		if refString(tab["page"]) != "" {
@@ -130,7 +132,7 @@ func renderReactWorkspacePage(result *Result, target Resource, reactRoot string,
 	fmt.Fprintf(&b, "  const tabNames = useMemo(() => [%s] as const, []);\n", strings.Join(validNames, ", "))
 	fmt.Fprintf(&b, "  const [activeTab, setActiveTab] = useState<string>(() => { if (typeof globalThis.location === \"undefined\") return %s; const value = new URLSearchParams(globalThis.location.search).get(\"tab\"); return value && (tabNames as readonly string[]).includes(value) ? value : %s; });\n", strconv.Quote(firstName), strconv.Quote(firstName))
 	b.WriteString("  useEffect(() => { if (typeof globalThis.addEventListener !== \"function\") return; const sync = () => { const value = new URLSearchParams(globalThis.location.search).get(\"tab\"); setActiveTab(value && (tabNames as readonly string[]).includes(value) ? value : tabNames[0]); }; globalThis.addEventListener(\"popstate\", sync); return () => globalThis.removeEventListener(\"popstate\", sync); }, [tabNames]);\n")
-	b.WriteString("  const onTabChange = useCallback((name: string) => { setActiveTab(name); if (typeof globalThis.location === \"undefined\") return; const next = new URL(globalThis.location.href); if (name === tabNames[0]) next.searchParams.delete(\"tab\"); else next.searchParams.set(\"tab\", name); globalThis.history.pushState({}, \"\", next); }, [tabNames]);\n")
+	b.WriteString("  const onTabChange = useCallback((name: string, options?: { readonly replace?: boolean }) => { setActiveTab(name); if (typeof globalThis.location === \"undefined\") return; const next = new URL(globalThis.location.href); if (name === tabNames[0]) next.searchParams.delete(\"tab\"); else next.searchParams.set(\"tab\", name); globalThis.history[options?.replace ? \"replaceState\" : \"pushState\"]({}, \"\", next); }, [tabNames]);\n")
 	if len(statsChildren) > 0 {
 		method := reactOperationClientMethod(page.statsOperation, page.statsBinding, bindings)
 		resultType := goName(page.statsRecord.Name)
@@ -140,7 +142,46 @@ func renderReactWorkspacePage(result *Result, target Resource, reactRoot string,
 		b.WriteString("    return { kind: \"error\", name: outcome.name, problem: outcome.problem } as const;\n  } });\n")
 		fmt.Fprintf(&b, "  const statsState = requestStateFromQuery<{ readonly value: %s }>(statsQuery);\n", resultType)
 	}
-	fmt.Fprintf(&b, "  return <SceneryWorkspacePage title=%s presentation=%s activeTab={activeTab} onTabChange={onTabChange}", jsxStringExpression(stringValue(page.workspace.Spec["title"])), jsxStringExpression(defaultString(stringValue(page.workspace.Spec["presentation"]), "tabs")))
+	b.WriteString("  const workspaceAccess = resolveSceneryWorkspaceAccess(sceneryAccess, [\n")
+	for index, tab := range tabs {
+		fmt.Fprintf(&b, "    { name: %s, label: %s", strconv.Quote(stringValue(tab["name"])), strconv.Quote(stringValue(tab["label"])))
+		if description := stringValue(tab["description"]); description != "" {
+			fmt.Fprintf(&b, ", description: %s", strconv.Quote(description))
+		}
+		if group := stringValue(tab["group"]); group != "" {
+			fmt.Fprintf(&b, ", group: %s", strconv.Quote(group))
+		}
+		if applicationKey, exists := tab["application_key"]; exists {
+			fmt.Fprintf(&b, ", applicationKey: %s", strconv.Quote(stringValue(applicationKey)))
+		} else if applicationKey, exists := page.workspace.Spec["application_key"]; exists {
+			fmt.Fprintf(&b, ", applicationKey: %s", strconv.Quote(stringValue(applicationKey)))
+		}
+		if accessKey, exists := tab["access_key"]; exists {
+			fmt.Fprintf(&b, ", accessKey: %s", strconv.Quote(stringValue(accessKey)))
+		}
+		if count := stringValue(tab["count"]); count != "" {
+			fmt.Fprintf(&b, ", count: statsState.kind === \"result\" ? statsState.value.%s : undefined", tsName(count))
+		}
+		if available := stringValue(tab["available"]); available != "" {
+			fmt.Fprintf(&b, ", available: statsState.kind === \"result\" ? statsState.value.%s : undefined", tsName(available))
+		}
+		if reason := stringValue(tab["unavailable_reason"]); reason != "" {
+			fmt.Fprintf(&b, ", unavailableReason: %s", strconv.Quote(reason))
+		}
+		if destination := stringValue(tab["destination"]); destination != "" {
+			fmt.Fprintf(&b, ", destination: %s", strconv.Quote(destination))
+		} else if pageRef := refString(tab["page"]); pageRef != "" {
+			child := resources[resolveResourceRef(page.workspace, pageRef, "table_page")]
+			if child.Kind == "scenery.content-page" && refString(child.Spec["source"]) == "" {
+				fmt.Fprintf(&b, ", content: <SceneryWorkspaceTab%d />", index+1)
+			} else {
+				fmt.Fprintf(&b, ", content: <SceneryWorkspaceTab%d client={client} />", index+1)
+			}
+		}
+		b.WriteString(" },\n")
+	}
+	b.WriteString("  ]);\n")
+	fmt.Fprintf(&b, "  return <SceneryWorkspacePage title=%s presentation=%s activeTab={activeTab} onTabChange={onTabChange} emptyState={workspaceAccess.emptyState}", jsxStringExpression(stringValue(page.workspace.Spec["title"])), jsxStringExpression(defaultString(stringValue(page.workspace.Spec["presentation"]), "tabs")))
 	if actionAlias != "" {
 		fmt.Fprintf(&b, " actions={<%s />}", actionAlias)
 	}
@@ -172,36 +213,6 @@ func renderReactWorkspacePage(result *Result, target Resource, reactRoot string,
 		}
 		b.WriteString("</QueryState>}")
 	}
-	b.WriteString(" tabs={[\n")
-	for index, tab := range tabs {
-		fmt.Fprintf(&b, "    { name: %s, label: %s", strconv.Quote(stringValue(tab["name"])), strconv.Quote(stringValue(tab["label"])))
-		if description := stringValue(tab["description"]); description != "" {
-			fmt.Fprintf(&b, ", description: %s", strconv.Quote(description))
-		}
-		if group := stringValue(tab["group"]); group != "" {
-			fmt.Fprintf(&b, ", group: %s", strconv.Quote(group))
-		}
-		if count := stringValue(tab["count"]); count != "" {
-			fmt.Fprintf(&b, ", count: statsState.kind === \"result\" ? statsState.value.%s : undefined", tsName(count))
-		}
-		if available := stringValue(tab["available"]); available != "" {
-			fmt.Fprintf(&b, ", available: statsState.kind === \"result\" ? statsState.value.%s : undefined", tsName(available))
-		}
-		if reason := stringValue(tab["unavailable_reason"]); reason != "" {
-			fmt.Fprintf(&b, ", unavailableReason: %s", strconv.Quote(reason))
-		}
-		if destination := stringValue(tab["destination"]); destination != "" {
-			fmt.Fprintf(&b, ", destination: %s", strconv.Quote(destination))
-		} else if pageRef := refString(tab["page"]); pageRef != "" {
-			child := resources[resolveResourceRef(page.workspace, pageRef, "table_page")]
-			if child.Kind == "scenery.content-page" && refString(child.Spec["source"]) == "" {
-				fmt.Fprintf(&b, ", content: <SceneryWorkspaceTab%d />", index+1)
-			} else {
-				fmt.Fprintf(&b, ", content: <SceneryWorkspaceTab%d client={client} />", index+1)
-			}
-		}
-		b.WriteString(" },\n")
-	}
-	b.WriteString("  ]} />;\n}\n")
+	b.WriteString(" tabs={workspaceAccess.tabs} />;\n}\n")
 	return b.String(), nil
 }

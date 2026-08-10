@@ -2,8 +2,8 @@ lock {}
 
 provider "durable" {
   source = "registry.scenery.dev/core/durable"
-  integrity = "sha256:036dd947333a33133062d9ba104f9709e16932940135ec65a8c4e86a8544de3a"
-  compile_descriptor_digest = "sha256:036dd947333a33133062d9ba104f9709e16932940135ec65a8c4e86a8544de3a"
+  integrity = "sha256:5a6061e9fc4b5a3175ceae95f80bc7f95a28cdf57552459b1863ef078acd7220"
+  compile_descriptor_digest = "sha256:5a6061e9fc4b5a3175ceae95f80bc7f95a28cdf57552459b1863ef078acd7220"
   runtime_abi = "scenery.execution-runtime/v1"
   deployment_abi = "scenery.deployment-provider/v1"
 }

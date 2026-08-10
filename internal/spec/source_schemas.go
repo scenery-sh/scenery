@@ -253,7 +253,7 @@ var (
 	contentPageSlotSourceSchema = sourceSchema("scenery.content-page.slot", 0,
 		[]string{"component"}, []string{"component"}, nil)
 	workspacePageTabSourceSchema = sourceSchema("scenery.workspace-page.tab", 1,
-		[]string{"page", "destination", "label", "description", "group", "count", "available", "unavailable_reason"}, []string{"label"}, nil)
+		[]string{"page", "destination", "label", "description", "group", "count", "available", "unavailable_reason", "application_key", "access_key"}, []string{"label"}, nil)
 	workspacePageStatsSourceSchema = sourceSchema("scenery.workspace-page.stats", 0,
 		[]string{"source"}, []string{"source"}, map[string]authoredChildSchema{
 			"tile": repeated(sourceSchema("scenery.workspace-page.stats.tile", 1,
