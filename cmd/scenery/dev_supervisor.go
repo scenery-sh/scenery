@@ -2066,6 +2066,11 @@ func (s *devSupervisor) sessionProcessesFor(session *localagent.Session, appPID 
 		return nil
 	}
 	processes := copySessionProcesses(session.Processes)
+	for key := range processes {
+		if strings.HasPrefix(key, "assistant-") {
+			delete(processes, key)
+		}
+	}
 	if pid := atoiPID(appPID); pid > 0 {
 		processes[localagent.RouteAPI] = localagent.Process{PID: pid}
 	}

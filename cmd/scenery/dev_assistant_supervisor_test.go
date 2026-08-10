@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/assistantruntime"
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/graph"
@@ -113,6 +114,38 @@ func TestAssistantCloseStopsOwnedInstance(t *testing.T) {
 	}
 	if !process.stoppedForTest() {
 		t.Fatal("close did not observe process stop")
+	}
+}
+
+func TestSessionProcessesReplaceAssistantSnapshot(t *testing.T) {
+	assistants := newAssistantSupervisor(context.Background(), assistantSupervisorConfig{Root: t.TempDir()})
+	process := &devManagedProcess{PID: 42, done: make(chan struct{}), outputDone: make(chan struct{})}
+	close(process.done)
+	assistants.mu.Lock()
+	assistants.instances["app/assistant/current"] = &assistantProcessInstance{
+		definition: assistantDefinition{Address: "app/assistant/current", Name: "current"},
+		process:    process,
+	}
+	assistants.mu.Unlock()
+	t.Cleanup(func() { _ = assistants.Close() })
+
+	supervisor := &devSupervisor{assistants: assistants}
+	processes := supervisor.sessionProcessesFor(&localagent.Session{Processes: map[string]localagent.Process{
+		"assistant-stale": {PID: 41},
+		"frontend-app":    {PID: 40},
+	}}, "43")
+
+	if _, ok := processes["assistant-stale"]; ok {
+		t.Fatalf("stale assistant process was retained: %+v", processes)
+	}
+	if got := processes["assistant-current"].PID; got != 42 {
+		t.Fatalf("current assistant PID = %d, want 42", got)
+	}
+	if got := processes[localagent.RouteAPI].PID; got != 43 {
+		t.Fatalf("API PID = %d, want 43", got)
+	}
+	if got := processes["frontend-app"].PID; got != 40 {
+		t.Fatalf("frontend PID = %d, want 40", got)
 	}
 }
 
