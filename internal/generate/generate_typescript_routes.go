@@ -309,6 +309,7 @@ export type SceneryAppSlots = {
   readonly afterContent?: ReactNode;
   readonly linkComponent?: ClientAppShellProps["linkComponent"];
   readonly navigationToggleIcon?: ReactNode;
+  readonly useNavigationRevision?: () => unknown;
   readonly resolveNavigationIcon?: (name: string) => ReactNode;
   readonly navigationGroups?: Readonly<
     Record<string, SceneryNavigationGroupOptions>
@@ -340,6 +341,8 @@ export type SceneryAppOptions = {
 };
 
 export function createSceneryApp(options: SceneryAppOptions = {}) {
+  const useNavigationRevision =
+    options.slots?.useNavigationRevision ?? useStaticNavigationRevision;
   const routes: readonly SceneryRouteDescriptor[] = [
     ...createGeneratedRoutes(options.client),
     ...(options.routes ?? []),
@@ -370,6 +373,7 @@ export function createSceneryApp(options: SceneryAppOptions = {}) {
   const rootRoute = createRootRoute({ component: RootRoute });
 
   function ShellRoute() {
+    useNavigationRevision();
     const currentPath = useRouterState({
       select: (state) => state.location.pathname,
     });
@@ -456,6 +460,10 @@ export function createSceneryApp(options: SceneryAppOptions = {}) {
 
 function RootOutlet() {
   return <Outlet />;
+}
+
+function useStaticNavigationRevision(): undefined {
+  return undefined;
 }
 
 function SceneryRoutedAccessBoundary({

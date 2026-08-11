@@ -1693,6 +1693,8 @@ func (service *Service) SceneQuickCreate(_ context.Context, _ housecontract.Scen
 		"createSceneryApp",
 		"ClientAppShell",
 		"navigationSections",
+		`readonly useNavigationRevision?: () => unknown;`,
+		"useNavigationRevision();",
 		"SceneryRouteAccessBoundary",
 		"SceneryAccessProvider",
 		`return { router, App: SceneryApp, routes }`,

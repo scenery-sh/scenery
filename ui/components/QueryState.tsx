@@ -6,6 +6,7 @@ import { Text } from "@astryxdesign/core/Text";
 import { spacingVars } from "@astryxdesign/core/theme/tokens.stylex";
 import * as stylex from "@stylexjs/stylex";
 import type { ReactNode } from "react";
+import { safeRequestErrorMessage } from "./request-state.js";
 
 export interface QueryStateProps {
   error?: unknown;
@@ -90,7 +91,14 @@ export function TableEmptyRow({
 }
 
 function defaultErrorMessage(error: unknown) {
-  return error instanceof Error ? error.message : "Unexpected API error";
+  if (error instanceof Error) {
+    const code =
+      "code" in error && typeof error.code === "string"
+        ? error.code
+        : "unexpected";
+    return safeRequestErrorMessage(code, error.message);
+  }
+  return "Something went wrong while loading this page.";
 }
 
 const styles = stylex.create({

@@ -57,7 +57,25 @@ export function queryStateProps<Result extends object>(
 }
 
 function problemMessage(error: unknown) {
-  return isProblem(error) ? error.message : "Unexpected API error";
+  return isProblem(error)
+    ? safeRequestErrorMessage(error.code, error.message)
+    : "Something went wrong while loading this page.";
+}
+
+/** Keep generated transport details out of user-facing request states. */
+export function safeRequestErrorMessage(code: string, message: string) {
+  const normalizedCode = code.trim().toLowerCase();
+  const normalizedMessage = message.trim().toLowerCase();
+  if (
+    normalizedCode === "server" ||
+    normalizedCode === "system.internal" ||
+    normalizedCode === "unexpected" ||
+    normalizedMessage.includes("system.internal") ||
+    normalizedMessage.startsWith("unexpected response ")
+  ) {
+    return "Something went wrong while loading this page.";
+  }
+  return message.trim() || "Something went wrong while loading this page.";
 }
 
 function isProblem(value: unknown): value is Problem {

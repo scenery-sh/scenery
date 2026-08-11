@@ -42,6 +42,7 @@ export function defineContentPageSlots<Data>() {
 
 export type PageNavigation = {
   icon: ReactNode;
+  isAvailable?: boolean;
   isCollapsed: boolean;
   onToggle: () => void;
   shortcut?: string;
@@ -69,12 +70,18 @@ export function PageNavigationToggle() {
 
   const action = navigation.isCollapsed ? "Expand" : "Collapse";
   const shortcut = navigation.shortcut ?? "⌘B";
+  const isAvailable = navigation.isAvailable !== false;
   return (
     <IconButton
       icon={navigation.icon}
+      isDisabled={!isAvailable}
       label={`${action} side nav`}
       onClick={navigation.onToggle}
-      tooltip={`${action} side nav (${shortcut})`}
+      tooltip={
+        isAvailable
+          ? `${action} side nav (${shortcut})`
+          : "Navigation is loading"
+      }
       variant="ghost"
       xstyle={styles.navToggle}
     />

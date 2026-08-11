@@ -64,10 +64,11 @@ export function ClientAppShell({
   return (
     <PageLayoutProvider
       navigation={
-        hasNavigation && navigationToggleIcon
+        (hasNavigation || contentGroup !== undefined) && navigationToggleIcon
           ? {
               icon: navigationToggleIcon,
-              isCollapsed: isNavigationCollapsed,
+              isAvailable: hasNavigation,
+              isCollapsed: isNavigationCollapsed || !hasNavigation,
               onToggle: toggleNavigation,
             }
           : undefined
