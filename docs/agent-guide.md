@@ -218,6 +218,7 @@ Use `-o json` for compiler commands and command-specific current protocols. Neve
 | Initialize/sync an assistant | `scenery assistant init|sync|status ... -o json` |
 | Follow logs | `scenery logs -o jsonl --limit 200` |
 | Inspect traces and metrics | `scenery traces list -o json`, `scenery metrics list -o json` |
+| Inspect CLI timing by app | `scenery telemetry [--app <id-or-name>] [--since <duration>] -o json` |
 | Run code tasks | `scenery task list -o json`, `scenery task run <domain>:<name> -- [args...]` |
 | Inspect databases | `scenery db list -o json`, `scenery db shell` |
 | Apply initial DB state | `scenery db apply -o json`, `scenery db seed -o json`, `scenery db setup -o json` |
@@ -398,7 +399,7 @@ scenery is a Go-native service runtime and local development platform. Think in 
 - `scenery prune --older-than <duration>` removes only eligible stale session records and their matching substrate leases by default; filesystem state and managed databases require explicit `--state`, `--db`, or `--all`. `scenery system agent cleanup` is the explicit pre-rebrand sweep and signals only same-user processes whose exact legacy managed path and live ownership fingerprint both verify; legacy state removal additionally requires `--remove-state`.
 - Portable snapshots can be verified without a target app or stopped runtime. Scheduled retention, off-machine copy, and restore drills remain operator-owned through `scripts/snapshot-backup.sh` plus the host scheduler.
 - `scenery system agent restart` restarts only the local control plane and router. Registered shared substrate processes survive; destructive shutdown stays with substrate-specific commands and verified lifecycle owners.
-- Every CLI invocation best-effort appends one coarse, argument-free usage record to `~/.scenery/telemetry.jsonl`; telemetry write failures never affect the command result.
+- Every CLI invocation best-effort appends one coarse, argument-free timing record to `~/.scenery/telemetry.jsonl`; configured invocations include only stable app ID/name attribution, never paths. `scenery telemetry` exposes bounded recent records and overall/per-app/per-command summaries with repeatable app and command filters. Historical app-less records remain unattributed, and telemetry failures never affect the measured command result.
 - `.scenery.json` declares named `envs`; exactly one reserved `local` env is default. Top-level `root` selects one configured frontend for `/` across all envs and surfaces, with a single-frontend default. The selected env owns domain/exposure/ports, frontend serve modes, deploy targets, dotenv layering, and secret strictness. `scenery up --env <name>` selects it, session manifests record it, and failed branded-domain validation stays on localhost without redirecting to another env.
 - A frontend-level `tauri` block marks that frontend as a Tauri 2 web surface.
   Its optional app-root-relative `root` contains `src-tauri`; both dev and build

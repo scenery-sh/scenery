@@ -388,6 +388,7 @@ scenery inspect docs -o json [--repo-root <path>] [--for-path <path>|--tag <tag>
 scenery traces list -o json [--app-root <path>]
 scenery metrics list -o json [--app-root <path>]
 scenery traces clear -o json [--app-root <path>]
+scenery telemetry [--app <id-or-name>]... [--command <coarse-command>]... [--since <duration>] [--limit <n>] [-o human|json]
 scenery logs [--app-root <path>] [--limit <n>] [--stream all|stdout|stderr] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>] [--follow] [-o jsonl|-o json]
 scenery test [--app-root <path>] [go test flags/packages...]
 scenery db list [--app-root <path>] [-o json]
@@ -406,7 +407,7 @@ scenery worktree list [--app-root <path>] [-o json]
 scenery worktree remove <name> [--app-root <path>] [--db] [-o json]
 ```
 
-Each invocation best-effort appends command, duration, exit code, version, and `oneshot` or `long_running` mode to `~/.scenery/telemetry.jsonl`. Full arguments are never recorded, and telemetry write failures never affect the command.
+Each invocation best-effort appends command, duration, exit code, version, and `oneshot` or `long_running` mode to `~/.scenery/telemetry.jsonl`. When the invocation belongs to a configured app, the record also carries its stable app ID and display name; filesystem paths and full arguments are never recorded. `scenery telemetry` reads that owner-only stream with bounded recent records, overall/per-app/per-command timing summaries, and repeatable app or command filters. Telemetry write failures never affect the command.
 
 `scenery system agent restart` restarts only the local control plane and router; registered shared Postgres and Victoria processes keep their PIDs. Destructive substrate shutdown stays with substrate-specific commands.
 
@@ -517,6 +518,7 @@ scenery inspect routes -o json
 scenery inspect endpoints -o json
 scenery traces list -o json --since 15m --slowest
 scenery metrics list -o json --since 1h
+scenery telemetry --since 24h --app my-app -o json
 scenery ps -o json
 scenery harness -o json --write
 ```

@@ -220,6 +220,7 @@ scenery inspect app|routes|services|endpoints|durable|storage|ui -o json
 scenery inspect assistants [--implementation] -o json
 scenery assistant init|sync|status ... -o json
 scenery logs [-o jsonl] [--limit <n>] [--follow]
+scenery telemetry [--app <id-or-name>]... [--command <coarse-command>]... [--since <duration>] [--limit <n>] [-o human|json]
 scenery up [--env <name>] [--app-root <path>] [--desktop] [-o jsonl] [--detach]
 scenery ps [--app-root <path>] [-o json]
 scenery down [--app-root <path>] [-o json]

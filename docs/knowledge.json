@@ -19,6 +19,19 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0152-cli-timing-telemetry.md",
+      "title": "CLI Timing Telemetry",
+      "owner": "scenery CLI / observability",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-08-11",
+      "review_after": "2026-09-10",
+      "summary": "Completed ExecPlan exposing bounded CLI timing telemetry with privacy-preserving app attribution, filtering, and grouped machine-readable summaries.",
+      "tags": ["plans", "execplans", "cli", "telemetry", "timing", "observability", "apps"],
+      "schema_refs": ["docs/schemas/scenery.telemetry.schema.json"]
+    },
+    {
       "path": "docs/plans/0151-route-access-audit-identity.md",
       "title": "Generated Route Access and Audit Identity",
       "owner": "scenery generated clients / auth",
@@ -1548,6 +1561,7 @@
         "docs/schemas/scenery.metrics.labels.schema.json",
         "docs/schemas/scenery.metrics.query.schema.json",
         "docs/schemas/scenery.metrics.series.schema.json",
+        "docs/schemas/scenery.telemetry.schema.json",
         "docs/schemas/scenery.harness.ui.schema.json",
         "docs/schemas/scenery.harness.ui.dom.schema.json",
         "docs/schemas/scenery.inspect.validation.schema.json",

@@ -11,6 +11,19 @@ historical records. Do not refresh their review dates or rewrite them as current
 contract prose. Record later guidance here or in the owning current contract;
 use stale knowledge metadata to flag a known contradiction.
 
+## CLI Timing Telemetry
+
+- Status: completed
+- Owner: scenery CLI / observability
+- Completed: 2026-08-11
+- Quality: B
+- ExecPlan: [0152 CLI Timing Telemetry](0152-cli-timing-telemetry.md)
+
+Added `scenery telemetry` with bounded recent records, overall/per-app/per-command
+timing summaries, repeatable app/command filters, and exact current JSON output.
+New records carry configured app ID/name without filesystem paths; historical
+records remain readable as unattributed data.
+
 ## Generated Route Access and Audit Identity
 
 - Status: completed

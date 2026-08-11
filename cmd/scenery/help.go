@@ -106,6 +106,7 @@ var rootHelpGroups = []helpRootGroup{
 	{Name: "Observability", Entries: []helpRootEntry{
 		{Command: "traces", Summary: "List or clear local traces"},
 		{Command: "metrics", Summary: "List, query, and inspect local metrics"},
+		{Command: "telemetry", Summary: "Inspect CLI command timings"},
 	}},
 	{Name: "System", Entries: []helpRootEntry{
 		{Command: "doctor", Summary: "Check host and app readiness"},
@@ -215,6 +216,7 @@ var helpReferenceGroups = []helpReferenceGroup{
 		"scenery inspect harness timing",
 		"scenery inspect assistants",
 		"scenery inspect assistants --implementation",
+		"scenery telemetry",
 	}},
 	{Name: "Assistants", Commands: []string{
 		"scenery assistant init",
@@ -580,6 +582,17 @@ var helpCommands = []helpCommandEntry{
 		Flags:       []string{"-o", "json", "--app-root <path>", "--promql <query>", "--match <selector>", "--instant", "--since <duration>", "--start <time>", "--end <time>", "--step <duration>", "--timeout <duration>", "--limit <n>"},
 		JSON:        true,
 		Stability:   "stable",
+	},
+	{
+		Command:       "telemetry",
+		Group:         "Observability",
+		Summary:       "Inspect bounded CLI command timing telemetry and grouped app summaries.",
+		Usage:         []string{"scenery telemetry [--app <id-or-name>]... [--command <coarse-command>]... [--since <duration>] [--limit <n>] [-o human|json]"},
+		Flags:         []string{"--app <id-or-name>", "--command <coarse-command>", "--since <duration>", "--limit <n>", "-o human|json"},
+		Notes:         []string{"Repeat --app or --command to match any requested value.", "New records carry configured app ID and name only; filesystem paths and raw arguments are never recorded.", "Historical records without app identity remain visible as unattributed unless an app filter is selected."},
+		OutputSchemas: []helpOutputSchema{{Mode: "query", Kind: cliTelemetryPayloadKind}},
+		JSON:          true,
+		Stability:     "stable",
 	},
 	{
 		Command:   "doctor",

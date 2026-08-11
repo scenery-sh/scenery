@@ -32,13 +32,15 @@ func executeCLI(args []string) int {
 	started := time.Now()
 	err := renderMachineError(os.Stdout, args, run(args))
 	exitCode := cliExitCode(err)
+	durationMS := time.Since(started).Milliseconds()
 	recordCLITelemetry(cliTelemetryRecord{
 		At:         started.UTC(),
 		Command:    telemetryCommand(args),
-		DurationMS: time.Since(started).Milliseconds(),
+		DurationMS: durationMS,
 		ExitCode:   exitCode,
 		Version:    sceneryVersion,
 		Mode:       telemetryMode(args),
+		App:        telemetryInvocationApp(args),
 	})
 	if err != nil {
 		if _, silent := errors.AsType[*silentCLIError](err); !silent {
@@ -223,6 +225,8 @@ func run(args []string) error {
 		return tracesCommand(args[1:])
 	case "metrics":
 		return metricsCommand(args[1:])
+	case "telemetry":
+		return runTelemetryCommand(os.Stdout, args[1:])
 	case "system":
 		return systemCommand(args[1:])
 	case "internal":

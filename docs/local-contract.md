@@ -41,11 +41,14 @@ scenery snapshot verify --input <file.zip> [-o human|json]
 scenery snapshot load --input <file.zip> [--db] [--storage] --mode overwrite|merge [--on-conflict fail|skip|overwrite] [--yes] [--dry-run] [--app-root <path>] [-o human|json]
 scenery deploy plan <deployment> --out <plan> [-o human|json]
 scenery deploy apply <plan> --expect-workspace-revision <rev> --expect-contract-revision <rev> [--approval-token <file>] [-o human|json]
+scenery telemetry [--app <id-or-name>]... [--command <coarse-command>]... [--since <duration>] [--limit <n>] [-o human|json]
 ```
 
 `-o json` selects the singular `scenery.cli` envelope. It always carries `kind`, digest `schema_revision` and `spec_revision`, `producer`, `ok`, nullable graph revision fields, `data`, and ordered `diagnostics`; command-specific schemas describe `data`. `workspace_revision` and `contract_revision` are a canonical digest or null. `implementation_revision` and `deployment_revision` are a canonical digest, a target-to-digest object, or null; other JSON shapes fail decoding. `-o jsonl` emits `scenery.cli.event` envelopes with the same identity fields, monotonically increasing sequence numbers, an `event` discriminator, and one terminal summary event. Decoders accept only the exact current schema revision, which is the complete self-normalized digest of the matching checked JSON Schema. Exit status is 0 for success, 1 for a false diff/check predicate, 2 for invalid input, 3 for revision conflict or failed precondition, 4 for unavailable capability, 5 for denied permission/approval, and 10 for internal failure.
 
-Every CLI invocation best-effort appends one JSON object to `~/.scenery/telemetry.jsonl`, with owner-only file permissions. Records contain only UTC `at`, coarse `command`, `duration_ms`, `exit_code`, `version`, and `mode`; mode is `long_running` for `up`, `worker`, `console`, and `logs --follow`, and `oneshot` otherwise. Command classification retains at most the known command and subcommand and never stores flags, paths, SQL, tokens, storage keys, or task arguments. Telemetry encoding, directory, open, or write failures are ignored and never change command output or exit status.
+Every CLI invocation best-effort appends one JSON object to `~/.scenery/telemetry.jsonl`, with owner-only file permissions. Records contain only UTC `at`, coarse `command`, `duration_ms`, `exit_code`, `version`, and `mode`; when app discovery succeeds they additionally contain configured `app.id` and `app.name`. Mode is `long_running` for `up`, `worker`, `console`, and `logs --follow`, and `oneshot` otherwise. Command classification retains at most the known command and subcommand and never stores flags, filesystem paths, SQL, tokens, storage keys, or task arguments. App attribution is resolved after the measured duration, so discovery overhead is excluded. Telemetry encoding, discovery, directory, open, or write failures are ignored and never change command output or exit status.
+
+`scenery telemetry [--app <id-or-name>]... [--command <coarse-command>]... [--since <duration>] [--limit <n>] [-o human|json]` streams that file and retains at most the requested recent records (default 100, maximum 10,000) while calculating overall, per-app, and per-command timing summaries. App and command filters are repeatable OR filters; supplying both filter classes combines them with AND. App filters exactly match configured ID or name. Historical records without app identity remain visible as unattributed when no app filter is selected. JSON data uses kind `scenery.telemetry` and the exact checked schema in `docs/schemas/scenery.telemetry.schema.json`.
 
 The checked-in diagnostic registry is publicly inspectable with `schema.get` using either the manifest's digest `diagnostic_catalog` identity or one `SCNxxxx` code. Request failures use `SCN8001` through `SCN8005`; only internal failures use `SCN9000` through `SCN9099`. Every internal failure carries an opaque `report_token` and a sanitized stable message, never its raw cause.
 
@@ -700,6 +703,7 @@ scenery metrics query -o json [--app-root <path>] --promql <query> [--instant] [
 scenery metrics labels -o json [--app-root <path>] [--match <selector>] [--since <duration>] [--start <time>] [--end <time>] [--timeout <duration>] [--limit <n>]
 scenery metrics series -o json [--app-root <path>] --match <selector> [--since <duration>] [--start <time>] [--end <time>] [--timeout <duration>] [--limit <n>]
 scenery traces clear -o json [--app-root <path>]
+scenery telemetry [--app <id-or-name>]... [--command <coarse-command>]... [--since <duration>] [--limit <n>] [-o human|json]
 ```
 
 Implemented beta/dev helper grammar:
@@ -1195,6 +1199,7 @@ Implemented now:
 - [scenery.metrics.query.schema.json](schemas/scenery.metrics.query.schema.json)
 - [scenery.metrics.labels.schema.json](schemas/scenery.metrics.labels.schema.json)
 - [scenery.metrics.series.schema.json](schemas/scenery.metrics.series.schema.json)
+- [scenery.telemetry.schema.json](schemas/scenery.telemetry.schema.json)
 - [scenery.inspect.docs.schema.json](schemas/scenery.inspect.docs.schema.json)
 - [scenery.docs.index.schema.json](schemas/scenery.docs.index.schema.json)
 - [scenery.inspect.build.schema.json](schemas/scenery.inspect.build.schema.json)

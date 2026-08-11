@@ -1,0 +1,142 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.telemetry.schema.json",
+  "title": "scenery telemetry",
+  "type": "object",
+  "required": [
+    "kind",
+    "schema_revision",
+    "query",
+    "summary",
+    "apps",
+    "commands",
+    "records",
+    "warnings"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "kind": {
+      "const": "scenery.telemetry"
+    },
+    "schema_revision": {
+      "const": "sha256:03b7b7c679eaa1d5d3d1aa72ac2d048aca1b619f10d8b2c8d0ef058e44ee5386"
+    },
+    "query": {
+      "type": "object",
+      "required": ["apps", "commands", "limit"],
+      "additionalProperties": false,
+      "properties": {
+        "apps": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        },
+        "commands": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        },
+        "since": {"type": "string", "format": "date-time"},
+        "limit": {"type": "integer", "minimum": 1, "maximum": 10000}
+      }
+    },
+    "summary": {
+      "allOf": [
+        {"$ref": "#/$defs/timingStats"},
+        {
+          "type": "object",
+          "required": ["returned_count", "invalid_record_count", "unattributed_count"],
+          "properties": {
+            "returned_count": {"type": "integer", "minimum": 0},
+            "invalid_record_count": {"type": "integer", "minimum": 0},
+            "unattributed_count": {"type": "integer", "minimum": 0}
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "apps": {
+      "type": "array",
+      "items": {
+        "allOf": [
+          {"$ref": "#/$defs/timingStats"},
+          {
+            "type": "object",
+            "required": ["app"],
+            "properties": {"app": {"$ref": "#/$defs/app"}}
+          }
+        ],
+        "unevaluatedProperties": false
+      }
+    },
+    "commands": {
+      "type": "array",
+      "items": {
+        "allOf": [
+          {"$ref": "#/$defs/timingStats"},
+          {
+            "type": "object",
+            "required": ["command"],
+            "properties": {"command": {"type": "string", "minLength": 1}}
+          }
+        ],
+        "unevaluatedProperties": false
+      }
+    },
+    "records": {
+      "type": "array",
+      "maxItems": 10000,
+      "items": {"$ref": "#/$defs/record"}
+    },
+    "warnings": {
+      "type": "array",
+      "items": {"type": "string"}
+    }
+  },
+  "$defs": {
+    "app": {
+      "type": "object",
+      "required": ["id", "name"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "name": {"type": "string", "minLength": 1}
+      }
+    },
+    "timingStats": {
+      "type": "object",
+      "required": [
+        "count",
+        "success_count",
+        "failure_count",
+        "total_duration_ms",
+        "avg_duration_ms",
+        "min_duration_ms",
+        "max_duration_ms"
+      ],
+      "properties": {
+        "count": {"type": "integer", "minimum": 0},
+        "success_count": {"type": "integer", "minimum": 0},
+        "failure_count": {"type": "integer", "minimum": 0},
+        "total_duration_ms": {"type": "integer", "minimum": 0},
+        "avg_duration_ms": {"type": "number", "minimum": 0},
+        "min_duration_ms": {"type": "integer", "minimum": 0},
+        "max_duration_ms": {"type": "integer", "minimum": 0}
+      }
+    },
+    "record": {
+      "type": "object",
+      "required": ["at", "command", "duration_ms", "exit_code", "version", "mode"],
+      "additionalProperties": false,
+      "properties": {
+        "at": {"type": "string", "format": "date-time"},
+        "command": {"type": "string", "minLength": 1},
+        "duration_ms": {"type": "integer", "minimum": 0},
+        "exit_code": {"type": "integer"},
+        "version": {"type": "string"},
+        "mode": {"enum": ["oneshot", "long_running"]},
+        "app": {"$ref": "#/$defs/app"}
+      }
+    }
+  }
+}
