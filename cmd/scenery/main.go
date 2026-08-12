@@ -30,18 +30,10 @@ func main() {
 
 func executeCLI(args []string) int {
 	started := time.Now()
-	err := renderMachineError(os.Stdout, args, run(args))
+	telemetry := newCLITelemetryInvocation(started, args)
+	err := renderMachineError(os.Stdout, args, runWithCLITelemetry(args, telemetry))
 	exitCode := cliExitCode(err)
-	durationMS := time.Since(started).Milliseconds()
-	recordCLITelemetry(cliTelemetryRecord{
-		At:         started.UTC(),
-		Command:    telemetryCommand(args),
-		DurationMS: durationMS,
-		ExitCode:   exitCode,
-		Version:    sceneryVersion,
-		Mode:       telemetryMode(args),
-		App:        telemetryInvocationApp(args),
-	})
+	telemetry.finish(exitCode)
 	if err != nil {
 		if _, silent := errors.AsType[*silentCLIError](err); !silent {
 			fmt.Fprintln(os.Stderr, err)
@@ -139,6 +131,10 @@ func init() {
 }
 
 func run(args []string) error {
+	return runWithCLITelemetry(args, nil)
+}
+
+func runWithCLITelemetry(args []string, telemetry *cliTelemetryInvocation) error {
 	if len(args) == 0 {
 		writeRootHelp(os.Stdout)
 		return nil
@@ -149,7 +145,7 @@ func run(args []string) error {
 	case "completion":
 		return runBindingCompletion(os.Stdout, args[1:])
 	case "up":
-		return upCommand(args[1:])
+		return upCommandWithTelemetry(args[1:], telemetry)
 	case "ps":
 		return statusCommand(args[1:])
 	case "console":
@@ -345,16 +341,28 @@ var (
 )
 
 func upCommand(args []string) error {
+	return upCommandWithTelemetry(args, nil)
+}
+
+func upCommandWithTelemetry(args []string, telemetry *cliTelemetryInvocation) error {
 	opts, err := parseDevArgs(args)
 	if err != nil {
 		return err
 	}
 	warnDevEscapeHatches(opts)
 	if opts.Detach && !detachedDevChildMode() {
+		// The detached child owns readiness and writes the startup sample. The
+		// launcher only waits and renders the result, so recording it as well
+		// would duplicate one startup.
+		telemetry.suppress()
 		return runDetachedDevFunc(args, opts)
 	}
 	listen := resolveDevListenRequest(opts)
-	return runWithWatchFunc(listen, opts.Verbose, opts.JSON, opts.Desktop, opts.AppRoot, opts.Env)
+	var onReady func()
+	if telemetry != nil {
+		onReady = telemetry.startupReady
+	}
+	return runWithWatchFunc(listen, opts.Verbose, opts.JSON, opts.Desktop, opts.AppRoot, opts.Env, onReady)
 }
 
 func validateRuntimePlan(appRootOption string) error {

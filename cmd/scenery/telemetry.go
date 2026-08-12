@@ -16,13 +16,93 @@ type cliTelemetryApp struct {
 }
 
 type cliTelemetryRecord struct {
-	At         time.Time        `json:"at"`
-	Command    string           `json:"command"`
-	DurationMS int64            `json:"duration_ms"`
-	ExitCode   int              `json:"exit_code"`
-	Version    string           `json:"version"`
-	Mode       string           `json:"mode"`
-	App        *cliTelemetryApp `json:"app,omitempty"`
+	At          time.Time        `json:"at"`
+	Command     string           `json:"command"`
+	DurationMS  int64            `json:"duration_ms"`
+	ExitCode    int              `json:"exit_code"`
+	Version     string           `json:"version"`
+	Mode        string           `json:"mode"`
+	Measurement string           `json:"measurement,omitempty"`
+	App         *cliTelemetryApp `json:"app,omitempty"`
+}
+
+const (
+	cliTelemetryMeasurementCompletion = "completion"
+	cliTelemetryMeasurementStartup    = "startup"
+)
+
+// cliTelemetryInvocation records ordinary commands on completion and `up`
+// when its owner reaches readiness. `up` completion is intentionally omitted:
+// an attached supervisor's eventual exit measures process lifetime, not
+// startup latency.
+type cliTelemetryInvocation struct {
+	started         time.Time
+	args            []string
+	now             func() time.Time
+	startupRecorded bool
+	suppressed      bool
+}
+
+func newCLITelemetryInvocation(started time.Time, args []string) *cliTelemetryInvocation {
+	return &cliTelemetryInvocation{
+		started: started,
+		args:    append([]string(nil), args...),
+		now:     time.Now,
+	}
+}
+
+func (i *cliTelemetryInvocation) suppress() {
+	if i != nil {
+		i.suppressed = true
+	}
+}
+
+func (i *cliTelemetryInvocation) startupReady() {
+	if i == nil || i.suppressed || i.startupRecorded || telemetryCommand(i.args) != "up" {
+		return
+	}
+	i.startupRecorded = true
+	i.record(cliTelemetryMeasurementStartup, 0)
+}
+
+func (i *cliTelemetryInvocation) finish(exitCode int) {
+	if i == nil || i.suppressed {
+		return
+	}
+	if telemetryCommand(i.args) == "up" {
+		if i.startupRecorded || exitCode == 0 {
+			return
+		}
+		i.startupRecorded = true
+		i.record(cliTelemetryMeasurementStartup, exitCode)
+		return
+	}
+	i.record("", exitCode)
+}
+
+func (i *cliTelemetryInvocation) record(measurement string, exitCode int) {
+	finished := i.now()
+	duration := finished.Sub(i.started)
+	if duration < 0 {
+		duration = 0
+	}
+	recordCLITelemetry(cliTelemetryRecord{
+		At:          i.started.UTC(),
+		Command:     telemetryCommand(i.args),
+		DurationMS:  duration.Milliseconds(),
+		ExitCode:    exitCode,
+		Version:     sceneryVersion,
+		Mode:        telemetryMode(i.args),
+		Measurement: measurement,
+		App:         telemetryInvocationApp(i.args),
+	})
+}
+
+func telemetryRecordMeasurement(record cliTelemetryRecord) string {
+	if record.Measurement == cliTelemetryMeasurementStartup {
+		return cliTelemetryMeasurementStartup
+	}
+	return cliTelemetryMeasurementCompletion
 }
 
 func recordCLITelemetry(record cliTelemetryRecord) {

@@ -285,8 +285,8 @@ func buildHarnessSchemaValidationReport(repoRoot string, resp harnessSelfRespons
 		{name: "inspect.harness", schemaRel: "docs/schemas/scenery.inspect.harness.schema.json", payload: inspectHarnessPayload},
 		{name: "telemetry", schemaRel: "docs/schemas/scenery.telemetry.schema.json", payload: telemetryResponse{
 			cliPayloadIdentity: newCLIPayloadIdentity(cliTelemetryPayloadKind),
-			Query:              telemetryQuery{Apps: []string{}, Commands: []string{}, Limit: defaultTelemetryLimit},
-			Apps:               []telemetryAppStats{}, Commands: []telemetryCommandStats{}, Records: []cliTelemetryRecord{}, Warnings: []string{},
+			Query:              telemetryQuery{Apps: []string{}, Commands: []string{}, Measurements: []string{}, Limit: defaultTelemetryLimit},
+			Apps:               []telemetryAppStats{}, Commands: []telemetryCommandStats{}, Measurements: []telemetryMeasurementStats{}, Records: []cliTelemetryRecord{}, Warnings: []string{},
 		}},
 		{name: "harness.artifact", schemaRel: "docs/schemas/scenery.harness.artifact.schema.json", payload: artifactEvidencePayload},
 		{name: "harness.self", schemaRel: "docs/schemas/scenery.harness.self.schema.json", payload: resp},

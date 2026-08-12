@@ -263,8 +263,16 @@ func (b devBackend) normalized() devBackend {
 	return b
 }
 
-func runWithWatch(listen devListenRequest, verbose, jsonMode, desktop bool, appRoot, envName string) (runErr error) {
+func runWithWatch(listen devListenRequest, verbose, jsonMode, desktop bool, appRoot, envName string, onReady func()) (runErr error) {
 	applyWatchTimingOverridesFromEnv()
+	readyReported := false
+	reportReady := func() {
+		if readyReported || onReady == nil {
+			return
+		}
+		readyReported = true
+		onReady()
+	}
 
 	start, err := resolveAppRoot(appRoot)
 	if err != nil {
@@ -387,6 +395,8 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode, desktop bool, appR
 		if detachedDevChildMode() {
 			return err
 		}
+	} else {
+		reportReady()
 	}
 
 	watcher, err := newFileChangeWatcher(root, snapshot)
@@ -423,6 +433,8 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode, desktop bool, appR
 		supervisor.announceRebuild(appPaths)
 		if err := supervisor.RebuildAndRestart(ctx, false, snapshot); err != nil {
 			supervisor.console.RebuildFailed(err)
+		} else {
+			reportReady()
 		}
 	}
 }

@@ -11,6 +11,20 @@ historical records. Do not refresh their review dates or rewrite them as current
 contract prose. Record later guidance here or in the owning current contract;
 use stale knowledge metadata to flag a known contradiction.
 
+## `scenery up` Startup Telemetry
+
+- Status: completed
+- Owner: scenery CLI / runtime observability
+- Completed: 2026-08-12
+- Quality: B
+- ExecPlan: [0153 `scenery up` Startup Telemetry](0153-up-startup-telemetry.md)
+
+`scenery up` now writes one explicit startup measurement at owner readiness
+instead of recording eventual supervisor lifetime. `scenery telemetry` filters
+completion/startup measurements and reports bounded-sample p50/p95 with exact
+sample counts; detached launchers, already-running acquisition, and shutdown do
+not duplicate startup.
+
 ## CLI Timing Telemetry
 
 - Status: completed

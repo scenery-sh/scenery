@@ -19,6 +19,19 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0153-up-startup-telemetry.md",
+      "title": "scenery up Startup Telemetry",
+      "owner": "scenery CLI / runtime observability",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-08-12",
+      "review_after": "2026-09-11",
+      "summary": "Completed ExecPlan separating scenery up readiness timing from supervisor lifetime and exposing app-filtered bounded-sample startup percentiles without detached or shutdown duplicates.",
+      "tags": ["plans", "execplans", "cli", "telemetry", "timing", "startup", "runtime", "observability"],
+      "schema_refs": ["docs/schemas/scenery.telemetry.schema.json"]
+    },
+    {
       "path": "docs/plans/0152-cli-timing-telemetry.md",
       "title": "CLI Timing Telemetry",
       "owner": "scenery CLI / observability",

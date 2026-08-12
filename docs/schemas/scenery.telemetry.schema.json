@@ -10,6 +10,7 @@
     "summary",
     "apps",
     "commands",
+    "measurements",
     "records",
     "warnings"
   ],
@@ -19,11 +20,11 @@
       "const": "scenery.telemetry"
     },
     "schema_revision": {
-      "const": "sha256:03b7b7c679eaa1d5d3d1aa72ac2d048aca1b619f10d8b2c8d0ef058e44ee5386"
+      "const": "sha256:a2cacb0ae5e884f7d8867e875f21b7c93f3ae6086b80d08ea9cc391387e3cc56"
     },
     "query": {
       "type": "object",
-      "required": ["apps", "commands", "limit"],
+      "required": ["apps", "commands", "measurements", "limit"],
       "additionalProperties": false,
       "properties": {
         "apps": {
@@ -34,6 +35,11 @@
         "commands": {
           "type": "array",
           "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        },
+        "measurements": {
+          "type": "array",
+          "items": {"enum": ["completion", "startup"]},
           "uniqueItems": true
         },
         "since": {"type": "string", "format": "date-time"},
@@ -83,6 +89,20 @@
         "unevaluatedProperties": false
       }
     },
+    "measurements": {
+      "type": "array",
+      "items": {
+        "allOf": [
+          {"$ref": "#/$defs/timingStats"},
+          {
+            "type": "object",
+            "required": ["measurement"],
+            "properties": {"measurement": {"enum": ["completion", "startup"]}}
+          }
+        ],
+        "unevaluatedProperties": false
+      }
+    },
     "records": {
       "type": "array",
       "maxItems": 10000,
@@ -112,7 +132,10 @@
         "total_duration_ms",
         "avg_duration_ms",
         "min_duration_ms",
-        "max_duration_ms"
+        "max_duration_ms",
+        "percentile_sample_count",
+        "p50_duration_ms",
+        "p95_duration_ms"
       ],
       "properties": {
         "count": {"type": "integer", "minimum": 0},
@@ -121,7 +144,10 @@
         "total_duration_ms": {"type": "integer", "minimum": 0},
         "avg_duration_ms": {"type": "number", "minimum": 0},
         "min_duration_ms": {"type": "integer", "minimum": 0},
-        "max_duration_ms": {"type": "integer", "minimum": 0}
+        "max_duration_ms": {"type": "integer", "minimum": 0},
+        "percentile_sample_count": {"type": "integer", "minimum": 0, "maximum": 10000},
+        "p50_duration_ms": {"type": "integer", "minimum": 0},
+        "p95_duration_ms": {"type": "integer", "minimum": 0}
       }
     },
     "record": {
@@ -135,6 +161,7 @@
         "exit_code": {"type": "integer"},
         "version": {"type": "string"},
         "mode": {"enum": ["oneshot", "long_running"]},
+        "measurement": {"const": "startup"},
         "app": {"$ref": "#/$defs/app"}
       }
     }
