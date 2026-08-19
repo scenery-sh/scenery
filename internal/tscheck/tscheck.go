@@ -37,10 +37,10 @@ func ManagedBinary(ctx context.Context, appRoot string) (string, error) {
 		return "", err
 	}
 	store.ManifestSHA256 = toolchain.BundledManifestSHA256()
-	if _, err := store.Sync(ctx, toolchain.Options{RootDir: appRoot, Tool: "tsgo"}); err != nil {
+	if _, err := store.Sync(ctx, toolchain.Options{RootDir: appRoot, Tool: "tsc"}); err != nil {
 		return "", fmt.Errorf("SCN6322: native TypeScript checker is unavailable: %w", err)
 	}
-	status, err := store.Path(ctx, "tsgo", toolchain.CurrentPlatform())
+	status, err := store.Path(ctx, "tsc", toolchain.CurrentPlatform())
 	if err != nil {
 		return "", fmt.Errorf("SCN6322: native TypeScript checker is unavailable: %w", err)
 	}

@@ -21,7 +21,7 @@ func TestCheckClassifiesGeneratedAndApplicationDiagnostics(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "tsconfig.json"), []byte(`{}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	binary := filepath.Join(root, "tsgo")
+	binary := filepath.Join(root, "tsc")
 	if err := os.WriteFile(binary, []byte("#!/bin/sh\nprintf '%s\\n' \"$SCENERY_TSCHECK_OUTPUT\"\nexit 1\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func TestCheckRedirectsSceneryUIAliasToStagedCatalog(t *testing.T) {
 		t.Fatal(err)
 	}
 	capturePath := filepath.Join(root, "staged-config.json")
-	binary := filepath.Join(root, "tsgo")
+	binary := filepath.Join(root, "tsc")
 	script := `#!/bin/sh
 if [ "$1" = "--showConfig" ]; then
   printf '%s\n' '{"compilerOptions":{"paths":{"@/*":["./src/*"],"@scenery/ui":["./old/index.ts"]}}}'

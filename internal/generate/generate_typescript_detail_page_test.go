@@ -84,9 +84,9 @@ func TestRenderReactDetailPageUsesTypedParamsSharedContentAndRelatedTable(t *tes
 }
 
 func TestGeneratedDetailPageCompilesWithManagedTypeScriptChecker(t *testing.T) {
-	binary := os.Getenv("SCENERY_TSGO_BINARY")
+	binary := os.Getenv("SCENERY_TSC_BINARY")
 	if binary == "" {
-		t.Skip("SCENERY_TSGO_BINARY is not set")
+		t.Skip("SCENERY_TSC_BINARY is not set")
 	}
 	root := t.TempDir()
 	copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), root)

@@ -239,14 +239,14 @@ func doctorReactChecks(root string) []doctor.Check {
 	if !hasReact {
 		return nil
 	}
-	checker := doctor.Check{ID: "typescript.react.checker", Category: "dependency", Name: "Native TypeScript checker", Status: doctor.StatusWarn, Severity: doctor.SeverityOptional, Message: "managed tsgo will be installed on first React generation", SuggestedAction: "Run `scenery system toolchain sync --tool tsgo -o json` to install it now."}
+	checker := doctor.Check{ID: "typescript.react.checker", Category: "dependency", Name: "Native TypeScript checker", Status: doctor.StatusWarn, Severity: doctor.SeverityOptional, Message: "managed TypeScript 7 tsc will be installed on first React generation", SuggestedAction: "Run `scenery system toolchain sync --tool tsc -o json` to install it now."}
 	if manifest, loadErr := toolchain.LoadBundledManifest(); loadErr == nil {
 		if store, storeErr := toolchain.NewStore(toolchain.DefaultStoreDir(root), manifest); storeErr == nil {
 			store.ManifestSHA256 = toolchain.BundledManifestSHA256()
-			if status, pathErr := store.Path(context.Background(), "tsgo", toolchain.CurrentPlatform()); pathErr == nil && status.Status == "installed" {
+			if status, pathErr := store.Path(context.Background(), "tsc", toolchain.CurrentPlatform()); pathErr == nil && status.Status == "installed" {
 				checker.Status = doctor.StatusOK
 				checker.Severity = doctor.SeverityInformational
-				checker.Message = "checksummed native tsgo is installed"
+				checker.Message = "checksummed TypeScript 7 tsc is installed"
 				checker.SuggestedAction = ""
 				checker.Observed = map[string]any{"path": status.ManagedPath, "version": status.Version}
 			}

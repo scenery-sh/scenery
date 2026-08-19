@@ -1507,7 +1507,7 @@ func (service *Service) SceneQuickCreate(_ context.Context, _ housecontract.Scen
 		}
 		t.Fatalf("content-page generation is not stable across consecutive renders: first=%q second=%q files=%v", firstContentPage, secondContentPage, paths)
 	}
-	if binary := os.Getenv("SCENERY_TSGO_BINARY"); binary != "" {
+	if binary := os.Getenv("SCENERY_TSC_BINARY"); binary != "" {
 		repoRoot, err := filepath.Abs(filepath.Join("..", ".."))
 		if err != nil {
 			t.Fatal(err)
