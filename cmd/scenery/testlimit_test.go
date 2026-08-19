@@ -15,7 +15,8 @@ import (
 // scheduler threads.
 //
 // It also isolates the test binary from the developer's real machine state.
-// SCENERY_AGENT_HOME pins DefaultPaths to a temp home, and the edge-helper
+// SCENERY_AGENT_HOME pins DefaultPaths / DefaultClient to a temp home for
+// any leftover env-boundary call, and the edge-helper
 // plist introspection is stubbed to "not installed": on a machine with the
 // privileged helper installed, the real plist points HelperTargetState at the
 // real ~/.scenery/run/edge-target.json, and any test walking the deploy/edge

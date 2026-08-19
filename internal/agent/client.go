@@ -78,12 +78,21 @@ func DefaultClient() (*Client, error) {
 // commands talk to an agent built from the current binary. A zero current
 // identity accepts any running agent.
 func Ensure(ctx context.Context, current Identity) (*Client, error) {
+	return EnsureWith(ctx, current, Paths{})
+}
+
+// EnsureWith is Ensure with an explicit agent home. A zero Paths resolves
+// from the process environment (SCENERY_AGENT_HOME / ~/.scenery).
+func EnsureWith(ctx context.Context, current Identity, paths Paths) (*Client, error) {
 	if DisabledByEnv() {
 		return nil, nil
 	}
-	paths, err := DefaultPaths()
-	if err != nil {
-		return nil, err
+	if paths.Home == "" {
+		var err error
+		paths, err = DefaultPaths()
+		if err != nil {
+			return nil, err
+		}
 	}
 	client := NewClient(paths.SocketPath)
 	if health, err := client.Health(ctx); err == nil {

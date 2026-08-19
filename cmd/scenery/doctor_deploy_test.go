@@ -29,7 +29,6 @@ func (fakeDoctorResourceProbe) Disk(ctx context.Context, path string) (doctor.Di
 
 func TestDoctorIncludesDeployDiagnosticsSection(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("SCENERY_AGENT_HOME", home)
 	stubDeployDiagnostics(t, nil)
 	paths := localagent.PathsForHome(home)
 	registry := localagent.EmptyDeployRegistry()

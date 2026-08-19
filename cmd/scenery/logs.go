@@ -249,7 +249,7 @@ func logsVictoriaStack(ctx context.Context) (*victoria.Stack, error) {
 func resolveLogsVictoriaStack(ctx context.Context, allowDefault bool) *victoria.Stack {
 	agentCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
-	if client, err := localagent.DefaultClient(); err == nil {
+	if client, err := commandAgentClient(); err == nil {
 		if substrate, err := client.GetSubstrate(agentCtx, localagent.SubstrateVictoria); err == nil {
 			if stack := victoria.FromSubstrate(substrate); stack != nil {
 				return stack
@@ -267,7 +267,7 @@ func resolveLogsSessionID(ctx context.Context, value, appRoot string) (string, e
 	if value != "" && value != "current" {
 		return value, nil
 	}
-	client, err := localagent.DefaultClient()
+	client, err := commandAgentClient()
 	if err != nil {
 		if value == "current" {
 			return "", err

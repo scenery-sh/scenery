@@ -112,7 +112,7 @@ func startLocalPathRouter(ctx context.Context, opts localPathRouterOptions) (fun
 	}
 	agentClient := opts.Agent
 	if agentClient == nil {
-		agentClient, _ = localagent.DefaultClient()
+		agentClient, _ = commandAgentClient()
 	}
 	ln, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(lease.Port)))
 	if err != nil {

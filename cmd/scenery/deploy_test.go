@@ -73,7 +73,7 @@ func deployChecksByID(checks []deploydiag.Check) map[string]deploydiag.Check {
 }
 
 func TestDeployEnableDisableAndConflict(t *testing.T) {
-	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
+	_ = isolateCommandAgentHome(t)
 	oldRefresh := deployRefreshEdgeAfterMutationFunc
 	t.Cleanup(func() { deployRefreshEdgeAfterMutationFunc = oldRefresh })
 	refreshes := 0
@@ -125,13 +125,9 @@ func TestDeployEnableDisableAndConflict(t *testing.T) {
 
 func TestDeployStatusReportsRegistryTargetsAndLiveSession(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("SCENERY_AGENT_HOME", home)
+	paths := isolateCommandAgentHomeAt(t, home)
 	stubDeployDiagnostics(t, nil)
 	appRoot := t.TempDir()
-	paths, err := localagent.DefaultPaths()
-	if err != nil {
-		t.Fatalf("DefaultPaths: %v", err)
-	}
 	registry := localagent.EmptyDeployRegistry()
 	registry.Targets = []localagent.DeployTarget{{
 		Domain:      "onlv.dev",
@@ -180,7 +176,7 @@ func TestDeployStatusReportsRegistryTargetsAndLiveSession(t *testing.T) {
 
 func TestDeployStatusDiagnosticsReportReachabilityDNSPowerAndFirewall(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("SCENERY_AGENT_HOME", home)
+	paths := isolateCommandAgentHomeAt(t, home)
 	stubDeployDiagnostics(t, func() {
 		deployHTTPProbeFunc = func(ctx context.Context, url string) deploydiag.HTTPProbeResult {
 			if strings.Contains(url, "192.168.1.20") {
@@ -198,10 +194,6 @@ func TestDeployStatusDiagnosticsReportReachabilityDNSPowerAndFirewall(t *testing
 			return deploydiag.FirewallStatus{Supported: true, Enabled: true, Raw: "Firewall is enabled"}, nil
 		}
 	})
-	paths, err := localagent.DefaultPaths()
-	if err != nil {
-		t.Fatalf("DefaultPaths: %v", err)
-	}
 	registry := localagent.EmptyDeployRegistry()
 	registry.Targets = []localagent.DeployTarget{{
 		Domain:  "onlv.dev",
@@ -247,7 +239,7 @@ func TestDeploySetupWritesRegistryInstallsHelperAndRestartsEdge(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("deploy setup refuses to run as root")
 	}
-	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
+	paths := isolateCommandAgentHome(t)
 	oldPreflight := deploySetupPreflightFunc
 	oldInstall := deployPrivilegedHelperInstallFunc
 	oldInstallLaunchAgent := deployInstallResumeLaunchAgentFunc
@@ -294,10 +286,7 @@ func TestDeploySetupWritesRegistryInstallsHelperAndRestartsEdge(t *testing.T) {
 
 	// Recovery from a broken helper must never delete certificates, deploy
 	// targets, or app data: pre-seed all three and prove setup keeps them.
-	seedPaths, err := localagent.DefaultPaths()
-	if err != nil {
-		t.Fatalf("DefaultPaths: %v", err)
-	}
+	seedPaths := paths
 	seedRegistry := localagent.EmptyDeployRegistry()
 	seedRegistry.Targets = []localagent.DeployTarget{{Domain: "onlv.dev", AppRoot: t.TempDir(), Enabled: true}}
 	if err := localagent.WriteDeployRegistry(seedPaths.DeployPath, seedRegistry); err != nil {
@@ -359,7 +348,7 @@ func TestDeployTeardownInstallsLoopbackHelperRemovesLaunchAgentAndRestartsEdge(t
 	if os.Geteuid() == 0 {
 		t.Skip("deploy teardown refuses to run as root")
 	}
-	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
+	_ = isolateCommandAgentHome(t)
 	oldInstall := deployLoopbackHelperInstallFunc
 	oldRemove := deployRemoveResumeLaunchAgentFunc
 	oldRemoveSupervisor := deployRemoveAgentSupervisorFunc
@@ -411,7 +400,7 @@ func TestDeployTeardownInstallsLoopbackHelperRemovesLaunchAgentAndRestartsEdge(t
 }
 
 func TestDeployResumeStartsMissingTargetsAndSkipsLiveSessions(t *testing.T) {
-	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
+	paths := isolateCommandAgentHome(t)
 	oldEnsureAgent := deployEnsureAgentFunc
 	oldRestart := deployEdgeRestartFunc
 	oldRunUp := deployRunUpDetachFunc
@@ -454,10 +443,6 @@ func TestDeployResumeStartsMissingTargetsAndSkipsLiveSessions(t *testing.T) {
 		return nil
 	}
 
-	paths, err := localagent.DefaultPaths()
-	if err != nil {
-		t.Fatalf("DefaultPaths: %v", err)
-	}
 	liveRoot := t.TempDir()
 	startRoot := t.TempDir()
 	missingRoot := filepath.Join(t.TempDir(), "missing")
@@ -632,7 +617,7 @@ func TestEnsurePublicDeployEdgeWaitsForTransientAgentHealth(t *testing.T) {
 }
 
 func TestDeployResumeReacquiresHealthyEdgeWithoutRestart(t *testing.T) {
-	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
+	_ = isolateCommandAgentHome(t)
 	oldEnsureAgent := deployEnsureAgentFunc
 	oldStatus := deployPublicEdgeStatusFunc
 	oldRestart := deployEdgeRestartFunc
@@ -734,11 +719,7 @@ func TestDeployPreflightRejectsNonSceneryPortListener(t *testing.T) {
 }
 
 func TestDeployRefreshEdgeAfterMutationSkipsWhenSetupAbsent(t *testing.T) {
-	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
-	paths, err := localagent.DefaultPaths()
-	if err != nil {
-		t.Fatalf("DefaultPaths: %v", err)
-	}
+	paths := localagent.PathsForHome(t.TempDir())
 	if err := deployRefreshEdgeAfterMutation(paths); err != nil {
 		t.Fatalf("deployRefreshEdgeAfterMutation without setup: %v", err)
 	}

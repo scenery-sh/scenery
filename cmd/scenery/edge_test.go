@@ -341,11 +341,7 @@ func TestResolveDNSMasqBinaryUsesManagedToolchain(t *testing.T) {
 }
 
 func TestEdgeDNSStatusAcceptsFunctionalExternalResolver(t *testing.T) {
-	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
-	paths, err := localagent.DefaultPaths()
-	if err != nil {
-		t.Fatal(err)
-	}
+	paths := localagent.PathsForHome(t.TempDir())
 	oldResolverStatus := edgeDNSResolverStatusFunc
 	oldResolverServes := edgeDNSResolverServesDomainFunc
 	t.Cleanup(func() {
@@ -418,18 +414,14 @@ func TestResolveCaddyBinaryDoesNotUseSystemPath(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fake executable shell fixture is Unix-only")
 	}
-	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
 	t.Setenv("SCENERY_TOOLCHAIN_DIR", "")
 	pathDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(pathDir, "caddy"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", pathDir)
-	paths, err := localagent.DefaultPaths()
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = resolveCaddyBinary(context.Background(), paths, false)
+	paths := localagent.PathsForHome(t.TempDir())
+	_, err := resolveCaddyBinary(context.Background(), paths, false)
 	if err == nil || !strings.Contains(err.Error(), "system PATH binaries are not used") {
 		t.Fatalf("resolveCaddyBinary() err = %v", err)
 	}

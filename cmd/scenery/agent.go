@@ -99,7 +99,7 @@ func agentCommand(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if opts.JSON {
-		paths, err := localagent.DefaultPaths()
+		paths, err := commandAgentPaths()
 		if err != nil {
 			return err
 		}
@@ -142,7 +142,7 @@ func agentCommand(args []string) error {
 }
 
 func reapStaleAgentRouterOwner(opts agentOptions) error {
-	paths, err := localagent.DefaultPaths()
+	paths, err := commandAgentPaths()
 	if err != nil {
 		return err
 	}
@@ -168,7 +168,7 @@ func agentRestartCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	paths, err := localagent.DefaultPaths()
+	paths, err := commandAgentPaths()
 	if err != nil {
 		return err
 	}
@@ -385,7 +385,7 @@ func agentStartFailureFromLog(path string, offset int64) error {
 }
 
 func statusCommand(args []string) error {
-	client, err := localagent.DefaultClient()
+	client, err := commandAgentClient()
 	if err != nil {
 		return err
 	}
@@ -603,7 +603,7 @@ func sessionOwnerLive(session localagent.Session) bool {
 }
 
 func downCommand(args []string) error {
-	client, err := localagent.DefaultClient()
+	client, err := commandAgentClient()
 	if err != nil {
 		return err
 	}
@@ -825,7 +825,7 @@ func removeSessionStateRoot(session localagent.Session) error {
 }
 
 func pruneCommand(args []string) error {
-	client, err := localagent.DefaultClient()
+	client, err := commandAgentClient()
 	if err != nil {
 		return err
 	}

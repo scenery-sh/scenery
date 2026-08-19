@@ -707,7 +707,6 @@ func TestDBSetupSkipsMissingApplyAndRunsSeed(t *testing.T) {
 }
 
 func TestDBSetupApplyUsesExternalPostgresDatabaseURL(t *testing.T) {
-	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
 	root := t.TempDir()
 	baseURL := "postgres://user:secret@localhost/managedsetup"
 	writeTestAppFile(t, root, ".env", "DATABASE_URL="+baseURL+"\n")

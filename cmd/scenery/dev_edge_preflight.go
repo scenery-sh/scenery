@@ -26,7 +26,7 @@ func configRequiresPortlessEdge(cfg app.Config) bool {
 func defaultConfiguredEdgeReadinessCheck(ctx context.Context, client *localagent.Client, baseDomain string) (edgeStatusResult, error) {
 	_ = ctx
 	_ = client
-	paths, err := localagent.DefaultPaths()
+	paths, err := commandAgentPaths()
 	if err != nil {
 		return edgeStatusResult{}, err
 	}
@@ -54,7 +54,7 @@ func defaultConfiguredEdgeReadinessCheck(ctx context.Context, client *localagent
 // devDomainEdgeStatus loads the current edge component status for a dev
 // domain host check without turning unreadiness into an error.
 func devDomainEdgeStatus(domain string) (edgeStatusResult, error) {
-	paths, err := localagent.DefaultPaths()
+	paths, err := commandAgentPaths()
 	if err != nil {
 		return edgeStatusResult{}, err
 	}

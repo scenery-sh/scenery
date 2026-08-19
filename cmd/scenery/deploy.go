@@ -301,7 +301,7 @@ func runDeployEnable(stdout io.Writer, opts deployOptions) error {
 	if domain == "" {
 		return fmt.Errorf("envs.%s has no domain; add one before running scenery deploy enable", env.Name)
 	}
-	paths, err := localagent.DefaultPaths()
+	paths, err := commandAgentPaths()
 	if err != nil {
 		return err
 	}
@@ -338,7 +338,7 @@ func runDeployDisable(stdout io.Writer, opts deployOptions) error {
 	if err != nil {
 		return err
 	}
-	paths, err := localagent.DefaultPaths()
+	paths, err := commandAgentPaths()
 	if err != nil {
 		return err
 	}
@@ -374,7 +374,7 @@ func runDeployDisable(stdout io.Writer, opts deployOptions) error {
 }
 
 func runDeployStatus(stdout io.Writer, opts deployOptions) error {
-	paths, err := localagent.DefaultPaths()
+	paths, err := commandAgentPaths()
 	if err != nil {
 		return err
 	}
@@ -410,7 +410,7 @@ func runDeploySetup(stdout io.Writer, opts deployOptions) error {
 	if os.Geteuid() == 0 {
 		return fmt.Errorf("do not run `sudo scenery deploy setup`; run it as your normal user so Scenery can record the expected owner")
 	}
-	paths, err := localagent.DefaultPaths()
+	paths, err := commandAgentPaths()
 	if err != nil {
 		return err
 	}
@@ -487,7 +487,7 @@ func deploySetupNeedsHelperReinstall(paths localagent.Paths, currentVersion stri
 }
 
 func runDeployResume(stdout io.Writer, opts deployOptions) error {
-	paths, err := localagent.DefaultPaths()
+	paths, err := commandAgentPaths()
 	if err != nil {
 		return err
 	}
@@ -615,7 +615,7 @@ func runDeployTeardown(stdout io.Writer, opts deployOptions) error {
 	if os.Geteuid() == 0 {
 		return fmt.Errorf("do not run `sudo scenery deploy teardown`; run it as your normal user so Scenery can record the expected owner")
 	}
-	paths, err := localagent.DefaultPaths()
+	paths, err := commandAgentPaths()
 	if err != nil {
 		return err
 	}

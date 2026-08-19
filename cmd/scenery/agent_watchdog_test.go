@@ -128,7 +128,6 @@ func TestAgentWatchdogStopsWhenHomeIsGoneOrNotConverging(t *testing.T) {
 // TestAgentWatchdogDisabled proves the watchdog respects SCENERY_AGENT_DISABLE
 // and a nil client.
 func TestAgentWatchdogDisabled(t *testing.T) {
-	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
 	t.Setenv("SCENERY_AGENT_DISABLE", "1")
 	var starts atomic.Int32
 	policy := agentWatchdogPolicy{
@@ -140,10 +139,7 @@ func TestAgentWatchdogDisabled(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	paths, err := localagent.DefaultPaths()
-	if err != nil {
-		t.Fatal(err)
-	}
+	paths := localagent.PathsForHome(t.TempDir())
 	disabledStopped := startAgentAvailabilityWatchdog(ctx, localagent.NewClient(paths.SocketPath), paths, policy)
 	nilStopped := startAgentAvailabilityWatchdog(ctx, nil, paths, policy)
 	time.Sleep(100 * time.Millisecond)

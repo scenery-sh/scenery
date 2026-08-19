@@ -463,7 +463,7 @@ func (s *devSupervisor) startVictoriaStack(ctx context.Context) *victoria.Stack 
 	if s == nil || s.agent == nil {
 		return victoria.Start(s.ctx, s.root, victoriaConsole(s.console))
 	}
-	paths, err := localagent.DefaultPaths()
+	paths, err := commandAgentPaths()
 	if err != nil {
 		victoria.Warn(victoriaConsole(s.console), "agent Victoria state path unavailable: %v", err)
 		return victoria.Start(s.ctx, s.root, victoriaConsole(s.console))

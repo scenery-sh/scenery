@@ -371,7 +371,7 @@ func parseDBServerArgs(args []string) (dbServerOptions, error) {
 
 func postgresServerStatus(ctx context.Context) (dbServerStatusResponse, error) {
 	resp := dbServerStatusResponse{cliPayloadIdentity: newCLIPayloadIdentity("scenery.db.server.status"), Container: postgresServerContainer, Status: "absent"}
-	paths, err := localagent.DefaultPaths()
+	paths, err := commandAgentPaths()
 	if err != nil {
 		return resp, err
 	}
@@ -393,7 +393,7 @@ func postgresServerStatus(ctx context.Context) (dbServerStatusResponse, error) {
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return resp, err
 	}
-	if client, err := localagent.DefaultClient(); err == nil {
+	if client, err := commandAgentClient(); err == nil {
 		if substrate, err := client.GetSubstrate(ctx, localagent.SubstratePostgres); err == nil {
 			resp.Leases = substrate.Leases
 		}
@@ -412,7 +412,7 @@ func stopSharedPostgresServer(ctx context.Context, yes bool) error {
 	if _, err := postgresDocker.Run(ctx, "stop", postgresServerContainer); err != nil {
 		return err
 	}
-	if client, err := localagent.DefaultClient(); err == nil {
+	if client, err := commandAgentClient(); err == nil {
 		_, _ = client.DeleteSubstrate(ctx, localagent.SubstratePostgres)
 	}
 	return nil
@@ -546,7 +546,7 @@ func dropPostgresDatabase(ctx context.Context, database postgresdb.Database, opt
 }
 
 func managedPostgresAdmin(ctx context.Context) (*sql.DB, error) {
-	paths, err := localagent.DefaultPaths()
+	paths, err := commandAgentPaths()
 	if err != nil {
 		return nil, err
 	}

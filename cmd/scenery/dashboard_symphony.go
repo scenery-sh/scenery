@@ -8,8 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	localagent "scenery.sh/internal/agent"
-	"scenery.sh/internal/envpolicy"
+	"scenery.sh/internal/devcache"
 	"scenery.sh/internal/postgresdb"
 	"scenery.sh/internal/symphony"
 )
@@ -218,10 +217,10 @@ func (s *dashboardServer) symphonyCacheRoot() string {
 }
 
 func symphonyCacheRoot() string {
-	if value := strings.TrimSpace(envpolicy.Get("SCENERY_DEV_CACHE_DIR")); value != "" {
+	if value := devcache.EnvOrOverride(); value != "" {
 		return value
 	}
-	if paths, err := localagent.DefaultPaths(); err == nil && strings.TrimSpace(paths.AgentDir) != "" {
+	if paths, err := commandAgentPaths(); err == nil && strings.TrimSpace(paths.AgentDir) != "" {
 		return filepath.Join(paths.AgentDir, "dashboard")
 	}
 	if dir, err := os.UserCacheDir(); err == nil && strings.TrimSpace(dir) != "" {

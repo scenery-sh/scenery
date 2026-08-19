@@ -11,8 +11,6 @@ import (
 )
 
 func TestServerPublicDeployRoutesByHostWithContainment(t *testing.T) {
-	t.Setenv(envAgentHome, t.TempDir())
-
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		_, _ = io.WriteString(w, "api:"+req.URL.Path)
 	}))
@@ -25,12 +23,8 @@ func TestServerPublicDeployRoutesByHostWithContainment(t *testing.T) {
 	defer frontend.Close()
 	frontendAddr := strings.TrimPrefix(frontend.URL, "http://")
 
-	paths, err := DefaultPaths()
-	if err != nil {
-		t.Fatal(err)
-	}
 	server, err := NewServer(RunOptions{
-		SocketPath: paths.SocketPath,
+		Home:       t.TempDir(),
 		RouterAddr: "127.0.0.1:0",
 	})
 	if err != nil {
@@ -52,7 +46,7 @@ func TestServerPublicDeployRoutesByHostWithContainment(t *testing.T) {
 		{Domain: "onlv.dev", AppRoot: appRoot, RootService: "ui", Enabled: true},
 		{Domain: "down.dev", AppRoot: t.TempDir(), RootService: "ui", Enabled: true},
 	}
-	if err := WriteDeployRegistry(paths.DeployPath, registry); err != nil {
+	if err := WriteDeployRegistry(server.Paths().DeployPath, registry); err != nil {
 		t.Fatal(err)
 	}
 	session, err := client.Register(ctx, RegisterRequest{

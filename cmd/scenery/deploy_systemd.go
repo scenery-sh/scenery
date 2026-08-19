@@ -49,7 +49,7 @@ func runDeploySetupLinux(stdout io.Writer, opts deployOptions) error {
 	if os.Geteuid() != 0 {
 		return fmt.Errorf("scenery deploy setup on Linux must run as root: it installs system units under /etc/systemd/system and binds ports 80/443")
 	}
-	paths, err := localagent.DefaultPaths()
+	paths, err := commandAgentPaths()
 	if err != nil {
 		return err
 	}
@@ -140,7 +140,7 @@ func runDeployTeardownLinux(stdout io.Writer, opts deployOptions) error {
 	if os.Geteuid() != 0 {
 		return fmt.Errorf("scenery deploy teardown on Linux must run as root to remove systemd units")
 	}
-	paths, err := localagent.DefaultPaths()
+	paths, err := commandAgentPaths()
 	if err != nil {
 		return err
 	}

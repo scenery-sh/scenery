@@ -20,7 +20,6 @@ import (
 	"strings"
 	"time"
 
-	localagent "scenery.sh/internal/agent"
 	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/deploydiag"
 	"scenery.sh/internal/deployplan"
@@ -304,7 +303,7 @@ func attachUpgradeDeployNotice(resp *upgradeResponse) {
 }
 
 func defaultUpgradeDeployNotice(targetVersion string) *deploydiag.HelperDrift {
-	paths, err := localagent.DefaultPaths()
+	paths, err := commandAgentPaths()
 	if err != nil {
 		return nil
 	}

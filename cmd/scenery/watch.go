@@ -26,7 +26,7 @@ import (
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/build"
 	"scenery.sh/internal/envpolicy"
-	"scenery.sh/internal/generate"
+	generateapi "scenery.sh/internal/generate/api"
 	"scenery.sh/internal/localproxy"
 	"scenery.sh/internal/scn"
 	"scenery.sh/internal/watchignore"
@@ -563,7 +563,7 @@ func followAlreadyRunningDevSession(ctx context.Context, console *runConsole, ro
 // verified owner, and false when ctx ends first. Transient agent errors keep
 // the watch alive instead of misreporting the runtime as stopped.
 func devSessionOwnerGone(ctx context.Context, root string) bool {
-	client, err := localagent.DefaultClient()
+	client, err := commandAgentClient()
 	if err != nil {
 		return false
 	}
@@ -647,7 +647,7 @@ func ensureDevAgentDashboardBackend(ctx context.Context, client *localagent.Clie
 			return err
 		}
 	}
-	paths, err := localagent.DefaultPaths()
+	paths, err := commandAgentPaths()
 	if err != nil {
 		return err
 	}
@@ -852,7 +852,7 @@ func scanWatchedFilesReusing(root string, previous fileSnapshot) (fileSnapshot, 
 		if shouldIgnoreWatchPathWithMatcher(rel, false, ignore) {
 			return nil
 		}
-		if generate.IsManagedEditorWorkFile(root, rel) {
+		if generateapi.IsManagedEditorWorkFile(root, rel) {
 			return nil
 		}
 		if !isWatchedFile(rel) && classifyAssistantWatchPath(root, rel) == "" {
@@ -1206,7 +1206,7 @@ func (fw *fileChangeWatcher) handleEvent(event fsnotify.Event) {
 	if shouldIgnoreWatchPathWithMatcher(rel, false, fw.ignore) {
 		return
 	}
-	if generate.IsManagedEditorWorkFile(fw.root, rel) {
+	if generateapi.IsManagedEditorWorkFile(fw.root, rel) {
 		return
 	}
 	if event.Has(fsnotify.Create) {

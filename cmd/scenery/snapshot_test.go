@@ -61,9 +61,9 @@ func TestSnapshotVerifyRequiresInput(t *testing.T) {
 
 func TestSnapshotStorageRoundTripRecoversInterruptedReplacement(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("SCENERY_AGENT_HOME", home)
+	_ = isolateCommandAgentHomeAt(t, home)
 	cfg := snapshotTestConfig()
-	plan, err := resolveStorageCellPlan(cfg, "")
+	plan, err := resolveStorageCellPlan(cfg, home)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,9 +119,9 @@ func TestSnapshotStorageRoundTripRecoversInterruptedReplacement(t *testing.T) {
 
 func TestSnapshotStorageMergeConflictPolicies(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("SCENERY_AGENT_HOME", home)
+	_ = isolateCommandAgentHomeAt(t, home)
 	cfg := snapshotTestConfig()
-	plan, _ := resolveStorageCellPlan(cfg, "")
+	plan, _ := resolveStorageCellPlan(cfg, home)
 	store := plan.storageStoreObjectsDir("app")
 	object := filepath.Join(store, "one.txt")
 	writeSnapshotTestFile(t, object, "saved")
@@ -172,9 +172,9 @@ func TestSnapshotRejectsUnsafeArchivePath(t *testing.T) {
 
 func TestSnapshotSaveFailurePreservesExistingArchive(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("SCENERY_AGENT_HOME", home)
+	_ = isolateCommandAgentHomeAt(t, home)
 	cfg := snapshotTestConfig()
-	plan, err := resolveStorageCellPlan(cfg, "")
+	plan, err := resolveStorageCellPlan(cfg, home)
 	if err != nil {
 		t.Fatal(err)
 	}

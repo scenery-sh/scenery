@@ -81,7 +81,7 @@ func runDeployPublish(stdout io.Writer, opts deployOptions) error {
 	if len(names) == 0 {
 		return fmt.Errorf("%s has no frontend with serve: \"production\"; nothing to publish", cfg.SourcePath(appRoot))
 	}
-	paths, err := localagent.DefaultPaths()
+	paths, err := commandAgentPaths()
 	if err != nil {
 		return err
 	}

@@ -24,7 +24,7 @@ func TestDevRoutingModeRejectsDomainWithHostMode(t *testing.T) {
 }
 
 func TestValidateDevDomainURLWarnsWithoutEdge(t *testing.T) {
-	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
+	_ = isolateCommandAgentHome(t)
 
 	session := localagent.Session{
 		RouteManifest: localagent.RouteManifest{
@@ -43,8 +43,6 @@ func TestValidateDevDomainURLWarnsWithoutEdge(t *testing.T) {
 }
 
 func TestValidateDevDomainURLReportsConflict(t *testing.T) {
-	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
-
 	session := localagent.Session{
 		DomainHostConflict: &localagent.AliasLease{
 			Host:    "pricing-local.clean.tech",
@@ -117,8 +115,6 @@ func TestRunURLDataIncludesAppURLWhenSet(t *testing.T) {
 }
 
 func TestWriteDetachedDevResultTextReportsDomainConflict(t *testing.T) {
-	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
-
 	result := detachedDevResult{
 		Wait:          detachedDevWaitReady,
 		PID:           123,

@@ -78,7 +78,7 @@ func runDetachedDev(args []string, opts devOptions) error {
 		return reportDetachedDevAlreadyRunning(client, root, cfg, opts, waitMode, existingPID)
 	}
 
-	paths, err := localagent.DefaultPaths()
+	paths, err := commandAgentPaths()
 	if err != nil {
 		return err
 	}

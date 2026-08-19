@@ -25,13 +25,15 @@ func resolveStorageCellPlan(cfg app.Config, agentHome string) (*storageCellPlan,
 	if len(cfg.Storage.Stores) == 0 {
 		return nil, nil
 	}
-	paths, err := localagent.DefaultPaths()
+	var paths localagent.Paths
+	var err error
 	if agentHome != "" {
 		paths = localagent.PathsForHome(agentHome)
-		err = nil
-	}
-	if err != nil {
-		return nil, err
+	} else {
+		paths, err = commandAgentPaths()
+		if err != nil {
+			return nil, err
+		}
 	}
 	cellID := cfg.StorageCellID()
 	cellRoot := filepath.Join(paths.AgentDir, "storage", cellID)

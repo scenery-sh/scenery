@@ -59,7 +59,7 @@ func TestFollowAlreadyRunningDevSessionReportsFollowFailure(t *testing.T) {
 func TestFollowAlreadyRunningDevSessionExitsWhenOwnerStops(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	agentDone := startTestAgentServer(t, ctx)
+	paths, agentDone := startTestAgentServer(t, ctx)
 
 	oldLogs := runSceneryLogsFunc
 	oldInterval := devSessionOwnerExitPollInterval
@@ -82,10 +82,7 @@ func TestFollowAlreadyRunningDevSessionExitsWhenOwnerStops(t *testing.T) {
 		_ = owner.Process.Kill()
 		_ = owner.Wait()
 	}()
-	client, err := localagent.DefaultClient()
-	if err != nil {
-		t.Fatal(err)
-	}
+	client := localagent.NewClient(paths.SocketPath)
 	if err := waitForAgentCommandPing(ctx, client); err != nil {
 		t.Fatal(err)
 	}

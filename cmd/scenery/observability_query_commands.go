@@ -485,7 +485,7 @@ func resolveQueryScope(ctx context.Context, appRootFlag, sessionFlag string) (ob
 }
 
 func resolveQueryScopeForApp(ctx context.Context, appRoot string, cfg appcfg.Config, sessionFlag string) (obs.QueryScope, error) {
-	client, err := localagent.DefaultClient()
+	client, err := commandAgentClient()
 	if err != nil {
 		return obs.QueryScope{}, err
 	}

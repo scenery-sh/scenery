@@ -162,7 +162,7 @@ func ensureSharedPostgresServer(ctx context.Context, appRoot string, session *lo
 }
 
 func ensureSharedPostgresServerWithAgent(ctx context.Context, appRoot string, session *localagent.Session, agent *localagent.Client) (*postgresServerState, error) {
-	paths, err := localagent.DefaultPaths()
+	paths, err := commandAgentPaths()
 	if err != nil {
 		return nil, err
 	}

@@ -601,7 +601,7 @@ func configuredSnapshotDatabaseTarget(appRoot string, cfg appcfg.Config) (string
 }
 
 func rejectSnapshotLiveSession(ctx context.Context, appRoot string) error {
-	paths, err := localagent.DefaultPaths()
+	paths, err := commandAgentPaths()
 	if err != nil {
 		return err
 	}

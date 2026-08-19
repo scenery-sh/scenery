@@ -3,12 +3,11 @@ package main
 import (
 	"context"
 	"path/filepath"
-	"strings"
 	"time"
 
 	localagent "scenery.sh/internal/agent"
+	"scenery.sh/internal/devcache"
 	"scenery.sh/internal/devdash"
-	"scenery.sh/internal/envpolicy"
 )
 
 func openDevdashStore() (*devdash.Store, error) {
@@ -16,13 +15,13 @@ func openDevdashStore() (*devdash.Store, error) {
 }
 
 func devdashCacheRoot() string {
-	if root := strings.TrimSpace(envpolicy.Get("SCENERY_DEV_CACHE_DIR")); root != "" {
+	if root := devcache.EnvOrOverride(); root != "" {
 		return root
 	}
 	if localagent.DisabledByEnv() {
 		return ""
 	}
-	client, err := localagent.DefaultClient()
+	client, err := commandAgentClient()
 	if err != nil {
 		return ""
 	}
@@ -31,7 +30,7 @@ func devdashCacheRoot() string {
 	if err := client.Ping(ctx); err != nil {
 		return ""
 	}
-	paths, err := localagent.DefaultPaths()
+	paths, err := commandAgentPaths()
 	if err != nil {
 		return ""
 	}

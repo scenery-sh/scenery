@@ -144,7 +144,7 @@ func edgeRestart(opts edgeOptions) error {
 	// unsupervised Caddy would race the unit's Restart=always respawn for
 	// the public ports.
 	if edgeSystemdManaged() {
-		paths, err := localagent.DefaultPaths()
+		paths, err := commandAgentPaths()
 		if err != nil {
 			return err
 		}
@@ -157,7 +157,7 @@ func edgeRestart(opts edgeOptions) error {
 	if os.Geteuid() == 0 {
 		return fmt.Errorf("do not run `sudo scenery system edge install`; run `scenery system edge privileged install` for the privileged listener")
 	}
-	paths, err := localagent.DefaultPaths()
+	paths, err := commandAgentPaths()
 	if err != nil {
 		return err
 	}
@@ -302,7 +302,7 @@ func edgePrivilegedInstallCommand(deploy bool) string {
 }
 
 func edgeStatus(opts edgeOptions) error {
-	paths, err := localagent.DefaultPaths()
+	paths, err := commandAgentPaths()
 	if err != nil {
 		return err
 	}
@@ -344,7 +344,7 @@ func edgeStatus(opts edgeOptions) error {
 }
 
 func edgeTrust(opts edgeOptions) error {
-	paths, err := localagent.DefaultPaths()
+	paths, err := commandAgentPaths()
 	if err != nil {
 		return err
 	}
@@ -366,7 +366,7 @@ func edgeTrust(opts edgeOptions) error {
 }
 
 func edgeUninstall(opts edgeOptions) error {
-	paths, err := localagent.DefaultPaths()
+	paths, err := commandAgentPaths()
 	if err != nil {
 		return err
 	}
@@ -423,7 +423,7 @@ func edgeDNSInstall(opts edgeOptions) error {
 		return fmt.Errorf("do not run `sudo scenery system edge dns install`; run it as your normal user")
 	}
 	ctx := context.Background()
-	paths, err := localagent.DefaultPaths()
+	paths, err := commandAgentPaths()
 	if err != nil {
 		return err
 	}
@@ -471,7 +471,7 @@ func edgeDNSInstall(opts edgeOptions) error {
 }
 
 func edgeDNSStatus(opts edgeOptions) error {
-	paths, err := localagent.DefaultPaths()
+	paths, err := commandAgentPaths()
 	if err != nil {
 		return err
 	}
@@ -494,7 +494,7 @@ func edgeDNSUninstall(opts edgeOptions) error {
 	if os.Geteuid() == 0 {
 		return fmt.Errorf("do not run `sudo scenery system edge dns uninstall`; run it as your normal user")
 	}
-	paths, err := localagent.DefaultPaths()
+	paths, err := commandAgentPaths()
 	if err != nil {
 		return err
 	}
@@ -984,7 +984,7 @@ func ensureEdgeToken(path string) (string, error) {
 }
 
 func ensureEdgeAgent(routerAddr string, force bool) error {
-	paths, err := localagent.DefaultPaths()
+	paths, err := commandAgentPaths()
 	if err != nil {
 		return err
 	}
@@ -1214,7 +1214,7 @@ func edgePrivilegedInstall() error {
 	if os.Geteuid() == 0 {
 		return fmt.Errorf("do not run `sudo scenery system edge privileged install`; run it as your normal user so Scenery can record the expected owner")
 	}
-	paths, err := localagent.DefaultPaths()
+	paths, err := commandAgentPaths()
 	if err != nil {
 		return err
 	}
@@ -1242,7 +1242,7 @@ func edgePrivilegedInstall() error {
 }
 
 func edgePrivilegedStatus(opts edgeOptions) error {
-	paths, err := localagent.DefaultPaths()
+	paths, err := commandAgentPaths()
 	if err != nil {
 		return err
 	}

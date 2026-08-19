@@ -88,11 +88,7 @@ func withAgentSupervisorHooks(t *testing.T, status localagent.LaunchdAgentStatus
 }
 
 func TestRestartAgentViaSupervisorKickstartsLoadedJob(t *testing.T) {
-	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
-	paths, err := localagent.DefaultPaths()
-	if err != nil {
-		t.Fatal(err)
-	}
+	paths := localagent.PathsForHome(t.TempDir())
 	if err := localagent.EnsureDirs(paths); err != nil {
 		t.Fatal(err)
 	}
@@ -134,11 +130,7 @@ func TestRestartAgentViaSupervisorKickstartsLoadedJob(t *testing.T) {
 }
 
 func TestRestartAgentViaSupervisorRepairsUnloadedJob(t *testing.T) {
-	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
-	paths, err := localagent.DefaultPaths()
-	if err != nil {
-		t.Fatal(err)
-	}
+	paths := localagent.PathsForHome(t.TempDir())
 	if err := localagent.EnsureDirs(paths); err != nil {
 		t.Fatal(err)
 	}
@@ -173,11 +165,7 @@ func TestRestartAgentViaSupervisorRepairsUnloadedJob(t *testing.T) {
 }
 
 func TestRestartAgentViaSupervisorSkipsForeignPlist(t *testing.T) {
-	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
-	paths, err := localagent.DefaultPaths()
-	if err != nil {
-		t.Fatal(err)
-	}
+	paths := localagent.PathsForHome(t.TempDir())
 	withAgentSupervisorHooks(t, localagent.LaunchdAgentStatus{
 		Supported:        true,
 		PlistPresent:     true,
@@ -196,11 +184,7 @@ func TestRestartAgentViaSupervisorSkipsForeignPlist(t *testing.T) {
 }
 
 func TestDeployStatusRequiresLoadedSupervisor(t *testing.T) {
-	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
-	paths, err := localagent.DefaultPaths()
-	if err != nil {
-		t.Fatal(err)
-	}
+	paths := localagent.PathsForHome(t.TempDir())
 	oldStatus := deployResumeLaunchAgentStatusFunc
 	t.Cleanup(func() { deployResumeLaunchAgentStatusFunc = oldStatus })
 	deployResumeLaunchAgentStatusFunc = func() deployLaunchAgentStatus {

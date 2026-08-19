@@ -185,8 +185,6 @@ func TestRewriteHTMLRootRefs(t *testing.T) {
 }
 
 func TestServerPathModeRoutesByTrustedSessionHeader(t *testing.T) {
-	t.Setenv(envAgentHome, t.TempDir())
-
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		switch req.URL.Path {
 		case "/", "/v1/users":
@@ -215,12 +213,8 @@ func TestServerPathModeRoutesByTrustedSessionHeader(t *testing.T) {
 	defer frontend.Close()
 	frontendAddr := strings.TrimPrefix(frontend.URL, "http://")
 
-	paths, err := DefaultPaths()
-	if err != nil {
-		t.Fatal(err)
-	}
 	server, err := NewServer(RunOptions{
-		SocketPath: paths.SocketPath,
+		Home:       t.TempDir(),
 		RouterAddr: "127.0.0.1:0",
 	})
 	if err != nil {

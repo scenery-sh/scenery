@@ -10,7 +10,6 @@ import (
 	"os/exec"
 	"strings"
 
-	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/postgresdb"
 )
 
@@ -31,7 +30,7 @@ func newSnapshotPostgresRunner(database postgresdb.Database) (snapshotPostgresRu
 	if database.Source == postgresdb.SourceExternal {
 		return hostSnapshotPostgresRunner{}, nil
 	}
-	paths, err := localagent.DefaultPaths()
+	paths, err := commandAgentPaths()
 	if err != nil {
 		return nil, err
 	}

@@ -78,7 +78,7 @@ func TestRunStorageWebUIReportsNoManagedUI(t *testing.T) {
 
 func TestRunStorageObjectCommands(t *testing.T) {
 	agentHome := t.TempDir()
-	t.Setenv("SCENERY_AGENT_HOME", agentHome)
+	_ = isolateCommandAgentHomeAt(t, agentHome)
 	root := t.TempDir()
 	writeTestAppFile(t, root, ".scenery.json", `{
 		"name": "storageapp",
@@ -158,7 +158,7 @@ func TestRunStorageObjectCommands(t *testing.T) {
 
 func TestRunStoragePutHonorsMaxObjectBytes(t *testing.T) {
 	agentHome := t.TempDir()
-	t.Setenv("SCENERY_AGENT_HOME", agentHome)
+	_ = isolateCommandAgentHomeAt(t, agentHome)
 	root := t.TempDir()
 	writeTestAppFile(t, root, ".scenery.json", `{
 		"name": "storageapp",
@@ -183,7 +183,7 @@ func TestRunStoragePutHonorsMaxObjectBytes(t *testing.T) {
 
 func TestRunStorageCleanupDefaultsToDryRun(t *testing.T) {
 	agentHome := t.TempDir()
-	t.Setenv("SCENERY_AGENT_HOME", agentHome)
+	_ = isolateCommandAgentHomeAt(t, agentHome)
 	root := t.TempDir()
 	writeTestAppFile(t, root, ".scenery.json", `{
 		"name": "storageapp",
@@ -212,7 +212,7 @@ func TestRunStorageCleanupDefaultsToDryRun(t *testing.T) {
 
 func TestRunStorageCleanupYesRemovesCellRoot(t *testing.T) {
 	agentHome := t.TempDir()
-	t.Setenv("SCENERY_AGENT_HOME", agentHome)
+	_ = isolateCommandAgentHomeAt(t, agentHome)
 	root := t.TempDir()
 	writeTestAppFile(t, root, ".scenery.json", `{
 		"name": "storageapp",

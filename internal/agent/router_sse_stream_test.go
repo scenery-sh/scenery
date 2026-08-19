@@ -15,8 +15,6 @@ import (
 // Repro: does the agent router proxy deliver SSE events incrementally,
 // or does it buffer until the upstream closes?
 func TestRouterStreamsSSEIncrementally(t *testing.T) {
-	t.Setenv(envAgentHome, t.TempDir())
-
 	release := make(chan struct{})
 	stream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -33,12 +31,8 @@ func TestRouterStreamsSSEIncrementally(t *testing.T) {
 	defer close(release)
 	streamAddr := strings.TrimPrefix(stream.URL, "http://")
 
-	paths, err := DefaultPaths()
-	if err != nil {
-		t.Fatal(err)
-	}
 	server, err := NewServer(RunOptions{
-		SocketPath: paths.SocketPath,
+		Home:       t.TempDir(),
 		RouterAddr: "127.0.0.1:0",
 	})
 	if err != nil {
@@ -106,8 +100,6 @@ func TestRouterStreamsSSEIncrementally(t *testing.T) {
 // Repro: a request while the session's backend is restarting (socket gone)
 // must yield 503 + Retry-After so clients back off, not a hard 502.
 func TestRouterReturnsRetryableServiceUnavailableWhileBackendRestarts(t *testing.T) {
-	t.Setenv(envAgentHome, t.TempDir())
-
 	// Grab a port and close it so the dial is refused deterministically.
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -116,12 +108,8 @@ func TestRouterReturnsRetryableServiceUnavailableWhileBackendRestarts(t *testing
 	deadAddr := ln.Addr().String()
 	_ = ln.Close()
 
-	paths, err := DefaultPaths()
-	if err != nil {
-		t.Fatal(err)
-	}
 	server, err := NewServer(RunOptions{
-		SocketPath: paths.SocketPath,
+		Home:       t.TempDir(),
 		RouterAddr: "127.0.0.1:0",
 	})
 	if err != nil {

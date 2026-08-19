@@ -12,8 +12,7 @@ func TestPrepareDevAgentSessionRegistersOnceWithFrontendBackends(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	home := t.TempDir()
-	t.Setenv("SCENERY_AGENT_HOME", home)
-	paths := localagent.PathsForHome(home)
+	paths := isolateCommandAgentHomeAt(t, home)
 	if err := localagent.EnsureDirs(paths); err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +63,12 @@ func TestPrepareDevAgentSessionRegistersOnceWithFrontendBackends(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	prepared, err := prepareDevAgentSessionDetailed(ctx, t.TempDir(), cfg, env, devListenRequest{}, nil)
+	prepared, err := (&DevSessionController{
+		root:  t.TempDir(),
+		cfg:   cfg,
+		env:   env,
+		paths: &paths,
+	}).Prepare(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}

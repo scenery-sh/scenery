@@ -8,7 +8,7 @@ import (
 )
 
 func TestRunSceneryInspectStorage(t *testing.T) {
-	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
+	_ = isolateCommandAgentHome(t)
 
 	root := t.TempDir()
 	writeTestAppFile(t, root, ".scenery.json", `{
@@ -75,7 +75,7 @@ func TestRunSceneryInspectStorage(t *testing.T) {
 
 func TestRunSceneryInspectStorageReportsLocalCellUsage(t *testing.T) {
 	agentHome := t.TempDir()
-	t.Setenv("SCENERY_AGENT_HOME", agentHome)
+	_ = isolateCommandAgentHomeAt(t, agentHome)
 
 	root := t.TempDir()
 	writeTestAppFile(t, root, ".scenery.json", `{

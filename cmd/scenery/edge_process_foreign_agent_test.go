@@ -13,11 +13,7 @@ import (
 // the guard against test/harness/worktree agent starts SIGTERMing the
 // machine's real supervised agent.
 func TestIsLiveForeignSceneryAgent(t *testing.T) {
-	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
-	paths, err := localagent.DefaultPaths()
-	if err != nil {
-		t.Fatal(err)
-	}
+	paths := localagent.PathsForHome(t.TempDir())
 	if err := localagent.EnsureDirs(paths); err != nil {
 		t.Fatal(err)
 	}

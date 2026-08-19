@@ -20,6 +20,7 @@ import (
 	"time"
 
 	localagent "scenery.sh/internal/agent"
+	"scenery.sh/internal/devcache"
 	"scenery.sh/internal/devdash"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/victoria"
@@ -361,17 +362,43 @@ func waitForAgentCommandPing(ctx context.Context, client *localagent.Client) err
 	return lastErr
 }
 
-func startTestAgentServer(t *testing.T, ctx context.Context) <-chan error {
+// isolateCommandAgentHome pins commandAgentPaths to a unique temp home so
+// tests do not need t.Setenv("SCENERY_AGENT_HOME").
+func isolateCommandAgentHome(t *testing.T) localagent.Paths {
+	t.Helper()
+	return isolateCommandAgentHomeAt(t, t.TempDir())
+}
+
+func isolateCommandAgentHomeAt(t *testing.T, home string) localagent.Paths {
+	t.Helper()
+	paths := localagent.PathsForHome(home)
+	prev := commandAgentPathsOverride
+	commandAgentPathsOverride = &paths
+	t.Cleanup(func() { commandAgentPathsOverride = prev })
+	return paths
+}
+
+// isolateCommandCacheRoot pins the in-process development cache root so tests
+// do not need t.Setenv("SCENERY_DEV_CACHE_DIR").
+func isolateCommandCacheRoot(t *testing.T) string {
+	t.Helper()
+	return isolateCommandCacheRootAt(t, t.TempDir())
+}
+
+func isolateCommandCacheRootAt(t *testing.T, root string) string {
+	t.Helper()
+	restore := devcache.SetRoot(root)
+	t.Cleanup(restore)
+	return root
+}
+
+func startTestAgentServer(t *testing.T, ctx context.Context) (localagent.Paths, <-chan error) {
 	return startTestAgentServerWithPathSetup(t, ctx, nil)
 }
 
-func startTestAgentServerWithPathSetup(t *testing.T, ctx context.Context, setup func(localagent.Paths)) <-chan error {
+func startTestAgentServerWithPathSetup(t *testing.T, ctx context.Context, setup func(localagent.Paths)) (localagent.Paths, <-chan error) {
 	t.Helper()
-	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
-	paths, err := localagent.DefaultPaths()
-	if err != nil {
-		t.Fatal(err)
-	}
+	paths := isolateCommandAgentHome(t)
 	if err := localagent.EnsureDirs(paths); err != nil {
 		t.Fatal(err)
 	}
@@ -379,6 +406,7 @@ func startTestAgentServerWithPathSetup(t *testing.T, ctx context.Context, setup 
 		setup(paths)
 	}
 	server, err := localagent.NewServer(localagent.RunOptions{
+		Home:       paths.Home,
 		RouterAddr: "127.0.0.1:0",
 		DashboardBackend: localagent.Backend{
 			Network: "tcp",
@@ -390,14 +418,11 @@ func startTestAgentServerWithPathSetup(t *testing.T, ctx context.Context, setup 
 	}
 	done := make(chan error, 1)
 	go func() { done <- server.Run(ctx) }()
-	client, err := localagent.DefaultClient()
-	if err != nil {
-		t.Fatal(err)
-	}
+	client := localagent.NewClient(paths.SocketPath)
 	if err := waitForAgentCommandPing(ctx, client); err != nil {
 		t.Fatal(err)
 	}
-	return done
+	return paths, done
 }
 
 func waitForTestAgentServer(t *testing.T, done <-chan error) {

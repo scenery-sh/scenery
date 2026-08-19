@@ -31,7 +31,7 @@ func (c *DevSessionController) agentPaths() (localagent.Paths, error) {
 	if c.paths != nil {
 		return *c.paths, nil
 	}
-	return localagent.DefaultPaths()
+	return commandAgentPaths()
 }
 
 var devSessionTestHooks struct {
@@ -181,7 +181,7 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 	agentUnavailable := false
 	if err := c.runPhase("Connecting scenery dev agent", func() error {
 		var err error
-		client, err = localagent.Ensure(ctx, cliBuildIdentity())
+		client, err = localagent.EnsureWith(ctx, cliBuildIdentity(), paths)
 		if err != nil {
 			if requiresPortlessEdge {
 				return fmt.Errorf("host routing for %q requires the scenery agent and local edge; agent unavailable: %w", routeNamespace.BaseDomain, err)

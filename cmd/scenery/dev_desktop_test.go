@@ -49,15 +49,12 @@ func TestConfiguredDesktopShellsRequiresConfiguredTauriProject(t *testing.T) {
 func TestDesktopShellUsesFrontendBackendAndRegistersProcess(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	agentDone := startTestAgentServer(t, ctx)
+	paths, agentDone := startTestAgentServer(t, ctx)
 	defer func() {
 		cancel()
 		waitForTestAgentServer(t, agentDone)
 	}()
-	client, err := localagent.DefaultClient()
-	if err != nil {
-		t.Fatal(err)
-	}
+	client := localagent.NewClient(paths.SocketPath)
 
 	root := t.TempDir()
 	frontendRoot := filepath.Join(root, "apps", "web")
@@ -167,15 +164,12 @@ while :; do sleep 1; done
 func TestDesktopShellExitDoesNotRestart(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	agentDone := startTestAgentServer(t, ctx)
+	paths, agentDone := startTestAgentServer(t, ctx)
 	defer func() {
 		cancel()
 		waitForTestAgentServer(t, agentDone)
 	}()
-	client, err := localagent.DefaultClient()
-	if err != nil {
-		t.Fatal(err)
-	}
+	client := localagent.NewClient(paths.SocketPath)
 	root := t.TempDir()
 	frontendRoot := filepath.Join(root, "apps", "web")
 	writeDesktopTestFile(t, filepath.Join(frontendRoot, "src-tauri", "tauri.conf.json"), `{}`)

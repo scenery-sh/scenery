@@ -192,7 +192,7 @@ func reusableVictoriaStack(substrate localagent.Substrate) (*victoria.Stack, boo
 }
 
 func (s *devSupervisor) startVictoriaRecoveryMonitor() {
-	paths, err := localagent.DefaultPaths()
+	paths, err := commandAgentPaths()
 	if err != nil {
 		s.reportVictoriaRecoveryFailure("", fmt.Errorf("recovery monitor unavailable: %w", err), 0)
 		return

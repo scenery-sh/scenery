@@ -92,8 +92,8 @@ func TestWaitForDetachedDevSessionFindsOwnerPID(t *testing.T) {
 	detachedDevStartupInterval = time.Millisecond
 	t.Cleanup(func() { detachedDevStartupInterval = oldInterval })
 
-	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
-	server, err := localagent.NewServer(localagent.RunOptions{RouterAddr: "127.0.0.1:0"})
+	paths := isolateCommandAgentHome(t)
+	server, err := localagent.NewServer(localagent.RunOptions{Home: paths.Home, RouterAddr: "127.0.0.1:0"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,10 +112,7 @@ func TestWaitForDetachedDevSessionFindsOwnerPID(t *testing.T) {
 		}
 	}()
 
-	client, err := localagent.DefaultClient()
-	if err != nil {
-		t.Fatal(err)
-	}
+	client := localagent.NewClient(paths.SocketPath)
 	if err := waitForAgentCommandPing(ctx, client); err != nil {
 		t.Fatal(err)
 	}
@@ -321,7 +318,7 @@ func TestWaitForDetachedDevSessionReadyTimeoutReportsState(t *testing.T) {
 func TestLiveDetachedDuplicateDevSessionFindsLiveOwner(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	agentDone := startTestAgentServer(t, ctx)
+	paths, agentDone := startTestAgentServer(t, ctx)
 
 	root := t.TempDir()
 	owner := exec.Command("sleep", "30")
@@ -332,10 +329,7 @@ func TestLiveDetachedDuplicateDevSessionFindsLiveOwner(t *testing.T) {
 		_ = owner.Process.Kill()
 		_ = owner.Wait()
 	}()
-	client, err := localagent.DefaultClient()
-	if err != nil {
-		t.Fatal(err)
-	}
+	client := localagent.NewClient(paths.SocketPath)
 	if err := waitForAgentCommandPing(ctx, client); err != nil {
 		t.Fatal(err)
 	}
