@@ -38,6 +38,9 @@ func TestSceneryConfigEndpoint(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
+	if got := strings.TrimSpace(rec.Header().Get("X-Trace-Id")); got == "" {
+		t.Fatal("missing X-Trace-Id on /__scenery/config")
+	}
 	if got := rec.Header().Get("Content-Type"); got != "application/json" {
 		t.Fatalf("content-type = %q, want %q", got, "application/json")
 	}
@@ -78,6 +81,42 @@ func TestDevEndpointsAreDisabledByDefault(t *testing.T) {
 		server.Handler.ServeHTTP(rec, req)
 		if rec.Code != http.StatusNotFound {
 			t.Fatalf("%s %s status = %d, want %d", tt.method, tt.path, rec.Code, http.StatusNotFound)
+		}
+		if got := strings.TrimSpace(rec.Header().Get("X-Trace-Id")); got == "" {
+			t.Fatalf("%s %s missing X-Trace-Id", tt.method, tt.path)
+		}
+	}
+}
+
+func TestEveryHTTPResponseExposesTraceID(t *testing.T) {
+	server, err := newServer("127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("newServer() error = %v", err)
+	}
+	for _, tt := range []struct {
+		method string
+		path   string
+		header http.Header
+	}{
+		{method: http.MethodGet, path: "/missing-endpoint"},
+		{method: http.MethodOptions, path: "/healthy", header: http.Header{
+			"Origin":                         []string{"https://app.test"},
+			"Access-Control-Request-Method":  []string{http.MethodGet},
+			"Access-Control-Request-Headers": []string{"authorization"},
+		}},
+	} {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(tt.method, tt.path, nil)
+		req.Header = tt.header.Clone()
+		if req.Header == nil {
+			req.Header = http.Header{}
+		}
+		server.Handler.ServeHTTP(rec, req)
+		if got := strings.TrimSpace(rec.Header().Get("X-Trace-Id")); got == "" {
+			t.Fatalf("%s %s missing X-Trace-Id (status %d)", tt.method, tt.path, rec.Code)
+		}
+		if got := rec.Header().Get("Access-Control-Expose-Headers"); !strings.Contains(strings.ToLower(got), "x-trace-id") {
+			t.Fatalf("%s %s Access-Control-Expose-Headers = %q", tt.method, tt.path, got)
 		}
 	}
 }

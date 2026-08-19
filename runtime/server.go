@@ -40,6 +40,55 @@ func applyTraceIDHeader(headers http.Header, state *requestState) {
 	exposeResponseHeader(headers, traceIDHeader)
 }
 
+type traceIDResponseWriter struct {
+	http.ResponseWriter
+	wrote bool
+}
+
+func withTraceID(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		next.ServeHTTP(&traceIDResponseWriter{ResponseWriter: w}, req)
+	})
+}
+
+func (w *traceIDResponseWriter) WriteHeader(status int) {
+	ensureTraceIDHeader(w.Header())
+	w.wrote = true
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *traceIDResponseWriter) Write(p []byte) (int, error) {
+	if !w.wrote {
+		ensureTraceIDHeader(w.Header())
+		w.wrote = true
+	}
+	return w.ResponseWriter.Write(p)
+}
+
+func (w *traceIDResponseWriter) Flush() {
+	if !w.wrote {
+		ensureTraceIDHeader(w.Header())
+		w.wrote = true
+	}
+	if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
+}
+
+func (w *traceIDResponseWriter) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
+}
+
+func ensureTraceIDHeader(headers http.Header) {
+	if headers == nil {
+		return
+	}
+	if strings.TrimSpace(headers.Get(traceIDHeader)) == "" {
+		headers.Set(traceIDHeader, newTraceID())
+	}
+	exposeResponseHeader(headers, traceIDHeader)
+}
+
 func exposeResponseHeader(headers http.Header, name string) {
 	if headers == nil || name == "" {
 		return
@@ -139,7 +188,7 @@ func newServer(listenAddr string) (*http.Server, error) {
 
 	httpServer := &http.Server{
 		Addr:    listenAddr,
-		Handler: withCORS(withGzip(s.public)),
+		Handler: withTraceID(withCORS(withGzip(s.public))),
 	}
 	for _, endpoint := range endpoints {
 		policy := endpoint.ContractPolicy
