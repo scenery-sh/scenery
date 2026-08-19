@@ -255,6 +255,29 @@ optimize a number nothing can explain.
 - [x] 2026-08-19: Extracted `internal/gotarget` so compiler no longer imports
       `internal/parse`. HTTP method constants are `"GET"`/`"HEAD"`; cookie
       validity still uses `http.Cookie.Valid`.
+- [x] 2026-08-19: Cold after-measure for the generate link split. Methodology
+      identical to the baseline: `.scenery/harness/test-binaries` wiped, then
+      `.scenery/harness/bin/scenery harness self --fresh-tests --summary
+      --write`, reading `test_binaries.build_seconds` and the per-binary
+      `builds` array from `.scenery/harness/test-timing-latest.json`. Same
+      host as every number in this plan (24 logical cores, 16 performance).
+
+      | Cold link CPU | Before (2026-08-19, pre-split) | After (2026-08-19, post-split) |
+      |---|---|---|
+      | `build`+`contractagent`+`evolution`+`generate` | 13.70s (10.2%) | 11.08s (8.9%) |
+      | Aggregate `test_binaries.build_seconds` | ~134.3s implied, 60 binaries | 124.73s, 63 binaries |
+      | `cmd/scenery` link | 4.842s (2026-07-28 measure) | 4.300s |
+
+      After per-binary: `build` 3.794s, `contractagent` 3.258s, `generate`
+      2.129s, `evolution` 1.897s. The three new leaves cost `gotarget` 1.243s,
+      `generate/api` 0.668s, `devcache` 0.619s (2.530s combined) and are
+      already inside the after aggregate, which still fell ~7% overall. Link
+      CPU did not migrate into `cmd/scenery`. Cold prepare was 19.522s (list
+      2.947s); the suite ran 76.529s plus 53.753s confirmations. Caveat:
+      single run, and a concurrent agent session was editing `auth/` files in
+      this worktree during the measure, so background compile contention
+      cannot be fully excluded; the direction and magnitude are consistent
+      with the warm per-link measurements already recorded above.
 
 ## Surprises & Discoveries
 
@@ -651,6 +674,7 @@ optimize a number nothing can explain.
   fixed-port binding with port-zero listeners, so those tests can join the
   parallel phase. Mass-adding `t.Parallel` without those changes is unsafe, as
   0050 already recorded.
+  Date/Author: 2026-07-28 / Claude.
 - Cache-root and generate-hook seams stay in-process. `SCENERY_DEV_CACHE_DIR`
   remains the only public cache env; `devcache.SetRoot` is not a second knob.
   Production `internal/build` fails closed when generate hooks are unwired.
@@ -659,13 +683,25 @@ optimize a number nothing can explain.
   build↛generate (tests may wire hooks), doctor↛build/generate, and the
   `devcache`/`gotarget` leaves.
   Date/Author: 2026-08-19 / Grok.
-  Date/Author: 2026-07-28 / Claude.
+- The 60-binary count budget is now three over. The link split added the
+  `generate/api`, `devcache`, and `gotarget` test binaries (2.53s of link CPU
+  combined), so every fresh run reports an advisory
+  "63 test binaries, over the 60 binary-count budget" warning and `--release`
+  would fail it. Whether to raise `budgets.test_binary_count` to 63 or trim
+  binaries elsewhere is an open decision; the cold measure below shows the
+  three leaves pay for themselves in aggregate.
+  Date/Author: 2026-08-19 / Claude.
 
 ## Outcomes & Retrospective
 
 Open. The confirmation-scope change removes the largest reported cost
 (99.506s of confirmation) from everyday fresh runs without losing regression
 detection, and the prepare instrumentation answers the cold-run question. The
+generate link split is measured and paid off cold: the four consumer binaries
+fell from 13.70s (10.2%) to 11.08s (8.9%) of aggregate link CPU, the aggregate
+fell to 124.73s even with three new leaf binaries, and `cmd/scenery` did not
+absorb the cost (see the 2026-08-19 cold after-measure in Progress). The
+binary-count budget is now 63-vs-60 and needs an explicit decision. The
 warm-suite target is unmet and now has a precise, measured owner.
 
 ## Context and Orientation
