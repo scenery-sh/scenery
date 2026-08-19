@@ -66,7 +66,7 @@ func TestRunCachesLinkedBinariesAndExecutesTestsFresh(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.ManifestHit || first.BuiltCount != 1 || first.PackageCount != 2 || first.TestResultCount != 2 {
+	if first.ManifestHit || first.BuiltCount != 1 || first.PackageCount != 2 || first.TestPackageCount != 1 || first.TestResultCount != 2 {
 		t.Fatalf("first result = %+v", first)
 	}
 	if data, err := os.ReadFile(marker); err != nil || string(data) != "ran" {

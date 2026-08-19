@@ -39,9 +39,9 @@ func main() {
 // reportPrepare prints the pre-execution breakdown on stderr so it stays out of
 // the Go JSON event stream on stdout.
 func reportPrepare(result testsuite.Result, builds int) {
-	fmt.Fprintf(os.Stderr, "prepare %.3fs (list %.3fs, %d builds totalling %.3fs, manifest_hit=%v)\n",
+	fmt.Fprintf(os.Stderr, "prepare %.3fs (list %.3fs, %d/%d binaries built, totalling %.3fs, manifest_hit=%v)\n",
 		result.Prepare.Elapsed.Seconds(), result.Prepare.ListElapsed.Seconds(),
-		len(result.Prepare.Builds), result.Prepare.BuildElapsed().Seconds(), result.ManifestHit)
+		len(result.Prepare.Builds), result.TestPackageCount, result.Prepare.BuildElapsed().Seconds(), result.ManifestHit)
 	for i, build := range result.Prepare.Builds {
 		if i >= builds {
 			break

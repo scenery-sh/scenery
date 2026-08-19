@@ -13,7 +13,7 @@ import (
 
 // CaddyConfigOptions describes one rendered Caddyfile for the managed edge
 // process: the private HTTPS listener, the agent-router upstream, and any
-// publicly served ACME domains.
+// publicly served domains.
 type CaddyConfigOptions struct {
 	ListenAddr     string
 	PublicPort     string
@@ -133,11 +133,13 @@ func CaddyConfig(opts CaddyConfigOptions) string {
 	return b.String()
 }
 
-// writePublicDomainSite renders one public ACME domain: Scenery-owned blocked
-// paths first, then the dynamic agent proxy for /api/*, then each published
-// production frontend from disk, and finally either the root frontend or the
-// agent proxy as catch-all. A site without published frontends keeps the
-// single unconditional agent proxy.
+// writePublicDomainSite renders one public domain. Public ACME is the primary
+// issuer; Caddy's internal CA is the fallback for origins behind a TLS-
+// terminating proxy such as Cloudflare in Full mode. Routing applies Scenery-
+// owned blocked paths first, then the dynamic agent proxy for /api/*, then each
+// published production frontend from disk, and finally either the root
+// frontend or the agent proxy as catch-all. A site without published
+// frontends keeps the single unconditional agent proxy.
 func writePublicDomainSite(b *strings.Builder, site PublicDomainSite, opts CaddyConfigOptions, listenPort, httpPort string) {
 	address := site.Domain + ":" + listenPort
 	httpAddress := "http://" + site.Domain + ":" + httpPort
@@ -148,7 +150,7 @@ func writePublicDomainSite(b *strings.Builder, site PublicDomainSite, opts Caddy
 		bind = "\tbind 0.0.0.0\n"
 	}
 	proxy := publicAgentProxy(opts.Upstream, opts.Token)
-	fmt.Fprintf(b, "\n%s {\n%s\ttls {\n\t\tissuer acme%s\n\t}\n", address, bind, caddyACMEIssuerOptions(opts.ACMECA))
+	fmt.Fprintf(b, "\n%s {\n%s\ttls {\n\t\tissuer acme%s\n\t\tissuer internal\n\t}\n", address, bind, caddyACMEIssuerOptions(opts.ACMECA))
 	frontends := renderableStaticFrontends(site.Frontends)
 	if len(frontends) == 0 {
 		b.WriteString(indentBlock(proxy, 1))
@@ -313,7 +315,7 @@ func caddyMatcherLabel(name string) string {
 }
 
 // CaddyConfigForRegistry renders the managed edge Caddyfile with the public
-// ACME sites taken from the agent home's deploy registry.
+// sites taken from the agent home's deploy registry.
 func CaddyConfigForRegistry(paths localagent.Paths, targetAddr, httpTargetAddr, upstreamAddr, adminSocket, token string) (string, error) {
 	deployRegistry, err := localagent.LoadDeployRegistry(paths.DeployPath)
 	if err != nil {

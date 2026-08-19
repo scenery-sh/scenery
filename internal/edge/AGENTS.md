@@ -20,6 +20,7 @@
 - Preserve the platform-specific detached-child behavior in `process_*.go`.
 - `PublishFrontendArtifact` writes immutable releases beneath the validated deploy-artifact root and switches one relative `current` symlink atomically; it rejects symlinks/special files, requires a regular `index.html`, retains a fixed release window, and never deletes outside the frontend directory. Caddy static routes must reference the `current` symlink so publication switches without a reload.
 - Public domain sites render static frontends only when the `current` artifact resolves to a complete release (`renderableStaticFrontends`); anything else falls back to the agent proxy. Blocked Scenery paths and the `/api/*` agent proxy always precede static handlers.
+- Public domain TLS tries ACME first and Caddy's internal CA second. The fallback is the origin-certificate path for TLS-terminating proxies such as Cloudflare in Full mode; direct public domains still receive publicly trusted ACME certificates when issuance is available.
 - `systemd.go` owns the `scenery-edge.service` unit: managed Caddy binary, Scenery-rendered Caddyfile, admin-socket reload. Keep systemctl access behind the package hook so tests never touch real systemd, and validate candidate configs with `ValidateCaddyConfig` before install/reload.
 
 ## Work Guidance

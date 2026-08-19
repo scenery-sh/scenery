@@ -147,9 +147,9 @@
       "status": "active",
       "quality": "B",
       "freshness": "current",
-      "last_reviewed": "2026-07-28",
-      "review_after": "2026-08-27",
-      "summary": "Active ExecPlan attributing developer test loop cost: isolated timing confirmation scoped to new or materially worsened outliers with recorded deferrals, per-binary link duration and build ID instrumentation showing the cold penalty is saturated linking rather than package listing, and the remaining cmd/scenery serial critical path as the measured owner of the warm-suite target.",
+      "last_reviewed": "2026-08-19",
+      "review_after": "2026-09-18",
+      "summary": "Active ExecPlan attributing developer test loop cost: isolated timing confirmation scoped to new or materially worsened outliers with recorded deferrals, per-binary link duration and build ID instrumentation showing the cold penalty is saturated linking rather than package listing, a graph-only mcpprojection boundary, cold binary-count and link-CPU budgets of 60 and 180s, and the remaining cmd/scenery serial critical path as the measured owner of the warm-suite target.",
       "tags": ["plans", "execplans", "harness", "testing", "performance", "timing"]
     },
     {

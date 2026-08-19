@@ -199,6 +199,21 @@ optimize a number nothing can explain.
       restore command, missing go.mod stays silent. Documented in
       `docs/local-contract.md` § harness self.
 
+- [x] 2026-08-15: Made `internal/mcpprojection` graph-only. Removed its
+      compiler-aware convenience wrapper, moved expanded-view selection into
+      the two compiler-aware callers, and replaced the projection test's live
+      compiler fixture with the equivalent checked-in graph fixture. The test
+      binary fell from 12,786,418 to 7,240,434 bytes (43.4%); repeated warm
+      `go test -c` links fell from a 0.69s median to 0.35s (49.3%). The graph
+      fixture still produces the byte-identical canonical MCP golden.
+- [x] 2026-08-19: Added a cold binary-count and link-CPU regression budget.
+      `budgets.test_binary_count` is 60 and is compared to
+      `test_binaries.test_package_count` on every fresh run, including warm
+      ones. `budgets.cold_build_seconds` is 180s and applies only when
+      `built_count` equals `test_package_count`. Both are advisory in
+      default/fresh and errors in `--release`. Cross-worktree binary reuse is
+      still unproven.
+
 ## Surprises & Discoveries
 
 - 2026-07-28: The cold penalty is linking, and package listing is nearly free.
@@ -256,6 +271,20 @@ optimize a number nothing can explain.
   two runs — 16.4% and 17.0% — with system time, the linker's dominant cost,
   down about 30% (73.97s → 55.10s, 73.83s → 50.38s). `cmd/scenery` is unchanged
   at 39.4MB, as expected: it owns the runtime and should link it.
+- 2026-08-15: A leaf package is not graph-only if its tests reconstruct the
+  graph through the compiler. Removing `internal/mcpprojection`'s production
+  compiler import alone would have left its test closure unchanged because
+  `project_test.go` still compiled the native app fixture. Keeping the same
+  selected resources as graph JSON reduced the test dependency count from 292
+  to 182 and removed `internal/compiler`, `internal/parse`, and
+  `golang.org/x/tools/go/packages` from that closure.
+- 2026-08-19: Go test BuildIDs are not worktree-portable. Two worktrees with
+  identical source still produce different `.test` BuildIDs because `go list
+  -export` folds the package directory path into the ID. A shared
+  `.scenery/harness/test-binaries` cache keyed on those IDs cannot hit across
+  worktrees. Proving a cross-worktree cache needs either path-normalized IDs
+  or a content digest, and the runner's local contract still prefers Go build
+  IDs over a parallel source-dependency model.
 - 2026-07-28: The architecture rule found a layering violation the move had
   hidden. `contract_path_tail_test.go` imported `scenery.sh/runtime` to test the
   runtime's HTTP input decoder against contract types, so it would have relinked
@@ -464,6 +493,21 @@ optimize a number nothing can explain.
   binary, and nothing fails. Fixture apps under `testdata/` are exempt, since
   generated client code legitimately imports the façade.
   Date/Author: 2026-07-28 / Claude.
+- The graph-only `internal/mcpprojection` boundary is retained because the
+  measured improvement is comfortably above link noise: 43.4% less binary and
+  49.3% less median warm link time across three like-for-like `go test -c`
+  runs. Compiler callers own validity and expanded-view selection; projection
+  owns only graph-to-MCP conversion.
+  Date/Author: 2026-08-15 / Codex.
+- Cold binary budgets hold today's suite rather than the July 28 49-binary /
+  129.78s line. 60 is the current packages-with-tests count; 180s sits just
+  above the measured 175.38s aggregate link CPU. A budget below those numbers
+  would fire on every cold run and hide the next regression. Binary count is
+  checked on warm fresh runs because adding a package is a cold cost even
+  when this run reused cached binaries; link CPU is checked only on a full
+  cold prepare so a five-package rebuild cannot be compared to a 60-package
+  sum.
+  Date/Author: 2026-08-19 / Grok.
 - Per-package budgets were raised to 10s/15s rather than left at 2s/5s. A budget
   that nothing meets is not a budget; it reports every package every run, so a
   real regression is indistinguishable from the standing background. 10s and 15s
@@ -657,10 +701,14 @@ Timing conclusions do not transfer across machines; re-measure before comparing.
 ## Interfaces and Dependencies
 
 - `scenery.harness.test_timing` gained `test_binaries`,
-  `deferred_confirmations`, and `budgets.confirmation_scope`. The schema
-  revision moved to
-  `sha256:73231c3fb87a0790d678879fec827f095f584d8618755dbf10f4fcc4fddad3fa`.
-- `testsuite.Result` gained `Prepare`; `testsuite.Run` is otherwise unchanged.
+  `deferred_confirmations`, `budgets.confirmation_scope`,
+  `budgets.test_binary_count`, `budgets.cold_build_seconds`, and
+  `test_binaries.test_package_count`. The schema revision moved to
+  `sha256:bdc1bf5b8cf82cfeb82d0ae959186a3943faa07968d7cb5f7217dcc4afa4e8ff`.
+  `scenery.harness.self` inlines that nested shape; its schema revision moved
+  to `sha256:28e874c63bdb48061befd9ca35417db509b681ba7b3f9a3dfe1460864e4e622c`.
+- `testsuite.Result` gained `Prepare` and `TestPackageCount`; `testsuite.Run`
+  is otherwise unchanged.
 - `scripts/testsuite` gained `-builds N`, which writes to stderr only, leaving
   the stdout Go JSON event stream intact.
 - No new environment variables, and no new CLI flags: confirmation scope is

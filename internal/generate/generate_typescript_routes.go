@@ -373,7 +373,7 @@ export function createSceneryApp(options: SceneryAppOptions = {}) {
   const rootRoute = createRootRoute({ component: RootRoute });
 
   function ShellRoute() {
-    useNavigationRevision();
+    const navigationRevision = useNavigationRevision();
     const currentPath = useRouterState({
       select: (state) => state.location.pathname,
     });
@@ -400,6 +400,7 @@ export function createSceneryApp(options: SceneryAppOptions = {}) {
           slots.navigationFilter,
           slots.resolveAccess,
           currentRoute,
+          navigationRevision,
         )}
         navigationToggleIcon={slots.navigationToggleIcon}
         topBar={slots.topBar}
@@ -493,6 +494,8 @@ function navigationSections(
   ) => boolean) | undefined,
   resolveAccess: SceneryAccessResolver | undefined,
   currentRoute: SceneryRouteDescriptor | undefined,
+  // Keep entitlement revisions in the React compiler's navigation cache key.
+  _navigationRevision: unknown,
 ): readonly SideNavigationSection[] {
   const groups = new Map<string, Array<{
     descriptor: SceneryNavigationDescriptor;

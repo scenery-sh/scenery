@@ -307,7 +307,14 @@ func buildAssistantAsset(ctx context.Context, result *Result, assistant generate
 	// A deterministic placeholder is used at build time. Supervision supplies
 	// the live loopback addresses to the extracted child through its private
 	// runtime configuration; no URL or token enters the asset descriptor.
-	manifest, err := mcpprojection.Project(result.Contract, referenceValueForBuild(assistant.Spec["mcp_server"]))
+	if result.Contract == nil || !result.Contract.Valid() {
+		return generate.AssistantAssetInput{}, fmt.Errorf("project assistant %s MCP approval policy: failed_precondition: compiler result is invalid", assistant.Address)
+	}
+	expanded, err := result.Contract.ManifestForView("expanded")
+	if err != nil {
+		return generate.AssistantAssetInput{}, fmt.Errorf("project assistant %s MCP approval policy: failed_precondition: %w", assistant.Address, err)
+	}
+	manifest, err := mcpprojection.ProjectManifest(expanded, result.Contract.WorkspaceRevision, referenceValueForBuild(assistant.Spec["mcp_server"]))
 	if err != nil {
 		return generate.AssistantAssetInput{}, fmt.Errorf("project assistant %s MCP approval policy: %w", assistant.Address, err)
 	}

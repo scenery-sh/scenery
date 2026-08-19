@@ -97,7 +97,7 @@ func readBoundedHarnessArtifactPayload(name, path string) (any, error) {
 			}
 			return packages[i].Seconds > packages[j].Seconds
 		})
-		return map[string]any{
+		payload := map[string]any{
 			"kind":                     report.Kind,
 			"schema_revision":          report.SchemaRevision,
 			"total_seconds":            report.TotalSeconds,
@@ -109,7 +109,13 @@ func readBoundedHarnessArtifactPayload(name, path string) (any, error) {
 			"top_slow_tests":           capTests(report.SlowTests, 10),
 			"top_slow_packages":        capPackages(packages, 10),
 			"diagnostics":              capDiagnostics(report.Diagnostics, 50, ""),
-		}, nil
+		}
+		if report.TestBinaries != nil {
+			payload["test_package_count"] = report.TestBinaries.TestPackageCount
+			payload["built_count"] = report.TestBinaries.BuiltCount
+			payload["build_seconds"] = report.TestBinaries.BuildSeconds
+		}
+		return payload, nil
 	case "drift":
 		report, err := readHarnessJSON[harnessDriftReport](path)
 		if err != nil {

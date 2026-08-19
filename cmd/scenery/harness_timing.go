@@ -31,11 +31,12 @@ const (
 
 func harnessTestBinaryTimingFromResult(result testsuite.Result) *harnessTestBinaryTiming {
 	timing := &harnessTestBinaryTiming{
-		ManifestHit:    result.ManifestHit,
-		PrepareSeconds: roundSeconds(result.Prepare.Elapsed.Seconds()),
-		ListSeconds:    roundSeconds(result.Prepare.ListElapsed.Seconds()),
-		BuildSeconds:   roundSeconds(result.Prepare.BuildElapsed().Seconds()),
-		BuiltCount:     len(result.Prepare.Builds),
+		ManifestHit:      result.ManifestHit,
+		PrepareSeconds:   roundSeconds(result.Prepare.Elapsed.Seconds()),
+		ListSeconds:      roundSeconds(result.Prepare.ListElapsed.Seconds()),
+		BuildSeconds:     roundSeconds(result.Prepare.BuildElapsed().Seconds()),
+		BuiltCount:       len(result.Prepare.Builds),
+		TestPackageCount: result.TestPackageCount,
 	}
 	for _, build := range result.Prepare.Builds {
 		timing.Builds = append(timing.Builds, harnessTestBinaryBuild{
@@ -128,6 +129,41 @@ func selectHarnessTimingConfirmations(report *harnessTestTimingReport, baseline 
 		Message:         fmt.Sprintf("skipped isolated confirmation for %d known timing outlier(s) at their recorded level", len(report.DeferredConfirmations)),
 		SuggestedAction: "Run `.scenery/harness/bin/scenery harness self --release --fresh-tests -o json --write` for a full timing audit, or read `deferred_confirmations` in `.scenery/harness/test-timing-latest.json`.",
 	})
+}
+
+// applyHarnessColdBinaryBudgets records the cold-link regression signal.
+// Binary count is a structural cost and is checked on every fresh run.
+// Aggregate link CPU is only comparable on a full cold prepare, when every
+// listed test package was linked in this run.
+func applyHarnessColdBinaryBudgets(report *harnessTestTimingReport) {
+	if report == nil || report.TestBinaries == nil {
+		return
+	}
+	timing := report.TestBinaries
+	budgets := report.Budgets
+	severity := "warning"
+	suggestion := "Review `.scenery/harness/test-timing-latest.json` test_binaries; cold binary budgets are advisory in default self-harness mode."
+	if budgets.Mode == "enforce-total" {
+		severity = "error"
+		suggestion = "Shrink test-binary closures or raise the recorded cold budget in defaultHarnessTestTimingBudgets if the growth is intentional."
+	}
+	if budgets.TestBinaryCount > 0 && timing.TestPackageCount > budgets.TestBinaryCount {
+		report.Diagnostics = append(report.Diagnostics, checkDiagnostic{
+			Stage:           "go tests",
+			Severity:        severity,
+			Message:         fmt.Sprintf("fresh lane has %d test binaries, over the %d binary-count budget", timing.TestPackageCount, budgets.TestBinaryCount),
+			SuggestedAction: suggestion,
+		})
+	}
+	fullCold := timing.TestPackageCount > 0 && timing.BuiltCount == timing.TestPackageCount
+	if fullCold && budgets.ColdBuildSeconds > 0 && timing.BuildSeconds >= budgets.ColdBuildSeconds {
+		report.Diagnostics = append(report.Diagnostics, checkDiagnostic{
+			Stage:           "go tests",
+			Severity:        severity,
+			Message:         fmt.Sprintf("cold test-binary linking took %.3fs, over %.3fs link-CPU budget (%d binaries)", timing.BuildSeconds, budgets.ColdBuildSeconds, timing.BuiltCount),
+			SuggestedAction: suggestion,
+		})
+	}
 }
 
 func harnessTimingIsRegression(seconds, baselineSeconds float64) bool {

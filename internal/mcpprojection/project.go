@@ -1,7 +1,6 @@
 // Package mcpprojection converts the canonical expanded Scenery graph into the
-// provider-neutral MCP capability manifest.  It deliberately consumes only
-// compiler/graph output: source parsing, generation, and provider adapters do
-// not belong in this package.
+// provider-neutral MCP capability manifest. Source parsing, compilation,
+// generation, and provider adapters do not belong in this package.
 package mcpprojection
 
 import (
@@ -13,7 +12,6 @@ import (
 	"strconv"
 	"strings"
 
-	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/graph"
 	"scenery.sh/internal/mcpcontract"
 )
@@ -44,55 +42,12 @@ const (
 	maxResultBytes = int64(16 << 20)
 )
 
-// Project accepts either a *compiler.Result or a *graph.Manifest.  A compiler
-// result is preferred because it carries the authored workspace revision;
-// callers with an already-selected expanded manifest can use the graph form,
-// which falls back to that manifest's specification revision.
-func Project(input any, server string) (mcpcontract.Manifest, error) {
-	var manifest *graph.Manifest
-	sourceRevision := ""
-	implementationRevision := ""
-	switch value := input.(type) {
-	case *compiler.Result:
-		if value == nil {
-			return mcpcontract.Manifest{}, projectionError("failed_precondition", "compiler result is nil")
-		}
-		if !value.Valid() {
-			return mcpcontract.Manifest{}, projectionError("failed_precondition", "compiler result is invalid")
-		}
-		var err error
-		manifest, err = value.ManifestForView("expanded")
-		if err != nil {
-			return mcpcontract.Manifest{}, projectionError("failed_precondition", err.Error())
-		}
-		sourceRevision = value.WorkspaceRevision
-		implementationRevision = firstRevision(value.ImplementationRevisions)
-	case *graph.Manifest:
-		manifest = value
-	case nil:
-		return mcpcontract.Manifest{}, projectionError("failed_precondition", "expanded manifest is nil")
-	default:
-		return mcpcontract.Manifest{}, projectionError("invalid_request", fmt.Sprintf("unsupported projection input %T", input))
-	}
-	if manifest == nil {
-		return mcpcontract.Manifest{}, projectionError("failed_precondition", "expanded manifest is nil")
-	}
-	if sourceRevision == "" {
-		sourceRevision = manifest.SpecRevision
-	}
-	return projectManifest(manifest, sourceRevision, implementationRevision, server)
-}
-
 // ProjectManifest projects an expanded graph and uses sourceRevision as the
 // source/workspace identity in the generated capability manifest.
 func ProjectManifest(manifest *graph.Manifest, sourceRevision, server string) (mcpcontract.Manifest, error) {
 	if manifest == nil {
 		return mcpcontract.Manifest{}, projectionError("failed_precondition", "expanded manifest is nil")
 	}
-	return projectManifest(manifest, sourceRevision, "", server)
-}
-
-func projectManifest(manifest *graph.Manifest, sourceRevision, implementationRevision, server string) (mcpcontract.Manifest, error) {
 	if strings.TrimSpace(manifest.ContractRevision) == "" {
 		return mcpcontract.Manifest{}, projectionError("failed_precondition", "expanded manifest has no contract revision")
 	}
@@ -122,9 +77,6 @@ func projectManifest(manifest *graph.Manifest, sourceRevision, implementationRev
 		"capabilities":      capabilities,
 		"connections":       connections,
 	}
-	if implementationRevision != "" {
-		payload["implementation_revision"] = implementationRevision
-	}
 	encoded, err := json.Marshal(payload)
 	if err != nil {
 		return mcpcontract.Manifest{}, fmt.Errorf("mcp projection encode: %w", err)
@@ -142,23 +94,6 @@ func resourcesByAddress(manifest *graph.Manifest) map[string]graph.Resource {
 		result[resource.Address] = resource
 	}
 	return result
-}
-
-func firstRevision(revisions map[string]string) string {
-	if len(revisions) == 0 {
-		return ""
-	}
-	keys := make([]string, 0, len(revisions))
-	for key := range revisions {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	for _, key := range keys {
-		if value := strings.TrimSpace(revisions[key]); value != "" {
-			return value
-		}
-	}
-	return ""
 }
 
 func selectServer(resources map[string]graph.Resource, reference string) (graph.Resource, error) {

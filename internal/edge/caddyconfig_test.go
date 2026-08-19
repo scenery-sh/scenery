@@ -89,6 +89,7 @@ func TestCaddyConfigAddsPublicACMESites(t *testing.T) {
 		"z.onlv.dev:19443 {",
 		"issuer acme {",
 		"ca https://acme-staging-v02.api.letsencrypt.org/directory",
+		"issuer internal",
 		"header_up X-Scenery-Public-Edge 1",
 		"http://onlv.dev:19080 {",
 		"redir https://{host}{uri} 308",
@@ -99,6 +100,9 @@ func TestCaddyConfigAddsPublicACMESites(t *testing.T) {
 	}
 	if strings.Contains(config, "local_certs") {
 		t.Fatalf("public Caddy config should keep internal issuer per-site, not global local_certs:\n%s", config)
+	}
+	if strings.Index(config, "issuer acme") > strings.Index(config, "issuer internal") {
+		t.Fatalf("public Caddy config should prefer ACME before the internal fallback:\n%s", config)
 	}
 	if strings.Count(config, "\nonlv.dev:19443 {") != 1 {
 		t.Fatalf("public Caddy config should de-duplicate domains:\n%s", config)

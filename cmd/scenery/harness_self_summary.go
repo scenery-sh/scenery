@@ -93,6 +93,8 @@ type harnessSelfTestTimingSummary struct {
 	BudgetSeconds         intOrFloat             `json:"budget_seconds"`
 	TargetSeconds         intOrFloat             `json:"target_seconds,omitempty"`
 	PackageCount          int                    `json:"package_count"`
+	TestPackageCount      int                    `json:"test_package_count,omitempty"`
+	BuiltCount            int                    `json:"built_count,omitempty"`
 	ObservedSlowTestCount int                    `json:"observed_slow_test_count"`
 	SlowTestCount         int                    `json:"slow_test_count"`
 	WarningCount          int                    `json:"warning_count"`
@@ -346,7 +348,7 @@ func summarizeTestTiming(report *harnessTestTimingReport) *harnessSelfTestTiming
 		}
 		return packages[i].Seconds > packages[j].Seconds
 	})
-	return &harnessSelfTestTimingSummary{
+	summary := &harnessSelfTestTimingSummary{
 		Lane:                  report.Budgets.Lane,
 		TotalSeconds:          intOrFloat(report.TotalSeconds),
 		ConfirmationSeconds:   intOrFloat(report.ConfirmationSeconds),
@@ -360,6 +362,11 @@ func summarizeTestTiming(report *harnessTestTimingReport) *harnessSelfTestTiming
 		TopSlowPackages:       capPackages(packages, 5),
 		Artifact:              ".scenery/harness/test-timing-latest.json",
 	}
+	if report.TestBinaries != nil {
+		summary.TestPackageCount = report.TestBinaries.TestPackageCount
+		summary.BuiltCount = report.TestBinaries.BuiltCount
+	}
+	return summary
 }
 
 func summarizeKnowledge(resp harnessSelfResponse) harnessSelfKnowledgeSummary {

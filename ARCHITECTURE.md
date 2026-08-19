@@ -212,11 +212,11 @@ roots.
 
 These packages own the provider-neutral MCP ABI. `internal/mcpcontract` defines
 the manifest, tool policy, assertions, and limits; `internal/mcpprojection`
-projects the expanded graph; `internal/mcpgateway` dispatches local generated
-bindings and federated tools; and `internal/mcpfederation` owns Scenery's
-external Streamable HTTP clients, namespaces, filters, auth, readiness, and
-refresh lifecycle. They do not expose a public MCP listener and do not import
-the developer adapter.
+projects the expanded graph and does not import the compiler; `internal/mcpgateway`
+dispatches local generated bindings and federated tools; and
+`internal/mcpfederation` owns Scenery's external Streamable HTTP clients,
+namespaces, filters, auth, readiness, and refresh lifecycle. They do not expose
+a public MCP listener and do not import the developer adapter.
 
 ### `internal/assistantapi`, `internal/assistantcontrol`, `internal/assistantruntime`, and `internal/assistantadapter`
 

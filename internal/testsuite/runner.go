@@ -38,12 +38,13 @@ type Options struct {
 }
 
 type Result struct {
-	PackageCount    int
-	TestResultCount int
-	BuiltCount      int
-	ManifestHit     bool
-	Packages        []PackageTiming
-	Prepare         PrepareTiming
+	PackageCount     int
+	TestPackageCount int
+	TestResultCount  int
+	BuiltCount       int
+	ManifestHit      bool
+	Packages         []PackageTiming
+	Prepare          PrepareTiming
 }
 
 type PackageTiming struct {
@@ -100,10 +101,11 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 	sortTestPackages(manifest.Packages, estimates)
 	runs := runPackages(ctx, opts, manifest.Packages)
 	result := Result{
-		PackageCount: len(manifest.Packages) + len(manifest.NoTestPackages),
-		BuiltCount:   len(prepared.Builds),
-		ManifestHit:  hit,
-		Prepare:      prepared,
+		PackageCount:     len(manifest.Packages) + len(manifest.NoTestPackages),
+		TestPackageCount: len(manifest.Packages),
+		BuiltCount:       len(prepared.Builds),
+		ManifestHit:      hit,
+		Prepare:          prepared,
 	}
 	var runErrors []error
 	for _, run := range runs {

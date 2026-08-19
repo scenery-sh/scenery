@@ -19,7 +19,7 @@
       "const": "scenery.harness.self"
     },
     "schema_revision": {
-      "const": "sha256:9d26c5afd4047699d5c43364ca2555a5cdbf7b741be3061f27aaf414629508ff"
+      "const": "sha256:28e874c63bdb48061befd9ca35417db509b681ba7b3f9a3dfe1460864e4e622c"
     },
     "ok": {
       "type": "boolean"
@@ -257,7 +257,7 @@
           "const": "scenery.harness.test_timing"
         },
         "schema_revision": {
-          "const": "sha256:73231c3fb87a0790d678879fec827f095f584d8618755dbf10f4fcc4fddad3fa"
+          "const": "sha256:bdc1bf5b8cf82cfeb82d0ae959186a3943faa07968d7cb5f7217dcc4afa4e8ff"
         },
         "command": {
           "type": "array",
@@ -282,7 +282,8 @@
           "required": [
             "manifest_hit",
             "prepare_seconds",
-            "built_count"
+            "built_count",
+            "test_package_count"
           ],
           "properties": {
             "manifest_hit": {
@@ -298,6 +299,10 @@
               "type": "number"
             },
             "built_count": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "test_package_count": {
               "type": "integer",
               "minimum": 0
             },
@@ -420,6 +425,13 @@
                 "regressions",
                 "all"
               ]
+            },
+            "test_binary_count": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "cold_build_seconds": {
+              "type": "number"
             },
             "mode": {
               "type": "string"

@@ -31,6 +31,12 @@ const (
 	releaseHarnessTotalSeconds       = 30
 	commandPackageTimingSeconds      = 15
 	harnessTimingConfirmationRuns    = 3
+	// Cold-link budgets hold the current suite, not the 0050-era target.
+	// 60 is today's packages-with-tests count. 180s is just above the
+	// measured 175.38s aggregate link CPU so a further closure widening
+	// is a signal and a full cold at today's size is not.
+	harnessTestBinaryCountBudget  = 60
+	harnessColdBuildSecondsBudget = 180
 )
 
 const (
@@ -88,12 +94,13 @@ type harnessTestTimingReport struct {
 // never appear in Go's per-package elapsed times; without this breakdown a
 // cold-run penalty cannot be traced to the links that caused it.
 type harnessTestBinaryTiming struct {
-	ManifestHit    bool                     `json:"manifest_hit"`
-	PrepareSeconds float64                  `json:"prepare_seconds"`
-	ListSeconds    float64                  `json:"list_seconds,omitempty"`
-	BuildSeconds   float64                  `json:"build_seconds,omitempty"`
-	BuiltCount     int                      `json:"built_count"`
-	Builds         []harnessTestBinaryBuild `json:"builds,omitempty"`
+	ManifestHit      bool                     `json:"manifest_hit"`
+	PrepareSeconds   float64                  `json:"prepare_seconds"`
+	ListSeconds      float64                  `json:"list_seconds,omitempty"`
+	BuildSeconds     float64                  `json:"build_seconds,omitempty"`
+	BuiltCount       int                      `json:"built_count"`
+	TestPackageCount int                      `json:"test_package_count"`
+	Builds           []harnessTestBinaryBuild `json:"builds,omitempty"`
 }
 
 type harnessTestBinaryBuild struct {
@@ -144,7 +151,16 @@ type harnessTestTimingBudgets struct {
 	// candidate). Everyday fresh runs use the former; the release audit lane
 	// uses the latter.
 	ConfirmationScope string `json:"confirmation_scope,omitempty"`
-	Mode              string `json:"mode"`
+	// TestBinaryCount is the maximum number of packages that produce a test
+	// binary. Fresh runs compare it to test_binaries.test_package_count on
+	// every run, including warm ones, because adding a package is a cold-link
+	// cost even when this run reused cached binaries.
+	TestBinaryCount int `json:"test_binary_count,omitempty"`
+	// ColdBuildSeconds is the maximum aggregate per-binary link CPU. It
+	// applies only when built_count equals test_package_count, i.e. a full
+	// cold prepare. Partial rebuilds are not compared against this number.
+	ColdBuildSeconds float64 `json:"cold_build_seconds,omitempty"`
+	Mode             string  `json:"mode"`
 }
 
 type goTestJSONEvent struct {
@@ -690,6 +706,7 @@ func runHarnessGoTestTimingStepWithBudgets(ctx context.Context, repoRoot string,
 	report.Env = append([]string{}, testEnv...)
 	if freshTests {
 		report.TestBinaries = harnessTestBinaryTimingFromResult(testResult)
+		applyHarnessColdBinaryBudgets(report)
 	}
 	if runErr == nil && freshTests {
 		selectHarnessTimingConfirmations(report, readHarnessTimingBaseline(repoRoot))
@@ -709,6 +726,7 @@ func runHarnessGoTestTimingStepWithBudgets(ctx context.Context, repoRoot string,
 	if freshTests {
 		step.Summary["test_results"] = testResult.TestResultCount
 		step.Summary["test_binaries_built"] = testResult.BuiltCount
+		step.Summary["test_package_count"] = testResult.TestPackageCount
 		step.Summary["test_manifest_hit"] = testResult.ManifestHit
 		step.Summary["test_binary_prepare_seconds"] = roundSeconds(testResult.Prepare.Elapsed.Seconds())
 		step.Summary["test_binary_build_seconds"] = roundSeconds(testResult.Prepare.BuildElapsed().Seconds())
@@ -881,8 +899,10 @@ func defaultHarnessTestTimingBudgets() harnessTestTimingBudgets {
 		PackageOverrides: map[string]float64{
 			"scenery.sh/cmd/scenery": commandPackageTimingSeconds,
 		},
-		TestSeconds: 0.5,
-		Mode:        "observe-total",
+		TestSeconds:      0.5,
+		TestBinaryCount:  harnessTestBinaryCountBudget,
+		ColdBuildSeconds: harnessColdBuildSecondsBudget,
+		Mode:             "observe-total",
 	}
 }
 

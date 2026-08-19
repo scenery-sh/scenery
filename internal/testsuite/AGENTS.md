@@ -30,8 +30,10 @@ Go test binaries so fresh measurement does not relink unchanged packages.
 - Route process environment reads through `internal/envpolicy`.
 - Report pre-execution cost on `Result.Prepare`: total elapsed, package-listing
   elapsed, and one `BinaryBuild{Package, BuildID, Elapsed}` per linked binary,
-  ranked slowest first. Linking is invisible to Go's per-package test timings,
-  so a cold-run penalty is unattributable without it.
+  ranked slowest first. Also report `TestPackageCount` (packages that produce a
+  test binary). Linking is invisible to Go's per-package test timings, so a
+  cold-run penalty is unattributable without this breakdown.
+- Cold binary-count and link-CPU budgets live in `cmd/scenery`, not here.
 
 ## Work Guidance
 

@@ -1,0 +1,114 @@
+{
+  "workspace_revision": "sha256:fcb0641abd841af64e449d2f23bc0cd4b63282e9578d16b9dfdd83d9e609c7ec",
+  "manifest": {
+    "spec_revision": "sha256:33bd6d2f6368d221a9359b0e97072fd51ec36c268d7f5d13dbe9425fcb112340",
+    "contract_revision": "sha256:f4e307e816c575920c3772b77164204f9446d35280b84e0a362b34025808c8db",
+    "resources": [
+      {
+        "address": "app/mcp_connection/docs",
+        "kind": "scenery.mcp-connection",
+        "name": "docs",
+        "module": "app",
+        "spec": {
+          "auth": {"scheme": "none"},
+          "call_timeout": {"$scalar": "duration", "nanoseconds": "30000000000"},
+          "connect_timeout": {"$scalar": "duration", "nanoseconds": "5000000000"},
+          "tools": {"allow": ["search", "fetch"]},
+          "transport": "streamable_http",
+          "url": {"$scalar": "url", "value": "https://docs.example.test/mcp"}
+        }
+      },
+      {
+        "address": "app/mcp_server/support",
+        "kind": "scenery.mcp-server",
+        "name": "support",
+        "module": "app",
+        "spec": {
+          "capability": {
+            "approval": "always",
+            "binding": {"$ref": "house/binding/process_scene_mcp"},
+            "label": "process_scene",
+            "name": "house__process_scene"
+          },
+          "connection": {
+            "connection": {"$ref": "mcp_connection.docs"},
+            "name": "docs",
+            "namespace": "docs",
+            "required": false
+          },
+          "max_input_bytes": {"$scalar": "int", "value": "262144"},
+          "max_result_bytes": {"$scalar": "int", "value": "1048576"}
+        }
+      },
+      {
+        "address": "house/binding/process_scene_mcp",
+        "kind": "scenery.binding",
+        "name": "process_scene_mcp",
+        "module": "house",
+        "spec": {
+          "authentication": {"$ref": "std.authentication.inherit"},
+          "authorization": {"$ref": "std.authorization.public"},
+          "delivery": "call",
+          "execution": {"$ref": "execution.process_scene_direct"},
+          "exposure": "application",
+          "mcp": {
+            "allow_sensitive_output": false,
+            "description": "Process one scene and return its declared outcome.",
+            "destructive": false,
+            "idempotent": false,
+            "name": "process_scene",
+            "open_world": false,
+            "read_only": false,
+            "title": "Process a scene"
+          },
+          "operation": {"$ref": "operation.process_scene"},
+          "pipeline": {"$ref": "std.pipeline.empty"},
+          "protocol": "mcp"
+        }
+      },
+      {
+        "address": "house/execution/process_scene_direct",
+        "kind": "scenery.execution",
+        "name": "process_scene_direct",
+        "module": "house",
+        "spec": {
+          "mode": "direct",
+          "operation": {"$ref": "operation.process_scene"},
+          "timeout": {"$scalar": "duration", "nanoseconds": "30000000000"}
+        }
+      },
+      {
+        "address": "house/operation/process_scene",
+        "kind": "scenery.operation",
+        "name": "process_scene",
+        "module": "house",
+        "spec": {
+          "handler": {"method": "ProcessScene"},
+          "input": {"$ref": "record.process_scene_input"},
+          "result": {"name": "processed", "type": {"$ref": "record.process_scene_result"}},
+          "service": {"$ref": "service.house"}
+        }
+      },
+      {
+        "address": "house/record/process_scene_input",
+        "kind": "scenery.record",
+        "name": "process_scene_input",
+        "module": "house",
+        "spec": {
+          "field": {"name": "scene_id", "type": {"$ref": "string"}},
+          "unknown_fields": "reject"
+        }
+      },
+      {
+        "address": "house/record/process_scene_result",
+        "kind": "scenery.record",
+        "name": "process_scene_result",
+        "module": "house",
+        "spec": {
+          "field": {"name": "status", "type": {"$ref": "string"}},
+          "unknown_fields": "reject"
+        }
+      }
+    ]
+  }
+}

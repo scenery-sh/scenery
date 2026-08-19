@@ -301,7 +301,14 @@ func assistantRef(value any) string {
 }
 
 func assistantApprovalNeverTools(result *compiler.Result, server string) []string {
-	manifest, err := mcpprojection.Project(result, server)
+	if result == nil || !result.Valid() {
+		return nil
+	}
+	expanded, err := result.ManifestForView("expanded")
+	if err != nil {
+		return nil
+	}
+	manifest, err := mcpprojection.ProjectManifest(expanded, result.WorkspaceRevision, server)
 	if err != nil {
 		// A missing or invalid projection must fail closed. The compiler and app
 		// gateway report the underlying contract error on their normal surfaces.

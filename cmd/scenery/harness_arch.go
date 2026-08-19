@@ -212,6 +212,17 @@ var packageLayerRules = []packageLayerRule{
 		},
 	},
 	{
+		Name:         "internal/mcpprojection consumes the canonical graph directly",
+		PathPrefixes: []string{"internal/mcpprojection/"},
+		ForbiddenImports: []string{
+			"scenery.sh/internal/compiler",
+			"scenery.sh/internal/parse",
+			"scenery.sh/internal/scn",
+			"scenery.sh/internal/generate",
+			"scenery.sh/internal/build",
+		},
+	},
+	{
 		Name:         "internal/compiler stays below workflows",
 		PathPrefixes: []string{"internal/compiler/"},
 		ForbiddenImports: []string{

@@ -8,28 +8,27 @@ import (
 	"strings"
 	"testing"
 
-	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/graph"
 	"scenery.sh/internal/mcpcontract"
 )
 
 func TestProjectNativeFixtureMatchesGolden(t *testing.T) {
-	result := compileNativeFixture(t)
-	manifest, err := Project(result, "support")
+	manifest, workspaceRevision := readNativeGraphFixture(t)
+	projected, err := ProjectManifest(manifest, workspaceRevision, "support")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := manifest.Validate(); err != nil {
+	if err := projected.Validate(); err != nil {
 		t.Fatalf("projected manifest is invalid: %v", err)
 	}
-	if len(manifest.Capabilities) != 1 || manifest.Capabilities[0].Name != "house__process_scene" {
-		t.Fatalf("capabilities = %#v", manifest.Capabilities)
+	if len(projected.Capabilities) != 1 || projected.Capabilities[0].Name != "house__process_scene" {
+		t.Fatalf("capabilities = %#v", projected.Capabilities)
 	}
-	if len(manifest.Connections) != 1 || manifest.Connections[0].Namespace != "docs" {
-		t.Fatalf("connections = %#v", manifest.Connections)
+	if len(projected.Connections) != 1 || projected.Connections[0].Namespace != "docs" {
+		t.Fatalf("connections = %#v", projected.Connections)
 	}
 	var outputSchema map[string]any
-	if err := json.Unmarshal(manifest.Capabilities[0].OutputSchema, &outputSchema); err != nil {
+	if err := json.Unmarshal(projected.Capabilities[0].OutputSchema, &outputSchema); err != nil {
 		t.Fatalf("decode output schema: %v", err)
 	}
 	if outputSchema["type"] != "object" {
@@ -50,7 +49,7 @@ func TestProjectNativeFixtureMatchesGolden(t *testing.T) {
 	if !containsString(variant["required"], "outcome") || !containsString(variant["required"], "value") {
 		t.Fatalf("output envelope required fields = %#v", variant["required"])
 	}
-	encoded, err := mcpcontract.MarshalCanonical(manifest)
+	encoded, err := mcpcontract.MarshalCanonical(projected)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +73,7 @@ func TestProjectNativeFixtureMatchesGolden(t *testing.T) {
 		t.Fatalf("native MCP manifest drifted:\n got: %s\nwant: %s", encoded, golden)
 	}
 	for _, reference := range []string{"support", "mcp_server.support", "app/mcp_server/support"} {
-		projected, err := Project(result, reference)
+		projected, err := ProjectManifest(manifest, workspaceRevision, reference)
 		if err != nil {
 			t.Fatalf("project server %q: %v", reference, err)
 		}
@@ -86,18 +85,10 @@ func TestProjectNativeFixtureMatchesGolden(t *testing.T) {
 			t.Fatalf("equivalent server reference %q changed the projected bytes", reference)
 		}
 	}
-	result.ImplementationRevisions = map[string]string{"development": "sha256:" + strings.Repeat("a", 64)}
-	withImplementation, err := Project(result, "support")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if withImplementation.ImplementationRevision != result.ImplementationRevisions["development"] {
-		t.Fatalf("implementation revision = %q", withImplementation.ImplementationRevision)
-	}
-	durableManifest := cloneManifest(result.Manifest)
+	durableManifest := cloneManifest(manifest)
 	execution := resourceByAddress(durableManifest, "house/execution/process_scene_direct")
 	execution.Spec["mode"] = "durable"
-	durable, err := ProjectManifest(durableManifest, result.WorkspaceRevision, "support")
+	durable, err := ProjectManifest(durableManifest, workspaceRevision, "support")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -256,17 +247,17 @@ func TestSchemaProjectionRejectsRecursiveTypes(t *testing.T) {
 }
 
 func TestProjectRejectsInvalidLimitsDuplicateNamesAndUnsupportedTypes(t *testing.T) {
-	result := compileNativeFixture(t)
-	manifest := cloneManifest(result.Manifest)
+	fixture, workspaceRevision := readNativeGraphFixture(t)
+	manifest := cloneManifest(fixture)
 	server := resourceByAddress(manifest, "app/mcp_server/support")
 	server.Spec["max_input_bytes"] = map[string]any{"$scalar": "int", "value": "0"}
-	if _, err := ProjectManifest(manifest, result.WorkspaceRevision, "support"); err == nil || !strings.HasPrefix(err.Error(), projectionLimitsCode+":") {
+	if _, err := ProjectManifest(manifest, workspaceRevision, "support"); err == nil || !strings.HasPrefix(err.Error(), projectionLimitsCode+":") {
 		t.Fatalf("invalid limit error = %v", err)
 	}
 	server.Spec["max_input_bytes"] = map[string]any{"$scalar": "int", "value": "262144"}
 	capability := namedChildren(server.Spec, "capability")[0]
 	server.Spec["capability"] = []any{capability, cloneMap(capability)}
-	if _, err := ProjectManifest(manifest, result.WorkspaceRevision, "support"); err == nil || !strings.HasPrefix(err.Error(), toolIdentityCode+":") {
+	if _, err := ProjectManifest(manifest, workspaceRevision, "support"); err == nil || !strings.HasPrefix(err.Error(), toolIdentityCode+":") {
 		t.Fatalf("duplicate name error = %v", err)
 	}
 	server.Spec["capability"] = capability
@@ -274,37 +265,40 @@ func TestProjectRejectsInvalidLimitsDuplicateNamesAndUnsupportedTypes(t *testing
 	operation := resourceByAddress(manifest, "house/operation/process_scene")
 	operation.Spec["input"] = map[string]any{"$expression": "opaque"}
 	binding.Spec["operation"] = map[string]any{"$ref": operation.Address}
-	if _, err := ProjectManifest(manifest, result.WorkspaceRevision, "support"); err == nil || !strings.HasPrefix(err.Error(), projectionTypeCode+":") {
+	if _, err := ProjectManifest(manifest, workspaceRevision, "support"); err == nil || !strings.HasPrefix(err.Error(), projectionTypeCode+":") {
 		t.Fatalf("unsupported type error = %v", err)
 	}
 }
 
 func TestProjectRejectsSensitiveOutputWithoutOptIn(t *testing.T) {
-	result := compileNativeFixture(t)
-	manifest := cloneManifest(result.Manifest)
+	fixture, workspaceRevision := readNativeGraphFixture(t)
+	manifest := cloneManifest(fixture)
 	record := resourceByAddress(manifest, "house/record/process_scene_result")
 	fields := namedChildren(record.Spec, "field")
 	fields[0]["sensitive"] = true
 	record.Spec["field"] = fields[0]
-	if _, err := ProjectManifest(manifest, result.WorkspaceRevision, "support"); err == nil || !strings.HasPrefix(err.Error(), sensitiveOutputCode+":") {
+	if _, err := ProjectManifest(manifest, workspaceRevision, "support"); err == nil || !strings.HasPrefix(err.Error(), sensitiveOutputCode+":") {
 		t.Fatalf("sensitive output error = %v", err)
 	}
 }
 
-func compileNativeFixture(t *testing.T) *compiler.Result {
+func readNativeGraphFixture(t *testing.T) (*graph.Manifest, string) {
 	t.Helper()
-	root, err := filepath.Abs(filepath.Join("..", "compiler", "testdata", "native"))
+	encoded, err := os.ReadFile(filepath.Join("testdata", "native_graph.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := compiler.CompileContractGraph(root)
-	if err != nil {
+	var fixture struct {
+		WorkspaceRevision string          `json:"workspace_revision"`
+		Manifest          *graph.Manifest `json:"manifest"`
+	}
+	if err := json.Unmarshal(encoded, &fixture); err != nil {
 		t.Fatal(err)
 	}
-	if !result.Valid() {
-		t.Fatalf("native fixture is invalid: %#v", result.Diagnostics)
+	if fixture.Manifest == nil || fixture.WorkspaceRevision == "" {
+		t.Fatal("native graph fixture is incomplete")
 	}
-	return result
+	return fixture.Manifest, fixture.WorkspaceRevision
 }
 
 func cloneManifest(manifest *graph.Manifest) *graph.Manifest {
