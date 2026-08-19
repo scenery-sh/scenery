@@ -10,7 +10,8 @@ current application graph.
 
 - Depend only on foundational graph/source/spec packages, `internal/gotarget`,
   and narrow machine and model support needed to validate declared contracts.
-  Do not import `internal/parse`.
+  Do not import `internal/parse`. `gotarget.Environment` coverage lives in
+  this package's tests so the leaf does not grow a test binary.
 - Compiler results are immutable graph snapshots; evolution, generation, and
   deployment planning consume them without redefining the graph model.
 - Runtime-config-selected, framework-owned endpoint projections belong in
@@ -35,5 +36,5 @@ current application graph.
 ## Verification
 
 ```sh
-go test ./internal/gotarget ./internal/compiler ./internal/parse
+go test ./internal/compiler ./internal/parse
 ```

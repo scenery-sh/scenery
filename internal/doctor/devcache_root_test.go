@@ -1,9 +1,11 @@
-package devcache
+package doctor
 
 import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"scenery.sh/internal/devcache"
 )
 
 func TestRootPrefersOverrideThenEnvThenUserCache(t *testing.T) {
@@ -13,9 +15,9 @@ func TestRootPrefersOverrideThenEnvThenUserCache(t *testing.T) {
 	}
 
 	override := filepath.Join(t.TempDir(), "override")
-	restore := SetRoot(override)
+	restore := devcache.SetRoot(override)
 	defer restore()
-	root, err := Root()
+	root, err := devcache.Root()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -25,7 +27,7 @@ func TestRootPrefersOverrideThenEnvThenUserCache(t *testing.T) {
 
 	restore()
 	t.Setenv("SCENERY_DEV_CACHE_DIR", filepath.Join(t.TempDir(), "env"))
-	root, err = Root()
+	root, err = devcache.Root()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +39,7 @@ func TestRootPrefersOverrideThenEnvThenUserCache(t *testing.T) {
 	if err := os.Unsetenv("SCENERY_DEV_CACHE_DIR"); err != nil {
 		t.Fatal(err)
 	}
-	root, err = Root()
+	root, err = devcache.Root()
 	if err != nil {
 		t.Fatal(err)
 	}

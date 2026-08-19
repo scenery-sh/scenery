@@ -278,6 +278,13 @@ optimize a number nothing can explain.
       this worktree during the measure, so background compile contention
       cannot be fully excluded; the direction and magnitude are consistent
       with the warm per-link measurements already recorded above.
+- [x] 2026-08-19: Trimmed the fresh-lane test-binary count from 63 to 59
+      under the unchanged 60 budget. Folded `devcache` Root/SetRoot tests into
+      `internal/doctor`, `gotarget.Environment` into `internal/compiler`, and
+      generate/api editor inspection into `internal/generate`. Removed
+      `internal/codegen`'s assertion-free `testlimit` test binary. A
+      `--fresh-tests --summary --write` run reported
+      `test_binaries.test_package_count` 59 and no binary-count warning.
 
 ## Surprises & Discoveries
 
@@ -691,6 +698,14 @@ optimize a number nothing can explain.
   binaries elsewhere is an open decision; the cold measure below shows the
   three leaves pay for themselves in aggregate.
   Date/Author: 2026-08-19 / Claude.
+- Trim to stay under 60; do not raise `budgets.test_binary_count`. The three
+  new leaf test binaries move into consumers that already link them:
+  `devcache.Root`/`SetRoot` into `internal/doctor`, `gotarget.Environment`
+  into `internal/compiler`, and generate/api editor inspection into
+  `internal/generate`. `internal/codegen`'s test-only `testlimit` import is
+  removed because that package had no assertions. Coverage is unchanged; the
+  count budget stays 60.
+  Date/Author: 2026-08-19 / Grok.
 
 ## Outcomes & Retrospective
 
@@ -701,8 +716,9 @@ generate link split is measured and paid off cold: the four consumer binaries
 fell from 13.70s (10.2%) to 11.08s (8.9%) of aggregate link CPU, the aggregate
 fell to 124.73s even with three new leaf binaries, and `cmd/scenery` did not
 absorb the cost (see the 2026-08-19 cold after-measure in Progress). The
-binary-count budget is now 63-vs-60 and needs an explicit decision. The
-warm-suite target is unmet and now has a precise, measured owner.
+binary-count budget stays 60; the extra leaf test binaries were folded into
+consumers rather than raising the budget. The warm-suite target is unmet and
+now has a precise, measured owner.
 
 ## Context and Orientation
 

@@ -15,8 +15,9 @@ hooks; CLI wires the live generate functions.
 - Consume immutable `internal/compiler.Result` and canonical `internal/graph`
   resources; never depend on legacy umbrella packages.
 - Keep `internal/generate/api` free of compiler, parse, tscheck, and generate
-  imports. Types and editor-workspace inspection live there; rendering and
-  verification stay in `internal/generate`.
+  imports. Types and editor-workspace inspection live there; rendering,
+  verification, and inspection tests stay in `internal/generate` so the leaf
+  does not grow a test binary.
 - Live predicted-artifact and native implementation-check coverage lives here,
   not in `internal/evolution` tests.
 - Render Go artifacts into external build/editor workspaces by default; source
@@ -52,7 +53,7 @@ hooks; CLI wires the live generate functions.
 ## Verification
 
 ```sh
-go test ./internal/generate ./internal/generate/api
+go test ./internal/generate
 go test ./cmd/scenery -run 'TestGenerate'
 bun test internal/generate/testdata/typescript_client_conformance.test.ts
 apps/console/node_modules/.bin/tsc -p internal/generate/testdata/tsconfig.generated-clients.json

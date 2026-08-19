@@ -41,6 +41,8 @@ Go test binaries so fresh measurement does not relink unchanged packages.
 - Keep platform-specific locking and process cancellation in the existing
   `*_unix.go` / `*_other.go` files.
 - Do not weaken execution scope or add skipped/gated tests for timing.
+- Prefer folding a new leaf's tests into a consumer that already links it.
+  A dedicated leaf test binary counts against the `cmd/scenery` count budget.
 
 ## Verification
 
