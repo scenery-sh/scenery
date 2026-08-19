@@ -228,7 +228,7 @@ func TestDashboardAPICallRPCDialsUnixAppBackend(t *testing.T) {
 			if r.Method != http.MethodGet {
 				t.Errorf("method = %s", r.Method)
 			}
-			w.Header().Set("X-Scenery-Trace-Id", "trace-unix")
+			w.Header().Set("X-Trace-Id", "trace-unix")
 			_, _ = io.WriteString(w, `{"ok":true}`)
 		}))
 	}()
@@ -259,7 +259,7 @@ func TestDashboardAPICallRPCDialsTCPAppBackend(t *testing.T) {
 		if r.URL.Path != "/service.Context" {
 			t.Errorf("path = %s", r.URL.Path)
 		}
-		w.Header().Set("X-Scenery-Trace-Id", "trace-tcp")
+		w.Header().Set("X-Trace-Id", "trace-tcp")
 		_, _ = io.WriteString(w, `{"message":"svc"}`)
 	}))
 	defer appServer.Close()

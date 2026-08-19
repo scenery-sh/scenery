@@ -734,7 +734,7 @@ func (s *dashboardServer) apiCall(ctx context.Context, params devdash.APICallReq
 		"status":      resp.Status,
 		"status_code": resp.StatusCode,
 		"body":        bodyBytes,
-		"trace_id":    resp.Header.Get("X-Scenery-Trace-Id"),
+		"trace_id":    resp.Header.Get("X-Trace-Id"),
 	}, nil
 }
 

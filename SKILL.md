@@ -160,7 +160,7 @@ scenery generate --target typescript_client.public_api --check -o json
 bun test internal/generate/testdata/typescript_client_conformance.test.ts
 ```
 
-Generated clients implement declared HTTP mappings and outcomes; they never infer routes or auth from Go names. Regenerate after reachable binding, type, codec, or auth changes.
+Generated clients implement declared HTTP mappings and outcomes; they never infer routes or auth from Go names. Regenerate after reachable binding, type, codec, or auth changes. Responses that start a request trace include `X-Trace-Id`; browser observers should read that header.
 
 When an assistant is reachable from a target, the generated client also exposes
 provider-neutral `client.assistants.<name>.createConversation`, `sendTurn`,

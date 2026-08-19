@@ -397,8 +397,11 @@ func TestTypedEndpointExposesSceneryTraceID(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
 	}
-	traceID := strings.TrimSpace(recorder.Header().Get("X-Scenery-Trace-Id"))
+	traceID := strings.TrimSpace(recorder.Header().Get("X-Trace-Id"))
 	if traceID == "" {
-		t.Fatal("missing X-Scenery-Trace-Id on typed response")
+		t.Fatal("missing X-Trace-Id on typed response")
+	}
+	if got := recorder.Header().Get("Access-Control-Expose-Headers"); !strings.Contains(strings.ToLower(got), "x-trace-id") {
+		t.Fatalf("Access-Control-Expose-Headers = %q, want X-Trace-Id", got)
 	}
 }

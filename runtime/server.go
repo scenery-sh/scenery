@@ -23,7 +23,7 @@ type server struct {
 	drainCh      chan struct{}
 }
 
-const sceneryTraceIDHeader = "X-Scenery-Trace-Id"
+const traceIDHeader = "X-Trace-Id"
 
 func applyTraceIDHeader(headers http.Header, state *requestState) {
 	if headers == nil || state == nil {
@@ -36,7 +36,26 @@ func applyTraceIDHeader(headers http.Header, state *requestState) {
 	if traceID == "" {
 		return
 	}
-	headers.Set(sceneryTraceIDHeader, traceID)
+	headers.Set(traceIDHeader, traceID)
+	exposeResponseHeader(headers, traceIDHeader)
+}
+
+func exposeResponseHeader(headers http.Header, name string) {
+	if headers == nil || name == "" {
+		return
+	}
+	const exposeHeader = "Access-Control-Expose-Headers"
+	existing := headers.Get(exposeHeader)
+	if existing == "" {
+		headers.Set(exposeHeader, name)
+		return
+	}
+	for part := range strings.SplitSeq(existing, ",") {
+		if strings.EqualFold(strings.TrimSpace(part), name) {
+			return
+		}
+	}
+	headers.Set(exposeHeader, existing+", "+name)
 }
 
 type contractCORSRoute struct {
