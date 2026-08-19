@@ -91,6 +91,7 @@ func TestDeploySSHStopsAfterChildFailureAndPreservesExitCode(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			root := filepath.Join(t.TempDir(), "app with spaces")
 			if err := os.MkdirAll(root, 0o755); err != nil {
 				t.Fatal(err)

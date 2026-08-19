@@ -213,6 +213,16 @@ optimize a number nothing can explain.
       `built_count` equals `test_package_count`. Both are advisory in
       default/fresh and errors in `--release`. Cross-worktree binary reuse is
       still unproven.
+- [x] 2026-08-19: Parallelized the four isolated children of
+      `TestDeploySSHStopsAfterChildFailureAndPreservesExitCode`. Each child
+      already owned its temp dir, fake `ssh`/`rsync`, and command log through
+      `deploySSHTools`, so the only missing call was `t.Parallel()`. Isolated
+      `-race -count=3` over `^TestDeploySSH` is green. Interleaved package
+      A/B did not move the `cmd/scenery` wall: parent wait dropped from
+      2.36–2.98s to overlapping children of 0.14–1.69s, but
+      `TestBuildDesktopCommandEmitsSchemaValidJSON` (2.73–3.83s) and
+      `TestContractCheckJSONReportsValidNativeImplementation` (2.11–3.55s)
+      still hold the parallel tail.
 
 ## Surprises & Discoveries
 
@@ -285,6 +295,16 @@ optimize a number nothing can explain.
   worktrees. Proving a cross-worktree cache needs either path-normalized IDs
   or a content digest, and the runner's local contract still prefers Go build
   IDs over a parallel source-dependency model.
+- 2026-08-19: Parallelizing already-isolated subtests of a test that itself
+  calls `t.Parallel()` shortens that parent, not the package, unless that
+  parent is the tail. Interleaved A/B on this host: before package
+  11.637/11.414/11.465s with this parent at 2.36/2.98/2.36s; after
+  12.354/11.566/11.084s with parent JSON elapsed 0 (children now overlap).
+  Serial cutoff stayed ~7.4s. The tail after the last serial test stayed
+  ~4.0–4.4s and finished on `TestBuildDesktopCommandEmitsSchemaValidJSON` or
+  `TestContractCheckJSONReportsValidNativeImplementation`, not the deploy SSH
+  parent. Isolated idle runs of this test were already ~1.3s; the 3.19s
+  figure is a contended package-tail measurement.
 - 2026-07-28: The architecture rule found a layering violation the move had
   hidden. `contract_path_tail_test.go` imported `scenery.sh/runtime` to test the
   runtime's HTTP input decoder against contract types, so it would have relinked
@@ -507,6 +527,11 @@ optimize a number nothing can explain.
   when this run reused cached binaries; link CPU is checked only on a full
   cold prepare so a five-package rebuild cannot be compared to a 60-package
   sum.
+  Date/Author: 2026-08-19 / Grok.
+- The deploy SSH child-failure table is safe to parallelize without a new
+  production seam. Each subtest already installs its own fake binaries and
+  failure env through `deploySSHTools`; the parent already called
+  `t.Parallel()`. Adding `t.Parallel()` on the children is the whole change.
   Date/Author: 2026-08-19 / Grok.
 - Per-package budgets were raised to 10s/15s rather than left at 2s/5s. A budget
   that nothing meets is not a budget; it reports every package every run, so a
