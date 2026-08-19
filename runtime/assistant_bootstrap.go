@@ -779,10 +779,7 @@ func bootstrapAssistantRuntime(ctx context.Context, options AssistantBootstrapOp
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	initialProbeTimeout := assistantRuntimeInitialProbe
-	if bootstrap.probeTimeout < initialProbeTimeout {
-		initialProbeTimeout = bootstrap.probeTimeout
-	}
+	initialProbeTimeout := min(bootstrap.probeTimeout, assistantRuntimeInitialProbe)
 	probeCtx, cancel := context.WithTimeout(ctx, initialProbeTimeout)
 	err = bootstrap.apply(probeCtx, config, false)
 	cancel()

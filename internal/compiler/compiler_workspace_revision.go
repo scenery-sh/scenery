@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	pathpkg "path"
 	"path/filepath"
@@ -40,9 +41,7 @@ func computeWorkspaceRevision(root string, sources []*Source) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	for path, bytes := range declared {
-		entries[path] = bytes
-	}
+	maps.Copy(entries, declared)
 	paths := make([]string, 0, len(entries))
 	for path := range entries {
 		paths = append(paths, path)
@@ -236,7 +235,7 @@ func validateWorkspaceGlobs(patterns []string) error {
 		if pattern == "" || filepath.IsAbs(pattern) || strings.Contains(pattern, "\\") || strings.ContainsAny(pattern, "[]\x00") || pathpkg.Clean(pattern) != pattern || strings.HasPrefix(pattern, "../") || pattern == ".." {
 			return fmt.Errorf("workspace revision glob is invalid: %s", pattern)
 		}
-		for _, segment := range strings.Split(pattern, "/") {
+		for segment := range strings.SplitSeq(pattern, "/") {
 			if segment == "" || segment == "." || segment == ".." || strings.Contains(segment, "**") && segment != "**" {
 				return fmt.Errorf("workspace revision glob is invalid: %s", pattern)
 			}
@@ -249,7 +248,7 @@ func validateWorkspaceGlobs(patterns []string) error {
 }
 
 func forbiddenWorkspacePath(path string) bool {
-	for _, segment := range strings.Split(filepath.ToSlash(path), "/") {
+	for segment := range strings.SplitSeq(filepath.ToSlash(path), "/") {
 		switch segment {
 		case ".git", ".hg", ".svn", "node_modules", ".scenery":
 			return true

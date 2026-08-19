@@ -311,7 +311,6 @@ func (s *Stack) Reachable() bool {
 	}
 	done := make(chan bool, len(s.components))
 	for _, component := range s.components {
-		component := component
 		go func() {
 			done <- component != nil && urlAcceptsTCP(component.baseURL)
 		}()
@@ -657,7 +656,7 @@ func isExecutableFile(path string) bool {
 }
 
 func checksumForArchive(body, archiveName string) string {
-	for _, line := range strings.Split(body, "\n") {
+	for line := range strings.SplitSeq(body, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || !strings.Contains(line, archiveName) {
 			continue

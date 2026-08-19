@@ -45,7 +45,7 @@ func ensureLocalStateDirIgnored(dir string) error {
 func localStateGitignoreCovers(data []byte) bool {
 	hasAll := false
 	hasSelfException := false
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "*" {
 			hasAll = true

@@ -95,7 +95,7 @@ func DecodeHTTPQuery(values []string, typeExpression string) (any, error) {
 
 func DecodeRawHTTPQuery(rawQuery, wireName, typeExpression, encoding string) (any, error) {
 	var encodedValues []string
-	for _, pair := range strings.Split(rawQuery, "&") {
+	for pair := range strings.SplitSeq(rawQuery, "&") {
 		if pair == "" {
 			continue
 		}

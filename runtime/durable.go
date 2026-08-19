@@ -517,13 +517,7 @@ func startDurableHeartbeat(ctx context.Context, lease time.Duration, heartbeat f
 	if heartbeat == nil {
 		return func() {}
 	}
-	interval := lease / 3
-	if interval < 100*time.Millisecond {
-		interval = 100 * time.Millisecond
-	}
-	if interval > 10*time.Second {
-		interval = 10 * time.Second
-	}
+	interval := min(max(lease/3, 100*time.Millisecond), 10*time.Second)
 	heartbeatCtx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
 	go func() {

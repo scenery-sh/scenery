@@ -31,8 +31,7 @@ func TestTenantScopedStoreIsolatesVisibleKeys(t *testing.T) {
 	if _, err := store.Head(ctxB, "docs/a.txt"); err == nil {
 		t.Fatal("tenant B read tenant A object")
 	} else {
-		var missing *NotFoundError
-		if !errors.As(err, &missing) {
+		if _, ok := errors.AsType[*NotFoundError](err); !ok {
 			t.Fatalf("tenant B Head error = %T %[1]v, want NotFoundError", err)
 		}
 	}
@@ -102,8 +101,7 @@ func TestTenantScopedStoreFailsClosedWithoutTenant(t *testing.T) {
 	t.Parallel()
 	store := newTenantScopedStore(&localRuntimeStore{name: "app", root: t.TempDir()})
 	_, err := store.Head(context.Background(), "docs/a.txt")
-	var tenantRequired *TenantRequiredError
-	if !errors.As(err, &tenantRequired) {
+	if _, ok := errors.AsType[*TenantRequiredError](err); !ok {
 		t.Fatalf("Head without tenant error = %T %[1]v, want TenantRequiredError", err)
 	}
 }

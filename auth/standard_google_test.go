@@ -436,16 +436,14 @@ func TestGoogleAccessTokenRefreshesRotatesAndSingleFlights(t *testing.T) {
 	results := make(chan string, 2)
 	errsCh := make(chan error, 2)
 	for range 2 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			token, err := GoogleAccessTokenForUser(t.Context(), string(authData.UserID), gmailModifyScope)
 			if err != nil {
 				errsCh <- err
 				return
 			}
 			results <- token
-		}()
+		})
 	}
 	wg.Wait()
 	close(results)
@@ -889,12 +887,10 @@ func googleIDTokenWithOptions(key *rsa.PrivateKey, kid string, opts googleTokenO
 		Email:         opts.email,
 		EmailVerified: opts.emailVerified,
 		Nonce:         opts.nonce,
-		RegisteredClaims: jwt.RegisteredClaims{
-			Issuer:    "https://accounts.google.com",
-			Subject:   opts.subject,
-			Audience:  jwt.ClaimStrings{"client-id"},
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
-		},
+		Issuer:        "https://accounts.google.com",
+		Subject:       opts.subject,
+		Audience:      jwt.ClaimStrings{"client-id"},
+		ExpiresAt:     jwt.NewNumericDate(time.Now().Add(time.Hour)),
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
 	token.Header["kid"] = kid

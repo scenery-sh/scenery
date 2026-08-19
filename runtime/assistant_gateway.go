@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"sort"
 	"strings"
@@ -451,9 +452,7 @@ func (g *assistantGateway) withAuth(req *http.Request, identity assistantIdentit
 	}
 	if values, ok := data.(map[string]any); ok {
 		copied := make(map[string]any, len(values)+1)
-		for key, value := range values {
-			copied[key] = value
-		}
+		maps.Copy(copied, values)
 		copied["owner_digest"] = identity.Owner
 		data = copied
 	}

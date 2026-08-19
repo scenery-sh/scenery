@@ -416,13 +416,7 @@ func dropOldestBudgetChunk[T any](items []T) []T {
 	if len(items) <= 1 {
 		return nil
 	}
-	drop := len(items) / 4
-	if drop < 1 {
-		drop = 1
-	}
-	if drop > 256 {
-		drop = 256
-	}
+	drop := min(max(len(items)/4, 1), 256)
 	return items[drop:]
 }
 

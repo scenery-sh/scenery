@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"regexp"
 	"sort"
@@ -285,9 +286,7 @@ func initializeMCPFederation(ctx context.Context, registration MCPFederationRegi
 	}
 	global.mu.RLock()
 	resolvers := make(map[string]MCPSecretResolver, len(global.mcpSecretResolvers))
-	for address, resolver := range global.mcpSecretResolvers {
-		resolvers[address] = resolver
-	}
+	maps.Copy(resolvers, global.mcpSecretResolvers)
 	global.mu.RUnlock()
 
 	connections := make([]mcpfederation.Connection, 0, len(registration.Connections))
@@ -592,9 +591,7 @@ func cloneMCPFederationRegistrations(values map[string]MCPFederationRegistration
 
 func cloneMCPFederationStates(values map[string]*mcpFederationState) map[string]*mcpFederationState {
 	clone := make(map[string]*mcpFederationState, len(values))
-	for address, state := range values {
-		clone[address] = state
-	}
+	maps.Copy(clone, values)
 	return clone
 }
 

@@ -208,7 +208,7 @@ func isSensitiveField(field reflect.StructField) bool {
 }
 
 func jsonFieldName(field reflect.StructField) string {
-	name := strings.Split(field.Tag.Get("json"), ",")[0]
+	name, _, _ := strings.Cut(field.Tag.Get("json"), ",")
 	if name == "" {
 		return field.Name
 	}

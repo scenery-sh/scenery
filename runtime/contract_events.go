@@ -3,7 +3,9 @@ package runtime
 import (
 	"context"
 	"fmt"
+	"maps"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -170,9 +172,7 @@ func StartContractEventRuntime(ctx context.Context) (*ContractEventRuntime, erro
 	}
 	global.mu.RLock()
 	buses := make(map[string]ContractEventBus, len(global.contractEventBuses))
-	for address, bus := range global.contractEventBuses {
-		buses[address] = bus
-	}
+	maps.Copy(buses, global.contractEventBuses)
 	consumers := make([]ContractEventConsumerRegistration, 0, len(global.contractEventConsumers))
 	for _, consumer := range global.contractEventConsumers {
 		consumers = append(consumers, consumer)
@@ -217,8 +217,8 @@ func (running *ContractEventRuntime) Stop(ctx context.Context) error {
 		return nil
 	}
 	var errors []error
-	for index := len(running.stops) - 1; index >= 0; index-- {
-		if err := running.stops[index](ctx); err != nil {
+	for _, v := range slices.Backward(running.stops) {
+		if err := v(ctx); err != nil {
 			errors = append(errors, err)
 		}
 	}
@@ -236,9 +236,7 @@ func PublishContractOperationOutcome(ctx context.Context, operationAddress strin
 		}
 	}
 	buses := make(map[string]ContractEventBus, len(global.contractEventBuses))
-	for address, bus := range global.contractEventBuses {
-		buses[address] = bus
-	}
+	maps.Copy(buses, global.contractEventBuses)
 	global.mu.RUnlock()
 	sort.Slice(registrations, func(i, j int) bool { return registrations[i].Address < registrations[j].Address })
 	for _, registration := range registrations {

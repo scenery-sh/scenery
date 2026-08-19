@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 
 	"scenery.sh/internal/machine"
@@ -126,9 +127,7 @@ func addIdentityFields(fields map[string]json.RawMessage, identity machine.Artif
 	encodedIdentity, _ := json.Marshal(identity)
 	var identityFields map[string]json.RawMessage
 	_ = json.Unmarshal(encodedIdentity, &identityFields)
-	for name, value := range identityFields {
-		fields[name] = value
-	}
+	maps.Copy(fields, identityFields)
 }
 
 func writeMigrationMarker(path string) error {

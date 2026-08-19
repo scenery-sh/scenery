@@ -83,7 +83,7 @@ func SystemdEdgeStatus() SystemdEdgeServiceStatus {
 	if err != nil {
 		return status
 	}
-	for _, line := range strings.Split(string(out), "\n") {
+	for line := range strings.SplitSeq(string(out), "\n") {
 		key, value, ok := strings.Cut(strings.TrimSpace(line), "=")
 		if !ok {
 			continue

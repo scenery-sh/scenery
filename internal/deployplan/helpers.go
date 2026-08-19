@@ -2,6 +2,7 @@ package deployplan
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"sort"
@@ -83,9 +84,7 @@ func canonicalStrings(values []string) []string {
 func cloneMapValue(value any) map[string]any {
 	result := map[string]any{}
 	if source, ok := value.(map[string]any); ok {
-		for key, item := range source {
-			result[key] = item
-		}
+		maps.Copy(result, source)
 	}
 	return result
 }

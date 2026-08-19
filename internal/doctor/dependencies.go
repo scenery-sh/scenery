@@ -33,8 +33,8 @@ func DependencyChecks(ctx context.Context, deps ProbeDeps, features AppFeatures,
 			VersionArgs:     []string{"version"},
 			Required:        true,
 			Relevant:        true,
-			MissingMessage:  "go not found; scenery requires Go 1.26 or newer",
-			SuggestedAction: "Install Go 1.26 or newer and ensure `go` is on PATH.",
+			MissingMessage:  "go not found; scenery requires Go 1.27 or newer",
+			SuggestedAction: "Install Go 1.27 or newer and ensure `go` is on PATH.",
 		},
 		{
 			ID:              "tool.bun",
@@ -169,13 +169,13 @@ func toolCheck(ctx context.Context, deps ProbeDeps, spec toolSpec) Check {
 			if !ok {
 				check.Status = StatusError
 				check.Message = "could not parse Go version output: " + version
-				check.SuggestedAction = "Install Go 1.26 or newer and ensure `go version` reports a standard version."
+				check.SuggestedAction = "Install Go 1.27 or newer and ensure `go version` reports a standard version."
 			} else {
 				check.Observed["parsed_version"] = versionInfo.String()
 				if versionInfo.compare(goVersion{Major: minGoMajor, Minor: minGoMinor}) < 0 {
 					check.Status = StatusError
 					check.Message = fmt.Sprintf("%s found at %s; scenery requires Go %d.%d or newer", versionInfo.String(), path, minGoMajor, minGoMinor)
-					check.SuggestedAction = "Install Go 1.26 or newer and ensure it appears first on PATH."
+					check.SuggestedAction = "Install Go 1.27 or newer and ensure it appears first on PATH."
 				}
 			}
 		}

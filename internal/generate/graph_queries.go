@@ -2,9 +2,11 @@ package generate
 
 import (
 	"fmt"
+	"maps"
 	"math/big"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -107,9 +109,7 @@ func stringValues(value any) []string {
 func cloneMapValue(value any) map[string]any {
 	result := map[string]any{}
 	if source, ok := value.(map[string]any); ok {
-		for key, item := range source {
-			result[key] = item
-		}
+		maps.Copy(result, source)
 	}
 	return result
 }
@@ -148,7 +148,7 @@ func nonNegativeInteger(value any) (int64, bool) {
 }
 
 func forbiddenWorkspacePath(path string) bool {
-	for _, segment := range strings.Split(filepath.ToSlash(path), "/") {
+	for segment := range strings.SplitSeq(filepath.ToSlash(path), "/") {
 		switch segment {
 		case ".git", ".hg", ".svn", "node_modules", ".scenery":
 			return true
@@ -533,12 +533,7 @@ func joinHTTPPath(base, binding string) string {
 }
 
 func oneOf[T comparable](value T, candidates ...T) bool {
-	for _, candidate := range candidates {
-		if value == candidate {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(candidates, value)
 }
 
 func typeExpressionNames(raw string) []string {

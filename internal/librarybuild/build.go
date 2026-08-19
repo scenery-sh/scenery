@@ -39,8 +39,8 @@ type Result struct {
 var commandContext = exec.CommandContext
 
 const (
-	linuxBuildImage     = "golang:1.26.3-bookworm"
-	linuxBuildGoVersion = "go1.26.3"
+	linuxBuildImage     = "golang:1.27.0-bookworm"
+	linuxBuildGoVersion = "go1.27.0"
 	linuxGlibcFloor     = "2.36"
 )
 

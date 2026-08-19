@@ -1,6 +1,6 @@
 module example.com/basicapp
 
-go 1.26.3
+go 1.27.0
 
 require scenery.sh v0.0.0
 

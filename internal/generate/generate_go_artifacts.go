@@ -170,7 +170,7 @@ func rejectGeneratedPathSymlinks(root, target string) error {
 	}
 	relative, _ := filepath.Rel(root, target)
 	current := root
-	for _, part := range strings.Split(relative, string(filepath.Separator)) {
+	for part := range strings.SplitSeq(relative, string(filepath.Separator)) {
 		if part == "" || part == "." {
 			continue
 		}

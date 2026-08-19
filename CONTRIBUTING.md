@@ -6,7 +6,7 @@ Thanks for helping improve scenery. Keep changes small, explicit, and easy to va
 
 Requirements:
 
-- Go 1.26+
+- Go 1.27+
 - Bun, only for dashboard UI or benchmark changes
 
 Install the CLI from the repo root:

@@ -39,7 +39,7 @@ func durableRemoteWorkerConfigFromEnv() durableRemoteWorkerConfig {
 	if cfg.WorkerID == "" {
 		cfg.WorkerID = fmt.Sprintf("remote-%d", os.Getpid())
 	}
-	for _, item := range strings.Split(envpolicy.Get(envDurableServices), ",") {
+	for item := range strings.SplitSeq(envpolicy.Get(envDurableServices), ",") {
 		item = strings.TrimSpace(item)
 		if item != "" {
 			cfg.Services = append(cfg.Services, item)

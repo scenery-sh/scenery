@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"scenery.sh/internal/graph"
-	"scenery.sh/internal/machine"
 )
 
 func TestRevisionRebindPreservesRenameEvidence(t *testing.T) {
@@ -36,7 +35,7 @@ func TestRevisionRebindPreservesRenameEvidence(t *testing.T) {
 }
 
 func TestPendingChangePlanReportsRevisionSchemeChanged(t *testing.T) {
-	plan := ChangePlan{ArtifactIdentity: machine.ArtifactIdentity{SpecRevision: "sha256:old"}}
+	plan := ChangePlan{SpecRevision: "sha256:old"}
 	_, err := ApplyChangePlanWithOptions(t.TempDir(), plan, ApplyOptions{})
 	if err == nil || !strings.Contains(err.Error(), "revision_scheme_changed") {
 		t.Fatalf("error = %v", err)

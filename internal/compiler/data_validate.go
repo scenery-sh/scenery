@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -134,8 +135,8 @@ var sqlSelectProjectionPattern = regexp.MustCompile(`(?is)\bselect\b(.*?)\bfrom\
 func verifySQLViewColumns(source, queryName string, view Resource, resources map[string]Resource) error {
 	query := source
 	marker := "-- name: " + queryName
-	if index := strings.Index(source, marker); index >= 0 {
-		query = source[index+len(marker):]
+	if _, after, ok := strings.Cut(source, marker); ok {
+		query = after
 		if next := strings.Index(query, "-- name:"); next >= 0 {
 			query = query[:next]
 		}
@@ -166,8 +167,8 @@ func verifySQLViewColumns(source, queryName string, view Resource, resources map
 		}
 	}
 	recordAddress := resolveResourceRef(view, resultType, "record")
-	if strings.HasPrefix(resultType, "record.") {
-		recordAddress = resourceAddress(view.Module, "record", strings.TrimPrefix(resultType, "record."))
+	if after, ok := strings.CutPrefix(resultType, "record."); ok {
+		recordAddress = resourceAddress(view.Module, "record", after)
 	}
 	record := resources[recordAddress]
 	if record.Kind != "scenery.record" {
@@ -327,12 +328,7 @@ func crudListScalarType(value, module string, resources map[string]Resource) boo
 }
 
 func containsDataString(values []string, target string) bool {
-	for _, value := range values {
-		if value == target {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(values, target)
 }
 
 func validateFixtureSemantics(resources map[string]Resource, fixture Resource, productionAllowed map[string]bool) []Diagnostic {

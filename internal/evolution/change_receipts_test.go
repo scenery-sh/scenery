@@ -23,7 +23,7 @@ func TestIssuedChangePlanLoadingAndReplayAfterExpiryAndWorkspaceDrift(t *testing
 	}
 	plan, err := PlanChanges(root, ChangeRequest{
 		BaseWorkspaceRevision: base.WorkspaceRevision,
-		BaseContractRevision:  stringPointer(base.Manifest.ContractRevision),
+		BaseContractRevision:  new(base.Manifest.ContractRevision),
 		Caller:                "local",
 	})
 	if err != nil {
@@ -76,7 +76,7 @@ func TestAppliedChangeReceiptLoaderRejectsCorruptAndMismatchedRecords(t *testing
 	if err != nil || !base.Valid() {
 		t.Fatalf("compile: %v diagnostics=%#v", err, base.Diagnostics)
 	}
-	plan, err := PlanChanges(root, ChangeRequest{BaseWorkspaceRevision: base.WorkspaceRevision, BaseContractRevision: stringPointer(base.Manifest.ContractRevision), Caller: "local"})
+	plan, err := PlanChanges(root, ChangeRequest{BaseWorkspaceRevision: base.WorkspaceRevision, BaseContractRevision: new(base.Manifest.ContractRevision), Caller: "local"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +136,7 @@ func TestLoadIssuedChangePlanRejectsContentTampering(t *testing.T) {
 	if err != nil || !base.Valid() {
 		t.Fatalf("compile: %v diagnostics=%#v", err, base.Diagnostics)
 	}
-	plan, err := PlanChanges(root, ChangeRequest{BaseWorkspaceRevision: base.WorkspaceRevision, BaseContractRevision: stringPointer(base.Manifest.ContractRevision), Caller: "local"})
+	plan, err := PlanChanges(root, ChangeRequest{BaseWorkspaceRevision: base.WorkspaceRevision, BaseContractRevision: new(base.Manifest.ContractRevision), Caller: "local"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,7 +186,7 @@ func TestConcurrentIssuedChangePlanApplyReturnsOneReplay(t *testing.T) {
 	if err != nil || !base.Valid() {
 		t.Fatalf("compile: %v diagnostics=%#v", err, base.Diagnostics)
 	}
-	plan, err := PlanChanges(root, ChangeRequest{BaseWorkspaceRevision: base.WorkspaceRevision, BaseContractRevision: stringPointer(base.Manifest.ContractRevision), Caller: "local"})
+	plan, err := PlanChanges(root, ChangeRequest{BaseWorkspaceRevision: base.WorkspaceRevision, BaseContractRevision: new(base.Manifest.ContractRevision), Caller: "local"})
 	if err != nil {
 		t.Fatal(err)
 	}

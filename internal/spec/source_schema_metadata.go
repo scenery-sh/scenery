@@ -1,5 +1,7 @@
 package spec
 
+import "maps"
+
 import "strings"
 
 type authoredAttributeSchema struct {
@@ -272,9 +274,7 @@ func applyAuthoredFieldOverride(definition *authoredAttributeSchema, override au
 	if override.UnsupportedDraft != "" {
 		definition.UnsupportedDraft = override.UnsupportedDraft
 	}
-	for name, value := range override.Constraints {
-		definition.Constraints[name] = value
-	}
+	maps.Copy(definition.Constraints, override.Constraints)
 }
 
 func UnsupportedDraftCapability(revision, name string) string {

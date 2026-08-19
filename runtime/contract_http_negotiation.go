@@ -31,7 +31,7 @@ func negotiateContractEncoding(header string, supported []string) (string, error
 	quality := map[string]float64{}
 	identityExplicit := false
 	wildcard, wildcardSet := 0.0, false
-	for _, raw := range strings.Split(header, ",") {
+	for raw := range strings.SplitSeq(header, ",") {
 		parts := strings.Split(strings.TrimSpace(raw), ";")
 		name := strings.ToLower(strings.TrimSpace(parts[0]))
 		q := 1.0
@@ -117,7 +117,7 @@ func negotiateContractMedia(accept string, produced []string) (string, error) {
 		order       int
 	}
 	var best *candidate
-	for _, rawRange := range strings.Split(accept, ",") {
+	for rawRange := range strings.SplitSeq(accept, ",") {
 		parsedMedia, params, err := mime.ParseMediaType(strings.TrimSpace(rawRange))
 		if err != nil {
 			return "", fmt.Errorf("invalid Accept header")

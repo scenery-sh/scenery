@@ -189,7 +189,7 @@ func TestProductionConcurrentAssetInstallReusesVerifiedTree(t *testing.T) {
 	results := make([]runtimeassets.InstallResult, workers)
 	errs := make([]error, workers)
 	var group sync.WaitGroup
-	for i := 0; i < workers; i++ {
+	for i := range workers {
 		group.Add(1)
 		go func(index int) {
 			defer group.Done()

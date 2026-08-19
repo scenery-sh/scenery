@@ -62,8 +62,8 @@ func TestEnvAndRegistry(t *testing.T) {
 	}
 	registry := ""
 	for _, item := range envList {
-		if strings.HasPrefix(item, RegistryEnv+"=") {
-			registry = strings.TrimPrefix(item, RegistryEnv+"=")
+		if after, ok := strings.CutPrefix(item, RegistryEnv+"="); ok {
+			registry = after
 		}
 	}
 	if registry == "" {

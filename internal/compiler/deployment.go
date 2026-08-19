@@ -1,6 +1,7 @@
 package compiler
 
 import (
+	"maps"
 	"sort"
 	"strconv"
 	"strings"
@@ -361,12 +362,8 @@ func mergeDeploymentProjection(base, overlay DeploymentResourceProjection) Deplo
 	if base.Provenance == nil {
 		base.Provenance = map[string]string{}
 	}
-	for key, value := range overlay.Values {
-		base.Values[key] = value
-	}
-	for key, value := range overlay.Provenance {
-		base.Provenance[key] = value
-	}
+	maps.Copy(base.Values, overlay.Values)
+	maps.Copy(base.Provenance, overlay.Provenance)
 	return base
 }
 

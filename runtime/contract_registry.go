@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"fmt"
+	"maps"
 	"sort"
 	"strings"
 	"sync"
@@ -156,9 +157,7 @@ func (registry *ContractRegistry) Seal() error {
 
 func cloneContractStringMap(values map[string]string) map[string]string {
 	clone := make(map[string]string, len(values))
-	for key, value := range values {
-		clone[key] = value
-	}
+	maps.Copy(clone, values)
 	return clone
 }
 
@@ -235,9 +234,7 @@ func restoreContractRuntimeState(snapshot contractRuntimeSnapshot) {
 
 func cloneContractMap[K comparable, V any](values map[K]V) map[K]V {
 	clone := make(map[K]V, len(values))
-	for key, value := range values {
-		clone[key] = value
-	}
+	maps.Copy(clone, values)
 	return clone
 }
 

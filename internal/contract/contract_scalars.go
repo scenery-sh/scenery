@@ -26,7 +26,7 @@ var (
 
 const (
 	maxDecimalScaleMagnitude int64 = 1_000_000
-	editionUnicodeVersion          = "15.0.0"
+	editionUnicodeVersion          = "17.0.0"
 )
 
 func ParseInt(value string) (Int, error) {
@@ -369,8 +369,8 @@ func ParseSize(value string) (Size, error) {
 		multiplier int64
 	}{{"TiB", 1 << 40}, {"GiB", 1 << 30}, {"MiB", 1 << 20}, {"KiB", 1 << 10}, {"TB", 1_000_000_000_000}, {"GB", 1_000_000_000}, {"MB", 1_000_000}, {"kB", 1_000}, {"B", 1}}
 	for _, unit := range units {
-		if strings.HasSuffix(value, unit.suffix) {
-			raw := strings.TrimSuffix(value, unit.suffix)
+		if before, ok := strings.CutSuffix(value, unit.suffix); ok {
+			raw := before
 			quantity, err := ParseDecimal(raw)
 			if err != nil || strings.HasPrefix(raw, "-") {
 				return Size{}, fmt.Errorf("invalid size %q", value)

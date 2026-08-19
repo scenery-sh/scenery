@@ -269,8 +269,8 @@ func canonicalComment(comment string, indentation int) string {
 		lineEnding = "\n"
 	}
 	trimmed := strings.TrimSpace(comment)
-	if strings.HasPrefix(trimmed, "//") {
-		content := strings.TrimSpace(strings.TrimPrefix(trimmed, "//"))
+	if after, ok := strings.CutPrefix(trimmed, "//"); ok {
+		content := strings.TrimSpace(after)
 		if content == "" {
 			return "#" + lineEnding
 		}

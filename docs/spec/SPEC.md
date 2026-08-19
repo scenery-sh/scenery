@@ -395,7 +395,7 @@ Constructors return the named primitive and accept exactly one quoted literal. T
 | duration | optional leading minus followed by one or more exact ns, us, ms, s, m, h, d, or w components | convert to signed arbitrary-precision nanoseconds; reject fractions that are not an exact nanosecond |
 | size | non-negative exact number followed by B, kB, MB, GB, TB, KiB, MiB, GiB, or TiB | convert to arbitrary-precision integral bytes; reject fractional bytes |
 | url | absolute hierarchical RFC 3986 URI with a scheme and non-empty host | reject opaque and hostless URIs; lower-case scheme and any DNS host, remove the default port for HTTP or HTTPS, remove dot segments, uppercase percent hex, and unescape percent-encoded unreserved bytes |
-| relative_path | non-empty slash-separated UTF-8 segments | reject a leading slash, backslash, empty segment, dot segment, NUL, or traversal; normalize each segment with the specification-defined Unicode 15.0 NFC rules |
+| relative_path | non-empty slash-separated UTF-8 segments | reject a leading slash, backslash, empty segment, dot segment, NUL, or traversal; normalize each segment with the specification-defined Unicode 17.0 NFC rules |
 
 Size conversion is exact rather than integer-lexical: `1.5KiB` is valid and canonicalizes to `1536` bytes, while `0.1B` is invalid because it produces a fractional byte.
 

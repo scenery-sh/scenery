@@ -334,8 +334,8 @@ func httpPathScalarType(value any, resources map[string]Resource, module string)
 	if strings.HasPrefix(expression, "list(") || strings.HasPrefix(expression, "set(") || strings.HasPrefix(expression, "map(") || strings.HasPrefix(expression, "tuple(") {
 		return false
 	}
-	if strings.HasPrefix(expression, "enum.") {
-		_, ok := resources[resourceAddress(module, "enum", strings.TrimPrefix(expression, "enum."))]
+	if after, ok := strings.CutPrefix(expression, "enum."); ok {
+		_, ok := resources[resourceAddress(module, "enum", after)]
 		return ok
 	}
 	return primitiveTypes[expression] && expression != "json" && expression != "bytes"
@@ -361,8 +361,8 @@ func httpMappedTypeSupported(value any, encoding string, resources map[string]Re
 
 func httpCommaScalarTypeSupported(value any, resources map[string]Resource, module string) bool {
 	expression := unwrapHTTPType(typeExpression(value))
-	if strings.HasPrefix(expression, "enum.") {
-		enum, ok := resources[resourceAddress(module, "enum", strings.TrimPrefix(expression, "enum."))]
+	if after, ok := strings.CutPrefix(expression, "enum."); ok {
+		enum, ok := resources[resourceAddress(module, "enum", after)]
 		if !ok {
 			return false
 		}

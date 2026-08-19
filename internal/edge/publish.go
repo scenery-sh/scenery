@@ -192,7 +192,7 @@ func prunePublishReleases(frontendDir, currentReleaseID string) error {
 	}
 	sort.Strings(releases)
 	excess := len(releases) - (publishRetainReleases - 1)
-	for i := 0; i < excess; i++ {
+	for i := range excess {
 		if err := os.RemoveAll(filepath.Join(frontendDir, releases[i])); err != nil {
 			return err
 		}

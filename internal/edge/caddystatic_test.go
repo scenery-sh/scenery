@@ -3,6 +3,7 @@ package edge
 import (
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -333,9 +334,7 @@ http://127.0.0.1:%d {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for key, values := range header {
-			req.Header[key] = values
-		}
+		maps.Copy(req.Header, header)
 		resp, err := client.Do(req)
 		if err != nil {
 			t.Fatalf("%s %s: %v", method, path, err)
@@ -390,7 +389,7 @@ http://127.0.0.1:%d {
 	fmt.Fprintf(conn, "GET /..%%2f..%%2fsecret HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n")
 	raw, _ := io.ReadAll(conn)
 	_ = conn.Close()
-	status := strings.SplitN(string(raw), "\r\n", 2)[0]
+	status, _, _ := strings.Cut(string(raw), "\r\n")
 	if strings.Contains(status, " 200 ") && !strings.Contains(string(raw), "app-platform") {
 		t.Fatalf("raw traversal must not expose files outside the release root: %s", status)
 	}

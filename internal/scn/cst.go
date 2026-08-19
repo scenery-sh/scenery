@@ -65,20 +65,11 @@ func buildConcreteSyntaxTree(sourceID, filename string, source []byte, positions
 	tokens, _ := hclsyntax.LexConfig(source, filename, hcl.Pos{Line: 1, Column: 1})
 	cursor := 0
 	for _, token := range tokens {
-		start := token.Range.Start.Byte
-		if start < cursor {
-			start = cursor
-		}
-		if start > len(source) {
-			start = len(source)
-		}
+		start := min(max(token.Range.Start.Byte, cursor), len(source))
 		if start > cursor {
 			tree.Tokens = append(tree.Tokens, ConcreteToken{Kind: "trivia", Bytes: append([]byte(nil), source[cursor:start]...), Range: byteRange(sourceID, positions, cursor, start)})
 		}
-		end := start + len(token.Bytes)
-		if end > len(source) {
-			end = len(source)
-		}
+		end := min(start+len(token.Bytes), len(source))
 		if len(token.Bytes) > 0 {
 			item := ConcreteToken{Kind: concreteTokenKind(token.Type), Bytes: append([]byte(nil), source[start:end]...), Range: ConvertRange(sourceID, positions, token.Range)}
 			tree.Tokens = append(tree.Tokens, item)

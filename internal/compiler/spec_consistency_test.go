@@ -61,11 +61,11 @@ func readSpec(t *testing.T, name string) string {
 }
 
 func markdownSection(document, start, end string) string {
-	startIndex := strings.Index(document, start)
-	if startIndex < 0 {
+	_, after, ok := strings.Cut(document, start)
+	if !ok {
 		return ""
 	}
-	section := document[startIndex+len(start):]
+	section := after
 	if endIndex := strings.Index(section, end); endIndex >= 0 {
 		section = section[:endIndex]
 	}
@@ -74,7 +74,7 @@ func markdownSection(document, start, end string) string {
 
 func markdownTableRows(section string) map[string][]string {
 	rows := map[string][]string{}
-	for _, line := range strings.Split(section, "\n") {
+	for line := range strings.SplitSeq(section, "\n") {
 		line = strings.TrimSpace(line)
 		if !strings.HasPrefix(line, "|") || strings.Contains(line, "---") {
 			continue

@@ -180,17 +180,15 @@ func TestInstallConcurrentReuseRecoveryAndTamperRejection(t *testing.T) {
 	results := make(chan InstallResult, workers)
 	errorsCh := make(chan error, workers)
 	var wait sync.WaitGroup
-	for i := 0; i < workers; i++ {
-		wait.Add(1)
-		go func() {
-			defer wait.Done()
+	for range workers {
+		wait.Go(func() {
 			result, err := Install(state, archive)
 			if err != nil {
 				errorsCh <- err
 				return
 			}
 			results <- result
-		}()
+		})
 	}
 	wait.Wait()
 	close(results)

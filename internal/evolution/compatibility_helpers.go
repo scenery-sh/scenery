@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"slices"
 	"sort"
 	"strings"
 
@@ -241,12 +242,7 @@ func notApplicable() Classification {
 }
 
 func oneOf[T comparable](value T, candidates ...T) bool {
-	for _, candidate := range candidates {
-		if value == candidate {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(candidates, value)
 }
 
 func canonicalLess(left, right any) bool {

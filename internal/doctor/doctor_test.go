@@ -8,8 +8,9 @@ func TestParseGoToolchainVersion(t *testing.T) {
 		want   string
 		ok     bool
 	}{
+		{"go version go1.27.0 darwin/arm64", "go1.27", true},
+		{"go version go1.27 linux/amd64", "go1.27", true},
 		{"go version go1.26.3 darwin/arm64", "go1.26.3", true},
-		{"go version go1.26 linux/amd64", "go1.26", true},
 		{"go version devel +abcdef", "", false},
 		{"", "", false},
 	}
@@ -26,14 +27,14 @@ func TestParseGoToolchainVersion(t *testing.T) {
 
 func TestGoVersionCompare(t *testing.T) {
 	minimum := goVersion{Major: minGoMajor, Minor: minGoMinor}
-	if v := (goVersion{Major: 1, Minor: 25, Patch: 9}); v.compare(minimum) >= 0 {
-		t.Fatalf("go1.25.9 should be below the minimum")
+	if v := (goVersion{Major: 1, Minor: 26, Patch: 9}); v.compare(minimum) >= 0 {
+		t.Fatalf("go1.26.9 should be below the minimum")
 	}
-	if v := (goVersion{Major: 1, Minor: 26}); v.compare(minimum) != 0 {
-		t.Fatalf("go1.26 should equal the minimum")
+	if v := (goVersion{Major: 1, Minor: 27}); v.compare(minimum) != 0 {
+		t.Fatalf("go1.27 should equal the minimum")
 	}
-	if v := (goVersion{Major: 1, Minor: 27, Patch: 1}); v.compare(minimum) <= 0 {
-		t.Fatalf("go1.27.1 should be above the minimum")
+	if v := (goVersion{Major: 1, Minor: 28, Patch: 1}); v.compare(minimum) <= 0 {
+		t.Fatalf("go1.28.1 should be above the minimum")
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -278,12 +279,7 @@ func freeTestTCPPort(t *testing.T) int {
 }
 
 func containsString(items []string, want string) bool {
-	for _, item := range items {
-		if item == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(items, want)
 }
 
 func TestVictoriaQueryTraceSummariesFromJaegerAPI(t *testing.T) {

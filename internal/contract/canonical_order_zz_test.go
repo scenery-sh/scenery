@@ -50,14 +50,14 @@ func TestContractUTF16LessMatchesReference(t *testing.T) {
 		}
 		return string(runes)
 	}
-	for i := 0; i < 300000; i++ {
+	for range 300000 {
 		left, right := word(), word()
 		if got, want := contractUTF16Less(left, right), referenceContractUTF16Less(left, right); got != want {
 			t.Fatalf("contractUTF16Less(%q, %q) = %v, reference = %v", left, right, got, want)
 		}
 	}
 
-	for round := 0; round < 3000; round++ {
+	for range 3000 {
 		keys := make([]string, source.IntN(12))
 		for i := range keys {
 			keys[i] = word()

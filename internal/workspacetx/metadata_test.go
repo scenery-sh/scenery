@@ -31,13 +31,12 @@ func TestTransactionDescriptorsCoverMetadata(t *testing.T) {
 
 func jsonFields(value reflect.Type) []string {
 	var fields []string
-	for index := 0; index < value.NumField(); index++ {
-		field := value.Field(index)
+	for field := range value.Fields() {
 		if field.Anonymous {
 			fields = append(fields, jsonFields(field.Type)...)
 			continue
 		}
-		if name := strings.Split(field.Tag.Get("json"), ",")[0]; name != "" && name != "-" {
+		if name, _, _ := strings.Cut(field.Tag.Get("json"), ","); name != "" && name != "-" {
 			fields = append(fields, name)
 		}
 	}

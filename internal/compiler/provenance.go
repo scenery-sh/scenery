@@ -1,6 +1,7 @@
 package compiler
 
 import (
+	"maps"
 	"sort"
 	"strconv"
 	"strings"
@@ -181,9 +182,7 @@ func attachPackageInterfaceBlockProvenance(resource *Resource, block *Block, pat
 	}
 	rng := block.Range
 	resource.Origin.FieldProvenance[path] = FieldProvenance{Kind: "authored", DeclaredAt: &rng, SourceAddress: resource.Address}
-	for fieldPath, field := range authoredFieldProvenance(block, path, resource.Address, module) {
-		resource.Origin.FieldProvenance[fieldPath] = field
-	}
+	maps.Copy(resource.Origin.FieldProvenance, authoredFieldProvenance(block, path, resource.Address, module))
 }
 
 func markResolvedReferenceProvenance(resource *Resource, before, after any, path, module string, inputProvenance map[string]FieldProvenance) {
@@ -195,8 +194,8 @@ func markResolvedReferenceProvenance(resource *Resource, before, after any, path
 			return
 		}
 		field := nearestFieldProvenance(resource.Origin, path)
-		if strings.HasPrefix(reference, "var.") {
-			if supplied, ok := inputProvenance[strings.TrimPrefix(reference, "var.")]; ok {
+		if after0, ok := strings.CutPrefix(reference, "var."); ok {
+			if supplied, ok := inputProvenance[after0]; ok {
 				field = supplied
 			}
 		} else if strings.HasPrefix(reference, "module.") {

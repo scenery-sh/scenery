@@ -283,9 +283,7 @@ func runPackages(ctx context.Context, opts Options, packages []testPackage) []pa
 	results := make(chan packageRun, len(packages))
 	var wg sync.WaitGroup
 	for range opts.PackageParallelism {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for pkg := range jobs {
 				started := time.Now()
 				cmd := exec.CommandContext(ctx, pkg.Binary,
@@ -314,7 +312,7 @@ func runPackages(ctx context.Context, opts Options, packages []testPackage) []pa
 					Err:     err,
 				}
 			}
-		}()
+		})
 	}
 	go func() {
 		for _, pkg := range packages {
@@ -337,15 +335,13 @@ func parallelPackages(packages []testPackage, limit int, fn func(testPackage) er
 	errs := make(chan error, len(packages))
 	var wg sync.WaitGroup
 	for range limit {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for pkg := range jobs {
 				if err := fn(pkg); err != nil {
 					errs <- err
 				}
 			}
-		}()
+		})
 	}
 	for _, pkg := range packages {
 		jobs <- pkg

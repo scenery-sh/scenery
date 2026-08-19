@@ -20,7 +20,7 @@ func parseSemanticVersion(value string) (semanticVersion, error) {
 		if build == "" {
 			return semanticVersion{}, fmt.Errorf("invalid semantic version build metadata")
 		}
-		for _, identifier := range strings.Split(build, ".") {
+		for identifier := range strings.SplitSeq(build, ".") {
 			if identifier == "" || !semanticVersionIdentifier(identifier) {
 				return semanticVersion{}, fmt.Errorf("invalid semantic version build metadata")
 			}

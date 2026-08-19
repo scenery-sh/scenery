@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"strings"
 	"sync"
@@ -344,9 +345,7 @@ func newMCPToolState(call MCPToolCallContext, registration MCPToolRegistration, 
 		}
 	}
 	traceContext := make(map[string]string, len(call.TraceContext))
-	for key, value := range call.TraceContext {
-		traceContext[key] = value
-	}
+	maps.Copy(traceContext, call.TraceContext)
 	state := &requestState{
 		started: started,
 		request: shared.Request{
@@ -409,9 +408,7 @@ func RegisterMCPTool(registration MCPToolRegistration) error {
 
 func cloneMCPToolRegistrations(values map[string]MCPToolRegistration) map[string]MCPToolRegistration {
 	clone := make(map[string]MCPToolRegistration, len(values))
-	for key, value := range values {
-		clone[key] = value
-	}
+	maps.Copy(clone, values)
 	return clone
 }
 

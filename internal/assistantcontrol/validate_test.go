@@ -456,11 +456,9 @@ func TestValidationIsConcurrencySafe(t *testing.T) {
 		t.Fatal(err)
 	}
 	var group sync.WaitGroup
-	for worker := 0; worker < 16; worker++ {
-		group.Add(1)
-		go func() {
-			defer group.Done()
-			for iteration := 0; iteration < 100; iteration++ {
+	for range 16 {
+		group.Go(func() {
+			for range 100 {
 				if _, err := ParseRequest(encodedRequest); err != nil {
 					t.Errorf("parse request: %v", err)
 					return
@@ -470,7 +468,7 @@ func TestValidationIsConcurrencySafe(t *testing.T) {
 					return
 				}
 			}
-		}()
+		})
 	}
 	group.Wait()
 }

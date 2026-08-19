@@ -2,6 +2,7 @@ package compiler
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -120,12 +121,7 @@ func validatePortableValidationExpression(expression hclsyntax.Expression) error
 }
 
 func portableValidationBinaryOperator(operation *hclsyntax.Operation) bool {
-	for _, supported := range []*hclsyntax.Operation{hclsyntax.OpLogicalOr, hclsyntax.OpLogicalAnd, hclsyntax.OpEqual, hclsyntax.OpNotEqual, hclsyntax.OpGreaterThan, hclsyntax.OpGreaterThanOrEqual, hclsyntax.OpLessThan, hclsyntax.OpLessThanOrEqual, hclsyntax.OpAdd, hclsyntax.OpSubtract, hclsyntax.OpMultiply, hclsyntax.OpDivide, hclsyntax.OpModulo} {
-		if operation == supported {
-			return true
-		}
-	}
-	return false
+	return slices.Contains([]*hclsyntax.Operation{hclsyntax.OpLogicalOr, hclsyntax.OpLogicalAnd, hclsyntax.OpEqual, hclsyntax.OpNotEqual, hclsyntax.OpGreaterThan, hclsyntax.OpGreaterThanOrEqual, hclsyntax.OpLessThan, hclsyntax.OpLessThanOrEqual, hclsyntax.OpAdd, hclsyntax.OpSubtract, hclsyntax.OpMultiply, hclsyntax.OpDivide, hclsyntax.OpModulo}, operation)
 }
 
 func recordValidationEvalContext(value cty.Value) *hcl.EvalContext {

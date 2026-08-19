@@ -61,7 +61,7 @@ func TestLessUTF16MatchesReferenceOnRandomInput(t *testing.T) {
 		}
 		return string(runes)
 	}
-	for i := 0; i < 300000; i++ {
+	for range 300000 {
 		left, right := word(), word()
 		if got, want := lessUTF16(left, right), referenceLessUTF16(left, right); got != want {
 			t.Fatalf("lessUTF16(%q, %q) = %v, reference = %v", left, right, got, want)
@@ -76,7 +76,7 @@ func TestLessUTF16ProducesIdenticalSortOrder(t *testing.T) {
 
 	source := rand.New(rand.NewPCG(13, 17))
 	alphabet := []rune{'a', 'b', 'Z', '_', '0', 'é', '中', '', '￿', '\U0001F600'}
-	for round := 0; round < 3000; round++ {
+	for range 3000 {
 		keys := make([]string, source.IntN(12))
 		for i := range keys {
 			runes := make([]rune, source.IntN(5))

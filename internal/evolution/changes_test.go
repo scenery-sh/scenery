@@ -35,7 +35,7 @@ func TestChangePlanDoesNotWriteAndApplyIsRevisionBound(t *testing.T) {
 	}
 	plan, err := PlanChanges(root, ChangeRequest{
 		BaseWorkspaceRevision: base.WorkspaceRevision,
-		BaseContractRevision:  stringPointer(base.Manifest.ContractRevision),
+		BaseContractRevision:  new(base.Manifest.ContractRevision),
 		Operations:            []SemanticOperation{{Op: "value.set", Address: "house/execution/process_scene_direct", Path: "/spec/timeout", Value: "45m", Precondition: &ChangePrecondition{Equals: "40m"}}},
 	})
 	if err != nil {
@@ -71,7 +71,7 @@ func TestChangePlanNormalizesPresentationEquivalentOperations(t *testing.T) {
 	request := func(value any) ChangeRequest {
 		return ChangeRequest{
 			BaseWorkspaceRevision: base.WorkspaceRevision,
-			BaseContractRevision:  stringPointer(base.Manifest.ContractRevision),
+			BaseContractRevision:  new(base.Manifest.ContractRevision),
 			Operations:            []SemanticOperation{{Op: "value.set", Address: "house/execution/process_scene_direct", Path: "/spec/timeout", Value: value}},
 		}
 	}
@@ -103,7 +103,7 @@ func TestChangePlanNormalizesPresentationEquivalentOperations(t *testing.T) {
 	referenceRequest := func(reference string) ChangeRequest {
 		return ChangeRequest{
 			BaseWorkspaceRevision: base.WorkspaceRevision,
-			BaseContractRevision:  stringPointer(base.Manifest.ContractRevision),
+			BaseContractRevision:  new(base.Manifest.ContractRevision),
 			Operations: []SemanticOperation{{
 				Op: "value.set", Address: "house/execution/process_scene_direct", Path: "/spec/operation", Value: map[string]any{"$ref": reference},
 			}},
@@ -131,7 +131,7 @@ func TestChangePlanNormalizesOperationsAcrossTemporarilyInvalidGraph(t *testing.
 	}
 	plan, err := PlanChanges(root, ChangeRequest{
 		BaseWorkspaceRevision: base.WorkspaceRevision,
-		BaseContractRevision:  stringPointer(base.Manifest.ContractRevision),
+		BaseContractRevision:  new(base.Manifest.ContractRevision),
 		Operations: []SemanticOperation{
 			{Op: "value.unset", Address: "house/service/house", Path: "/spec/runtime"},
 			{Op: "value.set", Address: "house/service/house", Path: "/spec/runtime", Value: "go"},
@@ -154,7 +154,7 @@ func TestChangeRenameUpdatesTypedReferences(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := PlanChanges(root, ChangeRequest{BaseWorkspaceRevision: base.WorkspaceRevision, BaseContractRevision: stringPointer(base.Manifest.ContractRevision), Operations: []SemanticOperation{{Op: "resource.rename", Address: "house/operation/process_scene", Value: "process_roof_scene"}}})
+	plan, err := PlanChanges(root, ChangeRequest{BaseWorkspaceRevision: base.WorkspaceRevision, BaseContractRevision: new(base.Manifest.ContractRevision), Operations: []SemanticOperation{{Op: "resource.rename", Address: "house/operation/process_scene", Value: "process_roof_scene"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +211,7 @@ input "point" { type = resource_ref("record") }
 	}
 	plan, err := PlanChanges(root, ChangeRequest{
 		BaseWorkspaceRevision: base.WorkspaceRevision,
-		BaseContractRevision:  stringPointer(base.Manifest.ContractRevision),
+		BaseContractRevision:  new(base.Manifest.ContractRevision),
 		Operations: []SemanticOperation{{
 			Op: "resource.rename", Address: "parent/geometry/record/point", Value: "vector",
 		}},
@@ -303,7 +303,7 @@ record "point" {
 	}
 	_, err = PlanChanges(root, ChangeRequest{
 		BaseWorkspaceRevision: base.WorkspaceRevision,
-		BaseContractRevision:  stringPointer(base.Manifest.ContractRevision),
+		BaseContractRevision:  new(base.Manifest.ContractRevision),
 		Operations:            []SemanticOperation{{Op: "resource.rename", Address: "first/record/point", Value: "vector"}},
 	})
 	if err == nil || !strings.Contains(err.Error(), "source is shared by module instances") {
@@ -322,7 +322,7 @@ func TestChangeCreateThenRenameUsesRefreshedGraph(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := PlanChanges(root, ChangeRequest{BaseWorkspaceRevision: base.WorkspaceRevision, BaseContractRevision: stringPointer(base.Manifest.ContractRevision), Operations: []SemanticOperation{
+	plan, err := PlanChanges(root, ChangeRequest{BaseWorkspaceRevision: base.WorkspaceRevision, BaseContractRevision: new(base.Manifest.ContractRevision), Operations: []SemanticOperation{
 		{Op: "resource.create", Address: "app/authentication/test", Value: map[string]any{"provider": map[string]any{"$ref": "std.provider.standard_auth"}, "scheme": "session"}},
 		{Op: "resource.rename", Address: "app/authentication/test", Value: "renamed"},
 	}})
@@ -354,7 +354,7 @@ func TestChangeCreateAddsStructuredRecord(t *testing.T) {
 	}
 	plan, err := PlanChanges(root, ChangeRequest{
 		BaseWorkspaceRevision: base.WorkspaceRevision,
-		BaseContractRevision:  stringPointer(base.Manifest.ContractRevision),
+		BaseContractRevision:  new(base.Manifest.ContractRevision),
 		Operations: []SemanticOperation{{
 			Op:      "resource.create",
 			Address: "house/record/audit_entry",
@@ -392,7 +392,7 @@ func TestChangePlanCommitsAdditionalAuthoredFilesTransactionally(t *testing.T) {
 		t.Fatalf("compile: %v diagnostics=%#v", err, base.Diagnostics)
 	}
 	edit := SourceEdit{Path: "assistants/support/package.json", BeforeDigest: byteDigest(nil), After: []byte(`{"name":"fixture","private":true}`), BeforeExists: false, AfterExists: true, Mode: 0o644}
-	plan, err := PlanChanges(root, ChangeRequest{BaseWorkspaceRevision: base.WorkspaceRevision, BaseContractRevision: stringPointer(base.Manifest.ContractRevision), AdditionalEdits: []SourceEdit{edit}})
+	plan, err := PlanChanges(root, ChangeRequest{BaseWorkspaceRevision: base.WorkspaceRevision, BaseContractRevision: new(base.Manifest.ContractRevision), AdditionalEdits: []SourceEdit{edit}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -451,7 +451,7 @@ record "lookup_result" {
 	}
 	plan, err := PlanChanges(root, ChangeRequest{
 		BaseWorkspaceRevision: base.WorkspaceRevision,
-		BaseContractRevision:  stringPointer(base.Manifest.ContractRevision),
+		BaseContractRevision:  new(base.Manifest.ContractRevision),
 		Operations: []SemanticOperation{{
 			Op:      "resource.create",
 			Address: "catalog/operation/lookup",
@@ -569,7 +569,7 @@ func TestChangeCreateLowersCanonicalReferenceAndDurationScalar(t *testing.T) {
 	}
 	plan, err := PlanChanges(root, ChangeRequest{
 		BaseWorkspaceRevision: base.WorkspaceRevision,
-		BaseContractRevision:  stringPointer(base.Manifest.ContractRevision),
+		BaseContractRevision:  new(base.Manifest.ContractRevision),
 		Operations: []SemanticOperation{{
 			Op:      "resource.create",
 			Address: "house/execution/process_scene_copy",
@@ -610,7 +610,7 @@ func TestChangeCreateAddsStructuredHTTPBinding(t *testing.T) {
 	}
 	plan, err := PlanChanges(root, ChangeRequest{
 		BaseWorkspaceRevision: base.WorkspaceRevision,
-		BaseContractRevision:  stringPointer(base.Manifest.ContractRevision),
+		BaseContractRevision:  new(base.Manifest.ContractRevision),
 		Operations: []SemanticOperation{{
 			Op:      "resource.create",
 			Address: "house/binding/process_scene_copy",
@@ -681,7 +681,7 @@ input "model_path" {
 	}
 	plan, err := PlanChanges(root, ChangeRequest{
 		BaseWorkspaceRevision: base.WorkspaceRevision,
-		BaseContractRevision:  stringPointer(base.Manifest.ContractRevision),
+		BaseContractRevision:  new(base.Manifest.ContractRevision),
 		Operations: []SemanticOperation{{
 			Op:      "resource.create",
 			Address: "house/service/audit",
@@ -749,7 +749,7 @@ record "point" {
 	}
 	plan, err := PlanChanges(root, ChangeRequest{
 		BaseWorkspaceRevision: base.WorkspaceRevision,
-		BaseContractRevision:  stringPointer(base.Manifest.ContractRevision),
+		BaseContractRevision:  new(base.Manifest.ContractRevision),
 		Operations: []SemanticOperation{{
 			Op:      "resource.create",
 			Address: "parent/geometry/record/vector",
@@ -787,7 +787,7 @@ func TestChangeApplyRequiresBoundApprovalAndRejectsReplay(t *testing.T) {
 	}
 	plan := ChangePlan{
 		ArtifactIdentity: machine.NewArtifactIdentity(changePlanKind, changePlanSchemaDescriptor), Application: base.Manifest.Application.Name,
-		BaseWorkspaceRevision: base.WorkspaceRevision, BaseContractRevision: stringPointer(base.Manifest.ContractRevision),
+		BaseWorkspaceRevision: base.WorkspaceRevision, BaseContractRevision: new(base.Manifest.ContractRevision),
 		PredictedWorkspaceRevision: base.WorkspaceRevision, PredictedContractRevision: base.Manifest.ContractRevision,
 		ImplementationStatus: "unchanged", DeploymentStatus: "unchanged", Caller: "agent:test",
 		Capabilities: []string{"scenery.agent-mutation"}, Operations: []SemanticOperation{}, Edits: []SourceEdit{},
@@ -798,7 +798,7 @@ func TestChangeApplyRequiresBoundApprovalAndRejectsReplay(t *testing.T) {
 	if err := RetainIssuedPlan(root, IssuedChangePlan, plan.PlanID, plan); err != nil {
 		t.Fatal(err)
 	}
-	options := ApplyOptions{ExpectedWorkspaceRevision: base.WorkspaceRevision, ExpectedContractRevision: stringPointer(base.Manifest.ContractRevision), Caller: plan.Caller, GrantedCapabilities: []string{requiredChangeCapability}}
+	options := ApplyOptions{ExpectedWorkspaceRevision: base.WorkspaceRevision, ExpectedContractRevision: new(base.Manifest.ContractRevision), Caller: plan.Caller, GrantedCapabilities: []string{requiredChangeCapability}}
 	tampered := plan
 	tampered.RequiredApprovals = nil
 	tampered.PlanID = changePlanID(tampered)
@@ -890,7 +890,7 @@ func TestGeneratedCheckHooksAreInvoked(t *testing.T) {
 	var predictedGo, predictedTS, generated int
 	plan, err := PlanChanges(root, ChangeRequest{
 		BaseWorkspaceRevision: base.WorkspaceRevision,
-		BaseContractRevision:  stringPointer(base.Manifest.ContractRevision),
+		BaseContractRevision:  new(base.Manifest.ContractRevision),
 		Operations: []SemanticOperation{{
 			Op: "value.set", Address: "house/execution/process_scene_direct", Path: "/spec/timeout",
 			Value: "45m", Precondition: &ChangePrecondition{Equals: "40m"},
@@ -906,7 +906,7 @@ func TestGeneratedCheckHooksAreInvoked(t *testing.T) {
 	}
 	if _, err := ApplyChangePlanWithOptions(root, plan, ApplyOptions{
 		ExpectedWorkspaceRevision: base.WorkspaceRevision,
-		ExpectedContractRevision:  stringPointer(base.Manifest.ContractRevision),
+		ExpectedContractRevision:  new(base.Manifest.ContractRevision),
 		Caller:                    plan.Caller,
 		CheckGenerated:            func(*compiler.Result) { generated++ },
 	}); err != nil {
@@ -925,7 +925,7 @@ func TestChangePlanRejectsSecretPlaintext(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = PlanChanges(root, ChangeRequest{
-		BaseWorkspaceRevision: base.WorkspaceRevision, BaseContractRevision: stringPointer(base.Manifest.ContractRevision),
+		BaseWorkspaceRevision: base.WorkspaceRevision, BaseContractRevision: new(base.Manifest.ContractRevision),
 		Operations: []SemanticOperation{{Op: "value.set", Address: "house/service/house", Path: "/spec/provider_token", Value: "top-secret"}},
 	})
 	if err == nil || !strings.Contains(err.Error(), "secret plaintext") {

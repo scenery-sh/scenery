@@ -234,11 +234,12 @@ func renderEventEmissionRegistration(b *strings.Builder, resources map[string]Re
 		return fmt.Errorf("event emission %s references unknown result %s", emission.Address, when[1])
 	}
 	payloadType := variant["type"]
-	payloadGo := "typed.Value"
+	var payloadGo strings.Builder
+	payloadGo.WriteString("typed.Value")
 	if len(payload) > 2 {
 		payloadType = recordFieldType(resources, operation.Module, variant["type"], payload[2:])
 		for _, field := range payload[2:] {
-			payloadGo += "." + goName(field)
+			payloadGo.WriteString("." + goName(field))
 		}
 	}
 	if payloadType == nil {
@@ -260,7 +261,7 @@ func renderEventEmissionRegistration(b *strings.Builder, resources map[string]Re
 	backoff := defaultString(stringValue(retry["backoff"]), "none")
 	fmt.Fprintf(b, "\t\t\tif err := sceneryruntime.RegisterContractEventEmission(sceneryruntime.ContractEventEmissionRegistration{\n")
 	fmt.Fprintf(b, "\t\t\t\tAddress: %q, OperationAddress: %q, BusAddress: %q, Channel: %q, ContractAddress: %q, ContractVersion: %d, Guarantee: %q, Attempts: %d, Backoff: %q, DeadLetterChannel: %q,\n", emission.Address, operation.Address, resolveResourceRef(emission, refString(emission.Spec["bus"]), "event_bus"), stringValue(emission.Spec["channel"]), contract.Address, version, stringValue(emission.Spec["guarantee"]), attempts, backoff, stringValue(emission.Spec["dead_letter_channel"]))
-	fmt.Fprintf(b, "\t\t\t\tEncode: func(outcome any) ([]byte, bool, error) { typed, ok := outcome.(contract.%s%s); if !ok { return nil, false, nil }; payload, err := scenery.MarshalContractValue(%s, %q); return payload, true, err },\n", goName(operation.Name), goName(when[1]), payloadGo, goWireTypeExpression(payloadType))
+	fmt.Fprintf(b, "\t\t\t\tEncode: func(outcome any) ([]byte, bool, error) { typed, ok := outcome.(contract.%s%s); if !ok { return nil, false, nil }; payload, err := scenery.MarshalContractValue(%s, %q); return payload, true, err },\n", goName(operation.Name), goName(when[1]), payloadGo.String(), goWireTypeExpression(payloadType))
 	if orderingKey != "" {
 		fmt.Fprintf(b, "\t\t\t\tOrderingKey: func(outcome any) (string, error) { typed, ok := outcome.(contract.%s%s); if !ok { return \"\", fmt.Errorf(\"event ordering key outcome has type %%T\", outcome) }; component, err := scenery.EncodeContractKeyComponent(%s, %q); if err != nil { return \"\", err }; return scenery.EncodeContractCompositeKey(component) },\n", goName(operation.Name), goName(when[1]), orderingKey, orderingKeyType)
 	}
@@ -295,11 +296,12 @@ func eventEmissionKeyExpression(resources map[string]Resource, operation Resourc
 	if !eventKeyTypeSupported(typeExpression) {
 		return "", "", fmt.Errorf("must reference a supported non-null scalar key, got %s", typeExpression)
 	}
-	expression := "typed.Value"
+	var expression strings.Builder
+	expression.WriteString("typed.Value")
 	for _, field := range parts[2:] {
-		expression += "." + goName(field)
+		expression.WriteString("." + goName(field))
 	}
-	return expression, typeExpression, nil
+	return expression.String(), typeExpression, nil
 }
 
 func eventKeyTypeSupported(typeExpression string) bool {

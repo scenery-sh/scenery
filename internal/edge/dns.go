@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -169,12 +170,7 @@ func DNSResolverServesDomain(domain, nameserver, port, address string) bool {
 	if err != nil {
 		return false
 	}
-	for _, host := range hosts {
-		if host == address {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(hosts, address)
 }
 
 // DNSConfigServesDomain reports whether the dnsmasq config at path answers
@@ -189,7 +185,7 @@ func DNSConfigServesDomain(path, domain string) bool {
 		return false
 	}
 	needle := "address=/" + domain + "/"
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		if strings.HasPrefix(strings.TrimSpace(line), needle) {
 			return true
 		}
@@ -298,7 +294,7 @@ func DNSResolverStatus(domain, listen string) DNSResolverState {
 // fields, skipping comments and blank lines.
 func ParseResolverFile(data string) map[string]string {
 	fields := map[string]string{}
-	for _, line := range strings.Split(data, "\n") {
+	for line := range strings.SplitSeq(data, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue

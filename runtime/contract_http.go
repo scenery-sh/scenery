@@ -230,7 +230,7 @@ func contractMappingValues(request *http.Request, pathValues map[string]string, 
 		if mapping.Encoding == "comma" {
 			var split []string
 			for _, value := range values {
-				for _, item := range strings.Split(value, ",") {
+				for item := range strings.SplitSeq(value, ",") {
 					split = append(split, strings.Trim(item, " \t"))
 				}
 			}
@@ -249,7 +249,7 @@ func contractMappingValues(request *http.Request, pathValues map[string]string, 
 
 func contractRawQueryValues(rawQuery, wireName, encoding string) ([]string, error) {
 	var encodedValues []string
-	for _, pair := range strings.Split(rawQuery, "&") {
+	for pair := range strings.SplitSeq(rawQuery, "&") {
 		if pair == "" {
 			continue
 		}
@@ -281,7 +281,7 @@ func contractRawQueryValues(rawQuery, wireName, encoding string) ([]string, erro
 func contractCookieValues(headers []string, wireName string) ([]string, error) {
 	var values []string
 	for _, header := range headers {
-		for _, part := range strings.Split(header, ";") {
+		for part := range strings.SplitSeq(header, ";") {
 			name, value, found := strings.Cut(strings.TrimSpace(part), "=")
 			if !found || name != wireName {
 				continue

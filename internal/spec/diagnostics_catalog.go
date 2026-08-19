@@ -50,7 +50,7 @@ func DiagnosticCategory(code string) string {
 func parseDiagnosticDefinitions(rows string) []DiagnosticDefinition {
 	var definitions []DiagnosticDefinition
 	identities := map[string]string{}
-	for _, row := range strings.Split(strings.TrimSpace(rows), "\n") {
+	for row := range strings.SplitSeq(strings.TrimSpace(rows), "\n") {
 		parts := strings.SplitN(strings.TrimSpace(row), "|", 3)
 		if len(parts) != 3 {
 			panic("invalid diagnostic catalog row: " + row)

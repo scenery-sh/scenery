@@ -122,11 +122,11 @@ func TestSetPermissionCheckerReplacesResetsAndIsConcurrentSafe(t *testing.T) {
 	}
 
 	var wait sync.WaitGroup
-	for index := 0; index < 20; index++ {
+	for range 20 {
 		wait.Add(2)
 		go func() {
 			defer wait.Done()
-			for iteration := 0; iteration < 100; iteration++ {
+			for range 100 {
 				SetPermissionChecker(grant)
 				SetPermissionChecker(deny)
 				SetPermissionChecker(nil)
@@ -134,7 +134,7 @@ func TestSetPermissionCheckerReplacesResetsAndIsConcurrentSafe(t *testing.T) {
 		}()
 		go func() {
 			defer wait.Done()
-			for iteration := 0; iteration < 100; iteration++ {
+			for range 100 {
 				_, _ = hasPermissions(t.Context(), data, true, "Fleet")
 			}
 		}()

@@ -265,10 +265,8 @@ func (p routePattern) match(path string) (routeParams, bool) {
 // repeated work proportional to the route table.
 func (p routePattern) matchSegments(requestSegments []string) (routeParams, bool) {
 	if p.pathTail {
-		for _, segment := range requestSegments {
-			if segment == "" {
-				return nil, false
-			}
+		if slices.Contains(requestSegments, "") {
+			return nil, false
 		}
 	}
 	params := make(routeParams, 0, len(p.segments))

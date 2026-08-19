@@ -56,7 +56,7 @@ Exact CLI and artifact details live in [docs/local-contract.md](docs/local-contr
 
 ## Requirements
 
-- Go 1.26+
+- Go 1.27+
 - Bun, only when working on the dashboard UI or the benchmark fixture
 
 Run `scenery doctor -o json` after install when you want a read-only readiness report for the host, Go toolchain, disk/memory resources, Docker engine reachability, and optional local-development dependencies.
@@ -154,7 +154,7 @@ Create `.scenery.json` and `go.mod`:
 ```go
 module example.com/hello
 
-go 1.26.3
+go 1.27.0
 
 require scenery.sh v0.0.0
 
@@ -176,7 +176,7 @@ go_module "application" {
   import_path = "example.com/hello"
 }
 go_toolchain "application" {
-  version     = "1.26.3"
+  version     = "1.27.0"
   experiments = []
 }
 go_target "development" {

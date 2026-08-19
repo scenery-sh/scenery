@@ -3,6 +3,7 @@ package compiler
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -710,10 +711,5 @@ func validateTablePageComponent(resources map[string]Resource, table Resource, v
 }
 
 func oneOfString(value string, candidates ...string) bool {
-	for _, candidate := range candidates {
-		if value == candidate {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(candidates, value)
 }

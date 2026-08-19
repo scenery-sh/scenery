@@ -23,8 +23,11 @@ type ContractConstraints struct {
 	UniqueItems bool
 }
 
-func ContractStringConstraint(value string) *string { return &value }
-func ContractIntConstraint(value int64) *int64      { return &value }
+//go:fix inline
+func ContractStringConstraint(value string) *string { return new(value) }
+
+//go:fix inline
+func ContractIntConstraint(value int64) *int64 { return new(value) }
 
 // ValidateContractValue enforces one field's contract constraints against
 // the generated Go representation.

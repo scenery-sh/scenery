@@ -1,6 +1,8 @@
 package spec
 
 import (
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -27,9 +29,7 @@ func cloneSemanticValue(value any) any {
 		return append([]string(nil), typed...)
 	case map[string]string:
 		result := make(map[string]string, len(typed))
-		for key, item := range typed {
-			result[key] = item
-		}
+		maps.Copy(result, typed)
 		return result
 	default:
 		return typed
@@ -62,10 +62,5 @@ func canonicalStrings(values []string) []string {
 }
 
 func oneOf[T comparable](value T, candidates ...T) bool {
-	for _, candidate := range candidates {
-		if value == candidate {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(candidates, value)
 }

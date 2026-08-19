@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -378,7 +379,7 @@ func ValidateSemanticOperation(result *compiler.Result, operation SemanticOperat
 }
 
 func ApplyChangePlan(root string, plan ChangePlan, expectedWorkspace, expectedContract string) (ChangeReceipt, error) {
-	return ApplyChangePlanWithOptions(root, plan, ApplyOptions{ExpectedWorkspaceRevision: expectedWorkspace, ExpectedContractRevision: stringPointer(expectedContract), Caller: plan.Caller})
+	return ApplyChangePlanWithOptions(root, plan, ApplyOptions{ExpectedWorkspaceRevision: expectedWorkspace, ExpectedContractRevision: new(expectedContract), Caller: plan.Caller})
 }
 
 // ChangeApplyResult keeps replay metadata out of the durable receipt. The
@@ -763,7 +764,7 @@ func resultContractRevision(result *Result) *string {
 	if result == nil || result.Manifest == nil || result.ContractStatus != "valid" || result.Manifest.ContractRevision == "" {
 		return nil
 	}
-	return stringPointer(result.Manifest.ContractRevision)
+	return new(result.Manifest.ContractRevision)
 }
 
 func resultApplication(result *Result) string {
@@ -798,8 +799,9 @@ func writablePlanningResult(result *Result) (*Result, error) {
 	return &copyResult, nil
 }
 
+//go:fix inline
 func stringPointer(value string) *string {
-	return &value
+	return new(value)
 }
 
 func cloneStringPointer(value *string) *string {
@@ -1013,10 +1015,8 @@ func rejectSecretMutation(operation SemanticOperation) error {
 				}
 			}
 		case []any:
-			for _, item := range typed {
-				if inspect(item) {
-					return true
-				}
+			if slices.ContainsFunc(typed, inspect) {
+				return true
 			}
 		case string:
 			lower := strings.ToLower(strings.TrimSpace(typed))

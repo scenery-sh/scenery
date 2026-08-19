@@ -19,7 +19,7 @@ func TestChangeApplyRejectsCallerRecomputedPlan(t *testing.T) {
 	}
 	plan, err := PlanChanges(root, ChangeRequest{
 		BaseWorkspaceRevision: base.WorkspaceRevision,
-		BaseContractRevision:  stringPointer(base.Manifest.ContractRevision),
+		BaseContractRevision:  new(base.Manifest.ContractRevision),
 		Operations:            []SemanticOperation{},
 	})
 	if err != nil {
@@ -31,7 +31,7 @@ func TestChangeApplyRejectsCallerRecomputedPlan(t *testing.T) {
 	tampered.PlanID = changePlanID(tampered)
 	if _, err := ApplyChangePlanWithOptions(root, tampered, ApplyOptions{
 		ExpectedWorkspaceRevision: base.WorkspaceRevision,
-		ExpectedContractRevision:  stringPointer(base.Manifest.ContractRevision),
+		ExpectedContractRevision:  new(base.Manifest.ContractRevision),
 		Caller:                    tampered.Caller,
 	}); err == nil || !strings.Contains(err.Error(), "issued plan") {
 		t.Fatalf("tampered plan error = %v", err)
@@ -62,7 +62,7 @@ export "point" { value = record.point }
 	}
 	plan, err := PlanChanges(root, ChangeRequest{
 		BaseWorkspaceRevision: base.WorkspaceRevision,
-		BaseContractRevision:  stringPointer(base.Manifest.ContractRevision),
+		BaseContractRevision:  new(base.Manifest.ContractRevision),
 		Operations:            []SemanticOperation{{Op: "resource.rename", Address: "app/module/house", Value: "home"}},
 	})
 	if err != nil {

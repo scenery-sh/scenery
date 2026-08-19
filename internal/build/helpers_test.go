@@ -51,7 +51,7 @@ func newBuildTestAppNamed(t *testing.T, base string) string {
 	if strings.TrimSpace(base) != "" {
 		root = filepath.Join(root, base)
 	}
-	writeBuildTestFile(t, root, "go.mod", "module example.com/buildtest\n\ngo 1.26.3\n\nrequire scenery.sh v0.0.0\n\nreplace scenery.sh => "+repoRoot(t)+"\n")
+	writeBuildTestFile(t, root, "go.mod", "module example.com/buildtest\n\ngo 1.27.0\n\nrequire scenery.sh v0.0.0\n\nreplace scenery.sh => "+repoRoot(t)+"\n")
 	writeBuildTestFile(t, root, ".scenery.json", `{"name":"buildtest"}`)
 	writeBuildTestFile(t, root, "svc/api.go", `package svc
 

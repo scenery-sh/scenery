@@ -52,7 +52,7 @@ func InspectEditorWorkspace(appRoot string) EditorWorkspaceStatus {
 	status.Managed = true
 	status.SpecRevision = owner.SpecRevision
 	status.ContractRevision = owner.ContractRevision
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		line = strings.TrimSpace(line)
 		if strings.Contains(line, string(filepath.Separator)+"generations"+string(filepath.Separator)) || strings.Contains(line, "/generations/") {
 			status.Generation = strings.Trim(line, `"`)

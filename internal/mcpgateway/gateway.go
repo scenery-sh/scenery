@@ -531,7 +531,6 @@ func (g *gateway) serverFor(ctx context.Context, callCtx mcpcontract.ToolCallCon
 		}, g.toolHandler(capability))
 	}
 	for _, capability := range remoteCapabilities {
-		capability := capability
 		server.AddTool(&mcp.Tool{
 			Name:         capability.Name,
 			Title:        capability.Title,

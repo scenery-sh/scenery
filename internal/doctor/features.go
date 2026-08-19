@@ -28,15 +28,15 @@ func Features(cfg appcfg.Config, app *AppInfo) AppFeatures {
 	if app == nil {
 		return AppFeatures{}
 	}
-	features := AppFeatures{}
-	features.FrontendConfigured = len(cfg.Frontends) > 0
-	features.SQLCConfigured = sqlcGeneratorConfigured(cfg.Generators.SQLC)
-	features.AtlasRelevant = sqlcUsesAtlas(cfg.Generators.SQLC)
-	features.DatabaseApplyCommand = strings.TrimSpace(cfg.Database.Apply.Command) != ""
-	features.StorageConfigured = len(cfg.Storage.Stores) > 0
-	features.PostgresServices = len(cfg.PostgresServices()) > 0
-	features.DockerRelevant = appUsesDocker(cfg)
-	features.TypeScriptTasks = appHasTypeScriptTasks(app.Root)
+	features := AppFeatures{
+		FrontendConfigured:   len(cfg.Frontends) > 0,
+		SQLCConfigured:       sqlcGeneratorConfigured(cfg.Generators.SQLC),
+		AtlasRelevant:        sqlcUsesAtlas(cfg.Generators.SQLC),
+		DatabaseApplyCommand: strings.TrimSpace(cfg.Database.Apply.Command) != "",
+		StorageConfigured:    len(cfg.Storage.Stores) > 0,
+		PostgresServices:     len(cfg.PostgresServices()) > 0,
+		DockerRelevant:       appUsesDocker(cfg),
+		TypeScriptTasks:      appHasTypeScriptTasks(app.Root)}
 	return features
 }
 

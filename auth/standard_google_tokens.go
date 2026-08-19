@@ -141,7 +141,7 @@ func (s *Service) googleAccessTokenForUser(ctx context.Context, userID authdb.UU
 
 func refreshGoogleAccessToken(ctx context.Context, refreshToken string) (googleTokenResponse, error) {
 	var last error
-	for attempt := 0; attempt < 3; attempt++ {
+	for attempt := range 3 {
 		out, err := refreshGoogleAccessTokenOnce(ctx, refreshToken)
 		if err == nil || isPermanentGoogleRefreshError(err) {
 			return out, err

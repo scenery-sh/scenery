@@ -63,7 +63,7 @@ func TestCronOverlapPoliciesAreEnforced(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		done := make(chan struct{})
 		go func() { runCronJobLoop(ctx, job); close(done) }()
-		for index := 0; index < 3; index++ {
+		for index := range 3 {
 			select {
 			case <-started:
 			case <-time.After(time.Second):

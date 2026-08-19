@@ -416,7 +416,7 @@ func TestAgentChangePlanRequestRejectsModelIdentityAndSourceEdits(t *testing.T) 
 func TestCompactChangePlanOmitsFullSourceArtifactAndBoundsEvidence(t *testing.T) {
 	long := strings.Repeat("sensitive-source-byte-", 10_000)
 	riskRecords := make([]any, 0, 300)
-	for index := 0; index < 300; index++ {
+	for range 300 {
 		riskRecords = append(riskRecords, map[string]any{
 			"risk_id": "risk_" + strings.Repeat("x", 300), "kind": "security_weaker", "address": "house/record/item", "path": "/spec/value", "requires_approval": true,
 			"evidence": long,

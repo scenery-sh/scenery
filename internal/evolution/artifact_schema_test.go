@@ -51,13 +51,12 @@ func assertDescriptorFields(t *testing.T, descriptor string, value any) {
 
 func jsonFieldNames(value reflect.Type) []string {
 	fields := []string{}
-	for index := 0; index < value.NumField(); index++ {
-		field := value.Field(index)
+	for field := range value.Fields() {
 		if field.Anonymous {
 			fields = append(fields, jsonFieldNames(field.Type)...)
 			continue
 		}
-		name := strings.Split(field.Tag.Get("json"), ",")[0]
+		name, _, _ := strings.Cut(field.Tag.Get("json"), ",")
 		if name != "" && name != "-" {
 			fields = append(fields, name)
 		}

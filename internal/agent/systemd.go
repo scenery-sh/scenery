@@ -202,7 +202,7 @@ func AgentSystemdStatusForSocket(socketPath string) LaunchdAgentStatus {
 
 func parseSystemctlShow(out string) map[string]string {
 	props := map[string]string{}
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		key, value, ok := strings.Cut(strings.TrimSpace(line), "=")
 		if ok {
 			props[key] = value

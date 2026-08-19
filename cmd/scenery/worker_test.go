@@ -21,7 +21,7 @@ func TestWorkerDurableTokenCreate(t *testing.T) {
 	root := persistentTestAppRoot(t, "worker-durable-token")
 	preparePersistentTestApp(t, root, map[string]string{
 		".scenery.json": `{"name":"durabletoken","id":"durable-token-id"}`,
-		"go.mod":        "module example.com/durabletoken\n\ngo 1.26.3\n\nrequire scenery.sh v0.0.0\n\nreplace scenery.sh => " + repoRootForTest(t) + "\n",
+		"go.mod":        "module example.com/durabletoken\n\ngo 1.27.0\n\nrequire scenery.sh v0.0.0\n\nreplace scenery.sh => " + repoRootForTest(t) + "\n",
 	})
 
 	var out bytes.Buffer

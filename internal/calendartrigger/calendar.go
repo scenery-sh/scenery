@@ -26,7 +26,7 @@ func Parse(source string) (Rule, error) {
 		return Rule{}, fmt.Errorf("calendar rule is empty")
 	}
 	values := map[string]string{}
-	for _, component := range strings.Split(source, ";") {
+	for component := range strings.SplitSeq(source, ";") {
 		key, value, ok := strings.Cut(component, "=")
 		if !ok || key == "" || value == "" || key != strings.ToUpper(key) || values[key] != "" {
 			return Rule{}, fmt.Errorf("calendar rule contains an invalid or duplicate component")
@@ -67,7 +67,7 @@ func Parse(source string) (Rule, error) {
 			return Rule{}, fmt.Errorf("calendar BYDAY is supported only with WEEKLY")
 		}
 		rule.Weekdays = map[time.Weekday]bool{}
-		for _, item := range strings.Split(value, ",") {
+		for item := range strings.SplitSeq(value, ",") {
 			weekday, ok := weekdays[item]
 			if !ok || rule.Weekdays[weekday] {
 				return Rule{}, fmt.Errorf("calendar BYDAY contains an invalid or duplicate weekday")

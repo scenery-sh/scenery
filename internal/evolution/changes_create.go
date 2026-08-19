@@ -2,6 +2,7 @@ package evolution
 
 import (
 	"fmt"
+	"maps"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -30,7 +31,7 @@ func createResourceBlock(root string, base *Result, operation SemanticOperation)
 	if module == "" || parts[len(parts)-2] != blockType || !validSemanticName(blockType) {
 		return fmt.Errorf("resource.create requires a canonical address")
 	}
-	for _, part := range strings.Split(module, "/") {
+	for part := range strings.SplitSeq(module, "/") {
 		if !validSemanticName(part) {
 			return fmt.Errorf("resource.create requires a canonical address")
 		}
@@ -208,9 +209,7 @@ func integerValue(value any) (int, bool) {
 func cloneMapValue(value any) map[string]any {
 	result := map[string]any{}
 	if source, ok := value.(map[string]any); ok {
-		for key, item := range source {
-			result[key] = item
-		}
+		maps.Copy(result, source)
 	}
 	return result
 }

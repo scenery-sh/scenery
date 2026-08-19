@@ -314,7 +314,7 @@ func TestStoreConcurrentCreatesUseUniqueIdentifiers(t *testing.T) {
 	ids := make(chan string, count)
 	errs := make(chan error, count)
 	var wg sync.WaitGroup
-	for i := 0; i < count; i++ {
+	for i := range count {
 		wg.Add(1)
 		store := a
 		if i%2 == 1 {
@@ -376,7 +376,7 @@ func TestStoreConcurrentStartRunAllowsOneActiveRun(t *testing.T) {
 	}
 	results := make(chan outcome, workers)
 	var wg sync.WaitGroup
-	for i := 0; i < workers; i++ {
+	for i := range workers {
 		wg.Add(1)
 		store := a
 		if i%2 == 1 {
@@ -475,17 +475,15 @@ func TestStoreConcurrentOpensMigrateOnce(t *testing.T) {
 	stores := make(chan *Store, openers)
 	errs := make(chan error, openers)
 	var wg sync.WaitGroup
-	for i := 0; i < openers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range openers {
+		wg.Go(func() {
 			store, err := Open(ctx, testURL)
 			if err != nil {
 				errs <- err
 				return
 			}
 			stores <- store
-		}()
+		})
 	}
 	wg.Wait()
 	close(stores)

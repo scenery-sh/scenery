@@ -13,6 +13,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"syscall"
@@ -247,12 +248,7 @@ func sessionWithRouteManifest(session Session, manifest RouteManifest) Session {
 }
 
 func publicRouteExposed(manifest RouteManifest, name string) bool {
-	for _, exposed := range manifest.PublicRoutes {
-		if exposed == name {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(manifest.PublicRoutes, name)
 }
 
 func publicPathExposed(manifest RouteManifest, requestPath string) bool {

@@ -225,11 +225,12 @@ func httpOutcomeValueExpression(resources map[string]Resource, operation Resourc
 		return rootExpression + "." + goName(parts[2]), map[string]any{"$ref": "string"}, nil
 	}
 	typeValue = recordFieldType(resources, operation.Module, rootType, parts[2:])
-	expression := rootExpression
+	var expression strings.Builder
+	expression.WriteString(rootExpression)
 	for _, field := range parts[2:] {
-		expression += "." + goName(field)
+		expression.WriteString("." + goName(field))
 	}
-	return expression, typeValue, nil
+	return expression.String(), typeValue, nil
 }
 
 func renderContractRequestSchema(resources map[string]Resource, operation, binding Resource, httpSpec map[string]any) (string, error) {

@@ -25,7 +25,7 @@ func EscapePlistString(value string) string {
 func ParseHelperLaunchStatus(output string) (string, int, error) {
 	var state string
 	var pid int
-	for _, line := range strings.Split(output, "\n") {
+	for line := range strings.SplitSeq(output, "\n") {
 		line = strings.TrimSpace(line)
 		if state == "" && strings.HasPrefix(line, "state = ") {
 			state = strings.TrimSpace(strings.TrimPrefix(line, "state = "))

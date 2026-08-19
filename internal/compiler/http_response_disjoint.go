@@ -1,7 +1,9 @@
 package compiler
 
 import (
+	"maps"
 	"mime"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -40,10 +42,8 @@ func httpResponseMediaTypesOverlap(left, right map[string]any) bool {
 	leftTypes := httpResponseMediaTypes(left)
 	rightTypes := httpResponseMediaTypes(right)
 	for _, leftType := range leftTypes {
-		for _, rightType := range rightTypes {
-			if leftType == rightType {
-				return true
-			}
+		if slices.Contains(rightTypes, leftType) {
+			return true
 		}
 	}
 	return false
@@ -282,9 +282,7 @@ func httpObservableObjectKind(kind string) bool {
 
 func cloneBoolMap(source map[string]bool) map[string]bool {
 	result := make(map[string]bool, len(source)+1)
-	for key, value := range source {
-		result[key] = value
-	}
+	maps.Copy(result, source)
 	return result
 }
 

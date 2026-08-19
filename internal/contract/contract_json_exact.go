@@ -34,10 +34,7 @@ func canonicalizeExactJSON(data []byte) ([]byte, error) {
 		return nil, err
 	}
 	var output bytes.Buffer
-	budget := len(data)*8 + 1024
-	if budget > maxExactCanonicalJSONBytes {
-		budget = maxExactCanonicalJSONBytes
-	}
+	budget := min(len(data)*8+1024, maxExactCanonicalJSONBytes)
 	if err := writeExactCanonicalJSON(&output, value, budget); err != nil {
 		return nil, err
 	}

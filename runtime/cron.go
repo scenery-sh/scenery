@@ -197,9 +197,7 @@ func runCronJobLoop(ctx context.Context, job *CronJob) {
 		}
 		callCtx, cancel := context.WithCancel(withCronInvocation(ctx, job, scheduledAt, executionID))
 		running[executionID] = cancel
-		workers.Add(1)
-		go func() {
-			defer workers.Done()
+		workers.Go(func() {
 			if err := safeInvokeCronJob(callCtx, job); err != nil && callCtx.Err() == nil {
 				slog.Error("scenery cron job failed", "id", job.ID, "err", err)
 			}
@@ -207,7 +205,7 @@ func runCronJobLoop(ctx context.Context, job *CronJob) {
 			case done <- completion{id: executionID}:
 			case <-ctx.Done():
 			}
-		}()
+		})
 	}
 	stopRunning := func() {
 		for _, cancel := range running {

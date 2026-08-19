@@ -25,7 +25,7 @@ func RejectPathSymlinks(root, target string) error {
 		return fmt.Errorf("path escapes workspace")
 	}
 	current := root
-	for _, part := range strings.Split(relative, string(filepath.Separator)) {
+	for part := range strings.SplitSeq(relative, string(filepath.Separator)) {
 		if part == "." || part == "" {
 			continue
 		}

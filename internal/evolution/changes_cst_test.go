@@ -118,7 +118,7 @@ func TestChangePlanAppliesNestedBlockEditAtomically(t *testing.T) {
 		t.Fatalf("compile: %v diagnostics=%#v", err, base.Diagnostics)
 	}
 	plan, err := PlanChanges(root, ChangeRequest{
-		BaseWorkspaceRevision: base.WorkspaceRevision, BaseContractRevision: stringPointer(base.Manifest.ContractRevision),
+		BaseWorkspaceRevision: base.WorkspaceRevision, BaseContractRevision: new(base.Manifest.ContractRevision),
 		Caller: "test", Operations: []SemanticOperation{{
 			Op: "value.set", Address: "house/binding/process_scene_http", Path: "/spec/http/path", Value: "/house/process-v2",
 			Precondition: &ChangePrecondition{Equals: "/house/process"},
@@ -128,7 +128,7 @@ func TestChangePlanAppliesNestedBlockEditAtomically(t *testing.T) {
 		t.Fatal(err)
 	}
 	receipt, err := ApplyChangePlanWithOptions(root, plan, ApplyOptions{
-		ExpectedWorkspaceRevision: base.WorkspaceRevision, ExpectedContractRevision: stringPointer(base.Manifest.ContractRevision), Caller: "test",
+		ExpectedWorkspaceRevision: base.WorkspaceRevision, ExpectedContractRevision: new(base.Manifest.ContractRevision), Caller: "test",
 		GrantedCapabilities: []string{requiredChangeCapability},
 	})
 	if err != nil {

@@ -7,9 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -356,8 +358,8 @@ func ApplyDeploymentPlan(ctx context.Context, root string, plan DeploymentPlan, 
 				rollbackErrors = append(rollbackErrors, fmt.Errorf("restore deployment state: %w", err))
 			}
 		}
-		for index := len(journal.Applied) - 1; index >= 0; index-- {
-			planIndex := journal.Applied[index]
+		for index, planIndex := range slices.Backward(journal.Applied) {
+
 			providerPlan := plan.ProviderPlans[planIndex]
 			if index < len(rollbacks) && rollbacks[index] != nil {
 				if err := rollbacks[index](context.Background()); err != nil {
@@ -477,8 +479,8 @@ func recoverDeploymentJournals(ctx context.Context, root string, providers Deplo
 				return fmt.Errorf("internal: recover deployment state: %w", err)
 			}
 		}
-		for index := len(journal.Applied) - 1; index >= 0; index-- {
-			planIndex := journal.Applied[index]
+		for _, planIndex := range slices.Backward(journal.Applied) {
+
 			if planIndex < 0 || planIndex >= len(journal.Plan.ProviderPlans) {
 				return fmt.Errorf("internal: deployment recovery journal has invalid provider index")
 			}
@@ -533,7 +535,7 @@ func acquireDeploymentApplyLock(root string) (func(), error) {
 	owner := localagent.CurrentOwner("deployment-apply")
 	lock := deploymentApplyLock{ArtifactIdentity: machine.NewArtifactIdentity(deploymentApplyLockKind, deploymentLockSchemaDescriptor), Owner: owner}
 	encoded, _ := json.Marshal(lock)
-	for attempts := 0; attempts < 3; attempts++ {
+	for range 3 {
 		if _, err := confinedDeploymentPath(root, path, true); err != nil {
 			return nil, fmt.Errorf("failed_precondition: deployment apply lock is unsafe: %w", err)
 		}
@@ -729,7 +731,7 @@ func mkdirAllDeploymentPath(root, directory string) error {
 		return fmt.Errorf("path escape")
 	}
 	current := root
-	for _, part := range strings.Split(relative, string(filepath.Separator)) {
+	for part := range strings.SplitSeq(relative, string(filepath.Separator)) {
 		if part == "" || part == "." {
 			continue
 		}
@@ -967,9 +969,7 @@ func cloneStringMap(value map[string]string) map[string]string {
 		return nil
 	}
 	clone := make(map[string]string, len(value))
-	for key, item := range value {
-		clone[key] = item
-	}
+	maps.Copy(clone, value)
 	return clone
 }
 

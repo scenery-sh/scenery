@@ -57,11 +57,9 @@ func TestEditorWorkspaceConcurrentSyncCreatesOneGeneration(t *testing.T) {
 	var wait sync.WaitGroup
 	errors := make(chan error, 8)
 	for range 8 {
-		wait.Add(1)
-		go func() {
-			defer wait.Done()
+		wait.Go(func() {
 			errors <- SyncEditorWorkspace(result)
-		}()
+		})
 	}
 	wait.Wait()
 	close(errors)
@@ -170,7 +168,7 @@ func TestEditorWorkspaceExplicitMergePreservesUserWorkFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := filepath.Join(root, "go.work")
-	authored := []byte("go 1.26.3\n\nuse .\n\n// user-owned sentinel\n")
+	authored := []byte("go 1.27.0\n\nuse .\n\n// user-owned sentinel\n")
 	if err := os.WriteFile(path, authored, 0o644); err != nil {
 		t.Fatal(err)
 	}

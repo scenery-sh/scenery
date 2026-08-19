@@ -2,6 +2,7 @@ package compiler
 
 import (
 	"fmt"
+	"maps"
 	"sort"
 )
 
@@ -111,9 +112,7 @@ func effectiveGoTarget(target Resource, targets map[string]Resource, stack map[s
 		if err != nil {
 			return nil, err
 		}
-		for key, value := range inherited {
-			effective[key] = value
-		}
+		maps.Copy(effective, inherited)
 	}
 	for key, value := range target.Spec {
 		if key != "extends" && key != "inherits" {

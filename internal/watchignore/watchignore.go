@@ -5,6 +5,7 @@ import (
 	"os"
 	pathpkg "path"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -123,7 +124,7 @@ func (m *Matcher) LoadDir(rel string) {
 		return
 	}
 	var rules []watchIgnoreRule
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		if rule, ok := parseWatchIgnoreRule(rel, line); ok {
 			rules = append(rules, rule)
 		}
@@ -150,9 +151,9 @@ func (m *Matcher) Ignored(rel string, isDir bool) bool {
 		}
 	}
 	// Last matching rule wins, so walk in reverse and stop at the first hit.
-	for i := len(m.gitRules) - 1; i >= 0; i-- {
-		if m.gitRules[i].matches(relParts, isDir) {
-			return !m.gitRules[i].negated
+	for _, v := range slices.Backward(m.gitRules) {
+		if v.matches(relParts, isDir) {
+			return !v.negated
 		}
 	}
 	return false

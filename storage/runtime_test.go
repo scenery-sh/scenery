@@ -97,21 +97,18 @@ func TestLocalRuntimeStoreIfNoneMatchConcurrent(t *testing.T) {
 	var success int32
 	var wg sync.WaitGroup
 	start := make(chan struct{})
-	for i := 0; i < 20; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 20 {
+		wg.Go(func() {
 			<-start
 			_, err := store.Put(context.Background(), "docs/once.txt", strings.NewReader("once"), PutOptions{IfNoneMatch: true})
 			if err == nil {
 				atomic.AddInt32(&success, 1)
 				return
 			}
-			var exists *AlreadyExistsError
-			if !errors.As(err, &exists) {
+			if _, ok := errors.AsType[*AlreadyExistsError](err); !ok {
 				t.Errorf("Put IfNoneMatch error = %T %[1]v", err)
 			}
-		}()
+		})
 	}
 	close(start)
 	wg.Wait()

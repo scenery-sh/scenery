@@ -125,8 +125,7 @@ func TestDurableLocalWorkerExecutesQueuedJob(t *testing.T) {
 		},
 	})
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	stop, err := startDurableRuntime(ctx, AppConfig{Name: "demo", Role: "worker"})
 	if err != nil {
 		t.Fatalf("startDurableRuntime: %v", err)

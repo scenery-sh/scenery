@@ -2,6 +2,7 @@ package generate
 
 import (
 	"fmt"
+	"maps"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -1301,9 +1302,7 @@ func reactDialogFields(dialog reactTableDialog) []map[string]any {
 	result := make([]map[string]any, 0, len(recordFields))
 	for _, original := range recordFields {
 		field := cloneMapValue(original)
-		for key, value := range overrides[stringValue(original["name"])] {
-			field[key] = value
-		}
+		maps.Copy(field, overrides[stringValue(original["name"])])
 		result = append(result, field)
 	}
 	return result

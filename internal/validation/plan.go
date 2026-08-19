@@ -8,6 +8,8 @@ package validation
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 
@@ -185,11 +187,9 @@ func (p Planner) addProfile(plan *ResolvedPlan, name string, stack []string, see
 		plan.Diagnostics = append(plan.Diagnostics, errorDiagnostic("validation profile "+name+" is not configured"))
 		return
 	}
-	for _, active := range stack {
-		if active == name {
-			plan.Diagnostics = append(plan.Diagnostics, errorDiagnostic("profile cycle detected: "+strings.Join(append(stack, name), " -> ")))
-			return
-		}
+	if slices.Contains(stack, name) {
+		plan.Diagnostics = append(plan.Diagnostics, errorDiagnostic("profile cycle detected: "+strings.Join(append(stack, name), " -> ")))
+		return
 	}
 	seenProfiles[name] = true
 	plan.Profiles = append(plan.Profiles, name)
@@ -393,12 +393,8 @@ func overlayStringMap(base, values map[string]string) map[string]string {
 		return nil
 	}
 	out := make(map[string]string, len(base)+len(values))
-	for key, value := range base {
-		out[key] = value
-	}
-	for key, value := range values {
-		out[key] = value
-	}
+	maps.Copy(out, base)
+	maps.Copy(out, values)
 	return out
 }
 

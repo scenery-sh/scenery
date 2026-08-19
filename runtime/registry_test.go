@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"errors"
+	"maps"
 	"sync"
 	"testing"
 	"testing/synctest"
@@ -241,9 +242,7 @@ func replaceGlobalRegistryForTest() func() {
 	prev := global
 	mcpDurableOwners.Lock()
 	prevMCPDurableOwners := make(map[string]mcpDurableOwner, len(mcpDurableOwners.values))
-	for key, owner := range mcpDurableOwners.values {
-		prevMCPDurableOwners[key] = owner
-	}
+	maps.Copy(prevMCPDurableOwners, mcpDurableOwners.values)
 	mcpDurableOwners.values = make(map[string]mcpDurableOwner)
 	mcpDurableOwners.Unlock()
 	activeAssistantMCPGateways.Lock()

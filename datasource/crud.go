@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -238,10 +239,7 @@ func listCRUDPage(ctx context.Context, database SQL, spec CRUDSpec, input map[st
 		}
 		clauses, arguments = append(clauses, cursorClause), append(arguments, cursorArguments...)
 	}
-	limit := 50
-	if spec.List.MaxPageSize < limit {
-		limit = spec.List.MaxPageSize
-	}
+	limit := min(spec.List.MaxPageSize, 50)
 	if raw, present := input["limit"]; present {
 		value, err := crudInteger(raw)
 		if err != nil || value < 1 {
@@ -533,7 +531,7 @@ func crudCursorClause(order []CRUDField, direction string, values []json.RawMess
 			continue
 		}
 		var parts []string
-		for prefix := 0; prefix < index; prefix++ {
+		for prefix := range index {
 			value, err := decodeCRUDSQLValue(values[prefix])
 			if err != nil {
 				return "", nil, err
@@ -606,12 +604,7 @@ func decodeCRUDList(raw json.RawMessage) ([]any, error) {
 }
 
 func containsCRUDString(values []string, target string) bool {
-	for _, value := range values {
-		if value == target {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(values, target)
 }
 
 func decodeCRUDInput(input []byte) (map[string]json.RawMessage, error) {

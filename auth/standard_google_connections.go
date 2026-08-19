@@ -345,7 +345,7 @@ func normalizeGoogleScopes(scopes []string) []string {
 	seen := map[string]bool{}
 	var out []string
 	for _, item := range scopes {
-		for _, scope := range strings.Fields(item) {
+		for scope := range strings.FieldsSeq(item) {
 			scope = strings.TrimSpace(scope)
 			if scope == "" || seen[scope] {
 				continue

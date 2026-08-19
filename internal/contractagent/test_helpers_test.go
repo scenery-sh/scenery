@@ -4,6 +4,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"scenery.sh/internal/compiler"
@@ -38,12 +39,7 @@ func renameReceiptDigest(receipt evolution.RenameReceipt) string {
 func containsExactString(values []string, want string) bool { return containsString(values, want) }
 
 func containsString(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(values, want)
 }
 
 func hasDiagnostic(diagnostics []Diagnostic, code string) bool {

@@ -224,8 +224,8 @@ func contextualizeValue(value any, typeExpression, module string, resources map[
 		return result, nil
 	}
 	recordAddress := ""
-	if strings.HasPrefix(typeExpression, "record.") {
-		recordAddress = resourceAddress(module, "record", strings.TrimPrefix(typeExpression, "record."))
+	if after, ok := strings.CutPrefix(typeExpression, "record."); ok {
+		recordAddress = resourceAddress(module, "record", after)
 	} else if strings.Contains(typeExpression, "/record/") {
 		recordAddress = typeExpression
 	}

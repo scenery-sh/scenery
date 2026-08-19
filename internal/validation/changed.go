@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -43,7 +44,7 @@ var CollectChangedFiles = func(ctx context.Context, appRoot, base string) ([]str
 		return nil, fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
 	}
 	var files []string
-	for _, line := range strings.Split(string(out), "\n") {
+	for line := range strings.SplitSeq(string(out), "\n") {
 		line = strings.TrimSpace(filepath.ToSlash(line))
 		if line != "" {
 			files = append(files, line)
@@ -101,12 +102,7 @@ func (p Planner) matchChangedProfiles(files []string) []ProfileMatch {
 }
 
 func containsString(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(values, want)
 }
 
 func globMatches(pattern, file string) bool {
@@ -118,8 +114,8 @@ func globMatches(pattern, file string) bool {
 	if pattern == file {
 		return true
 	}
-	if strings.HasSuffix(pattern, "/**") {
-		prefix := strings.TrimSuffix(pattern, "/**")
+	if before, ok := strings.CutSuffix(pattern, "/**"); ok {
+		prefix := before
 		return file == prefix || strings.HasPrefix(file, prefix+"/")
 	}
 	if globMatchSegments(strings.Split(pattern, "/"), strings.Split(file, "/")) {

@@ -240,24 +240,19 @@ func storageHTTPError(err error) error {
 	if err == nil {
 		return nil
 	}
-	var invalid *storage.InvalidKeyError
-	if errors.As(err, &invalid) {
+	if _, ok := errors.AsType[*storage.InvalidKeyError](err); ok {
 		return errs.B().Code(errs.InvalidArgument).Msg(err.Error()).Cause(err).Err()
 	}
-	var notFound *storage.NotFoundError
-	if errors.As(err, &notFound) {
+	if _, ok := errors.AsType[*storage.NotFoundError](err); ok {
 		return errs.B().Code(errs.NotFound).Msg(err.Error()).Cause(err).Err()
 	}
-	var alreadyExists *storage.AlreadyExistsError
-	if errors.As(err, &alreadyExists) {
+	if _, ok := errors.AsType[*storage.AlreadyExistsError](err); ok {
 		return errs.B().Code(errs.AlreadyExists).Msg(err.Error()).Cause(err).Err()
 	}
-	var notConfigured *storage.NotConfiguredError
-	if errors.As(err, &notConfigured) {
+	if _, ok := errors.AsType[*storage.NotConfiguredError](err); ok {
 		return errs.B().Code(errs.FailedPrecondition).Msg(err.Error()).Cause(err).Err()
 	}
-	var tenantRequired *storage.TenantRequiredError
-	if errors.As(err, &tenantRequired) {
+	if _, ok := errors.AsType[*storage.TenantRequiredError](err); ok {
 		return errs.B().Code(errs.PermissionDenied).Msg(err.Error()).Cause(err).Err()
 	}
 	return errs.Wrap(err, "storage request failed")

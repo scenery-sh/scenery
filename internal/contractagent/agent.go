@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -106,9 +108,7 @@ func cloneTraceContext(values map[string]string) map[string]string {
 		return nil
 	}
 	clone := make(map[string]string, len(values))
-	for key, value := range values {
-		clone[key] = value
-	}
+	maps.Copy(clone, values)
 	return clone
 }
 
@@ -347,11 +347,11 @@ func (session *AgentSession) Handle(result *Result, request AgentRequest) AgentR
 			break
 		}
 		plan, err := evolution.PlanChanges(result.Root, evolution.ChangeRequest{
-			BaseWorkspaceRevision: params.BaseWorkspaceRevision,
-			BaseContractRevision:  params.BaseContractRevision,
-			Capabilities:          append([]string(nil), execution.GrantedCapabilities...),
-			Caller:                execution.Principal,
-			Operations:            append([]SemanticOperation(nil), params.Operations...),
+			BaseWorkspaceRevision:     params.BaseWorkspaceRevision,
+			BaseContractRevision:      params.BaseContractRevision,
+			Capabilities:              append([]string(nil), execution.GrantedCapabilities...),
+			Caller:                    execution.Principal,
+			Operations:                append([]SemanticOperation(nil), params.Operations...),
 			CheckPredictedGoContracts: execution.CheckPredictedGoContracts,
 			CheckPredictedTypeScript:  execution.CheckPredictedTypeScript,
 		})
@@ -486,12 +486,7 @@ func validateReceiptReadExecutionContext(context AgentExecutionContext) error {
 }
 
 func hasAgentCapability(capabilities []string, want string) bool {
-	for _, capability := range capabilities {
-		if capability == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(capabilities, want)
 }
 
 func canonicalExecutionRoot(root string) string {

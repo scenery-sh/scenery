@@ -2,6 +2,7 @@ package compiler
 
 import (
 	"fmt"
+	"maps"
 	"regexp"
 	"sort"
 	"strconv"
@@ -135,9 +136,7 @@ func packageInputDeclarations(sources []*Source) map[string]packageInputDeclarat
 			declarationRange := block.Range
 			declaration.DeclarationRange = &declarationRange
 			declaration.AttributeRanges = make(map[string]Range, len(block.AttributeRanges))
-			for name, rng := range block.AttributeRanges {
-				declaration.AttributeRanges[name] = rng
-			}
+			maps.Copy(declaration.AttributeRanges, block.AttributeRanges)
 			if expression, ok := block.Attributes["type"]; ok {
 				declaration.Type = strings.TrimSpace(expression.Raw)
 			}

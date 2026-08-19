@@ -56,7 +56,7 @@ func DevBootstrap(ctx context.Context, params *DevBootstrapParams) (*AuthSession
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate dev token: %w", err)
 	}
-	return &AuthSessionResponse{AuthBootstrapResponse: AuthBootstrapResponse{Token: token}}, nil
+	return &AuthSessionResponse{Token: token}, nil
 }
 
 func devBootstrapEmailSession(ctx context.Context, email string, preferredTenantID string) (*AuthSessionResponse, error) {

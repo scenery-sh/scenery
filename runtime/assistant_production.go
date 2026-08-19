@@ -19,6 +19,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -351,12 +352,7 @@ func assistantRegistrationByAddress(address string) (AssistantRegistration, bool
 }
 
 func slicesContains(values []string, target string) bool {
-	for _, value := range values {
-		if value == target {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(values, target)
 }
 
 func (manager *assistantProductionRuntime) initialize(ctx context.Context) error {
@@ -540,9 +536,9 @@ func randomSecretHex(size int) (string, error) {
 }
 
 func (manager *assistantProductionRuntime) cleanupStarted(ctx context.Context, started []*assistantProductionAsset) {
-	for index := len(started) - 1; index >= 0; index-- {
-		if started[index] != nil && started[index].process != nil {
-			_ = started[index].process.Stop(ctx)
+	for _, s := range slices.Backward(started) {
+		if s != nil && s.process != nil {
+			_ = s.process.Stop(ctx)
 		}
 	}
 }

@@ -230,11 +230,9 @@ func GenerateAccessToken(options AccessTokenOptions) (string, error) {
 		SessionID:       strings.TrimSpace(options.SessionID),
 		ActorSubject:    strings.TrimSpace(string(options.ActorUserID)),
 		ImpersonationID: strings.TrimSpace(options.ImpersonationID),
-		RegisteredClaims: jwt.RegisteredClaims{
-			Subject:   userID,
-			IssuedAt:  jwt.NewNumericDate(now),
-			ExpiresAt: jwt.NewNumericDate(now.Add(expiresIn)),
-		},
+		Subject:         userID,
+		IssuedAt:        jwt.NewNumericDate(now),
+		ExpiresAt:       jwt.NewNumericDate(now.Add(expiresIn)),
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)

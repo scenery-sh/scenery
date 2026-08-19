@@ -1,6 +1,7 @@
 package generate
 
 import (
+	"maps"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -209,9 +210,7 @@ func TestGeneratedApplicationCompositionSupportsAssistantOnlyApps(t *testing.T) 
 			// capabilities whose bindings were removed above. This leaves a
 			// valid external-only assistant manifest for projection.
 			spec := make(map[string]any, len(resource.Spec))
-			for key, value := range resource.Spec {
-				spec[key] = value
-			}
+			maps.Copy(spec, resource.Spec)
 			spec["capability"] = []any{}
 			resource.Spec = spec
 			filtered = append(filtered, resource)

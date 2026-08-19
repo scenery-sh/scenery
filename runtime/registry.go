@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"slices"
 	"strings"
@@ -372,10 +373,8 @@ func RegisterNativeService(registration NativeServiceRegistration) error {
 		return fmt.Errorf("runtime: service initializer for %s is nil", registration.Address)
 	}
 	registration.Dependencies = canonicalContractAddresses(registration.Dependencies)
-	for _, dependency := range registration.Dependencies {
-		if dependency == registration.Address {
-			return fmt.Errorf("runtime: service %s depends on itself", registration.Address)
-		}
+	if slices.Contains(registration.Dependencies, registration.Address) {
+		return fmt.Errorf("runtime: service %s depends on itself", registration.Address)
 	}
 	global.mu.Lock()
 	defer global.mu.Unlock()
@@ -465,9 +464,7 @@ func listDurableTasks() []*DurableTask {
 func InitializeServices() error {
 	global.mu.RLock()
 	initializers := make(map[string]serviceInitializer, len(global.serviceInitializers))
-	for service, initializer := range global.serviceInitializers {
-		initializers[service] = initializer
-	}
+	maps.Copy(initializers, global.serviceInitializers)
 	global.mu.RUnlock()
 	for service, initializer := range initializers {
 		for _, dependency := range initializer.dependencies {

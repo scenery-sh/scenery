@@ -86,7 +86,7 @@ func TestMatchGlobSegmentMatchesReferenceOnRandomInput(t *testing.T) {
 		}
 		return string(runes)
 	}
-	for i := 0; i < 200000; i++ {
+	for range 200000 {
 		pattern, value := randomWord(12), randomWord(12)
 		if got, want := matchGlobSegment(pattern, value), referenceMatchGlobSegment(pattern, value); got != want {
 			t.Fatalf("matchGlobSegment(%q, %q) = %v, reference = %v", pattern, value, got, want)

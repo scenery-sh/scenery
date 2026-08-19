@@ -147,7 +147,7 @@ func workspaceFingerprint(ctx context.Context, repoRoot string) (string, error) 
 	if err != nil {
 		return "", fmt.Errorf("list repository inputs: %w", err)
 	}
-	for _, rawPath := range bytes.Split(paths, []byte{0}) {
+	for rawPath := range bytes.SplitSeq(paths, []byte{0}) {
 		if len(rawPath) == 0 {
 			continue
 		}

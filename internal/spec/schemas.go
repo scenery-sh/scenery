@@ -2,6 +2,8 @@ package spec
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -497,12 +499,7 @@ func resourceCreateSchemaRevisions() []string {
 }
 
 func resourceCreateKindSupported(kind string) bool {
-	for _, supported := range resourceCreateSchemaRevisions() {
-		if supported == kind {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(resourceCreateSchemaRevisions(), kind)
 }
 
 func authoredSchemaMetadataComplete(schema *authoredBlockSchema, seen map[*authoredBlockSchema]bool) bool {
@@ -630,9 +627,7 @@ func DynamicResourceRevisionDomains() map[string]map[string]DynamicRevisionDomai
 	result := make(map[string]map[string]DynamicRevisionDomain, len(dynamicResourceRevisionDomains))
 	for kind, fields := range dynamicResourceRevisionDomains {
 		fieldCopies := make(map[string]DynamicRevisionDomain, len(fields))
-		for name, rule := range fields {
-			fieldCopies[name] = rule
-		}
+		maps.Copy(fieldCopies, fields)
 		result[kind] = fieldCopies
 	}
 	return result

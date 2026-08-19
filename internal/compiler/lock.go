@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"scenery.sh/internal/machine"
@@ -513,10 +514,5 @@ func stringSliceSet(values []string) map[string]bool {
 }
 
 func containsExactString(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(values, want)
 }

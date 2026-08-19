@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -327,10 +328,8 @@ func resourceByAddress(manifest *graph.Manifest, address string) *graph.Resource
 func containsString(value any, want string) bool {
 	switch values := value.(type) {
 	case []string:
-		for _, candidate := range values {
-			if candidate == want {
-				return true
-			}
+		if slices.Contains(values, want) {
+			return true
 		}
 	case []any:
 		for _, candidate := range values {

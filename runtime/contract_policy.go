@@ -159,7 +159,7 @@ func contractContextValue(source string) (any, error) {
 
 func contractNestedValue(value any, path string) (any, error) {
 	current := reflect.ValueOf(value)
-	for _, segment := range strings.Split(path, ".") {
+	for segment := range strings.SplitSeq(path, ".") {
 		for current.IsValid() && (current.Kind() == reflect.Pointer || current.Kind() == reflect.Interface) {
 			if current.IsNil() {
 				return nil, nil
@@ -236,7 +236,7 @@ func applyContractForwardedPolicy(request *http.Request, policy *ContractHTTPPol
 
 func contractForwardedValues(headers http.Header) (client, host, scheme string) {
 	if element := strings.TrimSpace(strings.Split(headers.Get("Forwarded"), ",")[0]); element != "" {
-		for _, parameter := range strings.Split(element, ";") {
+		for parameter := range strings.SplitSeq(element, ";") {
 			name, value, ok := strings.Cut(parameter, "=")
 			if !ok {
 				continue

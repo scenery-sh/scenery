@@ -146,8 +146,7 @@ func TestFederationChangeNotificationRefreshesInventory(t *testing.T) {
 	if err := f.Refresh(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	if err := f.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -265,7 +264,7 @@ func TestFederationVersionAndCredentialErrorsAreSafe(t *testing.T) {
 func TestFederationCapabilityProjection(t *testing.T) {
 	remote := newFakeRemote(t, fakeRemoteOptions{})
 	defer remote.Close()
-	remote.server.AddTool(&mcp.Tool{Name: "write", Title: "Remote title", InputSchema: map[string]any{"type": "object"}, Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false), ReadOnlyHint: true}}, emptyTool)
+	remote.server.AddTool(&mcp.Tool{Name: "write", Title: "Remote title", InputSchema: map[string]any{"type": "object"}, Annotations: &mcp.ToolAnnotations{DestructiveHint: new(false), ReadOnlyHint: true}}, emptyTool)
 	f, err := New(Config{Connections: []Connection{{Address: "addr", Namespace: "docs", URL: remote.URL(), Policy: ToolPolicy{Approval: mcpcontract.ApprovalAlways, Effect: mcpcontract.Effect{Destructive: true}}}}})
 	if err != nil {
 		t.Fatal(err)
@@ -291,7 +290,8 @@ func emptyTool(context.Context, *mcp.CallToolRequest) (*mcp.CallToolResult, erro
 	return &mcp.CallToolResult{StructuredContent: map[string]any{}}, nil
 }
 
-func boolPtr(value bool) *bool { return &value }
+//go:fix inline
+func boolPtr(value bool) *bool { return new(value) }
 
 type fakeRemoteOptions struct {
 	AuthScheme AuthScheme

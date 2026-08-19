@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"fmt"
+	"slices"
 )
 
 type contractPipelineInvoke func(context.Context) (any, error)
@@ -29,8 +30,8 @@ func invokeContractPipeline(ctx context.Context, policy *ContractHTTPPolicy, inv
 		steps = policy.PipelineSteps
 	}
 	current := invoke
-	for index := len(steps) - 1; index >= 0; index-- {
-		step := steps[index]
+	for _, step := range slices.Backward(steps) {
+
 		next := current
 		switch step {
 		case "std.middleware.request_id", "std.middleware.trace":

@@ -11,7 +11,7 @@ import (
 func BenchmarkParseManyTokenSource(b *testing.B) {
 	for _, blocks := range []int{256, 512, 1024} {
 		var source strings.Builder
-		for index := 0; index < blocks; index++ {
+		for index := range blocks {
 			fmt.Fprintf(&source, "record \"item_%04d\" {\n  field \"value\" { type = string }\n}\n", index)
 		}
 		root := b.TempDir()

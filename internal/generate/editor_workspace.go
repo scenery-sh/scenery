@@ -443,7 +443,7 @@ func excludeManagedWorkFiles(root string) error {
 	changed := false
 	for _, entry := range []string{"/go.work", "/go.work.sum"} {
 		found := false
-		for _, line := range strings.Split(text, "\n") {
+		for line := range strings.SplitSeq(text, "\n") {
 			if strings.TrimSpace(line) == entry {
 				found = true
 				break

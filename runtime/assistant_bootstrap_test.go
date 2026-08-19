@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -558,12 +559,7 @@ func TestAssistantMCPGatewayFailureLeavesAssistantNeutral(t *testing.T) {
 }
 
 func containsString(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(values, want)
 }
 
 func TestSwapAssistantClientsChangesAllAssistantsAsOneGeneration(t *testing.T) {

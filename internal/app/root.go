@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"reflect"
 	goruntime "runtime"
+	"slices"
 	"sort"
 	"strings"
 
@@ -319,10 +320,8 @@ func cloneLibraryConfig(values map[string]EnvLibraryConfig) map[string]EnvLibrar
 func (c Config) EnvForSSHTarget(target string) (ResolvedEnv, error) {
 	for name, env := range c.Envs {
 		if env.Deploy != nil {
-			for _, candidate := range env.Deploy.SSH {
-				if candidate == target {
-					return c.ResolveEnv(name)
-				}
+			if slices.Contains(env.Deploy.SSH, target) {
+				return c.ResolveEnv(name)
 			}
 		}
 	}
@@ -740,7 +739,7 @@ func validDeployFQDN(domain string) bool {
 	if len(domain) > 253 || !strings.Contains(domain, ".") || strings.HasSuffix(domain, ".") {
 		return false
 	}
-	for _, label := range strings.Split(domain, ".") {
+	for label := range strings.SplitSeq(domain, ".") {
 		if len(label) == 0 || len(label) > 63 || strings.HasPrefix(label, "-") || strings.HasSuffix(label, "-") {
 			return false
 		}

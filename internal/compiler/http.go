@@ -2,6 +2,7 @@ package compiler
 
 import (
 	"fmt"
+	"maps"
 	"mime"
 	"net/http"
 	"regexp"
@@ -470,9 +471,7 @@ func httpResponseRequiredPaths(resources map[string]Resource, module string, val
 	}
 	module = record.Module
 	nextVisiting := make(map[string]bool, len(visiting)+1)
-	for key, set := range visiting {
-		nextVisiting[key] = set
-	}
+	maps.Copy(nextVisiting, visiting)
 	nextVisiting[address] = true
 	var required []string
 	for _, field := range namedChildren(record.Spec, "field") {

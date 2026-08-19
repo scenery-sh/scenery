@@ -145,8 +145,7 @@ func DefaultPortListener(port int) (PortListenerInfo, bool, error) {
 			return hydratePortListenerCommand(info), true, nil
 		}
 	} else {
-		var execErr *exec.Error
-		if errors.As(err, &execErr) {
+		if _, ok := errors.AsType[*exec.Error](err); ok {
 			return PortListenerInfo{}, false, err
 		}
 	}
@@ -162,7 +161,7 @@ func DefaultPortListener(port int) (PortListenerInfo, bool, error) {
 }
 
 func parseLsofPortListener(output string, port int) (PortListenerInfo, bool) {
-	for _, line := range strings.Split(output, "\n") {
+	for line := range strings.SplitSeq(output, "\n") {
 		fields := strings.Fields(line)
 		if len(fields) < 2 || fields[0] == "COMMAND" {
 			continue
@@ -187,7 +186,7 @@ func parseLsofPortListener(output string, port int) (PortListenerInfo, bool) {
 
 func parseNetstatPortListener(output string, port int) (PortListenerInfo, bool) {
 	portSuffix := "." + strconv.Itoa(port)
-	for _, line := range strings.Split(output, "\n") {
+	for line := range strings.SplitSeq(output, "\n") {
 		fields := strings.Fields(line)
 		if len(fields) < 6 || fields[0] == "Proto" || fields[5] != "LISTEN" || !strings.HasSuffix(fields[3], portSuffix) {
 			continue
@@ -222,7 +221,7 @@ func hydratePortListenerCommand(info PortListenerInfo) PortListenerInfo {
 }
 
 func parsePMSetSleepMinutes(raw string) int {
-	for _, line := range strings.Split(raw, "\n") {
+	for line := range strings.SplitSeq(raw, "\n") {
 		fields := strings.Fields(line)
 		if len(fields) >= 2 && fields[0] == "sleep" {
 			minutes, _ := strconv.Atoi(fields[1])

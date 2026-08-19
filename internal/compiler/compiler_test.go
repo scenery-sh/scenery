@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -689,12 +690,7 @@ func TestCompilerAllowsRuntimeAuthorizationExpressionsOnlyInRules(t *testing.T) 
 }
 
 func containsString(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(values, want)
 }
 
 func TestCompileValidatesIdempotencyKeysAgainstInputRecord(t *testing.T) {

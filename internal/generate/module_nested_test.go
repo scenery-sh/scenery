@@ -71,7 +71,7 @@ func TestNestedExportedTypeGeneratesCompilableGoContractClosure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeNestedModuleFile(t, filepath.Join(root, "go.mod"), "module example.test/cross\n\ngo 1.26.3\n\nrequire scenery.sh v0.0.0\nreplace scenery.sh => "+filepath.ToSlash(repositoryRoot)+"\n")
+	writeNestedModuleFile(t, filepath.Join(root, "go.mod"), "module example.test/cross\n\ngo 1.27.0\n\nrequire scenery.sh v0.0.0\nreplace scenery.sh => "+filepath.ToSlash(repositoryRoot)+"\n")
 	writeNestedModuleFile(t, filepath.Join(root, testAppFilename), `workspace {
   managed_generated_roots = ["parent/scenerycontract", "internal/scenerygen"]
 }
@@ -80,7 +80,7 @@ go_module "application" {
   import_path = "example.test/cross"
 }
 go_toolchain "application" {
-	version = "1.26.3"
+	version = "1.27.0"
   experiments = []
 }
 go_target "development" {

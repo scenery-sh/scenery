@@ -46,7 +46,7 @@ func streamEvents(t *testing.T, fake *FakeHelper, request StreamRequest) []assis
 		t.Fatal(err)
 	}
 	var events []assistantcontrol.Event
-	for _, line := range strings.Split(strings.TrimSpace(string(encoded)), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(string(encoded)), "\n") {
 		if line == "" {
 			continue
 		}
@@ -292,9 +292,7 @@ func TestFakeHelperConcurrentStreamsAndLauncher(t *testing.T) {
 	results := make(chan []assistantcontrol.Event, workers)
 	var group sync.WaitGroup
 	for range workers {
-		group.Add(1)
-		go func() {
-			defer group.Done()
+		group.Go(func() {
 			stream, err := fake.StreamEvents(context.Background(), request)
 			if err != nil {
 				results <- nil
@@ -307,7 +305,7 @@ func TestFakeHelperConcurrentStreamsAndLauncher(t *testing.T) {
 				return
 			}
 			var got []assistantcontrol.Event
-			for _, line := range strings.Split(strings.TrimSpace(string(encoded)), "\n") {
+			for line := range strings.SplitSeq(strings.TrimSpace(string(encoded)), "\n") {
 				if line == "" {
 					continue
 				}
@@ -319,7 +317,7 @@ func TestFakeHelperConcurrentStreamsAndLauncher(t *testing.T) {
 				got = append(got, event)
 			}
 			results <- got
-		}()
+		})
 	}
 	group.Wait()
 	close(results)

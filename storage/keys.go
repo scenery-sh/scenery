@@ -62,7 +62,7 @@ func validateStoragePath(value string, allowEmpty, allowTrailingSlash bool) erro
 			return &InvalidKeyError{Key: value, Reason: "root slash is not a valid prefix"}
 		}
 	}
-	for _, part := range strings.Split(trimmed, "/") {
+	for part := range strings.SplitSeq(trimmed, "/") {
 		if part == "." || part == ".." {
 			return &InvalidKeyError{Key: value, Reason: "path traversal segments are not allowed"}
 		}

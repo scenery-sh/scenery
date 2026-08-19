@@ -274,13 +274,7 @@ func victoriaDevEventFetchLimit(query devdash.DevEventQuery) int {
 		return 1000
 	}
 	if query.Kind != "" || query.Level != "" || (query.Stream != "" && query.Stream != "all") || strings.TrimSpace(query.Grep) != "" || !query.Since.IsZero() {
-		expanded := limit * 20
-		if expanded < 1000 {
-			expanded = 1000
-		}
-		if expanded > 10000 {
-			expanded = 10000
-		}
+		expanded := min(max(limit*20, 1000), 10000)
 		return expanded
 	}
 	return limit

@@ -502,10 +502,7 @@ func (index *PositionIndex) position(offset int) Position {
 	} else if offset > len(index.source) {
 		offset = len(index.source)
 	}
-	line := sort.Search(len(index.lineStarts), func(candidate int) bool { return index.lineStarts[candidate] > offset }) - 1
-	if line < 0 {
-		line = 0
-	}
+	line := max(sort.Search(len(index.lineStarts), func(candidate int) bool { return index.lineStarts[candidate] > offset })-1, 0)
 	column := 0
 	for cursor := index.lineStarts[line]; cursor < offset; {
 		_, size := utf8.DecodeRune(index.source[cursor:])

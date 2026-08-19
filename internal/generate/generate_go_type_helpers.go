@@ -2,6 +2,7 @@ package generate
 
 import (
 	"fmt"
+	"maps"
 	"sort"
 	"strings"
 )
@@ -19,9 +20,7 @@ func newGoContractTypeResolver(module string, resources []Resource, embedded ...
 		module: module, resources: resourcesByAddress(&Manifest{Resources: resources}), imports: map[string]string{}, embedded: map[string]bool{},
 	}
 	if len(embedded) > 0 {
-		for address, included := range embedded[0] {
-			resolver.embedded[address] = included
-		}
+		maps.Copy(resolver.embedded, embedded[0])
 	}
 	return resolver
 }
@@ -107,9 +106,7 @@ func (resolver *goContractTypeResolver) IsEmbedded(address string) bool {
 
 func (resolver *goContractTypeResolver) Imports() map[string]string {
 	result := make(map[string]string, len(resolver.imports))
-	for alias, importPath := range resolver.imports {
-		result[alias] = importPath
-	}
+	maps.Copy(result, resolver.imports)
 	return result
 }
 

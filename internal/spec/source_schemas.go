@@ -1,5 +1,9 @@
 package spec
 
+import "maps"
+
+import "slices"
+
 const (
 	semanticLabelPattern   = "^[a-z][a-z0-9_]*$"
 	httpHeaderLabelPattern = "^[!#$%&'*+.^_`|~0-9a-z-]+$"
@@ -401,12 +405,7 @@ func AuthoredEnumAllows(field SourceAttributeSchema, value string) bool {
 	if !constrained {
 		return true
 	}
-	for _, allowed := range values {
-		if value == allowed {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(values, value)
 }
 
 func NamedSourceSchemas() map[string]*SourceBlockSchema {
@@ -454,9 +453,7 @@ func cloneSourceBlockSchema(schema *authoredBlockSchema, cloned map[*authoredBlo
 	for name, attribute := range schema.Attributes {
 		copy.Attributes[name] = cloneAuthoredAttributeSchema(attribute)
 	}
-	for name, required := range schema.Required {
-		copy.Required[name] = required
-	}
+	maps.Copy(copy.Required, schema.Required)
 	for name, child := range schema.Children {
 		child.Schema = cloneSourceBlockSchema(child.Schema, cloned)
 		copy.Children[name] = child

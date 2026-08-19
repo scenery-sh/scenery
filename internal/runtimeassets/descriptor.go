@@ -324,8 +324,8 @@ func validateArchivePath(name string) error {
 	if strings.Contains(name, "\\") {
 		return fmt.Errorf("backslash path separator is not allowed")
 	}
-	parts := strings.Split(name, "/")
-	for _, part := range parts {
+	parts := strings.SplitSeq(name, "/")
+	for part := range parts {
 		if part == "" || part == "." || part == ".." {
 			return fmt.Errorf("path contains unsafe component")
 		}

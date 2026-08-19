@@ -2,6 +2,7 @@ package compiler
 
 import (
 	"fmt"
+	"maps"
 	"sort"
 	"strings"
 )
@@ -407,9 +408,7 @@ func appendNamedChild(spec map[string]any, name string, value map[string]any) {
 func cloneMapValue(value any) map[string]any {
 	result := map[string]any{}
 	if source, ok := value.(map[string]any); ok {
-		for key, item := range source {
-			result[key] = item
-		}
+		maps.Copy(result, source)
 	}
 	return result
 }

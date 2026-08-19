@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
+	"slices"
 	"strings"
 	"time"
 
@@ -227,12 +229,7 @@ func providerFailureMessage(data map[string]any) string {
 }
 
 func requiresToolApproval(toolName string, approvalNeverTools []string) bool {
-	for _, allowed := range approvalNeverTools {
-		if toolName == allowed {
-			return false
-		}
-	}
-	return true
+	return !slices.Contains(approvalNeverTools, toolName)
 }
 
 func withCapability(base func(string, any) (assistantcontrol.Event, bool, error), typ, name string, payload any) (assistantcontrol.Event, bool, error) {
@@ -323,9 +320,7 @@ func splitProviderEvent(raw []byte) ([][]byte, error) {
 	result := make([][]byte, 0, len(items))
 	for _, item := range items {
 		one := make(map[string]json.RawMessage, len(data)+1)
-		for name, value := range data {
-			one[name] = value
-		}
+		maps.Copy(one, data)
 		encoded, err := json.Marshal([]json.RawMessage{item})
 		if err != nil {
 			return nil, err

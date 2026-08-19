@@ -167,7 +167,7 @@ func nativeHarnessTestFiles(t *testing.T, name, body string) map[string]string {
 	module := "example.com/" + name
 	return map[string]string{
 		".scenery.json": `{"name":"` + name + `","id":"` + name + `-id"}`,
-		"go.mod":        "module " + module + "\n\ngo 1.26.3\n\nrequire scenery.sh v0.0.0\n\nreplace scenery.sh => " + filepath.ToSlash(repoRootForTest(t)) + "\n",
+		"go.mod":        "module " + module + "\n\ngo 1.27.0\n\nrequire scenery.sh v0.0.0\n\nreplace scenery.sh => " + filepath.ToSlash(repoRootForTest(t)) + "\n",
 		testAppFilename: `workspace {
   implementation_root "application" {
     path = "."
@@ -180,7 +180,7 @@ go_module "application" {
   import_path = "` + module + `"
 }
 go_toolchain "application" {
-	version = "1.26.3"
+	version = "1.27.0"
   experiments = []
 }
 go_target "development" {
@@ -208,7 +208,7 @@ func Ping(context.Context) error {
 func writeHarnessSelfRepo(t *testing.T, schema string, requestedSchemas ...string) string {
 	t.Helper()
 	root := t.TempDir()
-	writeTestAppFile(t, root, "go.mod", "module scenery.sh\n\ngo 1.26.3\n")
+	writeTestAppFile(t, root, "go.mod", "module scenery.sh\n\ngo 1.27.0\n")
 	writeTestAppFile(t, root, "AGENTS.md", "See [harness](docs/harness-engineering.md).\n")
 	writeTestAppFile(t, root, "SKILL.md", strings.Join(requiredSkillMentions, "\n")+"\n")
 	writeTestAppFile(t, root, "PLAN.md", "See [docs](docs/index.md).\n")

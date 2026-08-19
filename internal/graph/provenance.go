@@ -1,6 +1,8 @@
 package graph
 
 import (
+	"maps"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -79,9 +81,7 @@ func RebaseFieldProvenance(origin *Origin, from, to string) {
 			delete(origin.FieldProvenance, path)
 		}
 	}
-	for path, field := range updates {
-		origin.FieldProvenance[path] = field
-	}
+	maps.Copy(origin.FieldProvenance, updates)
 }
 
 func EnsureFieldProvenance(resource *Resource, path, stage string) {
@@ -113,10 +113,8 @@ func NearestFieldProvenance(origin Origin, path string) FieldProvenance {
 }
 
 func AppendUniqueString(values []string, value string) []string {
-	for _, existing := range values {
-		if existing == value {
-			return values
-		}
+	if slices.Contains(values, value) {
+		return values
 	}
 	return append(values, value)
 }

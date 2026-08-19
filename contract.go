@@ -85,8 +85,8 @@ func ParseSize(value string) (Size, error)                 { return contract.Par
 func ParseURL(value string) (URL, error)                   { return contract.ParseURL(value) }
 func ParseRelativePath(value string) (RelativePath, error) { return contract.ParseRelativePath(value) }
 
-func ContractIntConstraint(value int64) *int64      { return contract.ContractIntConstraint(value) }
-func ContractStringConstraint(value string) *string { return contract.ContractStringConstraint(value) }
+func ContractIntConstraint(value int64) *int64      { return new(value) }
+func ContractStringConstraint(value string) *string { return new(value) }
 
 // DecodeJSONObject is the strict object decoder used by generated contract
 // records.

@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 )
@@ -131,14 +132,14 @@ func ExtractArchive(data []byte, destination string) (descriptor Descriptor, err
 				_ = os.RemoveAll(absolute)
 				return
 			}
-			for i := len(createdPaths) - 1; i >= 0; i-- {
+			for _, createdPath := range slices.Backward(createdPaths) {
 				// Remove only paths created by this extraction.  Lstat avoids
 				// following a symlink if a caller changed a path concurrently.
-				if info, statErr := os.Lstat(createdPaths[i]); statErr == nil {
+				if info, statErr := os.Lstat(createdPath); statErr == nil {
 					if info.IsDir() && info.Mode()&os.ModeSymlink == 0 {
-						_ = os.Remove(createdPaths[i])
+						_ = os.Remove(createdPath)
 					} else {
-						_ = os.Remove(createdPaths[i])
+						_ = os.Remove(createdPath)
 					}
 				}
 			}

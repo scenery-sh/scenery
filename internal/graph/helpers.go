@@ -2,6 +2,7 @@ package graph
 
 import (
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -66,10 +67,5 @@ func canonicalStrings(values []string) []string {
 }
 
 func oneOf[T comparable](value T, candidates ...T) bool {
-	for _, candidate := range candidates {
-		if value == candidate {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(candidates, value)
 }

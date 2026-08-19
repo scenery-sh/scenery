@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -139,10 +140,8 @@ func addAssistantBootstrapDependency(serviceAddress string) {
 	if !ok {
 		return
 	}
-	for _, dependency := range initializer.dependencies {
-		if dependency == serviceAddress {
-			return
-		}
+	if slices.Contains(initializer.dependencies, serviceAddress) {
+		return
 	}
 	initializer.dependencies = append(initializer.dependencies, serviceAddress)
 	global.serviceInitializers[assistantRuntimeBootstrapService] = initializer
@@ -291,7 +290,7 @@ func validateAssistantMCPListenAddress(value string) error {
 func probeAssistantClientWithRetry(ctx context.Context, client AssistantClient, descriptor AssistantBootstrapDescriptor) error {
 	var lastErr error
 	backoff := assistantMCPRetryInitial
-	for attempt := 0; attempt < assistantMCPRetryAttempts; attempt++ {
+	for attempt := range assistantMCPRetryAttempts {
 		lastErr = probeAssistantClient(ctx, client, descriptor)
 		if lastErr == nil {
 			return nil

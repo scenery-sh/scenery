@@ -17,7 +17,7 @@ go_module "application" {
 }
 
 go_toolchain "application" {
-  version     = "1.26.3"
+  version     = "1.27.0"
   experiments = []
 }
 

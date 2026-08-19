@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"scenery.sh/internal/machine"
@@ -105,8 +106,8 @@ func recover(root string, force, allowCurrentOwner bool) error {
 		}
 	}
 	if journal.Receipt == "" || !pathExists(journal.Receipt) {
-		for index := len(journal.Entries) - 1; index >= 0; index-- {
-			entry := journal.Entries[index]
+		for _, entry := range slices.Backward(journal.Entries) {
+
 			target, err := confinedPath(absoluteRoot, entry.Path)
 			if err != nil {
 				return err

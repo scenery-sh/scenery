@@ -2,6 +2,7 @@ package evolution
 
 import (
 	"fmt"
+	"maps"
 	"sort"
 	"strings"
 
@@ -1206,12 +1207,8 @@ func rankedSecurityRelation(base, target int) string {
 
 func compatibilityTypePositions(base, target map[string]Resource) map[string]typePosition {
 	resources := make(map[string]Resource, len(base)+len(target))
-	for address, resource := range base {
-		resources[address] = resource
-	}
-	for address, resource := range target {
-		resources[address] = resource
-	}
+	maps.Copy(resources, base)
+	maps.Copy(resources, target)
 	positions := map[string]typePosition{}
 	visited := map[string]bool{}
 	var mark func(module string, value any, input bool)
