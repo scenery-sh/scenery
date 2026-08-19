@@ -4,6 +4,6 @@
   "version": "0.0.0",
   "type": "module",
   "dependencies": {
-    "eve": "0.29.5"
+    "eve": "0.39.1"
   }
 }

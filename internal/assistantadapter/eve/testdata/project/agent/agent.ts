@@ -1,9 +1,9 @@
 import { defineAgent } from "eve";
 import { mockModel } from "eve/evals";
 
-// eve@0.29.5 exposes the deterministic mock model in-process. The model
-// context override avoids any AI Gateway metadata lookup during the fixture
-// build while keeping the real Eve runtime and event stream active.
+// eve exposes the deterministic mock model in-process. The model context
+// override avoids any AI Gateway metadata lookup during the fixture build
+// while keeping the real Eve runtime and event stream active.
 export default defineAgent({
   model: mockModel({
     modelId: "scenery-fixture-model",

@@ -202,7 +202,7 @@ func NormalizeProviderEvent(raw []byte, context EventContext, sequence uint64) (
 		return base(assistantcontrol.EventRunCancelled, map[string]string{"state": "cancelled"})
 	case "turn.failed", "step.failed", "session.failed":
 		return base(assistantcontrol.EventRunFailed, map[string]string{"code": "assistant_failed", "message": "assistant run failed"})
-	case "session.started", "session.waiting", "session.completed", "message.received", "reasoning.appended", "reasoning.completed", "step.started", "step.completed", "context.cleared", "compaction.requested", "compaction.completed", "authorization.required", "authorization.completed", "subagent.called", "subagent.started", "subagent.event", "subagent.completed":
+	case "session.started", "session.waiting", "session.completed", "message.received", "reasoning.appended", "reasoning.completed", "step.started", "step.completed", "context.cleared", "compaction.requested", "compaction.completed", "authorization.required", "authorization.completed", "subagent.called", "subagent.started", "subagent.event", "subagent.completed", "action.partial", "input.resolved":
 		return assistantcontrol.Event{}, false, nil
 	default:
 		return assistantcontrol.Event{}, false, fmt.Errorf("unsupported Eve event type %q", event.Type)

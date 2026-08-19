@@ -56,6 +56,16 @@ func TestNormalizeProviderEventsUsesPrivateCursorAndStrictNeutralEvents(t *testi
 	}
 }
 
+func TestNormalizeProviderEventSkipsEve031PlusLifecycleEvents(t *testing.T) {
+	ctx := EventContext{AssistantAddress: "assistant/support", RuntimeRevision: "runtime", CapabilityRevision: "capability", PrivateSessionID: "session", ContinuationToken: "token", RunID: "run"}
+	for _, typ := range []string{"action.partial", "input.resolved"} {
+		event, ok, err := NormalizeProviderEvent([]byte(`{"type":"`+typ+`","data":{}}`), ctx, 1)
+		if err != nil || ok {
+			t.Fatalf("event %s = ok=%v err=%v event=%+v", typ, ok, err, event)
+		}
+	}
+}
+
 func TestNormalizeProviderEventRejectsUnknownProviderType(t *testing.T) {
 	ctx := EventContext{AssistantAddress: "assistant/support", RuntimeRevision: "runtime", CapabilityRevision: "capability", PrivateSessionID: "session", ContinuationToken: "token", RunID: "run"}
 	if _, _, err := NormalizeProviderEvent([]byte(`{"type":"provider.secret_event","data":{}}`), ctx, 1); err == nil {

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"scenery.sh/internal/assistantadapter/eve"
 	"scenery.sh/internal/spec"
 )
 
@@ -63,9 +64,9 @@ func TestAssistantSyncUsesManagedNodeCacheAndRejectsLockDrift(t *testing.T) {
 		t.Fatal("sync modified authored package-lock.json")
 	}
 	lockPath := filepath.Join(root, "assistants", "extra", "package-lock.json")
-	drifted := strings.Replace(string(lockBefore), `"eve":"0.29.5"`, `"eve":"0.29.4"`, 1)
+	drifted := strings.Replace(string(lockBefore), `"eve":"`+eve.EveVersion+`"`, `"eve":"0.0.0"`, 1)
 	if drifted == string(lockBefore) {
-		drifted = strings.Replace(string(lockBefore), `"eve": "0.29.5"`, `"eve": "0.29.4"`, 1)
+		drifted = strings.Replace(string(lockBefore), `"eve": "`+eve.EveVersion+`"`, `"eve": "0.0.0"`, 1)
 	}
 	if err := os.WriteFile(lockPath, []byte(drifted), 0o644); err != nil {
 		t.Fatal(err)

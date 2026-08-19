@@ -30,7 +30,7 @@ const (
 	// EveVersion and NodeVersion are implementation identities.  They are
 	// intentionally kept below this developer-only package and are not part of
 	// the public assistant contract.
-	EveVersion  = "0.29.5"
+	EveVersion  = "0.39.1"
 	NodeVersion = "24.18.0"
 
 	controlHeader = "x-scenery-assistant-control-token"

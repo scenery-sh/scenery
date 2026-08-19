@@ -33,8 +33,8 @@ function assertion(ctx) {
   if (!principal) throw new Error("Scenery authenticated principal is required");
   const sessionID = ctx.session.id?.trim();
   if (!sessionID) throw new Error("Scenery Eve session identity is unavailable");
-  // Eve 0.29.5 does not expose a per-action call ID, channel request ID,
-  // trace context, or a safe per-action idempotency key on the SessionContext
+  // Eve does not expose a per-action call ID, channel request ID, trace
+  // context, or a safe per-action idempotency key on the SessionContext
   // passed to connection headers. Do not synthesize any of them: a turn can
   // contain multiple distinct MCP tool calls. The Scenery gateway generates
   // a request ID at the MCP boundary instead.

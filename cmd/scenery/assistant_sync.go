@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"strings"
 
+	"scenery.sh/internal/assistantadapter/eve"
 	"scenery.sh/internal/atomicfile"
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/scn"
@@ -202,15 +203,15 @@ func validateAssistantPackageLock(packageBytes, lockBytes []byte) error {
 		}
 	}
 	dependencies, ok := packageDoc["dependencies"].(map[string]any)
-	if !ok || strings.TrimSpace(assistantStringValue(dependencies["eve"])) != "0.29.5" {
-		return errors.New("package.json must pin eve to 0.29.5")
+	if !ok || strings.TrimSpace(assistantStringValue(dependencies["eve"])) != eve.EveVersion {
+		return fmt.Errorf("package.json must pin eve to %s", eve.EveVersion)
 	}
 	evePackage, ok := packages["node_modules/eve"].(map[string]any)
 	if !ok {
 		return errors.New("package-lock.json has no node_modules/eve entry")
 	}
-	if got := strings.TrimSpace(assistantStringValue(evePackage["version"])); got != "0.29.5" {
-		return fmt.Errorf("locked eve version is %q, want 0.29.5", got)
+	if got := strings.TrimSpace(assistantStringValue(evePackage["version"])); got != eve.EveVersion {
+		return fmt.Errorf("locked eve version is %q, want %s", got, eve.EveVersion)
 	}
 	return nil
 }

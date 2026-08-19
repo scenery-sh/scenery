@@ -124,7 +124,7 @@ func TestAssistantInitDryRunApplyIdempotentAndPreservesAuthoredFiles(t *testing.
 		t.Fatal(err)
 	}
 	sum := sha256.Sum256(lock)
-	if got, want := "sha256:"+hex.EncodeToString(sum[:]), "sha256:d51e5dbc632e4ce1f5d78d6b6ef4d55b38e07c1ced48bb3229c1d62601810dae"; got != want {
+	if got, want := "sha256:"+hex.EncodeToString(sum[:]), "sha256:50688be5a4ea2b73acffd21b724caa699ea81e8343befd22b1212e89e845938a"; got != want {
 		t.Fatalf("lock digest=%s want=%s", got, want)
 	}
 	instructionsPath := filepath.Join(root, "assistants", "extra", "agent", "instructions.md")

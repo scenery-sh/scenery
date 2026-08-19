@@ -27,9 +27,9 @@ const jsonHeaders = { "content-type": "application/json; charset=utf-8", "cache-
 const ndjsonHeaders = { "content-type": "application/x-ndjson; charset=utf-8", "cache-control": "no-store" };
 
 export function lookupConversationDigest(sessionID) {
-  // A capability can run inside args.send before the provider has returned
-  // the new session ID. Keep the create digest in async request context for
-  // that first turn, then use the durable session binding thereafter.
+  // A capability can run inside from(address).send before the provider has
+  // returned the new session ID. Keep the create digest in async request
+  // context for that first turn, then use the durable session binding thereafter.
   return conversationDigests.get(sessionID) || creatingConversationDigest.getStore();
 }
 
@@ -65,13 +65,18 @@ function authFor(principal) {
 }
 
 function tokenFor(conversationDigest) {
-  // Scenery supplies the digest; using it as the first channel-local token
+  // Scenery supplies the digest; using it as the first channel-local address
   // keeps create/retry idempotent without minting an adapter-owned identity.
   return `scenery-${conversationDigest}`;
 }
 
 function continuationFor(sessionID, fallback = "") {
   return knownContinuationTokens.get(sessionID) || fallback;
+}
+
+function bindContinuation(sessionID, continuationToken) {
+  if (sessionID && continuationToken) knownContinuationTokens.set(sessionID, continuationToken);
+  return continuationFor(sessionID, continuationToken);
 }
 
 function envelope(type, requestID, fields = {}) {
@@ -87,8 +92,8 @@ function envelope(type, requestID, fields = {}) {
   };
 }
 
-async function control(request, args) {
-  if (!authorized(request, args.requestIp)) return response({ error: "not found" }, 404);
+async function control(request, { from, attachSession, requestIp }) {
+  if (!authorized(request, requestIp)) return response({ error: "not found" }, 404);
   let body;
   try {
     body = await request.json();
@@ -109,15 +114,13 @@ async function control(request, args) {
     switch (body.type) {
       case "conversation.create": {
         const continuationToken = tokenFor(body.conversation_digest);
-        const session = await creatingConversationDigest.run(body.conversation_digest, () => args.send(body.message ?? "", {
+        const session = await creatingConversationDigest.run(body.conversation_digest, () => from(continuationToken).send(body.message ?? "", {
           auth: authFor(body.principal),
-          continuationToken,
         }));
         conversationDigests.set(session.id, body.conversation_digest);
         const runID = body.run_id || session.id;
         knownRunIDs.set(session.id, runID);
-        const effectiveContinuationToken = continuationFor(session.id, session.continuationToken || continuationToken);
-        knownContinuationTokens.set(session.id, effectiveContinuationToken);
+        const effectiveContinuationToken = bindContinuation(session.id, continuationToken);
         return response(envelope("conversation.created", body.request_id, {
           private_session_id: session.id,
           continuation_token: effectiveContinuationToken,
@@ -125,14 +128,12 @@ async function control(request, args) {
         }));
       }
       case "conversation.turn": {
-        const session = await args.send(body.message ?? "", {
+        const session = await attachSession(body.private_session_id).send(body.message ?? "", {
           auth: authFor(body.principal),
-          continuationToken: body.continuation_token,
         });
         const runID = body.run_id || session.id;
         knownRunIDs.set(session.id, runID);
-        const effectiveContinuationToken = continuationFor(session.id, session.continuationToken || body.continuation_token);
-        knownContinuationTokens.set(session.id, effectiveContinuationToken);
+        const effectiveContinuationToken = bindContinuation(session.id, body.continuation_token);
         return response(envelope("conversation.turn.accepted", body.request_id, {
           private_session_id: session.id,
           continuation_token: effectiveContinuationToken,
@@ -140,17 +141,13 @@ async function control(request, args) {
         }));
       }
       case "approval.resolve": {
-        const optionId = body.decision === "allow" ? "approve" : "deny";
-        const session = await args.send({
-          inputResponses: [{ requestId: body.approval_id, optionId }],
-        }, {
+        const optionId = body.decision === "allow" ? "approve" : "cancel";
+        await from(body.continuation_token).respond([{ requestId: body.approval_id, optionId }], {
           auth: authFor(body.principal),
-          continuationToken: body.continuation_token,
         });
-        const effectiveContinuationToken = continuationFor(session.id, session.continuationToken || body.continuation_token);
-        knownContinuationTokens.set(session.id, effectiveContinuationToken);
+        const effectiveContinuationToken = bindContinuation(body.private_session_id, body.continuation_token);
         return response(envelope("approval.resolved", body.request_id, {
-          private_session_id: session.id,
+          private_session_id: body.private_session_id,
           continuation_token: effectiveContinuationToken,
           run_id: body.run_id,
           approval_id: body.approval_id,
@@ -164,10 +161,10 @@ async function control(request, args) {
             error: { code: "run_not_found", message: "assistant run not found" },
           }), 404);
         }
-        const result = await args.cancel({ continuationToken: body.continuation_token });
+        const result = await attachSession(body.private_session_id).cancel();
         return response(envelope("run.cancelled", body.request_id, {
           private_session_id: body.private_session_id,
-          continuation_token: body.continuation_token,
+          continuation_token: continuationFor(body.private_session_id, body.continuation_token),
           run_id: body.run_id,
           data: result,
         }));
@@ -320,18 +317,13 @@ async function* providerEvents(stream) {
   }
 }
 
-async function eventStream(request, args) {
-  if (!authorized(request, args.requestIp)) return response({ error: "not found" }, 404);
-  const sessionID = args.params.sessionId;
+async function eventStream(request, { attachSession, params, requestIp }) {
+  if (!authorized(request, requestIp)) return response({ error: "not found" }, 404);
+  const sessionID = params.sessionId;
   const url = new URL(request.url);
   const after = Number(url.searchParams.get("after") || "0");
   if (!Number.isSafeInteger(after) || after < 0) return response({ error: "invalid cursor" }, 400);
-  let session;
-  try {
-    session = args.getSession(sessionID);
-  } catch {
-    return response({ error: "not found" }, 404);
-  }
+  const session = attachSession(sessionID);
   // Rewind to zero: Eve's startIndex is a provider event count, while the
   // Scenery cursor counts only neutral events. Filtering after provider
   // normalization keeps reconnects deterministic even when Eve emits events
@@ -341,7 +333,12 @@ async function eventStream(request, args) {
   const history = knownEventHistory.get(sessionID) || [];
   knownEventHistory.set(sessionID, history);
   const providerStartIndex = knownProviderCursors.get(sessionID) || 0;
-  const stream = await session.getEventStream({ startIndex: providerStartIndex });
+  let stream;
+  try {
+    stream = await session.getEventStream({ startIndex: providerStartIndex });
+  } catch {
+    return response({ error: "not found" }, 404);
+  }
   const body = new ReadableStream({
     async start(controller) {
       let nextSequence = history.length + 1;
@@ -352,10 +349,7 @@ async function eventStream(request, args) {
         }
         for await (const providerEvent of providerEvents(stream)) {
           providerCursor += 1;
-          if (providerEvent?.data?.continuationToken) {
-            knownContinuationTokens.set(sessionID, providerEvent.data.continuationToken);
-          }
-          const continuationToken = continuationFor(sessionID, session.continuationToken);
+          const continuationToken = continuationFor(sessionID);
           const normalizedEvents = normalizeEvents(providerEvent, sessionID, continuationToken, after, nextSequence, knownRunIDs.get(sessionID));
           for (const normalized of normalizedEvents) {
             history.push(normalized);

@@ -940,13 +940,57 @@ func buildAssistantOverlay(ctx context.Context, overlay, nodePath, nodeHome, mcp
 func assistantHelperEnv(nodeHome, overlayRoot string, values ...string) []string {
 	home := filepath.Join(overlayRoot, ".home")
 	_ = os.MkdirAll(home, 0o700)
-	env := []string{"PATH=" + filepath.Join(nodeHome, "bin"), "HOME=" + home}
+	nodeBin := filepath.Join(nodeHome, "bin")
+	path := nodeBin
+	if dir := hostCodexBinDir(); dir != "" && dir != nodeBin {
+		path = nodeBin + string(os.PathListSeparator) + dir
+	}
+	env := []string{"PATH=" + path, "HOME=" + home}
+	if !envHasKey(values, "CODEX_HOME") {
+		if dest := hostCodexHome(); dest != "" {
+			env = append(env, "CODEX_HOME="+dest)
+		}
+	}
 	for _, key := range []string{"TMPDIR", "TMP", "TEMP", "LANG", "LC_ALL", "LC_CTYPE", "LC_MESSAGES", "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS"} {
 		if value, ok := envpolicy.Lookup(key); ok && value != "" {
 			env = append(env, key+"="+value)
 		}
 	}
 	return append(env, values...)
+}
+
+// lookExecutable and userHomeDir are seams so helper-env tests can prove the
+// Codex CLI/login projection without depending on the host install.
+var lookExecutable = exec.LookPath
+var userHomeDir = os.UserHomeDir
+
+func hostCodexBinDir() string {
+	path, err := lookExecutable("codex")
+	if err != nil || strings.TrimSpace(path) == "" {
+		return ""
+	}
+	return filepath.Dir(path)
+}
+
+func hostCodexHome() string {
+	if value, ok := envpolicy.Lookup("CODEX_HOME"); ok && strings.TrimSpace(value) != "" {
+		return value
+	}
+	home, err := userHomeDir()
+	if err != nil || strings.TrimSpace(home) == "" {
+		return ""
+	}
+	return filepath.Join(home, ".codex")
+}
+
+func envHasKey(values []string, key string) bool {
+	prefix := key + "="
+	for _, value := range values {
+		if strings.HasPrefix(value, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // assistantProviderEnv projects the smallest supported provider credential

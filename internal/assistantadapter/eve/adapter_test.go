@@ -20,7 +20,7 @@ func TestScaffoldPackageFilesAreAuthoritativeAndDefensive(t *testing.T) {
 	}
 	lock := files["package-lock.json"]
 	sum := sha256.Sum256(lock)
-	if got, want := "sha256:"+hex.EncodeToString(sum[:]), "sha256:d51e5dbc632e4ce1f5d78d6b6ef4d55b38e07c1ced48bb3229c1d62601810dae"; got != want {
+	if got, want := "sha256:"+hex.EncodeToString(sum[:]), "sha256:50688be5a4ea2b73acffd21b724caa699ea81e8343befd22b1212e89e845938a"; got != want {
 		t.Fatalf("scaffold lock digest=%s want=%s", got, want)
 	}
 	var manifest struct {
@@ -127,6 +127,12 @@ func TestMaterializeOverlayCopiesAuthoredFilesAndReservesGeneratedPaths(t *testi
 		`requires_approval: !approvalNeverTools.has(action.toolName)`,
 		"creatingConversationDigest.run(body.conversation_digest",
 		"conversationDigests.get(sessionID) || creatingConversationDigest.getStore()",
+		"from(continuationToken).send",
+		"attachSession(body.private_session_id).send",
+		"from(body.continuation_token).respond",
+		`const optionId = body.decision === "allow" ? "approve" : "cancel"`,
+		"attachSession(body.private_session_id).cancel()",
+		"attachSession(sessionID)",
 		"body.assistant_address !== assistantAddress",
 		"body.runtime_revision !== runtimeRevision",
 		"body.capability_revision !== capabilityRevision",
@@ -135,6 +141,11 @@ func TestMaterializeOverlayCopiesAuthoredFilesAndReservesGeneratedPaths(t *testi
 	} {
 		if !strings.Contains(channel, fragment) {
 			t.Fatalf("generated private channel is missing revision guard %q: %s", fragment, channel)
+		}
+	}
+	for _, forbidden := range []string{"args.send", "args.cancel", "args.getSession", "continuationToken:"} {
+		if strings.Contains(channel, forbidden) {
+			t.Fatalf("generated private channel still uses retired Eve channel API %q: %s", forbidden, channel)
 		}
 	}
 	bootstrap := string(mustRead(t, result.BootstrapPath))

@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -214,6 +215,12 @@ func TestEnsureAssistantTokenKeyIsStableAndPrivate(t *testing.T) {
 func TestAssistantHelperEnvUsesAllowlist(t *testing.T) {
 	t.Setenv("SCENERY_DATABASE_URL", "postgres://should-not-cross")
 	t.Setenv("LANG", "en_US.UTF-8")
+	lookExecutable = func(string) (string, error) { return "", exec.ErrNotFound }
+	userHomeDir = func() (string, error) { return t.TempDir(), nil }
+	t.Cleanup(func() {
+		lookExecutable = exec.LookPath
+		userHomeDir = os.UserHomeDir
+	})
 	env := assistantHelperEnv("/managed/node", filepath.Join(t.TempDir(), "overlay"), "SCENERY_ASSISTANT_ID=app/assistant/support")
 	joined := strings.Join(env, "\n")
 	if strings.Contains(joined, "SCENERY_DATABASE_URL") || strings.Contains(joined, "postgres://should-not-cross") {
@@ -221,6 +228,28 @@ func TestAssistantHelperEnvUsesAllowlist(t *testing.T) {
 	}
 	if !strings.Contains(joined, "PATH=/managed/node/bin") || !strings.Contains(joined, "HOME=") || !strings.Contains(joined, "SCENERY_ASSISTANT_ID=app/assistant/support") {
 		t.Fatalf("helper environment missing managed/private values: %v", env)
+	}
+}
+
+func TestAssistantHelperEnvProjectsHostCodexLogin(t *testing.T) {
+	lookExecutable = func(name string) (string, error) {
+		if name != "codex" {
+			return "", exec.ErrNotFound
+		}
+		return "/opt/host/bin/codex", nil
+	}
+	userHomeDir = func() (string, error) { return "/Users/host", nil }
+	t.Cleanup(func() {
+		lookExecutable = exec.LookPath
+		userHomeDir = os.UserHomeDir
+	})
+	env := assistantHelperEnv("/managed/node", filepath.Join(t.TempDir(), "overlay"))
+	joined := strings.Join(env, "\n")
+	if !strings.Contains(joined, "PATH=/managed/node/bin"+string(os.PathListSeparator)+"/opt/host/bin") {
+		t.Fatalf("helper PATH missing host Codex CLI: %v", env)
+	}
+	if !strings.Contains(joined, "CODEX_HOME=/Users/host/.codex") {
+		t.Fatalf("helper environment missing host Codex home: %v", env)
 	}
 }
 
