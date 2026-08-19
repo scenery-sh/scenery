@@ -122,7 +122,10 @@ function assistantMessage(value: string | AssistantMessage, binding: string): { 
 
 function assistantURL(baseUrl: string, path: string, binding: string): string {
   if (!path.startsWith("/") || path.startsWith("//") || path.includes("\\") || path.includes("?") || path.includes("#")) throw assistantFailure(binding, "assistant URL is not a canonical path");
-  try { return new URL(path, baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`).toString(); } catch (cause) { throw assistantFailure(binding, "assistant base URL is invalid", cause); }
+  try {
+    const base = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
+    return new URL(path.replace(/^\//, ""), base).toString();
+  } catch (cause) { throw assistantFailure(binding, "assistant base URL is invalid", cause); }
 }
 
 function assistantHeaders(defaultHeaders: Readonly<Record<string, string>> | undefined, options: AssistantRequestOptions | undefined, authentication: Runtime.AuthenticationOptions | undefined, binding: string): Headers {
@@ -289,7 +292,11 @@ class GeneratedAssistantConversationClient implements AssistantConversationClien
         if (this.#authentication?.authorization !== undefined) headers.set("authorization", this.#authentication.authorization);
         const response = await assistantRequest(this.#fetch, `${assistantURL(this.#baseUrl, path, binding)}?after=${cursor}`, { method: "GET", signal: controller.signal, headers, credentials: this.#authentication?.credentials }, binding, options.signal);
         const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
-        if (!/^application\/x-ndjson(?:\s*;|$)/.test(contentType)) throw assistantFailure(binding, "assistant event stream content type is invalid");
+        const mediaType = contentType.split(";", 1)[0]!.trim();
+        if (mediaType !== "application/x-ndjson") {
+          if (mediaType === "") throw new Runtime.SceneryClientError("unavailable", binding, "assistant event stream content type is invalid");
+          throw assistantFailure(binding, "assistant event stream content type is invalid");
+        }
         if (response.body === null) throw assistantFailure(binding, "assistant event stream has no body");
         reader = response.body.getReader();
         const decoder = new TextDecoder("utf-8", { fatal: true });

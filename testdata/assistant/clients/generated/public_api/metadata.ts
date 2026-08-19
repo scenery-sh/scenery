@@ -3,7 +3,7 @@ import { freezeMetadata } from "./runtime.js";
 export const sceneryClientMetadata = freezeMetadata({
   "bindings": [],
   "compatibilityCatalog": "scenery.compatibility-core",
-  "contractRevision": "sha256:3e97dd95fe632d4587b630eadb5a39cc82d9a486213e4a0c023ac1765458c1d8",
+  "contractRevision": "sha256:e737e08a4315c731d18ac1a035c7d4ced2018ebfc6999f71a1e6e8490c143c33",
   "gateways": [
     "http_gateway.public_api"
   ],

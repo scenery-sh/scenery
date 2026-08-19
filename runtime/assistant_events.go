@@ -63,9 +63,11 @@ func (g *assistantGateway) handleEvents(w http.ResponseWriter, req *http.Request
 		g.writeError(w, assistantruntime.ErrMalformedEvent)
 		return
 	}
-	if err := g.streamPrivateEvents(w, stream, conversationID, claims, after); err != nil {
-		g.writeError(w, err)
-	}
+	// Headers must go out before catch-up filtering. A reconnect whose
+	// cursor is already current can stay quiet through a long tool call;
+	// path-mode Caddy then hits its 30s response-header timeout and the
+	// browser sees HTTP 200 with no Content-Type.
+	_ = g.streamPrivateEvents(w, stream, conversationID, claims, after)
 }
 
 func (g *assistantGateway) writeNDJSON(w http.ResponseWriter, events []assistantapi.Event) {
@@ -129,7 +131,8 @@ func (g *assistantGateway) streamPrivateEvents(w http.ResponseWriter, stream io.
 		return assistantruntime.ErrMalformedEvent
 	}
 	defer func() { _ = stream.Close() }()
-	state := &assistantEventStreamState{gateway: g, w: w, after: after, conversation: conversationID, claims: claims, redactor: assistantapi.NewRedactor()}
+	state := &assistantEventStreamState{gateway: g, w: w, after: after, conversation: conversationID, claims: claims, redactor: assistantapi.NewRedactor(), started: true}
+	beginNDJSON(w)
 	scanner := bufio.NewScanner(stream)
 	scanner.Buffer(make([]byte, 64<<10), 17<<20)
 	for scanner.Scan() {

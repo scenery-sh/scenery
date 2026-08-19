@@ -356,6 +356,62 @@ describe("Scenery TypeScript client exact codecs", () => {
 		expect(urls[1]).toBe("https://example.test/assistants/support/v1/conversations/conv1_abcd/events?after=1");
 	});
 
+	test("joins assistant reconnects onto a path-mode /api base", async () => {
+		const runID = "run_11111111111111111111111111111111";
+		const event = (sequence: number) => JSON.stringify({ type: sequence === 1 ? "assistant.run.started" : "assistant.run.completed", assistant: "support", conversation_id: "conv1_abcd", run_id: runID, sequence, occurred_at: "2026-08-04T00:00:00Z", data: { state: sequence === 1 ? "started" : "completed" } });
+		let calls = 0;
+		const urls: string[] = [];
+		const controller = new AbortController();
+		const client = new PublicApiClient({
+			baseUrl: "https://example.test/api" as URLString,
+			fetch: async (input) => {
+				urls.push(String(input));
+				calls++;
+				const source = calls === 1 ? `${event(1)}\n` : `${event(2)}\n`;
+				return new Response(source, { headers: { "content-type": "application/x-ndjson; charset=utf-8" } });
+			},
+		});
+		const received: number[] = [];
+		await expect((async () => {
+			for await (const item of client.assistants.support.streamEvents("conv1_abcd", { signal: controller.signal })) {
+				received.push(item.sequence);
+				if (received.length === 2) controller.abort();
+			}
+		})()).rejects.toMatchObject({ code: "cancelled" });
+		expect(received).toEqual([1, 2]);
+		expect(urls[0]).toBe("https://example.test/api/assistants/support/v1/conversations/conv1_abcd/events?after=0");
+		expect(urls[1]).toBe("https://example.test/api/assistants/support/v1/conversations/conv1_abcd/events?after=1");
+	});
+
+	test("retries an event stream whose 200 response omitted Content-Type", async () => {
+		const runID = "run_11111111111111111111111111111111";
+		const event = JSON.stringify({ type: "assistant.run.completed", assistant: "support", conversation_id: "conv1_abcd", run_id: runID, sequence: 1, occurred_at: "2026-08-04T00:00:00Z", data: { state: "completed" } });
+		let calls = 0;
+		const urls: string[] = [];
+		const controller = new AbortController();
+		const client = new PublicApiClient({
+			baseUrl: "https://example.test/api" as URLString,
+			fetch: async (input) => {
+				urls.push(String(input));
+				calls++;
+				if (calls === 1) return new Response("", { status: 200, headers: {} });
+				return new Response(`${event}\n`, { headers: { "content-type": "application/x-ndjson" } });
+			},
+		});
+		const received: number[] = [];
+		await expect((async () => {
+			for await (const item of client.assistants.support.streamEvents("conv1_abcd", { signal: controller.signal })) {
+				received.push(item.sequence);
+				controller.abort();
+			}
+		})()).rejects.toMatchObject({ code: "cancelled" });
+		expect(received).toEqual([1]);
+		expect(urls).toEqual([
+			"https://example.test/api/assistants/support/v1/conversations/conv1_abcd/events?after=0",
+			"https://example.test/api/assistants/support/v1/conversations/conv1_abcd/events?after=0",
+		]);
+	});
+
 	test("rejects malformed UTF-8 in an assistant event stream", async () => {
 		const controller = new AbortController();
 		const client = new PublicApiClient({
