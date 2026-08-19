@@ -23,6 +23,22 @@ type server struct {
 	drainCh      chan struct{}
 }
 
+const sceneryTraceIDHeader = "X-Scenery-Trace-Id"
+
+func applyTraceIDHeader(headers http.Header, state *requestState) {
+	if headers == nil || state == nil {
+		return
+	}
+	traceID := strings.TrimSpace(state.request.TraceID)
+	if traceID == "" && state.trace != nil {
+		traceID = strings.TrimSpace(state.trace.traceID)
+	}
+	if traceID == "" {
+		return
+	}
+	headers.Set(sceneryTraceIDHeader, traceID)
+}
+
 type contractCORSRoute struct {
 	path     string
 	pathTail bool
@@ -286,6 +302,7 @@ func (s *server) registerRaw(ep *Endpoint) {
 		restore := enterState(state)
 		defer restore()
 		startRequestTrace(state)
+		applyTraceIDHeader(w.Header(), state)
 
 		authInfo, err := authenticateRequest(req.WithContext(ctx), ep)
 		if err != nil {
@@ -358,6 +375,7 @@ func (s *server) registerTyped(ep *Endpoint) {
 		restore := enterState(state)
 		defer restore()
 		startRequestTrace(state)
+		applyTraceIDHeader(w.Header(), state)
 
 		authInfo, err := authenticateRequest(req.WithContext(ctx), ep)
 		if err != nil {

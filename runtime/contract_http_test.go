@@ -367,3 +367,38 @@ func TestContractTransportResponseAndTraceStatusesMatch(t *testing.T) {
 		})
 	}
 }
+
+func TestTypedEndpointExposesSceneryTraceID(t *testing.T) {
+	restore := replaceGlobalRegistryForTest()
+	defer restore()
+	if err := RegisterEndpointChecked(&Endpoint{
+		Service: "contract", Name: "TraceHeader", Access: Public, Path: "/trace-header", Methods: []string{http.MethodGet},
+		DecodeContractRequest: func(*http.Request, map[string]string) (ContractDecodedRequest, error) {
+			return ContractDecodedRequest{}, nil
+		},
+		Invoke: func(context.Context, []any, any) (any, error) {
+			return map[string]any{"ok": true}, nil
+		},
+		EncodeContractOutcome: func(request *http.Request, outcome any) (ContractHTTPResponse, error) {
+			return EncodeContractJSONForRequest(request, http.StatusOK, outcome, []string{"application/json"}, 0)
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	server, err := newServer("127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/trace-header", nil)
+	request.Header.Set("Accept", "application/json")
+	recorder := httptest.NewRecorder()
+	server.Handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	traceID := strings.TrimSpace(recorder.Header().Get("X-Scenery-Trace-Id"))
+	if traceID == "" {
+		t.Fatal("missing X-Scenery-Trace-Id on typed response")
+	}
+}
