@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"scenery.sh/internal/devcache"
 	"scenery.sh/internal/devdash"
-	"scenery.sh/internal/envpolicy"
 )
 
 type dashboardRunState struct {
@@ -166,14 +166,7 @@ func reapOwnedDashboard(statePath string, expected dashboardRunState) error {
 }
 
 func sceneryCacheRoot() (string, error) {
-	if root := strings.TrimSpace(envpolicy.Get("SCENERY_DEV_CACHE_DIR")); root != "" {
-		return root, nil
-	}
-	dir, err := os.UserCacheDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, "scenery"), nil
+	return devcache.Root()
 }
 
 func waitForPortRelease(addr string, timeout time.Duration) error {

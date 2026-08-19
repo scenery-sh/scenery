@@ -11,7 +11,7 @@ import (
 	"strings"
 
 	"scenery.sh/internal/app"
-	"scenery.sh/internal/envpolicy"
+	"scenery.sh/internal/devcache"
 	"scenery.sh/internal/machine"
 )
 
@@ -21,20 +21,11 @@ const (
 )
 
 func workspaceDir(appRoot, appName string) (string, error) {
-	cacheRoot, err := sceneryCacheRoot()
+	cacheRoot, err := CacheRoot()
 	if err != nil {
 		return "", err
 	}
-	absRoot, err := filepath.Abs(appRoot)
-	if err != nil {
-		return "", err
-	}
-	sum := sha256.Sum256([]byte(absRoot))
-	name := sanitizeWorkspaceLabel(appName)
-	if name == "" {
-		name = "app"
-	}
-	return filepath.Join(cacheRoot, "build", name+"-"+hex.EncodeToString(sum[:8])), nil
+	return WorkspaceDirAt(cacheRoot, appRoot, appName)
 }
 
 func workspaceBinaryName(appRoot, buildFingerprint string) string {
@@ -53,31 +44,41 @@ func workspaceBinaryName(appRoot, buildFingerprint string) string {
 	return "scenery-app-" + hex.EncodeToString(sum[:8])
 }
 
-func sceneryCacheRoot() (string, error) {
-	if root := strings.TrimSpace(envpolicy.Get("SCENERY_DEV_CACHE_DIR")); root != "" {
-		return root, nil
-	}
-	dir, err := os.UserCacheDir()
+func CacheRoot() (string, error) {
+	return devcache.Root()
+}
+
+func WorkspaceDirAt(cacheRoot, appRoot, appName string) (string, error) {
+	absRoot, err := filepath.Abs(appRoot)
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "scenery"), nil
-}
-
-func CacheRoot() (string, error) {
-	return sceneryCacheRoot()
+	sum := sha256.Sum256([]byte(absRoot))
+	name := sanitizeWorkspaceLabel(appName)
+	if name == "" {
+		name = "app"
+	}
+	return filepath.Join(cacheRoot, "build", name+"-"+hex.EncodeToString(sum[:8])), nil
 }
 
 func WorkspaceDir(appRoot, appName string) (string, error) {
 	return workspaceDir(appRoot, appName)
 }
 
-func BuildStatePath(appRoot, appName string) (string, error) {
-	root, err := workspaceDir(appRoot, appName)
+func BuildStatePathAt(cacheRoot, appRoot, appName string) (string, error) {
+	root, err := WorkspaceDirAt(cacheRoot, appRoot, appName)
 	if err != nil {
 		return "", err
 	}
 	return filepath.Join(root, buildStateFile), nil
+}
+
+func BuildStatePath(appRoot, appName string) (string, error) {
+	cacheRoot, err := CacheRoot()
+	if err != nil {
+		return "", err
+	}
+	return BuildStatePathAt(cacheRoot, appRoot, appName)
 }
 
 func LatestBuildPath(appRoot string) string {

@@ -698,7 +698,7 @@ func TestRunSymphonyAutoForAppReportsAutoMode(t *testing.T) {
 }
 
 func TestPrepareSymphonyWorkspaceResetsExistingWorktree(t *testing.T) {
-	t.Setenv("SCENERY_DEV_CACHE_DIR", t.TempDir())
+	_ = isolateCommandCacheRoot(t)
 
 	repoRoot := t.TempDir()
 	if err := os.WriteFile(filepath.Join(repoRoot, "tracked.txt"), []byte("clean\n"), 0o644); err != nil {
@@ -743,7 +743,7 @@ func TestPrepareSymphonyWorkspaceResetsExistingWorktree(t *testing.T) {
 }
 
 func TestCleanupSymphonyRunWorkspaceRemovesWorktree(t *testing.T) {
-	t.Setenv("SCENERY_DEV_CACHE_DIR", t.TempDir())
+	_ = isolateCommandCacheRoot(t)
 
 	repoRoot, appRoot := newSymphonyGitFixture(t, "manual")
 	repoWorkspace := filepath.Join(symphonyCacheRoot(), "workspaces", "demo", "SYM-1", "repo")

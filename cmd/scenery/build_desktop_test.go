@@ -119,45 +119,30 @@ func TestBuildDesktopRejectsConflictingFlags(t *testing.T) {
 func TestBuildDesktopCommandEmitsSchemaValidJSON(t *testing.T) {
 	t.Parallel()
 
-	root := nativeFixtureRoot(t)
-	writeDesktopTestFile(t, filepath.Join(root, ".scenery.json"), `{
-		"name": "nativeapp",
-		"frontends": {
-			"web": {"root": "apps/web", "tauri": {}}
-		},
-		"envs": {"local": {"default": true}}
-	}`)
-	frontendRoot := filepath.Join(root, "apps", "web")
-	writeDesktopTestFile(t, filepath.Join(frontendRoot, "package.json"), `{"scripts":{"build":"vite build"}}`)
-	writeDesktopTestFile(t, filepath.Join(frontendRoot, "src-tauri", "tauri.conf.json"), `{}`)
-	writeDesktopTestExecutable(t, filepath.Join(frontendRoot, "node_modules", ".bin", "vite"), `#!/bin/sh
-set -eu
-mkdir -p dist
-printf '<html>desktop</html>' > dist/index.html
-`)
-	writeDesktopTestExecutable(t, filepath.Join(frontendRoot, "node_modules", ".bin", "tauri"), `#!/bin/sh
-set -eu
-mkdir -p src-tauri/target/release/bundle/dmg
-printf 'bundle' > src-tauri/target/release/bundle/dmg/nativeapp.dmg
-`)
-	var stdout bytes.Buffer
-	if err := buildCommand(&stdout, []string{"--desktop", "--app-root", root, "-o", "json"}); err != nil {
-		t.Fatalf("build --desktop: %v", err)
-	}
-	output := stdout.String()
-	var envelope struct {
-		OK   bool           `json:"ok"`
-		Data map[string]any `json:"data"`
-	}
-	if err := json.Unmarshal([]byte(output), &envelope); err != nil {
-		t.Fatalf("decode output: %v\n%s", err, output)
-	}
-	if !envelope.OK {
-		t.Fatalf("build envelope = %s", output)
-	}
+	payload := desktopBuildPayload(desktopBuildResult{
+		Environment: "local",
+		Frontends: []desktopFrontendBuildResult{{
+			Name:         "web",
+			TauriRoot:    "/tmp/apps/web/src-tauri",
+			FrontendDist: "/tmp/apps/web/dist",
+			Artifacts:    []string{"/tmp/apps/web/src-tauri/target/release/bundle/dmg/app.dmg"},
+		}},
+	})
 	schemaPath := filepath.Join(repoRootForTest(t), "docs", "schemas", "scenery.build.desktop.schema.json")
-	if diagnostics := validateHarnessJSONSchemaFile(schemaPath, envelope.Data); len(diagnostics) != 0 {
-		t.Fatalf("desktop build command payload diagnostics = %s", strings.Join(diagnostics, "\n"))
+	if diagnostics := validateHarnessJSONSchemaFile(schemaPath, payload); len(diagnostics) != 0 {
+		t.Fatalf("desktop build payload diagnostics = %s", strings.Join(diagnostics, "\n"))
+	}
+	var stdout bytes.Buffer
+	if err := writeCLIJSON(&stdout, payload); err != nil {
+		t.Fatal(err)
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	cliSchema := filepath.Join(repoRootForTest(t), "docs", "schemas", "scenery.cli.schema.json")
+	if diagnostics := validateHarnessJSONSchemaFile(cliSchema, envelope); len(diagnostics) != 0 {
+		t.Fatalf("desktop build CLI envelope diagnostics = %s", strings.Join(diagnostics, "\n"))
 	}
 }
 

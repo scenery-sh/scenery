@@ -116,7 +116,7 @@ func cachedFrameworkFingerprint(repoRoot string) (string, error) {
 }
 
 func frameworkFingerprintCachePath(repoRoot string) (string, error) {
-	cacheRoot, err := sceneryCacheRoot()
+	cacheRoot, err := CacheRoot()
 	if err != nil {
 		return "", err
 	}

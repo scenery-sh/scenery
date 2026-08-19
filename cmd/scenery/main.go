@@ -128,6 +128,7 @@ func currentMachineSpecRevision() string { return string(spec.CurrentRevision())
 func init() {
 	stdlog.Install(os.Stderr)
 	log.SetFlags(log.LstdFlags)
+	wireBuildGenerateHooks()
 }
 
 func run(args []string) error {

@@ -20,8 +20,7 @@ func TestParseTracesClearArgs(t *testing.T) {
 
 func TestRunTracesClear(t *testing.T) {
 	root := t.TempDir()
-	cacheRoot := t.TempDir()
-	t.Setenv("SCENERY_DEV_CACHE_DIR", cacheRoot)
+	_ = isolateCommandCacheRoot(t)
 	writeTestAppFile(t, root, ".scenery.json", `{"name":"adminapp","id":"admin-id"}`)
 
 	restore := chdirForTest(t, root)

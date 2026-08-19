@@ -128,7 +128,7 @@ func generatorFingerprintPaths() []string {
 }
 
 func generatorFingerprintCachePath(repoRoot string) (string, error) {
-	cacheRoot, err := sceneryCacheRoot()
+	cacheRoot, err := CacheRoot()
 	if err != nil {
 		return "", err
 	}

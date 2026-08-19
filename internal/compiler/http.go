@@ -111,7 +111,7 @@ func httpRouteMethodsOverlap(left, right string) bool {
 	if left == "*" || right == "*" || left == right {
 		return true
 	}
-	return left == http.MethodGet && right == http.MethodHead || left == http.MethodHead && right == http.MethodGet
+	return left == "GET" && right == "HEAD" || left == "HEAD" && right == "GET"
 }
 
 func validateHTTPWireLabels(binding Resource, httpSpec map[string]any) []Diagnostic {
@@ -527,6 +527,10 @@ func httpResponseCookieTypeSupported(value any, resources map[string]Resource, m
 	return !strings.HasPrefix(expression, "list(") && !strings.HasPrefix(expression, "set(") && httpPathScalarType(map[string]any{"$ref": expression}, resources, module)
 }
 
+func httpCookieValid(name, pathValue, domain string) error {
+	return (&http.Cookie{Name: name, Value: "value", Path: pathValue, Domain: domain}).Valid()
+}
+
 func validateHTTPResponseCookie(binding Resource, cookie map[string]any) []Diagnostic {
 	pathValue := defaultString(stringValue(cookie["path"]), "/")
 	domain := stringValue(cookie["domain"])
@@ -534,8 +538,7 @@ func validateHTTPResponseCookie(binding Resource, cookie map[string]any) []Diagn
 	expires := stringValue(cookie["expires"])
 	sameSite := defaultString(stringValue(cookie["same_site"]), "lax")
 	secure, _ := cookie["secure"].(bool)
-	probe := &http.Cookie{Name: stringValue(cookie["name"]), Value: "value", Path: pathValue, Domain: domain}
-	if err := probe.Valid(); err != nil || !strings.HasPrefix(pathValue, "/") || !maxAgeOK || maxAge < 0 || expires != "" && !validHTTPDateTime(expires) || !eventStringIn([]string{"lax", "strict", "none"}, sameSite) || sameSite == "none" && !secure {
+	if err := httpCookieValid(stringValue(cookie["name"]), pathValue, domain); err != nil || !strings.HasPrefix(pathValue, "/") || !maxAgeOK || maxAge < 0 || expires != "" && !validHTTPDateTime(expires) || !eventStringIn([]string{"lax", "strict", "none"}, sameSite) || sameSite == "none" && !secure {
 		return []Diagnostic{{Code: "SCN2115", Severity: "error", Message: "HTTP response cookie attributes are invalid; SameSite=None also requires Secure", Address: binding.Address}}
 	}
 	return nil

@@ -5,11 +5,11 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
-	"strconv"
-	"strings"
 	"testing"
 
 	"golang.org/x/tools/go/packages"
+
+	"scenery.sh/internal/gotarget"
 )
 
 func TestMissingHermeticModulePackages(t *testing.T) {
@@ -36,7 +36,7 @@ import _ "github.com/google/uuid"
 import _ "example.test/cacheprobe/generated"
 `)
 
-	missing, err := MissingHermeticModulePackages(GoTargetContext{
+	missing, err := MissingHermeticModulePackages(gotarget.Context{
 		ModuleRoot: root,
 		Patterns:   []string{"./..."},
 		GOOS:       runtime.GOOS,
@@ -47,37 +47,6 @@ import _ "example.test/cacheprobe/generated"
 	}
 	if want := []string{"github.com/google/uuid"}; !reflect.DeepEqual(missing, want) {
 		t.Fatalf("missing packages = %#v, want %#v", missing, want)
-	}
-}
-
-func TestGoTargetEnvironmentSelectsDeclaredToolchain(t *testing.T) {
-	t.Setenv("GOTOOLCHAIN", "go9.9.9+auto")
-	t.Setenv("GOMAXPROCS", "99")
-	t.Setenv("CC", "/ambient/cc")
-	t.Setenv("PKG_CONFIG", "/ambient/pkg-config")
-
-	environment := GoTargetEnvironment(GoTargetContext{
-		ToolchainVersion: "1.26.3",
-		GOOS:             "linux",
-		GOARCH:           "amd64",
-		NativeToolEnv:    map[string]string{"CC": "/declared/cc", "PKG_CONFIG": "/declared/pkg-config-disabled"},
-	})
-	values := map[string]string{}
-	for _, entry := range environment {
-		name, value, _ := strings.Cut(entry, "=")
-		values[name] = value
-	}
-	if values["GOTOOLCHAIN"] != "go1.26.3" {
-		t.Fatalf("GOTOOLCHAIN = %q, want exact declared toolchain", values["GOTOOLCHAIN"])
-	}
-	if values["GOOS"] != "linux" || values["GOARCH"] != "amd64" {
-		t.Fatalf("target environment = GOOS=%q GOARCH=%q", values["GOOS"], values["GOARCH"])
-	}
-	if values["CC"] != "/declared/cc" || values["PKG_CONFIG"] != "/declared/pkg-config-disabled" {
-		t.Fatalf("native tools leaked ambient environment: CC=%q PKG_CONFIG=%q", values["CC"], values["PKG_CONFIG"])
-	}
-	if want := strconv.Itoa(min(runtime.GOMAXPROCS(0), goAnalysisMaxProcs)); values["GOMAXPROCS"] != want {
-		t.Fatalf("Go analysis concurrency = %q, want bounded subprocess concurrency", values["GOMAXPROCS"])
 	}
 }
 

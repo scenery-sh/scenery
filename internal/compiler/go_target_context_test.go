@@ -6,11 +6,11 @@ import (
 	"strings"
 	"testing"
 
-	"scenery.sh/internal/parse"
+	"scenery.sh/internal/gotarget"
 )
 
 func TestResolvedGoTargetRecordsContentAddressedToolchainAndNativeTools(t *testing.T) {
-	context := parse.GoTargetContext{
+	context := gotarget.Context{
 		ToolchainVersion: strings.TrimPrefix(runtime.Version(), "go"),
 		GOOS:             runtime.GOOS,
 		GOARCH:           runtime.GOARCH,

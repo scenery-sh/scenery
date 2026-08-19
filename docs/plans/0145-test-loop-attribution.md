@@ -223,6 +223,38 @@ optimize a number nothing can explain.
       `TestBuildDesktopCommandEmitsSchemaValidJSON` (2.73–3.83s) and
       `TestContractCheckJSONReportsValidNativeImplementation` (2.11–3.55s)
       still hold the parallel tail.
+- [x] 2026-08-19: Split the generate link boundary. `internal/generate/api`
+      now owns library build specs and editor-workspace inspection as a
+      stdlib-only leaf. Production `internal/evolution` no longer imports
+      `internal/generate`; CLI and agent sessions inject predicted-artifact
+      and implementation checks. `internal/librarybuild`, `internal/doctor`,
+      and `internal/contractagent` no longer depend on `internal/generate`.
+      `internal/build` and `internal/generate` still do.
+- [x] 2026-08-19: Finished the explicit agent-home seam. `EnsureWith` and
+      `commandAgentPaths` let tests pass `PathsForHome(t.TempDir())` instead of
+      `t.Setenv("SCENERY_AGENT_HOME")`. Production still reads the env var at
+      the CLI/runtime boundary. Per-test `t.Setenv("SCENERY_AGENT_HOME")` is
+      gone; `cmd/scenery` TestMain still pins a process-wide temp home so
+      leftover `DefaultClient`/`DefaultPaths` calls cannot touch `~/.scenery`.
+- [x] 2026-08-19: Lifted the development cache root into `internal/devcache`.
+      Doctor no longer imports `internal/build`. `SCENERY_DEV_CACHE_DIR` stays
+      the public env; tests inject `SetRoot` / `isolateCommandCacheRoot`.
+- [x] 2026-08-19: Injected generate into `internal/build`. Production build
+      no longer imports `internal/generate`; CLI and build tests wire
+      `GenerateHooks`. Prepare/check/editor-sync ordering is unchanged.
+- [x] 2026-08-19: Stopped the evolution test binary from importing generate.
+      Tests use recording/no-op fakes. Live predicted-artifact and native
+      implementation proof moved to `internal/generate`.
+- [x] 2026-08-19: Cheapened the two `cmd/scenery` warm-tail tests. Desktop
+      and check JSON now schema-validate stubbed payloads. Live native
+      implementation proof stays in `internal/generate`.
+- [x] 2026-08-19: Replaced leftover production `DefaultClient()` sites with
+      `commandAgentClient()` and deleted the cache-dir `t.Setenv` cluster
+      covered by `devcache.SetRoot`. Child processes still receive
+      `SCENERY_DEV_CACHE_DIR` from `dev_session_controller.go`.
+- [x] 2026-08-19: Extracted `internal/gotarget` so compiler no longer imports
+      `internal/parse`. HTTP method constants are `"GET"`/`"HEAD"`; cookie
+      validity still uses `http.Cookie.Valid`.
 
 ## Surprises & Discoveries
 
@@ -567,6 +599,11 @@ optimize a number nothing can explain.
   reason and should be decided deliberately rather than folded into a timing
   pass.
   Date/Author: 2026-07-28 / Claude.
+- The agent-home seam is now explicit. `EnsureWith` and `commandAgentPaths`
+  are the in-process injection points; `SCENERY_AGENT_HOME` stays the public
+  user/runtime override and is read only at that CLI/runtime boundary. Tests
+  pass `PathsForHome` or `isolateCommandAgentHome` instead of `t.Setenv`.
+  Date/Author: 2026-08-19 / Grok.
 - Four test files are deliberately excluded from parallelization:
   `dev_ports_test.go`, `dev_named_lock_test.go`,
   `dev_session_cleanup_unix_test.go`, and `snapshot_backup_script_test.go`.
@@ -614,6 +651,14 @@ optimize a number nothing can explain.
   fixed-port binding with port-zero listeners, so those tests can join the
   parallel phase. Mass-adding `t.Parallel` without those changes is unsafe, as
   0050 already recorded.
+- Cache-root and generate-hook seams stay in-process. `SCENERY_DEV_CACHE_DIR`
+  remains the only public cache env; `devcache.SetRoot` is not a second knob.
+  Production `internal/build` fails closed when generate hooks are unwired.
+  Evolution tests must not relink generate: live artifact proof belongs in
+  `internal/generate`. Architecture checks enforce compiler↛parse,
+  build↛generate (tests may wire hooks), doctor↛build/generate, and the
+  `devcache`/`gotarget` leaves.
+  Date/Author: 2026-08-19 / Grok.
   Date/Author: 2026-07-28 / Claude.
 
 ## Outcomes & Retrospective
@@ -648,8 +693,8 @@ Read `docs/local-contract.md` § harness self for the stable timing contract and
 2. Cold reduction (partly done): fewer or cheaper links. The lever is the test
    dependency closure of the expensive-to-link packages, not scheduling. The
    app-runtime closure is out of the ten compiler-side packages. What remains,
-   in order of leverage: `internal/generate` anchors `go/types` and `net/http`
-   for `build`, `contractagent`, `evolution`, and `generate`;
+   in order of leverage: `internal/generate` still anchors `go/types` and
+   `net/http` for `build` and `generate` (and for `evolution` tests);
    `internal/compiler` imports `internal/parse` only for `GoTargetContext` and
    `GoTargetEnvironment`, and `net/http` only for two method constants and
    `http.Cookie.Valid`; and `cmd/scenery` is still 39.4MB.

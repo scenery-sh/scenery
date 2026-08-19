@@ -8,9 +8,9 @@ current application graph.
 
 ## Local Contracts
 
-- Depend only on foundational graph/source/spec packages and narrow machine,
-  parser, and model support needed to validate declared contracts and Go target
-  contexts.
+- Depend only on foundational graph/source/spec packages, `internal/gotarget`,
+  and narrow machine and model support needed to validate declared contracts.
+  Do not import `internal/parse`.
 - Compiler results are immutable graph snapshots; evolution, generation, and
   deployment planning consume them without redefining the graph model.
 - Runtime-config-selected, framework-owned endpoint projections belong in
@@ -35,5 +35,5 @@ current application graph.
 ## Verification
 
 ```sh
-go test ./internal/compiler
+go test ./internal/gotarget ./internal/compiler ./internal/parse
 ```

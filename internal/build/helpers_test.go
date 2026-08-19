@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"scenery.sh/internal/compiler"
+	"scenery.sh/internal/devcache"
 )
 
 func TestMain(m *testing.M) {
@@ -18,11 +19,9 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "create build test cache: %v\n", err)
 		os.Exit(1)
 	}
-	if err := os.Setenv("SCENERY_DEV_CACHE_DIR", cacheDir); err != nil {
-		fmt.Fprintf(os.Stderr, "set build test cache: %v\n", err)
-		os.Exit(1)
-	}
+	restore := devcache.SetRoot(cacheDir)
 	code := m.Run()
+	restore()
 	_ = os.RemoveAll(cacheDir)
 	os.Exit(code)
 }

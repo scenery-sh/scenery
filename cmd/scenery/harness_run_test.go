@@ -16,8 +16,7 @@ func TestRunSceneryHarnessJSONSuccessWritesLatest(t *testing.T) {
 	useFakeBuildGoRunner(t)
 
 	root := filepath.Join(t.ArtifactDir(), "harnessapp")
-	cacheRoot := filepath.Join(t.TempDir(), "cache")
-	t.Setenv("SCENERY_DEV_CACHE_DIR", cacheRoot)
+	_ = isolateCommandCacheRootAt(t, filepath.Join(t.TempDir(), "cache"))
 	writeHarnessTestApp(t, root, "harnessapp", "return nil")
 
 	var out bytes.Buffer
@@ -66,8 +65,7 @@ func TestRunSceneryHarnessJSONSuccessWritesLatest(t *testing.T) {
 
 func TestRunSceneryHarnessJSONFailureIncludesNextAction(t *testing.T) {
 	root := t.TempDir()
-	cacheRoot := filepath.Join(t.TempDir(), "cache")
-	t.Setenv("SCENERY_DEV_CACHE_DIR", cacheRoot)
+	_ = isolateCommandCacheRootAt(t, filepath.Join(t.TempDir(), "cache"))
 	writeHarnessTestApp(t, root, "harnessfail", "return nil")
 	writeTestAppFile(t, root, "invalid.scn", "unsupported \"fixture\" {}\n")
 

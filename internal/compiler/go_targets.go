@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"scenery.sh/internal/parse"
+	"scenery.sh/internal/gotarget"
 )
 
 func validateGoTargets(root string, resources []Resource) []Diagnostic {
@@ -117,7 +117,7 @@ func validateGoTargets(root string, resources []Resource) []Diagnostic {
 	return diagnostics
 }
 
-func resolvedGoTargetContext(effective map[string]any, toolchain Resource, context *parse.GoTargetContext) map[string]any {
+func resolvedGoTargetContext(effective map[string]any, toolchain Resource, context *gotarget.Context) map[string]any {
 	resolved := cloneMapValue(effective)
 	goos, goarch := stringValue(effective["goos"]), stringValue(effective["goarch"])
 	if stringValue(effective["platform"]) == "host" {

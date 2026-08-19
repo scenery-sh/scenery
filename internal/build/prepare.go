@@ -9,7 +9,7 @@ import (
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/codegen"
 	"scenery.sh/internal/compiler"
-	"scenery.sh/internal/generate"
+	"scenery.sh/internal/gotarget"
 	"scenery.sh/internal/model"
 	"scenery.sh/internal/parse"
 )
@@ -19,11 +19,14 @@ func Prepare(appRoot string, model *model.App, cfg app.Config) (*Result, error) 
 }
 
 func PrepareWithSnapshot(appRoot string, model *model.App, cfg app.Config, snapshot *SourceSnapshot) (*Result, error) {
+	if err := requireGenerateHooks(); err != nil {
+		return nil, err
+	}
 	contract, err := compiler.Check(appRoot)
 	if err != nil {
 		return nil, err
 	}
-	generate.ApplyCheck(contract, generate.Check(contract))
+	generateHooks.ApplyImplementationCheck(contract)
 	if !contract.Valid() {
 		message := "app contract or generated artifacts are invalid"
 		for _, diagnostic := range contract.Diagnostics {
@@ -45,22 +48,22 @@ func PrepareWithSnapshot(appRoot string, model *model.App, cfg app.Config, snaps
 }
 
 func prepareWithContractTarget(appRoot string, model *model.App, cfg app.Config, snapshot *SourceSnapshot, contract *compiler.Result, target compiler.GoBuildTarget) (*Result, error) {
-	if err := generate.SyncEditorWorkspace(contract); err != nil {
+	if err := generateHooks.SyncEditorWorkspace(contract); err != nil {
 		return nil, err
 	}
-	if _, err := generate.SyncCachedTypeScriptClients(contract); err != nil {
+	if err := generateHooks.SyncCachedTypeScript(contract); err != nil {
 		return nil, err
 	}
-	renderedGo, err := generate.RenderGoWorkspaceFiles(contract)
+	renderedGo, err := generateHooks.RenderGoWorkspaceFiles(contract)
 	if err != nil {
 		return nil, err
 	}
 	if model == nil {
-		overlay, overlayErr := generate.GoVerificationOverlay(contract)
+		overlay, overlayErr := generateHooks.GoVerificationOverlay(contract)
 		if overlayErr != nil {
 			return nil, overlayErr
 		}
-		patterns, patternsErr := generate.GoVerificationPatterns(contract)
+		patterns, patternsErr := generateHooks.GoVerificationPatterns(contract)
 		if patternsErr != nil {
 			return nil, patternsErr
 		}
@@ -70,7 +73,7 @@ func prepareWithContractTarget(appRoot string, model *model.App, cfg app.Config,
 			return nil, err
 		}
 	}
-	runtimePlan, err := generate.BuildRuntimeIntegrationPlan(contract)
+	runtimePlan, err := generateHooks.RuntimeIntegrationPlan(contract)
 	if err != nil {
 		return nil, err
 	}
@@ -169,7 +172,7 @@ func prepareWithContractTarget(appRoot string, model *model.App, cfg app.Config,
 		Contract:                  contract,
 		Target:                    &target,
 	}
-	result.GoEnvironment = parse.GoTargetEnvironment(target.Context)
+	result.GoEnvironment = gotarget.Environment(target.Context)
 	// Runtime bundles are target-specific, so an unbound workspace binary is
 	// never reused across build targets.
 	result.ReuseCompiled = false

@@ -15,7 +15,7 @@ import (
 	"strings"
 	"sync"
 
-	"scenery.sh/internal/parse"
+	"scenery.sh/internal/gotarget"
 )
 
 // Toolchain identity is resolved several times per command — implementation
@@ -70,7 +70,7 @@ func (e *goToolEnvEntry) stillCurrent() bool {
 type goVerificationTarget struct {
 	Resource  Resource
 	Effective map[string]any
-	Context   parse.GoTargetContext
+	Context   gotarget.Context
 }
 
 type GoBuildTarget struct {
@@ -79,7 +79,7 @@ type GoBuildTarget struct {
 	Role      string
 	Effective map[string]any
 	Resolved  map[string]any
-	Context   parse.GoTargetContext
+	Context   gotarget.Context
 }
 
 func ResolveGoBuildTarget(result *Result, name, defaultRole string) (GoBuildTarget, error) {
@@ -201,7 +201,7 @@ func resolveGoVerificationTarget(result *Result, targets map[string]Resource, ta
 	if err != nil {
 		return goVerificationTarget{}, fmt.Errorf("%s: %w", target.Address, err)
 	}
-	context := parse.GoTargetContext{
+	context := gotarget.Context{
 		ModuleRoot:       filepath.Join(result.Root, filepath.FromSlash(stringValue(module.Spec["root"]))),
 		Patterns:         stringValues(effective["packages"]),
 		ToolchainVersion: strings.TrimPrefix(stringValue(toolchain.Spec["version"]), "go"),
@@ -219,7 +219,7 @@ func resolveGoVerificationTarget(result *Result, targets map[string]Resource, ta
 	return goVerificationTarget{Resource: target, Effective: effective, Context: context}, nil
 }
 
-func resolveGoToolIdentities(target *parse.GoTargetContext) error {
+func resolveGoToolIdentities(target *gotarget.Context) error {
 	if target == nil {
 		return fmt.Errorf("Go target context is required")
 	}
@@ -267,8 +267,8 @@ func resolveGoToolIdentities(target *parse.GoTargetContext) error {
 // resolveGoToolEnvironment returns GOROOT/CC/CXX for the target's hermetic
 // environment, reusing a previous resolution when the resolved go binary is
 // unchanged. Failures are never cached, so a transient error does not stick.
-func resolveGoToolEnvironment(target *parse.GoTargetContext) (*goToolEnvEntry, error) {
-	targetEnvironment := parse.GoTargetEnvironment(*target)
+func resolveGoToolEnvironment(target *gotarget.Context) (*goToolEnvEntry, error) {
+	targetEnvironment := gotarget.Environment(*target)
 	key := strings.Join(targetEnvironment, "\x00")
 	if cached, ok := goToolEnvCache.Load(key); ok {
 		if entry, valid := cached.(*goToolEnvEntry); valid && entry.stillCurrent() {

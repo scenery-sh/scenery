@@ -10,13 +10,13 @@ import (
 	"testing"
 
 	"scenery.sh/internal/compiler"
-	"scenery.sh/internal/parse"
+	"scenery.sh/internal/gotarget"
 	"scenery.sh/internal/runtimeassets"
 	"scenery.sh/internal/toolchain"
 )
 
 func TestAssistantAssetTargetUsesExplicitTargetPlatformAndManagedNodePath(t *testing.T) {
-	target := &compiler.GoBuildTarget{Context: parse.GoTargetContext{GOOS: "linux", GOARCH: "amd64"}}
+	target := &compiler.GoBuildTarget{Context: gotarget.Context{GOOS: "linux", GOARCH: "amd64"}}
 	platform, err := assistantAssetTargetPlatform(target)
 	if err != nil {
 		t.Fatal(err)

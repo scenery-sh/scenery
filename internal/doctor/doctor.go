@@ -16,7 +16,7 @@ import (
 
 	localagent "scenery.sh/internal/agent"
 	appcfg "scenery.sh/internal/app"
-	"scenery.sh/internal/build"
+	"scenery.sh/internal/devcache"
 )
 
 // Check statuses and severities used in the scenery.doctor.result payload.
@@ -131,7 +131,7 @@ func DefaultProbeDeps() ProbeDeps {
 		RunCommand:    runCommand,
 		ResourceProbe: defaultResourceProbe{},
 		Getwd:         os.Getwd,
-		CacheRoot:     build.CacheRoot,
+		CacheRoot:     devcache.Root,
 		AgentHome: func() (string, error) {
 			paths, err := localagent.DefaultPaths()
 			if err != nil {

@@ -115,6 +115,12 @@ Architecture invariant: Tauri project and command behavior stays independent
 of the `cmd/scenery` dev supervisor. Agent/session lifecycle remains CLI
 orchestration and does not leak into the desktop integration package.
 
+### `internal/gotarget`
+
+`internal/gotarget` is the tiny shared Go target-context value and hermetic
+environment used by both compiler and parse. Field identity is part of
+implementation revision.
+
 ### `internal/parse`
 
 `internal/parse` is the narrow Go package-analysis boundary used by current
@@ -123,7 +129,7 @@ metadata with `go/packages`; it does not discover application declarations.
 
 Architecture invariant: `golang.org/x/tools/go/packages` is owned by this
 loader boundary. Downstream model consumers receive only model-owned analysis
-data, not the loader package itself.
+data, not the loader package itself. Compiler tests must not import parse.
 
 ### `internal/model`
 
@@ -176,16 +182,20 @@ read, it uses `internal/workspacetx` to recover an abandoned source transaction
 or reject a live owner; staged validation admits only that transaction's owner.
 
 Architecture invariant: compiler depends on the foundational source/spec/graph
-packages. Evolution, generation, deployment, and runtime orchestration consume
+packages and `internal/gotarget`. It does not import `internal/parse`.
+Evolution, generation, deployment, and runtime orchestration consume
 compiler results and never sit below it.
 
 ### `internal/generate`
 
 `internal/generate` renders Go contracts and composition, TypeScript clients,
 OpenAPI projections, generated React page adapters, and the binary-owned
-`@scenery/ui` catalog from one compiler result. The catalog materializes its
-root component barrel and the direct `tokens.stylex.ts` defining module in the
-same artifact-set transaction. Its check path reports both diagnostics and
+`@scenery/ui` catalog from one compiler result. `internal/generate/api` is the
+stdlib-only leaf for `LibraryBuildSpec`, editor-workspace inspection,
+`RuntimeIntegrationPlan`, and assistant-asset descriptor types;
+packages that only need that surface must not import `internal/generate`. The
+catalog materializes its root component barrel and the direct
+`tokens.stylex.ts` defining module in the same artifact-set transaction. Its check path reports both diagnostics and
 whether native implementation verification was requested and valid.
 
 Generated React routes carry static or dynamic path contracts. A
@@ -206,7 +216,8 @@ surfaces.
 
 Architecture invariant: render every selected output before one atomic commit;
 verification is read-only and generated paths stay beneath declared managed
-roots.
+roots. Architecture invariant: `internal/generate/api` stays free of
+compiler, parse, TypeScript verification, and generate itself.
 
 ### `internal/mcpcontract`, `internal/mcpprojection`, `internal/mcpgateway`, and `internal/mcpfederation`
 
@@ -236,7 +247,9 @@ migration consequences, and revision-bound receipts. It shares workspace
 transaction metadata/recovery with the compiler through `internal/workspacetx`.
 
 Architecture invariant: evolution never defines another graph or transaction
-reader. Plans and receipts bind exact current revisions and reject stale or old
+reader. Production evolution does not import `internal/generate`; predicted-
+artifact and implementation checks are injected by CLI and agent sessions.
+Plans and receipts bind exact current revisions and reject stale or old
 disposable shapes.
 
 ### `internal/deployplan`
@@ -271,12 +284,20 @@ Architecture invariant: operation-to-operation calls go through generated
 binding clients when scenery semantics matter. Direct user function calls must
 not bypass auth context, private access rules, tracing, or delivery semantics.
 
+### `internal/devcache`
+
+`internal/devcache` is the stdlib-plus-envpolicy leaf for the scenery
+development cache root. Production honors `SCENERY_DEV_CACHE_DIR`; tests inject
+`SetRoot`. Doctor, build, and CLI resolve the cache here instead of linking
+through `internal/build`.
+
 ### `internal/build`
 
 `internal/build` owns the transient app build workspace. It materializes the
 current generated overlay, syncs source and generated files, tracks
 build fingerprints, runs `go mod tidy` when needed, compiles the app binary, and
-writes latest-build metadata.
+writes latest-build metadata. Generation is injected through `GenerateHooks`;
+the production package does not import `internal/generate`.
 
 When assistants are declared, it also archives the managed child runtime and
 authored assistant capsule, writes verified content-addressed descriptors, and

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/evolution"
 	"scenery.sh/internal/graph"
 	"scenery.sh/internal/machine"
@@ -133,28 +134,47 @@ func TestContractJSONEnvelopeHasStableFields(t *testing.T) {
 func TestContractCheckJSONReportsValidNativeImplementation(t *testing.T) {
 	t.Parallel()
 
-	root := nativeFixtureRoot(t)
+	result := &compiler.Result{
+		ContractStatus:       "valid",
+		ImplementationStatus: "valid",
+		WorkspaceRevision:    "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		Manifest: &graph.Manifest{
+			Application:      graph.ApplicationIdentity{Name: "nativeapp"},
+			ContractRevision: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+			Resources: []graph.Resource{
+				{Kind: "scenery.service", Address: "app/service/api"},
+				{Kind: "scenery.operation", Address: "app/operation/hello"},
+			},
+		},
+	}
+	data := map[string]any{
+		"contract_status":       result.ContractStatus,
+		"implementation_status": result.ImplementationStatus,
+		"manifest_summary":      contractManifestSummary(result.Manifest),
+		"http_surface_revision": result.HTTPSurfaceRevisions,
+		"openapi_revision":      result.OpenAPIRevisions,
+	}
 	var output strings.Builder
-	if err := runContractCheck(&output, []string{"--app-root", root, "-o", "json", "--non-interactive", "--quiet"}); err != nil {
+	if err := writeContractResult(&output, "json", false, result, data); err != nil {
 		t.Fatal(err)
 	}
 	envelope, err := machine.Decode[graph.Diagnostic]([]byte(output.String()), currentMachineSpecRevision())
 	if err != nil {
 		t.Fatal(err)
 	}
-	data, ok := envelope.Data.(map[string]any)
+	decoded, ok := envelope.Data.(map[string]any)
 	if !ok {
 		t.Fatalf("data = %#v", envelope.Data)
 	}
-	if got := data["implementation_status"]; got != "valid" {
+	if got := decoded["implementation_status"]; got != "valid" {
 		t.Fatalf("implementation_status = %#v, want valid", got)
 	}
-	if _, ok := data["manifest"]; ok {
+	if _, ok := decoded["manifest"]; ok {
 		t.Fatal("check output must not embed the full manifest; the graph belongs to compile/list/get")
 	}
-	summary, ok := data["manifest_summary"].(map[string]any)
+	summary, ok := decoded["manifest_summary"].(map[string]any)
 	if !ok {
-		t.Fatalf("manifest_summary = %#v", data["manifest_summary"])
+		t.Fatalf("manifest_summary = %#v", decoded["manifest_summary"])
 	}
 	resources, ok := summary["resources"].(float64)
 	if !ok || resources <= 0 {
@@ -162,6 +182,14 @@ func TestContractCheckJSONReportsValidNativeImplementation(t *testing.T) {
 	}
 	if _, ok := summary["resources_by_kind"].(map[string]any); !ok {
 		t.Fatalf("manifest_summary resources_by_kind = %#v", summary["resources_by_kind"])
+	}
+	var raw map[string]any
+	if err := json.Unmarshal([]byte(output.String()), &raw); err != nil {
+		t.Fatal(err)
+	}
+	schemaPath := filepath.Join(repoRootForTest(t), "docs", "schemas", "scenery.cli.schema.json")
+	if diagnostics := validateHarnessJSONSchemaFile(schemaPath, raw); len(diagnostics) != 0 {
+		t.Fatalf("check CLI envelope diagnostics = %s", strings.Join(diagnostics, "\n"))
 	}
 }
 

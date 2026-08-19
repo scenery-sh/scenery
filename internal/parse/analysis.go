@@ -9,35 +9,15 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"slices"
-	"strconv"
 	"strings"
 
 	"golang.org/x/mod/modfile"
 	"golang.org/x/tools/go/packages"
 
-	"scenery.sh/internal/envpolicy"
+	"scenery.sh/internal/gotarget"
 	"scenery.sh/internal/model"
 )
-
-type GoTargetContext struct {
-	ModuleRoot           string
-	Patterns             []string
-	ToolchainVersion     string
-	GOOS                 string
-	GOARCH               string
-	CGOEnabled           bool
-	Experiments          []string
-	BuildTags            []string
-	BuildFlags           []string
-	ArchitectureEnv      map[string]string
-	NativeToolEnv        map[string]string
-	ToolchainIdentity    map[string]string
-	NativeToolIdentities []map[string]string
-}
-
-const goAnalysisMaxProcs = 2
 
 const moduleLookupDisabled = "module lookup disabled by GOPROXY=off"
 
@@ -45,7 +25,7 @@ func Analyze(root, name string) (*model.App, error) {
 	return analyze(root, name, nil, []string{"./..."}, nil)
 }
 
-func AnalyzeTarget(root, name string, overlay map[string][]byte, target GoTargetContext) (*model.App, error) {
+func AnalyzeTarget(root, name string, overlay map[string][]byte, target gotarget.Context) (*model.App, error) {
 	if len(target.Patterns) == 0 {
 		return nil, errors.New("Go target has no package patterns")
 	}
@@ -56,7 +36,7 @@ func AnalyzeTarget(root, name string, overlay map[string][]byte, target GoTarget
 // but the local module cache cannot provide while network lookup is disabled.
 // It intentionally checks only the target's authored package patterns; staged
 // generated packages are supplied through an overlay during AnalyzeTarget.
-func MissingHermeticModulePackages(target GoTargetContext) ([]string, error) {
+func MissingHermeticModulePackages(target gotarget.Context) ([]string, error) {
 	if len(target.Patterns) == 0 {
 		return nil, errors.New("Go target has no package patterns")
 	}
@@ -69,7 +49,7 @@ func MissingHermeticModulePackages(target GoTargetContext) ([]string, error) {
 	args = append(args, target.Patterns...)
 	command := exec.Command("go", args...)
 	command.Dir = target.ModuleRoot
-	command.Env = hermeticGoEnvironment(&target)
+	command.Env = gotarget.Hermetic(&target)
 	moduleFile, err := os.ReadFile(filepath.Join(target.ModuleRoot, "go.mod"))
 	if err != nil {
 		return nil, fmt.Errorf("read target Go module: %w", err)
@@ -113,7 +93,7 @@ func MissingHermeticModulePackages(target GoTargetContext) ([]string, error) {
 	return slices.Compact(missing), nil
 }
 
-func analyze(root, name string, overlay map[string][]byte, patterns []string, target *GoTargetContext) (*model.App, error) {
+func analyze(root, name string, overlay map[string][]byte, patterns []string, target *gotarget.Context) (*model.App, error) {
 	root, err := filepath.Abs(root)
 	if err != nil {
 		return nil, err
@@ -128,11 +108,11 @@ func analyze(root, name string, overlay map[string][]byte, patterns []string, ta
 		Overlay: overlay,
 	}
 	if overlay != nil {
-		cfg.Env = hermeticGoEnvironment(nil)
+		cfg.Env = gotarget.Hermetic(nil)
 	}
 	if target != nil {
 		cfg.Dir = target.ModuleRoot
-		cfg.Env = hermeticGoEnvironment(target)
+		cfg.Env = gotarget.Hermetic(target)
 		cfg.BuildFlags = append([]string(nil), target.BuildFlags...)
 		if len(target.BuildTags) > 0 {
 			cfg.BuildFlags = append(cfg.BuildFlags, "-tags="+strings.Join(target.BuildTags, ","))
@@ -179,68 +159,6 @@ func analyze(root, name string, overlay map[string][]byte, patterns []string, ta
 		return strings.Compare(left.RelDir, right.RelDir)
 	})
 	return app, nil
-}
-
-func GoTargetEnvironment(target GoTargetContext) []string {
-	return hermeticGoEnvironment(&target)
-}
-
-func hermeticGoEnvironment(target *GoTargetContext) []string {
-	blocked := map[string]bool{
-		"AR": true, "CC": true, "CXX": true, "PKG_CONFIG": true,
-		"CGO_CFLAGS": true, "CGO_CPPFLAGS": true, "CGO_CXXFLAGS": true, "CGO_FFLAGS": true, "CGO_LDFLAGS": true,
-		"CPATH": true, "C_INCLUDE_PATH": true, "CPLUS_INCLUDE_PATH": true, "LIBRARY_PATH": true, "LD_LIBRARY_PATH": true,
-		"DYLD_LIBRARY_PATH": true, "DYLD_FALLBACK_LIBRARY_PATH": true,
-		"CGO_ENABLED": true, "GOARCH": true, "GOENV": true, "GOEXPERIMENT": true, "GOFLAGS": true,
-		"GOMAXPROCS": true, "GOOS": true, "GOPROXY": true, "GOTOOLCHAIN": true, "GOWORK": true,
-		"GO386": true, "GOAMD64": true, "GOARM": true, "GOARM64": true, "GOMIPS": true,
-		"GOMIPS64": true, "GOPPC64": true, "GORISCV64": true, "GOWASM": true,
-	}
-	processEnvironment := envpolicy.Environ()
-	environment := make([]string, 0, len(processEnvironment)+10)
-	for _, value := range processEnvironment {
-		name, _, _ := strings.Cut(value, "=")
-		if !blocked[name] {
-			environment = append(environment, value)
-		}
-	}
-	goos, goarch, cgo, experiments := runtime.GOOS, runtime.GOARCH, "0", ""
-	if target != nil {
-		goos, goarch = target.GOOS, target.GOARCH
-		if target.CGOEnabled {
-			cgo = "1"
-		}
-		experiments = strings.Join(target.Experiments, ",")
-	}
-	environment = append(environment,
-		"CGO_ENABLED="+cgo,
-		"GOARCH="+goarch,
-		"GOENV=off",
-		"GOEXPERIMENT="+experiments,
-		"GOFLAGS=",
-		"GOMAXPROCS="+strconv.Itoa(min(runtime.GOMAXPROCS(0), goAnalysisMaxProcs)),
-		"GOOS="+goos,
-		"GOPROXY=off",
-		"GOTOOLCHAIN="+resolvedGoToolchain(target),
-		"GOWORK=off",
-	)
-	if target != nil {
-		for name, value := range target.ArchitectureEnv {
-			environment = append(environment, name+"="+value)
-		}
-		for name, value := range target.NativeToolEnv {
-			environment = append(environment, name+"="+value)
-		}
-	}
-	slices.Sort(environment)
-	return environment
-}
-
-func resolvedGoToolchain(target *GoTargetContext) string {
-	if target == nil || strings.TrimSpace(target.ToolchainVersion) == "" {
-		return "local"
-	}
-	return "go" + strings.TrimPrefix(strings.TrimSpace(target.ToolchainVersion), "go")
 }
 
 func packageFilePaths(pkg *packages.Package) []string {

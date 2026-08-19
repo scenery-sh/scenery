@@ -457,7 +457,11 @@ func buildInspectBuildResponse(appRoot string, cfg appcfg.Config) (inspectBuildR
 		}, nil
 	}
 
-	workspaceDir, err := build.WorkspaceDir(appRoot, cfg.Name)
+	cacheRoot, err := commandCacheRoot()
+	if err != nil {
+		return inspectBuildResponse{}, err
+	}
+	workspaceDir, err := build.WorkspaceDirAt(cacheRoot, appRoot, cfg.Name)
 	if err != nil {
 		return inspectBuildResponse{}, err
 	}
@@ -489,15 +493,15 @@ func buildInspectBuildResponse(appRoot string, cfg appcfg.Config) (inspectBuildR
 }
 
 func buildInspectPathsResponse(appRoot string, cfg appcfg.Config) (inspectPathsResponse, error) {
-	cacheRoot, err := build.CacheRoot()
+	cacheRoot, err := commandCacheRoot()
 	if err != nil {
 		return inspectPathsResponse{}, err
 	}
-	workspaceDir, err := build.WorkspaceDir(appRoot, cfg.Name)
+	workspaceDir, err := build.WorkspaceDirAt(cacheRoot, appRoot, cfg.Name)
 	if err != nil {
 		return inspectPathsResponse{}, err
 	}
-	statePath, err := build.BuildStatePath(appRoot, cfg.Name)
+	statePath, err := build.BuildStatePathAt(cacheRoot, appRoot, cfg.Name)
 	if err != nil {
 		return inspectPathsResponse{}, err
 	}

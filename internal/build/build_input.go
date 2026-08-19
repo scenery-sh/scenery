@@ -15,8 +15,8 @@ import (
 	"sort"
 	"strings"
 
+	"scenery.sh/internal/gotarget"
 	"scenery.sh/internal/machine"
-	"scenery.sh/internal/parse"
 )
 
 const (
@@ -81,7 +81,7 @@ func buildInputManifest(ctx context.Context, result *Result) (*BuildInputManifes
 	args = append(args, patterns...)
 	command := exec.CommandContext(ctx, "go", args...)
 	command.Dir = result.Dir
-	command.Env = parse.GoTargetEnvironment(target.Context)
+	command.Env = gotarget.Environment(target.Context)
 	output, err := command.CombinedOutput()
 	if err != nil {
 		return nil, fmt.Errorf("go %s failed while producing build inputs: %w\n%s", strings.Join(args, " "), err, output)

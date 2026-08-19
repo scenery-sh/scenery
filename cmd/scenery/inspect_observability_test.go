@@ -11,8 +11,7 @@ import (
 
 func TestRunSceneryInspectTracesWithFilters(t *testing.T) {
 	root := t.TempDir()
-	cacheRoot := t.TempDir()
-	t.Setenv("SCENERY_DEV_CACHE_DIR", cacheRoot)
+	cacheRoot := isolateCommandCacheRoot(t)
 	t.Setenv("SCENERY_DEV_VICTORIA", "0")
 	writeTestAppFile(t, root, ".scenery.json", `{"name":"obsapp","id":"obs-id"}`)
 
@@ -50,8 +49,7 @@ func TestRunSceneryInspectTracesWithFilters(t *testing.T) {
 
 func TestRunSceneryInspectMetricsAggregatesTracesAndLogs(t *testing.T) {
 	root := t.TempDir()
-	cacheRoot := t.TempDir()
-	t.Setenv("SCENERY_DEV_CACHE_DIR", cacheRoot)
+	cacheRoot := isolateCommandCacheRoot(t)
 	t.Setenv("SCENERY_DEV_VICTORIA", "0")
 	writeTestAppFile(t, root, ".scenery.json", `{"name":"obsapp","id":"obs-id"}`)
 
@@ -98,8 +96,7 @@ func TestRunSceneryInspectMetricsAggregatesTracesAndLogs(t *testing.T) {
 func TestRunSceneryInspectUsesSessionAppRecordWhenLatestAppRootDiffers(t *testing.T) {
 	root := t.TempDir()
 	otherRoot := t.TempDir()
-	cacheRoot := t.TempDir()
-	t.Setenv("SCENERY_DEV_CACHE_DIR", cacheRoot)
+	cacheRoot := isolateCommandCacheRoot(t)
 	t.Setenv("SCENERY_DEV_VICTORIA", "0")
 	writeTestAppFile(t, root, ".scenery.json", `{"name":"obsapp","id":"obs-id"}`)
 

@@ -4,11 +4,11 @@ import (
 	"runtime"
 	"testing"
 
-	"scenery.sh/internal/parse"
+	"scenery.sh/internal/gotarget"
 )
 
-func newToolchainIdentityTarget() parse.GoTargetContext {
-	return parse.GoTargetContext{
+func newToolchainIdentityTarget() gotarget.Context {
+	return gotarget.Context{
 		ModuleRoot: ".",
 		Patterns:   []string{"./..."},
 		GOOS:       runtime.GOOS,

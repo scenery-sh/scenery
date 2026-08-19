@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"scenery.sh/internal/compiler"
-	"scenery.sh/internal/parse"
+	"scenery.sh/internal/gotarget"
 )
 
 func TestBuildInputManifestIncludesLocalReplaceBytes(t *testing.T) {
@@ -31,7 +31,7 @@ func TestBuildInputManifestIncludesLocalReplaceBytes(t *testing.T) {
 	write(filepath.Join(appRoot, "go.mod"), "module example.test/app\n\ngo 1.26\n\nrequire example.test/dependency v0.0.0\nreplace example.test/dependency => ../dependency\n")
 	write(filepath.Join(appRoot, "scenery_internal_main", "main.go"), "package main\n\nimport _ \"example.test/dependency\"\n\nfunc main() {}\n")
 	result := &Result{AppRoot: appRoot, Dir: appRoot, Target: &compiler.GoBuildTarget{
-		Name: "development", Context: parse.GoTargetContext{ModuleRoot: appRoot, Patterns: []string{"./..."}, GOOS: runtime.GOOS, GOARCH: runtime.GOARCH},
+		Name: "development", Context: gotarget.Context{ModuleRoot: appRoot, Patterns: []string{"./..."}, GOOS: runtime.GOOS, GOARCH: runtime.GOARCH},
 	}}
 	before, err := buildInputManifest(context.Background(), result)
 	if err != nil {
