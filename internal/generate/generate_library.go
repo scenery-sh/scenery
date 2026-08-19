@@ -8,19 +8,11 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	generateapi "scenery.sh/internal/generate/api"
 )
 
-type LibraryBuildSpec struct {
-	Address        string
-	Name           string
-	Artifact       string
-	Version        string
-	ABIHash        string
-	ExportPackage  string
-	ExportBuildTag string
-}
-
-func LibraryBuildSpecs(result *Result) ([]LibraryBuildSpec, error) {
+func LibraryBuildSpecs(result *Result) ([]generateapi.LibraryBuildSpec, error) {
 	if result == nil || result.Manifest == nil || !result.Valid() {
 		return nil, fmt.Errorf("cannot resolve libraries from invalid contract")
 	}
@@ -29,7 +21,7 @@ func LibraryBuildSpecs(result *Result) ([]LibraryBuildSpec, error) {
 	for _, module := range localModuleInstances(result.Manifest.Resources) {
 		modules[moduleInstancePath(module)] = module
 	}
-	var specs []LibraryBuildSpec
+	var specs []generateapi.LibraryBuildSpec
 	for _, library := range result.Manifest.Resources {
 		if library.Kind != "scenery.library" || library.Origin.Kind != "authored" || stringValue(library.Spec["runtime"]) != "go" {
 			continue
@@ -54,7 +46,7 @@ func LibraryBuildSpecs(result *Result) ([]LibraryBuildSpec, error) {
 		if err != nil {
 			return nil, err
 		}
-		specs = append(specs, LibraryBuildSpec{
+		specs = append(specs, generateapi.LibraryBuildSpec{
 			Address: library.Address, Name: library.Name, Artifact: artifactName,
 			Version: stringValue(library.Spec["version"]), ABIHash: abi,
 			ExportPackage:  "./" + filepath.ToSlash(filepath.Join(filepath.FromSlash(source), libraryFacadeDirectory(library.Name), "export")),

@@ -7,10 +7,9 @@ import (
 	"strings"
 
 	"scenery.sh/internal/compiler"
-	"scenery.sh/internal/generate"
 )
 
-func validateStagedWorkspace(root string, checkGenerated bool) (*Result, map[string]workspaceFile, error) {
+func validateStagedWorkspace(root string, checkGenerated func(*compiler.Result)) (*Result, map[string]workspaceFile, error) {
 	before, err := snapshotWorkspaceFiles(root)
 	if err != nil {
 		return nil, nil, err
@@ -19,8 +18,8 @@ func validateStagedWorkspace(root string, checkGenerated bool) (*Result, map[str
 	if err != nil {
 		return result, nil, err
 	}
-	if checkGenerated {
-		generate.ApplyCheck(result, generate.Check(result))
+	if checkGenerated != nil {
+		checkGenerated(result)
 	}
 	after, err := snapshotWorkspaceFiles(root)
 	if err != nil {

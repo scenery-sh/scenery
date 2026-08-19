@@ -115,7 +115,7 @@ func TestCommittedResultRevalidationDetectsWorkspaceDrift(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer os.RemoveAll(stagedRoot)
-	staged, checkedFiles, err := validateStagedWorkspace(stagedRoot, false)
+	staged, checkedFiles, err := validateStagedWorkspace(stagedRoot, nil)
 	if err != nil || !staged.Valid() {
 		t.Fatalf("staged compile: %v diagnostics=%#v", err, staged.Diagnostics)
 	}

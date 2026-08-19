@@ -4,11 +4,21 @@
 
 `internal/generate` owns deterministic Go contracts, runtime composition,
 TypeScript clients, OpenAPI documents, and their generated-file transactions.
+`internal/generate/api` is the stdlib-only leaf for library build specs,
+editor-workspace inspection, runtime-integration plans, and assistant-asset
+descriptor types so callers that do not render artifacts do not link the
+generator. Production `internal/build` consumes those types through injected
+hooks; CLI wires the live generate functions.
 
 ## Local Contracts
 
 - Consume immutable `internal/compiler.Result` and canonical `internal/graph`
   resources; never depend on legacy umbrella packages.
+- Keep `internal/generate/api` free of compiler, parse, tscheck, and generate
+  imports. Types and editor-workspace inspection live there; rendering and
+  verification stay in `internal/generate`.
+- Live predicted-artifact and native implementation-check coverage lives here,
+  not in `internal/evolution` tests.
 - Render Go artifacts into external build/editor workspaces by default; source
   materialization is an explicit published-module export.
 - For declared Go libraries, render the typed `scenerylib_<name>` facade,
@@ -23,7 +33,7 @@ TypeScript clients, OpenAPI documents, and their generated-file transactions.
   binary-owned UI catalog from its editable source at `ui/` into the
   same artifact transaction. Generated pages use the consuming app's TanStack
   Query client for caching, deduplication, retry, and invalidation. Typecheck a
-  sibling staging tree with the exact managed native checker before commit;
+  sibling staging tree with the exact managed TypeScript 7 `tsc` before commit;
   redirect the consuming app's `@scenery/ui` aliases to that sibling tree while
   preserving its other resolved TypeScript path aliases, so a catalog API
   cutover verifies atomically against the replacement rather than the previous
@@ -42,7 +52,7 @@ TypeScript clients, OpenAPI documents, and their generated-file transactions.
 ## Verification
 
 ```sh
-go test ./internal/generate
+go test ./internal/generate ./internal/generate/api
 go test ./cmd/scenery -run 'TestGenerate'
 bun test internal/generate/testdata/typescript_client_conformance.test.ts
 apps/console/node_modules/.bin/tsc -p internal/generate/testdata/tsconfig.generated-clients.json

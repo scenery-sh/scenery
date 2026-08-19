@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"scenery.sh/internal/compiler"
-	"scenery.sh/internal/generate"
 	"scenery.sh/internal/scn"
 )
 
@@ -65,10 +64,16 @@ func hasSCNErrors(diagnostics []scn.Diagnostic) bool {
 	return false
 }
 
+func init() {
+	testCheckPredictedGoContracts = func(*compiler.Result) error { return nil }
+	testCheckPredictedTypeScript = func(*compiler.Result) error { return nil }
+	testCheckGenerated = func(*compiler.Result) {}
+}
+
 func Check(root string) (*Result, error) {
 	result, err := compiler.Compile(root)
-	if err == nil {
-		generate.ApplyCheck(result, generate.Check(result))
+	if err == nil && testCheckGenerated != nil {
+		testCheckGenerated(result)
 	}
 	return result, err
 }

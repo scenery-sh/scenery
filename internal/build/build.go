@@ -6,7 +6,7 @@ import (
 
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/compiler"
-	"scenery.sh/internal/generate"
+	generateapi "scenery.sh/internal/generate/api"
 	"scenery.sh/internal/machine"
 )
 
@@ -41,7 +41,7 @@ type Result struct {
 	Target                  *compiler.GoBuildTarget
 	BuildInput              *BuildInputManifest
 	ImplementationRevisions map[string]string
-	AssistantAssets         []generate.AssistantAssetDescriptor
+	AssistantAssets         []generateapi.AssistantAssetDescriptor
 	ProductionAssets        bool
 }
 

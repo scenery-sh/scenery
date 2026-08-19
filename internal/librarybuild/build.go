@@ -19,14 +19,14 @@ import (
 
 	"scenery.sh/internal/atomicfile"
 	"scenery.sh/internal/envpolicy"
-	"scenery.sh/internal/generate"
+	generateapi "scenery.sh/internal/generate/api"
 	scenerylibrary "scenery.sh/library"
 )
 
 type Options struct {
 	Workspace string
 	OutputDir string
-	Spec      generate.LibraryBuildSpec
+	Spec      generateapi.LibraryBuildSpec
 	Version   string
 	Platforms []string
 }

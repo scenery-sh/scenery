@@ -11,7 +11,7 @@ import (
 	"strings"
 
 	"scenery.sh/internal/compiler"
-	"scenery.sh/internal/generate"
+	generateapi "scenery.sh/internal/generate/api"
 	"scenery.sh/internal/machine"
 )
 
@@ -37,7 +37,7 @@ type RuntimeBundleDescriptor struct {
 	BuildInput             *BuildInputManifest                 `json:"build_input_manifest"`
 	ResolvedGoTarget       map[string]any                      `json:"resolved_go_target"`
 	RuntimeABI             string                              `json:"runtime_abi"`
-	AssistantAssets        []generate.AssistantAssetDescriptor `json:"assistant_assets,omitempty"`
+	AssistantAssets        []generateapi.AssistantAssetDescriptor `json:"assistant_assets,omitempty"`
 }
 
 func prepareRuntimeBundle(ctx context.Context, result *Result) error {
@@ -97,7 +97,7 @@ func writeRuntimeBundle(result *Result) error {
 		Application: result.Contract.Manifest.Application.Name, Target: result.Target.Name,
 		ContractRevision:       result.Contract.Manifest.ContractRevision,
 		ImplementationRevision: result.ImplementationRevisions[result.Target.Name], BuildInput: result.BuildInput,
-		ResolvedGoTarget: result.Target.Resolved, RuntimeABI: "scenery.go-runtime/v1", AssistantAssets: append([]generate.AssistantAssetDescriptor(nil), result.AssistantAssets...),
+		ResolvedGoTarget: result.Target.Resolved, RuntimeABI: "scenery.go-runtime/v1", AssistantAssets: append([]generateapi.AssistantAssetDescriptor(nil), result.AssistantAssets...),
 	}
 	data, err := json.MarshalIndent(descriptor, "", "  ")
 	if err != nil {

@@ -20,7 +20,7 @@ import (
 	"scenery.sh/internal/assistantadapter/eve"
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/envpolicy"
-	"scenery.sh/internal/generate"
+	generateapi "scenery.sh/internal/generate/api"
 	"scenery.sh/internal/mcpprojection"
 	"scenery.sh/internal/runtimeassets"
 	"scenery.sh/internal/toolchain"
@@ -69,7 +69,7 @@ func prepareAssistantRuntimeAssets(ctx context.Context, result *Result) error {
 	if err := os.MkdirAll(workspaceAssetRoot, 0o700); err != nil {
 		return err
 	}
-	inputs := make([]generate.AssistantAssetInput, 0, len(assistants))
+	inputs := make([]generateapi.AssistantAssetInput, 0, len(assistants))
 	for _, assistant := range assistants {
 		input, err := buildAssistantAsset(ctx, result, assistant, platform, nodeArchive, workspaceAssetRoot)
 		if err != nil {
@@ -77,7 +77,7 @@ func prepareAssistantRuntimeAssets(ctx context.Context, result *Result) error {
 		}
 		inputs = append(inputs, input)
 	}
-	files, err := generate.RenderAssistantAssetRegistry(result.Contract, inputs)
+	files, err := generateHooks.RenderAssistantAssets(result.Contract, inputs)
 	if err != nil {
 		return err
 	}
@@ -90,7 +90,7 @@ func prepareAssistantRuntimeAssets(ctx context.Context, result *Result) error {
 	}
 	sort.Strings(paths)
 	result.GeneratedFiles = appendUniquePaths(result.GeneratedFiles, paths...)
-	result.AssistantAssets = make([]generate.AssistantAssetDescriptor, 0, len(inputs))
+	result.AssistantAssets = make([]generateapi.AssistantAssetDescriptor, 0, len(inputs))
 	for _, input := range inputs {
 		result.AssistantAssets = append(result.AssistantAssets, input.Descriptor)
 	}
@@ -106,7 +106,7 @@ func prepareAssistantRuntimeAssets(ctx context.Context, result *Result) error {
 	return nil
 }
 
-func validateAssistantRuntimeDependency(appRoot string, assistant generate.Resource) error {
+func validateAssistantRuntimeDependency(appRoot string, assistant compiler.Resource) error {
 	implementation, _ := assistant.Spec["implementation"].(map[string]any)
 	packageRelative := stringValueForBuild(implementation["package"])
 	packagePath, err := appRelativePath(appRoot, packageRelative)
@@ -167,7 +167,7 @@ func assistantAssetTargetPlatform(target *compiler.GoBuildTarget) (toolchain.Pla
 	return platform, nil
 }
 
-func writeAssistantAssetSidecars(appRoot, target string, descriptors []generate.AssistantAssetDescriptor) error {
+func writeAssistantAssetSidecars(appRoot, target string, descriptors []generateapi.AssistantAssetDescriptor) error {
 	root := filepath.Join(appRoot, ".scenery", "build", "assets", safeAssetKey(target))
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		return err
@@ -219,8 +219,8 @@ func writeAtomicBuildFile(path string, data []byte) error {
 	return os.Rename(temporaryPath, path)
 }
 
-func assistantBuildResources(resources []generate.Resource) []generate.Resource {
-	assistants := make([]generate.Resource, 0)
+func assistantBuildResources(resources []compiler.Resource) []compiler.Resource {
+	assistants := make([]compiler.Resource, 0)
 	for _, resource := range resources {
 		if resource.Kind == "scenery.assistant" && strings.TrimSpace(resource.Address) != "" {
 			assistants = append(assistants, resource)
@@ -266,57 +266,57 @@ func resolveManagedNodeHome(ctx context.Context, appRoot string, platform toolch
 	return filepath.Clean(status.HomePath), nil
 }
 
-func buildAssistantAsset(ctx context.Context, result *Result, assistant generate.Resource, platform toolchain.Platform, nodeArchive runtimeassets.Archive, assetRoot string) (generate.AssistantAssetInput, error) {
+func buildAssistantAsset(ctx context.Context, result *Result, assistant compiler.Resource, platform toolchain.Platform, nodeArchive runtimeassets.Archive, assetRoot string) (generateapi.AssistantAssetInput, error) {
 	implementation, _ := assistant.Spec["implementation"].(map[string]any)
 	sourceRelative := stringValueForBuild(implementation["source"])
 	packageRelative := stringValueForBuild(implementation["package"])
 	lockRelative := stringValueForBuild(implementation["package_lock"])
 	sourceRoot, err := appRelativePath(result.AppRoot, sourceRelative)
 	if err != nil {
-		return generate.AssistantAssetInput{}, fmt.Errorf("assistant %s source: %w", assistant.Address, err)
+		return generateapi.AssistantAssetInput{}, fmt.Errorf("assistant %s source: %w", assistant.Address, err)
 	}
 	packagePath, err := appRelativePath(result.AppRoot, packageRelative)
 	if err != nil {
-		return generate.AssistantAssetInput{}, fmt.Errorf("assistant %s package: %w", assistant.Address, err)
+		return generateapi.AssistantAssetInput{}, fmt.Errorf("assistant %s package: %w", assistant.Address, err)
 	}
 	lockPath, err := appRelativePath(result.AppRoot, lockRelative)
 	if err != nil {
-		return generate.AssistantAssetInput{}, fmt.Errorf("assistant %s package lock: %w", assistant.Address, err)
+		return generateapi.AssistantAssetInput{}, fmt.Errorf("assistant %s package lock: %w", assistant.Address, err)
 	}
 	if filepath.Dir(packagePath) != filepath.Clean(sourceRoot) || filepath.Dir(lockPath) != filepath.Clean(sourceRoot) {
-		return generate.AssistantAssetInput{}, fmt.Errorf("assistant %s package and lock must be directly inside source root", assistant.Address)
+		return generateapi.AssistantAssetInput{}, fmt.Errorf("assistant %s package and lock must be directly inside source root", assistant.Address)
 	}
 	packageBefore, err := os.ReadFile(packagePath)
 	if err != nil {
-		return generate.AssistantAssetInput{}, fmt.Errorf("read assistant %s package: %w", assistant.Address, err)
+		return generateapi.AssistantAssetInput{}, fmt.Errorf("read assistant %s package: %w", assistant.Address, err)
 	}
 	lockBefore, err := os.ReadFile(lockPath)
 	if err != nil {
-		return generate.AssistantAssetInput{}, fmt.Errorf("read assistant %s package lock: %w", assistant.Address, err)
+		return generateapi.AssistantAssetInput{}, fmt.Errorf("read assistant %s package lock: %w", assistant.Address, err)
 	}
 	lockDigest := digestBytesForBuild(lockBefore)
 	key := strings.TrimPrefix(lockDigest, "sha256:")
 	overlayRoot := filepath.Join(assetRoot, "overlays", safeAssetKey(assistant.Address)+"-"+key)
 	if _, err := os.Lstat(overlayRoot); err == nil {
 		if err := removeGeneratedAssistantTree(assetRoot, overlayRoot); err != nil {
-			return generate.AssistantAssetInput{}, err
+			return generateapi.AssistantAssetInput{}, err
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
-		return generate.AssistantAssetInput{}, err
+		return generateapi.AssistantAssetInput{}, err
 	}
 	// A deterministic placeholder is used at build time. Supervision supplies
 	// the live loopback addresses to the extracted child through its private
 	// runtime configuration; no URL or token enters the asset descriptor.
 	if result.Contract == nil || !result.Contract.Valid() {
-		return generate.AssistantAssetInput{}, fmt.Errorf("project assistant %s MCP approval policy: failed_precondition: compiler result is invalid", assistant.Address)
+		return generateapi.AssistantAssetInput{}, fmt.Errorf("project assistant %s MCP approval policy: failed_precondition: compiler result is invalid", assistant.Address)
 	}
 	expanded, err := result.Contract.ManifestForView("expanded")
 	if err != nil {
-		return generate.AssistantAssetInput{}, fmt.Errorf("project assistant %s MCP approval policy: failed_precondition: %w", assistant.Address, err)
+		return generateapi.AssistantAssetInput{}, fmt.Errorf("project assistant %s MCP approval policy: failed_precondition: %w", assistant.Address, err)
 	}
 	manifest, err := mcpprojection.ProjectManifest(expanded, result.Contract.WorkspaceRevision, referenceValueForBuild(assistant.Spec["mcp_server"]))
 	if err != nil {
-		return generate.AssistantAssetInput{}, fmt.Errorf("project assistant %s MCP approval policy: %w", assistant.Address, err)
+		return generateapi.AssistantAssetInput{}, fmt.Errorf("project assistant %s MCP approval policy: %w", assistant.Address, err)
 	}
 	overlay, err := eve.MaterializeOverlay(eve.OverlayRequest{
 		SourceRoot: sourceRoot, OverlayRoot: overlayRoot, AssistantAddress: assistant.Address,
@@ -325,68 +325,68 @@ func buildAssistantAsset(ctx context.Context, result *Result, assistant generate
 		ControlURL:         "http://127.0.0.1:1", MCPURL: "http://127.0.0.1:1",
 	})
 	if err != nil {
-		return generate.AssistantAssetInput{}, fmt.Errorf("materialize assistant %s overlay: %w", assistant.Address, err)
+		return generateapi.AssistantAssetInput{}, fmt.Errorf("materialize assistant %s overlay: %w", assistant.Address, err)
 	}
 	// Resolve the executable from the selected target store rather than PATH.
 	managedHome, err := nodeHomeForArchive(result.AppRoot, platform)
 	if err != nil {
-		return generate.AssistantAssetInput{}, err
+		return generateapi.AssistantAssetInput{}, err
 	}
 	cacheRoot := filepath.Join(result.AppRoot, ".scenery", "assistant-cache", platform.DirName(), key)
 	if err := os.MkdirAll(cacheRoot, 0o700); err != nil {
-		return generate.AssistantAssetInput{}, err
+		return generateapi.AssistantAssetInput{}, err
 	}
 	if err := runManagedNPM(ctx, managedHome, overlay.Root, cacheRoot, "ci", "--ignore-scripts", "--no-audit", "--no-fund", "--prefer-offline"); err != nil {
-		return generate.AssistantAssetInput{}, fmt.Errorf("install assistant %s dependencies from exact lock: %w", assistant.Address, err)
+		return generateapi.AssistantAssetInput{}, fmt.Errorf("install assistant %s dependencies from exact lock: %w", assistant.Address, err)
 	}
 	if err := ensureFileUnchanged(packagePath, packageBefore); err != nil {
-		return generate.AssistantAssetInput{}, fmt.Errorf("assistant %s package changed during build: %w", assistant.Address, err)
+		return generateapi.AssistantAssetInput{}, fmt.Errorf("assistant %s package changed during build: %w", assistant.Address, err)
 	}
 	if err := ensureFileUnchanged(lockPath, lockBefore); err != nil {
-		return generate.AssistantAssetInput{}, fmt.Errorf("assistant %s package lock changed during build: %w", assistant.Address, err)
+		return generateapi.AssistantAssetInput{}, fmt.Errorf("assistant %s package lock changed during build: %w", assistant.Address, err)
 	}
 	eveCLI := filepath.Join(managedHome, "lib", "node_modules", "npm", "node_modules", "eve", "bin", "eve.js")
 	// Eve is an application dependency, not part of npm's own installation.
 	eveCLI = filepath.Join(overlay.Root, "node_modules", "eve", "bin", "eve.js")
 	if _, err := os.Stat(eveCLI); err != nil {
-		return generate.AssistantAssetInput{}, fmt.Errorf("assistant %s exact lock did not install Eve CLI: %w", assistant.Address, err)
+		return generateapi.AssistantAssetInput{}, fmt.Errorf("assistant %s exact lock did not install Eve CLI: %w", assistant.Address, err)
 	}
 	if err := runManagedNodeWithEnv(ctx, managedHome, overlay.Root, []string{eveCLI, "build", "--skip-sandbox-prewarm"}, []string{"SCENERY_MCP_URL=http://127.0.0.1:1"}); err != nil {
-		return generate.AssistantAssetInput{}, fmt.Errorf("compile assistant %s capsule: %w", assistant.Address, err)
+		return generateapi.AssistantAssetInput{}, fmt.Errorf("compile assistant %s capsule: %w", assistant.Address, err)
 	}
 	capsuleRoot := filepath.Join(assetRoot, "capsules", safeAssetKey(assistant.Address)+"-"+key)
 	if _, err := os.Lstat(capsuleRoot); err == nil {
 		if err := removeGeneratedAssistantTree(assetRoot, capsuleRoot); err != nil {
-			return generate.AssistantAssetInput{}, err
+			return generateapi.AssistantAssetInput{}, err
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
-		return generate.AssistantAssetInput{}, err
+		return generateapi.AssistantAssetInput{}, err
 	}
 	if err := copyDeterministicCapsule(overlay.Root, capsuleRoot); err != nil {
-		return generate.AssistantAssetInput{}, fmt.Errorf("stage assistant %s capsule: %w", assistant.Address, err)
+		return generateapi.AssistantAssetInput{}, fmt.Errorf("stage assistant %s capsule: %w", assistant.Address, err)
 	}
 	capsuleArchive, err := runtimeassets.BuildArchive(capsuleRoot)
 	if err != nil {
-		return generate.AssistantAssetInput{}, fmt.Errorf("archive assistant %s capsule: %w", assistant.Address, err)
+		return generateapi.AssistantAssetInput{}, fmt.Errorf("archive assistant %s capsule: %w", assistant.Address, err)
 	}
 	nodeDescriptorJSON, err := json.Marshal(nodeArchive.Descriptor)
 	if err != nil {
-		return generate.AssistantAssetInput{}, fmt.Errorf("marshal managed Node descriptor for assistant %s: %w", assistant.Address, err)
+		return generateapi.AssistantAssetInput{}, fmt.Errorf("marshal managed Node descriptor for assistant %s: %w", assistant.Address, err)
 	}
 	capsuleDescriptorJSON, err := json.Marshal(capsuleArchive.Descriptor)
 	if err != nil {
-		return generate.AssistantAssetInput{}, fmt.Errorf("marshal assistant %s capsule descriptor: %w", assistant.Address, err)
+		return generateapi.AssistantAssetInput{}, fmt.Errorf("marshal assistant %s capsule descriptor: %w", assistant.Address, err)
 	}
 	runtimeRevision := assistantRuntimeRevisionForBuild(result)
-	descriptor := generate.AssistantAssetDescriptor{
-		Kind: generate.AssistantAssetDescriptorKind, SchemaRevision: generate.AssistantAssetSchemaRevision,
+	descriptor := generateapi.AssistantAssetDescriptor{
+		Kind: generateapi.AssistantAssetDescriptorKind, SchemaRevision: runtimeassets.AssistantAssetSchemaRevision,
 		AssistantAddress: assistant.Address, Target: platform.String(), RuntimeRevision: runtimeRevision,
 		CapabilityRevision: result.Contract.Manifest.ContractRevision,
 		NodeArchiveDigest:  nodeArchive.ArchiveDigest, NodeTreeDigest: nodeArchive.Descriptor.Digest,
 		CapsuleArchiveDigest: capsuleArchive.ArchiveDigest, CapsuleTreeDigest: capsuleArchive.Descriptor.Digest,
-		CapsuleEntry: generate.AssistantAssetCapsuleEntry, PackageLockDigest: lockDigest,
+		CapsuleEntry: generateapi.AssistantAssetCapsuleEntry, PackageLockDigest: lockDigest,
 	}
-	return generate.AssistantAssetInput{Descriptor: descriptor, NodeArchive: nodeArchive.Data, NodeDescriptorJSON: nodeDescriptorJSON, CapsuleArchive: capsuleArchive.Data, CapsuleDescriptorJSON: capsuleDescriptorJSON}, nil
+	return generateapi.AssistantAssetInput{Descriptor: descriptor, NodeArchive: nodeArchive.Data, NodeDescriptorJSON: nodeDescriptorJSON, CapsuleArchive: capsuleArchive.Data, CapsuleDescriptorJSON: capsuleDescriptorJSON}, nil
 }
 
 func nodeHomeForArchive(appRoot string, platform toolchain.Platform) (string, error) {

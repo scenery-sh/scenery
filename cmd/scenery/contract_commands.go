@@ -64,9 +64,12 @@ func runContractAgentServer(stdin io.Reader, stdout io.Writer, args []string) er
 	scanner.Buffer(make([]byte, 64*1024), 2_000_000)
 	encoder := json.NewEncoder(stdout)
 	session := contractagent.NewAgentSessionWithContext(contractagent.AgentExecutionContext{
-		Principal:           "local",
-		GrantedCapabilities: []string{"scenery.agent-mutation"},
-		AppRoot:             root,
+		Principal:                 "local",
+		GrantedCapabilities:       []string{"scenery.agent-mutation"},
+		AppRoot:                   root,
+		CheckPredictedGoContracts: generate.CheckPredictedGoContracts,
+		CheckPredictedTypeScript:  generate.CheckPredictedTypeScriptClients,
+		CheckGenerated:            generate.ApplyImplementationCheck,
 	})
 	for scanner.Scan() {
 		var request contractagent.AgentRequest
@@ -130,7 +133,7 @@ func runContractChanges(stdout io.Writer, args []string) error {
 		if err != nil {
 			return err
 		}
-		plan, err := evolution.PlanChanges(root, evolution.ChangeRequest{BaseWorkspaceRevision: baseWorkspace, BaseContractRevision: revisionFlag(baseContract), Caller: "local", Operations: operations})
+		plan, err := evolution.PlanChanges(root, withPredictedGenerateChecks(evolution.ChangeRequest{BaseWorkspaceRevision: baseWorkspace, BaseContractRevision: revisionFlag(baseContract), Caller: "local", Operations: operations}))
 		if err != nil {
 			return err
 		}
@@ -171,7 +174,7 @@ func runContractChanges(stdout io.Writer, args []string) error {
 		if err != nil {
 			return err
 		}
-		receipt, err := evolution.ApplyChangePlanWithOptions(root, plan, evolution.ApplyOptions{ExpectedWorkspaceRevision: expectWorkspace, ExpectedContractRevision: revisionFlag(expectContract), Caller: "local", ApprovalTokens: approvalTokens, VerifyApproval: approvalVerifier})
+		receipt, err := evolution.ApplyChangePlanWithOptions(root, plan, withGeneratedCheck(evolution.ApplyOptions{ExpectedWorkspaceRevision: expectWorkspace, ExpectedContractRevision: revisionFlag(expectContract), Caller: "local", ApprovalTokens: approvalTokens, VerifyApproval: approvalVerifier}))
 		if err != nil {
 			return err
 		}
@@ -196,7 +199,7 @@ func runContractChanges(stdout io.Writer, args []string) error {
 		if !base.Valid() {
 			return fmt.Errorf("current contract is invalid")
 		}
-		plan, err := evolution.PlanChanges(root, evolution.ChangeRequest{BaseWorkspaceRevision: base.WorkspaceRevision, BaseContractRevision: revisionFlag(base.Manifest.ContractRevision), Caller: "local", Operations: []evolution.SemanticOperation{{Op: "resource.rename", Address: positionals[0], Value: positionals[1]}}})
+		plan, err := evolution.PlanChanges(root, withPredictedGenerateChecks(evolution.ChangeRequest{BaseWorkspaceRevision: base.WorkspaceRevision, BaseContractRevision: revisionFlag(base.Manifest.ContractRevision), Caller: "local", Operations: []evolution.SemanticOperation{{Op: "resource.rename", Address: positionals[0], Value: positionals[1]}}}))
 		if err != nil {
 			return err
 		}
@@ -211,10 +214,10 @@ func runContractChanges(stdout io.Writer, args []string) error {
 			if verifierErr != nil {
 				return verifierErr
 			}
-			receipt, applyErr := evolution.ApplyChangePlanWithOptions(root, plan, evolution.ApplyOptions{
+			receipt, applyErr := evolution.ApplyChangePlanWithOptions(root, plan, withGeneratedCheck(evolution.ApplyOptions{
 				ExpectedWorkspaceRevision: base.WorkspaceRevision, ExpectedContractRevision: revisionFlag(base.Manifest.ContractRevision),
 				Caller: "local", ApprovalTokens: approvalTokens, VerifyApproval: approvalVerifier,
-			})
+			}))
 			if applyErr != nil {
 				return applyErr
 			}

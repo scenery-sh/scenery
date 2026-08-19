@@ -14,6 +14,7 @@ import (
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/build"
 	"scenery.sh/internal/generate"
+	generateapi "scenery.sh/internal/generate/api"
 	"scenery.sh/internal/librarybuild"
 )
 
@@ -118,7 +119,7 @@ func buildCommand(out io.Writer, args []string) error {
 		if err != nil {
 			return err
 		}
-		var selected *generate.LibraryBuildSpec
+		var selected *generateapi.LibraryBuildSpec
 		for index := range specs {
 			if specs[index].Name == libraryName || specs[index].Address == libraryName || specs[index].Artifact == libraryName {
 				if selected != nil {

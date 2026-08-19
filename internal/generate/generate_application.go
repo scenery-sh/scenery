@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	scenery "scenery.sh/internal/contract"
+	generateapi "scenery.sh/internal/generate/api"
 	"scenery.sh/internal/scn"
 )
 
@@ -25,9 +26,7 @@ type applicationAdapter struct {
 	Source         []byte
 }
 
-type RuntimeIntegrationPlan struct {
-	CompositionImport string
-}
+type RuntimeIntegrationPlan = generateapi.RuntimeIntegrationPlan
 
 func BuildRuntimeIntegrationPlan(result *Result) (RuntimeIntegrationPlan, error) {
 	services := nativeApplicationServices(result)

@@ -10,7 +10,8 @@ compiled graph, querying schemas, and dispatching explicit evolution plans.
 - Consume immutable compiler results and graph queries.
 - Route source mutations through `internal/evolution`; never edit source here.
 - Schema responses come from the compiler/spec catalogs, not duplicated shapes.
-- Never import generation, deployment planning, or commands.
+- Never import generation, deployment planning, or commands. Generated-artifact
+  checks are injected through `AgentExecutionContext` by the CLI.
 
 ## Verification
 

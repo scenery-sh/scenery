@@ -880,6 +880,43 @@ func TestRepairPlanUsesNullContractRevisionAndEstablishesContract(t *testing.T) 
 	}
 }
 
+func TestGeneratedCheckHooksAreInvoked(t *testing.T) {
+	root := t.TempDir()
+	copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), root)
+	base, err := compiler.Compile(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var predictedGo, predictedTS, generated int
+	plan, err := PlanChanges(root, ChangeRequest{
+		BaseWorkspaceRevision: base.WorkspaceRevision,
+		BaseContractRevision:  stringPointer(base.Manifest.ContractRevision),
+		Operations: []SemanticOperation{{
+			Op: "value.set", Address: "house/execution/process_scene_direct", Path: "/spec/timeout",
+			Value: "45m", Precondition: &ChangePrecondition{Equals: "40m"},
+		}},
+		CheckPredictedGoContracts: func(*compiler.Result) error { predictedGo++; return nil },
+		CheckPredictedTypeScript:  func(*compiler.Result) error { predictedTS++; return nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if predictedGo != 1 || predictedTS != 1 {
+		t.Fatalf("predicted hooks go=%d ts=%d, want 1 and 1", predictedGo, predictedTS)
+	}
+	if _, err := ApplyChangePlanWithOptions(root, plan, ApplyOptions{
+		ExpectedWorkspaceRevision: base.WorkspaceRevision,
+		ExpectedContractRevision:  stringPointer(base.Manifest.ContractRevision),
+		Caller:                    plan.Caller,
+		CheckGenerated:            func(*compiler.Result) { generated++ },
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if generated != 1 {
+		t.Fatalf("generated check invoked %d times, want 1", generated)
+	}
+}
+
 func TestChangePlanRejectsSecretPlaintext(t *testing.T) {
 	root := t.TempDir()
 	copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), root)

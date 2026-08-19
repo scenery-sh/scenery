@@ -73,6 +73,11 @@ type AgentExecutionContext struct {
 	// Ordinary model sessions leave it false so plans.get cannot expose source
 	// bytes or full semantic evidence into model history.
 	AllowPlanInspection bool
+	// Generated-artifact checks are injected by the CLI so this package does
+	// not import internal/generate. Ordinary tests leave them nil.
+	CheckPredictedGoContracts func(*compiler.Result) error
+	CheckPredictedTypeScript  func(*compiler.Result) error
+	CheckGenerated            func(*compiler.Result)
 }
 
 // PlanRequest is the model-visible input to changes.plan. The canonical

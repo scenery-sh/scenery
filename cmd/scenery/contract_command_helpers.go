@@ -69,6 +69,19 @@ func approvalVerifierForTokens(root string, tokens []evolution.ApprovalToken) (e
 	return evolution.ApprovalVerifier(verifier), err
 }
 
+func withPredictedGenerateChecks(request evolution.ChangeRequest) evolution.ChangeRequest {
+	request.CheckPredictedGoContracts = generate.CheckPredictedGoContracts
+	request.CheckPredictedTypeScript = generate.CheckPredictedTypeScriptClients
+	return request
+}
+
+func withGeneratedCheck(options evolution.ApplyOptions) evolution.ApplyOptions {
+	if !options.SkipGeneratedValidation && options.CheckGenerated == nil {
+		options.CheckGenerated = generate.ApplyImplementationCheck
+	}
+	return options
+}
+
 func compileContractRoot(value string) (*compiler.Result, error) {
 	root, err := findContractRoot(value)
 	if err != nil {
@@ -82,7 +95,7 @@ func checkCompiledContract(root string) (*compiler.Result, error) {
 	if err != nil || !result.Valid() {
 		return result, err
 	}
-	generate.ApplyCheck(result, generate.Check(result))
+	generate.ApplyImplementationCheck(result)
 	if result.Valid() {
 		if err := generate.SyncEditorWorkspace(result); err != nil {
 			return result, err

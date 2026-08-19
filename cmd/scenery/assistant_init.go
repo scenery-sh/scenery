@@ -195,14 +195,14 @@ func initializeAssistant(ctx context.Context, root string, cfg appcfg.Config, co
 		if err != nil {
 			return assistantInitResponse{}, err
 		}
-		request := evolution.ChangeRequest{
+		request := withPredictedGenerateChecks(evolution.ChangeRequest{
 			BaseWorkspaceRevision: compiled.WorkspaceRevision,
 			BaseContractRevision:  revisionFlag(compiled.Manifest.ContractRevision),
 			Caller:                "scenery assistant init",
 			Capabilities:          []string{"scenery.agent-mutation"},
 			Operations:            operations,
 			AdditionalEdits:       additionalEdits,
-		}
+		})
 		var plan evolution.ChangePlan
 		if opts.DryRun {
 			plan, err = evolution.PlanChangesDryRun(root, request)

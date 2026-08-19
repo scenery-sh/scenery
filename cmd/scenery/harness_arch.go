@@ -153,6 +153,7 @@ type packageLayerRule struct {
 	Name             string
 	PathPrefixes     []string
 	ForbiddenImports []string
+	AllowTestImports []string
 }
 
 var packageLayerRules = []packageLayerRule{
@@ -230,6 +231,30 @@ var packageLayerRules = []packageLayerRule{
 			"scenery.sh/internal/generate",
 			"scenery.sh/internal/deployplan",
 			"scenery.sh/internal/contractagent",
+			"scenery.sh/internal/parse",
+		},
+	},
+	{
+		Name:         "internal/gotarget stays a Go-target leaf",
+		PathPrefixes: []string{"internal/gotarget/"},
+		ForbiddenImports: []string{
+			"scenery.sh/internal/compiler",
+			"scenery.sh/internal/parse",
+			"scenery.sh/internal/generate",
+			"scenery.sh/internal/build",
+			"scenery.sh/cmd/scenery",
+		},
+	},
+	{
+		Name:         "internal/devcache stays a cache-root leaf",
+		PathPrefixes: []string{"internal/devcache/"},
+		ForbiddenImports: []string{
+			"scenery.sh/internal/build",
+			"scenery.sh/internal/generate",
+			"scenery.sh/internal/compiler",
+			"scenery.sh/internal/parse",
+			"scenery.sh/internal/doctor",
+			"scenery.sh/cmd/scenery",
 		},
 	},
 	{
@@ -242,11 +267,26 @@ var packageLayerRules = []packageLayerRule{
 		},
 	},
 	{
+		Name:         "internal/generate/api stays a stdlib generate leaf",
+		PathPrefixes: []string{"internal/generate/api/"},
+		ForbiddenImports: []string{
+			"scenery.sh/internal/generate",
+			"scenery.sh/internal/compiler",
+			"scenery.sh/internal/parse",
+			"scenery.sh/internal/tscheck",
+			"scenery.sh/internal/toolchain",
+			"scenery.sh/internal/evolution",
+			"scenery.sh/internal/build",
+			"scenery.sh/internal/contractagent",
+		},
+	},
+	{
 		Name:         "internal/evolution stays below deployment and protocol composition",
 		PathPrefixes: []string{"internal/evolution/"},
 		ForbiddenImports: []string{
 			"scenery.sh/internal/deployplan",
 			"scenery.sh/internal/contractagent",
+			"scenery.sh/internal/generate",
 		},
 	},
 	{
@@ -277,6 +317,16 @@ var packageLayerRules = []packageLayerRule{
 		PathPrefixes: []string{"internal/build/"},
 		ForbiddenImports: []string{
 			"scenery.sh/cmd/scenery",
+			"scenery.sh/internal/generate",
+		},
+		AllowTestImports: []string{"scenery.sh/internal/generate"},
+	},
+	{
+		Name:         "internal/doctor stays free of build and generate",
+		PathPrefixes: []string{"internal/doctor/"},
+		ForbiddenImports: []string{
+			"scenery.sh/internal/build",
+			"scenery.sh/internal/generate",
 		},
 	},
 	{
@@ -681,6 +731,9 @@ func checkArchitectureGoImports(path, rel string) ([]checkDiagnostic, error) {
 			}
 			for _, forbidden := range rule.ForbiddenImports {
 				if importPath == forbidden {
+					if strings.HasSuffix(rel, "_test.go") && slices.Contains(rule.AllowTestImports, importPath) {
+						continue
+					}
 					diagnostics = append(diagnostics, checkDiagnostic{
 						Stage:           "architecture checks",
 						Severity:        "error",

@@ -15,7 +15,7 @@ import (
 	"golang.org/x/mod/modfile"
 
 	"scenery.sh/internal/app"
-	"scenery.sh/internal/generate"
+	generateapi "scenery.sh/internal/generate/api"
 )
 
 func copyTree(src, dst string) error {
@@ -33,7 +33,7 @@ func copyTree(src, dst string) error {
 		if d.IsDir() && (shouldSkipDir(rel) || shouldSkipRuntimeArtifactDir(rel)) {
 			return filepath.SkipDir
 		}
-		if !d.IsDir() && (shouldSkipFile(rel) || generate.IsManagedEditorWorkFile(src, rel)) {
+		if !d.IsDir() && (shouldSkipFile(rel) || generateapi.IsManagedEditorWorkFile(src, rel)) {
 			return nil
 		}
 		if shouldSkipSymlink(path, d) {
@@ -213,7 +213,7 @@ func listSourceFiles(appRoot string) ([]string, error) {
 			return nil
 		}
 		rel = filepath.ToSlash(rel)
-		if generate.IsManagedEditorWorkFile(appRoot, rel) {
+		if generateapi.IsManagedEditorWorkFile(appRoot, rel) {
 			return nil
 		}
 		files[rel] = struct{}{}
@@ -369,11 +369,11 @@ func snapshotSourceFiles(snapshot *SourceSnapshot) []string {
 
 func snapshotSourceFilesForRoot(appRoot string, snapshot *SourceSnapshot) []string {
 	files := snapshotSourceFiles(snapshot)
-	if !generate.InspectEditorWorkspace(appRoot).Managed {
+	if !generateapi.InspectEditorWorkspace(appRoot).Managed {
 		return files
 	}
 	return slices.DeleteFunc(files, func(relative string) bool {
-		return generate.IsManagedEditorWorkFile(appRoot, relative)
+		return generateapi.IsManagedEditorWorkFile(appRoot, relative)
 	})
 }
 

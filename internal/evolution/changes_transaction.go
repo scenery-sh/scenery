@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"scenery.sh/internal/generate"
+	generateapi "scenery.sh/internal/generate/api"
 	"scenery.sh/internal/scn"
 	"scenery.sh/internal/workspacetx"
 )
@@ -36,7 +36,7 @@ func cloneWorkspace(root string) (string, error) {
 		if entry.IsDir() && (entry.Name() == ".git" || entry.Name() == ".scenery" || entry.Name() == "node_modules") {
 			return filepath.SkipDir
 		}
-		if !entry.IsDir() && generate.IsManagedEditorWorkFile(absolute, rel) {
+		if !entry.IsDir() && generateapi.IsManagedEditorWorkFile(absolute, rel) {
 			return nil
 		}
 		target := filepath.Join(temp, rel)
@@ -224,7 +224,7 @@ func snapshotWorkspaceFiles(root string) (map[string]workspaceFile, error) {
 			}
 			return nil
 		}
-		if generate.IsManagedEditorWorkFile(root, relative) {
+		if generateapi.IsManagedEditorWorkFile(root, relative) {
 			return nil
 		}
 		if entry.Type()&os.ModeSymlink != 0 {

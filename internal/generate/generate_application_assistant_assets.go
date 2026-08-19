@@ -12,49 +12,20 @@ import (
 	"sort"
 	"strings"
 
+	generateapi "scenery.sh/internal/generate/api"
 	"scenery.sh/internal/runtimeassets"
 )
 
-// AssistantAssetDescriptor is the provider-neutral identity of one
-// production assistant asset set.  It deliberately carries only content
-// digests, revisions, and the selected build target; implementation names,
-// credentials, URLs, and provider package details stay in developer-only
-// build inputs.
-type AssistantAssetDescriptor struct {
-	Kind                 string `json:"kind"`
-	SchemaRevision       string `json:"schema_revision"`
-	AssistantAddress     string `json:"assistant_address"`
-	Target               string `json:"target"`
-	RuntimeRevision      string `json:"runtime_revision"`
-	CapabilityRevision   string `json:"capability_revision"`
-	NodeArchiveDigest    string `json:"node_archive_digest"`
-	NodeTreeDigest       string `json:"node_tree_digest"`
-	CapsuleArchiveDigest string `json:"capsule_archive_digest"`
-	CapsuleTreeDigest    string `json:"capsule_tree_digest"`
-	CapsuleEntry         string `json:"capsule_entry"`
-	PackageLockDigest    string `json:"package_lock_digest"`
-}
+type AssistantAssetDescriptor = generateapi.AssistantAssetDescriptor
+type AssistantAssetInput = generateapi.AssistantAssetInput
 
 const (
-	AssistantAssetDescriptorKind   = runtimeassets.AssistantAssetKind
-	AssistantAssetCapsuleEntry     = ".scenery/bootstrap.mjs"
+	AssistantAssetDescriptorKind   = generateapi.AssistantAssetDescriptorKind
+	AssistantAssetCapsuleEntry     = generateapi.AssistantAssetCapsuleEntry
 	assistantAssetsPackageRelative = "internal/scenerygen/assets"
 )
 
 var AssistantAssetSchemaRevision = runtimeassets.AssistantAssetSchemaRevision
-
-// AssistantAssetInput supplies the deterministic bytes that are embedded in
-// the generated external workspace. Archive bytes are never serialized into
-// the provider-neutral descriptor; the canonical runtimeassets descriptors
-// travel beside them so a launcher can verify and install each archive before
-// execution.
-type AssistantAssetInput struct {
-	Descriptor            AssistantAssetDescriptor
-	NodeArchive           []byte
-	NodeDescriptorJSON    []byte
-	CapsuleArchive        []byte
-	CapsuleDescriptorJSON []byte
-}
 
 // RenderAssistantAssetRegistry renders the generated Go package and its
 // content-addressed archive/descriptor files.  The returned paths are

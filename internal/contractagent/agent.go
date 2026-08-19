@@ -352,6 +352,8 @@ func (session *AgentSession) Handle(result *Result, request AgentRequest) AgentR
 			Capabilities:          append([]string(nil), execution.GrantedCapabilities...),
 			Caller:                execution.Principal,
 			Operations:            append([]SemanticOperation(nil), params.Operations...),
+			CheckPredictedGoContracts: execution.CheckPredictedGoContracts,
+			CheckPredictedTypeScript:  execution.CheckPredictedTypeScript,
 		})
 		if err != nil {
 			response.Error = agentErrorFrom(err)
@@ -377,6 +379,7 @@ func (session *AgentSession) Handle(result *Result, request AgentRequest) AgentR
 			GrantedCapabilities: append([]string(nil), execution.GrantedCapabilities...),
 			ApprovalTokens:      cloneApprovalTokens(execution.ApprovalTokens),
 			VerifyApproval:      execution.ApprovalVerifier,
+			CheckGenerated:      execution.CheckGenerated,
 		})
 		if err != nil {
 			response.Error = agentErrorFrom(err)

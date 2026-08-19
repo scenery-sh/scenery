@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"scenery.sh/internal/compiler"
-	"scenery.sh/internal/generate"
 	"scenery.sh/internal/graph"
 	"scenery.sh/internal/machine"
 	"scenery.sh/internal/scn"
@@ -50,6 +49,14 @@ type ChangeRequest struct {
 	// below the CLI protocol; callers must bind each edit to the current
 	// workspace bytes before planning.
 	AdditionalEdits []SourceEdit `json:"additional_source_edits,omitempty"`
+	// CheckPredictedGoContracts, when set, validates that generated Go
+	// artifacts can be rendered from the predicted compiler result. CLI and
+	// agent sessions inject generate.CheckPredictedGoContracts.
+	CheckPredictedGoContracts func(*compiler.Result) error `json:"-"`
+	// CheckPredictedTypeScript, when set, validates that generated TypeScript
+	// artifacts can be rendered from the predicted compiler result. CLI and
+	// agent sessions inject generate.CheckPredictedTypeScriptClients.
+	CheckPredictedTypeScript func(*compiler.Result) error `json:"-"`
 }
 type SourceEdit struct {
 	Path         string `json:"path"`
@@ -109,6 +116,10 @@ type ApplyOptions struct {
 	// authored implementation files before its generated artifact set exists.
 	// Contract compilation and source transaction validation still run.
 	SkipGeneratedValidation bool
+	// CheckGenerated, when set, records generation and native-implementation
+	// diagnostics on the staged compiler snapshot. CLI and agent sessions
+	// inject generate.ApplyImplementationCheck.
+	CheckGenerated func(*compiler.Result)
 }
 
 type ChangePlanFailure struct {
@@ -133,6 +144,47 @@ func PlanChanges(root string, request ChangeRequest) (ChangePlan, error) {
 // --dry-run contract promises no filesystem writes.
 func PlanChangesDryRun(root string, request ChangeRequest) (ChangePlan, error) {
 	return planChanges(root, request, false)
+}
+
+// testCheckPredicted* and testCheckGenerated are installed only by evolution
+// tests so existing call sites keep generate validation. Production evolution
+// never imports generate; CLI and agent sessions inject the checks.
+var (
+	testCheckPredictedGoContracts func(*compiler.Result) error
+	testCheckPredictedTypeScript  func(*compiler.Result) error
+	testCheckGenerated            func(*compiler.Result)
+)
+
+func checkPredictedGoContracts(request ChangeRequest, predicted *compiler.Result) error {
+	check := request.CheckPredictedGoContracts
+	if check == nil {
+		check = testCheckPredictedGoContracts
+	}
+	if check == nil {
+		return nil
+	}
+	return check(predicted)
+}
+
+func checkPredictedTypeScript(request ChangeRequest, predicted *compiler.Result) error {
+	check := request.CheckPredictedTypeScript
+	if check == nil {
+		check = testCheckPredictedTypeScript
+	}
+	if check == nil {
+		return nil
+	}
+	return check(predicted)
+}
+
+func generatedCheck(options ApplyOptions) func(*compiler.Result) {
+	if options.SkipGeneratedValidation {
+		return nil
+	}
+	if options.CheckGenerated != nil {
+		return options.CheckGenerated
+	}
+	return testCheckGenerated
 }
 
 func planChanges(root string, request ChangeRequest, retainIssuedPlan bool) (ChangePlan, error) {
@@ -213,10 +265,10 @@ func planChanges(root string, request ChangeRequest, retainIssuedPlan bool) (Cha
 			}
 		}
 	}
-	if _, err := generate.GenerateGoContractsFromResult(predicted, false); err != nil {
+	if err := checkPredictedGoContracts(request, predicted); err != nil {
 		return ChangePlan{}, &ChangePlanFailure{Diagnostics: []Diagnostic{{Code: "SCN6205", Severity: "error", Message: err.Error()}}, Message: "planned generated Go artifacts are invalid: " + err.Error()}
 	}
-	if _, err := generate.GenerateTypeScriptClientsFromResult(predicted, "", false); err != nil {
+	if err := checkPredictedTypeScript(request, predicted); err != nil {
 		return ChangePlan{}, &ChangePlanFailure{Diagnostics: []Diagnostic{{Code: "SCN6206", Severity: "error", Message: err.Error()}}, Message: "planned generated TypeScript artifacts are invalid: " + err.Error()}
 	}
 	if err := compiler.RefreshWorkspaceRevision(predicted); err != nil {
@@ -413,7 +465,7 @@ func applyChangePlanWithOptions(root string, plan ChangePlan, options ApplyOptio
 	if err := applyPlannedEdits(stagedRoot, plan.Edits, true); err != nil {
 		return ChangeApplyResult{}, err
 	}
-	stagedResult, checkedFiles, err := validateStagedWorkspace(stagedRoot, !options.SkipGeneratedValidation)
+	stagedResult, checkedFiles, err := validateStagedWorkspace(stagedRoot, generatedCheck(options))
 	if err != nil || !stagedResult.Valid() || stagedResult.WorkspaceRevision != plan.PredictedWorkspaceRevision || stagedResult.Manifest.ContractRevision != plan.PredictedContractRevision {
 		if err != nil {
 			return ChangeApplyResult{}, err

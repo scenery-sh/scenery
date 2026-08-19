@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"scenery.sh/internal/compiler"
-	"scenery.sh/internal/generate"
+	generateapi "scenery.sh/internal/generate/api"
 )
 
 // RuntimeCheck reports whether the host OS/architecture is a routinely
@@ -295,7 +295,7 @@ func EditorWorkspaceCheck(root string) Check {
 		Severity: SeverityInformational,
 		Message:  "editor contracts have not been synchronized; run `scenery check`",
 	}
-	status := generate.InspectEditorWorkspace(root)
+	status := generateapi.InspectEditorWorkspace(root)
 	check.Observed = map[string]any{"go_work": status.WorkFile, "owner": status.OwnerFile}
 	if status.ParentWorkFile != "" {
 		check.Observed["parent_go_work"] = status.ParentWorkFile

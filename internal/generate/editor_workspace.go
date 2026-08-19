@@ -20,37 +20,15 @@ import (
 	"golang.org/x/mod/modfile"
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/compiler"
-	"scenery.sh/internal/envpolicy"
+	"scenery.sh/internal/devcache"
+	generateapi "scenery.sh/internal/generate/api"
 )
 
-const editorWorkspaceGenerator = "scenery.editor-workspace"
-
-type editorWorkOwner struct {
-	Path             string `json:"path"`
-	Mode             string `json:"mode,omitempty"`
-	Digest           string `json:"digest"`
-	PreviousDigest   string `json:"previous_digest,omitempty"`
-	Application      string `json:"application"`
-	Generator        string `json:"generator"`
-	SpecRevision     string `json:"spec_revision"`
-	ContractRevision string `json:"contract_revision"`
-}
+type editorWorkOwner = generateapi.EditorWorkOwner
 
 type editorContractModule struct {
 	ImportPath string
 	Files      map[string][]byte
-}
-
-type EditorWorkspaceStatus struct {
-	Managed          bool
-	Conflict         bool
-	WorkFile         string
-	OwnerFile        string
-	Generation       string
-	SpecRevision     string
-	ContractRevision string
-	ParentWorkFile   string
-	Message          string
 }
 
 // SyncEditorWorkspace refreshes external contract modules and the managed
@@ -115,7 +93,7 @@ func syncEditorWorkspace(result *compiler.Result, requestMerge bool) error {
 	if err != nil {
 		return err
 	}
-	owner, ownerExists, err := readEditorWorkOwner(ownerFile)
+	owner, ownerExists, err := generateapi.ReadEditorWorkOwner(ownerFile)
 	if err != nil {
 		return err
 	}
@@ -130,7 +108,7 @@ func syncEditorWorkspace(result *compiler.Result, requestMerge bool) error {
 		if currentExists || pathExists(filepath.Join(root, "go.work.sum")) || gitTracks(root, "go.work") || gitTracks(root, "go.work.sum") {
 			return fmt.Errorf("editor workspace conflict: %s is user-owned; Scenery did not modify it", workFile)
 		}
-	} else if owner.Path != "go.work" || owner.Generator != editorWorkspaceGenerator {
+	} else if owner.Path != "go.work" || owner.Generator != generateapi.EditorWorkspaceGenerator {
 		return fmt.Errorf("editor workspace conflict: invalid ownership record %s", ownerFile)
 	} else if currentExists {
 		currentDigest := contentDigest(current)
@@ -140,7 +118,7 @@ func syncEditorWorkspace(result *compiler.Result, requestMerge bool) error {
 	}
 	if currentExists && bytes.Equal(current, workBytes) {
 		return finalizeEditorWorkspace(root, ownerFile, editorWorkOwner{
-			Path: "go.work", Mode: "exclusive", Digest: workDigest, Application: root, Generator: editorWorkspaceGenerator,
+			Path: "go.work", Mode: "exclusive", Digest: workDigest, Application: root, Generator: generateapi.EditorWorkspaceGenerator,
 			SpecRevision: result.Manifest.SpecRevision, ContractRevision: result.Manifest.ContractRevision,
 		}, generation)
 	}
@@ -149,7 +127,7 @@ func syncEditorWorkspace(result *compiler.Result, requestMerge bool) error {
 		previousDigest = contentDigest(current)
 	}
 	pending := editorWorkOwner{
-		Path: "go.work", Mode: "exclusive", Digest: workDigest, PreviousDigest: previousDigest, Application: root, Generator: editorWorkspaceGenerator,
+		Path: "go.work", Mode: "exclusive", Digest: workDigest, PreviousDigest: previousDigest, Application: root, Generator: generateapi.EditorWorkspaceGenerator,
 		SpecRevision: result.Manifest.SpecRevision, ContractRevision: result.Manifest.ContractRevision,
 	}
 	if err := writeEditorWorkOwner(ownerFile, pending); err != nil {
@@ -183,7 +161,7 @@ func syncMergedEditorWorkFile(root, workFile, ownerFile string, current []byte, 
 		return err
 	}
 	pending := editorWorkOwner{
-		Path: "go.work", Mode: "merge", Digest: contentDigest(block), Application: root, Generator: editorWorkspaceGenerator,
+		Path: "go.work", Mode: "merge", Digest: contentDigest(block), Application: root, Generator: generateapi.EditorWorkspaceGenerator,
 		SpecRevision: result.Manifest.SpecRevision, ContractRevision: result.Manifest.ContractRevision,
 	}
 	if !bytes.Equal(current, merged) {
@@ -427,14 +405,9 @@ func editorGoVersion(result *compiler.Result) string {
 }
 
 func editorCacheRoot(appRoot string) (string, error) {
-	cacheRoot := strings.TrimSpace(envpolicy.Get("SCENERY_DEV_CACHE_DIR"))
-	if cacheRoot == "" {
-		var err error
-		cacheRoot, err = os.UserCacheDir()
-		if err != nil {
-			return "", err
-		}
-		cacheRoot = filepath.Join(cacheRoot, "scenery")
+	cacheRoot, err := devcache.Root()
+	if err != nil {
+		return "", err
 	}
 	absRoot, err := filepath.Abs(appRoot)
 	if err != nil {
@@ -444,85 +417,12 @@ func editorCacheRoot(appRoot string) (string, error) {
 	return filepath.Join(cacheRoot, "editor", hex.EncodeToString(sum[:8])), nil
 }
 
-func readEditorWorkOwner(path string) (editorWorkOwner, bool, error) {
-	data, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return editorWorkOwner{}, false, nil
-	}
-	if err != nil {
-		return editorWorkOwner{}, false, err
-	}
-	var owner editorWorkOwner
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&owner); err != nil {
-		return editorWorkOwner{}, false, fmt.Errorf("decode editor workspace owner: %w", err)
-	}
-	return owner, true, nil
-}
-
 func writeEditorWorkOwner(path string, owner editorWorkOwner) error {
 	data, err := json.MarshalIndent(owner, "", "  ")
 	if err != nil {
 		return err
 	}
 	return atomicWrite(path, append(data, '\n'))
-}
-
-func InspectEditorWorkspace(appRoot string) EditorWorkspaceStatus {
-	root, err := filepath.Abs(appRoot)
-	if err != nil {
-		return EditorWorkspaceStatus{Conflict: true, Message: err.Error()}
-	}
-	status := EditorWorkspaceStatus{
-		WorkFile:       filepath.Join(root, "go.work"),
-		OwnerFile:      filepath.Join(root, ".scenery", "editor", "go-work-owner.json"),
-		ParentWorkFile: findParentWorkFile(root),
-	}
-	owner, exists, err := readEditorWorkOwner(status.OwnerFile)
-	if err != nil {
-		status.Conflict, status.Message = true, err.Error()
-		return status
-	}
-	if !exists {
-		if pathExists(status.WorkFile) {
-			status.Conflict, status.Message = true, "go.work is user-owned"
-		}
-		return status
-	}
-	data, fileExists, err := readOptionalFile(status.WorkFile)
-	if err != nil {
-		status.Conflict, status.Message = true, err.Error()
-		return status
-	}
-	if !fileExists {
-		status.Conflict, status.Message = true, "managed go.work is missing"
-		return status
-	}
-	digest := contentDigest(data)
-	if owner.Path != "go.work" || owner.Generator != editorWorkspaceGenerator || digest != owner.Digest && digest != owner.PreviousDigest {
-		status.Conflict, status.Message = true, "go.work ownership digest does not match"
-		return status
-	}
-	status.Managed = true
-	status.SpecRevision = owner.SpecRevision
-	status.ContractRevision = owner.ContractRevision
-	for _, line := range strings.Split(string(data), "\n") {
-		line = strings.TrimSpace(line)
-		if strings.Contains(line, string(filepath.Separator)+"generations"+string(filepath.Separator)) || strings.Contains(line, "/generations/") {
-			status.Generation = strings.Trim(line, `"`)
-			break
-		}
-	}
-	return status
-}
-
-func IsManagedEditorWorkFile(appRoot, relative string) bool {
-	base := filepath.Base(filepath.ToSlash(relative))
-	if base != "go.work" && base != "go.work.sum" {
-		return false
-	}
-	return InspectEditorWorkspace(appRoot).Managed
 }
 
 func excludeManagedWorkFiles(root string) error {
@@ -651,14 +551,4 @@ func contentDigest(data []byte) string {
 func pathExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
-}
-
-func findParentWorkFile(root string) string {
-	for parent := filepath.Dir(root); parent != root; parent, root = filepath.Dir(parent), parent {
-		candidate := filepath.Join(parent, "go.work")
-		if pathExists(candidate) {
-			return candidate
-		}
-	}
-	return ""
 }
