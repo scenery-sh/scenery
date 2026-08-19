@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -540,6 +541,61 @@ func waitForVictoriaPortAvailable(t *testing.T, port int) {
 	t.Fatalf("Victoria port %d did not become available", port)
 }
 
+func TestBuildOTLPTraceProtoErrorStatusUsesCodeField(t *testing.T) {
+	t.Parallel()
+
+	endpoint := "Refresh"
+	payload := buildOTLPTraceProto(&devdash.TraceSummary{
+		AppID:         "app",
+		TraceID:       "00000000000000010000000000000002",
+		SpanID:        "0000000000000003",
+		Type:          "REQUEST",
+		IsRoot:        true,
+		IsError:       true,
+		StartedAt:     time.Unix(1, 2).UTC(),
+		DurationNanos: uint64(time.Millisecond),
+		ServiceName:   "auth",
+		EndpointName:  &endpoint,
+	}, nil)
+
+	span := mustOTLPSpanBytes(t, payload)
+	status, ok := protoLengthDelimited(span, 15)
+	if !ok {
+		t.Fatal("error span missing Span.status (field 15)")
+	}
+	code, ok := protoVarintField(status, 3)
+	if !ok {
+		t.Fatalf("Status.code (field 3) missing; status fields=%v", protoFieldNumbers(status))
+	}
+	if code != 2 {
+		t.Fatalf("Status.code = %d, want 2 (STATUS_CODE_ERROR)", code)
+	}
+	if _, encodedAsVarint := protoVarintField(status, 2); encodedAsVarint {
+		t.Fatal("Status.message (field 2) encoded as varint; OTLP Status.code is field 3")
+	}
+}
+
+func TestBuildOTLPTraceProtoOKSpanOmitsStatus(t *testing.T) {
+	t.Parallel()
+
+	payload := buildOTLPTraceProto(&devdash.TraceSummary{
+		AppID:         "app",
+		TraceID:       "00000000000000010000000000000002",
+		SpanID:        "0000000000000003",
+		Type:          "REQUEST",
+		IsRoot:        true,
+		IsError:       false,
+		StartedAt:     time.Unix(1, 2).UTC(),
+		DurationNanos: uint64(time.Millisecond),
+		ServiceName:   "auth",
+	}, nil)
+
+	span := mustOTLPSpanBytes(t, payload)
+	if _, ok := protoLengthDelimited(span, 15); ok {
+		t.Fatal("ok span unexpectedly includes Span.status (field 15)")
+	}
+}
+
 func TestBuildOTLPTracePayload(t *testing.T) {
 	t.Parallel()
 
@@ -664,5 +720,107 @@ func TestMetricAttributePairsIncludesSessionLabels(t *testing.T) {
 		if got[key] != want {
 			t.Fatalf("metric attrs[%s] = %v, want %v; attrs=%+v", key, got[key], want, attrs)
 		}
+	}
+}
+
+func mustOTLPSpanBytes(t *testing.T, tracesData []byte) []byte {
+	t.Helper()
+	resourceSpans, ok := protoLengthDelimited(tracesData, 1)
+	if !ok {
+		t.Fatal("missing TracesData.resource_spans (field 1)")
+	}
+	scopeSpans, ok := protoLengthDelimited(resourceSpans, 2)
+	if !ok {
+		t.Fatal("missing ResourceSpans.scope_spans (field 2)")
+	}
+	span, ok := protoLengthDelimited(scopeSpans, 2)
+	if !ok {
+		t.Fatal("missing ScopeSpans.spans (field 2)")
+	}
+	return span
+}
+
+func protoLengthDelimited(msg []byte, field int) ([]byte, bool) {
+	for remaining := msg; len(remaining) > 0; {
+		f, wire, payload, rest, err := consumeProtoField(remaining)
+		if err != nil {
+			return nil, false
+		}
+		remaining = rest
+		if f == field && wire == 2 {
+			return payload, true
+		}
+	}
+	return nil, false
+}
+
+func protoVarintField(msg []byte, field int) (uint64, bool) {
+	for remaining := msg; len(remaining) > 0; {
+		f, wire, payload, rest, err := consumeProtoField(remaining)
+		if err != nil {
+			return 0, false
+		}
+		remaining = rest
+		if f == field && wire == 0 {
+			value, n := binary.Uvarint(payload)
+			if n != len(payload) {
+				return 0, false
+			}
+			return value, true
+		}
+	}
+	return 0, false
+}
+
+func protoFieldNumbers(msg []byte) []int {
+	var fields []int
+	for remaining := msg; len(remaining) > 0; {
+		f, _, _, rest, err := consumeProtoField(remaining)
+		if err != nil {
+			break
+		}
+		fields = append(fields, f)
+		remaining = rest
+	}
+	return fields
+}
+
+func consumeProtoField(msg []byte) (field, wire int, payload, rest []byte, err error) {
+	key, n := binary.Uvarint(msg)
+	if n <= 0 {
+		return 0, 0, nil, nil, fmt.Errorf("bad protobuf key")
+	}
+	rest = msg[n:]
+	field = int(key >> 3)
+	wire = int(key & 7)
+	switch wire {
+	case 0:
+		_, vn := binary.Uvarint(rest)
+		if vn <= 0 {
+			return 0, 0, nil, nil, fmt.Errorf("bad protobuf varint")
+		}
+		return field, wire, rest[:vn], rest[vn:], nil
+	case 1:
+		if len(rest) < 8 {
+			return 0, 0, nil, nil, fmt.Errorf("short protobuf fixed64")
+		}
+		return field, wire, rest[:8], rest[8:], nil
+	case 2:
+		length, vn := binary.Uvarint(rest)
+		if vn <= 0 {
+			return 0, 0, nil, nil, fmt.Errorf("bad protobuf length")
+		}
+		rest = rest[vn:]
+		if uint64(len(rest)) < length {
+			return 0, 0, nil, nil, fmt.Errorf("short protobuf bytes")
+		}
+		return field, wire, rest[:length], rest[length:], nil
+	case 5:
+		if len(rest) < 4 {
+			return 0, 0, nil, nil, fmt.Errorf("short protobuf fixed32")
+		}
+		return field, wire, rest[:4], rest[4:], nil
+	default:
+		return 0, 0, nil, nil, fmt.Errorf("unsupported protobuf wire type %d", wire)
 	}
 }

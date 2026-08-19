@@ -199,7 +199,9 @@ func buildOTLPTraceProto(summary *devdash.TraceSummary, events []*devdash.TraceE
 		span = append(span, protoMessage(11, evt)...)
 	}
 	if summary.IsError {
-		span = append(span, protoMessage(15, protoVarint(2, 2))...)
+		// Span.status = 15; Status.code = 3; STATUS_CODE_ERROR = 2.
+		// Status.message is field 2 (string); a varint on field 2 is invalid OTLP.
+		span = append(span, protoMessage(15, protoVarint(3, 2))...)
 	}
 
 	scopeSpans := protoMessage(1, protoInstrumentationScope())
