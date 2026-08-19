@@ -129,6 +129,8 @@ func TestMaterializeOverlayCopiesAuthoredFilesAndReservesGeneratedPaths(t *testi
 		"conversationDigests.get(sessionID) || creatingConversationDigest.getStore()",
 		"from(continuationToken).send",
 		"attachSession(body.private_session_id).send",
+		`result.status !== "accepted"`,
+		"result.sessionId",
 		"from(body.continuation_token).respond",
 		`const optionId = body.decision === "allow" ? "approve" : "cancel"`,
 		"attachSession(body.private_session_id).cancel()",

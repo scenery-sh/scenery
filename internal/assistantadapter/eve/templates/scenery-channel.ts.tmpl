@@ -139,14 +139,22 @@ async function control(request, { from, attachSession, requestIp }) {
         }));
       }
       case "conversation.turn": {
-        const session = await attachSession(body.private_session_id).send(body.message ?? "", {
+        // attachSession().send returns {status, sessionId}, not a Session.
+        // Reading .id dropped private_session_id and Go rejected the accepted turn.
+        const result = await attachSession(body.private_session_id).send(body.message ?? "", {
           auth: authFor(body.principal),
         });
-        const runID = body.run_id || session.id;
-        knownRunIDs.set(session.id, runID);
-        const effectiveContinuationToken = bindContinuation(session.id, body.continuation_token);
+        if (result.status !== "accepted") {
+          return response(envelope("error", body.request_id, {
+            error: { code: "helper_request_failed", message: "assistant session is not active" },
+          }), 500);
+        }
+        const sessionID = body.private_session_id;
+        const runID = body.run_id || result.sessionId || sessionID;
+        knownRunIDs.set(sessionID, runID);
+        const effectiveContinuationToken = bindContinuation(sessionID, body.continuation_token);
         return response(envelope("conversation.turn.accepted", body.request_id, {
-          private_session_id: session.id,
+          private_session_id: sessionID,
           continuation_token: effectiveContinuationToken,
           run_id: runID,
         }));
