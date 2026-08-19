@@ -133,6 +133,128 @@ func TestDevBootstrapDefaultEmailCreatesUserTenantAndMembership(t *testing.T) {
 	}
 }
 
+func TestDevBootstrapAttachesExistingUserToConfiguredTenant(t *testing.T) {
+	ctx := context.Background()
+	databaseURL, cleanup := createAuthLiveTestDatabase(t, ctx)
+	t.Cleanup(cleanup)
+	resetStandardAuthStateForTest(t)
+	t.Setenv("DATABASE_URL", databaseURL)
+	runtime.SetAppConfig(runtime.AppConfig{Name: "auth-dev-bootstrap-attach-test", ListenAddr: "127.0.0.1:0"})
+
+	const configuredTenantID = "d0540000-0000-0000-0000-0000000000aa"
+	cfg := normalizeStandardConfig(StandardConfig{
+		Enabled: true,
+		DevBootstrap: DevBootstrapConfig{
+			Enabled:          true,
+			DefaultUserEmail: "petr@example.test",
+			DefaultTenantID:  configuredTenantID,
+		},
+		AutoBootstrapDatabase: true,
+	})
+	applyStandardSecrets(cfg)
+	standardAuthState.mu.Lock()
+	standardAuthState.cfg = cfg
+	standardAuthState.mu.Unlock()
+
+	svc, err := standardAuthService(ctx)
+	if err != nil {
+		t.Fatalf("standard auth service: %v", err)
+	}
+	// Simulate an existing (e.g. Google-created) user whose only membership is
+	// on an unrelated tenant.
+	existingUserID, err := newUUID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	existingUser, err := svc.query.EnsureDevBootstrapUser(ctx, authdb.EnsureDevBootstrapUserParams{
+		ID:                     existingUserID,
+		DisplayName:            "Petr",
+		PrimaryEmail:           "petr@example.test",
+		NormalizedPrimaryEmail: "petr@example.test",
+	})
+	if err != nil {
+		t.Fatalf("create existing user: %v", err)
+	}
+	otherTenantID, err := parseUUID("d0540000-0000-0000-0000-0000000000bb")
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherTenant, err := svc.query.EnsureDevBootstrapTenant(ctx, authdb.EnsureDevBootstrapTenantParams{
+		ID:   otherTenantID,
+		Name: "Other Workspace",
+	})
+	if err != nil {
+		t.Fatalf("create other tenant: %v", err)
+	}
+	otherMembershipID, err := newUUID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.query.CreateOrganizationMembership(ctx, authdb.CreateOrganizationMembershipParams{
+		ID:       otherMembershipID,
+		TenantID: otherTenant.ID,
+		UserID:   existingUser.ID,
+		Role:     roleOwner,
+	}); err != nil {
+		t.Fatalf("create other membership: %v", err)
+	}
+
+	session, err := DevBootstrap(ctx, nil)
+	if err != nil {
+		t.Fatalf("DevBootstrap: %v", err)
+	}
+	auth, err := ValidateToken(session.Token)
+	if err != nil {
+		t.Fatalf("validate token: %v", err)
+	}
+	if auth.UserID != AuthUserID(uuidString(existingUser.ID)) {
+		t.Fatalf("token user = %q, want existing user %q", auth.UserID, uuidString(existingUser.ID))
+	}
+	if auth.TenantID != TenantID(configuredTenantID) {
+		t.Fatalf("token tenant = %q, want configured tenant %q", auth.TenantID, configuredTenantID)
+	}
+	if session.User.ID != uuidString(existingUser.ID) {
+		t.Fatalf("session user = %q, want %q", session.User.ID, uuidString(existingUser.ID))
+	}
+	if !strings.Contains(session.SetCookie, refreshCookieName+"=") {
+		t.Fatalf("session cookie %q does not set %q", session.SetCookie, refreshCookieName)
+	}
+
+	configuredTenant, err := parseUUID(configuredTenantID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	memberships, err := svc.query.ListUserMemberships(ctx, existingUser.ID)
+	if err != nil {
+		t.Fatalf("list memberships: %v", err)
+	}
+	var attached bool
+	for _, membership := range memberships {
+		if uuidString(membership.TenantID) == uuidString(configuredTenant) {
+			attached = membership.Role == roleOwner
+		}
+	}
+	if !attached {
+		t.Fatalf("memberships = %+v, want owner membership on configured tenant", memberships)
+	}
+	var userCount int
+	authURL, err := postgresdb.ServiceURL(databaseURL, "scenery")
+	if err != nil {
+		t.Fatalf("derive auth URL: %v", err)
+	}
+	db, err := postgresdb.Open(ctx, authURL)
+	if err != nil {
+		t.Fatalf("open auth database: %v", err)
+	}
+	defer db.Close()
+	if err := db.QueryRowContext(ctx, `select count(*) from scenery.scenery_auth_users where normalized_primary_email = $1`, "petr@example.test").Scan(&userCount); err != nil {
+		t.Fatalf("count users: %v", err)
+	}
+	if userCount != 1 {
+		t.Fatalf("user count = %d, want 1 (no duplicate user)", userCount)
+	}
+}
+
 func resetStandardAuthStateForTest(t *testing.T) {
 	t.Helper()
 	reset := func() {

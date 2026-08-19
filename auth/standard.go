@@ -192,7 +192,7 @@ func registerStandardAuthEndpoints(config StandardConfig) {
 	})
 	registerStandardOrganizations()
 	registerStandardImpersonation()
-	registerStandardJSONNoService("users", "DevBootstrap", runtime.Public, "/users/dev-bootstrap", http.MethodPost, func(ctx context.Context, _ []string, input *DevBootstrapParams) (*AuthResponse, error) {
+	registerStandardJSONNoService("users", "DevBootstrap", runtime.Public, "/users/dev-bootstrap", http.MethodPost, func(ctx context.Context, _ []string, input *DevBootstrapParams) (*AuthSessionResponse, error) {
 		return DevBootstrap(ctx, input)
 	})
 	if config.GoogleOAuth.Enabled {
@@ -317,9 +317,13 @@ func encodeStandardContractOutcome(_ *http.Request, outcome any) (runtime.Contra
 	}
 	switch value := outcome.(type) {
 	case *AuthSessionResponse:
-		response.Headers.Add("Set-Cookie", value.SetCookie)
+		if value.SetCookie != "" {
+			response.Headers.Add("Set-Cookie", value.SetCookie)
+		}
 	case *LogoutResponse:
-		response.Headers.Add("Set-Cookie", value.SetCookie)
+		if value.SetCookie != "" {
+			response.Headers.Add("Set-Cookie", value.SetCookie)
+		}
 	}
 	return response, nil
 }

@@ -13,16 +13,17 @@ import (
 const maxDevBootstrapClaimLength = 200
 const defaultDevBootstrapTenantName = "Development Workspace"
 
-type AuthResponse struct {
-	Token string `json:"token"`
-}
-
 type DevBootstrapParams struct {
 	UserID   string `json:"user_id,omitempty"`
 	TenantID string `json:"tenant_id,omitempty"`
 }
 
-func DevBootstrap(ctx context.Context, params *DevBootstrapParams) (*AuthResponse, error) {
+// DevBootstrap issues a local-development session. When a default user email
+// is configured and no explicit user claim is given, it resolves (or creates)
+// that user, guarantees a membership on the requested tenant, and starts a
+// real refresh session so browsers keep the cookie-based auth flow. Explicit
+// claims skip the database and only mint a bearer token.
+func DevBootstrap(ctx context.Context, params *DevBootstrapParams) (*AuthSessionResponse, error) {
 	cfg := standardAuthState.cfg.DevBootstrap
 	if !cfg.Enabled {
 		return nil, errs.B().Code(errs.NotFound).Msg("endpoint not found").Err()
@@ -39,133 +40,150 @@ func DevBootstrap(ctx context.Context, params *DevBootstrapParams) (*AuthRespons
 		rawTenantID = params.TenantID
 	}
 
-	var userID string
-	var tenantID string
-	var err error
 	if strings.TrimSpace(rawUserID) == "" && strings.TrimSpace(cfg.DefaultUserEmail) != "" {
-		userID, tenantID, err = resolveDevBootstrapEmailDefault(ctx, cfg.DefaultUserEmail, firstNonEmpty(rawTenantID, cfg.DefaultTenantID))
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		userID, err = normalizeDevBootstrapClaim(rawUserID, cfg.DefaultUserID, "user_id")
-		if err != nil {
-			return nil, errs.B().Code(errs.InvalidArgument).Msg(err.Error()).Err()
-		}
-		tenantID, err = normalizeDevBootstrapClaim(rawTenantID, cfg.DefaultTenantID, "tenant_id")
-		if err != nil {
-			return nil, errs.B().Code(errs.InvalidArgument).Msg(err.Error()).Err()
-		}
+		return devBootstrapEmailSession(ctx, cfg.DefaultUserEmail, firstNonEmpty(rawTenantID, cfg.DefaultTenantID))
+	}
+
+	userID, err := normalizeDevBootstrapClaim(rawUserID, cfg.DefaultUserID, "user_id")
+	if err != nil {
+		return nil, errs.B().Code(errs.InvalidArgument).Msg(err.Error()).Err()
+	}
+	tenantID, err := normalizeDevBootstrapClaim(rawTenantID, cfg.DefaultTenantID, "tenant_id")
+	if err != nil {
+		return nil, errs.B().Code(errs.InvalidArgument).Msg(err.Error()).Err()
 	}
 	token, err := GenerateToken(AuthUserID(userID), TenantID(tenantID), cfg.TokenTTL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate dev token: %w", err)
 	}
-	return &AuthResponse{Token: token}, nil
+	return &AuthSessionResponse{AuthBootstrapResponse: AuthBootstrapResponse{Token: token}}, nil
 }
 
-func resolveDevBootstrapEmailDefault(ctx context.Context, email string, preferredTenantID string) (string, string, error) {
+func devBootstrapEmailSession(ctx context.Context, email string, preferredTenantID string) (*AuthSessionResponse, error) {
 	normalizedEmail, err := normalizeEmail(email)
 	if err != nil {
-		return "", "", errs.B().Code(errs.InvalidArgument).Msg(err.Error()).Err()
+		return nil, errs.B().Code(errs.InvalidArgument).Msg(err.Error()).Err()
 	}
 	svc, err := standardAuthService(ctx)
 	if err != nil {
-		return "", "", err
+		return nil, err
 	}
-	user, err := svc.query.GetUserByNormalizedEmail(ctx, normalizedEmail)
+	tx, q, err := svc.beginTx(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	user, tenantID, err := resolveDevBootstrapEmailUser(ctx, q, email, normalizedEmail, preferredTenantID)
+	if err != nil {
+		return nil, err
+	}
+	response, err := svc.createAuthSessionResponse(ctx, q, user, tenantID, defaultRefreshSessionTTL, authdb.UUID{}, authdb.UUID{}, "")
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return response, nil
+}
+
+func resolveDevBootstrapEmailUser(ctx context.Context, q authdb.Querier, email string, normalizedEmail string, preferredTenantID string) (authdb.SceneryAuthUser, authdb.UUID, error) {
+	user, err := q.GetUserByNormalizedEmail(ctx, normalizedEmail)
 	if err != nil {
 		if isNoRows(err) {
-			return createDevBootstrapEmailDefault(ctx, svc, email, normalizedEmail, preferredTenantID)
+			return createDevBootstrapEmailUser(ctx, q, email, normalizedEmail, preferredTenantID)
 		}
-		return "", "", err
+		return user, authdb.UUID{}, err
 	}
 	if user.DisabledAt.Valid {
-		return "", "", permissionDenied("default user is disabled")
+		return user, authdb.UUID{}, permissionDenied("default user is disabled")
 	}
 
 	var preferredTenant authdb.UUID
 	if strings.TrimSpace(preferredTenantID) != "" {
 		preferredTenant, err = parseUUID(preferredTenantID)
 		if err != nil {
-			return "", "", errs.B().Code(errs.InvalidArgument).Msg("tenant_id is invalid").Err()
+			return user, authdb.UUID{}, errs.B().Code(errs.InvalidArgument).Msg("tenant_id is invalid").Err()
 		}
 	}
-	memberships, err := svc.query.ListUserMemberships(ctx, user.ID)
+	memberships, err := q.ListUserMemberships(ctx, user.ID)
 	if err != nil {
-		return "", "", err
+		return user, authdb.UUID{}, err
 	}
 	for _, membership := range memberships {
 		if preferredTenant.Valid && uuidString(membership.TenantID) == uuidString(preferredTenant) {
-			return uuidString(user.ID), uuidString(membership.TenantID), nil
+			return user, membership.TenantID, nil
 		}
 	}
 	if preferredTenant.Valid {
-		return "", "", permissionDenied("default user is not a member of the configured tenant")
+		tenantID, err := ensureDevBootstrapTenantMembership(ctx, q, user.ID, preferredTenant)
+		if err != nil {
+			return user, authdb.UUID{}, err
+		}
+		return user, tenantID, nil
 	}
 	if len(memberships) == 0 {
-		return "", "", failedPrecondition("default user has no active tenant memberships")
+		return user, authdb.UUID{}, failedPrecondition("default user has no active tenant memberships")
 	}
-	return uuidString(user.ID), uuidString(memberships[0].TenantID), nil
+	return user, memberships[0].TenantID, nil
 }
 
-func createDevBootstrapEmailDefault(ctx context.Context, svc *Service, email string, normalizedEmail string, preferredTenantID string) (string, string, error) {
+func createDevBootstrapEmailUser(ctx context.Context, q authdb.Querier, email string, normalizedEmail string, preferredTenantID string) (authdb.SceneryAuthUser, authdb.UUID, error) {
+	var user authdb.SceneryAuthUser
 	tenantID, err := parseUUID(preferredTenantID)
 	if err != nil {
-		return "", "", errs.B().Code(errs.InvalidArgument).Msg("tenant_id is invalid").Err()
+		return user, authdb.UUID{}, errs.B().Code(errs.InvalidArgument).Msg("tenant_id is invalid").Err()
 	}
-	tx, q, err := svc.beginTx(ctx)
-	if err != nil {
-		return "", "", err
-	}
-	defer func() {
-		_ = tx.Rollback()
-	}()
-
-	tenant, err := q.EnsureDevBootstrapTenant(ctx, authdb.EnsureDevBootstrapTenantParams{
-		ID:   tenantID,
-		Name: defaultDevBootstrapTenantName,
-	})
-	if err != nil {
-		return "", "", err
-	}
-	if tenant.DeletedAt.Valid {
-		return "", "", failedPrecondition("default tenant is deleted")
-	}
-
 	userID, err := newUUID()
 	if err != nil {
-		return "", "", err
+		return user, authdb.UUID{}, err
 	}
-	user, err := q.EnsureDevBootstrapUser(ctx, authdb.EnsureDevBootstrapUserParams{
+	user, err = q.EnsureDevBootstrapUser(ctx, authdb.EnsureDevBootstrapUserParams{
 		ID:                     userID,
 		DisplayName:            defaultDisplayName(normalizedEmail, ""),
 		PrimaryEmail:           displayEmail(email),
 		NormalizedPrimaryEmail: normalizedEmail,
 	})
 	if err != nil {
-		return "", "", err
+		return user, authdb.UUID{}, err
 	}
 	if user.DisabledAt.Valid {
-		return "", "", permissionDenied("default user is disabled")
+		return user, authdb.UUID{}, permissionDenied("default user is disabled")
 	}
+	tenantID, err = ensureDevBootstrapTenantMembership(ctx, q, user.ID, tenantID)
+	if err != nil {
+		return user, authdb.UUID{}, err
+	}
+	return user, tenantID, nil
+}
 
+func ensureDevBootstrapTenantMembership(ctx context.Context, q authdb.Querier, userID authdb.UUID, tenantID authdb.UUID) (authdb.UUID, error) {
+	tenant, err := q.EnsureDevBootstrapTenant(ctx, authdb.EnsureDevBootstrapTenantParams{
+		ID:   tenantID,
+		Name: defaultDevBootstrapTenantName,
+	})
+	if err != nil {
+		return authdb.UUID{}, err
+	}
+	if tenant.DeletedAt.Valid {
+		return authdb.UUID{}, failedPrecondition("default tenant is deleted")
+	}
 	membershipID, err := newUUID()
 	if err != nil {
-		return "", "", err
+		return authdb.UUID{}, err
 	}
 	if _, err := q.CreateOrganizationMembership(ctx, authdb.CreateOrganizationMembershipParams{
 		ID:       membershipID,
 		TenantID: tenant.ID,
-		UserID:   user.ID,
+		UserID:   userID,
 		Role:     roleOwner,
 	}); err != nil {
-		return "", "", err
+		return authdb.UUID{}, err
 	}
-	if err := tx.Commit(); err != nil {
-		return "", "", err
-	}
-	return uuidString(user.ID), uuidString(tenant.ID), nil
+	return tenant.ID, nil
 }
 
 func firstNonEmpty(values ...string) string {
