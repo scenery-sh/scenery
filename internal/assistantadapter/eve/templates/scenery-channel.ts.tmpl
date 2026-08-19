@@ -64,6 +64,17 @@ function authFor(principal) {
   };
 }
 
+function failureMessage(data) {
+  for (const key of ["message", "error", "reason", "detail"]) {
+    const value = data?.[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+    if (value && typeof value === "object" && typeof value.message === "string" && value.message.trim()) {
+      return value.message.trim();
+    }
+  }
+  return "assistant run failed";
+}
+
 function tokenFor(conversationDigest) {
   // Scenery supplies the digest; using it as the first channel-local address
   // keeps create/retry idempotent without minting an adapter-owned identity.
@@ -264,7 +275,7 @@ function normalizeEvent(providerEvent, sessionID, continuationToken, after, fall
     case "turn.failed":
     case "step.failed":
     case "session.failed":
-      return { ...base, type: "run.failed", data: { code: "assistant_failed", message: "assistant run failed" } };
+      return { ...base, type: "run.failed", data: { code: "assistant_failed", message: failureMessage(data) } };
     default:
       return null;
   }

@@ -138,6 +138,8 @@ func TestMaterializeOverlayCopiesAuthoredFilesAndReservesGeneratedPaths(t *testi
 		"body.capability_revision !== capabilityRevision",
 		`error: { code: "revision_mismatch", message: "assistant runtime revision mismatch" }`,
 		"}), 409)",
+		"function failureMessage(",
+		`message: failureMessage(data)`,
 	} {
 		if !strings.Contains(channel, fragment) {
 			t.Fatalf("generated private channel is missing revision guard %q: %s", fragment, channel)

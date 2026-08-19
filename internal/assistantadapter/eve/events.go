@@ -201,12 +201,29 @@ func NormalizeProviderEvent(raw []byte, context EventContext, sequence uint64) (
 	case "turn.cancelled":
 		return base(assistantcontrol.EventRunCancelled, map[string]string{"state": "cancelled"})
 	case "turn.failed", "step.failed", "session.failed":
-		return base(assistantcontrol.EventRunFailed, map[string]string{"code": "assistant_failed", "message": "assistant run failed"})
+		return base(assistantcontrol.EventRunFailed, map[string]string{"code": "assistant_failed", "message": providerFailureMessage(data)})
 	case "session.started", "session.waiting", "session.completed", "message.received", "reasoning.appended", "reasoning.completed", "step.started", "step.completed", "context.cleared", "compaction.requested", "compaction.completed", "authorization.required", "authorization.completed", "subagent.called", "subagent.started", "subagent.event", "subagent.completed", "action.partial", "input.resolved":
 		return assistantcontrol.Event{}, false, nil
 	default:
 		return assistantcontrol.Event{}, false, fmt.Errorf("unsupported Eve event type %q", event.Type)
 	}
+}
+
+func providerFailureMessage(data map[string]any) string {
+	const fallback = "assistant run failed"
+	for _, key := range []string{"message", "error", "reason", "detail"} {
+		switch value := data[key].(type) {
+		case string:
+			if message := strings.TrimSpace(value); message != "" {
+				return message
+			}
+		case map[string]any:
+			if message, _ := value["message"].(string); strings.TrimSpace(message) != "" {
+				return strings.TrimSpace(message)
+			}
+		}
+	}
+	return fallback
 }
 
 func requiresToolApproval(toolName string, approvalNeverTools []string) bool {

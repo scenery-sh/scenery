@@ -87,6 +87,38 @@ func TestNormalizeProviderEventMarksApprovalFreeCapability(t *testing.T) {
 	}
 }
 
+func TestNormalizeProviderEventSurfacesFailureMessage(t *testing.T) {
+	ctx := EventContext{AssistantAddress: "assistant/support", RuntimeRevision: "runtime", CapabilityRevision: "capability", PrivateSessionID: "session", ContinuationToken: "token", RunID: "run"}
+	cases := []struct {
+		raw     string
+		message string
+	}{
+		{`{"type":"turn.failed","data":{"error":"Codex app-server exited with code 127"}}`, "Codex app-server exited with code 127"},
+		{`{"type":"step.failed","data":{"message":"model rejected the request"}}`, "model rejected the request"},
+		{`{"type":"session.failed","data":{"error":{"message":"nested provider error"}}}`, "nested provider error"},
+		{`{"type":"turn.failed","data":{}}`, "assistant run failed"},
+	}
+	for _, tc := range cases {
+		event, ok, err := NormalizeProviderEvent([]byte(tc.raw), ctx, 1)
+		if err != nil || !ok {
+			t.Fatalf("%s: ok=%v err=%v", tc.raw, ok, err)
+		}
+		if event.Type != assistantcontrol.EventRunFailed {
+			t.Fatalf("type=%q", event.Type)
+		}
+		var payload struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		}
+		if err := json.Unmarshal(event.Data, &payload); err != nil {
+			t.Fatal(err)
+		}
+		if payload.Code != "assistant_failed" || payload.Message != tc.message {
+			t.Fatalf("payload=%+v want message %q", payload, tc.message)
+		}
+	}
+}
+
 func TestNormalizeProviderEventsEmitsEveryParallelActionAndApproval(t *testing.T) {
 	lines := []byte(stringsJoin(
 		`{"type":"actions.requested","data":{"actions":[{"kind":"tool-call","callId":"call-1","toolName":"local","input":{}},{"kind":"tool-call","callId":"call-2","toolName":"other","input":{}}]}}`,
