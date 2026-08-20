@@ -66,7 +66,7 @@ func TestRunCachesLinkedBinariesAndExecutesTestsFresh(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.ManifestHit || first.BuiltCount != 1 || first.PackageCount != 2 || first.TestPackageCount != 1 || first.TestResultCount != 2 {
+	if first.ManifestHit || first.BuiltCount != 1 || first.BuildParallelism != 2 || first.PackageCount != 2 || first.TestPackageCount != 1 || first.TestResultCount != 2 {
 		t.Fatalf("first result = %+v", first)
 	}
 	if data, err := os.ReadFile(marker); err != nil || string(data) != "ran" {
@@ -93,6 +93,21 @@ func TestRunCachesLinkedBinariesAndExecutesTestsFresh(t *testing.T) {
 		t.Fatalf("fresh test execution did not recreate marker: %v", err)
 	}
 
+}
+
+func TestNormalizeOptionsPinsDefaultBuildParallelism(t *testing.T) {
+	t.Parallel()
+
+	opts, err := normalizeOptions(Options{RepoRoot: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if DefaultBuildParallelism != 4 {
+		t.Fatalf("default build parallelism = %d, want 4", DefaultBuildParallelism)
+	}
+	if opts.BuildParallelism != DefaultBuildParallelism {
+		t.Fatalf("build parallelism = %d, want pinned default 4", opts.BuildParallelism)
+	}
 }
 
 func TestRunPatternCanCompileWithoutExecutingTests(t *testing.T) {

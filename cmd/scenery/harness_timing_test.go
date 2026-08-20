@@ -20,7 +20,7 @@ func TestHarnessTimingBudgetsUseSeparateLanes(t *testing.T) {
 	if cached.PackageSeconds != 10 || cached.PackageOverrides["scenery.sh/cmd/scenery"] != 15 || cached.ConfirmationRuns != 0 {
 		t.Fatalf("cached package/test confirmation budgets = %+v", cached)
 	}
-	if cached.TestBinaryCount != 60 || cached.ColdBuildSeconds != 180 {
+	if cached.TestBinaryCount != 60 || cached.ColdPrepareSeconds != 30 {
 		t.Fatalf("cached cold binary budgets = %+v", cached)
 	}
 
@@ -131,6 +131,7 @@ func TestHarnessTestBinaryTimingRanksBuildsByDuration(t *testing.T) {
 	timing := harnessTestBinaryTimingFromResult(testsuite.Result{
 		ManifestHit:      false,
 		TestPackageCount: 2,
+		BuildParallelism: 4,
 		Prepare: testsuite.PrepareTiming{
 			Elapsed:     10 * time.Second,
 			ListElapsed: 4 * time.Second,
@@ -140,7 +141,7 @@ func TestHarnessTestBinaryTimingRanksBuildsByDuration(t *testing.T) {
 			},
 		},
 	})
-	if timing.PrepareSeconds != 10 || timing.ListSeconds != 4 || timing.BuildSeconds != 4.4 || timing.BuiltCount != 2 || timing.TestPackageCount != 2 {
+	if timing.PrepareSeconds != 10 || timing.ListSeconds != 4 || timing.AggregateBuildSeconds != 4.4 || timing.BuildParallelism != 4 || timing.BuiltCount != 2 || timing.TestPackageCount != 2 {
 		t.Fatalf("test binary timing = %+v", timing)
 	}
 	if timing.Builds[0].Package != "scenery.sh/cmd/scenery" || timing.Builds[0].BuildID != "id-a" || timing.Builds[0].Seconds != 3.5 {
@@ -259,29 +260,29 @@ func TestColdBinaryCountBudgetAppliesOnWarmFreshRuns(t *testing.T) {
 	if !hasDiagnosticContaining(report.Diagnostics, "fresh lane has 61 test binaries, over the 60 binary-count budget") {
 		t.Fatalf("binary-count diagnostic missing: %+v", report.Diagnostics)
 	}
-	if hasDiagnosticContaining(report.Diagnostics, "link-CPU") {
-		t.Fatalf("warm run compared partial linking against the cold CPU budget: %+v", report.Diagnostics)
+	if hasDiagnosticContaining(report.Diagnostics, "cold test-binary preparation") {
+		t.Fatalf("warm run compared partial linking against the cold prepare budget: %+v", report.Diagnostics)
 	}
 }
 
-func TestColdBuildSecondsBudgetAppliesOnlyOnFullColdPrepare(t *testing.T) {
+func TestColdPrepareSecondsBudgetAppliesOnlyOnFullColdPrepare(t *testing.T) {
 	t.Parallel()
 	partial := parseHarnessGoTestTimingWithBudgets(nil, harnessSelfGoTestCommandWithCacheMode(true), time.Second, harnessTestTimingBudgetsForMode(harnessSelfModeDefault, true))
-	partial.TestBinaries = &harnessTestBinaryTiming{TestPackageCount: 60, BuiltCount: 5, BuildSeconds: 200}
+	partial.TestBinaries = &harnessTestBinaryTiming{TestPackageCount: 60, BuiltCount: 5, PrepareSeconds: 200, AggregateBuildSeconds: 900, BuildParallelism: 4}
 	applyHarnessColdBinaryBudgets(partial)
 	if len(partial.Diagnostics) != 0 {
 		t.Fatalf("partial rebuild tripped a cold budget: %+v", partial.Diagnostics)
 	}
 
 	cold := parseHarnessGoTestTimingWithBudgets(nil, harnessSelfGoTestCommandWithCacheMode(true), time.Second, harnessTestTimingBudgetsForMode(harnessSelfModeDefault, true))
-	cold.TestBinaries = &harnessTestBinaryTiming{TestPackageCount: 60, BuiltCount: 60, BuildSeconds: 180}
+	cold.TestBinaries = &harnessTestBinaryTiming{TestPackageCount: 60, BuiltCount: 60, PrepareSeconds: 30, AggregateBuildSeconds: 90, BuildParallelism: 4}
 	applyHarnessColdBinaryBudgets(cold)
-	if !hasDiagnosticContaining(cold.Diagnostics, "cold test-binary linking took 180.000s, over 180.000s link-CPU budget (60 binaries)") {
-		t.Fatalf("full-cold CPU diagnostic missing: %+v", cold.Diagnostics)
+	if !hasDiagnosticContaining(cold.Diagnostics, "cold test-binary preparation took 30.000s wall time, over 30.000s budget (60 binaries at build-p=4)") {
+		t.Fatalf("full-cold wall diagnostic missing: %+v", cold.Diagnostics)
 	}
 
 	held := parseHarnessGoTestTimingWithBudgets(nil, harnessSelfGoTestCommandWithCacheMode(true), time.Second, harnessTestTimingBudgetsForMode(harnessSelfModeDefault, true))
-	held.TestBinaries = &harnessTestBinaryTiming{TestPackageCount: 60, BuiltCount: 60, BuildSeconds: 179.999}
+	held.TestBinaries = &harnessTestBinaryTiming{TestPackageCount: 60, BuiltCount: 60, PrepareSeconds: 29.999, AggregateBuildSeconds: 900, BuildParallelism: 4}
 	applyHarnessColdBinaryBudgets(held)
 	if len(held.Diagnostics) != 0 {
 		t.Fatalf("full cold under budget still warned: %+v", held.Diagnostics)
@@ -291,12 +292,12 @@ func TestColdBuildSecondsBudgetAppliesOnlyOnFullColdPrepare(t *testing.T) {
 func TestReleaseColdBinaryBudgetsAreEnforced(t *testing.T) {
 	t.Parallel()
 	report := parseHarnessGoTestTimingWithBudgets(nil, harnessSelfGoTestCommandWithCacheMode(true), time.Second, harnessTestTimingBudgetsForMode(harnessSelfModeRelease, true))
-	report.TestBinaries = &harnessTestBinaryTiming{TestPackageCount: 61, BuiltCount: 61, BuildSeconds: 200}
+	report.TestBinaries = &harnessTestBinaryTiming{TestPackageCount: 61, BuiltCount: 61, PrepareSeconds: 30, AggregateBuildSeconds: 200, BuildParallelism: 4}
 	applyHarnessColdBinaryBudgets(report)
 	if !hasErrorDiagnostics(report.Diagnostics) {
 		t.Fatalf("diagnostics = %+v, want enforced release errors", report.Diagnostics)
 	}
-	if !hasDiagnosticContaining(report.Diagnostics, "61 test binaries") || !hasDiagnosticContaining(report.Diagnostics, "link-CPU") {
+	if !hasDiagnosticContaining(report.Diagnostics, "61 test binaries") || !hasDiagnosticContaining(report.Diagnostics, "cold test-binary preparation") {
 		t.Fatalf("release cold diagnostics = %+v", report.Diagnostics)
 	}
 }

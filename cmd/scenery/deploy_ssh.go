@@ -60,9 +60,10 @@ func runDeploySSH(stdout io.Writer, target string, args []string, tools deploySS
 // PATH, which is what the CLI uses; tests set explicit paths so they can inject
 // fakes without mutating the process PATH.
 type deploySSHTools struct {
-	SSH   string
-	Rsync string
-	Env   []string
+	SSH        string
+	Rsync      string
+	Env        []string
+	RunCommand func(string, *exec.Cmd) error
 }
 
 func (t deploySSHTools) ssh() string {
@@ -77,6 +78,13 @@ func (t deploySSHTools) rsync() string {
 		return "rsync"
 	}
 	return t.Rsync
+}
+
+func (t deploySSHTools) runCommand(name string, cmd *exec.Cmd) error {
+	if t.RunCommand != nil {
+		return t.RunCommand(name, cmd)
+	}
+	return cmd.Run()
 }
 
 func runDeploySSHCommands(stdout io.Writer, appRoot, appID, target, envName string, publishFrontends bool, tools deploySSHTools) error {
@@ -133,7 +141,7 @@ func runDeploySSHCommands(stdout io.Writer, appRoot, appID, target, envName stri
 		step.cmd.Stdin = os.Stdin
 		step.cmd.Stdout = stdout
 		step.cmd.Stderr = cliStderr
-		if err := step.cmd.Run(); err != nil {
+		if err := tools.runCommand(step.name, step.cmd); err != nil {
 			return fmt.Errorf("%s: %w", step.name, err)
 		}
 	}

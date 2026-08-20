@@ -31,12 +31,13 @@ const (
 
 func harnessTestBinaryTimingFromResult(result testsuite.Result) *harnessTestBinaryTiming {
 	timing := &harnessTestBinaryTiming{
-		ManifestHit:      result.ManifestHit,
-		PrepareSeconds:   roundSeconds(result.Prepare.Elapsed.Seconds()),
-		ListSeconds:      roundSeconds(result.Prepare.ListElapsed.Seconds()),
-		BuildSeconds:     roundSeconds(result.Prepare.BuildElapsed().Seconds()),
-		BuiltCount:       len(result.Prepare.Builds),
-		TestPackageCount: result.TestPackageCount,
+		ManifestHit:           result.ManifestHit,
+		PrepareSeconds:        roundSeconds(result.Prepare.Elapsed.Seconds()),
+		ListSeconds:           roundSeconds(result.Prepare.ListElapsed.Seconds()),
+		AggregateBuildSeconds: roundSeconds(result.Prepare.AggregateBuildElapsed().Seconds()),
+		BuildParallelism:      result.BuildParallelism,
+		BuiltCount:            len(result.Prepare.Builds),
+		TestPackageCount:      result.TestPackageCount,
 	}
 	for _, build := range result.Prepare.Builds {
 		timing.Builds = append(timing.Builds, harnessTestBinaryBuild{
@@ -131,10 +132,10 @@ func selectHarnessTimingConfirmations(report *harnessTestTimingReport, baseline 
 	})
 }
 
-// applyHarnessColdBinaryBudgets records the cold-link regression signal.
+// applyHarnessColdBinaryBudgets records the cold-prepare regression signal.
 // Binary count is a structural cost and is checked on every fresh run.
-// Aggregate link CPU is only comparable on a full cold prepare, when every
-// listed test package was linked in this run.
+// Preparation wall time is only comparable on a full cold prepare, when every
+// listed test package was linked in this run, and at the pinned concurrency.
 func applyHarnessColdBinaryBudgets(report *harnessTestTimingReport) {
 	if report == nil || report.TestBinaries == nil {
 		return
@@ -156,11 +157,11 @@ func applyHarnessColdBinaryBudgets(report *harnessTestTimingReport) {
 		})
 	}
 	fullCold := timing.TestPackageCount > 0 && timing.BuiltCount == timing.TestPackageCount
-	if fullCold && budgets.ColdBuildSeconds > 0 && timing.BuildSeconds >= budgets.ColdBuildSeconds {
+	if fullCold && budgets.ColdPrepareSeconds > 0 && timing.PrepareSeconds >= budgets.ColdPrepareSeconds {
 		report.Diagnostics = append(report.Diagnostics, checkDiagnostic{
 			Stage:           "go tests",
 			Severity:        severity,
-			Message:         fmt.Sprintf("cold test-binary linking took %.3fs, over %.3fs link-CPU budget (%d binaries)", timing.BuildSeconds, budgets.ColdBuildSeconds, timing.BuiltCount),
+			Message:         fmt.Sprintf("cold test-binary preparation took %.3fs wall time, over %.3fs budget (%d binaries at build-p=%d)", timing.PrepareSeconds, budgets.ColdPrepareSeconds, timing.BuiltCount, timing.BuildParallelism),
 			SuggestedAction: suggestion,
 		})
 	}

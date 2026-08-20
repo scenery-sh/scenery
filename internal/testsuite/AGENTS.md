@@ -24,6 +24,9 @@ Go test binaries so fresh measurement does not relink unchanged packages.
   invalidate the manifest.
 - Build disposable test binaries with VCS stamping disabled; the workspace
   fingerprint remains the source-change guard.
+- Build at most four missing test binaries concurrently. The harness and manual
+  adapter share `DefaultBuildParallelism`; change it only with same-host,
+  interleaved macOS and local-Linux A/B wall-time evidence.
 - Store disposable state only under `.scenery/harness/test-binaries/`.
 - Test-binary manifests use the current `scenery.test-binary-cache` artifact
   identity; an identity mismatch invalidates the disposable cache and rebuilds it.
@@ -33,7 +36,9 @@ Go test binaries so fresh measurement does not relink unchanged packages.
   ranked slowest first. Also report `TestPackageCount` (packages that produce a
   test binary). Linking is invisible to Go's per-package test timings, so a
   cold-run penalty is unattributable without this breakdown.
-- Cold binary-count and link-CPU budgets live in `cmd/scenery`, not here.
+- Treat the sum of per-binary elapsed durations as attribution only: concurrent
+  builds overlap, so it is neither wall time nor CPU time. Cold binary-count and
+  prepare-wall budgets live in `cmd/scenery`, not here.
 
 ## Work Guidance
 

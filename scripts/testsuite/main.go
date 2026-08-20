@@ -16,7 +16,7 @@ func main() {
 	flag.StringVar(&opts.CacheDir, "cache", ".scenery/harness/test-binaries", "linked test binary cache")
 	flag.StringVar(&opts.RunPattern, "run", ".*", "test name pattern")
 	flag.IntVar(&opts.PackageParallelism, "p", 3, "parallel test packages")
-	flag.IntVar(&opts.BuildParallelism, "build-p", 8, "parallel missing binary builds")
+	flag.IntVar(&opts.BuildParallelism, "build-p", testsuite.DefaultBuildParallelism, "parallel missing binary builds")
 	flag.BoolVar(&opts.RefreshManifest, "refresh", false, "force Go build-ID refresh")
 	flag.BoolVar(&opts.RecordTimings, "record-timings", true, "record package durations for longest-first scheduling")
 	builds := flag.Int("builds", 0, "print the N slowest test-binary builds to stderr")
@@ -39,9 +39,10 @@ func main() {
 // reportPrepare prints the pre-execution breakdown on stderr so it stays out of
 // the Go JSON event stream on stdout.
 func reportPrepare(result testsuite.Result, builds int) {
-	fmt.Fprintf(os.Stderr, "prepare %.3fs (list %.3fs, %d/%d binaries built, totalling %.3fs, manifest_hit=%v)\n",
+	fmt.Fprintf(os.Stderr, "prepare %.3fs (list %.3fs, %d/%d binaries built at build-p=%d, summed build elapsed %.3fs, manifest_hit=%v)\n",
 		result.Prepare.Elapsed.Seconds(), result.Prepare.ListElapsed.Seconds(),
-		len(result.Prepare.Builds), result.TestPackageCount, result.Prepare.BuildElapsed().Seconds(), result.ManifestHit)
+		len(result.Prepare.Builds), result.TestPackageCount, result.BuildParallelism,
+		result.Prepare.AggregateBuildElapsed().Seconds(), result.ManifestHit)
 	for i, build := range result.Prepare.Builds {
 		if i >= builds {
 			break

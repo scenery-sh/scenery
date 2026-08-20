@@ -206,12 +206,12 @@ optimize a number nothing can explain.
       binary fell from 12,786,418 to 7,240,434 bytes (43.4%); repeated warm
       `go test -c` links fell from a 0.69s median to 0.35s (49.3%). The graph
       fixture still produces the byte-identical canonical MCP golden.
-- [x] 2026-08-19: Added a cold binary-count and link-CPU regression budget.
-      `budgets.test_binary_count` is 60 and is compared to
-      `test_binaries.test_package_count` on every fresh run, including warm
-      ones. `budgets.cold_build_seconds` is 180s and applies only when
-      `built_count` equals `test_package_count`. Both are advisory in
-      default/fresh and errors in `--release`. Cross-worktree binary reuse is
+- [x] 2026-08-19: Added the initial cold binary-count and summed-build regression
+      budget. The count budget remains current; the timing budget and its
+      mistaken link-CPU label were superseded by the 2026-08-20 wall-time
+      correction below.
+      The then-current `budgets.test_binary_count` was 60 and the now-superseded
+      `budgets.cold_build_seconds` was 180s. Cross-worktree binary reuse was
       still unproven.
 - [x] 2026-08-19: Parallelized the four isolated children of
       `TestDeploySSHStopsAfterChildFailureAndPreservesExitCode`. Each child
@@ -258,21 +258,21 @@ optimize a number nothing can explain.
 - [x] 2026-08-19: Cold after-measure for the generate link split. Methodology
       identical to the baseline: `.scenery/harness/test-binaries` wiped, then
       `.scenery/harness/bin/scenery harness self --fresh-tests --summary
-      --write`, reading `test_binaries.build_seconds` and the per-binary
+      --write`, reading the then-current `test_binaries.build_seconds` and the per-binary
       `builds` array from `.scenery/harness/test-timing-latest.json`. Same
       host as every number in this plan (24 logical cores, 16 performance).
 
-      | Cold link CPU | Before (2026-08-19, pre-split) | After (2026-08-19, post-split) |
+      | Summed concurrent build elapsed (historical attribution, not CPU) | Before (2026-08-19, pre-split) | After (2026-08-19, post-split) |
       |---|---|---|
       | `build`+`contractagent`+`evolution`+`generate` | 13.70s (10.2%) | 11.08s (8.9%) |
-      | Aggregate `test_binaries.build_seconds` | ~134.3s implied, 60 binaries | 124.73s, 63 binaries |
+      | Aggregate test-binary build elapsed | ~134.3s implied, 60 binaries | 124.73s, 63 binaries |
       | `cmd/scenery` link | 4.842s (2026-07-28 measure) | 4.300s |
 
       After per-binary: `build` 3.794s, `contractagent` 3.258s, `generate`
       2.129s, `evolution` 1.897s. The three new leaves cost `gotarget` 1.243s,
       `generate/api` 0.668s, `devcache` 0.619s (2.530s combined) and are
-      already inside the after aggregate, which still fell ~7% overall. Link
-      CPU did not migrate into `cmd/scenery`. Cold prepare was 19.522s (list
+      already inside the after aggregate, which still fell ~7% overall. Summed
+      build elapsed did not migrate into `cmd/scenery`. Cold prepare was 19.522s (list
       2.947s); the suite ran 76.529s plus 53.753s confirmations. Caveat:
       single run, and a concurrent agent session was editing `auth/` files in
       this worktree during the measure, so background compile contention
@@ -285,20 +285,57 @@ optimize a number nothing can explain.
       `internal/codegen`'s assertion-free `testlimit` test binary. A
       `--fresh-tests --summary --write` run reported
       `test_binaries.test_package_count` 59 and no binary-count warning.
+- [x] 2026-08-20: Repaired the cold-build metric and pinned missing-binary build
+      concurrency at four in `internal/testsuite`, `scripts/testsuite`, and the
+      self-harness. `BuildElapsed` was a sum of overlapping subprocess wall
+      durations, not CPU or user-visible wall time. The report now calls it
+      `aggregate_build_seconds`, records `build_parallelism`, and gates a full
+      cold run on `prepare_seconds` against `budgets.cold_prepare_seconds`.
+      Three interleaved idle-host macOS samples rebuilt the identical 59 build
+      IDs at each setting: build-p=8 prepare 25.413/24.354/20.754s (median
+      24.354s), build-p=4 prepare 19.043/18.380/18.855s (median 18.855s), a
+      22.6% median wall improvement. The overlapping-duration sum fell 60.5%
+      (177.753s to 70.139s median), demonstrating why it cannot be a gate.
+- [x] 2026-08-20: Repeated the alternating measurement in a local Linux arm64
+      container (`golang:1.27-bookworm`, Go 1.27.0, 24 vCPUs) after warming only
+      the Go object/module cache. All six isolated test-binary caches produced
+      the same 59 build IDs (sorted-list SHA-256
+      `48cc67e0c573c5b174c65019dde1e9fdc8815ca89abea26aa2ba14baa3af1e6f`).
+      Linux favored build-p=8: 6.334/4.425/4.295s (median 4.425s), versus
+      build-p=4 at 6.323/6.668/6.337s (median 6.337s), 43.2% slower. The
+      aggregate moved in the opposite direction (26.501s versus 21.672s
+      medians), further proving it cannot govern the release gate. This repo
+      has no hosted CI; the portability evidence is local and requires no push.
+- [x] 2026-08-20: Replaced the deploy SSH failure matrix's ten cumulative fake
+      subprocesses with an injected `RunCommand` seam. One real failing-child
+      test remains and proves `*exec.ExitError` plus CLI exit-code 7. Three full
+      `cmd/scenery` samples moved from 11.814/10.632/11.153s (median 11.153s) to
+      10.265/10.196/10.173s (median 10.196s): 0.957s and 8.6%, above the 0.5s /
+      5% retain threshold. Focused ordinary and `-race -count=3` tests passed.
 
 ## Surprises & Discoveries
 
 - 2026-07-28: The cold penalty is linking, and package listing is nearly free.
   A cold run (`.scenery/harness/test-binaries` removed) spent 19.181s in
   prepare, of which package listing was 2.416s and 49 links accounted for
-  129.776s of CPU compressed to roughly 16.8s of wall time. Total cold run was
+  129.776s of summed, overlapping subprocess elapsed time compressed to roughly
+  16.8s of wall time. Total cold run was
   46.267s. The warm run of the same command spent 0.081s in prepare and 18.772s
   overall. So the cold/warm gap is prepare, and prepare is links.
 - 2026-07-28: Link parallelism is already saturated. Raising `BuildParallelism`
   from 8 to 16 on a 24-logical-core host left prepare unchanged (19.181s versus
-  19.300s) while total build CPU rose from 129.776s to 283.700s — the extra
-  workers only contended with each other. Cold cost has to come out of the
-  number and size of test binaries, not out of scheduling.
+  19.300s) while summed build elapsed rose from 129.776s to 283.700s — the
+  extra workers only contended with each other. The sum is not CPU time; the
+  unchanged prepare wall is the actual saturation evidence.
+- 2026-08-20: Eight-way linking was not the best fixed point. With 59 identical
+  build IDs and no competing build job, interleaved build-p=8/4 medians were
+  24.354s and 18.855s of prepare wall respectively. Four-way linking is 22.6%
+  faster on the maintainer macOS host and produces far less contention.
+- 2026-08-20: The deploy SSH failure matrix had become the package tail after
+  earlier desktop and contract-check reductions. Its parallel subtests still
+  launched one, two, three, and four fake processes cumulatively. An in-memory
+  runner removed those ten forks while a single real failure kept the process
+  boundary covered; median package wall fell 8.6%.
 - 2026-07-28: The five slowest links are `internal/build` 6.777s,
   `internal/contractagent` 6.480s, `internal/compiler` 6.245s,
   `internal/deployplan` 5.658s, and `cmd/scenery` 4.842s. Link cost does not
@@ -581,20 +618,35 @@ optimize a number nothing can explain.
   runs. Compiler callers own validity and expanded-view selection; projection
   owns only graph-to-MCP conversion.
   Date/Author: 2026-08-15 / Codex.
-- Cold binary budgets hold today's suite rather than the July 28 49-binary /
-  129.78s line. 60 is the current packages-with-tests count; 180s sits just
-  above the measured 175.38s aggregate link CPU. A budget below those numbers
-  would fire on every cold run and hide the next regression. Binary count is
-  checked on warm fresh runs because adding a package is a cold cost even
-  when this run reused cached binaries; link CPU is checked only on a full
-  cold prepare so a five-package rebuild cannot be compared to a 60-package
-  sum.
+- The 2026-08-19 timing budget used the wrong quantity. It treated the sum of
+  overlapping per-binary elapsed durations as link CPU and set 180s just above
+  a 175.38s observation. That sum changes with concurrency and is retained only
+  as attribution under the explicit name `aggregate_build_seconds`; it is not
+  an enforceable performance contract. The 60-binary structural budget remains
+  valid.
   Date/Author: 2026-08-19 / Grok.
+- Full cold preparation is held to 30s of `prepare_seconds` wall time at pinned
+  build parallelism four. `build_parallelism` is recorded in the artifact so a
+  timing cannot be compared without its scheduling policy. Binary count is
+  checked on warm fresh runs; prepare wall is checked only when every test
+  binary was built. The pinned value follows three identical-build-ID macOS A/B
+  pairs where four-way linking improved median prepare wall by 22.6%. A local
+  Linux arm64 container instead favored eight-way linking by 43.2%, while
+  remaining well under the 30s budget at either setting. The platform split is
+  why the artifact carries concurrency and the gate measures wall time; four is
+  retained as the explicit default for the macOS development/release host.
+  Date/Author: 2026-08-20 / Codex.
 - The deploy SSH child-failure table is safe to parallelize without a new
   production seam. Each subtest already installs its own fake binaries and
   failure env through `deploySSHTools`; the parent already called
   `t.Parallel()`. Adding `t.Parallel()` on the children is the whole change.
   Date/Author: 2026-08-19 / Grok.
+- The measured command-runner seam is retained. It is private to
+  `deploySSHTools`, production defaults directly to `cmd.Run`, the matrix still
+  checks fail-fast ordering and exit-code propagation in memory, and a separate
+  real subprocess test covers `*exec.ExitError`. The 0.957s / 8.6% median package
+  reduction exceeds the predeclared 0.5s / 5% materiality threshold.
+  Date/Author: 2026-08-20 / Codex.
 - Per-package budgets were raised to 10s/15s rather than left at 2s/5s. A budget
   that nothing meets is not a budget; it reports every package every run, so a
   real regression is indistinguishable from the standing background. 10s and 15s
@@ -691,7 +743,7 @@ optimize a number nothing can explain.
   `devcache`/`gotarget` leaves.
   Date/Author: 2026-08-19 / Grok.
 - The 60-binary count budget is now three over. The link split added the
-  `generate/api`, `devcache`, and `gotarget` test binaries (2.53s of link CPU
+  `generate/api`, `devcache`, and `gotarget` test binaries (2.53s of summed build elapsed
   combined), so every fresh run reports an advisory
   "63 test binaries, over the 60 binary-count budget" warning and `--release`
   would fail it. Whether to raise `budgets.test_binary_count` to 63 or trim
@@ -713,12 +765,14 @@ Open. The confirmation-scope change removes the largest reported cost
 (99.506s of confirmation) from everyday fresh runs without losing regression
 detection, and the prepare instrumentation answers the cold-run question. The
 generate link split is measured and paid off cold: the four consumer binaries
-fell from 13.70s (10.2%) to 11.08s (8.9%) of aggregate link CPU, the aggregate
+  fell from 13.70s (10.2%) to 11.08s (8.9%) of summed build elapsed, the aggregate
 fell to 124.73s even with three new leaf binaries, and `cmd/scenery` did not
 absorb the cost (see the 2026-08-19 cold after-measure in Progress). The
 binary-count budget stays 60; the extra leaf test binaries were folded into
-consumers rather than raising the budget. The warm-suite target is unmet and
-now has a precise, measured owner.
+consumers rather than raising the budget. The cold timing gate now measures
+prepare wall at pinned four-way build concurrency instead of a concurrency-
+sensitive sum mislabeled as CPU. The warm-suite target is unmet and now has a
+precise, measured owner.
 
 ## Context and Orientation
 
@@ -771,9 +825,9 @@ Neither change weakens an assertion boundary.
 ## Concrete Steps
 
 ```sh
-# cold attribution: clear the cache, then read the ranked links
-rm -rf .scenery/harness/test-binaries
-go run ./scripts/testsuite -p 3 -run 'a^' -builds 20 -record-timings=false
+# cold attribution: isolate the cache, then read prepare wall and ranked links
+cold_cache="$(mktemp -d /tmp/scenery-test-binaries.XXXXXX)"
+go run ./scripts/testsuite -cache "$cold_cache" -p 3 -build-p 4 -run 'a^' -builds 20 -record-timings=false
 
 # warm attribution: per-test elapsed for the critical-path package
 go run ./scripts/testsuite -p 3 -run '.*' -record-timings=false > /tmp/warm.jsonl
@@ -796,14 +850,16 @@ schema revision recorded in `cmd/scenery/payload_identity.go`.
 Acceptance for milestone 1 is that a second `--fresh-tests` run against a
 recorded baseline confirms only new or materially worsened candidates and lists
 the rest under `deferred_confirmations`. Acceptance for milestones 2 and 3 is a
-measured reduction in `test_binaries.build_seconds` and in the `cmd/scenery`
+measured reduction in `test_binaries.prepare_seconds` and in the `cmd/scenery`
 package wall respectively, each shown against the numbers in Surprises &
-Discoveries on the same host.
+Discoveries on the same host. Dependency-boundary attribution may additionally
+use `aggregate_build_seconds` and the per-build array, but neither is a gate.
 
 ## Idempotence and Recovery
 
-Every step is repeatable. `.scenery/harness/test-binaries` is disposable cache;
-removing it forces a cold run and nothing else. A missing, truncated, or
+Every step is repeatable. `.scenery/harness/test-binaries` and the isolated
+temporary cache above are disposable; an empty cache forces a cold run and
+nothing else. A missing, truncated, or
 schema-stale `test-timing-latest.json` degrades to "no baseline", which confirms
 every candidate — the conservative direction, and the same behavior as a first
 run on a fresh worktree. No step mutates tracked source.
@@ -817,21 +873,26 @@ run on a fresh worktree. No step mutates tracked source.
 - `.scenery/harness/artifacts/<run-id>/go-test.jsonl` — raw Go JSON events when
   the harness runs with `--write`.
 
-Host for every number in this plan: 24 logical cores, 16 performance cores.
-Timing conclusions do not transfer across machines; re-measure before comparing.
+Unless a measurement says otherwise, the host used 24 logical cores and 16
+performance cores. The Linux concurrency result used the local 24-vCPU arm64
+container described in Progress. Timing conclusions do not transfer across
+machines; re-measure before comparing.
 
 ## Interfaces and Dependencies
 
 - `scenery.harness.test_timing` gained `test_binaries`,
   `deferred_confirmations`, `budgets.confirmation_scope`,
-  `budgets.test_binary_count`, `budgets.cold_build_seconds`, and
-  `test_binaries.test_package_count`. The schema revision moved to
-  `sha256:bdc1bf5b8cf82cfeb82d0ae959186a3943faa07968d7cb5f7217dcc4afa4e8ff`.
-  `scenery.harness.self` inlines that nested shape; its schema revision moved
-  to `sha256:28e874c63bdb48061befd9ca35417db509b681ba7b3f9a3dfe1460864e4e622c`.
+  `budgets.test_binary_count`, `budgets.cold_prepare_seconds`,
+  `test_binaries.test_package_count`, `test_binaries.build_parallelism`, and
+  `test_binaries.aggregate_build_seconds`. The current schema revision is
+  recorded in `cmd/scenery/payload_identity.go`.
+  `scenery.harness.self` inlines that nested shape; its current schema revision
+  is `sha256:1754e319963b4e57b46f9cc28ce17f685a2406184d80db80c185dd6eba0a0be4`.
 - `testsuite.Result` gained `Prepare` and `TestPackageCount`; `testsuite.Run`
   is otherwise unchanged.
 - `scripts/testsuite` gained `-builds N`, which writes to stderr only, leaving
   the stdout Go JSON event stream intact.
+- `deploySSHTools` gained a private `RunCommand` injection point; the zero value
+  retains direct `exec.Cmd.Run` behavior.
 - No new environment variables, and no new CLI flags: confirmation scope is
   derived from the existing `--release` and `--fresh-tests` modes.

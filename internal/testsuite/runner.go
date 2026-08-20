@@ -22,7 +22,9 @@ import (
 
 const (
 	defaultPackageParallelism = 3
-	defaultBuildParallelism   = 8
+	// DefaultBuildParallelism is shared by the harness and manual adapter so
+	// cold-prepare wall timings remain comparable across entrypoints.
+	DefaultBuildParallelism = 4
 )
 
 type Options struct {
@@ -42,6 +44,7 @@ type Result struct {
 	TestPackageCount int
 	TestResultCount  int
 	BuiltCount       int
+	BuildParallelism int
 	ManifestHit      bool
 	Packages         []PackageTiming
 	Prepare          PrepareTiming
@@ -71,7 +74,10 @@ type BinaryBuild struct {
 	Elapsed time.Duration
 }
 
-func (t PrepareTiming) BuildElapsed() time.Duration {
+// AggregateBuildElapsed sums the elapsed duration observed for each build.
+// Concurrent builds overlap, so this is attribution data, not wall time or CPU
+// time. PrepareTiming.Elapsed is the comparable user-visible preparation cost.
+func (t PrepareTiming) AggregateBuildElapsed() time.Duration {
 	var total time.Duration
 	for _, build := range t.Builds {
 		total += build.Elapsed
@@ -104,6 +110,7 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 		PackageCount:     len(manifest.Packages) + len(manifest.NoTestPackages),
 		TestPackageCount: len(manifest.Packages),
 		BuiltCount:       len(prepared.Builds),
+		BuildParallelism: opts.BuildParallelism,
 		ManifestHit:      hit,
 		Prepare:          prepared,
 	}
@@ -152,7 +159,7 @@ func normalizeOptions(opts Options) (Options, error) {
 		opts.PackageParallelism = defaultPackageParallelism
 	}
 	if opts.BuildParallelism <= 0 {
-		opts.BuildParallelism = defaultBuildParallelism
+		opts.BuildParallelism = DefaultBuildParallelism
 	}
 	if opts.Output == nil {
 		opts.Output = io.Discard

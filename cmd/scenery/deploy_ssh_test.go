@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -81,13 +82,13 @@ func TestDeploySSHStopsAfterChildFailureAndPreservesExitCode(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		env       string
-		wantOrder string
+		failStep  string
+		wantSteps []string
 	}{
-		{name: "preflight", env: "DEPLOY_PREFLIGHT_EXIT", wantOrder: "ssh:preflight"},
-		{name: "down", env: "DEPLOY_DOWN_EXIT", wantOrder: "ssh:preflight\nssh:down"},
-		{name: "rsync", env: "DEPLOY_RSYNC_EXIT", wantOrder: "ssh:preflight\nssh:down\nrsync"},
-		{name: "up", env: "DEPLOY_UP_EXIT", wantOrder: "ssh:preflight\nssh:down\nrsync\nssh:up"},
+		{name: "preflight", failStep: "SSH preflight", wantSteps: []string{"SSH preflight"}},
+		{name: "down", failStep: "remote scenery down", wantSteps: []string{"SSH preflight", "remote scenery down"}},
+		{name: "rsync", failStep: "rsync", wantSteps: []string{"SSH preflight", "remote scenery down", "rsync"}},
+		{name: "up", failStep: "remote scenery up", wantSteps: []string{"SSH preflight", "remote scenery down", "rsync", "remote scenery up"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -96,23 +97,53 @@ func TestDeploySSHStopsAfterChildFailureAndPreservesExitCode(t *testing.T) {
 			if err := os.MkdirAll(root, 0o755); err != nil {
 				t.Fatal(err)
 			}
-			logPath, tools := installDeploySSHTestCommands(t)
-			tools.Env = append(tools.Env, tt.env+"=7")
+			var steps []string
+			tools := deploySSHTools{
+				SSH:   "/fake/ssh",
+				Rsync: "/fake/rsync",
+				RunCommand: func(name string, cmd *exec.Cmd) error {
+					steps = append(steps, name)
+					if cmd.Dir != root {
+						t.Fatalf("%s command dir = %q, want %q", name, cmd.Dir, root)
+					}
+					if name == tt.failStep {
+						return deploySSHTestExitError(7)
+					}
+					return nil
+				},
+			}
 			err := runDeploySSHCommands(&bytes.Buffer{}, root, "basicapp", "some-id", "production", false, tools)
-			var exitErr *exec.ExitError
+			var exitErr deploySSHTestExitError
 			if !errors.As(err, &exitErr) || exitErr.ExitCode() != 7 || cliExitCode(err) != 7 {
 				t.Fatalf("error = %v, want child exit 7", err)
 			}
-			log := readDeploySSHTestLog(t, logPath)
-			if order := commandOrder(log); order != tt.wantOrder {
-				t.Fatalf("command order = %q, want %q\n%s", order, tt.wantOrder, log)
-			}
-			if strings.Contains(tt.wantOrder, "rsync") && !strings.Contains(log, "rsync:"+root) {
-				t.Fatalf("rsync cwd did not preserve spaced path:\n%s", log)
+			if got, want := strings.Join(steps, "\n"), strings.Join(tt.wantSteps, "\n"); got != want {
+				t.Fatalf("command steps = %q, want %q", got, want)
 			}
 		})
 	}
 }
+
+func TestDeploySSHChildProcessExitCodePropagates(t *testing.T) {
+	t.Parallel()
+
+	root := filepath.Join(t.TempDir(), "app with spaces")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_, tools := installDeploySSHTestCommands(t)
+	tools.Env = append(tools.Env, "DEPLOY_PREFLIGHT_EXIT=7")
+	err := runDeploySSHCommands(&bytes.Buffer{}, root, "basicapp", "some-id", "production", false, tools)
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 7 || cliExitCode(err) != 7 {
+		t.Fatalf("error = %v, want child process exit 7", err)
+	}
+}
+
+type deploySSHTestExitError int
+
+func (e deploySSHTestExitError) Error() string { return fmt.Sprintf("exit status %d", e) }
+func (e deploySSHTestExitError) ExitCode() int { return int(e) }
 
 func TestDeploySSHRunsRemotePublishAfterUp(t *testing.T) {
 	t.Parallel()

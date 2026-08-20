@@ -11,7 +11,7 @@ reuse IDs; this list can still be ordered by current priority.
   - Status: active
   - Owner: scenery harness
   - Created: 2026-07-28
-  - Focus: attribute and reduce the developer test loop — confirmation scoped to regressions, test-binary link instrumentation, cold binary-count/link-CPU budgets, and the remaining `cmd/scenery` serial critical path.
+  - Focus: attribute and reduce the developer test loop — confirmation scoped to regressions, test-binary link instrumentation, build concurrency pinned at four, cold binary-count/prepare-wall budgets, and the remaining `cmd/scenery` serial critical path.
 - [0101 Public Deploy Edge](0101-public-deploy-edge.md)
   - Status: active
   - Owner: scenery runtime / edge

@@ -509,7 +509,7 @@ A fresh worktree fails UI and self-harness lanes for environment reasons, not co
 
 ### Self-Harness Timing
 
-Self-harness timing keeps a five-second optimization target separate from its operational lanes: cached and fresh runs use five-second advisory budgets, while release mode enforces 30 seconds. Only explicit `--fresh-tests` runs use isolated timing confirmation. That fresh lane uses package parallelism three, selected from repeated measurements on the maintainer machine. Fresh runs also hold a cold-link budget: 60 test binaries, compared on every fresh run, and 180 seconds of aggregate link CPU, compared only on a full cold prepare. The postgres service probe runs its smoke proof by default and its full DB proof (durable, auth, reset, snapshot) only in release mode; its step summary carries per-segment timings.
+Self-harness timing keeps a five-second optimization target separate from its operational lanes: cached and fresh runs use five-second advisory budgets, while release mode enforces 30 seconds. Only explicit `--fresh-tests` runs use isolated timing confirmation. That fresh lane uses package parallelism three and missing-binary build parallelism four, both pinned from repeated measurement. Fresh runs hold 60 test binaries, compared on every fresh run, and a 30-second `prepare_seconds` wall-time budget on full cold preparation. `aggregate_build_seconds` remains attribution only because its concurrent subprocess durations overlap; the artifact records `build_parallelism` with the timing. The postgres service probe runs its smoke proof by default and its full DB proof (durable, auth, reset, snapshot) only in release mode; its step summary carries per-segment timings.
 
 ## Keeping Agent Docs Fresh
 

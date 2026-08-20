@@ -16,7 +16,7 @@
       "const": "scenery.harness.test_timing"
     },
     "schema_revision": {
-      "const": "sha256:bdc1bf5b8cf82cfeb82d0ae959186a3943faa07968d7cb5f7217dcc4afa4e8ff"
+      "const": "sha256:ee04a674ff2c312924ed96a3fcffc877695c5674607a9bbedea204a1ae29eae1"
     },
     "command": {
       "type": "array",
@@ -41,6 +41,7 @@
       "required": [
         "manifest_hit",
         "prepare_seconds",
+        "build_parallelism",
         "built_count",
         "test_package_count"
       ],
@@ -54,8 +55,12 @@
         "list_seconds": {
           "type": "number"
         },
-        "build_seconds": {
+        "aggregate_build_seconds": {
           "type": "number"
+        },
+        "build_parallelism": {
+          "type": "integer",
+          "minimum": 1
         },
         "built_count": {
           "type": "integer",
@@ -189,7 +194,7 @@
           "type": "integer",
           "minimum": 0
         },
-        "cold_build_seconds": {
+        "cold_prepare_seconds": {
           "type": "number"
         },
         "mode": {

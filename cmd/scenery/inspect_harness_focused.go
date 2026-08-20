@@ -113,7 +113,9 @@ func readBoundedHarnessArtifactPayload(name, path string) (any, error) {
 		if report.TestBinaries != nil {
 			payload["test_package_count"] = report.TestBinaries.TestPackageCount
 			payload["built_count"] = report.TestBinaries.BuiltCount
-			payload["build_seconds"] = report.TestBinaries.BuildSeconds
+			payload["build_parallelism"] = report.TestBinaries.BuildParallelism
+			payload["prepare_seconds"] = report.TestBinaries.PrepareSeconds
+			payload["aggregate_build_seconds"] = report.TestBinaries.AggregateBuildSeconds
 		}
 		return payload, nil
 	case "drift":
