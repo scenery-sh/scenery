@@ -48,6 +48,8 @@ type managedFrontendStartResult struct {
 
 type managedFrontendStarter func(context.Context, string, string, int, localproxy.FrontendConfig, []string, localagent.Session) managedFrontendStartResult
 
+type frontendOverrideResolver func(string) string
+
 type pendingManagedFrontendStart struct {
 	managedFrontendStartResult
 	ready <-chan error
@@ -58,6 +60,10 @@ func managedFrontendBackendsForSession(ctx context.Context, root string, cfg app
 }
 
 func beginManagedFrontendBackendsForSession(ctx context.Context, root string, cfg app.Config, baseEnv []string, session localagent.Session) (map[string]localagent.Backend, []*managedFrontendProcess, func(context.Context) error, error) {
+	return beginManagedFrontendBackendsForSessionWithOverride(ctx, root, cfg, baseEnv, session, localproxy.FrontendOverride)
+}
+
+func beginManagedFrontendBackendsForSessionWithOverride(ctx context.Context, root string, cfg app.Config, baseEnv []string, session localagent.Session, resolveOverride frontendOverrideResolver) (map[string]localagent.Backend, []*managedFrontendProcess, func(context.Context) error, error) {
 	frontends := configuredFrontends(cfg.Frontends)
 	if len(frontends) == 0 {
 		return nil, nil, nil, nil
@@ -72,7 +78,7 @@ func beginManagedFrontendBackendsForSession(ctx context.Context, root string, cf
 		if frontend.Name == "" {
 			continue
 		}
-		if override := localproxy.FrontendOverride(frontend.Name); override != "" {
+		if override := resolveOverride(frontend.Name); override != "" {
 			backends[frontend.Name] = localagent.Backend{Network: "tcp", Addr: override}
 			continue
 		}

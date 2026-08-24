@@ -18,6 +18,8 @@ func TestAssistantDependencyCacheSchemaRevisionMatchesDescriptor(t *testing.T) {
 }
 
 func TestAssistantSyncUsesManagedNodeCacheAndRejectsLockDrift(t *testing.T) {
+	t.Parallel()
+
 	root := copyAssistantFixture(t)
 	_, cfg, compiled, err := loadAssistantApp(root)
 	if err != nil {
@@ -28,29 +30,26 @@ func TestAssistantSyncUsesManagedNodeCacheAndRejectsLockDrift(t *testing.T) {
 		t.Fatal(err)
 	}
 	compiled = mustCompileAssistant(t, root)
-	oldResolver, oldInstall := assistantManagedNodeResolver, assistantSyncInstall
-	t.Cleanup(func() {
-		assistantManagedNodeResolver = oldResolver
-		assistantSyncInstall = oldInstall
-	})
 	installCount := 0
-	assistantManagedNodeResolver = func(context.Context, string) (string, string, string, error) {
-		return "/managed/node", "/managed/npm", "/managed/home", nil
-	}
-	assistantSyncInstall = func(_ context.Context, stage, _, _ string) error {
-		installCount++
-		return os.MkdirAll(filepath.Join(stage, "node_modules", "eve"), 0o755)
+	deps := assistantSyncDependencies{
+		resolveManagedNode: func(context.Context, string) (string, string, string, error) {
+			return "/managed/node", "/managed/npm", "/managed/home", nil
+		},
+		install: func(_ context.Context, stage, _, _ string) error {
+			installCount++
+			return os.MkdirAll(filepath.Join(stage, "node_modules", "eve"), 0o755)
+		},
 	}
 	packageBefore := mustReadAssistant(t, filepath.Join(root, "assistants", "extra", "package.json"))
 	lockBefore := mustReadAssistant(t, filepath.Join(root, "assistants", "extra", "package-lock.json"))
-	first, err := syncAssistant(context.Background(), root, compiled, "extra")
+	first, err := syncAssistantWithDependencies(context.Background(), root, compiled, "extra", deps)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if first.Status != "synced" || first.Reused || installCount != 1 {
 		t.Fatalf("first sync=%#v installs=%d", first, installCount)
 	}
-	second, err := syncAssistant(context.Background(), root, compiled, "extra")
+	second, err := syncAssistantWithDependencies(context.Background(), root, compiled, "extra", deps)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +70,7 @@ func TestAssistantSyncUsesManagedNodeCacheAndRejectsLockDrift(t *testing.T) {
 	if err := os.WriteFile(lockPath, []byte(drifted), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := syncAssistant(context.Background(), root, compiled, "extra"); err == nil || !strings.Contains(err.Error(), "lock drift") {
+	if _, err := syncAssistantWithDependencies(context.Background(), root, compiled, "extra", deps); err == nil || !strings.Contains(err.Error(), "lock drift") {
 		t.Fatalf("lock drift error=%v", err)
 	}
 }

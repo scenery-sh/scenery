@@ -41,6 +41,24 @@ var (
 	upgradeWorkingDirectory = os.Getwd
 )
 
+type upgradeDependencies struct {
+	apiBaseURL       string
+	httpClient       *http.Client
+	currentVersion   func() string
+	deployNotice     func(string) *deploydiag.HelperDrift
+	workingDirectory func() (string, error)
+}
+
+func currentUpgradeDependencies() upgradeDependencies {
+	return upgradeDependencies{
+		apiBaseURL:       upgradeAPIBaseURL,
+		httpClient:       upgradeHTTPClient,
+		currentVersion:   upgradeCurrentVersionFn,
+		deployNotice:     upgradeDeployNoticeFunc,
+		workingDirectory: upgradeWorkingDirectory,
+	}
+}
+
 type upgradeOptions struct {
 	JSON          bool
 	Target        string
@@ -107,6 +125,10 @@ func upgradeCommand(args []string) error {
 }
 
 func runUpgrade(ctx context.Context, stdout io.Writer, args []string) error {
+	return runUpgradeWithDependencies(ctx, stdout, args, currentUpgradeDependencies())
+}
+
+func runUpgradeWithDependencies(ctx context.Context, stdout io.Writer, args []string, deps upgradeDependencies) error {
 	if len(args) == 1 && args[0] == "--help" {
 		entry, _ := findHelpCommand([]string{"upgrade"})
 		writeCommandHelp(stdout, entry)
@@ -116,7 +138,7 @@ func runUpgrade(ctx context.Context, stdout io.Writer, args []string) error {
 	if err != nil {
 		return err
 	}
-	resp, err := performUpgrade(ctx, opts)
+	resp, err := performUpgradeWithDependencies(ctx, opts, deps)
 	if opts.JSON {
 		if encodeErr := writeCLIJSON(stdout, resp); encodeErr != nil {
 			return encodeErr
@@ -161,14 +183,14 @@ func parseUpgradeArgs(args []string) (upgradeOptions, error) {
 	return opts, nil
 }
 
-func performUpgrade(ctx context.Context, opts upgradeOptions) (upgradeResponse, error) {
+func performUpgradeWithDependencies(ctx context.Context, opts upgradeOptions, deps upgradeDependencies) (upgradeResponse, error) {
 	defaultTarget := strings.TrimSpace(opts.Target) == ""
 	target, err := upgradeTargetPath(opts.Target)
 	resp := upgradeResponse{
 		cliPayloadIdentity: newCLIPayloadIdentity(upgradeKind),
 		Repository:         "scenery-sh/scenery",
 		Platform:           toolchain.CurrentPlatform().String(),
-		CurrentVersion:     upgradeCurrentVersionFn(),
+		CurrentVersion:     deps.currentVersion(),
 		TargetPath:         target,
 		DryRun:             opts.DryRun,
 	}
@@ -176,7 +198,7 @@ func performUpgrade(ctx context.Context, opts upgradeOptions) (upgradeResponse, 
 		resp.Error = err.Error()
 		return resp, err
 	}
-	cwd, err := upgradeWorkingDirectory()
+	cwd, err := deps.workingDirectory()
 	if err != nil {
 		resp.Error = err.Error()
 		return resp, err
@@ -191,7 +213,7 @@ func performUpgrade(ctx context.Context, opts upgradeOptions) (upgradeResponse, 
 			return resp, collectErr
 		}
 	}
-	release, err := fetchUpgradeRelease(ctx)
+	release, err := fetchUpgradeReleaseWithDependencies(ctx, deps)
 	if err != nil {
 		resp.Error = err.Error()
 		return resp, err
@@ -222,7 +244,7 @@ func performUpgrade(ctx context.Context, opts upgradeOptions) (upgradeResponse, 
 			resp.Error = err.Error()
 			return resp, err
 		}
-		attachUpgradeDeployNotice(&resp)
+		attachUpgradeDeployNoticeWithDependencies(&resp, deps)
 		return resp, nil
 	}
 	if opts.DryRun {
@@ -231,7 +253,7 @@ func performUpgrade(ctx context.Context, opts upgradeOptions) (upgradeResponse, 
 		resp.Toolchain = &upgradeToolchainResult{Mode: opts.ToolchainMode, StoreDir: storeDir}
 		return resp, nil
 	}
-	sumData, err := downloadUpgradeAsset(ctx, checksums)
+	sumData, err := downloadUpgradeAssetWithDependencies(ctx, checksums, deps)
 	if err != nil {
 		resp.Error = err.Error()
 		return resp, err
@@ -242,7 +264,7 @@ func performUpgrade(ctx context.Context, opts upgradeOptions) (upgradeResponse, 
 		resp.Error = err.Error()
 		return resp, err
 	}
-	archiveData, err := downloadUpgradeAsset(ctx, asset)
+	archiveData, err := downloadUpgradeAssetWithDependencies(ctx, asset, deps)
 	if err != nil {
 		resp.Error = err.Error()
 		return resp, err
@@ -273,7 +295,7 @@ func performUpgrade(ctx context.Context, opts upgradeOptions) (upgradeResponse, 
 		return resp, err
 	}
 	resp.OK = true
-	attachUpgradeDeployNotice(&resp)
+	attachUpgradeDeployNoticeWithDependencies(&resp, deps)
 	return resp, nil
 }
 
@@ -295,11 +317,11 @@ func checkLegacyRecoveryState(root string) error {
 	return deployplan.CheckLegacyRecoveryState(root)
 }
 
-func attachUpgradeDeployNotice(resp *upgradeResponse) {
+func attachUpgradeDeployNoticeWithDependencies(resp *upgradeResponse, deps upgradeDependencies) {
 	if resp == nil || !resp.OK || resp.DryRun {
 		return
 	}
-	resp.Deploy = upgradeDeployNoticeFunc(resp.TargetVersion)
+	resp.Deploy = deps.deployNotice(resp.TargetVersion)
 }
 
 func defaultUpgradeDeployNotice(targetVersion string) *deploydiag.HelperDrift {
@@ -332,15 +354,15 @@ func upgradeTargetPath(explicit string) (string, error) {
 	return filepath.Abs(exe)
 }
 
-func fetchUpgradeRelease(ctx context.Context) (upgradeRelease, error) {
-	endpoint := strings.TrimRight(upgradeAPIBaseURL, "/") + "/releases/latest"
+func fetchUpgradeReleaseWithDependencies(ctx context.Context, deps upgradeDependencies) (upgradeRelease, error) {
+	endpoint := strings.TrimRight(deps.apiBaseURL, "/") + "/releases/latest"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return upgradeRelease{}, err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("User-Agent", "scenery-upgrade")
-	client := upgradeHTTPClient
+	client := deps.httpClient
 	if client == nil {
 		client = http.DefaultClient
 	}
@@ -384,7 +406,7 @@ func findUpgradeAsset(release upgradeRelease, name string) (upgradeReleaseAsset,
 	return upgradeReleaseAsset{}, false
 }
 
-func downloadUpgradeAsset(ctx context.Context, asset upgradeReleaseAsset) ([]byte, error) {
+func downloadUpgradeAssetWithDependencies(ctx context.Context, asset upgradeReleaseAsset, deps upgradeDependencies) ([]byte, error) {
 	if strings.TrimSpace(asset.BrowserDownloadURL) == "" {
 		return nil, fmt.Errorf("asset %s does not include browser_download_url", asset.Name)
 	}
@@ -393,7 +415,7 @@ func downloadUpgradeAsset(ctx context.Context, asset upgradeReleaseAsset) ([]byt
 		return nil, err
 	}
 	req.Header.Set("User-Agent", "scenery-upgrade")
-	client := upgradeHTTPClient
+	client := deps.httpClient
 	if client == nil {
 		client = http.DefaultClient
 	}

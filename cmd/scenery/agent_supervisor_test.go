@@ -87,6 +87,16 @@ func withAgentSupervisorHooks(t *testing.T, status localagent.LaunchdAgentStatus
 	}
 }
 
+func deployStatusTestDependencies(supervisor localagent.LaunchdAgentStatus, launchAgent deployLaunchAgentStatus) deployStatusDependencies {
+	return deployStatusDependencies{
+		serviceManager: func() string { return "launchd" },
+		agentSupervisorStatus: func(localagent.Paths) deployAgentSupervisorStatus {
+			return deployAgentSupervisorStatusFromService(supervisor)
+		},
+		launchAgentStatus: func() deployLaunchAgentStatus { return launchAgent },
+	}
+}
+
 func TestRestartAgentViaSupervisorKickstartsLoadedJob(t *testing.T) {
 	paths := localagent.PathsForHome(t.TempDir())
 	if err := localagent.EnsureDirs(paths); err != nil {
@@ -184,24 +194,22 @@ func TestRestartAgentViaSupervisorSkipsForeignPlist(t *testing.T) {
 }
 
 func TestDeployStatusRequiresLoadedSupervisor(t *testing.T) {
+	t.Parallel()
+
 	paths := localagent.PathsForHome(t.TempDir())
-	oldStatus := deployResumeLaunchAgentStatusFunc
-	t.Cleanup(func() { deployResumeLaunchAgentStatusFunc = oldStatus })
-	deployResumeLaunchAgentStatusFunc = func() deployLaunchAgentStatus {
-		return deployLaunchAgentStatus{Loaded: true, State: "exited", LastExitCode: intPtr(0)}
-	}
+	launchAgent := deployLaunchAgentStatus{Installed: true, Loaded: true, State: "exited", LastExitCode: intPtr(0)}
 
 	// Installed but unloaded supervisor: plist presence must not read as
 	// supervision, and status must not be ready.
-	withAgentSupervisorHooks(t, localagent.LaunchdAgentStatus{
+	supervisor := localagent.LaunchdAgentStatus{
 		Supported:        true,
 		PlistPresent:     true,
 		SupervisesSocket: true,
 		Loaded:           false,
 		PlistPath:        "/Users/example/Library/LaunchAgents/dev.scenery.agent.plist",
 		Label:            localagent.AgentLaunchdLabel,
-	}, nil, nil)
-	status := buildDeployStatus(paths, localagent.EmptyDeployRegistry())
+	}
+	status := buildDeployStatusWithDependencies(context.Background(), paths, localagent.EmptyDeployRegistry(), deployStatusTestDependencies(supervisor, launchAgent))
 	if status.Ready {
 		t.Fatalf("status must not be ready with unloaded supervisor: %+v", status)
 	}
@@ -218,12 +226,12 @@ func TestDeployStatusRequiresLoadedSupervisor(t *testing.T) {
 		t.Fatalf("missing unloaded-supervisor diagnostic: %v", status.Diagnostics)
 	}
 
-	withAgentSupervisorHooks(t, localagent.LaunchdAgentStatus{
+	supervisor = localagent.LaunchdAgentStatus{
 		Supported:        true,
 		PlistPresent:     false,
 		SupervisesSocket: false,
-	}, nil, nil)
-	status = buildDeployStatus(paths, localagent.EmptyDeployRegistry())
+	}
+	status = buildDeployStatusWithDependencies(context.Background(), paths, localagent.EmptyDeployRegistry(), deployStatusTestDependencies(supervisor, launchAgent))
 	found = false
 	for _, diag := range status.Diagnostics {
 		if strings.Contains(diag, "supervisor LaunchAgent is not installed") {
@@ -293,29 +301,27 @@ func TestDeployLaunchAgentStatusDistinguishesLoaded(t *testing.T) {
 }
 
 func TestDeployLaunchAgentStatusParsesFailedLastExit(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	if err := os.MkdirAll(filepath.Dir(deployResumeLaunchAgentPath()), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(deployResumeLaunchAgentPath(), []byte("plist"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	oldStatus := deployResumeLaunchAgentStatusFunc
-	t.Cleanup(func() { deployResumeLaunchAgentStatusFunc = oldStatus })
-	deployResumeLaunchAgentStatusFunc = func() deployLaunchAgentStatus {
-		return deployLaunchAgentStatus{Loaded: true, State: "exited", LastExitCode: intPtr(10)}
-	}
+	t.Parallel()
 
-	status := deployLaunchAgentStatusFor()
+	resumePath := filepath.Join(t.TempDir(), "dev.scenery.deploy-resume.plist")
+	if err := os.MkdirAll(filepath.Dir(resumePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(resumePath, []byte("plist"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	status := deployLaunchAgentStatusForPath(resumePath, func() deployLaunchAgentStatus {
+		return deployLaunchAgentStatus{Loaded: true, State: "exited", LastExitCode: intPtr(10)}
+	})
 	if !status.Installed || !status.Loaded || status.State != "exited" || status.LastExitCode == nil || *status.LastExitCode != 10 || !status.failed() {
 		t.Fatalf("failed resume status = %+v", status)
 	}
 
 	paths := localagent.PathsForHome(t.TempDir())
-	withAgentSupervisorHooks(t, localagent.LaunchdAgentStatus{
+	supervisor := localagent.LaunchdAgentStatus{
 		Supported: true, PlistPresent: true, SupervisesSocket: true, Loaded: true, Running: true,
-	}, nil, nil)
-	deploy := buildDeployStatus(paths, localagent.EmptyDeployRegistry())
+	}
+	deploy := buildDeployStatusWithDependencies(context.Background(), paths, localagent.EmptyDeployRegistry(), deployStatusTestDependencies(supervisor, status))
 	found := false
 	for _, diagnostic := range deploy.Diagnostics {
 		if strings.Contains(diagnostic, "completed with exit code 10") {

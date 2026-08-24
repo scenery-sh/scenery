@@ -50,9 +50,10 @@ type assistantDependencyCacheMetadata struct {
 	PackageDigest  string `json:"package_digest"`
 }
 
-var assistantManagedNodeResolver = resolveAssistantManagedNode
-
-var assistantSyncInstall = installAssistantSyncDependencies
+type assistantSyncDependencies struct {
+	resolveManagedNode func(context.Context, string) (string, string, string, error)
+	install            func(context.Context, string, string, string) error
+}
 
 func runAssistantSync(args []string, stdout io.Writer) error {
 	if len(args) == 0 {
@@ -89,6 +90,13 @@ func runAssistantSync(args []string, stdout io.Writer) error {
 }
 
 func syncAssistant(ctx context.Context, root string, compiled *compiler.Result, name string) (assistantSyncResponse, error) {
+	return syncAssistantWithDependencies(ctx, root, compiled, name, assistantSyncDependencies{
+		resolveManagedNode: resolveAssistantManagedNode,
+		install:            installAssistantSyncDependencies,
+	})
+}
+
+func syncAssistantWithDependencies(ctx context.Context, root string, compiled *compiler.Result, name string, deps assistantSyncDependencies) (assistantSyncResponse, error) {
 	if compiled == nil || compiled.Manifest == nil || !compiled.Valid() {
 		return assistantSyncResponse{}, errors.New("assistant app contract is invalid")
 	}
@@ -131,11 +139,11 @@ func syncAssistant(ctx context.Context, root string, compiled *compiler.Result, 
 	}
 	lockDigest := digestBytes(lockBytes)
 	packageDigest := digestBytes(packageBytes)
-	nodePath, npmPath, nodeHome, err := assistantManagedNodeResolver(ctx, root)
+	nodePath, npmPath, nodeHome, err := deps.resolveManagedNode(ctx, root)
 	if err != nil {
 		return assistantSyncResponse{}, fmt.Errorf("assistant managed Node/npm: %w", err)
 	}
-	cachePath, status, reused, err := syncAssistantDependencyCache(ctx, root, lockDigest, packageDigest, packageBytes, lockBytes, npmPath, nodeHome)
+	cachePath, status, reused, err := syncAssistantDependencyCache(ctx, root, lockDigest, packageDigest, packageBytes, lockBytes, npmPath, nodeHome, deps.install)
 	if err != nil {
 		return assistantSyncResponse{}, err
 	}
@@ -232,7 +240,7 @@ func decodeJSONExact(data []byte, target any) error {
 	return nil
 }
 
-func syncAssistantDependencyCache(ctx context.Context, root, lockDigest, packageDigest string, packageBytes, lockBytes []byte, npmPath, nodeHome string) (string, string, bool, error) {
+func syncAssistantDependencyCache(ctx context.Context, root, lockDigest, packageDigest string, packageBytes, lockBytes []byte, npmPath, nodeHome string, install func(context.Context, string, string, string) error) (string, string, bool, error) {
 	if len(lockDigest) != len("sha256:")+64 || !strings.HasPrefix(lockDigest, "sha256:") {
 		return "", "", false, errors.New("assistant lock digest is invalid")
 	}
@@ -261,7 +269,7 @@ func syncAssistantDependencyCache(ctx context.Context, root, lockDigest, package
 	if err := os.WriteFile(filepath.Join(stage, "package-lock.json"), lockBytes, 0o644); err != nil {
 		return "", "", false, err
 	}
-	if err := assistantSyncInstall(ctx, stage, npmPath, nodeHome); err != nil {
+	if err := install(ctx, stage, npmPath, nodeHome); err != nil {
 		return "", "", false, err
 	}
 	metadata := assistantDependencyCacheMetadata{Kind: assistantDependencyCacheKind, SchemaRevision: assistantDependencyCacheRevision, LockDigest: lockDigest, PackageDigest: packageDigest}

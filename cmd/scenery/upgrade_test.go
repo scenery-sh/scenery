@@ -67,6 +67,8 @@ func TestRunUpgradeHelpUsesCurrentChannelContract(t *testing.T) {
 }
 
 func TestRunUpgradeInstallsVerifiedReleaseAndSyncsToolchain(t *testing.T) {
+	t.Parallel()
+
 	if runtime.GOOS == "windows" {
 		t.Skip("test uses a POSIX shell script as the fake downloaded binary")
 	}
@@ -87,12 +89,18 @@ func TestRunUpgradeInstallsVerifiedReleaseAndSyncsToolchain(t *testing.T) {
 		"checksums.txt": []byte(hex.EncodeToString(sum[:]) + "  " + assetName + "\n"),
 	}
 	server := newUpgradeReleaseServer(t, tag, assets)
-	restore := overrideUpgradeGlobals(t, server, "v0.2.0")
-	defer restore()
+	defer server.Close()
+	deps := upgradeDependencies{
+		apiBaseURL:       server.URL + "/repos/scenery-sh/scenery",
+		httpClient:       server.Client(),
+		currentVersion:   func() string { return "v0.2.0" },
+		deployNotice:     func(string) *deploydiag.HelperDrift { return nil },
+		workingDirectory: os.Getwd,
+	}
 
 	target := filepath.Join(t.TempDir(), "bin", "scenery")
 	var out bytes.Buffer
-	if err := runUpgrade(t.Context(), &out, []string{"--target", target, "--toolchain", "all", "-o", "json"}); err != nil {
+	if err := runUpgradeWithDependencies(t.Context(), &out, []string{"--target", target, "--toolchain", "all", "-o", "json"}, deps); err != nil {
 		t.Fatalf("runUpgrade() error = %v\n%s", err, out.String())
 	}
 	var payload upgradeResponse

@@ -151,6 +151,17 @@ optimize a number nothing can explain.
       0.5s / 5% retain threshold. Three focused `-race` repetitions, one full
       package `-race` run, the exact changed-area command union, and the full
       self-harness passed.
+- [x] 2026-08-24: Isolated the remaining shared globals for deploy status,
+      assistant sync, upgrade, and dev-session preparation behind private
+      per-invocation dependencies, then parallelized their five serial tests as
+      one batch. The assistant install, upgrade download and installed-binary
+      sync, launch-agent observation, local-agent Unix server, and frontend
+      backend registration boundaries remain covered. Three alternating
+      full-package A/B pairs measured before 7.467/6.643/6.538s (median 6.643s)
+      and after 5.521/5.136/5.430s (median 5.430s): 1.213s and 18.3% faster,
+      above the 0.5s / 5% retain threshold. Three focused `-race` repetitions
+      and one full-package `-race` run passed, as did the exact changed-area Go
+      command union and the full self-harness.
 
 - [x] 2026-07-29: Optimized runtime hot paths on the developer loop, separate
       from test scheduling. Six changes, each with byte-identical output proven
@@ -380,6 +391,12 @@ optimize a number nothing can explain.
   `commandAgentPathsOverride` even though the tests construct the agent client
   directly. Starting each server at explicit paths removed the coupling while
   preserving the real agent and desktop-process boundaries.
+- 2026-08-24: The final five serial tests did not share one kind of global.
+  Their blockers were four narrow concerns: command dependencies, deploy
+  status observers, process environment, and a registration callback. Keeping
+  those seams private to their owning invocation made the whole 1.52s audit
+  batch parallel-safe without introducing a generic test-runner abstraction;
+  the focused batch completed in 0.988s and the full package median fell 18.3%.
 - 2026-07-28: The five slowest links are `internal/build` 6.777s,
   `internal/contractagent` 6.480s, `internal/compiler` 6.245s,
   `internal/deployplan` 5.658s, and `cmd/scenery` 4.842s. Link cost does not
@@ -703,6 +720,13 @@ optimize a number nothing can explain.
   alternating package median improved by 0.767s / 9.9%, above the declared
   materiality threshold.
   Date/Author: 2026-08-24 / Codex.
+- The final five-test parallel batch is retained. Assistant sync, upgrade,
+  deploy status, and dev-session preparation each receive private
+  per-invocation dependencies; their production wrappers still select the real
+  process, filesystem, service-manager, environment, and registration paths.
+  The alternating package median improved by 1.213s / 18.3%, so no shared
+  dependency container or generic runner is warranted.
+  Date/Author: 2026-08-24 / Codex.
 - Per-package budgets were raised to 10s/15s rather than left at 2s/5s. A budget
   that nothing meets is not a budget; it reports every package every run, so a
   real regression is indistinguishable from the standing background. 10s and 15s
@@ -832,7 +856,9 @@ moved five real-process lifecycle tests into the parallel phase and reduced the
 measured `cmd/scenery` package median from 11.611s to 8.625s. The coordinated
 runner experiment then reduced its measured median from 9.242s to 7.817s, and
 the remaining desktop-agent/assistant-init/snapshot-backup batch reduced its
-current median from 7.763s to 6.996s.
+current median from 7.763s to 6.996s. Isolating the last five serial tests then
+reduced the interleaved full-package median from 6.643s to 5.430s while
+preserving their real subprocess and local-agent boundaries.
 
 ## Context and Orientation
 
@@ -964,6 +990,17 @@ machines; re-measure before comparing.
 - `startTestAgentServerAtPaths` is a test-only helper for real agent servers
   whose callers already own explicit paths; it does not alter production agent
   path resolution.
+- Assistant sync and upgrade have private `assistantSyncDependencies` and
+  `upgradeDependencies` values. Their production wrappers bind the existing
+  managed-node resolver, installer, HTTP client, current version, deploy notice,
+  working directory, and real command execution for each invocation.
+- Deploy status has a private `deployStatusDependencies` value, and launch-agent
+  status can observe an explicit plist path. Production still selects the real
+  service manager and launchd/systemd observers.
+- `DevSessionController` can carry an invocation-owned environment, frontend
+  override resolver, and registration observer. Nil values retain the existing
+  production environment publication, local-proxy resolution, and local-agent
+  registration behavior.
 - `internal/victoria.StartConfig` and `StartAtRootWithConfig` accept explicit
   component specs and binary paths. `devSupervisor` carries the private
   `victoriaProcessConfig` that pairs startup with the matching port-availability

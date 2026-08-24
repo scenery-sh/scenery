@@ -740,12 +740,26 @@ func buildDeployStatus(paths localagent.Paths, registry localagent.DeployRegistr
 }
 
 func buildDeployStatusWithContext(ctx context.Context, paths localagent.Paths, registry localagent.DeployRegistry) deployStatusResponse {
+	return buildDeployStatusWithDependencies(ctx, paths, registry, deployStatusDependencies{
+		serviceManager:        deployServiceManagerFunc,
+		agentSupervisorStatus: deployAgentSupervisorStatusFor,
+		launchAgentStatus:     deployLaunchAgentStatusFor,
+	})
+}
+
+type deployStatusDependencies struct {
+	serviceManager        func() string
+	agentSupervisorStatus func(localagent.Paths) deployAgentSupervisorStatus
+	launchAgentStatus     func() deployLaunchAgentStatus
+}
+
+func buildDeployStatusWithDependencies(ctx context.Context, paths localagent.Paths, registry localagent.DeployRegistry, deps deployStatusDependencies) deployStatusResponse {
 	edgeState, _ := localagent.LoadEdgeState(paths.EdgeStatePath)
 	edgeStatus := edgeStatusForStateDomain(paths, edgeState, "").Edge
 	helper := privilegedListenerStatus(paths)
 	agent := deployAgentStatusFor(paths)
-	agentSupervisor := deployAgentSupervisorStatusFor(paths)
-	launchAgent := deployLaunchAgentStatusFor()
+	agentSupervisor := deps.agentSupervisorStatus(paths)
+	launchAgent := deps.launchAgentStatus()
 	sessions := deploySessionsByAppRoot(paths)
 	targets := make([]deployTargetStatus, 0, len(registry.Targets))
 	for _, target := range registry.Targets {
@@ -778,7 +792,7 @@ func buildDeployStatusWithContext(ctx context.Context, paths localagent.Paths, r
 		}
 		targets = append(targets, item)
 	}
-	manager := deployServiceManagerFunc()
+	manager := deps.serviceManager()
 	helperPublic := deploydiag.HelperHasPublicBinding(helper.Listen)
 	status := deployStatusResponse{
 		cliPayloadIdentity: newCLIPayloadIdentity("scenery.deploy.status"),
@@ -925,17 +939,12 @@ func deployAgentStatusFor(paths localagent.Paths) deployAgentStatus {
 
 func deployAgentSupervisorStatusFor(paths localagent.Paths) deployAgentSupervisorStatus {
 	if deployServiceManagerFunc() == "systemd" {
-		status := localagent.AgentSystemdStatusForSocket(paths.SocketPath)
-		return deployAgentSupervisorStatus{
-			Installed: status.PlistPresent && status.SupervisesSocket,
-			Loaded:    status.Loaded,
-			Running:   status.Running,
-			PID:       status.PID,
-			Label:     status.Label,
-			Path:      status.PlistPath,
-		}
+		return deployAgentSupervisorStatusFromService(localagent.AgentSystemdStatusForSocket(paths.SocketPath))
 	}
-	status := agentSupervisorStatusFunc(paths.SocketPath)
+	return deployAgentSupervisorStatusFromService(agentSupervisorStatusFunc(paths.SocketPath))
+}
+
+func deployAgentSupervisorStatusFromService(status localagent.LaunchdAgentStatus) deployAgentSupervisorStatus {
 	return deployAgentSupervisorStatus{
 		Installed: status.PlistPresent && status.SupervisesSocket,
 		Loaded:    status.Loaded,

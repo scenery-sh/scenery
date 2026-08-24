@@ -6,11 +6,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 
 	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/envpolicy"
+	"scenery.sh/internal/localproxy"
 )
 
 type DevSessionController struct {
@@ -23,6 +23,11 @@ type DevSessionController struct {
 	// environment, which is what every command does; tests set it so two
 	// sessions can use different agent homes in the same process.
 	paths *localagent.Paths
+	// environment is an invocation-owned process environment. Nil retains the
+	// production behavior that publishes temporary dev paths process-wide.
+	environment      []string
+	frontendOverride frontendOverrideResolver
+	onRegister       func(localagent.RegisterRequest)
 }
 
 // agentPaths returns the controller's explicit agent paths, falling back to the
@@ -32,11 +37,6 @@ func (c *DevSessionController) agentPaths() (localagent.Paths, error) {
 		return *c.paths, nil
 	}
 	return commandAgentPaths()
-}
-
-var devSessionTestHooks struct {
-	sync.Mutex
-	register func(localagent.RegisterRequest)
 }
 
 // runPhase reports a timed run-output step when a console is attached so
@@ -101,6 +101,11 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 	cfg := c.cfg
 	env := c.env
 	listen := c.listen
+	baseEnvironment := c.environment
+	isolatedEnvironment := baseEnvironment != nil
+	if !isolatedEnvironment {
+		baseEnvironment = envpolicy.Environ()
+	}
 	var restorers []func()
 	restore := func() {
 		for i := len(restorers) - 1; i >= 0; i-- {
@@ -166,15 +171,18 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 		prepared.Backend = fallback
 		return prepared, nil
 	}
-	if strings.TrimSpace(envpolicy.Get("SCENERY_DEV_DASHBOARD_ADDR")) == "" {
+	if value, _ := lookupEnvValue(baseEnvironment, "SCENERY_DEV_DASHBOARD_ADDR"); strings.TrimSpace(value) == "" {
 		addr, err := freeLoopbackAddr()
 		if err != nil {
 			return prepared, err
 		}
-		_ = envpolicy.Set("SCENERY_DEV_DASHBOARD_ADDR", addr)
-		restorers = append(restorers, func() {
-			_ = envpolicy.Unset("SCENERY_DEV_DASHBOARD_ADDR")
-		})
+		baseEnvironment = overlayEnv(baseEnvironment, map[string]string{"SCENERY_DEV_DASHBOARD_ADDR": addr})
+		if !isolatedEnvironment {
+			_ = envpolicy.Set("SCENERY_DEV_DASHBOARD_ADDR", addr)
+			restorers = append(restorers, func() {
+				_ = envpolicy.Unset("SCENERY_DEV_DASHBOARD_ADDR")
+			})
+		}
 	}
 	var client *localagent.Client
 	var agentHealth localagent.HealthResponse
@@ -210,20 +218,27 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 		prepared.Backend = fallback
 		return prepared, nil
 	}
-	if strings.TrimSpace(envpolicy.Get("SCENERY_DEV_CACHE_DIR")) == "" {
-		if strings.TrimSpace(envpolicy.Get("SCENERY_AGENT_HOME")) == "" {
-			_ = envpolicy.Set("SCENERY_AGENT_HOME", paths.Home)
+	if value, _ := lookupEnvValue(baseEnvironment, "SCENERY_DEV_CACHE_DIR"); strings.TrimSpace(value) == "" {
+		if value, _ := lookupEnvValue(baseEnvironment, "SCENERY_AGENT_HOME"); strings.TrimSpace(value) == "" {
+			baseEnvironment = overlayEnv(baseEnvironment, map[string]string{"SCENERY_AGENT_HOME": paths.Home})
+			if !isolatedEnvironment {
+				_ = envpolicy.Set("SCENERY_AGENT_HOME", paths.Home)
+				restorers = append(restorers, func() {
+					_ = envpolicy.Unset("SCENERY_AGENT_HOME")
+				})
+			}
+		}
+		cacheRoot := filepath.Join(paths.AgentDir, "dashboard")
+		baseEnvironment = overlayEnv(baseEnvironment, map[string]string{"SCENERY_DEV_CACHE_DIR": cacheRoot})
+		if !isolatedEnvironment {
+			_ = envpolicy.Set("SCENERY_DEV_CACHE_DIR", cacheRoot)
 			restorers = append(restorers, func() {
-				_ = envpolicy.Unset("SCENERY_AGENT_HOME")
+				_ = envpolicy.Unset("SCENERY_DEV_CACHE_DIR")
 			})
 		}
-		_ = envpolicy.Set("SCENERY_DEV_CACHE_DIR", filepath.Join(paths.AgentDir, "dashboard"))
-		restorers = append(restorers, func() {
-			_ = envpolicy.Unset("SCENERY_DEV_CACHE_DIR")
-		})
 	}
 	backends := map[string]localagent.Backend{}
-	baseEnv, err := appEnvWithDotEnv(envpolicy.Environ(), root, env.DotEnvFiles()...)
+	baseEnv, err := appEnvWithDotEnv(baseEnvironment, root, env.DotEnvFiles()...)
 	if err != nil {
 		return prepared, err
 	}
@@ -273,7 +288,11 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 		if err := c.runPhase("Starting frontend dev servers", func() error {
 			var wait func(context.Context) error
 			var err error
-			frontendBackends, frontendProcesses, wait, err = beginManagedFrontendBackendsForSession(ctx, root, cfg, baseEnv, frontendSeedSession)
+			resolveOverride := c.frontendOverride
+			if resolveOverride == nil {
+				resolveOverride = localproxy.FrontendOverride
+			}
+			frontendBackends, frontendProcesses, wait, err = beginManagedFrontendBackendsForSessionWithOverride(ctx, root, cfg, baseEnv, frontendSeedSession, resolveOverride)
 			if wait != nil {
 				ready := make(chan error, 1)
 				go func() {
@@ -318,7 +337,9 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 			ClaimOwner:     true,
 			ClaimAliases:   listen.ClaimAliases,
 		}
-		notifyDevSessionRegister(req)
+		if c.onRegister != nil {
+			c.onRegister(req)
+		}
 		session, err = client.Register(ctx, req)
 		if err != nil {
 			return err
@@ -387,13 +408,4 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 	prepared.Paths = paths
 	prepared.Backend = backend.normalized()
 	return prepared, nil
-}
-
-func notifyDevSessionRegister(req localagent.RegisterRequest) {
-	devSessionTestHooks.Lock()
-	fn := devSessionTestHooks.register
-	devSessionTestHooks.Unlock()
-	if fn != nil {
-		fn(req)
-	}
 }

@@ -59,12 +59,15 @@ func deployLaunchAgentStatusFor() deployLaunchAgentStatus {
 		installed, loaded, path := localagent.DeployResumeSystemdStatus()
 		return deployLaunchAgentStatus{Installed: installed, Loaded: loaded, Path: path}
 	}
-	path := deployResumeLaunchAgentPath()
+	return deployLaunchAgentStatusForPath(deployResumeLaunchAgentPath(), deployResumeLaunchAgentStatusFunc)
+}
+
+func deployLaunchAgentStatusForPath(path string, observe func() deployLaunchAgentStatus) deployLaunchAgentStatus {
 	_, err := os.Stat(path)
 	installed := err == nil
 	status := deployLaunchAgentStatus{Installed: installed, Path: path}
 	if installed {
-		observed := deployResumeLaunchAgentStatusFunc()
+		observed := observe()
 		status.Loaded = observed.Loaded
 		status.State = observed.State
 		status.LastExitCode = observed.LastExitCode

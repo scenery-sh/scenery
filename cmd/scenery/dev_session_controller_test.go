@@ -2,17 +2,21 @@ package main
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 
 	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/app"
+	"scenery.sh/internal/envpolicy"
 )
 
 func TestPrepareDevAgentSessionRegistersOnceWithFrontendBackends(t *testing.T) {
+	t.Parallel()
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	home := t.TempDir()
-	paths := isolateCommandAgentHomeAt(t, home)
+	paths := localagent.PathsForHome(home)
 	if err := localagent.EnsureDirs(paths); err != nil {
 		t.Fatal(err)
 	}
@@ -39,18 +43,7 @@ func TestPrepareDevAgentSessionRegistersOnceWithFrontendBackends(t *testing.T) {
 		<-done
 	})
 
-	t.Setenv("SCENERY_FRONTEND_WEB_ADDR", "127.0.0.1:5173")
 	var requests []localagent.RegisterRequest
-	devSessionTestHooks.Lock()
-	devSessionTestHooks.register = func(req localagent.RegisterRequest) {
-		requests = append(requests, req)
-	}
-	devSessionTestHooks.Unlock()
-	t.Cleanup(func() {
-		devSessionTestHooks.Lock()
-		devSessionTestHooks.register = nil
-		devSessionTestHooks.Unlock()
-	})
 
 	cfg := app.Config{
 		Name: "demo",
@@ -68,6 +61,20 @@ func TestPrepareDevAgentSessionRegistersOnceWithFrontendBackends(t *testing.T) {
 		cfg:   cfg,
 		env:   env,
 		paths: &paths,
+		environment: overlayEnv(envpolicy.Environ(), map[string]string{
+			"SCENERY_AGENT_HOME":         paths.Home,
+			"SCENERY_DEV_CACHE_DIR":      filepath.Join(paths.AgentDir, "dashboard"),
+			"SCENERY_DEV_DASHBOARD_ADDR": "127.0.0.1:9",
+		}),
+		frontendOverride: func(name string) string {
+			if name == "web" {
+				return "127.0.0.1:5173"
+			}
+			return ""
+		},
+		onRegister: func(req localagent.RegisterRequest) {
+			requests = append(requests, req)
+		},
 	}).Prepare(ctx)
 	if err != nil {
 		t.Fatal(err)
