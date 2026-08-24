@@ -38,6 +38,15 @@ type Console interface {
 	Event(event string, fields map[string]any)
 }
 
+// StartConfig supplies a complete Victoria component set and optional explicit
+// binary paths. A missing binary path uses normal managed-binary resolution.
+// Callers own the slices and maps for the duration of StartAtRootWithConfig.
+type StartConfig struct {
+	Components  []ComponentSpec
+	BinaryPaths map[string]string
+	Download    bool
+}
+
 // ComponentSpec pins one Victoria component: identity, managed toolchain
 // artifact, default port, endpoint paths, and environment variable names.
 type ComponentSpec struct {
@@ -170,14 +179,24 @@ func StartAtRoot(ctx context.Context, root string, console Console) *Stack {
 	if !Enabled() {
 		return nil
 	}
+	return StartAtRootWithConfig(ctx, root, console, StartConfig{
+		Components: ComponentSpecs(),
+		Download:   downloadEnabled(),
+	})
+}
+
+// StartAtRootWithConfig starts an explicitly configured Victoria process set.
+// Unlike StartAtRoot, it does not read enablement, download, or component-port
+// environment variables; an explicit BinaryPaths entry also bypasses the
+// corresponding component-binary environment variable.
+func StartAtRootWithConfig(ctx context.Context, root string, console Console, config StartConfig) *Stack {
 	binDir := filepath.Join(root, "bin")
-	download := downloadEnabled()
 	if err := ensureLocalStateDirIgnored(root); err != nil {
 		Warn(console, "Victoria local state unavailable: %v", err)
 		return nil
 	}
 
-	results := startComponents(ctx, root, binDir, ComponentSpecs(), download, console)
+	results := startComponentsWithBinaryPaths(ctx, root, binDir, config.Components, config.BinaryPaths, config.Download, console)
 	stack := &Stack{components: make([]*Component, 0, len(results))}
 	for _, result := range results {
 		if result.err != nil {
@@ -469,6 +488,10 @@ func startComponent(ctx context.Context, root, binDir string, spec ComponentSpec
 }
 
 func startComponents(ctx context.Context, root, binDir string, specs []ComponentSpec, download bool, console Console) []componentStartResult {
+	return startComponentsWithBinaryPaths(ctx, root, binDir, specs, nil, download, console)
+}
+
+func startComponentsWithBinaryPaths(ctx context.Context, root, binDir string, specs []ComponentSpec, binaryPaths map[string]string, download bool, console Console) []componentStartResult {
 	if len(specs) == 0 {
 		return nil
 	}
@@ -480,7 +503,7 @@ func startComponents(ctx context.Context, root, binDir string, specs []Component
 		wg.Add(1)
 		go func(index int, spec ComponentSpec) {
 			defer wg.Done()
-			plan, err := prepareComponentStart(ctx, root, binDir, spec, download, console)
+			plan, err := prepareComponentStartWithBinaryPath(ctx, root, binDir, spec, binaryPaths[spec.Name], download, console)
 			if err != nil {
 				results[index].err = err
 				return
@@ -507,6 +530,10 @@ func startComponents(ctx context.Context, root, binDir string, specs []Component
 }
 
 func prepareComponentStart(ctx context.Context, root, binDir string, spec ComponentSpec, download bool, console Console) (componentStartPlan, error) {
+	return prepareComponentStartWithBinaryPath(ctx, root, binDir, spec, "", download, console)
+}
+
+func prepareComponentStartWithBinaryPath(ctx context.Context, root, binDir string, spec ComponentSpec, binaryPath string, download bool, console Console) (componentStartPlan, error) {
 	baseURL := fmt.Sprintf("http://%s:%d", defaultHost, spec.DefaultPort)
 	plan := componentStartPlan{
 		spec:        spec,
@@ -520,9 +547,14 @@ func prepareComponentStart(ctx context.Context, root, binDir string, spec Compon
 		return plan, nil
 	}
 
-	binaryPath, err := resolveBinary(ctx, spec, binDir, download)
-	if err != nil {
-		return componentStartPlan{}, err
+	if strings.TrimSpace(binaryPath) == "" {
+		var err error
+		binaryPath, err = resolveBinary(ctx, spec, binDir, download)
+		if err != nil {
+			return componentStartPlan{}, err
+		}
+	} else if !isExecutableFile(binaryPath) {
+		return componentStartPlan{}, fmt.Errorf("configured %s binary is not executable: %s", spec.DisplayName, binaryPath)
 	}
 	plan.binaryPath = binaryPath
 	return plan, nil

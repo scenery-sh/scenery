@@ -147,9 +147,9 @@
       "status": "active",
       "quality": "B",
       "freshness": "current",
-      "last_reviewed": "2026-08-20",
-      "review_after": "2026-09-18",
-      "summary": "Active ExecPlan attributing developer test loop cost: isolated timing confirmation scoped to new or materially worsened outliers, per-binary link and build-ID attribution, missing-binary build parallelism pinned at four, cold binary-count and prepare-wall budgets of 60 and 30s, a graph-only mcpprojection boundary, and a measured in-memory deploy failure matrix that retains one process-level exit-code test.",
+      "last_reviewed": "2026-08-21",
+      "review_after": "2026-09-20",
+      "summary": "Active ExecPlan attributing developer test loop cost: scoped timing confirmation, per-binary cold attribution, pinned four-way build concurrency, prepare-wall budgets, a graph-only mcpprojection boundary, an in-memory deploy failure matrix, and explicit per-supervisor Victoria test-process configuration that moved five real lifecycle tests into the parallel phase.",
       "tags": ["plans", "execplans", "harness", "testing", "performance", "timing"]
     },
     {

@@ -120,8 +120,16 @@ optimize a number nothing can explain.
       tests no longer touch process `PATH` or set `DEPLOY_*` env. Interleaved
       A/B: 11.9s to 10.8s. `scenery.sh/cmd/scenery` now reports 11.52s against
       its 15s budget.
-- [ ] `configureManagedVictoriaTestProcesses` (2.16s) is deliberately not
-      converted; see Decision Log.
+- [x] 2026-08-21: Made Victoria test-process configuration explicit per
+      `devSupervisor`: component specs, helper-binary paths, and port-availability
+      checks no longer use process-wide environment mutation. The five
+      process-starting lifecycle tests now run in parallel while continuing to
+      exercise the real `TestVictoriaManagedProcessHelper` subprocess, PID,
+      readiness, ownership, interruption, and recovery boundaries. Three
+      alternating full-package A/B pairs against detached `acd13082` measured
+      before 12.208/10.055/11.611s (median 11.611s) and after
+      8.768/8.625/8.590s (median 8.625s): 2.986s and 25.7% faster, well above
+      the 0.5s / 5% retain threshold. Three focused `-race` repetitions passed.
 
 - [x] 2026-07-29: Optimized runtime hot paths on the developer loop, separate
       from test scheduling. Six changes, each with byte-identical output proven
@@ -693,17 +701,16 @@ optimize a number nothing can explain.
   regressed the `-race` lane while adding little. Anything that makes them
   parallel-safe has to isolate that state first, not add `t.Parallel`.
   Date/Author: 2026-07-28 / Claude.
-- The Victoria test-process seam is deliberately left on process environment.
-  `SCENERY_VICTORIA_*_BIN`, `_PORT`, `_VERSION`, and friends are registered in
-  `docs/environment.registry.json` and documented in `docs/environment.md`, so
-  they are a supported production override, not a test hack. Converting them to
-  a struct would either break that contract or add a second configuration
-  surface for a test-speed reason. Several of the tests involved
-  (`TestEnsureSharedVictoriaStackSerializesConcurrentStarts`,
-  `TestVictoriaRecoverySerializesConcurrentAttempts`) also assert serialization
-  semantics and must stay serial regardless, so the realistic gain is well under
-  the 2.16s the cluster holds.
-  Date/Author: 2026-07-28 / Claude.
+- The 2026-07-28 decision to leave Victoria test processes on the production
+  environment contract is superseded by the measured 2026-08-21 experiment.
+  The production contract remains singular: a zero-value supervisor still uses
+  `SCENERY_VICTORIA_*` through `victoria.StartAtRoot`. Tests instead provide a
+  private per-supervisor process configuration with explicit component specs,
+  binary paths, and port checks. That isolates state without weakening the two
+  tests that assert same-root serialization; those assertions remain internal to
+  each parallel test. Interleaved package A/B improved median wall by 2.986s /
+  25.7%, so the seam is retained.
+  Date/Author: 2026-08-21 / Codex.
 - Toolchain identity is memoized with self-validating caches rather than an
   invocation-scoped cache. A `scenery up` session lives for hours and a
   toolchain can be replaced under it, so keying digests on path+size+mtime and
@@ -772,7 +779,9 @@ binary-count budget stays 60; the extra leaf test binaries were folded into
 consumers rather than raising the budget. The cold timing gate now measures
 prepare wall at pinned four-way build concurrency instead of a concurrency-
 sensitive sum mislabeled as CPU. The warm-suite target is unmet and now has a
-precise, measured owner.
+precise, measured owner. Explicit per-supervisor Victoria process configuration
+moved five real-process lifecycle tests into the parallel phase and reduced the
+measured `cmd/scenery` package median from 11.611s to 8.625s.
 
 ## Context and Orientation
 
@@ -894,5 +903,9 @@ machines; re-measure before comparing.
   the stdout Go JSON event stream intact.
 - `deploySSHTools` gained a private `RunCommand` injection point; the zero value
   retains direct `exec.Cmd.Run` behavior.
+- `internal/victoria.StartConfig` and `StartAtRootWithConfig` accept explicit
+  component specs and binary paths. `devSupervisor` carries the private
+  `victoriaProcessConfig` that pairs startup with the matching port-availability
+  check; its zero value retains the production environment path.
 - No new environment variables, and no new CLI flags: confirmation scope is
   derived from the existing `--release` and `--fresh-tests` modes.

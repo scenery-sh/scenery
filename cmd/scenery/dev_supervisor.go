@@ -54,15 +54,18 @@ type devSupervisor struct {
 	backend devBackend
 	addr    string
 
-	store        *devdash.Store
-	storeWriter  dashboardControlPlaneWriter
-	dashboard    *dashboardServer
-	victoria     *victoria.Stack
-	storageProxy *managedStorageProxy
-	reportToken  string
-	console      *runConsole
-	agent        *localagent.Client
-	agentSession *localagent.Session
+	store       *devdash.Store
+	storeWriter dashboardControlPlaneWriter
+	dashboard   *dashboardServer
+	victoria    *victoria.Stack
+	// victoriaProcesses is an explicit per-supervisor configuration seam for
+	// lifecycle tests. Its zero value uses Victoria's environment contract.
+	victoriaProcesses victoriaProcessConfig
+	storageProxy      *managedStorageProxy
+	reportToken       string
+	console           *runConsole
+	agent             *localagent.Client
+	agentSession      *localagent.Session
 	// devDomainURL is the edge-verified dev domain base URL advertised in
 	// run output; empty when dev.routing.domain does not apply or the edge
 	// was not serving it at startup.

@@ -26,6 +26,11 @@ type victoriaRunConsole struct {
 	console *runConsole
 }
 
+type victoriaProcessConfig struct {
+	start          func(context.Context, string, victoria.Console) *victoria.Stack
+	portsAvailable func() bool
+}
+
 func (c victoriaRunConsole) Verbose() bool { return c.console.verbose }
 
 func (c victoriaRunConsole) JSON() bool { return c.console.json }
@@ -47,7 +52,7 @@ func (s *devSupervisor) ensureSharedVictoriaStack(ctx context.Context, root stri
 		console = s.console
 	}
 	if s == nil || s.agent == nil {
-		return victoria.StartAtRoot(ctx, root, victoriaConsole(console)), false, nil
+		return s.startVictoriaAtRoot(ctx, root, victoriaConsole(console)), false, nil
 	}
 	processUnlock := lockVictoriaSubstrateProcess(root)
 	defer processUnlock()
@@ -71,14 +76,14 @@ func (s *devSupervisor) ensureSharedVictoriaStack(ctx context.Context, root stri
 		return nil, false, err
 	}
 	if existing != nil {
-		if err := stopVerifiedVictoriaStack(ctx, *existing); err != nil {
+		if err := s.stopVerifiedVictoriaStack(ctx, *existing); err != nil {
 			return nil, false, err
 		}
 		if _, err := s.agent.DeleteSubstrate(ctx, localagent.SubstrateVictoria); err != nil {
 			return nil, false, err
 		}
 	}
-	stack := victoria.StartAtRoot(ctx, root, victoriaConsole(console))
+	stack := s.startVictoriaAtRoot(ctx, root, victoriaConsole(console))
 	if stack == nil {
 		return nil, false, nil
 	}
@@ -105,7 +110,14 @@ func (s *devSupervisor) ensureSharedVictoriaStack(ctx context.Context, root stri
 	return stack, false, nil
 }
 
-func stopVerifiedVictoriaStack(ctx context.Context, substrate localagent.Substrate) error {
+func (s *devSupervisor) startVictoriaAtRoot(ctx context.Context, root string, console victoria.Console) *victoria.Stack {
+	if s != nil && s.victoriaProcesses.start != nil {
+		return s.victoriaProcesses.start(ctx, root, console)
+	}
+	return victoria.StartAtRoot(ctx, root, console)
+}
+
+func (s *devSupervisor) stopVerifiedVictoriaStack(ctx context.Context, substrate localagent.Substrate) error {
 	live := make([]int, 0, len(substrate.PIDs))
 	seen := map[int]bool{}
 	for name, pid := range substrate.PIDs {
@@ -142,7 +154,7 @@ func stopVerifiedVictoriaStack(ctx context.Context, substrate localagent.Substra
 		for _, pid := range live {
 			stopped = stopped && !processAliveForEdge(pid)
 		}
-		stopped = stopped && victoria.ComponentPortsAvailable()
+		stopped = stopped && s.componentPortsAvailable()
 		if stopped {
 			return nil
 		}
@@ -154,6 +166,13 @@ func stopVerifiedVictoriaStack(ctx context.Context, substrate localagent.Substra
 		case <-ticker.C:
 		}
 	}
+}
+
+func (s *devSupervisor) componentPortsAvailable() bool {
+	if s != nil && s.victoriaProcesses.portsAvailable != nil {
+		return s.victoriaProcesses.portsAvailable()
+	}
+	return victoria.ComponentPortsAvailable()
 }
 
 func discardVictoriaStack(stack *victoria.Stack) {

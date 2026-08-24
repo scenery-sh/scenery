@@ -61,9 +61,11 @@ func TestEnsureSharedVictoriaStackReusesAgentSubstrate(t *testing.T) {
 }
 
 func TestEnsureSharedVictoriaStackReplacesStaleOwner(t *testing.T) {
-	configureManagedVictoriaTestProcesses(t)
+	t.Parallel()
 
 	ctx, client := startSubstrateTestAgent(t)
+	supervisor := &devSupervisor{agent: client}
+	configureManagedVictoriaTestProcesses(t, supervisor)
 	stale, err := client.UpsertSubstrate(ctx, localagent.UpsertSubstrateRequest{
 		Kind:     localagent.SubstrateVictoria,
 		Status:   "ready",
@@ -73,7 +75,7 @@ func TestEnsureSharedVictoriaStackReplacesStaleOwner(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	stack, reused, err := (&devSupervisor{agent: client}).ensureSharedVictoriaStack(ctx, t.TempDir())
+	stack, reused, err := supervisor.ensureSharedVictoriaStack(ctx, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +96,8 @@ func TestEnsureSharedVictoriaStackReplacesStaleOwner(t *testing.T) {
 }
 
 func TestEnsureSharedVictoriaStackRejectsUnverifiedLiveOwner(t *testing.T) {
-	configureManagedVictoriaTestProcesses(t)
+	t.Parallel()
+
 	ctx, client := startSubstrateTestAgent(t)
 	ownerPID := startFakeSubstrateOwner(t)
 	badOwner := localagent.Owner{PID: ownerPID, StartedAt: "not-the-live-start-time"}
@@ -129,10 +132,11 @@ func TestEnsureSharedVictoriaStackRejectsUnverifiedLiveOwner(t *testing.T) {
 }
 
 func TestEnsureSharedVictoriaStackSerializesConcurrentStarts(t *testing.T) {
-	configureManagedVictoriaTestProcesses(t)
+	t.Parallel()
 
 	ctx, client := startSubstrateTestAgent(t)
 	supervisor := &devSupervisor{agent: client}
+	configureManagedVictoriaTestProcesses(t, supervisor)
 	root := t.TempDir()
 	unlock := lockVictoriaSubstrateProcess(root)
 	released := false
@@ -219,12 +223,14 @@ func TestVictoriaSubstrateMonitorRecordsExitState(t *testing.T) {
 }
 
 func TestVictoriaSupervisorRecoversExitedComponent(t *testing.T) {
-	configureManagedVictoriaTestProcesses(t)
+	t.Parallel()
+
 	ctx, client := startSubstrateTestAgent(t)
 	runCtx, cancel := context.WithCancel(ctx)
 	t.Cleanup(cancel)
 	root := t.TempDir()
 	supervisor := &devSupervisor{ctx: runCtx, cancel: cancel, agent: client}
+	configureManagedVictoriaTestProcesses(t, supervisor)
 	stack, reused, err := supervisor.ensureSharedVictoriaStack(runCtx, root)
 	if err != nil || stack == nil || reused {
 		t.Fatalf("initial ensure stack=%T reused=%v err=%v", stack, reused, err)
@@ -262,12 +268,14 @@ func TestVictoriaSupervisorRecoversExitedComponent(t *testing.T) {
 }
 
 func TestVictoriaRecoverySerializesConcurrentAttempts(t *testing.T) {
-	configureManagedVictoriaTestProcesses(t)
+	t.Parallel()
+
 	ctx, client := startSubstrateTestAgent(t)
 	runCtx, cancel := context.WithCancel(ctx)
 	t.Cleanup(cancel)
 	root := t.TempDir()
 	supervisor := &devSupervisor{ctx: runCtx, cancel: cancel, agent: client}
+	ports := configureManagedVictoriaTestProcesses(t, supervisor)
 	stack, _, err := supervisor.ensureSharedVictoriaStack(runCtx, root)
 	if err != nil {
 		t.Fatal(err)
@@ -278,7 +286,7 @@ func TestVictoriaRecoverySerializesConcurrentAttempts(t *testing.T) {
 		t.Fatal(err)
 	}
 	killVictoriaTestComponent(t, stack, "logs")
-	waitForVictoriaPortAvailable(t, victoria.ComponentSpecs()[1].DefaultPort)
+	waitForVictoriaPortAvailable(t, ports["logs"])
 
 	type ensureResult struct {
 		stack  *victoria.Stack
@@ -314,11 +322,13 @@ func TestVictoriaRecoverySerializesConcurrentAttempts(t *testing.T) {
 }
 
 func TestVictoriaRecoveryStopsWithSupervisor(t *testing.T) {
-	configureManagedVictoriaTestProcesses(t)
+	t.Parallel()
+
 	ctx, client := startSubstrateTestAgent(t)
 	runCtx, cancel := context.WithCancel(ctx)
 	root := t.TempDir()
 	supervisor := &devSupervisor{ctx: runCtx, cancel: cancel, agent: client}
+	configureManagedVictoriaTestProcesses(t, supervisor)
 	stack, _, err := supervisor.ensureSharedVictoriaStack(runCtx, root)
 	if err != nil {
 		t.Fatal(err)
@@ -414,33 +424,53 @@ func reachableVictoriaTestSubstrate(t *testing.T, ownerPID int) localagent.Subst
 	}
 }
 
-func configureManagedVictoriaTestProcesses(t *testing.T) {
+func configureManagedVictoriaTestProcesses(t *testing.T, supervisor *devSupervisor) map[string]int {
 	t.Helper()
+	if supervisor == nil {
+		t.Fatal("configure managed Victoria test processes: nil supervisor")
+	}
 	executable, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
 	}
 	script := filepath.Join(t.TempDir(), "victoria-test-process")
-	if err := os.WriteFile(script, []byte("#!/bin/sh\nexec \"$SCENERY_VICTORIA_TEST_BINARY\" -test.run='^TestVictoriaManagedProcessHelper$' -- \"$@\"\n"), 0o755); err != nil {
+	scriptBody := "#!/bin/sh\nSCENERY_VICTORIA_PROCESS_HELPER=1 exec " + shellQuote(executable) + " -test.run='^TestVictoriaManagedProcessHelper$' -- \"$@\"\n"
+	if err := os.WriteFile(script, []byte(scriptBody), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("SCENERY_VICTORIA_TEST_BINARY", executable)
-	t.Setenv("SCENERY_VICTORIA_PROCESS_HELPER", "1")
-	listeners := make([]net.Listener, 0, len(victoria.ComponentSpecs()))
-	for _, spec := range victoria.ComponentSpecs() {
+	specs := victoria.ComponentSpecs()
+	ports := make(map[string]int, len(specs))
+	binaryPaths := make(map[string]string, len(specs))
+	listeners := make([]net.Listener, 0, len(specs))
+	for i := range specs {
 		listener, err := net.Listen("tcp", "127.0.0.1:0")
 		if err != nil {
 			t.Fatal(err)
 		}
 		listeners = append(listeners, listener)
-		t.Setenv(spec.EnvPrefix+"_PORT", strconv.Itoa(listener.Addr().(*net.TCPAddr).Port))
-		t.Setenv(spec.EnvPrefix+"_BIN", script)
+		port := listener.Addr().(*net.TCPAddr).Port
+		specs[i].DefaultPort = port
+		ports[specs[i].Name] = port
+		binaryPaths[specs[i].Name] = script
 	}
 	for _, listener := range listeners {
 		_ = listener.Close()
 	}
-	t.Setenv("SCENERY_DEV_VICTORIA", "1")
-	t.Setenv("SCENERY_DEV_VICTORIA_DOWNLOAD", "0")
+	config := victoria.StartConfig{Components: specs, BinaryPaths: binaryPaths}
+	supervisor.victoriaProcesses = victoriaProcessConfig{
+		start: func(ctx context.Context, root string, console victoria.Console) *victoria.Stack {
+			return victoria.StartAtRootWithConfig(ctx, root, console, config)
+		},
+		portsAvailable: func() bool {
+			for _, port := range ports {
+				if netprobe.BindFree(net.JoinHostPort("127.0.0.1", strconv.Itoa(port))) != nil {
+					return false
+				}
+			}
+			return true
+		},
+	}
+	return ports
 }
 
 func TestVictoriaManagedProcessHelper(t *testing.T) {
