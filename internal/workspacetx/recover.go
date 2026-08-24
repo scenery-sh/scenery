@@ -30,6 +30,10 @@ func RecoverOrReject(root string, mode ReadMode) error {
 func ForceRecover(root string) error { return recover(root, true, false) }
 
 func recover(root string, force, allowCurrentOwner bool) error {
+	return recoverWithOwnerInspector(root, force, allowCurrentOwner, inspectOwnerState)
+}
+
+func recoverWithOwnerInspector(root string, force, allowCurrentOwner bool, inspectOwner func(Owner) ownerState) error {
 	absoluteRoot, err := filepath.Abs(root)
 	if err != nil {
 		return err
@@ -51,12 +55,15 @@ func recover(root string, force, allowCurrentOwner bool) error {
 	if err != nil {
 		return err
 	}
+	lockOwnerState := ownerRecoverable
 	if lockExists && !force {
-		if ownerIsCurrent(lock.Owner) {
+		lockOwnerState = inspectOwner(lock.Owner)
+		switch lockOwnerState {
+		case ownerCurrent:
 			if !allowCurrentOwner {
 				return activeOwnerError(lock.Owner.PID)
 			}
-		} else if verifyOwner(lock.Owner) == nil {
+		case ownerLive, ownerUnknown:
 			return activeOwnerError(lock.Owner.PID)
 		}
 	}
@@ -70,7 +77,7 @@ func recover(root string, force, allowCurrentOwner bool) error {
 	encoded, err := os.ReadFile(journalPath)
 	if os.IsNotExist(err) {
 		if lockExists {
-			if !force && ownerIsCurrent(lock.Owner) && allowCurrentOwner {
+			if !force && lockOwnerState == ownerCurrent && allowCurrentOwner {
 				return nil
 			}
 			if err := validateDirectory(transactionRoot, lock.TransactionDir); err != nil {
@@ -95,13 +102,13 @@ func recover(root string, force, allowCurrentOwner bool) error {
 		return err
 	}
 	if !force {
-		if ownerIsCurrent(journal.Owner) {
+		switch inspectOwner(journal.Owner) {
+		case ownerCurrent:
 			if allowCurrentOwner {
 				return nil
 			}
 			return activeOwnerError(journal.Owner.PID)
-		}
-		if verifyOwner(journal.Owner) == nil {
+		case ownerLive, ownerUnknown:
 			return activeOwnerError(journal.Owner.PID)
 		}
 	}

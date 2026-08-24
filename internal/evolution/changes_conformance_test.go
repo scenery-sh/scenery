@@ -11,12 +11,7 @@ import (
 )
 
 func TestChangeApplyRejectsCallerRecomputedPlan(t *testing.T) {
-	root := t.TempDir()
-	copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), root)
-	base, err := compiler.Compile(root)
-	if err != nil || !base.Valid() {
-		t.Fatalf("compile: %v diagnostics=%#v", err, base.Diagnostics)
-	}
+	root, base := newMinimalChangeFixture(t)
 	plan, err := PlanChanges(root, ChangeRequest{
 		BaseWorkspaceRevision: base.WorkspaceRevision,
 		BaseContractRevision:  new(base.Manifest.ContractRevision),

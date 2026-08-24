@@ -48,22 +48,29 @@ func runDeploySSH(stdout io.Writer, target string, args []string, tools deploySS
 			return err
 		}
 	}
-	if err := runSceneryCheck(context.Background(), stdout, []string{"--app-root", appRoot}); err != nil {
+	if err := tools.check(context.Background(), stdout, []string{"--app-root", appRoot}); err != nil {
 		return fmt.Errorf("local scenery check: %w", err)
 	}
 	publishFrontends := strings.TrimSpace(env.Domain) != "" && len(productionFrontendNames(env)) > 0
 	return runDeploySSHCommands(stdout, appRoot, cfg.AppID(), target, env.Name, publishFrontends, tools)
 }
 
-// deploySSHTools names the external programs a deploy shells out to and any
-// extra environment they need. The zero value resolves "ssh" and "rsync" from
-// PATH, which is what the CLI uses; tests set explicit paths so they can inject
-// fakes without mutating the process PATH.
+// deploySSHTools captures the local check and external-command boundaries.
+// The zero value runs the production check and resolves "ssh" and "rsync" from
+// PATH; tests can inject either boundary without mutating process-global state.
 type deploySSHTools struct {
 	SSH        string
 	Rsync      string
 	Env        []string
+	Check      func(context.Context, io.Writer, []string) error
 	RunCommand func(string, *exec.Cmd) error
+}
+
+func (t deploySSHTools) check(ctx context.Context, stdout io.Writer, args []string) error {
+	if t.Check != nil {
+		return t.Check(ctx, stdout, args)
+	}
+	return runSceneryCheck(ctx, stdout, args)
 }
 
 func (t deploySSHTools) ssh() string {

@@ -133,12 +133,14 @@ func atomicWriteSynced(path string, data []byte, mode os.FileMode) error {
 	return atomicfile.Write(path, data, mode, atomicfile.Options{SyncFile: true, SyncDir: true})
 }
 
-func writeSyncedFile(path string, data []byte, mode os.FileMode) error {
+func writeExclusiveSyncedFile(path string, data []byte, mode os.FileMode) error {
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
 	if err != nil {
 		return err
 	}
 	if _, err = file.Write(data); err == nil {
+		// The directory entry is ephemeral, but any entry that survives a crash
+		// must contain a complete owner record so stale-lock recovery can parse it.
 		err = file.Sync()
 	}
 	if closeErr := file.Close(); err == nil {

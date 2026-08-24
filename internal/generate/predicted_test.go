@@ -1,7 +1,9 @@
 package generate
 
 import (
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"scenery.sh/internal/compiler"
@@ -30,32 +32,37 @@ func TestApplyImplementationCheckReportsValidNative(t *testing.T) {
 	}
 }
 
-func TestCheckPredictedArtifactsAcceptNativeAndHouse(t *testing.T) {
-	t.Run("go native", func(t *testing.T) {
-		parallelIntegrationTest(t)
-		root := t.TempDir()
-		copyTree(t, filepath.Join("..", "compiler", "testdata", "native"), root)
-		rewriteFixtureSceneryReplace(t, root)
-		result, err := compiler.Compile(root)
-		if err != nil || result == nil || !result.Valid() {
-			t.Fatalf("compile native: %v diagnostics=%#v", err, diagnosticsOf(result))
-		}
-		if err := CheckPredictedGoContracts(result); err != nil {
-			t.Fatal(err)
-		}
-	})
-	t.Run("typescript house", func(t *testing.T) {
-		parallelIntegrationTest(t)
-		root := t.TempDir()
-		copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), root)
-		result, err := compiler.Compile(root)
-		if err != nil || result == nil || !result.Valid() {
-			t.Fatalf("compile house: %v diagnostics=%#v", err, diagnosticsOf(result))
-		}
-		if err := CheckPredictedTypeScriptClients(result); err != nil {
-			t.Fatal(err)
-		}
-	})
+func TestCheckPredictedGoContractsAcceptsNative(t *testing.T) {
+	parallelIntegrationTest(t)
+	root := t.TempDir()
+	writeMinimalPredictedGoFixture(t, root)
+	result, err := compiler.Compile(root)
+	if err != nil || result == nil || !result.Valid() {
+		t.Fatalf("compile native: %v diagnostics=%#v", err, diagnosticsOf(result))
+	}
+	if err := CheckPredictedGoContracts(result); err != nil {
+		t.Fatal(err)
+	}
+	adapter, err := os.ReadFile(filepath.Join(root, "internal", "scenerygen", "house_house_adapter", "adapter.gen.go"))
+	if err != nil {
+		t.Fatalf("read predicted native adapter: %v", err)
+	}
+	if !strings.Contains(string(adapter), "return native.Inspect(ctx, input)") {
+		t.Fatalf("predicted native adapter does not invoke the authored handler:\n%s", adapter)
+	}
+}
+
+func TestCheckPredictedTypeScriptClientsAcceptHouse(t *testing.T) {
+	parallelIntegrationTest(t)
+	root := t.TempDir()
+	copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), root)
+	result, err := compiler.Compile(root)
+	if err != nil || result == nil || !result.Valid() {
+		t.Fatalf("compile house: %v diagnostics=%#v", err, diagnosticsOf(result))
+	}
+	if err := CheckPredictedTypeScriptClients(result); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func diagnosticsOf(result *compiler.Result) []compiler.Diagnostic {

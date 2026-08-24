@@ -1,12 +1,12 @@
 package agent
 
 import (
-	"context"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -84,11 +84,15 @@ func TestDevDomainManifestNormalization(t *testing.T) {
 }
 
 func TestRegistryDevDomainHostOwnership(t *testing.T) {
-	registryPath := t.TempDir() + "/registry.json"
+	tempRoot := t.TempDir()
+	registryPath := filepath.Join(tempRoot, "registry.json")
 	registry, err := OpenRegistry(registryPath, "127.0.0.1:9440", "http")
 	if err != nil {
 		t.Fatal(err)
 	}
+	registry.ownerVerifier = testOwnerVerifier
+	registry.durable = false
+	liveOwner := testProcessOwner()
 
 	pathManifest := func(host string) RouteManifest {
 		return RouteManifest{
@@ -101,10 +105,11 @@ func TestRegistryDevDomainHostOwnership(t *testing.T) {
 
 	first, err := registry.Upsert(RegisterRequest{
 		BaseAppID:     "demo",
-		AppRoot:       t.TempDir(),
+		AppRoot:       filepath.Join(tempRoot, "pricing-a"),
 		SessionID:     "pricing-a",
 		Status:        "running",
 		OwnerPID:      os.Getpid(),
+		Owner:         liveOwner,
 		Backends:      backends,
 		RouteManifest: pathManifest("pricing-local.clean.tech"),
 	})
@@ -121,10 +126,11 @@ func TestRegistryDevDomainHostOwnership(t *testing.T) {
 	// A live verified owner keeps the host; the newcomer records the conflict.
 	second, err := registry.Upsert(RegisterRequest{
 		BaseAppID:     "demo",
-		AppRoot:       t.TempDir(),
+		AppRoot:       filepath.Join(tempRoot, "pricing-b"),
 		SessionID:     "pricing-b",
 		Status:        "running",
 		OwnerPID:      os.Getpid(),
+		Owner:         liveOwner,
 		Backends:      backends,
 		RouteManifest: pathManifest("pricing-local.clean.tech"),
 	})
@@ -142,7 +148,7 @@ func TestRegistryDevDomainHostOwnership(t *testing.T) {
 	}
 
 	// A provably stale owner loses the host to the newcomer.
-	staleRoot := t.TempDir()
+	staleRoot := filepath.Join(tempRoot, "stale-owner")
 	if _, err := registry.Upsert(RegisterRequest{
 		BaseAppID: "demo",
 		AppRoot:   staleRoot,
@@ -162,10 +168,11 @@ func TestRegistryDevDomainHostOwnership(t *testing.T) {
 	}
 	taker, err := registry.Upsert(RegisterRequest{
 		BaseAppID:     "demo",
-		AppRoot:       t.TempDir(),
+		AppRoot:       filepath.Join(tempRoot, "stale-taker"),
 		SessionID:     "stale-taker",
 		Status:        "running",
 		OwnerPID:      os.Getpid(),
+		Owner:         liveOwner,
 		Backends:      backends,
 		RouteManifest: pathManifest("stale-local.clean.tech"),
 	})
@@ -189,6 +196,7 @@ func TestRegistryDevDomainHostOwnership(t *testing.T) {
 		SessionID:     second.SessionID,
 		Status:        "running",
 		OwnerPID:      os.Getpid(),
+		Owner:         liveOwner,
 		Backends:      backends,
 		RouteManifest: pathManifest("pricing-local.clean.tech"),
 		ClaimAliases:  true,
@@ -213,42 +221,24 @@ func TestRegistryDevDomainHostOwnership(t *testing.T) {
 }
 
 func TestServerDevDomainHostServesPathMode(t *testing.T) {
-	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		_, _ = io.WriteString(w, "api:"+req.URL.Path)
-	}))
-	defer api.Close()
-	apiAddr := strings.TrimPrefix(api.URL, "http://")
-
-	frontend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		_, _ = io.WriteString(w, "frontend:"+req.URL.Path)
-	}))
-	defer frontend.Close()
-	frontendAddr := strings.TrimPrefix(frontend.URL, "http://")
-
-	server, err := NewServer(RunOptions{
-		Home:       t.TempDir(),
-		RouterAddr: "127.0.0.1:0",
+	transport := testHandlerTransport(t, map[string]http.Handler{
+		"api.test": http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			_, _ = io.WriteString(w, "api:"+req.URL.Path)
+		}),
+		"frontend.test": http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			_, _ = io.WriteString(w, "frontend:"+req.URL.Path)
+		}),
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- server.Run(ctx) }()
-	defer stopTestAgent(t, cancel, done)
-
-	client := NewClient(server.paths.SocketPath)
-	if err := waitForAgentPing(ctx, client); err != nil {
-		t.Fatal(err)
-	}
-	session, err := client.Register(ctx, RegisterRequest{
+	server := newInProcessTestServer(t, transport)
+	session, err := server.registry.Upsert(RegisterRequest{
 		BaseAppID: "demo",
 		AppRoot:   t.TempDir(),
 		Status:    "running",
 		OwnerPID:  os.Getpid(),
+		Owner:     testProcessOwner(),
 		Backends: map[string]Backend{
-			RouteAPI: {Network: "tcp", Addr: apiAddr},
-			"ui":     {Network: "tcp", Addr: frontendAddr},
+			RouteAPI: {Network: "tcp", Addr: "api.test"},
+			"ui":     {Network: "tcp", Addr: "frontend.test"},
 		},
 		RouteManifest: RouteManifest{
 			Mode:       RouteModePath,
@@ -265,18 +255,11 @@ func TestServerDevDomainHostServesPathMode(t *testing.T) {
 
 	request := func(host, targetPath string) (int, string) {
 		t.Helper()
-		req, err := http.NewRequest(http.MethodGet, "http://"+server.routerAddr+targetPath, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
+		req := httptest.NewRequest(http.MethodGet, "http://router.test"+targetPath, nil)
 		req.Host = host
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		return resp.StatusCode, string(body)
+		recorder := httptest.NewRecorder()
+		server.routerMux().ServeHTTP(recorder, req)
+		return recorder.Code, recorder.Body.String()
 	}
 
 	status, body := request("pricing-local.clean.tech", "/api/v1/users")
@@ -326,15 +309,16 @@ func TestServerDevDomainHostServesPathMode(t *testing.T) {
 
 	// Narrow the exposed surface to api only: frontends, index, and the
 	// runtime surface disappear from the domain origin.
-	if _, err := client.Register(ctx, RegisterRequest{
+	if _, err := server.registry.Upsert(RegisterRequest{
 		BaseAppID: "demo",
 		AppRoot:   session.AppRoot,
 		SessionID: session.SessionID,
 		Status:    "running",
 		OwnerPID:  os.Getpid(),
+		Owner:     testProcessOwner(),
 		Backends: map[string]Backend{
-			RouteAPI: {Network: "tcp", Addr: apiAddr},
-			"ui":     {Network: "tcp", Addr: frontendAddr},
+			RouteAPI: {Network: "tcp", Addr: "api.test"},
+			"ui":     {Network: "tcp", Addr: "frontend.test"},
 		},
 		RouteManifest: RouteManifest{
 			Mode:         RouteModePath,

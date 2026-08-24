@@ -19,7 +19,7 @@
       "const": "scenery.harness.self"
     },
     "schema_revision": {
-      "const": "sha256:1754e319963b4e57b46f9cc28ce17f685a2406184d80db80c185dd6eba0a0be4"
+      "const": "sha256:f6be32d52090317f5f27b725d98dc1f3f41736aa908ec060a6f3f67c2514517d"
     },
     "ok": {
       "type": "boolean"
@@ -257,7 +257,7 @@
           "const": "scenery.harness.test_timing"
         },
         "schema_revision": {
-          "const": "sha256:ee04a674ff2c312924ed96a3fcffc877695c5674607a9bbedea204a1ae29eae1"
+          "const": "sha256:fb4d6102110a4beae1ab792069c5112ccee57681ac1df81f5fd7ab2232a6fb30"
         },
         "command": {
           "type": "array",
@@ -355,6 +355,12 @@
             "$ref": "#/$defs/test_timing_item"
           }
         },
+        "observed_integration_tests": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/test_timing_item"
+          }
+        },
         "deferred_confirmations": {
           "type": "array",
           "items": {
@@ -390,7 +396,11 @@
           "required": [
             "total_seconds",
             "package_seconds",
+            "default_test_class",
+            "test_target_seconds",
             "test_seconds",
+            "integration_exceptions",
+            "confirmation_percentile",
             "mode"
           ],
           "properties": {
@@ -417,12 +427,29 @@
                 "type": "number"
               }
             },
+            "default_test_class": {
+              "const": "fast"
+            },
+            "test_target_seconds": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
             "test_seconds": {
-              "type": "number"
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "integration_exceptions": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/test_timing_integration_exception"
+              }
             },
             "confirmation_runs": {
               "type": "integer",
               "minimum": 1
+            },
+            "confirmation_percentile": {
+              "const": 95
             },
             "confirmation_scope": {
               "type": "string",
@@ -487,7 +514,10 @@
       "required": [
         "name",
         "package",
-        "seconds"
+        "class",
+        "seconds",
+        "target_seconds",
+        "budget_seconds"
       ],
       "properties": {
         "name": {
@@ -496,7 +526,17 @@
         "package": {
           "type": "string"
         },
+        "class": {
+          "type": "string",
+          "enum": [
+            "fast",
+            "integration"
+          ]
+        },
         "seconds": {
+          "type": "number"
+        },
+        "target_seconds": {
           "type": "number"
         },
         "budget_seconds": {
@@ -508,8 +548,66 @@
             "type": "number"
           }
         },
-        "isolated_median_seconds": {
+        "isolated_p95_seconds": {
           "type": "number"
+        },
+        "classification_reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "class": {
+                "const": "integration"
+              }
+            },
+            "required": [
+              "class"
+            ]
+          },
+          "then": {
+            "required": [
+              "classification_reason"
+            ]
+          }
+        }
+      ],
+      "additionalProperties": false
+    },
+    "test_timing_integration_exception": {
+      "type": "object",
+      "required": [
+        "package",
+        "name",
+        "class",
+        "target_seconds",
+        "budget_seconds",
+        "classification_reason"
+      ],
+      "properties": {
+        "package": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "pattern": "^Test[A-Z0-9_][A-Za-z0-9_]*$"
+        },
+        "class": {
+          "const": "integration"
+        },
+        "target_seconds": {
+          "const": 0.1
+        },
+        "budget_seconds": {
+          "const": 3
+        },
+        "classification_reason": {
+          "type": "string",
+          "minLength": 1
         }
       },
       "additionalProperties": false

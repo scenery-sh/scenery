@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -219,19 +220,21 @@ func TestWorktreeRemoveDoesNotDeleteStateForUnlistedTarget(t *testing.T) {
 	t.Parallel()
 
 	root := filepath.Join(t.TempDir(), "demo")
-	if err := os.MkdirAll(root, 0o755); err != nil {
-		t.Fatal(err)
-	}
 	writeTestAppFile(t, root, ".scenery.json", `{"name":"demo"}`)
-	runGitForTest(t, root, "init", "-b", "main")
-	runGitForTest(t, root, "config", "user.email", "test@example.com")
-	runGitForTest(t, root, "config", "user.name", "Test User")
-	runGitForTest(t, root, "add", ".scenery.json")
-	runGitForTest(t, root, "commit", "-m", "initial")
 
 	unlisted := defaultWorktreePath(root, "mistyped")
 	writeTestAppFile(t, unlisted, ".scenery/worktree-db.json", `{"sentinel":true}`)
-	err := runWorktreeCommand(t.Context(), &bytes.Buffer{}, []string{"remove", "mistyped", "--app-root", root, "--db", "-o", "json"})
+	err := runWorktreeRemoveWithList(t.Context(), &bytes.Buffer{}, worktreeOptions{
+		Name:    "mistyped",
+		AppRoot: root,
+		DB:      true,
+		JSON:    true,
+	}, func(_ context.Context, gotRoot string) ([]worktreeRecord, error) {
+		if gotRoot != root {
+			t.Fatalf("list root = %q, want %q", gotRoot, root)
+		}
+		return []worktreeRecord{{Path: root, Branch: "main"}}, nil
+	})
 	if err == nil || !strings.Contains(err.Error(), "is not registered") {
 		t.Fatalf("remove error = %v", err)
 	}

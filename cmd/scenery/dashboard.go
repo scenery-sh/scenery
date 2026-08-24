@@ -79,11 +79,12 @@ func isLoopbackRemoteAddr(remoteAddr string) bool {
 }
 
 type dashboardServer struct {
-	controller dashboardController
-	supervisor *devSupervisor
-	http       *http.Server
-	addr       string
-	state      dashboardRunState
+	controller  dashboardController
+	supervisor  *devSupervisor
+	http        *http.Server
+	addr        string
+	state       dashboardRunState
+	logExporter func(*devdash.LogEvent)
 
 	mu             sync.Mutex
 	clients        map[*dashboardClient]struct{}
@@ -95,6 +96,10 @@ type dashboardServer struct {
 	symphonyStore *symphony.Store
 	symphonyRoot  string
 	symphonyHooks symphonyRunnerHooks
+}
+
+type dashboardServerHooks struct {
+	exportLogEvent func(*devdash.LogEvent)
 }
 
 type dashboardVictoria interface {
@@ -178,6 +183,10 @@ func newDashboardServer(supervisor *devSupervisor, assetsDir string) *dashboardS
 }
 
 func newDashboardServerWithController(controller dashboardController, root, addr, assetsDir string, supervisor *devSupervisor) *dashboardServer {
+	return newDashboardServerWithControllerHooks(controller, root, addr, assetsDir, supervisor, dashboardServerHooks{})
+}
+
+func newDashboardServerWithControllerHooks(controller dashboardController, root, addr, assetsDir string, supervisor *devSupervisor, hooks dashboardServerHooks) *dashboardServer {
 	assets, _ := dashboardAssetFS(assetsDir)
 	s := &dashboardServer{
 		controller: controller,
@@ -187,6 +196,10 @@ func newDashboardServerWithController(controller dashboardController, root, addr
 		clients:    make(map[*dashboardClient]struct{}),
 		assets:     assets,
 		traces:     newDashboardTraceEventBuffer(),
+	}
+	s.logExporter = hooks.exportLogEvent
+	if s.logExporter == nil {
+		s.logExporter = s.exportVictoriaLogEvent
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", s.handleRoot)
@@ -579,7 +592,7 @@ func (s *dashboardServer) handleReport(w http.ResponseWriter, req *http.Request)
 				report.LogEvent.SessionID = report.SessionID
 			}
 			fillLogEventIdentity(report.LogEvent, report)
-			go s.exportVictoriaLogEvent(report.LogEvent)
+			go s.logExporter(report.LogEvent)
 		}
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -605,7 +618,7 @@ func (s *dashboardServer) recordRejectedReport(ctx context.Context, report devda
 		},
 		Timestamp: time.Now().UTC(),
 	}
-	go s.exportVictoriaLogEvent(event)
+	go s.logExporter(event)
 }
 
 func fillTraceSummaryIdentity(summary *devdash.TraceSummary, report devdash.ReportEnvelope) {

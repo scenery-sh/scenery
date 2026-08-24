@@ -61,6 +61,10 @@ type assistantScaffoldOptions struct {
 	DryRun    bool
 }
 
+type assistantInitDependencies struct {
+	prepareChangeRequest func(evolution.ChangeRequest) evolution.ChangeRequest
+}
+
 func runAssistantInit(args []string, stdout io.Writer) error {
 	if len(args) == 0 {
 		return errors.New("missing assistant name")
@@ -122,6 +126,12 @@ func loadAssistantApp(appRoot string) (string, appcfg.Config, *compiler.Result, 
 }
 
 func initializeAssistant(ctx context.Context, root string, cfg appcfg.Config, compiled *compiler.Result, opts assistantScaffoldOptions) (assistantInitResponse, error) {
+	return initializeAssistantWithDependencies(ctx, root, cfg, compiled, opts, assistantInitDependencies{
+		prepareChangeRequest: withPredictedGenerateChecks,
+	})
+}
+
+func initializeAssistantWithDependencies(ctx context.Context, root string, cfg appcfg.Config, compiled *compiler.Result, opts assistantScaffoldOptions, deps assistantInitDependencies) (assistantInitResponse, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -195,14 +205,17 @@ func initializeAssistant(ctx context.Context, root string, cfg appcfg.Config, co
 		if err != nil {
 			return assistantInitResponse{}, err
 		}
-		request := withPredictedGenerateChecks(evolution.ChangeRequest{
+		request := evolution.ChangeRequest{
 			BaseWorkspaceRevision: compiled.WorkspaceRevision,
 			BaseContractRevision:  revisionFlag(compiled.Manifest.ContractRevision),
 			Caller:                "scenery assistant init",
 			Capabilities:          []string{"scenery.agent-mutation"},
 			Operations:            operations,
 			AdditionalEdits:       additionalEdits,
-		})
+		}
+		if deps.prepareChangeRequest != nil {
+			request = deps.prepareChangeRequest(request)
+		}
 		var plan evolution.ChangePlan
 		if opts.DryRun {
 			plan, err = evolution.PlanChangesDryRun(root, request)

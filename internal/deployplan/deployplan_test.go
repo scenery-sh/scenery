@@ -38,6 +38,9 @@ func (provider *blockingDeploymentProvider) Apply(context.Context, DeploymentPro
 	provider.applied = true
 	close(provider.entered)
 	<-provider.release
+	if provider.applyErr != nil {
+		return nil, provider.applyErr
+	}
 	return func(context.Context) error { provider.rolledBack = true; return nil }, nil
 }
 
@@ -65,7 +68,7 @@ func (provider *testDeploymentProvider) Rollback(context.Context, DeploymentProv
 	return nil
 }
 
-func TestDeploymentPlanAndApplyBindExactRevisions(t *testing.T) {
+func TestDeploymentPlanBindsExactRevisions(t *testing.T) {
 	parallelVNextIntegrationTest(t)
 
 	root := deploymentPlanFixture(t, "external")
@@ -88,8 +91,14 @@ func TestDeploymentPlanAndApplyBindExactRevisions(t *testing.T) {
 			t.Fatalf("external/core provider plan = %#v", providerPlan)
 		}
 	}
+}
+
+func TestDeploymentApplyPersistsExactRevisions(t *testing.T) {
+	parallelVNextIntegrationTest(t)
+
+	root, plan := deploymentPlanTestFixture(t, "external")
 	receipt, err := ApplyDeploymentPlan(context.Background(), root, plan, DeploymentApplyOptions{
-		ExpectedWorkspaceRevision: result.WorkspaceRevision, ExpectedContractRevision: result.Manifest.ContractRevision,
+		ExpectedWorkspaceRevision: plan.BaseWorkspaceRevision, ExpectedContractRevision: plan.ContractRevision,
 		ExpectedImplementation: testDeploymentImplementationRevision(), Caller: "test",
 	}, nil)
 	if err != nil {
@@ -109,34 +118,63 @@ func TestDeploymentPlanAndApplyBindExactRevisions(t *testing.T) {
 	if state.Plan.PlanID != plan.PlanID || state.Receipt.PlanID != receipt.PlanID {
 		t.Fatalf("deployment state = %#v", state)
 	}
-	replayed, err := ApplyDeploymentPlan(context.Background(), root, plan, DeploymentApplyOptions{ExpectedWorkspaceRevision: result.WorkspaceRevision, ExpectedContractRevision: result.Manifest.ContractRevision, ExpectedImplementation: testDeploymentImplementationRevision(), Caller: "test"}, nil)
+}
+
+func TestDeploymentReceiptReplayReturnsExactReceipt(t *testing.T) {
+	parallelVNextIntegrationTest(t)
+
+	root, plan := deploymentPlanTestFixture(t, "managed")
+	provider := &testDeploymentProvider{}
+	registry := DeploymentProviderRegistry{"app/provider/postgres": provider}
+	options := DeploymentApplyOptions{
+		ExpectedWorkspaceRevision: plan.BaseWorkspaceRevision, ExpectedContractRevision: plan.ContractRevision,
+		ExpectedImplementation: testDeploymentImplementationRevision(), Caller: "test",
+	}
+	receipt, err := ApplyDeploymentPlan(context.Background(), root, plan, options, registry)
+	if err != nil {
+		t.Fatalf("first apply error = %v", err)
+	}
+	if !provider.applied {
+		t.Fatal("managed provider apply was not invoked")
+	}
+	provider.applied = false
+	replayed, err := ApplyDeploymentPlan(context.Background(), root, plan, DeploymentApplyOptions{
+		ExpectedWorkspaceRevision: plan.BaseWorkspaceRevision, ExpectedContractRevision: plan.ContractRevision,
+		ExpectedImplementation: testDeploymentImplementationRevision(), Caller: "test",
+	}, registry)
 	if err != nil {
 		t.Fatalf("replay error = %v", err)
 	}
 	if !reflect.DeepEqual(replayed, receipt) {
 		t.Fatalf("replayed receipt = %#v, want original %#v", replayed, receipt)
 	}
+	if provider.applied {
+		t.Fatal("receipt replay invoked the managed provider a second time")
+	}
+}
+
+func TestDeploymentStateDoesNotChangeWorkspaceRevision(t *testing.T) {
+	root := deploymentPlanFixture(t, "external")
+	before, err := compiler.CompileContractGraph(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeDeploymentFile(root, deploymentStatePath(root, "preview"), []byte("deployment state\n")); err != nil {
+		t.Fatal(err)
+	}
 	after, err := compiler.CompileContractGraph(root)
-	if err != nil || after.WorkspaceRevision != result.WorkspaceRevision {
-		t.Fatalf("deployment ledger changed managed workspace: %v before=%s after=%s", err, result.WorkspaceRevision, after.WorkspaceRevision)
+	if err != nil || after.WorkspaceRevision != before.WorkspaceRevision {
+		t.Fatalf("deployment ledger changed managed workspace: %v before=%s after=%s", err, before.WorkspaceRevision, after.WorkspaceRevision)
 	}
 }
 
 func TestDeploymentReceiptReplaySucceedsAfterExpiryAndWorkspaceDrift(t *testing.T) {
 	parallelVNextIntegrationTest(t)
 
-	root := deploymentPlanFixture(t, "managed")
+	root, plan := deploymentPlanTestFixture(t, "managed")
 	provider := &testDeploymentProvider{}
 	registry := DeploymentProviderRegistry{"app/provider/postgres": provider}
-	plan, err := PlanDeployment(context.Background(), root, DeploymentPlanRequest{Deployment: "preview", ImplementationRevisions: testDeploymentImplementationRevision(), Caller: "test"}, registry)
-	if err != nil {
-		t.Fatal(err)
-	}
 	options := DeploymentApplyOptions{ExpectedWorkspaceRevision: plan.BaseWorkspaceRevision, ExpectedContractRevision: plan.ContractRevision, ExpectedImplementation: testDeploymentImplementationRevision(), Caller: "test"}
-	receipt, err := ApplyDeploymentPlan(context.Background(), root, plan, options, registry)
-	if err != nil {
-		t.Fatal(err)
-	}
 
 	// Model a receipt committed before the retry window elapsed, then retry
 	// with the same plan after its expiry. Re-issue the exact expired plan under
@@ -147,24 +185,16 @@ func TestDeploymentReceiptReplaySucceedsAfterExpiryAndWorkspaceDrift(t *testing.
 	if err := evolution.RetainIssuedPlan(root, evolution.IssuedDeploymentPlan, expiredPlan.PlanID, expiredPlan); err != nil {
 		t.Fatal(err)
 	}
-	expiredReceipt := receipt
-	expiredReceipt.PlanID = expiredPlan.PlanID
-	receiptBytes, err := json.MarshalIndent(expiredReceipt, "", "  ")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := writeDeploymentFile(root, deploymentAppliedPlanPath(root, expiredPlan.PlanID), append(receiptBytes, '\n')); err != nil {
-		t.Fatal(err)
-	}
+	expiredReceipt := writeDeploymentReceiptFixture(t, root, expiredPlan)
 
 	// Drift a revision-bound source input. Replay must not compile or compare
 	// the current graph once the durable receipt has been found.
-	servicePath := filepath.Join(root, "house", "service.go")
-	service, err := os.ReadFile(servicePath)
+	appPath := filepath.Join(root, testAppFilename)
+	appSource, err := os.ReadFile(appPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(servicePath, append(service, []byte("\n// live deployment drift\n")...), 0o644); err != nil {
+	if err := os.WriteFile(appPath, append(appSource, []byte("\n// live deployment drift\n")...), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	current, err := compiler.CompileContractGraph(root)
@@ -188,113 +218,80 @@ func TestDeploymentReceiptReplaySucceedsAfterExpiryAndWorkspaceDrift(t *testing.
 	}
 }
 
-func TestManagedDeploymentRequiresAndInvokesProviderAdapter(t *testing.T) {
+func TestManagedDeploymentRequiresProviderAdapter(t *testing.T) {
 	parallelVNextIntegrationTest(t)
 
 	root := deploymentPlanFixture(t, "managed")
 	if _, err := PlanDeployment(context.Background(), root, DeploymentPlanRequest{Deployment: "preview", ImplementationRevisions: testDeploymentImplementationRevision(), Caller: "test"}, nil); err == nil || !strings.Contains(err.Error(), "capability_unavailable") {
 		t.Fatalf("missing provider error = %v", err)
 	}
+}
+
+func TestManagedDeploymentPlanningInvokesProviderAdapter(t *testing.T) {
+	parallelVNextIntegrationTest(t)
+
+	root := deploymentPlanFixture(t, "managed")
 	provider := &testDeploymentProvider{}
 	registry := DeploymentProviderRegistry{"app/provider/postgres": provider}
-	plan, err := PlanDeployment(context.Background(), root, DeploymentPlanRequest{Deployment: "preview", ImplementationRevisions: testDeploymentImplementationRevision(), Caller: "test"}, registry)
+	_, err := PlanDeployment(context.Background(), root, DeploymentPlanRequest{Deployment: "preview", ImplementationRevisions: testDeploymentImplementationRevision(), Caller: "test"}, registry)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !provider.planned {
 		t.Fatal("provider planner was not invoked")
 	}
-	if _, err := ApplyDeploymentPlan(context.Background(), root, plan, DeploymentApplyOptions{
-		ExpectedWorkspaceRevision: plan.BaseWorkspaceRevision, ExpectedContractRevision: plan.ContractRevision,
-		ExpectedImplementation: testDeploymentImplementationRevision(), Caller: "test",
-	}, registry); err != nil {
-		t.Fatal(err)
-	}
-	if !provider.applied {
-		t.Fatal("provider apply was not invoked")
-	}
 }
 
-func TestDeploymentReceiptReplayRejectsCorruptionWithoutReapplying(t *testing.T) {
-	for _, test := range []struct {
-		name   string
-		mutate func([]byte) []byte
-	}{
-		{
-			name: "trailing json",
-			mutate: func(receipt []byte) []byte {
-				return append(receipt, []byte("{}\n")...)
-			},
-		},
-		{
-			name: "plan mismatch",
-			mutate: func(receipt []byte) []byte {
-				var decoded DeploymentReceipt
-				if err := json.Unmarshal(receipt, &decoded); err != nil {
-					panic(err)
-				}
-				decoded.PlanID = "sha256:" + strings.Repeat("b", 64)
-				encoded, err := json.MarshalIndent(decoded, "", "  ")
-				if err != nil {
-					panic(err)
-				}
-				return append(encoded, '\n')
-			},
-		},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			parallelVNextIntegrationTest(t)
+func TestDeploymentReceiptReplayRejectsTrailingJSONWithoutReapplying(t *testing.T) {
+	assertDeploymentReceiptReplayRejectsCorruptionWithoutReapplying(t, func(_ *testing.T, receipt []byte) []byte {
+		return append(receipt, []byte("{}\n")...)
+	})
+}
 
-			root := deploymentPlanFixture(t, "managed")
-			provider := &testDeploymentProvider{}
-			registry := DeploymentProviderRegistry{"app/provider/postgres": provider}
-			plan, err := PlanDeployment(context.Background(), root, DeploymentPlanRequest{Deployment: "preview", ImplementationRevisions: testDeploymentImplementationRevision(), Caller: "test"}, registry)
-			if err != nil {
-				t.Fatal(err)
-			}
-			options := DeploymentApplyOptions{ExpectedWorkspaceRevision: plan.BaseWorkspaceRevision, ExpectedContractRevision: plan.ContractRevision, ExpectedImplementation: testDeploymentImplementationRevision(), Caller: "test"}
-			if _, err := ApplyDeploymentPlan(context.Background(), root, plan, options, registry); err != nil {
-				t.Fatal(err)
-			}
-			provider.applied = false
-			path := deploymentAppliedPlanPath(root, plan.PlanID)
-			persisted, err := os.ReadFile(path)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := writeDeploymentFile(root, path, test.mutate(persisted)); err != nil {
-				t.Fatal(err)
-			}
-			if _, err := ApplyDeploymentPlan(context.Background(), root, plan, options, registry); err == nil || !strings.Contains(err.Error(), "deployment receipt is invalid") {
-				t.Fatalf("invalid receipt error = %v", err)
-			}
-			if provider.applied {
-				t.Fatal("invalid receipt triggered a second provider apply")
-			}
-		})
+func TestDeploymentReceiptReplayRejectsPlanMismatchWithoutReapplying(t *testing.T) {
+	assertDeploymentReceiptReplayRejectsCorruptionWithoutReapplying(t, func(t *testing.T, receipt []byte) []byte {
+		var decoded DeploymentReceipt
+		if err := json.Unmarshal(receipt, &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.PlanID = "sha256:" + strings.Repeat("b", 64)
+		encoded, err := json.MarshalIndent(decoded, "", "  ")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return append(encoded, '\n')
+	})
+}
+
+func assertDeploymentReceiptReplayRejectsCorruptionWithoutReapplying(t *testing.T, mutate func(*testing.T, []byte) []byte) {
+	t.Helper()
+	parallelVNextIntegrationTest(t)
+
+	root, plan := deploymentPlanTestFixture(t, "managed")
+	provider := &testDeploymentProvider{}
+	registry := DeploymentProviderRegistry{"app/provider/postgres": provider}
+	options := DeploymentApplyOptions{ExpectedWorkspaceRevision: plan.BaseWorkspaceRevision, ExpectedContractRevision: plan.ContractRevision, ExpectedImplementation: testDeploymentImplementationRevision(), Caller: "test"}
+	path := deploymentAppliedPlanPath(root, plan.PlanID)
+	persisted := encodeDeploymentReceiptFixture(t, deploymentReceiptFixture(plan))
+	if err := writeDeploymentFile(root, path, mutate(t, persisted)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ApplyDeploymentPlan(context.Background(), root, plan, options, registry); err == nil || !strings.Contains(err.Error(), "deployment receipt is invalid") {
+		t.Fatalf("invalid receipt error = %v", err)
+	}
+	if provider.applied {
+		t.Fatal("invalid receipt triggered a second provider apply")
 	}
 }
 
 func TestDeploymentRecoveryRejectsCorruptReceiptWithoutDroppingJournal(t *testing.T) {
 	parallelVNextIntegrationTest(t)
 
-	root := deploymentPlanFixture(t, "managed")
+	root, plan := deploymentPlanTestFixture(t, "managed")
 	provider := &testDeploymentProvider{}
 	registry := DeploymentProviderRegistry{"app/provider/postgres": provider}
-	plan, err := PlanDeployment(context.Background(), root, DeploymentPlanRequest{Deployment: "preview", ImplementationRevisions: testDeploymentImplementationRevision(), Caller: "test"}, registry)
-	if err != nil {
-		t.Fatal(err)
-	}
-	options := DeploymentApplyOptions{ExpectedWorkspaceRevision: plan.BaseWorkspaceRevision, ExpectedContractRevision: plan.ContractRevision, ExpectedImplementation: testDeploymentImplementationRevision(), Caller: "test"}
-	if _, err := ApplyDeploymentPlan(context.Background(), root, plan, options, registry); err != nil {
-		t.Fatal(err)
-	}
-	provider.rolledBack = false
 	receiptPath := deploymentAppliedPlanPath(root, plan.PlanID)
-	receipt, err := os.ReadFile(receiptPath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	receipt := encodeDeploymentReceiptFixture(t, deploymentReceiptFixture(plan))
 	if err := writeDeploymentFile(root, receiptPath, append(receipt, []byte("{}\n")...)); err != nil {
 		t.Fatal(err)
 	}
@@ -316,14 +313,66 @@ func TestDeploymentRecoveryRejectsCorruptReceiptWithoutDroppingJournal(t *testin
 	}
 }
 
-func TestDeploymentApplyRejectsCallerRecomputedProviderPlan(t *testing.T) {
-	root := deploymentPlanFixture(t, "managed")
+func TestDeploymentRecoveryDropsLingeringJournalAfterValidReceipt(t *testing.T) {
+	parallelVNextIntegrationTest(t)
+
+	root, plan := deploymentPlanTestFixture(t, "managed")
 	provider := &testDeploymentProvider{}
 	registry := DeploymentProviderRegistry{"app/provider/postgres": provider}
-	plan, err := PlanDeployment(context.Background(), root, DeploymentPlanRequest{Deployment: "preview", ImplementationRevisions: testDeploymentImplementationRevision(), Caller: "test"}, registry)
-	if err != nil {
+	writeDeploymentReceiptFixture(t, root, plan)
+	managedIndex := -1
+	for index, providerPlan := range plan.ProviderPlans {
+		if providerPlan.RequiresApply {
+			managedIndex = index
+			break
+		}
+	}
+	if managedIndex < 0 {
+		t.Fatal("managed provider plan is unavailable")
+	}
+	journalPath := deploymentJournalPath(root, plan.PlanID)
+	if err := writeDeploymentJournal(root, journalPath, deploymentApplyJournal{
+		ArtifactIdentity: machine.NewArtifactIdentity(deploymentApplyJournalKind, deploymentJournalSchemaDescriptor),
+		Plan:             plan,
+		Applied:          []int{managedIndex},
+		RestoreState:     true,
+	}); err != nil {
 		t.Fatal(err)
 	}
+	if err := recoverDeploymentJournals(context.Background(), root, registry); err != nil {
+		t.Fatal(err)
+	}
+	if provider.rolledBack {
+		t.Fatal("valid committed receipt triggered provider rollback")
+	}
+	if _, err := os.Stat(journalPath); !os.IsNotExist(err) {
+		t.Fatalf("lingering committed journal still exists: %v", err)
+	}
+}
+
+func TestDeploymentReceiptReplayDoesNotBypassLingeringJournalValidation(t *testing.T) {
+	root, plan := deploymentPlanTestFixture(t, "managed")
+	writeDeploymentReceiptFixture(t, root, plan)
+	journalPath := deploymentJournalPath(root, plan.PlanID)
+	if err := writeDeploymentFile(root, journalPath, []byte("not a deployment journal\n")); err != nil {
+		t.Fatal(err)
+	}
+	_, err := ApplyDeploymentPlan(context.Background(), root, plan, DeploymentApplyOptions{
+		ExpectedWorkspaceRevision: plan.BaseWorkspaceRevision, ExpectedContractRevision: plan.ContractRevision,
+		ExpectedImplementation: testDeploymentImplementationRevision(), Caller: "test",
+	}, DeploymentProviderRegistry{"app/provider/postgres": &testDeploymentProvider{}})
+	if err == nil || !strings.Contains(err.Error(), "invalid deployment recovery journal") {
+		t.Fatalf("replay with lingering invalid journal error = %v", err)
+	}
+	if _, statErr := os.Stat(journalPath); statErr != nil {
+		t.Fatalf("invalid lingering journal was removed: %v", statErr)
+	}
+}
+
+func TestDeploymentApplyRejectsCallerRecomputedProviderPlan(t *testing.T) {
+	root, plan := deploymentPlanTestFixture(t, "managed")
+	provider := &testDeploymentProvider{}
+	registry := DeploymentProviderRegistry{"app/provider/postgres": provider}
 	tampered := plan
 	tampered.ProviderPlans = append([]DeploymentProviderPlan(nil), plan.ProviderPlans...)
 	for index := range tampered.ProviderPlans {
@@ -357,19 +406,18 @@ func TestDeploymentApplyRejectsCallerRecomputedProviderPlan(t *testing.T) {
 func TestDeploymentProviderApplyFailureDoesNotWriteState(t *testing.T) {
 	parallelVNextIntegrationTest(t)
 
-	root := deploymentPlanFixture(t, "managed")
+	root, plan := deploymentPlanTestFixture(t, "managed")
 	provider := &testDeploymentProvider{applyErr: errors.New("boom")}
 	registry := DeploymentProviderRegistry{"app/provider/postgres": provider}
-	plan, err := PlanDeployment(context.Background(), root, DeploymentPlanRequest{Deployment: "preview", ImplementationRevisions: testDeploymentImplementationRevision(), Caller: "test"}, registry)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = ApplyDeploymentPlan(context.Background(), root, plan, DeploymentApplyOptions{
+	_, err := ApplyDeploymentPlan(context.Background(), root, plan, DeploymentApplyOptions{
 		ExpectedWorkspaceRevision: plan.BaseWorkspaceRevision, ExpectedContractRevision: plan.ContractRevision,
 		ExpectedImplementation: testDeploymentImplementationRevision(), Caller: "test",
 	}, registry)
 	if err == nil || !strings.Contains(err.Error(), "boom") {
 		t.Fatalf("apply error = %v", err)
+	}
+	if !provider.applied {
+		t.Fatal("provider apply was not invoked")
 	}
 	if _, err := os.Stat(deploymentStatePath(root, "preview")); !os.IsNotExist(err) {
 		t.Fatalf("state exists after failed apply: %v", err)
@@ -379,14 +427,10 @@ func TestDeploymentProviderApplyFailureDoesNotWriteState(t *testing.T) {
 func TestDeploymentProviderNilCompensatorFallsBackToCrashSafeRollback(t *testing.T) {
 	parallelVNextIntegrationTest(t)
 
-	root := deploymentPlanFixture(t, "managed")
+	root, plan := deploymentPlanTestFixture(t, "managed")
 	provider := &testDeploymentProvider{nilRollback: true}
 	registry := DeploymentProviderRegistry{"app/provider/postgres": provider}
-	plan, err := PlanDeployment(context.Background(), root, DeploymentPlanRequest{Deployment: "preview", ImplementationRevisions: testDeploymentImplementationRevision(), Caller: "test"}, registry)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = ApplyDeploymentPlan(context.Background(), root, plan, DeploymentApplyOptions{
+	_, err := ApplyDeploymentPlan(context.Background(), root, plan, DeploymentApplyOptions{
 		ExpectedWorkspaceRevision: plan.BaseWorkspaceRevision, ExpectedContractRevision: plan.ContractRevision,
 		ExpectedImplementation: testDeploymentImplementationRevision(), Caller: "test",
 	}, registry)
@@ -435,13 +479,13 @@ func TestDeploymentApprovalsUseTheSharedPlanCallerScopeBinding(t *testing.T) {
 func TestDeploymentApplySerializesConcurrentProviderEffects(t *testing.T) {
 	parallelVNextIntegrationTest(t)
 
-	root := deploymentPlanFixture(t, "managed")
-	provider := &blockingDeploymentProvider{entered: make(chan struct{}), release: make(chan struct{})}
-	registry := DeploymentProviderRegistry{"app/provider/postgres": provider}
-	plan, err := PlanDeployment(context.Background(), root, DeploymentPlanRequest{Deployment: "preview", ImplementationRevisions: testDeploymentImplementationRevision(), Caller: "test"}, registry)
-	if err != nil {
-		t.Fatal(err)
+	root, plan := deploymentPlanTestFixture(t, "managed")
+	provider := &blockingDeploymentProvider{
+		testDeploymentProvider: testDeploymentProvider{applyErr: errors.New("stop after lock proof")},
+		entered:                make(chan struct{}),
+		release:                make(chan struct{}),
 	}
+	registry := DeploymentProviderRegistry{"app/provider/postgres": provider}
 	options := DeploymentApplyOptions{ExpectedWorkspaceRevision: plan.BaseWorkspaceRevision, ExpectedContractRevision: plan.ContractRevision, ExpectedImplementation: testDeploymentImplementationRevision(), Caller: "test"}
 	first := make(chan error, 1)
 	go func() {
@@ -453,19 +497,18 @@ func TestDeploymentApplySerializesConcurrentProviderEffects(t *testing.T) {
 		t.Fatalf("concurrent apply error = %v", err)
 	}
 	close(provider.release)
-	if err := <-first; err != nil {
-		t.Fatal(err)
+	if err := <-first; err == nil || !strings.Contains(err.Error(), "stop after lock proof") {
+		t.Fatalf("first apply error = %v", err)
+	}
+	if !provider.rolledBack {
+		t.Fatal("failed provider apply was not crash-safely rolled back")
 	}
 }
 
 func TestDeploymentApplyRejectsSymlinkedStateDirectory(t *testing.T) {
 	parallelVNextIntegrationTest(t)
 
-	root := deploymentPlanFixture(t, "external")
-	plan, err := PlanDeployment(context.Background(), root, DeploymentPlanRequest{Deployment: "preview", ImplementationRevisions: testDeploymentImplementationRevision(), Caller: "test"}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	root, plan := deploymentPlanTestFixture(t, "external")
 	outside := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, ".scenery"), 0o755); err != nil {
 		t.Fatal(err)
@@ -473,7 +516,7 @@ func TestDeploymentApplyRejectsSymlinkedStateDirectory(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(root, ".scenery", "deployments")); err != nil {
 		t.Fatal(err)
 	}
-	_, err = ApplyDeploymentPlan(context.Background(), root, plan, DeploymentApplyOptions{
+	_, err := ApplyDeploymentPlan(context.Background(), root, plan, DeploymentApplyOptions{
 		ExpectedWorkspaceRevision: plan.BaseWorkspaceRevision, ExpectedContractRevision: plan.ContractRevision,
 		ExpectedImplementation: testDeploymentImplementationRevision(), Caller: "test",
 	}, nil)
@@ -489,13 +532,9 @@ func TestDeploymentApplyRejectsSymlinkedStateDirectory(t *testing.T) {
 func TestDeploymentRecoveryRestoresPreviousStateBeforeProviderRollback(t *testing.T) {
 	parallelVNextIntegrationTest(t)
 
-	root := deploymentPlanFixture(t, "managed")
+	root, plan := deploymentPlanTestFixture(t, "managed")
 	provider := &testDeploymentProvider{}
 	registry := DeploymentProviderRegistry{"app/provider/postgres": provider}
-	plan, err := PlanDeployment(context.Background(), root, DeploymentPlanRequest{Deployment: "preview", ImplementationRevisions: testDeploymentImplementationRevision(), Caller: "test"}, registry)
-	if err != nil {
-		t.Fatal(err)
-	}
 	managedIndex := -1
 	for index, providerPlan := range plan.ProviderPlans {
 		if providerPlan.RequiresApply {
@@ -584,33 +623,75 @@ func testDeploymentImplementationRevision() map[string]string {
 	return map[string]string{"development": "sha256:" + strings.Repeat("a", 64)}
 }
 
+func deploymentPlanTestFixture(t *testing.T, lifecycle string) (string, DeploymentPlan) {
+	t.Helper()
+	root := deploymentPlanFixture(t, lifecycle)
+	var registry DeploymentProviderRegistry
+	if lifecycle == "managed" {
+		registry = DeploymentProviderRegistry{"app/provider/postgres": &testDeploymentProvider{}}
+	}
+	plan, err := PlanDeployment(context.Background(), root, DeploymentPlanRequest{
+		Deployment: "preview", ImplementationRevisions: testDeploymentImplementationRevision(), Caller: "test",
+	}, registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return root, plan
+}
+
+func deploymentReceiptFixture(plan DeploymentPlan) DeploymentReceipt {
+	return DeploymentReceipt{
+		ArtifactIdentity:       machine.NewArtifactIdentity(deploymentReceiptKind, deploymentReceiptSchemaDescriptor),
+		PlanID:                 plan.PlanID,
+		Application:            plan.Application,
+		Deployment:             plan.Deployment,
+		WorkspaceRevision:      plan.BaseWorkspaceRevision,
+		ContractRevision:       plan.ContractRevision,
+		ImplementationRevision: cloneStringMap(plan.ImplementationRevision),
+		DeploymentRevision:     plan.DeploymentRevision,
+		ProviderPlanDigests:    deploymentProviderPlanDigests(plan.ProviderPlans),
+		AppliedAt:              time.Now().UTC(),
+	}
+}
+
+func encodeDeploymentReceiptFixture(t *testing.T, receipt DeploymentReceipt) []byte {
+	t.Helper()
+	encoded, err := json.MarshalIndent(receipt, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return append(encoded, '\n')
+}
+
+func writeDeploymentReceiptFixture(t *testing.T, root string, plan DeploymentPlan) DeploymentReceipt {
+	t.Helper()
+	receipt := deploymentReceiptFixture(plan)
+	encoded := encodeDeploymentReceiptFixture(t, receipt)
+	if err := writeDeploymentFile(root, deploymentAppliedPlanPath(root, plan.PlanID), encoded); err != nil {
+		t.Fatal(err)
+	}
+	return receipt
+}
+
 func deploymentPlanFixture(t *testing.T, lifecycle string) string {
 	t.Helper()
 	root := t.TempDir()
-	copyTree(t, filepath.Join("..", "compiler", "testdata", "native"), root)
-	workingDirectory, err := os.Getwd()
-	if err != nil {
+	if err := writeDeploymentPlanFixture(root, lifecycle); err != nil {
 		t.Fatal(err)
 	}
-	sceneryRoot := filepath.Clean(filepath.Join(workingDirectory, "..", ".."))
-	goModPath := filepath.Join(root, "go.mod")
-	goMod, err := os.ReadFile(goModPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	goMod = []byte(strings.Replace(string(goMod), "replace scenery.sh => ../../../..", "replace scenery.sh => "+filepath.ToSlash(sceneryRoot), 1))
-	if err := os.WriteFile(goModPath, goMod, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(root, testAppFilename)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	data = []byte(strings.Replace(string(data), `"scenery.runtime-http",`, `"scenery.runtime-http",
-    "scenery.data",
-    "scenery.deployment",`, 1))
-	data = append(data, []byte(`
+	return root
+}
+
+func writeDeploymentPlanFixture(root, lifecycle string) error {
+	appSource := fmt.Sprintf(`application "deployplan" {}
+
+http_gateway "public" {
+  exposure        = "internet"
+  base_path       = "/api"
+  cors            = std.cors.none
+  trusted_proxies = std.trusted_proxies.none
+  forwarded       = std.forwarded_headers.reject
+}
 
 provider "postgres" {
   source  = "registry.scenery.dev/core/postgres"
@@ -618,9 +699,9 @@ provider "postgres" {
 
 data_source "database" {
   provider  = provider.postgres
-  lifecycle = "`+lifecycle+`"
+  lifecycle = %q
   config = {
-    database = "nativeapp"
+    database = "deployplan"
   }
 }
 
@@ -630,17 +711,17 @@ deployment "preview" {
   data_source {
     target = data_source.database
     config = {
-      database = "nativeapp_preview"
+      database = "deployplan_preview"
     }
   }
 }
-`)...)
-	if err := os.WriteFile(path, data, 0o644); err != nil {
-		t.Fatal(err)
+`, lifecycle)
+	if err := os.WriteFile(filepath.Join(root, testAppFilename), []byte(appSource), 0o644); err != nil {
+		return err
 	}
 	integrity, ok := compiler.BuiltinProviderLock("registry.scenery.dev/core/postgres")
 	if !ok {
-		t.Fatal("builtin postgres descriptor is unavailable")
+		return errors.New("builtin postgres descriptor is unavailable")
 	}
 	lockfile := fmt.Sprintf(`lock {}
 
@@ -653,7 +734,7 @@ provider "postgres" {
 }
 `, integrity, integrity, deploymentProviderABI)
 	if err := os.WriteFile(filepath.Join(root, testAppLockFilename), []byte(lockfile), 0o644); err != nil {
-		t.Fatal(err)
+		return err
 	}
-	return root
+	return nil
 }

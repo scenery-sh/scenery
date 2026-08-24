@@ -275,6 +275,21 @@ func ApplyDeploymentPlan(ctx context.Context, root string, plan DeploymentPlan, 
 	if options.Caller != plan.Caller {
 		return DeploymentReceipt{}, fmt.Errorf("permission_denied: deployment plan caller mismatch")
 	}
+	// A receipt with no same-plan journal is immutable and already proves the
+	// deployment commit. Read that settled state before taking the apply lock so
+	// ordinary retries do not pay for a new durable lock record. A journal means
+	// a first apply may still be between receipt rename and directory sync; in
+	// that case the lock remains the publication barrier.
+	appliedPath := deploymentAppliedPlanPath(root, plan.PlanID)
+	if receipt, exists, err := readDeploymentReceipt(root, appliedPath, plan); err != nil {
+		return DeploymentReceipt{}, err
+	} else if exists {
+		if _, journalExists, journalErr := readDeploymentFile(root, deploymentJournalPath(root, plan.PlanID)); (journalErr == nil && !journalExists) || os.IsNotExist(journalErr) {
+			return receipt, nil
+		} else if journalErr != nil {
+			return DeploymentReceipt{}, journalErr
+		}
+	}
 	release, err := acquireDeploymentApplyLock(root)
 	if err != nil {
 		return DeploymentReceipt{}, err
@@ -287,7 +302,6 @@ func ApplyDeploymentPlan(ctx context.Context, root string, plan DeploymentPlan, 
 	// retry must return that exact result even if the plan has since expired or
 	// the workspace has drifted. Caller and issued-plan validation above still
 	// bind replay to the authenticated request and the original plan.
-	appliedPath := deploymentAppliedPlanPath(root, plan.PlanID)
 	if receipt, exists, err := readDeploymentReceipt(root, appliedPath, plan); err != nil {
 		return DeploymentReceipt{}, err
 	} else if exists {
@@ -343,13 +357,12 @@ func ApplyDeploymentPlan(ctx context.Context, root string, plan DeploymentPlan, 
 		ArtifactIdentity:    machine.NewArtifactIdentity(deploymentApplyJournalKind, deploymentJournalSchemaDescriptor),
 		Plan:                plan,
 		Applied:             []int{},
+		RestoreState:        true,
 		PreviousState:       previous,
 		PreviousStateExists: previousExists,
 	}
 	journalPath := deploymentJournalPath(root, plan.PlanID)
-	if err := writeDeploymentJournal(root, journalPath, journal); err != nil {
-		return DeploymentReceipt{}, err
-	}
+	journalWritten := false
 	var rollbacks []func(context.Context) error
 	rollbackProviders := func(cause error) error {
 		var rollbackErrors []error
@@ -386,6 +399,7 @@ func ApplyDeploymentPlan(ctx context.Context, root string, plan DeploymentPlan, 
 		if err := writeDeploymentJournal(root, journalPath, journal); err != nil {
 			return DeploymentReceipt{}, rollbackProviders(err)
 		}
+		journalWritten = true
 		rollback, applyErr := adapter.Apply(ctx, providerPlan)
 		if applyErr != nil {
 			return DeploymentReceipt{}, rollbackProviders(fmt.Errorf("provider apply %s: %w", providerPlan.ProviderAddress, applyErr))
@@ -413,11 +427,13 @@ func ApplyDeploymentPlan(ctx context.Context, root string, plan DeploymentPlan, 
 	if err != nil {
 		return DeploymentReceipt{}, rollbackProviders(err)
 	}
-	// Make restoration durable before publishing state. Recovery may restore an
-	// unchanged file after a crash between these two writes; that is harmless.
-	journal.RestoreState = true
-	if err := writeDeploymentJournal(root, journalPath, journal); err != nil {
-		return DeploymentReceipt{}, rollbackProviders(err)
+	// Provider journals already record restoration before the first external
+	// effect. An external-only plan still needs one durable restoration marker
+	// before publishing its state.
+	if !journalWritten {
+		if err := writeDeploymentJournal(root, journalPath, journal); err != nil {
+			return DeploymentReceipt{}, rollbackProviders(err)
+		}
 	}
 	if err := writeDeploymentFile(root, statePath, append(stateBytes, '\n')); err != nil {
 		return DeploymentReceipt{}, rollbackProviders(err)
@@ -425,9 +441,13 @@ func ApplyDeploymentPlan(ctx context.Context, root string, plan DeploymentPlan, 
 	if err := writeDeploymentFile(root, appliedPath, append(receiptBytes, '\n')); err != nil {
 		return DeploymentReceipt{}, rollbackProviders(err)
 	}
-	journal.Committed = true
-	_ = writeDeploymentJournal(root, journalPath, journal)
-	_ = removeDeploymentFile(root, journalPath)
+	// The synced receipt is the commit marker. Rewriting the journal as
+	// committed before immediately removing it adds no recovery information:
+	// recovery already treats any journal with a valid receipt as complete.
+	// Its deletion is cleanup rather than a state transition, so it need not
+	// force another directory sync; a journal resurrected after a crash is
+	// discarded against the durable receipt by recovery.
+	_ = removeDeploymentFileUnsynced(root, journalPath)
 	return receipt, nil
 }
 
@@ -532,20 +552,33 @@ func acquireDeploymentApplyLock(root string) (func(), error) {
 		return nil, fmt.Errorf("failed_precondition: deployment state directory is unsafe: %w", err)
 	}
 	path := filepath.Join(directory, "apply.lock")
-	owner := localagent.CurrentOwner("deployment-apply")
-	lock := deploymentApplyLock{ArtifactIdentity: machine.NewArtifactIdentity(deploymentApplyLockKind, deploymentLockSchemaDescriptor), Owner: owner}
-	encoded, _ := json.Marshal(lock)
+	var encoded []byte
 	for range 3 {
 		if _, err := confinedDeploymentPath(root, path, true); err != nil {
 			return nil, fmt.Errorf("failed_precondition: deployment apply lock is unsafe: %w", err)
 		}
-		err := writeSyncedFile(path, append(encoded, '\n'), 0o600)
+		var err error
+		if _, statErr := os.Lstat(path); statErr == nil {
+			err = os.ErrExist
+		} else if !os.IsNotExist(statErr) {
+			return nil, statErr
+		} else {
+			if encoded == nil {
+				owner := localagent.CurrentOwner("deployment-apply")
+				lock := deploymentApplyLock{ArtifactIdentity: machine.NewArtifactIdentity(deploymentApplyLockKind, deploymentLockSchemaDescriptor), Owner: owner}
+				encoded, _ = json.Marshal(lock)
+			}
+			err = writeExclusiveSyncedFile(path, append(encoded, '\n'), 0o600)
+		}
 		if err == nil {
-			_ = syncDirectory(directory)
+			// The lock is live coordination state, not a crash-recovery marker.
+			// Its contents are synced so any surviving entry remains parseable,
+			// but the directory entry need not survive: provider effects begin only
+			// after their recovery journal is durable.
 			owned := true
 			return func() {
 				if owned {
-					_ = removeDeploymentFile(root, path)
+					_ = removeDeploymentFileUnsynced(root, path)
 					owned = false
 				}
 			}, nil
@@ -554,6 +587,9 @@ func acquireDeploymentApplyLock(root string) (func(), error) {
 			return nil, err
 		}
 		data, readErr := os.ReadFile(path)
+		if os.IsNotExist(readErr) {
+			continue
+		}
 		if readErr != nil {
 			return nil, fmt.Errorf("failed_precondition: deployment apply lock cannot be read: %w", readErr)
 		}
@@ -672,6 +708,14 @@ func validateDeploymentReceipt(plan DeploymentPlan, receipt DeploymentReceipt) e
 }
 
 func removeDeploymentFile(root, path string) error {
+	return removeDeploymentFileWithSync(root, path, true)
+}
+
+func removeDeploymentFileUnsynced(root, path string) error {
+	return removeDeploymentFileWithSync(root, path, false)
+}
+
+func removeDeploymentFileWithSync(root, path string, sync bool) error {
 	target, err := confinedDeploymentPath(root, path, false)
 	if err != nil {
 		return fmt.Errorf("failed_precondition: deployment path is unsafe: %w", err)
@@ -688,6 +732,9 @@ func removeDeploymentFile(root, path string) error {
 	}
 	if err := os.Remove(target); err != nil {
 		return err
+	}
+	if !sync {
+		return nil
 	}
 	return syncDirectory(filepath.Dir(target))
 }

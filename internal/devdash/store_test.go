@@ -174,10 +174,14 @@ func TestStoreBudgetRejectsLargeSessions(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	metadata := largeAppMetadata(t, "rev-shared", 2*1024*1024)
+	const sessionCount = 5
+	// If metadata were still stored inline, these sessions would exceed the
+	// soft store budget. Keep the fixture only just large enough to prove that
+	// boundary so the test does not spend time hashing throwaway megabytes.
+	metadata := largeAppMetadata(t, "rev-shared", softStoreFileBytes/sessionCount+1024)
 	apiEncoding := json.RawMessage(`{"rpc":"shape"}`)
 	now := time.Now().UTC()
-	for i := range 20 {
+	for i := range sessionCount {
 		if err := store.UpsertApp(ctx, AppRecord{
 			ID:           "app-test",
 			BaseAppID:    "app-test",
@@ -228,8 +232,8 @@ func TestStoreBudgetRejectsLargeSessions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list sessions: %v", err)
 	}
-	if len(sessions) != 20 {
-		t.Fatalf("session count = %d, want 20", len(sessions))
+	if len(sessions) != sessionCount {
+		t.Fatalf("session count = %d, want %d", len(sessions), sessionCount)
 	}
 	if bytes.Contains(sessions[0].Metadata, []byte("svc_payload")) {
 		t.Fatalf("list sessions hydrated large metadata")

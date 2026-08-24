@@ -2,7 +2,10 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -20,6 +23,9 @@ func TestHarnessTimingBudgetsUseSeparateLanes(t *testing.T) {
 	if cached.PackageSeconds != 10 || cached.PackageOverrides["scenery.sh/cmd/scenery"] != 15 || cached.ConfirmationRuns != 0 {
 		t.Fatalf("cached package/test confirmation budgets = %+v", cached)
 	}
+	if cached.DefaultTestClass != harnessTestClassFast || cached.TestTargetSeconds != 0.060 || cached.TestSeconds != 0.100 || cached.ConfirmationPercentile != 95 || len(cached.IntegrationExceptions) != 61 {
+		t.Fatalf("cached fast-test policy = %+v", cached)
+	}
 	if cached.TestBinaryCount != 60 || cached.ColdPrepareSeconds != 30 {
 		t.Fatalf("cached cold binary budgets = %+v", cached)
 	}
@@ -28,7 +34,7 @@ func TestHarnessTimingBudgetsUseSeparateLanes(t *testing.T) {
 	if fresh.Lane != "fresh" || fresh.TotalSeconds != 5 || fresh.TargetSeconds != 5 || fresh.Mode != "observe-total" {
 		t.Fatalf("fresh budgets = %+v", fresh)
 	}
-	if fresh.ConfirmationRuns != 3 || fresh.ConfirmationScope != harnessConfirmationScopeRegressions {
+	if fresh.ConfirmationRuns != 20 || fresh.ConfirmationScope != harnessConfirmationScopeRegressions {
 		t.Fatalf("fresh confirmation budgets = %+v", fresh)
 	}
 
@@ -41,7 +47,7 @@ func TestHarnessTimingBudgetsUseSeparateLanes(t *testing.T) {
 	}
 
 	audit := harnessTestTimingBudgetsForMode(harnessSelfModeRelease, true)
-	if audit.ConfirmationRuns != 3 || audit.ConfirmationScope != harnessConfirmationScopeAll {
+	if audit.ConfirmationRuns != 20 || audit.ConfirmationScope != harnessConfirmationScopeAll {
 		t.Fatalf("release audit confirmation budgets = %+v", audit)
 	}
 }
@@ -50,9 +56,9 @@ func TestSelectHarnessTimingConfirmationsDefersKnownOutliers(t *testing.T) {
 	t.Parallel()
 
 	output := strings.Join([]string{
-		`{"Action":"pass","Package":"example.com/app","Test":"TestKnownSlow","Elapsed":0.8}`,
-		`{"Action":"pass","Package":"example.com/app","Test":"TestWorse","Elapsed":2.0}`,
-		`{"Action":"pass","Package":"example.com/app","Test":"TestNew","Elapsed":0.7}`,
+		`{"Action":"pass","Package":"example.com/app","Test":"TestKnownSlow","Elapsed":0.08}`,
+		`{"Action":"pass","Package":"example.com/app","Test":"TestWorse","Elapsed":0.09}`,
+		`{"Action":"pass","Package":"example.com/app","Test":"TestNew","Elapsed":0.07}`,
 		`{"Action":"pass","Package":"example.com/app","Elapsed":13.2}`,
 		`{"Action":"pass","Package":"example.com/known","Elapsed":13.1}`,
 	}, "\n")
@@ -64,8 +70,8 @@ func TestSelectHarnessTimingConfirmationsDefersKnownOutliers(t *testing.T) {
 			{Package: "example.com/known", Seconds: 13.0, BudgetSeconds: 10},
 		},
 		ObservedSlowTests: []harnessTestTiming{
-			{Name: "TestKnownSlow", Package: "example.com/app", Seconds: 0.8},
-			{Name: "TestWorse", Package: "example.com/app", Seconds: 0.8},
+			{Name: "TestKnownSlow", Package: "example.com/app", Seconds: 0.08},
+			{Name: "TestWorse", Package: "example.com/app", Seconds: 0.06},
 		},
 	}
 	selectHarnessTimingConfirmations(report, baseline)
@@ -81,7 +87,7 @@ func TestSelectHarnessTimingConfirmationsDefersKnownOutliers(t *testing.T) {
 	for _, entry := range report.DeferredConfirmations {
 		deferred[entry.Package+"."+entry.Name] = entry.BaselineSeconds
 	}
-	if len(deferred) != 2 || deferred["example.com/app.TestKnownSlow"] != 0.8 || deferred["example.com/known."] != 13.0 {
+	if len(deferred) != 2 || deferred["example.com/app.TestKnownSlow"] != 0.08 || deferred["example.com/known."] != 13.0 {
 		t.Fatalf("deferred confirmations = %+v", report.DeferredConfirmations)
 	}
 	if !hasDiagnosticContaining(report.Diagnostics, "skipped isolated confirmation for 2 known timing outlier(s)") {
@@ -103,10 +109,10 @@ func TestSelectHarnessTimingConfirmationsDefersKnownOutliers(t *testing.T) {
 func TestSelectHarnessTimingConfirmationsKeepsEverythingUnderAuditScope(t *testing.T) {
 	t.Parallel()
 
-	output := `{"Action":"pass","Package":"example.com/app","Test":"TestKnownSlow","Elapsed":0.8}`
+	output := `{"Action":"pass","Package":"example.com/app","Test":"TestKnownSlow","Elapsed":0.08}`
 	report := parseHarnessGoTestTimingWithBudgets([]byte(output), harnessSelfGoTestCommandWithCacheMode(true), time.Second, harnessTestTimingBudgetsForMode(harnessSelfModeRelease, true))
 	baseline := &harnessTestTimingReport{
-		ObservedSlowTests: []harnessTestTiming{{Name: "TestKnownSlow", Package: "example.com/app", Seconds: 0.8}},
+		ObservedSlowTests: []harnessTestTiming{{Name: "TestKnownSlow", Package: "example.com/app", Seconds: 0.08}},
 	}
 	selectHarnessTimingConfirmations(report, baseline)
 	if len(report.ObservedSlowTests) != 1 || len(report.DeferredConfirmations) != 0 {
@@ -117,11 +123,178 @@ func TestSelectHarnessTimingConfirmationsKeepsEverythingUnderAuditScope(t *testi
 func TestSelectHarnessTimingConfirmationsWithoutBaselineKeepsEveryCandidate(t *testing.T) {
 	t.Parallel()
 
-	output := `{"Action":"pass","Package":"example.com/app","Test":"TestSlow","Elapsed":0.8}`
+	output := `{"Action":"pass","Package":"example.com/app","Test":"TestSlow","Elapsed":0.08}`
 	report := parseHarnessGoTestTimingWithBudgets([]byte(output), harnessSelfGoTestCommandWithCacheMode(true), time.Second, harnessTestTimingBudgetsForMode(harnessSelfModeDefault, true))
 	selectHarnessTimingConfirmations(report, nil)
 	if len(report.ObservedSlowTests) != 1 || len(report.DeferredConfirmations) != 0 {
 		t.Fatalf("missing baseline narrowed confirmation: observed=%+v deferred=%+v", report.ObservedSlowTests, report.DeferredConfirmations)
+	}
+}
+
+func TestReadHarnessTimingBaselineRejectsStaleSchema(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	path := filepath.Join(root, ".scenery", "harness", "test-timing-latest.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	report := harnessTestTimingReport{
+		cliPayloadIdentity: cliPayloadIdentity{Kind: harnessTestTimingKind, SchemaRevision: "sha256:" + strings.Repeat("0", 64)},
+		Budgets:            defaultHarnessTestTimingBudgets(),
+	}
+	encoded, err := json.Marshal(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, encoded, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := readHarnessTimingBaseline(root); got != nil {
+		t.Fatalf("stale baseline was accepted: %+v", got)
+	}
+
+	report.cliPayloadIdentity = newCLIPayloadIdentity(harnessTestTimingKind)
+	encoded, err = json.Marshal(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, encoded, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := readHarnessTimingBaseline(root); got == nil {
+		t.Fatal("current baseline was rejected")
+	}
+}
+
+func TestSelectHarnessTimingConfirmationsNeverDefersNewBudgetCrossing(t *testing.T) {
+	t.Parallel()
+
+	current := `{"Action":"pass","Package":"example.com/app","Test":"TestCrossed","Elapsed":0.10}`
+	report := parseHarnessGoTestTimingWithBudgets([]byte(current), harnessSelfGoTestCommandWithCacheMode(true), time.Second, harnessTestTimingBudgetsForMode(harnessSelfModeDefault, true))
+	baseline := &harnessTestTimingReport{ObservedSlowTests: []harnessTestTiming{{
+		Name: "TestCrossed", Package: "example.com/app", Class: harnessTestClassFast,
+		Seconds: 0.09, TargetSeconds: 0.06, BudgetSeconds: 0.10,
+	}}}
+	selectHarnessTimingConfirmations(report, baseline)
+	if len(report.ObservedSlowTests) != 1 || len(report.DeferredConfirmations) != 0 {
+		t.Fatalf("new hard-budget crossing was deferred: observed=%+v deferred=%+v", report.ObservedSlowTests, report.DeferredConfirmations)
+	}
+}
+
+func TestSelectHarnessTimingConfirmationsNeverDefersPriorConfirmedViolation(t *testing.T) {
+	t.Parallel()
+
+	current := `{"Action":"pass","Package":"example.com/app","Test":"TestPreviouslySlow","Elapsed":0.07}`
+	report := parseHarnessGoTestTimingWithBudgets([]byte(current), harnessSelfGoTestCommandWithCacheMode(true), time.Second, harnessTestTimingBudgetsForMode(harnessSelfModeDefault, true))
+	p95 := 0.10
+	baseline := &harnessTestTimingReport{ObservedSlowTests: []harnessTestTiming{{
+		Name: "TestPreviouslySlow", Package: "example.com/app", Class: harnessTestClassFast,
+		Seconds: 0.07, TargetSeconds: 0.06, BudgetSeconds: 0.10, IsolatedP95: &p95,
+	}}}
+	selectHarnessTimingConfirmations(report, baseline)
+	if len(report.ObservedSlowTests) != 1 || len(report.DeferredConfirmations) != 0 {
+		t.Fatalf("prior confirmed violation was deferred: observed=%+v deferred=%+v", report.ObservedSlowTests, report.DeferredConfirmations)
+	}
+}
+
+func TestParseHarnessTimingUsesExactTopLevelRootsAndIntegrationPolicy(t *testing.T) {
+	t.Parallel()
+
+	output := strings.Join([]string{
+		`{"Action":"pass","Package":"example.com/app","Test":"TestRoot/subtest","Elapsed":0.30}`,
+		`{"Action":"pass","Package":"example.com/app","Test":"TestRoot","Elapsed":0.08}`,
+		`{"Action":"pass","Package":"example.com/app","Test":"TestBelowTarget","Elapsed":0.05}`,
+		`{"Action":"pass","Package":"example.com/app","Test":"Testlowercase","Elapsed":0.20}`,
+		`{"Action":"pass","Package":"example.com/app","Test":"BenchmarkThing","Elapsed":0.20}`,
+		`{"Action":"pass","Package":"scenery.sh/internal/desktop","Test":"TestRunStreamsOutputAndPreservesExitCode","Elapsed":0.40}`,
+	}, "\n")
+	report := parseHarnessGoTestTimingWithBudgets([]byte(output), harnessSelfGoTestCommandWithCacheMode(true), time.Second, harnessTestTimingBudgetsForMode(harnessSelfModeDefault, true))
+	if len(report.ObservedSlowTests) != 1 {
+		t.Fatalf("observed candidates = %+v, want only the exact top-level fast root", report.ObservedSlowTests)
+	}
+	got := report.ObservedSlowTests[0]
+	if got.Name != "TestRoot" || got.Class != harnessTestClassFast || got.TargetSeconds != 0.06 || got.BudgetSeconds != 0.10 {
+		t.Fatalf("root timing = %+v", got)
+	}
+	if len(report.ObservedIntegrationTests) != 1 {
+		t.Fatalf("observed integration timings = %+v", report.ObservedIntegrationTests)
+	}
+	integration := report.ObservedIntegrationTests[0]
+	if integration.Class != harnessTestClassIntegration || integration.TargetSeconds != 0.1 || integration.BudgetSeconds != 3 || integration.ClassificationReason == "" {
+		t.Fatalf("integration timing = %+v", integration)
+	}
+}
+
+func TestHarnessTimingIncludesParallelSubtestsWithoutQueueWait(t *testing.T) {
+	t.Parallel()
+
+	output := strings.Join([]string{
+		`{"Time":"2026-08-24T12:00:00Z","Action":"run","Package":"example.com/app","Test":"TestRoot"}`,
+		`{"Time":"2026-08-24T12:00:00.010Z","Action":"pause","Package":"example.com/app","Test":"TestRoot"}`,
+		`{"Time":"2026-08-24T12:00:01Z","Action":"cont","Package":"example.com/app","Test":"TestRoot"}`,
+		`{"Time":"2026-08-24T12:00:01.010Z","Action":"run","Package":"example.com/app","Test":"TestRoot/parallel"}`,
+		`{"Time":"2026-08-24T12:00:01.080Z","Action":"pass","Package":"example.com/app","Test":"TestRoot/parallel","Elapsed":0.07}`,
+		`{"Time":"2026-08-24T12:00:01.090Z","Action":"pass","Package":"example.com/app","Test":"TestRoot","Elapsed":0.01}`,
+	}, "\n")
+
+	samples := testElapsedSamplesFromGoTestJSON([]byte(output), "example.com/app", "TestRoot")
+	if len(samples) != 1 || samples[0] < 0.099 || samples[0] > 0.101 {
+		t.Fatalf("root samples = %#v, want active wall time 0.10s", samples)
+	}
+	report := parseHarnessGoTestTimingWithBudgets([]byte(output), harnessSelfGoTestCommandWithCacheMode(true), time.Second, harnessTestTimingBudgetsForMode(harnessSelfModeDefault, true))
+	if len(report.ObservedSlowTests) != 1 || report.ObservedSlowTests[0].Name != "TestRoot" || report.ObservedSlowTests[0].Seconds != 0.10 {
+		t.Fatalf("observed root timing = %+v", report.ObservedSlowTests)
+	}
+}
+
+func TestIntegrationVisibilityBudgetWarnsWithoutFastGateError(t *testing.T) {
+	t.Parallel()
+
+	output := []byte(`{"Action":"pass","Package":"scenery.sh/internal/desktop","Test":"TestRunStreamsOutputAndPreservesExitCode","Elapsed":3.0}`)
+	report := parseHarnessGoTestTimingWithBudgets(output, harnessSelfGoTestCommandWithCacheMode(true), time.Second, harnessTestTimingBudgetsForMode(harnessSelfModeRelease, true))
+	if len(report.ObservedIntegrationTests) != 1 || len(report.ObservedSlowTests) != 0 || len(report.SlowTests) != 0 {
+		t.Fatalf("integration classification leaked into fast gate: %+v", report)
+	}
+	if hasErrorDiagnostics(report.Diagnostics) {
+		t.Fatalf("integration visibility warning became a release error: %+v", report.Diagnostics)
+	}
+	if !hasDiagnosticContaining(report.Diagnostics, "integration test scenery.sh/internal/desktop.TestRunStreamsOutputAndPreservesExitCode took 3.000s in one observation") {
+		t.Fatalf("integration visibility warning missing: %+v", report.Diagnostics)
+	}
+}
+
+func TestHarnessTimingIntegrationExceptionPolicyIsExactSortedAndDefensive(t *testing.T) {
+	t.Parallel()
+
+	exceptions := harnessTimingIntegrationExceptions()
+	if len(exceptions) != 61 {
+		t.Fatalf("integration exceptions = %d, want 61", len(exceptions))
+	}
+	if err := validateHarnessTimingIntegrationExceptions(exceptions); err != nil {
+		t.Fatal(err)
+	}
+	for _, exception := range exceptions {
+		if exception.Class != harnessTestClassIntegration || exception.TargetSeconds != 0.1 || exception.BudgetSeconds != 3 || exception.BoundaryReason == "" {
+			t.Fatalf("incomplete integration exception = %+v", exception)
+		}
+	}
+	exceptions[0].Name = "mutated"
+	if got := harnessTimingIntegrationExceptions()[0].Name; got == "mutated" {
+		t.Fatal("integration exception inventory escaped by reference")
+	}
+
+	invalid := []harnessTestTimingException{{Package: "example.com/pkg", Name: "TestRoot/subtest", BoundaryReason: "process"}}
+	if err := validateHarnessTimingIntegrationExceptions(invalid); err == nil || !strings.Contains(err.Error(), "top-level TestX root") {
+		t.Fatalf("subtest exception error = %v", err)
+	}
+	invalid = []harnessTestTimingException{{Package: "example.com/...", Name: "TestRoot", BoundaryReason: "process"}}
+	if err := validateHarnessTimingIntegrationExceptions(invalid); err == nil || !strings.Contains(err.Error(), "exact package") {
+		t.Fatalf("package-pattern exception error = %v", err)
+	}
+	invalid = []harnessTestTimingException{{Package: "example.com/pkg", Name: "TestRoot", BoundaryReason: ""}}
+	if err := validateHarnessTimingIntegrationExceptions(invalid); err == nil || !strings.Contains(err.Error(), "no boundary reason") {
+		t.Fatalf("empty-reason exception error = %v", err)
 	}
 }
 
@@ -179,15 +352,19 @@ func TestConfirmHarnessTimingOutliersUsesIsolatedEvidence(t *testing.T) {
 		switch joined {
 		case "go test -count=1 -p 1 -json example.com/app":
 			return []byte(`{"Action":"pass","Package":"example.com/app","Elapsed":9.1}`), nil
-		case "go test -count=3 -parallel=1 -run ^(TestAlsoObserved|TestSlow)$ -json example.com/app":
-			return []byte(strings.Join([]string{
-				`{"Action":"pass","Package":"example.com/app","Test":"TestSlow","Elapsed":0.7}`,
-				`{"Action":"pass","Package":"example.com/app","Test":"TestSlow","Elapsed":0.9}`,
-				`{"Action":"pass","Package":"example.com/app","Test":"TestSlow","Elapsed":0.6}`,
-				`{"Action":"pass","Package":"example.com/app","Test":"TestAlsoObserved","Elapsed":0.1}`,
-				`{"Action":"pass","Package":"example.com/app","Test":"TestAlsoObserved","Elapsed":0.1}`,
-				`{"Action":"pass","Package":"example.com/app","Test":"TestAlsoObserved","Elapsed":0.1}`,
-			}, "\n")), nil
+		case "go test -count=20 -parallel=1 -run ^(TestAlsoObserved|TestSlow)$ -json example.com/app":
+			var events []string
+			for i := 0; i < 20; i++ {
+				slow := 0.07
+				if i >= 18 {
+					slow = 0.11
+				}
+				events = append(events,
+					fmt.Sprintf(`{"Action":"pass","Package":"example.com/app","Test":"TestSlow","Elapsed":%.2f}`, slow),
+					`{"Action":"pass","Package":"example.com/app","Test":"TestAlsoObserved","Elapsed":0.05}`,
+				)
+			}
+			return []byte(strings.Join(events, "\n")), nil
 		default:
 			return nil, fmt.Errorf("unexpected command %q", joined)
 		}
@@ -200,17 +377,56 @@ func TestConfirmHarnessTimingOutliersUsesIsolatedEvidence(t *testing.T) {
 	if report.Packages[0].IsolatedSeconds == nil || *report.Packages[0].IsolatedSeconds != 9.1 {
 		t.Fatalf("package confirmation = %+v", report.Packages[0])
 	}
-	if len(report.SlowTests) != 1 || report.SlowTests[0].IsolatedMedian == nil || *report.SlowTests[0].IsolatedMedian != 0.7 {
+	if len(report.SlowTests) != 1 || report.SlowTests[0].IsolatedP95 == nil || *report.SlowTests[0].IsolatedP95 != 0.11 {
 		t.Fatalf("confirmed tests = %+v", report.SlowTests)
 	}
-	if report.ObservedSlowTests[0].IsolatedMedian == nil || len(report.ObservedSlowTests[0].IsolatedSamples) != 3 {
+	if report.ObservedSlowTests[0].IsolatedP95 == nil || len(report.ObservedSlowTests[0].IsolatedSamples) != 20 {
 		t.Fatalf("observed test confirmation evidence = %+v", report.ObservedSlowTests)
 	}
 	if hasDiagnosticContaining(report.Diagnostics, "package example.com/app took") {
 		t.Fatalf("contended package warning was not cleared: %+v", report.Diagnostics)
 	}
-	if !hasDiagnosticContaining(report.Diagnostics, "test example.com/app.TestSlow took 0.700s median in isolation") {
+	if !hasDiagnosticContaining(report.Diagnostics, "fast test example.com/app.TestSlow took 0.110s p95 across 20 isolated serial samples") {
 		t.Fatalf("confirmed test warning missing: %+v", report.Diagnostics)
+	}
+}
+
+func TestNearestRankP95AllowsOneSpikeAndRejectsTwo(t *testing.T) {
+	t.Parallel()
+
+	oneSpike := make([]float64, 20)
+	for i := range oneSpike {
+		oneSpike[i] = 0.05
+	}
+	oneSpike[19] = 0.25
+	if got := nearestRankPercentileSeconds(oneSpike, 0.95); got != 0.05 {
+		t.Fatalf("one-spike p95 = %.3f, want 0.050", got)
+	}
+
+	twoSpikes := append([]float64(nil), oneSpike...)
+	twoSpikes[18] = 0.10
+	if got := nearestRankPercentileSeconds(twoSpikes, 0.95); got != 0.10 {
+		t.Fatalf("two-spike p95 = %.3f, want inclusive 0.100 violation", got)
+	}
+}
+
+func TestReleaseFreshFastTestBudgetViolationIsError(t *testing.T) {
+	t.Parallel()
+
+	report := parseHarnessGoTestTimingWithBudgets(
+		[]byte(`{"Action":"pass","Package":"example.com/app","Test":"TestAtBudget","Elapsed":0.10}`),
+		harnessSelfGoTestCommandWithCacheMode(true),
+		time.Second,
+		harnessTestTimingBudgetsForMode(harnessSelfModeRelease, true),
+	)
+	confirmHarnessTimingOutliers(context.Background(), "/repo", report, func(_ context.Context, _ string, command []string) ([]byte, error) {
+		if !strings.Contains(strings.Join(command, " "), "-count=20") {
+			return nil, fmt.Errorf("unexpected command %q", strings.Join(command, " "))
+		}
+		return []byte(strings.Repeat(`{"Action":"pass","Package":"example.com/app","Test":"TestAtBudget","Elapsed":0.10}`+"\n", 20)), nil
+	})
+	if !hasErrorDiagnostics(report.Diagnostics) || len(report.SlowTests) != 1 {
+		t.Fatalf("release fresh violation = tests:%+v diagnostics:%+v", report.SlowTests, report.Diagnostics)
 	}
 }
 

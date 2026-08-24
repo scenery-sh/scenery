@@ -46,6 +46,7 @@ type Server struct {
 	tlsCA                localproxy.LocalCA
 	tlsCerts             sync.Map
 	unixTransports       UnixTransportCache
+	tcpTransport         http.RoundTripper
 	control              *http.Server
 	router               *http.Server
 	controlLn            net.Listener

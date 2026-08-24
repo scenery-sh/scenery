@@ -2,57 +2,81 @@ package agent
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"strings"
+	"os"
 	"testing"
 	"time"
 )
 
+type streamingTestResponseWriter struct {
+	header     http.Header
+	body       *io.PipeWriter
+	pending    bytes.Buffer
+	status     chan int
+	statusCode int
+}
+
+func (w *streamingTestResponseWriter) Header() http.Header {
+	return w.header
+}
+
+func (w *streamingTestResponseWriter) WriteHeader(status int) {
+	if w.statusCode != 0 {
+		return
+	}
+	w.statusCode = status
+	w.status <- status
+}
+
+func (w *streamingTestResponseWriter) Write(body []byte) (int, error) {
+	if w.statusCode == 0 {
+		w.WriteHeader(http.StatusOK)
+	}
+	return w.pending.Write(body)
+}
+
+func (w *streamingTestResponseWriter) Flush() {
+	if w.statusCode == 0 {
+		w.WriteHeader(http.StatusOK)
+	}
+	if w.pending.Len() == 0 {
+		return
+	}
+	_, _ = w.pending.WriteTo(w.body)
+}
+
 // Repro: does the agent router proxy deliver SSE events incrementally,
 // or does it buffer until the upstream closes?
 func TestRouterStreamsSSEIncrementally(t *testing.T) {
-	release := make(chan struct{})
-	stream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.Header().Set("Cache-Control", "no-cache")
-		w.WriteHeader(http.StatusOK)
-		_, _ = io.WriteString(w, "data: first\n\n")
-		if f, ok := w.(http.Flusher); ok {
-			f.Flush()
-		}
-		<-release // hold the stream open like a live event feed
-		_, _ = io.WriteString(w, "data: second\n\n")
-	}))
-	defer stream.Close()
-	defer close(release)
-	streamAddr := strings.TrimPrefix(stream.URL, "http://")
-
-	server, err := NewServer(RunOptions{
-		Home:       t.TempDir(),
-		RouterAddr: "127.0.0.1:0",
+	upstreamReader, upstreamWriter := io.Pipe()
+	t.Cleanup(func() {
+		_ = upstreamWriter.Close()
+		_ = upstreamReader.Close()
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- server.Run(ctx) }()
-	defer stopTestAgent(t, cancel, done)
-
-	client := NewClient(server.paths.SocketPath)
-	if err := waitForAgentPing(ctx, client); err != nil {
-		t.Fatal(err)
-	}
-	session, err := client.Register(ctx, RegisterRequest{
+	transport := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode:    http.StatusOK,
+			Status:        "200 OK",
+			Header:        http.Header{"Content-Type": []string{"text/event-stream"}, "Cache-Control": []string{"no-cache"}},
+			Body:          upstreamReader,
+			ContentLength: -1,
+			Request:       req,
+		}, nil
+	})
+	server := newInProcessTestServer(t, transport)
+	session, err := server.registry.Upsert(RegisterRequest{
 		BaseAppID: "demo",
 		AppRoot:   t.TempDir(),
 		Branch:    "main",
+		OwnerPID:  os.Getpid(),
+		Owner:     testProcessOwner(),
 		Backends: map[string]Backend{
-			RouteAPI: {Network: "tcp", Addr: streamAddr},
+			RouteAPI: {Network: "tcp", Addr: "stream.test"},
 		},
 	})
 	if err != nil {
@@ -60,40 +84,93 @@ func TestRouterStreamsSSEIncrementally(t *testing.T) {
 	}
 	host := testRouteHost(t, session.RouteManifest.Routes[RouteAPI].URL)
 
-	req, err := http.NewRequest(http.MethodGet, "http://"+server.routerAddr+"/v1/shape?live=true", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	req := httptest.NewRequest(http.MethodGet, "http://router.test/v1/shape?live=true", nil)
 	req.Host = host
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
+	downstreamReader, downstreamWriter := io.Pipe()
+	t.Cleanup(func() { _ = downstreamReader.Close() })
+	response := &streamingTestResponseWriter{
+		header: http.Header{},
+		body:   downstreamWriter,
+		status: make(chan int, 1),
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d", resp.StatusCode)
+	handlerDone := make(chan struct{})
+	go func() {
+		server.routerMux().ServeHTTP(response, req)
+		_ = downstreamWriter.Close()
+		close(handlerDone)
+	}()
+	select {
+	case status := <-response.status:
+		if status != http.StatusOK {
+			t.Fatalf("status = %d", status)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("router did not start the SSE response")
 	}
 
 	type lineResult struct {
 		line string
 		err  error
 	}
-	lines := make(chan lineResult, 1)
+	reader := bufio.NewReader(downstreamReader)
+	readLine := func() string {
+		t.Helper()
+		result := make(chan lineResult, 1)
+		go func() {
+			line, err := reader.ReadString('\n')
+			result <- lineResult{line: line, err: err}
+		}()
+		select {
+		case got := <-result:
+			if got.err != nil {
+				t.Fatalf("read SSE line: %v", got.err)
+			}
+			return got.line
+		case <-time.After(time.Second):
+			t.Fatal("SSE event was buffered while the upstream connection stayed open")
+			return ""
+		}
+	}
+
+	firstWrite := make(chan error, 1)
 	go func() {
-		r := bufio.NewReader(resp.Body)
-		line, err := r.ReadString('\n')
-		lines <- lineResult{line: line, err: err}
+		_, err := io.WriteString(upstreamWriter, "data: first\n\n")
+		firstWrite <- err
 	}()
+	if line := readLine(); line != "data: first\n" {
+		t.Fatalf("first line = %q", line)
+	}
+	if line := readLine(); line != "\n" {
+		t.Fatalf("first event terminator = %q", line)
+	}
+	if err := <-firstWrite; err != nil {
+		t.Fatalf("write first event: %v", err)
+	}
 	select {
-	case got := <-lines:
-		if got.err != nil {
-			t.Fatalf("read error before first event: %v", got.err)
-		}
-		if !strings.Contains(got.line, "first") {
-			t.Fatalf("first line = %q", got.line)
-		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("SSE event was buffered: nothing received within 3s while upstream connection stayed open")
+	case <-handlerDone:
+		t.Fatal("router closed the SSE response before the upstream stream ended")
+	default:
+	}
+
+	secondWrite := make(chan error, 1)
+	go func() {
+		_, err := io.WriteString(upstreamWriter, "data: second\n\n")
+		_ = upstreamWriter.Close()
+		secondWrite <- err
+	}()
+	if line := readLine(); line != "data: second\n" {
+		t.Fatalf("second line = %q", line)
+	}
+	if line := readLine(); line != "\n" {
+		t.Fatalf("second event terminator = %q", line)
+	}
+	if err := <-secondWrite; err != nil {
+		t.Fatalf("write second event: %v", err)
+	}
+	select {
+	case <-handlerDone:
+	case <-time.After(time.Second):
+		t.Fatal("router did not finish after the upstream SSE stream ended")
 	}
 }
 

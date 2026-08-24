@@ -77,12 +77,7 @@ func TestIssuedChangePlanLoadingAndReplayAfterExpiryAndWorkspaceDrift(t *testing
 }
 
 func TestAppliedChangeReceiptLoaderRejectsCorruptAndMismatchedRecords(t *testing.T) {
-	root := t.TempDir()
-	copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), root)
-	base, err := compiler.Compile(root)
-	if err != nil || !base.Valid() {
-		t.Fatalf("compile: %v diagnostics=%#v", err, base.Diagnostics)
-	}
+	root, base := newMinimalChangeFixture(t)
 	plan, err := PlanChanges(root, ChangeRequest{BaseWorkspaceRevision: base.WorkspaceRevision, BaseContractRevision: new(base.Manifest.ContractRevision), Caller: "local"})
 	if err != nil {
 		t.Fatal(err)
@@ -137,12 +132,7 @@ func TestAppliedChangeReceiptLoaderRejectsCorruptAndMismatchedRecords(t *testing
 }
 
 func TestLoadIssuedChangePlanRejectsContentTampering(t *testing.T) {
-	root := t.TempDir()
-	copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), root)
-	base, err := compiler.Compile(root)
-	if err != nil || !base.Valid() {
-		t.Fatalf("compile: %v diagnostics=%#v", err, base.Diagnostics)
-	}
+	root, base := newMinimalChangeFixture(t)
 	plan, err := PlanChanges(root, ChangeRequest{BaseWorkspaceRevision: base.WorkspaceRevision, BaseContractRevision: new(base.Manifest.ContractRevision), Caller: "local"})
 	if err != nil {
 		t.Fatal(err)
@@ -189,13 +179,14 @@ func TestLoadIssuedChangePlanRejectsContentTampering(t *testing.T) {
 func TestConcurrentIssuedChangePlanApplyReturnsOneReplay(t *testing.T) {
 	t.Parallel()
 
-	root := t.TempDir()
-	copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), root)
-	base, err := compiler.Compile(root)
-	if err != nil || !base.Valid() {
-		t.Fatalf("compile: %v diagnostics=%#v", err, base.Diagnostics)
-	}
-	plan, err := PlanChanges(root, ChangeRequest{BaseWorkspaceRevision: base.WorkspaceRevision, BaseContractRevision: new(base.Manifest.ContractRevision), Caller: "local"})
+	root, base := newMinimalChangeFixture(t)
+	edit := SourceEdit{Path: "concurrent.txt", BeforeDigest: byteDigest(nil), After: []byte("committed\n"), BeforeExists: false, AfterExists: true, Mode: 0o644}
+	plan, err := PlanChanges(root, ChangeRequest{
+		BaseWorkspaceRevision: base.WorkspaceRevision,
+		BaseContractRevision:  new(base.Manifest.ContractRevision),
+		Caller:                "local",
+		AdditionalEdits:       []SourceEdit{edit},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -226,6 +217,9 @@ func TestConcurrentIssuedChangePlanApplyReturnsOneReplay(t *testing.T) {
 	}
 	if first != 1 || replay != 1 {
 		t.Fatalf("concurrent results = %#v", results)
+	}
+	if data, err := os.ReadFile(filepath.Join(root, edit.Path)); err != nil || string(data) != string(edit.After) {
+		t.Fatalf("committed edit = %q, %v", data, err)
 	}
 }
 

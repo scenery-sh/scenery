@@ -20,6 +20,7 @@ type testDispatcher struct {
 	calls     []dispatchCall
 	byName    map[string]mcpcontract.ToolOutcome
 	block     chan struct{}
+	started   chan struct{}
 	cancelled chan struct{}
 }
 
@@ -73,6 +74,9 @@ func (d *testDispatcher) CallTool(ctx context.Context, call mcpcontract.ToolCall
 	d.calls = append(d.calls, dispatchCall{Principal: call.Principal, Name: name, Input: append(json.RawMessage(nil), input...), Context: call})
 	d.mu.Unlock()
 	if d.block != nil && name == "slow" {
+		if d.started != nil {
+			closeOnce(d.started)
+		}
 		select {
 		case <-d.block:
 		case <-ctx.Done():
@@ -487,8 +491,9 @@ func TestGatewayRejectsUnauthorizedStaleOversizedAndPrivateRequests(t *testing.T
 
 func TestGatewayPropagatesCancellationAndCurrentAssertion(t *testing.T) {
 	block := make(chan struct{})
+	started := make(chan struct{})
 	cancelled := make(chan struct{})
-	dispatcher := &testDispatcher{block: block, cancelled: cancelled, byName: map[string]mcpcontract.ToolOutcome{}}
+	dispatcher := &testDispatcher{block: block, started: started, cancelled: cancelled, byName: map[string]mcpcontract.ToolOutcome{}}
 	contexts := map[string]mcpcontract.ToolCallContext{
 		"token": {Principal: "alice", AssistantAddress: "assistant/support", ConversationDigest: "conversation", CapabilityRevision: "rev-1", RequestID: "current-request", IdempotencyKey: "dedupe"},
 	}
@@ -499,13 +504,33 @@ func TestGatewayPropagatesCancellationAndCurrentAssertion(t *testing.T) {
 	server := httptest.NewServer(handler)
 	defer server.Close()
 	session := connectTestClient(t, server.URL, "token")
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	_, _ = session.CallTool(ctx, &mcp.CallToolParams{Name: "slow"})
+	callDone := make(chan error, 1)
+	go func() {
+		_, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "slow"})
+		callDone <- err
+	}()
+	select {
+	case <-started:
+	case err := <-callDone:
+		t.Fatalf("tool call finished before dispatcher cancellation: %v", err)
+	case <-time.After(time.Second):
+		t.Fatal("tool call did not reach dispatcher")
+	}
+	cancel()
 	select {
 	case <-cancelled:
 	case <-time.After(time.Second):
 		t.Fatal("dispatcher did not observe cancellation")
+	}
+	select {
+	case err := <-callDone:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("cancelled tool call error = %v, want context canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("cancelled tool call did not return")
 	}
 
 	dispatcher.mu.Lock()

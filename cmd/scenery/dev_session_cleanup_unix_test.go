@@ -20,8 +20,8 @@ func TestCleanupSupersededDevSessionsStopsSameSessionChildren(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	stale := startSleepProcessForCleanupTest(t)
-	other := startSleepProcessForCleanupTest(t)
+	stale, staleOwner := startSleepProcessForCleanupTest(t)
+	other, otherOwner := startSleepProcessForCleanupTest(t)
 	defer func() {
 		_ = killProcessTree(other)
 		_, _ = other.Process.Wait()
@@ -38,7 +38,7 @@ func TestCleanupSupersededDevSessionsStopsSameSessionChildren(t *testing.T) {
 		AppRoot:   root,
 		OwnerPID:  os.Getpid(),
 		Processes: map[string]localagent.Process{
-			"worker": {PID: stale.Process.Pid, Owner: localagent.CaptureOwner(stale.Process.Pid, "test")},
+			"worker": {PID: stale.Process.Pid, Owner: staleOwner},
 		},
 	}
 	unrelated := localagent.Session{
@@ -46,7 +46,7 @@ func TestCleanupSupersededDevSessionsStopsSameSessionChildren(t *testing.T) {
 		AppRoot:   root,
 		OwnerPID:  os.Getpid(),
 		Processes: map[string]localagent.Process{
-			"worker": {PID: other.Process.Pid, Owner: localagent.CaptureOwner(other.Process.Pid, "test")},
+			"worker": {PID: other.Process.Pid, Owner: otherOwner},
 		},
 	}
 
@@ -93,13 +93,13 @@ func TestStopDeletedSessionProcessesStopsOwner(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	owner := startSleepProcessForCleanupTest(t)
+	owner, ownerFingerprint := startSleepProcessForCleanupTest(t)
 	session := localagent.Session{
 		SessionID: "review-a",
 		AppRoot:   root,
 		StateRoot: filepath.Join(root, ".scenery", "sessions", "review-a"),
 		OwnerPID:  owner.Process.Pid,
-		Owner:     localagent.CaptureOwner(owner.Process.Pid, "test"),
+		Owner:     ownerFingerprint,
 	}
 
 	if err := stopDeletedSessionProcesses(context.Background(), session); err != nil {
@@ -237,14 +237,26 @@ func TestPruneSessionEligibleKeepsLiveOwnerPIDWhenOwnerFieldIsStale(t *testing.T
 	}
 }
 
-func startSleepProcessForCleanupTest(t *testing.T) *exec.Cmd {
+func startSleepProcessForCleanupTest(t *testing.T) (*exec.Cmd, localagent.Owner) {
 	t.Helper()
 	cmd := exec.Command("sleep", "30")
 	configureChildProcess(cmd)
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start sleep fixture: %v", err)
 	}
-	return cmd
+	deadline := time.Now().Add(time.Second)
+	for {
+		owner := localagent.CaptureOwner(cmd.Process.Pid, "test")
+		if filepath.Base(owner.Exe) == "sleep" {
+			return cmd, owner
+		}
+		if time.Now().After(deadline) {
+			_ = killProcessTree(cmd)
+			_, _ = cmd.Process.Wait()
+			t.Fatalf("sleep fixture %d did not finish exec: owner=%+v", cmd.Process.Pid, owner)
+		}
+		time.Sleep(time.Millisecond)
+	}
 }
 
 func startStateRootAppProcessForCleanupTest(t *testing.T, stateRoot string) *exec.Cmd {

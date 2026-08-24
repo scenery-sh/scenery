@@ -72,6 +72,11 @@ type localPathRouterOptions struct {
 type localDialRetryPolicy struct {
 	Budget   time.Duration
 	Interval time.Duration
+	// wait and now are invocation-local test seams. Production uses the
+	// cancellable timer and wall clock below; focused retry tests use them to
+	// expose failed dials without adding wall-clock padding.
+	wait func(context.Context, time.Duration) bool
+	now  func() time.Time
 }
 
 func (p localDialRetryPolicy) orDefault() localDialRetryPolicy {
@@ -81,7 +86,24 @@ func (p localDialRetryPolicy) orDefault() localDialRetryPolicy {
 	if p.Interval <= 0 {
 		p.Interval = 200 * time.Millisecond
 	}
+	if p.now == nil {
+		p.now = time.Now
+	}
 	return p
+}
+
+func (p localDialRetryPolicy) waitForRetry(ctx context.Context) bool {
+	if p.wait != nil {
+		return p.wait(ctx, p.Interval)
+	}
+	timer := time.NewTimer(p.Interval)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
 }
 
 func startLocalPathRouter(ctx context.Context, opts localPathRouterOptions) (func(), error) {
@@ -384,7 +406,7 @@ func localRequestRetryable(req *http.Request, err error) bool {
 func newLocalDialRetryHandler(build func(localagent.Backend) *httputil.ReverseProxy, source *dashboardBackendSource, policy localDialRetryPolicy) http.Handler {
 	policy = policy.orDefault()
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		deadline := time.Now().Add(policy.Budget)
+		deadline := policy.now().Add(policy.Budget)
 		for {
 			var backend localagent.Backend
 			if source != nil {
@@ -394,7 +416,7 @@ func newLocalDialRetryHandler(build func(localagent.Backend) *httputil.ReversePr
 			quietErrorHandler := proxy.ErrorHandler
 			retry := false
 			proxy.ErrorHandler = func(pw http.ResponseWriter, preq *http.Request, err error) {
-				if isLocalBackendUnavailable(err) && localRequestRetryable(req, err) && time.Now().Before(deadline) && preq.Context().Err() == nil {
+				if isLocalBackendUnavailable(err) && localRequestRetryable(req, err) && policy.now().Before(deadline) && preq.Context().Err() == nil {
 					retry = true
 					return
 				}
@@ -408,7 +430,9 @@ func newLocalDialRetryHandler(build func(localagent.Backend) *httputil.ReversePr
 			if !retry {
 				return
 			}
-			time.Sleep(policy.Interval)
+			if !policy.waitForRetry(req.Context()) {
+				return
+			}
 			if source != nil {
 				refreshCtx, cancel := context.WithTimeout(req.Context(), 500*time.Millisecond)
 				source.refresh(refreshCtx)

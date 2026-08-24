@@ -30,7 +30,7 @@ const (
 	freshHarnessTotalSeconds         = 5
 	releaseHarnessTotalSeconds       = 30
 	commandPackageTimingSeconds      = 15
-	harnessTimingConfirmationRuns    = 3
+	harnessTimingConfirmationRuns    = 20
 	// Cold-prepare budgets hold the current suite, not the 0050-era target.
 	// 60 is today's packages-with-tests count. The wall-time budget is measured
 	// at the pinned four-build concurrency; summed build elapsed is attribution
@@ -76,17 +76,18 @@ var (
 
 type harnessTestTimingReport struct {
 	cliPayloadIdentity
-	Command               []string                 `json:"command"`
-	Env                   []string                 `json:"env,omitempty"`
-	TotalSeconds          float64                  `json:"total_seconds"`
-	ConfirmationSeconds   float64                  `json:"confirmation_seconds,omitempty"`
-	TestBinaries          *harnessTestBinaryTiming `json:"test_binaries,omitempty"`
-	Packages              []harnessPackageTiming   `json:"packages"`
-	ObservedSlowTests     []harnessTestTiming      `json:"observed_slow_tests,omitempty"`
-	SlowTests             []harnessTestTiming      `json:"slow_tests,omitempty"`
-	DeferredConfirmations []harnessTimingDeferral  `json:"deferred_confirmations,omitempty"`
-	Budgets               harnessTestTimingBudgets `json:"budgets"`
-	Diagnostics           []checkDiagnostic        `json:"diagnostics,omitempty"`
+	Command                  []string                 `json:"command"`
+	Env                      []string                 `json:"env,omitempty"`
+	TotalSeconds             float64                  `json:"total_seconds"`
+	ConfirmationSeconds      float64                  `json:"confirmation_seconds,omitempty"`
+	TestBinaries             *harnessTestBinaryTiming `json:"test_binaries,omitempty"`
+	Packages                 []harnessPackageTiming   `json:"packages"`
+	ObservedSlowTests        []harnessTestTiming      `json:"observed_slow_tests,omitempty"`
+	ObservedIntegrationTests []harnessTestTiming      `json:"observed_integration_tests,omitempty"`
+	SlowTests                []harnessTestTiming      `json:"slow_tests,omitempty"`
+	DeferredConfirmations    []harnessTimingDeferral  `json:"deferred_confirmations,omitempty"`
+	Budgets                  harnessTestTimingBudgets `json:"budgets"`
+	Diagnostics              []checkDiagnostic        `json:"diagnostics,omitempty"`
 }
 
 // harnessTestBinaryTiming attributes the fresh lane's pre-execution cost.
@@ -131,22 +132,29 @@ type harnessPackageTiming struct {
 }
 
 type harnessTestTiming struct {
-	Name            string    `json:"name"`
-	Package         string    `json:"package"`
-	Seconds         float64   `json:"seconds"`
-	BudgetSeconds   float64   `json:"budget_seconds,omitempty"`
-	IsolatedSamples []float64 `json:"isolated_samples,omitempty"`
-	IsolatedMedian  *float64  `json:"isolated_median_seconds,omitempty"`
+	Name                 string    `json:"name"`
+	Package              string    `json:"package"`
+	Class                string    `json:"class"`
+	Seconds              float64   `json:"seconds"`
+	TargetSeconds        float64   `json:"target_seconds"`
+	BudgetSeconds        float64   `json:"budget_seconds"`
+	IsolatedSamples      []float64 `json:"isolated_samples,omitempty"`
+	IsolatedP95          *float64  `json:"isolated_p95_seconds,omitempty"`
+	ClassificationReason string    `json:"classification_reason,omitempty"`
 }
 
 type harnessTestTimingBudgets struct {
-	Lane             string             `json:"lane,omitempty"`
-	TargetSeconds    float64            `json:"target_seconds,omitempty"`
-	TotalSeconds     float64            `json:"total_seconds"`
-	PackageSeconds   float64            `json:"package_seconds"`
-	PackageOverrides map[string]float64 `json:"package_overrides,omitempty"`
-	TestSeconds      float64            `json:"test_seconds"`
-	ConfirmationRuns int                `json:"confirmation_runs,omitempty"`
+	Lane                   string                       `json:"lane,omitempty"`
+	TargetSeconds          float64                      `json:"target_seconds,omitempty"`
+	TotalSeconds           float64                      `json:"total_seconds"`
+	PackageSeconds         float64                      `json:"package_seconds"`
+	PackageOverrides       map[string]float64           `json:"package_overrides,omitempty"`
+	DefaultTestClass       string                       `json:"default_test_class"`
+	TestTargetSeconds      float64                      `json:"test_target_seconds"`
+	TestSeconds            float64                      `json:"test_seconds"`
+	IntegrationExceptions  []harnessTestTimingException `json:"integration_exceptions"`
+	ConfirmationRuns       int                          `json:"confirmation_runs,omitempty"`
+	ConfirmationPercentile int                          `json:"confirmation_percentile,omitempty"`
 	// ConfirmationScope is "regressions" (confirm only candidates that are new
 	// or materially worse than the last recorded run) or "all" (confirm every
 	// candidate). Everyday fresh runs use the former; the release audit lane
@@ -166,11 +174,12 @@ type harnessTestTimingBudgets struct {
 }
 
 type goTestJSONEvent struct {
-	Action  string  `json:"Action"`
-	Package string  `json:"Package"`
-	Test    string  `json:"Test"`
-	Elapsed float64 `json:"Elapsed"`
-	Output  string  `json:"Output"`
+	Time    time.Time `json:"Time"`
+	Action  string    `json:"Action"`
+	Package string    `json:"Package"`
+	Test    string    `json:"Test"`
+	Elapsed float64   `json:"Elapsed"`
+	Output  string    `json:"Output"`
 }
 
 type harnessAgentContext struct {
@@ -717,13 +726,14 @@ func runHarnessGoTestTimingStepWithBudgets(ctx context.Context, repoRoot string,
 	elapsed := time.Since(started)
 	step.DurationMS = elapsed.Milliseconds()
 	step.Summary = map[string]any{
-		"packages":             len(report.Packages),
-		"observed_slow_tests":  len(report.ObservedSlowTests),
-		"confirmed_slow_tests": len(report.SlowTests),
-		"total_seconds":        report.TotalSeconds,
-		"confirmation_seconds": report.ConfirmationSeconds,
-		"timing_lane":          report.Budgets.Lane,
-		"env":                  testEnv,
+		"packages":                   len(report.Packages),
+		"observed_slow_tests":        len(report.ObservedSlowTests),
+		"observed_integration_tests": len(report.ObservedIntegrationTests),
+		"confirmed_slow_tests":       len(report.SlowTests),
+		"total_seconds":              report.TotalSeconds,
+		"confirmation_seconds":       report.ConfirmationSeconds,
+		"timing_lane":                report.Budgets.Lane,
+		"env":                        testEnv,
 	}
 	if freshTests {
 		step.Summary["test_results"] = testResult.TestResultCount
@@ -766,6 +776,7 @@ func parseHarnessGoTestTimingWithBudgets(output []byte, command []string, elapse
 		Budgets:            budgets,
 	}
 	packages := map[string]*harnessPackageTiming{}
+	rootClock := newGoTestRootClock()
 	scanner := bufio.NewScanner(bytes.NewReader(output))
 	for scanner.Scan() {
 		line := bytes.TrimSpace(scanner.Bytes())
@@ -793,11 +804,27 @@ func parseHarnessGoTestTimingWithBudgets(output []byte, command []string, elapse
 			}
 			continue
 		}
-		if (event.Action == "pass" || event.Action == "fail") && event.Elapsed >= report.Budgets.TestSeconds {
+		rootSeconds, rootFinished := rootClock.observe(event)
+		if rootFinished {
+			if exception, excepted := harnessTimingIntegrationException(event.Package, event.Test, report.Budgets.IntegrationExceptions); excepted {
+				if rootSeconds >= exception.TargetSeconds {
+					report.ObservedIntegrationTests = append(report.ObservedIntegrationTests, harnessTestTiming{
+						Name: event.Test, Package: event.Package, Class: exception.Class,
+						Seconds: roundSeconds(rootSeconds), TargetSeconds: exception.TargetSeconds, BudgetSeconds: exception.BudgetSeconds,
+						ClassificationReason: exception.BoundaryReason,
+					})
+				}
+				continue
+			}
+			if rootSeconds < report.Budgets.TestTargetSeconds {
+				continue
+			}
 			timing := harnessTestTiming{
 				Name:          event.Test,
 				Package:       event.Package,
-				Seconds:       roundSeconds(event.Elapsed),
+				Class:         report.Budgets.DefaultTestClass,
+				Seconds:       roundSeconds(rootSeconds),
+				TargetSeconds: report.Budgets.TestTargetSeconds,
 				BudgetSeconds: report.Budgets.TestSeconds,
 			}
 			report.ObservedSlowTests = append(report.ObservedSlowTests, timing)
@@ -815,6 +842,23 @@ func parseHarnessGoTestTimingWithBudgets(output []byte, command []string, elapse
 		}
 		return report.ObservedSlowTests[i].Seconds > report.ObservedSlowTests[j].Seconds
 	})
+	sort.Slice(report.ObservedIntegrationTests, func(i, j int) bool {
+		if report.ObservedIntegrationTests[i].Seconds == report.ObservedIntegrationTests[j].Seconds {
+			return report.ObservedIntegrationTests[i].Package+"."+report.ObservedIntegrationTests[i].Name < report.ObservedIntegrationTests[j].Package+"."+report.ObservedIntegrationTests[j].Name
+		}
+		return report.ObservedIntegrationTests[i].Seconds > report.ObservedIntegrationTests[j].Seconds
+	})
+	for _, timing := range report.ObservedIntegrationTests {
+		if timing.Seconds < timing.BudgetSeconds {
+			continue
+		}
+		report.Diagnostics = append(report.Diagnostics, checkDiagnostic{
+			Stage:           "go tests",
+			Severity:        "warning",
+			Message:         fmt.Sprintf("integration test %s.%s took %.3fs in one observation, at or over %.3fs visibility budget", timing.Package, timing.Name, timing.Seconds, timing.BudgetSeconds),
+			SuggestedAction: "Reduce avoidable external-boundary setup or review this exact integration exception and its visibility budget; this warning is not a fast-test gate failure.",
+		})
+	}
 	if report.TotalSeconds >= report.Budgets.TotalSeconds {
 		severity := "warning"
 		suggestion := "Review `.scenery/harness/test-timing-latest.json` for regressions; timing is advisory in default self-harness mode."
@@ -902,10 +946,14 @@ func defaultHarnessTestTimingBudgets() harnessTestTimingBudgets {
 		PackageOverrides: map[string]float64{
 			"scenery.sh/cmd/scenery": commandPackageTimingSeconds,
 		},
-		TestSeconds:        0.5,
-		TestBinaryCount:    harnessTestBinaryCountBudget,
-		ColdPrepareSeconds: harnessColdPrepareSecondsBudget,
-		Mode:               "observe-total",
+		DefaultTestClass:       harnessTestClassFast,
+		TestTargetSeconds:      harnessFastTestTargetSeconds,
+		TestSeconds:            harnessFastTestBudgetSeconds,
+		IntegrationExceptions:  harnessTimingIntegrationExceptions(),
+		ConfirmationPercentile: harnessTimingConfirmationPercentile,
+		TestBinaryCount:        harnessTestBinaryCountBudget,
+		ColdPrepareSeconds:     harnessColdPrepareSecondsBudget,
+		Mode:                   "observe-total",
 	}
 }
 

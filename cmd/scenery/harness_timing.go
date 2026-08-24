@@ -20,13 +20,14 @@ import (
 
 type harnessTimingCommandRunner func(context.Context, string, []string) ([]byte, error)
 
-// A candidate is re-confirmed only when it is materially worse than the last
-// recorded run: both thresholds must be crossed so that neither ordinary
-// scheduling jitter on a fast test nor a small absolute drift on a slow one
-// buys a full multi-run confirmation pass.
+// A known candidate is re-confirmed when it crosses the hard budget or is
+// materially worse than the last recorded run. Both regression thresholds
+// must be crossed so ordinary scheduling jitter below the hard budget does not
+// buy a full multi-run confirmation pass.
 const (
-	harnessTimingRegressionRatio   = 1.25
-	harnessTimingRegressionSeconds = 0.5
+	harnessTimingRegressionRatio          = 1.25
+	harnessPackageTimingRegressionSeconds = 0.5
+	harnessTestTimingRegressionSeconds    = 0.010
 )
 
 func harnessTestBinaryTimingFromResult(result testsuite.Result) *harnessTestBinaryTiming {
@@ -57,18 +58,23 @@ func readHarnessTimingBaseline(repoRoot string) *harnessTestTimingReport {
 	if err != nil {
 		return nil
 	}
+	identity := newCLIPayloadIdentity(harnessTestTimingKind)
+	if report.Kind != identity.Kind || report.SchemaRevision != identity.SchemaRevision {
+		return nil
+	}
 	return &report
 }
 
 // selectHarnessTimingConfirmations narrows the confirmation pass to candidates
-// that are new or materially worse than the baseline, and records every skip
-// in the report. Under the "all" scope it keeps every candidate.
+// that are new, currently or previously confirmed over the hard budget, or
+// materially worse than the baseline, and records every skip in the report.
+// Under the "all" scope it keeps every candidate.
 func selectHarnessTimingConfirmations(report *harnessTestTimingReport, baseline *harnessTestTimingReport) {
 	if report == nil || report.Budgets.ConfirmationScope == harnessConfirmationScopeAll {
 		return
 	}
 	baselinePackages := map[string]float64{}
-	baselineTests := map[string]float64{}
+	baselineTests := map[string]harnessTestTiming{}
 	if baseline != nil {
 		for _, pkg := range baseline.Packages {
 			if pkg.BudgetSeconds > 0 && harnessPackageTimingEffectiveSeconds(pkg) >= pkg.BudgetSeconds {
@@ -76,7 +82,16 @@ func selectHarnessTimingConfirmations(report *harnessTestTimingReport, baseline 
 			}
 		}
 		for _, test := range baseline.ObservedSlowTests {
-			baselineTests[test.Package+"."+test.Name] = harnessTestTimingEffectiveSeconds(test)
+			baselineTests[test.Package+"."+test.Name] = test
+		}
+		for _, deferral := range baseline.DeferredConfirmations {
+			if deferral.Name == "" {
+				continue
+			}
+			baselineTests[deferral.Package+"."+deferral.Name] = harnessTestTiming{
+				Name: deferral.Name, Package: deferral.Package, Class: harnessTestClassFast,
+				Seconds: deferral.Seconds, TargetSeconds: report.Budgets.TestTargetSeconds, BudgetSeconds: report.Budgets.TestSeconds,
+			}
 		}
 	}
 
@@ -86,7 +101,7 @@ func selectHarnessTimingConfirmations(report *harnessTestTimingReport, baseline 
 			continue
 		}
 		known, ok := baselinePackages[pkg.Package]
-		if !ok || harnessTimingIsRegression(pkg.Seconds, known) {
+		if !ok || harnessTimingIsRegression(pkg.Seconds, known, harnessPackageTimingRegressionSeconds) {
 			continue
 		}
 		report.DeferredConfirmations = append(report.DeferredConfirmations, harnessTimingDeferral{
@@ -99,8 +114,13 @@ func selectHarnessTimingConfirmations(report *harnessTestTimingReport, baseline 
 
 	kept := report.ObservedSlowTests[:0]
 	for _, test := range report.ObservedSlowTests {
-		known, ok := baselineTests[test.Package+"."+test.Name]
-		if !ok || harnessTimingIsRegression(test.Seconds, known) {
+		baselineTest, ok := baselineTests[test.Package+"."+test.Name]
+		known := harnessTestTimingEffectiveSeconds(baselineTest)
+		// Ordinary fresh runs may defer stable below-budget candidates, but an
+		// observed or previously confirmed violation is always re-confirmed.
+		currentOverBudget := test.Seconds >= test.BudgetSeconds
+		priorConfirmedOverBudget := ok && baselineTest.IsolatedP95 != nil && known >= test.BudgetSeconds
+		if !ok || currentOverBudget || priorConfirmedOverBudget || harnessTimingIsRegression(test.Seconds, known, harnessTestTimingRegressionSeconds) {
 			kept = append(kept, test)
 			continue
 		}
@@ -109,7 +129,7 @@ func selectHarnessTimingConfirmations(report *harnessTestTimingReport, baseline 
 			Name:            test.Name,
 			Seconds:         test.Seconds,
 			BaselineSeconds: known,
-			Reason:          "test was already over budget at this level in the recorded baseline",
+			Reason:          "below-budget test candidate was already recorded at this level in the baseline",
 		})
 	}
 	report.ObservedSlowTests = kept
@@ -167,11 +187,11 @@ func applyHarnessColdBinaryBudgets(report *harnessTestTimingReport) {
 	}
 }
 
-func harnessTimingIsRegression(seconds, baselineSeconds float64) bool {
+func harnessTimingIsRegression(seconds, baselineSeconds, absoluteDelta float64) bool {
 	if baselineSeconds <= 0 {
 		return true
 	}
-	return seconds >= baselineSeconds*harnessTimingRegressionRatio && seconds >= baselineSeconds+harnessTimingRegressionSeconds
+	return seconds >= baselineSeconds*harnessTimingRegressionRatio && seconds >= baselineSeconds+absoluteDelta
 }
 
 func harnessPackageTimingEffectiveSeconds(timing harnessPackageTiming) float64 {
@@ -251,10 +271,10 @@ func confirmHarnessTimingOutliers(ctx context.Context, repoRoot string, report *
 			for i := range samples {
 				samples[i] = roundSeconds(samples[i])
 			}
-			median := roundSeconds(medianSeconds(samples))
+			p95 := roundSeconds(nearestRankPercentileSeconds(samples, float64(report.Budgets.ConfirmationPercentile)/100))
 			observed.IsolatedSamples = samples
-			observed.IsolatedMedian = &median
-			if median < observed.BudgetSeconds {
+			observed.IsolatedP95 = &p95
+			if p95 < observed.BudgetSeconds {
 				continue
 			}
 			confirmed := *observed
@@ -265,11 +285,15 @@ func confirmHarnessTimingOutliers(ctx context.Context, repoRoot string, report *
 					break
 				}
 			}
+			severity := "warning"
+			if report.Budgets.Lane == "release" && report.Budgets.ConfirmationScope == harnessConfirmationScopeAll {
+				severity = "error"
+			}
 			report.Diagnostics = append(report.Diagnostics, checkDiagnostic{
 				Stage:           "go tests",
-				Severity:        "warning",
-				Message:         fmt.Sprintf("test %s.%s took %.3fs median in isolation, over %.3fs budget (%.3fs in full suite)", confirmed.Package, confirmed.Name, median, confirmed.BudgetSeconds, confirmed.Seconds),
-				SuggestedAction: "Reduce repeated setup or process startup in the confirmed slow test without weakening its assertion boundary.",
+				Severity:        severity,
+				Message:         fmt.Sprintf("fast test %s.%s took %.3fs p95 across %d isolated serial samples, at or over %.3fs budget (%.3fs in full suite)", confirmed.Package, confirmed.Name, p95, len(samples), confirmed.BudgetSeconds, confirmed.Seconds),
+				SuggestedAction: "Reduce the test body toward the 50-60ms target without weakening its assertion boundary, or document a real external boundary as one exact integration exception.",
 			})
 		}
 	}
@@ -314,12 +338,72 @@ func packageElapsedFromGoTestJSON(output []byte, packageName string) (float64, b
 
 func testElapsedSamplesFromGoTestJSON(output []byte, packageName, testName string) []float64 {
 	var samples []float64
+	rootClock := newGoTestRootClock()
 	scanGoTestJSONEvents(output, func(event goTestJSONEvent) {
-		if event.Package == packageName && event.Test == testName && (event.Action == "pass" || event.Action == "fail") {
-			samples = append(samples, event.Elapsed)
+		seconds, finished := rootClock.observe(event)
+		if finished && event.Package == packageName && event.Test == testName {
+			samples = append(samples, seconds)
 		}
 	})
 	return samples
+}
+
+// goTestRootClock measures the full active lifetime of an exact top-level test
+// across every run/continue-to-pause/terminal segment. Queue time between a
+// t.Parallel pause and continue is excluded, but work before the pause is not.
+// Go's terminal Elapsed can exclude parallel subtests, so using it alone lets a
+// root hide expensive child bodies. Missing timestamps fall back to Elapsed for
+// compatibility with synthetic and older event streams.
+type goTestRootClock struct {
+	states map[string]goTestRootClockState
+}
+
+type goTestRootClockState struct {
+	activeSince   time.Time
+	activeSeconds float64
+}
+
+func newGoTestRootClock() *goTestRootClock {
+	return &goTestRootClock{states: map[string]goTestRootClockState{}}
+}
+
+func (clock *goTestRootClock) observe(event goTestJSONEvent) (float64, bool) {
+	if clock == nil || event.Package == "" || !isExactTopLevelGoTestRoot(event.Test) {
+		return 0, false
+	}
+	key := event.Package + "\x00" + event.Test
+	switch event.Action {
+	case "run":
+		clock.states[key] = goTestRootClockState{activeSince: event.Time}
+		return 0, false
+	case "pause":
+		state := clock.states[key]
+		if !state.activeSince.IsZero() && !event.Time.IsZero() && event.Time.After(state.activeSince) {
+			state.activeSeconds += event.Time.Sub(state.activeSince).Seconds()
+		}
+		state.activeSince = time.Time{}
+		clock.states[key] = state
+		return 0, false
+	case "cont":
+		state := clock.states[key]
+		if state.activeSince.IsZero() && !event.Time.IsZero() {
+			state.activeSince = event.Time
+		}
+		clock.states[key] = state
+		return 0, false
+	case "pass", "fail":
+		seconds := event.Elapsed
+		if state, ok := clock.states[key]; ok {
+			if !state.activeSince.IsZero() && !event.Time.IsZero() && event.Time.After(state.activeSince) {
+				state.activeSeconds += event.Time.Sub(state.activeSince).Seconds()
+			}
+			seconds = max(seconds, state.activeSeconds)
+		}
+		delete(clock.states, key)
+		return seconds, true
+	default:
+		return 0, false
+	}
 }
 
 func scanGoTestJSONEvents(output []byte, visit func(goTestJSONEvent)) {
@@ -371,19 +455,28 @@ func harnessTestGroupRunPattern(timings []harnessTestTiming, indices []int) stri
 	return "^(" + strings.Join(sorted, "|") + ")$"
 }
 
-func medianSeconds(values []float64) float64 {
+func nearestRankPercentileSeconds(values []float64, percentile float64) float64 {
+	if len(values) == 0 {
+		return 0
+	}
 	values = append([]float64{}, values...)
 	sort.Float64s(values)
-	middle := len(values) / 2
-	if len(values)%2 == 1 {
-		return values[middle]
+	if percentile <= 0 {
+		return values[0]
 	}
-	return (values[middle-1] + values[middle]) / 2
+	if percentile >= 1 {
+		return values[len(values)-1]
+	}
+	rank := int(float64(len(values))*percentile + 0.999999999999)
+	if rank < 1 {
+		rank = 1
+	}
+	return values[rank-1]
 }
 
 func harnessTestTimingEffectiveSeconds(timing harnessTestTiming) float64 {
-	if timing.IsolatedMedian != nil {
-		return *timing.IsolatedMedian
+	if timing.IsolatedP95 != nil {
+		return *timing.IsolatedP95
 	}
 	return timing.Seconds
 }

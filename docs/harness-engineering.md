@@ -28,6 +28,18 @@ missing binaries concurrently. Cached and fresh lanes have a five-second
 advisory budget and target; release keeps its 30-second enforced budget. A full
 cold prepare is separately held to 30 seconds of wall time at that pinned build
 parallelism. Only explicit fresh runs perform isolated timing confirmation.
+Every exact top-level `TestX` root is fast by default, with a 60ms candidate
+target and a hard 100ms nearest-rank p95 budget across 20 isolated serial
+samples; the serialized percentile is 95. The complete sorted exception
+inventory names one exact integration test, its 100ms observation target and
+3s visibility budget, and a real process, toolchain, service, or OS boundary
+reason. Integration roots at or above the target remain visible as one sample
+and warn at or above 3s without entering p95 confirmation. Ordinary fresh runs advise on new,
+25%+10ms regressed, currently over-budget, or previously confirmed-over-budget
+fast tests; `--release --fresh-tests` confirms all fast candidates and fails on
+confirmed violations. Root timings include their subtests and sum every active
+segment before and after `t.Parallel`; only the paused scheduler queue is
+excluded. Package timings keep `TestMain` and setup cost visible.
 
 Use this before large edits and after fixes when an agent needs a single machine-readable status snapshot.
 

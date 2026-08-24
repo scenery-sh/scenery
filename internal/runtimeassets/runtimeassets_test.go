@@ -176,12 +176,19 @@ func TestInstallConcurrentReuseRecoveryAndTamperRejection(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	const workers = 8
+	// Two simultaneous callers are enough to prove the per-digest lock and the
+	// verified-reuse path. More callers only serialize identical tree checks.
+	const workers = 2
 	results := make(chan InstallResult, workers)
 	errorsCh := make(chan error, workers)
+	var ready sync.WaitGroup
+	ready.Add(workers)
+	start := make(chan struct{})
 	var wait sync.WaitGroup
 	for range workers {
 		wait.Go(func() {
+			ready.Done()
+			<-start
 			result, err := Install(state, archive)
 			if err != nil {
 				errorsCh <- err
@@ -190,21 +197,29 @@ func TestInstallConcurrentReuseRecoveryAndTamperRejection(t *testing.T) {
 			results <- result
 		})
 	}
+	ready.Wait()
+	close(start)
 	wait.Wait()
 	close(results)
 	close(errorsCh)
 	for err := range errorsCh {
 		t.Fatal(err)
 	}
-	var count int
+	var count, reused int
 	for result := range results {
 		count++
+		if result.Reused {
+			reused++
+		}
 		if result.Path == "" || result.Descriptor.Digest != archive.Descriptor.Digest {
 			t.Fatalf("bad install result: %#v", result)
 		}
 	}
 	if count != workers {
 		t.Fatalf("install results = %d, want %d", count, workers)
+	}
+	if reused != workers-1 {
+		t.Fatalf("reused installs = %d, want %d", reused, workers-1)
 	}
 	installed, err := InstalledPath(state, archive.Descriptor.Digest)
 	if err != nil {

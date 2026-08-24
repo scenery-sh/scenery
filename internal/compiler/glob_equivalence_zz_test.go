@@ -5,36 +5,35 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
-// referenceMatchGlobSegment is the memoized recursive matcher that
-// matchGlobSegment replaced. It is kept here only as the differential oracle
-// for the rewrite: the iterative version must agree with it on every input.
+// referenceMatchGlobSegment is the recursive matcher that matchGlobSegment
+// replaced. It is kept here only as the differential oracle for the rewrite:
+// the iterative version must agree with it on every input. Walking the strings
+// by rune boundary keeps the oracle independent without allocating fresh rune
+// slices and memo maps for every comparison.
 func referenceMatchGlobSegment(pattern, value string) bool {
-	patternRunes, valueRunes := []rune(pattern), []rune(value)
-	type state struct{ pattern, value int }
-	memo := map[state]bool{}
-	visited := map[state]bool{}
-	var match func(int, int) bool
-	match = func(patternIndex, valueIndex int) bool {
-		key := state{patternIndex, valueIndex}
-		if visited[key] {
-			return memo[key]
-		}
-		visited[key] = true
-		matched := false
-		switch {
-		case patternIndex == len(patternRunes):
-			matched = valueIndex == len(valueRunes)
-		case patternRunes[patternIndex] == '*':
-			matched = match(patternIndex+1, valueIndex) || valueIndex < len(valueRunes) && match(patternIndex, valueIndex+1)
-		case valueIndex < len(valueRunes) && (patternRunes[patternIndex] == '?' || patternRunes[patternIndex] == valueRunes[valueIndex]):
-			matched = match(patternIndex+1, valueIndex+1)
-		}
-		memo[key] = matched
-		return matched
+	if pattern == "" {
+		return value == ""
 	}
-	return match(0, 0)
+	patternRune, patternWidth := utf8.DecodeRuneInString(pattern)
+	if patternRune == '*' {
+		if referenceMatchGlobSegment(pattern[patternWidth:], value) {
+			return true
+		}
+		if value == "" {
+			return false
+		}
+		_, valueWidth := utf8.DecodeRuneInString(value)
+		return referenceMatchGlobSegment(pattern, value[valueWidth:])
+	}
+	if value == "" {
+		return false
+	}
+	valueRune, valueWidth := utf8.DecodeRuneInString(value)
+	return (patternRune == '?' || patternRune == valueRune) &&
+		referenceMatchGlobSegment(pattern[patternWidth:], value[valueWidth:])
 }
 
 func TestMatchGlobSegmentMatchesReferenceImplementation(t *testing.T) {
@@ -67,8 +66,9 @@ func TestMatchGlobSegmentMatchesReferenceImplementation(t *testing.T) {
 			checked++
 		}
 	}
-	if checked < 100000 {
-		t.Fatalf("only compared %d pairs, expected exhaustive coverage", checked)
+	const wantComparisons = 609961
+	if checked != wantComparisons {
+		t.Fatalf("compared %d pairs, want the exhaustive %d", checked, wantComparisons)
 	}
 }
 

@@ -65,10 +65,16 @@ func TestTenantScopedStoreIsolatesVisibleKeys(t *testing.T) {
 func TestTenantScopedStoreListAndDeletePrefixUseVisibleKeys(t *testing.T) {
 	t.Parallel()
 	ctx := WithTenantID(context.Background(), "tenant")
-	store := newTenantScopedStore(&localRuntimeStore{name: "app", root: t.TempDir()})
+	root := t.TempDir()
+	store := newTenantScopedStore(&localRuntimeStore{name: "app", root: root})
+	tenantRoot := filepath.Join(root, "__scenery", "tenants", encodedTenant("tenant"))
 	for _, key := range []string{"docs/a.txt", "docs/b.txt", "docs/nested/c.txt"} {
-		if _, err := store.Put(ctx, key, strings.NewReader(key), PutOptions{}); err != nil {
-			t.Fatalf("Put %s returned error: %v", key, err)
+		path := filepath.Join(tenantRoot, filepath.FromSlash(key))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("create parent for %s: %v", key, err)
+		}
+		if err := os.WriteFile(path, []byte(key), 0o644); err != nil {
+			t.Fatalf("write fixture %s: %v", key, err)
 		}
 	}
 	page, err := store.List(ctx, ListOptions{Prefix: "docs/", Delimiter: "/", Limit: 2})

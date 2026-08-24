@@ -54,6 +54,20 @@ func parseAgentCleanupArgs(args []string) (agentCleanupOptions, error) {
 }
 
 func runAgentCleanup(stdout io.Writer, legacyHome string, opts agentCleanupOptions) error {
+	return runAgentCleanupWithProcessLister(stdout, legacyHome, opts, listRuntimeProcesses)
+}
+
+type agentCleanupProcessLister func() ([]runtimeProcess, error)
+
+func listRuntimeProcesses() ([]runtimeProcess, error) {
+	out, err := exec.Command("ps", "-axo", "pid=,uid=,command=").Output()
+	if err != nil {
+		return nil, err
+	}
+	return parseRuntimeProcesses(string(out)), nil
+}
+
+func runAgentCleanupWithProcessLister(stdout io.Writer, legacyHome string, opts agentCleanupOptions, listProcesses agentCleanupProcessLister) error {
 	legacyHome = filepath.Clean(legacyHome)
 	result := preRebrandCleanupResult{
 		cliPayloadIdentity: newCLIPayloadIdentity("scenery.agent.cleanup"),
@@ -65,11 +79,11 @@ func runAgentCleanup(stdout io.Writer, legacyHome string, opts agentCleanupOptio
 		return err
 	}
 	if runtime.GOOS != "windows" {
-		out, err := exec.Command("ps", "-axo", "pid=,uid=,command=").Output()
+		processes, err := listProcesses()
 		if err != nil {
 			return err
 		}
-		for _, process := range preRebrandProcesses(parseRuntimeProcesses(string(out)), legacyHome, os.Getuid(), os.Getpid()) {
+		for _, process := range preRebrandProcesses(processes, legacyHome, os.Getuid(), os.Getpid()) {
 			result.Matched = append(result.Matched, process.PID)
 			current, ok := currentRuntimeProcess(process.PID)
 			if !ok || current.UID != process.UID || current.Command != process.Command || len(preRebrandProcesses([]runtimeProcess{current}, legacyHome, os.Getuid(), os.Getpid())) != 1 {

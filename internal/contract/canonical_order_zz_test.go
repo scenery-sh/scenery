@@ -6,19 +6,50 @@ import (
 	"sort"
 	"testing"
 	"unicode/utf16"
+	"unicode/utf8"
 )
 
-// referenceContractUTF16Less is the always-encode comparison that
-// contractUTF16Less's ASCII fast path replaced. Contract wire bytes depend on
-// object-key order, so the two must agree on every input.
+// referenceContractUTF16Less walks the UTF-16 sequence directly instead of
+// materializing it. Contract wire bytes depend on object-key order, so this
+// independent comparator must agree with contractUTF16Less on every input.
 func referenceContractUTF16Less(left, right string) bool {
-	a, b := utf16.Encode([]rune(left)), utf16.Encode([]rune(right))
-	for index := 0; index < len(a) && index < len(b); index++ {
-		if a[index] != b[index] {
-			return a[index] < b[index]
+	a, b := referenceUTF16Iterator{value: left}, referenceUTF16Iterator{value: right}
+	for {
+		leftUnit, leftOK := a.next()
+		rightUnit, rightOK := b.next()
+		if !leftOK || !rightOK {
+			return !leftOK && rightOK
+		}
+		if leftUnit != rightUnit {
+			return leftUnit < rightUnit
 		}
 	}
-	return len(a) < len(b)
+}
+
+type referenceUTF16Iterator struct {
+	value       string
+	byteIndex   int
+	trailing    uint16
+	hasTrailing bool
+}
+
+func (i *referenceUTF16Iterator) next() (uint16, bool) {
+	if i.hasTrailing {
+		i.hasTrailing = false
+		return i.trailing, true
+	}
+	if i.byteIndex == len(i.value) {
+		return 0, false
+	}
+	r, size := utf8.DecodeRuneInString(i.value[i.byteIndex:])
+	i.byteIndex += size
+	if r <= 0xffff {
+		return uint16(r), true
+	}
+	high, low := utf16.EncodeRune(r)
+	i.trailing = uint16(low)
+	i.hasTrailing = true
+	return uint16(high), true
 }
 
 func TestContractUTF16LessMatchesReference(t *testing.T) {
@@ -44,14 +75,23 @@ func TestContractUTF16LessMatchesReference(t *testing.T) {
 	source := rand.New(rand.NewPCG(23, 29))
 	alphabet := []rune{'a', 'b', 'Z', '_', '0', 'é', '中', '\uE000', '\uFFFF', '\U0001F600', '\U0010FFFF'}
 	word := func() string {
-		runes := make([]rune, source.IntN(6))
-		for i := range runes {
+		var runes [5]rune
+		length := source.IntN(len(runes) + 1)
+		for i := range length {
 			runes[i] = alphabet[source.IntN(len(alphabet))]
 		}
-		return string(runes)
+		return string(runes[:length])
+	}
+	// Reuse a broad deterministic corpus so the 300,000 differential checks
+	// exercise independently selected pairs without allocating two throwaway
+	// strings for every comparison.
+	randomWords := make([]string, 1<<16)
+	for i := range randomWords {
+		randomWords[i] = word()
 	}
 	for range 300000 {
-		left, right := word(), word()
+		left := randomWords[source.IntN(len(randomWords))]
+		right := randomWords[source.IntN(len(randomWords))]
 		if got, want := contractUTF16Less(left, right), referenceContractUTF16Less(left, right); got != want {
 			t.Fatalf("contractUTF16Less(%q, %q) = %v, reference = %v", left, right, got, want)
 		}

@@ -2,7 +2,6 @@ package contractagent
 
 import (
 	"encoding/json"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -37,17 +36,7 @@ func TestAgentCapabilitiesAdvertiseCurrentSurface(t *testing.T) {
 }
 
 func TestAgentDiagnosticsAndRepairPlanRemainAvailableWithoutManifest(t *testing.T) {
-	root := t.TempDir()
-	copyTree(t, filepath.Join("testdata", "house"), root)
-	path := filepath.Join(root, "house", testPackageFilename)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	data = []byte(strings.Replace(string(data), `timeout   = "40m"`, `timeout   = "not-a-duration"`, 1))
-	if err := os.WriteFile(path, data, 0o644); err != nil {
-		t.Fatal(err)
-	}
+	root := writeAgentExecutionFixture(t, "not-a-duration")
 	result, err := Compile(root)
 	if err != nil || result.Manifest != nil || result.WorkspaceRevision == "" {
 		t.Fatalf("invalid compile = %#v, %v", result, err)
@@ -72,10 +61,9 @@ func TestAgentDiagnosticsAndRepairPlanRemainAvailableWithoutManifest(t *testing.
 }
 
 func TestAgentSchemaGetCoversEveryMutationAndDiagnosticValue(t *testing.T) {
-	result, err := Compile("testdata/house")
-	if err != nil {
-		t.Fatal(err)
-	}
+	// schema.get is intentionally available while the app manifest is invalid,
+	// so exercising it does not require compiling an unrelated fixture.
+	result := &Result{}
 	for _, name := range []string{
 		"scenery.value", "scenery.diagnostic", "scenery.semantic-operation", DiagnosticCatalog, "SCN8001",
 		"resource.create", "resource.delete", "resource.rename", "value.set", "value.unset", "module.configure",
@@ -366,11 +354,13 @@ func TestAgentDiffConsumesRevisionBoundRenameReceipts(t *testing.T) {
 }
 
 func TestAgentMutationConvenienceMethodsValidateAndNormalizeWithoutWriting(t *testing.T) {
-	result, err := Compile("testdata/house")
+	root := writeAgentExecutionFixture(t, "40m")
+	result, err := Compile(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	source := result.Sources[0].Bytes
+	sourcePath := filepath.Join(root, "house", testPackageFilename)
+	source := readAgentFixtureFile(t, sourcePath)
 	response := HandleAgentRequest(result, AgentRequest{Method: "value.set", Params: json.RawMessage(`{"address":"house/execution/process_scene_direct","path":"/spec/timeout","value":"30m"}`)})
 	if response.Error != nil {
 		t.Fatal(response.Error)
@@ -379,7 +369,7 @@ func TestAgentMutationConvenienceMethodsValidateAndNormalizeWithoutWriting(t *te
 	if !ok || operation.Op != "value.set" || operation.View != "source" {
 		t.Fatalf("normalized operation = %#v", response.Result)
 	}
-	if string(result.Sources[0].Bytes) != string(source) {
+	if string(readAgentFixtureFile(t, sourcePath)) != string(source) {
 		t.Fatal("mutation convenience method changed source")
 	}
 
@@ -492,47 +482,94 @@ func TestMutationRequiresBoundAppRoot(t *testing.T) {
 	}
 }
 
-func TestReceiptRecoveryOwnerDoesNotRequireMutationGrant(t *testing.T) {
+func TestAgentChangesPlanAndApplyHappyPath(t *testing.T) {
 	root := t.TempDir()
-	copyTree(t, filepath.Join("testdata", "house"), root)
-	result, err := Compile(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	baseContract := result.Manifest.ContractRevision
-	session := NewAgentSessionWithContext(AgentExecutionContext{Principal: "alice", GrantedCapabilities: []string{"scenery.agent-mutation"}, AppRoot: root})
+	planID := "sha256:" + strings.Repeat("a", 64)
+	baseContract := "sha256:" + strings.Repeat("b", 64)
+	operation := SemanticOperation{Op: "value.set", Address: "house/service/house", Path: "/spec/implementation/constructor", Value: "NewOtherService"}
+	plan := evolution.ChangePlan{PlanID: planID, Caller: "alice"}
+	receipt := evolution.ChangeReceipt{PlanID: planID}
+
+	var plannedRoot, appliedRoot, appliedPlanID string
+	var plannedRequest evolution.ChangeRequest
+	var appliedOptions evolution.ApplyOptions
+	session := newAgentSessionWithDependencies(AgentExecutionContext{
+		Principal: "alice", AppRoot: root, GrantedCapabilities: []string{"scenery.agent-mutation"},
+	}, agentMutationDependencies{
+		planChanges: func(gotRoot string, request evolution.ChangeRequest) (evolution.ChangePlan, error) {
+			plannedRoot, plannedRequest = gotRoot, request
+			return plan, nil
+		},
+		applyIssuedPlan: func(gotRoot, gotPlanID string, options evolution.ApplyOptions) (evolution.ChangeApplyResult, error) {
+			appliedRoot, appliedPlanID, appliedOptions = gotRoot, gotPlanID, options
+			return evolution.ChangeApplyResult{Receipt: receipt}, nil
+		},
+		loadIssuedPlan:     evolution.LoadIssuedChangePlan,
+		loadAppliedReceipt: evolution.LoadAppliedChangeReceipt,
+	})
+	result := &Result{Root: root}
 	params, _ := json.Marshal(PlanRequest{
-		BaseWorkspaceRevision: result.WorkspaceRevision,
+		BaseWorkspaceRevision: "sha256:" + strings.Repeat("c", 64),
 		BaseContractRevision:  &baseContract,
-		Operations:            []SemanticOperation{{Op: "value.set", Address: "house/execution/process_scene_direct", Path: "/spec/timeout", Value: "30m"}},
+		Operations:            []SemanticOperation{operation},
 	})
 	planned := session.Handle(result, AgentRequest{Method: "changes.plan", Params: params})
 	if planned.Error != nil {
-		t.Fatal(planned.Error)
+		t.Fatalf("changes.plan = %#v", planned)
 	}
-	summary, ok := planned.Result.(ChangePlan)
-	if !ok {
+	if summary, ok := planned.Result.(ChangePlan); !ok || summary.PlanID != planID {
 		t.Fatalf("plan result = %#v", planned.Result)
 	}
-	applyParams, _ := json.Marshal(ChangeApplyRequest{PlanID: summary.PlanID})
+	if plannedRoot != root || plannedRequest.Caller != "alice" || len(plannedRequest.Operations) != 1 || plannedRequest.Operations[0] != operation {
+		t.Fatalf("planned request = root:%q request:%#v", plannedRoot, plannedRequest)
+	}
+
+	applyParams, _ := json.Marshal(ChangeApplyRequest{PlanID: planID})
 	applied := session.Handle(result, AgentRequest{Method: "changes.apply", Params: applyParams})
 	if applied.Error != nil {
-		t.Fatal(applied.Error)
+		t.Fatalf("changes.apply = %#v", applied)
 	}
-	updated, err := Compile(root)
-	if err != nil {
-		t.Fatal(err)
+	if value, ok := applied.Result.(ChangeApplyResponse); !ok || value.Receipt.PlanID != planID || value.Replayed {
+		t.Fatalf("apply result = %#v", applied.Result)
 	}
-	reader := NewAgentSessionWithContext(AgentExecutionContext{Principal: "alice", AppRoot: root})
-	recovered := reader.Handle(updated, AgentRequest{Method: "changes.receipt.get", Params: applyParams})
+	if appliedRoot != root || appliedPlanID != planID || appliedOptions.Caller != "alice" || len(appliedOptions.GrantedCapabilities) != 1 || appliedOptions.GrantedCapabilities[0] != "scenery.agent-mutation" {
+		t.Fatalf("apply call = root:%q plan:%q options:%#v", appliedRoot, appliedPlanID, appliedOptions)
+	}
+}
+
+func TestReceiptRecoveryOwnerDoesNotRequireMutationGrant(t *testing.T) {
+	root := t.TempDir()
+	planID := "sha256:" + strings.Repeat("d", 64)
+	plan := evolution.ChangePlan{PlanID: planID, Caller: "alice"}
+	receipt := evolution.ChangeReceipt{PlanID: planID}
+	dependencies := agentMutationDependencies{
+		planChanges:     evolution.PlanChanges,
+		applyIssuedPlan: evolution.ApplyIssuedChangePlanWithOptions,
+		loadIssuedPlan: func(_ string, gotPlanID string) (evolution.ChangePlan, error) {
+			if gotPlanID != planID {
+				t.Fatalf("loaded plan ID = %q, want %q", gotPlanID, planID)
+			}
+			return plan, nil
+		},
+		loadAppliedReceipt: func(_ string, gotPlanID string) (evolution.ChangeReceipt, error) {
+			if gotPlanID != planID {
+				t.Fatalf("loaded receipt ID = %q, want %q", gotPlanID, planID)
+			}
+			return receipt, nil
+		},
+	}
+	applyParams, _ := json.Marshal(ChangeApplyRequest{PlanID: planID})
+	recoveryResult := &Result{Root: root}
+	reader := newAgentSessionWithDependencies(AgentExecutionContext{Principal: "alice", AppRoot: root}, dependencies)
+	recovered := reader.Handle(recoveryResult, AgentRequest{Method: "changes.receipt.get", Params: applyParams})
 	if recovered.Error != nil {
 		t.Fatalf("receipt recovery without mutation grant = %#v", recovered)
 	}
-	if value, ok := recovered.Result.(ChangeReceiptResponse); !ok || value.Status != "applied" || value.Receipt.PlanID != summary.PlanID {
+	if value, ok := recovered.Result.(ChangeReceiptResponse); !ok || value.Status != "applied" || value.Receipt.PlanID != planID {
 		t.Fatalf("receipt recovery result = %#v", recovered.Result)
 	}
-	other := NewAgentSessionWithContext(AgentExecutionContext{Principal: "bob", AppRoot: root})
-	denied := other.Handle(updated, AgentRequest{Method: "changes.receipt.get", Params: applyParams})
+	other := newAgentSessionWithDependencies(AgentExecutionContext{Principal: "bob", AppRoot: root}, dependencies)
+	denied := other.Handle(recoveryResult, AgentRequest{Method: "changes.receipt.get", Params: applyParams})
 	if denied.Error == nil || denied.Error.Kind != "permission_denied" {
 		t.Fatalf("cross-principal receipt recovery = %#v", denied)
 	}

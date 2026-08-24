@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"os/exec"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -92,51 +92,28 @@ func TestWaitForDetachedDevSessionFindsOwnerPID(t *testing.T) {
 	detachedDevStartupInterval = time.Millisecond
 	t.Cleanup(func() { detachedDevStartupInterval = oldInterval })
 
-	paths := isolateCommandAgentHome(t)
-	server, err := localagent.NewServer(localagent.RunOptions{Home: paths.Home, RouterAddr: "127.0.0.1:0"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- server.Run(ctx) }()
-	defer func() {
-		cancel()
-		select {
-		case err := <-done:
-			if err != nil {
-				t.Fatalf("agent shutdown: %v", err)
-			}
-		case <-time.After(2 * time.Second):
-			t.Fatal("timed out waiting for agent shutdown")
-		}
-	}()
-
-	client := localagent.NewClient(paths.SocketPath)
-	if err := waitForAgentCommandPing(ctx, client); err != nil {
-		t.Fatal(err)
-	}
-	appRoot := t.TempDir()
-	registered := make(chan struct{})
-	go func() {
-		time.Sleep(2 * time.Millisecond)
-		_, _ = client.Register(ctx, localagent.RegisterRequest{
-			BaseAppID: "detachapp",
-			AppRoot:   appRoot,
-			OwnerPID:  4242,
-			Status:    "starting",
-		})
-		close(registered)
-	}()
-	waitCtx, waitCancel := context.WithTimeout(ctx, 2*time.Second)
+	appRoot := filepath.Join(t.TempDir(), "app")
+	calls := 0
+	waitCtx, waitCancel := context.WithTimeout(context.Background(), time.Second)
 	defer waitCancel()
-	session, err := waitForDetachedDevSession(waitCtx, client, appRoot, 4242, detachedDevWaitRegistered, nil)
+	session, err := waitForDetachedDevSessionWithLister(waitCtx, func(_ context.Context, gotRoot string) ([]localagent.Session, error) {
+		calls++
+		if gotRoot != appRoot {
+			t.Fatalf("list app root = %q, want %q", gotRoot, appRoot)
+		}
+		if calls == 1 {
+			return []localagent.Session{{AppRoot: appRoot, OwnerPID: 1111, Status: "starting"}}, nil
+		}
+		return []localagent.Session{{AppRoot: appRoot, OwnerPID: 4242, Status: "starting"}}, nil
+	}, appRoot, 4242, detachedDevWaitRegistered, nil)
 	if err != nil {
 		t.Fatalf("waitForDetachedDevSession: %v", err)
 	}
-	<-registered
 	if session.OwnerPID != 4242 || session.AppRoot != appRoot {
 		t.Fatalf("session = %+v", session)
+	}
+	if calls != 2 {
+		t.Fatalf("list calls = %d, want one mismatched owner followed by the target owner", calls)
 	}
 }
 
@@ -316,58 +293,48 @@ func TestWaitForDetachedDevSessionReadyTimeoutReportsState(t *testing.T) {
 }
 
 func TestLiveDetachedDuplicateDevSessionFindsLiveOwner(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	paths, agentDone := startTestAgentServer(t, ctx)
-
-	root := t.TempDir()
-	owner := exec.Command("sleep", "30")
-	if err := owner.Start(); err != nil {
-		t.Fatalf("start owner fixture: %v", err)
-	}
-	defer func() {
-		_ = owner.Process.Kill()
-		_ = owner.Wait()
-	}()
-	client := localagent.NewClient(paths.SocketPath)
-	if err := waitForAgentCommandPing(ctx, client); err != nil {
-		t.Fatal(err)
-	}
-	sessionID := localagent.SessionID(root, "")
-	if _, err := client.Register(ctx, localagent.RegisterRequest{
+	root := filepath.Join(t.TempDir(), "app")
+	otherRoot := filepath.Join(t.TempDir(), "other")
+	ownerPID := os.Getpid()
+	liveSession := localagent.Session{
 		BaseAppID: "demo",
 		AppRoot:   root,
-		SessionID: sessionID,
+		SessionID: localagent.SessionID(root, ""),
 		Status:    "running",
-		OwnerPID:  owner.Process.Pid,
-		Owner:     localagent.CaptureOwner(owner.Process.Pid, "test"),
-	}); err != nil {
-		t.Fatalf("register live owner session: %v", err)
+		OwnerPID:  ownerPID,
+		Owner:     localagent.CaptureOwner(ownerPID, "test"),
 	}
-
-	existing, existingPID, err := liveDetachedDuplicateDevSession(ctx, client, root)
+	listCalls := 0
+	existing, existingPID, err := liveDetachedDuplicateDevSessionWithLister(context.Background(), func(_ context.Context, gotRoot string) ([]localagent.Session, error) {
+		listCalls++
+		if gotRoot != root {
+			t.Fatalf("list app root = %q, want %q", gotRoot, root)
+		}
+		return []localagent.Session{
+			{AppRoot: otherRoot, OwnerPID: ownerPID, Owner: liveSession.Owner},
+			liveSession,
+		}, nil
+	}, root)
 	if err != nil {
 		t.Fatalf("liveDetachedDuplicateDevSession error = %v", err)
 	}
-	if existing == nil || existingPID != owner.Process.Pid {
-		t.Fatalf("liveDetachedDuplicateDevSession = %v pid %d, want live session owned by %d", existing, existingPID, owner.Process.Pid)
+	if existing == nil || existingPID != ownerPID || existing.SessionID != liveSession.SessionID {
+		t.Fatalf("liveDetachedDuplicateDevSession = %v pid %d, want session %q owned by %d", existing, existingPID, liveSession.SessionID, ownerPID)
 	}
-
-	sessions, err := client.List(ctx, root)
-	if err != nil {
-		t.Fatal(err)
+	if listCalls != 1 {
+		t.Fatalf("list calls = %d, want 1", listCalls)
 	}
-	rejectErr := rejectLiveDuplicateDevSession(root, sessions)
+	rejectErr := rejectLiveDuplicateDevSession(root, []localagent.Session{liveSession})
 	var already *devSessionAlreadyRunningError
 	if !errors.As(rejectErr, &already) || !strings.Contains(rejectErr.Error(), "already running") {
 		t.Fatalf("rejectLiveDuplicateDevSession error = %v, want devSessionAlreadyRunningError", rejectErr)
 	}
-	if already.ownerPID != owner.Process.Pid {
-		t.Fatalf("already running owner PID = %d, want %d", already.ownerPID, owner.Process.Pid)
+	if already.ownerPID != ownerPID {
+		t.Fatalf("already running owner PID = %d, want %d", already.ownerPID, ownerPID)
 	}
-
-	cancel()
-	waitForTestAgentServer(t, agentDone)
+	if already.session.SessionID != liveSession.SessionID {
+		t.Fatalf("already running session = %q, want %q", already.session.SessionID, liveSession.SessionID)
+	}
 }
 
 func TestWriteDetachedDevResultJSON(t *testing.T) {

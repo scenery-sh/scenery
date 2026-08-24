@@ -172,11 +172,15 @@ func runWorktreeList(ctx context.Context, stdout io.Writer, opts worktreeOptions
 }
 
 func runWorktreeRemove(ctx context.Context, stdout io.Writer, opts worktreeOptions) error {
+	return runWorktreeRemoveWithList(ctx, stdout, opts, listGitWorktrees)
+}
+
+func runWorktreeRemoveWithList(ctx context.Context, stdout io.Writer, opts worktreeOptions, listWorktrees func(context.Context, string) ([]worktreeRecord, error)) error {
 	appRoot, _, err := discoverConfiguredApp(opts.AppRoot)
 	if err != nil {
 		return err
 	}
-	target, err := resolveExistingWorktreeTarget(ctx, appRoot, opts.Name)
+	target, err := resolveExistingWorktreeTarget(ctx, appRoot, opts.Name, listWorktrees)
 	if err != nil {
 		return err
 	}
@@ -225,12 +229,12 @@ func defaultWorktreePath(appRoot, name string) string {
 	return filepath.Join(filepath.Dir(appRoot), filepath.Base(appRoot)+"-"+name)
 }
 
-func resolveExistingWorktreeTarget(ctx context.Context, appRoot, name string) (string, error) {
+func resolveExistingWorktreeTarget(ctx context.Context, appRoot, name string, listWorktrees func(context.Context, string) ([]worktreeRecord, error)) (string, error) {
 	cleanName := sanitizeWorktreeName(name)
 	if cleanName == "" {
 		return "", fmt.Errorf("worktree name is empty after sanitization")
 	}
-	worktrees, err := listGitWorktrees(ctx, appRoot)
+	worktrees, err := listWorktrees(ctx, appRoot)
 	if err != nil {
 		return "", err
 	}

@@ -9,6 +9,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"scenery.sh/internal/compiler"
@@ -155,6 +156,10 @@ var (
 	testCheckPredictedTypeScript  func(*compiler.Result) error
 	testCheckGenerated            func(*compiler.Result)
 )
+
+// changeApplyLocks prevents same-process callers from validating one workspace
+// concurrently before the crash-safe filesystem transaction lock is acquired.
+var changeApplyLocks sync.Map
 
 func checkPredictedGoContracts(request ChangeRequest, predicted *compiler.Result) error {
 	check := request.CheckPredictedGoContracts
@@ -427,6 +432,9 @@ func applyIssuedChangePlanWithOptions(root, planID string, options ApplyOptions,
 }
 
 func applyChangePlanWithOptions(root string, plan ChangePlan, options ApplyOptions, now func() time.Time) (ChangeApplyResult, error) {
+	unlock := lockChangeApply(root)
+	defer unlock()
+
 	if !machine.UsesCurrentSpec(plan.ArtifactIdentity) {
 		return ChangeApplyResult{}, fmt.Errorf("failed_precondition: revision_scheme_changed: pending change plan must be recreated with the current Scenery CLI")
 	}
@@ -544,6 +552,17 @@ func applyChangePlanWithOptions(root string, plan ChangePlan, options ApplyOptio
 	}
 	finalize()
 	return ChangeApplyResult{Receipt: receipt}, nil
+}
+
+func lockChangeApply(root string) func() {
+	key := filepath.Clean(root)
+	if absolute, err := filepath.Abs(root); err == nil {
+		key = absolute
+	}
+	value, _ := changeApplyLocks.LoadOrStore(key, &sync.Mutex{})
+	lock := value.(*sync.Mutex)
+	lock.Lock()
+	return lock.Unlock
 }
 
 func applySemanticOperation(root string, base *Result, operation SemanticOperation) error {

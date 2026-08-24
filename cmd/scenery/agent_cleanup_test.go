@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -34,8 +35,13 @@ func TestRunAgentCleanupReportsStateBeforeExplicitRemoval(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(legacy, "agent"), 0o700); err != nil {
 		t.Fatal(err)
 	}
+	listCalls := 0
+	listProcesses := func() ([]runtimeProcess, error) {
+		listCalls++
+		return nil, nil
+	}
 	var stdout bytes.Buffer
-	if err := runAgentCleanup(&stdout, legacy, agentCleanupOptions{}); err != nil {
+	if err := runAgentCleanupWithProcessLister(&stdout, legacy, agentCleanupOptions{}, listProcesses); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(legacy); err != nil {
@@ -45,11 +51,14 @@ func TestRunAgentCleanupReportsStateBeforeExplicitRemoval(t *testing.T) {
 		t.Fatalf("cleanup output did not offer explicit state removal: %s", stdout.String())
 	}
 	stdout.Reset()
-	if err := runAgentCleanup(&stdout, legacy, agentCleanupOptions{RemoveState: true}); err != nil {
+	if err := runAgentCleanupWithProcessLister(&stdout, legacy, agentCleanupOptions{RemoveState: true}, listProcesses); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(legacy); !os.IsNotExist(err) {
 		t.Fatalf("explicit cleanup left state: %v", err)
+	}
+	if runtime.GOOS != "windows" && listCalls != 2 {
+		t.Fatalf("process-list calls = %d, want 2", listCalls)
 	}
 }
 

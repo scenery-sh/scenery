@@ -16,6 +16,21 @@ import (
 	"scenery.sh/internal/devdash"
 )
 
+type stubAgentDashboardRegistry struct {
+	sessions   map[string]localagent.Session
+	substrates map[string]localagent.Substrate
+}
+
+func (r *stubAgentDashboardRegistry) GetSession(id string) (localagent.Session, bool) {
+	session, ok := r.sessions[id]
+	return session, ok
+}
+
+func (r *stubAgentDashboardRegistry) GetSubstrate(kind string) (localagent.Substrate, bool) {
+	substrate, ok := r.substrates[kind]
+	return substrate, ok
+}
+
 func TestAgentDashboardControllerUsesSessionRouteIDs(t *testing.T) {
 	t.Parallel()
 
@@ -106,39 +121,19 @@ func TestAppRecordStatusIncludesDashboardBundleJSON(t *testing.T) {
 func TestDashboardControlPlaneWritesThroughAgentDashboardStore(t *testing.T) {
 	t.Parallel()
 
-	agentServer, err := localagent.NewServer(localagent.RunOptions{Home: t.TempDir(), RouterAddr: "127.0.0.1:0"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- agentServer.Run(ctx) }()
-	t.Cleanup(func() {
-		cancel()
-		select {
-		case err := <-done:
-			if err != nil {
-				t.Fatalf("agent shutdown: %v", err)
-			}
-		case <-time.After(2 * time.Second):
-			t.Fatal("timed out waiting for agent shutdown")
-		}
-	})
-
-	client := localagent.NewClient(agentServer.Paths().SocketPath)
-	defer client.CloseIdleConnections()
-	if err := waitForAgentCommandPing(ctx, client); err != nil {
-		t.Fatal(err)
-	}
-	session, err := client.Register(ctx, localagent.RegisterRequest{
+	ctx := context.Background()
+	session, err := localagent.NewSession(localagent.RegisterRequest{
 		BaseAppID:   "demo",
 		AppRoot:     t.TempDir(),
 		SessionID:   "session-a",
 		ReportToken: "report-secret",
-	})
+	}, "127.0.0.1:4040", "http", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
+	agentRegistry := &stubAgentDashboardRegistry{sessions: map[string]localagent.Session{
+		session.SessionID: session,
+	}}
 
 	store, err := devdash.OpenStore(t.TempDir())
 	if err != nil {
@@ -147,10 +142,8 @@ func TestDashboardControlPlaneWritesThroughAgentDashboardStore(t *testing.T) {
 	t.Cleanup(func() {
 		_ = store.Close()
 	})
-	controller := &agentDashboardController{store: store, agent: agentServer}
+	controller := &agentDashboardController{store: store, agent: agentRegistry}
 	dashboard := newDashboardServerWithController(controller, t.TempDir(), "127.0.0.1:0", "", nil)
-	server := httptest.NewServer(dashboard.http.Handler)
-	t.Cleanup(server.Close)
 
 	app := devdash.AppRecord{
 		ID:        "demo",
@@ -166,18 +159,12 @@ func TestDashboardControlPlaneWritesThroughAgentDashboardStore(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, server.URL+dashboardControlPlanePath, bytes.NewReader(data))
-		if err != nil {
-			t.Fatal(err)
-		}
+		req := httptest.NewRequestWithContext(ctx, http.MethodPost, dashboardControlPlanePath, bytes.NewReader(data))
 		req.Header.Set("Authorization", "Bearer report-secret")
 		req.Header.Set("Content-Type", "application/json")
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer resp.Body.Close()
-		return resp.StatusCode
+		rec := httptest.NewRecorder()
+		dashboard.http.Handler.ServeHTTP(rec, req)
+		return rec.Code
 	}
 
 	if got := postControlPlane(dashboardControlPlaneRequest{SessionID: session.SessionID, UpsertApp: &app}); got != http.StatusNoContent {
@@ -214,32 +201,10 @@ func TestDashboardControlPlaneWritesThroughAgentDashboardStore(t *testing.T) {
 func TestAgentDashboardControllerMarksMissingRegistrySessionOffline(t *testing.T) {
 	t.Parallel()
 
-	agentServer, err := localagent.NewServer(localagent.RunOptions{Home: t.TempDir(), RouterAddr: "127.0.0.1:0"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- agentServer.Run(ctx) }()
-	t.Cleanup(func() {
-		cancel()
-		select {
-		case err := <-done:
-			if err != nil {
-				t.Fatalf("agent shutdown: %v", err)
-			}
-		case <-time.After(2 * time.Second):
-			t.Fatal("timed out waiting for agent shutdown")
-		}
-	})
+	ctx := context.Background()
 
-	client := localagent.NewClient(agentServer.Paths().SocketPath)
-	defer client.CloseIdleConnections()
-	if err := waitForAgentCommandPing(ctx, client); err != nil {
-		t.Fatal(err)
-	}
 	owner := localagent.CaptureOwner(os.Getpid(), "scenery up")
-	session, err := client.Register(ctx, localagent.RegisterRequest{
+	session, err := localagent.NewSession(localagent.RegisterRequest{
 		BaseAppID: "demo",
 		AppRoot:   t.TempDir(),
 		Branch:    "feature/live",
@@ -256,11 +221,15 @@ func TestAgentDashboardControllerMarksMissingRegistrySessionOffline(t *testing.T
 			localagent.RouteAPI: {Network: "tcp", Addr: "127.0.0.1:4000"},
 			"victoria":          {Network: "tcp", Addr: "127.0.0.1:8428"},
 		},
-	})
+	}, "127.0.0.1:4040", "http", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	degradedSession, err := client.Register(ctx, localagent.RegisterRequest{
+	session.Aliases = map[string]string{
+		localagent.RouteAPI: "http://api.demo.localhost:4040",
+		"victoria":          "http://victoria.demo.localhost:4040",
+	}
+	degradedSession, err := localagent.NewSession(localagent.RegisterRequest{
 		BaseAppID: "demo",
 		AppRoot:   t.TempDir(),
 		SessionID: "degraded-session",
@@ -270,10 +239,14 @@ func TestAgentDashboardControllerMarksMissingRegistrySessionOffline(t *testing.T
 		Processes: map[string]localagent.Process{
 			"frontend-web": {PID: 2147483647},
 		},
-	})
+	}, "127.0.0.1:4040", "http", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
+	agentRegistry := &stubAgentDashboardRegistry{sessions: map[string]localagent.Session{
+		session.SessionID:         session,
+		degradedSession.SessionID: degradedSession,
+	}}
 
 	store, err := devdash.OpenStore(t.TempDir())
 	if err != nil {
@@ -323,7 +296,7 @@ func TestAgentDashboardControllerMarksMissingRegistrySessionOffline(t *testing.T
 		}
 	}
 
-	controller := &agentDashboardController{store: store, agent: agentServer}
+	controller := &agentDashboardController{store: store, agent: agentRegistry}
 	apps, err := controller.dashboardListApps(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -531,65 +504,31 @@ func TestAgentDashboardReportUsesSessionReportToken(t *testing.T) {
 func TestAgentDashboardRejectsStaleReportWithStructuredLog(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
 	agentHome := t.TempDir()
-	runDir, err := os.MkdirTemp("/tmp", "scenery-agent-test-")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		_ = os.RemoveAll(runDir)
-	})
-	agentServer, err := localagent.NewServer(localagent.RunOptions{
-		Home:       agentHome,
-		SocketPath: filepath.Join(runDir, "agent.sock"),
-		RouterAddr: "127.0.0.1:0",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := agentServer.Paths().RegistryPath; filepath.Dir(got) != filepath.Join(agentHome, "agent") {
+	agentPaths := localagent.PathsForHome(agentHome)
+	if got := agentPaths.RegistryPath; filepath.Dir(got) != filepath.Join(agentHome, "agent") {
 		t.Fatalf("agent registry path = %q, want under isolated agent home %q", got, agentHome)
 	}
-	done := make(chan error, 1)
-	ctx, cancel := context.WithCancel(ctx)
-	go func() { done <- agentServer.Run(ctx) }()
-	t.Cleanup(func() {
-		cancel()
-		select {
-		case err := <-done:
-			if err != nil {
-				t.Fatalf("agent shutdown: %v", err)
-			}
-		case <-time.After(2 * time.Second):
-			t.Fatal("timed out waiting for agent shutdown")
-		}
-	})
 
-	client := localagent.NewClient(agentServer.Paths().SocketPath)
-	defer client.CloseIdleConnections()
-	if err := waitForAgentCommandPing(ctx, client); err != nil {
-		t.Fatal(err)
-	}
-	_, err = client.Register(ctx, localagent.RegisterRequest{
+	session, err := localagent.NewSession(localagent.RegisterRequest{
 		BaseAppID:   "demo",
 		AppRoot:     t.TempDir(),
+		Branch:      "feature/report-token",
 		ReportToken: "report-secret",
-	})
+	}, "127.0.0.1:4040", "http", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	store, err := devdash.OpenStore(filepath.Join(t.TempDir(), "dashboard"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		_ = store.Close()
+	agentRegistry := &stubAgentDashboardRegistry{sessions: map[string]localagent.Session{
+		session.SessionID: session,
+	}}
+	exported := make(chan *devdash.LogEvent, 1)
+	controller := &agentDashboardController{agent: agentRegistry}
+	server := newDashboardServerWithControllerHooks(controller, t.TempDir(), "127.0.0.1:0", "", nil, dashboardServerHooks{
+		exportLogEvent: func(event *devdash.LogEvent) {
+			exported <- event
+		},
 	})
-	server := newDashboardServerWithController(&agentDashboardController{
-		store: store,
-		agent: agentServer,
-	}, t.TempDir(), "127.0.0.1:0", "", nil)
 
 	body, err := json.Marshal(devdash.ReportEnvelope{
 		Type:        "trace-event",
@@ -608,4 +547,26 @@ func TestAgentDashboardRejectsStaleReportWithStructuredLog(t *testing.T) {
 		t.Fatalf("report status = %d body=%q", rec.Code, rec.Body.String())
 	}
 
+	var event *devdash.LogEvent
+	select {
+	case event = <-exported:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for rejected report log export")
+	}
+	if event.Level != "warn" {
+		t.Fatalf("rejected report level = %q, want warn", event.Level)
+	}
+	if event.Message != "stale or unauthorized dev report rejected" {
+		t.Fatalf("rejected report message = %q", event.Message)
+	}
+	for key, want := range map[string]any{
+		"kind":         "dev-report-rejected",
+		"reason":       "stale-session",
+		"report_type":  "trace-event",
+		"reporter_pid": 12345,
+	} {
+		if got := event.Attrs[key]; got != want {
+			t.Fatalf("rejected report attr %s = %#v, want %#v; attrs=%+v", key, got, want, event.Attrs)
+		}
+	}
 }

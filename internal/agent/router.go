@@ -37,7 +37,7 @@ func (s *Server) routerMux() http.Handler {
 		if s.trustedLocalPathRequest(req) {
 			sessionID := strings.TrimSpace(req.Header.Get("X-Scenery-Session"))
 			session, ok := s.registry.Get(sessionID)
-			if !ok || session.RouteManifest.Mode != RouteModePath || !sessionOwnerVerifies(session) {
+			if !ok || session.RouteManifest.Mode != RouteModePath || !s.registry.sessionOwnerVerifies(session) {
 				http.NotFound(w, req)
 				return
 			}
@@ -105,10 +105,10 @@ func (s *Server) tlsAllowedHost(host string) bool {
 	if !ok {
 		return false
 	}
-	return sessionOwnerVerifies(session)
+	return s.registry.sessionOwnerVerifies(session)
 }
 
-func sessionOwnerVerifies(session Session) bool {
+func (r *Registry) sessionOwnerVerifies(session Session) bool {
 	ownerPID := firstPositive(session.OwnerPID, session.Owner.PID)
 	if ownerPID <= 0 {
 		return false
@@ -117,7 +117,7 @@ func sessionOwnerVerifies(session Session) bool {
 	if owner.PID <= 0 {
 		owner.PID = ownerPID
 	}
-	return VerifyOwner(owner) == nil
+	return r.verifyOwner(owner) == nil
 }
 
 func (s *Server) handlePublicEdgeRoute(w http.ResponseWriter, req *http.Request) {
@@ -156,7 +156,7 @@ func (s *Server) runningSessionForDeployTarget(target DeployTarget) (Session, bo
 		return Session{}, false
 	}
 	for _, session := range s.registry.FindByAppRoot(target.AppRoot) {
-		if session.Status == "running" && filepath.Clean(session.AppRoot) == filepath.Clean(target.AppRoot) && sessionOwnerVerifies(session) {
+		if session.Status == "running" && filepath.Clean(session.AppRoot) == filepath.Clean(target.AppRoot) && s.registry.sessionOwnerVerifies(session) {
 			return session, true
 		}
 	}
@@ -372,6 +372,9 @@ func (s *Server) proxyBackend(w http.ResponseWriter, req *http.Request, backend 
 // TCP backends share the default transport.
 func (s *Server) transportForBackend(backend Backend) http.RoundTripper {
 	if backend.Network != "unix" {
+		if s.tcpTransport != nil {
+			return s.tcpTransport
+		}
 		return http.DefaultTransport
 	}
 	return s.unixTransports.For(backend.Addr)

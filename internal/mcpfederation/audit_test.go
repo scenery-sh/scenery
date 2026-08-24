@@ -233,6 +233,7 @@ func TestFederationManualPaginationUsesSDKPages(t *testing.T) {
 
 func TestFederationUnavailableConnectionRetriesOnRefreshCadence(t *testing.T) {
 	available := atomic.Bool{}
+	diagnostics := make(chan Diagnostic, 4)
 	server := mcp.NewServer(&mcp.Implementation{Name: "recovering", Version: "1"}, nil)
 	server.AddTool(testTool("recovered"), emptyTool)
 	handler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, &mcp.StreamableHTTPOptions{JSONResponse: true})
@@ -244,7 +245,14 @@ func TestFederationUnavailableConnectionRetriesOnRefreshCadence(t *testing.T) {
 		handler.ServeHTTP(w, r)
 	}))
 	defer remote.Close()
-	f, err := New(Config{RefreshEvery: 10 * time.Millisecond, Connections: []Connection{{Address: "a", Namespace: "docs", URL: remote.URL, RefreshTTL: time.Hour}}})
+	f, err := New(Config{
+		RefreshEvery:  10 * time.Millisecond,
+		DiagnosticTTL: time.Nanosecond,
+		OnDiagnostic: func(d Diagnostic) {
+			diagnostics <- d
+		},
+		Connections: []Connection{{Address: "a", Namespace: "docs", URL: remote.URL, RefreshTTL: time.Hour}},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -252,14 +260,32 @@ func TestFederationUnavailableConnectionRetriesOnRefreshCadence(t *testing.T) {
 	if err := f.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(80 * time.Millisecond)
-	available.Store(true)
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if tools := f.Tools(); len(tools) == 1 && tools[0].Name == "docs__recovered" {
-			return
+	// Observe the initial failure plus a cadence-driven retry. Waiting on
+	// diagnostics keeps the test synchronized with completed refresh attempts
+	// instead of guessing how long the HTTP round trips will take.
+	for attempt := 1; attempt <= 2; attempt++ {
+		select {
+		case diagnostic := <-diagnostics:
+			if diagnostic.Address != "a" || diagnostic.Code != "MCP_CONNECTION_UNAVAILABLE" {
+				t.Fatalf("retry diagnostic %d = %#v", attempt, diagnostic)
+			}
+		case <-time.After(time.Second):
+			t.Fatalf("refresh retry %d did not complete", attempt)
 		}
-		time.Sleep(10 * time.Millisecond)
 	}
-	t.Fatalf("connection did not recover on retry cadence: %#v", f.Snapshot())
+	available.Store(true)
+	probe := time.NewTicker(time.Millisecond)
+	defer probe.Stop()
+	timeout := time.NewTimer(time.Second)
+	defer timeout.Stop()
+	for {
+		select {
+		case <-probe.C:
+			if tools := f.Tools(); len(tools) == 1 && tools[0].Name == "docs__recovered" {
+				return
+			}
+		case <-timeout.C:
+			t.Fatalf("connection did not recover on retry cadence: %#v", f.Snapshot())
+		}
+	}
 }

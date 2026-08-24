@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"net"
+	"net/http"
 	"os"
 	"sync/atomic"
 	"testing"
@@ -22,13 +24,17 @@ func TestAgentWatchdogRecoversDeadAgent(t *testing.T) {
 	}
 
 	var starts atomic.Int32
-	started := make(chan struct{}, 8)
+	started := make(chan struct{}, 1)
 	policy := agentWatchdogPolicy{
-		Interval:        20 * time.Millisecond,
-		RecoveryBackoff: 50 * time.Millisecond,
+		Interval:           time.Millisecond,
+		RecoveryBackoff:    time.Millisecond,
+		RecoveryBackoffMax: 4 * time.Millisecond,
 		Start: func(localagent.Paths, localagent.StartOptions) error {
 			starts.Add(1)
-			started <- struct{}{}
+			select {
+			case started <- struct{}{}:
+			default:
+			}
 			return nil
 		},
 	}
@@ -46,24 +52,29 @@ func TestAgentWatchdogRecoversDeadAgent(t *testing.T) {
 		t.Fatal("watchdog never attempted recovery for a dead agent")
 	}
 	cancel()
-	<-stopped
+	waitForAgentWatchdogStop(t, stopped)
 
-	// Healthy agent: no recovery attempts.
+	// Healthy agent: several successful checks complete without a recovery.
 	paths = localagent.PathsForHome(t.TempDir())
 	if err := localagent.EnsureDirs(paths); err != nil {
 		t.Fatal(err)
 	}
-	startFakeAgentHealthServer(t, paths.SocketPath, 42)
+	var healthChecks atomic.Int32
+	startCountingAgentHealthServer(t, paths.SocketPath, &healthChecks)
 	healthyCtx, healthyCancel := context.WithCancel(context.Background())
 	defer healthyCancel()
 	starts.Store(0)
-	healthyStopped := startAgentAvailabilityWatchdog(healthyCtx, localagent.NewClient(paths.SocketPath), paths, policy)
-	time.Sleep(200 * time.Millisecond)
+	healthyClient := localagent.NewClient(paths.SocketPath)
+	t.Cleanup(healthyClient.CloseIdleConnections)
+	healthyStopped := startAgentAvailabilityWatchdog(healthyCtx, healthyClient, paths, policy)
+	waitForTestCondition(t, 2*time.Second, "healthy watchdog checks", func() bool {
+		return healthChecks.Load() >= 4
+	})
 	if got := starts.Load(); got != 0 {
 		t.Fatalf("watchdog attempted %d recoveries against a healthy agent", got)
 	}
 	healthyCancel()
-	<-healthyStopped
+	waitForAgentWatchdogStop(t, healthyStopped)
 }
 
 // TestAgentWatchdogStopsWhenHomeIsGoneOrNotConverging proves the two runaway
@@ -76,11 +87,17 @@ func TestAgentWatchdogStopsWhenHomeIsGoneOrNotConverging(t *testing.T) {
 	t.Parallel()
 
 	var starts atomic.Int32
+	started := make(chan struct{}, 8)
 	policy := agentWatchdogPolicy{
-		Interval:        10 * time.Millisecond,
-		RecoveryBackoff: 10 * time.Millisecond,
+		Interval:           time.Millisecond,
+		RecoveryBackoff:    time.Millisecond,
+		RecoveryBackoffMax: 4 * time.Millisecond,
 		Start: func(localagent.Paths, localagent.StartOptions) error {
 			starts.Add(1)
+			select {
+			case started <- struct{}{}:
+			default:
+			}
 			return nil
 		},
 	}
@@ -97,12 +114,10 @@ func TestAgentWatchdogStopsWhenHomeIsGoneOrNotConverging(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	stopped := startAgentAvailabilityWatchdog(ctx, localagent.NewClient(paths.SocketPath), paths, policy)
-	time.Sleep(200 * time.Millisecond)
+	waitForAgentWatchdogStop(t, stopped)
 	if got := starts.Load(); got != 0 {
 		t.Fatalf("watchdog recovered %d times for a deleted agent home", got)
 	}
-	cancel()
-	<-stopped
 
 	// Dead agent that never comes back: recovery keeps retrying with
 	// backoff and never stops outright.
@@ -115,14 +130,15 @@ func TestAgentWatchdogStopsWhenHomeIsGoneOrNotConverging(t *testing.T) {
 	defer capCancel()
 	capStopped := startAgentAvailabilityWatchdog(capCtx, localagent.NewClient(paths.SocketPath), paths, policy)
 	t.Cleanup(func() { capCancel(); <-capStopped })
-	// Positive assertion: poll instead of sleeping a fixed 500ms. The retries
-	// are the thing under test, so finish as soon as enough have landed and
-	// still tolerate a loaded machine. The watchdog interval is deliberately
-	// left alone: shortening it makes the negative assertions above flaky
-	// under -race, where setup itself takes several intervals.
-	waitForTestCondition(t, 5*time.Second, "watchdog recovery to keep retrying", func() bool {
-		return starts.Load() >= 4
-	})
+	for range 4 {
+		select {
+		case <-started:
+		case <-time.After(2 * time.Second):
+			t.Fatalf("watchdog recovery attempts = %d, want at least 4", starts.Load())
+		}
+	}
+	capCancel()
+	waitForAgentWatchdogStop(t, capStopped)
 }
 
 // TestAgentWatchdogDisabled proves the watchdog respects SCENERY_AGENT_DISABLE
@@ -142,11 +158,37 @@ func TestAgentWatchdogDisabled(t *testing.T) {
 	paths := localagent.PathsForHome(t.TempDir())
 	disabledStopped := startAgentAvailabilityWatchdog(ctx, localagent.NewClient(paths.SocketPath), paths, policy)
 	nilStopped := startAgentAvailabilityWatchdog(ctx, nil, paths, policy)
-	time.Sleep(100 * time.Millisecond)
+	waitForAgentWatchdogStop(t, disabledStopped)
+	waitForAgentWatchdogStop(t, nilStopped)
 	if got := starts.Load(); got != 0 {
 		t.Fatalf("disabled watchdog attempted %d recoveries", got)
 	}
-	cancel()
-	<-disabledStopped
-	<-nilStopped
+}
+
+func startCountingAgentHealthServer(t *testing.T, socketPath string, checks *atomic.Int32) {
+	t.Helper()
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.URL.Path != "/v1/health" {
+			http.NotFound(w, req)
+			return
+		}
+		checks.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"pid":42}`))
+	})}
+	go func() { _ = server.Serve(listener) }()
+	t.Cleanup(func() { _ = server.Close() })
+}
+
+func waitForAgentWatchdogStop(t *testing.T, stopped <-chan struct{}) {
+	t.Helper()
+	select {
+	case <-stopped:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for agent watchdog to stop")
+	}
 }

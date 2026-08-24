@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,35 +10,16 @@ import (
 )
 
 func TestServerPublicDeployRoutesByHostWithContainment(t *testing.T) {
-	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		_, _ = io.WriteString(w, "api:"+req.URL.Path)
-	}))
-	defer api.Close()
-	apiAddr := strings.TrimPrefix(api.URL, "http://")
-
-	frontend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		_, _ = io.WriteString(w, "frontend:"+req.URL.Path)
-	}))
-	defer frontend.Close()
-	frontendAddr := strings.TrimPrefix(frontend.URL, "http://")
-
-	server, err := NewServer(RunOptions{
-		Home:       t.TempDir(),
-		RouterAddr: "127.0.0.1:0",
+	transport := testHandlerTransport(t, map[string]http.Handler{
+		"api.test": http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			_, _ = io.WriteString(w, "api:"+req.URL.Path)
+		}),
+		"frontend.test": http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			_, _ = io.WriteString(w, "frontend:"+req.URL.Path)
+		}),
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	server := newInProcessTestServer(t, transport)
 	server.edgeToken = "test-token"
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- server.Run(ctx) }()
-	defer stopTestAgent(t, cancel, done)
-
-	client := NewClient(server.paths.SocketPath)
-	if err := waitForAgentPing(ctx, client); err != nil {
-		t.Fatal(err)
-	}
 	appRoot := t.TempDir()
 	registry := EmptyDeployRegistry()
 	registry.Targets = []DeployTarget{
@@ -49,14 +29,15 @@ func TestServerPublicDeployRoutesByHostWithContainment(t *testing.T) {
 	if err := WriteDeployRegistry(server.Paths().DeployPath, registry); err != nil {
 		t.Fatal(err)
 	}
-	session, err := client.Register(ctx, RegisterRequest{
+	session, err := server.registry.Upsert(RegisterRequest{
 		BaseAppID: "demo",
 		AppRoot:   appRoot,
 		Status:    "running",
 		OwnerPID:  os.Getpid(),
+		Owner:     testProcessOwner(),
 		Backends: map[string]Backend{
-			RouteAPI: {Network: "tcp", Addr: apiAddr},
-			"ui":     {Network: "tcp", Addr: frontendAddr},
+			RouteAPI: {Network: "tcp", Addr: "api.test"},
+			"ui":     {Network: "tcp", Addr: "frontend.test"},
 		},
 		RouteManifest: RouteManifest{
 			Mode:    RouteModePath,
@@ -76,11 +57,9 @@ func TestServerPublicDeployRoutesByHostWithContainment(t *testing.T) {
 
 	request := func(host, targetPath string, publicEdge, spoofLocalSession bool) (int, string) {
 		t.Helper()
-		req, err := http.NewRequest(http.MethodGet, "http://"+server.routerAddr+targetPath, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
+		req := httptest.NewRequest(http.MethodGet, "http://router.test"+targetPath, nil)
 		req.Host = host
+		req.RemoteAddr = "127.0.0.1:12345"
 		if publicEdge {
 			req.Header.Set("X-Scenery-Edge-Token", "test-token")
 			req.Header.Set("X-Scenery-Public-Edge", "1")
@@ -91,13 +70,9 @@ func TestServerPublicDeployRoutesByHostWithContainment(t *testing.T) {
 			req.Header.Set("X-Scenery-Session", session.SessionID)
 			req.Header.Set("X-Scenery-Local-Route-Mode", string(RouteModePath))
 		}
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		return resp.StatusCode, string(body)
+		recorder := httptest.NewRecorder()
+		server.routerMux().ServeHTTP(recorder, req)
+		return recorder.Code, recorder.Body.String()
 	}
 
 	status, body := request("onlv.dev", "/", true, false)

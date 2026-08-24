@@ -3,6 +3,7 @@ package auth
 import (
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"math/big"
@@ -247,8 +248,10 @@ func TestVerifyGoogleIDTokenCachesJWKSAndRefetchesUnknownKID(t *testing.T) {
 	})
 
 	secrets.GoogleOAuthClientID = "client-id"
-	firstKey := mustRSAKey(t)
-	secondKey := mustRSAKey(t)
+	firstKey := mustGoogleJWKSFixtureKey(t, 0)
+	secondKey := mustGoogleJWKSFixtureKey(t, 1)
+	firstToken := mustGoogleIDToken(t, firstKey, "kid-1")
+	secondToken := mustGoogleIDToken(t, secondKey, "kid-2")
 	keys := []testJWK{{kid: "kid-1", key: &firstKey.PublicKey}}
 	var requests atomic.Int64
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -258,14 +261,14 @@ func TestVerifyGoogleIDTokenCachesJWKSAndRefetchesUnknownKID(t *testing.T) {
 	t.Cleanup(server.Close)
 	googleJWKSURL = server.URL
 
-	if _, err := verifyGoogleIDToken(t.Context(), mustGoogleIDToken(t, firstKey, "kid-1")); err != nil {
+	if _, err := verifyGoogleIDToken(t.Context(), firstToken); err != nil {
 		t.Fatalf("verify first token: %v", err)
 	}
 	keys = []testJWK{{kid: "kid-2", key: &secondKey.PublicKey}}
-	if _, err := verifyGoogleIDToken(t.Context(), mustGoogleIDToken(t, firstKey, "kid-1")); err != nil {
+	if _, err := verifyGoogleIDToken(t.Context(), firstToken); err != nil {
 		t.Fatalf("verify cached token: %v", err)
 	}
-	if _, err := verifyGoogleIDToken(t.Context(), mustGoogleIDToken(t, secondKey, "kid-2")); err != nil {
+	if _, err := verifyGoogleIDToken(t.Context(), secondToken); err != nil {
 		t.Fatalf("verify token after unknown kid refetch: %v", err)
 	}
 	if got := requests.Load(); got != 2 {
@@ -853,6 +856,26 @@ func mustRSAKey(t *testing.T) *rsa.PrivateKey {
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		t.Fatalf("generate rsa key: %v", err)
+	}
+	return key
+}
+
+var googleJWKSFixtureKeys = [2]string{
+	"MIICXAIBAAKBgQDHp9/U22x1AsX1u5oH1JUg2VxwDwq2Osdp4CGiEN1Ux4J7ObrdJ0A0AwhPDqTo4wICAUNoM5dzgHykFTYZDuSWm/Ii5DBN68AHhZqIK5s/V0TucIF+/5eQCN34WahUjAS2JXboiPCZvXknwIMKHJXfqPjbeh48LIBdmbiLMn1DOwIDAQABAoGBAKNTpTuPtI2UEzUOntbBBK22onPZGj4wn2jxPRJDEYyFGSyM8Vxw+4iQ4n8pz6Xj7oSNXAMmEUMfXNctsu+Uy1Em50AqVM/mEAMxPtxmYvp7B1wnU/NdTupi1i+YNdw5qXoXIYODbi2tN4zOjIN0r2bnhQ2VM2o7po6hEzJO+K0hAkEA8N4h9TzJNfPLxAfkVdUvW+r14MWcG0JXhHF1lk0ByiYco36AzrUS4qkGLqTBK8sPv5nL42KwkAdXJ90vo1ietQJBANQy7mrx8QhjMgczzLQaXdgB3ZkmW2h+0o1SY6MvXyLynipNY3HL5mCzFtNRgcIKV2T88BnU5N7077efBedLoC8CQHBjBS87PJs69QGzuPu/rAhUeoN1UOB7NQCsO/R0W/hpjgVPOmS4omY1/Zd38lYvulppNXQUkVOyyRzlnJu39t0CQFyJqXdx8w8ZUyPY7xhLt0kP5zd2hr5XMDL5DwKHEhIHg/omrYtexCS/dODK1q9sGxirRXm+YeDpJ/EHpGdtj3kCQGvi/JY2s/Pm5h00jdxVcFyKMAsBertyyufiijwouhWB+zU0cK+VeySrQ1GDok1EjvyGKXSD9paFAUtHHaOQFpg=",
+	"MIICXAIBAAKBgQDEncX1+qSsfdRezjC8jP3/ZcOiWDdr60je2461RZViT7yJ4L720LZO5xFj0g7CMO0XWSQfnk3ORs0BZcKx45MDs9yb622M+CZdUto+cwleESPpvGK0qK9k9wrayTILfTg/gDr2oWPyFiztkg0mxq8q3dQJJxE3cUBUmdT8NFrNmQIDAQABAoGAQ6eikbSwa2ZU6FZ88LR3RiWnPrqqP2lTxtO39GpAL/cOAkeijl1dDiN2mWmTiIC7ZJhY1MRtM3irXDq+1uVfFYCxnRN9A41qmauh57NFJLR1JnrMU6jUDhAAbq1koXwCqYr356XAU+EZmxlURjYJ0DJEib7Ee4N+GVCAakZh+j0CQQD7IsB/lW9+7+ZcuzKDgAC6YRLy/ERlrrd8/fTBAu4QM2HcvKkts2eQmeS9HUSaBUHQWJUFghrzaVTVrGvyJplbAkEAyGywQncILvrgdvXhXRAaMjKieiGJqnUDwG1tvH8XbLjhV/aPI4WRAqJkPTxD6Xtl+yPt4NmLIP7wEiZrpoqzGwJBAPDklOHM5fZNCBtLNVkOH6SoGRUbBkDDJx6uO2go91Jy9xxVm7JKtLzv4YnF2VgkUs0XK1rtQgzarJWJnsHYZKECQG3MVVdkHGCYYeXp19eC3ccIREiCHQf76N0/VbHBMlUGh7UHxuzf3ExEKIP/gvji+EB4M3ZN11FxOJXI5IqtS2cCQC2NK/4Yv3YVOe2GEkgIYxNwRoQNGhQy5D9mbp6MvpcJKPVOTB08C0HujWXGCtye22ZAuyBO/y97lhjF6zSPt70=",
+}
+
+// mustGoogleJWKSFixtureKey keeps the cache/refetch test deterministic without
+// paying the variable cost of generating fresh RSA keys inside its timed body.
+func mustGoogleJWKSFixtureKey(t *testing.T, index int) *rsa.PrivateKey {
+	t.Helper()
+	der, err := base64.StdEncoding.DecodeString(googleJWKSFixtureKeys[index])
+	if err != nil {
+		t.Fatalf("decode google JWKS fixture %d: %v", index, err)
+	}
+	key, err := x509.ParsePKCS1PrivateKey(der)
+	if err != nil {
+		t.Fatalf("parse google JWKS fixture %d: %v", index, err)
 	}
 	return key
 }

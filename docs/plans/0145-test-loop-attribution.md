@@ -26,6 +26,34 @@ optimize a number nothing can explain.
 
 ## Progress
 
+- [x] 2026-08-24: Replaced the 500ms/three-sample median outlier policy with a
+      fast-test contract. Exact top-level `TestX` roots are fast by default,
+      enter confirmation at 60ms, and violate at a nearest-rank p95 of 100ms
+      or more across 20 isolated serial samples, with percentile 95 serialized
+      in the budget. One high sample does not move p95; two do. Ordinary fresh
+      runs remain regression-scoped warnings but always re-confirm current or
+      prior confirmed violations and use a 10ms absolute regression floor,
+      while release+fresh confirms all fast candidates and fails on confirmed
+      violations. The report carries 61 sorted exact integration exceptions,
+      each with class, a 100ms observation target, a 3s visibility budget, and
+      a real process, toolchain, service, or OS boundary reason; observed
+      integration roots remain visible once without entering p95 confirmation.
+      No package, prefix, regexp, or subtest exemption exists. Schema-stale
+      timing baselines are now rejected.
+- [x] 2026-08-24: Fixed the three broad fixture-copy helpers in compiler,
+      generate, and deployplan to prune `.scenery` directories before walking
+      their contents. On the same serial fresh command, wall time fell from
+      110.43s to 74.04s, leaf tests over 100ms fell from 113 to 102, and summed
+      leaf time fell from 66.99s to 30.44s before any candidate-specific work.
+      The release+fresh audit after the candidate pass confirmed all 75
+      observed fast candidates across 20 isolated serial samples: zero p95
+      violations, with a 90ms worst p95 against the 100ms hard budget. The
+      corrected clock sums active work before and after `t.Parallel` plus child
+      work while excluding only the paused scheduler queue. The final fully
+      serial suite passed 59 packages in 62.28s. It contained 2,159 passing leaf
+      tests and 56 one-shot leaf samples over 100ms: 54 exact integration
+      boundaries plus two fast scheduling outliers at 140ms and 130ms whose
+      repeated p95 values were 20ms and 70ms.
 - [x] 2026-07-28: Scoped confirmation to regressions. `budgets.confirmation_scope`
       is `regressions` on `--fresh-tests` and `all` on `--release --fresh-tests`.
       A candidate is re-confirmed only when the recorded baseline did not have it
@@ -681,9 +709,26 @@ optimize a number nothing can explain.
   The noise band is about 4s, which is the same size as the distance from the
   measured 18.53s to the 15s budget, so a change of that size cannot be
   confirmed here by wall-clock comparison alone.
+- 2026-08-24: Leaf-subtest timing is the wrong enforcement unit. It can omit
+  parent setup and lets a root distribute one slow body across individually
+  cheap children. Go's top-level test event includes the complete root and all
+  subtests, while the package event separately retains `TestMain` and package
+  setup. Enforcing exact roots therefore closes both attribution gaps without
+  double-counting parent and child events.
 
 ## Decision Log
 
+- Fast is the default test class, not an allowlist. The only inverse list is a
+  sorted exact package-plus-test inventory for undeniable external boundaries,
+  and every entry carries a human-reviewable reason. This makes a new test fail
+  toward the 100ms budget automatically and prevents a broad package or naming
+  pattern from becoming a performance escape hatch.
+  Date/Author: 2026-08-24 / Codex.
+- Use nearest-rank p95 over 20 serial samples. For 20 samples p95 is the
+  second-highest value, so one scheduler spike is tolerated and two budget
+  samples fail. The 60ms candidate threshold doubles as the body target's upper
+  edge, leaving about 40ms of headroom below the inclusive 100ms gate.
+  Date/Author: 2026-08-24 / Codex.
 - Confirmation scope is derived from the existing mode flags rather than a new
   knob. `--release --fresh-tests` already means "periodic audit"; adding a
   separate flag would grow the CLI surface for a distinction the modes already
@@ -920,7 +965,10 @@ preserving their real subprocess and local-agent boundaries. The measured
 to 3.402s and the clean manifest-hit full-suite median from 12.61s to 12.07s.
 Removing the last real-time expiry wait then reduced its owning test from
 1.310-1.330s to 0.050-0.060s in alternating runs, with a 70ms maximum across
-100 retained-tree repetitions.
+100 retained-tree repetitions. The current fast-test policy makes that target
+durable: top-level in-process roots are measured at repeated p95, and the
+retained external-boundary smokes are visible as exact exceptions rather than
+silently weakening the global threshold.
 
 ## Context and Orientation
 
@@ -1032,10 +1080,16 @@ machines; re-measure before comparing.
   `deferred_confirmations`, `budgets.confirmation_scope`,
   `budgets.test_binary_count`, `budgets.cold_prepare_seconds`,
   `test_binaries.test_package_count`, `test_binaries.build_parallelism`, and
-  `test_binaries.aggregate_build_seconds`. The current schema revision is
-  recorded in `cmd/scenery/payload_identity.go`.
+  `test_binaries.aggregate_build_seconds`, `budgets.default_test_class`,
+  `budgets.test_target_seconds`, `budgets.confirmation_percentile`, the complete
+  `budgets.integration_exceptions` inventory, and
+  `observed_integration_tests`. Test timing evidence now carries `class`,
+  `target_seconds`, `classification_reason`, and `isolated_p95_seconds`; the
+  removed median field has no current-schema alias. The current schema revision is
+  `sha256:fb4d6102110a4beae1ab792069c5112ccee57681ac1df81f5fd7ab2232a6fb30`
+  and is recorded in `cmd/scenery/payload_identity.go`.
   `scenery.harness.self` inlines that nested shape; its current schema revision
-  is `sha256:1754e319963b4e57b46f9cc28ce17f685a2406184d80db80c185dd6eba0a0be4`.
+  is `sha256:f6be32d52090317f5f27b725d98dc1f3f41736aa908ec060a6f3f67c2514517d`.
 - `testsuite.Result` gained `Prepare` and `TestPackageCount`; `testsuite.Run`
   is otherwise unchanged.
 - `scripts/testsuite` gained `-builds N`, which writes to stderr only, leaving

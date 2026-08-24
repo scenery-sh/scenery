@@ -393,6 +393,82 @@ func TestAppProcessEnvRejectsRelativeLocalStorageRoot(t *testing.T) {
 }
 
 func TestManagedStorageProxyRoundTripThroughPublicStoragePackage(t *testing.T) {
+	store, plan := setupManagedStorageProxyPublicStore(t)
+	if _, err := store.Put(context.Background(), "reports/report.txt", strings.NewReader("storage report"), publicstorage.PutOptions{
+		ContentType: "application/x-report",
+		Metadata:    map[string]string{"source": "proxy"},
+	}); err != nil {
+		t.Fatalf("proxy put returned error: %v", err)
+	}
+	page, err := store.List(context.Background(), publicstorage.ListOptions{Prefix: "reports/"})
+	if err != nil {
+		t.Fatalf("proxy list returned error: %v", err)
+	}
+	if len(page.Objects) != 1 || page.Objects[0].Key != "reports/report.txt" || page.Objects[0].Metadata["Source"] != "proxy" {
+		t.Fatalf("proxy list page = %+v", page)
+	}
+	head, err := store.Head(context.Background(), "reports/report.txt")
+	if err != nil {
+		t.Fatalf("proxy head returned error: %v", err)
+	}
+	if head.SizeBytes != int64(len("storage report")) || head.ContentType != "application/x-report" || head.Metadata["Source"] != "proxy" {
+		t.Fatalf("proxy head = %+v", head)
+	}
+	body, obj, err := store.Get(context.Background(), "reports/report.txt", publicstorage.GetOptions{})
+	if err != nil {
+		t.Fatalf("proxy get returned error: %v", err)
+	}
+	data, err := io.ReadAll(body)
+	if err != nil {
+		_ = body.Close()
+		t.Fatal(err)
+	}
+	if err := body.Close(); err != nil {
+		t.Fatalf("close proxy get body: %v", err)
+	}
+	if string(data) != "storage report" || obj.Key != "reports/report.txt" || obj.Metadata["Source"] != "proxy" {
+		t.Fatalf("proxy get data=%q object=%+v", data, obj)
+	}
+	// Objects are plain files under the cell's per-store object root.
+	if _, err := os.Stat(filepath.Join(plan.ObjectsDir, "app", "reports", "report.txt")); err != nil {
+		t.Fatalf("expected object file under cell object root: %v", err)
+	}
+}
+
+func TestManagedStorageProxyDeleteThroughPublicStoragePackage(t *testing.T) {
+	store, plan := setupManagedStorageProxyPublicStore(t)
+	if _, err := store.Put(context.Background(), "reports/report.txt", strings.NewReader("storage report"), publicstorage.PutOptions{
+		ContentType: "application/x-report",
+		Metadata:    map[string]string{"source": "proxy"},
+	}); err != nil {
+		t.Fatalf("proxy put before delete returned error: %v", err)
+	}
+	if _, err := store.Head(context.Background(), "reports/report.txt"); err != nil {
+		t.Fatalf("proxy head before delete returned error: %v", err)
+	}
+	if err := store.Delete(context.Background(), "reports/report.txt"); err != nil {
+		t.Fatalf("proxy delete returned error: %v", err)
+	}
+	if _, err := store.Head(context.Background(), "reports/report.txt"); err == nil {
+		t.Fatal("proxy head succeeded after delete")
+	}
+	objectPath := filepath.Join(plan.ObjectsDir, "app", "reports", "report.txt")
+	if _, err := os.Stat(objectPath); !os.IsNotExist(err) {
+		t.Fatalf("storage object remains after delete: %v", err)
+	}
+	metadataPath := filepath.Join(plan.ObjectsDir, "app", "__scenery", "metadata", "reports", "report.txt.json")
+	if _, err := os.Stat(metadataPath); !os.IsNotExist(err) {
+		t.Fatalf("storage metadata sidecar remains after delete: %v", err)
+	}
+}
+
+func TestManagedStorageProxyConcurrentIfNoneMatchThroughPublicStoragePackage(t *testing.T) {
+	store, _ := setupManagedStorageProxyPublicStore(t)
+	assertStorageProxyConcurrentIfNoneMatch(t, store)
+}
+
+func setupManagedStorageProxyPublicStore(t *testing.T) (publicstorage.Store, *storageCellPlan) {
+	t.Helper()
 	shortRoot, err := os.MkdirTemp("/tmp", "scn-storage-*")
 	if err != nil {
 		t.Fatal(err)
@@ -433,49 +509,7 @@ func TestManagedStorageProxyRoundTripThroughPublicStoragePackage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("storage.Default returned error: %v", err)
 	}
-	if _, err := store.Put(context.Background(), "reports/report.txt", strings.NewReader("storage report"), publicstorage.PutOptions{
-		ContentType: "application/x-report",
-		Metadata:    map[string]string{"source": "proxy"},
-	}); err != nil {
-		t.Fatalf("proxy put returned error: %v", err)
-	}
-	page, err := store.List(context.Background(), publicstorage.ListOptions{Prefix: "reports/"})
-	if err != nil {
-		t.Fatalf("proxy list returned error: %v", err)
-	}
-	if len(page.Objects) != 1 || page.Objects[0].Key != "reports/report.txt" || page.Objects[0].Metadata["Source"] != "proxy" {
-		t.Fatalf("proxy list page = %+v", page)
-	}
-	head, err := store.Head(context.Background(), "reports/report.txt")
-	if err != nil {
-		t.Fatalf("proxy head returned error: %v", err)
-	}
-	if head.SizeBytes != int64(len("storage report")) || head.ContentType != "application/x-report" || head.Metadata["Source"] != "proxy" {
-		t.Fatalf("proxy head = %+v", head)
-	}
-	body, obj, err := store.Get(context.Background(), "reports/report.txt", publicstorage.GetOptions{})
-	if err != nil {
-		t.Fatalf("proxy get returned error: %v", err)
-	}
-	defer body.Close()
-	data, err := io.ReadAll(body)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(data) != "storage report" || obj.Key != "reports/report.txt" || obj.Metadata["Source"] != "proxy" {
-		t.Fatalf("proxy get data=%q object=%+v", data, obj)
-	}
-	// Objects are plain files under the cell's per-store object root.
-	if _, err := os.Stat(filepath.Join(plan.ObjectsDir, "app", "reports", "report.txt")); err != nil {
-		t.Fatalf("expected object file under cell object root: %v", err)
-	}
-	assertStorageProxyConcurrentIfNoneMatch(t, store)
-	if err := store.Delete(context.Background(), "reports/report.txt"); err != nil {
-		t.Fatalf("proxy delete returned error: %v", err)
-	}
-	if _, err := store.Head(context.Background(), "reports/report.txt"); err == nil {
-		t.Fatal("proxy head succeeded after delete")
-	}
+	return store, plan
 }
 
 func assertStorageProxyConcurrentIfNoneMatch(t *testing.T, store publicstorage.Store) {

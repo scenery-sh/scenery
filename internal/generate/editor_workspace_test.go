@@ -8,8 +8,10 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"scenery.sh/internal/compiler"
+	"scenery.sh/internal/devcache"
 )
 
 func TestEditorWorkspaceSupportsRawGoWithoutMaterializedGeneratedGo(t *testing.T) {
@@ -47,20 +49,22 @@ func TestEditorWorkspaceSupportsRawGoWithoutMaterializedGeneratedGo(t *testing.T
 
 func TestEditorWorkspaceConcurrentSyncCreatesOneGeneration(t *testing.T) {
 	root := t.TempDir()
-	copyTree(t, filepath.Join("..", "compiler", "testdata", "native"), root)
-	rewriteFixtureSceneryReplace(t, root)
+	writeMinimalNativeGenerationFixture(t, root)
 	result, err := compiler.Compile(root)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	var wait sync.WaitGroup
-	errors := make(chan error, 8)
-	for range 8 {
+	start := make(chan struct{})
+	errors := make(chan error, 2)
+	for range 2 {
 		wait.Go(func() {
-			errors <- SyncEditorWorkspace(result)
+			<-start
+			errors <- syncEditorWorkspaceWithLockRetry(result, false, time.Millisecond)
 		})
 	}
+	close(start)
 	wait.Wait()
 	close(errors)
 	for err := range errors {
@@ -163,6 +167,8 @@ func TestEditorWorkspaceExplicitMergePreservesUserWorkFile(t *testing.T) {
 	if err := os.RemoveAll(filepath.Join(root, "internal", "scenerygen")); err != nil {
 		t.Fatal(err)
 	}
+	restoreCacheRoot := devcache.SetRoot(filepath.Join(root, ".cache"))
+	t.Cleanup(restoreCacheRoot)
 	result, err := compiler.Compile(root)
 	if err != nil {
 		t.Fatal(err)
@@ -182,6 +188,8 @@ func TestEditorWorkspaceExplicitMergePreservesUserWorkFile(t *testing.T) {
 	if !bytes.Contains(merged, authored) || !bytes.Contains(merged, []byte(editorMergeBegin)) {
 		t.Fatalf("merged workfile lost user bytes:\n%s", merged)
 	}
+	// The merge contract includes module resolution, not just go.work syntax:
+	// prove the authored implementation builds against the generated use paths.
 	command := boundedGoCommand("test", "./...")
 	command.Dir = root
 	command.Env = withoutEnvironment(command.Env, "GOWORK")

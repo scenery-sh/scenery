@@ -78,3 +78,64 @@ func copyTree(t *testing.T, source, target string) {
 		t.Fatal(err)
 	}
 }
+
+func writeAgentExecutionFixture(t *testing.T, timeout string) string {
+	t.Helper()
+	root := t.TempDir()
+	if err := writeAgentExecutionFixtureFiles(root, timeout); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+func writeAgentExecutionFixtureFiles(root, timeout string) error {
+	if err := writeAgentFixtureFile(filepath.Join(root, testAppFilename), `application "agent_test" {}
+module "house" {
+  source = "./house"
+}
+`); err != nil {
+		return err
+	}
+	return writeAgentFixtureFile(filepath.Join(root, "house", testPackageFilename), `package "house" {
+}
+service "house" {
+  runtime = "test"
+  implementation {
+    constructor = "NewService"
+  }
+}
+record "process_scene_input" {
+  field "scene_id" {
+    type = string
+  }
+}
+operation "process_scene" {
+  service = service.house
+  input   = record.process_scene_input
+  handler {
+    method = "ProcessScene"
+  }
+}
+execution "process_scene_direct" {
+  operation = operation.process_scene
+  mode      = "direct"
+  timeout   = "`+timeout+`"
+}
+`)
+}
+
+func writeAgentFixtureFile(path, content string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(content), 0o644)
+}
+
+func readAgentFixtureFile(t *testing.T, path string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}

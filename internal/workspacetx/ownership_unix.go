@@ -1,4 +1,4 @@
-//go:build !linux && !windows
+//go:build aix || darwin || dragonfly || freebsd || illumos || netbsd || openbsd || solaris
 
 package workspacetx
 
@@ -8,14 +8,11 @@ import (
 	"strings"
 )
 
-type ownerProcessInfo struct {
-	StartedAt string
-	Exe       string
-	Cmdline   []string
-}
-
 func processOwnerInfo(pid int) ownerProcessInfo {
-	var info ownerProcessInfo
+	info := ownerProcessInfo{Liveness: probeProcessLiveness(pid)}
+	if info.Liveness == ownerProcessDead {
+		return info
+	}
 	out, err := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "lstart=", "-o", "command=").Output()
 	if err != nil {
 		return info
@@ -29,5 +26,6 @@ func processOwnerInfo(pid int) ownerProcessInfo {
 	if len(info.Cmdline) > 0 {
 		info.Exe = info.Cmdline[0]
 	}
+	info.Liveness = ownerProcessLive
 	return info
 }

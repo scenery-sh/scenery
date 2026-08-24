@@ -44,6 +44,14 @@ type AgentSession struct {
 	snapshots map[string]*agentSnapshot
 	order     []*agentSnapshot
 	execution AgentExecutionContext
+	mutation  agentMutationDependencies
+}
+
+type agentMutationDependencies struct {
+	planChanges        func(string, evolution.ChangeRequest) (evolution.ChangePlan, error)
+	applyIssuedPlan    func(string, string, evolution.ApplyOptions) (evolution.ChangeApplyResult, error)
+	loadIssuedPlan     func(string, string) (evolution.ChangePlan, error)
+	loadAppliedReceipt func(string, string) (evolution.ChangeReceipt, error)
 }
 
 type agentSnapshot struct {
@@ -68,6 +76,15 @@ func NewAgentSession() *AgentSession {
 // come from the authenticated caller. The context is copied and normalized so
 // later model requests cannot mutate the server-owned slices or credentials.
 func NewAgentSessionWithContext(context AgentExecutionContext) *AgentSession {
+	return newAgentSessionWithDependencies(context, agentMutationDependencies{
+		planChanges:        evolution.PlanChanges,
+		applyIssuedPlan:    evolution.ApplyIssuedChangePlanWithOptions,
+		loadIssuedPlan:     evolution.LoadIssuedChangePlan,
+		loadAppliedReceipt: evolution.LoadAppliedChangeReceipt,
+	})
+}
+
+func newAgentSessionWithDependencies(context AgentExecutionContext, mutation agentMutationDependencies) *AgentSession {
 	context.Principal = strings.TrimSpace(context.Principal)
 	context.AppRoot = strings.TrimSpace(context.AppRoot)
 	context.ClientIdentity = strings.TrimSpace(context.ClientIdentity)
@@ -84,7 +101,7 @@ func NewAgentSessionWithContext(context AgentExecutionContext) *AgentSession {
 	context.GrantedCapabilities = canonicalStrings(context.GrantedCapabilities)
 	context.ApprovalTokens = cloneApprovalTokens(context.ApprovalTokens)
 	context.TraceContext = cloneTraceContext(context.TraceContext)
-	return &AgentSession{snapshots: map[string]*agentSnapshot{}, execution: context}
+	return &AgentSession{snapshots: map[string]*agentSnapshot{}, execution: context, mutation: mutation}
 }
 
 // ExecutionContext returns a defensive copy of the server-owned execution
@@ -346,7 +363,7 @@ func (session *AgentSession) Handle(result *Result, request AgentRequest) AgentR
 			response.Error = agentErrorFrom(err)
 			break
 		}
-		plan, err := evolution.PlanChanges(result.Root, evolution.ChangeRequest{
+		plan, err := session.mutation.planChanges(result.Root, evolution.ChangeRequest{
 			BaseWorkspaceRevision:     params.BaseWorkspaceRevision,
 			BaseContractRevision:      params.BaseContractRevision,
 			Capabilities:              append([]string(nil), execution.GrantedCapabilities...),
@@ -374,7 +391,7 @@ func (session *AgentSession) Handle(result *Result, request AgentRequest) AgentR
 			response.Error = agentErrorFrom(err)
 			break
 		}
-		resultValue, err := evolution.ApplyIssuedChangePlanWithOptions(result.Root, params.PlanID, ApplyOptions{
+		resultValue, err := session.mutation.applyIssuedPlan(result.Root, params.PlanID, ApplyOptions{
 			Caller:              execution.Principal,
 			GrantedCapabilities: append([]string(nil), execution.GrantedCapabilities...),
 			ApprovalTokens:      cloneApprovalTokens(execution.ApprovalTokens),
@@ -404,7 +421,7 @@ func (session *AgentSession) Handle(result *Result, request AgentRequest) AgentR
 			response.Error = agentErrorFrom(err)
 			break
 		}
-		plan, err := evolution.LoadIssuedChangePlan(result.Root, params.PlanID)
+		plan, err := session.mutation.loadIssuedPlan(result.Root, params.PlanID)
 		if err != nil {
 			response.Error = agentErrorFrom(err)
 			break
@@ -428,7 +445,7 @@ func (session *AgentSession) Handle(result *Result, request AgentRequest) AgentR
 			response.Error = agentErrorFrom(err)
 			break
 		}
-		plan, err := evolution.LoadIssuedChangePlan(result.Root, params.PlanID)
+		plan, err := session.mutation.loadIssuedPlan(result.Root, params.PlanID)
 		if err != nil {
 			response.Error = agentErrorFrom(err)
 			break
@@ -437,7 +454,7 @@ func (session *AgentSession) Handle(result *Result, request AgentRequest) AgentR
 			response.Error = agentError("permission_denied", "plan caller mismatch")
 			break
 		}
-		receipt, err := evolution.LoadAppliedChangeReceipt(result.Root, params.PlanID)
+		receipt, err := session.mutation.loadAppliedReceipt(result.Root, params.PlanID)
 		if err != nil {
 			response.Error = agentErrorFrom(err)
 			break

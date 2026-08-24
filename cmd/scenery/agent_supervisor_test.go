@@ -13,6 +13,7 @@ import (
 	"time"
 
 	localagent "scenery.sh/internal/agent"
+	"scenery.sh/internal/deploydiag"
 )
 
 // fakeAgentHealthServer serves /v1/health on the agent socket with a
@@ -90,10 +91,27 @@ func withAgentSupervisorHooks(t *testing.T, status localagent.LaunchdAgentStatus
 func deployStatusTestDependencies(supervisor localagent.LaunchdAgentStatus, launchAgent deployLaunchAgentStatus) deployStatusDependencies {
 	return deployStatusDependencies{
 		serviceManager: func() string { return "launchd" },
+		edgeStatus: func(localagent.Paths, localagent.EdgeState) edgeStatusCaddy {
+			return edgeStatusCaddy{Kind: localagent.EdgeKindCaddy, State: localagent.EdgeStatusRunning}
+		},
+		privilegedListenerStatus: func(localagent.Paths) edgeStatusPrivilegedListener {
+			return edgeStatusPrivilegedListener{
+				Installed: true,
+				State:     "running",
+				Listen:    []string{"0.0.0.0:80", "0.0.0.0:443"},
+			}
+		},
+		agentStatus: func(paths localagent.Paths) deployAgentStatus {
+			return deployAgentStatus{State: "running", StatePath: paths.StatePath, SocketPath: paths.SocketPath}
+		},
 		agentSupervisorStatus: func(localagent.Paths) deployAgentSupervisorStatus {
 			return deployAgentSupervisorStatusFromService(supervisor)
 		},
-		launchAgentStatus: func() deployLaunchAgentStatus { return launchAgent },
+		launchAgentStatus:      func() deployLaunchAgentStatus { return launchAgent },
+		systemdSnapshotOverlay: func(*deploydiag.Snapshot) {},
+		diagnosticsReport: func(context.Context, deploydiag.Snapshot) deploydiag.Report {
+			return deploydiag.Report{}
+		},
 	}
 }
 

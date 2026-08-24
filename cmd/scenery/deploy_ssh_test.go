@@ -2,23 +2,23 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
-
-	appcfg "scenery.sh/internal/app"
 )
 
 func TestDeploySSHRunsCheckAndCommandsInOrder(t *testing.T) {
 	t.Parallel()
 
-	root := copyDeploySSHTestApp(t)
+	root := deploySSHTestApp(t)
 	var recorder deploySSHTestRecorder
-	tools := deploySSHTools{SSH: "/fake/ssh", Rsync: "/fake/rsync", RunCommand: recorder.run}
+	tools := deploySSHTools{SSH: "/fake/ssh", Rsync: "/fake/rsync", Check: recorder.check, RunCommand: recorder.run}
 
 	var stdout bytes.Buffer
 	if err := runDeploySSH(&stdout, "some-id", []string{"--app-root", root}, tools); err != nil {
@@ -26,6 +26,7 @@ func TestDeploySSHRunsCheckAndCommandsInOrder(t *testing.T) {
 	}
 	log := recorder.log()
 	for _, want := range []string{
+		"local scenery check",
 		"SSH preflight",
 		"remote scenery down",
 		"$HOME/.scenery/run/agent.sock",
@@ -46,7 +47,7 @@ func TestDeploySSHRunsCheckAndCommandsInOrder(t *testing.T) {
 			t.Fatalf("command log missing %q:\n%s", want, log)
 		}
 	}
-	if order := recorder.order(); order != "SSH preflight\nremote scenery down\nrsync\nremote scenery up" {
+	if order := recorder.order(); order != "local scenery check\nSSH preflight\nremote scenery down\nrsync\nremote scenery up" {
 		t.Fatalf("command order = %q\n%s", order, log)
 	}
 	if !strings.Contains(stdout.String(), "remote ready") {
@@ -173,21 +174,9 @@ func TestDeploySSHRunsRemotePublishAfterUp(t *testing.T) {
 	}
 }
 
-func copyDeploySSHTestApp(t *testing.T) string {
+func deploySSHTestApp(t *testing.T) string {
 	t.Helper()
 	root := filepath.Join(t.TempDir(), "app with spaces")
-	if err := os.MkdirAll(root, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	source := filepath.Join(appcfg.RepoRoot(), "testdata", "apps", "basic")
-	if err := os.CopyFS(root, os.DirFS(source)); err != nil {
-		t.Fatalf("copy fixture: %v", err)
-	}
-	goMod, err := os.ReadFile(filepath.Join(root, "go.mod"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	writeTestAppFile(t, root, "go.mod", strings.ReplaceAll(string(goMod), "../../..", appcfg.RepoRoot()))
 	writeTestAppFile(t, root, ".scenery.json", `{"name":"basicapp","envs":{"local":{"default":true},"production":{"deploy":{"ssh":["some-id"]}}}}`)
 	return root
 }
@@ -200,6 +189,14 @@ type deploySSHRecordedCommand struct {
 
 type deploySSHTestRecorder struct {
 	Commands []deploySSHRecordedCommand
+}
+
+func (r *deploySSHTestRecorder) check(_ context.Context, _ io.Writer, args []string) error {
+	r.Commands = append(r.Commands, deploySSHRecordedCommand{
+		Name: "local scenery check",
+		Args: append([]string(nil), args...),
+	})
+	return nil
 }
 
 func (r *deploySSHTestRecorder) run(name string, cmd *exec.Cmd) error {

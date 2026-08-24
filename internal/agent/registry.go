@@ -19,6 +19,8 @@ type Registry struct {
 	path             string
 	router           string
 	scheme           string
+	ownerVerifier    func(Owner) error
+	durable          bool
 	mu               sync.Mutex
 	sessions         map[string]Session
 	substrates       map[string]Substrate
@@ -49,6 +51,8 @@ func OpenRegistry(path, routerAddr string, routerScheme ...string) (*Registry, e
 		path:             path,
 		router:           routerAddr,
 		scheme:           scheme,
+		ownerVerifier:    VerifyOwner,
+		durable:          true,
 		sessions:         make(map[string]Session),
 		substrates:       make(map[string]Substrate),
 		aliases:          make(map[string]AliasLease),
@@ -170,7 +174,7 @@ func (r *Registry) Upsert(req RegisterRequest) (Session, error) {
 	if err != nil {
 		return Session{}, err
 	}
-	if existing != nil && !requestMayClaimSession(req, *existing, session) {
+	if existing != nil && !requestMayClaimSession(req, *existing, session, r.verifyOwner) {
 		existingPID := firstPositive(existing.OwnerPID, existing.Owner.PID)
 		return Session{}, fmt.Errorf("scenery up session %q is already running for app root %s under owner PID %d", sessionID, existing.AppRoot, existingPID)
 	}
@@ -186,8 +190,10 @@ func (r *Registry) Upsert(req RegisterRequest) (Session, error) {
 	if err := r.saveLocked(); err != nil {
 		return Session{}, err
 	}
-	if err := WriteManifest(session); err != nil {
-		return Session{}, err
+	if r.durable {
+		if err := WriteManifest(session); err != nil {
+			return Session{}, err
+		}
 	}
 	return session, nil
 }
@@ -198,14 +204,14 @@ func (r *Registry) blockingAppRootSessionLocked(next Session) (Session, bool) {
 		if existing.SessionID == next.SessionID || filepath.Clean(existing.AppRoot) != nextRoot {
 			continue
 		}
-		if sessionBlocksAppRootRegistration(existing) {
+		if sessionBlocksAppRootRegistration(existing, r.verifyOwner) {
 			return existing, true
 		}
 	}
 	return Session{}, false
 }
 
-func sessionBlocksAppRootRegistration(existing Session) bool {
+func sessionBlocksAppRootRegistration(existing Session, verifyOwner func(Owner) error) bool {
 	existingPID := firstPositive(existing.OwnerPID, existing.Owner.PID)
 	if existingPID <= 0 {
 		return false
@@ -217,13 +223,13 @@ func sessionBlocksAppRootRegistration(existing Session) bool {
 	if owner.PID <= 0 {
 		owner.PID = existingPID
 	}
-	if VerifyOwner(owner) == nil {
+	if verifyOwner(owner) == nil {
 		return true
 	}
 	return ownerProcessInspectable(existingPID)
 }
 
-func requestMayClaimSession(req RegisterRequest, existing, next Session) bool {
+func requestMayClaimSession(req RegisterRequest, existing, next Session, verifyOwner func(Owner) error) bool {
 	requestPID := firstPositive(req.OwnerPID, req.Owner.PID, next.OwnerPID, next.Owner.PID)
 	existingPID := firstPositive(existing.OwnerPID, existing.Owner.PID)
 	if requestPID <= 0 || existingPID <= 0 || requestPID == existingPID {
@@ -236,7 +242,7 @@ func requestMayClaimSession(req RegisterRequest, existing, next Session) bool {
 	if owner.PID <= 0 {
 		owner.PID = existing.OwnerPID
 	}
-	if VerifyOwner(owner) != nil {
+	if verifyOwner(owner) != nil {
 		if ownerProcessInspectable(existingPID) {
 			return false
 		}
@@ -430,7 +436,7 @@ func (r *Registry) claimAliasesLocked(session Session, force bool) (map[string]s
 	for host, route := range desired {
 		existing, claimed := r.aliases[host]
 		if claimed && existing.SessionID != session.SessionID {
-			if !force && !aliasLeaseOwnerStale(existing) {
+			if !force && !aliasLeaseOwnerStale(existing, r.verifyOwner) {
 				conflicts[route] = existing
 				continue
 			}
@@ -488,7 +494,7 @@ func (r *Registry) claimDomainHostLocked(session *Session, force bool) {
 		if other.RouteManifest.Mode != RouteModePath || normalizeRouteHost(other.RouteManifest.DomainHost) != host {
 			continue
 		}
-		if !force && !sessionDomainHostOwnerStale(other) {
+		if !force && !sessionDomainHostOwnerStale(other, r.verifyOwner) {
 			session.DomainHostConflict = &AliasLease{
 				Host:      host,
 				Route:     RoutePathMode,
@@ -513,7 +519,7 @@ func (r *Registry) claimDomainHostLocked(session *Session, force bool) {
 // sessionDomainHostOwnerStale mirrors aliasLeaseOwnerStale: a host owner is
 // stale only when a recorded fingerprint provably no longer matches a live
 // process. Missing owners or missing fingerprints stay conservative.
-func sessionDomainHostOwnerStale(session Session) bool {
+func sessionDomainHostOwnerStale(session Session, verifyOwner func(Owner) error) bool {
 	owner := session.Owner
 	pid := firstPositive(session.OwnerPID, owner.PID)
 	if pid <= 0 {
@@ -526,7 +532,7 @@ func sessionDomainHostOwnerStale(session Session) bool {
 	if !ownerHasFingerprint(owner) {
 		return false
 	}
-	return VerifyOwner(owner) != nil
+	return verifyOwner(owner) != nil
 }
 
 func (r *Registry) removeSessionAliasesLocked(sessionID string) {
@@ -565,7 +571,7 @@ func (r *Registry) removeAliasFromSessionLocked(alias AliasLease) {
 	r.sessions[session.SessionID] = session
 }
 
-func aliasLeaseOwnerStale(alias AliasLease) bool {
+func aliasLeaseOwnerStale(alias AliasLease, verifyOwner func(Owner) error) bool {
 	owner := alias.Owner
 	pid := firstPositive(alias.OwnerPID, owner.PID)
 	if pid <= 0 {
@@ -578,7 +584,14 @@ func aliasLeaseOwnerStale(alias AliasLease) bool {
 	if !ownerHasFingerprint(owner) {
 		return false
 	}
-	return VerifyOwner(owner) != nil
+	return verifyOwner(owner) != nil
+}
+
+func (r *Registry) verifyOwner(owner Owner) error {
+	if r != nil && r.ownerVerifier != nil {
+		return r.ownerVerifier(owner)
+	}
+	return VerifyOwner(owner)
 }
 
 func normalizeAliasLease(alias AliasLease) AliasLease {
@@ -776,6 +789,9 @@ func (r *Registry) domainHostIndexPrefersLocked(candidate Session, existing rout
 }
 
 func (r *Registry) saveLocked() error {
+	if !r.durable {
+		return nil
+	}
 	if err := os.MkdirAll(filepath.Dir(r.path), 0o755); err != nil {
 		return err
 	}

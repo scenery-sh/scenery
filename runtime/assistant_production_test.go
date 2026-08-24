@@ -185,7 +185,9 @@ func TestProductionConcurrentAssetInstallReusesVerifiedTree(t *testing.T) {
 	asset := testProductionEmbeddedAsset(t, "app/assistant/concurrent")
 	archive := mustProductionArchive(t, asset.CapsuleArchive, asset.CapsuleDescriptorJSON)
 	stateRoot := t.TempDir()
-	const workers = 8
+	// Two contenders are sufficient to exercise the install lock and reuse
+	// path; additional identical workers only repeat archive verification.
+	const workers = 2
 	results := make([]runtimeassets.InstallResult, workers)
 	errs := make([]error, workers)
 	var group sync.WaitGroup

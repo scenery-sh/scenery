@@ -146,7 +146,11 @@ func liveDetachedDuplicateDevSession(ctx context.Context, client *localagent.Cli
 	if client == nil {
 		return nil, 0, nil
 	}
-	sessions, err := client.List(ctx, root)
+	return liveDetachedDuplicateDevSessionWithLister(ctx, client.List, root)
+}
+
+func liveDetachedDuplicateDevSessionWithLister(ctx context.Context, list detachedDevSessionLister, root string) (*localagent.Session, int, error) {
+	sessions, err := list(ctx, root)
 	if err != nil {
 		return nil, 0, err
 	}

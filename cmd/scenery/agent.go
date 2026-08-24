@@ -454,7 +454,7 @@ func writeStatus(ctx context.Context, client *localagent.Client, stdout io.Write
 	return nil
 }
 
-func statusSubstrates(ctx context.Context, client *localagent.Client) ([]localagent.Substrate, error) {
+func statusSubstrates(ctx context.Context, client statusSubstrateClient) ([]localagent.Substrate, error) {
 	substrates, err := client.ListSubstrates(ctx)
 	if err != nil {
 		return nil, err

@@ -188,19 +188,31 @@ func TestDevManagedProcessWaitReadyTimeoutUsesFakeDeadline(t *testing.T) {
 func TestDevManagedProcessStartupTimeoutIncludesLastProbeAndTail(t *testing.T) {
 	t.Parallel()
 
+	outputSeen := make(chan struct{}, 1)
 	process, err := startDevManagedProcess(context.Background(), devProcessStartRequest{
 		Name:    "web",
 		Kind:    "frontend",
 		Command: "/bin/sh",
 		Args:    []string{"-c", "echo still-starting; sleep 5"},
+		OnOutput: func(_ int, _ string, _ []byte) {
+			select {
+			case outputSeen <- struct{}{}:
+			default:
+			}
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = process.Stop(100 * time.Millisecond) }()
+	select {
+	case <-outputSeen:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for startup output")
+	}
 
 	err = process.WaitReady(context.Background(), devProcessReadyRequest{
-		Timeout:  100 * time.Millisecond,
+		Timeout:  50 * time.Millisecond,
 		Interval: 25 * time.Millisecond,
 		Probe: func(context.Context) error {
 			return os.ErrNotExist

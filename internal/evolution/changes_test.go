@@ -24,13 +24,8 @@ import (
 func TestChangePlanDoesNotWriteAndApplyIsRevisionBound(t *testing.T) {
 	t.Parallel()
 
-	root := t.TempDir()
-	copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), root)
-	base, err := compiler.Compile(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(root, "house", testPackageFilename)
+	root, base := newAppChangeFixture(t, testAuthenticationDeclaration)
+	path := filepath.Join(root, testAppFilename)
 	before, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -38,7 +33,7 @@ func TestChangePlanDoesNotWriteAndApplyIsRevisionBound(t *testing.T) {
 	plan, err := PlanChanges(root, ChangeRequest{
 		BaseWorkspaceRevision: base.WorkspaceRevision,
 		BaseContractRevision:  new(base.Manifest.ContractRevision),
-		Operations:            []SemanticOperation{{Op: "value.set", Address: "house/execution/process_scene_direct", Path: "/spec/timeout", Value: "45m", Precondition: &ChangePrecondition{Equals: "40m"}}},
+		Operations:            []SemanticOperation{{Op: "resource.rename", Address: "app/authentication/test", Value: "renamed"}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -66,73 +61,60 @@ func TestChangePlanDoesNotWriteAndApplyIsRevisionBound(t *testing.T) {
 func TestChangePlanNormalizesPresentationEquivalentOperations(t *testing.T) {
 	t.Parallel()
 
-	root := t.TempDir()
-	copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), root)
-	base, err := compiler.Compile(root)
-	if err != nil || !base.Valid() {
-		t.Fatalf("compile: %v diagnostics=%#v", err, base.Diagnostics)
-	}
-	request := func(value any) ChangeRequest {
-		return ChangeRequest{
-			BaseWorkspaceRevision: base.WorkspaceRevision,
-			BaseContractRevision:  new(base.Manifest.ContractRevision),
-			Operations:            []SemanticOperation{{Op: "value.set", Address: "house/execution/process_scene_direct", Path: "/spec/timeout", Value: value}},
-		}
-	}
-	contextual, err := PlanChanges(root, request("45m"))
+	_, base := newHouseChangeFixture(t, testUnitExecutionDeclarations)
+	contextual, err := ValidateSemanticOperation(base, SemanticOperation{
+		Op: "value.set", Address: "house/execution/process_scene_direct", Path: "/spec/timeout", Value: "45m",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	tagged, err := PlanChanges(root, request(map[string]any{"$scalar": "duration", "nanoseconds": "2700000000000"}))
+	tagged, err := ValidateSemanticOperation(base, SemanticOperation{
+		Op: "value.set", Address: "house/execution/process_scene_direct", Path: "/spec/timeout",
+		Value: map[string]any{"$scalar": "duration", "nanoseconds": "2700000000000"},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if contextual.OperationsDigest != tagged.OperationsDigest || !semanticEqual(contextual.Operations, tagged.Operations) {
-		t.Fatalf("normalized operations differ:\ncontextual=%#v %s\ntagged=%#v %s", contextual.Operations, contextual.OperationsDigest, tagged.Operations, tagged.OperationsDigest)
+	if semanticOperationsDigest([]SemanticOperation{contextual}) != semanticOperationsDigest([]SemanticOperation{tagged}) || !semanticEqual(contextual, tagged) {
+		t.Fatalf("duration normalization differs: contextual=%#v tagged=%#v", contextual, tagged)
 	}
-	operation := contextual.Operations[0]
+	operation := contextual
 	if operation.ExpectedKind != "scenery.execution" || operation.ExpectedSchemaRevision != resourceSchemaRevision(operation.ExpectedKind) || operation.View != "source" {
 		t.Fatalf("normalized operation identity = %#v", operation)
 	}
-	mismatched := request("45m")
-	mismatched.Operations[0].ExpectedKind = "scenery.record"
-	if _, err := PlanChanges(root, mismatched); err == nil || !strings.Contains(err.Error(), "expected kind") {
+	mismatched := SemanticOperation{Op: "value.set", Address: "house/execution/process_scene_direct", ExpectedKind: "scenery.record", Path: "/spec/timeout", Value: "45m"}
+	if _, err := ValidateSemanticOperation(base, mismatched); err == nil || !strings.Contains(err.Error(), "expected kind") {
 		t.Fatalf("mismatched expected kind error = %v", err)
 	}
-	readOnly := request("45m")
-	readOnly.Operations[0].View = "expanded"
-	if _, err := PlanChanges(root, readOnly); err == nil || !strings.Contains(err.Error(), "read-only") {
+	readOnly := SemanticOperation{Op: "value.set", Address: "house/execution/process_scene_direct", View: "expanded", Path: "/spec/timeout", Value: "45m"}
+	if _, err := ValidateSemanticOperation(base, readOnly); err == nil || !strings.Contains(err.Error(), "read-only") {
 		t.Fatalf("expanded-view mutation error = %v", err)
 	}
-	referenceRequest := func(reference string) ChangeRequest {
-		return ChangeRequest{
-			BaseWorkspaceRevision: base.WorkspaceRevision,
-			BaseContractRevision:  new(base.Manifest.ContractRevision),
-			Operations: []SemanticOperation{{
-				Op: "value.set", Address: "house/execution/process_scene_direct", Path: "/spec/operation", Value: map[string]any{"$ref": reference},
-			}},
-		}
-	}
-	localReference, err := PlanChanges(root, referenceRequest("operation.process_scene"))
+}
+
+func TestChangePlanNormalizesPresentationEquivalentReferences(t *testing.T) {
+	t.Parallel()
+
+	_, base := newHouseChangeFixture(t, testUnitExecutionDeclarations)
+	localReference, err := ValidateSemanticOperation(base, SemanticOperation{
+		Op: "value.set", Address: "house/execution/process_scene_direct", Path: "/spec/operation", Value: map[string]any{"$ref": "operation.process_scene"},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	canonicalReference, err := PlanChanges(root, referenceRequest("house/operation/process_scene"))
+	canonicalReference, err := ValidateSemanticOperation(base, SemanticOperation{
+		Op: "value.set", Address: "house/execution/process_scene_direct", Path: "/spec/operation", Value: map[string]any{"$ref": "house/operation/process_scene"},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if localReference.OperationsDigest != canonicalReference.OperationsDigest || !semanticEqual(localReference.Operations, canonicalReference.Operations) {
-		t.Fatalf("reference normalization differs: %#v %#v", localReference.Operations, canonicalReference.Operations)
+	if semanticOperationsDigest([]SemanticOperation{localReference}) != semanticOperationsDigest([]SemanticOperation{canonicalReference}) || !semanticEqual(localReference, canonicalReference) {
+		t.Fatalf("reference normalization differs: %#v %#v", localReference, canonicalReference)
 	}
 }
 
 func TestChangePlanNormalizesOperationsAcrossTemporarilyInvalidGraph(t *testing.T) {
-	root := t.TempDir()
-	copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), root)
-	base, err := compiler.Compile(root)
-	if err != nil || !base.Valid() {
-		t.Fatalf("compile: %v diagnostics=%#v", err, base.Diagnostics)
-	}
+	root, base := newHouseGoExecutionChangeFixture(t)
 	plan, err := PlanChanges(root, ChangeRequest{
 		BaseWorkspaceRevision: base.WorkspaceRevision,
 		BaseContractRevision:  new(base.Manifest.ContractRevision),
@@ -154,29 +136,18 @@ func TestChangePlanNormalizesOperationsAcrossTemporarilyInvalidGraph(t *testing.
 func TestChangeRenameUpdatesTypedReferences(t *testing.T) {
 	t.Parallel()
 
-	root := t.TempDir()
-	copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), root)
-	base, err := compiler.Compile(root)
+	root, base := newHouseChangeFixture(t, testUnitExecutionDeclarations)
+	plan, err := PlanChangesDryRun(root, ChangeRequest{BaseWorkspaceRevision: base.WorkspaceRevision, BaseContractRevision: new(base.Manifest.ContractRevision), Operations: []SemanticOperation{{Op: "resource.rename", Address: "house/operation/process_scene", Value: "process_roof_scene"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := PlanChanges(root, ChangeRequest{BaseWorkspaceRevision: base.WorkspaceRevision, BaseContractRevision: new(base.Manifest.ContractRevision), Operations: []SemanticOperation{{Op: "resource.rename", Address: "house/operation/process_scene", Value: "process_roof_scene"}}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := ApplyChangePlan(root, plan, base.WorkspaceRevision, base.Manifest.ContractRevision); err != nil {
-		t.Fatal(err)
-	}
-	b, err := os.ReadFile(filepath.Join(root, "house", testPackageFilename))
-	if err != nil {
-		t.Fatal(err)
-	}
+	b := plannedEditAfter(t, plan, filepath.Join("house", testPackageFilename))
 	if !containsJSONText(b, "operation \"process_roof_scene\"") || !containsJSONText(b, "operation.process_roof_scene") {
 		t.Fatalf("source:\n%s", b)
 	}
 }
 
-func TestChangeRenameUpdatesNestedAndCompositeReferencesAndRecordsEvidence(t *testing.T) {
+func TestChangeRenameUpdatesNestedAndCompositeReferences(t *testing.T) {
 	root := t.TempDir()
 	for _, directory := range []string{"parent", "geometry", "consumer"} {
 		if err := os.MkdirAll(filepath.Join(root, directory), 0o755); err != nil {
@@ -215,7 +186,7 @@ input "point" { type = resource_ref("record") }
 	if err != nil || !base.Valid() {
 		t.Fatalf("compile: %v diagnostics=%#v", err, base.Diagnostics)
 	}
-	plan, err := PlanChanges(root, ChangeRequest{
+	plan, err := PlanChangesDryRun(root, ChangeRequest{
 		BaseWorkspaceRevision: base.WorkspaceRevision,
 		BaseContractRevision:  new(base.Manifest.ContractRevision),
 		Operations: []SemanticOperation{{
@@ -247,20 +218,36 @@ input "point" { type = resource_ref("record") }
 		t.Fatal(err)
 	}
 	plan = roundTrippedPlan
-	receipt, err := ApplyChangePlan(root, plan, base.WorkspaceRevision, base.Manifest.ContractRevision)
+	written := plannedEditAfter(t, plan, filepath.Join("geometry", testPackageFilename))
+	if strings.Contains(string(written), "record.point") || strings.Count(string(written), "record.vector") != 3 || !strings.Contains(string(written), `record "vector"`) {
+		t.Fatalf("renamed source:\n%s", written)
+	}
+}
+
+func TestAppliedRenameReceiptPreservesContinuity(t *testing.T) {
+	root, base := newAppChangeFixture(t, testAuthenticationDeclaration)
+	plan, err := PlanChanges(root, ChangeRequest{
+		BaseWorkspaceRevision: base.WorkspaceRevision,
+		BaseContractRevision:  new(base.Manifest.ContractRevision),
+		Operations:            []SemanticOperation{{Op: "resource.rename", Address: "app/authentication/test", Value: "renamed"}},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	encodedPlan, err := json.Marshal(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(encodedPlan, &plan); err != nil {
+		t.Fatal(err)
+	}
+	receipt, applied := applyChangePlanAndCaptureResult(t, root, plan, base)
 	if len(receipt.Renames) != 1 || receipt.Renames[0] != plan.Renames[0] {
 		t.Fatalf("receipt renames = %#v; plan = %#v", receipt.Renames, plan.Renames)
 	}
 	persistedReceipt, err := os.ReadFile(appliedPlanPath(root, plan.PlanID))
 	if err != nil || !strings.Contains(string(persistedReceipt), `"rename_receipts"`) {
 		t.Fatalf("persisted receipt = %s, %v", persistedReceipt, err)
-	}
-	applied, err := compiler.Compile(root)
-	if err != nil {
-		t.Fatal(err)
 	}
 	persistedRenames, err := LoadAppliedRenameReceipts(root, base.Manifest, applied.Manifest)
 	if err != nil || len(persistedRenames) != 1 {
@@ -274,12 +261,9 @@ input "point" { type = resource_ref("record") }
 	if !foundPersistedRename {
 		t.Fatalf("future diff did not recover rename evidence: %#v", persistedDiff.Changes)
 	}
-	written, err := os.ReadFile(geometryPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(written), "record.point") || strings.Count(string(written), "record.vector") != 3 || !strings.Contains(string(written), `record "vector"`) {
-		t.Fatalf("renamed source:\n%s", written)
+	written, err := os.ReadFile(filepath.Join(root, testAppFilename))
+	if err != nil || strings.Contains(string(written), `authentication "test"`) || !strings.Contains(string(written), `authentication "renamed"`) {
+		t.Fatalf("applied rename source = %s, %v", written, err)
 	}
 }
 
@@ -324,26 +308,11 @@ record "point" {
 func TestChangeCreateThenRenameUsesRefreshedGraph(t *testing.T) {
 	t.Parallel()
 
-	root := t.TempDir()
-	copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), root)
-	base, err := compiler.Compile(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	plan, err := PlanChanges(root, ChangeRequest{BaseWorkspaceRevision: base.WorkspaceRevision, BaseContractRevision: new(base.Manifest.ContractRevision), Operations: []SemanticOperation{
+	root, base := newMinimalChangeFixture(t)
+	_, result := planChangesDryRunAndCaptureResult(t, root, ChangeRequest{BaseWorkspaceRevision: base.WorkspaceRevision, BaseContractRevision: new(base.Manifest.ContractRevision), Operations: []SemanticOperation{
 		{Op: "resource.create", Address: "app/authentication/test", Value: map[string]any{"provider": map[string]any{"$ref": "std.provider.standard_auth"}, "scheme": "session"}},
 		{Op: "resource.rename", Address: "app/authentication/test", Value: "renamed"},
 	}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := ApplyChangePlan(root, plan, base.WorkspaceRevision, base.Manifest.ContractRevision); err != nil {
-		t.Fatal(err)
-	}
-	result, err := compiler.Compile(root)
-	if err != nil {
-		t.Fatal(err)
-	}
 	resources := resourcesByAddress(result.Manifest)
 	if _, ok := resources["app/authentication/renamed"]; !ok {
 		t.Fatal("created and renamed resource missing")
@@ -356,13 +325,8 @@ func TestChangeCreateThenRenameUsesRefreshedGraph(t *testing.T) {
 func TestChangeCreateAddsStructuredRecord(t *testing.T) {
 	t.Parallel()
 
-	root := t.TempDir()
-	copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), root)
-	base, err := compiler.Compile(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	plan, err := PlanChanges(root, ChangeRequest{
+	root, base := newHouseChangeFixture(t, "")
+	_, result := planChangesDryRunAndCaptureResult(t, root, ChangeRequest{
 		BaseWorkspaceRevision: base.WorkspaceRevision,
 		BaseContractRevision:  new(base.Manifest.ContractRevision),
 		Operations: []SemanticOperation{{
@@ -377,16 +341,6 @@ func TestChangeCreateAddsStructuredRecord(t *testing.T) {
 			},
 		}},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := ApplyChangePlan(root, plan, base.WorkspaceRevision, base.Manifest.ContractRevision); err != nil {
-		t.Fatal(err)
-	}
-	result, err := compiler.Compile(root)
-	if err != nil || !result.Valid() {
-		t.Fatalf("compile: %v diagnostics=%#v", err, result.Diagnostics)
-	}
 	record := resourcesByAddress(result.Manifest)["house/record/audit_entry"]
 	fields := namedChildren(record.Spec, "field")
 	if len(fields) != 2 || stringValue(fields[0]["name"]) != "id" || stringValue(fields[1]["name"]) != "message" {
@@ -397,12 +351,7 @@ func TestChangeCreateAddsStructuredRecord(t *testing.T) {
 func TestChangePlanCommitsAdditionalAuthoredFilesTransactionally(t *testing.T) {
 	t.Parallel()
 
-	root := t.TempDir()
-	copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), root)
-	base, err := compiler.Compile(root)
-	if err != nil || !base.Valid() {
-		t.Fatalf("compile: %v diagnostics=%#v", err, base.Diagnostics)
-	}
+	root, base := newMinimalChangeFixture(t)
 	edit := SourceEdit{Path: "assistants/support/package.json", BeforeDigest: byteDigest(nil), After: []byte(`{"name":"fixture","private":true}`), BeforeExists: false, AfterExists: true, Mode: 0o644}
 	plan, err := PlanChanges(root, ChangeRequest{BaseWorkspaceRevision: base.WorkspaceRevision, BaseContractRevision: new(base.Manifest.ContractRevision), AdditionalEdits: []SourceEdit{edit}})
 	if err != nil {
@@ -461,7 +410,7 @@ record "lookup_result" {
 	if err != nil || !base.Valid() {
 		t.Fatalf("compile: %v diagnostics=%#v", err, base.Diagnostics)
 	}
-	plan, err := PlanChanges(root, ChangeRequest{
+	_, result := planChangesDryRunAndCaptureResult(t, root, ChangeRequest{
 		BaseWorkspaceRevision: base.WorkspaceRevision,
 		BaseContractRevision:  new(base.Manifest.ContractRevision),
 		Operations: []SemanticOperation{{
@@ -483,17 +432,6 @@ record "lookup_result" {
 			},
 		}},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := ApplyChangePlan(root, plan, base.WorkspaceRevision, base.Manifest.ContractRevision); err != nil {
-		t.Fatal(err)
-	}
-	result, err := compiler.Compile(root)
-	if err != nil || !result.Valid() {
-		written, _ := os.ReadFile(filepath.Join(root, "catalog", testPackageFilename))
-		t.Fatalf("compile: %v diagnostics=%#v\nsource:\n%s", err, result.Diagnostics, written)
-	}
 	operation := resourcesByAddress(result.Manifest)["catalog/operation/lookup"]
 	keys, _ := operation.Spec["idempotency"].(map[string]any)["key"].([]any)
 	if stringValue(operation.Spec["handler"].(map[string]any)["method"]) != "Lookup" || len(namedChildren(operation.Spec, "result")) != 1 || len(namedChildren(operation.Spec, "error")) != 1 ||
@@ -575,13 +513,8 @@ func TestChangeCreateRejectsScalarIdempotencyKey(t *testing.T) {
 func TestChangeCreateLowersCanonicalReferenceAndDurationScalar(t *testing.T) {
 	t.Parallel()
 
-	root := t.TempDir()
-	copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), root)
-	base, err := compiler.Compile(root)
-	if err != nil || !base.Valid() {
-		t.Fatalf("compile: %v diagnostics=%#v", err, base.Diagnostics)
-	}
-	plan, err := PlanChanges(root, ChangeRequest{
+	root, base := newHouseExecutionChangeFixture(t)
+	plan, result := planChangesDryRunAndCaptureResult(t, root, ChangeRequest{
 		BaseWorkspaceRevision: base.WorkspaceRevision,
 		BaseContractRevision:  new(base.Manifest.ContractRevision),
 		Operations: []SemanticOperation{{
@@ -594,22 +527,9 @@ func TestChangeCreateLowersCanonicalReferenceAndDurationScalar(t *testing.T) {
 			},
 		}},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := ApplyChangePlan(root, plan, base.WorkspaceRevision, base.Manifest.ContractRevision); err != nil {
-		t.Fatal(err)
-	}
-	result, err := compiler.Compile(root)
-	if err != nil || !result.Valid() {
-		t.Fatalf("compile: %v diagnostics=%#v", err, result.Diagnostics)
-	}
 	execution := resourcesByAddress(result.Manifest)["house/execution/process_scene_copy"]
 	timeout, _ := execution.Spec["timeout"].(map[string]any)
-	written, err := os.ReadFile(filepath.Join(root, "house", testPackageFilename))
-	if err != nil {
-		t.Fatal(err)
-	}
+	written := plannedEditAfter(t, plan, filepath.Join("house", testPackageFilename))
 	if refString(execution.Spec["operation"]) != "operation.process_scene" || timeout["nanoseconds"] != "2400000000000" || strings.Count(string(written), `"40m"`) != 2 {
 		t.Fatalf("created execution = %#v\nsource:\n%s", execution.Spec, written)
 	}
@@ -618,13 +538,8 @@ func TestChangeCreateLowersCanonicalReferenceAndDurationScalar(t *testing.T) {
 func TestChangeCreateAddsStructuredHTTPBinding(t *testing.T) {
 	t.Parallel()
 
-	root := t.TempDir()
-	copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), root)
-	base, err := compiler.Compile(root)
-	if err != nil || !base.Valid() {
-		t.Fatalf("compile: %v diagnostics=%#v", err, base.Diagnostics)
-	}
-	plan, err := PlanChanges(root, ChangeRequest{
+	root, base := newHouseGatewayExecutionChangeFixture(t)
+	_, result := planChangesDryRunAndCaptureResult(t, root, ChangeRequest{
 		BaseWorkspaceRevision: base.WorkspaceRevision,
 		BaseContractRevision:  new(base.Manifest.ContractRevision),
 		Operations: []SemanticOperation{{
@@ -652,16 +567,6 @@ func TestChangeCreateAddsStructuredHTTPBinding(t *testing.T) {
 			},
 		}},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := ApplyChangePlan(root, plan, base.WorkspaceRevision, base.Manifest.ContractRevision); err != nil {
-		t.Fatal(err)
-	}
-	result, err := compiler.Compile(root)
-	if err != nil || !result.Valid() {
-		t.Fatalf("compile: %v diagnostics=%#v", err, result.Diagnostics)
-	}
 	source, err := result.ManifestForView("source")
 	if err != nil {
 		t.Fatal(err)
@@ -677,27 +582,12 @@ func TestChangeCreateAddsStructuredHTTPBinding(t *testing.T) {
 func TestChangeCreateAddsServiceDynamicConfigBlock(t *testing.T) {
 	t.Parallel()
 
-	root := t.TempDir()
-	copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), root)
-	packagePath := filepath.Join(root, "house", testPackageFilename)
-	packageSource, err := os.ReadFile(packagePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	packageSource = append(packageSource, []byte(`
-input "model_path" {
-  type = relative_path
+	root, base := newHouseGoChangeFixture(t, `input "model_path" {
+  type    = relative_path
   default = relative_path("models/default")
 }
-`)...)
-	if err := os.WriteFile(packagePath, packageSource, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	base, err := compiler.Compile(root)
-	if err != nil || !base.Valid() {
-		t.Fatalf("compile: %v diagnostics=%#v", err, base.Diagnostics)
-	}
-	plan, err := PlanChanges(root, ChangeRequest{
+`)
+	plan, result := planChangesDryRunAndCaptureResult(t, root, ChangeRequest{
 		BaseWorkspaceRevision: base.WorkspaceRevision,
 		BaseContractRevision:  new(base.Manifest.ContractRevision),
 		Operations: []SemanticOperation{{
@@ -710,22 +600,9 @@ input "model_path" {
 			},
 		}},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := ApplyChangePlan(root, plan, base.WorkspaceRevision, base.Manifest.ContractRevision); err != nil {
-		t.Fatal(err)
-	}
-	result, err := compiler.Compile(root)
-	if err != nil || !result.Valid() {
-		t.Fatalf("compile: %v diagnostics=%#v", err, result.Diagnostics)
-	}
 	service := resourcesByAddress(result.Manifest)["house/service/audit"]
 	configSchema := namedChildren(service.Spec, "config_schema")
-	written, err := os.ReadFile(packagePath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	written := plannedEditAfter(t, plan, filepath.Join("house", testPackageFilename))
 	if len(configSchema) != 1 || stringValue(configSchema[0]["name"]) != "model_path" || !strings.Contains(string(written), "config {\n    model_path = var.model_path\n  }") {
 		t.Fatalf("created service config = %#v\nsource:\n%s", service.Spec, written)
 	}
@@ -738,25 +615,14 @@ func TestChangeCreateResolvesNestedModuleSource(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	writeNestedModuleFile(t, filepath.Join(root, testAppFilename), `workspace {
-  managed_generated_roots = ["parent/scenerycontract", "geometry/scenerycontract", "internal/scenerygen"]
-}
-go_module "application" {
-  root = "."
-  import_path = "example.test/nested"
-}
-application "nested" {}
+	writeNestedModuleFile(t, filepath.Join(root, testAppFilename), `application "nested" {}
 module "parent" { source = "./parent" }
 `)
-	writeNestedModuleFile(t, filepath.Join(root, "parent", testPackageFilename), `package "parent" {
-  go_contract { import_path = "example.test/nested/parent" }
-}
+	writeNestedModuleFile(t, filepath.Join(root, "parent", testPackageFilename), `package "parent" {}
 module "geometry" { source = "../geometry" }
 `)
 	geometryPath := filepath.Join(root, "geometry", testPackageFilename)
-	writeNestedModuleFile(t, geometryPath, `package "geometry" {
-  go_contract { import_path = "example.test/nested/geometry" }
-}
+	writeNestedModuleFile(t, geometryPath, `package "geometry" {}
 record "point" {
   field "x" { type = float64 }
 }
@@ -765,7 +631,7 @@ record "point" {
 	if err != nil || !base.Valid() {
 		t.Fatalf("compile: %v diagnostics=%#v", err, base.Diagnostics)
 	}
-	plan, err := PlanChanges(root, ChangeRequest{
+	plan, result := planChangesDryRunAndCaptureResult(t, root, ChangeRequest{
 		BaseWorkspaceRevision: base.WorkspaceRevision,
 		BaseContractRevision:  new(base.Manifest.ContractRevision),
 		Operations: []SemanticOperation{{
@@ -777,32 +643,14 @@ record "point" {
 			}},
 		}},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := ApplyChangePlan(root, plan, base.WorkspaceRevision, base.Manifest.ContractRevision); err != nil {
-		t.Fatal(err)
-	}
-	result, err := compiler.Compile(root)
-	if err != nil || !result.Valid() {
-		t.Fatalf("compile: %v diagnostics=%#v", err, result.Diagnostics)
-	}
-	written, err := os.ReadFile(geometryPath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	written := plannedEditAfter(t, plan, filepath.Join("geometry", testPackageFilename))
 	if resourcesByAddress(result.Manifest)["parent/geometry/record/vector"].Address == "" || !strings.Contains(string(written), `record "vector"`) {
 		t.Fatalf("nested resource destination:\n%s", written)
 	}
 }
 
 func TestChangeApplyRequiresBoundApprovalAndRejectsReplay(t *testing.T) {
-	root := t.TempDir()
-	copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), root)
-	base, err := compiler.Compile(root)
-	if err != nil || !base.Valid() {
-		t.Fatalf("compile: %v %#v", err, base.Diagnostics)
-	}
+	root, base := newMinimalChangeFixture(t)
 	plan := ChangePlan{
 		ArtifactIdentity: machine.NewArtifactIdentity(changePlanKind, changePlanSchemaDescriptor), Application: base.Manifest.Application.Name,
 		BaseWorkspaceRevision: base.WorkspaceRevision, BaseContractRevision: new(base.Manifest.ContractRevision),
@@ -852,19 +700,12 @@ func TestRepairPlanUsesNullContractRevisionAndEstablishesContract(t *testing.T) 
 	t.Parallel()
 
 	root := t.TempDir()
-	copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), root)
-	path := filepath.Join(root, "house", testPackageFilename)
-	source, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	broken := bytes.Replace(source, []byte("\n  implementation {\n    constructor = \"NewService\"\n  }\n"), nil, 1)
-	if bytes.Equal(source, broken) {
-		t.Fatal("fixture implementation block not found")
-	}
-	if err := os.WriteFile(path, broken, 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeNestedModuleFile(t, filepath.Join(root, testAppFilename), `application "change_test" {}
+authentication "test" {
+  provider = provider.missing
+  scheme   = "session"
+}
+`)
 	base, err := compiler.Compile(root)
 	if err != nil {
 		t.Fatal(err)
@@ -877,8 +718,8 @@ func TestRepairPlanUsesNullContractRevisionAndEstablishesContract(t *testing.T) 
 		BaseContractRevision:  nil,
 		Caller:                "agent:repair",
 		Operations: []SemanticOperation{{
-			Op: "value.set", Address: "house/service/house", Path: "/spec/implementation",
-			Value: map[string]any{"constructor": "NewService"},
+			Op: "value.set", Address: "app/authentication/test", Path: "/spec/provider",
+			Value: map[string]any{"$ref": "std.provider.standard_auth"},
 		}},
 	})
 	if err != nil {
@@ -887,35 +728,35 @@ func TestRepairPlanUsesNullContractRevisionAndEstablishesContract(t *testing.T) 
 	if plan.BaseContractRevision != nil || plan.PredictedContractRevision == "" {
 		t.Fatalf("repair plan revisions = %#v", plan)
 	}
-	receipt, err := ApplyChangePlanWithOptions(root, plan, ApplyOptions{ExpectedWorkspaceRevision: base.WorkspaceRevision, ExpectedContractRevision: nil, Caller: plan.Caller, GrantedCapabilities: []string{requiredChangeCapability}})
+	var repaired *compiler.Result
+	receipt, err := ApplyChangePlanWithOptions(root, plan, ApplyOptions{
+		ExpectedWorkspaceRevision: base.WorkspaceRevision,
+		ExpectedContractRevision:  nil,
+		Caller:                    plan.Caller,
+		GrantedCapabilities:       []string{requiredChangeCapability},
+		CheckGenerated:            func(result *compiler.Result) { repaired = result },
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if receipt.ContractRevision == "" {
 		t.Fatalf("repair receipt = %#v", receipt)
 	}
-	result, err := Check(root)
-	if err != nil || !result.Valid() {
-		t.Fatalf("repaired check: %v %#v", err, result.Diagnostics)
+	if repaired == nil || !repaired.Valid() {
+		t.Fatalf("repaired staged result = %#v", repaired)
 	}
 }
 
 func TestGeneratedCheckHooksAreInvoked(t *testing.T) {
 	t.Parallel()
 
-	root := t.TempDir()
-	copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), root)
-	base, err := compiler.Compile(root)
-	if err != nil {
-		t.Fatal(err)
-	}
+	root, base := newAppChangeFixture(t, testAuthenticationDeclaration)
 	var predictedGo, predictedTS, generated int
 	plan, err := PlanChanges(root, ChangeRequest{
 		BaseWorkspaceRevision: base.WorkspaceRevision,
 		BaseContractRevision:  new(base.Manifest.ContractRevision),
 		Operations: []SemanticOperation{{
-			Op: "value.set", Address: "house/execution/process_scene_direct", Path: "/spec/timeout",
-			Value: "45m", Precondition: &ChangePrecondition{Equals: "40m"},
+			Op: "resource.rename", Address: "app/authentication/test", Value: "renamed",
 		}},
 		CheckPredictedGoContracts: func(*compiler.Result) error { predictedGo++; return nil },
 		CheckPredictedTypeScript:  func(*compiler.Result) error { predictedTS++; return nil },

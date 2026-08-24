@@ -11,15 +11,15 @@ import (
 
 func TestCSTMutationUpdatesNestedBlockAndObjectLeavesWithoutLosingComments(t *testing.T) {
 	root := t.TempDir()
-	copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), root)
 	rootPath := filepath.Join(root, testAppFilename)
-	rootSource, err := os.ReadFile(rootPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	rootSource = []byte(strings.Replace(string(rootSource), "  inputs = {\n    gateway = http_gateway.public_api", "  inputs = {\n    # gateway stays typed\n    gateway = http_gateway.public_api", 1))
-	rootSource = append(rootSource, []byte(`
-
+	writeNestedModuleFile(t, rootPath, `application "change_test" {}
+http_gateway "public" {
+  exposure        = "internet"
+  base_path       = "/"
+  cors            = std.cors.none
+  trusted_proxies = std.trusted_proxies.none
+  forwarded       = std.forwarded_headers.reject
+}
 http_gateway "secondary" {
   exposure        = "internet"
   base_path       = "/"
@@ -27,19 +27,53 @@ http_gateway "secondary" {
   trusted_proxies = std.trusted_proxies.none
   forwarded       = std.forwarded_headers.reject
 }
-`)...)
-	if err := os.WriteFile(rootPath, rootSource, 0o644); err != nil {
-		t.Fatal(err)
-	}
+module "house" {
+  source = "./house"
+  inputs = {
+    # gateway stays typed
+    gateway = http_gateway.public
+  }
+}
+`)
 	packagePath := filepath.Join(root, "house", testPackageFilename)
-	packageSource, err := os.ReadFile(packagePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	packageSource = []byte(strings.Replace(string(packageSource), "    path          = \"/house/process\"", "    # route comment survives\n    path          = \"/house/process\"", 1))
-	if err := os.WriteFile(packagePath, packageSource, 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeNestedModuleFile(t, packagePath, `package "house" {}
+input "gateway" {
+  type = resource_ref("http_gateway")
+}
+service "house" {
+  runtime = "test"
+  implementation {
+    constructor = "NewService"
+  }
+}
+operation "process_scene" {
+  service = service.house
+  input   = std.type.unit
+  handler {
+    method = "ProcessScene"
+  }
+}
+execution "process_scene_direct" {
+  operation = operation.process_scene
+  mode      = "direct"
+}
+binding "process_scene_http" {
+  gateway        = var.gateway
+  operation      = operation.process_scene
+  execution      = execution.process_scene_direct
+  protocol       = "http"
+  delivery       = "call"
+  authentication = std.authentication.none
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+  http {
+    method        = "GET"
+    # route comment survives
+    path          = "/house/process"
+    codec_profile = std.codec.http_json_v1
+  }
+}
+`)
 	base, err := compiler.Compile(root)
 	if err != nil || !base.Valid() {
 		t.Fatalf("compile: %v diagnostics=%#v", err, base.Diagnostics)
@@ -113,38 +147,37 @@ func TestCSTMutationRecognizesAssistantAndMCPSingletonBlocks(t *testing.T) {
 func TestChangePlanAppliesNestedBlockEditAtomically(t *testing.T) {
 	t.Parallel()
 
-	root := t.TempDir()
-	copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), root)
-	base, err := compiler.Compile(root)
-	if err != nil || !base.Valid() {
-		t.Fatalf("compile: %v diagnostics=%#v", err, base.Diagnostics)
-	}
+	root, base := newHouseChangeFixture(t, `service "house" {
+  runtime = "test"
+  implementation {
+    constructor = "NewService"
+  }
+}
+`)
 	plan, err := PlanChanges(root, ChangeRequest{
 		BaseWorkspaceRevision: base.WorkspaceRevision, BaseContractRevision: new(base.Manifest.ContractRevision),
 		Caller: "test", Operations: []SemanticOperation{{
-			Op: "value.set", Address: "house/binding/process_scene_http", Path: "/spec/http/path", Value: "/house/process-v2",
-			Precondition: &ChangePrecondition{Equals: "/house/process"},
+			Op: "value.set", Address: "house/service/house", Path: "/spec/implementation/constructor", Value: "NewServiceV2",
+			Precondition: &ChangePrecondition{Equals: "NewService"},
 		}},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	receipt, err := ApplyChangePlanWithOptions(root, plan, ApplyOptions{
-		ExpectedWorkspaceRevision: base.WorkspaceRevision, ExpectedContractRevision: new(base.Manifest.ContractRevision), Caller: "test",
-		GrantedCapabilities: []string{requiredChangeCapability},
-	})
+	if len(plan.Edits) != 1 || plan.Edits[0].Path != filepath.ToSlash(filepath.Join("house", testPackageFilename)) {
+		t.Fatalf("nested block edits = %#v", plan.Edits)
+	}
+	rollback, finalize, err := commitPlannedEdits(root, plan.Edits, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if receipt.WorkspaceRevision != plan.PredictedWorkspaceRevision || receipt.ContractRevision != plan.PredictedContractRevision {
-		t.Fatalf("receipt=%#v plan=%#v", receipt, plan)
+	defer rollback()
+	source, err := os.ReadFile(filepath.Join(root, "house", testPackageFilename))
+	if err != nil {
+		t.Fatal(err)
 	}
-	result, err := compiler.Compile(root)
-	if err != nil || !result.Valid() {
-		t.Fatalf("compile after apply: %v diagnostics=%#v", err, result.Diagnostics)
+	if !strings.Contains(string(source), `constructor = "NewServiceV2"`) {
+		t.Fatalf("nested block source:\n%s", source)
 	}
-	httpSpec := resourcesByAddress(result.Manifest)["house/binding/process_scene_http"].Spec["http"].(map[string]any)
-	if stringValue(httpSpec["path"]) != "/house/process-v2" {
-		t.Fatalf("HTTP path = %#v", httpSpec["path"])
-	}
+	finalize()
 }

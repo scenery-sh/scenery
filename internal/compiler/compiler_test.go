@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"scenery.sh/internal/appwalk"
 )
 
 func TestCompileHouseCore(t *testing.T) {
@@ -756,6 +758,9 @@ func copyTree(t *testing.T, source, target string) {
 		if err != nil {
 			return err
 		}
+		if entry.IsDir() && appwalk.SkipDir(source, path) {
+			return filepath.SkipDir
+		}
 		rel, _ := filepath.Rel(source, path)
 		dest := filepath.Join(target, rel)
 		if entry.IsDir() {
@@ -769,5 +774,33 @@ func copyTree(t *testing.T, source, target string) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestCopyTreeCopiesAuthoredFilesAndSkipsSceneryState(t *testing.T) {
+	source := t.TempDir()
+	target := filepath.Join(t.TempDir(), "copy")
+	if err := os.WriteFile(filepath.Join(source, appFilename), []byte("application \"fixture\" {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stateDir := filepath.Join(source, ".scenery")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "runtime-state"), []byte("ignored"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	copyTree(t, source, target)
+
+	got, err := os.ReadFile(filepath.Join(target, appFilename))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "application \"fixture\" {}\n"; string(got) != want {
+		t.Fatalf("copied authored file = %q, want %q", got, want)
+	}
+	if _, err := os.Stat(filepath.Join(target, ".scenery")); !os.IsNotExist(err) {
+		t.Fatalf("copied .scenery state: Stat() error = %v, want not exist", err)
 	}
 }

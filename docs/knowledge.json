@@ -1676,9 +1676,9 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-08-20",
-      "review_after": "2026-09-19",
-      "summary": "Agent validation loop with cached and explicit fresh Go execution, pinned four-way missing-binary builds, prepare-wall cold budgeting, deterministic changed-area command unions, agent-context handoff, browser and data proofs, task-scoped documentation routing, and living-document review queues.",
+      "last_reviewed": "2026-08-24",
+      "review_after": "2026-09-23",
+      "summary": "Agent validation loop with cached and explicit fresh Go execution, a 60ms fast-test target and repeated 100ms p95 gate with exact integration exceptions, pinned four-way missing-binary builds, prepare-wall cold budgeting, deterministic changed-area command unions, agent-context handoff, browser and data proofs, task-scoped documentation routing, and living-document review queues.",
       "tags": [
         "harness",
         "agents",

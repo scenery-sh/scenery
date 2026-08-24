@@ -219,7 +219,10 @@ func TestHarnessSelfSummaryStaysSmallAndOmitsArchiveFields(t *testing.T) {
 	}
 	for i := 0; i < 20; i++ {
 		resp.TestTiming.Packages = append(resp.TestTiming.Packages, harnessPackageTiming{Package: fmt.Sprintf("example.com/pkg%d", i), Seconds: float64(20 - i)})
-		resp.TestTiming.SlowTests = append(resp.TestTiming.SlowTests, harnessTestTiming{Name: fmt.Sprintf("TestSlow%d", i), Package: "example.com/pkg", Seconds: float64(20 - i)})
+		resp.TestTiming.SlowTests = append(resp.TestTiming.SlowTests, harnessTestTiming{
+			Name: "TestSlow" + fmt.Sprint(i), Package: "example.com/pkg", Class: harnessTestClassFast,
+			Seconds: float64(20 - i), TargetSeconds: harnessFastTestTargetSeconds, BudgetSeconds: harnessFastTestBudgetSeconds,
+		})
 	}
 
 	summary := buildHarnessSelfSummary(resp)
@@ -464,7 +467,10 @@ func TestInspectHarnessFocusedCommands(t *testing.T) {
 		TotalSeconds:       8,
 		Budgets:            defaultHarnessTestTimingBudgets(),
 		Packages:           []harnessPackageTiming{{Package: "example.com/slow", Seconds: 3}},
-		SlowTests:          []harnessTestTiming{{Name: "TestSlow", Package: "example.com/slow", Seconds: 1}},
+		SlowTests: []harnessTestTiming{{
+			Name: "TestSlow", Package: "example.com/slow", Class: harnessTestClassFast,
+			Seconds: 1, TargetSeconds: harnessFastTestTargetSeconds, BudgetSeconds: harnessFastTestBudgetSeconds,
+		}},
 	}
 	if err := writeHarnessJSONFile(filepath.Join(root, ".scenery", "harness", "test-timing-latest.json"), timing); err != nil {
 		t.Fatal(err)

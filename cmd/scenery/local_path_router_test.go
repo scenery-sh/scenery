@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"syscall"
 	"testing"
+	"time"
 
 	localagent "scenery.sh/internal/agent"
 )
@@ -345,7 +346,7 @@ func newRetryHandlerForBackend(t *testing.T, backend *httptest.Server) http.Hand
 		proxy := httputil.NewSingleHostReverseProxy(target)
 		proxy.Transport = &http.Transport{}
 		return proxy
-	}, nil, localDialRetryPolicy{})
+	}, nil, localDialRetryPolicy{Budget: 50 * time.Millisecond, Interval: time.Millisecond})
 }
 
 func TestLocalDialRetryHandlerNeverReplaysMutationAfterMidRequestFailure(t *testing.T) {

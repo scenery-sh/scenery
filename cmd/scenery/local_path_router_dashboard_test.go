@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -52,7 +54,21 @@ func TestLocalPathRouterDashboardFollowsAgentRestart(t *testing.T) {
 	_, backendA := startDashboardTestBackend(t, "dash-a")
 	fake.setDashboard(backendA)
 
-	dialRetry := localDialRetryPolicy{Budget: 400 * time.Millisecond, Interval: 50 * time.Millisecond}
+	retryClock := time.Unix(0, 0)
+	retryWaited := make(chan struct{}, 1)
+	dialRetry := localDialRetryPolicy{
+		Budget:   400 * time.Millisecond,
+		Interval: 50 * time.Millisecond,
+		now:      func() time.Time { return retryClock },
+		wait: func(context.Context, time.Duration) bool {
+			retryClock = retryClock.Add(400 * time.Millisecond)
+			select {
+			case retryWaited <- struct{}{}:
+			default:
+			}
+			return true
+		},
+	}
 
 	port, err := freeLoopbackPort()
 	if err != nil {
@@ -99,6 +115,11 @@ func TestLocalPathRouterDashboardFollowsAgentRestart(t *testing.T) {
 	// default httputil proxy error, once the bounded dial retry is exhausted.
 	serverB.Close()
 	statusCode, body = localPathRouterTestGet(t, baseURL+localagent.PathModeDashboardPrefix+"/overview")
+	select {
+	case <-retryWaited:
+	default:
+		t.Fatal("dead dashboard backend did not enter the bounded retry path")
+	}
 	if statusCode != http.StatusBadGateway {
 		t.Fatalf("dead dashboard backend status = %d %q", statusCode, body)
 	}
@@ -211,13 +232,40 @@ func TestLocalPathRouterUpstreamDialRetryBridgesRestart(t *testing.T) {
 	_, dashboard := startDashboardTestBackend(t, "dash")
 	fake.setDashboard(dashboard)
 
-	dialRetry := localDialRetryPolicy{Budget: 2 * time.Second, Interval: 50 * time.Millisecond}
-
 	upstreamPort, err := freeLoopbackPort()
 	if err != nil {
 		t.Fatal(err)
 	}
 	upstreamAddr := fmt.Sprintf("127.0.0.1:%d", upstreamPort)
+	type upstreamStartResult struct {
+		server *http.Server
+		err    error
+	}
+	started := make(chan upstreamStartResult, 1)
+	var startOnce sync.Once
+	var startErr error
+	dialRetry := localDialRetryPolicy{
+		Budget:   2 * time.Second,
+		Interval: 50 * time.Millisecond,
+		wait: func(context.Context, time.Duration) bool {
+			startOnce.Do(func() {
+				ln, err := net.Listen("tcp", upstreamAddr)
+				if err != nil {
+					startErr = err
+					started <- upstreamStartResult{err: err}
+					return
+				}
+				mux := http.NewServeMux()
+				mux.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
+					fmt.Fprint(w, "upstream-ok")
+				})
+				server := &http.Server{Handler: mux}
+				go func() { _ = server.Serve(ln) }()
+				started <- upstreamStartResult{server: server}
+			})
+			return startErr == nil
+		},
+	}
 	port, err := freeLoopbackPort()
 	if err != nil {
 		t.Fatal(err)
@@ -239,21 +287,18 @@ func TestLocalPathRouterUpstreamDialRetryBridgesRestart(t *testing.T) {
 	}
 	defer cleanup()
 
-	// The upstream comes up only after the first dial attempts have failed,
-	// like an agent router during a supervised restart.
-	go func() {
-		time.Sleep(300 * time.Millisecond)
-		mux := http.NewServeMux()
-		mux.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
-			fmt.Fprint(w, "upstream-ok")
-		})
-		server := &http.Server{Addr: upstreamAddr, Handler: mux}
-		go func() { _ = server.ListenAndServe() }()
-		<-ctx.Done()
-		_ = server.Close()
-	}()
-
 	statusCode, body := localPathRouterTestGet(t, fmt.Sprintf("http://127.0.0.1:%d/api/anything", port))
+	var upstream *http.Server
+	select {
+	case result := <-started:
+		if result.err != nil {
+			t.Fatalf("start retry upstream: %v", result.err)
+		}
+		upstream = result.server
+	case <-time.After(time.Second):
+		t.Fatal("upstream was not started by a failed-dial retry")
+	}
+	t.Cleanup(func() { _ = upstream.Close() })
 	if statusCode != http.StatusOK || body != "upstream-ok" {
 		t.Fatalf("upstream retry result = %d %q", statusCode, body)
 	}

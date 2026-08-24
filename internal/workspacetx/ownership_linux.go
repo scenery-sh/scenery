@@ -10,14 +10,11 @@ import (
 	"strings"
 )
 
-type ownerProcessInfo struct {
-	StartedAt string
-	Exe       string
-	Cmdline   []string
-}
-
 func processOwnerInfo(pid int) ownerProcessInfo {
-	var info ownerProcessInfo
+	info := ownerProcessInfo{Liveness: probeProcessLiveness(pid)}
+	if info.Liveness == ownerProcessDead {
+		return info
+	}
 	base := filepath.Join("/proc", strconv.Itoa(pid))
 	info.Exe, _ = os.Readlink(filepath.Join(base, "exe"))
 	if data, err := os.ReadFile(filepath.Join(base, "cmdline")); err == nil {
@@ -29,6 +26,9 @@ func processOwnerInfo(pid int) ownerProcessInfo {
 	}
 	if data, err := os.ReadFile(filepath.Join(base, "stat")); err == nil {
 		info.StartedAt, _ = linuxStartTicks(string(data))
+	}
+	if info.Liveness == ownerProcessUnknown && (info.StartedAt != "" || info.Exe != "" || len(info.Cmdline) > 0) {
+		info.Liveness = ownerProcessLive
 	}
 	return info
 }

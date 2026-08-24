@@ -5,12 +5,57 @@ import (
 	"sort"
 	"testing"
 	"unicode/utf16"
+	"unicode/utf8"
 )
 
-// referenceLessUTF16 is the always-encode comparison that lessUTF16's ASCII fast
-// path replaced. It is the differential oracle for that fast path: canonical
-// JSON object-key order is a contract, so the two must agree on every input.
+// referenceLessUTF16 walks UTF-16 code units directly. It remains independent
+// from lessUTF16 while avoiding allocation noise in the differential property
+// test: canonical JSON object-key order is a contract, so both must agree.
 func referenceLessUTF16(left, right string) bool {
+	a, b := referenceUTF16Iterator{value: left}, referenceUTF16Iterator{value: right}
+	for {
+		leftUnit, leftOK := a.next()
+		rightUnit, rightOK := b.next()
+		if !leftOK || !rightOK {
+			return !leftOK && rightOK
+		}
+		if leftUnit != rightUnit {
+			return leftUnit < rightUnit
+		}
+	}
+}
+
+type referenceUTF16Iterator struct {
+	value       string
+	byteIndex   int
+	trailing    uint16
+	hasTrailing bool
+}
+
+func (i *referenceUTF16Iterator) next() (uint16, bool) {
+	if i.hasTrailing {
+		i.hasTrailing = false
+		return i.trailing, true
+	}
+	if i.byteIndex == len(i.value) {
+		return 0, false
+	}
+	r, size := utf8.DecodeRuneInString(i.value[i.byteIndex:])
+	i.byteIndex += size
+	if r <= 0xffff {
+		return uint16(r), true
+	}
+	high, low := utf16.EncodeRune(r)
+	i.trailing = uint16(low)
+	i.hasTrailing = true
+	return uint16(high), true
+}
+
+// allocatingReferenceLessUTF16 preserves the implementation that the
+// benchmark's "before" case is intended to measure. The property tests use the
+// allocation-free iterator above so their large sample measures comparison,
+// not fixture-oracle allocation.
+func allocatingReferenceLessUTF16(left, right string) bool {
 	a := utf16.Encode([]rune(left))
 	b := utf16.Encode([]rune(right))
 	for index := 0; index < len(a) && index < len(b); index++ {
@@ -61,8 +106,17 @@ func TestLessUTF16MatchesReferenceOnRandomInput(t *testing.T) {
 		}
 		return string(runes)
 	}
+	// Keep the large comparison sample while avoiding measuring string-fixture
+	// construction 600,000 times. A fixed corpus still covers every rune class
+	// and length used by the prior generator, and the seeded pair selection
+	// exercises 300,000 combinations through both comparators.
+	words := make([]string, 1<<16)
+	for i := range words {
+		words[i] = word()
+	}
 	for range 300000 {
-		left, right := word(), word()
+		left := words[source.IntN(len(words))]
+		right := words[source.IntN(len(words))]
 		if got, want := lessUTF16(left, right), referenceLessUTF16(left, right); got != want {
 			t.Fatalf("lessUTF16(%q, %q) = %v, reference = %v", left, right, got, want)
 		}
@@ -102,7 +156,7 @@ func BenchmarkLessUTF16(b *testing.B) {
 	b.Run("before", func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
-			referenceLessUTF16(keys[i%len(keys)], keys[(i+1)%len(keys)])
+			allocatingReferenceLessUTF16(keys[i%len(keys)], keys[(i+1)%len(keys)])
 		}
 	})
 	b.Run("after", func(b *testing.B) {

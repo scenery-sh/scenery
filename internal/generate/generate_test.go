@@ -80,29 +80,40 @@ func TestHermeticModuleCacheDiagnosticIsActionableAndBounded(t *testing.T) {
 	}
 }
 
-func TestGenerateContractsAndTypeScriptAreStable(t *testing.T) {
+func TestGenerateGoContractsAreStable(t *testing.T) {
 	temp := t.TempDir()
-	copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), temp)
-	_ = os.RemoveAll(filepath.Join(temp, "house", "scenerycontract"))
-	_ = os.RemoveAll(filepath.Join(temp, "clients"))
-	goResult, err := GenerateGoContracts(temp, false)
+	writeMinimalGenerationFixture(t, temp)
+	result, err := compiler.Compile(temp)
+	if err != nil || result == nil || !result.Valid() {
+		t.Fatalf("compile: %v diagnostics=%#v", err, diagnosticsOf(result))
+	}
+	goResult, err := GenerateGoContractsFromResult(result, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(goResult.Changed) != 3 {
 		t.Fatalf("Go changed = %#v", goResult.Changed)
 	}
-	if _, err := GenerateGoContracts(temp, true); err != nil {
+	if _, err := GenerateGoContractsFromResult(result, true); err != nil {
 		t.Fatal(err)
 	}
-	tsResult, err := GenerateTypeScriptClients(temp, "public_api", false)
+}
+
+func TestGenerateTypeScriptClientsAreStable(t *testing.T) {
+	temp := t.TempDir()
+	writeMinimalGenerationFixture(t, temp)
+	result, err := compiler.Compile(temp)
+	if err != nil || result == nil || !result.Valid() {
+		t.Fatalf("compile: %v diagnostics=%#v", err, diagnosticsOf(result))
+	}
+	tsResult, err := GenerateTypeScriptClientsFromResult(result, "public_api", false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(tsResult.Changed) != 6 {
 		t.Fatalf("TS changed = %#v", tsResult.Changed)
 	}
-	if _, err := GenerateTypeScriptClients(temp, "public_api", true); err != nil {
+	if _, err := GenerateTypeScriptClientsFromResult(result, "public_api", true); err != nil {
 		t.Fatal(err)
 	}
 	for _, path := range []string{"types.ts", "runtime.ts", "client.ts", "metadata.ts", "index.ts", "scenery.typescript-client-generated.json"} {
@@ -234,7 +245,7 @@ func TestTypeScriptOutputRequiresDeclaredManagedGeneratedRoot(t *testing.T) {
 
 func TestGenerateAllDoesNotCommitGoArtifactsWhenTypeScriptValidationFails(t *testing.T) {
 	root := t.TempDir()
-	copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), root)
+	writeMinimalGenerationFixture(t, root)
 	if _, err := GenerateGoContracts(root, false); err != nil {
 		t.Fatal(err)
 	}
@@ -404,7 +415,7 @@ func TestPruneMaterializedGoAcceptsPriorCurrentDescriptorIdentity(t *testing.T) 
 
 func TestTypeScriptCacheMaterializationDoesNotAffectCheck(t *testing.T) {
 	root := t.TempDir()
-	copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), root)
+	writeMinimalGenerationFixture(t, root)
 	path := filepath.Join(root, testAppFilename)
 	data, err := os.ReadFile(path)
 	if err != nil {

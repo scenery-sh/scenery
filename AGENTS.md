@@ -153,7 +153,7 @@ Validation selection is calculated from changed paths and contract surfaces. Ref
 
 The full self-harness supersedes the quick self-harness when both would otherwise be selected. Any source, configuration, or fixture path not matched by a specialized row gets the deterministic fallback `go test ./...`. Target-app changes use `scenery check -o json`, `go test ./...`, and `scenery harness -o json --write`.
 
-Rely on Go's test result cache; pass `-count=1` only when explicitly measuring fresh execution or investigating nondeterminism (`scenery harness self --fresh-tests` is the explicit fresh lane; see `docs/agent-guide.md` § Self-Harness Timing).
+Rely on Go's test result cache; pass `-count=1` only when explicitly measuring fresh execution or investigating nondeterminism (`scenery harness self --fresh-tests` is the explicit fresh lane; see `docs/agent-guide.md` § Self-Harness Timing). Top-level Go tests are fast by default: keep their bodies near 50-60ms and below the repeated isolated 100ms p95 budget; only exact tests that prove a real process, toolchain, service, or OS boundary belong in the reviewed integration-exception inventory.
 
 When touching `internal/compiler` or `internal/generate`, regenerate the committed fixture clients in the same change and commit the diff — stale fixtures fail `go test ./...` with SCN6204, and the diagnostic's `suggestions` carry the refresh command:
 

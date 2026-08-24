@@ -126,8 +126,7 @@ func TestDeployEnableDisableAndConflict(t *testing.T) {
 func TestDeployStatusReportsRegistryTargetsAndLiveSession(t *testing.T) {
 	home := t.TempDir()
 	paths := isolateCommandAgentHomeAt(t, home)
-	stubDeployDiagnostics(t, nil)
-	appRoot := t.TempDir()
+	appRoot := filepath.Join(home, "app")
 	registry := localagent.EmptyDeployRegistry()
 	registry.Targets = []localagent.DeployTarget{{
 		Domain:      "onlv.dev",
@@ -135,31 +134,43 @@ func TestDeployStatusReportsRegistryTargetsAndLiveSession(t *testing.T) {
 		RootService: "web",
 		Enabled:     true,
 	}}
-	if err := localagent.WriteDeployRegistry(paths.DeployPath, registry); err != nil {
-		t.Fatalf("WriteDeployRegistry: %v", err)
-	}
-	sessions, err := localagent.OpenRegistry(paths.RegistryPath, localagent.RouterAddrFromEnv())
-	if err != nil {
-		t.Fatalf("OpenRegistry: %v", err)
-	}
-	if _, err := sessions.Upsert(localagent.RegisterRequest{
-		BaseAppID: "deployapp",
-		AppRoot:   appRoot,
-		SessionID: "deployapp",
-		Status:    "running",
-	}); err != nil {
-		t.Fatalf("Upsert session: %v", err)
-	}
 	certPath := filepath.Join(paths.EdgeDir, "caddy-data", "certificates", "acme-staging-v02.api.letsencrypt.org-directory", "onlv.dev", "onlv.dev.crt")
-	if err := os.MkdirAll(filepath.Dir(certPath), 0o700); err != nil {
-		t.Fatal(err)
+	setupErrors := make(chan error, 3)
+	go func() {
+		setupErrors <- localagent.WriteDeployRegistry(paths.DeployPath, registry)
+	}()
+	go func() {
+		sessions, err := localagent.OpenRegistry(paths.RegistryPath, localagent.RouterAddrFromEnv())
+		if err == nil {
+			_, err = sessions.Upsert(localagent.RegisterRequest{
+				BaseAppID: "deployapp",
+				AppRoot:   appRoot,
+				SessionID: "deployapp",
+				Status:    "running",
+			})
+		}
+		setupErrors <- err
+	}()
+	go func() {
+		err := os.MkdirAll(filepath.Dir(certPath), 0o700)
+		if err == nil {
+			err = os.WriteFile(certPath, []byte("fake cert"), 0o600)
+		}
+		setupErrors <- err
+	}()
+	var setupErr error
+	for range 3 {
+		if err := <-setupErrors; err != nil && setupErr == nil {
+			setupErr = err
+		}
 	}
-	if err := os.WriteFile(certPath, []byte("fake cert"), 0o600); err != nil {
-		t.Fatal(err)
+	if setupErr != nil {
+		t.Fatal(setupErr)
 	}
 
 	var out bytes.Buffer
-	if err := runDeployCommand(&out, []string{"status", "-o", "json"}); err != nil {
+	deps := deployStatusTestDependencies(localagent.LaunchdAgentStatus{}, deployLaunchAgentStatus{})
+	if err := runDeployCommandWithStatusDependencies(&out, []string{"status", "-o", "json"}, deps); err != nil {
 		t.Fatalf("deploy status: %v\n%s", err, out.String())
 	}
 	var status deployStatusResponse

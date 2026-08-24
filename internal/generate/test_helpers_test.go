@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"scenery.sh/internal/appwalk"
 	"scenery.sh/internal/compiler"
 )
 
@@ -32,6 +33,9 @@ func copyTree(t *testing.T, source, target string) {
 		if err != nil {
 			return err
 		}
+		if entry.IsDir() && appwalk.SkipDir(source, path) {
+			return filepath.SkipDir
+		}
 		rel, err := filepath.Rel(source, path)
 		if err != nil {
 			return err
@@ -47,6 +51,38 @@ func copyTree(t *testing.T, source, target string) {
 		return os.WriteFile(destination, contents, 0o644)
 	}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestCopyTreeSkipsNonSourceDirectories(t *testing.T) {
+	source := t.TempDir()
+	target := t.TempDir()
+
+	write := func(rel string) {
+		t.Helper()
+		path := filepath.Join(source, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(rel), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("app.scn")
+	write(".scenery/cache/runtime.bin")
+	write("node_modules/dependency/index.js")
+
+	copyTree(t, source, target)
+
+	if contents, err := os.ReadFile(filepath.Join(target, "app.scn")); err != nil {
+		t.Fatalf("read copied authored source: %v", err)
+	} else if string(contents) != "app.scn" {
+		t.Fatalf("copied authored source = %q, want %q", contents, "app.scn")
+	}
+	for _, rel := range []string{".scenery", "node_modules"} {
+		if _, err := os.Stat(filepath.Join(target, rel)); !os.IsNotExist(err) {
+			t.Fatalf("ignored directory %q was copied: %v", rel, err)
+		}
 	}
 }
 

@@ -45,6 +45,10 @@ func SyncEditorWorkspaceMerge(result *compiler.Result) error {
 }
 
 func syncEditorWorkspace(result *compiler.Result, requestMerge bool) error {
+	return syncEditorWorkspaceWithLockRetry(result, requestMerge, 25*time.Millisecond)
+}
+
+func syncEditorWorkspaceWithLockRetry(result *compiler.Result, requestMerge bool, lockRetry time.Duration) error {
 	if result == nil || result.Manifest == nil || result.ContractStatus != "valid" {
 		return nil
 	}
@@ -70,7 +74,7 @@ func syncEditorWorkspace(result *compiler.Result, requestMerge bool) error {
 	if err := os.MkdirAll(cacheRoot, 0o755); err != nil {
 		return err
 	}
-	unlock, err := lockEditorWorkspace(cacheRoot)
+	unlock, err := lockEditorWorkspace(cacheRoot, lockRetry)
 	if err != nil {
 		return err
 	}
@@ -511,7 +515,7 @@ func pruneEditorGenerations(root, current string) error {
 	return nil
 }
 
-func lockEditorWorkspace(root string) (func(), error) {
+func lockEditorWorkspace(root string, retry time.Duration) (func(), error) {
 	path := filepath.Join(root, ".sync.lock")
 	deadline := time.Now().Add(5 * time.Second)
 	for {
@@ -531,7 +535,7 @@ func lockEditorWorkspace(root string) (func(), error) {
 		if time.Now().After(deadline) {
 			return nil, fmt.Errorf("editor workspace sync is already running")
 		}
-		time.Sleep(25 * time.Millisecond)
+		time.Sleep(retry)
 	}
 }
 

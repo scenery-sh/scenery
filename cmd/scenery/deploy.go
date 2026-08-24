@@ -210,6 +210,10 @@ func deployCommand(args []string) error {
 }
 
 func runDeployCommand(stdout io.Writer, args []string) error {
+	return runDeployCommandWithStatusDependencies(stdout, args, liveDeployStatusDependencies())
+}
+
+func runDeployCommandWithStatusDependencies(stdout io.Writer, args []string, statusDeps deployStatusDependencies) error {
 	if len(args) == 0 {
 		return fmt.Errorf("usage: scenery deploy <ssh-target> [--app-root <path>] | setup|status|enable|disable|publish|resume|teardown [-o json]")
 	}
@@ -235,7 +239,7 @@ func runDeployCommand(stdout io.Writer, args []string) error {
 	case "publish":
 		return runDeployPublish(stdout, opts)
 	case "status":
-		return runDeployStatus(stdout, opts)
+		return runDeployStatusWithDependencies(stdout, opts, statusDeps)
 	case "setup":
 		return runDeploySetup(stdout, opts)
 	case "resume":
@@ -374,6 +378,10 @@ func runDeployDisable(stdout io.Writer, opts deployOptions) error {
 }
 
 func runDeployStatus(stdout io.Writer, opts deployOptions) error {
+	return runDeployStatusWithDependencies(stdout, opts, liveDeployStatusDependencies())
+}
+
+func runDeployStatusWithDependencies(stdout io.Writer, opts deployOptions, deps deployStatusDependencies) error {
 	paths, err := commandAgentPaths()
 	if err != nil {
 		return err
@@ -382,7 +390,7 @@ func runDeployStatus(stdout io.Writer, opts deployOptions) error {
 	if err != nil {
 		return err
 	}
-	status := buildDeployStatus(paths, registry)
+	status := buildDeployStatusWithDependencies(context.Background(), paths, registry, deps)
 	if opts.JSON {
 		return writeCLIJSON(stdout, status)
 	}
@@ -740,24 +748,42 @@ func buildDeployStatus(paths localagent.Paths, registry localagent.DeployRegistr
 }
 
 func buildDeployStatusWithContext(ctx context.Context, paths localagent.Paths, registry localagent.DeployRegistry) deployStatusResponse {
-	return buildDeployStatusWithDependencies(ctx, paths, registry, deployStatusDependencies{
-		serviceManager:        deployServiceManagerFunc,
-		agentSupervisorStatus: deployAgentSupervisorStatusFor,
-		launchAgentStatus:     deployLaunchAgentStatusFor,
-	})
+	return buildDeployStatusWithDependencies(ctx, paths, registry, liveDeployStatusDependencies())
+}
+
+func liveDeployStatusDependencies() deployStatusDependencies {
+	return deployStatusDependencies{
+		serviceManager: deployServiceManagerFunc,
+		edgeStatus: func(paths localagent.Paths, state localagent.EdgeState) edgeStatusCaddy {
+			return edgeStatusForStateDomain(paths, state, "").Edge
+		},
+		privilegedListenerStatus: privilegedListenerStatus,
+		agentStatus:              deployAgentStatusFor,
+		agentSupervisorStatus:    deployAgentSupervisorStatusFor,
+		launchAgentStatus:        deployLaunchAgentStatusFor,
+		systemdSnapshotOverlay:   deploySystemdSnapshotOverlay,
+		diagnosticsReport: func(ctx context.Context, snapshot deploydiag.Snapshot) deploydiag.Report {
+			return deploydiag.BuildReport(ctx, snapshot, deployDiagnosticsDeps())
+		},
+	}
 }
 
 type deployStatusDependencies struct {
-	serviceManager        func() string
-	agentSupervisorStatus func(localagent.Paths) deployAgentSupervisorStatus
-	launchAgentStatus     func() deployLaunchAgentStatus
+	serviceManager           func() string
+	edgeStatus               func(localagent.Paths, localagent.EdgeState) edgeStatusCaddy
+	privilegedListenerStatus func(localagent.Paths) edgeStatusPrivilegedListener
+	agentStatus              func(localagent.Paths) deployAgentStatus
+	agentSupervisorStatus    func(localagent.Paths) deployAgentSupervisorStatus
+	launchAgentStatus        func() deployLaunchAgentStatus
+	systemdSnapshotOverlay   func(*deploydiag.Snapshot)
+	diagnosticsReport        func(context.Context, deploydiag.Snapshot) deploydiag.Report
 }
 
 func buildDeployStatusWithDependencies(ctx context.Context, paths localagent.Paths, registry localagent.DeployRegistry, deps deployStatusDependencies) deployStatusResponse {
 	edgeState, _ := localagent.LoadEdgeState(paths.EdgeStatePath)
-	edgeStatus := edgeStatusForStateDomain(paths, edgeState, "").Edge
-	helper := privilegedListenerStatus(paths)
-	agent := deployAgentStatusFor(paths)
+	edgeStatus := deps.edgeStatus(paths, edgeState)
+	helper := deps.privilegedListenerStatus(paths)
+	agent := deps.agentStatus(paths)
 	agentSupervisor := deps.agentSupervisorStatus(paths)
 	launchAgent := deps.launchAgentStatus()
 	sessions := deploySessionsByAppRoot(paths)
@@ -844,9 +870,9 @@ func buildDeployStatusWithDependencies(ctx context.Context, paths localagent.Pat
 	}
 	snapshot := deployDiagnosticsSnapshot(status)
 	if manager == "systemd" {
-		deploySystemdSnapshotOverlay(&snapshot)
+		deps.systemdSnapshotOverlay(&snapshot)
 	}
-	diagnostics := deploydiag.BuildReport(ctx, snapshot, deployDiagnosticsDeps())
+	diagnostics := deps.diagnosticsReport(ctx, snapshot)
 	status.DiagnosticsDetail = &diagnostics
 	for _, check := range diagnostics.Checks {
 		if check.Status == "warn" || check.Status == "error" {

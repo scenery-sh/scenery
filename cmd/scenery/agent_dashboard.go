@@ -22,9 +22,14 @@ type agentDashboardRuntime struct {
 	store  *devdash.Store
 }
 
+type agentDashboardRegistry interface {
+	GetSession(string) (localagent.Session, bool)
+	GetSubstrate(string) (localagent.Substrate, bool)
+}
+
 type agentDashboardController struct {
 	store             *devdash.Store
-	agent             *localagent.Server
+	agent             agentDashboardRegistry
 	victoriaMu        sync.Mutex
 	victoria          *victoria.Stack
 	victoriaSubstrate string

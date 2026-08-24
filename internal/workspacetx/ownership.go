@@ -1,13 +1,37 @@
 package workspacetx
 
 import (
+	cryptorand "crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+)
+
+type ownerProcessLiveness uint8
+
+const (
+	ownerProcessUnknown ownerProcessLiveness = iota
+	ownerProcessLive
+	ownerProcessDead
+)
+
+type ownerProcessInfo struct {
+	StartedAt string
+	Exe       string
+	Cmdline   []string
+	Liveness  ownerProcessLiveness
+}
+
+type ownerState uint8
+
+const (
+	ownerUnknown ownerState = iota
+	ownerCurrent
+	ownerLive
+	ownerRecoverable
 )
 
 type Owner struct {
@@ -20,12 +44,26 @@ type Owner struct {
 	RecordedAt  time.Time `json:"recorded_at"`
 }
 
+// currentProcessOwnerToken distinguishes transaction owners created by this
+// process even when the OS exposes incomplete or no process metadata. It is
+// machine-local transaction state, not a public identity.
+var currentProcessOwnerToken = newCurrentProcessOwnerToken()
+
+func newCurrentProcessOwnerToken() string {
+	var token [16]byte
+	if _, err := cryptorand.Read(token[:]); err == nil {
+		return "change-transaction:" + hex.EncodeToString(token[:])
+	}
+	fallback := sha256.Sum256([]byte(time.Now().UTC().Format(time.RFC3339Nano) + "\x00" + strings.Join(os.Args, "\x00")))
+	return "change-transaction:" + hex.EncodeToString(fallback[:16])
+}
+
 func currentOwner() Owner {
 	pid := os.Getpid()
 	info := processOwnerInfo(pid)
 	owner := Owner{
 		PID: pid, StartedAt: strings.TrimSpace(info.StartedAt), Exe: strings.TrimSpace(info.Exe),
-		AgentPID: pid, CreatedBy: "change-transaction", RecordedAt: time.Now().UTC(),
+		AgentPID: pid, CreatedBy: currentProcessOwnerToken, RecordedAt: time.Now().UTC(),
 	}
 	if len(info.Cmdline) > 0 {
 		owner.CmdlineHash = hashCmdline(info.Cmdline)
@@ -39,44 +77,86 @@ func currentOwner() Owner {
 	return owner
 }
 
-func verifyOwner(owner Owner) error {
-	if owner.PID <= 0 {
-		return errors.New("owner pid is missing")
-	}
-	live := captureOwner(owner.PID)
-	if live.StartedAt == "" && live.CmdlineHash == "" && live.Exe == "" {
-		return errors.New("owner process is not inspectable")
-	}
-	if owner.StartedAt != "" && live.StartedAt != "" && owner.StartedAt != live.StartedAt {
-		return errors.New("owner process start time changed")
-	}
-	if owner.CmdlineHash != "" && live.CmdlineHash != "" && owner.CmdlineHash != live.CmdlineHash {
-		return errors.New("owner process command fingerprint changed")
-	}
-	if owner.Exe != "" && live.Exe != "" && !sameExe(owner.Exe, live.Exe) {
-		return errors.New("owner process executable changed")
-	}
-	if owner.StartedAt == "" && owner.CmdlineHash == "" && owner.Exe == "" {
-		return errors.New("owner fingerprint is missing")
-	}
-	return nil
-}
-
-func captureOwner(pid int) Owner {
+func captureOwner(pid int) (Owner, ownerProcessLiveness) {
 	info := processOwnerInfo(pid)
 	owner := Owner{PID: pid, StartedAt: strings.TrimSpace(info.StartedAt), Exe: strings.TrimSpace(info.Exe)}
 	if len(info.Cmdline) > 0 {
 		owner.CmdlineHash = hashCmdline(info.Cmdline)
 	}
-	return owner
+	return owner, info.Liveness
 }
 
 func ownerIsCurrent(owner Owner) bool {
-	if owner.PID != os.Getpid() || verifyOwner(owner) != nil {
-		return false
+	return inspectOwnerState(owner) == ownerCurrent
+}
+
+func inspectOwnerState(owner Owner) ownerState {
+	if owner.PID <= 0 {
+		return ownerUnknown
 	}
-	current := currentOwner()
-	return owner.StartedAt == current.StartedAt && owner.Exe == current.Exe && owner.CmdlineHash == current.CmdlineHash
+	live, liveness := captureOwner(owner.PID)
+	return ownerStateWithLive(owner, live, liveness, os.Getpid())
+}
+
+// ownerStateWithLive separates safe recovery from owner-only authorization.
+// Unknown identity always blocks recovery, while only a complete match or a
+// wholly uninspectable record minted by this process authorizes staged reads.
+func ownerStateWithLive(owner, live Owner, liveness ownerProcessLiveness, currentPID int) ownerState {
+	currentToken := owner.PID == currentPID && owner.CreatedBy == currentProcessOwnerToken
+	if owner.PID <= 0 || !hasOwnerFingerprint(owner) {
+		return ownerUnknown
+	}
+	if currentToken {
+		if !hasOwnerFingerprint(live) {
+			return ownerCurrent
+		}
+		if compareOwnerFingerprint(owner, live) == fingerprintCompleteMatch {
+			return ownerCurrent
+		}
+		// The process-local token makes this record unsafe to recover, but partial
+		// or contradictory OS metadata is not enough to authorize an owner read.
+		return ownerUnknown
+	}
+	if liveness == ownerProcessDead {
+		return ownerRecoverable
+	}
+	switch compareOwnerFingerprint(owner, live) {
+	case fingerprintMismatch:
+		return ownerRecoverable
+	case fingerprintCompleteMatch:
+		if liveness == ownerProcessLive {
+			return ownerLive
+		}
+	}
+	return ownerUnknown
+}
+
+type fingerprintState uint8
+
+const (
+	fingerprintPartial fingerprintState = iota
+	fingerprintCompleteMatch
+	fingerprintMismatch
+)
+
+func compareOwnerFingerprint(owner, live Owner) fingerprintState {
+	if owner.StartedAt != "" && live.StartedAt != "" && owner.StartedAt != live.StartedAt {
+		return fingerprintMismatch
+	}
+	if owner.CmdlineHash != "" && live.CmdlineHash != "" && owner.CmdlineHash != live.CmdlineHash {
+		return fingerprintMismatch
+	}
+	if owner.Exe != "" && live.Exe != "" && !sameExe(owner.Exe, live.Exe) {
+		return fingerprintMismatch
+	}
+	if owner.StartedAt == "" || live.StartedAt == "" || owner.CmdlineHash == "" || live.CmdlineHash == "" || owner.Exe == "" || live.Exe == "" {
+		return fingerprintPartial
+	}
+	return fingerprintCompleteMatch
+}
+
+func hasOwnerFingerprint(owner Owner) bool {
+	return owner.StartedAt != "" || owner.CmdlineHash != "" || owner.Exe != ""
 }
 
 func hashCmdline(args []string) string {
