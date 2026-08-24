@@ -7,14 +7,14 @@ import (
 )
 
 var bootstrapTiming = map[string]float64{
-	"scenery.sh/cmd/scenery":        100,
-	"scenery.sh/internal/testsuite": 95,
-	"scenery.sh/internal/edge":      90,
-	"scenery.sh/internal/build":     80,
-	"scenery.sh/internal/devdash":   70,
-	"scenery.sh":                    60,
-	"scenery.sh/storage":            50,
-	"scenery.sh/runtime":            30,
+	"scenery.sh/cmd/scenery":         100,
+	"scenery.sh/internal/evolution":  95,
+	"scenery.sh/internal/build":      90,
+	"scenery.sh/internal/generate":   80,
+	"scenery.sh/internal/compiler":   70,
+	"scenery.sh/internal/deployplan": 60,
+	"scenery.sh/internal/edge":       50,
+	"scenery.sh/runtime":             30,
 }
 
 func loadTimingEstimates(path string) map[string]float64 {
