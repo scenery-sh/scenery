@@ -391,7 +391,7 @@ type ChangeApplyResult struct {
 }
 
 func ApplyChangePlanWithOptions(root string, plan ChangePlan, options ApplyOptions) (ChangeReceipt, error) {
-	result, err := applyChangePlanWithOptions(root, plan, options)
+	result, err := applyChangePlanWithOptions(root, plan, options, time.Now)
 	if err != nil {
 		return ChangeReceipt{}, err
 	}
@@ -403,6 +403,16 @@ func ApplyChangePlanWithOptions(root string, plan ChangePlan, options ApplyOptio
 // retained plan, so model-visible callers only need to submit plan_id; a
 // trusted adapter may still provide stricter expectations.
 func ApplyIssuedChangePlanWithOptions(root, planID string, options ApplyOptions) (ChangeApplyResult, error) {
+	return applyIssuedChangePlanWithOptions(root, planID, options, time.Now)
+}
+
+// applyIssuedChangePlanWithOptionsAt keeps expiry checks invocation-local so
+// callers that exercise time boundaries do not need a shared mutable clock.
+func applyIssuedChangePlanWithOptionsAt(root, planID string, options ApplyOptions, now time.Time) (ChangeApplyResult, error) {
+	return applyIssuedChangePlanWithOptions(root, planID, options, func() time.Time { return now })
+}
+
+func applyIssuedChangePlanWithOptions(root, planID string, options ApplyOptions, now func() time.Time) (ChangeApplyResult, error) {
 	plan, err := LoadIssuedChangePlan(root, planID)
 	if err != nil {
 		return ChangeApplyResult{}, err
@@ -413,10 +423,10 @@ func ApplyIssuedChangePlanWithOptions(root, planID string, options ApplyOptions)
 	if options.ExpectedContractRevision == nil {
 		options.ExpectedContractRevision = cloneStringPointer(plan.BaseContractRevision)
 	}
-	return applyChangePlanWithOptions(root, plan, options)
+	return applyChangePlanWithOptions(root, plan, options, now)
 }
 
-func applyChangePlanWithOptions(root string, plan ChangePlan, options ApplyOptions) (ChangeApplyResult, error) {
+func applyChangePlanWithOptions(root string, plan ChangePlan, options ApplyOptions, now func() time.Time) (ChangeApplyResult, error) {
 	if !machine.UsesCurrentSpec(plan.ArtifactIdentity) {
 		return ChangeApplyResult{}, fmt.Errorf("failed_precondition: revision_scheme_changed: pending change plan must be recreated with the current Scenery CLI")
 	}
@@ -438,7 +448,7 @@ func applyChangePlanWithOptions(root string, plan ChangePlan, options ApplyOptio
 	} else if found {
 		return ChangeApplyResult{Receipt: receipt, Replayed: true}, nil
 	}
-	if time.Now().UTC().After(plan.ExpiresAt) {
+	if now().UTC().After(plan.ExpiresAt) {
 		return ChangeApplyResult{}, fmt.Errorf("failed_precondition: plan expired")
 	}
 	if err := validateApprovals(plan, options); err != nil {

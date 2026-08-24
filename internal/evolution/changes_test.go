@@ -22,6 +22,8 @@ import (
 )
 
 func TestChangePlanDoesNotWriteAndApplyIsRevisionBound(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), root)
 	base, err := compiler.Compile(root)
@@ -62,6 +64,8 @@ func TestChangePlanDoesNotWriteAndApplyIsRevisionBound(t *testing.T) {
 }
 
 func TestChangePlanNormalizesPresentationEquivalentOperations(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), root)
 	base, err := compiler.Compile(root)
@@ -148,6 +152,8 @@ func TestChangePlanNormalizesOperationsAcrossTemporarilyInvalidGraph(t *testing.
 }
 
 func TestChangeRenameUpdatesTypedReferences(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), root)
 	base, err := compiler.Compile(root)
@@ -316,6 +322,8 @@ record "point" {
 }
 
 func TestChangeCreateThenRenameUsesRefreshedGraph(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), root)
 	base, err := compiler.Compile(root)
@@ -346,6 +354,8 @@ func TestChangeCreateThenRenameUsesRefreshedGraph(t *testing.T) {
 }
 
 func TestChangeCreateAddsStructuredRecord(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), root)
 	base, err := compiler.Compile(root)
@@ -385,6 +395,8 @@ func TestChangeCreateAddsStructuredRecord(t *testing.T) {
 }
 
 func TestChangePlanCommitsAdditionalAuthoredFilesTransactionally(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), root)
 	base, err := compiler.Compile(root)
@@ -561,6 +573,8 @@ func TestChangeCreateRejectsScalarIdempotencyKey(t *testing.T) {
 }
 
 func TestChangeCreateLowersCanonicalReferenceAndDurationScalar(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), root)
 	base, err := compiler.Compile(root)
@@ -602,6 +616,8 @@ func TestChangeCreateLowersCanonicalReferenceAndDurationScalar(t *testing.T) {
 }
 
 func TestChangeCreateAddsStructuredHTTPBinding(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), root)
 	base, err := compiler.Compile(root)
@@ -659,6 +675,8 @@ func TestChangeCreateAddsStructuredHTTPBinding(t *testing.T) {
 }
 
 func TestChangeCreateAddsServiceDynamicConfigBlock(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), root)
 	packagePath := filepath.Join(root, "house", testPackageFilename)
@@ -831,6 +849,8 @@ func TestChangeApplyRequiresBoundApprovalAndRejectsReplay(t *testing.T) {
 }
 
 func TestRepairPlanUsesNullContractRevisionAndEstablishesContract(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), root)
 	path := filepath.Join(root, "house", testPackageFilename)
@@ -881,6 +901,8 @@ func TestRepairPlanUsesNullContractRevisionAndEstablishesContract(t *testing.T) 
 }
 
 func TestGeneratedCheckHooksAreInvoked(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), root)
 	base, err := compiler.Compile(root)

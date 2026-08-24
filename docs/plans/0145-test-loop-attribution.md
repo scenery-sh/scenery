@@ -162,6 +162,29 @@ optimize a number nothing can explain.
       above the 0.5s / 5% retain threshold. Three focused `-race` repetitions
       and one full-package `-race` run passed, as did the exact changed-area Go
       command union and the full self-harness.
+- [x] 2026-08-24: Parallelized the 15 measured heavy tests in
+      `internal/evolution`. Their compiler and filesystem work is confined to
+      per-test temporary roots, they do not mutate process environment or cwd,
+      and the test-only generated-check fallbacks are initialized once and then
+      immutable. Three balanced focused-package A/B pairs measured before
+      5.776/5.979/5.788s (median 5.788s) and after
+      3.399/3.402/3.678s (median 3.402s): 2.386s and 41.2% faster. Three balanced
+      manifest-hit full-suite pairs in clean sibling worktrees measured before
+      12.61/12.63/12.36s (median 12.61s) and after
+      12.57/12.07/11.76s (median 12.07s): 0.54s and 4.3% faster. One unrelated
+      desktop-shell shutdown timeout was excluded and replaced with a passing
+      patched sample. Three full-package race repetitions passed.
+- [x] 2026-08-24: Removed the real-time expiry wait from
+      `TestIssuedChangePlanLoadingAndReplayAfterExpiryAndWorkspaceDrift` and
+      narrowed it to the replay contract it owns. Expiry is supplied through
+      an invocation-local clock, the fixture is one valid `app.scn`, and the
+      test writes the canonical durable receipt directly; separate receipt and
+      concurrent-apply tests retain first-apply coverage. Five alternating
+      isolated A/B pairs measured 1.310-1.330s before and 0.050-0.060s after.
+      On the retained tree, 100 serial repetitions measured 20ms median, 70ms
+      maximum, and zero samples over 100ms. Focused `-race -count=3`, one full
+      package race run, both owning-package commands, and `go test ./...`
+      passed.
 
 - [x] 2026-07-29: Optimized runtime hot paths on the developer loop, separate
       from test scheduling. Six changes, each with byte-identical output proven
@@ -397,6 +420,22 @@ optimize a number nothing can explain.
   those seams private to their owning invocation made the whole 1.52s audit
   batch parallel-safe without introducing a generic test-runner abstraction;
   the focused batch completed in 0.988s and the full package median fell 18.3%.
+- 2026-08-24: Full-suite performance comparisons must hold ignored checkout
+  state constant. An initial evolution A/B compared a clean baseline worktree
+  with the primary checkout's large ignored `.scenery` tree; the primary alone
+  inflated `internal/generate` and `internal/deployplan` into 25-42s packages,
+  even after narrowing the patch to two parallel tests. Repeating the original
+  15-test batch in two clean sibling worktrees removed that confound and made
+  all valid manifest-hit suite samples faster. The package reduction is much
+  larger than the 0.54s suite reduction because another package chain becomes
+  the wall-clock owner.
+- 2026-08-24: This replay test had two independent artificial costs. Its
+  1.100s `time.Sleep` was 85% of the measured 1.29-1.33s runtime. Replacing
+  only the sleep with deterministic time left the full House fixture at
+  170-220ms because planning and apply repeatedly compile, clone, and validate
+  that fixture. A one-file app reduced the scenario to 40-70ms, and directly
+  seeding the already-covered receipt setup left the focused replay assertion
+  at 20-70ms across 100 serial repetitions.
 - 2026-07-28: The five slowest links are `internal/build` 6.777s,
   `internal/contractagent` 6.480s, `internal/compiler` 6.245s,
   `internal/deployplan` 5.658s, and `cmd/scenery` 4.842s. Link cost does not
@@ -727,6 +766,24 @@ optimize a number nothing can explain.
   The alternating package median improved by 1.213s / 18.3%, so no shared
   dependency container or generic runner is warranted.
   Date/Author: 2026-08-24 / Codex.
+- The 15-test `internal/evolution` parallel batch is retained. Every selected
+  test owns its workspace, generated-check callbacks are invocation-local, and
+  the package-global test fallbacks are immutable after initialization. The
+  focused package median improved by 2.386s / 41.2%, the clean manifest-hit
+  full-suite median improved by 0.54s / 4.3%, and three full-package race
+  repetitions passed. The expiry-sleep exception below supersedes the original
+  decision to leave that wait hidden behind package parallelism.
+  Date/Author: 2026-08-24 / Codex.
+- The replay expiry wait is replaced by a private, invocation-local clock
+  function. Production still evaluates `time.Now` at the expiry check; tests
+  can cross the boundary without a package-global clock or a public option.
+  This test seeds a canonical receipt because it owns load/replay ordering,
+  while `TestConcurrentIssuedChangePlanApplyReturnsOneReplay` and
+  `TestAppliedChangeReceiptLoaderRejectsCorruptAndMismatchedRecords` retain the
+  real first-apply and receipt-write boundaries. Five alternating isolated
+  pairs improved from 1.310-1.330s to 0.050-0.060s, and the retained test stayed
+  at or below 70ms across 100 repetitions.
+  Date/Author: 2026-08-24 / Codex.
 - Per-package budgets were raised to 10s/15s rather than left at 2s/5s. A budget
   that nothing meets is not a budget; it reports every package every run, so a
   real regression is indistinguishable from the standing background. 10s and 15s
@@ -858,7 +915,12 @@ runner experiment then reduced its measured median from 9.242s to 7.817s, and
 the remaining desktop-agent/assistant-init/snapshot-backup batch reduced its
 current median from 7.763s to 6.996s. Isolating the last five serial tests then
 reduced the interleaved full-package median from 6.643s to 5.430s while
-preserving their real subprocess and local-agent boundaries.
+preserving their real subprocess and local-agent boundaries. The measured
+15-test `internal/evolution` batch then reduced its focused median from 5.788s
+to 3.402s and the clean manifest-hit full-suite median from 12.61s to 12.07s.
+Removing the last real-time expiry wait then reduced its owning test from
+1.310-1.330s to 0.050-0.060s in alternating runs, with a 70ms maximum across
+100 retained-tree repetitions.
 
 ## Context and Orientation
 

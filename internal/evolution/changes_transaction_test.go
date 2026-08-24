@@ -104,6 +104,8 @@ func TestCompileRejectsActiveTransactionOwnedByCurrentProcess(t *testing.T) {
 }
 
 func TestCommittedResultRevalidationDetectsWorkspaceDrift(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), root)
 	excludedPath := filepath.Join(root, "revision-excluded.txt")

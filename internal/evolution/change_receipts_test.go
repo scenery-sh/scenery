@@ -11,12 +11,15 @@ import (
 	"time"
 
 	"scenery.sh/internal/compiler"
+	"scenery.sh/internal/machine"
 	"scenery.sh/internal/spec"
 )
 
 func TestIssuedChangePlanLoadingAndReplayAfterExpiryAndWorkspaceDrift(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
-	copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), root)
+	writeNestedModuleFile(t, filepath.Join(root, testAppFilename), "application \"receipt_replay\" {}\n")
 	base, err := compiler.Compile(root)
 	if err != nil || !base.Valid() {
 		t.Fatalf("compile: %v diagnostics=%#v", err, base.Diagnostics)
@@ -34,35 +37,39 @@ func TestIssuedChangePlanLoadingAndReplayAfterExpiryAndWorkspaceDrift(t *testing
 		t.Fatalf("loaded plan = %#v err=%v", loaded, err)
 	}
 
-	// Leave enough time for the initial commit, then prove replay does not
-	// consult expiry or the current workspace revision.
-	plan.ExpiresAt = time.Now().UTC().Add(time.Second)
-	plan.PlanID = changePlanID(plan)
-	if err := RetainIssuedPlan(root, IssuedChangePlan, plan.PlanID, plan); err != nil {
-		t.Fatal(err)
+	receipt := ChangeReceipt{
+		ArtifactIdentity:     machine.NewArtifactIdentity(changeReceiptKind, changeReceiptSchemaDescriptor),
+		PlanID:               plan.PlanID,
+		WorkspaceRevision:    plan.PredictedWorkspaceRevision,
+		ContractRevision:     plan.PredictedContractRevision,
+		ImplementationStatus: plan.ImplementationStatus,
+		DeploymentStatus:     plan.DeploymentStatus,
+		Applied:              []string{},
+		Renames:              []RenameReceipt{},
 	}
-	first, err := ApplyIssuedChangePlanWithOptions(root, plan.PlanID, ApplyOptions{Caller: "local"})
+	encodedReceipt, err := spec.MarshalCanonical(receipt)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.Replayed {
-		t.Fatalf("first apply was marked replayed: %#v", first)
+	if err := writeChangeReceiptOnce(root, plan.PlanID, append(encodedReceipt, '\n')); err != nil {
+		t.Fatal(err)
 	}
-	time.Sleep(1100 * time.Millisecond)
-	packagePath := filepath.Join(root, "house", testPackageFilename)
-	packageBytes, err := os.ReadFile(packagePath)
+	appPath := filepath.Join(root, testAppFilename)
+	appBytes, err := os.ReadFile(appPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(packagePath, append(packageBytes, '\n'), 0o644); err != nil {
+	if err := os.WriteFile(appPath, append(appBytes, '\n'), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	second, err := ApplyIssuedChangePlanWithOptions(root, plan.PlanID, ApplyOptions{Caller: "local"})
+	// Cross the retained plan's expiry deterministically; replay must consult
+	// the durable receipt before either expiry or current-workspace validation.
+	second, err := applyIssuedChangePlanWithOptionsAt(root, plan.PlanID, ApplyOptions{Caller: "local"}, plan.ExpiresAt.Add(time.Second))
 	if err != nil {
 		t.Fatalf("replay after expiry and drift: %v", err)
 	}
-	if !second.Replayed || !semanticEqual(second.Receipt, first.Receipt) {
-		t.Fatalf("replay = %#v first = %#v", second, first)
+	if !second.Replayed || !semanticEqual(second.Receipt, receipt) {
+		t.Fatalf("replay = %#v receipt = %#v", second, receipt)
 	}
 	if _, err := ApplyIssuedChangePlanWithOptions(root, plan.PlanID, ApplyOptions{Caller: "other"}); err == nil || !strings.Contains(err.Error(), "caller mismatch") {
 		t.Fatalf("caller mismatch error = %v", err)
@@ -180,6 +187,8 @@ func TestLoadIssuedChangePlanRejectsContentTampering(t *testing.T) {
 }
 
 func TestConcurrentIssuedChangePlanApplyReturnsOneReplay(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), root)
 	base, err := compiler.Compile(root)

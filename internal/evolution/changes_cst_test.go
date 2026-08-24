@@ -111,6 +111,8 @@ func TestCSTMutationRecognizesAssistantAndMCPSingletonBlocks(t *testing.T) {
 }
 
 func TestChangePlanAppliesNestedBlockEditAtomically(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), root)
 	base, err := compiler.Compile(root)
