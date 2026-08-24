@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -136,8 +137,13 @@ func TestValidateRunsCodeTaskAndWritesResult(t *testing.T) {
 	}`)
 	writeTestAppFile(t, root, "demo/tasks/ok.task.go", "//go:build ignore\n\npackage main\nimport \"fmt\"\nfunc main(){fmt.Print(\"hello\")}\n")
 
+	runCommand := func(cmd *exec.Cmd) error {
+		assertValidationGoTaskCommand(t, cmd, root, "./demo/tasks/ok.task.go")
+		_, err := io.WriteString(cmd.Stdout, "hello")
+		return err
+	}
 	var out bytes.Buffer
-	if err := runSceneryValidate(context.Background(), &out, []string{"--app-root", root, "-o", "json", "--write"}); err != nil {
+	if err := runSceneryValidateWithTaskCommandRunner(context.Background(), &out, []string{"--app-root", root, "-o", "json", "--write"}, runCommand); err != nil {
 		t.Fatalf("validate: %v\n%s", err, out.String())
 	}
 	var resp validationResultResponse
@@ -170,8 +176,13 @@ func TestValidateProfileEnvFlowsToNestedTasks(t *testing.T) {
 	}`)
 	writeTestAppFile(t, root, "demo/tasks/print-env.task.go", "//go:build ignore\n\npackage main\nimport (\"fmt\"; \"os\")\nfunc main(){fmt.Printf(\"%s/%s\", os.Getenv(\"PARENT_VALUE\"), os.Getenv(\"TASK_VALUE\"))}\n")
 
+	runCommand := func(cmd *exec.Cmd) error {
+		assertValidationGoTaskCommand(t, cmd, root, "./demo/tasks/print-env.task.go")
+		_, err := io.WriteString(cmd.Stdout, envValueFromList(cmd.Env, "PARENT_VALUE")+"/"+envValueFromList(cmd.Env, "TASK_VALUE"))
+		return err
+	}
 	var out bytes.Buffer
-	if err := runSceneryValidate(context.Background(), &out, []string{"--app-root", root, "-o", "json"}); err != nil {
+	if err := runSceneryValidateWithTaskCommandRunner(context.Background(), &out, []string{"--app-root", root, "-o", "json"}, runCommand); err != nil {
 		t.Fatalf("validate: %v\n%s", err, out.String())
 	}
 	var resp validationResultResponse
@@ -223,6 +234,8 @@ func TestValidateChangedSelectsMatchingProfiles(t *testing.T) {
 }
 
 func TestValidateCapturesCodeTaskOutput(t *testing.T) {
+	t.Parallel()
+
 	root := validationFixtureRoot(t, `{
 		"name": "demo",
 		"validation": {
@@ -238,14 +251,14 @@ func TestValidateCapturesCodeTaskOutput(t *testing.T) {
 	}`)
 	writeTestAppFile(t, root, "billing/tasks/reconcile.task.go", "//go:build ignore\n\npackage main\nimport \"fmt\"\nfunc main(){fmt.Print(\"code-task\")}\n")
 
-	prev := scriptCommandContext
-	scriptCommandContext = func(ctx context.Context, program string, args ...string) *exec.Cmd {
-		return exec.CommandContext(ctx, "sh", "-c", "printf '%s' \"$CODE_TASK_VALUE\"")
+	runCommand := func(cmd *exec.Cmd) error {
+		assertValidationGoTaskCommand(t, cmd, root, "./billing/tasks/reconcile.task.go")
+		_, err := io.WriteString(cmd.Stdout, envValueFromList(cmd.Env, "CODE_TASK_VALUE"))
+		return err
 	}
-	t.Cleanup(func() { scriptCommandContext = prev })
 
 	var out bytes.Buffer
-	if err := runSceneryValidate(context.Background(), &out, []string{"quick", "--app-root", root, "-o", "json"}); err != nil {
+	if err := runSceneryValidateWithTaskCommandRunner(context.Background(), &out, []string{"quick", "--app-root", root, "-o", "json"}, runCommand); err != nil {
 		t.Fatalf("validate code task: %v\n%s", err, out.String())
 	}
 	var resp validationResultResponse
@@ -254,6 +267,13 @@ func TestValidateCapturesCodeTaskOutput(t *testing.T) {
 	}
 	if got := resp.Steps[0].Evidence.StdoutTail; got != "code-task-env" {
 		t.Fatalf("stdout tail = %q", got)
+	}
+}
+
+func assertValidationGoTaskCommand(t *testing.T, cmd *exec.Cmd, root, taskPath string) {
+	t.Helper()
+	if filepath.Base(cmd.Path) != "go" || cmd.Dir != root || strings.Join(cmd.Args[1:], " ") != "run "+taskPath {
+		t.Fatalf("validation task command = %+v, want go run %s from %s", cmd, taskPath, root)
 	}
 }
 

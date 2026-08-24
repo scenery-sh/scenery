@@ -25,7 +25,13 @@ type desktopFrontendBuildResult struct {
 	Artifacts    []string `json:"artifacts"`
 }
 
+type desktopBuildCommandRunner func(context.Context, desktop.Command, []string, io.Writer) error
+
 func buildDesktop(ctx context.Context, appRoot string, cfg app.Config, env app.ResolvedEnv, commandOutput io.Writer) (desktopBuildResult, error) {
+	return buildDesktopWithRunner(ctx, appRoot, cfg, env, commandOutput, desktop.Run)
+}
+
+func buildDesktopWithRunner(ctx context.Context, appRoot string, cfg app.Config, env app.ResolvedEnv, commandOutput io.Writer, run desktopBuildCommandRunner) (desktopBuildResult, error) {
 	shells, err := configuredDesktopShells(appRoot, cfg)
 	if err != nil {
 		return desktopBuildResult{}, err
@@ -55,7 +61,7 @@ func buildDesktop(ctx context.Context, appRoot string, cfg app.Config, env app.R
 		if err != nil {
 			return desktopBuildResult{}, fmt.Errorf("prepare desktop frontend %q build: %w", shell.Name, err)
 		}
-		if err := desktop.Run(ctx, desktop.Command{Path: buildBin, Args: buildArgs, Dir: shell.FrontendRoot}, buildEnv, commandOutput); err != nil {
+		if err := run(ctx, desktop.Command{Path: buildBin, Args: buildArgs, Dir: shell.FrontendRoot}, buildEnv, commandOutput); err != nil {
 			return desktopBuildResult{}, fmt.Errorf("build desktop frontend %q: %w", shell.Name, err)
 		}
 		distDir := filepath.Join(shell.FrontendRoot, "dist")
@@ -66,7 +72,7 @@ func buildDesktop(ctx context.Context, appRoot string, cfg app.Config, env app.R
 		if err != nil {
 			return desktopBuildResult{}, err
 		}
-		if err := desktop.Run(ctx, command, buildEnv, commandOutput); err != nil {
+		if err := run(ctx, command, buildEnv, commandOutput); err != nil {
 			return desktopBuildResult{}, fmt.Errorf("bundle desktop frontend %q: %w", shell.Name, err)
 		}
 		artifacts, err := desktop.BundleArtifacts(shell)

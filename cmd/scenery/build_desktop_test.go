@@ -5,12 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"scenery.sh/internal/app"
+	"scenery.sh/internal/desktop"
 )
 
 func TestBuildDesktopBuildsFrontendAndTauriBundle(t *testing.T) {
@@ -20,22 +20,8 @@ func TestBuildDesktopBuildsFrontendAndTauriBundle(t *testing.T) {
 	frontendRoot := filepath.Join(root, "apps", "web")
 	writeDesktopTestFile(t, filepath.Join(frontendRoot, "package.json"), `{"scripts":{"build":"vite build"}}`)
 	writeDesktopTestFile(t, filepath.Join(frontendRoot, "src-tauri", "tauri.conf.json"), `{}`)
-	frontendMarker := filepath.Join(root, "frontend-build.json")
-	tauriMarker := filepath.Join(root, "tauri-build.json")
-	// The marker path is baked into the script rather than passed through the
-	// process environment, so this test needs no t.Setenv and can run parallel.
-	writeDesktopTestExecutable(t, filepath.Join(frontendRoot, "node_modules", ".bin", "vite"), `#!/bin/sh
-set -eu
-mkdir -p dist
-printf '<html>desktop</html>' > dist/index.html
-printf '%s\n%s\n' "$1" "$VITE_API_BASE_URL" > "`+frontendMarker+`"
-`)
-	writeDesktopTestExecutable(t, filepath.Join(frontendRoot, "node_modules", ".bin", "tauri"), `#!/bin/sh
-set -eu
-mkdir -p src-tauri/target/release/bundle/dmg
-printf 'bundle' > src-tauri/target/release/bundle/dmg/desktop.dmg
-printf '%s\n%s\n%s\n%s\n%s\n' "$PWD" "$1" "$2" "$3" "$SCENERY_ENV" > "`+tauriMarker+`"
-`)
+	writeDesktopTestFile(t, filepath.Join(frontendRoot, "node_modules", ".bin", "vite"), "")
+	writeDesktopTestFile(t, filepath.Join(frontendRoot, "node_modules", ".bin", "tauri"), "")
 	cfg := app.Config{
 		Name: "desktop-demo",
 		Frontends: map[string]app.FrontendConfig{
@@ -51,8 +37,28 @@ printf '%s\n%s\n%s\n%s\n%s\n' "$PWD" "$1" "$2" "$3" "$SCENERY_ENV" > "`+tauriMar
 		t.Fatal(err)
 	}
 	cfg.Frontends = env.Frontends
+	type invocation struct {
+		command desktop.Command
+		env     []string
+	}
+	var invocations []invocation
+	run := func(_ context.Context, command desktop.Command, env []string, _ io.Writer) error {
+		invocations = append(invocations, invocation{
+			command: desktop.Command{Path: command.Path, Args: append([]string(nil), command.Args...), Dir: command.Dir},
+			env:     append([]string(nil), env...),
+		})
+		switch filepath.Base(command.Path) {
+		case "vite":
+			writeDesktopTestFile(t, filepath.Join(frontendRoot, "dist", "index.html"), "<html>desktop</html>")
+		case "tauri":
+			writeDesktopTestFile(t, filepath.Join(frontendRoot, "src-tauri", "target", "release", "bundle", "dmg", "desktop.dmg"), "bundle")
+		default:
+			t.Fatalf("unexpected desktop command: %+v", command)
+		}
+		return nil
+	}
 	var commandOutput bytes.Buffer
-	result, err := buildDesktop(context.Background(), root, cfg, env, &commandOutput)
+	result, err := buildDesktopWithRunner(context.Background(), root, cfg, env, &commandOutput, run)
 	if err != nil {
 		t.Fatalf("buildDesktop: %v\n%s", err, commandOutput.String())
 	}
@@ -65,15 +71,18 @@ printf '%s\n%s\n%s\n%s\n%s\n' "$PWD" "$1" "$2" "$3" "$SCENERY_ENV" > "`+tauriMar
 		t.Fatalf("artifacts = %#v, want %q", frontend.Artifacts, wantArtifact)
 	}
 
-	frontendInvocation := readDesktopTestLines(t, frontendMarker)
-	if len(frontendInvocation) != 2 || frontendInvocation[0] != "build" {
+	if len(invocations) != 2 {
+		t.Fatalf("desktop invocations = %#v", invocations)
+	}
+	frontendInvocation := invocations[0]
+	if filepath.Base(frontendInvocation.command.Path) != "vite" || frontendInvocation.command.Dir != frontendRoot || strings.Join(frontendInvocation.command.Args, " ") != "build" {
 		t.Fatalf("frontend invocation = %#v", frontendInvocation)
 	}
-	if frontendInvocation[1] != "https://desktop.example.com" {
-		t.Fatalf("frontend API = %q", frontendInvocation[1])
+	if got := envValueFromList(frontendInvocation.env, "VITE_API_BASE_URL"); got != "https://desktop.example.com" {
+		t.Fatalf("frontend API = %q", got)
 	}
-	tauriInvocation := readDesktopTestLines(t, tauriMarker)
-	if len(tauriInvocation) != 5 || tauriInvocation[1] != "build" || tauriInvocation[2] != "--config" {
+	tauriInvocation := invocations[1]
+	if filepath.Base(tauriInvocation.command.Path) != "tauri" || tauriInvocation.command.Dir != frontendRoot || len(tauriInvocation.command.Args) != 3 || tauriInvocation.command.Args[0] != "build" || tauriInvocation.command.Args[1] != "--config" {
 		t.Fatalf("tauri invocation = %#v", tauriInvocation)
 	}
 	var overlay struct {
@@ -82,14 +91,14 @@ printf '%s\n%s\n%s\n%s\n%s\n' "$PWD" "$1" "$2" "$3" "$SCENERY_ENV" > "`+tauriMar
 			BeforeBuildCommand string `json:"beforeBuildCommand"`
 		} `json:"build"`
 	}
-	if err := json.Unmarshal([]byte(tauriInvocation[3]), &overlay); err != nil {
+	if err := json.Unmarshal([]byte(tauriInvocation.command.Args[2]), &overlay); err != nil {
 		t.Fatal(err)
 	}
 	if overlay.Build.FrontendDist != filepath.Join(frontendRoot, "dist") || overlay.Build.BeforeBuildCommand != "" {
 		t.Fatalf("overlay = %+v", overlay)
 	}
-	if tauriInvocation[4] != "production" {
-		t.Fatalf("SCENERY_ENV = %q", tauriInvocation[4])
+	if got := envValueFromList(tauriInvocation.env, "SCENERY_ENV"); got != "production" {
+		t.Fatalf("SCENERY_ENV = %q", got)
 	}
 
 	payload := desktopBuildPayload(result)
@@ -144,13 +153,4 @@ func TestBuildDesktopCommandEmitsSchemaValidJSON(t *testing.T) {
 	if diagnostics := validateHarnessJSONSchemaFile(cliSchema, envelope); len(diagnostics) != 0 {
 		t.Fatalf("desktop build CLI envelope diagnostics = %s", strings.Join(diagnostics, "\n"))
 	}
-}
-
-func readDesktopTestLines(t *testing.T, path string) []string {
-	t.Helper()
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return strings.Split(strings.TrimSpace(string(data)), "\n")
 }

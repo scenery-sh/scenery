@@ -130,6 +130,17 @@ optimize a number nothing can explain.
       before 12.208/10.055/11.611s (median 11.611s) and after
       8.768/8.625/8.590s (median 8.625s): 2.986s and 25.7% faster, well above
       the 0.5s / 5% retain threshold. Three focused `-race` repetitions passed.
+- [x] 2026-08-24: Coordinated the remaining subprocess-heavy `cmd/scenery`
+      tail with contract-specific injected runners. Deploy orchestration records
+      `exec.Cmd` values in memory, desktop orchestration accepts a
+      `desktop.Command` runner, and validation injects the resolved Go-task
+      command after cwd and environment construction. Real subprocess coverage
+      remains in the deploy stream/exit test, `internal/desktop.Run`, and
+      `TestRunSceneryScriptRunsGoFileFromAppRoot`. Three alternating full-package
+      A/B pairs measured before 9.871/9.242/8.998s (median 9.242s) and after
+      9.099/7.817/7.712s (median 7.817s): 1.425s and 15.4% faster, above the
+      0.5s / 5% retain threshold. Three focused race repetitions, every
+      changed-area Go command, and the full self-harness passed.
 
 - [x] 2026-07-29: Optimized runtime hot paths on the developer loop, separate
       from test scheduling. Six changes, each with byte-identical output proven
@@ -344,6 +355,16 @@ optimize a number nothing can explain.
   launched one, two, three, and four fake processes cumulatively. An in-memory
   runner removed those ten forks while a single real failure kept the process
   boundary covered; median package wall fell 8.6%.
+- 2026-08-24: The next reduction required treating the parallel tail as a
+  group. Deploy order/publish, desktop build, and validation Go tasks each
+  became slower under package contention, and the last finisher varied by run.
+  Replacing their repeated subprocesses together moved the package median by
+  15.4%; retaining only one runner seam would have left another real-process
+  cluster owning the tail.
+- 2026-08-24: The preserved real desktop boundary exposed a pre-existing race:
+  `os/exec` drains stdout and stderr concurrently, but `desktop.Run` sent both
+  to the same unsynchronized output and tail buffers. One locked combined
+  writer now serializes those writes; three focused race repetitions pass.
 - 2026-07-28: The five slowest links are `internal/build` 6.777s,
   `internal/contractagent` 6.480s, `internal/compiler` 6.245s,
   `internal/deployplan` 5.658s, and `cmd/scenery` 4.842s. Link cost does not
@@ -655,6 +676,12 @@ optimize a number nothing can explain.
   real subprocess test covers `*exec.ExitError`. The 0.957s / 8.6% median package
   reduction exceeds the predeclared 0.5s / 5% materiality threshold.
   Date/Author: 2026-08-20 / Codex.
+- The coordinated deploy, desktop-build, and validation command runners are
+  retained. Each seam describes its own command contract, production behavior
+  still executes the real child, and one focused real subprocess test remains
+  at each owning boundary. The alternating package median improved by 1.425s /
+  15.4%, so a shared generic runner abstraction is unnecessary.
+  Date/Author: 2026-08-24 / Codex.
 - Per-package budgets were raised to 10s/15s rather than left at 2s/5s. A budget
   that nothing meets is not a budget; it reports every package every run, so a
   real regression is indistinguishable from the standing background. 10s and 15s
@@ -903,6 +930,13 @@ machines; re-measure before comparing.
   the stdout Go JSON event stream intact.
 - `deploySSHTools` gained a private `RunCommand` injection point; the zero value
   retains direct `exec.Cmd.Run` behavior.
+- Desktop builds have a private `desktopBuildCommandRunner` around
+  `desktop.Command`; production passes `internal/desktop.Run`.
+- Code-task options have a private `scriptCommandRunner` around the fully
+  configured `exec.Cmd`; validation threads it only into task steps and
+  production leaves it nil.
+- `internal/desktop.Run` shares one locked combined writer between child stdout
+  and stderr so caller output and the error tail remain race-free.
 - `internal/victoria.StartConfig` and `StartAtRootWithConfig` accept explicit
   component specs and binary paths. `devSupervisor` carries the private
   `victoriaProcessConfig` that pairs startup with the matching port-availability

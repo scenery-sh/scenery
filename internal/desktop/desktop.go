@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"scenery.sh/internal/app"
 )
@@ -122,12 +123,24 @@ func Run(ctx context.Context, command Command, env []string, output io.Writer) e
 	if output == nil {
 		output = io.Discard
 	}
-	cmd.Stdout = io.MultiWriter(output, &tail)
-	cmd.Stderr = io.MultiWriter(output, &tail)
+	combined := &lockedWriter{writer: io.MultiWriter(output, &tail)}
+	cmd.Stdout = combined
+	cmd.Stderr = combined
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("%s %s: %w\n%s", command.Path, strings.Join(command.Args, " "), err, lastLines(tail.String(), 20))
 	}
 	return nil
+}
+
+type lockedWriter struct {
+	mu     sync.Mutex
+	writer io.Writer
+}
+
+func (w *lockedWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.writer.Write(p)
 }
 
 func BundleArtifacts(project Project) ([]string, error) {

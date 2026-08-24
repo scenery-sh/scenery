@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"sort"
@@ -45,7 +46,10 @@ type scriptOptions struct {
 	Stdout     io.Writer
 	Stderr     io.Writer
 	Stdin      io.Reader
+	RunCommand scriptCommandRunner
 }
+
+type scriptCommandRunner func(*exec.Cmd) error
 
 type scriptInspectOutput struct {
 	Target    scriptTarget      `json:"target"`
@@ -356,8 +360,6 @@ func validateGoScriptBuildTag(path string) error {
 func runScriptProcess(ctx context.Context, root string, cfg app.Config, program string, args []string, opts scriptOptions) error {
 	ctx, stopSignals := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stopSignals()
-	cmd := scriptCommandContext(ctx, program, args...)
-	cmd.Dir = root
 	resolved, err := cfg.ResolveEnv(opts.Env)
 	if err != nil {
 		return err
@@ -377,14 +379,22 @@ func runScriptProcess(ctx context.Context, root string, cfg app.Config, program 
 	}
 	extra = append(extra, storageEnv...)
 	extra = append(extra, "SCENERY_ENV="+resolved.Name, "SCENERY_RUNTIME_ENV="+resolved.Name)
+	cmd := scriptCommandContext(ctx, program, args...)
+	cmd.Dir = root
 	cmd.Env = envWithOverrides(env, extra...)
 	cmd.Stdout = firstNonNilWriter(opts.Stdout, os.Stdout)
 	cmd.Stderr = firstNonNilWriter(opts.Stderr, os.Stderr)
 	cmd.Stdin = firstNonNilReader(opts.Stdin, os.Stdin)
+	if opts.RunCommand != nil {
+		return finishScriptProcess(ctx, opts.RunCommand(cmd))
+	}
 	if err := cmd.Start(); err != nil {
 		return err
 	}
-	err = cmd.Wait()
+	return finishScriptProcess(ctx, cmd.Wait())
+}
+
+func finishScriptProcess(ctx context.Context, err error) error {
 	if ctx.Err() != nil {
 		return nil
 	}

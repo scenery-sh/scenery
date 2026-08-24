@@ -153,6 +153,10 @@ func validateCommand(args []string) error {
 }
 
 func runSceneryValidate(ctx context.Context, stdout io.Writer, args []string) error {
+	return runSceneryValidateWithTaskCommandRunner(ctx, stdout, args, nil)
+}
+
+func runSceneryValidateWithTaskCommandRunner(ctx context.Context, stdout io.Writer, args []string, runCommand scriptCommandRunner) error {
 	opts, err := parseValidateArgs(args)
 	if err != nil {
 		return err
@@ -225,7 +229,7 @@ func runSceneryValidate(ctx context.Context, stdout io.Writer, args []string) er
 			}
 			return nil
 		}
-		result := executeValidationPlan(ctx, appRoot, cfg, plan, opts)
+		result := executeValidationPlan(ctx, appRoot, cfg, plan, opts, runCommand)
 		if opts.Write {
 			if err := writeValidationResult(appRoot, &result); err != nil {
 				return err
@@ -490,10 +494,10 @@ func referencedValidationTasks(appRoot string, cfg appcfg.Config, steps []valida
 	return out
 }
 
-func executeValidationPlan(ctx context.Context, appRoot string, cfg appcfg.Config, plan validation.ResolvedPlan, opts validateOptions) validationResultResponse {
+func executeValidationPlan(ctx context.Context, appRoot string, cfg appcfg.Config, plan validation.ResolvedPlan, opts validateOptions, runCommand scriptCommandRunner) validationResultResponse {
 	artifactCtx := newValidationArtifactContext(appRoot, opts.Write)
 	run := func(ctx context.Context, step validation.PlanStep, stdout, stderr io.Writer) error {
-		return runValidationStepCommand(ctx, appRoot, cfg, step, stdout, stderr, opts.JSON)
+		return runValidationStepCommand(ctx, appRoot, cfg, step, stdout, stderr, opts.JSON, runCommand)
 	}
 	writeArtifacts := func(stepName string, stdout, stderr []byte) ([]validation.OutputArtifact, []validation.Diagnostic) {
 		return writeValidationOutputArtifacts(artifactCtx, stepName, stdout, stderr)
@@ -539,7 +543,7 @@ func validationResultStepFrom(step validation.StepResult) validationResultStep {
 	}
 }
 
-func runValidationStepCommand(ctx context.Context, appRoot string, cfg appcfg.Config, step validation.PlanStep, stdout, stderr io.Writer, capture bool) error {
+func runValidationStepCommand(ctx context.Context, appRoot string, cfg appcfg.Config, step validation.PlanStep, stdout, stderr io.Writer, capture bool, runCommand scriptCommandRunner) error {
 	ref := validation.ParseStepRef(step.Name)
 	if !capture {
 		stdout = os.Stdout
@@ -547,7 +551,7 @@ func runValidationStepCommand(ctx context.Context, appRoot string, cfg appcfg.Co
 	}
 	switch ref.Kind {
 	case "task":
-		return runValidationTask(ctx, appRoot, cfg, ref.Name, nil, stdout, stderr, step.Env)
+		return runValidationTask(ctx, appRoot, cfg, ref.Name, nil, stdout, stderr, step.Env, runCommand)
 	case "builtin":
 		switch ref.Name {
 		case "harness", "harness:core":
@@ -588,7 +592,7 @@ func runValidationStepCommand(ctx context.Context, appRoot string, cfg appcfg.Co
 	return fmt.Errorf("unsupported validation step %q", step.Name)
 }
 
-func runValidationTask(ctx context.Context, appRoot string, cfg appcfg.Config, target string, stack []string, stdout, stderr io.Writer, envOverlay map[string]string) error {
+func runValidationTask(ctx context.Context, appRoot string, cfg appcfg.Config, target string, stack []string, stdout, stderr io.Writer, envOverlay map[string]string, runCommand scriptCommandRunner) error {
 	if _, err := taskTargetKind(target); err != nil {
 		return err
 	}
@@ -599,6 +603,7 @@ func runValidationTask(ctx context.Context, appRoot string, cfg appcfg.Config, t
 		Stdout:     stdout,
 		Stderr:     stderr,
 		Stdin:      os.Stdin,
+		RunCommand: runCommand,
 	})
 }
 

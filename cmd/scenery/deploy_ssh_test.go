@@ -17,19 +17,21 @@ func TestDeploySSHRunsCheckAndCommandsInOrder(t *testing.T) {
 	t.Parallel()
 
 	root := copyDeploySSHTestApp(t)
-	logPath, tools := installDeploySSHTestCommands(t)
+	var recorder deploySSHTestRecorder
+	tools := deploySSHTools{SSH: "/fake/ssh", Rsync: "/fake/rsync", RunCommand: recorder.run}
 
 	var stdout bytes.Buffer
 	if err := runDeploySSH(&stdout, "some-id", []string{"--app-root", root}, tools); err != nil {
 		t.Fatalf("runDeploySSH: %v\n%s", err, stdout.String())
 	}
-	log := readDeploySSHTestLog(t, logPath)
+	log := recorder.log()
 	for _, want := range []string{
-		"ssh:preflight",
-		"ssh:down",
+		"SSH preflight",
+		"remote scenery down",
 		"$HOME/.scenery/run/agent.sock",
-		"rsync:" + root,
-		"ssh:up",
+		"rsync",
+		root,
+		"remote scenery up",
 		"--delete",
 		"--filter=:- .gitignore",
 		"--exclude=.git/",
@@ -44,7 +46,7 @@ func TestDeploySSHRunsCheckAndCommandsInOrder(t *testing.T) {
 			t.Fatalf("command log missing %q:\n%s", want, log)
 		}
 	}
-	if order := commandOrder(log); order != "ssh:preflight\nssh:down\nrsync\nssh:up" {
+	if order := recorder.order(); order != "SSH preflight\nremote scenery down\nrsync\nremote scenery up" {
 		t.Fatalf("command order = %q\n%s", order, log)
 	}
 	if !strings.Contains(stdout.String(), "remote ready") {
@@ -55,7 +57,8 @@ func TestDeploySSHRunsCheckAndCommandsInOrder(t *testing.T) {
 func TestDeploySSHRejectsBeforeCommands(t *testing.T) {
 	t.Parallel()
 
-	logPath, tools := installDeploySSHTestCommands(t)
+	var recorder deploySSHTestRecorder
+	tools := deploySSHTools{SSH: "/fake/ssh", Rsync: "/fake/rsync", RunCommand: recorder.run}
 	root := t.TempDir()
 	writeTestAppFile(t, root, ".scenery.json", `{"name":"basicapp","envs":{"local":{"default":true},"production":{"deploy":{"ssh":["some-id"]}}}}`)
 
@@ -63,7 +66,7 @@ func TestDeploySSHRejectsBeforeCommands(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "not configured") {
 		t.Fatalf("unlisted target error = %v", err)
 	}
-	if log := readDeploySSHTestLog(t, logPath); log != "" {
+	if log := recorder.log(); log != "" {
 		t.Fatalf("unlisted target ran commands:\n%s", log)
 	}
 
@@ -72,7 +75,7 @@ func TestDeploySSHRejectsBeforeCommands(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "local scenery check") {
 		t.Fatalf("invalid app error = %v", err)
 	}
-	if log := readDeploySSHTestLog(t, logPath); log != "" {
+	if log := recorder.log(); log != "" {
 		t.Fatalf("failed local check ran commands:\n%s", log)
 	}
 }
@@ -131,12 +134,16 @@ func TestDeploySSHChildProcessExitCodePropagates(t *testing.T) {
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	_, tools := installDeploySSHTestCommands(t)
+	tools := installDeploySSHExitTestCommand(t)
 	tools.Env = append(tools.Env, "DEPLOY_PREFLIGHT_EXIT=7")
-	err := runDeploySSHCommands(&bytes.Buffer{}, root, "basicapp", "some-id", "production", false, tools)
+	var stdout bytes.Buffer
+	err := runDeploySSHCommands(&stdout, root, "basicapp", "some-id", "production", false, tools)
 	var exitErr *exec.ExitError
 	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 7 || cliExitCode(err) != 7 {
 		t.Fatalf("error = %v, want child process exit 7", err)
+	}
+	if got := stdout.String(); got != "preflight output\n" {
+		t.Fatalf("child stdout = %q, want streamed preflight output", got)
 	}
 }
 
@@ -152,12 +159,13 @@ func TestDeploySSHRunsRemotePublishAfterUp(t *testing.T) {
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	logPath, tools := installDeploySSHTestCommands(t)
+	var recorder deploySSHTestRecorder
+	tools := deploySSHTools{SSH: "/fake/ssh", Rsync: "/fake/rsync", RunCommand: recorder.run}
 	if err := runDeploySSHCommands(&bytes.Buffer{}, root, "basicapp", "some-id", "production", true, tools); err != nil {
 		t.Fatalf("runDeploySSHCommands: %v", err)
 	}
-	log := readDeploySSHTestLog(t, logPath)
-	if order := commandOrder(log); order != "ssh:preflight\nssh:down\nrsync\nssh:up\nssh:publish" {
+	log := recorder.log()
+	if order := recorder.order(); order != "SSH preflight\nremote scenery down\nrsync\nremote scenery up\nremote scenery deploy publish" {
 		t.Fatalf("command order = %q\n%s", order, log)
 	}
 	if !strings.Contains(log, `scenery deploy publish --env "production" --app-root "$HOME/.scenery/apps/basicapp" -o json`) {
@@ -184,60 +192,58 @@ func copyDeploySSHTestApp(t *testing.T) string {
 	return root
 }
 
-// installDeploySSHTestCommands writes fake ssh/rsync programs and returns the
-// log they append to plus the tools that select them. Nothing is injected
-// through the process environment, so these tests run in parallel.
-func installDeploySSHTestCommands(t *testing.T) (string, deploySSHTools) {
-	t.Helper()
-	bin := t.TempDir()
-	logPath := filepath.Join(t.TempDir(), "commands.log")
-	writeTestAppFile(t, bin, "ssh", `#!/bin/sh
-command="$*"
-case "$command" in
-  *"command -v scenery"*) kind=preflight; code=${DEPLOY_PREFLIGHT_EXIT:-0} ;;
-  *"scenery down"*) kind=down; code=${DEPLOY_DOWN_EXIT:-0} ;;
-  *"scenery up"*) kind=up; code=${DEPLOY_UP_EXIT:-0} ;;
-  *"scenery deploy publish"*) kind=publish; code=${DEPLOY_PUBLISH_EXIT:-0} ;;
-  *) kind=unknown; code=99 ;;
-esac
-printf 'ssh:%s\nssh-args:%s\n' "$kind" "$command" >> "$DEPLOY_COMMAND_LOG"
-if [ "$kind" = up ]; then printf 'remote ready\n'; fi
-exit "$code"
-`)
-	writeTestAppFile(t, bin, "rsync", `#!/bin/sh
-printf 'rsync\nrsync:%s\nrsync-args:%s\n' "$PWD" "$*" >> "$DEPLOY_COMMAND_LOG"
-exit "${DEPLOY_RSYNC_EXIT:-0}"
-`)
-	for _, name := range []string{"ssh", "rsync"} {
-		if err := os.Chmod(filepath.Join(bin, name), 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
-	return logPath, deploySSHTools{
-		SSH:   filepath.Join(bin, "ssh"),
-		Rsync: filepath.Join(bin, "rsync"),
-		Env:   []string{"DEPLOY_COMMAND_LOG=" + logPath},
-	}
+type deploySSHRecordedCommand struct {
+	Name string
+	Dir  string
+	Args []string
 }
 
-func readDeploySSHTestLog(t *testing.T, path string) string {
-	t.Helper()
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return ""
-		}
-		t.Fatal(err)
-	}
-	return string(data)
+type deploySSHTestRecorder struct {
+	Commands []deploySSHRecordedCommand
 }
 
-func commandOrder(log string) string {
-	var order []string
-	for _, line := range strings.Split(log, "\n") {
-		if strings.HasPrefix(line, "ssh:") || line == "rsync" {
-			order = append(order, line)
-		}
+func (r *deploySSHTestRecorder) run(name string, cmd *exec.Cmd) error {
+	r.Commands = append(r.Commands, deploySSHRecordedCommand{
+		Name: name,
+		Dir:  cmd.Dir,
+		Args: append([]string(nil), cmd.Args...),
+	})
+	if name == "remote scenery up" {
+		_, err := fmt.Fprintln(cmd.Stdout, "remote ready")
+		return err
+	}
+	return nil
+}
+
+func (r *deploySSHTestRecorder) log() string {
+	var log strings.Builder
+	for _, command := range r.Commands {
+		fmt.Fprintf(&log, "%s\ndir:%s\nargs:%s\n", command.Name, command.Dir, strings.Join(command.Args, " "))
+	}
+	return log.String()
+}
+
+func (r *deploySSHTestRecorder) order() string {
+	order := make([]string, 0, len(r.Commands))
+	for _, command := range r.Commands {
+		order = append(order, command.Name)
 	}
 	return strings.Join(order, "\n")
+}
+
+// installDeploySSHExitTestCommand keeps one real child-process boundary for
+// stdout streaming and *exec.ExitError propagation. The orchestration matrix
+// uses deploySSHTestRecorder so it does not fork the same contract repeatedly.
+func installDeploySSHExitTestCommand(t *testing.T) deploySSHTools {
+	t.Helper()
+	bin := t.TempDir()
+	ssh := filepath.Join(bin, "ssh")
+	writeTestAppFile(t, bin, "ssh", `#!/bin/sh
+printf 'preflight output\n'
+exit "${DEPLOY_PREFLIGHT_EXIT:-0}"
+`)
+	if err := os.Chmod(ssh, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return deploySSHTools{SSH: ssh, Rsync: "/unused/rsync"}
 }

@@ -1,14 +1,48 @@
 package desktop
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"scenery.sh/internal/app"
 )
+
+func TestRunStreamsOutputAndPreservesExitCode(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	commandPath := filepath.Join(root, "desktop-command")
+	writeTestFile(t, commandPath, `#!/bin/sh
+printf 'stdout:%s:%s:%s\n' "$PWD" "$1" "$DESKTOP_TEST_VALUE"
+printf 'stderr:desktop failed\n' >&2
+exit 7
+`, 0o755)
+
+	var output strings.Builder
+	runErr := Run(context.Background(), Command{Path: commandPath, Args: []string{"build"}, Dir: root}, []string{"DESKTOP_TEST_VALUE=runner-env"}, &output)
+	var exitErr *exec.ExitError
+	if !errors.As(runErr, &exitErr) || exitErr.ExitCode() != 7 {
+		t.Fatalf("error = %v, want child exit 7", runErr)
+	}
+	resolvedRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"stdout:" + resolvedRoot + ":build:runner-env",
+		"stderr:desktop failed",
+	} {
+		if !strings.Contains(output.String(), want) || !strings.Contains(runErr.Error(), want) {
+			t.Fatalf("desktop output or error missing %q:\noutput: %s\nerror: %v", want, output.String(), runErr)
+		}
+	}
+}
 
 func TestResolveAndCommands(t *testing.T) {
 	root := t.TempDir()
