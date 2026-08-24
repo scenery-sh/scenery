@@ -9,6 +9,8 @@ import (
 )
 
 func TestSnapshotBackupScriptVerifiesReplicatesThenPrunes(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	bin := filepath.Join(root, "bin")
 	output := filepath.Join(root, "backups")

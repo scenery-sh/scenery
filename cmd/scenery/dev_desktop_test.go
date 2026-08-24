@@ -47,9 +47,11 @@ func TestConfiguredDesktopShellsRequiresConfiguredTauriProject(t *testing.T) {
 }
 
 func TestDesktopShellUsesFrontendBackendAndRegistersProcess(t *testing.T) {
+	t.Parallel()
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	paths, agentDone := startTestAgentServer(t, ctx)
+	paths, agentDone := startTestAgentServerAtPaths(t, ctx, localagent.PathsForHome(t.TempDir()), nil)
 	defer func() {
 		cancel()
 		waitForTestAgentServer(t, agentDone)
@@ -162,9 +164,11 @@ while :; do sleep 1; done
 }
 
 func TestDesktopShellExitDoesNotRestart(t *testing.T) {
+	t.Parallel()
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	paths, agentDone := startTestAgentServer(t, ctx)
+	paths, agentDone := startTestAgentServerAtPaths(t, ctx, localagent.PathsForHome(t.TempDir()), nil)
 	defer func() {
 		cancel()
 		waitForTestAgentServer(t, agentDone)

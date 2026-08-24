@@ -399,6 +399,13 @@ func startTestAgentServer(t *testing.T, ctx context.Context) (localagent.Paths, 
 func startTestAgentServerWithPathSetup(t *testing.T, ctx context.Context, setup func(localagent.Paths)) (localagent.Paths, <-chan error) {
 	t.Helper()
 	paths := isolateCommandAgentHome(t)
+	return startTestAgentServerAtPaths(t, ctx, paths, setup)
+}
+
+// startTestAgentServerAtPaths starts an agent without changing package-global
+// command path resolution. Parallel tests use it with their own temp home.
+func startTestAgentServerAtPaths(t *testing.T, ctx context.Context, paths localagent.Paths, setup func(localagent.Paths)) (localagent.Paths, <-chan error) {
+	t.Helper()
 	if err := localagent.EnsureDirs(paths); err != nil {
 		t.Fatal(err)
 	}

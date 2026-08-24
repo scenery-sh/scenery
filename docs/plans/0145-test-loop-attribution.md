@@ -141,6 +141,16 @@ optimize a number nothing can explain.
       9.099/7.817/7.712s (median 7.817s): 1.425s and 15.4% faster, above the
       0.5s / 5% retain threshold. Three focused race repetitions, every
       changed-area Go command, and the full self-harness passed.
+- [x] 2026-08-24: Moved the two desktop-agent lifecycle tests, assistant init,
+      and snapshot backup into one parallel-safe batch. The desktop tests start
+      their real agent servers at explicit per-test paths instead of mutating
+      `commandAgentPathsOverride`; their real Tauri helper processes and Unix
+      agent sockets remain covered. Three alternating full-package A/B pairs
+      measured before 7.760/8.880/7.763s (median 7.763s) and after
+      9.591/6.996/6.692s (median 6.996s): 0.767s and 9.9% faster, above the
+      0.5s / 5% retain threshold. Three focused `-race` repetitions, one full
+      package `-race` run, the exact changed-area command union, and the full
+      self-harness passed.
 
 - [x] 2026-07-29: Optimized runtime hot paths on the developer loop, separate
       from test scheduling. Six changes, each with byte-identical output proven
@@ -365,6 +375,11 @@ optimize a number nothing can explain.
   `os/exec` drains stdout and stderr concurrently, but `desktop.Run` sent both
   to the same unsynchronized output and tail buffers. One locked combined
   writer now serializes those writes; three focused race repetitions pass.
+- 2026-08-24: The desktop lifecycle tests did not need command-global path
+  resolution. Their shared helper coupled a unique server home to
+  `commandAgentPathsOverride` even though the tests construct the agent client
+  directly. Starting each server at explicit paths removed the coupling while
+  preserving the real agent and desktop-process boundaries.
 - 2026-07-28: The five slowest links are `internal/build` 6.777s,
   `internal/contractagent` 6.480s, `internal/compiler` 6.245s,
   `internal/deployplan` 5.658s, and `cmd/scenery` 4.842s. Link cost does not
@@ -682,6 +697,12 @@ optimize a number nothing can explain.
   at each owning boundary. The alternating package median improved by 1.425s /
   15.4%, so a shared generic runner abstraction is unnecessary.
   Date/Author: 2026-08-24 / Codex.
+- The desktop-agent, assistant-init, and snapshot-backup parallel batch is
+  retained. All state is temp-rooted per test, and the desktop pair uses a
+  test-only explicit-path server helper rather than a new production seam. The
+  alternating package median improved by 0.767s / 9.9%, above the declared
+  materiality threshold.
+  Date/Author: 2026-08-24 / Codex.
 - Per-package budgets were raised to 10s/15s rather than left at 2s/5s. A budget
   that nothing meets is not a budget; it reports every package every run, so a
   real regression is indistinguishable from the standing background. 10s and 15s
@@ -808,7 +829,10 @@ prepare wall at pinned four-way build concurrency instead of a concurrency-
 sensitive sum mislabeled as CPU. The warm-suite target is unmet and now has a
 precise, measured owner. Explicit per-supervisor Victoria process configuration
 moved five real-process lifecycle tests into the parallel phase and reduced the
-measured `cmd/scenery` package median from 11.611s to 8.625s.
+measured `cmd/scenery` package median from 11.611s to 8.625s. The coordinated
+runner experiment then reduced its measured median from 9.242s to 7.817s, and
+the remaining desktop-agent/assistant-init/snapshot-backup batch reduced its
+current median from 7.763s to 6.996s.
 
 ## Context and Orientation
 
@@ -937,6 +961,9 @@ machines; re-measure before comparing.
   production leaves it nil.
 - `internal/desktop.Run` shares one locked combined writer between child stdout
   and stderr so caller output and the error tail remain race-free.
+- `startTestAgentServerAtPaths` is a test-only helper for real agent servers
+  whose callers already own explicit paths; it does not alter production agent
+  path resolution.
 - `internal/victoria.StartConfig` and `StartAtRootWithConfig` accept explicit
   component specs and binary paths. `devSupervisor` carries the private
   `victoriaProcessConfig` that pairs startup with the matching port-availability

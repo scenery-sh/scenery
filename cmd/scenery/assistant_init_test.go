@@ -80,6 +80,8 @@ func copyAssistantFixtureTree(destination, source string) error {
 }
 
 func TestAssistantInitDryRunApplyIdempotentAndPreservesAuthoredFiles(t *testing.T) {
+	t.Parallel()
+
 	root := copyAssistantFixture(t)
 	compiledRoot, cfg, compiled, err := loadAssistantApp(root)
 	if err != nil {
