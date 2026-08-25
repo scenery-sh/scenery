@@ -19,6 +19,14 @@ func installedSceneryBinaryMatchesRepo(path, repo string) bool {
 	if err != nil {
 		return false
 	}
+	repoRevision, repoErr := currentRepoRevision(repo)
+	return sceneryBuildInfoMatchesRepoRevision(info, repoRevision, repoErr)
+}
+
+func sceneryBuildInfoMatchesRepoRevision(info *debug.BuildInfo, repoRevision string, repoErr error) bool {
+	if info == nil {
+		return false
+	}
 	if info.Main.Path != "scenery.sh" {
 		return false
 	}
@@ -29,8 +37,7 @@ func installedSceneryBinaryMatchesRepo(path, repo string) bool {
 	if modified, ok := buildInfoSetting(info, "vcs.modified"); ok && modified == "true" {
 		return false
 	}
-	repoRevision, err := currentRepoRevision(repo)
-	if err != nil || repoRevision == "" {
+	if repoErr != nil || repoRevision == "" {
 		return false
 	}
 	return revision == repoRevision

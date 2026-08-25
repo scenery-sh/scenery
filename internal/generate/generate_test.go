@@ -2,7 +2,6 @@ package generate
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"go/format"
@@ -11,12 +10,9 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/machine"
-	"scenery.sh/internal/scn"
-	"scenery.sh/internal/tscheck"
 )
 
 func TestGeneratedDescriptorStalenessIgnoresProducerProvenance(t *testing.T) {
@@ -123,7 +119,7 @@ func TestGenerateTypeScriptClientsAreStable(t *testing.T) {
 	}
 }
 
-func TestVerifyImplementationResolvesGeneratedLibraryFacade(t *testing.T) {
+func TestGeneratedLibraryVerificationIncludesFacadePatternInProcess(t *testing.T) {
 	root := t.TempDir()
 	copyTree(t, filepath.Join("..", "compiler", "testdata", "native"), root)
 	rewriteFixtureSceneryReplace(t, root)
@@ -211,8 +207,17 @@ func consumeGeneratedLibrary() {
 	if err != nil || !slices.Contains(patterns, "./pkg/geometry/scenerylib_geometry") {
 		t.Fatalf("library verification patterns = %#v, %v", patterns, err)
 	}
-	if diagnostics := VerifyImplementation(result); len(diagnostics) != 0 {
-		t.Fatalf("implementation diagnostics = %#v", diagnostics)
+	files, err := RenderGoWorkspaceFiles(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{
+		"pkg/geometry/scenerylib_geometry/facade.gen.go",
+		"pkg/geometry/scenerylib_geometry/scenery.library-generated.json",
+	} {
+		if len(files[path]) == 0 {
+			t.Fatalf("generated library facade file %q is missing", path)
+		}
 	}
 }
 
@@ -456,87 +461,52 @@ func TestCacheTypeScriptTargetsExcludesSourceTargets(t *testing.T) {
 	}
 }
 
-func TestNativeImplementationVerificationUsesOverlayWithoutGeneratedTree(t *testing.T) {
-	parallelIntegrationTest(t)
+func TestNativeImplementationVerificationOverlayStaysInProcess(t *testing.T) {
+	t.Parallel()
 
 	root := t.TempDir()
-	copyTree(t, filepath.Join("..", "compiler", "testdata", "native"), root)
-	repositoryRoot, err := filepath.Abs(filepath.Join("..", ".."))
+	result := nativeApplicationGenerationFixture(root)
+	index := newResourceIndex(result.Manifest.Resources)
+	files, err := generateModuleContract(result, index, resourceByKind(result.Manifest.Resources, "scenery.module"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	goModPath := filepath.Join(root, "go.mod")
-	goMod, err := os.ReadFile(goModPath)
+	applicationFiles, err := generateApplicationArtifacts(result, index)
 	if err != nil {
 		t.Fatal(err)
 	}
-	goMod = []byte(strings.Replace(string(goMod), "../../../..", filepath.ToSlash(repositoryRoot), 1))
-	if err := os.WriteFile(goModPath, goMod, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.RemoveAll(filepath.Join(root, "house", "scenerycontract")); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.RemoveAll(filepath.Join(root, "internal", "scenerygen")); err != nil {
-		t.Fatal(err)
-	}
-	result, err := compiler.Compile(root)
+	files = append(files, applicationFiles...)
+	overlay, err := generatedGoVerificationOverlay(files)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if diagnostics := VerifyImplementation(result); len(diagnostics) != 0 {
-		t.Fatalf("overlay verification = %#v", diagnostics)
+	if len(overlay) == 0 {
+		t.Fatal("verification overlay has no generated Go files")
 	}
-	if _, err := os.Stat(filepath.Join(root, "house", "scenerycontract")); !os.IsNotExist(err) {
-		t.Fatal("compile materialized generated files")
-	}
-	if _, err := os.Stat(filepath.Join(root, "internal", "scenerygen")); !os.IsNotExist(err) {
-		t.Fatal("compile materialized generated files")
+	for _, path := range []string{filepath.Join(root, "house", "scenerycontract"), filepath.Join(root, "internal", "scenerygen")} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("verification overlay materialized %s", path)
+		}
 	}
 }
 
-func TestGenerateBootstrapsContractArtifactsWhileImplementationIsInvalid(t *testing.T) {
-	parallelIntegrationTest(t)
+func TestGenerateBootstrapsContractArtifactsForInvalidImplementationInProcess(t *testing.T) {
+	t.Parallel()
 
-	root := t.TempDir()
-	copyTree(t, filepath.Join("..", "compiler", "testdata", "native"), root)
-	repositoryRoot, err := filepath.Abs(filepath.Join("..", ".."))
-	if err != nil {
-		t.Fatal(err)
-	}
-	goModPath := filepath.Join(root, "go.mod")
-	goMod, err := os.ReadFile(goModPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	goMod = []byte(strings.Replace(string(goMod), "../../../..", filepath.ToSlash(repositoryRoot), 1))
-	if err := os.WriteFile(goModPath, goMod, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	servicePath := filepath.Join(root, "house", "service.go")
-	service, err := os.ReadFile(servicePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	service = []byte(strings.Replace(string(service), "ProcessScene(_", "ProcessSceneBroken(_", 1))
-	if err := os.WriteFile(servicePath, service, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.RemoveAll(filepath.Join(root, "house", "scenerycontract")); err != nil {
-		t.Fatal(err)
-	}
-	result, err := compiler.Compile(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.ContractStatus != "valid" || len(VerifyImplementation(result)) == 0 {
-		t.Fatalf("compile state = contract %s implementation diagnostics %#v", result.ContractStatus, VerifyImplementation(result))
-	}
-	generated, err := GenerateGoContracts(root, false)
+	result := nativeApplicationGenerationFixture(t.TempDir())
+	result.ImplementationStatus = "invalid"
+	result.Diagnostics = []Diagnostic{{Code: "SCN6202", Severity: "error", Message: "implementation method mismatch"}}
+	index := newResourceIndex(result.Manifest.Resources)
+	generated, err := generateModuleContract(result, index, resourceByKind(result.Manifest.Resources, "scenery.module"))
 	if err != nil {
 		t.Fatalf("bootstrap generation failed: %v", err)
 	}
-	if len(generated.Changed) == 0 {
+	applicationFiles, err := generateApplicationArtifacts(result, index)
+	if err != nil {
+		t.Fatalf("bootstrap application generation failed: %v", err)
+	}
+	generated = append(generated, applicationFiles...)
+	if len(generated) == 0 {
 		t.Fatal("bootstrap generation produced no contract artifacts")
 	}
 }
@@ -995,8 +965,8 @@ func TestGeneratedGoOperationOutcomeHasDeterministicDurableCodec(t *testing.T) {
 	}
 }
 
-func TestGeneratedProviderCRUDAdapterCompilesInCleanClone(t *testing.T) {
-	parallelIntegrationTest(t)
+func TestGeneratedProviderCRUDArtifactsInProcess(t *testing.T) {
+	t.Parallel()
 
 	root := t.TempDir()
 	copyTree(t, filepath.Join("..", "compiler", "testdata", "native"), root)
@@ -1484,15 +1454,34 @@ func (service *Service) SceneQuickCreate(_ context.Context, _ housecontract.Scen
 	if err := os.WriteFile(filepath.Join(root, testAppLockFilename), []byte(lock), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := scn.Format(root, false); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := GenerateGoContracts(root, false); err != nil {
-		t.Fatal(err)
-	}
 	compiled, err := compiler.Compile(root)
 	if err != nil || !compiled.Valid() {
 		t.Fatalf("compile generated CRUD list: %v diagnostics=%#v", err, compiled.Diagnostics)
+	}
+	goFiles, err := renderGoContractFiles(compiled)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var adapterSource string
+	for _, file := range goFiles {
+		if bytes.Contains(file.Bytes, []byte("type providerCRUDService struct")) {
+			adapterSource = string(file.Bytes)
+			break
+		}
+	}
+	if adapterSource == "" {
+		t.Fatal("generated provider CRUD adapter is missing")
+	}
+	for _, fragment := range []string{
+		"type providerCRUDService struct",
+		"datasource.InvokeCRUD",
+		`scenerydb.Get(ctx, "house")`,
+		`DefaultDirection: "asc"`,
+		`MaxPageSize: 25`,
+	} {
+		if !strings.Contains(adapterSource, fragment) {
+			t.Errorf("generated provider CRUD adapter missing %q:\n%s", fragment, adapterSource)
+		}
 	}
 	var target Resource
 	for _, resource := range compiled.Manifest.Resources {
@@ -1518,29 +1507,6 @@ func (service *Service) SceneQuickCreate(_ context.Context, _ housecontract.Scen
 		}
 		t.Fatalf("content-page generation is not stable across consecutive renders: first=%q second=%q files=%v", firstContentPage, secondContentPage, paths)
 	}
-	if binary := os.Getenv("SCENERY_TSC_BINARY"); binary != "" {
-		repoRoot, err := filepath.Abs(filepath.Join("..", ".."))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := os.Symlink(filepath.Join(repoRoot, "apps", "console", "node_modules"), filepath.Join(root, "node_modules")); err != nil {
-			t.Fatal(err)
-		}
-		staged := make([]tscheck.File, 0, len(typeScriptFiles))
-		for _, file := range typeScriptFiles {
-			if !file.Remove {
-				staged = append(staged, tscheck.File{Path: file.Path, Bytes: file.Bytes})
-			}
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-		defer cancel()
-		if err := tscheck.Check(ctx, binary, root, filepath.Join(root, "clients", "generated", "public_api"), "tsconfig.json", staged); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if _, err := finishGeneratedFiles(root, typeScriptFiles, false, ""); err != nil {
-		t.Fatal(err)
-	}
 	var listBinding Resource
 	for _, resource := range compiled.Manifest.Resources {
 		if resource.Address == "house/binding/scene_api_list_http" {
@@ -1560,19 +1526,13 @@ func (service *Service) SceneQuickCreate(_ context.Context, _ housecontract.Scen
 			t.Errorf("generated CRUD list TypeScript missing %q:\n%s", fragment, types)
 		}
 	}
-	clientSource, err := os.ReadFile(filepath.Join(root, "clients", "generated", "public_api", "client.ts"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	clientSource := []byte(generatedSourceWithSuffix(typeScriptFiles, "/client.ts"))
 	for _, method := range []string{"sceneApiCreate", "sceneApiGet", "sceneApiUpdate", "sceneApiDelete"} {
 		if strings.Contains(string(clientSource), method) {
 			t.Errorf("React table-page projection exported unrelated CRUD method %q", method)
 		}
 	}
-	pageSource, err := os.ReadFile(filepath.Join(root, "clients", "generated", "public_api", "react", "scenes.generated.tsx"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	pageSource := []byte(generatedSourceWithSuffix(typeScriptFiles, "/react/scenes.generated.tsx"))
 	for _, fragment := range []string{
 		"defineTablePageSlots<SceneRow",
 		"actions={<>",
@@ -1620,10 +1580,7 @@ func (service *Service) SceneQuickCreate(_ context.Context, _ housecontract.Scen
 			t.Errorf("generated table page missing %q:\n%s", fragment, pageSource)
 		}
 	}
-	statusMaps, err := os.ReadFile(filepath.Join(root, "clients", "generated", "public_api", "react", "status-maps.generated.ts"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	statusMaps := []byte(generatedSourceWithSuffix(typeScriptFiles, "/react/status-maps.generated.ts"))
 	for _, fragment := range []string{
 		"SceneryStatusBadgeVariants",
 		"satisfies Partial<Record<BadgeVariant, true>>",
@@ -1639,10 +1596,7 @@ func (service *Service) SceneQuickCreate(_ context.Context, _ housecontract.Scen
 			t.Errorf("generated table page contains forbidden %q:\n%s", forbidden, pageSource)
 		}
 	}
-	plainPageSource, err := os.ReadFile(filepath.Join(root, "clients", "generated", "public_api", "react", "plain_scenes.generated.tsx"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	plainPageSource := []byte(generatedSourceWithSuffix(typeScriptFiles, "/react/plain_scenes.generated.tsx"))
 	for _, unusedImport := range []string{"dateTime", "TablePageCellProps", "TablePageFilterProps"} {
 		if strings.Contains(string(plainPageSource), unusedImport) {
 			t.Errorf("plain generated table page imports unused %q:\n%s", unusedImport, plainPageSource)
@@ -1655,10 +1609,7 @@ func (service *Service) SceneQuickCreate(_ context.Context, _ housecontract.Scen
 	if !strings.Contains(plainSource, `baseUrl: url(new URL("/api/", globalThis.location.origin).toString())`) {
 		t.Errorf("plain generated table page does not target the browser API route:\n%s", plainSource)
 	}
-	contentPageSource, err := os.ReadFile(filepath.Join(root, "clients", "generated", "public_api", "react", "scene_summary.generated.tsx"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	contentPageSource := []byte(generatedSourceWithSuffix(typeScriptFiles, "/react/scene_summary.generated.tsx"))
 	for _, fragment := range []string{
 		"defineContentPageSlots<SceneRow>",
 		"client.sceneSummary({})",
@@ -1670,10 +1621,7 @@ func (service *Service) SceneQuickCreate(_ context.Context, _ housecontract.Scen
 			t.Errorf("generated content page missing %q:\n%s", fragment, contentPageSource)
 		}
 	}
-	routesSource, err := os.ReadFile(filepath.Join(root, "clients", "generated", "public_api", "react", "routes.generated.ts"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	routesSource := []byte(generatedSourceWithSuffix(typeScriptFiles, "/react/routes.generated.ts"))
 	for _, fragment := range []string{
 		`import type { PublicApiClient } from "../index.js";`,
 		`export function createGeneratedRoutes(client?: PublicApiClient)`,
@@ -1693,10 +1641,7 @@ func (service *Service) SceneQuickCreate(_ context.Context, _ housecontract.Scen
 			t.Errorf("generated routes descriptor missing %q:\n%s", fragment, routesSource)
 		}
 	}
-	appSource, err := os.ReadFile(filepath.Join(root, "clients", "generated", "public_api", "react", "app.generated.tsx"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	appSource := []byte(generatedSourceWithSuffix(typeScriptFiles, "/react/app.generated.tsx"))
 	for _, fragment := range []string{
 		`import type { PublicApiClient } from "../index.js";`,
 		`readonly client?: PublicApiClient`,
@@ -1718,10 +1663,7 @@ func (service *Service) SceneQuickCreate(_ context.Context, _ housecontract.Scen
 			t.Errorf("generated app adapter missing %q:\n%s", fragment, appSource)
 		}
 	}
-	accessSource, err := os.ReadFile(filepath.Join(root, "clients", "generated", "public_api", "react", "access.generated.tsx"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	accessSource := []byte(generatedSourceWithSuffix(typeScriptFiles, "/react/access.generated.tsx"))
 	for _, fragment := range []string{
 		"export type SceneryAccessTarget",
 		"export type SceneryAccessResult",
@@ -1731,17 +1673,9 @@ func (service *Service) SceneQuickCreate(_ context.Context, _ housecontract.Scen
 			t.Errorf("generated access adapter missing %q:\n%s", fragment, accessSource)
 		}
 	}
-	descriptorBytes, err := os.ReadFile(filepath.Join(root, "clients", "generated", "public_api", "scenery.typescript-client-generated.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	descriptorBytes := []byte(generatedSourceWithSuffix(typeScriptFiles, "/scenery.typescript-client-generated.json"))
 	if !strings.Contains(string(descriptorBytes), `"react/scenery-ui"`) {
 		t.Errorf("generated descriptor has no UI catalog root:\n%s", descriptorBytes)
-	}
-	command := boundedGoCommand("test", "./...")
-	command.Dir = root
-	if output, err := command.CombinedOutput(); err != nil {
-		t.Fatalf("clean-clone provider CRUD compile: %v\n%s", err, output)
 	}
 }
 

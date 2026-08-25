@@ -86,6 +86,14 @@ func buildInputManifest(ctx context.Context, result *Result) (*BuildInputManifes
 	if err != nil {
 		return nil, fmt.Errorf("go %s failed while producing build inputs: %w\n%s", strings.Join(args, " "), err, output)
 	}
+	return buildInputManifestFromGoList(result, output)
+}
+
+func buildInputManifestFromGoList(result *Result, output []byte) (*BuildInputManifest, error) {
+	if result == nil || result.Target == nil {
+		return nil, fmt.Errorf("build target is unavailable")
+	}
+	target := result.Target
 	entries := map[string]string{}
 	decoder := json.NewDecoder(bytes.NewReader(output))
 	for {

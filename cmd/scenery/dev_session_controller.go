@@ -65,6 +65,15 @@ type PreparedDevSession struct {
 	Paths localagent.Paths
 }
 
+type devSessionRegister func(context.Context, localagent.RegisterRequest) (localagent.Session, error)
+
+func registerDevSessionRequest(ctx context.Context, request localagent.RegisterRequest, observe func(localagent.RegisterRequest), register devSessionRegister) (localagent.Session, error) {
+	if observe != nil {
+		observe(request)
+	}
+	return register(ctx, request)
+}
+
 func devAPIUnixSocketPath(stateRoot string) string {
 	path := filepath.Join(stateRoot, "run", "api.sock")
 	if len(path) <= 100 {
@@ -337,10 +346,7 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 			ClaimOwner:     true,
 			ClaimAliases:   listen.ClaimAliases,
 		}
-		if c.onRegister != nil {
-			c.onRegister(req)
-		}
-		session, err = client.Register(ctx, req)
+		session, err = registerDevSessionRequest(ctx, req, c.onRegister, client.Register)
 		if err != nil {
 			return err
 		}

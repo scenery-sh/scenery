@@ -3,9 +3,12 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -25,7 +28,7 @@ func TestParseWorktreeArgs(t *testing.T) {
 	}
 }
 
-func TestWorktreeCreateListAndRemoveWithoutDBPin(t *testing.T) {
+func TestWorktreeCreateListAndRemoveWithoutDBPinInProcess(t *testing.T) {
 	t.Parallel()
 
 	root := filepath.Join(t.TempDir(), "demo")
@@ -33,14 +36,35 @@ func TestWorktreeCreateListAndRemoveWithoutDBPin(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeTestAppFile(t, root, ".scenery.json", `{"name":"demo"}`)
-	runGitForTest(t, root, "init", "-b", "main")
-	runGitForTest(t, root, "config", "user.email", "test@example.com")
-	runGitForTest(t, root, "config", "user.name", "Test User")
-	runGitForTest(t, root, "add", ".scenery.json")
-	runGitForTest(t, root, "commit", "-m", "initial")
+	worktrees := []worktreeRecord{{Path: root, Branch: "main", Head: strings.Repeat("a", 40)}}
+	runGit := func(_ context.Context, args ...string) error {
+		if len(args) >= 7 && args[0] == "-C" && args[1] == root && args[2] == "worktree" && args[3] == "add" && args[4] == "-b" {
+			name, target := args[5], args[6]
+			if err := os.MkdirAll(target, 0o755); err != nil {
+				return err
+			}
+			worktrees = append(worktrees, worktreeRecord{Path: target, Branch: name, Head: strings.Repeat("b", 40)})
+			return nil
+		}
+		if len(args) == 5 && args[0] == "-C" && args[1] == root && args[2] == "worktree" && args[3] == "remove" {
+			target := args[4]
+			worktrees = slices.DeleteFunc(worktrees, func(record worktreeRecord) bool { return record.Path == target })
+			return os.RemoveAll(target)
+		}
+		return fmt.Errorf("unexpected Git arguments: %#v", args)
+	}
+	listWorktrees := func(_ context.Context, gotRoot string) ([]worktreeRecord, error) {
+		if gotRoot != root {
+			t.Fatalf("list root = %q, want %q", gotRoot, root)
+		}
+		return slices.Clone(worktrees), nil
+	}
+	run := func(output *bytes.Buffer, args []string) error {
+		return runWorktreeCommandWithGit(t.Context(), output, args, runGit, listWorktrees)
+	}
 
 	var createAOut bytes.Buffer
-	if err := runWorktreeCommand(t.Context(), &createAOut, []string{"create", "pricing-agent", "--from", "main", "--app-root", root, "-o", "json"}); err != nil {
+	if err := run(&createAOut, []string{"create", "pricing-agent", "--from", "main", "--app-root", root, "-o", "json"}); err != nil {
 		t.Fatalf("runWorktreeCommand create A returned error: %v", err)
 	}
 	var createdA worktreeCreateResult
@@ -58,7 +82,7 @@ func TestWorktreeCreateListAndRemoveWithoutDBPin(t *testing.T) {
 	}
 
 	var createBOut bytes.Buffer
-	if err := runWorktreeCommand(t.Context(), &createBOut, []string{"create", "content-agent", "--from", "main", "--app-root", root, "-o", "json"}); err != nil {
+	if err := run(&createBOut, []string{"create", "content-agent", "--from", "main", "--app-root", root, "-o", "json"}); err != nil {
 		t.Fatalf("runWorktreeCommand create B returned error: %v", err)
 	}
 	var createdB worktreeCreateResult
@@ -75,7 +99,7 @@ func TestWorktreeCreateListAndRemoveWithoutDBPin(t *testing.T) {
 		t.Fatalf("target B pin exists err=%v", err)
 	}
 	var listOut bytes.Buffer
-	if err := runWorktreeCommand(t.Context(), &listOut, []string{"list", "--app-root", root, "-o", "json"}); err != nil {
+	if err := run(&listOut, []string{"list", "--app-root", root, "-o", "json"}); err != nil {
 		t.Fatalf("runWorktreeCommand list returned error: %v", err)
 	}
 	var listed worktreeListResult
@@ -100,7 +124,7 @@ func TestWorktreeCreateListAndRemoveWithoutDBPin(t *testing.T) {
 
 	for _, name := range []string{"pricing-agent", "content-agent"} {
 		var removeOut bytes.Buffer
-		if err := runWorktreeCommand(t.Context(), &removeOut, []string{"remove", name, "--app-root", root, "-o", "json"}); err != nil {
+		if err := run(&removeOut, []string{"remove", name, "--app-root", root, "-o", "json"}); err != nil {
 			t.Fatalf("runWorktreeCommand remove %s returned error: %v", name, err)
 		}
 		var removed worktreeRemoveResult
@@ -122,7 +146,7 @@ func TestWorktreeCreateListAndRemoveWithoutDBPin(t *testing.T) {
 	}
 }
 
-func TestWorktreeCreateDoesNotEnsureDatabaseBranch(t *testing.T) {
+func TestWorktreeRemoveRestoresDBStateWhenGitRemoveFailsInProcess(t *testing.T) {
 	t.Parallel()
 
 	root := filepath.Join(t.TempDir(), "demo")
@@ -130,89 +154,28 @@ func TestWorktreeCreateDoesNotEnsureDatabaseBranch(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeTestAppFile(t, root, ".scenery.json", `{"name":"demo","dev":{"services":{"main":{}}}}`)
-	runGitForTest(t, root, "init", "-b", "main")
-	runGitForTest(t, root, "config", "user.email", "test@example.com")
-	runGitForTest(t, root, "config", "user.name", "Test User")
-	runGitForTest(t, root, "add", ".scenery.json")
-	runGitForTest(t, root, "commit", "-m", "initial")
-
-	target := defaultWorktreePath(root, "collision")
-	err := runWorktreeCommand(t.Context(), &bytes.Buffer{}, []string{"create", "collision", "--from", "main", "--app-root", root, "-o", "json"})
-	if err != nil {
-		t.Fatalf("create error = %v", err)
-	}
-	if _, err := os.Stat(target); err != nil {
-		t.Fatalf("worktree missing after create, stat err=%v", err)
-	}
-	worktrees, err := listGitWorktrees(t.Context(), root)
-	if err != nil {
-		t.Fatalf("list worktrees: %v", err)
-	}
-	resolvedTarget := evalPathForTestAllowMissing(t, target)
-	for _, wt := range worktrees {
-		if evalPathForTestAllowMissing(t, wt.Path) == resolvedTarget {
-			return
+	target := defaultWorktreePath(root, "dirty-agent")
+	const state = `{"database":"dirty-agent","sentinel":true}`
+	writeTestAppFile(t, target, ".scenery/worktree-db.json", state)
+	wantErr := errors.New("git refuses dirty worktree")
+	err := runWorktreeRemoveWithGit(t.Context(), &bytes.Buffer{}, worktreeOptions{Name: "dirty-agent", AppRoot: root, DB: true, JSON: true}, func(_ context.Context, gotRoot string) ([]worktreeRecord, error) {
+		if gotRoot != root {
+			t.Fatalf("list root = %q, want %q", gotRoot, root)
 		}
+		return []worktreeRecord{{Path: root, Branch: "main"}, {Path: target, Branch: "dirty-agent"}}, nil
+	}, func(_ context.Context, args ...string) error {
+		want := []string{"-C", root, "worktree", "remove", target}
+		if !slices.Equal(args, want) {
+			t.Fatalf("Git remove arguments = %#v, want %#v", args, want)
+		}
+		return wantErr
+	})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("remove error = %v, want Git failure", err)
 	}
-	t.Fatalf("created worktree not registered: %+v", worktrees)
-}
-
-func TestWorktreeCreateSkipsDBPinForManualBranchPolicy(t *testing.T) {
-	t.Parallel()
-
-	root := filepath.Join(t.TempDir(), "demo")
-	if err := os.MkdirAll(root, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	writeTestAppFile(t, root, ".scenery.json", `{"name":"demo","dev":{"services":{"main":{}}}}`)
-	runGitForTest(t, root, "init", "-b", "main")
-	runGitForTest(t, root, "config", "user.email", "test@example.com")
-	runGitForTest(t, root, "config", "user.name", "Test User")
-	runGitForTest(t, root, "add", ".scenery.json")
-	runGitForTest(t, root, "commit", "-m", "initial")
-
-	var out bytes.Buffer
-	if err := runWorktreeCommand(t.Context(), &out, []string{"create", "manual-agent", "--from", "main", "--app-root", root, "-o", "json"}); err != nil {
-		t.Fatalf("runWorktreeCommand create returned error: %v", err)
-	}
-	var created worktreeCreateResult
-	if err := decodeCLIJSON(out.Bytes(), &created); err != nil {
-		t.Fatalf("decode create JSON: %v\n%s", err, out.String())
-	}
-	if _, err := os.Stat(filepath.Join(created.Path, ".scenery", "worktree-db.json")); !os.IsNotExist(err) {
-		t.Fatalf("manual policy wrote db pin, stat err=%v", err)
-	}
-}
-
-func TestWorktreeRemoveRestoresDBStateWhenGitRemoveFails(t *testing.T) {
-	t.Parallel()
-
-	root := filepath.Join(t.TempDir(), "demo")
-	if err := os.MkdirAll(root, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	writeTestAppFile(t, root, ".scenery.json", `{"name":"demo","dev":{"services":{"main":{}}}}`)
-	runGitForTest(t, root, "init", "-b", "main")
-	runGitForTest(t, root, "config", "user.email", "test@example.com")
-	runGitForTest(t, root, "config", "user.name", "Test User")
-	runGitForTest(t, root, "add", ".scenery.json")
-	runGitForTest(t, root, "commit", "-m", "initial")
-
-	var out bytes.Buffer
-	if err := runWorktreeCommand(t.Context(), &out, []string{"create", "dirty-agent", "--from", "main", "--app-root", root, "-o", "json"}); err != nil {
-		t.Fatalf("runWorktreeCommand create returned error: %v", err)
-	}
-	var created worktreeCreateResult
-	if err := decodeCLIJSON(out.Bytes(), &created); err != nil {
-		t.Fatalf("decode create JSON: %v\n%s", err, out.String())
-	}
-	writeTestAppFile(t, created.Path, ".scenery.json", `{"name":"demo","dirty":true}`)
-	err := runWorktreeCommand(t.Context(), &bytes.Buffer{}, []string{"remove", "dirty-agent", "--app-root", root, "--db", "-o", "json"})
-	if err == nil {
-		t.Fatal("remove should fail for dirty worktree")
-	}
-	if _, err := os.Stat(filepath.Join(created.Path, ".scenery", "worktree-db.json")); !os.IsNotExist(err) {
-		t.Fatalf("unexpected db state after failed remove: %v", err)
+	data, readErr := os.ReadFile(filepath.Join(target, ".scenery", "worktree-db.json"))
+	if readErr != nil || string(data) != state {
+		t.Fatalf("database state after failed remove = %q, %v", data, readErr)
 	}
 }
 

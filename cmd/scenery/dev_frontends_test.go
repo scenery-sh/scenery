@@ -353,48 +353,35 @@ func TestManagedFrontendBackendsStartsFrontendsConcurrently(t *testing.T) {
 	}
 }
 
-func TestBeginManagedFrontendBackendsReturnsBeforeReady(t *testing.T) {
+func TestBeginManagedFrontendBackendsExposesReadinessJoinInProcess(t *testing.T) {
 	t.Parallel()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	root := t.TempDir()
-	appRoot := filepath.Join(root, "app")
-	frontendRoot := filepath.Join(appRoot, "apps", "web")
-	readyFile := filepath.Join(root, "frontend.ready")
-	writeFrontendPackage(t, frontendRoot, `{"scripts":{"dev":"vite"}}`)
-	serverPath := frontendTestServerBinary(t)
-	writeFrontendBinWithScript(t, frontendRoot, "vite", `
-set -eu
-port=""
-prev=""
-for arg in "$@"; do
-	if [ "$prev" = "--port" ]; then
-		port="$arg"
-		break
-	fi
-	prev="$arg"
-done
-SCENERY_FRONTEND_TEST_SERVER_HELPER=1 SCENERY_FRONTEND_TEST_READY_FILE="$SCENERY_FRONTEND_TEST_READY_FILE" exec "$SCENERY_FRONTEND_TEST_SERVER" -test.run '^TestManagedFrontendTestServerHelper$' -- "$port"
-`)
+	ready := make(chan error, 1)
+	process := fakeManagedFrontendProcess("web", "127.0.0.1:4200", 42)
 	cfg := app.Config{
 		Name: "demo",
 		Frontends: map[string]app.FrontendConfig{
 			"web": {Root: "apps/web"},
 		},
 	}
-	baseEnv := []string{
-		"SCENERY_FRONTEND_TEST_SERVER=" + serverPath,
-		"SCENERY_FRONTEND_TEST_READY_FILE=" + readyFile,
-	}
-	backends, processes, wait, err := beginManagedFrontendBackendsForSession(ctx, appRoot, cfg, baseEnv, localagent.Session{
-		SessionID: "main-test",
-		StateRoot: filepath.Join(root, "state"),
-	})
+	backends, processes, wait, err := beginManagedFrontendBackendsForSessionWithOverrideAndStarter(
+		context.Background(), "/repo/app", cfg, nil, localagent.Session{SessionID: "main-test"},
+		func(string) string { return "" },
+		func(_ context.Context, _ context.CancelFunc, appRoot, appID string, index int, frontend localproxy.FrontendConfig, _ []string, session localagent.Session) pendingManagedFrontendStart {
+			if appRoot != "/repo/app" || appID != cfg.AppID() || index != 0 || frontend.Name != "web" || session.SessionID != "main-test" {
+				t.Fatalf("starter args root=%q app=%q index=%d frontend=%+v session=%+v", appRoot, appID, index, frontend, session)
+			}
+			return pendingManagedFrontendStart{
+				managedFrontendStartResult: managedFrontendStartResult{
+					index: 0, name: "web", backend: localagent.Backend{Network: "tcp", Addr: process.Addr}, process: process,
+				},
+				ready: ready,
+			}
+		},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer stopManagedFrontendProcesses(processes)
 	if wait == nil {
 		t.Fatal("wait = nil, want readiness join")
 	}
@@ -405,194 +392,73 @@ SCENERY_FRONTEND_TEST_SERVER_HELPER=1 SCENERY_FRONTEND_TEST_READY_FILE="$SCENERY
 		t.Fatalf("processes = %+v", processes)
 	}
 	waitDone := make(chan error, 1)
-	go func() { waitDone <- wait(ctx) }()
+	go func() { waitDone <- wait(context.Background()) }()
 	select {
 	case err := <-waitDone:
 		t.Fatalf("frontend readiness finished before release: %v", err)
-	case <-time.After(150 * time.Millisecond):
+	default:
 	}
-	if err := os.WriteFile(readyFile, []byte("ready"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	ready <- nil
+	close(ready)
 	select {
 	case err := <-waitDone:
 		if err != nil {
 			t.Fatal(err)
 		}
-	case <-ctx.Done():
-		t.Fatal(ctx.Err())
+	case <-time.After(time.Second):
+		t.Fatal("readiness join did not finish")
 	}
 }
 
-func TestManagedFrontendExitRestartsAndUpdatesAgentSession(t *testing.T) {
+func TestManagedFrontendExitPlansSingleRestartAndSessionUpdateInProcess(t *testing.T) {
 	t.Parallel()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	root := t.TempDir()
-	appRoot := filepath.Join(root, "app")
-	frontendRoot := filepath.Join(appRoot, "apps", "web")
-	agentClient, agentDone := startManagedFrontendTestAgentServer(t, ctx, filepath.Join(root, "agent-home"))
-	defer func() {
-		cancel()
-		<-agentDone
-	}()
-
-	writeFrontendPackage(t, frontendRoot, `{"scripts":{"dev":"vite"}}`)
-	serverPath := frontendTestServerBinary(t)
-	markerPath := filepath.Join(root, "frontend-starts.log")
-	if err := os.WriteFile(filepath.Join(appRoot, ".env"), []byte(
-		"SCENERY_FRONTEND_TEST_SERVER="+serverPath+"\n"+
-			"SCENERY_FRONTEND_RESTART_MARKER="+markerPath+"\n",
-	), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	writeFrontendBinWithScript(t, frontendRoot, "vite", `
-set -eu
-port=""
-prev=""
-for arg in "$@"; do
-	if [ "$prev" = "--port" ]; then
-		port="$arg"
-		break
-	fi
-	prev="$arg"
-done
-echo "$$ $port" >> "$SCENERY_FRONTEND_RESTART_MARKER"
-SCENERY_FRONTEND_TEST_SERVER_HELPER=1 exec "$SCENERY_FRONTEND_TEST_SERVER" -test.run '^TestManagedFrontendTestServerHelper$' -- "$port"
-`)
-	cfg := app.Config{
-		Name: "demo",
-		Frontends: map[string]app.FrontendConfig{
-			"web": {Root: "apps/web"},
+	previous := fakeManagedFrontendProcess("web", "127.0.0.1:4100", 41)
+	replacement := fakeManagedFrontendProcess("web", "127.0.0.1:4200", 42)
+	supervisor := &devSupervisor{
+		ctx: context.Background(),
+		frontends: map[string]*managedFrontendProcess{
+			"web": previous,
 		},
 	}
-	session, err := agentClient.Register(ctx, localagent.RegisterRequest{
-		BaseAppID:  cfg.AppID(),
-		AppRoot:    appRoot,
-		Status:     "starting",
-		OwnerPID:   os.Getpid(),
-		ClaimOwner: true,
+	restarts := 0
+	supervisor.handleManagedFrontendExitWith("web", previous, 0, func(_ context.Context, name string, got *managedFrontendProcess) error {
+		restarts++
+		if name != "web" || got != previous {
+			t.Fatalf("restart request = (%q, %p), want (web, %p)", name, got, previous)
+		}
+		supervisor.setManagedFrontend(name, replacement)
+		return nil
 	})
-	if err != nil {
-		t.Fatalf("register agent session: %v", err)
+	if restarts != 1 {
+		t.Fatalf("restart calls = %d, want 1", restarts)
 	}
-	baseEnv, err := appEnvWithDotEnv(os.Environ(), appRoot, ".env", ".env.local")
-	if err != nil {
-		t.Fatalf("load frontend test env: %v", err)
+	if got := supervisor.frontends["web"]; got != replacement {
+		t.Fatalf("current managed frontend = %p, want %p", got, replacement)
 	}
-	frontendBackends, frontendProcesses, err := managedFrontendBackendsForSession(ctx, appRoot, cfg, baseEnv, session)
-	if err != nil {
-		t.Fatalf("start managed frontend: %v", err)
-	}
-	if len(frontendBackends) > 0 {
-		session, err = agentClient.Register(ctx, localagent.RegisterRequest{
-			BaseAppID:  cfg.AppID(),
-			AppRoot:    appRoot,
-			SessionID:  session.SessionID,
-			Branch:     session.Branch,
-			Status:     "starting",
-			OwnerPID:   os.Getpid(),
-			Backends:   frontendBackends,
-			Processes:  frontendSessionProcesses(frontendProcesses),
-			ClaimOwner: true,
-		})
-		if err != nil {
-			stopManagedFrontendProcesses(frontendProcesses)
-			t.Fatalf("register frontend backend: %v", err)
-		}
-	}
-	prepared := &PreparedDevSession{
-		Client:            agentClient,
-		Session:           &session,
-		FrontendProcesses: frontendProcesses,
-		Cleanup: func() {
-			stopManagedFrontendProcesses(frontendProcesses)
+
+	session := localagent.Session{
+		Backends: map[string]localagent.Backend{
+			"api": {Network: "tcp", Addr: "127.0.0.1:4000"},
+			"web": {Network: "tcp", Addr: previous.Addr},
+		},
+		Processes: map[string]localagent.Process{
+			"app":          {PID: 40},
+			"frontend-web": {PID: previous.Process.PID},
 		},
 	}
-	defer prepared.Cleanup()
-	if len(prepared.FrontendProcesses) != 1 {
-		t.Fatalf("frontend processes = %d, want 1", len(prepared.FrontendProcesses))
+	backends, processes := managedFrontendSessionMaps(session, "web", localagent.Backend{Network: "tcp", Addr: replacement.Addr}, replacement.Process.PID)
+	if got := backends["api"]; got.Addr != "127.0.0.1:4000" {
+		t.Fatalf("api backend = %+v, want preserved", got)
 	}
-	supervisor, err := newDevSupervisor(ctx, appRoot, cfg, app.ResolvedEnv{Name: "local", Frontends: cfg.Frontends}, prepared.Backend, nil, prepared.Client, prepared.Session)
-	if err != nil {
-		t.Fatal(err)
+	if got := backends["web"]; got.Addr != replacement.Addr {
+		t.Fatalf("web backend = %+v, want %s", got, replacement.Addr)
 	}
-	defer supervisor.Close()
-	oldDelay := managedFrontendRestartDelay
-	managedFrontendRestartDelay = time.Millisecond
-	defer func() { managedFrontendRestartDelay = oldDelay }()
-	type frontendUpdate struct {
-		backend localagent.Backend
-		pid     int
+	if got := processes["app"]; got.PID != 40 {
+		t.Fatalf("app process = %+v, want preserved", got)
 	}
-	updates := make(chan frontendUpdate, 2)
-	managedFrontendTestHooks.Lock()
-	managedFrontendTestHooks.sessionUpdated = func(name string, backend localagent.Backend, process *managedFrontendProcess) {
-		if name != "web" || process == nil || process.Process == nil {
-			return
-		}
-		select {
-		case updates <- frontendUpdate{backend: backend, pid: process.Process.PID}:
-		default:
-		}
-	}
-	managedFrontendTestHooks.Unlock()
-	defer func() {
-		managedFrontendTestHooks.Lock()
-		managedFrontendTestHooks.sessionUpdated = nil
-		managedFrontendTestHooks.Unlock()
-	}()
-	supervisor.agent = prepared.Client
-	supervisor.agentSession = prepared.Session
-	supervisor.updateAgentSession(ctx, "running", "")
-	sessions, err := prepared.Client.List(ctx, appRoot)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(sessions) != 1 || sessions[0].Environment != "local" {
-		t.Fatalf("session environment after status update = %+v, want local", sessions)
-	}
-	supervisor.adoptManagedFrontends(prepared.FrontendProcesses)
-
-	first := prepared.FrontendProcesses[0]
-	oldAddr := first.Addr
-	oldPID := first.Process.PID
-	if err := killProcessTree(first.Process.Cmd); err != nil {
-		t.Fatal(err)
-	}
-
-	var latest localagent.Session
-	deadline := time.After(8 * time.Second)
-	for {
-		select {
-		case update := <-updates:
-			if update.backend.Addr == "" || update.backend.Addr == oldAddr || update.pid <= 0 || update.pid == oldPID {
-				continue
-			}
-			if !tcpAddrAcceptsConnections(update.backend.Addr) {
-				t.Fatalf("restarted frontend backend %s is not accepting connections", update.backend.Addr)
-			}
-			sessions, err := prepared.Client.List(ctx, appRoot)
-			if err != nil {
-				t.Fatal(err)
-			}
-			for _, session := range sessions {
-				if session.SessionID == prepared.Session.SessionID {
-					latest = session
-					break
-				}
-			}
-			backend := latest.Backends["web"]
-			process := latest.Processes["frontend-web"]
-			if backend.Addr == update.backend.Addr && process.PID == update.pid && latest.Environment == "local" {
-				return
-			}
-			t.Fatalf("session update = backend=%+v pid=%d, latest=%+v", update.backend, update.pid, latest)
-		case <-deadline:
-			t.Fatalf("frontend did not restart with updated session backend; old addr=%s pid=%d latest=%+v", oldAddr, oldPID, latest)
-		case <-ctx.Done():
-			t.Fatal(ctx.Err())
-		}
+	if got := processes["frontend-web"]; got.PID != replacement.Process.PID {
+		t.Fatalf("frontend process = %+v, want pid %d", got, replacement.Process.PID)
 	}
 }
 

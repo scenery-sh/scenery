@@ -227,36 +227,35 @@ func TestStartVictoriaComponentReusesOccupiedPort(t *testing.T) {
 	}
 }
 
-func TestStartVictoriaComponentsAttributesStartErrors(t *testing.T) {
-	root := t.TempDir()
-	bin := filepath.Join(root, "victoria-logs-prod")
-	if err := os.WriteFile(bin, []byte("#!/bin/sh\nexit 42\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("SCENERY_VICTORIA_LOGS_BIN", bin)
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer ln.Close()
+func TestStartVictoriaComponentsAttributesStartErrorsInProcess(t *testing.T) {
+	t.Parallel()
 
-	results := startComponents(context.Background(), root, filepath.Join(root, "bin"), []ComponentSpec{
+	specs := []ComponentSpec{
 		{
 			Name:         "metrics",
 			DisplayName:  "VictoriaMetrics",
-			DefaultPort:  ln.Addr().(*net.TCPAddr).Port,
 			EndpointPath: "/opentelemetry/v1/metrics",
 			StorageDir:   "metrics-data",
 		},
 		{
 			Name:         "logs",
 			DisplayName:  "VictoriaLogs",
-			DefaultPort:  freeTestTCPPort(t),
 			EndpointPath: "/insert/opentelemetry/v1/logs",
 			StorageDir:   "logs-data",
 			EnvPrefix:    "SCENERY_VICTORIA_LOGS",
 		},
-	}, false, nil)
+	}
+	results := startComponentsWithFunctions(context.Background(), specs,
+		func(_ context.Context, spec ComponentSpec) (componentStartPlan, error) {
+			return componentStartPlan{spec: spec, external: spec.Name == "metrics"}, nil
+		},
+		func(_ context.Context, plan componentStartPlan) (*Component, error) {
+			if plan.spec.Name == "logs" {
+				return nil, fmt.Errorf("%s exited before accepting TCP connections: exit status 42", plan.spec.DisplayName)
+			}
+			return &Component{spec: plan.spec, external: plan.external}, nil
+		},
+	)
 	if len(results) != 2 {
 		t.Fatalf("results = %d, want 2", len(results))
 	}

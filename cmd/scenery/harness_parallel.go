@@ -240,16 +240,35 @@ func prepareHarnessParallelSession(ctx context.Context, root string, cfg app.Con
 	if err != nil {
 		return nil, func() {}, err
 	}
-	client, session, _, restore, err := prepareDevAgentSession(ctx, root, cfg, env, devListenRequest{}, nil)
+	registrationCalls := 0
+	prepared, err := (&DevSessionController{
+		root: root, cfg: cfg, env: env,
+		onRegister: func(localagent.RegisterRequest) { registrationCalls++ },
+	}).Prepare(ctx)
 	if err != nil {
-		restore()
 		return nil, func() {}, err
 	}
-	if client == nil || session == nil {
+	restore := prepared.Cleanup
+	if restore == nil {
+		restore = func() {}
+	}
+	if prepared.Client == nil || prepared.Session == nil {
 		restore()
 		return nil, func() {}, fmt.Errorf("agent session was not registered")
 	}
-	return session, restore, nil
+	if registrationCalls != 1 {
+		restore()
+		return nil, func() {}, fmt.Errorf("agent session registration calls = %d, want 1", registrationCalls)
+	}
+	if backend := prepared.Session.Backends[localagent.RouteAPI]; backend.Network == "" || backend.Addr == "" {
+		restore()
+		return nil, func() {}, fmt.Errorf("agent session API backend = %+v", backend)
+	}
+	if backend := prepared.Session.Backends["web"]; backend.Network != "tcp" || backend.Addr == "" {
+		restore()
+		return nil, func() {}, fmt.Errorf("agent session frontend backend = %+v", backend)
+	}
+	return prepared.Session, restore, nil
 }
 
 func writeHarnessParallelObservability(ctx context.Context, store *devdash.Store, appID string, sessionA, sessionB *localagent.Session) error {

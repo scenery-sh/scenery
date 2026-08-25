@@ -14,9 +14,19 @@ import (
 // relative to appRoot, using the enclosing git repository. It is a package
 // variable so tests can substitute a fake collector.
 var CollectChangedFiles = func(ctx context.Context, appRoot, base string) ([]string, error) {
-	rootCmd := exec.CommandContext(ctx, "git", "rev-parse", "--show-toplevel")
-	rootCmd.Dir = appRoot
-	rootOut, err := rootCmd.CombinedOutput()
+	return collectChangedFilesWithGit(ctx, appRoot, base, runChangedFilesGit)
+}
+
+type changedFilesGitRunner func(context.Context, string, ...string) ([]byte, error)
+
+func runChangedFilesGit(ctx context.Context, dir string, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Dir = dir
+	return cmd.CombinedOutput()
+}
+
+func collectChangedFilesWithGit(ctx context.Context, appRoot, base string, run changedFilesGitRunner) ([]string, error) {
+	rootOut, err := run(ctx, appRoot, "rev-parse", "--show-toplevel")
 	if err != nil {
 		return nil, fmt.Errorf("git rev-parse --show-toplevel: %w: %s", err, strings.TrimSpace(string(rootOut)))
 	}
@@ -37,9 +47,7 @@ var CollectChangedFiles = func(ctx context.Context, appRoot, base string) ([]str
 	if appRel != "." && appRel != "" {
 		args = []string{"diff", "--name-only", "--relative=" + appRel, base + "...HEAD", "--", appRel}
 	}
-	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Dir = gitRoot
-	out, err := cmd.CombinedOutput()
+	out, err := run(ctx, gitRoot, args...)
 	if err != nil {
 		return nil, fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
 	}

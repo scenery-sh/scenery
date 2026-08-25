@@ -6,12 +6,12 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/assistantadapter/eve"
 	"scenery.sh/internal/compiler"
+	"scenery.sh/internal/evolution"
 )
 
 func copyAssistantFixture(t *testing.T) string {
@@ -162,7 +162,7 @@ func TestAssistantInitDryRunLeavesWorkspaceUnchanged(t *testing.T) {
 	}
 }
 
-func TestAssistantInitAppliesScaffold(t *testing.T) {
+func TestAssistantInitAppliesScaffoldInProcess(t *testing.T) {
 	t.Parallel()
 
 	root := copyAssistantFixture(t)
@@ -170,7 +170,36 @@ func TestAssistantInitAppliesScaffold(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	response, err := initializeAssistant(context.Background(), compiledRoot, cfg, compiled, assistantScaffoldOptions{Name: "extra", MCPServer: "support", Client: "public_api"})
+	var request evolution.ChangeRequest
+	planID := digestBytes([]byte("assistant-init-plan"))
+	predictedWorkspace := digestBytes([]byte("assistant-init-workspace"))
+	response, err := initializeAssistantWithDependencies(context.Background(), compiledRoot, cfg, compiled, assistantScaffoldOptions{Name: "extra", MCPServer: "support", Client: "public_api"}, assistantInitDependencies{
+		planChanges: func(gotRoot string, got evolution.ChangeRequest) (evolution.ChangePlan, error) {
+			if gotRoot != root {
+				t.Fatalf("plan root = %q, want %q", gotRoot, root)
+			}
+			request = got
+			return evolution.ChangePlan{
+				PlanID: planID, PredictedWorkspaceRevision: predictedWorkspace,
+				PredictedContractRevision: compiled.Manifest.ContractRevision, Caller: got.Caller,
+			}, nil
+		},
+		applyChangePlan: func(gotRoot string, plan evolution.ChangePlan, options evolution.ApplyOptions) (evolution.ChangeReceipt, error) {
+			if gotRoot != root || plan.PlanID != planID || options.ExpectedWorkspaceRevision != compiled.WorkspaceRevision || options.Caller != "scenery assistant init" || !options.SkipGeneratedValidation {
+				t.Fatalf("apply input = root:%q plan:%+v options:%+v", gotRoot, plan, options)
+			}
+			for _, edit := range request.AdditionalEdits {
+				path := filepath.Join(root, filepath.FromSlash(edit.Path))
+				if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+					return evolution.ChangeReceipt{}, err
+				}
+				if err := os.WriteFile(path, edit.After, os.FileMode(edit.Mode)); err != nil {
+					return evolution.ChangeReceipt{}, err
+				}
+			}
+			return evolution.ChangeReceipt{PlanID: plan.PlanID, WorkspaceRevision: plan.PredictedWorkspaceRevision, ContractRevision: plan.PredictedContractRevision}, nil
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,8 +224,15 @@ func TestAssistantInitAppliesScaffold(t *testing.T) {
 	if got, want := "sha256:"+hex.EncodeToString(sum[:]), "sha256:50688be5a4ea2b73acffd21b724caa699ea81e8343befd22b1212e89e845938a"; got != want {
 		t.Fatalf("lock digest=%s want=%s", got, want)
 	}
-	if !strings.Contains(string(mustReadAssistant(t, filepath.Join(root, "app.scn"))), `assistant "extra"`) {
-		t.Fatal("canonical assistant block missing")
+	if len(request.Operations) != 1 || request.Operations[0].Op != "resource.create" || request.Operations[0].Address != "app/assistant/extra" {
+		t.Fatalf("assistant semantic operations = %+v", request.Operations)
+	}
+	value, ok := request.Operations[0].Value.(map[string]any)
+	if !ok || value["mcp_server"] == nil || value["implementation"] == nil || value["surface"] == nil {
+		t.Fatalf("assistant resource value = %#v", request.Operations[0].Value)
+	}
+	if len(request.AdditionalEdits) != 4 {
+		t.Fatalf("assistant source edits = %+v", request.AdditionalEdits)
 	}
 }
 

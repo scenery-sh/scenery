@@ -63,6 +63,9 @@ type assistantScaffoldOptions struct {
 
 type assistantInitDependencies struct {
 	prepareChangeRequest func(evolution.ChangeRequest) evolution.ChangeRequest
+	planChanges          func(string, evolution.ChangeRequest) (evolution.ChangePlan, error)
+	planChangesDryRun    func(string, evolution.ChangeRequest) (evolution.ChangePlan, error)
+	applyChangePlan      func(string, evolution.ChangePlan, evolution.ApplyOptions) (evolution.ChangeReceipt, error)
 }
 
 func runAssistantInit(args []string, stdout io.Writer) error {
@@ -218,9 +221,17 @@ func initializeAssistantWithDependencies(ctx context.Context, root string, cfg a
 		}
 		var plan evolution.ChangePlan
 		if opts.DryRun {
-			plan, err = evolution.PlanChangesDryRun(root, request)
+			planChanges := deps.planChangesDryRun
+			if planChanges == nil {
+				planChanges = evolution.PlanChangesDryRun
+			}
+			plan, err = planChanges(root, request)
 		} else {
-			plan, err = evolution.PlanChanges(root, request)
+			planChanges := deps.planChanges
+			if planChanges == nil {
+				planChanges = evolution.PlanChanges
+			}
+			plan, err = planChanges(root, request)
 		}
 		if err != nil {
 			return assistantInitResponse{}, fmt.Errorf("assistant init plan: %w", err)
@@ -228,7 +239,11 @@ func initializeAssistantWithDependencies(ctx context.Context, root string, cfg a
 		response.PlanID = plan.PlanID
 		response.PredictedWorkspaceRevision = plan.PredictedWorkspaceRevision
 		if !opts.DryRun {
-			if _, err := evolution.ApplyChangePlanWithOptions(root, plan, evolution.ApplyOptions{
+			applyChangePlan := deps.applyChangePlan
+			if applyChangePlan == nil {
+				applyChangePlan = evolution.ApplyChangePlanWithOptions
+			}
+			if _, err := applyChangePlan(root, plan, evolution.ApplyOptions{
 				ExpectedWorkspaceRevision: compiled.WorkspaceRevision,
 				ExpectedContractRevision:  revisionFlag(compiled.Manifest.ContractRevision),
 				Caller:                    plan.Caller,

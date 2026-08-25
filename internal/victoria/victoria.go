@@ -119,6 +119,9 @@ type componentStartResult struct {
 	err       error
 }
 
+type componentPrepareFunc func(context.Context, ComponentSpec) (componentStartPlan, error)
+type componentStartFunc func(context.Context, componentStartPlan) (*Component, error)
+
 // Stack is the set of Victoria components serving one shared substrate.
 type Stack struct {
 	components []*Component
@@ -492,6 +495,17 @@ func startComponents(ctx context.Context, root, binDir string, specs []Component
 }
 
 func startComponentsWithBinaryPaths(ctx context.Context, root, binDir string, specs []ComponentSpec, binaryPaths map[string]string, download bool, console Console) []componentStartResult {
+	return startComponentsWithFunctions(ctx, specs,
+		func(ctx context.Context, spec ComponentSpec) (componentStartPlan, error) {
+			return prepareComponentStartWithBinaryPath(ctx, root, binDir, spec, binaryPaths[spec.Name], download, console)
+		},
+		func(ctx context.Context, plan componentStartPlan) (*Component, error) {
+			return startComponentFromPlan(ctx, root, plan, console)
+		},
+	)
+}
+
+func startComponentsWithFunctions(ctx context.Context, specs []ComponentSpec, prepare componentPrepareFunc, start componentStartFunc) []componentStartResult {
 	if len(specs) == 0 {
 		return nil
 	}
@@ -503,7 +517,7 @@ func startComponentsWithBinaryPaths(ctx context.Context, root, binDir string, sp
 		wg.Add(1)
 		go func(index int, spec ComponentSpec) {
 			defer wg.Done()
-			plan, err := prepareComponentStartWithBinaryPath(ctx, root, binDir, spec, binaryPaths[spec.Name], download, console)
+			plan, err := prepare(ctx, spec)
 			if err != nil {
 				results[index].err = err
 				return
@@ -520,7 +534,7 @@ func startComponentsWithBinaryPaths(ctx context.Context, root, binDir string, sp
 		wg.Add(1)
 		go func(index int) {
 			defer wg.Done()
-			component, err := startComponentFromPlan(ctx, root, plans[index], console)
+			component, err := start(ctx, plans[index])
 			results[index].component = component
 			results[index].err = err
 		}(i)

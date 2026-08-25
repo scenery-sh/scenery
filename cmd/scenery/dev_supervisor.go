@@ -72,7 +72,10 @@ type devSupervisor struct {
 	devDomainURL string
 	frontends    map[string]*managedFrontendProcess
 	desktops     map[string]*managedDesktopProcess
-	assistants   *assistantSupervisor
+	// desktopSessionProcessUpdater is an in-process lifecycle seam. Production
+	// leaves it nil and updates the registered local-agent session.
+	desktopSessionProcessUpdater func(context.Context, string, int) error
+	assistants                   *assistantSupervisor
 	// assistantTokenKeyPath is the supervisor-owned stable sealing key handed
 	// to the app child. It is kept out of ordinary status and log payloads.
 	assistantTokenKeyPath string

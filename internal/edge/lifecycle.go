@@ -82,36 +82,7 @@ func Start(config StartConfig) error {
 		return err
 	}
 	startedAt, _ := processStartTime(cmd.Process.Pid)
-	target := localagent.EdgeTargetState{
-		Kind:           localagent.EdgeKindCaddy,
-		TargetAddr:     config.TargetAddr,
-		HTTPTargetAddr: config.HTTPTargetAddr,
-		PID:            cmd.Process.Pid,
-		OwnerUID:       os.Getuid(),
-		OwnerGID:       os.Getgid(),
-		ProcessStart:   startedAt,
-		Executable:     config.Binary,
-		UpdatedAt:      time.Now().UTC(),
-	}
-	if err := localagent.WriteEdgeTargetState(config.Paths.EdgeTargetPath, target); err != nil {
-		_ = signalPID(cmd.Process.Pid, syscall.SIGTERM)
-		_ = logFile.Close()
-		return err
-	}
-	state := localagent.EdgeState{
-		Kind:         localagent.EdgeKindCaddy,
-		Status:       localagent.EdgeStatusRunning,
-		PID:          cmd.Process.Pid,
-		PublicAddr:   config.PublicAddr,
-		PublicScheme: "https",
-		HTTPSListen:  config.TargetAddr,
-		UpstreamAddr: config.UpstreamAddr,
-		AdminSocket:  config.AdminSocket,
-		ConfigPath:   config.Paths.EdgeConfigPath,
-		LogPath:      config.Paths.EdgeLogPath,
-		UpdatedAt:    time.Now().UTC(),
-	}
-	if err := localagent.WriteEdgeState(config.Paths.EdgeStatePath, state); err != nil {
+	if err := writeRunningEdgeState(config, cmd.Process.Pid, startedAt, time.Now().UTC(), os.Getuid(), os.Getgid()); err != nil {
 		_ = signalPID(cmd.Process.Pid, syscall.SIGTERM)
 		_ = logFile.Close()
 		return err
@@ -120,21 +91,59 @@ func Start(config StartConfig) error {
 	return nil
 }
 
+func writeRunningEdgeState(config StartConfig, pid int, startedAt string, updatedAt time.Time, ownerUID, ownerGID int) error {
+	target := localagent.EdgeTargetState{
+		Kind:           localagent.EdgeKindCaddy,
+		TargetAddr:     config.TargetAddr,
+		HTTPTargetAddr: config.HTTPTargetAddr,
+		PID:            pid,
+		OwnerUID:       ownerUID,
+		OwnerGID:       ownerGID,
+		ProcessStart:   startedAt,
+		Executable:     config.Binary,
+		UpdatedAt:      updatedAt,
+	}
+	if err := localagent.WriteEdgeTargetState(config.Paths.EdgeTargetPath, target); err != nil {
+		return err
+	}
+	state := localagent.EdgeState{
+		Kind:         localagent.EdgeKindCaddy,
+		Status:       localagent.EdgeStatusRunning,
+		PID:          pid,
+		PublicAddr:   config.PublicAddr,
+		PublicScheme: "https",
+		HTTPSListen:  config.TargetAddr,
+		UpstreamAddr: config.UpstreamAddr,
+		AdminSocket:  config.AdminSocket,
+		ConfigPath:   config.Paths.EdgeConfigPath,
+		LogPath:      config.Paths.EdgeLogPath,
+		UpdatedAt:    updatedAt,
+	}
+	if err := localagent.WriteEdgeState(config.Paths.EdgeStatePath, state); err != nil {
+		return err
+	}
+	return nil
+}
+
 // Stop terminates the Caddy process recorded in paths.
 func Stop(paths localagent.Paths, timeout time.Duration) error {
+	return stopWithProcessControl(paths, timeout, processAlive, signalPID)
+}
+
+func stopWithProcessControl(paths localagent.Paths, timeout time.Duration, alive func(int) bool, signal func(int, os.Signal) error) error {
 	state, err := localagent.LoadEdgeState(paths.EdgeStatePath)
 	if err != nil {
 		return err
 	}
-	if state.PID <= 0 || !processAlive(state.PID) {
+	if state.PID <= 0 || !alive(state.PID) {
 		return nil
 	}
-	if err := signalPID(state.PID, syscall.SIGTERM); err != nil {
+	if err := signal(state.PID, syscall.SIGTERM); err != nil {
 		return err
 	}
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		if !processAlive(state.PID) {
+		if !alive(state.PID) {
 			return nil
 		}
 		time.Sleep(50 * time.Millisecond)
@@ -144,9 +153,15 @@ func Stop(paths localagent.Paths, timeout time.Duration) error {
 
 // Reload applies a Caddyfile through the configured admin socket.
 func Reload(binary, configPath, adminSocket string) error {
-	cmd := exec.Command(binary, reloadArgs(configPath, adminSocket)...)
-	cmd.Env = envpolicy.Environ()
-	out, err := cmd.CombinedOutput()
+	return reloadWithRunner(binary, configPath, adminSocket, func(binary string, args []string) ([]byte, error) {
+		cmd := exec.Command(binary, args...)
+		cmd.Env = envpolicy.Environ()
+		return cmd.CombinedOutput()
+	})
+}
+
+func reloadWithRunner(binary, configPath, adminSocket string, run func(string, []string) ([]byte, error)) error {
+	out, err := run(binary, reloadArgs(configPath, adminSocket))
 	if err != nil {
 		return fmt.Errorf("caddy reload: %w: %s", err, strings.TrimSpace(string(out)))
 	}
@@ -171,7 +186,7 @@ func TrustLocalCA(binary string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	run := exec.Command(binary, "run", "--config", configPath, "--adapter", "caddyfile")
+	run := exec.Command(binary, trustRunArgs(configPath)...)
 	run.Env = envpolicy.Environ()
 	run.Stdout = logFile
 	run.Stderr = logFile
@@ -189,7 +204,7 @@ func TrustLocalCA(binary string, stdout, stderr io.Writer) error {
 		_ = logFile.Close()
 		return err
 	}
-	trust := exec.Command(binary, "trust", "--config", configPath, "--adapter", "caddyfile")
+	trust := exec.Command(binary, trustInstallArgs(configPath)...)
 	trust.Env = envpolicy.Environ()
 	trust.Stdout = stdout
 	trust.Stderr = stderr
@@ -199,6 +214,14 @@ func TrustLocalCA(binary string, stdout, stderr io.Writer) error {
 	}
 	_ = logFile.Close()
 	return err
+}
+
+func trustRunArgs(configPath string) []string {
+	return []string{"run", "--config", configPath, "--adapter", "caddyfile"}
+}
+
+func trustInstallArgs(configPath string) []string {
+	return []string{"trust", "--config", configPath, "--adapter", "caddyfile"}
 }
 
 func reloadArgs(configPath, adminSocket string) []string {

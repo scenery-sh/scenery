@@ -23,7 +23,7 @@ func TestHarnessTimingBudgetsUseSeparateLanes(t *testing.T) {
 	if cached.PackageSeconds != 10 || cached.PackageOverrides["scenery.sh/cmd/scenery"] != 15 || cached.ConfirmationRuns != 0 {
 		t.Fatalf("cached package/test confirmation budgets = %+v", cached)
 	}
-	if cached.DefaultTestClass != harnessTestClassFast || cached.TestTargetSeconds != 0.060 || cached.TestSeconds != 0.100 || cached.ConfirmationPercentile != 95 || len(cached.IntegrationExceptions) != 61 {
+	if cached.DefaultTestClass != harnessTestClassFast || cached.TestTargetSeconds != 0.060 || cached.TestSeconds != 0.100 || cached.ConfirmationPercentile != 95 || cached.IntegrationExceptions == nil || len(cached.IntegrationExceptions) != 0 {
 		t.Fatalf("cached fast-test policy = %+v", cached)
 	}
 	if cached.TestBinaryCount != 60 || cached.ColdPrepareSeconds != 30 {
@@ -198,7 +198,7 @@ func TestSelectHarnessTimingConfirmationsNeverDefersPriorConfirmedViolation(t *t
 	}
 }
 
-func TestParseHarnessTimingUsesExactTopLevelRootsAndIntegrationPolicy(t *testing.T) {
+func TestParseHarnessTimingUsesExactTopLevelRootsAndAbsolutePolicy(t *testing.T) {
 	t.Parallel()
 
 	output := strings.Join([]string{
@@ -210,19 +210,21 @@ func TestParseHarnessTimingUsesExactTopLevelRootsAndIntegrationPolicy(t *testing
 		`{"Action":"pass","Package":"scenery.sh/internal/desktop","Test":"TestRunStreamsOutputAndPreservesExitCode","Elapsed":0.40}`,
 	}, "\n")
 	report := parseHarnessGoTestTimingWithBudgets([]byte(output), harnessSelfGoTestCommandWithCacheMode(true), time.Second, harnessTestTimingBudgetsForMode(harnessSelfModeDefault, true))
-	if len(report.ObservedSlowTests) != 1 {
-		t.Fatalf("observed candidates = %+v, want only the exact top-level fast root", report.ObservedSlowTests)
+	if len(report.ObservedSlowTests) != 2 {
+		t.Fatalf("observed candidates = %+v, want both exact top-level fast roots", report.ObservedSlowTests)
 	}
-	got := report.ObservedSlowTests[0]
-	if got.Name != "TestRoot" || got.Class != harnessTestClassFast || got.TargetSeconds != 0.06 || got.BudgetSeconds != 0.10 {
-		t.Fatalf("root timing = %+v", got)
+	got := map[string]harnessTestTiming{}
+	for _, timing := range report.ObservedSlowTests {
+		got[timing.Name] = timing
 	}
-	if len(report.ObservedIntegrationTests) != 1 {
-		t.Fatalf("observed integration timings = %+v", report.ObservedIntegrationTests)
+	for _, name := range []string{"TestRoot", "TestRunStreamsOutputAndPreservesExitCode"} {
+		timing, ok := got[name]
+		if !ok || timing.Class != harnessTestClassFast || timing.TargetSeconds != 0.06 || timing.BudgetSeconds != 0.10 {
+			t.Fatalf("root timing %s = %+v", name, timing)
+		}
 	}
-	integration := report.ObservedIntegrationTests[0]
-	if integration.Class != harnessTestClassIntegration || integration.TargetSeconds != 0.1 || integration.BudgetSeconds != 3 || integration.ClassificationReason == "" {
-		t.Fatalf("integration timing = %+v", integration)
+	if len(report.ObservedIntegrationTests) != 0 {
+		t.Fatalf("integration timings = %+v, want none", report.ObservedIntegrationTests)
 	}
 }
 
@@ -248,53 +250,41 @@ func TestHarnessTimingIncludesParallelSubtestsWithoutQueueWait(t *testing.T) {
 	}
 }
 
-func TestIntegrationVisibilityBudgetWarnsWithoutFastGateError(t *testing.T) {
+func TestExternalBoundaryObservationUsesFastGate(t *testing.T) {
 	t.Parallel()
 
 	output := []byte(`{"Action":"pass","Package":"scenery.sh/internal/desktop","Test":"TestRunStreamsOutputAndPreservesExitCode","Elapsed":3.0}`)
 	report := parseHarnessGoTestTimingWithBudgets(output, harnessSelfGoTestCommandWithCacheMode(true), time.Second, harnessTestTimingBudgetsForMode(harnessSelfModeRelease, true))
-	if len(report.ObservedIntegrationTests) != 1 || len(report.ObservedSlowTests) != 0 || len(report.SlowTests) != 0 {
-		t.Fatalf("integration classification leaked into fast gate: %+v", report)
+	if len(report.ObservedIntegrationTests) != 0 || len(report.ObservedSlowTests) != 1 || len(report.SlowTests) != 0 {
+		t.Fatalf("external-boundary root escaped the fast gate: %+v", report)
 	}
-	if hasErrorDiagnostics(report.Diagnostics) {
-		t.Fatalf("integration visibility warning became a release error: %+v", report.Diagnostics)
-	}
-	if !hasDiagnosticContaining(report.Diagnostics, "integration test scenery.sh/internal/desktop.TestRunStreamsOutputAndPreservesExitCode took 3.000s in one observation") {
-		t.Fatalf("integration visibility warning missing: %+v", report.Diagnostics)
+	got := report.ObservedSlowTests[0]
+	if got.Name != "TestRunStreamsOutputAndPreservesExitCode" || got.Class != harnessTestClassFast || got.TargetSeconds != 0.06 || got.BudgetSeconds != 0.10 {
+		t.Fatalf("external-boundary root timing = %+v", got)
 	}
 }
 
-func TestHarnessTimingIntegrationExceptionPolicyIsExactSortedAndDefensive(t *testing.T) {
+func TestHarnessTimingIntegrationExceptionPolicyRemainsEmpty(t *testing.T) {
 	t.Parallel()
 
 	exceptions := harnessTimingIntegrationExceptions()
-	if len(exceptions) != 61 {
-		t.Fatalf("integration exceptions = %d, want 61", len(exceptions))
+	if len(exceptions) != 0 {
+		t.Fatalf("integration exceptions = %d, want 0", len(exceptions))
 	}
 	if err := validateHarnessTimingIntegrationExceptions(exceptions); err != nil {
 		t.Fatal(err)
 	}
-	for _, exception := range exceptions {
-		if exception.Class != harnessTestClassIntegration || exception.TargetSeconds != 0.1 || exception.BudgetSeconds != 3 || exception.BoundaryReason == "" {
-			t.Fatalf("incomplete integration exception = %+v", exception)
-		}
-	}
-	exceptions[0].Name = "mutated"
-	if got := harnessTimingIntegrationExceptions()[0].Name; got == "mutated" {
-		t.Fatal("integration exception inventory escaped by reference")
-	}
 
-	invalid := []harnessTestTimingException{{Package: "example.com/pkg", Name: "TestRoot/subtest", BoundaryReason: "process"}}
-	if err := validateHarnessTimingIntegrationExceptions(invalid); err == nil || !strings.Contains(err.Error(), "top-level TestX root") {
-		t.Fatalf("subtest exception error = %v", err)
-	}
-	invalid = []harnessTestTimingException{{Package: "example.com/...", Name: "TestRoot", BoundaryReason: "process"}}
-	if err := validateHarnessTimingIntegrationExceptions(invalid); err == nil || !strings.Contains(err.Error(), "exact package") {
-		t.Fatalf("package-pattern exception error = %v", err)
-	}
-	invalid = []harnessTestTimingException{{Package: "example.com/pkg", Name: "TestRoot", BoundaryReason: ""}}
-	if err := validateHarnessTimingIntegrationExceptions(invalid); err == nil || !strings.Contains(err.Error(), "no boundary reason") {
-		t.Fatalf("empty-reason exception error = %v", err)
+	invalid := []harnessTestTimingException{{
+		Package:        "example.com/pkg",
+		Name:           "TestExternalBoundary",
+		Class:          harnessTestClassIntegration,
+		TargetSeconds:  harnessIntegrationTestTargetSeconds,
+		BudgetSeconds:  harnessIntegrationTestBudgetSeconds,
+		BoundaryReason: "process",
+	}}
+	if err := validateHarnessTimingIntegrationExceptions(invalid); err == nil || !strings.Contains(err.Error(), "forbidden") {
+		t.Fatalf("non-empty exception policy error = %v", err)
 	}
 }
 

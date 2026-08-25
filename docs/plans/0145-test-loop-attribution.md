@@ -213,6 +213,35 @@ optimize a number nothing can explain.
       maximum, and zero samples over 100ms. Focused `-race -count=3`, one full
       package race run, both owning-package commands, and `go test ./...`
       passed.
+- [x] 2026-08-25: Removed
+      `TestPrepareAndCompileNativeContractApplication` from the Go-test lane
+      and its integration-exception inventory. The ordinary test is now the
+      pure in-process generated-entrypoint assertion
+      `TestGenerateNativeContractApplicationEntrypointInProcess`; the retained
+      release-only `native contract application probe` follows the production
+      `Prepare(..., nil)` path, compiles the generated binary, validates cache
+      and runtime-bundle state, starts the server, and runs the generated Bun
+      client. The full release self-harness passed with this step at 2.476s:
+      0.998s prepare, 0.873s compile, 0.016s reusable-state validation, and
+      0.572s server/client. Twenty serial focused repetitions of the replacement
+      test all completed below Go's 10ms reporting resolution, as did both
+      owning-package commands, `go test ./...`, `go vet ./...`, and the full
+      race suite.
+- [x] 2026-08-25: Completed the integration-root migration in descending order
+      of measured duration. All 61 entries moved from the Go-test exception
+      inventory to focused in-process tests plus explicit release-only boundary
+      probes, leaving `budgets.integration_exceptions` empty; policy validation
+      now rejects any future entry. The exact-final-tree unrestricted fresh
+      serial suite passed 59 packages and 1,737 top-level roots in 62.54s from
+      a colder build cache. Across the final and immediately preceding
+      unrestricted ranks, all 36 distinct roots
+      observed at or above the 60ms candidate threshold passed 20 isolated
+      serial samples. The worst nearest-rank p95 was 80ms. The final rank's two
+      largest one-shot observations were 100ms:
+      `TestImplementationRevisionRequiresBuildSuppliedInputManifest` confirmed
+      at 70ms p95 with one 130ms scheduler spike, while
+      `TestRunToolchainListJSON` confirmed at 30ms p95 and 90ms maximum. No
+      additional port was justified.
 
 - [x] 2026-07-29: Optimized runtime hot paths on the developer loop, separate
       from test scheduling. Six changes, each with byte-identical output proven
@@ -724,6 +753,25 @@ optimize a number nothing can explain.
   toward the 100ms budget automatically and prevents a broad package or naming
   pattern from becoming a performance escape hatch.
   Date/Author: 2026-08-24 / Codex.
+- Native generated-application E2E proof belongs to the release harness, not a
+  top-level Go test exception. The release step retains the real production
+  prepare, compiler, binary, loopback server, runtime bundle, cache reuse, and
+  Bun-client boundaries; the Go package keeps only the in-process entrypoint
+  generation contract. Moving the work into `TestMain`, subtests, or a shared
+  fixture would only hide it from root timing, so those approaches are rejected.
+  Date/Author: 2026-08-25 / Codex.
+- The 100ms repeated isolated p95 rule is absolute. The existing exact
+  integration-exception inventory is migration debt, may only shrink, and does
+  not authorize new or materially changed slow roots. Port that inventory in
+  descending order of the latest measured duration: keep process/toolchain/
+  service/network/OS behavior in explicit release-harness probes and retain
+  ordinary coverage through focused in-process tests.
+  Date/Author: 2026-08-25 / Petr and Codex.
+- The migration is complete. `budgets.integration_exceptions` remains in the
+  machine report for schema stability but must stay empty; policy validation
+  rejects any entry. A new external-boundary proof goes directly to a release
+  probe plus a focused in-process test rather than reopening the inventory.
+  Date/Author: 2026-08-25 / Petr and Codex.
 - Use nearest-rank p95 over 20 serial samples. For 20 samples p95 is the
   second-highest value, so one scheduler spike is tolerated and two budget
   samples fail. The 60ms candidate threshold doubles as the body target's upper
@@ -966,9 +1014,14 @@ to 3.402s and the clean manifest-hit full-suite median from 12.61s to 12.07s.
 Removing the last real-time expiry wait then reduced its owning test from
 1.310-1.330s to 0.050-0.060s in alternating runs, with a 70ms maximum across
 100 retained-tree repetitions. The current fast-test policy makes that target
-durable: top-level in-process roots are measured at repeated p95, and the
-retained external-boundary smokes are visible as exact exceptions rather than
-silently weakening the global threshold.
+durable: every exact top-level root is measured at repeated p95, and the
+exception inventory is empty and programmatically forbidden from regrowing.
+All 61 former external-boundary roots retain their real behavior in explicit
+release-only harness probes and their ordinary contracts in focused in-process
+tests. The exact-final-tree unrestricted serial audit passed 59 packages and
+1,737 roots in 62.54s from a colder build cache; every one of the 36 distinct
+candidate roots observed across the clean ranks stayed below the 100ms p95
+budget, with an 80ms worst p95.
 
 ## Context and Orientation
 
@@ -1081,8 +1134,8 @@ machines; re-measure before comparing.
   `budgets.test_binary_count`, `budgets.cold_prepare_seconds`,
   `test_binaries.test_package_count`, `test_binaries.build_parallelism`, and
   `test_binaries.aggregate_build_seconds`, `budgets.default_test_class`,
-  `budgets.test_target_seconds`, `budgets.confirmation_percentile`, the complete
-  `budgets.integration_exceptions` inventory, and
+  `budgets.test_target_seconds`, `budgets.confirmation_percentile`, the
+  schema-stable but required-empty `budgets.integration_exceptions` field, and
   `observed_integration_tests`. Test timing evidence now carries `class`,
   `target_seconds`, `classification_reason`, and `isolated_p95_seconds`; the
   removed median field has no current-schema alias. The current schema revision is

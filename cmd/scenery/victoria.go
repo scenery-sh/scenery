@@ -54,60 +54,69 @@ func (s *devSupervisor) ensureSharedVictoriaStack(ctx context.Context, root stri
 	if s == nil || s.agent == nil {
 		return s.startVictoriaAtRoot(ctx, root, victoriaConsole(console)), false, nil
 	}
+	return withVictoriaSubstrateLocks(root, lockManagedSubstrateRoot, func() (*victoria.Stack, bool, error) {
+		var existing *localagent.Substrate
+		if substrate, err := s.agent.GetSubstrate(ctx, localagent.SubstrateVictoria); err == nil {
+			stack, reusable := reusableVictoriaStack(substrate)
+			if reusable {
+				emitVictoriaSubstrateEvent(s.eventSink(), ctx, "running", "shared Victoria stack reused", map[string]any{
+					"owner":     "agent",
+					"endpoints": substrate.Endpoints,
+				})
+				return stack, true, nil
+			}
+			existing = &substrate
+		} else if !localagent.IsNotFound(err) {
+			return nil, false, err
+		}
+		if existing != nil {
+			if err := s.stopVerifiedVictoriaStack(ctx, *existing); err != nil {
+				return nil, false, err
+			}
+			if _, err := s.agent.DeleteSubstrate(ctx, localagent.SubstrateVictoria); err != nil {
+				return nil, false, err
+			}
+		}
+		stack := s.startVictoriaAtRoot(ctx, root, victoriaConsole(console))
+		if stack == nil {
+			return nil, false, nil
+		}
+		if !stack.FullyManaged() {
+			discardVictoriaStack(stack)
+			return nil, false, fmt.Errorf("shared Victoria stack did not start all components")
+		}
+		req := stack.SubstrateRequest(os.Getpid())
+		if strings.TrimSpace(req.Kind) == "" {
+			req.Kind = localagent.SubstrateVictoria
+		}
+		if strings.TrimSpace(req.Status) == "" {
+			req.Status = "ready"
+		}
+		if _, err := s.agent.UpsertSubstrate(ctx, req); err != nil {
+			discardVictoriaStack(stack)
+			return nil, false, err
+		}
+		stack.MarkExternal()
+		emitVictoriaSubstrateEvent(s.eventSink(), ctx, "running", "shared Victoria stack ready", map[string]any{
+			"owner":     "agent",
+			"endpoints": req.Endpoints,
+		})
+		return stack, false, nil
+	})
+}
+
+type victoriaSubstrateRootLocker func(string, string) (func(), error)
+type victoriaSubstrateEnsure func() (*victoria.Stack, bool, error)
+
+func withVictoriaSubstrateLocks(root string, lockRoot victoriaSubstrateRootLocker, ensure victoriaSubstrateEnsure) (*victoria.Stack, bool, error) {
 	processUnlock := lockVictoriaSubstrateProcess(root)
 	defer processUnlock()
-	unlock, err := lockManagedSubstrateRoot(root, localagent.SubstrateVictoria)
+	unlock, err := lockRoot(root, localagent.SubstrateVictoria)
 	if err != nil {
 		return nil, false, err
 	}
 	defer unlock()
-	var existing *localagent.Substrate
-	if substrate, err := s.agent.GetSubstrate(ctx, localagent.SubstrateVictoria); err == nil {
-		stack, reusable := reusableVictoriaStack(substrate)
-		if reusable {
-			emitVictoriaSubstrateEvent(s.eventSink(), ctx, "running", "shared Victoria stack reused", map[string]any{
-				"owner":     "agent",
-				"endpoints": substrate.Endpoints,
-			})
-			return stack, true, nil
-		}
-		existing = &substrate
-	} else if !localagent.IsNotFound(err) {
-		return nil, false, err
-	}
-	if existing != nil {
-		if err := s.stopVerifiedVictoriaStack(ctx, *existing); err != nil {
-			return nil, false, err
-		}
-		if _, err := s.agent.DeleteSubstrate(ctx, localagent.SubstrateVictoria); err != nil {
-			return nil, false, err
-		}
-	}
-	stack := s.startVictoriaAtRoot(ctx, root, victoriaConsole(console))
-	if stack == nil {
-		return nil, false, nil
-	}
-	if !stack.FullyManaged() {
-		discardVictoriaStack(stack)
-		return nil, false, fmt.Errorf("shared Victoria stack did not start all components")
-	}
-	req := stack.SubstrateRequest(os.Getpid())
-	if strings.TrimSpace(req.Kind) == "" {
-		req.Kind = localagent.SubstrateVictoria
-	}
-	if strings.TrimSpace(req.Status) == "" {
-		req.Status = "ready"
-	}
-	if _, err := s.agent.UpsertSubstrate(ctx, req); err != nil {
-		discardVictoriaStack(stack)
-		return nil, false, err
-	}
-	stack.MarkExternal()
-	emitVictoriaSubstrateEvent(s.eventSink(), ctx, "running", "shared Victoria stack ready", map[string]any{
-		"owner":     "agent",
-		"endpoints": req.Endpoints,
-	})
-	return stack, false, nil
+	return ensure()
 }
 
 func (s *devSupervisor) startVictoriaAtRoot(ctx context.Context, root string, console victoria.Console) *victoria.Stack {
@@ -196,14 +205,18 @@ func lockVictoriaSubstrateProcess(root string) func() {
 }
 
 func reusableVictoriaStack(substrate localagent.Substrate) (*victoria.Stack, bool) {
+	return reusableVictoriaStackWith(substrate, verifySubstrateOwner, func(stack *victoria.Stack) bool { return stack.Reachable() })
+}
+
+func reusableVictoriaStackWith(substrate localagent.Substrate, verifyOwner func(localagent.Substrate) error, reachable func(*victoria.Stack) bool) (*victoria.Stack, bool) {
 	if strings.TrimSpace(substrate.Status) != "" && strings.TrimSpace(substrate.Status) != "ready" {
 		return nil, false
 	}
-	if err := verifySubstrateOwner(substrate); err != nil {
+	if err := verifyOwner(substrate); err != nil {
 		return nil, false
 	}
 	stack := victoria.FromSubstrate(substrate)
-	if stack == nil || !stack.Reachable() {
+	if stack == nil || !reachable(stack) {
 		return nil, false
 	}
 	stack.MarkExternal()
@@ -255,19 +268,18 @@ func (s *devSupervisor) monitorVictoriaRecovery(root string, interval, maxBackof
 			case <-timer.C:
 			}
 
-			s.mu.RLock()
-			current := s.victoria
-			s.mu.RUnlock()
-			if current != nil && current.Reachable() {
-				delay = interval
-				continue
+			recovered, monitor, err := s.tryVictoriaRecovery(
+				root,
+				func(stack *victoria.Stack) bool { return stack.Reachable() },
+				func() (*victoria.Stack, bool, error) { return s.ensureSharedVictoriaStack(s.ctx, root) },
+				func(stack *victoria.Stack) <-chan struct{} {
+					return monitorVictoriaSubstrate(root, s.agent, s.eventSink(), stack)
+				},
+			)
+			if s.ctx.Err() != nil {
+				return
 			}
-
-			stack, reused, err := s.ensureSharedVictoriaStack(s.ctx, root)
-			if err != nil || stack == nil || !stack.Reachable() {
-				if err == nil {
-					err = errors.New("shared Victoria stack remains unavailable")
-				}
+			if err != nil {
 				delay *= 2
 				if delay > maxBackoff {
 					delay = maxBackoff
@@ -275,23 +287,50 @@ func (s *devSupervisor) monitorVictoriaRecovery(root string, interval, maxBackof
 				s.reportVictoriaRecoveryFailure(root, err, delay)
 				continue
 			}
-
-			s.mu.Lock()
-			if s.ctx.Err() != nil {
-				s.mu.Unlock()
-				return
+			if !recovered {
+				delay = interval
+				continue
 			}
-			s.victoria = stack
-			s.mu.Unlock()
-			substrateMonitors = append(substrateMonitors, monitorVictoriaSubstrate(root, s.agent, s.eventSink(), stack))
-			emitVictoriaSubstrateEvent(s.eventSink(), s.ctx, "running", "shared Victoria stack recovered", map[string]any{
-				"reused":    reused,
-				"endpoints": stack.SubstrateRequest(os.Getpid()).Endpoints,
-			})
+			if monitor != nil {
+				substrateMonitors = append(substrateMonitors, monitor)
+			}
 			delay = interval
 		}
 	}()
 	return done
+}
+
+type victoriaStackReachable func(*victoria.Stack) bool
+type victoriaStackEnsure func() (*victoria.Stack, bool, error)
+type victoriaStackMonitor func(*victoria.Stack) <-chan struct{}
+
+func (s *devSupervisor) tryVictoriaRecovery(root string, reachable victoriaStackReachable, ensure victoriaStackEnsure, monitor victoriaStackMonitor) (bool, <-chan struct{}, error) {
+	s.mu.RLock()
+	current := s.victoria
+	s.mu.RUnlock()
+	if current != nil && reachable(current) {
+		return false, nil, nil
+	}
+	stack, reused, err := ensure()
+	if err != nil {
+		return false, nil, err
+	}
+	if stack == nil || !reachable(stack) {
+		return false, nil, errors.New("shared Victoria stack remains unavailable")
+	}
+	s.mu.Lock()
+	if s.ctx.Err() != nil {
+		s.mu.Unlock()
+		return false, nil, s.ctx.Err()
+	}
+	s.victoria = stack
+	s.mu.Unlock()
+	monitorDone := monitor(stack)
+	emitVictoriaSubstrateEvent(s.eventSink(), s.ctx, "running", "shared Victoria stack recovered", map[string]any{
+		"reused":    reused,
+		"endpoints": stack.SubstrateRequest(os.Getpid()).Endpoints,
+	})
+	return true, monitorDone, nil
 }
 
 func (s *devSupervisor) reportVictoriaRecoveryFailure(root string, recoveryErr error, retryAfter time.Duration) {

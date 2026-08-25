@@ -39,15 +39,17 @@ type cliTelemetryInvocation struct {
 	started         time.Time
 	args            []string
 	now             func() time.Time
+	recorder        func(cliTelemetryRecord)
 	startupRecorded bool
 	suppressed      bool
 }
 
 func newCLITelemetryInvocation(started time.Time, args []string) *cliTelemetryInvocation {
 	return &cliTelemetryInvocation{
-		started: started,
-		args:    append([]string(nil), args...),
-		now:     time.Now,
+		started:  started,
+		args:     append([]string(nil), args...),
+		now:      time.Now,
+		recorder: recordCLITelemetry,
 	}
 }
 
@@ -86,7 +88,11 @@ func (i *cliTelemetryInvocation) record(measurement string, exitCode int) {
 	if duration < 0 {
 		duration = 0
 	}
-	recordCLITelemetry(cliTelemetryRecord{
+	recorder := i.recorder
+	if recorder == nil {
+		recorder = recordCLITelemetry
+	}
+	recorder(cliTelemetryRecord{
 		At:          i.started.UTC(),
 		Command:     telemetryCommand(i.args),
 		DurationMS:  duration.Milliseconds(),

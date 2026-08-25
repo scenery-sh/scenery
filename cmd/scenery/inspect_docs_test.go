@@ -255,18 +255,22 @@ Generate and check the target before handoff.
 	}
 }
 
-func TestInspectDocsGoPackagesForPath(t *testing.T) {
+func TestInspectDocsGoPackageResolutionInProcess(t *testing.T) {
 	t.Parallel()
 
-	if packages, err := inspectDocsGoPackagesForPath(t.Context(), t.TempDir(), "docs/local-contract.md"); err != nil || len(packages) != 0 {
-		t.Fatalf("non-Go packages = %+v, err = %v", packages, err)
+	if pattern, ok := inspectDocsGoPackagePattern("docs/local-contract.md"); ok || pattern != "" {
+		t.Fatalf("non-Go pattern = %q, ok = %v", pattern, ok)
+	}
+	if pattern, ok := inspectDocsGoPackagePattern("main.go"); !ok || pattern != "." {
+		t.Fatalf("root Go pattern = %q, ok = %v", pattern, ok)
+	}
+	if pattern, ok := inspectDocsGoPackagePattern("cmd/scenery/inspect_docs.go"); !ok || pattern != "./cmd/scenery" {
+		t.Fatalf("nested Go pattern = %q, ok = %v", pattern, ok)
 	}
 
-	repoRoot, err := filepath.Abs(filepath.Join("..", ".."))
-	if err != nil {
-		t.Fatal(err)
-	}
-	packages, err := inspectDocsGoPackagesForPath(t.Context(), repoRoot, "cmd/scenery/inspect_docs.go")
+	repoRoot := t.TempDir()
+	packageDir := filepath.Join(repoRoot, "cmd", "scenery")
+	packages, err := parseInspectDocsGoPackage(repoRoot, "cmd/scenery/inspect_docs.go", []byte("scenery.sh/cmd/scenery\t"+packageDir+"\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -275,6 +279,9 @@ func TestInspectDocsGoPackagesForPath(t *testing.T) {
 	}
 	if got := packages[0]; got.ImportPath != "scenery.sh/cmd/scenery" || got.RelDir != "cmd/scenery" {
 		t.Fatalf("package = %+v", got)
+	}
+	if _, err := parseInspectDocsGoPackage(repoRoot, "cmd/scenery/inspect_docs.go", []byte("malformed")); err == nil {
+		t.Fatal("malformed go list output succeeded")
 	}
 }
 

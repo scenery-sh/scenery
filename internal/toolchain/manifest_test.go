@@ -249,7 +249,7 @@ func TestStoreUnknownToolFailsClosed(t *testing.T) {
 	}
 }
 
-func TestStoreSyncSourceBuildArtifact(t *testing.T) {
+func TestStoreSyncSourceBuildArtifactInProcess(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/sourcebuild\n\ngo 1.26.3\n"), 0o644); err != nil {
 		t.Fatalf("write go.mod: %v", err)
@@ -281,6 +281,17 @@ func TestStoreSyncSourceBuildArtifact(t *testing.T) {
 	}
 	store.RootDir = root
 	store.Platform = Platform{GOOS: "linux", GOARCH: "amd64"}
+	buildCalls := 0
+	store.sourceBuild = func(_ context.Context, gotRoot, outputPath, pkg string) ([]byte, error) {
+		buildCalls++
+		if gotRoot != root || pkg != "./cmd/demo" {
+			t.Fatalf("source build input = root:%q package:%q", gotRoot, pkg)
+		}
+		if err := os.WriteFile(outputPath, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+			return nil, err
+		}
+		return []byte("fake source build"), nil
+	}
 
 	status, err := store.Sync(context.Background(), Options{RootDir: root, Platform: store.Platform, Tool: "demo-source"})
 	if err != nil {
@@ -294,6 +305,9 @@ func TestStoreSyncSourceBuildArtifact(t *testing.T) {
 	}
 	if status.Artifacts[0].Source != "source-build" {
 		t.Fatalf("source = %q", status.Artifacts[0].Source)
+	}
+	if buildCalls != 1 {
+		t.Fatalf("source build calls = %d, want 1", buildCalls)
 	}
 
 	status, err = store.Verify(context.Background(), Options{RootDir: root, Platform: store.Platform, Tool: "demo-source"})

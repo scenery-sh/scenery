@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"net"
 	"os"
@@ -529,6 +530,16 @@ var devSessionOwnerExitPollInterval = 2 * time.Second
 // runtime stays explicit through `scenery down`. The follower also exits when
 // the owning runtime goes away.
 func followAlreadyRunningDevSession(ctx context.Context, console *runConsole, root string) error {
+	return followAlreadyRunningDevSessionWith(ctx, console, root, runSceneryLogsFunc, devSessionOwnerGone)
+}
+
+func followAlreadyRunningDevSessionWith(
+	ctx context.Context,
+	console *runConsole,
+	root string,
+	runLogs func(context.Context, io.Writer, []string) error,
+	ownerGone func(context.Context, string) bool,
+) error {
 	console.printf(console.out, "  %s\n\n", console.palette.Dim("Following the running runtime's logs. Ctrl+C detaches without stopping it."))
 	followCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -539,12 +550,12 @@ func followAlreadyRunningDevSession(ctx context.Context, console *runConsole, ro
 	watcherDone := make(chan struct{})
 	go func() {
 		defer close(watcherDone)
-		if devSessionOwnerGone(followCtx, root) {
+		if ownerGone(followCtx, root) {
 			close(ownerExited)
 			cancel()
 		}
 	}()
-	err := runSceneryLogsFunc(followCtx, os.Stdout, []string{"--follow", "--app-root", root})
+	err := runLogs(followCtx, os.Stdout, []string{"--follow", "--app-root", root})
 	cancel()
 	<-watcherDone
 	select {
@@ -563,11 +574,15 @@ func followAlreadyRunningDevSession(ctx context.Context, console *runConsole, ro
 // verified owner, and false when ctx ends first. Transient agent errors keep
 // the watch alive instead of misreporting the runtime as stopped.
 func devSessionOwnerGone(ctx context.Context, root string) bool {
+	return devSessionOwnerGoneWithInterval(ctx, root, devSessionOwnerExitPollInterval)
+}
+
+func devSessionOwnerGoneWithInterval(ctx context.Context, root string, interval time.Duration) bool {
 	client, err := commandAgentClient()
 	if err != nil {
 		return false
 	}
-	ticker := time.NewTicker(devSessionOwnerExitPollInterval)
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
 		select {

@@ -99,12 +99,16 @@ func Check(ctx context.Context, binary, appRoot, outputRoot, tsconfig string, fi
 	if err == nil {
 		return nil
 	}
+	return classifyCheckFailure(output, err)
+}
+
+func classifyCheckFailure(output []byte, runErr error) *Error {
 	classification, code := "unrelated application error", "SCN6321"
 	if strings.Contains(string(output), ".scenery-tscheck-") && strings.Contains(string(output), ".generated.tsx") {
 		classification, code = "incompatible declared override", "SCN6320"
 	}
 	if len(output) == 0 {
-		output = []byte(err.Error())
+		output = []byte(runErr.Error())
 	}
 	return &Error{Code: code, Classification: classification, Output: string(output)}
 }

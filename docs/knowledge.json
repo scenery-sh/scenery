@@ -147,9 +147,9 @@
       "status": "active",
       "quality": "B",
       "freshness": "current",
-      "last_reviewed": "2026-08-21",
-      "review_after": "2026-09-20",
-      "summary": "Active ExecPlan attributing developer test loop cost: scoped timing confirmation, per-binary cold attribution, pinned four-way build concurrency, prepare-wall budgets, a graph-only mcpprojection boundary, an in-memory deploy failure matrix, and explicit per-supervisor Victoria test-process configuration that moved five real lifecycle tests into the parallel phase.",
+      "last_reviewed": "2026-08-25",
+      "review_after": "2026-09-24",
+      "summary": "Active ExecPlan attributing developer test-loop cost through scoped confirmation, per-binary cold attribution, pinned build concurrency, graph-boundary reduction, and the absolute 100ms root rule now enforced by completed descending-duration ports, an empty exception inventory, fast in-process replacements, and release-only boundary probes.",
       "tags": ["plans", "execplans", "harness", "testing", "performance", "timing"]
     },
     {
@@ -1454,9 +1454,9 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-08-20",
-      "review_after": "2026-09-19",
-      "summary": "Agent workflow guide for current app roots and the Scenery repo, including task-scoped documentation routing, MCP/assistant provider-neutral public surfaces and private helper boundaries, CLI JSON, graph provenance, runtime diagnosis, deploy, storage, generated route access, impersonation-aware audit identity, app-local AGENTS hierarchy, public-surface checks, and self-harness validation with pinned fresh-lane concurrency and prepare-wall timing.",
+      "last_reviewed": "2026-08-25",
+      "review_after": "2026-09-24",
+      "summary": "Agent workflow guide for current app roots and the Scenery repo, including task-scoped documentation routing, provider-neutral assistants, CLI JSON, graph provenance, runtime diagnosis, deploy, storage, generated route access, audit identity, app-local AGENTS hierarchy, public-surface checks, and self-harness validation with an absolute 100ms Go-root rule and release-only external-boundary probes.",
       "tags": [
         "agents",
         "cli",
@@ -1529,9 +1529,9 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-08-04",
-      "review_after": "2026-09-03",
-      "summary": "Current local developer and agent-facing contract for exact CLI JSON surfaces, including provider-neutral assistant commands/routes/inspection, private implementation boundaries, scoped command help, living-document freshness, deterministic validation, schema identities, graph provenance, runtime/deploy behavior, generated route access, audit identity, generators, and code tasks.",
+      "last_reviewed": "2026-08-25",
+      "review_after": "2026-09-24",
+      "summary": "Current local developer and agent-facing contract for exact CLI JSON surfaces, including provider-neutral assistants, scoped help, living-doc freshness, deterministic validation, schema identities, graph provenance, runtime/deploy behavior, generated route access, audit identity, an absolute 100ms Go-root rule with an empty exception inventory, release-only external-boundary probes, generators, and code tasks.",
       "tags": [
         "contract",
         "cli",
@@ -1678,7 +1678,7 @@
       "freshness": "current",
       "last_reviewed": "2026-08-24",
       "review_after": "2026-09-23",
-      "summary": "Agent validation loop with cached and explicit fresh Go execution, a 60ms fast-test target and repeated 100ms p95 gate with exact integration exceptions, pinned four-way missing-binary builds, prepare-wall cold budgeting, deterministic changed-area command unions, agent-context handoff, browser and data proofs, task-scoped documentation routing, and living-document review queues.",
+      "summary": "Agent validation loop with cached and explicit fresh Go execution, a 60ms fast-test target and exception-free repeated 100ms p95 gate, release-only external-boundary probes, pinned four-way missing-binary builds, prepare-wall cold budgeting, deterministic changed-area command unions, agent-context handoff, browser and data proofs, task-scoped documentation routing, and living-document review queues.",
       "tags": [
         "harness",
         "agents",

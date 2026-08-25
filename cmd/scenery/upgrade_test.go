@@ -5,10 +5,12 @@ import (
 	"archive/zip"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -66,36 +68,35 @@ func TestRunUpgradeHelpUsesCurrentChannelContract(t *testing.T) {
 	}
 }
 
-func TestRunUpgradeInstallsVerifiedReleaseAndSyncsToolchain(t *testing.T) {
+func TestRunUpgradeInstallsVerifiedReleaseAndPlansToolchainSyncInProcess(t *testing.T) {
 	t.Parallel()
 
-	if runtime.GOOS == "windows" {
-		t.Skip("test uses a POSIX shell script as the fake downloaded binary")
-	}
 	tag := "v9.9.9"
 	assetName := upgradeArchiveName(tag)
-	marker := filepath.Join(t.TempDir(), "sync.args")
-	script := "#!/bin/sh\n" +
-		"if [ \"$1\" = \"system\" ] && [ \"$2\" = \"toolchain\" ] && [ \"$3\" = \"sync\" ]; then\n" +
-		"  printf '%s\\n' \"$*\" > \"" + marker + "\"\n" +
-		"  echo '{\"kind\":\"scenery.toolchain.status\",\"schema_revision\":\"sha256:016d9a4dcfe775dd3847bd0ff320dd889d7945e9df22b8774a1d42b210c3f0f0\",\"artifacts\":[]}'\n" +
-		"  exit 0\n" +
-		"fi\n" +
-		"echo 'fake scenery'\n"
-	archiveData := buildUpgradeArchive(t, []byte(script))
+	binaryData := []byte("in-process scenery binary")
+	archiveData := buildUpgradeArchive(t, binaryData)
 	sum := sha256.Sum256(archiveData)
 	assets := map[string][]byte{
 		assetName:       archiveData,
 		"checksums.txt": []byte(hex.EncodeToString(sum[:]) + "  " + assetName + "\n"),
 	}
-	server := newUpgradeReleaseServer(t, tag, assets)
-	defer server.Close()
+	httpClient := newInProcessUpgradeReleaseClient(t, tag, assets)
+	cwd := t.TempDir()
+	var syncBinary string
+	var syncDir string
+	var syncArgs []string
 	deps := upgradeDependencies{
-		apiBaseURL:       server.URL + "/repos/scenery-sh/scenery",
-		httpClient:       server.Client(),
+		apiBaseURL:       "https://upgrade.test/repos/scenery-sh/scenery",
+		httpClient:       httpClient,
 		currentVersion:   func() string { return "v0.2.0" },
 		deployNotice:     func(string) *deploydiag.HelperDrift { return nil },
-		workingDirectory: os.Getwd,
+		workingDirectory: func() (string, error) { return cwd, nil },
+		runToolchainCommand: func(_ context.Context, binaryPath, commandDir string, args []string) (string, error) {
+			syncBinary = binaryPath
+			syncDir = commandDir
+			syncArgs = append([]string(nil), args...)
+			return `{"kind":"scenery.toolchain.status","schema_revision":"sha256:016d9a4dcfe775dd3847bd0ff320dd889d7945e9df22b8774a1d42b210c3f0f0","artifacts":[]}`, nil
+		},
 	}
 
 	target := filepath.Join(t.TempDir(), "bin", "scenery")
@@ -117,16 +118,67 @@ func TestRunUpgradeInstallsVerifiedReleaseAndSyncsToolchain(t *testing.T) {
 	if info.Mode()&0o111 == 0 {
 		t.Fatalf("installed target is not executable: %v", info.Mode())
 	}
-	args, err := os.ReadFile(marker)
+	installed, err := os.ReadFile(target)
 	if err != nil {
-		t.Fatalf("toolchain marker: %v", err)
+		t.Fatalf("read installed target: %v", err)
 	}
-	if strings.TrimSpace(string(args)) != "system toolchain sync -o json --images" {
-		t.Fatalf("toolchain args = %q", string(args))
+	if !bytes.Equal(installed, binaryData) {
+		t.Fatalf("installed target = %q, want %q", installed, binaryData)
+	}
+	if syncBinary != target || syncDir != cwd {
+		t.Fatalf("toolchain command binary/dir = %q / %q, want %q / %q", syncBinary, syncDir, target, cwd)
+	}
+	if got := strings.Join(syncArgs, " "); got != "system toolchain sync -o json --images" {
+		t.Fatalf("toolchain args = %q", got)
 	}
 	if payload.Toolchain == nil || payload.Toolchain.Mode != "all" || len(payload.Toolchain.Synced) != 1 {
 		t.Fatalf("toolchain payload = %+v", payload.Toolchain)
 	}
+}
+
+type upgradeRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f upgradeRoundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+func newInProcessUpgradeReleaseClient(t *testing.T, tag string, assets map[string][]byte) *http.Client {
+	t.Helper()
+	return &http.Client{Transport: upgradeRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		var body []byte
+		status := http.StatusOK
+		switch {
+		case req.URL.Path == "/repos/scenery-sh/scenery/releases/latest":
+			release := upgradeRelease{TagName: tag}
+			for name := range assets {
+				release.Assets = append(release.Assets, upgradeReleaseAsset{
+					Name:               name,
+					BrowserDownloadURL: "https://upgrade.test/download/" + name,
+				})
+			}
+			var err error
+			body, err = json.Marshal(release)
+			if err != nil {
+				return nil, err
+			}
+		case strings.HasPrefix(req.URL.Path, "/download/"):
+			name := strings.TrimPrefix(req.URL.Path, "/download/")
+			var ok bool
+			body, ok = assets[name]
+			if !ok {
+				status = http.StatusNotFound
+			}
+		default:
+			status = http.StatusNotFound
+		}
+		return &http.Response{
+			StatusCode: status,
+			Status:     fmt.Sprintf("%d %s", status, http.StatusText(status)),
+			Header:     make(http.Header),
+			Body:       io.NopCloser(bytes.NewReader(body)),
+			Request:    req,
+		}, nil
+	})}
 }
 
 func TestRunUpgradeSkipsCurrentVersionForDefaultTarget(t *testing.T) {

@@ -213,6 +213,10 @@ func probeHarnessTool(ctx context.Context, name, scope string, required bool, ar
 		tool.Error = strings.TrimSpace(err.Error() + ": " + string(output))
 		return tool
 	}
+	return applyHarnessToolOutput(tool, name, args, output)
+}
+
+func applyHarnessToolOutput(tool harnessToolchainTool, name string, args []string, output []byte) harnessToolchainTool {
 	if name == "scenery" && len(args) == 3 && args[0] == "version" && args[1] == "-o" && args[2] == "json" {
 		var version versionResponse
 		if decodeCLIJSON(output, &version) == nil && version.Version != "" {
@@ -858,6 +862,116 @@ func harnessStepEffects(step harnessStep) []string {
 		}
 	}
 	switch step.Name {
+	case harnessEdgeProcessProbeName:
+		set["external-binary"] = true
+		set["filesystem-write"] = true
+		set["tempdir"] = true
+	case harnessGenerationCompileProbeName:
+		set["external-binary"] = true
+		set["filesystem-write"] = true
+		set["tempdir"] = true
+	case harnessNativeContractApplicationProbeName:
+		set["external-binary"] = true
+		set["loopback-network"] = true
+		set["node-runtime"] = true
+		set["tempdir"] = true
+	case harnessSnapshotBackupProbeName:
+		set["external-binary"] = true
+		set["filesystem-write"] = true
+		set["tempdir"] = true
+	case harnessTypeScriptCheckerProbeName:
+		set["external-binary"] = true
+		set["filesystem-write"] = true
+		set["tempdir"] = true
+	case harnessCodeTaskProcessProbeName:
+		set["external-binary"] = true
+		set["filesystem-write"] = true
+		set["tempdir"] = true
+	case harnessUpgradeProcessProbeName:
+		set["external-binary"] = true
+		set["filesystem-write"] = true
+		set["loopback-network"] = true
+		set["tempdir"] = true
+	case harnessVictoriaProcessProbeName:
+		set["external-binary"] = true
+		set["filesystem-write"] = true
+		set["loopback-network"] = true
+		set["ports"] = true
+		set["tempdir"] = true
+	case harnessDesktopProcessProbeName:
+		set["agent-socket"] = true
+		set["external-binary"] = true
+		set["filesystem-write"] = true
+		set["loopback-network"] = true
+		set["ports"] = true
+		set["tempdir"] = true
+	case harnessDeploySSHProcessProbeName:
+		set["external-binary"] = true
+		set["filesystem-write"] = true
+		set["tempdir"] = true
+	case harnessValidationGitProbeName:
+		set["external-binary"] = true
+		set["filesystem-write"] = true
+		set["tempdir"] = true
+	case harnessTestsuiteCacheProbeName:
+		set["external-binary"] = true
+		set["filesystem-write"] = true
+		set["tempdir"] = true
+		set["test-cache"] = true
+	case harnessToolchainSourceBuildProbeName:
+		set["external-binary"] = true
+		set["filesystem-write"] = true
+		set["tempdir"] = true
+	case harnessWorktreeGitProbeName:
+		set["external-binary"] = true
+		set["filesystem-write"] = true
+		set["tempdir"] = true
+	case harnessBuildInfoProbeName:
+		set["external-binary"] = true
+		set["filesystem-write"] = true
+		set["tempdir"] = true
+	case harnessAssistantInitProbeName:
+		set["external-binary"] = true
+		set["filesystem-write"] = true
+		set["node-runtime"] = true
+		set["tempdir"] = true
+	case harnessAgentRestartProbeName:
+		set["agent-socket"] = true
+		set["external-binary"] = true
+		set["filesystem-write"] = true
+		set["loopback-network"] = true
+		set["ports"] = true
+		set["tempdir"] = true
+	case harnessAssistantProductionProbeName:
+		set["external-binary"] = true
+		set["filesystem-write"] = true
+		set["loopback-network"] = true
+		set["ports"] = true
+		set["tempdir"] = true
+	case harnessCLIProcessProbeName:
+		set["external-binary"] = true
+		set["filesystem-write"] = true
+		set["tempdir"] = true
+	case harnessDevNamedLockProbeName:
+		set["external-binary"] = true
+		set["filesystem-write"] = true
+		set["tempdir"] = true
+	case harnessDevFollowProbeName:
+		set["agent-socket"] = true
+		set["external-binary"] = true
+		set["filesystem-write"] = true
+		set["loopback-network"] = true
+		set["ports"] = true
+		set["tempdir"] = true
+	case harnessDevManagedProcessProbeName:
+		set["external-binary"] = true
+	case harnessDevSessionCleanupProbeName:
+		set["external-binary"] = true
+		set["filesystem-write"] = true
+		set["tempdir"] = true
+	case harnessInspectDocsGoPackageProbeName:
+		set["external-binary"] = true
+		set["filesystem-read"] = true
 	case "parallel worktree runtimes":
 		set["loopback-network"] = true
 		set["ports"] = true

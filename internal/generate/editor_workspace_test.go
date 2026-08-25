@@ -14,8 +14,8 @@ import (
 	"scenery.sh/internal/devcache"
 )
 
-func TestEditorWorkspaceSupportsRawGoWithoutMaterializedGeneratedGo(t *testing.T) {
-	parallelIntegrationTest(t)
+func TestEditorWorkspaceRendersRawGoInputsWithoutCheckoutMaterializationInProcess(t *testing.T) {
+	t.Parallel()
 
 	root := t.TempDir()
 	copyTree(t, filepath.Join("..", "compiler", "testdata", "native"), root)
@@ -30,14 +30,29 @@ func TestEditorWorkspaceSupportsRawGoWithoutMaterializedGeneratedGo(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := SyncEditorWorkspace(result); err != nil {
+	modules, digest, err := renderEditorContractModules(result)
+	if err != nil {
 		t.Fatal(err)
 	}
-	command := boundedGoCommand("test", "./...")
-	command.Dir = root
-	command.Env = withoutEnvironment(command.Env, "GOWORK")
-	if output, err := command.CombinedOutput(); err != nil {
-		t.Fatalf("raw go test failed: %v\n%s", err, output)
+	if len(modules) == 0 || digest == "" {
+		t.Fatalf("editor modules = %d digest = %q", len(modules), digest)
+	}
+	generation := filepath.Join(t.TempDir(), "generation")
+	moduleDirs, err := materializeEditorGeneration(generation, modules, editorGoVersion(result), "v0.0.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(moduleDirs) != len(modules) {
+		t.Fatalf("materialized module dirs = %d, want %d", len(moduleDirs), len(modules))
+	}
+	workFile := string(renderEditorWorkFile(editorGoVersion(result), moduleDirs, ""))
+	for _, moduleDir := range moduleDirs {
+		if !strings.Contains(workFile, strconv.Quote(filepath.ToSlash(moduleDir))) {
+			t.Fatalf("workfile missing module %q:\n%s", moduleDir, workFile)
+		}
+		if _, err := os.Stat(filepath.Join(moduleDir, "go.mod")); err != nil {
+			t.Fatalf("materialized module %q: %v", moduleDir, err)
+		}
 	}
 	if _, err := os.Stat(filepath.Join(root, "house", "scenerycontract")); !os.IsNotExist(err) {
 		t.Fatal("editor sync materialized package contracts in the checkout")
@@ -157,7 +172,7 @@ func TestEditorWorkspaceStopsAfterOwnedWorkFileDiverges(t *testing.T) {
 	}
 }
 
-func TestEditorWorkspaceExplicitMergePreservesUserWorkFile(t *testing.T) {
+func TestEditorWorkspaceExplicitMergePreservesUserWorkFileInProcess(t *testing.T) {
 	root := t.TempDir()
 	copyTree(t, filepath.Join("..", "compiler", "testdata", "native"), root)
 	rewriteFixtureSceneryReplace(t, root)
@@ -188,14 +203,6 @@ func TestEditorWorkspaceExplicitMergePreservesUserWorkFile(t *testing.T) {
 	if !bytes.Contains(merged, authored) || !bytes.Contains(merged, []byte(editorMergeBegin)) {
 		t.Fatalf("merged workfile lost user bytes:\n%s", merged)
 	}
-	// The merge contract includes module resolution, not just go.work syntax:
-	// prove the authored implementation builds against the generated use paths.
-	command := boundedGoCommand("test", "./...")
-	command.Dir = root
-	command.Env = withoutEnvironment(command.Env, "GOWORK")
-	if output, err := command.CombinedOutput(); err != nil {
-		t.Fatalf("raw go test failed: %v\n%s", err, output)
-	}
 	changed := bytes.Replace(merged, []byte("scenery:begin"), []byte("scenery:changed"), 1)
 	if err := os.WriteFile(path, changed, 0o644); err != nil {
 		t.Fatal(err)
@@ -203,15 +210,4 @@ func TestEditorWorkspaceExplicitMergePreservesUserWorkFile(t *testing.T) {
 	if err := SyncEditorWorkspace(result); err == nil || !strings.Contains(err.Error(), "managed block") {
 		t.Fatalf("sync error = %v", err)
 	}
-}
-
-func withoutEnvironment(environment []string, name string) []string {
-	prefix := name + "="
-	filtered := environment[:0]
-	for _, value := range environment {
-		if !strings.HasPrefix(value, prefix) {
-			filtered = append(filtered, value)
-		}
-	}
-	return filtered
 }

@@ -754,25 +754,45 @@ func deleteStoppedSessionRecord(ctx context.Context, client *localagent.Client, 
 	return localagent.Session{}, false, err
 }
 
+type stopDeletedSessionProcessDependencies struct {
+	shouldSignalOwner func(localagent.Session) bool
+	stopOwner         func(context.Context, int) error
+	processPIDs       func(localagent.Session) []int
+	stopChild         func(context.Context, int) error
+	stopCommands      func(context.Context, localagent.Session, map[int]bool) error
+	stopEnvironment   func(context.Context, localagent.Session, map[int]bool) error
+}
+
 func stopDeletedSessionProcesses(ctx context.Context, session localagent.Session) error {
+	return stopDeletedSessionProcessesWithDependencies(ctx, session, stopDeletedSessionProcessDependencies{
+		shouldSignalOwner: shouldSignalSessionOwner,
+		stopOwner:         stopSessionOwnerPID,
+		processPIDs:       sessionProcessPIDs,
+		stopChild:         stopStaleSessionChildPID,
+		stopCommands:      stopSessionCommandProcesses,
+		stopEnvironment:   stopSessionEnvProcesses,
+	})
+}
+
+func stopDeletedSessionProcessesWithDependencies(ctx context.Context, session localagent.Session, deps stopDeletedSessionProcessDependencies) error {
 	var errs []error
 	seen := map[int]bool{}
 	ownerPID := firstPositiveInt(session.OwnerPID, session.Owner.PID)
-	if ownerPID > 0 && ownerPID != os.Getpid() && shouldSignalSessionOwner(session) {
-		errs = append(errs, stopSessionOwnerPID(ctx, ownerPID))
+	if ownerPID > 0 && ownerPID != os.Getpid() && deps.shouldSignalOwner(session) {
+		errs = append(errs, deps.stopOwner(ctx, ownerPID))
 		seen[ownerPID] = true
 	}
-	for _, pid := range sessionProcessPIDs(session) {
+	for _, pid := range deps.processPIDs(session) {
 		if pid <= 0 || pid == os.Getpid() || seen[pid] {
 			continue
 		}
-		if err := stopStaleSessionChildPID(ctx, pid); err != nil {
+		if err := deps.stopChild(ctx, pid); err != nil {
 			errs = append(errs, err)
 		}
 		seen[pid] = true
 	}
-	errs = append(errs, stopSessionCommandProcesses(ctx, session, seen))
-	errs = append(errs, stopSessionEnvProcesses(ctx, session, seen))
+	errs = append(errs, deps.stopCommands(ctx, session, seen))
+	errs = append(errs, deps.stopEnvironment(ctx, session, seen))
 	return errors.Join(errs...)
 }
 

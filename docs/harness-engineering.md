@@ -30,11 +30,10 @@ cold prepare is separately held to 30 seconds of wall time at that pinned build
 parallelism. Only explicit fresh runs perform isolated timing confirmation.
 Every exact top-level `TestX` root is fast by default, with a 60ms candidate
 target and a hard 100ms nearest-rank p95 budget across 20 isolated serial
-samples; the serialized percentile is 95. The complete sorted exception
-inventory names one exact integration test, its 100ms observation target and
-3s visibility budget, and a real process, toolchain, service, or OS boundary
-reason. Integration roots at or above the target remain visible as one sample
-and warn at or above 3s without entering p95 confirmation. Ordinary fresh runs advise on new,
+samples; the serialized percentile is 95. `integration_exceptions` remains in
+the report for schema stability but must be empty, and a non-empty policy is an
+error. Real process, toolchain, service, network, and OS proof belongs in
+explicit release-harness probes paired with focused in-process tests. Ordinary fresh runs advise on new,
 25%+10ms regressed, currently over-budget, or previously confirmed-over-budget
 fast tests; `--release --fresh-tests` confirms all fast candidates and fails on
 confirmed violations. Root timings include their subtests and sum every active

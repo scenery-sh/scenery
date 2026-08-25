@@ -19,5 +19,9 @@ func CheckPredictedTypeScriptClients(result *compiler.Result) error {
 // ApplyImplementationCheck records generation and native-implementation
 // diagnostics on the compiler snapshot used to perform the check.
 func ApplyImplementationCheck(result *compiler.Result) {
-	ApplyCheck(result, Check(result))
+	applyImplementationCheck(result, Check)
+}
+
+func applyImplementationCheck(result *compiler.Result, check func(*compiler.Result) CheckResult) {
+	ApplyCheck(result, check(result))
 }

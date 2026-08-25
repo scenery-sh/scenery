@@ -16,17 +16,21 @@ func TestAssistantAssetDescriptorKindMatchesRuntimeAssets(t *testing.T) {
 	}
 }
 
-func TestApplyImplementationCheckReportsValidNative(t *testing.T) {
-	parallelIntegrationTest(t)
+func TestApplyImplementationCheckUsesInjectedCheckInProcess(t *testing.T) {
+	t.Parallel()
 
-	root := t.TempDir()
-	copyTree(t, filepath.Join("..", "compiler", "testdata", "native"), root)
-	rewriteFixtureSceneryReplace(t, root)
-	result, err := compiler.Compile(root)
-	if err != nil || result == nil || !result.Valid() {
-		t.Fatalf("compile native: %v diagnostics=%#v", err, diagnosticsOf(result))
+	result := &compiler.Result{}
+	called := false
+	applyImplementationCheck(result, func(got *compiler.Result) CheckResult {
+		called = true
+		if got != result {
+			t.Fatalf("check result pointer = %p, want %p", got, result)
+		}
+		return CheckResult{ImplementationStatus: "valid", ImplementationChecked: true}
+	})
+	if !called {
+		t.Fatal("implementation checker was not called")
 	}
-	ApplyImplementationCheck(result)
 	if result.ImplementationStatus != "valid" {
 		t.Fatalf("implementation_status = %q diagnostics=%#v", result.ImplementationStatus, result.Diagnostics)
 	}

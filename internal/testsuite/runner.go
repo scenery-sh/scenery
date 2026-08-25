@@ -93,19 +93,35 @@ type packageRun struct {
 	Err     error
 }
 
+type runDependencies struct {
+	prepare             func(context.Context, Options) (cacheManifest, bool, PrepareTiming, error)
+	runPackages         func(context.Context, Options, []testPackage) []packageRun
+	loadTimingEstimates func(string) map[string]float64
+	writeTimings        func(string, map[string]float64) error
+}
+
 func Run(ctx context.Context, opts Options) (Result, error) {
 	opts, err := normalizeOptions(opts)
 	if err != nil {
 		return Result{}, err
 	}
-	manifest, hit, prepared, err := prepare(ctx, opts)
+	return runWithDependencies(ctx, opts, runDependencies{
+		prepare:             prepare,
+		runPackages:         runPackages,
+		loadTimingEstimates: loadTimingEstimates,
+		writeTimings:        writeTimingEstimates,
+	})
+}
+
+func runWithDependencies(ctx context.Context, opts Options, deps runDependencies) (Result, error) {
+	manifest, hit, prepared, err := deps.prepare(ctx, opts)
 	if err != nil {
 		return Result{}, err
 	}
 
-	estimates := loadTimingEstimates(filepath.Join(opts.CacheDir, "timings.json"))
+	estimates := deps.loadTimingEstimates(filepath.Join(opts.CacheDir, "timings.json"))
 	sortTestPackages(manifest.Packages, estimates)
-	runs := runPackages(ctx, opts, manifest.Packages)
+	runs := deps.runPackages(ctx, opts, manifest.Packages)
 	result := Result{
 		PackageCount:     len(manifest.Packages) + len(manifest.NoTestPackages),
 		TestPackageCount: len(manifest.Packages),
@@ -131,7 +147,7 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 		for _, run := range runs {
 			estimates[run.Package.ImportPath] = run.Elapsed.Seconds()
 		}
-		if err := writeTimingEstimates(filepath.Join(opts.CacheDir, "timings.json"), estimates); err != nil {
+		if err := deps.writeTimings(filepath.Join(opts.CacheDir, "timings.json"), estimates); err != nil {
 			runErrors = append(runErrors, err)
 		}
 	}

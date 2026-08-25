@@ -4,23 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
-	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
 const fakeGoModeEnv = "TESTSUITE_FAKE_GO"
-
-func TestMain(m *testing.M) {
-	if os.Getenv(fakeGoModeEnv) == "1" && filepath.Base(os.Args[0]) == "go" {
-		os.Exit(runFakeGo())
-	}
-	os.Exit(m.Run())
-}
 
 func TestTestsuiteHelperProcess(t *testing.T) {
 	if os.Getenv(fakeGoModeEnv) != "1" {
@@ -32,67 +22,67 @@ func TestTestsuiteHelperProcess(t *testing.T) {
 	t.Run("child", func(t *testing.T) {})
 }
 
-func TestRunCachesLinkedBinariesAndExecutesTestsFresh(t *testing.T) {
-	repoRoot := t.TempDir()
-	writeFixtureFile(t, repoRoot, "go.mod", "module example.com/testsuitefixture\n\ngo 1.26.3\n")
-	writeFixtureFile(t, repoRoot, "a/a.go", "package a\n\nfunc Value() int { return 1 }\n")
-	writeFixtureFile(t, repoRoot, "b/b.go", "package b\n\nfunc Value() int { return 2 }\n")
-	runGit(t, repoRoot, "init")
-	runGit(t, repoRoot, "config", "user.email", "testsuite@example.com")
-	runGit(t, repoRoot, "config", "user.name", "Testsuite")
-	runGit(t, repoRoot, "add", ".")
-	runGit(t, repoRoot, "commit", "-m", "fixture")
+func TestRunReusesPreparedManifestButExecutesPackagesFreshInProcess(t *testing.T) {
+	t.Parallel()
 
-	marker := filepath.Join(t.TempDir(), "marker")
-	cacheDir := filepath.Join(t.TempDir(), "cache")
-	self, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
+	prepareCalls := 0
+	executionCalls := 0
+	timingWrites := 0
+	manifest := cacheManifest{
+		Packages:       []testPackage{{Dir: "/repo/a", ImportPath: "example.com/testsuitefixture/a", BuildID: "fixture-build-id", Binary: "/cache/a.test"}},
+		NoTestPackages: []string{"example.com/testsuitefixture/b"},
 	}
-	fakeBin := t.TempDir()
-	copyExecutable(t, self, filepath.Join(fakeBin, "go"))
-	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	t.Setenv(fakeGoModeEnv, "1")
-	t.Setenv("TESTSUITE_FAKE_REPO", repoRoot)
-	t.Setenv("TESTSUITE_FAKE_SELF", self)
-	t.Setenv("TESTSUITE_MARKER", marker)
-	env := os.Environ()
-	var firstOutput bytes.Buffer
-	first, err := Run(context.Background(), Options{
-		RepoRoot: repoRoot, CacheDir: cacheDir, RunPattern: "^TestTestsuiteHelperProcess$",
-		PackageParallelism: 2, BuildParallelism: 2, RefreshManifest: true,
-		RecordTimings: true, Output: &firstOutput, Env: env,
-	})
-	if err != nil {
-		t.Fatal(err)
+	deps := runDependencies{
+		prepare: func(context.Context, Options) (cacheManifest, bool, PrepareTiming, error) {
+			prepareCalls++
+			if prepareCalls == 1 {
+				return manifest, false, PrepareTiming{Builds: []BinaryBuild{{Package: "example.com/testsuitefixture/a", BuildID: "fixture-build-id"}}}, nil
+			}
+			return manifest, true, PrepareTiming{}, nil
+		},
+		runPackages: func(_ context.Context, _ Options, packages []testPackage) []packageRun {
+			executionCalls++
+			if len(packages) != 1 || packages[0].ImportPath != "example.com/testsuitefixture/a" {
+				t.Fatalf("packages = %+v", packages)
+			}
+			return []packageRun{{
+				Package: packages[0],
+				Output:  []byte("--- PASS: TestTestsuiteHelperProcess/child (0.00s)\n--- PASS: TestTestsuiteHelperProcess (0.00s)\n"),
+				Action:  "pass",
+			}}
+		},
+		loadTimingEstimates: func(string) map[string]float64 { return nil },
+		writeTimings: func(path string, estimates map[string]float64) error {
+			timingWrites++
+			if path != "/cache/timings.json" || estimates["example.com/testsuitefixture/a"] != 0 {
+				t.Fatalf("timing write path=%q estimates=%v", path, estimates)
+			}
+			return nil
+		},
 	}
+	run := func() (Result, []byte) {
+		var output bytes.Buffer
+		result, err := runWithDependencies(context.Background(), Options{
+			CacheDir: "/cache", BuildParallelism: 2, RecordTimings: true, Output: &output,
+		}, deps)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return result, output.Bytes()
+	}
+	first, firstOutput := run()
 	if first.ManifestHit || first.BuiltCount != 1 || first.BuildParallelism != 2 || first.PackageCount != 2 || first.TestPackageCount != 1 || first.TestResultCount != 2 {
 		t.Fatalf("first result = %+v", first)
 	}
-	if data, err := os.ReadFile(marker); err != nil || string(data) != "ran" {
-		t.Fatalf("marker = %q, %v", data, err)
-	}
-	assertTestEvents(t, firstOutput.Bytes(), true)
-
-	if err := os.Remove(marker); err != nil {
-		t.Fatal(err)
-	}
-	var secondOutput bytes.Buffer
-	second, err := Run(context.Background(), Options{
-		RepoRoot: repoRoot, CacheDir: cacheDir, RunPattern: "^TestTestsuiteHelperProcess$",
-		PackageParallelism: 2, BuildParallelism: 2,
-		RecordTimings: true, Output: &secondOutput, Env: env,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	assertTestEvents(t, firstOutput, true)
+	second, secondOutput := run()
 	if !second.ManifestHit || second.BuiltCount != 0 || second.TestResultCount != 2 {
 		t.Fatalf("second result = %+v", second)
 	}
-	if _, err := os.Stat(marker); err != nil {
-		t.Fatalf("fresh test execution did not recreate marker: %v", err)
+	assertTestEvents(t, secondOutput, true)
+	if prepareCalls != 2 || executionCalls != 2 || timingWrites != 2 {
+		t.Fatalf("calls prepare=%d execute=%d timing_writes=%d, want 2 each", prepareCalls, executionCalls, timingWrites)
 	}
-
 }
 
 func TestNormalizeOptionsPinsDefaultBuildParallelism(t *testing.T) {
@@ -128,30 +118,24 @@ func TestRunPatternCanCompileWithoutExecutingTests(t *testing.T) {
 	}
 }
 
-func TestWorkspaceFingerprintChangesForDirtyTrackedSource(t *testing.T) {
+func TestWorkspaceFingerprintTracksContentNotCommitStateInProcess(t *testing.T) {
 	repoRoot := t.TempDir()
 	writeFixtureFile(t, repoRoot, "go.mod", "module example.com/fingerprint\n\ngo 1.26.3\n")
 	writeFixtureFile(t, repoRoot, "value.go", "package fingerprint\n\nconst Value = 1\n")
-	runGit(t, repoRoot, "init")
-	runGit(t, repoRoot, "config", "user.email", "testsuite@example.com")
-	runGit(t, repoRoot, "config", "user.name", "Testsuite")
-	runGit(t, repoRoot, "add", ".")
-	runGit(t, repoRoot, "commit", "-m", "fixture")
-	before, err := workspaceFingerprint(context.Background(), repoRoot)
+	paths := []byte("go.mod\x00value.go\x00")
+	before, err := workspaceFingerprintFromPaths(repoRoot, paths)
 	if err != nil {
 		t.Fatal(err)
 	}
 	writeFixtureFile(t, repoRoot, "value.go", "package fingerprint\n\nconst Value = 2\n")
-	after, err := workspaceFingerprint(context.Background(), repoRoot)
+	after, err := workspaceFingerprintFromPaths(repoRoot, paths)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if before == after {
 		t.Fatal("dirty tracked source did not invalidate workspace fingerprint")
 	}
-	runGit(t, repoRoot, "add", ".")
-	runGit(t, repoRoot, "commit", "-m", "change value")
-	committed, err := workspaceFingerprint(context.Background(), repoRoot)
+	committed, err := workspaceFingerprintFromPaths(repoRoot, paths)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,72 +183,6 @@ func assertTestEvents(t *testing.T, output []byte, wantNoTestPackage bool) {
 	}
 }
 
-func runFakeGo() int {
-	args := os.Args[1:]
-	if len(args) > 0 && args[0] == "list" {
-		root := os.Getenv("TESTSUITE_FAKE_REPO")
-		encoder := json.NewEncoder(os.Stdout)
-		for _, pkg := range []listedPackage{
-			{Dir: filepath.Join(root, "a"), ImportPath: "example.com/testsuitefixture/a"},
-			{Dir: filepath.Join(root, "b"), ImportPath: "example.com/testsuitefixture/b"},
-			{Dir: filepath.Join(root, "a"), ImportPath: "example.com/testsuitefixture/a.test", BuildID: "fixture-build-id"},
-		} {
-			if err := encoder.Encode(pkg); err != nil {
-				fmt.Fprintln(os.Stderr, err)
-				return 1
-			}
-		}
-		return 0
-	}
-	if len(args) > 0 && args[0] == "test" {
-		for i := 1; i+1 < len(args); i++ {
-			if args[i] == "-o" {
-				if err := linkOrCopyFile(os.Getenv("TESTSUITE_FAKE_SELF"), args[i+1]); err != nil {
-					fmt.Fprintln(os.Stderr, err)
-					return 1
-				}
-				return 0
-			}
-		}
-	}
-	fmt.Fprintf(os.Stderr, "unexpected fake go command: %v\n", args)
-	return 1
-}
-
-func copyExecutable(t *testing.T, source, target string) {
-	t.Helper()
-	if err := linkOrCopyFile(source, target); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func linkOrCopyFile(source, target string) error {
-	if err := os.Remove(target); err != nil && !os.IsNotExist(err) {
-		return err
-	}
-	if err := os.Link(source, target); err == nil {
-		return nil
-	}
-	return copyFile(source, target)
-}
-
-func copyFile(source, target string) error {
-	in, err := os.Open(source)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-	out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
-	if err != nil {
-		return err
-	}
-	if _, err := io.Copy(out, in); err != nil {
-		_ = out.Close()
-		return err
-	}
-	return out.Close()
-}
-
 func writeFixtureFile(t *testing.T, root, relativePath, contents string) {
 	t.Helper()
 	path := filepath.Join(root, filepath.FromSlash(relativePath))
@@ -273,14 +191,5 @@ func writeFixtureFile(t *testing.T, root, relativePath, contents string) {
 	}
 	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
 		t.Fatal(err)
-	}
-}
-
-func runGit(t *testing.T, dir string, args ...string) {
-	t.Helper()
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	if output, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("git %s: %v: %s", strings.Join(args, " "), err, output)
 	}
 }

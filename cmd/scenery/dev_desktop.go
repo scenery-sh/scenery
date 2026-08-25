@@ -90,7 +90,7 @@ func (s *devSupervisor) startDesktopShells(ctx context.Context) error {
 }
 
 func (s *devSupervisor) startDesktopShell(_ context.Context, shell desktop.Project, devURL string, baseEnv []string, session localagent.Session) (*managedDesktopProcess, error) {
-	command, err := desktop.DevCommand(shell, devURL)
+	request, err := desktopProcessStartRequest(s.root, shell, devURL, baseEnv, session)
 	if err != nil {
 		return nil, err
 	}
@@ -99,21 +99,13 @@ func (s *devSupervisor) startDesktopShell(_ context.Context, shell desktop.Proje
 		return nil, err
 	}
 	desktop := &managedDesktopProcess{Name: shell.Name, Root: shell.TauriRoot, LogFile: logFile}
-	process, err := startDevManagedProcess(context.Background(), devProcessStartRequest{
-		Name:    shell.Name,
-		Kind:    "desktop",
-		Role:    "desktop-shell",
-		Dir:     command.Dir,
-		Command: command.Path,
-		Args:    command.Args,
-		Env:     frontendDevEnv(baseEnv, s.root, strings.TrimPrefix(devURL, "http://"), session, shell.Name),
-		Stdout:  logFile,
-		Stderr:  logFile,
-		OnOutput: func(pid int, stream string, data []byte) {
-			plain := append([]byte(nil), data...)
-			go captureManagedDesktopOutput(s.activeAppID(), session.SessionID, desktop, pid, stream, plain)
-		},
-	})
+	request.Stdout = logFile
+	request.Stderr = logFile
+	request.OnOutput = func(pid int, stream string, data []byte) {
+		plain := append([]byte(nil), data...)
+		go captureManagedDesktopOutput(s.activeAppID(), session.SessionID, desktop, pid, stream, plain)
+	}
+	process, err := startDevManagedProcess(context.Background(), request)
 	if err != nil {
 		_ = logFile.Close()
 		return nil, fmt.Errorf("start desktop frontend %q: %w", shell.Name, err)
@@ -132,6 +124,22 @@ func (s *devSupervisor) startDesktopShell(_ context.Context, shell desktop.Proje
 	})
 	go s.monitorManagedDesktop(shell.Name, desktop)
 	return desktop, nil
+}
+
+func desktopProcessStartRequest(root string, shell desktop.Project, devURL string, baseEnv []string, session localagent.Session) (devProcessStartRequest, error) {
+	command, err := desktop.DevCommand(shell, devURL)
+	if err != nil {
+		return devProcessStartRequest{}, err
+	}
+	return devProcessStartRequest{
+		Name:    shell.Name,
+		Kind:    "desktop",
+		Role:    "desktop-shell",
+		Dir:     command.Dir,
+		Command: command.Path,
+		Args:    command.Args,
+		Env:     frontendDevEnv(baseEnv, root, strings.TrimPrefix(devURL, "http://"), session, shell.Name),
+	}, nil
 }
 
 func managedDesktopLogFile(session localagent.Session, name string) (*os.File, error) {
@@ -192,23 +200,14 @@ func (s *devSupervisor) monitorManagedDesktop(name string, desktop *managedDeskt
 }
 
 func (s *devSupervisor) updateDesktopSessionProcess(ctx context.Context, name string, pid int) error {
+	if s != nil && s.desktopSessionProcessUpdater != nil {
+		return s.desktopSessionProcessUpdater(ctx, name, pid)
+	}
 	session := s.currentAgentSession()
 	if s == nil || s.agent == nil || session == nil {
 		return fmt.Errorf("agent session is unavailable")
 	}
-	processes := copySessionProcesses(session.Processes)
-	key := "desktop-" + localagentLabel(name)
-	if pid > 0 {
-		processes[key] = localagent.Process{PID: pid}
-	} else {
-		delete(processes, key)
-		if len(processes) == 0 {
-			// Register treats an empty process map as "preserve existing".
-			// A zero-PID tombstone makes this an explicit replacement with no
-			// processes, and NewSession discards the tombstone.
-			processes = map[string]localagent.Process{key: {PID: 0}}
-		}
-	}
+	processes := desktopSessionProcesses(session.Processes, name, pid)
 	if len(processes) == 0 {
 		processes = nil
 	}
@@ -232,6 +231,22 @@ func (s *devSupervisor) updateDesktopSessionProcess(ctx context.Context, name st
 	}
 	s.storeAgentSession(&updated)
 	return nil
+}
+
+func desktopSessionProcesses(existing map[string]localagent.Process, name string, pid int) map[string]localagent.Process {
+	processes := copySessionProcesses(existing)
+	key := "desktop-" + localagentLabel(name)
+	if pid > 0 {
+		processes[key] = localagent.Process{PID: pid}
+		return processes
+	}
+	delete(processes, key)
+	if len(processes) == 0 {
+		// Register treats an empty process map as "preserve existing". A
+		// zero-PID tombstone makes this an explicit replacement with none.
+		return map[string]localagent.Process{key: {PID: 0}}
+	}
+	return processes
 }
 
 func (s *devSupervisor) setManagedDesktop(name string, desktop *managedDesktopProcess) {

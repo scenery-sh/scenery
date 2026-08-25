@@ -415,24 +415,22 @@ func TestHarnessLocalArtifactIgnoreDoesNotHideSchemas(t *testing.T) {
 	}
 }
 
-func TestProbeHarnessToolParsesSceneryVersionJSON(t *testing.T) {
+func TestHarnessToolOutputParsesSceneryVersionJSONInProcess(t *testing.T) {
+	t.Parallel()
 
-	dir := t.TempDir()
-	path := filepath.Join(dir, "scenery")
 	versionIdentity := newCLIPayloadIdentity("scenery.version")
 	envelope := newCLIEnvelope(true, map[string]any{"kind": versionIdentity.Kind, "schema_revision": versionIdentity.SchemaRevision, "version": "v1.2.3", "commit": "abc", "built_at": "2026-06-08T00:00:00Z", "go_version": "go1.26.3"}, nil)
 	encoded, err := json.Marshal(envelope)
 	if err != nil {
 		t.Fatal(err)
 	}
-	script := fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' %q\n", string(encoded))
-	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	tool := probeHarnessTool(context.Background(), "scenery", "required", true, []string{"version", "-o", "json"})
+	tool := applyHarnessToolOutput(harnessToolchainTool{Name: "scenery", Present: true}, "scenery", []string{"version", "-o", "json"}, encoded)
 	if tool.Version != "v1.2.3" || tool.Commit != "abc" || tool.GoVersion != "go1.26.3" {
 		t.Fatalf("tool = %+v", tool)
+	}
+	fallback := applyHarnessToolOutput(harnessToolchainTool{Name: "go", Present: true}, "go", []string{"version"}, []byte("go version go1.27 darwin/arm64\nignored"))
+	if fallback.Version != "go version go1.27 darwin/arm64" {
+		t.Fatalf("fallback tool = %+v", fallback)
 	}
 }
 

@@ -3,9 +3,11 @@ package main
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -237,7 +239,7 @@ func TestTypeScriptScriptCommandPrefersBunThenNode(t *testing.T) {
 	}
 }
 
-func TestRunSceneryScriptRunsGoFileFromAppRoot(t *testing.T) {
+func TestRunSceneryScriptBuildsGoCommandFromAppRootInProcess(t *testing.T) {
 	t.Parallel()
 
 	root := scriptFixtureRoot(t)
@@ -264,14 +266,40 @@ func main() {
 `)
 
 	var stdout bytes.Buffer
+	var commandArgs []string
+	var commandDir string
+	var commandEnv []string
 	if err := runSceneryScript(context.Background(), scriptOptions{
 		AppRoot: root,
 		Env:     "production",
 		Target:  "billing:reconcile",
 		Args:    []string{"--dry-run", "--limit", "100"},
 		Stdout:  &stdout,
+		RunCommand: func(cmd *exec.Cmd) error {
+			commandArgs = append([]string(nil), cmd.Args...)
+			commandDir = cmd.Dir
+			commandEnv = append([]string(nil), cmd.Env...)
+			_, err := fmt.Fprintln(cmd.Stdout, "cwd-fixture=fixture-ok args=--dry-run,--limit,100 app=scriptapp env=production")
+			return err
+		},
 	}); err != nil {
 		t.Fatal(err)
+	}
+	if got, want := strings.Join(commandArgs, " "), "go run ./billing/tasks/reconcile.task.go --dry-run --limit 100"; got != want {
+		t.Fatalf("command = %q, want %q", got, want)
+	}
+	if commandDir != root {
+		t.Fatalf("command dir = %q, want %q", commandDir, root)
+	}
+	for _, want := range []string{
+		"SCENERY_APP_ID=scriptapp",
+		"SCENERY_APP_ROOT=" + root,
+		"SCENERY_ENV=production",
+		"SCENERY_RUNTIME_ENV=production",
+	} {
+		if !slices.Contains(commandEnv, want) {
+			t.Fatalf("command env missing %q", want)
+		}
 	}
 	out := stdout.String()
 	for _, want := range []string{

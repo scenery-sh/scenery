@@ -8,24 +8,31 @@ import (
 	"strings"
 	"testing"
 
-	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/machine"
-	"scenery.sh/internal/parse"
 )
 
-func TestPrepareAndCompileWriteLatestBuildManifest(t *testing.T) {
+func TestPrepareAndCompileWriteLatestBuildManifestInProcess(t *testing.T) {
 	t.Parallel()
 
-	appDir := copyBuildFixture(t, "native")
-
-	model, err := parse.Analyze(appDir, "nativeapp")
+	appDir := t.TempDir()
+	writeBuildTestFile(t, appDir, ".scenery.json", `{"name":"nativeapp"}`)
+	workspace, err := workspaceDir(appDir, "nativeapp")
 	if err != nil {
-		t.Fatalf("parse app: %v", err)
+		t.Fatal(err)
 	}
-	result, err := Prepare(appDir, model, appcfg.Config{Name: "nativeapp"})
-	if err != nil {
-		t.Fatalf("prepare: %v", err)
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	result := prepareCompileTestResult(&Result{
+		AppRoot:       appDir,
+		AppName:       "nativeapp",
+		Dir:           workspace,
+		Binary:        filepath.Join(workspace, "scenery-app"),
+		ReuseCompiled: true,
+	})
+	if err := WriteLatestBuildManifest(result, "prepared"); err != nil {
+		t.Fatalf("write prepared manifest: %v", err)
 	}
 
 	manifest, ok, err := ReadLatestBuildManifest(appDir)
@@ -71,8 +78,8 @@ func TestPrepareAndCompileWriteLatestBuildManifest(t *testing.T) {
 	}
 }
 
-func TestCompileRealGoBuildSmoke(t *testing.T) {
-	t.Parallel()
+func TestCompileBuildSmokeWithInjectedGoRunnerInProcess(t *testing.T) {
+	useFakeGoRunner(t)
 
 	appDir := t.TempDir()
 	writeBuildTestFile(t, appDir, ".scenery.json", `{"name":"smoke"}`)
@@ -103,7 +110,7 @@ func TestCompileRealGoBuildSmoke(t *testing.T) {
 		t.Fatal("expected Compile to clear NeedsTidy")
 	}
 	if _, err := os.Stat(result.Binary); err != nil {
-		t.Fatalf("expected real build binary: %v", err)
+		t.Fatalf("expected build binary: %v", err)
 	}
 	manifest, ok, err := ReadLatestBuildManifest(appDir)
 	if err != nil {

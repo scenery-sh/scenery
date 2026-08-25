@@ -31,6 +31,8 @@ type Command struct {
 	Dir  string
 }
 
+type commandExecutor func(context.Context, Command, []string, io.Writer, io.Writer) error
+
 func Resolve(appRoot string, frontends map[string]app.FrontendConfig) ([]Project, error) {
 	names := make([]string, 0, len(frontends))
 	for name, frontend := range frontends {
@@ -116,20 +118,28 @@ func BuildCommand(project Project, frontendDist string) (Command, error) {
 }
 
 func Run(ctx context.Context, command Command, env []string, output io.Writer) error {
-	cmd := exec.CommandContext(ctx, command.Path, command.Args...)
-	cmd.Dir = command.Dir
-	cmd.Env = env
+	return runWithExecutor(ctx, command, env, output, executeCommand)
+}
+
+func runWithExecutor(ctx context.Context, command Command, env []string, output io.Writer, execute commandExecutor) error {
 	var tail bytes.Buffer
 	if output == nil {
 		output = io.Discard
 	}
 	combined := &lockedWriter{writer: io.MultiWriter(output, &tail)}
-	cmd.Stdout = combined
-	cmd.Stderr = combined
-	if err := cmd.Run(); err != nil {
+	if err := execute(ctx, command, env, combined, combined); err != nil {
 		return fmt.Errorf("%s %s: %w\n%s", command.Path, strings.Join(command.Args, " "), err, lastLines(tail.String(), 20))
 	}
 	return nil
+}
+
+func executeCommand(ctx context.Context, command Command, env []string, stdout, stderr io.Writer) error {
+	cmd := exec.CommandContext(ctx, command.Path, command.Args...)
+	cmd.Dir = command.Dir
+	cmd.Env = env
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	return cmd.Run()
 }
 
 type lockedWriter struct {

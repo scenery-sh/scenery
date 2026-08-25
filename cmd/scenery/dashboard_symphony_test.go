@@ -697,25 +697,13 @@ func TestRunSymphonyAutoForAppReportsAutoMode(t *testing.T) {
 	}
 }
 
-func TestPrepareSymphonyWorkspaceResetsExistingWorktree(t *testing.T) {
-	_ = isolateCommandCacheRoot(t)
+func TestPrepareSymphonyWorkspaceResetsExistingWorkspaceInProcess(t *testing.T) {
+	t.Parallel()
 
-	repoRoot := t.TempDir()
-	if err := os.WriteFile(filepath.Join(repoRoot, "tracked.txt"), []byte("clean\n"), 0o644); err != nil {
+	cacheRoot := t.TempDir()
+	repoWorkspace := filepath.Join(cacheRoot, "workspaces", "demo", "SYM-1", "repo")
+	if err := os.MkdirAll(repoWorkspace, 0o755); err != nil {
 		t.Fatal(err)
-	}
-	runGit(t, repoRoot, "init")
-	runGit(t, repoRoot, "config", "user.email", "scenery@example.test")
-	runGit(t, repoRoot, "config", "user.name", "Scenery Test")
-	runGit(t, repoRoot, "add", ".")
-	runGit(t, repoRoot, "commit", "-m", "initial")
-	repoWorkspace := filepath.Join(symphonyCacheRoot(), "workspaces", "demo", "SYM-1", "repo")
-	reset, err := prepareSymphonyWorkspace(context.Background(), symphonyCacheRoot(), repoRoot, repoWorkspace, repoWorkspace)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if reset {
-		t.Fatal("new worktree should not report reset")
 	}
 	if err := os.WriteFile(filepath.Join(repoWorkspace, "tracked.txt"), []byte("dirty\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -723,7 +711,23 @@ func TestPrepareSymphonyWorkspaceResetsExistingWorktree(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(repoWorkspace, "untracked.txt"), []byte("remove me\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	reset, err = prepareSymphonyWorkspace(context.Background(), symphonyCacheRoot(), repoRoot, repoWorkspace, repoWorkspace)
+	addWorktree := func(context.Context, string, string) error {
+		t.Fatal("existing workspace attempted Git worktree add")
+		return nil
+	}
+	resetWorktree := func(_ context.Context, workspace string) error {
+		if workspace != repoWorkspace {
+			t.Fatalf("reset workspace = %q", workspace)
+		}
+		return os.WriteFile(filepath.Join(workspace, "tracked.txt"), []byte("clean\n"), 0o644)
+	}
+	cleanWorktree := func(_ context.Context, workspace string) error {
+		if workspace != repoWorkspace {
+			t.Fatalf("clean workspace = %q", workspace)
+		}
+		return os.Remove(filepath.Join(workspace, "untracked.txt"))
+	}
+	reset, err := prepareSymphonyWorkspaceWith(context.Background(), cacheRoot, "/repo", repoWorkspace, repoWorkspace, addWorktree, resetWorktree, cleanWorktree)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -742,23 +746,37 @@ func TestPrepareSymphonyWorkspaceResetsExistingWorktree(t *testing.T) {
 	}
 }
 
-func TestCleanupSymphonyRunWorkspaceRemovesWorktree(t *testing.T) {
-	_ = isolateCommandCacheRoot(t)
+func TestCleanupSymphonyRunWorkspaceUsesGitRemovalInProcess(t *testing.T) {
+	t.Parallel()
 
-	repoRoot, appRoot := newSymphonyGitFixture(t, "manual")
-	repoWorkspace := filepath.Join(symphonyCacheRoot(), "workspaces", "demo", "SYM-1", "repo")
-	if _, err := prepareSymphonyWorkspace(context.Background(), symphonyCacheRoot(), repoRoot, repoWorkspace, repoWorkspace); err != nil {
+	cacheRoot := t.TempDir()
+	repoWorkspace := filepath.Join(cacheRoot, "workspaces", "demo", "SYM-1", "repo")
+	if err := os.MkdirAll(repoWorkspace, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := cleanupSymphonyRunWorkspace(context.Background(), symphonyCacheRoot(), symphony.Run{RepoRoot: repoRoot, RepoWorkspace: repoWorkspace, WorkspacePath: appRoot}); err != nil {
+	called := false
+	removeWorktree := func(_ context.Context, repoRoot, workspace string) error {
+		called = true
+		if repoRoot != "/repo" || workspace != repoWorkspace {
+			t.Fatalf("remove worktree args = %q %q", repoRoot, workspace)
+		}
+		return os.RemoveAll(workspace)
+	}
+	if err := cleanupSymphonyRunWorkspaceWith(context.Background(), cacheRoot, symphony.Run{RepoRoot: "/repo", RepoWorkspace: repoWorkspace}, removeWorktree); err != nil {
 		t.Fatal(err)
+	}
+	if !called {
+		t.Fatal("Git worktree remover was not called")
 	}
 	if _, err := os.Stat(repoWorkspace); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("workspace still exists: %v", err)
 	}
-	out := string(runGitOutput(t, repoRoot, "worktree", "list", "--porcelain"))
-	if strings.Contains(out, repoWorkspace) {
-		t.Fatalf("worktree registration survived:\n%s", out)
+	outside := filepath.Join(t.TempDir(), "outside")
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := cleanupSymphonyRunWorkspaceWith(context.Background(), cacheRoot, symphony.Run{RepoRoot: "/repo", RepoWorkspace: outside}, removeWorktree); err == nil || !strings.Contains(err.Error(), "outside Symphony cache") {
+		t.Fatalf("outside cleanup error = %v", err)
 	}
 }
 

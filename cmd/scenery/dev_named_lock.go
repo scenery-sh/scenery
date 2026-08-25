@@ -35,11 +35,24 @@ type heldDevLock struct {
 	order int
 }
 
+type devNamedLockDependencies struct {
+	now     func() time.Time
+	sleep   func(time.Duration)
+	tryLock func(*os.File) error
+	isBusy  func(error) bool
+}
+
 func init() {
 	devLockWarnWriter = os.Stderr
 }
 
 func acquireDevNamedLock(root, name, kind string, order int) (func(), error) {
+	return acquireDevNamedLockWithDependencies(root, name, kind, order, devNamedLockDependencies{
+		now: time.Now, sleep: time.Sleep, tryLock: tryLockDevFile, isBusy: isDevFileLockBusy,
+	})
+}
+
+func acquireDevNamedLockWithDependencies(root, name, kind string, order int, dependencies devNamedLockDependencies) (func(), error) {
 	root = strings.TrimSpace(root)
 	if root == "" {
 		root = os.TempDir()
@@ -56,10 +69,10 @@ func acquireDevNamedLock(root, name, kind string, order int) (func(), error) {
 	if err != nil {
 		return nil, err
 	}
-	start := time.Now()
+	start := dependencies.now()
 	nextWarning := devLockWarnAfter
 	for {
-		err := tryLockDevFile(file)
+		err := dependencies.tryLock(file)
 		if err == nil {
 			markDevLockHeld(cleanPath, kind, order)
 			return func() {
@@ -68,11 +81,11 @@ func acquireDevNamedLock(root, name, kind string, order int) (func(), error) {
 				_ = file.Close()
 			}, nil
 		}
-		if !isDevFileLockBusy(err) {
+		if !dependencies.isBusy(err) {
 			_ = file.Close()
 			return nil, fmt.Errorf("lock %s at %s: %w", kind, cleanPath, err)
 		}
-		elapsed := time.Since(start)
+		elapsed := dependencies.now().Sub(start)
 		if elapsed >= nextWarning {
 			if devLockWarnWriter != nil {
 				_, _ = fmt.Fprintf(devLockWarnWriter, "waiting for %s lock at %s (%s elapsed)\n", kind, cleanPath, elapsed.Round(time.Second))
@@ -83,7 +96,7 @@ func acquireDevNamedLock(root, name, kind string, order int) (func(), error) {
 			_ = file.Close()
 			return nil, fmt.Errorf("timed out waiting for %s lock at %s after %s", kind, cleanPath, devLockTimeout)
 		}
-		time.Sleep(devLockRetryInterval)
+		dependencies.sleep(devLockRetryInterval)
 	}
 }
 

@@ -47,6 +47,7 @@ type managedFrontendStartResult struct {
 }
 
 type managedFrontendStarter func(context.Context, string, string, int, localproxy.FrontendConfig, []string, localagent.Session) managedFrontendStartResult
+type pendingManagedFrontendStarter func(context.Context, context.CancelFunc, string, string, int, localproxy.FrontendConfig, []string, localagent.Session) pendingManagedFrontendStart
 
 type frontendOverrideResolver func(string) string
 
@@ -64,6 +65,10 @@ func beginManagedFrontendBackendsForSession(ctx context.Context, root string, cf
 }
 
 func beginManagedFrontendBackendsForSessionWithOverride(ctx context.Context, root string, cfg app.Config, baseEnv []string, session localagent.Session, resolveOverride frontendOverrideResolver) (map[string]localagent.Backend, []*managedFrontendProcess, func(context.Context) error, error) {
+	return beginManagedFrontendBackendsForSessionWithOverrideAndStarter(ctx, root, cfg, baseEnv, session, resolveOverride, beginManagedFrontend)
+}
+
+func beginManagedFrontendBackendsForSessionWithOverrideAndStarter(ctx context.Context, root string, cfg app.Config, baseEnv []string, session localagent.Session, resolveOverride frontendOverrideResolver, starter pendingManagedFrontendStarter) (map[string]localagent.Backend, []*managedFrontendProcess, func(context.Context) error, error) {
 	frontends := configuredFrontends(cfg.Frontends)
 	if len(frontends) == 0 {
 		return nil, nil, nil, nil
@@ -94,7 +99,7 @@ func beginManagedFrontendBackendsForSessionWithOverride(ctx context.Context, roo
 		}
 		startable = append(startable, frontend)
 	}
-	pending, cancelPending := beginManagedFrontends(ctx, root, cfg.AppID(), startable, baseEnv, session)
+	pending, cancelPending := beginManagedFrontendsWithStarter(ctx, root, cfg.AppID(), startable, baseEnv, session, starter)
 	processes := make([]*managedFrontendProcess, 0, len(pending))
 	var ready []<-chan error
 	for _, result := range pending {
@@ -248,8 +253,15 @@ func startManagedFrontends(ctx context.Context, appRoot, appID string, frontends
 }
 
 func beginManagedFrontends(ctx context.Context, appRoot, appID string, frontends []localproxy.FrontendConfig, baseEnv []string, session localagent.Session) ([]pendingManagedFrontendStart, context.CancelFunc) {
+	return beginManagedFrontendsWithStarter(ctx, appRoot, appID, frontends, baseEnv, session, beginManagedFrontend)
+}
+
+func beginManagedFrontendsWithStarter(ctx context.Context, appRoot, appID string, frontends []localproxy.FrontendConfig, baseEnv []string, session localagent.Session, starter pendingManagedFrontendStarter) ([]pendingManagedFrontendStart, context.CancelFunc) {
 	if len(frontends) == 0 {
 		return nil, func() {}
+	}
+	if starter == nil {
+		starter = beginManagedFrontend
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	resultCh := make(chan pendingManagedFrontendStart, len(frontends))
@@ -258,7 +270,7 @@ func beginManagedFrontends(ctx context.Context, appRoot, appID string, frontends
 		wg.Add(1)
 		go func(index int, frontend localproxy.FrontendConfig) {
 			defer wg.Done()
-			result := beginManagedFrontend(ctx, cancel, appRoot, appID, index, frontend, baseEnv, session)
+			result := starter(ctx, cancel, appRoot, appID, index, frontend, baseEnv, session)
 			if result.err != nil {
 				cancel()
 			}

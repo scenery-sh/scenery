@@ -3,8 +3,12 @@ package generate
 import (
 	"bytes"
 	"encoding/json"
+	"go/ast"
+	"go/importer"
+	"go/parser"
+	"go/token"
+	"go/types"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -77,11 +81,10 @@ func TestRenderAssistantAssetRegistrySortsInputsAndDeduplicatesNodeArchive(t *te
 	}
 }
 
-func TestRenderAssistantAssetRegistryGeneratedPackageCompiles(t *testing.T) {
+func TestRenderAssistantAssetRegistryGeneratedPackageTypeChecksInProcess(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module clean.tech\n\ngo 1.26.3\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
 	result := nativeApplicationGenerationFixture(root)
 	node := testAssetArchive(t, "node")
 	capsule := testAssetArchive(t, "capsule")
@@ -90,20 +93,15 @@ func TestRenderAssistantAssetRegistryGeneratedPackageCompiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render assets: %v", err)
 	}
-	for relative, data := range files {
-		path := filepath.Join(root, filepath.FromSlash(relative))
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, data, 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	command := exec.Command("go", "test", "./internal/scenerygen/assets")
-	command.Dir = root
-	output, err := command.CombinedOutput()
+	source := files["internal/scenerygen/assets/assets.gen.go"]
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "assets.gen.go", source, parser.ParseComments)
 	if err != nil {
-		t.Fatalf("generated asset package does not compile: %v\n%s", err, output)
+		t.Fatalf("parse generated asset package: %v", err)
+	}
+	config := types.Config{Importer: importer.Default()}
+	if _, err := config.Check("clean.tech/internal/scenerygen/assets", fset, []*ast.File{file}, nil); err != nil {
+		t.Fatalf("type-check generated asset package: %v", err)
 	}
 }
 

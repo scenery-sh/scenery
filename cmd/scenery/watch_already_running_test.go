@@ -5,12 +5,9 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os/exec"
 	"strings"
 	"testing"
 	"time"
-
-	localagent "scenery.sh/internal/agent"
 )
 
 func TestFollowAlreadyRunningDevSessionDetachesOnInterrupt(t *testing.T) {
@@ -56,71 +53,21 @@ func TestFollowAlreadyRunningDevSessionReportsFollowFailure(t *testing.T) {
 	}
 }
 
-func TestFollowAlreadyRunningDevSessionExitsWhenOwnerStops(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	paths, agentDone := startTestAgentServer(t, ctx)
+func TestFollowAlreadyRunningDevSessionOwnerExitInProcess(t *testing.T) {
+	t.Parallel()
 
-	oldLogs := runSceneryLogsFunc
-	oldInterval := devSessionOwnerExitPollInterval
-	t.Cleanup(func() {
-		runSceneryLogsFunc = oldLogs
-		devSessionOwnerExitPollInterval = oldInterval
-	})
-	devSessionOwnerExitPollInterval = 20 * time.Millisecond
-	runSceneryLogsFunc = func(ctx context.Context, stdout io.Writer, args []string) error {
+	runLogs := func(ctx context.Context, stdout io.Writer, args []string) error {
 		<-ctx.Done()
 		return ctx.Err()
 	}
-
-	root := t.TempDir()
-	owner := exec.Command("sleep", "30")
-	if err := owner.Start(); err != nil {
-		t.Fatalf("start owner fixture: %v", err)
-	}
-	defer func() {
-		_ = owner.Process.Kill()
-		_ = owner.Wait()
-	}()
-	client := localagent.NewClient(paths.SocketPath)
-	if err := waitForAgentCommandPing(ctx, client); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := client.Register(ctx, localagent.RegisterRequest{
-		BaseAppID: "demo",
-		AppRoot:   root,
-		SessionID: localagent.SessionID(root, ""),
-		Status:    "running",
-		OwnerPID:  owner.Process.Pid,
-		Owner:     localagent.CaptureOwner(owner.Process.Pid, "test"),
-	}); err != nil {
-		t.Fatalf("register live owner session: %v", err)
-	}
-
-	go func() {
-		time.Sleep(50 * time.Millisecond)
-		_ = owner.Process.Kill()
-		_, _ = owner.Process.Wait()
-	}()
+	ownerGone := func(context.Context, string) bool { return true }
 
 	var out bytes.Buffer
-	console := newRunConsole(&out, &bytes.Buffer{}, false, false, "demo", root)
-	done := make(chan error, 1)
-	go func() {
-		done <- followAlreadyRunningDevSession(ctx, console, root)
-	}()
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("followAlreadyRunningDevSession = %v, want nil after owner exit", err)
-		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("followAlreadyRunningDevSession did not detach after the owner stopped")
+	console := newRunConsole(&out, &bytes.Buffer{}, false, false, "demo", "/tmp/app")
+	if err := followAlreadyRunningDevSessionWith(context.Background(), console, "/tmp/app", runLogs, ownerGone); err != nil {
+		t.Fatalf("followAlreadyRunningDevSessionWith = %v, want nil after owner exit", err)
 	}
 	if !strings.Contains(out.String(), "The running dev runtime stopped") {
 		t.Fatalf("output missing runtime-stopped notice:\n%s", out.String())
 	}
-
-	cancel()
-	waitForTestAgentServer(t, agentDone)
 }

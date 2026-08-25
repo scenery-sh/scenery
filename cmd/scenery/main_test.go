@@ -6,11 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/evolution"
@@ -44,69 +44,47 @@ func TestCLIExitStatusMatchesEdition2027Contract(t *testing.T) {
 	}
 }
 
-func TestCLIProcessExitStatusMatchesEdition2027Contract(t *testing.T) {
+func TestCLIExecutionRecordsEdition2027ExitStatusInProcess(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name        string
 		args        []string
+		err         error
 		want        int
 		wantCommand string
 	}{
 		{name: "success", args: nil, want: 0, wantCommand: "help"},
-		{name: "invalid usage", args: []string{"not-a-command"}, want: 2, wantCommand: "not-a-command"},
-		{name: "missing resource", args: []string{"get", "missing/operation/nope", "--app-root", contractFixtureRoot(t)}, want: 2, wantCommand: "get"},
+		{name: "invalid usage", args: []string{"not-a-command"}, err: errors.New("invalid_request: unknown command"), want: 2, wantCommand: "not-a-command"},
+		{name: "missing resource", args: []string{"get", "missing/operation/nope"}, err: errors.New("invalid_request: resource not found"), want: 2, wantCommand: "get"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			home := t.TempDir()
-			args := []string{"-test.run=^TestCLIProcessHelper$", "--"}
-			args = append(args, test.args...)
-			command := exec.Command(os.Args[0], args...)
-			command.Env = append(os.Environ(), "SCENERY_TEST_CLI_PROCESS=1", "HOME="+home)
-			err := command.Run()
-			got := 0
-			if exitError, ok := err.(*exec.ExitError); ok {
-				got = exitError.ExitCode()
-			} else if err != nil {
-				t.Fatal(err)
-			}
+			var records []cliTelemetryRecord
+			var stdout, stderr strings.Builder
+			got := executeCLIWith(test.args, &stdout, &stderr, time.Date(2026, 8, 25, 10, 30, 0, 0, time.UTC), func(args []string, telemetry *cliTelemetryInvocation) error {
+				if telemetry == nil || strings.Join(args, "\x00") != strings.Join(test.args, "\x00") {
+					t.Fatalf("runner args/telemetry = %q/%v", args, telemetry)
+				}
+				return test.err
+			}, func(record cliTelemetryRecord) {
+				records = append(records, record)
+			})
 			if got != test.want {
 				t.Fatalf("exit code = %d, want %d", got, test.want)
 			}
-			encoded, err := os.ReadFile(filepath.Join(home, ".scenery", "telemetry.jsonl"))
-			if err != nil {
-				t.Fatal(err)
+			if len(records) != 1 {
+				t.Fatalf("telemetry records = %+v", records)
 			}
-			var record cliTelemetryRecord
-			if err := json.Unmarshal(encoded, &record); err != nil {
-				t.Fatal(err)
-			}
+			record := records[0]
 			if record.Command != test.wantCommand || record.ExitCode != test.want {
 				t.Fatalf("telemetry = %#v, want command %q and exit code %d", record, test.wantCommand, test.want)
 			}
+			if test.err != nil && !strings.Contains(stderr.String(), test.err.Error()) {
+				t.Fatalf("stderr = %q, want %q", stderr.String(), test.err)
+			}
 		})
 	}
-}
-
-func TestCLIProcessHelper(t *testing.T) {
-	t.Parallel()
-
-	if os.Getenv("SCENERY_TEST_CLI_PROCESS") != "1" {
-		return
-	}
-	separator := -1
-	for index, argument := range os.Args {
-		if argument == "--" {
-			separator = index
-			break
-		}
-	}
-	if separator < 0 {
-		os.Exit(97)
-	}
-	os.Args = append([]string{"scenery"}, os.Args[separator+1:]...)
-	main()
 }
 
 func TestContractJSONEnvelopeHasStableFields(t *testing.T) {

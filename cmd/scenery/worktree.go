@@ -63,17 +63,21 @@ func worktreeCommand(args []string) error {
 }
 
 func runWorktreeCommand(ctx context.Context, stdout io.Writer, args []string) error {
+	return runWorktreeCommandWithGit(ctx, stdout, args, runGitCommand, listGitWorktrees)
+}
+
+func runWorktreeCommandWithGit(ctx context.Context, stdout io.Writer, args []string, runGit func(context.Context, ...string) error, listWorktrees func(context.Context, string) ([]worktreeRecord, error)) error {
 	opts, err := parseWorktreeArgs(args)
 	if err != nil {
 		return err
 	}
 	switch opts.Command {
 	case "create":
-		return runWorktreeCreate(ctx, stdout, opts)
+		return runWorktreeCreateWithGit(ctx, stdout, opts, runGit)
 	case "list":
-		return runWorktreeList(ctx, stdout, opts)
+		return runWorktreeListWithGit(ctx, stdout, opts, listWorktrees)
 	case "remove":
-		return runWorktreeRemove(ctx, stdout, opts)
+		return runWorktreeRemoveWithGit(ctx, stdout, opts, listWorktrees, runGit)
 	default:
 		return fmt.Errorf("unknown worktree command %q", opts.Command)
 	}
@@ -113,6 +117,10 @@ func parseWorktreeArgs(args []string) (worktreeOptions, error) {
 }
 
 func runWorktreeCreate(ctx context.Context, stdout io.Writer, opts worktreeOptions) error {
+	return runWorktreeCreateWithGit(ctx, stdout, opts, runGitCommand)
+}
+
+func runWorktreeCreateWithGit(ctx context.Context, stdout io.Writer, opts worktreeOptions, runGit func(context.Context, ...string) error) error {
 	appRoot, _, err := discoverConfiguredApp(opts.AppRoot)
 	if err != nil {
 		return err
@@ -126,7 +134,7 @@ func runWorktreeCreate(ctx context.Context, stdout io.Writer, opts worktreeOptio
 	if strings.TrimSpace(opts.From) != "" {
 		args = append(args, opts.From)
 	}
-	if err := runGitCommand(ctx, args...); err != nil {
+	if err := runGit(ctx, args...); err != nil {
 		return err
 	}
 	result := worktreeCreateResult{
@@ -148,11 +156,15 @@ func runWorktreeCreate(ctx context.Context, stdout io.Writer, opts worktreeOptio
 }
 
 func runWorktreeList(ctx context.Context, stdout io.Writer, opts worktreeOptions) error {
+	return runWorktreeListWithGit(ctx, stdout, opts, listGitWorktrees)
+}
+
+func runWorktreeListWithGit(ctx context.Context, stdout io.Writer, opts worktreeOptions, listWorktrees func(context.Context, string) ([]worktreeRecord, error)) error {
 	appRoot, _, err := discoverConfiguredApp(opts.AppRoot)
 	if err != nil {
 		return err
 	}
-	worktrees, err := listGitWorktrees(ctx, appRoot)
+	worktrees, err := listWorktrees(ctx, appRoot)
 	if err != nil {
 		return err
 	}
@@ -172,10 +184,14 @@ func runWorktreeList(ctx context.Context, stdout io.Writer, opts worktreeOptions
 }
 
 func runWorktreeRemove(ctx context.Context, stdout io.Writer, opts worktreeOptions) error {
-	return runWorktreeRemoveWithList(ctx, stdout, opts, listGitWorktrees)
+	return runWorktreeRemoveWithGit(ctx, stdout, opts, listGitWorktrees, runGitCommand)
 }
 
 func runWorktreeRemoveWithList(ctx context.Context, stdout io.Writer, opts worktreeOptions, listWorktrees func(context.Context, string) ([]worktreeRecord, error)) error {
+	return runWorktreeRemoveWithGit(ctx, stdout, opts, listWorktrees, runGitCommand)
+}
+
+func runWorktreeRemoveWithGit(ctx context.Context, stdout io.Writer, opts worktreeOptions, listWorktrees func(context.Context, string) ([]worktreeRecord, error), runGit func(context.Context, ...string) error) error {
 	appRoot, _, err := discoverConfiguredApp(opts.AppRoot)
 	if err != nil {
 		return err
@@ -207,7 +223,7 @@ func runWorktreeRemoveWithList(ctx context.Context, stdout io.Writer, opts workt
 			return err
 		}
 	}
-	if err := runGitCommand(ctx, "-C", appRoot, "worktree", "remove", target); err != nil {
+	if err := runGit(ctx, "-C", appRoot, "worktree", "remove", target); err != nil {
 		if dbStateBackup != "" {
 			_ = os.Rename(dbStateBackup, filepath.Join(target, ".scenery"))
 			_ = os.RemoveAll(filepath.Dir(dbStateBackup))

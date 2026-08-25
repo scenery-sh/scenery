@@ -128,18 +128,29 @@ func TestDeploySSHStopsAfterChildFailureAndPreservesExitCode(t *testing.T) {
 	}
 }
 
-func TestDeploySSHChildProcessExitCodePropagates(t *testing.T) {
+func TestDeploySSHRunnerStreamsFailureOutputAndPreservesExitCodeInProcess(t *testing.T) {
 	t.Parallel()
 
 	root := filepath.Join(t.TempDir(), "app with spaces")
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	tools := installDeploySSHExitTestCommand(t)
-	tools.Env = append(tools.Env, "DEPLOY_PREFLIGHT_EXIT=7")
+	tools := deploySSHTools{
+		SSH:   "/fake/ssh",
+		Rsync: "/unused/rsync",
+		RunCommand: func(name string, cmd *exec.Cmd) error {
+			if name != "SSH preflight" {
+				t.Fatalf("unexpected command %q", name)
+			}
+			if _, err := fmt.Fprintln(cmd.Stdout, "preflight output"); err != nil {
+				return err
+			}
+			return deploySSHTestExitError(7)
+		},
+	}
 	var stdout bytes.Buffer
 	err := runDeploySSHCommands(&stdout, root, "basicapp", "some-id", "production", false, tools)
-	var exitErr *exec.ExitError
+	var exitErr deploySSHTestExitError
 	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 7 || cliExitCode(err) != 7 {
 		t.Fatalf("error = %v, want child process exit 7", err)
 	}
@@ -226,21 +237,4 @@ func (r *deploySSHTestRecorder) order() string {
 		order = append(order, command.Name)
 	}
 	return strings.Join(order, "\n")
-}
-
-// installDeploySSHExitTestCommand keeps one real child-process boundary for
-// stdout streaming and *exec.ExitError propagation. The orchestration matrix
-// uses deploySSHTestRecorder so it does not fork the same contract repeatedly.
-func installDeploySSHExitTestCommand(t *testing.T) deploySSHTools {
-	t.Helper()
-	bin := t.TempDir()
-	ssh := filepath.Join(bin, "ssh")
-	writeTestAppFile(t, bin, "ssh", `#!/bin/sh
-printf 'preflight output\n'
-exit "${DEPLOY_PREFLIGHT_EXIT:-0}"
-`)
-	if err := os.Chmod(ssh, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	return deploySSHTools{SSH: ssh, Rsync: "/unused/rsync"}
 }

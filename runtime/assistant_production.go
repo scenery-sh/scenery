@@ -94,7 +94,7 @@ type assistantProductionAsset struct {
 	token      string
 	bridge     string
 	homePath   string
-	process    *productionAssistantProcess
+	process    assistantruntime.Process
 }
 
 type assistantProductionRuntime struct {
@@ -104,6 +104,8 @@ type assistantProductionRuntime struct {
 	assets         map[string]*assistantProductionAsset
 	previousConfig string
 	closed         bool
+	allocateURL    func() (string, error)
+	startProcess   func(context.Context, string, string, *assistantProductionAsset) (assistantruntime.Process, error)
 }
 
 var activeAssistantProduction struct {
@@ -420,12 +422,16 @@ func (manager *assistantProductionRuntime) initialize(ctx context.Context) error
 			manager.cleanupStarted(ctx, started)
 			return fmt.Errorf("runtime: assistant %s capsule entry: %w", address, err)
 		}
-		controlURL, err := allocateLoopbackURL()
+		allocateURL := manager.allocateURL
+		if allocateURL == nil {
+			allocateURL = allocateLoopbackURL
+		}
+		controlURL, err := allocateURL()
 		if err != nil {
 			manager.cleanupStarted(ctx, started)
 			return err
 		}
-		mcpURL, err := allocateLoopbackURL()
+		mcpURL, err := allocateURL()
 		if err != nil {
 			manager.cleanupStarted(ctx, started)
 			return err
@@ -465,7 +471,13 @@ func (manager *assistantProductionRuntime) initialize(ctx context.Context) error
 	for _, item := range started {
 		entry := filepath.Join(item.capsule.Path, filepath.FromSlash(item.input.Descriptor.CapsuleEntry))
 		nodePath := filepath.Join(item.node.Path, "bin", "node")
-		process, err := startProductionAssistantProcess(ctx, nodePath, entry, item)
+		startProcess := manager.startProcess
+		if startProcess == nil {
+			startProcess = func(ctx context.Context, nodePath, entry string, item *assistantProductionAsset) (assistantruntime.Process, error) {
+				return startProductionAssistantProcess(ctx, nodePath, entry, item)
+			}
+		}
+		process, err := startProcess(ctx, nodePath, entry, item)
 		if err != nil {
 			manager.cleanupStarted(ctx, started)
 			manager.rollbackConfig()

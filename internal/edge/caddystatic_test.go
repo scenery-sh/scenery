@@ -217,33 +217,27 @@ func findCaddyBinaryForTest(t *testing.T) string {
 	return matches[len(matches)-1]
 }
 
-func TestCaddyValidateGeneratedStaticConfig(t *testing.T) {
+func TestValidateCaddyConfigUsesConfiguredRunnerInProcess(t *testing.T) {
 	t.Parallel()
-	caddyBin := findCaddyBinaryForTest(t)
-	artifacts := t.TempDir()
-	current := publishTestFrontend(t, artifacts, "microgrid-platform", "platform")
-	for _, direct := range []bool{false, true} {
-		config := CaddyConfig(CaddyConfigOptions{
-			ListenAddr:  "127.0.0.1:19443",
-			Upstream:    "127.0.0.1:9440",
-			AdminSocket: filepath.Join(t.TempDir(), "admin.sock"),
-			Token:       "secret-token",
-			PublicDomains: []PublicDomainSite{{
-				Domain:    "platform.onegraph.dev",
-				Frontends: []StaticFrontendRoute{{Name: "platform", Root: current, BasePath: "/", OwnsRoot: true}},
-			}},
-			StorageDir:     t.TempDir(),
-			HTTPListenPort: "19080",
-			PublicDirect:   direct,
-		})
-		configPath := filepath.Join(t.TempDir(), "Caddyfile")
-		if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		out, err := exec.Command(caddyBin, "validate", "--config", configPath, "--adapter", "caddyfile").CombinedOutput()
-		if err != nil {
-			t.Fatalf("caddy validate (direct=%v): %v\n%s\n--- config ---\n%s", direct, err, out, config)
-		}
+
+	var gotBinary string
+	var gotArgs []string
+	err := validateCaddyConfigWithRunner("/managed/caddy", "/state/Caddyfile", func(binary string, args []string) ([]byte, error) {
+		gotBinary = binary
+		gotArgs = append([]string(nil), args...)
+		return nil, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotBinary != "/managed/caddy" || strings.Join(gotArgs, " ") != "validate --config /state/Caddyfile --adapter caddyfile" {
+		t.Fatalf("validation command = %q %v", gotBinary, gotArgs)
+	}
+	err = validateCaddyConfigWithRunner("caddy", "/state/Caddyfile", func(string, []string) ([]byte, error) {
+		return []byte("invalid config\n"), fmt.Errorf("exit status 1")
+	})
+	if err == nil || !strings.Contains(err.Error(), "exit status 1: invalid config") {
+		t.Fatalf("validation error = %v", err)
 	}
 }
 

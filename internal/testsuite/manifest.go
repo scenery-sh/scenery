@@ -132,6 +132,17 @@ func listTestPackages(ctx context.Context, repoRoot, cacheDir, fingerprint strin
 }
 
 func workspaceFingerprint(ctx context.Context, repoRoot string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", "ls-files", "--cached", "--others", "--exclude-standard", "-z")
+	configureCommandCancellation(cmd)
+	cmd.Dir = repoRoot
+	paths, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("list repository inputs: %w", err)
+	}
+	return workspaceFingerprintFromPaths(repoRoot, paths)
+}
+
+func workspaceFingerprintFromPaths(repoRoot string, paths []byte) (string, error) {
 	hash := sha256.New()
 	for _, value := range []string{
 		runtime.Version(), runtime.GOROOT(), runtime.GOOS, runtime.GOARCH,
@@ -139,13 +150,6 @@ func workspaceFingerprint(ctx context.Context, repoRoot string) (string, error) 
 		envpolicy.Get("GOEXPERIMENT"), envpolicy.Get("GOFLAGS"), envpolicy.Get("GOTOOLCHAIN"), envpolicy.Get("CC"), envpolicy.Get("CXX"), envpolicy.Get("PKG_CONFIG"),
 	} {
 		_, _ = io.WriteString(hash, value+"\x00")
-	}
-	cmd := exec.CommandContext(ctx, "git", "ls-files", "--cached", "--others", "--exclude-standard", "-z")
-	configureCommandCancellation(cmd)
-	cmd.Dir = repoRoot
-	paths, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("list repository inputs: %w", err)
 	}
 	for rawPath := range bytes.SplitSeq(paths, []byte{0}) {
 		if len(rawPath) == 0 {

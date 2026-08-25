@@ -241,17 +241,13 @@ func buildInspectDocsPathRoute(repoRoot, targetPath string, documents []inspectD
 }
 
 func inspectDocsGoPackagesForPath(ctx context.Context, repoRoot, targetPath string) ([]harnessPackageInfo, error) {
-	if !strings.EqualFold(filepath.Ext(targetPath), ".go") {
+	pattern, ok := inspectDocsGoPackagePattern(targetPath)
+	if !ok {
 		return nil, nil
 	}
 	goPath, err := exec.LookPath("go")
 	if err != nil {
 		return nil, err
-	}
-	relDir := filepath.ToSlash(filepath.Dir(targetPath))
-	pattern := "."
-	if relDir != "." {
-		pattern = "./" + strings.TrimPrefix(relDir, "./")
 	}
 	cmd := commandTreeContext(ctx, goPath, "list", "-find", "-f", "{{.ImportPath}}\t{{.Dir}}", pattern)
 	cmd.Dir = repoRoot
@@ -259,6 +255,21 @@ func inspectDocsGoPackagesForPath(ctx context.Context, repoRoot, targetPath stri
 	if err != nil {
 		return nil, fmt.Errorf("go list package for %s: %w: %s", targetPath, err, strings.TrimSpace(string(output)))
 	}
+	return parseInspectDocsGoPackage(repoRoot, targetPath, output)
+}
+
+func inspectDocsGoPackagePattern(targetPath string) (string, bool) {
+	if !strings.EqualFold(filepath.Ext(targetPath), ".go") {
+		return "", false
+	}
+	relDir := filepath.ToSlash(filepath.Dir(targetPath))
+	if relDir == "." {
+		return ".", true
+	}
+	return "./" + strings.TrimPrefix(relDir, "./"), true
+}
+
+func parseInspectDocsGoPackage(repoRoot, targetPath string, output []byte) ([]harnessPackageInfo, error) {
 	fields := strings.SplitN(strings.TrimSpace(string(output)), "\t", 2)
 	if len(fields) != 2 || strings.TrimSpace(fields[0]) == "" || strings.TrimSpace(fields[1]) == "" {
 		return nil, fmt.Errorf("go list package for %s returned malformed output", targetPath)

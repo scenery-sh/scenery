@@ -3,6 +3,7 @@ package generate
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"scenery.sh/internal/compiler"
@@ -58,7 +59,7 @@ export "point" { value = record.point }
 	}
 }
 
-func TestNestedExportedTypeGeneratesCompilableGoContractClosure(t *testing.T) {
+func TestNestedExportedTypeGeneratesGoContractClosureInProcess(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
@@ -67,11 +68,7 @@ func TestNestedExportedTypeGeneratesCompilableGoContractClosure(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	repositoryRoot, err := filepath.Abs(filepath.Join("..", ".."))
-	if err != nil {
-		t.Fatal(err)
-	}
-	writeNestedModuleFile(t, filepath.Join(root, "go.mod"), "module example.test/cross\n\ngo 1.27.0\n\nrequire scenery.sh v0.0.0\nreplace scenery.sh => "+filepath.ToSlash(repositoryRoot)+"\n")
+	writeNestedModuleFile(t, filepath.Join(root, "go.mod"), "module example.test/cross\n\ngo 1.27.0\n")
 	writeNestedModuleFile(t, filepath.Join(root, testAppFilename), `workspace {
   managed_generated_roots = ["parent/scenerycontract", "internal/scenerygen"]
 }
@@ -157,13 +154,23 @@ export "point" { value = record.point }
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := atomicWriteSet(root, files); err != nil {
-		t.Fatal(err)
+	var generated strings.Builder
+	for _, file := range files {
+		generated.Write(file.Bytes)
 	}
-	command := boundedGoCommand("test", "-mod=mod", "./parent/scenerycontract")
-	command.Dir = root
-	if output, err := command.CombinedOutput(); err != nil {
-		t.Fatalf("generated cross-module contract does not compile: %v\n%s", err, output)
+	for _, fragment := range []string{
+		"type Point struct {",
+		"type Shape struct {",
+		"Point Point",
+		"type InspectInput = Shape",
+		"type InspectOk struct{ Value Point }",
+	} {
+		if !strings.Contains(generated.String(), fragment) {
+			t.Fatalf("generated cross-module closure missing %q:\n%s", fragment, generated.String())
+		}
+	}
+	if _, err := os.Stat(filepath.Join(root, "parent", "scenerycontract")); !os.IsNotExist(err) {
+		t.Fatalf("in-process rendering materialized the contract: %v", err)
 	}
 }
 

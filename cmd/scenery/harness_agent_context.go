@@ -141,6 +141,46 @@ func firstFileForHarnessStep(repoRoot string, step harnessStep) string {
 		return ".scenery/harness/test-timing-latest.json"
 	case "fixture matrix":
 		return ".scenery/harness/fixture-matrix-latest.json"
+	case harnessEdgeProcessProbeName:
+		return "cmd/scenery/harness_self_edge.go"
+	case harnessGenerationCompileProbeName:
+		return "cmd/scenery/harness_self_generate.go"
+	case harnessNativeContractApplicationProbeName:
+		return "cmd/scenery/harness_self_native_contract.go"
+	case harnessSnapshotBackupProbeName:
+		return "cmd/scenery/harness_self_snapshot.go"
+	case harnessTypeScriptCheckerProbeName:
+		return "cmd/scenery/harness_self_tscheck.go"
+	case harnessCodeTaskProcessProbeName:
+		return "cmd/scenery/harness_self_script.go"
+	case harnessUpgradeProcessProbeName:
+		return "cmd/scenery/harness_self_upgrade.go"
+	case harnessVictoriaProcessProbeName:
+		return "cmd/scenery/harness_self_victoria.go"
+	case harnessDesktopProcessProbeName:
+		return "cmd/scenery/harness_self_desktop.go"
+	case harnessDeploySSHProcessProbeName:
+		return "cmd/scenery/harness_self_deploy_ssh.go"
+	case harnessValidationGitProbeName:
+		return "cmd/scenery/harness_self_validation.go"
+	case harnessTestsuiteCacheProbeName:
+		return "cmd/scenery/harness_self_testsuite.go"
+	case harnessToolchainSourceBuildProbeName:
+		return "cmd/scenery/harness_self_toolchain_source_build.go"
+	case harnessWorktreeGitProbeName:
+		return "cmd/scenery/harness_self_worktree.go"
+	case harnessBuildInfoProbeName:
+		return "cmd/scenery/harness_self_build_info.go"
+	case harnessAssistantInitProbeName:
+		return "cmd/scenery/harness_self_assistant.go"
+	case harnessAgentRestartProbeName:
+		return "cmd/scenery/harness_self_agent_restart.go"
+	case harnessAssistantProductionProbeName:
+		return "cmd/scenery/harness_self_assistant_production.go"
+	case harnessCLIProcessProbeName:
+		return "cmd/scenery/harness_self_cli_process.go"
+	case harnessDevNamedLockProbeName:
+		return "cmd/scenery/harness_self_dev_lock.go"
 	case "schema validation":
 		return ".scenery/harness/schema-validation-latest.json"
 	case "dashboard ui typecheck", "dashboard ui build", "dashboard ui fresh":

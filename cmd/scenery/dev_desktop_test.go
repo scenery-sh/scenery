@@ -46,28 +46,13 @@ func TestConfiguredDesktopShellsRequiresConfiguredTauriProject(t *testing.T) {
 	}
 }
 
-func TestDesktopShellUsesFrontendBackendAndRegistersProcess(t *testing.T) {
+func TestDesktopShellUsesFrontendBackendAndPlansRegistrationInProcess(t *testing.T) {
 	t.Parallel()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	paths, agentDone := startTestAgentServerAtPaths(t, ctx, localagent.PathsForHome(t.TempDir()), nil)
-	defer func() {
-		cancel()
-		waitForTestAgentServer(t, agentDone)
-	}()
-	client := localagent.NewClient(paths.SocketPath)
 
 	root := t.TempDir()
 	frontendRoot := filepath.Join(root, "apps", "web")
 	writeDesktopTestFile(t, filepath.Join(frontendRoot, "src-tauri", "tauri.conf.json"), `{}`)
-	marker := filepath.Join(root, "tauri-invocation.json")
-	writeDesktopTestExecutable(t, filepath.Join(frontendRoot, "node_modules", ".bin", "tauri"), `#!/bin/sh
-set -eu
-printf '%s\n%s\n%s\n%s\n%s\n%s\n' "$PWD" "$1" "$2" "$3" "$SCENERY_ENV" "$VITE_API_BASE_URL" > "`+marker+`"
-trap 'exit 0' INT TERM
-while :; do sleep 1; done
-`)
+	writeDesktopTestExecutable(t, filepath.Join(frontendRoot, "node_modules", ".bin", "tauri"), "#!/bin/sh\n")
 	cfg := app.Config{
 		Name: "desktop-demo",
 		Frontends: map[string]app.FrontendConfig{
@@ -80,10 +65,11 @@ while :; do sleep 1; done
 		t.Fatal(err)
 	}
 	cfg.Frontends = env.Frontends
-	session, err := client.Register(ctx, localagent.RegisterRequest{
+	session := localagent.Session{
 		BaseAppID:   cfg.AppID(),
 		Environment: env.Name,
 		AppRoot:     root,
+		SessionID:   "desktop-session",
 		Status:      "starting",
 		OwnerPID:    os.Getpid(),
 		Backends: map[string]localagent.Backend{
@@ -95,42 +81,23 @@ while :; do sleep 1; done
 				"api": {URL: "https://desktop-demo.local.dev/api/"},
 			},
 		},
-		ClaimOwner: true,
-	})
+	}
+	shells, err := configuredDesktopShells(root, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	supervisor, err := newDevSupervisor(ctx, root, cfg, env, devBackend{Network: "tcp", Addr: "127.0.0.1:4000"}, nil, client, &session)
+	if len(shells) != 1 {
+		t.Fatalf("desktop shells = %d, want 1", len(shells))
+	}
+	request, err := desktopProcessStartRequest(root, shells[0], "http://127.0.0.1:5173", []string{"BASE=present"}, session)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := supervisor.startDesktopShells(ctx); err != nil {
-		t.Fatal(err)
+	if request.Dir != frontendRoot || request.Command != filepath.Join(frontendRoot, "node_modules", ".bin", "tauri") {
+		t.Fatalf("desktop process command = %+v", request)
 	}
-
-	var invocation []string
-	waitForDesktopTest(t, 30*time.Second, func() bool {
-		data, err := os.ReadFile(marker)
-		if err != nil {
-			return false
-		}
-		invocation = strings.Split(strings.TrimSpace(string(data)), "\n")
-		sessions, err := client.List(ctx, root)
-		return len(invocation) == 6 && err == nil && len(sessions) == 1 && sessions[0].Processes["desktop-web"].PID > 0
-	})
-	gotCwd, err := filepath.EvalSymlinks(invocation[0])
-	if err != nil {
-		t.Fatal(err)
-	}
-	wantCwd, err := filepath.EvalSymlinks(frontendRoot)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if gotCwd != wantCwd {
-		t.Fatalf("cwd = %q, want %q", invocation[0], frontendRoot)
-	}
-	if invocation[1] != "dev" || invocation[2] != "--config" {
-		t.Fatalf("invocation = %#v", invocation)
+	if got := strings.Join(request.Args[:2], " "); got != "dev --config" {
+		t.Fatalf("desktop process args = %#v", request.Args)
 	}
 	var overlay struct {
 		Build struct {
@@ -138,100 +105,66 @@ while :; do sleep 1; done
 			BeforeDevCommand string `json:"beforeDevCommand"`
 		} `json:"build"`
 	}
-	if err := json.Unmarshal([]byte(invocation[3]), &overlay); err != nil {
+	if err := json.Unmarshal([]byte(request.Args[2]), &overlay); err != nil {
 		t.Fatal(err)
 	}
 	if overlay.Build.DevURL != "http://127.0.0.1:5173" || overlay.Build.BeforeDevCommand != "" {
 		t.Fatalf("overlay = %+v", overlay)
 	}
-	if invocation[4] != "local" || invocation[5] != "https://desktop-demo.local.dev/api/" {
-		t.Fatalf("invocation env = %#v", invocation)
+	for _, want := range []string{"SCENERY_ENV=local", "VITE_API_BASE_URL=https://desktop-demo.local.dev/api/"} {
+		if !containsString(request.Env, want) {
+			t.Fatalf("desktop process env missing %q: %#v", want, request.Env)
+		}
 	}
-	supervisor.mu.RLock()
-	desktopProcess := supervisor.desktops["web"]
-	supervisor.mu.RUnlock()
-	if desktopProcess == nil || desktopProcess.Process == nil {
-		t.Fatal("desktop process is not managed by the supervisor")
-	}
-	if err := supervisor.Close(); err != nil {
-		t.Fatal(err)
-	}
-	select {
-	case <-desktopProcess.Process.done:
-	case <-time.After(3 * time.Second):
-		t.Fatal("desktop process remained alive after supervisor shutdown")
+	processes := desktopSessionProcesses(map[string]localagent.Process{"app": {PID: 11}}, "web", 42)
+	if processes["app"].PID != 11 || processes["desktop-web"].PID != 42 {
+		t.Fatalf("registered desktop processes = %+v", processes)
 	}
 }
 
-func TestDesktopShellExitDoesNotRestart(t *testing.T) {
+func TestDesktopShellExitClearsRegistrationWithoutRestartInProcess(t *testing.T) {
 	t.Parallel()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	paths, agentDone := startTestAgentServerAtPaths(t, ctx, localagent.PathsForHome(t.TempDir()), nil)
-	defer func() {
-		cancel()
-		waitForTestAgentServer(t, agentDone)
-	}()
-	client := localagent.NewClient(paths.SocketPath)
-	root := t.TempDir()
-	frontendRoot := filepath.Join(root, "apps", "web")
-	writeDesktopTestFile(t, filepath.Join(frontendRoot, "src-tauri", "tauri.conf.json"), `{}`)
-	marker := filepath.Join(root, "desktop-starts.log")
-	writeDesktopTestExecutable(t, filepath.Join(frontendRoot, "node_modules", ".bin", "tauri"), `#!/bin/sh
-set -eu
-echo start >> "`+marker+`"
-`)
-	cfg := app.Config{
-		Name: "desktop-exit",
-		Frontends: map[string]app.FrontendConfig{
-			"web": {Root: "apps/web", Tauri: &app.FrontendTauriConfig{}},
+	done := make(chan struct{})
+	close(done)
+	outputDone := make(chan struct{})
+	close(outputDone)
+	desktop := &managedDesktopProcess{
+		Name: "web",
+		Process: &devManagedProcess{
+			Name:       "web",
+			Kind:       "desktop",
+			Role:       "desktop-shell",
+			PID:        42,
+			done:       done,
+			outputDone: outputDone,
 		},
-		Envs: map[string]app.EnvConfig{"local": {Default: true}},
 	}
-	env, err := cfg.ResolveEnv("")
-	if err != nil {
-		t.Fatal(err)
+	var updates []int
+	supervisor := &devSupervisor{
+		ctx:      context.Background(),
+		desktops: map[string]*managedDesktopProcess{"web": desktop},
+		desktopSessionProcessUpdater: func(_ context.Context, name string, pid int) error {
+			if name != "web" {
+				t.Fatalf("updated desktop = %q", name)
+			}
+			updates = append(updates, pid)
+			return nil
+		},
 	}
-	cfg.Frontends = env.Frontends
-	session, err := client.Register(ctx, localagent.RegisterRequest{
-		BaseAppID: cfg.AppID(), Environment: env.Name, AppRoot: root,
-		Status: "running", OwnerPID: os.Getpid(), ClaimOwner: true,
-		Backends: map[string]localagent.Backend{"web": {Network: "tcp", Addr: "127.0.0.1:5173"}},
-	})
-	if err != nil {
-		t.Fatal(err)
+	supervisor.monitorManagedDesktop("web", desktop)
+	if len(updates) != 1 || updates[0] != 0 {
+		t.Fatalf("desktop registration updates = %v, want one removal", updates)
 	}
-	supervisor, err := newDevSupervisor(ctx, root, cfg, env, devBackend{Network: "tcp", Addr: "127.0.0.1:4000"}, nil, client, &session)
-	if err != nil {
-		t.Fatal(err)
+	if supervisor.isCurrentManagedDesktop("web", desktop) {
+		t.Fatal("exited desktop remained supervised")
 	}
-	defer supervisor.Close()
-	if err := supervisor.startDesktopShells(ctx); err != nil {
-		t.Fatal(err)
-	}
-	waitForDesktopTest(t, 30*time.Second, func() bool {
-		sessions, err := client.List(ctx, root)
-		if err != nil || len(sessions) != 1 {
-			return false
-		}
-		_, registered := sessions[0].Processes["desktop-web"]
-		return !registered
-	})
-	sessions, err := client.List(ctx, root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(sessions) != 1 || sessions[0].Status != "running" || sessions[0].Backends["web"].Addr != "127.0.0.1:5173" {
-		t.Fatalf("session changed after desktop exit: %+v", sessions)
-	}
-	time.Sleep(150 * time.Millisecond)
-	data, err := os.ReadFile(marker)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if starts := strings.Count(string(data), "start"); starts != 1 {
-		t.Fatalf("desktop starts = %d, want exactly one", starts)
+	remaining := desktopSessionProcesses(map[string]localagent.Process{
+		"app":         {PID: 11},
+		"desktop-web": {PID: 42},
+	}, "web", 0)
+	if len(remaining) != 1 || remaining["app"].PID != 11 {
+		t.Fatalf("remaining session processes = %+v", remaining)
 	}
 }
 

@@ -17,19 +17,35 @@ import (
 const staleSessionCleanupGrace = 2 * time.Second
 
 func cleanupStaleDevSessionProcesses(ctx context.Context, current localagent.Session, previous []localagent.Session) error {
+	return cleanupStaleDevSessionProcessesWithDependencies(ctx, current, previous, staleDevSessionCleanupDependencies{
+		sameScope:       sameDevSessionCleanupScope,
+		stopRegistered:  stopStaleRegisteredSessionProcesses,
+		stopCommands:    stopSessionCommandProcesses,
+		stopEnvironment: stopSessionEnvProcesses,
+	})
+}
+
+type staleDevSessionCleanupDependencies struct {
+	sameScope       func(localagent.Session, localagent.Session) bool
+	stopRegistered  func(context.Context, localagent.Session, localagent.Session, map[int]bool) error
+	stopCommands    func(context.Context, localagent.Session, map[int]bool) error
+	stopEnvironment func(context.Context, localagent.Session, map[int]bool) error
+}
+
+func cleanupStaleDevSessionProcessesWithDependencies(ctx context.Context, current localagent.Session, previous []localagent.Session, deps staleDevSessionCleanupDependencies) error {
 	if strings.TrimSpace(current.AppRoot) == "" || strings.TrimSpace(current.SessionID) == "" {
 		return nil
 	}
 	var errs []error
 	seen := map[int]bool{}
 	for _, session := range previous {
-		if !sameDevSessionCleanupScope(current, session) {
+		if !deps.sameScope(current, session) {
 			continue
 		}
-		errs = append(errs, stopStaleRegisteredSessionProcesses(ctx, current, session, seen))
+		errs = append(errs, deps.stopRegistered(ctx, current, session, seen))
 	}
-	errs = append(errs, stopSessionCommandProcesses(ctx, current, seen))
-	errs = append(errs, stopSessionEnvProcesses(ctx, current, seen))
+	errs = append(errs, deps.stopCommands(ctx, current, seen))
+	errs = append(errs, deps.stopEnvironment(ctx, current, seen))
 	return errors.Join(errs...)
 }
 
@@ -184,16 +200,20 @@ func looksLikeScenerySessionChildProcess(info procInfo) bool {
 }
 
 func stopSessionCommandProcesses(ctx context.Context, current localagent.Session, seen map[int]bool) error {
-	stateRoot := filepath.ToSlash(cleanAbsPath(current.StateRoot))
-	if stateRoot == "" {
-		return nil
-	}
 	output, err := exec.Command("ps", "-axo", "pid=,stat=,command=").Output()
 	if err != nil {
 		return nil
 	}
+	return stopSessionCommandProcessesFromPS(ctx, current, seen, string(output), stopStaleSessionChildPID)
+}
+
+func stopSessionCommandProcessesFromPS(ctx context.Context, current localagent.Session, seen map[int]bool, output string, stopPID func(context.Context, int) error) error {
+	stateRoot := filepath.ToSlash(cleanAbsPath(current.StateRoot))
+	if stateRoot == "" {
+		return nil
+	}
 	var errs []error
-	for _, line := range strings.Split(string(output), "\n") {
+	for _, line := range strings.Split(output, "\n") {
 		pid, stat, command, ok := parsePSCommandLine(line)
 		if !ok || pid <= 0 || pid == os.Getpid() || strings.Contains(stat, "Z") || seen[pid] {
 			continue
@@ -201,7 +221,7 @@ func stopSessionCommandProcesses(ctx context.Context, current localagent.Session
 		if !commandMatchesSessionStateRoot(command, stateRoot) {
 			continue
 		}
-		if err := stopStaleSessionChildPID(ctx, pid); err != nil {
+		if err := stopPID(ctx, pid); err != nil {
 			errs = append(errs, err)
 		}
 		seen[pid] = true

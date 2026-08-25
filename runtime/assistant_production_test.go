@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -11,6 +12,7 @@ import (
 	"sync"
 	"testing"
 
+	"scenery.sh/internal/assistantruntime"
 	"scenery.sh/internal/runtimeassets"
 )
 
@@ -119,66 +121,121 @@ func TestProductionStateRootUsesIdentityCacheWithoutAppRoot(t *testing.T) {
 	})
 }
 
-func TestProductionInstallsStartsReusesAndRejectsTamperedAssets(t *testing.T) {
-	asset := testProductionEmbeddedAsset(t, "app/assistant/support")
-	stateRoot := t.TempDir()
-	configPath := filepath.Join(stateRoot, "runtime.json")
-	manager := &assistantProductionRuntime{
-		stateRoot:  stateRoot,
-		configPath: configPath,
-		assets: map[string]*assistantProductionAsset{
-			asset.Descriptor.AssistantAddress: &assistantProductionAsset{input: asset},
-		},
+func TestProductionInstallsAndStartsAssetsInProcess(t *testing.T) {
+	fixture := newProductionManagerTestFixture(t)
+	manager := fixture.newManager()
+	fixture.initializeAndClose(manager)
+	if len(fixture.processes) != 1 || !fixture.processes[0].stopped {
+		t.Fatalf("managed process stop state = %+v", fixture.processes)
 	}
-	t.Setenv(AssistantRuntimeConfigEnv, "")
-	if err := manager.initialize(context.Background()); err != nil {
-		t.Fatalf("initialize() = %v", err)
-	}
-	item := manager.assets[asset.Descriptor.AssistantAddress]
-	if item.process == nil || item.process.PID() <= 0 {
-		t.Fatalf("managed assistant process was not started: %#v", item.process)
-	}
-	if item.process.cmd.Dir != item.homePath || item.process.cmd.Dir == item.capsule.Path {
-		t.Fatalf("managed assistant working directory = %q, home=%q capsule=%q", item.process.cmd.Dir, item.homePath, item.capsule.Path)
-	}
-	if err := manager.close(context.Background()); err != nil {
-		t.Fatalf("close() = %v", err)
-	}
-	if _, err := os.Stat(configPath); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(fixture.configPath); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("runtime config after close: err=%v", err)
 	}
-	if _, err := runtimeassets.InstallContext(context.Background(), stateRoot, mustProductionArchive(t, asset.NodeArchive, asset.NodeDescriptorJSON)); err != nil {
-		t.Fatalf("verified asset reuse = %v", err)
+}
+
+func TestProductionReusesVerifiedAssetsInProcess(t *testing.T) {
+	fixture := newProductionManagerTestFixture(t)
+	fixture.initializeAndClose(fixture.newManager())
+
+	manager := fixture.newManager()
+	if err := manager.initialize(context.Background()); err != nil {
+		t.Fatalf("initialize() for reuse = %v", err)
 	}
-	if _, err := runtimeassets.InstallContext(context.Background(), stateRoot, mustProductionArchive(t, asset.CapsuleArchive, asset.CapsuleDescriptorJSON)); err != nil {
-		t.Fatalf("verified capsule reuse after helper execution = %v", err)
+	item := manager.assets[fixture.asset.Descriptor.AssistantAddress]
+	if !item.node.Reused || !item.capsule.Reused {
+		t.Fatalf("verified reuse = node:%t capsule:%t", item.node.Reused, item.capsule.Reused)
 	}
+	fixture.close(manager)
+}
+
+func TestProductionRejectsTamperedAssetsInProcess(t *testing.T) {
+	fixture := newProductionManagerTestFixture(t)
+	manager := fixture.newManager()
+	fixture.initializeAndClose(manager)
+	item := manager.assets[fixture.asset.Descriptor.AssistantAddress]
 	if err := os.WriteFile(filepath.Join(item.node.Path, "bin", "node"), []byte("tampered"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	nodeArchive := mustProductionArchive(t, asset.NodeArchive, asset.NodeDescriptorJSON)
-	if _, err := runtimeassets.InstallContext(context.Background(), stateRoot, nodeArchive); !errors.Is(err, runtimeassets.ErrExistingInstallTampered) {
-		t.Fatalf("tampered asset error = %v, want ErrExistingInstallTampered", err)
-	}
-	manager = &assistantProductionRuntime{
-		stateRoot:  stateRoot,
-		configPath: configPath,
-		assets: map[string]*assistantProductionAsset{
-			asset.Descriptor.AssistantAddress: &assistantProductionAsset{input: asset},
-		},
-	}
-	if err := manager.initialize(context.Background()); !errors.Is(err, runtimeassets.ErrExistingInstallTampered) {
+	if err := fixture.newManager().initialize(context.Background()); !errors.Is(err, runtimeassets.ErrExistingInstallTampered) {
 		t.Fatalf("initialize() with tampered asset = %v, want ErrExistingInstallTampered", err)
 	}
-	if err := os.RemoveAll(item.node.Path); err != nil {
-		t.Fatal(err)
+}
+
+type productionManagerTestFixture struct {
+	t          *testing.T
+	asset      AssistantEmbeddedAsset
+	stateRoot  string
+	configPath string
+	nextPort   int
+	processes  []*fakeProductionProcess
+}
+
+func newProductionManagerTestFixture(t *testing.T) *productionManagerTestFixture {
+	t.Helper()
+	stateRoot := t.TempDir()
+	t.Setenv(AssistantRuntimeConfigEnv, "")
+	return &productionManagerTestFixture{
+		t:          t,
+		asset:      testProductionEmbeddedAsset(t, "app/assistant/support"),
+		stateRoot:  stateRoot,
+		configPath: filepath.Join(stateRoot, "runtime.json"),
 	}
+}
+
+func (fixture *productionManagerTestFixture) newManager() *assistantProductionRuntime {
+	fixture.t.Helper()
+	allocateURL := func() (string, error) {
+		fixture.nextPort++
+		return fmt.Sprintf("http://127.0.0.1:%d", 4100+fixture.nextPort), nil
+	}
+	startProcess := func(_ context.Context, nodePath, entry string, item *assistantProductionAsset) (assistantruntime.Process, error) {
+		if nodePath != filepath.Join(item.node.Path, "bin", "node") || entry != filepath.Join(item.capsule.Path, filepath.FromSlash(item.input.Descriptor.CapsuleEntry)) {
+			fixture.t.Fatalf("process paths = node:%q entry:%q item:%+v", nodePath, entry, item)
+		}
+		if item.homePath == "" || item.homePath == item.capsule.Path {
+			fixture.t.Fatalf("process home = %q capsule = %q", item.homePath, item.capsule.Path)
+		}
+		process := &fakeProductionProcess{pid: 4100 + len(fixture.processes)}
+		fixture.processes = append(fixture.processes, process)
+		return process, nil
+	}
+	return &assistantProductionRuntime{
+		stateRoot: fixture.stateRoot, configPath: fixture.configPath, allocateURL: allocateURL, startProcess: startProcess,
+		assets: map[string]*assistantProductionAsset{fixture.asset.Descriptor.AssistantAddress: {input: fixture.asset}},
+	}
+}
+
+func (fixture *productionManagerTestFixture) initializeAndClose(manager *assistantProductionRuntime) {
+	fixture.t.Helper()
 	if err := manager.initialize(context.Background()); err != nil {
-		t.Fatalf("initialize() after tamper recovery = %v", err)
+		fixture.t.Fatalf("initialize() = %v", err)
 	}
+	item := manager.assets[fixture.asset.Descriptor.AssistantAddress]
+	if item.process == nil || item.process.PID() <= 0 {
+		fixture.t.Fatalf("managed assistant process was not started: %#v", item.process)
+	}
+	fixture.close(manager)
+}
+
+func (fixture *productionManagerTestFixture) close(manager *assistantProductionRuntime) {
+	fixture.t.Helper()
 	if err := manager.close(context.Background()); err != nil {
-		t.Fatalf("recovered close() = %v", err)
+		fixture.t.Fatalf("close() = %v", err)
 	}
+}
+
+type fakeProductionProcess struct {
+	pid     int
+	stopped bool
+}
+
+func (process *fakeProductionProcess) PID() int { return process.pid }
+func (process *fakeProductionProcess) Wait() error {
+	return nil
+}
+func (process *fakeProductionProcess) Stop(context.Context) error {
+	process.stopped = true
+	return nil
 }
 
 func TestProductionConcurrentAssetInstallReusesVerifiedTree(t *testing.T) {

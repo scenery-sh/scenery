@@ -4,127 +4,128 @@ package main
 
 import (
 	"context"
-	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
 	localagent "scenery.sh/internal/agent"
 )
 
-func TestCleanupSupersededDevSessionsStopsSameSessionChildren(t *testing.T) {
+func TestCleanupSupersededDevSessionsSelectsSameSessionInProcess(t *testing.T) {
 	t.Parallel()
-
-	root := t.TempDir()
-	stale, staleOwner := startSleepProcessForCleanupTest(t)
-	other, otherOwner := startSleepProcessForCleanupTest(t)
-	defer func() {
-		_ = killProcessTree(other)
-		_, _ = other.Process.Wait()
-	}()
 
 	current := localagent.Session{
 		SessionID: "review-a",
-		AppRoot:   root,
-		OwnerPID:  os.Getpid(),
-		Owner:     localagent.CurrentOwner("test"),
+		AppRoot:   "/app",
 	}
 	previous := localagent.Session{
 		SessionID: "review-a",
-		AppRoot:   root,
-		OwnerPID:  os.Getpid(),
-		Processes: map[string]localagent.Process{
-			"worker": {PID: stale.Process.Pid, Owner: staleOwner},
-		},
+		AppRoot:   "/app",
 	}
 	unrelated := localagent.Session{
 		SessionID: "review-b",
-		AppRoot:   root,
-		OwnerPID:  os.Getpid(),
-		Processes: map[string]localagent.Process{
-			"worker": {PID: other.Process.Pid, Owner: otherOwner},
+		AppRoot:   "/app",
+	}
+	var stopped []string
+	err := cleanupStaleDevSessionProcessesWithDependencies(context.Background(), current, []localagent.Session{previous, unrelated}, staleDevSessionCleanupDependencies{
+		sameScope: sameAgentSession,
+		stopRegistered: func(_ context.Context, _ localagent.Session, session localagent.Session, seen map[int]bool) error {
+			stopped = append(stopped, session.SessionID)
+			seen[41001] = true
+			return nil
 		},
+		stopCommands: func(_ context.Context, _ localagent.Session, seen map[int]bool) error {
+			if !seen[41001] {
+				t.Fatalf("command cleanup seen = %v", seen)
+			}
+			return nil
+		},
+		stopEnvironment: func(_ context.Context, _ localagent.Session, seen map[int]bool) error {
+			if !seen[41001] {
+				t.Fatalf("environment cleanup seen = %v", seen)
+			}
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
-
-	if err := cleanupStaleDevSessionProcesses(context.Background(), current, []localagent.Session{previous, unrelated}); err != nil {
-		t.Fatalf("cleanupStaleDevSessionProcesses: %v", err)
-	}
-	waitForProcessExitForCleanupTest(t, stale.Process.Pid)
-	_, _ = stale.Process.Wait()
-	if !processAliveForTest(other.Process.Pid) {
-		t.Fatal("cleanup killed child from a different session")
+	if !slices.Equal(stopped, []string{"review-a"}) {
+		t.Fatalf("stopped sessions = %v", stopped)
 	}
 }
 
-func TestCleanupStaleDevSessionProcessesStopsStateRootMatchedOrphans(t *testing.T) {
+func TestStopDeletedSessionProcessesSelectsOwnerInProcess(t *testing.T) {
+	t.Parallel()
+
+	session := localagent.Session{
+		SessionID: "review-a",
+		AppRoot:   "/app",
+		OwnerPID:  41001,
+	}
+	var ownerPIDs, childPIDs []int
+	err := stopDeletedSessionProcessesWithDependencies(context.Background(), session, stopDeletedSessionProcessDependencies{
+		shouldSignalOwner: func(got localagent.Session) bool { return got.SessionID == session.SessionID },
+		stopOwner: func(_ context.Context, pid int) error {
+			ownerPIDs = append(ownerPIDs, pid)
+			return nil
+		},
+		processPIDs: func(localagent.Session) []int { return []int{41001, 41002, 41002} },
+		stopChild: func(_ context.Context, pid int) error {
+			childPIDs = append(childPIDs, pid)
+			return nil
+		},
+		stopCommands: func(_ context.Context, _ localagent.Session, seen map[int]bool) error {
+			if !seen[41001] || !seen[41002] {
+				t.Fatalf("command cleanup seen = %v", seen)
+			}
+			return nil
+		},
+		stopEnvironment: func(_ context.Context, _ localagent.Session, seen map[int]bool) error {
+			if !seen[41001] || !seen[41002] {
+				t.Fatalf("environment cleanup seen = %v", seen)
+			}
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(ownerPIDs, []int{41001}) || !slices.Equal(childPIDs, []int{41002}) {
+		t.Fatalf("stopped owner/children = %v/%v", ownerPIDs, childPIDs)
+	}
+}
+
+func TestStopDeletedSessionProcessesSelectsStateRootMatchedOrphanInProcess(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	current := localagent.Session{
-		SessionID: "review-a",
-		AppRoot:   root,
-		StateRoot: filepath.Join(root, ".scenery", "sessions", "review-a"),
-		OwnerPID:  os.Getpid(),
-		Owner:     localagent.CurrentOwner("test"),
-	}
-	stale := startStateRootAppProcessForCleanupTest(t, current.StateRoot)
+	stateRoot := filepath.Join(root, ".scenery", "sessions", "review-a")
 	otherStateRoot := filepath.Join(root, ".scenery", "sessions", "review-b")
-	other := startStateRootAppProcessForCleanupTest(t, otherStateRoot)
-	defer func() {
-		_ = killProcessTree(other)
-		_, _ = other.Process.Wait()
-	}()
-
-	if err := cleanupStaleDevSessionProcesses(context.Background(), current, nil); err != nil {
-		t.Fatalf("cleanupStaleDevSessionProcesses: %v", err)
+	session := localagent.Session{SessionID: "review-a", AppRoot: root, StateRoot: stateRoot}
+	ps := strings.Join([]string{
+		"41001 S " + filepath.Join(stateRoot, "run", "app", "scenery-app-review-a") + " 30",
+		"41002 S " + filepath.Join(otherStateRoot, "run", "app", "scenery-app-review-b") + " 30",
+		"41003 Z " + filepath.Join(stateRoot, "run", "app", "scenery-app-zombie") + " 30",
+	}, "\n")
+	var stopped []int
+	seen := map[int]bool{}
+	err := stopSessionCommandProcessesFromPS(context.Background(), session, seen, ps, func(_ context.Context, pid int) error {
+		stopped = append(stopped, pid)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
-	waitForProcessExitForCleanupTest(t, stale.Process.Pid)
-	_, _ = stale.Process.Wait()
-	if !processAliveForTest(other.Process.Pid) {
-		t.Fatal("cleanup killed state-root matched child from a different session")
+	if !slices.Equal(stopped, []int{41001}) {
+		t.Fatalf("stopped PIDs = %v, want matched live orphan only", stopped)
 	}
-}
-
-func TestStopDeletedSessionProcessesStopsOwner(t *testing.T) {
-	t.Parallel()
-
-	root := t.TempDir()
-	owner, ownerFingerprint := startSleepProcessForCleanupTest(t)
-	session := localagent.Session{
-		SessionID: "review-a",
-		AppRoot:   root,
-		StateRoot: filepath.Join(root, ".scenery", "sessions", "review-a"),
-		OwnerPID:  owner.Process.Pid,
-		Owner:     ownerFingerprint,
+	if !seen[41001] || seen[41002] || seen[41003] {
+		t.Fatalf("seen PIDs = %v", seen)
 	}
-
-	if err := stopDeletedSessionProcesses(context.Background(), session); err != nil {
-		t.Fatalf("stopDeletedSessionProcesses: %v", err)
-	}
-	waitForProcessExitForCleanupTest(t, owner.Process.Pid)
-	_, _ = owner.Process.Wait()
-}
-
-func TestStopDeletedSessionProcessesStopsStateRootMatchedOrphan(t *testing.T) {
-	t.Parallel()
-
-	root := t.TempDir()
-	session := localagent.Session{
-		SessionID: "review-a",
-		AppRoot:   root,
-		StateRoot: filepath.Join(root, ".scenery", "sessions", "review-a"),
-	}
-	stale := startStateRootAppProcessForCleanupTest(t, session.StateRoot)
-
-	if err := stopDeletedSessionProcesses(context.Background(), session); err != nil {
-		t.Fatalf("stopDeletedSessionProcesses: %v", err)
-	}
-	waitForProcessExitForCleanupTest(t, stale.Process.Pid)
-	_, _ = stale.Process.Wait()
 }
 
 func TestMarkInconsistentStatusSessionsMarksDeadOwnerStale(t *testing.T) {
@@ -235,64 +236,4 @@ func TestPruneSessionEligibleKeepsLiveOwnerPIDWhenOwnerFieldIsStale(t *testing.T
 	if pruneSessionEligible(session, time.Now()) {
 		t.Fatal("session with live owner_pid and stale owner field should not be pruned")
 	}
-}
-
-func startSleepProcessForCleanupTest(t *testing.T) (*exec.Cmd, localagent.Owner) {
-	t.Helper()
-	cmd := exec.Command("sleep", "30")
-	configureChildProcess(cmd)
-	if err := cmd.Start(); err != nil {
-		t.Fatalf("start sleep fixture: %v", err)
-	}
-	deadline := time.Now().Add(time.Second)
-	for {
-		owner := localagent.CaptureOwner(cmd.Process.Pid, "test")
-		if filepath.Base(owner.Exe) == "sleep" {
-			return cmd, owner
-		}
-		if time.Now().After(deadline) {
-			_ = killProcessTree(cmd)
-			_, _ = cmd.Process.Wait()
-			t.Fatalf("sleep fixture %d did not finish exec: owner=%+v", cmd.Process.Pid, owner)
-		}
-		time.Sleep(time.Millisecond)
-	}
-}
-
-func startStateRootAppProcessForCleanupTest(t *testing.T, stateRoot string) *exec.Cmd {
-	t.Helper()
-	appPath := filepath.Join(stateRoot, "run", "app", "scenery-app-test")
-	if err := os.MkdirAll(filepath.Dir(appPath), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(appPath, []byte("#!/bin/sh\nsleep \"$@\"\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	// Concurrent fork/exec in parallel tests can briefly hold the freshly
-	// written script's write fd, so retry ETXTBSY starts.
-	deadline := time.Now().Add(2 * time.Second)
-	for {
-		cmd := exec.Command(appPath, "30")
-		configureChildProcess(cmd)
-		err := cmd.Start()
-		if err == nil {
-			return cmd
-		}
-		if !errors.Is(err, syscall.ETXTBSY) || time.Now().After(deadline) {
-			t.Fatalf("start app path sleep fixture: %v", err)
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-}
-
-func waitForProcessExitForCleanupTest(t *testing.T, pid int) {
-	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if info, ok := inspectProcess(pid); !ok || strings.Contains(info.stat, "Z") {
-			return
-		}
-		time.Sleep(25 * time.Millisecond)
-	}
-	t.Fatalf("process %d is still alive", pid)
 }

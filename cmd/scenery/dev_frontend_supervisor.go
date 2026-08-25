@@ -108,6 +108,10 @@ func (s *devSupervisor) monitorManagedFrontend(name string, process *managedFron
 }
 
 func (s *devSupervisor) handleManagedFrontendExit(name string, process *managedFrontendProcess) {
+	s.handleManagedFrontendExitWith(name, process, managedFrontendRestartDelay, s.restartManagedFrontend)
+}
+
+func (s *devSupervisor) handleManagedFrontendExitWith(name string, process *managedFrontendProcess, restartDelay time.Duration, restart func(context.Context, string, *managedFrontendProcess) error) {
 	if s == nil || process == nil || process.Process == nil {
 		return
 	}
@@ -121,7 +125,7 @@ func (s *devSupervisor) handleManagedFrontendExit(name string, process *managedF
 	}
 	s.eventSink().Emit(context.Background(), devdashSourceForManagedFrontend(name, process, "exited"), "error", "managed frontend exited", fields)
 
-	timer := time.NewTimer(managedFrontendRestartDelay)
+	timer := time.NewTimer(restartDelay)
 	defer timer.Stop()
 	supervisorCtx := s.managedFrontendContext()
 	select {
@@ -132,7 +136,7 @@ func (s *devSupervisor) handleManagedFrontendExit(name string, process *managedF
 
 	ctx, cancel := context.WithTimeout(supervisorCtx, managedFrontendStartupTimeout+5*time.Second)
 	defer cancel()
-	if err := s.restartManagedFrontend(ctx, name, process); err != nil {
+	if err := restart(ctx, name, process); err != nil {
 		s.eventSink().Emit(context.Background(), devdashSourceForManagedFrontend(name, process, "error"), "error", "managed frontend restart failed", map[string]any{
 			"name":  name,
 			"pid":   process.Process.PID,
@@ -225,26 +229,15 @@ func (s *devSupervisor) updateManagedFrontendSession(ctx context.Context, name s
 	if name == "" {
 		return fmt.Errorf("frontend name is empty")
 	}
-	backends := copyAgentSessionBackends(session.Backends)
 	if strings.TrimSpace(backend.Network) == "" {
 		backend.Network = "tcp"
 	}
 	backend.Addr = strings.TrimSpace(backend.Addr)
-	if backend.Addr == "" {
-		delete(backends, name)
-	} else {
-		backends[name] = backend
-	}
-	processes := copySessionProcesses(session.Processes)
-	processKey := "frontend-" + name
+	processPID := 0
 	if process != nil && process.Process != nil && process.Process.PID > 0 {
-		processes[processKey] = localagent.Process{PID: process.Process.PID}
-	} else {
-		delete(processes, processKey)
+		processPID = process.Process.PID
 	}
-	if len(processes) == 0 {
-		processes = nil
-	}
+	backends, processes := managedFrontendSessionMaps(*session, name, backend, processPID)
 	updated, err := s.agent.Register(ctx, localagent.RegisterRequest{
 		BaseAppID:      firstNonEmpty(session.BaseAppID, s.activeAppID()),
 		Environment:    firstNonEmpty(session.Environment, s.env.Name),
@@ -266,6 +259,26 @@ func (s *devSupervisor) updateManagedFrontendSession(ctx context.Context, name s
 	s.storeAgentSession(&updated)
 	notifyManagedFrontendSessionUpdated(name, backend, process)
 	return nil
+}
+
+func managedFrontendSessionMaps(session localagent.Session, name string, backend localagent.Backend, processPID int) (map[string]localagent.Backend, map[string]localagent.Process) {
+	backends := copyAgentSessionBackends(session.Backends)
+	if backend.Addr == "" {
+		delete(backends, name)
+	} else {
+		backends[name] = backend
+	}
+	processes := copySessionProcesses(session.Processes)
+	processKey := "frontend-" + name
+	if processPID > 0 {
+		processes[processKey] = localagent.Process{PID: processPID}
+	} else {
+		delete(processes, processKey)
+	}
+	if len(processes) == 0 {
+		processes = nil
+	}
+	return backends, processes
 }
 
 func notifyManagedFrontendSessionUpdated(name string, backend localagent.Backend, process *managedFrontendProcess) {

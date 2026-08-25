@@ -153,6 +153,29 @@ func repoRoot(t *testing.T) string {
 	return filepath.Clean(filepath.Join(wd, "..", ".."))
 }
 
+func copyBuildFixture(t *testing.T, name string) string {
+	t.Helper()
+	repository := repoRoot(t)
+	fixture := filepath.Join(repository, "internal", "compiler", "testdata", name)
+	appRoot := t.TempDir()
+	if err := copyTree(fixture, appRoot); err != nil {
+		t.Fatalf("copy %s fixture: %v", name, err)
+	}
+	goModPath := filepath.Join(appRoot, "go.mod")
+	goMod, err := os.ReadFile(goModPath)
+	if err != nil {
+		t.Fatalf("read %s fixture go.mod: %v", name, err)
+	}
+	updated := strings.Replace(string(goMod), "replace scenery.sh => ../../../..", "replace scenery.sh => "+filepath.ToSlash(repository), 1)
+	if updated == string(goMod) {
+		t.Fatalf("%s fixture does not contain the expected local scenery replace", name)
+	}
+	if err := os.WriteFile(goModPath, []byte(updated), 0o644); err != nil {
+		t.Fatalf("rewrite %s fixture go.mod: %v", name, err)
+	}
+	return appRoot
+}
+
 func writeBuildTestFile(t *testing.T, root, rel, contents string) {
 	t.Helper()
 	path := filepath.Join(root, rel)

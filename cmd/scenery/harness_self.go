@@ -134,7 +134,33 @@ func runSceneryHarnessSelf(ctx context.Context, stdout io.Writer, args []string)
 			resp.Steps = append(resp.Steps, runHarnessExecStep(ctx, repoRoot, "race shortlist", []string{"go", "test", "-race", "./internal/agent", "./internal/localproxy", "./runtime", "./cmd/scenery"}, artifactCtx))
 		}
 		if opts.Mode == harnessSelfModeRelease {
-			resp.Steps = append(resp.Steps, runHarnessExecStep(ctx, repoRoot, "race full suite", []string{"go", "test", "-race", "./..."}, artifactCtx))
+			resp.Steps = append(resp.Steps,
+				runHarnessAgentRestartProbeStep(ctx, repoRoot),
+				runHarnessAssistantInitProbeStep(ctx, repoRoot),
+				runHarnessAssistantProductionProbeStep(ctx, repoRoot),
+				runHarnessBuildInfoProbeStep(ctx, repoRoot),
+				runHarnessCLIProcessProbeStep(ctx, repoRoot),
+				runHarnessDevFollowProbeStep(ctx, repoRoot),
+				runHarnessDevManagedProcessProbeStep(ctx, repoRoot),
+				runHarnessDevNamedLockProbeStep(ctx, repoRoot),
+				runHarnessDevSessionCleanupProbeStep(ctx, repoRoot),
+				runHarnessInspectDocsGoPackageProbeStep(ctx, repoRoot),
+				runHarnessToolchainSourceBuildProbeStep(ctx, repoRoot),
+				runHarnessWorktreeGitProbeStep(ctx, repoRoot),
+				runHarnessEdgeProcessProbeStep(ctx, repoRoot),
+				runHarnessGenerationCompileProbeStep(ctx, repoRoot),
+				runHarnessNativeContractApplicationProbeStep(ctx, repoRoot),
+				runHarnessSnapshotBackupProbeStep(ctx, repoRoot),
+				runHarnessTypeScriptCheckerProbeStep(ctx, repoRoot),
+				runHarnessCodeTaskProcessProbeStep(ctx, repoRoot),
+				runHarnessUpgradeProcessProbeStep(ctx, repoRoot),
+				runHarnessVictoriaProcessProbeStep(ctx, repoRoot),
+				runHarnessDesktopProcessProbeStep(ctx, repoRoot),
+				runHarnessDeploySSHProcessProbeStep(ctx, repoRoot),
+				runHarnessValidationGitProbeStep(ctx, repoRoot),
+				runHarnessTestsuiteCacheProbeStep(ctx, repoRoot),
+				runHarnessExecStep(ctx, repoRoot, "race full suite", []string{"go", "test", "-race", "./..."}, artifactCtx),
+			)
 		}
 	default:
 		return fmt.Errorf("unknown harness self mode %q", opts.Mode)

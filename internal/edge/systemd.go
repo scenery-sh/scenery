@@ -142,7 +142,13 @@ func RemoveSystemdEdgeService() (bool, error) {
 // ValidateCaddyConfig runs the managed Caddy binary's own validation against
 // a candidate config before it is installed or reloaded.
 func ValidateCaddyConfig(caddyBin, configPath string) error {
-	out, err := exec.Command(caddyBin, "validate", "--config", configPath, "--adapter", "caddyfile").CombinedOutput()
+	return validateCaddyConfigWithRunner(caddyBin, configPath, func(binary string, args []string) ([]byte, error) {
+		return exec.Command(binary, args...).CombinedOutput()
+	})
+}
+
+func validateCaddyConfigWithRunner(caddyBin, configPath string, run func(string, []string) ([]byte, error)) error {
+	out, err := run(caddyBin, []string{"validate", "--config", configPath, "--adapter", "caddyfile"})
 	if err != nil {
 		return fmt.Errorf("caddy validate %s: %w: %s", configPath, err, tailOfOutput(string(out), 2048))
 	}

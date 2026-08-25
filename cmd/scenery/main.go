@@ -29,14 +29,20 @@ func main() {
 }
 
 func executeCLI(args []string) int {
-	started := time.Now()
+	return executeCLIWith(args, os.Stdout, os.Stderr, time.Now(), runWithCLITelemetry, recordCLITelemetry)
+}
+
+type cliRunFunc func([]string, *cliTelemetryInvocation) error
+
+func executeCLIWith(args []string, stdout, stderr io.Writer, started time.Time, runCLI cliRunFunc, record func(cliTelemetryRecord)) int {
 	telemetry := newCLITelemetryInvocation(started, args)
-	err := renderMachineError(os.Stdout, args, runWithCLITelemetry(args, telemetry))
+	telemetry.recorder = record
+	err := renderMachineError(stdout, args, runCLI(args, telemetry))
 	exitCode := cliExitCode(err)
 	telemetry.finish(exitCode)
 	if err != nil {
 		if _, silent := errors.AsType[*silentCLIError](err); !silent {
-			fmt.Fprintln(os.Stderr, err)
+			fmt.Fprintln(stderr, err)
 		}
 	}
 	return exitCode

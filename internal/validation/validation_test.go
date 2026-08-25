@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -133,41 +133,37 @@ func TestPlanReportsCycleInsteadOfLooping(t *testing.T) {
 	}
 }
 
-func TestValidateChangedCollectsPathsRelativeToAppRoot(t *testing.T) {
+func TestCollectChangedFilesPlansAppRelativeGitDiffInProcess(t *testing.T) {
 	t.Parallel()
 
-	repo := t.TempDir()
-	appRoot := filepath.Join(repo, "app")
-	writeValidationTestFile(t, appRoot, ".scenery.json", `{"name":"demo"}`)
-	writeValidationTestFile(t, appRoot, "src/main.go", "package main\n")
-	writeValidationTestFile(t, filepath.Join(repo, "other"), "main.go", "package main\n")
-	runValidationGit(t, repo, "init")
-	runValidationGit(t, repo, "config", "user.email", "test@example.com")
-	runValidationGit(t, repo, "config", "user.name", "Test")
-	runValidationGit(t, repo, "add", ".")
-	runValidationGit(t, repo, "commit", "-m", "initial")
-	base := strings.TrimSpace(runValidationGit(t, repo, "rev-parse", "HEAD"))
-	writeValidationTestFile(t, appRoot, "src/main.go", "package main\nconst changed = true\n")
-	writeValidationTestFile(t, filepath.Join(repo, "other"), "main.go", "package main\nconst changed = true\n")
-	runValidationGit(t, repo, "add", ".")
-	runValidationGit(t, repo, "commit", "-m", "change")
-
-	files, err := CollectChangedFiles(context.Background(), appRoot, base)
+	type gitCall struct {
+		dir  string
+		args []string
+	}
+	var calls []gitCall
+	files, err := collectChangedFilesWithGit(context.Background(), "/repo/app", "base", func(_ context.Context, dir string, args ...string) ([]byte, error) {
+		calls = append(calls, gitCall{dir: dir, args: append([]string(nil), args...)})
+		switch len(calls) {
+		case 1:
+			return []byte("/repo\n"), nil
+		case 2:
+			return []byte("src/z.go\nsrc/a.go\n"), nil
+		default:
+			t.Fatalf("unexpected git call %d", len(calls))
+			return nil, nil
+		}
+	})
 	if err != nil {
 		t.Fatalf("collect changed files: %v", err)
 	}
-	if strings.Join(files, ",") != "src/main.go" {
+	if !reflect.DeepEqual(files, []string{"src/a.go", "src/z.go"}) {
 		t.Fatalf("files = %+v", files)
 	}
-}
-
-func runValidationGit(t *testing.T, dir string, args ...string) string {
-	t.Helper()
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, string(out))
+	want := []gitCall{
+		{dir: "/repo/app", args: []string{"rev-parse", "--show-toplevel"}},
+		{dir: "/repo", args: []string{"diff", "--name-only", "--relative=app", "base...HEAD", "--", "app"}},
 	}
-	return string(out)
+	if !reflect.DeepEqual(calls, want) {
+		t.Fatalf("git calls = %#v, want %#v", calls, want)
+	}
 }

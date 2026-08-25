@@ -204,6 +204,10 @@ func (s *dashboardServer) cleanupSymphonyTerminalWorkspaces(ctx context.Context)
 }
 
 func cleanupSymphonyRunWorkspace(ctx context.Context, cacheRoot string, run symphony.Run) error {
+	return cleanupSymphonyRunWorkspaceWith(ctx, cacheRoot, run, removeSymphonyGitWorktree)
+}
+
+func cleanupSymphonyRunWorkspaceWith(ctx context.Context, cacheRoot string, run symphony.Run, removeWorktree func(context.Context, string, string) error) error {
 	repoWorkspace := strings.TrimSpace(run.RepoWorkspace)
 	if repoWorkspace == "" {
 		return nil
@@ -218,16 +222,23 @@ func cleanupSymphonyRunWorkspace(ctx context.Context, cacheRoot string, run symp
 	}
 	repoRoot := strings.TrimSpace(run.RepoRoot)
 	if repoRoot != "" {
-		cmd := exec.CommandContext(ctx, "git", "-C", repoRoot, "worktree", "remove", "--force", repoWorkspace)
-		if output, err := cmd.CombinedOutput(); err != nil {
+		if err := removeWorktree(ctx, repoRoot, repoWorkspace); err != nil {
 			if _, statErr := os.Stat(repoWorkspace); errors.Is(statErr, os.ErrNotExist) {
 				return nil
 			}
-			return fmt.Errorf("remove worktree: %w: %s", err, strings.TrimSpace(string(output)))
+			return fmt.Errorf("remove worktree: %w", err)
 		}
 		return nil
 	}
 	return os.RemoveAll(repoWorkspace)
+}
+
+func removeSymphonyGitWorktree(ctx context.Context, repoRoot, repoWorkspace string) error {
+	cmd := exec.CommandContext(ctx, "git", "-C", repoRoot, "worktree", "remove", "--force", repoWorkspace)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(output)))
+	}
+	return nil
 }
 
 // runSymphonyAutoForApp reports whether this app's workflow is in auto mode
@@ -455,14 +466,22 @@ func gitRepoRootForApp(ctx context.Context, appRoot string) (string, string, err
 }
 
 func prepareSymphonyWorkspace(ctx context.Context, cacheRoot, repoRoot, repoWorkspace, appWorkspace string) (bool, error) {
+	return prepareSymphonyWorkspaceWith(ctx, cacheRoot, repoRoot, repoWorkspace, appWorkspace, addSymphonyGitWorktree, resetSymphonyGitWorktree, cleanSymphonyGitWorktree)
+}
+
+func prepareSymphonyWorkspaceWith(
+	ctx context.Context,
+	cacheRoot, repoRoot, repoWorkspace, appWorkspace string,
+	addWorktree func(context.Context, string, string) error,
+	resetWorktree func(context.Context, string) error,
+	cleanWorktree func(context.Context, string) error,
+) (bool, error) {
 	if err := os.MkdirAll(filepath.Dir(repoWorkspace), 0o755); err != nil {
 		return false, err
 	}
 	if _, err := os.Stat(repoWorkspace); errors.Is(err, os.ErrNotExist) {
-		cmd := exec.CommandContext(ctx, "git", "-C", repoRoot, "worktree", "add", "--detach", repoWorkspace, "HEAD")
-		output, err := cmd.CombinedOutput()
-		if err != nil {
-			return false, fmt.Errorf("create worktree: %w: %s", err, strings.TrimSpace(string(output)))
+		if err := addWorktree(ctx, repoRoot, repoWorkspace); err != nil {
+			return false, fmt.Errorf("create worktree: %w", err)
 		}
 	} else if err != nil {
 		return false, err
@@ -470,10 +489,10 @@ func prepareSymphonyWorkspace(ctx context.Context, cacheRoot, repoRoot, repoWork
 		if !symphonyWorkspacePathAllowedInRoot(cacheRoot, repoWorkspace) {
 			return false, fmt.Errorf("workspace path %s is outside the Symphony cache", repoWorkspace)
 		}
-		if _, err := gitOutput(ctx, repoWorkspace, "reset", "--hard", "HEAD"); err != nil {
+		if err := resetWorktree(ctx, repoWorkspace); err != nil {
 			return false, err
 		}
-		if _, err := gitOutput(ctx, repoWorkspace, "clean", "-fd"); err != nil {
+		if err := cleanWorktree(ctx, repoWorkspace); err != nil {
 			return false, err
 		}
 		if info, err := os.Stat(appWorkspace); err != nil || !info.IsDir() {
@@ -491,6 +510,24 @@ func prepareSymphonyWorkspace(ctx context.Context, cacheRoot, repoRoot, repoWork
 		return false, fmt.Errorf("app workspace %s is not a directory", appWorkspace)
 	}
 	return false, nil
+}
+
+func addSymphonyGitWorktree(ctx context.Context, repoRoot, repoWorkspace string) error {
+	cmd := exec.CommandContext(ctx, "git", "-C", repoRoot, "worktree", "add", "--detach", repoWorkspace, "HEAD")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(output)))
+	}
+	return nil
+}
+
+func resetSymphonyGitWorktree(ctx context.Context, repoWorkspace string) error {
+	_, err := gitOutput(ctx, repoWorkspace, "reset", "--hard", "HEAD")
+	return err
+}
+
+func cleanSymphonyGitWorktree(ctx context.Context, repoWorkspace string) error {
+	_, err := gitOutput(ctx, repoWorkspace, "clean", "-fd")
+	return err
 }
 
 func runSymphonyCodexAppServer(ctx context.Context, req symphonyRunRequest, callbacks symphonyRunCallbacks) (symphonyRunResult, error) {

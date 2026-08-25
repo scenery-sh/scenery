@@ -42,20 +42,24 @@ var (
 )
 
 type upgradeDependencies struct {
-	apiBaseURL       string
-	httpClient       *http.Client
-	currentVersion   func() string
-	deployNotice     func(string) *deploydiag.HelperDrift
-	workingDirectory func() (string, error)
+	apiBaseURL          string
+	httpClient          *http.Client
+	currentVersion      func() string
+	deployNotice        func(string) *deploydiag.HelperDrift
+	workingDirectory    func() (string, error)
+	runToolchainCommand upgradeToolchainCommandRunner
 }
+
+type upgradeToolchainCommandRunner func(context.Context, string, string, []string) (string, error)
 
 func currentUpgradeDependencies() upgradeDependencies {
 	return upgradeDependencies{
-		apiBaseURL:       upgradeAPIBaseURL,
-		httpClient:       upgradeHTTPClient,
-		currentVersion:   upgradeCurrentVersionFn,
-		deployNotice:     upgradeDeployNoticeFunc,
-		workingDirectory: upgradeWorkingDirectory,
+		apiBaseURL:          upgradeAPIBaseURL,
+		httpClient:          upgradeHTTPClient,
+		currentVersion:      upgradeCurrentVersionFn,
+		deployNotice:        upgradeDeployNoticeFunc,
+		workingDirectory:    upgradeWorkingDirectory,
+		runToolchainCommand: runUpgradeToolchainCommand,
 	}
 }
 
@@ -237,7 +241,7 @@ func performUpgradeWithDependencies(ctx context.Context, opts upgradeOptions, de
 		resp.OK = true
 		resp.Skipped = true
 		resp.Reason = "already current"
-		toolchainResult, err := runUpgradeToolchainSync(ctx, target, cwd, opts.ToolchainMode, storeDir, candidates, opts.DryRun)
+		toolchainResult, err := runUpgradeToolchainSync(ctx, target, cwd, opts.ToolchainMode, storeDir, candidates, opts.DryRun, deps.runToolchainCommand)
 		resp.Toolchain = toolchainResult
 		if err != nil {
 			resp.OK = false
@@ -288,7 +292,7 @@ func performUpgradeWithDependencies(ctx context.Context, opts upgradeOptions, de
 		return resp, err
 	}
 	resp.Installed = true
-	toolchainResult, err := runUpgradeToolchainSync(ctx, target, cwd, opts.ToolchainMode, storeDir, candidates, false)
+	toolchainResult, err := runUpgradeToolchainSync(ctx, target, cwd, opts.ToolchainMode, storeDir, candidates, false, deps.runToolchainCommand)
 	resp.Toolchain = toolchainResult
 	if err != nil {
 		resp.Error = err.Error()
@@ -598,14 +602,17 @@ func hasPresentUpgradeImage(images []toolchain.ImageStatus) bool {
 	return false
 }
 
-func runUpgradeToolchainSync(ctx context.Context, binaryPath, cwd, mode, storeDir string, candidates []upgradeToolchainCandidate, dryRun bool) (*upgradeToolchainResult, error) {
+func runUpgradeToolchainSync(ctx context.Context, binaryPath, cwd, mode, storeDir string, candidates []upgradeToolchainCandidate, dryRun bool, runCommand upgradeToolchainCommandRunner) (*upgradeToolchainResult, error) {
 	result := &upgradeToolchainResult{Mode: mode, StoreDir: storeDir}
 	if mode == "none" || dryRun {
 		return result, nil
 	}
+	if runCommand == nil {
+		runCommand = runUpgradeToolchainCommand
+	}
 	if mode == "all" {
 		item := upgradeToolchainSync{Tool: "*", Status: "synced", Images: true}
-		output, err := runUpgradeToolchainCommand(ctx, binaryPath, cwd, []string{"system", "toolchain", "sync", "-o", "json", "--images"})
+		output, err := runCommand(ctx, binaryPath, cwd, []string{"system", "toolchain", "sync", "-o", "json", "--images"})
 		if err != nil {
 			item.Status = "error"
 			item.Message = strings.TrimSpace(output)
@@ -621,7 +628,7 @@ func runUpgradeToolchainSync(ctx context.Context, binaryPath, cwd, mode, storeDi
 			args = append(args, "--images")
 		}
 		item := upgradeToolchainSync{Tool: candidate.Name, Kind: candidate.Kind, Images: candidate.Images, Status: "synced"}
-		output, err := runUpgradeToolchainCommand(ctx, binaryPath, cwd, args)
+		output, err := runCommand(ctx, binaryPath, cwd, args)
 		if err != nil {
 			msg := strings.TrimSpace(output)
 			item.Message = msg

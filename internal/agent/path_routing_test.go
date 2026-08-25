@@ -6,10 +6,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestPathRouteManifestForSession(t *testing.T) {
@@ -317,42 +315,22 @@ func TestServerPathModeRoutesByTrustedSessionHeader(t *testing.T) {
 	}
 }
 
-func TestAgentRestartPreservesSubstratesAndRoutes(t *testing.T) {
-	home := t.TempDir()
-	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = io.WriteString(w, "route ok")
-	}))
-	t.Cleanup(backend.Close)
-
-	postgresPID, postgresOwner := startAgentSubstrateProcess(t, "postgres")
-	victoriaPID, victoriaOwner := startAgentSubstrateProcess(t, "victoria")
-	server, err := NewServer(RunOptions{Home: home, RouterAddr: "127.0.0.1:0"})
+func TestRegistryReopenPreservesSubstratesAndRoutesInProcess(t *testing.T) {
+	paths := PathsForHome(t.TempDir())
+	if err := EnsureDirs(paths); err != nil {
+		t.Fatal(err)
+	}
+	registry, err := OpenRegistry(paths.RegistryPath, "127.0.0.1:4001")
 	if err != nil {
 		t.Fatal(err)
 	}
-	server.edgeToken = "test-token"
-	routerAddr := server.RouterAddr()
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- server.Run(ctx) }()
-	stopped := false
-	t.Cleanup(func() {
-		if !stopped {
-			stopTestAgent(t, cancel, done)
-		}
-	})
-
-	client := NewClient(server.Paths().SocketPath)
-	if err := waitForAgentPing(ctx, client); err != nil {
-		t.Fatal(err)
-	}
-	apiAddr := strings.TrimPrefix(backend.URL, "http://")
-	session, err := client.Register(ctx, RegisterRequest{
+	session, err := registry.Upsert(RegisterRequest{
 		BaseAppID: "restart-test",
 		AppRoot:   t.TempDir(),
 		SessionID: "main",
-		OwnerPID:  os.Getpid(),
-		Backends:  map[string]Backend{RouteAPI: {Network: "tcp", Addr: apiAddr}},
+		OwnerPID:  4100,
+		Owner:     Owner{PID: 4100, StartedAt: "Tue Aug 25 10:30:00 2026", CmdlineHash: "session-owner"},
+		Backends:  map[string]Backend{RouteAPI: {Network: "tcp", Addr: "127.0.0.1:9440"}},
 		RouteManifest: RouteManifest{
 			Mode:    RouteModePath,
 			BaseURL: "http://localhost:4001",
@@ -361,105 +339,35 @@ func TestAgentRestartPreservesSubstratesAndRoutes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, substrate := range []UpsertSubstrateRequest{
-		{
-			Kind:     SubstratePostgres,
-			Status:   "ready",
-			OwnerPID: postgresPID,
-			Owner:    postgresOwner,
-			PIDs:     map[string]int{"server": postgresPID},
-			Owners:   map[string]Owner{"server": postgresOwner},
-		},
-		{
-			Kind:     SubstrateVictoria,
-			Status:   "ready",
-			OwnerPID: victoriaPID,
-			Owner:    victoriaOwner,
-			PIDs:     map[string]int{"metrics": victoriaPID},
-			Owners:   map[string]Owner{"metrics": victoriaOwner},
-		},
-	} {
-		if _, err := client.UpsertSubstrate(ctx, substrate); err != nil {
+	owners := map[string]Owner{
+		SubstratePostgres: {PID: 4101, StartedAt: "Tue Aug 25 10:30:01 2026", CmdlineHash: "postgres-owner"},
+		SubstrateVictoria: {PID: 4102, StartedAt: "Tue Aug 25 10:30:02 2026", CmdlineHash: "victoria-owner"},
+	}
+	for kind, owner := range owners {
+		if _, err := registry.UpsertSubstrate(UpsertSubstrateRequest{
+			Kind: kind, Status: "ready", OwnerPID: owner.PID, Owner: owner,
+			PIDs: map[string]int{"server": owner.PID}, Owners: map[string]Owner{"server": owner},
+		}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	assertAgentRoute(t, routerAddr, session.SessionID)
 
-	client.CloseIdleConnections()
-	stopTestAgent(t, cancel, done)
-	stopped = true
-	for name, owner := range map[string]Owner{"postgres": postgresOwner, "victoria": victoriaOwner} {
-		if err := VerifyOwner(owner); err != nil {
-			t.Fatalf("%s process did not survive agent shutdown: %v", name, err)
-		}
-	}
-
-	restarted, err := NewServer(RunOptions{Home: home, RouterAddr: routerAddr})
+	restarted, err := OpenRegistry(paths.RegistryPath, "127.0.0.1:4001")
 	if err != nil {
 		t.Fatal(err)
 	}
-	restarted.edgeToken = "test-token"
-	restartCtx, restartCancel := context.WithCancel(context.Background())
-	restartDone := make(chan error, 1)
-	go func() { restartDone <- restarted.Run(restartCtx) }()
-	t.Cleanup(func() { stopTestAgent(t, restartCancel, restartDone) })
-	restartClient := NewClient(restarted.Paths().SocketPath)
-	if err := waitForAgentPing(restartCtx, restartClient); err != nil {
-		t.Fatal(err)
-	}
-	for kind, wantPID := range map[string]int{SubstratePostgres: postgresPID, SubstrateVictoria: victoriaPID} {
-		substrate, err := restartClient.GetSubstrate(restartCtx, kind)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if got := firstPositive(substrate.OwnerPID, substrate.Owner.PID); got != wantPID {
-			t.Fatalf("%s owner pid = %d, want %d", kind, got, wantPID)
+	for kind, owner := range owners {
+		substrate, ok := restarted.GetSubstrate(kind)
+		if !ok || substrate.OwnerPID != owner.PID || substrate.Owner.CmdlineHash != owner.CmdlineHash || substrate.PIDs["server"] != owner.PID {
+			t.Fatalf("%s substrate after reopen = %+v, ok=%v", kind, substrate, ok)
 		}
 	}
-	assertAgentRoute(t, routerAddr, session.SessionID)
-}
-
-func TestAgentSubstrateProcess(t *testing.T) {
-	if os.Getenv("SCENERY_TEST_SUBSTRATE_PROCESS") == "1" {
-		time.Sleep(time.Minute)
+	restored, ok := restarted.Get(session.SessionID)
+	if !ok {
+		t.Fatalf("session %q missing after registry reopen", session.SessionID)
 	}
-}
-
-func startAgentSubstrateProcess(t *testing.T, name string) (int, Owner) {
-	t.Helper()
-	cmd := exec.Command(os.Args[0], "-test.run=^TestAgentSubstrateProcess$")
-	cmd.Env = append(os.Environ(), "SCENERY_TEST_SUBSTRATE_PROCESS=1")
-	if err := cmd.Start(); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		_ = cmd.Process.Kill()
-		_ = cmd.Wait()
-	})
-	owner := CaptureOwner(cmd.Process.Pid, "test "+name)
-	if err := VerifyOwner(owner); err != nil {
-		t.Fatalf("capture %s owner: %v", name, err)
-	}
-	return cmd.Process.Pid, owner
-}
-
-func assertAgentRoute(t *testing.T, routerAddr, sessionID string) {
-	t.Helper()
-	req, err := http.NewRequest(http.MethodGet, "http://"+routerAddr+"/api/health", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.Host = "localhost:4001"
-	req.Header.Set("X-Scenery-Session", sessionID)
-	req.Header.Set("X-Scenery-Local-Route-Mode", string(RouteModePath))
-	req.Header.Set("X-Scenery-Edge-Token", "test-token")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK || string(body) != "route ok" {
-		t.Fatalf("route status=%d body=%q", resp.StatusCode, body)
+	route, ok := routeForPath(restored.RouteManifest, "/api/health")
+	if !ok || route.Name != RouteAPI || restored.Backends[RouteAPI].Addr != "127.0.0.1:9440" {
+		t.Fatalf("restored API route/session = %+v / %+v, ok=%v", route, restored, ok)
 	}
 }

@@ -70,7 +70,10 @@ type Store struct {
 	Platform       Platform
 	Client         *http.Client
 	Docker         DockerRunner
+	sourceBuild    sourceBuildRunner
 }
+
+type sourceBuildRunner func(context.Context, string, string, string) ([]byte, error)
 
 type Options struct {
 	RootDir  string
@@ -154,7 +157,7 @@ func NewStore(dir string, manifest Manifest) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Store{Dir: dir, RootDir: ".", Manifest: manifest, ManifestSHA256: ManifestSHA256(data), Platform: CurrentPlatform(), Client: http.DefaultClient, Docker: ExecDockerRunner{}}, nil
+	return &Store{Dir: dir, RootDir: ".", Manifest: manifest, ManifestSHA256: ManifestSHA256(data), Platform: CurrentPlatform(), Client: http.DefaultClient, Docker: ExecDockerRunner{}, sourceBuild: runGoSourceBuild}, nil
 }
 
 func (s *Store) List(ctx context.Context, opts Options) (Status, error) {
@@ -517,10 +520,11 @@ func (s *Store) installSourceBuildArtifact(ctx context.Context, artifact Artifac
 		return err
 	}
 	outputPath := filepath.Join(binDir, artifact.DefaultBinary)
-	cmd := exec.CommandContext(ctx, "go", "build", "-o", outputPath, pkg)
-	cmd.Dir = root
-	cmd.Env = envpolicy.Environ()
-	output, err := cmd.CombinedOutput()
+	run := s.sourceBuild
+	if run == nil {
+		run = runGoSourceBuild
+	}
+	output, err := run(ctx, root, outputPath, pkg)
 	if err != nil {
 		return fmt.Errorf("build source toolchain artifact %s: %w: %s", artifact.Name, err, strings.TrimSpace(string(output)))
 	}
@@ -547,6 +551,13 @@ func (s *Store) installSourceBuildArtifact(ctx context.Context, artifact Artifac
 		return err
 	}
 	return os.WriteFile(filepath.Join(finalDir, "install.json"), append(data, '\n'), 0o644)
+}
+
+func runGoSourceBuild(ctx context.Context, root, outputPath, pkg string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, "go", "build", "-o", outputPath, pkg)
+	cmd.Dir = root
+	cmd.Env = envpolicy.Environ()
+	return cmd.CombinedOutput()
 }
 
 func (s *Store) buildArtifact(ctx context.Context, data []byte, artifact Artifact, entry PlatformArtifact, dir string) error {

@@ -1,32 +1,33 @@
 package main
 
 import (
-	"fmt"
+	"errors"
 	"io"
 	"os"
-	"os/exec"
 	"strings"
 	"testing"
 	"time"
 )
 
-func TestDevNamedLockSecondProcessTimesOutWithNamedError(t *testing.T) {
+func TestDevNamedLockBusyTimeoutHasNamedDiagnosticsInProcess(t *testing.T) {
 	root := t.TempDir()
-	restore := setDevLockTestTiming(io.Discard)
+	var warnings strings.Builder
+	restore := setDevLockTestTiming(&warnings)
 	defer restore()
-	unlock, err := lockManagedSubstrateRoot(root, "postgres")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer unlock()
-
-	cmd := exec.Command(os.Args[0], "-test.run=TestDevNamedLockSubprocessAcquireTimeout", "--", root)
-	cmd.Env = append(os.Environ(), "SCENERY_LOCK_TEST_HELPER=1")
-	output, err := cmd.CombinedOutput()
+	busy := errors.New("busy")
+	now := time.Date(2026, 8, 25, 10, 30, 0, 0, time.UTC)
+	_, err := acquireDevNamedLockWithDependencies(root, "substrate-postgres.lock", "shared substrate postgres", devLockOrderSubstrate, devNamedLockDependencies{
+		now: func() time.Time { return now },
+		sleep: func(duration time.Duration) {
+			now = now.Add(duration)
+		},
+		tryLock: func(*os.File) error { return busy },
+		isBusy:  func(err error) bool { return errors.Is(err, busy) },
+	})
 	if err == nil {
-		t.Fatalf("subprocess lock unexpectedly succeeded:\n%s", output)
+		t.Fatal("busy lock unexpectedly succeeded")
 	}
-	got := string(output)
+	got := warnings.String() + err.Error()
 	for _, want := range []string{
 		"waiting for shared substrate postgres lock at",
 		"timed out waiting for shared substrate postgres lock",
@@ -35,26 +36,6 @@ func TestDevNamedLockSecondProcessTimesOutWithNamedError(t *testing.T) {
 			t.Fatalf("subprocess output missing %q:\n%s", want, got)
 		}
 	}
-}
-
-func TestDevNamedLockSubprocessAcquireTimeout(t *testing.T) {
-	if os.Getenv("SCENERY_LOCK_TEST_HELPER") != "1" {
-		return
-	}
-	if len(os.Args) == 0 {
-		fmt.Fprintln(os.Stderr, "missing os.Args")
-		os.Exit(2)
-	}
-	root := os.Args[len(os.Args)-1]
-	restore := setDevLockTestTiming(os.Stdout)
-	defer restore()
-	unlock, err := lockManagedSubstrateRoot(root, "postgres")
-	if err == nil {
-		unlock()
-		os.Exit(0)
-	}
-	fmt.Fprintln(os.Stdout, err)
-	os.Exit(2)
 }
 
 func TestDevNamedLockSerializesSameProcessAcquisition(t *testing.T) {
