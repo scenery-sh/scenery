@@ -26,14 +26,14 @@ Go test binaries so fresh measurement does not relink unchanged packages.
   fingerprint remains the source-change guard.
 - Build at most four missing test binaries concurrently. The harness and manual
   adapter share `DefaultBuildParallelism`; change it only with same-host,
-  interleaved macOS and local-Linux A/B wall-time evidence.
+  interleaved native macOS A/B wall-time evidence.
 - Store disposable state only under `.scenery/harness/test-binaries/`.
 - Test-binary manifests use the current `scenery.test-binary-cache` artifact
   identity; an identity mismatch invalidates the disposable cache and rebuilds it.
 - Route process environment reads through `internal/envpolicy`.
 - Default to six concurrent test packages. The harness and manual adapter share
   `DefaultPackageParallelism`; change it only with same-host, interleaved macOS
-  and local-Linux A/B wall and CPU evidence.
+  A/B wall and CPU evidence.
 - Report pre-execution cost on `Result.Prepare`: total elapsed, package-listing
   elapsed, and one `BinaryBuild{Package, BuildID, Elapsed}` per linked binary,
   ranked slowest first. Also report `TestPackageCount` (packages that produce a
@@ -48,6 +48,8 @@ Go test binaries so fresh measurement does not relink unchanged packages.
 - Prefer Go build IDs over a parallel source-dependency model.
 - Keep platform-specific locking and process cancellation in the existing
   `*_unix.go` / `*_other.go` files.
+- Do not run tests or benchmarks in Docker- or VM-emulated Linux. Use native
+  macOS evidence and report Linux behavior as unmeasured when it matters.
 - Do not weaken execution scope or add skipped/gated tests for timing.
 - Prefer folding a new leaf's tests into a consumer that already links it.
   A dedicated leaf test binary counts against the `cmd/scenery` count budget.
