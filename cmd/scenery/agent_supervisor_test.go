@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -262,6 +263,9 @@ func TestDeployStatusRequiresLoadedSupervisor(t *testing.T) {
 }
 
 func TestDeployLaunchAgentStatusDistinguishesLoaded(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("deploy resume LaunchAgents are macOS-only")
+	}
 	t.Setenv("HOME", t.TempDir())
 	oldLaunchctl := deployLaunchctlFunc
 	t.Cleanup(func() { deployLaunchctlFunc = oldLaunchctl })
@@ -352,6 +356,9 @@ func TestDeployLaunchAgentStatusParsesFailedLastExit(t *testing.T) {
 }
 
 func TestInstallDeployResumeLaunchAgentRejectsCompletedFailure(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("deploy resume LaunchAgents are macOS-only")
+	}
 	t.Setenv("HOME", t.TempDir())
 	paths := localagent.PathsForHome(t.TempDir())
 	oldExe := deployPrivilegedHelperExecutableFunc

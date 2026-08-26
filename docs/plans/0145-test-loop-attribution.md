@@ -242,6 +242,18 @@ optimize a number nothing can explain.
       at 70ms p95 with one 130ms scheduler spike, while
       `TestRunToolchainListJSON` confirmed at 30ms p95 and 90ms maximum. No
       additional port was justified.
+- [x] 2026-08-26: Made `captureStdout` drain its pipe concurrently and added a
+      1MiB regression, removing the Linux pipe-capacity deadlock. The focused
+      test passed on macOS and Linux. Three pre-existing host assumptions were
+      made platform-correct so the supported linux/amd64 suite could pass: two
+      LaunchAgent-only tests now skip off macOS, and the registry Caddy test
+      asserts Linux's intentional direct-bind shape. Six balanced manifest-hit
+      full-suite samples in the local 24-vCPU translated linux/amd64 container
+      measured p=3 at 7.367/7.341/7.422s (median 7.367s) and p=6 at
+      4.176/4.197/4.191s (median 4.191s), a 3.176s / 43.1% wall reduction.
+      Median combined CPU increased only 4.7%, from 25.719s to 26.922s, so the
+      default package parallelism is now six across the runner, adapters, and
+      harness.
 
 - [x] 2026-07-29: Optimized runtime hot paths on the developer loop, separate
       from test scheduling. Six changes, each with byte-identical output proven
@@ -747,6 +759,11 @@ optimize a number nothing can explain.
 
 ## Decision Log
 
+- Fresh-test package parallelism is six. Three prior macOS measurements saved
+  18.1-25.2% wall time; the final local Linux A/B saved 43.1% while increasing
+  median combined CPU only 4.7%. The harness and manual adapter share one
+  constant so the measured default cannot drift between entrypoints.
+  Date/Author: 2026-08-26 / Petr and Codex.
 - Fast is the default test class, not an allowlist. The only inverse list is a
   sorted exact package-plus-test inventory for undeniable external boundaries,
   and every entry carries a human-reviewable reason. This makes a new test fail
@@ -1076,10 +1093,10 @@ Neither change weakens an assertion boundary.
 ```sh
 # cold attribution: isolate the cache, then read prepare wall and ranked links
 cold_cache="$(mktemp -d /tmp/scenery-test-binaries.XXXXXX)"
-go run ./scripts/testsuite -cache "$cold_cache" -p 3 -build-p 4 -run 'a^' -builds 20 -record-timings=false
+go run ./scripts/testsuite -cache "$cold_cache" -p 6 -build-p 4 -run 'a^' -builds 20 -record-timings=false
 
 # warm attribution: per-test elapsed for the critical-path package
-go run ./scripts/testsuite -p 3 -run '.*' -record-timings=false > /tmp/warm.jsonl
+go run ./scripts/testsuite -p 6 -run '.*' -record-timings=false > /tmp/warm.jsonl
 
 # full fresh lane with regression-scoped confirmation
 .scenery/harness/bin/scenery harness self --fresh-tests --summary --write

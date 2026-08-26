@@ -136,19 +136,39 @@ func captureStdout(t *testing.T, fn func() error) string {
 	if err != nil {
 		t.Fatal(err)
 	}
+	type readResult struct {
+		data []byte
+		err  error
+	}
+	readDone := make(chan readResult, 1)
+	go func() {
+		data, err := io.ReadAll(r)
+		readDone <- readResult{data: data, err: err}
+	}()
 	os.Stdout = w
 	callErr := fn()
-	_ = w.Close()
 	os.Stdout = old
-	data, readErr := io.ReadAll(r)
+	_ = w.Close()
+	result := <-readDone
 	_ = r.Close()
 	if callErr != nil {
 		t.Fatalf("command returned error: %v", callErr)
 	}
-	if readErr != nil {
-		t.Fatalf("read stdout: %v", readErr)
+	if result.err != nil {
+		t.Fatalf("read stdout: %v", result.err)
 	}
-	return string(data)
+	return string(result.data)
+}
+
+func TestCaptureStdoutDrainsLargeOutput(t *testing.T) {
+	want := strings.Repeat("scenery\n", 128*1024)
+	got := captureStdout(t, func() error {
+		_, err := io.WriteString(os.Stdout, want)
+		return err
+	})
+	if got != want {
+		t.Fatalf("captured %d bytes, want %d", len(got), len(want))
+	}
 }
 
 func writeHarnessTestApp(t *testing.T, root, name, body string) {

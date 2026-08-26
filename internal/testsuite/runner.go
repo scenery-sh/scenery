@@ -21,7 +21,9 @@ import (
 )
 
 const (
-	defaultPackageParallelism = 3
+	// DefaultPackageParallelism is shared by the harness and manual adapter so
+	// warm execution timings remain comparable across entrypoints.
+	DefaultPackageParallelism = 6
 	// DefaultBuildParallelism is shared by the harness and manual adapter so
 	// cold-prepare wall timings remain comparable across entrypoints.
 	DefaultBuildParallelism = 4
@@ -172,7 +174,7 @@ func normalizeOptions(opts Options) (Options, error) {
 		opts.RunPattern = ".*"
 	}
 	if opts.PackageParallelism <= 0 {
-		opts.PackageParallelism = defaultPackageParallelism
+		opts.PackageParallelism = DefaultPackageParallelism
 	}
 	if opts.BuildParallelism <= 0 {
 		opts.BuildParallelism = DefaultBuildParallelism

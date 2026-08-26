@@ -23,7 +23,7 @@ Self-harness uses Go's native test result cache by default, including
 changed-area-selected final and release validation. `--fresh-tests` is reserved for explicit fresh
 measurement or nondeterminism investigation; that lane reuses content-addressed
 linked test binaries, executes test bodies with `-test.count=1`, and uses the
-locally measured package parallelism of three while building at most four
+locally measured package parallelism of six while building at most four
 missing binaries concurrently. Cached and fresh lanes have a five-second
 advisory budget and target; release keeps its 30-second enforced budget. A full
 cold prepare is separately held to 30 seconds of wall time at that pinned build

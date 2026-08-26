@@ -547,7 +547,7 @@ scenery harness self -o json --write
 
 Self-harness Go test steps use the Go test result cache by default; add
 `--fresh-tests` only for explicit fresh measurement or nondeterminism
-investigation. That lane uses the locally measured package parallelism `-p 3`.
+investigation. That lane uses the locally measured package parallelism `-p 6`.
 Timing reports distinguish cached, fresh, and release budgets; only fresh runs
 confirm package/test hotspots in isolation.
 

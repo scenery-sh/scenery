@@ -317,7 +317,7 @@ func TestHarnessSelfGoTestCommandUsesResultCacheUnlessFresh(t *testing.T) {
 	if got := strings.Join(harnessSelfGoTestCommand(), " "); got != "go test -json ./..." {
 		t.Fatalf("cached command = %q", got)
 	}
-	if got := strings.Join(harnessSelfGoTestCommandWithCacheMode(true), " "); got != "go run ./scripts/testsuite -p 3 -run .*" {
+	if got := strings.Join(harnessSelfGoTestCommandWithCacheMode(true), " "); got != "go run ./scripts/testsuite -p 6 -run .*" {
 		t.Fatalf("fresh command = %q", got)
 	}
 }

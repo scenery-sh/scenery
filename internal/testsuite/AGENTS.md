@@ -31,6 +31,9 @@ Go test binaries so fresh measurement does not relink unchanged packages.
 - Test-binary manifests use the current `scenery.test-binary-cache` artifact
   identity; an identity mismatch invalidates the disposable cache and rebuilds it.
 - Route process environment reads through `internal/envpolicy`.
+- Default to six concurrent test packages. The harness and manual adapter share
+  `DefaultPackageParallelism`; change it only with same-host, interleaved macOS
+  and local-Linux A/B wall and CPU evidence.
 - Report pre-execution cost on `Result.Prepare`: total elapsed, package-listing
   elapsed, and one `BinaryBuild{Package, BuildID, Elapsed}` per linked binary,
   ranked slowest first. Also report `TestPackageCount` (packages that produce a

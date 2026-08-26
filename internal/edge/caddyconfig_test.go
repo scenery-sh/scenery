@@ -146,11 +146,17 @@ func TestCaddyConfigForRegistryUsesDeployTargets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	domainSite := "onlv.dev:19443 {"
+	httpSite := "http://onlv.dev:19080 {"
+	if publicDirectDefault() {
+		domainSite = "onlv.dev {"
+		httpSite = "http://onlv.dev {"
+	}
 	for _, want := range []string{
 		"storage file_system " + filepath.Join(paths.EdgeDir, "caddy-data"),
 		"email ops@example.com",
-		"onlv.dev:19443 {",
-		"http://onlv.dev:19080 {",
+		domainSite,
+		httpSite,
 	} {
 		if !strings.Contains(config, want) {
 			t.Fatalf("registry Caddy config missing %q:\n%s", want, config)

@@ -85,12 +85,18 @@ func TestRunReusesPreparedManifestButExecutesPackagesFreshInProcess(t *testing.T
 	}
 }
 
-func TestNormalizeOptionsPinsDefaultBuildParallelism(t *testing.T) {
+func TestNormalizeOptionsPinsDefaultParallelism(t *testing.T) {
 	t.Parallel()
 
 	opts, err := normalizeOptions(Options{RepoRoot: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if DefaultPackageParallelism != 6 {
+		t.Fatalf("default package parallelism = %d, want 6", DefaultPackageParallelism)
+	}
+	if opts.PackageParallelism != DefaultPackageParallelism {
+		t.Fatalf("package parallelism = %d, want pinned default 6", opts.PackageParallelism)
 	}
 	if DefaultBuildParallelism != 4 {
 		t.Fatalf("default build parallelism = %d, want 4", DefaultBuildParallelism)

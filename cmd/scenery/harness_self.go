@@ -15,6 +15,7 @@ import (
 	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/appwalk"
 	"scenery.sh/internal/envpolicy"
+	"scenery.sh/internal/testsuite"
 )
 
 type harnessSelfOptions struct {
@@ -234,7 +235,7 @@ func harnessSelfGoTestCommand() []string {
 
 func harnessSelfGoTestCommandWithCacheMode(freshTests bool) []string {
 	if freshTests {
-		return []string{"go", "run", "./scripts/testsuite", "-p", "3", "-run", ".*"}
+		return []string{"go", "run", "./scripts/testsuite", "-p", fmt.Sprint(testsuite.DefaultPackageParallelism), "-run", ".*"}
 	}
 	return []string{"go", "test", "-json", "./..."}
 }

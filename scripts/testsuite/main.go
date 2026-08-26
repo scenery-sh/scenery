@@ -15,7 +15,7 @@ func main() {
 	flag.StringVar(&opts.RepoRoot, "repo-root", ".", "repository root")
 	flag.StringVar(&opts.CacheDir, "cache", ".scenery/harness/test-binaries", "linked test binary cache")
 	flag.StringVar(&opts.RunPattern, "run", ".*", "test name pattern")
-	flag.IntVar(&opts.PackageParallelism, "p", 3, "parallel test packages")
+	flag.IntVar(&opts.PackageParallelism, "p", testsuite.DefaultPackageParallelism, "parallel test packages")
 	flag.IntVar(&opts.BuildParallelism, "build-p", testsuite.DefaultBuildParallelism, "parallel missing binary builds")
 	flag.BoolVar(&opts.RefreshManifest, "refresh", false, "force Go build-ID refresh")
 	flag.BoolVar(&opts.RecordTimings, "record-timings", true, "record package durations for longest-first scheduling")
