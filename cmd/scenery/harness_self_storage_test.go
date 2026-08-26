@@ -2,7 +2,8 @@ package main
 
 import (
 	"encoding/json"
-	"os/exec"
+	"errors"
+	"os"
 	"testing"
 
 	localagent "scenery.sh/internal/agent"
@@ -41,27 +42,24 @@ func TestHarnessDetachInfoReadsCLIEnvelope(t *testing.T) {
 func TestHarnessCleanupPIDsFromSessions(t *testing.T) {
 	t.Parallel()
 
-	// A live child process with a captured fingerprint stands in for a
-	// session owner; the test process itself is excluded by
-	// addHarnessCleanupPID, and a dead PID must never verify.
-	child := exec.Command("sleep", "30")
-	if err := child.Start(); err != nil {
-		t.Fatal(err)
+	verifiedPID := os.Getpid() + 1000
+	stalePID := verifiedPID + 1
+	verified := localagent.Owner{PID: verifiedPID, StartedAt: "verified"}
+	stale := localagent.Owner{PID: stalePID, StartedAt: "stale"}
+	verifyOwner := func(owner localagent.Owner) error {
+		if owner.StartedAt == "verified" {
+			return nil
+		}
+		return errors.New("owner fingerprint mismatch")
 	}
-	t.Cleanup(func() { _ = child.Process.Kill(); _, _ = child.Process.Wait() })
-	self := localagent.CaptureOwner(child.Process.Pid, "test owner")
-	if err := localagent.VerifyOwner(self); err != nil {
-		t.Fatalf("child owner fingerprint does not verify: %v", err)
-	}
-	stale := localagent.Owner{PID: 999999999}
 	sessions := []localagent.Session{
 		{
 			SessionID: "verified",
-			OwnerPID:  self.PID,
-			Owner:     self,
+			OwnerPID:  verified.PID,
+			Owner:     verified,
 			Processes: map[string]localagent.Process{
-				"frontend": {PID: self.PID, Owner: self},
-				"stale":    {PID: 999999998, Owner: stale},
+				"frontend": {PID: verified.PID, Owner: verified},
+				"stale":    {PID: stale.PID, Owner: stale},
 			},
 		},
 		{
@@ -74,8 +72,8 @@ func TestHarnessCleanupPIDsFromSessions(t *testing.T) {
 		},
 	}
 	pids := map[int]bool{}
-	harnessCleanupPIDsFromSessions(pids, sessions)
-	if len(pids) != 1 || !pids[self.PID] {
-		t.Fatalf("cleanup pids = %v, want only %d", pids, self.PID)
+	harnessCleanupPIDsFromSessions(pids, sessions, verifyOwner)
+	if len(pids) != 1 || !pids[verified.PID] {
+		t.Fatalf("cleanup pids = %v, want only %d", pids, verified.PID)
 	}
 }

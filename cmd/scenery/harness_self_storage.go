@@ -370,7 +370,7 @@ func cleanupHarnessStorageRestartAgent(ctx context.Context, repoRoot, sceneryPat
 	// registry still records the owners, so collect fingerprint-verified
 	// PIDs from it as a fallback.
 	if registry, regErr := localagent.OpenRegistry(filepath.Join(agentHome, "agent", "sessions.json"), localagent.RouterAddrFromEnv()); regErr == nil {
-		harnessCleanupPIDsFromSessions(pids, registry.List())
+		harnessCleanupPIDsFromSessions(pids, registry.List(), localagent.VerifyOwner)
 	}
 	signalHarnessCleanupPIDs(pids)
 }
@@ -378,14 +378,14 @@ func cleanupHarnessStorageRestartAgent(ctx context.Context, repoRoot, sceneryPat
 // harnessCleanupPIDsFromSessions collects session owner and registered
 // process PIDs whose recorded ownership fingerprints still verify, so a
 // stale registry from a crashed run can never target a reused PID.
-func harnessCleanupPIDsFromSessions(pids map[int]bool, sessions []localagent.Session) {
+func harnessCleanupPIDsFromSessions(pids map[int]bool, sessions []localagent.Session, verifyOwner func(localagent.Owner) error) {
 	for _, session := range sessions {
 		ownerPID := firstPositiveInt(session.OwnerPID, session.Owner.PID)
-		if ownerPID > 0 && session.Owner.PID == ownerPID && localagent.VerifyOwner(session.Owner) == nil {
+		if ownerPID > 0 && session.Owner.PID == ownerPID && verifyOwner(session.Owner) == nil {
 			addHarnessCleanupPID(pids, ownerPID)
 		}
 		for _, process := range session.Processes {
-			if process.PID > 0 && process.Owner.PID == process.PID && localagent.VerifyOwner(process.Owner) == nil {
+			if process.PID > 0 && process.Owner.PID == process.PID && verifyOwner(process.Owner) == nil {
 				addHarnessCleanupPID(pids, process.PID)
 			}
 		}
