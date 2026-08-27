@@ -132,9 +132,53 @@ func renderMCPToolRegistrations(b *strings.Builder, contractRevision string, ser
 		if target.Durable {
 			optionsFunction := durableDispatchOptionsFunction(target.Execution)
 			fmt.Fprintf(b, "options, err := %s(copied); if err != nil { return nil, sceneryruntime.ContractSystemError(err) }; if call.IdempotencyKey != \"\" { options.DedupeKey = call.IdempotencyKey }; return sceneryruntime.DispatchContractDurableExecutionWithOptions(ctx, %q, copied, options) }, }); err != nil { return err }\n", optionsFunction, target.Execution.Address)
+		} else if operationUsesHTTPStream(target.Operation, resources) {
+			fmt.Fprintf(b, "if service == nil { return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"service is not initialized\")) }; outcome, stream, err := service.%s(ctx, copied); if err != nil { _ = stream.Close(); if outcome != nil { return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"handler returned outcome and error\")) }; return nil, sceneryruntime.ContractSystemError(err) }; if outcome == nil { _ = stream.Close(); return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"handler returned nil outcome without error\")) }; ", handlerMethod)
+			if err := renderMCPStreamOutcomeBuffer(b, target, resources); err != nil {
+				return err
+			}
+			fmt.Fprintf(b, "cloned, err := contract.Clone%sOutcome(outcome); if err != nil { return nil, sceneryruntime.ContractSystemError(err) }; return cloned, nil }, }); err != nil { return err }\n", operationName)
 		} else {
 			fmt.Fprintf(b, "if service == nil { return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"service is not initialized\")) }; outcome, err := service.%s(ctx, copied); if err != nil { if outcome != nil { return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"handler returned outcome and error\")) }; return nil, sceneryruntime.ContractSystemError(err) }; if outcome == nil { return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"handler returned nil outcome without error\")) }; cloned, err := contract.Clone%sOutcome(outcome); if err != nil { return nil, sceneryruntime.ContractSystemError(err) }; return cloned, nil }, }); err != nil { return err }\n", handlerMethod, operationName)
 		}
 	}
+	return nil
+}
+
+func renderMCPStreamOutcomeBuffer(b *strings.Builder, target mcpToolTarget, resources []Resource) error {
+	resourceMap := resourcesByAddress(&Manifest{Resources: resources})
+	var streamBinding Resource
+	for _, binding := range resources {
+		if stringValue(binding.Spec["protocol"]) == "http" && stringValue(binding.Spec["delivery"]) == "stream" && resolveResourceRef(binding, refString(binding.Spec["operation"]), "operation") == target.Operation.Address {
+			streamBinding = binding
+			break
+		}
+	}
+	if streamBinding.Address == "" {
+		return fmt.Errorf("MCP binding %s has no HTTP stream binding for operation %s", target.Binding.Address, target.Operation.Address)
+	}
+	httpSpec, _ := streamBinding.Spec["http"].(map[string]any)
+	b.WriteString("switch typed := outcome.(type) { ")
+	for _, variant := range namedChildren(target.Operation.Spec, "result") {
+		name := stringValue(variant["name"])
+		response := responseMappings(httpSpec)["result."+name]
+		body, _ := response["body"].(map[string]any)
+		if body == nil || stringValue(body["codec"]) != "bytes" {
+			return fmt.Errorf("MCP binding %s stream result %s has no bytes response", target.Binding.Address, name)
+		}
+		wrapper := goName(target.Operation.Name) + goName(name)
+		expression, _, err := httpOutcomeValueExpression(resourceMap, target.Operation, "result."+name, refOrString(body["from"]), "typed.Value", variant["type"])
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(b, "case contract.%s: if len(%s) != 0 { _ = stream.Close(); return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"stream handler returned buffered bytes\")) }; buffered, err := sceneryruntime.BufferContractByteStream(stream, %d); if err != nil { return nil, sceneryruntime.ContractSystemError(err) }; %s = buffered; outcome = typed; ", wrapper, expression, target.MaxResultBytes, expression)
+		pointerExpression := strings.Replace(expression, "typed.", "copiedOutcome.", 1)
+		fmt.Fprintf(b, "case *contract.%s: if typed == nil { _ = stream.Close(); return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"handler returned nil outcome\")) }; copiedOutcome := *typed; if len(%s) != 0 { _ = stream.Close(); return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"stream handler returned buffered bytes\")) }; buffered, err := sceneryruntime.BufferContractByteStream(stream, %d); if err != nil { return nil, sceneryruntime.ContractSystemError(err) }; %s = buffered; outcome = &copiedOutcome; ", wrapper, pointerExpression, target.MaxResultBytes, pointerExpression)
+	}
+	for _, variant := range namedChildren(target.Operation.Spec, "error") {
+		wrapper := goName(target.Operation.Name) + goName(stringValue(variant["name"]))
+		fmt.Fprintf(b, "case contract.%s, *contract.%s: if stream.Reader != nil { _ = stream.Close(); return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"error outcome returned a byte stream\")) }; ", wrapper, wrapper)
+	}
+	b.WriteString("default: _ = stream.Close(); return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"handler returned an unknown outcome %T\", outcome)) }; ")
 	return nil
 }

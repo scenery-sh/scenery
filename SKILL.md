@@ -68,6 +68,12 @@ go test ./...
 
 Never commit or hand-edit cached `scenerycontract` or `internal/scenerygen` output. Use contract materialization only to publish a module. TypeScript targets use source materialization beneath a declared managed root or cache materialization beneath `.scenery/gen/typescript/`.
 
+For a large direct HTTP download, declare `delivery = "stream"`, map every
+result body from a required `bytes` value, and return the typed outcome plus
+`scenery.NewByteStream(body, exactSize)`. Leave the mapped byte field empty and
+do not close the body after a successful return; the generated adapter and
+runtime own it. This is a typed response-only path, not a raw HTTP handler.
+
 Import a declared library through its generated facade. Shared linkage requires an app-root-relative artifact manifest; build the fixed darwin/arm64 and linux/amd64 matrix with `scenery build --lib <name> --version <vN.N.N> -o json`. Swap verified versions alongside each other; never unload a Go c-shared runtime.
 
 Use `scenery list|get|explain|graph ... -o json` for graph facts and `scenery diff --semantic` for compatibility. Semantic changes and deployments use immutable revision-bound plan/apply with one durable commit and authenticated receipt replay. The model-facing flow is `changes.plan` (compact summary), optional trusted `plans.get` (full review artifact), `changes.apply({plan_id})`, and `changes.receipt.get` for recovery. Apply loads the exact app-local issued plan, binds the server-owned caller/capabilities context, and rejects caller-recomputed approvals, operations, edits, or provider actions. A retry of an already committed plan returns its validated receipt without repeating side effects; corrupt or mismatched receipts fail closed.

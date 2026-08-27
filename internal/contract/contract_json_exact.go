@@ -12,7 +12,7 @@ import (
 	"unicode/utf8"
 )
 
-const maxExactCanonicalJSONBytes = 16 << 20
+const maxExactCanonicalJSONExpansionBytes = 16 << 20
 
 func canonicalizeExactJSON(data []byte) ([]byte, error) {
 	if len(data) >= 3 && bytes.Equal(data[:3], []byte{0xef, 0xbb, 0xbf}) {
@@ -34,11 +34,27 @@ func canonicalizeExactJSON(data []byte) ([]byte, error) {
 		return nil, err
 	}
 	var output bytes.Buffer
-	budget := min(len(data)*8+1024, maxExactCanonicalJSONBytes)
+	budget := exactCanonicalJSONBudget(len(data))
 	if err := writeExactCanonicalJSON(&output, value, budget); err != nil {
 		return nil, err
 	}
 	return output.Bytes(), nil
+}
+
+// exactCanonicalJSONBudget bounds growth beyond the already-buffered input.
+// Large ordinary documents may remain large, while compact values such as
+// exponent-form numbers cannot expand by more than the fixed safety margin.
+func exactCanonicalJSONBudget(inputBytes int) int {
+	maxInt := int(^uint(0) >> 1)
+	ratioBudget := maxInt
+	if inputBytes <= (maxInt-1024)/8 {
+		ratioBudget = inputBytes*8 + 1024
+	}
+	expansionBudget := maxInt
+	if inputBytes <= maxInt-maxExactCanonicalJSONExpansionBytes {
+		expansionBudget = inputBytes + maxExactCanonicalJSONExpansionBytes
+	}
+	return min(ratioBudget, expansionBudget)
 }
 
 func decodeStrictContractJSON(data []byte, target any) error {

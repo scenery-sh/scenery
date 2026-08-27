@@ -275,11 +275,12 @@ func validateExecutionBindings(resources []Resource) []Diagnostic {
 			diagnostics = append(diagnostics, resourceDiagnostic("SCN2403", "binding operation must match its selected execution operation", binding))
 		}
 		delivery, mode := stringValue(binding.Spec["delivery"]), stringValue(execution.Spec["mode"])
-		compatible := mode == "direct" && delivery == "call" || mode == "durable" && (delivery == "enqueue" || delivery == "wait")
+		protocol := stringValue(binding.Spec["protocol"])
+		compatible := mode == "direct" && (delivery == "call" || delivery == "stream" && protocol == "http") || mode == "durable" && (delivery == "enqueue" || delivery == "wait")
 		// MCP keeps one synchronous tool-call surface even when the selected
 		// execution is durable; the gateway projects the resulting receipt and
 		// status/cancel capabilities instead of exposing enqueue/wait spellings.
-		if stringValue(binding.Spec["protocol"]) == "mcp" && mode == "durable" && delivery == "call" {
+		if protocol == "mcp" && mode == "durable" && delivery == "call" {
 			compatible = true
 		}
 		if !compatible {

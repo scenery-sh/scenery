@@ -15,7 +15,7 @@ It is normative for:
 - generated contract types;
 - service constructors and dependencies;
 - lifecycle hooks;
-- unary operation handlers and closed outcomes;
+- operation handlers and closed outcomes;
 - staged generation and type checking;
 - application adapters and registration;
 - artifact descriptors and revision checks.
@@ -24,16 +24,20 @@ The words MUST, MUST NOT, SHOULD, SHOULD NOT, and MAY are normative.
 
 ## 2. Implementation boundary
 
-`scenery.go-implementation/v1` is a unary implementation ABI. It does not define:
+`scenery.go-implementation/v1` is a typed implementation ABI. Ordinary
+operations are unary. A direct HTTP binding with `delivery = "stream"` uses the
+narrow typed byte-response ABI in Section 12.4. The implementation ABI does not
+define:
 
 - Scenery declaration syntax through Go builders;
 - runtime reflection or package scanning;
 - arbitrary HTTP request/response objects;
 - custom middleware handler signatures;
-- streaming handlers;
+- arbitrary request, bidirectional, upgraded-connection, or event streams;
 - superseded handler signatures.
 
-Transport-coupled Go HTTP requires a future explicit ABI.
+Transport-coupled Go HTTP remains unavailable; the typed byte-response ABI does
+not expose HTTP objects.
 
 Typed terminal HTTP path tails are defined by
 [http-path-tail.md](http-path-tail.md). They populate the
@@ -463,7 +467,7 @@ Hooks are exported, non-generic, and non-variadic.
 
 Exactly one generated application adapter owns each service lifecycle.
 
-## 12. Unary operation handlers
+## 12. Operation handlers
 
 ### 12.1 Signature
 
@@ -508,6 +512,34 @@ Only generated wrappers implement the unexported marker. Every declared result a
 - `error == nil` requires exactly one non-nil valid outcome.
 - `error != nil` requires an absent outcome.
 - Declared business errors are outcome wrappers, never Go errors.
+
+### 12.4 Direct HTTP byte-stream handlers
+
+An operation selected by an HTTP `delivery = "stream"` binding has this native
+signature:
+
+~~~go
+func (s *Service) Download(
+    ctx context.Context,
+    input drivecontract.DownloadInput,
+) (drivecontract.DownloadOutcome, scenery.ByteStream, error)
+~~~
+
+`scenery.ByteStream` contains an `io.ReadCloser` plus its exact non-negative
+size. On a successful result, the typed outcome's response-mapped `bytes` field
+MUST be empty and the stream MUST be present. The generated adapter clones only
+the remaining typed metadata and transfers the reader to the runtime without
+serializing it. On a declared error outcome the stream MUST be absent. On a Go
+error the implementation retains no ownership: the generated adapter closes
+any returned stream before reporting the system failure.
+
+After a valid result return, Scenery owns and closes the reader exactly once.
+It validates the declared size before headers, streams at most that exact size,
+and treats short reads or response-writer failures as runtime failures. A
+coexisting MCP call binding is a compatibility projection: its generated
+adapter explicitly buffers the same stream under the MCP result limit before
+canonical outcome serialization. No other non-streaming binding may select the
+same operation.
 - Go error means infrastructure or implementation failure only.
 - Panic, invalid wrapper, outcome plus error, or nil outcome plus nil error becomes `system.internal` and a contract-violation record.
 

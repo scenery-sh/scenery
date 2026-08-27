@@ -100,6 +100,62 @@ Map path, query, header, cookie, and body inputs explicitly in the `http` block.
 
 For a no-input operation, use `std.type.unit`; do not invent an empty request struct. For a terminal zero-or-more tail, use final `{name...}` and declare one matching `path_tail` mapping.
 
+## Stream A Large Typed Download
+
+Use `delivery = "stream"` when a direct HTTP result maps a required `bytes`
+value but the server must not materialize the whole body:
+
+```hcl
+binding "download_http" {
+  gateway   = var.gateway
+  operation = operation.download
+  execution = execution.download_direct
+  protocol  = "http"
+  delivery  = "stream"
+
+  authentication = std.authentication.none
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+
+  http {
+    method = "GET"
+    path   = "/drive/{path...}"
+    response_limit = { body_bytes = 209715200 }
+    path_tail "path" { to = operation.download.input.path }
+    response "success" {
+      when   = result.success
+      status = 200
+      body { codec = "bytes", from = result.success.content }
+    }
+  }
+}
+```
+
+Return metadata in the normal outcome, leave its mapped byte field empty, and
+transfer the open body with its exact size:
+
+```go
+func (s *Service) Download(ctx context.Context, input contract.DownloadInput) (
+	contract.DownloadOutcome,
+	scenery.ByteStream,
+	error,
+) {
+	body, object, err := s.store.Get(ctx, input.Path, storage.GetOptions{})
+	if err != nil {
+		return nil, scenery.ByteStream{}, err
+	}
+	result := contract.DownloadResult{ContentType: object.ContentType}
+	return contract.DownloadSuccess{Value: result}, scenery.NewByteStream(body, object.SizeBytes), nil
+}
+```
+
+Do not close the body after a successful return; Scenery owns it. Return a zero
+stream for declared error outcomes. The runtime enforces the response limit,
+streams optional gzip without a whole-body buffer, handles `HEAD`, and closes
+the reader on every terminal path. An MCP binding for the same operation is
+allowed but necessarily buffers the result for its JSON wire format; other
+non-streaming bindings are rejected.
+
 ## Constructor Capabilities And Config
 
 Declare typed package inputs and reference them through lower-snake service config keys:

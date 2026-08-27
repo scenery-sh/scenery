@@ -419,7 +419,7 @@ SCN6320|typescript_react_override|A declared React override is incompatible with
 SCN6321|typescript_react_application|A reachable application module has an unrelated TypeScript error
 SCN6322|typescript_react_readiness|The native React generation checker or application dependencies are unavailable
 SCN7001|feature_unavailable|A recognized source feature is unavailable
-SCN7008|streaming_unavailable|Streaming or server-sent events are unavailable
+SCN7008|streaming_unavailable|Server-sent events are unavailable
 SCN7009|unsupported_draft_surface|A declaration uses an unresolved draft capability
 SCN8001|invalid_request|The CLI or agent request is invalid
 SCN8002|revision_conflict|A request revision no longer matches current state

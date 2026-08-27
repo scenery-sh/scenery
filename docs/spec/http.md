@@ -156,7 +156,8 @@ Delivery is:
 - `call`: invoke a compatible direct execution and return completion;
 - `enqueue`: return after durable dispatch acceptance;
 - `wait`: dispatch durably and wait for completion;
-- `stream`: use future explicit stream support.
+- `stream`: invoke a compatible direct execution and stream the declared
+  terminal `bytes` result body.
 
 Every binding MUST select an execution explicitly. The HTTP contract performs no execution inference.
 
@@ -265,7 +266,8 @@ The HTTP contract defines:
 
 ### 9.2 No raw transport handle
 
-There is no `raw` codec in v1. A buffered opaque payload uses `codec = "bytes"` and a Scenery `bytes` value:
+There is no `raw` codec in v1. An opaque request or ordinary buffered response
+uses `codec = "bytes"` and a Scenery `bytes` value:
 
 ~~~hcl
 body {
@@ -274,11 +276,56 @@ body {
 }
 ~~~
 
-The framework owns reading, limits, cancellation, and defensive copying. `http.Request`, `ResponseWriter`, sockets, and transport stream handles are not operation input types.
+The framework owns reading, limits, cancellation, and defensive copying.
+`http.Request`, `ResponseWriter`, sockets, and transport stream handles are not
+operation input types.
 
-Unbuffered or transport-coupled access requires a future explicit handler ABI and `implementation_declared` guarantees. The current runtime MUST reject it.
+Unbuffered request bodies and transport-coupled access remain unavailable. The
+typed response stream in the next section is the only generic streaming
+exception and does not expose transport handles.
 
-### 9.3 JSON bodies
+### 9.3 Typed byte response streams
+
+An HTTP binding with `delivery = "stream"` selects a direct execution and MUST
+map every declared result to a response body whose codec and mapped value are
+exactly required `bytes`. Declared errors remain ordinary buffered problem
+responses. The same operation cannot also have a non-streaming HTTP, internal,
+event, schedule, or durable binding because those bindings require a different
+native handler ABI. An MCP `call` binding MAY project the operation; that JSON
+transport materializes the byte stream under its own result limit.
+
+~~~hcl
+binding "download_http" {
+  gateway   = var.gateway
+  operation = operation.download
+  execution = execution.download_direct
+  protocol  = "http"
+  delivery  = "stream"
+
+  http {
+    method = "GET"
+    path   = "/drive/{path...}"
+    response_limit = { body_bytes = 209715200 }
+    path_tail "path" { to = operation.download.input.path }
+    response "success" {
+      when   = result.success
+      status = 200
+      body { codec = "bytes", from = result.success.content }
+    }
+  }
+}
+~~~
+
+The handler returns its typed outcome plus a `scenery.ByteStream` containing an
+`io.ReadCloser` and exact non-negative byte count. The response-mapped `bytes`
+field in the outcome MUST be empty; it exists for the stable operation and
+client contract but is supplied from the separate stream channel. Scenery
+checks the declared size against the effective response limit before writing
+headers, negotiates media and encoding, streams identity or gzip incrementally,
+and closes the reader on success, rejection, `HEAD`, short read, or client
+disconnect. Identity responses carry the exact `Content-Length`.
+
+### 9.4 JSON bodies
 
 JSON is UTF-8 only. The decoder rejects:
 
@@ -295,11 +342,11 @@ An absent `optional(T)` field is absent. A present `nullable(T)` field may be JS
 
 Records with `unknown_fields = "preserve"` retain unknown members as canonical `json` values in the generated dedicated unknown-field map. Encoding rejects a collision with a declared effective wire name.
 
-### 9.4 Form bodies
+### 9.5 Form bodies
 
 `application/x-www-form-urlencoded` uses UTF-8 and form rules where plus means space. Collection behavior follows query rules unless explicitly overridden. Nested values require explicit JSON encoding.
 
-### 9.5 Multipart bodies
+### 9.6 Multipart bodies
 
 A multipart schema distinguishes text fields, byte fields, and file parts. Every file part declares:
 
@@ -371,7 +418,7 @@ The effective graph exposes at least:
 - maximum request body bytes;
 - maximum decompressed body bytes;
 - maximum multipart parts and per-part bytes;
-- maximum response bytes for buffered responses;
+- maximum response bytes for buffered and typed streaming responses;
 - supported compression algorithms;
 - compression thresholds;
 - read, write, idle, and total invocation timeouts.
@@ -523,6 +570,8 @@ A conforming implementation passes fixtures for:
 - CORS preflight projection;
 - complete response coverage;
 - rejection of `codec = "raw"`;
+- typed byte-stream size, compression, `HEAD`, short-read, disconnect, and
+  reader-ownership behavior;
 - gateway, OpenAPI, and TypeScript artifact projection revisions;
 - deterministic manifest and client generation.
 

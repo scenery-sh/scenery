@@ -50,6 +50,53 @@ func TestHTTPValidationRejectsStreamingWithoutAStreamingProfile(t *testing.T) {
 	}
 }
 
+func TestHTTPValidationAcceptsDirectTypedByteStream(t *testing.T) {
+	resources := []Resource{
+		{Address: "app/http_gateway/public", Kind: "scenery.http-gateway", Spec: map[string]any{"exposure": "internet", "base_path": "/"}},
+		{Address: "house/service/house", Module: "house", Kind: "scenery.service"},
+		{Address: "house/record/download", Module: "house", Kind: "scenery.record", Spec: map[string]any{"field": []any{map[string]any{"name": "content", "type": map[string]any{"$ref": "bytes"}}}}},
+		{Address: "house/operation/download", Module: "house", Kind: "scenery.operation", Spec: map[string]any{
+			"service": map[string]any{"$ref": "service.house"}, "input": map[string]any{"$ref": "string"}, "handler": map[string]any{"method": "Download"},
+			"result": map[string]any{"name": "success", "type": map[string]any{"$ref": "record.download"}},
+		}},
+		{Address: "house/execution/download", Module: "house", Kind: "scenery.execution", Spec: map[string]any{"operation": map[string]any{"$ref": "operation.download"}, "mode": "direct"}},
+		{Address: "house/binding/download", Module: "house", Kind: "scenery.binding", Spec: map[string]any{
+			"gateway": map[string]any{"$ref": "app/http_gateway/public"}, "operation": map[string]any{"$ref": "operation.download"}, "execution": map[string]any{"$ref": "execution.download"}, "protocol": "http", "delivery": "stream",
+			"authentication": map[string]any{"$ref": "std.authentication.none"}, "authorization": map[string]any{"$ref": "std.authorization.public"}, "pipeline": map[string]any{"$ref": "std.pipeline.empty"},
+			"http": map[string]any{"method": "GET", "path": "/download", "codec_profile": map[string]any{"$ref": "std.codec.http_json_v1"}, "response": map[string]any{"name": "success", "when": map[string]any{"$ref": "result.success"}, "status": "200", "body": map[string]any{"codec": "bytes", "from": map[string]any{"$ref": "result.success.content"}}}},
+		}},
+	}
+	diagnostics := validateHTTPResources(resources)
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Code == "SCN7008" || diagnostic.Code == "SCN2111" || diagnostic.Code == "SCN2114" {
+			t.Fatalf("typed byte stream was rejected: %#v", diagnostics)
+		}
+	}
+	if diagnostics := validateExecutionBindings(resources); hasDiagnostic(diagnostics, "SCN2404") {
+		t.Fatalf("direct stream execution was rejected: %#v", diagnostics)
+	}
+}
+
+func TestHTTPValidationRejectsMixedStreamHandlerABI(t *testing.T) {
+	operation := Resource{Address: "house/operation/download", Module: "house", Kind: "scenery.operation"}
+	binding := Resource{Address: "house/binding/download", Module: "house", Kind: "scenery.binding", Spec: map[string]any{"operation": map[string]any{"$ref": "operation.download"}, "protocol": "http", "delivery": "stream"}}
+	internal := Resource{Address: "house/binding/download_internal", Module: "house", Kind: "scenery.binding", Spec: map[string]any{"operation": map[string]any{"$ref": "operation.download"}, "protocol": "internal", "delivery": "call"}}
+	diagnostics := validateHTTPByteStreamBinding([]Resource{operation, binding, internal}, binding, operation, map[string]any{})
+	if !hasDiagnostic(diagnostics, "SCN2404") {
+		t.Fatalf("mixed streaming handler ABI was accepted: %#v", diagnostics)
+	}
+}
+
+func TestHTTPValidationAllowsMCPCompatibilityBindingForStreamOperation(t *testing.T) {
+	operation := Resource{Address: "house/operation/download", Module: "house", Kind: "scenery.operation"}
+	binding := Resource{Address: "house/binding/download", Module: "house", Kind: "scenery.binding", Spec: map[string]any{"operation": map[string]any{"$ref": "operation.download"}, "protocol": "http", "delivery": "stream"}}
+	mcp := Resource{Address: "house/binding/download_mcp", Module: "house", Kind: "scenery.binding", Spec: map[string]any{"operation": map[string]any{"$ref": "operation.download"}, "protocol": "mcp", "delivery": "call"}}
+	diagnostics := validateHTTPByteStreamBinding([]Resource{operation, binding, mcp}, binding, operation, map[string]any{})
+	if hasDiagnostic(diagnostics, "SCN2404") {
+		t.Fatalf("MCP compatibility binding was rejected: %#v", diagnostics)
+	}
+}
+
 func TestHTTPRouteKeyJoinsGatewayBasePath(t *testing.T) {
 	resources := []Resource{
 		{Address: "app/http_gateway/public", Kind: "scenery.http-gateway", Spec: map[string]any{"exposure": "internal", "base_path": "/api/"}},

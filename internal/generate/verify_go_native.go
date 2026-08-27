@@ -162,18 +162,41 @@ func validateNativeGoHandlers(appModel *model.App, resources []Resource) []Diagn
 			diagnostics = append(diagnostics, Diagnostic{Code: "SCN6103", Severity: "error", Message: "native handler method " + methodName + " not found", Address: operation.Address})
 			continue
 		}
+		streaming := operationUsesHTTPStream(operation, resources)
+		wantResults := 2
+		if streaming {
+			wantResults = 3
+		}
 		signature, ok := selection.Obj().Type().(*types.Signature)
-		if !ok || signature.Params().Len() != 2 || signature.Results().Len() != 2 {
-			diagnostics = append(diagnostics, Diagnostic{Code: "SCN6104", Severity: "error", Message: "native handler " + methodName + " must accept context and generated input and return generated outcome plus error", Address: operation.Address})
+		if !ok || signature.Params().Len() != 2 || signature.Results().Len() != wantResults {
+			message := "native handler " + methodName + " must accept context and generated input and return generated outcome plus error"
+			if streaming {
+				message = "native streaming handler " + methodName + " must accept context and generated input and return generated outcome, scenery.ByteStream, and error"
+			}
+			diagnostics = append(diagnostics, Diagnostic{Code: "SCN6104", Severity: "error", Message: message, Address: operation.Address})
 			continue
 		}
 		inputWant := goName(operation.Name) + "Input"
 		outcomeWant := goName(operation.Name) + "Outcome"
 		inputGot := types.TypeString(signature.Params().At(1).Type(), packageQualifier)
 		outcomeGot := types.TypeString(signature.Results().At(0).Type(), packageQualifier)
-		errorGot := types.TypeString(signature.Results().At(1).Type(), packageQualifier)
-		if !strings.HasSuffix(inputGot, "/scenerycontract."+inputWant) || !strings.HasSuffix(outcomeGot, "/scenerycontract."+outcomeWant) || errorGot != "error" {
-			diagnostics = append(diagnostics, Diagnostic{Code: "SCN6105", Severity: "error", Message: fmt.Sprintf("native handler %s has (%s) (%s, %s), want scenerycontract.%s -> scenerycontract.%s, error", methodName, inputGot, outcomeGot, errorGot, inputWant, outcomeWant), Address: operation.Address})
+		errorIndex := 1
+		streamGot := ""
+		if streaming {
+			streamGot = types.TypeString(signature.Results().At(1).Type(), packageQualifier)
+			errorIndex = 2
+		}
+		errorGot := types.TypeString(signature.Results().At(errorIndex).Type(), packageQualifier)
+		valid := strings.HasSuffix(inputGot, "/scenerycontract."+inputWant) && strings.HasSuffix(outcomeGot, "/scenerycontract."+outcomeWant) && errorGot == "error"
+		if streaming {
+			valid = valid && (streamGot == "scenery.sh.ByteStream" || strings.HasSuffix(streamGot, "/runtime.ContractByteStream"))
+		}
+		if !valid {
+			if streaming {
+				diagnostics = append(diagnostics, Diagnostic{Code: "SCN6105", Severity: "error", Message: fmt.Sprintf("native streaming handler %s has (%s) (%s, %s, %s), want scenerycontract.%s -> scenerycontract.%s, scenery.ByteStream, error", methodName, inputGot, outcomeGot, streamGot, errorGot, inputWant, outcomeWant), Address: operation.Address})
+			} else {
+				diagnostics = append(diagnostics, Diagnostic{Code: "SCN6105", Severity: "error", Message: fmt.Sprintf("native handler %s has (%s) (%s, %s), want scenerycontract.%s -> scenerycontract.%s, error", methodName, inputGot, outcomeGot, errorGot, inputWant, outcomeWant), Address: operation.Address})
+			}
 		}
 	}
 	return diagnostics

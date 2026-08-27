@@ -391,7 +391,11 @@ func renderApplicationAdapterSource(contractRevision, packageIdentity, packageAB
 	for _, operation := range operations {
 		handler, _ := operation.Spec["handler"].(map[string]any)
 		method, _ := handler["method"].(string)
-		fmt.Fprintf(&b, "\t%s(context.Context, contract.%sInput) (contract.%sOutcome, error)\n", method, goName(operation.Name), goName(operation.Name))
+		if operationUsesHTTPStream(operation, bindings) {
+			fmt.Fprintf(&b, "\t%s(context.Context, contract.%sInput) (contract.%sOutcome, scenery.ByteStream, error)\n", method, goName(operation.Name), goName(operation.Name))
+		} else {
+			fmt.Fprintf(&b, "\t%s(context.Context, contract.%sInput) (contract.%sOutcome, error)\n", method, goName(operation.Name), goName(operation.Name))
+		}
 	}
 	lifecycle, _ := service.Spec["lifecycle"].(map[string]any)
 	if method := stringValue(lifecycle["start"]); method != "" {
@@ -401,7 +405,7 @@ func renderApplicationAdapterSource(contractRevision, packageIdentity, packageAB
 		fmt.Fprintf(&b, "\t%s(context.Context) error\n", method)
 	}
 	b.WriteString("}\n\ntype serviceAdapter struct { native serviceImplementation }\n\nvar service *serviceAdapter\n\n")
-	if err := renderServiceOperationAdapters(&b, operations); err != nil {
+	if err := renderServiceOperationAdapters(&b, operations, bindings); err != nil {
 		return nil, err
 	}
 	for _, client := range clients {

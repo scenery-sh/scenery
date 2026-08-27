@@ -33,9 +33,6 @@ func validateHTTPResources(resources []Resource) []Diagnostic {
 			continue
 		}
 		httpSpec, _ := binding.Spec["http"].(map[string]any)
-		if stringValue(binding.Spec["delivery"]) == "stream" {
-			diagnostics = append(diagnostics, Diagnostic{Code: "SCN7008", Severity: "error", Message: "feature_unavailable: HTTP stream delivery is not implemented", Address: binding.Address})
-		}
 		if httpUsesUnsupportedStreamingCodec(httpSpec) {
 			diagnostics = append(diagnostics, Diagnostic{Code: "SCN7008", Severity: "error", Message: "feature_unavailable: server_sent_events is not implemented", Address: binding.Address})
 		}
@@ -86,6 +83,9 @@ func validateHTTPResources(resources []Resource) []Diagnostic {
 		if operation, ok := byAddress[resolveResourceRef(binding, refString(binding.Spec["operation"]), "operation")]; ok {
 			diagnostics = append(diagnostics, validateHTTPInputMappings(byAddress, binding, operation, httpSpec)...)
 			diagnostics = append(diagnostics, validateHTTPResponses(byAddress, binding, operation, httpSpec)...)
+			if stringValue(binding.Spec["delivery"]) == "stream" {
+				diagnostics = append(diagnostics, validateHTTPByteStreamBinding(resources, binding, operation, httpSpec)...)
+			}
 		}
 		basePath, _ := gateway.Spec["base_path"].(string)
 		effectivePath := joinHTTPPath(basePath, bindingPath)
@@ -104,6 +104,43 @@ func validateHTTPResources(resources []Resource) []Diagnostic {
 			routes[key] = binding.Address
 			routeEntries = append(routeEntries, routeEntry{gateway: gatewayRef, method: canonicalMethod, shape: routeShape, address: binding.Address, pathTail: usesTail})
 		}
+	}
+	return diagnostics
+}
+
+func validateHTTPByteStreamBinding(resources []Resource, binding, operation Resource, httpSpec map[string]any) []Diagnostic {
+	var diagnostics []Diagnostic
+	for _, candidate := range resources {
+		if candidate.Kind != "scenery.binding" || candidate.Address == binding.Address {
+			continue
+		}
+		candidateOperation := resolveResourceRef(candidate, refString(candidate.Spec["operation"]), "operation")
+		if candidateOperation == operation.Address && stringValue(candidate.Spec["delivery"]) != "stream" && stringValue(candidate.Spec["protocol"]) != "mcp" {
+			diagnostics = append(diagnostics, Diagnostic{Code: "SCN2404", Severity: "error", Message: "streaming operation cannot also use a non-stream binding", Address: binding.Address, Related: []Related{{Address: candidate.Address}}})
+		}
+	}
+	resultBodies := 0
+	for _, response := range namedChildren(httpSpec, "response") {
+		when := refOrString(response["when"])
+		body, _ := response["body"].(map[string]any)
+		if strings.HasPrefix(when, "result.") {
+			resultBodies++
+			if body == nil || stringValue(body["codec"]) != "bytes" {
+				diagnostics = append(diagnostics, Diagnostic{Code: "SCN2114", Severity: "error", Message: "streaming result responses require a bytes body", Address: binding.Address})
+			} else if valueType, _, err := httpOutcomeMappedValueType(resourcesByAddress(&Manifest{Resources: resources}), operation, when, refOrString(body["from"])); err == nil && strings.TrimSpace(typeExpression(valueType)) != "bytes" {
+				diagnostics = append(diagnostics, Diagnostic{Code: "SCN2114", Severity: "error", Message: "streaming result responses require a non-optional bytes value", Address: binding.Address})
+			}
+		} else if body != nil && stringValue(body["codec"]) == "bytes" {
+			diagnostics = append(diagnostics, Diagnostic{Code: "SCN2114", Severity: "error", Message: "only result responses may consume the byte stream", Address: binding.Address})
+		}
+		for _, header := range namedChildren(response, "header") {
+			if stringValue(header["name"]) == "content-length" {
+				diagnostics = append(diagnostics, Diagnostic{Code: "SCN2115", Severity: "error", Message: "streaming response content-length is owned by Scenery", Address: binding.Address})
+			}
+		}
+	}
+	if resultBodies == 0 {
+		diagnostics = append(diagnostics, Diagnostic{Code: "SCN2111", Severity: "error", Message: "streaming HTTP binding requires a result response", Address: binding.Address})
 	}
 	return diagnostics
 }
@@ -244,7 +281,7 @@ func exactHTTPMappingNames(want, got map[string]int) bool {
 func validateHTTPResponses(resources map[string]Resource, binding, operation Resource, httpSpec map[string]any) []Diagnostic {
 	needed := map[string]bool{}
 	delivery := stringValue(binding.Spec["delivery"])
-	if delivery == "call" || delivery == "wait" {
+	if delivery == "call" || delivery == "wait" || delivery == "stream" {
 		for _, kind := range []string{"result", "error"} {
 			for _, outcome := range namedChildren(operation.Spec, kind) {
 				needed[kind+"."+stringValue(outcome["name"])] = true

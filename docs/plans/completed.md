@@ -11,6 +11,21 @@ historical records. Do not refresh their review dates or rewrite them as current
 contract prose. Record later guidance here or in the owning current contract;
 use stale knowledge metadata to flag a known contradiction.
 
+## Typed HTTP Byte Streams
+
+- Status: completed
+- Owner: scenery compiler / Go runtime
+- Completed: 2026-08-27
+- Quality: B
+- ExecPlan: [0154 Typed HTTP Byte Streams](0154-typed-http-byte-streams.md)
+
+Added a typed direct-HTTP byte stream ABI with generated handler verification,
+metadata-only outcome cloning, pre-header size limits, identity and incremental
+gzip delivery, deterministic reader ownership, and explicit MCP buffering at
+that transport's result limit. ONLV Drive now transfers object-storage readers
+without `io.ReadAll` or base64 on its HTTP path; its exact 17.9 MB Flyover GLB
+passes byte/hash, structural, harness, and live Three.js viewer acceptance.
+
 ## `scenery up` Startup Telemetry
 
 - Status: completed

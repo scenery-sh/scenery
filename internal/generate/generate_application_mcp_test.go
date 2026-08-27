@@ -73,6 +73,45 @@ func TestGeneratedDurableMCPTypeErrorUsesValidFormattingDirective(t *testing.T) 
 	}
 }
 
+func TestGeneratedMCPCompatibilityBindingBuffersHTTPStreamExplicitly(t *testing.T) {
+	resultRecord := Resource{Address: "house/record/download_result", Module: "house", Kind: "scenery.record", Name: "download_result", Spec: map[string]any{
+		"field": map[string]any{"name": "content", "type": map[string]any{"$ref": "bytes"}},
+	}}
+	operation := Resource{Address: "house/operation/download", Module: "house", Kind: "scenery.operation", Name: "download", Spec: map[string]any{
+		"handler": map[string]any{"method": "Download"},
+		"result":  map[string]any{"name": "success", "type": map[string]any{"$ref": "record.download_result"}},
+	}}
+	streamBinding := Resource{Address: "house/binding/download_http", Module: "house", Kind: "scenery.binding", Spec: map[string]any{
+		"operation": map[string]any{"$ref": "operation.download"}, "protocol": "http", "delivery": "stream",
+		"http": map[string]any{"response": map[string]any{
+			"name": "success", "when": map[string]any{"$ref": "result.success"}, "status": "200",
+			"body": map[string]any{"codec": "bytes", "from": map[string]any{"$ref": "result.success.content"}},
+		}},
+	}}
+	mcpBinding := Resource{Address: "house/binding/download_mcp", Module: "house", Kind: "scenery.binding", Spec: map[string]any{
+		"operation": map[string]any{"$ref": "operation.download"}, "protocol": "mcp", "delivery": "call",
+		"authorization": map[string]any{"$ref": "std.authorization.public"}, "pipeline": map[string]any{"$ref": "std.pipeline.empty"},
+	}}
+	target := mcpToolTarget{Binding: mcpBinding, Operation: operation, AssistantAddress: "app/assistant/support", Name: "download", MaxResultBytes: 1024}
+	var source strings.Builder
+	resources := []Resource{resultRecord, operation, streamBinding, mcpBinding}
+	if err := renderMCPToolRegistrations(&source, "sha256:contract", Resource{Name: "house"}, []mcpToolTarget{target}, resources); err != nil {
+		t.Fatal(err)
+	}
+	generated := source.String()
+	for _, fragment := range []string{
+		"outcome, stream, err := service.Download(ctx, copied)",
+		"if len(typed.Value.Content) != 0",
+		"sceneryruntime.BufferContractByteStream(stream, 1024)",
+		"typed.Value.Content = buffered",
+		"contract.CloneDownloadOutcome(outcome)",
+	} {
+		if !strings.Contains(generated, fragment) {
+			t.Fatalf("generated MCP stream bridge missing %q:\n%s", fragment, generated)
+		}
+	}
+}
+
 func TestGeneratedApplicationCompositionRegistersAssistantSurface(t *testing.T) {
 	root, err := filepath.Abs(filepath.Join("..", "compiler", "testdata", "native"))
 	if err != nil {

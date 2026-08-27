@@ -10,7 +10,7 @@ import (
 	scenery "scenery.sh/internal/contract"
 )
 
-func renderServiceOperationAdapters(b *strings.Builder, operations []Resource) error {
+func renderServiceOperationAdapters(b *strings.Builder, operations, bindings []Resource) error {
 	for _, operation := range operations {
 		handler, _ := operation.Spec["handler"].(map[string]any)
 		method := stringValue(handler["method"])
@@ -18,11 +18,26 @@ func renderServiceOperationAdapters(b *strings.Builder, operations []Resource) e
 			return fmt.Errorf("operation %s has no handler method", operation.Address)
 		}
 		operationName := goName(operation.Name)
-		fmt.Fprintf(b, "func (adapter *serviceAdapter) %s(ctx context.Context, input contract.%sInput) (contract.%sOutcome, error) {\n", method, operationName, operationName)
-		b.WriteString("\tif adapter == nil || adapter.native == nil { return nil, fmt.Errorf(\"service is not initialized\") }\n\tnative := adapter.native\n")
-		fmt.Fprintf(b, "\treturn native.%s(ctx, input)\n}\n\n", method)
+		if operationUsesHTTPStream(operation, bindings) {
+			fmt.Fprintf(b, "func (adapter *serviceAdapter) %s(ctx context.Context, input contract.%sInput) (contract.%sOutcome, scenery.ByteStream, error) {\n", method, operationName, operationName)
+			b.WriteString("\tif adapter == nil || adapter.native == nil { return nil, scenery.ByteStream{}, fmt.Errorf(\"service is not initialized\") }\n\tnative := adapter.native\n")
+			fmt.Fprintf(b, "\treturn native.%s(ctx, input)\n}\n\n", method)
+		} else {
+			fmt.Fprintf(b, "func (adapter *serviceAdapter) %s(ctx context.Context, input contract.%sInput) (contract.%sOutcome, error) {\n", method, operationName, operationName)
+			b.WriteString("\tif adapter == nil || adapter.native == nil { return nil, fmt.Errorf(\"service is not initialized\") }\n\tnative := adapter.native\n")
+			fmt.Fprintf(b, "\treturn native.%s(ctx, input)\n}\n\n", method)
+		}
 	}
 	return nil
+}
+
+func operationUsesHTTPStream(operation Resource, bindings []Resource) bool {
+	for _, binding := range bindings {
+		if stringValue(binding.Spec["protocol"]) == "http" && stringValue(binding.Spec["delivery"]) == "stream" && resolveResourceRef(binding, refString(binding.Spec["operation"]), "operation") == operation.Address {
+			return true
+		}
+	}
+	return false
 }
 
 func renderHTTPBindingRegistration(b *strings.Builder, resources []Resource, service, operation, binding Resource) error {
@@ -73,10 +88,20 @@ func renderHTTPBindingRegistration(b *strings.Builder, resources []Resource, ser
 			}
 		}
 		fmt.Fprintf(b, "\t\t\t\tInvoke: func(ctx context.Context, _ []any, payload any) (any, error) { typed := payload.(contract.%sInput); copied, err := contract.Clone%sInput(typed); if err != nil { return nil, sceneryruntime.ContractSystemError(err) }; options, err := %s(copied); if err != nil { return nil, sceneryruntime.ContractSystemError(err) }; data, err := sceneryruntime.DispatchAndWaitContractDurableExecutionWithOptions(ctx, %q, copied, options); if err != nil { switch sceneryruntime.ContractDurableFailureOutcome(err) { case \"dispatch.rejected\": return nil, &sceneryruntime.ContractTransportError{Outcome: \"dispatch.rejected\", Status: %d, Message: \"durable dispatch rejected\", Cause: err}; case \"dispatch.wait_timeout\": return nil, &sceneryruntime.ContractTransportError{Outcome: \"dispatch.wait_timeout\", Status: %d, Message: \"durable wait timed out\", Cause: err}; default: return nil, sceneryruntime.ContractSystemError(err) } }; return contract.Unmarshal%sOutcome(data) },\n", operationName, operationName, durableDispatchOptionsFunction(execution), execution.Address, statuses["dispatch.rejected"], statuses["dispatch.wait_timeout"], operationName)
+	} else if delivery == "stream" {
+		fmt.Fprintf(b, "\t\t\t\tInvoke: func(ctx context.Context, _ []any, payload any) (any, error) { if service == nil { return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"service is not initialized\")) }; copied, err := contract.Clone%sInput(payload.(contract.%sInput)); if err != nil { return nil, sceneryruntime.ContractSystemError(err) }; outcome, stream, err := service.%s(ctx, copied); if err != nil { _ = stream.Close(); if outcome != nil { return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"handler returned outcome and error\")) }; return nil, sceneryruntime.ContractSystemError(err) }; if outcome == nil { _ = stream.Close(); return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"handler returned nil outcome without error\")) }; ", operationName, operationName, handlerMethod)
+		if err := renderHTTPStreamOutcomeSanitizer(b, resourceMap, operation, httpSpec); err != nil {
+			return fmt.Errorf("HTTP binding %s stream outcome: %w", binding.Address, err)
+		}
+		fmt.Fprintf(b, "cloned, err := contract.Clone%sOutcome(outcome); if err != nil { _ = stream.Close(); return nil, sceneryruntime.ContractSystemError(err) }; return sceneryruntime.NewContractStreamOutcome(cloned, stream), nil },\n", operationName)
 	} else {
 		fmt.Fprintf(b, "\t\t\t\tInvoke: func(ctx context.Context, _ []any, payload any) (any, error) { if service == nil { return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"service is not initialized\")) }; copied, err := contract.Clone%sInput(payload.(contract.%sInput)); if err != nil { return nil, sceneryruntime.ContractSystemError(err) }; outcome, err := service.%s(ctx, copied); if err != nil { if outcome != nil { return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"handler returned outcome and error\")) }; return nil, sceneryruntime.ContractSystemError(err) }; if outcome == nil { return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"handler returned nil outcome without error\")) }; cloned, err := contract.Clone%sOutcome(outcome); if err != nil { return nil, sceneryruntime.ContractSystemError(err) }; if err := sceneryruntime.PublishContractOperationOutcome(ctx, %q, cloned); err != nil { return nil, sceneryruntime.ContractSystemError(err) }; return cloned, nil },\n", operationName, operationName, handlerMethod, operationName, operation.Address)
 	}
-	b.WriteString("\t\t\t\tEncodeContractOutcome: func(request *http.Request, outcome any) (sceneryruntime.ContractHTTPResponse, error) { _ = request; switch typed := outcome.(type) {\n")
+	if delivery == "stream" {
+		b.WriteString("\t\t\t\tEncodeContractOutcome: func(request *http.Request, outcome any) (sceneryruntime.ContractHTTPResponse, error) { _ = request; streamed, ok := outcome.(*sceneryruntime.ContractStreamOutcome); if !ok { return sceneryruntime.ContractHTTPResponse{}, sceneryruntime.ContractSystemError(fmt.Errorf(\"stream handler returned %T\", outcome)) }; switch typed := streamed.Outcome.(type) {\n")
+	} else {
+		b.WriteString("\t\t\t\tEncodeContractOutcome: func(request *http.Request, outcome any) (sceneryruntime.ContractHTTPResponse, error) { _ = request; switch typed := outcome.(type) {\n")
+	}
 	responses := responseMappings(httpSpec)
 	if delivery == "enqueue" {
 		response, ok := responses["dispatch.enqueued"]
@@ -87,7 +112,7 @@ func renderHTTPBindingRegistration(b *strings.Builder, resources []Resource, ser
 		if err != nil {
 			return fmt.Errorf("HTTP binding %s dispatch.enqueued has invalid status", binding.Address)
 		}
-		if err := renderHTTPResponseCase(b, resourceMap, operation, "dispatch.enqueued", "scenery.ExecutionReceipt", status, "typed", map[string]any{"$ref": "std.type.execution_receipt"}, response, httpSpec); err != nil {
+		if err := renderHTTPResponseCase(b, resourceMap, operation, "dispatch.enqueued", "scenery.ExecutionReceipt", status, "typed", map[string]any{"$ref": "std.type.execution_receipt"}, response, httpSpec, false); err != nil {
 			return fmt.Errorf("HTTP binding %s response dispatch.enqueued: %w", binding.Address, err)
 		}
 		b.WriteString("\t\t\t\tdefault: return sceneryruntime.ContractHTTPResponse{}, sceneryruntime.ContractSystemError(fmt.Errorf(\"unsupported handler outcome %T\", outcome)) } },\n")
@@ -110,7 +135,7 @@ func renderHTTPBindingRegistration(b *strings.Builder, resources []Resource, ser
 			if outcomeKind == "error" {
 				field = "typed.Problem"
 			}
-			if err := renderHTTPResponseCase(b, resourceMap, operation, outcomeKind+"."+name, "contract."+wrapper, status, field, variant["type"], response, httpSpec); err != nil {
+			if err := renderHTTPResponseCase(b, resourceMap, operation, outcomeKind+"."+name, "contract."+wrapper, status, field, variant["type"], response, httpSpec, delivery == "stream"); err != nil {
 				return fmt.Errorf("HTTP binding %s response %s: %w", binding.Address, name, err)
 			}
 		}
@@ -119,7 +144,8 @@ func renderHTTPBindingRegistration(b *strings.Builder, resources []Resource, ser
 	return nil
 }
 
-func renderHTTPResponseCase(b *strings.Builder, resources map[string]Resource, operation Resource, outcome, caseType string, status int, rootExpression string, rootType any, response map[string]any, httpSpec map[string]any) error {
+func renderHTTPResponseCase(b *strings.Builder, resources map[string]Resource, operation Resource, outcome, caseType string, status int, rootExpression string, rootType any, response, httpSpec map[string]any, streaming ...bool) error {
+	streamResponse := len(streaming) > 0 && streaming[0]
 	fmt.Fprintf(b, "\t\t\t\tcase %s:\n", caseType)
 	if response["body"] == nil && len(namedChildren(response, "header")) == 0 && len(namedChildren(response, "cookie")) == 0 {
 		b.WriteString("\t\t\t\t\t_ = typed\n")
@@ -135,9 +161,21 @@ func renderHTTPResponseCase(b *strings.Builder, resources map[string]Resource, o
 			produced = []string{defaultHTTPMediaType(codec)}
 		}
 		options := renderContractResponseOptions(httpSpec, goWireTypeExpression(valueType))
-		fmt.Fprintf(b, "\t\t\t\t\tresponse, err := sceneryruntime.EncodeContractRepresentationWithOptions(request, %d, %s, %q, %#v, %s)\n", status, valueExpression, codec, produced, options)
+		if streamResponse && strings.HasPrefix(outcome, "result.") && codec == "bytes" {
+			b.WriteString("\t\t\t\t\tstream, err := streamed.TakeStream()\n")
+			b.WriteString("\t\t\t\t\tif err != nil { return sceneryruntime.ContractHTTPResponse{}, sceneryruntime.ContractSystemError(err) }\n")
+			fmt.Fprintf(b, "\t\t\t\t\tresponse, err := sceneryruntime.EncodeContractByteStreamWithOptions(request, %d, stream, %#v, %s)\n", status, produced, options)
+		} else {
+			if streamResponse {
+				b.WriteString("\t\t\t\t\tif err := streamed.RequireNoStream(); err != nil { return sceneryruntime.ContractHTTPResponse{}, sceneryruntime.ContractSystemError(err) }\n")
+			}
+			fmt.Fprintf(b, "\t\t\t\t\tresponse, err := sceneryruntime.EncodeContractRepresentationWithOptions(request, %d, %s, %q, %#v, %s)\n", status, valueExpression, codec, produced, options)
+		}
 		b.WriteString("\t\t\t\t\tif err != nil { return sceneryruntime.ContractHTTPResponse{}, err }\n")
 	} else {
+		if streamResponse {
+			b.WriteString("\t\t\t\t\tif err := streamed.RequireNoStream(); err != nil { return sceneryruntime.ContractHTTPResponse{}, sceneryruntime.ContractSystemError(err) }\n")
+		}
 		fmt.Fprintf(b, "\t\t\t\t\tresponse := sceneryruntime.ContractHTTPResponse{Status: %d}\n", status)
 	}
 	for _, header := range namedChildren(response, "header") {
@@ -153,7 +191,7 @@ func renderHTTPResponseCase(b *strings.Builder, resources map[string]Resource, o
 		if condition != "" {
 			indent += "\t"
 		}
-		fmt.Fprintf(b, "%sif err := sceneryruntime.AddContractResponseHeader(&response, %q, %s, sceneryruntime.ContractResponseValueOptions{Encoding: %q, EncodeValue: func(value any) ([]byte, error) { return scenery.MarshalContractValue(value, %q) }}); err != nil { return sceneryruntime.ContractHTTPResponse{}, sceneryruntime.ContractSystemError(err) }\n", indent, stringValue(header["name"]), valueExpression, defaultString(stringValue(header["encoding"]), "repeated"), goWireTypeExpression(encodedType))
+		fmt.Fprintf(b, "%sif err := sceneryruntime.AddContractResponseHeader(&response, %q, %s, sceneryruntime.ContractResponseValueOptions{Encoding: %q, EncodeValue: func(value any) ([]byte, error) { return scenery.MarshalContractValue(value, %q) }}); err != nil { _ = response.Close(); return sceneryruntime.ContractHTTPResponse{}, sceneryruntime.ContractSystemError(err) }\n", indent, stringValue(header["name"]), valueExpression, defaultString(stringValue(header["encoding"]), "repeated"), goWireTypeExpression(encodedType))
 		if condition != "" {
 			b.WriteString("\t\t\t\t\t}\n")
 		}
@@ -187,12 +225,34 @@ func renderHTTPResponseCase(b *strings.Builder, resources map[string]Resource, o
 		if condition != "" {
 			indent += "\t"
 		}
-		fmt.Fprintf(b, "%sif err := sceneryruntime.AddContractResponseCookie(&response, sceneryruntime.ContractResponseCookie{Name: %q, Path: %q, Domain: %q, MaxAge: %d, Expires: %q, Secure: %t, HTTPOnly: %t, SameSite: %s}, %s, sceneryruntime.ContractResponseValueOptions{EncodeValue: func(value any) ([]byte, error) { return scenery.MarshalContractValue(value, %q) }}); err != nil { return sceneryruntime.ContractHTTPResponse{}, sceneryruntime.ContractSystemError(err) }\n", indent, stringValue(cookie["name"]), defaultString(stringValue(cookie["path"]), "/"), stringValue(cookie["domain"]), maxAge, stringValue(cookie["expires"]), secure, httpOnly, sameSite, valueExpression, goWireTypeExpression(encodedType))
+		fmt.Fprintf(b, "%sif err := sceneryruntime.AddContractResponseCookie(&response, sceneryruntime.ContractResponseCookie{Name: %q, Path: %q, Domain: %q, MaxAge: %d, Expires: %q, Secure: %t, HTTPOnly: %t, SameSite: %s}, %s, sceneryruntime.ContractResponseValueOptions{EncodeValue: func(value any) ([]byte, error) { return scenery.MarshalContractValue(value, %q) }}); err != nil { _ = response.Close(); return sceneryruntime.ContractHTTPResponse{}, sceneryruntime.ContractSystemError(err) }\n", indent, stringValue(cookie["name"]), defaultString(stringValue(cookie["path"]), "/"), stringValue(cookie["domain"]), maxAge, stringValue(cookie["expires"]), secure, httpOnly, sameSite, valueExpression, goWireTypeExpression(encodedType))
 		if condition != "" {
 			b.WriteString("\t\t\t\t\t}\n")
 		}
 	}
 	b.WriteString("\t\t\t\t\treturn response, nil\n")
+	return nil
+}
+
+func renderHTTPStreamOutcomeSanitizer(b *strings.Builder, resources map[string]Resource, operation Resource, httpSpec map[string]any) error {
+	b.WriteString("switch typed := outcome.(type) { ")
+	for _, variant := range namedChildren(operation.Spec, "result") {
+		name := stringValue(variant["name"])
+		response := responseMappings(httpSpec)["result."+name]
+		body, _ := response["body"].(map[string]any)
+		if body == nil || stringValue(body["codec"]) != "bytes" {
+			continue
+		}
+		wrapper := goName(operation.Name) + goName(name)
+		expression, _, err := httpOutcomeValueExpression(resources, operation, "result."+name, refOrString(body["from"]), "typed.Value", variant["type"])
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(b, "case contract.%s: if len(%s) != 0 { _ = stream.Close(); return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"stream handler returned buffered bytes\")) }; %s = nil; outcome = typed; ", wrapper, expression, expression)
+		pointerExpression := strings.Replace(expression, "typed.", "copied.", 1)
+		fmt.Fprintf(b, "case *contract.%s: if typed == nil { _ = stream.Close(); return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"handler returned nil outcome\")) }; copied := *typed; if len(%s) != 0 { _ = stream.Close(); return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"stream handler returned buffered bytes\")) }; %s = nil; outcome = &copied; ", wrapper, pointerExpression, pointerExpression)
+	}
+	b.WriteString("}; ")
 	return nil
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"net/http"
 	"slices"
@@ -82,9 +83,74 @@ type ContractDecodedRequest struct {
 }
 
 type ContractHTTPResponse struct {
-	Status  int
-	Headers http.Header
-	Body    []byte
+	Status         int
+	Headers        http.Header
+	Body           []byte
+	Stream         *ContractByteStream
+	StreamEncoding string
+}
+
+func (response *ContractHTTPResponse) Close() error {
+	if response == nil || response.Stream == nil {
+		return nil
+	}
+	err := response.Stream.Close()
+	response.Stream = nil
+	return err
+}
+
+// ContractByteStream is an exact-length response body whose reader ownership
+// transfers to Scenery after a successful streaming handler return.
+type ContractByteStream struct {
+	Reader io.ReadCloser
+	Size   int64
+}
+
+func NewContractByteStream(reader io.ReadCloser, size int64) ContractByteStream {
+	return ContractByteStream{Reader: reader, Size: size}
+}
+
+func (stream *ContractByteStream) Close() error {
+	if stream == nil || stream.Reader == nil {
+		return nil
+	}
+	reader := stream.Reader
+	stream.Reader = nil
+	return reader.Close()
+}
+
+// ContractStreamOutcome keeps a typed operation outcome separate from its
+// non-serializable response body until the selected HTTP response is encoded.
+type ContractStreamOutcome struct {
+	Outcome any
+	stream  ContractByteStream
+}
+
+func NewContractStreamOutcome(outcome any, stream ContractByteStream) *ContractStreamOutcome {
+	return &ContractStreamOutcome{Outcome: outcome, stream: stream}
+}
+
+func (outcome *ContractStreamOutcome) TakeStream() (ContractByteStream, error) {
+	if outcome == nil || outcome.stream.Reader == nil {
+		return ContractByteStream{}, fmt.Errorf("streaming outcome has no byte stream")
+	}
+	stream := outcome.stream
+	outcome.stream.Reader = nil
+	return stream, nil
+}
+
+func (outcome *ContractStreamOutcome) RequireNoStream() error {
+	if outcome != nil && outcome.stream.Reader != nil {
+		return fmt.Errorf("non-streaming outcome returned a byte stream")
+	}
+	return nil
+}
+
+func (outcome *ContractStreamOutcome) Close() error {
+	if outcome == nil {
+		return nil
+	}
+	return outcome.stream.Close()
 }
 
 type AuthHandler struct {

@@ -186,6 +186,17 @@ func TestExactJSONCanonicalizationBoundsNumericExpansion(t *testing.T) {
 	}
 }
 
+func TestExactJSONCanonicalizationBudgetAllowsLargeNonExpandingDocuments(t *testing.T) {
+	inputBytes := maxExactCanonicalJSONExpansionBytes + 1
+	budget := exactCanonicalJSONBudget(inputBytes)
+	if budget < inputBytes {
+		t.Fatalf("budget = %d, want at least the %d-byte input", budget, inputBytes)
+	}
+	if budget > inputBytes+maxExactCanonicalJSONExpansionBytes {
+		t.Fatalf("budget = %d, exceeds the bounded expansion margin", budget)
+	}
+}
+
 func mustScalar[T any](value T, err error) T {
 	if err != nil {
 		panic(err)

@@ -1,8 +1,11 @@
 package runtime
 
 import (
+	"compress/gzip"
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/pprof"
 	"slices"
@@ -488,6 +491,9 @@ func (s *server) registerTyped(ep *Endpoint) {
 		logRequestStart(state)
 
 		resp, status, headers, callErr := executeTypedEndpoint(ep, ctx, pathValues, payload)
+		if streamed, ok := resp.(*ContractStreamOutcome); ok {
+			defer func() { _ = streamed.Close() }()
+		}
 		if transportStatus, ok := contractTransportHTTPStatus(callErr); ok {
 			status = transportStatus
 		} else if admissionStatus, ok := contractAdmissionHTTPStatus(ep, callErr); ok {
@@ -527,7 +533,13 @@ func (s *server) registerTyped(ep *Endpoint) {
 		applyHeaders(w.Header(), encoded.Headers)
 		w.WriteHeader(status)
 		if req.Method != http.MethodHead {
-			_, _ = w.Write(encoded.Body)
+			if encoded.Stream != nil {
+				callErr = writeContractByteStream(w, encoded)
+			} else {
+				_, callErr = w.Write(encoded.Body)
+			}
+		} else if encoded.Stream != nil {
+			_ = encoded.Stream.Close()
 		}
 		return
 	}
@@ -538,6 +550,27 @@ func (s *server) registerTyped(ep *Endpoint) {
 		s.contractCORS = append(s.contractCORS, contractCORSRoute{path: ep.Path, pathTail: ep.ContractPathTail != nil, methods: append([]string(nil), ep.Methods...), policy: ep.ContractPolicy, pattern: &corsPattern})
 	}
 	registerEndpointRoute(s.selectRouter(ep), ep, handler)
+}
+
+func writeContractByteStream(writer io.Writer, response ContractHTTPResponse) error {
+	stream := response.Stream
+	if stream == nil {
+		return nil
+	}
+	defer stream.Close()
+	if stream.Reader == nil || stream.Size < 0 {
+		return fmt.Errorf("invalid contract byte stream")
+	}
+	if response.StreamEncoding != "gzip" {
+		_, err := io.CopyN(writer, stream.Reader, stream.Size)
+		return err
+	}
+	compressed := gzip.NewWriter(writer)
+	_, copyErr := io.CopyN(compressed, stream.Reader, stream.Size)
+	if copyErr != nil {
+		return copyErr
+	}
+	return compressed.Close()
 }
 
 func writeContractAdmissionError(writer http.ResponseWriter, endpoint *Endpoint, err error) bool {
