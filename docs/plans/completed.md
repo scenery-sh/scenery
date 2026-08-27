@@ -11,6 +11,20 @@ historical records. Do not refresh their review dates or rewrite them as current
 contract prose. Record later guidance here or in the owning current contract;
 use stale knowledge metadata to flag a known contradiction.
 
+## File-backed Database Seed Commands
+
+- Status: completed
+- Owner: scenery database lifecycle
+- Completed: 2026-08-27
+- Quality: B
+- ExecPlan: [0155 File-backed Database Seed Commands](0155-file-backed-seed-commands.md)
+
+Added strict, fingerprinted database seed commands for large validated datasets,
+including service-specific database routing, safe changed-input reruns, clean
+machine output, and service-reset ledger invalidation. ONLV's atomic AHJ import
+is the acceptance consumer: normal setup reconstructs all 28,355 catalog rows
+from the singular checked-in CSV and skips the unchanged command thereafter.
+
 ## Typed HTTP Byte Streams
 
 - Status: completed

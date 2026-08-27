@@ -37,10 +37,12 @@ type dbSeedResult struct {
 }
 
 type dbSeedRecord struct {
+	Kind        string                   `json:"kind"`
 	Service     string                   `json:"service"`
 	Path        string                   `json:"path"`
 	SHA256      string                   `json:"sha256"`
 	Status      string                   `json:"status"`
+	Output      string                   `json:"output,omitempty"`
 	Error       string                   `json:"error,omitempty"`
 	Diagnostics []dbSeedSafetyDiagnostic `json:"diagnostics,omitempty"`
 }
@@ -54,10 +56,14 @@ type dbSeedSummary struct {
 }
 
 type dbSeedPlan struct {
+	Kind    string
 	Service string
 	Path    string
 	SQL     string
 	SHA256  string
+	Command string
+	CWD     string
+	Env     map[string]string
 }
 
 type dbSeedSafetyDiagnostic struct {
@@ -72,19 +78,25 @@ type databaseSeedStore interface {
 	EnsureLedger(context.Context) error
 	LookupSeed(context.Context, string, string) (string, bool, error)
 	ApplySeed(context.Context, string, string, string, string) error
+	RecordSeedCommand(context.Context, string, string, string) error
+	DeleteSeeds(context.Context, string, []string) error
 }
 
 type dbSeedHooks struct {
-	openStore func(context.Context, string) (databaseSeedStore, error)
+	openStore  func(context.Context, string) (databaseSeedStore, error)
+	runCommand func(context.Context, lifecycleExecRequest) (dbSeedCommandOutput, error)
 }
 
 func defaultDBSeedHooks() dbSeedHooks {
-	return dbSeedHooks{openStore: openDatabaseSeedStore}
+	return dbSeedHooks{openStore: openDatabaseSeedStore, runCommand: defaultRunDBSeedCommand}
 }
 
 func (h dbSeedHooks) withDefaults() dbSeedHooks {
 	if h.openStore == nil {
 		h.openStore = defaultOpenDatabaseSeedStore
+	}
+	if h.runCommand == nil {
+		h.runCommand = defaultRunDBSeedCommand
 	}
 	return h
 }
@@ -203,6 +215,7 @@ func buildDBSeedResultWithEnvHooks(ctx context.Context, appRoot string, cfg appc
 		for _, path := range unsafePaths {
 			diagnostics := safetyDiagnostics[path]
 			record := dbSeedRecord{
+				Kind:        dbSeedPlanKindSQL,
 				Path:        path,
 				SHA256:      seedPlanSHAForPath(plans, path),
 				Status:      "failed",
@@ -210,6 +223,7 @@ func buildDBSeedResultWithEnvHooks(ctx context.Context, appRoot string, cfg appc
 				Diagnostics: diagnostics,
 			}
 			if plan, ok := seedPlanForPath(plans, path); ok {
+				record.Kind = plan.Kind
 				record.Service = plan.Service
 			}
 			result.addSeedRecord(record)
@@ -233,36 +247,37 @@ func buildDBSeedResultWithEnvHooks(ctx context.Context, appRoot string, cfg appc
 			_ = store.Close(context.Background())
 		}
 	}()
-	seedStoreForPlan := func(plan dbSeedPlan) (databaseSeedStore, error) {
+	seedStoreForPlan := func(plan dbSeedPlan) (databaseSeedStore, string, error) {
 		dsn, err := resolveDatabaseURLForServiceFromEnv(cfg, env, plan.Service)
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		store := stores[dsn]
 		if store == nil {
 			store, err = hooks.openStore(ctx, dsn)
 			if err != nil {
-				return nil, err
+				return nil, "", err
 			}
 			stores[dsn] = store
 		}
 		if !ledgerReady[dsn] {
 			if err := store.EnsureLedger(ctx); err != nil {
-				return nil, err
+				return nil, "", err
 			}
 			ledgerReady[dsn] = true
 		}
-		return store, nil
+		return store, dsn, nil
 	}
 	var errs []error
 	appID := cfg.AppID()
 	for _, plan := range plans {
 		record := dbSeedRecord{
+			Kind:    plan.Kind,
 			Service: plan.Service,
 			Path:    plan.Path,
 			SHA256:  plan.SHA256,
 		}
-		store, err := seedStoreForPlan(plan)
+		store, dsn, err := seedStoreForPlan(plan)
 		if err != nil {
 			record.Status = "failed"
 			record.Error = err.Error()
@@ -283,7 +298,7 @@ func buildDBSeedResultWithEnvHooks(ctx context.Context, appRoot string, cfg appc
 			result.addSeedRecord(record)
 			continue
 		}
-		if ok {
+		if ok && plan.Kind != dbSeedPlanKindCommand {
 			record.Status = "changed"
 			record.Error = "seed was previously applied with a different sha256"
 			result.addSeedRecord(record)
@@ -292,6 +307,27 @@ func buildDBSeedResultWithEnvHooks(ctx context.Context, appRoot string, cfg appc
 		}
 		if opts.DryRun {
 			record.Status = "planned"
+			result.addSeedRecord(record)
+			continue
+		}
+		if plan.Kind == dbSeedPlanKindCommand {
+			output, runErr := runDBSeedCommandPlan(ctx, appRoot, dsn, env, plan, hooks)
+			record.Output = output
+			if runErr != nil {
+				record.Status = "failed"
+				record.Error = runErr.Error()
+				result.addSeedRecord(record)
+				errs = append(errs, fmt.Errorf("run seed command %s: %w", plan.Path, runErr))
+				continue
+			}
+			if err := store.RecordSeedCommand(ctx, appID, plan.Path, plan.SHA256); err != nil {
+				record.Status = "failed"
+				record.Error = err.Error()
+				result.addSeedRecord(record)
+				errs = append(errs, fmt.Errorf("record seed command %s: %w", plan.Path, err))
+				continue
+			}
+			record.Status = "applied"
 			result.addSeedRecord(record)
 			continue
 		}
@@ -347,6 +383,7 @@ func discoverDBSeedPlansForEnvironment(appRoot string, cfg appcfg.Config, enviro
 		}
 		sum := sha256.Sum256(data)
 		plans = append(plans, dbSeedPlan{
+			Kind:    dbSeedPlanKindSQL,
 			Service: artifact.Service,
 			Path:    artifact.Path,
 			SQL:     string(data),
@@ -362,9 +399,17 @@ func discoverDBSeedPlansForEnvironment(appRoot string, cfg appcfg.Config, enviro
 		return nil, fixtureErr
 	}
 	for _, fixture := range fixturePlans {
-		plans = append(plans, dbSeedPlan{Service: fixture.Database, Path: fixture.Path, SQL: fixture.SQL, SHA256: fixture.SHA256})
+		plans = append(plans, dbSeedPlan{Kind: dbSeedPlanKindSQL, Service: fixture.Database, Path: fixture.Path, SQL: fixture.SQL, SHA256: fixture.SHA256})
 	}
+	commandPlans, commandErr := discoverDBSeedCommandPlans(appRoot, cfg)
+	if commandErr != nil {
+		return nil, commandErr
+	}
+	plans = append(plans, commandPlans...)
 	sort.Slice(plans, func(i, j int) bool {
+		if plans[i].Kind != plans[j].Kind {
+			return plans[i].Kind == dbSeedPlanKindSQL
+		}
 		if plans[i].Service != plans[j].Service {
 			return plans[i].Service < plans[j].Service
 		}
@@ -387,6 +432,9 @@ var (
 func validateDBSeedSafety(plans []dbSeedPlan) map[string][]dbSeedSafetyDiagnostic {
 	diagnostics := map[string][]dbSeedSafetyDiagnostic{}
 	for _, plan := range plans {
+		if plan.Kind != dbSeedPlanKindSQL {
+			continue
+		}
 		diags := dbSeedSafetyDiagnostics(plan)
 		if len(diags) > 0 {
 			diagnostics[plan.Path] = append(diagnostics[plan.Path], diags...)
@@ -623,7 +671,7 @@ func (r *dbSeedResult) addSeedRecord(record dbSeedRecord) {
 
 func renderDBSeedText(stdout io.Writer, result dbSeedResult) {
 	if len(result.Seeds) == 0 {
-		fmt.Fprintln(stdout, "scenery: no seed files discovered")
+		fmt.Fprintln(stdout, "scenery: no database seeds discovered")
 		return
 	}
 	for _, seed := range result.Seeds {
@@ -632,6 +680,9 @@ func renderDBSeedText(stdout io.Writer, result dbSeedResult) {
 			line += ": " + seed.Error
 		}
 		fmt.Fprintln(stdout, line)
+		if seed.Output != "" {
+			fmt.Fprintf(stdout, "  %s\n", strings.ReplaceAll(seed.Output, "\n", "\n  "))
+		}
 	}
 	fmt.Fprintf(stdout, "scenery: database seed complete; planned=%d applied=%d skipped=%d changed=%d failed=%d\n",
 		result.Summary.Planned,
@@ -695,4 +746,53 @@ func (s *postgresDatabaseSeedStore) ApplySeed(ctx context.Context, appID, path, 
 		return err
 	}
 	return tx.Commit()
+}
+
+func (s *postgresDatabaseSeedStore) RecordSeedCommand(ctx context.Context, appID, path, hash string) error {
+	_, err := s.db.ExecContext(ctx, `
+insert into scenery.seed_runs (app_id, path, sha256)
+values ($1, $2, $3)
+on conflict (app_id, path) do update
+set sha256 = excluded.sha256, applied_at = now()`, appID, path, hash)
+	return err
+}
+
+func (s *postgresDatabaseSeedStore) DeleteSeeds(ctx context.Context, appID string, paths []string) error {
+	if len(paths) == 0 {
+		return nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	for _, path := range paths {
+		if _, err := tx.ExecContext(ctx, `delete from scenery.seed_runs where app_id = $1 and path = $2`, appID, path); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func deleteDBSeedLedgerForService(ctx context.Context, databaseURL, appID, service string, plans []dbSeedPlan, hooks dbSeedHooks) error {
+	var paths []string
+	for _, plan := range plans {
+		if plan.Service == service {
+			paths = append(paths, plan.Path)
+		}
+	}
+	if len(paths) == 0 {
+		return nil
+	}
+	sort.Strings(paths)
+	hooks = hooks.withDefaults()
+	store, err := hooks.openStore(ctx, databaseURL)
+	if err != nil {
+		return err
+	}
+	defer store.Close(context.Background())
+	if err := store.EnsureLedger(ctx); err != nil {
+		return err
+	}
+	return store.DeleteSeeds(ctx, appID, paths)
 }

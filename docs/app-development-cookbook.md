@@ -833,7 +833,32 @@ scenery db seed --env development --dry-run -o json
 scenery db setup -o json
 ```
 
-`db apply` runs configured schema/app setup. `db seed` applies service-local seed files and typed fixture plans. Previously applied content changes and destructive seed SQL fail closed. `db setup` runs apply then seed. `scenery generate sqlc` refreshes source only.
+`db apply` runs configured schema/app setup. `db seed` applies service-local SQL, typed fixture plans, and declared file-backed import commands. Previously applied SQL changes and destructive seed SQL fail closed. A changed command input reruns the importer and records its new hash only after success. `db setup` runs apply then seed. `scenery generate sqlc` refreshes source only.
+
+For a large reference dataset, keep one canonical data file and declare every file that determines import behavior:
+
+```json
+{
+  "database": {
+    "seed": {
+      "commands": [
+        {
+          "name": "jurisdiction-catalog",
+          "service": "jurisdictions",
+          "command": "go run ./jurisdictions/cmd/import --file jurisdictions/data/catalog.csv",
+          "inputs": [
+            "jurisdictions/data/catalog.csv",
+            "jurisdictions/cmd/import/main.go",
+            "jurisdictions/importcsv/import.go"
+          ]
+        }
+      ]
+    }
+  }
+}
+```
+
+Inputs must be regular, non-symlink files inside the app workspace. Scenery hashes the normalized declaration and complete file contents, runs commands after SQL/fixture seeds, pins `DATABASE_URL` to the named service, captures command output in JSON results, skips unchanged input, and reruns changed input. The importer must be transactional or idempotent; if it succeeds but ledger recording fails, Scenery deliberately retries it on the next seed run.
 
 Save or restore a portable point-in-time copy of the database and storage cell explicitly:
 

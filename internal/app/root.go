@@ -425,7 +425,19 @@ type DatabaseApplyConfig struct {
 }
 
 type DatabaseSeedConfig struct {
-	Enabled *bool `json:"enabled,omitempty"`
+	Enabled  *bool                       `json:"enabled,omitempty"`
+	Commands []DatabaseSeedCommandConfig `json:"commands,omitempty"`
+}
+
+// DatabaseSeedCommandConfig declares a deterministic, file-backed data import
+// that runs in the database seed phase for one configured service.
+type DatabaseSeedCommandConfig struct {
+	Name    string            `json:"name"`
+	Service string            `json:"service"`
+	Command string            `json:"command"`
+	Inputs  []string          `json:"inputs"`
+	CWD     string            `json:"cwd,omitempty"`
+	Env     map[string]string `json:"env,omitempty"`
 }
 
 func (c DatabaseSeedConfig) IsEnabled() bool {

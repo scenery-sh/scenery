@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -343,6 +344,7 @@ func TestDBApplyRunsApplyWithoutSQLC(t *testing.T) {
 	var ran []lifecycleExecRequest
 	hooks := stubLifecycleExec(t, func(_ context.Context, req lifecycleExecRequest) error {
 		ran = append(ran, req)
+		fmt.Fprintln(req.Stdout, "apply chatter")
 		return nil
 	}, func(_ context.Context, req lifecycleExecRequest) ([]byte, error) {
 		t.Fatalf("db apply must not run output lifecycle exec: %+v", req)
@@ -663,6 +665,7 @@ func TestDBSetupRunsApplyThenSeed(t *testing.T) {
 	seedHooks := seedStoreHooks(t, store)
 	lifecycleHooks := stubLifecycleExec(t, func(_ context.Context, req lifecycleExecRequest) error {
 		events = append(events, "apply:"+req.Program)
+		fmt.Fprintln(req.Stdout, "apply chatter")
 		return nil
 	}, nil)
 
@@ -703,6 +706,9 @@ func TestDBSetupSkipsMissingApplyAndRunsSeed(t *testing.T) {
 	}
 	if payload.Apply.Status != "skipped" || payload.Seed.Summary.Applied != 1 {
 		t.Fatalf("payload = %+v", payload)
+	}
+	if diagnostics := validateHarnessJSONSchemaFile(filepath.Join(repoRootForTest(t), "docs", "schemas", "scenery.db.setup.result.schema.json"), payload); len(diagnostics) != 0 {
+		t.Fatalf("setup result schema diagnostics = %+v", diagnostics)
 	}
 }
 
@@ -926,11 +932,14 @@ func assertDBArtifact(t *testing.T, artifacts []databaseArtifactRecord, service,
 }
 
 type fakeSeedStore struct {
-	ledger    map[string]string
-	applied   []string
-	applyErr  error
-	closed    bool
-	ensureRan bool
+	ledger          map[string]string
+	applied         []string
+	commandRecorded []string
+	deleted         []string
+	applyErr        error
+	recordErr       error
+	closed          bool
+	ensureRan       bool
 }
 
 func newFakeSeedStore() *fakeSeedStore {
@@ -958,6 +967,23 @@ func (s *fakeSeedStore) ApplySeed(_ context.Context, appID, path, hash, _ string
 	}
 	s.ledger[appID+"|"+path] = hash
 	s.applied = append(s.applied, path)
+	return nil
+}
+
+func (s *fakeSeedStore) RecordSeedCommand(_ context.Context, appID, path, hash string) error {
+	if s.recordErr != nil {
+		return s.recordErr
+	}
+	s.ledger[appID+"|"+path] = hash
+	s.commandRecorded = append(s.commandRecorded, path)
+	return nil
+}
+
+func (s *fakeSeedStore) DeleteSeeds(_ context.Context, appID string, paths []string) error {
+	for _, path := range paths {
+		delete(s.ledger, appID+"|"+path)
+		s.deleted = append(s.deleted, path)
+	}
 	return nil
 }
 

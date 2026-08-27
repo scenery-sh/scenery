@@ -69,7 +69,11 @@ func runDBApplyWithHooks(ctx context.Context, stdout io.Writer, args []string, h
 	if err != nil {
 		return err
 	}
-	if err := runDatabaseApplyCommandWithHooks(ctx, appRoot, cfg, cfg.Database.Apply, hooks); err != nil {
+	applyStdout := stdout
+	if opts.JSON {
+		applyStdout = io.Discard
+	}
+	if err := runDatabaseApplyCommandWithOutputHooks(ctx, appRoot, cfg, cfg.Database.Apply, applyStdout, os.Stderr, hooks); err != nil {
 		return err
 	}
 	result := buildDBApplyResult(appRoot, cfg)
@@ -137,6 +141,10 @@ func buildDBApplyResult(appRoot string, cfg appcfg.Config) dbApplyResult {
 }
 
 func runDatabaseApplyCommandWithHooks(ctx context.Context, appRoot string, cfg appcfg.Config, apply appcfg.DatabaseApplyConfig, hooks lifecycleHooks) error {
+	return runDatabaseApplyCommandWithOutputHooks(ctx, appRoot, cfg, apply, os.Stdout, os.Stderr, hooks)
+}
+
+func runDatabaseApplyCommandWithOutputHooks(ctx context.Context, appRoot string, cfg appcfg.Config, apply appcfg.DatabaseApplyConfig, stdout, stderr io.Writer, hooks lifecycleHooks) error {
 	env, err := appEnvWithDotEnv(envpolicy.Environ(), appRoot)
 	if err != nil {
 		return err
@@ -145,7 +153,7 @@ func runDatabaseApplyCommandWithHooks(ctx context.Context, appRoot string, cfg a
 	if err != nil {
 		return err
 	}
-	return runDatabaseApplyCommandWithEnvHooks(ctx, appRoot, apply, env, hooks)
+	return runDatabaseApplyCommandWithEnvIOHooks(ctx, appRoot, apply, env, stdout, stderr, hooks)
 }
 
 func runDatabaseApplyCommandWithEnvHooks(ctx context.Context, appRoot string, apply appcfg.DatabaseApplyConfig, env []string, hooks lifecycleHooks) error {
@@ -271,8 +279,20 @@ func dbResetCommand(args []string) error {
 	if err != nil {
 		return err
 	}
+	var seedPlans []dbSeedPlan
+	if strings.TrimSpace(opts.Service) != "" {
+		seedPlans, err = discoverDBSeedPlans(appRoot, cfg)
+		if err != nil {
+			return err
+		}
+	}
 	if err := resetPostgresDatabase(ctx, database, opts); err != nil {
 		return err
+	}
+	if strings.TrimSpace(opts.Service) != "" {
+		if err := deleteDBSeedLedgerForService(ctx, database.URL, cfg.AppID(), opts.Service, seedPlans, defaultDBSeedHooks()); err != nil {
+			return fmt.Errorf("reset database seed ledger for service %q: %w", opts.Service, err)
+		}
 	}
 	fmt.Fprintln(os.Stdout, "reset scenery database")
 	return nil

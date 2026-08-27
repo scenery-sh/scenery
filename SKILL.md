@@ -152,7 +152,7 @@ Deploy through a configured environment or its singular SSH target. SSH uses pas
 
 Declare storage cells and stores in app config. App code uses `scenery.sh/storage`, never proxy sockets or object directories. Tenant-scoped private calls require auth context or `storage.WithTenantID`. Inspect with `scenery inspect storage -o json`; operate through `scenery storage status|ls|stat|put|get|rm`.
 
-An explicit app `DATABASE_URL` is external. Otherwise `scenery up` manages one Postgres database per app root/worktree and service-scoped schemas. Use `scenery db apply` for schema mutation, `scenery db seed` for initial data, and `scenery db setup` for both. Do not make file generation apply database state.
+An explicit app `DATABASE_URL` is external. Otherwise `scenery up` manages one Postgres database per app root/worktree and service-scoped schemas. Use `scenery db apply` for schema mutation, `scenery db seed` for initial data and declared `database.seed.commands`, and `scenery db setup` for both. SQL seeds are immutable; file-backed commands rerun only when their explicit workspace input hash changes and must be atomic or idempotent. Do not make file generation apply database state.
 
 Snapshots include only selected data. Verify checks every payload without stopping a target app. Stop the app before loading; use `--dry-run` first and `--mode overwrite --yes` only for exact replacement. Interrupted overwrite loads are safe to rerun.
 

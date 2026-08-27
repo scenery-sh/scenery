@@ -58,7 +58,11 @@ func runDBSetupWithHooks(ctx context.Context, stdout io.Writer, args []string, l
 	if strings.TrimSpace(cfg.Database.Apply.Command) == "" {
 		result.Apply.Status = "skipped"
 	} else {
-		if err := runDatabaseApplyCommandWithHooks(ctx, appRoot, cfg, cfg.Database.Apply, lifecycle); err != nil {
+		applyStdout := stdout
+		if opts.JSON {
+			applyStdout = io.Discard
+		}
+		if err := runDatabaseApplyCommandWithOutputHooks(ctx, appRoot, cfg, cfg.Database.Apply, applyStdout, os.Stderr, lifecycle); err != nil {
 			result.Apply.Status = "failed"
 			result.Apply.Error = err.Error()
 			if opts.JSON {

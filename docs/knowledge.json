@@ -19,6 +19,18 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0155-file-backed-seed-commands.md",
+      "title": "File-backed Database Seed Commands",
+      "owner": "scenery database lifecycle",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-08-27",
+      "review_after": "2026-09-26",
+      "summary": "Completed ExecPlan for fingerprinted seed commands that bootstrap large validated reference datasets from explicit workspace files without generated SQL duplication, including service-reset recovery and ONLV AHJ acceptance.",
+      "tags": ["plans", "execplans", "database", "seed", "import", "postgres", "onlv"]
+    },
+    {
       "path": "docs/plans/0154-typed-http-byte-streams.md",
       "title": "Typed HTTP Byte Streams",
       "owner": "scenery compiler / Go runtime",

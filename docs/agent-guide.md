@@ -266,7 +266,7 @@ scenery storage status -o json
 scenery storage ls <store> -o json
 ```
 
-An explicit app-level `DATABASE_URL` is external. Otherwise `scenery up` manages one database per app root/worktree and service schemas. Use `db apply` for schema/app setup, `db seed` for initial data, and `db setup` for both. Changed applied seeds and destructive seed SQL fail closed.
+An explicit app-level `DATABASE_URL` is external. Otherwise `scenery up` manages one database per app root/worktree and service schemas. Use `db apply` for schema/app setup, `db seed` for initial data and declared file-backed imports, and `db setup` for both. Changed applied SQL seeds and destructive seed SQL fail closed; changed `database.seed.commands` inputs rerun the declared atomic/idempotent importer and advance its ledger hash only after success.
 
 For a portable point-in-time copy, explicitly select the data classes. Stop the runtime before load; overwrite is destructive and requires `--yes`.
 

@@ -17,7 +17,7 @@
       "const": "scenery.db.seed.result"
     },
     "schema_revision": {
-      "const": "sha256:38c33fe664ee1c2f8122d07188546cc8768192bbc984af6b1ca2e3c4e2cf7765"
+      "const": "sha256:891700972b16d29b03f8f57e819174a4fb187371d0f60aaf4df624b52b3de005"
     },
     "app": {
       "$ref": "#/$defs/appRef"
@@ -99,12 +99,20 @@
     "seed": {
       "type": "object",
       "required": [
+        "kind",
         "service",
         "path",
         "sha256",
         "status"
       ],
       "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "sql",
+            "command"
+          ]
+        },
         "service": {
           "type": "string"
         },
@@ -125,6 +133,9 @@
           ]
         },
         "error": {
+          "type": "string"
+        },
+        "output": {
           "type": "string"
         },
         "diagnostics": {

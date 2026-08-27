@@ -470,9 +470,9 @@ Add `react { tsconfig = "apps/web/tsconfig.json" }` to a TypeScript target to op
 
 `scenery generate sqlc` remains the configured SQLC source-artifact command; it must not apply database schema or seed data.
 
-The DB lifecycle split uses `scenery db apply` for schema/app database mutation, `scenery db seed` for initial data such as `SERVICE/db/seed.sql`, and `scenery db setup` for apply then seed. Seed files apply to their matching service schema and fail closed when previously-applied content changes or destructive SQL is detected.
+The DB lifecycle split uses `scenery db apply` for schema/app database mutation, `scenery db seed` for initial data such as `SERVICE/db/seed.sql` and fingerprinted `database.seed.commands`, and `scenery db setup` for apply then seed. SQL seeds apply to their matching service schema and fail closed when previously-applied content changes or destructive SQL is detected. File-backed commands target one service, skip unchanged declared inputs, and rerun changed inputs only through an application-owned atomic or idempotent importer.
 
-`scenery up` runs the setup lifecycle before app startup when DB setup inputs exist, using the same managed service database env values that the app receives. Rebuilds skip setup until the apply config or seed file hashes change.
+`scenery up` runs the setup lifecycle before app startup when DB setup inputs exist, using the same managed service database env values that the app receives. Rebuilds skip setup until the apply config or a SQL, fixture, command declaration, or declared command-input hash changes.
 
 Worktree database isolation is automatic: the managed database name includes a
 hash of the app root, so `scenery worktree create <name> -o json` only creates the

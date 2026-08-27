@@ -15,7 +15,7 @@
       "const": "scenery.db.setup.result"
     },
     "schema_revision": {
-      "const": "sha256:2cad136856380c3a97e2e8e1dd7cc4cfff94346baaab57199b1a7630820463d1"
+      "const": "sha256:549cc09d6b260f0f1f0bc47f12c1d0949b33fe72c27963b4558624083c948995"
     },
     "app": {
       "$ref": "#/$defs/appRef"
@@ -31,6 +31,7 @@
           "enum": [
             "pending",
             "applied",
+            "skipped",
             "failed"
           ]
         },
@@ -88,7 +89,7 @@
           "const": "scenery.db.seed.result"
         },
         "schema_revision": {
-          "const": "sha256:f84b57849bf4ba01e21779655537b6ff8ae4a36496851cf615906a1c022d0052"
+          "const": "sha256:891700972b16d29b03f8f57e819174a4fb187371d0f60aaf4df624b52b3de005"
         },
         "app": {
           "$ref": "#/$defs/appRef"
@@ -144,12 +145,20 @@
     "seed": {
       "type": "object",
       "required": [
+        "kind",
         "service",
         "path",
         "sha256",
         "status"
       ],
       "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "sql",
+            "command"
+          ]
+        },
         "service": {
           "type": "string"
         },
@@ -170,6 +179,9 @@
           ]
         },
         "error": {
+          "type": "string"
+        },
+        "output": {
           "type": "string"
         },
         "diagnostics": {
