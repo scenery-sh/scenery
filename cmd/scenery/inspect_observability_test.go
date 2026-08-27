@@ -3,11 +3,51 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
 	"scenery.sh/internal/devdash"
 )
+
+func TestFormerInspectObservabilitySubjectsAreInvalidRequests(t *testing.T) {
+	t.Parallel()
+
+	for _, subject := range []string{"traces", "metrics"} {
+		t.Run(subject, func(t *testing.T) {
+			var out bytes.Buffer
+			err := runSceneryInspect([]string{subject, "-o", "json"}, &out)
+			if err == nil || cliExitCode(err) != 2 {
+				t.Fatalf("runSceneryInspect(%q) error = %v, exit = %d", subject, err, cliExitCode(err))
+			}
+			if !strings.Contains(err.Error(), "use `scenery "+subject+" list`") {
+				t.Fatalf("error = %q, want current command", err)
+			}
+
+			var machineOut bytes.Buffer
+			rendered := renderMachineError(&machineOut, []string{"inspect", subject, "-o", "json"}, err)
+			if cliExitCode(rendered) != 2 {
+				t.Fatalf("rendered error = %v, exit = %d", rendered, cliExitCode(rendered))
+			}
+			var envelope struct {
+				Diagnostics []struct {
+					Code        string `json:"code"`
+					ReportToken string `json:"report_token"`
+				} `json:"diagnostics"`
+			}
+			if decodeErr := json.Unmarshal(machineOut.Bytes(), &envelope); decodeErr != nil {
+				t.Fatalf("decode machine error: %v\n%s", decodeErr, machineOut.String())
+			}
+			if len(envelope.Diagnostics) != 1 || envelope.Diagnostics[0].Code != "SCN8001" {
+				t.Fatalf("diagnostics = %#v, want SCN8001", envelope.Diagnostics)
+			}
+			if envelope.Diagnostics[0].ReportToken != "" {
+				t.Fatalf("invalid request unexpectedly emitted report token %q", envelope.Diagnostics[0].ReportToken)
+			}
+		})
+	}
+}
 
 func TestRunSceneryInspectTracesWithFilters(t *testing.T) {
 	root := t.TempDir()

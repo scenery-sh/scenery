@@ -45,7 +45,7 @@ func metricsCommand(args []string) error {
 func runObservabilityList(ctx context.Context, stdout io.Writer, subject string, args []string) error {
 	opts, err := parseInspectArgsInternal(append([]string{subject}, args...), true)
 	if err != nil {
-		return err
+		return inspectInvalidRequest(err)
 	}
 	start, err := resolveAppRoot(opts.AppRoot)
 	if err != nil {

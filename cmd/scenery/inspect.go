@@ -144,10 +144,10 @@ func inspectCommand(args []string) error {
 func runSceneryInspect(args []string, stdout io.Writer) error {
 	opts, err := parseInspectArgs(args)
 	if err != nil {
-		return err
+		return inspectInvalidRequest(err)
 	}
 	if !opts.JSON && opts.Subject != "ui" {
-		return fmt.Errorf("scenery inspect currently requires -o json")
+		return inspectInvalidRequest(fmt.Errorf("scenery inspect currently requires -o json"))
 	}
 
 	if opts.Subject == "docs" {
@@ -259,8 +259,15 @@ func runSceneryInspect(args []string, stdout io.Writer) error {
 		}
 		return writeInspectUIHuman(stdout, resp)
 	default:
-		return fmt.Errorf("unknown inspect subject %q", opts.Subject)
+		return inspectInvalidRequest(fmt.Errorf("unknown inspect subject %q", opts.Subject))
 	}
+}
+
+func inspectInvalidRequest(err error) error {
+	if err == nil || strings.HasPrefix(err.Error(), "invalid_request:") {
+		return err
+	}
+	return fmt.Errorf("invalid_request: %w", err)
 }
 
 // writeInspectCompileFailure emits the failure envelope with the real
