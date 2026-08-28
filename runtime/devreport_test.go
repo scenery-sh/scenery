@@ -183,7 +183,14 @@ func TestTracedRoundTripperRedactsSensitiveURLAndError(t *testing.T) {
 		}),
 	}
 
-	req, err := http.NewRequestWithContext(withState(context.Background(), state), http.MethodGet, "https://user:pass@example.com/path?token=abc&x=1", nil)
+	childState := *state
+	childState.trace = &traceSpan{
+		traceID:      "trace-1",
+		spanID:       "span-2",
+		parentSpanID: "span-1",
+		spanType:     "WORK",
+	}
+	req, err := http.NewRequestWithContext(withState(context.Background(), &childState), http.MethodGet, "https://user:pass@example.com/path?token=abc&x=1", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,6 +198,9 @@ func TestTracedRoundTripperRedactsSensitiveURLAndError(t *testing.T) {
 
 	start := <-reporter.queue
 	end := <-reporter.queue
+	if start.TraceEvent.SpanID != "span-2" || end.TraceEvent.SpanID != "span-2" {
+		t.Fatalf("HTTP events span IDs = %q, %q; want child span-2", start.TraceEvent.SpanID, end.TraceEvent.SpanID)
+	}
 	startPayload := start.TraceEvent.Event["span_event"].(map[string]any)["http_call_start"].(map[string]any)
 	if got := startPayload["url"]; got != "https://user:%5Bredacted%5D@example.com/path?token=%5Bredacted%5D&x=1" {
 		t.Fatalf("redacted url = %#v", got)

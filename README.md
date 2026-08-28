@@ -507,6 +507,9 @@ Caddy edge and Victoria sidecars are backing substrate for local capabilities; C
 
 scenery exposes local development logs, traces, and metrics through app-session capabilities. The current backing substrate can run VictoriaMetrics, VictoriaLogs, and VictoriaTraces for local inspection.
 
+Application code can wrap expensive phases with `scenery.StartSpan`; those
+`WORK` child spans appear beneath the request in trace lists and waterfalls.
+
 Useful commands:
 
 ```sh

@@ -378,7 +378,8 @@ requests.
 
 The public packages at the module root are what user apps import:
 
-- `scenery.sh` exposes `Meta` and `CurrentRequest`
+- `scenery.sh` exposes `Meta`, `CurrentRequest`, and application-owned child
+  spans through `StartSpan`
 - `scenery.sh/auth` exposes request auth state helpers and the
   standard auth module surface (`AuthData`, token helpers, standard auth
   registration, and pluggable email delivery)

@@ -1,6 +1,8 @@
 package scenery
 
 import (
+	"context"
+
 	"scenery.sh/runtime"
 	"scenery.sh/runtime/shared"
 )
@@ -14,6 +16,7 @@ type RequestType = shared.RequestType
 type APIDesc = shared.APIDesc
 type PathParam = shared.PathParam
 type PathParams = shared.PathParams
+type Span = runtime.Span
 
 const (
 	EnvProduction  = shared.EnvProduction
@@ -37,4 +40,9 @@ func Meta() *AppMetadata {
 
 func CurrentRequest() *Request {
 	return runtime.CurrentRequest()
+}
+
+// StartSpan starts an application-owned child span beneath the current request.
+func StartSpan(ctx context.Context, name string) (context.Context, *Span) {
+	return runtime.StartSpan(ctx, name)
 }

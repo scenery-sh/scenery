@@ -168,6 +168,11 @@ bun test internal/generate/testdata/typescript_client_conformance.test.ts
 
 Generated clients implement declared HTTP mappings and outcomes; they never infer routes or auth from Go names. Regenerate after reachable binding, type, codec, or auth changes. Every app HTTP response includes `X-Trace-Id`; browser observers should read that header.
 
+For expensive application phases, use stable source-defined names with
+`scenery.StartSpan`, pass its returned context into nested work, and call
+`span.End(err)`. Never encode request values, user data, coordinates, IDs, or
+other high-cardinality content in span names.
+
 When an assistant is reachable from a target, the generated client also exposes
 provider-neutral `client.assistants.<name>.createConversation`, `sendTurn`,
 `streamEvents`, `resolveApproval`, and `cancelRun` methods. Its event/error

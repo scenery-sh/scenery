@@ -447,7 +447,8 @@ When editing source that changes the public app model, confirm the docs and test
 - CLI bindings, including generated help/completion, typed input, trusted context, delivery, outcomes, and exit codes
 - `std.type.unit`, data sources, entities/views/CRUD/fixtures, pages/renderers, and typed constructor capability injection
 - generated contract input/outcome types and explicit `.scn` HTTP request/response mappings
-- public packages: `scenery`, `auth`, `errs`, `durable`, `db`, `datasource`, `object`, `storage`
+- public packages: `scenery` (`Meta`, `CurrentRequest`, `StartSpan`), `auth`,
+  `errs`, `durable`, `db`, `datasource`, `object`, `storage`
 - standard auth configuration and generated endpoints
 - private/internal call behavior
 - worker, durable, schedule, middleware, and generated TypeScript client behavior when touched

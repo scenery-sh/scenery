@@ -829,7 +829,10 @@ func (t *tracedRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 	if base == nil {
 		base = http.DefaultTransport
 	}
-	state := currentState()
+	state := stateFromContext(req.Context())
+	if state == nil {
+		state = currentState()
+	}
 	var traceID, spanID string
 	var start time.Time
 	if state != nil && state.trace != nil && state.traceEnabled && t.reporter != nil {

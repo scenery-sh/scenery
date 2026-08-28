@@ -933,6 +933,23 @@ The default wait checks every advertised route and one script or stylesheet asse
 
 Discover URLs from `scenery ps -o json`; do not guess hidden ports. Use a Git worktree for a second live code copy.
 
+### Trace Application Work
+
+Use stable, source-defined child span names for expensive application phases.
+Pass the returned context to nested work so child spans plus automatically
+traced database and HTTP activity retain the correct parent:
+
+```go
+workCtx, span := scenery.StartSpan(ctx, "Report.render")
+result, err := render(workCtx)
+span.End(err)
+return result, err
+```
+
+`End` is idempotent. Do not put request values, user data, coordinates, IDs, or
+other high-cardinality content in a span name. Application spans appear as
+`WORK` children in `scenery traces list -o json` and the trace waterfall.
+
 ### Branded Dev Domain Per Worktree
 
 To serve local dev at your own domain instead of `localhost:<port>`, add a path-mode dev domain to `.scenery.json`:

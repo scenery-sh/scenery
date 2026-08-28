@@ -1,6 +1,7 @@
 package scenery
 
 import (
+	"context"
 	"testing"
 
 	"scenery.sh/runtime"
@@ -25,4 +26,12 @@ func TestMetaIncludesLocalEnvironmentDefaults(t *testing.T) {
 	if meta.Environment.Cloud != CloudLocal {
 		t.Fatalf("Meta().Environment.Cloud = %q, want %q", meta.Environment.Cloud, CloudLocal)
 	}
+}
+
+func TestStartSpanWithoutRequestIsNoop(t *testing.T) {
+	ctx, span := StartSpan(context.Background(), "render")
+	if ctx == nil || span == nil {
+		t.Fatal("StartSpan returned a nil context or span")
+	}
+	span.End(nil)
 }
