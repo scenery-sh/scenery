@@ -4,6 +4,14 @@ This file is the repo-local operating manual for AI agents changing `scenery.sh`
 
 Optimize for agents: prefer concise rules, exact commands, and machine-readable contracts over long prose. Read what covers the surface you are changing; do not preload everything.
 
+## Communication And Repository Language
+
+- Use Czech for conversational communication with developers (updates, questions,
+  review feedback, and handoffs) unless they request another language.
+- Keep repository-authored artifacts in English, including documentation,
+  `AGENTS.md` files, ExecPlans, bug logs, source comments and identifiers, tests,
+  product copy, and commit messages.
+
 ## Core Model
 
 - Scenery runs my app runtime.

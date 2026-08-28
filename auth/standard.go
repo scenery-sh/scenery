@@ -39,6 +39,8 @@ type DevBootstrapConfig struct {
 	TokenTTL         time.Duration
 }
 
+const standardAuthInitializationTimeout = 30 * time.Second
+
 type EmailMessage struct {
 	From    string
 	To      []string
@@ -131,6 +133,11 @@ func standardAuthService(ctx context.Context) (*Service, error) {
 	standardAuthState.mu.Lock()
 	defer standardAuthState.mu.Unlock()
 	standardAuthState.once.Do(func() {
+		// Standard auth is process state. A canceled first request must not poison
+		// its one-time database initialization for the lifetime of the process.
+		ctx, cancel := standardAuthInitializationContext(ctx)
+		defer cancel()
+
 		cfg := standardAuthState.cfg
 		databaseURL := strings.TrimSpace(envpolicy.Get("DATABASE_URL"))
 		if strings.TrimSpace(databaseURL) == "" {
@@ -160,6 +167,10 @@ func standardAuthService(ctx context.Context) (*Service, error) {
 		})
 	})
 	return standardAuthState.svc, standardAuthState.err
+}
+
+func standardAuthInitializationContext(requestCtx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(requestCtx), standardAuthInitializationTimeout)
 }
 
 func registerStandardAuthEndpoints(config StandardConfig) {
