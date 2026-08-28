@@ -918,11 +918,7 @@ func EncodeContractRepresentationForRequest(request *http.Request, status int, v
 }
 
 func EncodeContractRepresentationWithOptions(request *http.Request, status int, value any, codec string, produced []string, options ContractResponseOptions) (ContractHTTPResponse, error) {
-	accept, acceptEncoding := "", ""
-	if request != nil {
-		accept = request.Header.Get("Accept")
-		acceptEncoding = request.Header.Get("Accept-Encoding")
-	}
+	accept, acceptEncoding := contractNegotiationHeaders(request)
 	mediaType, err := negotiateContractMedia(accept, produced)
 	if err != nil {
 		return ContractHTTPResponse{}, &ContractTransportError{Outcome: "transport.not_acceptable", Status: http.StatusNotAcceptable, Message: err.Error(), Cause: err}
@@ -956,6 +952,17 @@ func EncodeContractRepresentationWithOptions(request *http.Request, status int, 
 	if err != nil {
 		return ContractHTTPResponse{}, err
 	}
+	return finishContractRepresentation(status, mediaType, acceptEncoding, body, options)
+}
+
+func contractNegotiationHeaders(request *http.Request) (accept, acceptEncoding string) {
+	if request == nil {
+		return "", ""
+	}
+	return request.Header.Get("Accept"), request.Header.Get("Accept-Encoding")
+}
+
+func finishContractRepresentation(status int, mediaType, acceptEncoding string, body []byte, options ContractResponseOptions) (ContractHTTPResponse, error) {
 	if options.MaxBytes > 0 && int64(len(body)) > options.MaxBytes {
 		return ContractHTTPResponse{}, &ContractTransportError{Outcome: "system.internal", Status: http.StatusInternalServerError, Message: "response exceeds binding limit"}
 	}

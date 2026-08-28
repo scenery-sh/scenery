@@ -15,6 +15,16 @@ import (
 const maxExactCanonicalJSONExpansionBytes = 16 << 20
 
 func canonicalizeExactJSON(data []byte) ([]byte, error) {
+	if isCanonicalExactJSON(data) {
+		return data, nil
+	}
+	return canonicalizeExactJSONFull(data)
+}
+
+// canonicalizeExactJSONFull is the defining decode/re-encode canonicalization
+// pass. isCanonicalExactJSON may only skip it for inputs this pass would
+// return unchanged.
+func canonicalizeExactJSONFull(data []byte) ([]byte, error) {
 	if len(data) >= 3 && bytes.Equal(data[:3], []byte{0xef, 0xbb, 0xbf}) {
 		return nil, fmt.Errorf("JSON byte-order mark is forbidden")
 	}
