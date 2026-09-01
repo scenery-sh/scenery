@@ -19,6 +19,18 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0156-typescript-client-table-emit.md",
+      "title": "Table-Driven TypeScript HTTP Client Emit",
+      "owner": "scenery client generation",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-01",
+      "review_after": "2026-10-01",
+      "summary": "Active ExecPlan replacing inlined typescript_client request/response machines with a shared Runtime.invoke helper and per-binding descriptor table while keeping the public class, method, and outcome contract unchanged.",
+      "tags": ["plans", "execplans", "typescript", "clientgen", "codegen", "generate"]
+    },
+    {
       "path": "docs/plans/0155-file-backed-seed-commands.md",
       "title": "File-backed Database Seed Commands",
       "owner": "scenery database lifecycle",
@@ -1201,9 +1213,9 @@
       "status": "reference",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-08-04",
-      "review_after": "2026-09-03",
-      "summary": "Normative deterministic TypeScript client API, type mapping, outcomes, metadata, compatibility, cancellation, generated route catalogs and synchronous presentation access, independently encoded terminal path-tail segments, and the dedicated provider-neutral assistant conversation client with NDJSON cursor events.",
+      "last_reviewed": "2026-09-01",
+      "review_after": "2026-10-01",
+      "summary": "Normative deterministic TypeScript client API, type mapping, outcomes, metadata, compatibility, cancellation, generated route catalogs and synchronous presentation access, independently encoded terminal path-tail segments, the dedicated provider-neutral assistant conversation client with NDJSON cursor events, and a shared table-driven HTTP request/response helper that is not a public export.",
       "tags": [
         "spec",
         "typescript",

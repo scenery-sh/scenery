@@ -237,6 +237,11 @@ func tsBodyDescriptor(body map[string]any, operation Resource, resources []Resou
 }
 
 func tsMultipartBodyDescriptor(httpSpec map[string]any, operation Resource, resources []Resource) string {
+	encoded, _ := json.Marshal(tsMultipartBodyDescriptorValue(httpSpec, operation, resources))
+	return string(encoded) + " as const"
+}
+
+func tsMultipartBodyDescriptorValue(httpSpec map[string]any, operation Resource, resources []Resource) map[string]any {
 	body, _ := httpSpec["body"].(map[string]any)
 	resourceMap := resourcesByAddress(&Manifest{Resources: resources})
 	shape := resolveOperationInputShape(resourceMap, operation)
@@ -292,11 +297,10 @@ func tsMultipartBodyDescriptor(httpSpec map[string]any, operation Resource, reso
 		parts = append(parts, descriptor)
 	}
 	sort.Slice(parts, func(i, j int) bool { return stringValue(parts[i]["name"]) < stringValue(parts[j]["name"]) })
-	encoded, _ := json.Marshal(map[string]any{
+	return map[string]any{
 		"value": tsDescriptor(operation.Spec["input"], operation.Module),
 		"parts": parts, "maxParts": maximumParts, "maxBytes": maximumBytes,
-	})
-	return string(encoded) + " as const"
+	}
 }
 
 func tsSelectedBodyFields(body map[string]any, operation Resource, resources []Resource) []map[string]any {

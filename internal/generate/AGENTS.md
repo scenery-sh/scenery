@@ -30,6 +30,12 @@ hooks; CLI wires the live generate functions.
   pruning. Never replace or delete bytes whose ownership cannot be proven.
 - TypeScript targets route to source or `.scenery` cache from their declared
   `materialization` mode.
+- Generated `typescript_client` HTTP methods are thin typed wrappers over a
+  per-binding descriptor table and `Runtime.invoke` / `Runtime.matchResponse`.
+  Do not inline the request/response machine per method or emit TanStack hooks
+  from this target. Omit empty query and cookie mapping arrays. Intern
+  identical response cases and repeated consecutive shared runs into
+  `sharedResponses` / `sharedResponseSets`.
 - React-enabled TypeScript targets render generated content, table, and split pages and the
   binary-owned UI catalog from its editable source at `ui/` into the
   same artifact transaction. Generated pages use the consuming app's TanStack

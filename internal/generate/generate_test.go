@@ -304,8 +304,11 @@ func TestExportedFixtureProducesNativeTypeScriptClientBinding(t *testing.T) {
 	if !strings.Contains(client, "this.#fetch = options.fetch ?? globalThis.fetch.bind(globalThis);") {
 		t.Fatalf("generated fixture client does not bind the default fetch:\n%s", client)
 	}
-	if !strings.Contains(client, "response.status === 200") || strings.Contains(client, "response.status === 0") || strings.Contains(client, "mergeResponseValue(payload, null") {
+	if !strings.Contains(client, `"status":200`) || strings.Contains(client, `"status":0`) || strings.Contains(client, `"path":null`) {
 		t.Fatalf("generated fixture client lost exact response status/path semantics:\n%s", client)
+	}
+	if strings.Contains(client, `"query":[]`) || strings.Contains(client, `"cookies":[]`) {
+		t.Fatalf("generated fixture client emits empty mapping collections:\n%s", client)
 	}
 }
 
@@ -795,9 +798,14 @@ func TestTypeScriptClientUsesExactResponseMapAndBigIntSafeEncoding(t *testing.T)
 			t.Errorf("runtime missing %q", want)
 		}
 	}
-	for _, want := range []string{"encodeRequestBody(input", "decodeResponseBody", "response.status === 200", "response.status === 422"} {
+	for _, want := range []string{`"codec":"json"`, `"status":200`, `"status":422`, `"codec":"problem_json"`} {
 		if !strings.Contains(clientSource, want) {
 			t.Errorf("client missing %q in:\n%s", want, clientSource)
+		}
+	}
+	for _, want := range []string{"export function encodeRequestBody", "export async function decodeResponseBody"} {
+		if !strings.Contains(runtimeSource, want) {
+			t.Errorf("runtime missing %q", want)
 		}
 	}
 	if strings.Contains(clientSource, "response.json()") {
@@ -828,12 +836,18 @@ func TestTypeScriptClientUsesDeclaredPathQueryAndBodyMappings(t *testing.T) {
 	}}
 	source := renderTSClient(Resource{Name: "public"}, []Resource{binding}, []Resource{operation})
 	for _, fragment := range []string{
-		`encodeHTTPValue(input.sceneId,`,
-		`appendQuery(query, "tag", input.tags, "repeated",`,
-		`appendHeader(headers, "if-match", input.etag, "repeated",`,
-		`appendCookie(cookies, "tenant", input.tenant,`,
-		`body: Runtime.encodeRequestBody(input.body`,
-		`decodeResponseBody(completionResponse0, "problem_json", ["application/problem+json"]`,
+		`"name":"scene_id"`,
+		`"property":"sceneId"`,
+		`"name":"tag"`,
+		`"property":"tags"`,
+		`"encoding":"repeated"`,
+		`"name":"if-match"`,
+		`"property":"etag"`,
+		`"name":"tenant"`,
+		`"property":"tenant"`,
+		`"property":"body"`,
+		`"codec":"problem_json"`,
+		`"producedMediaTypes":["application/problem+json"]`,
 	} {
 		if !strings.Contains(source, fragment) {
 			t.Fatalf("client missing %q:\n%s", fragment, source)
@@ -905,8 +919,11 @@ func TestTypeScriptRetryRequiresIdempotentReplayableOperation(t *testing.T) {
 	operation.Spec["idempotency"] = map[string]any{"mode": "keyed", "key": []any{map[string]any{"$expression": "input.id"}}}
 	resources := []Resource{target, input, operation, binding}
 	client := renderTSClient(target, []Resource{binding}, resources)
-	if !strings.Contains(client, "fetchWithRetry") || !strings.Contains(client, "maximumAttempts: 3") {
+	if !strings.Contains(client, "maximumAttempts: 3") || !strings.Contains(client, "retryRuntime: this.#retryRuntime") {
 		t.Fatalf("retry client missing policy:\n%s", client)
+	}
+	if !strings.Contains(renderTSRuntime(), "export async function fetchWithRetry") {
+		t.Fatal("runtime missing fetchWithRetry")
 	}
 }
 

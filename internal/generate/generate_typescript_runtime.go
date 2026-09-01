@@ -3,7 +3,7 @@ package generate
 import "strings"
 
 func renderTSRuntime() string {
-	return strings.ReplaceAll(renderTSRuntimePublic()+renderTSRuntimeInternals()+renderTSRuntimeValidation(), "§", "`")
+	return strings.ReplaceAll(renderTSRuntimePublic()+renderTSRuntimeInternals()+renderTSRuntimeInvoke()+renderTSRuntimeValidation(), "§", "`")
 }
 
 func renderTSRuntimePublic() string {
@@ -146,6 +146,84 @@ export type ValidationExpression =
   | { readonly kind: "template"; readonly parts: readonly ValidationExpression[] };
 
 export type TypeRegistry = Readonly<Record<string, TypeDescriptor>>;
+
+export interface InvokeTransport {
+  readonly baseUrl: string;
+  readonly fetch: typeof globalThis.fetch;
+  readonly headers: Readonly<Record<string, string>>;
+  readonly authentication?: AuthenticationOptions;
+  readonly retryRuntime?: RetryRuntime;
+  readonly retry?: RetryPolicy;
+}
+
+export interface BindingFieldMapping {
+  readonly name: string;
+  readonly property: string;
+  readonly value: TypeDescriptor;
+}
+
+export interface BindingQueryMapping extends BindingFieldMapping {
+  readonly encoding: string;
+}
+
+export interface BindingHeaderMapping extends BindingFieldMapping {
+  readonly encoding: string;
+}
+
+export interface BindingRequestBody {
+  readonly codec: string;
+  readonly value: TypeDescriptor;
+  readonly contentType?: string;
+  readonly property?: string;
+  readonly select?: readonly string[];
+  readonly multipart?: MultipartBodyDescriptor;
+}
+
+export interface BindingResponseBody {
+  readonly codec: string;
+  readonly producedMediaTypes: readonly string[];
+  readonly path: readonly string[];
+  readonly value: TypeDescriptor;
+}
+
+export interface BindingResponseHeader {
+  readonly name: string;
+  readonly encoding: string;
+  readonly path: readonly string[];
+  readonly value: TypeDescriptor;
+}
+
+export interface BindingResponseCookie {
+  readonly name: string;
+  readonly path: readonly string[];
+  readonly value: TypeDescriptor;
+}
+
+export interface BindingResponseCase {
+  readonly status: number;
+  readonly role: "failure" | "completion";
+  readonly kind: "result" | "error" | "failure" | "enqueue";
+  readonly name: string;
+  readonly problemCode?: string;
+  readonly throwOnMatch?: boolean;
+  readonly body?: BindingResponseBody;
+  readonly headers?: readonly BindingResponseHeader[];
+  readonly cookies?: readonly BindingResponseCookie[];
+}
+
+export interface BindingCall {
+  readonly address: string;
+  readonly method: string;
+  readonly path: string;
+  readonly pathParameters?: readonly BindingFieldMapping[];
+  readonly pathTail?: BindingFieldMapping;
+  readonly query?: readonly BindingQueryMapping[];
+  readonly headers?: readonly BindingHeaderMapping[];
+  readonly cookies?: readonly BindingFieldMapping[];
+  readonly body?: BindingRequestBody;
+  readonly responseLimitBytes: number;
+  readonly responses: readonly BindingResponseCase[];
+}
 
 const jsonNumbers = new WeakSet<object>();
 const forbiddenObjectKeys = new Set(["__proto__", "prototype", "constructor"]);

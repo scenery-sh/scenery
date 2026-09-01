@@ -303,7 +303,7 @@ commands rather than treating their fields as an application contract.
 
 ## TypeScript Client Integration
 
-Declare each target in root `app.scn`, select exact gateways, and choose `materialization = "source"` for a checked-in SDK or `materialization = "cache"` for `.scenery/gen/typescript/<name>`. Source output must remain beneath a managed root. Generated clients derive only from reachable canonical resources and exact binding codecs; they do not infer routes or auth from Go symbols.
+Declare each target in root `app.scn`, select exact gateways, and choose `materialization = "source"` for a checked-in SDK or `materialization = "cache"` for `.scenery/gen/typescript/<name>`. Source output must remain beneath a managed root. Generated clients derive only from reachable canonical resources and exact binding codecs; they do not infer routes or auth from Go symbols. HTTP methods are thin typed wrappers over a shared runtime helper and a per-binding descriptor table.
 
 When an assistant is reachable from the target, generation also emits a
 provider-neutral assistant client such as

@@ -94,6 +94,8 @@ metadata.ts
 
 A generator MAY combine physical files only when exports and artifact bytes remain deterministic for that configured layout. Generated files contain ownership markers and are replaced atomically as one descriptor-covered set.
 
+The generated HTTP client stores per-binding request and response mappings in a descriptor table and executes them through one shared runtime helper. Methods remain one typed async function per covered binding. The helper is not part of the public `index.ts` export surface.
+
 `index.ts` exports the client class/factory, public contract types, runtime error types, metadata, and scalar helper types. It does not export internal implementation helpers.
 
 ## 6. Naming
@@ -270,6 +272,8 @@ export class PublicApiClient {
 
 There is exactly one method per covered binding operation unless multiple covered bindings for one operation require distinct transport surfaces; then method names are deterministically binding-qualified and collisions are compile errors.
 
+Generated methods dispatch through the shared table-driven runtime helper. They do not inline a second copy of the request/response machine and they do not generate React hooks.
+
 Authentication material is supplied only through an explicitly generated authentication capability or request option authorized by the target. The generic `headers` option cannot override framework-owned content, host, forwarding, trace, or credential headers.
 
 The client joins base URL and gateway/binding paths according to the HTTP codec. It does not use platform URL behavior where that would change canonical encoding.
@@ -443,4 +447,4 @@ A conforming generator/runtime passes fixtures for:
 
 ## Appendix A: Deliberate exclusions
 
-The current TypeScript client contract does not define React hooks, framework-specific caches, Node-only internal clients, generic streaming, WebSockets, raw responses, automatic credential storage, implicit retries, CommonJS output, or publishing to a package registry. The dedicated assistant event stream in Section 13.2 is the sole streaming-shaped projection and does not make arbitrary binding streaming available.
+The current TypeScript client contract does not define React hooks, framework-specific caches, Node-only internal clients, generic streaming, WebSockets, raw responses, automatic credential storage, implicit retries, CommonJS output, or publishing to a package registry. The shared request/response helper is not a React hook and is not exported from `index.ts`. The dedicated assistant event stream in Section 13.2 is the sole streaming-shaped projection and does not make arbitrary binding streaming available.

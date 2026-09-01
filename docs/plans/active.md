@@ -7,6 +7,11 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
+- [0156 Table-Driven TypeScript HTTP Client Emit](0156-typescript-client-table-emit.md)
+  - Status: active
+  - Owner: scenery client generation
+  - Created: 2026-09-01
+  - Focus: replace inlined `typescript_client` request/response machines with a shared `Runtime.invoke` / `Runtime.matchResponse` helper driven by a per-binding descriptor table, without changing the public class/method/outcome contract or emitting TanStack hooks.
 - [0145 Developer Test Loop Attribution](0145-test-loop-attribution.md)
   - Status: active
   - Owner: scenery harness

@@ -15,9 +15,11 @@ import {
 	encodeRequestBody,
   encodeTypedJSON,
 	jsonNumber,
+	matchResponse,
 	mergeResponseValue,
   parseExactJSON,
   SceneryClientError,
+  type BindingCall,
   type TypeDescriptor,
   type TypeRegistry,
 } from "../../compiler/testdata/house/clients/generated/public_api/runtime.ts";
@@ -277,6 +279,134 @@ describe("Scenery TypeScript client exact codecs", () => {
 		expect(() => decodeResponseHeader(response, "x-value", "repeated", { kind: "list", value: { kind: "primitive", name: "string" } }, registry, "test/binding/metadata")).toThrow(
 			expect.objectContaining({ code: "unsupported_runtime" }),
 		);
+	});
+
+	test("matches failures before same-status completions and requires exactly one completion", async () => {
+		const problem = { kind: "primitive", name: "problem" } as const;
+		const binding: BindingCall = {
+			address: "test/binding/update",
+			method: "POST",
+			path: "/update",
+			responseLimitBytes: 1024,
+			responses: [
+				{
+					status: 400,
+					role: "failure",
+					kind: "failure",
+					name: "invalid_request",
+					problemCode: "transport.invalid_request",
+					body: { codec: "problem_json", producedMediaTypes: ["application/problem+json"], path: [], value: problem },
+				},
+				{
+					status: 400,
+					role: "completion",
+					kind: "error",
+					name: "invalid_input",
+					body: { codec: "problem_json", producedMediaTypes: ["application/problem+json"], path: [], value: problem },
+				},
+				{
+					status: 200,
+					role: "completion",
+					kind: "result",
+					name: "found",
+					body: { codec: "text", producedMediaTypes: ["text/plain"], path: [], value: { kind: "primitive", name: "string" } },
+				},
+				{
+					status: 200,
+					role: "completion",
+					kind: "result",
+					name: "snapshot",
+					body: { codec: "json", producedMediaTypes: ["application/json"], path: [], value: { kind: "primitive", name: "string" } },
+				},
+			],
+		};
+		await expect(
+			matchResponse(
+				new Response(JSON.stringify({ code: "transport.invalid_request", message: "bad request" }), {
+					status: 400,
+					headers: { "content-type": "application/problem+json" },
+				}),
+				binding,
+				registry,
+			),
+		).resolves.toEqual({
+			kind: "failure",
+			name: "invalid_request",
+			problem: { code: "transport.invalid_request", message: "bad request" },
+		});
+		await expect(
+			matchResponse(
+				new Response(JSON.stringify({ code: "error.invalid_input", message: "invalid" }), {
+					status: 400,
+					headers: { "content-type": "application/problem+json" },
+				}),
+				binding,
+				registry,
+			),
+		).resolves.toEqual({
+			kind: "error",
+			name: "invalid_input",
+			problem: { code: "error.invalid_input", message: "invalid" },
+		});
+		await expect(
+			matchResponse(new Response("found", { status: 200, headers: { "content-type": "text/plain" } }), binding, registry),
+		).resolves.toEqual({ kind: "result", name: "found", value: "found" });
+		await expect(
+			matchResponse(new Response('"snapshot"', { status: 200, headers: { "content-type": "application/json" } }), binding, registry),
+		).resolves.toEqual({ kind: "result", name: "snapshot", value: "snapshot" });
+		await expect(
+			matchResponse(new Response("ambiguous", { status: 200, headers: { "content-type": "text/plain" } }), {
+				...binding,
+				responses: binding.responses.filter((candidate) => candidate.status === 200).map((candidate) => ({
+					...candidate,
+					body: { codec: "text", producedMediaTypes: ["text/plain"], path: [], value: { kind: "primitive", name: "string" } },
+				})),
+			}, registry),
+		).rejects.toMatchObject({ code: "contract_violation", message: "response body contradicts the contract" });
+		await expect(matchResponse(new Response(null, { status: 204 }), binding, registry)).rejects.toMatchObject({
+			code: "contract_violation",
+			message: "unexpected response 204",
+		});
+	});
+
+	test("swallows only contract violations while matching cloned candidates", async () => {
+		const binding: BindingCall = {
+			address: "test/binding/system",
+			method: "GET",
+			path: "/system",
+			responseLimitBytes: 1024,
+			responses: [
+				{
+					status: 500,
+					role: "failure",
+					kind: "failure",
+					name: "internal",
+					problemCode: "system.internal",
+					throwOnMatch: true,
+					body: { codec: "problem_json", producedMediaTypes: ["application/problem+json"], path: [], value: { kind: "primitive", name: "problem" } },
+				},
+			],
+		};
+		await expect(
+			matchResponse(
+				new Response(JSON.stringify({ code: "system.internal", message: "boom" }), {
+					status: 500,
+					headers: { "content-type": "application/problem+json" },
+				}),
+				binding,
+				registry,
+			),
+		).rejects.toMatchObject({ code: "server", message: "server returned system.internal" });
+		const cancelled = new SceneryClientError("cancelled", "test/binding/system", "request cancelled");
+		const originalClone = Response.prototype.clone;
+		Response.prototype.clone = () => {
+			throw cancelled;
+		};
+		try {
+			await expect(matchResponse(new Response(null, { status: 500 }), binding, registry)).rejects.toBe(cancelled);
+		} finally {
+			Response.prototype.clone = originalClone;
+		}
 	});
 
 	test("returns declared transport failures and does not retry by default", async () => {
