@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestAgentStateRebindsUnchangedSchemaToCurrentSpec(t *testing.T) {
@@ -45,6 +46,69 @@ func TestAgentStateRebindsUnchangedSchemaToCurrentSpec(t *testing.T) {
 	if reloaded.SpecRevision != agentStateIdentity().SpecRevision || reloaded.PID != 123 {
 		t.Fatalf("reloaded state = %+v", reloaded)
 	}
+}
+
+func TestCurrentArtifactMigrationMarkerIsIdempotent(t *testing.T) {
+	writeCurrentState := func(t *testing.T, path string) {
+		t.Helper()
+		state := State{
+			ArtifactIdentity: agentStateIdentity(),
+			PID:              123,
+			Identity:         Identity{Version: "v1.2.3", Commit: "abc"},
+			SocketPath:       "/tmp/agent.sock",
+			RouterAddr:       "127.0.0.1:4040",
+		}
+		encoded, err := json.MarshalIndent(state, "", "  ")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, append(encoded, '\n'), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path+".legacy.bak", []byte("legacy\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	t.Run("completed marker is not rewritten", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "state.json")
+		writeCurrentState(t, path)
+		markerPath := path + ".legacy.migrated"
+		if err := os.WriteFile(markerPath, []byte("current\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		markerTime := time.Unix(946684800, 0)
+		if err := os.Chtimes(markerPath, markerTime, markerTime); err != nil {
+			t.Fatal(err)
+		}
+
+		if _, err := LoadState(path); err != nil {
+			t.Fatal(err)
+		}
+		info, err := os.Stat(markerPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := info.ModTime().Unix(); got != markerTime.Unix() {
+			t.Fatalf("migration marker modified at %d, want %d", got, markerTime.Unix())
+		}
+	})
+
+	t.Run("missing marker is created", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "state.json")
+		writeCurrentState(t, path)
+
+		if _, err := LoadState(path); err != nil {
+			t.Fatal(err)
+		}
+		marker, err := os.ReadFile(path + ".legacy.migrated")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(marker) != "current\n" {
+			t.Fatalf("migration marker = %q", marker)
+		}
+	})
 }
 
 func TestRegistryMigrationPreservesSessionAndSubstrateOwnership(t *testing.T) {

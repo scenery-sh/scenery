@@ -63,6 +63,7 @@ macOS is the supported platform for this plan. Linux code paths may compile but 
 * [x] 2026-07-22: Fixed the login-resume failure exposed by a real LaunchAgent exit 10. Public deploy edge restart now validates the Caddy/helper/agent target chain without depending on optional `local.dev` wildcard DNS; ordinary local edge restart still requires DNS. LaunchAgent status now exposes `state` and `last_exit_code`, a completed nonzero resume degrades `scenery deploy status`, and setup verifies the kickstarted job through `launchctl print` instead of treating an accepted spawn as success. Focused tests and cached `go test ./cmd/scenery` pass.
 * [x] 2026-07-22: A fresh unload/bootstrap acceptance exposed a second login-resume fault: the one-shot unconditionally tore down an already healthy Caddy and a long-lived Caddy did not exit inside the two-second stop grace, so launchd again recorded exit 10. Resume now performs bounded reacquisition of the fingerprinted Caddy/helper/agent chain, retains it when healthy, and falls back to the existing restart only when unavailable. Focused helper and command-level tests cover healthy reuse, transient agent-health recovery, and exactly one unavailable-edge restart.
 * [x] 2026-07-22: Post-fix runtime acceptance passed without touching either app process. An unavailable Caddy was replaced (`pid 28515` to `10407`) while ONLV session `main-dbe32e` and Micro session `main-2826af` remained registered and both targets reported `already_running`. Unloading and bootstrapping the exact `RunAtLoad` plist then produced `runs = 1`, `last exit code = 0`, `edge_restarted: false`, deploy status `ready: true`, and public HTTP 200 for both domains. A literal post-fix machine reboot/login remains the only operator-driven observation.
+* [x] 2026-09-01: Removed two synchronous operations from the public request hot path: completed durable-artifact migration markers are now idempotent instead of being atomically rewritten and fsynced on every registry load, and macOS owner verification reads process identity through native `sysctl` calls instead of spawning `ps` per request. Two live ONLV 40-request measurements over one warm HTTP/2 connection dropped local Caddy → agent → Vite p50 from `22.75 ms` to `2.95–4.41 ms`; one decomposition measured direct agent → Vite at `1.54 ms` p50 and direct Vite at `0.75 ms` p50. All routes returned 200, the live session survived the agent restart, and the migration-marker inode remained unchanged across requests. Focused agent tests, `go test ./...`, and the full self-harness passed.
 
 ## Surprises & Discoveries
 
@@ -84,6 +85,7 @@ Initial known facts from source review (2026-07-07):
 * 2026-08-12: A correctly proxied Cloudflare hostname can make both public ACME challenge paths terminate at Cloudflare instead of the Scenery origin. The cookbook already specified Cloudflare Full with an internal origin certificate, but production-domain Caddy blocks forced ACME only; publication therefore rolled back despite a healthy app runtime and CDN. Caddy supports ordered redundant issuers, so the edge can preserve ACME-first behavior and fall back locally without DNS mutation or provider-specific detection.
 * 2026-07-22: Login resume used the generic local-browser edge readiness result after Caddy had already started. That result intentionally includes `dnsmasq`, so an unrelated stopped local wildcard resolver aborted public recovery before the enabled-target loop and launchd recorded exit 10. The public and local traffic paths share Caddy/helper/agent health but only local browser URLs require wildcard DNS.
 * 2026-07-22: Removing and bootstrapping the one-shot LaunchAgent is materially stronger than a manual command run because it exercises the exact plist, executable, launchd domain, RunAtLoad behavior, output paths, and durable exit status. That acceptance found that unconditional restart was itself unsafe: a healthy long-lived Caddy can outlive the two-second graceful-stop window. Login recovery must reacquire the healthy fingerprinted chain first, tolerate short agent-health transitions with bounded retries, and restart only after bounded unavailability.
+* 2026-09-01: The public-host decision to reload `deploy.json` on every request exposed an unrelated migration-loader bug: the mere presence of `.legacy.bak` caused an already-completed `.legacy.migrated` marker to be replaced through an atomic write with both file and directory syncs. The same route also performed a macOS owner fingerprint check by spawning `ps`. Together those operations dominated a loopback request even though Caddy and the Vite backend were fast. A request changing the marker inode proved the write; direct backend/router/Caddy timing isolated both costs before changing them.
 
 ## Decision Log
 
@@ -143,6 +145,10 @@ Initial known facts from source review (2026-07-07):
   * Rationale: `scenery deploy enable|disable` already writes the machine registry atomically, the target set is tiny, and per-request load gives immediate correctness without another invalidation path. If this becomes hot, replace it with an mtime-cached registry reader.
   * Date: 2026-07-07. Author: implementation.
 
+* Decision: Reading current durable state must never rewrite an existing completed migration marker, and macOS process-owner verification uses native `kern.proc.pid` / `kern.procargs2` sysctls rather than a child process.
+  * Rationale: Durable migration recovery still creates a missing marker, while ordinary reads stay read-only. Native process inspection retains the recorded start-time, executable, and legacy command-fingerprint checks without putting process startup in the public request path.
+  * Date: 2026-09-01. Author: latency repair.
+
 * Decision: No new environment variables. All knobs are CLI flags, app config (`deploy.*`), or machine deploy registry state.
   * Rationale: Repo rule.
   * Date: 2026-07-07. Author: initial ExecPlan.
@@ -158,6 +164,8 @@ Initial known facts from source review (2026-07-07):
 ## Outcomes & Retrospective
 
 Milestone 10 is live-accepted for ONLV on `local.clean.tech` and Micro on `micro.scenery.sh`: one public helper/Caddy/agent chain served both production-cert domains simultaneously and containment checks passed on 2026-07-22. Controlled failure and login-job acceptance also pass: an unavailable Caddy was replaced without replacing either app session, and the exact unloaded/rebootstrapped RunAtLoad LaunchAgent subsequently exited zero while reacquiring the healthy replacement. The plan remains active only for a literal post-fix operator reboot/login observation; the July 16 real reboot exposed exit 10 and the July 22 controlled repetitions produced both the DNS-independent and idempotent bounded-resume fixes above.
+
+The 2026-09-01 request-path repair removed the observed loopback latency regression without weakening owner verification or migration recovery. Two live 40-request runs put the local Caddy path at `2.95–4.41 ms` p50 and `4.03–6.14 ms` p95, compared with `22.75 ms` p50 before the repair.
 
 ## Context and Orientation
 

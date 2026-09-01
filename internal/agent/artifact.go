@@ -63,6 +63,11 @@ func LoadDurableArtifact(path string, target any, identity *machine.ArtifactIden
 	}
 	if err := machine.DecodeArtifact(data, target, identity, kind, descriptor, "rerun the state migration"); err == nil {
 		if _, backupErr := os.Stat(path + ".legacy.bak"); backupErr == nil {
+			if _, markerErr := os.Stat(path + ".legacy.migrated"); markerErr == nil {
+				return nil
+			} else if !errors.Is(markerErr, os.ErrNotExist) {
+				return markerErr
+			}
 			return writeMigrationMarker(path)
 		}
 		return nil
