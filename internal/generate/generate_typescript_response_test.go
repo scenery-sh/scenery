@@ -43,7 +43,7 @@ func TestTypeScriptClientReturnsDeclaredTransportFailuresAsTypedOutcomes(t *test
 	if strings.Contains(client, `"throwOnMatch":true`) {
 		t.Fatalf("declared transport failure is thrown instead of returned:\n%s", client)
 	}
-	runtimeSource := renderTSRuntime()
+	runtimeSource := renderTSRuntime(allTSRuntimeCapabilities())
 	if !strings.Contains(runtimeSource, `return { kind: "failure", name: candidate.name, problem: payload }`) {
 		t.Fatalf("runtime does not return typed failures:\n%s", runtimeSource)
 	}
@@ -78,7 +78,7 @@ func TestTypeScriptClientSelectsSameStatusCompletionsByTypedMapping(t *testing.T
 			t.Fatalf("client missing %q:\n%s", fragment, client)
 		}
 	}
-	runtimeSource := renderTSRuntime()
+	runtimeSource := renderTSRuntime(allTSRuntimeCapabilities())
 	for _, fragment := range []string{
 		"const completionMatches: unknown[] = []",
 		"if (completionMatches.length === 1) return completionMatches[0]",
@@ -125,7 +125,7 @@ func TestTypeScriptClientReconstructsResponseHeadersCookiesAndCamelCaseFields(t 
 			t.Fatalf("client missing %q:\n%s", fragment, client)
 		}
 	}
-	runtimeSource := renderTSRuntime()
+	runtimeSource := renderTSRuntime(allTSRuntimeCapabilities())
 	for _, fragment := range []string{"export function decodeResponseHeader", "export function decodeResponseCookie", "export function mergeResponseValue", "getSetCookie"} {
 		if !strings.Contains(runtimeSource, fragment) {
 			t.Fatalf("runtime missing %q", fragment)
@@ -171,7 +171,7 @@ func TestTypeScriptClientUsesDeclaredMultipartPartContract(t *testing.T) {
 			t.Fatalf("multipart client missing %q:\n%s", fragment, client)
 		}
 	}
-	if !strings.Contains(renderTSRuntime(), "encodeMultipartRequestBody") {
+	if !strings.Contains(renderTSRuntime(allTSRuntimeCapabilities()), "encodeMultipartRequestBody") {
 		t.Fatal("runtime missing encodeMultipartRequestBody")
 	}
 }
@@ -247,7 +247,7 @@ func TestTypeScriptClientInternsSharedResponseCases(t *testing.T) {
 }
 
 func TestTypeScriptRuntimeExportsTableDrivenHelpers(t *testing.T) {
-	runtimeSource := renderTSRuntime()
+	runtimeSource := renderTSRuntime(allTSRuntimeCapabilities())
 	for _, fragment := range []string{
 		"export async function invoke(",
 		"export async function matchResponse(",
@@ -258,6 +258,83 @@ func TestTypeScriptRuntimeExportsTableDrivenHelpers(t *testing.T) {
 		if !strings.Contains(runtimeSource, fragment) {
 			t.Fatalf("runtime missing %q", fragment)
 		}
+	}
+}
+
+func TestTypeScriptRuntimeOmitsUnusedCapabilities(t *testing.T) {
+	operation := Resource{Address: "house/operation/get", Module: "house", Kind: "scenery.operation", Name: "get", Spec: map[string]any{
+		"input": map[string]any{"$ref": "std.type.unit"}, "result": map[string]any{"name": "found", "type": map[string]any{"$ref": "string"}},
+	}}
+	binding := Resource{Address: "house/binding/get", Module: "house", Kind: "scenery.binding", Name: "get", Spec: map[string]any{
+		"operation": map[string]any{"$ref": "operation.get"}, "http": map[string]any{"method": "GET", "path": "/get", "response": map[string]any{
+			"name": "found", "when": map[string]any{"$ref": "result.found"}, "status": "200", "body": map[string]any{"codec": "text", "from": map[string]any{"$ref": "result.found"}},
+		}},
+	}}
+	resources := []Resource{operation}
+	runtimeSource := renderTSRuntime(tsRuntimeCapabilitiesFor(Resource{Name: "public"}, []Resource{binding}, resources))
+	for _, fragment := range []string{
+		"export interface BindingQueryMapping",
+		"export interface BindingHeaderMapping",
+		"export interface BindingResponseHeader",
+		"export interface BindingResponseCookie",
+		"export interface MultipartBodyDescriptor",
+		"export interface RetryRuntime",
+		"export function appendQuery",
+		"export function appendHeader",
+		"export function appendCookie",
+		"export function decodeResponseHeader",
+		"export function decodeResponseCookie",
+		"export function encodeMultipartRequestBody",
+		"export async function fetchWithRetry",
+		"binding.query",
+		"binding.headers",
+		"binding.cookies",
+		`body.codec === "multipart"`,
+		"multipart requires a declared part schema",
+		"transport.retry",
+		"__scenery_runtime_",
+	} {
+		if strings.Contains(runtimeSource, fragment) {
+			t.Fatalf("minimal runtime retained unused capability %q", fragment)
+		}
+	}
+	if !strings.Contains(runtimeSource, "response = await transport.fetch(transport.baseUrl + path, requestInit)") {
+		t.Fatal("minimal runtime omitted the direct fetch path")
+	}
+}
+
+func TestTypeScriptRuntimeCapabilitySectionsAreIndependent(t *testing.T) {
+	tests := []struct {
+		name   string
+		caps   tsRuntimeCapabilities
+		want   []string
+		reject []string
+	}{
+		{name: "query", caps: tsRuntimeCapabilities{query: true}, want: []string{"export function appendQuery"}, reject: []string{"export function appendHeader", "export function appendCookie"}},
+		{name: "request header", caps: tsRuntimeCapabilities{requestHeader: true}, want: []string{"export function appendHeader"}, reject: []string{"export function appendQuery", "export function appendCookie"}},
+		{name: "request cookie", caps: tsRuntimeCapabilities{requestCookie: true}, want: []string{"export function appendCookie"}, reject: []string{"export function appendQuery", "export function appendHeader"}},
+		{name: "response header", caps: tsRuntimeCapabilities{responseHeader: true}, want: []string{"export function decodeResponseHeader"}, reject: []string{"export function decodeResponseCookie", "getSetCookie"}},
+		{name: "response cookie", caps: tsRuntimeCapabilities{responseCookie: true}, want: []string{"export function decodeResponseCookie", "getSetCookie"}, reject: []string{"export function decodeResponseHeader"}},
+		{name: "multipart", caps: tsRuntimeCapabilities{multipart: true}, want: []string{"export function encodeMultipartRequestBody", "multipart requires a declared part schema"}, reject: []string{"export async function fetchWithRetry"}},
+		{name: "retry", caps: tsRuntimeCapabilities{retry: true}, want: []string{"export async function fetchWithRetry", "if (transport.retry !== undefined"}, reject: []string{"export function encodeMultipartRequestBody"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			source := renderTSRuntime(test.caps)
+			for _, fragment := range test.want {
+				if !strings.Contains(source, fragment) {
+					t.Fatalf("runtime missing enabled capability %q", fragment)
+				}
+			}
+			for _, fragment := range test.reject {
+				if strings.Contains(source, fragment) {
+					t.Fatalf("runtime retained disabled capability %q", fragment)
+				}
+			}
+			if strings.Contains(source, "__scenery_runtime_") {
+				t.Fatal("runtime retained an emit marker")
+			}
+		})
 	}
 }
 

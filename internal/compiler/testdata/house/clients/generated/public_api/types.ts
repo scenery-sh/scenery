@@ -13,3 +13,46 @@ export type URLString = string & { readonly __url: unique symbol };
 export type RelativePathString = string & { readonly __relativePath: unique symbol };
 export interface Problem { readonly code: string; readonly message: string; readonly path?: string }
 export interface EnqueueReceipt { readonly durableIdentity: string; readonly executionId: string; readonly acceptedRevision: string; readonly statusUrl?: URLString }
+
+export interface ProcessSceneInput {
+  readonly sceneId: string;
+}
+
+export interface ProcessSceneResult {
+  readonly status: string;
+}
+
+export interface SceneEvent {
+  readonly id: string;
+  readonly message: string;
+}
+
+export interface SceneEventsInput {
+  readonly cursor?: string;
+  readonly requestId?: string;
+  readonly sceneId: string;
+  readonly tenant?: string;
+}
+
+export interface SceneEventsResult {
+  readonly items: readonly SceneEvent[];
+  readonly requestId?: string;
+  readonly tenant?: string;
+}
+
+export type ListSceneEventsInput = SceneEventsInput;
+
+export type ListSceneEventsOutcome =
+  | { readonly kind: "result"; readonly name: "success"; readonly value: SceneEventsResult }
+  | { readonly kind: "failure"; readonly name: "invalid_request"; readonly problem: Problem }
+  | { readonly kind: "failure"; readonly name: "not_acceptable"; readonly problem: Problem }
+  | { readonly kind: "failure"; readonly name: "rate_limited"; readonly problem: Problem }
+;
+
+export type ProcessSceneOutcome =
+  | { readonly kind: "result"; readonly name: "processed"; readonly value: ProcessSceneResult }
+  | { readonly kind: "failure"; readonly name: "invalid_request"; readonly problem: Problem }
+  | { readonly kind: "failure"; readonly name: "not_acceptable"; readonly problem: Problem }
+  | { readonly kind: "failure"; readonly name: "rate_limited"; readonly problem: Problem }
+  | { readonly kind: "failure"; readonly name: "unsupported_media_type"; readonly problem: Problem }
+;

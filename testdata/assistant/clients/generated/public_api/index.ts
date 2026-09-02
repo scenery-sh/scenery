@@ -2,6 +2,6 @@
 export * from "./client.js";
 export * from "./types.js";
 export { date, dateTime, decimal, duration, jsonNumber, isJsonNumber, relativePath, SceneryClientError, url, uuid } from "./runtime.js";
-export type { AuthenticationOptions, CallOptions, RetryRuntime } from "./runtime.js";
+export type { AuthenticationOptions, CallOptions } from "./runtime.js";
 export * from "./metadata.js";
 export * from "./assistant.js";

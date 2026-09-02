@@ -37,36 +37,9 @@ export interface AuthenticationOptions {
   readonly credentials?: RequestCredentials;
 }
 
-export interface RetryRuntime {
-  readonly now: () => number;
-  readonly sleep: (milliseconds: number, signal?: AbortSignal) => Promise<void>;
-}
 
-export interface RetryPolicy {
-  readonly maximumAttempts: number;
-  readonly statuses: readonly number[];
-  readonly maximumDelayMilliseconds: number;
-}
 
-export interface MultipartPartDescriptor {
-  readonly name: string;
-  readonly property: string;
-  readonly kind: "text" | "bytes" | "file";
-  readonly mediaTypes: readonly string[];
-  readonly maxBytes: number;
-  readonly multiple: boolean;
-  readonly optional: boolean;
-  readonly retainFilename: boolean;
-  readonly value: TypeDescriptor;
-  readonly fileProperties?: Readonly<{ bytes: string; filename: string; mediaType: string }>;
-}
 
-export interface MultipartBodyDescriptor {
-  readonly value: TypeDescriptor;
-  readonly parts: readonly MultipartPartDescriptor[];
-  readonly maxParts: number;
-  readonly maxBytes: number;
-}
 
 export type TypeDescriptor =
   | { readonly kind: "primitive"; readonly name: string }
@@ -143,8 +116,7 @@ export interface InvokeTransport {
   readonly fetch: typeof globalThis.fetch;
   readonly headers: Readonly<Record<string, string>>;
   readonly authentication?: AuthenticationOptions;
-  readonly retryRuntime?: RetryRuntime;
-  readonly retry?: RetryPolicy;
+
 }
 
 export interface BindingFieldMapping {
@@ -153,13 +125,9 @@ export interface BindingFieldMapping {
   readonly value: TypeDescriptor;
 }
 
-export interface BindingQueryMapping extends BindingFieldMapping {
-  readonly encoding: string;
-}
 
-export interface BindingHeaderMapping extends BindingFieldMapping {
-  readonly encoding: string;
-}
+
+
 
 export interface BindingRequestBody {
   readonly codec: string;
@@ -167,7 +135,7 @@ export interface BindingRequestBody {
   readonly contentType?: string;
   readonly property?: string;
   readonly select?: readonly string[];
-  readonly multipart?: MultipartBodyDescriptor;
+
 }
 
 export interface BindingResponseBody {
@@ -177,18 +145,9 @@ export interface BindingResponseBody {
   readonly value: TypeDescriptor;
 }
 
-export interface BindingResponseHeader {
-  readonly name: string;
-  readonly encoding: string;
-  readonly path: readonly string[];
-  readonly value: TypeDescriptor;
-}
 
-export interface BindingResponseCookie {
-  readonly name: string;
-  readonly path: readonly string[];
-  readonly value: TypeDescriptor;
-}
+
+
 
 export interface BindingResponseCase {
   readonly status: number;
@@ -198,8 +157,8 @@ export interface BindingResponseCase {
   readonly problemCode?: string;
   readonly throwOnMatch?: boolean;
   readonly body?: BindingResponseBody;
-  readonly headers?: readonly BindingResponseHeader[];
-  readonly cookies?: readonly BindingResponseCookie[];
+
+
 }
 
 export interface BindingCall {
@@ -208,9 +167,9 @@ export interface BindingCall {
   readonly path: string;
   readonly pathParameters?: readonly BindingFieldMapping[];
   readonly pathTail?: BindingFieldMapping;
-  readonly query?: readonly BindingQueryMapping[];
-  readonly headers?: readonly BindingHeaderMapping[];
-  readonly cookies?: readonly BindingFieldMapping[];
+
+
+
   readonly body?: BindingRequestBody;
   readonly responseLimitBytes: number;
   readonly responses: readonly BindingResponseCase[];
@@ -422,85 +381,11 @@ export function encodeRequestBody(
     }
     return form;
   }
-  if (codec === "multipart") invalid("$", "multipart requires a declared part schema");
+
   invalid("$", "unsupported request body codec");
 }
 
-export function encodeMultipartRequestBody(
-  value: unknown,
-  descriptor: MultipartBodyDescriptor,
-  registry: TypeRegistry,
-): Readonly<{ body: ArrayBuffer; contentType: string }> {
-  if (!isObject(value) || Array.isArray(value)) invalid("$", "multipart body requires a record");
-  encodeTypedValue(value, descriptor.value, registry, "$", new Set());
-  if (!Number.isSafeInteger(descriptor.maxParts) || descriptor.maxParts <= 0) invalid("$", "invalid multipart part limit");
-  if (!Number.isSafeInteger(descriptor.maxBytes) || descriptor.maxBytes <= 0) invalid("$", "invalid multipart body limit");
-  const encoder = new TextEncoder();
-  const encodedParts: Array<Readonly<{ header: string; bytes: Uint8Array }>> = [];
-  for (const part of descriptor.parts) {
-    const item = value[part.property];
-    if (item === undefined) {
-      if (part.optional) continue;
-      invalid(`$.${part.property}`, `missing multipart part ${part.name}`);
-    }
-    const collection = orderedHTTPItems(item, part.value, registry, `$.${part.property}`);
-    if (collection.collection !== part.multiple) invalid(`$.${part.property}`, "multipart multiplicity contradicts the contract");
-    if (collection.items.length === 0 && !part.optional) invalid(`$.${part.property}`, "required multipart collection is empty");
-    for (const entry of collection.items) {
-      let bytes: Uint8Array;
-      let filename: string | undefined;
-      let contentType: string;
-      if (part.kind === "text") {
-        bytes = encoder.encode(encodeHTTPValue(entry, collection.itemDescriptor, registry));
-        contentType = selectMultipartMediaType(part.mediaTypes, "text/plain");
-      } else if (part.kind === "bytes") {
-        if (!(entry instanceof Uint8Array)) invalid(`$.${part.property}`, "multipart byte part requires Uint8Array");
-        bytes = new Uint8Array(entry);
-        contentType = selectMultipartMediaType(part.mediaTypes, "application/octet-stream");
-      } else {
-        if (part.retainFilename) {
-          if (!isObject(entry) || Array.isArray(entry) || part.fileProperties === undefined) invalid(`$.${part.property}`, "multipart file metadata is invalid");
-          const rawBytes = entry[part.fileProperties.bytes];
-          const rawFilename = entry[part.fileProperties.filename];
-          const rawMediaType = entry[part.fileProperties.mediaType];
-          if (!(rawBytes instanceof Uint8Array) || typeof rawFilename !== "string" || rawFilename === "" || typeof rawMediaType !== "string") invalid(`$.${part.property}`, "multipart file metadata is invalid");
-          bytes = new Uint8Array(rawBytes);
-          filename = rawFilename;
-          contentType = canonicalMultipartMediaType(rawMediaType, part.mediaTypes);
-        } else {
-          if (!(entry instanceof Uint8Array)) invalid(`$.${part.property}`, "multipart file part requires Uint8Array");
-          bytes = new Uint8Array(entry);
-          filename = "blob";
-          contentType = selectMultipartMediaType(part.mediaTypes, "application/octet-stream");
-        }
-      }
-      if (bytes.byteLength > part.maxBytes) invalid(`$.${part.property}`, `multipart part ${part.name} exceeds its byte limit`);
-      const disposition = `Content-Disposition: form-data; name="${multipartQuoted(part.name)}"${filename === undefined ? "" : `; filename="${multipartQuoted(filename)}"`}`;
-      encodedParts.push({ header: `${disposition}\r\nContent-Type: ${contentType}`, bytes });
-      if (encodedParts.length > descriptor.maxParts) invalid("$", "multipart part limit exceeded");
-    }
-  }
-  let boundary = "scenery-boundary";
-  while (encodedParts.some((part) => part.header.includes(boundary) || containsByteSequence(part.bytes, encoder.encode(boundary)))) boundary += "x";
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  const append = (chunk: Uint8Array) => {
-    total += chunk.byteLength;
-    if (total > descriptor.maxBytes) invalid("$", "multipart body exceeds its byte limit");
-    chunks.push(chunk);
-  };
-  for (const part of encodedParts) {
-    append(encoder.encode(`--${boundary}\r\n${part.header}\r\n\r\n`));
-    append(part.bytes);
-    append(encoder.encode("\r\n"));
-  }
-  append(encoder.encode(`--${boundary}--\r\n`));
-  const body = new ArrayBuffer(total);
-  const bodyBytes = new Uint8Array(body);
-  let offset = 0;
-  for (const chunk of chunks) { bodyBytes.set(chunk, offset); offset += chunk.byteLength; }
-  return Object.freeze({ body, contentType: `multipart/form-data; boundary=${boundary}` });
-}
+
 
 function ownedArrayBuffer(value: Uint8Array): ArrayBuffer {
   const buffer = new ArrayBuffer(value.byteLength);
@@ -508,43 +393,7 @@ function ownedArrayBuffer(value: Uint8Array): ArrayBuffer {
   return buffer;
 }
 
-function multipartQuoted(value: string): string {
-  assertUnicodeScalarString(value);
-  if (value === "" || /[\u0000-\u001f\u007f]/.test(value)) invalid("$", "invalid multipart name or filename");
-  return value.replace(/(["\\])/g, "\\$1");
-}
 
-function canonicalMultipartMediaType(value: string, allowed: readonly string[]): string {
-  const parsed = parseMediaType(value);
-  if (parsed.base.includes("*") || Object.keys(parsed.parameters).length > 0 || !multipartMediaAllowed(parsed.base, allowed)) invalid("$", "multipart media type is not accepted");
-  return parsed.base;
-}
-
-function selectMultipartMediaType(allowed: readonly string[], fallback: string): string {
-  if (allowed.length === 0 || multipartMediaAllowed(fallback, allowed)) return fallback;
-  for (const value of allowed) {
-    const parsed = parseMediaType(value);
-    if (!parsed.base.includes("*") && Object.keys(parsed.parameters).length === 0) return parsed.base;
-  }
-  invalid("$", "multipart media type requires caller metadata");
-}
-
-function multipartMediaAllowed(actual: string, allowed: readonly string[]): boolean {
-  if (allowed.length === 0) return true;
-  const actualParts = parseMediaType(actual).base.split("/");
-  return allowed.some((candidate) => {
-    const expected = parseMediaType(candidate).base.split("/");
-    return (expected[0] === "*" || expected[0] === actualParts[0]) && (expected[1] === "*" || expected[1] === actualParts[1]);
-  });
-}
-
-function containsByteSequence(value: Uint8Array, sequence: Uint8Array): boolean {
-  outer: for (let offset = 0; offset + sequence.length <= value.length; offset++) {
-    for (let index = 0; index < sequence.length; index++) if (value[offset + index] !== sequence[index]) continue outer;
-    return true;
-  }
-  return false;
-}
 
 type ParsedMediaType = { readonly base: string; readonly parameters: Readonly<Record<string, string>> };
 
@@ -667,132 +516,11 @@ export function mergeResponseValue(current: unknown, path: readonly string[], va
   return root;
 }
 
-type ResponseHeaderValues = { readonly values: readonly string[]; readonly preservesRepetition: boolean };
 
-function responseHeaderValues(headers: Headers, name: string): ResponseHeaderValues {
-  const extended = headers as Headers & {
-    getAll?: (name: string) => string[];
-    getSetCookie?: () => string[];
-    raw?: () => Record<string, string[]>;
-  };
-  if (name.toLowerCase() === "set-cookie" && typeof extended.getSetCookie === "function") {
-    return { values: extended.getSetCookie(), preservesRepetition: true };
-  }
-  if (typeof extended.getAll === "function") return { values: extended.getAll(name), preservesRepetition: true };
-  if (typeof extended.raw === "function") {
-    const raw = extended.raw();
-    return { values: raw[name.toLowerCase()] ?? raw[name] ?? [], preservesRepetition: true };
-  }
-  const value = headers.get(name);
-  return { values: value === null ? [] : [value], preservesRepetition: false };
-}
 
-function responseHTTPWireValue(value: string, descriptor: TypeDescriptor, registry: TypeRegistry, bindingAddress: string): unknown {
-  const resolved = unwrapResponseMetadataDescriptor(descriptor, registry, new Set());
-  if (resolved.kind === "enum") return value;
-  if (resolved.kind !== "primitive") throw new SceneryClientError("contract_violation", bindingAddress, "response metadata requires a scalar codec");
-  switch (resolved.name) {
-    case "bool":
-      if (value !== "true" && value !== "false") throw new SceneryClientError("contract_violation", bindingAddress, "malformed boolean response metadata");
-      return value === "true";
-    case "int32":
-    case "uint32":
-    case "float32":
-    case "float64":
-      return parseExactJSON(value);
-    case "json":
-      return parseExactJSON(value);
-    default:
-      return value;
-  }
-}
 
-function unwrapResponseMetadataDescriptor(descriptor: TypeDescriptor, registry: TypeRegistry, resolving: Set<string>): TypeDescriptor {
-  if (descriptor.kind === "named") {
-    if (resolving.has(descriptor.name)) throw new Error("recursive response metadata type descriptor");
-    const resolved = registry[descriptor.name];
-    if (resolved === undefined) throw new Error("missing response metadata type descriptor");
-    const next = new Set(resolving);
-    next.add(descriptor.name);
-    return unwrapResponseMetadataDescriptor(resolved, registry, next);
-  }
-  if (descriptor.kind === "optional" || descriptor.kind === "nullable") return unwrapResponseMetadataDescriptor(descriptor.value, registry, resolving);
-  return descriptor;
-}
 
-function responseMetadataIsOptional(descriptor: TypeDescriptor, registry: TypeRegistry, resolving: Set<string>): boolean {
-	if (descriptor.kind === "named") {
-		if (resolving.has(descriptor.name)) throw new Error("recursive response metadata type descriptor");
-		const resolved = registry[descriptor.name];
-		if (resolved === undefined) throw new Error("missing response metadata type descriptor");
-		const next = new Set(resolving);
-		next.add(descriptor.name);
-		return responseMetadataIsOptional(resolved, registry, next);
-	}
-	return descriptor.kind === "optional";
-}
 
-export function decodeResponseHeader(
-  response: Response,
-  name: string,
-  encoding: string,
-  descriptor: TypeDescriptor,
-  registry: TypeRegistry,
-  bindingAddress: string,
-): unknown {
-	try {
-		const raw = responseHeaderValues(response.headers, name);
-		if (raw.values.length === 0) {
-			if (responseMetadataIsOptional(descriptor, registry, new Set())) return undefined;
-			throw new SceneryClientError("contract_violation", bindingAddress, `required response header ${name} is absent`);
-		}
-    const resolved = unwrapResponseMetadataDescriptor(descriptor, registry, new Set());
-    const collection = resolved.kind === "list" || resolved.kind === "set";
-    if (encoding === "json") {
-      if (raw.values.length !== 1) throw new SceneryClientError("contract_violation", bindingAddress, `response header ${name} is repeated`);
-      return decodeTypedValue(parseExactJSON(raw.values[0]!), descriptor, registry, `$headers.${name}`, new Set());
-    }
-    let values = raw.values;
-    if (encoding === "comma") values = raw.values.flatMap((item) => item.split(",").map((part) => part.trim()));
-    else if (encoding !== "repeated") throw new SceneryClientError("contract_violation", bindingAddress, "unsupported response header encoding");
-		if (encoding === "repeated" && !raw.preservesRepetition) {
-			throw new SceneryClientError("unsupported_runtime", bindingAddress, `fetch runtime cannot preserve repeated response header ${name}`);
-		}
-    if (!collection && values.length !== 1) throw new SceneryClientError("contract_violation", bindingAddress, `scalar response header ${name} is repeated`);
-    const itemDescriptor = collection ? resolved.value : descriptor;
-    const wire = values.map((item) => responseHTTPWireValue(item, itemDescriptor, registry, bindingAddress));
-    return decodeTypedValue(collection ? wire : wire[0], descriptor, registry, `$headers.${name}`, new Set());
-  } catch (cause) {
-    if (cause instanceof SceneryClientError && cause.bindingAddress === bindingAddress) throw cause;
-    throw new SceneryClientError("contract_violation", bindingAddress, `malformed response header ${name}`, safeCause(cause));
-  }
-}
-
-export function decodeResponseCookie(
-  response: Response,
-  name: string,
-  descriptor: TypeDescriptor,
-  registry: TypeRegistry,
-  bindingAddress: string,
-): unknown {
-	try {
-		const raw = responseHeaderValues(response.headers, "set-cookie");
-		if (!raw.preservesRepetition) throw new SceneryClientError("unsupported_runtime", bindingAddress, "fetch runtime does not expose Set-Cookie values");
-    const prefix = `${name}=`;
-    const matches = raw.values.flatMap((cookie) => {
-      const pair = cookie.split(";", 1)[0]!.trim();
-      return pair.startsWith(prefix) ? [pair.slice(prefix.length)] : [];
-    });
-		if (matches.length === 0 && responseMetadataIsOptional(descriptor, registry, new Set())) return undefined;
-		if (matches.length !== 1) throw new SceneryClientError("contract_violation", bindingAddress, `response cookie ${name} is absent or duplicated`);
-    const decoded = decodeURIComponent(matches[0]!);
-    const wire = responseHTTPWireValue(decoded, descriptor, registry, bindingAddress);
-    return decodeTypedValue(wire, descriptor, registry, `$cookies.${name}`, new Set());
-  } catch (cause) {
-    if (cause instanceof SceneryClientError && cause.bindingAddress === bindingAddress) throw cause;
-    throw new SceneryClientError("contract_violation", bindingAddress, `malformed response cookie ${name}`, safeCause(cause));
-  }
-}
 
 export async function decodeResponseBody(
   response: Response,
@@ -835,31 +563,7 @@ export async function assertEmptyResponse(response: Response, bindingAddress: st
   }
 }
 
-export async function fetchWithRetry(
-  fetchImplementation: typeof globalThis.fetch,
-  url: string,
-  init: RequestInit,
-  signal: AbortSignal | undefined,
-  runtime: RetryRuntime,
-  policy: RetryPolicy,
-): Promise<Response> {
-  let lastCause: unknown;
-  for (let attempt = 1; attempt <= policy.maximumAttempts; attempt++) {
-    if (signal?.aborted) throw new SceneryClientError("cancelled", "", "request cancelled", lastCause);
-    try {
-      const response = await fetchImplementation(url, replayableRequestInit(init));
-      if (attempt === policy.maximumAttempts || !policy.statuses.includes(response.status)) return response;
-      const delay = retryDelay(response.headers.get("retry-after"), runtime.now(), policy.maximumDelayMilliseconds);
-      await runtime.sleep(delay, signal);
-    } catch (cause) {
-      if (signal?.aborted) throw new SceneryClientError("cancelled", "", "request cancelled", cause);
-      lastCause = cause;
-      if (attempt === policy.maximumAttempts) throw cause;
-      await runtime.sleep(0, signal);
-    }
-  }
-  throw lastCause;
-}
+
 
 export function mergeHeaders(
   defaults: Readonly<Record<string, string>> | undefined,
@@ -926,41 +630,11 @@ export function appendPathTail(prefix: string, value: unknown, descriptor: TypeD
   return `${prefix}/${segments.map(encodeRFC3986).join("/")}`;
 }
 
-export function appendQuery(target: string[], name: string, value: unknown, encoding = "repeated", descriptor?: TypeDescriptor, registry: TypeRegistry = Object.freeze({})): void {
-  if (value === undefined) return;
-  const encodedName = encodeRFC3986(name);
-  if (encoding === "json") {
-    const encoded = descriptor === undefined ? encodeJSON(value as JsonValue) : encodeTypedJSON(value, descriptor, registry);
-    target.push(`${encodedName}=${encodeRFC3986(encoded)}`);
-    return;
-  }
-  const collection = orderedHTTPItems(value, descriptor, registry, "$query");
-  const values = collection.items.map((item) => encodeHTTPValue(item, collection.itemDescriptor, registry));
-  if (encoding === "comma") {
-    target.push(`${encodedName}=${values.map(encodeRFC3986).join(",")}`);
-    return;
-  }
-  for (const item of values) target.push(`${encodedName}=${encodeRFC3986(item)}`);
-}
 
-export function appendHeader(target: Headers, name: string, value: unknown, encoding = "repeated", descriptor?: TypeDescriptor, registry: TypeRegistry = Object.freeze({})): void {
-  if (value === undefined) return;
-  const collection = orderedHTTPItems(value, descriptor, registry, "$headers");
-  const values = collection.items.map((item) => encodeHTTPValue(item, collection.itemDescriptor, registry));
-  if (encoding === "comma") target.set(name, values.join(","));
-	else {
-		if (values.length > 1) throw new SceneryClientError("unsupported_runtime", "", "fetch cannot preserve repeated request header field lines");
-		if (values.length === 1) target.set(name, values[0]!);
-	}
-}
 
-export function appendCookie(target: string[], name: string, value: unknown, descriptor?: TypeDescriptor, registry: TypeRegistry = Object.freeze({})): void {
-  if (value === undefined) return;
-  if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(name)) {
-    throw new SceneryClientError("invalid_input", "", "invalid cookie name");
-  }
-  target.push(`${name}=${encodeRFC3986(encodeHTTPValue(value, descriptor, registry))}`);
-}
+
+
+
 
 export function isProblemCode(value: unknown, code: string): boolean {
   return isObject(value) && value.code === code;
@@ -1128,25 +802,7 @@ function encodeTypedHTTPValue(value: unknown, descriptor: TypeDescriptor, regist
   return encodeHTTPValue(value);
 }
 
-function replayableRequestInit(init: RequestInit): RequestInit {
-  const body = init.body;
-  if (typeof ReadableStream !== "undefined" && body instanceof ReadableStream) {
-    throw new SceneryClientError("invalid_options", "", "retry cannot replay a streaming request body");
-  }
-  let replayBody = body;
-  if (body instanceof ArrayBuffer) replayBody = body.slice(0);
-  if (body instanceof Uint8Array) replayBody = new Uint8Array(body);
-  if (body instanceof URLSearchParams) replayBody = new URLSearchParams(body);
-  return { ...init, headers: new Headers(init.headers), body: replayBody };
-}
 
-function retryDelay(retryAfter: string | null, now: number, maximum: number): number {
-  if (retryAfter === null) return 0;
-  if (/^\d+$/.test(retryAfter)) return Math.min(maximum, Number(retryAfter) * 1000);
-  const parsed = Date.parse(retryAfter);
-  if (!Number.isFinite(parsed)) return 0;
-  return Math.max(0, Math.min(maximum, parsed - now));
-}
 
 function validateConstraints(
   value: unknown,
@@ -1595,14 +1251,8 @@ export async function invoke(
   const path = buildBindingPath(binding, input, registry);
   const headers = mergeHeaders(transport.headers, options.headers, binding.address);
   if (transport.authentication?.authorization !== undefined) headers.set("authorization", transport.authentication.authorization);
-  for (const mapping of binding.headers ?? []) {
-    appendHeader(headers, mapping.name, bindingInputField(input, mapping.property), mapping.encoding, mapping.value, registry);
-  }
-  const cookies: string[] = [];
-  for (const mapping of binding.cookies ?? []) {
-    appendCookie(cookies, mapping.name, bindingInputField(input, mapping.property), mapping.value, registry);
-  }
-  if (cookies.length > 0) headers.set("cookie", cookies.join("; "));
+
+
   const body = encodeBindingBody(binding, input, headers, registry);
   const requestInit: RequestInit = {
     method: binding.method,
@@ -1613,11 +1263,10 @@ export async function invoke(
   };
   let response: Response;
   try {
-    if (transport.retry !== undefined && transport.retryRuntime !== undefined) {
-      response = await fetchWithRetry(transport.fetch, transport.baseUrl + path, requestInit, options.signal, transport.retryRuntime, transport.retry);
-    } else {
-      response = await transport.fetch(transport.baseUrl + path, requestInit);
-    }
+
+
+    response = await transport.fetch(transport.baseUrl + path, requestInit);
+
   } catch (cause) {
     throw new SceneryClientError(options.signal?.aborted ? "cancelled" : "network", binding.address, "request failed", cause);
   }
@@ -1666,11 +1315,7 @@ function buildBindingPath(binding: BindingCall, input: unknown, registry: TypeRe
   if (binding.pathTail !== undefined) {
     path = appendPathTail(path, bindingInputField(input, binding.pathTail.property), binding.pathTail.value, registry);
   }
-  const query: string[] = [];
-  for (const mapping of binding.query ?? []) {
-    appendQuery(query, mapping.name, bindingInputField(input, mapping.property), mapping.encoding, mapping.value, registry);
-  }
-  if (query.length > 0) path += `?${query.join("&")}`;
+
   return path;
 }
 
@@ -1678,12 +1323,7 @@ function encodeBindingBody(binding: BindingCall, input: unknown, headers: Header
   const body = binding.body;
   if (body === undefined) return undefined;
   const value = bindingRequestValue(body, input);
-  if (body.codec === "multipart") {
-    if (body.multipart === undefined) throw new SceneryClientError("invalid_options", binding.address, "multipart requires a declared part schema");
-    const encoded = encodeMultipartRequestBody(value, body.multipart, registry);
-    headers.set("content-type", encoded.contentType);
-    return encoded.body;
-  }
+
   if (body.contentType !== undefined) headers.set("content-type", body.contentType);
   return encodeRequestBody(value, body.codec, body.value, registry);
 }
@@ -1724,22 +1364,8 @@ async function decodeBindingResponse(
       binding.address,
     );
   }
-  for (const header of candidate.headers ?? []) {
-    payload = mergeResponseValue(
-      payload,
-      header.path,
-      decodeResponseHeader(response, header.name, header.encoding, header.value, registry, binding.address),
-      binding.address,
-    );
-  }
-  for (const cookie of candidate.cookies ?? []) {
-    payload = mergeResponseValue(
-      payload,
-      cookie.path,
-      decodeResponseCookie(response, cookie.name, cookie.value, registry, binding.address),
-      binding.address,
-    );
-  }
+
+
   return payload === undefined ? {} : payload;
 }
 

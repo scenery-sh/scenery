@@ -33,7 +33,9 @@ hooks; CLI wires the live generate functions.
 - Generated `typescript_client` HTTP methods are thin typed wrappers over a
   per-binding descriptor table and `Runtime.invoke` / `Runtime.matchResponse`.
   Do not inline the request/response machine per method or emit TanStack hooks
-  from this target. Omit empty query and cookie mapping arrays. Intern
+  from this target. Omit empty query and cookie mapping arrays. Emit shared
+  runtime query, binding header/cookie, multipart, and retry sections only when
+  the covered descriptors or target configuration require them. Intern
   identical response cases and repeated consecutive shared runs into
   `sharedResponses` / `sharedResponseSets`.
 - React-enabled TypeScript targets render generated content, table, and split pages and the
@@ -61,6 +63,9 @@ hooks; CLI wires the live generate functions.
 ```sh
 go test ./internal/generate
 go test ./cmd/scenery -run 'TestGenerate'
+go run ./cmd/scenery generate --target typescript_client.public_api --app-root internal/compiler/testdata/native -o json
+go run ./cmd/scenery generate --target typescript_client.public_api --app-root internal/compiler/testdata/house -o json
+go run ./cmd/scenery generate --target typescript_client.public_api --app-root testdata/assistant -o json
 bun test internal/generate/testdata/typescript_client_conformance.test.ts
 apps/console/node_modules/.bin/tsc -p internal/generate/testdata/tsconfig.generated-clients.json
 apps/console/node_modules/.bin/tsc -p internal/generate/testdata/tsconfig.catalog.json

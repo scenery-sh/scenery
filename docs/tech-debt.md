@@ -4,7 +4,6 @@ This file tracks known project debt that should be visible to agents before they
 
 - [Resolved](#resolved)
 - [Open](#open)
-  - [Public Router Ownership Verification](#public-router-ownership-verification)
   - [Agent Thread Findings - 2026-07-03](#agent-thread-findings---2026-07-03)
   - [Agent Thread Findings - 2026-07-02](#agent-thread-findings---2026-07-02)
   - [Agent Thread Findings - 2026-07-01](#agent-thread-findings---2026-07-01)
@@ -22,16 +21,9 @@ This file tracks known project debt that should be visible to agents before they
 - 2026-07-06: 2026-07-03 finding 1 (dashboard embed drift) — the dashboard now exposes the embedded bundle hash via the `version` RPC, response headers, and HTML meta tags, warns when the running binary's bundle differs from `apps/console/dist`, and the self-harness `dashboard ui fresh` step uses the same hash comparison. See docs/local-contract.md.
 - 2026-07-14: 2026-06-28 finding 1 (`scenery ps` treated as runtime proof) — default `scenery up --detach --wait ready` now requests every advertised route and one script or stylesheet asset from each frontend before returning; `scenery ps` remains an inspection surface rather than a probe.
 - 2026-07-06: 2026-07-03 finding 5 (Postgres review) — all four code findings (duplicate_database race, mixed-app SQLite branch rejection, reset/drop resolving all Postgres services, swallowed trailing `--yes`) were verified already fixed on main by commit f07065c2; the docs/knowledge.json and 0093 plan-text drift had already been corrected (0093 is completed and indexed as such). The self-harness postgres probe now provisions a disposable managed container when missing (cleaning up what it created) instead of hard-failing.
+- 2026-09-02: Public router ownership verification — public requests now read an immutable in-memory route snapshot. Candidate public-route sessions retain the full PID-reuse-resistant fingerprint check during restoration/registration, deploy/session changes republish the snapshot, and a bounded owner monitor invalidates exited owners; request handling no longer reads `deploy.json` or inspects a process. Enabled-but-down apps and backend failures remain fail-closed with `503`.
 
 ## Open
-
-### Public Router Ownership Verification
-
-- Area: `internal/agent` public routing and session lifecycle.
-- Current state: every public request calls `runningSessionForDeployTarget`, which verifies the registered session owner's start time, executable, and command fingerprint before proxying. Native macOS process inspection removed the former per-request `ps` subprocess, but ownership verification still belongs to the request path.
-- Why this remains debt: process identity changes at session-lifecycle frequency, not HTTP-request frequency, and a successful check cannot prevent the owner from exiting immediately afterward. Repeating it for every document, asset, and API request adds avoidable work without eliminating that race.
-- Next action: verify ownership when registering or restoring a session, monitor the owner process for exit, and publish an in-memory validated route snapshot. Public requests should perform only the snapshot lookup; backend dial failures continue to fail closed with `503`. Preserve the existing PID-reuse protection and start-time/executable/command fingerprint semantics.
-- Evidence: the 2026-09-01 ONLV route investigation isolated `21.30 ms` p50 in the agent-plus-Vite path before hot-path repairs and `1.54–3.33 ms` afterward. See `docs/plans/0101-public-deploy-edge.md`, `internal/agent/router.go`, and `internal/agent/owner_darwin.go`.
 
 ### Agent Thread Findings - 2026-07-03
 

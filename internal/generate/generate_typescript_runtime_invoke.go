@@ -13,14 +13,18 @@ export async function invoke(
   const path = buildBindingPath(binding, input, registry);
   const headers = mergeHeaders(transport.headers, options.headers, binding.address);
   if (transport.authentication?.authorization !== undefined) headers.set("authorization", transport.authentication.authorization);
+/*__scenery_runtime_request_header_start__*/
   for (const mapping of binding.headers ?? []) {
     appendHeader(headers, mapping.name, bindingInputField(input, mapping.property), mapping.encoding, mapping.value, registry);
   }
+/*__scenery_runtime_request_header_end__*/
+/*__scenery_runtime_request_cookie_start__*/
   const cookies: string[] = [];
   for (const mapping of binding.cookies ?? []) {
     appendCookie(cookies, mapping.name, bindingInputField(input, mapping.property), mapping.value, registry);
   }
   if (cookies.length > 0) headers.set("cookie", cookies.join("; "));
+/*__scenery_runtime_request_cookie_end__*/
   const body = encodeBindingBody(binding, input, headers, registry);
   const requestInit: RequestInit = {
     method: binding.method,
@@ -31,11 +35,16 @@ export async function invoke(
   };
   let response: Response;
   try {
+/*__scenery_runtime_retry_start__*/
     if (transport.retry !== undefined && transport.retryRuntime !== undefined) {
       response = await fetchWithRetry(transport.fetch, transport.baseUrl + path, requestInit, options.signal, transport.retryRuntime, transport.retry);
     } else {
       response = await transport.fetch(transport.baseUrl + path, requestInit);
     }
+/*__scenery_runtime_retry_end__*/
+/*__scenery_runtime_no_retry_start__*/
+    response = await transport.fetch(transport.baseUrl + path, requestInit);
+/*__scenery_runtime_no_retry_end__*/
   } catch (cause) {
     throw new SceneryClientError(options.signal?.aborted ? "cancelled" : "network", binding.address, "request failed", cause);
   }
@@ -84,11 +93,13 @@ function buildBindingPath(binding: BindingCall, input: unknown, registry: TypeRe
   if (binding.pathTail !== undefined) {
     path = appendPathTail(path, bindingInputField(input, binding.pathTail.property), binding.pathTail.value, registry);
   }
+/*__scenery_runtime_query_start__*/
   const query: string[] = [];
   for (const mapping of binding.query ?? []) {
     appendQuery(query, mapping.name, bindingInputField(input, mapping.property), mapping.encoding, mapping.value, registry);
   }
   if (query.length > 0) path += §?${query.join("&")}§;
+/*__scenery_runtime_query_end__*/
   return path;
 }
 
@@ -96,12 +107,14 @@ function encodeBindingBody(binding: BindingCall, input: unknown, headers: Header
   const body = binding.body;
   if (body === undefined) return undefined;
   const value = bindingRequestValue(body, input);
+/*__scenery_runtime_multipart_start__*/
   if (body.codec === "multipart") {
     if (body.multipart === undefined) throw new SceneryClientError("invalid_options", binding.address, "multipart requires a declared part schema");
     const encoded = encodeMultipartRequestBody(value, body.multipart, registry);
     headers.set("content-type", encoded.contentType);
     return encoded.body;
   }
+/*__scenery_runtime_multipart_end__*/
   if (body.contentType !== undefined) headers.set("content-type", body.contentType);
   return encodeRequestBody(value, body.codec, body.value, registry);
 }
@@ -142,6 +155,7 @@ async function decodeBindingResponse(
       binding.address,
     );
   }
+/*__scenery_runtime_response_header_start__*/
   for (const header of candidate.headers ?? []) {
     payload = mergeResponseValue(
       payload,
@@ -150,6 +164,8 @@ async function decodeBindingResponse(
       binding.address,
     );
   }
+/*__scenery_runtime_response_header_end__*/
+/*__scenery_runtime_response_cookie_start__*/
   for (const cookie of candidate.cookies ?? []) {
     payload = mergeResponseValue(
       payload,
@@ -158,6 +174,7 @@ async function decodeBindingResponse(
       binding.address,
     );
   }
+/*__scenery_runtime_response_cookie_end__*/
   return payload === undefined ? {} : payload;
 }
 

@@ -47,6 +47,9 @@ func TestServerPublicDeployRoutesByHostWithContainment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := server.refreshPublicRouteTargets(); err != nil {
+		t.Fatal(err)
+	}
 	manifest := publicRouteManifest(session, registry.Targets[0])
 	if _, ok := manifest.Routes["ui"]; ok {
 		t.Fatalf("root frontend unexpectedly retained /ui route: %+v", manifest.Routes)
@@ -114,6 +117,84 @@ func TestServerPublicDeployRoutesByHostWithContainment(t *testing.T) {
 	status, body = request("down.dev", "/", true, false)
 	if status != http.StatusServiceUnavailable || !strings.Contains(body, "app is not running") {
 		t.Fatalf("down status=%d body=%q", status, body)
+	}
+}
+
+func TestServerPublicDeployRequestUsesValidatedSnapshot(t *testing.T) {
+	transport := testHandlerTransport(t, map[string]http.Handler{
+		"api.test": http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = io.WriteString(w, "ok")
+		}),
+	})
+	server := newInProcessTestServer(t, transport)
+	server.edgeToken = "test-token"
+	appRoot := t.TempDir()
+	registry := EmptyDeployRegistry()
+	registry.Targets = []DeployTarget{{Domain: "snapshot.dev", AppRoot: appRoot, Enabled: true}}
+	if err := WriteDeployRegistry(server.Paths().DeployPath, registry); err != nil {
+		t.Fatal(err)
+	}
+	_, err := server.registry.Upsert(RegisterRequest{
+		BaseAppID: "snapshot",
+		AppRoot:   appRoot,
+		Status:    "running",
+		OwnerPID:  os.Getpid(),
+		Owner:     testProcessOwner(),
+		Backends:  map[string]Backend{RouteAPI: {Network: "tcp", Addr: "api.test"}},
+		RouteManifest: RouteManifest{
+			Mode: RouteModePath,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownerLive := true
+	ownerChecks := 0
+	server.registry.ownerVerifier = func(Owner) error {
+		ownerChecks++
+		if !ownerLive {
+			return os.ErrProcessDone
+		}
+		return nil
+	}
+	if err := server.refreshPublicRouteTargets(); err != nil {
+		t.Fatal(err)
+	}
+	checksAfterPublish := ownerChecks
+	if checksAfterPublish == 0 {
+		t.Fatal("route publication did not verify the session owner")
+	}
+	if err := os.WriteFile(server.Paths().DeployPath, []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	request := func() int {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, "http://router.test/api/ping", nil)
+		req.Host = "snapshot.dev"
+		req.RemoteAddr = "127.0.0.1:12345"
+		req.Header.Set("X-Scenery-Edge-Token", "test-token")
+		req.Header.Set("X-Scenery-Public-Edge", "1")
+		recorder := httptest.NewRecorder()
+		server.routerMux().ServeHTTP(recorder, req)
+		return recorder.Code
+	}
+
+	if got := request(); got != http.StatusOK {
+		t.Fatalf("snapshot request status=%d, want 200", got)
+	}
+	if ownerChecks != checksAfterPublish {
+		t.Fatalf("request performed owner verification: before=%d after=%d", checksAfterPublish, ownerChecks)
+	}
+
+	ownerLive = false
+	server.refreshPublicRouteSessions()
+	checksAfterInvalidation := ownerChecks
+	if got := request(); got != http.StatusServiceUnavailable {
+		t.Fatalf("invalidated snapshot status=%d, want 503", got)
+	}
+	if ownerChecks != checksAfterInvalidation {
+		t.Fatalf("invalidated request performed owner verification: before=%d after=%d", checksAfterInvalidation, ownerChecks)
 	}
 }
 

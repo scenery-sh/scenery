@@ -65,8 +65,13 @@ binding "process_scene_http" {
     codec_profile = std.codec.http_json_v1
 
     body {
-      codec = "json"
+      codec = "multipart"
       to    = operation.process_scene.input
+
+      part "scene_id" {
+        to   = operation.process_scene.input.scene_id
+        kind = "text"
+      }
     }
 
     response "processed" {
@@ -83,6 +88,10 @@ binding "process_scene_http" {
 
 export "service" {
   value = service.house
+}
+
+export "process_scene" {
+  value = operation.process_scene
 }
 
 record "workspace_item" {
@@ -408,11 +417,31 @@ record "scene_events_input" {
   field "scene_id" {
     type = string
   }
+
+  field "cursor" {
+    type = optional(string)
+  }
+
+  field "request_id" {
+    type = optional(string)
+  }
+
+  field "tenant" {
+    type = optional(string)
+  }
 }
 
 record "scene_events_result" {
   field "items" {
     type = list(record.scene_event)
+  }
+
+  field "request_id" {
+    type = optional(string)
+  }
+
+  field "tenant" {
+    type = optional(string)
   }
 }
 
@@ -457,6 +486,10 @@ operation "list_scene_events" {
   result "success" {
     type = record.scene_events_result
   }
+}
+
+export "list_scene_events" {
+  value = operation.list_scene_events
 }
 
 execution "read_scene_direct" {
@@ -586,13 +619,33 @@ binding "list_scene_events_http" {
       to = operation.list_scene_events.input.scene_id
     }
 
+    query_parameter "cursor" {
+      to = operation.list_scene_events.input.cursor
+    }
+
+    header "x-request-id" {
+      to = operation.list_scene_events.input.request_id
+    }
+
+    cookie "tenant" {
+      to = operation.list_scene_events.input.tenant
+    }
+
     response "success" {
       when   = result.success
       status = 200
 
       body {
         codec = "json"
-        from  = result.success
+        from  = result.success.items
+      }
+
+      header "x-request-id" {
+        from = result.success.request_id
+      }
+
+      cookie "tenant" {
+        from = result.success.tenant
       }
     }
   }

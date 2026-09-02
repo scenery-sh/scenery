@@ -18,6 +18,11 @@
 - Never recreate deploy ownership, live process ownership, or credentials after a decode failure.
 - Closing or restarting the agent never signals registered substrate processes. Substrate-specific owners perform destructive shutdown explicitly.
 - Owner-checked session deletion atomically removes only that session's leases from shared substrate metadata; it never deletes or stops the shared substrate and preserves unrelated leases.
+- Public deploy requests read one immutable in-memory route snapshot. Validate
+  candidate public-route owner fingerprints while restoring or registering
+  sessions, rebuild the snapshot when deploy/session state changes, and
+  monitor owners for exit; do not load deploy state or inspect processes on the
+  HTTP request path.
 - `agent.lock` is held for the control-plane process lifetime. `edge.lock` is inherited by managed Caddy on Unix so a second owner fails before binding.
 - `launchd.go` owns launchd supervision of the agent (`dev.scenery.agent`, KeepAlive). Installation means a bootstrapped job, never just a plist; removal boots the job out first. `StartProcess` must route agent starts through the supervisor whenever the installed plist manages the requested socket (`SupervisesSocket`), so no caller spawns an unsupervised agent that races a KeepAlive respawn. Keep launchctl access behind the package hooks so tests never touch real launchd.
 - `systemd.go` is the Linux mirror: `scenery-agent.service` (Restart=always) and the `scenery-deploy-resume.service` boot oneshot under `/etc/systemd/system`. The same supervision rules apply. Deploy targets and published frontends record the named environment that owns them; missing environment remains readable only as durable pre-cutover state and is never selected for a new deploy.

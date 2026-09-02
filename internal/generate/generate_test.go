@@ -784,7 +784,7 @@ func TestTypeScriptClientUsesExactResponseMapAndBigIntSafeEncoding(t *testing.T)
 			map[string]any{"name": "invalid", "when": map[string]any{"$ref": "error.invalid"}, "status": "422", "body": map[string]any{"codec": "problem_json"}},
 		}},
 	}}
-	runtimeSource := renderTSRuntime()
+	runtimeSource := renderTSRuntime(allTSRuntimeCapabilities())
 	clientSource := renderTSClient(Resource{Name: "public"}, []Resource{binding}, []Resource{operation})
 	for _, want := range []string{
 		"export function jsonNumber",
@@ -922,7 +922,8 @@ func TestTypeScriptRetryRequiresIdempotentReplayableOperation(t *testing.T) {
 	if !strings.Contains(client, "maximumAttempts: 3") || !strings.Contains(client, "retryRuntime: this.#retryRuntime") {
 		t.Fatalf("retry client missing policy:\n%s", client)
 	}
-	if !strings.Contains(renderTSRuntime(), "export async function fetchWithRetry") {
+	capabilities := tsRuntimeCapabilitiesFor(target, []Resource{binding}, resources)
+	if !strings.Contains(renderTSRuntime(capabilities), "export async function fetchWithRetry") {
 		t.Fatal("runtime missing fetchWithRetry")
 	}
 }

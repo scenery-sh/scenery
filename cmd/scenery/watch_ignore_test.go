@@ -3,7 +3,6 @@ package main
 import (
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/fsnotify/fsnotify"
 
@@ -154,7 +153,7 @@ func TestFileChangeWatcherIgnoresGitignoredEventPaths(t *testing.T) {
 	select {
 	case <-fw.Events():
 		t.Fatal("expected gitignored path to not signal")
-	case <-time.After(50 * time.Millisecond):
+	default:
 	}
 }
 
@@ -181,6 +180,6 @@ func TestFileChangeWatcherIgnoresConfiguredWatchIgnoreEventPaths(t *testing.T) {
 	select {
 	case <-fw.Events():
 		t.Fatal("expected configured watch.ignore path to not signal")
-	case <-time.After(50 * time.Millisecond):
+	default:
 	}
 }

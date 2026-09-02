@@ -94,7 +94,7 @@ metadata.ts
 
 A generator MAY combine physical files only when exports and artifact bytes remain deterministic for that configured layout. Generated files contain ownership markers and are replaced atomically as one descriptor-covered set.
 
-The generated HTTP client stores per-binding request and response mappings in a descriptor table and executes them through one shared runtime helper. Methods remain one typed async function per covered binding. The helper is not part of the public `index.ts` export surface.
+The generated HTTP client stores per-binding request and response mappings in a descriptor table and executes them through one shared runtime helper. Methods remain one typed async function per covered binding. The generated runtime includes query, binding header/cookie, multipart, and retry sections only when at least one covered descriptor or the target retry configuration requires that capability. The helper is not part of the public `index.ts` export surface.
 
 `index.ts` exports the client class/factory, public contract types, runtime error types, metadata, and scalar helper types. It does not export internal implementation helpers.
 
@@ -272,7 +272,7 @@ export class PublicApiClient {
 
 There is exactly one method per covered binding operation unless multiple covered bindings for one operation require distinct transport surfaces; then method names are deterministically binding-qualified and collisions are compile errors.
 
-Generated methods dispatch through the shared table-driven runtime helper. They do not inline a second copy of the request/response machine and they do not generate React hooks.
+Generated methods dispatch through the shared table-driven runtime helper. Capability projection removes unused query, binding header/cookie, multipart, and retry branches from `runtime.ts`; it does not create per-method runtime copies. Generated methods do not inline a second copy of the request/response machine and they do not generate React hooks.
 
 Authentication material is supplied only through an explicitly generated authentication capability or request option authorized by the target. The generic `headers` option cannot override framework-owned content, host, forwarding, trace, or credential headers.
 
@@ -371,7 +371,7 @@ matched descriptor.
 
 `AbortSignal` is the only v1 caller cancellation mechanism. An already-aborted signal performs no request. Cancellation rejects with `SceneryClientError` code `cancelled` and retains the platform cause without exposing secret data.
 
-The generated client does not retry by default. A target may enable only a versioned retry policy that respects operation idempotency, request replay safety, `Retry-After`, deadline, and cancellation. Retry configuration participates in the client revision.
+The generated client does not retry by default. A target may enable only a versioned retry policy that respects operation idempotency, request replay safety, `Retry-After`, deadline, and cancellation. `RetryRuntime`, its `index.ts` type export, and retry implementation are emitted only for a target that enables retry. Retry configuration participates in the client revision.
 
 The client never reads ambient clock, random, locale, or environment state for contract decisions. Runtime request IDs or retry jitter use injected runtime capabilities and do not affect generated artifacts.
 

@@ -67,6 +67,7 @@ function encodeTypedHTTPValue(value: unknown, descriptor: TypeDescriptor, regist
   return encodeHTTPValue(value);
 }
 
+/*__scenery_runtime_retry_start__*/
 function replayableRequestInit(init: RequestInit): RequestInit {
   const body = init.body;
   if (typeof ReadableStream !== "undefined" && body instanceof ReadableStream) {
@@ -86,6 +87,7 @@ function retryDelay(retryAfter: string | null, now: number, maximum: number): nu
   if (!Number.isFinite(parsed)) return 0;
   return Math.max(0, Math.min(maximum, parsed - now));
 }
+/*__scenery_runtime_retry_end__*/
 
 function validateConstraints(
   value: unknown,

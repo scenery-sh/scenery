@@ -37,6 +37,13 @@ machine is removed, not kept as a compatibility path.
       shared runs into `sharedResponses` / `sharedResponseSets`. ONLV
       `client.ts` fell from 668,125 bytes to 300,060 bytes (691 lines, 220
       methods). Combined client+runtime is 400,508 bytes.
+- [x] (2026-09-02) Added capability-aware shared-runtime emit. Small targets no
+      longer contain unused query, binding header/cookie, multipart, or retry
+      declarations, helpers, and invoke branches; the descriptor-table method
+      shape remains unchanged.
+- [x] (2026-09-02) Re-generated all three committed clients idempotently and passed
+      focused Go tests, 24 Bun conformance tests, both generated-client/catalog
+      TypeScript checks, `go test ./...`, and the full self-harness.
 
 ## Surprises & Discoveries
 
@@ -65,6 +72,14 @@ machine is removed, not kept as a compatibility path.
   and unique completion mappings.
   Evidence: worktree `go build` generate against ONLV; do not use the older
   `.scenery/harness/bin/scenery` for this size check.
+
+- Observation: capability projection reduced the single-binding native fixture
+  `runtime.ts` from 100,448 bytes to 79,911 bytes (20.4%) while the richer house
+  fixture retains query, binding header/cookie, response metadata, and
+  multipart conformance coverage. The assistant-only fixture reaches the same
+  79,911-byte minimal runtime without losing its separate assistant surface.
+  Evidence: regenerated committed native, house, and assistant TypeScript
+  fixtures plus generated-client `tsc` and Bun conformance.
 
 ## Decision Log
 
@@ -102,6 +117,15 @@ machine is removed, not kept as a compatibility path.
   failure-first order, the 400 dual-path, and clone-per-candidate semantics.
   Date/Author: 2026-09-01 / Codex.
 
+- Decision: Derive one runtime-capability set from the same binding descriptors
+  and target retry configuration, then filter marked sections from the shared
+  runtime source. Keep one table-driven invoke implementation and emit a direct
+  fetch branch when retry is absent.
+  Rationale: Small clients should not pay for unused transport capabilities,
+  but capability specialization must not return to per-method request/response
+  machines or duplicate runtime implementations.
+  Date/Author: 2026-09-02 / Codex.
+
 ## Outcomes & Retrospective
 
 Implementation is complete in this worktree. Generated HTTP methods are thin
@@ -111,8 +135,11 @@ as `sharedResponses` / `sharedResponseSets`. `Runtime.matchResponse`
 preserves failure-first `isProblemCode` matching, same-status exact-one
 completion selection, `response.clone()`, contract violation swallowing,
 `system.*` throws, and the 400 dual-path. Empty query and cookie mapping
-collections are omitted. Public class/method/outcome shape is unchanged and
-`index.ts` still does not export the helper.
+collections are omitted. The shared runtime now projects only capabilities used
+by covered descriptors and target retry configuration. Public
+class/method/outcome shape is unchanged, a retry-disabled target no longer
+exports the inapplicable `RetryRuntime` type, and `index.ts` still does not
+export the table-driven helper.
 
 Scenery validation for this change passed: `go test ./internal/generate`,
 both committed fixture regeneration commands, bun conformance, generated
@@ -121,6 +148,12 @@ uncommitted size check. From the original 25,822-line / 1.99 MB
 `client.ts`, the table-driven pass reached 689 lines / 668 KB and interning
 reached 691 lines / 300 KB. Combined client+runtime is 401 KB. The plan
 stays active until the scenery change lands.
+
+The 2026-09-02 capability follow-up kept that validation surface green. All
+fixture regeneration commands returned `changed: []` on the verification pass;
+the native runtime is 79,911 bytes, the rich house fixture exercises retained
+capabilities, and the full self-harness passed its Go, vet, fixture, schema,
+TypeScript, UI, and real-process lanes.
 
 ## Context and Orientation
 
@@ -171,6 +204,7 @@ From `/Users/petrbrazdil/Repos/scenery`:
     go test ./internal/generate
     go run ./cmd/scenery generate --target typescript_client.public_api --app-root internal/compiler/testdata/native -o json
     go run ./cmd/scenery generate --target typescript_client.public_api --app-root internal/compiler/testdata/house -o json
+    go run ./cmd/scenery generate --target typescript_client.public_api --app-root testdata/assistant -o json
     bun test internal/generate/testdata/typescript_client_conformance.test.ts
     apps/console/node_modules/.bin/tsc -p internal/generate/testdata/tsconfig.generated-clients.json
     go test ./...
@@ -203,9 +237,12 @@ Acceptance requires all of the following:
   completion `error.invalid_input`.
 - Each response candidate uses `response.clone()`.
 - Empty query and cookie mapping collections are omitted.
+- A small target's `runtime.ts` omits unused query, binding header/cookie,
+  multipart, and retry declarations, helpers, and invoke branches while
+  retaining the single table-driven request/response implementation.
 - `index.ts` still does not export `invoke` or binding descriptor types.
 - Appendix A still excludes React hooks.
-- `go test ./internal/generate`, both committed fixture regeneration
+- `go test ./internal/generate`, all three committed fixture regeneration
   commands, `go test ./...`, and any recommended harness commands from the
   refreshed validation matrix pass.
 - Every exact top-level Go test root remains under the 100ms p95 budget.
@@ -228,14 +265,18 @@ mode to recover old bytes.
 - ExecPlan: `docs/plans/0156-typescript-client-table-emit.md`
 - Generator: `internal/generate/generate_typescript.go`,
   `internal/generate/generate_typescript_response.go`,
+  `internal/generate/generate_typescript_runtime_capabilities.go`,
   `internal/generate/generate_typescript_runtime.go`,
   `internal/generate/generate_typescript_runtime_invoke.go`
 - Runtime helpers: `Runtime.invoke`, `Runtime.matchResponse`,
   `Runtime.BindingCall`, `Runtime.InvokeTransport`
 - Spec: `docs/spec/typescript-client.md`
-- Fixtures: `internal/compiler/testdata/native/clients/generated/public_api/`
-  and `internal/compiler/testdata/house/clients/generated/public_api/`
+- Fixtures: `internal/compiler/testdata/native/clients/generated/public_api/`,
+  `internal/compiler/testdata/house/clients/generated/public_api/`, and
+  `testdata/assistant/clients/generated/public_api/`
 - Native fixture `client.ts`: 125 lines to 32 lines.
+- Native fixture `runtime.ts`: 100,448 bytes to 79,911 bytes after capability
+  projection.
 - ONLV size check (uncommitted): original `client.ts` 25,822 lines /
   1,989,587 bytes; table-driven pass 689 / 668,125; intern pass 691 /
   300,060. `runtime.ts` 1,852 / 90,826 to 2,097 / 100,448. Combined
@@ -244,6 +285,9 @@ mode to recover old bytes.
   `changed: []` on the intern pass (single-binding fixtures have nothing
   to intern); bun conformance 24 pass; generated-client `tsc` pass;
   `go test ./...` pass.
+- Capability follow-up validation: all three fixture regenerations `changed: []`;
+  Bun conformance 24 pass; generated-client and catalog `tsc` pass; focused Go,
+  `go test ./...`, race, and full self-harness pass.
 
 ## Interfaces and Dependencies
 

@@ -11,7 +11,6 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"path"
-	"path/filepath"
 	"regexp"
 	"slices"
 	"sort"
@@ -121,46 +120,16 @@ func (r *Registry) sessionOwnerVerifies(session Session) bool {
 }
 
 func (s *Server) handlePublicEdgeRoute(w http.ResponseWriter, req *http.Request) {
-	target, ok := s.deployTargetForHost(requestHost(req))
+	route, ok := s.publicRouteForHost(requestHost(req))
 	if !ok {
 		http.NotFound(w, req)
 		return
 	}
-	session, ok := s.runningSessionForDeployTarget(target)
-	if !ok {
+	if !route.running {
 		http.Error(w, "app is not running", http.StatusServiceUnavailable)
 		return
 	}
-	s.handlePublicPathRoute(w, req, session, target)
-}
-
-func (s *Server) deployTargetForHost(host string) (DeployTarget, bool) {
-	host = normalizeRouteRequestHost(host)
-	if host == "" || s == nil {
-		return DeployTarget{}, false
-	}
-	registry, err := LoadDeployRegistry(s.paths.DeployPath)
-	if err != nil {
-		return DeployTarget{}, false
-	}
-	for _, target := range registry.Targets {
-		if target.Enabled && normalizeRouteRequestHost(target.Domain) == host {
-			return target, true
-		}
-	}
-	return DeployTarget{}, false
-}
-
-func (s *Server) runningSessionForDeployTarget(target DeployTarget) (Session, bool) {
-	if s == nil || s.registry == nil {
-		return Session{}, false
-	}
-	for _, session := range s.registry.FindByAppRoot(target.AppRoot) {
-		if session.Status == "running" && filepath.Clean(session.AppRoot) == filepath.Clean(target.AppRoot) && s.registry.sessionOwnerVerifies(session) {
-			return session, true
-		}
-	}
-	return Session{}, false
+	s.handlePublicPathRoute(w, req, route.session, route.target)
 }
 
 func (s *Server) handlePublicPathRoute(w http.ResponseWriter, req *http.Request, session Session, target DeployTarget) {

@@ -4,7 +4,7 @@ import {
 	type MultipartBodyDescriptor,
 	type TypeDescriptor,
 	type TypeRegistry,
-} from "../../compiler/testdata/native/clients/generated/public_api/runtime.js";
+} from "../../compiler/testdata/house/clients/generated/public_api/runtime.js";
 
 const bytesDescriptor = { kind: "primitive", name: "bytes" } as const satisfies TypeDescriptor;
 const bodyDescriptor = {
