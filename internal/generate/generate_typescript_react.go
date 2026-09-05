@@ -891,9 +891,10 @@ func renderReactTablePage(result *Result, target Resource, reactRoot string, pag
 			fmt.Fprintf(b, "      %s: query.sort !== undefined && (%s) ? query.sort : undefined,\n", tsName(reactTableMappedName(queryMapping, "sort", "sort")), reactLiteralPredicate("query.sort", sorts))
 			fmt.Fprintf(b, "      %s: query.direction,\n", tsName(reactTableMappedName(queryMapping, "direction", "direction")))
 		}
-		if page.pagination == "cursor" {
+		switch page.pagination {
+		case "cursor":
 			b.WriteString("      cursor: query.cursor,\n      limit: BigInt(query.limit),\n")
-		} else if page.pagination == "page" {
+		case "page":
 			pagination := firstReactTableChild(page.table.Spec, "pagination")
 			pageInput, pageSizeInput := stringValue(pagination["page"]), stringValue(pagination["page_size"])
 			fmt.Fprintf(b, "      %s: %s,\n", tsName(pageInput), reactTableIntegerExpression("query.page", shape.Fields[pageInput].Type))

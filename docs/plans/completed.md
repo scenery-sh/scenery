@@ -11,6 +11,21 @@ historical records. Do not refresh their review dates or rewrite them as current
 contract prose. Record later guidance here or in the owning current contract;
 use stale knowledge metadata to flag a known contradiction.
 
+## TypeScript Client Footprint
+
+- Status: completed (implementation; release-wide blockers recorded)
+- Owner: scenery client generation
+- Completed: 2026-09-05
+- Quality: B
+- ExecPlan: [0157 TypeScript Client Footprint](0157-typescript-client-footprint.md)
+
+Unused metadata is removable through the public barrel, repeated exact failure
+unions share private aliases, and runtimes omit unreachable record validation.
+The ONLV SDK bundle shrank 20.9% minified and 22.5% gzip without changing its
+public client API. Go/race, generated-client, and type-equality proof passed;
+the plan records unrelated PostgreSQL-probe and linter release blockers.
+Current behavior lives in [the TypeScript specification](../spec/typescript-client.md).
+
 ## Table-Driven TypeScript HTTP Client Emit
 
 - Status: completed

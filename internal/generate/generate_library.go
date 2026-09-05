@@ -73,7 +73,7 @@ func generateLibraryArtifacts(result *Result, idx *resourceIndex) ([]generatedFi
 	for _, library := range libraries {
 		module := modules[library.Module]
 		if module.Address == "" {
-			return nil, fmt.Errorf("Go library %s is not owned by a local module", library.Address)
+			return nil, fmt.Errorf("go library %s is not owned by a local module", library.Address)
 		}
 		generated, err := renderLibraryArtifacts(result, idx, module, library)
 		if err != nil {
@@ -99,12 +99,12 @@ func renderLibraryArtifacts(result *Result, idx *resourceIndex, module, library 
 		}
 	}
 	if contractRoot == "" {
-		return nil, fmt.Errorf("Go library %s has no go_contract import path", library.Address)
+		return nil, fmt.Errorf("go library %s has no go_contract import path", library.Address)
 	}
 	implementationImport := strings.TrimSpace(stringValue(library.Spec["package"]))
 	operations := libraryOperations(result.Manifest.Resources, library)
 	if len(operations) == 0 {
-		return nil, fmt.Errorf("Go library %s has no operations", library.Address)
+		return nil, fmt.Errorf("go library %s has no operations", library.Address)
 	}
 	abi, err := packageABIRevision(contractRoot, idx.moduleResources(library.Module), idx)
 	if err != nil {

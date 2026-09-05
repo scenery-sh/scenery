@@ -409,9 +409,10 @@ func declaredReactPageBindings(resources []Resource, target Resource) map[string
 			continue
 		}
 		source := byAddress[resolveResourceRef(table, refString(table.Spec["source"]), "crud")]
-		if source.Kind == "scenery.crud" {
+		switch source.Kind {
+		case "scenery.crud":
 			result[resourceAddress(source.Module, "binding", source.Name+"_list_http")] = true
-		} else if source.Kind == "scenery.binding" {
+		case "scenery.binding":
 			result[source.Address] = true
 		}
 		for _, stats := range orderedChildren(table.Spec, "stats") {
@@ -641,6 +642,8 @@ func renderTSTypes(resources []Resource, bindingSets ...[]Resource) string {
 			b.WriteString(";\n\n")
 		}
 	}
+	failureSets, failureAliases := renderTSFailureSets(resources, bindings)
+	b.WriteString(failureSets)
 	for _, r := range resources {
 		if r.Kind != "scenery.operation" {
 			continue
@@ -667,7 +670,15 @@ func renderTSTypes(resources []Resource, bindingSets ...[]Resource) string {
 			fmt.Fprintf(&b, "  | { readonly kind: %q; readonly name: %q; readonly %s: %s }\n", kind, variant, field, tsType(v["type"]))
 		}
 		for _, variant := range transportVariants {
-			fmt.Fprintf(&b, "  | { readonly kind: %q; readonly name: %q; readonly %s: %s }\n", variant.Kind, variant.Name, variant.Field, variant.Type)
+			if variant.Kind != "failure" {
+				b.WriteString(renderTSOutcomeVariant(variant))
+			}
+		}
+		failures := renderTSFailureVariants(transportVariants)
+		if alias, ok := failureAliases[failures]; ok {
+			fmt.Fprintf(&b, "  | %s\n", alias)
+		} else {
+			b.WriteString(failures)
 		}
 		b.WriteString(";\n\n")
 	}

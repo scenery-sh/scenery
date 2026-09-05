@@ -21,6 +21,13 @@ record "process_scene_input" {
   field "scene_id" {
     type = string
   }
+
+  validation "scene_id_required" {
+    when    = value.scene_id == ""
+    code    = "HOUSE_SCENE_ID_REQUIRED"
+    message = "scene_id must not be empty"
+    path    = record.process_scene_input.scene_id
+  }
 }
 
 record "process_scene_result" {

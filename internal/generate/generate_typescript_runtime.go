@@ -88,7 +88,9 @@ export type TypeDescriptor =
       readonly kind: "record";
       readonly fields: readonly FieldDescriptor[];
       readonly preserveUnknown: boolean;
+/*__scenery_runtime_validation_start__*/
       readonly validations?: readonly ValidationDescriptor[];
+/*__scenery_runtime_validation_end__*/
     }
   | { readonly kind: "enum"; readonly values: readonly string[]; readonly open: boolean }
   | {
@@ -121,6 +123,7 @@ export interface ConstraintDescriptor {
   readonly deprecated?: unknown;
 }
 
+/*__scenery_runtime_validation_start__*/
 export interface ValidationDescriptor {
   readonly name: string;
   readonly source: string;
@@ -142,6 +145,7 @@ export type ValidationExpression =
   | { readonly kind: "tuple"; readonly values: readonly ValidationExpression[] }
   | { readonly kind: "object"; readonly entries: readonly { readonly key: ValidationExpression; readonly value: ValidationExpression }[] }
   | { readonly kind: "template"; readonly parts: readonly ValidationExpression[] };
+/*__scenery_runtime_validation_end__*/
 
 export type TypeRegistry = Readonly<Record<string, TypeDescriptor>>;
 
@@ -439,7 +443,9 @@ export function encodeRequestBody(
   }
   const resolved = resolveDescriptor(descriptor, registry, new Set());
   if (resolved.kind !== "record" || !isObject(value)) invalid("$", §${codec} body requires a record§);
+/*__scenery_runtime_validation_start__*/
   validateRecordRules(value, resolved, registry, "$");
+/*__scenery_runtime_validation_end__*/
   if (codec === "form") {
     const form = new URLSearchParams();
     for (const field of resolved.fields) {
@@ -1100,7 +1106,9 @@ function encodeTypedValue(
   for (const property of Object.keys(value)) {
     if (!known.has(property) && property !== "unknownFields") invalid(§${path}.${property}§, "unknown record property");
   }
+/*__scenery_runtime_validation_start__*/
   validateRecordRules(value, descriptor, registry, path);
+/*__scenery_runtime_validation_end__*/
   if (descriptor.preserveUnknown) {
     const unknown = value.unknownFields;
     if (unknown !== undefined) {

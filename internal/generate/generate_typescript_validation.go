@@ -24,6 +24,7 @@ func tsValidationDescriptors(resource Resource) []any {
 		if err != nil {
 			continue
 		}
+		tsValidationProperties(compiled)
 		result = append(result, map[string]any{
 			"name":       stringValue(validation["name"]),
 			"source":     source,
@@ -34,6 +35,24 @@ func tsValidationDescriptors(resource Resource) []any {
 		})
 	}
 	return result
+}
+
+// Lower value.<field> to the client property spelling, leaving map keys and
+// the shared Go validation program in their authored spelling.
+func tsValidationProperties(expression any) {
+	switch node := expression.(type) {
+	case map[string]any:
+		if source, ok := node["source"].(map[string]any); ok && node["kind"] == "attribute" && source["kind"] == "value" {
+			node["name"] = tsName(stringValue(node["name"]))
+		}
+		for _, value := range node {
+			tsValidationProperties(value)
+		}
+	case []any:
+		for _, value := range node {
+			tsValidationProperties(value)
+		}
+	}
 }
 
 func validationProgramJSON(source string) string {

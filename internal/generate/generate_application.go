@@ -498,19 +498,20 @@ func renderApplicationAdapterSource(contractRevision, packageIdentity, packageAB
 		visibility := stringValue(internal["visibility"])
 		internalPolicy := renderContractInternalPolicy(resourcesByAddress(&Manifest{Resources: resources}), binding)
 		jsonCodecs := renderInternalBindingJSONCodecs(*operation, delivery)
-		if delivery == "enqueue" {
+		switch delivery {
+		case "enqueue":
 			execution, ok := executionForBinding(resourcesByAddress(&Manifest{Resources: resources}), binding)
 			if !ok || stringValue(execution.Spec["mode"]) != "durable" {
 				return nil, fmt.Errorf("enqueue binding %s does not select a durable execution", binding.Address)
 			}
 			fmt.Fprintf(&b, "\t\t\tif err := sceneryruntime.RegisterContractInternalBindingWithPolicy(sceneryruntime.ContractInternalBindingRegistration{Address: %q, Visibility: %q, Package: %q, Policy: %s, %s Invoke: func(ctx context.Context, _ any, input any) (any, error) { typed, ok := input.(contract.%sInput); if !ok { return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"internal binding input has type %%T\", input)) }; copied, err := contract.Clone%sInput(typed); if err != nil { return nil, sceneryruntime.ContractSystemError(err) }; options, err := %s(copied); if err != nil { return nil, sceneryruntime.ContractSystemError(err) }; return sceneryruntime.DispatchContractDurableExecutionWithOptions(ctx, %q, copied, options) }}); err != nil { return err }\n", binding.Address, visibility, binding.Module, internalPolicy, jsonCodecs, operationName, operationName, durableDispatchOptionsFunction(execution), execution.Address)
-		} else if delivery == "wait" {
+		case "wait":
 			execution, ok := executionForBinding(resourcesByAddress(&Manifest{Resources: resources}), binding)
 			if !ok || stringValue(execution.Spec["mode"]) != "durable" {
 				return nil, fmt.Errorf("wait binding %s does not select a durable execution", binding.Address)
 			}
 			fmt.Fprintf(&b, "\t\t\tif err := sceneryruntime.RegisterContractInternalBindingWithPolicy(sceneryruntime.ContractInternalBindingRegistration{Address: %q, Visibility: %q, Package: %q, Policy: %s, %s Invoke: func(ctx context.Context, _ any, input any) (any, error) { typed, ok := input.(contract.%sInput); if !ok { return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"internal binding input has type %%T\", input)) }; copied, err := contract.Clone%sInput(typed); if err != nil { return nil, sceneryruntime.ContractSystemError(err) }; options, err := %s(copied); if err != nil { return nil, sceneryruntime.ContractSystemError(err) }; data, err := sceneryruntime.DispatchAndWaitContractDurableExecutionWithOptions(ctx, %q, copied, options); if err != nil { return nil, err }; return contract.Unmarshal%sOutcome(data) }}); err != nil { return err }\n", binding.Address, visibility, binding.Module, internalPolicy, jsonCodecs, operationName, operationName, durableDispatchOptionsFunction(execution), execution.Address, operationName)
-		} else {
+		default:
 			fmt.Fprintf(&b, "\t\t\tif err := sceneryruntime.RegisterContractInternalBindingWithPolicy(sceneryruntime.ContractInternalBindingRegistration{Address: %q, Visibility: %q, Package: %q, Policy: %s, %s Invoke: func(ctx context.Context, _ any, input any) (any, error) { if service == nil { return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"service is not initialized\")) }; typed, ok := input.(contract.%sInput); if !ok { return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"internal binding input has type %%T\", input)) }; copied, err := contract.Clone%sInput(typed); if err != nil { return nil, sceneryruntime.ContractSystemError(err) }; outcome, err := service.%s(ctx, copied); if err != nil { if outcome != nil { return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"handler returned outcome and error\")) }; return nil, sceneryruntime.ContractSystemError(err) }; if outcome == nil { return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"handler returned nil outcome without error\")) }; cloned, err := contract.Clone%sOutcome(outcome); if err != nil { return nil, sceneryruntime.ContractSystemError(err) }; if err := sceneryruntime.PublishContractOperationOutcome(ctx, %q, cloned); err != nil { return nil, sceneryruntime.ContractSystemError(err) }; return cloned, nil }}); err != nil { return err }\n", binding.Address, visibility, binding.Module, internalPolicy, jsonCodecs, operationName, operationName, method, operationName, operation.Address)
 		}
 	}

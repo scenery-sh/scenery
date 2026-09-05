@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
 import { PublicApiClient } from "../../compiler/testdata/native/clients/generated/public_api/client.ts";
+import { PublicApiClient as HouseClient } from "../../compiler/testdata/house/clients/generated/public_api/client.ts";
+import { sceneryClientMetadata } from "../../compiler/testdata/house/clients/generated/public_api/metadata.ts";
 import type { URLString } from "../../compiler/testdata/native/clients/generated/public_api/types.ts";
 
 import {
@@ -59,6 +61,41 @@ const registry: TypeRegistry = Object.freeze({
 const valueDescriptor: TypeDescriptor = { kind: "named", name: "test/record/value" };
 
 describe("Scenery TypeScript client exact codecs", () => {
+	test("keeps imported metadata frozen and removes unused metadata from barrel imports", async () => {
+		expect(Object.isFrozen(sceneryClientMetadata)).toBe(true);
+		expect(Object.isFrozen(sceneryClientMetadata.bindings)).toBe(true);
+		expect(Object.isFrozen(sceneryClientMetadata.operationMethods)).toBe(true);
+		for (const methods of Object.values(sceneryClientMetadata.operationMethods)) expect(Object.isFrozen(methods)).toBe(true);
+		const root = new URL("../../compiler/testdata/house/clients/generated/public_api/", import.meta.url).pathname;
+		async function bundle(exports: string): Promise<string> {
+			const result = await Bun.build({
+				entrypoints: ["virtual:client"],
+				minify: true,
+				write: false,
+				plugins: [{ name: "named-client-import", setup(build) {
+					build.onResolve({ filter: /^virtual:client$/ }, () => ({ path: "client", namespace: "virtual" }));
+					build.onLoad({ filter: /.*/, namespace: "virtual" }, () => ({ contents: `export { ${exports} } from ${JSON.stringify(root + "index.ts")};`, loader: "ts" }));
+				} }],
+			});
+			expect(result.success).toBe(true);
+			return result.outputs[0].text();
+		}
+		expect(await bundle("PublicApiClient")).not.toContain("operationMethods:");
+		expect(await bundle("PublicApiClient, sceneryClientMetadata")).toContain("operationMethods:");
+	});
+
+	test("retains reachable validation on generated multipart calls before fetch", async () => {
+		let requests = 0;
+		const client = new HouseClient({
+			baseUrl: "https://example.test" as URLString,
+			fetch: (async () => { requests++; return Response.json({ status: "processed" }); }) as typeof fetch,
+		});
+		await expect(client.processScene({ sceneId: "" })).rejects.toMatchObject({ code: "HOUSE_SCENE_ID_REQUIRED" });
+		expect(requests).toBe(0);
+		await expect(client.processScene({ sceneId: "scene-1" })).resolves.toMatchObject({ kind: "result", name: "processed" });
+		expect(requests).toBe(1);
+	});
+
 	test("encodes path tails one semantic segment at a time", () => {
 		const stringTail: TypeDescriptor = { kind: "primitive", name: "string" };
 		const relativeTail: TypeDescriptor = { kind: "primitive", name: "relative_path" };

@@ -94,7 +94,7 @@ metadata.ts
 
 A generator MAY combine physical files only when exports and artifact bytes remain deterministic for that configured layout. Generated files contain ownership markers and are replaced atomically as one descriptor-covered set.
 
-The generated HTTP client stores per-binding request and response mappings in a descriptor table and executes them through one shared runtime helper. Methods remain one typed async function per covered binding. The generated runtime includes query, binding header/cookie, multipart, and retry sections only when at least one covered descriptor or the target retry configuration requires that capability. The helper is not part of the public `index.ts` export surface.
+The generated HTTP client stores per-binding request and response mappings in a descriptor table and executes them through one shared runtime helper. Methods remain one typed async function per covered binding. The generated runtime includes query, binding header/cookie, multipart, and retry sections only when at least one covered descriptor or the target retry configuration requires that capability. The record-validation expression evaluator is emitted only when a reachable record declares a validation rule; ordinary field constraints and scalar validation remain enforced. The helper is not part of the public `index.ts` export surface.
 
 `index.ts` exports the client class/factory, public contract types, runtime error types, metadata, and scalar helper types. It does not export internal implementation helpers.
 
@@ -229,6 +229,10 @@ The decoder preserves the exact unknown tag and canonical JSON payload. Known va
 ## 12. Operation outcomes
 
 Each operation generates one closed outcome union. Business results and declared business errors resolve normally; transport, admission, dispatch, codec, network, and undeclared system failures use typed failure variants or exceptions as specified here.
+
+Repeated identical transport-failure unions may use private shared aliases.
+Each failure name remains a separate discriminated member, preserving exact
+operation-specific names, payloads, exhaustive narrowing, and `Extract` behavior.
 
 For a call binding:
 
@@ -391,6 +395,10 @@ The package exports immutable `sceneryClientMetadata` containing:
 It contains no absolute source paths, secret values, deployment credentials, or private resource details outside the client projection.
 
 Metadata keys and arrays use canonical semantic ordering.
+
+Metadata initialization freezes only its fresh generated literal and is marked
+pure so bundlers can remove it when unused through `index.ts`. Importing the
+metadata value retains its full recursively frozen contents.
 
 ## 16. Compatibility
 

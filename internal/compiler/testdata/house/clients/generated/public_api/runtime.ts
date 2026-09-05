@@ -74,7 +74,9 @@ export type TypeDescriptor =
       readonly kind: "record";
       readonly fields: readonly FieldDescriptor[];
       readonly preserveUnknown: boolean;
+
       readonly validations?: readonly ValidationDescriptor[];
+
     }
   | { readonly kind: "enum"; readonly values: readonly string[]; readonly open: boolean }
   | {
@@ -107,6 +109,7 @@ export interface ConstraintDescriptor {
   readonly deprecated?: unknown;
 }
 
+
 export interface ValidationDescriptor {
   readonly name: string;
   readonly source: string;
@@ -128,6 +131,7 @@ export type ValidationExpression =
   | { readonly kind: "tuple"; readonly values: readonly ValidationExpression[] }
   | { readonly kind: "object"; readonly entries: readonly { readonly key: ValidationExpression; readonly value: ValidationExpression }[] }
   | { readonly kind: "template"; readonly parts: readonly ValidationExpression[] };
+
 
 export type TypeRegistry = Readonly<Record<string, TypeDescriptor>>;
 
@@ -422,7 +426,9 @@ export function encodeRequestBody(
   }
   const resolved = resolveDescriptor(descriptor, registry, new Set());
   if (resolved.kind !== "record" || !isObject(value)) invalid("$", `${codec} body requires a record`);
+
   validateRecordRules(value, resolved, registry, "$");
+
   if (codec === "form") {
     const form = new URLSearchParams();
     for (const field of resolved.fields) {
@@ -1057,7 +1063,9 @@ function encodeTypedValue(
   for (const property of Object.keys(value)) {
     if (!known.has(property) && property !== "unknownFields") invalid(`${path}.${property}`, "unknown record property");
   }
+
   validateRecordRules(value, descriptor, registry, path);
+
   if (descriptor.preserveUnknown) {
     const unknown = value.unknownFields;
     if (unknown !== undefined) {
@@ -1279,7 +1287,9 @@ function decodeTypedValue(
     if (!field.optional && !Object.prototype.hasOwnProperty.call(decoded, field.property)) invalid(`${path}.${field.property}`, "required field is absent");
   }
   if (descriptor.preserveUnknown) decoded.unknownFields = Object.freeze(unknown);
+
   validateRecordRules(decoded, descriptor, registry, path);
+
   return Object.freeze(decoded);
 }
 

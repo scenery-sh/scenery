@@ -228,7 +228,9 @@ function decodeTypedValue(
     if (!field.optional && !Object.prototype.hasOwnProperty.call(decoded, field.property)) invalid(§${path}.${field.property}§, "required field is absent");
   }
   if (descriptor.preserveUnknown) decoded.unknownFields = Object.freeze(unknown);
+/*__scenery_runtime_validation_start__*/
   validateRecordRules(decoded, descriptor, registry, path);
+/*__scenery_runtime_validation_end__*/
   return Object.freeze(decoded);
 }
 

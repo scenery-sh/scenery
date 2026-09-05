@@ -292,6 +292,10 @@ func TestTypeScriptRuntimeOmitsUnusedCapabilities(t *testing.T) {
 		`body.codec === "multipart"`,
 		"multipart requires a declared part schema",
 		"transport.retry",
+		"ValidationDescriptor",
+		"ValidationExpression",
+		"validateRecordRules",
+		"evaluateValidation",
 		"__scenery_runtime_",
 	} {
 		if strings.Contains(runtimeSource, fragment) {
@@ -317,6 +321,7 @@ func TestTypeScriptRuntimeCapabilitySectionsAreIndependent(t *testing.T) {
 		{name: "response cookie", caps: tsRuntimeCapabilities{responseCookie: true}, want: []string{"export function decodeResponseCookie", "getSetCookie"}, reject: []string{"export function decodeResponseHeader"}},
 		{name: "multipart", caps: tsRuntimeCapabilities{multipart: true}, want: []string{"export function encodeMultipartRequestBody", "multipart requires a declared part schema"}, reject: []string{"export async function fetchWithRetry"}},
 		{name: "retry", caps: tsRuntimeCapabilities{retry: true}, want: []string{"export async function fetchWithRetry", "if (transport.retry !== undefined"}, reject: []string{"export function encodeMultipartRequestBody"}},
+		{name: "validation", caps: tsRuntimeCapabilities{validation: true}, want: []string{"export interface ValidationDescriptor", "function evaluateValidation", "validateRecordRules(decoded"}, reject: []string{"export async function fetchWithRetry"}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

@@ -34,10 +34,14 @@ hooks; CLI wires the live generate functions.
   per-binding descriptor table and `Runtime.invoke` / `Runtime.matchResponse`.
   Do not inline the request/response machine per method or emit TanStack hooks
   from this target. Omit empty query and cookie mapping arrays. Emit shared
-  runtime query, binding header/cookie, multipart, and retry sections only when
-  the covered descriptors or target configuration require them. Intern
+  runtime query, binding header/cookie, multipart, retry, and record-validation
+  sections only when the covered descriptors, reachable records, or target
+  configuration require them. Intern
   identical response cases and repeated consecutive shared runs into
-  `sharedResponses` / `sharedResponseSets`.
+  `sharedResponses` / `sharedResponseSets`. Share repeated exact failure unions
+  with private aliases; retain each name as a separate discriminated member.
+  Mark fresh-literal metadata freezing as pure so unused metadata is removable
+  through the public barrel while imported metadata remains deeply frozen.
 - React-enabled TypeScript targets render generated content, table, and split pages and the
   binary-owned UI catalog from its editable source at `ui/` into the
   same artifact transaction. Generated pages use the consuming app's TanStack

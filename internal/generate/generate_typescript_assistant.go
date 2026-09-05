@@ -98,7 +98,7 @@ func isTypeScriptIdentifier(value string) bool {
 		return false
 	}
 	for index, r := range value {
-		if !(r == '_' || r == '$' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || index > 0 && r >= '0' && r <= '9') {
+		if r != '_' && r != '$' && (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (index <= 0 || r < '0' || r > '9') {
 			return false
 		}
 	}

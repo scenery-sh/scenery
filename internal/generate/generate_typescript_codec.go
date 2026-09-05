@@ -2,7 +2,6 @@ package generate
 
 import (
 	"encoding/json"
-	"fmt"
 	"sort"
 	"strings"
 )
@@ -186,11 +185,6 @@ func parseTSExpression(raw string) (string, []string, bool) {
 	return name, arguments, true
 }
 
-func tsDescriptorLiteral(value any, module string) string {
-	encoded, _ := json.Marshal(tsDescriptor(value, module))
-	return string(encoded) + " as const"
-}
-
 func tsOperationFieldType(operation Resource, resources []Resource, target any) any {
 	targetName := lastRef(refOrString(target))
 	inputRef := refString(operation.Spec["input"])
@@ -209,36 +203,6 @@ func tsOperationFieldType(operation Resource, resources []Resource, target any) 
 		}
 	}
 	return operation.Spec["input"]
-}
-
-func tsBodyDescriptor(body map[string]any, operation Resource, resources []Resource) (valueExpression, descriptor string) {
-	target := refOrString(body["to"])
-	if target != "operation."+operation.Name+".input" {
-		return "input." + tsInputTargetProperty(body["to"]), tsDescriptorLiteral(tsOperationFieldType(operation, resources, body["to"]), operation.Module)
-	}
-	selected := tsSelectedBodyFields(body, operation, resources)
-	if selected == nil {
-		return "input", tsDescriptorLiteral(operation.Spec["input"], operation.Module)
-	}
-	properties := make([]string, 0, len(selected))
-	fields := make([]any, 0, len(selected))
-	for _, field := range selected {
-		name := stringValue(field["name"])
-		property := tsName(name)
-		properties = append(properties, fmt.Sprintf("%s: input.%s", property, property))
-		descriptor := map[string]any{"property": property, "wire": wireName(field, name), "value": tsDescriptor(field["type"], operation.Module), "optional": isOptionalType(field["type"])}
-		if constraints := tsFieldConstraints(field); len(constraints) > 0 {
-			descriptor["constraints"] = constraints
-		}
-		fields = append(fields, descriptor)
-	}
-	descriptorBytes, _ := json.Marshal(map[string]any{"kind": "record", "fields": fields, "preserveUnknown": false})
-	return "{ " + strings.Join(properties, ", ") + " }", string(descriptorBytes) + " as const"
-}
-
-func tsMultipartBodyDescriptor(httpSpec map[string]any, operation Resource, resources []Resource) string {
-	encoded, _ := json.Marshal(tsMultipartBodyDescriptorValue(httpSpec, operation, resources))
-	return string(encoded) + " as const"
 }
 
 func tsMultipartBodyDescriptorValue(httpSpec map[string]any, operation Resource, resources []Resource) map[string]any {

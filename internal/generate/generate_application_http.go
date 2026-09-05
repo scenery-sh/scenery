@@ -64,7 +64,8 @@ func renderHTTPBindingRegistration(b *strings.Builder, resources []Resource, ser
 		fmt.Fprintf(b, "\t\t\t\tContractPathTail: %s,\n", pathTail)
 	}
 	fmt.Fprintf(b, "\t\t\t\tDecodeContractRequest: func(request *http.Request, pathValues map[string]string) (sceneryruntime.ContractDecodedRequest, error) { input, err := sceneryruntime.DecodeContractInput[contract.%sInput](request, pathValues, %s); return sceneryruntime.ContractDecodedRequest{Payload: input}, err },\n", operationName, requestSchema)
-	if delivery == "enqueue" {
+	switch delivery {
+	case "enqueue":
 		if !executionOK || stringValue(execution.Spec["mode"]) != "durable" {
 			return fmt.Errorf("enqueue HTTP binding %s does not select a durable execution", binding.Address)
 		}
@@ -75,7 +76,7 @@ func renderHTTPBindingRegistration(b *strings.Builder, resources []Resource, ser
 			}
 		}
 		fmt.Fprintf(b, "\t\t\t\tInvoke: func(ctx context.Context, _ []any, payload any) (any, error) { typed := payload.(contract.%sInput); copied, err := contract.Clone%sInput(typed); if err != nil { return nil, sceneryruntime.ContractSystemError(err) }; options, err := %s(copied); if err != nil { return nil, sceneryruntime.ContractSystemError(err) }; receipt, err := sceneryruntime.DispatchContractDurableExecutionWithOptions(ctx, %q, copied, options); if err != nil { return nil, &sceneryruntime.ContractTransportError{Outcome: \"dispatch.rejected\", Status: %d, Message: \"durable dispatch rejected\", Cause: err} }; return receipt, nil },\n", operationName, operationName, durableDispatchOptionsFunction(execution), execution.Address, status)
-	} else if delivery == "wait" {
+	case "wait":
 		if !executionOK || stringValue(execution.Spec["mode"]) != "durable" {
 			return fmt.Errorf("wait HTTP binding %s does not select a durable execution", binding.Address)
 		}
@@ -88,13 +89,13 @@ func renderHTTPBindingRegistration(b *strings.Builder, resources []Resource, ser
 			}
 		}
 		fmt.Fprintf(b, "\t\t\t\tInvoke: func(ctx context.Context, _ []any, payload any) (any, error) { typed := payload.(contract.%sInput); copied, err := contract.Clone%sInput(typed); if err != nil { return nil, sceneryruntime.ContractSystemError(err) }; options, err := %s(copied); if err != nil { return nil, sceneryruntime.ContractSystemError(err) }; data, err := sceneryruntime.DispatchAndWaitContractDurableExecutionWithOptions(ctx, %q, copied, options); if err != nil { switch sceneryruntime.ContractDurableFailureOutcome(err) { case \"dispatch.rejected\": return nil, &sceneryruntime.ContractTransportError{Outcome: \"dispatch.rejected\", Status: %d, Message: \"durable dispatch rejected\", Cause: err}; case \"dispatch.wait_timeout\": return nil, &sceneryruntime.ContractTransportError{Outcome: \"dispatch.wait_timeout\", Status: %d, Message: \"durable wait timed out\", Cause: err}; default: return nil, sceneryruntime.ContractSystemError(err) } }; outcome, err := contract.Unmarshal%sOutcome(data); if err != nil { return nil, err }; return sceneryruntime.NewContractPreparedOutcome(outcome, data), nil },\n", operationName, operationName, durableDispatchOptionsFunction(execution), execution.Address, statuses["dispatch.rejected"], statuses["dispatch.wait_timeout"], operationName)
-	} else if delivery == "stream" {
+	case "stream":
 		fmt.Fprintf(b, "\t\t\t\tInvoke: func(ctx context.Context, _ []any, payload any) (any, error) { if service == nil { return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"service is not initialized\")) }; copied, err := contract.Clone%sInput(payload.(contract.%sInput)); if err != nil { return nil, sceneryruntime.ContractSystemError(err) }; outcome, stream, err := service.%s(ctx, copied); if err != nil { _ = stream.Close(); if outcome != nil { return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"handler returned outcome and error\")) }; return nil, sceneryruntime.ContractSystemError(err) }; if outcome == nil { _ = stream.Close(); return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"handler returned nil outcome without error\")) }; ", operationName, operationName, handlerMethod)
 		if err := renderHTTPStreamOutcomeSanitizer(b, resourceMap, operation, httpSpec); err != nil {
 			return fmt.Errorf("HTTP binding %s stream outcome: %w", binding.Address, err)
 		}
 		fmt.Fprintf(b, "cloned, err := contract.Clone%sOutcome(outcome); if err != nil { _ = stream.Close(); return nil, sceneryruntime.ContractSystemError(err) }; return sceneryruntime.NewContractStreamOutcome(cloned, stream), nil },\n", operationName)
-	} else {
+	default:
 		// Marshal the outcome once: the canonical envelope both feeds the
 		// isolation clone and rides along so the response encoder can reuse
 		// the payload bytes instead of marshaling the outcome again.
@@ -290,11 +291,10 @@ func httpOutcomeValueExpression(resources map[string]Resource, operation Resourc
 		}
 		return rootExpression + "." + fields[parts[2]], map[string]any{"$ref": "string"}, nil
 	}
-	typeValue := rootType
 	if refOrString(rootType) == "std.type.problem" {
 		return rootExpression + "." + goName(parts[2]), map[string]any{"$ref": "string"}, nil
 	}
-	typeValue = recordFieldType(resources, operation.Module, rootType, parts[2:])
+	typeValue := recordFieldType(resources, operation.Module, rootType, parts[2:])
 	var expression strings.Builder
 	expression.WriteString(rootExpression)
 	for _, field := range parts[2:] {

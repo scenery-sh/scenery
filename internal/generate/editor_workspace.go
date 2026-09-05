@@ -204,7 +204,7 @@ func editorMergeBlock(contents []byte) ([]byte, bool) {
 		return nil, false
 	}
 	end := start + endRelative + len(editorMergeEnd)
-	if bytes.Index(contents[end:], []byte(editorMergeBegin)) >= 0 {
+	if bytes.Contains(contents[end:], []byte(editorMergeBegin)) {
 		return nil, false
 	}
 	return append([]byte(nil), contents[start:end]...), true
@@ -321,7 +321,7 @@ func materializeEditorGeneration(generation string, modules []editorContractModu
 	if err != nil {
 		return nil, err
 	}
-	defer os.RemoveAll(temporary)
+	defer func() { _ = os.RemoveAll(temporary) }()
 	for index, module := range modules {
 		relative, _ := filepath.Rel(generation, moduleDirs[index])
 		directory := filepath.Join(temporary, relative)

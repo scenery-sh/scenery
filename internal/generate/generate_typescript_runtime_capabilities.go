@@ -10,6 +10,7 @@ type tsRuntimeCapabilities struct {
 	responseCookie bool
 	multipart      bool
 	retry          bool
+	validation     bool
 }
 
 func allTSRuntimeCapabilities() tsRuntimeCapabilities {
@@ -21,11 +22,18 @@ func allTSRuntimeCapabilities() tsRuntimeCapabilities {
 		responseCookie: true,
 		multipart:      true,
 		retry:          true,
+		validation:     true,
 	}
 }
 
 func tsRuntimeCapabilitiesFor(target Resource, bindings, resources []Resource) tsRuntimeCapabilities {
 	capabilities := tsRuntimeCapabilities{retry: tsRetryTarget(target).Enabled}
+	for _, resource := range reachableResources(resources, bindings) {
+		if resource.Kind == "scenery.record" && len(namedChildren(resource.Spec, "validation")) > 0 {
+			capabilities.validation = true
+			break
+		}
+	}
 	for _, method := range tsClientMethods(bindings, resources) {
 		descriptor := method.descriptor
 		if _, ok := descriptor["query"]; ok {
@@ -54,7 +62,10 @@ func tsRuntimeCapabilitiesFor(target Resource, bindings, resources []Resource) t
 }
 
 func renderTSRuntime(capabilities tsRuntimeCapabilities) string {
-	source := renderTSRuntimePublic() + renderTSRuntimeInternals() + renderTSRuntimeInvoke() + renderTSRuntimeValidation()
+	source := renderTSRuntimePublic() + renderTSRuntimeInternals() + renderTSRuntimeInvoke()
+	if capabilities.validation {
+		source += renderTSRuntimeValidation()
+	}
 	features := []struct {
 		name string
 		keep bool
@@ -68,6 +79,7 @@ func renderTSRuntime(capabilities tsRuntimeCapabilities) string {
 		{"multipart", capabilities.multipart},
 		{"retry", capabilities.retry},
 		{"no_retry", !capabilities.retry},
+		{"validation", capabilities.validation},
 	}
 	for _, feature := range features {
 		source = selectTSRuntimeSections(source, feature.name, feature.keep)
@@ -75,7 +87,7 @@ func renderTSRuntime(capabilities tsRuntimeCapabilities) string {
 	if strings.Contains(source, "/*__scenery_runtime_") {
 		panic("unresolved TypeScript runtime capability section")
 	}
-	return strings.ReplaceAll(source, "§", "`")
+	return strings.TrimRight(strings.ReplaceAll(source, "§", "`"), "\n") + "\n"
 }
 
 func selectTSRuntimeSections(source, name string, keep bool) string {
