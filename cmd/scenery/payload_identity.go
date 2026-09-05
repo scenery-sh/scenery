@@ -96,7 +96,6 @@ var cliPayloadSchemaRevisions = map[string]string{
 	"scenery.task.list":                   "sha256:7cbb5e4355f533e353de7e3171a2b3cb4b60c30675d884ca52733295f89a4c99",
 	"scenery.durable.worker_token.create": "sha256:f7796e7a49f33ebaa8a3304439f08de48d2391d31bcd1efbb735ac6ac8da8520",
 	"scenery.durable.jobs":                "sha256:e680c8870c213d3fba5b8aa35fc7b9fda71e95fc526330f529c108728519f948",
-	"scenery.upgrade":                     "sha256:6022bbea99526a7a838bfe887dd1cd8ffb27fe49e0aefa6827dc4c2b5c03cf57",
 	"scenery.version":                     "sha256:7b2f75aa63a70fdeec0ef99ff740321fcd4cebcb2b45f0e177ee4884519a4fa9",
 	"scenery.worktree.create":             "sha256:7d2585e9045317d17a142fd91ceb4b38d0f60f8223abc31d30736697424fa5ea",
 	"scenery.worktree.list":               "sha256:2d42d90ddd63a94c1e0fe12a1cf04023b7ccc167534c32751dc06a2714aed237",

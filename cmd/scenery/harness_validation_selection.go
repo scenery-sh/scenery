@@ -138,7 +138,6 @@ func harnessReleaseSensitivePath(path, category string) bool {
 		"cmd/scenery/snapshot",
 		"cmd/scenery/storage",
 		"cmd/scenery/system",
-		"cmd/scenery/upgrade",
 		"cmd/scenery/victoria",
 		"cmd/scenery/watch",
 		"cmd/scenery/worker",

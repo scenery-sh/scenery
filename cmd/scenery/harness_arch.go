@@ -82,11 +82,6 @@ var currentSurfaceResidueRules = []currentSurfaceResidueRule{
 		SuggestedAction: "Use only the current Scenery refresh cookie name.",
 	},
 	{
-		Name:            "historical release selection",
-		Pattern:         regexp.MustCompile(`\bupgrade\s+--version\b`),
-		SuggestedAction: "Keep upgrade on the singular current release channel.",
-	},
-	{
 		Name:            "active next-generation name",
 		Pattern:         regexp.MustCompile(`(?i)(^|[^a-z0-9])(?:` + "v" + `next|console` + "next" + `)(?:[^a-z0-9]|$)|(?i)` + "v" + `next_`),
 		SuggestedAction: "Use the stable responsibility or product name on current surfaces.",
@@ -122,8 +117,6 @@ var legacyIdentityMigrationFiles = map[string]struct{}{
 	"cmd/scenery/dev_ports_test.go":                  {},
 	"cmd/scenery/dev_services_postgres.go":           {},
 	"cmd/scenery/dev_services_test.go":               {},
-	"cmd/scenery/upgrade_recovery_test.go":           {},
-	"cmd/scenery/upgrade_test.go":                    {},
 	"internal/agent/artifact_migration_test.go":      {},
 	"internal/agent/deploy.go":                       {},
 	"internal/agent/deploy_test.go":                  {},

@@ -186,8 +186,6 @@ func runWithCLITelemetry(args []string, telemetry *cliTelemetryInvocation) error
 		return workerCommand(args[1:])
 	case "version":
 		return versionCommand(args[1:])
-	case "upgrade":
-		return upgradeCommand(args[1:])
 	case "doctor":
 		return doctorCommand(args[1:])
 	case "build":

@@ -154,7 +154,6 @@ func runSceneryHarnessSelf(ctx context.Context, stdout io.Writer, args []string)
 				runHarnessSnapshotBackupProbeStep(ctx, repoRoot),
 				runHarnessTypeScriptCheckerProbeStep(ctx, repoRoot),
 				runHarnessCodeTaskProcessProbeStep(ctx, repoRoot),
-				runHarnessUpgradeProcessProbeStep(ctx, repoRoot),
 				runHarnessVictoriaProcessProbeStep(ctx, repoRoot),
 				runHarnessDesktopProcessProbeStep(ctx, repoRoot),
 				runHarnessDeploySSHProcessProbeStep(ctx, repoRoot),

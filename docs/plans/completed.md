@@ -11,6 +11,19 @@ historical records. Do not refresh their review dates or rewrite them as current
 contract prose. Record later guidance here or in the owning current contract;
 use stale knowledge metadata to flag a known contradiction.
 
+## Source Installation and Agent Coexistence
+
+- Status: completed
+- Owner: scenery maintainers
+- Completed: 2026-09-05
+- ExecPlan: [0160 Source Installation and Agent Coexistence](0160-source-install-and-agent-coexistence.md)
+
+Source-only CLI installation replaces release-download updates. Compatible
+agent contracts are shared without age-based replacement; incompatible health
+fails read-only with SCN8003. Native old/candidate builds, two Git worktrees,
+headless apps, and routed HTTP were exercised. PostgreSQL isolation was measured
+separately, not as a mixed-version migration. Local release validation passed.
+
 ## Behavior-Preserving Cleanup
 
 - Status: completed

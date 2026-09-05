@@ -99,6 +99,18 @@
       ]
     },
     {
+      "path": "docs/plans/0160-source-install-and-agent-coexistence.md",
+      "title": "Source Installation and Agent Coexistence",
+      "owner": "scenery maintainers",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-05",
+      "review_after": "2026-10-05",
+      "summary": "Source-only installation and fail-closed shared-agent compatibility across CLI builds.",
+      "tags": ["plans", "execplans", "runtime"]
+    },
+    {
       "path": "docs/plans/0159-behavior-preserving-cleanup.md",
       "title": "Behavior-Preserving Cleanup",
       "owner": "scenery maintainers",
@@ -1699,7 +1711,6 @@
         "docs/schemas/scenery.config.schema.json",
         "docs/schemas/scenery.toolchain.schema.json",
         "docs/schemas/scenery.toolchain.status.schema.json",
-        "docs/schemas/scenery.upgrade.schema.json",
         "docs/schemas/scenery.deploy.registry.schema.json",
         "docs/schemas/scenery.deploy.status.schema.json",
         "docs/schemas/scenery.db.list.schema.json",

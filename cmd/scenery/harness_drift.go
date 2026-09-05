@@ -887,11 +887,6 @@ func harnessStepEffects(step harnessStep) []string {
 		set["external-binary"] = true
 		set["filesystem-write"] = true
 		set["tempdir"] = true
-	case harnessUpgradeProcessProbeName:
-		set["external-binary"] = true
-		set["filesystem-write"] = true
-		set["loopback-network"] = true
-		set["tempdir"] = true
 	case harnessVictoriaProcessProbeName:
 		set["external-binary"] = true
 		set["filesystem-write"] = true

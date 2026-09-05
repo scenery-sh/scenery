@@ -16,6 +16,12 @@ import (
 	localagent "scenery.sh/internal/agent"
 )
 
+type routerRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f routerRoundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
 func TestLocalPathRouterShouldNotStripFrontendPrefix(t *testing.T) {
 	t.Parallel()
 
@@ -33,7 +39,7 @@ func TestLocalPathRouterShouldNotStripFrontendPrefix(t *testing.T) {
 func TestLocalBackendProxyRewritePreservesURLAndDropsSpoofedForwarding(t *testing.T) {
 	proxy := reverseProxyForLocalBackend(localagent.Backend{Addr: "backend.test:8080"})
 	var outbound *http.Request
-	proxy.Transport = upgradeRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+	proxy.Transport = routerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
 		outbound = req
 		response := httptest.NewRecorder()
 		response.WriteHeader(http.StatusNoContent)

@@ -385,6 +385,20 @@ self-harness command does not include every release-only probe.
 Do not install a shared CLI during agent validation. Default, race, and release
 self-harness modes build a worktree-local binary; quick mode does not.
 
+Scenery CLI installation and updates are source-only: select a checkout revision,
+run `./scripts/build-dashboard-ui-embed.sh`. Running `go install ./cmd/scenery` is reserved for an explicit human request.
+For concurrent versions use
+separate absolute binary paths. Installing a CLI is not an application or data
+migration; keep its source revision coherent with the application's runtime
+dependency and regenerate/validate intentionally.
+
+A compatible shared agent is reused without replacement, regardless of build
+age. An incompatible health schema/spec fails closed. Use a matching binary or
+a private `SCENERY_AGENT_HOME` with a distinct router address for that version.
+Changing agent home does not isolate machine-global DNS or privileged edge
+listeners; do not install competing edge setups. Restarting the shared agent is
+an explicit operator action, not a consequence of installing a CLI.
+
 ### Repository Mental Model
 
 scenery is a Go-native service runtime and local development platform. Think in app roots, app runtimes, and capability surfaces first; Victoria, agent routing, generated cache files, hidden ports, and local stores are substrate details unless the task is explicitly debugging that substrate.

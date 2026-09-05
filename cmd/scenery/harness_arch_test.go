@@ -107,7 +107,6 @@ func TestCheckCurrentSurfaceResidue(t *testing.T) {
 	}{
 		{name: "current source selectors", rel: "testdata/app/" + testAppFilename, content: "language " + "{\n  edition = \"2027\"\n  " + "require_" + "profiles = []\n}\npackage \"app\" { " + "scenery_" + "version = \"any\" }\n", want: "authored language selector"},
 		{name: "retired cookie", rel: "auth/session.go", content: "const cookie = \"" + "onlv_" + "refresh\"\n", want: "retired auth cookie name"},
-		{name: "release selection", rel: "docs/local-contract.md", content: "Run `scenery upgrade " + "--version v1.2.3`.\n", want: "historical release selection"},
 		{name: "active next name in path", rel: "internal/" + "v" + "next/compiler.go", content: "package compiler\n", want: "active next-generation name"},
 		{name: "historical knowledge path", rel: "docs/knowledge.json", content: `"path": "docs/plans/0103-` + "v" + `next-language-and-onlv-house-migration.md",` + "\n"},
 		{name: "active knowledge name", rel: "docs/knowledge.json", content: `"title": "New ` + "v" + `Next feature",` + "\n", want: "active next-generation name"},

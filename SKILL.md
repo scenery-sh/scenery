@@ -252,3 +252,11 @@ Scenery itself, also run its `./scripts/test-assistant-public-surface.sh`.
 For Scenery repository changes, follow the root `AGENTS.md`; changed paths and contract surfaces calculate the validation classes and exact command union. Keep Go's test cache enabled. Use `-count=1` or `--fresh-tests` only for explicit measurement or nondeterminism investigation.
 
 Do not run `go install ./cmd/scenery` unless the human explicitly asks. Multiple worktrees share the installed binary; self-harness builds a worktree-local binary.
+
+CLI installation and updates are source-only. Select a checkout revision and
+build its dashboard before an explicitly requested install. Use separate
+absolute binary paths for parallel versions. Compatible agent contracts are
+shared without automatic replacement; incompatible health schema/spec fails
+closed. Use the matching binary or a private agent home and distinct router
+address. Changing agent home does not isolate machine-global DNS/edge listeners.
+Installing a CLI does not migrate application dependencies or durable data.

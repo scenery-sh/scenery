@@ -17,6 +17,10 @@
 - Durable identity migrations preserve the exact legacy bytes in an owner-only backup, fsync the replacement, and write an idempotent completion marker.
 - Never recreate deploy ownership, live process ownership, or credentials after a decode failure.
 - Closing or restarting the agent never signals registered substrate processes. Substrate-specific owners perform destructive shutdown explicitly.
+- Ensuring an agent never replaces a live agent based on build age. Require
+  the current health schema/spec identity before sharing it; incompatible or
+  unreadable health fails without signals or durable writes. Operator restart
+  is explicit, and tests use private homes and router ports.
 - Owner-checked session deletion atomically removes only that session's leases from shared substrate metadata; it never deletes or stops the shared substrate and preserves unrelated leases.
 - Public deploy requests read one immutable in-memory route snapshot. Validate
   candidate public-route owner fingerprints while restoring or registering

@@ -66,31 +66,22 @@ Run `scenery doctor -o json` after install when you want a read-only readiness r
 ```sh
 git clone https://github.com/scenery-sh/scenery.git scenery
 cd scenery
+./scripts/build-dashboard-ui-embed.sh
 go install ./cmd/scenery
 scenery doctor -o json
 scenery version -o json
 ```
 
-The module path is `scenery.sh`. Source installs are useful when working from a checkout or testing unreleased changes.
-Release binaries embed the built dashboard UI from `apps/console/` and do not build it at runtime. From source, run `./scripts/build-dashboard-ui-embed.sh` before `go install ./cmd/scenery` when the installed binary should carry the current dashboard build.
+The module path is `scenery.sh`. Source builds are the supported installation
+and update path; Scenery does not publish prebuilt CLI releases. Select an
+explicit checkout revision, then repeat the build and installation commands.
+Verify the installed producer commit with `scenery version -o json`.
 
-## Prebuilt CLI Binaries
-
-Tagged releases currently publish a prebuilt `scenery` archive for macOS Apple Silicon (`darwin/arm64`) on the [GitHub Releases](https://github.com/scenery-sh/scenery/releases) page.
-
-After installing a prebuilt binary, verify it with:
-
-```sh
-scenery version -o json
-```
-
-To update a local prebuilt install later:
-
-```sh
-scenery upgrade
-```
-
-`scenery upgrade` verifies the current release archive against `checksums.txt`, replaces the current local binary, and then syncs managed toolchain entries already present in the local store. Use `scenery upgrade --toolchain all` when you intentionally want every frozen tool and image from the upgraded binary pulled immediately.
+For parallel versions, build each checkout with
+`go build -o <absolute-binary-path> ./cmd/scenery` and invoke that exact path.
+Replacing the global CLI does not migrate applications or their durable data.
+Keep the app's runtime module revision and selected CLI source revision coherent;
+regenerate and validate deliberately when updating either.
 
 ## SSH Source-Sync Deployment
 
@@ -354,7 +345,6 @@ scenery worker durable --endpoint <url> --token <token> [--service <name>]... [-
 scenery worker durable jobs list|inspect|cancel|retry [job-id] --service <name> [--app-root <path>] -o json
 scenery worker durable token create --service <name> [--name <name>] [--id <id>] [--app-root <path>] -o json
 scenery version [-o json]
-scenery upgrade [--target <path>] [--toolchain installed|all|none] [--force] [--dry-run] [-o json]
 scenery deploy <ssh-target> [--app-root <path>]
 scenery deploy --env <name> [--app-root <path>]
 scenery deploy enable|disable|status|setup|resume|teardown [-o json]
@@ -499,7 +489,7 @@ scenery system toolchain sync -o json
 scenery system toolchain verify -o json
 ```
 
-`scenery upgrade` uses the upgraded binary's bundled manifest for the post-upgrade toolchain sync, so pinned versions change with the Scenery release instead of ambient system tools.
+Managed tools remain explicit: run `scenery system toolchain sync --tool <name> -o json` with the selected CLI. Its bundled manifest selects the tool versions.
 
 Caddy edge and Victoria sidecars are backing substrate for local capabilities; Caddy edge is managed-toolchain only. Storage is not a managed substrate: declaring `storage.stores` makes `scenery up` serve them from a Scenery-owned local directory tree (atomic writes, checked fsync, sidecar metadata) with no managed process, toolchain artifact, or dev-service entry. Offsite durability is an operator concern — replicate the storage-cell object directories to S3 with `rclone`/`restic` (see `docs/app-development-cookbook.md`). For the managed tools, use documented env overrides, the managed store, `scenery ps -o json` substrate records, and the recorded stdout/stderr log paths when intentionally debugging them. They do not silently fall back to system `PATH` binaries.
 

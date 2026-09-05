@@ -153,8 +153,6 @@ func firstFileForHarnessStep(repoRoot string, step harnessStep) string {
 		return "cmd/scenery/harness_self_tscheck.go"
 	case harnessCodeTaskProcessProbeName:
 		return "cmd/scenery/harness_self_script.go"
-	case harnessUpgradeProcessProbeName:
-		return "cmd/scenery/harness_self_upgrade.go"
 	case harnessVictoriaProcessProbeName:
 		return "cmd/scenery/harness_self_victoria.go"
 	case harnessDesktopProcessProbeName:
