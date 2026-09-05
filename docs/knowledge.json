@@ -99,6 +99,30 @@
       ]
     },
     {
+      "path": "docs/plans/0158-go-lint-cleanup.md",
+      "title": "Go Lint Cleanup",
+      "owner": "scenery maintainers",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-05",
+      "review_after": "2026-10-05",
+      "summary": "Remove unrestricted Go lint findings, repair lost write errors, replace deprecated transport APIs, and adopt an explicit correctness lint policy with narrowly justified exact-identity test exceptions.",
+      "tags": ["plans", "execplans", "go", "quality", "runtime"]
+    },
+    {
+      "path": "docs/plans/0157-typescript-client-footprint.md",
+      "title": "TypeScript Client Footprint",
+      "owner": "scenery client generation",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-05",
+      "review_after": "2026-10-05",
+      "summary": "Completed client-footprint implementation: removable metadata, exact private failure unions, and reachable validation; records SDK size/type proof and unrelated PostgreSQL-probe and linter release blockers.",
+      "tags": ["plans", "execplans", "typescript", "clientgen", "codegen", "generate"]
+    },
+    {
       "path": "docs/plans/0156-typescript-client-table-emit.md",
       "title": "Table-Driven TypeScript HTTP Client Emit",
       "owner": "scenery client generation",
@@ -1293,9 +1317,9 @@
       "status": "reference",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-09-02",
-      "review_after": "2026-10-02",
-      "summary": "Normative deterministic TypeScript client API, type mapping, outcomes, metadata, compatibility, cancellation, generated route catalogs and synchronous presentation access, independently encoded terminal path-tail segments, the dedicated provider-neutral assistant conversation client with NDJSON cursor events, and a capability-projected shared table-driven HTTP request/response helper that is not a public export.",
+      "last_reviewed": "2026-09-05",
+      "review_after": "2026-10-05",
+      "summary": "Normative deterministic TypeScript client API, type mapping, exact shared outcome unions, removable frozen metadata, compatibility, cancellation, generated route catalogs and synchronous presentation access, independently encoded terminal path-tail segments, the dedicated provider-neutral assistant conversation client with NDJSON cursor events, and capability-projected HTTP and record-validation runtime emission.",
       "tags": [
         "spec",
         "typescript",
@@ -1645,8 +1669,8 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-09-02",
-      "review_after": "2026-10-02",
+      "last_reviewed": "2026-09-05",
+      "review_after": "2026-10-05",
       "summary": "Current local developer and agent-facing contract for exact CLI JSON surfaces, including provider-neutral assistants, scoped help, living-doc freshness, deterministic validation, schema identities, graph provenance, runtime/deploy behavior, generated route access, audit identity, an absolute 100ms Go-root rule with an empty exception inventory, release-only external-boundary probes, generators, and code tasks.",
       "tags": [
         "contract",
@@ -2697,7 +2721,7 @@
       "freshness": "current",
       "last_reviewed": "2026-09-05",
       "review_after": "2026-10-05",
-      "summary": "Known cleanup and follow-up work with historical incident evidence, current browser coverage gaps, developer-loop attribution, and a source-verified edge static integration test placement conflict with the root timing policy.",
+      "summary": "Known cleanup and follow-up work. Edge static process-test placement and PostgreSQL release fixture source are resolved; published dotfile policy remains an explicit follow-up alongside historical incident and browser coverage debt.",
       "tags": [
         "debt",
         "risk",

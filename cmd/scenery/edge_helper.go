@@ -183,7 +183,7 @@ func edgePrivilegedHelperUninstall() error {
 	_ = exec.Command("launchctl", "bootout", "system/"+edgeHelperLabel).Run()
 	_ = os.Remove(edgeHelperPlistPath)
 	_ = os.Remove(edgeHelperBinaryPath)
-	fmt.Fprintln(os.Stdout, "removed scenery privileged edge listener")
+	_, _ = fmt.Fprintln(os.Stdout, "removed scenery privileged edge listener")
 	return nil
 }
 
@@ -303,14 +303,14 @@ func (l *edgeHelperFailureLog) report(w io.Writer, listenAddr, reason string, er
 	delete(l.dropped, key)
 	l.last[key] = now
 	if suppressed > 0 {
-		fmt.Fprintf(w, "%s %s %s on %s: %v (%d similar suppressed in the last %s)\n", now.UTC().Format(time.RFC3339), l.component, reason, listenAddr, err, suppressed, l.interval)
+		_, _ = fmt.Fprintf(w, "%s %s %s on %s: %v (%d similar suppressed in the last %s)\n", now.UTC().Format(time.RFC3339), l.component, reason, listenAddr, err, suppressed, l.interval)
 		return
 	}
-	fmt.Fprintf(w, "%s %s %s on %s: %v\n", now.UTC().Format(time.RFC3339), l.component, reason, listenAddr, err)
+	_, _ = fmt.Fprintf(w, "%s %s %s on %s: %v\n", now.UTC().Format(time.RFC3339), l.component, reason, listenAddr, err)
 }
 
 func handleEdgeHelperConn(client net.Conn, opts edgeHelperOptions, spec edgeHelperListenSpec) {
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 	targetAddr, err := validateEdgeTargetForPort(opts.HelperTargetState, opts.OwnerUID, opts.OwnerGID, spec.HTTPPort80)
 	if err != nil {
 		edgeHelperDropLog.report(edgeHelperLogWriter, spec.Addr, "refusing connection (target metadata validation failed)", err)
@@ -321,7 +321,7 @@ func handleEdgeHelperConn(client net.Conn, opts edgeHelperOptions, spec edgeHelp
 		edgeHelperDropLog.report(edgeHelperLogWriter, spec.Addr, "dropping connection (edge target unreachable)", err)
 		return
 	}
-	defer upstream.Close()
+	defer func() { _ = upstream.Close() }()
 	done := make(chan struct{}, 2)
 	go func() {
 		_, _ = io.Copy(upstream, client)
@@ -418,7 +418,7 @@ func copyRootHelperBinary(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer in.Close()
+	defer func() { _ = in.Close() }()
 	tmp := dst + ".tmp"
 	out, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
 	if err != nil {

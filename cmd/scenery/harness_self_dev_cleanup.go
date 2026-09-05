@@ -51,7 +51,7 @@ func runHarnessDevSessionCleanupProbeCheck(parent context.Context, _ string) (ma
 	if err != nil {
 		return nil, nil, err
 	}
-	defer os.RemoveAll(root)
+	defer func() { _ = os.RemoveAll(root) }()
 	stateRoot := filepath.Join(root, "app", ".scenery", "sessions", "review-a")
 	otherStateRoot := filepath.Join(root, "app", ".scenery", "sessions", "review-b")
 	stale, err := startHarnessStateRootAppProcess(ctx, stateRoot)

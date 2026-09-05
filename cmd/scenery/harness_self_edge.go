@@ -65,7 +65,7 @@ func runHarnessEdgeProcessProbeCheck(ctx context.Context, _ string) (map[string]
 	if err != nil {
 		return nil, nil, err
 	}
-	defer os.RemoveAll(dir)
+	defer func() { _ = os.RemoveAll(dir) }()
 
 	argsPath := filepath.Join(dir, "reload-args.txt")
 	caddyPath := filepath.Join(dir, "caddy")
@@ -88,7 +88,7 @@ func runHarnessEdgeProcessProbeCheck(ctx context.Context, _ string) (map[string]
 	wantArgs := []string{"reload", "--config", configPath, "--adapter", "caddyfile", "--address", "unix//" + adminSocket}
 	want := strings.Join(wantArgs, "\n") + "\n"
 	if string(data) != want {
-		return nil, nil, fmt.Errorf("Caddy reload invocation = %q, want %q", string(data), want)
+		return nil, nil, fmt.Errorf("caddy reload invocation = %q, want %q", string(data), want)
 	}
 	trust, err := runHarnessTrustLocalCAProbe(ctx, dir)
 	if err != nil {
@@ -102,12 +102,17 @@ func runHarnessEdgeProcessProbeCheck(ctx context.Context, _ string) (map[string]
 	if err != nil {
 		return nil, nil, err
 	}
+	staticFrontend, err := runHarnessEdgeStaticFrontendProbe(ctx, dir)
+	if err != nil {
+		return nil, nil, err
+	}
 	return map[string]any{
 		"proof":             "managed_caddy_reload_trust_validation_start_stop_lock_and_fast_exit_verified",
 		"args":              wantArgs,
 		"local_ca_trust":    trust,
 		"config_validation": validation,
 		"start_stop":        startStop,
+		"static_frontend":   staticFrontend,
 	}, nil, nil
 }
 
@@ -179,7 +184,7 @@ func runHarnessEdgeStartStopProbe(ctx context.Context, root string) (map[string]
 		TargetAddr: "127.0.0.1:19443", HTTPTargetAddr: "127.0.0.1:19080",
 		AdminSocket: filepath.Join(failingPaths.RunDir, "caddy-admin.sock"), UpstreamAddr: "127.0.0.1:9440", StartupSettle: 15 * time.Second,
 	})
-	if failure == nil || !strings.Contains(failure.Error(), "Caddy edge exited during startup") || !strings.Contains(failure.Error(), "permission denied") || strings.Contains(failure.Error(), "old caddy log line") {
+	if failure == nil || !strings.Contains(failure.Error(), "caddy edge exited during startup") || !strings.Contains(failure.Error(), "permission denied") || strings.Contains(failure.Error(), "old caddy log line") {
 		return nil, fmt.Errorf("fast startup failure = %v", failure)
 	}
 	failedState, err := localagent.LoadEdgeState(failingPaths.EdgeStatePath)

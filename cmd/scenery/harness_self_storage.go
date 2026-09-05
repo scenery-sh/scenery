@@ -451,7 +451,7 @@ func harnessStorageHTTPProbe(ctx context.Context, socketPath, method string) (st
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	data, readErr := io.ReadAll(resp.Body)
 	if readErr != nil {
 		return "", readErr

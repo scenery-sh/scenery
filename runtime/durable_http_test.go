@@ -21,7 +21,7 @@ func TestDurableWorkerHTTPLeaseHeartbeatAndComplete(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	if err := db.ReconcileTasks(context.Background(), []durablestore.TaskDeclaration{{Name: "maps.remote.v1", HandlerRef: "maps.remote.v1"}}); err != nil {
 		t.Fatal(err)
 	}

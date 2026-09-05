@@ -53,7 +53,7 @@ func runHarnessDevFollowProbeCheck(parent context.Context, _ string) (map[string
 	if err != nil {
 		return nil, nil, err
 	}
-	defer os.RemoveAll(root)
+	defer func() { _ = os.RemoveAll(root) }()
 	agentHome := filepath.Join(root, "agent-home")
 	restoreEnv := patchEnv(map[string]*string{"SCENERY_AGENT_HOME": stringPtr(agentHome)})
 	defer restoreEnv()

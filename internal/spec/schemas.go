@@ -476,11 +476,6 @@ func publicAuthoredAttribute(attribute authoredAttributeSchema, required bool) m
 	return result
 }
 
-func dynamicRevisionRuleForSource(revision, name string) (dynamicRevisionDomain, bool) {
-	rule, ok := sourceSchemaIndex.dynamicFields[authoredFieldKey{Revision: revision, Name: name}]
-	return rule, ok
-}
-
 func authoredPhase(schema *authoredBlockSchema) string {
 	return "compile"
 }

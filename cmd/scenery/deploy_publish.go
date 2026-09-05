@@ -201,9 +201,9 @@ func runDeployPublish(stdout io.Writer, opts deployOptions) error {
 		return writeCLIJSON(stdout, resp)
 	}
 	for _, frontend := range resp.Frontends {
-		fmt.Fprintf(stdout, "published %s -> https://%s%s (%s, %d files)\n", frontend.Name, domain, frontend.Route, frontend.ReleaseID, frontend.Files)
+		_, _ = fmt.Fprintf(stdout, "published %s -> https://%s%s (%s, %d files)\n", frontend.Name, domain, frontend.Route, frontend.ReleaseID, frontend.Files)
 	}
-	fmt.Fprintf(stdout, "probe: document %s, api %s\n", resp.Probe.Document, resp.Probe.API)
+	_, _ = fmt.Fprintf(stdout, "probe: document %s, api %s\n", resp.Probe.Document, resp.Probe.API)
 	return nil
 }
 
@@ -235,7 +235,7 @@ func runDeployPublishBuild(frontendRoot, basePath string, stdout io.Writer) erro
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("%s %s: %w\n%s", buildBin, strings.Join(buildArgs, " "), err, tailLines(output.String(), 20))
 	}
-	fmt.Fprintf(stdout, "built %s (%s %s)\n", frontendRoot, buildBin, strings.Join(buildArgs, " "))
+	_, _ = fmt.Fprintf(stdout, "built %s (%s %s)\n", frontendRoot, buildBin, strings.Join(buildArgs, " "))
 	return nil
 }
 

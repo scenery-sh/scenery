@@ -77,7 +77,7 @@ func NewCodexAppServerClient(ctx context.Context, onNotification func(string, js
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
-	go io.Copy(io.Discard, stderr)
+	go func() { _, _ = io.Copy(io.Discard, stderr) }()
 	go client.readLoop(stdout)
 	go func() { client.done <- cmd.Wait() }()
 	return client, nil

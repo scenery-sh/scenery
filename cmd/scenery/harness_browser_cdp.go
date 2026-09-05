@@ -367,7 +367,7 @@ func (b *harnessBrowserProcess) newPage(ctx context.Context) (*harnessCDPClient,
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("create browser target returned %s", resp.Status)
 	}
@@ -405,7 +405,7 @@ func harnessBrowserExecutable() (string, error) {
 			}
 		}
 	}
-	return "", fmt.Errorf("Chrome or Chromium executable not found; set CHROME_BIN")
+	return "", fmt.Errorf("chrome or Chromium executable not found; set CHROME_BIN")
 }
 
 func harnessFreeTCPPort() (string, error) {
@@ -413,7 +413,7 @@ func harnessFreeTCPPort() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	return fmt.Sprint(ln.Addr().(*net.TCPAddr).Port), nil
 }
 

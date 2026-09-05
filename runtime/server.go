@@ -541,7 +541,6 @@ func (s *server) registerTyped(ep *Endpoint) {
 		} else if encoded.Stream != nil {
 			_ = encoded.Stream.Close()
 		}
-		return
 	}
 
 	if ep.ContractPolicy != nil && ep.Access != Private {
@@ -557,7 +556,7 @@ func writeContractByteStream(writer io.Writer, response ContractHTTPResponse) er
 	if stream == nil {
 		return nil
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 	if stream.Reader == nil || stream.Size < 0 {
 		return fmt.Errorf("invalid contract byte stream")
 	}

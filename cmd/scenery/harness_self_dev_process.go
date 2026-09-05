@@ -55,7 +55,7 @@ func runHarnessDevManagedProcessProbeCheck(parent context.Context, _ string) (ma
 	if err != nil {
 		return nil, nil, err
 	}
-	defer process.Stop(250 * time.Millisecond)
+	defer func() { _ = process.Stop(250 * time.Millisecond) }()
 	select {
 	case <-outputSeen:
 	case <-ctx.Done():

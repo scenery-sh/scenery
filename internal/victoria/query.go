@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"sort"
@@ -73,7 +74,7 @@ func DefaultQueryStack() *Stack {
 	}
 	stack := &Stack{}
 	for _, spec := range ComponentSpecs() {
-		baseURL := fmt.Sprintf("http://%s:%d", defaultHost, spec.DefaultPort)
+		baseURL := "http://" + net.JoinHostPort(defaultHost, strconv.Itoa(spec.DefaultPort))
 		stack.components = append(stack.components, &Component{
 			spec:        spec,
 			baseURL:     baseURL,
@@ -200,7 +201,7 @@ func fetchVictoriaJaeger(ctx context.Context, endpoint string) ([]victoriaJaeger
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("VictoriaTraces query failed: %s", resp.Status)
 	}

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"sort"
 
 	"scenery.sh/internal/devdash"
@@ -14,7 +15,7 @@ func devdashAppRecordForRuntime(ctx context.Context, store *devdash.Store, appID
 		if err == nil {
 			return record, true, nil
 		}
-		if err != sql.ErrNoRows {
+		if !errors.Is(err, sql.ErrNoRows) {
 			return devdash.AppRecord{}, false, err
 		}
 	}

@@ -200,7 +200,7 @@ func writeAtomicBuildFile(path string, data []byte) error {
 		return err
 	}
 	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
+	defer func() { _ = os.Remove(temporaryPath) }()
 	if err := temporary.Chmod(0o600); err != nil {
 		_ = temporary.Close()
 		return err
@@ -345,9 +345,8 @@ func buildAssistantAsset(ctx context.Context, result *Result, assistant compiler
 	if err := ensureFileUnchanged(lockPath, lockBefore); err != nil {
 		return generateapi.AssistantAssetInput{}, fmt.Errorf("assistant %s package lock changed during build: %w", assistant.Address, err)
 	}
-	eveCLI := filepath.Join(managedHome, "lib", "node_modules", "npm", "node_modules", "eve", "bin", "eve.js")
 	// Eve is an application dependency, not part of npm's own installation.
-	eveCLI = filepath.Join(overlay.Root, "node_modules", "eve", "bin", "eve.js")
+	eveCLI := filepath.Join(overlay.Root, "node_modules", "eve", "bin", "eve.js")
 	if _, err := os.Stat(eveCLI); err != nil {
 		return generateapi.AssistantAssetInput{}, fmt.Errorf("assistant %s exact lock did not install Eve CLI: %w", assistant.Address, err)
 	}
@@ -412,10 +411,6 @@ func nodeHomeForArchive(appRoot string, platform toolchain.Platform) (string, er
 func runManagedNPM(ctx context.Context, home, dir, cache string, args ...string) error {
 	npmCLI := filepath.Join(home, "lib", "node_modules", "npm", "bin", "npm-cli.js")
 	return runManagedNodeWithEnv(ctx, home, dir, append([]string{npmCLI}, args...), []string{"npm_config_cache=" + cache})
-}
-
-func runManagedNode(ctx context.Context, home, dir, script string, args ...string) error {
-	return runManagedNodeWithEnv(ctx, home, dir, append([]string{script}, args...), nil)
 }
 
 func managedNodeExecutable(home string) string {
@@ -519,10 +514,11 @@ func copyDeterministicCapsule(source, destination string) error {
 		// random build identifier; Nitro's metadata contains a wall-clock date.
 		// Restrict canonicalization to these known textual outputs so arbitrary
 		// native modules and other binary dependencies are copied byte-for-byte.
-		if relativeSlash == ".output/server/index.mjs" {
+		switch relativeSlash {
+		case ".output/server/index.mjs":
 			data = bytes.ReplaceAll(data, []byte(filepath.Clean(source)), []byte("/scenery-assistant"))
 			data = eveBuildPathPattern.ReplaceAll(data, []byte(".eve/builds/build/"))
-		} else if relativeSlash == ".output/nitro.json" {
+		case ".output/nitro.json":
 			data = normalizeNitroMetadata(data)
 		}
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {

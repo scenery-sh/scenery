@@ -27,7 +27,7 @@ func Analyze(root, name string) (*model.App, error) {
 
 func AnalyzeTarget(root, name string, overlay map[string][]byte, target gotarget.Context) (*model.App, error) {
 	if len(target.Patterns) == 0 {
-		return nil, errors.New("Go target has no package patterns")
+		return nil, errors.New("go target has no package patterns")
 	}
 	return analyze(root, name, overlay, target.Patterns, &target)
 }
@@ -38,7 +38,7 @@ func AnalyzeTarget(root, name string, overlay map[string][]byte, target gotarget
 // generated packages are supplied through an overlay during AnalyzeTarget.
 func MissingHermeticModulePackages(target gotarget.Context) ([]string, error) {
 	if len(target.Patterns) == 0 {
-		return nil, errors.New("Go target has no package patterns")
+		return nil, errors.New("go target has no package patterns")
 	}
 	args := []string{"list"}
 	args = append(args, target.BuildFlags...)
@@ -131,7 +131,7 @@ func analyze(root, name string, overlay map[string][]byte, patterns []string, ta
 	}
 	if len(loadErrors) > 0 {
 		slices.Sort(loadErrors)
-		return nil, fmt.Errorf("Go package loading failed: %s", strings.Join(loadErrors, "; "))
+		return nil, fmt.Errorf("go package loading failed: %s", strings.Join(loadErrors, "; "))
 	}
 
 	app := &model.App{Name: name, Root: root}

@@ -4,6 +4,7 @@ package runtimeassets
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"syscall"
@@ -23,7 +24,7 @@ func acquireAssetLock(ctx context.Context, path string) (func(), error) {
 				_ = file.Close()
 			}, nil
 		}
-		if err != syscall.EAGAIN && err != syscall.EACCES && err != syscall.EWOULDBLOCK {
+		if !errors.Is(err, syscall.EAGAIN) && !errors.Is(err, syscall.EACCES) && !errors.Is(err, syscall.EWOULDBLOCK) {
 			_ = file.Close()
 			return nil, fmt.Errorf("lock runtime asset: %w", err)
 		}

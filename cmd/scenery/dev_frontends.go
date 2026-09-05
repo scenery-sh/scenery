@@ -252,10 +252,6 @@ func startManagedFrontends(ctx context.Context, appRoot, appID string, frontends
 	return results
 }
 
-func beginManagedFrontends(ctx context.Context, appRoot, appID string, frontends []localproxy.FrontendConfig, baseEnv []string, session localagent.Session) ([]pendingManagedFrontendStart, context.CancelFunc) {
-	return beginManagedFrontendsWithStarter(ctx, appRoot, appID, frontends, baseEnv, session, beginManagedFrontend)
-}
-
 func beginManagedFrontendsWithStarter(ctx context.Context, appRoot, appID string, frontends []localproxy.FrontendConfig, baseEnv []string, session localagent.Session, starter pendingManagedFrontendStarter) ([]pendingManagedFrontendStart, context.CancelFunc) {
 	if len(frontends) == 0 {
 		return nil, func() {}

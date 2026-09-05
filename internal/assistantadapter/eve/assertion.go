@@ -40,16 +40,16 @@ type wireAssertionClaims struct {
 // generated helper from accidentally creating a long-lived bridge credential.
 func NewAssertion(secret []byte, claims AssertionClaims, now time.Time, ttl time.Duration) (string, error) {
 	if len(secret) == 0 {
-		return "", errors.New("Eve MCP bridge secret is required")
+		return "", errors.New("eve MCP bridge secret is required")
 	}
 	if claims.Audience == "" || claims.AssistantAddress == "" || claims.Principal == "" || claims.ConversationDigest == "" || claims.CapabilityRevision == "" {
-		return "", errors.New("Eve assertion claims are incomplete")
+		return "", errors.New("eve assertion claims are incomplete")
 	}
 	if ttl <= 0 {
 		ttl = defaultAssertionTTL
 	}
 	if ttl > maxAssertionTTL {
-		return "", fmt.Errorf("Eve assertion TTL exceeds %s", maxAssertionTTL)
+		return "", fmt.Errorf("eve assertion TTL exceeds %s", maxAssertionTTL)
 	}
 	if now.IsZero() {
 		now = time.Now().UTC()
@@ -66,7 +66,7 @@ func NewAssertion(secret []byte, claims AssertionClaims, now time.Time, ttl time
 		claims.ExpiresAt = now.Add(ttl)
 	}
 	if !claims.ExpiresAt.After(now) || claims.ExpiresAt.Sub(now) > maxAssertionTTL {
-		return "", errors.New("Eve assertion expiry is outside the short-lived window")
+		return "", errors.New("eve assertion expiry is outside the short-lived window")
 	}
 	wire := wireAssertionClaims{
 		Audience:           claims.Audience,
@@ -93,7 +93,7 @@ func NewAssertion(secret []byte, claims AssertionClaims, now time.Time, ttl time
 // dispatch should continue to bind authorization to its own request context.
 func VerifyAssertion(secret []byte, assertion string, now time.Time) (AssertionClaims, error) {
 	if len(secret) == 0 {
-		return AssertionClaims{}, errors.New("Eve MCP bridge secret is required")
+		return AssertionClaims{}, errors.New("eve MCP bridge secret is required")
 	}
 	parts := strings.Split(assertion, ".")
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
@@ -117,13 +117,13 @@ func VerifyAssertion(secret []byte, assertion string, now time.Time) (AssertionC
 		return AssertionClaims{}, fmt.Errorf("decode Eve assertion payload: %w", err)
 	}
 	if wire.Audience == "" || wire.AssistantAddress == "" || wire.Principal == "" || wire.ConversationDigest == "" || wire.CapabilityRevision == "" || wire.Nonce == "" || wire.ExpiresAt <= 0 {
-		return AssertionClaims{}, errors.New("Eve assertion claims are incomplete")
+		return AssertionClaims{}, errors.New("eve assertion claims are incomplete")
 	}
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
 	if time.Unix(wire.ExpiresAt, 0).Before(now.UTC()) {
-		return AssertionClaims{}, errors.New("Eve assertion expired")
+		return AssertionClaims{}, errors.New("eve assertion expired")
 	}
 	return AssertionClaims{
 		Audience:           wire.Audience,

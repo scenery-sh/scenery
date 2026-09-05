@@ -58,7 +58,7 @@ func TestProbeEdgeTLSClassifiesOutcomes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer dropper.Close()
+	defer func() { _ = dropper.Close() }()
 	go func() {
 		for {
 			conn, err := dropper.Accept()
@@ -78,7 +78,7 @@ func TestProbeEdgeTLSClassifiesOutcomes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer tlsListener.Close()
+	defer func() { _ = tlsListener.Close() }()
 	go func() {
 		for {
 			conn, err := tlsListener.Accept()
@@ -107,7 +107,7 @@ func TestProbeEdgeTLSClassifiesOutcomes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer alertListener.Close()
+	defer func() { _ = alertListener.Close() }()
 	go func() {
 		for {
 			conn, err := alertListener.Accept()

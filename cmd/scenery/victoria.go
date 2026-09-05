@@ -135,10 +135,10 @@ func (s *devSupervisor) stopVerifiedVictoriaStack(ctx context.Context, substrate
 		}
 		owner := substrate.Owners[name]
 		if owner.PID != pid {
-			return fmt.Errorf("Victoria component %s process %d has no matching owner", name, pid)
+			return fmt.Errorf("victoria component %s process %d has no matching owner", name, pid)
 		}
 		if err := localagent.VerifyOwner(owner); err != nil {
-			return fmt.Errorf("Victoria component %s process %d owner cannot be verified: %w", name, pid, err)
+			return fmt.Errorf("victoria component %s process %d owner cannot be verified: %w", name, pid, err)
 		}
 		if !seen[pid] {
 			live = append(live, pid)
@@ -147,7 +147,7 @@ func (s *devSupervisor) stopVerifiedVictoriaStack(ctx context.Context, substrate
 	}
 	ownerPID := firstPositiveInt(substrate.Owner.PID, substrate.OwnerPID)
 	if ownerPID > 0 && !seen[ownerPID] && processAliveForEdge(ownerPID) {
-		return fmt.Errorf("Victoria stack owner process %d is not a registered component", ownerPID)
+		return fmt.Errorf("victoria stack owner process %d is not a registered component", ownerPID)
 	}
 	for _, pid := range live {
 		if err := signalPID(pid, os.Interrupt); err != nil {

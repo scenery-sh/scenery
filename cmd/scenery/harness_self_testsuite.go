@@ -52,7 +52,7 @@ func runHarnessTestsuiteCacheProbeCheck(ctx context.Context, _ string) (map[stri
 	if err != nil {
 		return nil, nil, err
 	}
-	defer os.RemoveAll(root)
+	defer func() { _ = os.RemoveAll(root) }()
 	repoRoot := filepath.Join(root, "repo")
 	cacheDir := filepath.Join(root, "cache")
 	marker := filepath.Join(root, "executions")

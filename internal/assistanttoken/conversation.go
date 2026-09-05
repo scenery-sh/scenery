@@ -98,7 +98,7 @@ func decodeLowerHex(value string) ([]byte, error) {
 	}
 	for index := 0; index < len(value); index++ {
 		char := value[index]
-		if !(char >= '0' && char <= '9' || char >= 'a' && char <= 'f') {
+		if (char < '0' || char > '9') && (char < 'a' || char > 'f') {
 			return nil, errors.New("invalid lowercase hex")
 		}
 	}

@@ -262,7 +262,7 @@ func syncAssistantDependencyCache(ctx context.Context, root, lockDigest, package
 	if err != nil {
 		return "", "", false, err
 	}
-	defer os.RemoveAll(stage)
+	defer func() { _ = os.RemoveAll(stage) }()
 	if err := os.WriteFile(filepath.Join(stage, "package.json"), packageBytes, 0o644); err != nil {
 		return "", "", false, err
 	}

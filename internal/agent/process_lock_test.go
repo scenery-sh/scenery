@@ -12,7 +12,7 @@ func TestProcessLockRejectsSecondOwner(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer first.Release()
+	defer func() { _ = first.Release() }()
 	if _, err := AcquireProcessLock(path); !errors.Is(err, ErrProcessLocked) {
 		t.Fatalf("second lock error = %v", err)
 	}
@@ -24,7 +24,7 @@ func TestNewServerRejectsSecondOwnerForSameHome(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer first.Close()
+	defer func() { _ = first.Close() }()
 	_, err = NewServer(RunOptions{Home: home, SocketPath: filepath.Join(home, "run", "other.sock"), RouterAddr: "127.0.0.1:0"})
 	if !errors.Is(err, ErrProcessLocked) {
 		t.Fatalf("second server error = %v", err)

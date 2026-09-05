@@ -18,7 +18,7 @@ import (
 func startDashboardTestBackend(t *testing.T, body string) (*httptest.Server, localagent.Backend) {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		fmt.Fprintf(w, "%s:%s", body, req.URL.Path)
+		_, _ = fmt.Fprintf(w, "%s:%s", body, req.URL.Path)
 	}))
 	t.Cleanup(server.Close)
 	return server, localagent.Backend{Network: "tcp", Addr: strings.TrimPrefix(server.URL, "http://")}
@@ -30,7 +30,7 @@ func localPathRouterTestGet(t *testing.T, url string) (int, string) {
 	if err != nil {
 		t.Fatalf("GET %s: %v", url, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatal(err)
@@ -141,10 +141,10 @@ func TestLocalPathRouterRootFrontendOwnsRootAssets(t *testing.T) {
 		switch req.URL.Path {
 		case "/":
 			w.Header().Set("Content-Type", "text/html")
-			fmt.Fprint(w, `<script src="/assets/dashboard.js"></script>`)
+			_, _ = fmt.Fprint(w, `<script src="/assets/dashboard.js"></script>`)
 		case "/assets/dashboard.js":
 			w.Header().Set("Content-Type", "text/javascript")
-			fmt.Fprint(w, "dashboard-js")
+			_, _ = fmt.Fprint(w, "dashboard-js")
 		default:
 			http.NotFound(w, req)
 		}
@@ -157,13 +157,13 @@ func TestLocalPathRouterRootFrontendOwnsRootAssets(t *testing.T) {
 		switch req.URL.Path {
 		case "/":
 			w.Header().Set("Content-Type", "text/html")
-			fmt.Fprint(w, `<script src="/assets/app.js"></script>`)
+			_, _ = fmt.Fprint(w, `<script src="/assets/app.js"></script>`)
 		case "/assets/app.js":
 			w.Header().Set("Content-Type", "text/javascript")
-			fmt.Fprint(w, "frontend-js")
+			_, _ = fmt.Fprint(w, "frontend-js")
 		case "/favicon.ico":
 			w.Header().Set("Content-Type", "image/x-icon")
-			fmt.Fprint(w, "frontend-icon")
+			_, _ = fmt.Fprint(w, "frontend-icon")
 		default:
 			http.NotFound(w, req)
 		}
@@ -257,7 +257,7 @@ func TestLocalPathRouterUpstreamDialRetryBridgesRestart(t *testing.T) {
 				}
 				mux := http.NewServeMux()
 				mux.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
-					fmt.Fprint(w, "upstream-ok")
+					_, _ = fmt.Fprint(w, "upstream-ok")
 				})
 				server := &http.Server{Handler: mux}
 				go func() { _ = server.Serve(ln) }()

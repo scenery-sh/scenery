@@ -176,7 +176,7 @@ func runSceneryValidateWithTaskCommandRunner(ctx context.Context, stdout io.Writ
 			if profile.Default {
 				mark = "*"
 			}
-			fmt.Fprintf(stdout, "%s %s\t%s\t%d steps\n", mark, profile.Name, profile.Cost, profile.StepCount)
+			_, _ = fmt.Fprintf(stdout, "%s %s\t%s\t%d steps\n", mark, profile.Name, profile.Cost, profile.StepCount)
 		}
 		return nil
 	case "inspect":
@@ -187,7 +187,7 @@ func runSceneryValidateWithTaskCommandRunner(ctx context.Context, stdout io.Writ
 		if opts.JSON {
 			return writeInspectJSON(stdout, resp)
 		}
-		fmt.Fprintf(stdout, "%s\n  cost: %s\n  steps: %s\n", resp.Profile.Name, resp.Profile.Cost, strings.Join(resp.Profile.Steps, ", "))
+		_, _ = fmt.Fprintf(stdout, "%s\n  cost: %s\n  steps: %s\n", resp.Profile.Name, resp.Profile.Cost, strings.Join(resp.Profile.Steps, ", "))
 		return nil
 	case "graph":
 		resp, err := buildValidationGraphResponse(appRoot, cfg, opts.Profile)
@@ -198,7 +198,7 @@ func runSceneryValidateWithTaskCommandRunner(ctx context.Context, stdout io.Writ
 			return writeInspectJSON(stdout, resp)
 		}
 		for _, edge := range resp.Edges {
-			fmt.Fprintf(stdout, "%s -> %s\t%s\n", edge.From, edge.To, edge.Kind)
+			_, _ = fmt.Fprintf(stdout, "%s -> %s\t%s\n", edge.From, edge.To, edge.Kind)
 		}
 		return nil
 	case "run", "changed":
@@ -225,7 +225,7 @@ func runSceneryValidateWithTaskCommandRunner(ctx context.Context, stdout io.Writ
 				return writeInspectJSON(stdout, resp)
 			}
 			for _, step := range resp.Steps {
-				fmt.Fprintf(stdout, "%s\t%s\n", step.Kind, step.Name)
+				_, _ = fmt.Fprintf(stdout, "%s\t%s\n", step.Kind, step.Name)
 			}
 			return nil
 		}
@@ -275,18 +275,19 @@ func parseValidateArgs(args []string) (validateOptions, error) {
 			positionals = positionals[1:]
 		}
 	}
-	if opts.Action == "inspect" {
+	switch opts.Action {
+	case "inspect":
 		if len(positionals) == 0 {
 			return validateOptions{}, fmt.Errorf("missing validation profile")
 		}
 		opts.Profile = positionals[0]
 		positionals = positionals[1:]
-	} else if opts.Action == "graph" {
+	case "graph":
 		if len(positionals) > 0 {
 			opts.Profile = positionals[0]
 			positionals = positionals[1:]
 		}
-	} else if opts.Action == "run" {
+	case "run":
 		if len(positionals) > 0 {
 			opts.Profile = positionals[0]
 			positionals = positionals[1:]
@@ -668,26 +669,26 @@ func writeValidationResult(appRoot string, result *validationResultResponse) err
 }
 
 func writeValidationText(stdout io.Writer, result validationResultResponse) error {
-	fmt.Fprintf(stdout, "profile %s\n", result.Profile)
+	_, _ = fmt.Fprintf(stdout, "profile %s\n", result.Profile)
 	for _, step := range result.Steps {
 		status := "ok"
 		if !step.OK {
 			status = "fail"
 		}
-		fmt.Fprintf(stdout, "  %-4s %-28s %.1fs\n", status, step.Name, float64(step.DurationMS)/1000)
+		_, _ = fmt.Fprintf(stdout, "  %-4s %-28s %.1fs\n", status, step.Name, float64(step.DurationMS)/1000)
 	}
 	if result.OK {
-		fmt.Fprintln(stdout, "\nvalidation ok")
+		_, _ = fmt.Fprintln(stdout, "\nvalidation ok")
 		return nil
 	}
 	if len(result.Steps) > 0 {
 		failed := result.Steps[len(result.Steps)-1]
-		fmt.Fprintf(stdout, "\nfailed: %s\n", failed.Name)
+		_, _ = fmt.Fprintf(stdout, "\nfailed: %s\n", failed.Name)
 		if failed.Evidence != nil && failed.Evidence.ReproCommand != "" {
-			fmt.Fprintf(stdout, "repro: %s\n", failed.Evidence.ReproCommand)
+			_, _ = fmt.Fprintf(stdout, "repro: %s\n", failed.Evidence.ReproCommand)
 		}
 		for _, artifact := range failed.Evidence.Artifacts {
-			fmt.Fprintf(stdout, "artifact: %s\n", artifact.Path)
+			_, _ = fmt.Fprintf(stdout, "artifact: %s\n", artifact.Path)
 		}
 	}
 	return nil

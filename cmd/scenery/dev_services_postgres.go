@@ -125,7 +125,7 @@ func managedDatabaseEnvWithAgent(ctx context.Context, appRoot string, cfg app.Co
 	if err != nil {
 		return nil, postgresdb.Database{}, fmt.Errorf("connect to managed postgres server: %w", err)
 	}
-	defer admin.Close()
+	defer func() { _ = admin.Close() }()
 	dbName := postgresname.DatabaseNameFor(cfg.AppID(), appRoot)
 	if err := postgresdb.EnsureDatabase(ctx, admin, dbName); err != nil {
 		return nil, postgresdb.Database{}, fmt.Errorf("ensure postgres database %s: %w", dbName, err)
@@ -135,7 +135,7 @@ func managedDatabaseEnvWithAgent(ctx context.Context, appRoot string, cfg app.Co
 	if err != nil {
 		return nil, postgresdb.Database{}, fmt.Errorf("connect to managed postgres database %s: %w", dbName, err)
 	}
-	defer appDB.Close()
+	defer func() { _ = appDB.Close() }()
 	if err := postgresdb.EnsureSchema(ctx, appDB, "scenery"); err != nil {
 		return nil, postgresdb.Database{}, fmt.Errorf("ensure postgres schema scenery: %w", err)
 	}

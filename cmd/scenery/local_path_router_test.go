@@ -30,6 +30,33 @@ func TestLocalPathRouterShouldNotStripFrontendPrefix(t *testing.T) {
 	}
 }
 
+func TestLocalBackendProxyRewritePreservesURLAndDropsSpoofedForwarding(t *testing.T) {
+	proxy := reverseProxyForLocalBackend(localagent.Backend{Addr: "backend.test:8080"})
+	var outbound *http.Request
+	proxy.Transport = upgradeRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		outbound = req
+		response := httptest.NewRecorder()
+		response.WriteHeader(http.StatusNoContent)
+		return response.Result(), nil
+	})
+	req := httptest.NewRequest(http.MethodGet, "http://app.test:4001/ui/items?key=a%2Fb", nil)
+	req.RemoteAddr = "127.0.0.1:43000"
+	req.Header.Set("X-Forwarded-For", "spoofed")
+	req.Header.Set("X-Forwarded-Host", "spoof.test")
+	req.Header.Set("Forwarded", "host=spoof.test")
+	response := httptest.NewRecorder()
+	proxy.ServeHTTP(response, req)
+	if outbound == nil || response.Code != http.StatusNoContent {
+		t.Fatalf("backend was not called: %d", response.Code)
+	}
+	if outbound.Host != req.Host || outbound.URL.String() != "http://backend.test:8080/ui/items?key=a%2Fb" {
+		t.Fatalf("outbound request = %s host=%s", outbound.URL, outbound.Host)
+	}
+	if outbound.Header.Get("X-Forwarded-For") != "127.0.0.1" || outbound.Header.Get("X-Forwarded-Host") != req.Host || outbound.Header.Get("Forwarded") != "" {
+		t.Fatalf("forwarding headers = %v", outbound.Header)
+	}
+}
+
 func TestLocalPathRouterRedirect(t *testing.T) {
 	t.Parallel()
 

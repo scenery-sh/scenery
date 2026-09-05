@@ -29,11 +29,11 @@ func BuildArchive(root string) (Archive, error) {
 	gzipWriter := gzip.NewWriter(&data)
 	// gzip embeds a timestamp by default.  Keep every header field explicit so
 	// repeated builds produce byte-for-byte identical output.
-	gzipWriter.Header.ModTime = time.Unix(0, 0)
-	gzipWriter.Header.Name = ""
-	gzipWriter.Header.Comment = ""
-	gzipWriter.Header.Extra = nil
-	gzipWriter.Header.OS = 255
+	gzipWriter.ModTime = time.Unix(0, 0)
+	gzipWriter.Name = ""
+	gzipWriter.Comment = ""
+	gzipWriter.Extra = nil
+	gzipWriter.OS = 255
 	tarWriter := tar.NewWriter(gzipWriter)
 	for _, entry := range descriptor.Entries {
 		header := &tar.Header{
@@ -150,9 +150,8 @@ func ExtractArchive(data []byte, destination string) (descriptor Descriptor, err
 	if err != nil {
 		return Descriptor{}, fmt.Errorf("open gzip archive: %w", err)
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 	tarReader := tar.NewReader(reader)
-	entries := make([]Entry, 0)
 	seen := make(map[string]EntryKind)
 	implicitDirs := make(map[string]struct{})
 	for {
@@ -215,14 +214,6 @@ func ExtractArchive(data []byte, destination string) (descriptor Descriptor, err
 			createdPaths = append(createdPaths, destinationPath)
 		}
 		seen[name] = kind
-		entry := Entry{Path: name, Kind: kind, Mode: mode, Size: size, Target: target}
-		if kind == EntryFile {
-			entry.Digest, _, err = digestFile(destinationPath)
-			if err != nil {
-				return Descriptor{}, fmt.Errorf("digest extracted file %q: %w", name, err)
-			}
-		}
-		entries = append(entries, entry)
 	}
 	if err := reader.Close(); err != nil {
 		return Descriptor{}, fmt.Errorf("close gzip archive: %w", err)
@@ -247,7 +238,7 @@ func validateHeader(name string, header *tar.Header) (EntryKind, uint32, int64, 
 			return "", 0, 0, "", fmt.Errorf("directory %q has unsafe mode or size", name)
 		}
 		return EntryDirectory, mode, 0, "", nil
-	case tar.TypeReg, tar.TypeRegA:
+	case tar.TypeReg:
 		if mode != 0o644 && mode != 0o755 {
 			return "", 0, 0, "", fmt.Errorf("file %q has unsafe mode %04o", name, mode)
 		}
@@ -311,7 +302,7 @@ func extractRegularFile(destination string, source io.Reader, size int64, mode o
 		return false, err
 	}
 	close := func() error { return f.Close() }
-	defer close()
+	defer func() { _ = close() }()
 	if _, err := io.CopyN(f, source, size); err != nil {
 		return true, err
 	}

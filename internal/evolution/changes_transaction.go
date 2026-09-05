@@ -56,7 +56,7 @@ func cloneWorkspace(root string) (string, error) {
 		if err != nil {
 			return err
 		}
-		defer source.Close()
+		defer func() { _ = source.Close() }()
 		destination, err := os.Create(target)
 		if err != nil {
 			return err
@@ -69,7 +69,7 @@ func cloneWorkspace(root string) (string, error) {
 		return closeErr
 	})
 	if err != nil {
-		os.RemoveAll(temp)
+		_ = os.RemoveAll(temp)
 		return "", err
 	}
 	return temp, nil
@@ -341,7 +341,7 @@ func commitPlannedEdits(root string, edits []SourceEdit, receiptPath string) (ro
 			lockOwned = false
 		}
 	}
-	if _, err := lockFile.Write(append(lockBytes, '\n')); err == nil {
+	if _, err = lockFile.Write(append(lockBytes, '\n')); err == nil {
 		err = lockFile.Sync()
 	}
 	closeErr := lockFile.Close()

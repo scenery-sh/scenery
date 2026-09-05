@@ -80,7 +80,7 @@ func runHarnessPostgresProbeCheck(parent context.Context, repoRoot string, full 
 	segments := &postgresProbeSegments{}
 	label := harnessRandomLabel()
 	agentHome := filepath.Join(os.TempDir(), "scenery-harness-postgres-"+label)
-	defer os.RemoveAll(agentHome)
+	defer func() { _ = os.RemoveAll(agentHome) }()
 	serverState, err := seedHarnessPostgresServerState(agentHome, label)
 	if err != nil {
 		return nil, nil, err
@@ -173,7 +173,7 @@ func runHarnessPostgresProbeCheck(parent context.Context, repoRoot string, full 
 	if err != nil {
 		return nil, diagnostics, err
 	}
-	defer appDB.Close()
+	defer func() { _ = appDB.Close() }()
 	if err := segments.run("schema_isolation", func() error {
 		for _, schema := range []string{"scenery", "reports", "cache"} {
 			ok, err := postgresSchemaExists(ctx, appDB, schema)
@@ -187,7 +187,7 @@ func runHarnessPostgresProbeCheck(parent context.Context, repoRoot string, full 
 			if err != nil {
 				return err
 			}
-			defer appdb.Close("reports")
+			defer func() { _ = appdb.Close("reports") }()
 			_, err = db.ExecContext(ctx, `create table if not exists scenery_pg_marker(value text primary key); insert into scenery_pg_marker(value) values ('a') on conflict do nothing`)
 			return err
 		}); err != nil {
@@ -198,7 +198,7 @@ func runHarnessPostgresProbeCheck(parent context.Context, repoRoot string, full 
 			if err != nil {
 				return err
 			}
-			defer appdb.Close("reports")
+			defer func() { _ = appdb.Close("reports") }()
 			var exists bool
 			err = db.QueryRowContext(ctx, `select exists (select 1 from information_schema.tables where table_name = 'scenery_pg_marker')`).Scan(&exists)
 			if err != nil {
@@ -261,7 +261,7 @@ func runHarnessPostgresProbeCheck(parent context.Context, repoRoot string, full 
 		if err != nil {
 			return err
 		}
-		defer admin.Close()
+		defer func() { _ = admin.Close() }()
 		_ = postgresdb.DropDatabase(ctx, admin, databaseA.Database)
 		_ = postgresdb.DropDatabase(ctx, admin, databaseB.Database)
 		return nil
@@ -396,7 +396,10 @@ func writePostgresHarnessConfig(root string) error {
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(root, ".scenery.json"), []byte(`{"name":"postgres-harness","id":"postgres-harness","envs":{"local":{"default":true}},"dev":{"services":{"reports":{},"cache":{}}},"storage":{"cell_id":"postgres-harness","stores":{"app":{"kind":"local"}}}}`), 0o644)
+	if err := os.WriteFile(filepath.Join(root, ".scenery.json"), []byte(`{"name":"postgres-harness","id":"postgres-harness","envs":{"local":{"default":true}},"dev":{"services":{"reports":{},"cache":{}}},"storage":{"cell_id":"postgres-harness","stores":{"app":{"kind":"local"}}}}`), 0o644); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(root, "app.scn"), []byte("application \"postgres_harness\" {}\n"), 0o644)
 }
 
 func runPostgresHarnessSnapshotRoundTrip(ctx context.Context, appRoot string, cfg app.Config, databaseURL string) error {
@@ -423,7 +426,7 @@ func runPostgresHarnessSnapshotRoundTrip(ctx context.Context, appRoot string, cf
 		return err
 	}
 	archivePath := filepath.Join(filepath.Dir(appRoot), "snapshot-roundtrip.zip")
-	defer os.Remove(archivePath)
+	defer func() { _ = os.Remove(archivePath) }()
 	if _, err := saveSnapshot(ctx, appRoot, cfg, snapshotSaveOptions{Output: archivePath, DB: true, Storage: true}); err != nil {
 		return err
 	}
@@ -448,7 +451,7 @@ func runPostgresHarnessSnapshotRoundTrip(ctx context.Context, appRoot string, cf
 	if err != nil {
 		return err
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	var value string
 	if err := db.QueryRowContext(ctx, `select value from reports.snapshot_marker`).Scan(&value); err != nil {
 		return err
@@ -493,7 +496,7 @@ func runPostgresHarnessDurableRoundTrip(ctx context.Context, databaseURL string)
 	if err != nil {
 		return err
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 	if err := s.ReconcileTasks(ctx, []durablestore.TaskDeclaration{{Name: "reports.echo.v1", HandlerRef: "reports.echo.v1"}}); err != nil {
 		return err
 	}

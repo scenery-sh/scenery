@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -47,7 +48,7 @@ func readApprovalTokens(paths []string) ([]evolution.ApprovalToken, error) {
 		if err := decoder.Decode(&token); err != nil {
 			return nil, fmt.Errorf("decode approval token %s: %w", path, err)
 		}
-		if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
 			if err == nil {
 				err = fmt.Errorf("multiple JSON values")
 			}

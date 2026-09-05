@@ -141,11 +141,12 @@ func startLocalPathRouter(ctx context.Context, opts localPathRouterOptions) (fun
 		return nil, fmt.Errorf("start local path router on %s: %w", baseURL, err)
 	}
 	upstreamProxyFor := func(localagent.Backend) *httputil.ReverseProxy {
-		proxy := httputil.NewSingleHostReverseProxy(upstream)
-		originalDirector := proxy.Director
-		proxy.Director = func(req *http.Request) {
-			originalHost := req.Host
-			originalDirector(req)
+		proxy := &httputil.ReverseProxy{}
+		proxy.Rewrite = func(request *httputil.ProxyRequest) {
+			originalHost := request.In.Host
+			request.SetURL(upstream)
+			request.SetXForwarded()
+			req := request.Out
 			req.Host = originalHost
 			req.Header.Set("X-Forwarded-Host", originalHost)
 			req.Header.Set("X-Forwarded-Proto", "http")
@@ -180,11 +181,12 @@ func startLocalPathRouter(ctx context.Context, opts localPathRouterOptions) (fun
 					return localPathRouterRewriteHTMLRootRefs(body, localagent.PathModeDashboardPrefix)
 				})
 			}
-			dashboardDirector := dashboardProxy.Director
-			dashboardProxy.Director = func(req *http.Request) {
-				originalHost := req.Host
-				originalPath := cleanLocalPathPreserveSlash(req.URL.Path)
-				dashboardDirector(req)
+			dashboardRewrite := dashboardProxy.Rewrite
+			dashboardProxy.Rewrite = func(request *httputil.ProxyRequest) {
+				originalHost := request.In.Host
+				originalPath := cleanLocalPathPreserveSlash(request.In.URL.Path)
+				dashboardRewrite(request)
+				req := request.Out
 				req.Host = originalHost
 				req.Header.Set("X-Forwarded-Host", originalHost)
 				req.Header.Set("X-Forwarded-Proto", "http")
@@ -209,9 +211,8 @@ func startLocalPathRouter(ctx context.Context, opts localPathRouterOptions) (fun
 		handler = http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			rawPath := cleanLocalPathPreserveSlash(req.URL.Path)
 			requestPath := cleanLocalPath(req.URL.Path)
-			currentSession := session
 			refreshCtx, cancel := context.WithTimeout(req.Context(), 200*time.Millisecond)
-			currentSession = localPathRouterCurrentSession(refreshCtx, agentClient, session)
+			currentSession := localPathRouterCurrentSession(refreshCtx, agentClient, session)
 			dashboardBackend := dashboardBackends.refresh(refreshCtx)
 			cancel()
 			dashboardPrefix := localagent.PathModeDashboardPrefix
@@ -522,7 +523,7 @@ func localPathRouterProxySessionBackend(w http.ResponseWriter, req *http.Request
 	}
 	proxy := reverseProxyForLocalBackend(backend)
 	configureQuietLocalProxy(proxy, fmt.Sprintf("backend %s (%s)", record.Backend, backend.Addr))
-	director := proxy.Director
+	rewrite := proxy.Rewrite
 	if strings.TrimSpace(record.Kind) == "frontend" {
 		proxy.ModifyResponse = func(resp *http.Response) error {
 			contentType := strings.ToLower(resp.Header.Get("Content-Type"))
@@ -548,10 +549,11 @@ func localPathRouterProxySessionBackend(w http.ResponseWriter, req *http.Request
 			return nil
 		}
 	}
-	proxy.Director = func(out *http.Request) {
-		originalHost := out.Host
-		originalPath := cleanLocalPath(out.URL.Path)
-		director(out)
+	proxy.Rewrite = func(request *httputil.ProxyRequest) {
+		originalHost := request.In.Host
+		originalPath := cleanLocalPath(request.In.URL.Path)
+		rewrite(request)
+		out := request.Out
 		out.Host = originalHost
 		out.Header.Set("X-Forwarded-Host", originalHost)
 		out.Header.Set("X-Forwarded-Proto", "http")
@@ -705,13 +707,16 @@ var localUnixTransports localagent.UnixTransportCache
 
 func reverseProxyForLocalBackend(backend localagent.Backend) *httputil.ReverseProxy {
 	target := &url.URL{Scheme: "http", Host: backend.Addr}
+	proxy := &httputil.ReverseProxy{Rewrite: func(request *httputil.ProxyRequest) {
+		request.SetURL(target)
+		request.Out.Host = request.In.Host
+		request.SetXForwarded()
+	}}
 	if strings.TrimSpace(backend.Network) == "unix" {
 		target.Host = "unix"
-		proxy := httputil.NewSingleHostReverseProxy(target)
 		proxy.Transport = localUnixTransports.For(backend.Addr)
-		return proxy
 	}
-	return httputil.NewSingleHostReverseProxy(target)
+	return proxy
 }
 
 func cleanLocalPath(value string) string {

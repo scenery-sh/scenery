@@ -54,7 +54,7 @@ func runHarnessToolchainSourceBuildProbeCheck(parent context.Context, _ string) 
 	if err != nil {
 		return nil, nil, err
 	}
-	defer os.RemoveAll(root)
+	defer func() { _ = os.RemoveAll(root) }()
 
 	sourceRoot := filepath.Join(root, "source")
 	if err := writeHarnessToolchainSourceFile(filepath.Join(sourceRoot, "go.mod"), "module example.test/sourcebuild\n\ngo 1.27.0\n", 0o644); err != nil {

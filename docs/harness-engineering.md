@@ -189,6 +189,12 @@ contract drift, and schema conformance. The additional work depends on mode:
 | `--race` | Default coverage plus the race shortlist. |
 | `--release` | Default coverage plus external-boundary probes and enforced release budgets. |
 
+The release edge-process step runs the published static frontend journey
+against managed Caddy on disposable loopback ports, with local TLS issuance
+and no system trust installation. It records `static_frontend.http_checks`
+and raw traversal proof. Missing Caddy fails the step explicitly. Ordinary
+edge tests retain renderer, publication, and injected-runner coverage.
+
 `--fresh-tests` changes the Go execution/timing lane; it is independent of the
 mode selection. Runtime and UI probes retain explicit skip diagnostics when
 their required services or tools are unavailable. Read the resulting artifact

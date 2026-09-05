@@ -527,7 +527,7 @@ func (metadata RequestMetadata) controlBase(typ string) assistantcontrol.Request
 }
 
 func (request StartRequest) toControl(typ string) assistantcontrol.Request {
-	control := request.RequestMetadata.controlBase(typ)
+	control := request.controlBase(typ)
 	control.RunID = request.RunID
 	control.Message = request.Message
 	control.Data = append(json.RawMessage(nil), request.Data...)
@@ -535,7 +535,7 @@ func (request StartRequest) toControl(typ string) assistantcontrol.Request {
 }
 
 func (request TurnRequest) toControl(typ string) assistantcontrol.Request {
-	control := request.RequestMetadata.controlBase(typ)
+	control := request.controlBase(typ)
 	control.PrivateSessionID = request.PrivateSessionID
 	control.ContinuationToken = request.ContinuationToken
 	control.RunID = request.RunID
@@ -545,7 +545,7 @@ func (request TurnRequest) toControl(typ string) assistantcontrol.Request {
 }
 
 func (request StreamRequest) toControl(typ string) assistantcontrol.Request {
-	control := request.RequestMetadata.controlBase(typ)
+	control := request.controlBase(typ)
 	control.PrivateSessionID = request.PrivateSessionID
 	control.ContinuationToken = request.ContinuationToken
 	control.After = request.After
@@ -553,7 +553,7 @@ func (request StreamRequest) toControl(typ string) assistantcontrol.Request {
 }
 
 func (request ApprovalRequest) toControl(typ string) assistantcontrol.Request {
-	control := request.RequestMetadata.controlBase(typ)
+	control := request.controlBase(typ)
 	control.PrivateSessionID = request.PrivateSessionID
 	control.ContinuationToken = request.ContinuationToken
 	control.RunID = request.RunID
@@ -563,7 +563,7 @@ func (request ApprovalRequest) toControl(typ string) assistantcontrol.Request {
 }
 
 func (request CancelRequest) toControl(typ string) assistantcontrol.Request {
-	control := request.RequestMetadata.controlBase(typ)
+	control := request.controlBase(typ)
 	control.PrivateSessionID = request.PrivateSessionID
 	control.ContinuationToken = request.ContinuationToken
 	control.RunID = request.RunID

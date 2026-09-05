@@ -155,7 +155,7 @@ func TestHTTPClientControlFlowProbeAndCursor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 	if err := client.Probe(context.Background()); err != nil {
 		t.Fatalf("probe: %v", err)
 	}
@@ -205,7 +205,7 @@ func TestHTTPClientRejectsAddressAndRedirect(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 	_, err = client.StartConversation(context.Background(), StartRequest{RequestMetadata: testHTTPMetadata(), Message: "hello"})
 	if !errors.Is(err, ErrRedirectRejected) {
 		t.Fatalf("redirect err=%v", err)
@@ -238,7 +238,7 @@ func TestHTTPClientMismatchMalformedAndOversize(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer client.Close()
+			defer func() { _ = client.Close() }()
 			_, err = client.Health(context.Background())
 			if !errors.Is(err, test.want) {
 				t.Fatalf("err=%v want=%v", err, test.want)
@@ -258,7 +258,7 @@ func TestHTTPClientMismatchMalformedAndOversize(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 	if _, err := client.Health(context.Background()); !errors.Is(err, ErrRevisionMismatch) {
 		t.Fatalf("revision mismatch err=%v", err)
 	}
@@ -285,7 +285,7 @@ func TestHTTPClientMalformedAndOversizeEvents(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer client.Close()
+			defer func() { _ = client.Close() }()
 			stream, err := client.StreamEvents(context.Background(), StreamRequest{RequestMetadata: testHTTPMetadata(), PrivateSessionID: "session-1", ContinuationToken: "continuation-1"})
 			if err != nil {
 				t.Fatal(err)
@@ -321,7 +321,7 @@ func TestHTTPClientCancellationAndClose(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 	ctx, cancel := context.WithCancel(context.Background())
 	stream, err := client.StreamEvents(ctx, StreamRequest{RequestMetadata: testHTTPMetadata(), PrivateSessionID: "session-1", ContinuationToken: "continuation-1"})
 	if err != nil {
@@ -356,7 +356,7 @@ func TestHTTPClientNoProxyTransport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 	transport, ok := client.httpClient.Transport.(*http.Transport)
 	if !ok || transport.Proxy != nil {
 		t.Fatalf("transport=%T proxyConfigured=%v", client.httpClient.Transport, transport != nil && transport.Proxy != nil)
@@ -389,7 +389,7 @@ func TestHTTPClientRejectsUnboundedConfigAndMismatchedMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 	metadata := testHTTPMetadata()
 	metadata.RuntimeRevision = "stale-runtime"
 	_, err = client.StartConversation(context.Background(), StartRequest{RequestMetadata: metadata, Message: "hello"})

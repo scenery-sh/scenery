@@ -37,7 +37,7 @@ func TestSnapshotFingerprintLayout(t *testing.T) {
 		h.Write([]byte{0})
 		h.Write([]byte(stamp.hash))
 		h.Write([]byte{0})
-		h.Write([]byte(fmt.Sprintf("%d:%d:%o:%t", stamp.size, stamp.modTime.UnixNano(), stamp.mode, stamp.embed)))
+		_, _ = fmt.Fprintf(h, "%d:%d:%o:%t", stamp.size, stamp.modTime.UnixNano(), stamp.mode, stamp.embed)
 		h.Write([]byte{0})
 	}
 	want := hex.EncodeToString(h.Sum(nil))

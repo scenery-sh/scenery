@@ -7,6 +7,12 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
+- [0158 Go Lint Cleanup](0158-go-lint-cleanup.md)
+  - Status: active
+  - Owner: scenery maintainers
+  - Created: 2026-09-05
+  - Focus: remove all Go lint findings without weakening checks; preserve IO and routing contracts.
+
 - [0145 Developer Test Loop Attribution](0145-test-loop-attribution.md)
   - Status: active
   - Owner: scenery harness

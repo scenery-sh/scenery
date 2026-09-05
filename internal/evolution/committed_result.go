@@ -81,12 +81,3 @@ func equalWorkspaceSnapshots(left, right map[string]workspaceFile) bool {
 	}
 	return true
 }
-
-func hasErrors(diagnostics []Diagnostic) bool {
-	for _, diagnostic := range diagnostics {
-		if diagnostic.Severity == "error" {
-			return true
-		}
-	}
-	return false
-}

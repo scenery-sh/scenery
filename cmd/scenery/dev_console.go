@@ -101,7 +101,7 @@ func runSceneryConsole(ctx context.Context, stdin *os.File, stdout io.Writer, op
 	terminalActive := false
 	defer func() {
 		if terminalActive {
-			fmt.Fprint(stdout, "\x1b[?1000l\x1b[?1006l\x1b[?25h\x1b[?1049l")
+			_, _ = fmt.Fprint(stdout, "\x1b[?1000l\x1b[?1006l\x1b[?25h\x1b[?1049l")
 		}
 		restoreTerminal()
 		if recovered := recover(); recovered != nil {
@@ -113,7 +113,7 @@ func runSceneryConsole(ctx context.Context, stdin *os.File, stdout io.Writer, op
 	} else {
 		return runSceneryConsoleLogsFallback(ctx, stdout, opts)
 	}
-	fmt.Fprint(stdout, "\x1b[?1049h\x1b[2J\x1b[H\x1b[?25l\x1b[?1000h\x1b[?1006h")
+	_, _ = fmt.Fprint(stdout, "\x1b[?1049h\x1b[2J\x1b[H\x1b[?25l\x1b[?1000h\x1b[?1006h")
 	terminalActive = true
 
 	size := normalizeTerminalSize(getConsoleSize(stdin))

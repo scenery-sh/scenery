@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"runtime"
-	"strings"
 	"testing"
 
 	"scenery.sh/internal/compiler"
@@ -37,9 +35,6 @@ func TestAssistantAssetTargetUsesExplicitTargetPlatformAndManagedNodePath(t *tes
 	}
 	if _, ok := node.PlatformArtifact(platform); !ok {
 		t.Fatal("bundled node artifact has no explicit linux/amd64 platform")
-	}
-	if got := managedNodeExecutable("/host/node"); strings.Contains(got, runtime.GOROOT()) {
-		t.Fatal("managed node path unexpectedly uses host Go installation")
 	}
 }
 

@@ -116,7 +116,7 @@ func (s *proxyRuntimeStore) Put(ctx context.Context, key string, body io.Reader,
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 300 {
 		return nil, proxyStorageError(resp, s.name, key)
 	}
@@ -151,7 +151,7 @@ func (s *proxyRuntimeStore) Get(ctx context.Context, key string, opts GetOptions
 		return nil, nil, err
 	}
 	if resp.StatusCode >= 300 {
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		return nil, nil, proxyStorageError(resp, s.name, key)
 	}
 	obj, err := objectFromProxyHeaders(resp.Header)
@@ -174,7 +174,7 @@ func (s *proxyRuntimeStore) Head(ctx context.Context, key string) (*Object, erro
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 300 {
 		return nil, proxyStorageError(resp, s.name, key)
 	}
@@ -201,7 +201,7 @@ func (s *proxyRuntimeStore) List(ctx context.Context, opts ListOptions) (*ListPa
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 300 {
 		return nil, proxyStorageError(resp, s.name, "")
 	}
@@ -224,7 +224,7 @@ func (s *proxyRuntimeStore) Delete(ctx context.Context, key string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 300 {
 		return proxyStorageError(resp, s.name, key)
 	}
@@ -241,7 +241,7 @@ func (s *proxyRuntimeStore) DeletePrefix(ctx context.Context, prefix string) err
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 300 {
 		return proxyStorageError(resp, s.name, prefix)
 	}
@@ -669,7 +669,7 @@ func localFileSHA256(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	h := sha256.New()
 	if _, err := io.Copy(h, file); err != nil {
 		return "", err
@@ -704,7 +704,7 @@ func syncLocalDir(path string) error {
 	if err != nil {
 		return err
 	}
-	defer dir.Close()
+	defer func() { _ = dir.Close() }()
 	if err := dir.Sync(); err != nil && !errors.Is(err, syscall.EINVAL) {
 		return err
 	}

@@ -43,7 +43,7 @@ func TestNormalizeTaskSuppliesDurableRetentionDefaults(t *testing.T) {
 func TestOpenCreatesPostgresSchemaWithExpectedTables(t *testing.T) {
 	ctx := context.Background()
 	s := openLiveTestStore(t, "maps")
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	tables := tableNames(t, s.DB())
 	for _, want := range []string{"durable_schema_migrations", "durable_tasks", "durable_jobs", "durable_job_events", "durable_job_steps", "durable_job_signals", "durable_schedules", "durable_worker_tokens"} {
@@ -58,13 +58,13 @@ func TestOpenCreatesPostgresSchemaWithExpectedTables(t *testing.T) {
 	if err != nil {
 		t.Fatalf("concurrent-safe second open failed: %v", err)
 	}
-	defer second.Close()
+	defer func() { _ = second.Close() }()
 }
 
 func TestReconcileTasksAndStartAreIdempotentByDedupeKey(t *testing.T) {
 	ctx := context.Background()
 	s := openLiveTestStore(t, "maps")
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	if err := s.ReconcileTasks(ctx, []TaskDeclaration{{Name: "maps.echo.v1", HandlerRef: "maps.Echo"}}); err != nil {
 		t.Fatal(err)
@@ -91,7 +91,7 @@ func TestReconcileTasksAndStartAreIdempotentByDedupeKey(t *testing.T) {
 func TestLeaseCompleteAndFailJobs(t *testing.T) {
 	ctx := context.Background()
 	s := openLiveTestStore(t, "maps")
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	if err := s.ReconcileTasks(ctx, []TaskDeclaration{{Name: "maps.detect.v1", HandlerRef: "maps.detect.v1"}}); err != nil {
 		t.Fatal(err)
@@ -130,7 +130,7 @@ func TestLeaseCompleteAndFailJobs(t *testing.T) {
 func TestWorkerTokenAndLeasedJobFencing(t *testing.T) {
 	ctx := context.Background()
 	s := openLiveTestStore(t, "maps")
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	token, err := s.CreateWorkerToken(ctx, WorkerTokenRequest{ID: "tok-1", Name: "worker token", Secret: "secret-worker-token"})
 	if err != nil {
@@ -178,7 +178,7 @@ func TestWorkerTokenAndLeasedJobFencing(t *testing.T) {
 func TestLeaseAndHeartbeatUseTaskLeaseDuration(t *testing.T) {
 	ctx := context.Background()
 	s := openLiveTestStore(t, "maps")
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	if err := s.ReconcileTasks(ctx, []TaskDeclaration{{Name: "maps.lease.v1", HandlerRef: "maps.lease.v1", DefaultLeaseMS: 2500}}); err != nil {
 		t.Fatal(err)
@@ -211,7 +211,7 @@ func TestLeaseAndHeartbeatUseTaskLeaseDuration(t *testing.T) {
 func TestStaleWorkerCannotResurrectCanceledJob(t *testing.T) {
 	ctx := context.Background()
 	s := openLiveTestStore(t, "maps")
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	if err := s.ReconcileTasks(ctx, []TaskDeclaration{{Name: "maps.cancel.v1", HandlerRef: "maps.cancel.v1", MaxAttempts: 2}}); err != nil {
 		t.Fatal(err)
@@ -239,7 +239,7 @@ func TestStaleWorkerCannotResurrectCanceledJob(t *testing.T) {
 func TestFailJobRetriesUntilMaxAttempts(t *testing.T) {
 	ctx := context.Background()
 	s := openLiveTestStore(t, "maps")
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	if err := s.ReconcileTasks(ctx, []TaskDeclaration{{Name: "maps.retry.v1", HandlerRef: "maps.retry.v1", MaxAttempts: 2, RetryInitialMS: 1, RetryMaxMS: 1}}); err != nil {
 		t.Fatal(err)
@@ -269,7 +269,7 @@ func TestFailJobRetriesUntilMaxAttempts(t *testing.T) {
 func TestJobAdminListEventsCancelAndRetry(t *testing.T) {
 	ctx := context.Background()
 	s := openLiveTestStore(t, "maps")
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	if err := s.ReconcileTasks(ctx, []TaskDeclaration{{Name: "maps.admin.v1", HandlerRef: "maps.admin.v1"}}); err != nil {
 		t.Fatal(err)
@@ -310,7 +310,7 @@ func TestJobAdminListEventsCancelAndRetry(t *testing.T) {
 func TestStepsSignalsAndSchedules(t *testing.T) {
 	ctx := context.Background()
 	s := openLiveTestStore(t, "maps")
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	if err := s.ReconcileTasks(ctx, []TaskDeclaration{{Name: "maps.step.v1", HandlerRef: "maps.step.v1"}, {Name: "maps.scheduled.v1", HandlerRef: "maps.scheduled.v1"}}); err != nil {
 		t.Fatal(err)
@@ -429,7 +429,7 @@ WHERE table_schema = 'scenery'
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	out := map[string]bool{}
 	for rows.Next() {
 		var name string

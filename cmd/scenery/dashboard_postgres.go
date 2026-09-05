@@ -51,7 +51,7 @@ func (s *dashboardServer) postgresTables(ctx context.Context, req dashboardPostg
 	if err != nil {
 		return nil, err
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	rows, err := db.QueryContext(ctx, `
 SELECT n.nspname,
        c.relname,
@@ -65,7 +65,7 @@ ORDER BY n.nspname, c.relname`)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []dashboardPostgresTable
 	for rows.Next() {
 		var item dashboardPostgresTable
@@ -87,7 +87,7 @@ func (s *dashboardServer) postgresSchema(ctx context.Context, req dashboardPostg
 	if err != nil {
 		return nil, err
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	rows, err := db.QueryContext(ctx, `
 SELECT c.column_name,
        c.data_type,
@@ -110,7 +110,7 @@ ORDER BY c.ordinal_position`, schema, table)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []dashboardPostgresColumn
 	for rows.Next() {
 		var col dashboardPostgresColumn
@@ -142,12 +142,12 @@ func (s *dashboardServer) postgresRows(ctx context.Context, req dashboardPostgre
 	if err != nil {
 		return dashboardPostgresRows{}, err
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	rows, err := db.QueryContext(ctx, `SELECT * FROM `+quotePostgresIdent(schema)+`.`+quotePostgresIdent(table)+` LIMIT $1 OFFSET $2`, limit, offset)
 	if err != nil {
 		return dashboardPostgresRows{}, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	cols, err := rows.Columns()
 	if err != nil {
 		return dashboardPostgresRows{}, err

@@ -106,9 +106,9 @@ func parseDBSetupArgs(args []string) (dbSetupOptions, error) {
 
 func renderDBSetupText(stdout io.Writer, result dbSetupResult) {
 	if result.Apply.Status == "failed" {
-		fmt.Fprintf(stdout, "failed db apply: %s\n", result.Apply.Error)
+		_, _ = fmt.Fprintf(stdout, "failed db apply: %s\n", result.Apply.Error)
 		return
 	}
-	fmt.Fprintln(stdout, "applied database setup")
+	_, _ = fmt.Fprintln(stdout, "applied database setup")
 	renderDBSeedText(stdout, result.Seed)
 }

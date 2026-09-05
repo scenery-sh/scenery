@@ -52,7 +52,7 @@ func runHarnessParallelDevCheck(parent context.Context) (map[string]any, []check
 	defer cancel()
 	label := harnessRandomLabel()
 	agentHome := filepath.Join(os.TempDir(), "scenery-harness-parallel-"+label)
-	defer os.RemoveAll(agentHome)
+	defer func() { _ = os.RemoveAll(agentHome) }()
 	dockerAvailable := harnessDockerAvailable(ctx)
 	var extraDiagnostics []checkDiagnostic
 	if dockerAvailable {
@@ -127,7 +127,7 @@ func runHarnessParallelDevCheck(parent context.Context) (map[string]any, []check
 	root := filepath.Join(os.TempDir(), "scenery-harness-apps-"+harnessRandomLabel())
 	rootA := filepath.Join(root, "worktree-a")
 	rootB := filepath.Join(root, "worktree-b")
-	defer os.RemoveAll(root)
+	defer func() { _ = os.RemoveAll(root) }()
 	cfgA := harnessParallelConfig(frontendA)
 	cfgB := harnessParallelConfig(frontendB)
 
@@ -184,7 +184,7 @@ func runHarnessParallelDevCheck(parent context.Context) (map[string]any, []check
 	if err != nil {
 		return nil, nil, err
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 	if err := writeHarnessParallelObservability(ctx, store, cfgA.AppID(), sessionA, sessionB); err != nil {
 		return nil, nil, err
 	}

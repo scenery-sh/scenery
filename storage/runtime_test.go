@@ -121,20 +121,10 @@ func TestDefaultWithoutRuntimeConfigReturnsNotConfigured(t *testing.T) {
 	t.Setenv(storageconfig.RuntimeConfigEnv, "")
 	if _, err := Default(context.Background()); err == nil {
 		t.Fatal("Default returned nil error")
-	} else if _, ok := err.(*NotConfiguredError); !ok {
-		t.Fatalf("Default error = %T %[1]v, want NotConfiguredError", err)
-	}
-}
-
-func quoteJSON(value string) string {
-	out := strings.Builder{}
-	out.WriteByte('"')
-	for _, r := range value {
-		if r == '\\' || r == '"' {
-			out.WriteByte('\\')
+	} else {
+		var notConfiguredError *NotConfiguredError
+		if !errors.As(err, &notConfiguredError) {
+			t.Fatalf("Default error = %T %[1]v, want NotConfiguredError", err)
 		}
-		out.WriteRune(r)
 	}
-	out.WriteByte('"')
-	return out.String()
 }

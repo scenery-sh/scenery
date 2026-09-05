@@ -747,69 +747,69 @@ func findHelpCommand(parts []string) (helpCommandEntry, bool) {
 }
 
 func writeRootHelp(w io.Writer) {
-	fmt.Fprintln(w, "Scenery - build, run, and inspect app services.")
-	fmt.Fprintln(w)
-	fmt.Fprintln(w, "Usage:")
-	fmt.Fprintln(w, "  scenery <command> [args] [flags]")
-	fmt.Fprintln(w, "  scenery help <command> [-o human|json]")
-	fmt.Fprintln(w, "  scenery help all")
-	fmt.Fprintln(w, "  scenery help -o json")
+	_, _ = fmt.Fprintln(w, "Scenery - build, run, and inspect app services.")
+	_, _ = fmt.Fprintln(w)
+	_, _ = fmt.Fprintln(w, "Usage:")
+	_, _ = fmt.Fprintln(w, "  scenery <command> [args] [flags]")
+	_, _ = fmt.Fprintln(w, "  scenery help <command> [-o human|json]")
+	_, _ = fmt.Fprintln(w, "  scenery help all")
+	_, _ = fmt.Fprintln(w, "  scenery help -o json")
 	for _, group := range rootHelpGroups {
-		fmt.Fprintln(w)
-		fmt.Fprintf(w, "%s:\n", group.Name)
+		_, _ = fmt.Fprintln(w)
+		_, _ = fmt.Fprintf(w, "%s:\n", group.Name)
 		for _, entry := range group.Entries {
-			fmt.Fprintf(w, "  %-10s %s\n", entry.Command, entry.Summary)
+			_, _ = fmt.Fprintf(w, "  %-10s %s\n", entry.Command, entry.Summary)
 		}
 	}
-	fmt.Fprintln(w)
-	fmt.Fprintln(w, `Use "scenery help <command>" for flags and subcommands.`)
+	_, _ = fmt.Fprintln(w)
+	_, _ = fmt.Fprintln(w, `Use "scenery help <command>" for flags and subcommands.`)
 }
 
 func writeHelpAll(w io.Writer) {
-	fmt.Fprintln(w, "Scenery command reference")
-	fmt.Fprintln(w)
-	fmt.Fprintln(w, "Usage:")
-	fmt.Fprintln(w, "  scenery <command> [args] [flags]")
-	fmt.Fprintln(w, "  scenery help <command> [-o human|json]")
+	_, _ = fmt.Fprintln(w, "Scenery command reference")
+	_, _ = fmt.Fprintln(w)
+	_, _ = fmt.Fprintln(w, "Usage:")
+	_, _ = fmt.Fprintln(w, "  scenery <command> [args] [flags]")
+	_, _ = fmt.Fprintln(w, "  scenery help <command> [-o human|json]")
 	for _, group := range helpReferenceGroups {
-		fmt.Fprintln(w)
-		fmt.Fprintf(w, "%s:\n", group.Name)
+		_, _ = fmt.Fprintln(w)
+		_, _ = fmt.Fprintf(w, "%s:\n", group.Name)
 		for _, command := range group.Commands {
-			fmt.Fprintf(w, "  %s\n", command)
+			_, _ = fmt.Fprintf(w, "  %s\n", command)
 		}
 	}
-	fmt.Fprintln(w)
-	fmt.Fprintln(w, `Use "scenery help <command>" for exact human-readable flags.`)
-	fmt.Fprintln(w, `Use "scenery help <command> -o json" for one machine-readable command descriptor.`)
-	fmt.Fprintln(w, `Use "scenery help -o json" for the machine-readable command manifest.`)
+	_, _ = fmt.Fprintln(w)
+	_, _ = fmt.Fprintln(w, `Use "scenery help <command>" for exact human-readable flags.`)
+	_, _ = fmt.Fprintln(w, `Use "scenery help <command> -o json" for one machine-readable command descriptor.`)
+	_, _ = fmt.Fprintln(w, `Use "scenery help -o json" for the machine-readable command manifest.`)
 }
 
 func writeCommandHelp(w io.Writer, entry helpCommandEntry) {
-	fmt.Fprintln(w, entry.Summary)
-	fmt.Fprintln(w)
-	fmt.Fprintln(w, "Usage:")
+	_, _ = fmt.Fprintln(w, entry.Summary)
+	_, _ = fmt.Fprintln(w)
+	_, _ = fmt.Fprintln(w, "Usage:")
 	for _, usage := range entry.Usage {
-		fmt.Fprintf(w, "  %s\n", usage)
+		_, _ = fmt.Fprintf(w, "  %s\n", usage)
 	}
 	if len(entry.Subcommands) > 0 {
-		fmt.Fprintln(w)
-		fmt.Fprintln(w, "Commands:")
+		_, _ = fmt.Fprintln(w)
+		_, _ = fmt.Fprintln(w, "Commands:")
 		for _, subcommand := range entry.Subcommands {
-			fmt.Fprintf(w, "  %s\n", subcommand)
+			_, _ = fmt.Fprintf(w, "  %s\n", subcommand)
 		}
 	}
 	if len(entry.Flags) > 0 {
-		fmt.Fprintln(w)
-		fmt.Fprintln(w, "Flags:")
+		_, _ = fmt.Fprintln(w)
+		_, _ = fmt.Fprintln(w, "Flags:")
 		for _, flag := range entry.Flags {
-			fmt.Fprintf(w, "  %s\n", flag)
+			_, _ = fmt.Fprintf(w, "  %s\n", flag)
 		}
 	}
 	if len(entry.Notes) > 0 {
-		fmt.Fprintln(w)
-		fmt.Fprintln(w, "Notes:")
+		_, _ = fmt.Fprintln(w)
+		_, _ = fmt.Fprintln(w, "Notes:")
 		for _, note := range entry.Notes {
-			fmt.Fprintf(w, "  %s\n", note)
+			_, _ = fmt.Fprintf(w, "  %s\n", note)
 		}
 	}
 }

@@ -32,7 +32,8 @@ func TestCheckRequiresNodeModulesBeforeStartingChecker(t *testing.T) {
 		t.Fatal(err)
 	}
 	err := Check(context.Background(), "/missing", root, filepath.Join(root, "generated"), "tsconfig.json", nil)
-	classified, ok := err.(*Error)
+	classified := &Error{}
+	ok := errors.As(err, &classified)
 	if !ok || classified.Code != "SCN6322" {
 		t.Fatalf("readiness diagnostic = %#v", err)
 	}

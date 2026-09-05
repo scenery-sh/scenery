@@ -59,7 +59,7 @@ func runHarnessDesktopProcessProbeCheck(parent context.Context, _ string) (map[s
 	if err != nil {
 		return nil, nil, err
 	}
-	defer os.RemoveAll(root)
+	defer func() { _ = os.RemoveAll(root) }()
 	desktopRunnerProof, err := runHarnessDesktopRunnerBoundary(ctx, root)
 	if err != nil {
 		return nil, nil, err
@@ -472,7 +472,7 @@ func runHarnessDesktopExitNoRestart(ctx context.Context, appRoot string, client 
 	if err != nil {
 		return 0, err
 	}
-	defer supervisor.Close()
+	defer func() { _ = supervisor.Close() }()
 	if err := supervisor.startDesktopShells(ctx); err != nil {
 		return 0, err
 	}

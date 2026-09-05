@@ -215,7 +215,7 @@ func (s *Store) CreateTask(ctx context.Context, appID string, input TaskInput) (
 	if err != nil {
 		return Task{}, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if err := lockAppTx(ctx, tx, appID); err != nil {
 		return Task{}, err
 	}
@@ -273,7 +273,7 @@ func (s *Store) UpdateTask(ctx context.Context, appID, id string, input TaskInpu
 	if err != nil {
 		return Task{}, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if err := lockAppTx(ctx, tx, appID); err != nil {
 		return Task{}, err
 	}
@@ -334,7 +334,7 @@ func (s *Store) MoveTask(ctx context.Context, appID, id, statusKey string, index
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if err := lockAppTx(ctx, tx, appID); err != nil {
 		return err
 	}
@@ -404,7 +404,7 @@ func (s *Store) Task(ctx context.Context, appID, id string) (Task, error) {
 	if err != nil {
 		return Task{}, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	tasks, err := scanTasks(rows)
 	if err != nil {
 		return Task{}, err
@@ -435,7 +435,7 @@ func (s *Store) updateStatuses(ctx context.Context, appID string, updates []Stat
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if err := lockAppTx(ctx, tx, appID); err != nil {
 		return err
 	}
@@ -551,7 +551,7 @@ func (s *Store) RunnableTasksWithMaxAttempts(ctx context.Context, appID string, 
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	tasks, err := scanTasks(rows)
 	if err != nil {
 		return nil, err
@@ -601,7 +601,7 @@ func (s *Store) StartRunWithRepo(ctx context.Context, appID, taskID, workspacePa
 	if err != nil {
 		return Run{}, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if err := lockAppTx(ctx, tx, appID); err != nil {
 		return Run{}, err
 	}
@@ -691,7 +691,7 @@ func (s *Store) MarkExpiredRunsStalled(ctx context.Context, appID string) (int, 
 	if err != nil {
 		return 0, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if err := lockAppTx(ctx, tx, appID); err != nil {
 		return 0, err
 	}
@@ -699,6 +699,7 @@ func (s *Store) MarkExpiredRunsStalled(ctx context.Context, appID string) (int, 
 	if err != nil {
 		return 0, err
 	}
+	defer func() { _ = rows.Close() }()
 	type expiredRun struct {
 		id             string
 		taskID         string
@@ -819,7 +820,7 @@ func (s *Store) RecordRunEvent(ctx context.Context, appID, runID, eventType stri
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if err := lockAppTx(ctx, tx, appID); err != nil {
 		return err
 	}
@@ -845,7 +846,7 @@ func (s *Store) Run(ctx context.Context, appID, runID string) (Run, error) {
 	if err != nil {
 		return Run{}, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	runs, err := scanRuns(rows)
 	if err != nil {
 		return Run{}, err
@@ -865,7 +866,7 @@ func (s *Store) RunEvents(ctx context.Context, appID, runID string) ([]RunEvent,
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []RunEvent
 	for rows.Next() {
 		var event RunEvent
@@ -890,7 +891,7 @@ func (s *Store) TerminalWorkspaces(ctx context.Context, appID string) ([]Run, er
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	return scanRuns(rows)
 }
 
@@ -908,7 +909,7 @@ func (s *Store) updateRun(ctx context.Context, appID, runID string, fn func(cont
 	if err != nil {
 		return Run{}, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if err := lockAppTx(ctx, tx, appID); err != nil {
 		return Run{}, err
 	}
@@ -1035,7 +1036,7 @@ func (s *Store) ensureApp(ctx context.Context, appID string) error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if err := ensureAppTx(ctx, tx, appID, now); err != nil {
 		return err
 	}
@@ -1061,7 +1062,7 @@ func (s *Store) listStatuses(ctx context.Context, appID string) ([]Status, error
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []Status
 	for rows.Next() {
 		var status Status
@@ -1080,7 +1081,7 @@ func (s *Store) listTasks(ctx context.Context, appID string) ([]Task, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	tasks, err := scanTasks(rows)
 	if err != nil {
 		return nil, err
@@ -1125,7 +1126,7 @@ func (s *Store) attachLabels(ctx context.Context, appID string, tasks []Task) er
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	labels := map[string][]string{}
 	for rows.Next() {
 		var taskID, label string
@@ -1165,7 +1166,7 @@ func (s *Store) attachLatestRuns(ctx context.Context, appID string, tasks []Task
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	runs := map[string]Run{}
 	for rows.Next() {
 		var run Run
@@ -1372,7 +1373,7 @@ func taskIDsForStatusTx(ctx context.Context, tx *sql.Tx, appID, statusKey, exclu
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var ids []string
 	for rows.Next() {
 		var id string

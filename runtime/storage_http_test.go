@@ -64,7 +64,7 @@ func TestStorageHTTPRoutesRequireAuthAndServeObjects(t *testing.T) {
 	if err != nil {
 		t.Fatalf("put with auth: %v", err)
 	}
-	defer putResp.Body.Close()
+	defer func() { _ = putResp.Body.Close() }()
 	if putResp.StatusCode != http.StatusCreated {
 		body, _ := io.ReadAll(putResp.Body)
 		t.Fatalf("put status = %d, body = %s", putResp.StatusCode, body)
@@ -86,7 +86,7 @@ func TestStorageHTTPRoutesRequireAuthAndServeObjects(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
-	defer listResp.Body.Close()
+	defer func() { _ = listResp.Body.Close() }()
 	if listResp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(listResp.Body)
 		t.Fatalf("list status = %d, body = %s", listResp.StatusCode, body)
@@ -123,7 +123,7 @@ func TestStorageHTTPRoutesRequireAuthAndServeObjects(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	defer getResp.Body.Close()
+	defer func() { _ = getResp.Body.Close() }()
 	got, err := io.ReadAll(getResp.Body)
 	if err != nil {
 		t.Fatal(err)
@@ -225,7 +225,7 @@ func TestStorageHTTPRoutesScopeObjectsByTenant(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list tenant A: %v", err)
 	}
-	defer listResp.Body.Close()
+	defer func() { _ = listResp.Body.Close() }()
 	if listResp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(listResp.Body)
 		t.Fatalf("list status = %d body = %s", listResp.StatusCode, body)
@@ -309,7 +309,7 @@ func putStorageHTTP(t *testing.T, client *http.Client, baseURL, token, key, body
 	if err != nil {
 		t.Fatalf("put %s: %v", key, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusCreated {
 		data, _ := io.ReadAll(resp.Body)
 		t.Fatalf("put %s status = %d body = %s", key, resp.StatusCode, data)
@@ -327,7 +327,7 @@ func getStorageHTTP(t *testing.T, client *http.Client, baseURL, token, key strin
 	if err != nil {
 		t.Fatalf("get %s: %v", key, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatal(err)

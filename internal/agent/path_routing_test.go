@@ -266,7 +266,9 @@ func TestServerPathModeRoutesByTrustedSessionHeader(t *testing.T) {
 			t.Fatal(err)
 		}
 		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
+		if err := resp.Body.Close(); err != nil {
+			t.Fatal(err)
+		}
 		return resp.StatusCode, string(body), resp.Header
 	}
 

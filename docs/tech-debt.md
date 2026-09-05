@@ -15,9 +15,22 @@ This file tracks known project debt that should be visible to agents before they
   - [Browser Harness Fixture-Backed Mutation Depth](#browser-harness-fixture-backed-mutation-depth)
   - [Deeper Architecture Checks](#deeper-architecture-checks)
   - [Long Build Tests](#long-build-tests)
-  - [Edge Static Integration Test Placement](#edge-static-integration-test-placement)
+  - [Published Dotfiles](#published-dotfiles)
 
 ## Resolved
+
+- 2026-09-05: PostgreSQL release fixture source — temporary worktrees now
+  include a minimal `app.scn`. An in-process test covers configured-app and
+  seed discovery; the full release self-harness passes, including PostgreSQL
+  schema reset, snapshot round-trip, and disposable-container cleanup.
+
+- 2026-09-05: Edge static integration test placement — moved the real Caddy
+  HTTP journey from `internal/edge/caddystatic_test.go` to the release edge
+  probe in `cmd/scenery/harness_self_edge_static.go`. Production rendering and
+  publication feed 16 HTTP checks plus raw traversal proof; ordinary renderer,
+  publisher, and injected-runner tests remain. Native release edge proof,
+  `go test ./...`, and the release full race suite passed. The initially
+  unrelated PostgreSQL fixture failure was subsequently resolved above.
 
 - 2026-07-06: 2026-07-03 finding 1 (dashboard embed drift) — the dashboard now exposes the embedded bundle hash via the `version` RPC, response headers, and HTML meta tags, warns when the running binary's bundle differs from `apps/console/dist`, and the self-harness `dashboard ui fresh` step uses the same hash comparison. See docs/local-contract.md.
 - 2026-07-14: 2026-06-28 finding 1 (`scenery ps` treated as runtime proof) — default `scenery up --detach --wait ready` now requests every advertised route and one script or stylesheet asset from each frontend before returning; `scenery ps` remains an inspection surface rather than a probe.
@@ -344,19 +357,20 @@ following the root 100ms p95 policy. Historical full-suite durations above
 are incident evidence, not a current measurement or permission to keep slow
 external-boundary tests in the ordinary lane.
 
-### Edge Static Integration Test Placement
+### Published Dotfiles
 
-- Area: tests / edge
+- Area: edge / static publication
 - Severity: medium
-- Owner: scenery edge / harness
+- Owner: scenery edge
 - Created: 2026-09-05
 - Review after: 2026-10-05
 
-The documentation review found `TestCaddyStaticFrontendIntegration` in
-`internal/edge/caddystatic_test.go` still starts an HTTP server and a real
-Caddy subprocess inside an ordinary parallel Go test. This conflicts with
-the root external-boundary test policy. Move the complete static-serving
-journey into the release edge probe while retaining focused in-process
-coverage. `cmd/scenery/harness_self_edge.go` already validates generated
-Caddy configs, but that is not the full HTTP journey. Timing was not measured
-during the documentation cleanup; this is a source-proven placement issue.
+The original static integration test requested a missing `/.hidden` file;
+that proves missing-file behavior, not exclusion of published dotfiles.
+During its release-harness migration, an additional real `.hidden` fixture
+was served with status 200 and body `private-dotfile` through the production
+Caddy renderer. That stronger fixture is outside the migration's unchanged
+serving contract and was removed from the moved probe. Decide the intended
+publication policy (including legitimate `.well-known` content), then enforce
+it in the publisher or renderer with in-process and release HTTP coverage.
+Do not describe the existing missing-file check as dotfile protection.

@@ -318,7 +318,7 @@ func (session *AgentSession) Handle(result *Result, request AgentRequest) AgentR
 			response.Error = agentError("failed_precondition", snapshotErr.Error())
 			break
 		}
-		manifest := snapshot.Manifest
+		var manifest *graph.Manifest
 		view := defaultString(params.View, "effective")
 		if params.ContinuationToken == "" {
 			var viewErr error

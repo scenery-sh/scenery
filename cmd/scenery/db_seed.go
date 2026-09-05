@@ -671,7 +671,7 @@ func (r *dbSeedResult) addSeedRecord(record dbSeedRecord) {
 
 func renderDBSeedText(stdout io.Writer, result dbSeedResult) {
 	if len(result.Seeds) == 0 {
-		fmt.Fprintln(stdout, "scenery: no database seeds discovered")
+		_, _ = fmt.Fprintln(stdout, "scenery: no database seeds discovered")
 		return
 	}
 	for _, seed := range result.Seeds {
@@ -679,12 +679,12 @@ func renderDBSeedText(stdout io.Writer, result dbSeedResult) {
 		if seed.Error != "" {
 			line += ": " + seed.Error
 		}
-		fmt.Fprintln(stdout, line)
+		_, _ = fmt.Fprintln(stdout, line)
 		if seed.Output != "" {
-			fmt.Fprintf(stdout, "  %s\n", strings.ReplaceAll(seed.Output, "\n", "\n  "))
+			_, _ = fmt.Fprintf(stdout, "  %s\n", strings.ReplaceAll(seed.Output, "\n", "\n  "))
 		}
 	}
-	fmt.Fprintf(stdout, "scenery: database seed complete; planned=%d applied=%d skipped=%d changed=%d failed=%d\n",
+	_, _ = fmt.Fprintf(stdout, "scenery: database seed complete; planned=%d applied=%d skipped=%d changed=%d failed=%d\n",
 		result.Summary.Planned,
 		result.Summary.Applied,
 		result.Summary.Skipped,
@@ -790,7 +790,7 @@ func deleteDBSeedLedgerForService(ctx context.Context, databaseURL, appID, servi
 	if err != nil {
 		return err
 	}
-	defer store.Close(context.Background())
+	defer func() { _ = store.Close(context.Background()) }()
 	if err := store.EnsureLedger(ctx); err != nil {
 		return err
 	}

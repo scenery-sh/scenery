@@ -446,7 +446,7 @@ func (s *Server) handleSubstrates(w http.ResponseWriter, req *http.Request) {
 	case http.MethodGet:
 		writeJSON(w, http.StatusOK, SubstratesResponse{Substrates: s.registry.ListSubstrates()})
 	case http.MethodPost:
-		defer req.Body.Close()
+		defer func() { _ = req.Body.Close() }()
 		var upsert UpsertSubstrateRequest
 		if err := json.NewDecoder(http.MaxBytesReader(w, req.Body, 1<<20)).Decode(&upsert); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -502,7 +502,7 @@ func (s *Server) handleSessions(w http.ResponseWriter, req *http.Request) {
 		}
 		writeJSON(w, http.StatusOK, StatusResponse{Sessions: sessions})
 	case http.MethodPost:
-		defer req.Body.Close()
+		defer func() { _ = req.Body.Close() }()
 		var register RegisterRequest
 		if err := json.NewDecoder(http.MaxBytesReader(w, req.Body, 1<<20)).Decode(&register); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)

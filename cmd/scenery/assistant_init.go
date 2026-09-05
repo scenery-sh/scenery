@@ -135,9 +135,6 @@ func initializeAssistant(ctx context.Context, root string, cfg appcfg.Config, co
 }
 
 func initializeAssistantWithDependencies(ctx context.Context, root string, cfg appcfg.Config, compiled *compiler.Result, opts assistantScaffoldOptions, deps assistantInitDependencies) (assistantInitResponse, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
 	server, ok := assistantResourceByKindAndName(compiled.Manifest, opts.MCPServer, "scenery.mcp-server")
 	if !ok || server.Kind != "scenery.mcp-server" {
 		return assistantInitResponse{}, fmt.Errorf("mcp server %q not found", opts.MCPServer)

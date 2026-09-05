@@ -108,6 +108,11 @@ func validateReferences(resources []Resource) []Diagnostic {
 	var diagnostics []Diagnostic
 	for _, resource := range resources {
 		walkRefs(resource.Spec, "/spec", func(path, reference string) {
+			// Record validation paths name fields, not resources. validateRecord
+			// checks that the path names an existing field on this exact record.
+			if resource.Kind == "scenery.record" && strings.HasPrefix(path, "/spec/validation/") && strings.HasSuffix(path, "/path") {
+				return
+			}
 			referenceModule := resource.Module
 			if resource.Kind == "scenery.module" && (strings.HasPrefix(path, "/spec/exports") || strings.HasPrefix(path, "/spec/export_metadata")) {
 				referenceModule = moduleInstancePath(resource)

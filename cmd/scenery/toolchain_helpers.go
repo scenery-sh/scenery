@@ -17,7 +17,7 @@ func freeLoopbackPort() (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	addr, ok := ln.Addr().(*net.TCPAddr)
 	if !ok {
 		return 0, fmt.Errorf("unexpected listener address %s", ln.Addr())

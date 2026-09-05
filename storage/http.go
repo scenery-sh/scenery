@@ -9,7 +9,7 @@ import (
 )
 
 func ServeObject(w http.ResponseWriter, req *http.Request, body io.ReadCloser, obj *Object) {
-	defer body.Close()
+	defer func() { _ = body.Close() }()
 	if obj == nil {
 		http.Error(w, "missing storage object metadata", http.StatusInternalServerError)
 		return

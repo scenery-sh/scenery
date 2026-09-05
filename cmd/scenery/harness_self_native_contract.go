@@ -86,7 +86,7 @@ func runHarnessNativeContractApplicationProbeCheck(parent context.Context, repoR
 	if err != nil {
 		return summary, nil, err
 	}
-	defer os.RemoveAll(probeRoot)
+	defer func() { _ = os.RemoveAll(probeRoot) }()
 	appRoot := filepath.Join(probeRoot, "app")
 	devCacheRoot := filepath.Join(probeRoot, "devcache")
 	restoreDevCache := devcache.SetRoot(devCacheRoot)
@@ -299,7 +299,7 @@ func runHarnessGeneratedTypeScriptClient(parent context.Context, appRoot, devCac
 	if err != nil {
 		return err
 	}
-	defer logFile.Close()
+	defer func() { _ = logFile.Close() }()
 	serverCtx, stopServerContext := context.WithCancel(parent)
 	defer stopServerContext()
 	server := exec.CommandContext(serverCtx, binary)

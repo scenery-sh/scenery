@@ -31,7 +31,7 @@ func TestContractSystemFailureUsesStandardProblemOutcome(t *testing.T) {
 	if !errors.Is(systemError, cause) {
 		t.Fatal("system error did not retain its internal cause")
 	}
-	if diagnostic := contractDiagnosticError(systemError); diagnostic != cause {
+	if diagnostic := contractDiagnosticError(systemError); diagnostic != cause { //nolint:errorlint // Diagnostic extraction must return the original cause itself.
 		t.Fatalf("diagnostic error = %v, want retained cause", diagnostic)
 	}
 	if err := RegisterEndpointChecked(&Endpoint{

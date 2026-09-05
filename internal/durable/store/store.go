@@ -162,6 +162,7 @@ GROUP BY task_name, task_version
 	if err != nil {
 		return rollback(tx, fmt.Errorf("durable store: inspect active task revisions: %w", err))
 	}
+	defer func() { _ = rows.Close() }()
 	type activeRevision struct {
 		name           string
 		version, count int
@@ -515,6 +516,7 @@ RETURNING id, attempt, state
 	if err != nil {
 		return fmt.Errorf("durable store: recover expired jobs: %w", err)
 	}
+	defer func() { _ = rows.Close() }()
 	type recoveredJob struct {
 		id      string
 		attempt int
@@ -583,7 +585,7 @@ LIMIT $2
 	if err != nil {
 		return nil, fmt.Errorf("durable store: list jobs: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var jobs []JobDetail
 	for rows.Next() {
 		var job JobDetail
@@ -654,7 +656,7 @@ ORDER BY seq
 	if err != nil {
 		return nil, fmt.Errorf("durable store: list job %q events: %w", jobID, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var events []JobEvent
 	for rows.Next() {
 		var event JobEvent
@@ -1047,6 +1049,7 @@ LIMIT 50
 	if err != nil {
 		return nil, fmt.Errorf("durable store: list due schedules: %w", err)
 	}
+	defer func() { _ = rows.Close() }()
 	type dueSchedule struct {
 		ID      string
 		Task    string
@@ -1061,6 +1064,9 @@ LIMIT 50
 			return nil, fmt.Errorf("durable store: scan due schedule: %w", err)
 		}
 		due = append(due, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("durable store: read due schedules: %w", err)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, fmt.Errorf("durable store: close due schedules: %w", err)

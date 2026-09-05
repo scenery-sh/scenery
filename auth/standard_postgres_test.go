@@ -31,7 +31,7 @@ func TestStandardAuthBootstrapPostgresSchema(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open auth database: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	if err := bootstrapStandardAuthSchema(ctx, db); err != nil {
 		t.Fatalf("bootstrap standard auth schema: %v", err)
 	}
@@ -98,7 +98,7 @@ func TestDevBootstrapDefaultEmailCreatesUserTenantAndMembership(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open auth database: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	q := authdb.New(db)
 	user, err := q.GetUserByNormalizedEmail(ctx, "owner@example.test")
 	if err != nil {
@@ -246,7 +246,7 @@ func TestDevBootstrapAttachesExistingUserToConfiguredTenant(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open auth database: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	if err := db.QueryRowContext(ctx, `select count(*) from scenery.scenery_auth_users where normalized_primary_email = $1`, "petr@example.test").Scan(&userCount); err != nil {
 		t.Fatalf("count users: %v", err)
 	}

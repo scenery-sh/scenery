@@ -884,16 +884,6 @@ func runGit(t *testing.T, dir string, args ...string) {
 	}
 }
 
-func runGitOutput(t *testing.T, dir string, args ...string) []byte {
-	t.Helper()
-	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("git %v: %v\n%s", args, err, output)
-	}
-	return output
-}
-
 func dispatchSymphonyTestRPC[T any](ctx context.Context, server *dashboardServer, method string, params map[string]any) (T, error) {
 	var zero T
 	raw, err := json.Marshal(params)

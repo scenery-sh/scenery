@@ -36,7 +36,7 @@ func TestAgentStateRebindsUnchangedSchemaToCurrentSpec(t *testing.T) {
 	if loaded.SpecRevision != agentStateIdentity().SpecRevision {
 		t.Fatalf("spec revision = %q", loaded.SpecRevision)
 	}
-	if loaded.PID != 123 || loaded.Identity.Version != "v1.2.3" || loaded.Identity.Commit != "abc" {
+	if loaded.PID != 123 || loaded.Version != "v1.2.3" || loaded.Commit != "abc" {
 		t.Fatalf("state payload changed: %+v", loaded)
 	}
 	reloaded, err := LoadState(path)
@@ -165,7 +165,7 @@ func TestAgentStateMigrationPreservesRunningIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state.PID != 123 || state.Identity.Version != "v1.2.3" || state.Identity.Commit != "abc" || state.Kind != AgentStateKind {
+	if state.PID != 123 || state.Version != "v1.2.3" || state.Commit != "abc" || state.Kind != AgentStateKind {
 		t.Fatalf("migrated state = %+v", state)
 	}
 	backup, err := os.ReadFile(path + ".legacy.bak")

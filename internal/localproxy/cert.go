@@ -23,17 +23,9 @@ import (
 )
 
 const (
-	localProxyCACertFile   = "scenery-local-ca.crt.pem"
-	localProxyCAKeyFile    = "scenery-local-ca.key.pem"
-	localProxyLeafCertFile = "scenery-local-leaf.crt.pem"
-	localProxyLeafKeyFile  = "scenery-local-leaf.key.pem"
+	localProxyCACertFile = "scenery-local-ca.crt.pem"
+	localProxyCAKeyFile  = "scenery-local-ca.key.pem"
 )
-
-type localCertificates struct {
-	Leaf   tls.Certificate
-	CAPath string
-	CACert *x509.Certificate
-}
 
 type LocalCA struct {
 	Cert     *x509.Certificate
@@ -122,10 +114,8 @@ func InstallLocalCATrust(certPath string) error {
 }
 
 type certificatePaths struct {
-	caCert   string
-	caKey    string
-	leafCert string
-	leafKey  string
+	caCert string
+	caKey  string
 }
 
 func localProxyCacheDir() (string, error) {

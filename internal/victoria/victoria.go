@@ -490,10 +490,6 @@ func startComponent(ctx context.Context, root, binDir string, spec ComponentSpec
 	return startComponentFromPlan(ctx, root, plan, console)
 }
 
-func startComponents(ctx context.Context, root, binDir string, specs []ComponentSpec, download bool, console Console) []componentStartResult {
-	return startComponentsWithBinaryPaths(ctx, root, binDir, specs, nil, download, console)
-}
-
 func startComponentsWithBinaryPaths(ctx context.Context, root, binDir string, specs []ComponentSpec, binaryPaths map[string]string, download bool, console Console) []componentStartResult {
 	return startComponentsWithFunctions(ctx, specs,
 		func(ctx context.Context, spec ComponentSpec) (componentStartPlan, error) {
@@ -548,7 +544,7 @@ func prepareComponentStart(ctx context.Context, root, binDir string, spec Compon
 }
 
 func prepareComponentStartWithBinaryPath(ctx context.Context, root, binDir string, spec ComponentSpec, binaryPath string, download bool, console Console) (componentStartPlan, error) {
-	baseURL := fmt.Sprintf("http://%s:%d", defaultHost, spec.DefaultPort)
+	baseURL := "http://" + net.JoinHostPort(defaultHost, strconv.Itoa(spec.DefaultPort))
 	plan := componentStartPlan{
 		spec:        spec,
 		baseURL:     baseURL,
@@ -636,7 +632,7 @@ func startComponentFromPlan(ctx context.Context, root string, plan componentStar
 
 func waitForComponentReady(ctx context.Context, component *Component, timeout time.Duration) error {
 	if component == nil {
-		return fmt.Errorf("Victoria component is nil")
+		return fmt.Errorf("victoria component is nil")
 	}
 	deadline := time.NewTimer(timeout)
 	defer deadline.Stop()

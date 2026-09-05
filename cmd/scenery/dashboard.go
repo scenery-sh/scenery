@@ -539,7 +539,7 @@ func (s *dashboardServer) handleReport(w http.ResponseWriter, req *http.Request)
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	defer req.Body.Close()
+	defer func() { _ = req.Body.Close() }()
 	var report devdash.ReportEnvelope
 	if err := json.NewDecoder(req.Body).Decode(&report); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -741,7 +741,7 @@ func (s *dashboardServer) apiCall(ctx context.Context, params devdash.APICallReq
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	bodyBytes, _ := io.ReadAll(resp.Body)
 	return map[string]any{
 		"status":      resp.Status,
@@ -846,12 +846,12 @@ func (s *dashboardServer) queryDB(ctx context.Context, req devdash.QueryRequest)
 	if err != nil {
 		return nil, err
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	rows, err := db.QueryContext(ctx, req.Query, req.Params...)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	return scanRows(rows, req.ArrayMode)
 }
 

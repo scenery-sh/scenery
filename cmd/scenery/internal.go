@@ -4,7 +4,7 @@ import "fmt"
 
 func internalCommand(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: scenery internal <command> ...")
+		return fmt.Errorf("usage: scenery internal <command> ")
 	}
 	switch args[0] {
 	default:

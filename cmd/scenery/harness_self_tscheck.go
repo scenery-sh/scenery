@@ -59,7 +59,7 @@ func runHarnessTypeScriptCheckerProbeCheck(ctx context.Context, _ string) (map[s
 	if err != nil {
 		return nil, nil, err
 	}
-	defer os.RemoveAll(root)
+	defer func() { _ = os.RemoveAll(root) }()
 	if err := os.MkdirAll(filepath.Join(root, "node_modules"), 0o755); err != nil {
 		return nil, nil, err
 	}

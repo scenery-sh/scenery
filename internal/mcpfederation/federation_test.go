@@ -41,7 +41,7 @@ func TestFederationAuthFilteringNamesAndLocalPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	if err := f.Refresh(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func TestFederationHeaderAuthAndNoAuthValidation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	if err := f.Refresh(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +112,7 @@ func TestFederationCollisionsAndDeterministicOrdering(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	if err := f.Refresh(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +123,9 @@ func TestFederationCollisionsAndDeterministicOrdering(t *testing.T) {
 			t.Fatalf("tools = %#v, want names %v", got, want)
 		}
 	}
-	f.Close()
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
 	collision, err := New(Config{Connections: []Connection{{Address: "a", Namespace: "docs", URL: remoteA.URL()}}, LocalToolNames: []string{"docs__alpha"}})
 	if err != nil {
 		t.Fatal(err)
@@ -131,7 +133,9 @@ func TestFederationCollisionsAndDeterministicOrdering(t *testing.T) {
 	if err := collision.Refresh(context.Background()); !errors.Is(err, ErrToolCollision) {
 		t.Fatalf("local collision error = %v", err)
 	}
-	collision.Close()
+	if err := collision.Close(); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestFederationChangeNotificationRefreshesInventory(t *testing.T) {
@@ -142,7 +146,7 @@ func TestFederationChangeNotificationRefreshesInventory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	if err := f.Refresh(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -176,7 +180,7 @@ func TestFederationResultLimitTimeoutCancellation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	if err := f.Refresh(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -209,7 +213,7 @@ func TestFederationRequiredOptionalReadinessAndRateLimit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	if err := f.Refresh(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -251,7 +255,7 @@ func TestFederationVersionAndCredentialErrorsAreSafe(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	refreshErr := f.Refresh(context.Background())
 	if !errors.Is(refreshErr, ErrRequiredUnavailable) {
 		t.Fatalf("version error = %v", refreshErr)
@@ -269,7 +273,7 @@ func TestFederationCapabilityProjection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	if err := f.Refresh(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -289,9 +293,6 @@ func testTool(name string) *mcp.Tool {
 func emptyTool(context.Context, *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return &mcp.CallToolResult{StructuredContent: map[string]any{}}, nil
 }
-
-//go:fix inline
-func boolPtr(value bool) *bool { return new(value) }
 
 type fakeRemoteOptions struct {
 	AuthScheme AuthScheme

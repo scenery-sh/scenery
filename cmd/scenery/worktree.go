@@ -95,7 +95,7 @@ func parseWorktreeArgs(args []string) (worktreeOptions, error) {
 		return worktreeOptions{}, err
 	}
 	if len(positionals) == 0 {
-		return worktreeOptions{}, fmt.Errorf("usage: scenery worktree create|list|remove ...")
+		return worktreeOptions{}, fmt.Errorf("usage: scenery worktree create|list|remove ")
 	}
 	opts.Command = positionals[0]
 	if len(positionals) > 1 {
@@ -114,10 +114,6 @@ func parseWorktreeArgs(args []string) (worktreeOptions, error) {
 		return worktreeOptions{}, fmt.Errorf("unknown worktree command %q", opts.Command)
 	}
 	return opts, nil
-}
-
-func runWorktreeCreate(ctx context.Context, stdout io.Writer, opts worktreeOptions) error {
-	return runWorktreeCreateWithGit(ctx, stdout, opts, runGitCommand)
 }
 
 func runWorktreeCreateWithGit(ctx context.Context, stdout io.Writer, opts worktreeOptions, runGit func(context.Context, ...string) error) error {
@@ -150,13 +146,9 @@ func runWorktreeCreateWithGit(ctx context.Context, stdout io.Writer, opts worktr
 	if opts.JSON {
 		return writeInspectJSON(stdout, result)
 	}
-	fmt.Fprintf(stdout, "created worktree %s at %s\n", name, target)
-	fmt.Fprintf(stdout, "next: %s\n", result.NextCommand)
+	_, _ = fmt.Fprintf(stdout, "created worktree %s at %s\n", name, target)
+	_, _ = fmt.Fprintf(stdout, "next: %s\n", result.NextCommand)
 	return nil
-}
-
-func runWorktreeList(ctx context.Context, stdout io.Writer, opts worktreeOptions) error {
-	return runWorktreeListWithGit(ctx, stdout, opts, listGitWorktrees)
 }
 
 func runWorktreeListWithGit(ctx context.Context, stdout io.Writer, opts worktreeOptions, listWorktrees func(context.Context, string) ([]worktreeRecord, error)) error {
@@ -178,13 +170,9 @@ func runWorktreeListWithGit(ctx context.Context, stdout io.Writer, opts worktree
 		return writeInspectJSON(stdout, result)
 	}
 	for _, wt := range worktrees {
-		fmt.Fprintf(stdout, "%s %s\n", wt.Path, wt.Branch)
+		_, _ = fmt.Fprintf(stdout, "%s %s\n", wt.Path, wt.Branch)
 	}
 	return nil
-}
-
-func runWorktreeRemove(ctx context.Context, stdout io.Writer, opts worktreeOptions) error {
-	return runWorktreeRemoveWithGit(ctx, stdout, opts, listGitWorktrees, runGitCommand)
 }
 
 func runWorktreeRemoveWithList(ctx context.Context, stdout io.Writer, opts worktreeOptions, listWorktrees func(context.Context, string) ([]worktreeRecord, error)) error {
@@ -237,7 +225,7 @@ func runWorktreeRemoveWithGit(ctx context.Context, stdout io.Writer, opts worktr
 	if opts.JSON {
 		return writeInspectJSON(stdout, result)
 	}
-	fmt.Fprintf(stdout, "removed worktree %s\n", target)
+	_, _ = fmt.Fprintf(stdout, "removed worktree %s\n", target)
 	return nil
 }
 

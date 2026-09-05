@@ -24,23 +24,20 @@ const (
 )
 
 var (
-	newSourcePositionIndex   = scn.NewPositionIndex
-	convertBlock             = scn.ConvertBlock
-	convertExpression        = scn.ConvertExpression
-	convertRange             = scn.ConvertRange
-	canonicalFormatSource    = scn.CanonicalFormat
-	exactNumericScalar       = scn.ExactNumericScalar
-	Format                   = scn.Format
-	FormatPaths              = scn.FormatPaths
-	pathExists               = scn.PathExists
-	pathWithin               = scn.PathWithin
-	rejectPathSymlinks       = scn.RejectPathSymlinks
-	sourceFiles              = scn.SourceFiles
+	newSourcePositionIndex = scn.NewPositionIndex
+	convertBlock           = scn.ConvertBlock
+
+	exactNumericScalar = scn.ExactNumericScalar
+	Format             = scn.Format
+	FormatPaths        = scn.FormatPaths
+
+	pathWithin         = scn.PathWithin
+	rejectPathSymlinks = scn.RejectPathSymlinks
+
 	literalString            = scn.LiteralString
 	requireLiteralString     = scn.RequireLiteralString
 	sceneryIdentifierPattern = scn.IdentifierPattern
 	sourceID                 = scn.SourceID
-	traversalString          = scn.TraversalString
 )
 
 func diagnosticsFromHCL(sourceID string, positions *sourcePositionIndex, diagnostics hcl.Diagnostics) []Diagnostic {

@@ -401,12 +401,6 @@ func contractFixtureRoot(t *testing.T) string {
 	return copyFixtureRoot(t, "house")
 }
 
-// nativeFixtureRoot returns a writable copy of the `native` fixture app root.
-func nativeFixtureRoot(t *testing.T) string {
-	t.Helper()
-	return copyFixtureRoot(t, "native")
-}
-
 // fixtureSourceRoot locates a checked-in compiler fixture. Use it only for
 // read-only assertions about committed fixture content; anything that
 // compiles, checks, or generates must use a copy.

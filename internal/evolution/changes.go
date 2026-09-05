@@ -216,7 +216,7 @@ func planChanges(root string, request ChangeRequest, retainIssuedPlan bool) (Cha
 	if err != nil {
 		return ChangePlan{}, err
 	}
-	defer os.RemoveAll(temp)
+	defer func() { _ = os.RemoveAll(temp) }()
 	normalizedOperations := make([]SemanticOperation, 0, len(request.Operations))
 	var finalNormalizationBase *Manifest
 	for index, requestedOperation := range request.Operations {
@@ -363,7 +363,7 @@ func ValidateSemanticOperation(result *compiler.Result, operation SemanticOperat
 	if err != nil {
 		return SemanticOperation{}, fmt.Errorf("internal: %w", err)
 	}
-	defer os.RemoveAll(temp)
+	defer func() { _ = os.RemoveAll(temp) }()
 	if err := applySemanticOperation(temp, planningBase, operation); err != nil {
 		if strings.HasPrefix(err.Error(), "capability_unavailable:") {
 			return SemanticOperation{}, err
@@ -480,7 +480,7 @@ func applyChangePlanWithOptions(root string, plan ChangePlan, options ApplyOptio
 	if err != nil {
 		return ChangeApplyResult{}, err
 	}
-	defer os.RemoveAll(stagedRoot)
+	defer func() { _ = os.RemoveAll(stagedRoot) }()
 	if err := applyPlannedEdits(stagedRoot, plan.Edits, true); err != nil {
 		return ChangeApplyResult{}, err
 	}
@@ -826,11 +826,6 @@ func writablePlanningResult(result *Result) (*Result, error) {
 		Resources:   append([]Resource(nil), result.PartialGraph.Resources...), SourceMap: result.PartialGraph.SourceMap,
 	}
 	return &copyResult, nil
-}
-
-//go:fix inline
-func stringPointer(value string) *string {
-	return new(value)
 }
 
 func cloneStringPointer(value *string) *string {

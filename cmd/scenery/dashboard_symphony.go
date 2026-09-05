@@ -202,7 +202,7 @@ func dashboardSymphonyDatabaseURL(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("connect managed Postgres server for symphony store: %w", err)
 	}
-	defer admin.Close()
+	defer func() { _ = admin.Close() }()
 	if err := postgresdb.EnsureDatabase(ctx, admin, "scenery_symphony"); err != nil {
 		return "", fmt.Errorf("ensure symphony Postgres database: %w", err)
 	}

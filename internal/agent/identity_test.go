@@ -111,7 +111,7 @@ func TestOldAgentHealthWithoutIdentityTriggersReplace(t *testing.T) {
 	if err := json.Unmarshal([]byte(raw), &health); err != nil {
 		t.Fatalf("unmarshal old health payload: %v", err)
 	}
-	if !health.Identity.IsZero() {
+	if !health.IsZero() {
 		t.Fatalf("expected zero identity from old health payload, got %+v", health.Identity)
 	}
 	current := Identity{Version: "dev", Commit: "abc123", BuiltAt: "2026-07-03T12:00:00Z"}

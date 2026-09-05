@@ -51,7 +51,7 @@ func runHarnessDevNamedLockProbeCheck(ctx context.Context, _ string) (map[string
 	if err != nil {
 		return nil, nil, err
 	}
-	defer os.RemoveAll(root)
+	defer func() { _ = os.RemoveAll(root) }()
 	sourcePath := filepath.Join(root, "holder.go")
 	binaryPath := filepath.Join(root, "holder")
 	readyPath := filepath.Join(root, "ready")

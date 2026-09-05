@@ -70,24 +70,6 @@ func (g *assistantGateway) handleEvents(w http.ResponseWriter, req *http.Request
 	_ = g.streamPrivateEvents(w, stream, conversationID, claims, after)
 }
 
-func (g *assistantGateway) writeNDJSON(w http.ResponseWriter, events []assistantapi.Event) {
-	// The marker is consumed by runtime's outer gzip wrapper; unlike ordinary
-	// JSON responses, each NDJSON line must reach the client immediately.
-	beginNDJSON(w)
-	flusher, _ := w.(http.Flusher)
-	for _, event := range events {
-		if err := writeNDJSONEvent(w, event); err != nil {
-			return
-		}
-		if flusher != nil {
-			flusher.Flush()
-		}
-	}
-	if flusher != nil {
-		flusher.Flush()
-	}
-}
-
 func beginNDJSON(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", assistantapi.NDJSONContentType+"; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")

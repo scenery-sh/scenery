@@ -224,7 +224,7 @@ func LoadAssistantRuntimeConfig(path string) (AssistantRuntimeConfig, error) {
 	if err != nil {
 		return AssistantRuntimeConfig{}, fmt.Errorf("%w: unable to read descriptor file", errAssistantRuntimeConfig)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	data, err := io.ReadAll(io.LimitReader(file, assistantRuntimeConfigLimit+1))
 	if err != nil {
 		return AssistantRuntimeConfig{}, fmt.Errorf("%w: unable to read descriptor file", errAssistantRuntimeConfig)
@@ -273,11 +273,7 @@ func WriteAssistantRuntimeConfig(path string, config AssistantRuntimeConfig) err
 	}
 	wire := assistantRuntimeConfigWire{Assistants: make([]assistantBootstrapDescriptorWire, 0, len(config.Assistants))}
 	for _, descriptor := range config.Assistants {
-		wire.Assistants = append(wire.Assistants, assistantBootstrapDescriptorWire{
-			AssistantAddress: descriptor.AssistantAddress, ControlAddress: descriptor.ControlAddress, ControlToken: descriptor.ControlToken,
-			MCPListenAddress: descriptor.MCPListenAddress, MCPBridgeSecret: descriptor.MCPBridgeSecret,
-			RuntimeRevision: descriptor.RuntimeRevision, CapabilityRevision: descriptor.CapabilityRevision, Required: descriptor.Required,
-		})
+		wire.Assistants = append(wire.Assistants, assistantBootstrapDescriptorWire(descriptor))
 	}
 	data, err := json.Marshal(wire)
 	if err != nil {

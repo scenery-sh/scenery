@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -154,7 +155,7 @@ func buildInspectTracesResponse(ctx context.Context, appRoot string, cfg appcfg.
 	if err != nil {
 		return inspectTracesResponse{}, err
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 	resp.Warnings = warnings
 
 	query := inspectTraceQuery(appID, opts)
@@ -203,7 +204,7 @@ func buildInspectMetricsResponse(ctx context.Context, appRoot string, cfg appcfg
 	if err != nil {
 		return inspectMetricsResponse{}, err
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 	resp.Warnings = warnings
 
 	query := inspectTraceQuery(appID, opts)
@@ -241,7 +242,7 @@ func openObservabilityStore(ctx context.Context, appRoot string, cfg appcfg.Conf
 	var warnings []string
 	record, sessionRecord, err := devdashAppRecordForRuntime(ctx, store, appID, sessionID, "")
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			warnings = append(warnings, "no local observability state found for "+appID+"; run `scenery up` first")
 			return store, warnings, nil
 		}

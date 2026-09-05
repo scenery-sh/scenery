@@ -16,10 +16,7 @@ type contractTestInput struct {
 	Name string `json:"name"`
 }
 
-type contractTestOutcome interface{ contractTestOutcome() }
 type contractTestCreated struct{ Value contractTestInput }
-
-func (contractTestCreated) contractTestOutcome() {}
 
 func TestSceneryConfigEndpoint(t *testing.T) {
 	t.Setenv("SCENERY_DEV_ENDPOINTS", "1")

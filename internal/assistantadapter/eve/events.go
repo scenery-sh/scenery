@@ -46,7 +46,7 @@ func NormalizeProviderEvent(raw []byte, context EventContext, sequence uint64) (
 		return assistantcontrol.Event{}, false, fmt.Errorf("decode Eve event: %w", err)
 	}
 	if strings.TrimSpace(event.Type) == "" {
-		return assistantcontrol.Event{}, false, errors.New("Eve event type is required")
+		return assistantcontrol.Event{}, false, errors.New("eve event type is required")
 	}
 	if sequence == 0 {
 		sequence = context.After + 1

@@ -412,7 +412,7 @@ func googleConnectionResponse(conn authdb.SceneryAuthGoogleConnection) *GoogleCo
 		resp.Email = ""
 		resp.Scopes = nil
 	}
-	if conn.ConnectedAt.IsZero() == false {
+	if !conn.ConnectedAt.IsZero() {
 		connectedAt := conn.ConnectedAt.UTC()
 		resp.ConnectedAt = &connectedAt
 	}

@@ -7,11 +7,6 @@ import (
 	"path/filepath"
 )
 
-func pathExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
-}
-
 func atomicWrite(path string, data []byte) error {
 	mode := os.FileMode(0o644)
 	if info, err := os.Stat(path); err == nil {

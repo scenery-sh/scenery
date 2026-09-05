@@ -175,7 +175,7 @@ func TrustLocalCA(binary string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(dir)
+	defer func() { _ = os.RemoveAll(dir) }()
 	adminSocket := filepath.Join(dir, "admin.sock")
 	configPath := filepath.Join(dir, "Caddyfile")
 	logPath := filepath.Join(dir, "caddy.log")
@@ -291,12 +291,12 @@ func waitForStartup(exitCh <-chan error, logPath string, logOffset int64, settle
 	case err := <-exitCh:
 		tail := tailFile(logPath, logOffset, 4096)
 		if tail != "" {
-			return fmt.Errorf("Caddy edge exited during startup: %s", tail)
+			return fmt.Errorf("caddy edge exited during startup: %s", tail)
 		}
 		if err != nil {
-			return fmt.Errorf("Caddy edge exited during startup: %w", err)
+			return fmt.Errorf("caddy edge exited during startup: %w", err)
 		}
-		return fmt.Errorf("Caddy edge exited during startup")
+		return fmt.Errorf("caddy edge exited during startup")
 	case <-timer.C:
 		return nil
 	}
@@ -352,7 +352,7 @@ func tailFile(path string, offset, limit int64) string {
 	if err != nil {
 		return ""
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	if info, err := file.Stat(); err == nil {
 		if offset < 0 {
 			offset = 0

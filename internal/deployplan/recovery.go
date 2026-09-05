@@ -9,11 +9,6 @@ import (
 	"strings"
 )
 
-func pathExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
-}
-
 func hasLegacyAPIVersion(encoded []byte, want string) bool {
 	var identity struct {
 		APIVersion string `json:"api_version"`

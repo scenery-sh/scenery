@@ -65,7 +65,7 @@ func Check(ctx context.Context, binary, appRoot, outputRoot, tsconfig string, fi
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(stageRoot)
+	defer func() { _ = os.RemoveAll(stageRoot) }()
 	for _, file := range files {
 		relative, relErr := filepath.Rel(outputRoot, file.Path)
 		if relErr != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {

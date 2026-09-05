@@ -97,7 +97,7 @@ func TestWaitForStartupReportsOnlyCurrentLogTailInProcess(t *testing.T) {
 	exitCh := make(chan error, 1)
 	exitCh <- errors.New("exit status 1")
 	err = waitForStartup(exitCh, logPath, offset, 15*time.Second)
-	if err == nil || !strings.Contains(err.Error(), "Caddy edge exited during startup") || !strings.Contains(err.Error(), "permission denied") {
+	if err == nil || !strings.Contains(err.Error(), "caddy edge exited during startup") || !strings.Contains(err.Error(), "permission denied") {
 		t.Fatalf("waitForStartup() err = %v, want startup exit with log tail", err)
 	}
 	if strings.Contains(err.Error(), "old caddy log line") {

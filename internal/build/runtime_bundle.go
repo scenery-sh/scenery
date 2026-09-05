@@ -29,14 +29,14 @@ var runtimeLinkerMetadataKeys = [...]string{
 
 type RuntimeBundleDescriptor struct {
 	machine.ArtifactIdentity
-	ArtifactKind           string                              `json:"artifact_kind"`
-	Application            string                              `json:"application"`
-	Target                 string                              `json:"target"`
-	ContractRevision       string                              `json:"contract_revision"`
-	ImplementationRevision string                              `json:"implementation_revision"`
-	BuildInput             *BuildInputManifest                 `json:"build_input_manifest"`
-	ResolvedGoTarget       map[string]any                      `json:"resolved_go_target"`
-	RuntimeABI             string                              `json:"runtime_abi"`
+	ArtifactKind           string                                 `json:"artifact_kind"`
+	Application            string                                 `json:"application"`
+	Target                 string                                 `json:"target"`
+	ContractRevision       string                                 `json:"contract_revision"`
+	ImplementationRevision string                                 `json:"implementation_revision"`
+	BuildInput             *BuildInputManifest                    `json:"build_input_manifest"`
+	ResolvedGoTarget       map[string]any                         `json:"resolved_go_target"`
+	RuntimeABI             string                                 `json:"runtime_abi"`
 	AssistantAssets        []generateapi.AssistantAssetDescriptor `json:"assistant_assets,omitempty"`
 }
 
@@ -165,8 +165,8 @@ func writeBundleFile(path string, data []byte) error {
 		return err
 	}
 	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(0o600); err == nil {
+	defer func() { _ = os.Remove(temporaryPath) }()
+	if err = temporary.Chmod(0o600); err == nil {
 		_, err = temporary.Write(data)
 	}
 	if err == nil {

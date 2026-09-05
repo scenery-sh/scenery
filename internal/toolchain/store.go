@@ -449,7 +449,7 @@ func (s *Store) installArtifact(ctx context.Context, artifact Artifact, platform
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("download %s: unexpected status %s", entry.URL, resp.Status)
 	}
@@ -463,7 +463,7 @@ func (s *Store) installArtifact(ctx context.Context, artifact Artifact, platform
 	finalDir := s.artifactPlatformDir(artifact, platform)
 	tmpDir := filepath.Join(filepath.Dir(finalDir), ".tmp-"+artifact.Name+"-"+time.Now().UTC().Format("20060102150405.000000000"))
 	_ = os.RemoveAll(tmpDir)
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 	if err := os.MkdirAll(tmpDir, 0o755); err != nil {
 		return err
 	}
@@ -514,7 +514,7 @@ func (s *Store) installSourceBuildArtifact(ctx context.Context, artifact Artifac
 	finalDir := s.artifactPlatformDir(artifact, platform)
 	tmpDir := filepath.Join(filepath.Dir(finalDir), ".tmp-"+artifact.Name+"-"+time.Now().UTC().Format("20060102150405.000000000"))
 	_ = os.RemoveAll(tmpDir)
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 	binDir := filepath.Join(tmpDir, "bin")
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		return err
@@ -629,7 +629,7 @@ func extractSelectedArtifact(data []byte, artifact Artifact, entry PlatformArtif
 	if err != nil {
 		return err
 	}
-	defer gz.Close()
+	defer func() { _ = gz.Close() }()
 	tr := tar.NewReader(gz)
 	found := false
 	for {
@@ -674,7 +674,7 @@ func extractTarArchive(data []byte, stripComponents int, dir string) error {
 	if err != nil {
 		return err
 	}
-	defer gz.Close()
+	defer func() { _ = gz.Close() }()
 	tr := tar.NewReader(gz)
 	for {
 		header, err := tr.Next()
@@ -699,7 +699,7 @@ func copyExecutableFile(source, target string) error {
 	if err != nil {
 		return err
 	}
-	defer in.Close()
+	defer func() { _ = in.Close() }()
 	info, err := in.Stat()
 	if err != nil {
 		return err

@@ -80,7 +80,7 @@ func runDBApplyWithHooks(ctx context.Context, stdout io.Writer, args []string, h
 	if opts.JSON {
 		return writeInspectJSON(stdout, result)
 	}
-	fmt.Fprintln(stdout, "scenery: database apply complete")
+	_, _ = fmt.Fprintln(stdout, "scenery: database apply complete")
 	return nil
 }
 
@@ -102,7 +102,7 @@ func dbSyncCommandWithHooks(args []string, hooks lifecycleHooks) error {
 	} else if ok {
 		return runSQLCGeneratorWithHooks(ctx, os.Stdout, appRoot, sqlcPlan, false, hooks)
 	}
-	fmt.Fprintln(os.Stdout, "scenery: database sync complete; no sqlc generator configured")
+	_, _ = fmt.Fprintln(os.Stdout, "scenery: database sync complete; no sqlc generator configured")
 	return nil
 }
 
@@ -156,10 +156,6 @@ func runDatabaseApplyCommandWithOutputHooks(ctx context.Context, appRoot string,
 	return runDatabaseApplyCommandWithEnvIOHooks(ctx, appRoot, apply, env, stdout, stderr, hooks)
 }
 
-func runDatabaseApplyCommandWithEnvHooks(ctx context.Context, appRoot string, apply appcfg.DatabaseApplyConfig, env []string, hooks lifecycleHooks) error {
-	return runDatabaseApplyCommandWithEnvIOHooks(ctx, appRoot, apply, env, os.Stdout, os.Stderr, hooks)
-}
-
 func runDatabaseApplyCommandWithEnvIO(ctx context.Context, appRoot string, apply appcfg.DatabaseApplyConfig, env []string, stdout, stderr io.Writer) error {
 	return runDatabaseApplyCommandWithEnvIOHooks(ctx, appRoot, apply, env, stdout, stderr, defaultLifecycleHooks())
 }
@@ -203,9 +199,9 @@ func dbListCommand(args []string) error {
 	if opts.JSON {
 		return writeInspectJSON(os.Stdout, databaseListResponse{cliPayloadIdentity: newCLIPayloadIdentity("scenery.db.list"), Database: record})
 	}
-	fmt.Fprintf(os.Stdout, "%s\t%s\t%s\n", record.Name, record.Source, record.URL)
+	_, _ = fmt.Fprintf(os.Stdout, "%s\t%s\t%s\n", record.Name, record.Source, record.URL)
 	for _, schema := range record.Schemas {
-		fmt.Fprintf(os.Stdout, "schema\t%s\t%s\n", schema.Service, schema.Schema)
+		_, _ = fmt.Fprintf(os.Stdout, "schema\t%s\t%s\n", schema.Service, schema.Schema)
 	}
 	return nil
 }
@@ -261,7 +257,7 @@ func dbDropCommand(args []string) error {
 	if err := dropPostgresDatabase(ctx, database, opts); err != nil {
 		return err
 	}
-	fmt.Fprintln(os.Stdout, "dropped scenery database")
+	_, _ = fmt.Fprintln(os.Stdout, "dropped scenery database")
 	return nil
 }
 
@@ -294,7 +290,7 @@ func dbResetCommand(args []string) error {
 			return fmt.Errorf("reset database seed ledger for service %q: %w", opts.Service, err)
 		}
 	}
-	fmt.Fprintln(os.Stdout, "reset scenery database")
+	_, _ = fmt.Fprintln(os.Stdout, "reset scenery database")
 	return nil
 }
 
@@ -332,9 +328,9 @@ func dbServerCommand(args []string) error {
 		if opts.JSON {
 			return writeInspectJSON(os.Stdout, status)
 		}
-		fmt.Fprintf(os.Stdout, "%s\t%s\n", status.Container, status.Status)
+		_, _ = fmt.Fprintf(os.Stdout, "%s\t%s\n", status.Container, status.Status)
 		if status.Port > 0 {
-			fmt.Fprintf(os.Stdout, "port\t%d\n", status.Port)
+			_, _ = fmt.Fprintf(os.Stdout, "port\t%d\n", status.Port)
 		}
 		return nil
 	case "start":
@@ -348,7 +344,7 @@ func dbServerCommand(args []string) error {
 		if opts.JSON {
 			return writeInspectJSON(os.Stdout, status)
 		}
-		fmt.Fprintln(os.Stdout, "started scenery postgres server")
+		_, _ = fmt.Fprintln(os.Stdout, "started scenery postgres server")
 		return nil
 	case "stop":
 		if err := stopSharedPostgresServer(ctx, opts.Yes); err != nil {
@@ -357,12 +353,12 @@ func dbServerCommand(args []string) error {
 		if opts.JSON {
 			return writeInspectJSON(os.Stdout, withCLIPayloadIdentity("scenery.db.server.stop", map[string]any{"ok": true, "container": postgresServerContainer}))
 		}
-		fmt.Fprintln(os.Stdout, "stopped scenery postgres server")
+		_, _ = fmt.Fprintln(os.Stdout, "stopped scenery postgres server")
 		return nil
 	case "logs":
 		out, err := postgresDocker.Run(ctx, "logs", "--tail", "200", postgresServerContainer)
 		if out != "" {
-			fmt.Fprintln(os.Stdout, out)
+			_, _ = fmt.Fprintln(os.Stdout, out)
 		}
 		return err
 	default:
@@ -536,7 +532,7 @@ func resetPostgresDatabase(ctx context.Context, database postgresdb.Database, op
 		if err != nil {
 			return err
 		}
-		defer db.Close()
+		defer func() { _ = db.Close() }()
 		return postgresdb.ResetSchema(ctx, db, schema)
 	}
 	if !opts.Yes {
@@ -546,7 +542,7 @@ func resetPostgresDatabase(ctx context.Context, database postgresdb.Database, op
 	if err != nil {
 		return err
 	}
-	defer admin.Close()
+	defer func() { _ = admin.Close() }()
 	return postgresdb.ResetDatabase(ctx, admin, database.Database)
 }
 
@@ -561,7 +557,7 @@ func dropPostgresDatabase(ctx context.Context, database postgresdb.Database, opt
 	if err != nil {
 		return err
 	}
-	defer admin.Close()
+	defer func() { _ = admin.Close() }()
 	return postgresdb.DropDatabase(ctx, admin, database.Database)
 }
 

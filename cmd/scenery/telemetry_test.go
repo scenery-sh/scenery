@@ -281,7 +281,7 @@ func TestLoadCLITelemetryPercentilesUseLatestBoundedSample(t *testing.T) {
 			Mode:        "long_running",
 			Measurement: cliTelemetryMeasurementStartup,
 		}); err != nil {
-			file.Close()
+			_ = file.Close()
 			t.Fatal(err)
 		}
 	}

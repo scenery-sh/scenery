@@ -50,7 +50,7 @@ func runHarnessBuildInfoProbeCheck(parent context.Context, _ string) (map[string
 	if err != nil {
 		return nil, nil, err
 	}
-	defer os.RemoveAll(root)
+	defer func() { _ = os.RemoveAll(root) }()
 	if err := writeHarnessBuildInfoFile(filepath.Join(root, "go.mod"), "module scenery.sh\n\ngo 1.27.0\n"); err != nil {
 		return nil, nil, err
 	}

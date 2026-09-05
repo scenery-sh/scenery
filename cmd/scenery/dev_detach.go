@@ -93,7 +93,7 @@ func runDetachedDev(args []string, opts devOptions) error {
 	if err != nil {
 		return err
 	}
-	defer logFile.Close()
+	defer func() { _ = logFile.Close() }()
 
 	exe, err := os.Executable()
 	if err != nil {
@@ -352,8 +352,8 @@ func writeDetachedDevResult(w io.Writer, jsonMode bool, result detachedDevResult
 	if result.AlreadyRunning {
 		status += " (already up)"
 	}
-	fmt.Fprintln(w, "[+] Running 1/1")
-	fmt.Fprintf(
+	_, _ = fmt.Fprintln(w, "[+] Running 1/1")
+	_, _ = fmt.Fprintf(
 		w,
 		" - App %s  %s  pid=%d\n\n",
 		detachedDevAppLabel(result.Session),
@@ -363,37 +363,37 @@ func writeDetachedDevResult(w io.Writer, jsonMode bool, result detachedDevResult
 	if result.Session.Status == "running" {
 		newRunConsole(w, io.Discard, false, false, detachedDevAppLabel(result.Session), result.Session.AppRoot).Banner(detachedDevRunURLs(result.Session))
 	}
-	fmt.Fprintln(w, "Use:")
+	_, _ = fmt.Fprintln(w, "Use:")
 	if statusCommand := detachedDevStatusCommand(result.Session); statusCommand != "" {
-		fmt.Fprintf(w, "  status  %s\n", statusCommand)
+		_, _ = fmt.Fprintf(w, "  status  %s\n", statusCommand)
 	}
-	fmt.Fprintf(w, "  logs    %s\n", result.AttachCommand)
-	fmt.Fprintf(w, "  stop    %s\n", result.DownCommand)
+	_, _ = fmt.Fprintf(w, "  logs    %s\n", result.AttachCommand)
+	_, _ = fmt.Fprintf(w, "  stop    %s\n", result.DownCommand)
 	if strings.TrimSpace(result.LogPath) != "" {
-		fmt.Fprintf(w, "\nLog file: %s\n", result.LogPath)
+		_, _ = fmt.Fprintf(w, "\nLog file: %s\n", result.LogPath)
 	}
 	routes := result.Session.RouteManifest.URLs()
 	if len(routes) > 0 {
-		fmt.Fprintln(w, "\nRoutes currently registered:")
+		_, _ = fmt.Fprintln(w, "\nRoutes currently registered:")
 	}
 	for _, name := range sortedRouteNames(routes) {
-		fmt.Fprintf(w, "  %-10s %s\n", name, routes[name])
+		_, _ = fmt.Fprintf(w, "  %-10s %s\n", name, routes[name])
 	}
 	if len(result.Session.Aliases) > 0 {
-		fmt.Fprintln(w, "\nAliases currently claimed:")
+		_, _ = fmt.Fprintln(w, "\nAliases currently claimed:")
 	}
 	for _, name := range sortedRouteNames(result.Session.Aliases) {
-		fmt.Fprintf(w, "  %-10s %s\n", name, result.Session.Aliases[name])
+		_, _ = fmt.Fprintf(w, "  %-10s %s\n", name, result.Session.Aliases[name])
 	}
 	if len(result.Session.AliasConflicts) > 0 {
-		fmt.Fprintln(w, "\nAliases held by other app roots:")
+		_, _ = fmt.Fprintln(w, "\nAliases held by other app roots:")
 	}
 	for _, name := range sortedAliasConflictNames(result.Session.AliasConflicts) {
 		conflict := result.Session.AliasConflicts[name]
-		fmt.Fprintf(w, "  %-10s %s owned by %s\n", name, conflict.Host, aliasConflictOwnerLabel(conflict))
+		_, _ = fmt.Fprintf(w, "  %-10s %s owned by %s\n", name, conflict.Host, aliasConflictOwnerLabel(conflict))
 	}
 	if conflict := result.Session.DomainHostConflict; conflict != nil {
-		fmt.Fprintf(w, "\nDev domain held by another worktree:\n  %s owned by %s\n", conflict.Host, aliasConflictOwnerLabel(*conflict))
+		_, _ = fmt.Fprintf(w, "\nDev domain held by another worktree:\n  %s owned by %s\n", conflict.Host, aliasConflictOwnerLabel(*conflict))
 	}
 	return nil
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 
 	"scenery.sh/internal/build"
 )
@@ -32,7 +33,8 @@ func (e devBuildPhaseError) Unwrap() error {
 }
 
 func devBuildErrorPayload(err error) (json.RawMessage, json.RawMessage) {
-	if phaseErr, ok := err.(devBuildPhaseError); ok {
+	var phaseErr devBuildPhaseError
+	if errors.As(err, &phaseErr) {
 		return phaseErr.Metadata, phaseErr.APIEncoding
 	}
 	return nil, nil

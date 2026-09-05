@@ -13,12 +13,12 @@ import (
 
 func writeStatusTable(w io.Writer, sessions []localagent.Session, substrates []localagent.Substrate) {
 	if len(sessions) == 0 {
-		fmt.Fprintln(w, "No Scenery dev app roots found.")
+		_, _ = fmt.Fprintln(w, "No Scenery dev app roots found.")
 	} else {
 		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(tw, "APP\tWORKTREE\tSTATUS\tURL\tSERVICES\tUPDATED")
+		_, _ = fmt.Fprintln(tw, "APP\tWORKTREE\tSTATUS\tURL\tSERVICES\tUPDATED")
 		for _, session := range sessions {
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n",
+			_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n",
 				statusTableValue(firstNonEmpty(session.BaseAppID, session.RuntimeAppID, session.AppRoot)),
 				statusTableValue(statusSessionWorktree(session)),
 				statusTableValue(session.Status),
@@ -32,12 +32,12 @@ func writeStatusTable(w io.Writer, sessions []localagent.Session, substrates []l
 	if len(substrates) == 0 {
 		return
 	}
-	fmt.Fprintln(w)
-	fmt.Fprintln(w, "Shared substrates:")
+	_, _ = fmt.Fprintln(w)
+	_, _ = fmt.Fprintln(w, "Shared substrates:")
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "KIND\tSTATUS\tOWNER PID\tCOMPONENT PIDS\tURLS")
+	_, _ = fmt.Fprintln(tw, "KIND\tSTATUS\tOWNER PID\tCOMPONENT PIDS\tURLS")
 	for _, substrate := range substrates {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n",
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n",
 			statusTableValue(substrate.Kind),
 			statusTableValue(substrate.Status),
 			statusTablePID(substrate.OwnerPID),

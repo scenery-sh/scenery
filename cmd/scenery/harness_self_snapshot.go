@@ -58,7 +58,7 @@ func runHarnessSnapshotBackupProbeCheck(ctx context.Context, repoRoot string) (m
 	if err != nil {
 		return nil, nil, err
 	}
-	defer os.RemoveAll(root)
+	defer func() { _ = os.RemoveAll(root) }()
 	bin := filepath.Join(root, "bin")
 	output := filepath.Join(root, "backups")
 	if err := os.MkdirAll(bin, 0o755); err != nil {

@@ -344,7 +344,7 @@ func TestAssistantMCPGatewayInitializesAfterFederationBeforeHelperBootstrap(t *t
 	gatewayOrder := global.serviceInitOrder[assistantMCPGatewayServiceAddress("app/assistant/support")]
 	bootstrapOrder := global.serviceInitOrder[assistantRuntimeBootstrapService]
 	global.mu.RUnlock()
-	if !(serverOrder > 0 && serverOrder < gatewayOrder && gatewayOrder < bootstrapOrder) {
+	if serverOrder <= 0 || serverOrder >= gatewayOrder || gatewayOrder >= bootstrapOrder {
 		t.Fatalf("service initialization order server=%d gateway=%d bootstrap=%d", serverOrder, gatewayOrder, bootstrapOrder)
 	}
 	if err := ShutdownServices(context.Background()); err != nil {

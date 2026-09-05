@@ -682,7 +682,7 @@ func runHarnessGoTestTimingStepWithBudgets(ctx context.Context, repoRoot string,
 		}
 	}
 	outputPath := outputFile.Name()
-	defer os.Remove(outputPath)
+	defer func() { _ = os.Remove(outputPath) }()
 	var testResult testsuite.Result
 	var runErr error
 	if freshTests {

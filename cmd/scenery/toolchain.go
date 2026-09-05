@@ -151,9 +151,9 @@ func renderToolchainStatus(stdout io.Writer, jsonMode bool, includeAll bool, sta
 	if jsonMode {
 		return writeCLIJSON(stdout, status)
 	}
-	fmt.Fprintf(stdout, "toolchain %s\n", status.ManifestSHA256)
-	fmt.Fprintf(stdout, "store: %s\n", status.StoreDir)
-	fmt.Fprintf(stdout, "platform: %s\n", status.Platform)
+	_, _ = fmt.Fprintf(stdout, "toolchain %s\n", status.ManifestSHA256)
+	_, _ = fmt.Fprintf(stdout, "store: %s\n", status.StoreDir)
+	_, _ = fmt.Fprintf(stdout, "platform: %s\n", status.Platform)
 	for _, artifact := range status.Artifacts {
 		if artifact.Kind == "plugin" && !includeAll {
 			continue
@@ -162,7 +162,7 @@ func renderToolchainStatus(stdout io.Writer, jsonMode bool, includeAll bool, sta
 		if includeAll && artifact.ManagedPath != "" {
 			line += " " + artifact.ManagedPath
 		}
-		fmt.Fprintln(stdout, line)
+		_, _ = fmt.Fprintln(stdout, line)
 	}
 	return nil
 }

@@ -16,12 +16,11 @@ import (
 // sent to one endpoint.  Redirects are disabled by newHTTPClient so the
 // credential cannot be forwarded to another origin.
 type authRoundTripper struct {
-	base          http.RoundTripper
-	auth          Auth
-	maxBody       int64
-	closeTimeout  time.Duration
-	shutdown      <-chan struct{}
-	cancelRequest func(*http.Request)
+	base         http.RoundTripper
+	auth         Auth
+	maxBody      int64
+	closeTimeout time.Duration
+	shutdown     <-chan struct{}
 }
 
 func (t authRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -42,16 +41,13 @@ func (t authRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 		clone.Header = make(http.Header)
 	}
 	if t.shutdown != nil {
-		go func(request *http.Request) {
+		go func() {
 			select {
 			case <-t.shutdown:
-				if t.cancelRequest != nil {
-					t.cancelRequest(request)
-				}
 				cancel()
 			case <-requestContext.Done():
 			}
-		}(clone)
+		}()
 	}
 	switch t.auth.Scheme {
 	case "", AuthNone:
@@ -120,18 +116,16 @@ func (b *limitedBody) Read(p []byte) (int, error) {
 		// exactly-at-limit body (which must remain valid JSON) from a body that
 		// has crossed the limit without buffering unbounded data.
 		var one [1]byte
-		for {
-			n, err := b.ioReadCloser.Read(one[:])
-			if n > 0 {
-				return 0, ErrResponseTooLarge
-			}
-			if err != nil {
-				return 0, err
-			}
-			// A zero-byte, nil-error read is permitted by io.Reader but is
-			// unusual for HTTP bodies. Avoid spinning forever on a broken remote.
+		n, err := b.ioReadCloser.Read(one[:])
+		if n > 0 {
 			return 0, ErrResponseTooLarge
 		}
+		if err != nil {
+			return 0, err
+		}
+		// A zero-byte, nil-error read is permitted by io.Reader but is
+		// unusual for HTTP bodies. Avoid spinning forever on a broken remote.
+		return 0, ErrResponseTooLarge
 	}
 	if int64(len(p)) > b.remaining {
 		p = p[:b.remaining]
@@ -151,8 +145,7 @@ func newHTTPClient(auth Auth, maxBody int64, shutdown ...<-chan struct{}) *http.
 	// config so final connection teardown can scrub its retained bytes without
 	// racing a pending session DELETE.
 	auth.Secret = append([]byte(nil), auth.Secret...)
-	var base http.RoundTripper = http.DefaultTransport
-	var cancelRequest func(*http.Request)
+	var base = http.DefaultTransport
 	if transport, ok := http.DefaultTransport.(*http.Transport); ok {
 		clone := transport.Clone()
 		// External MCP credentials must not be sent through ambient proxy
@@ -170,14 +163,13 @@ func newHTTPClient(auth Auth, maxBody int64, shutdown ...<-chan struct{}) *http.
 		}
 		clone.TLSClientConfig = tlsConfig
 		base = clone
-		cancelRequest = clone.CancelRequest
 	}
 	var stop <-chan struct{}
 	if len(shutdown) > 0 {
 		stop = shutdown[0]
 	}
 	return &http.Client{
-		Transport: authRoundTripper{base: base, auth: auth, maxBody: maxBody, closeTimeout: 2 * time.Second, shutdown: stop, cancelRequest: cancelRequest},
+		Transport: authRoundTripper{base: base, auth: auth, maxBody: maxBody, closeTimeout: 2 * time.Second, shutdown: stop},
 		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 			return http.ErrUseLastResponse
 		},

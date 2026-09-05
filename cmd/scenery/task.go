@@ -98,7 +98,7 @@ func runTaskCommand(ctx context.Context, stdout io.Writer, args []string) error 
 			return writeInspectJSON(stdout, list)
 		}
 		for _, task := range list.Tasks {
-			fmt.Fprintf(stdout, "%s\t%s\t%s\n", task.Target, task.Kind, task.Source)
+			_, _ = fmt.Fprintf(stdout, "%s\t%s\t%s\n", task.Target, task.Kind, task.Source)
 		}
 		return nil
 	case "inspect":
@@ -110,15 +110,15 @@ func runTaskCommand(ctx context.Context, stdout io.Writer, args []string) error 
 			return writeInspectJSON(stdout, resp)
 		}
 		task := resp.Task
-		fmt.Fprintf(stdout, "%s\n  kind: %s\n  source: %s\n", task.Target, task.Kind, task.Source)
+		_, _ = fmt.Fprintf(stdout, "%s\n  kind: %s\n  source: %s\n", task.Target, task.Kind, task.Source)
 		if task.Language != "" {
-			fmt.Fprintf(stdout, "  language: %s\n", task.Language)
+			_, _ = fmt.Fprintf(stdout, "  language: %s\n", task.Language)
 		}
 		if task.Run != "" {
-			fmt.Fprintf(stdout, "  run: %s\n", task.Run)
+			_, _ = fmt.Fprintf(stdout, "  run: %s\n", task.Run)
 		}
 		if len(task.Steps) > 0 {
-			fmt.Fprintf(stdout, "  steps: %s\n", strings.Join(task.Steps, ", "))
+			_, _ = fmt.Fprintf(stdout, "  steps: %s\n", strings.Join(task.Steps, ", "))
 		}
 		return nil
 	case "graph":

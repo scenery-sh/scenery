@@ -7,10 +7,6 @@ import (
 	"strings"
 )
 
-func kindForBlock(blockType string) string {
-	return "scenery." + strings.ReplaceAll(blockType, "_", "-")
-}
-
 func cloneSemanticValue(value any) any {
 	switch typed := value.(type) {
 	case map[string]any:

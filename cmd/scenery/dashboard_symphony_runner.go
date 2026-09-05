@@ -335,7 +335,7 @@ func (s *dashboardServer) startSymphonyRunRecord(ctx context.Context, store *sym
 }
 
 func (s *dashboardServer) executeSymphonyRun(ctx context.Context, store *symphony.Store, req symphonyRunRequest) {
-	runCtx := ctx
+	var runCtx context.Context
 	var cancel context.CancelFunc
 	if req.TurnTimeout > 0 {
 		runCtx, cancel = context.WithTimeout(ctx, req.TurnTimeout)
@@ -573,7 +573,7 @@ func runSymphonyCodexAppServer(ctx context.Context, req symphonyRunRequest, call
 	if err != nil {
 		return symphonyRunResult{}, err
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 	if _, err := client.Call(ctx, "initialize", map[string]any{
 		"clientInfo": map[string]string{"name": "scenery-symphony", "version": sceneryVersion},
 		"capabilities": map[string]any{

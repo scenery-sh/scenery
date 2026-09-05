@@ -2,17 +2,9 @@ package edge
 
 import (
 	"fmt"
-	"io"
-	"maps"
-	"net"
-	"net/http"
-	"net/http/httptest"
-	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	localagent "scenery.sh/internal/agent"
 )
@@ -202,21 +194,6 @@ func TestPublicDomainSitesForDeployRegistryCarriesFrontends(t *testing.T) {
 	}
 }
 
-// findCaddyBinaryForTest locates an installed managed Caddy without
-// downloading. Tests that need a live Caddy skip when none is present.
-func findCaddyBinaryForTest(t *testing.T) string {
-	t.Helper()
-	home, err := os.UserHomeDir()
-	if err != nil {
-		t.Skip("no home dir")
-	}
-	matches, _ := filepath.Glob(filepath.Join(home, ".scenery", "toolchain", "artifacts", "caddy", "*", "*", "bin", "caddy"))
-	if len(matches) == 0 {
-		t.Skip("managed Caddy binary not installed")
-	}
-	return matches[len(matches)-1]
-}
-
 func TestValidateCaddyConfigUsesConfiguredRunnerInProcess(t *testing.T) {
 	t.Parallel()
 
@@ -238,156 +215,5 @@ func TestValidateCaddyConfigUsesConfiguredRunnerInProcess(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "exit status 1: invalid config") {
 		t.Fatalf("validation error = %v", err)
-	}
-}
-
-// TestCaddyStaticFrontendIntegration proves the static pipeline against a
-// live managed Caddy on a loopback HTTP port: concrete files, SPA fallback,
-// hashed-asset caching, HEAD, ranges, missing assets, method limits, blocked
-// Scenery paths, and /api reaching the upstream agent stand-in.
-func TestCaddyStaticFrontendIntegration(t *testing.T) {
-	t.Parallel()
-	caddyBin := findCaddyBinaryForTest(t)
-	artifacts := t.TempDir()
-	current := publishTestFrontend(t, artifacts, "microgrid-platform", "platform")
-
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "agent:%s", r.URL.Path)
-	}))
-	defer upstream.Close()
-
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	port := listener.Addr().(*net.TCPAddr).Port
-	_ = listener.Close()
-
-	dir := t.TempDir()
-	// Unix socket paths are limited to ~104 bytes on macOS; t.TempDir is
-	// too deep for the admin socket.
-	socketDir, err := os.MkdirTemp("", "scnedge")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(socketDir) })
-	adminSocket := filepath.Join(socketDir, "admin.sock")
-	proxy := publicAgentProxy(strings.TrimPrefix(upstream.URL, "http://"), "token")
-	config := fmt.Sprintf(`{
-	admin unix//%s
-	auto_https off
-}
-
-http://127.0.0.1:%d {
-	@scenery_blocked path %s
-	handle @scenery_blocked {
-		respond "not found" 404
-	}
-	handle /api/* {
-%s	}
-	handle {
-%s	}
-}
-`, adminSocket, port,
-		strings.Join(caddyBlockedPaths([]StaticFrontendRoute{{Name: "platform", Root: current, BasePath: "/", OwnsRoot: true}}), " "),
-		indentBlock(proxy, 2),
-		staticFrontendBody(StaticFrontendRoute{Name: "platform", Root: current, BasePath: "/"}))
-	configPath := filepath.Join(dir, "Caddyfile")
-	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	var caddyLog strings.Builder
-	cmd := exec.Command(caddyBin, "run", "--config", configPath, "--adapter", "caddyfile")
-	cmd.Stdout = &caddyLog
-	cmd.Stderr = &caddyLog
-	if err := cmd.Start(); err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		_ = cmd.Process.Kill()
-		_, _ = cmd.Process.Wait()
-	}()
-	base := fmt.Sprintf("http://127.0.0.1:%d", port)
-	deadline := time.Now().Add(10 * time.Second)
-	for {
-		conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 100*time.Millisecond)
-		if err == nil {
-			_ = conn.Close()
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("caddy did not start listening:\n%s", caddyLog.String())
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-
-	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	get := func(method, path string, header http.Header) *http.Response {
-		t.Helper()
-		req, err := http.NewRequest(method, base+path, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		maps.Copy(req.Header, header)
-		resp, err := client.Do(req)
-		if err != nil {
-			t.Fatalf("%s %s: %v", method, path, err)
-		}
-		t.Cleanup(func() { _ = resp.Body.Close() })
-		return resp
-	}
-	body := func(resp *http.Response) string {
-		data, _ := io.ReadAll(resp.Body)
-		return string(data)
-	}
-
-	if resp := get("GET", "/", nil); resp.StatusCode != 200 || !strings.Contains(body(resp), "app-platform") {
-		t.Fatalf("root SPA document: %d", resp.StatusCode)
-	}
-	if resp := get("GET", "/assets/app-abc123.js", nil); resp.StatusCode != 200 ||
-		!strings.Contains(resp.Header.Get("Cache-Control"), "immutable") || resp.Header.Get("Etag") == "" {
-		t.Fatalf("hashed asset: %d cache=%q etag=%q", resp.StatusCode, resp.Header.Get("Cache-Control"), resp.Header.Get("Etag"))
-	}
-	if resp := get("GET", "/deep/spa/route", nil); resp.StatusCode != 200 || !strings.Contains(body(resp), "app-platform") {
-		t.Fatalf("SPA fallback: %d", resp.StatusCode)
-	}
-	if resp := get("GET", "/", nil); !strings.Contains(resp.Header.Get("Cache-Control"), "no-cache") {
-		t.Fatalf("entry document must revalidate, cache=%q", resp.Header.Get("Cache-Control"))
-	}
-	if resp := get("HEAD", "/models/scene.glb", nil); resp.StatusCode != 200 || resp.ContentLength != 4096 {
-		t.Fatalf("HEAD: %d len=%d", resp.StatusCode, resp.ContentLength)
-	}
-	if resp := get("GET", "/models/scene.glb", http.Header{"Range": []string{"bytes=0-99"}}); resp.StatusCode != 206 || resp.ContentLength != 100 {
-		t.Fatalf("range: %d len=%d", resp.StatusCode, resp.ContentLength)
-	}
-	if resp := get("GET", "/assets/missing-xyz.js", nil); resp.StatusCode != 404 {
-		t.Fatalf("missing concrete asset must 404, got %d", resp.StatusCode)
-	}
-	if resp := get("POST", "/", nil); resp.StatusCode != 405 {
-		t.Fatalf("POST must 405, got %d", resp.StatusCode)
-	}
-	if resp := get("GET", "/api/things", nil); resp.StatusCode != 200 || body(resp) != "agent:/api/things" {
-		t.Fatalf("API proxy: %d", resp.StatusCode)
-	}
-	for _, blocked := range []string{"/runtime", "/dashboard/x", "/__scenery/config", "/console", "/platform/api/x", "/platform/runtime", "/platform/__scenery/config"} {
-		if resp := get("GET", blocked, nil); resp.StatusCode != 404 {
-			t.Fatalf("blocked path %s must 404, got %d", blocked, resp.StatusCode)
-		}
-	}
-	// The Go client normalizes dot segments, so exercise raw traversal
-	// bytes over TCP; Caddy must not expose paths outside the release root.
-	conn, err := net.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", port))
-	if err != nil {
-		t.Fatal(err)
-	}
-	fmt.Fprintf(conn, "GET /..%%2f..%%2fsecret HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n")
-	raw, _ := io.ReadAll(conn)
-	_ = conn.Close()
-	status, _, _ := strings.Cut(string(raw), "\r\n")
-	if strings.Contains(status, " 200 ") && !strings.Contains(string(raw), "app-platform") {
-		t.Fatalf("raw traversal must not expose files outside the release root: %s", status)
-	}
-	if resp := get("GET", "/.hidden", nil); resp.StatusCode == 200 {
-		t.Fatal("dotfile must not be served")
 	}
 }

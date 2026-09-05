@@ -256,10 +256,6 @@ func splitRoutePath(path string) []string {
 	return strings.Split(strings.TrimPrefix(path, "/"), "/")
 }
 
-func (p routePattern) match(path string) (routeParams, bool) {
-	return p.matchSegments(splitRoutePath(path))
-}
-
 // matchSegments matches pre-split request segments. Route resolution tests one
 // request against every candidate route, so splitting the path per candidate is
 // repeated work proportional to the route table.

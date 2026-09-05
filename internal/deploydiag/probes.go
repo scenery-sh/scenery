@@ -67,7 +67,7 @@ func DefaultHTTPProbe(ctx context.Context, rawURL string) HTTPProbeResult {
 	if err != nil {
 		return HTTPProbeResult{Error: err.Error()}
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	return HTTPProbeResult{OK: true, StatusCode: resp.StatusCode}
 }
 
@@ -82,7 +82,7 @@ func DefaultPublicIP(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		return "", fmt.Errorf("api.ipify.org returned HTTP %d", resp.StatusCode)
 	}

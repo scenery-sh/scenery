@@ -7,18 +7,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
-	"net/http"
-	"net/http/httptest"
 	"os"
-	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/devdash"
-	"scenery.sh/internal/netprobe"
 	"scenery.sh/internal/victoria"
 )
 
@@ -318,77 +313,6 @@ func TestVictoriaRecoveryFailureIsVisible(t *testing.T) {
 	}
 }
 
-func reachableVictoriaTestSubstrate(t *testing.T, ownerPID int) localagent.Substrate {
-	t.Helper()
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
-	t.Cleanup(server.Close)
-	urls := make(map[string]string)
-	endpoints := make(map[string]string)
-	pids := make(map[string]int)
-	for _, spec := range victoria.ComponentSpecs() {
-		urls[spec.Name] = server.URL
-		endpoints[spec.Name] = server.URL + spec.EndpointPath
-		pids[spec.Name] = ownerPID
-	}
-	return localagent.Substrate{
-		Kind:      localagent.SubstrateVictoria,
-		Status:    "ready",
-		OwnerPID:  ownerPID,
-		PIDs:      pids,
-		URLs:      urls,
-		Endpoints: endpoints,
-	}
-}
-
-func configureManagedVictoriaTestProcesses(t *testing.T, supervisor *devSupervisor) map[string]int {
-	t.Helper()
-	if supervisor == nil {
-		t.Fatal("configure managed Victoria test processes: nil supervisor")
-	}
-	executable, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	script := filepath.Join(t.TempDir(), "victoria-test-process")
-	scriptBody := "#!/bin/sh\nSCENERY_VICTORIA_PROCESS_HELPER=1 exec " + shellQuote(executable) + " -test.run='^TestVictoriaManagedProcessHelper$' -- \"$@\"\n"
-	if err := os.WriteFile(script, []byte(scriptBody), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	specs := victoria.ComponentSpecs()
-	ports := make(map[string]int, len(specs))
-	binaryPaths := make(map[string]string, len(specs))
-	listeners := make([]net.Listener, 0, len(specs))
-	for i := range specs {
-		listener, err := net.Listen("tcp", "127.0.0.1:0")
-		if err != nil {
-			t.Fatal(err)
-		}
-		listeners = append(listeners, listener)
-		port := listener.Addr().(*net.TCPAddr).Port
-		specs[i].DefaultPort = port
-		ports[specs[i].Name] = port
-		binaryPaths[specs[i].Name] = script
-	}
-	for _, listener := range listeners {
-		_ = listener.Close()
-	}
-	config := victoria.StartConfig{Components: specs, BinaryPaths: binaryPaths}
-	supervisor.victoriaProcesses = victoriaProcessConfig{
-		start: func(ctx context.Context, root string, console victoria.Console) *victoria.Stack {
-			return victoria.StartAtRootWithConfig(ctx, root, console, config)
-		},
-		portsAvailable: func() bool {
-			for _, port := range ports {
-				if netprobe.BindFree(net.JoinHostPort("127.0.0.1", strconv.Itoa(port))) != nil {
-					return false
-				}
-			}
-			return true
-		},
-	}
-	return ports
-}
-
 func TestVictoriaManagedProcessHelper(t *testing.T) {
 	t.Parallel()
 
@@ -412,79 +336,6 @@ func TestVictoriaManagedProcessHelper(t *testing.T) {
 		}
 		_ = conn.Close()
 	}
-}
-
-// killVictoriaTestStack reaps stand-in Victoria processes at test end. Once a
-// shared stack is registered it is marked external, so Stack.Interrupt and
-// context cancellation both leave its processes alive; without an explicit
-// PID kill every registered test stack outlives the test binary.
-func killVictoriaTestStack(t *testing.T, stack *victoria.Stack) {
-	t.Helper()
-	if stack == nil {
-		return
-	}
-	t.Cleanup(func() {
-		for _, pid := range stack.SubstrateRequest(0).PIDs {
-			if pid <= 0 {
-				continue
-			}
-			process, err := os.FindProcess(pid)
-			if err != nil {
-				continue
-			}
-			_ = process.Kill()
-		}
-	})
-}
-
-func killVictoriaTestComponent(t *testing.T, stack *victoria.Stack, name string) {
-	t.Helper()
-	pid := stack.SubstrateRequest(0).PIDs[name]
-	if pid <= 0 {
-		t.Fatalf("Victoria component %q has no managed process", name)
-	}
-	process, err := os.FindProcess(pid)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := process.Kill(); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func containsPID(pids map[string]int, want int) bool {
-	for _, pid := range pids {
-		if pid == want {
-			return true
-		}
-	}
-	return false
-}
-
-func waitForVictoriaPIDChange(t *testing.T, ctx context.Context, client *localagent.Client, component string, previous int) localagent.Substrate {
-	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		substrate, err := client.GetSubstrate(ctx, localagent.SubstrateVictoria)
-		if err == nil && substrate.Status == "ready" && substrate.PIDs[component] > 0 && substrate.PIDs[component] != previous {
-			return substrate
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	t.Fatalf("Victoria component %s PID did not change from %d", component, previous)
-	return localagent.Substrate{}
-}
-
-func waitForVictoriaPortAvailable(t *testing.T, port int) {
-	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if netprobe.BindFree(net.JoinHostPort("127.0.0.1", strconv.Itoa(port))) == nil {
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	t.Fatalf("Victoria port %d did not become available", port)
 }
 
 func TestBuildOTLPTraceProtoErrorStatusUsesCodeField(t *testing.T) {

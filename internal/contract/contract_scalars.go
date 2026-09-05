@@ -45,7 +45,7 @@ func (value Int) MarshalJSON() ([]byte, error) { return json.Marshal(value.Strin
 func (value *Int) UnmarshalJSON(data []byte) error {
 	var text string
 	if err := json.Unmarshal(data, &text); err != nil {
-		return fmt.Errorf("Scenery int must be a JSON string: %w", err)
+		return fmt.Errorf("scenery int must be a JSON string: %w", err)
 	}
 	parsed, err := ParseInt(text)
 	if err != nil {
@@ -126,7 +126,7 @@ func (value Decimal) MarshalJSON() ([]byte, error) { return json.Marshal(value.S
 func (value *Decimal) UnmarshalJSON(data []byte) error {
 	var text string
 	if err := json.Unmarshal(data, &text); err != nil {
-		return fmt.Errorf("Scenery decimal must be a JSON string: %w", err)
+		return fmt.Errorf("scenery decimal must be a JSON string: %w", err)
 	}
 	parsed, err := ParseDecimal(text)
 	if err != nil || parsed.String() != text {

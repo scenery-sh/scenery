@@ -35,6 +35,12 @@ go test -race ./internal/edge
 go test ./cmd/scenery
 ```
 
+Release proof for static frontend HTTP behavior lives in
+`cmd/scenery/harness_self_edge_static.go`, called by the release edge-process
+step. Preserve its cache, SPA, method, byte-range, proxy, blocked-path, and
+traversal checks when changing the renderer or publisher. A missing managed
+Caddy fails that proof explicitly; it must not turn into a passing skip.
+
 ## Child Agent Index
 
 None.

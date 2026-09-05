@@ -144,8 +144,18 @@ func workspaceFingerprint(ctx context.Context, repoRoot string) (string, error) 
 
 func workspaceFingerprintFromPaths(repoRoot string, paths []byte) (string, error) {
 	hash := sha256.New()
+	// Fingerprint the selected tool, not the GOROOT baked into this runner.
+	goPath, err := exec.LookPath("go")
+	if err != nil {
+		return "", err
+	}
+	goInfo, err := os.Stat(goPath)
+	if err != nil {
+		return "", err
+	}
+	_, _ = fmt.Fprintf(hash, "%s\x00%d\x00%d\x00", goPath, goInfo.Size(), goInfo.ModTime().UnixNano())
 	for _, value := range []string{
-		runtime.Version(), runtime.GOROOT(), runtime.GOOS, runtime.GOARCH,
+		runtime.Version(), envpolicy.Get("GOROOT"), runtime.GOOS, runtime.GOARCH,
 		envpolicy.Get("CGO_ENABLED"), envpolicy.Get("CGO_CFLAGS"), envpolicy.Get("CGO_CPPFLAGS"), envpolicy.Get("CGO_CXXFLAGS"), envpolicy.Get("CGO_LDFLAGS"),
 		envpolicy.Get("GOEXPERIMENT"), envpolicy.Get("GOFLAGS"), envpolicy.Get("GOTOOLCHAIN"), envpolicy.Get("CC"), envpolicy.Get("CXX"), envpolicy.Get("PKG_CONFIG"),
 	} {

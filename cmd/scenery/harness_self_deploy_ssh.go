@@ -53,7 +53,7 @@ func runHarnessDeploySSHProcessProbeCheck(_ context.Context, _ string) (map[stri
 	if err != nil {
 		return nil, nil, err
 	}
-	defer os.RemoveAll(root)
+	defer func() { _ = os.RemoveAll(root) }()
 	appRoot := filepath.Join(root, "app with spaces")
 	if err := os.MkdirAll(appRoot, 0o755); err != nil {
 		return nil, nil, err

@@ -52,7 +52,7 @@ func runHarnessAgentRestartProbeCheck(ctx context.Context, _ string) (map[string
 	if err != nil {
 		return nil, nil, err
 	}
-	defer os.RemoveAll(home)
+	defer func() { _ = os.RemoveAll(home) }()
 	paths := localagent.PathsForHome(home)
 	if err := localagent.EnsureDirs(paths); err != nil {
 		return nil, nil, err
@@ -199,7 +199,7 @@ func assertHarnessAgentRoute(ctx context.Context, routerAddr, sessionID string) 
 	if err != nil {
 		return err
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	body, _ := io.ReadAll(response.Body)
 	if response.StatusCode != http.StatusOK || string(body) != "route ok" {
 		return fmt.Errorf("agent route status=%d body=%q", response.StatusCode, body)

@@ -84,7 +84,7 @@ func TestFederationTransportBoundsAndRedirectCredentialIsolation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusTemporaryRedirect {
 		t.Fatalf("redirect status = %d", response.StatusCode)
 	}
@@ -139,7 +139,7 @@ func TestFederationCloseCancelsBackgroundRefresh(t *testing.T) {
 	select {
 	case <-started:
 	case <-time.After(2 * time.Second):
-		f.Close()
+		_ = f.Close()
 		t.Fatal("background refresh did not start")
 	}
 	closed := make(chan struct{})
@@ -222,7 +222,7 @@ func TestFederationManualPaginationUsesSDKPages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	if err := f.Refresh(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -256,7 +256,7 @@ func TestFederationUnavailableConnectionRetriesOnRefreshCadence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	if err := f.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}

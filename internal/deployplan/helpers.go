@@ -1,10 +1,8 @@
 package deployplan
 
 import (
-	"fmt"
 	"maps"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 
@@ -110,24 +108,6 @@ func firstError(diagnostics []Diagnostic) string {
 func revisionHash(prefix string, value any) string { return graph.RevisionHash(prefix, value) }
 func isCanonicalSHA256Digest(value string) bool    { return graph.IsCanonicalSHA256Digest(value) }
 func rejectPathSymlinks(root, target string) error { return scn.RejectPathSymlinks(root, target) }
-
-func confinedPath(root, relative string) (string, error) {
-	if filepath.IsAbs(relative) || strings.HasPrefix(filepath.Clean(relative), "..") {
-		return "", fmt.Errorf("path escape")
-	}
-	absoluteRoot, err := filepath.Abs(root)
-	if err != nil {
-		return "", err
-	}
-	target := filepath.Join(absoluteRoot, filepath.FromSlash(relative))
-	if !scn.PathWithin(absoluteRoot, target) {
-		return "", fmt.Errorf("path escape")
-	}
-	if err := scn.RejectPathSymlinks(absoluteRoot, filepath.Dir(target)); err != nil {
-		return "", err
-	}
-	return target, nil
-}
 
 func atomicWriteSynced(path string, data []byte, mode os.FileMode) error {
 	return atomicfile.Write(path, data, mode, atomicfile.Options{SyncFile: true, SyncDir: true})

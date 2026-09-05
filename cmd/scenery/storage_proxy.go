@@ -212,7 +212,7 @@ func handleStorageProxyObject(w http.ResponseWriter, req *http.Request, store pu
 			writeStorageProxyError(w, err)
 			return
 		}
-		defer body.Close()
+		defer func() { _ = body.Close() }()
 		setStorageProxyObjectHeaders(w.Header(), obj)
 		_, _ = io.Copy(w, body)
 	case http.MethodDelete:

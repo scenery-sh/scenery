@@ -98,7 +98,7 @@ func listCRUD(ctx context.Context, database SQL, spec CRUDSpec, input map[string
 	if err != nil {
 		return nil, fmt.Errorf("CRUD %s list: %w", spec.Address, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	items := make([]map[string]any, 0)
 	for rows.Next() {
 		item, scanErr := scanCRUDRow(rows, spec.Fields)
@@ -261,7 +261,7 @@ func listCRUDPage(ctx context.Context, database SQL, spec CRUDSpec, input map[st
 	if err != nil {
 		return nil, fmt.Errorf("CRUD %s list: %w", spec.Address, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	items := make([]map[string]any, 0, limit+1)
 	for rows.Next() {
 		item, scanErr := scanCRUDRow(rows, spec.Fields)

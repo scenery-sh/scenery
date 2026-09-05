@@ -336,7 +336,7 @@ func (c *HTTPClient) Info(ctx context.Context) (Info, error) {
 }
 
 func (c *HTTPClient) StartConversation(ctx context.Context, request StartRequest) (StartResult, error) {
-	control := request.RequestMetadata.controlBase(assistantcontrol.RequestCreateConversation)
+	control := request.controlBase(assistantcontrol.RequestCreateConversation)
 	control.RunID = request.RunID
 	control.Message = request.Message
 	control.Data = append([]byte(nil), request.Data...)
@@ -361,7 +361,7 @@ func (c *HTTPClient) StartConversation(ctx context.Context, request StartRequest
 }
 
 func (c *HTTPClient) SendTurn(ctx context.Context, request TurnRequest) (TurnResult, error) {
-	control := request.RequestMetadata.controlBase(assistantcontrol.RequestSendTurn)
+	control := request.controlBase(assistantcontrol.RequestSendTurn)
 	control.PrivateSessionID = request.PrivateSessionID
 	control.ContinuationToken = request.ContinuationToken
 	control.RunID = request.RunID
@@ -381,7 +381,7 @@ func (c *HTTPClient) SendTurn(ctx context.Context, request TurnRequest) (TurnRes
 }
 
 func (c *HTTPClient) ResolveApproval(ctx context.Context, request ApprovalRequest) error {
-	control := request.RequestMetadata.controlBase(assistantcontrol.RequestResolveApproval)
+	control := request.controlBase(assistantcontrol.RequestResolveApproval)
 	control.PrivateSessionID = request.PrivateSessionID
 	control.ContinuationToken = request.ContinuationToken
 	control.RunID = request.RunID
@@ -398,7 +398,7 @@ func (c *HTTPClient) ResolveApproval(ctx context.Context, request ApprovalReques
 }
 
 func (c *HTTPClient) CancelRun(ctx context.Context, request CancelRequest) error {
-	control := request.RequestMetadata.controlBase(assistantcontrol.RequestCancelRun)
+	control := request.controlBase(assistantcontrol.RequestCancelRun)
 	control.PrivateSessionID = request.PrivateSessionID
 	control.ContinuationToken = request.ContinuationToken
 	control.RunID = request.RunID
@@ -422,7 +422,7 @@ func (c *HTTPClient) StreamEvents(ctx context.Context, request StreamRequest) (i
 	// Validate the complete private identity even though GET carries the
 	// session and cursor in its URL. This keeps all control inputs on the same
 	// assistantcontrol validation path as POST operations.
-	control := request.RequestMetadata.controlBase(assistantcontrol.RequestResumeEvents)
+	control := request.controlBase(assistantcontrol.RequestResumeEvents)
 	control.PrivateSessionID = request.PrivateSessionID
 	control.ContinuationToken = request.ContinuationToken
 	control.After = request.After
@@ -547,7 +547,7 @@ func (c *HTTPClient) doControl(ctx context.Context, request assistantcontrol.Req
 		}
 		return assistantcontrol.Response{}, ErrUnavailable
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode >= 300 && response.StatusCode < 400 {
 		return assistantcontrol.Response{}, ErrRedirectRejected
 	}

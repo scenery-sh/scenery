@@ -34,37 +34,33 @@ func labelPatternMatches(pattern, label string) bool {
 
 type authoredBlockSchema = spec.SourceBlockSchema
 type authoredAttributeSchema = spec.SourceAttributeSchema
-type authoredChildSchema = spec.SourceChildSchema
 
 type AuthoredBlockSchema = spec.SourceBlockSchema
 type AuthoredAttributeSchema = spec.SourceAttributeSchema
 type AuthoredChildSchema = spec.SourceChildSchema
-type resourceSchema = spec.ResourceSchema
-type resourceConditionalRequirement = spec.ConditionalRequirement
-type dynamicRevisionDomain = spec.DynamicRevisionDomain
+
 type authoredFieldKey = spec.AuthoredFieldKey
-type authoredFieldOverride = spec.AuthoredFieldOverride
 
 var (
-	resourceSchemas                  = spec.ResourceSchemas()
-	resourceConditionalRequirements  = spec.ConditionalRequirements()
-	authoredConditionalRequirements  = spec.AuthoredConditionalRequirements()
-	dynamicResourceRevisionDomains   = spec.DynamicResourceRevisionDomains()
-	authoredStructuralSchemas        = spec.StructuralSourceSchemas()
-	authoredResourceSchemas          = spec.ResourceSourceSchemas()
-	authoredResourceChildren         = spec.ResourceSourceChildren()
-	deploymentListenerSourceSchema   = spec.NamedSourceSchemas()["deployment_listener"]
-	httpSourceSchema                 = spec.NamedSourceSchemas()["http"]
-	httpCookieSourceSchema           = spec.NamedSourceSchemas()["http_cookie"]
-	httpHeaderSourceSchema           = spec.NamedSourceSchemas()["http_header"]
-	httpMultipartPartSourceSchema    = spec.NamedSourceSchemas()["http_multipart_part"]
-	httpPathParameterSourceSchema    = spec.NamedSourceSchemas()["http_path_parameter"]
-	httpPathTailSourceSchema         = spec.NamedSourceSchemas()["http_path_tail"]
-	httpQueryParameterSourceSchema   = spec.NamedSourceSchemas()["http_query_parameter"]
-	httpResponseCookieSourceSchema   = spec.NamedSourceSchemas()["http_response_cookie"]
-	httpResponseHeaderSourceSchema   = spec.NamedSourceSchemas()["http_response_header"]
-	operationIdempotencySourceSchema = spec.NamedSourceSchemas()["operation_idempotency"]
-	authoredFieldOverrides           = spec.AuthoredFieldOverrides()
+	resourceSchemas = spec.ResourceSchemas()
+
+	authoredConditionalRequirements = spec.AuthoredConditionalRequirements()
+	dynamicResourceRevisionDomains  = spec.DynamicResourceRevisionDomains()
+	authoredStructuralSchemas       = spec.StructuralSourceSchemas()
+	authoredResourceSchemas         = spec.ResourceSourceSchemas()
+	authoredResourceChildren        = spec.ResourceSourceChildren()
+	deploymentListenerSourceSchema  = spec.NamedSourceSchemas()["deployment_listener"]
+
+	httpCookieSourceSchema         = spec.NamedSourceSchemas()["http_cookie"]
+	httpHeaderSourceSchema         = spec.NamedSourceSchemas()["http_header"]
+	httpMultipartPartSourceSchema  = spec.NamedSourceSchemas()["http_multipart_part"]
+	httpPathParameterSourceSchema  = spec.NamedSourceSchemas()["http_path_parameter"]
+	httpPathTailSourceSchema       = spec.NamedSourceSchemas()["http_path_tail"]
+	httpQueryParameterSourceSchema = spec.NamedSourceSchemas()["http_query_parameter"]
+	httpResponseCookieSourceSchema = spec.NamedSourceSchemas()["http_response_cookie"]
+	httpResponseHeaderSourceSchema = spec.NamedSourceSchemas()["http_response_header"]
+
+	authoredFieldOverrides = spec.AuthoredFieldOverrides()
 )
 
 func CoreSchema(kind string) (map[string]any, bool) {

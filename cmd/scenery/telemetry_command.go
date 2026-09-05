@@ -175,7 +175,7 @@ func loadCLITelemetry(path string, opts telemetryQueryOptions) (telemetryRespons
 	if err != nil {
 		return telemetryResponse{}, fmt.Errorf("read telemetry: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	appFilter := stringSet(opts.Apps)
 	commandFilter := stringSet(opts.Commands)
@@ -407,13 +407,13 @@ func writeTelemetryHuman(w io.Writer, response telemetryResponse) error {
 			return err
 		}
 		table := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
-		fmt.Fprintln(table, "APP\tCALLS\tAVG\tP50\tP95\tMAX\tFAILURES")
+		_, _ = fmt.Fprintln(table, "APP\tCALLS\tAVG\tP50\tP95\tMAX\tFAILURES")
 		for _, app := range response.Apps {
 			label := app.App.ID
 			if app.App.Name != app.App.ID {
 				label = app.App.Name + " (" + app.App.ID + ")"
 			}
-			fmt.Fprintf(table, "%s\t%d\t%.1fms\t%dms\t%dms\t%dms\t%d\n", label, app.Count, app.AverageMS, app.P50DurationMS, app.P95DurationMS, app.MaxDurationMS, app.FailureCount)
+			_, _ = fmt.Fprintf(table, "%s\t%d\t%.1fms\t%dms\t%dms\t%dms\t%d\n", label, app.Count, app.AverageMS, app.P50DurationMS, app.P95DurationMS, app.MaxDurationMS, app.FailureCount)
 		}
 		if err := table.Flush(); err != nil {
 			return err
@@ -424,9 +424,9 @@ func writeTelemetryHuman(w io.Writer, response telemetryResponse) error {
 			return err
 		}
 		table := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
-		fmt.Fprintln(table, "COMMAND\tCALLS\tAVG\tP50\tP95\tMAX\tFAILURES")
+		_, _ = fmt.Fprintln(table, "COMMAND\tCALLS\tAVG\tP50\tP95\tMAX\tFAILURES")
 		for _, command := range response.Commands {
-			fmt.Fprintf(table, "%s\t%d\t%.1fms\t%dms\t%dms\t%dms\t%d\n", command.Command, command.Count, command.AverageMS, command.P50DurationMS, command.P95DurationMS, command.MaxDurationMS, command.FailureCount)
+			_, _ = fmt.Fprintf(table, "%s\t%d\t%.1fms\t%dms\t%dms\t%dms\t%d\n", command.Command, command.Count, command.AverageMS, command.P50DurationMS, command.P95DurationMS, command.MaxDurationMS, command.FailureCount)
 		}
 		if err := table.Flush(); err != nil {
 			return err
@@ -437,9 +437,9 @@ func writeTelemetryHuman(w io.Writer, response telemetryResponse) error {
 			return err
 		}
 		table := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
-		fmt.Fprintln(table, "MEASUREMENT\tCALLS\tSAMPLE\tAVG\tP50\tP95\tMAX\tFAILURES")
+		_, _ = fmt.Fprintln(table, "MEASUREMENT\tCALLS\tSAMPLE\tAVG\tP50\tP95\tMAX\tFAILURES")
 		for _, measurement := range response.Measurements {
-			fmt.Fprintf(table, "%s\t%d\t%d\t%.1fms\t%dms\t%dms\t%dms\t%d\n", measurement.Measurement, measurement.Count, measurement.PercentileSampleCount, measurement.AverageMS, measurement.P50DurationMS, measurement.P95DurationMS, measurement.MaxDurationMS, measurement.FailureCount)
+			_, _ = fmt.Fprintf(table, "%s\t%d\t%d\t%.1fms\t%dms\t%dms\t%dms\t%d\n", measurement.Measurement, measurement.Count, measurement.PercentileSampleCount, measurement.AverageMS, measurement.P50DurationMS, measurement.P95DurationMS, measurement.MaxDurationMS, measurement.FailureCount)
 		}
 		if err := table.Flush(); err != nil {
 			return err
@@ -450,13 +450,13 @@ func writeTelemetryHuman(w io.Writer, response telemetryResponse) error {
 			return err
 		}
 		table := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
-		fmt.Fprintln(table, "AT\tAPP\tCOMMAND\tMEASUREMENT\tDURATION\tEXIT\tMODE\tVERSION")
+		_, _ = fmt.Fprintln(table, "AT\tAPP\tCOMMAND\tMEASUREMENT\tDURATION\tEXIT\tMODE\tVERSION")
 		for _, record := range response.Records {
 			appID := "-"
 			if record.App != nil {
 				appID = record.App.ID
 			}
-			fmt.Fprintf(table, "%s\t%s\t%s\t%s\t%dms\t%d\t%s\t%s\n", record.At.Local().Format("2006-01-02 15:04:05"), appID, record.Command, telemetryRecordMeasurement(record), record.DurationMS, record.ExitCode, record.Mode, record.Version)
+			_, _ = fmt.Fprintf(table, "%s\t%s\t%s\t%s\t%dms\t%d\t%s\t%s\n", record.At.Local().Format("2006-01-02 15:04:05"), appID, record.Command, telemetryRecordMeasurement(record), record.DurationMS, record.ExitCode, record.Mode, record.Version)
 		}
 		if err := table.Flush(); err != nil {
 			return err

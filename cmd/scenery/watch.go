@@ -371,7 +371,7 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode, desktop bool, appR
 	}
 	supervisor.devDomainURL = preparedSession.DomainURL
 	supervisor.adoptManagedFrontends(preparedSession.FrontendProcesses)
-	defer supervisor.Close()
+	defer func() { _ = supervisor.Close() }()
 	if err := supervisor.Start(ctx); err != nil {
 		return err
 	}
@@ -407,7 +407,7 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode, desktop bool, appR
 		}
 	}
 	if watcher != nil {
-		defer watcher.Close()
+		defer func() { _ = watcher.Close() }()
 	}
 
 	for {

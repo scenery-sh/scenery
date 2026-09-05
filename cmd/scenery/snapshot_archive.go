@@ -255,7 +255,7 @@ func loadSnapshot(ctx context.Context, appRoot string, cfg appcfg.Config, opts s
 	if err != nil {
 		return snapshotLoadResult{}, err
 	}
-	defer archive.reader.Close()
+	defer func() { _ = archive.reader.Close() }()
 	if archive.manifest.App.ID != cfg.AppID() {
 		return snapshotLoadResult{}, fmt.Errorf("snapshot app id %q does not match current app id %q", archive.manifest.App.ID, cfg.AppID())
 	}
@@ -406,7 +406,7 @@ func verifySnapshot(filePath string) (snapshotVerifyResult, error) {
 	if err != nil {
 		return snapshotVerifyResult{}, err
 	}
-	defer archive.reader.Close()
+	defer func() { _ = archive.reader.Close() }()
 	result := snapshotVerifyResult{
 		cliPayloadIdentity: newCLIPayloadIdentity("scenery.snapshot.verify"),
 		Archive:            input,
@@ -628,7 +628,7 @@ func requireSnapshotSchemas(ctx context.Context, database postgresdb.Database, s
 	if err != nil {
 		return err
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	for _, schema := range schemas {
 		var exists bool
 		if err := db.QueryRowContext(ctx, `select exists(select 1 from pg_namespace where nspname = $1)`, schema.Schema).Scan(&exists); err != nil {
@@ -667,7 +667,7 @@ func restoreSnapshotDatabase(ctx context.Context, archive *snapshotArchive, data
 	if err != nil {
 		return err
 	}
-	defer dump.Close()
+	defer func() { _ = dump.Close() }()
 	flags := []string{"--exit-on-error"}
 	if mode == "merge" {
 		flags = append(flags, "--data-only", "--single-transaction")
@@ -832,7 +832,7 @@ func writeSnapshotZipFile(file *zip.File, target string, atomic bool) error {
 	if err != nil {
 		return err
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 	writePath := target
 	var output *os.File
 	if atomic {
@@ -880,6 +880,6 @@ func syncSnapshotDirectory(directory string) error {
 	if err != nil {
 		return err
 	}
-	defer handle.Close()
+	defer func() { _ = handle.Close() }()
 	return handle.Sync()
 }

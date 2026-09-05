@@ -47,8 +47,8 @@ func runBindingCLI(stdout, stderr io.Writer, arguments []string) (bool, error) {
 		return true, err
 	}
 	requestPath := request.Name()
-	defer os.Remove(requestPath)
-	if err := request.Chmod(0o600); err == nil {
+	defer func() { _ = os.Remove(requestPath) }()
+	if err = request.Chmod(0o600); err == nil {
 		var encodedInput []byte
 		encodedInput, err = json.Marshal(input)
 		if err == nil {
@@ -302,7 +302,7 @@ func buildCLIInput(resources []graph.Resource, binding graph.Resource, arguments
 func writeCLIHelp(output io.Writer, binding graph.Resource) {
 	cli, _ := binding.Spec["cli"].(map[string]any)
 	command := strings.Join(contractStrings(cli["command"]), " ")
-	fmt.Fprintf(output, "Usage: scenery %s", command)
+	_, _ = fmt.Fprintf(output, "Usage: scenery %s", command)
 	arguments := contractChildren(cli, "argument")
 	sort.Slice(arguments, func(i, j int) bool {
 		left, _ := contractInteger(arguments[i]["position"])
@@ -310,16 +310,16 @@ func writeCLIHelp(output io.Writer, binding graph.Resource) {
 		return left < right
 	})
 	for _, argument := range arguments {
-		fmt.Fprintf(output, " <%s>", stringValueForCLI(argument["name"]))
+		_, _ = fmt.Fprintf(output, " <%s>", stringValueForCLI(argument["name"]))
 	}
 	for _, flag := range contractChildren(cli, "flag") {
-		fmt.Fprintf(output, " [--%s <value>]", stringValueForCLI(flag["name"]))
+		_, _ = fmt.Fprintf(output, " [--%s <value>]", stringValueForCLI(flag["name"]))
 	}
-	fmt.Fprintln(output)
-	fmt.Fprintln(output, "Outcomes:")
+	_, _ = fmt.Fprintln(output)
+	_, _ = fmt.Fprintln(output, "Outcomes:")
 	for _, outcome := range contractChildren(cli, "outcome") {
 		exit, _ := contractInteger(outcome["exit"])
-		fmt.Fprintf(output, "  %-28s exit %d\n", contractReference(outcome["when"]), exit)
+		_, _ = fmt.Fprintf(output, "  %-28s exit %d\n", contractReference(outcome["when"]), exit)
 	}
 }
 
@@ -350,7 +350,7 @@ func runBindingCompletion(output io.Writer, words []string) error {
 	}
 	sort.Strings(values)
 	for _, candidate := range values {
-		fmt.Fprintln(output, candidate)
+		_, _ = fmt.Fprintln(output, candidate)
 	}
 	return nil
 }

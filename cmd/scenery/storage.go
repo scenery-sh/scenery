@@ -146,7 +146,7 @@ func runStorageCommand(args []string, stdout io.Writer) error {
 		if err != nil {
 			return err
 		}
-		defer body.Close()
+		defer func() { _ = body.Close() }()
 		if err := os.MkdirAll(filepath.Dir(opts.Output), 0o755); err != nil {
 			return err
 		}

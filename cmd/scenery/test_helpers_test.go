@@ -15,7 +15,6 @@ import (
 	"runtime"
 	"sort"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -412,58 +411,6 @@ func isolateCommandCacheRootAt(t *testing.T, root string) string {
 	return root
 }
 
-func startTestAgentServer(t *testing.T, ctx context.Context) (localagent.Paths, <-chan error) {
-	return startTestAgentServerWithPathSetup(t, ctx, nil)
-}
-
-func startTestAgentServerWithPathSetup(t *testing.T, ctx context.Context, setup func(localagent.Paths)) (localagent.Paths, <-chan error) {
-	t.Helper()
-	paths := isolateCommandAgentHome(t)
-	return startTestAgentServerAtPaths(t, ctx, paths, setup)
-}
-
-// startTestAgentServerAtPaths starts an agent without changing package-global
-// command path resolution. Parallel tests use it with their own temp home.
-func startTestAgentServerAtPaths(t *testing.T, ctx context.Context, paths localagent.Paths, setup func(localagent.Paths)) (localagent.Paths, <-chan error) {
-	t.Helper()
-	if err := localagent.EnsureDirs(paths); err != nil {
-		t.Fatal(err)
-	}
-	if setup != nil {
-		setup(paths)
-	}
-	server, err := localagent.NewServer(localagent.RunOptions{
-		Home:       paths.Home,
-		RouterAddr: "127.0.0.1:0",
-		DashboardBackend: localagent.Backend{
-			Network: "tcp",
-			Addr:    "127.0.0.1:9",
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	done := make(chan error, 1)
-	go func() { done <- server.Run(ctx) }()
-	client := localagent.NewClient(paths.SocketPath)
-	if err := waitForAgentCommandPing(ctx, client); err != nil {
-		t.Fatal(err)
-	}
-	return paths, done
-}
-
-func waitForTestAgentServer(t *testing.T, done <-chan error) {
-	t.Helper()
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("agent shutdown: %v", err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for agent shutdown")
-	}
-}
-
 func containsString(items []string, want string) bool {
 	for _, item := range items {
 		if item == want {
@@ -610,14 +557,6 @@ func repoRootForTest(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return filepath.Clean(root)
-}
-
-func processAliveForTest(pid int) bool {
-	if pid <= 0 {
-		return false
-	}
-	err := syscall.Kill(pid, 0)
-	return err == nil || errors.Is(err, syscall.EPERM)
 }
 
 // waitForTestCondition polls until condition holds. A test that asserts

@@ -49,7 +49,7 @@ func runHarnessAssistantInitProbeCheck(parent context.Context, repoRoot string) 
 	if err != nil {
 		return nil, nil, err
 	}
-	defer os.RemoveAll(root)
+	defer func() { _ = os.RemoveAll(root) }()
 	appRoot := filepath.Join(root, "app")
 	if err := copyHarnessNativeContractFixture(repoRoot, appRoot); err != nil {
 		return nil, nil, err

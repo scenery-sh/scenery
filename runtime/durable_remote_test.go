@@ -18,7 +18,7 @@ func TestDurableRemoteWorkerExecutesJobOverHTTP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	if err := db.ReconcileTasks(context.Background(), []durablestore.TaskDeclaration{{Name: "maps.remote.v1", HandlerRef: "maps.remote.v1"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -62,6 +62,6 @@ func TestDurableRemoteWorkerExecutesJobOverHTTP(t *testing.T) {
 	}()
 
 	sqlDB := openRuntimeDB(t, dsn)
-	defer sqlDB.Close()
+	defer func() { _ = sqlDB.Close() }()
 	waitRuntimeJobState(t, sqlDB, "job-remote-worker", "succeeded")
 }

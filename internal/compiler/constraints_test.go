@@ -47,6 +47,17 @@ func TestRecordCrossFieldValidationIsTypedAndGenerated(t *testing.T) {
 	if diagnostics := validateTypeSystem([]Resource{resource}); hasErrors(diagnostics) {
 		t.Fatalf("valid record validation diagnostics = %#v", diagnostics)
 	}
+	if diagnostics := validateReferences([]Resource{resource}); hasErrors(diagnostics) {
+		t.Fatalf("valid field path rejected as a resource reference: %#v", diagnostics)
+	}
+	validation := resource.Spec["validation"].(map[string]any)
+	for _, path := range []string{"record.run_input.missing", "record.other.end_at"} {
+		validation["path"] = map[string]any{"$ref": path}
+		if diagnostics := validateTypeSystem([]Resource{resource}); !hasDiagnostic(diagnostics, "SCN1232") {
+			t.Fatalf("invalid field path %q was accepted: %#v", path, diagnostics)
+		}
+	}
+	validation["path"] = map[string]any{"$ref": "record.run_input.end_at"}
 	resource.Spec["validation"].(map[string]any)["when"] = map[string]any{"$expression": "input.end_at <= value.start_at"}
 	if diagnostics := validateTypeSystem([]Resource{resource}); !hasDiagnostic(diagnostics, "SCN1233") {
 		t.Fatalf("invalid validation root was accepted: %#v", diagnostics)

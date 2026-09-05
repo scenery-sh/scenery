@@ -145,6 +145,11 @@ Completed numbered ExecPlans are immutable historical records. They do not recei
 
 ## Validation Matrix
 
+Go lint policy lives in `.golangci.yml`; run `golangci-lint run ./...`.
+Keep its explicit correctness-focused set. `errorlint` checks wrapped-error
+comparisons and assertions, but does not mandate wrapping at API boundaries.
+Use a narrowly justified rule-specific suppression only for intentional contracts.
+
 From the repository root, run `.scenery/harness/bin/scenery harness self --quick --summary --write` after editing to refresh `.scenery/harness/agent-context.json`. Use `changed_area.validation_classes` to see which rows matched and run `changed_area.recommended_commands`; matches are cumulative. If the local binary is missing or stale, build it with `go build -o .scenery/harness/bin/scenery ./cmd/scenery`; see [Fresh Worktree Preflight](docs/agent-guide.md#fresh-worktree-preflight) for UI provisioning.
 
 | Changed area | Minimum proof |

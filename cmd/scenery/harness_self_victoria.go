@@ -54,13 +54,13 @@ func runHarnessVictoriaProcessProbeCheck(ctx context.Context, _ string) (map[str
 	if err != nil {
 		return nil, nil, err
 	}
-	defer os.RemoveAll(root)
+	defer func() { _ = os.RemoveAll(root) }()
 
 	occupied, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return nil, nil, err
 	}
-	defer occupied.Close()
+	defer func() { _ = occupied.Close() }()
 	available, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return nil, nil, err
@@ -95,7 +95,7 @@ func runHarnessVictoriaProcessProbeCheck(ctx context.Context, _ string) (map[str
 		BinaryPaths: map[string]string{"logs": failingBinary},
 	})
 	if stack == nil || len(stack.Components()) != 1 || stack.Components()[0].Name() != "metrics" || !stack.Components()[0].External() {
-		return nil, nil, fmt.Errorf("Victoria stack = %+v, want one reused external metrics component", stack)
+		return nil, nil, fmt.Errorf("victoria stack = %+v, want one reused external metrics component", stack)
 	}
 	warning := console.messageContaining("VictoriaLogs unavailable: VictoriaLogs exited before accepting TCP connections")
 	if warning == "" {
@@ -262,7 +262,7 @@ func main() {
 	}
 	select {
 	case result := <-results:
-		return nil, fmt.Errorf("Victoria ensure returned while process lock was held: %+v", result)
+		return nil, fmt.Errorf("victoria ensure returned while process lock was held: %+v", result)
 	case <-time.After(50 * time.Millisecond):
 	}
 	processUnlock()
@@ -379,7 +379,7 @@ func main() {
 	}
 	for name, pid := range after.PIDs {
 		if stopped.PIDs[name] != pid {
-			return nil, fmt.Errorf("Victoria restarted after supervisor shutdown: before=%v after=%v", after.PIDs, stopped.PIDs)
+			return nil, fmt.Errorf("victoria restarted after supervisor shutdown: before=%v after=%v", after.PIDs, stopped.PIDs)
 		}
 	}
 	return map[string]any{

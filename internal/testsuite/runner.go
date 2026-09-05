@@ -268,7 +268,7 @@ func buildMissingBinaries(ctx context.Context, opts Options, packages []testPack
 		if err := temp.Close(); err != nil {
 			return err
 		}
-		defer os.Remove(tempPath)
+		defer func() { _ = os.Remove(tempPath) }()
 		started := time.Now()
 		cmd := exec.CommandContext(ctx, "go", testBinaryBuildArgs(tempPath, pkg.ImportPath)...)
 		configureCommandCancellation(cmd)

@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/app"
@@ -184,16 +183,4 @@ func writeDesktopTestExecutable(t *testing.T, path, content string) {
 	if err := os.Chmod(path, 0o755); err != nil {
 		t.Fatal(err)
 	}
-}
-
-func waitForDesktopTest(t *testing.T, timeout time.Duration, condition func() bool) {
-	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if condition() {
-			return
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	t.Fatal("timed out waiting for desktop test condition")
 }

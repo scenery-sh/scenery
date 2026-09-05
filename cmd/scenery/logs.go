@@ -129,7 +129,7 @@ func runSceneryLogs(ctx context.Context, stdout io.Writer, args []string) error 
 	if err != nil {
 		return err
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	record, sessionRecord, err := devdashAppRecordForRuntime(ctx, store, appID, sessionID, appRoot)
 	if err != nil {

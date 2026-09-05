@@ -111,7 +111,7 @@ func agentCommand(args []string) error {
 		if routerTLS {
 			routerScheme = "https"
 		}
-		fmt.Fprintf(os.Stdout, "{\"type\":\"agent.start\",\"socket_path\":%q,\"router_addr\":%q,\"router_scheme\":%q}\n", paths.SocketPath, firstNonEmpty(opts.RouterAddr, localagent.RouterAddrFromEnv()), routerScheme)
+		_, _ = fmt.Fprintf(os.Stdout, "{\"type\":\"agent.start\",\"socket_path\":%q,\"router_addr\":%q,\"router_scheme\":%q}\n", paths.SocketPath, firstNonEmpty(opts.RouterAddr, localagent.RouterAddrFromEnv()), routerScheme)
 	}
 	dashboardAddr, err := freeLoopbackAddr()
 	if err != nil {
@@ -137,7 +137,7 @@ func agentCommand(args []string) error {
 		_ = server.Close()
 		return err
 	}
-	defer dashboard.Close()
+	defer func() { _ = dashboard.Close() }()
 	return server.Run(ctx)
 }
 
@@ -218,14 +218,14 @@ func agentRestartCommand(args []string) error {
 			"supervised":    supervised,
 		}))
 	}
-	fmt.Fprintf(os.Stdout, "restarted scenery agent")
+	_, _ = fmt.Fprintf(os.Stdout, "restarted scenery agent")
 	if health.PID > 0 {
-		fmt.Fprintf(os.Stdout, " (pid %d)", health.PID)
+		_, _ = fmt.Fprintf(os.Stdout, " (pid %d)", health.PID)
 	}
 	if supervised {
-		fmt.Fprintf(os.Stdout, " under launchd supervisor %s", localagent.AgentLaunchdLabel)
+		_, _ = fmt.Fprintf(os.Stdout, " under launchd supervisor %s", localagent.AgentLaunchdLabel)
 	}
-	fmt.Fprintln(os.Stdout)
+	_, _ = fmt.Fprintln(os.Stdout)
 	return nil
 }
 
@@ -362,7 +362,7 @@ func agentStartFailureFromLog(path string, offset int64) error {
 	if err != nil {
 		return nil
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	if offset > 0 {
 		if _, err := file.Seek(offset, io.SeekStart); err != nil {
 			return nil
@@ -449,7 +449,7 @@ func writeStatus(ctx context.Context, client *localagent.Client, stdout io.Write
 	}
 	writeStatusTable(stdout, sessions, substrates)
 	if opts.Watch {
-		fmt.Fprintln(stdout, "---")
+		_, _ = fmt.Fprintln(stdout, "---")
 	}
 	return nil
 }
@@ -638,7 +638,7 @@ func downCommandWithClient(client *localagent.Client, stdout io.Writer, args []s
 		message := fmt.Sprintf("no scenery dev runtime found for app root %s; runtime stop skipped", appRoot)
 		resp.Messages = append(resp.Messages, message)
 		if !opts.JSON {
-			fmt.Fprintln(stdout, message)
+			_, _ = fmt.Fprintln(stdout, message)
 		}
 		if opts.DB {
 			dbMessage, err := dropSessionManagedDatabase(ctx, appRoot)
@@ -647,14 +647,14 @@ func downCommandWithClient(client *localagent.Client, stdout io.Writer, args []s
 			}
 			resp.Messages = append(resp.Messages, dbMessage)
 			if !opts.JSON {
-				fmt.Fprintln(stdout, dbMessage)
+				_, _ = fmt.Fprintln(stdout, dbMessage)
 			}
 		}
 		if opts.State {
 			stateMessage := "no scenery dev runtime state found to remove"
 			resp.Messages = append(resp.Messages, stateMessage)
 			if !opts.JSON {
-				fmt.Fprintln(stdout, stateMessage)
+				_, _ = fmt.Fprintln(stdout, stateMessage)
 			}
 		}
 		if opts.JSON {
@@ -683,7 +683,7 @@ func downCommandWithClient(client *localagent.Client, stdout io.Writer, args []s
 		if opts.JSON {
 			return writeDownJSON(stdout, resp)
 		}
-		fmt.Fprintln(stdout, resp.Messages[0])
+		_, _ = fmt.Fprintln(stdout, resp.Messages[0])
 		return nil
 	}
 	if opts.DB {
@@ -693,7 +693,7 @@ func downCommandWithClient(client *localagent.Client, stdout io.Writer, args []s
 		}
 		resp.Messages = append(resp.Messages, message)
 		if !opts.JSON {
-			fmt.Fprintln(stdout, message)
+			_, _ = fmt.Fprintln(stdout, message)
 		}
 	}
 	if opts.State {
@@ -704,7 +704,7 @@ func downCommandWithClient(client *localagent.Client, stdout io.Writer, args []s
 		stateMessage := fmt.Sprintf("removed scenery dev runtime state %s", deletedSession.StateRoot)
 		resp.Messages = append(resp.Messages, stateMessage)
 		if !opts.JSON {
-			fmt.Fprintln(stdout, stateMessage)
+			_, _ = fmt.Fprintln(stdout, stateMessage)
 		}
 	}
 	stopMessage := fmt.Sprintf("stopped scenery dev runtime for %s", runtimeLabel)
@@ -712,7 +712,7 @@ func downCommandWithClient(client *localagent.Client, stdout io.Writer, args []s
 	if opts.JSON {
 		return writeDownJSON(stdout, resp)
 	}
-	fmt.Fprintln(stdout, stopMessage)
+	_, _ = fmt.Fprintln(stdout, stopMessage)
 	return nil
 }
 
@@ -885,7 +885,7 @@ func pruneCommandWithDeps(client *localagent.Client, stdout io.Writer, openStore
 		if err != nil {
 			return err
 		}
-		defer store.Close()
+		defer func() { _ = store.Close() }()
 	}
 	for _, session := range sessions {
 		if !pruneSessionEligible(session, cutoff) {
@@ -927,9 +927,9 @@ func pruneCommandWithDeps(client *localagent.Client, stdout io.Writer, openStore
 		})
 	}
 	for _, id := range pruned {
-		fmt.Fprintf(stdout, "pruned scenery session %s\n", id)
+		_, _ = fmt.Fprintf(stdout, "pruned scenery session %s\n", id)
 	}
-	fmt.Fprintf(stdout, "scenery prune complete: pruned=%d skipped=%d dev_events=%d dev_sources=%d\n", len(pruned), len(skipped), devEventsPruned, devSourcesPruned)
+	_, _ = fmt.Fprintf(stdout, "scenery prune complete: pruned=%d skipped=%d dev_events=%d dev_sources=%d\n", len(pruned), len(skipped), devEventsPruned, devSourcesPruned)
 	return nil
 }
 

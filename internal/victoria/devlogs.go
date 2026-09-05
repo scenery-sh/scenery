@@ -53,7 +53,7 @@ func (s *Stack) ExportDevEvent(ctx context.Context, event devdash.DevEvent) erro
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 300 {
 		return fmt.Errorf("VictoriaLogs dev event export failed: %s", resp.Status)
 	}
@@ -220,7 +220,7 @@ func queryVictoriaDevEvents(ctx context.Context, baseURL string, query devdash.D
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 300 {
 		data, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		detail := strings.TrimSpace(string(data))

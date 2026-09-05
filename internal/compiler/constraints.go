@@ -75,10 +75,10 @@ func validateFieldConstraints(resource Resource, field map[string]any) []Diagnos
 	for _, pair := range [][2]string{{"min_length", "max_length"}, {"min_items", "max_items"}} {
 		minimum, minimumOK := nonNegativeInteger(field[pair[0]])
 		maximum, maximumOK := nonNegativeInteger(field[pair[1]])
-		if field[pair[0]] != nil && (!minimumOK || (!(stringLike || collection) && pair[0] == "min_length") || (!collection && pair[0] == "min_items")) {
+		if field[pair[0]] != nil && (!minimumOK || ((!stringLike && !collection) && pair[0] == "min_length") || (!collection && pair[0] == "min_items")) {
 			add("SCN1225", pair[0]+" is not applicable or is not a non-negative integer")
 		}
-		if field[pair[1]] != nil && (!maximumOK || (!(stringLike || collection) && pair[1] == "max_length") || (!collection && pair[1] == "max_items")) {
+		if field[pair[1]] != nil && (!maximumOK || ((!stringLike && !collection) && pair[1] == "max_length") || (!collection && pair[1] == "max_items")) {
 			add("SCN1225", pair[1]+" is not applicable or is not a non-negative integer")
 		}
 		if minimumOK && maximumOK && minimum > maximum {

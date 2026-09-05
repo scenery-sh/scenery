@@ -159,6 +159,29 @@ func TestSortTestPackagesUsesLongestFirstThenName(t *testing.T) {
 	}
 }
 
+func TestWorkspaceFingerprintTracksSelectedGoTool(t *testing.T) {
+	root := t.TempDir()
+	tool := filepath.Join(root, "go")
+	if err := os.WriteFile(tool, []byte("first tool"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", root)
+	before, err := workspaceFingerprintFromPaths(root, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(tool, []byte("replacement tool"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	after, err := workspaceFingerprintFromPaths(root, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before == after {
+		t.Fatal("replacing the selected Go tool did not invalidate the fingerprint")
+	}
+}
+
 func TestTestBinaryCommandsDisableVCSStamping(t *testing.T) {
 	if got := strings.Join(testPackageListArgs(), " "); got != "list -buildvcs=false -test -export -json ./..." {
 		t.Fatalf("go list args = %q", got)

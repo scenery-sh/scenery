@@ -47,7 +47,7 @@ func TestContractEventsSubscribeWithTypedIdentityAndPublishMatchedOutcomes(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer running.Stop(context.Background())
+	defer func() { _ = running.Stop(context.Background()) }()
 	if len(bus.subscriptions) != 1 {
 		t.Fatalf("subscriptions = %#v", bus.subscriptions)
 	}
@@ -110,7 +110,7 @@ func TestContractEventRuntimeRejectsMissingBusAndContradictoryMessage(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer running.Stop(context.Background())
+	defer func() { _ = running.Stop(context.Background()) }()
 	if err := bus.subscriptions[0].Handle(context.Background(), ContractEventMessage{BusAddress: "app/event_bus/events", Channel: "other", ContractAddress: "house/event/event", ContractVersion: 1}); err == nil {
 		t.Fatal("expected contradictory message rejection")
 	}

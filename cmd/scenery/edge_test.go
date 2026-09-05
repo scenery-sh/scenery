@@ -102,7 +102,7 @@ func TestListenEdgeHelperPublicWildcardAcceptsIPv4(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	_, port, err := net.SplitHostPort(ln.Addr().String())
 	if err != nil {
 		t.Fatal(err)
@@ -377,7 +377,7 @@ func TestWaitForEdgeDNSStartupDetectsProcessExitBehindExistingListener(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 
 	logPath := filepath.Join(t.TempDir(), "dnsmasq.log")
 	if err := os.WriteFile(logPath, []byte("dnsmasq: failed to create listening socket for 127.0.0.1: Address already in use\n"), 0o600); err != nil {

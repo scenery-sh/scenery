@@ -59,13 +59,13 @@ func TestConversationSealOpenIsOpaqueAndBindsOwner(t *testing.T) {
 		{"conv1_not-hex", expected},
 	}
 	for index, variant := range variants {
-		if _, err := manager.UnsealConversation(variant.candidate, variant.expectation); !errors.Is(err, ErrNotFound) || err != ErrNotFound {
+		if _, err := manager.UnsealConversation(variant.candidate, variant.expectation); err != ErrNotFound || !errors.Is(err, ErrNotFound) { //nolint:errorlint // Opaque token failures must return the exact sentinel, not a wrapper.
 			t.Fatalf("candidate %d error = %v, want exact ErrNotFound", index, err)
 		}
 	}
 
 	expiredManager := Manager{Keys: ring, Now: func() time.Time { return now.Add(time.Hour) }}
-	if _, err := expiredManager.UnsealConversation(token, expected); err != ErrNotFound {
+	if _, err := expiredManager.UnsealConversation(token, expected); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("expired error = %v, want ErrNotFound", err)
 	}
 }
@@ -86,7 +86,7 @@ func TestClaimsRejectTrailingJSONValue(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := manager.UnsealConversation(malformed, ConversationExpectation{AssistantAddress: "assistant/support", OwnerDigest: OwnerDigest("principal")}); err != ErrNotFound {
+	if _, err := manager.UnsealConversation(malformed, ConversationExpectation{AssistantAddress: "assistant/support", OwnerDigest: OwnerDigest("principal")}); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("trailing JSON error = %v", err)
 	}
 }
@@ -200,11 +200,11 @@ func TestUnsealRequiresCompleteExpectationsAndTTLBound(t *testing.T) {
 		t.Fatal(err)
 	}
 	expected := ConversationExpectation{AssistantAddress: claims.AssistantAddress, OwnerDigest: claims.OwnerDigest}
-	if _, err := short.UnsealConversation(token, expected); err != ErrNotFound {
+	if _, err := short.UnsealConversation(token, expected); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("unseal accepted token beyond current manager TTL: %v", err)
 	}
 	for _, partial := range []ConversationExpectation{{}, {AssistantAddress: claims.AssistantAddress}, {OwnerDigest: claims.OwnerDigest}} {
-		if _, err := long.UnsealConversation(token, partial); err != ErrNotFound {
+		if _, err := long.UnsealConversation(token, partial); !errors.Is(err, ErrNotFound) {
 			t.Fatalf("partial conversation expectation = %#v, err=%v", partial, err)
 		}
 	}
@@ -216,7 +216,7 @@ func TestUnsealRequiresCompleteExpectationsAndTTLBound(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, partial := range []ApprovalExpectation{{}, {AssistantAddress: approvalClaims.AssistantAddress}, {AssistantAddress: approvalClaims.AssistantAddress, OwnerDigest: approvalClaims.OwnerDigest}} {
-		if _, err := long.UnsealApproval(approval, partial); err != ErrNotFound {
+		if _, err := long.UnsealApproval(approval, partial); !errors.Is(err, ErrNotFound) {
 			t.Fatalf("partial approval expectation = %#v, err=%v", partial, err)
 		}
 	}
@@ -254,10 +254,10 @@ func TestApprovalSealOpenBindsDecisionContextAndRotatesKeys(t *testing.T) {
 	if opened.ApprovalID != claims.ApprovalID || opened.DecisionContext != claims.DecisionContext || opened.Nonce == "" {
 		t.Fatalf("opened approval claims = %#v", opened)
 	}
-	if _, err := rotated.UnsealApproval(token, ApprovalExpectation{AssistantAddress: claims.AssistantAddress, OwnerDigest: OwnerDigest("principal-b"), ConversationID: conversationID}); err != ErrNotFound {
+	if _, err := rotated.UnsealApproval(token, ApprovalExpectation{AssistantAddress: claims.AssistantAddress, OwnerDigest: OwnerDigest("principal-b"), ConversationID: conversationID}); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("wrong approval owner error = %v", err)
 	}
-	if _, err := (Manager{Keys: NewStaticKeyring("new", newKey, nil), Now: func() time.Time { return now }}).UnsealApproval(token, expected); err != ErrNotFound {
+	if _, err := (Manager{Keys: NewStaticKeyring("new", newKey, nil), Now: func() time.Time { return now }}).UnsealApproval(token, expected); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("unknown key error = %v", err)
 	}
 }
@@ -294,12 +294,12 @@ func TestInitiatorSignerCookieFlagsSigningAndRotation(t *testing.T) {
 
 	tampered := *cookie
 	tampered.Value = cookie.Value[:len(cookie.Value)-1] + string(flipHex(cookie.Value[len(cookie.Value)-1]))
-	if _, err := signer.Verify(&tampered); err != ErrNotFound {
+	if _, err := signer.Verify(&tampered); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("tampered cookie error = %v", err)
 	}
 	expiredSigner := signer
 	expiredSigner.Now = func() time.Time { return now.Add(time.Hour) }
-	if _, err := expiredSigner.Verify(cookie); err != ErrNotFound {
+	if _, err := expiredSigner.Verify(cookie); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("expired cookie error = %v", err)
 	}
 

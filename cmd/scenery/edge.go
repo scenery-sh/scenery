@@ -168,7 +168,7 @@ func edgeRestart(opts edgeOptions) error {
 	if err != nil {
 		return fmt.Errorf("another edge operation is running: %w", err)
 	}
-	defer operationLock.Release()
+	defer func() { _ = operationLock.Release() }()
 	caddyBin, err := resolveCaddyBinary(ctx, paths, true)
 	if err != nil {
 		return err
@@ -258,24 +258,24 @@ func edgeRestart(opts edgeOptions) error {
 	status := edgeStatusForStateDomain(paths, state, opts.Domain)
 	if edgeRestartReady(status, opts.Deploy) {
 		if !opts.Quiet {
-			fmt.Fprintf(os.Stdout, "scenery system edge running at https://%s\n", state.PublicAddr)
+			_, _ = fmt.Fprintf(os.Stdout, "scenery system edge running at https://%s\n", state.PublicAddr)
 		}
 		return nil
 	}
 	if !status.DNS.Ready {
 		if !opts.Quiet {
-			fmt.Fprintln(os.Stdout, "scenery system edge Caddy is prepared, but wildcard local DNS is not installed or healthy.")
-			fmt.Fprintln(os.Stdout, "Run:")
-			fmt.Fprintln(os.Stdout, "  scenery system edge dns install")
+			_, _ = fmt.Fprintln(os.Stdout, "scenery system edge Caddy is prepared, but wildcard local DNS is not installed or healthy.")
+			_, _ = fmt.Fprintln(os.Stdout, "Run:")
+			_, _ = fmt.Fprintln(os.Stdout, "  scenery system edge dns install")
 		}
 		return fmt.Errorf("scenery system edge dns is required for browser HTTPS routes under %s", defaultEdgeDNSDomain)
 	}
 	if !opts.Quiet {
-		fmt.Fprintln(os.Stdout, "scenery system edge Caddy is prepared, but the privileged port 443 listener is not installed or healthy.")
-		fmt.Fprintln(os.Stdout, "Run:")
-		fmt.Fprintf(os.Stdout, "  %s\n", edgePrivilegedInstallCommand(opts.Deploy))
-		fmt.Fprintln(os.Stdout, "Do not run:")
-		fmt.Fprintln(os.Stdout, "  sudo scenery system edge install")
+		_, _ = fmt.Fprintln(os.Stdout, "scenery system edge Caddy is prepared, but the privileged port 443 listener is not installed or healthy.")
+		_, _ = fmt.Fprintln(os.Stdout, "Run:")
+		_, _ = fmt.Fprintf(os.Stdout, "  %s\n", edgePrivilegedInstallCommand(opts.Deploy))
+		_, _ = fmt.Fprintln(os.Stdout, "Do not run:")
+		_, _ = fmt.Fprintln(os.Stdout, "  sudo scenery system edge install")
 	}
 	return fmt.Errorf("scenery system edge privileged listener is required for browser HTTPS on 127.0.0.1:443")
 }
@@ -328,18 +328,18 @@ func edgeStatus(opts edgeOptions) error {
 	if opts.JSON {
 		return writeEdgeStatusJSON(status)
 	}
-	fmt.Fprintf(os.Stdout, "scenery system edge %s", state.Status)
+	_, _ = fmt.Fprintf(os.Stdout, "scenery system edge %s", state.Status)
 	if state.PublicAddr != "" {
-		fmt.Fprintf(os.Stdout, " https://%s", state.PublicAddr)
+		_, _ = fmt.Fprintf(os.Stdout, " https://%s", state.PublicAddr)
 	}
 	if !status.PrivilegedListener.Installed {
-		fmt.Fprintf(os.Stdout, " (privileged listener missing; run `scenery system edge privileged install`)")
+		_, _ = fmt.Fprintf(os.Stdout, " (privileged listener missing; run `scenery system edge privileged install`)")
 	} else if status.PrivilegedListener.State != "running" {
-		fmt.Fprintf(os.Stdout, " (privileged listener %s)", status.PrivilegedListener.State)
+		_, _ = fmt.Fprintf(os.Stdout, " (privileged listener %s)", status.PrivilegedListener.State)
 	} else if !status.DNS.Ready {
-		fmt.Fprintf(os.Stdout, " (dns %s; run `scenery system edge dns install`)", status.DNS.DNSMasq.State)
+		_, _ = fmt.Fprintf(os.Stdout, " (dns %s; run `scenery system edge dns install`)", status.DNS.DNSMasq.State)
 	}
-	fmt.Fprintln(os.Stdout)
+	_, _ = fmt.Fprintln(os.Stdout)
 	return nil
 }
 
@@ -361,7 +361,7 @@ func edgeTrust(opts edgeOptions) error {
 			"status":    "trusted",
 		}))
 	}
-	fmt.Fprintln(os.Stdout, "trusted scenery Caddy local CA")
+	_, _ = fmt.Fprintln(os.Stdout, "trusted scenery Caddy local CA")
 	return nil
 }
 
@@ -391,10 +391,10 @@ func edgeUninstall(opts edgeOptions) error {
 	if opts.JSON {
 		return writeEdgeStatusJSON(edgeStatusForStateDomain(paths, state, opts.Domain))
 	}
-	fmt.Fprintln(os.Stdout, "stopped scenery system edge")
-	fmt.Fprintln(os.Stdout, "privileged listener is still installed if previously configured")
-	fmt.Fprintln(os.Stdout, "To remove port 443 listener:")
-	fmt.Fprintln(os.Stdout, "  scenery system edge privileged uninstall")
+	_, _ = fmt.Fprintln(os.Stdout, "stopped scenery system edge")
+	_, _ = fmt.Fprintln(os.Stdout, "privileged listener is still installed if previously configured")
+	_, _ = fmt.Fprintln(os.Stdout, "To remove port 443 listener:")
+	_, _ = fmt.Fprintln(os.Stdout, "  scenery system edge privileged uninstall")
 	return nil
 }
 
@@ -466,7 +466,7 @@ func edgeDNSInstall(opts edgeOptions) error {
 	if opts.JSON {
 		return writeCLIJSON(os.Stdout, status)
 	}
-	fmt.Fprintf(os.Stdout, "scenery system edge dns running for %s at %s\n", opts.Domain, defaultEdgeDNSListen)
+	_, _ = fmt.Fprintf(os.Stdout, "scenery system edge dns running for %s at %s\n", opts.Domain, defaultEdgeDNSListen)
 	return nil
 }
 
@@ -479,14 +479,14 @@ func edgeDNSStatus(opts edgeOptions) error {
 	if opts.JSON {
 		return writeCLIJSON(os.Stdout, status)
 	}
-	fmt.Fprintf(os.Stdout, "scenery system edge dns %s for %s", status.DNSMasq.State, status.Domain)
+	_, _ = fmt.Fprintf(os.Stdout, "scenery system edge dns %s for %s", status.DNSMasq.State, status.Domain)
 	if status.DNSMasq.Listen != "" {
-		fmt.Fprintf(os.Stdout, " at %s", status.DNSMasq.Listen)
+		_, _ = fmt.Fprintf(os.Stdout, " at %s", status.DNSMasq.Listen)
 	}
 	if status.Resolver.State != "installed" {
-		fmt.Fprintf(os.Stdout, " (resolver %s; run `%s`)", status.Resolver.State, status.InstallCommand)
+		_, _ = fmt.Fprintf(os.Stdout, " (resolver %s; run `%s`)", status.Resolver.State, status.InstallCommand)
 	}
-	fmt.Fprintln(os.Stdout)
+	_, _ = fmt.Fprintln(os.Stdout)
 	return nil
 }
 
@@ -511,7 +511,7 @@ func edgeDNSUninstall(opts edgeOptions) error {
 	if opts.JSON {
 		return edgeDNSStatus(edgeOptions{JSON: true, Domain: opts.Domain})
 	}
-	fmt.Fprintf(os.Stdout, "stopped scenery system edge dns for %s\n", opts.Domain)
+	_, _ = fmt.Fprintf(os.Stdout, "stopped scenery system edge dns for %s\n", opts.Domain)
 	return nil
 }
 
@@ -797,7 +797,7 @@ func edgeDNSHelperInstall(opts edgeDNSHelperOptions) error {
 	if err := os.WriteFile(edgelifecycle.DNSResolverPath(opts.Domain), []byte(content), 0o644); err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stdout, "installed scenery resolver for %s\n", opts.Domain)
+	_, _ = fmt.Fprintf(os.Stdout, "installed scenery resolver for %s\n", opts.Domain)
 	return nil
 }
 
@@ -815,7 +815,7 @@ func edgeDNSHelperUninstall(opts edgeDNSHelperOptions) error {
 			return err
 		}
 	}
-	fmt.Fprintf(os.Stdout, "removed scenery resolver for %s\n", opts.Domain)
+	_, _ = fmt.Fprintf(os.Stdout, "removed scenery resolver for %s\n", opts.Domain)
 	return nil
 }
 
@@ -1237,7 +1237,7 @@ func edgePrivilegedInstall() error {
 	if err := run.Run(); err != nil {
 		return err
 	}
-	fmt.Fprintln(os.Stdout, "installed scenery privileged edge listener for 127.0.0.1:443")
+	_, _ = fmt.Fprintln(os.Stdout, "installed scenery privileged edge listener for 127.0.0.1:443")
 	return nil
 }
 
@@ -1250,14 +1250,14 @@ func edgePrivilegedStatus(opts edgeOptions) error {
 	if opts.JSON {
 		return writeCLIJSON(os.Stdout, status)
 	}
-	fmt.Fprintf(os.Stdout, "scenery system edge privileged listener %s", status.State)
+	_, _ = fmt.Fprintf(os.Stdout, "scenery system edge privileged listener %s", status.State)
 	if status.Target != "" {
-		fmt.Fprintf(os.Stdout, " -> %s", status.Target)
+		_, _ = fmt.Fprintf(os.Stdout, " -> %s", status.Target)
 	}
 	if !status.Installed {
-		fmt.Fprintf(os.Stdout, " (run `scenery system edge privileged install`)")
+		_, _ = fmt.Fprintf(os.Stdout, " (run `scenery system edge privileged install`)")
 	}
-	fmt.Fprintln(os.Stdout)
+	_, _ = fmt.Fprintln(os.Stdout)
 	return nil
 }
 

@@ -94,7 +94,7 @@ func effectiveGoTarget(target Resource, targets map[string]Resource, stack map[s
 		stack = map[string]bool{}
 	}
 	if stack[target.Name] {
-		return nil, fmt.Errorf("Go target inheritance cycle at %s", target.Name)
+		return nil, fmt.Errorf("go target inheritance cycle at %s", target.Name)
 	}
 	stack[target.Name] = true
 	defer delete(stack, target.Name)
@@ -106,7 +106,7 @@ func effectiveGoTarget(target Resource, targets map[string]Resource, stack map[s
 	if parentRef != "" {
 		parent := targets[lastRef(parentRef)]
 		if parent.Address == "" {
-			return nil, fmt.Errorf("Go target %s extends unknown target %s", target.Name, parentRef)
+			return nil, fmt.Errorf("go target %s extends unknown target %s", target.Name, parentRef)
 		}
 		inherited, err := effectiveGoTarget(parent, targets, stack)
 		if err != nil {

@@ -672,7 +672,7 @@ func runSQLCGeneratorWithHooks(ctx context.Context, stdout io.Writer, appRoot st
 			return err
 		}
 		if !quiet {
-			fmt.Fprintf(stdout, "scenery: generated SQLC schema at %s\n", schemaPath)
+			_, _ = fmt.Fprintf(stdout, "scenery: generated SQLC schema at %s\n", schemaPath)
 		}
 	}
 	args := []string{"generate"}
@@ -690,7 +690,7 @@ func runSQLCGeneratorWithHooks(ctx context.Context, stdout io.Writer, appRoot st
 		return err
 	}
 	if !quiet {
-		fmt.Fprintln(stdout, "scenery: generated SQLC artifacts")
+		_, _ = fmt.Fprintln(stdout, "scenery: generated SQLC artifacts")
 	}
 	return nil
 }
@@ -700,9 +700,9 @@ func renderGeneratorPlan(stdout io.Writer, jsonMode bool, graph generatorGraphRe
 		return writeInspectJSON(stdout, graph)
 	}
 	for _, generator := range graph.Generators {
-		fmt.Fprintf(stdout, "%s %s\n", generator.ID, generator.Kind)
+		_, _ = fmt.Fprintf(stdout, "%s %s\n", generator.ID, generator.Kind)
 		if len(generator.Outputs) > 0 {
-			fmt.Fprintf(stdout, "  outputs: %s\n", strings.Join(generator.Outputs, ", "))
+			_, _ = fmt.Fprintf(stdout, "  outputs: %s\n", strings.Join(generator.Outputs, ", "))
 		}
 	}
 	return nil

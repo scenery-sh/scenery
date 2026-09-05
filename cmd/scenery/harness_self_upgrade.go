@@ -65,7 +65,7 @@ func runHarnessUpgradeProcessProbeCheck(ctx context.Context, _ string) (map[stri
 	if err != nil {
 		return nil, nil, err
 	}
-	defer os.RemoveAll(root)
+	defer func() { _ = os.RemoveAll(root) }()
 
 	marker := filepath.Join(root, "toolchain.args")
 	script := "#!/bin/sh\n" +

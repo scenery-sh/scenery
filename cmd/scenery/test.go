@@ -62,13 +62,13 @@ func runSceneryTestOutput(ctx context.Context, args []string, stdout io.Writer) 
 
 	goArgs := append([]string{"test"}, result.GoBuildFlags...)
 	goArgs = append(goArgs, opts.GoArgs...)
-	err, output := runGeneratedWorkspaceGoTest(ctx, testDir, goArgs, false)
+	output, err := runGeneratedWorkspaceGoTest(ctx, testDir, goArgs, false)
 	if err != nil && goTestNeedsWorkspaceTidy(output) {
-		if tidyErr, tidyOutput := runGeneratedWorkspaceGoModTidy(ctx, result.Dir); tidyErr != nil {
+		if tidyOutput, tidyErr := runGeneratedWorkspaceGoModTidy(ctx, result.Dir); tidyErr != nil {
 			_, _ = stdout.Write(tidyOutput)
 			return tidyErr
 		}
-		err, output = runGeneratedWorkspaceGoTest(ctx, testDir, goArgs, false)
+		output, err = runGeneratedWorkspaceGoTest(ctx, testDir, goArgs, false)
 	}
 	if err == nil {
 		_, _ = stdout.Write(output)
@@ -111,29 +111,31 @@ func prepareTestWorkspace(ctx context.Context, appRoot string, cfg app.Config) (
 	return result, nil
 }
 
-func runGeneratedWorkspaceGoTest(ctx context.Context, dir string, goArgs []string, stream bool) (error, []byte) {
+func runGeneratedWorkspaceGoTest(ctx context.Context, dir string, goArgs []string, stream bool) ([]byte, error) {
 	cmd := execGoTestCommand(ctx, "go", goArgs...)
 	cmd.Dir = dir
 	cmd.Env = envWithOverrides(envpolicy.Environ(), "SCENERY_RUNTIME_ENV=test", "GOWORK=off")
 	if stream {
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
-		return cmd.Run(), nil
+		return nil, cmd.Run()
 	}
 	var output bytes.Buffer
 	cmd.Stdout = &output
 	cmd.Stderr = &output
-	return cmd.Run(), output.Bytes()
+	err := cmd.Run()
+	return output.Bytes(), err
 }
 
-func runGeneratedWorkspaceGoModTidy(ctx context.Context, dir string) (error, []byte) {
+func runGeneratedWorkspaceGoModTidy(ctx context.Context, dir string) ([]byte, error) {
 	cmd := execGoTestCommand(ctx, "go", "mod", "tidy")
 	cmd.Dir = dir
 	cmd.Env = envWithOverrides(envpolicy.Environ(), "GOWORK=off")
 	var output bytes.Buffer
 	cmd.Stdout = &output
 	cmd.Stderr = &output
-	return cmd.Run(), output.Bytes()
+	err := cmd.Run()
+	return output.Bytes(), err
 }
 
 func goTestNeedsWorkspaceTidy(output []byte) bool {

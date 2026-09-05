@@ -87,9 +87,6 @@ func NewSession(req RegisterRequest, routerAddr, routerScheme string, existing *
 	}
 	routes := routesForSession(sessionID, routerAddr, routerScheme, backends, routeNamespace)
 	routeManifest := normalizeRouteManifest(req.RouteManifest, sessionID, baseAppID, appRoot, branch, backends, routes)
-	if routeManifest.Mode == RouteModePath {
-		routes = routesForPathManifest(routeManifest)
-	}
 	session := Session{
 		ArtifactIdentity: sessionIdentity(),
 		SessionID:        sessionID,
@@ -486,18 +483,6 @@ func normalizeRouteRecords(records map[string]RouteRecord) map[string]RouteRecor
 		return nil
 	}
 	return out
-}
-
-func routesForPathManifest(manifest RouteManifest) map[string]string {
-	routes := map[string]string{}
-	for name, record := range manifest.Routes {
-		name = normalizeRouteName(name)
-		if name == "" || strings.TrimSpace(record.URL) == "" {
-			continue
-		}
-		routes[name] = strings.TrimSpace(record.URL)
-	}
-	return routes
 }
 
 // normalizePublicRoutes canonicalizes a dev domain exposure list: route

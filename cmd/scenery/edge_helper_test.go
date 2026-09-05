@@ -266,7 +266,7 @@ func TestHandleEdgeHelperConnLogsValidationFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	server, client := net.Pipe()
-	defer server.Close()
+	defer func() { _ = server.Close() }()
 	opts := edgeHelperOptions{
 		OwnerUID:          os.Getuid(),
 		OwnerGID:          os.Getgid(),

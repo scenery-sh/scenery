@@ -1,0 +1,29 @@
+version: "2"
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - asasalint
+    - bidichk
+    - durationcheck
+    - errorlint
+    - gocheckcompilerdirectives
+    - nilnesserr
+    - nosprintfhostport
+    - rowserrcheck
+    - sqlclosecheck
+  settings:
+    errorlint:
+      # Wrapping changes the exposed error contract; do not mandate it.
+      errorf: false
+      asserts: true
+      comparison: true
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

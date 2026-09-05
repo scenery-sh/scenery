@@ -560,9 +560,9 @@ func (c *remoteConnection) refresh(ctx context.Context, maxResponse int64, maxTo
 	config := c.cfg
 	config.Auth.Secret = append([]byte(nil), c.cfg.Auth.Secret...)
 	session := c.session
-	client := c.client
 	c.mu.Unlock()
 	if session == nil {
+		var client *mcp.Client
 		var err error
 		client, session, err = connect(ctx, config, maxResponse, wake, c.stop)
 		if err != nil {

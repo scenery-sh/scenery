@@ -73,7 +73,7 @@ func TestStartDurableRuntimeReconcilesTasks(t *testing.T) {
 	}()
 
 	db := openRuntimeDB(t, dsn)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	var timeoutMS, attempts, retryInitialMS, retryMaxMS int
 	var retryBackoff float64
 	err = db.QueryRow(`
@@ -150,7 +150,7 @@ func TestDurableLocalWorkerExecutesQueuedJob(t *testing.T) {
 	}
 
 	db := openRuntimeDB(t, dsn)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	waitRuntimeJobState(t, db, "job-worker", "succeeded")
 }
 
@@ -218,7 +218,7 @@ func TestDurableScheduleEnqueuesAndRuns(t *testing.T) {
 		t.Fatalf("DurableSchedule: %v", err)
 	}
 	db := openRuntimeDB(t, dsn)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	waitRuntimeAnyJobState(t, db, "maps.scheduled.v1", "succeeded")
 }
 

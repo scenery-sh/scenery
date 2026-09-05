@@ -153,7 +153,7 @@ func gunzipResponseBody(t *testing.T, body io.Reader) []byte {
 	if err != nil {
 		t.Fatalf("gzip.NewReader() error = %v", err)
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 	data, err := io.ReadAll(reader)
 	if err != nil {
 		t.Fatalf("read gzip body: %v", err)

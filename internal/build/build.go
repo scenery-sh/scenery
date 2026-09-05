@@ -150,7 +150,7 @@ func appForTarget(appRoot string, cfg app.Config, targetName, defaultRole string
 		return nil, err
 	}
 	if target.Role == "contract" {
-		return nil, fmt.Errorf("Go contract target %s does not produce a runtime binary", target.Name)
+		return nil, fmt.Errorf("go contract target %s does not produce a runtime binary", target.Name)
 	}
 	result, err := prepareWithContractTarget(appRoot, nil, cfg, nil, contract, target)
 	if err != nil {

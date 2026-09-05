@@ -700,7 +700,7 @@ func (s *assistantSupervisor) startPreparedDefinition(ctx context.Context, prepa
 	s.emit(ctx, definition, "info", "assistant helper starting", map[string]any{"address": definition.Address})
 
 	var gateway assistantGateway
-	nodePath, npmPath, nodeHome := prepared.nodePath, prepared.npmPath, prepared.nodeHome
+	var nodePath, npmPath, nodeHome string
 	overlay := prepared.overlay
 	if !s.config.UseAppGateway {
 		if s.config.GatewayFactory == nil {
@@ -763,7 +763,7 @@ func (s *assistantSupervisor) startPreparedDefinition(ctx context.Context, prepa
 			return s.failDefinition(ctx, definition, err)
 		}
 		overlay = prepared.overlay
-		nodePath, npmPath, nodeHome = prepared.nodePath, prepared.npmPath, prepared.nodeHome
+		nodePath, nodeHome = prepared.nodePath, prepared.nodeHome
 	}
 	if overlay.Root == "" || overlay.BootstrapPath == "" || nodePath == "" {
 		if gateway != nil {
@@ -1153,7 +1153,7 @@ func (s *assistantSupervisor) scheduleRestart(definition assistantDefinition) {
 	count := s.restarts[definition.Address]
 	if count >= assistantRestartLimit {
 		s.mu.Unlock()
-		s.failDefinition(context.Background(), definition, errors.New("assistant helper restart rate limit exceeded"))
+		_ = s.failDefinition(context.Background(), definition, errors.New("assistant helper restart rate limit exceeded"))
 		return
 	}
 	s.restarts[definition.Address] = count + 1
@@ -1320,13 +1320,6 @@ func (s *devSupervisor) persistAssistantStatusSnapshot(statuses []AssistantStatu
 	// while retaining live process details under the explicit implementation
 	// projection. The CLI drops that member unless --implementation is set.
 	_ = writeAssistantLiveStatusSnapshot(s.root, result, statuses)
-}
-
-func assistantStringOr(value, fallback string) string {
-	if strings.TrimSpace(value) != "" {
-		return value
-	}
-	return fallback
 }
 
 func (s *assistantSupervisor) ProcessSnapshot() map[string]localagent.Process {

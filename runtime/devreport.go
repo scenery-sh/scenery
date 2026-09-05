@@ -161,7 +161,7 @@ func (r *devReporter) loop() {
 					return
 				}
 				if failures == 1 {
-					fmt.Fprintf(osStderr(), "scenery: dev report failed, retrying with backoff: %v\n", err)
+					_, _ = fmt.Fprintf(osStderr(), "scenery: dev report failed, retrying with backoff: %v\n", err)
 				}
 				continue
 			}
@@ -211,7 +211,7 @@ func (r *devReporter) post(env devreport.ReportEnvelope) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 300 {
 		return fmt.Errorf("unexpected status %s", resp.Status)
 	}
@@ -543,109 +543,6 @@ func traceAuthCall(ctx context.Context, handler *AuthHandler, invoke func(contex
 	return info, err
 }
 
-func startInternalCallTrace(parent *requestState, child *requestState) {
-	if parent == nil || parent.trace == nil || child == nil || (!parent.logsEnabled && !parent.traceEnabled) || (!child.logsEnabled && !child.traceEnabled) {
-		return
-	}
-	child.trace = &traceSpan{
-		traceID:      parent.trace.traceID,
-		spanID:       newSpanID(),
-		parentSpanID: parent.trace.spanID,
-		spanType:     "REQUEST",
-		service:      child.request.Service,
-		endpoint:     child.request.Endpoint,
-		started:      child.request.Started,
-		requestType:  child.request.Type,
-	}
-	reporter := activeReporter()
-	if reporter == nil || !child.traceEnabled {
-		return
-	}
-	reporter.enqueue(devreport.ReportEnvelope{
-		Type:  "trace-event",
-		AppID: reporter.appID,
-		TraceEvent: &devreport.TraceEvent{
-			TraceID:   child.trace.traceID,
-			SpanID:    child.trace.spanID,
-			EventID:   reporter.nextEventID(),
-			EventTime: child.trace.started,
-			Event: map[string]any{
-				"span_start": map[string]any{
-					"request": map[string]any{
-						"service_name":  child.request.Service,
-						"endpoint_name": child.request.Endpoint,
-						"http_method":   child.request.Method,
-						"path":          child.request.Path,
-						"path_params":   tracePathParams(child.request.PathParams),
-						"uid":           child.auth.UID,
-						"mocked":        false,
-					},
-				},
-			},
-		},
-	})
-}
-
-func recordServiceInit(service string, duration time.Duration, err error) {
-	reporter := activeReporter()
-	if reporter == nil {
-		return
-	}
-	traceID := newTraceID()
-	spanID := newSpanID()
-	now := time.Now().UTC()
-	reporter.enqueue(devreport.ReportEnvelope{
-		Type:  "trace-event",
-		AppID: reporter.appID,
-		TraceEvent: &devreport.TraceEvent{
-			TraceID:   traceID,
-			SpanID:    spanID,
-			EventID:   reporter.nextEventID(),
-			EventTime: now.Add(-duration),
-			Event: map[string]any{
-				"span_event": map[string]any{
-					"service_init_start": map[string]any{
-						"service": service,
-					},
-				},
-			},
-		},
-	})
-	reporter.enqueue(devreport.ReportEnvelope{
-		Type:  "trace-event",
-		AppID: reporter.appID,
-		TraceEvent: &devreport.TraceEvent{
-			TraceID:   traceID,
-			SpanID:    spanID,
-			EventID:   reporter.nextEventID(),
-			EventTime: now,
-			Event: map[string]any{
-				"span_event": map[string]any{
-					"service_init_end": map[string]any{
-						"error": traceError(err),
-					},
-				},
-			},
-		},
-	})
-	reporter.enqueue(devreport.ReportEnvelope{
-		Type:  "trace-summary",
-		AppID: reporter.appID,
-		TraceSummary: &devreport.TraceSummary{
-			AppID:         reporter.appID,
-			TraceID:       traceID,
-			SpanID:        spanID,
-			Type:          "REQUEST",
-			IsRoot:        true,
-			IsError:       err != nil,
-			StartedAt:     now.Add(-duration),
-			DurationNanos: uint64(duration),
-			ServiceName:   service,
-			EndpointName:  optionalString("init"),
-		},
-	})
-}
-
 func newTraceID() string {
 	return newRandomHex(16)
 }
@@ -735,31 +632,6 @@ func tracePathParams(params shared.PathParams) []string {
 
 func flattenHeaders(headers http.Header) map[string]string {
 	return redact.Headers(headers)
-}
-
-func traceField(key string, value any) map[string]any {
-	switch value := value.(type) {
-	case string:
-		return map[string]any{"key": key, "str": value}
-	case bool:
-		return map[string]any{"key": key, "bool": value}
-	case int:
-		return map[string]any{"key": key, "int": value}
-	case uint64:
-		return map[string]any{"key": key, "uint": value}
-	default:
-		if value == nil {
-			return map[string]any{"key": key, "str": ""}
-		}
-		return map[string]any{"key": key, "str": fmt.Sprint(value)}
-	}
-}
-
-func errorString(err error) string {
-	if err == nil {
-		return ""
-	}
-	return err.Error()
 }
 
 func (r *devReporter) nextEventID() uint64 {

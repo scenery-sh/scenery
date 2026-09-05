@@ -92,6 +92,6 @@ func PutFile(ctx context.Context, store Store, key, localPath string, opts PutOp
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	return store.Put(ctx, key, file, opts)
 }

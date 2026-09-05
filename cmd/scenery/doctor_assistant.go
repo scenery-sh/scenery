@@ -705,7 +705,7 @@ func verifyAssistantArchive(path, archiveDigest, treeDigest string) error {
 	if err != nil {
 		return errors.New("generated assistant archive could not be verified")
 	}
-	defer os.RemoveAll(temporary)
+	defer func() { _ = os.RemoveAll(temporary) }()
 	descriptor, err := runtimeassets.ExtractArchive(data, temporary)
 	if err != nil || descriptor.Digest != treeDigest {
 		return errors.New("generated assistant tree digest mismatch")
@@ -719,7 +719,7 @@ func validDoctorDigest(value string) bool {
 		return false
 	}
 	for _, character := range strings.TrimPrefix(value, "sha256:") {
-		if !((character >= '0' && character <= '9') || (character >= 'a' && character <= 'f')) {
+		if (character < '0' || character > '9') && (character < 'a' || character > 'f') {
 			return false
 		}
 	}

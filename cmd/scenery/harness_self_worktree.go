@@ -46,7 +46,7 @@ func runHarnessWorktreeGitProbeCheck(ctx context.Context, repoRoot string) (map[
 	if err != nil {
 		return nil, nil, err
 	}
-	defer os.RemoveAll(root)
+	defer func() { _ = os.RemoveAll(root) }()
 	appRoot := filepath.Join(root, "demo")
 	if err := os.MkdirAll(appRoot, 0o755); err != nil {
 		return nil, nil, err

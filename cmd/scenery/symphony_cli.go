@@ -38,7 +38,7 @@ func symphonyAutoCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 	appID := cfg.AppID()
 	current, err := store.Workflow(ctx, appID)
 	if err != nil {
@@ -58,7 +58,7 @@ func symphonyAutoCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stdout, "symphony auto %s for %s\n", label, updated.AppID)
+	_, _ = fmt.Fprintf(os.Stdout, "symphony auto %s for %s\n", label, updated.AppID)
 	return nil
 }
 

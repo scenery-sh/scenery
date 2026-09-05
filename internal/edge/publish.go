@@ -245,7 +245,7 @@ func copyPublishFile(source, dest string, mode fs.FileMode) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer in.Close()
+	defer func() { _ = in.Close() }()
 	perm := (mode.Perm() | 0o444) & 0o755
 	out, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, perm)
 	if err != nil {

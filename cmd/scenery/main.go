@@ -42,7 +42,7 @@ func executeCLIWith(args []string, stdout, stderr io.Writer, started time.Time, 
 	telemetry.finish(exitCode)
 	if err != nil {
 		if _, silent := errors.AsType[*silentCLIError](err); !silent {
-			fmt.Fprintln(stderr, err)
+			_, _ = fmt.Fprintln(stderr, err)
 		}
 	}
 	return exitCode
@@ -477,7 +477,7 @@ func warnDevEscapeHatches(opts devOptions) {
 		return
 	}
 	if opts.ListenSet || opts.PortSet {
-		fmt.Fprintln(cliStderr, "scenery: warning: --listen/--port force a manual TCP app backend; this is a debugging escape hatch and can be less parallel-safe than the default agent Unix-socket backend")
+		_, _ = fmt.Fprintln(cliStderr, "scenery: warning: --listen/--port force a manual TCP app backend; this is a debugging escape hatch and can be less parallel-safe than the default agent Unix-socket backend")
 	}
 }
 

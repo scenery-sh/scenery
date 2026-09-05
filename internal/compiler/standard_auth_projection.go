@@ -161,12 +161,12 @@ func frameworkBinding(module, name, operation, gateway, authentication, method, 
 
 func frameworkResponse(name, when, status, codec string) map[string]any {
 	from := "transport.problem"
-	switch {
-	case when == "result.success":
+	switch when {
+	case "result.success":
 		from = "result.success"
-	case when == "admission.unauthenticated" || when == "admission.forbidden":
+	case "admission.unauthenticated", "admission.forbidden":
 		from = "admission.problem"
-	case when == "system.internal":
+	case "system.internal":
 		from = "system.problem"
 	}
 	return map[string]any{

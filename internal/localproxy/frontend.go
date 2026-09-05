@@ -3,7 +3,6 @@ package localproxy
 import (
 	"net"
 	"net/url"
-	"regexp"
 	"strings"
 
 	"scenery.sh/internal/envpolicy"
@@ -87,8 +86,3 @@ func normalizeHost(value string) string {
 	}
 	return strings.Trim(value, "[]")
 }
-
-var invalidLabelRE = regexp.MustCompile(`[^a-z0-9-]+`)
-var repeatedDashRE = regexp.MustCompile(`-+`)
-var vitePortRE = regexp.MustCompile(`(?m)\bport\s*:\s*([0-9]+)\b`)
-var netDialTimeout = net.DialTimeout

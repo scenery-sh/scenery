@@ -53,7 +53,7 @@ func TestClarifyStandardAuthTenantErrorIgnoresUnrelatedErrors(t *testing.T) {
 	t.Parallel()
 
 	original := errors.New("plain runtime error")
-	if got := clarifyStandardAuthTenantError(original); got != original {
+	if got := clarifyStandardAuthTenantError(original); got != original { //nolint:errorlint // Unrelated errors must be returned unchanged, not wrapped.
 		t.Fatalf("error = %v, want original", got)
 	}
 }

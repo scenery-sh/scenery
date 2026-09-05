@@ -156,14 +156,14 @@ func standardAuthService(ctx context.Context) (*Service, error) {
 		}
 		if cfg.AutoBootstrapDatabase {
 			if err := bootstrapStandardAuthSchema(ctx, pool); err != nil {
-				pool.Close()
+				_ = pool.Close()
 				standardAuthState.err = clarifyStandardAuthTenantError(err)
 				return
 			}
 		}
 		standardAuthState.svc = &Service{db: pool, query: authdb.New(pool), now: time.Now}
 		runtime.MarkServiceInitialized("auth", func(context.Context) {
-			pool.Close()
+			_ = pool.Close()
 		})
 	})
 	return standardAuthState.svc, standardAuthState.err

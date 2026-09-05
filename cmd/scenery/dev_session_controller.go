@@ -86,21 +86,6 @@ func devAPIUnixSocketPath(stateRoot string) string {
 	return filepath.Join(os.TempDir(), "scenery-api-"+id+".sock")
 }
 
-func prepareDevAgentSession(ctx context.Context, root string, cfg app.Config, env app.ResolvedEnv, listen devListenRequest, console *runConsole) (*localagent.Client, *localagent.Session, devBackend, func(), error) {
-	prepared, err := prepareDevAgentSessionDetailed(ctx, root, cfg, env, listen, console)
-	if err != nil {
-		if prepared != nil && prepared.Cleanup != nil {
-			prepared.Cleanup()
-		}
-		return nil, nil, devBackend{}, func() {}, err
-	}
-	cleanup := func() {}
-	if prepared.Cleanup != nil {
-		cleanup = prepared.Cleanup
-	}
-	return prepared.Client, prepared.Session, prepared.Backend, cleanup, nil
-}
-
 func prepareDevAgentSessionDetailed(ctx context.Context, root string, cfg app.Config, env app.ResolvedEnv, listen devListenRequest, console *runConsole) (*PreparedDevSession, error) {
 	return (&DevSessionController{root: root, cfg: cfg, env: env, listen: listen, console: console}).Prepare(ctx)
 }

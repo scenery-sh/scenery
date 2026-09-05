@@ -426,7 +426,7 @@ func streamLogs(ctx context.Context, baseURL, path string, values url.Values, em
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 300 {
 		data, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		if detail := strings.TrimSpace(string(data)); detail != "" {
@@ -557,7 +557,7 @@ func fetchMetrics(ctx context.Context, baseURL, path string, values url.Values) 
 	if err != nil {
 		return victoriaMetricsResponse{}, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 300 {
 		data, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		if detail := strings.TrimSpace(string(data)); detail != "" {

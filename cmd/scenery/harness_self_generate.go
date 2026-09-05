@@ -81,7 +81,7 @@ func runHarnessGenerationCompileProbeCheck(parent context.Context, repoRoot stri
 	if err != nil {
 		return summary, nil, err
 	}
-	defer os.RemoveAll(probeRoot)
+	defer func() { _ = os.RemoveAll(probeRoot) }()
 	restoreDevCache := devcache.SetRoot(filepath.Join(probeRoot, "editor-cache"))
 	defer restoreDevCache()
 	appRoot := filepath.Join(probeRoot, "app")

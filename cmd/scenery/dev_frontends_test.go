@@ -462,32 +462,6 @@ func TestManagedFrontendExitPlansSingleRestartAndSessionUpdateInProcess(t *testi
 	}
 }
 
-func startManagedFrontendTestAgentServer(t *testing.T, ctx context.Context, home string) (*localagent.Client, <-chan error) {
-	t.Helper()
-	paths := localagent.PathsForHome(home)
-	if err := localagent.EnsureDirs(paths); err != nil {
-		t.Fatal(err)
-	}
-	server, err := localagent.NewServer(localagent.RunOptions{
-		Home:       home,
-		RouterAddr: "127.0.0.1:0",
-		DashboardBackend: localagent.Backend{
-			Network: "tcp",
-			Addr:    "127.0.0.1:9",
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	done := make(chan error, 1)
-	go func() { done <- server.Run(ctx) }()
-	client := localagent.NewClient(paths.SocketPath)
-	if err := waitForAgentCommandPing(ctx, client); err != nil {
-		t.Fatal(err)
-	}
-	return client, done
-}
-
 func fakeManagedFrontendProcess(name, addr string, pid int) *managedFrontendProcess {
 	done := make(chan struct{})
 	close(done)
@@ -564,7 +538,7 @@ func TestManagedFrontendTestServerHelper(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
@@ -572,13 +546,4 @@ func TestManagedFrontendTestServerHelper(t *testing.T) {
 		}
 		_ = conn.Close()
 	}
-}
-
-func frontendTestServerBinary(t *testing.T) string {
-	t.Helper()
-	path, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	return path
 }

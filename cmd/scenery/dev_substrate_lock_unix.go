@@ -3,6 +3,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"strings"
 	"syscall"
@@ -25,5 +26,5 @@ func unlockDevFile(file *os.File) error {
 }
 
 func isDevFileLockBusy(err error) bool {
-	return err == syscall.EWOULDBLOCK || err == syscall.EAGAIN
+	return errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN)
 }

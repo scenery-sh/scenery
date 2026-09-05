@@ -94,7 +94,7 @@ func buildCommand(out io.Writer, args []string) error {
 		}
 		for _, frontend := range result.Frontends {
 			for _, artifact := range frontend.Artifacts {
-				fmt.Fprintf(out, "scenery: built desktop %s at %s\n", frontend.Name, artifact)
+				_, _ = fmt.Fprintf(out, "scenery: built desktop %s at %s\n", frontend.Name, artifact)
 			}
 		}
 		return nil
@@ -157,7 +157,7 @@ func buildCommand(out io.Writer, args []string) error {
 				"manifest_path": libraryResult.ManifestPath, "artifacts": libraryResult.Manifest.Artifacts,
 			}))
 		}
-		fmt.Fprintf(out, "scenery: built library %s at %s\n", selected.Name, libraryResult.ManifestPath)
+		_, _ = fmt.Fprintf(out, "scenery: built library %s at %s\n", selected.Name, libraryResult.ManifestPath)
 		return nil
 	}
 	if outputPath == "" {
@@ -201,7 +201,7 @@ func buildCommand(out io.Writer, args []string) error {
 			"copied":          copied,
 		}))
 	}
-	fmt.Fprintf(out, "scenery: built %s\n", outputPath)
+	_, _ = fmt.Fprintf(out, "scenery: built %s\n", outputPath)
 	return nil
 }
 
@@ -214,7 +214,7 @@ func copyBinary(src, dst string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	defer in.Close()
+	defer func() { _ = in.Close() }()
 
 	info, err := in.Stat()
 	if err != nil {
@@ -256,7 +256,7 @@ func sameFileContent(src *os.File, srcInfo os.FileInfo, dst string) (bool, error
 		}
 		return false, err
 	}
-	defer dstFile.Close()
+	defer func() { _ = dstFile.Close() }()
 	dstInfo, err := dstFile.Stat()
 	if err != nil {
 		return false, err

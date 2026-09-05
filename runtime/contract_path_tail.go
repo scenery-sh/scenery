@@ -41,7 +41,7 @@ func validateContractPathTail(endpoint *Endpoint) error {
 
 func validContractPathTailName(value string) bool {
 	for index, char := range value {
-		if index == 0 && (char < 'a' || char > 'z') || index > 0 && !((char >= 'a' && char <= 'z') || (char >= '0' && char <= '9') || char == '_') {
+		if index == 0 && (char < 'a' || char > 'z') || index > 0 && (char < 'a' || char > 'z') && (char < '0' || char > '9') && char != '_' {
 			return false
 		}
 	}

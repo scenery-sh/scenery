@@ -57,7 +57,7 @@ func runHarnessAssistantProductionProbeCheck(parent context.Context, _ string) (
 	if err != nil {
 		return nil, nil, err
 	}
-	defer os.RemoveAll(root)
+	defer func() { _ = os.RemoveAll(root) }()
 	stateRoot := filepath.Join(root, "state")
 	asset, nodeArchive, err := buildHarnessAssistantProductionAsset(root)
 	if err != nil {

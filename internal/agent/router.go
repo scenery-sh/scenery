@@ -355,11 +355,15 @@ func (s *Server) proxyBackendWithOptions(w http.ResponseWriter, req *http.Reques
 		target.Host = "unix"
 	}
 	transport := s.transportForBackend(backend)
-	proxy := httputil.NewSingleHostReverseProxy(target)
+	proxy := &httputil.ReverseProxy{}
 	proxy.Transport = transport
-	originalDirector := proxy.Director
-	proxy.Director = func(out *http.Request) {
-		originalDirector(out)
+	proxy.Rewrite = func(request *httputil.ProxyRequest) {
+		request.SetURL(target)
+		if s.trustedEdgeRequest(request.In) {
+			request.Out.Header["X-Forwarded-For"] = append([]string(nil), request.In.Header.Values("X-Forwarded-For")...)
+		}
+		request.SetXForwarded()
+		out := request.Out
 		out.Host = req.Host
 		out.Header.Set("X-Forwarded-Host", req.Host)
 		out.Header.Set("X-Forwarded-Proto", s.forwardedProto(req))

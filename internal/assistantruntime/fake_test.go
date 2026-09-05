@@ -40,7 +40,7 @@ func streamEvents(t *testing.T, fake *FakeHelper, request StreamRequest) []assis
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 	encoded, err := io.ReadAll(stream)
 	if err != nil {
 		t.Fatal(err)
@@ -298,7 +298,7 @@ func TestFakeHelperConcurrentStreamsAndLauncher(t *testing.T) {
 				results <- nil
 				return
 			}
-			defer stream.Close()
+			defer func() { _ = stream.Close() }()
 			encoded, err := io.ReadAll(stream)
 			if err != nil {
 				results <- nil

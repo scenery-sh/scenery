@@ -13,6 +13,25 @@ import (
 	"scenery.sh/internal/postgresdb"
 )
 
+func TestPostgresHarnessFixtureSupportsDatabaseDiscovery(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	if err := writePostgresHarnessConfig(root); err != nil {
+		t.Fatal(err)
+	}
+	appRoot, cfg, err := discoverConfiguredApp(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plans, err := discoverDBSeedPlans(appRoot, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plans) != 0 || len(cfg.Dev.Services) != 2 {
+		t.Fatalf("fixture has %d seeds and %d services", len(plans), len(cfg.Dev.Services))
+	}
+}
+
 func TestManagedDatabaseEnvUsesExternalDSN(t *testing.T) {
 	t.Parallel()
 

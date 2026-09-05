@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -56,7 +57,7 @@ func probeDetachedDevURL(ctx context.Context, client *http.Client, rawURL string
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= http.StatusInternalServerError || requireSuccess && resp.StatusCode >= http.StatusBadRequest {
 		return "", fmt.Errorf("GET %s returned HTTP %d", rawURL, resp.StatusCode)
 	}
@@ -71,7 +72,7 @@ func firstDetachedDevAssetURL(base *url.URL, body io.Reader) (string, error) {
 	for {
 		switch tokenizer.Next() {
 		case html.ErrorToken:
-			if err := tokenizer.Err(); err != nil && err != io.EOF {
+			if err := tokenizer.Err(); err != nil && !errors.Is(err, io.EOF) {
 				return "", err
 			}
 			return "", nil

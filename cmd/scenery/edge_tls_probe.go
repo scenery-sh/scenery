@@ -48,7 +48,7 @@ func probeEdgeTLS(addr, serverName string, timeout time.Duration) edgeTLSProbeRe
 	if err != nil {
 		return edgeTLSProbeResult{Outcome: edgeTLSProbeUnreachable, Error: err.Error()}
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(timeout))
 	client := tls.Client(conn, &tls.Config{
 		ServerName:         serverName,

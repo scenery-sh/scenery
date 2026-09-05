@@ -199,9 +199,10 @@ func fixtureSQLLiteral(value any) (string, error) {
 	case map[string]any:
 		if kind := stringValue(typed["$scalar"]); kind != "" {
 			field := "value"
-			if kind == "duration" {
+			switch kind {
+			case "duration":
 				field = "nanoseconds"
-			} else if kind == "size" {
+			case "size":
 				field = "bytes"
 			}
 			text := fmt.Sprint(typed[field])

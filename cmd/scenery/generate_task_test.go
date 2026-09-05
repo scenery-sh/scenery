@@ -344,7 +344,7 @@ func TestDBApplyRunsApplyWithoutSQLC(t *testing.T) {
 	var ran []lifecycleExecRequest
 	hooks := stubLifecycleExec(t, func(_ context.Context, req lifecycleExecRequest) error {
 		ran = append(ran, req)
-		fmt.Fprintln(req.Stdout, "apply chatter")
+		_, _ = fmt.Fprintln(req.Stdout, "apply chatter")
 		return nil
 	}, func(_ context.Context, req lifecycleExecRequest) ([]byte, error) {
 		t.Fatalf("db apply must not run output lifecycle exec: %+v", req)
@@ -665,7 +665,7 @@ func TestDBSetupRunsApplyThenSeed(t *testing.T) {
 	seedHooks := seedStoreHooks(t, store)
 	lifecycleHooks := stubLifecycleExec(t, func(_ context.Context, req lifecycleExecRequest) error {
 		events = append(events, "apply:"+req.Program)
-		fmt.Fprintln(req.Stdout, "apply chatter")
+		_, _ = fmt.Fprintln(req.Stdout, "apply chatter")
 		return nil
 	}, nil)
 

@@ -390,7 +390,7 @@ func runWorkerDurableTokenCreate(opts workerDurableTokenCreateOptions, stdout io
 	if err != nil {
 		return err
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	secret, err := randomDurableTokenSecret()
 	if err != nil {
@@ -437,7 +437,7 @@ func runWorkerDurableJobs(opts workerDurableJobsOptions, stdout io.Writer) error
 	}
 	_ = root
 	_ = cfg
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	resp := workerDurableJobsResponse{
 		cliPayloadIdentity: newCLIPayloadIdentity("scenery.durable.jobs"),
 		Service:            service,

@@ -90,7 +90,7 @@ ORDER BY datname`)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []DatabaseInfo
 	for rows.Next() {
 		var info DatabaseInfo

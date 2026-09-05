@@ -50,7 +50,7 @@ func runHarnessValidationGitProbeCheck(ctx context.Context, _ string) (map[strin
 	if err != nil {
 		return nil, nil, err
 	}
-	defer os.RemoveAll(root)
+	defer func() { _ = os.RemoveAll(root) }()
 	appRoot := filepath.Join(root, "app")
 	if err := writeHarnessValidationFile(filepath.Join(appRoot, "src", "main.go"), "package main\n"); err != nil {
 		return nil, nil, err

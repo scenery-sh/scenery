@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -206,30 +205,11 @@ func TestWorktreeRemoveDoesNotDeleteStateForUnlistedTarget(t *testing.T) {
 	}
 }
 
-func runGitForTest(t *testing.T, dir string, args ...string) {
-	t.Helper()
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, output)
-	}
-}
-
 func evalPathForTest(t *testing.T, path string) string {
 	t.Helper()
 	evaluated, err := filepath.EvalSymlinks(path)
 	if err != nil {
 		t.Fatalf("eval symlinks %s: %v", path, err)
-	}
-	return evaluated
-}
-
-func evalPathForTestAllowMissing(t *testing.T, path string) string {
-	t.Helper()
-	evaluated, err := filepath.EvalSymlinks(path)
-	if err != nil {
-		return path
 	}
 	return evaluated
 }

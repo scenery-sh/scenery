@@ -2,26 +2,15 @@ package scenery_test
 
 import (
 	"crypto/sha256"
-	"debug/buildinfo"
 	"encoding/hex"
 	"errors"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime/debug"
 	"strings"
 	"time"
 )
-
-func installedSceneryBinaryMatchesRepo(path, repo string) bool {
-	info, err := buildinfo.ReadFile(path)
-	if err != nil {
-		return false
-	}
-	repoRevision, repoErr := currentRepoRevision(repo)
-	return sceneryBuildInfoMatchesRepoRevision(info, repoRevision, repoErr)
-}
 
 func sceneryBuildInfoMatchesRepoRevision(info *debug.BuildInfo, repoRevision string, repoErr error) bool {
 	if info == nil {
@@ -53,15 +42,6 @@ func buildInfoSetting(info *debug.BuildInfo, key string) (string, bool) {
 		}
 	}
 	return "", false
-}
-
-func currentRepoRevision(repo string) (string, error) {
-	cmd := exec.Command("git", "-C", repo, "rev-parse", "HEAD")
-	out, err := cmd.Output()
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(string(out)), nil
 }
 
 func latestIntegrationSourceModTime(repo string) (time.Time, bool, error) {

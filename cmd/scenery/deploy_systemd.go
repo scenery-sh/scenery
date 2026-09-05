@@ -99,7 +99,7 @@ func runDeploySetupLinux(stdout io.Writer, opts deployOptions) error {
 	if opts.JSON {
 		return writeCLIJSON(stdout, resp)
 	}
-	fmt.Fprintf(stdout, "configured public deploy edge under systemd (%s CA)\n", resp.ACME.CA)
+	_, _ = fmt.Fprintf(stdout, "configured public deploy edge under systemd (%s CA)\n", resp.ACME.CA)
 	return nil
 }
 
@@ -162,7 +162,7 @@ func runDeployTeardownLinux(stdout io.Writer, opts deployOptions) error {
 	if opts.JSON {
 		return writeCLIJSON(stdout, resp)
 	}
-	fmt.Fprintln(stdout, "disabled the public deploy edge and removed Scenery systemd units")
+	_, _ = fmt.Fprintln(stdout, "disabled the public deploy edge and removed Scenery systemd units")
 	return nil
 }
 

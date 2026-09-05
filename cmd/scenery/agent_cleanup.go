@@ -130,14 +130,14 @@ func runAgentCleanupWithProcessLister(stdout io.Writer, legacyHome string, opts 
 		return writeCLIJSON(stdout, result)
 	}
 	if len(result.Stopped) > 0 {
-		fmt.Fprintf(stdout, "stopped %d verified pre-rebrand process(es)\n", len(result.Stopped))
+		_, _ = fmt.Fprintf(stdout, "stopped %d verified pre-rebrand process(es)\n", len(result.Stopped))
 	} else {
-		fmt.Fprintln(stdout, "no verified pre-rebrand processes found")
+		_, _ = fmt.Fprintln(stdout, "no verified pre-rebrand processes found")
 	}
 	if result.StateRemoved {
-		fmt.Fprintf(stdout, "removed pre-rebrand state %s\n", legacyHome)
+		_, _ = fmt.Fprintf(stdout, "removed pre-rebrand state %s\n", legacyHome)
 	} else if result.StatePresent {
-		fmt.Fprintf(stdout, "pre-rebrand state remains at %s; rerun with --remove-state to remove it\n", legacyHome)
+		_, _ = fmt.Fprintf(stdout, "pre-rebrand state remains at %s; rerun with --remove-state to remove it\n", legacyHome)
 	}
 	return nil
 }

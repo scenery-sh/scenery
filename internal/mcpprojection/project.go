@@ -744,10 +744,6 @@ func isOptionalType(value any) bool {
 	return strings.HasPrefix(expression, "optional(") && strings.HasSuffix(expression, ")")
 }
 
-func schemaName(resource graph.Resource) string {
-	return strings.NewReplacer("/", "_", "-", "_", ".", "_").Replace(resource.Address)
-}
-
 func parseCall(value string) (string, []string, bool) {
 	open := strings.IndexByte(value, '(')
 	if open <= 0 || !strings.HasSuffix(value, ")") {

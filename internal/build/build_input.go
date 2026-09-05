@@ -183,7 +183,7 @@ func addBuildInput(entries map[string]string, identity, path string) error {
 		return err
 	}
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-		return fmt.Errorf("Go build input is not a regular non-symlink file: %s", path)
+		return fmt.Errorf("go build input is not a regular non-symlink file: %s", path)
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -192,7 +192,7 @@ func addBuildInput(entries map[string]string, identity, path string) error {
 	sum := sha256.Sum256(data)
 	digest := "sha256:" + hex.EncodeToString(sum[:])
 	if previous := entries[identity]; previous != "" && previous != digest {
-		return fmt.Errorf("Go build input identity collision: %s", identity)
+		return fmt.Errorf("go build input identity collision: %s", identity)
 	}
 	entries[identity] = digest
 	return nil

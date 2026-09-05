@@ -120,7 +120,7 @@ func (s *Server) monitorPublicRoutes(ctx context.Context) {
 		s.monitorPublicRoutesByPolling(ctx)
 		return
 	}
-	defer watcher.Close()
+	defer func() { _ = watcher.Close() }()
 	if err := watcher.Add(filepath.Dir(s.paths.DeployPath)); err != nil {
 		slog.Warn("failed to watch scenery public deploy registry; using polling fallback", "err", err)
 		s.monitorPublicRoutesByPolling(ctx)

@@ -55,7 +55,7 @@ func TestWaitBindFreeWaitsUntilReleased(t *testing.T) {
 
 func TestWaitBindFreeContextTimeout(t *testing.T) {
 	ln := listenLocal(t)
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
 	defer cancel()

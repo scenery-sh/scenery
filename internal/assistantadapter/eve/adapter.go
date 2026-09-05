@@ -33,8 +33,6 @@ const (
 	EveVersion  = "0.39.1"
 	NodeVersion = "24.18.0"
 
-	controlHeader = "x-scenery-assistant-control-token"
-
 	defaultAssertionTTL = 30 * time.Second
 	maxAssertionTTL     = 2 * time.Minute
 )
@@ -109,13 +107,13 @@ func MaterializeOverlay(request OverlayRequest) (Overlay, error) {
 		return Overlay{}, fmt.Errorf("stat Eve source root: %w", err)
 	}
 	if !info.IsDir() {
-		return Overlay{}, errors.New("Eve source root must be a directory")
+		return Overlay{}, errors.New("eve source root must be a directory")
 	}
 	if info, err := os.Lstat(request.OverlayRoot); err == nil {
 		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
-			return Overlay{}, errors.New("Eve overlay destination must be a new directory")
+			return Overlay{}, errors.New("eve overlay destination must be a new directory")
 		}
-		return Overlay{}, errors.New("Eve overlay destination already exists")
+		return Overlay{}, errors.New("eve overlay destination already exists")
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return Overlay{}, fmt.Errorf("check Eve overlay destination: %w", err)
 	}
@@ -250,13 +248,13 @@ func renderTemplate(templatePath, destination string, data templateData) error {
 
 func validateIdentity(request OverlayRequest) error {
 	if strings.TrimSpace(request.AssistantAddress) == "" {
-		return errors.New("Eve assistant address is required")
+		return errors.New("eve assistant address is required")
 	}
 	if strings.TrimSpace(request.RuntimeRevision) == "" {
-		return errors.New("Eve runtime revision is required")
+		return errors.New("eve runtime revision is required")
 	}
 	if strings.TrimSpace(request.CapabilityRevision) == "" {
-		return errors.New("Eve capability revision is required")
+		return errors.New("eve capability revision is required")
 	}
 	return nil
 }
@@ -264,13 +262,13 @@ func validateIdentity(request OverlayRequest) error {
 func validateLoopbackURL(raw, label string) error {
 	parsed, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil || parsed.Scheme != "http" || parsed.Hostname() == "" {
-		return fmt.Errorf("Eve %s must be an http loopback URL", label)
+		return fmt.Errorf("eve %s must be an http loopback URL", label)
 	}
 	if parsed.User != nil || parsed.Host == "" {
-		return fmt.Errorf("Eve %s must not include credentials", label)
+		return fmt.Errorf("eve %s must not include credentials", label)
 	}
 	if !isLoopbackHost(parsed.Hostname()) {
-		return fmt.Errorf("Eve %s must target loopback", label)
+		return fmt.Errorf("eve %s must target loopback", label)
 	}
 	return nil
 }
@@ -298,7 +296,7 @@ func rejectReservedSourcePaths(sourceRoot string) error {
 		path := filepath.Join(sourceRoot, filepath.FromSlash(relative))
 		_, err := os.Lstat(path)
 		if err == nil {
-			return fmt.Errorf("Eve authored source claims reserved generated path %q", relative)
+			return fmt.Errorf("eve authored source claims reserved generated path %q", relative)
 		}
 		if !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("check Eve reserved path %q: %w", relative, err)
@@ -320,7 +318,7 @@ func copyAuthoredTree(sourceRoot, destinationRoot string) error {
 			return os.MkdirAll(destinationRoot, 0o755)
 		}
 		if entry.Type()&os.ModeSymlink != 0 {
-			return fmt.Errorf("Eve source contains unsupported symlink %q", filepath.ToSlash(relative))
+			return fmt.Errorf("eve source contains unsupported symlink %q", filepath.ToSlash(relative))
 		}
 		// Dependencies are installed by the managed npm lane. Copying a local
 		// node_modules tree would make the overlay non-deterministic and can

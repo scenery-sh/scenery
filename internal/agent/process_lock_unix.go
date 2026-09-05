@@ -3,6 +3,7 @@
 package agent
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"syscall"
@@ -17,7 +18,7 @@ func unlockProcessLock(file *os.File) error {
 }
 
 func processLockBusy(err error) bool {
-	return err == syscall.EWOULDBLOCK || err == syscall.EAGAIN
+	return errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN)
 }
 
 func inheritProcessLock(file *os.File, cmd *exec.Cmd) (bool, error) {

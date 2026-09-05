@@ -137,7 +137,7 @@ func (c *dashboardControlPlaneClient) post(ctx context.Context, payload dashboar
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 300 {
 		return fmt.Errorf("dashboard control-plane write failed: %s", resp.Status)
 	}
@@ -149,7 +149,7 @@ func (s *dashboardServer) handleControlPlane(w http.ResponseWriter, req *http.Re
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	defer req.Body.Close()
+	defer func() { _ = req.Body.Close() }()
 	var payload dashboardControlPlaneRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, req.Body, 2<<20)).Decode(&payload); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)

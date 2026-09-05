@@ -216,7 +216,7 @@ func readManifestArtifact(path string) (Manifest, Artifact, string, error) {
 	if err != nil {
 		return manifest, Artifact{}, "", fmt.Errorf("open library manifest: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	decoder := json.NewDecoder(io.LimitReader(file, 4<<20))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&manifest); err != nil {
@@ -284,7 +284,7 @@ func fileSHA256(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	hash := sha256.New()
 	if _, err := io.Copy(hash, file); err != nil {
 		return "", err

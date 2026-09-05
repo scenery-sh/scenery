@@ -121,14 +121,14 @@ func startDurableRuntime(ctx context.Context, cfg AppConfig) (func(context.Conte
 			if base != nil {
 				_ = base.Close()
 			}
-			closeDurableStores(opened)
+			_ = closeDurableStores(opened)
 			return nil, err
 		}
 		if err := db.ReconcileTasks(ctx, declarations); err != nil {
 			if base != nil {
 				_ = base.Close()
 			}
-			closeDurableStores(opened)
+			_ = closeDurableStores(opened)
 			return nil, err
 		}
 		opened = append(opened, db)

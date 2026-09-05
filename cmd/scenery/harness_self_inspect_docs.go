@@ -48,11 +48,11 @@ func runHarnessInspectDocsGoPackageProbeCheck(ctx context.Context, repoRoot stri
 		return nil, nil, err
 	}
 	if len(packages) != 1 {
-		return nil, nil, fmt.Errorf("Go package ownership for %s = %+v, want one package", targetPath, packages)
+		return nil, nil, fmt.Errorf("go package ownership for %s = %+v, want one package", targetPath, packages)
 	}
 	got := packages[0]
 	if got.ImportPath != "scenery.sh/cmd/scenery" || got.RelDir != "cmd/scenery" {
-		return nil, nil, fmt.Errorf("Go package ownership for %s = %+v", targetPath, got)
+		return nil, nil, fmt.Errorf("go package ownership for %s = %+v", targetPath, got)
 	}
 	return map[string]any{
 		"proof":       "inspect_docs_path_resolved_by_real_go_package_loader",

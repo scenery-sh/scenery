@@ -49,7 +49,7 @@ func runHarnessCodeTaskProcessProbeCheck(ctx context.Context, _ string) (map[str
 	if err != nil {
 		return nil, nil, err
 	}
-	defer os.RemoveAll(root)
+	defer func() { _ = os.RemoveAll(root) }()
 
 	files := map[string]string{
 		".scenery.json":      `{"name":"scriptapp","envs":{"local":{"default":true},"production":{}}}`,

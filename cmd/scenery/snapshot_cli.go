@@ -266,7 +266,7 @@ func runSnapshotSave(ctx context.Context, stdout io.Writer, args []string) error
 	if opts.JSON {
 		return writeInspectJSON(stdout, result)
 	}
-	fmt.Fprintf(stdout, "saved snapshot %s (%d files, %d bytes)\n", result.Archive, result.Files, result.Bytes)
+	_, _ = fmt.Fprintf(stdout, "saved snapshot %s (%d files, %d bytes)\n", result.Archive, result.Files, result.Bytes)
 	return nil
 }
 
@@ -287,9 +287,9 @@ func runSnapshotLoad(ctx context.Context, stdout io.Writer, args []string) error
 		return writeInspectJSON(stdout, result)
 	}
 	if result.DryRun {
-		fmt.Fprintf(stdout, "snapshot load preflight passed for %s\n", result.Archive)
+		_, _ = fmt.Fprintf(stdout, "snapshot load preflight passed for %s\n", result.Archive)
 	} else {
-		fmt.Fprintf(stdout, "loaded snapshot %s\n", result.Archive)
+		_, _ = fmt.Fprintf(stdout, "loaded snapshot %s\n", result.Archive)
 	}
 	return nil
 }
@@ -306,7 +306,7 @@ func runSnapshotVerify(stdout io.Writer, args []string) error {
 	if opts.JSON {
 		return writeInspectJSON(stdout, result)
 	}
-	fmt.Fprintf(stdout, "verified snapshot %s (%d files, %d bytes)\n", result.Archive, result.Files, result.Bytes)
+	_, _ = fmt.Fprintf(stdout, "verified snapshot %s (%d files, %d bytes)\n", result.Archive, result.Files, result.Bytes)
 	return nil
 }
 

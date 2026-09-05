@@ -374,7 +374,7 @@ func fetchUpgradeReleaseWithDependencies(ctx context.Context, deps upgradeDepend
 	if err != nil {
 		return upgradeRelease{}, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return upgradeRelease{}, fmt.Errorf("fetch release metadata: unexpected status %s", resp.Status)
 	}
@@ -427,7 +427,7 @@ func downloadUpgradeAssetWithDependencies(ctx context.Context, asset upgradeRele
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("download %s: unexpected status %s", asset.Name, resp.Status)
 	}
@@ -495,7 +495,7 @@ func extractUpgradeBinaryFromTarGz(data []byte, want string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer gz.Close()
+	defer func() { _ = gz.Close() }()
 	tr := tar.NewReader(gz)
 	for {
 		header, err := tr.Next()
@@ -666,26 +666,26 @@ func sameVersion(a, b string) bool {
 func renderUpgrade(stdout io.Writer, resp upgradeResponse) error {
 	switch {
 	case resp.DryRun:
-		fmt.Fprintf(stdout, "would upgrade scenery %s -> %s at %s\n", resp.CurrentVersion, resp.TargetVersion, resp.TargetPath)
+		_, _ = fmt.Fprintf(stdout, "would upgrade scenery %s -> %s at %s\n", resp.CurrentVersion, resp.TargetVersion, resp.TargetPath)
 	case resp.Skipped:
-		fmt.Fprintf(stdout, "scenery is already %s at %s\n", resp.TargetVersion, resp.TargetPath)
+		_, _ = fmt.Fprintf(stdout, "scenery is already %s at %s\n", resp.TargetVersion, resp.TargetPath)
 	case resp.Installed:
-		fmt.Fprintf(stdout, "upgraded scenery %s -> %s at %s\n", resp.CurrentVersion, resp.TargetVersion, resp.TargetPath)
+		_, _ = fmt.Fprintf(stdout, "upgraded scenery %s -> %s at %s\n", resp.CurrentVersion, resp.TargetVersion, resp.TargetPath)
 	default:
-		fmt.Fprintf(stdout, "scenery upgrade checked %s at %s\n", resp.TargetVersion, resp.TargetPath)
+		_, _ = fmt.Fprintf(stdout, "scenery upgrade checked %s at %s\n", resp.TargetVersion, resp.TargetPath)
 	}
 	if resp.Toolchain != nil && resp.Toolchain.Mode != "none" {
-		fmt.Fprintf(stdout, "toolchain sync: %s", resp.Toolchain.Mode)
+		_, _ = fmt.Fprintf(stdout, "toolchain sync: %s", resp.Toolchain.Mode)
 		if len(resp.Toolchain.Synced) > 0 {
-			fmt.Fprintf(stdout, ", synced %d", len(resp.Toolchain.Synced))
+			_, _ = fmt.Fprintf(stdout, ", synced %d", len(resp.Toolchain.Synced))
 		}
 		if len(resp.Toolchain.Skipped) > 0 {
-			fmt.Fprintf(stdout, ", skipped %d", len(resp.Toolchain.Skipped))
+			_, _ = fmt.Fprintf(stdout, ", skipped %d", len(resp.Toolchain.Skipped))
 		}
-		fmt.Fprintln(stdout)
+		_, _ = fmt.Fprintln(stdout)
 	}
 	if resp.Deploy != nil && resp.Deploy.ActionRequired {
-		fmt.Fprintf(stdout, "deploy helper: %s\n", resp.Deploy.SuggestedAction)
+		_, _ = fmt.Fprintf(stdout, "deploy helper: %s\n", resp.Deploy.SuggestedAction)
 	}
 	return nil
 }

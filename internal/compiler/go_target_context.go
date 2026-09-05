@@ -106,7 +106,7 @@ func ResolveGoBuildTarget(result *Result, name, defaultRole string) (GoBuildTarg
 	}
 	target := targets[name]
 	if target.Address == "" {
-		return GoBuildTarget{}, fmt.Errorf("Go target %q is unavailable", name)
+		return GoBuildTarget{}, fmt.Errorf("go target %q is unavailable", name)
 	}
 	resolved, err := resolveGoVerificationTarget(result, targets, target)
 	if err != nil {
@@ -221,7 +221,7 @@ func resolveGoVerificationTarget(result *Result, targets map[string]Resource, ta
 
 func resolveGoToolIdentities(target *gotarget.Context) error {
 	if target == nil {
-		return fmt.Errorf("Go target context is required")
+		return fmt.Errorf("go target context is required")
 	}
 	environment, err := resolveGoToolEnvironment(target)
 	if err != nil {

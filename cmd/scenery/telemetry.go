@@ -124,7 +124,7 @@ func recordCLITelemetry(record cliTelemetryRecord) {
 	if err != nil {
 		return
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	encoded, err := json.Marshal(record)
 	if err != nil {
 		return

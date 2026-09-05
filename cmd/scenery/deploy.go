@@ -377,10 +377,6 @@ func runDeployDisable(stdout io.Writer, opts deployOptions) error {
 	})
 }
 
-func runDeployStatus(stdout io.Writer, opts deployOptions) error {
-	return runDeployStatusWithDependencies(stdout, opts, liveDeployStatusDependencies())
-}
-
 func runDeployStatusWithDependencies(stdout io.Writer, opts deployOptions, deps deployStatusDependencies) error {
 	paths, err := commandAgentPaths()
 	if err != nil {
@@ -394,16 +390,16 @@ func runDeployStatusWithDependencies(stdout io.Writer, opts deployOptions, deps 
 	if opts.JSON {
 		return writeCLIJSON(stdout, status)
 	}
-	fmt.Fprintf(stdout, "Deploy: %s\n", readyWord(status.Ready))
+	_, _ = fmt.Fprintf(stdout, "Deploy: %s\n", readyWord(status.Ready))
 	for _, diag := range status.Diagnostics {
-		fmt.Fprintf(stdout, "- %s\n", diag)
+		_, _ = fmt.Fprintf(stdout, "- %s\n", diag)
 	}
 	for _, target := range status.Targets {
 		state := "disabled"
 		if target.Enabled {
 			state = "enabled"
 		}
-		fmt.Fprintf(stdout, "%s  %s  %s\n", target.Domain, state, target.AppRoot)
+		_, _ = fmt.Fprintf(stdout, "%s  %s  %s\n", target.Domain, state, target.AppRoot)
 	}
 	return nil
 }
@@ -478,7 +474,7 @@ func runDeploySetup(stdout io.Writer, opts deployOptions) error {
 	if opts.JSON {
 		return writeCLIJSON(stdout, resp)
 	}
-	fmt.Fprintf(stdout, "configured public deploy edge (%s CA)\n", resp.ACME.CA)
+	_, _ = fmt.Fprintf(stdout, "configured public deploy edge (%s CA)\n", resp.ACME.CA)
 	return nil
 }
 
@@ -557,16 +553,16 @@ func runDeployResume(stdout io.Writer, opts deployOptions) error {
 		return writeCLIJSON(stdout, resp)
 	}
 	if resp.HelperDrift != nil {
-		fmt.Fprintf(stdout, "helper drift: %s\n", resp.HelperDrift.Message)
+		_, _ = fmt.Fprintf(stdout, "helper drift: %s\n", resp.HelperDrift.Message)
 		if resp.HelperDrift.SuggestedAction != "" {
-			fmt.Fprintf(stdout, "helper drift: %s\n", resp.HelperDrift.SuggestedAction)
+			_, _ = fmt.Fprintf(stdout, "helper drift: %s\n", resp.HelperDrift.SuggestedAction)
 		}
 	}
 	for _, target := range resp.Targets {
 		if target.Error != "" {
-			fmt.Fprintf(stdout, "%s %s: %s\n", target.Domain, target.Action, target.Error)
+			_, _ = fmt.Fprintf(stdout, "%s %s: %s\n", target.Domain, target.Action, target.Error)
 		} else {
-			fmt.Fprintf(stdout, "%s %s\n", target.Domain, target.Action)
+			_, _ = fmt.Fprintf(stdout, "%s %s\n", target.Domain, target.Action)
 		}
 	}
 	return nil
@@ -658,7 +654,7 @@ func runDeployTeardown(stdout io.Writer, opts deployOptions) error {
 	if opts.JSON {
 		return writeCLIJSON(stdout, resp)
 	}
-	fmt.Fprintln(stdout, "disabled public deploy edge; local HTTPS remains available")
+	_, _ = fmt.Fprintln(stdout, "disabled public deploy edge; local HTTPS remains available")
 	return nil
 }
 
@@ -667,7 +663,7 @@ func writeDeployMutation(stdout io.Writer, jsonMode bool, resp deployMutationRes
 		return writeCLIJSON(stdout, resp)
 	}
 	for _, target := range resp.Targets {
-		fmt.Fprintf(stdout, "%s %s for %s\n", resp.Action, target.Domain, target.AppRoot)
+		_, _ = fmt.Fprintf(stdout, "%s %s for %s\n", resp.Action, target.Domain, target.AppRoot)
 	}
 	return nil
 }
@@ -741,10 +737,6 @@ func absoluteDeployAppRoot(appRootOpt string) (string, error) {
 		return "", err
 	}
 	return filepath.Clean(abs), nil
-}
-
-func buildDeployStatus(paths localagent.Paths, registry localagent.DeployRegistry) deployStatusResponse {
-	return buildDeployStatusWithContext(context.Background(), paths, registry)
 }
 
 func buildDeployStatusWithContext(ctx context.Context, paths localagent.Paths, registry localagent.DeployRegistry) deployStatusResponse {
@@ -1119,7 +1111,7 @@ func appendDeployResumeLog(paths localagent.Paths, resp deployResumeResponse) er
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	return json.NewEncoder(file).Encode(resp)
 }
 

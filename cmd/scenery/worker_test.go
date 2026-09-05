@@ -57,7 +57,7 @@ func TestWorkerDurableTokenCreate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	token, ok, err := db.AuthenticateWorkerToken(context.Background(), payload.Token.Secret)
 	if err != nil || !ok {
 		t.Fatalf("AuthenticateWorkerToken ok=%v err=%v", ok, err)

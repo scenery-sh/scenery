@@ -706,7 +706,7 @@ func TestGatewayRejectsSamePrincipalSessionContextSwap(t *testing.T) {
 			if err != nil {
 				t.Fatalf("connect: %v", err)
 			}
-			defer session.Close()
+			defer func() { _ = session.Close() }()
 			transport.SetToken(test.token)
 			if _, err := session.ListTools(context.Background(), nil); err == nil {
 				t.Fatal("same-principal stable context swap unexpectedly succeeded")
@@ -739,7 +739,7 @@ func TestGatewayMintsRequestIDsForEveryToolInvocation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("connect: %v", err)
 	}
-	defer session.Close()
+	defer func() { _ = session.Close() }()
 	for range 2 {
 		if _, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: "read"}); err != nil {
 			t.Fatalf("call read: %v", err)

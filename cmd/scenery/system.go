@@ -6,7 +6,7 @@ var systemEdgeTrustFunc = edgeTrust
 
 func systemCommand(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: scenery system agent|edge|toolchain|trust ...")
+		return fmt.Errorf("usage: scenery system agent|edge|toolchain|trust ")
 	}
 	switch args[0] {
 	case "agent":
