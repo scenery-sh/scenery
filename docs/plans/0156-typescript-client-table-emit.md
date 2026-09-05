@@ -44,6 +44,9 @@ machine is removed, not kept as a compatibility path.
 - [x] (2026-09-02) Re-generated all three committed clients idempotently and passed
       focused Go tests, 24 Bun conformance tests, both generated-client/catalog
       TypeScript checks, `go test ./...`, and the full self-harness.
+- [x] (2026-09-05) Closed plan bookkeeping after confirming the implementation
+      landed on `main` in `fb88b434` and `c206930c`. Validation evidence remains
+      the implementation runs recorded above; this closure is documentation-only.
 
 ## Surprises & Discoveries
 
@@ -146,8 +149,8 @@ both committed fixture regeneration commands, bun conformance, generated
 client `tsc`, and `go test ./...`. ONLV was regenerated only as an
 uncommitted size check. From the original 25,822-line / 1.99 MB
 `client.ts`, the table-driven pass reached 689 lines / 668 KB and interning
-reached 691 lines / 300 KB. Combined client+runtime is 401 KB. The plan
-stays active until the scenery change lands.
+reached 691 lines / 300 KB. Combined client+runtime is 401 KB. The change
+landed on `main`; plan indexing was closed on 2026-09-05.
 
 The 2026-09-02 capability follow-up kept that validation surface green. All
 fixture regeneration commands returned `changed: []` on the verification pass;

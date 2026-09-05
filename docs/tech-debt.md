@@ -15,6 +15,7 @@ This file tracks known project debt that should be visible to agents before they
   - [Browser Harness Fixture-Backed Mutation Depth](#browser-harness-fixture-backed-mutation-depth)
   - [Deeper Architecture Checks](#deeper-architecture-checks)
   - [Long Build Tests](#long-build-tests)
+  - [Edge Static Integration Test Placement](#edge-static-integration-test-placement)
 
 ## Resolved
 
@@ -323,7 +324,10 @@ The browser UI harness now captures route-specific semantic journeys, screenshot
 - Created: 2026-04-27
 - Review after: 2026-08-17 (last reviewed 2026-07-18)
 
-The self harness now enforces the first architecture checks: dependency allowlist, forbidden imports, CLI package boundaries, generated-file hygiene, and file-size thresholds. Future work can add deeper package dependency direction rules once the repo structure stabilizes.
+The self-harness enforces dependency allowlists, forbidden imports, package
+direction rules, generated-file hygiene, and file-size thresholds. New checks
+should target a demonstrated gap in an established boundary; inspect
+`cmd/scenery/harness_architecture*.go` before proposing an already enforced rule.
 
 ### Long Build Tests
 
@@ -333,4 +337,26 @@ The self harness now enforces the first architecture checks: dependency allowlis
 - Created: 2026-04-27
 - Review after: 2026-08-17 (last reviewed 2026-07-18)
 
-Some full `go test ./...` runs still spend most time in build/package tests. Keep these real tests, but continue optimizing the build path rather than gating them away.
+Track remaining link, preparation, and test-body cost in active
+[0145](plans/0145-test-loop-attribution.md). Preserve ordinary in-process
+coverage and move real toolchain/process proof to explicit release probes,
+following the root 100ms p95 policy. Historical full-suite durations above
+are incident evidence, not a current measurement or permission to keep slow
+external-boundary tests in the ordinary lane.
+
+### Edge Static Integration Test Placement
+
+- Area: tests / edge
+- Severity: medium
+- Owner: scenery edge / harness
+- Created: 2026-09-05
+- Review after: 2026-10-05
+
+The documentation review found `TestCaddyStaticFrontendIntegration` in
+`internal/edge/caddystatic_test.go` still starts an HTTP server and a real
+Caddy subprocess inside an ordinary parallel Go test. This conflicts with
+the root external-boundary test policy. Move the complete static-serving
+journey into the release edge probe while retaining focused in-process
+coverage. `cmd/scenery/harness_self_edge.go` already validates generated
+Caddy configs, but that is not the full HTTP journey. Timing was not measured
+during the documentation cleanup; this is a source-proven placement issue.

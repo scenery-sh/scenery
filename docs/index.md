@@ -2,22 +2,28 @@
 
 This is the human entry point for scenery's local knowledge base. The docs are also intended for AI agents, so prefer stable command contracts and JSON schemas over duplicated prose.
 
-For agents, the machine-readable source of truth is [knowledge.json](knowledge.json). Validate it with:
+The machine-readable discovery index is [knowledge.json](knowledge.json).
+It records ownership and review state; the linked documents own the contracts.
+From the repository root, validate the index with:
 
 ```text
-scenery inspect docs --all -o json
-scenery harness self --summary
+.scenery/harness/bin/scenery inspect docs --all -o json
+.scenery/harness/bin/scenery harness self --quick --summary --write
 ```
 
 For ordinary work, discover only the applicable material with `scenery inspect
 docs --for-path <repository-relative-path> -o json`. Filter the index with
 `--tag`, `--status`, or `--review-due`; reserve `--all` for the complete catalog.
+Build a missing local CLI using [Fresh Worktree Preflight](agent-guide.md#fresh-worktree-preflight).
 
 ## Agent Entry Points
 
 - [Repo Agent Instructions](../AGENTS.md): mandatory repo-local operating rules for agents changing scenery itself.
 - [Installable Skill](../SKILL.md): concise portable skill for agents using scenery in target apps.
 - [Agent Guide](agent-guide.md): agent workflows, generated artifacts, and client-app integration guidance.
+- [Contributing](../CONTRIBUTING.md): checkout setup and validation entry point.
+- [Local Issues](agents/issue-tracker.md), [Triage Labels](agents/triage-labels.md), and [Domain Notes](agents/domain.md): local issue conventions and optional domain documentation.
+- Scoped `AGENTS.md` files are listed in the [root child index](../AGENTS.md#child-agent-index) and returned by task-scoped inspection.
 
 ## Core Contracts
 
@@ -34,7 +40,7 @@ Scenery has one evolving application contract. Start with the [Scenery Specifica
 
 ## Product Plans
 
-- [Root Plan](../PLAN.md): current agent-first implementation plan inspired by OpenAI's harness engineering article.
+- [Roadmap](../PLAN.md): strategic priorities and links to executable work.
 - [Active Plans](plans/active.md): planned or in-progress work that agents should consider when editing the repo.
 - [Completed Plans](plans/completed.md): shipped milestones and acceptance notes.
 - [Tech Debt](tech-debt.md): known cleanup, risk, and follow-up items.

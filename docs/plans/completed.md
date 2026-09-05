@@ -11,6 +11,20 @@ historical records. Do not refresh their review dates or rewrite them as current
 contract prose. Record later guidance here or in the owning current contract;
 use stale knowledge metadata to flag a known contradiction.
 
+## Table-Driven TypeScript HTTP Client Emit
+
+- Status: completed
+- Owner: scenery client generation
+- Completed: 2026-09-02 (index reconciled 2026-09-05)
+- Quality: B
+- ExecPlan: [0156 Table-Driven TypeScript HTTP Client Emit](0156-typescript-client-table-emit.md)
+
+Generated HTTP methods share a descriptor-driven request/response runtime,
+intern repeated response mappings, and omit unused transport capabilities.
+The plan records fixture, Go, TypeScript, conformance, and full self-harness
+acceptance; the implementation landed in `fb88b434` and `c206930c`.
+Current behavior lives in [the TypeScript specification](../spec/typescript-client.md).
+
 ## File-backed Database Seed Commands
 
 - Status: completed

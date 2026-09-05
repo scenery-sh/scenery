@@ -8,8 +8,8 @@ Use the narrowest current source that applies:
 
 1. The target repository's root and child `AGENTS.md` files.
 2. Current implementation, tests, and native `.scn` source.
-3. Machine-readable CLI output and checked schemas.
-4. `docs/local-contract.md`, this guide, and the app cookbook.
+3. Machine-readable CLI output and checked schemas establish implemented behavior.
+4. The current specification, `docs/local-contract.md`, this guide, and the app cookbook describe required behavior and workflows.
 5. Historical ExecPlans only as history.
 
 When prose and current JSON/tests disagree, fix the affected documentation in the same change or record the drift in an active ExecPlan. Do not add alternate declaration spellings to preserve old source.
@@ -24,7 +24,7 @@ Every supported app has:
 - an optional generated `app.lock.scn` dependency lock;
 - Go implementations of generated native service contracts;
 - generated outputs only beneath declared `workspace.managed_generated_roots`;
-- provider-neutral `mcp_connection`, `mcp_server`, and `assistant` resources. An
+- optional provider-neutral `mcp_connection`, `mcp_server`, and `assistant` resources. An
   assistant projects declared MCP capabilities into a Scenery-owned
   conversation API; its implementation adapter is a private developer/operator
   boundary and is not part of the public route, event, error, or generated-client
@@ -212,7 +212,7 @@ Use `-o json` for compiler commands and command-specific current protocols. Neve
 | Rank React UI guardrail drift | `scenery inspect ui [--frontend <name>] -o human|json` |
 | Inspect build and paths | `scenery inspect build -o json`, `scenery inspect paths -o json` |
 | Inspect durable/storage capabilities | `scenery inspect durable -o json`, `scenery inspect storage -o json` |
-| Generate/check Go artifacts | `scenery generate --target go [--check] -o json` |
+| Generate/check Go artifacts | `scenery generate --target contracts [--check] -o json` |
 | Generate/check a TypeScript target | `scenery generate --target typescript_client.<name> [--check] -o json` |
 | Run app validation | `scenery harness -o json --write` |
 | Initialize/sync an assistant | `scenery assistant init|sync|status ... -o json` |
@@ -371,13 +371,19 @@ Refresh the worktree-local validation oracle with:
 cat .scenery/harness/agent-context.json
 ```
 
-Run the exact union in `changed_area.recommended_commands`. The calculated
+Refresh this snapshot after editing; a pre-edit snapshot cannot classify the
+new changes. Run the exact union in `changed_area.recommended_commands`. The calculated
 `validation_classification` explains which root `AGENTS.md` changed-area rows
 apply; multiple matches are cumulative. Final validation uses Go's test result
 cache. Use `-count=1` or `scenery harness self --fresh-tests` only when
 explicitly measuring fresh execution or investigating nondeterminism.
 
-Do not install a shared CLI during agent validation. Self-harness builds a worktree-local binary.
+For `release-sensitive-or-runtime`, also run the release loop in
+[Harness Engineering](harness-engineering.md#command). The oracle's default
+self-harness command does not include every release-only probe.
+
+Do not install a shared CLI during agent validation. Default, race, and release
+self-harness modes build a worktree-local binary; quick mode does not.
 
 ### Repository Mental Model
 
@@ -503,15 +509,42 @@ user only while it still has no provider identities.
 
 ### Fresh Worktree Preflight
 
-A fresh worktree fails UI and self-harness lanes for environment reasons, not code reasons, until:
+For quick documentation validation, build the local CLI and run the quick lane:
 
-1. Self-harness provisions `apps/console` dependencies itself: the `console dependencies` step runs `bun install --frozen-lockfile` before the tsc-dependent lanes and skips them with one actionable diagnostic when bun is missing or the install fails. No manual `bun install` is needed; only the `bun` binary itself must be installed.
-2. `./scripts/build-dashboard-ui-embed.sh` runs once. Only `placeholder.txt` is tracked under `cmd/scenery/dashboard_static/dist`; the real embed bundle is built locally.
-3. Self-harness runs through the worktree-local binary: `.scenery/harness/bin/scenery harness self --summary --write`. The `dashboard ui fresh` lane compares the invoking binary's own embedded dashboard bundle in-process, so the installed PATH `scenery` fails that lane in any worktree whose console build differs. The first installed-`scenery` run builds the worktree-local binary; rerun through it before trusting the `dashboard ui fresh` result.
+```sh
+go build -o .scenery/harness/bin/scenery ./cmd/scenery
+.scenery/harness/bin/scenery harness self --quick --summary --write
+```
+
+For UI or full self-harness work, install Bun, then run from the repo root:
+
+```sh
+./scripts/build-dashboard-ui-embed.sh
+go build -o .scenery/harness/bin/scenery ./cmd/scenery
+.scenery/harness/bin/scenery harness self --summary --write
+```
+
+The embed script installs frozen console dependencies and builds the dashboard
+before the Go binary embeds it. Only `placeholder.txt` is tracked in the embed
+directory. The `dashboard ui fresh` lane checks the invoking binary's own
+bundle, so rebuilding another binary during that run cannot repair its result.
+Repeat the embed/build sequence after dashboard changes. Full self-harness
+also provisions console dependencies before TypeScript lanes and reports
+unavailable dependencies explicitly; quick mode does neither provisioning nor
+the local CLI build.
 
 ### Self-Harness Timing
 
-Self-harness timing keeps a five-second optimization target separate from its operational lanes: cached and fresh runs use five-second advisory budgets, while release mode enforces 30 seconds. Only explicit `--fresh-tests` runs use isolated timing confirmation. Every exact top-level `TestX` root must remain below a nearest-rank p95 of 100ms across 20 isolated serial samples, with a 60ms body target for headroom; `confirmation_percentile: 95` means the second-highest sample. The report retains `integration_exceptions` for schema stability, but the list must be empty and the policy rejects any entry. Real process, toolchain, service, network, and OS proof lives in explicit release-harness probes, paired with fast in-process ordinary tests. Those probes cover agent and dev-process lifecycle, assistants, CLI and deploy subprocesses, worktrees and Git inspection, edge and Victoria processes, native and generated compilation, snapshots and code tasks, TypeScript checking, desktop execution, test-binary caching, toolchain source builds, upgrades, build metadata, and the generated native application. Ordinary fresh runs confirm new, 25%+10ms regressed, currently over-budget, and previously confirmed-over-budget fast candidates as warnings; `--release --fresh-tests` confirms all fast candidates and treats violations as errors. Top-level timing includes subtests and sums every active segment before and after `t.Parallel`; only time paused in the scheduler queue is excluded. Package timing keeps `TestMain` and setup visible. The fresh lane uses package parallelism six and missing-binary build parallelism four, both pinned from repeated measurement. Fresh runs hold 60 test binaries, compared on every fresh run, and a 30-second `prepare_seconds` wall-time budget on full cold preparation. `aggregate_build_seconds` remains attribution only because its concurrent subprocess durations overlap; the artifact records `build_parallelism` with the timing. The postgres service probe runs its smoke proof by default and its full DB proof (durable, auth, reset, snapshot) only in release mode; its step summary carries per-segment timings.
+Use Go's test cache for ordinary validation. `--fresh-tests` executes bodies
+again through content-addressed test binaries and performs isolated timing
+confirmation; `--release` adds external-boundary proof and enforced release
+budgets. Do not equate cached validation, fresh test timing, and runtime latency.
+
+The exact timing fields, sample rules, and budgets live in
+[the Local Contract](local-contract.md#harness-inspection-and-observability).
+Follow [the root validation policy](../AGENTS.md#validation-matrix) and
+[testsuite instructions](../internal/testsuite/AGENTS.md) when changing the
+runner or measuring it. The timing exception inventory must remain empty.
 
 ## Keeping Agent Docs Fresh
 

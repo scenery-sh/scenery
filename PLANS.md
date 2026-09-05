@@ -10,6 +10,12 @@ Use an ExecPlan when the work is likely to span multiple hours, touch multiple s
 
 Put active ExecPlans in `docs/plans/<0000-short-slug>.md` and link them from [docs/plans/active.md](docs/plans/active.md). The four-digit number is a permanent historical sequence ID: allocate the next number once, do not renumber existing plans, and do not reuse numbers after a plan is completed, abandoned, merged, or superseded. `active.md` may still order plans by current priority rather than historical sequence. When a plan is complete, update its `Outcomes & Retrospective` section and move or reference it from [docs/plans/completed.md](docs/plans/completed.md). The completed plan then becomes immutable historical evidence: do not refresh its review dates or rewrite it to match later behavior. Put later guidance in current contract docs or the living completed-plan index.
 
+Keep `docs/knowledge.json` aligned in the same change: index new active plans,
+and on completion remove the active-index link, add the completed-index entry,
+and set the document's status to `completed`. Keep the numbered file at its
+original path. Close a plan only when its remaining acceptance work is done;
+implemented code alone does not satisfy an outstanding operator observation.
+
 ## Non-Negotiable Rules
 
 Every ExecPlan must be self-contained. A reader should need only the current working tree and the ExecPlan file. Do not rely on chat history, hidden assumptions, or external docs for required context.

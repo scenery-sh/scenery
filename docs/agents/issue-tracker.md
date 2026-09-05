@@ -7,7 +7,7 @@ Issues and product specs for this repo live as Markdown files in `.scratch/`.
 - One feature per directory: `.scratch/<feature-slug>/`
 - The product spec is `.scratch/<feature-slug>/PRD.md`.
 - Implementation issues are `.scratch/<feature-slug>/issues/<NN>-<slug>.md`, numbered from `01`.
-- Triage state is recorded as a `Status:` line near the top of each issue file; use the values in `docs/agents/triage-labels.md`.
+- Record `Status:` near the top of each issue using the [triage vocabulary](triage-labels.md). Wayfinding tickets use the execution states below instead.
 - Comments and conversation history append under a `## Comments` heading.
 - External pull requests are not a triage surface.
 
@@ -22,10 +22,13 @@ Read the referenced Markdown file. The user will normally provide its path or is
 ## Wayfinding operations
 
 The `/wayfinder` skill uses one map file with one child file per ticket.
+These conventions apply when that workflow is requested; they do not authorize
+subagents or replace the repository's ExecPlan requirements.
 
 - **Map**: `.scratch/<effort>/map.md`, containing Notes, Decisions-so-far, and Fog.
 - **Child ticket**: `.scratch/<effort>/issues/<NN>-<slug>.md`, numbered from `01`, with `Type:` (`research`, `prototype`, `grilling`, or `task`) and `Status:` fields.
 - **Blocking**: a `Blocked by: <NN>, <NN>` line near the top. A ticket is unblocked when every listed issue has `Status: resolved`.
-- **Frontier**: scan the effort's `issues/` directory for open, unblocked, unclaimed tickets; the first by number wins.
+- **Status**: `open`, `claimed`, or `resolved`; these track execution, separately from the five triage roles.
+- **Frontier**: scan the effort's `issues/` directory for `Status: open` tickets whose blockers are resolved; the first by number wins.
 - **Claim**: set `Status: claimed` and save before beginning work.
 - **Resolve**: append the answer under `## Answer`, set `Status: resolved`, then add a context pointer to the map's Decisions-so-far.

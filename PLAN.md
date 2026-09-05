@@ -1,150 +1,63 @@
-# scenery Agent-First Harness Plan
+# scenery Agent-First Roadmap
 
-Source: [OpenAI Harness Engineering](https://openai.com/index/harness-engineering/), read on 2026-04-27.
-
-This plan translates the article's agent-first engineering ideas into concrete scenery work. It is intentionally repo-local because agent-visible knowledge must live in the repository, not in chat history.
+This is the strategic roadmap for agent legibility and fast feedback.
+[Active ExecPlans](docs/plans/active.md) own executable work;
+[completed plans](docs/plans/completed.md) preserve acceptance evidence.
+The original harness direction is recorded in completed plan
+[0064](docs/plans/0064-agent-first-development-control-plane.md).
 
 ## Operating Model
 
-scenery should optimize for agent legibility and fast feedback loops:
-
 - Humans set direction, constraints, and acceptance criteria.
-- Agents execute implementation and verification.
-- Missing capability is treated as a product gap in the repo, not as a reason to prompt harder.
-- Repeated review feedback becomes docs, schemas, harness checks, or architecture checks.
-- `AGENTS.md` stays short and points to indexed docs instead of becoming a large manual.
+- Agents implement and verify within repository instructions.
+- Repeated feedback becomes a current contract or a focused mechanical check.
+- Keep `AGENTS.md` short; discover detailed guidance through the docs index.
+- Keep application concepts visible and substrate details available on demand.
 
-## Current Baseline
+## Implemented Baseline
 
-Already implemented:
+These capabilities exist; their current contracts live in
+[Harness Engineering](docs/harness-engineering.md) and
+[the Local Contract](docs/local-contract.md).
 
-- Stable inspect surfaces: `scenery inspect app|routes|services|endpoints|build|paths|docs -o json`.
-- Current specification resource inspection through `scenery compile|list|get|explain ... -o json`.
-- Queryable diagnostics through `scenery traces list -o json`, `scenery metrics list -o json`, and `scenery logs -o jsonl`.
-- App harness: `scenery harness -o json --write`.
-- Repo self-harness: `scenery harness self -o json --write`.
-- Browser UI harness: `scenery harness ui -o json [--app-root <path>] [--dashboard-url <url>] [--headed] [--write]`.
-- Indexed docs knowledge base through [docs/knowledge.json](docs/knowledge.json).
-- Docs entrypoint through [docs/index.md](docs/index.md).
-- Active/completed plans and tech-debt tracker under [docs/plans/](docs/plans/) and [docs/tech-debt.md](docs/tech-debt.md).
-- Architecture checks inside the self-harness.
+- Typed application, graph, diagnostics, and runtime inspection.
+- App, repository, and browser dashboard harnesses with structured evidence.
+- Failure artifacts and focused `scenery inspect harness` drill-downs.
+- Schema validation against representative outputs and committed fixtures.
+- Architecture checks for dependency boundaries, generated-file hygiene,
+  and source size.
+- Task-scoped documentation discovery, review-due inspection, active-plan
+  indexing, and a changed-area validation command union.
+- A single `.scenery/harness/agent-context.json` handoff with failures,
+  relevant docs, required commands, and risk classifications.
 
-## Priority 1: Browser And UI Harness Baseline
+## Current Priorities
 
-Goal: keep dashboard and UI behavior directly legible to agents, not only humans.
+1. **Developer feedback cost.** Continue the measured work in
+   [0145](docs/plans/0145-test-loop-attribution.md). Separate cached results,
+   fresh test execution, binary preparation, and release integration evidence;
+   preserve the root timing policy and complete test surface.
+2. **Public runtime reliability.** Complete the outstanding operator
+   reboot/login acceptance in [0101](docs/plans/0101-public-deploy-edge.md).
+   Existing controlled-resume evidence does not substitute for that observation.
+3. **Useful browser proof.** Extend fixture-backed mutation journeys where
+   [the debt tracker](docs/tech-debt.md#browser-harness-fixture-backed-mutation-depth)
+   identifies a real gap. Keep browser validation explicit.
+4. **Maintainable repository knowledge.** Fix contradictory instructions,
+   broken references, obsolete work queues, and duplicated contract prose.
+   Review a document before advancing its freshness metadata; preserve
+   completed plans as historical evidence.
+5. **Focused architecture enforcement.** Address measured boundary or file-size
+   problems from the harness. Add checks only for established invariants.
 
-Implemented baseline:
+## Choosing The Next Change
 
-- `scenery harness ui -o json` starts or reuses a local dashboard target.
-- It visits core dashboard routes and asserts stable `data-scenery-ui` markers.
-- It captures screenshots plus console and network artifacts under `.scenery/harness/ui/`.
-- It returns a versioned JSON result with per-route status and remediation text.
+Start with `scenery inspect docs --for-path <path> -o json` for planned work or
+`scenery inspect docs --review-due -o json` for documentation cleanup. Refresh
+and follow the validation oracle as described in
+[AGENTS.md](AGENTS.md#validation-matrix). Record new multi-stage implementation
+work using [PLANS.md](PLANS.md).
 
-Current debt:
-
-- Add deeper route-specific journeys for API Explorer, traces, DB/Data Explorer, Cron, and docs/help surfaces.
-- Keep `scenery harness ui -o json` explicit rather than making the fast self-harness path depend on a browser.
-- Expand route assertions only where they represent stable product behavior, not visual noise.
-
-## Priority 2: Failure Evidence Artifacts
-
-Goal: every failed harness result should include enough evidence for another agent to reproduce and fix without asking a human.
-
-Deliverables:
-
-- Extend harness result steps with optional artifact references.
-- Store failure artifacts under `.scenery/harness/artifacts/`.
-- Capture command output tails, screenshots, trace IDs, request/response transcripts, and repro commands where applicable.
-- Add `scenery inspect harness -o json` or extend `scenery inspect paths -o json` to expose latest harness artifact locations.
-
-Acceptance:
-
-- For a UI failure, the harness JSON includes screenshot and console-log artifact paths.
-- For a compile/test failure, the harness JSON includes command, cwd, output tail, and suggested next command.
-- For an observability assertion failure, the harness JSON includes the relevant trace query and trace IDs.
-
-## Priority 3: Schema Validation Against Real Outputs
-
-Goal: schemas should not just be valid JSON; CLI outputs should conform to them.
-
-Deliverables:
-
-- Validate representative command outputs for `scenery inspect ... -o json`, `scenery check -o json`, `scenery harness -o json`, `scenery harness self -o json`, `scenery logs -o jsonl`, and `scenery traces clear -o json`.
-- Prefer a small internal validator for the subset of JSON Schema used by scenery before adding a new dependency.
-- If a dependency becomes necessary, document the concrete payoff in the architecture allowlist.
-
-Acceptance:
-
-- `scenery harness self` fails if a schema and command output drift.
-- Validation errors identify the field path and expected type.
-- Schema validation remains fast enough for the self-harness.
-
-## Priority 4: Deeper Architecture Boundaries
-
-Goal: keep speed without architectural drift.
-
-Deliverables:
-
-- Extend architecture checks with package dependency direction rules.
-- Define allowed imports for public packages (`auth`, `errs`, `cron`, `durable`, `middleware`, `db`) versus internal packages.
-- Add source ownership metadata for major areas: CLI, parser/build/codegen, runtime, dashboard UI, docs, fixtures.
-- Detect repeated local helper patterns that should be centralized.
-
-Acceptance:
-
-- A forbidden package edge fails `scenery harness self` with a remediation.
-- Public packages stay small and do not accidentally depend on CLI/dashboard internals.
-- New dependency direction rules are documented in [docs/harness-engineering.md](docs/harness-engineering.md).
-
-## Priority 5: Recurring Garbage Collection
-
-Goal: keep the repo from accumulating stale docs, large files, unused paths, and uneven patterns.
-
-Deliverables:
-
-- Add `scenery inspect debt -o json` or extend `scenery inspect docs -o json` with debt rollups.
-- Continue exposing stale docs and review-due docs through `scenery inspect docs -o json` summary counts and per-document fields.
-- Keep self-harness summaries surfacing docs review-due state alongside missing and stale docs.
-- Track large files, direct dependencies, repeated warnings, and slow tests.
-- Add a recommended periodic command sequence for cleanup agents.
-- Keep [docs/tech-debt.md](docs/tech-debt.md) as the human-readable debt tracker and `docs/knowledge.json` as the metadata source.
-
-Acceptance:
-
-- An agent can run one command and get prioritized cleanup candidates.
-- Debt output is deterministic and suitable for small follow-up PRs.
-- Cleanup suggestions include exact files and suggested actions.
-
-## Priority 6: Agent Review Loop
-
-Goal: make local agent review repeatable and mechanical.
-
-Deliverables:
-
-- Add `scenery harness review -o json` or document a standard command sequence.
-- Include self-harness, app harness, observability queries, architecture checks, and optional UI harness.
-- Add a concise checklist to [docs/harness-engineering.md](docs/harness-engineering.md).
-
-Acceptance:
-
-- Before handoff or commit, an agent can run one documented sequence and produce a stable validation snapshot.
-- The output is useful to a second agent without reading the whole terminal scrollback.
-
-## Non-Goals
-
-- Do not turn `AGENTS.md` into the knowledge base.
-- Do not require external SaaS observability or cloud services for local validation.
-- Do not add large dependencies just to implement checks that can be handled with the Go standard library.
-- Do not make the default self-harness so slow that agents stop running it.
-
-## Next Concrete Step
-
-Execute [0064 Agent-First Development Control Plane](docs/plans/0064-agent-first-development-control-plane.md) as the next repo-knowledge step. Keep the first PR knowledge-only:
-
-- mark the browser UI harness as implemented everywhere agents look
-- reframe browser harness debt as route-specific journey depth
-- index all active ExecPlans in `docs/knowledge.json`
-- document `review_due` visibility in docs inspection and self-harness summaries
-- add a doc-gardening loop and a hard docs/behavior drift rule
-
-After that lands, implement any remaining mechanical enforcement in focused follow-up PRs.
+Do not treat completed milestones or suggested command names in historical
+plans as pending features. Current CLI grammar belongs to the Local Contract;
+current implementation work belongs to the active-plan index.

@@ -9,6 +9,11 @@ Scenery runs one supervised local runtime from the canonical graph in `app.scn` 
 
 This skill complements app-local instructions. Read the root `AGENTS.md` and every child scope on the path to files you will touch. Keep app-specific roots, outputs, environment names, validation, and product invariants in the client repository.
 
+The paths below are relative to the Scenery source checkout, not the target
+app. Use the corresponding documentation from the installed skill when
+bundled; otherwise use a Scenery checkout matching the installed binary.
+For command syntax without a checkout, start with `scenery help <command> -o json`.
+
 Read next when needed:
 
 - `docs/agent-guide.md` for agent workflow and generated-artifact rules.
@@ -60,7 +65,7 @@ Use this loop:
 ```sh
 scenery fmt --check -o json
 scenery compile --view expanded -o json
-scenery generate --target go -o json
+scenery generate --target contracts -o json
 scenery generate --check -o json
 scenery check -o json
 go test ./...
@@ -163,7 +168,6 @@ Declare each `typescript_client` target in `app.scn`, including gateways, materi
 ```sh
 scenery generate --target typescript_client.public_api -o json
 scenery generate --target typescript_client.public_api --check -o json
-bun test internal/generate/testdata/typescript_client_conformance.test.ts
 ```
 
 Generated clients implement declared HTTP mappings and outcomes; they never infer routes or auth from Go names. Regenerate after reachable binding, type, codec, or auth changes. Every app HTTP response includes `X-Trace-Id`; browser observers should read that header.
@@ -205,51 +209,28 @@ Single-file Go code tasks live under a domain `tasks` directory and use `//go:bu
 
 ## UI Work
 
-Follow `apps/console/AGENTS.md` for dashboard work. Generated table pages use Scenery's binary-owned catalog; mount `generatedPages` and customize declared slots or CSS tokens instead of editing materialized catalog files.
+In a Scenery checkout, follow `apps/console/AGENTS.md` for dashboard work and
+`ui/AGENTS.md` for catalog work. In a target app, generated table pages use
+Scenery's binary-owned catalog; mount `generatedPages` and customize declared
+slots or CSS tokens instead of editing materialized catalog files.
 
 Before rewriting an app frontend, run `scenery inspect ui --frontend <name> -o human`. Move the top offender onto Astryx/`@scenery/ui` and StyleX tokens, then rerun; the score is triage guidance, not enforcement.
 
-```sh
-cd apps/console
-bun run lint
-bun run typecheck
-bun run build
-cd ../..
-scenery harness ui -o json --write
-```
+Run the target app's own frontend validation and browser acceptance. The
+`scenery harness ui` command verifies Scenery's dashboard, not arbitrary
+application pages.
 
 ## Command Reference
 
-Use `scenery help <command> -o json` for one scoped machine-readable command descriptor, omit `-o json` for human help, and use `docs/local-contract.md` for the full grammar:
+Use `scenery help <command> -o json` for one scoped machine-readable command
+descriptor; omit `-o json` for human help. The full grammar lives in
+`docs/local-contract.md`. Choose one command or graph view at a time; pipes
+in syntax descriptions denote alternatives, not shell pipelines.
 
-```text
-scenery doctor -o json
-scenery fmt --check -o json
-scenery check -o json
-scenery compile --view source|effective|expanded -o json
-scenery inspect app|routes|services|endpoints|durable|storage|ui -o json
-scenery inspect assistants [--implementation] -o json
-scenery assistant init|sync|status ... -o json
-scenery logs [-o jsonl] [--limit <n>] [--follow]
-scenery telemetry [--app <id-or-name>]... [--command <coarse-command>]... [--since <duration>] [--limit <n>] [-o human|json]
-scenery up [--env <name>] [--app-root <path>] [--desktop] [-o jsonl] [--detach]
-scenery ps [--app-root <path>] [-o json]
-scenery down [--app-root <path>] [-o json]
-scenery build [--app-root <path>] [--target <go-target>] [--output <path>] [-o human|json]
-scenery build --desktop [--env <name>] [--app-root <path>] [-o human|json]
-scenery list|get|explain|graph ... [--app-root <path>] -o json
-scenery diff --semantic BASE TARGET [--rename-receipts <path>] -o json
-scenery generate [--app-root <path>] [--target contracts|typescript_client.<name>] [--materialize] [--prune-materialized-go] [--merge-editor-workspace] [--check] -o json
-scenery changes plan|apply ... -o json
-scenery deploy plan|apply ... -o json
-scenery task list|inspect|run ...
-scenery db list|path|shell|apply|seed|setup|reset|drop ...
-scenery snapshot save|verify|load ...
-scenery test [--app-root <path>] [go test flags/packages...]
-scenery harness -o json --write
-scenery harness ui -o json --write
-.scenery/harness/bin/scenery harness self --summary --write
-```
+Scenery repository validation uses
+`.scenery/harness/bin/scenery harness self --summary --write` and the root
+validation matrix. `scenery harness ui -o json` is the separate dashboard
+browser harness.
 
 ## Validation Before Finishing
 
@@ -264,9 +245,9 @@ scenery harness -o json --write
 
 When an assistant surface is changed, also run `scenery inspect assistants
 -o json`, inspect the explicit `--implementation` view when debugging the
-helper, regenerate the declared TypeScript client, and run
-`./scripts/test-assistant-public-surface.sh` to prove provider identity and
-signatures stay out of public artifacts.
+helper, and regenerate the declared TypeScript client. Check that provider
+identity and private signatures stay out of public artifacts. When changing
+Scenery itself, also run its `./scripts/test-assistant-public-surface.sh`.
 
 For Scenery repository changes, follow the root `AGENTS.md`; changed paths and contract surfaces calculate the validation classes and exact command union. Keep Go's test cache enabled. Use `-count=1` or `--fresh-tests` only for explicit measurement or nondeterminism investigation.
 

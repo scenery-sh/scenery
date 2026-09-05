@@ -19,26 +19,11 @@ scenery harness ui [--app-root <path>] [--dashboard-url <url>] [--headed] [-o js
 scenery inspect harness [artifact <name>|diagnostics --severity error|warning|timing --top <n>] -o json [--app-root <path>] [--repo-root <path>]
 ```
 
-Self-harness uses Go's native test result cache by default, including
-changed-area-selected final and release validation. `--fresh-tests` is reserved for explicit fresh
-measurement or nondeterminism investigation; that lane reuses content-addressed
-linked test binaries, executes test bodies with `-test.count=1`, and uses the
-locally measured package parallelism of six while building at most four
-missing binaries concurrently. Cached and fresh lanes have a five-second
-advisory budget and target; release keeps its 30-second enforced budget. A full
-cold prepare is separately held to 30 seconds of wall time at that pinned build
-parallelism. Only explicit fresh runs perform isolated timing confirmation.
-Every exact top-level `TestX` root is fast by default, with a 60ms candidate
-target and a hard 100ms nearest-rank p95 budget across 20 isolated serial
-samples; the serialized percentile is 95. `integration_exceptions` remains in
-the report for schema stability but must be empty, and a non-empty policy is an
-error. Real process, toolchain, service, network, and OS proof belongs in
-explicit release-harness probes paired with focused in-process tests. Ordinary fresh runs advise on new,
-25%+10ms regressed, currently over-budget, or previously confirmed-over-budget
-fast tests; `--release --fresh-tests` confirms all fast candidates and fails on
-confirmed violations. Root timings include their subtests and sum every active
-segment before and after `t.Parallel`; only the paused scheduler queue is
-excluded. Package timings keep `TestMain` and setup cost visible.
+Self-harness uses Go's test result cache by default. Use `--fresh-tests` only
+for explicit measurement or nondeterminism investigation. Every exact top-level
+Go test root is subject to the root 100ms p95 policy; external-boundary proof
+belongs in release probes. The exact lanes, budgets, confirmation algorithm,
+and timing fields are owned by [the Local Contract](local-contract.md#harness-inspection-and-observability).
 
 Use this before large edits and after fixes when an agent needs a single machine-readable status snapshot.
 
@@ -49,8 +34,12 @@ scenery doctor -o json
 .scenery/harness/bin/scenery harness self --quick --summary --write
 cat .scenery/harness/agent-context.json
 # implement
-# run changed_area.recommended_commands
+# refresh agent-context after editing, then run changed_area.recommended_commands
 ```
+
+For a missing local binary or dashboard embed, follow
+[Fresh Worktree Preflight](agent-guide.md#fresh-worktree-preflight).
+Quick mode does not build the local CLI or provision console dependencies.
 
 When `validation_classification` contains `release-sensitive-or-runtime`, also run:
 
@@ -77,13 +66,15 @@ Postgres service probe when Docker is reachable (and records an explicit
 skip when it is not):
 
 ```text
-scenery harness self -o json --write
+.scenery/harness/bin/scenery harness self --summary --write
 ```
 
 Use `--quick` only when you intentionally need the smaller self-harness loop
 without live branch-substrate coverage.
 
-The command runs:
+## App Harness Checks
+
+`scenery harness` composes:
 
 - `scenery check -o json`
 - `scenery inspect app -o json`
@@ -97,9 +88,9 @@ The command runs:
 - `scenery inspect docs --all -o json`
 
 `scenery traces list -o json` and `scenery metrics list -o json` are included
-as beta diagnostic inputs for agents. Their schema versions are useful for
-automation, but their rollup and backend-selection semantics are internal and unstable
-API yet; see [local-contract.md](local-contract.md).
+as beta diagnostic inputs for agents. Their exact schema revisions support
+automation, but their rollup and backend-selection semantics remain internal
+and unstable; see [local-contract.md](local-contract.md).
 
 `scenery harness ui -o json` is the implemented browser-backed dashboard route
 check. It starts a temporary dashboard target unless `--dashboard-url` is
@@ -185,31 +176,23 @@ Use `scenery harness self -o json --write` only when stdout must contain the
 full `scenery.harness.self` archive. Agents should prefer artifacts and focused
 inspect commands over pasting `.scenery/harness/self-latest.json` into chat.
 
-The self harness validates the local scenery development loop:
+## Repository Self-Harness Checks
 
-- `go test ./cmd/scenery ./internal/devdash ./runtime`
-- docs knowledge base integrity through `docs/knowledge.json`
-- local markdown links and schema JSON syntax
-- `scenery inspect docs --all -o json`
-- docs review-due and stale summaries from `scenery inspect docs --all -o json`
-- architecture checks for dependency policy, package boundaries, generated-file hygiene, and oversized source files
-- parallel dev-session safety plus managed Postgres database isolation
-  (distinct per-worktree databases and database URLs) when Docker is
-  reachable
-- dashboard UI typecheck and build
-- dashboard build freshness
-- worktree-local `go build -o .scenery/harness/bin/scenery ./cmd/scenery`
-- local `.scenery/harness/bin/scenery` freshness against repo sources
+Every mode checks toolchain readiness, documentation/index integrity, Markdown
+links, schema syntax, review state, changed-area selection, architecture,
+contract drift, and schema conformance. The additional work depends on mode:
 
-The default self-harness still runs the complete Go suite and writes
-`.scenery/harness/test-timing-latest.json`, but the cached and fresh wall-clock
-duration budgets are advisory. The artifact records the full-suite duration
-separately from isolated confirmation time and keeps contended observations
-separate from confirmed slow tests. Release mode enforces the 30-second total
-budget when maintainers intentionally want a hard speed gate. Fresh reports
-record `prepare_seconds`, `build_parallelism`, and attribution-only
-`aggregate_build_seconds`; the aggregate is a sum of possibly overlapping
-subprocess durations and is neither a wall-time nor CPU metric.
+| Mode | Additional coverage |
+|---|---|
+| `--quick` | Cached affected-package tests; no local CLI build or console provisioning. |
+| Default | Local CLI build/freshness, complete Go suite, vet, managed dev/database/storage probes, console dependencies, dashboard build/typecheck/freshness, generated-client conformance/typechecks, and fixture matrix. |
+| `--race` | Default coverage plus the race shortlist. |
+| `--release` | Default coverage plus external-boundary probes and enforced release budgets. |
+
+`--fresh-tests` changes the Go execution/timing lane; it is independent of the
+mode selection. Runtime and UI probes retain explicit skip diagnostics when
+their required services or tools are unavailable. Read the resulting artifact
+before calling a run complete; a successful subset does not prove skipped work.
 
 ## Design Rules
 
@@ -240,10 +223,6 @@ Keep `docs/knowledge.json` aligned with agent-facing source-of-truth docs. Until
 active ExecPlan indexing is generated by the toolchain, every active ExecPlan in
 `docs/plans/active.md` must also have a document entry in `docs/knowledge.json`.
 
-Use the same rule for all drift: when docs and behavior disagree, the same PR
-must either fix the affected docs or open/update an ExecPlan that records the
-drift, owner, and intended resolution path.
-
 ## Architecture Checks
 
 `scenery harness self` includes a fast `architecture checks` step.
@@ -266,5 +245,6 @@ The dependency allowlist is intentionally small and lives in code next to the ch
 ## Non-Goals
 
 - The harness is not a CI replacement.
-- It does not run external services by itself.
+- Quick validation does not require live application services. Full and release
+  modes may provision disposable managed services and must clean up what they own.
 - It does not invent architecture rules. Add new checks only when the repo has a concrete invariant worth enforcing.

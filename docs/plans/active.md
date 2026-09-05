@@ -7,11 +7,6 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
-- [0156 Table-Driven TypeScript HTTP Client Emit](0156-typescript-client-table-emit.md)
-  - Status: active
-  - Owner: scenery client generation
-  - Created: 2026-09-01
-  - Focus: replace inlined `typescript_client` request/response machines with a shared `Runtime.invoke` / `Runtime.matchResponse` helper driven by a per-binding descriptor table, without changing the public class/method/outcome contract or emitting TanStack hooks.
 - [0145 Developer Test Loop Attribution](0145-test-loop-attribution.md)
   - Status: active
   - Owner: scenery harness
@@ -21,45 +16,11 @@ reuse IDs; this list can still be ordered by current priority.
   - Status: active
   - Owner: scenery runtime / edge
   - Created: 2026-07-07
-  - Focus: new `scenery deploy` surface — one privileged edge binds `0.0.0.0:80/443` (macOS root LaunchDaemon extending `dev.scenery.edge-helper`), Caddy terminates public ACME TLS, and requests route by `deploy.domain` in app config to the enabled app root's live dev session; login-time resume via user LaunchAgent, helper version-drift detection across `scenery upgrade`.
+  - Focus: observe a literal post-fix operator reboot/login. Public deployment, controlled failure/resume, and request-path ownership improvements are implemented; the plan's Outcomes section records their acceptance evidence.
 
-## Agent-Friendly Local Runtime
+## Ongoing Direction
 
-- Status: active
-- Owner: scenery runtime
-- Last reviewed: 2026-07-18
-- Review after: 2026-08-17
-- Quality: B
-
-Current focus:
-
-- Keep expanding stable JSON surfaces instead of requiring agents to scrape terminal output or dashboard DOM.
-- Add harness checks only when they enforce a real project invariant.
-- Keep dependency growth intentional and documented.
-
-## Dashboard Source Parity
-
-- Status: active
-- Owner: scenery dashboard
-- Last reviewed: 2026-07-18
-- Review after: 2026-08-17
-- Quality: B
-
-Current focus:
-
-- Maintain editable source dashboard behavior under `apps/console/`.
-- Keep supported local-only surfaces first: API Explorer, traces, DB explorer, cron, service metadata.
-- Avoid reintroducing cloud, Clerk, deploy, or marketing surfaces.
-
-## Runtime Contracts
-
-- Status: active
-- Owner: scenery runtime
-- Last reviewed: 2026-07-18
-- Review after: 2026-08-17
-- Quality: B
-
-Current focus:
-
-- Prefer scenery-native naming and contracts.
-- Keep generated artifacts deterministic and inspectable.
+Recurring runtime, dashboard, and contract-maintenance priorities live in
+[the roadmap](../../PLAN.md#current-priorities) and
+[the debt tracker](../tech-debt.md). This index lists executable plans rather
+than duplicating those standing principles or their review dates.

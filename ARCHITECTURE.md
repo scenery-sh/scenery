@@ -341,9 +341,11 @@ never reuse test results or narrow the `./...` package and test surface.
 
 `internal/edge` owns the managed Caddy lifecycle behind `scenery system edge`:
 process start and stop, admin-socket reload, local-CA trust, and persistence of
-the corresponding `internal/agent` edge state. `cmd/scenery` remains the adapter
-for CLI grammar, output, managed-tool resolution, DNS, privileged listeners, and
-Caddyfile policy.
+the corresponding `internal/agent` edge state. It also owns Caddyfile and DNS
+configuration, static frontend artifact publication, and the systemd edge unit.
+`cmd/scenery` adapts CLI grammar, output, managed-tool resolution,
+DNS/helper process orchestration, and privileged-listener setup. See
+[the edge instructions](internal/edge/AGENTS.md) for lifecycle boundaries.
 
 Architecture invariant: edge lifecycle code exposes a small concrete interface
 and does not import the CLI. Platform-specific child-process behavior stays
@@ -448,7 +450,9 @@ the separate Scenery dashboard frontend.
 Architecture invariant: the catalog stays domain-neutral, keeps its runtime
 libraries as peer dependencies, exports curated components from `index.ts`,
 and exposes StyleX variables only from the direct `tokens.stylex.ts` defining
-module. Consuming apps own routing, state, data, themes, and domain slots.
+module. The catalog is router-agnostic; generated adapters own the route tree
+and app shell, while consuming apps supply route extensions, state, data,
+themes, and domain slots.
 
 ### `docs`, `PLANS.md`, and `PLAN.md`
 
@@ -466,7 +470,7 @@ Architecture invariant: substantial implementation plans live under
 It is the acceptance corpus for compiler, codegen, runtime, and CLI behavior.
 
 Architecture invariant: fixture apps should speak scenery syntax directly. Use
-Historical reference material only as a corpus when porting behavior into
+historical reference material only as a corpus when porting behavior into
 scenery-native tests.
 
 ## Cross-Cutting Concerns
@@ -489,10 +493,11 @@ graphs, generated code, CLI JSON contracts, runtime HTTP behavior, and fixture a
 checks to keep tests data-driven and easy to update when internals move.
 
 After repository changes, refresh `.scenery/harness/agent-context.json` and run
-the exact changed-area command union. Release-sensitive or runtime paths require
-the [Fresh Worktree Preflight](docs/agent-guide.md#fresh-worktree-preflight) and
-the worktree-local
-`.scenery/harness/bin/scenery harness self --summary --write` proof.
+the exact changed-area command union and
+[root validation policy](AGENTS.md#validation-matrix), including the additional
+release loop for runtime changes. Use
+[Fresh Worktree Preflight](docs/agent-guide.md#fresh-worktree-preflight) to
+prepare the local binary and dashboard embed.
 
 ### Generated Artifacts
 

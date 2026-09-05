@@ -19,15 +19,95 @@
   },
   "documents": [
     {
-      "path": "docs/plans/0156-typescript-client-table-emit.md",
-      "title": "Table-Driven TypeScript HTTP Client Emit",
-      "owner": "scenery client generation",
+      "path": "README.md",
+      "title": "scenery Overview",
+      "owner": "scenery maintainers",
       "status": "active",
       "quality": "B",
       "freshness": "current",
-      "last_reviewed": "2026-09-02",
+      "last_reviewed": "2026-09-05",
+      "review_after": "2026-10-05",
+      "summary": "Human-facing overview, installation, minimal app, and checkout development entry points.",
+      "tags": [
+        "overview",
+        "install",
+        "agents"
+      ]
+    },
+    {
+      "path": "CONTRIBUTING.md",
+      "title": "Contributing To scenery",
+      "owner": "scenery maintainers",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-05",
+      "review_after": "2026-10-05",
+      "summary": "Checkout-local setup and required validation discovery, with separate dashboard and embedded catalog workflows.",
+      "tags": [
+        "contributing",
+        "validation",
+        "agents"
+      ]
+    },
+    {
+      "path": "docs/agents/issue-tracker.md",
+      "title": "Local Markdown Issue Workflow",
+      "owner": "scenery maintainers",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-05",
+      "review_after": "2026-10-05",
+      "summary": "Local product specs and issues; distinguishes five-role triage from wayfinding execution states without authorizing delegation.",
+      "tags": [
+        "agents",
+        "issues",
+        "workflow"
+      ]
+    },
+    {
+      "path": "docs/agents/triage-labels.md",
+      "title": "Local Triage Vocabulary",
+      "owner": "scenery maintainers",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-05",
+      "review_after": "2026-10-05",
+      "summary": "Five canonical triage roles mapped to local Markdown status values; wayfinding execution states are separate.",
+      "tags": [
+        "agents",
+        "issues",
+        "triage"
+      ]
+    },
+    {
+      "path": "docs/agents/domain.md",
+      "title": "Optional Domain Documentation",
+      "owner": "scenery maintainers",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-05",
+      "review_after": "2026-10-05",
+      "summary": "Current architecture and scoped instructions lead discovery; optional context maps, glossaries, and ADRs add domain vocabulary when present.",
+      "tags": [
+        "agents",
+        "domain",
+        "architecture"
+      ]
+    },
+    {
+      "path": "docs/plans/0156-typescript-client-table-emit.md",
+      "title": "Table-Driven TypeScript HTTP Client Emit",
+      "owner": "scenery client generation",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-05",
       "review_after": "2026-10-02",
-      "summary": "Active ExecPlan replacing inlined typescript_client request/response machines with a shared Runtime.invoke helper and per-binding descriptor table, including capability-aware runtime emit that omits unused query, binding header/cookie, multipart, and retry branches while keeping the public method and outcome contract unchanged.",
+      "summary": "Completed ExecPlan for descriptor-driven TypeScript HTTP clients, shared response mappings, and capability-aware runtime emission. Implementation and recorded validation landed on main; plan bookkeeping was reconciled on 2026-09-05.",
       "tags": ["plans", "execplans", "typescript", "clientgen", "codegen", "generate"]
     },
     {
@@ -1313,7 +1393,7 @@
       "freshness": "current",
       "last_reviewed": "2026-09-02",
       "review_after": "2026-10-02",
-      "summary": "Active ExecPlan for scenery deploy public routing: the privileged helper and managed Caddy own internet-facing ports/TLS, while the agent dispatches enabled domains through a lifecycle-validated in-memory route snapshot with fail-closed session ownership, login-time resume, diagnostics, and upgrade-drift handling.",
+      "summary": "Active ExecPlan with implemented public routing, lifecycle-validated route snapshots, and controlled failure/resume acceptance. Remains open for a literal post-fix operator reboot/login observation; current deploy behavior is documented in the Local Contract.",
       "tags": [
         "plans",
         "execplans",
@@ -1416,8 +1496,8 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-07-23",
-      "review_after": "2026-08-22",
+      "last_reviewed": "2026-09-05",
+      "review_after": "2026-10-05",
       "summary": "Human entry point for the repo knowledge base, with task-scoped path discovery, explicit full-catalog validation, agent entry points, and the evolving current specification plus its normative companions.",
       "tags": [
         "docs",
@@ -1432,8 +1512,8 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-07-07",
-      "review_after": "2026-08-06",
+      "last_reviewed": "2026-09-05",
+      "review_after": "2026-10-05",
       "summary": "Machine-readable docs metadata for agents and harness validation, including active ExecPlan entries until deterministic plan indexing exists.",
       "tags": [
         "docs",
@@ -1452,8 +1532,8 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-07-23",
-      "review_after": "2026-08-22",
+      "last_reviewed": "2026-09-05",
+      "review_after": "2026-10-05",
       "summary": "Compact repo-local operating manual for agents changing Scenery itself: instruction layering, path-scoped documentation discovery, AGENTS hierarchy, autonomy and engineering rules, deterministic changed-area validation classes, client-app boundaries, and a concise outcome-first completion contract.",
       "tags": [
         "agents",
@@ -1469,8 +1549,8 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-08-04",
-      "review_after": "2026-09-03",
+      "last_reviewed": "2026-09-05",
+      "review_after": "2026-10-05",
       "summary": "Concise installed-skill entrypoint for current Scenery apps, with intent-based task routing, MCP/assistant public-private boundaries, graph views and provenance, schema-driven authoring, trusted transactions, runtime, deploy, storage, generated clients, page access metadata, audit identity, UI triage, scoped command help, and cached validation.",
       "tags": [
         "skill",
@@ -1490,8 +1570,8 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-09-02",
-      "review_after": "2026-10-02",
+      "last_reviewed": "2026-09-05",
+      "review_after": "2026-10-05",
       "summary": "Agent workflow guide for current app roots and the Scenery repo, including task-scoped documentation routing, provider-neutral assistants, CLI JSON, graph provenance, runtime diagnosis, deploy, storage, generated route access, audit identity, app-local AGENTS hierarchy, public-surface checks, and self-harness validation with an absolute 100ms Go-root rule and release-only external-boundary probes.",
       "tags": [
         "agents",
@@ -1507,14 +1587,14 @@
     },
     {
       "path": "PLAN.md",
-      "title": "scenery Agent-First Harness Plan",
+      "title": "scenery Agent-First Roadmap",
       "owner": "scenery maintainers",
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-07-18",
-      "review_after": "2026-08-17",
-      "summary": "Root plan translating OpenAI harness engineering ideas into scenery implementation priorities, with the browser UI harness marked as implemented baseline and route-depth work tracked separately.",
+      "last_reviewed": "2026-09-05",
+      "review_after": "2026-10-05",
+      "summary": "Strategic roadmap separating implemented harness capabilities from remaining developer-loop, public-runtime, browser-proof, and documentation maintenance priorities; executable work lives in the active-plan index.",
       "tags": [
         "plans",
         "harness",
@@ -1529,8 +1609,8 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-07-23",
-      "review_after": "2026-08-22",
+      "last_reviewed": "2026-09-05",
+      "review_after": "2026-10-05",
       "summary": "Required lifecycle and structure for agent-executable implementation plans: living while active, immutable history after completion, with exact changed-area validation commands and observable skip conditions.",
       "tags": [
         "plans",
@@ -1546,8 +1626,8 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-08-04",
-      "review_after": "2026-09-03",
+      "last_reviewed": "2026-09-05",
+      "review_after": "2026-10-05",
       "summary": "High-level repo map and current specification architecture boundaries, including MCP/assistant provider-neutral API and private adapter packages, source parsing, canonical graphs, generation, evolution, deployment, runtime, repository tests, and task-scoped documentation discovery built on the shared changed-area router.",
       "tags": [
         "architecture",
@@ -1712,8 +1792,8 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-08-24",
-      "review_after": "2026-09-23",
+      "last_reviewed": "2026-09-05",
+      "review_after": "2026-10-05",
       "summary": "Agent validation loop with cached and explicit fresh Go execution, a 60ms fast-test target and exception-free repeated 100ms p95 gate, release-only external-boundary probes, pinned four-way missing-binary builds, prepare-wall cold budgeting, deterministic changed-area command unions, agent-context handoff, browser and data proofs, task-scoped documentation routing, and living-document review queues.",
       "tags": [
         "harness",
@@ -1740,8 +1820,8 @@
       "status": "active",
       "quality": "B",
       "freshness": "current",
-      "last_reviewed": "2026-08-04",
-      "review_after": "2026-09-03",
+      "last_reviewed": "2026-09-05",
+      "review_after": "2026-10-05",
       "summary": "Practical recipes for building current Scenery apps, including .scn source, MCP capabilities and provider-neutral assistants, generated contracts/clients, bindings, auth and audit identity, storage, Postgres, snapshots, durable work, CRUD search, generated page access, React mounting, observability, and validation workflows.",
       "tags": [
         "cookbook",
@@ -2565,8 +2645,8 @@
       "status": "active",
       "quality": "B",
       "freshness": "current",
-      "last_reviewed": "2026-07-14",
-      "review_after": "2026-08-13",
+      "last_reviewed": "2026-09-05",
+      "review_after": "2026-10-05",
       "summary": "Current plans that should inform agent decisions, using permanent historical IDs and links mirrored in docs/knowledge.json; plans with shipped outcomes are pruned to the completed index while explicit open acceptance, measurement, validation, and implementation work remains active.",
       "tags": [
         "plans",
@@ -2581,8 +2661,8 @@
       "status": "active",
       "quality": "B",
       "freshness": "current",
-      "last_reviewed": "2026-07-23",
-      "review_after": "2026-08-22",
+      "last_reviewed": "2026-09-05",
+      "review_after": "2026-10-05",
       "summary": "Living index of shipped milestones whose linked numbered ExecPlans are immutable historical evidence, excluded from scheduled freshness review while current corrections live in owning contracts or explicit stale metadata.",
       "tags": [
         "plans",
@@ -2615,9 +2695,9 @@
       "status": "active",
       "quality": "B",
       "freshness": "current",
-      "last_reviewed": "2026-09-02",
-      "review_after": "2026-10-02",
-      "summary": "Known cleanup and follow-up work with a linked table of contents, public route ownership verification, detached route readiness, and frontend-asset readiness marked resolved, while deeper browser harness fixture-backed mutation coverage remains open.",
+      "last_reviewed": "2026-09-05",
+      "review_after": "2026-10-05",
+      "summary": "Known cleanup and follow-up work with historical incident evidence, current browser coverage gaps, developer-loop attribution, and a source-verified edge static integration test placement conflict with the root timing policy.",
       "tags": [
         "debt",
         "risk",

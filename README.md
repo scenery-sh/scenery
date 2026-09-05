@@ -4,7 +4,7 @@
 
 Scenery applications use one current specification: `app.scn` and package-local `package.scn` files compile into one canonical typed resource graph, with dependencies captured in generated `app.lock.scn`. Retired contract filenames fail with an exact `SCN1021` rename instruction rather than acting as aliases. The graph drives Go and TypeScript generation, HTTP, durable execution, events, data, deployment, UI, semantic inspection, and revision-bound mutation.
 
-Unavailable future surfaces—such as declarative extensions, workflows, streaming/WebSockets, full registry trust, entity-evolution syntax, platform listener/certificate schemas, and fixed-target native toolchain identities—fail explicitly instead of receiving invented defaults.
+Unavailable future surfaces—such as declarative extensions, workflows, general bidirectional streams/WebSockets, full registry trust, entity-evolution syntax, platform listener/certificate schemas, and fixed-target native toolchain identities—fail explicitly instead of receiving invented defaults. Typed HTTP byte-response streaming and assistant NDJSON event streams are implemented; see the [current contract](docs/local-contract.md#current-scenery-contract).
 
 scenery is a Go-native local runtime and toolchain for building service applications from ordinary Go packages.
 
@@ -57,7 +57,7 @@ Exact CLI and artifact details live in [docs/local-contract.md](docs/local-contr
 ## Requirements
 
 - Go 1.27+
-- Bun, only when working on the dashboard UI or the benchmark fixture
+- Bun for dashboard, generated TypeScript, benchmark, or full self-harness work
 
 Run `scenery doctor -o json` after install when you want a read-only readiness report for the host, Go toolchain, disk/memory resources, Docker engine reachability, and optional local-development dependencies.
 
@@ -271,7 +271,7 @@ func (*Service) Hello(_ context.Context, input contract.HelloInput) (contract.He
 Generate, check, and run it:
 
 ```sh
-scenery generate --target go -o json
+scenery generate --target contracts -o json
 scenery check -o json
 scenery up --detach
 ```
@@ -530,23 +530,20 @@ Victoria substrate failures are exposed in `scenery ps -o json` as `last_exit` /
 
 ## Development
 
-Run the Go test suite:
+Build a checkout-local CLI and refresh the validation selection:
 
 ```sh
-go test ./...
+go build -o .scenery/harness/bin/scenery ./cmd/scenery
+.scenery/harness/bin/scenery harness self --quick --summary --write
+cat .scenery/harness/agent-context.json
 ```
 
-Rebuild the CLI after changes:
-
-```sh
-go install ./cmd/scenery
-```
-
-Run the self-harness when making substantial changes:
-
-```sh
-scenery harness self -o json --write
-```
+Run `changed_area.recommended_commands` and the applicable child-scope checks.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and
+[AGENTS.md](AGENTS.md#validation-matrix) for required validation, including
+the release loop for runtime changes. Use
+[Fresh Worktree Preflight](docs/agent-guide.md#fresh-worktree-preflight)
+before dashboard or full self-harness work.
 
 Self-harness Go test steps use the Go test result cache by default; add
 `--fresh-tests` only for explicit fresh measurement or nondeterminism
@@ -559,19 +556,6 @@ confirm package/test hotspots in isolation.
 scenery prefers small, explicit changes and minimal dependencies. When adding behavior, keep the canonical graph as the source of truth and add tests at stable boundaries: `.scn` validation, generated code, runtime HTTP behavior, CLI JSON contracts, and fixture apps.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and pull request guidance.
-
-Before opening a pull request, run:
-
-```sh
-go test ./...
-go install ./cmd/scenery
-```
-
-For larger changes, also run:
-
-```sh
-scenery harness self -o json --write
-```
 
 ## Security
 

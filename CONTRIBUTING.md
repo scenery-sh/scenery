@@ -7,34 +7,34 @@ Thanks for helping improve scenery. Keep changes small, explicit, and easy to va
 Requirements:
 
 - Go 1.27+
-- Bun, only for dashboard UI or benchmark changes
+- Bun for dashboard, generated TypeScript, and full self-harness validation
 
-Install the CLI from the repo root:
+Build a checkout-local CLI from the repo root:
 
 ```sh
-go install ./cmd/scenery
-scenery version -o json
+go build -o .scenery/harness/bin/scenery ./cmd/scenery
+.scenery/harness/bin/scenery version -o json
 ```
 
 ## Development Loop
 
-Run the Go test suite:
+Read [AGENTS.md](AGENTS.md) and the child instructions for the area you change.
+Use [Fresh Worktree Preflight](docs/agent-guide.md#fresh-worktree-preflight)
+before UI or full self-harness validation.
+
+After editing, refresh the validation selection:
 
 ```sh
-go test ./...
+.scenery/harness/bin/scenery harness self --quick --summary --write
+cat .scenery/harness/agent-context.json
 ```
 
-Rebuild the CLI after repository changes:
-
-```sh
-go install ./cmd/scenery
-```
-
-For substantial changes, run the self-harness when practical:
-
-```sh
-scenery harness self -o json --write
-```
+Run the exact `changed_area.recommended_commands` union and any additional
+child-scope checks. [The validation matrix](AGENTS.md#validation-matrix)
+defines the required proof, including the release loop for runtime changes.
+Go changes require affected-package tests and `go test ./...`; retain the Go
+test cache unless measuring fresh execution or investigating nondeterminism.
+Rebuild the local CLI after source changes; worktrees share the installed CLI.
 
 For dashboard UI changes:
 
@@ -45,7 +45,9 @@ bun run typecheck
 bun run build
 ```
 
-For `ui/` registry changes, run `bun run typecheck` and `bun run test` from `ui/`.
+For catalog changes, follow [ui/AGENTS.md](ui/AGENTS.md). `ui/` is embedded
+source, not a standalone Bun app; its checker and fixture commands run from
+the repository root.
 
 ## Pull Requests
 

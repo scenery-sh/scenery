@@ -19,7 +19,7 @@ Package source declares package identity, typed inputs, a service constructor, r
 ```sh
 scenery fmt --check -o json
 scenery compile --view expanded -o json
-scenery generate --target go -o json
+scenery generate --target contracts -o json
 scenery check -o json
 go test ./...
 ```

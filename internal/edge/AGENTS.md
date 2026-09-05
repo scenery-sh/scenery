@@ -25,7 +25,7 @@
 
 ## Work Guidance
 
-Keep the exported interface small and concrete. Add command-specific policy to `cmd/scenery`, not to this package. The real-process tests are intentionally serial because parallel process startup worsened the measured full-suite wall time on the maintainer machine.
+Keep the exported interface small and concrete. Add command-specific policy to `cmd/scenery`, not to this package. Keep ordinary lifecycle tests in process with injected runners; real-process proof belongs in the release harness under the root timing policy.
 
 ## Verification
 
