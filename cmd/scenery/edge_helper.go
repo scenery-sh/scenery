@@ -131,7 +131,7 @@ func edgePrivilegedHelperInstall(opts edgeHelperOptions) error {
 	if err := stopStaleRootCaddyEdge(opts.OwnerHome, 2*time.Second); err != nil {
 		return err
 	}
-	if err := stopStaleRootSceneryEdgeAgent(opts.OwnerHome, opts.RouterAddr, 2*time.Second); err != nil {
+	if err := stopStaleRootSceneryEdgeAgent(opts.RouterAddr, 2*time.Second); err != nil {
 		return err
 	}
 	plist := edgeHelperPlist(opts)

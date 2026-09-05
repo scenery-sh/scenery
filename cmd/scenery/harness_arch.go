@@ -364,7 +364,7 @@ func runHarnessArchitectureStep(repoRoot string) harnessStep {
 	} else {
 		diagnostics = append(diagnostics, sourceDiagnostics...)
 	}
-	diagnostics = append(diagnostics, checkArchitectureGeneratedHygiene(repoRoot, &summary)...)
+	diagnostics = append(diagnostics, checkArchitectureGeneratedHygiene(repoRoot)...)
 
 	errorCount, warningCount := countDiagnosticsBySeverity(diagnostics)
 	step.Summary["checked_files"] = summary.CheckedFiles
@@ -763,7 +763,7 @@ func pathMatchesLayerRule(rel string, rule packageLayerRule) bool {
 	return false
 }
 
-func checkArchitectureGeneratedHygiene(repoRoot string, summary *architectureSummary) []checkDiagnostic {
+func checkArchitectureGeneratedHygiene(repoRoot string) []checkDiagnostic {
 	var diagnostics []checkDiagnostic
 	requiredGitignore := []string{
 		"/oracle/",

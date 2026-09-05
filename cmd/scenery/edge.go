@@ -1060,7 +1060,7 @@ func stopStaleEdgeAgentProcesses(socketPath, routerAddr string, skipPID int, tim
 		if pidErr != nil || uidErr != nil || uid != os.Getuid() || pid <= 0 || pid == skipPID {
 			continue
 		}
-		if edgeAgentCommandMatches(command, socketPath, routerAddr) {
+		if edgeAgentCommandMatches(command, routerAddr) {
 			pids = append(pids, pid)
 		}
 	}
@@ -1083,7 +1083,7 @@ func stopStaleEdgeAgentProcesses(socketPath, routerAddr string, skipPID int, tim
 	return nil
 }
 
-func edgeAgentCommandMatches(command, socketPath, routerAddr string) bool {
+func edgeAgentCommandMatches(command string, routerAddr string) bool {
 	return strings.Contains(command, "scenery system agent") &&
 		strings.Contains(command, "--router-listen "+routerAddr)
 }

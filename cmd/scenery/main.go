@@ -195,25 +195,25 @@ func runWithCLITelemetry(args []string, telemetry *cliTelemetryInvocation) error
 	case "check":
 		return checkCommand(args[1:])
 	case "fmt":
-		return fmtCommand(args[1:])
+		return runContractFmt(os.Stdout, args[1:])
 	case "compile":
-		return compileCommand(args[1:])
+		return runContractCompile(os.Stdout, args[1:])
 	case "schema":
-		return schemaCommand(args[1:])
+		return runContractSchema(os.Stdout, args[1:])
 	case "list":
-		return listCommand(args[1:])
+		return runContractList(os.Stdout, args[1:])
 	case "get":
-		return getCommand(args[1:])
+		return runContractGet(os.Stdout, args[1:], false)
 	case "explain":
-		return explainCommand(args[1:])
+		return runContractGet(os.Stdout, args[1:], true)
 	case "diff":
-		return diffCommand(args[1:])
+		return runContractDiff(os.Stdout, args[1:])
 	case "graph":
-		return graphCommand(args[1:])
+		return runContractGraph(os.Stdout, args[1:])
 	case "agent":
 		return agentCommand(args[1:])
 	case "changes":
-		return changesCommand(args[1:])
+		return runContractChanges(os.Stdout, args[1:])
 	case "harness":
 		return harnessCommand(args[1:])
 	case "inspect":

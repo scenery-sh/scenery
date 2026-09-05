@@ -27,14 +27,14 @@ func TestNamedEnvironmentDotenvPrecedenceAndInjection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if value, _ := lookupEnvValue(env, "VALUE"); value != "environment-machine" {
+	if value := lookupEnvValue(env, "VALUE"); value != "environment-machine" {
 		t.Fatalf("dotenv value = %q", value)
 	}
 	env, err = appEnvWithDotEnv([]string{"VALUE=process"}, root, ".env", ".env.production", ".env.local", ".env.production.local")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if value, _ := lookupEnvValue(env, "VALUE"); value != "process" {
+	if value := lookupEnvValue(env, "VALUE"); value != "process" {
 		t.Fatalf("process value = %q", value)
 	}
 
@@ -71,11 +71,11 @@ func TestAppProcessEnvInjectsResolvedLibraryLinkage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if value, _ := lookupEnvValue(processEnv, "SCENERY_LIBRARY_MAPS3D_LINKAGE"); value != "shared" {
+	if value := lookupEnvValue(processEnv, "SCENERY_LIBRARY_MAPS3D_LINKAGE"); value != "shared" {
 		t.Fatalf("library linkage = %q", value)
 	}
 	wantManifest := filepath.Join(root, "artifacts", "maps3d.json")
-	if value, _ := lookupEnvValue(processEnv, "SCENERY_LIBRARY_MAPS3D_MANIFEST"); value != wantManifest {
+	if value := lookupEnvValue(processEnv, "SCENERY_LIBRARY_MAPS3D_MANIFEST"); value != wantManifest {
 		t.Fatalf("library manifest = %q, want %q", value, wantManifest)
 	}
 }

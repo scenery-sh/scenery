@@ -51,7 +51,7 @@ func TestGoogleOAuthBrowserFlowWithFakeGoogle(t *testing.T) {
 		},
 		AutoBootstrapDatabase: true,
 	})
-	applyStandardSecrets(cfg)
+	applyStandardSecrets()
 	standardAuthState.mu.Lock()
 	standardAuthState.cfg = cfg
 	standardAuthState.mu.Unlock()
@@ -604,7 +604,7 @@ func setupGoogleConnectionTest(t *testing.T) (*Service, *fakeGoogleServer, *Auth
 		},
 		AutoBootstrapDatabase: true,
 	})
-	applyStandardSecrets(cfg)
+	applyStandardSecrets()
 	standardAuthState.mu.Lock()
 	standardAuthState.cfg = cfg
 	standardAuthState.mu.Unlock()

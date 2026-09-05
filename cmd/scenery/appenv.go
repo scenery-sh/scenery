@@ -75,7 +75,7 @@ func validateHeadlessPostgresEnv(cfg app.Config, baseEnv []string) error {
 		return nil
 	}
 	envName := appDatabaseURLEnv
-	if value, _ := lookupEnvValue(baseEnv, envName); value != "" {
+	if value := lookupEnvValue(baseEnv, envName); value != "" {
 		if _, err := postgresdb.ParseURL(value); err != nil {
 			return fmt.Errorf("app database env %s is invalid for plan 0097: %w", envName, err)
 		}

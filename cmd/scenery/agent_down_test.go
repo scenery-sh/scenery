@@ -9,16 +9,12 @@ import (
 func TestResolveDownSessionAllowsMissingRuntime(t *testing.T) {
 	t.Parallel()
 
-	session, missing, err := resolveDownSessionFromList("/tmp/app", nil, downOptions{DB: true})
+	session, missing, err := resolveDownSessionFromList("/tmp/app", nil)
 	if err != nil {
-		t.Fatalf("resolve down session with db cleanup: %v", err)
+		t.Fatalf("resolve down session: %v", err)
 	}
 	if !missing || session.AppRoot != "/tmp/app" {
 		t.Fatalf("session = %+v missing=%v, want synthetic missing-runtime session", session, missing)
-	}
-	session, missing, err = resolveDownSessionFromList("/tmp/app", nil, downOptions{})
-	if err != nil || !missing || session.AppRoot != "/tmp/app" {
-		t.Fatalf("resolve down session without cleanup = %+v missing=%v err=%v", session, missing, err)
 	}
 }
 

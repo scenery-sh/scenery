@@ -11,6 +11,31 @@ historical records. Do not refresh their review dates or rewrite them as current
 contract prose. Record later guidance here or in the owning current contract;
 use stale knowledge metadata to flag a known contradiction.
 
+## Behavior-Preserving Cleanup
+
+- Status: completed
+- Owner: scenery maintainers
+- Completed: 2026-09-05
+- ExecPlan: [0159 Behavior-Preserving Cleanup](0159-behavior-preserving-cleanup.md)
+
+Removed reviewed private forwarding wrappers, unused parameters and return
+values, and deletion-only tests. Public contracts are unchanged. Lint, full Go,
+release harness, and release gate passed; external-app inspection was unselected.
+
+## Go Lint Cleanup and Release Gate Repair
+
+- Status: completed
+- Owner: scenery maintainers
+- Completed: 2026-09-05
+- ExecPlan: [0158 Go Lint Cleanup](0158-go-lint-cleanup.md)
+
+The explicit fourteen-linter policy passes. Lost write errors, wrapped-error
+handling, and SQL iteration handling are repaired. PostgreSQL fixture source
+and the shell gate's obsolete runtime/build commands are fixed; CLI installs
+are disposable. The complete release self-harness and shell gate pass,
+including fixture HTTP, router safety, and artifact hygiene. Optional
+external-app inspection was not run because no external app was selected.
+
 ## TypeScript Client Footprint
 
 - Status: completed (implementation; release-wide blockers recorded)

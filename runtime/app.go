@@ -83,7 +83,7 @@ func Main(cfg AppConfig) error {
 		defer cancelShutdown()
 		return errorsJoin(err, ShutdownServices(shutdownCtx))
 	}
-	scheduler, err := startCronScheduler(runCtx, cfg)
+	scheduler, err := startCronScheduler(runCtx)
 	if err != nil {
 		_ = events.Stop(context.Background())
 		_ = stopDurable(context.Background())

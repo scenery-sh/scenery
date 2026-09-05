@@ -86,7 +86,7 @@ func stopStaleUserSceneryAgents(socketPath, routerAddr string, timeout time.Dura
 		return err
 	}
 	for _, process := range parseRuntimeProcesses(string(out)) {
-		if process.UID != os.Getuid() || process.PID == os.Getpid() || !edgeAgentCommandMatches(process.Command, socketPath, routerAddr) {
+		if process.UID != os.Getuid() || process.PID == os.Getpid() || !edgeAgentCommandMatches(process.Command, routerAddr) {
 			continue
 		}
 		// A same-router-address agent serving a different control socket
@@ -199,11 +199,10 @@ func stopStaleRootCaddyEdge(ownerHome string, timeout time.Duration) error {
 	return nil
 }
 
-func stopStaleRootSceneryEdgeAgent(ownerHome, routerAddr string, timeout time.Duration) error {
+func stopStaleRootSceneryEdgeAgent(routerAddr string, timeout time.Duration) error {
 	if os.Geteuid() != 0 {
 		return fmt.Errorf("stale root agent cleanup must run as root")
 	}
-	socketPath := filepath.Join(ownerHome, "run", "agent.sock")
 	routerAddr = strings.TrimSpace(routerAddr)
 	if routerAddr == "" {
 		routerAddr = localagent.RouterAddrFromEnv()
@@ -227,7 +226,7 @@ func stopStaleRootSceneryEdgeAgent(ownerHome, routerAddr string, timeout time.Du
 		if pidErr != nil || uidErr != nil || uid != 0 || pid <= 0 {
 			continue
 		}
-		if !edgeAgentCommandMatches(command, socketPath, routerAddr) {
+		if !edgeAgentCommandMatches(command, routerAddr) {
 			continue
 		}
 		if err := signalPID(pid, syscall.SIGTERM); err != nil {

@@ -98,7 +98,7 @@ func managedDatabaseEnvWithAgent(ctx context.Context, appRoot string, cfg app.Co
 	}
 	services := make([]postgresdb.Service, 0, len(cfgs))
 	databaseEnv := appDatabaseURLEnv
-	if value, _ := lookupEnvValue(baseEnv, databaseEnv); value != "" {
+	if value := lookupEnvValue(baseEnv, databaseEnv); value != "" {
 		if _, err := postgresdb.ParseURL(value); err != nil {
 			return nil, postgresdb.Database{}, fmt.Errorf("%s must be a postgres URL for plan 0097: %w", databaseEnv, err)
 		}

@@ -104,7 +104,7 @@ func doctorAssistantChecks(ctx context.Context, root string, cfg appcfg.Config, 
 		checks = append(checks, doctorAssistantNodeCheck(ctx, root, name, runtimeInfo))
 		checks = append(checks, doctorAssistantProductionTokenCheck(root, cfg, name))
 		checks = append(checks, doctorAssistantAssetCheck(root, assistant, result))
-		checks = append(checks, doctorAssistantRevisionCheck(name, assistant, result, statuses[assistant.Address], statusErr))
+		checks = append(checks, doctorAssistantRevisionCheck(name, result, statuses[assistant.Address], statusErr))
 	}
 	return checks
 }
@@ -434,7 +434,7 @@ func validAssistantTokenKeyFile(path string) bool {
 	return err == nil && len(data) <= 4096 && validAssistantTokenKeyValue(string(data))
 }
 
-func doctorAssistantRevisionCheck(name string, assistant compiler.Resource, result *compiler.Result, status doctorAssistantStatus, statusErr error) doctor.Check {
+func doctorAssistantRevisionCheck(name string, result *compiler.Result, status doctorAssistantStatus, statusErr error) doctor.Check {
 	id := assistantCheckID(doctorAssistantRevisionID, name)
 	checkName := "Assistant runtime revisions (" + name + ")"
 	if statusErr != nil || !status.Present {
@@ -563,7 +563,7 @@ func doctorAssistantAssetCheck(root string, assistant compiler.Resource, result 
 		if err := validateAssistantAssetDescriptor(descriptor, raw, path, result); err != nil {
 			return checkError(id, checkName, "assistant runtime asset digest verification failed", "Rebuild the production assistant assets from the current application graph.")
 		}
-		if err := verifyAssistantAssetArchives(root, path, descriptor); err != nil {
+		if err := verifyAssistantAssetArchives(root, descriptor); err != nil {
 			return checkError(id, checkName, "assistant runtime asset digest verification failed", "Rebuild the production assistant assets from the current application graph.")
 		}
 	}
@@ -655,7 +655,7 @@ func validateAssistantAssetDescriptor(descriptor doctorAssistantAssetDescriptor,
 // build workspace is still available. Sidecars are retained in the app root,
 // so a cleaned workspace is a valid reason to skip byte verification while
 // still checking the sidecar's exact provider-neutral descriptor above.
-func verifyAssistantAssetArchives(root, descriptorPath string, descriptor doctorAssistantAssetDescriptor) error {
+func verifyAssistantAssetArchives(root string, descriptor doctorAssistantAssetDescriptor) error {
 	manifest, present, err := build.ReadLatestBuildManifest(root)
 	if err != nil || !present || manifest == nil || strings.TrimSpace(manifest.Build.WorkspaceDir) == "" {
 		return nil

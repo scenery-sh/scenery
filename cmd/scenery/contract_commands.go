@@ -28,15 +28,6 @@ type contractOptions struct {
 	Quiet          bool
 }
 
-func compileCommand(args []string) error { return runContractCompile(os.Stdout, args) }
-func schemaCommand(args []string) error  { return runContractSchema(os.Stdout, args) }
-func listCommand(args []string) error    { return runContractList(os.Stdout, args) }
-func getCommand(args []string) error     { return runContractGet(os.Stdout, args, false) }
-func explainCommand(args []string) error { return runContractGet(os.Stdout, args, true) }
-func fmtCommand(args []string) error     { return runContractFmt(os.Stdout, args) }
-func diffCommand(args []string) error    { return runContractDiff(os.Stdout, args) }
-func graphCommand(args []string) error   { return runContractGraph(os.Stdout, args) }
-func changesCommand(args []string) error { return runContractChanges(os.Stdout, args) }
 func runContractAgentServer(stdin io.Reader, stdout io.Writer, args []string) error {
 	if len(args) == 0 || args[0] != "serve" {
 		return fmt.Errorf("usage: scenery agent serve --stdio [--app-root <path>]")

@@ -25,7 +25,7 @@ func TestRefreshReplayRevokesSessionAcrossTransaction(t *testing.T) {
 		Enabled:               true,
 		AutoBootstrapDatabase: true,
 	})
-	applyStandardSecrets(cfg)
+	applyStandardSecrets()
 	standardAuthState.mu.Lock()
 	standardAuthState.cfg = cfg
 	standardAuthState.mu.Unlock()

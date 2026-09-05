@@ -177,17 +177,6 @@ func TestTaskListAndInspectCodeTasks(t *testing.T) {
 	}
 }
 
-func TestRunAndScriptCommandsAreRemoved(t *testing.T) {
-	t.Parallel()
-
-	if err := run([]string{"run", "list"}); err == nil || !strings.Contains(err.Error(), `unknown command "run"`) {
-		t.Fatalf("run command error = %v", err)
-	}
-	if err := run([]string{"script", "list"}); err == nil || !strings.Contains(err.Error(), `unknown command "script"`) {
-		t.Fatalf("run script error = %v", err)
-	}
-}
-
 func TestGoScriptBuildTagValidation(t *testing.T) {
 	t.Parallel()
 

@@ -41,7 +41,7 @@ func checkWarningDiagnostics(appRoot string, cfg appcfg.Config) ([]checkDiagnost
 	if err != nil {
 		return nil, err
 	}
-	missing := missingGoogleOAuthEnv(cfg.Auth.GoogleOAuth, env)
+	missing := missingGoogleOAuthEnv(env)
 	if len(missing) == 0 {
 		return diagnostics, nil
 	}
@@ -76,7 +76,7 @@ func deployConfigInfoDiagnostics(appRoot string, cfg appcfg.Config) []checkDiagn
 	return nil
 }
 
-func missingGoogleOAuthEnv(cfg appcfg.AuthGoogleConfig, env []string) []string {
+func missingGoogleOAuthEnv(env []string) []string {
 	var missing []string
 	if !hasAnyEnvValue(env, "GOOGLE_OAUTH_CLIENT_ID") {
 		missing = append(missing, "GOOGLE_OAUTH_CLIENT_ID")
@@ -89,7 +89,7 @@ func missingGoogleOAuthEnv(cfg appcfg.AuthGoogleConfig, env []string) []string {
 
 func hasAnyEnvValue(env []string, names ...string) bool {
 	for _, name := range names {
-		if value, _ := lookupEnvValue(env, name); value != "" {
+		if value := lookupEnvValue(env, name); value != "" {
 			return true
 		}
 	}

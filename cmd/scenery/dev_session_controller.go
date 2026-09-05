@@ -165,7 +165,7 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 		prepared.Backend = fallback
 		return prepared, nil
 	}
-	if value, _ := lookupEnvValue(baseEnvironment, "SCENERY_DEV_DASHBOARD_ADDR"); strings.TrimSpace(value) == "" {
+	if value := lookupEnvValue(baseEnvironment, "SCENERY_DEV_DASHBOARD_ADDR"); strings.TrimSpace(value) == "" {
 		addr, err := freeLoopbackAddr()
 		if err != nil {
 			return prepared, err
@@ -212,8 +212,8 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 		prepared.Backend = fallback
 		return prepared, nil
 	}
-	if value, _ := lookupEnvValue(baseEnvironment, "SCENERY_DEV_CACHE_DIR"); strings.TrimSpace(value) == "" {
-		if value, _ := lookupEnvValue(baseEnvironment, "SCENERY_AGENT_HOME"); strings.TrimSpace(value) == "" {
+	if value := lookupEnvValue(baseEnvironment, "SCENERY_DEV_CACHE_DIR"); strings.TrimSpace(value) == "" {
+		if value := lookupEnvValue(baseEnvironment, "SCENERY_AGENT_HOME"); strings.TrimSpace(value) == "" {
 			baseEnvironment = overlayEnv(baseEnvironment, map[string]string{"SCENERY_AGENT_HOME": paths.Home})
 			if !isolatedEnvironment {
 				_ = envpolicy.Set("SCENERY_AGENT_HOME", paths.Home)

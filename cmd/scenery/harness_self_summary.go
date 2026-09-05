@@ -299,7 +299,7 @@ func failingDiagnostics(step harnessStep) []checkDiagnostic {
 	if step.OK {
 		return nil
 	}
-	return capDiagnostics(step.Diagnostics, 3, "")
+	return capDiagnostics(step.Diagnostics, 3)
 }
 
 func artifactsFromStep(step harnessStep) []harnessArtifact {
@@ -554,15 +554,12 @@ func countSeverity(diags []checkDiagnostic, severity string) int {
 	return count
 }
 
-func capDiagnostics(diags []checkDiagnostic, limit int, severity string) []checkDiagnostic {
+func capDiagnostics(diags []checkDiagnostic, limit int) []checkDiagnostic {
 	if len(diags) == 0 || limit <= 0 {
 		return nil
 	}
 	out := make([]checkDiagnostic, 0, limit)
 	for _, diag := range diags {
-		if severity != "" && diag.Severity != severity {
-			continue
-		}
 		diag.File = normalizeLikelyPath(diag.File)
 		out = append(out, diag)
 		if len(out) >= limit {

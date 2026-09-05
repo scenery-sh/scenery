@@ -268,16 +268,13 @@ func TestEdgeAgentCommandMatchesSameRouter(t *testing.T) {
 	t.Parallel()
 
 	command := "/Users/petrbrazdil/go/bin/scenery system agent --socket /Users/petrbrazdil/.scenery/run/agent.sock --router-listen 127.0.0.1:9440 --router-http"
-	if !edgeAgentCommandMatches(command, "/Users/petrbrazdil/.scenery/run/agent.sock", "127.0.0.1:9440") {
+	if !edgeAgentCommandMatches(command, "127.0.0.1:9440") {
 		t.Fatal("expected exact edge agent command to match")
 	}
-	if !edgeAgentCommandMatches(command, "/tmp/other.sock", "127.0.0.1:9440") {
-		t.Fatal("same router should match even when a stale process has another socket")
-	}
-	if edgeAgentCommandMatches(command, "/Users/petrbrazdil/.scenery/run/agent.sock", "127.0.0.1:9555") {
+	if edgeAgentCommandMatches(command, "127.0.0.1:9555") {
 		t.Fatal("different router should not match")
 	}
-	if edgeAgentCommandMatches("/usr/bin/other --socket /Users/petrbrazdil/.scenery/run/agent.sock --router-listen 127.0.0.1:9440", "/Users/petrbrazdil/.scenery/run/agent.sock", "127.0.0.1:9440") {
+	if edgeAgentCommandMatches("/usr/bin/other --socket /Users/petrbrazdil/.scenery/run/agent.sock --router-listen 127.0.0.1:9440", "127.0.0.1:9440") {
 		t.Fatal("non-scenery agent command should not match")
 	}
 }

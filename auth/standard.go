@@ -82,7 +82,7 @@ func RegisterStandard(config StandardConfig) error {
 		return err
 	}
 	config = normalizeStandardConfig(config)
-	applyStandardSecrets(config)
+	applyStandardSecrets()
 
 	standardAuthState.mu.Lock()
 	standardAuthState.cfg = config
@@ -116,7 +116,7 @@ func normalizeStandardConfig(config StandardConfig) StandardConfig {
 	return config
 }
 
-func applyStandardSecrets(config StandardConfig) {
+func applyStandardSecrets() {
 	secrets.JWTSecret = strings.TrimSpace(envpolicy.Get("JWT_SECRET"))
 	if strings.TrimSpace(secrets.JWTSecret) == "" && isLocalRuntime() {
 		secrets.JWTSecret = "scenery-local-development-secret"

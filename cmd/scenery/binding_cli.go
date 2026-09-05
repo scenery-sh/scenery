@@ -107,7 +107,7 @@ func runBindingCLI(stdout, stderr io.Writer, arguments []string) (bool, error) {
 	if mapping == nil {
 		return true, fmt.Errorf("internal: CLI outcome %s has no mapping", condition)
 	}
-	exit, _ := contractInteger(mapping["exit"])
+	exit := contractInteger(mapping["exit"])
 	payload, err := selectCLIOutput(response.Outcome.Payload, condition, mapping)
 	if err != nil {
 		return true, err
@@ -279,7 +279,7 @@ func buildCLIInput(resources []graph.Resource, binding graph.Resource, arguments
 		}
 	}
 	for _, argument := range contractChildren(cli, "argument") {
-		position, _ := contractInteger(argument["position"])
+		position := contractInteger(argument["position"])
 		if position < len(positionals) {
 			if err := set(contractReference(argument["to"]), positionals[position]); err != nil {
 				return nil, err
@@ -305,8 +305,8 @@ func writeCLIHelp(output io.Writer, binding graph.Resource) {
 	_, _ = fmt.Fprintf(output, "Usage: scenery %s", command)
 	arguments := contractChildren(cli, "argument")
 	sort.Slice(arguments, func(i, j int) bool {
-		left, _ := contractInteger(arguments[i]["position"])
-		right, _ := contractInteger(arguments[j]["position"])
+		left := contractInteger(arguments[i]["position"])
+		right := contractInteger(arguments[j]["position"])
 		return left < right
 	})
 	for _, argument := range arguments {
@@ -318,7 +318,7 @@ func writeCLIHelp(output io.Writer, binding graph.Resource) {
 	_, _ = fmt.Fprintln(output)
 	_, _ = fmt.Fprintln(output, "Outcomes:")
 	for _, outcome := range contractChildren(cli, "outcome") {
-		exit, _ := contractInteger(outcome["exit"])
+		exit := contractInteger(outcome["exit"])
 		_, _ = fmt.Fprintf(output, "  %-28s exit %d\n", contractReference(outcome["when"]), exit)
 	}
 }
@@ -501,26 +501,26 @@ func contractStrings(value any) []string {
 	return values
 }
 
-func contractInteger(value any) (int, bool) {
+func contractInteger(value any) int {
 	switch number := value.(type) {
 	case int:
-		return number, true
+		return number
 	case int64:
-		return int(number), true
+		return int(number)
 	case float64:
-		return int(number), number == float64(int(number))
+		return int(number)
 	case json.Number:
-		parsed, err := strconv.ParseInt(number.String(), 10, 64)
-		return int(parsed), err == nil
+		parsed, _ := strconv.ParseInt(number.String(), 10, 64)
+		return int(parsed)
 	case map[string]any:
 		if number["$scalar"] == "int" {
-			parsed, err := strconv.ParseInt(fmt.Sprint(number["value"]), 10, 64)
-			return int(parsed), err == nil
+			parsed, _ := strconv.ParseInt(fmt.Sprint(number["value"]), 10, 64)
+			return int(parsed)
 		}
 	default:
-		return 0, false
+		return 0
 	}
-	return 0, false
+	return 0
 }
 
 func cliTypeExpression(value any) string {

@@ -61,7 +61,7 @@ func TestDevBootstrapDefaultEmailCreatesUserTenantAndMembership(t *testing.T) {
 		},
 		AutoBootstrapDatabase: true,
 	})
-	applyStandardSecrets(cfg)
+	applyStandardSecrets()
 	standardAuthState.mu.Lock()
 	standardAuthState.cfg = cfg
 	standardAuthState.mu.Unlock()
@@ -151,7 +151,7 @@ func TestDevBootstrapAttachesExistingUserToConfiguredTenant(t *testing.T) {
 		},
 		AutoBootstrapDatabase: true,
 	})
-	applyStandardSecrets(cfg)
+	applyStandardSecrets()
 	standardAuthState.mu.Lock()
 	standardAuthState.cfg = cfg
 	standardAuthState.mu.Unlock()

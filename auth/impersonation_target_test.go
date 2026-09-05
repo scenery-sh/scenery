@@ -21,7 +21,7 @@ func TestPrepareImpersonationTargetAndStartUnverifiedSession(t *testing.T) {
 	runtime.SetAppConfig(runtime.AppConfig{Name: "impersonation-target-test", ListenAddr: "127.0.0.1:0"})
 
 	cfg := normalizeStandardConfig(StandardConfig{Enabled: true, AutoBootstrapDatabase: true})
-	applyStandardSecrets(cfg)
+	applyStandardSecrets()
 	standardAuthState.mu.Lock()
 	standardAuthState.cfg = cfg
 	standardAuthState.mu.Unlock()
@@ -105,7 +105,7 @@ func TestPrepareImpersonationTargetRequiresPrivilege(t *testing.T) {
 	t.Setenv("DATABASE_URL", databaseURL)
 	runtime.SetAppConfig(runtime.AppConfig{Name: "impersonation-privilege-test", ListenAddr: "127.0.0.1:0"})
 	cfg := normalizeStandardConfig(StandardConfig{Enabled: true, AutoBootstrapDatabase: true})
-	applyStandardSecrets(cfg)
+	applyStandardSecrets()
 	standardAuthState.mu.Lock()
 	standardAuthState.cfg = cfg
 	standardAuthState.mu.Unlock()

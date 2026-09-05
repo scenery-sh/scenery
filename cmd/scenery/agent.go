@@ -805,10 +805,10 @@ func resolveDownSession(ctx context.Context, client *localagent.Client, opts dow
 	if err != nil {
 		return localagent.Session{}, false, err
 	}
-	return resolveDownSessionFromList(appRoot, sessions, opts)
+	return resolveDownSessionFromList(appRoot, sessions)
 }
 
-func resolveDownSessionFromList(appRoot string, sessions []localagent.Session, opts downOptions) (localagent.Session, bool, error) {
+func resolveDownSessionFromList(appRoot string, sessions []localagent.Session) (localagent.Session, bool, error) {
 	if len(sessions) == 0 {
 		return localagent.Session{AppRoot: appRoot}, true, nil
 	}
@@ -1017,7 +1017,7 @@ func dropSessionManagedDatabase(ctx context.Context, appRoot string) (string, er
 	if strings.TrimSpace(database.Database) == "" {
 		return "no managed database is configured", nil
 	}
-	if err := dropPostgresDatabase(ctx, database, dbCLIOptions{}); err != nil {
+	if err := dropPostgresDatabase(ctx, database); err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("dropped managed postgres database %s", database.Database), nil

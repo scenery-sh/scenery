@@ -110,14 +110,13 @@ func TestDoctorAssistantProductionTokenCheckIsExplicitAndRedacted(t *testing.T) 
 
 func TestDoctorAssistantRevisionCheckUsesProviderNeutralStatus(t *testing.T) {
 	result := &compiler.Result{Manifest: &compiler.Manifest{ContractRevision: "sha256:" + strings.Repeat("a", 64)}}
-	assistant := compiler.Resource{Address: "app/assistant/support", Name: "support", Kind: "scenery.assistant"}
 	status := doctorAssistantStatus{Present: true, Ready: true, ExpectedRuntime: "runtime-1", ExpectedCapability: result.Manifest.ContractRevision, ActualRuntime: "runtime-stale", ActualCapability: result.Manifest.ContractRevision}
-	check := doctorAssistantRevisionCheck("support", assistant, result, status, nil)
+	check := doctorAssistantRevisionCheck("support", result, status, nil)
 	if check.Status != doctor.StatusError || !strings.Contains(check.Message, "runtime revision") {
 		t.Fatalf("stale runtime revision check = %#v", check)
 	}
 	status.ActualRuntime = "runtime-1"
-	check = doctorAssistantRevisionCheck("support", assistant, result, status, nil)
+	check = doctorAssistantRevisionCheck("support", result, status, nil)
 	if check.Status != doctor.StatusOK {
 		t.Fatalf("matching revisions check = %#v", check)
 	}

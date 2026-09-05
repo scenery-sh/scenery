@@ -131,7 +131,7 @@ func (f cronField) Has(value int) bool {
 	return f.values[value-f.min]
 }
 
-func startCronScheduler(parent context.Context, cfg AppConfig) (*cronScheduler, error) {
+func startCronScheduler(parent context.Context) (*cronScheduler, error) {
 	jobs := listCronJobs()
 	if len(jobs) == 0 {
 		done := make(chan struct{})
@@ -195,7 +195,7 @@ func runCronJobLoop(ctx context.Context, job *CronJob) {
 			slog.Error("scenery cron job failed to allocate execution id", "id", job.ID, "err", err)
 			return
 		}
-		callCtx, cancel := context.WithCancel(withCronInvocation(ctx, job, scheduledAt, executionID))
+		callCtx, cancel := context.WithCancel(withCronInvocation(ctx, scheduledAt, executionID))
 		running[executionID] = cancel
 		workers.Go(func() {
 			if err := safeInvokeCronJob(callCtx, job); err != nil && callCtx.Err() == nil {
@@ -302,7 +302,7 @@ func safeInvokeCronJob(ctx context.Context, job *CronJob) (err error) {
 		startRequestTrace(state)
 		logRequestStart(state)
 		defer func() {
-			finishRequestTrace(state, errs.HTTPStatus(err), nil, err)
+			finishRequestTrace(state, errs.HTTPStatus(err), err)
 		}()
 	}
 	defer func() {
@@ -313,7 +313,7 @@ func safeInvokeCronJob(ctx context.Context, job *CronJob) (err error) {
 	return job.Invoke(ctx)
 }
 
-func withCronInvocation(ctx context.Context, job *CronJob, scheduledAt time.Time, executionID string) context.Context {
+func withCronInvocation(ctx context.Context, scheduledAt time.Time, executionID string) context.Context {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -372,7 +372,7 @@ func InvokeCronJob(ctx context.Context, job *CronJob, scheduledAt time.Time, exe
 			return err
 		}
 	}
-	return safeInvokeCronJob(withCronInvocation(ctx, job, scheduledAt, executionID), job)
+	return safeInvokeCronJob(withCronInvocation(ctx, scheduledAt, executionID), job)
 }
 
 func validateCronOverlapPolicy(policy string) error {

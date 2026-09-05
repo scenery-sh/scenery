@@ -997,7 +997,7 @@ func envHasKey(values []string, key string) bool {
 // surface from the selected app environment. Additions require an explicit
 // provider integration and focused non-leakage tests.
 func assistantProviderEnv(appEnv []string) []string {
-	value, _ := lookupEnvValue(appEnv, "OPENAI_API_KEY")
+	value := lookupEnvValue(appEnv, "OPENAI_API_KEY")
 	if value == "" {
 		return nil
 	}

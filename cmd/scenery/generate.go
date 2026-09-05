@@ -157,7 +157,7 @@ func runGenerateWithHooks(ctx context.Context, stdout io.Writer, args []string, 
 	if opts.DryRun {
 		return renderGeneratorPlan(stdout, opts.JSON, plan.Graph)
 	}
-	if err := executeGeneratorPlan(ctx, stdout, appRoot, cfg, opts, plan, hooks); err != nil {
+	if err := executeGeneratorPlan(ctx, stdout, appRoot, opts, plan, hooks); err != nil {
 		return err
 	}
 	if opts.JSON {
@@ -310,7 +310,7 @@ func buildSQLCGeneratorPlan(appRoot string, cfg appcfg.Config) (*sqlcGeneratorPl
 			schema = filepath.ToSlash(schema)
 			outputs = append(outputs, schema)
 			if !knownSchemas[schema] {
-				plan := inferSQLCSchemaPlan(appRoot, conf, schema)
+				plan := inferSQLCSchemaPlan(conf, schema)
 				plan.Engine = engine
 				schemaPlans = append(schemaPlans, plan)
 				knownSchemas[schema] = true
@@ -531,7 +531,7 @@ func configuredSQLCSchemaPlans(conf appcfg.SQLCGeneratorConfig) []sqlcSchemaPlan
 	return out
 }
 
-func inferSQLCSchemaPlan(appRoot string, conf appcfg.SQLCGeneratorConfig, schemaRel string) sqlcSchemaPlan {
+func inferSQLCSchemaPlan(conf appcfg.SQLCGeneratorConfig, schemaRel string) sqlcSchemaPlan {
 	return sqlcSchemaPlan{
 		SQLCSchema:  filepath.ToSlash(schemaRel),
 		AtlasDevURL: conf.DevURL,
@@ -617,7 +617,7 @@ func readSQLCConfig(path string) (sqlcConfigFile, error) {
 	return cfg, nil
 }
 
-func executeGeneratorPlan(ctx context.Context, stdout io.Writer, appRoot string, cfg appcfg.Config, opts generateOptions, plan generatorExecutionPlan, hooks lifecycleHooks) error {
+func executeGeneratorPlan(ctx context.Context, stdout io.Writer, appRoot string, opts generateOptions, plan generatorExecutionPlan, hooks lifecycleHooks) error {
 	if plan.SQLC != nil {
 		if err := runSQLCGeneratorWithHooks(ctx, stdout, appRoot, plan.SQLC, opts.JSON, hooks); err != nil {
 			return err

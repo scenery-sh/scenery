@@ -591,7 +591,7 @@ func configuredSnapshotDatabaseTarget(appRoot string, cfg appcfg.Config) (string
 	if err != nil {
 		return "", "", err
 	}
-	if value, _ := lookupEnvValue(env, appDatabaseURLEnv); strings.TrimSpace(value) != "" {
+	if value := lookupEnvValue(env, appDatabaseURLEnv); strings.TrimSpace(value) != "" {
 		if _, err := postgresdb.ParseURL(value); err != nil {
 			return "", "", err
 		}

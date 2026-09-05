@@ -188,7 +188,7 @@ func discoverScriptApp(appRootFlag string) (string, app.Config, error) {
 	return app.DiscoverRoot(start)
 }
 
-func scriptCandidateSearch(root string, target scriptTarget) []scriptCandidate {
+func scriptCandidateSearch(target scriptTarget) []scriptCandidate {
 	base := filepath.Join(target.Domain, "tasks")
 	return []scriptCandidate{
 		{Target: target, Lang: scriptLangGo, Layout: "go-file", Path: filepath.ToSlash(filepath.Join(base, target.Name+".task.go"))},
@@ -199,7 +199,7 @@ func scriptCandidateSearch(root string, target scriptTarget) []scriptCandidate {
 }
 
 func resolveScriptCandidate(root string, target scriptTarget, lang string) (scriptCandidate, []scriptCandidate, error) {
-	searched := scriptCandidateSearch(root, target)
+	searched := scriptCandidateSearch(target)
 	var matches []scriptCandidate
 	for _, candidate := range searched {
 		if lang != "" && candidate.Lang != lang {
@@ -299,7 +299,7 @@ func listDomainScriptCandidates(root, domain string) ([]scriptCandidate, error) 
 			}
 		case entry.IsDir() && validScriptSegment(name):
 			target := scriptTarget{Domain: domain, Name: name}
-			for _, candidate := range scriptCandidateSearch(root, target)[2:] {
+			for _, candidate := range scriptCandidateSearch(target)[2:] {
 				if fileExists(filepath.Join(root, filepath.FromSlash(candidate.Path))) {
 					out = append(out, candidate)
 				}

@@ -528,17 +528,17 @@ func durableDatabaseURLForCLI(root string, cfg app.Config, service string) (stri
 	if err != nil {
 		return "", err
 	}
-	if value, _ := lookupEnvValue(env, appDatabaseURLEnv); strings.TrimSpace(value) != "" {
+	if value := lookupEnvValue(env, appDatabaseURLEnv); strings.TrimSpace(value) != "" {
 		return strings.TrimSpace(value), nil
 	}
-	if value, _ := lookupEnvValue(env, postgresdb.RegistryEnv); strings.TrimSpace(value) != "" {
+	if value := lookupEnvValue(env, postgresdb.RegistryEnv); strings.TrimSpace(value) != "" {
 		registry, err := postgresdb.DecodeRegistry(value)
 		if err == nil && strings.TrimSpace(registry.URL) != "" {
 			return registry.URL, nil
 		}
 	}
 	serviceEnv := postgresname.ServiceDatabaseURLEnv(service)
-	if value, _ := lookupEnvValue(env, serviceEnv); strings.TrimSpace(value) != "" {
+	if value := lookupEnvValue(env, serviceEnv); strings.TrimSpace(value) != "" {
 		return strings.TrimSpace(value), nil
 	}
 	return "", fmt.Errorf("durable store requires %s for service %s", appDatabaseURLEnv, service)

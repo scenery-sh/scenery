@@ -86,10 +86,10 @@ func normalizeManagedTCPUpstream(value string) string {
 	return value
 }
 
-func lookupEnvValue(env []string, key string) (string, string) {
+func lookupEnvValue(env []string, key string) string {
 	values := envListMap(env)
 	if value := strings.TrimSpace(values[key]); value != "" {
-		return value, key
+		return value
 	}
-	return "", ""
+	return ""
 }

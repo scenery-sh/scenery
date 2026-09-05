@@ -108,7 +108,7 @@ func readBoundedHarnessArtifactPayload(name, path string) (any, error) {
 			"slow_test_count":          len(report.SlowTests),
 			"top_slow_tests":           capTests(report.SlowTests, 10),
 			"top_slow_packages":        capPackages(packages, 10),
-			"diagnostics":              capDiagnostics(report.Diagnostics, 50, ""),
+			"diagnostics":              capDiagnostics(report.Diagnostics, 50),
 		}
 		if report.TestBinaries != nil {
 			payload["test_package_count"] = report.TestBinaries.TestPackageCount
@@ -131,7 +131,7 @@ func readBoundedHarnessArtifactPayload(name, path string) (any, error) {
 			"embed_count":       len(report.Embeds.Embeds),
 			"diagnostic_count":  len(report.Diagnostics),
 			"forbidden_tracked": len(report.Artifacts.ForbiddenTracked),
-			"diagnostics":       capDiagnostics(report.Diagnostics, 50, ""),
+			"diagnostics":       capDiagnostics(report.Diagnostics, 50),
 		}, nil
 	case "self-harness":
 		resp, err := readHarnessJSON[harnessSelfResponse](path)
@@ -186,7 +186,7 @@ func buildInspectHarnessTimingResponse(root, scope string, top int) (inspectHarn
 		}
 		return packages[i].Seconds > packages[j].Seconds
 	})
-	return inspectHarnessTimingResponse{cliPayloadIdentity: newCLIPayloadIdentity(inspectHarnessKind), GeneratedAt: time.Now().UTC().Format(time.RFC3339Nano), Scope: scope, Root: root, Top: top, TotalSeconds: report.TotalSeconds, Budgets: report.Budgets, SlowTests: capTests(report.SlowTests, top), SlowPackages: capPackages(packages, top), Diagnostics: capDiagnostics(report.Diagnostics, 50, ""), Artifact: artifact}, nil
+	return inspectHarnessTimingResponse{cliPayloadIdentity: newCLIPayloadIdentity(inspectHarnessKind), GeneratedAt: time.Now().UTC().Format(time.RFC3339Nano), Scope: scope, Root: root, Top: top, TotalSeconds: report.TotalSeconds, Budgets: report.Budgets, SlowTests: capTests(report.SlowTests, top), SlowPackages: capPackages(packages, top), Diagnostics: capDiagnostics(report.Diagnostics, 50), Artifact: artifact}, nil
 }
 
 func resolveHarnessArtifactByName(root, name string) (harnessArtifact, string, error) {

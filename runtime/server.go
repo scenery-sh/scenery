@@ -378,7 +378,7 @@ func (s *server) registerRaw(ep *Endpoint) {
 		authInfo, err := authenticateRequest(req.WithContext(ctx), ep)
 		if err != nil {
 			logRequestStart(state)
-			finishRequestTrace(state, errs.HTTPStatus(err), nil, err)
+			finishRequestTrace(state, errs.HTTPStatus(err), err)
 			if !writeContractAdmissionError(w, ep, err) {
 				errs.HTTPError(w, err)
 			}
@@ -391,7 +391,7 @@ func (s *server) registerRaw(ep *Endpoint) {
 		stream := newRawStreamingResponseWriter(w)
 		status := http.StatusOK
 		var callErr error
-		defer func() { finishRequestTrace(state, status, nil, callErr) }()
+		defer func() { finishRequestTrace(state, status, callErr) }()
 
 		streamCtx, cancelStream := context.WithCancel(ctx)
 		defer cancelStream()
@@ -451,7 +451,7 @@ func (s *server) registerTyped(ep *Endpoint) {
 		authInfo, err := authenticateRequest(req.WithContext(ctx), ep)
 		if err != nil {
 			logRequestStart(state)
-			finishRequestTrace(state, errs.HTTPStatus(err), nil, err)
+			finishRequestTrace(state, errs.HTTPStatus(err), err)
 			if !writeContractAdmissionError(w, ep, err) {
 				errs.HTTPError(w, err)
 			}
@@ -466,7 +466,7 @@ func (s *server) registerTyped(ep *Endpoint) {
 			if transportStatus, ok := contractTransportHTTPStatus(decodeErr); ok {
 				decodeStatus = transportStatus
 			}
-			finishRequestTrace(state, decodeStatus, nil, decodeErr)
+			finishRequestTrace(state, decodeStatus, decodeErr)
 			if writeContractTransportError(w, decodeErr) {
 				return
 			}
@@ -482,7 +482,7 @@ func (s *server) registerTyped(ep *Endpoint) {
 			if admissionStatus, ok := contractAdmissionHTTPStatus(ep, authorizationErr); ok {
 				authorizationStatus = admissionStatus
 			}
-			finishRequestTrace(state, authorizationStatus, nil, authorizationErr)
+			finishRequestTrace(state, authorizationStatus, authorizationErr)
 			if !writeContractAdmissionError(w, ep, authorizationErr) {
 				errs.HTTPError(w, authorizationErr)
 			}
@@ -500,7 +500,7 @@ func (s *server) registerTyped(ep *Endpoint) {
 			status = admissionStatus
 		}
 		applyHeaders(w.Header(), headers)
-		defer func() { finishRequestTrace(state, status, resp, callErr) }()
+		defer func() { finishRequestTrace(state, status, callErr) }()
 		if callErr != nil {
 			if writeContractTransportError(w, callErr) {
 				return

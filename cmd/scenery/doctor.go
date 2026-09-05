@@ -320,7 +320,7 @@ func doctorProcessOwnershipCheck(ctx context.Context, deps doctor.ProbeDeps) doc
 		if process.UID != os.Getuid() {
 			continue
 		}
-		if edgeAgentCommandMatches(process.Command, paths.SocketPath, routerAddr) {
+		if edgeAgentCommandMatches(process.Command, routerAddr) {
 			agents = append(agents, process.PID)
 		}
 		if managedCaddyCommandMatches(process.Command, configs) {

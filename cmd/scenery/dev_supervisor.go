@@ -1365,12 +1365,12 @@ func validateLocalSecretsFiles(root string, cfg app.Config, env app.ResolvedEnv)
 			return err
 		}
 		var required []string
-		if value, _ := lookupEnvValue(values, "JWT_SECRET"); strings.TrimSpace(value) == "" {
+		if value := lookupEnvValue(values, "JWT_SECRET"); strings.TrimSpace(value) == "" {
 			required = append(required, "JWT_SECRET")
 		}
 		if cfg.Auth.GoogleOAuth.Enabled {
 			for _, name := range []string{"GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET", "AUTH_TOKEN_CIPHER_KEY"} {
-				if value, _ := lookupEnvValue(values, name); strings.TrimSpace(value) == "" {
+				if value := lookupEnvValue(values, name); strings.TrimSpace(value) == "" {
 					required = append(required, name)
 				}
 			}

@@ -48,6 +48,16 @@ When `validation_classification` contains `release-sensitive-or-runtime`, also r
 scripts/release-gate.sh
 ```
 
+The clean-checkout snapshot includes tracked working-tree content and excludes
+tracked deletions, including unstaged deletions.
+The shell gate installs CLI binaries into disposable `GOBIN` directories, never
+the shared user install. Its headless fixture probes use `scenery build
+--target development --output <binary> -o json` and launch that binary with `SCENERY_LISTEN_ADDR`;
+they do not start a development session. Readiness requires HTTP 200 and fails
+early if the child exits. Cleanup stops children before removing their files.
+The optional external-app check is explicitly skipped unless an app root is
+supplied through the existing gate configuration.
+
 Keep the release guard strict, but make the strictness land on Scenery-owned
 release safety: contracts, schemas, release artifacts, fixture runtimes, route
 isolation, and managed-substrate semantics. Nondeterministic external host or

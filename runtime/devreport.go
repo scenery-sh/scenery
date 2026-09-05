@@ -339,7 +339,7 @@ func startRequestTrace(state *requestState) {
 	span := &traceSpan{
 		traceID:     newTraceID(),
 		spanID:      newSpanID(),
-		spanType:    spanTypeForRequest(state.request.Type),
+		spanType:    "REQUEST",
 		service:     state.request.Service,
 		endpoint:    state.request.Endpoint,
 		started:     state.request.Started,
@@ -382,7 +382,7 @@ func startRequestTrace(state *requestState) {
 	})
 }
 
-func finishRequestTrace(state *requestState, httpStatus int, payload any, err error) {
+func finishRequestTrace(state *requestState, httpStatus int, err error) {
 	if state == nil || state.trace == nil {
 		return
 	}
@@ -557,15 +557,6 @@ func newRandomHex(size int) string {
 		return fmt.Sprintf("%d", time.Now().UnixNano())
 	}
 	return hex.EncodeToString(buf)
-}
-
-func spanTypeForRequest(requestType shared.RequestType) string {
-	switch requestType {
-	case shared.RawAPICall, shared.APICall, shared.InternalCall:
-		return "REQUEST"
-	default:
-		return "REQUEST"
-	}
 }
 
 func statusCodeName(err error) string {

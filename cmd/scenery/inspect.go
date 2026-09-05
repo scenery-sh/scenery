@@ -621,15 +621,15 @@ func durableServices(declarations []durableDeclaration) []durableServiceRecord {
 	return out
 }
 
-func durableDatabaseURLForInspect(appRoot string, cfg appcfg.Config) string {
+func durableDatabaseURLForInspect(appRoot string) string {
 	env, err := appEnvWithDotEnv(envpolicy.Environ(), appRoot)
 	if err != nil {
 		env = envpolicy.Environ()
 	}
-	if value, _ := lookupEnvValue(env, appDatabaseURLEnv); strings.TrimSpace(value) != "" {
+	if value := lookupEnvValue(env, appDatabaseURLEnv); strings.TrimSpace(value) != "" {
 		return strings.TrimSpace(value)
 	}
-	if value, _ := lookupEnvValue(env, postgresdb.RegistryEnv); strings.TrimSpace(value) != "" {
+	if value := lookupEnvValue(env, postgresdb.RegistryEnv); strings.TrimSpace(value) != "" {
 		registry, err := postgresdb.DecodeRegistry(value)
 		if err == nil {
 			return strings.TrimSpace(registry.URL)

@@ -123,7 +123,7 @@ func buildInspectDurableResponse(appRoot string, cfg appcfg.Config, result *comp
 		return declarations[i].Name < declarations[j].Name
 	})
 	services := durableServices(declarations)
-	databaseURL := durableDatabaseURLForInspect(appRoot, cfg)
+	databaseURL := durableDatabaseURLForInspect(appRoot)
 	return inspectDurableResponse{
 		cliPayloadIdentity: newCLIPayloadIdentity("scenery.inspect.durable"), App: inspectAppRef(appRoot, cfg, result),
 		Durable:      inspectDurableRecord{Database: inspectDurableDatabase{Name: postgresdb.DatabaseNameFromURL(databaseURL), URL: postgresdb.RedactURL(databaseURL)}, Schema: "scenery", TaskCount: len(declarations), ServiceCount: len(services)},

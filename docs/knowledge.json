@@ -99,15 +99,27 @@
       ]
     },
     {
-      "path": "docs/plans/0158-go-lint-cleanup.md",
-      "title": "Go Lint Cleanup",
+      "path": "docs/plans/0159-behavior-preserving-cleanup.md",
+      "title": "Behavior-Preserving Cleanup",
       "owner": "scenery maintainers",
-      "status": "active",
+      "status": "completed",
       "quality": "B",
       "freshness": "current",
       "last_reviewed": "2026-09-05",
       "review_after": "2026-10-05",
-      "summary": "Remove unrestricted Go lint findings, repair lost write errors, replace deprecated transport APIs, and adopt an explicit correctness lint policy with narrowly justified exact-identity test exceptions.",
+      "summary": "Remove redundant private plumbing and deletion-only tests while preserving public and runtime behavior.",
+      "tags": ["plans", "execplans", "quality", "runtime"]
+    },
+    {
+      "path": "docs/plans/0158-go-lint-cleanup.md",
+      "title": "Go Lint Cleanup",
+      "owner": "scenery maintainers",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-05",
+      "review_after": "2026-10-05",
+      "summary": "Completed lint cleanup and explicit correctness policy, IO and transport repairs, PostgreSQL fixture repair, and headless release gate modernization; full repository release checks pass with optional external-app inspection unselected.",
       "tags": ["plans", "execplans", "go", "quality", "runtime"]
     },
     {
@@ -1818,7 +1830,7 @@
       "freshness": "current",
       "last_reviewed": "2026-09-05",
       "review_after": "2026-10-05",
-      "summary": "Agent validation loop with cached and explicit fresh Go execution, a 60ms fast-test target and exception-free repeated 100ms p95 gate, release-only external-boundary probes, pinned four-way missing-binary builds, prepare-wall cold budgeting, deterministic changed-area command unions, agent-context handoff, browser and data proofs, task-scoped documentation routing, and living-document review queues.",
+      "summary": "Agent validation loop with cached and fresh Go execution, exception-free repeated 100ms p95 gate, release-only boundary probes, disposable CLI installs and built headless fixture runtimes, four-way missing-binary builds, prepare-wall budgeting, changed-area commands, browser/data proofs, and documentation review queues.",
       "tags": [
         "harness",
         "agents",

@@ -26,9 +26,10 @@ existing-issue baseline. Preserve the already dirty TypeScript and edge work.
   iteration errors propagate without starting jobs.
 - [x] (2026-09-05) Stage all authored sources for publication; clean-checkout
   installation now passes.
-- [ ] Release acceptance remains blocked by the fixture smoke script using
-  the removed `serve` command. Owner: scenery harness; migrate that probe to
-  the current runtime lifecycle in a separate harness repair.
+- [x] (2026-09-05) Repair headless fixture startup and adjacent shell gate
+  issues; the complete gate passes, including clean install, HTTP smoke,
+  router safety, and artifact hygiene. Optional external-app checks are
+  explicitly skipped because no external app was selected.
 
 ## Surprises & Discoveries
 
@@ -59,8 +60,12 @@ The test-binary cache fingerprints the selected Go executable rather than the
 runner's deprecated baked-in GOROOT. Public machine schemas are unchanged;
 the forwarding trust policy is recorded in `docs/local-contract.md`.
 
-Implementation is complete; this plan remains active for release acceptance.
-Do not interpret the passing lint and unit lanes as a passing release gate.
+Implementation and repository release acceptance are complete. The repaired
+shell gate builds the explicit development fixture target, runs the resulting
+binary, propagates build failures, installs only into disposable GOBIN paths,
+and stops children before deleting their files. Two untracked Finder metadata
+files were removed with explicit user approval. No external application was
+selected for the optional external-app lane.
 
 ## Context and Orientation
 
@@ -154,6 +159,17 @@ installation. Its fixture smoke then failed with `unknown command "serve"`;
 external-app smoke, router safety, and artifact hygiene were not reached.
 Evidence: `.scenery/harness/commit-push-gate.log` and
 `.scenery/release-gate/20260905T184325Z/fixture-smoke-app.log`.
+
+Final follow-up proof: `bash -n scripts/release-gate.sh`, standalone fixture
+and router probes, standalone artifact hygiene, the complete release
+self-harness (including race), and `scripts/release-gate.sh` all pass.
+The final gate includes `go test ./...`, `go test -race ./...`,
+`golangci-lint run ./...`, UI typecheck/build, dashboard embedding, disposable
+and clean-checkout installs, self-harness, HTTP smoke, router safety, and
+artifact hygiene. Its optional external-app check is skipped without a supplied
+root. Reports: `.scenery/harness/serve-repair-release.log`,
+`.scenery/harness/serve-repair-gate-final.log`, and
+`.scenery/release-gate/20260905T190245Z/`.
 
 Validation results on native macOS (2026-09-05):
 

@@ -254,7 +254,7 @@ func dbDropCommand(args []string) error {
 	if strings.TrimSpace(opts.Service) != "" {
 		return fmt.Errorf("database service %q is not configured", opts.Service)
 	}
-	if err := dropPostgresDatabase(ctx, database, opts); err != nil {
+	if err := dropPostgresDatabase(ctx, database); err != nil {
 		return err
 	}
 	_, _ = fmt.Fprintln(os.Stdout, "dropped scenery database")
@@ -472,7 +472,7 @@ func resolveDatabaseURLForServiceFromEnv(cfg appcfg.Config, env []string, servic
 
 func databaseURLFromEnvList(env []string, appEnvName, serviceEnvName, engine, service string) (string, error) {
 	for _, key := range []string{serviceEnvName, appEnvName} {
-		if value, _ := lookupEnvValue(env, key); value != "" {
+		if value := lookupEnvValue(env, key); value != "" {
 			return value, nil
 		}
 	}
@@ -546,7 +546,7 @@ func resetPostgresDatabase(ctx context.Context, database postgresdb.Database, op
 	return postgresdb.ResetDatabase(ctx, admin, database.Database)
 }
 
-func dropPostgresDatabase(ctx context.Context, database postgresdb.Database, opts dbCLIOptions) error {
+func dropPostgresDatabase(ctx context.Context, database postgresdb.Database) error {
 	if strings.TrimSpace(database.Database) == "" {
 		return nil
 	}
