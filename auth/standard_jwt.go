@@ -143,6 +143,9 @@ func requireActiveAuthSession(ctx context.Context, svc *Service, data *AuthData)
 
 // ValidateToken parses and validates a signed user JWT.
 func ValidateToken(token string) (*AuthData, error) {
+	if strings.TrimSpace(secrets.JWTSecret) == "" {
+		return nil, fmt.Errorf("JWTSecret is not configured")
+	}
 	claims := &accessTokenClaims{}
 	t, err := jwt.ParseWithClaims(
 		strings.TrimSpace(token),
@@ -151,28 +154,25 @@ func ValidateToken(token string) (*AuthData, error) {
 			if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
 				return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
 			}
-			if strings.TrimSpace(secrets.JWTSecret) == "" {
-				return nil, fmt.Errorf("JWTSecret is not configured")
-			}
 			return []byte(secrets.JWTSecret), nil
 		},
 		jwt.WithExpirationRequired(),
 		jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("invalid token: %w", err)
+		return nil, unauthenticated("invalid token")
 	}
 	if !t.Valid {
-		return nil, fmt.Errorf("invalid token")
+		return nil, unauthenticated("invalid token")
 	}
 
 	sub := strings.TrimSpace(claims.Subject)
 	if sub == "" {
-		return nil, fmt.Errorf("token missing subject claim")
+		return nil, unauthenticated("token missing subject claim")
 	}
 	tenantID := strings.TrimSpace(claims.TenantID)
 	if tenantID == "" {
-		return nil, fmt.Errorf("token missing tenant_id claim")
+		return nil, unauthenticated("token missing tenant_id claim")
 	}
 
 	return &AuthData{
