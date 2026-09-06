@@ -1,0 +1,75 @@
+workspace {
+  implementation_root "application" {
+    path             = "."
+    revision_include = ["**/*.go", "go.mod", "go.sum", "**/*.sql"]
+  }
+  managed_generated_roots = ["inbox/scenerycontract", "internal/scenerygen", "client/generated"]
+}
+
+go_module "application" {
+  root        = "."
+  import_path = "example.com/webhook-inbox"
+}
+
+go_toolchain "application" {
+  version     = "1.27.0"
+  experiments = []
+}
+
+go_target "development" {
+  role      = "development"
+  platform  = "host"
+  toolchain = go_toolchain.application
+  module    = go_module.application
+  packages  = ["./..."]
+  cgo       = "disabled"
+}
+
+application "webhook_inbox" {}
+
+http_gateway "public_api" {
+  exposure        = "internet"
+  base_path       = "/"
+  cors            = std.cors.none
+  trusted_proxies = std.trusted_proxies.none
+  forwarded       = std.forwarded_headers.reject
+}
+
+provider "postgres" { source = "registry.scenery.dev/core/postgres" }
+provider "durable" { source = "registry.scenery.dev/core/durable" }
+
+data_source "inbox" {
+  provider             = provider.postgres
+  lifecycle            = "external"
+  require_capabilities = ["sql.query/v1", "sql.transaction/v1"]
+  config               = { database = "inbox" }
+}
+
+execution_engine "tasks" {
+  provider             = provider.durable
+  lifecycle            = "managed"
+  require_capabilities = ["execution.durable/v1"]
+}
+
+authentication "standard" {
+  provider = std.provider.standard_auth
+  scheme   = "session"
+}
+
+module "inbox" {
+  source = "./inbox"
+  inputs = {
+    gateway  = http_gateway.public_api
+    database = data_source.inbox
+    tasks    = execution_engine.tasks
+    session  = authentication.standard
+  }
+}
+
+typescript_client "public_api" {
+  gateways    = [http_gateway.public_api]
+  package     = "@example/webhook-client"
+  module      = "esm"
+  runtime     = "fetch"
+  output_root = "client/generated"
+}

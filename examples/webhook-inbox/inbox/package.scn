@@ -1,0 +1,180 @@
+package "inbox" {
+  go_contract { import_path = "example.com/webhook-inbox/inbox" }
+}
+
+input "gateway" { type = resource_ref("http_gateway") }
+input "database" { type = resource_ref("data_source") }
+input "session" { type = resource_ref("authentication") }
+
+export "receive" { value = operation.process }
+export "status" { value = operation.status }
+input "tasks" {
+  type     = resource_ref("execution_engine")
+  phase    = "deployment"
+  requires = ["execution.durable/v1"]
+}
+
+service "inbox" {
+  runtime = "go"
+  implementation { constructor = "NewService" }
+  dependency "database" { instance = var.database }
+}
+
+record "event" {
+  field "event_id" {
+    type       = string
+    min_length = 1
+    max_length = 128
+  }
+  field "payload" {
+    type       = string
+    max_length = 4096
+  }
+}
+
+record "processed_event" {
+  field "event_id" { type = string }
+  field "payload" { type = string }
+  field "sha256" { type = string }
+}
+
+record "lookup" {
+  field "event_id" {
+    type       = string
+    min_length = 1
+    max_length = 128
+  }
+}
+
+operation "status" {
+  service = service.inbox
+  input   = record.lookup
+  handler { method = "Status" }
+  result "processed" { type = record.processed_event }
+  result "missing" { type = record.lookup }
+}
+
+execution "status" {
+  operation = operation.status
+  mode      = "direct"
+  timeout   = "5s"
+}
+
+binding "status_http" {
+  gateway        = var.gateway
+  operation      = operation.status
+  execution      = execution.status
+  protocol       = "http"
+  delivery       = "call"
+  authentication = var.session
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+
+  http {
+    method        = "GET"
+    path          = "/events/{event_id}"
+    codec_profile = std.codec.http_json_v1
+    path_parameter "event_id" { to = operation.status.input.event_id }
+    response "processed" {
+      when   = result.processed
+      status = 200
+      body {
+        codec = "json"
+        from  = result.processed
+      }
+    }
+    response "missing" {
+      when   = result.missing
+      status = 404
+      body {
+        codec = "json"
+        from  = result.missing
+      }
+    }
+  }
+}
+
+entity "processed_event" {
+  type        = record.processed_event
+  data_source = var.database
+  mapping { relation = "processed_events" }
+  field "event_id" {
+    column      = "event_id"
+    primary_key = true
+  }
+  field "payload" { column = "payload" }
+  field "sha256" { column = "sha256" }
+}
+
+operation "process" {
+  service = service.inbox
+  input   = record.event
+  handler { method = "Process" }
+  result "processed" { type = record.processed_event }
+  idempotency {
+    mode = "keyed"
+    key  = [input.event_id]
+  }
+}
+
+execution "process" {
+  operation     = operation.process
+  mode          = "durable"
+  engine        = var.tasks
+  external_name = "webhook.process"
+  revision      = 1
+  timeout       = "30s"
+  lease         = "15s"
+  attempts      = 3
+  retry {
+    strategy = "exponential"
+    initial  = "1s"
+    factor   = 2
+    maximum  = "5s"
+  }
+  retention {
+    success = "1d"
+    failure = "1w"
+  }
+  deduplication {
+    retention = "1d"
+    conflict  = "return_existing"
+  }
+}
+
+binding "receive_http" {
+  gateway        = var.gateway
+  operation      = operation.process
+  execution      = execution.process
+  protocol       = "http"
+  delivery       = "enqueue"
+  authentication = std.authentication.none
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+
+  http {
+    method        = "POST"
+    path          = "/events"
+    codec_profile = std.codec.http_json_v1
+    body {
+      codec = "json"
+      to    = operation.process.input
+    }
+    response "accepted" {
+      when   = dispatch.enqueued
+      status = 202
+      body {
+        codec = "json"
+        from  = dispatch.receipt
+      }
+    }
+    response "rejected" {
+      when   = dispatch.rejected
+      status = 503
+      body {
+        codec = "problem_json"
+        from  = dispatch.problem
+      }
+    }
+  }
+}

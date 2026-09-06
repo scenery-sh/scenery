@@ -392,10 +392,22 @@ func runContractGenerate(stdout io.Writer, args []string) error {
 		return err
 	}
 	if len(positionals) > 0 {
-		return fmt.Errorf("unexpected argument %q", positionals[0])
+		return fmt.Errorf("invalid_request: unexpected argument %q", positionals[0])
 	}
 	if target != "" && target != "go" && target != "contracts" && !strings.HasPrefix(target, "typescript_client.") {
-		return fmt.Errorf("unknown generation target %q", target)
+		return fmt.Errorf("invalid_request: unknown generation target %q; use contracts or typescript_client.<name>", target)
+	}
+	if materialize && target != "contracts" && target != "go" {
+		return fmt.Errorf("invalid_request: --materialize requires --target contracts")
+	}
+	if mergeEditorWorkspace && opts.Check {
+		return fmt.Errorf("invalid_request: --merge-editor-workspace cannot be combined with --check")
+	}
+	if (target == "contracts" || target == "go") && !materialize {
+		return fmt.Errorf("invalid_request: --target %s requires --materialize; use scenery generate for the app loop, or scenery generate --target contracts --materialize to export a Go module", target)
+	}
+	if pruneMaterializedGo && (target != "" || materialize) {
+		return fmt.Errorf("invalid_request: --prune-materialized-go cannot be combined with --target or --materialize")
 	}
 	root, err := findContractRoot(opts.AppRoot)
 	if err != nil {
@@ -404,27 +416,18 @@ func runContractGenerate(stdout io.Writer, args []string) error {
 	var result generate.GenerateResult
 	var generateErr error
 	if pruneMaterializedGo {
-		if target != "" || materialize {
-			return fmt.Errorf("--prune-materialized-go cannot be combined with --target or --materialize")
-		}
 		result, generateErr = generate.PruneMaterializedGo(root, opts.Check)
 	} else if strings.HasPrefix(target, "typescript_client.") {
 		result, generateErr = generate.GenerateTypeScriptClients(root, target, opts.Check)
 	} else if target == "" {
-		if materialize {
-			return fmt.Errorf("--materialize requires --target contracts")
-		}
 		result, generateErr = generate.GenerateAll(root, opts.Check)
 	} else {
-		if !materialize {
-			return fmt.Errorf("--target %s requires --materialize", target)
-		}
 		result, generateErr = generate.GenerateGoContracts(root, opts.Check)
 	}
 	var compilation *compiler.Result
 	if generateErr == nil {
 		compilation, generateErr = compiler.Compile(root)
-		if generateErr == nil && compilation.Valid() {
+		if generateErr == nil && compilation.Valid() && !opts.Check {
 			if mergeEditorWorkspace {
 				generateErr = generate.SyncEditorWorkspaceMerge(compilation)
 			} else {
@@ -432,11 +435,16 @@ func runContractGenerate(stdout io.Writer, args []string) error {
 			}
 		}
 	}
+	coverage := generate.ClientCoverageFor(compilation, target)
+	if pruneMaterializedGo || target == "go" || target == "contracts" {
+		coverage = []generate.ClientCoverage{}
+	}
+	editor := generate.DescribeEditorWorkspace(compilation, opts.Check)
 	if opts.Output == "json" {
 		if compilation == nil {
 			compilation, _ = compiler.Compile(root)
 		}
-		envelope := newCLIEnvelope(generateErr == nil, map[string]any{"target": target, "generation": result}, nil)
+		envelope := newCLIEnvelope(generateErr == nil, map[string]any{"target": target, "generation": result, "clients": coverage, "editor_workspace": editor}, nil)
 		if compilation != nil {
 			envelope.WorkspaceRevision = compilation.WorkspaceRevision
 			if compilation.Manifest != nil {
@@ -468,6 +476,20 @@ func runContractGenerate(stdout io.Writer, args []string) error {
 		return generateErr
 	}
 	if opts.Output == "human" && !opts.Quiet {
+		for _, client := range coverage {
+			_, _ = fmt.Fprintf(stdout, "scenery: %s: %d HTTP bindings\n", client.Target, client.Bindings)
+			if client.Message != "" {
+				_, _ = fmt.Fprintln(stdout, "scenery: warning: "+client.Message)
+			}
+		}
+		if editor.Status == "skipped" {
+			_, _ = fmt.Fprintf(stdout, "scenery: editor workspace skipped (%s)\n", editor.Reason)
+			if editor.Reason == "scenery_repository_fixture" {
+				_, _ = fmt.Fprintln(stdout, "scenery: copy this fixture outside the Scenery checkout for raw Go commands and editor contracts")
+			}
+		} else if editor.WorkFile != "" {
+			_, _ = fmt.Fprintf(stdout, "scenery: editor workspace %s: %s\n", editor.Status, editor.WorkFile)
+		}
 		if len(result.Changed) == 0 {
 			_, _ = fmt.Fprintln(stdout, "scenery: generated contracts are current")
 		} else {
@@ -502,7 +524,7 @@ func parseContractOptions(name string, args []string) (contractOptions, []string
 
 func validateContractOutput(output string) error {
 	if output != "human" && output != "json" {
-		return fmt.Errorf("unsupported output %q", output)
+		return fmt.Errorf("invalid_request: unsupported output %q; use human or json", output)
 	}
 	return nil
 }
@@ -681,6 +703,10 @@ func runContractSchema(stdout io.Writer, args []string) error {
 	}
 	schema, ok := contractagent.AgentSchema(positionals[0])
 	if !ok {
+		qualified := "scenery." + positionals[0]
+		if _, found := contractagent.AgentSchema(qualified); found {
+			return fmt.Errorf("invalid_request: schema %q not found; use scenery schema %s -o json", positionals[0], qualified)
+		}
 		return fmt.Errorf("schema %q not found", positionals[0])
 	}
 	if opts.Output == "json" {

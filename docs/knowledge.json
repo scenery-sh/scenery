@@ -19,6 +19,54 @@
   },
   "documents": [
     {
+      "path": "docs/schemas/scenery.provider.lock.result.schema.json",
+      "title": "Provider Lock Result Schema",
+      "owner": "scenery maintainers",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-06",
+      "review_after": "2026-10-06",
+      "summary": "CLI envelope data for explicit offline provider lock updates and read-only drift checks.",
+      "tags": ["schemas", "cli", "providers"]
+    },
+    {
+      "path": "docs/schemas/scenery.generate.result.schema.json",
+      "title": "Generation Result Schema",
+      "owner": "scenery maintainers",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-06",
+      "review_after": "2026-10-06",
+      "summary": "CLI envelope data for generation changes, selected client binding coverage and explicit editor workspace status.",
+      "tags": ["schemas", "cli", "generation"]
+    },
+    {
+      "path": "docs/plans/0162-cli-onboarding-friction.md",
+      "title": "CLI Onboarding Friction",
+      "owner": "scenery maintainers",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-06",
+      "review_after": "2026-10-06",
+      "summary": "Completed actionable CLI errors/help, explicit offline builtin provider locking, content-scoped integrity, generation coverage/editor reports and native onboarding proof.",
+      "tags": ["plans", "execplans", "cli", "providers", "generation", "onboarding"]
+    },
+    {
+      "path": "examples/webhook-inbox/README.md",
+      "title": "Independent Webhook Inbox Example",
+      "owner": "scenery runtime",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-06",
+      "review_after": "2026-10-06",
+      "summary": "Runnable durable admission, SQL worker, authenticated status and typed-client example with isolated native acceptance proof.",
+      "tags": ["examples", "onboarding", "durable", "auth", "typescript"]
+    },
+    {
       "path": "README.md",
       "title": "scenery Overview",
       "owner": "scenery maintainers",
@@ -27,7 +75,7 @@
       "freshness": "current",
       "last_reviewed": "2026-09-05",
       "review_after": "2026-10-05",
-      "summary": "Human-facing overview, installation, minimal app, and checkout development entry points.",
+      "summary": "Human-facing overview, source installation, minimal app, explicit offline builtin provider locking, webhook example and checkout development entry points.",
       "tags": [
         "overview",
         "install",
@@ -97,6 +145,18 @@
         "domain",
         "architecture"
       ]
+    },
+    {
+      "path": "docs/plans/0161-first-app-webhook-experiment.md",
+      "title": "First-App Webhook Experiment",
+      "owner": "scenery maintainers",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-06",
+      "review_after": "2026-10-06",
+      "summary": "Completed independent webhook experiment: measured first-app/change friction, fixed numeric TypeScript constraints and invalid-token classification, and verified native/runtime release proof.",
+      "tags": ["plans", "execplans", "runtime", "developer-experience"]
     },
     {
       "path": "docs/plans/0160-source-install-and-agent-coexistence.md",
@@ -1265,7 +1325,7 @@
       "freshness": "current",
       "last_reviewed": "2026-08-04",
       "review_after": "2026-09-03",
-      "summary": "Normative evolving current Scenery specification, including the singular .scn declaration surface, MCP bindings/servers/connections, provider-neutral assistant conversation surfaces, private supervised adapters, strict manifests and machine envelopes, typed HTTP path tails, generated clients/pages with opaque access metadata, graph provenance, authenticated transactions, and the synchronized Go implementation boundary.",
+      "summary": "Normative current specification: singular .scn source, explicit offline builtin locks and content-scoped provider identity, MCP/assistant public surfaces and private adapters, exact machine envelopes, HTTP path tails, generated clients/pages, graph provenance, authenticated transactions and Go implementation boundaries.",
       "tags": [
         "spec",
         "language",
@@ -1599,7 +1659,7 @@
       "freshness": "current",
       "last_reviewed": "2026-09-05",
       "review_after": "2026-10-05",
-      "summary": "Concise installed-skill entrypoint for current Scenery apps, with intent-based task routing, MCP/assistant public-private boundaries, graph views and provenance, schema-driven authoring, trusted transactions, runtime, deploy, storage, generated clients, page access metadata, audit identity, UI triage, scoped command help, and cached validation.",
+      "summary": "Concise installed-skill entrypoint for current Scenery apps: qualified schemas, explicit offline provider locking, client/editor reports, generated-type navigation, webhook example, task routing, assistants, graph mutations, runtime, deploy, storage and cached validation.",
       "tags": [
         "skill",
         "agents",
@@ -1620,7 +1680,7 @@
       "freshness": "current",
       "last_reviewed": "2026-09-05",
       "review_after": "2026-10-05",
-      "summary": "Agent workflow guide for current app roots and the Scenery repo, including task-scoped documentation routing, provider-neutral assistants, CLI JSON, graph provenance, runtime diagnosis, deploy, storage, generated route access, audit identity, app-local AGENTS hierarchy, public-surface checks, and self-harness validation with an absolute 100ms Go-root rule and release-only external-boundary probes.",
+      "summary": "Agent workflows for current apps and Scenery: explicit provider locking, generation/materialization and editor-status boundaries, generated-type discovery, assistants, exact CLI JSON, graph provenance, runtime diagnosis, deploy, storage and 100ms Go-root/release validation.",
       "tags": [
         "agents",
         "cli",
@@ -1695,7 +1755,7 @@
       "freshness": "current",
       "last_reviewed": "2026-09-05",
       "review_after": "2026-10-05",
-      "summary": "Current local developer and agent-facing contract for exact CLI JSON surfaces, including provider-neutral assistants, scoped help, living-doc freshness, deterministic validation, schema identities, graph provenance, runtime/deploy behavior, generated route access, audit identity, an absolute 100ms Go-root rule with an empty exception inventory, release-only external-boundary probes, generators, and code tasks.",
+      "summary": "Exact CLI grammar/JSON, qualified schemas, offline provider lock/check and content identity, generation coverage/editor reports, graph provenance, runtime/deploy behavior, auth classification, generated access/audit identity, 100ms Go roots, release probes and code tasks.",
       "tags": [
         "contract",
         "cli",
@@ -1869,7 +1929,7 @@
       "freshness": "current",
       "last_reviewed": "2026-09-05",
       "review_after": "2026-10-05",
-      "summary": "Practical recipes for building current Scenery apps, including .scn source, MCP capabilities and provider-neutral assistants, generated contracts/clients, bindings, auth and audit identity, storage, Postgres, snapshots, durable work, CRUD search, generated page access, React mounting, observability, and validation workflows.",
+      "summary": "Practical current-app recipes: independent durable webhook example, explicit builtin provider locks, complete HTTP session/module wiring, exported typed-client operations, ordinary generation, assistants, storage, Postgres, CRUD, React pages, observability and validation.",
       "tags": [
         "cookbook",
         "apps",

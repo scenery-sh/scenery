@@ -54,6 +54,12 @@ Available now:
 
 Exact CLI and artifact details live in [docs/local-contract.md](docs/local-contract.md). The evolving current specification begins at [docs/spec/SPEC.md](docs/spec/SPEC.md). Agent workflows live in [docs/agent-guide.md](docs/agent-guide.md). Architecture notes live in [ARCHITECTURE.md](ARCHITECTURE.md).
 
+For builtin providers, declare them in `app.scn`, run
+`scenery provider lock -o json`, and commit the reviewed `app.lock.scn`.
+This explicit command is offline; compilation never downloads or silently
+updates dependencies. The [webhook inbox example](examples/webhook-inbox/README.md)
+shows the full provider, durable worker, SQL, auth, and typed-client workflow.
+
 ## Requirements
 
 - Go 1.27+

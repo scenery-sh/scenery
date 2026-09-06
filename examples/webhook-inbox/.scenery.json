@@ -1,0 +1,8 @@
+{
+  "name": "webhook-inbox",
+  "id": "webhook-inbox-example",
+  "envs": {"local": {"default": true}},
+  "auth": {"enabled": true, "auto_bootstrap_database": true, "dev_bootstrap": {"enabled": true}},
+  "dev": {"services": {"inbox": {}}},
+  "database": {"apply": {"command": "go run ./cmd/schema"}}
+}

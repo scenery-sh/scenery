@@ -15,10 +15,15 @@ func newCLIFlagSet(name string) *flag.FlagSet {
 
 // parseCLIFlags keeps the CLI's existing interspersed-flag grammar while using
 // the standard library for flag values, aliases, booleans, and --flag=value.
-func parseCLIFlags(flags *flag.FlagSet, args []string) ([]string, error) {
+func parseCLIFlags(flags *flag.FlagSet, args []string) (positionals []string, err error) {
+	defer func() {
+		if err != nil {
+			err = &codedCLIError{err: err, code: 2}
+		}
+	}()
 	ensureCLIOutputFlag(flags)
 	flagArgs := make([]string, 0, len(args))
-	positionals := make([]string, 0, len(args))
+	positionals = make([]string, 0, len(args))
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		if arg == "--" {

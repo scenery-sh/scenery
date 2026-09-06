@@ -1,0 +1,6 @@
+.scenery/
+go.work
+go.work.sum
+.env
+inbox/scenerycontract/
+internal/scenerygen/

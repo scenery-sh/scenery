@@ -11,6 +11,33 @@ historical records. Do not refresh their review dates or rewrite them as current
 contract prose. Record later guidance here or in the owning current contract;
 use stale knowledge metadata to flag a known contradiction.
 
+## CLI Onboarding Friction
+
+- Status: completed
+- Owner: scenery maintainers
+- Completed: 2026-09-06
+- ExecPlan: [0162 CLI Onboarding Friction](0162-cli-onboarding-friction.md)
+
+Actionable CLI failures, truthful generation help, qualified schema suggestions,
+explicit offline builtin locking, content-scoped provider integrity, visible
+client/editor generation status and complete generated-type/auth navigation.
+Native webhook proof, 220 isolated test-root runs (maximum p95 60ms), the full
+release harness and release gate passed. This resolves the concrete onboarding
+debt recorded by the preceding experiment; it does not add a registry installer.
+
+## First-App Webhook Experiment
+
+- Status: completed
+- Owner: scenery maintainers
+- Completed: 2026-09-06
+- ExecPlan: [0161 First-App Webhook Experiment](0161-first-app-webhook-experiment.md)
+
+Independent durable webhook example with authenticated status and a typed client.
+Measured one experienced-agent authoring/change run, fixed exact numeric client
+constraints and rejected-token classification, and verified disposable native
+runtime behavior plus the repository release lanes. This is not a novice or
+comparative productivity benchmark; the plan records remaining onboarding debt.
+
 ## Source Installation and Agent Coexistence
 
 - Status: completed

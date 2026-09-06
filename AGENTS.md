@@ -52,6 +52,7 @@ Add a child `AGENTS.md` only when a directory becomes a durable boundary with it
 ### Child Agent Index
 
 - `apps/console/AGENTS.md` owns the Vite/React Astryx + StyleX dashboard and frontend validation commands.
+- `examples/webhook-inbox/AGENTS.md` owns the independent durable webhook example and its isolated native proof.
 - `internal/agent/AGENTS.md` owns local agent protocol state, machine ownership records, and their durable identity migrations.
 - `internal/compiler/AGENTS.md` owns source loading, validation, expansion, and immutable compiler results.
 - `internal/contractagent/AGENTS.md` owns compiled-graph JSON-RPC capabilities and evolution dispatch.

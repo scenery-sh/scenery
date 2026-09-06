@@ -1,0 +1,52 @@
+{
+  "compatibility_catalog": "scenery.compatibility-core",
+  "content_digest": "sha256:6a135225508864f92e2cb03053b877af9868ca322674a810ffc465dd2161a93f",
+  "contract_revision": "sha256:4154a0311d5257a1175a3851e5d5a25c548a09baf456e9f30dd86f74cbbcf886",
+  "covered_bindings": [
+    "inbox/binding/receive_http",
+    "inbox/binding/status_http"
+  ],
+  "covered_gateways": [
+    "http_gateway.public_api"
+  ],
+  "covered_operations": [
+    "inbox/operation/process",
+    "inbox/operation/status"
+  ],
+  "covered_types": [
+    "inbox/record/event",
+    "inbox/record/lookup",
+    "inbox/record/processed_event"
+  ],
+  "files": [
+    "client.ts",
+    "index.ts",
+    "metadata.ts",
+    "runtime.ts",
+    "types.ts"
+  ],
+  "generator": "scenery.generate.typescript",
+  "http_surface_revisions": {
+    "app/http_gateway/public_api": "sha256:269e1cd2aed42d19160f6187f84e0e34fd342e22281b65d6427e9f3caddfa440"
+  },
+  "javascript_target": null,
+  "kind": "scenery.typescript-client-generated",
+  "openapi_revisions": {
+    "app/http_gateway/public_api": "sha256:c6bac9e0a549cd125cf4ebc5205b2abab32d829623fea911b854e0f16c1dbcfe"
+  },
+  "package": "@example/webhook-client",
+  "producer": {
+    "version": "v0.3.7-0.20260905194337-05e73445c6a8+dirty",
+    "commit": "05e73445c6a808dfd146fc347d5367fc193452a6",
+    "built_at": "2026-09-05T19:43:37Z",
+    "toolchain": {
+      "go_version": "go1.27.0"
+    }
+  },
+  "schema_revision": "sha256:02994dd4a50ed41bdbeab0ba09020de6d9b8366353b2d44bd7022981ca17e801",
+  "spec_revision": "sha256:ca92e9336c4af2fa74594291ddac6ed1156ca89b4bad876cca06f31a4f35255f",
+  "target": "app/typescript_client/public_api",
+  "typescript_client_revision": "sha256:c4d467174cef837b4725316acf8911319bbdde55179dff24d813964af83aa24d",
+  "typescript_version": null,
+  "ui_catalog_roots": []
+}

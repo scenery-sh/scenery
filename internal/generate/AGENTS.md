@@ -61,6 +61,9 @@ hooks; CLI wires the live generate functions.
 - Generation checks return diagnostics plus an explicit implementation state:
   native verification is `valid` or `invalid`; compile-only/non-native checks
   remain `not_requested`.
+- Generation reports use the renderer's actual client selection and the editor
+  owner's skip/inspection rules. Empty selection and repository-fixture editor
+  no-ops must be visible; check-only generation never creates an editor workspace.
 
 ## Verification
 

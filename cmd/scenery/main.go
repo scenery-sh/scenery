@@ -170,6 +170,8 @@ func runWithCLITelemetry(args []string, telemetry *cliTelemetryInvocation) error
 			return generateCommand(args[1:])
 		}
 		return runContractGenerate(os.Stdout, args[1:])
+	case "provider":
+		return runProviderLock(os.Stdout, args[1:])
 	case "task":
 		return taskCommand(args[1:])
 	case "validate":

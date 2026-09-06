@@ -82,6 +82,23 @@ type GoBuildTarget struct {
 	Context   gotarget.Context
 }
 
+// GoTargetSelectionError distinguishes caller selection from toolchain failures.
+type GoTargetSelectionError struct {
+	Name, DefaultRole string
+	Available         []string
+}
+
+func (e *GoTargetSelectionError) Error() string {
+	selection := fmt.Sprintf("go target %q is unavailable", e.Name)
+	if e.Name == "" {
+		selection = fmt.Sprintf("no go target has the default role %q", e.DefaultRole)
+	}
+	if len(e.Available) == 0 {
+		return selection + "; declare a go_target in app.scn"
+	}
+	return selection + "; available targets: " + strings.Join(e.Available, ", ") + "; use --target " + e.Available[0]
+}
+
 func ResolveGoBuildTarget(result *Result, name, defaultRole string) (GoBuildTarget, error) {
 	if result == nil || result.Manifest == nil {
 		return GoBuildTarget{}, fmt.Errorf("valid contract is required")
@@ -106,7 +123,7 @@ func ResolveGoBuildTarget(result *Result, name, defaultRole string) (GoBuildTarg
 	}
 	target := targets[name]
 	if target.Address == "" {
-		return GoBuildTarget{}, fmt.Errorf("go target %q is unavailable", name)
+		return GoBuildTarget{}, &GoTargetSelectionError{Name: name, DefaultRole: defaultRole, Available: sortedResourceNames(targets)}
 	}
 	resolved, err := resolveGoVerificationTarget(result, targets, target)
 	if err != nil {

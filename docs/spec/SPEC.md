@@ -2749,7 +2749,12 @@ scenery module install, scenery module upgrade, and explicit provider or extensi
 - signed or integrity-verified declarative schemas and capability metadata;
 - declarative lowerings supported by the current compiler.
 
-Missing locked content fails with a structured diagnostic and a suggested installation command.
+Missing locked content fails with a structured diagnostic and an actionable
+recovery instruction. The implemented `scenery provider lock` command explicitly
+pins declared compiler-builtin providers offline, using the source transaction
+writer. It preserves unrelated locks and never installs external packages.
+Registry module/provider/extension installation is not currently implemented;
+external content must already have a verified lock and immutable local cache.
 
 Workspace-local packages are read directly from their declared relative paths, participate in workspace_revision, and are never fetched or substituted from a registry cache.
 
@@ -2762,6 +2767,13 @@ The compiler MUST NOT:
 - grant network, environment, clock, randomness, process, thread, or ambient filesystem access.
 
 A provider package separates its compile descriptor from runtime, deployment, and migration implementations. Compile-descriptor and declarative-lowering digests participate in contract dependency identity. Runtime and provider ABI identities participate in implementation_revision.
+
+The compile-descriptor content digest MUST bind its kind/schema identity, source,
+capabilities, configuration schema, supported instance kinds and provider ABIs.
+It MUST exclude producer metadata and the ambient global spec_revision so an
+unrelated compiler/generator change cannot invalidate an unchanged provider.
+The serialized descriptor still carries the current machine identity; excluding
+incidental identity from a content digest does not permit old protocol decoding.
 
 A future sandboxed-extension contract MAY permit deterministic, locked bytecode or WASM. It MUST expose only declared content-addressed read-only inputs, enforce CPU/instruction, memory, and output limits, and provide no ambient capabilities. It is not currently available.
 

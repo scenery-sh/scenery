@@ -14,6 +14,10 @@ current application graph.
   this package's tests so the leaf does not grow a test binary.
 - Compiler results are immutable graph snapshots; evolution, generation, and
   deployment planning consume them without redefining the graph model.
+- Provider descriptor content binds its schema and capabilities/config/ABIs,
+  not producer metadata or the ambient global spec revision. Explicit builtin
+  lock planning is offline and retains the exact validated pre-edit bytes;
+  ordinary compilation never updates dependency locks.
 - Runtime-config-selected, framework-owned endpoint projections belong in
   `Result.FrameworkResources`. Inspection and client generation consume them,
   while `Manifest.Resources` and generated runtime composition remain authored.

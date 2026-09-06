@@ -73,6 +73,22 @@ scenery build --target development --output ./bin/app
 
 The build revision comes from the complete content-addressed Go input manifest and resolved toolchain, not source globs or the ambient shell.
 
+For a new builtin provider declaration or an intentional provider update, run
+`scenery provider lock -o json`, review `app.lock.scn`, then regenerate and check.
+`scenery provider lock --check -o json` detects drift without mutation. It is an
+offline builtin-lock workflow, not a registry installer; external locks/caches
+remain explicit inputs. A provider's content digest is independent of unrelated
+spec/producer changes.
+
+Use exact catalog names (`scenery schema scenery.execution -o json`). Plain
+`generate --check` is the non-writing artifact check; `--dry-run` belongs only
+to SQLC. `generate -o json` reports selected client binding counts/warnings and
+editor workspace status. A successful client with no HTTP methods may simply
+have no exported operations selected. A repository-nested fixture deliberately
+skips editor `go.work`; copy it outside the Scenery checkout before raw Go work.
+After generation there, use `go doc <package-import>/scenerycontract` and
+`go doc <package-import>/scenerycontract.<Type>` for exact generated contracts.
+
 No-input operations use exact `std.type.unit`. CLI bindings own their help, completion, typed caller inputs, trusted runtime context, outcomes, and exit codes. Context-mapped fields must never become caller flags or arguments.
 
 For terminal HTTP path tails, use only final `{name...}` syntax and add one matching `path_tail` mapping. Path tails are part of the current HTTP codec/runtime contract and require no extra source selector. Do not substitute router wildcards, pre-encoded fragments, or filesystem cleaning.
@@ -212,7 +228,8 @@ Use `-o json` for compiler commands and command-specific current protocols. Neve
 | Rank React UI guardrail drift | `scenery inspect ui [--frontend <name>] -o human|json` |
 | Inspect build and paths | `scenery inspect build -o json`, `scenery inspect paths -o json` |
 | Inspect durable/storage capabilities | `scenery inspect durable -o json`, `scenery inspect storage -o json` |
-| Generate/check Go artifacts | `scenery generate --target contracts [--check] -o json` |
+| Generate/check declared outputs and refresh the editor workspace | `scenery generate [--check] -o json` |
+| Export Go contracts for a published module | `scenery generate --target contracts --materialize [--check] -o json` |
 | Generate/check a TypeScript target | `scenery generate --target typescript_client.<name> [--check] -o json` |
 | Run app validation | `scenery harness -o json --write` |
 | Initialize/sync an assistant | `scenery assistant init|sync|status ... -o json` |

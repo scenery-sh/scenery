@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.provider.lock.result.schema.json",
+  "title": "scenery provider lock CLI data",
+  "type": "object",
+  "required": ["path", "changed", "checked", "providers"],
+  "additionalProperties": false,
+  "properties": {
+    "path": {"const": "app.lock.scn"},
+    "changed": {"type": "boolean"},
+    "checked": {"type": "boolean"},
+    "providers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "name", "source", "integrity", "compile_descriptor_digest", "runtime_abi", "deployment_abi"],
+        "additionalProperties": false,
+        "properties": {
+          "kind": {"const": "provider"},
+          "name": {"type": "string"},
+          "source": {"type": "string"},
+          "integrity": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+          "compile_descriptor_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+          "runtime_abi": {"type": "string"},
+          "deployment_abi": {"type": "string"},
+          "migration_abi": {"type": "string"}
+        }
+      }
+    }
+  }
+}

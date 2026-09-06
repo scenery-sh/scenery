@@ -19,6 +19,9 @@ migration consequences, approvals, and revision-bound receipts.
 - Source mutations must remain confined to the app workspace. Transaction
   metadata and recovery are owned by `internal/workspacetx`; evolution writes
   that shared exact shape and never creates a parallel recovery reader.
+- Explicit builtin provider locking reuses this source transaction writer with
+  the compiler's validated lock snapshot. Preserve unrelated dependency entries;
+  do not require a valid compiled app to bootstrap its missing builtin locks.
 
 ## Verification
 

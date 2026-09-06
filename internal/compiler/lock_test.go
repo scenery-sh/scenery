@@ -35,11 +35,11 @@ func TestLockedBuiltinProviderDerivesCapabilitiesAndSchema(t *testing.T) {
 
 func TestBuiltinProviderLockDigestsAreStable(t *testing.T) {
 	want := map[string]string{
-		"registry.scenery.dev/core/durable":  "sha256:5a6061e9fc4b5a3175ceae95f80bc7f95a28cdf57552459b1863ef078acd7220",
-		"registry.scenery.dev/core/kafka":    "sha256:1f21f1f7c81fd55bd9921882881f739ebb71d0161bdb20ada24fc2ae96081521",
-		"registry.scenery.dev/core/postgres": "sha256:012388889eaf0b94d8c0bcfc2d8a89faefdc10496f9543dfcb0596653b44554f",
-		"registry.scenery.dev/core/storage":  "sha256:aaf36e8129dd770722053e69d7920dc27f92bd3dd5858fb01893ab895dabd6f9",
-		"registry.scenery.dev/core/vault":    "sha256:e15304171eecdb3d808fb7eec17f4ca6699940158dfcfcc08988328b2c98a921",
+		"registry.scenery.dev/core/durable":  "sha256:1d096d5c72c3433f0b728da8279fbb91b9a5076b0f656b695d1a9a60fbd62079",
+		"registry.scenery.dev/core/kafka":    "sha256:66d2a8e53f7740ee8bd39c12e8946922c092189312de25be34f388e8dc87562d",
+		"registry.scenery.dev/core/postgres": "sha256:42156917276bd7d0b85efb35c54c0fa898101d8ed4db1da6876cb2a34b27152f",
+		"registry.scenery.dev/core/storage":  "sha256:1772629d332b4d3276fd042f5b13ea4fd770a3b3448a7e15430f7a401a0817e6",
+		"registry.scenery.dev/core/vault":    "sha256:3b0b5bff3751155cbbe028c719a7b5477db6265c2dcaf6aa889867d7d6470ea1",
 	}
 	for source, expected := range want {
 		integrity, ok := BuiltinProviderLock(source)
@@ -56,12 +56,37 @@ func TestProviderDescriptorDigestIgnoresProducer(t *testing.T) {
 		Version: "release", Commit: "different-build", BuiltAt: "tomorrow",
 		Toolchain: machine.Toolchain{GoVersion: "different-go", ManifestRevision: "sha256:different"},
 	}
+	descriptor.SpecRevision = "sha256:unrelated-typescript-generation-change"
 	if got := providerDescriptorDigest(descriptor); got != want {
-		t.Fatalf("producer changed digest from %s to %s", want, got)
+		t.Fatalf("incidental identity changed digest from %s to %s", want, got)
 	}
 	descriptor.RuntimeABI += ".changed"
 	if got := providerDescriptorDigest(descriptor); got == want {
 		t.Fatalf("semantic descriptor change left digest at %s", got)
+	}
+}
+
+func TestProviderDescriptorDigestBindsSemanticContent(t *testing.T) {
+	for name, mutate := range map[string]func(*ProviderDescriptor){
+		"schema":       func(d *ProviderDescriptor) { d.SchemaRevision = "sha256:changed-schema" },
+		"source":       func(d *ProviderDescriptor) { d.Source += "/changed" },
+		"capabilities": func(d *ProviderDescriptor) { d.Capabilities = append(d.Capabilities, "new.capability/v1") },
+		"config":       func(d *ProviderDescriptor) { d.ConfigSchema["new_field"] = map[string]any{"type": "string"} },
+		"instances": func(d *ProviderDescriptor) {
+			d.InstanceKinds["new_kind"] = ProviderInstanceDescriptor{Lifecycles: []string{"managed"}}
+		},
+		"runtime":    func(d *ProviderDescriptor) { d.RuntimeABI += ".changed" },
+		"deployment": func(d *ProviderDescriptor) { d.DeploymentABI += ".changed" },
+		"migration":  func(d *ProviderDescriptor) { d.MigrationABI += ".changed" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			descriptor := builtinProviderDescriptors()["registry.scenery.dev/core/postgres"]
+			before := providerDescriptorDigest(descriptor)
+			mutate(&descriptor)
+			if after := providerDescriptorDigest(descriptor); before == after {
+				t.Fatal("semantic change did not change content identity")
+			}
+		})
 	}
 }
 

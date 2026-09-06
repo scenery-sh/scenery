@@ -523,10 +523,47 @@ scenery build [--app-root <path>] [--target <go-target>] [--output <path>] [-o h
 scenery build --lib <name|address|artifact> [--version <vN.N.N>] [--platform all|host|darwin/arm64|linux/amd64|<csv>] [--app-root <path>] [--output <directory>] [-o human|json]
 scenery build --desktop [--env <name>] [--app-root <path>] [-o human|json]
 scenery check [--app-root <path>] [-o json]
-scenery generate [--app-root <path>] [--dry-run] [-o json]
+scenery generate [--target typescript_client.<name>] [--check] [--merge-editor-workspace] [--app-root <path>] [-o human|json]
+scenery generate --target contracts --materialize [--check] [--app-root <path>] [-o human|json]
+scenery generate --prune-materialized-go [--check] [--app-root <path>] [-o human|json]
 scenery generate sqlc [--app-root <path>] [--dry-run] [-o json]
+scenery provider lock [--check] [--app-root <path>] [-o human|json]
 scenery test [--app-root <path>] [go test flags/packages...]
 ```
+
+Plain `generate` has no `--dry-run`; use `--check` to detect drift without
+writing generated artifacts or an editor workspace. `--merge-editor-workspace`
+cannot be combined with `--check`. Contract export requires `--materialize`.
+Invalid flags and target selections return exit 2 / `SCN8001`, with an actionable
+message. `build` without a target selects the `artifact` role; if none exists it
+lists declared targets and suggests an explicit `--target`.
+
+Generation's `scenery.cli` envelope retains `data.target` and `data.generation`
+and adds `data.clients` (selected target address, HTTP `bindings` count and an
+optional warning `message`) and `data.editor_workspace` (`status`, optional
+`reason` and `work_file`). Empty HTTP/assistant selection is successful but
+warns about package exports and gateway/include selectors. Editor status is
+`managed`, `skipped`, `not_requested`, or `conflict`; skip reasons include
+`scenery_repository_fixture`, `invalid_contract`, `invalid_root` and
+`no_go_contracts`. A check-only missing workspace reports `check_only`;
+ownership conflicts carry the inspection message. Repository-nested app fixtures
+must be copied outside the Scenery checkout for raw Go/editor workflows.
+
+`provider lock` is an explicit, offline source transaction. It reads root
+provider declarations and creates or refreshes their bundled provider entries
+in `app.lock.scn`; compilation never invokes it. It preserves unrelated module,
+extension and external-provider entries, refuses malformed/symlink locks and
+unknown unpinned providers, and performs no registry downloads. JSON `data`
+contains `path`, `changed`, `checked` and the selected `providers` lock entries.
+`--check` writes nothing, reports required changes and exits 1 on drift; a
+current lock exits 0. Builtin integrity binds descriptor schema, source,
+capabilities, config, instance kinds and provider ABIs, but excludes producer
+and the unrelated global `spec_revision`. After a provider semantic change,
+explicitly relock, review the lock diff, regenerate and validate the app.
+
+Schema lookup uses exact catalog identities, for example
+`scenery schema scenery.execution -o json`. An unqualified known kind remains
+an invalid request and suggests its qualified spelling; it is not an alias.
 
 ### Assistants
 
@@ -899,6 +936,10 @@ Standard auth:
 - Auth-protected app code can use `auth.UserID()`, `auth.Data()`, or `auth.CurrentAuthData()` from `scenery.sh/auth`.
 - Audited app code uses `auth.CurrentAuditIdentity(ctx)`. Its `EffectiveUserID` is the user whose permissions and data are exercised, while `ActorUserID` is the real initiator; they are equal for normal sessions and differ during impersonation. The value also carries exact tenant, session, and impersonation IDs. `(*AuthData).AuditIdentity()` is nil-safe; missing current auth returns `unauthenticated`. Scenery does not place application entitlements, roles, business organizations, or business-user IDs in this identity or in JWT claims.
 - Access tokens are HMAC JWTs with required expiration and `tenant_id` claims.
+- Malformed, incorrectly signed, expired, or incomplete access tokens return
+  `unauthenticated`; protected contract HTTP bindings map this to their declared
+  `admission.unauthenticated` response. Missing signing-key configuration remains
+  a server error, not a rejected user credential.
 - Standard auth tenant state is framework-owned and lives in `scenery_auth.tenants`; an app-local `tenants` service or table is only an app-domain concern.
 - Refresh sessions are stored in PostgreSQL and rotate by hashing refresh tokens. Standard auth reads, issues, and clears only `scenery_refresh`; cookie naming is not configurable.
 - Google connections are per standard-auth user and live in `scenery.scenery_auth_google_connections`. The raw Google refresh token is encrypted at rest and never returned to clients. `GET /auth/google/connection` returns `{status, email, scopes, connected_at, last_refresh_at, reauth_reason}` with status `active`, `reauth_required`, or `disconnected`. App Go code calls `auth.GoogleAccessToken(ctx, scopes...)` for request-authenticated work or `auth.GoogleAccessTokenForUser(ctx, userID, scopes...)` from workers; requested scopes must be present in `auth.google_oauth.allowed_scopes`. Expired access tokens refresh under a Postgres row lock; permanent Google revocation marks the connection `reauth_required` and returns `google_reauth_required`, while missing grants return `google_scope_missing`.
@@ -1179,6 +1220,8 @@ Implemented now:
 - [scenery.deployment-plan.schema.json](schemas/scenery.deployment-plan.schema.json)
 - [scenery.deployment-receipt.schema.json](schemas/scenery.deployment-receipt.schema.json)
 - [scenery.generated.schema.json](schemas/scenery.generated.schema.json)
+- [scenery.generate.result.schema.json](schemas/scenery.generate.result.schema.json) — `generate` envelope data
+- [scenery.provider.lock.result.schema.json](schemas/scenery.provider.lock.result.schema.json) — `provider lock` envelope data
 - [scenery.library-generated.schema.json](schemas/scenery.library-generated.schema.json)
 - [scenery.library.artifact.schema.json](schemas/scenery.library.artifact.schema.json)
 - [scenery.library.build.result.schema.json](schemas/scenery.library.build.result.schema.json)

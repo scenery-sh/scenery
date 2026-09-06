@@ -19,7 +19,7 @@ Package source declares package identity, typed inputs, a service constructor, r
 ```sh
 scenery fmt --check -o json
 scenery compile --view expanded -o json
-scenery generate --target contracts -o json
+scenery generate -o json
 scenery check -o json
 go test ./...
 ```
@@ -357,6 +357,31 @@ Bindings reference explicit authentication and authorization resources or standa
 
 Standard auth is enabled in app config because it is a runtime capability. Its framework tables live in the app database's `scenery` schema. Google connections expose app-owned access tokens through `auth.GoogleAccessToken`; do not store third-party refresh tokens in product tables.
 
+For HTTP, declare the session resource in `app.scn` and pass it into the module:
+
+```hcl
+authentication "standard" {
+  provider = std.provider.standard_auth
+  scheme   = "session"
+}
+
+module "inbox" {
+  source = "./inbox"
+  inputs = { session = authentication.standard }
+}
+```
+
+Add `session` to the module's existing inputs, preserving gateway/data/execution
+inputs. In `inbox/package.scn`, declare
+`input "session" { type = resource_ref("authentication") }` and use
+`authentication = var.session` on the protected HTTP binding. Set
+`auth.enabled` in `.scenery.json` too. `std.authentication.inherit` belongs to
+internal/MCP calls, not HTTP. Public authorization means every successfully
+authenticated user is allowed; add application authorization when records are
+not shared. Invalid bearer tokens return the declared authentication failure,
+not an internal error. The complete wiring is in the
+[webhook inbox example](../examples/webhook-inbox/README.md).
+
 Register one application-owned permission checker during startup:
 
 ```go
@@ -411,6 +436,16 @@ the person must sign in again. The application must authorize and audit these
 calls; it must not query or update Scenery auth tables directly.
 
 ## Durable Work, Schedules, And Events
+
+Start from the [independent webhook inbox](../examples/webhook-inbox/README.md)
+for a complete enqueue binding, locked PostgreSQL/durable providers, generated
+constructor dependency, SQL schema application, and separate API/worker proof.
+Its `verify.sh` copies the app outside the Scenery checkout and uses disposable
+PostgreSQL. Keep the checked provider lock with the source; provider declarations
+alone are not enough for offline compilation. Run `scenery provider lock -o json`
+after declaring builtin providers, then review and commit `app.lock.scn`; no
+network download or automatic relock happens during compilation. `202` proves durable admission,
+not completion, and a missing business row can mean pending or unknown.
 
 Declare durable executions, schedules, event contracts, consumers, and emissions in package `.scn`. Use `external_name` when a durable identity must remain stable. If persisted input changes incompatibly, increment `revision` and drain or migrate active rows first.
 
@@ -750,6 +785,13 @@ scenery generate --target typescript_client.public_api --check -o json
 ```
 
 Commit the generated descriptor and source files. Regenerate after reachable type, binding, codec, gateway, auth, or outcome changes. Generated clients never infer behavior from Go symbols.
+
+Export each intended operation from its `package.scn`, for example
+`export "status" { value = operation.status }`. A target does not publish
+unexported package operations: a successful generation may contain no methods.
+Inspect its descriptor's `covered_bindings` and call a generated method against
+the running API. Omit `react` for a plain fetch client, and typecheck that client
+with the consuming project's TypeScript configuration.
 
 With `react`, the same transaction owns `react/<table>.generated.tsx`, `react/pages.generated.ts`, and `react/scenery-ui/`. The app mounts the neutral `generatedPages` array in its router. Install frontend dependencies before generation; `scenery doctor -o json` reports the declared tsconfig, `node_modules`, and managed checker readiness.
 

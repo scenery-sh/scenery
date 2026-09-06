@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -13,6 +14,7 @@ import (
 
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/build"
+	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/generate"
 	generateapi "scenery.sh/internal/generate/api"
 	"scenery.sh/internal/librarybuild"
@@ -112,6 +114,9 @@ func buildCommand(out io.Writer, args []string) error {
 		result, err = build.BuildArtifactForTarget(appRoot, cfg, targetName, "artifact")
 	}
 	if err != nil {
+		if _, ok := errors.AsType[*compiler.GoTargetSelectionError](err); ok {
+			return &codedCLIError{err: err, code: 2}
+		}
 		return err
 	}
 	if libraryName != "" {

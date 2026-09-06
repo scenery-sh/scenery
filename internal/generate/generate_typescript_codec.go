@@ -84,6 +84,11 @@ func tsFieldConstraints(field map[string]any) map[string]any {
 	constraints := map[string]any{}
 	for _, key := range []string{"minimum", "maximum", "min_length", "max_length", "pattern", "format", "min_items", "max_items", "unique_items", "sensitive", "immutable", "deprecated"} {
 		if value, exists := field[key]; exists {
+			// The graph preserves exact numbers as tagged scalars; the client
+			// descriptor uses decimal strings so bounds never pass through float64.
+			if scalar, ok := value.(map[string]any); ok && (scalar["$scalar"] == "int" || scalar["$scalar"] == "decimal") {
+				value = stringValue(value)
+			}
 			constraints[key] = value
 		}
 	}

@@ -49,16 +49,12 @@ func syncEditorWorkspace(result *compiler.Result, requestMerge bool) error {
 }
 
 func syncEditorWorkspaceWithLockRetry(result *compiler.Result, requestMerge bool, lockRetry time.Duration) error {
-	if result == nil || result.Manifest == nil || result.ContractStatus != "valid" {
+	if editorWorkspaceSkipReason(result) != "" {
 		return nil
 	}
 	root, err := filepath.Abs(result.Root)
 	if err != nil {
 		return err
-	}
-	frameworkRoot, frameworkErr := filepath.Abs(app.RepoRoot())
-	if frameworkErr == nil && root != frameworkRoot && pathWithin(frameworkRoot, root) {
-		return nil
 	}
 	modules, digest, err := renderEditorContractModules(result)
 	if err != nil {

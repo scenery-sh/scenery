@@ -65,13 +65,29 @@ Use this loop:
 ```sh
 scenery fmt --check -o json
 scenery compile --view expanded -o json
-scenery generate --target contracts -o json
+scenery generate -o json
 scenery generate --check -o json
 scenery check -o json
 go test ./...
 ```
 
+After declaring builtin providers, explicitly run `scenery provider lock -o json`
+before compilation; review and commit `app.lock.scn`. This command is offline,
+preserves unrelated locks, and never downloads external providers. Use
+`provider lock --check` for drift detection, not implicit relocking in checks.
+Use qualified schema names, such as `scenery schema scenery.execution -o json`.
+
 Never commit or hand-edit cached `scenerycontract` or `internal/scenerygen` output. Use contract materialization only to publish a module. TypeScript targets use source materialization beneath a declared managed root or cache materialization beneath `.scenery/gen/typescript/`.
+
+For a complete HTTP-to-durable-worker example with SQL, protected status, and a
+typed client, use `examples/webhook-inbox/README.md` in the Scenery source tree.
+Copy examples outside that tree for raw Go/editor workflows: repository-nested
+fixtures intentionally do not receive managed editor workspaces.
+Read `generate`'s `clients` and `editor_workspace` reports: empty selection can
+mean missing package operation exports, and a skipped editor workspace explains
+unresolved raw Go imports. After generation in an external app, use
+`go doc <package-import>/scenerycontract` to inspect exact constructor/input/
+outcome names instead of guessing fields. See the cookbook for full auth wiring.
 
 For a large direct HTTP download, declare `delivery = "stream"`, map every
 result body from a required `bytes` value, and return the typed outcome plus
@@ -192,7 +208,7 @@ loading app-owned entitlements; Scenery uses it for navigation, direct-route
 invocation, and tabs, but never as backend authorization. Reuse the returned
 `routes` catalog and `matchSceneryRoute` instead of URL-prefix maps.
 
-Choose the page macro by shape, inspect it with `scenery schema <kind> -o json`, and read the full contract only for that macro:
+Choose the page macro by shape, inspect it with `scenery schema scenery.<kind> -o json`, and read the full contract only for that macro:
 
 - `split_page` — two panes with app-owned sidebar/detail request-state slots; Scenery owns selection and layout.
 - `content_page` — one required content slot; omit the source for static content.

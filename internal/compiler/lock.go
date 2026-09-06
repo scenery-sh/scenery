@@ -19,6 +19,9 @@ import (
 
 type Lockfile struct {
 	Entries []LockEntry `json:"entries"`
+	// Keep edits bound to the exact validated bytes, not a second filesystem read.
+	source []byte
+	mode   os.FileMode
 }
 
 type LockEntry struct {
@@ -102,7 +105,9 @@ func loadLockfile(root string) (*Lockfile, []Diagnostic, error) {
 		if err := rejectPathSymlinks(root, path); err != nil {
 			return nil, nil, err
 		}
-	} else if !os.IsNotExist(lstatErr) {
+	} else if os.IsNotExist(lstatErr) {
+		return nil, nil, nil
+	} else {
 		return nil, nil, lstatErr
 	}
 	data, err := os.ReadFile(path)
@@ -120,7 +125,7 @@ func loadLockfile(root string) (*Lockfile, []Diagnostic, error) {
 		return nil, diagnostics, nil
 	}
 	body := file.Body.(*hclsyntax.Body)
-	lockfile := &Lockfile{}
+	lockfile := &Lockfile{source: data, mode: info.Mode().Perm()}
 	lockBlocks := 0
 	previousKey := ""
 	seen := map[string]bool{}
@@ -220,13 +225,17 @@ func resolveLockedProviders(root string, resources []Resource, lockfile *Lockfil
 		}
 		source := stringValue(provider.Spec["source"])
 		entry, ok := lockfile.find("provider", source)
+		suggestion := "restore the immutable provider lock and cache entry"
+		if _, builtin := builtinProviderDescriptors()[source]; builtin {
+			suggestion = "run scenery provider lock -o json to explicitly pin the builtin provider shipped by this binary"
+		}
 		if !ok {
-			diagnostics = append(diagnostics, Diagnostic{Code: "SCN3101", Severity: "error", Message: "missing locked provider " + source, Address: provider.Address, Suggestions: []string{"install the provider explicitly before offline compilation"}})
+			diagnostics = append(diagnostics, Diagnostic{Code: "SCN3101", Severity: "error", Message: "missing locked provider " + source, Address: provider.Address, Suggestions: []string{suggestion}})
 			continue
 		}
 		descriptor, digest, err := lockedProviderDescriptor(root, entry)
 		if err != nil {
-			diagnostics = append(diagnostics, Diagnostic{Code: "SCN3103", Severity: "error", Message: err.Error(), Address: provider.Address, Suggestions: []string{"restore the immutable provider cache entry"}})
+			diagnostics = append(diagnostics, Diagnostic{Code: "SCN3103", Severity: "error", Message: err.Error(), Address: provider.Address, Suggestions: []string{suggestion}})
 			continue
 		}
 		if descriptor.Source != source {
@@ -437,6 +446,9 @@ func registryContentDigest(root string) (string, error) {
 }
 
 func providerDescriptorDigest(descriptor ProviderDescriptor) string {
+	// Integrity binds this descriptor's schema, capabilities, config and ABIs,
+	// not unrelated compiler/generator revisions or the binary that emitted it.
+	descriptor.SpecRevision = ""
 	descriptor.Producer = machine.Producer{}
 	return revisionHash("scenery.provider-descriptor\x00", descriptor)
 }
@@ -447,6 +459,18 @@ func BuiltinProviderLock(source string) (integrity string, ok bool) {
 		return "", false
 	}
 	return providerDescriptorDigest(descriptor), true
+}
+
+// BuiltinProviderLockEntry is the offline lock projection of a shipped provider.
+func BuiltinProviderLockEntry(name, source string) (LockEntry, bool) {
+	descriptor, ok := builtinProviderDescriptors()[source]
+	if !ok {
+		return LockEntry{}, false
+	}
+	digest := providerDescriptorDigest(descriptor)
+	return LockEntry{Kind: "provider", Name: name, Source: source, Integrity: digest,
+		CompileDescriptorDigest: digest, RuntimeABI: descriptor.RuntimeABI,
+		DeploymentABI: descriptor.DeploymentABI, MigrationABI: descriptor.MigrationABI}, true
 }
 
 func builtinProviderDescriptors() map[string]ProviderDescriptor {
