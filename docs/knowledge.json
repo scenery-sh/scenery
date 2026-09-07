@@ -19,6 +19,18 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0163-detached-startup-diagnostics.md",
+      "title": "Detached Startup Diagnostics",
+      "owner": "scenery runtime / CLI",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-07",
+      "review_after": "2026-10-07",
+      "summary": "Completed structured detached startup diagnostics through a private current-protocol pipe, supervisor exit observation independent of sessions, failure/timeout classification, and native release proof.",
+      "tags": ["plans", "execplans", "cli", "runtime", "diagnostics", "detached"]
+    },
+    {
       "path": "docs/schemas/scenery.provider.lock.result.schema.json",
       "title": "Provider Lock Result Schema",
       "owner": "scenery maintainers",
@@ -1659,7 +1671,7 @@
       "freshness": "current",
       "last_reviewed": "2026-09-05",
       "review_after": "2026-10-05",
-      "summary": "Concise installed-skill entrypoint for current Scenery apps: qualified schemas, explicit offline provider locking, client/editor reports, generated-type navigation, webhook example, task routing, assistants, graph mutations, runtime, deploy, storage and cached validation.",
+      "summary": "Concise installed-skill entrypoint for current Scenery apps: qualified schemas, explicit offline provider locking, client/editor reports, generated-type navigation, webhook example, task routing, assistants, graph mutations, runtime, optional dotenv sources, deploy, storage and cached validation.",
       "tags": [
         "skill",
         "agents",
@@ -1680,7 +1692,7 @@
       "freshness": "current",
       "last_reviewed": "2026-09-05",
       "review_after": "2026-10-05",
-      "summary": "Agent workflows for current apps and Scenery: explicit provider locking, generation/materialization and editor-status boundaries, generated-type discovery, assistants, exact CLI JSON, graph provenance, runtime diagnosis, deploy, storage and 100ms Go-root/release validation.",
+      "summary": "Agent workflows for current apps and Scenery: explicit provider locking, generation/materialization and editor-status boundaries, generated-type discovery, assistants, exact CLI JSON, graph provenance, runtime diagnosis, optional dotenv sources, deploy, storage and 100ms Go-root/release validation.",
       "tags": [
         "agents",
         "cli",
@@ -1755,7 +1767,7 @@
       "freshness": "current",
       "last_reviewed": "2026-09-05",
       "review_after": "2026-10-05",
-      "summary": "Exact CLI grammar/JSON, qualified schemas, offline provider lock/check and content identity, generation coverage/editor reports, graph provenance, runtime/deploy behavior, auth classification, generated access/audit identity, 100ms Go roots, release probes and code tasks.",
+      "summary": "Exact CLI grammar/JSON, qualified schemas, offline provider lock/check and content identity, generation coverage/editor reports, graph provenance, runtime/deploy behavior, optional dotenv sources with required-value validation, auth classification, generated access/audit identity, 100ms Go roots, release probes and code tasks.",
       "tags": [
         "contract",
         "cli",
@@ -1858,7 +1870,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-13",
       "review_after": "2026-08-12",
-      "summary": "Human reference for scenery-owned environment variables, including fixed canonical standard-auth names and rejected legacy selectors, app-injected process identity, Postgres app database URLs and schema registry env, Google OAuth and token-cipher envs, remote durable worker variables, managed toolchain controls, local dev overrides, and tooling escape hatches.",
+      "summary": "Human reference for scenery-owned environment variables, including optional dotenv layering and process precedence, fixed canonical standard-auth names and rejected legacy selectors, app-injected process identity, Postgres app database URLs and schema registry env, Google OAuth and token-cipher envs, remote durable worker variables, managed toolchain controls, local dev overrides, and tooling escape hatches.",
       "tags": [
         "environment",
         "env",

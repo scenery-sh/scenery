@@ -17,11 +17,7 @@ func appProcessEnv(root string, cfg app.Config, logFormat string, envName string
 	if err != nil {
 		return nil, err
 	}
-	envLoader := appEnvWithRequiredDotEnv
-	if resolved.Deployable() {
-		envLoader = appEnvWithDotEnv
-	}
-	baseEnv, err := envLoader(envpolicy.Environ(), root, resolved.DotEnvFiles()...)
+	baseEnv, err := appEnvWithDotEnv(envpolicy.Environ(), root, resolved.DotEnvFiles()...)
 	if err != nil {
 		return nil, err
 	}

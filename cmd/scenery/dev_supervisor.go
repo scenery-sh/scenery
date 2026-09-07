@@ -1224,16 +1224,9 @@ func appEnvWithDotEnv(base []string, root string, names ...string) ([]string, er
 	}
 	values, err := envfile.MergeFiles(root, names...)
 	if err != nil {
-		return nil, err
+		return nil, &codedCLIError{err: err, code: 3}
 	}
 	return envfile.AppendMissing(base, values), nil
-}
-
-func appEnvWithRequiredDotEnv(base []string, root string, names ...string) ([]string, error) {
-	if err := requireDotEnv(root); err != nil {
-		return nil, err
-	}
-	return appEnvWithDotEnv(base, root, names...)
 }
 
 func stripANSI(data []byte) []byte {
@@ -1345,25 +1338,11 @@ func isExpectedExit(err error) bool {
 }
 
 func validateLocalSecretsFiles(root string, cfg app.Config, env app.ResolvedEnv) error {
-	if !env.Deployable() {
-		if err := requireDotEnv(root); err != nil {
-			return err
-		}
-	}
-	for _, name := range env.DotEnvFiles() {
-		path := filepath.Join(root, name)
-		if _, err := os.Stat(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return err
-		}
-		if _, err := envfile.ParseFile(path); err != nil {
-			return err
-		}
+	values, err := appEnvWithDotEnv(envpolicy.Environ(), root, env.DotEnvFiles()...)
+	if err != nil {
+		return err
 	}
 	if env.Deployable() && cfg.Auth.Enabled {
-		values, err := appEnvWithDotEnv(envpolicy.Environ(), root, env.DotEnvFiles()...)
-		if err != nil {
-			return err
-		}
 		var required []string
 		if value := lookupEnvValue(values, "JWT_SECRET"); strings.TrimSpace(value) == "" {
 			required = append(required, "JWT_SECRET")
@@ -1376,23 +1355,8 @@ func validateLocalSecretsFiles(root string, cfg app.Config, env app.ResolvedEnv)
 			}
 		}
 		if len(required) > 0 {
-			return fmt.Errorf("environment %q is missing required secrets: %s", env.Name, strings.Join(required, ", "))
+			return &codedCLIError{err: fmt.Errorf("environment %q is missing required secrets: %s", env.Name, strings.Join(required, ", ")), code: 3}
 		}
-	}
-	return nil
-}
-
-func requireDotEnv(root string) error {
-	path := filepath.Join(root, ".env")
-	info, err := os.Stat(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("missing required local env file: %s\ncreate .env in the app root before starting scenery locally; process environment values may still override values from the file", path)
-	}
-	if err != nil {
-		return fmt.Errorf("check required local env file %s: %w", path, err)
-	}
-	if info.IsDir() {
-		return fmt.Errorf("required local env file is a directory: %s", path)
 	}
 	return nil
 }

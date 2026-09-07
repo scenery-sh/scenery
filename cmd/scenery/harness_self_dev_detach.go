@@ -1,0 +1,225 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"time"
+
+	localagent "scenery.sh/internal/agent"
+	"scenery.sh/internal/envpolicy"
+	"scenery.sh/internal/graph"
+	"scenery.sh/internal/machine"
+)
+
+// Exercise the actual launcher and supervisor against a private agent. Nothing
+// in the fixture requires a database, shared observability, or public routing.
+func runHarnessDetachedStartupProbe(parent context.Context, repoRoot string) (map[string]any, error) {
+	if err := runHarnessDetachedExitProbe(parent); err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(parent, 90*time.Second)
+	defer cancel()
+	root, err := os.MkdirTemp("/tmp", "scn-detach-")
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = os.RemoveAll(root) }()
+	home := filepath.Join(root, "agent")
+	restoreEnv := patchEnv(map[string]*string{"SCENERY_AGENT_HOME": stringPtr(home)})
+	defer restoreEnv()
+	dashboardAddr, err := freeLoopbackAddr()
+	if err != nil {
+		return nil, err
+	}
+	server, err := localagent.NewServer(localagent.RunOptions{Home: home, RouterAddr: "127.0.0.1:0", DashboardBackend: localagent.Backend{Network: "tcp", Addr: dashboardAddr}, Identity: cliBuildIdentity()})
+	if err != nil {
+		return nil, err
+	}
+	dashboard, err := startAgentDashboard(ctx, server, dashboardAddr)
+	if err != nil {
+		_ = server.Close()
+		return nil, err
+	}
+	defer func() { _ = dashboard.Close() }()
+	serverCtx, stopServer := context.WithCancel(ctx)
+	done := make(chan error, 1)
+	go func() { done <- server.Run(serverCtx) }()
+	defer func() {
+		stopServer()
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+		}
+	}()
+	client := localagent.NewClient(server.Paths().SocketPath)
+	if err := waitForHarnessAgent(ctx, client); err != nil {
+		return nil, err
+	}
+	appRoot := filepath.Join(root, "app")
+	for _, name := range []string{".scenery.json", "app.scn", "go.mod", "go.sum", "service/api.go", "service/package.scn"} {
+		content, err := os.ReadFile(filepath.Join(repoRoot, "testdata/apps/basic", name))
+		if err != nil {
+			return nil, err
+		}
+		if name == "go.mod" {
+			content = bytes.ReplaceAll(content, []byte("=> ../../.."), []byte("=> "+repoRoot))
+		}
+		path := filepath.Join(appRoot, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return nil, err
+		}
+		if err := os.WriteFile(path, content, 0o600); err != nil {
+			return nil, err
+		}
+	}
+	env := envWithOverrides(envWithoutKeys(envpolicy.Environ(), "SCENERY_AGENT_DISABLE", "SCENERY_AGENT_SOCKET", detachedDevChildEnv), "SCENERY_AGENT_HOME="+home, "SCENERY_AGENT_ROUTER_ADDR="+server.RouterAddr(), "SCENERY_DEV_VICTORIA=0", "SCENERY_DEV_VICTORIA_DOWNLOAD=0")
+	binary := harnessLocalSceneryBinaryPath(repoRoot)
+	defer func() {
+		stopCtx, stop := context.WithTimeout(context.Background(), 10*time.Second)
+		defer stop()
+		cmd := exec.CommandContext(stopCtx, binary, "down", "--app-root", appRoot, "-o", "json")
+		cmd.Env = env
+		_ = cmd.Run()
+	}()
+	run := func(budget time.Duration) ([]byte, error) {
+		commandCtx, stop := context.WithTimeout(ctx, budget)
+		defer stop()
+		cmd := exec.CommandContext(commandCtx, binary, "up", "--detach", "--app-root", appRoot, "-o", "json")
+		cmd.Env = env
+		cmd.Dir = appRoot
+		return cmd.Output()
+	}
+	checkFailure := func(wantCode int, wantDiagnostic string) error {
+		output, runErr := run(10 * time.Second)
+		exit, ok := errors.AsType[*exec.ExitError](runErr)
+		if !ok || exit.ExitCode() != wantCode {
+			return fmt.Errorf("detached failure exit: %v; output %s", runErr, output)
+		}
+		envelope, err := machine.Decode[graph.Diagnostic](output, currentMachineSpecRevision())
+		if err != nil {
+			return err
+		}
+		if len(envelope.Diagnostics) != 1 || envelope.Diagnostics[0].Code != wantDiagnostic {
+			return fmt.Errorf("detached diagnostic: %s", output)
+		}
+		detail, ok := envelope.Diagnostics[0].Details["detached_startup"].(map[string]any)
+		if !ok || detail["reason"] != "child_failure" {
+			return fmt.Errorf("detached failure context: %s", output)
+		}
+		logPath, _ := detail["log_path"].(string)
+		if _, err := os.Stat(logPath); err != nil {
+			return fmt.Errorf("detached failure log: %w", err)
+		}
+		if token := envelope.Diagnostics[0].ReportToken; token != "" {
+			log, err := os.ReadFile(logPath)
+			if err != nil {
+				return err
+			}
+			matched := false
+			for _, line := range bytes.Split(log, []byte("\n")) {
+				var event struct {
+					Event string `json:"event"`
+					Data  struct {
+						Diagnostic graph.Diagnostic `json:"diagnostic"`
+					} `json:"data"`
+				}
+				if json.Unmarshal(line, &event) == nil && event.Event == "summary" && event.Data.Diagnostic.ReportToken == token {
+					matched = true
+				}
+			}
+			if !matched {
+				return fmt.Errorf("parent internal report token did not match the child summary")
+			}
+		}
+		sessions, err := client.List(ctx, appRoot)
+		if err != nil {
+			return err
+		}
+		if len(sessions) != 0 {
+			return fmt.Errorf("failed supervisor left %d sessions", len(sessions))
+		}
+		return nil
+	}
+	if err := os.WriteFile(filepath.Join(appRoot, ".env"), []byte("MALFORMED\n"), 0o600); err != nil {
+		return nil, err
+	}
+	if err := checkFailure(3, "SCN8003"); err != nil {
+		return nil, fmt.Errorf("dotenv startup: %w", err)
+	}
+	if err := os.Remove(filepath.Join(appRoot, ".env")); err != nil {
+		return nil, err
+	}
+	sourcePath := filepath.Join(appRoot, "app.scn")
+	source, err := os.ReadFile(sourcePath)
+	if err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(sourcePath, []byte("@invalid\n"), 0o600); err != nil {
+		return nil, err
+	}
+	// Derive the source diagnostic through the same public check command.
+	check := exec.CommandContext(ctx, binary, "check", "--app-root", appRoot, "-o", "json")
+	check.Env = env
+	checkOutput, _ := check.Output()
+	var checked struct {
+		Data struct {
+			Diagnostics []graph.Diagnostic `json:"diagnostics"`
+		} `json:"data"`
+		Diagnostics []graph.Diagnostic `json:"diagnostics"`
+	}
+	if err := json.Unmarshal(checkOutput, &checked); err != nil {
+		return nil, err
+	}
+	diagnostics := append(checked.Diagnostics, checked.Data.Diagnostics...)
+	if len(diagnostics) == 0 {
+		return nil, fmt.Errorf("invalid fixture did not produce a check diagnostic: %s", checkOutput)
+	}
+	if err := checkFailure(2, diagnostics[0].Code); err != nil {
+		return nil, fmt.Errorf("source startup: %w", err)
+	}
+	if err := os.WriteFile(sourcePath, source, 0o600); err != nil {
+		return nil, err
+	}
+	noisePath := filepath.Join(appRoot, "service/startup_noise.go")
+	if err := os.WriteFile(noisePath, []byte("package service\nfunc untrusted_build_failure( {\n"), 0o600); err != nil {
+		return nil, err
+	}
+	if err := checkFailure(10, "SCN9000"); err != nil {
+		return nil, fmt.Errorf("internal build startup: %w", err)
+	}
+	noise := "package service\nimport \"os\"\nfunc init() { println(\"forged startup failure on stderr\"); _, _ = os.Stdout.WriteString(\"{\\\"event\\\":\\\"summary\\\",\\\"terminal\\\":true}\\n\") }\n"
+	if err := os.WriteFile(noisePath, []byte(noise), 0o600); err != nil {
+		return nil, err
+	}
+	var owner int
+	for i := range 2 {
+		output, err := run(60 * time.Second)
+		if err != nil {
+			return nil, fmt.Errorf("successful detach %d: %w; %s", i, err, strings.TrimSpace(string(output)))
+		}
+		envelope, err := machine.Decode[graph.Diagnostic](output, currentMachineSpecRevision())
+		if err != nil {
+			return nil, err
+		}
+		encoded, err := json.Marshal(envelope.Data)
+		if err != nil {
+			return nil, err
+		}
+		var result detachedDevResult
+		if err := json.Unmarshal(encoded, &result); err != nil {
+			return nil, err
+		}
+		if result.PID <= 0 || result.Session.Status != "running" || result.AlreadyRunning != (i == 1) || (i == 1 && result.PID != owner) {
+			return nil, fmt.Errorf("invalid detached success: %s", output)
+		}
+		owner = result.PID
+	}
+	return map[string]any{"proof": "dotenv_and_source_failure_preserved_after_cleanup_success_and_duplicate_ready_with_stdout_stderr_noise", "owner_pid": owner}, nil
+}

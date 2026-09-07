@@ -15,7 +15,15 @@ func buildDevMetadata(root string) (json.RawMessage, json.RawMessage, error) {
 		return nil, nil, err
 	}
 	if !result.Valid() {
-		return nil, nil, fmt.Errorf("app contract graph is invalid: %s", firstCompilerDiagnostic(result.Diagnostics))
+		for _, diagnostic := range result.Diagnostics {
+			if diagnostic.Severity == "error" {
+				return nil, nil, &cliDiagnosticError{
+					err:  fmt.Errorf("app contract graph is invalid: %s", firstCompilerDiagnostic(result.Diagnostics)),
+					code: contractInvalidExitCode(result), diagnostic: diagnostic,
+				}
+			}
+		}
+		return nil, nil, fmt.Errorf("app contract graph is invalid")
 	}
 	endpoints, err := inspectEndpoints(result)
 	if err != nil {

@@ -17,6 +17,7 @@ import (
 
 	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/app"
+	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/envpolicy"
 )
 
@@ -106,23 +107,48 @@ func runDetachedDev(args []string, opts devOptions) error {
 	cmd.Stdin = nil
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
+	startupReader, startupWriter, err := os.Pipe()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = startupReader.Close() }()
+	defer func() { _ = startupWriter.Close() }()
+	cmd.ExtraFiles = []*os.File{startupWriter}
 	configureDetachedChildProcess(cmd)
 	if err := cmd.Start(); err != nil {
 		return err
 	}
+	_ = startupWriter.Close()
 	childPID := cmd.Process.Pid
+	exited := make(chan error, 1)
+	reaped := make(chan struct{})
+	go func() {
+		exited <- cmd.Wait()
+		close(reaped)
+	}()
+	startup := make(chan error, 1)
+	go func() { startup <- readDetachedDevStartupResult(startupReader) }()
 
 	waitTimeout := detachedDevWaitTimeout(waitMode)
 	waitCtx, waitCancel := context.WithTimeout(context.Background(), waitTimeout)
 	defer waitCancel()
-	session, err := waitForDetachedDevSession(waitCtx, client, root, childPID, waitMode, detachedDevExpectedFrontendRoutes(cfg.Frontends))
-	if err != nil {
-		_ = interruptProcessTree(cmd)
-		_ = cmd.Process.Release()
-		return fmt.Errorf("detached scenery up process %d did not reach %s within %s: %w; see %s", childPID, waitMode, waitTimeout, err, logPath)
+	startupCtx, startupCancel := context.WithCancelCause(waitCtx)
+	defer startupCancel(nil)
+	go monitorDetachedDevStartup(startupCtx, startupCancel, startup, exited)
+	session, err := waitForDetachedDevSession(startupCtx, client, root, childPID, waitMode, detachedDevExpectedFrontendRoutes(cfg.Frontends))
+	if err == nil {
+		select {
+		case <-reaped:
+			<-startupCtx.Done()
+		default:
+		}
 	}
-	if err := cmd.Process.Release(); err != nil {
-		return err
+	if cause := context.Cause(startupCtx); cause != nil && !errors.Is(cause, context.DeadlineExceeded) {
+		err = cause
+	}
+	if err != nil {
+		stopDetachedDevChild(cmd, reaped)
+		return detachedDevWaitFailure(err, childPID, waitMode, waitTimeout, logPath)
 	}
 	return writeDetachedDevResult(os.Stdout, opts.JSON, detachedDevResult{
 		cliPayloadIdentity: newCLIPayloadIdentity("scenery.dev.detach"),
@@ -167,7 +193,8 @@ func reportDetachedDevAlreadyRunning(client *localagent.Client, root string, cfg
 	defer waitCancel()
 	session, err := waitForDetachedDevSession(waitCtx, client, root, ownerPID, waitMode, detachedDevExpectedFrontendRoutes(cfg.Frontends))
 	if err != nil {
-		return fmt.Errorf("scenery up is already running for app root %s under owner PID %d, but the live runtime did not reach %s within %s: %w; stop it with `scenery down --app-root %q`", root, ownerPID, waitMode, waitTimeout, err, root)
+		return fmt.Errorf("scenery up is already running for app root %s; %w; stop it with `scenery down --app-root %q`", root,
+			detachedDevWaitFailure(err, ownerPID, waitMode, waitTimeout, ""), root)
 	}
 	return writeDetachedDevResult(os.Stdout, opts.JSON, detachedDevResult{
 		cliPayloadIdentity: newCLIPayloadIdentity("scenery.dev.detach"),
@@ -281,6 +308,10 @@ func waitForDetachedDevSessionWithLister(ctx context.Context, list detachedDevSe
 		select {
 		case <-ctx.Done():
 			timeoutErr := fmt.Errorf("last state: %s", lastState)
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				diagnostic := compiler.TransportDiagnostic("failed_precondition", fmt.Sprintf("The detached supervisor did not reach %s before the readiness deadline; last state: %s.", waitMode, lastState))
+				return lastSession, &cliDiagnosticError{err: errors.Join(ctx.Err(), timeoutErr, lastErr), code: 3, diagnostic: diagnostic, startupReason: "timeout"}
+			}
 			if lastErr != nil {
 				return lastSession, errors.Join(ctx.Err(), timeoutErr, lastErr)
 			}

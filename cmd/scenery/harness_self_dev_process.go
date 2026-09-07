@@ -36,7 +36,7 @@ func runHarnessDevManagedProcessProbeStepWithCheck(ctx context.Context, repoRoot
 	return step
 }
 
-func runHarnessDevManagedProcessProbeCheck(parent context.Context, _ string) (map[string]any, []checkDiagnostic, error) {
+func runHarnessDevManagedProcessProbeCheck(parent context.Context, repoRoot string) (map[string]any, []checkDiagnostic, error) {
 	ctx, cancel := context.WithTimeout(parent, 5*time.Second)
 	defer cancel()
 	outputSeen := make(chan struct{}, 1)
@@ -78,9 +78,14 @@ func runHarnessDevManagedProcessProbeCheck(parent context.Context, _ string) (ma
 	if err := process.Stop(250 * time.Millisecond); err != nil {
 		return nil, nil, err
 	}
+	detached, err := runHarnessDetachedStartupProbe(parent, repoRoot)
+	if err != nil {
+		return nil, nil, err
+	}
 	return map[string]any{
-		"proof":       "real_managed_child_timeout_reported_last_probe_and_output_tail_then_reaped",
-		"process_pid": process.PID,
-		"diagnostic":  diagnostic,
+		"detached_startup": detached,
+		"proof":            "real_managed_child_timeout_reported_last_probe_and_output_tail_then_reaped",
+		"process_pid":      process.PID,
+		"diagnostic":       diagnostic,
 	}, nil, nil
 }

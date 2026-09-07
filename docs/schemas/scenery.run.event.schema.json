@@ -15,7 +15,7 @@
       "const": "scenery.run.event"
     },
     "schema_revision": {
-      "const": "sha256:acd3c69b8de91403ea35c71807d38e492bfb4a1cf23242be9a4475b10c178c6a"
+      "const": "sha256:783d6c49d9a0f2b57acebc0d1c11f9e155a7b2d9a3c70bc171f4a7d48e6d8138"
     },
     "type": {
       "type": "string"
@@ -37,7 +37,15 @@
       "additionalProperties": false
     },
     "data": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "diagnostic": {
+          "$ref": "scenery.cli.schema.json#/$defs/diagnostic"
+        },
+        "exit_code": {
+          "enum": [1, 2, 3, 4, 5, 10]
+        }
+      }
     }
   },
   "additionalProperties": false

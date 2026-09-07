@@ -165,7 +165,11 @@ Use `scenery up` for the live loop, `--detach` for a background runtime, and `--
 
 `scenery up` is idempotent per app root. Foreground reruns attach to its logs, Ctrl+C detaches without stopping it, and detached reruns report `already_running: true`. Use a worktree for a second live code copy.
 
+Detached startup failures preserve the supervisor's structured diagnostic and exit code, including internal report tokens. Inspect `diagnostic.details.detached_startup` for the failure reason, owner PID, wait mode, and log path. Child failure, exit without a result, invalid startup protocol, and readiness timeout are distinct; raw child stdout/stderr is never the startup-result authority.
+
 The selected environment owns domains, exposure, ports, frontend serving, and deployment. Discover URLs with `scenery ps -o json`; never guess hidden ports or substrate paths. Diagnose with bounded logs, traces, and metrics before widening the search.
+
+Dotenv files are optional for every environment, including local `scenery up` and `scenery worker`. Missing files contribute no values; process environment takes precedence over available dotenv layers. Do not create empty `.env` placeholders. Unreadable or malformed files, missing required values, and invalid resolved values still fail validation.
 
 Deploy through a configured environment or its singular SSH target. SSH uses passwordless OpenSSH and rsync, preserves remote `.env*` and `.scenery`, waits for readiness, and provides no backend rollback. Verify with `scenery deploy status -o json`.
 

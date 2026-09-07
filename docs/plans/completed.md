@@ -11,6 +11,18 @@ historical records. Do not refresh their review dates or rewrite them as current
 contract prose. Record later guidance here or in the owning current contract;
 use stale knowledge metadata to flag a known contradiction.
 
+## Detached Startup Diagnostics
+
+- Status: completed
+- Owner: scenery runtime / CLI
+- Completed: 2026-09-07
+- ExecPlan: [0163 Detached Startup Diagnostics](0163-detached-startup-diagnostics.md)
+
+Detached startup now preserves structured failures and report tokens after
+session cleanup, observes supervisor exit, and distinguishes failure from real
+timeout without parsing logs. Native startup, process-boundary, 120 isolated
+test-root runs, release self-harness and the release gate passed.
+
 ## CLI Onboarding Friction
 
 - Status: completed

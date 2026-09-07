@@ -4,7 +4,7 @@ This page is the human reference for scenery-owned environment variables. The ma
 
 Prefer `.scenery.json` for stable app configuration. Use environment variables for local overrides, secrets, process identity, or explicit escape hatches. New production env names must be added to the registry with rationale, docs, and tests; otherwise self-harness fails.
 
-The selected `.scenery.json` environment loads `.env`, `.env.<env>`, `.env.local`, then `.env.<env>.local`; later files win, while the parent process wins over every file. The reserved `local` environment uses only `.env` then `.env.local` (never `.env.local.local`). Non-deployable environments require `.env`; deployable environments may rely entirely on host process environment. Ignore every `.env*` file and commit only an optional `.env.example` containing names, never values.
+The selected `.scenery.json` environment loads `.env`, `.env.<env>`, `.env.local`, then `.env.<env>.local`; later files win, while the parent process wins over every file. The reserved `local` environment uses only `.env` then `.env.local` (never `.env.local.local`). All dotenv files are optional in every environment: a missing file contributes no values, and process-only configuration needs no placeholder file. Existing files must be readable and valid dotenv; directories, read errors, and malformed content fail. Required-value and resolved-value validation still applies. Scenery does not create dotenv files automatically. Ignore every `.env*` file and commit only an optional `.env.example` containing names, never values.
 
 ## Agent And Dev Routing
 
@@ -57,7 +57,7 @@ These are injected by scenery into generated app processes. App code may read th
 | `SCENERY_CORS_ALLOW_ORIGINS` | user input | Comma-separated production CORS allowlist outside dev endpoint mode. |
 | `SCENERY_DEV_REPORT_URL` | injected | Dev dashboard report endpoint. |
 | `SCENERY_DEV_REPORT_TOKEN` | injected | Token used by the app child to report logs/traces to the dev dashboard. |
-| `SCENERY_DEV_DETACHED_CHILD` | internal | Marks the background child used by `scenery up --detach`. |
+| `SCENERY_DEV_DETACHED_CHILD` | internal | Marks the background supervisor used by `scenery up --detach`; it receives a private startup-result pipe on inherited descriptor 3, closed before executing application children. Not a user-settable mode. |
 | `SCENERY_PUBLIC_BASE_URL` | injected | Public API base URL advertised to app code. |
 
 The two `SCENERY_LIBRARY_<NAME>_*` values are a generated-facade transport

@@ -39,7 +39,7 @@ Available now:
 - generated typed service constructors
 - middleware
 - private/internal endpoint calls
-- secrets from environment and local `.env`
+- secrets from environment and optional local `.env` files
 - local logs, traces, and metrics inspection
 - native local observability
 - durable execution and schedule runtime support

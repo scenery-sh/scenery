@@ -112,13 +112,18 @@ func (c *runConsole) RebuildDetected(paths []string) {
 
 func (c *runConsole) InitialBuildFailed(err error, urls runURLs) {
 	if c.json && err != nil {
+		diagnostic := cliErrorDiagnostic(err)
 		c.Event("build.error", map[string]any{
-			"stage": "initial",
-			"error": err.Error(),
+			"stage":      "initial",
+			"error":      err.Error(),
+			"diagnostic": diagnostic,
+			"exit_code":  cliExitCode(err),
 		})
 		data := runURLData(urls, c.verbose)
 		data["stage"] = "initial"
 		data["error"] = err.Error()
+		data["diagnostic"] = diagnostic
+		data["exit_code"] = cliExitCode(err)
 		c.Event("run.failed", data)
 		return
 	}
@@ -408,6 +413,8 @@ func (c *runConsole) Finish(err error) {
 	data := map[string]any{"event_count": c.eventCount, "ok": err == nil}
 	if err != nil {
 		data["error"] = err.Error()
+		data["diagnostic"] = cliErrorDiagnostic(err)
+		data["exit_code"] = cliExitCode(err)
 	}
 	_ = c.events.write("summary", true, data)
 }

@@ -265,14 +265,25 @@ func (b devBackend) normalized() devBackend {
 }
 
 func runWithWatch(listen devListenRequest, verbose, jsonMode, desktop bool, appRoot, envName string, onReady func()) (runErr error) {
+	startup, err := openDetachedDevStartupReporter()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		runErr = startup.Report(runErr)
+		_ = startup.Close()
+	}()
 	applyWatchTimingOverridesFromEnv()
 	readyReported := false
 	reportReady := func() {
-		if readyReported || onReady == nil {
+		if readyReported {
 			return
 		}
 		readyReported = true
-		onReady()
+		_ = startup.Close()
+		if onReady != nil {
+			onReady()
+		}
 	}
 
 	start, err := resolveAppRoot(appRoot)
@@ -324,6 +335,7 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode, desktop bool, appR
 
 	console := newRunConsole(os.Stdout, os.Stderr, verbose, jsonMode, cfg.AppID(), root)
 	defer func() {
+		runErr = preserveCLIDiagnostic(runErr)
 		console.Finish(runErr)
 		if jsonMode && runErr != nil {
 			runErr = &silentCLIError{err: runErr, code: cliExitCode(runErr)}
@@ -389,6 +401,8 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode, desktop bool, appR
 	}
 
 	if err := supervisor.RebuildAndRestart(ctx, true, snapshot); err != nil {
+		err = preserveCLIDiagnostic(err)
+		err = startup.Report(err)
 		supervisor.console.InitialBuildFailed(err, supervisor.runURLs())
 		// Detached children fail fast so the waiting parent reports the build
 		// error instead of hanging until its readiness timeout. Interactive

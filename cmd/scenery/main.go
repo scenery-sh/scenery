@@ -15,7 +15,6 @@ import (
 	"time"
 
 	appcfg "scenery.sh/internal/app"
-	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/graph"
 	"scenery.sh/internal/machine"
 	"scenery.sh/internal/spec"
@@ -57,19 +56,7 @@ func renderMachineError(stdout io.Writer, args []string, err error) error {
 		return err
 	}
 	code := cliExitCode(err)
-	kind, _, _ := strings.Cut(err.Error(), ":")
-	if code == 2 {
-		kind = "invalid_request"
-	} else if code == 3 && kind != "revision_conflict" {
-		kind = "failed_precondition"
-	} else if code == 4 {
-		kind = "capability_unavailable"
-	} else if code == 5 {
-		kind = "permission_denied"
-	} else if code == 10 {
-		kind = "internal"
-	}
-	diagnostic := compiler.TransportDiagnostic(kind, err.Error())
+	diagnostic := cliErrorDiagnostic(err)
 	if output == "jsonl" {
 		writer := newCLIEventWriter(stdout)
 		if encodeErr := writer.write("summary", true, map[string]any{"event_count": 0, "ok": false, "diagnostic": diagnostic}); encodeErr != nil {
@@ -341,6 +328,8 @@ func (e *silentCLIError) Error() string {
 	}
 	return e.err.Error()
 }
+
+func (e *silentCLIError) Unwrap() error { return e.err }
 
 var (
 	runWithWatchFunc   = runWithWatch
