@@ -88,8 +88,13 @@ func TestRenderAssistantAssetRegistryGeneratedPackageTypeChecksInProcess(t *test
 	result := nativeApplicationGenerationFixture(root)
 	node := testAssetArchive(t, "node")
 	capsule := testAssetArchive(t, "capsule")
-	descriptor := testAssistantAssetDescriptor("assistant/support", "darwin/arm64", node, capsule)
-	files, err := RenderAssistantAssetRegistry(result, []AssistantAssetInput{testAssistantAssetInput(t, descriptor, node, capsule)})
+	otherCapsule := testAssetArchive(t, "other-capsule")
+	inputs := []AssistantAssetInput{
+		testAssistantAssetInput(t, testAssistantAssetDescriptor("assistant/support", "darwin/arm64", node, capsule), node, capsule),
+		testAssistantAssetInput(t, testAssistantAssetDescriptor("assistant/sales", "darwin/arm64", node, capsule), node, capsule),
+		testAssistantAssetInput(t, testAssistantAssetDescriptor("assistant/jobs", "darwin/arm64", node, otherCapsule), node, otherCapsule),
+	}
+	files, err := RenderAssistantAssetRegistry(result, inputs)
 	if err != nil {
 		t.Fatalf("render assets: %v", err)
 	}
