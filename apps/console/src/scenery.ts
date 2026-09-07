@@ -346,7 +346,7 @@ export type PostgresColumn = {
 
 export type PostgresRows = {
   columns: string[]
-  rows: unknown[][]
+  rows: unknown[][] | null
   limit: number
   offset: number
 }

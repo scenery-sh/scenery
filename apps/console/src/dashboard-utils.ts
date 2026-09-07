@@ -5,10 +5,35 @@ import type {
   MetadataPath,
   MiddlewareMeta,
   ProcessOutput,
+  PostgresRows,
   ServiceMeta,
   ServiceRPC,
   TraceSummary,
 } from './scenery'
+
+export interface DBRow extends Record<string, unknown> {
+  __id: string
+}
+
+export function postgresDataRows(rows: PostgresRows | null): DBRow[] {
+  return rows?.rows?.map((values, index) => {
+    const item: DBRow = { __id: String(index) }
+    rows.columns.forEach((column, columnIndex) => {
+      item[column] = cellText(values[columnIndex])
+    })
+    return item
+  }) ?? []
+}
+
+export function cellText(value: unknown): string {
+  if (value === null || value === undefined) {
+    return 'null'
+  }
+  if (typeof value === 'object') {
+    return JSON.stringify(value)
+  }
+  return String(value)
+}
 
 export type EndpointOption = {
   key: string

@@ -33,6 +33,9 @@ type managedFrontendProcess struct {
 	// never restart-supervised, and dies with the dev supervisor.
 	Static  *staticFrontendServer
 	LogFile *os.File
+
+	ownerMu sync.RWMutex
+	owner   localagent.Owner
 }
 
 type packageJSONForFrontend struct {
@@ -825,7 +828,7 @@ func waitForManagedFrontend(ctx context.Context, process *managedFrontendProcess
 	if process == nil || process.Process == nil {
 		return fmt.Errorf("managed frontend did not start")
 	}
-	return process.Process.WaitReady(ctx, devProcessReadyRequest{
+	if err := process.Process.WaitReady(ctx, devProcessReadyRequest{
 		Timeout:  managedFrontendStartupTimeout,
 		Interval: 100 * time.Millisecond,
 		Probe: func(context.Context) error {
@@ -834,7 +837,23 @@ func waitForManagedFrontend(ctx context.Context, process *managedFrontendProcess
 			}
 			return fmt.Errorf("frontend %s is not accepting TCP connections on %s", process.Name, process.Addr)
 		},
-	})
+	}); err != nil {
+		return err
+	}
+	// Capture the child after its launcher has exec'd the serving process.
+	// Keep this fingerprint immutable for later status and shutdown checks.
+	owner := localagent.CaptureOwner(process.Process.PID, "scenery up frontend-"+localagentLabel(process.Name))
+	select {
+	case <-process.Process.done:
+		return process.Process.notReadyExitError()
+	default:
+	}
+	process.ownerMu.Lock()
+	if process.owner.PID == 0 {
+		process.owner = owner
+	}
+	process.ownerMu.Unlock()
+	return nil
 }
 
 func stopManagedFrontendProcesses(processes []*managedFrontendProcess) {
@@ -856,7 +875,10 @@ func frontendSessionProcesses(processes []*managedFrontendProcess) map[string]lo
 		if name == "" {
 			continue
 		}
-		out["frontend-"+name] = localagent.Process{PID: process.Process.PID}
+		process.ownerMu.RLock()
+		owner := process.owner
+		process.ownerMu.RUnlock()
+		out["frontend-"+name] = localagent.Process{PID: process.Process.PID, Owner: owner}
 	}
 	if len(out) == 0 {
 		return nil

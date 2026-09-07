@@ -2072,6 +2072,15 @@ func (s *devSupervisor) sessionProcessesFor(session *localagent.Session, appPID 
 		return nil
 	}
 	processes := copySessionProcesses(session.Processes)
+	s.mu.RLock()
+	frontends := make([]*managedFrontendProcess, 0, len(s.frontends))
+	for _, process := range s.frontends {
+		frontends = append(frontends, process)
+	}
+	s.mu.RUnlock()
+	for key, process := range frontendSessionProcesses(frontends) {
+		processes[key] = process
+	}
 	for key := range processes {
 		if strings.HasPrefix(key, "assistant-") {
 			delete(processes, key)

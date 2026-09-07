@@ -32,6 +32,7 @@ import {
 } from './scenery'
 import {
   apiResponseBody,
+  cellText,
   endpointOptions,
   filterServices,
   formatDuration,
@@ -43,8 +44,10 @@ import {
   middlewareForService,
   parseJSONInput,
   processOutputText,
+  postgresDataRows,
   tryParseJSON,
   type EndpointOption,
+  type DBRow,
 } from './dashboard-utils'
 
 interface TraceRow extends Record<string, unknown> {
@@ -61,10 +64,6 @@ interface OutputRow extends Record<string, unknown> {
   stream: string
   pid: string
   output: string
-}
-
-interface DBRow extends Record<string, unknown> {
-  __id: string
 }
 
 const styles = stylex.create({
@@ -853,16 +852,6 @@ function parseDBParams(text: string): unknown[] {
   return Array.isArray(parsed) ? parsed : []
 }
 
-function postgresDataRows(rows: PostgresRows | null): DBRow[] {
-  return rows?.rows.map((values, index) => {
-    const item: DBRow = { __id: String(index) }
-    rows.columns.forEach((column, columnIndex) => {
-      item[column] = cellText(values[columnIndex])
-    })
-    return item
-  }) ?? []
-}
-
 function postgresDataColumns(rows: PostgresRows | null): TableColumn<DBRow>[] {
   return rows?.columns.map((column) => ({ key: column, header: column, width: proportional(1) })) ?? []
 }
@@ -881,16 +870,6 @@ function rowToRecord(row: unknown, index: number): DBRow {
     }, { __id: String(index) })
   }
   return { __id: String(index), value: cellText(row) }
-}
-
-function cellText(value: unknown): string {
-  if (value === null || value === undefined) {
-    return 'null'
-  }
-  if (typeof value === 'object') {
-    return JSON.stringify(value)
-  }
-  return String(value)
 }
 
 function traceKey(trace: TraceSummary): string {
