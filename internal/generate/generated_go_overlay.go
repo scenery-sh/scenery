@@ -51,12 +51,25 @@ func generatedGoVerificationOverlay(files []generatedFile) (map[string][]byte, e
 	return overlay, nil
 }
 
-// GoVerificationOverlay returns the expected generated Go source as an
-// overlay and masks authenticated stale generated files in the checkout.
+// GoVerificationOverlay returns current expected source, independent of local
+// freshness, and masks authenticated stale generated files in the checkout.
 func GoVerificationOverlay(result *compiler.Result) (map[string][]byte, error) {
-	files, err := renderGoContractFiles(result)
+	files, err := goVerificationFiles(result)
 	if err != nil {
 		return nil, err
 	}
 	return generatedGoVerificationOverlay(files)
+}
+
+func goVerificationFiles(result *compiler.Result) ([]generatedFile, error) {
+	files, err := renderExpectedGoContractFiles(result)
+	if err != nil {
+		return nil, err
+	}
+	// Ownership/freshness checking reports local conflicts separately. They
+	// must not prevent ABI analysis from using the current expected contracts.
+	if withRetirements, err := includeStaleGeneratedFiles(result.Root, files, goGeneratedDescriptorNames(), protectedGoGeneratedDescriptors(result)); err == nil {
+		return withRetirements, nil
+	}
+	return files, nil
 }

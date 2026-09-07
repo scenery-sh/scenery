@@ -8,8 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-
-	"scenery.sh/internal/symphony"
 )
 
 const harnessWorktreeGitProbeName = "worktree Git lifecycle probe"
@@ -149,7 +147,7 @@ func runHarnessWorktreeGitProbeCheck(ctx context.Context, repoRoot string) (map[
 	if err := os.WriteFile(filepath.Join(dirty.Path, ".scenery.json"), []byte(`{"name":"demo","id":"dirty","envs":{"local":{"default":true}}}`), 0o644); err != nil {
 		return nil, nil, err
 	}
-	if err := runWorktreeCommand(ctx, &bytes.Buffer{}, []string{"remove", "dirty-agent", "--app-root", appRoot, "--db", "-o", "json"}); err == nil {
+	if err := runWorktreeCommand(ctx, &bytes.Buffer{}, []string{"remove", "dirty-agent", "--app-root", appRoot, "-o", "json"}); err == nil {
 		return nil, nil, fmt.Errorf("real Git removal unexpectedly accepted dirty worktree")
 	}
 	restored, err := os.ReadFile(filepath.Join(dirty.Path, ".scenery", "worktree-db.json"))
@@ -159,58 +157,10 @@ func runHarnessWorktreeGitProbeCheck(ctx context.Context, repoRoot string) (map[
 	if string(restored) != databaseState {
 		return nil, nil, fmt.Errorf("database state after failed real Git removal = %q", restored)
 	}
-	symphonyCacheRoot := filepath.Join(root, "symphony-cache")
-	symphonyWorkspace := filepath.Join(symphonyCacheRoot, "workspaces", "demo", "SYM-1", "repo")
-	if _, err := prepareSymphonyWorkspace(ctx, symphonyCacheRoot, appRoot, symphonyWorkspace, symphonyWorkspace); err != nil {
-		return nil, nil, fmt.Errorf("prepare real Symphony worktree: %w", err)
-	}
-	if err := os.WriteFile(filepath.Join(symphonyWorkspace, ".scenery.json"), []byte(`{"name":"demo","id":"dirty","envs":{"local":{"default":true}}}`), 0o644); err != nil {
-		return nil, nil, err
-	}
-	symphonyUntracked := filepath.Join(symphonyWorkspace, "untracked.txt")
-	if err := os.WriteFile(symphonyUntracked, []byte("remove me\n"), 0o644); err != nil {
-		return nil, nil, err
-	}
-	reset, err := prepareSymphonyWorkspace(ctx, symphonyCacheRoot, appRoot, symphonyWorkspace, symphonyWorkspace)
-	if err != nil {
-		return nil, nil, fmt.Errorf("reset real Symphony worktree: %w", err)
-	}
-	if !reset {
-		return nil, nil, fmt.Errorf("existing real Symphony worktree did not report reset")
-	}
-	resetConfig, err := os.ReadFile(filepath.Join(symphonyWorkspace, ".scenery.json"))
-	if err != nil {
-		return nil, nil, err
-	}
-	if string(resetConfig) != appConfig {
-		return nil, nil, fmt.Errorf("reset Symphony config = %q", resetConfig)
-	}
-	if _, err := os.Stat(symphonyUntracked); !os.IsNotExist(err) {
-		return nil, nil, fmt.Errorf("untracked Symphony file survived reset: %v", err)
-	}
-	canonicalSymphonyWorkspace, err := filepath.EvalSymlinks(symphonyWorkspace)
-	if err != nil {
-		return nil, nil, err
-	}
-	if err := cleanupSymphonyRunWorkspace(ctx, symphonyCacheRoot, symphony.Run{RepoRoot: appRoot, RepoWorkspace: symphonyWorkspace}); err != nil {
-		return nil, nil, fmt.Errorf("cleanup real Symphony worktree: %w", err)
-	}
-	if _, err := os.Stat(symphonyWorkspace); !os.IsNotExist(err) {
-		return nil, nil, fmt.Errorf("cleaned Symphony worktree still exists: %v", err)
-	}
-	worktreeList, err := runHarnessGit(ctx, appRoot, "worktree", "list", "--porcelain")
-	if err != nil {
-		return nil, nil, err
-	}
-	if strings.Contains(worktreeList, canonicalSymphonyWorkspace) {
-		return nil, nil, fmt.Errorf("cleaned Symphony worktree registration survived: %s", worktreeList)
-	}
 	return map[string]any{
-		"proof":                                 "real_git_worktrees_and_symphony_workspace_created_listed_removed_and_failure_rolled_back",
+		"proof":                                 "real_git_worktrees_created_listed_removed_and_failure_rolled_back",
 		"created_worktrees":                     []string{"pricing-agent", "content-agent"},
 		"database_pins":                         0,
 		"failed_remove_database_state_restored": true,
-		"symphony_workspace_reset":              true,
-		"symphony_workspace_removed":            true,
 	}, nil, nil
 }

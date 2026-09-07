@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -46,25 +47,27 @@ func victoriaConsole(console *runConsole) victoria.Console {
 	return victoriaRunConsole{console: console}
 }
 
-func (s *devSupervisor) ensureSharedVictoriaStack(ctx context.Context, root string) (*victoria.Stack, bool, error) {
+func (s *devSupervisor) ensureVictoriaStack(ctx context.Context, root string) (*victoria.Stack, bool, error) {
 	console := (*runConsole)(nil)
 	if s != nil {
 		console = s.console
 	}
 	if s == nil || s.agent == nil {
-		return s.startVictoriaAtRoot(ctx, root, victoriaConsole(console)), false, nil
+		return nil, false, fmt.Errorf("worktree Victoria requires its live control owner")
 	}
 	return withVictoriaSubstrateLocks(root, lockManagedSubstrateRoot, func() (*victoria.Stack, bool, error) {
 		var existing *localagent.Substrate
 		if substrate, err := s.agent.GetSubstrate(ctx, localagent.SubstrateVictoria); err == nil {
-			stack, reusable := reusableVictoriaStack(substrate)
+			_, reusable := reusableVictoriaStack(substrate)
 			if reusable {
-				emitVictoriaSubstrateEvent(s.eventSink(), ctx, "running", "shared Victoria stack reused", map[string]any{
-					"owner":     "agent",
-					"endpoints": substrate.Endpoints,
-				})
-				return stack, true, nil
+				s.mu.RLock()
+				owned := s.victoria
+				s.mu.RUnlock()
+				if owned != nil && owned.FullyManaged() && maps.Equal(owned.SubstrateRequest(os.Getpid()).PIDs, substrate.PIDs) {
+					return owned, true, nil
+				}
 			}
+
 			existing = &substrate
 		} else if !localagent.IsNotFound(err) {
 			return nil, false, err
@@ -83,7 +86,7 @@ func (s *devSupervisor) ensureSharedVictoriaStack(ctx context.Context, root stri
 		}
 		if !stack.FullyManaged() {
 			discardVictoriaStack(stack)
-			return nil, false, fmt.Errorf("shared Victoria stack did not start all components")
+			return nil, false, fmt.Errorf("worktree Victoria stack did not start all components")
 		}
 		req := stack.SubstrateRequest(os.Getpid())
 		if strings.TrimSpace(req.Kind) == "" {
@@ -96,8 +99,10 @@ func (s *devSupervisor) ensureSharedVictoriaStack(ctx context.Context, root stri
 			discardVictoriaStack(stack)
 			return nil, false, err
 		}
-		stack.MarkExternal()
-		emitVictoriaSubstrateEvent(s.eventSink(), ctx, "running", "shared Victoria stack ready", map[string]any{
+		s.mu.Lock()
+		s.victoria = stack
+		s.mu.Unlock()
+		emitVictoriaSubstrateEvent(s.eventSink(), ctx, "running", "worktree Victoria stack ready", map[string]any{
 			"owner":     "agent",
 			"endpoints": req.Endpoints,
 		})
@@ -123,7 +128,7 @@ func (s *devSupervisor) startVictoriaAtRoot(ctx context.Context, root string, co
 	if s != nil && s.victoriaProcesses.start != nil {
 		return s.victoriaProcesses.start(ctx, root, console)
 	}
-	return victoria.StartAtRoot(ctx, root, console)
+	return nil
 }
 
 func (s *devSupervisor) stopVerifiedVictoriaStack(ctx context.Context, substrate localagent.Substrate) error {
@@ -181,7 +186,7 @@ func (s *devSupervisor) componentPortsAvailable() bool {
 	if s != nil && s.victoriaProcesses.portsAvailable != nil {
 		return s.victoriaProcesses.portsAvailable()
 	}
-	return victoria.ComponentPortsAvailable()
+	return false
 }
 
 func discardVictoriaStack(stack *victoria.Stack) {
@@ -224,12 +229,12 @@ func reusableVictoriaStackWith(substrate localagent.Substrate, verifyOwner func(
 }
 
 func (s *devSupervisor) startVictoriaRecoveryMonitor() {
-	paths, err := commandAgentPaths()
+	paths, err := s.controlPaths()
 	if err != nil {
 		s.reportVictoriaRecoveryFailure("", fmt.Errorf("recovery monitor unavailable: %w", err), 0)
 		return
 	}
-	s.monitorVictoriaRecovery(filepath.Join(paths.AgentDir, "victoria"), victoriaHealthCheckInterval, victoriaRecoveryBackoffMax)
+	s.victoriaRecoveryDone = s.monitorVictoriaRecovery(filepath.Join(paths.AgentDir, "victoria"), victoriaHealthCheckInterval, victoriaRecoveryBackoffMax)
 }
 
 func (s *devSupervisor) monitorVictoriaRecovery(root string, interval, maxBackoff time.Duration) <-chan struct{} {
@@ -271,7 +276,7 @@ func (s *devSupervisor) monitorVictoriaRecovery(root string, interval, maxBackof
 			recovered, monitor, err := s.tryVictoriaRecovery(
 				root,
 				func(stack *victoria.Stack) bool { return stack.Reachable() },
-				func() (*victoria.Stack, bool, error) { return s.ensureSharedVictoriaStack(s.ctx, root) },
+				func() (*victoria.Stack, bool, error) { return s.ensureVictoriaStack(s.ctx, root) },
 				func(stack *victoria.Stack) <-chan struct{} {
 					return monitorVictoriaSubstrate(root, s.agent, s.eventSink(), stack)
 				},
@@ -316,17 +321,23 @@ func (s *devSupervisor) tryVictoriaRecovery(root string, reachable victoriaStack
 		return false, nil, err
 	}
 	if stack == nil || !reachable(stack) {
-		return false, nil, errors.New("shared Victoria stack remains unavailable")
+		if !reused {
+			discardVictoriaStack(stack)
+		}
+		return false, nil, errors.New("worktree Victoria stack remains unavailable")
 	}
 	s.mu.Lock()
 	if s.ctx.Err() != nil {
 		s.mu.Unlock()
+		if !reused {
+			discardVictoriaStack(stack)
+		}
 		return false, nil, s.ctx.Err()
 	}
 	s.victoria = stack
 	s.mu.Unlock()
 	monitorDone := monitor(stack)
-	emitVictoriaSubstrateEvent(s.eventSink(), s.ctx, "running", "shared Victoria stack recovered", map[string]any{
+	emitVictoriaSubstrateEvent(s.eventSink(), s.ctx, "running", "worktree Victoria stack recovered", map[string]any{
 		"reused":    reused,
 		"endpoints": stack.SubstrateRequest(os.Getpid()).Endpoints,
 	})

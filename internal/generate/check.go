@@ -1,6 +1,10 @@
 package generate
 
-import "scenery.sh/internal/compiler"
+import (
+	"slices"
+
+	"scenery.sh/internal/compiler"
+)
 
 type CheckResult struct {
 	Diagnostics           []Diagnostic
@@ -15,6 +19,11 @@ func Check(result *compiler.Result) CheckResult {
 	check := CheckResult{ImplementationStatus: "not_requested", ImplementationChecked: checked}
 	if result == nil || !result.Valid() {
 		return check
+	}
+	if usesGoImplementation(result.Manifest.Resources) || slices.ContainsFunc(result.Manifest.Resources, func(resource Resource) bool { return resource.Kind == "scenery.go-module" }) {
+		if _, err := GenerateGoContractsFromResult(result, true); err != nil {
+			check.Diagnostics = append(check.Diagnostics, Diagnostic{Code: "SCN6204", Severity: "error", Message: err.Error(), Suggestions: []string{"Run `scenery generate --target contracts -o json` in the app root after resolving any output ownership conflicts."}})
+		}
 	}
 	refresh := typescriptRefreshSuggestions(result)
 	if files, err := renderTypeScriptClientFilesByMode(result, "", true); err != nil {

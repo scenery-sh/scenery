@@ -1,0 +1,53 @@
+workspace {
+  implementation_root "application" {
+    path             = "."
+    revision_include = ["**/*.go", "go.mod", "go.sum", "**/*.sql"]
+  }
+  managed_generated_roots = ["library/scenerycontract", "internal/scenerygen", "client/generated"]
+}
+
+application "library_desk" {}
+go_module "application" {
+  root        = "."
+  import_path = "example.com/library-desk"
+}
+go_toolchain "application" {
+  version     = "1.27.0"
+  experiments = []
+}
+go_target "development" {
+  role      = "development"
+  platform  = "host"
+  toolchain = go_toolchain.application
+  module    = go_module.application
+  packages  = ["./..."]
+  cgo       = "disabled"
+}
+http_gateway "public_api" {
+  exposure        = "internet"
+  base_path       = "/"
+  cors            = std.cors.none
+  trusted_proxies = std.trusted_proxies.none
+  forwarded       = std.forwarded_headers.reject
+}
+provider "postgres" { source = "registry.scenery.dev/core/postgres" }
+data_source "library" {
+  provider             = provider.postgres
+  lifecycle            = "external"
+  require_capabilities = ["sql.query/v1", "sql.transaction/v1"]
+  config               = { database = "library" }
+}
+module "library" {
+  source = "./library"
+  inputs = {
+    gateway  = http_gateway.public_api
+    database = data_source.library
+  }
+}
+typescript_client "public_api" {
+  gateways    = [http_gateway.public_api]
+  package     = "@example/library-client"
+  module      = "esm"
+  runtime     = "fetch"
+  output_root = "client/generated"
+}

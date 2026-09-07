@@ -56,15 +56,34 @@ When `validation_classification` contains `release-sensitive-or-runtime`, also r
 scripts/release-gate.sh
 ```
 
-The clean-checkout snapshot includes tracked working-tree content and excludes
-tracked deletions, including unstaged deletions.
-The shell gate installs CLI binaries into disposable `GOBIN` directories, never
-the shared user install. Its headless fixture probes use `scenery build
+The source-only snapshot includes tracked working-tree content and nonignored
+new source files, excluding tracked deletions and ignored generated caches.
+It proves the current authored working tree, not an unchanged committed HEAD.
+The shell gate uses `go build -o` in disposable directories and never installs
+a CLI. Its headless fixture probes use `scenery build
 --target development --output <binary> -o json` and launch that binary with `SCENERY_LISTEN_ADDR`;
 they do not start a development session. Readiness requires HTTP 200 and fails
 early if the child exits. Cleanup stops children before removing their files.
 The optional external-app check is explicitly skipped unless an app root is
 supplied through the existing gate configuration.
+
+The release-only worktree runtime acceptance probe creates real Git worktrees
+and tests managed PostgreSQL ownership, typed lending races, lifecycle and crash
+recovery, external sharing, inert restores, optional Victoria recovery, local
+versus public edge exposure, and genuinely different control-protocol binaries.
+Its pre-cutover lane additionally requires the pinned Docker-in-Docker and Go
+images; the historical binary runs only on that disposable nested daemon,
+without a host Docker socket or source bind mount. No global developer cluster
+is used. The same lane rehearses the
+[native migration runbook](runbooks/worktree-postgres-migration.md).
+
+The resource-cost lane runs three repetitions each of 1, 5 and 10 SQL-backed
+worktrees with the real default Victoria profile. It records per-root and cohort
+cold/warm serving times, native process RSS/CPU separately from Docker container
+memory/CPU, fixed-window idle/load samples, disk usage and hardware/daemon
+identity. Cold means fresh roots and cohort Go cache, not flushed host/module
+or toolchain caches. Background developer workloads are not stopped, shared
+pages can appear in multiple RSS values, and no capacity ceiling is inferred.
 
 Keep the release guard strict, but make the strictness land on Scenery-owned
 release safety: contracts, schemas, release artifacts, fixture runtimes, route
@@ -212,6 +231,18 @@ against managed Caddy on disposable loopback ports, with local TLS issuance
 and no system trust installation. It records `static_frontend.http_checks`
 and raw traversal proof. Missing Caddy fails the step explicitly. Ordinary
 edge tests retain renderer, publication, and injected-runner coverage.
+
+The generation release probe includes a source-only external Git checkout using
+the candidate CLI and an explicit matching local framework replacement. It
+records raw Go package/module resolution, tidy normalization, no-network tidy
+after prewarming, generated mtimes, Git noise, freshness and automatic build
+preparation under `.scenery/harness/ordinary-go-contracts/`. Failure retains the
+disposable fixture for diagnosis. It does not prove a published-dependency lane
+or managed-runtime resource isolation.
+
+Managed database probes create their own tmpfs container and retain the exact
+Docker-created ID for cleanup; names/ports/seeded state do not authorize deletion.
+They create no named data volume and never clean the shared server by name.
 
 `--fresh-tests` changes the Go execution/timing lane; it is independent of the
 mode selection. Runtime and UI probes retain explicit skip diagnostics when

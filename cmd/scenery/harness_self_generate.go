@@ -57,7 +57,7 @@ func runHarnessGenerationCompileProbeStepWithCheck(ctx context.Context, repoRoot
 }
 
 func runHarnessGenerationCompileProbeCheck(parent context.Context, repoRoot string) (summary map[string]any, diagnostics []checkDiagnostic, err error) {
-	ctx, cancel := context.WithTimeout(parent, 2*time.Minute)
+	ctx, cancel := context.WithTimeout(parent, 10*time.Minute)
 	defer cancel()
 	started := time.Now()
 	segments := []map[string]any{}
@@ -81,10 +81,41 @@ func runHarnessGenerationCompileProbeCheck(parent context.Context, repoRoot stri
 	if err != nil {
 		return summary, nil, err
 	}
-	defer func() { _ = os.RemoveAll(probeRoot) }()
-	restoreDevCache := devcache.SetRoot(filepath.Join(probeRoot, "editor-cache"))
+	summary["probe_root"] = probeRoot
+	defer func() {
+		summary["segments"] = segments
+		summary["duration_ms"] = time.Since(started).Milliseconds()
+		if writeErr := writeHarnessJSONFile(filepath.Join(repoRoot, ".scenery/harness/ordinary-go-contracts/generation-proof.json"), summary); writeErr != nil && err == nil {
+			err = writeErr
+		}
+		if err == nil {
+			_ = os.RemoveAll(probeRoot)
+		}
+	}()
+	restoreDevCache := devcache.SetRoot(filepath.Join(probeRoot, "build-cache"))
 	defer restoreDevCache()
-	appRoot := filepath.Join(probeRoot, "app")
+	if err := runSegment("ordinary Go in source-only external Git checkout", func() error {
+		proof, proofErr := runHarnessOrdinaryGoCheckout(ctx, repoRoot, filepath.Join(probeRoot, "ordinary-go"))
+		summary["ordinary_go"] = proof
+		return proofErr
+	}); err != nil {
+		return summary, nil, err
+	}
+	if err := runSegment("interrupted publication recovery and concurrent candidate CLIs", func() error {
+		proof, proofErr := runHarnessGenerationRecovery(ctx, repoRoot, filepath.Join(probeRoot, "recovery"))
+		summary["publication_recovery"] = proof
+		return proofErr
+	}); err != nil {
+		return summary, nil, err
+	}
+	if err := runSegment("explicit ownership-verified workfile cutover", func() error {
+		proof, proofErr := runHarnessGoWorkCutover(ctx, repoRoot, filepath.Join(probeRoot, "cutover"))
+		summary["workfile_cutover"] = proof
+		return proofErr
+	}); err != nil {
+		return summary, nil, err
+	}
+	appRoot := filepath.Join(probeRoot, "provider-private-workspace")
 	if err := runSegment("prepare provider CRUD fixture", func() error {
 		if err := copyHarnessNativeContractFixture(repoRoot, appRoot); err != nil {
 			return err
@@ -115,6 +146,21 @@ func runHarnessGenerationCompileProbeCheck(parent context.Context, repoRoot stri
 		}
 		providerCompiled = compiled
 		contractRevision = compiled.Manifest.ContractRevision
+		// This fixture is a private build workspace, not the ordinary checkout
+		// proof above. Compile the same rendered private adapters explicitly.
+		rendered, renderErr := generate.RenderGoWorkspaceFiles(compiled)
+		if renderErr != nil {
+			return renderErr
+		}
+		for relative, contents := range rendered {
+			path := filepath.Join(appRoot, relative)
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				return err
+			}
+			if err := os.WriteFile(path, contents, 0o644); err != nil {
+				return err
+			}
+		}
 		adapterPath, compileErr = findHarnessProviderCRUDAdapter(appRoot)
 		return compileErr
 	}); err != nil {
@@ -206,9 +252,10 @@ func runHarnessGenerationCompileProbeCheck(parent context.Context, repoRoot stri
 			return compileErr
 		}
 		overlayCompiled = compiled
-		generate.ApplyImplementationCheck(compiled)
-		if compiled.ImplementationStatus != "valid" {
-			return fmt.Errorf("native overlay implementation status = %q, diagnostics: %#v", compiled.ImplementationStatus, compiled.Diagnostics)
+		for _, diagnostic := range generate.VerifyImplementation(compiled) {
+			if diagnostic.Severity == "error" {
+				return fmt.Errorf("native overlay implementation verification: %#v", diagnostic)
+			}
 		}
 		for _, path := range []string{filepath.Join(overlayRoot, "house", "scenerycontract"), filepath.Join(overlayRoot, "internal", "scenerygen")} {
 			if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
@@ -219,22 +266,22 @@ func runHarnessGenerationCompileProbeCheck(parent context.Context, repoRoot stri
 	}); err != nil {
 		return summary, nil, err
 	}
-	var editorGoTestOutput string
-	if err := runSegment("sync editor workspace and compile raw Go application", func() error {
-		if err := generate.SyncEditorWorkspace(overlayCompiled); err != nil {
+	var ordinaryGoTestOutput string
+	if err := runSegment("publish ordinary Go packages and compile raw Go application", func() error {
+		if _, err := generate.GenerateGoContractsFromResult(overlayCompiled, false); err != nil {
 			return err
 		}
 		command := exec.CommandContext(ctx, "go", "test", "./...")
 		command.Dir = overlayRoot
 		command.Env = envWithOverrides(envpolicy.Environ(), "GOWORK=auto", "GOMAXPROCS=2")
 		output, runErr := command.CombinedOutput()
-		editorGoTestOutput = strings.TrimSpace(string(output))
+		ordinaryGoTestOutput = strings.TrimSpace(string(output))
 		if runErr != nil {
-			return fmt.Errorf("go test raw editor workspace: %w\n%s", runErr, output)
+			return fmt.Errorf("go test ordinary packages: %w\n%s", runErr, output)
 		}
-		for _, path := range []string{filepath.Join(overlayRoot, "house", "scenerycontract"), filepath.Join(overlayRoot, "internal", "scenerygen")} {
+		for _, path := range []string{filepath.Join(overlayRoot, "go.work"), filepath.Join(overlayRoot, "house", "scenerycontract", "go.mod"), filepath.Join(overlayRoot, "internal", "scenerygen")} {
 			if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
-				return fmt.Errorf("editor workspace materialized %s", path)
+				return fmt.Errorf("ordinary generation wrote private/module artifact %s", path)
 			}
 		}
 		return nil
@@ -242,9 +289,9 @@ func runHarnessGenerationCompileProbeCheck(parent context.Context, repoRoot stri
 		return summary, nil, err
 	}
 
-	mergeRoot := filepath.Join(probeRoot, "merged-editor-workspace")
-	var mergedEditorGoTestOutput string
-	if err := runSegment("merge user editor workspace and resolve generated contracts", func() error {
+	mergeRoot := filepath.Join(probeRoot, "user-workspace")
+	var userWorkspaceGoTestOutput string
+	if err := runSegment("preserve user workspace and resolve ordinary generated packages", func() error {
 		if err := copyHarnessNativeContractFixture(repoRoot, mergeRoot); err != nil {
 			return err
 		}
@@ -262,33 +309,33 @@ func runHarnessGenerationCompileProbeCheck(parent context.Context, repoRoot stri
 		if err := os.WriteFile(workPath, authored, 0o644); err != nil {
 			return err
 		}
-		if err := generate.SyncEditorWorkspaceMerge(compiled); err != nil {
+		if _, err := generate.GenerateGoContractsFromResult(compiled, false); err != nil {
 			return err
 		}
 		merged, err := os.ReadFile(workPath)
 		if err != nil {
 			return err
 		}
-		if !bytes.Contains(merged, authored) || !bytes.Contains(merged, []byte("// scenery:begin managed editor contracts")) {
-			return fmt.Errorf("merged editor workspace lost user or managed bytes:\n%s", merged)
+		if !bytes.Equal(merged, authored) {
+			return fmt.Errorf("generation changed the user workspace:\n%s", merged)
 		}
 		command := exec.CommandContext(ctx, "go", "test", "./...")
 		command.Dir = mergeRoot
 		command.Env = envWithOverrides(envpolicy.Environ(), "GOWORK=auto", "GOMAXPROCS=2")
 		output, runErr := command.CombinedOutput()
-		mergedEditorGoTestOutput = strings.TrimSpace(string(output))
+		userWorkspaceGoTestOutput = strings.TrimSpace(string(output))
 		if runErr != nil {
-			return fmt.Errorf("go test merged editor workspace: %w\n%s", runErr, output)
+			return fmt.Errorf("go test user workspace: %w\n%s", runErr, output)
 		}
-		changed := bytes.Replace(merged, []byte("scenery:begin"), []byte("scenery:changed"), 1)
-		if bytes.Equal(changed, merged) {
-			return fmt.Errorf("merged editor workspace has no managed marker")
-		}
+		changed := append(append([]byte(nil), merged...), []byte("// another user-owned comment\n")...)
 		if err := os.WriteFile(workPath, changed, 0o644); err != nil {
 			return err
 		}
-		if syncErr := generate.SyncEditorWorkspace(compiled); syncErr == nil || !strings.Contains(syncErr.Error(), "managed block") {
-			return fmt.Errorf("tampered merged editor workspace error = %v", syncErr)
+		if _, err := generate.GenerateGoContractsFromResult(compiled, false); err != nil {
+			return err
+		}
+		if current, err := os.ReadFile(workPath); err != nil || !bytes.Equal(current, changed) {
+			return fmt.Errorf("generation changed the edited user workspace: %v", err)
 		}
 		return nil
 	}); err != nil {
@@ -350,6 +397,20 @@ func runHarnessGenerationCompileProbeCheck(parent context.Context, repoRoot stri
 		if implementationDiagnostics := generate.VerifyImplementation(compiled); len(implementationDiagnostics) != 0 {
 			return fmt.Errorf("generated library facade implementation diagnostics: %#v", implementationDiagnostics)
 		}
+		bootstrap := exec.CommandContext(ctx, harnessLocalSceneryBinaryPath(repoRoot), "generate", "--target", "contracts", "-o", "json")
+		bootstrap.Dir = libraryRoot
+		bootstrap.Env = envWithoutKeys(envpolicy.Environ(), "GOWORK", "GOFLAGS")
+		if output, err := bootstrap.CombinedOutput(); err != nil {
+			return fmt.Errorf("publish library facade: %w\n%s", err, output)
+		}
+		for _, args := range [][]string{{"mod", "tidy"}, {"doc", "example.test/nativeapp/pkg/geometry/scenerylib_geometry"}, {"test", "./..."}} {
+			command := exec.CommandContext(ctx, "go", args...)
+			command.Dir = libraryRoot
+			command.Env = envWithOverrides(envWithoutKeys(envpolicy.Environ(), "GOFLAGS"), "GOWORK=off")
+			if output, err := command.CombinedOutput(); err != nil {
+				return fmt.Errorf("ordinary library facade Go command %v: %w\n%s", args, err, output)
+			}
+		}
 		return nil
 	}); err != nil {
 		return summary, nil, err
@@ -367,10 +428,10 @@ func runHarnessGenerationCompileProbeCheck(parent context.Context, repoRoot stri
 	summary["invalid_implementation_diagnostics"] = invalidImplementationDiagnostics
 	summary["bootstrap_changed_files"] = bootstrapChanged
 	summary["native_overlay_proof"] = "real_implementation_check_applied_without_materialized_generated_tree"
-	summary["editor_workspace_proof"] = "raw_go_test_passed_against_external_generated_contract_modules"
-	summary["editor_go_test_output"] = editorGoTestOutput
-	summary["merged_editor_workspace_proof"] = "user_go_work_preserved_and_real_go_test_resolved_generated_contracts"
-	summary["merged_editor_go_test_output"] = mergedEditorGoTestOutput
+	summary["ordinary_go_proof"] = "raw_go_test_passed_against_in_module_generated_packages"
+	summary["ordinary_go_test_output"] = ordinaryGoTestOutput
+	summary["user_workspace_proof"] = "user_go_work_preserved_and_real_go_test_resolved_generated_contracts"
+	summary["user_workspace_go_test_output"] = userWorkspaceGoTestOutput
 	summary["nested_contract_proof"] = "nested_exported_type_contract_closure_compiled"
 	summary["nested_go_test_output"] = nestedGoTestOutput
 	summary["generated_library_facade_proof"] = "generated_facade_resolved_by_real_go_toolchain"
@@ -569,6 +630,7 @@ func configureHarnessGeneratedLibraryFacadeFixture(appRoot string) error {
 	if err != nil {
 		return err
 	}
+	appSource = bytes.Replace(appSource, []byte("    \"internal/scenerygen\","), []byte("    \"internal/scenerygen\",\n    \"pkg/geometry/scenerycontract\",\n    \"pkg/geometry/scenerylib_geometry\","), 1)
 	appSource = append(appSource, []byte(`
 
 module "geometry" {

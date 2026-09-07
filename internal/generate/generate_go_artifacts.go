@@ -10,7 +10,7 @@ import (
 	"sort"
 	"strings"
 
-	"scenery.sh/internal/atomicfile"
+	"scenery.sh/internal/workspacetx"
 )
 
 func optionalJSONSuffix(value any) string {
@@ -40,126 +40,15 @@ func goName(value string) string {
 	}
 	return b.String()
 }
-func atomicWrite(path string, data []byte) error {
-	return atomicfile.Write(path, data, 0o644, atomicfile.Options{})
+func pathExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 func atomicWriteSet(root string, files []generatedFile) error {
-	type stagedFile struct {
-		path, temporary, backup string
-		remove, existed         bool
-	}
-	staged := make([]stagedFile, 0, len(files))
-	cleanup := func() {
-		for _, file := range staged {
-			if file.temporary != "" {
-				_ = os.Remove(file.temporary)
-			}
-		}
-	}
-	for _, file := range files {
-		if err := rejectGeneratedPathSymlinks(root, file.Path); err != nil {
-			cleanup()
-			return err
-		}
-		relative, err := filepath.Rel(root, file.Path)
-		if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-			cleanup()
-			return fmt.Errorf("generated artifact escapes app root: %s", file.Path)
-		}
-		info, statErr := os.Lstat(file.Path)
-		exists := statErr == nil
-		if statErr != nil && !os.IsNotExist(statErr) {
-			cleanup()
-			return statErr
-		}
-		if exists && (info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular()) {
-			cleanup()
-			return fmt.Errorf("generated artifact is not a regular file: %s", file.Path)
-		}
-		if file.Remove && !exists {
-			continue
-		}
-		entry := stagedFile{path: file.Path, remove: file.Remove, existed: exists}
-		if !file.Remove {
-			if err := os.MkdirAll(filepath.Dir(file.Path), 0o755); err != nil {
-				cleanup()
-				return err
-			}
-			temporary, err := os.CreateTemp(filepath.Dir(file.Path), ".scenery-generate-*")
-			if err != nil {
-				cleanup()
-				return err
-			}
-			entry.temporary = temporary.Name()
-			if _, err := temporary.Write(file.Bytes); err != nil {
-				_ = temporary.Close()
-				staged = append(staged, entry)
-				cleanup()
-				return err
-			}
-			if err := temporary.Sync(); err != nil {
-				_ = temporary.Close()
-				staged = append(staged, entry)
-				cleanup()
-				return err
-			}
-			if err := temporary.Close(); err != nil {
-				staged = append(staged, entry)
-				cleanup()
-				return err
-			}
-			if err := os.Chmod(entry.temporary, 0o644); err != nil {
-				staged = append(staged, entry)
-				cleanup()
-				return err
-			}
-		}
-		staged = append(staged, entry)
-	}
-	if len(staged) == 0 {
-		return nil
-	}
-	rollback := func(last int) {
-		for index := last; index >= 0; index-- {
-			file := staged[index]
-			_ = os.Remove(file.path)
-			if file.backup != "" {
-				_ = os.Rename(file.backup, file.path)
-			}
-		}
-		cleanup()
-	}
-	for index := range staged {
-		file := &staged[index]
-		if file.existed {
-			backup, err := os.CreateTemp(filepath.Dir(file.path), ".scenery-backup-*")
-			if err != nil {
-				rollback(index - 1)
-				return err
-			}
-			file.backup = backup.Name()
-			_ = backup.Close()
-			_ = os.Remove(file.backup)
-			if err := os.Rename(file.path, file.backup); err != nil {
-				rollback(index - 1)
-				return err
-			}
-		}
-		if !file.remove {
-			if err := os.Rename(file.temporary, file.path); err != nil {
-				rollback(index)
-				return err
-			}
-			file.temporary = ""
-		}
-	}
-	for _, file := range staged {
-		if file.backup != "" {
-			_ = os.Remove(file.backup)
-		}
-	}
-	return nil
+	return workspacetx.Publish(root, func() ([]workspacetx.File, error) {
+		return transactionFiles(root, files)
+	})
 }
 
 func rejectGeneratedPathSymlinks(root, target string) error {

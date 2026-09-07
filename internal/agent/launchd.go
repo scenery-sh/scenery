@@ -79,7 +79,7 @@ func AgentLaunchdPlistPath() (string, error) {
 // at every login. launchd's default PATH is only the system directories, so
 // the job pins a PATH that includes the standard Homebrew and local prefixes
 // — the agent's dashboard shells out to tools like docker (managed Postgres)
-// and codex (Symphony runner) that live there.
+// that live there.
 func AgentLaunchdPlist(exe string, paths Paths, opts StartOptions) string {
 	args := append([]string{exe}, agentProcessArgs(paths, opts)...)
 	var argLines strings.Builder

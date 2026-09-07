@@ -3,7 +3,7 @@
   "$id": "https://scenery.sh/schemas/scenery.generate.result.schema.json",
   "title": "scenery generate CLI data",
   "type": "object",
-  "required": ["target", "generation", "clients", "editor_workspace"],
+  "required": ["target", "generation", "clients"],
   "additionalProperties": false,
   "properties": {
     "target": {"type": "string"},
@@ -27,16 +27,6 @@
           "bindings": {"type": "integer", "minimum": 0},
           "message": {"type": "string"}
         }
-      }
-    },
-    "editor_workspace": {
-      "type": "object",
-      "required": ["status"],
-      "additionalProperties": false,
-      "properties": {
-        "status": {"enum": ["managed", "skipped", "not_requested", "conflict"]},
-        "reason": {"type": "string"},
-        "work_file": {"type": "string"}
       }
     }
   }

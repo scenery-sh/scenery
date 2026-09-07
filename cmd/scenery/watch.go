@@ -26,10 +26,9 @@ import (
 	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/build"
+	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/envpolicy"
-	generateapi "scenery.sh/internal/generate/api"
 	"scenery.sh/internal/localproxy"
-	"scenery.sh/internal/scn"
 	"scenery.sh/internal/watchignore"
 )
 
@@ -248,8 +247,9 @@ type fileStamp struct {
 }
 
 type fileSnapshot struct {
-	files map[string]fileStamp
-	dirs  []string
+	files     map[string]fileStamp
+	dirs      []string
+	generated map[string]bool
 }
 
 type devBackend struct {
@@ -357,7 +357,10 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode, desktop bool, appR
 			preparedSession.Cleanup()
 		}
 		var already *devSessionAlreadyRunningError
-		if errors.As(err, &already) && !detachedDevChildMode() {
+		if errors.As(err, &already) {
+			if detachedDevChildMode() {
+				return &codedCLIError{code: 3, err: already}
+			}
 			console.AlreadyRunning(already.ownerPID, already.session.Status, detachedDevRunURLs(already.session),
 				fmt.Sprintf("scenery logs --follow --app-root %q", root),
 				fmt.Sprintf("scenery down --app-root %q", root))
@@ -382,6 +385,9 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode, desktop bool, appR
 		return err
 	}
 	supervisor.devDomainURL = preparedSession.DomainURL
+	supervisor.invocationEnvironment = preparedSession.Environment
+	supervisor.worktreeControlPaths = &preparedSession.Paths
+	supervisor.worktreeRootPaths = &preparedSession.Owner.paths
 	supervisor.adoptManagedFrontends(preparedSession.FrontendProcesses)
 	defer func() { _ = supervisor.Close() }()
 	if err := supervisor.Start(ctx); err != nil {
@@ -392,7 +398,27 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode, desktop bool, appR
 	} else {
 		supervisor.addStartupReady(preparedSession.FrontendReady)
 	}
-	startAgentAvailabilityWatchdog(ctx, agentClient, preparedSession.Paths, agentWatchdogPolicy{})
+	// The control service belongs to this supervisor; never repair or replace a
+	// machine agent if it fails. Owner failure terminates this worktree only.
+	ownerFailure := make(chan error, 1)
+	defer func() {
+		select {
+		case err := <-ownerFailure:
+			runErr = errors.Join(runErr, err)
+		default:
+		}
+	}()
+	go func() {
+		select {
+		case ownerErr := <-preparedSession.Owner.failure:
+			if ownerErr == nil {
+				ownerErr = fmt.Errorf("worktree control stopped unexpectedly")
+			}
+			ownerFailure <- ownerErr
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
 	if uiCatalogDir != "" {
 		if !console.json {
 			console.printSetupDone("ui catalog dev mode: " + uiCatalogDir)
@@ -411,6 +437,9 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode, desktop bool, appR
 			return err
 		}
 	} else {
+		if err := acceptGeneratedSnapshot(root, &snapshot); err != nil {
+			return err
+		}
 		reportReady()
 	}
 
@@ -449,6 +478,9 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode, desktop bool, appR
 		if err := supervisor.RebuildAndRestart(ctx, false, snapshot); err != nil {
 			supervisor.console.RebuildFailed(err)
 		} else {
+			if err := acceptGeneratedSnapshot(root, &snapshot); err != nil {
+				return err
+			}
 			reportReady()
 		}
 	}
@@ -592,7 +624,7 @@ func devSessionOwnerGone(ctx context.Context, root string) bool {
 }
 
 func devSessionOwnerGoneWithInterval(ctx context.Context, root string, interval time.Duration) bool {
-	client, err := commandAgentClient()
+	paths, err := commandWorktreePaths(root)
 	if err != nil {
 		return false
 	}
@@ -603,6 +635,17 @@ func devSessionOwnerGoneWithInterval(ctx context.Context, root string, interval 
 		case <-ctx.Done():
 			return false
 		case <-ticker.C:
+			held, err := paths.ProbeLiveLock()
+			if err != nil {
+				continue
+			}
+			if !held {
+				return true
+			}
+			client, err := commandWorktreeClient(ctx, root)
+			if err != nil {
+				continue
+			}
 			sessions, err := client.List(ctx, root)
 			if err != nil {
 				continue
@@ -652,53 +695,6 @@ func discoverDevGitBranch(root string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(out))
-}
-
-func ensureDevAgentDashboardBackend(ctx context.Context, client *localagent.Client) error {
-	if client == nil {
-		return nil
-	}
-	health, err := client.Health(ctx)
-	if err != nil {
-		return err
-	}
-	if strings.TrimSpace(health.DashboardBackend.Addr) != "" {
-		return nil
-	}
-	if health.PID == os.Getpid() {
-		return fmt.Errorf("scenery agent did not expose dashboard backend")
-	}
-	if health.PID > 0 {
-		if err := signalAgentPID(health.PID); err != nil {
-			return fmt.Errorf("stop stale scenery agent pid %d: %w", health.PID, err)
-		}
-		if err := waitForAgentStop(ctx, client, health.PID); err != nil {
-			return err
-		}
-	}
-	paths, err := commandAgentPaths()
-	if err != nil {
-		return err
-	}
-	opts := localagent.StartOptions{RouterAddr: health.RouterAddr}
-	switch health.RouterScheme {
-	case "https":
-		opts.RouterTLS = true
-	case "http":
-		opts.RouterHTTP = true
-	}
-	logOffset := fileSize(paths.LogPath)
-	if err := localagent.StartProcess(paths, opts); err != nil {
-		return err
-	}
-	restarted, err := waitForAgentStart(ctx, client, health.PID, paths.LogPath, logOffset)
-	if err != nil {
-		return err
-	}
-	if strings.TrimSpace(restarted.DashboardBackend.Addr) == "" {
-		return fmt.Errorf("restarted scenery agent did not expose dashboard backend")
-	}
-	return nil
 }
 
 // waitForStableChange blocks until watched files settle on a new state or a
@@ -843,9 +839,18 @@ func scanWatchedFiles(root string) (fileSnapshot, error) {
 // re-hashing the whole workspace.
 func scanWatchedFilesReusing(root string, previous fileSnapshot) (fileSnapshot, error) {
 	snapshot := fileSnapshot{files: make(map[string]fileStamp, len(previous.files))}
+	generated, err := compiler.GeneratedPaths(root)
+	if err != nil {
+		return fileSnapshot{}, err
+	}
+	snapshot.generated = make(map[string]bool, len(generated))
+	for rel := range generated {
+		info, err := os.Lstat(filepath.Join(root, filepath.FromSlash(rel)))
+		snapshot.generated[rel] = err == nil && info.Mode().IsRegular()
+	}
 	var dirs []string
 	ignore := watchignore.New(root)
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			// Tolerate entries vanishing or turning unreadable mid-scan; a
 			// transient walk error must not abort the watch loop.
@@ -878,10 +883,10 @@ func scanWatchedFilesReusing(root string, previous fileSnapshot) (fileSnapshot, 
 		if d.Type()&os.ModeSymlink != 0 {
 			return nil
 		}
-		if shouldIgnoreWatchPathWithMatcher(rel, false, ignore) {
+		if generated[rel] {
 			return nil
 		}
-		if generateapi.IsManagedEditorWorkFile(root, rel) {
+		if shouldIgnoreWatchPathWithMatcher(rel, false, ignore) {
 			return nil
 		}
 		if !isWatchedFile(rel) && classifyAssistantWatchPath(root, rel) == "" {
@@ -999,50 +1004,15 @@ func shouldIgnoreWatchPathBuiltin(rel string, isDir bool) bool {
 	return false
 }
 
-func isWatchedFile(rel string) bool {
-	rel = filepath.ToSlash(rel)
-	base := filepath.Base(rel)
-	switch base {
-	case ".gitignore", "go.mod", "go.sum", "go.work", "go.work.sum":
-		return true
-	}
-	if app.IsConfigFilename(base) {
-		return true
-	}
-	if isWatchedRootDotFile(rel) {
-		return true
-	}
-	if strings.HasSuffix(rel, ".worker.ts") {
-		return true
-	}
-	if strings.HasSuffix(rel, "/db/schema.hcl") {
-		return true
-	}
-	// .scn app sources follow scn.SourceFiles discovery: every .scn file is
-	// a compiler input except the compiler-owned dependency lock, which
-	// must stay unwatched so compile-time lock rewrites cannot retrigger
-	// the loop.
-	if strings.HasSuffix(base, ".scn") && base != scn.AppLockFilename {
-		return true
-	}
-	switch filepath.Ext(rel) {
-	case ".go", ".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx", ".f", ".F", ".for", ".f90", ".m", ".mm", ".s", ".S", ".syso", ".swig", ".swigcxx":
-		return true
-	default:
+func snapshotsEqual(a, b fileSnapshot) bool {
+	if len(a.generated) != len(b.generated) {
 		return false
 	}
-}
-
-func isWatchedRootDotFile(rel string) bool {
-	switch filepath.ToSlash(rel) {
-	case ".env", ".env.local":
-		return true
-	default:
-		return app.IsConfigFilename(rel)
+	for path, present := range a.generated {
+		if other, ok := b.generated[path]; !ok || other != present {
+			return false
+		}
 	}
-}
-
-func snapshotsEqual(a, b fileSnapshot) bool {
 	if len(a.files) != len(b.files) {
 		return false
 	}
@@ -1055,10 +1025,10 @@ func snapshotsEqual(a, b fileSnapshot) bool {
 }
 
 func changedPaths(before, after fileSnapshot) []string {
-	seen := make(map[string]struct{}, len(before.files)+len(after.files))
+	seen := make(map[string]bool, len(before.files)+len(after.files))
 	paths := make([]string, 0, len(before.files)+len(after.files))
 	for path, stamp := range before.files {
-		seen[path] = struct{}{}
+		seen[path] = true
 		if other, ok := after.files[path]; !ok || other != stamp {
 			paths = append(paths, path)
 		}
@@ -1068,6 +1038,18 @@ func changedPaths(before, after fileSnapshot) []string {
 			continue
 		}
 		paths = append(paths, path)
+		seen[path] = true
+	}
+	for path, present := range before.generated {
+		if other, ok := after.generated[path]; (!ok || other != present) && !seen[path] {
+			paths = append(paths, path)
+			seen[path] = true
+		}
+	}
+	for path := range after.generated {
+		if _, existed := before.generated[path]; !existed && !seen[path] {
+			paths = append(paths, path)
+		}
 	}
 	sort.Strings(paths)
 	return paths
@@ -1233,9 +1215,6 @@ func (fw *fileChangeWatcher) handleEvent(event fsnotify.Event) {
 		return
 	}
 	if shouldIgnoreWatchPathWithMatcher(rel, false, fw.ignore) {
-		return
-	}
-	if generateapi.IsManagedEditorWorkFile(fw.root, rel) {
 		return
 	}
 	if event.Has(fsnotify.Create) {

@@ -61,6 +61,9 @@ func runHarnessEdgeProcessProbeCheck(ctx context.Context, _ string) (map[string]
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
+	if err := runHarnessEdgeWildcardIPv4Probe(ctx); err != nil {
+		return nil, nil, fmt.Errorf("public wildcard IPv4 listener: %w", err)
+	}
 	dir, err := os.MkdirTemp("", "scenery-edge-process-probe-*")
 	if err != nil {
 		return nil, nil, err
@@ -113,6 +116,7 @@ func runHarnessEdgeProcessProbeCheck(ctx context.Context, _ string) (map[string]
 		"config_validation": validation,
 		"start_stop":        startStop,
 		"static_frontend":   staticFrontend,
+		"wildcard_ipv4":     "verified_nonce_exchange",
 	}, nil, nil
 }
 

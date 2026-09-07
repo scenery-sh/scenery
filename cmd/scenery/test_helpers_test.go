@@ -460,7 +460,7 @@ func installLogsVictoriaStack(t *testing.T, events ...devdash.DevEvent) *victori
 	t.Cleanup(server.Close)
 	stack := victoria.NewStack(victoria.ExternalComponent{Name: "logs", BaseURL: server.URL})
 	prev := resolveLogsVictoriaStackFunc
-	resolveLogsVictoriaStackFunc = func(ctx context.Context, allowDefault bool) *victoria.Stack {
+	resolveLogsVictoriaStackFunc = func(ctx context.Context, appRoot string) *victoria.Stack {
 		return stack
 	}
 	t.Cleanup(func() {
@@ -557,24 +557,6 @@ func repoRootForTest(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return filepath.Clean(root)
-}
-
-// waitForTestCondition polls until condition holds. A test that asserts
-// something eventually happens should poll rather than sleep a fixed interval:
-// it finishes as soon as the condition is true, and it still tolerates a loaded
-// machine instead of encoding one machine's timing into the assertion.
-func waitForTestCondition(t *testing.T, timeout time.Duration, what string, condition func() bool) {
-	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for {
-		if condition() {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("timed out after %s waiting for %s", timeout, what)
-		}
-		time.Sleep(2 * time.Millisecond)
-	}
 }
 
 func diagnosticMessages(diagnostics []checkDiagnostic) string {

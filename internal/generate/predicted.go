@@ -5,14 +5,14 @@ import "scenery.sh/internal/compiler"
 // CheckPredictedGoContracts renders Go contracts from one compiler snapshot
 // without writing the workspace. Evolution planning injects this check.
 func CheckPredictedGoContracts(result *compiler.Result) error {
-	_, err := GenerateGoContractsFromResult(result, false)
+	_, err := RenderGoWorkspaceFiles(result)
 	return err
 }
 
 // CheckPredictedTypeScriptClients renders TypeScript clients from one compiler
 // snapshot without writing the workspace. Evolution planning injects this check.
 func CheckPredictedTypeScriptClients(result *compiler.Result) error {
-	_, err := GenerateTypeScriptClientsFromResult(result, "", false)
+	_, err := selectedTypeScriptRenderer("")(result)
 	return err
 }
 

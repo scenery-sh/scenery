@@ -46,13 +46,22 @@ type runningApp struct {
 }
 
 type devSupervisor struct {
-	ctx     context.Context
-	cancel  context.CancelFunc
-	root    string
-	cfg     app.Config
-	env     app.ResolvedEnv
-	backend devBackend
-	addr    string
+	ctx                   context.Context
+	cancel                context.CancelFunc
+	root                  string
+	cfg                   app.Config
+	env                   app.ResolvedEnv
+	backend               devBackend
+	addr                  string
+	invocationEnvironment []string
+	worktreeControlPaths  *localagent.Paths
+	worktreeRootPaths     *localagent.WorktreePaths
+	victoriaDesiredEnv    []string
+	victoriaStartupDone   chan struct{}
+	victoriaRecoveryDone  <-chan struct{}
+	victoriaSubstrateDone <-chan struct{}
+	postgresMonitorDone   <-chan struct{}
+	postgresTarget        *worktreeDatabaseTarget
 
 	store       *devdash.Store
 	storeWriter dashboardControlPlaneWriter
@@ -116,23 +125,14 @@ func newDevSupervisor(ctx context.Context, root string, cfg app.Config, env app.
 		cancel()
 		return nil, err
 	}
-	var (
-		store       *devdash.Store
-		storeWriter dashboardControlPlaneWriter
-	)
-	if agent != nil && agentSession != nil {
-		storeWriter, err = newDashboardControlPlaneClient(ctx, agent, *agentSession, token)
-		if err != nil {
-			cancel()
-			return nil, err
-		}
-	} else {
-		store, err = openDevdashStore()
-		if err != nil {
-			cancel()
-			return nil, err
-		}
-		storeWriter = localDashboardControlPlaneWriter{store: store}
+	if agent == nil || agentSession == nil {
+		cancel()
+		return nil, fmt.Errorf("development supervisor requires its acquired worktree control owner")
+	}
+	storeWriter, err := newDashboardControlPlaneClient(ctx, agent, *agentSession, token)
+	if err != nil {
+		cancel()
+		return nil, err
 	}
 	appID := cfg.AppID()
 	if console == nil {
@@ -147,7 +147,6 @@ func newDevSupervisor(ctx context.Context, root string, cfg app.Config, env app.
 		env:          env,
 		backend:      backend,
 		addr:         backend.Addr,
-		store:        store,
 		storeWriter:  storeWriter,
 		reportToken:  token,
 		console:      console,
@@ -170,17 +169,11 @@ func newDevSupervisor(ctx context.Context, root string, cfg app.Config, env app.
 	assistantTokenKeyPath, keyErr := ensureAssistantTokenKey(assistantStateRoot)
 	if keyErr != nil {
 		cancel()
-		if store != nil {
-			_ = store.Close()
-		}
 		return nil, fmt.Errorf("assistant token key: %w", keyErr)
 	}
 	assistantAppEnv, envErr := appEnvWithDotEnv(envpolicy.Environ(), root, env.DotEnvFiles()...)
 	if envErr != nil {
 		cancel()
-		if store != nil {
-			_ = store.Close()
-		}
 		return nil, fmt.Errorf("assistant provider environment: %w", envErr)
 	}
 	s.assistants = newAssistantSupervisor(supervisorCtx, assistantSupervisorConfig{
@@ -226,6 +219,12 @@ func (s *devSupervisor) Close() error {
 	s.closeOnce.Do(func() {
 		if s.cancel != nil {
 			s.cancel()
+		}
+		if s.postgresMonitorDone != nil {
+			<-s.postgresMonitorDone
+		}
+		if s.victoriaStartupDone != nil {
+			<-s.victoriaStartupDone
 		}
 		// Assistant helpers own private gateways and control clients. Stop them
 		// before tearing down the ordinary app so no helper can outlive the
@@ -282,16 +281,16 @@ func (s *devSupervisor) Close() error {
 			done := make(chan struct{})
 			go func() {
 				wg.Wait()
+				close(errCh)
 				close(done)
 			}()
 			select {
 			case <-done:
+				for err := range errCh {
+					errs = append(errs, err)
+				}
 			case <-time.After(2 * time.Second):
 				errs = append(errs, fmt.Errorf("timed out closing in-process dev services"))
-			}
-			close(errCh)
-			for err := range errCh {
-				errs = append(errs, err)
 			}
 		}
 
@@ -315,11 +314,32 @@ func (s *devSupervisor) Close() error {
 				errs = append(errs, err)
 			}
 		}
+		for _, done := range []<-chan struct{}{s.victoriaRecoveryDone, s.victoriaSubstrateDone} {
+			if done != nil {
+				<-done
+			}
+		}
 
 		if s.store != nil {
 			if err := s.store.Close(); err != nil {
 				errs = append(errs, err)
 			}
+		}
+		if s.worktreeRootPaths != nil {
+			stopCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			record, err := s.worktreeRootPaths.LoadRecord(s.cfg.AppID())
+			if err != nil {
+				errs = append(errs, err)
+			} else if record.Postgres != nil {
+				resolver, resolveErr := newWorktreePostgresResolver(stopCtx, s.root, s.cfg.AppID())
+				if resolveErr == nil {
+					resolveErr = resolver.stop(stopCtx)
+				}
+				if resolveErr != nil {
+					errs = append(errs, resolveErr)
+				}
+			}
+			cancel()
 		}
 		if session := s.currentAgentSession(); s.agent != nil && session != nil {
 			if _, _, err := s.agent.DeleteOwnedSession(context.Background(), *session, false); err != nil {
@@ -332,6 +352,9 @@ func (s *devSupervisor) Close() error {
 }
 
 func (s *devSupervisor) Start(ctx context.Context) error {
+	if err := s.configureWorktreeVictoria(); err != nil {
+		s.reportVictoriaRecoveryFailure("", err, 0)
+	}
 	s.setSessionIdentity(s.currentAgentSession())
 	s.updateAgentSession(ctx, "starting", "")
 	s.eventSink().Emit(ctx, devdash.DevSource{ID: "supervisor", Kind: "supervisor", Name: "supervisor", Status: "starting"}, "info", "dev supervisor starting", map[string]any{
@@ -355,15 +378,17 @@ func (s *devSupervisor) Start(ctx context.Context) error {
 			return err
 		}
 	}
-	ready := s.startDevServiceStartup(ctx)
+	ready := s.startDevServiceStartup(s.ctx)
 	s.mu.Lock()
 	s.startupReady = ready
 	s.mu.Unlock()
+	s.startPostgresEndpointMonitor()
 	return nil
 }
 
 func (s *devSupervisor) startDevServiceStartup(ctx context.Context) <-chan error {
 	done := make(chan error, 1)
+	s.victoriaStartupDone = make(chan struct{})
 	go func() {
 		var wg sync.WaitGroup
 		errCh := make(chan error, 2)
@@ -376,14 +401,17 @@ func (s *devSupervisor) startDevServiceStartup(ctx context.Context) <-chan error
 				errCh <- err
 			}
 		}()
-		wg.Add(1)
 		go func() {
-			defer wg.Done()
+			defer close(s.victoriaStartupDone)
 			var victoriaStack *victoria.Stack
 			_ = s.console.Phase("Starting Victoria observability stack", func() error {
 				victoriaStack = s.startVictoriaStack(ctx)
 				return nil
 			})
+			if ctx.Err() != nil {
+				discardVictoriaStack(victoriaStack)
+				return
+			}
 			s.mu.Lock()
 			s.victoria = victoriaStack
 			s.victoriaStarted = true
@@ -467,26 +495,26 @@ func joinStartupReady(left, right <-chan error) <-chan error {
 
 func (s *devSupervisor) startVictoriaStack(ctx context.Context) *victoria.Stack {
 	if s == nil || s.agent == nil {
-		return victoria.Start(s.ctx, s.root, victoriaConsole(s.console))
+		return nil
 	}
-	paths, err := commandAgentPaths()
+	paths, err := s.controlPaths()
 	if err != nil {
 		victoria.Warn(victoriaConsole(s.console), "agent Victoria state path unavailable: %v", err)
-		return victoria.Start(s.ctx, s.root, victoriaConsole(s.console))
+		return nil
 	}
-	stack, reused, err := s.ensureSharedVictoriaStack(ctx, filepath.Join(paths.AgentDir, "victoria"))
+	stack, reused, err := s.ensureVictoriaStack(ctx, filepath.Join(paths.AgentDir, "victoria"))
 	if err != nil {
-		victoria.Warn(victoriaConsole(s.console), "failed to prepare shared Victoria substrate with agent: %v", err)
+		victoria.Warn(victoriaConsole(s.console), "failed to prepare worktree Victoria substrate with agent: %v", err)
 		return stack
 	}
 	if stack == nil {
 		return nil
 	}
-	monitorVictoriaSubstrate(filepath.Join(paths.AgentDir, "victoria"), s.agent, s.eventSink(), stack)
+	s.victoriaSubstrateDone = monitorVictoriaSubstrate(filepath.Join(paths.AgentDir, "victoria"), s.agent, s.eventSink(), stack)
 	if s.console != nil && s.console.verbose {
-		s.console.Event("victoria.shared", map[string]any{
-			"owner":     "agent",
-			"mode":      "shared-agent",
+		s.console.Event("victoria.worktree", map[string]any{
+			"owner":     "worktree",
+			"mode":      "worktree-owner",
 			"reused":    reused,
 			"endpoints": stack.SubstrateRequest(os.Getpid()).Endpoints,
 		})
@@ -628,7 +656,7 @@ func (s *devSupervisor) startApp(ctx context.Context, result *build.Result, meta
 	} else if sessionBinary != "" {
 		binary = sessionBinary
 	}
-	baseEnv, err := appEnvWithDotEnv(envpolicy.Environ(), s.root, s.env.DotEnvFiles()...)
+	baseEnv, err := appEnvWithDotEnv(s.processEnvironment(), s.root, s.env.DotEnvFiles()...)
 	if err != nil {
 		return nil, err
 	}
@@ -648,7 +676,7 @@ func (s *devSupervisor) startApp(ctx context.Context, result *build.Result, meta
 		"SCENERY_DEV_REPORT_URL="+s.devReportURL(),
 		"SCENERY_DEV_REPORT_TOKEN="+s.reportToken,
 	)
-	env = append(env, s.victoria.Env()...)
+	env = append(env, s.observabilityEnvironment()...)
 	env = append(env, s.sessionIdentityEnv()...)
 	managedEnv, err := s.managedAppEnv(ctx, baseEnv)
 	if err != nil {
@@ -848,7 +876,7 @@ func buildDevDatabaseSetup(root string, cfg app.Config) (devDatabaseSetup, bool,
 }
 
 func (s *devSupervisor) runDevDatabaseSetup(ctx context.Context, setup devDatabaseSetup) error {
-	baseEnv, err := appEnvWithDotEnv(envpolicy.Environ(), s.root, s.env.DotEnvFiles()...)
+	baseEnv, err := appEnvWithDotEnv(s.processEnvironment(), s.root, s.env.DotEnvFiles()...)
 	if err != nil {
 		return err
 	}
@@ -933,12 +961,20 @@ func managedDatabaseSetupEnv(cfg app.Config, managedEnv []string) []string {
 }
 
 func (s *devSupervisor) managedAppEnv(ctx context.Context, baseEnv []string) ([]string, error) {
-	env, database, err := managedDatabaseEnvWithAgent(ctx, s.root, s.cfg, s.currentAgentSession(), s.agent, baseEnv)
+	env, database, err := managedDatabaseEnv(ctx, s.root, s.cfg, baseEnv)
 	if err != nil {
 		return nil, err
 	}
+	s.rememberWorktreeDatabase(database, s.cfg.AppID())
 	emitPostgresReadyEvents(ctx, s.eventSink(), database)
 	return env, nil
+}
+
+func (s *devSupervisor) processEnvironment() []string {
+	if s.invocationEnvironment != nil {
+		return s.invocationEnvironment
+	}
+	return envpolicy.Environ()
 }
 
 func (s *devSupervisor) appDatabaseAuthorityEnv(baseEnv []string) []string {

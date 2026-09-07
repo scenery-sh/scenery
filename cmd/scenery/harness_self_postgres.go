@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -12,10 +12,8 @@ import (
 	"time"
 
 	appdb "scenery.sh/db"
-	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/app"
 	durablestore "scenery.sh/internal/durable/store"
-	"scenery.sh/internal/machine"
 	"scenery.sh/internal/postgresdb"
 )
 
@@ -80,50 +78,29 @@ func runHarnessPostgresProbeCheck(parent context.Context, repoRoot string, full 
 	segments := &postgresProbeSegments{}
 	label := harnessRandomLabel()
 	agentHome := filepath.Join(os.TempDir(), "scenery-harness-postgres-"+label)
-	defer func() { _ = os.RemoveAll(agentHome) }()
-	serverState, err := seedHarnessPostgresServerState(agentHome, label)
-	if err != nil {
-		return nil, nil, err
-	}
-	defer func() {
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		cleanupStarted := time.Now()
-		cleanupErr := cleanupPostgresHarnessContainer(cleanupCtx, serverState.Container, serverState.Volume)
-		if summary != nil {
-			summary["cleanup_ms"] = time.Since(cleanupStarted).Milliseconds()
-		}
-		if cleanupErr != nil {
-			diagnostics = append(diagnostics, checkDiagnostic{
-				Stage:           "postgres service probe",
-				Severity:        "warning",
-				Message:         "Disposable postgres harness container cleanup failed: " + cleanupErr.Error(),
-				SuggestedAction: "Remove `" + serverState.Container + "` and `" + serverState.Volume + "`, then rerun `scenery harness self -o json --write`.",
-			})
-			if summary != nil {
-				summary["cleanup"] = "warning"
-				summary["diagnostics"] = len(diagnostics)
-			}
-			return
-		}
-		if summary != nil {
-			summary["cleanup"] = "removed_disposable_container"
-		}
-	}()
-	// The probe proves managed database behavior, not the local control
-	// plane; disabling the agent avoids starting a throwaway agent process
-	// inside the isolated agent home on every harness run.
 	restoreEnv := patchEnv(map[string]*string{
-		"SCENERY_AGENT_HOME":    stringPtr(agentHome),
-		"SCENERY_AGENT_DISABLE": stringPtr("1"),
-		"SCENERY_APP_ROOT":      nil,
-		"DATABASE_URL":          nil,
-		"REPORTS_DATABASE_URL":  nil,
-		"CACHE_DATABASE_URL":    nil,
+		"SCENERY_AGENT_HOME":   stringPtr(agentHome),
+		"SCENERY_APP_ROOT":     nil,
+		"DATABASE_URL":         nil,
+		"REPORTS_DATABASE_URL": nil,
+		"CACHE_DATABASE_URL":   nil,
 	})
 	defer restoreEnv()
 	rootA := filepath.Join(agentHome, "worktree-a")
 	rootB := filepath.Join(agentHome, "worktree-b")
+	defer func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 45*time.Second)
+		defer cleanupCancel()
+		cleanupErr := errors.Join(cleanupHarnessWorktreePostgres(cleanupCtx, rootA, "postgres-harness"), cleanupHarnessWorktreePostgres(cleanupCtx, rootB, "postgres-harness"))
+		if cleanupErr != nil {
+			err = errors.Join(err, cleanupErr)
+			return
+		}
+		_ = os.RemoveAll(agentHome)
+		if summary != nil {
+			summary["cleanup"] = "removed_owned_worktree_clusters"
+		}
+	}()
 	cfg := app.Config{
 		Name: "postgres-harness", ID: "postgres-harness",
 		Envs: map[string]app.EnvConfig{"local": {Default: true}},
@@ -138,23 +115,15 @@ func runHarnessPostgresProbeCheck(parent context.Context, repoRoot string, full 
 	if err := writePostgresHarnessConfig(rootB); err != nil {
 		return nil, nil, err
 	}
-	if err := segments.run("container_start", func() error {
-		if err := startHarnessPostgresContainer(ctx, serverState); err != nil {
-			return err
-		}
-		return waitForPostgresServer(ctx, serverState)
-	}); err != nil {
-		return nil, nil, err
-	}
 	var envA []string
 	var databaseA, databaseB postgresdb.Database
 	if err := segments.run("worktree_databases", func() error {
 		var err error
-		envA, databaseA, err = managedDatabaseEnv(ctx, rootA, cfg, nil, nil)
+		envA, databaseA, err = managedDatabaseEnv(ctx, rootA, cfg, nil)
 		if err != nil {
 			return err
 		}
-		_, databaseB, err = managedDatabaseEnv(ctx, rootB, cfg, nil, nil)
+		_, databaseB, err = managedDatabaseEnv(ctx, rootB, cfg, nil)
 		return err
 	}); err != nil {
 		return nil, nil, err
@@ -169,6 +138,7 @@ func runHarnessPostgresProbeCheck(parent context.Context, repoRoot string, full 
 	}
 	check(databaseA.Database != "" && databaseA.URL != "", "managed postgres app database must be recorded")
 	check(databaseA.Database != databaseB.Database, "two worktrees must get distinct postgres databases")
+	check(databaseA.ResourceID != "" && databaseA.ResourceID != databaseB.ResourceID, "two worktrees must get distinct owned clusters")
 	appDB, err := openPostgresDatabase(ctx, databaseA.URL)
 	if err != nil {
 		return nil, diagnostics, err
@@ -257,13 +227,11 @@ func runHarnessPostgresProbeCheck(parent context.Context, repoRoot string, full 
 		}
 	}
 	if err := segments.run("drop_databases", func() error {
-		admin, err := managedPostgresAdmin(ctx)
-		if err != nil {
-			return err
+		for _, database := range []postgresdb.Database{databaseA, databaseB} {
+			if err := dropPostgresDatabase(ctx, database); err != nil {
+				return err
+			}
 		}
-		defer func() { _ = admin.Close() }()
-		_ = postgresdb.DropDatabase(ctx, admin, databaseA.Database)
-		_ = postgresdb.DropDatabase(ctx, admin, databaseB.Database)
 		return nil
 	}); err != nil {
 		return nil, diagnostics, err
@@ -275,8 +243,9 @@ func runHarnessPostgresProbeCheck(parent context.Context, repoRoot string, full 
 	summary = map[string]any{
 		"postgres_probe": "ran",
 		"proof":          proof,
-		"container":      serverState.Container,
-		"container_mode": "disposable",
+		"container_mode": "two_owned_worktree_clusters",
+		"resource_a":     databaseA.ResourceID,
+		"resource_b":     databaseB.ResourceID,
 		"database_a":     databaseA.Database,
 		"database_b":     databaseB.Database,
 		"schemas":        []string{"scenery", "reports", "cache"},
@@ -293,78 +262,6 @@ func runHarnessPostgresProbeCheck(parent context.Context, repoRoot string, full 
 		return summary, diagnostics, fmt.Errorf("postgres service probe failed")
 	}
 	return summary, diagnostics, nil
-}
-
-// startHarnessPostgresContainer starts the disposable probe container directly
-// with throwaway tuning: a tmpfs data directory, initdb without fsync, and
-// durability settings off. The machine-wide shared server keeps the default
-// durable `docker run` path in ensurePostgresDockerContainer; this container
-// lives for one probe run and is always removed, so trading crash safety for
-// startup speed is safe here.
-func startHarnessPostgresContainer(ctx context.Context, state *postgresServerState) error {
-	_, err := postgresDocker.Run(ctx,
-		"run", "-d",
-		"--name", state.Container,
-		"-p", fmt.Sprintf("127.0.0.1:%d:5432", state.Port),
-		"--tmpfs", "/var/lib/postgresql",
-		"-e", "POSTGRES_USER="+state.User,
-		"-e", "POSTGRES_PASSWORD="+state.Password,
-		"-e", "POSTGRES_INITDB_ARGS=--no-sync",
-		state.Image,
-		"postgres", "-c", "fsync=off", "-c", "synchronous_commit=off", "-c", "full_page_writes=off",
-	)
-	return err
-}
-
-func cleanupPostgresHarnessContainer(ctx context.Context, container, volume string) error {
-	var messages []string
-	if out, err := postgresDocker.Run(ctx, "rm", "-f", container); err != nil && !isMissingDockerObject(out, err) {
-		messages = append(messages, err.Error())
-	}
-	if out, err := postgresDocker.Run(ctx, "volume", "rm", volume); err != nil && !isMissingDockerObject(out, err) {
-		messages = append(messages, err.Error())
-	}
-	if len(messages) > 0 {
-		return fmt.Errorf("%s", strings.Join(messages, "; "))
-	}
-	return nil
-}
-
-// seedHarnessPostgresServerState writes a server state file into an isolated
-// harness agent home with harness-unique container and volume names, so the
-// probe never contends with the machine-wide scenery-postgres container or
-// with another harness step's server.
-func seedHarnessPostgresServerState(agentHome, label string) (*postgresServerState, error) {
-	port, err := freeLoopbackPort()
-	if err != nil {
-		return nil, err
-	}
-	password, err := randomPostgresPassword()
-	if err != nil {
-		return nil, err
-	}
-	state := postgresServerState{
-		ArtifactIdentity: machine.NewArtifactIdentity(postgresServerStateKind, postgresServerDescriptor),
-		Container:        "scenery-postgres-harness-" + label,
-		Volume:           "scenery-postgres-harness-" + label + "-data",
-		Image:            postgresServerImage,
-		Port:             port,
-		User:             postgresServerUser,
-		Password:         password,
-		CreatedAt:        time.Now().UTC(),
-	}
-	path := postgresServerStatePath(localagent.PathsForHome(agentHome))
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return nil, err
-	}
-	data, err := json.MarshalIndent(state, "", "  ")
-	if err != nil {
-		return nil, err
-	}
-	if err := os.WriteFile(path, append(data, '\n'), 0o600); err != nil {
-		return nil, err
-	}
-	return &state, nil
 }
 
 // harnessDockerAvailable reports whether the Docker CLI and engine are

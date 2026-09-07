@@ -52,22 +52,6 @@ func TestDefaultConfiguredEdgeRouteProbeGivesUpAfterWindow(t *testing.T) {
 	}
 }
 
-func TestConfiguredEdgeProbeFailedErrorNamesProbeNotComponents(t *testing.T) {
-	t.Parallel()
-
-	err := configuredEdgeProbeFailedError("onlv.dev", "https://console.main-abc123.onlv.dev/")
-	for _, want := range []string{
-		"Edge components are ready",
-		"console.main-abc123.onlv.dev",
-		"/v1/tls/allow?domain=console.main-abc123.onlv.dev",
-		"scenery system edge restart",
-	} {
-		if !strings.Contains(err.Error(), want) {
-			t.Fatalf("probe-failed error missing %q:\n%s", want, err)
-		}
-	}
-}
-
 func withEdgeProbeRetryTiming(t *testing.T, window, interval time.Duration) {
 	t.Helper()
 	oldWindow := edgeProbeRetryWindow

@@ -68,6 +68,7 @@ Add a child `AGENTS.md` only when a directory becomes a durable boundary with it
 - `internal/testsuite/AGENTS.md` owns explicit fresh execution from content-addressed Go test binaries and Go JSON event output.
 - `internal/uireport/AGENTS.md` owns read-only React design-system adherence scanning, source exclusions, metrics, and deterministic ranking.
 - `internal/workspacetx/AGENTS.md` owns crash-safe source transaction metadata, ownership checks, and recovery before compiler reads.
+- `testdata/apps/worktree-postgres/AGENTS.md` owns the authored worktree-runtime SQL acceptance fixture and its release-only proof.
 - `docs/spec/AGENTS.md` owns the evolving current specification set and conformance update rules.
 - `ui/AGENTS.md` owns the binary-embedded Astryx + StyleX component catalog materialized into React-enabled TypeScript clients.
 - `ui/components/AGENTS.md` owns reusable request-state, shell/navigation, table, workspace, and detail-page component behavior.
@@ -101,7 +102,7 @@ Scenery does not have legacy support. It has **one rolling Scenery specification
 - Keep `golang.org/x/tools/go/packages` inside `internal/parse`; `internal/model` exposes only model-owned analysis data.
 - Preserve scenery-native naming: `app.scn`, `package.scn`, `.scenery.json`, and `scenery.sh/...`.
 - Keep generated app models and machine-readable JSON contracts stable. If a JSON shape changes, update schemas, docs, tests, and harness expectations together.
-- Keep module sources inside the non-symlink app workspace and every generated output beneath a declared managed root; top-level generation is one artifact-set transaction.
+- Keep module sources inside the non-symlink app workspace and every generated output beneath a declared managed root; top-level generation is one artifact-set transaction. Application-imported Go projections live inside the existing Go module and are ignored by default; never synthesize editor modules or manage root workfiles.
 - Declare every service, operation, binding, durable execution, schedule, data resource, page, renderer, and middleware identity in `.scn`. If `external_name` preserves an existing durable task name while its persisted input changes, increment `revision` and drain or migrate active rows first.
 - Keep every diagnostic in the checked-in current specification catalog with one stable identity. Request-protocol failures use SCN8000-range codes; SCN9000-range codes are internal-only and must carry an opaque report token with a sanitized public message.
 - Do not commit machine-local state or generated cache output from `.scenery/`, Victoria, node modules, coverage, `.DS_Store`, or local environment files.

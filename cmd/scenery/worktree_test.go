@@ -157,7 +157,7 @@ func TestWorktreeRemoveRestoresDBStateWhenGitRemoveFailsInProcess(t *testing.T) 
 	const state = `{"database":"dirty-agent","sentinel":true}`
 	writeTestAppFile(t, target, ".scenery/worktree-db.json", state)
 	wantErr := errors.New("git refuses dirty worktree")
-	err := runWorktreeRemoveWithGit(t.Context(), &bytes.Buffer{}, worktreeOptions{Name: "dirty-agent", AppRoot: root, DB: true, JSON: true}, func(_ context.Context, gotRoot string) ([]worktreeRecord, error) {
+	err := runWorktreeRemoveWithGit(t.Context(), &bytes.Buffer{}, worktreeOptions{Name: "dirty-agent", AppRoot: root, JSON: true}, func(_ context.Context, gotRoot string) ([]worktreeRecord, error) {
 		if gotRoot != root {
 			t.Fatalf("list root = %q, want %q", gotRoot, root)
 		}
@@ -189,7 +189,6 @@ func TestWorktreeRemoveDoesNotDeleteStateForUnlistedTarget(t *testing.T) {
 	err := runWorktreeRemoveWithList(t.Context(), &bytes.Buffer{}, worktreeOptions{
 		Name:    "mistyped",
 		AppRoot: root,
-		DB:      true,
 		JSON:    true,
 	}, func(_ context.Context, gotRoot string) ([]worktreeRecord, error) {
 		if gotRoot != root {

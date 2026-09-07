@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"net"
 	"net/http"
 	"path/filepath"
 	"sort"
@@ -36,6 +37,10 @@ type agentDashboardController struct {
 }
 
 func startAgentDashboard(ctx context.Context, agentServer *localagent.Server, addr string) (*agentDashboardRuntime, error) {
+	return startAgentDashboardListener(ctx, agentServer, addr, nil)
+}
+
+func startAgentDashboardListener(ctx context.Context, agentServer *localagent.Server, addr string, listener net.Listener) (*agentDashboardRuntime, error) {
 	paths := agentServer.Paths()
 	store, err := devdash.OpenStore(filepath.Join(paths.AgentDir, "dashboard"))
 	if err != nil {
@@ -46,7 +51,12 @@ func startAgentDashboard(ctx context.Context, agentServer *localagent.Server, ad
 		agent: agentServer,
 	}
 	server := newDashboardServerWithController(controller, paths.AgentDir, addr, "", nil)
-	if err := server.Start(ctx); err != nil {
+	server.state.cacheRoot = filepath.Join(paths.AgentDir, "dashboard")
+	start := func() error { return server.Start(ctx) }
+	if listener != nil {
+		start = func() error { return server.startListener(ctx, listener) }
+	}
+	if err := start(); err != nil {
 		_ = store.Close()
 		return nil, err
 	}

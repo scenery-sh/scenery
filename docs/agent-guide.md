@@ -63,7 +63,7 @@ go test ./...
 scenery harness -o json --write
 ```
 
-Edit authored `.scn` and Go implementation files. Go contracts, adapters, and composition are cache inputs: `check`, `test`, `build`, and `up` render them outside the checkout. A successful compile also refreshes a Scenery-owned, locally excluded root `go.work` so `gopls` and raw `go test ./...` resolve stable `scenerycontract` imports. Never hand-edit generated TypeScript or descriptors. Use `scenery generate --target contracts --materialize` only when exporting a published Go module.
+Edit authored `.scn` and Go implementation files. After a fresh checkout, run `scenery generate --target contracts` before raw Go tooling. It publishes application-imported contracts and library facades as ordinary packages inside the declared existing Go module. Add exact generated roots to authored `.gitignore` once; generation does not change Git policy. `test`, `build`, and `up` prepare these packages automatically, including cache reuse. `check` and `generate --check` report missing/stale output without repairing it; native ABI verification uses the current expected overlay. Private adapters/composition remain in the external build cache. Never hand-edit generated output. Publishing a Go module explicitly includes its required generated source using the same renderer.
 
 Compilation intentionally leaves `implementation_revision` null. When exact implementation identity matters, use a declared build target:
 
@@ -82,11 +82,10 @@ spec/producer changes.
 
 Use exact catalog names (`scenery schema scenery.execution -o json`). Plain
 `generate --check` is the non-writing artifact check; `--dry-run` belongs only
-to SQLC. `generate -o json` reports selected client binding counts/warnings and
-editor workspace status. A successful client with no HTTP methods may simply
-have no exported operations selected. A repository-nested fixture deliberately
-skips editor `go.work`; copy it outside the Scenery checkout before raw Go work.
-After generation there, use `go doc <package-import>/scenerycontract` and
+to SQLC. `generate -o json` reports changed/checked files and selected client
+binding counts/warnings. A successful client with no HTTP methods may simply
+have no exported operations selected. No command manages editor modules or root
+workfiles; existing user workspaces remain unchanged. After generation, use `go doc <package-import>/scenerycontract` and
 `go doc <package-import>/scenerycontract.<Type>` for exact generated contracts.
 
 No-input operations use exact `std.type.unit`. CLI bindings own their help, completion, typed caller inputs, trusted runtime context, outcomes, and exit codes. Context-mapped fields must never become caller flags or arguments.
@@ -125,9 +124,10 @@ their types and errors do not import or name the provider adapter.
 
 A package beneath `pkg/` may declare a `library` and library-owned operations
 with direct record inputs and outcomes. Scenery generates
-`scenerylib_<name>` beside the package in the external build/editor workspace.
-App code imports that stable typed facade; never materialize, edit, or commit
-the facade or its `export/` c-shared shim.
+`scenerylib_<name>` beside the package inside its existing Go module and declared
+managed root. App code imports that stable typed facade. Ignore its complete
+generated tree by default, never hand-edit it, and include it explicitly when
+publishing the module, together with its `export/` c-shared shim.
 
 Select linkage per environment in `.scenery.json`:
 
@@ -228,8 +228,8 @@ Use `-o json` for compiler commands and command-specific current protocols. Neve
 | Rank React UI guardrail drift | `scenery inspect ui [--frontend <name>] -o human|json` |
 | Inspect build and paths | `scenery inspect build -o json`, `scenery inspect paths -o json` |
 | Inspect durable/storage capabilities | `scenery inspect durable -o json`, `scenery inspect storage -o json` |
-| Generate/check declared outputs and refresh the editor workspace | `scenery generate [--check] -o json` |
-| Export Go contracts for a published module | `scenery generate --target contracts --materialize [--check] -o json` |
+| Generate/check ordinary Go packages and declared clients | `scenery generate [--check] -o json` |
+| Bootstrap/check only app-imported Go packages | `scenery generate --target contracts [--check] -o json` |
 | Generate/check a TypeScript target | `scenery generate --target typescript_client.<name> [--check] -o json` |
 | Run app validation | `scenery harness -o json --write` |
 | Initialize/sync an assistant | `scenery assistant init|sync|status ... -o json` |
@@ -266,7 +266,7 @@ Use `-o json` for compiler commands and command-specific current protocols. Neve
 - Use `scenery build --desktop --env <name> -o json` to build each
   Tauri-enabled frontend at base `/`, run the app-local Tauri 2 CLI, and receive
   exact installer paths under `data.frontends[].artifacts`.
-- Use `scenery deploy <ssh-target>` only for configured beta single-server source sync. The target must belong to exactly one `envs.<name>.deploy.ssh`; `scenery deploy --env <name>` is the equivalent shortcut when that env has one target. Scenery preserves remote `.env*`, `.scenery`, and Scenery-owned `go.work`, restarts with `--env <name>`, and publishes only that env's production frontends.
+- Use `scenery deploy <ssh-target>` only for configured beta single-server source sync. The target must belong to exactly one `envs.<name>.deploy.ssh`; `scenery deploy --env <name>` is the equivalent shortcut when that env has one target. Scenery preserves remote `.env*`, `.scenery`, and machine-local user `go.work`, restarts with `--env <name>`, and publishes only that env's production frontends.
 - Use `scenery generate` only for file generation. It must not apply database state.
 - Use `scenery task` for app-local code tasks.
 - Use Git worktrees for another live code copy.
@@ -285,7 +285,7 @@ scenery storage status -o json
 scenery storage ls <store> -o json
 ```
 
-An explicit app-level `DATABASE_URL` is external. Otherwise `scenery up` manages one database per app root/worktree and service schemas. Use `db apply` for schema/app setup, `db seed` for initial data and declared file-backed imports, and `db setup` for both. Changed applied SQL seeds and destructive seed SQL fail closed; changed `database.seed.commands` inputs rerun the declared atomic/idempotent importer and advance its ledger hash only after success.
+An explicit app-level `DATABASE_URL` is external; equal URLs intentionally share data. Otherwise SQL-backed `scenery up` manages a dedicated container and volume per canonical app root, one app database, and service schemas. Non-SQL startup and its console allocate no PostgreSQL. `down` stops the selected worktree and retains SQL data/credentials outside Git; `down --db` drops only the app database. Git removal retains data, discoverable as an orphan through `ps`. Whole-cluster deletion requires `prune --older-than <duration> --app-root <absolute-path> --db` and verified inactive ownership. Use `db apply` for schema/app setup, `db seed` for initial data and declared file-backed imports, and `db setup` for both; managed standalone SQL mutation requires the runtime stopped and holds exclusive ownership throughout. Changed applied SQL seeds and destructive seed SQL fail closed; changed `database.seed.commands` inputs rerun the declared atomic/idempotent importer and advance its ledger hash only after success.
 
 For a portable point-in-time copy, explicitly select the data classes. Stop the runtime before load; overwrite is destructive and requires `--yes`.
 
@@ -311,7 +311,9 @@ Generated/cache outputs include:
   scenery.typescript-client-generated.json
 ```
 
-Go generation lives in Scenery's external build/editor caches and is never ordinary source. App-local `.scenery/` state is cache/evidence, not source; it may contain TypeScript cache materialization, editor ownership, build records, sessions, issued plans, logs, and harness outputs. Do not commit it. A migration may safely remove descriptor-authenticated legacy Go trees with `scenery generate --prune-materialized-go`.
+Application-imported Go projections are ordinary in-module packages, ignored by default. Their descriptors authorize exact replacement/retirement only after digest verification; missing evidence, foreign files and hand edits fail closed. Unknown files in a managed root remain authored inputs under the declared revision rules. Generated output is excluded from authored revisions, but its consumed bytes participate in build identity. App-local `.scenery/` contains cache/evidence, transaction recovery, build records, sessions, issued plans, logs and harness outputs; do not commit or recursively delete it. Complete generation before running raw Go tools against changed contracts: multi-file publication is not globally atomic to arbitrary concurrent Go readers.
+
+Existing Scenery editor workfiles require the explicit [one-time cutover](app-development-cookbook.md#retire-an-old-scenery-editor-workfile). No command migrates existing apps, deletes global editor caches, or rewrites user workspaces automatically.
 
 Assistant builds add provider-neutral runtime asset descriptors under the
 managed build cache and content-addressed Node/npm dependencies under
@@ -411,18 +413,22 @@ separate absolute binary paths. Installing a CLI is not an application or data
 migration; keep its source revision coherent with the application's runtime
 dependency and regenerate/validate intentionally.
 
-A compatible shared agent is reused without replacement, regardless of build
-age. An incompatible health schema/spec fails closed. Use a matching binary or
-a private `SCENERY_AGENT_HOME` with a distinct router address for that version.
-Changing agent home does not isolate machine-global DNS or privileged edge
-listeners; do not install competing edge setups. It also does not isolate the
-globally named Postgres container/volume in the same Docker daemon. Conflicting
-container port bindings fail closed before starting the container. Inspect the
-selected Docker context and bindings, then use the matching agent home and
-credentials or an explicitly provisioned external `DATABASE_URL`. Do not remove,
-recreate or adopt another owner's container, or blindly rewrite local state;
-coordinate with its users first. Restarting the shared agent is
-an explicit operator action, not a consequence of installing a CLI.
+Ordinary `scenery up` embeds its private control plane and router in the
+worktree supervisor. Different roots can run different current binary identities
+without sharing runtime ownership or managed database containers. Same-root
+acquisition requires exact compatible health/schema identity and the same
+selected environment; it never restarts or replaces an incompatible live owner.
+The canonical absolute app root, not branch, environment, PID, or CLI version,
+is the durable ownership key. Explicit edge/deploy operations still use the
+intentionally managed machine agent; restarting it is an operator action, not
+a consequence of app startup or CLI installation. Agent-home changes do not
+isolate DNS or privileged edge listeners. Old shared-database authority blocks
+implicit empty allocation and requires explicit verified data migration; do not
+remove or relabel old records to bypass it. Container, volume, daemon, or
+credential mismatches fail closed without adopting or resetting resources.
+Use the [shared-to-worktree PostgreSQL migration runbook](runbooks/worktree-postgres-migration.md)
+for an explicit pre-cutover native export/restore into a new root; keep the
+selected source quiesced and preserve unrelated applications on its old server.
 
 ### Repository Mental Model
 
@@ -434,7 +440,7 @@ scenery is a Go-native service runtime and local development platform. Think in 
   are part of the same graph. Scenery owns their provider-neutral public
   conversation API and generated client; the selected adapter runs only in a
   supervised child behind private control and loopback MCP protocols.
-- Generated Go contracts, adapters, composition, descriptors, and entrypoints live in external build/editor caches. Successful compilation maintains an ownership-verified, locally excluded root `go.work` for raw Go/editor resolution; source materialization is explicit export mode only.
+- Application-imported Go contracts/facades live in declared in-module roots, ignored by default; private composition stays in the build cache. Compilation is read-only. Explicit generation or build/test/up preparation supplies ordinary Go tooling; Scenery manages no root `go.work`.
 - The compiler exposes source/effective/expanded graphs and separate workspace, contract, implementation, deployment, and artifact revisions. Source retains authored expressions, effective resolves inputs/defaults/patches, expanded adds generators, and every provenance key is an RFC 6901 pointer into that view's resource spec.
 - `scenery task run <domain>:<name> -- [args...]` runs an app-local code task.
 - `scenery worker` builds once and starts a worker-role runtime for declared durable executions and schedules.

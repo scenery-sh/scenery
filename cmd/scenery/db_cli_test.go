@@ -101,7 +101,11 @@ func TestResolveDatabaseURLForConfigUsesAppDatabaseURL(t *testing.T) {
 		}},
 	}
 	dsn := "postgres://user:secret@localhost/demo"
-	got, err := resolveDatabaseURLForConfig(context.Background(), root, cfg, []string{appDatabaseURLEnv + "=" + dsn}, true)
+	env, _, err := managedDatabaseEnv(context.Background(), root, cfg, []string{appDatabaseURLEnv + "=" + dsn})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := resolveDatabaseURLForConfigFromEnv(cfg, env)
 	if err != nil {
 		t.Fatalf("resolveDatabaseURLForConfig returned error: %v", err)
 	}
@@ -122,7 +126,11 @@ func TestResolveDatabaseURLForConfigDefaultsToDBService(t *testing.T) {
 		}},
 	}
 	dsn := "postgres://user:secret@localhost/demo"
-	got, err := resolveDatabaseURLForConfig(context.Background(), root, cfg, []string{"DATABASE_URL=" + dsn}, true)
+	env, _, err := managedDatabaseEnv(context.Background(), root, cfg, []string{"DATABASE_URL=" + dsn})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := resolveDatabaseURLForConfigFromEnv(cfg, env)
 	if err != nil {
 		t.Fatalf("resolveDatabaseURLForConfig returned error: %v", err)
 	}

@@ -81,9 +81,11 @@ type Session struct {
 	// route manifest when set.
 	DomainHostConflict *AliasLease        `json:"domain_host_conflict,omitempty"`
 	Backends           map[string]Backend `json:"backends"`
-	ReportToken        string             `json:"-"`
-	CreatedAt          time.Time          `json:"created_at"`
-	UpdatedAt          time.Time          `json:"updated_at"`
+	// WorktreeProxy is an edge-only forwarding lease, not runtime authority.
+	WorktreeProxy *Backend  `json:"worktree_proxy,omitempty"`
+	ReportToken   string    `json:"-"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 type Process struct {
@@ -103,6 +105,7 @@ type RegisterRequest struct {
 	AppPID         string             `json:"app_pid,omitempty"`
 	Processes      map[string]Process `json:"processes,omitempty"`
 	Backends       map[string]Backend `json:"backends,omitempty"`
+	WorktreeProxy  *Backend           `json:"worktree_proxy,omitempty"`
 	RouteNamespace RouteNamespace     `json:"route_namespace"`
 	RouteManifest  RouteManifest      `json:"route_manifest,omitempty"`
 	ReportToken    string             `json:"report_token,omitempty"`

@@ -59,30 +59,39 @@ func runDetachedDev(args []string, opts devOptions) error {
 		return err
 	}
 
-	if localagent.DisabledByEnv() {
-		return &codedCLIError{code: 4, err: fmt.Errorf("scenery up --detach requires the local scenery agent; unset SCENERY_AGENT_DISABLE")}
-	}
 	setupCtx, setupCancel := context.WithTimeout(context.Background(), detachedDevStartupTimeout)
 	defer setupCancel()
-	client, err := localagent.Ensure(setupCtx, cliBuildIdentity())
+	machinePaths, err := commandAgentPaths()
 	if err != nil {
 		return err
 	}
-	if client == nil {
-		return &codedCLIError{code: 4, err: fmt.Errorf("scenery up --detach requires the local scenery agent")}
-	}
-	existing, existingPID, err := liveDetachedDuplicateDevSession(setupCtx, client, root)
+	worktree, err := localagent.PathsForWorktree(machinePaths.Home, root)
 	if err != nil {
 		return err
 	}
-	if existing != nil {
-		return reportDetachedDevAlreadyRunning(client, root, cfg, opts, waitMode, existingPID)
-	}
-
-	paths, err := commandAgentPaths()
+	root = worktree.AppRoot
+	resolvedEnv, err := cfg.ResolveEnv(opts.Env)
 	if err != nil {
 		return err
 	}
+	cfg.Frontends = resolvedEnv.Frontends
+	client := localagent.NewClient(worktree.Socket)
+	probeLock, err := worktree.AcquireLiveLock()
+	if errors.Is(err, localagent.ErrProcessLocked) {
+		ownerErr := existingWorktreeRuntime(setupCtx, worktree, cfg.AppID(), resolvedEnv.Name)
+		var already *devSessionAlreadyRunningError
+		if errors.As(ownerErr, &already) {
+			return reportDetachedDevAlreadyRunning(client, root, cfg, opts, waitMode, already.ownerPID)
+		}
+		return ownerErr
+	} else if err != nil {
+		return err
+	}
+	_ = probeLock.Release()
+	if _, err := worktree.LoadRecord(cfg.AppID()); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	paths := worktree.ControlPaths()
 	if err := localagent.EnsureDirs(paths); err != nil {
 		return err
 	}
@@ -148,6 +157,16 @@ func runDetachedDev(args []string, opts devOptions) error {
 	}
 	if err != nil {
 		stopDetachedDevChild(cmd, reaped)
+		// Two launchers may both observe an initially unlocked root before
+		// either child acquires it. A losing child cannot own a second runtime;
+		// report the compatible winner only after independently verifying it.
+		acquireCtx, acquireCancel := context.WithTimeout(context.Background(), time.Second)
+		ownerErr := existingWorktreeRuntime(acquireCtx, worktree, cfg.AppID(), resolvedEnv.Name)
+		acquireCancel()
+		var already *devSessionAlreadyRunningError
+		if errors.As(ownerErr, &already) && already.ownerPID != childPID {
+			return reportDetachedDevAlreadyRunning(client, root, cfg, opts, waitMode, already.ownerPID)
+		}
 		return detachedDevWaitFailure(err, childPID, waitMode, waitTimeout, logPath)
 	}
 	return writeDetachedDevResult(os.Stdout, opts.JSON, detachedDevResult{
@@ -166,13 +185,6 @@ func detachedDevWaitTimeout(waitMode string) time.Duration {
 		return detachedDevReadyTimeout
 	}
 	return detachedDevStartupTimeout
-}
-
-func liveDetachedDuplicateDevSession(ctx context.Context, client *localagent.Client, root string) (*localagent.Session, int, error) {
-	if client == nil {
-		return nil, 0, nil
-	}
-	return liveDetachedDuplicateDevSessionWithLister(ctx, client.List, root)
 }
 
 func liveDetachedDuplicateDevSessionWithLister(ctx context.Context, list detachedDevSessionLister, root string) (*localagent.Session, int, error) {
@@ -279,7 +291,25 @@ func safeDetachedLogName(value string) string {
 }
 
 func waitForDetachedDevSession(ctx context.Context, client *localagent.Client, appRoot string, ownerPID int, waitMode string, expectedFrontends []string) (localagent.Session, error) {
-	return waitForDetachedDevSessionWithLister(ctx, client.List, appRoot, ownerPID, waitMode, expectedFrontends)
+	machinePaths, err := commandAgentPaths()
+	if err != nil {
+		return localagent.Session{}, err
+	}
+	paths, err := localagent.PathsForWorktree(machinePaths.Home, appRoot)
+	if err != nil {
+		return localagent.Session{}, err
+	}
+	list := func(ctx context.Context, root string) ([]localagent.Session, error) {
+		health, err := client.Health(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if err := localagent.ValidateWorktreeHealth(health, paths); err != nil {
+			return nil, err
+		}
+		return client.List(ctx, root)
+	}
+	return waitForDetachedDevSessionWithLister(ctx, list, appRoot, ownerPID, waitMode, expectedFrontends)
 }
 
 type detachedDevSessionLister func(context.Context, string) ([]localagent.Session, error)

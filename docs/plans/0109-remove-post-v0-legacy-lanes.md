@@ -18,7 +18,7 @@ declared tasks, HTTP contracts, route data, generation, and standard auth.
 - [x] 2026-07-12 - Removed duplicate route data, generic plumbing, compatibility fields, dependency, dashboard metadata, and orphan fixture.
 - [x] 2026-07-12 - Synchronized current docs, schemas, indexes, generated fixtures, and agent instructions.
 - [x] 2026-07-12 - Passed focused and full Go tests, Go vet, static searches, docs inspection, UI checks, fixture probes, and self-harness.
-- [x] 2026-07-12 - Follow-up removed `dev.setup`, configurable app database URL env naming, Symphony app-ID fallback, the old database snapshot command, and non-output short CLI aliases.
+- [x] 2026-07-12 - Follow-up removed `dev.setup`, configurable app database URL env naming, the old database snapshot command, and non-output short CLI aliases.
 
 ## Surprises & Discoveries
 

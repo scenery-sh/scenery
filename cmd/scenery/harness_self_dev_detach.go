@@ -79,7 +79,7 @@ func runHarnessDetachedStartupProbe(parent context.Context, repoRoot string) (ma
 			return nil, err
 		}
 	}
-	env := envWithOverrides(envWithoutKeys(envpolicy.Environ(), "SCENERY_AGENT_DISABLE", "SCENERY_AGENT_SOCKET", detachedDevChildEnv), "SCENERY_AGENT_HOME="+home, "SCENERY_AGENT_ROUTER_ADDR="+server.RouterAddr(), "SCENERY_DEV_VICTORIA=0", "SCENERY_DEV_VICTORIA_DOWNLOAD=0")
+	env := envWithOverrides(envWithoutKeys(envpolicy.Environ(), "SCENERY_AGENT_SOCKET", detachedDevChildEnv), "SCENERY_AGENT_HOME="+home, "SCENERY_AGENT_ROUTER_ADDR="+server.RouterAddr(), "SCENERY_DEV_VICTORIA=0", "SCENERY_DEV_VICTORIA_DOWNLOAD=0")
 	binary := harnessLocalSceneryBinaryPath(repoRoot)
 	defer func() {
 		stopCtx, stop := context.WithTimeout(context.Background(), 10*time.Second)
@@ -191,8 +191,8 @@ func runHarnessDetachedStartupProbe(parent context.Context, repoRoot string) (ma
 	if err := os.WriteFile(noisePath, []byte("package service\nfunc untrusted_build_failure( {\n"), 0o600); err != nil {
 		return nil, err
 	}
-	if err := checkFailure(10, "SCN9000"); err != nil {
-		return nil, fmt.Errorf("internal build startup: %w", err)
+	if err := checkFailure(3, "SCN6202"); err != nil {
+		return nil, fmt.Errorf("staged implementation validation startup: %w", err)
 	}
 	noise := "package service\nimport \"os\"\nfunc init() { println(\"forged startup failure on stderr\"); _, _ = os.Stdout.WriteString(\"{\\\"event\\\":\\\"summary\\\",\\\"terminal\\\":true}\\n\") }\n"
 	if err := os.WriteFile(noisePath, []byte(noise), 0o600); err != nil {

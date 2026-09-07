@@ -17,7 +17,6 @@ import (
 
 	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/app"
-	"scenery.sh/internal/devdash"
 )
 
 type agentOptions struct {
@@ -70,13 +69,14 @@ type pruneOptions struct {
 
 type pruneResponse struct {
 	cliPayloadIdentity
-	Cutoff           string   `json:"cutoff"`
-	Pruned           []string `json:"pruned"`
-	Skipped          []string `json:"skipped"`
-	DBCleanup        bool     `json:"db_cleanup"`
-	StateCleanup     bool     `json:"state_cleanup"`
-	DevEventsPruned  int64    `json:"dev_events_pruned"`
-	DevSourcesPruned int64    `json:"dev_sources_pruned"`
+	Cutoff           string                   `json:"cutoff"`
+	Pruned           []string                 `json:"pruned"`
+	Skipped          []string                 `json:"skipped"`
+	DBCleanup        bool                     `json:"db_cleanup"`
+	StateCleanup     bool                     `json:"state_cleanup"`
+	DevEventsPruned  int64                    `json:"dev_events_pruned"`
+	DevSourcesPruned int64                    `json:"dev_sources_pruned"`
+	Resources        []worktreePrunedResource `json:"resources"`
 }
 
 func agentCommand(args []string) error {
@@ -385,35 +385,7 @@ func agentStartFailureFromLog(path string, offset int64) error {
 }
 
 func statusCommand(args []string) error {
-	client, err := commandAgentClient()
-	if err != nil {
-		return err
-	}
-	return statusCommandWithClient(client, os.Stdout, args)
-}
-
-func statusCommandWithClient(client *localagent.Client, stdout io.Writer, args []string) error {
-	opts, err := parseStatusArgs(args)
-	if err != nil {
-		return err
-	}
-	ctx := context.Background()
-	appRoot := ""
-	if opts.AppRoot != "" {
-		appRoot, err = resolveStatusAppRoot(opts.AppRoot)
-		if err != nil {
-			return err
-		}
-	}
-	for {
-		if err := writeStatus(ctx, client, stdout, appRoot, opts); err != nil {
-			return err
-		}
-		if !opts.Watch {
-			return nil
-		}
-		time.Sleep(time.Second)
-	}
+	return runWorktreeStatus(context.Background(), os.Stdout, args)
 }
 
 func parseStatusArgs(args []string) (statusOptions, error) {
@@ -430,44 +402,6 @@ func parseStatusArgs(args []string) (statusOptions, error) {
 		return statusOptions{}, err
 	}
 	return opts, nil
-}
-
-func writeStatus(ctx context.Context, client *localagent.Client, stdout io.Writer, appRoot string, opts statusOptions) error {
-	sessions, err := client.List(ctx, appRoot)
-	if err != nil {
-		return err
-	}
-	sessions = markInconsistentStatusSessions(sessions)
-	substrates, _ := statusSubstrates(ctx, client)
-	if opts.JSON {
-		health, _ := client.Health(ctx)
-		return writeCLIJSON(stdout, withCLIPayloadIdentity("scenery.agent.status", map[string]any{
-			"agent":      health,
-			"sessions":   sessions,
-			"substrates": substrates,
-		}))
-	}
-	writeStatusTable(stdout, sessions, substrates)
-	if opts.Watch {
-		_, _ = fmt.Fprintln(stdout, "---")
-	}
-	return nil
-}
-
-func statusSubstrates(ctx context.Context, client statusSubstrateClient) ([]localagent.Substrate, error) {
-	substrates, err := client.ListSubstrates(ctx)
-	if err != nil {
-		return nil, err
-	}
-	out := substrates[:0]
-	for _, substrate := range substrates {
-		if localagent.VerifyOwner(substrate.Owner) != nil {
-			_, _ = client.DeleteSubstrate(ctx, substrate.Kind)
-			continue
-		}
-		out = append(out, substrate)
-	}
-	return out, nil
 }
 
 func markInconsistentStatusSessions(sessions []localagent.Session) []localagent.Session {
@@ -603,155 +537,11 @@ func sessionOwnerLive(session localagent.Session) bool {
 }
 
 func downCommand(args []string) error {
-	client, err := commandAgentClient()
-	if err != nil {
-		return err
-	}
-	return downCommandWithClient(client, os.Stdout, args)
-}
-
-func downCommandWithClient(client *localagent.Client, stdout io.Writer, args []string) error {
-	opts, err := parseDownArgs(args)
-	if err != nil {
-		return err
-	}
-	ctx := context.Background()
-	if opts.All {
-		opts.DB = true
-		opts.State = true
-	}
-	session, runtimeMissing, err := resolveDownSession(ctx, client, opts)
-	if err != nil {
-		return err
-	}
-	appRoot := session.AppRoot
-	if strings.TrimSpace(appRoot) == "" {
-		appRoot, _ = resolveStatusAppRoot(opts.AppRoot)
-	}
-	if runtimeMissing {
-		resp := downResponse{
-			cliPayloadIdentity: newCLIPayloadIdentity("scenery.down"),
-			AppRoot:            appRoot,
-			DBCleanup:          opts.DB,
-			StateCleanup:       opts.State,
-		}
-		message := fmt.Sprintf("no scenery dev runtime found for app root %s; runtime stop skipped", appRoot)
-		resp.Messages = append(resp.Messages, message)
-		if !opts.JSON {
-			_, _ = fmt.Fprintln(stdout, message)
-		}
-		if opts.DB {
-			dbMessage, err := dropSessionManagedDatabase(ctx, appRoot)
-			if err != nil {
-				return err
-			}
-			resp.Messages = append(resp.Messages, dbMessage)
-			if !opts.JSON {
-				_, _ = fmt.Fprintln(stdout, dbMessage)
-			}
-		}
-		if opts.State {
-			stateMessage := "no scenery dev runtime state found to remove"
-			resp.Messages = append(resp.Messages, stateMessage)
-			if !opts.JSON {
-				_, _ = fmt.Fprintln(stdout, stateMessage)
-			}
-		}
-		if opts.JSON {
-			return writeDownJSON(stdout, resp)
-		}
-		return nil
-	}
-	if err := stopDeletedSessionProcesses(ctx, session); err != nil {
-		return err
-	}
-	deletedSession, deleted, err := deleteStoppedSessionRecord(ctx, client, session)
-	if err != nil {
-		return err
-	}
-	resp := downResponse{
-		cliPayloadIdentity: newCLIPayloadIdentity("scenery.down"),
-		AppRoot:            appRoot,
-		Deleted:            deleted,
-		DBCleanup:          opts.DB,
-		StateCleanup:       opts.State,
-	}
-	runtimeLabel := firstNonEmpty(appRoot, deletedSession.AppRoot, session.AppRoot, deletedSession.SessionID, session.SessionID)
-	if !deleted {
-		resp.RecordPreserved = true
-		resp.Messages = append(resp.Messages, fmt.Sprintf("stopped scenery dev runtime processes for %s; preserved active runtime record because the owner changed", runtimeLabel))
-		if opts.JSON {
-			return writeDownJSON(stdout, resp)
-		}
-		_, _ = fmt.Fprintln(stdout, resp.Messages[0])
-		return nil
-	}
-	if opts.DB {
-		message, err := dropSessionManagedDatabase(ctx, appRoot)
-		if err != nil {
-			return err
-		}
-		resp.Messages = append(resp.Messages, message)
-		if !opts.JSON {
-			_, _ = fmt.Fprintln(stdout, message)
-		}
-	}
-	if opts.State {
-		if err := removeSessionStateRoot(deletedSession); err != nil {
-			return err
-		}
-		resp.StateRootRemoved = deletedSession.StateRoot
-		stateMessage := fmt.Sprintf("removed scenery dev runtime state %s", deletedSession.StateRoot)
-		resp.Messages = append(resp.Messages, stateMessage)
-		if !opts.JSON {
-			_, _ = fmt.Fprintln(stdout, stateMessage)
-		}
-	}
-	stopMessage := fmt.Sprintf("stopped scenery dev runtime for %s", runtimeLabel)
-	resp.Messages = append(resp.Messages, stopMessage)
-	if opts.JSON {
-		return writeDownJSON(stdout, resp)
-	}
-	_, _ = fmt.Fprintln(stdout, stopMessage)
-	return nil
+	return runWorktreeDown(context.Background(), os.Stdout, args)
 }
 
 func writeDownJSON(w io.Writer, resp downResponse) error {
 	return writeCLIJSON(w, resp)
-}
-
-func deleteStoppedSessionRecord(ctx context.Context, client *localagent.Client, session localagent.Session) (localagent.Session, bool, error) {
-	ownerPID := firstPositiveInt(session.OwnerPID, session.Owner.PID)
-	if ownerPID <= 0 {
-		deletedSession, deleted, err := client.DeleteUnowned(ctx, session.SessionID)
-		if err == nil {
-			if !deleted {
-				return session, false, nil
-			}
-			if strings.TrimSpace(deletedSession.SessionID) == "" {
-				return session, true, nil
-			}
-			return deletedSession, true, nil
-		}
-		if localagent.IsNotFound(err) {
-			return session, true, nil
-		}
-		return localagent.Session{}, false, err
-	}
-	deletedSession, deleted, err := client.DeleteOwnedSession(ctx, session, false)
-	if err == nil {
-		if !deleted {
-			return session, false, nil
-		}
-		if strings.TrimSpace(deletedSession.SessionID) == "" {
-			return session, true, nil
-		}
-		return deletedSession, true, nil
-	}
-	if localagent.IsNotFound(err) {
-		return session, true, nil
-	}
-	return localagent.Session{}, false, err
 }
 
 type stopDeletedSessionProcessDependencies struct {
@@ -796,25 +586,6 @@ func stopDeletedSessionProcessesWithDependencies(ctx context.Context, session lo
 	return errors.Join(errs...)
 }
 
-func resolveDownSession(ctx context.Context, client *localagent.Client, opts downOptions) (localagent.Session, bool, error) {
-	appRoot, err := resolveStatusAppRoot(opts.AppRoot)
-	if err != nil {
-		return localagent.Session{}, false, err
-	}
-	sessions, err := client.List(ctx, appRoot)
-	if err != nil {
-		return localagent.Session{}, false, err
-	}
-	return resolveDownSessionFromList(appRoot, sessions)
-}
-
-func resolveDownSessionFromList(appRoot string, sessions []localagent.Session) (localagent.Session, bool, error) {
-	if len(sessions) == 0 {
-		return localagent.Session{AppRoot: appRoot}, true, nil
-	}
-	return sessions[0], false, nil
-}
-
 func parseDownArgs(args []string) (downOptions, error) {
 	var opts downOptions
 	flags := newCLIFlagSet("down")
@@ -833,104 +604,8 @@ func parseDownArgs(args []string) (downOptions, error) {
 	return opts, nil
 }
 
-func removeSessionStateRoot(session localagent.Session) error {
-	if strings.TrimSpace(session.StateRoot) == "" {
-		return nil
-	}
-	clean := filepath.Clean(session.StateRoot)
-	if !strings.Contains(clean, string(filepath.Separator)+".scenery"+string(filepath.Separator)+"sessions"+string(filepath.Separator)) {
-		return fmt.Errorf("refusing to remove unexpected session state path %s", clean)
-	}
-	return os.RemoveAll(clean)
-}
-
 func pruneCommand(args []string) error {
-	client, err := commandAgentClient()
-	if err != nil {
-		return err
-	}
-	return pruneCommandWithDeps(client, os.Stdout, openDevdashStore, args)
-}
-
-func pruneCommandWithDeps(client *localagent.Client, stdout io.Writer, openStore func() (*devdash.Store, error), args []string) error {
-	opts, err := parsePruneArgs(args)
-	if err != nil {
-		return err
-	}
-	ctx := context.Background()
-	if opts.All {
-		opts.DB = true
-		opts.State = true
-	}
-	appRoot := strings.TrimSpace(opts.AppRoot)
-	if appRoot != "" {
-		resolved, err := resolveStatusAppRoot(appRoot)
-		if err != nil {
-			return err
-		}
-		appRoot = resolved
-	}
-	sessions, err := client.List(ctx, appRoot)
-	if err != nil {
-		return err
-	}
-	cutoff := time.Now().UTC().Add(-opts.OlderThan)
-	var pruned []string
-	var skipped []string
-	devEventsPruned := int64(0)
-	devSourcesPruned := int64(0)
-	var store *devdash.Store
-	if opts.State {
-		store, err = openStore()
-		if err != nil {
-			return err
-		}
-		defer func() { _ = store.Close() }()
-	}
-	for _, session := range sessions {
-		if !pruneSessionEligible(session, cutoff) {
-			skipped = append(skipped, session.SessionID)
-			continue
-		}
-		if opts.DB {
-			if _, err := dropSessionManagedDatabase(ctx, session.AppRoot); err != nil {
-				return err
-			}
-		}
-		deleted, err := client.Delete(ctx, session.SessionID, false)
-		if err != nil {
-			return err
-		}
-		if opts.State {
-			if err := removeSessionStateRoot(deleted); err != nil {
-				return err
-			}
-			events, sources, err := store.DeleteDevEventsForSession(ctx, deleted.BaseAppID, deleted.SessionID)
-			if err != nil {
-				return err
-			}
-			devEventsPruned += events
-			devSourcesPruned += sources
-		}
-		pruned = append(pruned, deleted.SessionID)
-	}
-	if opts.JSON {
-		return writeCLIJSON(stdout, pruneResponse{
-			cliPayloadIdentity: newCLIPayloadIdentity("scenery.prune"),
-			Cutoff:             cutoff.Format(time.RFC3339Nano),
-			Pruned:             pruned,
-			Skipped:            skipped,
-			DBCleanup:          opts.DB,
-			StateCleanup:       opts.State,
-			DevEventsPruned:    devEventsPruned,
-			DevSourcesPruned:   devSourcesPruned,
-		})
-	}
-	for _, id := range pruned {
-		_, _ = fmt.Fprintf(stdout, "pruned scenery session %s\n", id)
-	}
-	_, _ = fmt.Fprintf(stdout, "scenery prune complete: pruned=%d skipped=%d dev_events=%d dev_sources=%d\n", len(pruned), len(skipped), devEventsPruned, devSourcesPruned)
-	return nil
+	return runWorktreePrune(context.Background(), os.Stdout, args)
 }
 
 func parsePruneArgs(args []string) (pruneOptions, error) {
@@ -1000,27 +675,6 @@ func pruneSessionEligible(session localagent.Session, cutoff time.Time) bool {
 		return false
 	}
 	return true
-}
-
-func dropSessionManagedDatabase(ctx context.Context, appRoot string) (string, error) {
-	if strings.TrimSpace(appRoot) == "" {
-		return "", fmt.Errorf("app root is required to drop a managed database")
-	}
-	appRoot, cfg, err := discoverConfiguredApp(appRoot)
-	if err != nil {
-		return "", err
-	}
-	database, err := resolvePostgresDatabaseForCLI(ctx, appRoot, cfg)
-	if err != nil {
-		return "", err
-	}
-	if strings.TrimSpace(database.Database) == "" {
-		return "no managed database is configured", nil
-	}
-	if err := dropPostgresDatabase(ctx, database); err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("dropped managed postgres database %s", database.Database), nil
 }
 
 func resolveStatusAppRoot(value string) (string, error) {

@@ -7,9 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"scenery.sh/internal/compiler"
-	generateapi "scenery.sh/internal/generate/api"
 )
 
 // RuntimeCheck reports whether the host OS/architecture is a routinely
@@ -184,7 +181,7 @@ func DiskCheck(ctx context.Context, probe ResourceProbe, path PathReport, env *E
 }
 
 // StorageSizeChecks reports the on-disk size of the Scenery home and its
-// managed Postgres state.
+// retained worktree control/observability state, not Docker volume contents.
 func StorageSizeChecks(ctx context.Context, deps ProbeDeps) []Check {
 	home, err := deps.AgentHome()
 	if err != nil {
@@ -201,7 +198,7 @@ func StorageSizeChecks(ctx context.Context, deps ProbeDeps) []Check {
 	home = filepath.Clean(home)
 	return []Check{
 		pathSizeCheck(ctx, "storage.scenery_home", "Scenery home size", home, "Scenery home"),
-		pathSizeCheck(ctx, "storage.postgres_database", "Postgres database state size", filepath.Join(home, "agent", "postgres"), "Postgres database state"),
+		pathSizeCheck(ctx, "storage.worktree_state", "Worktree state size", filepath.Join(home, "worktrees"), "Worktree control and observability state (Docker volumes excluded)"),
 	}
 }
 
@@ -282,50 +279,4 @@ func pathSize(ctx context.Context, path string) (pathSizeInfo, error) {
 		return nil
 	})
 	return usage, err
-}
-
-// EditorWorkspaceCheck reports whether the app root's generated Go
-// editor workspace is present, current, and unconflicted.
-func EditorWorkspaceCheck(root string) Check {
-	check := Check{
-		ID:       "app.editor_workspace",
-		Category: "app",
-		Name:     "Generated Go editor workspace",
-		Status:   StatusSkipped,
-		Severity: SeverityInformational,
-		Message:  "editor contracts have not been synchronized; run `scenery check`",
-	}
-	status := generateapi.InspectEditorWorkspace(root)
-	check.Observed = map[string]any{"go_work": status.WorkFile, "owner": status.OwnerFile}
-	if status.ParentWorkFile != "" {
-		check.Observed["parent_go_work"] = status.ParentWorkFile
-	}
-	if status.Conflict {
-		check.Status = StatusError
-		check.Severity = SeverityRequired
-		check.Message = status.Message
-		check.SuggestedAction = "Remove or restore the conflicting root go.work, then run `scenery check`; Scenery never replaces an unverified workfile."
-		return check
-	}
-	if !status.Managed {
-		return check
-	}
-	check.Status = StatusOK
-	check.Message = "generated Go contracts are available to raw Go commands and gopls"
-	check.Observed["spec_revision"] = status.SpecRevision
-	check.Observed["contract_revision"] = status.ContractRevision
-	if compiled, err := compiler.Compile(root); err == nil && compiled.Manifest != nil && compiled.Manifest.ContractRevision != status.ContractRevision {
-		check.Status = StatusWarn
-		check.Severity = SeverityOptional
-		check.Message = "editor contracts correspond to the previous valid contract revision"
-		check.SuggestedAction = "Fix contract diagnostics, then run `scenery check` to refresh editor contracts."
-		check.Observed["current_contract_revision"] = compiled.Manifest.ContractRevision
-	}
-	if status.ParentWorkFile != "" && check.Status == StatusOK {
-		check.Status = StatusWarn
-		check.Severity = SeverityOptional
-		check.Message = "the managed app go.work shadows a parent Go workspace"
-		check.SuggestedAction = "Run Go commands from the app root; remove the managed workfile only if the parent workspace must control this app."
-	}
-	return check
 }

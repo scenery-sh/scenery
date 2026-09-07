@@ -8,14 +8,17 @@
     "schema_revision",
     "ok",
     "container",
-    "status"
+    "status",
+    "app_root",
+    "scope",
+    "retained_data"
   ],
   "properties": {
     "kind": {
       "const": "scenery.db.server.status"
     },
     "schema_revision": {
-      "const": "sha256:120bed92b10ab3cd646f455e7f1492d9c7b2b0cf081a32c7b37e859504171621"
+      "const": "sha256:859372bc8b167d297b8b14fc48e912a66d9d09485749ddff366c1ef4d9f43ba9"
     },
     "ok": {
       "type": "boolean"
@@ -57,11 +60,48 @@
         "additionalProperties": false
       }
     },
-    "leases": {
+    "app_root": {
+      "type": "string"
+    },
+    "scope": {
+      "enum": [
+        "worktree",
+        "external"
+      ]
+    },
+    "retained_data": {
+      "type": "boolean"
+    },
+    "resource_id": {
+      "type": "string"
+    },
+    "restore": {
       "type": "object",
-      "additionalProperties": {
-        "type": "object"
-      }
+      "required": [
+        "archive_sha256",
+        "archive_path",
+        "mode",
+        "sql_started"
+      ],
+      "properties": {
+        "archive_sha256": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "archive_path": {
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            "overwrite",
+            "merge"
+          ]
+        },
+        "sql_started": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false

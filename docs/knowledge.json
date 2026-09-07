@@ -19,6 +19,54 @@
   },
   "documents": [
     {
+      "path": "docs/runbooks/worktree-postgres-migration.md",
+      "title": "Shared-to-Worktree PostgreSQL Migration",
+      "owner": "scenery runtime / PostgreSQL",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-07",
+      "review_after": "2026-10-07",
+      "summary": "Operator-owned pre-cutover native database migration into a new root, preserving the source, unrelated apps, database owners, grants, extensions and framework ledgers; includes quiescence and rollback limits.",
+      "tags": ["runbooks", "runtime", "postgres", "migration", "ownership"]
+    },
+    {
+      "path": "testdata/apps/worktree-postgres/README.md",
+      "title": "Worktree Runtime PostgreSQL Acceptance Fixture",
+      "owner": "scenery runtime / PostgreSQL",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-07",
+      "review_after": "2026-10-07",
+      "summary": "Authored library desk fixture for real Git-worktree runtime, managed SQL ownership, typed lending races, recovery and cost evidence in the named release probe.",
+      "tags": ["fixtures", "runtime", "postgres", "ownership", "harness"]
+    },
+    {
+      "path": "docs/plans/0167-worktree-runtime-postgres.md",
+      "title": "Worktree-Owned Development Runtime and PostgreSQL",
+      "owner": "scenery runtime / PostgreSQL",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-07",
+      "review_after": "2026-10-07",
+      "summary": "Completed app-root-owned development control and managed PostgreSQL with retained data, explicit external sharing, all A1-A18 isolation/recovery/migration/cost checks, full release/gate and Chrome proof; real developer database migration remains explicitly operator-selected.",
+      "tags": ["plans", "execplans", "runtime", "postgres", "ownership"]
+    },
+    {
+      "path": "docs/plans/0165-ordinary-go-contracts.md",
+      "title": "Ordinary Go Contracts Without Generated Git Noise",
+      "owner": "scenery generation / CLI",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-07",
+      "review_after": "2026-10-07",
+      "summary": "Completed ignored in-module Go contracts and library facades, removed synthetic editor modules, and verified source-only raw-Go tooling, publication recovery, safe workfile cutover and release validation; runtime ownership implementation remains separate.",
+      "tags": ["plans", "execplans", "generation", "go", "tooling", "ownership"]
+    },
+    {
       "path": "docs/plans/0164-truthful-runtime-diagnostics.md",
       "title": "Truthful Runtime Diagnostics and Safe Recovery",
       "owner": "scenery runtime / CLI",
@@ -734,7 +782,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-22",
       "review_after": "2026-08-21",
-      "summary": "Completed ExecPlan consolidating runtime infrastructure: shared migration locking, registry error propagation, coalesced devdash persistence, tested atomicfile and netprobe kernels, indexed generation, and extracted edge, deploy, doctor, Victoria, Symphony, and validation logic.",
+      "summary": "Completed ExecPlan consolidating runtime infrastructure: shared migration locking, registry error propagation, coalesced devdash persistence, tested atomicfile and netprobe kernels, indexed generation, and extracted edge, deploy, doctor, Victoria, and validation logic.",
       "tags": ["plans", "execplans", "runtime", "refactor", "postgres", "atomicfile", "netprobe", "generate", "cli"]
     },
     {
@@ -1369,7 +1417,7 @@
       "freshness": "current",
       "last_reviewed": "2026-08-04",
       "review_after": "2026-09-03",
-      "summary": "Normative current Go implementation contract for externally cached generated contracts, stable import identities, staged verification, assistant provider-neutral route/composition boundaries, supervised child adapters, private control/loopback MCP, managed runtime assets, descriptors, and explicit published-module materialization.",
+      "summary": "Normative current Go implementation contract for ignored in-module public projections, graph-valid bootstrap, read-only freshness and expected-overlay ABI verification, cached private composition, descriptor-authenticated publication, ordinary Go tooling, explicit module distribution and one-time old-workfile cutover.",
       "tags": [
         "spec",
         "go",
@@ -1559,27 +1607,6 @@
       ]
     },
     {
-      "path": "docs/plans/0095-symphony-hardening.md",
-      "title": "Symphony Hardening",
-      "owner": "scenery dashboard / agent DX",
-      "status": "completed",
-      "quality": "B",
-      "freshness": "current",
-      "last_reviewed": "2026-07-14",
-      "review_after": "2026-08-13",
-      "summary": "Completed ExecPlan hardening the Symphony dashboard and auto runner: dashboard RPC auto-mode gating, local CLI auto opt-in, run leases, stale recovery, timeout and stall statuses, max_attempts semantics, latest-run correctness, and workspace lifecycle cleanup.",
-      "tags": [
-        "plans",
-        "execplans",
-        "dashboard",
-        "console",
-        "symphony",
-        "sqlite",
-        "agents",
-        "security"
-      ]
-    },
-    {
       "path": "docs/plans/0097-postgres-only-data-platform.md",
       "title": "Postgres-Only Data Platform: One Database Per App/Worktree, One Schema Per Service",
       "owner": "scenery runtime / database",
@@ -1683,7 +1710,7 @@
       "freshness": "current",
       "last_reviewed": "2026-09-05",
       "review_after": "2026-10-05",
-      "summary": "Concise installed-skill entrypoint for current Scenery apps: qualified schemas, explicit offline provider locking, client/editor reports, generated-type navigation, webhook example, task routing, assistants, graph mutations, runtime, optional dotenv sources, deploy, storage and cached validation.",
+      "summary": "Concise installed-skill entrypoint for current Scenery apps: ordinary in-module Go generation prerequisites, client reports, exact generated-root ignores, generated-type navigation, explicit provider locking, webhook example, assistants, graph mutations, runtime, deploy, storage and cached validation.",
       "tags": [
         "skill",
         "agents",
@@ -1704,7 +1731,7 @@
       "freshness": "current",
       "last_reviewed": "2026-09-05",
       "review_after": "2026-10-05",
-      "summary": "Agent workflows for current apps and Scenery: explicit provider locking, generation/materialization and editor-status boundaries, generated-type discovery, assistants, exact CLI JSON, graph provenance, classified runtime diagnosis, optional dotenv sources, agent-home isolation limits, prerequisite versus runtime proof, deploy, storage and 100ms Go-root/release validation.",
+      "summary": "Agent workflows for current apps and Scenery: ignored in-module Go packages, automatic build preparation, read-only freshness/ABI checks, explicit old-workfile cutover, generated-type discovery, provider locking, assistants, exact CLI JSON, graph provenance, runtime diagnosis, ownership limits and 100ms Go-root/release validation.",
       "tags": [
         "agents",
         "cli",
@@ -1779,7 +1806,7 @@
       "freshness": "current",
       "last_reviewed": "2026-09-05",
       "review_after": "2026-10-05",
-      "summary": "Exact CLI grammar/JSON, qualified schemas, offline provider lock/check and content identity, generation coverage/editor reports, graph provenance, runtime/deploy behavior, optional dotenv sources with required-value validation, expected-failure classification, non-mutating Postgres conflict recovery, doctor preflight and selected harness proof, generated access/audit identity, 100ms Go roots, release probes and code tasks.",
+      "summary": "Exact CLI grammar/JSON, ordinary in-module Go bootstrap and selected clients without editor-workspace fields or modes, read-only freshness checks, authenticated publication and revisions, offline provider locking, runtime/deploy behavior, expected-failure classification, non-mutating Postgres recovery, doctor preflight and selected harness/release proof.",
       "tags": [
         "contract",
         "cli",
@@ -1925,7 +1952,7 @@
       "freshness": "current",
       "last_reviewed": "2026-09-05",
       "review_after": "2026-10-05",
-      "summary": "Agent validation loop with cached and fresh Go execution, exception-free repeated 100ms p95 gate, explicit warning/skip and selected-mode proof summaries, release-only boundary probes, disposable CLI installs and built headless fixture runtimes, four-way missing-binary builds, prepare-wall budgeting, changed-area commands, browser/data proofs, and documentation review queues.",
+      "summary": "Agent validation loop with cached and fresh Go execution, exception-free repeated 100ms p95 gate, explicit warning/skip and selected-mode proof summaries, release-only worktree ownership/migration/cost probes, disposable CLI builds without installation, source-only snapshot builds, headless fixtures, changed-area commands, browser/data proofs, and documentation review queues.",
       "tags": [
         "harness",
         "agents",
@@ -1953,7 +1980,7 @@
       "freshness": "current",
       "last_reviewed": "2026-09-05",
       "review_after": "2026-10-05",
-      "summary": "Practical current-app recipes: independent durable webhook example, explicit builtin provider locks, complete HTTP session/module wiring, exported typed-client operations, ordinary generation, assistants, storage, Postgres, CRUD, React pages, observability and validation.",
+      "summary": "Practical current-app recipes: fresh-checkout ordinary Go tooling, exact generated-root Git policy, explicit verified old-workfile cutover and module distribution, independent durable webhook example, provider locks, typed HTTP/client wiring, assistants, storage, Postgres, CRUD, React pages and validation.",
       "tags": [
         "cookbook",
         "apps",
@@ -2441,26 +2468,6 @@
         "agent",
         "caddy",
         "dev-runtime",
-        "agents"
-      ]
-    },
-    {
-      "path": "docs/plans/0092-symphony-dashboard.md",
-      "title": "Symphony Dashboard",
-      "owner": "scenery dashboard / agent DX",
-      "status": "completed",
-      "quality": "B",
-      "freshness": "current",
-      "last_reviewed": "2026-07-02",
-      "review_after": "2026-08-01",
-      "summary": "Completed ExecPlan that replaced the console Observability page with an app-scoped SQLite-backed Symphony Kanban board, workflow store, and workflow-gated server-side Codex app-server auto runner while keeping manual process-starting runner RPCs blocked until an authenticated runner channel exists.",
-      "tags": [
-        "plans",
-        "execplans",
-        "dashboard",
-        "console",
-        "symphony",
-        "sqlite",
         "agents"
       ]
     },

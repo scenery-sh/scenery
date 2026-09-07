@@ -5,18 +5,30 @@
   "type": "object",
   "required": [
     "kind",
-    "schema_revision"
+    "schema_revision",
+    "ok",
+    "app_root",
+    "scope",
+    "data_preserved"
   ],
   "properties": {
     "kind": {
       "const": "scenery.db.server.stop"
     },
     "schema_revision": {
-      "const": "sha256:f3e444f3a3840938fa93468976a7cbf9c260a97f163075c3e5c59b333667bd2f"
+      "const": "sha256:f6a01935d0175d9b5a0786f52675641b94b06b21329ca751773328c290a08e34"
     },
     "ok": {
+      "type": "boolean"
     },
-    "container": {
+    "app_root": {
+      "type": "string"
+    },
+    "scope": {
+      "const": "worktree"
+    },
+    "data_preserved": {
+      "const": true
     }
   },
   "additionalProperties": false

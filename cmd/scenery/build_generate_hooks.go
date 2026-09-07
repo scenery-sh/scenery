@@ -9,7 +9,10 @@ import (
 func wireBuildGenerateHooks() {
 	build.SetGenerateHooks(build.GenerateHooks{
 		ApplyImplementationCheck: generate.ApplyImplementationCheck,
-		SyncEditorWorkspace:      generate.SyncEditorWorkspace,
+		SyncGoPackages: func(result *compiler.Result) error {
+			_, err := generate.GenerateGoContractsFromResult(result, false)
+			return err
+		},
 		SyncCachedTypeScript: func(result *compiler.Result) error {
 			_, err := generate.SyncCachedTypeScriptClients(result)
 			return err

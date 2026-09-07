@@ -8,14 +8,13 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"slices"
 	"sort"
 	"strings"
 
 	"golang.org/x/mod/modfile"
 
 	"scenery.sh/internal/app"
-	generateapi "scenery.sh/internal/generate/api"
+	"scenery.sh/internal/compiler"
 )
 
 func copyTree(src, dst string) error {
@@ -33,7 +32,7 @@ func copyTree(src, dst string) error {
 		if d.IsDir() && (shouldSkipDir(rel) || shouldSkipRuntimeArtifactDir(rel)) {
 			return filepath.SkipDir
 		}
-		if !d.IsDir() && (shouldSkipFile(rel) || generateapi.IsManagedEditorWorkFile(src, rel)) {
+		if !d.IsDir() && shouldSkipFile(rel) {
 			return nil
 		}
 		if shouldSkipSymlink(path, d) {
@@ -68,7 +67,10 @@ func syncSourceFilesWithSnapshot(root, appRoot string, prevStamps map[string]Sou
 	if snapshot == nil {
 		return syncSourceFilesFromDisk(root, appRoot, prevStamps, skip)
 	}
-	currentFiles := snapshotSourceFilesForRoot(appRoot, snapshot)
+	currentFiles, err := snapshotSourceFilesForRoot(appRoot, snapshot)
+	if err != nil {
+		return nil, nil, err
+	}
 	stamps := make(map[string]SourceStamp, len(currentFiles))
 	for _, rel := range currentFiles {
 		stamp := sourceStampFromSnapshot(snapshot.Files[rel])
@@ -94,6 +96,9 @@ func syncSourceFilesWithSnapshot(root, appRoot string, prevStamps map[string]Sou
 		stamps[rel] = stamp
 	}
 	for rel := range prevStamps {
+		if _, generated := skip[rel]; generated {
+			continue
+		}
 		if _, ok := stamps[rel]; ok {
 			continue
 		}
@@ -142,6 +147,9 @@ func syncSourceFilesFromDisk(root, appRoot string, prevStamps map[string]SourceS
 		stamps[rel] = stamp
 	}
 	for rel := range prevStamps {
+		if _, generated := skip[rel]; generated {
+			continue
+		}
 		if _, ok := stamps[rel]; ok {
 			continue
 		}
@@ -194,8 +202,12 @@ func sourceStampsFingerprint(stamps map[string]SourceStamp) string {
 }
 
 func listSourceFiles(appRoot string) ([]string, error) {
+	generated, err := compiler.GeneratedPaths(appRoot)
+	if err != nil {
+		return nil, err
+	}
 	files := make(map[string]struct{})
-	err := filepath.WalkDir(appRoot, func(path string, d os.DirEntry, err error) error {
+	err = filepath.WalkDir(appRoot, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -213,7 +225,7 @@ func listSourceFiles(appRoot string) ([]string, error) {
 			return nil
 		}
 		rel = filepath.ToSlash(rel)
-		if generateapi.IsManagedEditorWorkFile(appRoot, rel) {
+		if generated[rel] {
 			return nil
 		}
 		files[rel] = struct{}{}
@@ -294,7 +306,11 @@ func currentAppSourceFingerprintWithSnapshot(appRoot string, snapshot *SourceSna
 			_, _ = h.Write([]byte{0})
 		}
 	}
-	for _, rel := range snapshotSourceFilesForRoot(appRoot, snapshot) {
+	files, err := snapshotSourceFilesForRoot(appRoot, snapshot)
+	if err != nil {
+		return "", err
+	}
+	for _, rel := range files {
 		file := snapshot.Files[rel]
 		_, _ = h.Write([]byte(rel))
 		_, _ = h.Write([]byte{0})
@@ -367,14 +383,19 @@ func snapshotSourceFiles(snapshot *SourceSnapshot) []string {
 	return files
 }
 
-func snapshotSourceFilesForRoot(appRoot string, snapshot *SourceSnapshot) []string {
-	files := snapshotSourceFiles(snapshot)
-	if !generateapi.InspectEditorWorkspace(appRoot).Managed {
-		return files
+func snapshotSourceFilesForRoot(appRoot string, snapshot *SourceSnapshot) ([]string, error) {
+	generated, err := compiler.GeneratedPaths(appRoot)
+	if err != nil {
+		return nil, err
 	}
-	return slices.DeleteFunc(files, func(relative string) bool {
-		return generateapi.IsManagedEditorWorkFile(appRoot, relative)
-	})
+	files := snapshotSourceFiles(snapshot)
+	authored := files[:0]
+	for _, file := range files {
+		if !generated[file] {
+			authored = append(authored, file)
+		}
+	}
+	return authored, nil
 }
 
 func shouldSkipDir(rel string) bool {

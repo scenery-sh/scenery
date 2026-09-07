@@ -13,10 +13,10 @@ import (
 func TestValuePreservesErrorMessages(t *testing.T) {
 	t.Parallel()
 
-	wrapped := fmt.Errorf("open symphony store: %w", errors.New("connection refused"))
+	wrapped := fmt.Errorf("open store: %w", errors.New("connection refused"))
 	got := Value(wrapped)
 	text, ok := got.(string)
-	if !ok || text != "open symphony store: connection refused" {
+	if !ok || text != "open store: connection refused" {
 		t.Fatalf("Value(error) = %#v, want the error message", got)
 	}
 

@@ -95,6 +95,10 @@ func declaredWorkspaceEntries(root string, sources []*Source) (map[string][]byte
 	if err != nil {
 		return nil, err
 	}
+	generatedPaths, err := GeneratedPaths(root)
+	if err != nil {
+		return nil, err
+	}
 	for _, implementationRoot := range workspace.Blocks {
 		if implementationRoot.Type != "implementation_root" {
 			continue
@@ -122,10 +126,7 @@ func declaredWorkspaceEntries(root string, sources []*Source) (map[string][]byte
 				return err
 			}
 			workspaceRelative = filepath.ToSlash(workspaceRelative)
-			if workspacePathWithinManagedRoot(workspaceRelative, managedRoots) {
-				if entry.IsDir() {
-					return filepath.SkipDir
-				}
+			if generatedPaths[workspaceRelative] && workspacePathWithinManagedRoot(workspaceRelative, managedRoots) {
 				return nil
 			}
 			if entry.IsDir() {

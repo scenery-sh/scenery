@@ -125,7 +125,7 @@ func runSceneryLogs(ctx context.Context, stdout io.Writer, args []string) error 
 		return err
 	}
 
-	store, err := openDevdashStore()
+	store, err := openWorktreeDevdashStore(appRoot)
 	if err != nil {
 		return err
 	}
@@ -142,7 +142,7 @@ func runSceneryLogs(ctx context.Context, stdout io.Writer, args []string) error 
 		return fmt.Errorf("local logs for %q belong to %s, not %s", appID, record.Root, appRoot)
 	}
 
-	victoria, err := logsVictoriaStack(ctx)
+	victoria, err := logsVictoriaStack(ctx, appRoot)
 	if err != nil {
 		return err
 	}
@@ -238,26 +238,23 @@ func parseLogsArgs(args []string) (logsOptions, error) {
 
 var resolveLogsVictoriaStackFunc = resolveLogsVictoriaStack
 
-func logsVictoriaStack(ctx context.Context) (*victoria.Stack, error) {
-	victoria := resolveLogsVictoriaStackFunc(ctx, true)
+func logsVictoriaStack(ctx context.Context, appRoot string) (*victoria.Stack, error) {
+	victoria := resolveLogsVictoriaStackFunc(ctx, appRoot)
 	if victoria == nil {
 		return nil, fmt.Errorf("VictoriaLogs is unavailable")
 	}
 	return victoria, nil
 }
 
-func resolveLogsVictoriaStack(ctx context.Context, allowDefault bool) *victoria.Stack {
+func resolveLogsVictoriaStack(ctx context.Context, appRoot string) *victoria.Stack {
 	agentCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
-	if client, err := commandAgentClient(); err == nil {
+	if client, err := commandWorktreeClient(agentCtx, appRoot); err == nil {
 		if substrate, err := client.GetSubstrate(agentCtx, localagent.SubstrateVictoria); err == nil {
 			if stack := victoria.FromSubstrate(substrate); stack != nil {
 				return stack
 			}
 		}
-	}
-	if allowDefault {
-		return victoria.DefaultQueryStack()
 	}
 	return nil
 }
@@ -267,7 +264,7 @@ func resolveLogsSessionID(ctx context.Context, value, appRoot string) (string, e
 	if value != "" && value != "current" {
 		return value, nil
 	}
-	client, err := commandAgentClient()
+	client, err := commandWorktreeClient(ctx, appRoot)
 	if err != nil {
 		if value == "current" {
 			return "", err

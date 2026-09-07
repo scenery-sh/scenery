@@ -26,19 +26,19 @@ func PrepareWithSnapshot(appRoot string, model *model.App, cfg app.Config, snaps
 	if err != nil {
 		return nil, err
 	}
+	if contract.ContractStatus == "valid" {
+		if err := generateHooks.SyncGoPackages(contract); err != nil {
+			return nil, err
+		}
+	}
 	generateHooks.ApplyImplementationCheck(contract)
 	if !contract.Valid() {
-		message := "app contract or generated artifacts are invalid"
 		for _, diagnostic := range contract.Diagnostics {
 			if diagnostic.Severity == "error" {
-				message = diagnostic.Code + ": " + diagnostic.Message
-				if len(diagnostic.Suggestions) > 0 {
-					message += " (" + diagnostic.Suggestions[0] + ")"
-				}
-				break
+				return nil, &ContractError{Diagnostic: diagnostic}
 			}
 		}
-		return nil, fmt.Errorf("build preparation failed: %s", message)
+		return nil, fmt.Errorf("build preparation failed: invalid contract has no error diagnostic")
 	}
 	target, err := compiler.ResolveGoBuildTarget(contract, "", "development")
 	if err != nil {
@@ -47,8 +47,27 @@ func PrepareWithSnapshot(appRoot string, model *model.App, cfg app.Config, snaps
 	return prepareWithContractTarget(appRoot, model, cfg, snapshot, contract, target)
 }
 
+// ContractError retains compiler diagnostics across build and detached-startup
+// orchestration; user-fixable generated drift must not become SCN9000.
+type ContractError struct{ Diagnostic compiler.Diagnostic }
+
+func (e *ContractError) Error() string {
+	message := "build preparation failed: " + e.Diagnostic.Code + ": " + e.Diagnostic.Message
+	if len(e.Diagnostic.Suggestions) > 0 {
+		message += " (" + e.Diagnostic.Suggestions[0] + ")"
+	}
+	return message
+}
+
+func (e *ContractError) ExitCode() int {
+	if strings.HasPrefix(e.Diagnostic.Code, "SCN9") {
+		return 10
+	}
+	return 3
+}
+
 func prepareWithContractTarget(appRoot string, model *model.App, cfg app.Config, snapshot *SourceSnapshot, contract *compiler.Result, target compiler.GoBuildTarget) (*Result, error) {
-	if err := generateHooks.SyncEditorWorkspace(contract); err != nil {
+	if err := generateHooks.SyncGoPackages(contract); err != nil {
 		return nil, err
 	}
 	if err := generateHooks.SyncCachedTypeScript(contract); err != nil {

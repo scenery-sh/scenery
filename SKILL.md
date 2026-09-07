@@ -77,15 +77,14 @@ preserves unrelated locks, and never downloads external providers. Use
 `provider lock --check` for drift detection, not implicit relocking in checks.
 Use qualified schema names, such as `scenery schema scenery.execution -o json`.
 
-Never commit or hand-edit cached `scenerycontract` or `internal/scenerygen` output. Use contract materialization only to publish a module. TypeScript targets use source materialization beneath a declared managed root or cache materialization beneath `.scenery/gen/typescript/`.
+Run `scenery generate --target contracts` once after a fresh checkout before raw Go tooling. It writes ordinary in-module `scenerycontract` and application-imported `scenerylib_<name>` packages; add their exact roots to authored `.gitignore` once. Never hand-edit them. Build/test/up prepare them automatically; check-only commands report drift without repair. Private `internal/scenerygen` composition stays in the build cache. Publishing a Go module explicitly includes its required generated source, using the same renderer. TypeScript targets keep their declared source/cache materialization policy.
 
 For a complete HTTP-to-durable-worker example with SQL, protected status, and a
 typed client, use `examples/webhook-inbox/README.md` in the Scenery source tree.
-Copy examples outside that tree for raw Go/editor workflows: repository-nested
-fixtures intentionally do not receive managed editor workspaces.
-Read `generate`'s `clients` and `editor_workspace` reports: empty selection can
-mean missing package operation exports, and a skipped editor workspace explains
-unresolved raw Go imports. After generation in an external app, use
+Use a disposable external copy when proving independent Go module resolution.
+Read `generate`'s `clients` report: empty selection can mean missing package
+operation exports. Generation creates no `go.work`, nested module, or generated
+replacement; existing user workspaces remain unchanged. After generation, use
 `go doc <package-import>/scenerycontract` to inspect exact constructor/input/
 outcome names instead of guessing fields. See the cookbook for full auth wiring.
 
@@ -179,7 +178,7 @@ Deploy through a configured environment or its singular SSH target. SSH uses pas
 
 Declare storage cells and stores in app config. App code uses `scenery.sh/storage`, never proxy sockets or object directories. Tenant-scoped private calls require auth context or `storage.WithTenantID`. Inspect with `scenery inspect storage -o json`; operate through `scenery storage status|ls|stat|put|get|rm`.
 
-An explicit app `DATABASE_URL` is external. Otherwise `scenery up` manages one Postgres database per app root/worktree and service-scoped schemas. Use `scenery db apply` for schema mutation, `scenery db seed` for initial data and declared `database.seed.commands`, and `scenery db setup` for both. SQL seeds are immutable; file-backed commands rerun only when their explicit workspace input hash changes and must be atomic or idempotent. Do not make file generation apply database state.
+An explicit app `DATABASE_URL` is external; equal external URLs intentionally share data and do not provide managed isolation. Otherwise SQL-backed `scenery up` owns a dedicated Postgres container and volume per canonical app root/worktree, with one app database and service-scoped schemas. Non-SQL startup does not provision Postgres. `scenery down` stops only that worktree and retains data/credentials outside the checkout; branch switches reuse its database, while another worktree gets a separate cluster. Git removal retains data. Inspect retained/orphaned roots with `scenery ps -o json`; whole-cluster deletion requires explicit `scenery prune --older-than <duration> --app-root <absolute-path> --db`. Never infer permission to delete data from a worktree removal request. Use `scenery db apply` for schema mutation, `scenery db seed` for initial data and declared `database.seed.commands`, and `scenery db setup` for both, with the runtime stopped for managed database mutation. SQL seeds are immutable; file-backed commands rerun only when their explicit workspace input hash changes and must be atomic or idempotent. Do not make file generation apply database state. Incompatible ownership, missing retained volumes, a changed Docker daemon, or an interrupted restore is a precondition to resolve, never permission to allocate replacement empty data.
 
 Snapshots include only selected data. Verify checks every payload without stopping a target app. Stop the app before loading; use `--dry-run` first and `--mode overwrite --yes` only for exact replacement. Interrupted overwrite loads are safe to rerun.
 
@@ -277,14 +276,14 @@ Do not run `go install ./cmd/scenery` unless the human explicitly asks. Multiple
 
 CLI installation and updates are source-only. Select a checkout revision and
 build its dashboard before an explicitly requested install. Use separate
-absolute binary paths for parallel versions. Compatible agent contracts are
-shared without automatic replacement; incompatible health schema/spec fails
-closed. Use the matching binary or a private agent home and distinct router
-address. Changing agent home does not isolate machine-global DNS/edge listeners.
-It also does not isolate the globally named Postgres container and volume in
-the same Docker daemon. A container/state port conflict fails before start:
-inspect the Docker context and port bindings, then use the matching agent home
-and credentials or an explicitly provisioned external `DATABASE_URL`. Do not
-remove/recreate/adopt a container or rewrite its state without verifying its
-owner and coordinating with its users.
+absolute binary paths for parallel versions. Each ordinary app root owns its
+runtime control plane; different roots do not share a machine agent or database
+container. Same-root acquisition requires exact current health/schema identity
+and the same selected environment; incompatibility never replaces a live owner.
+Explicit edge/deploy operations still share the intentionally managed machine
+control plane. Changing agent home does not isolate machine-global DNS/edge
+listeners. Retained pre-cutover shared-database authority blocks implicit empty
+allocation: migrate verified data explicitly instead of deleting or relabeling
+old state. Do not remove/recreate/adopt a container or rewrite its authority
+without verifying its owner and coordinating with its users.
 Installing a CLI does not migrate application dependencies or durable data.

@@ -11,6 +11,37 @@ historical records. Do not refresh their review dates or rewrite them as current
 contract prose. Record later guidance here or in the owning current contract;
 use stale knowledge metadata to flag a known contradiction.
 
+## Worktree-Owned Development Runtime and PostgreSQL
+
+- Status: completed
+- Owner: scenery runtime / PostgreSQL
+- Completed: 2026-09-07
+- ExecPlan: [0167 Worktree-Owned Development Runtime and PostgreSQL](0167-worktree-runtime-postgres.md)
+
+Ordinary development owns control, routing, optional observability and managed
+PostgreSQL per canonical app root. Stop retains data; exact explicit cleanup
+removes only an eligible selected cluster. All A1–A18 passed, including mixed
+protocols, pre-cutover coexistence, native migration and three repetitions at
+1/5/10 worktrees. Release passed 47 checks, the release gate passed, Chrome
+passed six journeys, and the fresh timing audit had no 100ms p95 violation.
+The real developer database remains unchanged; later migration needs an exact
+source/root selection and the [operator runbook](../runbooks/worktree-postgres-migration.md).
+
+## Ordinary Go Contracts Without Generated Git Noise
+
+- Status: completed
+- Owner: scenery generation / CLI
+- Completed: 2026-09-07
+- ExecPlan: [0165 Ordinary Go Contracts Without Generated Git Noise](0165-ordinary-go-contracts.md)
+
+Application-imported Go contracts and library facades are ordinary ignored
+in-module packages. Generation/build preparation replaces synthetic editor
+modules; read-only checks retain freshness and native verification. Source-only
+external Git/raw-Go, offline tidy, crash recovery, concurrent generation and
+ownership-verified workfile cutover passed, together with full Go/race/lint,
+TypeScript, webhook, release harness/gate and 1,840 isolated test-root runs
+(maximum p95 50ms). Runtime ownership was subsequently completed in plan 0167 above.
+
 ## Truthful Runtime Diagnostics and Safe Recovery
 
 - Status: completed
@@ -728,16 +759,6 @@ check/test/build/detached-runtime acceptance with zero regenerated Go trees.
 
 Shipped encrypted per-user offline Google connections, cross-process refresh serialization, explicit reconnect/scope failures, typed token access, and real ONLV Gmail API acceptance. Optional proactive worker refresh remains a downstream product decision.
 
-## Symphony Hardening
-
-- Status: completed
-- Owner: scenery dashboard / agent DX
-- Completed: 2026-07-03
-- Quality: B
-- ExecPlan: [0095 Symphony Hardening](0095-symphony-hardening.md)
-
-Shipped local-trust auto-mode gating, run leases and stale recovery, terminal timeout/stall routing, distinct attempt limits, race fixes, and workspace reset/cleanup.
-
 ## Local Filesystem Storage and ZeroFS Removal
 
 - Status: completed
@@ -868,7 +889,7 @@ Shipped:
 - Removed config-defined shell tasks, old generate sniffing, rejected legacy flags, duplicate routes, unused wrappers and PostgreSQL fields, dashboard compatibility metadata, and orphan dependencies and fixtures.
 - Standardized auth on canonical environment names and the `scenery_refresh` cookie, simplified code generation, and synchronized docs, schemas, generated fixtures, and agent guidance.
 - Plan 0110's temporary fixed-cookie compatibility was removed by plan 0111; standard auth reads, issues, and clears only `scenery_refresh`. Configurable cookie/env naming remains removed.
-- Removed migration-only `dev.setup`, configurable app database URL env naming, Symphony's missing-base-ID fallback, the superseded database-only snapshot command, and non-output short CLI aliases.
+- Removed migration-only `dev.setup`, configurable app database URL env naming, the superseded database-only snapshot command, and non-output short CLI aliases.
 
 Validation:
 
@@ -1039,32 +1060,8 @@ Shipped:
 
 - Removed SQLite entirely; Postgres 18 is the only database engine.
 - One managed database per app root/worktree on the shared Docker server, one schema per service, scenery-native tables (auth, durable execution, seed ledger) in the `scenery` schema, external `DATABASE_URL` precedence.
-- Single shared durable job store with `FOR UPDATE SKIP LOCKED` leasing; Postgres-only DB CLI (`scenery.db.list.v3`); `db path`/`db branch` removed; symphony store and dashboard DB explorer on Postgres.
+- Single shared durable job store with `FOR UPDATE SKIP LOCKED` leasing; Postgres-only DB CLI (`scenery.db.list.v3`); `db path`/`db branch` removed; dashboard DB explorer on Postgres.
 - Migrated the onlv client app end to end.
-
-## Symphony Dashboard
-
-- Status: completed
-- Owner: scenery dashboard / agent DX
-- Completed: 2026-07-02
-- Quality: B
-- ExecPlan: [0092 Symphony Dashboard](0092-symphony-dashboard.md)
-
-Shipped:
-
-- Replaced the consolenext `Observability` page with `Symphony`.
-- Added app-scoped SQLite board storage under `<dashboard-cache-root>/symphony.sqlite`, keyed by stable base app ID for agent sessions and direct dashboard app ID when no session id exists.
-- Added dashboard RPC methods for board state, task CRUD, task movement, status visibility, and workflow config.
-- Added a responsive Kanban board with visible and hidden columns, task cards, create/edit modal, explicit refresh, and reload persistence.
-- Added consolenext-specific browser-harness markers for the Symphony page.
-
-Not shipped:
-
-- Process-starting `symphony/run/*` RPCs; they remain blocked until an authenticated runner channel exists.
-
-Validation:
-
-- Passed focused Symphony store/RPC/harness tests, `go test ./cmd/scenery`, `go test ./...`, consolenext lint/typecheck/build, dashboard embed rebuild, harness UI fixture validation, and Chrome fixture validation.
 
 ## First-Class Postgres Service Databases on a Shared Dev Server
 

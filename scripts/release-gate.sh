@@ -154,26 +154,26 @@ self_harness() {
   run "$SCENERY_BIN" harness self -o json --write
 }
 
-install_scenery() {
+build_scenery() {
   cd "$ROOT"
   local install_dir
   install_dir="$(mktemp -d)"
   cleanup_items+=("rm -rf '$install_dir'")
-  run env GOBIN="$install_dir" go install ./cmd/scenery || return $?
+  run go build -o "$install_dir/scenery" ./cmd/scenery || return $?
   if [[ -z "$scenery_bin_was_set" ]]; then
     SCENERY_BIN="$install_dir/scenery"
     export SCENERY_BIN
   fi
 }
 
-clean_checkout_install() {
+source_snapshot_build() {
   cd "$ROOT"
   need python3
   local tmp
   tmp="$(mktemp -d)"
   cleanup_items+=("rm -rf '$tmp'")
   mkdir -p "$tmp/src"
-  git ls-files -z --cached >"$tmp/files.z"
+  git ls-files -z --cached --others --exclude-standard >"$tmp/files.z"
   git ls-files -z --deleted >"$tmp/deleted.z"
   python3 - "$ROOT" "$tmp/src" "$tmp/files.z" "$tmp/deleted.z" <<'PY'
 from pathlib import Path
@@ -194,7 +194,7 @@ for raw in files.read_bytes().split(b"\0"):
 PY
   cd "$tmp/src"
   run ./scripts/build-dashboard-ui-embed.sh || return $?
-  run env GOBIN="$tmp/bin" go install ./cmd/scenery
+  run go build -o "$tmp/bin/scenery" ./cmd/scenery
 }
 
 fixture_smoke() {
@@ -279,9 +279,9 @@ main() {
   step "go lint" lint_go
   step "ui build" ui_builds
   step "dashboard embed" dashboard_embed
-  step "install scenery" install_scenery
+  step "build scenery" build_scenery
   step "self harness" self_harness
-  step "clean checkout install" clean_checkout_install
+  step "source snapshot build" source_snapshot_build
   step "fixture smoke" fixture_smoke
   if [[ -n "$EXTERNAL_APP_ROOT" ]]; then
     step "external app smoke" external_app_smoke

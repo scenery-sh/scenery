@@ -34,27 +34,26 @@ This file tracks known project debt that should be visible to agents before they
 
 - 2026-07-06: 2026-07-03 finding 1 (dashboard embed drift) — the dashboard now exposes the embedded bundle hash via the `version` RPC, response headers, and HTML meta tags, warns when the running binary's bundle differs from `apps/console/dist`, and the self-harness `dashboard ui fresh` step uses the same hash comparison. See docs/local-contract.md.
 - 2026-07-14: 2026-06-28 finding 1 (`scenery ps` treated as runtime proof) — default `scenery up --detach --wait ready` now requests every advertised route and one script or stylesheet asset from each frontend before returning; `scenery ps` remains an inspection surface rather than a probe.
-- 2026-07-06: 2026-07-03 finding 5 (Postgres review) — all four code findings (duplicate_database race, mixed-app SQLite branch rejection, reset/drop resolving all Postgres services, swallowed trailing `--yes`) were verified already fixed on main by commit f07065c2; the docs/knowledge.json and 0093 plan-text drift had already been corrected (0093 is completed and indexed as such). The self-harness postgres probe now provisions a disposable managed container when missing (cleaning up what it created) instead of hard-failing.
+- 2026-07-06: 2026-07-03 finding 3 (Postgres review) — all four code findings (duplicate_database race, mixed-app SQLite branch rejection, reset/drop resolving all Postgres services, swallowed trailing `--yes`) were verified already fixed on main by commit f07065c2; the docs/knowledge.json and 0093 plan-text drift had already been corrected (0093 is completed and indexed as such). The self-harness postgres probe now provisions a disposable managed container when missing (cleaning up what it created) instead of hard-failing.
 - 2026-09-02: Public router ownership verification — public requests now read an immutable in-memory route snapshot. Candidate public-route sessions retain the full PID-reuse-resistant fingerprint check during restoration/registration, deploy/session changes republish the snapshot, and a bounded owner monitor invalidates exited owners; request handling no longer reads `deploy.json` or inspects a process. Enabled-but-down apps and backend failures remain fail-closed with `503`.
 
 ## Open
 
 ### Agent Thread Findings - 2026-07-03
 
-Inspected 4 eligible Codex threads attached to `/Users/petrbrazdil/Repos/scenery` in the previous 24 hours. No eligible thread was missing a local `token_count` record; the active digest row is an edit-time snapshot.
+Retained 3 Codex thread records attached to `/Users/petrbrazdil/Repos/scenery` from the original 24-hour digest. Token totals below cover these retained records.
 
 | Thread | Input | Output | Reasoning | Cache Read | Total Tokens | Cost (USD) |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Implement and harden Symphony dashboard/runner | 3,189,616 | 281,545 | 90,034 | 83,311,232 | 86,782,393 | unavailable |
 | Console parity and cleanup | 2,126,455 | 148,677 | 46,220 | 30,240,256 | 32,515,388 | unavailable |
 | Postgres ExecPlan review | 197,378 | 12,962 | 7,338 | 1,700,352 | 1,910,692 | unavailable |
 | Agent thread debt digest (July 3) | 88,613 | 9,243 | 3,366 | 456,576 | 554,432 | unavailable |
-| **Totals** | **5,602,062** | **452,427** | **146,958** | **115,708,416** | **121,762,905** | unavailable |
+| **Totals** | **2,412,446** | **170,882** | **56,924** | **32,397,184** | **34,980,512** | unavailable |
 
 1. Dashboard source, embedded assets, and live agent state still drift apart.
    - Area: `apps/console` / embedded dashboard runtime proof.
    - Symptom agents experienced: source edits and app builds passed, but Chrome still saw stale dashboard shells or old asset hashes until the embedded bundle, installed Scenery binary, agent/edge process, and target app runtime were cycled together.
-   - Evidence needed to avoid recreating the issue: threads `019f2237-8ae7-7301-bc36-7ce603675895` (`Implement and harden Symphony dashboard/runner`) and `019f21ec-c25b-7331-83b0-4c62d78f4076` (`Console parity and cleanup`); commands `bun run build`, `./scripts/build-dashboard-ui-embed.sh`, `go test ./cmd/scenery`, `curl http://localhost:4747/console/`, Chrome asset checks such as `index-iSP1-ZDY.js`, and repeated Scenery agent/edge plus ONLV restarts; affected files `apps/console/src/App.tsx`, `apps/console/src/symphony-page.tsx`, `cmd/scenery/dashboard_static/dist`, and `scripts/build-dashboard-ui-embed.sh`.
+   - Evidence needed to avoid recreating the issue: thread `019f21ec-c25b-7331-83b0-4c62d78f4076` (`Console parity and cleanup`); commands `bun run build`, `./scripts/build-dashboard-ui-embed.sh`, `go test ./cmd/scenery`, `curl http://localhost:4747/console/`, Chrome asset checks such as `index-iSP1-ZDY.js`, and repeated Scenery agent/edge plus ONLV restarts; affected files `apps/console/src/App.tsx`, `cmd/scenery/dashboard_static/dist`, and `scripts/build-dashboard-ui-embed.sh`.
    - Resolved 2026-07-06: see the Resolved entry above — the dashboard exposes the embedded bundle hash via the `version` RPC, response headers, and HTML meta tags, and the self-harness `dashboard ui fresh` step compares the same hash.
 
 2. Console parity work keeps creating duplicate frontend ownership before it gets trimmed.
@@ -63,19 +62,7 @@ Inspected 4 eligible Codex threads attached to `/Users/petrbrazdil/Repos/scenery
    - Evidence needed to avoid recreating the issue: thread `019f21ec-c25b-7331-83b0-4c62d78f4076`; user prompts "what functionality is implemented? what is missing? compare to ui/" and Ponytail audit follow-ups; commands `bun run lint`, `bun run typecheck`, `bun run build`, `rg "api-call|postGraphQL|/__graphql" apps/console/src`, and `./scripts/build-dashboard-ui-embed.sh`; affected files `apps/console/src/App.tsx`, `apps/console/src/workbench-pages.tsx`, `apps/console/src/dashboard-ui.tsx`, `apps/console/src/scenery.ts`, `apps/console/AGENTS.md`, `apps/console/README.md`, and `apps/console/package.json`.
    - Likely fix owner or next concrete action: console owner should keep route/page ownership singular: API Explorer sends requests, Catalog shows metadata, workbench pages own migrated workflows, and local AGENTS should name the supported RPC surfaces.
 
-3. Symphony runner semantics blurred manual auth gating with autonomous execution.
-   - Area: Symphony dashboard runner / agent safety.
-   - Symptom agents experienced: early plan and implementation correctly blocked manual `symphony/run/*` RPCs behind dashboard auth, but fixture expectations later required autonomous pickup; the first Codex app-server call then failed on a protocol payload shape (`missing field type`) before the runner settled on workflow-gated auto mode.
-   - Evidence needed to avoid recreating the issue: thread `019f2237-8ae7-7301-bc36-7ce603675895`; visible statuses around "runner milestone is intentionally gated", "local Codex app-server daemon is not listening", app-server error `missing field type`, and final run sequence `run.queued -> run.started -> turn.started -> run.succeeded`; affected files `cmd/scenery/dashboard_symphony_runner.go`, `cmd/scenery/dashboard_symphony.go`, `cmd/scenery/dashboard.go`, `internal/symphony/store.go`, and `docs/plans/0092-symphony-dashboard.md`.
-   - Likely fix owner or next concrete action: agent DX/runtime owner should document and test the split: manual runner RPCs stay unavailable until authenticated, while `mode=auto` server-side runner owns isolated worktree creation and Codex app-server protocol details.
-
-4. Symphony fixture proof depends on fragile app identity and startup prerequisites.
-   - Area: dashboard fixture validation / app identity.
-   - Symptom agents experienced: `testdata/apps/basic` rendered the intended fail-closed Symphony message because it had no stable base app id; a temporary `basic` copy then exposed a compile failure, while `standard-auth` needed its checked-in `.env` plus a temporary stable id before Chrome could prove create/edit/move/reload persistence.
-   - Evidence needed to avoid recreating the issue: thread `019f2237-8ae7-7301-bc36-7ce603675895`; commands `.scenery/harness/bin/scenery harness ui --json --write --app-root testdata/apps/basic`, temp `standard-auth` fixture startup, Chrome workflow creating `SYM-1`, and tests that distinguish direct dashboard app id fallback from session records without `BaseAppID`; affected files `cmd/scenery/dashboard_symphony_test.go`, `cmd/scenery/dashboard_symphony_runner_test.go`, `internal/symphony/store_test.go`, and `docs/plans/0092-symphony-dashboard.md`.
-   - Likely fix owner or next concrete action: dashboard/harness owner should add a tiny dedicated Symphony fixture with stable `BaseAppID`, no app-local env surprise, and one browser journey for board persistence plus auto-runner pickup.
-
-5. Postgres plan review exposed mixed-engine CLI and docs-index drift.
+3. Postgres plan review exposed mixed-engine CLI and docs-index drift.
    - Area: database runtime / ExecPlan bookkeeping.
    - Symptom agents experienced: the review started with no local diff in the primary checkout, had to discover `main...feat/postgres`, and found concrete branch bugs plus docs state drift after the Postgres plan moved toward completion.
    - Evidence needed to avoid recreating the issue: thread `019f24ef-8fea-7d23-9c80-9f2863b8cff5` (`Postgres ExecPlan review`); command path `git diff main...feat/postgres`; findings called out `internal/postgresdb/admin.go:L21-L28` check-then-create `duplicate_database`, `cmd/scenery/db_branch_commands.go:L23` rejecting all SQLite branch commands in mixed apps, `cmd/scenery/db_cli.go:L287-L316` resolving all Postgres services before `reset/drop <sqlite-service>`, `cmd/scenery/db_cli.go:L896-L899` swallowing trailing `--yes`, `docs/knowledge.json:L837` staying `active`, and stale `0091` text in `docs/plans/0093-postgres-service-databases.md:L225`.

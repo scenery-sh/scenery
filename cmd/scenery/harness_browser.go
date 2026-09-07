@@ -272,10 +272,6 @@ func startHarnessUIDevProcess(ctx context.Context, appRoot string) (*harnessUIDe
 	if err != nil {
 		return nil, err
 	}
-	dashboardAddr, err := freeLoopbackAddr()
-	if err != nil {
-		return nil, err
-	}
 	exe, err := os.Executable()
 	if err != nil {
 		return nil, err
@@ -283,8 +279,6 @@ func startHarnessUIDevProcess(ctx context.Context, appRoot string) (*harnessUIDe
 	cmd := exec.CommandContext(ctx, exe, "up", "--app-root", appRoot, "--listen", appAddr, "-o", "jsonl")
 	cmd.Dir = appRoot
 	cmd.Env = append(envpolicy.Environ(),
-		"SCENERY_DEV_DASHBOARD_ADDR="+dashboardAddr,
-		"SCENERY_AGENT_DISABLE=1",
 		"SCENERY_DEV_VICTORIA=0",
 		"SCENERY_DEV_VICTORIA_DOWNLOAD=0",
 	)
@@ -300,10 +294,9 @@ func startHarnessUIDevProcess(ctx context.Context, appRoot string) (*harnessUIDe
 		return nil, err
 	}
 	proc := &harnessUIDevProcess{
-		cmd:          cmd,
-		dashboardURL: "http://" + dashboardAddr,
-		done:         make(chan error, 1),
-		output:       &safeLineTail{limit: 80},
+		cmd:    cmd,
+		done:   make(chan error, 1),
+		output: &safeLineTail{limit: 80},
 	}
 	ready := make(chan harnessUIDevSignal, 1)
 	go proc.scanDevOutput(stdout, ready)
@@ -320,7 +313,8 @@ func startHarnessUIDevProcess(ctx context.Context, appRoot string) (*harnessUIDe
 }
 
 type harnessUIDevSignal struct {
-	err error
+	dashboardURL string
+	err          error
 }
 
 func (p *harnessUIDevProcess) scanDevOutput(r io.Reader, ready chan<- harnessUIDevSignal) {
@@ -345,8 +339,13 @@ func (p *harnessUIDevProcess) scanDevOutput(r io.Reader, ready chan<- harnessUID
 		}
 		switch event.Type {
 		case "run.ready":
+			dashboardURL, _ := event.Data["dashboard_url"].(string)
+			signal := harnessUIDevSignal{dashboardURL: strings.TrimSpace(dashboardURL)}
+			if signal.dashboardURL == "" {
+				signal.err = fmt.Errorf("ready runtime did not publish its dashboard URL")
+			}
 			select {
-			case ready <- harnessUIDevSignal{}:
+			case ready <- signal:
 			default:
 			}
 		case "run.failed", "build.error", "process.compile-error":
@@ -371,6 +370,7 @@ func (p *harnessUIDevProcess) waitReady(ctx context.Context, ready <-chan harnes
 			if signal.err != nil {
 				return fmt.Errorf("%w\n%s", signal.err, p.output.String())
 			}
+			p.dashboardURL = signal.dashboardURL
 			if err := waitForHTTP(ctx, p.dashboardURL, 10*time.Second); err != nil {
 				return fmt.Errorf("dashboard did not become reachable: %w\n%s", err, p.output.String())
 			}
@@ -460,16 +460,6 @@ func buildHarnessUIRoutes(dashboardURL, appID string) []harnessUIRouteSpec {
 			Markers: []string{`[data-scenery-ui="ConsoleHeaderNav"]`},
 			Actions: []harnessUIJourneyActionSpec{
 				{Name: "cron page opens", Click: `[data-scenery-ui="ConsoleTab:Cron"]`, WaitSelector: `[data-scenery-ui="ConsoleCron"]`},
-			},
-		},
-		{
-			Name:    "symphony",
-			Path:    appURL,
-			Markers: []string{`[data-scenery-ui="ConsoleHeaderNav"]`},
-			Actions: []harnessUIJourneyActionSpec{
-				{Name: "symphony page opens", Click: `[data-scenery-ui="ConsoleTab:Symphony"]`, WaitSelector: `[data-scenery-ui="ConsoleSymphony"]`},
-				{Name: "symphony board visible", Click: `[data-scenery-ui="ConsoleTab:Symphony"]`, WaitSelector: `[data-scenery-ui="SymphonyBoard"]`},
-				{Name: "symphony hidden columns visible", Click: `[data-scenery-ui="ConsoleTab:Symphony"]`, WaitSelector: `[data-scenery-ui="SymphonyHiddenColumns"]`},
 			},
 		},
 	}

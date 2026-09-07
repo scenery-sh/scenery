@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	localagent "scenery.sh/internal/agent"
 	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/spec"
 )
@@ -196,7 +197,7 @@ func TestSnapshotSaveFailurePreservesExistingArchive(t *testing.T) {
 }
 
 func TestSnapshotContainerDatabaseURLUsesContainerPort(t *testing.T) {
-	got, err := snapshotContainerDatabaseURL(postgresServerState{Container: "postgres", Port: 54378, User: "scenery", Password: "secret"}, "app")
+	got, err := snapshotContainerDatabaseURL(localagent.WorktreePostgres{Container: "postgres", Port: 54378, User: "scenery", Password: "secret"}, "app")
 	if err != nil {
 		t.Fatal(err)
 	}

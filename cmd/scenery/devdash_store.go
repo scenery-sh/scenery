@@ -1,38 +1,20 @@
 package main
 
 import (
-	"context"
+	"os"
 	"path/filepath"
-	"time"
 
-	localagent "scenery.sh/internal/agent"
-	"scenery.sh/internal/devcache"
 	"scenery.sh/internal/devdash"
 )
 
-func openDevdashStore() (*devdash.Store, error) {
-	return devdash.OpenStore(devdashCacheRoot())
-}
-
-func devdashCacheRoot() string {
-	if root := devcache.EnvOrOverride(); root != "" {
-		return root
-	}
-	if localagent.DisabledByEnv() {
-		return ""
-	}
-	client, err := commandAgentClient()
+func openWorktreeDevdashStore(appRoot string) (*devdash.Store, error) {
+	paths, err := commandWorktreePaths(appRoot)
 	if err != nil {
-		return ""
+		return nil, err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
-	defer cancel()
-	if err := client.Ping(ctx); err != nil {
-		return ""
+	root := filepath.Join(paths.ControlPaths().AgentDir, "dashboard")
+	if _, err := os.Stat(root); err != nil {
+		return nil, err
 	}
-	paths, err := commandAgentPaths()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(paths.AgentDir, "dashboard")
+	return devdash.OpenReadOnlyStore(root)
 }

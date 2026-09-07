@@ -23,6 +23,7 @@ import (
 const managedFrontendStartupTimeout = 30 * time.Second
 
 type managedFrontendProcess struct {
+	AppRoot string
 	Name    string
 	Root    string
 	Addr    string
@@ -421,6 +422,7 @@ func startManagedFrontendProcessWithoutWaiting(ctx context.Context, appRoot, app
 		return nil, err
 	}
 	process := &managedFrontendProcess{
+		AppRoot: session.AppRoot,
 		Name:    frontend.Name,
 		Root:    root,
 		Addr:    addr,
@@ -470,7 +472,7 @@ func captureManagedFrontendOutput(ctx context.Context, appID, sessionID string, 
 	}
 	now := time.Now().UTC()
 	event := assignDevEventID(devdash.DevEventFromOutput(appID, sessionID, source, plain, now))
-	if victoria := resolveLogsVictoriaStackFunc(ctx, false); victoria != nil {
+	if victoria := resolveLogsVictoriaStackFunc(ctx, process.AppRoot); victoria != nil {
 		go func(event devdash.DevEvent) {
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 			defer cancel()

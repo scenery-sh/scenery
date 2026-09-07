@@ -1,5 +1,5 @@
 // Package generateapi is the stdlib-only generate leaf: shared types,
-// editor-workspace inspection, runtime-integration plans, and assistant-asset
+// runtime-integration plans and assistant-asset
 // descriptors. Heavy codegen stays in internal/generate.
 package generateapi
 
@@ -14,37 +14,6 @@ type LibraryBuildSpec struct {
 	ABIHash        string
 	ExportPackage  string
 	ExportBuildTag string
-}
-
-// EditorWorkspaceStatus reports whether an app root's generated Go editor
-// workspace is present, current, and unconflicted.
-type EditorWorkspaceStatus struct {
-	Managed          bool
-	Conflict         bool
-	WorkFile         string
-	OwnerFile        string
-	Generation       string
-	SpecRevision     string
-	ContractRevision string
-	ParentWorkFile   string
-	Message          string
-}
-
-// EditorWorkspaceGenerator is the ownership marker written into managed
-// go.work owner records.
-const EditorWorkspaceGenerator = "scenery.editor-workspace"
-
-// EditorWorkOwner is the fail-closed ownership record for a managed root
-// go.work. Sync and inspection share this exact JSON shape.
-type EditorWorkOwner struct {
-	Path             string `json:"path"`
-	Mode             string `json:"mode,omitempty"`
-	Digest           string `json:"digest"`
-	PreviousDigest   string `json:"previous_digest,omitempty"`
-	Application      string `json:"application"`
-	Generator        string `json:"generator"`
-	SpecRevision     string `json:"spec_revision"`
-	ContractRevision string `json:"contract_revision"`
 }
 
 // RuntimeIntegrationPlan is the generated composition import consumed by

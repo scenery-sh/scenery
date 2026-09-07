@@ -66,6 +66,8 @@ type localPathRouterOptions struct {
 	// tests pass their own so the router follows a specific agent rather than
 	// whichever one the process environment names.
 	Agent *localagent.Client
+	// Listener is already bound by the worktree owner; no reserve/rebind race.
+	Listener net.Listener
 }
 
 // localDialRetryPolicy bounds the bridged dial-retry window for one router.
@@ -118,7 +120,7 @@ func startLocalPathRouter(ctx context.Context, opts localPathRouterOptions) (fun
 	}
 	upstreamAddr := strings.TrimSpace(opts.UpstreamAddr)
 	if upstreamAddr == "" {
-		upstreamAddr = localagent.RouterAddrFromEnv()
+		return nil, fmt.Errorf("local path router requires the selected worktree upstream")
 	}
 	token := strings.TrimSpace(opts.EdgeToken)
 	if token == "" {
@@ -133,12 +135,12 @@ func startLocalPathRouter(ctx context.Context, opts localPathRouterOptions) (fun
 		return nil, err
 	}
 	agentClient := opts.Agent
-	if agentClient == nil {
-		agentClient, _ = commandAgentClient()
-	}
-	ln, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(lease.Port)))
-	if err != nil {
-		return nil, fmt.Errorf("start local path router on %s: %w", baseURL, err)
+	ln := opts.Listener
+	if ln == nil {
+		ln, err = net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(lease.Port)))
+		if err != nil {
+			return nil, fmt.Errorf("start local path router on %s: %w", baseURL, err)
+		}
 	}
 	upstreamProxyFor := func(localagent.Backend) *httputil.ReverseProxy {
 		proxy := &httputil.ReverseProxy{}

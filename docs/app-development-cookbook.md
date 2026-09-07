@@ -45,6 +45,61 @@ func (*Service) Hello(_ context.Context, input contract.HelloInput) (contract.He
 }
 ```
 
+### Ordinary Go tooling and Git policy
+
+Run `scenery generate --target contracts` once after a fresh checkout before
+`go doc`, `go mod tidy`, or `go test ./...`. The generated import belongs to the
+existing declared Go module. No generated nested `go.mod`, `go.work`, import
+replacement, editor daemon, or wrapper is involved. Scenery build/test/up
+prepare current packages automatically, including missing-output/cache paths.
+Check-only commands report freshness without repairing application files.
+
+Author exact ignores once, for example:
+
+```gitignore
+/.scenery/
+/service/scenerycontract/
+/pkg/geometry/scenerycontract/
+/pkg/geometry/scenerylib_geometry/
+```
+
+Keep `go.mod`, `go.sum` and implementation parents tracked. Generation never
+rewrites ignore policy or the Git index. A module published for other Go users
+must include its required generated source; make that an explicit distribution
+decision using the same rendered packages. It does not require generated source
+in every application development commit. Use the intended candidate CLI matched
+to the app's `scenery.sh` dependency or deliberate local replacement; generation
+does not install a matching CLI or change dependencies automatically.
+
+### Retire an old Scenery editor workfile
+
+This is an explicit one-time migration, not a runtime compatibility mode. Stop
+old Scenery/editor generation for the selected app before proceeding. From the
+matching Scenery source checkout, first preview the exact ownership check:
+
+```sh
+go run scripts/cutover-go-work.go --app-root /absolute/path/to/app
+```
+
+The script requires `.scenery/editor/go-work-owner.json` to identify that exact
+app and `go.work`. It verifies the full unchanged exclusive workfile, or exactly
+one unchanged managed block in a merged user workfile. A tracked exclusive
+workfile, symlink, missing/corrupt evidence, or changed digest stops for manual
+review. Only after reviewing the preview, apply the bounded change:
+
+```sh
+go run scripts/cutover-go-work.go --app-root /absolute/path/to/app --apply
+```
+
+All user bytes outside a verified merged block survive unchanged. The old owner
+record stays as evidence; `go.work.sum` has no authenticated ownership in that
+record and is always preserved for manual review. Git ignores and global editor
+caches are untouched. Never blindly delete workfiles, global caches or app
+`.scenery` state. Add exact generated-root ignores, then run the intended
+candidate `scenery generate --target contracts` from the app and verify ordinary
+Go tooling. Neither this script nor generation restarts a shared agent or
+modifies databases. A retained user workspace continues to be user-managed.
+
 ## Declare A Typed HTTP Operation
 
 Define wire types, operation behavior, execution policy, and HTTP transport separately:

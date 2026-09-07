@@ -98,7 +98,7 @@ func runLogsQueryCommand(ctx context.Context, stdout io.Writer, args []string) e
 	if err != nil {
 		return err
 	}
-	stack := resolveLogsVictoriaStackFunc(ctx, true)
+	stack := resolveLogsVictoriaStackFunc(ctx, scope.AppRoot)
 	baseURL := ""
 	if stack != nil {
 		baseURL = stack.BaseURL("logs")
@@ -137,7 +137,7 @@ func runLogsTailCommand(ctx context.Context, stdout io.Writer, args []string) er
 	if err != nil {
 		return err
 	}
-	stack := resolveLogsVictoriaStackFunc(ctx, true)
+	stack := resolveLogsVictoriaStackFunc(ctx, scope.AppRoot)
 	if stack == nil || stack.BaseURL("logs") == "" {
 		return fmt.Errorf("VictoriaLogs is unavailable")
 	}
@@ -170,7 +170,7 @@ func runMetricsQueryCommand(ctx context.Context, stdout io.Writer, args []string
 	if err != nil {
 		return err
 	}
-	stack := resolveLogsVictoriaStackFunc(ctx, true)
+	stack := resolveLogsVictoriaStackFunc(ctx, scope.AppRoot)
 	baseURL := ""
 	if stack != nil {
 		baseURL = stack.BaseURL("metrics")
@@ -201,7 +201,7 @@ func runMetricsLabelsCommand(ctx context.Context, stdout io.Writer, args []strin
 	if err != nil {
 		return err
 	}
-	stack := resolveLogsVictoriaStackFunc(ctx, true)
+	stack := resolveLogsVictoriaStackFunc(ctx, scope.AppRoot)
 	baseURL := ""
 	if stack != nil {
 		baseURL = stack.BaseURL("metrics")
@@ -230,7 +230,7 @@ func runMetricsSeriesCommand(ctx context.Context, stdout io.Writer, args []strin
 	if err != nil {
 		return err
 	}
-	stack := resolveLogsVictoriaStackFunc(ctx, true)
+	stack := resolveLogsVictoriaStackFunc(ctx, scope.AppRoot)
 	baseURL := ""
 	if stack != nil {
 		baseURL = stack.BaseURL("metrics")
@@ -255,7 +255,7 @@ func buildInspectObservabilityResponse(ctx context.Context, appRoot string, cfg 
 	if err != nil {
 		return inspectObservabilityResponse{}, err
 	}
-	stack := resolveLogsVictoriaStackFunc(ctx, true)
+	stack := resolveLogsVictoriaStackFunc(ctx, scope.AppRoot)
 	logsBase, metricsBase, tracesBase := "", "", ""
 	if stack != nil {
 		logsBase = stack.BaseURL("logs")
@@ -485,7 +485,7 @@ func resolveQueryScope(ctx context.Context, appRootFlag, sessionFlag string) (ob
 }
 
 func resolveQueryScopeForApp(ctx context.Context, appRoot string, cfg appcfg.Config, sessionFlag string) (obs.QueryScope, error) {
-	client, err := commandAgentClient()
+	client, err := commandWorktreeClient(ctx, appRoot)
 	if err != nil {
 		return obs.QueryScope{}, err
 	}

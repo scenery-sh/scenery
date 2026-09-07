@@ -33,4 +33,6 @@ copy: `scenery generate -o json`, `scenery check -o json`,
 `go test ./...`, and `scenery harness -o json --write`.
 Typecheck the client with `tsc -p client/tsconfig.json` and regenerate it using
 `scenery generate --target typescript_client.public_api -o json`.
-Never edit generated clients or commit Go/editor cache output.
+Never hand-edit generated clients or Go projections. `generate --target
+contracts` prepares ordinary in-module Go imports after a fresh checkout;
+the exact generated roots remain ignored for this application.

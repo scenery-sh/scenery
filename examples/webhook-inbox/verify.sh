@@ -9,13 +9,16 @@ for command in docker go bun curl jq; do command -v "$command" >/dev/null; done
 test -x "$scenery_cli"
 proof_root="$(mktemp -d "${TMPDIR:-/tmp}/scenery-webhook-proof.XXXXXX")"
 container="scenery-webhook-proof-$(basename "$proof_root" | tr '[:upper:]' '[:lower:]')"
+container_id=""
 api_pid=""
 worker_pid=""
 cleanup() {
   for pid in "$api_pid" "$worker_pid"; do
     if [[ -n "$pid" ]]; then kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; fi
   done
-  docker rm -fv "$container" >/dev/null 2>&1 || true
+  if [[ "$container_id" =~ ^[0-9a-f]{64}$ ]]; then
+    docker rm -fv "$container_id" >/dev/null 2>&1 || true
+  fi
   printf 'Proof files retained at %s\n' "$proof_root"
 }
 trap cleanup EXIT
@@ -25,6 +28,7 @@ go mod edit "-replace=scenery.sh=$scenery_root"
 "$scenery_cli" provider lock -o json > "$proof_root/provider-lock.json"
 "$scenery_cli" provider lock --check -o json > "$proof_root/provider-lock-check.json"
 "$scenery_cli" generate -o json > "$proof_root/generate.json"
+go mod tidy > "$proof_root/go-mod-tidy.log" 2>&1
 "$scenery_cli" generate --check -o json > "$proof_root/generate-check.json"
 "$scenery_cli" check -o json > "$proof_root/check.json"
 go test ./... > "$proof_root/go-test.log"
@@ -34,6 +38,8 @@ go test ./... > "$proof_root/go-test.log"
 docker run -d --name "$container" -p 127.0.0.1::5432 \
   -e POSTGRES_PASSWORD=local-webhook-proof -e POSTGRES_DB=webhook \
   postgres:18-alpine > "$proof_root/container-id"
+read -r container_id < "$proof_root/container-id"
+[[ "$container_id" =~ ^[0-9a-f]{64}$ ]]
 ready=false
 for ((attempt=0; attempt<100; attempt++)); do
   if docker exec "$container" pg_isready -h 127.0.0.1 -U postgres -d webhook >/dev/null 2>&1; then ready=true; break; fi

@@ -21,6 +21,7 @@ type Registry struct {
 	scheme           string
 	ownerVerifier    func(Owner) error
 	durable          bool
+	strictCurrent    bool
 	mu               sync.Mutex
 	sessions         map[string]Session
 	substrates       map[string]Substrate
@@ -47,12 +48,17 @@ func OpenRegistry(path, routerAddr string, routerScheme ...string) (*Registry, e
 	if len(routerScheme) > 0 && strings.TrimSpace(routerScheme[0]) != "" {
 		scheme = strings.TrimSpace(routerScheme[0])
 	}
+	return openRegistry(path, routerAddr, scheme, false)
+}
+
+func openRegistry(path, routerAddr, scheme string, strictCurrent bool) (*Registry, error) {
 	r := &Registry{
 		path:             path,
 		router:           routerAddr,
 		scheme:           scheme,
 		ownerVerifier:    VerifyOwner,
 		durable:          true,
+		strictCurrent:    strictCurrent,
 		sessions:         make(map[string]Session),
 		substrates:       make(map[string]Substrate),
 		aliases:          make(map[string]AliasLease),
@@ -182,7 +188,9 @@ func (r *Registry) Upsert(req RegisterRequest) (Session, error) {
 		blockingPID := firstPositive(blocking.OwnerPID, blocking.Owner.PID)
 		return Session{}, fmt.Errorf("scenery up is already running for app root %s under owner PID %d; use a separate Git worktree for another live code copy", session.AppRoot, blockingPID)
 	}
-	session.Aliases, session.AliasConflicts = r.claimAliasesLocked(session, req.ClaimAliases)
+	if session.WorktreeProxy == nil {
+		session.Aliases, session.AliasConflicts = r.claimAliasesLocked(session, req.ClaimAliases)
+	}
 	r.claimDomainHostLocked(&session, req.ClaimAliases)
 	r.sessions[session.SessionID] = session
 	r.currentByAppRoot[filepath.Clean(session.AppRoot)] = session.SessionID
@@ -190,7 +198,7 @@ func (r *Registry) Upsert(req RegisterRequest) (Session, error) {
 	if err := r.saveLocked(); err != nil {
 		return Session{}, err
 	}
-	if r.durable {
+	if r.durable && session.WorktreeProxy == nil {
 		if err := WriteManifest(session); err != nil {
 			return Session{}, err
 		}
@@ -617,8 +625,18 @@ func (r *Registry) load() error {
 		return err
 	}
 	var file registryFile
-	if err := LoadDurableArtifact(r.path, &file, &file.ArtifactIdentity, AgentRegistryKind, agentRegistrySchemaDescriptor, 0o644, migrateLegacyRegistry); err != nil {
-		return err
+	if r.strictCurrent {
+		data, err := os.ReadFile(r.path)
+		if err != nil {
+			return err
+		}
+		if err := machine.DecodeArtifact(data, &file, &file.ArtifactIdentity, AgentRegistryKind, agentRegistrySchemaDescriptor, "use the matching Scenery binary for retained worktree session state"); err != nil {
+			return err
+		}
+	} else {
+		if err := LoadDurableArtifact(r.path, &file, &file.ArtifactIdentity, AgentRegistryKind, agentRegistrySchemaDescriptor, 0o644, migrateLegacyRegistry); err != nil {
+			return err
+		}
 	}
 	for _, session := range file.Sessions {
 		if session.SessionID == "" {

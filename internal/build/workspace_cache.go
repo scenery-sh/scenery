@@ -1,6 +1,7 @@
 package build
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -18,6 +19,7 @@ import (
 
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/codegen"
+	"scenery.sh/internal/compiler"
 )
 
 func dependencyFingerprintFromWorkspace(root string) (string, error) {
@@ -175,6 +177,10 @@ func RefreshCachedWorkspaceWithSnapshot(appRoot string, result *Result, snapshot
 	if result == nil {
 		return false, fmt.Errorf("nil build result")
 	}
+	current, err := refreshCachedGoProjection(appRoot, result)
+	if err != nil || !current {
+		return false, err
+	}
 	generated := make(map[string]struct{}, len(result.GeneratedFiles))
 	for _, rel := range result.GeneratedFiles {
 		rel = filepath.ToSlash(rel)
@@ -225,6 +231,45 @@ func RefreshCachedWorkspaceWithSnapshot(appRoot string, result *Result, snapshot
 	result.Binary = filepath.Join(result.Dir, workspaceBinaryName(appRoot, buildFingerprint))
 	result.ReuseCompiled = pathExists(result.Binary) && previousFrameworkFingerprint == frameworkFingerprint
 	return result.ReuseCompiled, nil
+}
+
+// A cached executable is usable only after publishing the current public
+// projection and proving its private workspace still contains those bytes.
+// Cache metadata alone cannot establish this after deletion or a branch switch.
+func refreshCachedGoProjection(appRoot string, result *Result) (bool, error) {
+	if err := requireGenerateHooks(); err != nil {
+		return false, err
+	}
+	contract, err := compiler.Compile(appRoot)
+	if err != nil {
+		return false, err
+	}
+	if !contract.Valid() {
+		return false, nil
+	}
+	if err := generateHooks.SyncGoPackages(contract); err != nil {
+		return false, err
+	}
+	if err := generateHooks.SyncCachedTypeScript(contract); err != nil {
+		return false, err
+	}
+	rendered, err := generateHooks.RenderGoWorkspaceFiles(contract)
+	if err != nil {
+		return false, err
+	}
+	for rel, expected := range rendered {
+		actual, err := os.ReadFile(filepath.Join(result.Dir, filepath.FromSlash(rel)))
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		if !bytes.Equal(actual, expected) {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 func saveBuildState(root string, state buildState) error {

@@ -48,6 +48,7 @@ Scenery has one evolving application contract. Start with the [Scenery Specifica
 ## Runbooks
 
 - [Standard Auth Production Migration](runbooks/standard-auth-migration.md): operator checklist and SQL template for preserving existing users, tenants, memberships, password hashes, and sessions when moving an app to scenery standard auth.
+- [Shared-to-Worktree PostgreSQL Migration](runbooks/worktree-postgres-migration.md): explicit quiesced native export/restore, inert target provisioning, role/grant/extension review, validation, and rollback limits without touching unrelated shared-server apps.
 
 ## Schemas
 

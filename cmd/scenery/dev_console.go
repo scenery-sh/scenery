@@ -92,7 +92,7 @@ func runSceneryConsole(ctx context.Context, stdin *os.File, stdout io.Writer, op
 	if err != nil {
 		return err
 	}
-	victoria, err := logsVictoriaStack(ctx)
+	victoria, err := logsVictoriaStack(ctx, appRoot)
 	if err != nil {
 		return err
 	}

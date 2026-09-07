@@ -22,7 +22,6 @@ type worktreeOptions struct {
 	AppRoot string
 	From    string
 	JSON    bool
-	DB      bool
 }
 
 type worktreeRecord struct {
@@ -89,7 +88,6 @@ func parseWorktreeArgs(args []string) (worktreeOptions, error) {
 	flags.StringVar(&opts.AppRoot, "app-root", "", "")
 	flags.StringVar(&opts.From, "from", "", "")
 	registerJSONOutput(flags, &opts.JSON)
-	flags.BoolVar(&opts.DB, "db", false, "")
 	positionals, err := parseCLIFlags(flags, args)
 	if err != nil {
 		return worktreeOptions{}, err
@@ -194,34 +192,10 @@ func runWorktreeRemoveWithGit(ctx context.Context, stdout io.Writer, opts worktr
 		Name:               sanitizeWorktreeName(opts.Name),
 		Path:               target,
 	}
-	var dbStateBackup string
-	if opts.DB {
-		stateDir := filepath.Join(target, ".scenery")
-		if _, err := os.Stat(stateDir); err == nil {
-			backupRoot, err := os.MkdirTemp(filepath.Dir(target), ".scenery-worktree-state-*")
-			if err != nil {
-				return err
-			}
-			dbStateBackup = filepath.Join(backupRoot, ".scenery")
-			if err := os.Rename(stateDir, dbStateBackup); err != nil {
-				_ = os.RemoveAll(backupRoot)
-				return err
-			}
-		} else if err != nil && !os.IsNotExist(err) {
-			return err
-		}
-	}
 	if err := runGit(ctx, "-C", appRoot, "worktree", "remove", target); err != nil {
-		if dbStateBackup != "" {
-			_ = os.Rename(dbStateBackup, filepath.Join(target, ".scenery"))
-			_ = os.RemoveAll(filepath.Dir(dbStateBackup))
-		}
 		return err
 	}
-	if dbStateBackup != "" {
-		_ = os.RemoveAll(filepath.Dir(dbStateBackup))
-	}
-	result.Message = "Git worktree removed."
+	result.Message = "Git worktree removed; retained managed database resources are unchanged."
 	if opts.JSON {
 		return writeInspectJSON(stdout, result)
 	}

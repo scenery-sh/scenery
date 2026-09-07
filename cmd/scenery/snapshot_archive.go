@@ -16,7 +16,6 @@ import (
 	"strings"
 	"time"
 
-	localagent "scenery.sh/internal/agent"
 	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/postgresdb"
@@ -24,6 +23,7 @@ import (
 )
 
 type snapshotArchive struct {
+	path     string
 	reader   *zip.ReadCloser
 	manifest snapshotManifest
 	files    map[string]*zip.File
@@ -41,6 +41,11 @@ func (w *snapshotCountingWriter) Write(p []byte) (int, error) {
 }
 
 func saveSnapshot(ctx context.Context, appRoot string, cfg appcfg.Config, opts snapshotSaveOptions) (_ snapshotSaveResult, returnErr error) {
+	worktree, err := commandWorktreePaths(appRoot)
+	if err != nil {
+		return snapshotSaveResult{}, err
+	}
+	appRoot = worktree.AppRoot
 	output, err := filepath.Abs(opts.Output)
 	if err != nil {
 		return snapshotSaveResult{}, err
@@ -64,6 +69,20 @@ func saveSnapshot(ctx context.Context, appRoot string, cfg appcfg.Config, opts s
 	var database postgresdb.Database
 	var pgRunner snapshotPostgresRunner
 	if opts.DB {
+		_, source, err := configuredSnapshotDatabaseTarget(appRoot, cfg)
+		if err != nil {
+			return snapshotSaveResult{}, err
+		}
+		if source == string(postgresdb.SourceManaged) {
+			if _, err := worktree.LoadRecord(cfg.AppID()); err != nil {
+				return snapshotSaveResult{}, err
+			}
+			op, err := worktree.BeginOperation()
+			if err != nil {
+				return snapshotSaveResult{}, err
+			}
+			defer func() { returnErr = errors.Join(returnErr, op.Close()) }()
+		}
 		database, err = resolvePostgresDatabaseForCLI(ctx, appRoot, cfg)
 		if err != nil {
 			return snapshotSaveResult{}, err
@@ -247,6 +266,11 @@ func writeSnapshotPayload(writer io.Writer, write func(io.Writer) error) (snapsh
 }
 
 func loadSnapshot(ctx context.Context, appRoot string, cfg appcfg.Config, opts snapshotLoadOptions) (snapshotLoadResult, error) {
+	worktree, err := commandWorktreePaths(appRoot)
+	if err != nil {
+		return snapshotLoadResult{}, err
+	}
+	appRoot = worktree.AppRoot
 	input, err := filepath.Abs(opts.Input)
 	if err != nil {
 		return snapshotLoadResult{}, err
@@ -322,19 +346,28 @@ func loadSnapshot(ctx context.Context, appRoot string, cfg appcfg.Config, opts s
 	if opts.DryRun {
 		return result, nil
 	}
+	live, err := worktree.AcquireLiveLock()
+	if err != nil {
+		return snapshotLoadResult{}, fmt.Errorf("snapshot load requires the worktree owner and other restore operations to stop: %w", err)
+	}
+	defer func() { _ = live.Release() }()
 
 	if opts.DB {
-		database, err := resolvePostgresDatabaseForCLI(ctx, appRoot, cfg)
-		if err != nil {
-			return snapshotLoadResult{}, err
-		}
-		if opts.Mode == "merge" {
+		if targetSource == string(postgresdb.SourceManaged) {
+			if err := restoreWorktreeSnapshot(ctx, appRoot, cfg, archive, opts.Mode); err != nil {
+				return snapshotLoadResult{}, err
+			}
+		} else {
+			database, err := resolvePostgresDatabaseForCLI(ctx, appRoot, cfg)
+			if err != nil {
+				return snapshotLoadResult{}, err
+			}
 			if err := requireSnapshotSchemas(ctx, database, archive.manifest.DB.Schemas); err != nil {
 				return snapshotLoadResult{}, err
 			}
-		}
-		if err := restoreSnapshotDatabase(ctx, archive, database, opts.Mode); err != nil {
-			return snapshotLoadResult{}, err
+			if err := restoreSnapshotDatabase(ctx, archive, database, opts.Mode); err != nil {
+				return snapshotLoadResult{}, err
+			}
 		}
 	}
 	if opts.Storage {
@@ -353,7 +386,7 @@ func openSnapshotArchive(filePath string) (*snapshotArchive, error) {
 	if err != nil {
 		return nil, err
 	}
-	archive := &snapshotArchive{reader: reader, files: map[string]*zip.File{}}
+	archive := &snapshotArchive{path: filePath, reader: reader, files: map[string]*zip.File{}}
 	fail := func(err error) (*snapshotArchive, error) {
 		_ = reader.Close()
 		return nil, err
@@ -601,24 +634,16 @@ func configuredSnapshotDatabaseTarget(appRoot string, cfg appcfg.Config) (string
 }
 
 func rejectSnapshotLiveSession(ctx context.Context, appRoot string) error {
-	paths, err := commandAgentPaths()
+	paths, err := commandWorktreePaths(appRoot)
 	if err != nil {
 		return err
 	}
-	if _, err := os.Stat(paths.SocketPath); errors.Is(err, os.ErrNotExist) {
-		return nil
-	} else if err != nil {
+	held, err := paths.ProbeLiveLock()
+	if err != nil {
 		return err
 	}
-	client := localagent.NewClient(paths.SocketPath)
-	sessions, err := client.List(ctx, appRoot)
-	if err != nil {
-		return fmt.Errorf("cannot verify snapshot load safety against the local agent: %w", err)
-	}
-	for _, session := range sessions {
-		if sessionOwnerLive(session) {
-			return fmt.Errorf("snapshot load requires the live dev runtime to stop first; run `scenery down --app-root %s`", appRoot)
-		}
+	if held {
+		return fmt.Errorf("snapshot load requires the live dev runtime or restore operation to stop first; run `scenery down --app-root %s`", appRoot)
 	}
 	return nil
 }
@@ -643,7 +668,7 @@ func requireSnapshotSchemas(ctx context.Context, database postgresdb.Database, s
 
 func restoreSnapshotDatabase(ctx context.Context, archive *snapshotArchive, database postgresdb.Database, mode string) error {
 	if mode == "overwrite" {
-		admin, err := managedPostgresAdmin(ctx)
+		admin, err := managedPostgresAdmin(ctx, database)
 		if err != nil {
 			return err
 		}

@@ -18,6 +18,7 @@ import (
 )
 
 type managedDesktopProcess struct {
+	AppRoot string
 	Name    string
 	Root    string
 	Process *devManagedProcess
@@ -98,7 +99,7 @@ func (s *devSupervisor) startDesktopShell(_ context.Context, shell desktop.Proje
 	if err != nil {
 		return nil, err
 	}
-	desktop := &managedDesktopProcess{Name: shell.Name, Root: shell.TauriRoot, LogFile: logFile}
+	desktop := &managedDesktopProcess{AppRoot: session.AppRoot, Name: shell.Name, Root: shell.TauriRoot, LogFile: logFile}
 	request.Stdout = logFile
 	request.Stderr = logFile
 	request.OnOutput = func(pid int, stream string, data []byte) {
@@ -168,7 +169,7 @@ func captureManagedDesktopOutput(appID, sessionID string, desktop *managedDeskto
 		Status: "running",
 	}
 	event := assignDevEventID(devdash.DevEventFromOutput(appID, sessionID, source, append([]byte(nil), data...), time.Now().UTC()))
-	if victoria := resolveLogsVictoriaStackFunc(context.Background(), false); victoria != nil {
+	if victoria := resolveLogsVictoriaStackFunc(context.Background(), desktop.AppRoot); victoria != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
 		_ = victoria.ExportDevEvent(ctx, event)

@@ -18,6 +18,7 @@ import (
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/envpolicy"
 	inspectdata "scenery.sh/internal/inspect"
+	"scenery.sh/internal/postgresdb"
 )
 
 type dbSeedOptions struct {
@@ -179,7 +180,7 @@ func buildDBSeedResultWithEnv(ctx context.Context, appRoot string, cfg appcfg.Co
 	return buildDBSeedResultWithEnvHooks(ctx, appRoot, cfg, opts, baseEnv, useManaged, defaultDBSeedHooks())
 }
 
-func buildDBSeedResultWithEnvHooks(ctx context.Context, appRoot string, cfg appcfg.Config, opts dbSeedOptions, baseEnv []string, useManaged bool, hooks dbSeedHooks) (dbSeedResult, error) {
+func buildDBSeedResultWithEnvHooks(ctx context.Context, appRoot string, cfg appcfg.Config, opts dbSeedOptions, baseEnv []string, useManaged bool, hooks dbSeedHooks) (_ dbSeedResult, returnErr error) {
 	hooks = hooks.withDefaults()
 	opts.Env = strings.TrimSpace(opts.Env)
 	if opts.Env == "" {
@@ -234,11 +235,19 @@ func buildDBSeedResultWithEnvHooks(ctx context.Context, appRoot string, cfg appc
 		return result, errors.Join(errs...)
 	}
 	env := baseEnv
-	if useManaged {
-		env, err = managedDatabaseLifecycleEnv(ctx, appRoot, cfg, baseEnv)
+	if useManaged && opts.DryRun {
+		database, err := resolvePostgresDatabaseFromEnv(ctx, appRoot, cfg, baseEnv)
 		if err != nil {
 			return result, err
 		}
+		env = overlayEnv(envWithoutKeys(baseEnv, databaseEnvKeys(cfg)...), envMap(postgresdb.Env(database)))
+	} else if useManaged {
+		var closeOperation func() error
+		env, closeOperation, err = beginDatabaseLifecycleEnv(ctx, appRoot, cfg, baseEnv)
+		if err != nil {
+			return result, err
+		}
+		defer func() { returnErr = errors.Join(returnErr, closeOperation()) }()
 	}
 	stores := map[string]databaseSeedStore{}
 	ledgerReady := map[string]bool{}
@@ -260,7 +269,7 @@ func buildDBSeedResultWithEnvHooks(ctx context.Context, appRoot string, cfg appc
 			}
 			stores[dsn] = store
 		}
-		if !ledgerReady[dsn] {
+		if !opts.DryRun && !ledgerReady[dsn] {
 			if err := store.EnsureLedger(ctx); err != nil {
 				return nil, "", err
 			}
@@ -721,6 +730,14 @@ func (s *postgresDatabaseSeedStore) LookupSeed(ctx context.Context, appID, path 
 	var hash string
 	err := s.db.QueryRowContext(ctx, `select sha256 from scenery.seed_runs where app_id = $1 and path = $2`, appID, path).Scan(&hash)
 	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	// A dry run observes an absent ledger as no applied seeds. It must not
+	// create the framework schema/table merely to inspect prior execution.
+	if state, ok := errors.AsType[interface {
+		error
+		SQLState() string
+	}](err); ok && state.SQLState() == "42P01" {
 		return "", false, nil
 	}
 	if err != nil {

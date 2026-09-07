@@ -20,6 +20,11 @@ func writeMinimalGenerationFixture(t *testing.T, root string) {
 
 application "nativeapp" {}
 
+go_module "application" {
+  root        = "."
+  import_path = "example.test/nativeapp"
+}
+
 http_gateway "public_api" {
   exposure        = "internet"
   base_path       = "/"
@@ -72,11 +77,6 @@ func writeMinimalNativeGenerationFixture(t *testing.T, root string) {
 	t.Helper()
 	writeMinimalGenerationFixture(t, root)
 	appendFixtureFile(t, filepath.Join(root, testAppFilename), `
-go_module "application" {
-  root        = "."
-  import_path = "example.test/nativeapp"
-}
-
 go_toolchain "application" {
   version     = "1.27.0"
   experiments = []

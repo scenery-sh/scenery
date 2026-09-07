@@ -12,18 +12,77 @@
     "db_cleanup",
     "state_cleanup",
     "dev_events_pruned",
-    "dev_sources_pruned"
+    "dev_sources_pruned",
+    "resources"
   ],
   "properties": {
-    "kind": {"const": "scenery.prune"},
-    "schema_revision": {"const": "sha256:f95645cc22daa246351423eb37128ae94a68c79c3587613f4c9fcfe1d17fc8f7"},
-    "cutoff": {"type": "string", "format": "date-time"},
-    "pruned": {"type": "array", "items": {"type": "string"}},
-    "skipped": {"type": "array", "items": {"type": "string"}},
-    "db_cleanup": {"type": "boolean"},
-    "state_cleanup": {"type": "boolean"},
-    "dev_events_pruned": {"type": "integer", "minimum": 0},
-    "dev_sources_pruned": {"type": "integer", "minimum": 0}
+    "kind": {
+      "const": "scenery.prune"
+    },
+    "schema_revision": {
+      "const": "sha256:6fe26efcf2df13a3aae24d45bd064ef8476d7ded23222a2bca89ad083b6380ef"
+    },
+    "cutoff": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "pruned": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "skipped": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "db_cleanup": {
+      "type": "boolean"
+    },
+    "state_cleanup": {
+      "type": "boolean"
+    },
+    "dev_events_pruned": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "dev_sources_pruned": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "resources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "app_root",
+          "scope",
+          "resource_id",
+          "container",
+          "volume"
+        ],
+        "properties": {
+          "app_root": {
+            "type": "string"
+          },
+          "scope": {
+            "const": "worktree-cluster"
+          },
+          "resource_id": {
+            "type": "string"
+          },
+          "container": {
+            "type": "string"
+          },
+          "volume": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
   },
   "additionalProperties": false
 }

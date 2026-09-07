@@ -213,12 +213,12 @@ func runHarnessLocalStorageRestartProbe(ctx context.Context, repoRoot, sceneryPa
 		cleanupHarnessStorageRestartAgent(context.Background(), repoRoot, sceneryPath, agentHome, env)
 		signalHarnessCleanupPIDs(detachedChildPIDs)
 	}()
-	stateRoot, upPID, err := harnessDetachInfo(upOut)
+	apiSocket, upPID, err := harnessDetachInfo(upOut)
 	addHarnessCleanupPID(detachedChildPIDs, upPID)
 	if err != nil {
 		return summary, err
 	}
-	probeBody, err := waitForHarnessStorageHTTPProbe(ctx, devAPIUnixSocketPath(stateRoot), http.MethodPost, 2*time.Minute)
+	probeBody, err := waitForHarnessStorageHTTPProbe(ctx, apiSocket, http.MethodPost, 2*time.Minute)
 	if err != nil {
 		return summary, err
 	}
@@ -268,12 +268,12 @@ func runHarnessLocalStorageRestartProbe(ctx context.Context, repoRoot, sceneryPa
 	if err != nil {
 		return summary, fmt.Errorf("local storage restart scenery up failed: %s\n%s", strings.TrimSpace(err.Error()), tailString(firstNonEmpty(restartErr, restartOut), 8192))
 	}
-	restartStateRoot, restartPID, err := harnessDetachInfo(restartOut)
+	restartAPISocket, restartPID, err := harnessDetachInfo(restartOut)
 	addHarnessCleanupPID(detachedChildPIDs, restartPID)
 	if err != nil {
 		return summary, err
 	}
-	restartProbeBody, err := waitForHarnessStorageHTTPProbe(ctx, devAPIUnixSocketPath(restartStateRoot), http.MethodGet, 2*time.Minute)
+	restartProbeBody, err := waitForHarnessStorageHTTPProbe(ctx, restartAPISocket, http.MethodGet, 2*time.Minute)
 	if err != nil {
 		return summary, err
 	}
@@ -293,25 +293,25 @@ func runHarnessLocalStorageRestartProbe(ctx context.Context, repoRoot, sceneryPa
 	return summary, nil
 }
 
-// harnessDetachInfo extracts the session state root and the detached
+// harnessDetachInfo extracts the advertised API socket and the detached
 // `scenery up` child PID from a scenery.dev.detach payload. The PID is
-// returned even when the state root is missing so callers can always record
+// returned even when the backend is missing so callers can always record
 // the child for direct cleanup.
 func harnessDetachInfo(detachJSON string) (string, int, error) {
 	var detach struct {
 		PID     int `json:"pid"`
 		Session struct {
-			StateRoot string `json:"state_root"`
+			Backends map[string]localagent.Backend `json:"backends"`
 		} `json:"session"`
 	}
 	if err := decodeCLIJSON([]byte(detachJSON), &detach); err != nil {
 		return "", 0, fmt.Errorf("parse storage detach JSON: %w", err)
 	}
-	stateRoot := strings.TrimSpace(detach.Session.StateRoot)
-	if stateRoot == "" {
-		return "", detach.PID, fmt.Errorf("storage detach JSON did not include session.state_root")
+	backend := detach.Session.Backends[localagent.RouteAPI]
+	if backend.Network != "unix" || strings.TrimSpace(backend.Addr) == "" {
+		return "", detach.PID, fmt.Errorf("storage detach JSON did not include an advertised Unix API backend")
 	}
-	return stateRoot, detach.PID, nil
+	return backend.Addr, detach.PID, nil
 }
 
 func cleanupHarnessStorageRestartAgent(ctx context.Context, repoRoot, sceneryPath, agentHome string, env []string) {

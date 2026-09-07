@@ -226,7 +226,7 @@ Do not run `go install ./cmd/scenery`; use the self-harness worktree-local binar
 
 * Exploration evidence (2026-07-07): current snapshot mechanics at `cmd/scenery/db_cli.go:297-329, 599-638`; storage cell contract at `cmd/scenery/storage_cell.go` and plan 0094; database-per-worktree naming and `scenery` schema contents per plan 0097's Decision Log.
 * Prior art deliberately not reused: plan 0022's `scenery.data.export.v1` is a records-level fixture format for the data platform, not a byte-faithful backup; the cookbook's rclone/restic recipe remains the *continuous offsite replication* story and is complementary — this plan is the *point-in-time portable archive* story. The cookbook gains a sentence distinguishing the two.
-* The archive intentionally excludes: `.scenery/gen/` (regenerable cache), session state, Victoria logs/metrics, and the `scenery_symphony` machine database (rebuildable, machine-scoped).
+* The archive intentionally excludes: `.scenery/gen/` (regenerable cache), session state, and Victoria logs/metrics.
 
 ## Interfaces and Dependencies
 

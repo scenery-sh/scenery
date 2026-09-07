@@ -98,7 +98,6 @@ var rootHelpGroups = []helpRootGroup{
 		{Command: "validate", Summary: "Run validation profiles"},
 		{Command: "storage", Summary: "Inspect configured storage"},
 		{Command: "snapshot", Summary: "Save and load portable app snapshots"},
-		{Command: "symphony", Summary: "Manage local Symphony workflow mode"},
 		{Command: "harness", Summary: "Run Scenery harnesses"},
 	}},
 	{Name: "Workspace", Entries: []helpRootEntry{
@@ -178,9 +177,6 @@ var helpReferenceGroups = []helpReferenceGroup{
 		"scenery storage put",
 		"scenery storage get",
 		"scenery storage rm",
-	}},
-	{Name: "Symphony", Commands: []string{
-		"scenery symphony auto",
 	}},
 	{Name: "Runtime", Commands: []string{
 		"scenery worker",
@@ -318,7 +314,7 @@ var helpCommands = []helpCommandEntry{
 		Usage: []string{
 			"scenery db list|shell [--app-root <path>] [service]",
 			"scenery db apply|seed|setup|reset|drop [--app-root <path>] [-o json]",
-			"scenery db server status|start|stop|logs [-o json] [--yes]",
+			"scenery db server status|start|stop|logs [--app-root <path>] [-o json]",
 		},
 		Subcommands: []string{"list", "shell", "apply", "seed", "setup", "reset", "drop", "server"},
 		Flags:       []string{"--app-root <path>", "-o", "json", "--dry-run", "--yes"},
@@ -329,7 +325,7 @@ var helpCommands = []helpCommandEntry{
 		Command:     "worktree",
 		Group:       "Workspace",
 		Summary:     "Create, list, and remove app worktrees.",
-		Usage:       []string{"scenery worktree create <name> [--from <branch>] [--app-root <path>] [-o json]", "scenery worktree list [--app-root <path>] [-o json]", "scenery worktree remove <name> [--app-root <path>] [--db] [-o json]"},
+		Usage:       []string{"scenery worktree create <name> [--from <branch>] [--app-root <path>] [-o json]", "scenery worktree list [--app-root <path>] [-o json]", "scenery worktree remove <name> [--app-root <path>] [-o json]"},
 		Subcommands: []string{"create", "list", "remove"},
 		Flags:       []string{"--from <branch>", "--app-root <path>", "--db", "-o", "json"},
 		JSON:        true,
@@ -349,9 +345,9 @@ var helpCommands = []helpCommandEntry{
 		Command:     "generate",
 		Group:       "Generation",
 		Summary:     "Generate native contracts, TypeScript targets, SQLC, and configured outputs.",
-		Usage:       []string{"scenery generate [--target typescript_client.<name>] [--check] [--merge-editor-workspace] [--app-root <path>] [-o human|json]", "scenery generate --target contracts --materialize [--check] [--app-root <path>] [-o human|json]", "scenery generate --prune-materialized-go [--check] [--app-root <path>] [-o human|json]", "scenery generate sqlc [--app-root <path>] [--dry-run] [-o json]"},
+		Usage:       []string{"scenery generate [--target contracts|typescript_client.<name>] [--check] [--app-root <path>] [-o human|json]", "scenery generate sqlc [--app-root <path>] [--dry-run] [-o json]"},
 		Subcommands: []string{"sqlc"},
-		Flags:       []string{"--target <target>", "--materialize", "--prune-materialized-go", "--merge-editor-workspace", "--check", "--app-root <path>", "-o human|json"},
+		Flags:       []string{"--target <target>", "--check", "--app-root <path>", "-o human|json"},
 		JSON:        true,
 		Stability:   "stable",
 	},
@@ -392,15 +388,6 @@ var helpCommands = []helpCommandEntry{
 		Subcommands: []string{"save", "load"},
 		Flags:       []string{"--output <file.zip>", "--input <file.zip>", "--db", "--storage", "--mode overwrite|merge", "--on-conflict fail|skip|overwrite", "--yes", "--dry-run", "--app-root <path>", "-o", "json"},
 		JSON:        true,
-		Stability:   "beta",
-	},
-	{
-		Command:     "symphony",
-		Group:       "App resources",
-		Summary:     "Manage local Symphony workflow mode.",
-		Usage:       []string{"scenery symphony auto --on|--off [--app-root <path>]"},
-		Subcommands: []string{"auto"},
-		Flags:       []string{"--on", "--off", "--app-root <path>"},
 		Stability:   "beta",
 	},
 	{

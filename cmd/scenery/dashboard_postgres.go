@@ -189,7 +189,7 @@ func (s *dashboardServer) openDashboardPostgres(ctx context.Context, appID strin
 	if err != nil {
 		return nil, err
 	}
-	_, database, err := managedDatabaseEnv(ctx, appRoot, cfg, nil, baseEnv)
+	database, err := resolvePostgresDatabaseFromEnv(ctx, appRoot, cfg, baseEnv)
 	if err != nil {
 		return nil, err
 	}

@@ -11,8 +11,7 @@ This ExecPlan is a living document and must be updated as work proceeds.
 Land seven codebase-audit findings in one campaign: two correctness fixes, two
 hot-path performance fixes, shared infrastructure kernels, and extraction of
 pure business logic out of `cmd/scenery` into testable `internal/` packages.
-The observable result is unchanged CLI behavior with a real concurrency bug
-fixed (Symphony store migration was not actually serialized across processes),
+The observable result is unchanged CLI behavior with safer state persistence,
 a faster dev write path (devdash no longer rewrites its whole store file per
 log line), faster contract generation on large graphs, and six large
 `cmd/scenery` files reduced below or near the 1000-line architecture warning
@@ -22,24 +21,21 @@ threshold with their logic behind package boundaries and unit tests.
 
 `cmd/scenery` is the CLI package; repo rules prefer thin CLI files with logic
 in `internal/` packages. `internal/postgresdb` owns Postgres connections;
-`internal/symphony` and `internal/durable/store` are Postgres-backed stores;
+`internal/durable/store` is a Postgres-backed store;
 `internal/devdash` is a JSON-file store shared by the dev supervisor, agent
 dashboard, and harness writers; `internal/agent` owns the single-owner local
 agent registry; `internal/generate` renders Go/TypeScript contracts from the
 immutable compiler result. The audit that produced this plan found seven
-hand-rolled atomic-write helpers, five TCP probes, a session-scoped advisory
-lock taken on a different connection than the DDL it guarded, swallowed
+hand-rolled atomic-write helpers, five TCP probes, swallowed
 `json.Marshal` errors feeding durable registry state, synchronous full-store
 persistence on the devdash hot path, and quadratic resource rescans in
 contract generation.
 
 ## Plan of Work
 
-1. Symphony migration advisory lock actually serializes concurrent openers
-   through one shared `postgresdb.Migrate` / `postgresdb.MigrateStatements`
-   primitive (transaction-scoped `pg_advisory_xact_lock`); the durable store
-   adopts the same primitive; the `strings.Contains("duplicate column")`
-   matching is replaced by `ADD COLUMN IF NOT EXISTS`.
+1. The durable store adopts the shared `postgresdb.Migrate` /
+   `postgresdb.MigrateStatements` primitive with transaction-scoped
+   `pg_advisory_xact_lock`.
 2. Agent registry and state persistence propagate `json.Marshal` errors
    instead of silently writing partial durable routing state; the same fix
    applies to the dev port-lease legacy migration.
@@ -63,9 +59,8 @@ contract generation.
    packages: Caddyfile/dnsmasq/launchd logic from `edge.go` into
    `internal/edge`, the deploy diagnostics engine from `deploy.go` into
    `internal/deploydiag`, the doctor check catalog into `internal/doctor`,
-   the Victoria substrate lifecycle into `internal/victoria`, the Codex
-   app-server JSON-RPC client and workflow config parsing into
-   `internal/symphony`, and the validation plan engine plus glob matcher into
+   the Victoria substrate lifecycle into `internal/victoria`, and the
+   validation plan engine plus glob matcher into
    `internal/validation`. CLI files keep arg parsing, dispatch, and rendering.
 
 Non-goals and standing decisions:
@@ -97,10 +92,7 @@ Non-goals and standing decisions:
 Each milestone was executed as: read the owning files and their AGENTS.md
 chain, move or fix code, move or add unit tests beside the new package, run
 `goimports`, `go build ./...`, `go vet` on touched packages, and
-`go test <touched packages> ./cmd/scenery -count=1` until green. Live
-Postgres verification for item 1 used the managed `scenery-postgres`
-container via a `SCENERY_TEST_DATABASE_URL` DSN and
-`go test ./internal/symphony -run TestStoreConcurrentOpensMigrateOnce -count=3`.
+`go test <touched packages> ./cmd/scenery -count=1` until green.
 
 ## Validation and Acceptance
 
@@ -114,7 +106,7 @@ container via a `SCENERY_TEST_DATABASE_URL` DSN and
 - Acceptance: no CLI grammar, JSON envelope, or generated-artifact change;
   `internal/generate` golden tests byte-identical; the new packages
   (`atomicfile`, `netprobe`, `deploydiag`, `doctor`, `victoria`,
-  `validation`, plus additions to `edge` and `symphony`) carry the moved unit
+  `validation`, plus additions to `edge`) carry the moved unit
   tests.
 
 ## Idempotence and Recovery
@@ -132,8 +124,7 @@ items.
 - New packages: `internal/atomicfile`, `internal/netprobe`,
   `internal/deploydiag`, `internal/doctor`, `internal/victoria`,
   `internal/validation`; new files in `internal/edge` (caddyconfig.go,
-  dns.go, launchd.go), `internal/symphony` (codexclient.go,
-  workflowconfig.go), `internal/postgresdb` (migrate.go),
+  dns.go, launchd.go), `internal/postgresdb` (migrate.go),
   `internal/generate` (resource_index.go).
 
 ## Interfaces and Dependencies
@@ -153,7 +144,7 @@ items.
 
 ## Progress
 
-- [x] 2026-07-15 postgresdb.Migrate primitive + symphony/durable adoption + concurrent-open regression test (live Postgres verified)
+- [x] 2026-07-15 postgresdb.Migrate primitive and durable store adoption
 - [x] 2026-07-15 Marshal error propagation in internal/agent and cmd/scenery/dev_ports.go
 - [x] 2026-07-15 devdash deferred persistence for high-frequency writers + regression test
 - [x] 2026-07-15 internal/atomicfile + all seven variants delegated
@@ -163,15 +154,12 @@ items.
 - [x] 2026-07-15 deploy.go diagnostics extraction into internal/deploydiag (1892 → 967 lines)
 - [x] 2026-07-15 doctor.go extraction into internal/doctor (1399 → 436 lines)
 - [x] 2026-07-15 victoria.go extraction into internal/victoria (1117 → 418 lines)
-- [x] 2026-07-15 symphony runner client/config extraction into internal/symphony (1077 → 739 lines)
 - [x] 2026-07-15 validate.go plan engine extraction into internal/validation (1188 → 689 lines)
 - [x] 2026-07-15 Full validation: go test ./... green (42 packages); scenery harness self --summary --write fully ok (21/21 steps)
 - [x] 2026-07-22 Added focused package-local atomicfile and netprobe kernel tests; cached package validation green
 
 ## Surprises & Discoveries
 
-- The symphony migration lock bug was real but masked by idempotent DDL; the
-  durable store already had the correct pattern to generalize.
 - devdash's deferred-save machinery existed but was dead code; only the
   writers needed rerouting.
 - The devdash flush-error test relied on a missing parent directory, which
@@ -197,8 +185,7 @@ items.
 ## Decision Log
 
 - 2026-07-15 (agent): `postgresdb.Migrate` takes a closure; `MigrateStatements`
-  covers plain DDL lists. Symphony's ALTER TABLE list moved into the same
-  statement list with `IF NOT EXISTS`.
+  covers plain DDL lists.
 - 2026-07-15 (agent): atomicfile durability is opt-in (`SyncFile`, `SyncDir`)
   so codegen and devdash hot paths keep their no-fsync behavior while
   deployplan/evolution/agent keep full durability.
@@ -215,8 +202,7 @@ All seven items landed 2026-07-15 with full validation green (`go test ./...`
 42 packages ok; `scenery harness self --summary --write` 21/21 steps ok).
 Focused package-local tests added 2026-07-22 close the remaining kernel coverage
 gap for atomic replacement/durability/cleanup and TCP dial/bind/wait behavior.
-Net effect: one real cross-process locking bug fixed with a live-Postgres
-regression test; durable registry writes can no longer silently persist
+Net effect: durable registry writes can no longer silently persist
 partial JSON; the devdash hot write path no longer rewrites the store file
 per event; contract generation no longer rescans all resources per type
 reference; seven atomic-write copies and five TCP probes became two shared

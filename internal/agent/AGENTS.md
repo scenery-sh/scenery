@@ -7,11 +7,21 @@
 ## Ownership
 
 - Keep process/session ownership and durable state identity here.
+- `worktree_*` owns canonical-root identity, retained capability records,
+  lifetime/operation locks, observation-only orphan discovery, and the
+  supervisor-embedded control server. Machine edge/deploy state remains separate.
 - Keep command output payload identities in `cmd/scenery` and edge process lifecycle in `internal/edge`.
 
 ## Local Contracts
 
 - Cross-process state uses unversioned artifact kinds, digest schema/spec revisions, and producer identity.
+- Ordinary runtime control paths ignore machine socket/router overrides.
+  Acquire the root's live lock before provisioning. Worktree records and
+  credentials are strictly current and never migrated implicitly. Read-only
+  inspection must not allocate records, locks, sockets, or resource intent.
+- Edge-only worktree proxy leases forward only to explicit loopback endpoints
+  with verified domain ownership; they neither own runtime children nor write
+  a checkout's session manifest.
 - Agent home is injected with `PathsForHome`, `RunOptions.Home`, or `EnsureWith`. Tests pass a temp dir; only the CLI/runtime boundary reads `SCENERY_AGENT_HOME`.
 - The privileged edge helper is the one reader that must NOT use strict current decoding: it outlives scenery upgrades as a root LaunchDaemon, so it reads target metadata only through `LoadEdgeHelperTarget` in `edgehelper.go` — a frozen, tolerant, read-only handoff contract identified by `EdgeHelperContractRevision`. Never route helper reads through `LoadDurableArtifact`, never let the helper rewrite the file, and bump the contract revision when a frozen field is renamed, removed, or revalidated differently (additive fields need no bump).
 - Durable identity migrations preserve the exact legacy bytes in an owner-only backup, fsync the replacement, and write an idempotent completion marker.

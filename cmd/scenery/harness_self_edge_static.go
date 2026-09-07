@@ -196,5 +196,5 @@ func runHarnessEdgeStaticFrontendProbe(ctx context.Context, root string) (proof 
 		(strings.Contains(status, " 200 ") && !strings.Contains(string(raw), "app-platform")) {
 		return nil, fmt.Errorf("raw traversal escaped the static contract: %q", raw)
 	}
-	return map[string]any{"available": true, "http_checks": len(checks), "raw_traversal": "verified"}, nil
+	return map[string]any{"available": true, "command": cmd.Args, "http_checks": len(checks), "raw_traversal": "verified"}, nil
 }

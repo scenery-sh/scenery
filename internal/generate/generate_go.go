@@ -32,174 +32,27 @@ func GenerateGoContracts(root string, check bool) (GenerateResult, error) {
 	return generateGoContracts(root, check, false)
 }
 
-// GenerateAll materializes only generated families whose authored contract
-// selects source materialization. Go artifacts are build-cache inputs and are
-// exported only through GenerateGoContracts.
+// GenerateAll publishes the ordinary Go packages and selected TypeScript
+// clients as one artifact set. Private executable composition stays in cache.
 func GenerateAll(root string, check bool) (GenerateResult, error) {
-	result, err := compiler.Compile(root)
-	if err != nil {
-		return GenerateResult{}, err
-	}
-	if result.ContractStatus != "valid" || result.Manifest == nil {
-		return GenerateResult{}, fmt.Errorf("cannot generate from invalid contract: %s", firstError(result.Diagnostics))
-	}
-	typeScriptFiles, err := renderTypeScriptClientFiles(result, "")
-	if err != nil {
-		return GenerateResult{}, err
-	}
-	if err := verifyRenderedTypeScriptReact(result, typescriptTargets(result.Manifest.Resources, ""), typeScriptFiles); err != nil {
-		return GenerateResult{}, err
-	}
-	return finishGeneratedFiles(result.Root, typeScriptFiles, check, "generated artifacts are stale")
-}
-
-const (
-	legacyGoPackageDescriptorName     = "scenery.package-generated." + "v1.json"
-	legacyGoApplicationDescriptorName = "scenery.generated." + "v1.json"
-)
-
-var legacyGoGeneratedDescriptorNames = map[string]bool{
-	legacyGoPackageDescriptorName:     true,
-	legacyGoApplicationDescriptorName: true,
-}
-
-// PruneMaterializedGo removes only descriptor-owned, digest-matching Scenery
-// Go artifacts. It accepts both the current export descriptors and the final
-// legacy v1 descriptors so applications can migrate without broad deletion.
-func PruneMaterializedGo(root string, check bool) (GenerateResult, error) {
-	root, err := filepath.Abs(root)
-	if err != nil {
-		return GenerateResult{}, err
-	}
-	var files []generatedFile
-	var directories []string
-	err = filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
+	return generateFromRoot(root, check, "generated artifacts are stale", func(result *compiler.Result) ([]generatedFile, error) {
+		goFiles, err := renderGoContractFiles(result)
+		if err != nil {
+			return nil, err
 		}
-		if path != root && entry.IsDir() && skipGeneratedArtifactScanDirectory(entry.Name()) {
-			return filepath.SkipDir
+		typeScriptFiles, err := renderTypeScriptClientFiles(result, "")
+		if err != nil {
+			return nil, err
 		}
-		name := entry.Name()
-		if !goGeneratedDescriptorNames()[name] && !legacyGoGeneratedDescriptorNames[name] {
-			return nil
+		if err := verifyRenderedTypeScriptReact(result, typescriptTargets(result.Manifest.Resources, ""), typeScriptFiles); err != nil {
+			return nil, err
 		}
-		if entry.Type()&os.ModeSymlink != 0 {
-			return fmt.Errorf("generated descriptor is a symlink: %s", path)
-		}
-		owned, verified, verifyErr := verifiedPrunableGoDescriptorFiles(path)
-		if verifyErr != nil {
-			return verifyErr
-		}
-		if !verified {
-			return fmt.Errorf("cannot prune unverified generated descriptor %s", path)
-		}
-		base := filepath.Dir(path)
-		for _, relative := range owned {
-			files = append(files, generatedFile{Path: filepath.Join(base, filepath.FromSlash(relative)), Remove: true})
-		}
-		files = append(files, generatedFile{Path: path, Remove: true})
-		directories = append(directories, base)
-		return nil
+		return append(goFiles, typeScriptFiles...), nil
 	})
-	if err != nil {
-		return GenerateResult{}, err
-	}
-	result, err := finishGeneratedFiles(root, files, check, "materialized Go artifacts remain")
-	if err != nil || check {
-		return result, err
-	}
-	sort.Slice(directories, func(i, j int) bool { return len(directories[i]) > len(directories[j]) })
-	for _, directory := range directories {
-		removeEmptyGeneratedDirectories(directory)
-	}
-	return result, nil
-}
-
-func removeEmptyGeneratedDirectories(root string) {
-	var directories []string
-	_ = filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
-		if err == nil && entry.IsDir() {
-			directories = append(directories, path)
-		}
-		return nil
-	})
-	sort.Slice(directories, func(i, j int) bool { return len(directories[i]) > len(directories[j]) })
-	for _, directory := range directories {
-		_ = os.Remove(directory) // succeeds only for empty directories
-	}
-}
-
-func verifiedPrunableGoDescriptorFiles(path string) ([]string, bool, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, false, err
-	}
-	var descriptor struct {
-		Kind           string   `json:"kind"`
-		SchemaRevision string   `json:"schema_revision"`
-		SpecRevision   string   `json:"spec_revision"`
-		ContentDigest  string   `json:"content_digest"`
-		Files          []string `json:"files"`
-	}
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	if err := decoder.Decode(&descriptor); err != nil {
-		return nil, false, fmt.Errorf("read generated descriptor %s: %w", path, err)
-	} else if err := decoder.Decode(&struct{}{}); err != io.EOF {
-		return nil, false, fmt.Errorf("read generated descriptor %s: unexpected trailing JSON", path)
-	}
-	name := filepath.Base(path)
-	if !legacyGoGeneratedDescriptorNames[name] {
-		want, ok := generatedArtifactSpec(name)
-		if !ok || descriptor.Kind != want.kind || !isCanonicalSHA256Digest(descriptor.SchemaRevision) || !isCanonicalSHA256Digest(descriptor.SpecRevision) {
-			return nil, false, nil
-		}
-	}
-	if !isCanonicalSHA256Digest(descriptor.ContentDigest) {
-		return nil, false, nil
-	}
-	return verifyPrunableDescriptorFiles(path, descriptor.Files, descriptor.ContentDigest)
-}
-
-func verifyPrunableDescriptorFiles(path string, files []string, digest string) ([]string, bool, error) {
-	base := filepath.Dir(path)
-	artifacts := make([]generatedFile, 0, len(files))
-	seen := map[string]bool{}
-	for _, relative := range files {
-		clean := filepath.ToSlash(filepath.Clean(filepath.FromSlash(relative)))
-		if relative == "" || filepath.IsAbs(relative) || clean == ".." || strings.HasPrefix(clean, "../") || clean != filepath.ToSlash(relative) || seen[clean] {
-			return nil, false, fmt.Errorf("generated descriptor %s has an unsafe owned path %q", path, relative)
-		}
-		seen[clean] = true
-		owned := filepath.Join(base, filepath.FromSlash(clean))
-		if !pathWithin(base, owned) {
-			return nil, false, fmt.Errorf("generated descriptor %s file escapes its output root: %s", path, relative)
-		}
-		info, statErr := os.Lstat(owned)
-		if statErr != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-			return nil, false, nil
-		}
-		contents, readErr := os.ReadFile(owned)
-		if readErr != nil {
-			return nil, false, readErr
-		}
-		if !trustedGeneratedArtifact(filepath.Base(path), clean, contents) {
-			return nil, false, fmt.Errorf("generated descriptor %s claims unmarked artifact %s", path, relative)
-		}
-		artifacts = append(artifacts, generatedFile{Path: owned, Bytes: contents})
-	}
-	if artifactDigest(base, artifacts) != digest {
-		return nil, false, nil
-	}
-	return append([]string(nil), files...), true, nil
 }
 
 func generateGoContracts(root string, check, allowActiveChangeTransaction bool) (GenerateResult, error) {
-	result, err := compiler.Compile(root)
-	if err != nil {
-		return GenerateResult{}, err
-	}
-	return generateGoContractsFromResult(result, check)
+	return generateFromRoot(root, check, "generated contracts are stale", renderGoContractFiles)
 }
 
 // GenerateGoContractsFromResult renders one immutable compiler snapshot.
@@ -208,18 +61,11 @@ func GenerateGoContractsFromResult(result *compiler.Result, check bool) (Generat
 }
 
 func generateGoContractsFromResult(result *Result, check bool) (GenerateResult, error) {
-	if result.ContractStatus != "valid" || result.Manifest == nil {
-		return GenerateResult{}, fmt.Errorf("cannot generate from invalid contract: %s", firstError(result.Diagnostics))
-	}
-	files, err := renderGoContractFiles(result)
-	if err != nil {
-		return GenerateResult{}, err
-	}
-	return finishGeneratedFiles(result.Root, files, check, "generated contracts are stale")
+	return generateFromResult(result, check, "generated contracts are stale", renderGoContractFiles)
 }
 
 func renderGoContractFiles(result *Result) ([]generatedFile, error) {
-	files, err := renderExpectedGoContractFiles(result)
+	files, err := renderExpectedGoPackageFiles(result)
 	if err != nil {
 		return nil, err
 	}
@@ -227,6 +73,23 @@ func renderGoContractFiles(result *Result) ([]generatedFile, error) {
 }
 
 func renderExpectedGoContractFiles(result *Result) ([]generatedFile, error) {
+	files, err := renderExpectedGoPackageFiles(result)
+	if err != nil {
+		return nil, err
+	}
+	if usesGoImplementation(result.Manifest.Resources) {
+		applicationFiles, err := generateApplicationArtifacts(result, newResourceIndex(result.Manifest.Resources))
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, applicationFiles...)
+	}
+	return files, nil
+}
+
+// renderExpectedGoPackageFiles is the shared app-imported projection. Build
+// workspaces add private adapters/composition to these exact package bytes.
+func renderExpectedGoPackageFiles(result *Result) ([]generatedFile, error) {
 	if err := validateInvariantPackageABIs(result); err != nil {
 		return nil, err
 	}
@@ -240,18 +103,14 @@ func renderExpectedGoContractFiles(result *Result) ([]generatedFile, error) {
 		}
 		files = append(files, moduleFiles...)
 	}
-	if usesGoImplementation(result.Manifest.Resources) {
-		applicationFiles, err := generateApplicationArtifacts(result, idx)
-		if err != nil {
-			return nil, err
-		}
-		files = append(files, applicationFiles...)
-	}
 	libraryFiles, err := generateLibraryArtifacts(result, idx)
 	if err != nil {
 		return nil, err
 	}
 	files = append(files, libraryFiles...)
+	if err := validateGoPackageLocations(result, files); err != nil {
+		return nil, err
+	}
 	return files, nil
 }
 
@@ -447,15 +306,18 @@ func generatedFileBytesEqual(path string, current, expected []byte) bool {
 
 func includeStaleGeneratedFiles(root string, files []generatedFile, descriptorNames, protectedDescriptors map[string]bool) ([]generatedFile, error) {
 	expected := make(map[string]bool, len(files))
+	expectedBytes := make(map[string][]byte, len(files))
 	expectedDescriptors := map[string]bool{}
 	for _, file := range files {
 		path := filepath.Clean(file.Path)
 		expected[path] = true
+		expectedBytes[path] = file.Bytes
 		if descriptorNames[filepath.Base(path)] {
 			expectedDescriptors[path] = true
 		}
 	}
 	stale := map[string]bool{}
+	owned := map[string]bool{}
 	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -470,20 +332,19 @@ func includeStaleGeneratedFiles(root string, files []generatedFile, descriptorNa
 			return fmt.Errorf("generated descriptor is a symlink: %s", path)
 		}
 		base := filepath.Dir(path)
-		ownedFiles, verified, err := verifiedGeneratedDescriptorFiles(path)
+		ownedFiles, verified, err := verifyGeneratedDescriptorWithExpected(path, expectedBytes)
 		if err != nil {
 			return err
 		}
 		if !verified {
-			if expectedDescriptors[filepath.Clean(path)] {
-				return nil
-			}
-			return fmt.Errorf("cannot retire unverified generated descriptor %s", path)
+			return fmt.Errorf("failed_precondition: cannot replace or retire unverified generated descriptor %s; preserve the output and review its ownership or hand edits", path)
 		}
+		owned[filepath.Clean(path)] = true
 		for _, relative := range ownedFiles {
-			owned := filepath.Clean(filepath.Join(base, filepath.FromSlash(relative)))
-			if !expected[owned] {
-				stale[owned] = true
+			ownedPath := filepath.Clean(filepath.Join(base, filepath.FromSlash(relative)))
+			owned[ownedPath] = true
+			if !expected[ownedPath] {
+				stale[ownedPath] = true
 			}
 		}
 		if !expectedDescriptors[filepath.Clean(path)] {
@@ -493,6 +354,16 @@ func includeStaleGeneratedFiles(root string, files []generatedFile, descriptorNa
 	})
 	if err != nil {
 		return nil, err
+	}
+	for path := range expected {
+		if owned[path] {
+			continue
+		}
+		if _, err := os.Lstat(path); err == nil {
+			return nil, fmt.Errorf("failed_precondition: generated output %s exists without verified ownership; preserve it and review the missing descriptor or foreign file", path)
+		} else if !os.IsNotExist(err) {
+			return nil, err
+		}
 	}
 	paths := make([]string, 0, len(stale))
 	for path := range stale {
@@ -516,7 +387,7 @@ func skipGeneratedArtifactScanDirectory(name string) bool {
 	}
 }
 
-func verifiedGeneratedDescriptorFiles(path string) ([]string, bool, error) {
+func verifyGeneratedDescriptorWithExpected(path string, expected map[string][]byte) ([]string, bool, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, false, err
@@ -533,7 +404,10 @@ func verifiedGeneratedDescriptorFiles(path string) ([]string, bool, error) {
 		return nil, false, fmt.Errorf("read generated descriptor %s: unexpected trailing JSON", path)
 	}
 	want, ok := generatedArtifactSpec(filepath.Base(path))
-	if !ok || machine.ValidateArtifactIdentity(descriptor.ArtifactIdentity, want.kind, want.schema, "regenerate") != nil || !isCanonicalSHA256Digest(descriptor.ContentDigest) {
+	// Ownership is content evidence, not protocol compatibility. A previous
+	// schema/spec digest does not authorize old semantics, but it must not make
+	// unchanged generated bytes impossible to replace with the current renderer.
+	if !ok || descriptor.Kind != want.kind || !isCanonicalSHA256Digest(descriptor.SchemaRevision) || !isCanonicalSHA256Digest(descriptor.SpecRevision) || !isCanonicalSHA256Digest(descriptor.ContentDigest) {
 		return nil, false, nil
 	}
 	base := filepath.Dir(path)
@@ -549,13 +423,27 @@ func verifiedGeneratedDescriptorFiles(path string) ([]string, bool, error) {
 		if !pathWithin(base, owned) {
 			return nil, false, fmt.Errorf("generated descriptor %s file escapes its output root: %s", path, relative)
 		}
-		info, err := os.Lstat(owned)
-		if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-			return nil, false, nil
-		}
-		contents, err := os.ReadFile(owned)
-		if err != nil {
+		if err := rejectGeneratedPathSymlinks(base, owned); err != nil {
 			return nil, false, err
+		}
+		info, statErr := os.Lstat(owned)
+		var contents []byte
+		if os.IsNotExist(statErr) {
+			// A missing output may be restored only when expected bytes complete
+			// the descriptor's original aggregate digest. No guessed ownership.
+			var exists bool
+			contents, exists = expected[owned]
+			if !exists {
+				return nil, false, nil
+			}
+		} else {
+			if statErr != nil || !info.Mode().IsRegular() {
+				return nil, false, nil
+			}
+			contents, err = os.ReadFile(owned)
+			if err != nil {
+				return nil, false, err
+			}
 		}
 		if !trustedGeneratedArtifact(filepath.Base(path), clean, contents) {
 			return nil, false, fmt.Errorf("generated descriptor %s claims unmarked artifact %s", path, relative)

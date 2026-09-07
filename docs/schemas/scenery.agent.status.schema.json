@@ -5,20 +5,52 @@
   "type": "object",
   "required": [
     "kind",
-    "schema_revision"
+    "schema_revision",
+    "worktrees"
   ],
   "properties": {
     "kind": {
       "const": "scenery.agent.status"
     },
     "schema_revision": {
-      "const": "sha256:5a50e5ca784a3ac4552b7d77287dee3753a71b198751dad0a3978e451a92a303"
+      "const": "sha256:ea43eb70ac3d2121becb10980dfdb2bcd8dbdbd61575eee60b0e86584332ed1e"
     },
-    "agent": {
-    },
-    "sessions": {
-    },
-    "substrates": {
+    "worktrees": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "key",
+          "status",
+          "sessions"
+        ],
+        "properties": {
+          "key": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "app_root": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "absent",
+              "incompatible-or-invalid",
+              "stopped",
+              "orphaned",
+              "unavailable",
+              "running"
+            ]
+          },
+          "sessions": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "additionalProperties": false
+      }
     }
   },
   "additionalProperties": false

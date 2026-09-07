@@ -35,7 +35,6 @@ import {
   type Page,
 } from './dashboard-model'
 import { upsertTrace } from './dashboard-utils'
-import { SymphonyPage } from './symphony-page'
 import {
   ApiExplorerPage,
   CronPage,
@@ -504,7 +503,6 @@ function App() {
             />
           ) : null}
           {page === 'Cron' ? <CronPage status={status} traces={traces} /> : null}
-          {page === 'Symphony' ? <SymphonyPage appID={selectedAppID} rpc={rpc} /> : null}
         </section>
       </main>
     </Theme>

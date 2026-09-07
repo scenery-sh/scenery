@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"path/filepath"
 	"testing"
 )
 
@@ -25,9 +26,18 @@ func TestRunTracesClear(t *testing.T) {
 
 	restore := chdirForTest(t, root)
 	defer restore()
+	canonicalRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	var out bytes.Buffer
-	if err := runTracesClear(context.Background(), &out, []string{"-o", "json"}); err != nil {
+	if err := runTracesClearWith(context.Background(), &out, []string{"-o", "json"}, func(_ context.Context, gotRoot, appID string) error {
+		if gotRoot != canonicalRoot || appID != "admin-id" {
+			t.Fatalf("clear scope = %s/%s", gotRoot, appID)
+		}
+		return nil
+	}); err != nil {
 		t.Fatalf("runTracesClear error = %v", err)
 	}
 	var payload struct {

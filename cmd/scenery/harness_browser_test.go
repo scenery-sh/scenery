@@ -92,7 +92,7 @@ func TestBuildHarnessUIRoutesIncludesSemanticJourneys(t *testing.T) {
 	for _, route := range routes {
 		byName[route.Name] = route
 	}
-	for _, name := range []string{"dashboard-home", "api-explorer", "service-catalog", "traces", "db-explorer", "cron", "symphony"} {
+	for _, name := range []string{"dashboard-home", "api-explorer", "service-catalog", "traces", "db-explorer", "cron"} {
 		if _, ok := byName[name]; !ok {
 			t.Fatalf("missing route %q in %#v", name, routes)
 		}
@@ -117,7 +117,6 @@ func TestBuildHarnessUIRoutesIncludesSemanticJourneys(t *testing.T) {
 		{"traces", "traces page opens"},
 		{"db-explorer", "databases page opens"},
 		{"cron", "cron page opens"},
-		{"symphony", "symphony board visible"},
 	}
 	for _, check := range actionChecks {
 		if !harnessUIRouteHasAction(byName[check.route], check.want) {
@@ -174,5 +173,26 @@ func TestHarnessUIDevProcessScanDevOutputReportsCompileError(t *testing.T) {
 		}
 	default:
 		t.Fatal("expected readiness waiter signal")
+	}
+}
+
+func TestHarnessUIDevProcessUsesPublishedDashboardURL(t *testing.T) {
+	t.Parallel()
+	for _, dashboardURL := range []string{"http://localhost:4231/_scenery/", ""} {
+		proc := &harnessUIDevProcess{output: &safeLineTail{limit: 10}}
+		ready := make(chan harnessUIDevSignal, 1)
+		var stream bytes.Buffer
+		if err := newCLIEventWriter(&stream).event(runEvent{Type: "run.ready", Data: map[string]any{"dashboard_url": dashboardURL}}); err != nil {
+			t.Fatal(err)
+		}
+		proc.scanDevOutput(&stream, ready)
+		select {
+		case signal := <-ready:
+			if signal.dashboardURL != dashboardURL || (signal.err != nil) != (dashboardURL == "") {
+				t.Fatalf("readiness signal = %+v for URL %q", signal, dashboardURL)
+			}
+		default:
+			t.Fatal("missing readiness signal")
+		}
 	}
 }

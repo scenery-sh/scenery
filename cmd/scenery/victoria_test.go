@@ -17,7 +17,7 @@ import (
 	"scenery.sh/internal/victoria"
 )
 
-func TestEnsureSharedVictoriaStackReusesAgentSubstrateInProcess(t *testing.T) {
+func TestEnsureVictoriaStackReusesAgentSubstrateInProcess(t *testing.T) {
 	t.Parallel()
 
 	urls := map[string]string{}
@@ -59,7 +59,7 @@ func TestStaleVictoriaOwnerRequiresReplacementInProcess(t *testing.T) {
 	}
 }
 
-func TestEnsureSharedVictoriaStackRejectsUnverifiedLiveOwner(t *testing.T) {
+func TestEnsureVictoriaStackRejectsUnverifiedLiveOwner(t *testing.T) {
 	t.Parallel()
 
 	ctx, client := startSubstrateTestAgent(t)
@@ -82,7 +82,7 @@ func TestEnsureSharedVictoriaStackRejectsUnverifiedLiveOwner(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stack, reused, err := (&devSupervisor{agent: client}).ensureSharedVictoriaStack(ctx, t.TempDir())
+	stack, reused, err := (&devSupervisor{agent: client}).ensureVictoriaStack(ctx, t.TempDir())
 	if err == nil || stack != nil || reused {
 		t.Fatalf("ensure stack=%T reused=%v err=%v, want ownership rejection", stack, reused, err)
 	}

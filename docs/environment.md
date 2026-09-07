@@ -11,13 +11,12 @@ The selected `.scenery.json` environment loads `.env`, `.env.<env>`, `.env.local
 | Variable | Direction | Description |
 | --- | --- | --- |
 | `HOME` | host input | Host home directory, read as a fallback during browser discovery and default agent-home resolution. Not a scenery configuration surface. |
-| `SCENERY_AGENT_HOME` | user input | Overrides agent files/control-plane state. Default is `~/.scenery`. Does not isolate Postgres container/volume names in the same Docker daemon or machine-global DNS/edge listeners; use a distinct router address for a private agent. |
-| `SCENERY_AGENT_SOCKET` | user input | Overrides the agent Unix control socket path. |
-| `SCENERY_AGENT_ROUTER_ADDR` | user input | Overrides the agent router listen address. Default is `127.0.0.1:9440`. |
+| `SCENERY_AGENT_HOME` | user input | Overrides the durable state home, including `worktrees/<canonical-root-hash>/` and explicit machine edge/deploy state. Default is `~/.scenery`. Ordinary runtimes and managed SQL resources are owned per root without a private-home setting. This does not isolate machine-global DNS/edge listeners. |
+| `SCENERY_AGENT_SOCKET` | user input | Overrides only the explicitly managed machine agent Unix control socket. Ordinary worktree runtimes derive private sockets from their retained root identity. |
+| `SCENERY_AGENT_ROUTER_ADDR` | user input | Overrides only the explicitly managed machine agent router address (default `127.0.0.1:9440`), not ordinary worktree routing. |
 | `SCENERY_AGENT_TRUST` | user input | `1` asks the agent to trust the existing local scenery CA when starting HTTPS routing. |
-| `SCENERY_AGENT_DISABLE` | user input | `1` disables local agent usage. `scenery up --detach` requires this to be unset. |
-| `SCENERY_DEV_CACHE_DIR` | user input | Overrides build/dashboard cache root. This does not change agent home. |
-| `SCENERY_DEV_DASHBOARD_ADDR` | internal/user input | Overrides the dashboard backend address used by dev sessions. Normally allocated automatically. |
+| `SCENERY_DEV_CACHE_DIR` | user input | Overrides build cache and explicitly standalone cache consumers, not durable worktree ownership or its private dashboard. |
+| `SCENERY_DEV_DASHBOARD_ADDR` | internal/user input | Dashboard client backend address. Ordinary development sets it from the acquired worktree owner; a parent value cannot select or redirect that owner. |
 | `SCENERY_DEV_DASHBOARD_UI_DIR` | user input | Overrides the built dashboard UI directory used by the dashboard backend. |
 | `SCENERY_FRONTEND_<NAME>_ADDR` | user input | Manual frontend upstream override, for example `SCENERY_FRONTEND_PULSE_ADDR=127.0.0.1:4321`. |
 

@@ -5,9 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"time"
-
-	"scenery.sh/internal/victoria"
 )
 
 func tracesCommand(args []string) error {
@@ -86,6 +83,10 @@ func runObservabilityList(ctx context.Context, stdout io.Writer, subject string,
 }
 
 func runTracesClear(ctx context.Context, stdout io.Writer, args []string) error {
+	return runTracesClearWith(ctx, stdout, args, clearWorktreeTraces)
+}
+
+func runTracesClearWith(ctx context.Context, stdout io.Writer, args []string, clear func(context.Context, string, string) error) error {
 	opts, err := parseTracesClearArgs(args)
 	if err != nil {
 		return err
@@ -99,8 +100,8 @@ func runTracesClear(ctx context.Context, stdout io.Writer, args []string) error 
 		return err
 	}
 	appID := cfg.AppID()
-	if stack := victoria.DefaultQueryStack(); stack != nil {
-		stack.MarkCleared(appID, time.Now().UTC())
+	if err := clear(ctx, appRoot, appID); err != nil {
+		return err
 	}
 	resp := adminResponse{
 		cliPayloadIdentity: newCLIPayloadIdentity("scenery.traces.clear"),

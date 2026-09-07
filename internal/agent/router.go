@@ -66,6 +66,13 @@ func (s *Server) routerMux() http.Handler {
 				}
 				manifest = filterExposedRouteRecords(manifest)
 			}
+			if session.WorktreeProxy != nil {
+				// Exposure and verified domain ownership were checked above.
+				// Forward the original path to its private runtime router, which
+				// owns frontend restarts, console and all backend selection.
+				s.proxyBackendWithOptions(w, req, *session.WorktreeProxy, proxyBackendOptions{baseURL: manifest.BaseURL})
+				return
+			}
 			s.handlePathModeRoute(w, req, sessionWithRouteManifest(session, manifest))
 			return
 		}

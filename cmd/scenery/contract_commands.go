@@ -371,17 +371,18 @@ func runContractDiff(stdout io.Writer, args []string) error {
 func runContractGenerate(stdout io.Writer, args []string) error {
 	opts := contractOptions{Output: "human"}
 	var target string
-	var materialize bool
-	var pruneMaterializedGo bool
-	var mergeEditorWorkspace bool
+	for _, arg := range args {
+		name, _, _ := strings.Cut(arg, "=")
+		switch name {
+		case "--materialize", "--prune-materialized-go", "--merge-editor-workspace":
+			return fmt.Errorf("invalid_request: %s has been removed; use scenery generate --target contracts [--check] for ordinary in-module Go packages; existing managed workfiles require the documented one-time ownership-verified cutover", name)
+		}
+	}
 	flags := newCLIFlagSet("generate")
 	flags.StringVar(&opts.AppRoot, "app-root", "", "")
 	flags.StringVar(&opts.Output, "o", opts.Output, "")
 	flags.StringVar(&target, "target", "", "")
 	flags.BoolVar(&opts.Check, "check", false, "")
-	flags.BoolVar(&materialize, "materialize", false, "")
-	flags.BoolVar(&pruneMaterializedGo, "prune-materialized-go", false, "")
-	flags.BoolVar(&mergeEditorWorkspace, "merge-editor-workspace", false, "")
 	flags.BoolVar(&opts.NonInteractive, "non-interactive", false, "")
 	flags.BoolVar(&opts.Quiet, "quiet", false, "")
 	positionals, err := parseCLIFlags(flags, args)
@@ -394,20 +395,8 @@ func runContractGenerate(stdout io.Writer, args []string) error {
 	if len(positionals) > 0 {
 		return fmt.Errorf("invalid_request: unexpected argument %q", positionals[0])
 	}
-	if target != "" && target != "go" && target != "contracts" && !strings.HasPrefix(target, "typescript_client.") {
+	if target != "" && target != "contracts" && !strings.HasPrefix(target, "typescript_client.") {
 		return fmt.Errorf("invalid_request: unknown generation target %q; use contracts or typescript_client.<name>", target)
-	}
-	if materialize && target != "contracts" && target != "go" {
-		return fmt.Errorf("invalid_request: --materialize requires --target contracts")
-	}
-	if mergeEditorWorkspace && opts.Check {
-		return fmt.Errorf("invalid_request: --merge-editor-workspace cannot be combined with --check")
-	}
-	if (target == "contracts" || target == "go") && !materialize {
-		return fmt.Errorf("invalid_request: --target %s requires --materialize; use scenery generate for the app loop, or scenery generate --target contracts --materialize to export a Go module", target)
-	}
-	if pruneMaterializedGo && (target != "" || materialize) {
-		return fmt.Errorf("invalid_request: --prune-materialized-go cannot be combined with --target or --materialize")
 	}
 	root, err := findContractRoot(opts.AppRoot)
 	if err != nil {
@@ -415,9 +404,7 @@ func runContractGenerate(stdout io.Writer, args []string) error {
 	}
 	var result generate.GenerateResult
 	var generateErr error
-	if pruneMaterializedGo {
-		result, generateErr = generate.PruneMaterializedGo(root, opts.Check)
-	} else if strings.HasPrefix(target, "typescript_client.") {
+	if strings.HasPrefix(target, "typescript_client.") {
 		result, generateErr = generate.GenerateTypeScriptClients(root, target, opts.Check)
 	} else if target == "" {
 		result, generateErr = generate.GenerateAll(root, opts.Check)
@@ -427,24 +414,16 @@ func runContractGenerate(stdout io.Writer, args []string) error {
 	var compilation *compiler.Result
 	if generateErr == nil {
 		compilation, generateErr = compiler.Compile(root)
-		if generateErr == nil && compilation.Valid() && !opts.Check {
-			if mergeEditorWorkspace {
-				generateErr = generate.SyncEditorWorkspaceMerge(compilation)
-			} else {
-				generateErr = generate.SyncEditorWorkspace(compilation)
-			}
-		}
 	}
 	coverage := generate.ClientCoverageFor(compilation, target)
-	if pruneMaterializedGo || target == "go" || target == "contracts" {
+	if target == "contracts" {
 		coverage = []generate.ClientCoverage{}
 	}
-	editor := generate.DescribeEditorWorkspace(compilation, opts.Check)
 	if opts.Output == "json" {
 		if compilation == nil {
 			compilation, _ = compiler.Compile(root)
 		}
-		envelope := newCLIEnvelope(generateErr == nil, map[string]any{"target": target, "generation": result, "clients": coverage, "editor_workspace": editor}, nil)
+		envelope := newCLIEnvelope(generateErr == nil, map[string]any{"target": target, "generation": result, "clients": coverage}, nil)
 		if compilation != nil {
 			envelope.WorkspaceRevision = compilation.WorkspaceRevision
 			if compilation.Manifest != nil {
@@ -459,7 +438,11 @@ func runContractGenerate(stdout io.Writer, args []string) error {
 			envelope.Diagnostics = append(envelope.Diagnostics, compilation.Diagnostics...)
 		}
 		if generateErr != nil {
-			envelope.Diagnostics = append(envelope.Diagnostics, graph.Diagnostic{Code: "SCN6207", Severity: "error", Message: generateErr.Error()})
+			code := "SCN6207"
+			if opts.Check && len(result.Changed) > 0 {
+				code = "SCN6204"
+			}
+			envelope.Diagnostics = append(envelope.Diagnostics, graph.Diagnostic{Code: code, Severity: "error", Message: generateErr.Error()})
 		}
 		_ = json.NewEncoder(stdout).Encode(envelope)
 	}
@@ -481,14 +464,6 @@ func runContractGenerate(stdout io.Writer, args []string) error {
 			if client.Message != "" {
 				_, _ = fmt.Fprintln(stdout, "scenery: warning: "+client.Message)
 			}
-		}
-		if editor.Status == "skipped" {
-			_, _ = fmt.Fprintf(stdout, "scenery: editor workspace skipped (%s)\n", editor.Reason)
-			if editor.Reason == "scenery_repository_fixture" {
-				_, _ = fmt.Fprintln(stdout, "scenery: copy this fixture outside the Scenery checkout for raw Go commands and editor contracts")
-			}
-		} else if editor.WorkFile != "" {
-			_, _ = fmt.Fprintf(stdout, "scenery: editor workspace %s: %s\n", editor.Status, editor.WorkFile)
 		}
 		if len(result.Changed) == 0 {
 			_, _ = fmt.Fprintln(stdout, "scenery: generated contracts are current")
@@ -607,11 +582,6 @@ func runContractCompile(stdout io.Writer, args []string) error {
 	result, err := compileContractRoot(opts.AppRoot)
 	if err != nil {
 		return err
-	}
-	if result.Valid() {
-		if err := generate.SyncEditorWorkspace(result); err != nil {
-			return err
-		}
 	}
 	manifest := result.Manifest
 	if result.Valid() {

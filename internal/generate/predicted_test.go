@@ -47,9 +47,13 @@ func TestCheckPredictedGoContractsAcceptsNative(t *testing.T) {
 	if err := CheckPredictedGoContracts(result); err != nil {
 		t.Fatal(err)
 	}
-	adapter, err := os.ReadFile(filepath.Join(root, "internal", "scenerygen", "house_house_adapter", "adapter.gen.go"))
+	files, err := RenderGoWorkspaceFiles(result)
 	if err != nil {
-		t.Fatalf("read predicted native adapter: %v", err)
+		t.Fatalf("render predicted native adapter: %v", err)
+	}
+	adapter := files["internal/scenerygen/house_house_adapter/adapter.gen.go"]
+	if _, err := os.Stat(filepath.Join(root, "internal", "scenerygen")); !os.IsNotExist(err) {
+		t.Fatal("predicted validation materialized private composition")
 	}
 	if !strings.Contains(string(adapter), "return native.Inspect(ctx, input)") {
 		t.Fatalf("predicted native adapter does not invoke the authored handler:\n%s", adapter)

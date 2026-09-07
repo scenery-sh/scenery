@@ -1,32 +1,65 @@
 package main
 
 import (
-	"context"
+	"bytes"
+	"os"
 	"strings"
 	"testing"
+
+	"scenery.sh/internal/app"
 )
 
-func TestResolveDownSessionAllowsMissingRuntime(t *testing.T) {
-	t.Parallel()
-
-	session, missing, err := resolveDownSessionFromList("/tmp/app", nil)
-	if err != nil {
-		t.Fatalf("resolve down session: %v", err)
+func TestWorktreeDownAbsentDoesNotAllocate(t *testing.T) {
+	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
+	t.Setenv("DATABASE_URL", "")
+	root := t.TempDir()
+	var output bytes.Buffer
+	if err := runWorktreeDown(t.Context(), &output, []string{"--app-root", root, "-o", "json"}); err != nil {
+		t.Fatal(err)
 	}
-	if !missing || session.AppRoot != "/tmp/app" {
-		t.Fatalf("session = %+v missing=%v, want synthetic missing-runtime session", session, missing)
+	paths, err := commandWorktreePaths(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(paths.Directory); !os.IsNotExist(err) {
+		t.Fatalf("absent down allocated durable state: %v", err)
 	}
 }
 
-func TestDropSessionManagedDatabaseRefusesExternalDSN(t *testing.T) {
-	t.Parallel()
-
+func TestWorktreeCleanupRefusesExternalDSNWithoutRetainedState(t *testing.T) {
+	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
+	t.Setenv("DATABASE_URL", "postgres://user:secret@127.0.0.1:5432/demo")
 	root := t.TempDir()
-	writeTestAppFile(t, root, ".scenery.json", `{"name":"demo","id":"demo","dev":{"services":{"main":{}}}}`)
 	writeTestAppFile(t, root, ".env", "DATABASE_URL=postgres://user:secret@127.0.0.1:5432/demo\n")
+	var output bytes.Buffer
+	for _, err := range []error{
+		runWorktreeDown(t.Context(), &output, []string{"--app-root", root, "--db"}),
+		runWorktreePrune(t.Context(), &output, []string{"--app-root", root, "--older-than", "1h", "--db"}),
+	} {
+		if err == nil || !strings.Contains(err.Error(), "DATABASE_URL is external") {
+			t.Fatalf("cleanup error = %v", err)
+		}
+	}
+}
 
-	_, err := dropSessionManagedDatabase(context.Background(), root)
-	if err == nil || !strings.Contains(err.Error(), "refusing to drop external postgres database") {
-		t.Fatalf("drop managed database error = %v, want external database refusal", err)
+func TestStandaloneDatabaseLifecycleRefusesLiveOwnerBeforeProvision(t *testing.T) {
+	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
+	root := t.TempDir()
+	paths, err := commandWorktreePaths(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lock, err := paths.AcquireLiveLock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = lock.Release() }()
+	cfg := app.Config{Name: "demo", Dev: app.DevConfig{Services: map[string]app.DevServiceConfig{"db": {}}}}
+	_, _, err = beginDatabaseLifecycleEnv(t.Context(), root, cfg, nil)
+	if err == nil || !strings.Contains(err.Error(), "live owner") {
+		t.Fatalf("lifecycle error = %v", err)
+	}
+	if _, err := os.Stat(paths.Record); !os.IsNotExist(err) {
+		t.Fatalf("conflict allocated authority: %v", err)
 	}
 }

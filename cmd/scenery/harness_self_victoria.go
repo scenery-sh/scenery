@@ -249,7 +249,7 @@ func main() {
 	for range 2 {
 		go func() {
 			attempted <- struct{}{}
-			stack, reused, err := supervisor.ensureSharedVictoriaStack(runCtx, stackRoot)
+			stack, reused, err := supervisor.ensureVictoriaStack(runCtx, stackRoot)
 			results <- ensureResult{stack: stack, reused: reused, err: err}
 		}()
 	}

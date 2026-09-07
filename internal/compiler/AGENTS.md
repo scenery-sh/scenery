@@ -23,8 +23,9 @@ current application graph.
   while `Manifest.Resources` and generated runtime composition remain authored.
 - Workspace snapshots exclude VCS, Scenery state, and dependency caches and
   reject symlinks or non-regular entries.
-- `workspace_revision` excludes derived generated roots and Scenery-owned
-  editor workfiles; it hashes authored and explicitly declared inputs only.
+- `workspace_revision` excludes exact descriptor-covered generated paths under
+  managed roots, not unrelated authored files in those directories. User-owned
+  workfiles follow ordinary explicitly declared revision membership.
 - Every normal source read first asks `internal/workspacetx` to recover an
   abandoned transaction or reject a live owner. Staged validation admits only
   the current transaction owner.

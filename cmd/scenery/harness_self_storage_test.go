@@ -12,16 +12,16 @@ import (
 func TestHarnessDetachInfoReadsCLIEnvelope(t *testing.T) {
 	t.Parallel()
 
-	encoded, err := json.Marshal(newCLIEnvelope(true, map[string]any{"kind": "scenery.dev.detach", "schema_revision": "sha256:test", "pid": 4242, "session": map[string]any{"state_root": "/tmp/state"}}, nil))
+	encoded, err := json.Marshal(newCLIEnvelope(true, map[string]any{"kind": "scenery.dev.detach", "schema_revision": "sha256:test", "pid": 4242, "session": map[string]any{"backends": map[string]localagent.Backend{localagent.RouteAPI: {Network: "unix", Addr: "/tmp/api.sock"}}}}, nil))
 	if err != nil {
 		t.Fatal(err)
 	}
-	stateRoot, pid, err := harnessDetachInfo(string(encoded))
+	apiSocket, pid, err := harnessDetachInfo(string(encoded))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stateRoot != "/tmp/state" || pid != 4242 {
-		t.Fatalf("detach info = %q, %d, want /tmp/state, 4242", stateRoot, pid)
+	if apiSocket != "/tmp/api.sock" || pid != 4242 {
+		t.Fatalf("detach info = %q, %d, want /tmp/api.sock, 4242", apiSocket, pid)
 	}
 
 	// The detached child PID must survive even when the state root is

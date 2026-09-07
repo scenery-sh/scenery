@@ -362,28 +362,6 @@
       "docs": []
     },
     {
-      "name": "SCENERY_AGENT_DISABLE",
-      "match": "exact",
-      "scope": "runtime",
-      "direction": "user_input",
-      "category": "agent.routing",
-      "stability": "stable",
-      "secret": false,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "`1` disables local agent usage. `scenery up --detach` requires this to be unset",
-      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
-    },
-    {
       "name": "SCENERY_AGENT_HOME",
       "match": "exact",
       "scope": "runtime",
@@ -397,7 +375,7 @@
         "tests"
       ],
       "owner": "scenery runtime",
-      "rationale": "Overrides the machine-wide local agent home. Default is `~/.scenery`",
+      "rationale": "Overrides the durable worktree and explicit machine edge/deploy state home. Default is `~/.scenery`; ordinary runtime ownership remains per canonical app root.",
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
@@ -419,7 +397,7 @@
         "tests"
       ],
       "owner": "scenery runtime",
-      "rationale": "Overrides the agent router listen address. Default is `127.0.0.1:9440`",
+      "rationale": "Overrides the explicit machine agent router listen address, not ordinary worktree routing. Default is `127.0.0.1:9440`.",
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
@@ -969,7 +947,7 @@
         "tests"
       ],
       "owner": "scenery runtime",
-      "rationale": "Overrides the dashboard backend address used by dev sessions. Normally allocated automatically",
+      "rationale": "Dashboard client backend address; ordinary development sets it from the acquired worktree owner rather than a parent override",
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",

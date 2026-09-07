@@ -16,7 +16,6 @@ const (
 	envAgentSocket     = "SCENERY_AGENT_SOCKET"
 	envAgentRouterAddr = "SCENERY_AGENT_ROUTER_ADDR"
 	envAgentTrust      = "SCENERY_AGENT_TRUST"
-	envAgentDisable    = "SCENERY_AGENT_DISABLE"
 
 	defaultRouterAddr = "127.0.0.1:9440"
 )
@@ -100,10 +99,6 @@ func RouterAddrFromEnv() string {
 
 func TrustFromEnv() bool {
 	return envEnabled(envAgentTrust)
-}
-
-func DisabledByEnv() bool {
-	return envEnabled(envAgentDisable)
 }
 
 func envEnabled(name string) bool {

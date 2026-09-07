@@ -1307,7 +1307,7 @@ func privilegedListenerStatus(paths localagent.Paths) edgeStatusPrivilegedListen
 		targetPath = filepath.Clean(helperOpts.HelperTargetState)
 	}
 	status.TargetPath = targetPath
-	target, err := localagent.LoadEdgeTargetState(targetPath)
+	target, err := localagent.LoadEdgeHelperTarget(targetPath)
 	if err == nil && target.TargetAddr != "" {
 		status.Target = target.TargetAddr
 		status.TargetPID = target.PID

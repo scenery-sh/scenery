@@ -19,10 +19,13 @@ func TestOnboardingArgumentErrorsAreActionableJSON(t *testing.T) {
 		run  func() error
 		want string
 	}{
-		{"materialize", func() error { return runContractGenerate(io.Discard, []string{"--target", "contracts", "-o", "json"}) }, "requires --materialize"},
+		{"materialize", func() error {
+			return runContractGenerate(io.Discard, []string{"--target", "contracts", "--materialize", "-o", "json"})
+		}, "has been removed"},
 		{"dry-run", func() error { return runContractGenerate(io.Discard, []string{"--dry-run", "-o", "json"}) }, "dry-run"},
 		{"unknown-target", func() error { return runContractGenerate(io.Discard, []string{"--target", "imaginary"}) }, "unknown generation target"},
-		{"check-merge", func() error { return runContractGenerate(io.Discard, []string{"--check", "--merge-editor-workspace"}) }, "cannot be combined"},
+		{"check-merge", func() error { return runContractGenerate(io.Discard, []string{"--check", "--merge-editor-workspace"}) }, "has been removed"},
+		{"prune", func() error { return runContractGenerate(io.Discard, []string{"--prune-materialized-go"}) }, "has been removed"},
 		{"qualified-schema", func() error { return runContractSchema(io.Discard, []string{"execution", "-o", "json"}) }, "scenery schema scenery.execution"},
 		{"provider-usage", func() error { return runProviderLock(io.Discard, []string{"install"}) }, "provider lock"},
 	} {
@@ -74,7 +77,7 @@ func TestProviderLockCheckJSONAndReportSchemas(t *testing.T) {
 	repo := repoRootForTest(t)
 	for name, payload := range map[string]any{
 		"scenery.provider.lock.result.schema.json": envelope.Data,
-		"scenery.generate.result.schema.json":      map[string]any{"target": "", "generation": generate.GenerateResult{}, "clients": []generate.ClientCoverage{{Target: "app/typescript_client/public_api", Message: "empty"}}, "editor_workspace": generate.EditorWorkspaceReport{Status: "skipped", Reason: "scenery_repository_fixture"}},
+		"scenery.generate.result.schema.json":      map[string]any{"target": "", "generation": generate.GenerateResult{}, "clients": []generate.ClientCoverage{{Target: "app/typescript_client/public_api", Message: "empty"}}},
 	} {
 		if diagnostics := validateHarnessJSONSchemaFile(filepath.Join(repo, "docs", "schemas", name), payload); len(diagnostics) != 0 {
 			t.Fatalf("%s: %v", name, diagnostics)
@@ -92,7 +95,7 @@ func TestGenerationHelpDescribesImplementedModes(t *testing.T) {
 			t.Fatalf("unsupported usage: %s", usage)
 		}
 	}
-	for _, flag := range []string{"--materialize", "--prune-materialized-go", "--merge-editor-workspace", "--check"} {
+	for _, flag := range []string{"--target", "--check"} {
 		if !strings.Contains(strings.Join(entry.Flags, " "), flag) {
 			t.Errorf("missing %s", flag)
 		}

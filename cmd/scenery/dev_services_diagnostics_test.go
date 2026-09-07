@@ -2,109 +2,15 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"errors"
 	"os/exec"
-	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/graph"
 	"scenery.sh/internal/machine"
 )
-
-func TestPostgresContainerConflictFailsWithoutMutation(t *testing.T) {
-	original := postgresDocker
-	t.Cleanup(func() { postgresDocker = original })
-	for _, status := range []string{"running", "exited"} {
-		t.Run(status, func(t *testing.T) {
-			state := &postgresServerState{Container: "scenery-postgres", Port: 5432, Password: "private-password"}
-			before := *state
-			fake := &fakePostgresDockerRunner{run: func(args []string) (string, error) {
-				if !slices.Equal(args[:2], []string{"container", "inspect"}) {
-					t.Fatalf("unexpected Docker mutation: %v", args)
-				}
-				if args[len(args)-1] == "{{.State.Status}}" {
-					return status, nil
-				}
-				return "6543", nil
-			}}
-			postgresDocker = fake
-			err := ensurePostgresDockerContainer(t.Context(), state)
-			diagnostic := assertSafeRuntimeDiagnostic(t, err, 3, "SCN8003")
-			if len(fake.calls) != 2 || *state != before {
-				t.Fatalf("mismatch mutated state or performed extra Docker work: %+v; %v", state, fake.calls)
-			}
-			if diagnostic.Details["expected_port"] != float64(5432) || diagnostic.Details["configured_port"] != float64(6543) {
-				t.Fatalf("missing repair context: %+v", diagnostic)
-			}
-			if strings.Contains(err.Error(), "docker rm") || !strings.Contains(strings.Join(diagnostic.Suggestions, " "), "Do not remove") {
-				t.Fatalf("unsafe recovery guidance: %+v", diagnostic)
-			}
-		})
-	}
-}
-
-func TestPostgresContainerMatchingPortPreservesLifecycle(t *testing.T) {
-	original := postgresDocker
-	t.Cleanup(func() { postgresDocker = original })
-	for _, tc := range []struct {
-		status, action string
-		count          int
-	}{
-		{"running", "container", 2}, {"exited", "start", 3}, {"", "run", 2},
-	} {
-		t.Run(tc.status+tc.action, func(t *testing.T) {
-			fake := &fakePostgresDockerRunner{run: func(args []string) (string, error) {
-				if args[0] != "container" {
-					return "started", nil
-				}
-				if args[len(args)-1] == "{{.State.Status}}" {
-					if tc.status == "" {
-						return "No such container: scenery-postgres", postgresDockerFailure(errors.New("exit status 1"))
-					}
-					return tc.status, nil
-				}
-				return "5432", nil
-			}}
-			postgresDocker = fake
-			if err := ensurePostgresDockerContainer(t.Context(), &postgresServerState{Container: "scenery-postgres", Port: 5432}); err != nil {
-				t.Fatal(err)
-			}
-			if len(fake.calls) != tc.count || fake.calls[len(fake.calls)-1][0] != tc.action {
-				t.Fatalf("lifecycle calls: %v", fake.calls)
-			}
-		})
-	}
-}
-
-func TestPostgresDockerUnavailableDoesNotCreateContainer(t *testing.T) {
-	original := postgresDocker
-	t.Cleanup(func() { postgresDocker = original })
-	fake := &fakePostgresDockerRunner{run: func([]string) (string, error) { return "", postgresDockerFailure(exec.ErrNotFound) }}
-	postgresDocker = fake
-	err := ensurePostgresDockerContainer(t.Context(), &postgresServerState{Container: "scenery-postgres", Port: 5432})
-	assertSafeRuntimeDiagnostic(t, err, 4, "SCN8004")
-	if len(fake.calls) != 1 || !slices.Equal(fake.calls[0][:2], []string{"container", "inspect"}) {
-		t.Fatalf("unavailable Docker treated as a missing container: %v", fake.calls)
-	}
-}
-
-func TestPostgresReadinessTimeoutPreservesSafeDiagnostic(t *testing.T) {
-	docker, probe, sleep := postgresDocker, postgresReadyProbe, postgresReadySleep
-	t.Cleanup(func() { postgresDocker, postgresReadyProbe, postgresReadySleep = docker, probe, sleep })
-	postgresDocker = &fakePostgresDockerRunner{run: func([]string) (string, error) { return "5432", nil }}
-	postgresReadyProbe = func(context.Context, *postgresServerState) error {
-		return errors.New("connection failed postgres://user:private-password@host/db")
-	}
-	postgresReadySleep = func(context.Context, time.Duration) error { return context.DeadlineExceeded }
-	diagnostic := assertSafeRuntimeDiagnostic(t, waitForPostgresServer(t.Context(), &postgresServerState{Container: "scenery-postgres", Port: 5432, Password: "private-password"}), 3, "SCN8003")
-	if diagnostic.Details["port"] != float64(5432) || len(diagnostic.Suggestions) == 0 {
-		t.Fatalf("readiness repair context: %+v", diagnostic)
-	}
-}
 
 func TestRuntimeConfigurationAndCapabilityDiagnostics(t *testing.T) {
 	t.Parallel()
@@ -122,7 +28,7 @@ func TestRuntimeConfigurationAndCapabilityDiagnostics(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) { assertSafeRuntimeDiagnostic(t, tc.err, tc.code, tc.diagnostic) })
 	}
-	_, _, err := managedDatabaseEnv(t.Context(), "", cfg, nil, []string{"DATABASE_URL=postgres://user:private-password@host/%ZZ"})
+	_, _, err := managedDatabaseEnv(t.Context(), "", cfg, []string{"DATABASE_URL=postgres://user:private-password@host/%ZZ"})
 	assertSafeRuntimeDiagnostic(t, err, 3, "SCN8003")
 	_, err = devRoutingMode(app.ResolvedEnv{Name: "local", Mode: "unsupported"})
 	assertSafeRuntimeDiagnostic(t, err, 3, "SCN8003")

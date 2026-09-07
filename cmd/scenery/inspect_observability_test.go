@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -51,7 +52,7 @@ func TestFormerInspectObservabilitySubjectsAreInvalidRequests(t *testing.T) {
 
 func TestRunSceneryInspectTracesWithFilters(t *testing.T) {
 	root := t.TempDir()
-	cacheRoot := isolateCommandCacheRoot(t)
+	cacheRoot := testWorktreeDashboardRoot(t, root)
 	t.Setenv("SCENERY_DEV_VICTORIA", "0")
 	writeTestAppFile(t, root, ".scenery.json", `{"name":"obsapp","id":"obs-id"}`)
 
@@ -89,7 +90,7 @@ func TestRunSceneryInspectTracesWithFilters(t *testing.T) {
 
 func TestRunSceneryInspectMetricsAggregatesTracesAndLogs(t *testing.T) {
 	root := t.TempDir()
-	cacheRoot := isolateCommandCacheRoot(t)
+	cacheRoot := testWorktreeDashboardRoot(t, root)
 	t.Setenv("SCENERY_DEV_VICTORIA", "0")
 	writeTestAppFile(t, root, ".scenery.json", `{"name":"obsapp","id":"obs-id"}`)
 
@@ -136,7 +137,7 @@ func TestRunSceneryInspectMetricsAggregatesTracesAndLogs(t *testing.T) {
 func TestRunSceneryInspectUsesSessionAppRecordWhenLatestAppRootDiffers(t *testing.T) {
 	root := t.TempDir()
 	otherRoot := t.TempDir()
-	cacheRoot := isolateCommandCacheRoot(t)
+	cacheRoot := testWorktreeDashboardRoot(t, root)
 	t.Setenv("SCENERY_DEV_VICTORIA", "0")
 	writeTestAppFile(t, root, ".scenery.json", `{"name":"obsapp","id":"obs-id"}`)
 
@@ -194,4 +195,13 @@ func openTestObservabilityStore(t *testing.T, cacheRoot, appRoot string) *devdas
 		t.Fatalf("UpsertApp() error = %v", err)
 	}
 	return store
+}
+
+func testWorktreeDashboardRoot(t *testing.T, root string) string {
+	t.Helper()
+	paths, err := commandWorktreePaths(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Join(paths.ControlPaths().AgentDir, "dashboard")
 }

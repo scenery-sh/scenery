@@ -22,8 +22,9 @@ import (
 )
 
 type Store struct {
-	path   string
-	shared *storeShared
+	path     string
+	shared   *storeShared
+	readOnly bool
 }
 
 type storeShared struct {
@@ -191,12 +192,33 @@ func OpenStore(cacheRoot string) (*Store, error) {
 	return store, nil
 }
 
+// OpenReadOnlyStore inspects an existing cache without creating, compacting,
+// flushing, or joining a writer's pending mutations. It has no default root.
+func OpenReadOnlyStore(cacheRoot string) (*Store, error) {
+	if cacheRoot == "" {
+		return nil, errors.New("read-only dashboard store requires an explicit root")
+	}
+	path := filepath.Join(cacheRoot, "devdash.json")
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, errors.New("dashboard store is not a regular file")
+	}
+	store := &Store{path: path, shared: &storeShared{}, readOnly: true}
+	if err := store.withState(context.Background(), false, func(*storeState) error { return nil }); err != nil {
+		return nil, err
+	}
+	return store, nil
+}
+
 func (s *Store) Close() error {
 	return s.Flush(context.Background())
 }
 
 func (s *Store) Flush(ctx context.Context) error {
-	if s == nil || s.path == "" || s.shared == nil {
+	if s == nil || s.path == "" || s.shared == nil || s.readOnly {
 		return nil
 	}
 	if err := ctx.Err(); err != nil {
@@ -243,6 +265,9 @@ func (s *Store) withStateDeferred(ctx context.Context, fn storeMutation) error {
 func (s *Store) withStatePersist(ctx context.Context, write bool, immediate bool, fn storeMutation) error {
 	if s == nil || s.path == "" || s.shared == nil {
 		return errors.New("devdash store is nil")
+	}
+	if write && s.readOnly {
+		return errors.New("dashboard store is read-only")
 	}
 	if err := ctx.Err(); err != nil {
 		return err

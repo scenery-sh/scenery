@@ -73,7 +73,8 @@ import "context"
 
 func Hello(ctx context.Context) error { return nil }
 `
-	writeBuildTestFile(t, appDir, ".scenery.json", `{"name":"buildtest"}`)
+	writeBuildTestFile(t, appDir, ".scenery.json", `{"name":"buildtest","envs":{"local":{"default":true}}}`)
+	writeBuildTestFile(t, appDir, "app.scn", "application \"buildtest\" {}\n")
 	writeBuildTestFile(t, appDir, "go.mod", goMod)
 	writeBuildTestFile(t, appDir, "svc/api.go", serviceSource)
 
@@ -82,7 +83,7 @@ func Hello(ctx context.Context) error { return nil }
 		t.Fatal(err)
 	}
 	writeBuildTestFile(t, workspace, "go.mod", goMod)
-	writeBuildTestFile(t, workspace, ".scenery.json", `{"name":"buildtest"}`)
+	writeBuildTestFile(t, workspace, ".scenery.json", `{"name":"buildtest","envs":{"local":{"default":true}}}`)
 	writeBuildTestFile(t, workspace, "svc/api.go", serviceSource)
 	writeBuildTestFile(t, workspace, "svc/scenery.gen.go", "package svc\n")
 	writeBuildTestFile(t, workspace, "scenery_internal_main/main.go", "package main\n\nfunc main() {}\n")

@@ -102,9 +102,9 @@ Then run `scenery deploy some-id`. Scenery validates locally, connects with
 passwordless OpenSSH, stops the remote app, rsyncs the current working tree to
 `$HOME/.scenery/apps/hello`, and runs remote `scenery up --detach --wait ready`.
 The target needs `rsync`, `scenery`, and the app toolchain. `.git`, local
-`.scenery`, `.env*`, `node_modules`, and Scenery-owned `go.work` files are not
+`.scenery`, `.env*`, `node_modules`, and machine-local `go.work` files are not
 uploaded; `.gitignore` exclusions are honored, and remote dotenv, `.scenery`,
-and editor workspace state are preserved.
+and user workspace state are preserved.
 Deployment has brief downtime and no rollback.
 
 ## Public Deploy Edge
@@ -366,7 +366,7 @@ scenery check [--app-root <path>] -o json
 scenery compile [--app-root <path>] [--view source|effective|expanded] -o json
 scenery list|get|explain|graph ... [--app-root <path>] -o json
 scenery diff --semantic BASE TARGET [--rename-receipts <path>] -o json
-scenery generate [--app-root <path>] [--target contracts|typescript_client.<name>] [--materialize] [--prune-materialized-go] [--merge-editor-workspace] [--check] -o json
+scenery generate [--app-root <path>] [--target contracts|typescript_client.<name>] [--check] -o json
 scenery changes plan|apply ... -o json
 scenery generate sqlc [--app-root <path>] [--dry-run] [-o json]
 scenery task list [--app-root <path>] [-o json]
@@ -394,30 +394,34 @@ scenery db seed [--app-root <path>] [--env <name>] [--dry-run] [-o json]
 scenery db setup [--app-root <path>] [-o json]
 scenery db reset [--app-root <path>] [--service <name>] [--yes]
 scenery db drop [--app-root <path>] [--service <name>] [--yes]
-scenery db server status|start|stop|logs [-o json] [--yes]
+scenery db server status|start|stop|logs [--app-root <path>] [-o json]
 scenery snapshot save --output <file.zip> [--db] [--storage] [--app-root <path>] [-o human|json]
 scenery snapshot verify --input <file.zip> [-o human|json]
 scenery snapshot load --input <file.zip> [--db] [--storage] --mode overwrite|merge [--on-conflict fail|skip|overwrite] [--yes] [--dry-run] [--app-root <path>] [-o human|json]
 scenery worktree create <name> [--from <branch>] [--app-root <path>] [-o json]
 scenery worktree list [--app-root <path>] [-o json]
-scenery worktree remove <name> [--app-root <path>] [--db] [-o json]
+scenery worktree remove <name> [--app-root <path>] [-o json]
 ```
 
 Each invocation best-effort appends command, duration, exit code, version, and `oneshot` or `long_running` mode to `~/.scenery/telemetry.jsonl`. When the invocation belongs to a configured app, the record also carries its stable app ID and display name; filesystem paths and full arguments are never recorded. `scenery telemetry` reads that owner-only stream with bounded recent records, overall/per-app/per-command timing summaries, and repeatable app or command filters. Telemetry write failures never affect the command.
 
-`scenery system agent restart` restarts only the local control plane and router; registered shared Postgres and Victoria processes keep their PIDs. Destructive substrate shutdown stays with substrate-specific commands.
+`scenery system agent restart` restarts only the explicitly managed machine control plane and router used by edge/deploy operations. Each ordinary `scenery up` owns its private control plane, router, PostgreSQL, and optional Victoria processes independently; it does not start or repair the machine agent.
 
 `scenery system agent cleanup` stops only fingerprint-verified same-user processes tied to the pre-rebrand `~/.onlava` config or socket. It reports old state by default and removes it only with `--remove-state`.
 
-`scenery prune --older-than 14d` removes stale runtime records and substrate leases without deleting databases or state. Add `--state`, `--db`, or `--all` for those explicit destructive cleanup scopes; managed database cleanup refuses external DSNs.
+`scenery prune --older-than 14d` removes stale inactive session records without deleting databases. `--state` also removes their disposable state. Whole-cluster deletion requires `--db --app-root <absolute-path>` (or `--all` with that exact root); it deletes only the selected stopped/orphaned worktree's verified container and volume and refuses external DSNs.
 
 The agent and managed Caddy edge are single-owner processes. Startup fails closed instead of choosing an unadvertised port, safely reaps only fingerprint-verified stale Scenery owners, and `scenery doctor -o json` reports duplicate or foreign listeners.
 
 `scenery db list -o json` reports the app's Postgres database and service schemas.
 An explicit app-level `DATABASE_URL` wins and makes the database external;
-otherwise `scenery up` creates one isolated database per app root/worktree on the
-shared local Postgres dev server, with one schema per configured service plus
-the `scenery` schema for framework state.
+otherwise SQL-backed apps receive a dedicated PostgreSQL container and volume
+per canonical app root/worktree, with one app database, one schema per service,
+and the `scenery` schema for framework state. Non-SQL apps do not provision it.
+`scenery down` stops that worktree's processes and PostgreSQL while retaining
+data and credentials outside the checkout. Branch switches reuse the same
+root's data; another worktree gets another cluster. Removing a Git worktree
+does not delete its database, which remains discoverable through `scenery ps`.
 
 See [docs/local-contract.md](docs/local-contract.md) for the full command contract and JSON schema list.
 
@@ -437,6 +441,17 @@ runtimes remain resident and are never unloaded. See
 for the declaration and config recipe.
 
 ## Public Go Packages
+
+After a fresh app checkout, run `scenery generate --target contracts` before
+ordinary `go doc`, `go mod tidy`, or `go test ./...`. Generated contracts and
+library facades are real packages inside the app's existing Go module; no
+generated `go.work`, nested module, or replacement is needed. Add exact output
+roots such as `/service/scenerycontract/` to `.gitignore` once. Build/test/up
+prepare them automatically; `check` and `generate --check` report drift without
+repair. Complete generation before running raw Go tools against changed
+contracts. Publishing a Go module explicitly includes its required generated
+source; ordinary application commits need not track it. See the cookbook's
+[one-time old-workfile cutover](docs/app-development-cookbook.md#retire-an-old-scenery-editor-workfile).
 
 - `scenery.sh` exposes app metadata and current request metadata.
 - `scenery.sh/auth` exposes request auth state helpers.

@@ -1,10 +1,8 @@
 package generate
 
 import (
-	"path/filepath"
 	"testing"
 
-	"scenery.sh/internal/app"
 	"scenery.sh/internal/compiler"
 )
 
@@ -26,16 +24,5 @@ func TestClientCoverageReportsEmptySelectedTarget(t *testing.T) {
 	coverage = ClientCoverageFor(result, "")
 	if len(coverage) != 1 || coverage[0].Bindings != 1 || coverage[0].Message != "" {
 		t.Fatalf("covered = %+v", coverage)
-	}
-}
-
-func TestEditorWorkspaceReportExplainsFixtureAndCheckOnly(t *testing.T) {
-	result := &compiler.Result{Root: filepath.Join(app.RepoRoot(), "internal", "compiler", "testdata", "native"), ContractStatus: "valid", Manifest: &Manifest{}}
-	if report := DescribeEditorWorkspace(result, false); report.Status != "skipped" || report.Reason != "scenery_repository_fixture" {
-		t.Fatalf("fixture = %+v", report)
-	}
-	result.Root = t.TempDir()
-	if report := DescribeEditorWorkspace(result, true); report.Status != "not_requested" || report.Reason != "check_only" {
-		t.Fatalf("check = %+v", report)
 	}
 }

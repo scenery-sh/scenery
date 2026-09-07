@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -47,25 +48,14 @@ func runHarnessParallelDevStep(ctx context.Context, repoRoot string) harnessStep
 	return step
 }
 
-func runHarnessParallelDevCheck(parent context.Context) (map[string]any, []checkDiagnostic, error) {
+func runHarnessParallelDevCheck(parent context.Context) (_ map[string]any, _ []checkDiagnostic, returnErr error) {
 	ctx, cancel := context.WithTimeout(parent, 60*time.Second)
 	defer cancel()
 	label := harnessRandomLabel()
 	agentHome := filepath.Join(os.TempDir(), "scenery-harness-parallel-"+label)
-	defer func() { _ = os.RemoveAll(agentHome) }()
 	dockerAvailable := harnessDockerAvailable(ctx)
 	var extraDiagnostics []checkDiagnostic
-	if dockerAvailable {
-		serverState, err := seedHarnessPostgresServerState(agentHome, label)
-		if err != nil {
-			return nil, nil, err
-		}
-		defer func() {
-			cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancel()
-			_ = cleanupPostgresHarnessContainer(cleanupCtx, serverState.Container, serverState.Volume)
-		}()
-	} else {
+	if !dockerAvailable {
 		extraDiagnostics = append(extraDiagnostics, checkDiagnostic{
 			Stage:           "parallel worktree runtimes",
 			Severity:        "warning",
@@ -74,10 +64,10 @@ func runHarnessParallelDevCheck(parent context.Context) (map[string]any, []check
 		})
 	}
 	restoreEnv := patchEnv(map[string]*string{
+		"DATABASE_URL":                  nil,
 		"SCENERY_AGENT_HOME":            stringPtr(agentHome),
 		"SCENERY_DEV_CACHE_DIR":         nil,
 		"SCENERY_DEV_DASHBOARD_ADDR":    nil,
-		"SCENERY_AGENT_DISABLE":         nil,
 		"SCENERY_DEV_VICTORIA":          stringPtr("0"),
 		"SCENERY_DEV_VICTORIA_DOWNLOAD": stringPtr("0"),
 	})
@@ -130,6 +120,29 @@ func runHarnessParallelDevCheck(parent context.Context) (map[string]any, []check
 	defer func() { _ = os.RemoveAll(root) }()
 	cfgA := harnessParallelConfig(frontendA)
 	cfgB := harnessParallelConfig(frontendB)
+	defer func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 45*time.Second)
+		defer cleanupCancel()
+		cleanupErr := errors.Join(cleanupHarnessWorktreePostgres(cleanupCtx, rootA, cfgA.AppID()), cleanupHarnessWorktreePostgres(cleanupCtx, rootB, cfgB.AppID()))
+		returnErr = errors.Join(returnErr, cleanupErr)
+		if cleanupErr == nil {
+			_ = os.RemoveAll(agentHome)
+		}
+	}()
+	var (
+		databaseEnvA, databaseEnvB []string
+		databaseA, databaseB       postgresdb.Database
+	)
+	if dockerAvailable {
+		databaseEnvA, databaseA, err = managedDatabaseEnv(ctx, rootA, cfgA, envpolicy.Environ())
+		if err != nil {
+			return nil, nil, err
+		}
+		databaseEnvB, databaseB, err = managedDatabaseEnv(ctx, rootB, cfgB, envpolicy.Environ())
+		if err != nil {
+			return nil, nil, err
+		}
+	}
 
 	sessionA, restoreA, err := prepareHarnessParallelSession(ctx, rootA, cfgA)
 	if err != nil {
@@ -141,21 +154,6 @@ func runHarnessParallelDevCheck(parent context.Context) (map[string]any, []check
 		return nil, nil, err
 	}
 	defer restoreB()
-
-	var (
-		databaseEnvA, databaseEnvB []string
-		databaseA, databaseB       postgresdb.Database
-	)
-	if dockerAvailable {
-		databaseEnvA, databaseA, err = managedDatabaseEnv(ctx, rootA, cfgA, sessionA, envpolicy.Environ())
-		if err != nil {
-			return nil, nil, err
-		}
-		databaseEnvB, databaseB, err = managedDatabaseEnv(ctx, rootB, cfgB, sessionB, envpolicy.Environ())
-		if err != nil {
-			return nil, nil, err
-		}
-	}
 
 	supervisorA := &devSupervisor{root: rootA, cfg: cfgA, agent: client, agentSession: sessionA}
 	supervisorB := &devSupervisor{root: rootB, cfg: cfgB, agent: client, agentSession: sessionB}
@@ -342,10 +340,19 @@ func validateHarnessParallelState(ctx context.Context, server *localagent.Server
 	appA, errA := store.GetAppForSession(ctx, appID, sessionA.SessionID)
 	appB, errB := store.GetAppForSession(ctx, appID, sessionB.SessionID)
 	check(errA == nil && errB == nil && appA.SessionID != "" && appB.SessionID != "" && appA.SessionID != appB.SessionID, "dashboard app sessions must remain session-scoped")
-	if _, err := client.Delete(ctx, sessionA.SessionID, false); err != nil {
-		check(false, "deleting one session must succeed without signaling")
-	} else if _, err := client.Delete(ctx, sessionB.SessionID, false); err != nil {
-		check(false, "sibling session must remain after deleting the first session")
+	for _, session := range []*localagent.Session{sessionA, sessionB} {
+		paths, err := commandWorktreePaths(session.AppRoot)
+		if err != nil {
+			check(false, "resolving the selected private session failed: "+err.Error())
+			break
+		}
+		private := localagent.NewClient(paths.Socket)
+		_, _, err = private.DeleteOwnedSession(ctx, *session, false)
+		private.CloseIdleConnections()
+		if err != nil {
+			check(false, "deleting only the selected private session failed: "+err.Error())
+			break
+		}
 	}
 	return diagnostics
 }

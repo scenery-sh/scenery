@@ -2,8 +2,8 @@
 
 ## Purpose
 
-`internal/workspacetx` owns crash-safe source transaction metadata, process
-ownership checks, and recovery before any compiler source read.
+`internal/workspacetx` owns crash-safe source/generated publication metadata,
+process ownership checks, and recovery before any compiler source read.
 
 ## Local Contracts
 
@@ -11,6 +11,10 @@ ownership checks, and recovery before any compiler source read.
 - Normal reads recover stale unreceipted work or reject a live owner.
 - Only the current transaction owner may perform staged validation reads.
 - Preserve strict current artifact identities and safely refuse legacy state.
+- Generated publication uses the same lock/journal boundary; callers establish
+  descriptor/digest ownership before returning updates. Serialize recovery with
+  the kernel-owned recovery gate, verify backup bytes, and remove journals before
+  committed markers/backups during cleanup.
 
 ## Verification
 

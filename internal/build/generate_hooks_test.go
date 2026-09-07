@@ -5,7 +5,10 @@ import "scenery.sh/internal/generate"
 func init() {
 	SetGenerateHooks(GenerateHooks{
 		ApplyImplementationCheck: generate.ApplyImplementationCheck,
-		SyncEditorWorkspace:      generate.SyncEditorWorkspace,
+		SyncGoPackages: func(result *generate.Result) error {
+			_, err := generate.GenerateGoContractsFromResult(result, false)
+			return err
+		},
 		SyncCachedTypeScript: func(result *generate.Result) error {
 			_, err := generate.SyncCachedTypeScriptClients(result)
 			return err

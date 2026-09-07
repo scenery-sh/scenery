@@ -30,9 +30,6 @@ func (s *dashboardServer) handleRPC(ctx context.Context, req rpcRequest) rpcResp
 }
 
 func (s *dashboardServer) dispatchRPC(ctx context.Context, method string, raw json.RawMessage) (any, error) {
-	if strings.HasPrefix(method, "symphony/") {
-		return s.dispatchSymphonyRPC(ctx, method, raw)
-	}
 	switch method {
 	case "list-apps":
 		return s.dashboardListApps(ctx)

@@ -53,6 +53,10 @@ type Server struct {
 	controlLn            net.Listener
 	routerLn             net.Listener
 	processLock          *ProcessLock
+	worktreeRoot         string
+	worktreeAppID        string
+	closeOnce            sync.Once
+	closeErr             error
 }
 
 func NewServer(opts RunOptions) (*Server, error) {
@@ -173,7 +177,9 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 	monitorCtx, cancelMonitor := context.WithCancel(ctx)
 	defer cancelMonitor()
-	go s.monitorPublicRoutes(monitorCtx)
+	if s.worktreeRoot == "" {
+		go s.monitorPublicRoutes(monitorCtx)
+	}
 	errCh := make(chan error, 2)
 	go func() {
 		if err := s.control.Serve(s.controlLn); err != nil && !errors.Is(err, http.ErrServerClosed) && !errors.Is(err, net.ErrClosed) {
@@ -252,6 +258,11 @@ func (s *Server) GetSubstrate(kind string) (Substrate, bool) {
 }
 
 func (s *Server) Close() error {
+	s.closeOnce.Do(func() { s.closeErr = s.close() })
+	return s.closeErr
+}
+
+func (s *Server) close() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	var errs []error
@@ -506,6 +517,10 @@ func (s *Server) handleSessions(w http.ResponseWriter, req *http.Request) {
 		var register RegisterRequest
 		if err := json.NewDecoder(http.MaxBytesReader(w, req.Body, 1<<20)).Decode(&register); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if s.worktreeRoot != "" && (filepath.Clean(register.AppRoot) != s.worktreeRoot || register.BaseAppID != s.worktreeAppID || register.WorktreeProxy != nil) {
+			http.Error(w, "registration does not match the worktree owner", http.StatusConflict)
 			return
 		}
 		session, err := s.registry.Upsert(register)

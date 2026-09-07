@@ -136,6 +136,7 @@ func runSceneryHarnessSelf(ctx context.Context, stdout io.Writer, args []string)
 		}
 		if opts.Mode == harnessSelfModeRelease {
 			resp.Steps = append(resp.Steps,
+				runHarnessWorktreeRuntimeProbeStep(ctx, repoRoot),
 				runHarnessAgentRestartProbeStep(ctx, repoRoot),
 				runHarnessAssistantInitProbeStep(ctx, repoRoot),
 				runHarnessAssistantProductionProbeStep(ctx, repoRoot),

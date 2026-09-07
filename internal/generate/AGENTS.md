@@ -5,7 +5,7 @@
 `internal/generate` owns deterministic Go contracts, runtime composition,
 TypeScript clients, OpenAPI documents, and their generated-file transactions.
 `internal/generate/api` is the stdlib-only leaf for library build specs,
-editor-workspace inspection, runtime-integration plans, and assistant-asset
+runtime-integration plans and assistant-asset
 descriptor types so callers that do not render artifacts do not link the
 generator. Production `internal/build` consumes those types through injected
 hooks; CLI wires the live generate functions.
@@ -15,19 +15,24 @@ hooks; CLI wires the live generate functions.
 - Consume immutable `internal/compiler.Result` and canonical `internal/graph`
   resources; never depend on legacy umbrella packages.
 - Keep `internal/generate/api` free of compiler, parse, tscheck, and generate
-  imports. Types and editor-workspace inspection live there; rendering,
+  imports. Shared types live there; rendering,
   verification, and inspection tests stay in `internal/generate` so the leaf
   does not grow a test binary.
 - Live predicted-artifact and native implementation-check coverage lives here,
   not in `internal/evolution` tests.
-- Render Go artifacts into external build/editor workspaces by default; source
-  materialization is an explicit published-module export.
+- Publish application-imported Go packages inside their declared existing Go
+  modules and managed roots. Exact authored Git ignores keep them out of normal
+  application commits; generation never edits ignores or creates nested modules.
+- Keep private composition in the build cache using the same public renderer.
 - For declared Go libraries, render the typed `scenerylib_<name>` facade,
   source/shared backends, c-shared export shim, and detached descriptor into
-  that external workspace. The app imports the facade; it never commits or
-  edits those projections.
-- Own the fail-closed editor `go.work` protocol and descriptor-verified legacy
-  pruning. Never replace or delete bytes whose ownership cannot be proven.
+  the declared in-module root. Do not hand-edit projections; publishing a Go
+  module explicitly includes its required generated package source.
+- Reuse `workspacetx` for one serialized, recoverable artifact publication.
+  Never replace or delete bytes whose descriptor/digest ownership is unproven.
+- Graph reads, `check`, and `generate --check` do not repair application output.
+  Native ABI checking uses current expected contracts even when local output is
+  stale. Contract bootstrap requires a valid graph, not valid implementation.
 - TypeScript targets route to source or `.scenery` cache from their declared
   `materialization` mode.
 - Generated `typescript_client` HTTP methods are thin typed wrappers over a
@@ -61,9 +66,9 @@ hooks; CLI wires the live generate functions.
 - Generation checks return diagnostics plus an explicit implementation state:
   native verification is `valid` or `invalid`; compile-only/non-native checks
   remain `not_requested`.
-- Generation reports use the renderer's actual client selection and the editor
-  owner's skip/inspection rules. Empty selection and repository-fixture editor
-  no-ops must be visible; check-only generation never creates an editor workspace.
+- Generation reports use the renderer's actual client selection and changed/
+  checked files. There is no editor-workspace API, report field, or root workfile
+  maintenance; user workspaces are preserved.
 
 ## Verification
 

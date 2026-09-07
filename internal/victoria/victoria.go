@@ -58,6 +58,7 @@ type ComponentSpec struct {
 	ExtraBinaries      []string
 	Version            string
 	DefaultPort        int
+	RequireOwned       bool
 	EndpointPath       string
 	URLPath            string
 	StorageDir         string
@@ -186,6 +187,24 @@ func StartAtRoot(ctx context.Context, root string, console Console) *Stack {
 		Components: ComponentSpecs(),
 		Download:   downloadEnabled(),
 	})
+}
+
+// StartOwnedAtRoot never adopts a listener that won a port race. Ports are
+// selected once by the worktree owner and reused by its recovery attempts.
+func StartOwnedAtRoot(ctx context.Context, root string, console Console, ports map[string]int) *Stack {
+	if !Enabled() {
+		return nil
+	}
+	specs := ComponentSpecs()
+	for i := range specs {
+		port := ports[specs[i].Name]
+		if port < 1 || port > 65535 {
+			Warn(console, "owned Victoria component port is missing")
+			return nil
+		}
+		specs[i].DefaultPort, specs[i].RequireOwned = port, true
+	}
+	return StartAtRootWithConfig(ctx, root, console, StartConfig{Components: specs, Download: downloadEnabled()})
 }
 
 // StartAtRootWithConfig starts an explicitly configured Victoria process set.
@@ -552,6 +571,9 @@ func prepareComponentStartWithBinaryPath(ctx context.Context, root, binDir strin
 		storagePath: filepath.Join(root, spec.StorageDir),
 	}
 	if !tcpAddrAvailable(defaultHost, spec.DefaultPort) {
+		if spec.RequireOwned {
+			return componentStartPlan{}, fmt.Errorf("owned %s port is occupied; refusing to adopt the listener", spec.DisplayName)
+		}
 		plan.external = true
 		Warn(console, "%s appears to be already running at %s; reusing it", spec.DisplayName, baseURL)
 		return plan, nil

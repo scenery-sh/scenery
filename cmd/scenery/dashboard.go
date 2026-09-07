@@ -28,7 +28,6 @@ import (
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/devdash"
 	"scenery.sh/internal/envpolicy"
-	"scenery.sh/internal/symphony"
 )
 
 var dashboardUpgrader = websocket.Upgrader{
@@ -53,31 +52,6 @@ func dashboardCheckOrigin(req *http.Request) bool {
 	return strings.EqualFold(u.Host, req.Host)
 }
 
-type dashboardLoopbackPeerKey struct{}
-
-func withDashboardLoopbackPeer(ctx context.Context, loopback bool) context.Context {
-	return context.WithValue(ctx, dashboardLoopbackPeerKey{}, loopback)
-}
-
-// dashboardPeerIsLoopback reports whether the RPC arrived from a loopback
-// peer. Contexts without the marker come from in-process callers and count
-// as local; only the WebSocket handler stamps remote peer information.
-func dashboardPeerIsLoopback(ctx context.Context) bool {
-	if loopback, ok := ctx.Value(dashboardLoopbackPeerKey{}).(bool); ok {
-		return loopback
-	}
-	return true
-}
-
-func isLoopbackRemoteAddr(remoteAddr string) bool {
-	host, _, err := net.SplitHostPort(strings.TrimSpace(remoteAddr))
-	if err != nil {
-		host = strings.TrimSpace(remoteAddr)
-	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
-}
-
 type dashboardServer struct {
 	controller  dashboardController
 	supervisor  *devSupervisor
@@ -91,11 +65,6 @@ type dashboardServer struct {
 	assets         fs.FS
 	traces         *dashboardTraceEventBuffer
 	bundleWarnOnce sync.Once
-
-	symphonyMu    sync.Mutex
-	symphonyStore *symphony.Store
-	symphonyRoot  string
-	symphonyHooks symphonyRunnerHooks
 }
 
 type dashboardServerHooks struct {
@@ -222,6 +191,13 @@ func (s *dashboardServer) Start(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("scenery dashboard failed to listen on %s: %w", addr, err)
 	}
+	return s.startListener(ctx, ln)
+}
+
+// startListener consumes a listener already held by the worktree supervisor.
+func (s *dashboardServer) startListener(ctx context.Context, ln net.Listener) error {
+	s.addr = ln.Addr().String()
+	s.state.DashboardAddr = s.addr
 	if err := s.state.write(); err != nil {
 		_ = ln.Close()
 		return fmt.Errorf("scenery dashboard failed to persist run state: %w", err)
@@ -235,7 +211,6 @@ func (s *dashboardServer) Start(ctx context.Context) error {
 			slog.Error("scenery dashboard server failed", "err", err)
 		}
 	}()
-	s.startSymphonyRunner(ctx)
 	return nil
 }
 
@@ -324,12 +299,6 @@ func (s *dashboardServer) Close() error {
 		return nil
 	}
 	err := s.http.Close()
-	s.symphonyMu.Lock()
-	if s.symphonyStore != nil {
-		err = errors.Join(err, s.symphonyStore.Close())
-		s.symphonyStore = nil
-	}
-	s.symphonyMu.Unlock()
 	if stateErr := s.state.remove(); stateErr != nil {
 		return errors.Join(err, stateErr)
 	}
@@ -512,7 +481,7 @@ func (s *dashboardServer) handleWebSocket(w http.ResponseWriter, req *http.Reque
 	if err != nil {
 		return
 	}
-	ctx := withDashboardLoopbackPeer(req.Context(), isLoopbackRemoteAddr(req.RemoteAddr))
+	ctx := req.Context()
 	client := s.addClient(conn)
 	defer func() {
 		s.removeClient(client)
@@ -864,7 +833,7 @@ func openPostgresDashboardDB(ctx context.Context, root string) (*sql.DB, error) 
 	if err != nil {
 		return nil, err
 	}
-	_, database, err := managedDatabaseEnv(ctx, appRoot, cfg, nil, baseEnv)
+	database, err := resolvePostgresDatabaseFromEnv(ctx, appRoot, cfg, baseEnv)
 	if err != nil {
 		return nil, err
 	}

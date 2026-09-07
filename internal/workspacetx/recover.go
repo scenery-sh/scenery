@@ -48,7 +48,14 @@ func recoverWithOwnerInspector(root string, force, allowCurrentOwner bool, inspe
 		}
 	} else if err != nil && !os.IsNotExist(err) {
 		return err
+	} else if os.IsNotExist(err) {
+		return nil
 	}
+	unlock, err := lockRecovery(transactionRoot)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	lockPath := filepath.Join(transactionRoot, "change.lock")
 	journalPath := filepath.Join(transactionRoot, "change-apply.json")
 	lock, lockExists, err := readLock(lockPath)
@@ -120,6 +127,10 @@ func recoverWithOwnerInspector(root string, force, allowCurrentOwner bool, inspe
 				return err
 			}
 			if pathExists(entry.Backup) {
+				backup, err := regularFileBytes(entry.Backup, entry.Path)
+				if err != nil || digest(backup) != entry.BeforeDigest {
+					return fmt.Errorf("failed_precondition: interrupted transaction backup %s was changed externally", entry.Path)
+				}
 				if err := verifyTarget(target, entry); err != nil {
 					return err
 				}
@@ -154,8 +165,10 @@ func recoverWithOwnerInspector(root string, force, allowCurrentOwner bool, inspe
 			}
 		}
 	}
+	if err := os.Remove(journalPath); err != nil {
+		return err
+	}
 	_ = os.RemoveAll(journal.Directory)
-	_ = os.Remove(journalPath)
 	_ = os.Remove(lockPath)
 	return nil
 }
@@ -231,7 +244,7 @@ func validateMetadata(root, transactionRoot string, lock Lock, lockExists bool, 
 
 func verifyTarget(target string, entry Entry) error {
 	if !pathExists(target) {
-		if entry.AfterExists {
+		if entry.AfterExists && !pathExists(entry.Stage) {
 			return fmt.Errorf("failed_precondition: interrupted transaction target %s disappeared", entry.Path)
 		}
 		return nil
@@ -304,9 +317,13 @@ func legacyStateError(path string) error {
 	return fmt.Errorf("failed_precondition: legacy change transaction recovery state at %s must be recovered with the previous Scenery binary before using this binary; no state was modified", filepath.ToSlash(path))
 }
 
-func activeOwnerError(pid int) error {
-	return fmt.Errorf("failed_precondition: workspace change transaction is active in process %d", pid)
+type activeTransactionError struct{ pid int }
+
+func (e *activeTransactionError) Error() string {
+	return fmt.Sprintf("failed_precondition: workspace change transaction is active in process %d", e.pid)
 }
+
+func activeOwnerError(pid int) error { return &activeTransactionError{pid: pid} }
 
 func pathExists(path string) bool { _, err := os.Lstat(path); return err == nil }
 

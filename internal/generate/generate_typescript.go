@@ -21,25 +21,24 @@ func GenerateTypeScriptClients(root, selector string, check bool) (GenerateResul
 }
 
 func generateTypeScriptClients(root, selector string, check, allowActiveChangeTransaction bool) (GenerateResult, error) {
-	result, err := compiler.Compile(root)
-	if err != nil {
-		return GenerateResult{}, err
-	}
-	return generateTypeScriptClientsFromResult(result, selector, check)
+	return generateFromRoot(root, check, "generated TypeScript clients are stale", selectedTypeScriptRenderer(selector))
 }
 
 func generateTypeScriptClientsFromResult(result *Result, selector string, check bool) (GenerateResult, error) {
-	if result.ContractStatus != "valid" || result.Manifest == nil {
-		return GenerateResult{}, fmt.Errorf("cannot generate from invalid contract: %s", firstError(result.Diagnostics))
+	return generateFromResult(result, check, "generated TypeScript clients are stale", selectedTypeScriptRenderer(selector))
+}
+
+func selectedTypeScriptRenderer(selector string) artifactRenderer {
+	return func(result *compiler.Result) ([]generatedFile, error) {
+		files, err := renderTypeScriptClientFiles(result, selector)
+		if err != nil {
+			return nil, err
+		}
+		if err := verifyRenderedTypeScriptReact(result, typescriptTargets(result.Manifest.Resources, selector), files); err != nil {
+			return nil, err
+		}
+		return files, nil
 	}
-	files, err := renderTypeScriptClientFiles(result, selector)
-	if err != nil {
-		return GenerateResult{}, err
-	}
-	if err := verifyRenderedTypeScriptReact(result, typescriptTargets(result.Manifest.Resources, selector), files); err != nil {
-		return GenerateResult{}, err
-	}
-	return finishGeneratedFiles(result.Root, files, check, "generated TypeScript clients are stale")
 }
 
 // GenerateTypeScriptClientsFromResult renders one immutable compiler snapshot.
@@ -54,29 +53,33 @@ func SyncCachedTypeScriptClients(result *compiler.Result) (GenerateResult, error
 	if result == nil || !result.Valid() || result.Manifest == nil {
 		return GenerateResult{}, nil
 	}
+	return generateFromResult(result, false, "generated TypeScript cache is stale", renderCachedTypeScriptClients)
+}
+
+func renderCachedTypeScriptClients(result *compiler.Result) ([]generatedFile, error) {
 	var files []generatedFile
 	targets := cacheTypeScriptTargets(typescriptTargets(result.Manifest.Resources, ""))
 	for _, target := range targets {
 		targetFiles, err := renderTypeScriptTarget(result, target)
 		if err != nil {
-			return GenerateResult{}, err
+			return nil, err
 		}
 		outputRoot, err := typeScriptOutputRoot(result, target)
 		if err != nil {
-			return GenerateResult{}, err
+			return nil, err
 		}
 		if pathExists(outputRoot) {
 			targetFiles, err = includeStaleGeneratedFiles(outputRoot, targetFiles, map[string]bool{"scenery.typescript-client-generated.json": true}, nil)
 			if err != nil {
-				return GenerateResult{}, err
+				return nil, err
 			}
 		}
 		files = append(files, targetFiles...)
 	}
 	if err := verifyRenderedTypeScriptReact(result, targets, files); err != nil {
-		return GenerateResult{}, err
+		return nil, err
 	}
-	return finishGeneratedFiles(result.Root, files, false, "generated TypeScript cache is stale")
+	return files, nil
 }
 
 func verifyRenderedTypeScriptReact(result *Result, targets []Resource, files []generatedFile) error {

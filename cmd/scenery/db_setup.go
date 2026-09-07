@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"strings"
 
+	"scenery.sh/internal/envpolicy"
 	inspectdata "scenery.sh/internal/inspect"
 )
 
@@ -35,7 +37,7 @@ func runDBSetup(ctx context.Context, stdout io.Writer, args []string) error {
 	return runDBSetupWithHooks(ctx, stdout, args, defaultLifecycleHooks(), defaultDBSeedHooks())
 }
 
-func runDBSetupWithHooks(ctx context.Context, stdout io.Writer, args []string, lifecycle lifecycleHooks, seed dbSeedHooks) error {
+func runDBSetupWithHooks(ctx context.Context, stdout io.Writer, args []string, lifecycle lifecycleHooks, seed dbSeedHooks) (returnErr error) {
 	opts, err := parseDBSetupArgs(args)
 	if err != nil {
 		return err
@@ -44,6 +46,15 @@ func runDBSetupWithHooks(ctx context.Context, stdout io.Writer, args []string, l
 	if err != nil {
 		return err
 	}
+	env, err := appEnvWithDotEnv(envpolicy.Environ(), appRoot)
+	if err != nil {
+		return err
+	}
+	env, closeOperation, err := beginDatabaseLifecycleEnv(ctx, appRoot, cfg, env)
+	if err != nil {
+		return err
+	}
+	defer func() { returnErr = errors.Join(returnErr, closeOperation()) }()
 	result := dbSetupResult{
 		cliPayloadIdentity: newCLIPayloadIdentity("scenery.db.setup.result"),
 		App:                buildDBApplyResult(appRoot, cfg).App,
@@ -62,7 +73,7 @@ func runDBSetupWithHooks(ctx context.Context, stdout io.Writer, args []string, l
 		if opts.JSON {
 			applyStdout = io.Discard
 		}
-		if err := runDatabaseApplyCommandWithOutputHooks(ctx, appRoot, cfg, cfg.Database.Apply, applyStdout, os.Stderr, lifecycle); err != nil {
+		if err := runDatabaseApplyCommandWithEnvIOHooks(ctx, appRoot, cfg.Database.Apply, env, applyStdout, os.Stderr, lifecycle); err != nil {
 			result.Apply.Status = "failed"
 			result.Apply.Error = err.Error()
 			if opts.JSON {
@@ -77,7 +88,7 @@ func runDBSetupWithHooks(ctx context.Context, stdout io.Writer, args []string, l
 		result.Apply.Status = "applied"
 	}
 
-	seedResult, seedErr := buildDBSeedResultWithHooks(ctx, appRoot, cfg, dbSeedOptions{}, seed)
+	seedResult, seedErr := buildDBSeedResultWithEnvHooks(ctx, appRoot, cfg, dbSeedOptions{}, env, false, seed)
 	result.Seed = seedResult
 	if opts.JSON {
 		if writeErr := writeInspectJSON(stdout, result); writeErr != nil {

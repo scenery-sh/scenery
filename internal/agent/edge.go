@@ -10,7 +10,26 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"scenery.sh/internal/machine"
 )
+
+// ReadCurrentEdgeState is observation-only. Ordinary worktree startup must
+// not invoke the explicit operator lifecycle's durable migration path.
+func ReadCurrentEdgeState(path string) (EdgeState, error) {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return EdgeState{}, nil
+	}
+	if err != nil {
+		return EdgeState{}, err
+	}
+	var state EdgeState
+	if err := machine.DecodeArtifact(data, &state, &state.ArtifactIdentity, EdgeStateKind, edgeStateSchemaDescriptor, "inspect edge state with its matching Scenery binary"); err != nil {
+		return EdgeState{}, err
+	}
+	return state, nil
+}
 
 const (
 	legacyEdgeSchemaVersion       = "scenery.edge.state.v1"

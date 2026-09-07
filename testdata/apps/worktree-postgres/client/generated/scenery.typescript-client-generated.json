@@ -1,0 +1,59 @@
+{
+  "compatibility_catalog": "scenery.compatibility-core",
+  "content_digest": "sha256:87f313f64958368c6bdb2fe7032ae8edd15cd7b4f335fa9161cf168268d0af57",
+  "contract_revision": "sha256:a55d4df993a6debafe7ff84c2cd9ee9063041c83b39b1f629fa65a2dc85327dd",
+  "covered_bindings": [
+    "library/binding/borrow_http",
+    "library/binding/create_http",
+    "library/binding/list_http",
+    "library/binding/return_http"
+  ],
+  "covered_gateways": [
+    "http_gateway.public_api"
+  ],
+  "covered_operations": [
+    "library/operation/borrow",
+    "library/operation/create",
+    "library/operation/list",
+    "library/operation/return"
+  ],
+  "covered_types": [
+    "library/record/book",
+    "library/record/book_list",
+    "library/record/borrow_input",
+    "library/record/create_input",
+    "library/record/loan",
+    "library/record/lookup"
+  ],
+  "files": [
+    "client.ts",
+    "index.ts",
+    "metadata.ts",
+    "runtime.ts",
+    "types.ts"
+  ],
+  "generator": "scenery.generate.typescript",
+  "http_surface_revisions": {
+    "app/http_gateway/public_api": "sha256:f475b6bc513f38f8b1000ff5566992da3df911cb8d487bbd9a377db7ee5fce86"
+  },
+  "javascript_target": null,
+  "kind": "scenery.typescript-client-generated",
+  "openapi_revisions": {
+    "app/http_gateway/public_api": "sha256:b41041b78babeab56b1522cd8841c3b37a2216c2dbd0e7d9b8a698c2a45596c9"
+  },
+  "package": "@example/library-client",
+  "producer": {
+    "version": "v0.3.7-0.20260907112610-c56e3e9614e5+dirty",
+    "commit": "c56e3e9614e58914e27a8536b171e4d979f32bbb",
+    "built_at": "2026-09-07T11:26:10Z",
+    "toolchain": {
+      "go_version": "go1.27.0"
+    }
+  },
+  "schema_revision": "sha256:02994dd4a50ed41bdbeab0ba09020de6d9b8366353b2d44bd7022981ca17e801",
+  "spec_revision": "sha256:ca92e9336c4af2fa74594291ddac6ed1156ca89b4bad876cca06f31a4f35255f",
+  "target": "app/typescript_client/public_api",
+  "typescript_client_revision": "sha256:efd54b5de271c12307f19990964149ed1ee014d04e3665c037834ace6e19f1b3",
+  "typescript_version": null,
+  "ui_catalog_roots": []
+}

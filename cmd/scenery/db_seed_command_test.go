@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	localagent "scenery.sh/internal/agent"
 	appcfg "scenery.sh/internal/app"
 )
 
@@ -166,6 +167,34 @@ func TestDBSeedCommandDryRunPlansChangedInputWithoutExecuting(t *testing.T) {
 	}
 	if result.Summary.Planned != 1 || result.Summary.Changed != 0 || runs != 0 {
 		t.Fatalf("result = %+v runs = %d", result, runs)
+	}
+	if store.ensureRan || len(store.applied) != 0 || len(store.commandRecorded) != 0 {
+		t.Fatal("dry run mutated the seed ledger")
+	}
+}
+
+func TestDBSeedDryRunDoesNotProvisionMissingManagedDatabase(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("SCENERY_AGENT_HOME", home)
+	root := writeDBSeedCommandFixture(t)
+	_, cfg, err := discoverConfiguredApp(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hooks := dbSeedHooks{openStore: func(context.Context, string) (databaseSeedStore, error) {
+		t.Fatal("dry run opened a store without an existing database")
+		return nil, nil
+	}}
+	_, err = buildDBSeedResultWithEnvHooks(context.Background(), root, cfg, dbSeedOptions{DryRun: true}, nil, true, hooks)
+	if err == nil {
+		t.Fatal("missing managed database should require explicit startup")
+	}
+	paths, err := localagent.PathsForWorktree(home, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(paths.Record); !os.IsNotExist(err) {
+		t.Fatalf("dry run created retained database authority: %v", err)
 	}
 }
 

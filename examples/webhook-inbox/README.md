@@ -9,7 +9,7 @@ A small independent Scenery application, with no ONLV dependency or UI:
   processed record (`200`) or a missing record identifier (`404`). Missing means
   pending **or** unknown; this endpoint does not inspect private queue tables.
 - `client/generated` is the committed fetch client. Package exports determine
-  its methods; `.scenery` and editor Go projections are not source artifacts.
+  its methods; `.scenery` and generated Go projections are ignored local output.
 
 This is loopback-only demonstration code. The admission endpoint has no provider
 signature verification or application rate limit. Every authenticated demo user
@@ -54,10 +54,11 @@ go test ./...
 scenery build --target development --output ./bin/webhook -o json
 ```
 
-`generate` prepares the external Go contracts and managed editor workspace.
-`generate --target contracts --materialize` is a published-module export, not
-the app development loop. Fixtures nested inside the Scenery repository do not
-receive editor workspaces, so run raw Go commands in the standalone copy.
+`generate` prepares ordinary Go contracts inside this module together with the
+client. Use `generate --target contracts` for Go-only bootstrap; a fresh checkout
+needs it before raw Go tooling. The exact output roots are ignored, and no
+editor module or `go.work` is generated. Use the standalone copy to prove
+independent module/dependency resolution.
 
 For the usual managed development loop, create a local `.env` file containing
 any app-specific configuration and run `scenery up --detach --wait ready`.
@@ -91,5 +92,5 @@ go doc example.com/webhook-inbox/inbox/scenerycontract.ProcessOutcome
 
 For example, `event_id` becomes `EventId`, not `EventID`. Constructor SQL is
 `input.Dependencies.Database`, not a field on the constructor input itself.
-`generate -o json` reports client binding counts and editor workspace status;
+`generate -o json` reports client binding counts and changed/checked artifacts;
 an empty client warning points to package exports and target selection.

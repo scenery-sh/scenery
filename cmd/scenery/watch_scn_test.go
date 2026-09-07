@@ -14,6 +14,8 @@ func TestIsWatchedFileIncludesScenerySources(t *testing.T) {
 		"service/extra.scn",
 		"main.go",
 		".scenery.json",
+		testAppLockFilename,
+		"nested/" + testAppLockFilename,
 	}
 	for _, rel := range watched {
 		if !isWatchedFile(rel) {
@@ -21,8 +23,6 @@ func TestIsWatchedFileIncludesScenerySources(t *testing.T) {
 		}
 	}
 	unwatched := []string{
-		testAppLockFilename,
-		"nested/" + testAppLockFilename,
 		"apps/web/src/App.tsx",
 	}
 	for _, rel := range unwatched {

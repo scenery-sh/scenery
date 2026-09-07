@@ -33,9 +33,6 @@ without publishing raw child stdout or stderr.
   diagnostic across that wrapper rather than relying on another render pass.
 - The native release fixture needs a real private agent dashboard: a dummy
   backend makes control-plane initialization fail before source compilation.
-- Private dashboard shutdown can log an unrelated Symphony/Postgres state-port
-  mismatch. The probe does not require a database and must not repair or remove
-  the machine-global container.
 
 ## Decision Log
 

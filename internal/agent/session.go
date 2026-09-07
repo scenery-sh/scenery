@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -87,6 +88,17 @@ func NewSession(req RegisterRequest, routerAddr, routerScheme string, existing *
 	}
 	routes := routesForSession(sessionID, routerAddr, routerScheme, backends, routeNamespace)
 	routeManifest := normalizeRouteManifest(req.RouteManifest, sessionID, baseAppID, appRoot, branch, backends, routes)
+	var worktreeProxy *Backend
+	if req.WorktreeProxy != nil {
+		backend := normalizeBackend(*req.WorktreeProxy)
+		host, port, err := net.SplitHostPort(backend.Addr)
+		ip := net.ParseIP(host)
+		portNumber, portErr := strconv.Atoi(port)
+		if err != nil || portErr != nil || portNumber < 1 || portNumber > 65535 || backend.Network != "tcp" || ip == nil || !ip.IsLoopback() || owner.PID <= 0 || routeManifest.Mode != RouteModePath || routeManifest.DomainHost == "" {
+			return Session{}, fmt.Errorf("worktree edge proxy requires a loopback TCP backend, live owner and explicit path-mode domain")
+		}
+		worktreeProxy = &backend
+	}
 	session := Session{
 		ArtifactIdentity: sessionIdentity(),
 		SessionID:        sessionID,
@@ -104,9 +116,13 @@ func NewSession(req RegisterRequest, routerAddr, routerScheme string, existing *
 		Processes:        processes,
 		RouteManifest:    routeManifest,
 		Backends:         backends,
+		WorktreeProxy:    worktreeProxy,
 		ReportToken:      reportToken,
 		CreatedAt:        createdAt,
 		UpdatedAt:        now,
+	}
+	if worktreeProxy != nil {
+		session.StateRoot = ""
 	}
 	return session, nil
 }

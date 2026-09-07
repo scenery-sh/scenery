@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 
+	"scenery.sh/internal/build"
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/graph"
 )
@@ -34,6 +35,9 @@ func (e *cliDiagnosticError) ExitCode() int { return e.code }
 func cliErrorDiagnostic(err error) graph.Diagnostic {
 	if reported, ok := errors.AsType[*cliDiagnosticError](err); ok {
 		return reported.diagnostic
+	}
+	if reported, ok := errors.AsType[*build.ContractError](err); ok {
+		return reported.Diagnostic
 	}
 	code := cliExitCode(err)
 	kind, _, _ := strings.Cut(err.Error(), ":")

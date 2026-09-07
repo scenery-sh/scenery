@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -14,7 +15,6 @@ import (
 	"scenery.sh/internal/devdash"
 	inspectdata "scenery.sh/internal/inspect"
 	obs "scenery.sh/internal/observability"
-	"scenery.sh/internal/victoria"
 )
 
 const (
@@ -159,7 +159,7 @@ func buildInspectTracesResponse(ctx context.Context, appRoot string, cfg appcfg.
 	resp.Warnings = warnings
 
 	query := inspectTraceQuery(appID, opts)
-	items, warning, err := queryVictoriaTraceSummaries(ctx, query)
+	items, warning, err := queryVictoriaTraceSummaries(ctx, appRoot, query)
 	if err != nil {
 		return inspectTracesResponse{}, err
 	}
@@ -208,7 +208,7 @@ func buildInspectMetricsResponse(ctx context.Context, appRoot string, cfg appcfg
 	resp.Warnings = warnings
 
 	query := inspectTraceQuery(appID, opts)
-	items, warning, err := queryVictoriaTraceSummaries(ctx, query)
+	items, warning, err := queryVictoriaTraceSummaries(ctx, appRoot, query)
 	if err != nil {
 		return inspectMetricsResponse{}, err
 	}
@@ -219,7 +219,7 @@ func buildInspectMetricsResponse(ctx context.Context, appRoot string, cfg appcfg
 	resp.Services = buildInspectTraceMetrics(items, "service")
 	resp.Endpoints = buildInspectTraceMetrics(items, "endpoint")
 	resp.Warnings = append(resp.Warnings, "trace event counts are not materialized after the devdash JSON observability cutover")
-	logs, logWarning, err := queryVictoriaLogCounts(ctx, appID, query.SessionID, opts.Since)
+	logs, logWarning, err := queryVictoriaLogCounts(ctx, appRoot, appID, query.SessionID, opts.Since)
 	if err != nil {
 		return inspectMetricsResponse{}, err
 	}
@@ -234,7 +234,10 @@ func buildInspectMetricsResponse(ctx context.Context, appRoot string, cfg appcfg
 }
 
 func openObservabilityStore(ctx context.Context, appRoot string, cfg appcfg.Config, sessionID string) (*devdash.Store, []string, error) {
-	store, err := openDevdashStore()
+	store, err := openWorktreeDevdashStore(appRoot)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, []string{"no local observability state found for " + cfg.AppID() + "; run `scenery up` first"}, nil
+	}
 	if err != nil {
 		return nil, nil, err
 	}
@@ -274,8 +277,8 @@ func inspectTraceQuery(appID string, opts inspectTraceQueryOptions) devdash.Trac
 	return query
 }
 
-func queryVictoriaTraceSummaries(ctx context.Context, query devdash.TraceQuery) ([]*devdash.TraceSummary, string, error) {
-	stack := victoria.DefaultQueryStack()
+func queryVictoriaTraceSummaries(ctx context.Context, appRoot string, query devdash.TraceQuery) ([]*devdash.TraceSummary, string, error) {
+	stack := resolveLogsVictoriaStackFunc(ctx, appRoot)
 	if stack == nil {
 		return nil, "VictoriaTraces is unavailable", nil
 	}
@@ -286,8 +289,8 @@ func queryVictoriaTraceSummaries(ctx context.Context, query devdash.TraceQuery) 
 	return items, "", nil
 }
 
-func queryVictoriaLogCounts(ctx context.Context, appID, sessionID string, since time.Duration) ([]devdash.LogLevelCount, string, error) {
-	stack := victoria.DefaultQueryStack()
+func queryVictoriaLogCounts(ctx context.Context, appRoot, appID, sessionID string, since time.Duration) ([]devdash.LogLevelCount, string, error) {
+	stack := resolveLogsVictoriaStackFunc(ctx, appRoot)
 	if stack == nil || stack.BaseURL("logs") == "" {
 		return nil, "VictoriaLogs is unavailable", nil
 	}

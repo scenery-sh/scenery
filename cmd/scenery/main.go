@@ -15,6 +15,7 @@ import (
 	"time"
 
 	appcfg "scenery.sh/internal/app"
+	"scenery.sh/internal/generate"
 	"scenery.sh/internal/graph"
 	"scenery.sh/internal/machine"
 	"scenery.sh/internal/spec"
@@ -169,8 +170,6 @@ func runWithCLITelemetry(args []string, telemetry *cliTelemetryInvocation) error
 		return snapshotCommand(args[1:])
 	case "deploy":
 		return deployCommand(args[1:])
-	case "symphony":
-		return symphonyCommand(args[1:])
 	case "worker":
 		return workerCommand(args[1:])
 	case "version":
@@ -368,6 +367,9 @@ func validateRuntimePlan(appRootOption string) error {
 	}
 	appRoot, _, err := appcfg.DiscoverRoot(start)
 	if err != nil {
+		return err
+	}
+	if _, err := generate.GenerateGoContracts(appRoot, false); err != nil {
 		return err
 	}
 	result, err := checkCompiledContract(appRoot)

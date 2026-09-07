@@ -84,9 +84,6 @@ func Ensure(ctx context.Context, current Identity) (*Client, error) {
 // EnsureWith is Ensure with an explicit agent home. A zero Paths resolves
 // from the process environment (SCENERY_AGENT_HOME / ~/.scenery).
 func EnsureWith(ctx context.Context, current Identity, paths Paths) (*Client, error) {
-	if DisabledByEnv() {
-		return nil, nil
-	}
 	if paths.Home == "" {
 		var err error
 		paths, err = DefaultPaths()

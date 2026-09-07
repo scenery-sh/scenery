@@ -29,6 +29,9 @@ type Database struct {
 	URL      string    `json:"url"`
 	Source   Source    `json:"source"`
 	Schemas  []Service `json:"schemas"`
+	// Local owner authority is never part of the application environment schema.
+	AppRoot    string `json:"-"`
+	ResourceID string `json:"-"`
 }
 
 func ServiceURL(baseURL, schema string) (string, error) {

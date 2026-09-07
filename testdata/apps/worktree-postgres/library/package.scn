@@ -1,0 +1,326 @@
+package "library" {
+  go_contract {
+    import_path = "example.com/library-desk/library"
+  }
+}
+input "gateway" {
+  type = resource_ref("http_gateway")
+}
+input "database" {
+  type = resource_ref("data_source")
+}
+service "library" {
+  runtime = "go"
+  implementation {
+    constructor = "NewService"
+  }
+  dependency "database" {
+    instance = var.database
+  }
+}
+record "book" {
+  field "book_id" {
+    type = string
+  }
+  field "title" {
+    type = string
+  }
+  field "borrower" {
+    type = string
+  }
+}
+record "create_input" {
+  field "book_id" {
+    type       = string
+    min_length = 1
+    max_length = 128
+  }
+  field "title" {
+    type       = string
+    min_length = 1
+    max_length = 200
+  }
+}
+record "lookup" {
+  field "book_id" {
+    type       = string
+    min_length = 1
+    max_length = 128
+  }
+}
+record "loan" {
+  field "borrower" {
+    type       = string
+    min_length = 1
+    max_length = 200
+  }
+}
+record "borrow_input" {
+  field "book_id" {
+    type       = string
+    min_length = 1
+    max_length = 128
+  }
+  field "loan" {
+    type = record.loan
+  }
+}
+record "book_list" {
+  field "books" {
+    type = list(record.book)
+  }
+}
+
+export "create" {
+  value = operation.create
+}
+operation "create" {
+  service = service.library
+  input   = record.create_input
+  handler {
+    method = "Create"
+  }
+  result "created" {
+    type = record.book
+  }
+  result "conflict" {
+    type = record.lookup
+  }
+
+}
+execution "create" {
+  operation = operation.create
+  mode      = "direct"
+  timeout   = "5s"
+}
+binding "create_http" {
+  gateway        = var.gateway
+  operation      = operation.create
+  execution      = execution.create
+  protocol       = "http"
+  delivery       = "call"
+  authentication = std.authentication.none
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+  http {
+    method        = "POST"
+    path          = "/books"
+    codec_profile = std.codec.http_json_v1
+
+
+    body {
+      codec = "json"
+      to    = operation.create.input
+    }
+    response "created" {
+      when   = result.created
+      status = 201
+      body {
+        codec = "json"
+        from  = result.created
+      }
+    }
+    response "conflict" {
+      when   = result.conflict
+      status = 409
+      body {
+        codec = "json"
+        from  = result.conflict
+      }
+    }
+
+
+  }
+}
+
+export "list" {
+  value = operation.list
+}
+operation "list" {
+  input   = std.type.unit
+  service = service.library
+
+  handler {
+    method = "List"
+  }
+  result "listed" {
+    type = record.book_list
+  }
+
+
+}
+execution "list" {
+  operation = operation.list
+  mode      = "direct"
+  timeout   = "5s"
+}
+binding "list_http" {
+  gateway        = var.gateway
+  operation      = operation.list
+  execution      = execution.list
+  protocol       = "http"
+  delivery       = "call"
+  authentication = std.authentication.none
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+  http {
+    method        = "GET"
+    path          = "/books"
+    codec_profile = std.codec.http_json_v1
+
+
+    response "listed" {
+      when   = result.listed
+      status = 200
+      body {
+        codec = "json"
+        from  = result.listed
+      }
+    }
+
+
+
+  }
+}
+
+export "borrow" {
+  value = operation.borrow
+}
+operation "borrow" {
+  service = service.library
+  input   = record.borrow_input
+  handler {
+    method = "Borrow"
+  }
+  result "borrowed" {
+    type = record.book
+  }
+  result "conflict" {
+    type = record.lookup
+  }
+  result "missing" {
+    type = record.lookup
+  }
+}
+execution "borrow" {
+  operation = operation.borrow
+  mode      = "direct"
+  timeout   = "5s"
+}
+binding "borrow_http" {
+  gateway        = var.gateway
+  operation      = operation.borrow
+  execution      = execution.borrow
+  protocol       = "http"
+  delivery       = "call"
+  authentication = std.authentication.none
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+  http {
+    method        = "POST"
+    path          = "/books/{book_id}/borrow"
+    codec_profile = std.codec.http_json_v1
+    path_parameter "book_id" {
+      to = operation.borrow.input.book_id
+    }
+
+    body {
+      codec = "json"
+      to    = operation.borrow.input.loan
+    }
+    response "borrowed" {
+      when   = result.borrowed
+      status = 200
+      body {
+        codec = "json"
+        from  = result.borrowed
+      }
+    }
+    response "conflict" {
+      when   = result.conflict
+      status = 409
+      body {
+        codec = "json"
+        from  = result.conflict
+      }
+    }
+    response "missing" {
+      when   = result.missing
+      status = 404
+      body {
+        codec = "json"
+        from  = result.missing
+      }
+    }
+
+  }
+}
+
+export "return" {
+  value = operation.return
+}
+operation "return" {
+  service = service.library
+  input   = record.lookup
+  handler {
+    method = "Return"
+  }
+  result "returned" {
+    type = record.book
+  }
+  result "conflict" {
+    type = record.lookup
+  }
+  result "missing" {
+    type = record.lookup
+  }
+}
+execution "return" {
+  operation = operation.return
+  mode      = "direct"
+  timeout   = "5s"
+}
+binding "return_http" {
+  gateway        = var.gateway
+  operation      = operation.return
+  execution      = execution.return
+  protocol       = "http"
+  delivery       = "call"
+  authentication = std.authentication.none
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+  http {
+    method        = "POST"
+    path          = "/books/{book_id}/return"
+    codec_profile = std.codec.http_json_v1
+    path_parameter "book_id" {
+      to = operation.return.input.book_id
+    }
+
+    response "returned" {
+      when   = result.returned
+      status = 200
+      body {
+        codec = "json"
+        from  = result.returned
+      }
+    }
+    response "conflict" {
+      when   = result.conflict
+      status = 409
+      body {
+        codec = "json"
+        from  = result.conflict
+      }
+    }
+    response "missing" {
+      when   = result.missing
+      status = 404
+      body {
+        codec = "json"
+        from  = result.missing
+      }
+    }
+
+  }
+}

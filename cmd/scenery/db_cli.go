@@ -144,15 +144,16 @@ func runDatabaseApplyCommandWithHooks(ctx context.Context, appRoot string, cfg a
 	return runDatabaseApplyCommandWithOutputHooks(ctx, appRoot, cfg, apply, os.Stdout, os.Stderr, hooks)
 }
 
-func runDatabaseApplyCommandWithOutputHooks(ctx context.Context, appRoot string, cfg appcfg.Config, apply appcfg.DatabaseApplyConfig, stdout, stderr io.Writer, hooks lifecycleHooks) error {
+func runDatabaseApplyCommandWithOutputHooks(ctx context.Context, appRoot string, cfg appcfg.Config, apply appcfg.DatabaseApplyConfig, stdout, stderr io.Writer, hooks lifecycleHooks) (returnErr error) {
 	env, err := appEnvWithDotEnv(envpolicy.Environ(), appRoot)
 	if err != nil {
 		return err
 	}
-	env, err = managedDatabaseLifecycleEnv(ctx, appRoot, cfg, env)
+	env, closeOperation, err := beginDatabaseLifecycleEnv(ctx, appRoot, cfg, env)
 	if err != nil {
 		return err
 	}
+	defer func() { returnErr = errors.Join(returnErr, closeOperation()) }()
 	return runDatabaseApplyCommandWithEnvIOHooks(ctx, appRoot, apply, env, stdout, stderr, hooks)
 }
 
@@ -237,7 +238,7 @@ func dbShellCommand(args []string) error {
 	return cmd.Run()
 }
 
-func dbDropCommand(args []string) error {
+func dbDropCommand(args []string) (returnErr error) {
 	opts, err := parseDBTargetArgs(args)
 	if err != nil {
 		return err
@@ -247,13 +248,14 @@ func dbDropCommand(args []string) error {
 		return err
 	}
 	ctx := context.Background()
-	database, err := resolvePostgresDatabaseForCLI(ctx, appRoot, cfg)
-	if err != nil {
-		return err
-	}
 	if strings.TrimSpace(opts.Service) != "" {
 		return fmt.Errorf("database service %q is not configured", opts.Service)
 	}
+	database, closeOperation, err := beginInactiveDatabaseOperation(ctx, appRoot, cfg)
+	if err != nil {
+		return err
+	}
+	defer func() { returnErr = errors.Join(returnErr, closeOperation()) }()
 	if err := dropPostgresDatabase(ctx, database); err != nil {
 		return err
 	}
@@ -261,7 +263,7 @@ func dbDropCommand(args []string) error {
 	return nil
 }
 
-func dbResetCommand(args []string) error {
+func dbResetCommand(args []string) (returnErr error) {
 	opts, err := parseDBTargetArgs(args)
 	if err != nil {
 		return err
@@ -271,10 +273,6 @@ func dbResetCommand(args []string) error {
 		return err
 	}
 	ctx := context.Background()
-	database, err := resolvePostgresDatabaseForCLI(ctx, appRoot, cfg)
-	if err != nil {
-		return err
-	}
 	var seedPlans []dbSeedPlan
 	if strings.TrimSpace(opts.Service) != "" {
 		seedPlans, err = discoverDBSeedPlans(appRoot, cfg)
@@ -282,6 +280,14 @@ func dbResetCommand(args []string) error {
 			return err
 		}
 	}
+	if opts.Service == "" && !opts.Yes {
+		return fmt.Errorf("resetting the managed postgres app database requires --yes")
+	}
+	database, closeOperation, err := beginInactiveDatabaseOperation(ctx, appRoot, cfg)
+	if err != nil {
+		return err
+	}
+	defer func() { returnErr = errors.Join(returnErr, closeOperation()) }()
 	if err := resetPostgresDatabase(ctx, database, opts); err != nil {
 		return err
 	}
@@ -295,22 +301,33 @@ func dbResetCommand(args []string) error {
 }
 
 type dbServerOptions struct {
-	Action string
-	JSON   bool
-	Yes    bool
+	Action  string
+	AppRoot string
+	JSON    bool
 }
 
 type dbServerStatusResponse struct {
 	cliPayloadIdentity
-	OK        bool                                 `json:"ok"`
-	Container string                               `json:"container"`
-	Image     string                               `json:"image,omitempty"`
-	Status    string                               `json:"status"`
-	Port      int                                  `json:"port,omitempty"`
-	URL       string                               `json:"url,omitempty"`
-	Databases []postgresdb.DatabaseInfo            `json:"databases,omitempty"`
-	Leases    map[string]localagent.SubstrateLease `json:"leases,omitempty"`
-	StatePath string                               `json:"state_path,omitempty"`
+	AppRoot    string                    `json:"app_root"`
+	Scope      string                    `json:"scope"`
+	ResourceID string                    `json:"resource_id,omitempty"`
+	Retained   bool                      `json:"retained_data"`
+	OK         bool                      `json:"ok"`
+	Container  string                    `json:"container"`
+	Image      string                    `json:"image,omitempty"`
+	Status     string                    `json:"status"`
+	Port       int                       `json:"port,omitempty"`
+	URL        string                    `json:"url,omitempty"`
+	Databases  []postgresdb.DatabaseInfo `json:"databases,omitempty"`
+	StatePath  string                    `json:"state_path,omitempty"`
+	Restore    *dbServerRestoreStatus    `json:"restore,omitempty"`
+}
+
+type dbServerRestoreStatus struct {
+	ArchiveSHA256 string `json:"archive_sha256"`
+	ArchivePath   string `json:"archive_path"`
+	Mode          string `json:"mode"`
+	SQLStarted    bool   `json:"sql_started"`
 }
 
 func dbServerCommand(args []string) error {
@@ -318,132 +335,26 @@ func dbServerCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	ctx := context.Background()
-	switch opts.Action {
-	case "status":
-		status, err := postgresServerStatus(ctx)
-		if err != nil {
-			return err
-		}
-		if opts.JSON {
-			return writeInspectJSON(os.Stdout, status)
-		}
-		_, _ = fmt.Fprintf(os.Stdout, "%s\t%s\n", status.Container, status.Status)
-		if status.Port > 0 {
-			_, _ = fmt.Fprintf(os.Stdout, "port\t%d\n", status.Port)
-		}
-		return nil
-	case "start":
-		if _, err := ensureSharedPostgresServer(ctx, "", nil); err != nil {
-			return err
-		}
-		status, err := postgresServerStatus(ctx)
-		if err != nil {
-			return err
-		}
-		if opts.JSON {
-			return writeInspectJSON(os.Stdout, status)
-		}
-		_, _ = fmt.Fprintln(os.Stdout, "started scenery postgres server")
-		return nil
-	case "stop":
-		if err := stopSharedPostgresServer(ctx, opts.Yes); err != nil {
-			return err
-		}
-		if opts.JSON {
-			return writeInspectJSON(os.Stdout, withCLIPayloadIdentity("scenery.db.server.stop", map[string]any{"ok": true, "container": postgresServerContainer}))
-		}
-		_, _ = fmt.Fprintln(os.Stdout, "stopped scenery postgres server")
-		return nil
-	case "logs":
-		out, err := postgresDocker.Run(ctx, "logs", "--tail", "200", postgresServerContainer)
-		if out != "" {
-			_, _ = fmt.Fprintln(os.Stdout, out)
-		}
-		return err
-	default:
-		return fmt.Errorf("unknown db server command %q", opts.Action)
-	}
+	return runWorktreeDBServer(context.Background(), os.Stdout, opts)
 }
 
 func parseDBServerArgs(args []string) (dbServerOptions, error) {
 	opts := dbServerOptions{}
 	flags := newCLIFlagSet("db server")
+	flags.StringVar(&opts.AppRoot, "app-root", "", "")
 	registerJSONOutput(flags, &opts.JSON)
-	flags.BoolVar(&opts.Yes, "yes", false, "")
 	positionals, err := parseCLIFlags(flags, args)
 	if err != nil {
 		return dbServerOptions{}, err
 	}
 	if len(positionals) == 0 {
-		return dbServerOptions{}, fmt.Errorf("usage: scenery db server status|start|stop|logs [-o json] [--yes]")
+		return dbServerOptions{}, fmt.Errorf("usage: scenery db server status|start|stop|logs [--app-root <path>] [-o json]")
 	}
 	opts.Action = positionals[0]
 	if len(positionals) > 1 {
 		return dbServerOptions{}, fmt.Errorf("unknown argument %q", positionals[1])
 	}
 	return opts, nil
-}
-
-func postgresServerStatus(ctx context.Context) (dbServerStatusResponse, error) {
-	resp := dbServerStatusResponse{cliPayloadIdentity: newCLIPayloadIdentity("scenery.db.server.status"), Container: postgresServerContainer, Status: "absent"}
-	paths, err := commandAgentPaths()
-	if err != nil {
-		return resp, err
-	}
-	resp.StatePath = postgresServerStatePath(paths)
-	if state, err := loadPostgresServerState(resp.StatePath); err == nil {
-		resp.Image = state.Image
-		resp.Port = state.Port
-		resp.URL = state.publicURL()
-		if status, err := postgresContainerStatus(ctx, state.Container); err == nil && status != "" {
-			resp.Status = status
-			resp.OK = status == "running"
-		}
-		if resp.OK {
-			if admin, err := openPostgresAdmin(ctx, state.databaseURL("postgres")); err == nil {
-				resp.Databases, _ = postgresdb.ListSceneryDatabases(ctx, admin)
-				_ = admin.Close()
-			}
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return resp, err
-	}
-	if client, err := commandAgentClient(); err == nil {
-		if substrate, err := client.GetSubstrate(ctx, localagent.SubstratePostgres); err == nil {
-			resp.Leases = substrate.Leases
-		}
-	}
-	return resp, nil
-}
-
-func stopSharedPostgresServer(ctx context.Context, yes bool) error {
-	status, err := postgresServerStatus(ctx)
-	if err != nil {
-		return err
-	}
-	if len(status.Leases) > 0 && !yes {
-		return fmt.Errorf("postgres server has %d lease(s); pass --yes to stop anyway", len(status.Leases))
-	}
-	if _, err := postgresDocker.Run(ctx, "stop", postgresServerContainer); err != nil {
-		return err
-	}
-	if client, err := commandAgentClient(); err == nil {
-		_, _ = client.DeleteSubstrate(ctx, localagent.SubstratePostgres)
-	}
-	return nil
-}
-
-func resolveDatabaseURLForConfig(ctx context.Context, appRoot string, cfg appcfg.Config, baseEnv []string, useManaged bool) (string, error) {
-	env := baseEnv
-	if useManaged {
-		var err error
-		env, err = managedDatabaseLifecycleEnv(ctx, appRoot, cfg, baseEnv)
-		if err != nil {
-			return "", err
-		}
-	}
-	return resolveDatabaseURLForConfigFromEnv(cfg, env)
 }
 
 func resolveDatabaseURLForConfigFromEnv(cfg appcfg.Config, env []string) (string, error) {
@@ -480,7 +391,7 @@ func databaseURLFromEnvList(env []string, appEnvName, serviceEnvName, engine, se
 }
 
 func managedDatabaseLifecycleEnv(ctx context.Context, appRoot string, cfg appcfg.Config, baseEnv []string) ([]string, error) {
-	env, _, err := managedDatabaseEnv(ctx, appRoot, cfg, nil, baseEnv)
+	env, _, err := managedDatabaseEnv(ctx, appRoot, cfg, baseEnv)
 	if err != nil {
 		return nil, err
 	}
@@ -499,8 +410,43 @@ func resolvePostgresDatabaseForCLI(ctx context.Context, appRoot string, cfg appc
 	if err != nil {
 		return postgresdb.Database{}, err
 	}
-	_, database, err := managedDatabaseEnv(ctx, appRoot, cfg, nil, baseEnv)
-	return database, err
+	return resolvePostgresDatabaseFromEnv(ctx, appRoot, cfg, baseEnv)
+}
+
+func resolvePostgresDatabaseFromEnv(ctx context.Context, appRoot string, cfg appcfg.Config, baseEnv []string) (postgresdb.Database, error) {
+	if len(cfg.DatabaseServices()) == 0 {
+		return postgresdb.Database{}, nil
+	}
+	if lookupEnvValue(baseEnv, appDatabaseURLEnv) != "" {
+		_, database, err := managedDatabaseEnv(ctx, appRoot, cfg, baseEnv)
+		return database, err
+	}
+	resolver, err := newWorktreePostgresResolver(ctx, appRoot, cfg.AppID())
+	if err != nil {
+		return postgresdb.Database{}, err
+	}
+	server, running, err := resolver.observe(ctx)
+	if err != nil {
+		return postgresdb.Database{}, err
+	}
+	if !running {
+		return postgresdb.Database{}, worktreePostgresPrecondition("the selected database is stopped; explicitly start it with db server start before accessing it")
+	}
+	return databaseForWorktreeServer(resolver.paths.AppRoot, cfg, server)
+}
+
+func databaseForWorktreeServer(appRoot string, cfg appcfg.Config, server *localagent.WorktreePostgres) (postgresdb.Database, error) {
+	dbName := postgresname.DatabaseNameFor(cfg.AppID(), appRoot)
+	baseURL := worktreePostgresURL(server, dbName)
+	database := postgresdb.Database{Database: dbName, URL: baseURL, Source: postgresdb.SourceManaged, AppRoot: appRoot, ResourceID: server.InstanceID}
+	for _, svc := range cfg.DatabaseServices() {
+		serviceURL, err := postgresdb.ServiceURL(baseURL, svc.Schema)
+		if err != nil {
+			return postgresdb.Database{}, err
+		}
+		database.Schemas = append(database.Schemas, postgresdb.Service{Name: svc.Name, Schema: svc.Schema, URL: serviceURL})
+	}
+	return database, nil
 }
 
 func databaseSchemaByService(database postgresdb.Database, service string) (string, bool) {
@@ -538,7 +484,7 @@ func resetPostgresDatabase(ctx context.Context, database postgresdb.Database, op
 	if !opts.Yes {
 		return fmt.Errorf("resetting the managed postgres app database requires --yes")
 	}
-	admin, err := managedPostgresAdmin(ctx)
+	admin, err := managedPostgresAdmin(ctx, database)
 	if err != nil {
 		return err
 	}
@@ -553,7 +499,7 @@ func dropPostgresDatabase(ctx context.Context, database postgresdb.Database) err
 	if database.Source == postgresdb.SourceExternal {
 		return fmt.Errorf("refusing to drop external postgres database")
 	}
-	admin, err := managedPostgresAdmin(ctx)
+	admin, err := managedPostgresAdmin(ctx, database)
 	if err != nil {
 		return err
 	}
@@ -561,16 +507,25 @@ func dropPostgresDatabase(ctx context.Context, database postgresdb.Database) err
 	return postgresdb.DropDatabase(ctx, admin, database.Database)
 }
 
-func managedPostgresAdmin(ctx context.Context) (*sql.DB, error) {
-	paths, err := commandAgentPaths()
+func managedPostgresAdmin(ctx context.Context, database postgresdb.Database) (*sql.DB, error) {
+	if database.Source != postgresdb.SourceManaged || database.AppRoot == "" || database.ResourceID == "" {
+		return nil, worktreePostgresPrecondition("the selected database has no managed worktree authority")
+	}
+	resolver, err := newWorktreePostgresResolver(ctx, database.AppRoot, "")
 	if err != nil {
 		return nil, err
 	}
-	state, err := loadPostgresServerState(postgresServerStatePath(paths))
+	record, err := resolver.load()
 	if err != nil {
 		return nil, err
 	}
-	return openPostgresAdmin(ctx, state.databaseURL("postgres"))
+	if record.Postgres.InstanceID != database.ResourceID || database.Database != postgresname.DatabaseNameFor(record.AppID, record.AppRoot) {
+		return nil, worktreePostgresPrecondition("the selected app database does not match retained resource ownership")
+	}
+	if _, _, err := resolver.inspect(ctx, record); err != nil {
+		return nil, err
+	}
+	return openPostgresAdmin(ctx, worktreePostgresURL(record.Postgres, "postgres"))
 }
 
 func databaseEnvKeys(cfg appcfg.Config) []string {

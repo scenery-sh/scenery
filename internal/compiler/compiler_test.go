@@ -125,25 +125,23 @@ func TestManifestSourceMapKeepsPunctuationDistinctSourceURIs(t *testing.T) {
 }
 
 func TestContractRevisionIgnoresFormatting(t *testing.T) {
-	source := filepath.Join("testdata", "house")
-	result, err := Compile(source)
-	if err != nil {
+	temp := t.TempDir()
+	path := filepath.Join(temp, appFilename)
+	b := []byte("application \"formatting\" {}\n")
+	if err := os.WriteFile(path, b, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	temp := t.TempDir()
-	copyTree(t, source, temp)
-	path := filepath.Join(temp, appFilename)
-	b, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
+	result, err := Compile(temp)
+	if err != nil || result.Manifest == nil {
+		t.Fatalf("compile formatting fixture: %v %+v", err, result)
 	}
 	b = append([]byte("# formatting changes workspace bytes\n\n"), b...)
 	if err := os.WriteFile(path, b, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	changed, err := Compile(temp)
-	if err != nil {
-		t.Fatal(err)
+	if err != nil || changed.Manifest == nil {
+		t.Fatalf("compile formatted fixture: %v %+v", err, changed)
 	}
 	if result.Manifest.ContractRevision != changed.Manifest.ContractRevision {
 		t.Fatalf("contract revision changed: %s != %s", result.Manifest.ContractRevision, changed.Manifest.ContractRevision)
@@ -185,13 +183,14 @@ func TestContractRevisionUsesOnlyContractDomains(t *testing.T) {
 
 func TestImplementationRevisionRequiresBuildSuppliedInputManifest(t *testing.T) {
 	temp := t.TempDir()
-	copyTree(t, filepath.Join("testdata", "house"), temp)
-	path := filepath.Join(temp, appFilename)
-	b, err := os.ReadFile(path)
-	if err != nil {
+	if err := os.MkdirAll(filepath.Join(temp, "house"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	b = append(b, []byte(`
+	if err := os.WriteFile(filepath.Join(temp, "go.mod"), []byte("module example.test/clean-tech\n\ngo 1.26.3\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(temp, appFilename)
+	b := []byte(`application "revision" {}
 workspace {
   implementation_root "application" {
     path = "."
@@ -212,7 +211,7 @@ go_target "development" {
   module = go_module.application
   packages = ["./..."]
 }
-`)...)
+`)
 	if err := os.WriteFile(path, b, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -269,13 +268,8 @@ go_target "development" {
 
 func TestWorkspaceRevisionExcludesManagedGeneratedFiles(t *testing.T) {
 	temp := t.TempDir()
-	copyTree(t, filepath.Join("testdata", "house"), temp)
 	rootSource := filepath.Join(temp, appFilename)
-	data, err := os.ReadFile(rootSource)
-	if err != nil {
-		t.Fatal(err)
-	}
-	data = append(data, []byte("\nworkspace { managed_generated_roots = [\"generated\"] }\n")...)
+	data := []byte("application \"revision\" {}\nworkspace { managed_generated_roots = [\"generated\"] }\n")
 	if err := os.WriteFile(rootSource, data, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -323,13 +317,8 @@ func TestWorkspaceRevisionExcludesManagedGeneratedFiles(t *testing.T) {
 
 func TestWorkspaceRevisionExcludesManagedGeneratedFilesInsideImplementationRoot(t *testing.T) {
 	temp := t.TempDir()
-	copyTree(t, filepath.Join("testdata", "house"), temp)
 	rootSource := filepath.Join(temp, appFilename)
-	data, err := os.ReadFile(rootSource)
-	if err != nil {
-		t.Fatal(err)
-	}
-	data = append(data, []byte(`
+	data := []byte(`application "revision" {}
 workspace {
   implementation_root "application" {
     path = "."
@@ -337,7 +326,7 @@ workspace {
   }
   managed_generated_roots = ["internal/scenerygen"]
 }
-`)...)
+`)
 	if err := os.WriteFile(rootSource, data, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -349,6 +338,9 @@ workspace {
 	if err := os.WriteFile(generatedGo, []byte("package scenerygen\nconst revision = \"one\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(generated, "scenery.generated.json"), []byte(`{"kind":"scenery.generated","files":["composition.gen.go"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	base, err := Compile(temp)
 	if err != nil {
 		t.Fatal(err)
@@ -356,12 +348,22 @@ workspace {
 	if err := os.WriteFile(generatedGo, []byte("package scenerygen\nconst revision = \"two\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	changed, err := Compile(temp)
+	changedRevision, err := computeWorkspaceRevision(temp, base.Sources)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if changed.WorkspaceRevision != base.WorkspaceRevision {
-		t.Fatalf("managed generated Go changed workspace revision: %s != %s", changed.WorkspaceRevision, base.WorkspaceRevision)
+	if changedRevision != base.WorkspaceRevision {
+		t.Fatalf("managed generated Go changed workspace revision: %s != %s", changedRevision, base.WorkspaceRevision)
+	}
+	if err := os.WriteFile(filepath.Join(generated, "authored.go"), []byte("package scenerygen\nconst authored = true\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	authoredRevision, err := computeWorkspaceRevision(temp, base.Sources)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if authoredRevision == changedRevision {
+		t.Fatal("managed root hid an unrelated authored Go input")
 	}
 }
 
@@ -708,18 +710,35 @@ func TestCompileValidatesIdempotencyKeysAgainstInputRecord(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			root := t.TempDir()
-			copyTree(t, filepath.Join("testdata", "house"), root)
-			path := filepath.Join(root, "house", packageFilename)
-			data, err := os.ReadFile(path)
-			if err != nil {
+			if err := os.MkdirAll(filepath.Join(root, "house"), 0o755); err != nil {
 				t.Fatal(err)
 			}
-			const needle = "  input   = record.process_scene_input\n\n  handler {"
-			replacement := "  input   = record.process_scene_input\n\n  idempotency {\n    mode = \"keyed\"\n    key  = " + test.key + "\n  }\n\n  handler {"
-			if !strings.Contains(string(data), needle) {
-				t.Fatal("operation fixture insertion point is missing")
+			if err := os.WriteFile(filepath.Join(root, appFilename), []byte("application \"idempotency\" {}\nmodule \"house\" { source = \"./house\" }\n"), 0o644); err != nil {
+				t.Fatal(err)
 			}
-			if err := os.WriteFile(path, []byte(strings.Replace(string(data), needle, replacement, 1)), 0o644); err != nil {
+			path := filepath.Join(root, "house", packageFilename)
+			data := `package "house" {
+  go_contract { import_path = "example.test/idempotency/house" }
+}
+service "house" {
+  runtime = "go"
+  implementation { constructor = "NewService" }
+}
+record "input" {
+  field "scene_id" { type = string }
+}
+operation "process" {
+  service = service.house
+  input = record.input
+  handler { method = "Process" }
+  result "processed" { type = std.type.unit }
+  idempotency {
+    mode = "keyed"
+    key = ` + test.key + `
+  }
+}
+`
+			if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
 				t.Fatal(err)
 			}
 			result, err := Compile(root)

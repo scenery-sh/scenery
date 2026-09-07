@@ -11,12 +11,12 @@ import (
 )
 
 const (
-	sessionSchemaDescriptor        = `{"identity":"artifact","session":"agent-session"}`
+	sessionSchemaDescriptor        = `{"identity":"artifact","session":"agent-session","worktree_proxy":"optional-loopback-backend"}`
 	routeManifestSchemaDescriptor  = `{"identity":"artifact","manifest":"route-manifest"}`
 	portLeaseSchemaDescriptor      = `{"identity":"artifact","lease":"port-lease"}`
 	substrateSchemaDescriptor      = `{"identity":"artifact","substrate":"managed-substrate"}`
-	agentStateSchemaDescriptor     = `{"identity":"artifact","state":"agent-process"}`
-	agentRegistrySchemaDescriptor  = `{"identity":"artifact","registry":"sessions-substrates-aliases"}`
+	agentStateSchemaDescriptor     = `{"identity":"artifact","state":"agent-process","worktree_edge_proxy":true}`
+	agentRegistrySchemaDescriptor  = `{"identity":"artifact","registry":"sessions-substrates-aliases","worktree_edge_proxy":true}`
 	deployRegistrySchemaDescriptor = `{"identity":"artifact","registry":"deployment-ownership"}`
 	edgeStateSchemaDescriptor      = `{"identity":"artifact","state":"managed-edge"}`
 	edgeTargetSchemaDescriptor     = `{"identity":"artifact","state":"privileged-edge-target"}`

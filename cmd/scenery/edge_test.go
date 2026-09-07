@@ -95,34 +95,6 @@ func TestEdgeHelperListenSpecsSwitchToPublicPorts(t *testing.T) {
 	}
 }
 
-func TestListenEdgeHelperPublicWildcardAcceptsIPv4(t *testing.T) {
-	t.Parallel()
-
-	ln, err := listenEdgeHelperSpec(edgeHelperListenSpec{Addr: "[::]:0"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = ln.Close() }()
-	_, port, err := net.SplitHostPort(ln.Addr().String())
-	if err != nil {
-		t.Fatal(err)
-	}
-	done := make(chan struct{})
-	go func() {
-		conn, _ := ln.Accept()
-		if conn != nil {
-			_ = conn.Close()
-		}
-		close(done)
-	}()
-	conn, err := net.Dial("tcp4", "127.0.0.1:"+port)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = conn.Close()
-	<-done
-}
-
 func TestEdgePrivilegedInstallCommandUsesDeploySetupForDeploy(t *testing.T) {
 	t.Parallel()
 
