@@ -219,20 +219,15 @@ func dockerContextCheck(ctx context.Context, deps ProbeDeps, path string) Check 
 	out, err := deps.RunCommand(cmdCtx, path, "context", "show")
 	cancel()
 	contextName := strings.TrimSpace(string(out))
-	if contextName != "" {
-		check.Observed["context"] = contextName
-	}
 	if err != nil {
 		check.Status = StatusWarn
 		check.Severity = SeverityOptional
 		check.Message = "Docker CLI was found, but the current Docker context could not be determined"
 		check.SuggestedAction = "Run `docker context show` manually and fix Docker context configuration if it fails."
-		if contextName != "" {
-			check.Observed["error_output"] = contextName
-		}
 		return check
 	}
 	if contextName != "" {
+		check.Observed["context"] = contextName
 		check.Message = "Docker context " + contextName + " is selected"
 	}
 	return check
@@ -252,24 +247,16 @@ func dockerEngineCheck(ctx context.Context, deps ProbeDeps, path string) Check {
 	infoOut, infoErr := deps.RunCommand(cmdCtx, path, "info", "--format", "{{json .}}")
 	cancel()
 	if infoErr != nil {
-		output := strings.TrimSpace(string(infoOut))
 		check.Status = StatusWarn
 		check.Message = "Docker CLI was found, but the Docker engine is not reachable"
 		check.SuggestedAction = "Start Docker Desktop or the Docker daemon, then rerun `scenery doctor -o json`."
-		if output != "" {
-			check.Observed["error_output"] = output
-		}
 		return check
 	}
 	info := map[string]any{}
 	if err := json.Unmarshal(bytes.TrimSpace(infoOut), &info); err != nil {
-		output := strings.TrimSpace(string(infoOut))
 		check.Status = StatusWarn
 		check.Message = "Docker engine responded, but engine details could not be parsed"
 		check.SuggestedAction = "Run `docker info --format '{{json .}}'` manually and check the output."
-		if output != "" {
-			check.Observed["raw_output"] = output
-		}
 		return check
 	}
 	for source, target := range map[string]string{
@@ -295,14 +282,13 @@ func dockerEngineCheck(ctx context.Context, deps ProbeDeps, path string) Check {
 	return check
 }
 
-// PostgresServerCheck reports whether managed postgres dev services can
-// start: skipped when none are configured, an error when Docker is
-// missing or unreachable.
+// PostgresServerCheck checks the Docker prerequisite for the managed path.
+// It does not connect to Postgres or prove container ownership or readiness.
 func PostgresServerCheck(ctx context.Context, deps ProbeDeps, features AppFeatures) Check {
 	check := Check{
 		ID:       "db.postgres_server",
 		Category: "database",
-		Name:     "Managed Postgres dev server",
+		Name:     "Managed Postgres prerequisites",
 		Status:   StatusSkipped,
 		Severity: SeverityInformational,
 		Message:  "no postgres dev.services are configured",
@@ -312,26 +298,26 @@ func PostgresServerCheck(ctx context.Context, deps ProbeDeps, features AppFeatur
 	}
 	check.Status = StatusOK
 	check.Severity = SeverityRequired
-	check.Message = "Docker is reachable for managed postgres dev services"
+	check.Message = "Docker is reachable; managed Postgres ownership, credentials and database readiness were not checked"
+	check.SuggestedAction = "Use scenery up for managed runtime startup; its readiness checks remain authoritative. A private agent home does not isolate the globally named Postgres container or volume."
+	check.Observed = map[string]any{"command": "docker", "proof": "none", "runtime_verified": false}
 	path, err := deps.LookPath("docker")
 	if err != nil {
 		check.Status = StatusError
 		check.Message = "Docker CLI was not found; managed postgres dev services cannot start"
-		check.SuggestedAction = "Install Docker or set each postgres service database_url_env to an external postgres URL."
-		check.Observed = map[string]any{"command": "docker"}
+		check.SuggestedAction = "Install Docker for the managed path, or set the app's DATABASE_URL to an external Postgres URL. This check does not inspect dotenv sources or validate external database access."
 		return check
 	}
-	check.Observed = map[string]any{"command": "docker", "path": path}
+	check.Observed["path"] = path
 	cmdCtx, cancel := context.WithTimeout(ctx, commandTimeout)
-	out, infoErr := deps.RunCommand(cmdCtx, path, "info", "--format", "{{json .}}")
+	_, infoErr := deps.RunCommand(cmdCtx, path, "info", "--format", "{{json .}}")
 	cancel()
 	if infoErr != nil {
 		check.Status = StatusError
 		check.Message = "Docker engine is not reachable; managed postgres dev services cannot start"
-		check.SuggestedAction = "Start Docker Desktop or set each postgres service database_url_env to an external postgres URL."
-		if output := strings.TrimSpace(string(out)); output != "" {
-			check.Observed["error_output"] = output
-		}
+		check.SuggestedAction = "Start Docker for the managed path, or set the app's DATABASE_URL to an external Postgres URL. This check does not inspect dotenv sources or validate external database access."
+	} else {
+		check.Observed["proof"] = "docker_engine_reachability_only"
 	}
 	return check
 }

@@ -258,6 +258,7 @@ Use `-o json` for compiler commands and command-specific current protocols. Neve
 - Use `scenery system agent cleanup` to stop fingerprint-verified same-user processes tied to the pre-rebrand `~/.onlava` config or socket. It only reports old state by default; pass `--remove-state` to remove that directory explicitly.
 - Use `scenery prune --older-than <duration>` for non-destructive stale record and substrate-lease cleanup. Add `--state`, `--db`, or `--all` only when the corresponding deletion is intended; database cleanup refuses external DSNs.
 - Use `scenery doctor -o json` when startup reports an occupied Scenery port; it distinguishes duplicate Scenery owners from foreign listeners, and startup never falls back to an unadvertised router port.
+- Doctor is prerequisite evidence, not application readiness. Its managed-Postgres check only probes Docker availability, not database health, ownership or credentials. Known failed prerequisites exit 3; unavailable startup capabilities exit 4. Read diagnostic suggestions without printing credentials or copying raw Docker output into public errors.
 - Use `scenery logs --follow` for the current runtime.
 - Use `scenery down` to stop it; add destructive cleanup flags only intentionally.
 - Use `scenery worker` for a worker-role runtime serving declared durable executions and schedules.
@@ -414,7 +415,13 @@ A compatible shared agent is reused without replacement, regardless of build
 age. An incompatible health schema/spec fails closed. Use a matching binary or
 a private `SCENERY_AGENT_HOME` with a distinct router address for that version.
 Changing agent home does not isolate machine-global DNS or privileged edge
-listeners; do not install competing edge setups. Restarting the shared agent is
+listeners; do not install competing edge setups. It also does not isolate the
+globally named Postgres container/volume in the same Docker daemon. Conflicting
+container port bindings fail closed before starting the container. Inspect the
+selected Docker context and bindings, then use the matching agent home and
+credentials or an explicitly provisioned external `DATABASE_URL`. Do not remove,
+recreate or adopt another owner's container, or blindly rewrite local state;
+coordinate with its users first. Restarting the shared agent is
 an explicit operator action, not a consequence of installing a CLI.
 
 ### Repository Mental Model

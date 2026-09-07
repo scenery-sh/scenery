@@ -60,7 +60,7 @@ func runDetachedDev(args []string, opts devOptions) error {
 	}
 
 	if localagent.DisabledByEnv() {
-		return fmt.Errorf("scenery up --detach requires the local scenery agent; unset SCENERY_AGENT_DISABLE")
+		return &codedCLIError{code: 4, err: fmt.Errorf("scenery up --detach requires the local scenery agent; unset SCENERY_AGENT_DISABLE")}
 	}
 	setupCtx, setupCancel := context.WithTimeout(context.Background(), detachedDevStartupTimeout)
 	defer setupCancel()
@@ -69,7 +69,7 @@ func runDetachedDev(args []string, opts devOptions) error {
 		return err
 	}
 	if client == nil {
-		return fmt.Errorf("scenery up --detach requires the local scenery agent")
+		return &codedCLIError{code: 4, err: fmt.Errorf("scenery up --detach requires the local scenery agent")}
 	}
 	existing, existingPID, err := liveDetachedDuplicateDevSession(setupCtx, client, root)
 	if err != nil {
@@ -328,7 +328,7 @@ func normalizeDetachedDevWaitMode(value string) (string, error) {
 	case detachedDevWaitRegistered:
 		return detachedDevWaitRegistered, nil
 	default:
-		return "", fmt.Errorf("invalid --wait %q; expected registered or ready", value)
+		return "", &codedCLIError{code: 2, err: fmt.Errorf("invalid --wait %q; expected registered or ready", value)}
 	}
 }
 

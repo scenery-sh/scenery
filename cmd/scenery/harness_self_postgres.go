@@ -74,8 +74,8 @@ func runHarnessPostgresProbeCheck(parent context.Context, repoRoot string, full 
 	if _, err := exec.LookPath("docker"); err != nil {
 		return postgresProbeSkip("docker not found in PATH"), []checkDiagnostic{postgresProbeSkipDiagnostic("Docker CLI is unavailable")}, nil
 	}
-	if out, err := exec.CommandContext(ctx, "docker", "info", "--format", "{{json .}}").CombinedOutput(); err != nil {
-		return postgresProbeSkip(strings.TrimSpace(string(out))), []checkDiagnostic{postgresProbeSkipDiagnostic("Docker engine is unavailable")}, nil
+	if err := exec.CommandContext(ctx, "docker", "info", "--format", "{{json .}}").Run(); err != nil {
+		return postgresProbeSkip("Docker engine is unavailable; no database proof was performed"), []checkDiagnostic{postgresProbeSkipDiagnostic("Docker engine is unavailable")}, nil
 	}
 	segments := &postgresProbeSegments{}
 	label := harnessRandomLabel()
@@ -387,7 +387,7 @@ func postgresProbeSkipDiagnostic(message string) checkDiagnostic {
 	return checkDiagnostic{
 		Stage:           "postgres service probe",
 		Severity:        "warning",
-		Message:         message,
+		Message:         message + "; skipped managed Postgres probe, no database proof was performed",
 		SuggestedAction: "Start Docker and rerun `scenery harness self -o json --write` for live postgres proof.",
 	}
 }

@@ -17,6 +17,7 @@ import (
 
 	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/app"
+	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/devdash"
 	"scenery.sh/internal/machine"
 	"scenery.sh/internal/postgresdb"
@@ -62,12 +63,18 @@ func (execPostgresDockerRunner) Run(ctx context.Context, args ...string) (string
 	cmd := exec.CommandContext(ctx, "docker", args...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		if errors.Is(err, exec.ErrNotFound) {
-			return strings.TrimSpace(string(out)), fmt.Errorf("docker not found in PATH")
-		}
-		return strings.TrimSpace(string(out)), fmt.Errorf("docker %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+		return strings.TrimSpace(string(out)), postgresDockerFailure(err)
 	}
 	return strings.TrimSpace(string(out)), nil
+}
+
+// Docker arguments can include POSTGRES_PASSWORD and stderr can repeat them.
+// Keep both out of public errors; output is returned separately for object lookup.
+func postgresDockerFailure(err error) error {
+	if errors.Is(err, exec.ErrNotFound) {
+		return &codedCLIError{code: 4, err: fmt.Errorf("docker is unavailable: docker was not found in PATH; install Docker or provide an external DATABASE_URL")}
+	}
+	return &codedCLIError{code: 4, err: fmt.Errorf("docker could not complete the managed Postgres operation; check Docker availability, context and permissions, or provide an external DATABASE_URL")}
 }
 
 var (
@@ -99,8 +106,8 @@ func managedDatabaseEnvWithAgent(ctx context.Context, appRoot string, cfg app.Co
 	services := make([]postgresdb.Service, 0, len(cfgs))
 	databaseEnv := appDatabaseURLEnv
 	if value := lookupEnvValue(baseEnv, databaseEnv); value != "" {
-		if _, err := postgresdb.ParseURL(value); err != nil {
-			return nil, postgresdb.Database{}, fmt.Errorf("%s must be a postgres URL for plan 0097: %w", databaseEnv, err)
+		if err := validateAppPostgresURL(value); err != nil {
+			return nil, postgresdb.Database{}, err
 		}
 		for _, svc := range cfgs {
 			serviceURL, err := postgresdb.ServiceURL(value, svc.Schema)
@@ -253,6 +260,11 @@ func ensurePostgresDockerContainer(ctx context.Context, state *postgresServerSta
 	if err != nil {
 		return err
 	}
+	if status != "" {
+		if err := verifyPostgresContainerPort(ctx, state); err != nil {
+			return err
+		}
+	}
 	switch status {
 	case "running":
 		return nil
@@ -293,19 +305,15 @@ func isMissingDockerObject(out string, err error) bool {
 	}
 	return strings.Contains(msg, "no such object") ||
 		strings.Contains(msg, "no such container") ||
-		strings.Contains(msg, "no such volume") ||
-		strings.Contains(msg, "not found")
+		strings.Contains(msg, "no such volume")
 }
 
 func waitForPostgresServer(ctx context.Context, state *postgresServerState) error {
 	deadline := time.Now().Add(30 * time.Second)
 	delay := 50 * time.Millisecond
-	var lastErr error
 	for {
 		if err := postgresReadyProbe(ctx, state); err == nil {
 			return nil
-		} else {
-			lastErr = err
 		}
 		remaining := time.Until(deadline)
 		if remaining <= 0 {
@@ -316,6 +324,9 @@ func waitForPostgresServer(ctx context.Context, state *postgresServerState) erro
 			sleepFor = remaining
 		}
 		if err := postgresReadySleep(ctx, sleepFor); err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				break
+			}
 			return err
 		}
 		if delay < 500*time.Millisecond {
@@ -325,22 +336,49 @@ func waitForPostgresServer(ctx context.Context, state *postgresServerState) erro
 			}
 		}
 	}
-	if published, err := postgresContainerPublishedPort(ctx, state.Container); err == nil && published > 0 && published != state.Port {
-		return fmt.Errorf("managed postgres container %q publishes port %d but the server state file expects port %d; the container was created from a different agent home or stale state — remove it with `docker rm -f %s` (data volume %q is preserved) and rerun, or restore the original agent home state: %w", state.Container, published, state.Port, state.Container, state.Volume, lastErr)
+	if err := verifyPostgresContainerPort(ctx, state); err != nil {
+		return err
 	}
-	return fmt.Errorf("managed postgres server did not become ready: %w", lastErr)
+	// A driver error can contain connection credentials. The known readiness
+	// failure is actionable without copying that raw error into a diagnostic.
+	return postgresReadinessFailure(state)
 }
 
 func postgresContainerPublishedPort(ctx context.Context, container string) (int, error) {
-	out, err := postgresDocker.Run(ctx, "container", "inspect", container, "--format", `{{(index (index .NetworkSettings.Ports "5432/tcp") 0).HostPort}}`)
+	// HostConfig records the binding even while the container is stopped.
+	out, err := postgresDocker.Run(ctx, "container", "inspect", container, "--format", `{{(index (index .HostConfig.PortBindings "5432/tcp") 0).HostPort}}`)
 	if err != nil {
 		return 0, err
 	}
 	port, err := strconv.Atoi(strings.TrimSpace(out))
-	if err != nil {
-		return 0, err
+	if err != nil || port < 1 || port > 65535 {
+		return 0, &codedCLIError{code: 3, err: fmt.Errorf("managed Postgres container has no valid fixed host port; inspect its port bindings and matching agent state before retrying; do not remove or recreate the container")}
 	}
 	return port, nil
+}
+
+func verifyPostgresContainerPort(ctx context.Context, state *postgresServerState) error {
+	port, err := postgresContainerPublishedPort(ctx, state.Container)
+	if err != nil {
+		return err
+	}
+	if port == state.Port {
+		return nil
+	}
+	diagnostic := compiler.TransportDiagnostic("failed_precondition", "Managed Postgres container port conflicts with this agent's state; the container may belong to another agent home. Refusing to use this container.")
+	diagnostic.Details = map[string]any{"container": state.Container, "expected_port": state.Port, "configured_port": port}
+	diagnostic.Suggestions = []string{
+		"Inspect the selected Docker context and container port bindings, then use the matching agent home and credentials or an externally provisioned DATABASE_URL.",
+		"Changing SCENERY_AGENT_HOME does not isolate the globally named Postgres container or volume. Do not remove, recreate or adopt the container, or overwrite its state, without verifying ownership and coordinating with its users.",
+	}
+	return &cliDiagnosticError{code: 3, diagnostic: diagnostic}
+}
+
+func postgresReadinessFailure(state *postgresServerState) error {
+	diagnostic := compiler.TransportDiagnostic("failed_precondition", "Managed Postgres did not become ready before the startup deadline.")
+	diagnostic.Details = map[string]any{"container": state.Container, "port": state.Port}
+	diagnostic.Suggestions = []string{"Check the container status, database health and matching agent credentials; retain the container and volume until ownership is verified. Raw connection errors are omitted to protect credentials."}
+	return &cliDiagnosticError{code: 3, diagnostic: diagnostic}
 }
 
 func defaultPostgresReadyProbe(ctx context.Context, state *postgresServerState) error {

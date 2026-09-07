@@ -171,6 +171,8 @@ The selected environment owns domains, exposure, ports, frontend serving, and de
 
 Dotenv files are optional for every environment, including local `scenery up` and `scenery worker`. Missing files contribute no values; process environment takes precedence over available dotenv layers. Do not create empty `.env` placeholders. Unreadable or malformed files, missing required values, and invalid resolved values still fail validation.
 
+Known startup configuration failures use SCN8003 (exit 3); unavailable Docker or a required disabled agent uses SCN8004 (exit 4). Credentials and raw Docker failure output are not public diagnostics. Doctor reports environment prerequisites, not application/database readiness. A passing harness covers only its selected mode; warnings and skipped probes remain unverified, not successful proof.
+
 Deploy through a configured environment or its singular SSH target. SSH uses passwordless OpenSSH and rsync, preserves remote `.env*` and `.scenery`, waits for readiness, and provides no backend rollback. Verify with `scenery deploy status -o json`.
 
 ## Storage and Databases
@@ -279,4 +281,10 @@ absolute binary paths for parallel versions. Compatible agent contracts are
 shared without automatic replacement; incompatible health schema/spec fails
 closed. Use the matching binary or a private agent home and distinct router
 address. Changing agent home does not isolate machine-global DNS/edge listeners.
+It also does not isolate the globally named Postgres container and volume in
+the same Docker daemon. A container/state port conflict fails before start:
+inspect the Docker context and port bindings, then use the matching agent home
+and credentials or an explicitly provisioned external `DATABASE_URL`. Do not
+remove/recreate/adopt a container or rewrite its state without verifying its
+owner and coordinating with its users.
 Installing a CLI does not migrate application dependencies or durable data.

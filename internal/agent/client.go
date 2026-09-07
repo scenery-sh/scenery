@@ -113,7 +113,7 @@ func EnsureWith(ctx context.Context, current Identity, paths Paths) (*Client, er
 
 func compatibleAgent(health HealthResponse, current Identity) error {
 	if err := machine.ValidateArtifactIdentity(health.ArtifactIdentity, AgentStateKind, agentStateSchemaDescriptor, "connect to shared agent"); err != nil {
-		return fmt.Errorf("failed_precondition: incompatible scenery agent (running %s; CLI %s; required spec %s): %w; existing sessions are untouched; use the matching CLI or an isolated SCENERY_AGENT_HOME and router address, or explicitly restart the agent after stopping its sessions", health.Identity, current, agentStateIdentity().SpecRevision, err)
+		return fmt.Errorf("failed_precondition: incompatible scenery agent (running %s; CLI %s; required spec %s): %w; existing sessions are untouched; use the matching CLI or a private SCENERY_AGENT_HOME and distinct router address (this does not isolate global Docker containers/volumes or DNS/edge listeners), or explicitly restart the agent after stopping its sessions", health.Identity, current, agentStateIdentity().SpecRevision, err)
 	}
 	return nil
 }

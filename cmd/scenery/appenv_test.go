@@ -205,13 +205,14 @@ func TestAppProcessEnvValidatesDatabaseURLWithoutDotenv(t *testing.T) {
 	}
 	for _, tc := range []struct{ value, want string }{
 		{"", "app database requires DATABASE_URL"},
-		{"not-a-postgres-url", "app database env DATABASE_URL is invalid"},
+		{"not-a-postgres-url", "DATABASE_URL must be a postgres:// or postgresql:// URL"},
+		{"postgres://user:private-password@host/%ZZ", "DATABASE_URL must be a postgres:// or postgresql:// URL"},
 		{"postgres://user:secret@localhost/reports", ""},
 	} {
 		t.Setenv("DATABASE_URL", tc.value)
 		processEnv, err := appProcessEnv(root, cfg, "json", "local")
 		if tc.want != "" {
-			if err == nil || !strings.Contains(err.Error(), tc.want) {
+			if err == nil || cliExitCode(err) != 3 || !strings.Contains(err.Error(), tc.want) || strings.Contains(err.Error(), "private-password") {
 				t.Fatalf("database validation = %v, want %q", err, tc.want)
 			}
 		} else if err != nil || lookupEnvValue(processEnv, "DATABASE_URL") != tc.value {

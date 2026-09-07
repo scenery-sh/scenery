@@ -15,7 +15,7 @@ import (
 func appProcessEnv(root string, cfg app.Config, logFormat string, envName string, extra ...string) ([]string, error) {
 	resolved, err := cfg.ResolveEnv(envName)
 	if err != nil {
-		return nil, err
+		return nil, &codedCLIError{err: err, code: 3}
 	}
 	baseEnv, err := appEnvWithDotEnv(envpolicy.Environ(), root, resolved.DotEnvFiles()...)
 	if err != nil {
@@ -72,12 +72,17 @@ func validateHeadlessPostgresEnv(cfg app.Config, baseEnv []string) error {
 	}
 	envName := appDatabaseURLEnv
 	if value := lookupEnvValue(baseEnv, envName); value != "" {
-		if _, err := postgresdb.ParseURL(value); err != nil {
-			return fmt.Errorf("app database env %s is invalid for plan 0097: %w", envName, err)
-		}
-		return nil
+		return validateAppPostgresURL(value)
 	}
-	return fmt.Errorf("app database requires %s for `scenery worker`; the managed shared Postgres server is a `scenery up` dev substrate only", envName)
+	return &codedCLIError{code: 3, err: fmt.Errorf("app database requires %s for `scenery worker`; set it in the process environment or an optional dotenv source; the managed shared Postgres server is a `scenery up` dev substrate only", envName)}
+}
+
+// URL parser errors can contain the original URL, including credentials.
+func validateAppPostgresURL(value string) error {
+	if _, err := postgresdb.ParseURL(value); err != nil {
+		return &codedCLIError{code: 3, err: fmt.Errorf("%s must be a postgres:// or postgresql:// URL with a host and database name; check its syntax without printing credentials", appDatabaseURLEnv)}
+	}
+	return nil
 }
 
 func envWithOverrides(base []string, overrides ...string) []string {

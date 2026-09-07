@@ -11,7 +11,7 @@ The selected `.scenery.json` environment loads `.env`, `.env.<env>`, `.env.local
 | Variable | Direction | Description |
 | --- | --- | --- |
 | `HOME` | host input | Host home directory, read as a fallback during browser discovery and default agent-home resolution. Not a scenery configuration surface. |
-| `SCENERY_AGENT_HOME` | user input | Overrides the machine-wide local agent home. Default is `~/.scenery`. |
+| `SCENERY_AGENT_HOME` | user input | Overrides agent files/control-plane state. Default is `~/.scenery`. Does not isolate Postgres container/volume names in the same Docker daemon or machine-global DNS/edge listeners; use a distinct router address for a private agent. |
 | `SCENERY_AGENT_SOCKET` | user input | Overrides the agent Unix control socket path. |
 | `SCENERY_AGENT_ROUTER_ADDR` | user input | Overrides the agent router listen address. Default is `127.0.0.1:9440`. |
 | `SCENERY_AGENT_TRUST` | user input | `1` asks the agent to trust the existing local scenery CA when starting HTTPS routing. |

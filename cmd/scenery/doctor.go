@@ -66,7 +66,7 @@ func runSceneryDoctorWithDeps(ctx context.Context, stdout io.Writer, args []stri
 			return err
 		}
 		if !resp.OK {
-			return &silentCLIError{err: fmt.Errorf("scenery doctor found %d error(s)", resp.Summary.Errors)}
+			return &silentCLIError{err: fmt.Errorf("scenery doctor found %d preflight error(s)", resp.Summary.Errors), code: 3}
 		}
 		return nil
 	}
@@ -74,7 +74,7 @@ func runSceneryDoctorWithDeps(ctx context.Context, stdout io.Writer, args []stri
 		return err
 	}
 	if !resp.OK {
-		return fmt.Errorf("scenery doctor found %d error(s)", resp.Summary.Errors)
+		return &codedCLIError{err: fmt.Errorf("scenery doctor found %d preflight error(s)", resp.Summary.Errors), code: 3}
 	}
 	return nil
 }
@@ -517,6 +517,6 @@ func writeDoctorText(w io.Writer, resp doctorResponse) error {
 			return err
 		}
 	}
-	_, err := fmt.Fprintf(w, "\nsummary: %d ok, %d warnings, %d errors, %d skipped\n", resp.Summary.OK, resp.Summary.Warnings, resp.Summary.Errors, resp.Summary.Skipped)
+	_, err := fmt.Fprintf(w, "\npreflight summary: %d ok, %d warnings, %d errors, %d skipped\nThis is not application runtime readiness; skipped checks and unprobed services remain unverified.\n", resp.Summary.OK, resp.Summary.Warnings, resp.Summary.Errors, resp.Summary.Skipped)
 	return err
 }

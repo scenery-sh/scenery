@@ -15,11 +15,11 @@ func devRoutingMode(env app.ResolvedEnv) (localagent.RouteMode, error) {
 		return localagent.RouteModePath, nil
 	case string(localagent.RouteModeHost):
 		if strings.TrimSpace(env.Domain) != "" {
-			return "", fmt.Errorf("envs.%s.domain applies to path mode; remove it or use envs.%s.mode \"path\"", env.Name, env.Name)
+			return "", &codedCLIError{code: 3, err: fmt.Errorf("envs.%s.domain applies to path mode; remove it or use envs.%s.mode \"path\"", env.Name, env.Name)}
 		}
 		return localagent.RouteModeHost, nil
 	default:
-		return "", fmt.Errorf("envs.%s.mode must be \"path\" or \"host\"", env.Name)
+		return "", &codedCLIError{code: 3, err: fmt.Errorf("envs.%s.mode must be \"path\" or \"host\"", env.Name)}
 	}
 }
 
@@ -56,7 +56,7 @@ func devExposeRouteNames(cfg app.Config, env app.ResolvedEnv) ([]string, error) 
 		return nil, nil
 	}
 	if strings.TrimSpace(env.Domain) == "" {
-		return nil, fmt.Errorf("envs.%s.expose requires envs.%s.domain", env.Name, env.Name)
+		return nil, &codedCLIError{code: 3, err: fmt.Errorf("envs.%s.expose requires envs.%s.domain", env.Name, env.Name)}
 	}
 	valid := map[string]bool{
 		"root":                    true,
@@ -81,10 +81,10 @@ func devExposeRouteNames(cfg app.Config, env app.ResolvedEnv) ([]string, error) 
 			name = localagent.RouteDashboard
 		}
 		if name == rootFrontend {
-			return nil, fmt.Errorf("envs.%s.expose entry %q names the root frontend; use \"root\" because it has no /%s/ mount", env.Name, raw, rootFrontend)
+			return nil, &codedCLIError{code: 3, err: fmt.Errorf("envs.%s.expose entry %q names the root frontend; use \"root\" because it has no /%s/ mount", env.Name, raw, rootFrontend)}
 		}
 		if name == "" || !valid[name] {
-			return nil, fmt.Errorf("envs.%s.expose entry %q is not root, api, console, runtime, or a configured frontend name", env.Name, raw)
+			return nil, &codedCLIError{code: 3, err: fmt.Errorf("envs.%s.expose entry %q is not root, api, console, runtime, or a configured frontend name", env.Name, raw)}
 		}
 		if seen[name] {
 			continue

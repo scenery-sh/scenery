@@ -196,11 +196,12 @@ func runHarnessParallelDevCheck(parent context.Context) (map[string]any, []check
 		databaseCount = 2
 	}
 	summary := map[string]any{
-		"sessions":        2,
-		"databases":       databaseCount,
-		"api_backends":    []string{sessionA.Backends[localagent.RouteAPI].Network, sessionB.Backends[localagent.RouteAPI].Network},
-		"frontend_routes": []string{sessionA.RouteManifest.Routes["root"].URL, sessionB.RouteManifest.Routes["root"].URL},
-		"diagnostics":     len(diagnostics),
+		"postgres_verified": dockerAvailable,
+		"sessions":          2,
+		"databases":         databaseCount,
+		"api_backends":      []string{sessionA.Backends[localagent.RouteAPI].Network, sessionB.Backends[localagent.RouteAPI].Network},
+		"frontend_routes":   []string{sessionA.RouteManifest.Routes["root"].URL, sessionB.RouteManifest.Routes["root"].URL},
+		"diagnostics":       len(diagnostics),
 	}
 	if hasErrorDiagnostics(diagnostics) {
 		return summary, diagnostics, fmt.Errorf("parallel worktree runtime isolation check failed")

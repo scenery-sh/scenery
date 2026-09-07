@@ -296,7 +296,7 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode, desktop bool, appR
 	}
 	resolvedEnv, err := cfg.ResolveEnv(envName)
 	if err != nil {
-		return err
+		return &codedCLIError{err: err, code: 3}
 	}
 	cfg.Frontends = resolvedEnv.Frontends
 	if desktop {

@@ -205,7 +205,7 @@ func runSceneryHarnessSelf(ctx context.Context, stdout io.Writer, args []string)
 			}
 		}
 		if !resp.OK {
-			return &silentCLIError{err: fmt.Errorf("scenery harness self failed")}
+			return &silentCLIError{err: fmt.Errorf("scenery harness self found failing checks; inspect its diagnostics and artifacts"), code: 3}
 		}
 		return nil
 	}
@@ -214,7 +214,7 @@ func runSceneryHarnessSelf(ctx context.Context, stdout io.Writer, args []string)
 		return err
 	}
 	if !resp.OK {
-		return fmt.Errorf("scenery harness self failed")
+		return &codedCLIError{err: fmt.Errorf("scenery harness self found failing checks; inspect its diagnostics and artifacts"), code: 3}
 	}
 	return nil
 }
@@ -948,19 +948,32 @@ func writeHarnessSelfSummaryJSON(w io.Writer, payload harnessSelfSummaryResponse
 }
 
 func writeHarnessSelfText(w io.Writer, resp harnessSelfResponse) error {
-	status := "ok"
-	if !resp.OK {
-		status = "failed"
-	}
-	if _, err := fmt.Fprintf(w, "scenery: self harness %s\n", status); err != nil {
+	summary := buildHarnessSelfSummary(resp)
+	if _, err := fmt.Fprintf(w, "scenery: self harness %s (mode=%s; selected checks only)\n", summary.Status, resp.Mode); err != nil {
 		return err
 	}
-	for _, step := range resp.Steps {
-		marker := "ok"
-		if !step.OK {
-			marker = "failed"
+	for _, step := range summary.Steps {
+		if _, err := fmt.Fprintf(w, "  %s %-24s duration_ms=%d warnings=%d errors=%d\n", step.Status, step.Name, step.DurationMS, step.WarningCount, step.ErrorCount); err != nil {
+			return err
 		}
-		if _, err := fmt.Fprintf(w, "  %s %-24s duration_ms=%d\n", marker, step.Name, step.DurationMS); err != nil {
+	}
+	for _, attention := range summary.Attention {
+		if _, err := fmt.Fprintf(w, "  %s: %s\n", attention.Severity, attention.Message); err != nil {
+			return err
+		}
+		for _, entry := range attention.TopEntries {
+			if _, err := fmt.Fprintf(w, "    %s\n", entry); err != nil {
+				return err
+			}
+		}
+		if attention.NextAction != "" {
+			if _, err := fmt.Fprintf(w, "    %s\n", attention.NextAction); err != nil {
+				return err
+			}
+		}
+	}
+	if resp.Mode != harnessSelfModeRelease {
+		if _, err := fmt.Fprintln(w, "  Release-only probes were not run; this is not complete release proof."); err != nil {
 			return err
 		}
 	}

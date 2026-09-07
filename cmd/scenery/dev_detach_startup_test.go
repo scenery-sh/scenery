@@ -36,6 +36,7 @@ func TestDetachedStartupDiagnosticRoundTrip(t *testing.T) {
 		diagnostic graph.Diagnostic
 	}{
 		{name: "environment", code: 3, diagnostic: compiler.TransportDiagnostic("failed_precondition", "invalid .env line 1")},
+		{name: "capability", code: 4, diagnostic: cliErrorDiagnostic(postgresDockerFailure(errors.New("raw-child-secret")))},
 		{name: "source", code: 2, diagnostic: graph.Diagnostic{Code: "SCN1021", Severity: "error", Message: "Use app.scn", Path: "old.scn", Address: "application.demo", Suggestions: []string{"Rename the source file."}}},
 		{name: "internal", code: 10, diagnostic: internal},
 	} {

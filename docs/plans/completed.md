@@ -11,6 +11,20 @@ historical records. Do not refresh their review dates or rewrite them as current
 contract prose. Record later guidance here or in the owning current contract;
 use stale knowledge metadata to flag a known contradiction.
 
+## Truthful Runtime Diagnostics and Safe Recovery
+
+- Status: completed
+- Owner: scenery runtime / CLI
+- Completed: 2026-09-07
+- ExecPlan: [0164 Truthful Runtime Diagnostics and Safe Recovery](0164-truthful-runtime-diagnostics.md)
+
+Expected startup failures retain configuration/capability classification and
+redact credentials. Conflicting Postgres bindings fail without container mutation;
+agent-home guidance states global-substrate limits. Doctor and harness distinguish
+prerequisites, runtime proof, warnings and skips. Full Go/race/lint, 240 isolated
+test-root runs, release harness and release gate passed; external-app smoke was
+not configured and is explicitly unverified.
+
 ## Detached Startup Diagnostics
 
 - Status: completed

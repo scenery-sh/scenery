@@ -283,7 +283,11 @@ main() {
   step "self harness" self_harness
   step "clean checkout install" clean_checkout_install
   step "fixture smoke" fixture_smoke
-  step "external app smoke" external_app_smoke
+  if [[ -n "$EXTERNAL_APP_ROOT" ]]; then
+    step "external app smoke" external_app_smoke
+  else
+    printf '\nskipped: external app smoke (SCENERY_RELEASE_GATE_EXTERNAL_APP_ROOT is unset)\n'
+  fi
   step "router safety" router_safety
   step "artifact hygiene" artifact_hygiene
 

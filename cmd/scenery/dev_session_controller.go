@@ -137,7 +137,7 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 		return prepared, err
 	}
 	if err := validateFrontendServeModes(cfg); err != nil {
-		return prepared, err
+		return prepared, &codedCLIError{code: 3, err: err}
 	}
 	var routeManifest localagent.RouteManifest
 	var portLease localagent.PortLease
@@ -160,7 +160,7 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 	}
 	if localagent.DisabledByEnv() {
 		if requiresPortlessEdge {
-			return prepared, fmt.Errorf("host routing for %q requires the scenery agent and local edge; unset SCENERY_AGENT_DISABLE or use envs.%s.mode \"path\"", routeNamespace.BaseDomain, env.Name)
+			return prepared, &codedCLIError{code: 4, err: fmt.Errorf("host routing for %q requires the scenery agent and local edge; unset SCENERY_AGENT_DISABLE or use envs.%s.mode \"path\"", routeNamespace.BaseDomain, env.Name)}
 		}
 		prepared.Backend = fallback
 		return prepared, nil

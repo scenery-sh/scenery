@@ -27,6 +27,14 @@ and timing fields are owned by [the Local Contract](local-contract.md#harness-in
 
 Use this before large edits and after fixes when an agent needs a single machine-readable status snapshot.
 
+`ok` and summary `can_proceed` cover the selected checks, not unselected modes
+or skipped proof. Human output preserves the JSON warning classification and
+selected mode. Docker-unavailable database probes are explicit skips, never
+database readiness/isolation proof; the shell gate likewise prints an unset
+external-app lane as skipped rather than passed. Doctor is environment
+preflight evidence, not application readiness. Inspect the warning details
+before treating a passing run as sufficient for the current acceptance scope.
+
 Recommended agent loop:
 
 ```text

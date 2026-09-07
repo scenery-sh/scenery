@@ -19,6 +19,18 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0164-truthful-runtime-diagnostics.md",
+      "title": "Truthful Runtime Diagnostics and Safe Recovery",
+      "owner": "scenery runtime / CLI",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-07",
+      "review_after": "2026-10-07",
+      "summary": "Completed expected-error classification, safe non-mutating Postgres recovery, agent-home isolation guidance, and honest doctor/harness proof summaries; full release validation and 240 isolated test runs passed, with optional external-app smoke explicitly skipped.",
+      "tags": ["plans", "execplans", "runtime", "diagnostics", "doctor", "harness"]
+    },
+    {
       "path": "docs/plans/0163-detached-startup-diagnostics.md",
       "title": "Detached Startup Diagnostics",
       "owner": "scenery runtime / CLI",
@@ -1692,7 +1704,7 @@
       "freshness": "current",
       "last_reviewed": "2026-09-05",
       "review_after": "2026-10-05",
-      "summary": "Agent workflows for current apps and Scenery: explicit provider locking, generation/materialization and editor-status boundaries, generated-type discovery, assistants, exact CLI JSON, graph provenance, runtime diagnosis, optional dotenv sources, deploy, storage and 100ms Go-root/release validation.",
+      "summary": "Agent workflows for current apps and Scenery: explicit provider locking, generation/materialization and editor-status boundaries, generated-type discovery, assistants, exact CLI JSON, graph provenance, classified runtime diagnosis, optional dotenv sources, agent-home isolation limits, prerequisite versus runtime proof, deploy, storage and 100ms Go-root/release validation.",
       "tags": [
         "agents",
         "cli",
@@ -1767,7 +1779,7 @@
       "freshness": "current",
       "last_reviewed": "2026-09-05",
       "review_after": "2026-10-05",
-      "summary": "Exact CLI grammar/JSON, qualified schemas, offline provider lock/check and content identity, generation coverage/editor reports, graph provenance, runtime/deploy behavior, optional dotenv sources with required-value validation, auth classification, generated access/audit identity, 100ms Go roots, release probes and code tasks.",
+      "summary": "Exact CLI grammar/JSON, qualified schemas, offline provider lock/check and content identity, generation coverage/editor reports, graph provenance, runtime/deploy behavior, optional dotenv sources with required-value validation, expected-failure classification, non-mutating Postgres conflict recovery, doctor preflight and selected harness proof, generated access/audit identity, 100ms Go roots, release probes and code tasks.",
       "tags": [
         "contract",
         "cli",
@@ -1913,7 +1925,7 @@
       "freshness": "current",
       "last_reviewed": "2026-09-05",
       "review_after": "2026-10-05",
-      "summary": "Agent validation loop with cached and fresh Go execution, exception-free repeated 100ms p95 gate, release-only boundary probes, disposable CLI installs and built headless fixture runtimes, four-way missing-binary builds, prepare-wall budgeting, changed-area commands, browser/data proofs, and documentation review queues.",
+      "summary": "Agent validation loop with cached and fresh Go execution, exception-free repeated 100ms p95 gate, explicit warning/skip and selected-mode proof summaries, release-only boundary probes, disposable CLI installs and built headless fixture runtimes, four-way missing-binary builds, prepare-wall budgeting, changed-area commands, browser/data proofs, and documentation review queues.",
       "tags": [
         "harness",
         "agents",
