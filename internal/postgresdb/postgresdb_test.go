@@ -89,6 +89,38 @@ func TestServiceURLUsesSearchPathRuntimeParam(t *testing.T) {
 	}
 }
 
+func TestResolveServiceEndpointSelectsPreparedInputs(t *testing.T) {
+	const base = "postgres://user:secret@localhost/app?search_path=old&sslmode=disable"
+	const derived = "postgres://user:secret@localhost/app?search_path=reports%2Cscenery&sslmode=disable"
+	for _, tc := range []struct {
+		name, schema, override, base string
+		want                         ServiceEndpoint
+		wantError                    bool
+	}{
+		{name: "explicit override wins", schema: "reports", override: "postgres://localhost/override", base: base, want: ServiceEndpoint{URL: "postgres://localhost/override"}},
+		{name: "explicit override remains opaque", override: "invalid", base: base, want: ServiceEndpoint{URL: "invalid"}},
+		{name: "base derives search path", schema: "reports", base: base, want: ServiceEndpoint{URL: derived, FromBaseURL: true}},
+		{name: "framework schema", schema: "scenery", base: base, want: ServiceEndpoint{URL: "postgres://user:secret@localhost/app?search_path=scenery&sslmode=disable", FromBaseURL: true}},
+		{name: "absent inputs leave the decision to the consumer", schema: "reports"},
+		{name: "blank schema cannot derive a base", base: base, wantError: true},
+		{name: "invalid base", schema: "reports", base: "mysql://localhost/app", wantError: true},
+		{name: "whitespace supplied base is not absence", schema: "reports", base: " \n", wantError: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := ResolveServiceEndpoint(tc.schema, tc.override, tc.base)
+			if tc.wantError {
+				if err == nil {
+					t.Fatal("invalid base derivation succeeded")
+				}
+				return
+			}
+			if err != nil || got != tc.want {
+				t.Fatalf("endpoint = %+v, error = %v; want %+v", got, err, tc.want)
+			}
+		})
+	}
+}
+
 func TestIsDuplicateDatabase(t *testing.T) {
 	if !isDuplicateDatabase(&pgconn.PgError{Code: "42P04"}) {
 		t.Fatalf("isDuplicateDatabase rejected duplicate_database")

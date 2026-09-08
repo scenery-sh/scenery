@@ -713,6 +713,10 @@ func harnessStepEffects(step harnessStep) []string {
 		}
 	}
 	switch step.Name {
+	case harnessStandardAuthName:
+		for _, effect := range []string{"external-binary", "filesystem-write", "loopback-network", "ports", "tempdir", "agent-socket", "docker"} {
+			set[effect] = true
+		}
 	case harnessCoreSeparationName, harnessCapabilityAuthorityName, "worktree runtime and PostgreSQL acceptance":
 		set["external-binary"] = true
 		set["filesystem-write"] = true

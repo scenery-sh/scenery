@@ -113,6 +113,7 @@ func runSceneryHarnessSelf(ctx context.Context, stdout io.Writer, args []string)
 			resp.Steps = append(resp.Steps,
 				runHarnessCoreSeparationStep(ctx, repoRoot),
 				runHarnessCapabilityAuthorityStep(ctx, repoRoot),
+				runHarnessStandardAuthStep(ctx, repoRoot),
 				runHarnessWorktreeRuntimeProbeStep(ctx, repoRoot),
 				runHarnessAgentRestartProbeStep(ctx, repoRoot),
 				runHarnessAssistantInitProbeStep(ctx, repoRoot),

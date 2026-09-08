@@ -3,255 +3,84 @@ package auth
 import (
 	"context"
 	"database/sql"
-	"fmt"
-	"net/url"
-	"os"
+	"database/sql/driver"
+	"errors"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	authdb "scenery.sh/auth/db/gen"
-	"scenery.sh/internal/postgresdb"
-	"scenery.sh/runtime"
 )
 
 func TestStandardAuthBootstrapPostgresSchema(t *testing.T) {
 	t.Parallel()
-
-	ctx := context.Background()
-	databaseURL, cleanup := createAuthLiveTestDatabase(t, ctx)
-	t.Cleanup(cleanup)
-
-	authURL, err := postgresdb.ServiceURL(databaseURL, "scenery")
-	if err != nil {
-		t.Fatalf("derive auth URL: %v", err)
-	}
-	db, err := postgresdb.Open(ctx, authURL)
-	if err != nil {
-		t.Fatalf("open auth database: %v", err)
-	}
-	defer func() { _ = db.Close() }()
-	if err := bootstrapStandardAuthSchema(ctx, db); err != nil {
-		t.Fatalf("bootstrap standard auth schema: %v", err)
-	}
-	var schema sql.NullString
-	if err := db.QueryRowContext(ctx, `select n.nspname from pg_class c join pg_namespace n on n.oid = c.relnamespace where c.relname = 'scenery_auth_users'`).Scan(&schema); err != nil {
-		t.Fatalf("query auth table schema: %v", err)
-	}
-	if !schema.Valid || schema.String != "scenery" {
-		t.Fatalf("auth users table schema = %q, valid=%v", schema.String, schema.Valid)
+	failure := errors.New("schema execution failed")
+	for _, fail := range []bool{false, true} {
+		t.Run(map[bool]string{false: "commit", true: "rollback"}[fail], func(t *testing.T) {
+			svc, script := authSQLService(t)
+			var statements []string
+			script.exec = func(query string, _ []driver.NamedValue) error {
+				statements = append(statements, query)
+				if fail && len(statements) == 2 {
+					return failure
+				}
+				return nil
+			}
+			err := bootstrapStandardAuthSchema(t.Context(), svc.db)
+			if fail {
+				if !errors.Is(err, failure) || !reflect.DeepEqual(script.events, []string{"begin", "rollback"}) {
+					t.Fatalf("failure=%v events=%v", err, script.events)
+				}
+			} else {
+				if err != nil || !reflect.DeepEqual(script.events, []string{"begin", "commit"}) {
+					t.Fatalf("bootstrap=%v events=%v", err, script.events)
+				}
+				if !strings.Contains(strings.Join(statements, "\n"), "CREATE TABLE IF NOT EXISTS scenery.scenery_auth_users") {
+					t.Fatal("embedded auth schema was not executed")
+				}
+			}
+			if len(statements) < 2 || !strings.Contains(statements[0], "pg_advisory_xact_lock") {
+				t.Fatalf("schema was not locked first: %v", statements)
+			}
+		})
 	}
 }
 
 func TestDevBootstrapDefaultEmailCreatesUserTenantAndMembership(t *testing.T) {
-	ctx := context.Background()
-	databaseURL, cleanup := createAuthLiveTestDatabase(t, ctx)
-	t.Cleanup(cleanup)
-	resetStandardAuthStateForTest(t)
-	t.Setenv("DATABASE_URL", databaseURL)
-	runtime.SetAppConfig(runtime.AppConfig{Name: "auth-dev-bootstrap-test", ListenAddr: "127.0.0.1:0"})
-
-	cfg := normalizeStandardConfig(StandardConfig{
-		Enabled: true,
-		DevBootstrap: DevBootstrapConfig{
-			Enabled:          true,
-			DefaultUserEmail: "Owner@Example.test",
-			DefaultTenantID:  "d0540000-0000-0000-0000-000000000001",
-		},
-		AutoBootstrapDatabase: true,
-	})
-	applyStandardSecrets()
-	standardAuthState.mu.Lock()
-	standardAuthState.cfg = cfg
-	standardAuthState.mu.Unlock()
-
-	first, err := DevBootstrap(ctx, nil)
-	if err != nil {
-		t.Fatalf("first DevBootstrap: %v", err)
-	}
-	firstAuth, err := ValidateToken(first.Token)
-	if err != nil {
-		t.Fatalf("first token: %v", err)
-	}
-	if firstAuth.TenantID != TenantID(cfg.DevBootstrap.DefaultTenantID) {
-		t.Fatalf("first token tenant = %q, want %q", firstAuth.TenantID, cfg.DevBootstrap.DefaultTenantID)
-	}
-
-	second, err := DevBootstrap(ctx, nil)
-	if err != nil {
-		t.Fatalf("second DevBootstrap: %v", err)
-	}
-	secondAuth, err := ValidateToken(second.Token)
-	if err != nil {
-		t.Fatalf("second token: %v", err)
-	}
-	if secondAuth.UserID != firstAuth.UserID || secondAuth.TenantID != firstAuth.TenantID {
-		t.Fatalf("second token auth = %+v, want same user/tenant as %+v", secondAuth, firstAuth)
-	}
-
-	authURL, err := postgresdb.ServiceURL(databaseURL, "scenery")
-	if err != nil {
-		t.Fatalf("derive auth URL: %v", err)
-	}
-	db, err := postgresdb.Open(ctx, authURL)
-	if err != nil {
-		t.Fatalf("open auth database: %v", err)
-	}
-	defer func() { _ = db.Close() }()
-	q := authdb.New(db)
-	user, err := q.GetUserByNormalizedEmail(ctx, "owner@example.test")
-	if err != nil {
-		t.Fatalf("get created user: %v", err)
-	}
-	if !user.EmailVerifiedAt.Valid {
-		t.Fatal("created default user email is not verified")
-	}
-	tenantID, err := parseUUID(cfg.DevBootstrap.DefaultTenantID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	memberships, err := q.ListUserMemberships(ctx, user.ID)
-	if err != nil {
-		t.Fatalf("list memberships: %v", err)
-	}
-	if len(memberships) != 1 || uuidString(memberships[0].TenantID) != uuidString(tenantID) || memberships[0].Role != roleOwner {
-		t.Fatalf("memberships = %+v, want one owner membership in default tenant", memberships)
-	}
-	var userCount, tenantCount, membershipCount int
-	if err := db.QueryRowContext(ctx, `select count(*) from scenery.scenery_auth_users where normalized_primary_email = $1`, "owner@example.test").Scan(&userCount); err != nil {
-		t.Fatalf("count users: %v", err)
-	}
-	if err := db.QueryRowContext(ctx, `select count(*) from scenery.scenery_auth_tenants where id = $1`, tenantID).Scan(&tenantCount); err != nil {
-		t.Fatalf("count tenants: %v", err)
-	}
-	if err := db.QueryRowContext(ctx, `select count(*) from scenery.scenery_auth_organization_memberships where user_id = $1 and tenant_id = $2 and disabled_at is null`, user.ID, tenantID).Scan(&membershipCount); err != nil {
-		t.Fatalf("count memberships: %v", err)
-	}
-	if userCount != 1 || tenantCount != 1 || membershipCount != 1 {
-		t.Fatalf("counts user=%d tenant=%d membership=%d, want all 1", userCount, tenantCount, membershipCount)
+	user := authdb.SceneryAuthUser{ID: mustParseAuthUUID(t, authSQLUserID), PrimaryEmail: "Owner@Example.test", NormalizedPrimaryEmail: "owner@example.test", EmailVerifiedAt: sql.NullTime{Time: authSQLNow, Valid: true}}
+	svc, _ := authSQLService(t,
+		authSQLStep{name: "GetUserByNormalizedEmail", err: sql.ErrNoRows},
+		authSQLStep{name: "EnsureDevBootstrapUser", rows: [][]driver.Value{authSQLUserRow(user)}, check: func(_ string, args []driver.NamedValue) {
+			if args[3].Value != "owner@example.test" {
+				t.Fatalf("normalized email=%v", args)
+			}
+		}},
+		authSQLTenantStep(),
+		authSQLMembershipStep(t),
+		authSQLStep{name: "GetUserByNormalizedEmail", rows: [][]driver.Value{authSQLUserRow(user)}},
+		authSQLStep{name: "ListUserMemberships", rows: [][]driver.Value{append(authSQLMembershipRow(), "Workspace", nil)}},
+	)
+	for range 2 {
+		got, tenant, err := resolveDevBootstrapEmailUser(t.Context(), svc.query, "Owner@Example.test", "owner@example.test", authSQLTenantID)
+		if err != nil || uuidString(got.ID) != authSQLUserID || uuidString(tenant) != authSQLTenantID {
+			t.Fatalf("user=%+v tenant=%s err=%v", got, uuidString(tenant), err)
+		}
 	}
 }
 
 func TestDevBootstrapAttachesExistingUserToConfiguredTenant(t *testing.T) {
-	ctx := context.Background()
-	databaseURL, cleanup := createAuthLiveTestDatabase(t, ctx)
-	t.Cleanup(cleanup)
-	resetStandardAuthStateForTest(t)
-	t.Setenv("DATABASE_URL", databaseURL)
-	runtime.SetAppConfig(runtime.AppConfig{Name: "auth-dev-bootstrap-attach-test", ListenAddr: "127.0.0.1:0"})
-
-	const configuredTenantID = "d0540000-0000-0000-0000-0000000000aa"
-	cfg := normalizeStandardConfig(StandardConfig{
-		Enabled: true,
-		DevBootstrap: DevBootstrapConfig{
-			Enabled:          true,
-			DefaultUserEmail: "petr@example.test",
-			DefaultTenantID:  configuredTenantID,
-		},
-		AutoBootstrapDatabase: true,
-	})
-	applyStandardSecrets()
-	standardAuthState.mu.Lock()
-	standardAuthState.cfg = cfg
-	standardAuthState.mu.Unlock()
-
-	svc, err := standardAuthService(ctx)
-	if err != nil {
-		t.Fatalf("standard auth service: %v", err)
-	}
-	// Simulate an existing (e.g. Google-created) user whose only membership is
-	// on an unrelated tenant.
-	existingUserID, err := newUUID()
-	if err != nil {
-		t.Fatal(err)
-	}
-	existingUser, err := svc.query.EnsureDevBootstrapUser(ctx, authdb.EnsureDevBootstrapUserParams{
-		ID:                     existingUserID,
-		DisplayName:            "Petr",
-		PrimaryEmail:           "petr@example.test",
-		NormalizedPrimaryEmail: "petr@example.test",
-	})
-	if err != nil {
-		t.Fatalf("create existing user: %v", err)
-	}
-	otherTenantID, err := parseUUID("d0540000-0000-0000-0000-0000000000bb")
-	if err != nil {
-		t.Fatal(err)
-	}
-	otherTenant, err := svc.query.EnsureDevBootstrapTenant(ctx, authdb.EnsureDevBootstrapTenantParams{
-		ID:   otherTenantID,
-		Name: "Other Workspace",
-	})
-	if err != nil {
-		t.Fatalf("create other tenant: %v", err)
-	}
-	otherMembershipID, err := newUUID()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := svc.query.CreateOrganizationMembership(ctx, authdb.CreateOrganizationMembershipParams{
-		ID:       otherMembershipID,
-		TenantID: otherTenant.ID,
-		UserID:   existingUser.ID,
-		Role:     roleOwner,
-	}); err != nil {
-		t.Fatalf("create other membership: %v", err)
-	}
-
-	session, err := DevBootstrap(ctx, nil)
-	if err != nil {
-		t.Fatalf("DevBootstrap: %v", err)
-	}
-	auth, err := ValidateToken(session.Token)
-	if err != nil {
-		t.Fatalf("validate token: %v", err)
-	}
-	if auth.UserID != AuthUserID(uuidString(existingUser.ID)) {
-		t.Fatalf("token user = %q, want existing user %q", auth.UserID, uuidString(existingUser.ID))
-	}
-	if auth.TenantID != TenantID(configuredTenantID) {
-		t.Fatalf("token tenant = %q, want configured tenant %q", auth.TenantID, configuredTenantID)
-	}
-	if session.User.ID != uuidString(existingUser.ID) {
-		t.Fatalf("session user = %q, want %q", session.User.ID, uuidString(existingUser.ID))
-	}
-	if !strings.Contains(session.SetCookie, refreshCookieName+"=") {
-		t.Fatalf("session cookie %q does not set %q", session.SetCookie, refreshCookieName)
-	}
-
-	configuredTenant, err := parseUUID(configuredTenantID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	memberships, err := svc.query.ListUserMemberships(ctx, existingUser.ID)
-	if err != nil {
-		t.Fatalf("list memberships: %v", err)
-	}
-	var attached bool
-	for _, membership := range memberships {
-		if uuidString(membership.TenantID) == uuidString(configuredTenant) {
-			attached = membership.Role == roleOwner
-		}
-	}
-	if !attached {
-		t.Fatalf("memberships = %+v, want owner membership on configured tenant", memberships)
-	}
-	var userCount int
-	authURL, err := postgresdb.ServiceURL(databaseURL, "scenery")
-	if err != nil {
-		t.Fatalf("derive auth URL: %v", err)
-	}
-	db, err := postgresdb.Open(ctx, authURL)
-	if err != nil {
-		t.Fatalf("open auth database: %v", err)
-	}
-	defer func() { _ = db.Close() }()
-	if err := db.QueryRowContext(ctx, `select count(*) from scenery.scenery_auth_users where normalized_primary_email = $1`, "petr@example.test").Scan(&userCount); err != nil {
-		t.Fatalf("count users: %v", err)
-	}
-	if userCount != 1 {
-		t.Fatalf("user count = %d, want 1 (no duplicate user)", userCount)
+	user := authdb.SceneryAuthUser{ID: mustParseAuthUUID(t, authSQLUserID)}
+	unrelated := authSQLMembershipRow()
+	unrelated[1] = "44444444-4444-4444-4444-444444444444"
+	svc, _ := authSQLService(t,
+		authSQLStep{name: "GetUserByNormalizedEmail", rows: [][]driver.Value{authSQLUserRow(user)}},
+		authSQLStep{name: "ListUserMemberships", rows: [][]driver.Value{append(unrelated, "Other Workspace", nil)}},
+		authSQLTenantStep(), authSQLMembershipStep(t),
+	)
+	got, tenant, err := resolveDevBootstrapEmailUser(context.Background(), svc.query, "owner@example.test", "owner@example.test", authSQLTenantID)
+	if err != nil || uuidString(got.ID) != authSQLUserID || uuidString(tenant) != authSQLTenantID {
+		t.Fatalf("user=%+v tenant=%s err=%v", got, uuidString(tenant), err)
 	}
 }
 
@@ -270,41 +99,4 @@ func resetStandardAuthStateForTest(t *testing.T) {
 	}
 	reset()
 	t.Cleanup(reset)
-}
-
-func createAuthLiveTestDatabase(t *testing.T, ctx context.Context) (string, func()) {
-	t.Helper()
-
-	raw := strings.TrimSpace(os.Getenv("SCENERY_TEST_DATABASE_URL"))
-	if raw == "" {
-		t.Skip("SCENERY_TEST_DATABASE_URL is not set; skipping live Postgres auth test")
-	}
-	base, err := url.Parse(raw)
-	if err != nil {
-		t.Fatalf("parse SCENERY_TEST_DATABASE_URL: %v", err)
-	}
-	adminURL := authAdminDatabaseURL(*base)
-	admin, err := postgresdb.Open(ctx, adminURL)
-	if err != nil {
-		t.Skipf("SCENERY_TEST_DATABASE_URL is not reachable for live Postgres tests: %v", err)
-	}
-	name := fmt.Sprintf("scenery_auth_test_%d", time.Now().UnixNano())
-	if err := postgresdb.EnsureDatabase(ctx, admin, name); err != nil {
-		_ = admin.Close()
-		t.Skipf("SCENERY_TEST_DATABASE_URL cannot create per-test database: %v", err)
-	}
-	testURL := *base
-	testURL.Path = "/" + name
-	cleanup := func() {
-		_, _ = admin.ExecContext(ctx, `select pg_terminate_backend(pid) from pg_stat_activity where datname = $1`, name)
-		_ = postgresdb.DropDatabase(ctx, admin, name)
-		_ = admin.Close()
-	}
-	return testURL.String(), cleanup
-}
-
-func authAdminDatabaseURL(u url.URL) string {
-	u.Path = "/postgres"
-	u.RawQuery = ""
-	return u.String()
 }

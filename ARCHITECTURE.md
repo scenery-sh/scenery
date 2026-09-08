@@ -144,6 +144,12 @@ worktree records own actual allocations. Snapshot recovery reads actual schemas
 without compiling desired source. Generated entrypoints configure the existing
 SQL environment before constructors; `db` never rediscovers app configuration.
 
+`internal/postgresdb.ResolveServiceEndpoint` owns the pure override-versus-base
+URL choice shared by generated runtime bindings and named standalone `db`
+calls. Consumers retain their distinct registry precedence, validation order,
+framework handling and managed provenance; the selector has no environment,
+configuration, database IO or allocation authority.
+
 ### `internal/desktop`
 
 `internal/desktop` owns the Tauri-specific project contract: resolving a

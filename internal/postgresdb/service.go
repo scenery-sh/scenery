@@ -34,6 +34,26 @@ type Database struct {
 	ResourceID string `json:"-"`
 }
 
+// ServiceEndpoint records the selected input, not allocation provenance.
+type ServiceEndpoint struct {
+	URL         string
+	FromBaseURL bool
+}
+
+// ResolveServiceEndpoint prefers the caller-prepared override, otherwise
+// derives a schema URL from the base. Overrides remain opaque: each consumer
+// owns their validation, missing-supply behavior and registry precedence.
+func ResolveServiceEndpoint(schema, overrideURL, baseURL string) (ServiceEndpoint, error) {
+	if overrideURL != "" {
+		return ServiceEndpoint{URL: overrideURL}, nil
+	}
+	if baseURL == "" {
+		return ServiceEndpoint{}, nil
+	}
+	endpoint, err := ServiceURL(baseURL, schema)
+	return ServiceEndpoint{URL: endpoint, FromBaseURL: true}, err
+}
+
 func ServiceURL(baseURL, schema string) (string, error) {
 	u, err := ParseURL(baseURL)
 	if err != nil {

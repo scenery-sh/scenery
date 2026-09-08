@@ -26,6 +26,10 @@ must not import this command or that engine.
 - Real processes, tools, network and services belong in explicit release probes,
   not ordinary tests. Resources must be disposable and ownership-verified.
 - Reports use the existing machine envelope and shared report/evidence values.
+- The mandatory `standard auth lifecycle` release step builds
+  `testdata/authprobe` and runs all 15 inventoried public-boundary journeys
+  in fresh native processes and owned databases. Missing Docker, incomplete
+  assertion reports, failed journeys, or failed cleanup fail closed.
 
 ## Work Guidance
 

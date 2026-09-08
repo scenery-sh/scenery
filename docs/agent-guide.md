@@ -605,6 +605,14 @@ Follow [the root validation policy](../AGENTS.md#validation-matrix) and
 [testsuite instructions](../internal/testsuite/AGENTS.md) when changing the
 runner or measuring it. The timing exception inventory must remain empty.
 
+Standard-auth database and OAuth journeys run in the mandatory release-only
+`standard auth lifecycle` step. It provisions an owned disposable PostgreSQL
+cluster and executes all 15 cases through a native fixture using public auth
+APIs and real authenticated HTTP, with a local fake Google provider. The
+ordinary auth roots retain in-process SQL/HTTP decision checks; they do not
+need an external database. Missing prerequisites, incomplete assertions or
+cleanup failure cannot produce a passing release result.
+
 ## Keeping Agent Docs Fresh
 
 When behavior changes, update the current owning layers together: root/child `AGENTS.md`, `SKILL.md`, this guide, `docs/local-contract.md`, app cookbook, schemas, and `docs/knowledge.json` as applicable. Completed ExecPlans are immutable history and have no scheduled review deadline; put current-contract pointers in living guidance or `docs/plans/completed.md`, and use stale knowledge metadata to flag a known contradiction instead of rewriting original decisions.

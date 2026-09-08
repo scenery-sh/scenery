@@ -1,134 +1,54 @@
 package auth
 
 import (
-	"context"
 	"database/sql"
+	"database/sql/driver"
+	"reflect"
 	"testing"
-	"time"
 
 	authdb "scenery.sh/auth/db/gen"
 	"scenery.sh/errs"
-	"scenery.sh/runtime"
 )
 
 func TestPrepareImpersonationTargetAndStartUnverifiedSession(t *testing.T) {
-	ctx := context.Background()
-	databaseURL, cleanup := createAuthLiveTestDatabase(t, ctx)
-	t.Cleanup(cleanup)
-	resetStandardAuthStateForTest(t)
-	t.Setenv("DATABASE_URL", databaseURL)
-	t.Setenv("JWT_SECRET", "test-jwt-secret")
-	runtime.SetAppConfig(runtime.AppConfig{Name: "impersonation-target-test", ListenAddr: "127.0.0.1:0"})
-
-	cfg := normalizeStandardConfig(StandardConfig{Enabled: true, AutoBootstrapDatabase: true})
-	applyStandardSecrets()
-	standardAuthState.mu.Lock()
-	standardAuthState.cfg = cfg
-	standardAuthState.mu.Unlock()
-	svc, err := standardAuthService(ctx)
-	if err != nil {
-		t.Fatalf("standard auth service: %v", err)
+	user := authdb.SceneryAuthUser{ID: mustParseAuthUUID(t, authSQLUserID), PrimaryEmail: "Target@Example.test", NormalizedPrimaryEmail: "target@example.test"}
+	svc, _ := authSQLService(t,
+		authSQLStep{name: "GetUserByNormalizedEmail", err: sql.ErrNoRows},
+		authSQLStep{name: "CreateUser", rows: [][]driver.Value{authSQLUserRow(user)}, check: func(_ string, args []driver.NamedValue) {
+			if args[1].Value != "Target" || args[4].Value != "target@example.test" {
+				t.Fatalf("provider-free profile=%v", args)
+			}
+		}},
+		authSQLStep{name: "GetUserByID", rows: [][]driver.Value{authSQLUserRow(user)}},
+		authSQLStep{name: "GetActiveMembership", rows: [][]driver.Value{authSQLMembershipRow()}},
+	)
+	params := PrepareImpersonationTargetParams{Email: "Target@Example.test", DisplayName: "Target"}
+	first, err := resolveImpersonationTarget(t.Context(), svc.query, params, "target@example.test")
+	if err != nil || first.EmailVerifiedAt.Valid {
+		t.Fatalf("unverified target=%+v err=%v", first, err)
 	}
-
-	actorID, _ := newUUID()
-	actor, err := svc.query.CreateUser(ctx, authdb.CreateUserParams{
-		ID: actorID, DisplayName: "Admin", PrimaryEmail: "admin@example.test",
-		NormalizedPrimaryEmail: "admin@example.test", EmailVerifiedAt: sql.NullTime{Time: time.Now(), Valid: true},
-	})
-	if err != nil {
-		t.Fatalf("create actor: %v", err)
+	params.UserID = AuthUserID(authSQLUserID)
+	again, err := resolveImpersonationTarget(t.Context(), svc.query, params, "target@example.test")
+	if err != nil || uuidString(again.ID) != uuidString(first.ID) {
+		t.Fatalf("stable identity=%+v err=%v", again, err)
 	}
-	if _, err := svc.db.ExecContext(ctx, `update scenery.scenery_auth_users set can_impersonate_users = true where id = $1`, actor.ID); err != nil {
-		t.Fatalf("grant impersonation: %v", err)
-	}
-	tenantID, _ := newUUID()
-	if _, err := svc.query.CreateTenant(ctx, authdb.CreateTenantParams{ID: tenantID, Name: "EDGE"}); err != nil {
-		t.Fatalf("create tenant: %v", err)
-	}
-	membershipID, _ := newUUID()
-	if _, err := svc.query.CreateOrganizationMembership(ctx, authdb.CreateOrganizationMembershipParams{
-		ID: membershipID, TenantID: tenantID, UserID: actor.ID, Role: roleOwner,
-	}); err != nil {
-		t.Fatalf("create actor membership: %v", err)
-	}
-	authData := &AuthData{UserID: AuthUserID(uuidString(actor.ID)), TenantID: TenantID(uuidString(tenantID))}
-	authCtx := WithContext(ctx, UID(authData.UserID), authData)
-
-	params := PrepareImpersonationTargetParams{Email: "Target@Example.test", DisplayName: "Target Person"}
-	first, err := PrepareImpersonationTarget(authCtx, params)
-	if err != nil {
-		t.Fatalf("first prepare: %v", err)
-	}
-	second, err := PrepareImpersonationTarget(authCtx, params)
-	if err != nil {
-		t.Fatalf("second prepare: %v", err)
-	}
-	if first.ID == "" || second.ID != first.ID || first.EmailVerified {
-		t.Fatalf("prepared profiles first=%+v second=%+v", first, second)
-	}
-	targetID, _ := parseUUID(first.ID)
-	if count, err := svc.query.CountAuthIdentitiesByUser(ctx, targetID); err != nil || count != 0 {
-		t.Fatalf("target identities count=%d err=%v, want 0", count, err)
-	}
-	if _, err := svc.query.GetActiveMembership(ctx, authdb.GetActiveMembershipParams{UserID: targetID, TenantID: tenantID}); err != nil {
-		t.Fatalf("target membership: %v", err)
-	}
-
-	session, err := svc.StartImpersonation(authCtx, &StartImpersonationParams{
-		TargetUserID: first.ID, TenantID: uuidString(tenantID), Reason: "test business workflow",
-	})
-	if err != nil {
-		t.Fatalf("start impersonation: %v", err)
-	}
-	claims, err := ValidateToken(session.Token)
-	if err != nil {
-		t.Fatalf("validate impersonation token: %v", err)
-	}
-	if string(claims.UserID) != first.ID || string(claims.ActorUserID) != uuidString(actor.ID) || !claims.Impersonating() {
-		t.Fatalf("impersonation claims = %+v", claims)
-	}
-	if session.User.EmailVerified {
-		t.Fatal("impersonation marked provider-free target verified")
-	}
-
-	nestedCtx := WithContext(ctx, UID(claims.UserID), claims)
-	if _, err := PrepareImpersonationTarget(nestedCtx, PrepareImpersonationTargetParams{Email: "other@example.test"}); errs.Code(err) != errs.PermissionDenied {
-		t.Fatalf("nested prepare error=%v code=%s, want permission denied", err, errs.Code(err))
+	tenant, err := svc.ensureImpersonationTenant(t.Context(), svc.query, again, mustParseAuthUUID(t, authSQLTenantID))
+	if err != nil || uuidString(tenant) != authSQLTenantID {
+		t.Fatalf("unverified tenant=%s err=%v", uuidString(tenant), err)
 	}
 }
 
 func TestPrepareImpersonationTargetRequiresPrivilege(t *testing.T) {
-	ctx := context.Background()
-	databaseURL, cleanup := createAuthLiveTestDatabase(t, ctx)
-	t.Cleanup(cleanup)
-	resetStandardAuthStateForTest(t)
-	t.Setenv("DATABASE_URL", databaseURL)
-	runtime.SetAppConfig(runtime.AppConfig{Name: "impersonation-privilege-test", ListenAddr: "127.0.0.1:0"})
-	cfg := normalizeStandardConfig(StandardConfig{Enabled: true, AutoBootstrapDatabase: true})
-	applyStandardSecrets()
-	standardAuthState.mu.Lock()
-	standardAuthState.cfg = cfg
-	standardAuthState.mu.Unlock()
-	svc, err := standardAuthService(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	actorID, _ := newUUID()
-	actor, err := svc.query.CreateUser(ctx, authdb.CreateUserParams{ID: actorID, PrimaryEmail: "member@example.test", NormalizedPrimaryEmail: "member@example.test"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	tenantID, _ := newUUID()
-	if _, err := svc.query.CreateTenant(ctx, authdb.CreateTenantParams{ID: tenantID, Name: "EDGE"}); err != nil {
-		t.Fatal(err)
-	}
-	membershipID, _ := newUUID()
-	if _, err := svc.query.CreateOrganizationMembership(ctx, authdb.CreateOrganizationMembershipParams{ID: membershipID, TenantID: tenantID, UserID: actor.ID, Role: roleMember}); err != nil {
-		t.Fatal(err)
-	}
-	data := &AuthData{UserID: AuthUserID(uuidString(actor.ID)), TenantID: TenantID(uuidString(tenantID))}
-	_, err = PrepareImpersonationTarget(WithContext(ctx, UID(data.UserID), data), PrepareImpersonationTargetParams{Email: "target@example.test"})
-	if errs.Code(err) != errs.PermissionDenied {
-		t.Fatalf("prepare error=%v code=%s, want permission denied", err, errs.Code(err))
+	for _, disabled := range []bool{false, true} {
+		t.Run(map[bool]string{false: "no privilege", true: "disabled actor"}[disabled], func(t *testing.T) {
+			actor := authdb.SceneryAuthUser{ID: mustParseAuthUUID(t, authSQLUserID), CanImpersonateUsers: disabled, DisabledAt: sql.NullTime{Time: authSQLNow, Valid: disabled}}
+			svc, script := authSQLService(t, authSQLStep{name: "GetUserByID", rows: [][]driver.Value{authSQLUserRow(actor)}})
+			installCurrentUserTestService(t, svc)
+			ctx := WithContext(t.Context(), UID(authSQLUserID), &AuthData{UserID: AuthUserID(authSQLUserID), TenantID: TenantID(authSQLTenantID)})
+			_, err := PrepareImpersonationTarget(ctx, PrepareImpersonationTargetParams{Email: "target@example.test"})
+			if errs.Code(err) != errs.PermissionDenied || !reflect.DeepEqual(script.events, []string{"begin", "GetUserByID", "rollback"}) {
+				t.Fatalf("privilege err=%v events=%v", err, script.events)
+			}
+		})
 	}
 }

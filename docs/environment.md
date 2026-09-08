@@ -171,7 +171,7 @@ scenery also injects standard OpenTelemetry endpoint variables when Victoria sid
 | `SCENERY_BIN` | user input | Target-app helper override for the scenery binary path. |
 | `SCENERY_RELEASE_GATE_EXTERNAL_APP_ROOT` | user input | Optional external app root for release-gate smoke validation. |
 | `SCENERY_RELEASE_GATE_LOG_DIR` | user input | Release-gate log directory override. |
-| `SCENERY_TEST_DATABASE_URL` | test input secret | Optional live Postgres DSN for gated database integration tests; tests create and drop per-test databases. |
+| `SCENERY_TEST_DATABASE_URL` | test input secret | Optional live Postgres DSN for gated durable store, runtime and worker tests; tests create and drop per-test databases. Standard-auth release proof provisions its own database and does not read this variable. |
 | `SCENERY_TEST_WATCH_BACKUP_POLL_MS` | test escape hatch | Overrides `scenery up` file-watch backup poll interval in integration tests so missed fsnotify events do not wait on the production fallback delay. |
 | `SCENERY_TEST_WATCH_POLL_MS` | test escape hatch | Overrides `scenery up` file-watch polling interval in integration tests that intentionally exercise polling paths. |
 | `SCENERY_TEST_WATCH_SETTLE_DELAY_MS` | test escape hatch | Overrides `scenery up` file-watch settle delay in integration tests so reload assertions do not wait on production debounce timing. This is intentionally registry-approved because the process under test is production dev code. |

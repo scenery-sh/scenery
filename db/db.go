@@ -120,16 +120,17 @@ func resolveDatabaseURL(service ...string) (resolvedDatabaseURL, error) {
 		return resolvedDatabaseURL{}, fmt.Errorf("scenery db: invalid SQL binding %q: %w", name, err)
 	}
 	serviceEnv := postgresname.ServiceDatabaseURLEnv(name)
-	if dsn := strings.TrimSpace(getEnv(serviceEnv)); dsn != "" {
-		return resolvedDatabaseURL{Service: name, Schema: schema, URL: dsn, Source: serviceEnv}, nil
-	}
 	appEnv := "DATABASE_URL"
-	if dsn := strings.TrimSpace(getEnv(appEnv)); dsn != "" {
-		serviceURL, err := postgresdb.ServiceURL(dsn, schema)
-		if err != nil {
-			return resolvedDatabaseURL{}, fmt.Errorf("scenery db: service %q schema %q requires a valid PostgreSQL URL in %s", name, schema, appEnv)
-		}
-		return resolvedDatabaseURL{Service: name, Schema: schema, URL: serviceURL, Source: appEnv}, nil
+	endpoint, err := postgresdb.ResolveServiceEndpoint(schema, strings.TrimSpace(getEnv(serviceEnv)), strings.TrimSpace(getEnv(appEnv)))
+	if err != nil {
+		return resolvedDatabaseURL{}, fmt.Errorf("scenery db: service %q schema %q requires a valid PostgreSQL URL in %s", name, schema, appEnv)
 	}
-	return resolvedDatabaseURL{}, fmt.Errorf("scenery db: service %q schema %q database URL is not configured; set %s or %s", name, schema, serviceEnv, appEnv)
+	if endpoint.URL == "" {
+		return resolvedDatabaseURL{}, fmt.Errorf("scenery db: service %q schema %q database URL is not configured; set %s or %s", name, schema, serviceEnv, appEnv)
+	}
+	source := serviceEnv
+	if endpoint.FromBaseURL {
+		source = appEnv
+	}
+	return resolvedDatabaseURL{Service: name, Schema: schema, URL: endpoint.URL, Source: source}, nil
 }

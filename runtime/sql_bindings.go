@@ -62,18 +62,17 @@ func resolveRuntimeSQLBindings(bindings []SQLBinding, lookup func(string) string
 		}
 		seen[binding.Name] = true
 		key := postgresname.ServiceDatabaseURLEnv(binding.Name)
-		url := ""
+		overrideURL := ""
 		if binding.Name == "scenery" {
 			key = "DATABASE_URL"
 		} else {
-			url = strings.TrimSpace(lookup(key))
+			overrideURL = strings.TrimSpace(lookup(key))
 		}
-		if url == "" && baseURL != "" {
-			url, err = postgresdb.ServiceURL(baseURL, binding.Schema)
-			if err != nil {
-				return postgresdb.Database{}, fmt.Errorf("runtime: SQL binding %s requires a valid PostgreSQL DATABASE_URL", binding.Name)
-			}
+		endpoint, err := postgresdb.ResolveServiceEndpoint(binding.Schema, overrideURL, baseURL)
+		if err != nil {
+			return postgresdb.Database{}, fmt.Errorf("runtime: SQL binding %s requires a valid PostgreSQL DATABASE_URL", binding.Name)
 		}
+		url := endpoint.URL
 		if url == "" {
 			for _, service := range supplied.Schemas {
 				if service.Name == binding.Name && service.Schema == binding.Schema {

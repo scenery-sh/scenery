@@ -19,6 +19,18 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0169-sql-endpoint-resolution.md",
+      "title": "One Pure SQL Endpoint Selection",
+      "owner": "scenery runtime / PostgreSQL",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-08",
+      "review_after": "2026-10-08",
+      "summary": "Implemented SQL endpoint consolidation and auth proof migration with 20 valid samples for each of 1,852 roots; developer authorized delivery while deferring 19 unchanged roots with failing timing evidence, so timing acceptance remains open despite passing external release boundaries.",
+      "tags": ["plans", "execplans", "runtime", "postgres", "harness"]
+    },
+    {
       "path": "docs/plans/0168-core-responsibility-separation.md",
       "title": "Smaller Scenery Core - Preserve the 100 ms Test Contract",
       "owner": "scenery core / repository verification",
@@ -1743,7 +1755,7 @@
       "freshness": "current",
       "last_reviewed": "2026-09-08",
       "review_after": "2026-10-08",
-      "summary": "Agent workflows for current apps and Scenery: ignored in-module Go packages, automatic build preparation, read-only freshness/ABI checks, explicit old-workfile cutover, generated-type discovery, provider locking, assistants, exact CLI JSON, graph provenance, runtime diagnosis, ownership limits and 100ms Go-root/release validation.",
+      "summary": "Agent workflows for current apps and Scenery: ignored in-module Go packages, automatic build preparation, read-only freshness/ABI checks, generated-type discovery, provider locking, assistants, exact CLI JSON, graph provenance, runtime diagnosis, ownership limits, 100ms Go-root validation and mandatory standard-auth release journeys.",
       "tags": [
         "agents",
         "cli",
@@ -1799,7 +1811,7 @@
       "freshness": "current",
       "last_reviewed": "2026-09-08",
       "review_after": "2026-10-08",
-      "summary": "High-level repo map and current specification architecture boundaries, including MCP/assistant provider-neutral API and private adapter packages, source parsing, canonical graphs, generation, evolution, deployment, runtime, repository tests, and task-scoped documentation discovery built on the shared changed-area router.",
+      "summary": "High-level repo map and current specification architecture boundaries, including pure shared SQL endpoint selection, MCP/assistant provider-neutral API and private adapters, canonical graphs, generation, evolution, deployment, runtime, repository tests, and task-scoped documentation discovery.",
       "tags": [
         "architecture",
         "agents",
@@ -1818,7 +1830,7 @@
       "freshness": "current",
       "last_reviewed": "2026-09-08",
       "review_after": "2026-10-08",
-      "summary": "Current CLI and JSON contracts, compiled SQL requirements versus endpoint supply and retained allocation, ordinary generated Go, repository verifier separation, runtime recovery and unchanged isolated 100ms test proof.",
+      "summary": "Current CLI and JSON contracts, compiled SQL requirements versus endpoint supply and retained allocation, ordinary generated Go, repository verifier separation, runtime recovery, isolated 100ms test proof and mandatory public-boundary standard-auth release cases.",
       "tags": [
         "contract",
         "cli",
