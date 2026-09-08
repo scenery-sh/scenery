@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	localagent "scenery.sh/internal/agent"
 	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/doctor"
@@ -88,6 +89,8 @@ func TestDoctorAssistantManagedNodeNeverDownloads(t *testing.T) {
 
 func TestDoctorAssistantProductionTokenCheckIsExplicitAndRedacted(t *testing.T) {
 	root := t.TempDir()
+	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
+	t.Setenv(assistantTokenKeyFileEnv, "")
 	check := doctorAssistantProductionTokenCheck(root, appcfg.Config{Envs: map[string]appcfg.EnvConfig{"local": {Default: true}}}, "support")
 	if check.Status != doctor.StatusSkipped || !strings.Contains(check.Message, "not applicable") {
 		t.Fatalf("local-only production check = %#v", check)
@@ -105,6 +108,60 @@ func TestDoctorAssistantProductionTokenCheckIsExplicitAndRedacted(t *testing.T) 
 	encoded, _ := json.Marshal(check)
 	if strings.Contains(string(encoded), strings.Repeat("k", 32)) || strings.Contains(string(encoded), `"eve"`) {
 		t.Fatalf("provider or secret leaked in doctor check: %s", encoded)
+	}
+}
+
+func TestDoctorAssistantTokenUsesCurrentWorktreeSession(t *testing.T) {
+	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
+	t.Setenv(assistantTokenKeyEnv, "")
+	t.Setenv(assistantTokenKeyFileEnv, "")
+	root := t.TempDir()
+	cfg := appcfg.Config{Name: "example", Envs: map[string]appcfg.EnvConfig{"production": {}}}
+	paths, err := commandWorktreePaths(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry, err := paths.OpenRegistry("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := registry.Upsert(localagent.RegisterRequest{AppRoot: paths.AppRoot, BaseAppID: cfg.AppID(), SessionID: "current", Branch: "main"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldKey, err := ensureAssistantTokenKey(filepath.Join(root, ".scenery", "assistants"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if check := doctorAssistantProductionTokenCheck(root, cfg, "support"); check.Status != doctor.StatusError {
+		t.Fatalf("obsolete root key accepted: %#v", check)
+	}
+	key, err := ensureAssistantTokenKey(filepath.Join(session.StateRoot, "assistants"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(paths.ControlPaths().RegistryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if check := doctorAssistantProductionTokenCheck(root, cfg, "support"); check.Status != doctor.StatusOK {
+		t.Fatalf("current session key rejected: %#v", check)
+	}
+	if err := os.WriteFile(key, []byte("invalid"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if check := doctorAssistantProductionTokenCheck(root, cfg, "support"); check.Status != doctor.StatusError {
+		t.Fatalf("invalid current key accepted through old key %s: %#v", oldKey, check)
+	}
+	after, err := os.ReadFile(paths.ControlPaths().RegistryPath)
+	if err != nil || string(before) != string(after) {
+		t.Fatal("doctor changed the worktree registry")
+	}
+	if err := os.WriteFile(paths.ControlPaths().RegistryPath, []byte("invalid"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if check := doctorAssistantProductionTokenCheck(root, cfg, "support"); check.Status != doctor.StatusError || !strings.Contains(check.Message, "ownership") {
+		t.Fatalf("invalid ownership was not reported: %#v", check)
 	}
 }
 

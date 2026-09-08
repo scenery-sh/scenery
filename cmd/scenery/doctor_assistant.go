@@ -21,6 +21,7 @@ import (
 	"sort"
 	"strings"
 
+	localagent "scenery.sh/internal/agent"
 	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/build"
 	"scenery.sh/internal/compiler"
@@ -388,10 +389,13 @@ func doctorAssistantProductionTokenCheck(root string, cfg appcfg.Config, name st
 	if keyFile != "" && validAssistantTokenKeyFile(keyFile) {
 		return checkOK(id, checkName, "production assistant token key is available", nil)
 	}
-	// The development supervisor persists its framework-owned key beneath the
-	// app state root. It is also a valid inspectable key when production is
-	// being rehearsed locally, without exposing its value in diagnostics.
-	if validAssistantTokenKeyFile(filepath.Join(root, ".scenery", "assistants", "token-key")) {
+	// Resolve the selected worktree session exactly as the supervisor records
+	// it; an old root-level key is not evidence for the current runtime.
+	keyPath, err := doctorAssistantSessionTokenKeyPath(root, cfg.AppID())
+	if err != nil {
+		return checkError(id, checkName, "assistant token key ownership could not be inspected", "Inspect the current worktree session state before retrying doctor.")
+	}
+	if keyPath != "" && validAssistantTokenKeyFile(keyPath) {
 		return checkOK(id, checkName, "production assistant token key is available", nil)
 	}
 	// A declared production environment is itself an inspectable production
@@ -404,6 +408,27 @@ func doctorAssistantProductionTokenCheck(root string, cfg appcfg.Config, name st
 		}
 	}
 	return checkError(id, checkName, "production assistant token key is missing", "Provide the framework-owned assistant token key through the production secret mechanism.")
+}
+
+func doctorAssistantSessionTokenKeyPath(root, appID string) (string, error) {
+	paths, err := commandWorktreePaths(root)
+	if err != nil {
+		return "", err
+	}
+	registry, err := paths.OpenRegistry("")
+	if err != nil {
+		return "", err
+	}
+	sessions := registry.FindByAppRoot(paths.AppRoot)
+	if len(sessions) == 0 {
+		return "", nil
+	}
+	session := sessions[0]
+	id, err := localagent.NormalizeSessionID(session.SessionID)
+	if err != nil || id == "" || id != session.SessionID || session.BaseAppID != appID || session.StateRoot != localagent.StateRoot(paths.AppRoot, id) {
+		return "", errors.New("assistant session does not match the worktree identity")
+	}
+	return filepath.Join(session.StateRoot, "assistants", "token-key"), nil
 }
 
 func validAssistantTokenKeyValue(value string) bool {

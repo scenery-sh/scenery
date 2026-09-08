@@ -796,6 +796,7 @@ Managed Postgres recovery:
 - Pre-cutover ownership evidence that blocks managed PostgreSQL allocation is also SCN8003 / exit 3, preserving its explicit data-migration guidance without replacing or retiring the old claim.
 
 Doctor rules:
+- Assistant token-key checks resolve the current session from the canonical worktree's read-only registry and inspect that session's supervisor-owned key. They do not accept an obsolete root-level key or scan other sessions; invalid ownership remains an error. Explicit production secret configuration continues to be supported, and key contents are never emitted.
 - `scenery doctor` is a fast, read-only local environment diagnostic. It does not install tools, download managed artifacts, start services, run builds, connect to databases, or mutate `.scenery/`.
 - `scenery doctor -o json` emits `scenery.doctor.result`; reported check errors produce exit 3 in both human and JSON modes. `ok` and the summary counts describe the performed preflight checks, not application/runtime readiness. Warnings, skipped checks and unprobed services remain explicit limitations.
 - Local storage needs no managed toolchain artifact, so `scenery doctor -o json` has no storage-specific readiness check; the local filesystem and standard disk/memory checks cover it.
