@@ -7,10 +7,14 @@
 ## Ownership
 
 - Keep process/session ownership and durable state identity here.
+- Session process cleanup selects verified registered owners and the existing
+  state-root/environment orphan scope here. Process-table reads, tree signals,
+  and exit waits delegate to `internal/devprocess`; the CLI selects lifecycle
+  operations, and ordinary tests never execute the real process boundary.
 - `worktree_*` owns canonical-root identity, retained capability records,
   lifetime/operation locks, observation-only orphan discovery, and the
   supervisor-embedded control server. Machine edge/deploy state remains separate.
-- Keep command output payload identities in `cmd/scenery` and edge process lifecycle in `internal/edge`.
+- Keep command output payload identities in `internal/machine` and edge process lifecycle in `internal/edge`.
 
 ## Local Contracts
 

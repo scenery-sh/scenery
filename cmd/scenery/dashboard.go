@@ -243,36 +243,6 @@ func findListeningPID(addr string) (int, bool) {
 	return pid, true
 }
 
-func inspectProcess(pid int) (procInfo, bool) {
-	cmd := exec.Command("ps", "-o", "pid=,ppid=,stat=,command=", "-p", strconv.Itoa(pid))
-	output, err := cmd.Output()
-	if err != nil {
-		return procInfo{}, false
-	}
-	line := strings.TrimSpace(string(output))
-	if line == "" {
-		return procInfo{}, false
-	}
-	parts := strings.Fields(line)
-	if len(parts) < 4 {
-		return procInfo{}, false
-	}
-	gotPID, err := strconv.Atoi(parts[0])
-	if err != nil {
-		return procInfo{}, false
-	}
-	ppid, err := strconv.Atoi(parts[1])
-	if err != nil {
-		return procInfo{}, false
-	}
-	return procInfo{
-		pid:  gotPID,
-		ppid: ppid,
-		stat: parts[2],
-		cmd:  strings.Join(parts[3:], " "),
-	}, true
-}
-
 func stopProcess(pid int) error {
 	proc, err := os.FindProcess(pid)
 	if err != nil {
@@ -829,11 +799,7 @@ func openPostgresDashboardDB(ctx context.Context, root string) (*sql.DB, error) 
 	if err != nil {
 		return nil, err
 	}
-	baseEnv, err := appEnvWithDotEnv(envpolicy.Environ(), appRoot)
-	if err != nil {
-		return nil, err
-	}
-	database, err := resolvePostgresDatabaseFromEnv(ctx, appRoot, cfg, baseEnv)
+	database, err := resolvePostgresDatabaseForCLI(ctx, appRoot, cfg)
 	if err != nil {
 		return nil, err
 	}

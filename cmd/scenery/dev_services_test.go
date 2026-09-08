@@ -11,9 +11,8 @@ import (
 func TestPostgresHarnessFixtureSupportsDatabaseDiscovery(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
-	if err := writePostgresHarnessConfig(root); err != nil {
-		t.Fatal(err)
-	}
+	writeTestAppFile(t, root, ".scenery.json", `{"name":"postgres-harness","id":"postgres-harness","envs":{"local":{"default":true}},"storage":{"cell_id":"postgres-harness","stores":{"app":{"kind":"local"}}}}`)
+	writeSQLTestDeclarations(t, root, "reports", "cache")
 	appRoot, cfg, err := discoverConfiguredApp(root)
 	if err != nil {
 		t.Fatal(err)
@@ -22,8 +21,9 @@ func TestPostgresHarnessFixtureSupportsDatabaseDiscovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(plans) != 0 || len(cfg.Dev.Services) != 2 {
-		t.Fatalf("fixture has %d seeds and %d services", len(plans), len(cfg.Dev.Services))
+	requirements, err := compileSQLRequirements(root)
+	if err != nil || len(plans) != 0 || len(requirements) != 2 {
+		t.Fatalf("fixture has %d seeds and %d requirements: %v", len(plans), len(requirements), err)
 	}
 }
 
@@ -33,12 +33,9 @@ func TestManagedDatabaseEnvUsesExternalDSN(t *testing.T) {
 	root := t.TempDir()
 	cfg := app.Config{
 		Name: "demo",
-		Dev: app.DevConfig{Services: map[string]app.DevServiceConfig{
-			"reports": {},
-		}},
 	}
 	dsn := "postgres://user:secret@localhost/app"
-	env, database, err := managedDatabaseEnv(t.Context(), root, cfg, []string{"DATABASE_URL=" + dsn})
+	env, database, err := managedDatabaseEnv(t.Context(), root, cfg, testSQLRequirements(t, "reports"), []string{"DATABASE_URL=" + dsn})
 	if err != nil {
 		t.Fatalf("managedDatabaseEnv returned error: %v", err)
 	}
@@ -61,12 +58,9 @@ func TestManagedDatabaseEnvUsesCanonicalAppURLEnv(t *testing.T) {
 	cfg := app.Config{
 		Name:     "demo",
 		Database: app.DatabaseConfig{},
-		Dev: app.DevConfig{Services: map[string]app.DevServiceConfig{
-			"reports": {},
-		}},
 	}
 	dsn := "postgres://user:secret@localhost/app"
-	env, _, err := managedDatabaseEnv(t.Context(), root, cfg, []string{"DATABASE_URL=" + dsn})
+	env, _, err := managedDatabaseEnv(t.Context(), root, cfg, testSQLRequirements(t, "reports"), []string{"DATABASE_URL=" + dsn})
 	if err != nil {
 		t.Fatalf("managedDatabaseEnv returned error: %v", err)
 	}
@@ -78,17 +72,12 @@ func TestManagedDatabaseEnvUsesCanonicalAppURLEnv(t *testing.T) {
 func TestValidateHeadlessPostgresEnvRequiresExplicitDSN(t *testing.T) {
 	t.Parallel()
 
-	cfg := app.Config{
-		Name: "demo",
-		Dev: app.DevConfig{Services: map[string]app.DevServiceConfig{
-			"reports": {},
-		}},
-	}
-	err := validateHeadlessPostgresEnv(cfg, nil)
+	requirements := testSQLRequirements(t, "reports")
+	err := validateHeadlessPostgresEnv(requirements, nil)
 	if err == nil || !strings.Contains(err.Error(), "DATABASE_URL") || !strings.Contains(err.Error(), "scenery up") {
 		t.Fatalf("validateHeadlessPostgresEnv error = %v", err)
 	}
-	if err := validateHeadlessPostgresEnv(cfg, []string{"DATABASE_URL=postgres://user:secret@localhost/reports"}); err != nil {
+	if err := validateHeadlessPostgresEnv(requirements, []string{"DATABASE_URL=postgres://user:secret@localhost/reports"}); err != nil {
 		t.Fatalf("validateHeadlessPostgresEnv rejected explicit DSN: %v", err)
 	}
 }

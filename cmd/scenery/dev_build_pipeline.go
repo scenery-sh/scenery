@@ -124,13 +124,13 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 	if err := s.persistStatus(ctx); err != nil {
 		return nil, err
 	}
-	dbSetup, shouldRunDBSetup, err := s.nextDevDatabaseSetup(initial)
+	dbSetup, shouldRunDBSetup, err := s.nextDevDatabaseSetup(initial, result.Contract)
 	if err != nil {
 		return nil, devBuildError(metadata, apiEncoding, err)
 	}
 	if shouldRunDBSetup {
 		if err := s.console.Phase("Running database setup", func() error {
-			return s.runDevDatabaseSetup(ctx, dbSetup)
+			return s.runDevDatabaseSetup(ctx, dbSetup, result.Contract)
 		}); err != nil {
 			return nil, devBuildError(metadata, apiEncoding, err)
 		}

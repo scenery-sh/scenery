@@ -183,7 +183,7 @@ func (s *devSupervisor) monitorManagedDesktop(name string, desktop *managedDeskt
 	select {
 	case <-s.ctx.Done():
 		return
-	case <-desktop.Process.done:
+	case <-desktop.Process.Done:
 	}
 	if !s.isCurrentManagedDesktop(name, desktop) {
 		return
@@ -193,7 +193,7 @@ func (s *devSupervisor) monitorManagedDesktop(name string, desktop *managedDeskt
 	_ = s.updateDesktopSessionProcess(context.Background(), name, 0)
 	level := "info"
 	fields := map[string]any{"name": name, "pid": desktop.Process.PID}
-	if err := desktop.Process.waitError(); err != nil {
+	if err := desktop.Process.WaitError(); err != nil {
 		level = "error"
 		fields["error"] = err.Error()
 	}

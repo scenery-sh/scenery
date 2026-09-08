@@ -145,12 +145,9 @@ sql:
 `)
 	cfg := appcfg.Config{
 		Name: "demo",
-		Dev: appcfg.DevConfig{Services: map[string]appcfg.DevServiceConfig{
-			"auth": {},
-		}},
 	}
 
-	_, _, err := buildSQLCGeneratorPlan(root, cfg)
+	_, _, err := buildSQLCGeneratorPlanWithRequirements(root, cfg, testSQLRequirements(t, "auth"))
 	if err == nil || !strings.Contains(err.Error(), "belongs to database service auth") || !strings.Contains(err.Error(), "plan 0097") {
 		t.Fatalf("buildSQLCGeneratorPlan error = %v", err)
 	}
@@ -174,12 +171,9 @@ sql:
 `)
 	cfg := appcfg.Config{
 		Name: "demo",
-		Dev: appcfg.DevConfig{Services: map[string]appcfg.DevServiceConfig{
-			"auth": {},
-		}},
 	}
 
-	plan, ok, err := buildSQLCGeneratorPlan(root, cfg)
+	plan, ok, err := buildSQLCGeneratorPlanWithRequirements(root, cfg, testSQLRequirements(t, "auth"))
 	if err != nil || !ok {
 		t.Fatalf("buildSQLCGeneratorPlan ok=%v err=%v", ok, err)
 	}
@@ -425,13 +419,10 @@ func TestDBSeedRoutesEachSeedToItsServiceDatabase(t *testing.T) {
 	reportsURL := "postgres://user:secret@localhost/app?search_path=reports%2Cscenery"
 	cfg := appcfg.Config{
 		Name: "seedapp",
-		Dev: appcfg.DevConfig{Services: map[string]appcfg.DevServiceConfig{
-			"auth":    {},
-			"reports": {},
-		}},
 	}
 	stores := map[string]*fakeSeedStore{}
 	hooks := seedStoresByDSNHooks(t, stores)
+	writeSQLTestDeclarations(t, root, "auth", "reports")
 
 	result, err := buildDBSeedResultWithEnvHooks(context.Background(), root, cfg, dbSeedOptions{}, []string{
 		"AUTH_DATABASE_URL=" + authURL,
@@ -718,11 +709,6 @@ func TestDBSetupApplyUsesExternalPostgresDatabaseURL(t *testing.T) {
 	writeTestAppFile(t, root, ".env", "DATABASE_URL="+baseURL+"\n")
 	writeTestAppFile(t, root, ".scenery.json", `{
   "name": "managedsetup",
-  "dev": {
-    "services": {
-      "main": {}
-    }
-  },
   "database": {
     "apply": {
       "command": "true"
@@ -730,6 +716,7 @@ func TestDBSetupApplyUsesExternalPostgresDatabaseURL(t *testing.T) {
   }
 }`)
 	var applyEnv []string
+	writeSQLTestDeclarations(t, root, "main")
 	hooks := stubLifecycleExec(t, func(_ context.Context, req lifecycleExecRequest) error {
 		applyEnv = req.Env
 		return nil
@@ -840,6 +827,9 @@ func TestTaskGraphAndRun(t *testing.T) {
 
 func writeSQLCFixture(t *testing.T, root string) {
 	t.Helper()
+	if _, err := os.Stat(filepath.Join(root, "app.scn")); os.IsNotExist(err) {
+		writeTestAppFile(t, root, "app.scn", "application \"sqlc_fixture\" {}\n")
+	}
 	writeTestAppFile(t, root, "sqlc.yaml", `version: "2"
 sql:
   - engine: "postgresql"
@@ -864,7 +854,8 @@ select 1;
 func writeSeedCommandFixture(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
-	writeTestAppFile(t, root, ".scenery.json", `{"name":"seedapp","dev":{"services":{"main":{}}}}`)
+	writeTestAppFile(t, root, ".scenery.json", `{"name":"seedapp"}`)
+	writeSQLTestDeclarations(t, root, "main")
 	writeTestAppFile(t, root, ".env", "DATABASE_URL=postgres://user:secret@localhost/seedapp\n")
 	writeTestAppFile(t, root, "auth/db/seed.sql", `insert into scenery_auth.users(id) values ('dev-user');
 `)
@@ -876,11 +867,6 @@ func writeSetupCommandFixture(t *testing.T) string {
 	root := writeSeedCommandFixture(t)
 	writeTestAppFile(t, root, ".scenery.json", `{
   "name": "seedapp",
-  "dev": {
-    "services": {
-      "main": {}
-    }
-  },
   "database": {
     "apply": {
       "command": "true"

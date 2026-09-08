@@ -14,21 +14,22 @@ import (
 
 func TestRuntimeConfigurationAndCapabilityDiagnostics(t *testing.T) {
 	t.Parallel()
-	cfg := app.Config{Dev: app.DevConfig{Services: map[string]app.DevServiceConfig{"reports": {}}}}
+	cfg := app.Config{}
+	requirements := testSQLRequirements(t, "reports")
 	for _, tc := range []struct {
 		name       string
 		err        error
 		code       int
 		diagnostic string
 	}{
-		{"missing URL", validateHeadlessPostgresEnv(cfg, nil), 3, "SCN8003"},
-		{"invalid URL", validateHeadlessPostgresEnv(cfg, []string{"DATABASE_URL=postgres://user:private-password@host/%ZZ"}), 3, "SCN8003"},
+		{"missing URL", validateHeadlessPostgresEnv(requirements, nil), 3, "SCN8003"},
+		{"invalid URL", validateHeadlessPostgresEnv(requirements, []string{"DATABASE_URL=postgres://user:private-password@host/%ZZ"}), 3, "SCN8003"},
 		{"missing Docker", postgresDockerFailure(exec.ErrNotFound), 4, "SCN8004"},
 		{"Docker stderr", postgresDockerFailure(errors.New("docker run -e POSTGRES_PASSWORD=private-password: untrusted stderr")), 4, "SCN8004"},
 	} {
 		t.Run(tc.name, func(t *testing.T) { assertSafeRuntimeDiagnostic(t, tc.err, tc.code, tc.diagnostic) })
 	}
-	_, _, err := managedDatabaseEnv(t.Context(), "", cfg, []string{"DATABASE_URL=postgres://user:private-password@host/%ZZ"})
+	_, _, err := managedDatabaseEnv(t.Context(), "", cfg, requirements, []string{"DATABASE_URL=postgres://user:private-password@host/%ZZ"})
 	assertSafeRuntimeDiagnostic(t, err, 3, "SCN8003")
 	_, err = devRoutingMode(app.ResolvedEnv{Name: "local", Mode: "unsupported"})
 	assertSafeRuntimeDiagnostic(t, err, 3, "SCN8003")

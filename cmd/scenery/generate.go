@@ -15,6 +15,7 @@ import (
 	"gopkg.in/yaml.v3"
 	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/appwalk"
+	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/envpolicy"
 	inspectdata "scenery.sh/internal/inspect"
 	"scenery.sh/internal/scn"
@@ -235,8 +236,16 @@ func buildGenerateExecutionPlan(appRoot string, cfg appcfg.Config, hasApp bool, 
 }
 
 func buildInspectGeneratorsResponse(appRoot string, cfg appcfg.Config) (generatorGraphResponse, error) {
+	requirements, err := compileSQLRequirements(appRoot)
+	if err != nil {
+		return generatorGraphResponse{}, err
+	}
+	return buildInspectGeneratorsResponseWithRequirements(appRoot, cfg, requirements)
+}
+
+func buildInspectGeneratorsResponseWithRequirements(appRoot string, cfg appcfg.Config, requirements compiler.SQLRequirements) (generatorGraphResponse, error) {
 	graph := baseGeneratorGraph(appRoot, cfg, true)
-	sqlcPlan, ok, err := buildSQLCGeneratorPlan(appRoot, cfg)
+	sqlcPlan, ok, err := buildSQLCGeneratorPlanWithRequirements(appRoot, cfg, requirements)
 	if err != nil {
 		return generatorGraphResponse{}, err
 	}
@@ -266,6 +275,14 @@ func baseGeneratorGraph(appRoot string, cfg appcfg.Config, hasApp bool) generato
 }
 
 func buildSQLCGeneratorPlan(appRoot string, cfg appcfg.Config) (*sqlcGeneratorPlan, bool, error) {
+	requirements, err := compileSQLRequirements(appRoot)
+	if err != nil {
+		return nil, false, err
+	}
+	return buildSQLCGeneratorPlanWithRequirements(appRoot, cfg, requirements)
+}
+
+func buildSQLCGeneratorPlanWithRequirements(appRoot string, cfg appcfg.Config, requirements compiler.SQLRequirements) (*sqlcGeneratorPlan, bool, error) {
 	conf := cfg.Generators.SQLC
 	if conf.Provider != "" && conf.Provider != "sqlc" {
 		return nil, false, fmt.Errorf("unsupported sqlc generator provider %q", conf.Provider)
@@ -323,7 +340,7 @@ func buildSQLCGeneratorPlan(appRoot string, cfg appcfg.Config) (*sqlcGeneratorPl
 			outputs = append(outputs, filepath.ToSlash(block.Gen.Go.Out))
 		}
 	}
-	if err := validateSQLCSchemaEngines(cfg, schemaPlans); err != nil {
+	if err := validateSQLCSchemaEngines(requirements, schemaPlans); err != nil {
 		return nil, false, err
 	}
 	for _, schema := range schemaPlans {
@@ -553,14 +570,14 @@ type sqlcConfigBlock struct {
 	} `yaml:"gen"`
 }
 
-func validateSQLCSchemaEngines(cfg appcfg.Config, schemas []sqlcSchemaPlan) error {
+func validateSQLCSchemaEngines(requirements compiler.SQLRequirements, schemas []sqlcSchemaPlan) error {
 	for _, schema := range schemas {
 		service := serviceNameForDBArtifact(schema.SQLCSchema)
 		if service == "." || service == "" {
 			continue
 		}
 		engine := normalizeSQLCEngine(schema.Engine)
-		if _, ok := cfg.DatabaseService(service); ok {
+		if _, ok := requirements.Binding(service); ok {
 			if engine != "" && engine != "postgres" {
 				return fmt.Errorf("sqlc schema %s belongs to database service %s but uses engine %q; plan 0097 is Postgres-only, set engine: postgresql", schema.SQLCSchema, service, schema.Engine)
 			}

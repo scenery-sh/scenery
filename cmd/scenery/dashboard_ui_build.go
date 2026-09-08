@@ -1,14 +1,11 @@
 package main
 
 import (
-	"crypto/sha256"
 	"errors"
-	"fmt"
+
 	"io/fs"
 	"os"
 	"path/filepath"
-	"sort"
-	"strings"
 
 	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/devdash"
@@ -16,13 +13,8 @@ import (
 
 const dashboardUIRootRel = "apps/console"
 
-func dashboardUIBundleStale(uiRoot string) (bool, error) {
-	status, err := dashboardBundleStatusForDist(embeddedDashboardAssetFS(), filepath.Join(uiRoot, "dist"))
-	if err != nil {
-		return false, err
-	}
-	return status.Stale, nil
-}
+var dashboardBundleHash = devdash.DashboardBundleHash
+var dashboardBundleHashDir = devdash.DashboardBundleHashDir
 
 func dashboardBundleStatusForCurrentRepo() (devdash.DashboardBundle, error) {
 	embedded := embeddedDashboardAssetFS()
@@ -62,50 +54,6 @@ func dashboardBundleStatusForDist(embedded fs.FS, distDir string) (devdash.Dashb
 		status.Warning = "Dashboard UI bundle is stale; run ./scripts/build-dashboard-ui-embed.sh, rebuild the scenery binary, then restart scenery."
 	}
 	return status, nil
-}
-
-func dashboardBundleHashDir(dir string) (string, bool, error) {
-	if strings.TrimSpace(dir) == "" {
-		return "", false, nil
-	}
-	if _, err := os.Stat(filepath.Join(dir, "index.html")); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return "", false, nil
-		}
-		return "", false, err
-	}
-	hash, err := dashboardBundleHash(os.DirFS(dir))
-	return hash, true, err
-}
-
-func dashboardBundleHash(fsys fs.FS) (string, error) {
-	if fsys == nil {
-		return "", fs.ErrNotExist
-	}
-	names := []string{}
-	err := fs.WalkDir(fsys, ".", func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() || path == "." || path == "placeholder.txt" {
-			return nil
-		}
-		names = append(names, path)
-		return nil
-	})
-	if err != nil {
-		return "", err
-	}
-	if len(names) == 0 {
-		return "", fs.ErrNotExist
-	}
-	sort.Strings(names)
-	h := sha256.New()
-	for _, name := range names {
-		_, _ = h.Write([]byte(name))
-		_, _ = h.Write([]byte{0})
-	}
-	return fmt.Sprintf("%x", h.Sum(nil)), nil
 }
 
 // dashboardConsoleDistDirFunc resolves the working repository's built

@@ -314,7 +314,7 @@ func TestAppProcessEnvFailsClosedForStorageWithoutExplicitRuntimeConfig(t *testi
 			},
 		},
 	}
-	_, err := appProcessEnv(t.TempDir(), cfg, "json", "production")
+	_, err := appProcessEnv(t.TempDir(), cfg, nil, "json", "production")
 	if err == nil {
 		t.Fatal("appProcessEnv succeeded without explicit storage runtime config")
 	}
@@ -337,7 +337,7 @@ func TestAppProcessEnvAcceptsExplicitProxyStorageRuntimeConfig(t *testing.T) {
 			},
 		},
 	}
-	env, err := appProcessEnv(t.TempDir(), cfg, "json", "production")
+	env, err := appProcessEnv(t.TempDir(), cfg, nil, "json", "production")
 	if err != nil {
 		t.Fatalf("appProcessEnv returned error: %v", err)
 	}
@@ -361,7 +361,7 @@ func TestAppProcessEnvAcceptsExplicitLocalStorageRuntimeConfig(t *testing.T) {
 			},
 		},
 	}
-	env, err := appProcessEnv(t.TempDir(), cfg, "json", "production")
+	env, err := appProcessEnv(t.TempDir(), cfg, nil, "json", "production")
 	if err != nil {
 		t.Fatalf("appProcessEnv rejected explicit local storage runtime config: %v", err)
 	}
@@ -383,7 +383,7 @@ func TestAppProcessEnvRejectsRelativeLocalStorageRoot(t *testing.T) {
 			},
 		},
 	}
-	_, err := appProcessEnv(t.TempDir(), cfg, "json", "production")
+	_, err := appProcessEnv(t.TempDir(), cfg, nil, "json", "production")
 	if err == nil {
 		t.Fatal("appProcessEnv accepted relative local storage root")
 	}

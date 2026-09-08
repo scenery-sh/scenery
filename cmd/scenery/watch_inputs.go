@@ -33,15 +33,6 @@ func isWatchedFile(rel string) bool {
 	}
 }
 
-func isWatchedRootDotFile(rel string) bool {
-	switch filepath.ToSlash(rel) {
-	case ".env", ".env.local":
-		return true
-	default:
-		return app.IsConfigFilename(rel)
-	}
-}
-
 // A successful build establishes generated presence, not a new authored
 // baseline. Do not swallow implementation edits made while the build ran.
 func acceptGeneratedSnapshot(root string, snapshot *fileSnapshot) error {

@@ -144,6 +144,9 @@ func TestCompileCachedGraphWritesLatestBuildManifest(t *testing.T) {
 	if !reused {
 		t.Fatal("expected existing fingerprint binary to be reusable")
 	}
+	if contract := cached.Result.Contract; contract == nil || !contract.Valid() || contract.Root != appDir {
+		t.Fatalf("reused executable must retain current compiled requirements: %+v", contract)
+	}
 
 	if err := Compile(cached.Result); err != nil {
 		t.Fatalf("compile cached result: %v", err)

@@ -11,6 +11,22 @@ historical records. Do not refresh their review dates or rewrite them as current
 contract prose. Record later guidance here or in the owning current contract;
 use stale knowledge metadata to flag a known contradiction.
 
+## Smaller Scenery Core
+
+- Status: completed
+- Owner: scenery core / repository verification
+- Completed: 2026-09-08
+- ExecPlan: [0168 Smaller Scenery Core](0168-core-responsibility-separation.md)
+
+Repository verification is owned by `scripts/verify`, outside the product
+dependency graph, with the fresh-test engine and absolute 100 ms policy intact.
+Canonical SQL requirements replace the duplicate runtime requirement list while
+allocation records retain cleanup/recovery ownership. All 917 original assertion
+anchors are mapped; 339 changed roots passed 6,780 isolated samples, and all 49
+release steps plus the shell gate passed. Product dependencies fell from 456 to
+442; total Go source grew by 3,939 lines, so extraction is not reported as net
+repository deletion. No existing operator application or database was migrated.
+
 ## Worktree-Owned Development Runtime and PostgreSQL
 
 - Status: completed

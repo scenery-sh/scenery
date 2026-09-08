@@ -71,5 +71,5 @@ For substantial changes, also run:
 
 ```sh
 go test ./...
-scenery harness self --summary --write
+go run ./scripts/verify --summary --write
 ```

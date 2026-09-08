@@ -45,44 +45,18 @@ type harnessValidation struct {
 	ResultPath string `json:"result_path"`
 }
 
-type harnessKnowledge struct {
-	Entrypoints []harnessKnowledgeFile `json:"entrypoints"`
-	Schemas     []harnessKnowledgeFile `json:"schemas"`
-}
-
-type harnessKnowledgeFile struct {
-	Path   string `json:"path"`
-	Exists bool   `json:"exists"`
-}
-
-type harnessStep struct {
-	Name        string            `json:"name"`
-	Command     []string          `json:"command"`
-	OK          bool              `json:"ok"`
-	DurationMS  int64             `json:"duration_ms"`
-	Evidence    *harnessEvidence  `json:"evidence,omitempty"`
-	Effects     []string          `json:"effects,omitempty"`
-	Summary     map[string]any    `json:"summary,omitempty"`
-	Diagnostics []checkDiagnostic `json:"diagnostics,omitempty"`
-	Error       string            `json:"error,omitempty"`
-	OutputTail  string            `json:"output_tail,omitempty"`
-}
-
 func harnessCommand(args []string) error {
 	return runSceneryHarness(context.Background(), os.Stdout, args)
 }
 
 func runSceneryHarness(ctx context.Context, stdout io.Writer, args []string) error {
-	if len(args) > 0 && args[0] == "self" {
-		return runSceneryHarnessSelf(ctx, stdout, args[1:])
-	}
 	if len(args) > 0 && args[0] == "ui" {
 		return runSceneryHarnessUI(ctx, stdout, args[1:])
 	}
 
 	opts, err := parseHarnessArgs(args)
 	if err != nil {
-		return err
+		return fmt.Errorf("invalid_request: %w", err)
 	}
 
 	start, err := resolveAppRoot(opts.AppRoot)

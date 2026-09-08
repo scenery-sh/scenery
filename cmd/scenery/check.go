@@ -10,16 +10,6 @@ import (
 	"scenery.sh/internal/envpolicy"
 )
 
-type checkDiagnostic struct {
-	Stage           string `json:"stage"`
-	Severity        string `json:"severity"`
-	File            string `json:"file,omitempty"`
-	Line            int    `json:"line,omitempty"`
-	Column          int    `json:"column,omitempty"`
-	Message         string `json:"message"`
-	SuggestedAction string `json:"suggested_action,omitempty"`
-}
-
 func checkCommand(args []string) error {
 	return runSceneryCheck(context.Background(), os.Stdout, args)
 }

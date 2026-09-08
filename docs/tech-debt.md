@@ -2,6 +2,10 @@
 
 This file tracks known project debt that should be visible to agents before they start large edits. Skim this list, then read only the entries touching your surface.
 
+Current repository verification is `go run ./scripts/verify` (plan 0168).
+Older dated evidence below retains the command and source paths that existed
+when recorded; those historical `harness self` invocations are not live commands.
+
 - [Resolved](#resolved)
 - [Open](#open)
   - [Agent Thread Findings - 2026-07-03](#agent-thread-findings---2026-07-03)

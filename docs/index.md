@@ -8,7 +8,7 @@ From the repository root, validate the index with:
 
 ```text
 .scenery/harness/bin/scenery inspect docs --all -o json
-.scenery/harness/bin/scenery harness self --quick --summary --write
+go run ./scripts/verify --quick --summary --write
 ```
 
 For ordinary work, discover only the applicable material with `scenery inspect

@@ -34,12 +34,12 @@ func runWorktreeDBServer(ctx context.Context, stdout io.Writer, opts dbServerOpt
 	root = paths.AppRoot
 	// External capability selection takes precedence over retained managed data.
 	// Status remains read-only and does not require a working Docker daemon.
-	if _, cfg, discoverErr := discoverConfiguredApp(root); discoverErr == nil {
+	if _, _, discoverErr := discoverConfiguredApp(root); discoverErr == nil {
 		env, err := appEnvWithDotEnv(envpolicy.Environ(), root)
 		if err != nil {
 			return err
 		}
-		if value := lookupEnvValue(env, appDatabaseURLEnv); value != "" && len(cfg.DatabaseServices()) > 0 {
+		if value := lookupEnvValue(env, appDatabaseURLEnv); value != "" {
 			if err := validateAppPostgresURL(value); err != nil {
 				return err
 			}
@@ -69,21 +69,37 @@ func runWorktreeDBServer(ctx context.Context, stdout io.Writer, opts dbServerOpt
 		return fmt.Errorf("unknown db server command %q", opts.Action)
 	}
 	appID := ""
+	allowAllocation := false
 	if opts.Action == "start" {
 		_, cfg, err := discoverConfiguredApp(root)
 		if err != nil {
 			return err
 		}
 		appID = cfg.AppID()
-		if len(cfg.DatabaseServices()) == 0 {
-			return worktreePostgresPrecondition("the selected app declares no managed SQL capability")
-		}
 		env, err := appEnvWithDotEnv(envpolicy.Environ(), root)
 		if err != nil {
 			return err
 		}
 		if lookupEnvValue(env, appDatabaseURLEnv) != "" {
 			return worktreePostgresPrecondition("DATABASE_URL is externally owned; db server does not provision or control it")
+		}
+		record, recordErr := paths.LoadRecord(appID)
+		if recordErr != nil && !errors.Is(recordErr, os.ErrNotExist) {
+			return recordErr
+		}
+		if recordErr != nil || record.Postgres == nil {
+			requirements, err := compileSQLRequirements(root)
+			if err != nil {
+				return err
+			}
+			bindings, err := resolveSQLSupply(requirements, env, true)
+			if err != nil {
+				return err
+			}
+			if len(bindings) == 0 {
+				return worktreePostgresPrecondition("the selected app declares no managed SQL capability")
+			}
+			allowAllocation = true
 		}
 	}
 	resolver, err := newWorktreePostgresResolver(ctx, root, appID)
@@ -118,7 +134,14 @@ func runWorktreeDBServer(ctx context.Context, stdout io.Writer, opts dbServerOpt
 	}
 	defer func() { _ = live.Release() }()
 	if opts.Action == "start" {
-		if _, err := resolver.ensure(ctx); err != nil {
+		op, err := resolver.beginOperation()
+		if err != nil {
+			return err
+		}
+		defer func() { _ = op.Close() }()
+		// Retained-resource starts are recovery, not proof of current source.
+		// Only a newly compiled managed requirement can authorize allocation.
+		if _, err := resolver.ensureWithOperation(ctx, op, allowAllocation); err != nil {
 			return err
 		}
 		status, err := worktreeDBServerStatus(ctx, paths)

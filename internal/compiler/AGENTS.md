@@ -14,6 +14,10 @@ current application graph.
   this package's tests so the leaf does not grow a test binary.
 - Compiler results are immutable graph snapshots; evolution, generation, and
   deployment planning consume them without redefining the graph model.
+- `Result.SQLRequirements` owns reachable typed SQL bindings and selected
+  framework auth/durable requirements, including declaration provenance and
+  logical schema validation. Service/dependency/durable selection is shared with
+  generation; supply endpoints and allocation records never enter compilation.
 - Provider descriptor content binds its schema and capabilities/config/ABIs,
   not producer metadata or the ambient global spec revision. Explicit builtin
   lock planning is offline and retains the exact validated pre-edit bytes;

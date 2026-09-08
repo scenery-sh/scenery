@@ -45,13 +45,18 @@ func writeCanonicalJSON(output *bytes.Buffer, value any) error {
 			output.WriteString("false")
 		}
 	case string:
+		if canonicalUnescapedASCII(typed) {
+			output.WriteByte('"')
+			output.WriteString(typed)
+			output.WriteByte('"')
+			return nil
+		}
 		quotedBytes, err := json.Marshal(typed)
 		if err != nil {
 			return err
 		}
-		quoted := string(quotedBytes)
-		quoted = string(bytes.ReplaceAll([]byte(quoted), []byte(`\u2028`), []byte(" ")))
-		quoted = string(bytes.ReplaceAll([]byte(quoted), []byte(`\u2029`), []byte(" ")))
+		quoted := strings.ReplaceAll(string(quotedBytes), `\u2028`, "\u2028")
+		quoted = strings.ReplaceAll(quoted, `\u2029`, "\u2029")
 		output.WriteString(quoted)
 	case json.Number:
 		canonical, err := canonicalJSONNumber(typed.String())
@@ -94,6 +99,20 @@ func writeCanonicalJSON(output *bytes.Buffer, value any) error {
 		return fmt.Errorf("unsupported canonical JSON value %T", value)
 	}
 	return nil
+}
+
+func canonicalUnescapedASCII(value string) bool {
+	for index := 0; index < len(value); index++ {
+		character := value[index]
+		if character < 0x20 || character >= utf8.RuneSelf {
+			return false
+		}
+		switch character {
+		case '"', '\\', '<', '>', '&':
+			return false
+		}
+	}
+	return true
 }
 
 func canonicalJSONNumber(source string) (string, error) {
@@ -193,11 +212,13 @@ func validateCanonicalStrings(value reflect.Value) error {
 			return fmt.Errorf("canonical JSON contains invalid UTF-8")
 		}
 	case reflect.Map:
-		for _, key := range value.MapKeys() {
+		entries := value.MapRange()
+		for entries.Next() {
+			key := entries.Key()
 			if key.Kind() == reflect.String && !utf8.ValidString(key.String()) {
 				return fmt.Errorf("canonical JSON property contains invalid UTF-8")
 			}
-			if err := validateCanonicalStrings(value.MapIndex(key)); err != nil {
+			if err := validateCanonicalStrings(entries.Value()); err != nil {
 				return err
 			}
 		}

@@ -1,0 +1,41 @@
+# Repository Verifier
+
+## Purpose
+
+Own verification of Scenery itself, outside the application executable.
+
+## Ownership
+
+This command owns repository orchestration, architecture/document checks,
+release probes, timing policy and their report writers. `internal/testsuite`
+retains fresh-test execution, binary caching and scheduling. Product commands
+must not import this command or that engine.
+
+## Local Contracts
+
+- Preserve cached correctness, fresh execution, isolated timing and release
+  evidence as separate modes. Every exact test root has isolated p95 <100ms;
+  retain 20 serial-process samples, the 60ms candidate target and no exceptions.
+- Link each confirmation package once in a disposable run-local directory, then
+  execute every sample in a fresh process from that package's Go-reported
+  directory. Do not add a persistent confirmation cache or change `internal/testsuite`.
+- Exercise the absolute prepared worktree-local product binary. Never resolve
+  `scenery` through PATH or substitute verifier build identity for target identity.
+- Use public product commands/runtime boundaries or genuine production owners;
+  do not copy private product orchestration or add test-only product APIs.
+- Real processes, tools, network and services belong in explicit release probes,
+  not ordinary tests. Resources must be disposable and ownership-verified.
+- Reports use the existing machine envelope and shared report/evidence values.
+
+## Work Guidance
+
+Plan 0168 records the extraction's assertion mapping and integrated acceptance.
+The sole repository command is `go run ./scripts/verify`; do not restore product
+dispatch or a forwarding alias. CI and the release shell delegate common checks
+here; unique source-snapshot and binary packaging checks remain in the shell.
+
+## Verification
+
+Run `go test ./scripts/verify`, the root validation union, and the final
+release/fresh proof defined by plan 0168. A successful build alone does not
+prove extraction parity.

@@ -20,8 +20,6 @@ import (
 	"scenery.sh/internal/localproxy"
 )
 
-const managedFrontendStartupTimeout = 30 * time.Second
-
 type managedFrontendProcess struct {
 	AppRoot string
 	Name    string
@@ -62,10 +60,6 @@ type pendingManagedFrontendStart struct {
 
 func managedFrontendBackendsForSession(ctx context.Context, root string, cfg app.Config, baseEnv []string, session localagent.Session) (map[string]localagent.Backend, []*managedFrontendProcess, error) {
 	return managedFrontendBackendsForSessionWithStarter(ctx, root, cfg, baseEnv, session, startManagedFrontend)
-}
-
-func beginManagedFrontendBackendsForSession(ctx context.Context, root string, cfg app.Config, baseEnv []string, session localagent.Session) (map[string]localagent.Backend, []*managedFrontendProcess, func(context.Context) error, error) {
-	return beginManagedFrontendBackendsForSessionWithOverride(ctx, root, cfg, baseEnv, session, localproxy.FrontendOverride)
 }
 
 func beginManagedFrontendBackendsForSessionWithOverride(ctx context.Context, root string, cfg app.Config, baseEnv []string, session localagent.Session, resolveOverride frontendOverrideResolver) (map[string]localagent.Backend, []*managedFrontendProcess, func(context.Context) error, error) {
@@ -844,8 +838,8 @@ func waitForManagedFrontend(ctx context.Context, process *managedFrontendProcess
 	// Keep this fingerprint immutable for later status and shutdown checks.
 	owner := localagent.CaptureOwner(process.Process.PID, "scenery up frontend-"+localagentLabel(process.Name))
 	select {
-	case <-process.Process.done:
-		return process.Process.notReadyExitError()
+	case <-process.Process.Done:
+		return process.Process.ReadinessExitError()
 	default:
 	}
 	process.ownerMu.Lock()

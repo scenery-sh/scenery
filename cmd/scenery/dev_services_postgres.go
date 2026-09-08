@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"scenery.sh/internal/app"
+	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/devdash"
 	"scenery.sh/internal/postgresdb"
 	"scenery.sh/internal/postgresname"
@@ -52,8 +53,11 @@ var (
 	openPostgresAdmin    = postgresdb.Open
 )
 
-func managedDatabaseEnv(ctx context.Context, appRoot string, cfg app.Config, baseEnv []string) ([]string, postgresdb.Database, error) {
-	cfgs := cfg.DatabaseServices()
+func managedDatabaseEnv(ctx context.Context, appRoot string, cfg app.Config, requirements compiler.SQLRequirements, baseEnv []string) ([]string, postgresdb.Database, error) {
+	cfgs, err := resolveSQLSupply(requirements, baseEnv, true)
+	if err != nil {
+		return nil, postgresdb.Database{}, err
+	}
 	if len(cfgs) == 0 {
 		return nil, postgresdb.Database{}, nil
 	}

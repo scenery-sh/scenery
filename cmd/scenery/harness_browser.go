@@ -14,7 +14,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	appcfg "scenery.sh/internal/app"
@@ -296,7 +295,7 @@ func startHarnessUIDevProcess(ctx context.Context, appRoot string) (*harnessUIDe
 	proc := &harnessUIDevProcess{
 		cmd:    cmd,
 		done:   make(chan error, 1),
-		output: &safeLineTail{limit: 80},
+		output: newLineTail(80),
 	}
 	ready := make(chan harnessUIDevSignal, 1)
 	go proc.scanDevOutput(stdout, ready)
@@ -615,25 +614,4 @@ func freeLoopbackAddr() (string, error) {
 	}
 	defer func() { _ = ln.Close() }()
 	return ln.Addr().String(), nil
-}
-
-type safeLineTail struct {
-	mu    sync.Mutex
-	limit int
-	lines []string
-}
-
-func (t *safeLineTail) Add(line string) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.lines = append(t.lines, line)
-	if t.limit > 0 && len(t.lines) > t.limit {
-		t.lines = append([]string(nil), t.lines[len(t.lines)-t.limit:]...)
-	}
-}
-
-func (t *safeLineTail) String() string {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return strings.Join(t.lines, "\n")
 }

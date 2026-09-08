@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"net"
@@ -12,7 +11,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	localagent "scenery.sh/internal/agent"
@@ -214,21 +212,7 @@ func edgePrivilegedHelperRun(opts edgeHelperOptions) error {
 }
 
 func listenEdgeHelperSpec(spec edgeHelperListenSpec) (net.Listener, error) {
-	listener := net.ListenConfig{}
-	network := "tcp"
-	if strings.HasPrefix(spec.Addr, "[") && !strings.HasPrefix(spec.Addr, "[::]:") {
-		network = "tcp6"
-		listener.Control = func(network, address string, conn syscall.RawConn) error {
-			var sockErr error
-			if err := conn.Control(func(fd uintptr) {
-				sockErr = syscall.SetsockoptInt(int(fd), syscall.IPPROTO_IPV6, syscall.IPV6_V6ONLY, 1)
-			}); err != nil {
-				return err
-			}
-			return sockErr
-		}
-	}
-	return listener.Listen(context.Background(), network, spec.Addr)
+	return edgelifecycle.ListenTCP(spec.Addr)
 }
 
 func edgeHelperListenSpecs(opts edgeHelperOptions) []edgeHelperListenSpec {

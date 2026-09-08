@@ -6,7 +6,9 @@ import (
 	"strings"
 )
 
-type goDependencyBinding struct {
+// GoDependencyBinding is the resolved stable capability ABI used by generated
+// constructors and by the runtime requirement projection.
+type GoDependencyBinding struct {
 	Name          string
 	Field         string
 	Address       string
@@ -18,9 +20,8 @@ type goDependencyBinding struct {
 	RuntimeName   string
 }
 
-func serviceGoDependencies(resources []Resource, service Resource) ([]goDependencyBinding, error) {
-	byAddress := resourcesByAddress(&Manifest{Resources: resources})
-	var result []goDependencyBinding
+func ServiceGoDependencies(byAddress map[string]Resource, service Resource) ([]GoDependencyBinding, error) {
+	var result []GoDependencyBinding
 	for _, dependency := range namedChildren(service.Spec, "dependency") {
 		name := stringValue(dependency["name"])
 		reference := refString(dependency["instance"])
@@ -30,7 +31,7 @@ func serviceGoDependencies(resources []Resource, service Resource) ([]goDependen
 			return nil, fmt.Errorf("service %s dependency %q references unavailable instance %q", service.Address, name, reference)
 		}
 		capabilities := stringListSet(instance.Spec["require_capabilities"])
-		binding := goDependencyBinding{Name: name, Field: goName(name), Address: address, RuntimeName: instance.Name}
+		binding := GoDependencyBinding{Name: name, Field: goName(name), Address: address, RuntimeName: instance.Name}
 		switch {
 		case hasCapabilityPrefix(capabilities, "sql."):
 			binding.GoType, binding.ImportAlias, binding.ImportPath, binding.CapabilityABI, binding.Resolver = "datasource.SQL", "datasource", "scenery.sh/datasource", "scenery.datasource/v1", "sql"

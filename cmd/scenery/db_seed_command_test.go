@@ -222,7 +222,7 @@ func TestDiscoverDBSeedCommandPlansRejectsInvalidInputs(t *testing.T) {
 	}{
 		{name: "invalid name", commands: []appcfg.DatabaseSeedCommandConfig{seedCommandConfig("Bad Name", "catalog/data.csv")}, want: "must use lowercase"},
 		{name: "duplicate name", commands: []appcfg.DatabaseSeedCommandConfig{seedCommandConfig("catalog", "catalog/data.csv"), seedCommandConfig("catalog", "catalog/import.go")}, want: "duplicate name"},
-		{name: "unknown service", commands: []appcfg.DatabaseSeedCommandConfig{{Name: "catalog", Service: "missing", Command: "true", Inputs: []string{"catalog/data.csv"}}}, want: "no matching dev.services"},
+		{name: "unknown service", commands: []appcfg.DatabaseSeedCommandConfig{{Name: "catalog", Service: "missing", Command: "true", Inputs: []string{"catalog/data.csv"}}}, want: "no matching canonical SQL binding"},
 		{name: "no inputs", commands: []appcfg.DatabaseSeedCommandConfig{{Name: "catalog", Service: "catalog", Command: "true"}}, want: "at least one file"},
 		{name: "duplicate input", commands: []appcfg.DatabaseSeedCommandConfig{seedCommandConfig("catalog", "catalog/data.csv", "catalog/data.csv")}, want: "duplicate input"},
 		{name: "traversal", commands: []appcfg.DatabaseSeedCommandConfig{seedCommandConfig("catalog", "../outside.csv")}, want: "escapes the app workspace"},
@@ -235,10 +235,9 @@ func TestDiscoverDBSeedCommandPlansRejectsInvalidInputs(t *testing.T) {
 			t.Parallel()
 			cfg := appcfg.Config{
 				Name:     "seedapp",
-				Dev:      appcfg.DevConfig{Services: map[string]appcfg.DevServiceConfig{"catalog": {}}},
 				Database: appcfg.DatabaseConfig{Seed: appcfg.DatabaseSeedConfig{Commands: test.commands}},
 			}
-			_, err := discoverDBSeedCommandPlans(root, cfg)
+			_, err := discoverDBSeedCommandPlans(root, cfg, testSQLRequirements(t, "catalog"))
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("error = %v, want %q", err, test.want)
 			}
@@ -272,7 +271,6 @@ func writeDBSeedCommandFixture(t *testing.T) string {
 	root := t.TempDir()
 	writeTestAppFile(t, root, ".scenery.json", `{
   "name": "seedapp",
-  "dev": {"services": {"catalog": {}}},
   "database": {
     "seed": {
       "commands": [{
@@ -286,6 +284,7 @@ func writeDBSeedCommandFixture(t *testing.T) string {
   }
 }`)
 	writeTestAppFile(t, root, "catalog/data.csv", "id,name\n1,first\n")
+	writeSQLTestDeclarations(t, root, "catalog")
 	writeTestAppFile(t, root, "catalog/import.go", "package main\n")
 	return root
 }

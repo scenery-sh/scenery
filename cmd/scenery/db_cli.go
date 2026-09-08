@@ -12,6 +12,7 @@ import (
 
 	localagent "scenery.sh/internal/agent"
 	appcfg "scenery.sh/internal/app"
+	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/envpolicy"
 	inspectdata "scenery.sh/internal/inspect"
 	"scenery.sh/internal/postgresdb"
@@ -145,11 +146,15 @@ func runDatabaseApplyCommandWithHooks(ctx context.Context, appRoot string, cfg a
 }
 
 func runDatabaseApplyCommandWithOutputHooks(ctx context.Context, appRoot string, cfg appcfg.Config, apply appcfg.DatabaseApplyConfig, stdout, stderr io.Writer, hooks lifecycleHooks) (returnErr error) {
+	requirements, err := compileSQLRequirements(appRoot)
+	if err != nil {
+		return err
+	}
 	env, err := appEnvWithDotEnv(envpolicy.Environ(), appRoot)
 	if err != nil {
 		return err
 	}
-	env, closeOperation, err := beginDatabaseLifecycleEnv(ctx, appRoot, cfg, env)
+	env, closeOperation, err := beginDatabaseLifecycleEnv(ctx, appRoot, cfg, requirements, env)
 	if err != nil {
 		return err
 	}
@@ -180,6 +185,10 @@ func runDatabaseApplyCommandWithEnvIOHooks(ctx context.Context, appRoot string, 
 }
 
 func dbListCommand(args []string) error {
+	return runDBList(context.Background(), os.Stdout, args)
+}
+
+func runDBList(ctx context.Context, stdout io.Writer, args []string) error {
 	opts, err := parseDBCLIArgs(args, false)
 	if err != nil {
 		return err
@@ -188,21 +197,24 @@ func dbListCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	ctx := context.Background()
 	database, err := resolvePostgresDatabaseForCLI(ctx, appRoot, cfg)
 	if err != nil {
 		return err
 	}
 	if strings.TrimSpace(database.Database) == "" {
-		return fmt.Errorf("no database dev.services are configured")
+		if opts.JSON {
+			return writeInspectJSON(stdout, databaseListResponse{cliPayloadIdentity: newCLIPayloadIdentity("scenery.db.list")})
+		}
+		_, err := fmt.Fprintln(stdout, "No SQL database is required by the current application.")
+		return err
 	}
 	record := databaseListRecordFromDatabase(ctx, database)
 	if opts.JSON {
-		return writeInspectJSON(os.Stdout, databaseListResponse{cliPayloadIdentity: newCLIPayloadIdentity("scenery.db.list"), Database: record})
+		return writeInspectJSON(stdout, databaseListResponse{cliPayloadIdentity: newCLIPayloadIdentity("scenery.db.list"), Database: &record})
 	}
-	_, _ = fmt.Fprintf(os.Stdout, "%s\t%s\t%s\n", record.Name, record.Source, record.URL)
+	_, _ = fmt.Fprintf(stdout, "%s\t%s\t%s\n", record.Name, record.Source, record.URL)
 	for _, schema := range record.Schemas {
-		_, _ = fmt.Fprintf(os.Stdout, "schema\t%s\t%s\n", schema.Service, schema.Schema)
+		_, _ = fmt.Fprintf(stdout, "schema\t%s\t%s\n", schema.Service, schema.Schema)
 	}
 	return nil
 }
@@ -357,28 +369,28 @@ func parseDBServerArgs(args []string) (dbServerOptions, error) {
 	return opts, nil
 }
 
-func resolveDatabaseURLForConfigFromEnv(cfg appcfg.Config, env []string) (string, error) {
-	if svc, ok := cfg.DatabaseService("db"); ok {
+func resolveDatabaseURLForConfigFromEnv(requirements compiler.SQLRequirements, env []string) (string, error) {
+	if svc, ok := requirements.Binding("db"); ok {
 		return databaseURLFromEnvList(env, appDatabaseURLEnv, postgresname.ServiceDatabaseURLEnv(svc.Name), "postgres", svc.Name)
 	}
-	services := cfg.DatabaseServices()
+	services := requirements.Bindings(lookupEnvValue(env, "SCENERY_DURABLE_ENDPOINT") != "")
 	if len(services) != 1 {
 		return "", fmt.Errorf("database service name is required when %d services are configured", len(services))
 	}
 	return databaseURLFromEnvList(env, appDatabaseURLEnv, postgresname.ServiceDatabaseURLEnv(services[0].Name), "postgres", services[0].Name)
 }
 
-func resolveDatabaseURLForServiceFromEnv(cfg appcfg.Config, env []string, service string) (string, error) {
+func resolveDatabaseURLForServiceFromEnv(requirements compiler.SQLRequirements, env []string, service string) (string, error) {
 	service = strings.TrimSpace(service)
 	if service != "" && service != "." {
-		if svc, ok := cfg.DatabaseService(service); ok {
+		if svc, ok := requirements.Binding(service); ok {
 			return databaseURLFromEnvList(env, appDatabaseURLEnv, postgresname.ServiceDatabaseURLEnv(svc.Name), "postgres", svc.Name)
 		}
-		if len(cfg.DatabaseServices()) > 1 {
-			return "", fmt.Errorf("seed service %q has no matching database service; configure dev.services.%s or use a single database service", service, service)
+		if len(requirements.Bindings(lookupEnvValue(env, "SCENERY_DURABLE_ENDPOINT") != "")) > 1 {
+			return "", fmt.Errorf("seed service %q has no matching canonical SQL binding; select its data_source config.database name", service)
 		}
 	}
-	return resolveDatabaseURLForConfigFromEnv(cfg, env)
+	return resolveDatabaseURLForConfigFromEnv(requirements, env)
 }
 
 func databaseURLFromEnvList(env []string, appEnvName, serviceEnvName, engine, service string) (string, error) {
@@ -390,35 +402,40 @@ func databaseURLFromEnvList(env []string, appEnvName, serviceEnvName, engine, se
 	return "", fmt.Errorf("%s service %q database URL is not configured; set %s", engine, service, appEnvName)
 }
 
-func managedDatabaseLifecycleEnv(ctx context.Context, appRoot string, cfg appcfg.Config, baseEnv []string) ([]string, error) {
-	env, _, err := managedDatabaseEnv(ctx, appRoot, cfg, baseEnv)
+func managedDatabaseLifecycleEnv(ctx context.Context, appRoot string, cfg appcfg.Config, requirements compiler.SQLRequirements, baseEnv []string) ([]string, error) {
+	env, _, err := managedDatabaseEnv(ctx, appRoot, cfg, requirements, baseEnv)
 	if err != nil {
 		return nil, err
 	}
 	if len(env) == 0 {
 		return baseEnv, nil
 	}
-	keys := databaseEnvKeys(cfg)
+	keys := databaseEnvKeys(requirements)
 	return overlayEnv(envWithoutKeys(baseEnv, keys...), envMap(env)), nil
 }
 
 func resolvePostgresDatabaseForCLI(ctx context.Context, appRoot string, cfg appcfg.Config) (postgresdb.Database, error) {
-	if len(cfg.DatabaseServices()) == 0 {
-		return postgresdb.Database{}, nil
+	requirements, err := compileSQLRequirements(appRoot)
+	if err != nil {
+		return postgresdb.Database{}, err
 	}
 	baseEnv, err := appEnvWithDotEnv(envpolicy.Environ(), appRoot)
 	if err != nil {
 		return postgresdb.Database{}, err
 	}
-	return resolvePostgresDatabaseFromEnv(ctx, appRoot, cfg, baseEnv)
+	return resolvePostgresDatabaseFromEnv(ctx, appRoot, cfg, requirements, baseEnv)
 }
 
-func resolvePostgresDatabaseFromEnv(ctx context.Context, appRoot string, cfg appcfg.Config, baseEnv []string) (postgresdb.Database, error) {
-	if len(cfg.DatabaseServices()) == 0 {
+func resolvePostgresDatabaseFromEnv(ctx context.Context, appRoot string, cfg appcfg.Config, requirements compiler.SQLRequirements, baseEnv []string) (postgresdb.Database, error) {
+	bindings, err := resolveSQLSupply(requirements, baseEnv, true)
+	if err != nil {
+		return postgresdb.Database{}, err
+	}
+	if len(bindings) == 0 {
 		return postgresdb.Database{}, nil
 	}
 	if lookupEnvValue(baseEnv, appDatabaseURLEnv) != "" {
-		_, database, err := managedDatabaseEnv(ctx, appRoot, cfg, baseEnv)
+		_, database, err := managedDatabaseEnv(ctx, appRoot, cfg, requirements, baseEnv)
 		return database, err
 	}
 	resolver, err := newWorktreePostgresResolver(ctx, appRoot, cfg.AppID())
@@ -432,14 +449,14 @@ func resolvePostgresDatabaseFromEnv(ctx context.Context, appRoot string, cfg app
 	if !running {
 		return postgresdb.Database{}, worktreePostgresPrecondition("the selected database is stopped; explicitly start it with db server start before accessing it")
 	}
-	return databaseForWorktreeServer(resolver.paths.AppRoot, cfg, server)
+	return databaseForWorktreeServer(resolver.paths.AppRoot, cfg, server, bindings)
 }
 
-func databaseForWorktreeServer(appRoot string, cfg appcfg.Config, server *localagent.WorktreePostgres) (postgresdb.Database, error) {
+func databaseForWorktreeServer(appRoot string, cfg appcfg.Config, server *localagent.WorktreePostgres, bindings []compiler.SQLBinding) (postgresdb.Database, error) {
 	dbName := postgresname.DatabaseNameFor(cfg.AppID(), appRoot)
 	baseURL := worktreePostgresURL(server, dbName)
 	database := postgresdb.Database{Database: dbName, URL: baseURL, Source: postgresdb.SourceManaged, AppRoot: appRoot, ResourceID: server.InstanceID}
-	for _, svc := range cfg.DatabaseServices() {
+	for _, svc := range bindings {
 		serviceURL, err := postgresdb.ServiceURL(baseURL, svc.Schema)
 		if err != nil {
 			return postgresdb.Database{}, err
@@ -459,6 +476,13 @@ func databaseSchemaByService(database postgresdb.Database, service string) (stri
 			return schema.Schema, true
 		}
 	}
+	if name, err := postgresname.SchemaNameFor(service); err == nil {
+		for _, schema := range database.Schemas {
+			if schema.Schema == name {
+				return schema.Schema, true
+			}
+		}
+	}
 	return "", false
 }
 
@@ -470,6 +494,11 @@ func resetPostgresDatabase(ctx context.Context, database postgresdb.Database, op
 		return fmt.Errorf("refusing to reset external postgres database")
 	}
 	if strings.TrimSpace(opts.Service) != "" {
+		observed, err := readActualDatabaseSchemas(ctx, database)
+		if err != nil {
+			return err
+		}
+		database = observed
 		schema, ok := databaseSchemaByService(database, opts.Service)
 		if !ok {
 			return fmt.Errorf("database service %q is not configured", opts.Service)
@@ -528,9 +557,9 @@ func managedPostgresAdmin(ctx context.Context, database postgresdb.Database) (*s
 	return openPostgresAdmin(ctx, worktreePostgresURL(record.Postgres, "postgres"))
 }
 
-func databaseEnvKeys(cfg appcfg.Config) []string {
+func databaseEnvKeys(requirements compiler.SQLRequirements) []string {
 	keys := []string{appDatabaseURLEnv, postgresdb.RegistryEnv}
-	for _, svc := range cfg.DatabaseServices() {
+	for _, svc := range requirements.Bindings(false) {
 		keys = append(keys, postgresname.ServiceDatabaseURLEnv(svc.Name))
 	}
 	return keys
@@ -553,7 +582,7 @@ type dbResetOptions struct {
 
 type databaseListResponse struct {
 	cliPayloadIdentity
-	Database databaseListRecord `json:"database"`
+	Database *databaseListRecord `json:"database"`
 }
 
 type databaseListRecord struct {
@@ -572,9 +601,10 @@ type databaseListSchemaRecord struct {
 
 func databaseListRecordFromDatabase(ctx context.Context, database postgresdb.Database) databaseListRecord {
 	record := databaseListRecord{
-		Name:   database.Database,
-		URL:    postgresdb.RedactURL(database.URL),
-		Source: string(database.Source),
+		Name:    database.Database,
+		URL:     postgresdb.RedactURL(database.URL),
+		Source:  string(database.Source),
+		Schemas: []databaseListSchemaRecord{},
 	}
 	for _, schema := range database.Schemas {
 		record.Schemas = append(record.Schemas, databaseListSchemaRecord{

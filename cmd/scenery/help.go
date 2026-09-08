@@ -191,7 +191,6 @@ var helpReferenceGroups = []helpReferenceGroup{
 	}},
 	{Name: "Harness", Commands: []string{
 		"scenery harness",
-		"scenery harness self",
 		"scenery harness ui",
 	}},
 	{Name: "Inspection", Commands: []string{
@@ -484,10 +483,10 @@ var helpCommands = []helpCommandEntry{
 	{
 		Command:     "harness",
 		Group:       "Harness",
-		Summary:     "Run framework and UI harnesses.",
-		Usage:       []string{"scenery harness [--app-root <path>] [-o json] [--write] [--with-validation[=<profile>]]", "scenery harness self [--repo-root <path>] [--summary] [-o human|json] [--write] [--quick|--race|--release] [--fresh-tests]", "scenery harness ui -o json [--app-root <path>] [--dashboard-url <url>] [--headed] [--write]"},
-		Subcommands: []string{"self", "ui"},
-		Flags:       []string{"--app-root <path>", "--repo-root <path>", "--summary", "-o", "json", "--summary", "-o", "json", "-o", "json", "--write", "--quick", "--race", "--release", "--fresh-tests", "--dashboard-url <url>", "--headed", "--with-validation[=<profile>]"},
+		Summary:     "Run application and UI harnesses.",
+		Usage:       []string{"scenery harness [--app-root <path>] [-o json] [--write] [--with-validation[=<profile>]]", "scenery harness ui -o json [--app-root <path>] [--dashboard-url <url>] [--headed] [--write]"},
+		Subcommands: []string{"ui"},
+		Flags:       []string{"--app-root <path>", "-o", "json", "--write", "--dashboard-url <url>", "--headed", "--with-validation[=<profile>]"},
 		JSON:        true,
 		Stability:   "stable",
 	},

@@ -1042,8 +1042,8 @@ budget, with an 80ms worst p95.
 
 ## Context and Orientation
 
-The timing report lives in `cmd/scenery/harness_oracle.go` (types, budgets,
-parsing) and `cmd/scenery/harness_timing.go` (baseline selection, confirmation,
+The timing report lives in `scripts/verify/harness_oracle.go` (types, budgets,
+parsing) and `scripts/verify/harness_timing.go` (baseline selection, confirmation,
 build-timing projection). The fresh execution lane lives in
 `internal/testsuite`, with `prepare` and `buildMissingBinaries` in
 `internal/testsuite/runner.go` owning package listing and linking.
@@ -1051,11 +1051,11 @@ build-timing projection). The fresh execution lane lives in
 
 The persisted artifact is `.scenery/harness/test-timing-latest.json`, shaped by
 `docs/schemas/scenery.harness.test_timing.schema.json` with its revision
-mirrored in `cmd/scenery/payload_identity.go`. That artifact is also the
+mirrored in `internal/machine/payload_identity.go`. That artifact is also the
 baseline the regression scope reads, so a run with `--write` both consumes the
 previous baseline and records the next one.
 
-Read `docs/local-contract.md` § harness self for the stable timing contract and
+Read `docs/local-contract.md` § repository-verifier JSON rules for the stable timing contract and
 `internal/testsuite/AGENTS.md` for the runner's local rules.
 
 ## Milestones
@@ -1099,19 +1099,19 @@ go run ./scripts/testsuite -cache "$cold_cache" -p 6 -build-p 4 -run 'a^' -build
 go run ./scripts/testsuite -p 6 -run '.*' -record-timings=false > /tmp/warm.jsonl
 
 # full fresh lane with regression-scoped confirmation
-.scenery/harness/bin/scenery harness self --fresh-tests --summary --write
+go run ./scripts/verify --fresh-tests --summary --write
 
 # periodic audit: confirm every candidate
-.scenery/harness/bin/scenery harness self --release --fresh-tests --summary --write
+go run ./scripts/verify --release --fresh-tests --summary --write
 ```
 
 ## Validation and Acceptance
 
 `go test ./cmd/scenery ./internal/testsuite`, then `go test ./...`. Schema and
 CLI-contract changes additionally need
-`.scenery/harness/bin/scenery harness self --quick --summary --write`, which
+`go run ./scripts/verify --quick --summary --write`, which
 validates the committed `scenery.harness.test_timing` example against the
-schema revision recorded in `cmd/scenery/payload_identity.go`.
+schema revision recorded in `internal/machine/payload_identity.go`.
 
 Acceptance for milestone 1 is that a second `--fresh-tests` run against a
 recorded baseline confirms only new or materially worsened candidates and lists
@@ -1157,7 +1157,7 @@ machines; re-measure before comparing.
   `target_seconds`, `classification_reason`, and `isolated_p95_seconds`; the
   removed median field has no current-schema alias. The current schema revision is
   `sha256:fb4d6102110a4beae1ab792069c5112ccee57681ac1df81f5fd7ab2232a6fb30`
-  and is recorded in `cmd/scenery/payload_identity.go`.
+  and is recorded in `internal/machine/payload_identity.go`.
   `scenery.harness.self` inlines that nested shape; its current schema revision
   is `sha256:f6be32d52090317f5f27b725d98dc1f3f41736aa908ec060a6f3f67c2514517d`.
 - `testsuite.Result` gained `Prepare` and `TestPackageCount`; `testsuite.Run`

@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strings"
 	"unicode"
+
+	"scenery.sh/internal/repoinfo"
 )
 
 const (
@@ -26,7 +28,7 @@ type inspectDocsPathRoute struct {
 }
 
 type inspectDocsMarkdownSection struct {
-	inspectDocsSection
+	repoinfo.Section
 	Level int
 	Text  string
 }
@@ -122,7 +124,7 @@ func filterInspectDocsDocuments(documents []inspectDocsDocument, query inspectDo
 		// entry is an explicit index signal that the history contradicts the
 		// current contract; --status completed remains the intentional archive
 		// query.
-		if query.Status == "" && isCompletedExecPlanDocument(doc.docsKnowledgeDocument) && !doc.Stale {
+		if query.Status == "" && isCompletedExecPlanDocument(doc.KnowledgeDocument) && !doc.Stale {
 			continue
 		}
 		if query.ReviewDue && !doc.ReviewDue {
@@ -161,7 +163,7 @@ func buildInspectDocsPathRoute(repoRoot, targetPath string, documents []inspectD
 
 	packages, _ := inspectDocsGoPackagesForPath(context.Background(), repoRoot, targetPath)
 	changedArea := &harnessChangedAreaReport{
-		cliPayloadIdentity:  newCLIPayloadIdentity(harnessChangedAreaKind),
+		PayloadIdentity:     newCLIPayloadIdentity(harnessChangedAreaKind),
 		ChangedFiles:        []harnessChangedFile{},
 		AffectedPackages:    []string{},
 		RecommendedCommands: []string{},
@@ -175,8 +177,7 @@ func buildInspectDocsPathRoute(repoRoot, targetPath string, documents []inspectD
 	}}, packages, nil)
 
 	commandSet := stringSet(changedArea.RecommendedCommands)
-	delete(commandSet, "scenery harness self --summary --write")
-	commandSet[".scenery/harness/bin/scenery harness self --summary --write"] = struct{}{}
+	commandSet[harnessValidationFullCommand] = struct{}{}
 	if len(route.AgentScopes) > 1 {
 		nearest := route.AgentScopes[len(route.AgentScopes)-1]
 		for _, command := range inspectDocsVerificationCommands(repoRoot, nearest.Path) {
@@ -340,7 +341,7 @@ func inspectDocsArchitectureSections(repoRoot, targetPath string) ([]inspectDocs
 		return nil, ""
 	}
 	section := sections[bestIndex]
-	return []inspectDocsSection{section.inspectDocsSection}, section.Heading + "\n" + section.Text
+	return []inspectDocsSection{section.Section}, section.Heading + "\n" + section.Text
 }
 
 func inspectDocsAgentPurposeText(repoRoot, relPath string) string {
@@ -401,7 +402,7 @@ func inspectDocsContractMatches(repoRoot string, profile inspectDocsTermProfile,
 func inspectDocsPlanMatches(profile inspectDocsTermProfile, documents []inspectDocsDocument, relevant map[string]struct{}) []inspectDocsScoredDocument {
 	matches := make([]inspectDocsScoredDocument, 0)
 	for _, doc := range documents {
-		if doc.Status != "active" || !inspectDocsExecPlanPathPattern.MatchString(doc.Path) {
+		if doc.Status != "active" || !isExecPlanPath(doc.Path) {
 			continue
 		}
 		score := inspectDocsTextScore(profile, doc.Path+" "+doc.Title+" "+doc.Owner+" "+doc.Summary+" "+strings.Join(doc.Tags, " "))
@@ -519,7 +520,7 @@ func inspectDocsBestSections(profile inspectDocsTermProfile, sections []inspectD
 	selected := make([]inspectDocsSection, 0, len(scored))
 	total := 0
 	for _, item := range scored {
-		selected = append(selected, item.Section.inspectDocsSection)
+		selected = append(selected, item.Section.Section)
 		total += item.Score
 	}
 	sort.Slice(selected, func(i, j int) bool {
@@ -548,7 +549,7 @@ func readInspectDocsMarkdownSections(path string) ([]inspectDocsMarkdownSection,
 			}
 		}
 		sections = append(sections, inspectDocsMarkdownSection{
-			inspectDocsSection: inspectDocsSection{
+			Section: inspectDocsSection{
 				Heading:   heading,
 				Anchor:    inspectDocsMarkdownAnchor(heading),
 				StartLine: i + 1,
@@ -698,10 +699,9 @@ func sortedStringSetMap(values map[string]struct{}) []string {
 }
 
 var (
-	inspectDocsCamelBoundary       = regexp.MustCompile(`([a-z0-9])([A-Z])`)
-	inspectDocsWordPattern         = regexp.MustCompile(`[a-z0-9]+`)
-	inspectDocsExecPlanPathPattern = regexp.MustCompile(`^docs/plans/[0-9]{4}-.+\.md$`)
-	inspectDocsStopWords           = map[string]bool{
+	inspectDocsCamelBoundary = regexp.MustCompile(`([a-z0-9])([A-Z])`)
+	inspectDocsWordPattern   = regexp.MustCompile(`[a-z0-9]+`)
+	inspectDocsStopWords     = map[string]bool{
 		"a": true, "an": true, "and": true, "app": true, "application": true,
 		"apps": true, "as": true, "at": true, "be": true, "by": true, "cmd": true,
 		"code": true, "current": true, "file": true, "for": true, "from": true,

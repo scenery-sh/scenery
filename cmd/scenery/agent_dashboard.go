@@ -13,7 +13,6 @@ import (
 	"time"
 
 	localagent "scenery.sh/internal/agent"
-	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/devdash"
 	"scenery.sh/internal/victoria"
 )
@@ -239,7 +238,6 @@ func appRecordStatus(app devdash.AppRecord) devdash.AppStatus {
 		CompileError:        app.CompileError,
 	}
 	applySessionStatusToAppStatus(&status, nil)
-	status.Meta = metadataWithRuntimePostgresDatabases(status.Meta, status.AppRoot, appcfg.Config{}, false)
 	return status
 }
 

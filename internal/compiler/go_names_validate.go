@@ -3,6 +3,7 @@ package compiler
 import "fmt"
 
 func validateGoGeneratedNames(resources []Resource) []Diagnostic {
+	byAddress := resourcesByAddress(&Manifest{Resources: resources})
 	goModules := map[string]bool{}
 	goModuleResources := map[string]Resource{}
 	for _, resource := range resources {
@@ -85,7 +86,7 @@ func validateGoGeneratedNames(resources []Resource) []Diagnostic {
 				add(resource, name+suffix, "service "+suffix)
 			}
 			diagnostics = append(diagnostics, validateGoFieldNames(resource, namedChildren(resource.Spec, "config_schema"), false)...)
-			if dependencies, err := serviceGoDependencies(resources, resource); err == nil {
+			if dependencies, err := ServiceGoDependencies(byAddress, resource); err == nil {
 				fields := make([]string, 0, len(dependencies))
 				for _, dependency := range dependencies {
 					fields = append(fields, dependency.Field)

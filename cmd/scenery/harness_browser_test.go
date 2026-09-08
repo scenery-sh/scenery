@@ -154,7 +154,7 @@ func TestParseHarnessUIArgsRejectsUnknownFlags(t *testing.T) {
 func TestHarnessUIDevProcessScanDevOutputReportsCompileError(t *testing.T) {
 	t.Parallel()
 
-	proc := &harnessUIDevProcess{output: &safeLineTail{limit: 10}}
+	proc := &harnessUIDevProcess{output: newLineTail(10)}
 	ready := make(chan harnessUIDevSignal, 1)
 	var stream bytes.Buffer
 	writer := newCLIEventWriter(&stream)
@@ -179,7 +179,7 @@ func TestHarnessUIDevProcessScanDevOutputReportsCompileError(t *testing.T) {
 func TestHarnessUIDevProcessUsesPublishedDashboardURL(t *testing.T) {
 	t.Parallel()
 	for _, dashboardURL := range []string{"http://localhost:4231/_scenery/", ""} {
-		proc := &harnessUIDevProcess{output: &safeLineTail{limit: 10}}
+		proc := &harnessUIDevProcess{output: newLineTail(10)}
 		ready := make(chan harnessUIDevSignal, 1)
 		var stream bytes.Buffer
 		if err := newCLIEventWriter(&stream).event(runEvent{Type: "run.ready", Data: map[string]any{"dashboard_url": dashboardURL}}); err != nil {

@@ -21,6 +21,25 @@ type stubAgentDashboardRegistry struct {
 	substrates map[string]localagent.Substrate
 }
 
+func TestAgentDashboardControllerUsesVictoriaSubstrate(t *testing.T) {
+	t.Parallel()
+	registry := &stubAgentDashboardRegistry{substrates: map[string]localagent.Substrate{
+		localagent.SubstrateVictoria: {
+			Kind:      localagent.SubstrateVictoria,
+			URLs:      map[string]string{"metrics": "http://127.0.0.1:8428", "logs": "http://127.0.0.1:9428", "traces": "http://127.0.0.1:10428"},
+			Endpoints: map[string]string{"metrics": "http://127.0.0.1:8428/opentelemetry/v1/metrics", "logs": "http://127.0.0.1:9428/insert/opentelemetry/v1/logs", "traces": "http://127.0.0.1:10428/insert/opentelemetry/v1/traces"},
+		},
+	}}
+	controller := &agentDashboardController{agent: registry}
+	victoria := controller.dashboardVictoria()
+	if victoria == nil {
+		t.Fatal("dashboardVictoria returned nil")
+	}
+	if got := victoria.Endpoint("traces"); got != "http://127.0.0.1:10428/insert/opentelemetry/v1/traces" {
+		t.Fatalf("trace endpoint = %q", got)
+	}
+}
+
 func (r *stubAgentDashboardRegistry) GetSession(id string) (localagent.Session, bool) {
 	session, ok := r.sessions[id]
 	return session, ok
@@ -367,93 +386,10 @@ func TestAgentDashboardControllerMarksMissingRegistrySessionOffline(t *testing.T
 	}
 }
 
-func TestAgentDashboardControllerUsesVictoriaSubstrate(t *testing.T) {
-	t.Parallel()
-
-	agentServer, err := localagent.NewServer(localagent.RunOptions{Home: t.TempDir(), RouterAddr: "127.0.0.1:0"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- agentServer.Run(ctx) }()
-	t.Cleanup(func() {
-		cancel()
-		select {
-		case err := <-done:
-			if err != nil {
-				t.Fatalf("agent shutdown: %v", err)
-			}
-		case <-time.After(2 * time.Second):
-			t.Fatal("timed out waiting for agent shutdown")
-		}
-	})
-
-	client := localagent.NewClient(agentServer.Paths().SocketPath)
-	defer client.CloseIdleConnections()
-	if err := waitForAgentCommandPing(ctx, client); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := client.UpsertSubstrate(ctx, localagent.UpsertSubstrateRequest{
-		Kind: localagent.SubstrateVictoria,
-		URLs: map[string]string{
-			"metrics": "http://127.0.0.1:8428",
-			"logs":    "http://127.0.0.1:9428",
-			"traces":  "http://127.0.0.1:10428",
-		},
-		Endpoints: map[string]string{
-			"metrics": "http://127.0.0.1:8428/opentelemetry/v1/metrics",
-			"logs":    "http://127.0.0.1:9428/insert/opentelemetry/v1/logs",
-			"traces":  "http://127.0.0.1:10428/insert/opentelemetry/v1/traces",
-		},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	store, err := devdash.OpenStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		_ = store.Close()
-	})
-	controller := &agentDashboardController{store: store, agent: agentServer}
-	victoria := controller.dashboardVictoria()
-	if victoria == nil {
-		t.Fatal("dashboardVictoria returned nil")
-	}
-	if got := victoria.Endpoint("traces"); got != "http://127.0.0.1:10428/insert/opentelemetry/v1/traces" {
-		t.Fatalf("trace endpoint = %q", got)
-	}
-}
-
 func TestAgentDashboardReportUsesSessionReportToken(t *testing.T) {
 	t.Parallel()
 
-	agentServer, err := localagent.NewServer(localagent.RunOptions{Home: t.TempDir(), RouterAddr: "127.0.0.1:0"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- agentServer.Run(ctx) }()
-	t.Cleanup(func() {
-		cancel()
-		select {
-		case err := <-done:
-			if err != nil {
-				t.Fatalf("agent shutdown: %v", err)
-			}
-		case <-time.After(2 * time.Second):
-			t.Fatal("timed out waiting for agent shutdown")
-		}
-	})
-
-	client := localagent.NewClient(agentServer.Paths().SocketPath)
-	defer client.CloseIdleConnections()
-	if err := waitForAgentCommandPing(ctx, client); err != nil {
-		t.Fatal(err)
-	}
-	session, err := client.Register(ctx, localagent.RegisterRequest{
+	session, err := localagent.NewSession(localagent.RegisterRequest{
 		BaseAppID:   "demo",
 		AppRoot:     t.TempDir(),
 		Branch:      "feature/report-token",
@@ -461,10 +397,13 @@ func TestAgentDashboardReportUsesSessionReportToken(t *testing.T) {
 		Backends: map[string]localagent.Backend{
 			localagent.RouteAPI: {Network: "tcp", Addr: "127.0.0.1:4000"},
 		},
-	})
+	}, "127.0.0.1:4040", "http", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
+	agentRegistry := &stubAgentDashboardRegistry{sessions: map[string]localagent.Session{
+		session.SessionID: session,
+	}}
 
 	store, err := devdash.OpenStore(filepath.Join(t.TempDir(), "dashboard"))
 	if err != nil {
@@ -475,7 +414,7 @@ func TestAgentDashboardReportUsesSessionReportToken(t *testing.T) {
 	})
 	server := newDashboardServerWithController(&agentDashboardController{
 		store: store,
-		agent: agentServer,
+		agent: agentRegistry,
 	}, t.TempDir(), "127.0.0.1:0", "", nil)
 	body, err := json.Marshal(devdash.ReportEnvelope{
 		Type:      "log",

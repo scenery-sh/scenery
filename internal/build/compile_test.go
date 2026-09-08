@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -206,8 +207,12 @@ func TestCompilePassesConfiguredGoBuildFlags(t *testing.T) {
 		Binary:       filepath.Join(workspace, "scenery-app"),
 		GoBuildFlags: []string{"-tags=roofmapnet_native", " ", "-gcflags=all=-N -l"},
 	})
+	configured := slices.Clone(result.GoBuildFlags)
 	if err := Compile(result); err != nil {
 		t.Fatalf("Compile() error = %v", err)
+	}
+	if !slices.Equal(result.GoBuildFlags, configured) {
+		t.Fatalf("compile mutated configured go build flags: %v", result.GoBuildFlags)
 	}
 	want := goBuildArgs(result.Binary, effectiveGoBuildFlags(result))
 	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {

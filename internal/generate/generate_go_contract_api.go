@@ -5,6 +5,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"scenery.sh/internal/compiler"
 )
 
 func goWireTypeExpression(value any) string {
@@ -45,7 +47,7 @@ func renderGoContractConstraints(field map[string]any) string {
 
 func renderContractAPI(packageIdentity, importPath, abi string, resources []Resource, idx *resourceIndex, typeResolver *goContractTypeResolver) (string, error) {
 	dependencyImports := map[string]string{}
-	serviceDependencies := map[string][]goDependencyBinding{}
+	serviceDependencies := map[string][]compiler.GoDependencyBinding{}
 	serviceClients := map[string][]goClientBinding{}
 	hasInternalClients := false
 	hasOperations := false
@@ -56,7 +58,7 @@ func renderContractAPI(packageIdentity, importPath, abi string, resources []Reso
 		if service.Kind != "scenery.service" {
 			continue
 		}
-		dependencies, err := serviceGoDependencies(idx, service)
+		dependencies, err := compiler.ServiceGoDependencies(idx.byAddress, service)
 		if err != nil {
 			return "", err
 		}

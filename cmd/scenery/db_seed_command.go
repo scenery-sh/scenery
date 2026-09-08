@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	appcfg "scenery.sh/internal/app"
+	"scenery.sh/internal/compiler"
 )
 
 const (
@@ -46,7 +47,7 @@ func defaultRunDBSeedCommand(ctx context.Context, req lifecycleExecRequest) (dbS
 	return output, fmt.Errorf("%w: %s", err, detail)
 }
 
-func discoverDBSeedCommandPlans(appRoot string, cfg appcfg.Config) ([]dbSeedPlan, error) {
+func discoverDBSeedCommandPlans(appRoot string, cfg appcfg.Config, requirements compiler.SQLRequirements) ([]dbSeedPlan, error) {
 	commands := cfg.Database.Seed.Commands
 	if len(commands) == 0 {
 		return nil, nil
@@ -67,8 +68,8 @@ func discoverDBSeedCommandPlans(appRoot string, cfg appcfg.Config) ([]dbSeedPlan
 		if service == "" {
 			return nil, fmt.Errorf("database.seed.commands[%d].service is required", index)
 		}
-		if _, ok := cfg.DatabaseService(service); !ok {
-			return nil, fmt.Errorf("database.seed.commands[%d].service %q has no matching dev.services entry", index, service)
+		if _, ok := requirements.Binding(service); !ok {
+			return nil, fmt.Errorf("database.seed.commands[%d].service %q has no matching canonical SQL binding; use the data_source config.database name", index, service)
 		}
 		if strings.TrimSpace(command.Command) == "" {
 			return nil, fmt.Errorf("database.seed.commands[%d].command is required", index)

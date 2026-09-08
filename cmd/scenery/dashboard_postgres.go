@@ -5,8 +5,6 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
-
-	"scenery.sh/internal/envpolicy"
 )
 
 type dashboardPostgresRequest struct {
@@ -181,22 +179,7 @@ func (s *dashboardServer) openDashboardPostgres(ctx context.Context, appID strin
 	if root == "" {
 		return nil, fmt.Errorf("dashboard postgres explorer requires an app root")
 	}
-	appRoot, cfg, err := discoverConfiguredApp(root)
-	if err != nil {
-		return nil, err
-	}
-	baseEnv, err := appEnvWithDotEnv(envpolicy.Environ(), appRoot)
-	if err != nil {
-		return nil, err
-	}
-	database, err := resolvePostgresDatabaseFromEnv(ctx, appRoot, cfg, baseEnv)
-	if err != nil {
-		return nil, err
-	}
-	if strings.TrimSpace(database.URL) == "" {
-		return nil, fmt.Errorf("no postgres database discovered")
-	}
-	return openPostgresDatabase(ctx, database.URL)
+	return openPostgresDashboardDB(ctx, root)
 }
 
 func dashboardPostgresTarget(req dashboardPostgresRequest) (string, string, error) {

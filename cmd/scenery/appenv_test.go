@@ -43,7 +43,7 @@ func TestNamedEnvironmentDotenvPrecedenceAndInjection(t *testing.T) {
 		"local":      {Default: true},
 		"production": {Deploy: &app.EnvDeployConfig{}},
 	}}
-	processEnv, err := appProcessEnv(root, cfg, "json", "production")
+	processEnv, err := appProcessEnv(root, cfg, nil, "json", "production")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +65,7 @@ func TestAppProcessEnvInjectsResolvedLibraryLinkage(t *testing.T) {
 			"maps3d": {Linkage: "shared", Manifest: "artifacts/maps3d.json"},
 		}},
 	}}
-	processEnv, err := appProcessEnv(root, cfg, "json", "local")
+	processEnv, err := appProcessEnv(root, cfg, nil, "json", "local")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +101,7 @@ func TestAppEnvironmentOptionalDotenvSources(t *testing.T) {
 				if err := validateLocalSecretsFiles(root, cfg, resolved); err != nil {
 					t.Fatalf("validate optional dotenv (overlay=%v): %v", withOverlay, err)
 				}
-				processEnv, err := appProcessEnv(root, cfg, "json", name)
+				processEnv, err := appProcessEnv(root, cfg, nil, "json", name)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -154,7 +154,7 @@ func TestAppEnvironmentRejectsDotenvErrors(t *testing.T) {
 						}
 					}
 				}
-				_, processErr := appProcessEnv(root, cfg, "json", "local")
+				_, processErr := appProcessEnv(root, cfg, nil, "json", "local")
 				for _, err := range []error{validateLocalSecretsFiles(root, cfg, resolved), processErr} {
 					if err == nil || !strings.Contains(err.Error(), tc.want) {
 						t.Fatalf("dotenv error = %v, want %q", err, tc.want)
@@ -201,16 +201,15 @@ func TestAppProcessEnvValidatesDatabaseURLWithoutDotenv(t *testing.T) {
 	root := t.TempDir()
 	cfg := app.Config{
 		Name: "demo", Envs: map[string]app.EnvConfig{"local": {Default: true}},
-		Dev: app.DevConfig{Services: map[string]app.DevServiceConfig{"reports": {}}},
 	}
 	for _, tc := range []struct{ value, want string }{
-		{"", "app database requires DATABASE_URL"},
+		{"", "app SQL requirements need DATABASE_URL"},
 		{"not-a-postgres-url", "DATABASE_URL must be a postgres:// or postgresql:// URL"},
 		{"postgres://user:private-password@host/%ZZ", "DATABASE_URL must be a postgres:// or postgresql:// URL"},
 		{"postgres://user:secret@localhost/reports", ""},
 	} {
 		t.Setenv("DATABASE_URL", tc.value)
-		processEnv, err := appProcessEnv(root, cfg, "json", "local")
+		processEnv, err := appProcessEnv(root, cfg, testSQLRequirements(t, "reports"), "json", "local")
 		if tc.want != "" {
 			if err == nil || cliExitCode(err) != 3 || !strings.Contains(err.Error(), tc.want) || strings.Contains(err.Error(), "private-password") {
 				t.Fatalf("database validation = %v, want %q", err, tc.want)

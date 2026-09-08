@@ -244,7 +244,7 @@ Generate and check the target before handoff.
 	for _, command := range []string{
 		"go test ./internal/generate",
 		"bun test internal/generate/testdata/typescript_client_conformance.test.ts",
-		".scenery/harness/bin/scenery harness self --summary --write",
+		"go run ./scripts/verify --summary --write",
 	} {
 		if !stringSliceContains(payload.VerificationCommands, command) {
 			t.Fatalf("missing command %q in %+v", command, payload.VerificationCommands)
@@ -344,7 +344,7 @@ func TestRunSceneryInspectDocsCatalogFiltersAndDirectCompletedPlan(t *testing.T)
 				}
 			case "completed status":
 				for _, document := range payload.Documents {
-					if isCompletedExecPlanDocument(document.docsKnowledgeDocument) && document.ReviewDue {
+					if isCompletedExecPlanDocument(document.KnowledgeDocument) && document.ReviewDue {
 						t.Fatalf("completed plan is review due: %+v", document)
 					}
 				}
@@ -396,24 +396,6 @@ func TestCompletedExecPlanFreshnessPolicy(t *testing.T) {
 				t.Fatalf("docsDocumentReviewDue(%+v) = %t, want %t", tc.doc, got, tc.want)
 			}
 		})
-	}
-}
-
-func TestValidateDocsKnowledgeDoesNotRequestHistoricalPlanReview(t *testing.T) {
-	t.Parallel()
-
-	root := writeHarnessSelfRepo(t, `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object"}`)
-	const planPath = "docs/plans/0002-history.md"
-	writeTestAppFile(t, root, planPath, "# Completed\n")
-	document := inspectDocsTestDocument(planPath, "History", "completed", []string{"plans", "execplans"})
-	document.ReviewAfter = "2026-07-01"
-	appendInspectDocsTestDocuments(t, root, document)
-
-	diagnostics, _ := validateDocsKnowledge(root)
-	for _, diagnostic := range diagnostics {
-		if strings.Contains(diagnostic.Message, "document review is due") && strings.Contains(diagnostic.Message, planPath) {
-			t.Fatalf("historical plan received review warning: %+v", diagnostic)
-		}
 	}
 }
 

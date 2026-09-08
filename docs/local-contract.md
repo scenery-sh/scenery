@@ -5,7 +5,7 @@ changing. Each section is self-contained.
 
 - [Current Scenery contract](#current-scenery-contract) — role-named source files, the implemented command surface, and the revision model.
 - [Status](#status) — what is implemented now versus explicitly out of scope.
-- [App Config](#app-config) — the `.scenery.json` schema: envs, watch, frontends, deploy targets, and dev services.
+- [App Config](#app-config) — the `.scenery.json` schema: envs, watch, frontends, deploy targets, and capability supply/setup.
 - [CLI Grammar](#cli-grammar) — the full implemented command grammar with flags, output modes, and exit semantics.
 - [Assistant model](#assistant-model) — provider-neutral MCP capabilities, public conversation routes, helper isolation, and inspection boundaries.
 - [Artifact Locations](#artifact-locations) — generated artifact paths and repo-local cache locations.
@@ -172,7 +172,6 @@ Implemented now:
 - `scenery validate list|inspect|graph|changed`
 - `scenery validate <profile> -o json`
 - `scenery harness -o json`
-- `scenery harness self -o json`
 - `scenery harness ui -o json`
 - `scenery traces clear -o json`
 - `scenery inspect app -o json`
@@ -199,7 +198,7 @@ Reserved by contract, implementation pending:
 
 Dev-only or beta surface:
 - `scenery up`
-- Postgres-only data platform: `dev.services`, managed app database naming, service schemas, `scenery` schema, and DB lifecycle commands
+- Postgres-only data platform: compiled SQL requirements, managed app database naming, logical schemas, `scenery` schema, and DB lifecycle commands
 - `scenery db shell`
 - `scenery db apply`
 - `scenery db seed`
@@ -420,8 +419,11 @@ Rules:
 - Stores with `tenant_scoped: true` physically namespace object keys under a Scenery-owned tenant prefix while keeping caller-visible keys unchanged in `Put`, `Head`, `Get`, `List`, `Delete`, and `DeletePrefix` results. Authenticated external storage routes derive the tenant from standard auth data. Private/internal tenant-scoped calls must set `storage.WithTenantID(ctx, tenantID)` or run inside a standard-auth request context; missing tenant context fails closed.
 - Storage `ContentType` and user metadata are durable object metadata. The local store persists that metadata in Scenery-owned sidecars under `__scenery/metadata/`, hides sidecars from `List`, and removes sidecars on `Delete` and `DeletePrefix`. Reserved HTTP/proxy routes carry metadata through `X-Scenery-Storage-Meta-*` headers. Offsite replication must copy the sidecars alongside the object files.
 - Reserved storage HTTP routes are app data-plane runtime routes mounted only when `SCENERY_STORAGE_CONFIG` is present. They are production-supported under the same operator-proxy storage runtime contract as `scenery.sh/storage`. `GET /__scenery/storage/<store>?prefix=<prefix>&delimiter=/&cursor=<cursor>&limit=<n>` lists objects. `PUT /__scenery/storage/<store>/<key>` uploads a streamed object and returns the object metadata as JSON. `GET` and `HEAD /__scenery/storage/<store>/<key>` download object bytes with `Content-Length`, `Content-Type`, `ETag`, `Last-Modified`, `Accept-Ranges`, and byte-range support. `DELETE /__scenery/storage/<store>/<key>` deletes one object, and `DELETE /__scenery/storage/<store>/<prefix>?recursive=1` deletes by prefix. Public routes enforce the store access policy: `auth` requires the app auth handler and `private` returns permission denied on the external HTTP surface. The same reserved storage routes are also registered on the runtime private route table for Scenery-internal, non-external storage work.
-- `dev.services` is a beta local-development config surface for scenery-owned Postgres schemas in one app database. If the app-level `DATABASE_URL` is present in the app/setup environment, Scenery treats that `postgres://` or `postgresql://` URL as external and manages no server or database; otherwise `scenery up` ensures one machine-wide Docker-backed shared Postgres server and creates one database per app root/worktree with one schema per service plus `scenery`. Managed Postgres database names are derived from app ID and a short hash of the absolute app root. Storage no longer needs a `dev.services` entry: declaring `storage.stores` is sufficient and `scenery up` serves those stores from the local backend.
-- App processes, setup commands, DB setup, and workers receive `DATABASE_URL` plus per-service `<SERVICE>_DATABASE_URL` values for the app database. `SCENERY_DATABASE_JSON` describes the app database, URL, source (`managed` or `external`), and service schemas. Headless runtimes fail closed when database services are configured and no explicit `DATABASE_URL` is present.
+- SQL requirements come from the compiled application, never a second config list. `dev` and `dev.services` are rejected. Registered services' typed `data_source` dependencies supply canonical identity, provider/capabilities, declaration provenance, lifecycle, and the logical `config.database` name. Different module instances remain distinct requirements; explicitly shared sources retain all consumers. Logical names normalize to PostgreSQL schemas; reserved names, overlong names, and distinct names colliding on one schema fail compilation before provisioning. Standard auth contributes the reserved `scenery` binding when `auth.enabled`; registered durable executions contribute it through their engine. An explicit `SCENERY_DURABLE_ENDPOINT` supplies durable-only requirements remotely, but does not remove an auth requirement.
+- `scenery inspect app -o json` returns `sql_requirements` (always an array) from the current successful compilation. Each item includes `kind`, canonical `address` (or framework `config_path`), `provider`, `capabilities`, `name`, `schema`, `lifecycle`, `consumers`, and `origin`. Inspection does not connect to or provision SQL. Invalid source remains a compilation failure; retained allocation evidence cannot stand in for a valid current graph.
+- An explicit app/setup `DATABASE_URL` selects external PostgreSQL supply: Scenery does not create/delete its server or database, and equal URLs intentionally share data. Without it, local provisioning requires every selected SQL requirement to declare `lifecycle = "managed"`; external/attached/ephemeral requirements do not authorize allocation. `scenery up` uses the existing dedicated container and volume per canonical app root/worktree, one app database, logical schemas and `scenery`. A no-SQL app starts without PostgreSQL; `db list -o json` succeeds with `database: null` and performs no allocation. Managed names derive from app ID and the canonical app root.
+- App processes and setup receive `DATABASE_URL`, per-binding `<SERVICE>_DATABASE_URL`, and `SCENERY_DATABASE_JSON` describing resolved SQL supply (`managed` or `external`). Generated entrypoints configure those existing bindings before constructors, without database IO; explicit per-binding URLs remain supported in standalone generated runtimes. `db.Get()` selects the single supplied application binding (excluding framework `scenery` when another binding exists); ambiguous calls require a name. `db.Get(name)` consumes supplied bindings, or explicit endpoint supply for a named standalone caller, and never discovers `.scenery.json`. Workers with local SQL requirements require explicit `DATABASE_URL`.
+- Retained ownership, not current requirements, controls database stop, cleanup and snapshot recovery. Snapshot schemas come from the selected actual database catalog, not current declarations; invalid or removed `.scn` does not strand owned data. An archive is never proof of target ownership. Existing stopped-owner, verified-allocation and explicit overwrite-approval requirements still apply.
 - `scenery up` prepares declared local DB setup before the app process starts. When app config declares `database.apply`, service-local seed files, typed fixtures, or `database.seed.commands`, the supervisor runs the same split lifecycle as `scenery db setup`: apply first, then seed. It passes the same managed database URL env values that the app child receives, so setup targets the dev-runtime database. Successful setup is fingerprinted from `database.apply` config plus every seed SQL, fixture, command definition, and declared command-input hash; ordinary rebuilds skip setup until those inputs change. Apps can set `database.seed.enabled: false` to opt out of every seed kind.
 - Native TypeScript clients are declared with `typescript_client` resources in `app.scn`; `materialization = "source"` writes the managed `output_root`, while `"cache"` writes `.scenery/gen/typescript/<name>`. Generate either with `scenery generate --target typescript_client.<name>`. Standard Google OAuth contributes framework-owned connection start, connection status, and disconnect resources to inspection and client generation when it is enabled; these describe the existing runtime handlers without adding a second runtime composition path. An optional singleton `react { tsconfig = "path/to/tsconfig.json" }` block adds a managed `react/` subtree: one adapter per declared `content_page`, `table_page`, `split_page`, `workspace_page`, or `detail_page`; typed `routes.generated.ts`; the TanStack-only `app.generated.tsx` route-tree/shell adapter; `index.ts`; and the binary-owned `@scenery/ui` catalog under `react/scenery-ui/`. Generated search validators read each authored query wire name (including snake-case names) and expose its camel-case TypeScript property. Dynamic authored path segments become TanStack route segments and are passed to generated detail components as typed string params. `createSceneryApp` combines generated pages with one app-owned `SceneryRouteDescriptor` array and fixed auth/top-bar/content/link/icon slots. Its optional generated `client` option is passed to every generated page, so one app-owned `PublicApiClient` can supply bearer authentication, custom fetch behavior, or a non-default API base without replacing generated routes. The generated adapter owns the root/shell route tree, `Outlet`, active navigation, intent preloading, and catalog `ClientAppShell`; TanStack Router remains a consuming-app peer and no catalog file imports it. Generated loaders otherwise use the browser-facing `/api/` route on the current origin, accept an optional generated-client `client` prop for app-owned fetch/auth behavior, preserve authored order, and run through the consuming app's TanStack Query client. Stable page-address query keys provide caching, deduplication, retry, and invalidation; typed client failures remain renderable data, while exhausted transport or decoding exceptions map back into the same page error state. Persistent storage is an app-owned QueryClient policy and is not enabled for arbitrary generated results. Reusable catalog components and blessed Astryx primitives are exported from `react/scenery-ui/index.ts`; semantic StyleX variables are the `t` var group in the generated-ownership-marked `react/scenery-ui/tokens.stylex.ts`. Both surfaces keep Astryx, StyleX, React, TanStack Query, and TanStack Router as peers, and the consuming React tree provides one `QueryClientProvider`. A consuming app aliases `@scenery/ui` to the materialized `index.ts` in TypeScript and its bundler. Apps using semantic tokens also alias `@scenery/ui/tokens.stylex` to the materialized defining module in TypeScript, the bundler, and the StyleX compiler plugin's own `aliases` option; a TypeScript-or-bundler-only alias is insufficient because StyleX resolves defining modules independently. Direct Astryx imports remain the escape hatch for unblessed UI. The descriptor records `ui_catalog_roots`. Before any artifact commit, Scenery stages the whole target beside its final root and runs the exact checksummed managed TypeScript 7 `tsc` binary with the declared config; `SCN6320` identifies an incompatible declared override, `SCN6321` an unrelated reachable application error, and `SCN6322` missing checker/config/dependency readiness. Generation never invokes Node, bun, or a `PATH` TypeScript compiler.
 
@@ -728,9 +730,15 @@ scenery validate changed [--base <ref>] [--app-root <path>] [-o json] [--write] 
 
 ### Harness, inspection, and observability
 
+Repository verification is separate from the application CLI. From the Scenery
+repository root, use `go run ./scripts/verify [--repo-root <path>] [--summary]
+[-o human|json] [--write] [--quick|--race|--release] [--fresh-tests]`.
+`scenery harness self` is not a command and fails with `invalid_request`
+(`SCN8001`, exit 2); it is not forwarded. App/UI harnesses and bounded report
+inspection remain product commands.
+
 ```text
 scenery harness [--app-root <path>] [-o json] [--write] [--with-validation[=<profile>]]
-scenery harness self [--repo-root <path>] [--summary] [-o human|json] [--write] [--quick|--race|--release] [--fresh-tests]
 scenery harness ui -o json [--app-root <path>] [--dashboard-url <url>] [--headed] [--write]
 scenery inspect app|routes|services|endpoints|build|paths|generators|durable|storage|observability|validation|assistants -o json [--app-root <path>]
 scenery inspect assistants [--implementation] -o json [--app-root <path>]
@@ -757,7 +765,7 @@ scenery worktree list [--app-root <path>] [-o json]
 scenery worktree remove <name> [--app-root <path>] [-o json]
 ```
 
-`scenery db list -o json` reports the app Postgres database as `scenery.db.list`; the record includes the database name, redacted URL, source (`managed` or `external`), optional size, and the configured service schemas. `scenery db shell [service]` opens `psql` on the app database; a service argument pins `search_path` to `<service_schema>,scenery`. `scenery db reset [service]` resets one service schema with `ResetSchema` and clears the current app's discovered seed-ledger identities for that service so the following setup reconstructs its initial data; without a service it resets the managed app database and requires `--yes`. `scenery db drop` drops the managed app database. Destructive reset/drop operations require a stopped worktree, hold its exclusive operation lock, and refuse external DSNs. `scenery db server status|start|stop|logs [--app-root <path>]` selects only that worktree's retained cluster. Status is read-only and reports its scope, retained resource identity, and any incomplete restore; stop retains the container, volume, and credentials. `scenery db apply` runs only `database.apply.command` and does not run seeds or SQLC generation. Standalone apply/seed holds worktree ownership through all SQL and child commands; `db setup` holds it continuously across both phases.
+`scenery db list -o json` reports the app Postgres database as `scenery.db.list`; the record includes the database name, redacted URL, source (`managed` or `external`), optional size, and the compiled service bindings. `scenery db shell [service]` opens `psql` on the app database; a service argument pins `search_path` to `<service_schema>,scenery`. `scenery db reset [service]` resets one service schema with `ResetSchema` and clears the current app's discovered seed-ledger identities for that service so the following setup reconstructs its initial data; without a service it resets the managed app database and requires `--yes`. `scenery db drop` drops the managed app database. Destructive reset/drop operations require a stopped worktree, hold its exclusive operation lock, and refuse external DSNs. `scenery db server status|start|stop|logs [--app-root <path>]` selects only that worktree's retained cluster. Status is read-only and reports its scope, retained resource identity, and any incomplete restore; stop retains the container, volume, and credentials. `scenery db apply` runs only `database.apply.command` and does not run seeds or SQLC generation. Standalone apply/seed holds worktree ownership through all SQL and child commands; `db setup` holds it continuously across both phases.
 
 `scenery snapshot save` writes one portable zip containing the explicitly selected app database and/or configured storage stores. The manifest carries the singular current `scenery.snapshot.manifest` identity and records every payload byte count and SHA-256 digest; load verifies the complete archive before mutation and rejects undeclared, duplicate, unsafe, or corrupt entries. Managed Postgres dumps and restores use the matching tools inside the managed container. External database saves and merge loads use host tools; overwrite refuses external databases.
 
@@ -768,6 +776,10 @@ scenery worktree remove <name> [--app-root <path>] [-o json]
 `scenery down` stops the selected worktree's verified runtime children and managed PostgreSQL container, retaining database data and credentials. It is idempotent when no live runtime exists and never allocates an absent cluster. `scenery down --db` additionally drops only the retained app database, not the cluster volume, and refuses external DSNs. `scenery down --state` removes only the selected app root's disposable session state. Durable ownership records remain outside the checkout.
 
 `scenery worktree create <name> -o json` runs `git worktree add -b <name>` next to the current app root and emits `scenery.worktree.create`. `scenery worktree list -o json` emits `scenery.worktree.list` from `git worktree list --porcelain`. `scenery worktree remove <name> -o json` resolves the target from Git and removes only the stopped checkout; it has no database-deletion option. Ordinary Git removal also retains the worktree database. `scenery ps -o json` discovers retained stopped/orphaned roots independently of Git. Explicit `scenery prune --older-than <duration> --app-root <absolute-path> --db` removes the selected inactive worktree's entire verified cluster, container, and volume. It refuses live, incompatible, ambiguous, or external targets and retains authority after a failed cleanup so it can be retried.
+
+`db list` derives service bindings from the current compiled SQL requirements,
+then observes resolved supply; it does not allocate a cluster. An app without
+SQL requirements returns `database: null` without opening a database connection.
 
 DB lifecycle split:
 - `scenery db apply` mutates schema or app-owned database setup only. It does not run seed files or SQLC generation.
@@ -931,7 +943,7 @@ Local observability:
 
 Secrets and environment:
 
-- The human env-var reference is [Environment Reference](environment.md). The machine-readable env contract is [environment.registry.json](environment.registry.json); it is strict current source with `kind: scenery.environment.registry` plus the exact digest `schema_revision`, and `scenery harness self` fails on identity drift or unregistered production env usage.
+- The human env-var reference is [Environment Reference](environment.md). The machine-readable env contract is [environment.registry.json](environment.registry.json); it is strict current source with `kind: scenery.environment.registry` plus the exact digest `schema_revision`, and `go run ./scripts/verify` fails on identity drift or unregistered production env usage.
 - Do not add a new scenery-owned production env var as a convenience escape hatch. Prefer app config, explicit CLI flags, or checked-in manifests; if env is truly required, add a registry entry with rationale, docs, and tests in the same change.
 - Process environment always wins over values loaded from local files.
 - The stable runtime path reads `.env` from the app root for local secret population when a value is not already present in the process environment.
@@ -998,14 +1010,14 @@ scenery harness -o json --write
 - `--write` persists large evidence payloads under `.scenery/harness/artifacts/<run-id>/`
 - `--with-validation` and `--with-validation=<profile>` run app validation after the core harness and add a small `validation` pointer with `profile`, `ok`, and `result_path`; the validation result itself stays in `.scenery/harness/validation/latest.json`
 
-Implemented `harness self` JSON rules:
+Implemented repository-verifier JSON rules (`go run ./scripts/verify`):
 
 ```text
-scenery harness self --summary
-scenery harness self --summary -o json
-scenery harness self -o json
-scenery harness self --summary --write
-scenery harness self -o json --write
+go run ./scripts/verify --summary
+go run ./scripts/verify --summary -o json
+go run ./scripts/verify -o json
+go run ./scripts/verify --summary --write
+go run ./scripts/verify -o json --write
 ```
 
 - `--summary` selects concise human output
@@ -1023,7 +1035,7 @@ scenery harness self -o json --write
 - `--fresh-tests` is the explicit fresh measurement or nondeterminism-investigation lane. It discovers the complete `./...` graph, reuses linked test binaries by Go build ID, executes every test body with `-test.count=1`, preserves packages without tests in JSON evidence, uses package parallelism six, and builds at most four missing binaries concurrently. Both concurrency values are pinned from repeated A/B measurement.
 - linked binaries, the workspace manifest, and package timing estimates for the explicit fresh lane are disposable under `.scenery/harness/test-binaries/`. The manifest covers toolchain/build environment and tracked/untracked workspace contents. Disposable test binaries disable VCS stamping so committing unchanged contents does not relink the repository.
 - `.scenery/harness/test-timing-latest.json` identifies the timing lane. Cached and fresh runs use a five-second advisory budget and target; release runs keep the 30-second enforced budget and five-second optimization target.
-- only the explicit `--fresh-tests` lane performs isolated timing confirmation. Packages over their budget are rerun once through one serial `-p 1` confirmation process. Every exact top-level `TestX` root is classed `fast` by default; its 60ms target selects confirmation candidates and its hard budget is 100ms. A candidate is run 20 times in a shared same-package `-parallel=1` process; `budgets.confirmation_percentile` is 95, whose nearest-rank value is the second-highest of 20 samples. A p95 exactly equal to 100ms violates the budget. Timing the top-level root includes its subtests and sums every active segment before and after `t.Parallel`; only time paused in the scheduler queue is excluded. Package timing separately retains `TestMain` and package setup cost. The default package budget remains ten seconds, with an explicit fifteen-second baseline for `scenery.sh/cmd/scenery`.
+- only the explicit `--fresh-tests` lane performs isolated timing confirmation. Packages over their budget are rerun once through one serial `-p 1` confirmation process. Every exact top-level `TestX` root is classed `fast` by default; its 60ms target selects confirmation candidates and its hard budget is 100ms. A candidate runs in 20 separate serial linked-test processes through `go tool test2json`, each using `-test.count=1 -test.parallel=1 -test.run=^ExactRoot$`. Each selected package is linked once into a disposable directory for that confirmation run and removed afterward. No new binary cache is created; the existing Go build cache and `internal/testsuite` cache/scheduling remain unchanged. Cached, incomplete, skipped, malformed or duplicate evidence cannot produce a confirmation. Mandatory release confirmation fails closed. `budgets.confirmation_percentile` is 95, whose nearest-rank value is the second-highest of 20 samples. A p95 exactly equal to 100ms violates the budget. Timing the top-level root includes its subtests and sums every active segment before and after `t.Parallel`; only time paused in the scheduler queue is excluded. Package timing separately retains `TestMain` and package setup cost. The default package budget remains ten seconds, with an explicit fifteen-second baseline for `scenery.sh/cmd/scenery`.
 - `budgets.integration_exceptions` remains in the report for schema stability and MUST be an empty array. Any configured entry is a timing-policy failure: every exact top-level Go test root is subject to the repeated isolated 100ms p95 budget, without process, package, prefix, regexp, subtest, `TestMain`, setup, or shared-fixture exemptions.
 - release mode owns explicit external-boundary probes outside the Go-test lane. They cover local-agent restart; assistant initialization and production; CLI exit/telemetry; deploy SSH; desktop, dev follower, managed-process, named-lock, session-cleanup, and frontend lifecycle; worktree Git lifecycle and changed-file inspection; edge and Victoria processes, including published static frontend HTTP caching, SPA fallback, HEAD/ranges, method limits, API proxying, blocked paths, and raw traversal containment; native-contract and generated-package compilation; snapshot backup and code tasks; TypeScript checking; fresh test-binary caching; toolchain source builds; build-info freshness; Go package inspection; and the generated native/Bun application. Each boundary retains a focused in-process Go test for ordinary coverage. These probes do not weaken or consume the 100ms top-level-test budget.
 - `budgets.confirmation_scope` selects which fast candidates are confirmed. `--fresh-tests` alone uses `regressions`: a candidate is re-run when the previous `.scenery/harness/test-timing-latest.json` did not record it, when it is now at least 25% and 10ms worse, whenever its current observation is at or above the hard budget, or while its prior confirmed p95 remains at or above the hard budget. Confirmed violations are advisory warnings in this lane. `--release --fresh-tests` uses `all`, confirms every candidate, and makes confirmed fast-test violations errors. Package regressions retain their separate 25% plus 0.5s confirmation threshold. Every skipped candidate is recorded in `deferred_confirmations` with its baseline, and a single informational diagnostic reports the skip count. A missing, unreadable, or schema-stale baseline confirms everything.
@@ -1049,7 +1061,7 @@ Default agent loop:
 
 ```text
 scenery doctor -o json
-.scenery/harness/bin/scenery harness self --quick --summary --write
+go run ./scripts/verify --quick --summary --write
 cat .scenery/harness/agent-context.json
 # implement
 # run changed_area.recommended_commands
@@ -1058,7 +1070,7 @@ cat .scenery/harness/agent-context.json
 `release-sensitive-or-runtime` loop:
 
 ```text
-.scenery/harness/bin/scenery harness self --release --summary --write
+go run ./scripts/verify --release --summary --write
 scripts/release-gate.sh
 ```
 
@@ -1080,7 +1092,7 @@ scenery inspect harness timing --top 10 -o json
 - focused artifact output reads known `.scenery/harness/*-latest.json` files by name (`self-harness`, `self-summary`, `toolchain`, `changed-area`, `drift`, `test-timing`, `fixture-matrix`, `schema-validation`, `agent-context`)
 - diagnostics output caps returned diagnostics at 50 and supports `--severity error|warning`
 - timing output reads `.scenery/harness/test-timing-latest.json`, sorts slow packages/tests by duration, and caps both lists with `--top`
-- a missing named artifact file (including the timing artifact) is `failed_precondition` (`SCN8003`, exit 3) pointing at `scenery harness self --summary --write`; an unknown artifact name is `invalid_request` (`SCN8001`, exit 2), never an internal `SCN9000`
+- a missing named artifact file (including the timing artifact) is `failed_precondition` (`SCN8003`, exit 3) pointing at `go run ./scripts/verify --summary --write`; an unknown artifact name is `invalid_request` (`SCN8001`, exit 2), never an internal `SCN9000`
 - manifest output reads latest harness outputs when present and returns their normalized `artifacts` and `evidence` arrays
 - evidence records use `scenery.harness.artifact` and include `command`, `cwd`, `started_at`, `duration_ms`, `exit_code`, output tails, artifact references, and `repro_command`
 
@@ -1091,7 +1103,7 @@ scripts/release-gate.sh
 ```
 
 - this is the high-signal pre-release gate, not the normal inner-loop developer check
-- it runs the Scenery repo release checks only: Go tests, race tests, lint, dashboard UI typecheck/build, dashboard UI embed generation, worktree-local binary freshness checks, self-harness, source-only working-tree snapshot build, fixture runtime smoke, optional generic external app smoke, public-router safety, production secrets checks, and artifact hygiene checks. CLI proof uses `go build -o` into disposable directories, never `go install`; the source snapshot includes nonignored new authored files and excludes tracked deletions and ignored caches.
+- it invokes `go run ./scripts/verify --release --summary --write` once for common Go/race/UI/release checks, without a second shell implementation of those suites. The shell retains lint, dashboard embed preparation, source-only working-tree snapshot build, fixture binary smoke, optional generic external-app read-only smoke, public-router safety and artifact exclusion. Embed preparation and the verifier's later source-build/actual-product freshness comparison are distinct lifecycle boundaries. The default shell target is the verifier's prepared `.scenery/harness/bin/scenery`; an explicit `SCENERY_BIN` remains a distinct selected target. Source-snapshot CLI proof uses a disposable `go build -o`, never `go install`; the snapshot includes nonignored new authored files and excludes tracked deletions and ignored caches.
 - release-gate logs should use the same `scenery.harness.artifact` evidence shape for failed or expensive steps
 - `SCENERY_RELEASE_GATE_EXTERNAL_APP_ROOT` may point at a read-only scenery app for the optional external app smoke
 - `SCENERY_RELEASE_GATE_LOG_DIR` may override the log directory; otherwise logs are written under `.scenery/release-gate/`
@@ -1233,7 +1245,7 @@ Rules:
   digest of its complete self-normalized JSON Schema. Transient private
   artifacts without a checked schema bind a complete structural descriptor;
   readers reject any other identity instead of translating an older shape.
-- Use `scenery harness -o json` for framework app-model proof, `scenery validate <profile> -o json` for app-owned quality gates, and `scenery harness self --summary` for scenery repo validation. `harness/latest.json`, `harness/validation/latest.json`, `harness/self-latest.json`, and `harness/self-summary-latest.json` are local snapshots written by `--write`; `-o json` is the explicit full archive stdout mode.
+- Use `scenery harness -o json` for framework app-model proof, `scenery validate <profile> -o json` for app-owned quality gates, and `go run ./scripts/verify --summary` for scenery repo validation. `harness/latest.json`, `harness/validation/latest.json`, `harness/self-latest.json`, and `harness/self-summary-latest.json` are local snapshots written by `--write`; `-o json` is the explicit full archive stdout mode.
 - Future implementation should keep cache paths predictable for debugging, but external tools and agents should integrate through command JSON output.
 
 ## JSON Schemas
@@ -1747,7 +1759,7 @@ Example output:
     }
   ],
   "verification_commands": [
-    ".scenery/harness/bin/scenery harness self --summary --write",
+    "go run ./scripts/verify --summary --write",
     "go test ./...",
     "go test ./internal/generate"
   ]

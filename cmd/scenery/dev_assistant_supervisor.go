@@ -1106,7 +1106,7 @@ func (s *assistantSupervisor) monitorInstance(instance *assistantProcessInstance
 	select {
 	case <-s.ctx.Done():
 		return
-	case <-instance.process.done:
+	case <-instance.process.Done:
 	}
 	s.mu.Lock()
 	if s.closed || instance.stopping || s.instances[instance.definition.Address] != instance {

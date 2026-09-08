@@ -9,7 +9,7 @@ import (
 func TestWorktreeEdgeLeaseRequiresLocalExplicitDomain(t *testing.T) {
 	t.Parallel()
 	request := RegisterRequest{
-		BaseAppID: "demo", AppRoot: t.TempDir(), SessionID: "edge-lease",
+		BaseAppID: "demo", AppRoot: t.TempDir(), SessionID: "edge-lease", Branch: "test",
 		OwnerPID: os.Getpid(), Owner: testProcessOwner(), Status: "running",
 		RouteManifest: RouteManifest{Mode: RouteModePath, DomainHost: "demo.example.test"},
 		WorktreeProxy: &Backend{Network: "tcp", Addr: "127.0.0.1:4011"},
@@ -47,7 +47,7 @@ func TestWorktreeEdgeLeaseDoesNotWriteRuntimeManifest(t *testing.T) {
 	registry.ownerVerifier = testOwnerVerifier
 	appRoot := filepath.Join(root, "app")
 	session, err := registry.Upsert(RegisterRequest{
-		BaseAppID: "demo", AppRoot: appRoot, SessionID: "edge-lease",
+		BaseAppID: "demo", AppRoot: appRoot, SessionID: "edge-lease", Branch: "test",
 		OwnerPID: os.Getpid(), Owner: testProcessOwner(), Status: "running",
 		RouteManifest: RouteManifest{Mode: RouteModePath, DomainHost: "demo.example.test"},
 		WorktreeProxy: &Backend{Network: "tcp", Addr: "127.0.0.1:4011"},

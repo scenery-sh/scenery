@@ -1,13 +1,44 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"database/sql"
+	"os"
 	"strings"
 	"testing"
 
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/postgresdb"
 )
+
+func TestDBListWithoutSQLDoesNotAllocateOrConnect(t *testing.T) {
+	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
+	t.Setenv("DATABASE_URL", "")
+	root := t.TempDir()
+	writeTestAppFile(t, root, ".scenery.json", `{"name":"no-sql"}`)
+	previous := openPostgresDatabase
+	openPostgresDatabase = func(context.Context, string) (*sql.DB, error) {
+		t.Fatal("no-SQL listing attempted a database connection")
+		return nil, nil
+	}
+	t.Cleanup(func() { openPostgresDatabase = previous })
+	var output bytes.Buffer
+	if err := runDBList(t.Context(), &output, []string{"--app-root", root, "-o", "json"}); err != nil {
+		t.Fatal(err)
+	}
+	var response databaseListResponse
+	if err := decodeCLIJSON(output.Bytes(), &response); err != nil || response.Database != nil {
+		t.Fatalf("no-SQL listing = %s, error = %v", output.String(), err)
+	}
+	paths, err := commandWorktreePaths(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(paths.Directory); !os.IsNotExist(err) {
+		t.Fatalf("read-only listing allocated worktree state: %v", err)
+	}
+}
 
 func TestDBCommandRejectsMissingOrRemovedSubcommand(t *testing.T) {
 	t.Parallel()
@@ -96,16 +127,14 @@ func TestResolveDatabaseURLForConfigUsesAppDatabaseURL(t *testing.T) {
 	cfg := app.Config{
 		Name: "demo",
 		ID:   "demo",
-		Dev: app.DevConfig{Services: map[string]app.DevServiceConfig{
-			"main": {},
-		}},
 	}
 	dsn := "postgres://user:secret@localhost/demo"
-	env, _, err := managedDatabaseEnv(context.Background(), root, cfg, []string{appDatabaseURLEnv + "=" + dsn})
+	requirements := testSQLRequirements(t, "main")
+	env, _, err := managedDatabaseEnv(context.Background(), root, cfg, requirements, []string{appDatabaseURLEnv + "=" + dsn})
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := resolveDatabaseURLForConfigFromEnv(cfg, env)
+	got, err := resolveDatabaseURLForConfigFromEnv(requirements, env)
 	if err != nil {
 		t.Fatalf("resolveDatabaseURLForConfig returned error: %v", err)
 	}
@@ -120,17 +149,14 @@ func TestResolveDatabaseURLForConfigDefaultsToDBService(t *testing.T) {
 	root := t.TempDir()
 	cfg := app.Config{
 		Name: "demo",
-		Dev: app.DevConfig{Services: map[string]app.DevServiceConfig{
-			"db":     {},
-			"search": {},
-		}},
 	}
 	dsn := "postgres://user:secret@localhost/demo"
-	env, _, err := managedDatabaseEnv(context.Background(), root, cfg, []string{"DATABASE_URL=" + dsn})
+	requirements := testSQLRequirements(t, "db", "search")
+	env, _, err := managedDatabaseEnv(context.Background(), root, cfg, requirements, []string{"DATABASE_URL=" + dsn})
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := resolveDatabaseURLForConfigFromEnv(cfg, env)
+	got, err := resolveDatabaseURLForConfigFromEnv(requirements, env)
 	if err != nil {
 		t.Fatalf("resolveDatabaseURLForConfig returned error: %v", err)
 	}

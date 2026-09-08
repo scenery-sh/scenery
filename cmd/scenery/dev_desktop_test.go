@@ -126,17 +126,14 @@ func TestDesktopShellExitClearsRegistrationWithoutRestartInProcess(t *testing.T)
 
 	done := make(chan struct{})
 	close(done)
-	outputDone := make(chan struct{})
-	close(outputDone)
 	desktop := &managedDesktopProcess{
 		Name: "web",
 		Process: &devManagedProcess{
-			Name:       "web",
-			Kind:       "desktop",
-			Role:       "desktop-shell",
-			PID:        42,
-			done:       done,
-			outputDone: outputDone,
+			Name: "web",
+			Kind: "desktop",
+			Role: "desktop-shell",
+			PID:  42,
+			Done: done,
 		},
 	}
 	var updates []int

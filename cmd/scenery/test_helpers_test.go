@@ -229,9 +229,9 @@ func writeHarnessSelfRepo(t *testing.T, schema string, requestedSchemas ...strin
 	root := t.TempDir()
 	writeTestAppFile(t, root, "go.mod", "module scenery.sh\n\ngo 1.27.0\n")
 	writeTestAppFile(t, root, "AGENTS.md", "See [harness](docs/harness-engineering.md).\n")
-	writeTestAppFile(t, root, "SKILL.md", strings.Join(requiredSkillMentions, "\n")+"\n")
+	writeTestAppFile(t, root, "SKILL.md", "Scenery application guidance.\n")
 	writeTestAppFile(t, root, "PLAN.md", "See [docs](docs/index.md).\n")
-	writeTestAppFile(t, root, "PLANS.md", validExecPlanStandardForTest())
+	writeTestAppFile(t, root, "PLANS.md", "# Scenery Execution Plans\n\nRepository plan guidance.\n")
 	writeTestAppFile(t, root, "docs/index.md", "See [local](local-contract.md), [plans](plans/active.md), and [debt](tech-debt.md).\n")
 	writeTestAppFile(t, root, "docs/local-contract.md", "Contract.\n")
 	writeTestAppFile(t, root, "docs/environment.md", "Environment.\n")
@@ -337,18 +337,6 @@ func writeHarnessSelfRepo(t *testing.T, schema string, requestedSchemas ...strin
   "tech_debt": "docs/tech-debt.md"
 }`)
 	return root
-}
-
-func validExecPlanStandardForTest() string {
-	var b strings.Builder
-	b.WriteString("# scenery Execution Plans\n\n")
-	b.WriteString("## Required Sections\n\n")
-	for _, section := range requiredExecPlanSections {
-		b.WriteString("- `")
-		b.WriteString(section)
-		b.WriteString("`\n")
-	}
-	return b.String()
 }
 
 func chdirForTest(t *testing.T, dir string) func() {

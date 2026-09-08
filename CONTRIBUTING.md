@@ -25,7 +25,7 @@ before UI or full self-harness validation.
 After editing, refresh the validation selection:
 
 ```sh
-.scenery/harness/bin/scenery harness self --quick --summary --write
+go run ./scripts/verify --quick --summary --write
 cat .scenery/harness/agent-context.json
 ```
 

@@ -6,10 +6,11 @@ import (
 	"strings"
 
 	appcfg "scenery.sh/internal/app"
+	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/model"
 )
 
-func generateMain(appModel *model.App, cfg appcfg.Config, compositionImport string) ([]byte, error) {
+func generateMain(appModel *model.App, cfg appcfg.Config, compositionImport string, sql compiler.SQLRequirements) ([]byte, error) {
 	var buf strings.Builder
 	buf.WriteString("package main\n\n")
 	buf.WriteString("import (\n")
@@ -24,6 +25,19 @@ func generateMain(appModel *model.App, cfg appcfg.Config, compositionImport stri
 	}
 	buf.WriteString(")\n\n")
 	buf.WriteString("func main() {\n")
+	if len(sql) > 0 {
+		buf.WriteString("\tif err := sceneryruntime.ConfigureSQLBindings([]sceneryruntime.SQLBinding{\n")
+		for _, binding := range sql.Bindings(false) {
+			durableOnly := true
+			for _, requirement := range sql {
+				if requirement.Name == binding.Name && requirement.Kind != compiler.SQLDurable {
+					durableOnly = false
+				}
+			}
+			fmt.Fprintf(&buf, "\t\t{Name: %q, Schema: %q, DurableOnly: %t},\n", binding.Name, binding.Schema, durableOnly)
+		}
+		buf.WriteString("\t}); err != nil {\n\t\t_, _ = fmt.Fprintf(os.Stderr, \"scenery: %v\\n\", err)\n\t\tos.Exit(1)\n\t}\n")
+	}
 	if cfg.Auth.Enabled {
 		fmt.Fprintf(&buf, "\tif err := sceneryauth.RegisterStandard(%s); err != nil {\n", authConfigLiteral(cfg.Auth))
 		buf.WriteString("\t\t_, _ = fmt.Fprintf(os.Stderr, \"scenery: %v\\n\", err)\n")

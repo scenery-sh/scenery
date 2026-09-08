@@ -4,6 +4,7 @@
 
 `internal/machine` owns Scenery's singular cross-process CLI JSON and JSONL
 envelope shapes plus the common identity header for cross-process artifacts.
+It also owns the one current command-data payload schema identity registry.
 
 ## Local Contracts
 

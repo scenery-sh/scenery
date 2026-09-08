@@ -2,6 +2,5 @@
   "name": "worktree-library",
   "id": "worktree-library",
   "envs": {"local": {"default": true}, "preview": {}},
-  "dev": {"services": {"library": {}}},
   "database": {"apply": {"command": "go run ./cmd/schema"}}
 }

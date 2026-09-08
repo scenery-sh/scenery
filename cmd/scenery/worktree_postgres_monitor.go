@@ -20,6 +20,13 @@ type worktreeDatabaseTarget struct {
 // Docker's dynamically published port while keeping all database data intact.
 func (s *devSupervisor) rememberWorktreeDatabase(database postgresdb.Database, appID string) {
 	var target *worktreeDatabaseTarget
+	var metadata *dashboardPostgresDatabase
+	if database.Database != "" {
+		metadata = &dashboardPostgresDatabase{Name: database.Database, Source: string(database.Source)}
+		for _, binding := range database.Schemas {
+			metadata.Schemas = append(metadata.Schemas, dashboardPostgresSchema{Service: binding.Name, Schema: binding.Schema})
+		}
+	}
 	if database.Source == postgresdb.SourceManaged {
 		if parsed, err := url.Parse(database.URL); err == nil {
 			target = &worktreeDatabaseTarget{AppRoot: database.AppRoot, AppID: appID, ResourceID: database.ResourceID, Endpoint: parsed.Host}
@@ -27,6 +34,7 @@ func (s *devSupervisor) rememberWorktreeDatabase(database postgresdb.Database, a
 	}
 	s.mu.Lock()
 	s.postgresTarget = target
+	s.postgresMetadata = metadata
 	s.mu.Unlock()
 }
 

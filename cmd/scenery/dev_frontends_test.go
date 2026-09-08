@@ -465,19 +465,16 @@ func TestManagedFrontendExitPlansSingleRestartAndSessionUpdateInProcess(t *testi
 func fakeManagedFrontendProcess(name, addr string, pid int) *managedFrontendProcess {
 	done := make(chan struct{})
 	close(done)
-	outputDone := make(chan struct{})
-	close(outputDone)
 	return &managedFrontendProcess{
 		Name: name,
 		Addr: addr,
 		Process: &devManagedProcess{
-			Name:       name,
-			Kind:       "frontend",
-			Role:       "web-frontend",
-			PID:        pid,
-			StartedAt:  time.Now().UTC(),
-			done:       done,
-			outputDone: outputDone,
+			Name:      name,
+			Kind:      "frontend",
+			Role:      "web-frontend",
+			PID:       pid,
+			StartedAt: time.Now().UTC(),
+			Done:      done,
 		},
 	}
 }

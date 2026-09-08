@@ -1387,7 +1387,7 @@
       ],
       "owner": "scenery runtime",
       "rationale": "Per-service Postgres URL derived from the app database URL with a service-schema search_path",
-      "preferred_surface": ".scenery.json dev.services entries",
+      "preferred_surface": "compiled data_source bindings and framework SQL requirements",
       "replacement": "",
       "sunset": "",
       "docs": [
@@ -1409,7 +1409,7 @@
       ],
       "owner": "scenery runtime",
       "rationale": "Machine-readable registry of the app database, source, and service schemas",
-      "preferred_surface": ".scenery.json dev.services entries",
+      "preferred_surface": "compiled data_source bindings and framework SQL requirements",
       "replacement": "",
       "sunset": "",
       "docs": [

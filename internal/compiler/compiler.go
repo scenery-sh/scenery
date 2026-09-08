@@ -117,11 +117,18 @@ func compileResult(root string) (*Result, error) {
 	result.Manifest = manifest
 	result.ViewManifests = viewManifests
 	if manifest != nil {
-		frameworkResources, frameworkErr := standardAuthProjectionResources(absRoot, manifest.Resources)
+		authConfig, frameworkErr := frameworkAuthConfig(absRoot)
 		if frameworkErr != nil {
 			return nil, frameworkErr
 		}
-		result.FrameworkResources = frameworkResources
+		result.FrameworkResources = standardAuthProjectionResources(authConfig, manifest.Resources)
+		var requirementDiagnostics []Diagnostic
+		result.SQLRequirements, requirementDiagnostics = ProjectSQLRequirements(manifest.Resources, authConfig.Enabled)
+		result.Diagnostics = append(result.Diagnostics, requirementDiagnostics...)
+		if hasErrors(requirementDiagnostics) {
+			manifest.Diagnostics = append([]Diagnostic{}, result.Diagnostics...)
+			return result, nil
+		}
 		result.ContractStatus = "valid"
 		result.HTTPSurfaceRevisions, result.OpenAPIRevisions = computeHTTPProjectionRevisions(manifest)
 		// The language compiler never approximates the Go build graph.

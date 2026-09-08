@@ -54,8 +54,8 @@ func TestStandaloneDatabaseLifecycleRefusesLiveOwnerBeforeProvision(t *testing.T
 		t.Fatal(err)
 	}
 	defer func() { _ = lock.Release() }()
-	cfg := app.Config{Name: "demo", Dev: app.DevConfig{Services: map[string]app.DevServiceConfig{"db": {}}}}
-	_, _, err = beginDatabaseLifecycleEnv(t.Context(), root, cfg, nil)
+	cfg := app.Config{Name: "demo"}
+	_, _, err = beginDatabaseLifecycleEnv(t.Context(), root, cfg, testSQLRequirements(t, "db"), nil)
 	if err == nil || !strings.Contains(err.Error(), "live owner") {
 		t.Fatalf("lifecycle error = %v", err)
 	}

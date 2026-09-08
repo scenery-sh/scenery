@@ -1,0 +1,913 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"flag"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"scenery.sh/internal/appwalk"
+	"scenery.sh/internal/envpolicy"
+	"scenery.sh/internal/testsuite"
+)
+
+type harnessSelfOptions struct {
+	RepoRoot   string
+	JSON       bool
+	Write      bool
+	Mode       string
+	Output     string
+	FreshTests bool
+}
+
+func runSceneryHarnessSelf(ctx context.Context, stdout io.Writer, args []string) error {
+	opts, err := parseHarnessSelfArgs(args)
+	if err != nil {
+		return err
+	}
+	if opts.Mode == "" {
+		opts.Mode = harnessSelfModeDefault
+	}
+
+	repoRoot, err := discoverSceneryRepoRoot(opts.RepoRoot)
+	if err != nil {
+		return err
+	}
+
+	resp := harnessSelfResponse{
+		PayloadIdentity: newCLIPayloadIdentity("scenery.harness.self"),
+		OK:              true,
+		GeneratedAt:     time.Now().UTC().Format(time.RFC3339Nano),
+		Mode:            opts.Mode,
+		Repo: harnessSelfRepo{
+			Root:       repoRoot,
+			ModulePath: "scenery.sh",
+			GoModPath:  filepath.Join(repoRoot, "go.mod"),
+		},
+		Knowledge: buildHarnessSelfKnowledge(repoRoot),
+	}
+	artifactCtx := newHarnessArtifactContext(repoRoot, opts.Write)
+	localSceneryPath := harnessLocalSceneryBinaryPath(repoRoot)
+	resp.Steps = append(resp.Steps,
+		runHarnessLocalSceneryBuildStep(ctx, repoRoot, localSceneryPath, artifactCtx),
+		runHarnessSceneryBinaryStep(repoRoot, localSceneryPath),
+	)
+
+	toolchainStep, toolchain := runHarnessToolchainPreflightStep(ctx, repoRoot)
+	resp.Toolchain = toolchain
+	changedAreaStep, changedArea := runHarnessChangedAreaStep(ctx, repoRoot)
+	resp.ChangedArea = changedArea
+	driftStep, drift := runHarnessDriftStep(ctx, repoRoot)
+	resp.Drift = drift
+	resp.Steps = append(resp.Steps,
+		toolchainStep,
+		runHarnessKnowledgeStep(repoRoot),
+	)
+	resp.Steps = append(resp.Steps,
+		changedAreaStep,
+		runHarnessInspectDocsStep(repoRoot),
+		runHarnessArchitectureStep(repoRoot),
+		driftStep,
+	)
+
+	switch opts.Mode {
+	case harnessSelfModeQuick:
+		resp.Steps = append(resp.Steps, runHarnessAffectedPackageTestsStep(ctx, repoRoot, changedArea, opts.FreshTests, artifactCtx))
+	case harnessSelfModeDefault, harnessSelfModeRace, harnessSelfModeRelease:
+		goTestStep, testTiming := runHarnessGoTestTimingStepForMode(ctx, repoRoot, opts.Mode, opts.FreshTests, artifactCtx)
+		resp.TestTiming = testTiming
+		resp.Steps = append(resp.Steps,
+			goTestStep,
+			runHarnessExecStep(ctx, repoRoot, "go vet", []string{"go", "vet", "./..."}, artifactCtx),
+			runHarnessParallelDevStep(ctx, repoRoot),
+			runHarnessPostgresProbeStep(ctx, repoRoot, opts.Mode == harnessSelfModeRelease),
+		)
+		dashboardUIRoot := filepath.Join(repoRoot, filepath.FromSlash(dashboardUIRootRel))
+		consoleDepsStep, consoleReady := runHarnessConsoleDepsStep(ctx, dashboardUIRoot, artifactCtx)
+		resp.Steps = append(resp.Steps, consoleDepsStep)
+		if consoleReady {
+			resp.Steps = append(resp.Steps,
+				runHarnessExecStep(ctx, dashboardUIRoot, "dashboard ui typecheck", []string{"bun", "run", "typecheck"}, artifactCtx),
+				runHarnessExecStep(ctx, dashboardUIRoot, "dashboard ui build", []string{"bun", "run", "build"}, artifactCtx),
+				runHarnessDashboardFreshnessStep(ctx, repoRoot),
+				runHarnessExecStep(ctx, repoRoot, "Scenery TypeScript client conformance", []string{"bun", "test", "internal/generate/testdata/typescript_client_conformance.test.ts"}, artifactCtx),
+				runHarnessExecStep(ctx, repoRoot, "Scenery TypeScript client typecheck", []string{filepath.Join(dashboardUIRoot, "node_modules", ".bin", "tsc"), "-p", "internal/generate/testdata/tsconfig.generated-clients.json"}, artifactCtx),
+				runHarnessExecStep(ctx, repoRoot, "Scenery UI catalog typecheck", []string{filepath.Join(dashboardUIRoot, "node_modules", ".bin", "tsc"), "-p", "internal/generate/testdata/tsconfig.catalog.json"}, artifactCtx),
+			)
+		}
+		fixtureStep, fixtureMatrix := runHarnessFixtureMatrixStep(ctx, repoRoot)
+		resp.FixtureMatrix = fixtureMatrix
+		resp.Steps = append(resp.Steps, fixtureStep)
+		resp.Steps = append(resp.Steps, runHarnessStorageProbeStep(ctx, repoRoot, localSceneryPath))
+		if opts.Mode == harnessSelfModeRace {
+			resp.Steps = append(resp.Steps, runHarnessExecStep(ctx, repoRoot, "race shortlist", []string{"go", "test", "-race", "./internal/agent", "./internal/localproxy", "./runtime", "./cmd/scenery"}, artifactCtx))
+		}
+		if opts.Mode == harnessSelfModeRelease {
+			resp.Steps = append(resp.Steps,
+				runHarnessCoreSeparationStep(ctx, repoRoot),
+				runHarnessCapabilityAuthorityStep(ctx, repoRoot),
+				runHarnessWorktreeRuntimeProbeStep(ctx, repoRoot),
+				runHarnessAgentRestartProbeStep(ctx, repoRoot),
+				runHarnessAssistantInitProbeStep(ctx, repoRoot),
+				runHarnessAssistantProductionProbeStep(ctx, repoRoot),
+				runHarnessBuildInfoProbeStep(ctx, repoRoot),
+				runHarnessCLIProcessProbeStep(ctx, repoRoot),
+				runHarnessDevFollowProbeStep(ctx, repoRoot),
+				runHarnessDevManagedProcessProbeStep(ctx, repoRoot),
+				runHarnessDevNamedLockProbeStep(ctx, repoRoot),
+				runHarnessDevSessionCleanupProbeStep(ctx, repoRoot),
+				runHarnessInspectDocsGoPackageProbeStep(ctx, repoRoot),
+				runHarnessToolchainSourceBuildProbeStep(ctx, repoRoot),
+				runHarnessWorktreeGitProbeStep(ctx, repoRoot),
+				runHarnessEdgeProcessProbeStep(ctx, repoRoot),
+				runHarnessGenerationCompileProbeStep(ctx, repoRoot),
+				runHarnessNativeContractApplicationProbeStep(ctx, repoRoot),
+				runHarnessSnapshotBackupProbeStep(ctx, repoRoot),
+				runHarnessTypeScriptCheckerProbeStep(ctx, repoRoot),
+				runHarnessCodeTaskProcessProbeStep(ctx, repoRoot),
+				runHarnessVictoriaProcessProbeStep(ctx, repoRoot),
+				runHarnessDesktopProcessProbeStep(ctx, repoRoot),
+				runHarnessDeploySSHProcessProbeStep(ctx, repoRoot),
+				runHarnessValidationGitProbeStep(ctx, repoRoot),
+				runHarnessTestsuiteCacheProbeStep(ctx, repoRoot),
+				runHarnessExecStep(ctx, repoRoot, "race full suite", []string{"go", "test", "-race", "./..."}, artifactCtx),
+			)
+		}
+	default:
+		return fmt.Errorf("unknown harness self mode %q", opts.Mode)
+	}
+
+	if opts.Write {
+		resp.Wrote = filepath.Join(repoRoot, ".scenery", "harness", "self-latest.json")
+	}
+	resp.Artifacts = buildHarnessSelfArtifacts(repoRoot, opts.Write, resp)
+	annotateHarnessStepEffects(resp.Steps)
+	annotateHarnessEvidence(resp.Steps, repoRoot)
+
+	schemaValidationStep, schemaValidation := runHarnessSchemaValidationStep(repoRoot, resp)
+	resp.SchemaValidation = schemaValidation
+	resp.Steps = append(resp.Steps, schemaValidationStep)
+	annotateHarnessStepEffects(resp.Steps)
+	annotateHarnessEvidence(resp.Steps, repoRoot)
+	for _, step := range resp.Steps {
+		if !step.OK {
+			resp.OK = false
+		}
+	}
+	resp.NextActions = buildHarnessNextActions(resp.Steps)
+
+	if opts.Write {
+		if err := writeHarnessSelfResult(resp.Wrote, resp); err != nil {
+			return err
+		}
+		if err := writeHarnessSelfOracleArtifacts(repoRoot, resp); err != nil {
+			return err
+		}
+	}
+
+	if opts.JSON {
+		if opts.Output == harnessSelfOutputFull {
+			if err := writeHarnessSelfJSON(stdout, resp); err != nil {
+				return err
+			}
+		} else {
+			if err := writeHarnessSelfSummaryJSON(stdout, buildHarnessSelfSummary(resp)); err != nil {
+				return err
+			}
+		}
+		if !resp.OK {
+			return &silentCLIError{err: fmt.Errorf("repository verification found failing checks; inspect its diagnostics and artifacts"), code: 3}
+		}
+		return nil
+	}
+
+	if err := writeHarnessSelfText(stdout, resp); err != nil {
+		return err
+	}
+	if !resp.OK {
+		return &codedCLIError{err: fmt.Errorf("repository verification found failing checks; inspect its diagnostics and artifacts"), code: 3}
+	}
+	return nil
+}
+
+const (
+	harnessSelfModeDefault   = "default"
+	harnessSelfModeQuick     = "quick"
+	harnessSelfModeRace      = "race"
+	harnessSelfModeRelease   = "release"
+	harnessSelfOutputSummary = "summary"
+	harnessSelfOutputFull    = "full"
+)
+
+func harnessSelfGoTestCommand() []string {
+	return harnessSelfGoTestCommandWithCacheMode(false)
+}
+
+func harnessSelfGoTestCommandWithCacheMode(freshTests bool) []string {
+	if freshTests {
+		return []string{"go", "run", "./scripts/testsuite", "-p", fmt.Sprint(testsuite.DefaultPackageParallelism), "-run", ".*"}
+	}
+	return []string{"go", "test", "-json", "./..."}
+}
+
+func harnessSelfGoTestEnv() []string {
+	return []string{"GOWORK=off"}
+}
+
+func runHarnessInspectDocsStep(repoRoot string) harnessStep {
+	started := time.Now()
+	var out bytes.Buffer
+	err := runSceneryInspect([]string{"docs", "--repo-root", repoRoot, "--all", "-o", "json"}, &out)
+	step := harnessStep{
+		Name:       "inspect docs",
+		Command:    []string{"scenery", "inspect", "docs", "--repo-root", repoRoot, "--all", "-o", "json"},
+		OK:         err == nil,
+		DurationMS: time.Since(started).Milliseconds(),
+	}
+	if err != nil {
+		step.Error = strings.TrimSpace(err.Error())
+		step.OutputTail = tailString(out.String(), 8192)
+		step.Diagnostics = []checkDiagnostic{{
+			Stage:           step.Name,
+			Severity:        "error",
+			Message:         firstNonEmpty(step.OutputTail, step.Error),
+			SuggestedAction: "Run `scenery inspect docs --all -o json`, fix the reported docs issue, then rerun `go run ./scripts/verify -o json`.",
+		}}
+		return step
+	}
+	var payload inspectDocsResponse
+	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
+		step.OK = false
+		step.Error = "invalid inspect docs JSON: " + err.Error()
+		step.Diagnostics = []checkDiagnostic{{
+			Stage:           step.Name,
+			Severity:        "error",
+			Message:         step.Error,
+			SuggestedAction: "Fix `scenery inspect docs --all -o json` output so it conforms to the current scenery.inspect.docs schema.",
+		}}
+		return step
+	}
+	step.Summary = map[string]any{
+		"kind":             payload.Kind,
+		"schema_revision":  payload.SchemaRevision,
+		"document_count":   payload.Summary.DocumentCount,
+		"missing_count":    payload.Summary.MissingCount,
+		"review_due_count": payload.Summary.ReviewDueCount,
+		"stale_count":      payload.Summary.StaleCount,
+	}
+	if payload.Kind != inspectDocsKind || payload.SchemaRevision != newCLIPayloadIdentity(inspectDocsKind).SchemaRevision {
+		step.OK = false
+		step.Error = "unexpected inspect docs identity " + payload.Kind + " " + payload.SchemaRevision
+	}
+	if payload.Summary.MissingCount > 0 || payload.Summary.StaleCount > 0 {
+		step.OK = false
+		step.Diagnostics = []checkDiagnostic{{
+			Stage:           step.Name,
+			Severity:        "error",
+			Message:         "docs knowledge base has missing or stale entries",
+			SuggestedAction: "Run `scenery inspect docs --all -o json`, update docs/knowledge.json or the referenced docs, then rerun `go run ./scripts/verify -o json`.",
+		}}
+	}
+	return step
+}
+
+func parseHarnessSelfArgs(args []string) (harnessSelfOptions, error) {
+	opts := harnessSelfOptions{Mode: harnessSelfModeDefault, Output: harnessSelfOutputFull}
+	flags := flag.NewFlagSet("verify", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	flags.StringVar(&opts.RepoRoot, "repo-root", "", "")
+	flags.Func("o", "human or json", func(value string) error {
+		switch value {
+		case "human":
+			opts.JSON = false
+		case "json":
+			opts.JSON = true
+		default:
+			return fmt.Errorf("unsupported output %q: use human or json", value)
+		}
+		return nil
+	})
+	flags.BoolFunc("summary", "", func(string) error { opts.Output = harnessSelfOutputSummary; return nil })
+	flags.BoolVar(&opts.Write, "write", false, "")
+	flags.BoolVar(&opts.FreshTests, "fresh-tests", false, "")
+	setMode := func(mode string) func(string) error {
+		return func(string) error {
+			if opts.Mode != harnessSelfModeDefault {
+				return fmt.Errorf("only one harness self mode may be selected")
+			}
+			opts.Mode = mode
+			return nil
+		}
+	}
+	flags.BoolFunc("quick", "", setMode(harnessSelfModeQuick))
+	flags.BoolFunc("race", "", setMode(harnessSelfModeRace))
+	flags.BoolFunc("release", "", setMode(harnessSelfModeRelease))
+	if err := flags.Parse(args); err != nil {
+		return harnessSelfOptions{}, err
+	}
+	if flags.NArg() != 0 {
+		return harnessSelfOptions{}, fmt.Errorf("unexpected arguments: %s", strings.Join(flags.Args(), " "))
+	}
+	return opts, nil
+}
+
+// harnessConsoleLaneNames are the self-harness lanes that need bun and the
+// installed apps/console dependency tree.
+var harnessConsoleLaneNames = []string{
+	"dashboard ui typecheck",
+	"dashboard ui build",
+	"dashboard ui fresh",
+	"Scenery TypeScript client conformance",
+	"Scenery TypeScript client typecheck",
+	"Scenery UI catalog typecheck",
+}
+
+// runHarnessConsoleDepsStep provisions the apps/console dependency tree so a
+// fresh worktree passes the tsc-dependent lanes without a manual preflight.
+// `bun install --frozen-lockfile` honors bun.lock, fails on drift instead of
+// rewriting it, and is a fast no-op when node_modules is already current. When
+// bun is missing or the install fails, the dependent lanes are skipped and the
+// returned step carries the one actionable diagnostic instead of letting every
+// lane fail on exec errors.
+func runHarnessConsoleDepsStep(ctx context.Context, consoleRoot string, artifactCtx harnessArtifactContext) (harnessStep, bool) {
+	command := []string{"bun", "install", "--frozen-lockfile"}
+	if _, err := exec.LookPath("bun"); err != nil {
+		step := harnessStep{
+			Name:    "console dependencies",
+			Command: command,
+			Error:   "bun was not found in PATH; skipped lanes: " + strings.Join(harnessConsoleLaneNames, ", "),
+			Summary: map[string]any{
+				"console_deps":  "unavailable",
+				"skipped_lanes": harnessConsoleLaneNames,
+			},
+			Diagnostics: []checkDiagnostic{{
+				Stage:           "console dependencies",
+				Severity:        "error",
+				Message:         "bun is not in PATH, so the dashboard and TypeScript client lanes were skipped and not measured",
+				SuggestedAction: "Install bun (https://bun.sh), then rerun `go run ./scripts/verify --summary --write`.",
+			}},
+		}
+		return step, false
+	}
+	step := runHarnessExecStep(ctx, consoleRoot, "console dependencies", command, artifactCtx)
+	if !step.OK {
+		step.Diagnostics = append(step.Diagnostics, checkDiagnostic{
+			Stage:           "console dependencies",
+			Severity:        "error",
+			Message:         "bun install --frozen-lockfile failed in apps/console, so the dashboard and TypeScript client lanes were skipped and not measured",
+			SuggestedAction: "Fix apps/console dependency state (bun.lock must match package.json), then rerun `go run ./scripts/verify --summary --write`.",
+		})
+		if step.Summary == nil {
+			step.Summary = map[string]any{}
+		}
+		step.Summary["skipped_lanes"] = harnessConsoleLaneNames
+	}
+	return step, step.OK
+}
+
+func runHarnessExecStep(ctx context.Context, dir, name string, command []string, artifactCtxs ...harnessArtifactContext) harnessStep {
+	started := time.Now()
+	evidence := newHarnessEvidence(command, dir, started)
+	step := harnessStep{
+		Name:       name,
+		Command:    command,
+		DurationMS: 0,
+		Evidence:   &evidence,
+	}
+	if len(command) == 0 {
+		step.OK = false
+		step.Error = "missing command"
+		code := 1
+		finalizeHarnessEvidence(step.Evidence, time.Since(started), step.OK, "", "", &code, nil)
+		return step
+	}
+	path, err := exec.LookPath(command[0])
+	if err != nil {
+		step.OK = false
+		step.DurationMS = time.Since(started).Milliseconds()
+		step.Error = fmt.Sprintf("%s not found in PATH", command[0])
+		step.Diagnostics = []checkDiagnostic{{
+			Stage:           name,
+			Severity:        "error",
+			Message:         step.Error,
+			SuggestedAction: installSuggestion(command[0]),
+		}}
+		finalizeHarnessEvidence(step.Evidence, time.Since(started), step.OK, "", step.Error, exitCodeFromError(err), nil)
+		return step
+	}
+
+	cmd := commandTreeContext(ctx, path, command[1:]...)
+	cmd.Dir = dir
+	if command[0] == "go" {
+		cmd.Env = envWithOverrides(envpolicy.Environ(), "GOWORK=off")
+	}
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err = cmd.Run()
+	step.DurationMS = time.Since(started).Milliseconds()
+	stdoutBytes := stdout.Bytes()
+	stderrBytes := stderr.Bytes()
+	artifacts, artifactDiagnostics := writeHarnessOutputEvidenceArtifacts(optionalHarnessArtifactContext(artifactCtxs), name, sanitizeHarnessArtifactName(name)+".stdout.log", "", stdoutBytes, stderrBytes)
+	step.Summary = map[string]any{
+		"cwd":          dir,
+		"output_bytes": len(stdoutBytes) + len(stderrBytes),
+	}
+	step.Diagnostics = append(step.Diagnostics, artifactDiagnostics...)
+	if err != nil {
+		step.OK = false
+		step.Error = strings.TrimSpace(err.Error())
+		step.OutputTail = tailString(firstNonEmpty(stderr.String(), stdout.String()), 8192)
+		step.Diagnostics = append(step.Diagnostics, checkDiagnostic{
+			Stage:           name,
+			Severity:        "error",
+			Message:         firstNonEmpty(strings.TrimSpace(step.OutputTail), step.Error),
+			SuggestedAction: rerunSuggestion(command, dir),
+		})
+		finalizeHarnessEvidence(step.Evidence, time.Since(started), step.OK, stdout.String(), stderr.String(), exitCodeFromError(err), artifacts)
+		return step
+	}
+	step.OK = true
+	finalizeHarnessEvidence(step.Evidence, time.Since(started), step.OK, stdout.String(), stderr.String(), exitCodeFromError(err), artifacts)
+	return step
+}
+
+func harnessLocalSceneryBinaryPath(repoRoot string) string {
+	return filepath.Join(repoRoot, ".scenery", "harness", "bin", "scenery")
+}
+
+func runHarnessLocalSceneryBuildStep(ctx context.Context, repoRoot, binaryPath string, artifactCtxs ...harnessArtifactContext) harnessStep {
+	if err := os.MkdirAll(filepath.Dir(binaryPath), 0o755); err != nil {
+		started := time.Now()
+		step := harnessStep{
+			Name:       "build scenery binary",
+			Command:    []string{"go", "build", "-o", binaryPath, "./cmd/scenery"},
+			DurationMS: time.Since(started).Milliseconds(),
+			Error:      err.Error(),
+			Summary: map[string]any{
+				"binary_path": binaryPath,
+			},
+		}
+		step.Diagnostics = []checkDiagnostic{{
+			Stage:           step.Name,
+			Severity:        "error",
+			Message:         err.Error(),
+			SuggestedAction: "Ensure `.scenery/harness/bin` is writable, then rerun self-harness.",
+		}}
+		return step
+	}
+	step := runHarnessExecStep(ctx, repoRoot, "build scenery binary", []string{"go", "build", "-o", binaryPath, "./cmd/scenery"}, artifactCtxs...)
+	if step.Summary == nil {
+		step.Summary = map[string]any{}
+	}
+	step.Summary["binary_path"] = binaryPath
+	return step
+}
+
+func runHarnessSceneryBinaryStep(repoRoot, binaryPath string) harnessStep {
+	started := time.Now()
+	step := harnessStep{
+		Name:       "local scenery binary fresh",
+		Command:    []string{"go", "build", "-o", binaryPath, "./cmd/scenery"},
+		DurationMS: 0,
+	}
+	binaryInfo, err := os.Stat(binaryPath)
+	if err != nil {
+		step.OK = false
+		step.DurationMS = time.Since(started).Milliseconds()
+		step.Error = err.Error()
+		step.Diagnostics = []checkDiagnostic{{
+			Stage:           step.Name,
+			Severity:        "error",
+			Message:         "local scenery binary was not built",
+			SuggestedAction: "Rerun `go run ./scripts/verify --summary --write`; it builds a worktree-local binary under `.scenery/harness/bin/`.",
+		}}
+		return step
+	}
+	latest, ok, err := latestHarnessSourceModTime(repoRoot)
+	if err != nil {
+		step.OK = false
+		step.DurationMS = time.Since(started).Milliseconds()
+		step.Error = err.Error()
+		return step
+	}
+	step.Summary = map[string]any{
+		"binary_path":        binaryPath,
+		"binary_mod_time":    binaryInfo.ModTime().UTC().Format(time.RFC3339Nano),
+		"latest_source_time": latest.UTC().Format(time.RFC3339Nano),
+	}
+	if ok && binaryInfo.ModTime().Before(latest) {
+		step.OK = false
+		step.Diagnostics = []checkDiagnostic{{
+			Stage:           step.Name,
+			Severity:        "error",
+			Message:         "local scenery binary is older than repo sources",
+			SuggestedAction: "Rerun `go run ./scripts/verify --summary --write` to rebuild `.scenery/harness/bin/scenery`.",
+		}}
+	} else {
+		step.OK = true
+	}
+	step.DurationMS = time.Since(started).Milliseconds()
+	return step
+}
+
+func latestHarnessSourceModTime(repoRoot string) (time.Time, bool, error) {
+	paths := []string{
+		"go.mod",
+		"go.sum",
+		"auth",
+		"cmd",
+		"cron",
+		"data",
+		"errs",
+		"internal",
+		"middleware",
+		"runtime",
+		"ui",
+	}
+	var latest time.Time
+	found := false
+	for _, rel := range paths {
+		modTime, ok, err := latestHarnessBinaryInputModTime(filepath.Join(repoRoot, rel))
+		if err != nil {
+			return time.Time{}, false, err
+		}
+		if ok && (!found || modTime.After(latest)) {
+			latest = modTime
+			found = true
+		}
+	}
+	return latest, found, nil
+}
+
+func latestHarnessBinaryInputModTime(path string) (time.Time, bool, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return time.Time{}, false, nil
+		}
+		return time.Time{}, false, err
+	}
+	if !info.IsDir() {
+		if !harnessBinaryInputFile(path) {
+			return time.Time{}, false, nil
+		}
+		return info.ModTime(), true, nil
+	}
+	var latest time.Time
+	found := false
+	err = filepath.WalkDir(path, func(walkPath string, d os.DirEntry, err error) error {
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil
+			}
+			return err
+		}
+		if d.IsDir() {
+			if harnessBinaryInputSkipDirForWalk(path, walkPath) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if d.Type()&os.ModeSymlink != 0 || !harnessBinaryInputFile(walkPath) {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil
+			}
+			return err
+		}
+		if !found || info.ModTime().After(latest) {
+			latest = info.ModTime()
+		}
+		found = true
+		return nil
+	})
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	return latest, found, nil
+}
+
+// harnessBinaryInputSkipDir keeps the binary-freshness-specific "coverage"
+// skip on top of the shared appwalk policy. It stays name-based because
+// harnessBinaryFreshnessCoversRel applies it to path segments.
+func harnessBinaryInputSkipDir(name string) bool {
+	return name == "coverage" || appwalk.SkipDirName(name)
+}
+
+const dashboardStaticDistRel = "cmd/scenery/dashboard_static/dist"
+
+func harnessBinaryInputSkipDirForWalk(root, path string) bool {
+	if harnessBinaryEmbeddedDistPath(path) {
+		return false
+	}
+	return harnessBinaryInputSkipDir(filepath.Base(path)) || appwalk.SkipDir(root, path)
+}
+
+func harnessBinaryEmbeddedDistPath(path string) bool {
+	path = filepath.ToSlash(filepath.Clean(path))
+	return strings.HasSuffix(path, "/"+dashboardStaticDistRel) || path == dashboardStaticDistRel
+}
+
+func harnessBinaryInputFile(path string) bool {
+	base := filepath.Base(path)
+	if base == "" || base == ".DS_Store" || strings.HasPrefix(base, ".env") || strings.HasPrefix(base, ".") {
+		return false
+	}
+	if strings.HasSuffix(base, "_test.go") {
+		return false
+	}
+	return true
+}
+
+func buildHarnessSelfKnowledge(repoRoot string) harnessKnowledge {
+	entrypoints := []string{
+		"AGENTS.md",
+		"SKILL.md",
+		"PLAN.md",
+		"PLANS.md",
+		"docs/index.md",
+		"docs/knowledge.json",
+		"docs/harness-engineering.md",
+		"docs/local-contract.md",
+		"docs/environment.md",
+		"docs/environment.registry.json",
+		"docs/app-development-cookbook.md",
+		"docs/ui-agent-contract.md",
+		"docs/plans/active.md",
+		"docs/plans/completed.md",
+		"docs/tech-debt.md",
+	}
+	schemas := []string{
+		"docs/schemas/scenery.config.schema.json",
+		"docs/schemas/scenery.build.desktop.schema.json",
+		"docs/schemas/scenery.build.latest.schema.json",
+		"docs/schemas/scenery.docs.index.schema.json",
+		"docs/schemas/scenery.environment.registry.schema.json",
+		"docs/schemas/scenery.harness.artifact.schema.json",
+		"docs/schemas/scenery.harness.self.schema.json",
+		"docs/schemas/scenery.harness.toolchain.schema.json",
+		"docs/schemas/scenery.harness.self.summary.schema.json",
+		"docs/schemas/scenery.harness.changed_area.schema.json",
+		"docs/schemas/scenery.harness.drift.schema.json",
+		"docs/schemas/scenery.harness.test_timing.schema.json",
+		"docs/schemas/scenery.harness.fixture_matrix.schema.json",
+		"docs/schemas/scenery.harness.schema_validation.schema.json",
+		"docs/schemas/scenery.agent_context.schema.json",
+		"docs/schemas/scenery.help.schema.json",
+		"docs/schemas/scenery.harness.result.schema.json",
+		"docs/schemas/scenery.harness.ui.schema.json",
+		"docs/schemas/scenery.harness.ui.dom.schema.json",
+		"docs/schemas/scenery.cli.schema.json",
+		"docs/schemas/scenery.inspect.app.schema.json",
+		"docs/schemas/scenery.inspect.build.schema.json",
+		"docs/schemas/scenery.inspect.docs.schema.json",
+		"docs/schemas/scenery.inspect.endpoints.schema.json",
+		"docs/schemas/scenery.inspect.harness.schema.json",
+		"docs/schemas/scenery.inspect.observability.schema.json",
+		"docs/schemas/scenery.inspect.metrics.schema.json",
+		"docs/schemas/scenery.inspect.paths.schema.json",
+		"docs/schemas/scenery.inspect.validation.schema.json",
+		"docs/schemas/scenery.inspect.routes.schema.json",
+		"docs/schemas/scenery.inspect.services.schema.json",
+		"docs/schemas/scenery.inspect.traces.schema.json",
+		"docs/schemas/scenery.inspect.ui.schema.json",
+		"docs/schemas/scenery.task.inspect.schema.json",
+		"docs/schemas/scenery.task.list.schema.json",
+		"docs/schemas/scenery.task.graph.schema.json",
+		"docs/schemas/scenery.validation.graph.schema.json",
+		"docs/schemas/scenery.validation.inspect.schema.json",
+		"docs/schemas/scenery.validation.list.schema.json",
+		"docs/schemas/scenery.validation.plan.schema.json",
+		"docs/schemas/scenery.validation.result.schema.json",
+		"docs/schemas/scenery.traces.clear.schema.json",
+		"docs/schemas/scenery.dev.event.schema.json",
+		"docs/schemas/scenery.logs.query.schema.json",
+		"docs/schemas/scenery.logs.tail.entry.schema.json",
+		"docs/schemas/scenery.metrics.labels.schema.json",
+		"docs/schemas/scenery.metrics.query.schema.json",
+		"docs/schemas/scenery.metrics.series.schema.json",
+		"docs/schemas/scenery.telemetry.schema.json",
+		"docs/schemas/scenery.db.list.schema.json",
+		"docs/schemas/scenery.snapshot.load.schema.json",
+		"docs/schemas/scenery.snapshot.manifest.schema.json",
+		"docs/schemas/scenery.snapshot.save.schema.json",
+		"docs/schemas/scenery.snapshot.verify.schema.json",
+		"docs/schemas/scenery.run.event.schema.json",
+		"docs/schemas/scenery.version.schema.json",
+	}
+	return harnessKnowledge{
+		Entrypoints: harnessKnowledgeFiles(repoRoot, entrypoints),
+		Schemas:     harnessKnowledgeFiles(repoRoot, schemas),
+	}
+}
+
+func buildHarnessSelfArtifacts(repoRoot string, selfWillExist bool, resp harnessSelfResponse) []harnessArtifact {
+	artifacts := []harnessArtifact{
+		newHarnessArtifact("self-harness", ".scenery/harness/self-latest.json", "scenery.harness.self", false),
+		newHarnessArtifact("self-summary", ".scenery/harness/self-summary-latest.json", harnessSelfSummaryKind, false),
+		newHarnessArtifact("toolchain", ".scenery/harness/toolchain-latest.json", harnessToolchainKind, false),
+		newHarnessArtifact("changed-area", ".scenery/harness/changed-area-latest.json", harnessChangedAreaKind, false),
+		newHarnessArtifact("drift", ".scenery/harness/drift-latest.json", harnessDriftKind, false),
+		newHarnessArtifact("test-timing", ".scenery/harness/test-timing-latest.json", harnessTestTimingKind, false),
+		newHarnessArtifact("fixture-matrix", ".scenery/harness/fixture-matrix-latest.json", harnessFixtureMatrixKind, false),
+		newHarnessArtifact("schema-validation", ".scenery/harness/schema-validation-latest.json", harnessSchemaValidationKind, false),
+		newHarnessArtifact("agent-context", ".scenery/harness/agent-context.json", harnessAgentContextKind, false),
+		{Name: "dashboard-ui", Path: "apps/console/dist/index.html"},
+	}
+	reportWillExist := map[string]bool{
+		"self-harness":      selfWillExist,
+		"self-summary":      selfWillExist,
+		"toolchain":         selfWillExist && resp.Toolchain != nil,
+		"changed-area":      selfWillExist && resp.ChangedArea != nil,
+		"drift":             selfWillExist && resp.Drift != nil,
+		"test-timing":       selfWillExist && resp.TestTiming != nil,
+		"fixture-matrix":    selfWillExist && resp.FixtureMatrix != nil,
+		"schema-validation": selfWillExist,
+		"agent-context":     selfWillExist,
+	}
+	for i := range artifacts {
+		if reportWillExist[artifacts[i].Name] {
+			artifacts[i].Exists = true
+			continue
+		}
+		_, err := os.Stat(filepath.Join(repoRoot, filepath.FromSlash(artifacts[i].Path)))
+		artifacts[i].Exists = err == nil
+	}
+	return artifacts
+}
+
+func writeHarnessSelfResult(path string, resp harnessSelfResponse) error {
+	return writeHarnessJSONFile(path, resp)
+}
+
+func writeHarnessSelfOracleArtifacts(repoRoot string, resp harnessSelfResponse) error {
+	harnessRoot := filepath.Join(repoRoot, ".scenery", "harness")
+	if err := writeHarnessCompactJSONFile(filepath.Join(harnessRoot, "self-summary-latest.json"), buildHarnessSelfSummary(resp)); err != nil {
+		return err
+	}
+	if resp.Toolchain != nil {
+		if err := writeHarnessJSONFile(filepath.Join(harnessRoot, "toolchain-latest.json"), resp.Toolchain); err != nil {
+			return err
+		}
+	}
+	if resp.ChangedArea != nil {
+		if err := writeHarnessJSONFile(filepath.Join(harnessRoot, "changed-area-latest.json"), resp.ChangedArea); err != nil {
+			return err
+		}
+	}
+	if resp.Drift != nil {
+		if err := writeHarnessJSONFile(filepath.Join(harnessRoot, "drift-latest.json"), resp.Drift); err != nil {
+			return err
+		}
+	}
+	if resp.TestTiming != nil {
+		if err := writeHarnessJSONFile(filepath.Join(harnessRoot, "test-timing-latest.json"), resp.TestTiming); err != nil {
+			return err
+		}
+	}
+	if resp.FixtureMatrix != nil {
+		if err := writeHarnessJSONFile(filepath.Join(harnessRoot, "fixture-matrix-latest.json"), resp.FixtureMatrix); err != nil {
+			return err
+		}
+	}
+	if resp.SchemaValidation != nil {
+		if err := writeHarnessJSONFile(filepath.Join(harnessRoot, "schema-validation-latest.json"), resp.SchemaValidation); err != nil {
+			return err
+		}
+	}
+	contextPack := buildHarnessAgentContext(repoRoot, resp)
+	if err := writeHarnessJSONFile(filepath.Join(harnessRoot, "agent-context.json"), contextPack); err != nil {
+		return err
+	}
+	return nil
+}
+
+func writeHarnessJSONFile(path string, payload any) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(payload); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	if _, err := tmp.Write(buf.Bytes()); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	return nil
+}
+
+func writeHarnessCompactJSONFile(path string, payload any) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(payload); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	if _, err := tmp.Write(buf.Bytes()); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	return nil
+}
+
+func writeHarnessSelfJSON(w io.Writer, payload harnessSelfResponse) error {
+	return writeCLIJSON(w, payload)
+}
+
+func writeHarnessSelfSummaryJSON(w io.Writer, payload harnessSelfSummaryResponse) error {
+	return writeCLIJSON(w, payload)
+}
+
+func writeHarnessSelfText(w io.Writer, resp harnessSelfResponse) error {
+	summary := buildHarnessSelfSummary(resp)
+	if _, err := fmt.Fprintf(w, "scenery: self harness %s (mode=%s; selected checks only)\n", summary.Status, resp.Mode); err != nil {
+		return err
+	}
+	for _, step := range summary.Steps {
+		if _, err := fmt.Fprintf(w, "  %s %-24s duration_ms=%d warnings=%d errors=%d\n", step.Status, step.Name, step.DurationMS, step.WarningCount, step.ErrorCount); err != nil {
+			return err
+		}
+	}
+	for _, attention := range summary.Attention {
+		if _, err := fmt.Fprintf(w, "  %s: %s\n", attention.Severity, attention.Message); err != nil {
+			return err
+		}
+		for _, entry := range attention.TopEntries {
+			if _, err := fmt.Fprintf(w, "    %s\n", entry); err != nil {
+				return err
+			}
+		}
+		if attention.NextAction != "" {
+			if _, err := fmt.Fprintf(w, "    %s\n", attention.NextAction); err != nil {
+				return err
+			}
+		}
+	}
+	if resp.Mode != harnessSelfModeRelease {
+		if _, err := fmt.Fprintln(w, "  Release-only probes were not run; this is not complete release proof."); err != nil {
+			return err
+		}
+	}
+	if resp.Wrote != "" {
+		_, _ = fmt.Fprintf(w, "  wrote %s\n", resp.Wrote)
+	}
+	return nil
+}
+
+func installSuggestion(binary string) string {
+	switch binary {
+	case "bun":
+		return "Install Bun or ensure it is available in PATH, then rerun `go run ./scripts/verify -o json`."
+	case "go":
+		return "Install Go or ensure it is available in PATH, then rerun `go run ./scripts/verify -o json`."
+	default:
+		return "Install `" + binary + "` or ensure it is available in PATH, then rerun `go run ./scripts/verify -o json`."
+	}
+}
+
+func rerunSuggestion(command []string, dir string) string {
+	return "Run `" + strings.Join(command, " ") + "` in `" + dir + "`, fix the failure, then rerun `go run ./scripts/verify -o json`."
+}

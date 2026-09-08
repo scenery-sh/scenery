@@ -12,16 +12,20 @@ const standardAuthProjectionModule = "scenery_auth"
 // standardAuthProjectionResources describes framework-owned endpoints for
 // inspection and client generation. Runtime composition excludes this slice
 // because scenery.sh/auth registers the handlers itself.
-func standardAuthProjectionResources(root string, resources []Resource) ([]Resource, error) {
+func frameworkAuthConfig(root string) (appcfg.AuthConfig, error) {
 	_, cfg, err := appcfg.DiscoverRoot(root)
 	if err != nil {
 		if errors.Is(err, appcfg.ErrRootNotFound) {
-			return nil, nil
+			return appcfg.AuthConfig{}, nil
 		}
-		return nil, err
+		return appcfg.AuthConfig{}, err
 	}
-	if !cfg.Auth.Enabled || !cfg.Auth.GoogleOAuth.Enabled {
-		return nil, nil
+	return cfg.Auth, nil
+}
+
+func standardAuthProjectionResources(cfg appcfg.AuthConfig, resources []Resource) []Resource {
+	if !cfg.Enabled || !cfg.GoogleOAuth.Enabled {
+		return nil
 	}
 
 	authentication := ""
@@ -37,13 +41,13 @@ func standardAuthProjectionResources(root string, resources []Resource) ([]Resou
 		}
 	}
 	if authentication == "" || len(gateways) == 0 {
-		return nil, nil
+		return nil
 	}
 	sort.Slice(gateways, func(i, j int) bool { return gateways[i].Address < gateways[j].Address })
 
 	resources = googleConnectionProjectionResources(authentication, gateways)
 	sort.Slice(resources, func(i, j int) bool { return resources[i].Address < resources[j].Address })
-	return resources, nil
+	return resources
 }
 
 func googleConnectionProjectionResources(authentication string, gateways []Resource) []Resource {

@@ -2,29 +2,11 @@ package generate
 
 import (
 	"fmt"
-	"sort"
 	"strconv"
 	"strings"
-)
 
-func durableExecutionsForOperations(resources []Resource, operations []Resource) []Resource {
-	operationAddresses := map[string]bool{}
-	for _, operation := range operations {
-		operationAddresses[operation.Address] = true
-	}
-	var executions []Resource
-	for _, execution := range resources {
-		if execution.Kind != "scenery.execution" || stringValue(execution.Spec["mode"]) != "durable" {
-			continue
-		}
-		operationAddress := resolveResourceRef(execution, refString(execution.Spec["operation"]), "operation")
-		if operationAddresses[operationAddress] {
-			executions = append(executions, execution)
-		}
-	}
-	sort.Slice(executions, func(i, j int) bool { return executions[i].Address < executions[j].Address })
-	return executions
-}
+	"scenery.sh/internal/compiler"
+)
 
 func executionForBinding(resources map[string]Resource, binding Resource) (Resource, bool) {
 	address := resolveResourceRef(binding, refString(binding.Spec["execution"]), "execution")
@@ -34,7 +16,7 @@ func executionForBinding(resources map[string]Resource, binding Resource) (Resou
 
 func renderDurableExecutionRegistrations(b *strings.Builder, service Resource, operations, resources []Resource) error {
 	byAddress := resourcesByAddress(&Manifest{Resources: resources})
-	for _, execution := range durableExecutionsForOperations(resources, operations) {
+	for _, execution := range compiler.DurableExecutionsForOperations(resources, operations) {
 		operationAddress := resolveResourceRef(execution, refString(execution.Spec["operation"]), "operation")
 		operation, ok := byAddress[operationAddress]
 		if !ok {
@@ -78,7 +60,7 @@ func renderDurableExecutionRegistrations(b *strings.Builder, service Resource, o
 
 func renderDurableDispatchOptionHelpers(b *strings.Builder, operations, resources []Resource) error {
 	byAddress := resourcesByAddress(&Manifest{Resources: resources})
-	for _, execution := range durableExecutionsForOperations(resources, operations) {
+	for _, execution := range compiler.DurableExecutionsForOperations(resources, operations) {
 		operationAddress := resolveResourceRef(execution, refString(execution.Spec["operation"]), "operation")
 		operation, ok := byAddress[operationAddress]
 		if !ok {

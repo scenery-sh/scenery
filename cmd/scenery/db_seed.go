@@ -176,11 +176,15 @@ func buildDBSeedResultWithHooks(ctx context.Context, appRoot string, cfg appcfg.
 	return buildDBSeedResultWithEnvHooks(ctx, appRoot, cfg, opts, baseEnv, true, hooks)
 }
 
-func buildDBSeedResultWithEnv(ctx context.Context, appRoot string, cfg appcfg.Config, opts dbSeedOptions, baseEnv []string, useManaged bool) (dbSeedResult, error) {
-	return buildDBSeedResultWithEnvHooks(ctx, appRoot, cfg, opts, baseEnv, useManaged, defaultDBSeedHooks())
+func buildDBSeedResultWithEnvHooks(ctx context.Context, appRoot string, cfg appcfg.Config, opts dbSeedOptions, baseEnv []string, useManaged bool, hooks dbSeedHooks) (_ dbSeedResult, returnErr error) {
+	contract, err := compileSQLContract(appRoot)
+	if err != nil {
+		return emptyDBSeedResult(appRoot, cfg, opts), err
+	}
+	return buildDBSeedResultWithContractEnvHooks(ctx, appRoot, cfg, contract, opts, baseEnv, useManaged, hooks)
 }
 
-func buildDBSeedResultWithEnvHooks(ctx context.Context, appRoot string, cfg appcfg.Config, opts dbSeedOptions, baseEnv []string, useManaged bool, hooks dbSeedHooks) (_ dbSeedResult, returnErr error) {
+func buildDBSeedResultWithContractEnvHooks(ctx context.Context, appRoot string, cfg appcfg.Config, contract *compiler.Result, opts dbSeedOptions, baseEnv []string, useManaged bool, hooks dbSeedHooks) (_ dbSeedResult, returnErr error) {
 	hooks = hooks.withDefaults()
 	opts.Env = strings.TrimSpace(opts.Env)
 	if opts.Env == "" {
@@ -198,7 +202,7 @@ func buildDBSeedResultWithEnvHooks(ctx context.Context, appRoot string, cfg appc
 		Environment: opts.Env,
 		Seeds:       []dbSeedRecord{},
 	}
-	plans, err := discoverDBSeedPlansForEnvironment(appRoot, cfg, opts.Env)
+	plans, err := discoverDBSeedPlansForContract(appRoot, cfg, opts.Env, contract)
 	if err != nil {
 		return result, err
 	}
@@ -236,14 +240,14 @@ func buildDBSeedResultWithEnvHooks(ctx context.Context, appRoot string, cfg appc
 	}
 	env := baseEnv
 	if useManaged && opts.DryRun {
-		database, err := resolvePostgresDatabaseFromEnv(ctx, appRoot, cfg, baseEnv)
+		database, err := resolvePostgresDatabaseFromEnv(ctx, appRoot, cfg, contract.SQLRequirements, baseEnv)
 		if err != nil {
 			return result, err
 		}
-		env = overlayEnv(envWithoutKeys(baseEnv, databaseEnvKeys(cfg)...), envMap(postgresdb.Env(database)))
+		env = overlayEnv(envWithoutKeys(baseEnv, databaseEnvKeys(contract.SQLRequirements)...), envMap(postgresdb.Env(database)))
 	} else if useManaged {
 		var closeOperation func() error
-		env, closeOperation, err = beginDatabaseLifecycleEnv(ctx, appRoot, cfg, baseEnv)
+		env, closeOperation, err = beginDatabaseLifecycleEnv(ctx, appRoot, cfg, contract.SQLRequirements, baseEnv)
 		if err != nil {
 			return result, err
 		}
@@ -257,7 +261,7 @@ func buildDBSeedResultWithEnvHooks(ctx context.Context, appRoot string, cfg appc
 		}
 	}()
 	seedStoreForPlan := func(plan dbSeedPlan) (databaseSeedStore, string, error) {
-		dsn, err := resolveDatabaseURLForServiceFromEnv(cfg, env, plan.Service)
+		dsn, err := resolveDatabaseURLForServiceFromEnv(contract.SQLRequirements, env, plan.Service)
 		if err != nil {
 			return nil, "", err
 		}
@@ -373,10 +377,18 @@ func discoverDBSeedPlans(appRoot string, cfg appcfg.Config) ([]dbSeedPlan, error
 }
 
 func discoverDBSeedPlansForEnvironment(appRoot string, cfg appcfg.Config, environment string) ([]dbSeedPlan, error) {
+	contract, err := compileSQLContract(appRoot)
+	if err != nil {
+		return nil, err
+	}
+	return discoverDBSeedPlansForContract(appRoot, cfg, environment, contract)
+}
+
+func discoverDBSeedPlansForContract(appRoot string, cfg appcfg.Config, environment string, compiled *compiler.Result) ([]dbSeedPlan, error) {
 	if !cfg.Database.Seed.IsEnabled() {
 		return nil, nil
 	}
-	graph, err := buildInspectGeneratorsResponse(appRoot, cfg)
+	graph, err := buildInspectGeneratorsResponseWithRequirements(appRoot, cfg, compiled.SQLRequirements)
 	if err != nil {
 		return nil, err
 	}
@@ -399,10 +411,6 @@ func discoverDBSeedPlansForEnvironment(appRoot string, cfg appcfg.Config, enviro
 			SHA256:  hex.EncodeToString(sum[:]),
 		})
 	}
-	compiled, compileErr := compiler.Compile(appRoot)
-	if compileErr != nil {
-		return nil, compileErr
-	}
 	fixturePlans, fixtureErr := compiler.BuildFixtureSeedPlans(compiled, environment)
 	if fixtureErr != nil {
 		return nil, fixtureErr
@@ -410,7 +418,7 @@ func discoverDBSeedPlansForEnvironment(appRoot string, cfg appcfg.Config, enviro
 	for _, fixture := range fixturePlans {
 		plans = append(plans, dbSeedPlan{Kind: dbSeedPlanKindSQL, Service: fixture.Database, Path: fixture.Path, SQL: fixture.SQL, SHA256: fixture.SHA256})
 	}
-	commandPlans, commandErr := discoverDBSeedCommandPlans(appRoot, cfg)
+	commandPlans, commandErr := discoverDBSeedCommandPlans(appRoot, cfg, compiled.SQLRequirements)
 	if commandErr != nil {
 		return nil, commandErr
 	}

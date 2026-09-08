@@ -9,7 +9,8 @@ import (
 )
 
 func TestNativeMCPFixtureIsDeterministicAndPreservesRevisionDomains(t *testing.T) {
-	fixture := filepath.Join("testdata", "native")
+	fixture := t.TempDir()
+	copyTree(t, filepath.Join("testdata", "native"), fixture)
 	first, err := Compile(fixture)
 	if err != nil || !first.Valid() {
 		t.Fatalf("first native compile: err=%v diagnostics=%#v", err, first.Diagnostics)
@@ -109,9 +110,14 @@ func TestNativeMCPFixtureIsDeterministicAndPreservesRevisionDomains(t *testing.T
 		t.Fatalf("source MCP view unexpectedly contains default: %#v", sourceMCP)
 	}
 
-	implementationRoot := t.TempDir()
-	copyTree(t, fixture, implementationRoot)
-	copyTree(t, filepath.Join(implementationRoot, "assistants", "support"), filepath.Join(implementationRoot, "assistants", "support-alt"))
+	contractRevision := first.Manifest.ContractRevision
+	workspaceRevision := first.WorkspaceRevision
+	implementationRoot := fixture
+	assistantRoot := filepath.Join(fixture, "assistants", "support")
+	alternateRoot := filepath.Join(fixture, "assistants", "support-alt")
+	if err := os.Rename(assistantRoot, alternateRoot); err != nil {
+		t.Fatal(err)
+	}
 	appPath := filepath.Join(implementationRoot, appFilename)
 	appSource, err := os.ReadFile(appPath)
 	if err != nil {
@@ -128,21 +134,21 @@ func TestNativeMCPFixtureIsDeterministicAndPreservesRevisionDomains(t *testing.T
 	if err != nil || !implementationResult.Valid() {
 		t.Fatalf("assistant implementation mutation compile: err=%v diagnostics=%#v", err, implementationResult.Diagnostics)
 	}
-	if implementationResult.Manifest.ContractRevision != first.Manifest.ContractRevision {
-		t.Fatalf("assistant implementation mutation changed contract revision: %s -> %s", first.Manifest.ContractRevision, implementationResult.Manifest.ContractRevision)
+	if implementationResult.Manifest.ContractRevision != contractRevision {
+		t.Fatalf("assistant implementation mutation changed contract revision: %s -> %s", contractRevision, implementationResult.Manifest.ContractRevision)
 	}
-	if implementationResult.WorkspaceRevision == first.WorkspaceRevision {
-		t.Fatalf("assistant implementation mutation did not change workspace revision: %s", first.WorkspaceRevision)
+	if implementationResult.WorkspaceRevision == workspaceRevision {
+		t.Fatalf("assistant implementation mutation did not change workspace revision: %s", workspaceRevision)
 	}
 
-	surfaceRoot := t.TempDir()
-	copyTree(t, fixture, surfaceRoot)
-	surfacePath := filepath.Join(surfaceRoot, appFilename)
-	surfaceSource, err := os.ReadFile(surfacePath)
-	if err != nil {
+	// Restore the same owned fixture before changing only its public surface.
+	// Both independent baseline compiles and both mutation compiles remain real.
+	if err := os.Rename(alternateRoot, assistantRoot); err != nil {
 		t.Fatal(err)
 	}
-	surfaceText := strings.Replace(string(surfaceSource), `path           = "/assistants/support"`, `path           = "/assistants/support-v2"`, 1)
+	surfaceRoot := fixture
+	surfacePath := filepath.Join(surfaceRoot, appFilename)
+	surfaceText := strings.Replace(string(appSource), `path           = "/assistants/support"`, `path           = "/assistants/support-v2"`, 1)
 	if err := os.WriteFile(surfacePath, []byte(surfaceText), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +156,7 @@ func TestNativeMCPFixtureIsDeterministicAndPreservesRevisionDomains(t *testing.T
 	if err != nil || !surfaceResult.Valid() {
 		t.Fatalf("assistant surface mutation compile: err=%v diagnostics=%#v", err, surfaceResult.Diagnostics)
 	}
-	if surfaceResult.Manifest.ContractRevision == first.Manifest.ContractRevision {
-		t.Fatalf("assistant surface mutation did not change contract revision: %s", first.Manifest.ContractRevision)
+	if surfaceResult.Manifest.ContractRevision == contractRevision {
+		t.Fatalf("assistant surface mutation did not change contract revision: %s", contractRevision)
 	}
 }

@@ -104,7 +104,7 @@ func TestAssistantUnavailableDoesNotAbortReconcile(t *testing.T) {
 func TestAssistantCloseStopsOwnedInstance(t *testing.T) {
 	supervisor := newAssistantSupervisor(context.Background(), assistantSupervisorConfig{Root: t.TempDir()})
 	done := make(chan struct{})
-	process := &devManagedProcess{PID: 42, done: done, outputDone: make(chan struct{}), Cmd: nil}
+	process := &devManagedProcess{PID: 42, Done: done, Cmd: nil}
 	definition := assistantDefinition{Address: "app/assistant/support", Name: "support"}
 	supervisor.mu.Lock()
 	supervisor.instances[definition.Address] = &assistantProcessInstance{definition: definition, process: process}
@@ -113,15 +113,16 @@ func TestAssistantCloseStopsOwnedInstance(t *testing.T) {
 	if err := supervisor.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if !process.stoppedForTest() {
+	if !stoppedForTest(process) {
 		t.Fatal("close did not observe process stop")
 	}
 }
 
 func TestSessionProcessesReplaceAssistantSnapshot(t *testing.T) {
 	assistants := newAssistantSupervisor(context.Background(), assistantSupervisorConfig{Root: t.TempDir()})
-	process := &devManagedProcess{PID: 42, done: make(chan struct{}), outputDone: make(chan struct{})}
-	close(process.done)
+	done := make(chan struct{})
+	process := &devManagedProcess{PID: 42, Done: done}
+	close(done)
 	assistants.mu.Lock()
 	assistants.instances["app/assistant/current"] = &assistantProcessInstance{
 		definition: assistantDefinition{Address: "app/assistant/current", Name: "current"},
@@ -152,9 +153,9 @@ func TestSessionProcessesReplaceAssistantSnapshot(t *testing.T) {
 
 // stoppedForTest avoids requiring a real exec.Cmd in the ownership test. A
 // nil Cmd is already a stopped process from the runner's perspective.
-func (p *devManagedProcess) stoppedForTest() bool {
+func stoppedForTest(p *devManagedProcess) bool {
 	select {
-	case <-p.done:
+	case <-p.Done:
 		return true
 	default:
 		return false
@@ -275,8 +276,9 @@ func TestAssistantProviderEnvAllowsOnlyOpenAIKey(t *testing.T) {
 func TestAssistantRuntimeConfigUsesControlTokenNotBridgeSecret(t *testing.T) {
 	supervisor := newAssistantSupervisor(context.Background(), assistantSupervisorConfig{Root: t.TempDir()})
 	definition := assistantDefinition{Address: "app/assistant/support", Name: "support", RuntimeRevision: "runtime-1", CapabilityRevision: "capability-1"}
-	process := &devManagedProcess{PID: 42, done: make(chan struct{}), outputDone: make(chan struct{})}
-	close(process.done)
+	done := make(chan struct{})
+	process := &devManagedProcess{PID: 42, Done: done}
+	close(done)
 	bridgeSecret := "bridge-secret"
 	client, err := assistantruntime.NewHTTPClient(assistantruntime.HTTPClientConfig{ControlBase: "http://127.0.0.1:4101", ControlToken: "control-token", AssistantAddress: definition.Address, RuntimeRevision: definition.RuntimeRevision, CapabilityRevision: definition.CapabilityRevision})
 	if err != nil {
@@ -357,8 +359,9 @@ func TestAssistantStartPreparedSkipsLiveInstance(t *testing.T) {
 		return nil, nil
 	}})
 	definition := assistantDefinition{Address: "app/assistant/support", Name: "support", Identity: "identity", RuntimeRevision: "runtime-1", CapabilityRevision: "capability-1"}
-	process := &devManagedProcess{PID: 42, done: make(chan struct{}), outputDone: make(chan struct{})}
-	close(process.done)
+	done := make(chan struct{})
+	process := &devManagedProcess{PID: 42, Done: done}
+	close(done)
 	client, err := assistantruntime.NewHTTPClient(assistantruntime.HTTPClientConfig{ControlBase: "http://127.0.0.1:4101", ControlToken: "control-token", AssistantAddress: definition.Address, RuntimeRevision: definition.RuntimeRevision, CapabilityRevision: definition.CapabilityRevision})
 	if err != nil {
 		t.Fatal(err)

@@ -91,10 +91,8 @@ func acquireWorktreeRuntime(ctx context.Context, machinePaths localagent.Paths, 
 	if errors.Is(err, os.ErrNotExist) {
 		record = localagent.NewWorktreeRecord(paths, cfg.AppID())
 		claimErr := localagent.CheckLegacyWorktreeClaim(machinePaths, paths)
-		if claimErr != nil && len(cfg.DatabaseServices()) > 0 {
-			_ = op.Close()
-			return nil, worktreePostgresPrecondition(claimErr.Error())
-		}
+		// A conflicting legacy claim is enforced by the existing SQL allocator
+		// if the compiled program actually requests managed SQL.
 		record.SQLAllocationChecked = claimErr == nil
 	} else if err != nil {
 		_ = op.Close()

@@ -197,7 +197,7 @@ func resolveHarnessArtifactByName(root, name string) (harnessArtifact, string, e
 		path := filepath.Join(root, filepath.FromSlash(artifact.Path))
 		if _, err := os.Stat(path); err != nil {
 			if os.IsNotExist(err) {
-				return artifact, "", fmt.Errorf("failed_precondition: harness artifact %q not found at %s; run `scenery harness self --summary --write` to generate it", name, path)
+				return artifact, "", fmt.Errorf("failed_precondition: harness artifact %q not found at %s; run `go run ./scripts/verify --summary --write` to generate it", name, path)
 			}
 			return artifact, "", err
 		}

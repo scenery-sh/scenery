@@ -178,7 +178,12 @@ Deploy through a configured environment or its singular SSH target. SSH uses pas
 
 Declare storage cells and stores in app config. App code uses `scenery.sh/storage`, never proxy sockets or object directories. Tenant-scoped private calls require auth context or `storage.WithTenantID`. Inspect with `scenery inspect storage -o json`; operate through `scenery storage status|ls|stat|put|get|rm`.
 
-An explicit app `DATABASE_URL` is external; equal external URLs intentionally share data and do not provide managed isolation. Otherwise SQL-backed `scenery up` owns a dedicated Postgres container and volume per canonical app root/worktree, with one app database and service-scoped schemas. Non-SQL startup does not provision Postgres. `scenery down` stops only that worktree and retains data/credentials outside the checkout; branch switches reuse its database, while another worktree gets a separate cluster. Git removal retains data. Inspect retained/orphaned roots with `scenery ps -o json`; whole-cluster deletion requires explicit `scenery prune --older-than <duration> --app-root <absolute-path> --db`. Never infer permission to delete data from a worktree removal request. Use `scenery db apply` for schema mutation, `scenery db seed` for initial data and declared `database.seed.commands`, and `scenery db setup` for both, with the runtime stopped for managed database mutation. SQL seeds are immutable; file-backed commands rerun only when their explicit workspace input hash changes and must be atomic or idempotent. Do not make file generation apply database state. Incompatible ownership, missing retained volumes, a changed Docker daemon, or an interrupted restore is a precondition to resolve, never permission to allocate replacement empty data.
+Read compiled `sql_requirements` in `scenery inspect app -o json`: typed `.scn`
+dependencies and selected framework auth/durable registrations own requirements;
+`dev.services` is removed. Only managed lifecycle authorizes local allocation.
+See [App Config](docs/local-contract.md#app-config) for binding and sharing rules.
+
+An explicit app `DATABASE_URL` is external; equal external URLs intentionally share data and do not provide managed isolation. Otherwise managed SQL-backed `scenery up` owns a dedicated Postgres container and volume per canonical app root/worktree, with one app database and service-scoped schemas. Non-SQL startup does not provision Postgres. `scenery down` stops only that worktree and retains data/credentials outside the checkout; branch switches reuse its database, while another worktree gets a separate cluster. Git removal retains data. Inspect retained/orphaned roots with `scenery ps -o json`; whole-cluster deletion requires explicit `scenery prune --older-than <duration> --app-root <absolute-path> --db`. Never infer permission to delete data from a worktree removal request. Use `scenery db apply` for schema mutation, `scenery db seed` for initial data and declared `database.seed.commands`, and `scenery db setup` for both, with the runtime stopped for managed database mutation. SQL seeds are immutable; file-backed commands rerun only when their explicit workspace input hash changes and must be atomic or idempotent. Do not make file generation apply database state. Incompatible ownership, missing retained volumes, a changed Docker daemon, or an interrupted restore is a precondition to resolve, never permission to allocate replacement empty data. Stop/cleanup and snapshots resolve retained ownership independently of invalid or removed source.
 
 Snapshots include only selected data. Verify checks every payload without stopping a target app. Stop the app before loading; use `--dry-run` first and `--mode overwrite --yes` only for exact replacement. Interrupted overwrite loads are safe to rerun.
 
@@ -248,10 +253,10 @@ descriptor; omit `-o json` for human help. The full grammar lives in
 `docs/local-contract.md`. Choose one command or graph view at a time; pipes
 in syntax descriptions denote alternatives, not shell pipelines.
 
-Scenery repository validation uses
-`.scenery/harness/bin/scenery harness self --summary --write` and the root
-validation matrix. `scenery harness ui -o json` is the separate dashboard
-browser harness.
+Scenery repository validation uses `go run ./scripts/verify --summary --write`
+from that checkout and its root validation matrix. This repository-only tool
+is not an installed product command. `scenery harness ui -o json` is the
+separate dashboard browser harness.
 
 ## Validation Before Finishing
 

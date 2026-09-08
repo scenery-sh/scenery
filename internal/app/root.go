@@ -13,8 +13,6 @@ import (
 	"slices"
 	"sort"
 	"strings"
-
-	"scenery.sh/internal/postgresname"
 )
 
 const (
@@ -32,7 +30,6 @@ type Config struct {
 	Frontends     map[string]FrontendConfig `json:"frontends"`
 	Envs          map[string]EnvConfig      `json:"envs"`
 	Watch         WatchConfig               `json:"watch"`
-	Dev           DevConfig                 `json:"dev"`
 	Storage       StorageConfig             `json:"storage"`
 	Generators    GeneratorsConfig          `json:"generators"`
 	Database      DatabaseConfig            `json:"database"`
@@ -52,7 +49,6 @@ func (c Config) MarshalJSON() ([]byte, error) {
 		Frontends     map[string]FrontendConfig `json:"frontends"`
 		Envs          map[string]EnvConfig      `json:"envs"`
 		Watch         WatchConfig               `json:"watch"`
-		Dev           DevConfig                 `json:"dev"`
 		Storage       *StorageConfig            `json:"storage,omitempty"`
 		Generators    GeneratorsConfig          `json:"generators"`
 		Database      DatabaseConfig            `json:"database"`
@@ -62,7 +58,7 @@ func (c Config) MarshalJSON() ([]byte, error) {
 	}
 	out := configJSON{
 		Name: c.Name, ID: c.ID, Root: c.Root, Build: c.Build, Frontends: c.Frontends, Envs: c.Envs,
-		Watch: c.Watch, Dev: c.Dev, Generators: c.Generators,
+		Watch: c.Watch, Generators: c.Generators,
 		Database: c.Database, Validation: c.Validation, Auth: c.Auth,
 		Observability: c.Observability,
 	}
@@ -132,70 +128,6 @@ func (c Config) StorageCellID() string {
 	return storageSlug(c.AppID())
 }
 
-func (c Config) DatabaseServices() []DatabaseServiceConfig {
-	out := make([]DatabaseServiceConfig, 0, len(c.Dev.Services))
-	for name, svc := range c.Dev.Services {
-		schema, err := postgresname.SchemaNameFor(name)
-		if err != nil {
-			schema = ""
-		}
-		out = append(out, DatabaseServiceConfig{
-			Name:   name,
-			Schema: schema,
-			Raw:    svc,
-		})
-	}
-	sort.Slice(out, func(i, j int) bool {
-		return out[i].Name < out[j].Name
-	})
-	return out
-}
-
-func (c Config) DatabaseService(name string) (DatabaseServiceConfig, bool) {
-	for _, svc := range c.DatabaseServices() {
-		if svc.Name == name {
-			return svc, true
-		}
-	}
-	return DatabaseServiceConfig{}, false
-}
-
-type DatabaseServiceConfig struct {
-	Name   string
-	Schema string
-	Raw    DevServiceConfig
-}
-
-func (c Config) PostgresServices() []PostgresServiceConfig {
-	services := c.DatabaseServices()
-	out := make([]PostgresServiceConfig, 0, len(services))
-	for _, svc := range services {
-		out = append(out, PostgresServiceConfig{
-			Name:          svc.Name,
-			DatabaseLabel: svc.Schema,
-			Schema:        svc.Schema,
-			Raw:           svc.Raw,
-		})
-	}
-	return out
-}
-
-func (c Config) PostgresService(name string) (PostgresServiceConfig, bool) {
-	for _, svc := range c.PostgresServices() {
-		if svc.Name == name {
-			return svc, true
-		}
-	}
-	return PostgresServiceConfig{}, false
-}
-
-type PostgresServiceConfig struct {
-	Name          string
-	DatabaseLabel string
-	Schema        string
-	Raw           DevServiceConfig
-}
-
 type BuildConfig struct {
 	GoFlags []string `json:"go_flags"`
 }
@@ -217,10 +149,6 @@ type FrontendConfig struct {
 // src-tauri/; empty means the frontend root.
 type FrontendTauriConfig struct {
 	Root string `json:"root"`
-}
-
-type DevConfig struct {
-	Services map[string]DevServiceConfig `json:"services"`
 }
 
 type EnvConfig struct {
@@ -371,10 +299,6 @@ func (e ResolvedEnv) UICatalogDir(appRoot string) (dir string, missing bool, err
 		}
 	}
 	return dir, false, nil
-}
-
-type DevServiceConfig struct {
-	Env map[string]string `json:"env,omitempty"`
 }
 
 type StorageConfig struct {
@@ -542,9 +466,6 @@ func (c Config) Validate() error {
 	if err := c.validateFrontends(); err != nil {
 		return err
 	}
-	if err := c.validateDevServices(); err != nil {
-		return err
-	}
 	if err := c.validateEnvs(); err != nil {
 		return err
 	}
@@ -597,24 +518,6 @@ func (c Config) validateFrontends() error {
 		if cleaned := filepath.Clean(root); cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
 			return fmt.Errorf("frontends.%s.tauri.root must stay beneath the app root", name)
 		}
-	}
-	return nil
-}
-
-func (c Config) validateDevServices() error {
-	schemaOwners := map[string]string{}
-	for name := range c.Dev.Services {
-		if !isStorageIdentifier(name) {
-			return fmt.Errorf("dev.services.%s name is invalid; use lowercase letters, numbers, dots, underscores, or dashes", name)
-		}
-		schema, err := postgresname.SchemaNameFor(name)
-		if err != nil {
-			return fmt.Errorf("dev.services.%s name maps to an invalid Postgres schema: %w", name, err)
-		}
-		if previous := schemaOwners[schema]; previous != "" {
-			return fmt.Errorf("dev.services.%s and dev.services.%s both map to Postgres schema %q", previous, name, schema)
-		}
-		schemaOwners[schema] = name
 	}
 	return nil
 }
@@ -940,6 +843,9 @@ func rejectUnknownFieldsValue(value any, typ reflect.Type, path []string, config
 
 func unknownConfigFieldError(path []string, configName string, value any) error {
 	jsonPath := strings.Join(path, ".")
+	if len(path) == 1 && path[0] == "dev" {
+		return fmt.Errorf("unknown %s field %q; remove dev.services: SQL requirements now come from reachable data_source bindings and selected framework registrations; keep endpoint supply in DATABASE_URL and setup in database.apply or database.seed", configName, jsonPath)
+	}
 	if len(path) == 4 && path[0] == "envs" && path[2] == "deploy" && path[3] == "root" {
 		if root, _ := value.(string); strings.TrimSpace(root) == "api" {
 			return fmt.Errorf("unknown %s field %q; remove it because public / now uses the root frontend (or the default agent page when no root frontend is configured), while /api/ remains routed automatically", configName, jsonPath)

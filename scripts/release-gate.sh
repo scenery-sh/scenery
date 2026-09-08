@@ -120,27 +120,10 @@ start_app() {
   printf '%s' "$pid"
 }
 
-full_go_tests() {
-  cd "$ROOT"
-  run go test ./...
-}
-
-race_tests() {
-  cd "$ROOT"
-  run go test -race ./...
-}
-
 lint_go() {
   cd "$ROOT"
   need golangci-lint
   run golangci-lint run ./...
-}
-
-ui_builds() {
-  cd "$ROOT/apps/console"
-  need bun
-  run bun run typecheck || return $?
-  run bun run build
 }
 
 dashboard_embed() {
@@ -149,19 +132,11 @@ dashboard_embed() {
   run ./scripts/build-dashboard-ui-embed.sh || return $?
 }
 
-self_harness() {
+repository_verification() {
   cd "$ROOT"
-  run "$SCENERY_BIN" harness self -o json --write
-}
-
-build_scenery() {
-  cd "$ROOT"
-  local install_dir
-  install_dir="$(mktemp -d)"
-  cleanup_items+=("rm -rf '$install_dir'")
-  run go build -o "$install_dir/scenery" ./cmd/scenery || return $?
+  run go run ./scripts/verify --release --summary --write || return $?
   if [[ -z "$scenery_bin_was_set" ]]; then
-    SCENERY_BIN="$install_dir/scenery"
+    SCENERY_BIN="$ROOT/.scenery/harness/bin/scenery"
     export SCENERY_BIN
   fi
 }
@@ -274,13 +249,9 @@ main() {
 
   printf 'scenery release gate\nroot: %s\nlogs: %s\n' "$ROOT" "$LOG_DIR"
 
-  step "full go tests" full_go_tests
-  step "race tests" race_tests
   step "go lint" lint_go
-  step "ui build" ui_builds
   step "dashboard embed" dashboard_embed
-  step "build scenery" build_scenery
-  step "self harness" self_harness
+  step "repository verification" repository_verification
   step "source snapshot build" source_snapshot_build
   step "fixture smoke" fixture_smoke
   if [[ -n "$EXTERNAL_APP_ROOT" ]]; then

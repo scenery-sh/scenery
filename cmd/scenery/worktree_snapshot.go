@@ -92,7 +92,7 @@ func restoreWorktreeSnapshot(ctx context.Context, appRoot string, cfg appcfg.Con
 	if err != nil {
 		return err
 	}
-	database, err := databaseForWorktreeServer(resolver.paths.AppRoot, cfg, server)
+	database, err := databaseForWorktreeServer(resolver.paths.AppRoot, cfg, server, nil)
 	if err != nil {
 		return err
 	}

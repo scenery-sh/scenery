@@ -12,8 +12,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  go:
-    name: Go
+  verify:
+    name: Repository Verification
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -38,73 +38,16 @@ jobs:
             exit 1
           fi
 
-      - name: Test
-        run: go test ./...
-
-      - name: Check basic fixture app
-        run: go run ./cmd/scenery check --app-root testdata/apps/basic -o json
-
-      - name: Build dashboard embed
+      - name: Prepare dashboard embed
         run: ./scripts/build-dashboard-ui-embed.sh
 
-      - name: Clean install
-        run: go install ./cmd/scenery
+      - name: Verify repository
+        run: go run ./scripts/verify --summary --write
 
-      - name: Smoke installed binary
-        run: $(go env GOPATH)/bin/scenery version -o json
-
-  ui:
-    name: UI
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v7
-
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@v2.2.0
-        with:
-          bun-version: 1.3.14
-
-      - name: Install dashboard dependencies
-        working-directory: ui
-        run: bun install --frozen-lockfile
-
-      - name: Typecheck dashboard
-        working-directory: ui
-        run: bun run typecheck
+      - name: Lint dashboard
+        working-directory: apps/console
+        run: bun run lint
 
       - name: Test dashboard
-        working-directory: ui
-        run: bun run test
-
-      - name: Build dashboard
-        working-directory: ui
-        run: bun run build
-
-  self-harness:
-    name: Self Harness
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v7
-
-      - name: Set up Go
-        uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@v2.2.0
-        with:
-          bun-version: 1.3.14
-
-      - name: Install dashboard dependencies
-        working-directory: ui
-        run: bun install --frozen-lockfile
-
-      - name: Install Scenery
-        run: go install ./cmd/scenery
-
-      - name: Run self harness
-        run: $(go env GOPATH)/bin/scenery harness self -o json --write
+        working-directory: apps/console
+        run: bun test tests

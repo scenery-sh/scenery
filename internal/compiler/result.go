@@ -10,6 +10,7 @@ type Result struct {
 	Root                    string                     `json:"-"`
 	Manifest                *graph.Manifest            `json:"manifest,omitempty"`
 	FrameworkResources      []graph.Resource           `json:"-"`
+	SQLRequirements         SQLRequirements            `json:"-"`
 	ViewManifests           map[string]*graph.Manifest `json:"-"`
 	PartialGraph            *graph.PartialGraph        `json:"partial_graph,omitempty"`
 	ContractStatus          string                     `json:"contract_status"`

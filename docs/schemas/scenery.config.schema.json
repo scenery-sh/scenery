@@ -68,21 +68,6 @@
       },
       "additionalProperties": false
     },
-    "dev": {
-      "type": "object",
-      "properties": {
-        "services": {
-          "type": [
-            "object",
-            "null"
-          ],
-          "additionalProperties": {
-            "$ref": "#/$defs/devService"
-          }
-		}
-      },
-      "additionalProperties": false
-    },
     "storage": {
       "$ref": "#/$defs/storage"
     },
@@ -245,22 +230,6 @@
                 "pattern": "(^|/)\\.\\.(/|$)"
               }
             ]
-          }
-        }
-      },
-      "additionalProperties": false
-    },
-    "devService": {
-      "type": "object",
-      "properties": {
-        "env": {
-          "type": [
-            "object",
-            "null"
-          ],
-          "description": "Reserved service environment metadata. Database services are kind-less in plan 0097.",
-          "additionalProperties": {
-            "type": "string"
           }
         }
       },

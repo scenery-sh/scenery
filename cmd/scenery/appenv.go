@@ -8,11 +8,12 @@ import (
 	"strings"
 
 	"scenery.sh/internal/app"
+	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/postgresdb"
 )
 
-func appProcessEnv(root string, cfg app.Config, logFormat string, envName string, extra ...string) ([]string, error) {
+func appProcessEnv(root string, cfg app.Config, requirements compiler.SQLRequirements, logFormat string, envName string, extra ...string) ([]string, error) {
 	resolved, err := cfg.ResolveEnv(envName)
 	if err != nil {
 		return nil, &codedCLIError{err: err, code: 3}
@@ -43,7 +44,7 @@ func appProcessEnv(root string, cfg app.Config, logFormat string, envName string
 			overrides = append(overrides, prefix+"_MANIFEST="+filepath.Join(root, filepath.FromSlash(library.Manifest)))
 		}
 	}
-	if err := validateHeadlessPostgresEnv(cfg, baseEnv); err != nil {
+	if err := validateHeadlessPostgresEnv(requirements, envWithOverrides(baseEnv, overrides...)); err != nil {
 		return nil, err
 	}
 	storageEnv, err := headlessStorageCapabilityEnv(cfg, baseEnv)
@@ -66,15 +67,9 @@ func libraryEnvironmentPrefix(name string) string {
 	return "SCENERY_LIBRARY_" + value.String()
 }
 
-func validateHeadlessPostgresEnv(cfg app.Config, baseEnv []string) error {
-	if len(cfg.DatabaseServices()) == 0 {
-		return nil
-	}
-	envName := appDatabaseURLEnv
-	if value := lookupEnvValue(baseEnv, envName); value != "" {
-		return validateAppPostgresURL(value)
-	}
-	return &codedCLIError{code: 3, err: fmt.Errorf("app database requires %s for `scenery worker`; set it in the process environment or an optional dotenv source; the managed shared Postgres server is a `scenery up` dev substrate only", envName)}
+func validateHeadlessPostgresEnv(requirements compiler.SQLRequirements, baseEnv []string) error {
+	_, err := resolveSQLSupply(requirements, baseEnv, false)
+	return err
 }
 
 // URL parser errors can contain the original URL, including credentials.
@@ -104,4 +99,14 @@ func envWithOverrides(base []string, overrides ...string) []string {
 		env = append(env, item)
 	}
 	return append(env, overrides...)
+}
+
+func envValueFromList(env []string, key string) string {
+	prefix := key + "="
+	for _, item := range env {
+		if strings.HasPrefix(item, prefix) {
+			return strings.TrimPrefix(item, prefix)
+		}
+	}
+	return ""
 }

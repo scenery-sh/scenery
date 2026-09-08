@@ -7,9 +7,9 @@
 <!-- Mark the commands you ran. Explain anything skipped. -->
 
 - [ ] `go test ./...`
-- [ ] `go install ./cmd/scenery`
-- [ ] `scenery harness self -o json --write`
-- [ ] UI checks, if relevant
+- [ ] `go run ./scripts/verify --summary --write`
+- [ ] Runtime/release-sensitive paths: repository release mode and `scripts/release-gate.sh`
+- [ ] Dashboard paths: console lint/typecheck/build and `scenery harness ui` browser proof
 
 ## Notes
 

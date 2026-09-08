@@ -16,6 +16,7 @@ import (
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/deploydiag"
 	"scenery.sh/internal/doctor"
+	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/scn"
 	"scenery.sh/internal/toolchain"
 	"scenery.sh/internal/tscheck"
@@ -183,7 +184,26 @@ func buildDoctorResponse(ctx context.Context, opts doctorOptions, deps doctor.Pr
 	}
 	resp.Checks = append(resp.Checks, doctor.StorageSizeChecks(ctx, deps)...)
 
-	features := doctor.Features(cfg, resp.App)
+	managedSQL := false
+	if resp.App != nil {
+		var sqlErr error
+		requirements, err := compileSQLRequirements(resp.App.Root)
+		sqlErr = err
+		if sqlErr == nil {
+			env, envErr := appEnvWithDotEnv(envpolicy.Environ(), resp.App.Root)
+			sqlErr = envErr
+			if sqlErr == nil {
+				bindings, supplyErr := resolveSQLSupply(requirements, env, true)
+				sqlErr = supplyErr
+				managedSQL = supplyErr == nil && len(bindings) > 0 && lookupEnvValue(env, appDatabaseURLEnv) == ""
+			}
+		}
+		if sqlErr != nil {
+			resp.Checks = append(resp.Checks, doctor.Check{ID: "app.sql_requirements", Category: "database", Name: "SQL requirements", Status: doctor.StatusError, Severity: doctor.SeverityRequired,
+				Message: sqlErr.Error(), SuggestedAction: "Resolve current source and selected-environment SQL supply before startup; no database was opened or provisioned."})
+		}
+	}
+	features := doctor.Features(cfg, resp.App, managedSQL)
 	resp.Checks = append(resp.Checks, doctor.DependencyChecks(ctx, deps, features, appFound)...)
 	resp.Checks = append(resp.Checks, doctor.DockerChecks(ctx, deps)...)
 	resp.Checks = append(resp.Checks, doctor.PostgresServerCheck(ctx, deps, features))

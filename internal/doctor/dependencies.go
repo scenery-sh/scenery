@@ -291,7 +291,7 @@ func PostgresServerCheck(ctx context.Context, deps ProbeDeps, features AppFeatur
 		Name:     "Managed Postgres prerequisites",
 		Status:   StatusSkipped,
 		Severity: SeverityInformational,
-		Message:  "no postgres dev.services are configured",
+		Message:  "the selected application has no managed SQL requirement",
 	}
 	if !features.PostgresServices {
 		return check
@@ -299,12 +299,12 @@ func PostgresServerCheck(ctx context.Context, deps ProbeDeps, features AppFeatur
 	check.Status = StatusOK
 	check.Severity = SeverityRequired
 	check.Message = "Docker is reachable; managed Postgres ownership, credentials and database readiness were not checked"
-	check.SuggestedAction = "Use scenery up for managed runtime startup; its readiness checks remain authoritative. A private agent home does not isolate the globally named Postgres container or volume."
+	check.SuggestedAction = "Use scenery up for managed runtime startup; its ownership and readiness checks remain authoritative for the canonical worktree root."
 	check.Observed = map[string]any{"command": "docker", "proof": "none", "runtime_verified": false}
 	path, err := deps.LookPath("docker")
 	if err != nil {
 		check.Status = StatusError
-		check.Message = "Docker CLI was not found; managed postgres dev services cannot start"
+		check.Message = "Docker CLI was not found; managed SQL requirements cannot be supplied"
 		check.SuggestedAction = "Install Docker for the managed path, or set the app's DATABASE_URL to an external Postgres URL. This check does not inspect dotenv sources or validate external database access."
 		return check
 	}
@@ -314,7 +314,7 @@ func PostgresServerCheck(ctx context.Context, deps ProbeDeps, features AppFeatur
 	cancel()
 	if infoErr != nil {
 		check.Status = StatusError
-		check.Message = "Docker engine is not reachable; managed postgres dev services cannot start"
+		check.Message = "Docker engine is not reachable; managed SQL requirements cannot be supplied"
 		check.SuggestedAction = "Start Docker for the managed path, or set the app's DATABASE_URL to an external Postgres URL. This check does not inspect dotenv sources or validate external database access."
 	} else {
 		check.Observed["proof"] = "docker_engine_reachability_only"

@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"scenery.sh/internal/compiler"
 	scenery "scenery.sh/internal/contract"
 	generateapi "scenery.sh/internal/generate/api"
 	"scenery.sh/internal/scn"
@@ -29,7 +30,7 @@ type applicationAdapter struct {
 type RuntimeIntegrationPlan = generateapi.RuntimeIntegrationPlan
 
 func BuildRuntimeIntegrationPlan(result *Result) (RuntimeIntegrationPlan, error) {
-	services := nativeApplicationServices(result)
+	services := compiler.RuntimeServices(result.Manifest.Resources)
 	assistants := canonicalAssistantResources(result.Manifest.Resources)
 	mcpServers := canonicalMCPServers(result.Manifest.Resources)
 	if len(services) == 0 && len(assistants) == 0 && len(mcpServers) == 0 {
@@ -43,7 +44,7 @@ func BuildRuntimeIntegrationPlan(result *Result) (RuntimeIntegrationPlan, error)
 }
 
 func generateApplicationArtifacts(result *Result, idx *resourceIndex) ([]generatedFile, error) {
-	services := nativeApplicationServices(result)
+	services := compiler.RuntimeServices(result.Manifest.Resources)
 	assistants := canonicalAssistantResources(result.Manifest.Resources)
 	mcpServers := canonicalMCPServers(result.Manifest.Resources)
 	if len(services) == 0 && len(assistants) == 0 && len(mcpServers) == 0 {
@@ -163,41 +164,6 @@ func providerRuntimeABIs(resources []Resource) map[string]string {
 	return abis
 }
 
-func nativeApplicationServices(result *Result) []Resource {
-	var services []Resource
-	for _, resource := range result.Manifest.Resources {
-		if resource.Kind != "scenery.service" || resource.Origin.Kind != "authored" && !isProviderCRUDService(resource) {
-			continue
-		}
-		implementation, _ := resource.Spec["implementation"].(map[string]any)
-		if implementation == nil {
-			continue
-		}
-		operations := serviceOperations(result.Manifest.Resources, resource)
-		hasHandler := false
-		for _, operation := range operations {
-			handler, _ := operation.Spec["handler"].(map[string]any)
-			if handler != nil {
-				hasHandler = true
-			}
-		}
-		if !hasHandler {
-			continue
-		}
-		services = append(services, resource)
-	}
-	sort.Slice(services, func(i, j int) bool { return services[i].Address < services[j].Address })
-	return services
-}
-
-func isProviderCRUDService(service Resource) bool {
-	if service.Kind != "scenery.service" || stringValue(service.Spec["runtime"]) != "provider" {
-		return false
-	}
-	implementation, _ := service.Spec["implementation"].(map[string]any)
-	return stringValue(implementation["adapter"]) == "provider_crud_v1"
-}
-
 func resolveApplicationGeneratedRoot(result *Result) (string, string, error) {
 	relativeRoot := "internal/scenerygen"
 	for _, source := range result.Sources {
@@ -271,8 +237,8 @@ func renderApplicationAdapter(result *Result, idx *resourceIndex, module, servic
 	if err != nil {
 		return applicationAdapter{}, err
 	}
-	operations := serviceOperations(result.Manifest.Resources, service)
-	if isProviderCRUDService(service) {
+	operations := compiler.ServiceOperations(result.Manifest.Resources, service)
+	if compiler.IsProviderCRUDService(service) {
 		bindings := serviceHTTPBindings(result.Manifest.Resources, operations)
 		internalBindings := internalBindingsForOperations(result.Manifest.Resources, operations)
 		mcpBindings := mcpBindingsForService(result.Manifest.Resources, service, operations)
@@ -335,7 +301,7 @@ func renderApplicationAdapterSource(contractRevision, packageIdentity, packageAB
 	if constructor == "" {
 		return nil, fmt.Errorf("native service %s has no constructor", service.Address)
 	}
-	dependencies, err := serviceGoDependencies(idx, service)
+	dependencies, err := compiler.ServiceGoDependencies(idx.byAddress, service)
 	if err != nil {
 		return nil, err
 	}
@@ -614,17 +580,6 @@ func renderApplicationComposition(result *Result, providerABIs map[string]string
 		return nil, fmt.Errorf("format application composition: %w\n%s", err, b.String())
 	}
 	return formatted, nil
-}
-
-func serviceOperations(resources []Resource, service Resource) []Resource {
-	var operations []Resource
-	for _, resource := range resources {
-		if resource.Kind == "scenery.operation" && resource.Module == service.Module && resolveResourceRef(resource, refString(resource.Spec["service"]), "service") == service.Address {
-			operations = append(operations, resource)
-		}
-	}
-	sort.Slice(operations, func(i, j int) bool { return operations[i].Address < operations[j].Address })
-	return operations
 }
 
 func serviceHTTPBindings(resources, operations []Resource) []Resource {

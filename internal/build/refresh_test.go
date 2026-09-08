@@ -11,7 +11,11 @@ import (
 )
 
 func TestRefreshCachedWorkspaceResyncsMissingSourceFiles(t *testing.T) {
-	t.Parallel()
+	// Source resynchronization consumes a fixed generator identity. Actual
+	// generator content and invalidation are covered at the fingerprint owner.
+	original := currentGeneratorFingerprint
+	currentGeneratorFingerprint = func() (string, error) { return "fixture-generator", nil }
+	t.Cleanup(func() { currentGeneratorFingerprint = original })
 
 	appDir, _ := newCachedBuildTestWorkspace(t, "graph-1")
 

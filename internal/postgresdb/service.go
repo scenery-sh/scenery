@@ -56,6 +56,11 @@ func ServiceURL(baseURL, schema string) (string, error) {
 func Env(database Database) []string {
 	values := map[string]string{"DATABASE_URL": database.URL}
 	for _, svc := range database.Schemas {
+		// Framework auth/durable state consumes the canonical app URL. The
+		// reserved schema is registry metadata, not another endpoint variable.
+		if svc.Name == "scenery" {
+			continue
+		}
 		values[postgresname.ServiceDatabaseURLEnv(svc.Name)] = svc.URL
 	}
 	if data, err := json.Marshal(database); err == nil {

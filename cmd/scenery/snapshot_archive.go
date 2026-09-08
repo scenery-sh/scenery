@@ -83,12 +83,12 @@ func saveSnapshot(ctx context.Context, appRoot string, cfg appcfg.Config, opts s
 			}
 			defer func() { returnErr = errors.Join(returnErr, op.Close()) }()
 		}
-		database, err = resolvePostgresDatabaseForCLI(ctx, appRoot, cfg)
+		database, err = resolveSnapshotDatabase(ctx, appRoot, cfg)
 		if err != nil {
 			return snapshotSaveResult{}, err
 		}
 		if database.Database == "" {
-			return snapshotSaveResult{}, fmt.Errorf("snapshot save --db requires configured Postgres services")
+			return snapshotSaveResult{}, fmt.Errorf("snapshot save --db requires a retained database or explicit external DATABASE_URL")
 		}
 		pgRunner, err = snapshotPostgresRunnerFor(database)
 		if err != nil {
@@ -303,7 +303,7 @@ func loadSnapshot(ctx context.Context, appRoot string, cfg appcfg.Config, opts s
 
 	var targetName, targetSource string
 	if opts.DB {
-		if err := validateSnapshotSchemas(cfg, archive.manifest.DB.Schemas); err != nil {
+		if err := validateSnapshotSchemas(archive.manifest.DB.Schemas); err != nil {
 			return snapshotLoadResult{}, err
 		}
 		targetName, targetSource, err = configuredSnapshotDatabaseTarget(appRoot, cfg)
@@ -311,7 +311,7 @@ func loadSnapshot(ctx context.Context, appRoot string, cfg appcfg.Config, opts s
 			return snapshotLoadResult{}, err
 		}
 		if targetName == "" {
-			return snapshotLoadResult{}, fmt.Errorf("snapshot load --db requires configured Postgres services")
+			return snapshotLoadResult{}, fmt.Errorf("snapshot load --db requires an app database target")
 		}
 		if opts.Mode == "overwrite" && targetSource == string(postgresdb.SourceExternal) {
 			return snapshotLoadResult{}, fmt.Errorf("refusing to overwrite external postgres database")
@@ -358,7 +358,7 @@ func loadSnapshot(ctx context.Context, appRoot string, cfg appcfg.Config, opts s
 				return snapshotLoadResult{}, err
 			}
 		} else {
-			database, err := resolvePostgresDatabaseForCLI(ctx, appRoot, cfg)
+			database, err := resolveSnapshotDatabase(ctx, appRoot, cfg)
 			if err != nil {
 				return snapshotLoadResult{}, err
 			}
@@ -594,14 +594,11 @@ func verifySnapshotZipFile(file *zip.File, manifest snapshotManifestFile) error 
 	return nil
 }
 
-func validateSnapshotSchemas(cfg appcfg.Config, schemas []snapshotManifestSchema) error {
-	configured := map[string]string{}
-	for _, schema := range cfg.DatabaseServices() {
-		configured[schema.Name] = schema.Schema
-	}
+func validateSnapshotSchemas(schemas []snapshotManifestSchema) error {
 	for _, schema := range schemas {
-		if configured[schema.Service] != schema.Schema {
-			return fmt.Errorf("snapshot database schema %s=%s is not configured in the current app", schema.Service, schema.Schema)
+		mapped, err := postgresname.SchemaNameFor(schema.Service)
+		if err != nil || mapped != schema.Schema || len(schema.Schema) > 63 {
+			return fmt.Errorf("snapshot database schema %s=%s is not a valid service schema binding", schema.Service, schema.Schema)
 		}
 	}
 	return nil
@@ -617,9 +614,6 @@ func validateSnapshotStores(cfg appcfg.Config, stores []snapshotManifestStore) e
 }
 
 func configuredSnapshotDatabaseTarget(appRoot string, cfg appcfg.Config) (string, string, error) {
-	if len(cfg.DatabaseServices()) == 0 {
-		return "", "", nil
-	}
 	env, err := appEnvWithDotEnv(envpolicy.Environ(), appRoot)
 	if err != nil {
 		return "", "", err

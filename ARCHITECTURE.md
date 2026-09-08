@@ -90,6 +90,38 @@ same changed-area relevance and verification-command logic used by self-harness,
 then narrows Markdown results to owning sections. It does not maintain a second
 path-routing catalog.
 
+`internal/repoinfo` owns the read-only knowledge-index types and reader,
+repository discovery, and the single pure path-classification table. CLI docs
+rendering stays here; neither classification nor artifact reading executes tests.
+
+### Shared verification data and child-process boundaries
+
+`internal/schemacheck` owns the existing schema-validation vocabulary shared by
+repository verification and product contract tests. It is not a product runtime
+dependency and adds no independent test binary.
+
+`internal/harnessreport` contains only current report values and pure bounded
+summary formatting. `internal/harnessevidence` owns explicitly requested artifact
+writes and output/reproduction formatting. Neither runs repository checks.
+The one payload schema identity registry lives in `internal/machine`.
+
+`internal/devprocess` owns the existing concrete child-process start, readiness,
+output capture and process-tree stop mechanics. The CLI still owns application,
+session, frontend, desktop and assistant lifecycle decisions. Process completion
+is exposed as a receive-only signal, not a second mutable runtime record.
+Process observations and named substrate locks live in that same concrete
+process layer. `internal/agent` owns session process-cleanup selection, retaining
+the existing owner and orphan-scope checks. `internal/watchignore` owns the
+shared watch-input path policy and embed-pattern parsing; snapshot caching
+remains in the CLI.
+
+`scripts/verify` is the repository-only orchestration owner. Run it from this
+root with `go run ./scripts/verify`. It uses the prepared absolute worktree-local
+product executable for product assertions and the existing fresh-test engine
+for repository tests. The application CLI neither dispatches repository
+verification nor depends on its execution engine. Its app/UI harnesses and
+bounded report readers remain product capabilities.
+
 ### `internal/app`
 
 `internal/app` owns repository and app-root discovery. It walks upward to find
@@ -102,6 +134,15 @@ loading should fail clearly when the marker is missing or invalid.
 Architecture invariant: configuration parsing must not import the PostgreSQL
 driver layer. Pure database, schema, and environment name derivation lives in
 `internal/postgresname`; database IO lives in `internal/postgresdb`.
+
+SQL requirements are not config declarations. `compiler.Result.SQLRequirements`
+is the immutable projection of registered services' typed dependencies and
+framework auth/durable registrations. The compiler owns service selection,
+dependency binding and schema validation once; generation, inspection, runtime
+supply and setup consume that result. Environment endpoints supply it; persisted
+worktree records own actual allocations. Snapshot recovery reads actual schemas
+without compiling desired source. Generated entrypoints configure the existing
+SQL environment before constructors; `db` never rediscovers app configuration.
 
 ### `internal/desktop`
 
@@ -466,7 +507,9 @@ writing its session manifest. Localhost serving requires no machine edge.
 
 These packages support the local development platform around a running app.
 
-`internal/devdash` stores dashboard-visible state and observability data.
+`internal/devdash` stores dashboard-visible state and observability data. It
+also owns the shared asset-name hashing used to compare a running dashboard
+bundle with built assets; only the product embeds and serves those assets.
 `internal/localproxy` owns the local proxy layer. Victoria sidecars are supervised
 from `cmd/scenery` as worktree-owned optional companions, and native dashboard views
 surface local logs, traces, and metrics. The dashboard server and UI embedding

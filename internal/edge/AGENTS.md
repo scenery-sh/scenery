@@ -7,6 +7,8 @@
 ## Ownership
 
 - Keep CLI parsing, output rendering, managed-tool resolution, dnsmasq/helper process orchestration, and privileged-listener setup in `cmd/scenery`.
+- `ListenTCP` owns only the existing dual-stack socket binding primitive;
+  the CLI still selects privileged addresses, ports, and forwarding policy.
 - Keep edge state schemas and path derivation in `internal/agent`.
 - Do not import `cmd/scenery`; the command package adapts this package's concrete functions.
 
@@ -36,10 +38,14 @@ go test ./cmd/scenery
 ```
 
 Release proof for static frontend HTTP behavior lives in
-`cmd/scenery/harness_self_edge_static.go`, called by the release edge-process
+`scripts/verify/harness_self_edge_static.go`, called by the release edge-process
 step. Preserve its cache, SPA, method, byte-range, proxy, blocked-path, and
 traversal checks when changing the renderer or publisher. A missing managed
 Caddy fails that proof explicitly; it must not turn into a passing skip.
+
+That release step also proves durable DNS-state migration with exact backup
+bytes and preserved resolver ownership in a temporary fixture. Ordinary DNS
+tests cover the pure conversion and current-state read without durable writes.
 
 ## Child Agent Index
 

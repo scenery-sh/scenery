@@ -24,7 +24,7 @@ type AppFeatures struct {
 
 // Features derives AppFeatures from the discovered app configuration.
 // A nil app yields the zero AppFeatures.
-func Features(cfg appcfg.Config, app *AppInfo) AppFeatures {
+func Features(cfg appcfg.Config, app *AppInfo, managedSQL bool) AppFeatures {
 	if app == nil {
 		return AppFeatures{}
 	}
@@ -34,8 +34,8 @@ func Features(cfg appcfg.Config, app *AppInfo) AppFeatures {
 		AtlasRelevant:        sqlcUsesAtlas(cfg.Generators.SQLC),
 		DatabaseApplyCommand: strings.TrimSpace(cfg.Database.Apply.Command) != "",
 		StorageConfigured:    len(cfg.Storage.Stores) > 0,
-		PostgresServices:     len(cfg.PostgresServices()) > 0,
-		DockerRelevant:       appUsesDocker(cfg),
+		PostgresServices:     managedSQL,
+		DockerRelevant:       managedSQL || appUsesDocker(cfg),
 		TypeScriptTasks:      appHasTypeScriptTasks(app.Root)}
 	return features
 }
@@ -58,9 +58,6 @@ func sqlcUsesAtlas(cfg appcfg.SQLCGeneratorConfig) bool {
 
 func appUsesDocker(cfg appcfg.Config) bool {
 	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(cfg.Generators.SQLC.DevURL)), "docker://") {
-		return true
-	}
-	if len(cfg.PostgresServices()) > 0 {
 		return true
 	}
 	for _, schema := range cfg.Generators.SQLC.Schemas {

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"scenery.sh/internal/compiler"
+	"scenery.sh/internal/devprocess"
 	"scenery.sh/internal/graph"
 	"scenery.sh/internal/machine"
 	"scenery.sh/internal/spec"
@@ -143,41 +144,13 @@ func detachedDevProtocolFailure() error {
 // supervisor fails. After exit, drain its pipe before choosing an exit-only
 // error: the reader may still be decoding a result written just before exit.
 func monitorDetachedDevStartup(ctx context.Context, cancel context.CancelCauseFunc, startup <-chan error, exited <-chan error) {
-	for {
-		// Prefer a result already available when exit or deadline is observed.
-		select {
-		case err := <-startup:
-			startup = nil
-			if err != nil {
-				cancel(err)
-				return
-			}
-		default:
+	devprocess.MonitorStartup(ctx, cancel, startup, exited, func(waitErr error) error {
+		message := "The detached supervisor exited before the requested startup readiness."
+		if exitErr, ok := errors.AsType[*exec.ExitError](waitErr); ok {
+			message = fmt.Sprintf("The detached supervisor exited before the requested startup readiness (exit code %d).", exitErr.ExitCode())
 		}
-		select {
-		case err := <-startup:
-			startup = nil
-			if err != nil {
-				cancel(err)
-				return
-			}
-		case waitErr := <-exited:
-			if startup != nil {
-				if err := <-startup; err != nil {
-					cancel(err)
-					return
-				}
-			}
-			message := "The detached supervisor exited before the requested startup readiness."
-			if exitErr, ok := errors.AsType[*exec.ExitError](waitErr); ok {
-				message = fmt.Sprintf("The detached supervisor exited before the requested startup readiness (exit code %d).", exitErr.ExitCode())
-			}
-			cancel(&cliDiagnosticError{code: 3, startupReason: "child_exit", diagnostic: compiler.TransportDiagnostic("failed_precondition", message)})
-			return
-		case <-ctx.Done():
-			return
-		}
-	}
+		return &cliDiagnosticError{code: 3, startupReason: "child_exit", diagnostic: compiler.TransportDiagnostic("failed_precondition", message)}
+	})
 }
 
 func detachedDevWaitFailure(err error, pid int, waitMode string, timeout time.Duration, logPath string) error {
@@ -209,19 +182,5 @@ func detachedDevWaitFailure(err error, pid int, waitMode string, timeout time.Du
 }
 
 func stopDetachedDevChild(cmd *exec.Cmd, exited <-chan struct{}) {
-	select {
-	case <-exited:
-		return
-	default:
-	}
-	_ = interruptProcessTree(cmd)
-	select {
-	case <-exited:
-	case <-time.After(stopTimeout):
-		_ = killProcessTree(cmd)
-		select {
-		case <-exited:
-		case <-time.After(time.Second):
-		}
-	}
+	devprocess.StopDetached(cmd, exited)
 }

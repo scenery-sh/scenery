@@ -33,7 +33,7 @@ http_gateway "public_api" {
 provider "postgres" { source = "registry.scenery.dev/core/postgres" }
 data_source "library" {
   provider             = provider.postgres
-  lifecycle            = "external"
+  lifecycle            = "managed"
   require_capabilities = ["sql.query/v1", "sql.transaction/v1"]
   config               = { database = "library" }
 }

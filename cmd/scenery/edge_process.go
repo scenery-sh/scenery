@@ -260,33 +260,6 @@ func signalPID(pid int, signal os.Signal) error {
 	return nil
 }
 
-func processAliveForEdge(pid int) bool {
-	if pid <= 0 {
-		return false
-	}
-	proc, err := os.FindProcess(pid)
-	if err != nil {
-		return false
-	}
-	if proc.Signal(syscall.Signal(0)) != nil {
-		return false
-	}
-	return !processZombieForEdge(pid)
-}
-
-func processZombieForEdge(pid int) bool {
-	switch runtime.GOOS {
-	case "darwin", "linux":
-	default:
-		return false
-	}
-	out, err := exec.Command("ps", "-o", "stat=", "-p", strconv.Itoa(pid)).Output()
-	if err != nil {
-		return false
-	}
-	return strings.HasPrefix(strings.TrimSpace(string(out)), "Z")
-}
-
 func processUID(pid int) (int, error) {
 	if pid <= 0 {
 		return 0, fmt.Errorf("pid must be positive")

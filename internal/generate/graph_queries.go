@@ -195,17 +195,6 @@ func inputKeyFieldName(value any) (string, bool) {
 	return name, found && scn.IdentifierPattern.MatchString(name)
 }
 
-func stringListSet(value any) map[string]bool {
-	result := map[string]bool{}
-	items, _ := value.([]any)
-	for _, item := range items {
-		if text, ok := item.(string); ok {
-			result[text] = true
-		}
-	}
-	return result
-}
-
 func literalString(block *Block, name string) (string, bool) { return scn.LiteralString(block, name) }
 
 func MarshalCanonical(value any) ([]byte, error) { return spec.MarshalCanonical(value) }

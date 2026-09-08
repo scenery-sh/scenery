@@ -1,6 +1,6 @@
 # scenery Environment Reference
 
-This page is the human reference for scenery-owned environment variables. The machine-readable source of truth is [environment.registry.json](environment.registry.json), validated by `scenery harness self`.
+This page is the human reference for scenery-owned environment variables. The machine-readable source of truth is [environment.registry.json](environment.registry.json), validated by `go run ./scripts/verify`.
 
 Prefer `.scenery.json` for stable app configuration. Use environment variables for local overrides, secrets, process identity, or explicit escape hatches. New production env names must be added to the registry with rationale, docs, and tests; otherwise self-harness fails.
 
@@ -97,8 +97,8 @@ other names in this section are injected handoff values.
 | `AUTH_TOKEN_CIPHER_KEY` | user input secret | Default base64 32-byte AES-GCM key for encrypted Google connection token storage. |
 | `GOOGLE_OAUTH_CLIENT_ID` | user input | Standard-auth Google OAuth client ID. |
 | `GOOGLE_OAUTH_CLIENT_SECRET` | user input secret | Standard-auth Google OAuth client secret. |
-| `<SERVICE>_DATABASE_URL` | injected | Service schema Postgres URL derived from the app database URL with `search_path=<service>,scenery`. |
-| `SCENERY_DATABASE_JSON` | injected | JSON object describing the app database, source (`managed` or `external`), and service schemas. |
+| `<SERVICE>_DATABASE_URL` | injected | Compiled logical binding's Postgres URL with `search_path=<schema>,scenery`; standalone generated runtimes also accept an explicit per-binding endpoint. |
+| `SCENERY_DATABASE_JSON` | injected | Resolved SQL supply (app database, source and logical schemas), configured before generated constructors. Not a requirements or ownership cache. |
 | `API_BASE_URL` | injected | API route exposed to app/frontends. |
 | `SCENERY_API_BASE_URL` | injected | scenery-prefixed API route exposed to app/frontends. |
 | `SCENERY_API_URL` | injected | Canonical API route URL exposed to app/frontends. |

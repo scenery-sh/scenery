@@ -19,7 +19,7 @@ localhost page root: path-mode app endpoints are beneath `/api/`.
 Run through the repository release harness:
 
 ```sh
-.scenery/harness/bin/scenery harness self --release --summary --write
+go run ./scripts/verify --release --summary --write
 ```
 
 The named worktree runtime and PostgreSQL acceptance step records each scenario

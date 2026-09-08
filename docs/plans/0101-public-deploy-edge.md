@@ -362,7 +362,7 @@ Acceptance: unit test for the drift computation; upgrade-notice test alongside e
 
 ### Milestone 9: docs and harness
 
-Update in one change: `docs/local-contract.md` (new `scenery deploy` grammar, `scenery.deploy.registry.v1` / `scenery.deploy.status.v1` schemas, artifact paths, stability: beta), `docs/agent-guide.md` (how agents check/enable public exposure), `SKILL.md` (short: deploy exists, needs sudo setup, domain in config), `README.md` (human walkthrough), `docs/app-development-cookbook.md` (recipe: expose an app on your own domain, incl. router/DNS steps and the curl verification ladder from Surprises), `docs/schemas/scenery.config.v1.schema.json`, new schemas under `docs/schemas/`, `docs/knowledge.json`. No `docs/environment.md` changes (no env vars). Run `scenery harness self --summary --write`.
+Update in one change: `docs/local-contract.md` (new `scenery deploy` grammar, `scenery.deploy.registry.v1` / `scenery.deploy.status.v1` schemas, artifact paths, stability: beta), `docs/agent-guide.md` (how agents check/enable public exposure), `SKILL.md` (short: deploy exists, needs sudo setup, domain in config), `README.md` (human walkthrough), `docs/app-development-cookbook.md` (recipe: expose an app on your own domain, incl. router/DNS steps and the curl verification ladder from Surprises), `docs/schemas/scenery.config.v1.schema.json`, new schemas under `docs/schemas/`, `docs/knowledge.json`. No `docs/environment.md` changes (no env vars). Run `go run ./scripts/verify --summary --write`.
 
 ### Milestone 10: real-world acceptance (this Mac, real domain)
 
@@ -399,7 +399,7 @@ Implementation model note: bulk mechanical stages (schema plumbing, table-driven
 5. Milestone 4: extend `caddyEdgeConfigOptions`/`caddyEdgeConfig`; pin `storage file_system`; add admin-socket reload helper; wire `edgeRestart` to include public targets from the registry so `scenery system edge install` and `scenery deploy` stay consistent.
 6. Milestone 5: `internal/agent/types.go` (`RoutePublic`), `registry.go` (deploy-domain fallback + reload RPC), `router.go` (public dispatch + containment), tests in `internal/agent`.
 7. Milestones 6–8 per their sections; diagnostics use injectable func vars like the existing `edge*Func` seams.
-8. Milestone 9 docs sweep; `scenery harness self --summary --write`.
+8. Milestone 9 docs sweep; `go run ./scripts/verify --summary --write`.
 9. Milestone 10 on the real machine; append results (incl. Let's Encrypt staging output and the reboot observation) to Surprises & Discoveries and close out Outcomes & Retrospective.
 
 ## Validation and Acceptance
@@ -412,7 +412,7 @@ go test ./cmd/scenery
 go test ./internal/agent ./internal/app
 ```
 
-Because this plan changes release-sensitive runtime paths, every landed implementation step must pass `.scenery/harness/bin/scenery harness self --summary --write`. JSON sanity: `jq empty docs/knowledge.json docs/schemas/scenery.config.v1.schema.json`. If an environment-gated real-process step cannot run, keep the step incomplete and record the harness diagnostic plus the exact unavailable dependency in Progress.
+Because this plan changes release-sensitive runtime paths, every landed implementation step must pass `go run ./scripts/verify --summary --write`. JSON sanity: `jq empty docs/knowledge.json docs/schemas/scenery.config.v1.schema.json`. If an environment-gated real-process step cannot run, keep the step incomplete and record the harness diagnostic plus the exact unavailable dependency in Progress.
 
 Feature acceptance is Milestone 10's script. The plan is done when: a real domain serves an app over public HTTPS with a Let's Encrypt production cert; two apps with two domains serve simultaneously through the one edge; reboot + login restores service untouched; containment checks pass; `scenery deploy status --json` reflects all of it truthfully; and docs/schema layers are updated together.
 

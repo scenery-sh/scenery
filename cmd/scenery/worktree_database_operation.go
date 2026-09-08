@@ -6,6 +6,7 @@ import (
 	"time"
 
 	appcfg "scenery.sh/internal/app"
+	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/postgresdb"
 )
@@ -23,10 +24,14 @@ func requireManagedDatabaseSelection(root string) error {
 
 // Standalone apply/seed owns the worktree until all SQL and child commands
 // finish. External capabilities have no Scenery lifecycle to lock.
-func beginDatabaseLifecycleEnv(ctx context.Context, root string, cfg appcfg.Config, baseEnv []string) (_ []string, _ func() error, returnErr error) {
+func beginDatabaseLifecycleEnv(ctx context.Context, root string, cfg appcfg.Config, requirements compiler.SQLRequirements, baseEnv []string) (_ []string, _ func() error, returnErr error) {
 	noop := func() error { return nil }
-	if len(cfg.DatabaseServices()) == 0 || lookupEnvValue(baseEnv, appDatabaseURLEnv) != "" {
-		env, err := managedDatabaseLifecycleEnv(ctx, root, cfg, baseEnv)
+	bindings, err := resolveSQLSupply(requirements, baseEnv, true)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(bindings) == 0 || lookupEnvValue(baseEnv, appDatabaseURLEnv) != "" {
+		env, err := managedDatabaseLifecycleEnv(ctx, root, cfg, requirements, baseEnv)
 		return env, noop, err
 	}
 	paths, err := commandWorktreePaths(root)
@@ -43,7 +48,7 @@ func beginDatabaseLifecycleEnv(ctx context.Context, root string, cfg appcfg.Conf
 			returnErr = errors.Join(returnErr, live.Release())
 		}
 	}()
-	env, err := managedDatabaseLifecycleEnv(ctx, root, cfg, baseEnv)
+	env, err := managedDatabaseLifecycleEnv(ctx, root, cfg, requirements, baseEnv)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -118,7 +123,7 @@ func beginInactiveDatabaseOperation(ctx context.Context, root string, cfg appcfg
 	if err != nil {
 		return postgresdb.Database{}, nil, err
 	}
-	database, err := databaseForWorktreeServer(paths.AppRoot, cfg, server)
+	database, err := databaseForWorktreeServer(paths.AppRoot, cfg, server, nil)
 	if err != nil {
 		return postgresdb.Database{}, nil, err
 	}

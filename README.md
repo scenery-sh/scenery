@@ -377,7 +377,6 @@ scenery task graph -o json [--app-root <path>]
 scenery validate [<profile>] [--app-root <path>] [-o json] [--write] [--dry-run]
 scenery validate changed [--base <ref>] [--app-root <path>] [-o json] [--write] [--dry-run]
 scenery harness [--app-root <path>] [-o json] [--write] [--with-validation[=<profile>]]
-scenery harness self [--repo-root <path>] [-o json] [--write] [--quick|--race|--release] [--fresh-tests]
 scenery harness ui -o json [--app-root <path>] [--dashboard-url <url>] [--headed] [--write]
 scenery inspect app|routes|services|endpoints|build|paths|durable -o json [--app-root <path>]
 scenery inspect docs -o json [--repo-root <path>] [--for-path <path>|--tag <tag>|--status active|reference|completed|deprecated|--review-due|--all]
@@ -414,6 +413,10 @@ Each invocation best-effort appends command, duration, exit code, version, and `
 The agent and managed Caddy edge are single-owner processes. Startup fails closed instead of choosing an unadvertised port, safely reaps only fingerprint-verified stale Scenery owners, and `scenery doctor -o json` reports duplicate or foreign listeners.
 
 `scenery db list -o json` reports the app's Postgres database and service schemas.
+Requirements come from typed `.scn` dependencies and enabled framework auth/durable
+features; inspect them in `scenery inspect app -o json`. There is no `dev.services`
+list. Local allocation requires managed lifecycle; no-SQL listing returns
+`database: null` without a connection or allocation.
 An explicit app-level `DATABASE_URL` wins and makes the database external;
 otherwise SQL-backed apps receive a dedicated PostgreSQL container and volume
 per canonical app root/worktree, with one app database, one schema per service,
@@ -541,11 +544,11 @@ Victoria substrate failures are exposed in `scenery ps -o json` as `last_exit` /
 
 ## Development
 
-Build a checkout-local CLI and refresh the validation selection:
+Run the repository verifier and refresh validation selection; it builds the
+checkout-local product CLI without installing a shared binary:
 
 ```sh
-go build -o .scenery/harness/bin/scenery ./cmd/scenery
-.scenery/harness/bin/scenery harness self --quick --summary --write
+go run ./scripts/verify --quick --summary --write
 cat .scenery/harness/agent-context.json
 ```
 

@@ -635,7 +635,7 @@ func packageCapabilityABIRanges(resources []Resource, idx *resourceIndex) map[st
 		if service.Kind != "scenery.service" {
 			continue
 		}
-		dependencies, err := serviceGoDependencies(idx, service)
+		dependencies, err := compiler.ServiceGoDependencies(idx.byAddress, service)
 		if err != nil {
 			continue
 		}
@@ -686,7 +686,7 @@ func packageABIResources(resources []Resource, idx *resourceIndex) ([]map[string
 	for _, resource := range resources {
 		switch resource.Kind {
 		case "scenery.service":
-			dependencies, err := serviceGoDependencies(idx, resource)
+			dependencies, err := compiler.ServiceGoDependencies(idx.byAddress, resource)
 			if err != nil {
 				return nil, err
 			}

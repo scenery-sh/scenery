@@ -14,6 +14,9 @@ hooks; CLI wires the live generate functions.
 
 - Consume immutable `internal/compiler.Result` and canonical `internal/graph`
   resources; never depend on legacy umbrella packages.
+- Use compiler-owned runtime-service, dependency and durable projections.
+  Generated entrypoint SQL bindings come from `Result.SQLRequirements`; do not
+  rediscover requirements from configuration or Go imports.
 - Keep `internal/generate/api` free of compiler, parse, tscheck, and generate
   imports. Shared types live there; rendering,
   verification, and inspection tests stay in `internal/generate` so the leaf

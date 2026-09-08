@@ -152,7 +152,7 @@ func TestWorktreeRemoveRestoresDBStateWhenGitRemoveFailsInProcess(t *testing.T) 
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeTestAppFile(t, root, ".scenery.json", `{"name":"demo","dev":{"services":{"main":{}}}}`)
+	writeTestAppFile(t, root, ".scenery.json", `{"name":"demo"}`)
 	target := defaultWorktreePath(root, "dirty-agent")
 	const state = `{"database":"dirty-agent","sentinel":true}`
 	writeTestAppFile(t, target, ".scenery/worktree-db.json", state)

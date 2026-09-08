@@ -222,17 +222,19 @@ func WriteDNSState(paths localagent.Paths, state DNSState) error {
 // schema-versioned form in place.
 func LoadDNSState(path string) (DNSState, error) {
 	var state DNSState
-	if err := localagent.LoadDurableArtifact(path, &state, &state.ArtifactIdentity, "scenery.edge.dns-state", dnsStateDescriptor, 0o600, func(fields map[string]json.RawMessage) error {
-		var version string
-		if err := json.Unmarshal(fields["schema_version"], &version); err != nil || version != "scenery.edge.dns.state.v1" {
-			return fmt.Errorf("unsupported legacy edge DNS state schema %q", version)
-		}
-		delete(fields, "schema_version")
-		return nil
-	}); err != nil {
+	if err := localagent.LoadDurableArtifact(path, &state, &state.ArtifactIdentity, "scenery.edge.dns-state", dnsStateDescriptor, 0o600, migrateLegacyDNSState); err != nil {
 		return state, err
 	}
 	return state, nil
+}
+
+func migrateLegacyDNSState(fields map[string]json.RawMessage) error {
+	var version string
+	if err := json.Unmarshal(fields["schema_version"], &version); err != nil || version != "scenery.edge.dns.state.v1" {
+		return fmt.Errorf("unsupported legacy edge DNS state schema %q", version)
+	}
+	delete(fields, "schema_version")
+	return nil
 }
 
 const dnsStateDescriptor = `{"identity":"artifact","state":"edge-dns-resolver"}`

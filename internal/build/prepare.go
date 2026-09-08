@@ -100,7 +100,7 @@ func prepareWithContractTarget(appRoot string, model *model.App, cfg app.Config,
 	if len(target.Context.BuildTags) > 0 {
 		goBuildFlags = append(goBuildFlags, "-tags="+strings.Join(target.Context.BuildTags, ","))
 	}
-	gen, err := codegen.Generate(model, cfg, runtimePlan.CompositionImport)
+	gen, err := codegen.Generate(model, cfg, runtimePlan.CompositionImport, contract.SQLRequirements)
 	if err != nil {
 		return nil, err
 	}

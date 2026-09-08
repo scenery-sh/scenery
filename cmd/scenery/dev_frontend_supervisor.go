@@ -93,7 +93,7 @@ func (s *devSupervisor) monitorManagedFrontend(name string, process *managedFron
 	select {
 	case <-supervisorCtx.Done():
 		return
-	case <-process.Process.done:
+	case <-process.Process.Done:
 	}
 	select {
 	case <-supervisorCtx.Done():
@@ -120,7 +120,7 @@ func (s *devSupervisor) handleManagedFrontendExitWith(name string, process *mana
 		"pid":  process.Process.PID,
 		"addr": process.Addr,
 	}
-	if err := process.Process.waitError(); err != nil {
+	if err := process.Process.WaitError(); err != nil {
 		fields["error"] = err.Error()
 	}
 	s.eventSink().Emit(context.Background(), devdashSourceForManagedFrontend(name, process, "exited"), "error", "managed frontend exited", fields)

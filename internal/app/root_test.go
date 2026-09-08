@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-func TestDiscoverRootAcceptsDatabaseServices(t *testing.T) {
+func TestDiscoverRootRejectsDuplicateDatabaseRequirements(t *testing.T) {
 	root := t.TempDir()
 	writeAppTestFile(t, root, ".scenery.json", `{
 		"name": "dbapp",
@@ -21,21 +21,9 @@ func TestDiscoverRootAcceptsDatabaseServices(t *testing.T) {
 		}
 	}`)
 
-	_, cfg, err := DiscoverRoot(root)
-	if err != nil {
-		t.Fatalf("DiscoverRoot returned error: %v", err)
-	}
-	services := cfg.DatabaseServices()
-	if len(services) != 2 {
-		t.Fatalf("DatabaseServices count = %d, want 2", len(services))
-	}
-	auth, ok := cfg.DatabaseService("auth")
-	if !ok || auth.Schema != "auth" {
-		t.Fatalf("auth service = %+v ok=%v", auth, ok)
-	}
-	billing, ok := cfg.DatabaseService("billing-data")
-	if !ok || billing.Schema != "billing_data" {
-		t.Fatalf("billing service = %+v ok=%v", billing, ok)
+	_, _, err := DiscoverRoot(root)
+	if err == nil || !strings.Contains(err.Error(), "dev.services") || !strings.Contains(err.Error(), "data_source") {
+		t.Fatalf("DiscoverRoot must identify the current SQL requirement owner: %v", err)
 	}
 }
 
@@ -197,7 +185,7 @@ func TestDiscoverRootRejectsInvalidEnvironmentOwnership(t *testing.T) {
 		{"two defaults", `{"name":"demo","envs":{"local":{"default":true},"other":{"default":true}}}`, "exactly one default"},
 		{"duplicate target", `{"name":"demo","envs":{"local":{"default":true},"staging":{"deploy":{"ssh":["host"]}},"production":{"deploy":{"ssh":["host"]}}}}`, "duplicates target"},
 		{"old deploy", `{"name":"demo","envs":{"local":{"default":true}},"deploy":{}}`, `unknown .scenery.json field "deploy"`},
-		{"old routing", `{"name":"demo","envs":{"local":{"default":true}},"dev":{"routing":{}}}`, `unknown .scenery.json field "dev.routing"`},
+		{"old routing", `{"name":"demo","envs":{"local":{"default":true}},"dev":{"routing":{}}}`, `unknown .scenery.json field "dev"`},
 		{"old serve", `{"name":"demo","frontends":{"web":{"root":"web","serve":"production"}},"envs":{"local":{"default":true}}}`, `unknown .scenery.json field "frontends.web.serve"`},
 		{"invalid library linkage", `{"name":"demo","envs":{"local":{"default":true,"libraries":{"maps3d":{"linkage":"dynamic"}}}}}`, `linkage must be "source" or "shared"`},
 		{"shared library missing manifest", `{"name":"demo","envs":{"local":{"default":true,"libraries":{"maps3d":{"linkage":"shared"}}}}}`, "manifest is required"},
@@ -382,28 +370,6 @@ func TestDiscoverRootRejectsInvalidWatchIgnoreConfig(t *testing.T) {
 				t.Fatalf("DiscoverRoot invalid watch.ignore error = %v, want %q", err, tt.want)
 			}
 		})
-	}
-}
-
-func TestDiscoverRootRejectsReservedDatabaseServiceNames(t *testing.T) {
-	for _, name := range []string{"scenery", "public", "information-schema", "pg-users"} {
-		root := t.TempDir()
-		writeAppTestFile(t, root, ".scenery.json", `{"name":"pgapp","dev":{"services":{`+strconv.Quote(name)+`:{}}}}`)
-
-		_, _, err := DiscoverRoot(root)
-		if err == nil || !strings.Contains(err.Error(), "plan 0097") {
-			t.Fatalf("DiscoverRoot reserved %s error = %v", name, err)
-		}
-	}
-}
-
-func TestDiscoverRootRejectsDatabaseServiceSchemaCollisions(t *testing.T) {
-	root := t.TempDir()
-	writeAppTestFile(t, root, ".scenery.json", `{"name":"pgapp","dev":{"services":{"foo-bar":{},"foo_bar":{}}}}`)
-
-	_, _, err := DiscoverRoot(root)
-	if err == nil || !strings.Contains(err.Error(), "foo-bar") || !strings.Contains(err.Error(), "foo_bar") || !strings.Contains(err.Error(), `Postgres schema "foo_bar"`) {
-		t.Fatalf("DiscoverRoot schema collision error = %v", err)
 	}
 }
 

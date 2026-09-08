@@ -51,18 +51,24 @@ Add a child `AGENTS.md` only when a directory becomes a durable boundary with it
 
 ### Child Agent Index
 
+- `scripts/verify/AGENTS.md` owns repository verification, release probes, and exact-root timing enforcement outside the product CLI.
+
 - `apps/console/AGENTS.md` owns the Vite/React Astryx + StyleX dashboard and frontend validation commands.
 - `examples/webhook-inbox/AGENTS.md` owns the independent durable webhook example and its isolated native proof.
 - `internal/agent/AGENTS.md` owns local agent protocol state, machine ownership records, and their durable identity migrations.
 - `internal/compiler/AGENTS.md` owns source loading, validation, expansion, and immutable compiler results.
 - `internal/contractagent/AGENTS.md` owns compiled-graph JSON-RPC capabilities and evolution dispatch.
 - `internal/deployplan/AGENTS.md` owns deployment plans, provider coordination, and crash-safe application.
+- `internal/devprocess/AGENTS.md` owns child-process readiness, cancellation, signals, and bounded output capture.
 - `internal/edge/AGENTS.md` owns the managed Caddy edge process lifecycle and its real-process validation.
 - `internal/evolution/AGENTS.md` owns semantic comparison, source mutation planning, approvals, and revision-bound receipts.
 - `internal/generate/AGENTS.md` owns Go, TypeScript, OpenAPI, and runtime-composition generation and atomic artifact writes.
 - `internal/graph/AGENTS.md` owns canonical resources, graph views, provenance, and general revision hashing.
+- `internal/harnessevidence/AGENTS.md` owns bounded evidence artifacts and explicit writes, without verification execution.
+- `internal/harnessreport/AGENTS.md` owns shared report data and pure bounded summaries.
 - `internal/librarybuild/AGENTS.md` owns the fixed-platform c-shared library build matrix and portable artifact manifests.
 - `internal/machine/AGENTS.md` owns singular CLI JSON/JSONL envelopes, exact machine revisions, producer identity, and strict current decoding.
+- `internal/repoinfo/AGENTS.md` owns read-only knowledge data and the singular path classification table.
 - `internal/scn/AGENTS.md` owns `.scn` source discovery, safe filesystem access, parsing, positions, lossless CSTs, and canonical formatting.
 - `internal/spec/AGENTS.md` owns the current resource/source-schema and diagnostic catalog, canonical JSON, and content revisions.
 - `internal/testsuite/AGENTS.md` owns explicit fresh execution from content-addressed Go test binaries and Go JSON event output.
@@ -99,6 +105,9 @@ Scenery does not have legacy support. It has **one rolling Scenery specification
 - Prefer the Go standard library. Add dependencies only when the payoff is clear and the maintenance surface is justified.
 - Keep public surface small, current, and singular. Remove obsolete spellings instead of carrying compatibility shims.
 - Keep `internal/app` free of the PostgreSQL driver layer; deterministic database/schema/env naming belongs in `internal/postgresname`.
+- Compiled SQL requirements own application needs; environments supply endpoints
+  and verified worktree records own allocations. Never rediscover `dev.services`
+  or infer cleanup authority from current declarations.
 - Keep `golang.org/x/tools/go/packages` inside `internal/parse`; `internal/model` exposes only model-owned analysis data.
 - Preserve scenery-native naming: `app.scn`, `package.scn`, `.scenery.json`, and `scenery.sh/...`.
 - Keep generated app models and machine-readable JSON contracts stable. If a JSON shape changes, update schemas, docs, tests, and harness expectations together.
@@ -152,23 +161,23 @@ Keep its explicit correctness-focused set. `errorlint` checks wrapped-error
 comparisons and assertions, but does not mandate wrapping at API boundaries.
 Use a narrowly justified rule-specific suppression only for intentional contracts.
 
-From the repository root, run `.scenery/harness/bin/scenery harness self --quick --summary --write` after editing to refresh `.scenery/harness/agent-context.json`. Use `changed_area.validation_classes` to see which rows matched and run `changed_area.recommended_commands`; matches are cumulative. If the local binary is missing or stale, build it with `go build -o .scenery/harness/bin/scenery ./cmd/scenery`; see [Fresh Worktree Preflight](docs/agent-guide.md#fresh-worktree-preflight) for UI provisioning.
+From the repository root, run `go run ./scripts/verify --quick --summary --write` after editing to refresh `.scenery/harness/agent-context.json`. Use `changed_area.validation_classes` to see which rows matched and run `changed_area.recommended_commands`; matches are cumulative. Every verifier mode builds the worktree-local product binary; see [Fresh Worktree Preflight](docs/agent-guide.md#fresh-worktree-preflight) for UI provisioning. Repository verification belongs to `scripts/verify`, not the application CLI.
 
 | Changed area | Minimum proof |
 |---|---|
-| Documentation only | `.scenery/harness/bin/scenery harness self --quick --summary --write` proves the knowledge index, links, referenced schemas, and commands |
+| Documentation only | `go run ./scripts/verify --quick --summary --write` proves the knowledge index, links, referenced schemas, and commands |
 | One Go package | `go test ./<package>`, then `go test ./...` before completion; for multiple packages, run every affected-package command before the repository suite |
-| CLI JSON contract | `go test ./cmd/scenery`, `.scenery/harness/bin/scenery harness self --quick --summary --write` for schema validation, and the matching `docs/local-contract.md` update |
+| CLI JSON contract | `go test ./cmd/scenery`, `go run ./scripts/verify --quick --summary --write` for schema validation, and the matching `docs/local-contract.md` update |
 | Compiler or generator | affected-package tests, both committed fixture regeneration commands below, then `go test ./...` |
 | UI catalog | `apps/console/node_modules/.bin/tsc -p internal/generate/testdata/tsconfig.catalog.json`, `go test ./internal/generate`, and both consumer fixture regenerations below |
 | Dashboard | `cd apps/console && bun run lint && bun run typecheck && bun run build`, then `.scenery/harness/bin/scenery harness ui -o json --write` |
-| Release-sensitive or runtime | `.scenery/harness/bin/scenery harness self --summary --write`, plus the release proof below |
+| Release-sensitive or runtime | `go run ./scripts/verify --summary --write`, plus the release proof below |
 
-For `release-sensitive-or-runtime`, also run `.scenery/harness/bin/scenery harness self --release --summary --write` and `scripts/release-gate.sh`, as specified by the agent context's release loop. Release mode owns the external-boundary probes; default mode does not run them all. A release run supersedes the default and quick runs when both are selected.
+For `release-sensitive-or-runtime`, also run `go run ./scripts/verify --release --summary --write` and `scripts/release-gate.sh`, as specified by the agent context's release loop. Release mode owns the external-boundary probes; default mode does not run them all. A release run supersedes the default and quick runs when both are selected.
 
 The full self-harness supersedes the quick self-harness when both would otherwise be selected. Any source, configuration, or fixture path not matched by a specialized row gets the deterministic fallback `go test ./...`. Target-app changes use `scenery check -o json`, `go test ./...`, and `scenery harness -o json --write`.
 
-Rely on Go's test result cache; pass `-count=1` only when explicitly measuring fresh execution or investigating nondeterminism (`scenery harness self --fresh-tests` is the explicit fresh lane; see `docs/agent-guide.md` § Self-Harness Timing). **The 100ms rule is absolute:** every exact top-level Go test root must remain below the repeated isolated 100ms p95 budget, with no exceptions; aim for 50-60ms bodies for headroom. Proof that requires a real process, toolchain, service, network, or OS boundary belongs in a release integration harness, with an in-process Go test retaining ordinary coverage. Do not hide expensive work in `TestMain`, subtests, package setup, shared fixtures, or an exception inventory.
+Rely on Go's test result cache; pass `-count=1` only when explicitly measuring fresh execution or investigating nondeterminism (`go run ./scripts/verify --fresh-tests` is the explicit fresh lane; see `docs/agent-guide.md` § Self-Harness Timing). **The 100ms rule is absolute:** every exact top-level Go test root must remain below the repeated isolated 100ms p95 budget, with no exceptions; aim for 50-60ms bodies for headroom. Proof that requires a real process, toolchain, service, network, or OS boundary belongs in a release integration harness, with an in-process Go test retaining ordinary coverage. Do not hide expensive work in `TestMain`, subtests, package setup, shared fixtures, or an exception inventory.
 
 When touching `internal/compiler` or `internal/generate`, regenerate the committed fixture clients in the same change and commit the diff — stale fixtures fail `go test ./...` with SCN6204, and the diagnostic's `suggestions` carry the refresh command:
 

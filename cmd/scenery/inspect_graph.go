@@ -34,8 +34,9 @@ func buildInspectAppResponse(appRoot string, cfg appcfg.Config, result *compiler
 		names = append(names, service.Name)
 	}
 	response := inspectdata.AppResponse{
-		PayloadIdentity: inspectdata.NewPayloadIdentity("scenery.inspect.app", "app,config,counts,services,auth_handler"), App: inspectAppRef(appRoot, cfg, result), Config: cfg,
+		PayloadIdentity: newCLIPayloadIdentity("scenery.inspect.app"), App: inspectAppRef(appRoot, cfg, result), Config: cfg,
 		Counts: inspectdata.AppCounts{Packages: len(services), Services: len(services), Endpoints: len(endpoints), Middleware: middleware, RuntimeDeclarations: runtimeDeclarations}, Services: names,
+		SQLRequirements: append(compiler.SQLRequirements{}, result.SQLRequirements...),
 	}
 	for _, service := range services {
 		if service.Name == "auth" {
@@ -48,7 +49,7 @@ func buildInspectAppResponse(appRoot string, cfg appcfg.Config, result *compiler
 }
 
 func buildInspectServicesResponse(appRoot string, cfg appcfg.Config, result *compiler.Result) inspectdata.ServicesResponse {
-	return inspectdata.ServicesResponse{PayloadIdentity: inspectdata.NewPayloadIdentity("scenery.inspect.services", "app,services"), App: inspectAppRef(appRoot, cfg, result), Services: inspectServices(result)}
+	return inspectdata.ServicesResponse{PayloadIdentity: newCLIPayloadIdentity("scenery.inspect.services"), App: inspectAppRef(appRoot, cfg, result), Services: inspectServices(result)}
 }
 
 func buildInspectRoutesResponse(appRoot string, cfg appcfg.Config, result *compiler.Result) (inspectdata.RoutesResponse, error) {
@@ -66,7 +67,7 @@ func buildInspectRoutesResponse(appRoot string, cfg appcfg.Config, result *compi
 			Tags: append([]string(nil), endpoint.Tags...), Receiver: endpoint.Receiver, Generated: endpoint.Generated, HasPayload: endpoint.HasPayload,
 		})
 	}
-	return inspectdata.RoutesResponse{PayloadIdentity: inspectdata.NewPayloadIdentity("scenery.inspect.routes", "app,routes"), App: inspectAppRef(appRoot, cfg, result), Routes: routes}, nil
+	return inspectdata.RoutesResponse{PayloadIdentity: newCLIPayloadIdentity("scenery.inspect.routes"), App: inspectAppRef(appRoot, cfg, result), Routes: routes}, nil
 }
 
 func buildInspectEndpointsResponse(appRoot string, cfg appcfg.Config, result *compiler.Result) (inspectdata.EndpointsResponse, error) {
@@ -74,7 +75,7 @@ func buildInspectEndpointsResponse(appRoot string, cfg appcfg.Config, result *co
 	if err != nil {
 		return inspectdata.EndpointsResponse{}, err
 	}
-	return inspectdata.EndpointsResponse{PayloadIdentity: inspectdata.NewPayloadIdentity("scenery.inspect.endpoints", "app,endpoints"), App: inspectAppRef(appRoot, cfg, result), Endpoints: endpoints}, nil
+	return inspectdata.EndpointsResponse{PayloadIdentity: newCLIPayloadIdentity("scenery.inspect.endpoints"), App: inspectAppRef(appRoot, cfg, result), Endpoints: endpoints}, nil
 }
 
 func buildInspectDurableResponse(appRoot string, cfg appcfg.Config, result *compiler.Result) inspectDurableResponse {
@@ -101,9 +102,16 @@ func buildInspectDurableResponse(appRoot string, cfg appcfg.Config, result *comp
 		if name == "" {
 			name = execution.Name
 		}
-		schema := serviceName
-		if database, ok := cfg.DatabaseService(serviceName); ok {
-			schema = database.Schema
+		schema := ""
+		for _, requirement := range result.SQLRequirements {
+			if requirement.Kind != compiler.SQLDurable {
+				continue
+			}
+			for _, consumer := range requirement.Consumers {
+				if consumer == execution.Address {
+					schema = requirement.Schema
+				}
+			}
 		}
 		file := sourcePaths[execution.Origin.SourceID]
 		line := 0

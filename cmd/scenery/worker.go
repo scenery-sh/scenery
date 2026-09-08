@@ -13,6 +13,7 @@ import (
 
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/build"
+	"scenery.sh/internal/compiler"
 	durablestore "scenery.sh/internal/durable/store"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/postgresdb"
@@ -285,7 +286,7 @@ func runWorker(opts workerOptions) error {
 	if err != nil {
 		return err
 	}
-	return startWorkerApp(root, cfg, result.Binary, opts)
+	return startWorkerApp(root, cfg, result.Contract.SQLRequirements, result.Binary, opts)
 }
 
 func runWorkerDurable(opts workerDurableOptions) error {
@@ -301,17 +302,17 @@ func runWorkerDurable(opts workerDurableOptions) error {
 	if err != nil {
 		return err
 	}
-	return startDurableWorkerApp(root, cfg, result.Binary, opts)
+	return startDurableWorkerApp(root, cfg, result.Contract.SQLRequirements, result.Binary, opts)
 }
 
-func startWorkerApp(root string, cfg app.Config, binary string, opts workerOptions) error {
+func startWorkerApp(root string, cfg app.Config, requirements compiler.SQLRequirements, binary string, opts workerOptions) error {
 	ctx, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stopSignals()
 
 	cmd := commandTreeContext(ctx, binary)
 	cmd.Dir = root
 	extra := []string{"SCENERY_ROLE=worker"}
-	env, err := appProcessEnv(root, cfg, opts.LogFormat, opts.Env, extra...)
+	env, err := appProcessEnv(root, cfg, requirements, opts.LogFormat, opts.Env, extra...)
 	if err != nil {
 		return err
 	}
@@ -333,7 +334,7 @@ func startWorkerApp(root string, cfg app.Config, binary string, opts workerOptio
 	return nil
 }
 
-func startDurableWorkerApp(root string, cfg app.Config, binary string, opts workerDurableOptions) error {
+func startDurableWorkerApp(root string, cfg app.Config, requirements compiler.SQLRequirements, binary string, opts workerDurableOptions) error {
 	ctx, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stopSignals()
 
@@ -347,7 +348,7 @@ func startDurableWorkerApp(root string, cfg app.Config, binary string, opts work
 	if len(opts.Services) > 0 {
 		extra = append(extra, "SCENERY_DURABLE_SERVICES="+strings.Join(opts.Services, ","))
 	}
-	env, err := appProcessEnv(root, cfg, opts.LogFormat, opts.Env, extra...)
+	env, err := appProcessEnv(root, cfg, requirements, opts.LogFormat, opts.Env, extra...)
 	if err != nil {
 		return err
 	}

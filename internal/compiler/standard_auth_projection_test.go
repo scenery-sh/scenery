@@ -26,10 +26,11 @@ func TestStandardAuthGoogleProjectionFollowsRuntimeConfig(t *testing.T) {
 	}
 	writeProjectionConfig(t, root, `{"name":"test","envs":{"local":{"default":true}},"auth":{"enabled":true,"google_oauth":{"enabled":true}}}`)
 
-	projected, err := standardAuthProjectionResources(root, resources)
+	cfg, err := frameworkAuthConfig(root)
 	if err != nil {
 		t.Fatal(err)
 	}
+	projected := standardAuthProjectionResources(cfg, resources)
 	for _, address := range []string{
 		"scenery_auth/operation/google_connect_start",
 		"scenery_auth/operation/get_google_connection",
@@ -43,10 +44,11 @@ func TestStandardAuthGoogleProjectionFollowsRuntimeConfig(t *testing.T) {
 	}
 
 	writeProjectionConfig(t, root, `{"name":"test","envs":{"local":{"default":true}},"auth":{"enabled":true,"google_oauth":{"enabled":false}}}`)
-	projected, err = standardAuthProjectionResources(root, resources)
+	cfg, err = frameworkAuthConfig(root)
 	if err != nil {
 		t.Fatal(err)
 	}
+	projected = standardAuthProjectionResources(cfg, resources)
 	if len(projected) != 0 {
 		t.Fatalf("disabled Google OAuth projected %#v", projected)
 	}

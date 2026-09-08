@@ -277,6 +277,14 @@ Treat Caddy, dnsmasq, Victoria, proxy sockets, hidden ports, and local stores as
 
 ## Storage And Databases
 
+SQL requirements are compiled once from registered typed `data_source` bindings
+and selected framework auth/durable registrations. Read `sql_requirements` in
+`scenery inspect app -o json`; do not duplicate them in `dev.services` (removed).
+The logical `config.database` name selects the schema. Only managed lifecycle
+requirements authorize implicit local allocation; external requirements need
+explicit endpoint supply. See [App Config](local-contract.md#app-config) for
+identity, sharing, worker and generated-runtime binding contracts.
+
 Storage remains app config because it is a runtime capability, not an application declaration. App code uses `scenery.sh/storage`. Private stores stay internal; tenant-scoped calls require standard-auth context or `storage.WithTenantID`.
 
 ```sh
@@ -296,6 +304,10 @@ scenery snapshot load --db --storage --input app.zip --mode overwrite --yes -o j
 ```
 
 Verify validates every payload checksum without discovering or stopping a target app. Load repeats validation before changing data. Managed database overwrite and storage-store replacement are rerunnable after interruption; use `--dry-run` for target-specific preflight only. Use `scripts/snapshot-backup.sh` from the host scheduler for verified retention and optional rclone replication; Scenery does not install or own that schedule.
+
+Stop/cleanup and snapshots use verified retained allocations, even when `.scn`
+was removed or became invalid. Snapshot schema evidence comes from the actual
+database catalog; it does not report a successful current compilation.
 
 ## Generated And Cache Artifacts
 
@@ -388,7 +400,7 @@ Start with `scenery inspect docs --for-path <path> -o json`; it returns the appl
 Refresh the worktree-local validation oracle with:
 
 ```sh
-.scenery/harness/bin/scenery harness self --quick --summary --write
+go run ./scripts/verify --quick --summary --write
 cat .scenery/harness/agent-context.json
 ```
 
@@ -396,15 +408,17 @@ Refresh this snapshot after editing; a pre-edit snapshot cannot classify the
 new changes. Run the exact union in `changed_area.recommended_commands`. The calculated
 `validation_classification` explains which root `AGENTS.md` changed-area rows
 apply; multiple matches are cumulative. Final validation uses Go's test result
-cache. Use `-count=1` or `scenery harness self --fresh-tests` only when
+cache. Use `-count=1` or `go run ./scripts/verify --fresh-tests` only when
 explicitly measuring fresh execution or investigating nondeterminism.
 
 For `release-sensitive-or-runtime`, also run the release loop in
 [Harness Engineering](harness-engineering.md#command). The oracle's default
 self-harness command does not include every release-only probe.
 
-Do not install a shared CLI during agent validation. Default, race, and release
-self-harness modes build a worktree-local binary; quick mode does not.
+Do not install a shared CLI during agent validation. Every repository-verifier
+mode builds the product under `.scenery/harness/bin/scenery`. The product has
+no repository-verification subcommand; use `go run ./scripts/verify` from this
+repository root.
 
 Scenery CLI installation and updates are source-only: select a checkout revision,
 run `./scripts/build-dashboard-ui-embed.sh`. Running `go install ./cmd/scenery` is reserved for an explicit human request.
@@ -555,29 +569,28 @@ user only while it still has no provider identities.
 
 ### Fresh Worktree Preflight
 
-For quick documentation validation, build the local CLI and run the quick lane:
+For quick documentation validation, run the repository command:
 
 ```sh
-go build -o .scenery/harness/bin/scenery ./cmd/scenery
-.scenery/harness/bin/scenery harness self --quick --summary --write
+go run ./scripts/verify --quick --summary --write
 ```
 
 For UI or full self-harness work, install Bun, then run from the repo root:
 
 ```sh
 ./scripts/build-dashboard-ui-embed.sh
-go build -o .scenery/harness/bin/scenery ./cmd/scenery
-.scenery/harness/bin/scenery harness self --summary --write
+go run ./scripts/verify --summary --write
 ```
 
 The embed script installs frozen console dependencies and builds the dashboard
 before the Go binary embeds it. Only `placeholder.txt` is tracked in the embed
-directory. The `dashboard ui fresh` lane checks the invoking binary's own
-bundle, so rebuilding another binary during that run cannot repair its result.
-Repeat the embed/build sequence after dashboard changes. Full self-harness
+directory. The `dashboard ui fresh` lane checks the prepared product binary's
+actual HTTP bundle hash, never the verifier's assets. Its release negative probe
+requires a deliberately stale product to fail while the verifier is fresh.
+Repeat embed preparation after dashboard changes. Full self-harness
 also provisions console dependencies before TypeScript lanes and reports
-unavailable dependencies explicitly; quick mode does neither provisioning nor
-the local CLI build.
+unavailable dependencies explicitly; quick mode does not provision console
+dependencies but does build the local product.
 
 ### Self-Harness Timing
 

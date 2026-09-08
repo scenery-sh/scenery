@@ -73,6 +73,10 @@ func TestEnvAndRegistry(t *testing.T) {
 	if err != nil || decoded.Database != "app_abc" || len(decoded.Schemas) != 1 || decoded.Schemas[0].Name != "reports" {
 		t.Fatalf("DecodeRegistry = %+v err=%v", decoded, err)
 	}
+	database.Schemas = append(database.Schemas, Service{Name: "scenery", Schema: "scenery", URL: database.URL + "?search_path=scenery"})
+	if env := strings.Join(Env(database), "\n"); strings.Contains(env, "SCENERY_DATABASE_URL=") || !strings.Contains(env, `"schema":"scenery"`) {
+		t.Fatalf("framework SQL must use DATABASE_URL and retain schema metadata: %s", env)
+	}
 }
 
 func TestServiceURLUsesSearchPathRuntimeParam(t *testing.T) {

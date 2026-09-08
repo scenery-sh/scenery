@@ -38,8 +38,6 @@ var (
 	watchSettleDelay        = 500 * time.Millisecond
 )
 
-const stopTimeout = 5 * time.Second
-
 // productionFrontendWatch registers the source dirs of serve-mode
 // "production" frontends so the watcher tracks their files for static
 // rebuilds instead of ignoring non-Go extensions. It is set once per dev
@@ -669,24 +667,6 @@ func findLiveDuplicateDevSession(root string, existing []localagent.Session) (*l
 	return nil, 0
 }
 
-func sessionOwnerProcessLive(session localagent.Session) (int, bool) {
-	ownerPID := firstPositiveInt(session.OwnerPID, session.Owner.PID)
-	if ownerPID <= 0 {
-		return 0, false
-	}
-	owner := session.Owner
-	if owner.PID != ownerPID {
-		owner = localagent.CaptureOwner(ownerPID, "scenery up")
-	} else if owner.PID <= 0 {
-		owner.PID = ownerPID
-	}
-	if localagent.VerifyOwner(owner) == nil {
-		return ownerPID, true
-	}
-	_, ok := inspectProcess(ownerPID)
-	return ownerPID, ok
-}
-
 func discoverDevGitBranch(root string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -963,45 +943,6 @@ func stampWatchedFile(path string, info fs.FileInfo, embedded bool) (fileStamp, 
 		hash:    hex.EncodeToString(sum[:]),
 		embed:   embedded,
 	}, data, nil
-}
-
-func shouldIgnoreWatchPathWithMatcher(rel string, isDir bool, ignore *watchignore.Matcher) bool {
-	rel = filepath.ToSlash(filepath.Clean(rel))
-	if rel == "." || rel == "" {
-		return false
-	}
-	if shouldIgnoreWatchPathBuiltin(rel, isDir) {
-		return true
-	}
-	if ignore != nil && ignore.Ignored(rel, isDir) {
-		return true
-	}
-	return false
-}
-
-func shouldIgnoreWatchPathBuiltin(rel string, isDir bool) bool {
-	if !isDir && isWatchedRootDotFile(rel) {
-		return false
-	}
-	rest := rel
-	for rest != "" {
-		part, next, found := strings.Cut(rest, "/")
-		rest = next
-		if part == "" || part == "." {
-			continue
-		}
-		if !isDir && !found && part == ".gitignore" {
-			continue
-		}
-		if strings.HasPrefix(part, ".") {
-			return true
-		}
-		switch part {
-		case "node_modules", "scenery_internal_main":
-			return true
-		}
-	}
-	return false
 }
 
 func snapshotsEqual(a, b fileSnapshot) bool {

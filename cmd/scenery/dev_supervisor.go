@@ -17,7 +17,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -27,11 +26,11 @@ import (
 	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/build"
+	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/devdash"
 	"scenery.sh/internal/envfile"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/netprobe"
-	"scenery.sh/internal/postgresname"
 	"scenery.sh/internal/victoria"
 	"scenery.sh/runtime"
 )
@@ -62,6 +61,7 @@ type devSupervisor struct {
 	victoriaSubstrateDone <-chan struct{}
 	postgresMonitorDone   <-chan struct{}
 	postgresTarget        *worktreeDatabaseTarget
+	postgresMetadata      *dashboardPostgresDatabase
 
 	store       *devdash.Store
 	storeWriter dashboardControlPlaneWriter
@@ -114,8 +114,6 @@ const (
 	appStartupTimeout      = 30 * time.Second
 	appStartupPollInterval = 10 * time.Millisecond
 )
-
-var ansiEscapeRE = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
 func newDevSupervisor(ctx context.Context, root string, cfg app.Config, env app.ResolvedEnv, backend devBackend, console *runConsole, agent *localagent.Client, agentSession *localagent.Session) (*devSupervisor, error) {
 	supervisorCtx, cancel := context.WithCancel(ctx)
@@ -649,6 +647,9 @@ func (s *devSupervisor) reloadConfig() (app.Config, error) {
 }
 
 func (s *devSupervisor) startApp(ctx context.Context, result *build.Result, metadata, apiEncoding json.RawMessage) (*runningApp, error) {
+	if result == nil || result.Contract == nil || !result.Contract.Valid() {
+		return nil, fmt.Errorf("application startup requires a valid compiled contract")
+	}
 	agentSession := s.currentAgentSession()
 	binary := result.Binary
 	if sessionBinary, err := prepareSessionAppBinary(agentSession, result.Binary); err != nil {
@@ -660,7 +661,7 @@ func (s *devSupervisor) startApp(ctx context.Context, result *build.Result, meta
 	if err != nil {
 		return nil, err
 	}
-	appBaseEnv := s.appDatabaseAuthorityEnv(baseEnv)
+	appBaseEnv := s.appDatabaseAuthorityEnv(baseEnv, result.Contract.SQLRequirements)
 	env := appChildEnv(
 		appBaseEnv,
 		s.console != nil && s.console.palette.Enabled(),
@@ -678,7 +679,7 @@ func (s *devSupervisor) startApp(ctx context.Context, result *build.Result, meta
 	)
 	env = append(env, s.observabilityEnvironment()...)
 	env = append(env, s.sessionIdentityEnv()...)
-	managedEnv, err := s.managedAppEnv(ctx, baseEnv)
+	managedEnv, err := s.managedAppEnv(ctx, baseEnv, result.Contract.SQLRequirements)
 	if err != nil {
 		return nil, err
 	}
@@ -738,7 +739,7 @@ func (s *devSupervisor) startApp(ctx context.Context, result *build.Result, meta
 		output:   process.Tail,
 	}
 	go func() {
-		<-process.done
+		<-process.Done
 		s.handleExit(context.Background(), app)
 	}()
 	if err := s.waitForAppStartup(ctx, app); err != nil {
@@ -831,8 +832,8 @@ type devDatabaseSetup struct {
 	Seeds       []dbSeedPlan
 }
 
-func (s *devSupervisor) nextDevDatabaseSetup(initial bool) (devDatabaseSetup, bool, error) {
-	setup, hasWork, err := buildDevDatabaseSetup(s.root, s.cfg)
+func (s *devSupervisor) nextDevDatabaseSetup(initial bool, contract *compiler.Result) (devDatabaseSetup, bool, error) {
+	setup, hasWork, err := buildDevDatabaseSetup(s.root, s.cfg, contract)
 	if err != nil || !hasWork {
 		return setup, false, err
 	}
@@ -847,7 +848,7 @@ func (s *devSupervisor) nextDevDatabaseSetup(initial bool) (devDatabaseSetup, bo
 	return setup, true, nil
 }
 
-func buildDevDatabaseSetup(root string, cfg app.Config) (devDatabaseSetup, bool, error) {
+func buildDevDatabaseSetup(root string, cfg app.Config, contract *compiler.Result) (devDatabaseSetup, bool, error) {
 	var inputs []string
 	applyCommand := strings.TrimSpace(cfg.Database.Apply.Command)
 	if applyCommand != "" {
@@ -857,7 +858,7 @@ func buildDevDatabaseSetup(root string, cfg app.Config) (devDatabaseSetup, bool,
 		}
 		inputs = append(inputs, "apply:"+string(data))
 	}
-	seeds, err := discoverDBSeedPlans(root, cfg)
+	seeds, err := discoverDBSeedPlansForContract(root, cfg, "development", contract)
 	if err != nil {
 		return devDatabaseSetup{}, false, err
 	}
@@ -875,13 +876,13 @@ func buildDevDatabaseSetup(root string, cfg app.Config) (devDatabaseSetup, bool,
 	}, true, nil
 }
 
-func (s *devSupervisor) runDevDatabaseSetup(ctx context.Context, setup devDatabaseSetup) error {
+func (s *devSupervisor) runDevDatabaseSetup(ctx context.Context, setup devDatabaseSetup, contract *compiler.Result) error {
 	baseEnv, err := appEnvWithDotEnv(s.processEnvironment(), s.root, s.env.DotEnvFiles()...)
 	if err != nil {
 		return err
 	}
-	appBaseEnv := s.appDatabaseAuthorityEnv(baseEnv)
-	managedEnv, err := s.managedAppEnv(ctx, baseEnv)
+	appBaseEnv := s.appDatabaseAuthorityEnv(baseEnv, contract.SQLRequirements)
+	managedEnv, err := s.managedAppEnv(ctx, baseEnv, contract.SQLRequirements)
 	if err != nil {
 		return err
 	}
@@ -895,7 +896,7 @@ func (s *devSupervisor) runDevDatabaseSetup(ctx context.Context, setup devDataba
 		"SCENERY_DEV_SUPERVISOR=1",
 	)
 	env = append(env, managedEnv...)
-	env = append(env, managedDatabaseSetupEnv(s.cfg, managedEnv)...)
+	env = append(env, managedDatabaseSetupEnv(contract.SQLRequirements, managedEnv)...)
 	storageEnv, err := storageCapabilityEnv(s.cfg, s.currentAgentSession(), baseEnv, "")
 	if err != nil {
 		return err
@@ -926,7 +927,7 @@ func (s *devSupervisor) runDevDatabaseSetup(ctx context.Context, setup devDataba
 			return applyErr
 		}
 	}
-	seedResult, err := buildDBSeedResultWithEnv(ctx, s.root, s.cfg, dbSeedOptions{}, env, false)
+	seedResult, err := buildDBSeedResultWithContractEnvHooks(ctx, s.root, s.cfg, contract, dbSeedOptions{}, env, false, defaultDBSeedHooks())
 	if err != nil {
 		source.Status = "error"
 		s.eventSink().Emit(ctx, source, "error", "database seed failed", map[string]any{
@@ -946,11 +947,11 @@ func waitForDatabaseSetupConnection(ctx context.Context, env []string) error {
 	return nil
 }
 
-func managedDatabaseSetupEnv(cfg app.Config, managedEnv []string) []string {
-	if len(cfg.DatabaseServices()) == 0 {
+func managedDatabaseSetupEnv(requirements compiler.SQLRequirements, managedEnv []string) []string {
+	if len(requirements) == 0 {
 		return nil
 	}
-	keys := databaseEnvKeys(cfg)
+	keys := databaseEnvKeys(requirements)
 	out := make([]string, 0, len(keys))
 	for _, key := range keys {
 		if value := envValueFromList(managedEnv, key); value != "" {
@@ -960,8 +961,8 @@ func managedDatabaseSetupEnv(cfg app.Config, managedEnv []string) []string {
 	return out
 }
 
-func (s *devSupervisor) managedAppEnv(ctx context.Context, baseEnv []string) ([]string, error) {
-	env, database, err := managedDatabaseEnv(ctx, s.root, s.cfg, baseEnv)
+func (s *devSupervisor) managedAppEnv(ctx context.Context, baseEnv []string, requirements compiler.SQLRequirements) ([]string, error) {
+	env, database, err := managedDatabaseEnv(ctx, s.root, s.cfg, requirements, baseEnv)
 	if err != nil {
 		return nil, err
 	}
@@ -977,12 +978,12 @@ func (s *devSupervisor) processEnvironment() []string {
 	return envpolicy.Environ()
 }
 
-func (s *devSupervisor) appDatabaseAuthorityEnv(baseEnv []string) []string {
+func (s *devSupervisor) appDatabaseAuthorityEnv(baseEnv []string, requirements compiler.SQLRequirements) []string {
 	if s == nil {
 		return baseEnv
 	}
-	if len(s.cfg.DatabaseServices()) > 0 {
-		return envWithoutKeys(baseEnv, databaseEnvKeys(s.cfg)...)
+	if len(requirements) > 0 {
+		return envWithoutKeys(baseEnv, databaseEnvKeys(requirements)...)
 	}
 	return baseEnv
 }
@@ -1265,16 +1266,6 @@ func appEnvWithDotEnv(base []string, root string, names ...string) ([]string, er
 	return envfile.AppendMissing(base, values), nil
 }
 
-func stripANSI(data []byte) []byte {
-	if len(data) == 0 {
-		return nil
-	}
-	// ReplaceAll always builds a fresh buffer and never aliases data, so the
-	// result is already safe to retain; copying it again doubled the allocation
-	// for every process output line.
-	return ansiEscapeRE.ReplaceAll(data, nil)
-}
-
 func (s *devSupervisor) handleExit(ctx context.Context, app *runningApp) {
 	if app == nil {
 		return
@@ -1365,14 +1356,6 @@ func (a *runningApp) stop() error {
 	return a.waitOrKill(stopTimeout)
 }
 
-func isExpectedExit(err error) bool {
-	if err == nil {
-		return true
-	}
-	_, ok := errors.AsType[*exec.ExitError](err)
-	return ok
-}
-
 func validateLocalSecretsFiles(root string, cfg app.Config, env app.ResolvedEnv) error {
 	values, err := appEnvWithDotEnv(envpolicy.Environ(), root, env.DotEnvFiles()...)
 	if err != nil {
@@ -1401,6 +1384,7 @@ func (s *devSupervisor) persistStatus(ctx context.Context) error {
 	s.mu.RLock()
 	status := s.status
 	s.mu.RUnlock()
+	status.Metadata = s.metadataWithRuntimePostgresDatabases(status.Metadata, status.Root)
 	if s.storeWriter == nil {
 		return nil
 	}
@@ -1874,44 +1858,20 @@ func (s *devSupervisor) metadataWithRuntimePostgresDatabases(metadata json.RawMe
 	if s == nil {
 		return metadata
 	}
-	appRoot = strings.TrimSpace(appRoot)
-	if appRoot == "" {
+	root := s.root
+	if s.worktreeRootPaths != nil {
+		root = s.worktreeRootPaths.AppRoot
+	}
+	if appRoot != root && appRoot != s.root {
 		return metadata
 	}
-	return metadataWithRuntimePostgresDatabases(metadata, appRoot, s.cfg, appRoot == s.root)
-}
-
-func metadataWithRuntimePostgresDatabases(metadata json.RawMessage, appRoot string, cfg app.Config, cfgKnown bool) json.RawMessage {
-	appRoot = strings.TrimSpace(appRoot)
-	if appRoot == "" {
+	s.mu.RLock()
+	database := s.postgresMetadata
+	s.mu.RUnlock()
+	if database == nil {
 		return metadata
 	}
-	root := appRoot
-	if !cfgKnown {
-		discoveredRoot, discoveredCfg, err := app.DiscoverRoot(root)
-		if err != nil {
-			return metadata
-		}
-		root = discoveredRoot
-		cfg = discoveredCfg
-	}
-	database := configuredPostgresDatabase(root, cfg)
-	if database.Name == "" {
-		return nil
-	}
-	return metadataWithPostgresDatabases(metadata, []dashboardPostgresDatabase{database})
-}
-
-func configuredPostgresDatabase(root string, cfg app.Config) dashboardPostgresDatabase {
-	services := cfg.DatabaseServices()
-	if len(services) == 0 {
-		return dashboardPostgresDatabase{}
-	}
-	db := dashboardPostgresDatabase{Name: postgresname.DatabaseNameFor(cfg.AppID(), root), Source: "managed"}
-	for _, svc := range services {
-		db.Schemas = append(db.Schemas, dashboardPostgresSchema{Service: svc.Name, Schema: svc.Schema})
-	}
-	return db
+	return metadataWithPostgresDatabases(metadata, []dashboardPostgresDatabase{*database})
 }
 
 func metadataWithPostgresDatabases(metadata json.RawMessage, databases []dashboardPostgresDatabase) json.RawMessage {

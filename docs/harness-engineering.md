@@ -12,9 +12,16 @@ The harness contract gives Codex and other agents a short feedback loop:
 
 ## Command
 
+The repository-only command is `go run ./scripts/verify`, run from the Scenery
+checkout. It owns repository checks, release probes and timing enforcement;
+the installed product cannot run them. `scenery harness` validates an app,
+`scenery harness ui` drives its dashboard, and `scenery inspect harness` reads
+bounded existing reports. The `scenery.harness.self` report names and paths
+remain current data contracts, not an executable product subcommand.
+
 ```text
 scenery harness [--app-root <path>] [-o json] [--write]
-scenery harness self [--repo-root <path>] [--summary] [-o human|json] [--write] [--quick|--race|--release] [--fresh-tests]
+go run ./scripts/verify [--repo-root <path>] [--summary] [-o human|json] [--write] [--quick|--race|--release] [--fresh-tests]
 scenery harness ui [--app-root <path>] [--dashboard-url <url>] [--headed] [-o json] [--write]
 scenery inspect harness [artifact <name>|diagnostics --severity error|warning|timing --top <n>] -o json [--app-root <path>] [--repo-root <path>]
 ```
@@ -39,7 +46,7 @@ Recommended agent loop:
 
 ```text
 scenery doctor -o json
-.scenery/harness/bin/scenery harness self --quick --summary --write
+go run ./scripts/verify --quick --summary --write
 cat .scenery/harness/agent-context.json
 # implement
 # refresh agent-context after editing, then run changed_area.recommended_commands
@@ -47,20 +54,28 @@ cat .scenery/harness/agent-context.json
 
 For a missing local binary or dashboard embed, follow
 [Fresh Worktree Preflight](agent-guide.md#fresh-worktree-preflight).
-Quick mode does not build the local CLI or provision console dependencies.
+Every mode builds the prepared worktree-local CLI. Quick mode does not provision
+console dependencies or run live-runtime probes.
 
 When `validation_classification` contains `release-sensitive-or-runtime`, also run:
 
 ```text
-.scenery/harness/bin/scenery harness self --release --summary --write
+go run ./scripts/verify --release --summary --write
 scripts/release-gate.sh
 ```
 
 The source-only snapshot includes tracked working-tree content and nonignored
 new source files, excluding tracked deletions and ignored generated caches.
 It proves the current authored working tree, not an unchanged committed HEAD.
-The shell gate uses `go build -o` in disposable directories and never installs
-a CLI. Its headless fixture probes use `scenery build
+The shell delegates the common Go/race/UI/release checks once to the repository
+verifier and retains lint, source-snapshot build, and its distinct binary/router/
+artifact probes. By default those binary probes use the verifier's prepared
+product; an explicit `SCENERY_BIN` remains the separately selected shell target.
+The source-snapshot build is disposable and no step installs a CLI.
+Dashboard embed preparation precedes the product build; the verifier then
+rebuilds source assets to compare them with that product's real HTTP hash.
+Those preparation and freshness boundaries are distinct, not duplicate UI gates.
+Its headless fixture probes use `scenery build
 --target development --output <binary> -o json` and launch that binary with `SCENERY_LISTEN_ADDR`;
 they do not start a development session. Readiness requires HTTP 200 and fails
 early if the child exits. Cleanup stops children before removing their files.
@@ -103,7 +118,7 @@ Postgres service probe when Docker is reachable (and records an explicit
 skip when it is not):
 
 ```text
-.scenery/harness/bin/scenery harness self --summary --write
+go run ./scripts/verify --summary --write
 ```
 
 Use `--quick` only when you intentionally need the smaller self-harness loop
@@ -201,7 +216,7 @@ read for each failure, exact rerun commands, deterministic validation classes,
 their changed-area command union, relevant active ExecPlans, recent failed
 harness artifacts, docs freshness, and separate risk classification.
 
-For the scenery repo itself, `scenery harness self --summary --write` prints the
+For the scenery repo itself, `go run ./scripts/verify --summary --write` prints the
 compact `scenery.harness.self.summary` decision packet and writes:
 
 ```text
@@ -209,7 +224,7 @@ compact `scenery.harness.self.summary` decision packet and writes:
 <repo-root>/.scenery/harness/self-summary-latest.json
 ```
 
-Use `scenery harness self -o json --write` only when stdout must contain the
+Use `go run ./scripts/verify -o json --write` only when stdout must contain the
 full `scenery.harness.self` archive. Agents should prefer artifacts and focused
 inspect commands over pasting `.scenery/harness/self-latest.json` into chat.
 
@@ -221,7 +236,7 @@ contract drift, and schema conformance. The additional work depends on mode:
 
 | Mode | Additional coverage |
 |---|---|
-| `--quick` | Cached affected-package tests; no local CLI build or console provisioning. |
+| `--quick` | Cached affected-package tests; prepared local CLI build/freshness, no console provisioning. |
 | Default | Local CLI build/freshness, complete Go suite, vet, managed dev/database/storage probes, console dependencies, dashboard build/typecheck/freshness, generated-client conformance/typechecks, and fixture matrix. |
 | `--race` | Default coverage plus the race shortlist. |
 | `--release` | Default coverage plus external-boundary probes and enforced release budgets. |
@@ -231,6 +246,13 @@ against managed Caddy on disposable loopback ports, with local TLS issuance
 and no system trust installation. It records `static_frontend.http_checks`
 and raw traversal proof. Missing Caddy fails the step explicitly. Ordinary
 edge tests retain renderer, publication, and injected-runner coverage.
+
+The core-separation release step builds the verifier from source without tests
+or generated app caches, rejects repository execution in the product dependency
+closure, checks actual stale/matched product dashboard bundles, and exercises
+app commands after removing verifier/test-engine sources from its disposable
+SDK. It also proves invalid old grammar, unavailable-toolchain diagnostics and
+real 20-process rejection of a deliberately slow disposable test root.
 
 The generation release probe includes a source-only external Git checkout using
 the candidate CLI and an explicit matching local framework replacement. It
@@ -265,7 +287,7 @@ Run `scenery inspect docs --for-path <path> -o json` before non-trivial repo
 changes. It reuses the changed-area router to return applicable instruction
 scopes, owning sections, active plans, schemas, and verification commands.
 Use `scenery inspect docs --review-due -o json` to choose cleanup work and
-`--all` only for complete catalog validation. `scenery harness self --summary
+`--all` only for complete catalog validation. `go run ./scripts/verify --summary
 --write` includes the same docs freshness signals in its summaries.
 Scheduled freshness covers living contracts, instructions, schemas, and active
 plans. Completed numbered ExecPlans are immutable history and never enter the
@@ -280,7 +302,7 @@ active ExecPlan indexing is generated by the toolchain, every active ExecPlan in
 
 ## Architecture Checks
 
-`scenery harness self` includes a fast `architecture checks` step.
+`go run ./scripts/verify` includes a fast `architecture checks` step.
 
 Hard failures:
 

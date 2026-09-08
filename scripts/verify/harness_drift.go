@@ -1,0 +1,935 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"sort"
+	"strings"
+	"time"
+
+	"golang.org/x/mod/modfile"
+	appcfg "scenery.sh/internal/app"
+
+	"scenery.sh/internal/envpolicy"
+)
+
+const (
+	harnessToolchainKind     = "scenery.harness.toolchain"
+	harnessDriftKind         = "scenery.harness.drift"
+	harnessFixtureMatrixKind = "scenery.harness.fixture_matrix"
+)
+
+type harnessToolchainSpec struct {
+	name     string
+	scope    string
+	required bool
+	args     []string
+}
+
+var (
+	harnessToolchainSpecs = []harnessToolchainSpec{
+		{name: "go", scope: "required", required: true, args: []string{"version"}},
+		{name: "git", scope: "required", required: true, args: []string{"version"}},
+		{name: "scenery", scope: "required", required: true, args: []string{"version", "-o", "json"}},
+		{name: "bun", scope: "required-for-ui", args: []string{"--version"}},
+		{name: "docker", scope: "optional", args: []string{"--version"}},
+	}
+	harnessProbeTool = probeHarnessTool
+)
+
+func runHarnessToolchainPreflightStep(ctx context.Context, repoRoot string) (harnessStep, *harnessToolchainReport) {
+	started := time.Now()
+	report := buildHarnessToolchainPreflightReport(ctx, repoRoot)
+	step := harnessStep{
+		Name:       "toolchain preflight",
+		Command:    []string{"go", "run", "./scripts/verify", "--repo-root", repoRoot, "--release", "--summary", "--write"},
+		OK:         !hasErrorDiagnostics(report.Diagnostics),
+		DurationMS: time.Since(started).Milliseconds(),
+		Summary: map[string]any{
+			"tools":       len(report.Tools),
+			"env":         len(report.Env),
+			"diagnostics": len(report.Diagnostics),
+		},
+		Diagnostics: report.Diagnostics,
+	}
+	if !step.OK {
+		step.Error = "toolchain preflight failed"
+	}
+	return step, report
+}
+
+func buildHarnessToolchainPreflightReport(ctx context.Context, repoRoot string) *harnessToolchainReport {
+	report := &harnessToolchainReport{PayloadIdentity: newCLIPayloadIdentity(harnessToolchainKind)}
+	for _, spec := range harnessToolchainSpecs {
+		name := spec.name
+		if name == "scenery" {
+			name = harnessLocalSceneryBinaryPath(repoRoot)
+		}
+		tool := harnessProbeTool(ctx, name, spec.scope, spec.required, spec.args)
+		tool.Name = spec.name
+		if !tool.Present && tool.Required {
+			report.Diagnostics = append(report.Diagnostics, checkDiagnostic{
+				Stage:           "toolchain preflight",
+				Severity:        "error",
+				Message:         spec.name + " is required but was not found in PATH",
+				SuggestedAction: installSuggestion(spec.name),
+			})
+		} else if !tool.Present {
+			report.Diagnostics = append(report.Diagnostics, checkDiagnostic{
+				Stage:           "toolchain preflight",
+				Severity:        "warning",
+				Message:         spec.name + " is not available for " + spec.scope,
+				SuggestedAction: "Install `" + spec.name + "` before running checks that require " + spec.scope + ".",
+			})
+		}
+		report.Tools = append(report.Tools, tool)
+	}
+	report.Diagnostics = append(report.Diagnostics, checkDeclaredGoToolchainAvailable(ctx, repoRoot)...)
+	registry, _ := envpolicy.LoadRegistry(envpolicy.RegistryPath(repoRoot))
+	for _, name := range sortedHarnessEnv(envpolicy.Environ()) {
+		value := envpolicy.Get(name)
+		if registry != nil {
+			value = registry.RedactValue(name, value)
+		} else if envpolicy.SecretLikeName(name) {
+			value = envpolicy.RedactedValue
+		}
+		report.Env = append(report.Env, harnessEnvValue{Name: name, Value: value})
+	}
+	return report
+}
+
+func probeHarnessTool(ctx context.Context, name, scope string, required bool, args []string) harnessToolchainTool {
+	tool := harnessToolchainTool{Name: name, Scope: scope, Required: required}
+	path, err := exec.LookPath(name)
+	if err != nil {
+		tool.Error = err.Error()
+		return tool
+	}
+	tool.Present = true
+	tool.Path = path
+	if len(args) == 0 {
+		return tool
+	}
+	checkCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	cmd := commandTreeContext(checkCtx, path, args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		tool.Error = strings.TrimSpace(err.Error() + ": " + string(output))
+		return tool
+	}
+	return applyHarnessToolOutput(tool, filepath.Base(name), args, output)
+}
+
+func applyHarnessToolOutput(tool harnessToolchainTool, name string, args []string, output []byte) harnessToolchainTool {
+	if name == "scenery" && len(args) == 3 && args[0] == "version" && args[1] == "-o" && args[2] == "json" {
+		var version versionResponse
+		if decodeCLIJSON(output, &version) == nil && version.Version != "" {
+			tool.Version = version.Version
+			tool.Commit = version.Commit
+			tool.BuiltAt = version.BuiltAt
+			tool.GoVersion = version.GoVersion
+			return tool
+		}
+	}
+	tool.Version = firstLine(strings.TrimSpace(string(output)))
+	return tool
+}
+
+func runHarnessDriftStep(ctx context.Context, repoRoot string) (harnessStep, *harnessDriftReport) {
+	started := time.Now()
+	report := buildHarnessDriftReport(ctx, repoRoot)
+	step := harnessStep{
+		Name:       "contract drift checks",
+		Command:    []string{"go", "run", "./scripts/verify", "--repo-root", repoRoot, "--release", "--summary", "--write"},
+		OK:         !hasErrorDiagnostics(report.Diagnostics),
+		DurationMS: time.Since(started).Milliseconds(),
+		Summary: map[string]any{
+			"cli_commands":      len(report.CLI.Commands),
+			"env_vars":          len(report.Env.Variables),
+			"forbidden_tracked": len(report.Artifacts.ForbiddenTracked),
+			"embeds":            len(report.Embeds.Embeds),
+			"diagnostics":       len(report.Diagnostics),
+		},
+		Diagnostics: report.Diagnostics,
+	}
+	if !step.OK {
+		step.Error = "contract drift checks failed"
+	}
+	return step, report
+}
+
+func buildHarnessDriftReport(ctx context.Context, repoRoot string) *harnessDriftReport {
+	return buildHarnessDriftReportWithReaders(ctx, repoRoot, buildHarnessCLIContractReport, buildHarnessArtifactHygieneReport)
+}
+
+func buildHarnessDriftReportWithReaders(ctx context.Context, repoRoot string,
+	cli func(string, []checkDiagnostic) (harnessCLIContractReport, []checkDiagnostic),
+	artifacts func(context.Context, string, []checkDiagnostic) (harnessArtifactHygieneReport, []checkDiagnostic),
+) *harnessDriftReport {
+	report := &harnessDriftReport{PayloadIdentity: newCLIPayloadIdentity(harnessDriftKind)}
+	report.CLI, report.Diagnostics = cli(repoRoot, report.Diagnostics)
+	report.Env, report.Diagnostics = buildHarnessEnvVarReport(repoRoot, report.Diagnostics)
+	report.Diagnostics = appendDirectOSEnvDiagnostics(repoRoot, report.Diagnostics)
+	report.Artifacts, report.Diagnostics = artifacts(ctx, repoRoot, report.Diagnostics)
+	report.Embeds, report.Diagnostics = buildHarnessEmbedReport(repoRoot, report.Diagnostics)
+	return report
+}
+
+func buildHarnessEnvVarReport(repoRoot string, diagnostics []checkDiagnostic) (harnessEnvVarReport, []checkDiagnostic) {
+	registryPath := envpolicy.RegistryPath(repoRoot)
+	registry, err := envpolicy.LoadRegistry(registryPath)
+	registryRel, relErr := filepath.Rel(repoRoot, registryPath)
+	if relErr != nil {
+		registryRel = registryPath
+	}
+	report := harnessEnvVarReport{Registry: filepath.ToSlash(registryRel)}
+	if err != nil {
+		diagnostics = append(diagnostics, checkDiagnostic{
+			Stage:           "contract drift checks",
+			Severity:        "error",
+			File:            filepath.ToSlash(registryPath),
+			Message:         "environment registry is missing or invalid: " + err.Error(),
+			SuggestedAction: "Restore docs/environment.registry.json with kind " + envpolicy.Kind + " and schema_revision " + envpolicy.SchemaRevision + ".",
+		})
+		return report, diagnostics
+	}
+	documentedText := readOptionalText(filepath.Join(repoRoot, "docs", "environment.md")) + "\n" +
+		readOptionalText(filepath.Join(repoRoot, "docs", "local-contract.md")) + "\n" +
+		readOptionalText(filepath.Join(repoRoot, "SKILL.md")) + "\n" +
+		readOptionalText(filepath.Join(repoRoot, "AGENTS.md"))
+	scan := envpolicy.Scan(envpolicy.ScanOptions{
+		RepoRoot: repoRoot,
+		SkipDir:  architectureSkipDir,
+	})
+	for _, name := range envpolicy.VariableNames(scan) {
+		refs := filterHarnessEnvReferences(scan.Variables[name])
+		if len(refs) == 0 {
+			continue
+		}
+		scope := envpolicy.EffectiveScope(refs, name)
+		documented := strings.Contains(documentedText, name)
+		finding := harnessEnvFinding(name, scope, documented, refs, registry)
+		report.Variables = append(report.Variables, finding)
+		for _, violation := range finding.Violations {
+			diagnostics = append(diagnostics, checkDiagnostic{
+				Stage:           "contract drift checks",
+				Severity:        severityForEnvViolation(finding, violation),
+				File:            envFindingDiagnosticFile(repoRoot, finding),
+				Message:         violation,
+				SuggestedAction: envFindingSuggestedAction(finding),
+			})
+		}
+	}
+	for _, variable := range registry.Variables {
+		if variable.Scope == "test_only" || variable.Direction == "internal" || variable.Stability == "code_constant" {
+			continue
+		}
+		if len(variable.Docs) == 0 {
+			diagnostics = append(diagnostics, checkDiagnostic{
+				Stage:           "contract drift checks",
+				Severity:        "error",
+				File:            filepath.ToSlash(registryPath),
+				Message:         "registered environment variable is missing docs: " + variable.Name,
+				SuggestedAction: "Add docs/environment.md to the registry docs list and document the variable, or mark it internal/test-only.",
+			})
+		}
+	}
+	return report, diagnostics
+}
+
+func filterHarnessEnvReferences(refs []envpolicy.Reference) []envpolicy.Reference {
+	out := refs[:0]
+	for _, ref := range refs {
+		if isIgnoredHarnessLocalArtifact(ref.File) {
+			continue
+		}
+		out = append(out, ref)
+	}
+	return out
+}
+
+func harnessEnvFinding(name, scope string, documented bool, refs []envpolicy.Reference, registry *envpolicy.Registry) harnessEnvVarFinding {
+	finding := harnessEnvVarFinding{
+		Name:       name,
+		Scope:      scope,
+		UsedInCode: hasEnvCodeReference(refs),
+		Documented: documented,
+		Files:      envFindingFiles(refs),
+		References: refs,
+	}
+	variable, registered := registry.Find(name)
+	if !registered {
+		if scope == "runtime" {
+			finding.Violations = append(finding.Violations, "unregistered runtime environment variable used in code: "+name)
+		}
+		return finding
+	}
+	finding.Registered = true
+	finding.RegistryName = variable.Name
+	finding.Direction = variable.Direction
+	finding.Stability = variable.Stability
+	finding.Category = variable.Category
+	finding.Secret = variable.Secret
+	allowedScope := envpolicy.ScopeAllowedInRegistry(scope)
+	if !variable.Allows(allowedScope) {
+		finding.Violations = append(finding.Violations, "environment variable "+name+" is used in "+scope+" scope but registry allows only "+strings.Join(variable.AllowedIn, ", "))
+	}
+	if scope == "runtime" && variable.Scope == "test_only" {
+		finding.Violations = append(finding.Violations, "test-only environment variable used by production code: "+name)
+	}
+	if scope == "runtime" && !documented && variable.Scope != "internal" && variable.Stability != "code_constant" {
+		finding.Violations = append(finding.Violations, "registered runtime environment variable used in code but not documented: "+name)
+	}
+	return finding
+}
+
+func hasEnvCodeReference(refs []envpolicy.Reference) bool {
+	for _, ref := range refs {
+		if ref.Scope == "code" {
+			return true
+		}
+	}
+	return false
+}
+
+func envFindingFiles(refs []envpolicy.Reference) []string {
+	set := map[string]bool{}
+	for _, ref := range refs {
+		set[ref.File] = true
+	}
+	return sortedStringSet(set)
+}
+
+func severityForEnvViolation(finding harnessEnvVarFinding, violation string) string {
+	if finding.Scope == "runtime" || strings.Contains(violation, "registered environment variable is missing docs") {
+		return "error"
+	}
+	return "warning"
+}
+
+func envFindingDiagnosticFile(repoRoot string, finding harnessEnvVarFinding) string {
+	if len(finding.Files) > 0 {
+		return filepath.ToSlash(filepath.Join(repoRoot, filepath.FromSlash(finding.Files[0])))
+	}
+	return filepath.ToSlash(envpolicy.RegistryPath(repoRoot))
+}
+
+func envFindingSuggestedAction(finding harnessEnvVarFinding) string {
+	if !finding.Registered {
+		return "Remove the env usage, move configuration to `.scenery.json`, a CLI flag, or a checked-in manifest, or add a registry entry with rationale if explicitly approved."
+	}
+	if finding.Scope == "runtime" && finding.Stability == "test_only" {
+		return "Remove the test-only env from production code or replace it with a supported runtime configuration surface."
+	}
+	return "Update docs/environment.registry.json and docs/environment.md together, or change the code to use an approved configuration surface."
+}
+
+func appendDirectOSEnvDiagnostics(repoRoot string, diagnostics []checkDiagnostic) []checkDiagnostic {
+	for _, finding := range directOSEnvUsages(repoRoot) {
+		diagnostics = append(diagnostics, checkDiagnostic{
+			Stage:           "contract drift checks",
+			Severity:        "error",
+			File:            filepath.ToSlash(filepath.Join(repoRoot, filepath.FromSlash(finding))),
+			Message:         "production code reads or mutates process environment outside internal/envpolicy: " + finding,
+			SuggestedAction: "Route environment access through internal/envpolicy, or move configuration to `.scenery.json`, a CLI flag, or a checked-in manifest.",
+		})
+	}
+	return diagnostics
+}
+
+func directOSEnvUsages(repoRoot string) []string {
+	var findings []string
+	needles := []string{
+		"os." + "Getenv(",
+		"os." + "LookupEnv(",
+		"os." + "Environ(",
+		"os." + "Setenv(",
+		"os." + "Unsetenv(",
+	}
+	_ = filepath.WalkDir(repoRoot, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		rel, relErr := filepath.Rel(repoRoot, path)
+		if relErr != nil {
+			return nil
+		}
+		rel = filepath.ToSlash(rel)
+		if entry.IsDir() {
+			if rel != "." && architectureSkipDir(rel) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if isIgnoredHarnessLocalArtifact(rel) {
+			return nil
+		}
+		if filepath.Ext(rel) != ".go" ||
+			strings.HasSuffix(rel, "_test.go") ||
+			strings.HasPrefix(rel, "internal/envpolicy/") ||
+			strings.HasPrefix(rel, "testdata/") ||
+			strings.HasPrefix(rel, "benchmarks/") {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil
+		}
+		text := string(data)
+		for _, needle := range needles {
+			if strings.Contains(text, needle) {
+				findings = append(findings, rel)
+				break
+			}
+		}
+		return nil
+	})
+	sort.Strings(findings)
+	return findings
+}
+
+func buildHarnessArtifactHygieneReport(ctx context.Context, repoRoot string, diagnostics []checkDiagnostic) (harnessArtifactHygieneReport, []checkDiagnostic) {
+	var report harnessArtifactHygieneReport
+	output, err := runHarnessGit(ctx, repoRoot, "ls-files")
+	if err != nil {
+		diagnostics = append(diagnostics, checkDiagnostic{
+			Stage:           "contract drift checks",
+			Severity:        "warning",
+			Message:         "git ls-files failed: " + err.Error(),
+			SuggestedAction: "Run `git ls-files` from the repo root and inspect repository state.",
+		})
+	} else {
+		for _, path := range splitCommandLines(output) {
+			if forbiddenTrackedArtifact(path) {
+				report.ForbiddenTracked = append(report.ForbiddenTracked, path)
+				diagnostics = append(diagnostics, checkDiagnostic{
+					Stage:           "contract drift checks",
+					Severity:        "error",
+					File:            filepath.ToSlash(filepath.Join(repoRoot, filepath.FromSlash(path))),
+					Message:         "generated/local artifact is tracked: " + path,
+					SuggestedAction: "Remove the generated artifact from git and keep it ignored.",
+				})
+			}
+		}
+	}
+	source := readOptionalText(filepath.Join(repoRoot, "internal", "build", "source.go"))
+	for _, token := range []string{".env", ".DS_Store", "__MACOSX", "node_modules", "coverage"} {
+		ok := strings.Contains(source, token)
+		report.WorkspaceRules = append(report.WorkspaceRules, token)
+		if !ok {
+			diagnostics = append(diagnostics, checkDiagnostic{
+				Stage:           "contract drift checks",
+				Severity:        "error",
+				File:            filepath.ToSlash(filepath.Join(repoRoot, "internal", "build", "source.go")),
+				Message:         "build workspace copy exclusion is missing token: " + token,
+				SuggestedAction: "Update build workspace copy rules so local/generated files cannot leak into builds.",
+			})
+		}
+	}
+	sort.Strings(report.ForbiddenTracked)
+	return report, diagnostics
+}
+
+func forbiddenTrackedArtifact(path string) bool {
+	path = filepath.ToSlash(path)
+	if strings.Contains(path, "/.scenery/") || strings.HasPrefix(path, ".scenery/") {
+		return true
+	}
+	if strings.Contains(path, "/coverage/") || strings.HasPrefix(path, "coverage/") {
+		return true
+	}
+	if strings.Contains(path, "/oracle/") || strings.HasPrefix(path, "oracle/") {
+		return true
+	}
+	return filepath.Base(path) == ".DS_Store" || strings.HasPrefix(path, ".codex-tmp/")
+}
+
+func buildHarnessEmbedReport(repoRoot string, diagnostics []checkDiagnostic) (harnessEmbedReport, []checkDiagnostic) {
+	var report harnessEmbedReport
+	_ = filepath.WalkDir(repoRoot, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		rel, relErr := filepath.Rel(repoRoot, path)
+		if relErr != nil {
+			return nil
+		}
+		rel = filepath.ToSlash(rel)
+		if entry.IsDir() {
+			// Prune skipped trees rather than walking into them; every file
+			// under them is discarded by the check below anyway.
+			if rel != "." && architectureSkipDir(rel) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if architectureSkipDir(filepath.Dir(rel)) || filepath.Ext(rel) != ".go" || strings.HasSuffix(rel, "_test.go") {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil
+		}
+		patterns := parseGoEmbedPatterns(string(data))
+		if len(patterns) == 0 {
+			return nil
+		}
+		pkgDir := filepath.Dir(rel)
+		for _, pattern := range patterns {
+			files := map[string]struct{}{}
+			_ = addEmbeddedPatternFiles(repoRoot, pkgDir, pattern, files, nil)
+			resolved := sortedStructKeys(files)
+			covered := len(resolved) > 0
+			for _, resolvedPath := range resolved {
+				if !harnessBinaryFreshnessCoversRel(resolvedPath) {
+					covered = false
+				}
+			}
+			finding := harnessEmbedFinding{
+				File:                     rel,
+				Pattern:                  pattern,
+				Resolved:                 resolved,
+				CoveredByBinaryFreshness: covered,
+			}
+			report.Embeds = append(report.Embeds, finding)
+			if len(resolved) == 0 || !covered {
+				diagnostics = append(diagnostics, checkDiagnostic{
+					Stage:           "contract drift checks",
+					Severity:        "error",
+					File:            filepath.ToSlash(filepath.Join(repoRoot, filepath.FromSlash(rel))),
+					Message:         "go:embed pattern is not covered by local binary freshness: " + pattern,
+					SuggestedAction: "Update latestHarnessSourceModTime inputs so embedded files rebuild the worktree-local scenery binary.",
+				})
+			}
+		}
+		return nil
+	})
+	sort.Slice(report.Embeds, func(i, j int) bool {
+		if report.Embeds[i].File == report.Embeds[j].File {
+			return report.Embeds[i].Pattern < report.Embeds[j].Pattern
+		}
+		return report.Embeds[i].File < report.Embeds[j].File
+	})
+	return report, diagnostics
+}
+
+func harnessBinaryFreshnessCoversRel(rel string) bool {
+	rel = filepath.ToSlash(rel)
+	if strings.HasPrefix(rel, dashboardStaticDistRel+"/") && harnessBinaryInputFile(rel) {
+		return true
+	}
+	for _, prefix := range []string{"auth/", "cmd/", "db/", "errs/", "internal/", "middleware/", "runtime/", "ui/"} {
+		if strings.HasPrefix(rel, prefix) && harnessBinaryInputFile(rel) {
+			for _, part := range strings.Split(filepath.Dir(rel), "/") {
+				if harnessBinaryInputSkipDir(part) {
+					return false
+				}
+			}
+			return true
+		}
+	}
+	return rel == "go.mod" || rel == "go.sum"
+}
+
+func runHarnessFixtureMatrixStep(ctx context.Context, repoRoot string) (harnessStep, *harnessFixtureMatrixReport) {
+	started := time.Now()
+	report := buildHarnessFixtureMatrixReport(ctx, repoRoot)
+	step := harnessStep{
+		Name:       "fixture matrix",
+		Command:    []string{"go", "run", "./scripts/verify", "--repo-root", repoRoot, "--release", "--summary", "--write"},
+		OK:         !hasErrorDiagnostics(report.Diagnostics),
+		DurationMS: time.Since(started).Milliseconds(),
+		Summary: map[string]any{
+			"fixtures":    len(report.Fixtures),
+			"diagnostics": len(report.Diagnostics),
+		},
+		Diagnostics: report.Diagnostics,
+	}
+	if !step.OK {
+		step.Error = "fixture matrix failed"
+	}
+	return step, report
+}
+
+func buildHarnessFixtureMatrixReport(ctx context.Context, repoRoot string) *harnessFixtureMatrixReport {
+	return buildHarnessFixtureMatrixReportWithRunner(ctx, repoRoot, runProduct)
+}
+
+func buildHarnessFixtureMatrixReportWithRunner(ctx context.Context, repoRoot string, run productCommandRunner) *harnessFixtureMatrixReport {
+	report := &harnessFixtureMatrixReport{PayloadIdentity: newCLIPayloadIdentity(harnessFixtureMatrixKind)}
+	fixtureRoot := filepath.Join(repoRoot, "testdata", "apps")
+	entries, err := os.ReadDir(fixtureRoot)
+	if err != nil {
+		report.Diagnostics = append(report.Diagnostics, checkDiagnostic{
+			Stage:           "fixture matrix",
+			Severity:        "error",
+			File:            filepath.ToSlash(fixtureRoot),
+			Message:         err.Error(),
+			SuggestedAction: "Restore testdata/apps fixture apps.",
+		})
+		return report
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		appRoot := filepath.Join(fixtureRoot, entry.Name())
+		configPath, err := appcfg.ResolveConfigPath(appRoot)
+		if err != nil || !pathExists(configPath) {
+			continue
+		}
+		result := harnessFixtureResult{
+			Name:    entry.Name(),
+			Path:    filepath.ToSlash(filepath.Join("testdata", "apps", entry.Name())),
+			Inspect: map[string]bool{},
+		}
+		// Repository fixtures own these ignored generated contracts. Prepare
+		// them explicitly after framework edits, just as a source-only app must.
+		var generated bytes.Buffer
+		if err := run(ctx, repoRoot, &generated, "generate", "--target", "contracts", "--app-root", appRoot, "-o", "json"); err != nil {
+			result.Diagnostics = append(result.Diagnostics, checkDiagnostic{Stage: "fixture matrix", Severity: "error", File: filepath.ToSlash(appRoot), Message: "prepare fixture contracts: " + err.Error()})
+		}
+		checkStep := runHarnessFixtureCheckWithRunner(ctx, repoRoot, appRoot, run)
+		result.Check = checkStep.OK
+		if !checkStep.OK {
+			result.Diagnostics = append(result.Diagnostics, checkStep.Diagnostics...)
+			if checkStep.Error != "" {
+				result.Diagnostics = append(result.Diagnostics, checkDiagnostic{
+					Stage:    "fixture matrix",
+					Severity: "error",
+					File:     filepath.ToSlash(appRoot),
+					Message:  checkStep.Error,
+				})
+			}
+		}
+		for _, subject := range []string{"app", "routes", "services", "endpoints"} {
+			step := runHarnessFixtureInspectWithRunner(ctx, repoRoot, subject, appRoot, run)
+			result.Inspect[subject] = step.OK
+			if !step.OK {
+				result.Diagnostics = append(result.Diagnostics, checkDiagnostic{
+					Stage:           "fixture matrix",
+					Severity:        "error",
+					File:            filepath.ToSlash(appRoot),
+					Message:         "inspect " + subject + " failed: " + firstNonEmpty(step.Error, step.OutputTail),
+					SuggestedAction: "Run `scenery inspect " + subject + " -o json --app-root " + appRoot + "` and fix the fixture.",
+				})
+			}
+		}
+		if hasErrorDiagnostics(result.Diagnostics) {
+			report.Diagnostics = append(report.Diagnostics, result.Diagnostics...)
+		}
+		report.Fixtures = append(report.Fixtures, result)
+	}
+	sort.Slice(report.Fixtures, func(i, j int) bool {
+		return report.Fixtures[i].Name < report.Fixtures[j].Name
+	})
+	return report
+}
+
+func runHarnessFixtureInspectWithRunner(ctx context.Context, repoRoot, subject, appRoot string, run productCommandRunner) harnessStep {
+	started := time.Now()
+	var out bytes.Buffer
+	err := run(ctx, repoRoot, &out, "inspect", subject, "--app-root", appRoot, "-o", "json")
+	step := harnessStep{
+		Name:       "inspect " + subject,
+		Command:    []string{"scenery", "inspect", subject, "--app-root", appRoot, "-o", "json"},
+		OK:         err == nil,
+		DurationMS: time.Since(started).Milliseconds(),
+	}
+	if err != nil {
+		step.Error = strings.TrimSpace(err.Error())
+		return step
+	}
+	var payload map[string]any
+	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
+		step.OK = false
+		step.Error = "invalid inspect JSON: " + err.Error()
+		return step
+	}
+	step.Summary = summarizeHarnessFixtureInspect(subject, payload)
+	schemaRel := "docs/schemas/scenery.inspect." + subject + ".schema.json"
+	schemaPath := filepath.Join(repoRoot, filepath.FromSlash(schemaRel))
+	if diagnostics := validateHarnessJSONSchemaFile(schemaPath, payload); len(diagnostics) > 0 {
+		step.OK = false
+		step.Error = subject + " inspect JSON does not conform to " + schemaRel + ": " + strings.Join(diagnostics, "; ")
+	}
+	return step
+}
+
+func runHarnessAffectedPackageTestsStep(ctx context.Context, repoRoot string, changedArea *harnessChangedAreaReport, freshTests bool, artifactCtxs ...harnessArtifactContext) harnessStep {
+	patternSet := map[string]bool{}
+	if changedArea != nil {
+		for _, file := range changedArea.ChangedFiles {
+			if file.Package == "" || !strings.HasPrefix(file.Package, "scenery.sh") {
+				continue
+			}
+			rel := strings.TrimPrefix(file.Package, "scenery.sh")
+			rel = strings.TrimPrefix(rel, "/")
+			if rel == "" {
+				patternSet["."] = true
+			} else {
+				patternSet["./"+rel] = true
+			}
+		}
+	}
+	patterns := sortedStringSet(patternSet)
+	if len(patterns) == 0 {
+		return harnessStep{
+			Name:       "affected package tests",
+			Command:    harnessAffectedPackageTestCommand(nil, freshTests),
+			OK:         true,
+			DurationMS: 0,
+			Summary:    map[string]any{"packages": 0},
+		}
+	}
+	command := harnessAffectedPackageTestCommand(patterns, freshTests)
+	return runHarnessExecStep(ctx, repoRoot, "affected package tests", command, artifactCtxs...)
+}
+
+func harnessAffectedPackageTestCommand(patterns []string, freshTests bool) []string {
+	command := []string{"go", "test"}
+	if freshTests {
+		command = append(command, "-count=1")
+	}
+	return append(command, patterns...)
+}
+
+func annotateHarnessStepEffects(steps []harnessStep) {
+	for i := range steps {
+		steps[i].Effects = harnessStepEffects(steps[i])
+	}
+}
+
+func harnessStepEffects(step harnessStep) []string {
+	set := map[string]bool{}
+	for _, arg := range step.Command {
+		switch arg {
+		case "go", "bun", "git":
+			set["external-binary"] = true
+		}
+	}
+	switch step.Name {
+	case harnessCoreSeparationName, harnessCapabilityAuthorityName, "worktree runtime and PostgreSQL acceptance":
+		set["external-binary"] = true
+		set["filesystem-write"] = true
+		set["loopback-network"] = true
+		set["ports"] = true
+		set["tempdir"] = true
+		set["agent-socket"] = true
+		set["node-runtime"] = true
+		if step.Name != harnessCoreSeparationName {
+			set["docker"] = true
+		}
+	case harnessEdgeProcessProbeName:
+		set["external-binary"] = true
+		set["filesystem-write"] = true
+		set["tempdir"] = true
+	case harnessGenerationCompileProbeName:
+		set["external-binary"] = true
+		set["filesystem-write"] = true
+		set["tempdir"] = true
+	case harnessNativeContractApplicationProbeName:
+		set["external-binary"] = true
+		set["loopback-network"] = true
+		set["node-runtime"] = true
+		set["tempdir"] = true
+	case harnessSnapshotBackupProbeName:
+		set["external-binary"] = true
+		set["filesystem-write"] = true
+		set["tempdir"] = true
+	case harnessTypeScriptCheckerProbeName:
+		set["external-binary"] = true
+		set["filesystem-write"] = true
+		set["tempdir"] = true
+	case harnessCodeTaskProcessProbeName:
+		set["external-binary"] = true
+		set["filesystem-write"] = true
+		set["tempdir"] = true
+	case harnessVictoriaProcessProbeName:
+		set["external-binary"] = true
+		set["filesystem-write"] = true
+		set["loopback-network"] = true
+		set["ports"] = true
+		set["tempdir"] = true
+	case harnessDesktopProcessProbeName:
+		set["agent-socket"] = true
+		set["external-binary"] = true
+		set["filesystem-write"] = true
+		set["loopback-network"] = true
+		set["ports"] = true
+		set["tempdir"] = true
+	case harnessDeploySSHProcessProbeName:
+		set["external-binary"] = true
+		set["filesystem-write"] = true
+		set["tempdir"] = true
+	case harnessValidationGitProbeName:
+		set["external-binary"] = true
+		set["filesystem-write"] = true
+		set["tempdir"] = true
+	case harnessTestsuiteCacheProbeName:
+		set["external-binary"] = true
+		set["filesystem-write"] = true
+		set["tempdir"] = true
+		set["test-cache"] = true
+	case harnessToolchainSourceBuildProbeName:
+		set["external-binary"] = true
+		set["filesystem-write"] = true
+		set["tempdir"] = true
+	case harnessWorktreeGitProbeName:
+		set["external-binary"] = true
+		set["filesystem-write"] = true
+		set["tempdir"] = true
+	case harnessBuildInfoProbeName:
+		set["external-binary"] = true
+		set["filesystem-write"] = true
+		set["tempdir"] = true
+	case harnessAssistantInitProbeName:
+		set["external-binary"] = true
+		set["filesystem-write"] = true
+		set["node-runtime"] = true
+		set["tempdir"] = true
+	case harnessAgentRestartProbeName:
+		set["agent-socket"] = true
+		set["external-binary"] = true
+		set["filesystem-write"] = true
+		set["loopback-network"] = true
+		set["ports"] = true
+		set["tempdir"] = true
+	case harnessAssistantProductionProbeName:
+		set["external-binary"] = true
+		set["filesystem-write"] = true
+		set["loopback-network"] = true
+		set["ports"] = true
+		set["tempdir"] = true
+	case harnessCLIProcessProbeName:
+		set["external-binary"] = true
+		set["filesystem-write"] = true
+		set["tempdir"] = true
+	case harnessDevNamedLockProbeName:
+		set["external-binary"] = true
+		set["filesystem-write"] = true
+		set["tempdir"] = true
+	case harnessDevFollowProbeName:
+		set["agent-socket"] = true
+		set["external-binary"] = true
+		set["filesystem-write"] = true
+		set["loopback-network"] = true
+		set["ports"] = true
+		set["tempdir"] = true
+	case harnessDevManagedProcessProbeName:
+		set["external-binary"] = true
+	case harnessDevSessionCleanupProbeName:
+		set["external-binary"] = true
+		set["filesystem-write"] = true
+		set["tempdir"] = true
+	case harnessInspectDocsGoPackageProbeName:
+		set["external-binary"] = true
+		set["filesystem-read"] = true
+	case "parallel worktree runtimes":
+		set["loopback-network"] = true
+		set["ports"] = true
+		set["agent-socket"] = true
+		set["tempdir"] = true
+	case "postgres service probe":
+		set["external-binary"] = true
+		set["loopback-network"] = true
+		set["tempdir"] = true
+		set["docker"] = true
+	case "go tests", "go test timing", "affected package tests", "race shortlist", "race full suite":
+		set["test-cache"] = true
+		set["external-binary"] = true
+	case "dashboard ui typecheck", "dashboard ui build":
+		set["node-runtime"] = true
+		set["external-binary"] = true
+	case "console dependencies":
+		set["node-runtime"] = true
+		set["external-binary"] = true
+		set["filesystem-write"] = true
+	case "fixture matrix":
+		set["filesystem-cache"] = true
+		set["external-binary"] = true
+	case "install scenery binary":
+		set["filesystem-write"] = true
+		set["external-binary"] = true
+	case "scenery binary fresh":
+		set["path-binary"] = true
+	case "toolchain preflight":
+		set["external-binary"] = true
+	case "schema validation", "changed area oracle", "contract drift checks", "knowledge contract", "inspect docs", "architecture checks", "dashboard ui fresh":
+		set["filesystem-read"] = true
+	}
+	return sortedStringSet(set)
+}
+
+func sortedHarnessEnv(env []string) []string {
+	set := map[string]bool{}
+	for _, item := range env {
+		name, _, ok := strings.Cut(item, "=")
+		if ok && (strings.HasPrefix(name, "SCENERY_") || envpolicy.SecretLikeName(name)) {
+			set[name] = true
+		}
+	}
+	return sortedStringSet(set)
+}
+
+func sortedStructKeys(values map[string]struct{}) []string {
+	out := make([]string, 0, len(values))
+	for value := range values {
+		out = append(out, value)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func firstLine(value string) string {
+	value = strings.TrimSpace(value)
+	if idx := strings.IndexByte(value, '\n'); idx >= 0 {
+		return strings.TrimSpace(value[:idx])
+	}
+	return value
+}
+
+// checkDeclaredGoToolchainAvailable verifies that the repo's declared Go
+// toolchain resolves without the network. Fixture apps pin the same toolchain
+// version as go.mod and scenery resolves it under a hermetic GOPROXY=off
+// environment, so a pruned module cache turns into SCN6202 failures deep inside
+// the test suite. Catching it here converts that into one preflight diagnostic
+// with the exact restore command.
+func checkDeclaredGoToolchainAvailable(ctx context.Context, repoRoot string) []checkDiagnostic {
+	return checkDeclaredGoToolchainAvailableWithRunner(ctx, repoRoot, runDeclaredGoToolchainCheck)
+}
+
+func checkDeclaredGoToolchainAvailableWithRunner(ctx context.Context, repoRoot string, run func(context.Context, string) ([]byte, error)) []checkDiagnostic {
+	data, err := os.ReadFile(filepath.Join(repoRoot, "go.mod"))
+	if err != nil {
+		return nil
+	}
+	parsed, err := modfile.Parse("go.mod", data, nil)
+	if err != nil || parsed.Go == nil || strings.TrimSpace(parsed.Go.Version) == "" {
+		return nil
+	}
+	version := "go" + strings.TrimPrefix(strings.TrimSpace(parsed.Go.Version), "go")
+	output, err := run(ctx, version)
+	if err != nil {
+		return []checkDiagnostic{{
+			Stage:           "toolchain preflight",
+			Severity:        "error",
+			File:            "go.mod",
+			Message:         "declared Go toolchain " + version + " does not resolve without the network: " + firstLine(strings.TrimSpace(string(output))),
+			SuggestedAction: "Run `GOTOOLCHAIN=" + version + " go version` once to restore the toolchain in the module cache.",
+		}}
+	}
+	return nil
+}
+
+func runDeclaredGoToolchainCheck(ctx context.Context, version string) ([]byte, error) {
+	checkCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	cmd := commandTreeContext(checkCtx, "go", "env", "GOROOT")
+	cmd.Env = append(envpolicy.Environ(), "GOTOOLCHAIN="+version, "GOPROXY=off", "GOFLAGS=")
+	return cmd.CombinedOutput()
+}

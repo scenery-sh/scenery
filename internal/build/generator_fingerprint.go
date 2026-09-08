@@ -20,18 +20,9 @@ import (
 	"scenery.sh/internal/machine"
 )
 
-var generatorFingerprint struct {
-	once  sync.Once
-	value string
-	err   error
-}
-
-func currentGeneratorFingerprint() (string, error) {
-	generatorFingerprint.once.Do(func() {
-		generatorFingerprint.value, generatorFingerprint.err = cachedGeneratorFingerprint(app.RepoRoot())
-	})
-	return generatorFingerprint.value, generatorFingerprint.err
-}
+var currentGeneratorFingerprint = sync.OnceValues(func() (string, error) {
+	return cachedGeneratorFingerprint(app.RepoRoot())
+})
 
 const (
 	generatorFingerprintCacheKind             = "scenery.generator-fingerprint"
