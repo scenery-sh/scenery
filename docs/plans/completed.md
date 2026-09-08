@@ -11,6 +11,21 @@ historical records. Do not refresh their review dates or rewrite them as current
 contract prose. Record later guidance here or in the owning current contract;
 use stale knowledge metadata to flag a known contradiction.
 
+## Fast Iteration and Explicit External Proof
+
+- Status: completed
+- Owner: scenery repository verification
+- Completed: 2026-09-08
+- ExecPlan: [0170 Fast Iteration and Explicit External Proof](0170-fast-verification-loop.md)
+
+Default/quick/race are service-free; one catalog owns focused probes and the
+functional release set. Resource measurement is explicitly separate, and the
+release shell invokes the full verifier once. Cached Go/lint and selected auth
+(15 cases, 111 assertions) and worktree (A1–A17, owned cleanup, no A18) passed.
+Observed default wall time was 11.04 seconds. Full release, standalone resource
+execution and all-root timing were intentionally unselected; plan 0169's
+deferred timing failures remain open.
+
 ## Smaller Scenery Core
 
 - Status: completed

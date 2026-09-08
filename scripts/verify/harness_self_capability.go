@@ -28,7 +28,7 @@ func runHarnessCapabilityAuthorityStepWithCheck(ctx context.Context, repoRoot st
 	step.DurationMS, step.OK = time.Since(started).Milliseconds(), err == nil
 	if err != nil {
 		step.Error = err.Error()
-		step.Diagnostics = []checkDiagnostic{{Stage: step.Name, Severity: "error", Message: step.Error, SuggestedAction: "Restore canonical SQL supply and retained-resource recovery, then rerun the repository release verifier."}}
+		step.Diagnostics = []checkDiagnostic{{Stage: step.Name, Severity: "error", Message: step.Error, SuggestedAction: "Restore canonical SQL supply and retained-resource recovery, then rerun `go run ./scripts/verify --probe capability-authority --summary --write`."}}
 	}
 	return step
 }

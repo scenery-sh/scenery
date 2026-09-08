@@ -19,7 +19,7 @@
       "const": "scenery.harness.self"
     },
     "schema_revision": {
-      "const": "sha256:f6be32d52090317f5f27b725d98dc1f3f41736aa908ec060a6f3f67c2514517d"
+      "const": "sha256:110fa218b7f76bef21748ff76c0e228f56b605e8c07ceb0eff309d32c5f40e8e"
     },
     "ok": {
       "type": "boolean"

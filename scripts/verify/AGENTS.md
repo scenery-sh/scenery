@@ -23,10 +23,10 @@ must not import this command or that engine.
   `scenery` through PATH or substitute verifier build identity for target identity.
 - Use public product commands/runtime boundaries or genuine production owners;
   do not copy private product orchestration or add test-only product APIs.
-- Real processes, tools, network and services belong in explicit release probes,
+- Real processes, tools, network and services belong in explicit selected probes,
   not ordinary tests. Resources must be disposable and ownership-verified.
 - Reports use the existing machine envelope and shared report/evidence values.
-- The mandatory `standard auth lifecycle` release step builds
+- The `--probe auth` step (also mandatory in release) builds
   `testdata/authprobe` and runs all 15 inventoried public-boundary journeys
   in fresh native processes and owned databases. Missing Docker, incomplete
   assertion reports, failed journeys, or failed cleanup fail closed.
@@ -34,12 +34,18 @@ must not import this command or that engine.
 ## Work Guidance
 
 Plan 0168 records the extraction's assertion mapping and integrated acceptance.
+Plan 0170 records fast iteration and explicit proof composition. Keep one
+functional probe catalog for `--probe <id>` and `--release`. Default/quick/race
+must not invoke that catalog. Benchmarks are explicitly selected separately,
+never included in release; preserve their measurement algorithm and cleanup.
 The sole repository command is `go run ./scripts/verify`; do not restore product
 dispatch or a forwarding alias. CI and the release shell delegate common checks
 here; unique source-snapshot and binary packaging checks remain in the shell.
 
 ## Verification
 
-Run `go test ./scripts/verify`, the root validation union, and the final
-release/fresh proof defined by plan 0168. A successful build alone does not
-prove extraction parity.
+Run `go test ./scripts/verify` and the root validation union. For changed probe
+execution or ownership, run its exact `--probe <id>` and check its assertion
+inventory and cleanup. Full release and timing audits are explicit workflows,
+not mandatory iteration steps. A successful build alone does not prove an
+external boundary.

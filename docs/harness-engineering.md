@@ -21,7 +21,7 @@ remain current data contracts, not an executable product subcommand.
 
 ```text
 scenery harness [--app-root <path>] [-o json] [--write]
-go run ./scripts/verify [--repo-root <path>] [--summary] [-o human|json] [--write] [--quick|--race|--release] [--fresh-tests]
+go run ./scripts/verify [--repo-root <path>] [--summary] [-o human|json] [--write] [--quick|--race|--release|--probe <id>...|--benchmark worktree-cost] [--fresh-tests]
 scenery harness ui [--app-root <path>] [--dashboard-url <url>] [--headed] [-o json] [--write]
 scenery inspect harness [artifact <name>|diagnostics --severity error|warning|timing --top <n>] -o json [--app-root <path>] [--repo-root <path>]
 ```
@@ -29,7 +29,7 @@ scenery inspect harness [artifact <name>|diagnostics --severity error|warning|ti
 Self-harness uses Go's test result cache by default. Use `--fresh-tests` only
 for explicit measurement or nondeterminism investigation. Every exact top-level
 Go test root is subject to the root 100ms p95 policy; external-boundary proof
-belongs in release probes. The exact lanes, budgets, confirmation algorithm,
+belongs in explicit probes. The exact lanes, budgets, confirmation algorithm,
 and timing fields are owned by [the Local Contract](local-contract.md#harness-inspection-and-observability).
 
 Use this before large edits and after fixes when an agent needs a single machine-readable status snapshot.
@@ -54,13 +54,17 @@ cat .scenery/harness/agent-context.json
 
 For a missing local binary or dashboard embed, follow
 [Fresh Worktree Preflight](agent-guide.md#fresh-worktree-preflight).
-Every mode builds the prepared worktree-local CLI. Quick mode does not provision
-console dependencies or run live-runtime probes.
+Every mode builds the prepared worktree-local CLI. Default, quick and race modes
+do not provision console dependencies or run live-runtime probes.
 
-When `validation_classification` contains `release-sensitive-or-runtime`, also run:
+When a change alters an external boundary, run its named probe from the catalog
+below. For example, auth changes select `--probe auth`; worktree runtime and
+managed SQL ownership changes select `--probe worktree`. These runs do not
+repeat the complete Go suite. Record the selected IDs and boundary.
+
+For an explicit release workflow, run only:
 
 ```text
-go run ./scripts/verify --release --summary --write
 scripts/release-gate.sh
 ```
 
@@ -82,7 +86,7 @@ early if the child exits. Cleanup stops children before removing their files.
 The optional external-app check is explicitly skipped unless an app root is
 supplied through the existing gate configuration.
 
-The release-only worktree runtime acceptance probe creates real Git worktrees
+The `--probe worktree` acceptance probe (also included in release) creates real Git worktrees
 and tests managed PostgreSQL ownership, typed lending races, lifecycle and crash
 recovery, external sharing, inert restores, optional Victoria recovery, local
 versus public edge exposure, and genuinely different control-protocol binaries.
@@ -92,6 +96,9 @@ without a host Docker socket or source bind mount. No global developer cluster
 is used. The same lane rehearses the
 [native migration runbook](runbooks/worktree-postgres-migration.md).
 
+Functional worktree proof runs A1–A17. A18 is separate:
+`go run ./scripts/verify --benchmark worktree-cost --summary --write` runs only
+on an explicit human measurement request, never as part of default or release.
 The resource-cost lane runs three repetitions each of 1, 5 and 10 SQL-backed
 worktrees with the real default Victoria profile. It records per-root and cohort
 cold/warm serving times, native process RSS/CPU separately from Docker container
@@ -113,16 +120,62 @@ For dashboard route or UI behavior changes, also run:
 scenery harness ui -o json --write
 ```
 
-For managed database changes, the default self-harness runs the live
-Postgres service probe when Docker is reachable (and records an explicit
-skip when it is not):
+For changes to the PostgreSQL service probe's schema/durable/reset/snapshot
+boundary, run the full selected database proof (missing Docker fails):
 
 ```text
-go run ./scripts/verify --summary --write
+go run ./scripts/verify --probe postgres --summary --write
 ```
 
-Use `--quick` only when you intentionally need the smaller self-harness loop
-without live branch-substrate coverage.
+Use `--quick` for cached affected-package checks, default for the complete
+cached Go suite and vet, and `--probe` for a changed external boundary.
+
+## Explicit Probe Catalog
+
+`--probe <id>` is repeatable and selects the union in catalog order. Unknown
+IDs, duplicate IDs, conflicting modes, and `--fresh-tests` combined with
+`--probe` or `--benchmark` fail before builds or provisioning. Reports use
+mode `probe` or `benchmark`, retain each selected step, and are not full
+release certification. Failed steps identify their focused rerun command.
+
+| ID | External boundary |
+|---|---|
+| `parallel-runtime` | Parallel runtime/session isolation |
+| `postgres` | Full PostgreSQL service, durable, reset and snapshot proof |
+| `ui` | Dashboard build/freshness and TypeScript conformance/typechecks |
+| `fixtures` | Fixture generation/compilation matrix |
+| `storage` | Storage CLI, routes and restart persistence |
+| `core-separation` | Product/verifier dependency and source-only boundaries |
+| `capability-authority` | Runtime capability authority |
+| `auth` | All 15 database/OAuth lifecycle journeys |
+| `worktree` | Functional A1–A17 worktree runtime/SQL ownership |
+| `agent-restart` | Local-agent restart |
+| `assistant-init` | Assistant initialization |
+| `assistant-runtime` | Assistant production runtime |
+| `build-info` | Build identity freshness |
+| `cli-process` | CLI exit and telemetry |
+| `dev-follower` | Development follower process |
+| `dev-process` | Managed child-process lifecycle |
+| `dev-lock` | Named process locks |
+| `dev-cleanup` | Session cleanup |
+| `inspect-go` | Go-package documentation inspection |
+| `toolchain-build` | Source toolchain builds |
+| `worktree-git` | Git worktree lifecycle |
+| `edge` | Caddy/publication HTTP and TLS behavior |
+| `generation` | Generated-package/source-only compilation |
+| `native-contract` | Native contract application |
+| `snapshot-backup` | Snapshot backup process |
+| `typescript` | TypeScript checker |
+| `code-task` | Code-task process |
+| `victoria` | Victoria process lifecycle |
+| `desktop` | Desktop process |
+| `deploy-ssh` | SSH deployment process |
+| `validation-git` | Changed-file Git validation |
+| `test-cache` | Fresh test-binary cache lifecycle |
+
+Full release selects every functional catalog entry once plus the full race
+suite. Resource benchmarks and all-root timing audits are explicit measurement
+workflows; neither is automatically selected for runtime edits.
 
 ## App Harness Checks
 
@@ -237,9 +290,11 @@ contract drift, and schema conformance. The additional work depends on mode:
 | Mode | Additional coverage |
 |---|---|
 | `--quick` | Cached affected-package tests; prepared local CLI build/freshness, no console provisioning. |
-| Default | Local CLI build/freshness, complete Go suite, vet, managed dev/database/storage probes, console dependencies, dashboard build/typecheck/freshness, generated-client conformance/typechecks, and fixture matrix. |
+| Default | Complete cached Go suite and vet; no runtime/database/UI/fixture probes. |
 | `--race` | Default coverage plus the race shortlist. |
-| `--release` | Default coverage plus external-boundary probes and enforced release budgets. |
+| `--release` | Default coverage plus every functional probe, full race suite and enforced release budgets; no resource benchmark. |
+| `--probe <id>` | Only selected external probes after common checks; no full Go suite. |
+| `--benchmark worktree-cost` | Only A18 resource measurement after common checks; no functional probe set or full Go suite. |
 
 The release edge-process step runs the published static frontend journey
 against managed Caddy on disposable loopback ports, with local TLS issuance

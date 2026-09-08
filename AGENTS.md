@@ -74,7 +74,7 @@ Add a child `AGENTS.md` only when a directory becomes a durable boundary with it
 - `internal/testsuite/AGENTS.md` owns explicit fresh execution from content-addressed Go test binaries and Go JSON event output.
 - `internal/uireport/AGENTS.md` owns read-only React design-system adherence scanning, source exclusions, metrics, and deterministic ranking.
 - `internal/workspacetx/AGENTS.md` owns crash-safe source transaction metadata, ownership checks, and recovery before compiler reads.
-- `testdata/apps/worktree-postgres/AGENTS.md` owns the authored worktree-runtime SQL acceptance fixture and its release-only proof.
+- `testdata/apps/worktree-postgres/AGENTS.md` owns the authored worktree-runtime SQL acceptance fixture and explicit external proof.
 - `docs/spec/AGENTS.md` owns the evolving current specification set and conformance update rules.
 - `ui/AGENTS.md` owns the binary-embedded Astryx + StyleX component catalog materialized into React-enabled TypeScript clients.
 - `ui/components/AGENTS.md` owns reusable request-state, shell/navigation, table, workspace, and detail-page component behavior.
@@ -171,9 +171,9 @@ From the repository root, run `go run ./scripts/verify --quick --summary --write
 | Compiler or generator | affected-package tests, both committed fixture regeneration commands below, then `go test ./...` |
 | UI catalog | `apps/console/node_modules/.bin/tsc -p internal/generate/testdata/tsconfig.catalog.json`, `go test ./internal/generate`, and both consumer fixture regenerations below |
 | Dashboard | `cd apps/console && bun run lint && bun run typecheck && bun run build`, then `.scenery/harness/bin/scenery harness ui -o json --write` |
-| Release-sensitive or runtime | `go run ./scripts/verify --summary --write`, plus the release proof below |
+| Release-sensitive or runtime | `go run ./scripts/verify --summary --write`; changed external boundaries also require their named `--probe <id>` |
 
-For `release-sensitive-or-runtime`, also run `go run ./scripts/verify --release --summary --write` and `scripts/release-gate.sh`, as specified by the agent context's release loop. Release mode owns the external-boundary probes; default mode does not run them all. A release run supersedes the default and quick runs when both are selected.
+Quick/default/race are service-free. Changed external boundaries require `--probe <id>` commands from [the catalog](docs/harness-engineering.md#explicit-probe-catalog); record IDs and boundaries. Release is explicit: run only `scripts/release-gate.sh` (invokes `--release` once). Benchmarks and all-root timing audits require an explicit human request. Assertions and the 100ms contract remain unchanged.
 
 The full self-harness supersedes the quick self-harness when both would otherwise be selected. Any source, configuration, or fixture path not matched by a specialized row gets the deterministic fallback `go test ./...`. Target-app changes use `scenery check -o json`, `go test ./...`, and `scenery harness -o json --write`.
 

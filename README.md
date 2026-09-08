@@ -63,7 +63,7 @@ shows the full provider, durable worker, SQL, auth, and typed-client workflow.
 ## Requirements
 
 - Go 1.27+
-- Bun for dashboard, generated TypeScript, benchmark, or full self-harness work
+- Bun for dashboard, generated TypeScript, benchmark, or release verification
 
 Run `scenery doctor -o json` after install when you want a read-only readiness report for the host, Go toolchain, disk/memory resources, Docker engine reachability, and optional local-development dependencies.
 
@@ -498,10 +498,10 @@ interrupted database restore or storage swap.
 
 `scenery snapshot verify --input app.zip` validates an archive without a target app or stopped runtime. For scheduled DB+storage backups, use `scripts/snapshot-backup.sh` from the host scheduler; it verifies before optional rclone replication and local retention.
 
-The default self-harness includes a Docker-gated Postgres probe for the shared
-server, one app database, service schemas, durable state, auth bootstrap,
-worktree isolation, service-schema reset, and a database-plus-storage snapshot
-round-trip.
+The explicit `go run ./scripts/verify --probe postgres --summary --write`
+checks PostgreSQL service schemas, durable state, auth bootstrap, isolation,
+reset and snapshot behavior. It requires Docker and is included in release.
+Ordinary default verification uses the cached Go suite and vet without services.
 
 ## Managed Toolchain
 
@@ -555,9 +555,10 @@ cat .scenery/harness/agent-context.json
 Run `changed_area.recommended_commands` and the applicable child-scope checks.
 See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and
 [AGENTS.md](AGENTS.md#validation-matrix) for required validation, including
-the release loop for runtime changes. Use
+selected probes for changed external boundaries. Full release certification
+is explicit: `scripts/release-gate.sh` invokes it once. Use
 [Fresh Worktree Preflight](docs/agent-guide.md#fresh-worktree-preflight)
-before dashboard or full self-harness work.
+before dashboard or release work.
 
 Self-harness Go test steps use the Go test result cache by default; add
 `--fresh-tests` only for explicit fresh measurement or nondeterminism

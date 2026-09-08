@@ -7,11 +7,6 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
-- [0170 Fast Iteration and Explicit External Proof](0170-fast-verification-loop.md)
-  - Status: active
-  - Owner: scenery repository verification
-  - Created: 2026-09-08
-  - Focus: service-free cached iteration, selected external probes, one explicit functional release run, and a separately requested resource benchmark.
 - [0169 One Pure SQL Endpoint Selection](0169-sql-endpoint-resolution.md)
   - Status: active
   - Owner: scenery runtime / PostgreSQL

@@ -578,8 +578,9 @@ checks to keep tests data-driven and easy to update when internals move.
 
 After repository changes, refresh `.scenery/harness/agent-context.json` and run
 the exact changed-area command union and
-[root validation policy](AGENTS.md#validation-matrix), including the additional
-release loop for runtime changes. Use
+[root validation policy](AGENTS.md#validation-matrix), including named probes
+for changed external boundaries. Full release and resource measurement are
+explicit workflows, not the ordinary iteration loop. Use
 [Fresh Worktree Preflight](docs/agent-guide.md#fresh-worktree-preflight) to
 prepare the local binary and dashboard embed.
 

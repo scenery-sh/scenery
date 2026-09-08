@@ -20,7 +20,7 @@ func TestHarnessTextPreservesWarningAndSelectedProofScope(t *testing.T) {
 	if err := writeHarnessSelfText(&out, resp); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"pass_with_warnings", "mode=quick", "warning postgres service probe", "Docker", "skipped", "Release-only probes were not run"} {
+	for _, want := range []string{"pass_with_warnings", "mode=quick", "warning postgres service probe", "Docker", "skipped", "Full release checks were not selected"} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("summary missing %q: %s", want, out.String())
 		}

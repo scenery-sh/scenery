@@ -23,10 +23,10 @@ not assertions, timing thresholds, test execution, or application behavior.
 
 - [x] (2026-09-08) Read the owning instructions and current mode composition;
   verified the clean baseline and the measured source of the long loop.
-- [ ] Implement explicit probe selection and a standalone worktree-cost benchmark.
-- [ ] Make default/race verification service-free and release functional-only.
-- [ ] Align current instructions, command recommendations, schemas and docs.
-- [ ] Validate selection, cached correctness and focused external boundaries;
+- [x] (2026-09-08) Implement explicit probe selection and a standalone worktree-cost benchmark.
+- [x] (2026-09-08) Make default/race verification service-free and release functional-only.
+- [x] (2026-09-08) Align current instructions, command recommendations, schemas and docs.
+- [x] (2026-09-08) Validate selection, cached correctness and focused external boundaries;
   record actual times and skipped unselected work.
 
 ## Surprises & Discoveries
@@ -63,7 +63,48 @@ not assertions, timing thresholds, test execution, or application behavior.
 
 ## Outcomes & Retrospective
 
-Not yet completed.
+Implemented and validated. The single 32-entry catalog selects focused probes
+and preserves the complete functional release inventory. Default/quick/race do
+not invoke it; A18 is a separate explicit benchmark. Failed probe reruns select
+only their own boundary, while actual subprocess argv/cwd remain in evidence.
+Schemas and static payload revisions include the distinct probe/benchmark modes.
+
+Validation from the repository root:
+
+- `go test ./scripts/verify ./cmd/scenery ./internal/machine`: passed.
+- `go test ./...`: passed, using the native result cache.
+- `golangci-lint run ./...`: passed, zero issues.
+- `go run ./scripts/verify --quick --summary --write`: passed with existing
+  documentation/architecture warnings; whole-command wall time 7.13 seconds.
+- `go run ./scripts/verify --summary --write`: passed with the same warnings;
+  whole-command wall time 11.04 seconds, Go test step 4.371 seconds. Its 11-step
+  inventory contains no runtime, database, UI or fixture integration.
+- `go run ./scripts/verify --probe auth --summary --write`: passed all 15
+  cases and 111 assertions with `cleanup_ok=true`; whole-command wall time
+  18.07 seconds, auth step 11.757 seconds.
+- `go run ./scripts/verify --probe worktree --summary --write`: passed all
+  17 functional cases, no A18, and verified owned-cluster cleanup without a
+  retained probe root; whole-command wall time 226.99 seconds, probe step
+  221.372 seconds.
+- `bash -n scripts/release-gate.sh` and `git diff --check`: passed.
+
+These are local observed runs, not universal performance guarantees. The
+existing 42 documentation review warnings and 23 architecture warnings were
+not expanded into unrelated cleanup. The first validation attempts caught an
+instruction word-budget overrun and stale payload schema revisions; both were
+fixed and the final package/repository suites passed.
+
+Full release/shell execution, fresh/all-root timing audit and the resource
+benchmark were intentionally not selected under the approved policy. Selection
+and rejection are covered in-process; the A18 measurement algorithm is
+unchanged, but its standalone resource execution is not claimed as tested.
+Fixture regeneration is unselected because no production compiler/generator
+source or committed client changed. Plan 0169's 19 deferred timing failures
+remain open; this plan does not reinterpret them as passing.
+
+The checkout acquired intermediate commit `8519aa7c` during implementation;
+it was preserved. Follow-up corrections were validated in the working tree.
+This task did not install, push, or create that intermediate commit.
 
 ## Context and Orientation
 

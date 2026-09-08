@@ -68,7 +68,7 @@ Every ExecPlan must include project-specific validation commands. For scenery re
 
 Every validation item must name its exact command and working directory. A conditional item must state the exact observable condition that permits it to be skipped and the evidence that will record that condition. Do not use phrases such as “when practical,” “as appropriate,” “relevant validation,” or “for substantial changes” as substitutes for a command or skip condition.
 
-Release-sensitive or runtime plans must include `go run ./scripts/verify --summary --write` after the [Fresh Worktree Preflight](docs/agent-guide.md#fresh-worktree-preflight), plus the plan-specific real-process proof. Dashboard plans must include the exact lint, typecheck, build, and browser-acceptance commands from the root matrix.
+Release-sensitive or runtime plans must include `go run ./scripts/verify --summary --write` after the [Fresh Worktree Preflight](docs/agent-guide.md#fresh-worktree-preflight). If the change alters an external boundary, name its exact `--probe <id>` command and assertion/cleanup acceptance. Full release certification is explicit and invokes only `scripts/release-gate.sh`, which runs the release verifier once. Benchmarks and all-root timing audits require an explicit human measurement request; record unselected work without calling it passed. Dashboard plans must include the exact lint, typecheck, build, and browser-acceptance commands from the root matrix.
 
 For app-facing runtime changes, include an example command against a fixture app or another read-only scenery app available to the contributor.
 

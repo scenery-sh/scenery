@@ -3,12 +3,39 @@ package main
 import (
 	"context"
 	"path/filepath"
+	"strings"
 )
 
 // One inventory owns explicit external proof and the functional release set.
 type harnessProbe struct {
 	id  string
 	run func(context.Context, string, *harnessSelfResponse, harnessArtifactContext)
+}
+
+func runHarnessProbe(ctx context.Context, root string, resp *harnessSelfResponse, artifacts harnessArtifactContext, probe harnessProbe) {
+	first := len(resp.Steps)
+	probe.run(ctx, root, resp, artifacts)
+	command := []string{"go", "run", "./scripts/verify", "--repo-root", root, "--probe", probe.id, "--summary", "--write"}
+	for i := first; i < len(resp.Steps); i++ {
+		step := &resp.Steps[i]
+		step.Command = append([]string(nil), command...)
+		if step.Evidence != nil {
+			// Preserve the actual subprocess argv/cwd while making its rerun
+			// rebuild prerequisites and select only this probe.
+			step.Evidence.ReproCommand = reproCommand(command, root)
+		}
+		for j := range step.Diagnostics {
+			action := step.Diagnostics[j].SuggestedAction
+			start := strings.Index(action, "`go run ./scripts/verify")
+			if start < 0 {
+				continue
+			}
+			end := strings.Index(action[start+1:], "`")
+			if end >= 0 {
+				step.Diagnostics[j].SuggestedAction = action[:start+1] + reproCommand(command, "") + action[start+1+end:]
+			}
+		}
+	}
 }
 
 func harnessSingleProbe(id string, run func(context.Context, string) harnessStep) harnessProbe {

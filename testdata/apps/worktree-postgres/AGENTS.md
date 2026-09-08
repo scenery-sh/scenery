@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Own the small authored application used by the worktree runtime release probe.
+Own the small authored application used by explicit worktree runtime proof.
 
 ## Local Contracts
 
@@ -16,6 +16,10 @@ Own the small authored application used by the worktree runtime release probe.
 
 ## Verification
 
-Use the repository-local release harness from the repository root. Keep real
-process, Docker, HTTP, concurrency, and timing proof in the named release probe,
-not ordinary Go unit tests. Every acceptance row must report its actual result.
+From the repository root, use
+`go run ./scripts/verify --probe worktree --summary --write` for functional
+A1–A17 proof; it is also included in release. A18 resource measurement runs only
+when explicitly requested, using
+`go run ./scripts/verify --benchmark worktree-cost --summary --write`.
+Keep real process, Docker, HTTP, concurrency and timing proof outside ordinary
+Go unit tests. Every selected row must report its actual result and owned cleanup.

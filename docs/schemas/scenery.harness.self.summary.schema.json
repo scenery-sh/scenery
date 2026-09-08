@@ -24,7 +24,7 @@
       "const": "scenery.harness.self.summary"
     },
     "schema_revision": {
-      "const": "sha256:ca2ec5d5f851b1b3f060b4fca17e63b656b40fcd54d5d89762b12280626bc050"
+      "const": "sha256:244c924315a2dd2e42ba864eb22df8d6a2431b9ba271eb7dd495f39a5afb5259"
     },
     "ok": {
       "type": "boolean"

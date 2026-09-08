@@ -56,7 +56,7 @@ func runHarnessStandardAuthStepWithCheck(ctx context.Context, repoRoot string, c
 	step.DurationMS, step.OK = time.Since(started).Milliseconds(), err == nil
 	if err != nil {
 		step.Error = err.Error()
-		step.Diagnostics = []checkDiagnostic{{Stage: step.Name, Severity: "error", Message: step.Error, SuggestedAction: "Restore the complete public auth/SQL release journeys and owned-resource cleanup, then rerun the release verifier."}}
+		step.Diagnostics = []checkDiagnostic{{Stage: step.Name, Severity: "error", Message: step.Error, SuggestedAction: "Restore all public auth/SQL journeys and owned-resource cleanup, then rerun `go run ./scripts/verify --probe auth --summary --write`."}}
 	}
 	return step
 }

@@ -411,9 +411,12 @@ apply; multiple matches are cumulative. Final validation uses Go's test result
 cache. Use `-count=1` or `go run ./scripts/verify --fresh-tests` only when
 explicitly measuring fresh execution or investigating nondeterminism.
 
-For `release-sensitive-or-runtime`, also run the release loop in
-[Harness Engineering](harness-engineering.md#command). The oracle's default
-self-harness command does not include every release-only probe.
+For changed external boundaries, select the exact `--probe <id>` commands in
+[Harness Engineering](harness-engineering.md#explicit-probe-catalog) and record
+their assertion/cleanup results. Default/quick/race are service-free.
+Full release certification is explicit: run only `scripts/release-gate.sh`,
+which invokes the full functional release verifier once. Benchmarks and
+all-root timing audits require an explicit human measurement request.
 
 Do not install a shared CLI during agent validation. Every repository-verifier
 mode builds the product under `.scenery/harness/bin/scenery`. The product has
@@ -575,11 +578,11 @@ For quick documentation validation, run the repository command:
 go run ./scripts/verify --quick --summary --write
 ```
 
-For UI or full self-harness work, install Bun, then run from the repo root:
+For UI verification, install Bun, then run from the repo root:
 
 ```sh
 ./scripts/build-dashboard-ui-embed.sh
-go run ./scripts/verify --summary --write
+go run ./scripts/verify --probe ui --summary --write
 ```
 
 The embed script installs frozen console dependencies and builds the dashboard
@@ -587,10 +590,12 @@ before the Go binary embeds it. Only `placeholder.txt` is tracked in the embed
 directory. The `dashboard ui fresh` lane checks the prepared product binary's
 actual HTTP bundle hash, never the verifier's assets. Its release negative probe
 requires a deliberately stale product to fail while the verifier is fresh.
-Repeat embed preparation after dashboard changes. Full self-harness
-also provisions console dependencies before TypeScript lanes and reports
-unavailable dependencies explicitly; quick mode does not provision console
-dependencies but does build the local product.
+Repeat embed preparation after dashboard changes. The `ui` probe (also in
+release) provisions console dependencies before TypeScript lanes and reports
+unavailable dependencies explicitly. Default/quick/race do not provision
+console dependencies but do build the local product.
+The release shell prepares the embed itself; do not add this UI probe as an
+extra prerequisite to `scripts/release-gate.sh`.
 
 ### Self-Harness Timing
 
@@ -605,8 +610,8 @@ Follow [the root validation policy](../AGENTS.md#validation-matrix) and
 [testsuite instructions](../internal/testsuite/AGENTS.md) when changing the
 runner or measuring it. The timing exception inventory must remain empty.
 
-Standard-auth database and OAuth journeys run in the mandatory release-only
-`standard auth lifecycle` step. It provisions an owned disposable PostgreSQL
+Standard-auth database and OAuth journeys run in `--probe auth`, also mandatory
+in release as `standard auth lifecycle`. It provisions an owned disposable PostgreSQL
 cluster and executes all 15 cases through a native fixture using public auth
 APIs and real authenticated HTTP, with a local fake Google provider. The
 ordinary auth roots retain in-process SQL/HTTP decision checks; they do not

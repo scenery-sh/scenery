@@ -28,7 +28,7 @@ func runHarnessCoreSeparationStepWithCheck(ctx context.Context, repoRoot string,
 	step.DurationMS, step.OK = time.Since(started).Milliseconds(), err == nil
 	if err != nil {
 		step.Error = err.Error()
-		step.Diagnostics = []checkDiagnostic{{Stage: step.Name, Severity: "error", Message: step.Error, SuggestedAction: "Restore repository/product separation and rerun the complete repository release verifier."}}
+		step.Diagnostics = []checkDiagnostic{{Stage: step.Name, Severity: "error", Message: step.Error, SuggestedAction: "Restore repository/product separation and rerun `go run ./scripts/verify --probe core-separation --summary --write`."}}
 	}
 	return step
 }
