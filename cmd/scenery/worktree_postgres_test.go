@@ -328,9 +328,15 @@ func TestWorktreePostgresWrongMountDoesNotStart(t *testing.T) {
 
 func TestWorktreePostgresLegacyClaimBlocksFreshAllocation(t *testing.T) {
 	r, docker := testWorktreePostgresResolver(t)
-	r.legacyClaim = func() error { return errors.New("migration required") }
-	if _, err := r.ensure(context.Background()); err == nil || docker.writes != 0 {
+	claim := errors.New("migration required")
+	r.legacyClaim = func() error { return claim }
+	_, err := r.ensure(context.Background())
+	if !errors.Is(err, claim) || docker.writes != 0 {
 		t.Fatal("legacy claim did not block fresh allocation")
+	}
+	diagnostic := assertSafeRuntimeDiagnostic(t, err, 3, "SCN8003")
+	if diagnostic.Message != claim.Error() {
+		t.Fatalf("migration guidance was lost: %+v", diagnostic)
 	}
 	if _, err := r.readRecord(); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("legacy guard created replacement ownership")

@@ -146,7 +146,7 @@ func buildDoctorResponse(ctx context.Context, opts doctorOptions, deps doctor.Pr
 	if strings.TrimSpace(appStart) != "" {
 		app, discoveredCfg, ok, err := deps.DiscoverApp(appStart)
 		if err != nil {
-			if strings.TrimSpace(opts.AppRoot) != "" {
+			if strings.TrimSpace(opts.AppRoot) != "" || !errors.Is(err, appcfg.ErrRootNotFound) {
 				resp.Checks = append(resp.Checks, doctor.Check{
 					ID:              "app.root",
 					Category:        "app",
@@ -154,7 +154,7 @@ func buildDoctorResponse(ctx context.Context, opts doctorOptions, deps doctor.Pr
 					Status:          doctor.StatusError,
 					Severity:        doctor.SeverityRequired,
 					Message:         "app root could not be discovered from " + appStart + ": " + err.Error(),
-					SuggestedAction: "Pass a directory inside an app that contains `.scenery.json`.",
+					SuggestedAction: "Resolve the app configuration error, or pass a directory inside an app that contains a valid `.scenery.json`.",
 				})
 			}
 		} else if ok {

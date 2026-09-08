@@ -289,6 +289,9 @@ func cliExitCode(err error) int {
 	if coded, ok := errors.AsType[exitCoder](err); ok {
 		return coded.ExitCode()
 	}
+	if _, ok := errors.AsType[*appcfg.ConfigError](err); ok {
+		return 3
+	}
 	message := strings.ToLower(strings.TrimSpace(err.Error()))
 	kind, _, _ := strings.Cut(message, ":")
 	switch kind {

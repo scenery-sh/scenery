@@ -245,6 +245,10 @@ Use `-o json` for compiler commands and command-specific current protocols. Neve
 
 ## Runtime Command Choice
 
+`scenery doctor -o json` reports invalid or unreadable discovered app configuration
+even without `--app-root`. Environment-only success applies only when no app
+marker is found; it is not evidence that an app can compile or start.
+
 - Use `scenery up` for the app root's one live development runtime and all safe local capabilities.
 - Use `scenery up --desktop` when a configured
   `frontends.<name>.tauri` shell should open against that same managed frontend

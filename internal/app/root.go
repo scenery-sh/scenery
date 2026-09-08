@@ -21,6 +21,12 @@ const (
 
 var ErrRootNotFound = errors.New("no .scenery.json found in current directory or any parent")
 
+// ConfigError identifies an authored configuration failure, not an internal fault.
+type ConfigError struct{ err error }
+
+func (e *ConfigError) Error() string { return e.err.Error() }
+func (e *ConfigError) Unwrap() error { return e.err }
+
 type Config struct {
 	ConfigPath    string                    `json:"-"`
 	Name          string                    `json:"name"`
@@ -431,10 +437,10 @@ func DiscoverRoot(start string) (string, Config, error) {
 				cfg.Name = cfg.ID
 			}
 			if cfg.Name == "" {
-				return "", Config{}, fmt.Errorf("%s must define a non-empty name or id", filepath.Base(path))
+				return "", Config{}, &ConfigError{fmt.Errorf("%s must define a non-empty name or id", path)}
 			}
 			if err := cfg.Validate(); err != nil {
-				return "", Config{}, fmt.Errorf("%s: %w", path, err)
+				return "", Config{}, &ConfigError{fmt.Errorf("%s: %w", path, err)}
 			}
 			return dir, cfg, nil
 		}
@@ -752,7 +758,12 @@ func storageSlug(value string) string {
 	return out
 }
 
-func decodeConfig(path string, data []byte, cfg *Config) error {
+func decodeConfig(path string, data []byte, cfg *Config) (err error) {
+	defer func() {
+		if err != nil {
+			err = &ConfigError{err}
+		}
+	}()
 	if err := rejectUnknownConfigFields(path, data); err != nil {
 		return err
 	}

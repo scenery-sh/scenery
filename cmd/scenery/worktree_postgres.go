@@ -204,7 +204,7 @@ func (r worktreePostgresResolver) ensureResourceWithOperation(ctx context.Contex
 				return nil, worktreePostgresPrecondition("legacy data provenance has not been checked")
 			}
 			if err := r.legacyClaim(); err != nil {
-				return nil, err
+				return nil, &codedCLIError{code: 3, err: err}
 			}
 			record.SQLAllocationChecked = true
 		}
