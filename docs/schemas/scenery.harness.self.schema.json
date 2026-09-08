@@ -32,7 +32,9 @@
         "default",
         "quick",
         "race",
-        "release"
+        "release",
+        "probe",
+        "benchmark"
       ]
     },
     "repo": {

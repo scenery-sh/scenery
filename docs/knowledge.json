@@ -19,6 +19,18 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0170-fast-verification-loop.md",
+      "title": "Fast Iteration and Explicit External Proof",
+      "owner": "scenery repository verification",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-08",
+      "review_after": "2026-10-08",
+      "summary": "Approved service-free cached iteration, explicitly selected external probes, one functional release invocation and a separate worktree resource benchmark, preserving assertions and the 100 ms timing contract.",
+      "tags": ["plans", "execplans", "harness", "testing"]
+    },
+    {
       "path": "docs/plans/0169-sql-endpoint-resolution.md",
       "title": "One Pure SQL Endpoint Selection",
       "owner": "scenery runtime / PostgreSQL",

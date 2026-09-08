@@ -717,7 +717,7 @@ func harnessStepEffects(step harnessStep) []string {
 		for _, effect := range []string{"external-binary", "filesystem-write", "loopback-network", "ports", "tempdir", "agent-socket", "docker"} {
 			set[effect] = true
 		}
-	case harnessCoreSeparationName, harnessCapabilityAuthorityName, "worktree runtime and PostgreSQL acceptance":
+	case harnessCoreSeparationName, harnessCapabilityAuthorityName, "worktree runtime and PostgreSQL acceptance", "worktree resource benchmark":
 		set["external-binary"] = true
 		set["filesystem-write"] = true
 		set["loopback-network"] = true

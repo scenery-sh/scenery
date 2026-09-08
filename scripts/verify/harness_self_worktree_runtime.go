@@ -18,7 +18,7 @@ import (
 	"scenery.sh/internal/postgresname"
 )
 
-// This release-only probe exercises ordinary CLI ownership in real Git
+// This explicitly selected probe exercises ordinary CLI ownership in real Git
 // worktrees. Its private home is not a substitute for Docker ownership checks:
 // cleanup follows each exact retained record and never enumerates by prefix.
 type worktreeRuntimeProbe struct {
@@ -45,6 +45,18 @@ func runHarnessWorktreeRuntimeProbeStep(ctx context.Context, repoRoot string) ha
 }
 
 func runHarnessWorktreeRuntimeProbe(parent context.Context, repoRoot string) (summary map[string]any, failure string) {
+	return runHarnessWorktreeProbe(parent, repoRoot, false)
+}
+
+func runHarnessWorktreeCostStep(ctx context.Context, repoRoot string) harnessStep {
+	started := time.Now()
+	step := harnessStep{Name: "worktree resource benchmark", Command: []string{"go", "run", "./scripts/verify", "--repo-root", repoRoot, "--benchmark", "worktree-cost", "--summary", "--write"}}
+	step.Summary, step.Error = runHarnessWorktreeProbe(ctx, repoRoot, true)
+	step.DurationMS, step.OK = time.Since(started).Milliseconds(), step.Error == ""
+	return step
+}
+
+func runHarnessWorktreeProbe(parent context.Context, repoRoot string, measureCosts bool) (summary map[string]any, failure string) {
 	ctx, cancel := context.WithTimeout(parent, 45*time.Minute)
 	defer cancel()
 	summary = map[string]any{"acceptance_plan": "0167", "candidate": harnessLocalSceneryBinaryPath(repoRoot)}
@@ -97,6 +109,21 @@ func runHarnessWorktreeRuntimeProbe(parent context.Context, repoRoot string) (su
 	var a, b detachedDevResult
 	var recordA, recordB localagent.WorktreeRecord
 	rootA, rootB := filepath.Join(root, "a"), filepath.Join(root, "b")
+	if measureCosts {
+		summary["benchmark"] = "worktree-cost"
+		if err := p.prepareGitWorktrees(rootA, rootB); err != nil {
+			return summary, err.Error()
+		}
+		if err := p.prepareVictoriaBinaries(rootA); err != nil {
+			return summary, err.Error()
+		}
+		// Only resourceCosts registers live cohort roots for owned cleanup.
+		if err := p.resourceCosts(rootA); err != nil {
+			return summary, err.Error()
+		}
+		summary["measurement_rows"] = 1
+		return summary, ""
+	}
 	p.roots = []string{rootA, rootB}
 	if err := p.scenario("A1", "fresh authored Git worktree serves managed SQL", func(e map[string]any) error {
 		if err := p.prepareGitWorktrees(rootA, rootB); err != nil {
@@ -194,12 +221,9 @@ func runHarnessWorktreeRuntimeProbe(parent context.Context, repoRoot string) (su
 	if err := p.legacyCoexistence(); err != nil {
 		return summary, err.Error()
 	}
-	if err := p.resourceCosts(rootA); err != nil {
-		return summary, err.Error()
-	}
 	// Rows are added only once their complete required evidence is available.
 	// An unfinished matrix is a failure, never a silently skipped acceptance.
-	summary["acceptance_rows"] = 18
+	summary["acceptance_rows"] = 17
 	return summary, ""
 }
 

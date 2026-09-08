@@ -58,7 +58,7 @@ func buildHarnessAgentContext(repoRoot string, resp harnessSelfResponse) harness
 		DocsEntrypoints:                entrypoints,
 		Schemas:                        schemas,
 		KnownFastLoop:                  "scenery doctor -o json\ngo run ./scripts/verify --quick --summary --write\ncat .scenery/harness/agent-context.json\n# implement\n# run changed_area.recommended_commands",
-		KnownReleaseLoop:               "go run ./scripts/verify --release --summary --write\nscripts/release-gate.sh",
+		KnownReleaseLoop:               "scripts/release-gate.sh",
 		ArchitectureRules: []string{
 			"Prefer Go standard library dependencies unless the payoff is concrete.",
 			"Do not add legacy aliases or backwards-compatibility shims for renamed scenery APIs.",

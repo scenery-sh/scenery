@@ -10,6 +10,31 @@ import (
 	localagent "scenery.sh/internal/agent"
 )
 
+func (p *worktreeRuntimeProbe) prepareVictoriaBinaries(root string) error {
+	originalEnv := p.env
+	defer func() { p.env = originalEnv }()
+	p.env = envWithOverrides(p.env, "SCENERY_TOOLCHAIN_DIR="+filepath.Join(p.repo, ".scenery/harness/worktree-runtime/victoria-toolchain"))
+	binaries := map[string]string{}
+	for _, name := range []string{"metrics", "logs", "traces"} {
+		output, err := p.run(root, p.binary, "system", "toolchain", "sync", "--tool", "victoria-"+name, "-o", "json")
+		if err != nil {
+			return err
+		}
+		var status struct {
+			Artifacts []struct {
+				Name        string `json:"name"`
+				ManagedPath string `json:"managed_path"`
+			} `json:"artifacts"`
+		}
+		if err := decodeCLIJSON(output, &status); err != nil || len(status.Artifacts) != 1 || status.Artifacts[0].ManagedPath == "" {
+			return fmt.Errorf("victoria managed tool sync did not identify one binary: %v", err)
+		}
+		binaries[name] = status.Artifacts[0].ManagedPath
+	}
+	p.victoriaBinaries = binaries
+	return nil
+}
+
 func (p *worktreeRuntimeProbe) optionalVictoria() error {
 	return p.scenario("A15", "optional real Victoria failure and recovery do not gate app serving", func(e map[string]any) error {
 		root := filepath.Join(p.root, "basic")
@@ -18,25 +43,10 @@ func (p *worktreeRuntimeProbe) optionalVictoria() error {
 		}
 		originalEnv := p.env
 		defer func() { p.env = originalEnv }()
-		p.env = envWithOverrides(p.env, "SCENERY_TOOLCHAIN_DIR="+filepath.Join(p.repo, ".scenery/harness/worktree-runtime/victoria-toolchain"))
-		binaries := map[string]string{}
-		for _, name := range []string{"metrics", "logs", "traces"} {
-			output, err := p.run(root, p.binary, "system", "toolchain", "sync", "--tool", "victoria-"+name, "-o", "json")
-			if err != nil {
-				return err
-			}
-			var status struct {
-				Artifacts []struct {
-					Name        string `json:"name"`
-					ManagedPath string `json:"managed_path"`
-				} `json:"artifacts"`
-			}
-			if err := decodeCLIJSON(output, &status); err != nil || len(status.Artifacts) != 1 || status.Artifacts[0].ManagedPath == "" {
-				return fmt.Errorf("victoria managed tool sync did not identify one binary: %v", err)
-			}
-			binaries[name] = status.Artifacts[0].ManagedPath
+		if err := p.prepareVictoriaBinaries(root); err != nil {
+			return err
 		}
-		p.victoriaBinaries = binaries
+		binaries := p.victoriaBinaries
 		links := filepath.Join(p.root, "victoria-fault")
 		if err := os.MkdirAll(links, 0o700); err != nil {
 			return err

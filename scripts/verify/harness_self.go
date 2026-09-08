@@ -25,6 +25,8 @@ type harnessSelfOptions struct {
 	Mode       string
 	Output     string
 	FreshTests bool
+	Probes     []string
+	Benchmark  string
 }
 
 func runSceneryHarnessSelf(ctx context.Context, stdout io.Writer, args []string) error {
@@ -83,68 +85,30 @@ func runSceneryHarnessSelf(ctx context.Context, stdout io.Writer, args []string)
 	case harnessSelfModeDefault, harnessSelfModeRace, harnessSelfModeRelease:
 		goTestStep, testTiming := runHarnessGoTestTimingStepForMode(ctx, repoRoot, opts.Mode, opts.FreshTests, artifactCtx)
 		resp.TestTiming = testTiming
-		resp.Steps = append(resp.Steps,
-			goTestStep,
-			runHarnessExecStep(ctx, repoRoot, "go vet", []string{"go", "vet", "./..."}, artifactCtx),
-			runHarnessParallelDevStep(ctx, repoRoot),
-			runHarnessPostgresProbeStep(ctx, repoRoot, opts.Mode == harnessSelfModeRelease),
-		)
-		dashboardUIRoot := filepath.Join(repoRoot, filepath.FromSlash(dashboardUIRootRel))
-		consoleDepsStep, consoleReady := runHarnessConsoleDepsStep(ctx, dashboardUIRoot, artifactCtx)
-		resp.Steps = append(resp.Steps, consoleDepsStep)
-		if consoleReady {
-			resp.Steps = append(resp.Steps,
-				runHarnessExecStep(ctx, dashboardUIRoot, "dashboard ui typecheck", []string{"bun", "run", "typecheck"}, artifactCtx),
-				runHarnessExecStep(ctx, dashboardUIRoot, "dashboard ui build", []string{"bun", "run", "build"}, artifactCtx),
-				runHarnessDashboardFreshnessStep(ctx, repoRoot),
-				runHarnessExecStep(ctx, repoRoot, "Scenery TypeScript client conformance", []string{"bun", "test", "internal/generate/testdata/typescript_client_conformance.test.ts"}, artifactCtx),
-				runHarnessExecStep(ctx, repoRoot, "Scenery TypeScript client typecheck", []string{filepath.Join(dashboardUIRoot, "node_modules", ".bin", "tsc"), "-p", "internal/generate/testdata/tsconfig.generated-clients.json"}, artifactCtx),
-				runHarnessExecStep(ctx, repoRoot, "Scenery UI catalog typecheck", []string{filepath.Join(dashboardUIRoot, "node_modules", ".bin", "tsc"), "-p", "internal/generate/testdata/tsconfig.catalog.json"}, artifactCtx),
-			)
-		}
-		fixtureStep, fixtureMatrix := runHarnessFixtureMatrixStep(ctx, repoRoot)
-		resp.FixtureMatrix = fixtureMatrix
-		resp.Steps = append(resp.Steps, fixtureStep)
-		resp.Steps = append(resp.Steps, runHarnessStorageProbeStep(ctx, repoRoot, localSceneryPath))
+		resp.Steps = append(resp.Steps, goTestStep,
+			runHarnessExecStep(ctx, repoRoot, "go vet", []string{"go", "vet", "./..."}, artifactCtx))
 		if opts.Mode == harnessSelfModeRace {
 			resp.Steps = append(resp.Steps, runHarnessExecStep(ctx, repoRoot, "race shortlist", []string{"go", "test", "-race", "./internal/agent", "./internal/localproxy", "./runtime", "./cmd/scenery"}, artifactCtx))
 		}
-		if opts.Mode == harnessSelfModeRelease {
-			resp.Steps = append(resp.Steps,
-				runHarnessCoreSeparationStep(ctx, repoRoot),
-				runHarnessCapabilityAuthorityStep(ctx, repoRoot),
-				runHarnessStandardAuthStep(ctx, repoRoot),
-				runHarnessWorktreeRuntimeProbeStep(ctx, repoRoot),
-				runHarnessAgentRestartProbeStep(ctx, repoRoot),
-				runHarnessAssistantInitProbeStep(ctx, repoRoot),
-				runHarnessAssistantProductionProbeStep(ctx, repoRoot),
-				runHarnessBuildInfoProbeStep(ctx, repoRoot),
-				runHarnessCLIProcessProbeStep(ctx, repoRoot),
-				runHarnessDevFollowProbeStep(ctx, repoRoot),
-				runHarnessDevManagedProcessProbeStep(ctx, repoRoot),
-				runHarnessDevNamedLockProbeStep(ctx, repoRoot),
-				runHarnessDevSessionCleanupProbeStep(ctx, repoRoot),
-				runHarnessInspectDocsGoPackageProbeStep(ctx, repoRoot),
-				runHarnessToolchainSourceBuildProbeStep(ctx, repoRoot),
-				runHarnessWorktreeGitProbeStep(ctx, repoRoot),
-				runHarnessEdgeProcessProbeStep(ctx, repoRoot),
-				runHarnessGenerationCompileProbeStep(ctx, repoRoot),
-				runHarnessNativeContractApplicationProbeStep(ctx, repoRoot),
-				runHarnessSnapshotBackupProbeStep(ctx, repoRoot),
-				runHarnessTypeScriptCheckerProbeStep(ctx, repoRoot),
-				runHarnessCodeTaskProcessProbeStep(ctx, repoRoot),
-				runHarnessVictoriaProcessProbeStep(ctx, repoRoot),
-				runHarnessDesktopProcessProbeStep(ctx, repoRoot),
-				runHarnessDeploySSHProcessProbeStep(ctx, repoRoot),
-				runHarnessValidationGitProbeStep(ctx, repoRoot),
-				runHarnessTestsuiteCacheProbeStep(ctx, repoRoot),
-				runHarnessExecStep(ctx, repoRoot, "race full suite", []string{"go", "test", "-race", "./..."}, artifactCtx),
-			)
-		}
+	case harnessSelfModeProbe, harnessSelfModeBenchmark:
+		// Explicit external proof does not repeat the repository Go suite.
 	default:
 		return fmt.Errorf("unknown harness self mode %q", opts.Mode)
 	}
-
+	for _, probe := range selectedHarnessProbes(opts) {
+		firstStep := len(resp.Steps)
+		probe.run(ctx, repoRoot, &resp, artifactCtx)
+		command := []string{"go", "run", "./scripts/verify", "--repo-root", repoRoot, "--probe", probe.id, "--summary", "--write"}
+		for i := firstStep; i < len(resp.Steps); i++ {
+			resp.Steps[i].Command = append([]string(nil), command...)
+		}
+	}
+	if opts.Mode == harnessSelfModeRelease {
+		resp.Steps = append(resp.Steps, runHarnessExecStep(ctx, repoRoot, "race full suite", []string{"go", "test", "-race", "./..."}, artifactCtx))
+	}
+	if opts.Mode == harnessSelfModeBenchmark {
+		resp.Steps = append(resp.Steps, runHarnessWorktreeCostStep(ctx, repoRoot))
+	}
 	if opts.Write {
 		resp.Wrote = filepath.Join(repoRoot, ".scenery", "harness", "self-latest.json")
 	}
@@ -203,6 +167,8 @@ const (
 	harnessSelfModeQuick     = "quick"
 	harnessSelfModeRace      = "race"
 	harnessSelfModeRelease   = "release"
+	harnessSelfModeProbe     = "probe"
+	harnessSelfModeBenchmark = "benchmark"
 	harnessSelfOutputSummary = "summary"
 	harnessSelfOutputFull    = "full"
 )
@@ -310,11 +276,43 @@ func parseHarnessSelfArgs(args []string) (harnessSelfOptions, error) {
 	flags.BoolFunc("quick", "", setMode(harnessSelfModeQuick))
 	flags.BoolFunc("race", "", setMode(harnessSelfModeRace))
 	flags.BoolFunc("release", "", setMode(harnessSelfModeRelease))
+	flags.Func("probe", "external probe ID (repeatable)", func(id string) error {
+		if opts.Mode != harnessSelfModeProbe {
+			if err := setMode(harnessSelfModeProbe)(""); err != nil {
+				return err
+			}
+		}
+		for _, selected := range opts.Probes {
+			if selected == id {
+				return fmt.Errorf("duplicate probe %q", id)
+			}
+		}
+		for _, probe := range harnessProbeCatalog() {
+			if probe.id == id {
+				opts.Probes = append(opts.Probes, id)
+				return nil
+			}
+		}
+		return fmt.Errorf("unknown probe %q; available: %s", id, strings.Join(harnessProbeIDs(), ", "))
+	})
+	flags.Func("benchmark", "explicit resource benchmark", func(id string) error {
+		if err := setMode(harnessSelfModeBenchmark)(""); err != nil {
+			return err
+		}
+		if id != "worktree-cost" {
+			return fmt.Errorf("unknown benchmark %q; available: worktree-cost", id)
+		}
+		opts.Benchmark = id
+		return nil
+	})
 	if err := flags.Parse(args); err != nil {
 		return harnessSelfOptions{}, err
 	}
 	if flags.NArg() != 0 {
 		return harnessSelfOptions{}, fmt.Errorf("unexpected arguments: %s", strings.Join(flags.Args(), " "))
+	}
+	if opts.FreshTests && (opts.Mode == harnessSelfModeProbe || opts.Mode == harnessSelfModeBenchmark) {
+		return harnessSelfOptions{}, fmt.Errorf("--fresh-tests cannot be combined with --probe or --benchmark")
 	}
 	return opts, nil
 }
@@ -888,7 +886,7 @@ func writeHarnessSelfText(w io.Writer, resp harnessSelfResponse) error {
 		}
 	}
 	if resp.Mode != harnessSelfModeRelease {
-		if _, err := fmt.Fprintln(w, "  Release-only probes were not run; this is not complete release proof."); err != nil {
+		if _, err := fmt.Fprintln(w, "  Full release checks were not selected; this is not complete release proof."); err != nil {
 			return err
 		}
 	}
