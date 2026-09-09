@@ -74,8 +74,11 @@ func runHarnessPostgresProbeCheck(parent context.Context, repoRoot string, full 
 		return postgresProbeSkip("Docker engine is unavailable; no database proof was performed"), []checkDiagnostic{postgresProbeSkipDiagnostic("Docker engine is unavailable")}, nil
 	}
 	segments := &postgresProbeSegments{}
-	label := harnessRandomLabel()
-	agentHome := filepath.Join(os.TempDir(), "scenery-harness-postgres-"+label)
+	base, err := os.MkdirTemp("", "scenery-harness-postgres-")
+	if err != nil {
+		return nil, nil, err
+	}
+	agentHome := filepath.Join(base, "agent-home")
 	restoreEnv := patchEnv(map[string]*string{
 		"SCENERY_AGENT_HOME":   stringPtr(agentHome),
 		"SCENERY_APP_ROOT":     nil,
@@ -84,8 +87,8 @@ func runHarnessPostgresProbeCheck(parent context.Context, repoRoot string, full 
 		"CACHE_DATABASE_URL":   nil,
 	})
 	defer restoreEnv()
-	rootA := filepath.Join(agentHome, "worktree-a")
-	rootB := filepath.Join(agentHome, "worktree-b")
+	rootA := filepath.Join(base, "worktree-a")
+	rootB := filepath.Join(base, "worktree-b")
 	defer func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 45*time.Second)
 		defer cleanupCancel()
@@ -94,7 +97,10 @@ func runHarnessPostgresProbeCheck(parent context.Context, repoRoot string, full 
 			err = errors.Join(err, cleanupErr)
 			return
 		}
-		_ = os.RemoveAll(agentHome)
+		if cleanupErr := os.RemoveAll(base); cleanupErr != nil {
+			err = errors.Join(err, cleanupErr)
+			return
+		}
 		if summary != nil {
 			summary["cleanup"] = "removed_owned_worktree_clusters"
 		}
@@ -102,7 +108,7 @@ func runHarnessPostgresProbeCheck(parent context.Context, repoRoot string, full 
 	cfg := app.Config{
 		Name: "postgres-harness", ID: "postgres-harness",
 		Envs: map[string]app.EnvConfig{"local": {Default: true}},
-		Storage: app.StorageConfig{CellID: "postgres-harness", Stores: map[string]app.StorageStoreConfig{
+		Storage: app.StorageConfig{Stores: map[string]app.StorageStoreConfig{
 			"app": {Kind: "local"},
 		}},
 	}
@@ -113,6 +119,7 @@ func runHarnessPostgresProbeCheck(parent context.Context, repoRoot string, full 
 		return nil, nil, err
 	}
 	var envA []string
+	snapshotEvidence := map[string]any{}
 	var databaseA, databaseB postgresdb.Database
 	if err := segments.run("worktree_databases", func() error {
 		var err error
@@ -224,7 +231,7 @@ func runHarnessPostgresProbeCheck(parent context.Context, repoRoot string, full 
 			return nil, diagnostics, err
 		}
 		if err := segments.run("snapshot_roundtrip", func() error {
-			return runPostgresHarnessSnapshotRoundTrip(ctx, repoRoot, rootA, databaseA.URL)
+			return runPostgresHarnessSnapshotRoundTrip(ctx, repoRoot, rootA, databaseA.URL, snapshotEvidence)
 		}); err != nil {
 			return nil, diagnostics, err
 		}
@@ -268,6 +275,7 @@ func runHarnessPostgresProbeCheck(parent context.Context, repoRoot string, full 
 		summary["auth"] = "bootstrap"
 		summary["reset"] = "service_schema_only"
 		summary["snapshot"] = "db_storage_roundtrip"
+		summary["storage_recovery"] = snapshotEvidence
 	}
 	if hasErrorDiagnostics(diagnostics) {
 		return summary, diagnostics, fmt.Errorf("postgres service probe failed")
@@ -304,13 +312,13 @@ func writePostgresHarnessConfig(repoRoot, root string) error {
 	if err := copyHarnessBasicFixture(repoRoot, root); err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(root, ".scenery.json"), []byte(`{"name":"postgres-harness","id":"postgres-harness","envs":{"local":{"default":true}},"storage":{"cell_id":"postgres-harness","stores":{"app":{"kind":"local"}}}}`), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, ".scenery.json"), []byte(`{"name":"postgres-harness","id":"postgres-harness","envs":{"local":{"default":true}},"storage":{"stores":{"app":{"kind":"local"}}}}`), 0o644); err != nil {
 		return err
 	}
 	return addHarnessSQLDeclarations(repoRoot, root, "cache", "reports")
 }
 
-func runPostgresHarnessSnapshotRoundTrip(ctx context.Context, repoRoot, appRoot, databaseURL string) error {
+func runPostgresHarnessSnapshotRoundTrip(ctx context.Context, repoRoot, appRoot, databaseURL string, evidence map[string]any) error {
 	db, err := openPostgresDatabase(ctx, databaseURL)
 	if err != nil {
 		return err
@@ -331,6 +339,9 @@ func runPostgresHarnessSnapshotRoundTrip(ctx context.Context, repoRoot, appRoot,
 	}
 	archivePath := filepath.Join(filepath.Dir(appRoot), "snapshot-roundtrip.zip")
 	defer func() { _ = os.Remove(archivePath) }()
+	if err := runPostgresStorageCaptureExclusion(ctx, repoRoot, appRoot, databaseURL, evidence); err != nil {
+		return err
+	}
 	if err := runProduct(ctx, repoRoot, io.Discard, "snapshot", "save", "--output", archivePath, "--db", "--storage", "--app-root", appRoot, "-o", "json"); err != nil {
 		return err
 	}
@@ -375,6 +386,16 @@ func runPostgresHarnessSnapshotRoundTrip(ctx context.Context, repoRoot, appRoot,
 	}
 	if string(object) != "saved\n" {
 		return fmt.Errorf("snapshot storage value = %q, want saved", object)
+	}
+	if err := db.Close(); err != nil {
+		return err
+	}
+	if err := runPostgresStorageRecoveryProbe(ctx, repoRoot, appRoot, databaseURL, archivePath, evidence); err != nil {
+		return err
+	}
+	db, err = openPostgresDatabase(ctx, databaseURL)
+	if err != nil {
+		return err
 	}
 	if err := runProduct(ctx, repoRoot, io.Discard, "snapshot", "load", "--input", archivePath, "--db", "--mode", "merge", "--app-root", appRoot, "-o", "json"); err == nil {
 		return fmt.Errorf("snapshot database merge unexpectedly accepted duplicate rows")

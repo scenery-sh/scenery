@@ -6,7 +6,7 @@
   "required": [
     "kind",
     "schema_revision",
-    "store",
+    "scope",
     "page"
   ],
   "properties": {
@@ -14,10 +14,10 @@
       "const": "scenery.storage.list"
     },
     "schema_revision": {
-      "const": "sha256:5efdf0ca16bbcf0b7c7534c14fd984a09384aea90518b75be64dd9bdba8a4eb7"
+      "const": "sha256:747dd49ea880f86361531925b5f896414ee99753c1c12d40b836f4fdb4f5f4d8"
     },
-    "store": {
-      "type": "string"
+    "scope": {
+      "$ref": "scenery.storage.object.schema.json#/$defs/scope"
     },
     "page": {
       "type": "object",
@@ -28,7 +28,7 @@
         "objects": {
           "type": "array",
           "items": {
-            "$ref": "scenery.storage.object.schema.json#/properties/object"
+            "$ref": "scenery.storage.object.schema.json#/$defs/object"
           }
         },
         "prefixes": {
@@ -44,5 +44,6 @@
       "additionalProperties": false
     }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "description": "Bounded metadata-only page; totals are unknown unless inspect storage --stats is requested separately."
 }

@@ -25,6 +25,9 @@ func requireManagedDatabaseSelection(root string) error {
 // Standalone apply/seed owns the worktree until all SQL and child commands
 // finish. External capabilities have no Scenery lifecycle to lock.
 func beginDatabaseLifecycleEnv(ctx context.Context, root string, cfg appcfg.Config, requirements compiler.SQLRequirements, baseEnv []string) (_ []string, _ func() error, returnErr error) {
+	if err := checkStorageStartup(ctx, root, cfg); err != nil {
+		return nil, nil, err
+	}
 	noop := func() error { return nil }
 	bindings, err := resolveSQLSupply(requirements, baseEnv, true)
 	if err != nil {
@@ -63,6 +66,9 @@ func beginDatabaseLifecycleEnv(ctx context.Context, root string, cfg appcfg.Conf
 // Destructive app-database commands own both locks for their complete SQL
 // operation. A stopped existing engine may be started, but is never allocated.
 func beginInactiveDatabaseOperation(ctx context.Context, root string, cfg appcfg.Config) (_ postgresdb.Database, _ func() error, returnErr error) {
+	if err := checkStorageStartup(ctx, root, cfg); err != nil {
+		return postgresdb.Database{}, nil, err
+	}
 	env, err := appEnvWithDotEnv(envpolicy.Environ(), root)
 	if err != nil {
 		return postgresdb.Database{}, nil, err

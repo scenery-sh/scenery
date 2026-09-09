@@ -71,9 +71,9 @@ func TestHarnessCleanupPIDsFromSessions(t *testing.T) {
 			SessionID: "missing-owner",
 		},
 	}
-	pids := map[int]bool{}
-	harnessCleanupPIDsFromSessions(pids, sessions, verifyOwner)
-	if len(pids) != 1 || !pids[verified.PID] {
-		t.Fatalf("cleanup pids = %v, want only %d", pids, verified.PID)
+	owners := map[int]localagent.Owner{}
+	harnessCleanupOwnersFromSessions(owners, sessions, verifyOwner)
+	if len(owners) != 1 || owners[verified.PID].StartedAt != verified.StartedAt {
+		t.Fatalf("cleanup owners = %v, want only %d", owners, verified.PID)
 	}
 }

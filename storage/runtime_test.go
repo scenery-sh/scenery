@@ -7,124 +7,127 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
-	"sync"
-	"sync/atomic"
-	"testing"
-
 	"scenery.sh/internal/storageconfig"
+	"scenery.sh/internal/storagefs"
+	"strings"
+	"testing"
 )
 
-func TestDefaultUsesRuntimeConfigEnv(t *testing.T) {
-	root := t.TempDir()
-	raw, err := json.Marshal(storageconfig.RuntimeConfig{ArtifactIdentity: storageconfig.NewRuntimeIdentity(), Default: "app", Stores: map[string]storageconfig.RuntimeStoreConfig{"app": {Kind: "local", Root: filepath.Join(root, "app")}}})
+func TestDefaultUsesRuntimeConfigWithoutAllocating(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "external")
+	raw, err := json.Marshal(storageconfig.RuntimeConfig{ArtifactIdentity: storageconfig.NewRuntimeIdentity(), Default: "app", Stores: map[string]storageconfig.RuntimeStoreConfig{"app": {Kind: "local", Root: root}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv(storageconfig.RuntimeConfigEnv, string(raw))
 	store, err := Default(context.Background())
 	if err != nil {
-		t.Fatalf("Default returned error: %v", err)
+		t.Fatal(err)
 	}
-	obj, err := store.Put(context.Background(), "docs/a.txt", strings.NewReader("alpha"), PutOptions{
-		ContentType: "application/x-scenery-test",
-		Metadata:    map[string]string{"Author": "runtime"},
-	})
-	if err != nil {
-		t.Fatalf("Put returned error: %v", err)
-	}
-	if obj.Key != "docs/a.txt" || obj.SizeBytes != 5 {
-		t.Fatalf("object = %+v", obj)
-	}
-	head, err := store.Head(context.Background(), "docs/a.txt")
-	if err != nil {
-		t.Fatalf("Head returned error: %v", err)
-	}
-	if head.ContentType != "application/x-scenery-test" || head.Metadata["Author"] != "runtime" {
-		t.Fatalf("head metadata = %+v", head)
-	}
-	body, got, err := store.Get(context.Background(), "docs/a.txt", GetOptions{})
-	if err != nil {
-		t.Fatalf("Get returned error: %v", err)
-	}
-	data, err := io.ReadAll(body)
-	_ = body.Close()
-	if err != nil {
-		t.Fatalf("ReadAll returned error: %v", err)
-	}
-	if string(data) != "alpha" || got.Key != "docs/a.txt" || got.Metadata["Author"] != "runtime" {
-		t.Fatalf("data = %q object = %+v", data, got)
+	local, ok := store.(*localRuntimeStore)
+	if !ok || local.root != root || local.name != "app" {
+		t.Fatalf("configured store: %#v", store)
 	}
 	page, err := store.List(context.Background(), ListOptions{})
-	if err != nil {
-		t.Fatalf("List returned error: %v", err)
+	if err != nil || len(page.Objects) != 0 {
+		t.Fatalf("uninitialized list: %+v, %v", page, err)
 	}
-	if len(page.Objects) != 1 || page.Objects[0].Key != "docs/a.txt" || page.Objects[0].Metadata["Author"] != "runtime" {
-		t.Fatalf("page = %+v", page)
-	}
-	offset, length := int64(2), int64(99)
-	body, got, err = store.Get(context.Background(), "docs/a.txt", GetOptions{Offset: &offset, Length: &length})
-	if err != nil {
-		t.Fatalf("Get long range returned error: %v", err)
-	}
-	data, err = io.ReadAll(body)
-	_ = body.Close()
-	if err != nil {
-		t.Fatalf("ReadAll long range returned error: %v", err)
-	}
-	if string(data) != "pha" || got.SizeBytes != 3 {
-		t.Fatalf("long range data = %q object = %+v", data, got)
-	}
-	if _, err := store.Put(context.Background(), "tmp/b.txt", strings.NewReader("bravo"), PutOptions{Metadata: map[string]string{"Author": "runtime"}}); err != nil {
-		t.Fatalf("Put tmp returned error: %v", err)
-	}
-	if err := store.DeletePrefix(context.Background(), "tmp/"); err != nil {
-		t.Fatalf("DeletePrefix returned error: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(root, "app", "__scenery", "metadata", "tmp", "b.txt.json")); !os.IsNotExist(err) {
-		t.Fatalf("metadata sidecar after prefix delete stat err = %v", err)
-	}
-	if err := store.Delete(context.Background(), "docs/a.txt"); err != nil {
-		t.Fatalf("Delete returned error: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(root, "app", "__scenery", "metadata", "docs", "a.txt.json")); !os.IsNotExist(err) {
-		t.Fatalf("metadata sidecar after delete stat err = %v", err)
+	if _, err := os.Stat(root); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("read allocated namespace: %v", err)
 	}
 }
-
-func TestLocalRuntimeStoreIfNoneMatchConcurrent(t *testing.T) {
-	store := &localRuntimeStore{name: "app", root: t.TempDir()}
-	var success int32
-	var wg sync.WaitGroup
-	start := make(chan struct{})
-	for range 20 {
-		wg.Go(func() {
-			<-start
-			_, err := store.Put(context.Background(), "docs/once.txt", strings.NewReader("once"), PutOptions{IfNoneMatch: true})
-			if err == nil {
-				atomic.AddInt32(&success, 1)
-				return
-			}
-			if _, ok := errors.AsType[*AlreadyExistsError](err); !ok {
-				t.Errorf("Put IfNoneMatch error = %T %[1]v", err)
-			}
-		})
-	}
-	close(start)
-	wg.Wait()
-	if success != 1 {
-		t.Fatalf("successful IfNoneMatch writes = %d, want 1", success)
-	}
-}
-
 func TestDefaultWithoutRuntimeConfigReturnsNotConfigured(t *testing.T) {
 	t.Setenv(storageconfig.RuntimeConfigEnv, "")
-	if _, err := Default(context.Background()); err == nil {
-		t.Fatal("Default returned nil error")
-	} else {
-		var notConfiguredError *NotConfiguredError
-		if !errors.As(err, &notConfiguredError) {
-			t.Fatalf("Default error = %T %[1]v, want NotConfiguredError", err)
-		}
+	_, err := Default(context.Background())
+	var missing *NotConfiguredError
+	if !errors.As(err, &missing) {
+		t.Fatalf("Default: %v", err)
 	}
+}
+func TestLocalAdapterPreservesVersionConditionsAndFullSize(t *testing.T) {
+	backend := &recordingStore{putErr: storagefs.ErrPrecondition}
+	local := &localRuntimeStore{name: "app", resolve: func(context.Context, storagefs.Scope, bool) (Store, error) { return backend, nil }}
+	_, err := local.Put(context.Background(), "a", strings.NewReader("body"), PutOptions{IfNoneMatch: true})
+	var exists *AlreadyExistsError
+	if !errors.As(err, &exists) || !backend.putOptions.IfNoneMatch {
+		t.Fatalf("create-only: %v, %+v", err, backend.putOptions)
+	}
+	_, err = local.Put(context.Background(), "a", strings.NewReader("body"), PutOptions{IfMatch: "opaque"})
+	var condition *PreconditionError
+	if !errors.As(err, &condition) || backend.putOptions.IfMatch != "opaque" {
+		t.Fatalf("If-Match: %v, %+v", err, backend.putOptions)
+	}
+	backend.object = &Object{Key: "a", SizeBytes: 100, ETag: "version"}
+	offset, length := int64(5), int64(2)
+	body, obj, err := local.Get(context.Background(), "a", GetOptions{Offset: &offset, Length: &length})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = body.Close()
+	if obj.SizeBytes != 100 || *backend.getOptions.Offset != 5 || *backend.getOptions.Length != 2 {
+		t.Fatalf("range metadata: %+v", obj)
+	}
+	if err := local.Delete(context.Background(), "a", DeleteOptions{IfMatch: "version"}); err != nil {
+		t.Fatal(err)
+	}
+	if backend.deleteOptions.IfMatch != "version" {
+		t.Fatal("delete lost condition")
+	}
+}
+func TestPackagePutFileUsesOnlyPut(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "input")
+	if err := os.WriteFile(path, []byte("file bytes"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	backend := &recordingStore{}
+	if _, err := PutFile(context.Background(), backend, "a", path, PutOptions{IfMatch: "etag"}); err != nil {
+		t.Fatal(err)
+	}
+	if backend.body != "file bytes" || backend.putOptions.IfMatch != "etag" {
+		t.Fatalf("PutFile: %#v", backend)
+	}
+}
+
+type recordingStore struct {
+	keys          []string
+	body          string
+	putOptions    PutOptions
+	getOptions    GetOptions
+	deleteOptions DeleteOptions
+	listOptions   ListOptions
+	object        *Object
+	putErr        error
+}
+
+func (s *recordingStore) Put(_ context.Context, key string, body io.Reader, opts PutOptions) (*Object, error) {
+	s.keys = append(s.keys, key)
+	data, err := io.ReadAll(body)
+	if err != nil {
+		return nil, err
+	}
+	s.body = string(data)
+	s.putOptions = opts
+	return s.object, s.putErr
+}
+func (s *recordingStore) Get(_ context.Context, key string, opts GetOptions) (io.ReadCloser, *Object, error) {
+	s.keys = append(s.keys, key)
+	s.getOptions = opts
+	return io.NopCloser(strings.NewReader(s.body)), s.object, nil
+}
+func (s *recordingStore) Head(_ context.Context, key string) (*Object, error) {
+	s.keys = append(s.keys, key)
+	return s.object, nil
+}
+func (s *recordingStore) List(_ context.Context, opts ListOptions) (*ListPage, error) {
+	s.listOptions = opts
+	return &ListPage{Objects: []Object{}, NextCursor: opts.Cursor}, nil
+}
+func (s *recordingStore) Delete(_ context.Context, key string, opts DeleteOptions) error {
+	s.keys = append(s.keys, key)
+	s.deleteOptions = opts
+	return nil
+}
+func (s *recordingStore) DeletePrefix(_ context.Context, prefix string) error {
+	s.keys = append(s.keys, prefix)
+	return nil
 }

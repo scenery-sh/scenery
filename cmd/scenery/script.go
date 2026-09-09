@@ -373,11 +373,18 @@ func runScriptProcess(ctx context.Context, root string, cfg app.Config, program 
 		"SCENERY_APP_ID=" + cfg.AppID(),
 		"SCENERY_APP_ROOT=" + root,
 	}
-	storageEnv, err := storageCapabilityEnv(cfg, nil, env, "")
+	storageEnv, err := storageCapabilityEnv(ctx, root, cfg, nil, env, "")
 	if err != nil {
 		return err
 	}
 	extra = append(extra, storageEnv...)
+	storageLease, err := storageTaskLease(ctx, storageEnv)
+	if err != nil {
+		return err
+	}
+	if storageLease != nil {
+		defer func() { _ = storageLease.Close() }()
+	}
 	extra = append(extra, "SCENERY_ENV="+resolved.Name, "SCENERY_RUNTIME_ENV="+resolved.Name)
 	cmd := scriptCommandContext(ctx, program, args...)
 	cmd.Dir = root

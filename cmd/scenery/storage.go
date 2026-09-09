@@ -3,183 +3,273 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"path/filepath"
-	"strings"
-
-	localagent "scenery.sh/internal/agent"
 	appcfg "scenery.sh/internal/app"
-	"scenery.sh/internal/storageconfig"
+	"scenery.sh/internal/contract"
+	"scenery.sh/internal/storagefs"
 	publicstorage "scenery.sh/storage"
+	"strings"
+	"syscall"
 )
 
 type storageCLIOptions struct {
-	Command   string
-	AppRoot   string
-	JSON      bool
-	Store     string
-	Key       string
-	File      string
-	Output    string
-	Prefix    string
-	Cursor    string
-	Limit     int
-	Recursive bool
-	Yes       bool
+	Command, AppRoot, Store, Tenant, Key, File, Output, Prefix, Delimiter, Cursor string
+	ContentType, Metadata, IfMatch, ExpectRevision                                string
+	Limit                                                                         int
+	JSON, Recursive, Yes, DryRun, Purge, IfAbsent                                 bool
 }
-
-type storageStatusResponse struct {
-	cliPayloadIdentity
-	Storage inspectStorageRecord  `json:"storage"`
-	Stores  []inspectStorageStore `json:"stores"`
+type storageResponseScope struct {
+	AppID       string  `json:"app_id"`
+	AppRoot     string  `json:"app_root"`
+	WorktreeKey string  `json:"worktree_key"`
+	Incarnation *string `json:"incarnation"`
+	Generation  *string `json:"generation"`
+	Store       string  `json:"store,omitempty"`
+	Tenant      string  `json:"tenant,omitempty"`
 }
-
-type storageWebUIResponse struct {
-	cliPayloadIdentity
-	Configured bool   `json:"configured"`
-	Ready      bool   `json:"ready"`
-	URL        string `json:"url,omitempty"`
-	Reason     string `json:"reason,omitempty"`
-}
-
 type storageObjectResponse struct {
 	cliPayloadIdentity
+	Scope  storageResponseScope `json:"scope"`
 	Object publicstorage.Object `json:"object"`
 }
-
 type storageListResponse struct {
 	cliPayloadIdentity
-	Store string                 `json:"store"`
+	Scope storageResponseScope   `json:"scope"`
 	Page  publicstorage.ListPage `json:"page"`
 }
-
 type storageDeleteResponse struct {
 	cliPayloadIdentity
-	Store   string `json:"store"`
-	Key     string `json:"key,omitempty"`
-	Prefix  string `json:"prefix,omitempty"`
-	Deleted bool   `json:"deleted"`
+	Scope   storageResponseScope     `json:"scope"`
+	Key     string                   `json:"key,omitempty"`
+	Prefix  string                   `json:"prefix,omitempty"`
+	DryRun  bool                     `json:"dry_run"`
+	Deleted bool                     `json:"deleted"`
+	Preview *storagefs.DeletePreview `json:"preview,omitempty"`
+	Result  *storagefs.DeleteResult  `json:"result,omitempty"`
 }
-
 type storageCleanupResponse struct {
 	cliPayloadIdentity
-	StorageCellID string `json:"storage_cell_id"`
-	CellRoot      string `json:"cell_root"`
-	Exists        bool   `json:"exists"`
-	DryRun        bool   `json:"dry_run"`
-	Deleted       bool   `json:"deleted"`
+	Scope        storageResponseScope      `json:"scope"`
+	Purge        bool                      `json:"purge"`
+	DryRun       bool                      `json:"dry_run"`
+	Preview      *storagefs.ReclaimPreview `json:"preview,omitempty"`
+	Result       *storagefs.ReclaimResult  `json:"result,omitempty"`
+	PurgePreview *storagefs.PurgePreview   `json:"purge_preview,omitempty"`
+	PurgeResult  *storagefs.PurgeResult    `json:"purge_result,omitempty"`
 }
 
 func storageCommand(args []string) error {
-	return runStorageCommand(args, os.Stdout)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return runStorageCommandContext(ctx, args, os.Stdin, os.Stdout)
 }
-
 func runStorageCommand(args []string, stdout io.Writer) error {
+	return runStorageCommandContext(context.Background(), args, os.Stdin, stdout)
+}
+func runStorageCommandContext(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer) error {
 	opts, err := parseStorageArgs(args)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %v", storagefs.ErrInvalid, err)
 	}
 	if !opts.JSON {
-		return fmt.Errorf("scenery storage %s currently requires -o json", opts.Command)
+		return fmt.Errorf("%w: scenery storage %s requires -o json", storagefs.ErrInvalid, opts.Command)
 	}
 	start, err := resolveAppRoot(opts.AppRoot)
 	if err != nil {
 		return err
 	}
-	appRoot, cfg, err := appcfg.DiscoverRoot(start)
+	root, cfg, err := appcfg.DiscoverRoot(start)
+	if err != nil {
+		if opts.Command == "cleanup" && filepath.IsAbs(opts.AppRoot) {
+			plan, retainedErr := retainedStorageNamespacePlan(opts.AppRoot)
+			if retainedErr != nil {
+				return retainedErr
+			}
+			return runStorageCleanup(ctx, stdout, plan, opts)
+		}
+		return err
+	}
+	plan, err := resolveStorageNamespacePlan(cfg, root, "")
+	if err != nil {
+		return err
+	}
+	if len(cfg.Storage.Stores) == 0 && opts.Command != "cleanup" {
+		return &publicstorage.NotConfiguredError{}
+	}
+	if opts.Command == "cleanup" {
+		return runStorageCleanup(ctx, stdout, plan, opts)
+	}
+	if opts.Command == "put" {
+		return runStoragePut(ctx, stdin, stdout, cfg, plan, opts)
+	}
+	store, owner, err := storageStoreForCLI(ctx, cfg, plan, opts, false)
+	scope := storageScope(plan, owner, opts)
+	if errors.Is(err, storagefs.ErrUninitialized) {
+		if opts.Cursor != "" {
+			return fmt.Errorf("%w: cursor is not valid for an uninitialized namespace", storagefs.ErrInvalid)
+		}
+		if opts.Command == "rm" && opts.IfMatch != "" {
+			return storagefs.ErrPrecondition
+		}
+		if opts.Command == "ls" && opts.Cursor == "" {
+			return writeStorageJSON(stdout, storageListResponse{cliPayloadIdentity: newCLIPayloadIdentity("scenery.storage.list"), Scope: scope, Page: publicstorage.ListPage{Objects: []publicstorage.Object{}}})
+		}
+		if opts.Command == "rm" && !opts.Recursive && opts.IfMatch == "" {
+			return writeStorageJSON(stdout, storageDeleteResponse{cliPayloadIdentity: newCLIPayloadIdentity("scenery.storage.delete"), Scope: scope, Key: opts.Key, Deleted: true})
+		}
+		return &publicstorage.NotFoundError{Store: opts.Store, Key: opts.Key}
+	}
 	if err != nil {
 		return err
 	}
 	switch opts.Command {
-	case "status":
-		inspect := buildInspectStorageResponse(context.Background(), appRoot, cfg)
-		return writeStorageJSON(stdout, storageStatusResponse{
-			cliPayloadIdentity: newCLIPayloadIdentity("scenery.storage.status"),
-			Storage:            inspect.Storage,
-			Stores:             inspect.Stores,
-		})
-	case "webui":
-		return writeStorageJSON(stdout, buildStorageWebUIResponse(cfg))
-	case "cleanup":
-		return runStorageCleanup(context.Background(), stdout, cfg, opts)
 	case "ls":
-		store, err := storageStoreForCLI(cfg, opts.Store)
+		page, err := store.List(ctx, publicstorage.ListOptions{Prefix: opts.Prefix, Delimiter: opts.Delimiter, Cursor: opts.Cursor, Limit: opts.Limit})
 		if err != nil {
 			return err
 		}
-		page, err := store.List(context.Background(), publicstorage.ListOptions{Prefix: opts.Prefix, Cursor: opts.Cursor, Limit: opts.Limit})
-		if err != nil {
-			return err
-		}
-		return writeStorageJSON(stdout, storageListResponse{cliPayloadIdentity: newCLIPayloadIdentity("scenery.storage.list"), Store: opts.Store, Page: *page})
+		return writeStorageJSON(stdout, storageListResponse{cliPayloadIdentity: newCLIPayloadIdentity("scenery.storage.list"), Scope: scope, Page: *page})
 	case "stat":
-		store, err := storageStoreForCLI(cfg, opts.Store)
+		obj, err := store.Head(ctx, opts.Key)
 		if err != nil {
 			return err
 		}
-		obj, err := store.Head(context.Background(), opts.Key)
-		if err != nil {
-			return err
-		}
-		return writeStorageJSON(stdout, storageObjectResponse{cliPayloadIdentity: newCLIPayloadIdentity("scenery.storage.object"), Object: *obj})
-	case "put":
-		store, err := storageStoreForCLI(cfg, opts.Store)
-		if err != nil {
-			return err
-		}
-		obj, err := store.PutFile(context.Background(), opts.Key, opts.File, publicstorage.PutOptions{})
-		if err != nil {
-			return err
-		}
-		return writeStorageJSON(stdout, storageObjectResponse{cliPayloadIdentity: newCLIPayloadIdentity("scenery.storage.object"), Object: *obj})
+		return writeStorageJSON(stdout, storageObjectResponse{cliPayloadIdentity: newCLIPayloadIdentity("scenery.storage.object"), Scope: scope, Object: *obj})
 	case "get":
-		if opts.Output == "" {
-			return fmt.Errorf("scenery storage get requires --output when -o json is used")
-		}
-		store, err := storageStoreForCLI(cfg, opts.Store)
-		if err != nil {
-			return err
-		}
-		body, obj, err := store.Get(context.Background(), opts.Key, publicstorage.GetOptions{})
+		body, obj, err := store.Get(ctx, opts.Key, publicstorage.GetOptions{})
 		if err != nil {
 			return err
 		}
 		defer func() { _ = body.Close() }()
-		if err := os.MkdirAll(filepath.Dir(opts.Output), 0o755); err != nil {
+		if err := writeStorageDownload(ctx, plan, opts.Output, body, obj.SizeBytes); err != nil {
 			return err
 		}
-		out, err := os.Create(opts.Output)
-		if err != nil {
-			return err
-		}
-		if _, err := io.Copy(out, body); err != nil {
-			_ = out.Close()
-			return err
-		}
-		if err := out.Close(); err != nil {
-			return err
-		}
-		return writeStorageJSON(stdout, storageObjectResponse{cliPayloadIdentity: newCLIPayloadIdentity("scenery.storage.object"), Object: *obj})
+		return writeStorageJSON(stdout, storageObjectResponse{cliPayloadIdentity: newCLIPayloadIdentity("scenery.storage.object"), Scope: scope, Object: *obj})
 	case "rm":
-		store, err := storageStoreForCLI(cfg, opts.Store)
-		if err != nil {
-			return err
-		}
+		response := storageDeleteResponse{cliPayloadIdentity: newCLIPayloadIdentity("scenery.storage.delete"), Scope: scope}
 		if opts.Recursive {
-			if err := store.DeletePrefix(context.Background(), opts.Key); err != nil {
+			response.Prefix = opts.Key
+			response.DryRun = !opts.Yes
+			if !opts.Yes {
+				preview, err := store.PreviewDelete(ctx, opts.Key)
+				if err != nil {
+					return err
+				}
+				response.Preview = &preview
+			} else {
+				result, err := store.ApplyDelete(ctx, opts.Key, opts.ExpectRevision)
+				if err != nil {
+					return err
+				}
+				response.Result = &result
+				response.Deleted = result.Completion == "complete"
+			}
+		} else {
+			if err := store.Delete(ctx, opts.Key, publicstorage.DeleteOptions{IfMatch: opts.IfMatch}); err != nil {
 				return err
 			}
-			return writeStorageJSON(stdout, storageDeleteResponse{cliPayloadIdentity: newCLIPayloadIdentity("scenery.storage.delete"), Store: opts.Store, Prefix: opts.Key, Deleted: true})
+			response.Key = opts.Key
+			response.Deleted = true
 		}
-		if err := store.Delete(context.Background(), opts.Key); err != nil {
+		return writeStorageJSON(stdout, response)
+	}
+	return fmt.Errorf("unknown storage command %q", opts.Command)
+}
+
+func storageScope(plan *storageNamespacePlan, owner storagefs.Owner, opts storageCLIOptions) storageResponseScope {
+	result := storageResponseScope{AppID: plan.Binding.AppID, AppRoot: plan.Binding.AppRoot, WorktreeKey: plan.Binding.WorktreeKey, Store: opts.Store, Tenant: opts.Tenant}
+	if owner.Incarnation != "" {
+		result.Incarnation = &owner.Incarnation
+		result.Generation = &owner.Generation
+	}
+	return result
+}
+
+func storageStoreForCLI(ctx context.Context, cfg appcfg.Config, plan *storageNamespacePlan, opts storageCLIOptions, allocate bool) (*storagefs.Store, storagefs.Owner, error) {
+	policy, ok := cfg.Storage.Stores[opts.Store]
+	if !ok {
+		return nil, storagefs.Owner{}, &publicstorage.NotConfiguredError{Store: opts.Store}
+	}
+	if policy.TenantScoped && opts.Tenant == "" {
+		return nil, storagefs.Owner{}, &publicstorage.TenantRequiredError{Store: opts.Store}
+	}
+	if !policy.TenantScoped && opts.Tenant != "" {
+		return nil, storagefs.Owner{}, fmt.Errorf("%w: store %q is not tenant-scoped", storagefs.ErrInvalid, opts.Store)
+	}
+	var namespace *storagefs.Namespace
+	var err error
+	if allocate {
+		namespace, err = plan.allocate(ctx)
+		if err != nil {
+			return nil, storagefs.Owner{}, err
+		}
+	}
+	owner, err := plan.discover(ctx)
+	if err != nil {
+		return nil, storagefs.Owner{}, err
+	}
+	if namespace == nil {
+		namespace, err = storagefs.Bind(plan.Root, plan.Binding, owner.Incarnation)
+		if err != nil {
+			return nil, owner, err
+		}
+	}
+	store, err := namespace.Store(storagefs.Scope{Store: opts.Store, Tenant: opts.Tenant}, policy.MaxObjectBytes)
+	return store, owner, err
+}
+
+func runStoragePut(ctx context.Context, stdin io.Reader, stdout io.Writer, cfg appcfg.Config, plan *storageNamespacePlan, opts storageCLIOptions) error {
+	var metadata map[string]string
+	if opts.Metadata != "" {
+		file, err := os.Open(opts.Metadata)
+		if err != nil {
 			return err
 		}
-		return writeStorageJSON(stdout, storageDeleteResponse{cliPayloadIdentity: newCLIPayloadIdentity("scenery.storage.delete"), Store: opts.Store, Key: opts.Key, Deleted: true})
-	default:
-		return fmt.Errorf("unknown storage command %q", opts.Command)
+		data, readErr := io.ReadAll(io.LimitReader(file, (16<<10)+1))
+		closeErr := file.Close()
+		if readErr != nil {
+			return readErr
+		}
+		if closeErr != nil {
+			return closeErr
+		}
+		if len(data) > 16<<10 {
+			return fmt.Errorf("%w: metadata exceeds 16 KiB", storagefs.ErrInvalid)
+		}
+		if _, err := contract.DecodeJSONObject(data); err != nil {
+			return fmt.Errorf("%w: metadata must be one exact JSON string map: %v", storagefs.ErrInvalid, err)
+		}
+		if err := json.Unmarshal(data, &metadata); err != nil {
+			return fmt.Errorf("%w: metadata must be one JSON string map: %v", storagefs.ErrInvalid, err)
+		}
 	}
+	putOptions := publicstorage.PutOptions{ContentType: opts.ContentType, Metadata: metadata, IfNoneMatch: opts.IfAbsent, IfMatch: opts.IfMatch}
+	if err := storagefs.ValidatePutOptions(putOptions); err != nil {
+		return err
+	}
+	body := stdin
+	if opts.File != "-" {
+		file, err := os.Open(opts.File)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = file.Close() }()
+		body = file
+	}
+	store, owner, err := storageStoreForCLI(ctx, cfg, plan, opts, true)
+	if err != nil {
+		return err
+	}
+	obj, err := store.Put(ctx, opts.Key, body, putOptions)
+	if err != nil {
+		return err
+	}
+	return writeStorageJSON(stdout, storageObjectResponse{cliPayloadIdentity: newCLIPayloadIdentity("scenery.storage.object"), Scope: storageScope(plan, owner, opts), Object: *obj})
 }
 
 func parseStorageArgs(args []string) (storageCLIOptions, error) {
@@ -187,233 +277,113 @@ func parseStorageArgs(args []string) (storageCLIOptions, error) {
 	flags := newCLIFlagSet("storage")
 	registerJSONOutput(flags, &opts.JSON)
 	flags.StringVar(&opts.AppRoot, "app-root", "", "")
+	flags.StringVar(&opts.Tenant, "tenant", "", "")
 	flags.StringVar(&opts.Prefix, "prefix", "", "")
+	flags.StringVar(&opts.Delimiter, "delimiter", "", "")
 	flags.StringVar(&opts.Cursor, "cursor", "", "")
 	flags.IntVar(&opts.Limit, "limit", 0, "")
 	flags.StringVar(&opts.Output, "output", "", "")
+	flags.StringVar(&opts.ContentType, "content-type", "", "")
+	flags.StringVar(&opts.Metadata, "metadata", "", "")
+	flags.StringVar(&opts.IfMatch, "if-match", "", "")
+	flags.StringVar(&opts.ExpectRevision, "expect-revision", "", "")
+	flags.BoolVar(&opts.IfAbsent, "if-absent", false, "")
 	flags.BoolVar(&opts.Recursive, "recursive", false, "")
 	flags.BoolVar(&opts.Yes, "yes", false, "")
-	positionals, err := parseCLIFlags(flags, args)
+	flags.BoolVar(&opts.DryRun, "dry-run", false, "")
+	flags.BoolVar(&opts.Purge, "purge", false, "")
+	positional, err := parseCLIFlags(flags, args)
 	if err != nil {
-		return storageCLIOptions{}, err
+		return opts, err
 	}
-	if len(positionals) == 0 {
-		return storageCLIOptions{}, fmt.Errorf("missing storage command")
+	if len(positional) == 0 {
+		return opts, fmt.Errorf("missing storage command")
 	}
-	opts.Command = positionals[0]
-	expectedPositionals := 1
-	switch opts.Command {
-	case "status", "webui", "cleanup":
-	case "ls":
-		expectedPositionals = 2
-		if len(positionals) < 2 {
-			return storageCLIOptions{}, fmt.Errorf("scenery storage ls requires <store>")
-		}
-		opts.Store = positionals[1]
-	case "stat":
-		expectedPositionals = 3
-		if len(positionals) < 3 {
-			return storageCLIOptions{}, fmt.Errorf("scenery storage stat requires <store> <key>")
-		}
-		opts.Store, opts.Key = positionals[1], positionals[2]
-	case "put":
-		expectedPositionals = 4
-		if len(positionals) < 4 {
-			return storageCLIOptions{}, fmt.Errorf("scenery storage put requires <store> <key> <file>")
-		}
-		opts.Store, opts.Key, opts.File = positionals[1], positionals[2], positionals[3]
-	case "get":
-		expectedPositionals = 3
-		if len(positionals) < 3 {
-			return storageCLIOptions{}, fmt.Errorf("scenery storage get requires <store> <key>")
-		}
-		opts.Store, opts.Key = positionals[1], positionals[2]
-	case "rm":
-		expectedPositionals = 3
-		if len(positionals) < 3 {
-			return storageCLIOptions{}, fmt.Errorf("scenery storage rm requires <store> <key>")
-		}
-		opts.Store, opts.Key = positionals[1], positionals[2]
-	default:
-		return storageCLIOptions{}, fmt.Errorf("unknown storage command %q", opts.Command)
+	opts.Command = positional[0]
+	count := map[string]int{"cleanup": 1, "ls": 2, "stat": 3, "get": 3, "rm": 3, "put": 4}[opts.Command]
+	if count == 0 {
+		return opts, fmt.Errorf("unknown storage command %q; use inspect storage for discovery", opts.Command)
 	}
-	if len(positionals) > expectedPositionals {
-		return storageCLIOptions{}, fmt.Errorf("unexpected argument %q", positionals[expectedPositionals])
+	if len(positional) != count {
+		return opts, fmt.Errorf("storage %s expects %d positional arguments after the command", opts.Command, count-1)
+	}
+	if count >= 2 {
+		opts.Store = strings.TrimSpace(positional[1])
+	}
+	if count >= 3 {
+		opts.Key = positional[2]
+	}
+	if count == 4 {
+		opts.File = positional[3]
+	}
+	opts.Tenant = strings.TrimSpace(opts.Tenant)
+	if opts.Store == "" && count >= 2 {
+		return opts, fmt.Errorf("storage store is required")
+	}
+	if opts.Command == "get" && opts.Output == "" {
+		return opts, fmt.Errorf("storage get requires --output")
+	}
+	if opts.IfAbsent && opts.IfMatch != "" {
+		return opts, fmt.Errorf("--if-absent and --if-match are mutually exclusive")
+	}
+	if opts.Yes && opts.DryRun {
+		return opts, fmt.Errorf("--yes and --dry-run are mutually exclusive")
+	}
+	if opts.Recursive && opts.Command != "rm" {
+		return opts, fmt.Errorf("--recursive requires storage rm")
+	}
+	if opts.Purge && opts.Command != "cleanup" {
+		return opts, fmt.Errorf("--purge requires storage cleanup")
+	}
+	destructive := opts.Command == "cleanup" || (opts.Command == "rm" && opts.Recursive)
+	if (opts.Yes || opts.DryRun || opts.ExpectRevision != "") && !destructive {
+		return opts, fmt.Errorf("preview/apply flags require cleanup or recursive rm")
+	}
+	if destructive && opts.Yes && opts.ExpectRevision == "" {
+		return opts, fmt.Errorf("--yes requires --expect-revision from a fresh preview")
+	}
+	if opts.ExpectRevision != "" && !opts.Yes {
+		return opts, fmt.Errorf("--expect-revision requires --yes")
+	}
+	if opts.Command != "put" && cliFlagSet(flags, "if-absent", "content-type", "metadata") {
+		return opts, fmt.Errorf("upload flags require storage put")
+	}
+	if opts.IfMatch != "" && opts.Command != "put" && opts.Command != "rm" {
+		return opts, fmt.Errorf("--if-match requires put or non-recursive rm")
+	}
+	if opts.IfMatch != "" && opts.Recursive {
+		return opts, fmt.Errorf("recursive rm uses --expect-revision, not --if-match")
+	}
+	if opts.Command != "ls" && cliFlagSet(flags, "prefix", "delimiter", "cursor", "limit") {
+		return opts, fmt.Errorf("list flags require storage ls")
+	}
+	if opts.Command != "get" && cliFlagSet(flags, "output") {
+		return opts, fmt.Errorf("--output requires storage get")
+	}
+	if opts.Command == "cleanup" && cliFlagSet(flags, "tenant") {
+		return opts, fmt.Errorf("cleanup selects a complete namespace, not a tenant")
 	}
 	if cliFlagSet(flags, "limit") && opts.Limit <= 0 {
-		return storageCLIOptions{}, fmt.Errorf("--limit must be a positive integer")
+		return opts, fmt.Errorf("--limit must be positive")
+	}
+	if opts.Recursive {
+		if opts.Key == "" {
+			return opts, fmt.Errorf("recursive prefix must be nonempty; namespace destruction uses cleanup --purge")
+		}
+		if err := publicstorage.ValidatePrefix(opts.Key); err != nil {
+			return opts, err
+		}
+	} else if count >= 3 {
+		if err := publicstorage.ValidateKey(opts.Key); err != nil {
+			return opts, err
+		}
+	}
+	if opts.Command == "ls" {
+		if _, err := publicstorage.NormalizeListOptions(publicstorage.ListOptions{Prefix: opts.Prefix, Delimiter: opts.Delimiter, Limit: opts.Limit}); err != nil {
+			return opts, err
+		}
 	}
 	return opts, nil
 }
 
-func runStorageCleanup(ctx context.Context, stdout io.Writer, cfg appcfg.Config, opts storageCLIOptions) error {
-	plan, err := resolveStorageCellPlan(cfg, "")
-	if err != nil {
-		return err
-	}
-	if plan == nil {
-		return fmt.Errorf("storage is not configured")
-	}
-	_, statErr := os.Stat(plan.CellRoot)
-	exists := statErr == nil
-	if statErr != nil && !os.IsNotExist(statErr) {
-		return statErr
-	}
-	deleted := false
-	if opts.Yes && exists {
-		if err := os.RemoveAll(plan.CellRoot); err != nil {
-			return err
-		}
-		deleted = true
-		exists = false
-	}
-	return writeStorageJSON(stdout, storageCleanupResponse{
-		cliPayloadIdentity: newCLIPayloadIdentity("scenery.storage.cleanup"),
-		StorageCellID:      plan.StorageCellID,
-		CellRoot:           plan.CellRoot,
-		Exists:             exists,
-		DryRun:             !opts.Yes,
-		Deleted:            deleted,
-	})
-}
-
-func storageStoreForCLI(cfg appcfg.Config, name string) (publicstorage.Store, error) {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		name = strings.TrimSpace(cfg.Storage.Default)
-	}
-	if name == "" {
-		return nil, fmt.Errorf("storage store name is required")
-	}
-	storeCfg, ok := cfg.Storage.Stores[name]
-	if !ok {
-		return nil, fmt.Errorf("storage store %q is not configured", name)
-	}
-	plan, err := resolveStorageCellPlan(cfg, "")
-	if err != nil {
-		return nil, err
-	}
-	if plan == nil {
-		return nil, fmt.Errorf("storage is not configured")
-	}
-	return publicstorage.NewLocalStoreWithOptions(name, plan.storageStoreObjectsDir(name), publicstorage.LocalStoreOptions{
-		MaxObjectBytes: storeCfg.MaxObjectBytes,
-	}), nil
-}
-
-func storageCapabilityEnv(cfg appcfg.Config, session *localagent.Session, baseEnv []string, agentHome string) ([]string, error) {
-	if len(cfg.Storage.Stores) == 0 {
-		return nil, nil
-	}
-	plan, err := resolveStorageCellPlan(cfg, agentHome)
-	if err != nil {
-		return nil, err
-	}
-	if plan == nil {
-		return nil, nil
-	}
-	stores := make(map[string]storageconfig.RuntimeStoreConfig, len(cfg.Storage.Stores))
-	proxySocket := storageProxySocketPath(session)
-	for name, store := range cfg.Storage.Stores {
-		root := plan.storageStoreObjectsDir(name)
-		storeRuntime := storageconfig.RuntimeStoreConfig{
-			Access:         strings.TrimSpace(store.Access),
-			TenantScoped:   store.TenantScoped,
-			MaxObjectBytes: store.MaxObjectBytes,
-		}
-		if proxySocket != "" {
-			storeRuntime.Kind = "proxy"
-			storeRuntime.ProxySocket = proxySocket
-		} else {
-			if err := os.MkdirAll(root, 0o755); err != nil {
-				return nil, err
-			}
-			storeRuntime.Kind = "local"
-			storeRuntime.Root = root
-		}
-		stores[name] = storeRuntime
-	}
-	runtimeCfg := storageconfig.RuntimeConfig{
-		ArtifactIdentity: storageconfig.NewRuntimeIdentity(),
-		CellID:           plan.StorageCellID,
-		Default:          strings.TrimSpace(cfg.Storage.Default),
-		Stores:           stores,
-	}
-	if runtimeCfg.Default == "" && len(stores) == 1 {
-		for name := range stores {
-			runtimeCfg.Default = name
-		}
-	}
-	data, err := json.Marshal(runtimeCfg)
-	if err != nil {
-		return nil, err
-	}
-	return []string{
-		"SCENERY_STORAGE_CELL_ID=" + plan.StorageCellID,
-		storageconfig.RuntimeConfigEnv + "=" + string(data),
-	}, nil
-}
-
-func headlessStorageCapabilityEnv(cfg appcfg.Config, baseEnv []string) ([]string, error) {
-	if len(cfg.Storage.Stores) == 0 {
-		return nil, nil
-	}
-	if raw, ok := storageRuntimeConfigValue(baseEnv); ok {
-		if err := validateHeadlessStorageRuntimeConfig(raw); err != nil {
-			return nil, err
-		}
-		return nil, nil
-	}
-	return nil, fmt.Errorf("storage is configured, but headless runtimes require explicit %s; run `scenery up` for managed local dev storage or set %s to a production storage runtime config", storageconfig.RuntimeConfigEnv, storageconfig.RuntimeConfigEnv)
-}
-
-func storageRuntimeConfigValue(env []string) (string, bool) {
-	for _, item := range env {
-		key, value, ok := strings.Cut(item, "=")
-		if ok && key == storageconfig.RuntimeConfigEnv && strings.TrimSpace(value) != "" {
-			return value, true
-		}
-	}
-	return "", false
-}
-
-func validateHeadlessStorageRuntimeConfig(raw string) error {
-	cfg, ok, err := storageconfig.LoadRuntimeConfigValue(raw)
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return fmt.Errorf("%s must define at least one store for headless storage runtimes", storageconfig.RuntimeConfigEnv)
-	}
-	for name, store := range cfg.Stores {
-		switch strings.TrimSpace(store.Kind) {
-		case "local":
-			root := strings.TrimSpace(store.Root)
-			if root == "" {
-				return fmt.Errorf("headless storage store %q must set root when kind is \"local\"", name)
-			}
-			if !filepath.IsAbs(root) {
-				return fmt.Errorf("headless storage store %q root %q must be an absolute path", name, root)
-			}
-		case "proxy":
-			if strings.TrimSpace(store.ProxySocket) == "" {
-				return fmt.Errorf("headless storage store %q must set proxy_socket when kind is \"proxy\"", name)
-			}
-		default:
-			return fmt.Errorf("headless storage store %q kind %q is not supported; use \"local\" (with an absolute root) or \"proxy\" (with proxy_socket)", name, strings.TrimSpace(store.Kind))
-		}
-	}
-	return nil
-}
-
-func buildStorageWebUIResponse(cfg appcfg.Config) storageWebUIResponse {
-	configured := len(cfg.Storage.Stores) > 0
-	if !configured {
-		return storageWebUIResponse{cliPayloadIdentity: newCLIPayloadIdentity("scenery.storage.webui"), Configured: false, Ready: false, Reason: "storage is not configured"}
-	}
-	return storageWebUIResponse{cliPayloadIdentity: newCLIPayloadIdentity("scenery.storage.webui"), Configured: true, Ready: false, Reason: "local storage has no managed Web UI; use `scenery storage ls/stat` or `scenery inspect storage`"}
-}
-
-func writeStorageJSON(w io.Writer, payload any) error {
-	return writeCLIJSON(w, payload)
-}
+func writeStorageJSON(w io.Writer, payload any) error { return writeCLIJSON(w, payload) }

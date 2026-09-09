@@ -127,13 +127,6 @@ func IsConfigFilename(name string) bool {
 	return filepath.Base(name) == PrimaryConfigFilename
 }
 
-func (c Config) StorageCellID() string {
-	if cellID := strings.TrimSpace(c.Storage.CellID); cellID != "" {
-		return cellID
-	}
-	return storageSlug(c.AppID())
-}
-
 type BuildConfig struct {
 	GoFlags []string `json:"go_flags"`
 }
@@ -308,14 +301,12 @@ func (e ResolvedEnv) UICatalogDir(appRoot string) (dir string, missing bool, err
 }
 
 type StorageConfig struct {
-	CellID  string                        `json:"cell_id,omitempty"`
-	Share   string                        `json:"share,omitempty"`
 	Default string                        `json:"default,omitempty"`
 	Stores  map[string]StorageStoreConfig `json:"stores,omitempty"`
 }
 
 func (c StorageConfig) IsZero() bool {
-	return c.CellID == "" && c.Share == "" && c.Default == "" && len(c.Stores) == 0
+	return c.Default == "" && len(c.Stores) == 0
 }
 
 type StorageStoreConfig struct {
@@ -676,17 +667,8 @@ func validDeployFQDN(domain string) bool {
 
 func (c Config) validateStorage() error {
 	cfg := c.Storage
-	if cfg.CellID == "" && cfg.Share == "" && cfg.Default == "" && len(cfg.Stores) == 0 {
+	if cfg.IsZero() {
 		return nil
-	}
-	if strings.TrimSpace(cfg.CellID) != "" && !isStorageIdentifier(cfg.CellID) {
-		return fmt.Errorf("storage.cell_id %q is invalid; use lowercase letters, numbers, dots, underscores, or dashes", cfg.CellID)
-	}
-	share := strings.TrimSpace(cfg.Share)
-	switch share {
-	case "", "worktree":
-	default:
-		return fmt.Errorf("storage.share %q is not supported; use %q", share, "worktree")
 	}
 	if len(cfg.Stores) == 0 {
 		return errors.New("storage.stores must define at least one store")
@@ -733,29 +715,6 @@ func isStorageIdentifier(value string) bool {
 		return false
 	}
 	return true
-}
-
-func storageSlug(value string) string {
-	value = strings.ToLower(strings.TrimSpace(value))
-	var b strings.Builder
-	lastDash := false
-	for _, r := range value {
-		ok := (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' || r == '.'
-		if ok {
-			b.WriteRune(r)
-			lastDash = false
-			continue
-		}
-		if !lastDash {
-			b.WriteByte('-')
-			lastDash = true
-		}
-	}
-	out := strings.Trim(b.String(), "-")
-	if out == "" {
-		return "app"
-	}
-	return out
 }
 
 func decodeConfig(path string, data []byte, cfg *Config) (err error) {
@@ -854,6 +813,9 @@ func rejectUnknownFieldsValue(value any, typ reflect.Type, path []string, config
 
 func unknownConfigFieldError(path []string, configName string, value any) error {
 	jsonPath := strings.Join(path, ".")
+	if len(path) == 2 && path[0] == "storage" && (path[1] == "cell_id" || path[1] == "share") {
+		return &StorageMigrationError{Field: jsonPath}
+	}
 	if len(path) == 1 && path[0] == "dev" {
 		return fmt.Errorf("unknown %s field %q; remove dev.services: SQL requirements now come from reachable data_source bindings and selected framework registrations; keep endpoint supply in DATABASE_URL and setup in database.apply or database.seed", configName, jsonPath)
 	}

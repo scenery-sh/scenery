@@ -71,6 +71,31 @@ func (s *worktreeLegacySandbox) prove(e map[string]any) error {
 		return nil
 	}
 	defer func() { _ = stop() }()
+	// Current and immutable historical specifications are incompatible. Probe
+	// their shared-home allocation guard before using an independent target
+	// home; never teach the product to decode an old spec for this fixture.
+	rejected, rejectErr := s.cliInHome(false, "/legacy-state", "/app-new", "db", "server", "start")
+	var failure struct {
+		OK          bool `json:"ok"`
+		Diagnostics []struct {
+			Code string `json:"code"`
+		} `json:"diagnostics"`
+	}
+	if rejectErr == nil || json.Unmarshal(rejected, &failure) != nil || failure.OK || len(failure.Diagnostics) != 1 || failure.Diagnostics[0].Code != "SCN8003" {
+		return fmt.Errorf("incompatible shared-home allocation was not rejected with SCN8003")
+	}
+	for _, args := range [][]string{
+		{"docker", "ps", "--all", "--quiet", "--filter", "label=scenery.worktree.root=/app-new"},
+		{"docker", "volume", "ls", "--quiet", "--filter", "label=scenery.worktree.root=/app-new"},
+	} {
+		resources, err := s.run(args...)
+		if err != nil || len(bytes.TrimSpace(resources)) != 0 {
+			return fmt.Errorf("rejected allocation created target resources: %v", err)
+		}
+	}
+	e["incompatible_shared_home_rejected"] = "SCN8003"
+	e["rejected_allocation_created_resources"] = false
+	e["source_agent_home"], e["target_agent_home"] = "/legacy-state", "/candidate-state"
 	current, err := s.up(false, "/app-new")
 	if err != nil {
 		return err

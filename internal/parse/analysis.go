@@ -123,6 +123,9 @@ func analyze(root, name string, overlay map[string][]byte, patterns []string, ta
 	if err != nil {
 		return nil, err
 	}
+	if len(pkgs) == 0 && len(patterns) > 0 {
+		return nil, fmt.Errorf("go package loading returned no Go packages for target %s; check its package patterns and go.mod", strings.Join(patterns, ", "))
+	}
 	var loadErrors []string
 	for _, pkg := range pkgs {
 		for _, pkgErr := range pkg.Errors {

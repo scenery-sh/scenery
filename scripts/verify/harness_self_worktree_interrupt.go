@@ -139,7 +139,8 @@ func (p *worktreeRuntimeProbe) buildCheckpointVariant() (string, string, string,
 		return "", "", "", nil, err
 	}
 	anchor := "return atomicWriteFile(op.paths.Record, append(data, '\\n'), 0o600)"
-	replacement := fmt.Sprintf(`err = atomicWriteFile(op.paths.Record, append(data, '\n'), 0o600)
+	replacement := fmt.Sprintf(`previous, _ := op.paths.LoadRecord(record.AppID)
+ err = atomicWriteFile(op.paths.Record, append(data, '\n'), 0o600)
  if err == nil && record.Postgres != nil {
   selected, _ := os.ReadFile(%q)
   p := record.Postgres
@@ -148,7 +149,9 @@ func (p *worktreeRuntimeProbe) buildCheckpointVariant() (string, string, string,
    (phase == "volume" && p.Phase == "volume") ||
    (phase == "container" && p.Phase == "container" && p.Port == 0) ||
    (phase == "endpoint" && p.Phase == "container" && p.Port != 0) ||
-   (phase == "restore-sql-intent" && p.Restore != nil && p.Restore.SQLStarted)
+   (phase == "restore-sql-intent" && p.Restore != nil && p.Restore.SQLStarted) ||
+   (phase == "restore-db-complete" && p.Phase == "ready" && p.Restore == nil &&
+    previous.Postgres != nil && previous.Postgres.Restore != nil && previous.Postgres.Restore.SQLStarted)
   if reached {
    owner, _ := json.Marshal(CurrentOwner("release-checkpoint"))
    if err := os.WriteFile(%q, owner, 0600); err != nil { return err }

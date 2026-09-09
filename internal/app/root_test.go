@@ -244,8 +244,6 @@ func TestDiscoverRootAcceptsStorageConfig(t *testing.T) {
 	writeAppTestFile(t, root, ".scenery.json", `{
 		"name": "storageapp",
 		"storage": {
-			"cell_id": "onlv",
-			"share": "worktree",
 			"default": "app",
 			"stores": {
 				"app": {
@@ -262,27 +260,9 @@ func TestDiscoverRootAcceptsStorageConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DiscoverRoot returned error: %v", err)
 	}
-	if got := cfg.StorageCellID(); got != "onlv" {
-		t.Fatalf("StorageCellID = %q, want onlv", got)
-	}
 	store := cfg.Storage.Stores["app"]
 	if cfg.Storage.Default != "app" || store.Kind != "local" || store.Access != "auth" || !store.TenantScoped || store.MaxObjectBytes != 1073741824 {
 		t.Fatalf("storage = %+v store = %+v", cfg.Storage, store)
-	}
-}
-
-func TestStorageCellIDIsDerivedFromAppIdentity(t *testing.T) {
-	cfg := Config{Name: "ONLV Pulse"}
-	if got := cfg.StorageCellID(); got != "onlv-pulse" {
-		t.Fatalf("derived storage cell ID = %q, want onlv-pulse", got)
-	}
-	cfg = Config{Name: "from-name", ID: "explicit-id"}
-	if got := cfg.StorageCellID(); got != "explicit-id" {
-		t.Fatalf("derived storage cell ID from ID = %q, want explicit-id", got)
-	}
-	cfg.Storage.CellID = "shared-cell"
-	if got := cfg.StorageCellID(); got != "shared-cell" {
-		t.Fatalf("configured storage cell ID = %q, want shared-cell", got)
 	}
 }
 

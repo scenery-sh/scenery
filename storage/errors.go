@@ -1,6 +1,53 @@
 package storage
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+	"scenery.sh/internal/atomicfile"
+	"scenery.sh/internal/storagefs"
+)
+
+var (
+	ErrInvalidInput = storagefs.ErrInvalid
+	ErrPrecondition = storagefs.ErrPrecondition
+	ErrCorrupt      = storagefs.ErrCorrupt
+	ErrOwnership    = storagefs.ErrOwnership
+	ErrRetired      = storagefs.ErrRetired
+	ErrRecovery     = storagefs.ErrRecovery
+	ErrMigration    = storagefs.ErrMigration
+)
+
+type UncertainOutcomeError = atomicfile.PublicationError
+type PartialDeleteError = storagefs.PartialDeleteError
+
+type PreconditionError struct{ Store, Key string }
+
+func (e *PreconditionError) Error() string {
+	return fmt.Sprintf("storage version precondition failed for %q/%q", e.Store, e.Key)
+}
+func (e *PreconditionError) Unwrap() error { return ErrPrecondition }
+
+func adaptError(err error, store, key string, ifAbsent bool) error {
+	if errors.Is(err, storagefs.ErrNotFound) || errors.Is(err, storagefs.ErrUninitialized) {
+		return &NotFoundError{Store: store, Key: key}
+	}
+	if errors.Is(err, storagefs.ErrInvalid) {
+		return &InvalidKeyError{Key: key, Reason: err.Error()}
+	}
+	if errors.Is(err, storagefs.ErrPrecondition) {
+		if ifAbsent {
+			return &AlreadyExistsError{Store: store, Key: key}
+		}
+		return &PreconditionError{Store: store, Key: key}
+	}
+	return err
+}
+
+func (e *InvalidKeyError) Unwrap() error     { return ErrInvalidInput }
+func (e *AlreadyExistsError) Unwrap() error  { return ErrPrecondition }
+func (e *NotFoundError) Unwrap() error       { return storagefs.ErrNotFound }
+func (e *NotConfiguredError) Unwrap() error  { return storagefs.ErrNotConfigured }
+func (e *TenantRequiredError) Unwrap() error { return storagefs.ErrTenantRequired }
 
 type InvalidKeyError struct {
 	Key    string

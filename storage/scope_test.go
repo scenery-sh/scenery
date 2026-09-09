@@ -2,116 +2,70 @@ package storage
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
-	"io"
-	"os"
-	"path/filepath"
+	"reflect"
+	"scenery.sh/internal/storagefs"
 	"strings"
 	"testing"
 )
 
-func TestTenantScopedStoreIsolatesVisibleKeys(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-	store := newTenantScopedStore(&localRuntimeStore{name: "app", root: root})
-	ctxA := WithTenantID(context.Background(), "tenant/a")
-	ctxB := WithTenantID(context.Background(), "tenant/b")
-
-	obj, err := store.Put(ctxA, "docs/a.txt", strings.NewReader("alpha"), PutOptions{})
+func TestTenantSelectionIsSeparateFromEveryLogicalKey(t *testing.T) {
+	backend := &recordingStore{object: &Object{Key: "a"}}
+	var scopes []storagefs.Scope
+	local := &localRuntimeStore{name: "app", tenantScoped: true, resolve: func(_ context.Context, scope storagefs.Scope, _ bool) (Store, error) {
+		scopes = append(scopes, scope)
+		return backend, nil
+	}}
+	ctx := WithTenantID(context.Background(), "tenant/a")
+	if _, err := local.Put(ctx, "a", strings.NewReader("body"), PutOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	body, _, err := local.Get(ctx, "a", GetOptions{})
 	if err != nil {
-		t.Fatalf("Put tenant A returned error: %v", err)
+		t.Fatal(err)
 	}
-	if obj.Key != "docs/a.txt" {
-		t.Fatalf("visible put key = %q", obj.Key)
+	_ = body.Close()
+	if _, err := local.Head(ctx, "a"); err != nil {
+		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(root, "__scenery", "tenants", encodedTenant("tenant/a"), "docs", "a.txt")); err != nil {
-		t.Fatalf("physical tenant object missing: %v", err)
+	if _, err := local.List(ctx, ListOptions{Prefix: "dir/", Cursor: "opaque"}); err != nil {
+		t.Fatal(err)
 	}
-	if _, err := store.Head(ctxB, "docs/a.txt"); err == nil {
-		t.Fatal("tenant B read tenant A object")
-	} else {
-		if _, ok := errors.AsType[*NotFoundError](err); !ok {
-			t.Fatalf("tenant B Head error = %T %[1]v, want NotFoundError", err)
+	if err := local.Delete(ctx, "a", DeleteOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := local.DeletePrefix(ctx, "dir/"); err != nil {
+		t.Fatal(err)
+	}
+	for _, scope := range scopes {
+		if scope.Store != "app" || scope.Tenant != "tenant/a" {
+			t.Fatalf("wrong scope: %+v", scope)
 		}
 	}
-
-	if _, err := store.Put(ctxB, "docs/a.txt", strings.NewReader("bravo"), PutOptions{}); err != nil {
-		t.Fatalf("Put tenant B returned error: %v", err)
+	if !reflect.DeepEqual(backend.keys, []string{"a", "a", "a", "a", "dir/"}) {
+		t.Fatalf("keys were encoded: %v", backend.keys)
 	}
-	body, obj, err := store.Get(ctxA, "docs/a.txt", GetOptions{})
-	if err != nil {
-		t.Fatalf("Get tenant A returned error: %v", err)
-	}
-	data, _ := io.ReadAll(body)
-	_ = body.Close()
-	if string(data) != "alpha" || obj.Key != "docs/a.txt" {
-		t.Fatalf("tenant A get data = %q object = %+v", data, obj)
-	}
-	if err := store.Delete(ctxB, "docs/a.txt"); err != nil {
-		t.Fatalf("tenant B delete returned error: %v", err)
-	}
-	body, obj, err = store.Get(ctxA, "docs/a.txt", GetOptions{})
-	if err != nil {
-		t.Fatalf("Get tenant A after tenant B delete returned error: %v", err)
-	}
-	data, _ = io.ReadAll(body)
-	_ = body.Close()
-	if string(data) != "alpha" || obj.Key != "docs/a.txt" {
-		t.Fatalf("tenant A after tenant B delete data = %q object = %+v", data, obj)
+	if backend.listOptions.Cursor != "opaque" || backend.listOptions.Prefix != "dir/" {
+		t.Fatal("list scope rewrote cursor/prefix")
 	}
 }
-
-func TestTenantScopedStoreListAndDeletePrefixUseVisibleKeys(t *testing.T) {
-	t.Parallel()
-	ctx := WithTenantID(context.Background(), "tenant")
-	root := t.TempDir()
-	store := newTenantScopedStore(&localRuntimeStore{name: "app", root: root})
-	tenantRoot := filepath.Join(root, "__scenery", "tenants", encodedTenant("tenant"))
-	for _, key := range []string{"docs/a.txt", "docs/b.txt", "docs/nested/c.txt"} {
-		path := filepath.Join(tenantRoot, filepath.FromSlash(key))
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			t.Fatalf("create parent for %s: %v", key, err)
-		}
-		if err := os.WriteFile(path, []byte(key), 0o644); err != nil {
-			t.Fatalf("write fixture %s: %v", key, err)
-		}
-	}
-	page, err := store.List(ctx, ListOptions{Prefix: "docs/", Delimiter: "/", Limit: 2})
-	if err != nil {
-		t.Fatalf("List returned error: %v", err)
-	}
-	if len(page.Objects) != 2 || page.Objects[0].Key != "docs/a.txt" || page.Objects[1].Key != "docs/b.txt" || page.NextCursor == "" {
-		t.Fatalf("first page = %+v", page)
-	}
-	next, err := store.List(ctx, ListOptions{Prefix: "docs/", Delimiter: "/", Cursor: page.NextCursor, Limit: 2})
-	if err != nil {
-		t.Fatalf("List next returned error: %v", err)
-	}
-	if len(next.Objects) != 0 || len(next.Prefixes) != 1 || next.Prefixes[0] != "docs/nested/" {
-		t.Fatalf("next page = %+v", next)
-	}
-	if err := store.DeletePrefix(ctx, "docs/"); err != nil {
-		t.Fatalf("DeletePrefix returned error: %v", err)
-	}
-	empty, err := store.List(ctx, ListOptions{})
-	if err != nil {
-		t.Fatalf("List after delete returned error: %v", err)
-	}
-	if len(empty.Objects) != 0 || len(empty.Prefixes) != 0 {
-		t.Fatalf("objects after delete = %+v prefixes = %+v", empty.Objects, empty.Prefixes)
-	}
-}
-
 func TestTenantScopedStoreFailsClosedWithoutTenant(t *testing.T) {
-	t.Parallel()
-	store := newTenantScopedStore(&localRuntimeStore{name: "app", root: t.TempDir()})
-	_, err := store.Head(context.Background(), "docs/a.txt")
-	if _, ok := errors.AsType[*TenantRequiredError](err); !ok {
-		t.Fatalf("Head without tenant error = %T %[1]v, want TenantRequiredError", err)
+	local := &localRuntimeStore{name: "app", tenantScoped: true, resolve: func(context.Context, storagefs.Scope, bool) (Store, error) {
+		t.Fatal("resolved backend without tenant")
+		return nil, nil
+	}}
+	_, err := local.Head(context.Background(), "a")
+	var required *TenantRequiredError
+	if !errors.As(err, &required) {
+		t.Fatalf("missing tenant: %v", err)
 	}
 }
-
-func encodedTenant(tenant string) string {
-	return base64.RawURLEncoding.EncodeToString([]byte(tenant))
+func TestUnscopedStoreRejectsExplicitTenant(t *testing.T) {
+	local := &localRuntimeStore{name: "app", resolve: func(context.Context, storagefs.Scope, bool) (Store, error) {
+		t.Fatal("resolved backend with forbidden tenant")
+		return nil, nil
+	}}
+	if _, err := local.Head(WithTenantID(context.Background(), "tenant"), "a"); !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("explicit tenant on unscoped store: %v", err)
+	}
 }

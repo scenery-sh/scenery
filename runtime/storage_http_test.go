@@ -31,11 +31,11 @@ func TestStorageHTTPRoutesRequireAuthAndServeObjects(t *testing.T) {
 
 	root := t.TempDir()
 	t.Setenv(storageconfig.RuntimeConfigEnv, storageHTTPTestConfig(root, "auth"))
-	httpServer, err := newServer("127.0.0.1:0")
+	httpServer, err := newStorageHTTPTestServer()
 	if err != nil {
 		t.Fatalf("newServer() error = %v", err)
 	}
-	server := httptest.NewServer(httpServer.Handler)
+	server := newStorageInProcessServer(httpServer.Handler)
 	defer server.Close()
 	client := server.Client()
 
@@ -59,7 +59,7 @@ func TestStorageHTTPRoutesRequireAuthAndServeObjects(t *testing.T) {
 	}
 	putReq.Header.Set("Authorization", "Bearer storage-token")
 	putReq.Header.Set("Content-Type", "text/plain")
-	putReq.Header.Set("X-Scenery-Storage-Meta-Author", "runtime")
+	storage.SetMetadataHeaders(putReq.Header, map[string]string{"Author": "runtime"})
 	putResp, err := client.Do(putReq)
 	if err != nil {
 		t.Fatalf("put with auth: %v", err)
@@ -95,7 +95,7 @@ func TestStorageHTTPRoutesRequireAuthAndServeObjects(t *testing.T) {
 	if err := json.NewDecoder(listResp.Body).Decode(&page); err != nil {
 		t.Fatalf("decode list page: %v", err)
 	}
-	if len(page.Objects) != 1 || page.Objects[0].Key != "reports/report.txt" || page.Objects[0].Metadata["Author"] != "runtime" {
+	if len(page.Objects) != 1 || page.Objects[0].Key != "reports/report.txt" || page.Objects[0].Metadata != nil {
 		t.Fatalf("list page = %+v", page)
 	}
 
@@ -109,8 +109,12 @@ func TestStorageHTTPRoutesRequireAuthAndServeObjects(t *testing.T) {
 		t.Fatalf("head: %v", err)
 	}
 	_ = headResp.Body.Close()
-	if headResp.StatusCode != http.StatusOK || headResp.Header.Get("Content-Length") != "14" || headResp.Header.Get("X-Scenery-Storage-Meta-Author") != "runtime" {
-		t.Fatalf("head status = %d content-length = %q metadata = %q", headResp.StatusCode, headResp.Header.Get("Content-Length"), headResp.Header.Get("X-Scenery-Storage-Meta-Author"))
+	metadata, err := storage.MetadataFromHeaders(headResp.Header)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if headResp.StatusCode != http.StatusOK || headResp.Header.Get("Content-Length") != "14" || metadata["Author"] != "runtime" {
+		t.Fatalf("head status = %d content-length = %q metadata = %v", headResp.StatusCode, headResp.Header.Get("Content-Length"), metadata)
 	}
 
 	getReq, err := http.NewRequest(http.MethodGet, server.URL+"/__scenery/storage/app/reports/report.txt", nil)
@@ -166,7 +170,7 @@ func TestStorageHTTPRoutesDenyPrivateStores(t *testing.T) {
 	defer restore()
 	root := t.TempDir()
 	t.Setenv(storageconfig.RuntimeConfigEnv, storageHTTPTestConfig(root, "private"))
-	httpServer, err := newServer("127.0.0.1:0")
+	httpServer, err := newStorageHTTPTestServer()
 	if err != nil {
 		t.Fatalf("newServer() error = %v", err)
 	}
@@ -200,11 +204,11 @@ func TestStorageHTTPRoutesScopeObjectsByTenant(t *testing.T) {
 
 	root := t.TempDir()
 	t.Setenv(storageconfig.RuntimeConfigEnv, storageHTTPTestConfigWithTenantScoped(root, "auth", true))
-	httpServer, err := newServer("127.0.0.1:0")
+	httpServer, err := newStorageHTTPTestServer()
 	if err != nil {
 		t.Fatalf("newServer() error = %v", err)
 	}
-	server := httptest.NewServer(httpServer.Handler)
+	server := newStorageInProcessServer(httpServer.Handler)
 	defer server.Close()
 	client := server.Client()
 
@@ -215,6 +219,14 @@ func TestStorageHTTPRoutesScopeObjectsByTenant(t *testing.T) {
 	}
 	if got := getStorageHTTP(t, client, server.URL, "tenant-b", "reports/report.txt"); got != "bravo" {
 		t.Fatalf("tenant B body = %q", got)
+	}
+	forged := httptest.NewRequest(http.MethodGet, "/__scenery/storage/app/reports/report.txt", nil)
+	forged.Header.Set("Authorization", "Bearer tenant-a")
+	forged.Header.Set("X-Scenery-Storage-Tenant", "dGVuYW50LWI")
+	forgedResponse := httptest.NewRecorder()
+	httpServer.Handler.ServeHTTP(forgedResponse, forged)
+	if forgedResponse.Code != http.StatusOK || forgedResponse.Body.String() != "alpha" {
+		t.Fatalf("external tenant header overrode authenticated scope: %d %q", forgedResponse.Code, forgedResponse.Body.String())
 	}
 	listReq, err := http.NewRequest(http.MethodGet, server.URL+"/__scenery/storage/app?prefix=reports/", nil)
 	if err != nil {
@@ -243,6 +255,7 @@ func TestStorageHTTPRoutesScopeObjectsByTenant(t *testing.T) {
 		t.Fatal(err)
 	}
 	noTenantReq.Header.Set("Authorization", "Bearer no-tenant")
+	noTenantReq.Header.Set("X-Scenery-Storage-Tenant", "dGVuYW50LWE")
 	noTenantResp, err := client.Do(noTenantReq)
 	if err != nil {
 		t.Fatalf("put without tenant: %v", err)
@@ -262,7 +275,9 @@ func TestStorageHTTPPrivateStoreServedOnInternalRouter(t *testing.T) {
 		public:  newRouteTable(),
 		private: newRouteTable(),
 	}
-	s.registerStorageRoutes()
+	routes := storageHTTPTestRoutes()
+	routes.register(s.public, false)
+	routes.register(s.private, true)
 
 	putRec := httptest.NewRecorder()
 	putReq := httptest.NewRequest(http.MethodPut, "/__scenery/storage/app/reports/report.txt", strings.NewReader("internal report"))
@@ -345,7 +360,6 @@ func storageHTTPTestConfig(root, access string) string {
 func storageHTTPTestConfigWithTenantScoped(root, access string, tenantScoped bool) string {
 	raw, err := json.Marshal(storageconfig.RuntimeConfig{
 		ArtifactIdentity: storageconfig.NewRuntimeIdentity(),
-		CellID:           "test-cell",
 		Default:          "app",
 		Stores: map[string]storageconfig.RuntimeStoreConfig{
 			"app": {Kind: "local", Root: filepath.Join(root, "app"), Access: access, TenantScoped: tenantScoped},

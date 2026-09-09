@@ -3,54 +3,157 @@
   "$id": "https://scenery.sh/schemas/scenery.snapshot.save.schema.json",
   "title": "scenery snapshot save",
   "type": "object",
-  "required": ["kind", "schema_revision", "archive", "app", "files", "bytes"],
+  "required": [
+    "kind",
+    "schema_revision",
+    "archive",
+    "app",
+    "files",
+    "bytes"
+  ],
   "properties": {
-    "kind": { "const": "scenery.snapshot.save" },
-    "schema_revision": { "const": "sha256:2b96edbc636dc4810f4cd13a15ed7ec9703c5ba78e5d7ee5406bbd38fcf1110a" },
-    "archive": { "type": "string", "minLength": 1 },
-    "app": { "$ref": "#/$defs/app" },
-    "db": { "$ref": "#/$defs/db" },
-    "storage": { "$ref": "#/$defs/storage" },
-    "files": { "type": "integer", "minimum": 0 },
-    "bytes": { "type": "integer", "minimum": 0 }
+    "kind": {
+      "const": "scenery.snapshot.save"
+    },
+    "schema_revision": {
+      "const": "sha256:103a4cc24cc3fbeb91079f0b438e2c001d43f6d4fd07b0dbd0e0fd4ec38bdedf"
+    },
+    "archive": {
+      "type": "string",
+      "minLength": 1
+    },
+    "app": {
+      "$ref": "#/$defs/app"
+    },
+    "db": {
+      "$ref": "#/$defs/db"
+    },
+    "storage": {
+      "$ref": "#/$defs/storage"
+    },
+    "files": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "bytes": {
+      "type": "integer",
+      "minimum": 0
+    }
   },
   "$defs": {
     "app": {
       "type": "object",
-      "required": ["name", "id", "root"],
+      "required": [
+        "name",
+        "id",
+        "root"
+      ],
       "properties": {
-        "name": { "type": "string", "minLength": 1 },
-        "id": { "type": "string", "minLength": 1 },
-        "root": { "type": "string", "minLength": 1 }
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "root": {
+          "type": "string",
+          "minLength": 1
+        }
       },
       "additionalProperties": false
     },
     "db": {
       "type": "object",
-      "required": ["database", "source", "action"],
+      "required": [
+        "database",
+        "source",
+        "action"
+      ],
       "properties": {
-        "database": { "type": "string", "minLength": 1 },
-        "source": { "type": "string", "enum": ["managed", "external"] },
-        "action": { "type": "string", "enum": ["saved", "overwrite", "merge"] }
+        "database": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "managed",
+            "external"
+          ]
+        },
+        "action": {
+          "type": "string",
+          "enum": [
+            "saved",
+            "overwrite",
+            "merge"
+          ]
+        }
       },
       "additionalProperties": false
     },
     "storage": {
       "type": "object",
-      "required": ["cell_id", "cell_root", "stores", "files", "bytes"],
+      "required": [
+        "scope",
+        "stores",
+        "files",
+        "bytes"
+      ],
       "properties": {
-        "cell_id": { "type": "string", "minLength": 1 },
-        "cell_root": { "type": "string", "minLength": 1 },
-        "stores": { "type": "integer", "minimum": 0 },
-        "files": { "type": "integer", "minimum": 0 },
-        "bytes": { "type": "integer", "minimum": 0 },
-        "conflicts": { "type": "integer", "minimum": 0 },
-        "skipped": { "type": "integer", "minimum": 0 },
-        "overwritten": { "type": "integer", "minimum": 0 }
+        "scope": {
+          "$ref": "scenery.storage.object.schema.json#/$defs/scope"
+        },
+        "stores": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "files": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "conflicts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "skipped": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "overwritten": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cloned": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "copied": {
+          "type": "integer",
+          "minimum": 0
+        }
       },
       "additionalProperties": false
     }
   },
-  "anyOf": [{ "required": ["db"] }, { "required": ["storage"] }],
-  "additionalProperties": false
+  "anyOf": [
+    {
+      "required": [
+        "db"
+      ]
+    },
+    {
+      "required": [
+        "storage"
+      ]
+    }
+  ],
+  "additionalProperties": false,
+  "description": "Logical snapshot capture of a stopped worktree; combined capture requires an already-owned managed database."
 }

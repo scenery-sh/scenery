@@ -6,7 +6,7 @@
   "required": ["kind", "schema_revision", "created_at", "app", "files"],
   "properties": {
     "kind": { "const": "scenery.snapshot.manifest" },
-    "schema_revision": { "const": "sha256:83cc59388d47510203407af1dd68d22fcad86d95add34d9dfb4cabcd56b54792" },
+    "schema_revision": { "const": "sha256:6885a140ff0b5b20f4639d1837609b28bb28735e803c7ce80561c49401654e87" },
     "created_at": { "type": "string", "format": "date-time" },
     "app": {
       "type": "object",
@@ -35,25 +35,34 @@
             "additionalProperties": false
           }
         },
-        "dump_file": { "type": "string", "pattern": "^db/[^/]+\\.postgres\\.dump$" },
+        "dump_file": { "const": "db/database.postgres.dump" },
         "dump_format": { "const": "pg_custom" }
       },
       "additionalProperties": false
     },
     "storage": {
       "type": "object",
-      "required": ["cell_id", "stores"],
+      "required": ["stores"],
       "properties": {
-        "cell_id": { "type": "string", "minLength": 1 },
+        "provenance": {
+          "type": "object",
+          "required": ["app_root", "worktree_key"],
+          "properties": {
+            "app_root": { "type": "string" },
+            "worktree_key": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
         "stores": {
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["name", "files", "bytes"],
+            "required": ["name", "files", "bytes", "manifest"],
             "properties": {
               "name": { "type": "string", "minLength": 1 },
               "files": { "type": "integer", "minimum": 0 },
-              "bytes": { "type": "integer", "minimum": 0 }
+              "bytes": { "type": "integer", "minimum": 0 },
+              "manifest": { "$ref": "#/$defs/file" }
             },
             "additionalProperties": false
           }
@@ -63,7 +72,13 @@
     },
     "files": {
       "type": "array",
-      "items": {
+      "maxItems": 1,
+      "description": "Only the database dump appears here. Storage inventory is streamed from each checksummed JSONL store manifest.",
+      "items": { "$ref": "#/$defs/file" }
+    }
+  },
+  "$defs": {
+    "file": {
         "type": "object",
         "required": ["path", "bytes", "sha256"],
         "properties": {
@@ -72,7 +87,22 @@
           "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
         },
         "additionalProperties": false
-      }
+    },
+    "object": {
+      "type": "object",
+      "description": "One JSONL store-manifest record. UTF-8 byte bounds and the 16 KiB encoded metadata bound are checked by the archive reader. Source ETags and internal storage paths are not portable.",
+      "required": ["store", "key", "size_bytes", "sha256", "modified_at"],
+      "properties": {
+        "store": { "type": "string", "pattern": "^[a-z0-9._-]+$" },
+        "tenant": { "type": "string", "maxLength": 256 },
+        "key": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "size_bytes": { "type": "integer", "minimum": 0 },
+        "content_type": { "type": "string", "maxLength": 255 },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "modified_at": { "type": "string", "format": "date-time" },
+        "metadata": { "type": "object", "additionalProperties": { "type": "string" } }
+      },
+      "additionalProperties": false
     }
   },
   "anyOf": [{ "required": ["db"] }, { "required": ["storage"] }],

@@ -684,7 +684,7 @@ func (s *devSupervisor) startApp(ctx context.Context, result *build.Result, meta
 		return nil, err
 	}
 	env = append(env, managedEnv...)
-	storageEnv, err := storageCapabilityEnv(s.cfg, agentSession, baseEnv, "")
+	storageEnv, err := storageCapabilityEnv(ctx, s.root, s.cfg, agentSession, baseEnv, "")
 	if err != nil {
 		return nil, err
 	}
@@ -897,7 +897,7 @@ func (s *devSupervisor) runDevDatabaseSetup(ctx context.Context, setup devDataba
 	)
 	env = append(env, managedEnv...)
 	env = append(env, managedDatabaseSetupEnv(contract.SQLRequirements, managedEnv)...)
-	storageEnv, err := storageCapabilityEnv(s.cfg, s.currentAgentSession(), baseEnv, "")
+	storageEnv, err := storageCapabilityEnv(ctx, s.root, s.cfg, s.currentAgentSession(), baseEnv, "")
 	if err != nil {
 		return err
 	}

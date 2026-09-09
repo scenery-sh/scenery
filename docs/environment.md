@@ -127,7 +127,6 @@ Managed toolchain artifacts come from `scenery.toolchain.json` and manifest-driv
 | Variable | Direction | Description |
 | --- | --- | --- |
 | `SCENERY_STORAGE_CONFIG` | injected/user input | Strict current `scenery.storage.runtime` artifact consumed by `scenery.sh/storage`, with exact schema/spec revisions and producer identity. Dev sessions inject it; headless runtimes require an explicit operator-provided config whose stores use `kind: "local"` (absolute `root`) or `kind: "proxy"` (`proxy_socket`). It contains configured store names and Scenery-owned backend metadata, not raw object-store credentials. |
-| `SCENERY_STORAGE_CELL_ID` | injected | Stable shared storage cell ID for the app's configured storage capability. |
 
 ## Observability And Victoria
 

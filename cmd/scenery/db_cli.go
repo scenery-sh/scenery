@@ -219,7 +219,7 @@ func runDBList(ctx context.Context, stdout io.Writer, args []string) error {
 	return nil
 }
 
-func dbShellCommand(args []string) error {
+func dbShellCommand(args []string) (returnErr error) {
 	opts, err := parseDBCLIArgs(args, true)
 	if err != nil {
 		return err
@@ -232,18 +232,45 @@ func dbShellCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	program, err := exec.LookPath("psql")
-	if err != nil {
-		return fmt.Errorf("psql not found in PATH; cannot open postgres database %s", database.Database)
-	}
-	cmd := exec.Command(program, append([]string{database.URL}, opts.Args...)...)
-	cmd.Dir = appRoot
-	cmd.Env = envpolicy.Environ()
+	environment := envpolicy.Environ()
 	if schema, ok := databaseSchemaByService(database, opts.Service); ok {
-		cmd.Env = overlayEnv(cmd.Env, map[string]string{"PGOPTIONS": "-c search_path=" + schema + ",scenery"})
+		environment = overlayEnv(environment, map[string]string{"PGOPTIONS": "-c search_path=" + schema + ",scenery"})
 	} else if strings.TrimSpace(opts.Service) != "" {
 		return fmt.Errorf("database service %q is not configured", opts.Service)
 	}
+	program := "psql"
+	toolArgs := []string{database.URL}
+	if database.Source == postgresdb.SourceManaged {
+		paths, err := commandWorktreePaths(appRoot)
+		if err != nil {
+			return err
+		}
+		op, err := paths.BeginOperation()
+		if err != nil {
+			return err
+		}
+		defer func() { returnErr = errors.Join(returnErr, op.Close()) }()
+		if err := checkStorageStartup(context.Background(), appRoot, cfg); err != nil {
+			return err
+		}
+		program = "docker"
+		execOptions := []string{"--env", "PGOPTIONS"}
+		if isTerminal(os.Stdin) && isTerminal(os.Stdout) {
+			execOptions = append(execOptions, "--tty")
+		}
+		toolArgs, err = managedPostgresToolArgs(context.Background(), database, "psql", execOptions...)
+		if err != nil {
+			return err
+		}
+		environment = envWithoutKeys(environment, "DOCKER_HOST", "DOCKER_CONTEXT")
+	}
+	path, err := exec.LookPath(program)
+	if err != nil {
+		return fmt.Errorf("%s not found in PATH; cannot open postgres database %s", program, database.Database)
+	}
+	cmd := exec.Command(path, append(toolArgs, opts.Args...)...)
+	cmd.Dir = appRoot
+	cmd.Env = environment
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

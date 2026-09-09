@@ -8,6 +8,9 @@ usage: snapshot-backup.sh --app-root <path> --output-dir <path> [--keep <count>]
 Creates and verifies a database-plus-storage snapshot, optionally copies it
 off-machine with rclone, then retains the newest local snapshots. Run this
 script from launchd, systemd, or cron; it does not install a scheduler.
+The source worktree must already be stopped, with an already-owned managed
+database. Combined capture rejects external databases. This script never stops
+applications; arbitrary external SQL/filesystem writers must also be quiesced.
 EOF
 }
 
@@ -53,6 +56,7 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 archive="$output_dir/snapshot-$(date -u +%Y%m%dT%H%M%SZ).zip"
+printf 'snapshot backup: capture requires a stopped worktree and quiesced external writers; no application will be stopped automatically\n' >&2
 scenery snapshot save --db --storage --app-root "$app_root" --output "$archive" -o json
 scenery snapshot verify --input "$archive" -o json
 

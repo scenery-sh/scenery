@@ -2,54 +2,27 @@ package storage
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"maps"
-	"mime"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
-	"path/filepath"
-	"sort"
-	"strings"
-	"sync"
-	"syscall"
-
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/storageconfig"
+	"scenery.sh/internal/storagefs"
+	"strings"
 )
 
-type localRuntimeStore struct {
-	name           string
-	root           string
-	maxObjectBytes int64
-}
-
-// LocalStoreOptions configures a filesystem-backed store.
-type LocalStoreOptions struct {
-	MaxObjectBytes int64
-}
-
-// NewLocalStore returns a filesystem-backed store rooted at root.
-func NewLocalStore(name, root string) Store {
-	return NewLocalStoreWithOptions(name, root, LocalStoreOptions{})
-}
-
-// NewLocalStoreWithOptions returns a configured filesystem-backed store.
-func NewLocalStoreWithOptions(name, root string, opts LocalStoreOptions) Store {
-	return &localRuntimeStore{name: name, root: root, maxObjectBytes: opts.MaxObjectBytes}
-}
-
 type proxyRuntimeStore struct {
-	name   string
-	socket string
-	client *http.Client
+	name         string
+	socket       string
+	client       *http.Client
+	binding      string
+	tenantScoped bool
 }
 
 func loadRuntimeConfig() (storageconfig.RuntimeConfig, error) {
@@ -63,26 +36,40 @@ func loadRuntimeConfig() (storageconfig.RuntimeConfig, error) {
 	return cfg, nil
 }
 
-func newRuntimeStore(name string, cfg storageconfig.RuntimeStoreConfig) (Store, error) {
+func newRuntimeStore(name string, cfg storageconfig.RuntimeStoreConfig, namespace *storageconfig.Namespace) (Store, error) {
 	var store Store
 	switch strings.TrimSpace(cfg.Kind) {
 	case "local":
 		root := strings.TrimSpace(cfg.Root)
+		if namespace != nil {
+			root = namespace.Root
+		}
 		if root == "" {
 			return nil, fmt.Errorf("storage store %q root is empty", name)
 		}
-		store = NewLocalStoreWithOptions(name, root, LocalStoreOptions{MaxObjectBytes: cfg.MaxObjectBytes})
+		local := &localRuntimeStore{name: name, root: root, maxObjectBytes: cfg.MaxObjectBytes, tenantScoped: cfg.TenantScoped}
+		if namespace != nil {
+			var err error
+			local.namespace, err = namespace.Handle()
+			if err != nil {
+				return nil, err
+			}
+		}
+		store = local
 	case "proxy":
 		socket := strings.TrimSpace(cfg.ProxySocket)
 		if socket == "" {
 			return nil, fmt.Errorf("storage store %q proxy socket is empty", name)
 		}
-		store = newProxyRuntimeStore(name, socket)
+		proxy := newProxyRuntimeStore(name, socket)
+		proxy.tenantScoped = cfg.TenantScoped
+		if namespace == nil {
+			return nil, fmt.Errorf("storage proxy requires namespace binding")
+		}
+		proxy.binding = namespace.ProxyBinding()
+		store = proxy
 	default:
 		return nil, fmt.Errorf("storage store %q backend %q is not supported by this runtime", name, cfg.Kind)
-	}
-	if cfg.TenantScoped {
-		store = newTenantScopedStore(store)
 	}
 	return store, nil
 }
@@ -101,6 +88,9 @@ func (s *proxyRuntimeStore) Put(ctx context.Context, key string, body io.Reader,
 	if err := ValidateKey(key); err != nil {
 		return nil, err
 	}
+	if err := storagefs.ValidatePutOptions(opts); err != nil {
+		return nil, adaptError(err, s.name, key, false)
+	}
 	req, err := s.newRequest(ctx, http.MethodPut, key, nil, body)
 	if err != nil {
 		return nil, err
@@ -112,23 +102,22 @@ func (s *proxyRuntimeStore) Put(ctx context.Context, key string, body io.Reader,
 	if opts.IfNoneMatch {
 		req.Header.Set("If-None-Match", "*")
 	}
+	if opts.IfMatch != "" {
+		req.Header.Set("If-Match", opts.IfMatch)
+	}
 	resp, err := s.client.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 300 {
-		return nil, proxyStorageError(resp, s.name, key)
+		return nil, adaptError(proxyStorageError(resp, s.name, key), s.name, key, opts.IfNoneMatch)
 	}
 	var obj Object
 	if err := json.NewDecoder(resp.Body).Decode(&obj); err != nil {
 		return nil, err
 	}
 	return &obj, nil
-}
-
-func (s *proxyRuntimeStore) PutFile(ctx context.Context, key, localPath string, opts PutOptions) (*Object, error) {
-	return PutFile(ctx, s, key, localPath, opts)
 }
 
 func (s *proxyRuntimeStore) Get(ctx context.Context, key string, opts GetOptions) (io.ReadCloser, *Object, error) {
@@ -212,13 +201,16 @@ func (s *proxyRuntimeStore) List(ctx context.Context, opts ListOptions) (*ListPa
 	return &page, nil
 }
 
-func (s *proxyRuntimeStore) Delete(ctx context.Context, key string) error {
+func (s *proxyRuntimeStore) Delete(ctx context.Context, key string, opts DeleteOptions) error {
 	if err := ValidateKey(key); err != nil {
 		return err
 	}
 	req, err := s.newRequest(ctx, http.MethodDelete, key, nil, nil)
 	if err != nil {
 		return err
+	}
+	if opts.IfMatch != "" {
+		req.Header.Set("If-Match", opts.IfMatch)
 	}
 	resp, err := s.client.Do(req)
 	if err != nil {
@@ -256,7 +248,19 @@ func (s *proxyRuntimeStore) newRequest(ctx context.Context, method, key string, 
 	if len(query) > 0 {
 		path += "?" + query.Encode()
 	}
-	return http.NewRequestWithContext(ctx, method, "http://scenery-storage"+path, body)
+	tenant, err := selectedTenant(ctx, s.name, s.tenantScoped)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, method, "http://scenery-storage"+path, body)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("X-Scenery-Storage-Namespace", s.binding)
+	if tenant != "" {
+		req.Header.Set("X-Scenery-Storage-Tenant", base64.RawURLEncoding.EncodeToString([]byte(tenant)))
+	}
+	return req, nil
 }
 
 func objectFromProxyHeaders(header http.Header) (*Object, error) {
@@ -276,448 +280,50 @@ func objectFromProxyHeaders(header http.Header) (*Object, error) {
 }
 
 func proxyStorageError(resp *http.Response, store, key string) error {
-	switch resp.StatusCode {
-	case http.StatusNotFound:
+	data, err := io.ReadAll(io.LimitReader(resp.Body, (16<<10)+1))
+	if err != nil {
+		return err
+	}
+	if len(data) > 16<<10 {
+		return fmt.Errorf("storage proxy returned an oversized error")
+	}
+	var failure storagefs.Failure
+	if err := json.Unmarshal(data, &failure); err != nil {
+		return fmt.Errorf("storage proxy returned invalid HTTP %d error", resp.StatusCode)
+	}
+	switch failure.Diagnostic {
+	case "SCN8006":
+		return ErrMigration
+	case "SCN8007":
+		return &UncertainOutcomeError{Err: errors.New(failure.Message)}
+	case "SCN8008":
+		return ErrRecovery
+	case "SCN8009":
+		return ErrCorrupt
+	case "SCN8010":
+		encoded, _ := json.Marshal(failure.Details)
+		var progress storagefs.DeleteResult
+		if err := json.Unmarshal(encoded, &progress); err != nil {
+			return err
+		}
+		return &PartialDeleteError{Result: progress, Err: errors.New(failure.Message)}
+	}
+	switch failure.Code {
+	case "storage_ownership_conflict":
+		return ErrOwnership
+	case "failed_precondition", "already_exists":
+		return &PreconditionError{Store: store, Key: key}
+	case "not_found":
 		return &NotFoundError{Store: store, Key: key}
-	case http.StatusPreconditionFailed, http.StatusConflict:
-		return &AlreadyExistsError{Store: store, Key: key}
-	case http.StatusBadRequest:
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return &InvalidKeyError{Key: key, Reason: strings.TrimSpace(string(body))}
+	case "capability_unavailable":
+		return &NotConfiguredError{Store: store}
+	case "permission_denied":
+		return fmt.Errorf("storage access denied: %w", os.ErrPermission)
+	case "tenant_required":
+		return &TenantRequiredError{Store: store}
+	case "invalid_argument":
+		return &InvalidKeyError{Key: key, Reason: failure.Message}
 	default:
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return fmt.Errorf("storage proxy returned HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		return fmt.Errorf("storage proxy failed: %s (report %s)", failure.Message, failure.ReportToken)
 	}
-}
-
-func (s *localRuntimeStore) Put(ctx context.Context, key string, body io.Reader, opts PutOptions) (*Object, error) {
-	if opts.IfNoneMatch {
-		return withStoragePutLock(s.name, key, func() (*Object, error) {
-			return s.putUnlocked(ctx, key, body, opts)
-		})
-	}
-	return s.putUnlocked(ctx, key, body, opts)
-}
-
-func (s *localRuntimeStore) putUnlocked(ctx context.Context, key string, body io.Reader, opts PutOptions) (*Object, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	if err := ValidateKey(key); err != nil {
-		return nil, err
-	}
-	path := s.path(key)
-	if opts.IfNoneMatch {
-		if _, err := os.Stat(path); err == nil {
-			return nil, &AlreadyExistsError{Store: s.name, Key: key}
-		} else if !os.IsNotExist(err) {
-			return nil, err
-		}
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return nil, err
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".scenery-put-*")
-	if err != nil {
-		return nil, err
-	}
-	tmpPath := tmp.Name()
-	removeTmp := true
-	defer func() {
-		_ = tmp.Close()
-		if removeTmp {
-			_ = os.Remove(tmpPath)
-		}
-	}()
-	h := sha256.New()
-	reader := io.Reader(body)
-	if s.maxObjectBytes > 0 {
-		reader = io.LimitReader(body, s.maxObjectBytes+1)
-	}
-	n, err := io.Copy(tmp, io.TeeReader(reader, h))
-	if err != nil {
-		return nil, err
-	}
-	if s.maxObjectBytes > 0 && n > s.maxObjectBytes {
-		return nil, fmt.Errorf("storage object %q exceeds max_object_bytes %d", key, s.maxObjectBytes)
-	}
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	if err := tmp.Sync(); err != nil {
-		return nil, err
-	}
-	if err := tmp.Close(); err != nil {
-		return nil, err
-	}
-	if err := os.Rename(tmpPath, path); err != nil {
-		return nil, err
-	}
-	if err := syncLocalDir(filepath.Dir(path)); err != nil {
-		return nil, err
-	}
-	removeTmp = false
-	info, err := os.Stat(path)
-	if err != nil {
-		return nil, err
-	}
-	contentType := opts.ContentType
-	if contentType == "" {
-		contentType = mime.TypeByExtension(filepath.Ext(key))
-	}
-	sum := hex.EncodeToString(h.Sum(nil))
-	meta := storageMetadataSidecar{ContentType: contentType, Metadata: cloneMetadata(opts.Metadata)}
-	if err := s.writeMetadata(key, meta); err != nil {
-		return nil, err
-	}
-	return &Object{
-		Store:       s.name,
-		Key:         key,
-		SizeBytes:   n,
-		ContentType: contentType,
-		ETag:        `"` + sum + `"`,
-		SHA256:      sum,
-		ModifiedAt:  info.ModTime().UTC(),
-		Metadata:    cloneMetadata(meta.Metadata),
-	}, nil
-}
-
-func (s *localRuntimeStore) PutFile(ctx context.Context, key, localPath string, opts PutOptions) (*Object, error) {
-	return PutFile(ctx, s, key, localPath, opts)
-}
-
-func (s *localRuntimeStore) Get(ctx context.Context, key string, opts GetOptions) (io.ReadCloser, *Object, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, nil, err
-	}
-	obj, err := s.Head(ctx, key)
-	if err != nil {
-		return nil, nil, err
-	}
-	file, err := os.Open(s.path(key))
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil, &NotFoundError{Store: s.name, Key: key}
-		}
-		return nil, nil, err
-	}
-	if opts.Offset != nil {
-		if *opts.Offset < 0 || *opts.Offset > obj.SizeBytes {
-			_ = file.Close()
-			return nil, nil, &InvalidKeyError{Key: key, Reason: "range offset is outside object"}
-		}
-		if _, err := file.Seek(*opts.Offset, io.SeekStart); err != nil {
-			_ = file.Close()
-			return nil, nil, err
-		}
-	}
-	if opts.Length != nil {
-		if *opts.Length < 0 {
-			_ = file.Close()
-			return nil, nil, &InvalidKeyError{Key: key, Reason: "range length must be non-negative"}
-		}
-		length := *opts.Length
-		if opts.Offset != nil && length > obj.SizeBytes-*opts.Offset {
-			length = obj.SizeBytes - *opts.Offset
-		}
-		obj.SizeBytes = length
-		return struct {
-			io.Reader
-			io.Closer
-		}{Reader: io.LimitReader(file, length), Closer: file}, obj, nil
-	}
-	if opts.Offset != nil {
-		obj.SizeBytes -= *opts.Offset
-	}
-	return file, obj, nil
-}
-
-func (s *localRuntimeStore) Head(ctx context.Context, key string) (*Object, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	if err := ValidateKey(key); err != nil {
-		return nil, err
-	}
-	path := s.path(key)
-	info, err := os.Stat(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, &NotFoundError{Store: s.name, Key: key}
-		}
-		return nil, err
-	}
-	if info.IsDir() {
-		return nil, &NotFoundError{Store: s.name, Key: key}
-	}
-	sum, err := localFileSHA256(path)
-	if err != nil {
-		return nil, err
-	}
-	meta, err := s.readMetadata(key)
-	if err != nil {
-		return nil, err
-	}
-	contentType := meta.ContentType
-	if contentType == "" {
-		contentType = mime.TypeByExtension(filepath.Ext(key))
-	}
-	return &Object{
-		Store:       s.name,
-		Key:         key,
-		SizeBytes:   info.Size(),
-		ContentType: contentType,
-		ETag:        `"` + sum + `"`,
-		SHA256:      sum,
-		ModifiedAt:  info.ModTime().UTC(),
-		Metadata:    cloneMetadata(meta.Metadata),
-	}, nil
-}
-
-func (s *localRuntimeStore) List(ctx context.Context, opts ListOptions) (*ListPage, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	opts, err := NormalizeListOptions(opts)
-	if err != nil {
-		return nil, err
-	}
-	var keys []string
-	if err := filepath.WalkDir(s.root, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			return nil
-		}
-		rel, err := filepath.Rel(s.root, path)
-		if err != nil {
-			return err
-		}
-		key := filepath.ToSlash(rel)
-		if isStorageMetadataKey(key) {
-			return nil
-		}
-		if strings.HasPrefix(key, opts.Prefix) {
-			keys = append(keys, key)
-		}
-		return nil
-	}); err != nil && !os.IsNotExist(err) {
-		return nil, err
-	}
-	sort.Strings(keys)
-	prefixes := map[string]bool{}
-	page := &ListPage{}
-	for _, key := range keys {
-		if opts.Cursor != "" && key <= opts.Cursor {
-			continue
-		}
-		if opts.Delimiter == "/" {
-			rest := strings.TrimPrefix(key, opts.Prefix)
-			if idx := strings.Index(rest, "/"); idx >= 0 {
-				prefix := opts.Prefix + rest[:idx+1]
-				if !prefixes[prefix] {
-					prefixes[prefix] = true
-					page.Prefixes = append(page.Prefixes, prefix)
-				}
-				continue
-			}
-		}
-		obj, err := s.Head(ctx, key)
-		if err != nil {
-			return nil, err
-		}
-		page.Objects = append(page.Objects, *obj)
-		if len(page.Objects) >= opts.Limit {
-			page.NextCursor = key
-			break
-		}
-	}
-	sort.Strings(page.Prefixes)
-	return page, nil
-}
-
-func (s *localRuntimeStore) Delete(ctx context.Context, key string) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if err := ValidateKey(key); err != nil {
-		return err
-	}
-	if err := os.Remove(s.path(key)); err != nil {
-		if os.IsNotExist(err) {
-			return &NotFoundError{Store: s.name, Key: key}
-		}
-		return err
-	}
-	if err := syncLocalDir(filepath.Dir(s.path(key))); err != nil {
-		return err
-	}
-	if err := s.deleteMetadata(key); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (s *localRuntimeStore) DeletePrefix(ctx context.Context, prefix string) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if err := ValidatePrefix(prefix); err != nil {
-		return err
-	}
-	return filepath.WalkDir(s.root, func(path string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
-			return err
-		}
-		rel, err := filepath.Rel(s.root, path)
-		if err != nil {
-			return err
-		}
-		if strings.HasPrefix(filepath.ToSlash(rel), prefix) {
-			key := filepath.ToSlash(rel)
-			if isStorageMetadataKey(key) {
-				return nil
-			}
-			if err := os.Remove(path); err != nil {
-				return err
-			}
-			if err := syncLocalDir(filepath.Dir(path)); err != nil {
-				return err
-			}
-			if err := s.deleteMetadata(key); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-}
-
-func (s *localRuntimeStore) path(key string) string {
-	return filepath.Join(s.root, filepath.FromSlash(key))
-}
-
-func (s *localRuntimeStore) metadataPath(key string) string {
-	return filepath.Join(s.root, filepath.FromSlash(storageMetadataKey(key)))
-}
-
-func (s *localRuntimeStore) writeMetadata(key string, meta storageMetadataSidecar) error {
-	path := s.metadataPath(key)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".scenery-meta-*")
-	if err != nil {
-		return err
-	}
-	tmpPath := tmp.Name()
-	removeTmp := true
-	defer func() {
-		_ = tmp.Close()
-		if removeTmp {
-			_ = os.Remove(tmpPath)
-		}
-	}()
-	if err := json.NewEncoder(tmp).Encode(meta); err != nil {
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(tmpPath, path); err != nil {
-		return err
-	}
-	if err := syncLocalDir(filepath.Dir(path)); err != nil {
-		return err
-	}
-	removeTmp = false
-	return nil
-}
-
-func (s *localRuntimeStore) readMetadata(key string) (storageMetadataSidecar, error) {
-	data, err := os.ReadFile(s.metadataPath(key))
-	if err != nil {
-		if os.IsNotExist(err) {
-			return storageMetadataSidecar{}, nil
-		}
-		return storageMetadataSidecar{}, err
-	}
-	var meta storageMetadataSidecar
-	if err := json.Unmarshal(data, &meta); err != nil {
-		return storageMetadataSidecar{}, err
-	}
-	meta.Metadata = cloneMetadata(meta.Metadata)
-	return meta, nil
-}
-
-func (s *localRuntimeStore) deleteMetadata(key string) error {
-	path := s.metadataPath(key)
-	if err := os.Remove(path); err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return err
-	}
-	return syncLocalDir(filepath.Dir(path))
-}
-
-func localFileSHA256(path string) (string, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return "", err
-	}
-	defer func() { _ = file.Close() }()
-	h := sha256.New()
-	if _, err := io.Copy(h, file); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
-}
-
-func cloneMetadata(in map[string]string) map[string]string {
-	if len(in) == 0 {
-		return nil
-	}
-	out := make(map[string]string, len(in))
-	maps.Copy(out, in)
-	return out
-}
-
-type storageMetadataSidecar struct {
-	ContentType string            `json:"content_type,omitempty"`
-	Metadata    map[string]string `json:"metadata,omitempty"`
-}
-
-func storageMetadataKey(key string) string {
-	return "__scenery/metadata/" + key + ".json"
-}
-
-func isStorageMetadataKey(key string) bool {
-	return strings.HasPrefix(key, "__scenery/metadata/")
-}
-
-func syncLocalDir(path string) error {
-	dir, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = dir.Close() }()
-	if err := dir.Sync(); err != nil && !errors.Is(err, syscall.EINVAL) {
-		return err
-	}
-	return nil
-}
-
-var storagePutLocks sync.Map
-
-func withStoragePutLock[T any](store, key string, fn func() (T, error)) (T, error) {
-	lockKey := store + "\x00" + key
-	value, _ := storagePutLocks.LoadOrStore(lockKey, &sync.Mutex{})
-	mu := value.(*sync.Mutex)
-	mu.Lock()
-	defer mu.Unlock()
-	return fn()
 }

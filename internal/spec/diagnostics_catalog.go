@@ -426,6 +426,11 @@ SCN8002|revision_conflict|A request revision no longer matches current state
 SCN8003|failed_precondition|A request precondition is not satisfied
 SCN8004|capability_unavailable|A required provider extension or capability is unavailable
 SCN8005|permission_denied|Permission or required approval was denied
+SCN8006|storage_migration_required|Legacy storage requires an explicit source-read-only export and import
+SCN8007|storage_outcome_uncertain|A storage publication may have completed but its durability was not confirmed
+SCN8008|storage_recovery_required|A recorded storage lifecycle operation must be resumed before ordinary access
+SCN8009|storage_corrupt|Retained storage ownership or referenced object state is corrupt or incomplete
+SCN8010|storage_partial_completion|A bulk storage operation did not fully complete and requires renewed inspection
 SCN9000|internal_tooling_failure|An unexpected internal tooling failure occurred
 SCN9001|internal_parser_invariant|The parser returned an impossible body implementation
 SCN9002|internal_revision_invariant|Canonical contract revision construction failed internally

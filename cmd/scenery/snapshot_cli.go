@@ -5,18 +5,18 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/postgresdb"
+	"scenery.sh/internal/snapshotarchive"
 )
 
-const (
-	snapshotManifestKind           = "scenery.snapshot.manifest"
-	snapshotManifestSchemaRevision = "sha256:83cc59388d47510203407af1dd68d22fcad86d95add34d9dfb4cabcd56b54792"
-)
+var snapshotManifestSchemaRevision = snapshotarchive.SchemaRevision
 
 type snapshotSaveOptions struct {
 	AppRoot string
@@ -27,66 +27,29 @@ type snapshotSaveOptions struct {
 }
 
 type snapshotLoadOptions struct {
-	AppRoot    string
-	Input      string
-	DB         bool
-	Storage    bool
-	Mode       string
-	OnConflict string
-	Yes        bool
-	DryRun     bool
-	JSON       bool
+	AppRoot      string
+	Input        string
+	DB           bool
+	Storage      bool
+	Mode         string
+	OnConflict   string
+	Yes          bool
+	DryRun       bool
+	JSON         bool
+	ExpectSHA256 string
 }
 
 type snapshotVerifyOptions struct {
-	Input string
-	JSON  bool
+	Input        string
+	JSON         bool
+	ExpectSHA256 string
 }
 
-type snapshotManifest struct {
-	Kind           string                   `json:"kind"`
-	SchemaRevision string                   `json:"schema_revision"`
-	CreatedAt      time.Time                `json:"created_at"`
-	App            snapshotManifestApp      `json:"app"`
-	DB             *snapshotManifestDB      `json:"db,omitempty"`
-	Storage        *snapshotManifestStorage `json:"storage,omitempty"`
-	Files          []snapshotManifestFile   `json:"files"`
-}
-
-type snapshotManifestApp struct {
-	Name string `json:"name"`
-	ID   string `json:"id"`
-}
-
-type snapshotManifestDB struct {
-	Database   string                   `json:"database"`
-	Source     string                   `json:"source"`
-	Schemas    []snapshotManifestSchema `json:"schemas"`
-	DumpFile   string                   `json:"dump_file"`
-	DumpFormat string                   `json:"dump_format"`
-}
-
-type snapshotManifestSchema struct {
-	Service string `json:"service"`
-	Schema  string `json:"schema"`
-}
-
-type snapshotManifestStorage struct {
-	CellID string                  `json:"cell_id"`
-	Stores []snapshotManifestStore `json:"stores"`
-}
-
-type snapshotManifestStore struct {
-	Name  string `json:"name"`
-	Files int64  `json:"files"`
-	Bytes int64  `json:"bytes"`
-}
-
-type snapshotManifestFile struct {
-	Path   string `json:"path"`
-	Bytes  int64  `json:"bytes"`
-	SHA256 string `json:"sha256"`
-}
+type snapshotManifest = snapshotarchive.Manifest
+type snapshotManifestApp = snapshotarchive.App
+type snapshotManifestDB = snapshotarchive.Database
+type snapshotManifestSchema = snapshotarchive.Schema
+type snapshotManifestStorage = snapshotarchive.Storage
 
 type snapshotAppResult struct {
 	Name string `json:"name"`
@@ -101,14 +64,15 @@ type snapshotDBResult struct {
 }
 
 type snapshotStorageResult struct {
-	CellID      string `json:"cell_id"`
-	CellRoot    string `json:"cell_root"`
-	Stores      int    `json:"stores"`
-	Files       int64  `json:"files"`
-	Bytes       int64  `json:"bytes"`
-	Conflicts   int64  `json:"conflicts,omitempty"`
-	Skipped     int64  `json:"skipped,omitempty"`
-	Overwritten int64  `json:"overwritten,omitempty"`
+	Scope       storageResponseScope `json:"scope"`
+	Stores      int                  `json:"stores"`
+	Files       int64                `json:"files"`
+	Bytes       int64                `json:"bytes"`
+	Conflicts   int64                `json:"conflicts,omitempty"`
+	Skipped     int64                `json:"skipped,omitempty"`
+	Overwritten int64                `json:"overwritten,omitempty"`
+	Cloned      int64                `json:"cloned,omitempty"`
+	Copied      int64                `json:"copied,omitempty"`
 }
 
 type snapshotSaveResult struct {
@@ -140,19 +104,22 @@ type snapshotVerifyResult struct {
 	Bytes     int64               `json:"bytes"`
 	DB        bool                `json:"db"`
 	Storage   bool                `json:"storage"`
+	SHA256    string              `json:"sha256"`
 }
 
 func snapshotCommand(args []string) error {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 	if len(args) == 0 {
 		return fmt.Errorf("usage: scenery snapshot save|verify|load [flags]")
 	}
 	switch args[0] {
 	case "save":
-		return runSnapshotSave(context.Background(), os.Stdout, args[1:])
+		return runSnapshotSave(ctx, os.Stdout, args[1:])
 	case "load":
-		return runSnapshotLoad(context.Background(), os.Stdout, args[1:])
+		return runSnapshotLoad(ctx, os.Stdout, args[1:])
 	case "verify":
-		return runSnapshotVerify(os.Stdout, args[1:])
+		return runSnapshotVerify(ctx, os.Stdout, args[1:])
 	default:
 		return fmt.Errorf("unknown snapshot command %q", args[0])
 	}
@@ -162,6 +129,7 @@ func parseSnapshotVerifyArgs(args []string) (snapshotVerifyOptions, error) {
 	var opts snapshotVerifyOptions
 	flags := newCLIFlagSet("snapshot verify")
 	flags.StringVar(&opts.Input, "input", "", "")
+	flags.StringVar(&opts.ExpectSHA256, "expect-sha256", "", "")
 	registerJSONOutput(flags, &opts.JSON)
 	positionals, err := parseCLIFlags(flags, args)
 	if err != nil {
@@ -172,6 +140,9 @@ func parseSnapshotVerifyArgs(args []string) (snapshotVerifyOptions, error) {
 	}
 	if strings.TrimSpace(opts.Input) == "" {
 		return snapshotVerifyOptions{}, fmt.Errorf("snapshot verify requires --input <file.zip>")
+	}
+	if opts.ExpectSHA256 != "" && !snapshotarchive.ValidSHA256("sha256:"+opts.ExpectSHA256) {
+		return snapshotVerifyOptions{}, fmt.Errorf("--expect-sha256 requires 64 lowercase hexadecimal characters")
 	}
 	return opts, nil
 }
@@ -208,6 +179,7 @@ func parseSnapshotLoadArgs(args []string) (snapshotLoadOptions, error) {
 	flags := newCLIFlagSet("snapshot load")
 	flags.StringVar(&opts.AppRoot, "app-root", "", "")
 	flags.StringVar(&opts.Input, "input", "", "")
+	flags.StringVar(&opts.ExpectSHA256, "expect-sha256", "", "")
 	flags.BoolVar(&opts.DB, "db", false, "")
 	flags.BoolVar(&opts.Storage, "storage", false, "")
 	flags.StringVar(&opts.Mode, "mode", "", "")
@@ -230,6 +202,12 @@ func parseSnapshotLoadArgs(args []string) (snapshotLoadOptions, error) {
 	}
 	if opts.Mode != "overwrite" && opts.Mode != "merge" {
 		return snapshotLoadOptions{}, fmt.Errorf("snapshot load requires --mode overwrite|merge")
+	}
+	if opts.DB && opts.Storage && opts.Mode == "merge" {
+		return snapshotLoadOptions{}, fmt.Errorf("combined database/storage merge is not replay-safe; use overwrite or select one class")
+	}
+	if opts.ExpectSHA256 != "" && !snapshotarchive.ValidSHA256("sha256:"+opts.ExpectSHA256) {
+		return snapshotLoadOptions{}, fmt.Errorf("--expect-sha256 requires 64 lowercase hexadecimal characters")
 	}
 	if opts.Mode == "overwrite" && !opts.Yes {
 		return snapshotLoadOptions{}, fmt.Errorf("snapshot overwrite requires --yes")
@@ -294,12 +272,12 @@ func runSnapshotLoad(ctx context.Context, stdout io.Writer, args []string) error
 	return nil
 }
 
-func runSnapshotVerify(stdout io.Writer, args []string) error {
+func runSnapshotVerify(ctx context.Context, stdout io.Writer, args []string) error {
 	opts, err := parseSnapshotVerifyArgs(args)
 	if err != nil {
 		return err
 	}
-	result, err := verifySnapshot(opts.Input)
+	result, err := verifySnapshotPinned(ctx, opts.Input, opts.ExpectSHA256)
 	if err != nil {
 		return err
 	}

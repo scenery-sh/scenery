@@ -11,6 +11,20 @@ historical records. Do not refresh their review dates or rewrite them as current
 contract prose. Record later guidance here or in the owning current contract;
 use stale knowledge metadata to flag a known contradiction.
 
+## Worktree-Isolated, Filesystem-Only Storage
+
+- Status: completed locally; not committed or released
+- Owner: scenery storage / runtime
+- Completed: 2026-09-09
+- ExecPlan: [0171 Worktree-Isolated, Filesystem-Only Storage](0171-worktree-isolated-storage.md)
+
+M0–M8 and S01–S24 completed: immutable filesystem objects, retained worktree
+ownership, scoped SDK/CLI/HTTP/console, explicit maintenance, logical snapshots,
+pinned recovery and source-read-only legacy export. Mandatory Go/race/lint,
+dashboard/schema/fixture checks and selected native probes passed, including
+A1–A17 and Chrome storage acceptance. No new dependency or real-data migration.
+Full release, fresh all-root timing and benchmarks were explicitly unselected.
+
 ## Fast Iteration and Explicit External Proof
 
 - Status: completed

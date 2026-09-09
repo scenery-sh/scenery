@@ -34,6 +34,16 @@ func TestWatchGeneratedPresenceWithoutRebuildLoop(t *testing.T) {
 	if !snapshotsEqual(before, after) || snapshotFingerprint(before) != snapshotFingerprint(after) {
 		t.Fatal("generated write changed the authored watch baseline")
 	}
+	before.retryGenerated = true
+	if snapshotsEqual(before, after) || !slices.Contains(changedPaths(before, after), "service/scenerycontract/types.gen.go") {
+		t.Fatal("failed build ignored refreshed generated content")
+	}
+	if err := acceptGeneratedSnapshot(root, &before); err != nil {
+		t.Fatal(err)
+	}
+	if !snapshotsEqual(before, after) {
+		t.Fatal("successful build kept retrying generated writes")
+	}
 	write("service/scenerycontract/notes.go", "package scenerycontract\nconst authored = 123\n")
 	after, err = scanWatchedFilesReusing(root, before)
 	if err != nil {

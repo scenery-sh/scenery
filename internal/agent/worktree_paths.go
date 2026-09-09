@@ -126,6 +126,26 @@ func (p WorktreePaths) AcquireLiveLock() (*ProcessLock, error) {
 	return p.acquireLock(p.LiveLock)
 }
 
+// AcquireExistingLiveLock is the non-allocating stopped-owner boundary used by
+// read-only capture and destructive previews of retained capabilities.
+func (p WorktreePaths) AcquireExistingLiveLock() (*ProcessLock, error) {
+	if err := checkPrivateWorktreeFile(p.LiveLock); err != nil {
+		return nil, err
+	}
+	f, err := os.OpenFile(p.LiveLock, os.O_RDWR, 0)
+	if err != nil {
+		return nil, err
+	}
+	if err := tryProcessLock(f); err != nil {
+		_ = f.Close()
+		if processLockBusy(err) {
+			return nil, fmt.Errorf("%w: selected worktree must be stopped", ErrProcessLocked)
+		}
+		return nil, err
+	}
+	return &ProcessLock{file: f}, nil
+}
+
 // ProbeLiveLock observes an existing owner lock without creating state. A free
 // lock is released immediately; callers must acquire it before any mutation.
 func (p WorktreePaths) ProbeLiveLock() (bool, error) {

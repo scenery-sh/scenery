@@ -245,9 +245,11 @@ type fileStamp struct {
 }
 
 type fileSnapshot struct {
-	files     map[string]fileStamp
-	dirs      []string
-	generated map[string]bool
+	files            map[string]fileStamp
+	dirs             []string
+	generated        map[string]bool
+	generatedContent map[string]fileStamp
+	retryGenerated   bool
 }
 
 type devBackend struct {
@@ -290,6 +292,9 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode, desktop bool, appR
 	}
 	root, cfg, err := app.DiscoverRoot(start)
 	if err != nil {
+		return err
+	}
+	if err := checkStorageStartup(context.Background(), root, cfg); err != nil {
 		return err
 	}
 	resolvedEnv, err := cfg.ResolveEnv(envName)
@@ -425,6 +430,7 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode, desktop bool, appR
 	}
 
 	if err := supervisor.RebuildAndRestart(ctx, true, snapshot); err != nil {
+		snapshot.retryGenerated = true
 		err = preserveCLIDiagnostic(err)
 		err = startup.Report(err)
 		supervisor.console.InitialBuildFailed(err, supervisor.runURLs())
@@ -474,6 +480,7 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode, desktop bool, appR
 		}
 		supervisor.announceRebuild(appPaths)
 		if err := supervisor.RebuildAndRestart(ctx, false, snapshot); err != nil {
+			snapshot.retryGenerated = true
 			supervisor.console.RebuildFailed(err)
 		} else {
 			if err := acceptGeneratedSnapshot(root, &snapshot); err != nil {
@@ -824,9 +831,21 @@ func scanWatchedFilesReusing(root string, previous fileSnapshot) (fileSnapshot, 
 		return fileSnapshot{}, err
 	}
 	snapshot.generated = make(map[string]bool, len(generated))
+	snapshot.generatedContent = make(map[string]fileStamp, len(generated))
+	snapshot.retryGenerated = previous.retryGenerated
 	for rel := range generated {
 		info, err := os.Lstat(filepath.Join(root, filepath.FromSlash(rel)))
 		snapshot.generated[rel] = err == nil && info.Mode().IsRegular()
+		if snapshot.generated[rel] {
+			stamp, reused := reusableStamp(previous.generatedContent, rel, info, false)
+			if !reused {
+				stamp, _, err = stampWatchedFile(filepath.Join(root, filepath.FromSlash(rel)), info, false)
+				if err != nil {
+					continue
+				}
+			}
+			snapshot.generatedContent[rel] = stamp
+		}
 	}
 	var dirs []string
 	ignore := watchignore.New(root)
@@ -946,6 +965,9 @@ func stampWatchedFile(path string, info fs.FileInfo, embedded bool) (fileStamp, 
 }
 
 func snapshotsEqual(a, b fileSnapshot) bool {
+	if a.retryGenerated && len(changedGeneratedContent(a, b)) > 0 {
+		return false
+	}
 	if len(a.generated) != len(b.generated) {
 		return false
 	}
@@ -990,6 +1012,13 @@ func changedPaths(before, after fileSnapshot) []string {
 	for path := range after.generated {
 		if _, existed := before.generated[path]; !existed && !seen[path] {
 			paths = append(paths, path)
+		}
+	}
+	if before.retryGenerated {
+		for _, path := range changedGeneratedContent(before, after) {
+			if !seen[path] {
+				paths = append(paths, path)
+			}
 		}
 	}
 	sort.Strings(paths)

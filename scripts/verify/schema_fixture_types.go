@@ -3,6 +3,7 @@ package main
 import (
 	deploydiag "scenery.sh/internal/deploydiag"
 	doctor "scenery.sh/internal/doctor"
+	"scenery.sh/internal/snapshotarchive"
 	time "time"
 )
 
@@ -88,7 +89,7 @@ type telemetryResponse struct {
 
 const snapshotManifestKind = "scenery.snapshot.manifest"
 
-const snapshotManifestSchemaRevision = "sha256:83cc59388d47510203407af1dd68d22fcad86d95add34d9dfb4cabcd56b54792"
+const snapshotManifestSchemaRevision = snapshotarchive.SchemaRevision
 
 const cliTelemetryPayloadKind = "scenery.telemetry"
 
@@ -194,14 +195,15 @@ type snapshotDBResult struct {
 }
 
 type snapshotStorageResult struct {
-	CellID      string `json:"cell_id"`
-	CellRoot    string `json:"cell_root"`
-	Stores      int    `json:"stores"`
-	Files       int64  `json:"files"`
-	Bytes       int64  `json:"bytes"`
-	Conflicts   int64  `json:"conflicts,omitempty"`
-	Skipped     int64  `json:"skipped,omitempty"`
-	Overwritten int64  `json:"overwritten,omitempty"`
+	Scope       map[string]any `json:"scope"`
+	Stores      int            `json:"stores"`
+	Files       int64          `json:"files"`
+	Bytes       int64          `json:"bytes"`
+	Conflicts   int64          `json:"conflicts,omitempty"`
+	Skipped     int64          `json:"skipped,omitempty"`
+	Overwritten int64          `json:"overwritten,omitempty"`
+	Cloned      int64          `json:"cloned,omitempty"`
+	Copied      int64          `json:"copied,omitempty"`
 }
 
 type snapshotManifestApp struct {
@@ -217,10 +219,7 @@ type snapshotManifestDB struct {
 	DumpFormat string                   `json:"dump_format"`
 }
 
-type snapshotManifestStorage struct {
-	CellID string                  `json:"cell_id"`
-	Stores []snapshotManifestStore `json:"stores"`
-}
+type snapshotManifestStorage = snapshotarchive.Storage
 
 type snapshotManifestFile struct {
 	Path   string `json:"path"`
@@ -272,12 +271,6 @@ type deployTargetFrontendStatus struct {
 type snapshotManifestSchema struct {
 	Service string `json:"service"`
 	Schema  string `json:"schema"`
-}
-
-type snapshotManifestStore struct {
-	Name  string `json:"name"`
-	Files int64  `json:"files"`
-	Bytes int64  `json:"bytes"`
 }
 
 type telemetryTimingStats struct {

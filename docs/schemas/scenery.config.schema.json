@@ -317,17 +317,6 @@
       "type": "object",
       "description": "Beta Scenery-owned durable object/file storage capability.",
       "properties": {
-        "cell_id": {
-          "type": "string",
-          "pattern": "^[a-z0-9._-]+$"
-        },
-        "share": {
-          "type": "string",
-          "enum": [
-            "",
-            "worktree"
-          ]
-        },
         "default": {
           "type": "string"
         },

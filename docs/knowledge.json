@@ -19,6 +19,30 @@
   },
   "documents": [
     {
+      "path": "docs/runbooks/worktree-storage-migration.md",
+      "title": "Shared-to-Worktree Storage Migration",
+      "owner": "scenery storage / runtime",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-09",
+      "review_after": "2026-10-09",
+      "summary": "Explicit quiesced source-read-only legacy directory or archive export, complete logical snapshot verification, pinned target import and rollback limits; missing metadata fails closed and old cells are never runtime aliases.",
+      "tags": ["runbooks", "storage", "snapshot", "migration", "ownership"]
+    },
+    {
+      "path": "docs/plans/0171-worktree-isolated-storage.md",
+      "title": "Worktree-Isolated, Filesystem-Only Storage",
+      "owner": "scenery storage / runtime",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-09",
+      "review_after": "2026-10-09",
+      "summary": "Completed locally M0-M8 and S01-S24 filesystem-only storage: worktree ownership, immutable objects, scoped SDK/CLI/HTTP/console, bounded metadata scans, maintenance, snapshots/recovery and legacy export. Go/race/lint, selected native probes, A1-A17 and Chrome passed; no new dependency, real-data migration, shared installation, push or release.",
+      "tags": ["plans", "execplans", "storage", "runtime", "ownership", "snapshot", "migration"]
+    },
+    {
       "path": "docs/plans/0170-fast-verification-loop.md",
       "title": "Fast Iteration and Explicit External Proof",
       "owner": "scenery repository verification",
@@ -61,9 +85,9 @@
       "status": "active",
       "quality": "B",
       "freshness": "current",
-      "last_reviewed": "2026-09-07",
-      "review_after": "2026-10-07",
-      "summary": "Operator-owned pre-cutover native database migration into a new root, preserving the source, unrelated apps, database owners, grants, extensions and framework ledgers; includes quiescence and rollback limits.",
+      "last_reviewed": "2026-09-09",
+      "review_after": "2026-10-09",
+      "summary": "Operator-owned pre-cutover native database migration into a new root and separate current agent home, preserving the incompatible old home, source, unrelated apps, database owners, grants, extensions and framework ledgers; includes quiescence and rollback limits.",
       "tags": ["runbooks", "runtime", "postgres", "migration", "ownership"]
     },
     {
@@ -1916,8 +1940,6 @@
         "docs/schemas/scenery.local.health.schema.json",
         "docs/schemas/scenery.local.routes.schema.json",
         "docs/schemas/scenery.storage.cleanup.schema.json",
-        "docs/schemas/scenery.storage.status.schema.json",
-        "docs/schemas/scenery.storage.webui.schema.json",
         "docs/schemas/scenery.storage.inspect.schema.json",
         "docs/schemas/scenery.storage.object.schema.json",
         "docs/schemas/scenery.storage.list.schema.json",

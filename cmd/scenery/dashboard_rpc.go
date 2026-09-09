@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -13,12 +14,17 @@ import (
 func (s *dashboardServer) handleRPC(ctx context.Context, req rpcRequest) rpcResponse {
 	result, err := s.dispatchRPC(ctx, req.Method, req.Params)
 	if err != nil {
+		var details any
+		if failure, ok := errors.AsType[*dashboardStorageFailure](err); ok {
+			details = failure.Failure
+		}
 		return rpcResponse{
 			JSONRPC: "2.0",
 			ID:      req.ID,
 			Error: &rpcError{
 				Code:    -32000,
 				Message: err.Error(),
+				Data:    details,
 			},
 		}
 	}
@@ -30,6 +36,9 @@ func (s *dashboardServer) handleRPC(ctx context.Context, req rpcRequest) rpcResp
 }
 
 func (s *dashboardServer) dispatchRPC(ctx context.Context, method string, raw json.RawMessage) (any, error) {
+	if strings.HasPrefix(method, "storage/") {
+		return s.storageRPC(ctx, method, raw)
+	}
 	switch method {
 	case "list-apps":
 		return s.dashboardListApps(ctx)

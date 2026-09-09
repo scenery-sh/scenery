@@ -803,7 +803,7 @@ export function decodeResponseHeader(
     let values = raw.values;
     if (encoding === "comma") values = raw.values.flatMap((item) => item.split(",").map((part) => part.trim()));
     else if (encoding !== "repeated") throw new SceneryClientError("contract_violation", bindingAddress, "unsupported response header encoding");
-		if (encoding === "repeated" && !raw.preservesRepetition) {
+		if (encoding === "repeated" && collection && !raw.preservesRepetition) {
 			throw new SceneryClientError("unsupported_runtime", bindingAddress, §fetch runtime cannot preserve repeated response header ${name}§);
 		}
     if (!collection && values.length !== 1) throw new SceneryClientError("contract_violation", bindingAddress, §scalar response header ${name} is repeated§);

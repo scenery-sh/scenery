@@ -122,6 +122,11 @@ func TestBuildHarnessSchemaValidationReport(t *testing.T) {
 		"scenery.snapshot.manifest.schema.json",
 		"scenery.snapshot.save.schema.json",
 		"scenery.snapshot.verify.schema.json",
+		"scenery.storage.object.schema.json",
+		"scenery.storage.list.schema.json",
+		"scenery.storage.delete.schema.json",
+		"scenery.storage.cleanup.schema.json",
+		"scenery.storage.inspect.schema.json",
 		"scenery.telemetry.schema.json",
 		"scenery.version.schema.json",
 	)
@@ -155,7 +160,7 @@ func TestBuildHarnessSchemaValidationReport(t *testing.T) {
 	if reads != 4 {
 		t.Fatalf("product schema reads = %d, want 4", reads)
 	}
-	if len(report.Validated) != 27 {
+	if len(report.Validated) != 32 {
 		t.Fatalf("validated = %+v", report.Validated)
 	}
 	if hasErrorDiagnostics(report.Diagnostics) {

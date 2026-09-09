@@ -966,20 +966,20 @@ For a large reference dataset, keep one canonical data file and declare every fi
 
 Inputs must be regular, non-symlink files inside the app workspace. Scenery hashes the normalized declaration and complete file contents, runs commands after SQL/fixture seeds, pins `DATABASE_URL` to the named service, captures command output in JSON results, skips unchanged input, and reruns changed input. The importer must be transactional or idempotent; if it succeeds but ledger recording fails, Scenery deliberately retries it on the next seed run.
 
-Save or restore a portable point-in-time copy of the database and storage cell explicitly:
+Save or restore a portable point-in-time copy of the database and worktree storage explicitly. Stop the worktree before either storage capture or import; combined capture requires an already-owned managed database and quiesced external writers:
 
 ```sh
+scenery down
 scenery snapshot save --db --storage --output app.zip -o json
 scenery snapshot verify --input app.zip -o json
-scenery down
 scenery snapshot load --db --storage --input app.zip --mode overwrite --yes -o json
 ```
 
-The archive is checksummed before load. Use `--mode merge` only when an atomic data-only database insert and storage conflict policy are intended; use `--dry-run` to preflight. Snapshots are operator-created restore points, not continuous offsite replication.
+The archive is checksummed before load; use `--expect-sha256 <digest>` to pin it and `--dry-run` for non-allocating preflight. Storage-only merge stages the effective result with `--on-conflict fail|skip|overwrite`; combined DB/storage merge is rejected. Interrupted restores block normal access until their exact pinned resume completes. Snapshots are operator-created restore points, not continuous offsite replication.
 
 ### Scheduled Off-Machine Backups
 
-Run the repository's backup runner from the host scheduler during a quiet write window. It serializes runs per output directory, recovers a stale lock after an interrupted job, validates every archive checksum, copies with rclone only after validation, and prunes local history only after all earlier steps succeed:
+Run the repository's backup runner from the host scheduler during a stopped-worktree window with external writers quiesced. It never stops applications automatically. It serializes runs per output directory, recovers a stale lock after an interrupted job, validates every archive checksum, copies with rclone only after validation, and prunes local history only after all earlier steps succeed:
 
 ```sh
 /path/to/scenery/scripts/snapshot-backup.sh \
@@ -1006,7 +1006,7 @@ Check representative database rows and stored objects through the app, then run 
 
 ## Storage
 
-Declare storage cells/stores in app config. App code uses `scenery.sh/storage`:
+Declare stores in app config; each canonical worktree retains its own namespace. App code uses `scenery.sh/storage`:
 
 ```go
 store, err := storage.Default(ctx)
@@ -1018,11 +1018,13 @@ Tenant-scoped internal calls require standard-auth context or `storage.WithTenan
 
 ```sh
 scenery inspect storage -o json
-scenery storage status -o json
+scenery inspect storage --stats -o json
 scenery storage ls app -o json
 ```
 
-Treat store roots and proxy sockets as substrate. Replicate local storage-cell object and metadata trees offsite with operator tooling when continuous durability requires it; snapshots provide explicit database-plus-storage restore points.
+Tenant-scoped CLI calls add `--tenant <tenant>`. Use `--if-absent` for create-only puts and `--if-match <etag>` for conditional overwrite or deletion. Preserve metadata with `--metadata <json-file>`; the map is case-sensitive. Recursive `rm` and `cleanup` return previews by default; apply only an unchanged reviewed selection with `--yes --expect-revision <digest>`. Purge additionally requires stopped verified ownership.
+
+Treat roots, immutable versions, references and proxy sockets as substrate. Do not copy internal namespace trees or owner files between worktrees; import a verified logical snapshot for independent state and fresh ETags. Ordinary listing does not hash payloads and scans metadata with bounded pages; exact totals require explicit `--stats` inspection. Legacy shared cells need the source-preserving [migration runbook](runbooks/worktree-storage-migration.md). Use consistent filesystem backups under operator-managed exclusion when raw offsite replication is required; a concurrent raw directory copy is not a coherent snapshot.
 
 ## Local Development
 

@@ -310,6 +310,16 @@ describe("Scenery TypeScript client exact codecs", () => {
 		expect(payload).toEqual({ requestId: "request-1", sessionToken: "hello world" });
 	});
 
+	test("decodes scalar response headers with the standard browser Headers API", () => {
+        const response = new Response(null, { headers: { "cache-control": "private, no-store", "last-modified": "Tue, 08 Sep 2026 23:00:00 GMT", "x-file-size": "1234" } });
+        Object.defineProperty(response.headers, "getAll", { value: undefined });
+        Object.defineProperty(response.headers, "raw", { value: undefined });
+        const string = { kind: "primitive", name: "string" } as const;
+        expect(decodeResponseHeader(response, "cache-control", "repeated", string, registry, "test/binding/metadata")).toBe("private, no-store");
+        expect(decodeResponseHeader(response, "last-modified", "repeated", string, registry, "test/binding/metadata")).toBe("Tue, 08 Sep 2026 23:00:00 GMT");
+        expect(decodeResponseHeader(response, "x-file-size", "repeated", { kind: "primitive", name: "int64" }, registry, "test/binding/metadata")).toBe(1234n);
+    });
+
 	test("rejects repetition-dependent metadata on a fetch runtime that collapses headers", () => {
 		const response = new Response(null, { headers: { "x-value": "one, two" } });
 		Object.defineProperty(response.headers, "getAll", { value: undefined });

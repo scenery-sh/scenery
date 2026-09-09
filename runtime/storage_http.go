@@ -20,11 +20,18 @@ func storageHTTPConfigured() bool {
 }
 
 func (s *server) registerStorageRoutes() {
-	s.registerStorageRoutesOn(s.public, false)
-	s.registerStorageRoutesOn(s.private, true)
+	routes := storageHTTPRoutes{resolve: storage.Named}
+	routes.register(s.public, false)
+	routes.register(s.private, true)
 }
 
-func (s *server) registerStorageRoutesOn(router *routeTable, internal bool) {
+// Route/authentication behavior is independent of storage's filesystem owner.
+// Production composes it with the public SDK; tests use in-process stores.
+type storageHTTPRoutes struct {
+	resolve func(context.Context, string) (storage.Store, error)
+}
+
+func (s storageHTTPRoutes) register(router *routeTable, internal bool) {
 	registerRoute(router, "/__scenery/storage/:store", []string{http.MethodGet}, func(w http.ResponseWriter, req *http.Request, params routeParams) {
 		s.handleStorageList(w, req, params, internal)
 	})
@@ -33,15 +40,15 @@ func (s *server) registerStorageRoutesOn(router *routeTable, internal bool) {
 	})
 }
 
-func (s *server) handleStorageList(w http.ResponseWriter, req *http.Request, params routeParams, internal bool) {
+func (s storageHTTPRoutes) handleStorageList(w http.ResponseWriter, req *http.Request, params routeParams, internal bool) {
 	storeName := params.ByName("store")
 	ctx, ok := authenticateStorageHTTPRequest(w, req, storeName, internal)
 	if !ok {
 		return
 	}
-	store, err := storage.Named(ctx, storeName)
+	store, err := s.resolve(ctx, storeName)
 	if err != nil {
-		errs.HTTPError(w, storageHTTPError(err))
+		storage.HTTPError(w, err)
 		return
 	}
 	limit, err := parseStorageHTTPLimit(req.URL.Query().Get("limit"))
@@ -56,7 +63,7 @@ func (s *server) handleStorageList(w http.ResponseWriter, req *http.Request, par
 		Limit:     limit,
 	})
 	if err != nil {
-		errs.HTTPError(w, storageHTTPError(err))
+		storage.HTTPError(w, err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -66,7 +73,7 @@ func (s *server) handleStorageList(w http.ResponseWriter, req *http.Request, par
 	}
 }
 
-func (s *server) handleStorageObject(w http.ResponseWriter, req *http.Request, params routeParams, internal bool) {
+func (s storageHTTPRoutes) handleStorageObject(w http.ResponseWriter, req *http.Request, params routeParams, internal bool) {
 	storeName := params.ByName("store")
 	key := strings.TrimPrefix(params.ByName("key"), "/")
 	if key == "" {
@@ -77,27 +84,31 @@ func (s *server) handleStorageObject(w http.ResponseWriter, req *http.Request, p
 	if !ok {
 		return
 	}
-	store, err := storage.Named(ctx, storeName)
+	store, err := s.resolve(ctx, storeName)
 	if err != nil {
-		errs.HTTPError(w, storageHTTPError(err))
+		storage.HTTPError(w, err)
 		return
 	}
 	switch req.Method {
 	case http.MethodGet, http.MethodHead:
-		body, obj, err := store.Get(ctx, key, storage.GetOptions{})
-		if err != nil {
-			errs.HTTPError(w, storageHTTPError(err))
+		if err := storage.ServeObject(w, req.WithContext(ctx), store, key); err != nil {
+			storage.HTTPError(w, err)
 			return
 		}
-		storage.ServeObject(w, req, body, obj)
 	case http.MethodPut:
+		metadata, err := storage.MetadataFromHeaders(req.Header)
+		if err != nil {
+			storage.HTTPError(w, err)
+			return
+		}
 		obj, err := store.Put(ctx, key, req.Body, storage.PutOptions{
 			ContentType: req.Header.Get("Content-Type"),
-			Metadata:    storage.MetadataFromHeaders(req.Header),
+			Metadata:    metadata,
 			IfNoneMatch: req.Header.Get("If-None-Match") == "*",
+			IfMatch:     req.Header.Get("If-Match"),
 		})
 		if err != nil {
-			errs.HTTPError(w, storageHTTPError(err))
+			storage.HTTPError(w, err)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -109,11 +120,11 @@ func (s *server) handleStorageObject(w http.ResponseWriter, req *http.Request, p
 	case http.MethodDelete:
 		if storageHTTPBool(req.URL.Query().Get("recursive")) {
 			if err := store.DeletePrefix(ctx, key); err != nil {
-				errs.HTTPError(w, storageHTTPError(err))
+				storage.HTTPError(w, err)
 				return
 			}
-		} else if err := store.Delete(ctx, key); err != nil {
-			errs.HTTPError(w, storageHTTPError(err))
+		} else if err := store.Delete(ctx, key, storage.DeleteOptions{IfMatch: req.Header.Get("If-Match")}); err != nil {
+			storage.HTTPError(w, err)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)

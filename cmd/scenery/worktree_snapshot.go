@@ -2,12 +2,8 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -47,13 +43,22 @@ func restoreWorktreeSnapshot(ctx context.Context, appRoot string, cfg appcfg.Con
 		return err
 	}
 	defer func() { returnErr = errors.Join(returnErr, op.Close()) }()
-	manifest, err := json.Marshal(archive.manifest)
+	return restoreWorktreeSnapshotOwned(ctx, resolver, cfg, archive, mode, op)
+}
+
+// Storage restore already owns the operation lease; reacquiring it here would
+// deadlock and break the global live -> operation -> maintenance lock order.
+func restoreWorktreeSnapshotHeld(ctx context.Context, appRoot string, cfg appcfg.Config, archive *snapshotArchive, mode string, op worktreePostgresOperation) error {
+	resolver, err := newWorktreePostgresResolver(ctx, appRoot, cfg.AppID())
 	if err != nil {
 		return err
 	}
-	sum := sha256.Sum256(manifest)
-	archiveID := "sha256:" + hex.EncodeToString(sum[:])
-	retainedArchive, err := retainWorktreeSnapshot(resolver.paths, archive, archiveID)
+	return restoreWorktreeSnapshotOwned(ctx, resolver, cfg, archive, mode, op)
+}
+
+func restoreWorktreeSnapshotOwned(ctx context.Context, resolver worktreePostgresResolver, cfg appcfg.Config, archive *snapshotArchive, mode string, op worktreePostgresOperation) error {
+	archiveID := "sha256:" + archive.reader.SHA256
+	retainedArchive, err := retainWorktreeSnapshot(ctx, resolver.paths, archive, archiveID)
 	if err != nil {
 		return err
 	}
@@ -124,22 +129,16 @@ func worktreeRestoreArchivePath(paths localagent.WorktreePaths, archiveID string
 
 // Keep an independently verified owner-only archive outside the checkout
 // before the first destructive SQL statement. Recovery survives Git removal.
-func retainWorktreeSnapshot(paths localagent.WorktreePaths, source *snapshotArchive, archiveID string) (*snapshotArchive, error) {
+func retainWorktreeSnapshot(ctx context.Context, paths localagent.WorktreePaths, source *snapshotArchive, archiveID string) (*snapshotArchive, error) {
 	target := worktreeRestoreArchivePath(paths, archiveID)
 	verify := func(path string) (*snapshotArchive, error) {
-		archive, err := openSnapshotArchive(path)
+		archive, err := openSnapshotArchivePinned(ctx, path, strings.TrimPrefix(archiveID, "sha256:"))
 		if err != nil {
 			return nil, err
 		}
-		manifest, err := json.Marshal(archive.manifest)
-		if err != nil {
+		if "sha256:"+archive.reader.SHA256 != archiveID {
 			_ = archive.reader.Close()
-			return nil, err
-		}
-		digest := sha256.Sum256(manifest)
-		if "sha256:"+hex.EncodeToString(digest[:]) != archiveID {
-			_ = archive.reader.Close()
-			return nil, worktreePostgresPrecondition("retained restore archive does not match its verified manifest")
+			return nil, worktreePostgresPrecondition("retained restore archive does not match its verified digest")
 		}
 		return archive, nil
 	}
@@ -151,17 +150,12 @@ func retainWorktreeSnapshot(paths localagent.WorktreePaths, source *snapshotArch
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
-	input, err := os.Open(source.path)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = input.Close() }()
 	output, err := os.CreateTemp(paths.Directory, ".restore-archive-*")
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = output.Close(); _ = os.Remove(output.Name()) }()
-	if _, err := io.Copy(output, input); err != nil {
+	if err := source.reader.CopyTo(ctx, output); err != nil {
 		return nil, err
 	}
 	if err := output.Sync(); err != nil {

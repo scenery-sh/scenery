@@ -23,8 +23,12 @@ Select an empty **different absolute target root**, containing reviewed
 application source and the matching current Scenery dependency. The original
 root and shared server remain unchanged. The new binary deliberately refuses
 implicit allocation when an existing root has legacy ownership evidence; do
-not delete old records, change agent homes, or move volumes to bypass that
-guard. In-place automatic legacy transfer is not a supported workflow.
+not delete old records, select a different home for that same source root, or
+move volumes to bypass that guard. In-place automatic legacy transfer is not
+a supported workflow. If the historical home has an incompatible specification,
+select a separate current agent home for the new empty target root. Keep source
+and target homes explicit in every command; this separates protocol authority,
+not data migration or Docker ownership.
 
 The commands below assume verified Docker-managed PostgreSQL 18 instances
 whose reviewed administrative owner is `scenery`, as exercised by release
@@ -37,7 +41,7 @@ guessing which host `pg_dump` is installed.
 ## Quiesce and Export
 
 Set these shell variables from the reviewed inventory: `OLD_CLI`, `NEW_CLI`,
-`SOURCE_ROOT`, `TARGET_ROOT`, `SOURCE_CONTAINER` (immutable ID), `SOURCE_DB`,
+`OLD_AGENT_HOME`, `NEW_AGENT_HOME`, `SOURCE_ROOT`, `TARGET_ROOT`, `SOURCE_CONTAINER` (immutable ID), `SOURCE_DB`,
 and `BACKUP_DIR` (a new private directory). They contain no credentials.
 Quiesce **all writers for the selected source database**, including workers,
 schedules, external clients, and manual SQL. Stopping its Scenery app alone
@@ -47,7 +51,7 @@ stop the shared server or unrelated apps.
 ```sh
 umask 077
 mkdir "$BACKUP_DIR"
-"$OLD_CLI" down --app-root "$SOURCE_ROOT" -o json
+SCENERY_AGENT_HOME="$OLD_AGENT_HOME" "$OLD_CLI" down --app-root "$SOURCE_ROOT" -o json
 docker exec "$SOURCE_CONTAINER" pg_dump -U scenery -d "$SOURCE_DB" --format=custom --file=/tmp/migration.dump
 docker exec "$SOURCE_CONTAINER" pg_restore --list /tmp/migration.dump
 docker exec "$SOURCE_CONTAINER" sha256sum /tmp/migration.dump
@@ -71,9 +75,9 @@ start application workers or run application setup. Obtain the proposed
 root-derived application database name from read-only `db list`.
 
 ```sh
-"$NEW_CLI" db server start --app-root "$TARGET_ROOT" -o json
-"$NEW_CLI" db server status --app-root "$TARGET_ROOT" -o json
-"$NEW_CLI" db list --app-root "$TARGET_ROOT" -o json
+SCENERY_AGENT_HOME="$NEW_AGENT_HOME" "$NEW_CLI" db server start --app-root "$TARGET_ROOT" -o json
+SCENERY_AGENT_HOME="$NEW_AGENT_HOME" "$NEW_CLI" db server status --app-root "$TARGET_ROOT" -o json
+SCENERY_AGENT_HOME="$NEW_AGENT_HOME" "$NEW_CLI" db list --app-root "$TARGET_ROOT" -o json
 ```
 
 Use `.data.container` from server status to inspect and record the exact target
@@ -117,7 +121,7 @@ Rehearse this procedure on disposable resources first.
 Only after explicit acceptance of the target, start its matching current CLI:
 
 ```sh
-"$NEW_CLI" up --app-root "$TARGET_ROOT" --detach --wait ready -o json
+SCENERY_AGENT_HOME="$NEW_AGENT_HOME" "$NEW_CLI" up --app-root "$TARGET_ROOT" --detach --wait ready -o json
 ```
 
 Verify typed API behavior and data again after forward setup has run. This is
@@ -137,7 +141,10 @@ never remove the shared volume merely because one application migrated.
 The named worktree-runtime release probe owns A9 and records the immutable
 pre-cutover revision, both Linux binary SHA256 values, separate host/nested
 Docker daemon IDs, actual argv, baseline agent/container/volume identity,
-continuous sibling HTTP results, and native archive checksum. Its fixture
+continuous sibling HTTP results, and native archive checksum. It first proves
+SCN8003 rejection of an incompatible shared home without target database
+resources, then uses distinct source/current homes for coexistence and migration.
+Its fixture
 checks every lending row, a seed-ledger row and timestamp, table ownership,
 an explicit read grant, and the `pgcrypto` extension before restore, after
 restore and after target startup. It uses a disposable Docker-in-Docker

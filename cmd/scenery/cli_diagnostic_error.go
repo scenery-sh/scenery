@@ -2,11 +2,13 @@ package main
 
 import (
 	"errors"
+	"scenery.sh/internal/app"
 	"strings"
 
 	"scenery.sh/internal/build"
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/graph"
+	"scenery.sh/internal/storagefs"
 )
 
 // cliDiagnosticError keeps an already constructed public diagnostic intact
@@ -33,11 +35,21 @@ func (e *cliDiagnosticError) Unwrap() error { return e.err }
 func (e *cliDiagnosticError) ExitCode() int { return e.code }
 
 func cliErrorDiagnostic(err error) graph.Diagnostic {
+	if migration, ok := errors.AsType[*app.StorageMigrationError](err); ok {
+		return graph.Diagnostic{Code: "SCN8006", Severity: "error", Message: migration.Error()}
+	}
 	if reported, ok := errors.AsType[*cliDiagnosticError](err); ok {
 		return reported.diagnostic
 	}
 	if reported, ok := errors.AsType[*build.ContractError](err); ok {
 		return reported.Diagnostic
+	}
+	if failure, ok := storagefs.DescribeError(err); ok {
+		diagnostic := graph.Diagnostic{Code: failure.Diagnostic, Severity: "error", Message: failure.Message, ReportToken: failure.ReportToken}
+		if failure.Details != nil {
+			diagnostic.Details = map[string]any{"progress": failure.Details}
+		}
+		return diagnostic
 	}
 	code := cliExitCode(err)
 	kind, _, _ := strings.Cut(err.Error(), ":")

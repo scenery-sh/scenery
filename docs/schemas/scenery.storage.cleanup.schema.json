@@ -5,24 +5,162 @@
   "type": "object",
   "required": [
     "kind",
-    "schema_revision"
+    "schema_revision",
+    "scope",
+    "purge",
+    "dry_run"
   ],
   "properties": {
     "kind": {
       "const": "scenery.storage.cleanup"
     },
     "schema_revision": {
-      "const": "sha256:b794cf14c0dbe58e5601384929f93e1a3125d44c181afc2444c6870d7a31d5dc"
+      "const": "sha256:55ecaf5a78419799f6ebdb333a0a93c1e905cc1b2fdf680fa5f57e922b408708"
     },
-    "storage_cell_id": {
+    "scope": {
+      "$ref": "scenery.storage.object.schema.json#/$defs/scope"
     },
-    "cell_root": {
-    },
-    "exists": {
+    "purge": {
+      "type": "boolean"
     },
     "dry_run": {
+      "type": "boolean"
     },
-    "deleted": {
+    "preview": {
+      "type": "object",
+      "required": [
+        "incarnation",
+        "generation",
+        "files",
+        "bytes",
+        "sample",
+        "selection_revision"
+      ],
+      "properties": {
+        "incarnation": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{32}$"
+        },
+        "generation": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{32}$"
+        },
+        "files": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sample": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "object",
+            "required": [
+              "kind",
+              "bytes"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string"
+              },
+              "bytes": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "selection_revision": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "result": {
+      "type": "object",
+      "required": [
+        "files",
+        "bytes",
+        "completion"
+      ],
+      "properties": {
+        "files": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "completion": {
+          "enum": [
+            "complete",
+            "partial",
+            "uncertain"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "purge_preview": {
+      "type": "object",
+      "required": [
+        "incarnation",
+        "generation",
+        "objects",
+        "bytes",
+        "generations",
+        "selection_revision"
+      ],
+      "properties": {
+        "incarnation": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{32}$"
+        },
+        "generation": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{32}$"
+        },
+        "objects": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "generations": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "selection_revision": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "purge_result": {
+      "type": "object",
+      "required": [
+        "retired",
+        "reclaimed"
+      ],
+      "properties": {
+        "retired": {
+          "type": ["boolean", "null"],
+          "description": "Null when retirement publication durability is unknown; retry the same approved purge."
+        },
+        "reclaimed": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false

@@ -217,11 +217,62 @@ func TestDoctorAssistantAssetDescriptorSelfDigest(t *testing.T) {
 	if check.Status != doctor.StatusOK {
 		t.Fatalf("valid asset descriptor check = %#v", check)
 	}
+	result.Manifest.ContractRevision = "sha256:" + strings.Repeat("b", 64)
+	check = doctorAssistantAssetCheck(root, assistant, result)
+	if check.Status != doctor.StatusSkipped {
+		t.Fatalf("retained descriptor from a previous contract = %#v", check)
+	}
+	result.Manifest.ContractRevision = value["capability_revision"].(string)
 	if err := os.WriteFile(filepath.Join(assetDir, "runtime-descriptor.json"), []byte(strings.Replace(string(encoded), "descriptor_digest", "descriptor_digest_bad", 1)), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	check = doctorAssistantAssetCheck(root, assistant, result)
 	if check.Status != doctor.StatusError {
 		t.Fatalf("tampered asset descriptor check = %#v", check)
+	}
+}
+
+func TestDoctorAssistantWorkspaceUsesDescriptorContentDigest(t *testing.T) {
+	source := t.TempDir()
+	if err := os.WriteFile(filepath.Join(source, "fixture"), []byte("fixture"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	archive, err := runtimeassets.BuildArchive(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	descriptor := doctorAssistantAssetDescriptor{
+		Kind: runtimeassets.AssistantAssetKind, SchemaRevision: runtimeassets.AssistantAssetSchemaRevision,
+		AssistantAddress: "app/assistant/support", Target: "darwin/arm64", RuntimeRevision: "runtime-1",
+		NodeArchiveDigest: archive.ArchiveDigest, NodeTreeDigest: archive.Descriptor.Digest,
+		CapsuleArchiveDigest: archive.ArchiveDigest, CapsuleTreeDigest: archive.Descriptor.Digest,
+		CapsuleEntry: ".scenery/bootstrap.mjs", PackageLockDigest: archive.Descriptor.Digest,
+	}
+	encoded, err := json.Marshal(descriptor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(encoded)
+	root := t.TempDir()
+	write := func(relative string, data []byte) {
+		t.Helper()
+		path := filepath.Join(root, relative)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	key := strings.TrimPrefix(archive.ArchiveDigest, "sha256:")
+	write("archives/node-"+key+".tar.gz", archive.Data)
+	write("archives/capsule-"+key+".tar.gz", archive.Data)
+	write("descriptors/"+hex.EncodeToString(digest[:])+".json", encoded)
+	if err := verifyAssistantWorkspaceAssets(root, descriptor); err != nil {
+		t.Fatalf("current generated assets: %v", err)
+	}
+	write("archives/capsule-"+key+".tar.gz", []byte("corrupt"))
+	if err := verifyAssistantWorkspaceAssets(root, descriptor); err == nil || !strings.Contains(err.Error(), "archive digest mismatch") {
+		t.Fatalf("corrupt capsule: %v", err)
 	}
 }

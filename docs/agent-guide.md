@@ -289,25 +289,46 @@ requirements authorize implicit local allocation; external requirements need
 explicit endpoint supply. See [App Config](local-contract.md#app-config) for
 identity, sharing, worker and generated-runtime binding contracts.
 
-Storage remains app config because it is a runtime capability, not an application declaration. App code uses `scenery.sh/storage`. Private stores stay internal; tenant-scoped calls require standard-auth context or `storage.WithTenantID`.
+Storage remains app config because it is a runtime capability, not an application declaration. App code uses `scenery.sh/storage`. Managed storage is retained per canonical app root/worktree, not per branch, app ID or store name. Private stores stay internal; tenant-scoped calls require standard-auth context or `storage.WithTenantID`, and CLI calls select `--tenant` explicitly.
+
+The existing console's Storage page is a local operator view. Select the app,
+store and explicit tenant; the displayed canonical root and namespace identity
+remain attached to every request. Uploads create a new key or replace only the
+selected object's ETag. Download and single deletion retain that displayed
+version; prefix deletion requires a fresh preview. Scope changes discard old
+selection, pagination, preview and pending transfers. Refresh the storage scope
+after restore or purge; a stale generation fails instead of silently retargeting
+an action. Totals are opt-in scan snapshots. Private access here does not make a
+private store public or grant application callers tenant authority.
 
 ```sh
 scenery inspect storage -o json
-scenery storage status -o json
+scenery inspect storage --stats -o json
 scenery storage ls <store> -o json
 ```
 
 An explicit app-level `DATABASE_URL` is external; equal URLs intentionally share data. Otherwise SQL-backed `scenery up` manages a dedicated container and volume per canonical app root, one app database, and service schemas. Non-SQL startup and its console allocate no PostgreSQL. `down` stops the selected worktree and retains SQL data/credentials outside Git; `down --db` drops only the app database. Git removal retains data, discoverable as an orphan through `ps`. Whole-cluster deletion requires `prune --older-than <duration> --app-root <absolute-path> --db` and verified inactive ownership. Use `db apply` for schema/app setup, `db seed` for initial data and declared file-backed imports, and `db setup` for both; managed standalone SQL mutation requires the runtime stopped and holds exclusive ownership throughout. Changed applied SQL seeds and destructive seed SQL fail closed; changed `database.seed.commands` inputs rerun the declared atomic/idempotent importer and advance its ledger hash only after success.
 
-For a portable point-in-time copy, explicitly select the data classes. Stop the runtime before load; overwrite is destructive and requires `--yes`.
+For a portable point-in-time copy, explicitly select the data classes. Storage save and load both require the source/target runtime stopped; commands acquire its existing lifetime ownership rather than stopping it automatically. Combined capture requires an already-owned managed database and quiesced external SQL/filesystem writers. Overwrite is destructive and requires `--yes`.
 
 ```sh
 scenery snapshot save --db --storage --output app.zip -o json
-scenery snapshot verify --input app.zip -o json
-scenery snapshot load --db --storage --input app.zip --mode overwrite --yes -o json
+scenery snapshot verify --input app.zip --expect-sha256 <digest> -o json
+scenery snapshot load --db --storage --input app.zip --expect-sha256 <digest> --mode overwrite --yes -o json
 ```
 
-Verify validates every payload checksum without discovering or stopping a target app. Load repeats validation before changing data. Managed database overwrite and storage-store replacement are rerunnable after interruption; use `--dry-run` for target-specific preflight only. Use `scripts/snapshot-backup.sh` from the host scheduler for verified retention and optional rclone replication; Scenery does not install or own that schedule.
+Verify validates every payload checksum without discovering or stopping a target app. Load holds the same opened validated archive through apply. Verify and `--dry-run` do not allocate state, extract a source cache or recover operations. A complete new storage generation receives independent clone-or-copy payloads, original logical metadata and fresh ETags. Storage-only merge stages the effective result; combined database/storage merge is rejected. Restore preparation and database uncertainty retain one digest/mode/conflict-policy-bound operation record; normal access stays blocked until the matching resume completes. Follow its reported instruction, never remove the record manually. Use `scripts/snapshot-backup.sh` from the host scheduler for verified retention and optional rclone replication; Scenery does not install or own that schedule or stop applications.
+
+Ordinary inspection/listing keeps unknown totals absent; `inspect storage --stats`
+performs an exact full metadata scan. Pages are bounded keyset continuations,
+not stable multi-request snapshots. Conditional overwrite/delete use the exact
+ETag; metadata is preserved as a case-sensitive string map. Recursive deletion
+and cleanup preview by default. Apply the unchanged selector with its returned
+`--expect-revision` and `--yes`; partial deletion requires a fresh preview.
+`cleanup --purge` requires a stopped verified managed owner and retires its
+incarnation before reclamation. `down`, prune defaults and Git removal retain
+storage. An explicit pinned overwrite after purge creates a fresh incarnation.
+Legacy data is converted only through the [storage migration runbook](runbooks/worktree-storage-migration.md).
 
 Stop/cleanup and snapshots use verified retained allocations, even when `.scn`
 was removed or became invalid. Snapshot schema evidence comes from the actual
@@ -447,6 +468,10 @@ isolate DNS or privileged edge listeners. Old shared-database authority blocks
 implicit empty allocation and requires explicit verified data migration; do not
 remove or relabel old records to bypass it. Container, volume, daemon, or
 credential mismatches fail closed without adopting or resetting resources.
+An incompatible historical registry is not decoded as the current protocol.
+For a reviewed native migration into a new empty root, use a separate current
+agent home; retain the source home and inspect it only with its matching binary.
+Changing homes is not a way to adopt or empty an existing source root.
 Use the [shared-to-worktree PostgreSQL migration runbook](runbooks/worktree-postgres-migration.md)
 for an explicit pre-cutover native export/restore into a new root; keep the
 selected source quiesced and preserve unrelated applications on its old server.

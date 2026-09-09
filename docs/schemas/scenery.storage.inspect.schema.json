@@ -15,7 +15,7 @@
       "const": "scenery.storage.inspect"
     },
     "schema_revision": {
-      "const": "sha256:4765e31dc934ac88a1c8e84cc49da83e3863352a0056f6a756cca36c6e8972d4"
+      "const": "sha256:2a3f8176b64c077ad30bcd93ffca3009edf23d924d9f24caa06c48901dc774f8"
     },
     "app": {
       "type": "object",
@@ -47,44 +47,108 @@
       "type": "object",
       "required": [
         "configured",
-        "readiness"
+        "declared",
+        "readiness",
+        "scope"
       ],
       "properties": {
         "configured": {
           "type": "boolean"
         },
-        "storage_cell_id": {
-          "type": "string"
-        },
-        "share": {
-          "type": "string"
+        "declared": {
+          "type": "boolean"
         },
         "default": {
           "type": "string"
         },
         "readiness": {
-          "type": "string",
           "enum": [
             "not_configured",
-            "configured",
+            "uninitialized",
             "ready",
-            "error"
+            "retired",
+            "recovery_required"
           ]
         },
-        "runtime": {
+        "scope": {
+          "$ref": "scenery.storage.object.schema.json#/$defs/scope"
+        },
+        "browser_url": {
+          "type": "string"
+        },
+        "recovery": {
           "type": "object",
           "required": [
-            "exists"
+            "operation",
+            "database",
+            "storage",
+            "phase",
+            "resume"
           ],
           "properties": {
-            "cell_root": {
-              "type": "string"
+            "operation": {
+              "enum": [
+                "restore",
+                "purge"
+              ]
             },
-            "objects_dir": {
-              "type": "string"
+            "archive_sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
             },
-            "exists": {
+            "selection_revision": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "mode": {
+              "enum": [
+                "merge",
+                "overwrite"
+              ]
+            },
+            "on_conflict": {
+              "enum": [
+                "fail",
+                "skip",
+                "overwrite"
+              ]
+            },
+            "database": {
               "type": "boolean"
+            },
+            "storage": {
+              "type": "boolean"
+            },
+            "phase": {
+              "enum": [
+                "prepared",
+                "retired",
+                "preparing",
+                "staged",
+                "database",
+                "switched"
+              ]
+            },
+            "resume": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        "totals": {
+          "type": "object",
+          "required": [
+            "objects",
+            "bytes"
+          ],
+          "properties": {
+            "objects": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "bytes": {
+              "type": "integer",
+              "minimum": 0
             }
           },
           "additionalProperties": false
@@ -100,9 +164,7 @@
           "name",
           "kind",
           "access",
-          "tenant_scoped",
-          "object_count",
-          "total_bytes"
+          "tenant_scoped"
         ],
         "properties": {
           "name": {
@@ -141,5 +203,6 @@
       }
     }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "description": "Read-only retained worktree discovery. Exact totals are optional and computed only by an explicit metadata scan."
 }

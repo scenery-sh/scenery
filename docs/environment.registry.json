@@ -1760,30 +1760,8 @@
         "tests"
       ],
       "owner": "scenery runtime / storage",
-      "rationale": "App-facing storage capability config consumed by scenery.sh/storage. Dev sessions inject it; headless runtimes require an explicit operator-provided proxy config. It records store names and Scenery-owned backend metadata such as a proxy socket without raw object-store credentials.",
+      "rationale": "Strict current storage runtime artifact. Managed descriptors bind canonical worktree ownership and incarnation; explicit headless local roots remain external and cannot gain managed purge authority. Carries store policy and validated local/proxy capability metadata, never raw credentials.",
       "preferred_surface": ".scenery.json storage declarations plus scenery.sh/storage",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
-    },
-    {
-      "name": "SCENERY_STORAGE_CELL_ID",
-      "match": "exact",
-      "scope": "runtime",
-      "direction": "injected",
-      "category": "app.services.storage",
-      "stability": "beta",
-      "secret": false,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime / storage",
-      "rationale": "Stable shared storage cell ID for app-facing Scenery storage capability metadata.",
-      "preferred_surface": "scenery inspect storage -o json",
       "replacement": "",
       "sunset": "",
       "docs": [

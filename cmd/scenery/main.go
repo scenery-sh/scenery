@@ -20,6 +20,7 @@ import (
 	"scenery.sh/internal/machine"
 	"scenery.sh/internal/spec"
 	"scenery.sh/internal/stdlog"
+	"scenery.sh/internal/storagefs"
 )
 
 var cliStderr io.Writer = os.Stderr
@@ -288,6 +289,9 @@ func cliExitCode(err error) int {
 	}
 	if coded, ok := errors.AsType[exitCoder](err); ok {
 		return coded.ExitCode()
+	}
+	if failure, ok := storagefs.DescribeError(err); ok {
+		return failure.ExitCode
 	}
 	if _, ok := errors.AsType[*appcfg.ConfigError](err); ok {
 		return 3

@@ -6,7 +6,8 @@
   "required": [
     "kind",
     "schema_revision",
-    "store",
+    "scope",
+    "dry_run",
     "deleted"
   ],
   "properties": {
@@ -14,10 +15,10 @@
       "const": "scenery.storage.delete"
     },
     "schema_revision": {
-      "const": "sha256:a7c00ff140a9db27999660049545588ca8a5521e1956b36823a8c948eea74adb"
+      "const": "sha256:61adce71246182fb13758dc171680a622b8e8b6b7b6b7e4d30575d3fe7a40dfd"
     },
-    "store": {
-      "type": "string"
+    "scope": {
+      "$ref": "scenery.storage.object.schema.json#/$defs/scope"
     },
     "key": {
       "type": "string"
@@ -25,8 +26,99 @@
     "prefix": {
       "type": "string"
     },
+    "dry_run": {
+      "type": "boolean"
+    },
     "deleted": {
       "type": "boolean"
+    },
+    "preview": {
+      "type": "object",
+      "required": [
+        "scope",
+        "prefix",
+        "incarnation",
+        "generation",
+        "objects",
+        "bytes",
+        "sample",
+        "selection_revision"
+      ],
+      "properties": {
+        "scope": {
+          "type": "object",
+          "required": [
+            "store",
+            "tenant"
+          ],
+          "properties": {
+            "store": {
+              "type": "string"
+            },
+            "tenant": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        "prefix": {
+          "type": "string"
+        },
+        "incarnation": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{32}$"
+        },
+        "generation": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{32}$"
+        },
+        "objects": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sample": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "string"
+          }
+        },
+        "selection_revision": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "result": {
+      "type": "object",
+      "required": [
+        "objects",
+        "bytes",
+        "completion"
+      ],
+      "properties": {
+        "objects": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "completion": {
+          "enum": [
+            "complete",
+            "partial",
+            "uncertain"
+          ]
+        }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false

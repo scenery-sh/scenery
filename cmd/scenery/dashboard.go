@@ -173,6 +173,7 @@ func newDashboardServerWithControllerHooks(controller dashboardController, root,
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", s.handleRoot)
 	mux.HandleFunc(devdash.WebSocketPath, s.handleWebSocket)
+	mux.HandleFunc(dashboardStoragePath, s.handleStorageTransfer)
 	mux.HandleFunc(devdash.ReportPath, s.handleReport)
 	mux.HandleFunc(dashboardControlPlanePath, s.handleControlPlane)
 	s.http = &http.Server{
@@ -859,6 +860,7 @@ type rpcResponse struct {
 type rpcError struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
+	Data    any    `json:"data,omitempty"`
 }
 
 func detectAssetContentType(path string) string {

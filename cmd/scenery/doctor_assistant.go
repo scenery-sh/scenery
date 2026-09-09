@@ -576,6 +576,7 @@ func doctorAssistantAssetCheck(root string, assistant compiler.Resource, result 
 	}
 	sort.Strings(paths)
 	found := false
+	retained := false
 	for _, path := range paths {
 		descriptor, raw, err := readAssistantAssetDescriptor(path)
 		if err != nil {
@@ -584,15 +585,22 @@ func doctorAssistantAssetCheck(root string, assistant compiler.Resource, result 
 		if descriptor.AssistantAddress != assistant.Address {
 			continue
 		}
-		found = true
-		if err := validateAssistantAssetDescriptor(descriptor, raw, path, result); err != nil {
-			return checkError(id, checkName, "assistant runtime asset digest verification failed", "Rebuild the production assistant assets from the current application graph.")
+		retained = true
+		if err := validateAssistantAssetDescriptor(descriptor, raw, path); err != nil {
+			return checkError(id, checkName, "assistant runtime asset digest verification failed: "+err.Error(), "Rebuild the production assistant assets from the current application graph.")
 		}
+		if !assistantAssetMatchesResult(descriptor, result) {
+			continue
+		}
+		found = true
 		if err := verifyAssistantAssetArchives(root, descriptor); err != nil {
-			return checkError(id, checkName, "assistant runtime asset digest verification failed", "Rebuild the production assistant assets from the current application graph.")
+			return checkError(id, checkName, "assistant runtime asset digest verification failed: "+err.Error(), "Rebuild the production assistant assets from the current application graph.")
 		}
 	}
 	if !found {
+		if retained {
+			return checkSkipped(id, checkName, "only retained runtime descriptors from previous builds exist; current assistant assets have not been built")
+		}
 		return checkSkipped(id, checkName, "no production runtime descriptor exists for this assistant")
 	}
 	return checkOK(id, checkName, "assistant runtime descriptor and capsule digests are valid", nil)
@@ -630,7 +638,19 @@ func readAssistantAssetDescriptor(path string) (doctorAssistantAssetDescriptor, 
 	return descriptor, raw, nil
 }
 
-func validateAssistantAssetDescriptor(descriptor doctorAssistantAssetDescriptor, raw map[string]any, path string, result *compiler.Result) error {
+// Retained content-addressed sidecars belong to the graph that built them.
+func assistantAssetMatchesResult(descriptor doctorAssistantAssetDescriptor, result *compiler.Result) bool {
+	if result == nil || result.Manifest == nil {
+		return true
+	}
+	if descriptor.CapabilityRevision != "" && descriptor.CapabilityRevision != result.Manifest.ContractRevision {
+		return false
+	}
+	expected := assistantExpectedRuntimeRevision(result)
+	return descriptor.RuntimeRevision == "" || expected == "" || descriptor.RuntimeRevision == expected
+}
+
+func validateAssistantAssetDescriptor(descriptor doctorAssistantAssetDescriptor, raw map[string]any, path string) error {
 	if descriptor.Kind != runtimeassets.AssistantAssetKind || descriptor.SchemaRevision != runtimeassets.AssistantAssetSchemaRevision || strings.TrimSpace(descriptor.AssistantAddress) == "" || strings.TrimSpace(descriptor.Target) == "" || descriptor.CapsuleEntry != ".scenery/bootstrap.mjs" {
 		return errors.New("descriptor identity is invalid")
 	}
@@ -644,14 +664,6 @@ func validateAssistantAssetDescriptor(descriptor doctorAssistantAssetDescriptor,
 		key := strings.TrimSuffix(strings.TrimPrefix(base, "runtime-descriptor-"), ".json")
 		if key != strings.TrimPrefix(descriptor.CapsuleArchiveDigest, "sha256:") {
 			return errors.New("descriptor filename does not match capsule digest")
-		}
-	}
-	if result != nil && result.Manifest != nil {
-		if descriptor.CapabilityRevision != "" && descriptor.CapabilityRevision != result.Manifest.ContractRevision {
-			return errors.New("descriptor capability revision is stale")
-		}
-		if expected := assistantExpectedRuntimeRevision(result); descriptor.RuntimeRevision != "" && expected != "" && descriptor.RuntimeRevision != expected {
-			return errors.New("descriptor runtime revision is stale")
 		}
 	}
 	if descriptor.DescriptorDigest != "" {
@@ -686,9 +698,18 @@ func verifyAssistantAssetArchives(root string, descriptor doctorAssistantAssetDe
 		return nil
 	}
 	assetRoot := filepath.Join(manifest.Build.WorkspaceDir, "internal", "scenerygen", "assets")
+	return verifyAssistantWorkspaceAssets(assetRoot, descriptor)
+}
+
+func verifyAssistantWorkspaceAssets(assetRoot string, descriptor doctorAssistantAssetDescriptor) error {
 	nodePath := filepath.Join(assetRoot, "archives", "node-"+strings.TrimPrefix(descriptor.NodeArchiveDigest, "sha256:")+".tar.gz")
 	capsulePath := filepath.Join(assetRoot, "archives", "capsule-"+strings.TrimPrefix(descriptor.CapsuleArchiveDigest, "sha256:")+".tar.gz")
-	descriptorPathWorkspace := filepath.Join(assetRoot, "descriptors", strings.TrimPrefix(descriptor.CapsuleArchiveDigest, "sha256:")+".json")
+	encoded, err := json.Marshal(descriptor)
+	if err != nil {
+		return err
+	}
+	descriptorDigest := sha256.Sum256(encoded)
+	descriptorPathWorkspace := filepath.Join(assetRoot, "descriptors", hex.EncodeToString(descriptorDigest[:])+".json")
 	_, nodeErr := os.Stat(nodePath)
 	_, capsuleErr := os.Stat(capsulePath)
 	workspaceDescriptor, _, descriptorErr := readAssistantAssetDescriptor(descriptorPathWorkspace)

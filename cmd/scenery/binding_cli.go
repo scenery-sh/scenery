@@ -74,9 +74,16 @@ func runBindingCLI(stdout, stderr io.Writer, arguments []string) (bool, error) {
 	if err != nil {
 		return true, err
 	}
-	storageEnv, err := storageCapabilityEnv(cfg, nil, baseEnv, "")
+	storageEnv, err := storageCapabilityEnv(context.Background(), root, cfg, nil, baseEnv, "")
 	if err != nil {
 		return true, err
+	}
+	storageLease, err := storageTaskLease(context.Background(), storageEnv)
+	if err != nil {
+		return true, err
+	}
+	if storageLease != nil {
+		defer func() { _ = storageLease.Close() }()
 	}
 	command.Env = envWithOverrides(baseEnv, append(storageEnv, "SCENERY_APP_ID="+cfg.AppID(), "SCENERY_APP_ROOT="+root)...)
 	var responseBytes, processStderr bytes.Buffer

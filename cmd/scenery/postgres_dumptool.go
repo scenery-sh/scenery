@@ -38,7 +38,7 @@ func newSnapshotPostgresRunner(database postgresdb.Database) (snapshotPostgresRu
 }
 
 func (r dockerSnapshotPostgresRunner) Dump(ctx context.Context, database postgresdb.Database, out io.Writer) error {
-	args, err := managedSnapshotToolArgs(ctx, database, "pg_dump")
+	args, err := managedPostgresToolArgs(ctx, database, "pg_dump")
 	if err != nil {
 		return err
 	}
@@ -46,7 +46,7 @@ func (r dockerSnapshotPostgresRunner) Dump(ctx context.Context, database postgre
 }
 
 func (r dockerSnapshotPostgresRunner) Restore(ctx context.Context, database postgresdb.Database, flags []string, in io.Reader) error {
-	args, err := managedSnapshotToolArgs(ctx, database, "pg_restore")
+	args, err := managedPostgresToolArgs(ctx, database, "pg_restore")
 	if err != nil {
 		return err
 	}
@@ -54,7 +54,7 @@ func (r dockerSnapshotPostgresRunner) Restore(ctx context.Context, database post
 	return runSnapshotPostgresTool(ctx, "docker", args, in, io.Discard, "pg_restore")
 }
 
-func managedSnapshotToolArgs(ctx context.Context, database postgresdb.Database, tool string) ([]string, error) {
+func managedPostgresToolArgs(ctx context.Context, database postgresdb.Database, tool string, execOptions ...string) ([]string, error) {
 	resolver, err := newWorktreePostgresResolver(ctx, database.AppRoot, "")
 	if err != nil {
 		return nil, err
@@ -80,14 +80,15 @@ func managedSnapshotToolArgs(ctx context.Context, database postgresdb.Database, 
 	if err != nil {
 		return nil, err
 	}
-	if p.SystemID == "" || systemID != p.SystemID || p.Phase == "deleting" || (tool == "pg_dump" && (p.Restore != nil || p.Phase == "restoring" || p.Phase == "restore-failed")) {
+	if p.SystemID == "" || systemID != p.SystemID || p.Phase == "deleting" || ((tool == "pg_dump" || tool == "psql") && (p.Restore != nil || p.Phase == "restoring" || p.Phase == "restore-failed")) {
 		return nil, worktreePostgresPrecondition("snapshot target identity or operation state is incompatible")
 	}
 	databaseURL, err := snapshotContainerDatabaseURL(observed, database.Database)
 	if err != nil {
 		return nil, err
 	}
-	return []string{"--host", p.DaemonEndpoint, "exec", "-i", container.ID, tool, "--dbname", databaseURL}, nil
+	args := append([]string{"--host", p.DaemonEndpoint, "exec", "-i"}, execOptions...)
+	return append(args, container.ID, tool, "--dbname", databaseURL), nil
 }
 
 func (hostSnapshotPostgresRunner) Dump(ctx context.Context, database postgresdb.Database, out io.Writer) error {

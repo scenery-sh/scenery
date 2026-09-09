@@ -1,24 +1,45 @@
 package storageconfig
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
 
 	"scenery.sh/internal/machine"
+	"scenery.sh/internal/storagefs"
 )
 
 const (
 	RuntimeConfigEnv        = "SCENERY_STORAGE_CONFIG"
 	RuntimeKind             = "scenery.storage.runtime"
-	runtimeSchemaDescriptor = `{"identity":"artifact","cell_id":"string","default":"string","stores":"runtime-stores"}`
+	runtimeSchemaDescriptor = `{"identity":"artifact","namespace":{"root":"string","binding":{"app_id":"string","app_root":"string","worktree_key":"string","user_id":"integer","managed":"boolean"},"incarnation":"string"},"default":"string","stores":{"additionalProperties":{"kind":"string","root":"string","proxy_socket":"string","access":"string","tenant_scoped":"boolean","max_object_bytes":"integer"}}}`
 )
 
 type RuntimeConfig struct {
 	machine.ArtifactIdentity
-	CellID  string                        `json:"cell_id"`
-	Default string                        `json:"default,omitempty"`
-	Stores  map[string]RuntimeStoreConfig `json:"stores"`
+	Namespace *Namespace                    `json:"namespace,omitempty"`
+	Default   string                        `json:"default,omitempty"`
+	Stores    map[string]RuntimeStoreConfig `json:"stores"`
+}
+
+// Namespace is the explicit binding shared by a development runtime's stores.
+// Independent external local roots omit it and retain no managed purge power.
+type Namespace struct {
+	Root        string            `json:"root"`
+	Binding     storagefs.Binding `json:"binding"`
+	Incarnation string            `json:"incarnation"`
+}
+
+func (n Namespace) Handle() (*storagefs.Namespace, error) {
+	return storagefs.Bind(n.Root, n.Binding, n.Incarnation)
+}
+func (n Namespace) ProxyBinding() string {
+	data, _ := json.Marshal(n)
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
 }
 
 type RuntimeStoreConfig struct {
@@ -48,6 +69,11 @@ func LoadRuntimeConfigValue(raw string) (RuntimeConfig, bool, error) {
 	}
 	if len(cfg.Stores) == 0 {
 		return RuntimeConfig{}, false, nil
+	}
+	if cfg.Namespace != nil {
+		if _, err := cfg.Namespace.Handle(); err != nil {
+			return RuntimeConfig{}, true, err
+		}
 	}
 	return cfg, true, nil
 }

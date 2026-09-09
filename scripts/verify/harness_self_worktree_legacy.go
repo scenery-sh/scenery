@@ -17,7 +17,7 @@ const worktreeLegacyRevision = "c56e3e9614e58914e27a8536b171e4d979f32bbb"
 // The historical binary is executed only inside a disposable nested daemon.
 // Neither the host Docker socket nor any host source directory is mounted.
 func (p *worktreeRuntimeProbe) legacyCoexistence() error {
-	return p.scenario("A9", "pre-cutover runtime coexistence and lossless native database migration on a disposable daemon", func(e map[string]any) (resultErr error) {
+	return p.scenario("A9", "incompatible-home rejection, pre-cutover coexistence and lossless native migration on a disposable daemon", func(e map[string]any) (resultErr error) {
 		dir := filepath.Join(p.root, "legacy-sandbox")
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return err
@@ -52,7 +52,7 @@ func (p *worktreeRuntimeProbe) legacyCoexistence() error {
 			if resultErr != nil {
 				// Private diagnostic copies may include retained credentials.
 				// Keep them under this owner-only probe root, never in summaries.
-				for _, source := range []string{"/legacy-state", "/app-old/.scenery", "/app-new/.scenery"} {
+				for _, source := range []string{"/legacy-state", "/candidate-state", "/app-old/.scenery", "/app-new/.scenery"} {
 					dest := filepath.Join(dir, "failure-"+strings.ReplaceAll(strings.Trim(source, "/"), "/", "-"))
 					_, _ = p.runWithContext(ctx, dir, "docker", "cp", container+":"+source, dest)
 				}
@@ -110,9 +110,17 @@ func (s *worktreeLegacySandbox) run(args ...string) ([]byte, error) {
 }
 
 func (s *worktreeLegacySandbox) cli(old bool, root string, args ...string) ([]byte, error) {
-	binary, home := "/candidate-scenery", "/legacy-state"
+	home := "/candidate-state"
 	if old {
-		binary, home = "/baseline-scenery", "/legacy-state"
+		home = "/legacy-state"
+	}
+	return s.cliInHome(old, home, root, args...)
+}
+
+func (s *worktreeLegacySandbox) cliInHome(old bool, home, root string, args ...string) ([]byte, error) {
+	binary := "/candidate-scenery"
+	if old {
+		binary = "/baseline-scenery"
 	}
 	env := []string{"env", "SCENERY_AGENT_HOME=" + home, "SCENERY_DEV_VICTORIA=0", "SCENERY_DEV_VICTORIA_DOWNLOAD=0", "SCENERY_AGENT_TRUST=0", "GOWORK=off", binary}
 	env = append(env, args...)

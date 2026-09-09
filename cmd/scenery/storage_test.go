@@ -3,589 +3,178 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
-	"sync/atomic"
 	"testing"
 
 	localagent "scenery.sh/internal/agent"
 	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/storageconfig"
+	"scenery.sh/internal/storagefs"
 	publicstorage "scenery.sh/storage"
 )
 
-func runtimeStorageJSON(t *testing.T, cfg storageconfig.RuntimeConfig) string {
-	t.Helper()
-	encoded, err := json.Marshal(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(encoded)
-}
-
-func TestRunStorageStatus(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-	writeTestAppFile(t, root, ".scenery.json", `{
-		"name": "storageapp",
-		"storage": {
-			"default": "app",
-			"stores": {
-				"app": {"kind": "local", "access": "auth"}
-			}
-		}
-	}`)
-	var out bytes.Buffer
-	if err := runStorageCommand([]string{"status", "-o", "json", "--app-root", root}, &out); err != nil {
-		t.Fatalf("runStorageCommand(status) error = %v", err)
-	}
-	var payload storageStatusResponse
-	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
-		t.Fatalf("decodeCLIJSON(status) error = %v\n%s", err, out.String())
-	}
-	if payload.Kind != "scenery.storage.status" || payload.SchemaRevision != newCLIPayloadIdentity("scenery.storage.status").SchemaRevision || !payload.Storage.Configured {
-		t.Fatalf("payload = %+v", payload)
-	}
-	if len(payload.Stores) != 1 || payload.Stores[0].Name != "app" || payload.Stores[0].Kind != "local" {
-		t.Fatalf("stores = %+v", payload.Stores)
-	}
-}
-
-func TestRunStorageWebUIReportsNoManagedUI(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-	writeTestAppFile(t, root, ".scenery.json", `{
-		"name": "storageapp",
-		"storage": {"stores": {"app": {"kind": "local"}}}
-	}`)
-	var out bytes.Buffer
-	if err := runStorageCommand([]string{"webui", "-o", "json", "--app-root", root}, &out); err != nil {
-		t.Fatalf("runStorageCommand(webui) error = %v", err)
-	}
-	var payload storageWebUIResponse
-	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
-		t.Fatalf("decodeCLIJSON(webui) error = %v\n%s", err, out.String())
-	}
-	if payload.Kind != "scenery.storage.webui" || payload.SchemaRevision != newCLIPayloadIdentity("scenery.storage.webui").SchemaRevision || !payload.Configured || payload.Ready || payload.Reason == "" {
-		t.Fatalf("payload = %+v", payload)
-	}
-}
-
-func TestRunStorageObjectCommands(t *testing.T) {
-	agentHome := t.TempDir()
-	_ = isolateCommandAgentHomeAt(t, agentHome)
-	root := t.TempDir()
-	writeTestAppFile(t, root, ".scenery.json", `{
-		"name": "storageapp",
-		"storage": {
-			"default": "app",
-			"stores": {
-				"app": {"kind": "local", "access": "auth"}
-			}
-		}
-	}`)
-	source := filepath.Join(t.TempDir(), "report.txt")
-	if err := os.WriteFile(source, []byte("storage report"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	var putOut bytes.Buffer
-	if err := runStorageCommand([]string{"put", "app", "reports/report.txt", source, "-o", "json", "--app-root", root}, &putOut); err != nil {
-		t.Fatalf("storage put error = %v", err)
-	}
-	var putPayload storageObjectResponse
-	if err := decodeCLIJSON(putOut.Bytes(), &putPayload); err != nil {
-		t.Fatalf("unmarshal put: %v\n%s", err, putOut.String())
-	}
-	if putPayload.Kind != "scenery.storage.object" || putPayload.SchemaRevision != newCLIPayloadIdentity("scenery.storage.object").SchemaRevision || putPayload.Object.Key != "reports/report.txt" || putPayload.Object.SizeBytes != int64(len("storage report")) {
-		t.Fatalf("put payload = %+v", putPayload)
-	}
-
-	var listOut bytes.Buffer
-	if err := runStorageCommand([]string{"ls", "app", "--prefix", "reports/", "-o", "json", "--app-root", root}, &listOut); err != nil {
-		t.Fatalf("storage ls error = %v", err)
-	}
-	var listPayload storageListResponse
-	if err := decodeCLIJSON(listOut.Bytes(), &listPayload); err != nil {
-		t.Fatalf("unmarshal list: %v\n%s", err, listOut.String())
-	}
-	if len(listPayload.Page.Objects) != 1 || listPayload.Page.Objects[0].Key != "reports/report.txt" {
-		t.Fatalf("list payload = %+v", listPayload)
-	}
-
-	var statOut bytes.Buffer
-	if err := runStorageCommand([]string{"stat", "app", "reports/report.txt", "-o", "json", "--app-root", root}, &statOut); err != nil {
-		t.Fatalf("storage stat error = %v", err)
-	}
-	var statPayload storageObjectResponse
-	if err := decodeCLIJSON(statOut.Bytes(), &statPayload); err != nil {
-		t.Fatalf("unmarshal stat: %v\n%s", err, statOut.String())
-	}
-	if statPayload.Object.SHA256 == "" || statPayload.Object.ETag == "" {
-		t.Fatalf("stat payload missing hashes = %+v", statPayload)
-	}
-
-	target := filepath.Join(t.TempDir(), "download.txt")
-	var getOut bytes.Buffer
-	if err := runStorageCommand([]string{"get", "app", "reports/report.txt", "--output", target, "-o", "json", "--app-root", root}, &getOut); err != nil {
-		t.Fatalf("storage get error = %v", err)
-	}
-	got, err := os.ReadFile(target)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(got) != "storage report" {
-		t.Fatalf("downloaded data = %q", got)
-	}
-
-	var rmOut bytes.Buffer
-	if err := runStorageCommand([]string{"rm", "app", "reports/report.txt", "-o", "json", "--app-root", root}, &rmOut); err != nil {
-		t.Fatalf("storage rm error = %v", err)
-	}
-	var rmPayload storageDeleteResponse
-	if err := decodeCLIJSON(rmOut.Bytes(), &rmPayload); err != nil {
-		t.Fatalf("unmarshal rm: %v\n%s", err, rmOut.String())
-	}
-	if !rmPayload.Deleted || rmPayload.Key != "reports/report.txt" {
-		t.Fatalf("rm payload = %+v", rmPayload)
-	}
-}
-
-func TestRunStoragePutHonorsMaxObjectBytes(t *testing.T) {
-	agentHome := t.TempDir()
-	_ = isolateCommandAgentHomeAt(t, agentHome)
-	root := t.TempDir()
-	writeTestAppFile(t, root, ".scenery.json", `{
-		"name": "storageapp",
-		"storage": {
-			"default": "app",
-			"stores": {
-				"app": {"kind": "local", "access": "auth", "max_object_bytes": 4}
-			}
-		}
-	}`)
-	source := filepath.Join(t.TempDir(), "too-large.txt")
-	if err := os.WriteFile(source, []byte("storage report"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	var out bytes.Buffer
-	err := runStorageCommand([]string{"put", "app", "reports/report.txt", source, "-o", "json", "--app-root", root}, &out)
-	if err == nil || !strings.Contains(err.Error(), "max_object_bytes 4") {
-		t.Fatalf("storage put error = %v, output = %s", err, out.String())
-	}
-}
-
-func TestRunStorageCleanupDefaultsToDryRun(t *testing.T) {
-	agentHome := t.TempDir()
-	_ = isolateCommandAgentHomeAt(t, agentHome)
-	root := t.TempDir()
-	writeTestAppFile(t, root, ".scenery.json", `{
-		"name": "storageapp",
-		"storage": {"stores": {"app": {"kind": "local"}}}
-	}`)
-	cellRoot := filepath.Join(agentHome, "agent", "storage", "storageapp")
-	if err := os.MkdirAll(cellRoot, 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	var out bytes.Buffer
-	if err := runStorageCommand([]string{"cleanup", "-o", "json", "--app-root", root}, &out); err != nil {
-		t.Fatalf("storage cleanup dry-run error = %v", err)
-	}
-	var payload storageCleanupResponse
-	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
-		t.Fatalf("unmarshal cleanup: %v\n%s", err, out.String())
-	}
-	if !payload.DryRun || payload.Deleted || !payload.Exists || payload.CellRoot != cellRoot {
-		t.Fatalf("cleanup payload = %+v", payload)
-	}
-	if _, err := os.Stat(cellRoot); err != nil {
-		t.Fatalf("dry-run removed cell root: %v", err)
-	}
-}
-
-func TestRunStorageCleanupYesRemovesCellRoot(t *testing.T) {
-	agentHome := t.TempDir()
-	_ = isolateCommandAgentHomeAt(t, agentHome)
-	root := t.TempDir()
-	writeTestAppFile(t, root, ".scenery.json", `{
-		"name": "storageapp",
-		"storage": {"stores": {"app": {"kind": "local"}}}
-	}`)
-	cellRoot := filepath.Join(agentHome, "agent", "storage", "storageapp")
-	if err := os.MkdirAll(filepath.Join(cellRoot, "objects", "app"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	var out bytes.Buffer
-	if err := runStorageCommand([]string{"cleanup", "--yes", "-o", "json", "--app-root", root}, &out); err != nil {
-		t.Fatalf("storage cleanup --yes error = %v", err)
-	}
-	var payload storageCleanupResponse
-	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
-		t.Fatalf("unmarshal cleanup: %v\n%s", err, out.String())
-	}
-	if payload.DryRun || !payload.Deleted || payload.Exists {
-		t.Fatalf("cleanup payload = %+v", payload)
-	}
-	if _, err := os.Stat(cellRoot); !os.IsNotExist(err) {
-		t.Fatalf("cleanup --yes did not remove cell root: %v", err)
-	}
-}
-
-func TestStorageCapabilityEnvPointsAtSharedCell(t *testing.T) {
-	t.Parallel()
-
-	agentHome := t.TempDir()
-	cfg := appcfg.Config{
-		Name: "storageapp",
-		Envs: map[string]appcfg.EnvConfig{"local": {Default: true}, "production": {Deploy: &appcfg.EnvDeployConfig{}}},
-		Storage: appcfg.StorageConfig{
-			CellID:  "shared-cell",
-			Default: "app",
-			Stores: map[string]appcfg.StorageStoreConfig{
-				"app": {Kind: "local", MaxObjectBytes: 100},
-			},
-		},
-	}
-	env, err := storageCapabilityEnv(cfg, &localagent.Session{SessionID: "dev", BaseAppID: "storageapp"}, nil, agentHome)
-	if err != nil {
-		t.Fatalf("storageCapabilityEnv returned error: %v", err)
-	}
-	joined := strings.Join(env, "\n")
-	if !strings.Contains(joined, "SCENERY_STORAGE_CELL_ID=shared-cell") {
-		t.Fatalf("env missing cell ID: %v", env)
-	}
-	if !strings.Contains(joined, `"kind":"`+storageconfig.RuntimeKind+`"`) ||
-		!strings.Contains(joined, `"default":"app"`) ||
-		!strings.Contains(joined, `"kind":"local"`) ||
-		!strings.Contains(joined, `"max_object_bytes":100`) {
-		t.Fatalf("env missing runtime storage config: %v", env)
-	}
-	if !strings.Contains(joined, filepath.Join(agentHome, "agent", "storage", "shared-cell", "objects", "app")) {
-		t.Fatalf("env does not use shared storage-cell object root: %v", env)
-	}
-}
-
-func TestStorageCapabilityEnvUsesProxyForSessionStateRoot(t *testing.T) {
-	t.Parallel()
-
-	agentHome := t.TempDir()
-	stateRoot := filepath.Join(t.TempDir(), ".scenery", "sessions", "dev")
-	cfg := appcfg.Config{
-		Name: "storageapp",
-		Envs: map[string]appcfg.EnvConfig{"local": {Default: true}, "production": {Deploy: &appcfg.EnvDeployConfig{}}},
-		Storage: appcfg.StorageConfig{
-			CellID:  "shared-cell",
-			Default: "app",
-			Stores: map[string]appcfg.StorageStoreConfig{
-				"app": {Kind: "local"},
-			},
-		},
-	}
-	env, err := storageCapabilityEnv(cfg, &localagent.Session{SessionID: "dev", BaseAppID: "storageapp", StateRoot: stateRoot}, nil, agentHome)
-	if err != nil {
-		t.Fatalf("storageCapabilityEnv returned error: %v", err)
-	}
-	joined := strings.Join(env, "\n")
-	if !strings.Contains(joined, `"kind":"proxy"`) || !strings.Contains(joined, `"proxy_socket":"`) {
-		t.Fatalf("env missing proxy runtime config: %v", env)
-	}
-	if strings.Contains(joined, `"root":"`) {
-		t.Fatalf("proxy runtime config should not expose object root: %v", env)
-	}
-}
-
-func TestAppProcessEnvFailsClosedForStorageWithoutExplicitRuntimeConfig(t *testing.T) {
-	t.Setenv(storageconfig.RuntimeConfigEnv, "")
-	cfg := appcfg.Config{
-		Name: "storageapp",
-		Envs: map[string]appcfg.EnvConfig{"local": {Default: true}, "production": {Deploy: &appcfg.EnvDeployConfig{}}},
-		Storage: appcfg.StorageConfig{
-			Default: "app",
-			Stores: map[string]appcfg.StorageStoreConfig{
-				"app": {Kind: "local"},
-			},
-		},
-	}
-	_, err := appProcessEnv(t.TempDir(), cfg, nil, "json", "production")
-	if err == nil {
-		t.Fatal("appProcessEnv succeeded without explicit storage runtime config")
-	}
-	if !strings.Contains(err.Error(), "headless runtimes require explicit "+storageconfig.RuntimeConfigEnv) ||
-		!strings.Contains(err.Error(), "scenery up") {
-		t.Fatalf("error = %v", err)
-	}
-}
-
-func TestAppProcessEnvAcceptsExplicitProxyStorageRuntimeConfig(t *testing.T) {
-	raw := runtimeStorageJSON(t, storageconfig.RuntimeConfig{ArtifactIdentity: storageconfig.NewRuntimeIdentity(), CellID: "prod-cell", Stores: map[string]storageconfig.RuntimeStoreConfig{"app": {Kind: "proxy", ProxySocket: "/tmp/storage.sock"}}})
-	t.Setenv(storageconfig.RuntimeConfigEnv, raw)
-	cfg := appcfg.Config{
-		Name: "storageapp",
-		Envs: map[string]appcfg.EnvConfig{"local": {Default: true}, "production": {Deploy: &appcfg.EnvDeployConfig{}}},
-		Storage: appcfg.StorageConfig{
-			Default: "app",
-			Stores: map[string]appcfg.StorageStoreConfig{
-				"app": {Kind: "local"},
-			},
-		},
-	}
-	env, err := appProcessEnv(t.TempDir(), cfg, nil, "json", "production")
-	if err != nil {
-		t.Fatalf("appProcessEnv returned error: %v", err)
-	}
-	joined := strings.Join(env, "\n")
-	if !strings.Contains(joined, storageconfig.RuntimeConfigEnv+"="+raw) {
-		t.Fatalf("env missing explicit runtime config: %v", env)
-	}
-}
-
-func TestAppProcessEnvAcceptsExplicitLocalStorageRuntimeConfig(t *testing.T) {
-	dir := t.TempDir()
-	raw := runtimeStorageJSON(t, storageconfig.RuntimeConfig{ArtifactIdentity: storageconfig.NewRuntimeIdentity(), CellID: "prod-cell", Stores: map[string]storageconfig.RuntimeStoreConfig{"app": {Kind: "local", Root: dir}}})
-	t.Setenv(storageconfig.RuntimeConfigEnv, raw)
-	cfg := appcfg.Config{
-		Name: "storageapp",
-		Envs: map[string]appcfg.EnvConfig{"local": {Default: true}, "production": {Deploy: &appcfg.EnvDeployConfig{}}},
-		Storage: appcfg.StorageConfig{
-			Default: "app",
-			Stores: map[string]appcfg.StorageStoreConfig{
-				"app": {Kind: "local"},
-			},
-		},
-	}
-	env, err := appProcessEnv(t.TempDir(), cfg, nil, "json", "production")
-	if err != nil {
-		t.Fatalf("appProcessEnv rejected explicit local storage runtime config: %v", err)
-	}
-	if !strings.Contains(strings.Join(env, "\n"), storageconfig.RuntimeConfigEnv+"="+raw) {
-		t.Fatalf("env missing explicit local runtime config: %v", env)
-	}
-}
-
-func TestAppProcessEnvRejectsRelativeLocalStorageRoot(t *testing.T) {
-	raw := runtimeStorageJSON(t, storageconfig.RuntimeConfig{ArtifactIdentity: storageconfig.NewRuntimeIdentity(), CellID: "prod-cell", Stores: map[string]storageconfig.RuntimeStoreConfig{"app": {Kind: "local", Root: "relative/path"}}})
-	t.Setenv(storageconfig.RuntimeConfigEnv, raw)
-	cfg := appcfg.Config{
-		Name: "storageapp",
-		Envs: map[string]appcfg.EnvConfig{"local": {Default: true}, "production": {Deploy: &appcfg.EnvDeployConfig{}}},
-		Storage: appcfg.StorageConfig{
-			Default: "app",
-			Stores: map[string]appcfg.StorageStoreConfig{
-				"app": {Kind: "local"},
-			},
-		},
-	}
-	_, err := appProcessEnv(t.TempDir(), cfg, nil, "json", "production")
-	if err == nil {
-		t.Fatal("appProcessEnv accepted relative local storage root")
-	}
-	if !strings.Contains(err.Error(), "must be an absolute path") {
-		t.Fatalf("error = %v", err)
-	}
-}
-
-func TestManagedStorageProxyRoundTripThroughPublicStoragePackage(t *testing.T) {
-	store, plan := setupManagedStorageProxyPublicStore(t)
-	if _, err := store.Put(context.Background(), "reports/report.txt", strings.NewReader("storage report"), publicstorage.PutOptions{
-		ContentType: "application/x-report",
-		Metadata:    map[string]string{"source": "proxy"},
-	}); err != nil {
-		t.Fatalf("proxy put returned error: %v", err)
-	}
-	page, err := store.List(context.Background(), publicstorage.ListOptions{Prefix: "reports/"})
-	if err != nil {
-		t.Fatalf("proxy list returned error: %v", err)
-	}
-	if len(page.Objects) != 1 || page.Objects[0].Key != "reports/report.txt" || page.Objects[0].Metadata["Source"] != "proxy" {
-		t.Fatalf("proxy list page = %+v", page)
-	}
-	head, err := store.Head(context.Background(), "reports/report.txt")
-	if err != nil {
-		t.Fatalf("proxy head returned error: %v", err)
-	}
-	if head.SizeBytes != int64(len("storage report")) || head.ContentType != "application/x-report" || head.Metadata["Source"] != "proxy" {
-		t.Fatalf("proxy head = %+v", head)
-	}
-	body, obj, err := store.Get(context.Background(), "reports/report.txt", publicstorage.GetOptions{})
-	if err != nil {
-		t.Fatalf("proxy get returned error: %v", err)
-	}
-	data, err := io.ReadAll(body)
-	if err != nil {
-		_ = body.Close()
-		t.Fatal(err)
-	}
-	if err := body.Close(); err != nil {
-		t.Fatalf("close proxy get body: %v", err)
-	}
-	if string(data) != "storage report" || obj.Key != "reports/report.txt" || obj.Metadata["Source"] != "proxy" {
-		t.Fatalf("proxy get data=%q object=%+v", data, obj)
-	}
-	// Objects are plain files under the cell's per-store object root.
-	if _, err := os.Stat(filepath.Join(plan.ObjectsDir, "app", "reports", "report.txt")); err != nil {
-		t.Fatalf("expected object file under cell object root: %v", err)
-	}
-}
-
-func TestManagedStorageProxyDeleteThroughPublicStoragePackage(t *testing.T) {
-	store, plan := setupManagedStorageProxyPublicStore(t)
-	if _, err := store.Put(context.Background(), "reports/report.txt", strings.NewReader("storage report"), publicstorage.PutOptions{
-		ContentType: "application/x-report",
-		Metadata:    map[string]string{"source": "proxy"},
-	}); err != nil {
-		t.Fatalf("proxy put before delete returned error: %v", err)
-	}
-	if _, err := store.Head(context.Background(), "reports/report.txt"); err != nil {
-		t.Fatalf("proxy head before delete returned error: %v", err)
-	}
-	if err := store.Delete(context.Background(), "reports/report.txt"); err != nil {
-		t.Fatalf("proxy delete returned error: %v", err)
-	}
-	if _, err := store.Head(context.Background(), "reports/report.txt"); err == nil {
-		t.Fatal("proxy head succeeded after delete")
-	}
-	objectPath := filepath.Join(plan.ObjectsDir, "app", "reports", "report.txt")
-	if _, err := os.Stat(objectPath); !os.IsNotExist(err) {
-		t.Fatalf("storage object remains after delete: %v", err)
-	}
-	metadataPath := filepath.Join(plan.ObjectsDir, "app", "__scenery", "metadata", "reports", "report.txt.json")
-	if _, err := os.Stat(metadataPath); !os.IsNotExist(err) {
-		t.Fatalf("storage metadata sidecar remains after delete: %v", err)
-	}
-}
-
-func TestManagedStorageProxyConcurrentIfNoneMatchThroughPublicStoragePackage(t *testing.T) {
-	store, _ := setupManagedStorageProxyPublicStore(t)
-	assertStorageProxyConcurrentIfNoneMatch(t, store)
-}
-
-func setupManagedStorageProxyPublicStore(t *testing.T) (publicstorage.Store, *storageCellPlan) {
-	t.Helper()
-	shortRoot, err := os.MkdirTemp("/tmp", "scn-storage-*")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(shortRoot) })
-	agentHome := filepath.Join(shortRoot, "agent-home")
-	stateRoot := filepath.Join(shortRoot, "session")
-	cfg := appcfg.Config{
-		Name: "storageapp",
-		Storage: appcfg.StorageConfig{
-			CellID:  "shared-cell",
-			Default: "app",
-			Stores: map[string]appcfg.StorageStoreConfig{
-				"app": {Kind: "local", MaxObjectBytes: 100},
-			},
-		},
-	}
-	session := &localagent.Session{SessionID: "dev", BaseAppID: "storageapp", StateRoot: stateRoot}
-	plan, err := resolveStorageCellPlan(cfg, agentHome)
-	if err != nil {
-		t.Fatalf("resolveStorageCellPlan returned error: %v", err)
-	}
-	proxy, err := startManagedStorageProxy(context.Background(), cfg, session, plan)
-	if err != nil {
-		t.Fatalf("startManagedStorageProxy returned error: %v", err)
-	}
-	t.Cleanup(func() {
-		if err := proxy.Close(); err != nil {
-			t.Fatalf("close storage proxy: %v", err)
-		}
-	})
-	env, err := storageCapabilityEnv(cfg, session, nil, agentHome)
-	if err != nil {
-		t.Fatalf("storageCapabilityEnv returned error: %v", err)
-	}
-	t.Setenv(storageconfig.RuntimeConfigEnv, storageTestEnvValue(t, env, storageconfig.RuntimeConfigEnv))
-	store, err := publicstorage.Default(context.Background())
-	if err != nil {
-		t.Fatalf("storage.Default returned error: %v", err)
-	}
-	return store, plan
-}
-
-func assertStorageProxyConcurrentIfNoneMatch(t *testing.T, store publicstorage.Store) {
-	t.Helper()
-	var success int32
-	var wg sync.WaitGroup
-	start := make(chan struct{})
-	for i := 0; i < 12; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			<-start
-			_, err := store.Put(context.Background(), "reports/once.txt", strings.NewReader("once"), publicstorage.PutOptions{IfNoneMatch: true})
-			if err == nil {
-				atomic.AddInt32(&success, 1)
-				return
-			}
-			var exists *publicstorage.AlreadyExistsError
-			if !errors.As(err, &exists) {
-				t.Errorf("proxy Put IfNoneMatch error = %T %[1]v", err)
-			}
-		}()
-	}
-	close(start)
-	wg.Wait()
-	if success != 1 {
-		t.Fatalf("successful proxy IfNoneMatch writes = %d, want 1", success)
-	}
-}
-
-func TestStorageProxySocketPathFallsBackToShortTempPath(t *testing.T) {
-	t.Parallel()
-
-	stateRoot := filepath.Join(t.TempDir(), strings.Repeat("long-session-component-", 5))
-	path := storageProxySocketPath(&localagent.Session{
-		SessionID: strings.Repeat("feature-branch-", 8),
-		AppRoot:   filepath.Join(t.TempDir(), strings.Repeat("long-app-root-", 4)),
-		StateRoot: stateRoot,
-	})
-	if !strings.HasPrefix(path, filepath.Join(os.TempDir(), "scenery-storage-")) {
-		t.Fatalf("fallback storage proxy path = %q, want temp scenery-storage path", path)
-	}
-	if len(path) > 100 {
-		t.Fatalf("fallback storage proxy path length = %d, want <= 100: %q", len(path), path)
-	}
-}
-
-func storageTestEnvValue(t *testing.T, env []string, key string) string {
-	t.Helper()
-	prefix := key + "="
-	for _, item := range env {
-		if strings.HasPrefix(item, prefix) {
-			return strings.TrimPrefix(item, prefix)
-		}
-	}
-	t.Fatalf("env missing %s: %+v", key, env)
-	return ""
-}
-
+// Native CLI/Unix-socket CRUD, durable cleanup and cross-process publication
+// belong to the named storage release probe. These tests cover parsing and
+// adapter contracts in process; storagefs owns the object protocol tests.
 func TestParseStorageArgs(t *testing.T) {
-	t.Parallel()
-	opts, err := parseStorageArgs([]string{"status", "-o", "json", "--app-root", "/tmp/app"})
+	opts, err := parseStorageArgs([]string{"ls", "app", "--tenant", "team", "--prefix", "reports/", "--delimiter", "/", "--limit", "10", "-o", "json"})
+	if err != nil || opts.Store != "app" || opts.Tenant != "team" || opts.Limit != 10 || opts.Delimiter != "/" {
+		t.Fatalf("options=%+v error=%v", opts, err)
+	}
+	for _, args := range [][]string{
+		{"status"}, {"webui"}, {"ls"}, {"put", "app", "a", "-", "--if-absent", "--if-match", "tag"},
+		{"cleanup", "--yes"}, {"rm", "app", "a", "--recursive", "--yes"}, {"ls", "app", "--if-match", "tag"},
+	} {
+		if _, err := parseStorageArgs(args); err == nil {
+			t.Fatalf("accepted %v", args)
+		}
+	}
+	if _, err := parseStorageArgs([]string{"cleanup", "--purge", "--yes", "--expect-revision", "sha256:selection", "-o", "json"}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestStorageReadOnlyCommandsDoNotAllocate(t *testing.T) {
+	home := t.TempDir()
+	_ = isolateCommandAgentHomeAt(t, home)
+	root := t.TempDir()
+	writeTestAppFile(t, root, ".scenery.json", `{"name":"files-app","storage":{"stores":{"app":{"kind":"local"}}}}`)
+	for _, command := range []string{"ls", "stat", "cleanup"} {
+		var out bytes.Buffer
+		args := []string{command}
+		if command != "cleanup" {
+			args = append(args, "app")
+		}
+		if command == "stat" {
+			args = append(args, "missing")
+		}
+		args = append(args, "--app-root", root, "-o", "json")
+		err := runStorageCommand(args, &out)
+		if command == "stat" {
+			if !errors.Is(err, storagefs.ErrNotFound) {
+				t.Fatalf("stat: %v", err)
+			}
+		} else if err != nil {
+			t.Fatal(err)
+		}
+	}
+	plan, err := resolveStorageNamespacePlan(appcfg.Config{Name: "files-app"}, root, home)
 	if err != nil {
-		t.Fatalf("parseStorageArgs returned error: %v", err)
+		t.Fatal(err)
 	}
-	if opts.Command != "status" || !opts.JSON || opts.AppRoot != "/tmp/app" {
-		t.Fatalf("opts = %+v", opts)
+	if _, err := os.Stat(plan.Worktree.Directory); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("read-only commands allocated worktree: %v", err)
 	}
-	opts, err = parseStorageArgs([]string{"ls", "app", "--prefix", "reports/", "--limit", "10", "-o", "json"})
-	if err != nil {
-		t.Fatalf("parseStorageArgs ls returned error: %v", err)
+}
+
+func TestHeadlessStorageRequiresExplicitExternalAuthority(t *testing.T) {
+	root := t.TempDir()
+	for _, test := range []struct {
+		name      string
+		config    storageconfig.RuntimeConfig
+		wantError bool
+	}{
+		{"local", storageconfig.RuntimeConfig{Stores: map[string]storageconfig.RuntimeStoreConfig{"app": {Kind: "local", Root: root}}}, false},
+		{"relative", storageconfig.RuntimeConfig{Stores: map[string]storageconfig.RuntimeStoreConfig{"app": {Kind: "local", Root: "relative"}}}, true},
+		{"unbound proxy", storageconfig.RuntimeConfig{Stores: map[string]storageconfig.RuntimeStoreConfig{"app": {Kind: "proxy", ProxySocket: "/tmp/storage.sock"}}}, true},
+		{"empty", storageconfig.RuntimeConfig{}, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			test.config.ArtifactIdentity = storageconfig.NewRuntimeIdentity()
+			data, err := json.Marshal(test.config)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = validateHeadlessStorageRuntimeConfig(string(data))
+			if (err != nil) != test.wantError {
+				t.Fatalf("error=%v", err)
+			}
+		})
 	}
-	if opts.Command != "ls" || opts.Store != "app" || opts.Prefix != "reports/" || opts.Limit != 10 || !opts.JSON {
-		t.Fatalf("ls opts = %+v", opts)
+	cfg := appcfg.Config{Storage: appcfg.StorageConfig{Stores: map[string]appcfg.StorageStoreConfig{"app": {Kind: "local"}}}}
+	if _, err := headlessStorageCapabilityEnv(cfg, nil); err == nil {
+		t.Fatal("headless runtime silently selected managed dev files")
 	}
-	if _, err := parseStorageArgs([]string{"ls"}); err == nil {
-		t.Fatal("parseStorageArgs accepted unsupported command")
+}
+
+func TestStorageProxyRejectsNamespaceAndTenantBeforeResolution(t *testing.T) {
+	for _, test := range []struct {
+		binding, tenant string
+		want            int
+	}{
+		{"wrong", "", http.StatusConflict}, {"bound", "", http.StatusForbidden}, {"bound", "***", http.StatusBadRequest},
+	} {
+		h := storageProxyHandler(map[string]appcfg.StorageStoreConfig{"app": {TenantScoped: true}}, "bound", func(string, string) (publicstorage.Store, error) {
+			t.Fatal("resolved rejected request")
+			return nil, nil
+		})
+		req := httptest.NewRequest(http.MethodGet, "http://proxy/v1/stores/app", nil)
+		req.Header.Set("X-Scenery-Storage-Namespace", test.binding)
+		req.Header.Set("X-Scenery-Storage-Tenant", test.tenant)
+		recorder := httptest.NewRecorder()
+		h.ServeHTTP(recorder, req)
+		if recorder.Code != test.want {
+			t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+		}
+	}
+}
+
+type storageProxyContractStore struct {
+	publicstorage.Store
+	put     publicstorage.PutOptions
+	deleted publicstorage.DeleteOptions
+	key     string
+}
+
+func (s *storageProxyContractStore) Put(_ context.Context, key string, body io.Reader, opts publicstorage.PutOptions) (*publicstorage.Object, error) {
+	s.key = key
+	s.put = opts
+	_, err := io.Copy(io.Discard, body)
+	return &publicstorage.Object{Store: "app", Key: key, ETag: `"new"`}, err
+}
+func (s *storageProxyContractStore) Delete(_ context.Context, key string, opts publicstorage.DeleteOptions) error {
+	s.key = key
+	s.deleted = opts
+	return storagefs.ErrPrecondition
+}
+
+func TestStorageProxyPreservesLogicalMetadataAndConditions(t *testing.T) {
+	store := &storageProxyContractStore{}
+	h := storageProxyHandler(map[string]appcfg.StorageStoreConfig{"app": {TenantScoped: true}}, "bound", func(name, tenant string) (publicstorage.Store, error) {
+		if name != "app" || tenant != "team/č" {
+			t.Fatalf("wrong tuple %q %q", name, tenant)
+		}
+		return store, nil
+	})
+	req := httptest.NewRequest(http.MethodPut, "http://proxy/v1/stores/app/objects/a%252Fb", strings.NewReader("bytes"))
+	req.Header.Set("X-Scenery-Storage-Namespace", "bound")
+	req.Header.Set("X-Scenery-Storage-Tenant", base64.RawURLEncoding.EncodeToString([]byte("team/č")))
+	req.Header.Set("If-Match", `"old"`)
+	publicstorage.SetMetadataHeaders(req.Header, map[string]string{"Case-Key": "český"})
+	recorder := httptest.NewRecorder()
+	h.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusCreated || store.key != "a%2Fb" || store.put.IfMatch != `"old"` || store.put.Metadata["Case-Key"] != "český" {
+		t.Fatalf("bad adapter: %+v status=%d body=%s", store, recorder.Code, recorder.Body.String())
+	}
+	req.Method = http.MethodDelete
+	recorder = httptest.NewRecorder()
+	h.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusPreconditionFailed || store.deleted.IfMatch != `"old"` {
+		t.Fatalf("conditional delete: %+v status=%d", store.deleted, recorder.Code)
+	}
+}
+
+func TestStorageProxySocketPathFallsBackToPrivateShortPath(t *testing.T) {
+	name := storageProxySocketPath(&localagent.Session{StateRoot: filepath.Join(t.TempDir(), strings.Repeat("long-", 40))})
+	if len(name) > 100 || filepath.Dir(name) == os.TempDir() {
+		t.Fatalf("unsafe socket path %q", name)
 	}
 }

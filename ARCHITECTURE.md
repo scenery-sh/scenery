@@ -501,8 +501,19 @@ Architecture invariant: ordinary `up` owns one control plane and runtime per
 canonical app root in the same supervisor process. It never ensures a shared
 machine agent, adopts shared PostgreSQL resources, or replaces incompatible
 live ownership. Retained data and credentials live outside the checkout; Git
-removal does not authorize deletion. Explicit external databases and shared
-storage cells retain their declared sharing semantics.
+removal does not authorize deletion. Explicit external databases retain their
+declared sharing semantics; managed storage never shares across canonical roots.
+
+`internal/storagefs` owns retained namespace/incarnation authority, stable
+cross-process leases, immutable payloads and atomic complete references,
+metadata-only bounded scans, conservative reclamation and stopped-owner
+restore/purge records. `storage` is the app-facing logical API and transport
+adapter; application authentication supplies tenant identity. `cmd/scenery`
+composes retained worktree and storage ownership without adding a provisioner.
+`internal/snapshotarchive` owns checksummed portable logical records and leased
+disposable materialization; targets get independent clone-or-copy files, never
+links into a shared blob pool. The one-shot legacy exporter lives only under
+`scripts/`; it is not an alternative runtime decoder.
 
 The machine agent and privileged helper remain explicit edge/deploy surfaces.
 An explicitly configured domain can register an edge-only forwarding lease
@@ -519,7 +530,9 @@ bundle with built assets; only the product embeds and serves those assets.
 `internal/localproxy` owns the local proxy layer. Victoria sidecars are supervised
 from `cmd/scenery` as worktree-owned optional companions, and native dashboard views
 surface local logs, traces, and metrics. The dashboard server and UI embedding
-are orchestrated from `cmd/scenery`.
+are orchestrated from `cmd/scenery`. `dashboard_storage.go` resolves registered
+app scopes for storage RPC; `dashboard_storage_http.go` streams file transfers
+on the same dashboard listener under a pinned namespace maintenance lease.
 
 Architecture invariant: development services should be optional around the app
 runtime. They can improve local ergonomics, but the generated app binary must

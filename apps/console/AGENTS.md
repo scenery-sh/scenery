@@ -13,7 +13,8 @@ Keep this app isolated from the generated-app catalog under `ui/`. This is the s
 - Created from Vite's React TypeScript template and initialized with `bunx astryx init`.
 - Astryx is wired through `@astryxdesign/build/vite` and StyleX.
 - `src/main.tsx` imports Astryx reset and neutral theme CSS; component CSS comes from the StyleX Vite source-build pipeline, so do not add `@astryxdesign/core/astryx.css` unless the package export is fixed.
-- Dashboard data must come through the existing local dashboard RPC/WebSocket surfaces (`status`, `logs/list`, `traces/list`, `process/output/list`, `api-call`, `db/query`, `stored-requests/*`). Do not read `.scenery/` caches or devdash storage directly from this app.
+- Dashboard data comes through local dashboard RPC/WebSocket surfaces (`status`, `logs/list`, `traces/list`, `process/output/list`, `api-call`, `db/query`, `stored-requests/*`, `storage/*`). Storage file transfers stream through the same-origin dashboard `/__storage` endpoint, never JSON/base64 file bodies. Do not read `.scenery/` caches or devdash storage directly from this app.
+- Storage requests select a registered app and pin worktree/incarnation/generation. Reset page, selection, preview and pending transfers when any scope field changes; never reuse cached entries across worktree/store/tenant boundaries. Uploads are create-only or match the displayed ETag; deletion requires a displayed version or fresh selector preview.
 - GraphQL is not a dashboard transport.
 - `scripts/build-dashboard-ui-embed.sh` builds this app and copies `dist/` into `cmd/scenery/dashboard_static/dist` for embedded dashboard binaries.
 - Do not commit `node_modules/` or `dist/`.

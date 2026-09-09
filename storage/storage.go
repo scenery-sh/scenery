@@ -4,8 +4,8 @@ import (
 	"context"
 	"io"
 	"os"
+	"scenery.sh/internal/storagefs"
 	"strings"
-	"time"
 )
 
 const (
@@ -15,48 +15,20 @@ const (
 
 type Store interface {
 	Put(ctx context.Context, key string, body io.Reader, opts PutOptions) (*Object, error)
-	PutFile(ctx context.Context, key, localPath string, opts PutOptions) (*Object, error)
 	Get(ctx context.Context, key string, opts GetOptions) (io.ReadCloser, *Object, error)
 	Head(ctx context.Context, key string) (*Object, error)
 	List(ctx context.Context, opts ListOptions) (*ListPage, error)
-	Delete(ctx context.Context, key string) error
+	Delete(ctx context.Context, key string, opts DeleteOptions) error
+	// DeletePrefix may partially complete; it does not roll back deleted objects.
 	DeletePrefix(ctx context.Context, prefix string) error
 }
 
-type Object struct {
-	Store       string            `json:"store"`
-	Key         string            `json:"key"`
-	SizeBytes   int64             `json:"size_bytes"`
-	ContentType string            `json:"content_type,omitempty"`
-	ETag        string            `json:"etag,omitempty"`
-	SHA256      string            `json:"sha256,omitempty"`
-	ModifiedAt  time.Time         `json:"modified_at"`
-	Metadata    map[string]string `json:"metadata,omitempty"`
-}
-
-type PutOptions struct {
-	ContentType string
-	Metadata    map[string]string
-	IfNoneMatch bool
-}
-
-type GetOptions struct {
-	Offset *int64
-	Length *int64
-}
-
-type ListOptions struct {
-	Prefix    string
-	Delimiter string
-	Cursor    string
-	Limit     int
-}
-
-type ListPage struct {
-	Objects    []Object `json:"objects"`
-	Prefixes   []string `json:"prefixes,omitempty"`
-	NextCursor string   `json:"next_cursor,omitempty"`
-}
+type Object = storagefs.Object
+type PutOptions = storagefs.PutOptions
+type GetOptions = storagefs.GetOptions
+type DeleteOptions = storagefs.DeleteOptions
+type ListOptions = storagefs.ListOptions
+type ListPage = storagefs.ListPage
 
 func Default(ctx context.Context) (Store, error) {
 	return Named(ctx, "")
@@ -81,7 +53,7 @@ func Named(ctx context.Context, name string) (Store, error) {
 	if !ok {
 		return nil, &NotConfiguredError{Store: name}
 	}
-	return newRuntimeStore(name, store)
+	return newRuntimeStore(name, store, cfg.Namespace)
 }
 
 func PutFile(ctx context.Context, store Store, key, localPath string, opts PutOptions) (*Object, error) {

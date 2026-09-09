@@ -40,9 +40,27 @@ func acceptGeneratedSnapshot(root string, snapshot *fileSnapshot) error {
 	if err != nil {
 		return err
 	}
+	snapshot.retryGenerated = false
 	snapshot.generated = generated
 	for rel := range generated {
 		delete(snapshot.files, rel)
 	}
 	return nil
+}
+
+// Failed builds can depend on refreshed generated clients. Healthy builds ignore
+// their content so the compiler's own writes cannot create a rebuild loop.
+func changedGeneratedContent(before, after fileSnapshot) []string {
+	var paths []string
+	for path, stamp := range before.generatedContent {
+		if other, ok := after.generatedContent[path]; !ok || other != stamp {
+			paths = append(paths, path)
+		}
+	}
+	for path := range after.generatedContent {
+		if _, ok := before.generatedContent[path]; !ok {
+			paths = append(paths, path)
+		}
+	}
+	return paths
 }

@@ -167,7 +167,7 @@ export class DashboardRPC {
     const message = JSON.parse(event.data) as {
       id?: number
       result?: unknown
-      error?: { message?: string }
+      error?: { message?: string; data?: { report_token?: string; details?: unknown } }
       method?: string
       params?: unknown
     }
@@ -186,7 +186,9 @@ export class DashboardRPC {
     }
     this.pending.delete(message.id)
     if (message.error !== undefined) {
-      request.reject(new Error(message.error.message ?? 'dashboard rpc failed'))
+      const details = message.error.data
+      const suffix = [details?.report_token, details?.details ? JSON.stringify(details.details) : undefined].filter(Boolean).join(' · ')
+      request.reject(new Error((message.error.message ?? 'dashboard rpc failed') + (suffix ? ` (${suffix})` : '')))
       return
     }
     request.resolve(message.result)

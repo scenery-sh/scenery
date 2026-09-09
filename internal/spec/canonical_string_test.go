@@ -25,6 +25,9 @@ func TestMarshalCanonicalStringEscapingAndValidation(t *testing.T) {
 	}{
 		{name: "ASCII", value: "plain", want: "\"plain\""},
 		{name: "separators", value: "a\u2028b\u2029c", want: "\"a\u2028b\u2029c\""},
+		{name: "literal separator escapes", value: `\u2028\u2029`, want: `"\\u2028\\u2029"`},
+		{name: "backslash before separators", value: "\\\u2028\\\u2029", want: "\"\\\\\u2028\\\\\u2029\""},
+		{name: "literal escape key", value: map[string]any{`\u2028`: `\\u2029`}, want: `{"\\u2028":"\\\\u2029"}`},
 		{name: "HTML escaping", value: "<>&", want: "\"\\u003c\\u003e\\u0026\""},
 		{name: "quotes and controls", value: "\"\\\n\x00", want: "\"\\\"\\\\\\n\\u0000\""},
 		{name: "nested map", value: map[string]any{"b": []any{"\u2028"}, "a": "<"}, want: "{\"a\":\"\\u003c\",\"b\":[\"\u2028\"]}"},

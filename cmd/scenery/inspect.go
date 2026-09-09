@@ -17,6 +17,7 @@ import (
 	"scenery.sh/internal/graph"
 	inspectdata "scenery.sh/internal/inspect"
 	"scenery.sh/internal/postgresdb"
+	"scenery.sh/internal/storagefs"
 )
 
 type inspectOptions struct {
@@ -25,6 +26,7 @@ type inspectOptions struct {
 	RepoRoot       string
 	JSON           bool
 	Implementation bool
+	StorageStats   bool
 	Docs           inspectDocsOptions
 	UI             inspectUIOptions
 	Trace          inspectTraceQueryOptions
@@ -113,12 +115,14 @@ type inspectStorageResponse struct {
 }
 
 type inspectStorageRecord struct {
-	Configured bool                   `json:"configured"`
-	CellID     string                 `json:"storage_cell_id,omitempty"`
-	Share      string                 `json:"share,omitempty"`
-	Default    string                 `json:"default,omitempty"`
-	Readiness  string                 `json:"readiness"`
-	Runtime    *inspectStorageRuntime `json:"runtime,omitempty"`
+	Configured bool                    `json:"configured"`
+	Declared   bool                    `json:"declared"`
+	Default    string                  `json:"default,omitempty"`
+	Readiness  string                  `json:"readiness"`
+	Scope      storageResponseScope    `json:"scope"`
+	BrowserURL string                  `json:"browser_url,omitempty"`
+	Recovery   *storagefs.RecoveryInfo `json:"recovery,omitempty"`
+	Totals     *storagefs.Stats        `json:"totals,omitempty"`
 }
 
 type inspectStorageStore struct {
@@ -127,14 +131,8 @@ type inspectStorageStore struct {
 	Access         string `json:"access"`
 	TenantScoped   bool   `json:"tenant_scoped"`
 	MaxObjectBytes int64  `json:"max_object_bytes,omitempty"`
-	ObjectCount    int    `json:"object_count"`
-	TotalBytes     int64  `json:"total_bytes"`
-}
-
-type inspectStorageRuntime struct {
-	CellRoot   string `json:"cell_root,omitempty"`
-	ObjectsDir string `json:"objects_dir,omitempty"`
-	Exists     bool   `json:"exists"`
+	ObjectCount    *int64 `json:"object_count,omitempty"`
+	TotalBytes     *int64 `json:"total_bytes,omitempty"`
 }
 
 func inspectCommand(args []string) error {
@@ -146,7 +144,7 @@ func runSceneryInspect(args []string, stdout io.Writer) error {
 	if err != nil {
 		return inspectInvalidRequest(err)
 	}
-	if !opts.JSON && opts.Subject != "ui" {
+	if !opts.JSON && opts.Subject != "ui" && opts.Subject != "storage" {
 		return inspectInvalidRequest(fmt.Errorf("scenery inspect currently requires -o json"))
 	}
 
@@ -182,6 +180,13 @@ func runSceneryInspect(args []string, stdout io.Writer) error {
 	}
 	appRoot, cfg, err := appcfg.DiscoverRoot(start)
 	if err != nil {
+		if opts.Subject == "storage" && filepath.IsAbs(opts.AppRoot) {
+			plan, retainedErr := retainedStorageNamespacePlan(opts.AppRoot)
+			if retainedErr != nil {
+				return retainedErr
+			}
+			return runInspectStorage(context.Background(), stdout, plan, appcfg.Config{ID: plan.Binding.AppID, Name: plan.Binding.AppID}, opts)
+		}
 		return err
 	}
 	var merged *compiler.Result
@@ -240,7 +245,11 @@ func runSceneryInspect(args []string, stdout io.Writer) error {
 		}
 		return writeInspectJSON(stdout, resp)
 	case "storage":
-		return writeInspectJSON(stdout, buildInspectStorageResponse(context.Background(), appRoot, cfg))
+		plan, err := resolveStorageNamespacePlan(cfg, appRoot, "")
+		if err != nil {
+			return err
+		}
+		return runInspectStorage(context.Background(), stdout, plan, cfg, opts)
 	case "validation":
 		return writeInspectJSON(stdout, buildInspectValidationResponse(appRoot, cfg))
 	case "observability":
@@ -327,6 +336,7 @@ func parseInspectArgsInternal(args []string, allowObservability bool) (inspectOp
 	flags.StringVar(&opts.AppRoot, "app-root", "", "")
 	flags.StringVar(&opts.RepoRoot, "repo-root", "", "")
 	flags.BoolVar(&opts.Implementation, "implementation", false, "")
+	flags.BoolVar(&opts.StorageStats, "stats", false, "")
 	flags.StringVar(&opts.Docs.ForPath, "for-path", "", "")
 	flags.StringVar(&opts.Docs.Tag, "tag", "", "")
 	flags.BoolVar(&opts.Docs.ReviewDue, "review-due", false, "")
@@ -347,6 +357,9 @@ func parseInspectArgsInternal(args []string, allowObservability bool) (inspectOp
 	}
 	if cliFlagSet(flags, "repo-root") && opts.Subject != "docs" && opts.Subject != "harness" {
 		return inspectOptions{}, fmt.Errorf("--repo-root is only supported for inspect docs and inspect harness")
+	}
+	if cliFlagSet(flags, "stats") && opts.Subject != "storage" {
+		return inspectOptions{}, fmt.Errorf("--stats requires inspect storage")
 	}
 	if cliFlagSet(flags, "frontend") && opts.Subject != "ui" {
 		return inspectOptions{}, fmt.Errorf("--frontend is only supported for inspect ui")
@@ -526,76 +539,6 @@ func buildInspectPathsResponse(appRoot string, cfg appcfg.Config) (inspectPathsR
 		},
 	}
 	return resp, nil
-}
-
-func buildInspectStorageResponse(ctx context.Context, appRoot string, cfg appcfg.Config) inspectStorageResponse {
-	_ = ctx
-	storage := inspectStorageRecord{Configured: len(cfg.Storage.Stores) > 0, Readiness: "not_configured"}
-	plan, planErr := resolveStorageCellPlan(cfg, "")
-	if storage.Configured {
-		storage.CellID = cfg.StorageCellID()
-		storage.Share = firstNonEmpty(strings.TrimSpace(cfg.Storage.Share), "worktree")
-		storage.Default = strings.TrimSpace(cfg.Storage.Default)
-		storage.Readiness = "configured"
-		if planErr == nil && plan != nil {
-			runtime := &inspectStorageRuntime{CellRoot: filepath.ToSlash(plan.CellRoot), ObjectsDir: filepath.ToSlash(plan.ObjectsDir)}
-			if info, err := os.Stat(plan.ObjectsDir); err == nil && info.IsDir() {
-				runtime.Exists = true
-				storage.Readiness = "ready"
-			}
-			storage.Runtime = runtime
-		}
-	}
-	stores := make([]inspectStorageStore, 0, len(cfg.Storage.Stores))
-	for name, store := range cfg.Storage.Stores {
-		record := inspectStorageStore{
-			Name:           name,
-			Kind:           firstNonEmpty(strings.TrimSpace(store.Kind), "local"),
-			Access:         firstNonEmpty(strings.TrimSpace(store.Access), "auth"),
-			TenantScoped:   store.TenantScoped,
-			MaxObjectBytes: store.MaxObjectBytes,
-		}
-		if planErr == nil && plan != nil {
-			record.ObjectCount, record.TotalBytes = storageStoreUsage(plan.storageStoreObjectsDir(name))
-		}
-		stores = append(stores, record)
-	}
-	sort.Slice(stores, func(i, j int) bool { return stores[i].Name < stores[j].Name })
-
-	return inspectStorageResponse{
-		cliPayloadIdentity: newCLIPayloadIdentity("scenery.storage.inspect"),
-		App:                inspectAppInfo(appRoot, cfg, nil),
-		Storage:            storage,
-		Stores:             stores,
-	}
-}
-
-// storageStoreUsage counts the object files under a store's on-disk root,
-// excluding Scenery-owned sidecar metadata. Missing directories report zero.
-func storageStoreUsage(root string) (int, int64) {
-	if strings.TrimSpace(root) == "" {
-		return 0, 0
-	}
-	var count int
-	var total int64
-	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
-			return nil
-		}
-		rel, relErr := filepath.Rel(root, path)
-		if relErr != nil {
-			return nil
-		}
-		if strings.HasPrefix(filepath.ToSlash(rel), "__scenery/") {
-			return nil
-		}
-		count++
-		if info, infoErr := d.Info(); infoErr == nil {
-			total += info.Size()
-		}
-		return nil
-	})
-	return count, total
 }
 
 func durableServices(declarations []durableDeclaration) []durableServiceRecord {

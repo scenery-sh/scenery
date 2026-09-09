@@ -4,8 +4,6 @@
     "local": { "default": true }
   },
   "storage": {
-    "cell_id": "storage-basic",
-    "share": "worktree",
     "default": "app",
     "stores": {
       "app": {

@@ -141,6 +141,8 @@ func buildHarnessSchemaValidationReportWithReader(repoRoot string, resp harnessS
 		return values
 	}
 	buildInputManifest := artifact("scenery.go-build-input-manifest", map[string]any{"target": "development", "entries": []any{}, "digest": digest})
+	storageScope := map[string]any{"app_id": "app", "app_root": "/tmp/app", "worktree_key": strings.Repeat("a", 64), "incarnation": strings.Repeat("b", 32), "generation": strings.Repeat("c", 32), "store": "files", "tenant": "tenant"}
+	storageObject := map[string]any{"store": "files", "tenant": "tenant", "key": "photos/a.jpg", "size_bytes": 5, "etag": `"version"`, "sha256": strings.Repeat("d", 64), "modified_at": "2026-09-09T00:00:00Z", "metadata": map[string]string{"Case-Sensitive": "value"}}
 	var manifestPayload any
 	if whenSchemaExists("docs/schemas/scenery.manifest.schema.json", true) != nil {
 		fixtureRoot := filepath.Join(repoRoot, "internal", "compiler", "testdata", "house")
@@ -257,12 +259,23 @@ func buildHarnessSchemaValidationReportWithReader(repoRoot string, resp harnessS
 			cliPayloadIdentity: newCLIPayloadIdentity("scenery.snapshot.save"), Archive: "/tmp/app.zip",
 			App: snapshotAppResult{Name: "app", ID: "app", Root: "/tmp/app"},
 			DB:  &snapshotDBResult{Database: "app_main", Source: "managed", Action: "saved"}, Files: 1, Bytes: 128,
+			Storage: &snapshotStorageResult{Scope: storageScope, Stores: 1, Files: 1, Bytes: 5},
 		}},
 		{name: "snapshot.load", schemaRel: "docs/schemas/scenery.snapshot.load.schema.json", payload: snapshotLoadResult{
 			cliPayloadIdentity: newCLIPayloadIdentity("scenery.snapshot.load"), Archive: "/tmp/app.zip",
 			App: snapshotAppResult{Name: "app", ID: "app", Root: "/tmp/app"}, Mode: "overwrite",
-			DB: &snapshotDBResult{Database: "app_main", Source: "managed", Action: "overwrite"},
+			DB:      &snapshotDBResult{Database: "app_main", Source: "managed", Action: "overwrite"},
+			Storage: &snapshotStorageResult{Scope: storageScope, Stores: 1, Files: 1, Bytes: 5, Cloned: 1},
 		}},
+		{name: "storage.object", schemaRel: "docs/schemas/scenery.storage.object.schema.json", payload: withCLIPayloadIdentity("scenery.storage.object", map[string]any{"scope": storageScope, "object": storageObject})},
+		{name: "storage.list", schemaRel: "docs/schemas/scenery.storage.list.schema.json", payload: withCLIPayloadIdentity("scenery.storage.list", map[string]any{"scope": storageScope, "page": map[string]any{"objects": []any{storageObject}, "prefixes": []string{"photos/"}, "next_cursor": "opaque"}})},
+		{name: "storage.delete", schemaRel: "docs/schemas/scenery.storage.delete.schema.json", payload: withCLIPayloadIdentity("scenery.storage.delete", map[string]any{"scope": storageScope, "key": "photos/a.jpg", "dry_run": false, "deleted": true})},
+		{name: "storage.cleanup", schemaRel: "docs/schemas/scenery.storage.cleanup.schema.json", payload: withCLIPayloadIdentity("scenery.storage.cleanup", map[string]any{"scope": storageScope, "purge": true, "dry_run": false, "purge_result": map[string]any{"retired": true, "reclaimed": true}})},
+		{name: "storage.inspect", schemaRel: "docs/schemas/scenery.storage.inspect.schema.json", payload: withCLIPayloadIdentity("scenery.storage.inspect", map[string]any{
+			"app":     map[string]any{"name": "app", "root": "/tmp/app", "config_path": "/tmp/app/.scenery.json"},
+			"storage": map[string]any{"configured": true, "declared": true, "readiness": "uninitialized", "scope": map[string]any{"app_id": "app", "app_root": "/tmp/app", "worktree_key": strings.Repeat("a", 64), "incarnation": nil, "generation": nil}},
+			"stores":  []any{map[string]any{"name": "files", "kind": "local", "access": "auth", "tenant_scoped": true}},
+		})},
 		{name: "snapshot.verify", schemaRel: "docs/schemas/scenery.snapshot.verify.schema.json", payload: snapshotVerifyResult{
 			cliPayloadIdentity: newCLIPayloadIdentity("scenery.snapshot.verify"), Archive: "/tmp/app.zip",
 			App: snapshotManifestApp{Name: "app", ID: "app"}, CreatedAt: time.Date(2026, 7, 14, 0, 0, 0, 0, time.UTC),
@@ -271,8 +284,8 @@ func buildHarnessSchemaValidationReportWithReader(repoRoot string, resp harnessS
 		{name: "snapshot.manifest", schemaRel: "docs/schemas/scenery.snapshot.manifest.schema.json", payload: snapshotManifest{
 			Kind: snapshotManifestKind, SchemaRevision: snapshotManifestSchemaRevision, CreatedAt: time.Date(2026, 7, 13, 0, 0, 0, 0, time.UTC),
 			App:   snapshotManifestApp{Name: "app", ID: "app"},
-			DB:    &snapshotManifestDB{Database: "app_main", Source: "managed", DumpFile: "db/app_main.postgres.dump", DumpFormat: "pg_custom", Schemas: []snapshotManifestSchema{{Service: "api", Schema: "api"}}},
-			Files: []snapshotManifestFile{{Path: "db/app_main.postgres.dump", Bytes: 128, SHA256: digest}},
+			DB:    &snapshotManifestDB{Database: "app_main", Source: "managed", DumpFile: "db/database.postgres.dump", DumpFormat: "pg_custom", Schemas: []snapshotManifestSchema{{Service: "api", Schema: "api"}}},
+			Files: []snapshotManifestFile{{Path: "db/database.postgres.dump", Bytes: 128, SHA256: digest}},
 		}},
 		{name: "inspect.docs", schemaRel: "docs/schemas/scenery.inspect.docs.schema.json", payload: inspectDocsPayload},
 		{name: "inspect.harness", schemaRel: "docs/schemas/scenery.inspect.harness.schema.json", payload: inspectHarnessPayload},

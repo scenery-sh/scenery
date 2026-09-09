@@ -55,9 +55,23 @@ func writeCanonicalJSON(output *bytes.Buffer, value any) error {
 		if err != nil {
 			return err
 		}
-		quoted := strings.ReplaceAll(string(quotedBytes), `\u2028`, "\u2028")
-		quoted = strings.ReplaceAll(quoted, `\u2029`, "\u2029")
-		output.WriteString(quoted)
+		// Consume JSON escapes as pairs so literal backslashes cannot turn
+		// the following u2028/u2029 text into an unescaped separator.
+		for index := 0; index < len(quotedBytes); index++ {
+			if quotedBytes[index] == '\\' && index+1 < len(quotedBytes) {
+				if index+6 <= len(quotedBytes) {
+					escape := string(quotedBytes[index : index+6])
+					if escape == `\u2028` || escape == `\u2029` {
+						output.WriteRune('\u2028' + rune(quotedBytes[index+5]-'8'))
+						index += 5
+						continue
+					}
+				}
+				output.WriteByte(quotedBytes[index])
+				index++
+			}
+			output.WriteByte(quotedBytes[index])
+		}
 	case json.Number:
 		canonical, err := canonicalJSONNumber(typed.String())
 		if err != nil {

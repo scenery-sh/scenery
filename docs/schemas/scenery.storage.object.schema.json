@@ -6,6 +6,7 @@
   "required": [
     "kind",
     "schema_revision",
+    "scope",
     "object"
   ],
   "properties": {
@@ -13,7 +14,79 @@
       "const": "scenery.storage.object"
     },
     "schema_revision": {
-      "const": "sha256:f7c4e21d85a92097f91347b8d9861c00f3042a40102a677ea79c080921a9ec2a"
+      "const": "sha256:7b11f31427314372866fb634d42e96ce92630096b61eb2eff4fa3f79c91fc5a9"
+    },
+    "scope": {
+      "$ref": "#/$defs/scope"
+    },
+    "object": {
+      "$ref": "#/$defs/object"
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "scope": {
+      "type": "object",
+      "required": [
+        "app_id",
+        "app_root",
+        "worktree_key",
+        "incarnation",
+        "generation"
+      ],
+      "properties": {
+        "app_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "app_root": {
+          "type": "string",
+          "minLength": 1
+        },
+        "worktree_key": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "incarnation": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[a-f0-9]{32}$"
+        },
+        "generation": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[a-f0-9]{32}$"
+        },
+        "store": {
+          "type": "string"
+        },
+        "tenant": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "totals": {
+      "type": "object",
+      "required": [
+        "objects",
+        "bytes"
+      ],
+      "properties": {
+        "objects": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
     },
     "object": {
       "type": "object",
@@ -21,10 +94,15 @@
         "store",
         "key",
         "size_bytes",
+        "etag",
+        "sha256",
         "modified_at"
       ],
       "properties": {
         "store": {
+          "type": "string"
+        },
+        "tenant": {
           "type": "string"
         },
         "key": {
@@ -56,6 +134,5 @@
       },
       "additionalProperties": false
     }
-  },
-  "additionalProperties": false
+  }
 }

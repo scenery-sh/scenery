@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -305,7 +306,7 @@ func runWorkerDurable(opts workerDurableOptions) error {
 	return startDurableWorkerApp(root, cfg, result.Contract.SQLRequirements, result.Binary, opts)
 }
 
-func startWorkerApp(root string, cfg app.Config, requirements compiler.SQLRequirements, binary string, opts workerOptions) error {
+func startWorkerApp(root string, cfg app.Config, requirements compiler.SQLRequirements, binary string, opts workerOptions) (returnErr error) {
 	ctx, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stopSignals()
 
@@ -315,6 +316,13 @@ func startWorkerApp(root string, cfg app.Config, requirements compiler.SQLRequir
 	env, err := appProcessEnv(root, cfg, requirements, opts.LogFormat, opts.Env, extra...)
 	if err != nil {
 		return err
+	}
+	lease, err := storageTaskLease(ctx, env)
+	if err != nil {
+		return err
+	}
+	if lease != nil {
+		defer func() { returnErr = errors.Join(returnErr, lease.Close()) }()
 	}
 	cmd.Env = env
 	cmd.Stdout = os.Stdout
@@ -334,7 +342,7 @@ func startWorkerApp(root string, cfg app.Config, requirements compiler.SQLRequir
 	return nil
 }
 
-func startDurableWorkerApp(root string, cfg app.Config, requirements compiler.SQLRequirements, binary string, opts workerDurableOptions) error {
+func startDurableWorkerApp(root string, cfg app.Config, requirements compiler.SQLRequirements, binary string, opts workerDurableOptions) (returnErr error) {
 	ctx, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stopSignals()
 
@@ -351,6 +359,13 @@ func startDurableWorkerApp(root string, cfg app.Config, requirements compiler.SQ
 	env, err := appProcessEnv(root, cfg, requirements, opts.LogFormat, opts.Env, extra...)
 	if err != nil {
 		return err
+	}
+	lease, err := storageTaskLease(ctx, env)
+	if err != nil {
+		return err
+	}
+	if lease != nil {
+		defer func() { returnErr = errors.Join(returnErr, lease.Close()) }()
 	}
 	cmd.Env = env
 	cmd.Stdout = os.Stdout

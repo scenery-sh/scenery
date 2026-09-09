@@ -25,6 +25,7 @@ import {
   type TraceSummary,
 } from './scenery'
 import { LogsPage, OverviewPage } from './dashboard-ui'
+import { StorageBrowserPage } from './storage-page'
 import {
   appOptions,
   chooseAppID,
@@ -502,6 +503,7 @@ function App() {
               error={databaseError}
             />
           ) : null}
+          {page === 'Storage' ? <StorageBrowserPage key={`${selectedAppID}:${status?.appRoot ?? ''}`} rpc={rpc} appID={selectedAppID} /> : null}
           {page === 'Cron' ? <CronPage status={status} traces={traces} /> : null}
         </section>
       </main>

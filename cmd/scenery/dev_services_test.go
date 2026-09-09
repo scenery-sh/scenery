@@ -11,7 +11,7 @@ import (
 func TestPostgresHarnessFixtureSupportsDatabaseDiscovery(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
-	writeTestAppFile(t, root, ".scenery.json", `{"name":"postgres-harness","id":"postgres-harness","envs":{"local":{"default":true}},"storage":{"cell_id":"postgres-harness","stores":{"app":{"kind":"local"}}}}`)
+	writeTestAppFile(t, root, ".scenery.json", `{"name":"postgres-harness","id":"postgres-harness","envs":{"local":{"default":true}},"storage":{"stores":{"app":{"kind":"local"}}}}`)
 	writeSQLTestDeclarations(t, root, "reports", "cache")
 	appRoot, cfg, err := discoverConfiguredApp(root)
 	if err != nil {

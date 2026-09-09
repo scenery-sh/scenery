@@ -3,8 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -19,136 +19,15 @@ import (
 	"scenery.sh/internal/envpolicy"
 )
 
-func runHarnessStorageProbeStep(ctx context.Context, repoRoot, sceneryPath string) harnessStep {
+func runHarnessStorageProbeStep(ctx context.Context, repoRoot, sceneryPath string) (step harnessStep) {
 	started := time.Now()
-	fixtureRoot := filepath.Join(repoRoot, "testdata", "apps", "storage-basic")
-	agentHome := filepath.Join(repoRoot, ".scenery", "harness", "storage-probe-agent-home")
-	worktreeRoot := filepath.Join(repoRoot, ".scenery", "harness", "storage-probe-worktrees")
-	command := []string{sceneryPath, "task", "run", "--app-root", fixtureRoot, "service:storage-probe"}
-	step := harnessStep{Name: "storage fixture probe", Command: command}
-	if err := os.RemoveAll(agentHome); err != nil {
-		step.OK = false
-		step.Error = err.Error()
-		step.DurationMS = time.Since(started).Milliseconds()
-		return step
-	}
-	if err := os.RemoveAll(worktreeRoot); err != nil {
-		step.OK = false
-		step.Error = err.Error()
-		step.DurationMS = time.Since(started).Milliseconds()
-		return step
-	}
-	cmd := commandTreeContext(ctx, sceneryPath, command[1:]...)
-	cmd.Dir = repoRoot
-	cmd.Env = harnessStorageProbeEnv(agentHome)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	err := cmd.Run()
-	step.DurationMS = time.Since(started).Milliseconds()
-	step.Summary = map[string]any{
-		"fixture":    "testdata/apps/storage-basic",
-		"output":     strings.TrimSpace(stdout.String()),
-		"agent_home": filepath.ToSlash(agentHome),
-	}
-	objectPath := filepath.Join(agentHome, "agent", "storage", "storage-basic", "objects", "app", "__scenery", "tenants", base64.RawURLEncoding.EncodeToString([]byte("storage-probe")), "task", "probe.txt")
+	step = harnessStep{Name: "storage fixture probe", Command: []string{sceneryPath, "storage"}}
+	defer func() { step.DurationMS = time.Since(started).Milliseconds() }()
+	summary, err := runHarnessStorageIsolationProbe(ctx, repoRoot, sceneryPath)
+	step.Summary = summary
+	step.OK = err == nil
 	if err != nil {
-		step.OK = false
-		step.Error = strings.TrimSpace(err.Error())
-		step.OutputTail = tailString(firstNonEmpty(stderr.String(), stdout.String()), 8192)
-		return step
-	}
-	if _, statErr := os.Stat(objectPath); statErr != nil {
-		step.OK = false
-		step.Error = "storage probe object was not written: " + statErr.Error()
-		step.Diagnostics = []checkDiagnostic{{
-			Stage:           "storage fixture probe",
-			Severity:        "error",
-			File:            filepath.ToSlash(objectPath),
-			Message:         step.Error,
-			SuggestedAction: "Run `scenery task run --app-root testdata/apps/storage-basic service:storage-probe` and inspect SCENERY_STORAGE_CONFIG handling.",
-		}}
-		return step
-	}
-	rootA := filepath.Join(worktreeRoot, "a")
-	rootB := filepath.Join(worktreeRoot, "b")
-	if err := os.MkdirAll(worktreeRoot, 0o755); err != nil {
-		step.OK = false
 		step.Error = err.Error()
-		return step
-	}
-	if err := os.CopyFS(rootA, os.DirFS(fixtureRoot)); err != nil {
-		step.OK = false
-		step.Error = "copy storage fixture A: " + err.Error()
-		return step
-	}
-	if err := os.CopyFS(rootB, os.DirFS(fixtureRoot)); err != nil {
-		step.OK = false
-		step.Error = "copy storage fixture B: " + err.Error()
-		return step
-	}
-	sourcePath := filepath.Join(worktreeRoot, "shared-input.txt")
-	outputPath := filepath.Join(worktreeRoot, "shared-output.txt")
-	const sharedBody = "shared storage across worktrees\n"
-	if err := os.WriteFile(sourcePath, []byte(sharedBody), 0o644); err != nil {
-		step.OK = false
-		step.Error = err.Error()
-		return step
-	}
-	putCommand := []string{sceneryPath, "storage", "put", "app", "worktree/shared.txt", sourcePath, "-o", "json", "--app-root", rootA}
-	putOut, putErrOut, err := runHarnessStorageProbeCommand(ctx, repoRoot, agentHome, putCommand)
-	if err != nil {
-		step.OK = false
-		step.Error = "storage put from fixture worktree A failed: " + strings.TrimSpace(err.Error())
-		step.OutputTail = tailString(firstNonEmpty(putErrOut, putOut), 8192)
-		return step
-	}
-	getCommand := []string{sceneryPath, "storage", "get", "app", "worktree/shared.txt", "--output", outputPath, "-o", "json", "--app-root", rootB}
-	getOut, getErrOut, err := runHarnessStorageProbeCommand(ctx, repoRoot, agentHome, getCommand)
-	if err != nil {
-		step.OK = false
-		step.Error = "storage get from fixture worktree B failed: " + strings.TrimSpace(err.Error())
-		step.OutputTail = tailString(firstNonEmpty(getErrOut, getOut), 8192)
-		return step
-	}
-	got, err := os.ReadFile(outputPath)
-	if err != nil {
-		step.OK = false
-		step.Error = err.Error()
-		return step
-	}
-	if string(got) != sharedBody {
-		step.OK = false
-		step.Error = fmt.Sprintf("shared storage read mismatch: got %q", string(got))
-		return step
-	}
-	sharedObjectPath := filepath.Join(agentHome, "agent", "storage", "storage-basic", "objects", "app", "worktree", "shared.txt")
-	if _, statErr := os.Stat(sharedObjectPath); statErr != nil {
-		step.OK = false
-		step.Error = "shared storage object was not written: " + statErr.Error()
-		step.Diagnostics = []checkDiagnostic{{
-			Stage:           "storage fixture probe",
-			Severity:        "error",
-			File:            filepath.ToSlash(sharedObjectPath),
-			Message:         step.Error,
-			SuggestedAction: "Run the storage put/get commands from the two harness fixture roots and inspect shared storage cell resolution.",
-		}}
-		return step
-	}
-	step.OK = true
-	step.Summary["object_path"] = filepath.ToSlash(objectPath)
-	step.Summary["shared_object_path"] = filepath.ToSlash(sharedObjectPath)
-	step.Summary["worktree_a"] = filepath.ToSlash(rootA)
-	step.Summary["worktree_b"] = filepath.ToSlash(rootB)
-	step.Summary["shared_get_output"] = strings.TrimSpace(getOut)
-	restartSummary, err := runHarnessLocalStorageRestartProbe(ctx, repoRoot, sceneryPath, fixtureRoot)
-	if err != nil {
-		step.OK = false
-		step.Error = err.Error()
-		return step
-	}
-	for key, value := range restartSummary {
-		step.Summary[key] = value
 	}
 	return step
 }
@@ -180,41 +59,40 @@ func harnessStorageProbeEnv(agentHome string) []string {
 // backend across a full dev-runtime restart: it writes an object through the
 // live app route, stops the runtime with `scenery down`, restarts it, and reads
 // the same object back. Because storage is a plain fsync'd directory tree there
-// is no separate storage process to interrupt; stopping the whole runtime is the
-// strongest crash surface the fixture exercises.
-func runHarnessLocalStorageRestartProbe(ctx context.Context, repoRoot, sceneryPath, fixtureRoot string) (map[string]any, error) {
-	summary := map[string]any{
+// is no separate storage process. This proves a clean restart, not a process
+// crash or power-loss durability.
+func runHarnessLocalStorageRestartProbe(ctx context.Context, repoRoot, sceneryPath, fixtureRoot, agentHome string) (summary map[string]any, resultErr error) {
+	summary = map[string]any{
 		"local_storage_restart_probe": "skipped",
 	}
-	agentHome := filepath.Join(repoRoot, ".scenery", "harness", "storage-restart-agent-home")
-	sessionRoot := filepath.Join(fixtureRoot, ".scenery", "sessions", "main-f49603")
 	env := harnessStorageProbeEnv(agentHome)
-	cleanupHarnessStorageRestartAgent(ctx, repoRoot, sceneryPath, agentHome, env)
-	if err := os.RemoveAll(agentHome); err != nil {
-		return summary, err
-	}
-	if err := os.RemoveAll(sessionRoot); err != nil {
-		return summary, err
-	}
 	upCommand := []string{sceneryPath, "up", "--app-root", fixtureRoot, "-o", "json", "--detach"}
-	upOut, upErr, err := runHarnessStorageProbeCommandWithEnv(ctx, repoRoot, env, upCommand)
-	if err != nil {
-		return summary, fmt.Errorf("local storage scenery up failed: %s\n%s", strings.TrimSpace(err.Error()), tailString(firstNonEmpty(upErr, upOut), 8192))
-	}
 	// Cleanup must not depend on the probe agent staying reachable: record
 	// every detached `scenery up` child PID directly so the runtime is torn
 	// down even when `scenery down` and the agent-based cleanup both fail.
 	// A leaked detached child once outlived its deleted agent home and drove
 	// an agent restart storm on the host machine.
-	detachedChildPIDs := map[int]bool{}
+	owners := map[int]localagent.Owner{}
 	defer func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
 		downCommand := []string{sceneryPath, "down", "--app-root", fixtureRoot, "-o", "json"}
-		_, _, _ = runHarnessStorageProbeCommandWithEnv(context.Background(), repoRoot, env, downCommand)
-		cleanupHarnessStorageRestartAgent(context.Background(), repoRoot, sceneryPath, agentHome, env)
-		signalHarnessCleanupPIDs(detachedChildPIDs)
+		_, _, downErr := runHarnessStorageProbeCommandWithEnv(cleanupCtx, repoRoot, env, downCommand)
+		cleanupErr := cleanupHarnessStorageRestartAgent(cleanupCtx, repoRoot, sceneryPath, agentHome, env, owners)
+		resultErr = errors.Join(resultErr, downErr, cleanupErr)
+		summary["process_cleanup"] = "passed"
+		if downErr != nil || cleanupErr != nil {
+			summary["process_cleanup"] = "failed"
+		}
 	}()
+	upOut, upErr, err := runHarnessStorageProbeCommandWithEnv(ctx, repoRoot, env, upCommand)
+	if err != nil {
+		return summary, fmt.Errorf("local storage scenery up failed: %s\n%s", strings.TrimSpace(err.Error()), tailString(firstNonEmpty(upErr, upOut), 8192))
+	}
 	apiSocket, upPID, err := harnessDetachInfo(upOut)
-	addHarnessCleanupPID(detachedChildPIDs, upPID)
+	if upPID > 0 {
+		owners[upPID] = localagent.CaptureOwner(upPID, "storage probe")
+	}
 	if err != nil {
 		return summary, err
 	}
@@ -241,23 +119,23 @@ func runHarnessLocalStorageRestartProbe(ctx context.Context, repoRoot, sceneryPa
 	var inspect struct {
 		Storage struct {
 			Readiness string `json:"readiness"`
-			Runtime   struct {
-				CellRoot string `json:"cell_root"`
-				Exists   bool   `json:"exists"`
-			} `json:"runtime"`
+			Scope     struct {
+				WorktreeKey string `json:"worktree_key"`
+				Incarnation string `json:"incarnation"`
+			} `json:"scope"`
 		} `json:"storage"`
 	}
 	if err := decodeCLIJSON([]byte(inspectOut), &inspect); err != nil {
 		return summary, fmt.Errorf("parse local storage inspect JSON: %w", err)
 	}
-	if inspect.Storage.Readiness != "ready" || !inspect.Storage.Runtime.Exists || inspect.Storage.Runtime.CellRoot == "" {
+	if inspect.Storage.Readiness != "ready" || inspect.Storage.Scope.WorktreeKey == "" || inspect.Storage.Scope.Incarnation == "" {
 		return summary, fmt.Errorf("local storage inspect not ready: %s", strings.TrimSpace(inspectOut))
 	}
 	summary["local_storage_probe"] = "passed"
 	summary["local_storage_agent_home"] = filepath.ToSlash(agentHome)
 	summary["local_storage_response"] = probeBody
 	summary["local_storage_readiness"] = inspect.Storage.Readiness
-	summary["local_storage_cell_root"] = inspect.Storage.Runtime.CellRoot
+	summary["local_storage_worktree_key"] = inspect.Storage.Scope.WorktreeKey
 
 	// Restart the whole runtime and confirm the fsync'd object survived.
 	downCommand := []string{sceneryPath, "down", "--app-root", fixtureRoot, "-o", "json"}
@@ -269,7 +147,9 @@ func runHarnessLocalStorageRestartProbe(ctx context.Context, repoRoot, sceneryPa
 		return summary, fmt.Errorf("local storage restart scenery up failed: %s\n%s", strings.TrimSpace(err.Error()), tailString(firstNonEmpty(restartErr, restartOut), 8192))
 	}
 	restartAPISocket, restartPID, err := harnessDetachInfo(restartOut)
-	addHarnessCleanupPID(detachedChildPIDs, restartPID)
+	if restartPID > 0 {
+		owners[restartPID] = localagent.CaptureOwner(restartPID, "storage probe")
+	}
 	if err != nil {
 		return summary, err
 	}
@@ -314,107 +194,95 @@ func harnessDetachInfo(detachJSON string) (string, int, error) {
 	return backend.Addr, detach.PID, nil
 }
 
-func cleanupHarnessStorageRestartAgent(ctx context.Context, repoRoot, sceneryPath, agentHome string, env []string) {
-	if strings.TrimSpace(agentHome) == "" {
-		return
-	}
+func cleanupHarnessStorageRestartAgent(ctx context.Context, repoRoot, sceneryPath, agentHome string, env []string, owners map[int]localagent.Owner) error {
 	psCommand := []string{sceneryPath, "ps", "-o", "json"}
 	psOut, _, err := runHarnessStorageProbeCommandWithEnv(ctx, repoRoot, env, psCommand)
-	pids := map[int]bool{}
-	if err == nil && strings.TrimSpace(psOut) != "" {
+	if err == nil {
 		var status struct {
 			Agent struct {
 				PID int `json:"pid"`
 			} `json:"agent"`
-			Sessions []struct {
-				OwnerPID  int    `json:"owner_pid"`
-				AppPID    string `json:"app_pid"`
-				Processes map[string]struct {
-					PID int `json:"pid"`
-				} `json:"processes"`
-			} `json:"sessions"`
-			Substrates []struct {
-				OwnerPID int            `json:"owner_pid"`
-				PIDs     map[string]int `json:"pids"`
-			} `json:"substrates"`
+			Sessions   []localagent.Session   `json:"sessions"`
+			Substrates []localagent.Substrate `json:"substrates"`
 		}
-		if decodeCLIJSON([]byte(psOut), &status) == nil {
-			addHarnessCleanupPID(pids, status.Agent.PID)
-			for _, session := range status.Sessions {
-				addHarnessCleanupPID(pids, session.OwnerPID)
-				if pid, convErr := strconv.Atoi(strings.TrimSpace(session.AppPID)); convErr == nil {
-					addHarnessCleanupPID(pids, pid)
-				}
-				for _, process := range session.Processes {
-					addHarnessCleanupPID(pids, process.PID)
-				}
+		if err := decodeCLIJSON([]byte(psOut), &status); err != nil {
+			return err
+		}
+		if status.Agent.PID > 0 {
+			owners[status.Agent.PID] = localagent.CaptureOwner(status.Agent.PID, "storage probe")
+		}
+		harnessCleanupOwnersFromSessions(owners, status.Sessions, localagent.VerifyOwner)
+		for _, substrate := range status.Substrates {
+			if substrate.OwnerPID > 0 && substrate.Owner.PID == substrate.OwnerPID {
+				owners[substrate.OwnerPID] = substrate.Owner
 			}
-			for _, substrate := range status.Substrates {
-				addHarnessCleanupPID(pids, substrate.OwnerPID)
-				for _, pid := range substrate.PIDs {
-					addHarnessCleanupPID(pids, pid)
+			for name, pid := range substrate.PIDs {
+				if pid > 0 && substrate.Owners[name].PID == pid {
+					owners[pid] = substrate.Owners[name]
 				}
 			}
 		}
 	}
-	if data, readErr := os.ReadFile(filepath.Join(agentHome, "run", "agent.json")); readErr == nil {
-		var agent struct {
-			PID int `json:"pid"`
-		}
-		if json.Unmarshal(data, &agent) == nil {
-			addHarnessCleanupPID(pids, agent.PID)
-		}
-	}
-	// `scenery ps` needs a live probe agent; a crashed or already-reaped
-	// agent must not leave the detached runtime running. The durable session
-	// registry still records the owners, so collect fingerprint-verified
-	// PIDs from it as a fallback.
+	// Only fingerprint-bearing records can grant cleanup authority after an
+	// agent crash. A bare stale PID from agent.json is not sufficient.
 	if registry, regErr := localagent.OpenRegistry(filepath.Join(agentHome, "agent", "sessions.json"), localagent.RouterAddrFromEnv()); regErr == nil {
-		harnessCleanupPIDsFromSessions(pids, registry.List(), localagent.VerifyOwner)
+		harnessCleanupOwnersFromSessions(owners, registry.List(), localagent.VerifyOwner)
 	}
-	signalHarnessCleanupPIDs(pids)
+	return stopHarnessStorageOwners(ctx, owners)
 }
 
-// harnessCleanupPIDsFromSessions collects session owner and registered
-// process PIDs whose recorded ownership fingerprints still verify, so a
-// stale registry from a crashed run can never target a reused PID.
-func harnessCleanupPIDsFromSessions(pids map[int]bool, sessions []localagent.Session, verifyOwner func(localagent.Owner) error) {
+func harnessCleanupOwnersFromSessions(owners map[int]localagent.Owner, sessions []localagent.Session, verifyOwner func(localagent.Owner) error) {
 	for _, session := range sessions {
 		ownerPID := firstPositiveInt(session.OwnerPID, session.Owner.PID)
 		if ownerPID > 0 && session.Owner.PID == ownerPID && verifyOwner(session.Owner) == nil {
-			addHarnessCleanupPID(pids, ownerPID)
+			owners[ownerPID] = session.Owner
 		}
 		for _, process := range session.Processes {
 			if process.PID > 0 && process.Owner.PID == process.PID && verifyOwner(process.Owner) == nil {
-				addHarnessCleanupPID(pids, process.PID)
+				owners[process.PID] = process.Owner
 			}
 		}
 	}
 }
 
-func signalHarnessCleanupPIDs(pids map[int]bool) {
-	if len(pids) == 0 {
-		return
-	}
-	for pid := range pids {
-		proc, findErr := os.FindProcess(pid)
-		if findErr == nil {
-			_ = proc.Signal(os.Interrupt)
+func stopHarnessStorageOwners(ctx context.Context, owners map[int]localagent.Owner) error {
+	var result error
+	for pid, owner := range owners {
+		if pid == os.Getpid() || !processAliveForEdge(pid) {
+			continue
+		}
+		if err := localagent.VerifyOwner(owner); err != nil {
+			result = errors.Join(result, fmt.Errorf("refuse unverified storage probe cleanup PID %d: %w", pid, err))
+			continue
+		}
+		proc, err := os.FindProcess(pid)
+		if err == nil {
+			err = proc.Signal(os.Interrupt)
+		}
+		if err != nil && !errors.Is(err, os.ErrProcessDone) {
+			result = errors.Join(result, err)
 		}
 	}
-	time.Sleep(500 * time.Millisecond)
-	for pid := range pids {
-		proc, findErr := os.FindProcess(pid)
-		if findErr == nil {
-			_ = proc.Kill()
+	for pid, owner := range owners {
+		if pid == os.Getpid() || waitForPIDExit(ctx, pid, 500*time.Millisecond) {
+			continue
+		}
+		if err := localagent.VerifyOwner(owner); err != nil {
+			result = errors.Join(result, fmt.Errorf("storage probe cleanup lost PID %d ownership: %w", pid, err))
+			continue
+		}
+		proc, err := os.FindProcess(pid)
+		if err == nil {
+			err = proc.Kill()
+		}
+		if err != nil && !errors.Is(err, os.ErrProcessDone) {
+			result = errors.Join(result, err)
+		}
+		if !waitForPIDExit(ctx, pid, 3*time.Second) {
+			result = errors.Join(result, fmt.Errorf("storage probe PID %d survived cleanup", pid))
 		}
 	}
-}
-
-func addHarnessCleanupPID(pids map[int]bool, pid int) {
-	if pid > 0 && pid != os.Getpid() {
-		pids[pid] = true
-	}
+	return result
 }
 
 func waitForHarnessStorageHTTPProbe(ctx context.Context, socketPath, method string, timeout time.Duration) (string, error) {
