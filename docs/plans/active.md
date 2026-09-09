@@ -11,7 +11,7 @@ reuse IDs; this list can still be ordered by current priority.
   - Status: active
   - Owner: scenery compiler / HTTP
   - Created: 2026-09-09
-  - Focus: canonical directory-group URL prefixes, generated/runtime parity, and in-place ONLV client migration.
+  - Focus: HTTP prefixes are shipped and installed; ONLV source checks pass, but live cutover needs a supported retained-state upgrade (SCN8003) and publication needs coordination with independently advanced remote main and overlapping dirty work.
 
 - [0169 One Pure SQL Endpoint Selection](0169-sql-endpoint-resolution.md)
   - Status: active

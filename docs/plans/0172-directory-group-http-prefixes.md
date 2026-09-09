@@ -19,9 +19,14 @@ runtime mount, such as `/api`, remains outside that contract path.
   provenance, CRUD/collision/revision tests and Go/TypeScript/OpenAPI parity.
 - [x] (2026-09-09 20:12Z) Update current specification, agent/app guidance and
   regenerate all three committed TypeScript fixtures.
-- [ ] Pass Scenery validation, commit/push main, and install the selected source.
-- [ ] Update ONLV consumers in place, regenerate with the same Scenery revision,
-  prove the running app, and commit/push only task-owned changes.
+- [x] (2026-09-09 20:16Z) Pass Scenery validation, commit/push main `38189f96`,
+  build the dashboard embed, and install/verify that exact producer.
+- [x] (2026-09-09 20:30Z) Update ONLV consumers in place, regenerate with the
+  same Scenery revision, validate source/builds and commit only migration-owned
+  changes on local ONLV main as `c402478c`.
+- [ ] Coordinate the independently advanced ONLV remote main and publish its
+  local migration commit without disturbing overlapping dirty work.
+- [ ] Resolve the retained-state upgrade boundary and prove the running ONLV app.
 
 ## Surprises & Discoveries
 
@@ -35,6 +40,21 @@ statement; implementation, schema, drift, Go and vet checks passed. Add the requ
 statement and rerun. ONLV's before/after expanded inventories contain 211 HTTP
 bindings: exactly 118 solar bindings acquire `/solar`, and 93 remain unchanged.
 Maps is a root package and does not change; `pkg/maps3d` exposes no HTTP bindings.
+
+The ONLV stop and client regeneration succeed, but the new installed binary
+cannot reopen retained `scenery.worktree` state from the preceding specification
+(SCN8003). The same rejection blocks storage inspection; storage and toolchain
+records also require exact current identities. The diagnostic suggests explicit
+migration, but no retained-worktree migration command exists. Do not relabel
+identities, delete ownership, or recreate credentials to bypass this guard.
+Owner: Scenery runtime/agent. Resolution requires an explicitly reviewed,
+data-preserving in-place state upgrade before ONLV live acceptance; that is an
+additional public lifecycle contract outside the implemented HTTP transformation.
+
+ONLV push is independently blocked by remote main `3f67f2ea`, which changes 107
+files and overlaps 13 currently dirty paths. The non-mutating `git merge-tree`
+preview finds a `BUGS.md` conflict. No force-push, stash, merge, rebase or alternate
+checkout was used; source commit `c402478c` remains local until safe integration.
 
 ## Decision Log
 
@@ -57,7 +77,12 @@ Maps is a root package and does not change; `pkg/maps3d` exposes no HTTP binding
 
 ## Outcomes & Retrospective
 
-Not yet completed.
+Scenery HTTP implementation, generated/native parity, main publication and
+installation are complete. ONLV source/client migration and offline validation
+are committed locally as `c402478c`; publication is blocked by concurrent remote
+and dirty-worktree integration. Its live runtime remains stopped and blocked by
+the retained-state specification upgrade gap. This plan remains active until
+publication and real-app acceptance pass.
 
 ## Context and Orientation
 
@@ -158,6 +183,18 @@ probe passes, including `/api/group1/nested/house/process` returning 200, the ol
 `/api/house/process` returning 404, generated TypeScript invocation, public restart
 reuse and owned-process cleanup. No release, benchmark or all-root timing lane
 was selected.
+
+ONLV validation passes generation/freshness, contract and implementation checks,
+`go test ./...`, `just repo-harness`, native development build, all nine
+`scenery harness` checks, lint/typecheck/build in both generated frontends,
+47 catalog unit tests and 22 standalone fixture-browser cases. Each client's
+213 bindings have exactly 118 grouped paths and 95 unchanged paths, with no
+other transport code change. These checks cover the shared worktree; concurrent
+frontend work was not swept into the migration commit. The live `up` and storage
+inspection commands remain blocked by SCN8003. A compatible pre-upgrade CLI
+confirms the stopped root retains the same 551 objects, 1,618,434,235 bytes,
+worktree incarnation and storage generation. No ownership or data repair was
+attempted to bypass the guard.
 
 ## Interfaces and Dependencies
 
