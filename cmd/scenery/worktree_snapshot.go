@@ -32,22 +32,8 @@ func (op worktreeRestoreOperation) SaveRecord(record localagent.WorktreeRecord) 
 	return op.worktreePostgresOperation.SaveRecord(record)
 }
 
-// Caller owns the worktree live lock for the whole load, including storage.
-func restoreWorktreeSnapshot(ctx context.Context, appRoot string, cfg appcfg.Config, archive *snapshotArchive, mode string) (returnErr error) {
-	resolver, err := newWorktreePostgresResolver(ctx, appRoot, cfg.AppID())
-	if err != nil {
-		return err
-	}
-	op, err := resolver.beginOperation()
-	if err != nil {
-		return err
-	}
-	defer func() { returnErr = errors.Join(returnErr, op.Close()) }()
-	return restoreWorktreeSnapshotOwned(ctx, resolver, cfg, archive, mode, op)
-}
-
-// Storage restore already owns the operation lease; reacquiring it here would
-// deadlock and break the global live -> operation -> maintenance lock order.
+// Snapshot load already owns live and operation leases; combined restore also
+// owns maintenance. Reacquiring would break that lock order and deadlock.
 func restoreWorktreeSnapshotHeld(ctx context.Context, appRoot string, cfg appcfg.Config, archive *snapshotArchive, mode string, op worktreePostgresOperation) error {
 	resolver, err := newWorktreePostgresResolver(ctx, appRoot, cfg.AppID())
 	if err != nil {

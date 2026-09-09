@@ -72,17 +72,31 @@ func runPostgresStorageCaptureExclusion(ctx context.Context, repo, root, databas
 	return nil
 }
 
-// The existing source-overlay gate pauses only the probe binary after the
-// real pg_restore has succeeded and its DB marker was durably cleared. SIGKILL
-// then leaves storage's already-staged operation pending. Recovery uses the
-// normal prepared product binary, never the instrumented variant.
+// Real pg_restore completes before each process cut: first before storage
+// publication, then after publication but before recovery-marker removal.
+// Rejected SQL-only mutation and exact resume use the normal product binary.
 func runPostgresStorageRecoveryProbe(ctx context.Context, repo, root, databaseURL, archive string, evidence map[string]any) error {
 	p := &worktreeRuntimeProbe{ctx: ctx, repo: repo, root: filepath.Join(filepath.Dir(root), "storage-recovery"), binary: harnessLocalSceneryBinaryPath(repo), env: envpolicy.Environ()}
 	variant, control, ack, provenance, err := p.buildCheckpointVariant()
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(control, []byte("restore-db-complete"), 0o600); err != nil {
+	evidence["binary_provenance"] = provenance
+	for _, phase := range []string{"restore-db-complete", "restore-storage-switched"} {
+		checkpoint := map[string]any{}
+		if err := runPostgresStorageRecoveryCheckpoint(ctx, p, root, databaseURL, archive, variant, control, ack, phase, checkpoint); err != nil {
+			return fmt.Errorf("%s: %w", phase, err)
+		}
+		evidence[phase] = checkpoint
+	}
+	return nil
+}
+
+func runPostgresStorageRecoveryCheckpoint(ctx context.Context, p *worktreeRuntimeProbe, root, databaseURL, archive, variant, control, ack, phase string, evidence map[string]any) error {
+	if err := os.WriteFile(control, []byte(phase), 0o600); err != nil {
+		return err
+	}
+	if err := os.Remove(ack); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
 	db, err := openPostgresDatabase(ctx, databaseURL)
@@ -96,6 +110,10 @@ func runPostgresStorageRecoveryProbe(ctx context.Context, repo, root, databaseUR
 	}
 	if closeErr != nil {
 		return closeErr
+	}
+	otherArchive := filepath.Join(filepath.Dir(root), phase+"-database-b.zip")
+	if _, err := p.run(root, p.binary, "snapshot", "save", "--db", "--output", otherArchive, "--app-root", root, "-o", "json"); err != nil {
+		return err
 	}
 	input := filepath.Join(filepath.Dir(root), "interrupted-input")
 	if err := os.WriteFile(input, []byte("before-interrupted-restore"), 0o600); err != nil {
@@ -149,6 +167,8 @@ func runPostgresStorageRecoveryProbe(ctx context.Context, repo, root, databaseUR
 		{"storage", "stat", "app", "snapshot.txt"},
 		{"up", "--detach", "--wait", "ready"},
 		{"snapshot", "load", "--input", archive, "--storage", "--mode", "overwrite", "--yes"},
+		{"snapshot", "load", "--input", otherArchive, "--db", "--mode", "overwrite", "--yes"},
+		{"snapshot", "load", "--input", otherArchive, "--db", "--mode", "merge"},
 	} {
 		out, err := p.run(root, p.binary, append(args, "--app-root", root, "-o", "json")...)
 		if err == nil || !bytes.Contains(out, []byte("SCN8008")) {
@@ -162,6 +182,17 @@ func runPostgresStorageRecoveryProbe(ctx context.Context, repo, root, databaseUR
 	merge := []string{"snapshot", "load", "--input", archive, "--db", "--storage", "--mode", "merge", "--yes", "--app-root", root, "-o", "json"}
 	if _, err := p.run(root, p.binary, merge...); err == nil {
 		return fmt.Errorf("combined merge bypassed pending recovery")
+	}
+	db, err = openPostgresDatabase(ctx, databaseURL)
+	if err != nil {
+		return err
+	}
+	readErr = db.QueryRowContext(ctx, `select value from reports.snapshot_marker`).Scan(&value)
+	if err := errors.Join(readErr, db.Close()); err != nil {
+		return err
+	}
+	if value != "saved" {
+		return fmt.Errorf("rejected SQL-only load changed database before resume: %q", value)
 	}
 	resume := append(append([]string(nil), load...), "--expect-sha256", state.Storage.Recovery.ArchiveSHA256)
 	if _, err := p.run(root, p.binary, resume...); err != nil {
@@ -177,9 +208,21 @@ func runPostgresStorageRecoveryProbe(ctx context.Context, repo, root, databaseUR
 	if string(data) != "saved\n" {
 		return fmt.Errorf("pinned recovery did not restore storage: %q", data)
 	}
-	evidence["binary_provenance"] = provenance
+	db, err = openPostgresDatabase(ctx, databaseURL)
+	if err != nil {
+		return err
+	}
+	readErr = db.QueryRowContext(ctx, `select value from reports.snapshot_marker`).Scan(&value)
+	if err := errors.Join(readErr, db.Close()); err != nil {
+		return err
+	}
+	if value != "saved" {
+		return fmt.Errorf("SQL-only load changed database during recovery: %q", value)
+	}
 	evidence["killed_pid"] = owner.PID
-	evidence["database_restored_before_storage_switch"] = true
+	evidence["database_restored_before_process_cut"] = true
+	evidence["sql_only_overwrite_and_merge_blocked"] = true
+	evidence["database_and_objects_match_after_resume"] = true
 	evidence["startup_and_ordinary_access_blocked"] = true
 	evidence["mismatched_resume_and_combined_merge_rejected"] = true
 	evidence["pinned_production_resume"] = "passed"

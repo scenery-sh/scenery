@@ -3,10 +3,10 @@
   "$id": "https://scenery.sh/schemas/scenery.snapshot.verify.schema.json",
   "title": "scenery snapshot verify",
   "type": "object",
-  "required": ["kind", "schema_revision", "archive", "app", "created_at", "files", "bytes", "db", "storage"],
+  "required": ["kind", "schema_revision", "archive", "app", "created_at", "files", "bytes", "db", "storage", "sha256"],
   "properties": {
     "kind": { "const": "scenery.snapshot.verify" },
-    "schema_revision": { "const": "sha256:987c278f197ef24ba46d2123574f9e356cea37132c22d15d1a82d9cc309473ab" },
+    "schema_revision": { "const": "sha256:a76080eca49ac22abda65554d42ec41cf14840a412e1d2f5864699f8982dfc02" },
     "archive": { "type": "string", "minLength": 1 },
     "app": {
       "type": "object",
@@ -21,7 +21,8 @@
     "files": { "type": "integer", "minimum": 0 },
     "bytes": { "type": "integer", "minimum": 0 },
     "db": { "type": "boolean" },
-    "storage": { "type": "boolean" }
+    "storage": { "type": "boolean" },
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
   },
   "additionalProperties": false
 }

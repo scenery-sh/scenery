@@ -103,9 +103,17 @@ func loadSnapshot(ctx context.Context, appRoot string, cfg appcfg.Config, opts s
 		return snapshotLoadResult{}, fmt.Errorf("snapshot load requires a stopped worktree owner: %w", err)
 	}
 	defer func() { returnErr = errors.Join(returnErr, live.Release()) }()
+	op, err := plan.Worktree.BeginOperation()
+	if err != nil {
+		return snapshotLoadResult{}, err
+	}
+	defer func() { returnErr = errors.Join(returnErr, op.Close()) }()
 	if !opts.Storage {
+		if err := rejectSnapshotStorageRecovery(ctx, plan); err != nil {
+			return snapshotLoadResult{}, err
+		}
 		if targetSource == string(postgresdb.SourceManaged) {
-			err = restoreWorktreeSnapshot(ctx, appRoot, cfg, archive, opts.Mode)
+			err = restoreWorktreeSnapshotHeld(ctx, appRoot, cfg, archive, opts.Mode, op)
 		} else {
 			var database postgresdb.Database
 			database, err = resolveSnapshotDatabase(ctx, appRoot, cfg)
@@ -118,11 +126,6 @@ func loadSnapshot(ctx context.Context, appRoot string, cfg appcfg.Config, opts s
 		}
 		return result, err
 	}
-	op, err := plan.Worktree.BeginOperation()
-	if err != nil {
-		return snapshotLoadResult{}, err
-	}
-	defer func() { returnErr = errors.Join(returnErr, op.Close()) }()
 	materialized, err := archive.reader.Materialize(ctx)
 	if err != nil {
 		return snapshotLoadResult{}, err
@@ -177,6 +180,31 @@ func loadSnapshot(ctx context.Context, appRoot string, cfg appcfg.Config, opts s
 	// generation; do not re-enter discovery while holding the exclusive lease.
 	result.Storage.Scope = storageScope(plan, restore.Owner(), storageCLIOptions{})
 	return result, nil
+}
+
+// Caller holds live and operation ownership, so no storage lifecycle operation
+// can start between this check and SQL mutation. Only matching combined resume
+// may finish a pending restore, including one whose generation already switched.
+func rejectSnapshotStorageRecovery(ctx context.Context, plan *storageNamespacePlan) error {
+	owner, err := plan.discover(ctx)
+	if errors.Is(err, storagefs.ErrUninitialized) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	namespace, err := storagefs.Bind(plan.Root, plan.Binding, owner.Incarnation)
+	if err != nil {
+		return err
+	}
+	pending, err := namespace.Pending(ctx)
+	if err != nil {
+		return err
+	}
+	if pending != nil {
+		return &storagefs.RecoveryError{Info: pending.Recovery()}
+	}
+	return nil
 }
 
 func validateSnapshotStorePolicies(ctx context.Context, cfg appcfg.Config, archive *snapshotArchive) error {

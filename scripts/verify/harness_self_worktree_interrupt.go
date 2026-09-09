@@ -167,8 +167,30 @@ func (p *worktreeRuntimeProbe) buildCheckpointVariant() (string, string, string,
 	if err := os.WriteFile(target, changed, 0o600); err != nil {
 		return "", "", "", nil, err
 	}
+	storageSource := filepath.Join(p.repo, "internal/storagefs/restore.go")
+	storageOriginal, err := os.ReadFile(storageSource)
+	if err != nil {
+		return "", "", "", nil, err
+	}
+	storageAnchor := "r.lease.owner = owner"
+	storageReplacement := fmt.Sprintf(`r.lease.owner = owner
+        selected, _ := os.ReadFile(%q)
+        if string(selected) == "restore-storage-switched" {
+            checkpointOwner, _ := json.Marshal(localagent.CurrentOwner("release-checkpoint"))
+            if err := os.WriteFile(%q, checkpointOwner, 0600); err != nil { return err }
+            for { time.Sleep(time.Hour) }
+        }`, control, ack)
+	storageChanged := bytes.Replace(storageOriginal, []byte(storageAnchor), []byte(storageReplacement), 1)
+	if bytes.Equal(storageOriginal, storageChanged) {
+		return "", "", "", nil, fmt.Errorf("storage generation checkpoint source anchor is missing")
+	}
+	storageChanged = bytes.Replace(storageChanged, []byte("\"context\""), []byte("\"context\"\n\"encoding/json\"\n\"time\"\nlocalagent \"scenery.sh/internal/agent\""), 1)
+	storageTarget := filepath.Join(dir, "storage_restore.go")
+	if err := os.WriteFile(storageTarget, storageChanged, 0o600); err != nil {
+		return "", "", "", nil, err
+	}
 	overlay := filepath.Join(dir, "overlay.json")
-	encoded, _ := json.Marshal(map[string]any{"Replace": map[string]string{source: target}})
+	encoded, _ := json.Marshal(map[string]any{"Replace": map[string]string{source: target, storageSource: storageTarget}})
 	if err := os.WriteFile(overlay, encoded, 0o600); err != nil {
 		return "", "", "", nil, err
 	}
@@ -177,5 +199,5 @@ func (p *worktreeRuntimeProbe) buildCheckpointVariant() (string, string, string,
 		return "", "", "", nil, err
 	}
 	digest, err := worktreeProbeFileSHA(binary)
-	return binary, control, ack, map[string]any{"binary": binary, "sha256": digest, "overlay": overlay, "fault_boundary": "after fsynced ownership-record publication; external SIGKILL"}, err
+	return binary, control, ack, map[string]any{"binary": binary, "sha256": digest, "overlay": overlay, "fault_boundary": "after fsynced worktree-record or storage-generation publication; external SIGKILL"}, err
 }

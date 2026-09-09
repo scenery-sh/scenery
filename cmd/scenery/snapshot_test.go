@@ -3,6 +3,9 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -135,5 +138,47 @@ func TestSnapshotManifestSchemaRevisionMatchesCheckedSchema(t *testing.T) {
 	}
 	if string(revision) != snapshotManifestSchemaRevision {
 		t.Fatalf("schema revision = %s, want %s", revision, snapshotManifestSchemaRevision)
+	}
+}
+
+func TestSnapshotVerifyOutputMatchesCurrentSchema(t *testing.T) {
+	archive := emptySnapshotFixture(t)
+	var output bytes.Buffer
+	if err := runSnapshotVerify(context.Background(), &output, []string{"--input", archive, "-o", "json"}); err != nil {
+		t.Fatal(err)
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal(output.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	schemas := filepath.Join(repoRootForTest(t), "docs", "schemas")
+	if diagnostics := validateHarnessJSONSchemaFile(filepath.Join(schemas, "scenery.cli.schema.json"), envelope); len(diagnostics) != 0 {
+		t.Fatal(diagnostics)
+	}
+	payload, ok := envelope["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing command data: %s", output.Bytes())
+	}
+	schema := filepath.Join(schemas, "scenery.snapshot.verify.schema.json")
+	if diagnostics := validateHarnessJSONSchemaFile(schema, payload); len(diagnostics) != 0 {
+		t.Fatal(diagnostics)
+	}
+	data, err := os.ReadFile(archive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(data)
+	if payload["sha256"] != hex.EncodeToString(digest[:]) {
+		t.Fatalf("wrong archive digest: %v", payload["sha256"])
+	}
+	for _, invalid := range []string{"", strings.Repeat("A", 64), strings.Repeat("a", 63)} {
+		payload["sha256"] = invalid
+		if diagnostics := validateHarnessJSONSchemaFile(schema, payload); len(diagnostics) == 0 {
+			t.Fatalf("schema accepted invalid digest %q", invalid)
+		}
+	}
+	delete(payload, "sha256")
+	if diagnostics := validateHarnessJSONSchemaFile(schema, payload); len(diagnostics) == 0 {
+		t.Fatal("schema accepted missing digest")
 	}
 }

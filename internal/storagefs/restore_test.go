@@ -202,6 +202,14 @@ func TestRestoreOwnerPublicationFailureRetainsRecovery(t *testing.T) {
 	if err := n.CheckReady(ctx); !errors.Is(err, ErrRecovery) {
 		t.Fatal(err)
 	}
+	pending, err := n.Pending(ctx)
+	if err != nil || pending == nil || !pending.Database || pending.ArchiveSHA256 != strings.Repeat("e", 64) || pending.Phase != "database" {
+		t.Fatalf("generation publication lost combined recovery authority: %+v, %v", pending, err)
+	}
+	owner, err := Discover(ctx, n.Path, n.Binding)
+	if err != nil || owner.Generation != pending.StagedGeneration {
+		t.Fatalf("fault did not occur after generation publication: %+v, %v", owner, err)
+	}
 	r, err = n.BeginRestore(ctx, strings.Repeat("e", 64), true, "overwrite", "fail")
 	if err != nil {
 		t.Fatal(err)
@@ -210,4 +218,7 @@ func TestRestoreOwnerPublicationFailureRetainsRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = r.Close()
+	if err := n.CheckReady(ctx); err != nil {
+		t.Fatal(err)
+	}
 }

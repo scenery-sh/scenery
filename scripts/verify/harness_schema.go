@@ -279,7 +279,7 @@ func buildHarnessSchemaValidationReportWithReader(repoRoot string, resp harnessS
 		{name: "snapshot.verify", schemaRel: "docs/schemas/scenery.snapshot.verify.schema.json", payload: snapshotVerifyResult{
 			cliPayloadIdentity: newCLIPayloadIdentity("scenery.snapshot.verify"), Archive: "/tmp/app.zip",
 			App: snapshotManifestApp{Name: "app", ID: "app"}, CreatedAt: time.Date(2026, 7, 14, 0, 0, 0, 0, time.UTC),
-			Files: 1, Bytes: 128, DB: true,
+			Files: 1, Bytes: 128, DB: true, SHA256: strings.Repeat("a", 64),
 		}},
 		{name: "snapshot.manifest", schemaRel: "docs/schemas/scenery.snapshot.manifest.schema.json", payload: snapshotManifest{
 			Kind: snapshotManifestKind, SchemaRevision: snapshotManifestSchemaRevision, CreatedAt: time.Date(2026, 7, 13, 0, 0, 0, 0, time.UTC),

@@ -64,6 +64,7 @@ type snapshotVerifyResult struct {
 	Bytes     int64               `json:"bytes"`
 	DB        bool                `json:"db"`
 	Storage   bool                `json:"storage"`
+	SHA256    string              `json:"sha256"`
 }
 
 type snapshotManifest struct {
