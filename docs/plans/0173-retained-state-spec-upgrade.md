@@ -37,11 +37,16 @@ former shared PostgreSQL server or shared object-cell format.
   1,618,434,235 bytes. ONLV main and origin now match clean `50b5d394`.
 - [x] (2026-09-09 22:21Z) Repeat the repository Go suite and lint successfully
   after the final code changes; update current agent and operator guidance.
-- [ ] Install a committed, published Scenery main.
-- [ ] Back up ONLV, execute the reviewed in-place upgrade, refresh disposable
-  toolchain/build artifacts, and verify its real runtime and preserved data.
-- [ ] Publish only task-owned ONLV handoff changes and close plans 0172/0173
-  after real application acceptance, keeping unrelated work intact.
+- [x] (2026-09-09 22:23Z) Commit/push main `758cbf79`, install it and verify
+  the installed producer against that exact source revision.
+- [x] (2026-09-09 22:24Z) Apply the reviewed 556-file ONLV transaction and
+  confirm a no-op preview, exact SQL inventory equality and all 551 object
+  payload hashes before starting the unchanged root.
+- [x] (2026-09-09 22:29Z) Refresh disposable Node/build artifacts, restore
+  readiness on port 4920 and pass real Chrome grouped catalog acceptance,
+  unchanged Maps reads, all nine app-harness checks and doctor without errors.
+- [x] (2026-09-09 22:33Z) Publish task-owned ONLV completion `66386c29` and
+  close plans 0172/0173 after live acceptance; preserve unrelated work.
 
 ## Surprises & Discoveries
 
@@ -67,6 +72,12 @@ run. Unit tests now inject durability boundaries while preserving atomic-file
 and interruption semantics; the public native CLI probes exercise real fsync.
 Owned unpublished owner/generation metadata temp files do not block retries.
 
+The first ONLV harness and doctor inspections overlapped startup: live
+service/endpoint inspection failed and assistant capability revisions were
+temporarily stale. After `up --detach --wait ready` completed, all nine harness
+checks passed, doctor reported 48 OK / zero errors, and session ownership was
+running. This sequencing observation did not require a source or data repair.
+
 ## Decision Log
 
 - Decision: Add `scenery worktree upgrade` with read-only preview by default and
@@ -90,7 +101,25 @@ Owned unpublished owner/generation metadata temp files do not block retries.
 
 ## Outcomes & Retrospective
 
-Not yet completed.
+Completed on 2026-09-10 local time. Scenery `758cbf79` is published on main and
+installed. Explicit same-schema preview/apply preserves retained payloads and
+keeps ordinary readers current-only; private exact backups and pending guards
+support interruption recovery. The skill entrypoint stays concise and links
+the operator runbook instead of duplicating its procedure.
+
+ONLV is upgraded in place with 556 metadata replacements, unchanged worktree,
+database credentials/allocation, storage incarnation/generation and object
+contents. Before startup, all 116 tables / 67,684 rows, hashes, sequence state,
+roles, grants and extensions matched exactly; all 551 objects matched their
+original SHA-256 and 1,618,434,235-byte total. Independent backups remain private
+and retained. ONLV main/origin contains migration `c402478c` and completion
+`66386c29`; no forced integration or replacement checkout was used.
+
+The original `http://localhost:4920` runtime is ready. Chrome passed live AHJ
+and tariff search/state/detail reads through `/api/solar/...`, with no app
+console errors. Old catalog paths return 404; Maps `/api/datasets/locations`
+still returns 1,000 locations. Full release, all-root timing, benchmarks,
+production deployment and write-capable solar operations were not selected.
 
 ## Context and Orientation
 
@@ -224,6 +253,33 @@ The adjacent private `database-before.json` records per-table row counts and
 logical checksums, sequence state, roles, grants and extensions. This fresh
 67,684-row baseline supersedes the earlier migration's 64,951-row observation;
 the application legitimately changed data between those captures.
+
+The applied revision is
+`sha256:593e08dea08e4a47df840b965fbd07a5e8f1faaadbf51c264d5ebc2b060b038a`.
+Its private metadata backup remains under the existing worktree's
+`spec-upgrades/<revision-hex>/metadata.json`; all 556 published files equal its
+recorded after bytes and preserve every payload field. The subsequent preview
+reports zero changed files and no pending transaction. The adjacent private
+`database-after.json` equals `database-before.json` byte for byte.
+
+Every Scenery command in Concrete Steps passed, including the affected-package
+union, complete Go suite, lint with zero issues and the storage/worktree native
+probes. The default verifier passed with 41 review-due and 23 architecture
+warnings; its 6.717-second cached Go-suite advisory is not an all-root timing
+measurement. Skill validation passed via
+`uv run --no-project --with pyyaml python /Users/petrbrazdil/.codex/skills/.system/skill-creator/scripts/quick_validate.py /Users/petrbrazdil/Repos/scenery`.
+The committed worktree fixture was refreshed with
+`go run ./cmd/scenery generate --target typescript_client.public_api --app-root testdata/apps/worktree-postgres -o json`.
+
+Every ONLV command in Concrete Steps passed. Both 213-binding clients remained
+unchanged, so no additional frontend lint/typecheck/build rerun was selected for
+this metadata-only stage; plan 0172 records their earlier source-cutover proof.
+`scenery doctor -o json` finally passed 48 checks with zero errors and two
+optional raw-IP TLS checks skipped. Live Chrome observed 28,355 AHJs, two
+Alameda/California matches and Alameda County detail; Pacific/California
+tariff search returned 172 residential matches and opened the PG&E E-1 detail.
+List, facet and detail requests returned 200. `just check-docs` passed after
+closing the ONLV plan and archiving the resolved blocker.
 
 ## Interfaces and Dependencies
 

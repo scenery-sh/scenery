@@ -26,7 +26,9 @@ runtime mount, such as `/api`, remains outside that contract path.
   changes on local ONLV main as `c402478c`.
 - [x] (2026-09-09 21:27Z) Verify the independently completed ONLV merge:
   main and origin match `805ecc63`, including all local migration commits.
-- [ ] Resolve the retained-state upgrade boundary and prove the running ONLV app.
+- [x] (2026-09-09 22:29Z) Apply the explicitly approved same-schema upgrade
+  from plan 0173 and prove the running ONLV app, grouped requests and unchanged
+  database/object data at the original root and browser origin.
 
 ## Surprises & Discoveries
 
@@ -82,12 +84,20 @@ acceptance now live in [plan 0173](0173-retained-state-spec-upgrade.md).
 
 ## Outcomes & Retrospective
 
-Scenery HTTP implementation, generated/native parity, main publication and
-installation are complete. ONLV source/client migration and offline validation
-are committed locally as `c402478c`; publication is blocked by concurrent remote
-and dirty-worktree integration. Its live runtime remains stopped and blocked by
-the retained-state specification upgrade gap. This plan remains active until
-publication and real-app acceptance pass.
+Completed on 2026-09-10 local time. Scenery HTTP implementation `38189f96`,
+generated/native parity, main publication and installation are complete. ONLV
+source/client migration `c402478c` is integrated on main and origin, with final
+handoff `66386c29`; concurrent work was preserved.
+
+The explicitly approved [retained-state upgrade](0173-retained-state-spec-upgrade.md)
+ships in `758cbf79` and resolves the runtime blocker without replacing ONLV.
+The original port 4920 serves real AHJ/tariff list, filter and detail requests
+through `/api/solar/...`; old catalog paths return 404 and root-package Maps
+reads remain unchanged. Exact pre-start SQL inventories (116 tables / 67,684
+rows) and all 551 object hashes/totals match. Go, generation, native build,
+repo/app harness and doctor checks pass; Chrome reports no app console errors.
+No write-capable solar operation, production deployment or full release was
+claimed by this read-only application acceptance.
 
 ## Context and Orientation
 

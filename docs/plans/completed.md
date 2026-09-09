@@ -11,6 +11,27 @@ historical records. Do not refresh their review dates or rewrite them as current
 contract prose. Record later guidance here or in the owning current contract;
 use stale knowledge metadata to flag a known contradiction.
 
+## Retained-State Upgrades and Directory-Group HTTP Paths
+
+- Status: completed and published on main
+- Owner: scenery runtime / compiler
+- Completed: 2026-09-10 local time
+- ExecPlans: [0173 Retained-State Specification Upgrade](0173-retained-state-spec-upgrade.md),
+  [0172 Directory Group HTTP Prefixes](0172-directory-group-http-prefixes.md)
+
+Compiler-owned directory groups compose after the gateway base with one
+generated/runtime route contract. The explicit same-schema `worktree upgrade`
+adds preview-bound, private recoverable metadata publication without weakening
+ordinary current-only readers. Go/lint/default verification and selected native
+storage/worktree probes passed, including all A1-A17 ownership cases.
+
+ONLV migrated at the original root/origin, with exact SQL inventory equality
+(116 tables / 67,684 rows), all 551 object payload hashes, storage identities
+and 1,618,434,235 bytes preserved. Real Chrome grouped catalog reads and old-route
+refusal passed; the app harness passed nine checks and doctor reported no errors.
+Scenery `758cbf79` and ONLV completion `66386c29` are published. Full release,
+benchmarks, all-root timing and production deployment were not selected.
+
 ## Worktree-Isolated, Filesystem-Only Storage
 
 - Status: completed locally; not committed or released
