@@ -535,7 +535,7 @@ React-enabled client apps use the generated route tree, navigation, and shell, w
 - Hand-written pages register through `SceneryRouteDescriptor`; do not create a second TanStack route tree, navigation list, shell, or parallel page-selection system.
 - A generated-page conversion does not cut over or delete its hand-written production route until a feature-by-feature inventory, focused tests that survive the deletion, and authenticated browser acceptance prove identical functionality. Keep the generated candidate on a separate non-navigation route until that gate passes.
 
-### Public Surface Checklist
+### Directory-Group HTTP Cutovers
 
 Local package moves are HTTP contract changes: each parent directory between
 the app root and package becomes a route prefix after the gateway `base_path`.
@@ -543,6 +543,33 @@ Inspect both source and effective paths, regenerate clients, and update raw URL
 consumers. Module/service names, Go package identities and database schemas do
 not change merely because the HTTP group changes. See
 [HTTP route identity](spec/http.md#33-route-identity).
+
+For example, package `group1/admin/maps`, endpoint `/maps/list` and gateway
+base `/v1` produce `/v1/group1/admin/maps/list`. The final package directory is
+excluded from the derived group; explicit repeated segments are not deduplicated.
+An external `/api` runtime mount stays separate.
+
+1. Compare `scenery compile --view source -o json` and
+   `scenery compile --view expanded -o json` before and after the move. Preserve
+   service and data identities; do not compensate by duplicating the group in
+   authored endpoint paths or the gateway base.
+2. Regenerate declared clients with `scenery generate -o json`, check freshness
+   with `scenery generate --check -o json`, and update raw HTTP consumers and
+   test request patterns. Frontend navigation paths do not move automatically.
+3. Before replacing the CLI or stopping a working app for a specification
+   upgrade, preflight the candidate binary against retained runtime/storage
+   state, including `scenery inspect storage --stats -o json`. Preserve the
+   matching old binary and existing ownership/data evidence for recovery.
+4. If retained artifact identity is rejected, record the artifact kind and
+   expected/observed revisions. Use only a documented migration for that
+   boundary; if none exists, stop and record the blocker. Do not relabel
+   revisions, delete ownership, recreate credentials, or treat regenerated
+   client/build artifacts as a durable-state upgrade.
+5. Verify real generated-server/client requests, rejection of the old paths,
+   and preserved data scope after cutover. Mocked browser tests and successful
+   builds do not establish a working upgraded runtime.
+
+### Public Surface Checklist
 
 When editing source that changes the public app model, confirm the docs and tests cover:
 

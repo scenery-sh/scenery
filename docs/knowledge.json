@@ -1803,7 +1803,7 @@
       "freshness": "current",
       "last_reviewed": "2026-09-09",
       "review_after": "2026-10-09",
-      "summary": "Agent workflows for current apps and Scenery: ignored in-module Go, directory-group HTTP moves, generated-type discovery, provider locking, assistants, exact CLI JSON, runtime ownership and diagnosis, cached validation, explicit probes and release, and unchanged 100ms Go-root rules.",
+      "summary": "Agent workflows for current apps and Scenery: in-module Go, directory-group HTTP moves and data-preserving cutover preflight, generated-type discovery, provider locking, assistants, exact CLI JSON, runtime ownership and diagnosis, cached validation, explicit probes and release, and unchanged 100ms Go-root rules.",
       "tags": [
         "agents",
         "cli",
