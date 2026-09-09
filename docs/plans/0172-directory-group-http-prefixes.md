@@ -24,8 +24,8 @@ runtime mount, such as `/api`, remains outside that contract path.
 - [x] (2026-09-09 20:30Z) Update ONLV consumers in place, regenerate with the
   same Scenery revision, validate source/builds and commit only migration-owned
   changes on local ONLV main as `c402478c`.
-- [ ] Coordinate the independently advanced ONLV remote main and publish its
-  local migration commit without disturbing overlapping dirty work.
+- [x] (2026-09-09 21:27Z) Verify the independently completed ONLV merge:
+  main and origin match `805ecc63`, including all local migration commits.
 - [ ] Resolve the retained-state upgrade boundary and prove the running ONLV app.
 
 ## Surprises & Discoveries
@@ -55,6 +55,11 @@ ONLV push is independently blocked by remote main `3f67f2ea`, which changes 107
 files and overlaps 13 currently dirty paths. The non-mutating `git merge-tree`
 preview finds a `BUGS.md` conflict. No force-push, stash, merge, rebase or alternate
 checkout was used; source commit `c402478c` remains local until safe integration.
+
+That publication snapshot was superseded at 21:27Z: ONLV main and origin both
+resolve to `805ecc63` and include `c402478c` and the independent remote work.
+The developer approved a supported in-place upgrade; implementation and safety
+acceptance now live in [plan 0173](0173-retained-state-spec-upgrade.md).
 
 ## Decision Log
 

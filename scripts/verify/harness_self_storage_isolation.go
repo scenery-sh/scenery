@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	localagent "scenery.sh/internal/agent"
 )
 
 // This probe owns a disposable repository, linked worktree and agent home.
@@ -122,6 +124,21 @@ func runHarnessStorageIsolationProbe(ctx context.Context, repoRoot, binary strin
 		return summary, err
 	}
 	summary["same_root_branch_change_retains_files"] = "passed"
+	paths, err := localagent.PathsForWorktree(home, rootB)
+	if err != nil {
+		return summary, err
+	}
+	upgrade, err := probeRetainedSpecUpgrade(paths, func(args ...string) ([]byte, error) {
+		output, err := run(rootB, args...)
+		return []byte(output), err
+	})
+	if err != nil {
+		return summary, err
+	}
+	if err := read(rootB, "same/key", "probe", "worktree B"); err != nil {
+		return summary, err
+	}
+	summary["explicit_same_schema_upgrade"] = upgrade
 	if _, err := run(rootB, "storage", "get", "app", "missing-download", "--tenant", "probe", "--output", output); err == nil {
 		return summary, fmt.Errorf("missing object download unexpectedly succeeded")
 	}

@@ -5,6 +5,10 @@ renames, deletes or automatically migrates a legacy shared cell. A legacy cell
 is not an alternate runtime backend. Preserve it until application-level data
 checks and your rollback/backup policy are satisfied.
 
+An already worktree-isolated namespace with unchanged metadata schemas does
+not need legacy export/import merely because its specification identity is
+stale. Use the same-root [retained-state upgrade](worktree-state-upgrade.md).
+
 ## Preconditions
 
 - Stop **all** writers to the legacy cell, including every old worktree, worker,

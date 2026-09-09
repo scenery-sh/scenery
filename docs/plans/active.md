@@ -7,6 +7,12 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
+- [0173 Retained-State Specification Upgrade](0173-retained-state-spec-upgrade.md)
+  - Status: active
+  - Owner: scenery runtime / retained state
+  - Created: 2026-09-09
+  - Focus: explicit same-schema preview/apply, private recoverable metadata transaction, and data-preserving ONLV runtime acceptance.
+
 - [0172 Directory Group HTTP Prefixes](0172-directory-group-http-prefixes.md)
   - Status: active
   - Owner: scenery compiler / HTTP

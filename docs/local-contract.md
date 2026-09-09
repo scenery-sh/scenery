@@ -174,7 +174,7 @@ Implemented now:
 - `scenery db reset`
 - `scenery db drop`
 - `scenery snapshot save|verify|load`
-- `scenery worktree create|list|remove`
+- `scenery worktree create|list|remove|upgrade`
 - `scenery task list|inspect|run|graph`
 - `scenery task run <name>`
 - `scenery task run <domain>:<name>`
@@ -215,7 +215,7 @@ Dev-only or beta surface:
 - `scenery db reset`
 - `scenery db drop`
 - `scenery snapshot save|verify|load`
-- `scenery worktree create|list|remove`
+- `scenery worktree create|list|remove|upgrade`
 - `scenery generate`
 - `scenery task list|inspect|run|graph`
 - `scenery task run <name>`
@@ -770,6 +770,7 @@ scenery db server status|start|stop|logs [--app-root <path>] [-o json]
 scenery worktree create <name> [--from <branch>] [--app-root <path>] [-o json]
 scenery worktree list [--app-root <path>] [-o json]
 scenery worktree remove <name> [--app-root <path>] [-o json]
+scenery worktree upgrade [--app-root <path>] [--yes --expect-revision <digest>] [-o json]
 ```
 
 `scenery db list -o json` reports the app Postgres database as `scenery.db.list`; the record includes the database name, redacted URL, source (`managed` or `external`), optional size, and the compiled service bindings. `scenery db shell [service]` opens the matching `psql` inside the identity-verified managed PostgreSQL container (external databases use host `psql`); a service argument pins `search_path` to `<service_schema>,scenery`. Put CLI selectors such as `--app-root` before the service; all following arguments are passed directly to `psql`. `scenery db reset [service]` resets one service schema with `ResetSchema` and clears the current app's discovered seed-ledger identities for that service so the following setup reconstructs its initial data; without a service it resets the managed app database and requires `--yes`. `scenery db drop` drops the managed app database. Destructive reset/drop operations require a stopped worktree, hold its exclusive operation lock, and refuse external DSNs. `scenery db server status|start|stop|logs [--app-root <path>]` selects only that worktree's retained cluster. Status is read-only and reports its scope, retained resource identity, and any incomplete restore; stop retains the container, volume, and credentials. `scenery db apply` runs only `database.apply.command` and does not run seeds or SQLC generation. Standalone apply/seed holds worktree ownership through all SQL and child commands; `db setup` holds it continuously across both phases.
@@ -783,6 +784,34 @@ scenery worktree remove <name> [--app-root <path>] [-o json]
 `scenery down` stops the selected worktree's verified runtime children and managed PostgreSQL container, retaining database data and credentials. It is idempotent when no live runtime exists and never allocates an absent cluster. `scenery down --db` additionally drops only the retained app database, not the cluster volume, and refuses external DSNs. `scenery down --state` removes only the selected app root's disposable session state. Durable ownership records remain outside the checkout.
 
 `scenery worktree create <name> -o json` runs `git worktree add -b <name>` next to the current app root and emits `scenery.worktree.create`. `scenery worktree list -o json` emits `scenery.worktree.list` from `git worktree list --porcelain`. `scenery worktree remove <name> -o json` resolves the target from Git and removes only the stopped checkout; it has no database-deletion option. Ordinary Git removal also retains the worktree database. `scenery ps -o json` discovers retained stopped/orphaned roots independently of Git. Explicit `scenery prune --older-than <duration> --app-root <absolute-path> --db` removes the selected inactive worktree's entire verified cluster, container, and volume. It refuses live, incompatible, ambiguous, or external targets and retains authority after a failed cleanup so it can be retried.
+
+`scenery worktree upgrade -o json` previews an explicit same-schema upgrade of
+the selected stopped root's worktree record, stopped session registry and all
+retained managed-storage owner/generation/reference metadata. Preview is
+non-allocating. `--yes --expect-revision <digest>` applies only the exact
+root/spec/metadata-bound selection; both flags are required together. Identical
+artifact kind/schema and valid current payload/ownership are mandatory. Engine
+or data-format changes, live recorded processes, incomplete allocations and
+pending restore/purge operations are rejected. External storage roots are not
+selected. SQL data, credentials, storage incarnations/generations, ETags and
+immutable payload files are unchanged. Object payload existence, ownership and
+length are checked; preview does not rehash all content.
+
+The `scenery.worktree.upgrade` data contains `app_root`, `worktree_key`,
+`target_spec_revision`, `revision`, `metadata_files`, `changed_files`,
+`updated_files`, `pending`, `applied`, and an optional applied `backup` path.
+It never contains metadata bytes, credentials or object contents. Apply holds
+existing live/operation and storage maintenance locks. Exact before/after bytes
+are backed up at `<worktree-state>/spec-upgrades/<revision-hex>/metadata.json`
+(0600 beneath 0700 directories). A durable `spec-upgrade.json` guard blocks
+ordinary worktree and managed-storage reads during partial publication. Retry
+the pending preview's original revision with the same target specification;
+only matching before/after bytes can resume. Completion retains the backup and
+its `completed` marker. A new preview of fully current state reports zero
+changes; an obsolete completed approval requires a fresh preview. Records are
+bounded to 64 KiB, storage selection to 64 MiB of before/after metadata, and the
+encoded transaction backup to 256 MiB. See the
+[retained-state upgrade runbook](runbooks/worktree-state-upgrade.md).
 
 `db list` derives service bindings from the current compiled SQL requirements,
 then observes resolved supply; it does not allocate a cluster. An app without

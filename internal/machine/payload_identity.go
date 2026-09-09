@@ -98,6 +98,7 @@ var payloadSchemaRevisions = map[string]string{
 	"scenery.worktree.create":             "sha256:7d2585e9045317d17a142fd91ceb4b38d0f60f8223abc31d30736697424fa5ea",
 	"scenery.worktree.list":               "sha256:2d42d90ddd63a94c1e0fe12a1cf04023b7ccc167534c32751dc06a2714aed237",
 	"scenery.worktree.remove":             "sha256:c9a11366bd39db3ae470555a433ecb93d82459f38ef0f645cd2c0fe456f08131",
+	"scenery.worktree.upgrade":            "sha256:eec3450506fc0397847d3fc172d6cd1154f8a836fba274e63ca1466b8267930b",
 }
 
 func NewPayloadIdentity(kind string) PayloadIdentity {

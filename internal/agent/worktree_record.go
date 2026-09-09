@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"scenery.sh/internal/machine"
+	"scenery.sh/internal/stateupgrade"
 )
 
 const worktreeRecordKind = "scenery.worktree"
@@ -39,6 +40,9 @@ func NewWorktreeRecord(paths WorktreePaths, appID string) WorktreeRecord {
 // LoadRecord is read-only, including on incompatible or corrupt metadata.
 func (p WorktreePaths) LoadRecord(appID string) (WorktreeRecord, error) {
 	var record WorktreeRecord
+	if err := stateupgrade.CheckPending(p.Directory); err != nil {
+		return record, fmt.Errorf("failed_precondition: %w", err)
+	}
 	if err := checkPrivateWorktreeFile(p.Record); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return record, err

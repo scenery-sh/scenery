@@ -17,11 +17,13 @@ const worktreeCreateKind = "scenery.worktree.create"
 const worktreeRemoveKind = "scenery.worktree.remove"
 
 type worktreeOptions struct {
-	Command string
-	Name    string
-	AppRoot string
-	From    string
-	JSON    bool
+	Command          string
+	Name             string
+	AppRoot          string
+	From             string
+	JSON             bool
+	Yes              bool
+	ExpectedRevision string
 }
 
 type worktreeRecord struct {
@@ -77,6 +79,8 @@ func runWorktreeCommandWithGit(ctx context.Context, stdout io.Writer, args []str
 		return runWorktreeListWithGit(ctx, stdout, opts, listWorktrees)
 	case "remove":
 		return runWorktreeRemoveWithGit(ctx, stdout, opts, listWorktrees, runGit)
+	case "upgrade":
+		return runWorktreeUpgrade(ctx, stdout, opts)
 	default:
 		return fmt.Errorf("unknown worktree command %q", opts.Command)
 	}
@@ -87,13 +91,15 @@ func parseWorktreeArgs(args []string) (worktreeOptions, error) {
 	flags := newCLIFlagSet("worktree")
 	flags.StringVar(&opts.AppRoot, "app-root", "", "")
 	flags.StringVar(&opts.From, "from", "", "")
+	flags.BoolVar(&opts.Yes, "yes", false, "")
+	flags.StringVar(&opts.ExpectedRevision, "expect-revision", "", "")
 	registerJSONOutput(flags, &opts.JSON)
 	positionals, err := parseCLIFlags(flags, args)
 	if err != nil {
 		return worktreeOptions{}, err
 	}
 	if len(positionals) == 0 {
-		return worktreeOptions{}, fmt.Errorf("usage: scenery worktree create|list|remove ")
+		return worktreeOptions{}, fmt.Errorf("usage: scenery worktree create|list|remove|upgrade")
 	}
 	opts.Command = positionals[0]
 	if len(positionals) > 1 {
@@ -108,8 +114,18 @@ func parseWorktreeArgs(args []string) (worktreeOptions, error) {
 			return worktreeOptions{}, fmt.Errorf("scenery worktree %s requires <name>", opts.Command)
 		}
 	case "list":
+	case "upgrade":
+		if opts.Name != "" || opts.From != "" {
+			return worktreeOptions{}, fmt.Errorf("scenery worktree upgrade accepts --app-root, not a Git worktree name or --from")
+		}
+		if opts.Yes != (opts.ExpectedRevision != "") {
+			return worktreeOptions{}, fmt.Errorf("scenery worktree upgrade applies only with both --yes and --expect-revision; omit both to preview")
+		}
 	default:
 		return worktreeOptions{}, fmt.Errorf("unknown worktree command %q", opts.Command)
+	}
+	if opts.Command != "upgrade" && (opts.Yes || opts.ExpectedRevision != "") {
+		return worktreeOptions{}, fmt.Errorf("--yes and --expect-revision belong only to scenery worktree upgrade")
 	}
 	return opts, nil
 }

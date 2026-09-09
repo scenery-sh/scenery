@@ -228,6 +228,10 @@ func buildHarnessSchemaValidationReportWithReader(repoRoot string, resp harnessS
 		{name: "environment.registry", schemaRel: "docs/schemas/scenery.environment.registry.schema.json", payload: environmentRegistryPayload},
 		{name: "help", schemaRel: "docs/schemas/scenery.help.schema.json", payload: helpPayload},
 		{name: "version", schemaRel: "docs/schemas/scenery.version.schema.json", payload: versionPayload},
+		{name: "worktree.upgrade", schemaRel: "docs/schemas/scenery.worktree.upgrade.schema.json", payload: withCLIPayloadIdentity("scenery.worktree.upgrade", map[string]any{
+			"ok": true, "app_root": "/tmp/app", "worktree_key": strings.Repeat("a", 64), "target_spec_revision": currentMachineSpecRevision(),
+			"revision": digest, "metadata_files": 4, "changed_files": 4, "updated_files": 0, "pending": false, "applied": false,
+		})},
 		{name: "build.result", schemaRel: "docs/schemas/scenery.build.result.schema.json", payload: withCLIPayloadIdentity("scenery.build.result", map[string]any{
 			"output_path": "/tmp/scenery-app", "descriptor_path": "/tmp/scenery-app.scenery.runtime-bundle.json", "copied": true,
 		})},

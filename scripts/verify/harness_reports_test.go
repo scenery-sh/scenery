@@ -129,6 +129,7 @@ func TestBuildHarnessSchemaValidationReport(t *testing.T) {
 		"scenery.storage.inspect.schema.json",
 		"scenery.telemetry.schema.json",
 		"scenery.version.schema.json",
+		"scenery.worktree.upgrade.schema.json",
 	)
 	resp := harnessSelfResponse{
 		PayloadIdentity: newCLIPayloadIdentity("scenery.harness.self"),
@@ -160,7 +161,7 @@ func TestBuildHarnessSchemaValidationReport(t *testing.T) {
 	if reads != 4 {
 		t.Fatalf("product schema reads = %d, want 4", reads)
 	}
-	if len(report.Validated) != 32 {
+	if len(report.Validated) != 33 {
 		t.Fatalf("validated = %+v", report.Validated)
 	}
 	if hasErrorDiagnostics(report.Diagnostics) {

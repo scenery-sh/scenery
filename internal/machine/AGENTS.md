@@ -13,6 +13,11 @@ It also owns the one current command-data payload schema identity registry.
   workspace/contract revisions are digest-or-null and
   implementation/deployment revisions are digest, digest-map, or null.
 - Decoding accepts only the current kind and exact schema/spec revisions; do not add compatibility decoders.
+- Explicit retained-state upgrade preparation may change spec/producer identity
+  only after exact kind/schema and current payload decoding pass. It never
+  writes state or changes the ordinary decoder; domain owners validate payload
+  invariants before publication. Retained-state semantic changes must change
+  their owning schema descriptor even when field names stay the same.
 - Keep the matching schemas under `docs/schemas/scenery.cli*.schema.json`
   synchronized with Go types. Their constants are complete
   `SchemaDocumentRevision` digests, not compact descriptor hashes.

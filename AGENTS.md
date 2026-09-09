@@ -2,7 +2,7 @@
 
 This file is the repo-local operating manual for AI agents changing `scenery.sh`.
 
-Optimize for agents: prefer concise rules, exact commands, and machine-readable contracts over long prose. Read what covers the surface you are changing; do not preload everything.
+Prefer concise rules, exact commands, and machine-readable contracts. Read only task-relevant sources.
 
 ## Communication And Repository Language
 
@@ -71,6 +71,7 @@ Add a child `AGENTS.md` only when a directory becomes a durable boundary with it
 - `internal/repoinfo/AGENTS.md` owns read-only knowledge data and the singular path classification table.
 - `internal/scn/AGENTS.md` owns `.scn` source discovery, safe filesystem access, parsing, positions, lossless CSTs, and canonical formatting.
 - `internal/spec/AGENTS.md` owns the current resource/source-schema and diagnostic catalog, canonical JSON, and content revisions.
+- `internal/stateupgrade/AGENTS.md` owns explicit same-schema retained-metadata transactions, private backups and interruption recovery.
 - `internal/testsuite/AGENTS.md` owns explicit fresh execution from content-addressed Go test binaries and Go JSON event output.
 - `internal/uireport/AGENTS.md` owns read-only React design-system adherence scanning, source exclusions, metrics, and deterministic ranking.
 - `internal/workspacetx/AGENTS.md` owns crash-safe source transaction metadata, ownership checks, and recovery before compiler reads.

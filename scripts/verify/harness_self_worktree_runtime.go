@@ -84,6 +84,11 @@ func runHarnessWorktreeProbe(parent context.Context, repoRoot string, measureCos
 				continue
 			}
 			record, recordErr := p.record(appRoot)
+			if errors.Is(recordErr, os.ErrNotExist) {
+				// A prior case may fail before this root ever allocates authority.
+				// There is then no verified retained resource to clean up.
+				continue
+			}
 			if recordErr != nil {
 				cleanupErr = errors.Join(cleanupErr, recordErr)
 				continue

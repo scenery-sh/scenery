@@ -19,6 +19,30 @@
   },
   "documents": [
     {
+      "path": "docs/runbooks/worktree-state-upgrade.md",
+      "title": "Retained Worktree Specification Upgrade",
+      "owner": "scenery runtime / storage",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-09",
+      "review_after": "2026-10-09",
+      "summary": "Explicit same-schema in-place metadata preview/apply, quiescence, independent backups, unchanged data identities, exact interruption recovery and runtime acceptance.",
+      "tags": ["runbooks", "runtime", "storage", "migration", "ownership"]
+    },
+    {
+      "path": "internal/stateupgrade/AGENTS.md",
+      "title": "Retained-State Upgrade Transaction Instructions",
+      "owner": "scenery runtime",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-09",
+      "review_after": "2026-10-09",
+      "summary": "Private root-bound transaction ownership, pure domain preparation, exact backups, current-only access barriers and interruption tests.",
+      "tags": ["agents", "runtime", "migration", "ownership"]
+    },
+    {
       "path": "docs/runbooks/worktree-storage-migration.md",
       "title": "Shared-to-Worktree Storage Migration",
       "owner": "scenery storage / runtime",
@@ -209,6 +233,18 @@
       "review_after": "2026-10-09",
       "summary": "Compiler-owned directory-group HTTP prefixes, source/effective provenance, generated/runtime parity and in-place ONLV migration.",
       "tags": ["plans", "execplans", "http", "compiler", "generation"]
+    },
+    {
+      "path": "docs/plans/0173-retained-state-spec-upgrade.md",
+      "title": "Retained-State Specification Upgrade",
+      "owner": "scenery runtime",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-09",
+      "review_after": "2026-10-09",
+      "summary": "Explicit same-schema retained-state preview/apply, private crash-safe metadata backups, strict ordinary readers, and data-preserving ONLV runtime acceptance.",
+      "tags": ["plans", "execplans", "runtime", "storage", "migration"]
     },
     {
       "path": "README.md",
@@ -1901,6 +1937,7 @@
         "docs/schemas/scenery.worktree.create.schema.json",
         "docs/schemas/scenery.worktree.list.schema.json",
         "docs/schemas/scenery.worktree.remove.schema.json",
+        "docs/schemas/scenery.worktree.upgrade.schema.json",
         "docs/schemas/scenery.harness.artifact.schema.json",
         "docs/schemas/scenery.harness.changed_area.schema.json",
         "docs/schemas/scenery.harness.self.schema.json",

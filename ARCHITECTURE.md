@@ -497,6 +497,13 @@ authenticated cluster identity before lifecycle actions. Pending credentials
 and resource intent are durable before provisioning begins. Database CLI,
 snapshot, down, and prune commands use that single resolver.
 
+`internal/stateupgrade` owns explicit same-schema metadata transactions under
+one private worktree root: revision binding, exact backups, durable publication
+and interrupted-operation recovery. Agent/storage owners validate payloads and
+hold existing stopped-owner, operation and maintenance locks. The
+`worktree upgrade` CLI composes them; ordinary decoders stay strictly current.
+It never changes roots, credentials, database data or immutable object payloads.
+
 Architecture invariant: ordinary `up` owns one control plane and runtime per
 canonical app root in the same supervisor process. It never ensures a shared
 machine agent, adopts shared PostgreSQL resources, or replaces incompatible

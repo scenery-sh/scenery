@@ -148,6 +148,7 @@ var helpReferenceGroups = []helpReferenceGroup{
 		"scenery worktree create",
 		"scenery worktree list",
 		"scenery worktree remove",
+		"scenery worktree upgrade",
 	}},
 	{Name: "Generation", Commands: []string{
 		"scenery generate",
@@ -323,10 +324,10 @@ var helpCommands = []helpCommandEntry{
 	{
 		Command:     "worktree",
 		Group:       "Workspace",
-		Summary:     "Create, list, and remove app worktrees.",
-		Usage:       []string{"scenery worktree create <name> [--from <branch>] [--app-root <path>] [-o json]", "scenery worktree list [--app-root <path>] [-o json]", "scenery worktree remove <name> [--app-root <path>] [-o json]"},
-		Subcommands: []string{"create", "list", "remove"},
-		Flags:       []string{"--from <branch>", "--app-root <path>", "--db", "-o", "json"},
+		Summary:     "Manage app worktrees and explicitly upgrade retained metadata.",
+		Usage:       []string{"scenery worktree create <name> [--from <branch>] [--app-root <path>] [-o json]", "scenery worktree list [--app-root <path>] [-o json]", "scenery worktree remove <name> [--app-root <path>] [-o json]", "scenery worktree upgrade [--app-root <path>] [--yes --expect-revision <digest>] [-o json]"},
+		Subcommands: []string{"create", "list", "remove", "upgrade"},
+		Flags:       []string{"--from <branch>", "--app-root <path>", "--yes", "--expect-revision <digest>", "-o", "json"},
 		JSON:        true,
 		Stability:   "stable",
 	},

@@ -23,6 +23,9 @@
   Acquire the root's live lock before provisioning. Worktree records and
   credentials are strictly current and never migrated implicitly. Read-only
   inspection must not allocate records, locks, sockets, or resource intent.
+- `worktree upgrade` explicitly prepares same-schema worktree and stopped
+  registry metadata; it never adopts processes or converts database payloads.
+  A pending upgrade blocks ordinary retained-record access until exact resume.
 - Edge-only worktree proxy leases forward only to explicit loopback endpoints
   with verified domain ownership; they neither own runtime children nor write
   a checkout's session manifest.

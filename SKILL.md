@@ -300,3 +300,11 @@ allocation: migrate verified data explicitly instead of deleting or relabeling
 old state. Do not remove/recreate/adopt a container or rewrite its authority
 without verifying its owner and coordinating with its users.
 Installing a CLI does not migrate application dependencies or durable data.
+
+When only retained metadata's specification identity is stale, use the
+[same-schema upgrade runbook](docs/runbooks/worktree-state-upgrade.md).
+`scenery worktree upgrade -o json` is read-only; applying its reviewed revision
+requires explicit operator authorization and `--yes --expect-revision`.
+Keep the source stopped, back up first, and resume any pending transaction
+exactly. Do not relabel files manually, change roots/homes, or treat this as an
+engine/shared-data-format migration.

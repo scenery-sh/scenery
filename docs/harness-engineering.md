@@ -90,6 +90,9 @@ The `--probe worktree` acceptance probe (also included in release) creates real 
 and tests managed PostgreSQL ownership, typed lending races, lifecycle and crash
 recovery, external sharing, inert restores, optional Victoria recovery, local
 versus public edge exposure, and genuinely different control-protocol binaries.
+Its A16 case also exercises the public same-schema retained-state upgrade,
+including stale-approval refusal, exact metadata backup and unchanged SQL data;
+the storage probe verifies unchanged object payload hashes across that upgrade.
 Its pre-cutover lane additionally requires the pinned Docker-in-Docker and Go
 images; the historical binary runs only on that disposable nested daemon,
 without a host Docker socket or source bind mount. No global developer cluster

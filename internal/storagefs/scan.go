@@ -93,17 +93,24 @@ func readReferenceAt(lease *namespaceLease, name string) (reference, error) {
 	if err := machine.DecodeArtifact(data, &ref, &ref.ArtifactIdentity, referenceKind, referenceDescriptor, "inspect storage with the matching Scenery binary"); err != nil {
 		return reference{}, fmt.Errorf("%w: %w", ErrCorrupt, err)
 	}
-	scope := Scope{Store: ref.Object.Store, Tenant: ref.Object.Tenant}
-	if err := scope.validate(); err != nil {
-		return reference{}, fmt.Errorf("%w: %w", ErrCorrupt, err)
-	}
-	if err := ref.validate(scope, ref.Object.Key); err != nil {
+	if err := validateReferenceAt(ref, lease.owner.Generation, name); err != nil {
 		return reference{}, err
 	}
-	if scope.refPath(lease.owner.Generation, ref.Object.Key) != name {
-		return reference{}, fmt.Errorf("%w: reference address mismatch", ErrCorrupt)
-	}
 	return ref, nil
+}
+
+func validateReferenceAt(ref reference, generation, name string) error {
+	scope := Scope{Store: ref.Object.Store, Tenant: ref.Object.Tenant}
+	if err := scope.validate(); err != nil {
+		return fmt.Errorf("%w: %w", ErrCorrupt, err)
+	}
+	if err := ref.validate(scope, ref.Object.Key); err != nil {
+		return err
+	}
+	if scope.refPath(generation, ref.Object.Key) != name {
+		return fmt.Errorf("%w: reference address mismatch", ErrCorrupt)
+	}
+	return nil
 }
 
 func scanAllReferences(ctx context.Context, lease *namespaceLease, visit func(reference) error) error {
@@ -141,4 +148,9 @@ func isReferenceTemp(name string) bool {
 	}
 	key, nonce, ok := strings.Cut(strings.TrimPrefix(name, "."), ".json.tmp-")
 	return ok && isHexID(key, 32) && isHexID(nonce, 16)
+}
+
+func isMetadataTemp(name, base string) bool {
+	nonce, ok := strings.CutPrefix(name, "."+base+".tmp-")
+	return ok && isHexID(nonce, 16)
 }

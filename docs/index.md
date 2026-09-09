@@ -47,6 +47,7 @@ Scenery has one evolving application contract. Start with the [Scenery Specifica
 
 ## Runbooks
 
+- [Retained Worktree Specification Upgrade](runbooks/worktree-state-upgrade.md): explicit in-place same-schema metadata upgrades, private backups, exact recovery and preserved database/object identities.
 - [Shared-to-Worktree Storage Migration](runbooks/worktree-storage-migration.md): source-read-only legacy export, checksum-pinned logical import, explicit tenant policy, missing-metadata rejection and rollback limits.
 - [Standard Auth Production Migration](runbooks/standard-auth-migration.md): operator checklist and SQL template for preserving existing users, tenants, memberships, password hashes, and sessions when moving an app to scenery standard auth.
 - [Shared-to-Worktree PostgreSQL Migration](runbooks/worktree-postgres-migration.md): explicit quiesced native export/restore, inert target provisioning, role/grant/extension review, validation, and rollback limits without touching unrelated shared-server apps.

@@ -4,6 +4,11 @@ This is an explicit operator procedure, not part of `scenery up`. Keep the old
 source and backup until the operator separately approves their retirement.
 Installing a CLI is not a data migration.
 
+If the root already uses per-worktree PostgreSQL and only its metadata's
+specification identity is stale, use the same-root
+[retained-state upgrade](worktree-state-upgrade.md) instead. The different-root
+procedure below applies to the former shared data format, not that case.
+
 For two roots already on the current Scenery protocol, prefer `snapshot save`,
 `snapshot verify`, and inert `snapshot load --db`. An old snapshot belongs to
 its matching old CLI: do not relabel its identities, edit its archive manifest,

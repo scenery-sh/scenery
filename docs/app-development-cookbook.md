@@ -1038,6 +1038,12 @@ Treat roots, immutable versions, references and proxy sockets as substrate. Do n
 
 ## Local Development
 
+After an explicitly selected Scenery update, unchanged retained schemas can
+use the [same-root metadata upgrade](runbooks/worktree-state-upgrade.md).
+Preview with `scenery worktree upgrade -o json`; only an authorized
+`--yes --expect-revision <digest>` applies it. Back up and stop the source
+first, preserve its root/home and validate the existing data after completion.
+
 ```sh
 scenery up --detach
 scenery ps -o json

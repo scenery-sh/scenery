@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.worktree.upgrade.schema.json",
+  "title": "scenery retained worktree specification upgrade",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "kind",
+    "schema_revision",
+    "ok",
+    "app_root",
+    "worktree_key",
+    "target_spec_revision",
+    "revision",
+    "metadata_files",
+    "changed_files",
+    "updated_files",
+    "pending",
+    "applied"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.worktree.upgrade"
+    },
+    "schema_revision": {
+      "const": "sha256:eec3450506fc0397847d3fc172d6cd1154f8a836fba274e63ca1466b8267930b"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "app_root": {
+      "type": "string"
+    },
+    "worktree_key": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "target_spec_revision": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "revision": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "metadata_files": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "changed_files": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "updated_files": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "pending": {
+      "type": "boolean"
+    },
+    "applied": {
+      "type": "boolean"
+    },
+    "backup": {
+      "type": "string"
+    }
+  }
+}

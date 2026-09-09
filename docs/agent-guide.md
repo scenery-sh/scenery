@@ -455,6 +455,16 @@ separate absolute binary paths. Installing a CLI is not an application or data
 migration; keep its source revision coherent with the application's runtime
 dependency and regenerate/validate intentionally.
 
+For a stopped retained root whose artifact schemas are unchanged but whose
+specification identity is stale, follow the
+[retained-state upgrade runbook](runbooks/worktree-state-upgrade.md): preview
+with `scenery worktree upgrade -o json`, then explicitly apply its reviewed
+revision. This preserves root, credentials, database data and storage object
+identity. Ordinary reads never migrate. Pending upgrades require exact resume;
+schema/engine changes still need a separately validated data migration. Refresh
+disposable toolchain receipts with `scenery system toolchain sync`, not by
+editing retained records or changing agent homes.
+
 Ordinary `scenery up` embeds its private control plane and router in the
 worktree supervisor. Different roots can run different current binary identities
 without sharing runtime ownership or managed database containers. Same-root

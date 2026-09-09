@@ -107,28 +107,10 @@ func (n *Namespace) Pending(ctx context.Context) (*Operation, error) {
 }
 
 func validateGeneration(r *os.Root, binding Binding, incarnation, id string) error {
-	if !isHexID(id, 16) {
-		return ErrCorrupt
-	}
-	base := generationPath(id)
-	if err := scanDirectory(context.Background(), r, base, func(info os.FileInfo) error {
-		switch info.Name() {
-		case "refs", "versions", "staging":
-			return checkOwned(info, true)
-		case "generation.json":
-			return checkOwned(info, false)
-		default:
-			return fmt.Errorf("%w: unknown generation material", ErrCorrupt)
-		}
-	}); err != nil {
+	if err := validateGenerationLayout(context.Background(), r, id); err != nil {
 		return err
 	}
-	for _, dir := range []string{base, filepath.Join(base, "refs"), filepath.Join(base, "versions"), filepath.Join(base, "staging")} {
-		if err := checkDirectory(r, dir); err != nil {
-			return fmt.Errorf("%w: generation directory: %w", ErrCorrupt, err)
-		}
-	}
-	data, err := readRecord(r, filepath.Join(base, "generation.json"))
+	data, err := readRecord(r, filepath.Join(generationPath(id), "generation.json"))
 	if err != nil {
 		return fmt.Errorf("%w: generation record: %w", ErrCorrupt, err)
 	}
@@ -138,6 +120,34 @@ func validateGeneration(r *os.Root, binding Binding, incarnation, id string) err
 	}
 	if gen.Binding != binding || gen.Incarnation != incarnation || gen.Generation != id {
 		return ErrOwnership
+	}
+	return nil
+}
+
+func validateGenerationLayout(ctx context.Context, r *os.Root, id string) error {
+	if !isHexID(id, 16) {
+		return ErrCorrupt
+	}
+	base := generationPath(id)
+	if err := scanDirectory(ctx, r, base, func(info os.FileInfo) error {
+		switch info.Name() {
+		case "refs", "versions", "staging":
+			return checkOwned(info, true)
+		case "generation.json":
+			return checkOwned(info, false)
+		default:
+			if isMetadataTemp(info.Name(), "generation.json") {
+				return checkOwned(info, false)
+			}
+			return fmt.Errorf("%w: unknown generation material", ErrCorrupt)
+		}
+	}); err != nil {
+		return err
+	}
+	for _, dir := range []string{base, filepath.Join(base, "refs"), filepath.Join(base, "versions"), filepath.Join(base, "staging")} {
+		if err := checkDirectory(r, dir); err != nil {
+			return fmt.Errorf("%w: generation directory: %w", ErrCorrupt, err)
+		}
 	}
 	return nil
 }

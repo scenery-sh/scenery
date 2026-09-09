@@ -94,6 +94,11 @@ scenery doctor
 Make sure your Go bin directory is on `PATH`. Source builds are the supported
 installation path; there are no prebuilt CLI releases.
 
+When an update changes only retained metadata's specification identity, the
+explicit [same-root upgrade](docs/runbooks/worktree-state-upgrade.md) preserves
+database and object data. `scenery worktree upgrade -o json` previews the change;
+installation and ordinary startup never apply it automatically.
+
 ### Explore an example
 
 Start with the [webhook inbox example](examples/webhook-inbox/README.md).

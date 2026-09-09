@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"scenery.sh/internal/machine"
+	"scenery.sh/internal/stateupgrade"
 )
 
 // Namespace handles bind one allocation. A handle cannot revive a retired
@@ -367,6 +368,11 @@ func loadOwner(r *os.Root, binding Binding, incarnation string, inspection bool)
 
 func readOwner(r *os.Root, binding Binding, incarnation string) (Owner, error) {
 	var owner Owner
+	if binding.Managed {
+		if err := stateupgrade.CheckPending(filepath.Dir(r.Name())); err != nil {
+			return owner, fmt.Errorf("%w: %w", ErrRecovery, err)
+		}
+	}
 	data, err := readRecord(r, "owner.json")
 	if err != nil {
 		return owner, fmt.Errorf("%w: owner record: %w", ErrCorrupt, err)

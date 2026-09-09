@@ -49,6 +49,10 @@ func (p *worktreeRuntimeProbe) retainedCompatibility(root string) error {
 				if rejected == nil || !bytes.Contains(output, []byte("SCN8003")) {
 					return fmt.Errorf("%s did not produce an actionable compatibility precondition", fault)
 				}
+				output, rejected = p.run(root, p.binary, "worktree", "upgrade", "--app-root", root, "-o", "json")
+				if rejected == nil || !bytes.Contains(output, []byte("SCN8003")) {
+					return fmt.Errorf("%s was accepted by the same-schema upgrade preview", fault)
+				}
 				after, err := os.ReadFile(paths.Record)
 				if err != nil || !bytes.Equal(after, encoded) {
 					return fmt.Errorf("%s rejection rewrote retained data authority", fault)
@@ -58,6 +62,14 @@ func (p *worktreeRuntimeProbe) retainedCompatibility(root string) error {
 				return err
 			}
 		}
+		upgrade, err := probeRetainedSpecUpgrade(paths, func(args ...string) ([]byte, error) {
+			args = append(args, "--app-root", root, "-o", "json")
+			return p.run(root, p.binary, args...)
+		})
+		if err != nil {
+			return err
+		}
+		e["explicit_same_schema_upgrade"] = upgrade
 		runtime, err := p.up(root)
 		if err != nil {
 			return err
