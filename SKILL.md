@@ -58,7 +58,15 @@ App-required build flags belong in `build.go_flags` in app config. Non-runtime t
 
 ## Native Source and Generated Artifacts
 
-Start from `testdata/apps/basic` or the minimal `README.md` example. Declare the workspace, app, toolchain, target, gateway, module, package import path, service constructor, typed records, operation, execution, and bindings; implement the constructor and methods with generated `scenerycontract` types.
+Start from `testdata/apps/basic` or `examples/webhook-inbox/README.md`. Declare the workspace, app, toolchain, target, gateway, module, package import path, service constructor, typed records, operation, execution, and bindings; implement the constructor and methods with generated `scenerycontract` types.
+
+Local HTTP packages inherit their parent directories as URL groups:
+`group1/maps` plus authored `/maps/list` and gateway base `/v1` becomes
+`/v1/group1/maps/list`, before the external runtime mount. Source paths remain
+authored; effective/expanded paths carry the group. Do not manually add the same
+group to the endpoint or gateway. Moving a package requires client regeneration
+and raw URL migration; old URLs have no alias. Registry cache directories and
+framework-owned routes do not contribute groups.
 
 Use this loop:
 

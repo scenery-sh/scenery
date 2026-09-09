@@ -106,7 +106,32 @@ A route key is:
 (gateway address, canonical method, effective path)
 ~~~
 
-The effective path is the gateway base path joined with the binding path using exactly one slash at the boundary. Query strings do not participate in route identity.
+The effective route is the gateway base path joined with the binding's effective
+HTTP path using exactly one slash at the boundary. Query strings do not
+participate in route identity.
+
+For a local package, the compiler prefixes authored HTTP paths with the package
+directory's parents relative to the application root. The final package directory
+is not included: `group1/maps` contributes `/group1`, and
+`group1/admin/maps` contributes `/group1/admin`. A root-level `maps` package
+contributes no prefix. Module labels and Go import paths do not select this group.
+The composition is `gateway.base_path + directory group + authored http.path`;
+for base `/v1` and authored `/maps/list`, `group1/maps` serves
+`/v1/group1/maps/list`. An external runtime mount such as `/api` is separate.
+
+The source graph MUST preserve the authored path. Effective and expanded graphs
+MUST carry the grouped `http.path` with `directory_group_prefix` provenance.
+Grouping runs after patches and before CRUD expansion, so generated CRUD bindings
+inherit the same prefix exactly once. An authored `/` becomes the group root.
+Repeated segments are not deduplicated; old routes receive no automatic aliases.
+Directory moves therefore change HTTP/contract revisions and require client
+regeneration and migration of raw URL consumers.
+
+Group segments MUST be literal URL-safe names containing only ASCII letters,
+digits, `.`, `_`, `~`, or `-`, excluding `.` and `..` segments. Invalid groups
+fail with SCN2102 rather than introducing parameters, wildcards, or encoded path
+controls. Registry modules, including their nested packages, derive no prefix
+from cache locations. Framework-owned routes and non-HTTP bindings are unchanged.
 
 Two active resources with the same route key are an error. The same method/path pair on different gateways is valid. Source-file origin never creates precedence.
 

@@ -14,6 +14,15 @@ changing. Each section is self-contained.
 
 ## Current Scenery contract
 
+Local HTTP package directories contribute their parent folders to the route:
+`group1/maps` with endpoint `/maps/list` and gateway `base_path = "/v1"`
+produces `/v1/group1/maps/list`, before any runtime mount such as `/api`.
+Source `http.path` remains authored; effective/expanded `http.path` includes
+the group with `directory_group_prefix` provenance. Moving a package changes
+the route and requires regenerated clients; no old-path aliases are created.
+See [HTTP route identity](spec/http.md#33-route-identity) for literal-name,
+CRUD, nested-directory and registry-package rules.
+
 An app containing `app.scn` uses the compiler described by [the evolving current specification](spec/SPEC.md). Package contracts are named `package.scn` and the optional generated dependency lock is `app.lock.scn`. Retired pre-cutover filenames are rejected with `SCN1021` and an exact rename instruction; they are not aliases. Go comments and package-initialization builders are not application-model syntax.
 
 The implemented command surface is:

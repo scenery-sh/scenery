@@ -7,6 +7,12 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
+- [0172 Directory Group HTTP Prefixes](0172-directory-group-http-prefixes.md)
+  - Status: active
+  - Owner: scenery compiler / HTTP
+  - Created: 2026-09-09
+  - Focus: canonical directory-group URL prefixes, generated/runtime parity, and in-place ONLV client migration.
+
 - [0169 One Pure SQL Endpoint Selection](0169-sql-endpoint-resolution.md)
   - Status: active
   - Owner: scenery runtime / PostgreSQL

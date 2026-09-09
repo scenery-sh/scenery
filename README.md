@@ -1,581 +1,114 @@
 # scenery
 
-**One CLI for building, running, and inspecting Go services — built for humans and AI agents.**
+A runtime and development toolkit for Go applications.
 
-Scenery applications use one current specification: `app.scn` and package-local `package.scn` files compile into one canonical typed resource graph, with dependencies captured in generated `app.lock.scn`. Retired contract filenames fail with an exact `SCN1021` rename instruction rather than acting as aliases. The graph drives Go and TypeScript generation, HTTP, durable execution, events, data, deployment, UI, semantic inspection, and revision-bound mutation.
+Scenery helps you build an app without assembling all of its infrastructure
+yourself. You write the business logic in Go. Scenery connects it to HTTP APIs,
+databases, background jobs, and your frontend, then gives you one place to run
+and debug it.
 
-Unavailable future surfaces—such as declarative extensions, workflows, general bidirectional streams/WebSockets, full registry trust, entity-evolution syntax, platform listener/certificate schemas, and fixed-target native toolchain identities—fail explicitly instead of receiving invented defaults. Typed HTTP byte-response streaming and assistant NDJSON event streams are implemented; see the [current contract](docs/local-contract.md#current-scenery-contract).
+It is open source and runs on your own machine. It is not a hosted service.
 
-scenery is a Go-native local runtime and toolchain for building service applications from ordinary Go packages.
+## Why it exists
 
-Applications mark their root with `.scenery.json`, declare their application graph in `.scn`, and implement generated native contracts in Go. scenery handles graph compilation, route registration, auth context, request decoding, generated internal calls, local development supervision, inspection, logs, traces, metrics, and TypeScript client generation.
+Building a product involves more than writing its features. You also have to
+wire services together, keep frontend clients in sync with backend APIs, run
+dependencies, and work out what happened when something fails.
 
-The Go-comment declaration frontend is not supported. The local dashboard, native observability, local HTTPS routing, and durable worker tooling are development-focused capabilities; their backing services and files are substrate details unless you intentionally debug them.
+Scenery brings that work into one tool. You describe what your app contains,
+and Scenery uses that description to connect the pieces, generate matching
+types and clients, and make the running app inspectable.
 
-## Why scenery?
+The goal is to spend more time on your product and less time maintaining the
+plumbing around it.
 
-- **One canonical app model.** Services, operations, bindings, auth, middleware, durable executions, schedules, data, and UI resources are declared in `.scn` source.
-- **Full local dev loop.** `scenery up` runs the app root's one live dev runtime with file watching, rebuild/restart supervision, dashboard, API explorer, logs, traces, metrics, and optional HTTPS local domains.
-- **Typed HTTP by default.** scenery decodes path params, query params, headers, cookies, and JSON bodies into Go structs, then encodes typed responses.
-- **Generated internal calls.** Binding clients preserve private access, auth context, tracing, and delivery semantics.
-- **Inspectable by tools and agents.** `scenery inspect`, `scenery check`, `scenery logs`, `scenery harness`, and `scenery validate` expose machine-readable JSON contracts.
-- **Generated clients and pages.** scenery generates typed TypeScript clients plus routed table, content, split, workspace, and entity-detail pages from the same graph.
+## What you get
 
-## Status
+- **One local development command.** `scenery up` runs your backend, configured
+  frontend dev servers, and managed dependencies, with file watching and a
+  development dashboard.
+- **Common backend capabilities.** Typed HTTP APIs, authentication, PostgreSQL,
+  object storage, background jobs, and schedules.
+- **A connected frontend.** Generated TypeScript clients match your declared
+  APIs. Your product UI stays in your frontend.
+- **Tools to understand the app.** Browse APIs, logs, traces, and metrics
+  through the dashboard or CLI.
 
-Available now:
+Scenery is aimed at developers building Go-backed applications who want these
+pieces to work together. It is a runtime and toolchain for your code, not an
+AI app generator.
 
-- lossless source, truthful source/effective/expanded graphs with path-indexed provenance, stable revisions, recursive authoring schemas with wire-label policies, schema-driven creation for exactly advertised resource kinds, receipt-proven semantic rename, dependency graph, and normalized agent mutation protocol
-- Go contract/application/composition generation and exact TypeScript clients with descriptors, constraints, cross-field validation, canonical HTTP sets, Fetch-safe header validation, declared multipart, and structurally disjoint typed response-map coverage
-- exact Go build-input/toolchain identities and runtime-bundle sidecars, with host-CGO native-tool identities and fail-closed fixed-target CGO
-- authored CLI execution with generated help/completion and typed outcomes, plus environment-selected typed fixtures shared by deployment and local database seeding
-- HTTP, typed terminal zero-or-more path tails, durable execution, schedules, events, data/CRUD/provider, deployment plan/apply, patches, UI validation, and semantic evolution analysis
-- workspace-issued, revision-bound semantic change and deployment transactions; apply rejects caller-recomputed plans before trusting approvals, edits, or provider actions
-- `.scenery.json` root discovery
-- `scenery up`, `scenery task`, `scenery validate`, `scenery build`, `scenery check`
-- typed HTTP bindings
-- public, auth, and private endpoints
-- authentication resources and request auth helpers
-- generated typed service constructors
-- middleware
-- private/internal endpoint calls
-- secrets from environment and optional local `.env` files
-- local logs, traces, and metrics inspection
-- native local observability
-- durable execution and schedule runtime support
-- local HTTPS edge and frontend routing with optional trust-store installation
-- beta public deploy edge for serving a live local app on your own domain
-- dashboard and API explorer
-- configured generators, SQLC refresh, database lifecycle commands, and repo task commands
-- portable checksummed database-and-storage snapshots with recoverable overwrite loads
-- app-local code tasks
-- TypeScript client generation
-- benchmark fixture
+## How it works
 
-Exact CLI and artifact details live in [docs/local-contract.md](docs/local-contract.md). The evolving current specification begins at [docs/spec/SPEC.md](docs/spec/SPEC.md). Agent workflows live in [docs/agent-guide.md](docs/agent-guide.md). Architecture notes live in [ARCHITECTURE.md](ARCHITECTURE.md).
+A Scenery app has three main ingredients:
 
-For builtin providers, declare them in `app.scn`, run
-`scenery provider lock -o json`, and commit the reviewed `app.lock.scn`.
-This explicit command is offline; compilation never downloads or silently
-updates dependencies. The [webhook inbox example](examples/webhook-inbox/README.md)
-shows the full provider, durable worker, SQL, auth, and typed-client workflow.
+1. **App declarations** in `app.scn` and `package.scn`: what services and
+   operations exist, how they connect, and which capabilities they need.
+2. **Go packages** implementing what those operations actually do.
+3. **Runtime configuration** in `.scenery.json`: how to run the app and its
+   frontends in each environment.
 
-## Requirements
-
-- Go 1.27+
-- Bun for dashboard, generated TypeScript, benchmark, or release verification
-
-Run `scenery doctor -o json` after install when you want a read-only readiness report for the host, Go toolchain, disk/memory resources, Docker engine reachability, and optional local-development dependencies.
-
-## Install From Source
-
-```sh
-git clone https://github.com/scenery-sh/scenery.git scenery
-cd scenery
-./scripts/build-dashboard-ui-embed.sh
-go install ./cmd/scenery
-scenery doctor -o json
-scenery version -o json
-```
-
-The module path is `scenery.sh`. Source builds are the supported installation
-and update path; Scenery does not publish prebuilt CLI releases. Select an
-explicit checkout revision, then repeat the build and installation commands.
-Verify the installed producer commit with `scenery version -o json`.
-
-For parallel versions, build each checkout with
-`go build -o <absolute-binary-path> ./cmd/scenery` and invoke that exact path.
-Replacing the global CLI does not migrate applications or their durable data.
-Keep the app's runtime module revision and selected CLI source revision coherent;
-regenerate and validate deliberately when updating either.
-
-## SSH Source-Sync Deployment
-
-For a simple single-server or preview deployment, allow an ordinary OpenSSH
-host alias in the app config:
-
-```json
-{"name":"hello","envs":{"local":{"default":true},"production":{"deploy":{"ssh":["some-id"]}}}}
-```
-
-Then run `scenery deploy some-id`. Scenery validates locally, connects with
-passwordless OpenSSH, stops the remote app, rsyncs the current working tree to
-`$HOME/.scenery/apps/hello`, and runs remote `scenery up --detach --wait ready`.
-The target needs `rsync`, `scenery`, and the app toolchain. `.git`, local
-`.scenery`, `.env*`, `node_modules`, and machine-local `go.work` files are not
-uploaded; `.gitignore` exclusions are honored, and remote dotenv, `.scenery`,
-and user workspace state are preserved.
-Deployment has brief downtime and no rollback.
-
-## Public Deploy Edge
-
-`scenery deploy` is a beta operator surface for serving a live app on a public domain from a macOS (launchd) or Linux (systemd, run setup as root) machine. An environment-scoped frontend with `serve: "production"` is built on the serving host and served directly by the managed Caddy edge as static files; dynamic `/api/*` traffic stays on the Scenery router.
-
-```json
-{"name":"hello","root":"app","frontends":{"app":{"root":"apps/app"}},"envs":{"local":{"default":true},"production":{"domain":"hello.example.com","frontends":{"app":{"serve":"production"}},"deploy":{}}}}
-```
-
-Then configure the machine once, enable the app, and keep a live dev runtime running:
-
-```sh
-scenery deploy setup --acme-ca staging --acme-email ops@example.com
-scenery deploy enable --app-root /path/to/app
-scenery up --detach --app-root /path/to/app
-scenery deploy status -o json
-```
-
-Detached startup waits for every advertised route and one frontend script or stylesheet by default, so a successful return means the printed URLs are reachable end to end.
-
-Point DNS A/AAAA records at the reported public IP and forward router TCP 80/443 to the reported LAN IP. `scenery deploy status -o json` reports listener, DNS, reachability, sleep, firewall, certificate diagnostics, and the login-resume job's last exit; a failed resume makes status not ready. Public resume does not depend on optional `local.dev` wildcard DNS. Switch to `--acme-ca production` after staging works.
-
-## Agent Skill
-
-scenery includes an installable agent skill for using scenery apps:
-
-```sh
-npx skills add https://github.com/scenery-sh/scenery
-```
-
-The skill teaches agents the current app model, local development workflow, debugging commands, observability, database inspection, and generated-client workflow.
-
-The skill is shared runtime knowledge. Client apps should still keep a small app-local `AGENTS.md` for app root, frontend roots, generated client output paths, required environment names, validation commands, and product invariants. Do not copy the whole skill into every app; keep shared scenery behavior in `SKILL.md` and app-specific facts in the client repository.
-
-## A Minimal App
-
-Create `.scenery.json` and `go.mod`:
-
-```json
-{"name":"hello"}
-```
-
-```go
-module example.com/hello
-
-go 1.27.0
-
-require scenery.sh v0.0.0
-
-replace scenery.sh => /path/to/scenery
-```
-
-Create `app.scn`:
-
-```hcl
-workspace {
-  implementation_root "application" {
-    path = "."
-    revision_include = ["**/*.go", "go.mod"]
-  }
-}
-
-go_module "application" {
-  root        = "."
-  import_path = "example.com/hello"
-}
-go_toolchain "application" {
-  version     = "1.27.0"
-  experiments = []
-}
-go_target "development" {
-  role      = "development"
-  platform  = "host"
-  toolchain = go_toolchain.application
-  module    = go_module.application
-  packages  = ["./..."]
-  cgo       = "disabled"
-}
-application "hello" { version = "1.0.0" }
-http_gateway "public" {
-  exposure        = "internet"
-  base_path       = "/"
-  cors            = std.cors.none
-  trusted_proxies = std.trusted_proxies.none
-  forwarded       = std.forwarded_headers.reject
-}
-module "service" {
-  source = "./service"
-  inputs = { gateway = http_gateway.public }
-}
-```
-
-Create `service/package.scn` with one service, operation, execution, and HTTP binding:
-
-```hcl
-package "service" {
-  go_contract { import_path = "example.com/hello/service" }
-}
-input "gateway" { type = resource_ref("http_gateway") }
-service "service" {
-  runtime = "go"
-  implementation { constructor = "NewService" }
-}
-record "hello_input" { field "name" { type = string } }
-record "hello_result" { field "message" { type = string } }
-operation "hello" {
-  service = service.service
-  input   = record.hello_input
-  handler { method = "Hello" }
-  result "ok" { type = record.hello_result }
-}
-execution "hello_direct" {
-  operation = operation.hello
-  mode      = "direct"
-}
-binding "hello_http" {
-  gateway   = var.gateway
-  operation = operation.hello
-  execution = execution.hello_direct
-  protocol  = "http"
-  delivery  = "call"
-  authentication = std.authentication.none
-  authorization = std.authorization.public
-  pipeline = std.pipeline.empty
-  http {
-    method        = "POST"
-    path          = "/hello"
-    codec_profile = std.codec.http_json_v1
-    body { codec = "json", to = operation.hello.input }
-    response "ok" {
-      when   = result.ok
-      status = 200
-      body { codec = "json", from = result.ok }
-    }
-  }
-}
-```
-
-Implement the generated contract in `service/api.go`:
-
-```go
-package service
-
-import (
-	"context"
-	contract "example.com/hello/service/scenerycontract"
-)
-
-type Service struct{}
-
-func NewService(context.Context, contract.ServiceConstructorInput) (*Service, error) {
-	return &Service{}, nil
-}
-
-func (*Service) Hello(_ context.Context, input contract.HelloInput) (contract.HelloOutcome, error) {
-	return contract.HelloOk{Value: contract.HelloResult{Message: "hello " + input.Name}}, nil
-}
-```
-
-Generate, check, and run it:
-
-```sh
-scenery generate --target contracts -o json
-scenery check -o json
-scenery up --detach
-```
-
-Call it (use `scenery ps -o json` to discover the base URL):
-
-```sh
-curl -H 'Content-Type: application/json' -d '{"name":"world"}' http://localhost:4001/api/hello
-```
-
-The checked-in native fixture at `testdata/apps/basic` is the compact runnable reference. `.scenery.json` configures the runtime; it does not declare application resources.
-
-## Local Development
-
-Use `scenery up` for the full development platform:
+Scenery reads the declarations, generates Go types and TypeScript clients,
+and runs the app. For an existing Scenery app, the everyday loop starts in
+its directory:
 
 ```sh
 scenery up
 ```
 
-Common options:
+Keep it running while you edit. Use `scenery ps` to find the app's URLs,
+`scenery logs --follow` to follow its logs, and `scenery down` to stop it.
+
+## Working with AI agents
+
+Agents can inspect the same app structure and runtime information that you
+can. Machine-readable commands let them discover APIs, check changes, and
+investigate failures without guessing how the project is wired.
+
+An [installable agent skill](SKILL.md) explains the workflow:
 
 ```sh
-scenery up --port 4000 --listen 127.0.0.1
-scenery up -o jsonl
-scenery up --detach
-scenery system edge dns install
-scenery system edge privileged install
-scenery system edge install
-scenery system edge trust
-scenery logs --follow
-scenery console
+npx skills add https://github.com/scenery-sh/scenery
 ```
 
-`--detach` starts the app root's agent-backed dev runtime in the background and, by default, returns after the API and configured frontends are ready; use `--wait registered` for the faster registration-only path. `scenery logs --follow` follows that app root's logs from VictoriaLogs. `scenery console` opens a source-aware terminal console when attached to a real TTY. `scenery down` stops the app root's one live runtime and preserves its retained storage. Each canonical worktree has independent storage; branch switches retain that worktree's data. Git removal never grants data-deletion authority. Use Git worktrees when you need multiple live code copies.
+You do not need an AI agent to use Scenery.
 
-`scenery up` runs the single default named environment from `.scenery.json` (normally `local`); `--env <name>` selects another. Top-level `root` names the frontend served only at `/` on every surface; when exactly one frontend exists it is the default root. Other frontends remain at `/<name>/`. Environment fields `port`, `port_start`, and `port_end` constrain its localhost port, `domain` adds the branded HTTPS origin, `expose` narrows that origin, and `frontends.<name>.serve` selects HMR development or built static production serving. A failed domain-edge probe keeps serving localhost and never redirects into another environment.
+## Try it
 
-In host mode, generated routes use the local edge/DNS path under `local.dev`. Use `scenery system edge dns install`, `scenery system edge privileged install`, `scenery system edge install`, and `scenery system edge trust` when you want trusted wildcard local HTTPS routes on the default HTTPS port; edge syncs managed dnsmasq and Caddy when needed and keeps Caddy user-owned.
+Scenery is under active development. Its app format and CLI evolve together,
+so upgrades can require application changes. Public deployment tooling is
+currently beta.
 
-Example frontend config:
+### Install from source
 
-```json
-{
-  "name": "myapp",
-  "root": "web",
-	"frontends": {
-    "web": {
-      "root": "apps/web"
-    },
-    "blog": {
-      "root": "apps/blog",
-      "upstream": "127.0.0.1:5174"
-	},
-	"envs": {
-	  "local": {"default": true, "mode": "path", "frontends": {"web": {"serve": "development"}, "blog": {"serve": "development"}}}
-	}
-  }
-}
-```
-
-## CLI Overview
-
-```text
-scenery up [--env <name>] [--port <n>] [--listen <addr>] [--app-root <path>] [--claim-aliases] [--verbose] [-o jsonl] [--detach]
-scenery logs --follow [--app-root <path>] [--limit <n>] [--stream all|stdout|stderr] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>] [-o jsonl|-o json]
-scenery console [--app-root <path>] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>]
-scenery system agent [--socket <path>] [--router-listen <addr>] [--router-tls|--router-http] [--trust] [-o json]
-scenery system agent restart [--socket <path>] [--router-listen <addr>] [--router-tls|--router-http] [--trust] [-o json]
-scenery system agent cleanup [--remove-state] [-o json]
-scenery system edge install|trust|status|restart|uninstall|dns|privileged [-o json]
-scenery help <command> [-o human|json]
-scenery help all
-scenery help -o json
-scenery ps [-o json] [--app-root <path>] [--watch]
-scenery down [--app-root <path>] [--db] [--state] [--all] [-o json]
-scenery prune --older-than <duration> [--app-root <path>] [--db] [--state] [--all] [-o json]
-scenery worker [--app-root <path>] [--env <name>] [--log-format text|json]
-scenery worker durable --endpoint <url> --token <token> [--service <name>]... [--app-root <path>] [--env <name>] [--log-format text|json]
-scenery worker durable jobs list|inspect|cancel|retry [job-id] --service <name> [--app-root <path>] -o json
-scenery worker durable token create --service <name> [--name <name>] [--id <id>] [--app-root <path>] -o json
-scenery version [-o json]
-scenery deploy <ssh-target> [--app-root <path>]
-scenery deploy --env <name> [--app-root <path>]
-scenery deploy enable|disable|status|setup|resume|teardown [-o json]
-scenery system toolchain list [-o json] [--include-source-locks] [--images]
-scenery system toolchain sync [-o json] [--all] [--tool <name>] [--platform <goos/goarch>] [--images]
-scenery system toolchain verify [-o json] [--all] [--tool <name>] [--platform <goos/goarch>] [--images] [--strict]
-scenery system toolchain path [-o json] --tool <name> [--platform <goos/goarch>]
-scenery doctor [--app-root <path>] [-o json]
-scenery build [--app-root <path>] [--output <path>] [-o human|json]
-scenery build --lib <name> [--version <vN.N.N>] [--platform all|host|darwin/arm64|linux/amd64] [--app-root <path>] [--output <directory>] [-o human|json]
-scenery fmt --check [--app-root <path>] -o json
-scenery check [--app-root <path>] -o json
-scenery compile [--app-root <path>] [--view source|effective|expanded] -o json
-scenery list|get|explain|graph ... [--app-root <path>] -o json
-scenery diff --semantic BASE TARGET [--rename-receipts <path>] -o json
-scenery generate [--app-root <path>] [--target contracts|typescript_client.<name>] [--check] -o json
-scenery changes plan|apply ... -o json
-scenery generate sqlc [--app-root <path>] [--dry-run] [-o json]
-scenery task list [--app-root <path>] [-o json]
-scenery task inspect <target> [--app-root <path>] [--lang go|typescript] [-o json]
-scenery task run <name> [--app-root <path>]
-scenery task run [--app-root <path>] [--env <name>] [--lang go|typescript] <domain>:<name> [-- task args...]
-scenery task graph -o json [--app-root <path>]
-scenery validate [<profile>] [--app-root <path>] [-o json] [--write] [--dry-run]
-scenery validate changed [--base <ref>] [--app-root <path>] [-o json] [--write] [--dry-run]
-scenery harness [--app-root <path>] [-o json] [--write] [--with-validation[=<profile>]]
-scenery harness ui -o json [--app-root <path>] [--dashboard-url <url>] [--headed] [--write]
-scenery inspect app|routes|services|endpoints|build|paths|durable -o json [--app-root <path>]
-scenery inspect docs -o json [--repo-root <path>] [--for-path <path>|--tag <tag>|--status active|reference|completed|deprecated|--review-due|--all]
-scenery traces list -o json [--app-root <path>]
-scenery metrics list -o json [--app-root <path>]
-scenery traces clear -o json [--app-root <path>]
-scenery telemetry [--app <id-or-name>]... [--command <coarse-command>]... [--since <duration>] [--limit <n>] [-o human|json]
-scenery logs [--app-root <path>] [--limit <n>] [--stream all|stdout|stderr] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>] [--follow] [-o jsonl|-o json]
-scenery test [--app-root <path>] [go test flags/packages...]
-scenery db list [--app-root <path>] [-o json]
-scenery db shell [--app-root <path>] [--service <name>] [psql args...]
-scenery db apply [--app-root <path>] [-o json]
-scenery db seed [--app-root <path>] [--env <name>] [--dry-run] [-o json]
-scenery db setup [--app-root <path>] [-o json]
-scenery db reset [--app-root <path>] [--service <name>] [--yes]
-scenery db drop [--app-root <path>] [--service <name>] [--yes]
-scenery db server status|start|stop|logs [--app-root <path>] [-o json]
-scenery snapshot save --output <file.zip> [--db] [--storage] [--app-root <path>] [-o human|json]
-scenery snapshot verify --input <file.zip> [-o human|json]
-scenery snapshot load --input <file.zip> [--db] [--storage] --mode overwrite|merge [--on-conflict fail|skip|overwrite] [--yes] [--dry-run] [--app-root <path>] [-o human|json]
-scenery worktree create <name> [--from <branch>] [--app-root <path>] [-o json]
-scenery worktree list [--app-root <path>] [-o json]
-scenery worktree remove <name> [--app-root <path>] [-o json]
-```
-
-Each invocation best-effort appends command, duration, exit code, version, and `oneshot` or `long_running` mode to `~/.scenery/telemetry.jsonl`. When the invocation belongs to a configured app, the record also carries its stable app ID and display name; filesystem paths and full arguments are never recorded. `scenery telemetry` reads that owner-only stream with bounded recent records, overall/per-app/per-command timing summaries, and repeatable app or command filters. Telemetry write failures never affect the command.
-
-`scenery system agent restart` restarts only the explicitly managed machine control plane and router used by edge/deploy operations. Each ordinary `scenery up` owns its private control plane, router, PostgreSQL, and optional Victoria processes independently; it does not start or repair the machine agent.
-
-`scenery system agent cleanup` stops only fingerprint-verified same-user processes tied to the pre-rebrand `~/.onlava` config or socket. It reports old state by default and removes it only with `--remove-state`.
-
-`scenery prune --older-than 14d` removes stale inactive session records without deleting databases. `--state` also removes their disposable state. Whole-cluster deletion requires `--db --app-root <absolute-path>` (or `--all` with that exact root); it deletes only the selected stopped/orphaned worktree's verified container and volume and refuses external DSNs.
-
-The agent and managed Caddy edge are single-owner processes. Startup fails closed instead of choosing an unadvertised port, safely reaps only fingerprint-verified stale Scenery owners, and `scenery doctor -o json` reports duplicate or foreign listeners.
-
-`scenery db list -o json` reports the app's Postgres database and service schemas.
-Requirements come from typed `.scn` dependencies and enabled framework auth/durable
-features; inspect them in `scenery inspect app -o json`. There is no `dev.services`
-list. Local allocation requires managed lifecycle; no-SQL listing returns
-`database: null` without a connection or allocation.
-An explicit app-level `DATABASE_URL` wins and makes the database external;
-otherwise SQL-backed apps receive a dedicated PostgreSQL container and volume
-per canonical app root/worktree, with one app database, one schema per service,
-and the `scenery` schema for framework state. Non-SQL apps do not provision it.
-`scenery down` stops that worktree's processes and PostgreSQL while retaining
-data and credentials outside the checkout. Branch switches reuse the same
-root's data; another worktree gets another cluster. Removing a Git worktree
-does not delete its database, which remains discoverable through `scenery ps`.
-
-See [docs/local-contract.md](docs/local-contract.md) for the full command contract and JSON schema list.
-
-## Source Or Shared Go Libraries
-
-A package beneath `pkg/` can declare a Go `library` and record-shaped
-operations in `package.scn`. Scenery generates one typed
-`scenerylib_<name>` facade, so consumers keep the same import and call surface
-while `.scenery.json` selects `source` or `shared` linkage per environment.
-
-`scenery build --lib <name> --version <vN.N.N>` emits the supported
-darwin/arm64 `.dylib`, linux/amd64 `.so`, and a portable manifest binding exact
-platform, digest, ABI, Go version, and Linux glibc floor. Shared mode verifies
-that identity before loading and supports load-alongside hot swaps; old Go
-runtimes remain resident and are never unloaded. See
-[the cookbook](docs/app-development-cookbook.md#build-or-consume-a-shared-go-library)
-for the declaration and config recipe.
-
-## Public Go Packages
-
-After a fresh app checkout, run `scenery generate --target contracts` before
-ordinary `go doc`, `go mod tidy`, or `go test ./...`. Generated contracts and
-library facades are real packages inside the app's existing Go module; no
-generated `go.work`, nested module, or replacement is needed. Add exact output
-roots such as `/service/scenerycontract/` to `.gitignore` once. Build/test/up
-prepare them automatically; `check` and `generate --check` report drift without
-repair. Complete generation before running raw Go tools against changed
-contracts. Publishing a Go module explicitly includes its required generated
-source; ordinary application commits need not track it. See the cookbook's
-[one-time old-workfile cutover](docs/app-development-cookbook.md#retire-an-old-scenery-editor-workfile).
-
-- `scenery.sh` exposes app metadata and current request metadata.
-- `scenery.sh/auth` exposes request auth state helpers.
-- Standard auth owns its tenant tables under the app database's `scenery` schema; app-local `tenants` services or tables are product-domain concerns. Google connections store encrypted refresh tokens for app-owned Google API calls through `auth.GoogleAccessToken`.
-- `scenery.sh/errs` exposes coded errors and HTTP status mapping.
-- `scenery.sh/library` provides the cgo-free verified loader used by generated
-  shared-library facades.
-- `scenery.sh/durable` exposes non-registering durable runtime helpers such as steps and signals; task, execution, and schedule ownership is declared in `.scn`.
-- `scenery.sh/db` exposes Postgres `*sql.DB` pools pinned to a service schema for app code and sqlc.
-- `scenery.sh/datasource` and `scenery.sh/object` expose typed constructor capabilities.
-
-## TypeScript Client Generation
-
-Declare each TypeScript target in `app.scn`. Use `materialization = "source"` with an `output_root` beneath a declared managed generated root for a checked-in SDK, or `materialization = "cache"` for disposable output under `.scenery/gen/typescript/<name>`, then run:
+You need Go 1.27+ and Bun. Apps using managed PostgreSQL also need Docker.
 
 ```sh
-scenery inspect endpoints -o json
-scenery generate --target typescript_client.public_api -o json
-scenery generate --target typescript_client.public_api --check -o json
+git clone https://github.com/scenery-sh/scenery.git
+cd scenery
+./scripts/build-dashboard-ui-embed.sh
+go install ./cmd/scenery
+scenery doctor
 ```
 
-The generated client implements the declared gateway/binding contract.
+Make sure your Go bin directory is on `PATH`. Source builds are the supported
+installation path; there are no prebuilt CLI releases.
 
-Add `react { tsconfig = "apps/web/tsconfig.json" }` to a TypeScript target to opt into generated React apps. Scenery writes page adapters, typed route/search descriptors, a TanStack route-tree adapter, generated navigation, the catalog-owned app shell, and `@scenery/ui` beneath the same output root, then checks the staged target with managed TypeScript 7 `tsc`. Call `createSceneryApp`, register any hand-written pages through its descriptor extension, and fill its fixed visual/auth slots; the app does not maintain a parallel router, navigation list, or shell.
+### Explore an example
 
-`WithMeta` methods expose response headers, status, and the raw `Response` alongside decoded data.
+Start with the [webhook inbox example](examples/webhook-inbox/README.md).
+It shows a small app that accepts an event, processes it in a background job,
+stores the result, and exposes it through an authenticated API.
 
-`scenery generate sqlc` remains the configured SQLC source-artifact command; it must not apply database schema or seed data.
+For your own app, see the [app development cookbook](docs/app-development-cookbook.md).
 
-The DB lifecycle split uses `scenery db apply` for schema/app database mutation, `scenery db seed` for initial data such as `SERVICE/db/seed.sql` and fingerprinted `database.seed.commands`, and `scenery db setup` for apply then seed. SQL seeds apply to their matching service schema and fail closed when previously-applied content changes or destructive SQL is detected. File-backed commands target one service, skip unchanged declared inputs, and rerun changed inputs only through an application-owned atomic or idempotent importer.
+## Learn more
 
-`scenery up` runs the setup lifecycle before app startup when DB setup inputs exist, using the same managed service database env values that the app receives. Rebuilds skip setup until the apply config or a SQL, fixture, command declaration, or declared command-input hash changes.
+- [Documentation](docs/index.md) — guides and reference material.
+- [CLI and runtime reference](docs/local-contract.md) — exact commands and behavior.
+- [Architecture](ARCHITECTURE.md) — how Scenery itself is organized.
+- [Contributing](CONTRIBUTING.md) — working on the project.
 
-Worktree database isolation is automatic: the managed database name includes a
-hash of the app root, so `scenery worktree create <name> -o json` only creates the
-Git worktree. `scenery db reset <service>` drops and recreates only that service
-schema. `scenery snapshot save --db --storage --output app.zip` writes a portable,
-checksummed restore point. Stop the runtime before `snapshot load`; overwrite
-requires `--yes`, verifies the whole archive first, and is safe to rerun after an
-interrupted database restore or storage swap.
+Report vulnerabilities privately using the [security policy](SECURITY.md).
 
-`scenery snapshot verify --input app.zip` validates an archive without a target app or stopped runtime. For scheduled DB+storage backups, use `scripts/snapshot-backup.sh` from the host scheduler; it verifies before optional rclone replication and local retention.
-
-The explicit `go run ./scripts/verify --probe postgres --summary --write`
-checks PostgreSQL service schemas, durable state, auth bootstrap, isolation,
-reset and snapshot behavior. It requires Docker and is included in release.
-Ordinary default verification uses the cached Go suite and vet without services.
-
-## Managed Toolchain
-
-The root `scenery.toolchain.json` freezes Scenery-owned local tools, images, plugins, and source lock references for this source version. Managed binaries install under `.scenery/toolchain/` by default, while machine-level edge tools install under `~/.scenery/toolchain/`; set `SCENERY_TOOLCHAIN_DIR` to use a controlled cache elsewhere.
-
-```sh
-scenery system toolchain list -o json
-scenery system toolchain sync -o json
-scenery system toolchain verify -o json
-```
-
-Managed tools remain explicit: run `scenery system toolchain sync --tool <name> -o json` with the selected CLI. Its bundled manifest selects the tool versions.
-
-Caddy edge and Victoria sidecars are backing substrate for local capabilities; Caddy edge is managed-toolchain only. Declaring `storage.stores` makes `scenery up` provide an isolated retained worktree namespace using immutable payloads, atomic complete object references and checked synchronization—no storage database, index, daemon or new service. Discover with `scenery inspect storage -o json`; request `--stats` only when an exact metadata scan is needed. Logical snapshots provide independent fixtures and stopped-runtime backup; offsite durability remains operator-owned. Legacy cells require explicit source-preserving [export and import](docs/runbooks/worktree-storage-migration.md). For managed tools, use documented env overrides, `scenery ps -o json` substrate records and recorded logs when intentionally debugging them. They do not silently fall back to system `PATH` binaries.
-
-## Observability And Inspection
-
-scenery exposes local development logs, traces, and metrics through app-session capabilities. The current backing substrate can run VictoriaMetrics, VictoriaLogs, and VictoriaTraces for local inspection.
-
-Application code can wrap expensive phases with `scenery.StartSpan`; those
-`WORK` child spans appear beneath the request in trace lists and waterfalls.
-
-Useful commands:
-
-```sh
-scenery logs --limit 200
-scenery logs --follow
-scenery console
-scenery logs --source api --level error -o jsonl --limit 200
-scenery inspect routes -o json
-scenery inspect endpoints -o json
-scenery traces list -o json --since 15m --slowest
-scenery metrics list -o json --since 1h
-scenery telemetry --since 24h --app my-app -o json
-scenery ps -o json
-scenery harness -o json --write
-```
-
-Victoria substrate failures are exposed in `scenery ps -o json` as `last_exit` / `component_exits` and emit structured dev log events with component, PID, exit code or signal, and log paths. Dead registered runtime children such as managed frontend processes appear as session `degraded` status with `status_reason`; managed Vite/Astro frontends are restarted by `scenery up` when their dev-server process exits unexpectedly.
-
-## Development
-
-Run the repository verifier and refresh validation selection; it builds the
-checkout-local product CLI without installing a shared binary:
-
-```sh
-go run ./scripts/verify --quick --summary --write
-cat .scenery/harness/agent-context.json
-```
-
-Run `changed_area.recommended_commands` and the applicable child-scope checks.
-See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and
-[AGENTS.md](AGENTS.md#validation-matrix) for required validation, including
-selected probes for changed external boundaries. Full release certification
-is explicit: `scripts/release-gate.sh` invokes it once. Use
-[Fresh Worktree Preflight](docs/agent-guide.md#fresh-worktree-preflight)
-before dashboard or release work.
-
-Self-harness Go test steps use the Go test result cache by default; add
-`--fresh-tests` only for explicit fresh measurement or nondeterminism
-investigation. That lane uses the locally measured package parallelism `-p 6`.
-Timing reports distinguish cached, fresh, and release budgets; only fresh runs
-confirm package/test hotspots in isolation.
-
-## Contributing
-
-scenery prefers small, explicit changes and minimal dependencies. When adding behavior, keep the canonical graph as the source of truth and add tests at stable boundaries: `.scn` validation, generated code, runtime HTTP behavior, CLI JSON contracts, and fixture apps.
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and pull request guidance.
-
-## Security
-
-Please do not open public issues for vulnerabilities. Report security issues to security@scenery.sh. See [SECURITY.md](SECURITY.md).
-
-## License
-
-scenery is licensed under the [Apache License 2.0](LICENSE).
+Licensed under [Apache 2.0](LICENSE).

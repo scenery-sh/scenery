@@ -377,6 +377,7 @@ func compileSources(root string, sources []*Source, lockfile *Lockfile) (*Manife
 	applyAuthoredEffectiveDefaults(resources)
 	resources, resourceDiagnostics = applyPatches(resources)
 	diagnostics = append(diagnostics, resourceDiagnostics...)
+	diagnostics = append(diagnostics, applyHTTPDirectoryGroups(resources)...)
 	resources, resourceDiagnostics = enrichDataImplementationDigests(root, resources)
 	diagnostics = append(diagnostics, resourceDiagnostics...)
 	resources, resourceDiagnostics = enrichUIImplementationDigests(root, resources)

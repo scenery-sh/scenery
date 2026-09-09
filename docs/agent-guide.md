@@ -537,6 +537,13 @@ React-enabled client apps use the generated route tree, navigation, and shell, w
 
 ### Public Surface Checklist
 
+Local package moves are HTTP contract changes: each parent directory between
+the app root and package becomes a route prefix after the gateway `base_path`.
+Inspect both source and effective paths, regenerate clients, and update raw URL
+consumers. Module/service names, Go package identities and database schemas do
+not change merely because the HTTP group changes. See
+[HTTP route identity](spec/http.md#33-route-identity).
+
 When editing source that changes the public app model, confirm the docs and tests cover:
 
 - services, operations, executions, HTTP/internal/CLI bindings, authentication, authorization, and middleware resources

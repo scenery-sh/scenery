@@ -31,7 +31,7 @@ func runHarnessNativeContractApplicationProbeStepWithCheck(ctx context.Context, 
 	started := time.Now()
 	step := harnessStep{
 		Name:    harnessNativeContractApplicationProbeName,
-		Command: []string{"go", "run", "./scripts/verify", "--repo-root", repoRoot, "--release", "--summary"},
+		Command: []string{"go", "run", "./scripts/verify", "--repo-root", repoRoot, "--probe", "native-contract", "--summary"},
 	}
 	var err error
 	step.Summary, step.Diagnostics, err = check(ctx, repoRoot)
@@ -44,7 +44,7 @@ func runHarnessNativeContractApplicationProbeStepWithCheck(ctx context.Context, 
 				Stage:           step.Name,
 				Severity:        "error",
 				Message:         step.Error,
-				SuggestedAction: "Fix the native contract application boundary, then rerun `go run ./scripts/verify --release --summary --write`.",
+				SuggestedAction: "Fix the native contract application boundary, then rerun `go run ./scripts/verify --probe native-contract --summary --write`.",
 			}}
 		}
 		return step
@@ -94,6 +94,11 @@ func runHarnessNativeContractApplicationProbeCheck(parent context.Context, repoR
 
 	if err := segments.run("copy fixture", func() error {
 		return copyHarnessNativeContractFixture(repoRoot, appRoot)
+	}); err != nil {
+		return summary, nil, err
+	}
+	if err := segments.run("place service in nested directory group", func() error {
+		return groupHarnessNativeContractFixture(appRoot)
 	}); err != nil {
 		return summary, nil, err
 	}
@@ -190,7 +195,36 @@ func runHarnessNativeContractApplicationProbeCheck(parent context.Context, repoR
 	summary["latest_build_manifest_proof"] = "compiled_phase_and_real_public_restart_reuse"
 	summary["prepared_phase_assertion"] = "internal/build.TestPrepareAndCompileWriteLatestBuildManifestInProcess"
 	summary["configured_flags_assertion"] = "internal/build.TestCompilePassesConfiguredGoBuildFlags"
+	summary["grouped_route"] = "/api/group1/nested/house/process"
+	summary["old_route_assertion"] = "POST /api/house/process returns 404 without an alias"
 	return summary, nil, nil
+}
+
+// Move only this probe's disposable source; retain the module/service identities.
+func groupHarnessNativeContractFixture(appRoot string) error {
+	groupRoot := filepath.Join(appRoot, "group1", "nested")
+	if err := os.MkdirAll(groupRoot, 0o755); err != nil {
+		return err
+	}
+	if err := os.Rename(filepath.Join(appRoot, "house"), filepath.Join(groupRoot, "house")); err != nil {
+		return err
+	}
+	for _, relative := range []string{"app.scn", "group1/nested/house/package.scn", "group1/nested/house/service.go"} {
+		filename := filepath.Join(appRoot, relative)
+		data, err := os.ReadFile(filename)
+		if err != nil {
+			return err
+		}
+		updated := strings.NewReplacer(
+			"example.test/nativeapp/house", "example.test/nativeapp/group1/nested/house",
+			`"house/scenerycontract"`, `"group1/nested/house/scenerycontract"`,
+			`source = "./house"`, `source = "./group1/nested/house"`,
+		).Replace(string(data))
+		if err := os.WriteFile(filename, []byte(updated), 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func copyHarnessNativeContractFixture(repoRoot, appRoot string) error {
@@ -349,6 +383,26 @@ func runHarnessGeneratedTypeScriptClient(parent context.Context, appRoot, devCac
 			stopped = true
 			return fmt.Errorf("generated reference server exited before readiness: %v\n%s", serverErr, serverOutput())
 		case <-time.After(25 * time.Millisecond):
+		}
+	}
+
+	for _, route := range []string{"/api/house/process", "/api/group1/nested/house/process"} {
+		request, err := http.NewRequestWithContext(parent, http.MethodPost, baseURL+route, strings.NewReader(`{"scene_id":"grouped-probe"}`))
+		if err != nil {
+			return err
+		}
+		request.Header.Set("Content-Type", "application/json")
+		response, err := client.Do(request)
+		if err != nil {
+			return err
+		}
+		_ = response.Body.Close()
+		want := http.StatusOK
+		if route == "/api/house/process" {
+			want = http.StatusNotFound
+		}
+		if response.StatusCode != want {
+			return fmt.Errorf("grouped native route %s returned %d, want %d", route, response.StatusCode, want)
 		}
 	}
 

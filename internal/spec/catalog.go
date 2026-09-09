@@ -67,7 +67,7 @@ func Current() Catalog {
 // digest whenever that behavior changes.
 func CurrentSemanticRevisions() SemanticRevisions {
 	return SemanticRevisions{
-		SourceComposition:    "sha256:d7b7bf5f2f7187f43cabf92d66774f44cdef8a15ac53dbf30b4048a88461df5e",
+		SourceComposition:    "sha256:b9444e74f996b552892bc68fa69dc32c1e9c012a0bb81d0e0900587899dfdeea",
 		Defaults:             "sha256:624f80596718cc9cfc71ddbee9989204b485d98ab96e517dfdf7ba549f3ab685",
 		Expansion:            "sha256:4b8b4df0b6cbe195627827006ecc65f98977d9774d8dd2aed5e2a0960cb14301",
 		ReferenceResolution:  "sha256:27e6c67b69271a6f99cb6eb2c62a414c56feae8e20554105efe16d843d1d06a0",

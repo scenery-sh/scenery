@@ -4,6 +4,16 @@ Practical recipes for current Scenery applications. The normative language contr
 
 ## Start A Native App
 
+You can organize local packages under folders such as `group1/maps` and
+`group1/geometry`. Point each root module's `source` at that package and keep
+its `go_contract.import_path` aligned with the Go directory. The parent folders
+automatically prefix HTTP paths: gateway base `/v1` plus `group1/maps` and
+endpoint `/maps/list` produces `/v1/group1/maps/list`. The final package folder
+is not automatically appended, and no `package.scn` is needed in a purely
+organizational parent folder. Keep group names URL-safe; see
+[HTTP route identity](spec/http.md#33-route-identity). Regenerate clients and
+update raw HTTP consumers after moving an existing package.
+
 Create `.scenery.json` for runtime config, `app.scn` for the root graph, and one `package.scn` for each local module. The checked-in `testdata/apps/basic` app is the smallest runnable reference.
 
 At minimum, root source declares:
