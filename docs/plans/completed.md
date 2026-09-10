@@ -11,6 +11,22 @@ historical records. Do not refresh their review dates or rewrite them as current
 contract prose. Record later guidance here or in the owning current contract;
 use stale knowledge metadata to flag a known contradiction.
 
+## Coherent, Data-Safe Task Environments
+
+- Status: completed and published
+- Owner: scenery runtime / ONLV development
+- Completed: 2026-09-10
+- ExecPlan: [0174 Version-Coherent, Data-Safe Task Environments](0174-coherent-task-environments.md)
+
+Published framework selection binds one private CLI and source snapshot to each
+session. Candidate preflight/rollback, transactional app-authored migrations,
+stable worktree origins, runtime frontend selection and content-based watching
+are proven by the native probes. ONLV's public worktree command prepares a
+complete small fixture with real authenticated mutation/restart/tenancy checks
+and a Chrome-rendered scene. The original ONLV cutover preserved every original
+row, object and native asset and retained port 4920. The plan records exact
+identities, validation commands, the known unrelated lint blockers and skips.
+
 ## Retained-State Upgrades and Directory-Group HTTP Paths
 
 - Status: completed and published on main

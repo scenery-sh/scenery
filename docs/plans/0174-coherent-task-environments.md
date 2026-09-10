@@ -3,7 +3,7 @@
 This ExecPlan is a living document maintained under `PLANS.md`. It owns the
 Scenery mechanisms and cross-repository acceptance for the ONLV development
 milestone. The companion ONLV plan is
-`docs/agent/exec-plans/active/coherent-task-environments.md` in `pbrazdil/onlv`.
+`docs/agent/exec-plans/completed/coherent-task-environments.md` in `pbrazdil/onlv`.
 
 ## Purpose / Big Picture
 
@@ -28,7 +28,7 @@ substituted for or added to this milestone.
 - [x] (2026-09-10 13:07Z) Read the complete supplied review, current architecture,
   operating contracts and both repository plan/validation rules. Verified clean
   starting checkouts at the reviewed commits and the original ONLV live owner.
-- [ ] Implement and prove coherent normal and explicit co-development selection.
+- [x] (2026-09-10) Implement and prove coherent normal and explicit co-development selection.
 - [x] (2026-09-10) Implemented `framework use|inspect`, content-addressed source
   and CLI preparation, authored-module preservation, producer stamping in the
   repository verifier, per-build agreement checks and framework/CLI entries in
@@ -49,24 +49,24 @@ substituted for or added to this milestone.
   stop/start/rollback state machine, retaining exact launch environment and
   served metadata. Focused in-process runtime, codegen and CLI tests pass;
   real-process failure/recovery acceptance remains outstanding.
-- [ ] Implement transactional application initialization and schema migration.
+- [x] (2026-09-10) Implement transactional application initialization and schema migration.
 - [x] (2026-09-10) Implemented per-binding app-authored numbered SQL,
   non-allocating status, schema-local checksum/owner ledger and atomic pending
   chains. Native `--probe postgres` passed all eight initialization, unknown
   state, SQL failure, checksum change, killed-process, retry and retained-row
   assertions in two private clusters with ownership-verified cleanup. ONLV
   adoption and known populated-baseline reconciliation remain outstanding.
-- [ ] Adopt the migration path in ONLV and prove a populated-field evolution.
-- [ ] Provision a curated ONLV worktree with complete object/native assets and
+- [x] (2026-09-10) Adopt the migration path in ONLV and prove a populated-field evolution.
+- [x] (2026-09-10) Provision a curated ONLV worktree with complete object/native assets and
   its own stable origin using existing ownership and snapshot mechanisms.
-- [ ] Wire authoritative validation profiles and a real authenticated mutation,
+- [x] (2026-09-10) Wire authoritative validation profiles and a real authenticated mutation,
   object, restart-persistence and cross-tenant denial journey.
-- [ ] Eliminate test-only/content-identical backend restarts and make NextNext
+- [x] (2026-09-10) Eliminate test-only/content-identical backend restarts and make NextNext
   the default runtime scope; repair the broad check ergonomics.
 - [x] (2026-09-10) Native process proof confirmed test-only, documentation-only
   and identical-content edits retained the existing backend PID. NextNext
   default scope and the remaining validation-profile adoption are still open.
-- [ ] Complete the requirement-by-requirement audit, selected native probes,
+- [x] (2026-09-10) Complete the requirement-by-requirement audit, selected native probes,
   repository validation and current documentation in both repositories.
 - [x] (2026-09-10 16:12Z) ONLV fixture adoption now proves the populated
   `projects.summary` evolution, authenticated project/object attachment,
@@ -83,6 +83,13 @@ substituted for or added to this milestone.
   vet and schemas; lint reports zero issues. Only the existing 41 documentation
   freshness and 23 architecture warnings remain. The installable skill validator
   and both committed compiler fixture refresh commands also passed.
+- [x] (2026-09-10 16:54Z) Published Scenery `22c9a94f` and ONLV `e8085307`.
+  A new worktree created by `just worktree task-proof-final-20260910` reached
+  ready with no manual repairs, rendered its complete fixture in Chrome at
+  port 4431, and passed the real smoke profile including restart and tenancy.
+  The approved original ONLV cutover preserved all original SQL/object/native
+  data and returned to port 4920. Its app harness passed all nine steps;
+  doctor reported 46 OK, zero warnings/errors and four explicit skips.
 
 ## Surprises & Discoveries
 
@@ -173,10 +180,62 @@ substituted for or added to this milestone.
 
 ## Outcomes & Retrospective
 
-Not yet completed. Source review, selected-framework native isolation,
-preflight/failed-start recovery and content-based watch acceptance are proven.
-ONLV producer adoption, schema evolution, fixture provisioning and integrated
-validation remain in progress.
+Completed on 2026-09-10. The selected R1-R12 milestone is implemented and
+accepted across both repositories. Scenery `9f85916a` introduced the mechanisms;
+`22c9a94f69b81c9dfd2d60c42a95bf254f49e78c` corrected the published-module layout
+found by the fresh consumer proof. ONLV `e8085307` pins
+`v0.3.7-0.20260910164051-22c9a94f69b8` without a local replacement.
+
+The final test-owned worktree is
+`/Users/petrbrazdil/Repos/onlv-coherent-task-environments-task-proof-final-20260910`,
+fixture `28c90f87-a04f-4e70-acd7-0c46cf750208`, origin `http://localhost:4431`.
+Its runtime bundle binds framework source
+`8213ec1171cae1ca3c7c74ced137a2dd007f590114c0e25de99fa13ba6776b8b` and local CLI
+`f3b008dc1b05f123c11519d3c7b1912eb3c001dba481c2415ea99924958a71a6`.
+Its served implementation is
+`sha256:73ebc5b92ddcccefa8d6bbe0289720acc4444dbd3ca4700114614311b4722efe`.
+The companion plan records the fixture archive identity and consumer commands.
+
+The original ONLV runtime was stopped only after isolated acceptance. A verified
+independent combined backup preceded explicit `db migrate --adopt-initial`.
+All 37 schemas are current (39 ledger rows). Exact comparison preserved all
+116 original tables / 67,710 rows, their original column values and authority,
+sequences, storage incarnation/generation, all 551 objects / 1,618,434,235 bytes,
+and all 2,064 House files / 3,325,000,415 bytes. The only additions are migration
+ledgers, `projects.summary` and the empty Utilities administrator table. All
+14 seeds were unchanged/skipped. Original origin `http://localhost:4920` works
+with the pinned producer; Chrome loaded the original 28,355-entry AHJ catalog.
+
+### Final Requirement Evidence
+
+| Requirement | Completed proof |
+| --- | --- |
+| R1 | Published-only fresh preparation; selected source/CLI match the actual build-input manifest. Original root also uses the same source digest and its matching private executable. |
+| R2 | Native dev-process probe mutates the separate co-development source and proves the running session retains its selected snapshot. |
+| R3 | Native preflight rejection and failed-start rollback retain/recover service; an exclusive writer lock proves no overlapping writers. |
+| R4-R5 | Native PostgreSQL initialization, unknown partial schema, failed SQL, killed process, retry, checksum and strict boolean-baseline assertions pass. |
+| R6 | Populated ONLV v1 rehearsal preserves prior rows and writes/reads the added field; approved main migration independently proves full original-data preservation. |
+| R7-R8 | One public worktree command provisions the versioned archive and all eight native/CSV inputs; Chrome renders the textured house and Top camera on its retained isolated origin. |
+| R9-R10 | Final `harness --with-validation=onlv-smoke` passes real auth, field write, attachment, object bytes, tenant denial, restart and stable-origin checks. Changed-profile planning and context reuse the authored profile mapping. |
+| R11 | Native test-only, documentation-only and identical-content edits retain PID; actual runtime edit serves the new response/revision. |
+| R12 | Only NextNext starts by default; explicit `all` selects alternatives. Actual NextNext lint/typecheck/tests execute in profiles and broad lint. |
+
+All affected-package tests, `go test ./...`, `golangci-lint run ./...`, default
+`go run ./scripts/verify --summary --write`, both documented client fixture
+regenerations, and the union of eight named probes below passed. After the
+published-layout fix, build/CLI tests, full verifier, lint and native
+`dev-process`/`build-info` were repeated. The final documentation-only pass uses
+`go run ./scripts/verify --quick --summary --write`. The installable skill was
+updated to teach the same producer/migration/runtime workflow and its validator
+passed; no second workflow was introduced.
+
+Known limits remain separate: ONLV broad lint fails on pre-existing Viewer
+React Doctor findings and its old Go lint configuration is incompatible with
+the installed v2 tool. The retained GLB renders after the existing optional
+optimized-GLB 404 fallback. Native scene recomputation, external integrations,
+full unrelated UI/GPU suites, production deployment, release certification,
+benchmarks and all-root timing were not selected or claimed. Scenery dashboard
+and UI catalog checks were not selected because those paths did not change.
 
 ## Context and Orientation
 
