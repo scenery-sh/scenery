@@ -86,6 +86,13 @@ substituted for or added to this milestone.
 
 ## Surprises & Discoveries
 
+- The first truly fresh ONLV worktree selected the published module correctly
+  but failed app compilation: Go reports a downloaded module's `GoMod` under
+  `cache/download/.../@v/<version>.mod`, not inside its source directory. The
+  build-input collector had inferred source from that metadata path. It now
+  requires Go's actual module `Dir`, with an in-process published-layout test;
+  fresh public workflow acceptance is repeated against the corrected release.
+
 - The historical/current coexistence fixture built its current CLI on the host
   without the new producer stamp. It now compiles at the real `/candidate`
   source path inside its disposable Linux daemon. A subsequent run correctly

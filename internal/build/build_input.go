@@ -57,6 +57,7 @@ type goListPackage struct {
 
 type goListModule struct {
 	Path     string
+	Dir      string
 	Version  string
 	Sum      string
 	GoMod    string
@@ -131,14 +132,19 @@ func buildInputManifestFromGoList(result *Result, output []byte) (*BuildInputMan
 			if module.Replace != nil {
 				module = module.Replace
 			}
-			if module.GoMod != "" {
-				if pkg.Module.Path == "scenery.sh" {
-					root := filepath.Dir(module.GoMod)
-					if frameworkRoot != "" && frameworkRoot != root {
-						return nil, fmt.Errorf("go build graph contains multiple Scenery framework roots")
-					}
-					frameworkRoot = root
+			if pkg.Module.Path == "scenery.sh" {
+				// Published GoMod files live in the download metadata cache;
+				// only Dir identifies the module's actual package source tree.
+				if !filepath.IsAbs(module.Dir) || module.GoMod == "" {
+					return nil, fmt.Errorf("go build graph omits the selected Scenery module directory or go.mod")
 				}
+				root := filepath.Clean(module.Dir)
+				if frameworkRoot != "" && frameworkRoot != root {
+					return nil, fmt.Errorf("go build graph contains multiple Scenery framework roots")
+				}
+				frameworkRoot = root
+			}
+			if module.GoMod != "" {
 				if err := addBuildInput(entries, "module/"+pkg.Module.Path+"/go.mod", module.GoMod); err != nil {
 					return nil, err
 				}

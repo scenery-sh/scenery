@@ -61,3 +61,48 @@ func TestBuildInputManifestIncludesLocalReplaceBytesFromGoListInProcess(t *testi
 		t.Fatal("local replacement change did not change build input manifest")
 	}
 }
+
+func TestBuildInputManifestUsesPublishedModuleSourceDirectory(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	source := filepath.Join(root, "scenery.sh@v1.0.0")
+	metadata := filepath.Join(root, "cache", "download", "scenery.sh", "@v")
+	for _, directory := range []string{source, metadata} {
+		if err := os.MkdirAll(directory, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name, contents := range map[string]string{
+		filepath.Join(source, "go.mod"):       "module scenery.sh\n\ngo 1.27\n",
+		filepath.Join(source, "value.go"):     "package scenery\nconst Value = 1\n",
+		filepath.Join(metadata, "v1.0.0.mod"): "module scenery.sh\n\ngo 1.27\n",
+	} {
+		if err := os.WriteFile(name, []byte(contents), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pkg := goListPackage{Dir: source, ImportPath: "scenery.sh", GoFiles: []string{"value.go"}, Module: &goListModule{Path: "scenery.sh", Dir: source, Version: "v1.0.0", GoMod: filepath.Join(metadata, "v1.0.0.mod")}}
+	data, err := json.Marshal(pkg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := &Result{AppRoot: root, Dir: root, Target: &compiler.GoBuildTarget{Name: "development"}}
+	if _, err := buildInputManifestFromGoList(result, data); err != nil {
+		t.Fatal(err)
+	}
+	canonicalSource, err := filepath.EvalSymlinks(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.FrameworkSourceRoot != canonicalSource || result.FrameworkSourceDigest == "" {
+		t.Fatalf("framework source = %q %q", result.FrameworkSourceRoot, result.FrameworkSourceDigest)
+	}
+	pkg.Module.Dir = ""
+	data, err = json.Marshal(pkg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := buildInputManifestFromGoList(result, data); err == nil {
+		t.Fatal("accepted a framework graph without its source directory")
+	}
+}
