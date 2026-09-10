@@ -65,6 +65,9 @@ wrapper thereafter. Explicit co-development can snapshot another checkout with
 `--source <path>`. Application-authored SQL migrations use `scenery db migrate`,
 and configured validation profiles make focused checks executable with
 `scenery validate changed --base main --dry-run -o json`.
+Launchers retain the running producer for inspection and shutdown after pin
+changes. Changed validation reports uncovered paths and manual owner lanes
+explicitly; a successful quick check alone does not verify those changes.
 
 ## Working with AI agents
 

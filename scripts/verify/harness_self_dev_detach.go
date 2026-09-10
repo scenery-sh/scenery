@@ -24,7 +24,7 @@ func runHarnessDetachedStartupProbe(parent context.Context, repoRoot string) (ma
 	if err := runHarnessDetachedExitProbe(parent); err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithTimeout(parent, 150*time.Second)
+	ctx, cancel := context.WithTimeout(parent, 240*time.Second)
 	defer cancel()
 	root, err := os.MkdirTemp("/tmp", "scn-detach-")
 	if err != nil {
@@ -238,5 +238,9 @@ func runHarnessDetachedStartupProbe(parent context.Context, repoRoot string) (ma
 	if err := verifyHarnessFrameworkBuildInputs(bundle.BuildInput, framework); err != nil {
 		return nil, err
 	}
-	return map[string]any{"proof": "dotenv_and_source_failure_preserved_after_cleanup_success_and_duplicate_ready_with_stdout_stderr_noise", "owner_pid": owner, "runtime_handoff": handoff, "framework": map[string]any{"source_digest": framework.Source.Digest, "executable_digest": framework.ExecutableDigest, "origin_edit_isolated": true, "runtime_manifest_matches": true}}, nil
+	transition, err := proveHarnessCrossSpecFramework(ctx, framework.SourceOrigin, appRoot, binary, env)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"proof": "dotenv_and_source_failure_preserved_after_cleanup_success_and_duplicate_ready_with_stdout_stderr_noise", "owner_pid": owner, "runtime_handoff": handoff, "framework": map[string]any{"source_digest": framework.Source.Digest, "executable_digest": framework.ExecutableDigest, "origin_edit_isolated": true, "runtime_manifest_matches": true, "cross_spec_transition": transition}}, nil
 }

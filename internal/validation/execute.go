@@ -85,6 +85,7 @@ func ExecutePlan(ctx context.Context, plan ResolvedPlan, run StepRunner, writeAr
 	}
 	if len(plan.Diagnostics) > 0 {
 		result.NextActions = []string{"Fix validation configuration diagnostics, then rerun: scenery validate " + plan.Profile + " -o json --write"}
+		finishCoverage(&result)
 		return result
 	}
 	for _, step := range plan.Steps {
@@ -105,6 +106,7 @@ func ExecutePlan(ctx context.Context, plan ResolvedPlan, run StepRunner, writeAr
 			break
 		}
 	}
+	finishCoverage(&result)
 	return result
 }
 

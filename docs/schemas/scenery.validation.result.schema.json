@@ -18,7 +18,7 @@
       "const": "scenery.validation.result"
     },
     "schema_revision": {
-      "const": "sha256:ed8954775be56b4fbcf7d87e97a3e6bd75eadeefdc16893c3765fc5ac3bf04c3"
+      "const": "sha256:42dd91b0f9856dd3d133f56e2f6036fcc360c87653fc8989c64c7c2fd2706a62"
     },
     "ok": {
       "type": "boolean"
@@ -34,8 +34,7 @@
       "type": "string"
     },
     "selection": {
-      "type": "object",
-      "additionalProperties": true
+      "$ref": "scenery.validation.plan.schema.json#/$defs/selection"
     },
     "steps": {
       "type": "array",

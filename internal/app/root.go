@@ -378,13 +378,20 @@ func (c DatabaseSeedConfig) IsEnabled() bool {
 }
 
 type ValidationConfig struct {
-	Default  string                             `json:"default"`
-	Profiles map[string]ValidationProfileConfig `json:"profiles"`
+	Default    string                             `json:"default"`
+	Profiles   map[string]ValidationProfileConfig `json:"profiles"`
+	Exemptions []ValidationExemptionConfig        `json:"exemptions,omitempty"`
+}
+
+type ValidationExemptionConfig struct {
+	Paths  []string `json:"paths"`
+	Reason string   `json:"reason"`
 }
 
 type ValidationProfileConfig struct {
 	Description string            `json:"description"`
 	Cost        string            `json:"cost"`
+	Manual      bool              `json:"manual,omitempty"`
 	Paths       []string          `json:"paths"`
 	Steps       []string          `json:"steps"`
 	Env         map[string]string `json:"env"`

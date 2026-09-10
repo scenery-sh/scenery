@@ -115,6 +115,7 @@ func TestBuildDesktopRejectsConflictingFlags(t *testing.T) {
 		{"--desktop", "--target", "development"},
 		{"--desktop", "--lib", "geometry"},
 		{"--desktop", "--output", "dist"},
+		{"--desktop", "--development"},
 	} {
 		if err := buildCommand(io.Discard, args); err == nil || !strings.Contains(err.Error(), "--desktop cannot be combined") {
 			t.Fatalf("buildCommand(%v) error = %v", args, err)
@@ -122,6 +123,9 @@ func TestBuildDesktopRejectsConflictingFlags(t *testing.T) {
 	}
 	if err := buildCommand(io.Discard, []string{"--env", "production"}); err == nil || !strings.Contains(err.Error(), "--env is only supported") {
 		t.Fatalf("non-desktop --env error = %v", err)
+	}
+	if err := buildCommand(io.Discard, []string{"--development", "--lib", "geometry"}); err == nil || !strings.Contains(err.Error(), "--development cannot be combined") {
+		t.Fatalf("development library build error = %v", err)
 	}
 }
 

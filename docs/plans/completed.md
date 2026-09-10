@@ -11,6 +11,20 @@ historical records. Do not refresh their review dates or rewrite them as current
 contract prose. Record later guidance here or in the owning current contract;
 use stale knowledge metadata to flag a known contradiction.
 
+## Producer Transition and Verification Hardening
+
+- Status: completed; publication is tracked by Git history
+- Owner: scenery runtime / ONLV development
+- Completed: 2026-09-10
+- ExecPlan: [0175 Producer Transition and Verification Hardening](0175-producer-transition-hardening.md)
+
+Native and ONLV launcher proofs cover active-owner control after pin/selection
+edits and genuinely different-spec candidate receipt ownership. Changed paths
+carry explicit verification obligations. Real smoke compares a development
+candidate to every served response and a same-build/new-process restart.
+Five loop stages were measured separately; the plan records commands, samples,
+unselected native/UI/release lanes and the local source-override handoff.
+
 ## Coherent, Data-Safe Task Environments
 
 - Status: completed and published

@@ -37,6 +37,8 @@ type Selection struct {
 	ChangedFiles     []string       `json:"changed_files,omitempty"`
 	MatchedProfiles  []ProfileMatch `json:"matched_profiles,omitempty"`
 	ResolvedProfiles []string       `json:"resolved_profiles"`
+	Coverage         []PathCoverage `json:"coverage,omitempty"`
+	CoverageComplete bool           `json:"coverage_complete"`
 }
 
 // ProfileMatch records one profile selected by changed-file path globs.
@@ -132,7 +134,7 @@ func (p Planner) ResolveProfileName(requested string) string {
 
 // Plan resolves the profiles selected by req into one executable plan.
 func (p Planner) Plan(ctx context.Context, req PlanRequest) (ResolvedPlan, error) {
-	selection := Selection{Mode: "explicit"}
+	selection := Selection{Mode: "explicit", CoverageComplete: true}
 	profile := p.ResolveProfileName(req.Profile)
 	if req.Changed {
 		files, err := CollectChangedFiles(ctx, p.AppRoot, req.Base)
@@ -153,7 +155,12 @@ func (p Planner) Plan(ctx context.Context, req PlanRequest) (ResolvedPlan, error
 		} else {
 			profile = strings.Join(profiles, "+")
 		}
-		return p.multiPlan(profile, profiles, selection)
+		plan, err := p.multiPlan(profile, profiles, selection)
+		if err == nil {
+			plan.Selection.Coverage = p.changedCoverage(files, plan)
+			plan.Selection.CoverageComplete = coverageComplete(plan.Selection.Coverage)
+		}
+		return plan, err
 	}
 	selection.Requested = []string{profile}
 	return p.NamedPlan(profile, selection)
@@ -165,6 +172,9 @@ func (p Planner) NamedPlan(profile string, selection Selection) (ResolvedPlan, e
 }
 
 func (p Planner) multiPlan(profileLabel string, profiles []string, selection Selection) (ResolvedPlan, error) {
+	if selection.Mode != "changed" {
+		selection.CoverageComplete = true
+	}
 	plan := ResolvedPlan{App: p.App, Profile: profileLabel, Selection: selection}
 	plan.Diagnostics = append(plan.Diagnostics, p.ValidateConfig()...)
 	seenProfiles := map[string]bool{}
@@ -230,6 +240,9 @@ func (p Planner) ValidateConfig() []Diagnostic {
 		if prof.Cost != "" && prof.Cost != "low" && prof.Cost != "medium" && prof.Cost != "high" {
 			diags = append(diags, errorDiagnostic("validation profile "+name+" has invalid cost "+prof.Cost))
 		}
+		if prof.Manual && strings.TrimSpace(prof.Description) == "" {
+			diags = append(diags, errorDiagnostic("manual validation profile "+name+" requires an owner-lane description"))
+		}
 		if len(prof.Steps) == 0 {
 			diags = append(diags, errorDiagnostic("validation profile "+name+" has no steps"))
 		}
@@ -246,6 +259,8 @@ func (p Planner) ValidateConfig() []Diagnostic {
 					diags = append(diags, errorDiagnostic("validation profile "+name+" has an empty profile step"))
 				} else if _, ok := cfg.Validation.Profiles[ref.Name]; !ok {
 					diags = append(diags, errorDiagnostic("validation profile "+name+" references unknown profile "+ref.Name))
+				} else if !prof.Manual && cfg.Validation.Profiles[ref.Name].Manual {
+					diags = append(diags, errorDiagnostic("automatic validation profile "+name+" must not reference manual profile "+ref.Name))
 				}
 			case "task":
 				if ref.Name == "" {
@@ -265,6 +280,19 @@ func (p Planner) ValidateConfig() []Diagnostic {
 		}
 	}
 	defaultProfile := p.ResolveProfileName("")
+	if cfg.Validation.Profiles[defaultProfile].Manual {
+		diags = append(diags, errorDiagnostic("validation default profile must not be manual"))
+	}
+	for index, exemption := range cfg.Validation.Exemptions {
+		if strings.TrimSpace(exemption.Reason) == "" || len(exemption.Paths) == 0 {
+			diags = append(diags, errorDiagnostic(fmt.Sprintf("validation exemption %d requires paths and a nonempty reason", index+1)))
+		}
+		for _, path := range exemption.Paths {
+			if strings.TrimSpace(path) == "" {
+				diags = append(diags, errorDiagnostic(fmt.Sprintf("validation exemption %d has an empty path glob", index+1)))
+			}
+		}
+	}
 	if len(cfg.Validation.Profiles) > 0 && defaultProfile == "" {
 		diags = append(diags, errorDiagnostic("validation.default is not configured and profile quick does not exist"))
 	} else if defaultProfile != "" {

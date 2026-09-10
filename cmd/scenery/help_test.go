@@ -32,14 +32,14 @@ func TestHelpCommandJSONScopesBuildDescriptor(t *testing.T) {
 		t.Fatalf("build descriptor identity = %#v", build)
 	}
 	wantUsage := []string{
-		"scenery build [--target <go-target>] [--app-root <path>] [--output <binary>] [-o human|json]",
+		"scenery build [--development] [--target <go-target>] [--app-root <path>] [--output <binary>] [-o human|json]",
 		"scenery build --lib <name|address|artifact> [--version <vN.N.N>] [--platform all|host|darwin/arm64|linux/amd64|<csv>] [--app-root <path>] [--output <directory>] [-o human|json]",
 		"scenery build --desktop [--env <name>] [--app-root <path>] [-o human|json]",
 	}
 	if !reflect.DeepEqual(build.Usage, wantUsage) {
 		t.Fatalf("usage = %#v", build.Usage)
 	}
-	for _, flag := range []string{"--target <go-target>", "--lib <name|address|artifact>", "--desktop", "--env <name>", "-o human|json"} {
+	for _, flag := range []string{"--development", "--target <go-target>", "--lib <name|address|artifact>", "--desktop", "--env <name>", "-o human|json"} {
 		if !containsHelpString(build.Flags, flag) {
 			t.Errorf("flags missing %q: %#v", flag, build.Flags)
 		}
@@ -48,8 +48,9 @@ func TestHelpCommandJSONScopesBuildDescriptor(t *testing.T) {
 		{When: "--version", Requires: []string{"--lib"}},
 		{When: "--platform", Requires: []string{"--lib"}},
 		{When: "--env", Requires: []string{"--desktop"}},
+		{When: "--development", ConflictsWith: []string{"--lib", "--desktop"}},
 		{When: "--lib", ConflictsWith: []string{"--target", "--desktop"}},
-		{When: "--desktop", ConflictsWith: []string{"--target", "--lib", "--version", "--platform", "--output"}},
+		{When: "--desktop", ConflictsWith: []string{"--target", "--lib", "--version", "--platform", "--output", "--development"}},
 	} {
 		if !containsHelpRelationship(build.RequiredCombinations, relationship) {
 			t.Errorf("required_combinations missing %#v: %#v", relationship, build.RequiredCombinations)

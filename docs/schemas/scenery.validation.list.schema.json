@@ -14,7 +14,7 @@
       "const": "scenery.validation.list"
     },
     "schema_revision": {
-      "const": "sha256:9aa2c891d0e84b0b133a0cae81a04b4d7bd0706a1d072f0807a1429b533956a6"
+      "const": "sha256:694657146cc5c28ef52b0d4d01a5cc123bab7b558e75efe3b86fdce686c2030b"
     },
     "app": {
       "type": "object",
@@ -26,8 +26,7 @@
     "profiles": {
       "type": "array",
       "items": {
-        "type": "object",
-        "additionalProperties": true
+        "$ref": "scenery.inspect.validation.schema.json#/$defs/profile"
       }
     },
     "diagnostics": {

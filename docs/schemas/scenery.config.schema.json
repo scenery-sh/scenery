@@ -100,6 +100,18 @@
     "validation": {
       "type": "object",
       "properties": {
+        "exemptions": {
+          "type": ["array", "null"],
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["paths", "reason"],
+            "properties": {
+              "paths": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+              "reason": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
         "default": {
           "type": "string"
         },
@@ -512,6 +524,7 @@
     "validationProfile": {
       "type": "object",
       "properties": {
+        "manual": { "type": "boolean" },
         "description": {
           "type": "string"
         },

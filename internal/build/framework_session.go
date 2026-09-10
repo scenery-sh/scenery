@@ -40,6 +40,26 @@ func VerifyFrameworkSession(ctx context.Context, appRoot string) error {
 // VerifyFrameworkSelection proves cached preparation against current bytes
 // and the authored module, without starting either the CLI or application.
 func VerifyFrameworkSelection(ctx context.Context, selection FrameworkSelection) error {
+	if err := VerifyPreparedFramework(selection); err != nil {
+		return err
+	}
+	moduleRoot, _, err := ResolveFrameworkModule(ctx, selection.AppRoot, false)
+	if err != nil {
+		return err
+	}
+	module, err := FrameworkSourceManifest(moduleRoot)
+	if err != nil || module.Digest != selection.Source.Digest {
+		return fmt.Errorf("application module and prepared Scenery producer disagree; run scenery framework use again")
+	}
+	return nil
+}
+
+// VerifyPreparedFramework checks producer-owned immutable bytes independently
+// of a subsequently edited application module. It grants no runtime authority.
+func VerifyPreparedFramework(selection FrameworkSelection) error {
+	if err := machine.ValidateArtifactIdentity(selection.ArtifactIdentity, frameworkSelectionKind, frameworkSelectionSchema, "prepare the selected framework again"); err != nil {
+		return err
+	}
 	sourceKey := strings.TrimPrefix(selection.Source.Digest, "sha256:")
 	expectedSource := filepath.Join(selection.AppRoot, ".scenery", "framework", "source", sourceKey)
 	expectedBinaryRoot := filepath.Join(selection.AppRoot, ".scenery", "framework", "bin", sourceKey)
@@ -68,14 +88,6 @@ func VerifyFrameworkSelection(ctx context.Context, selection FrameworkSelection)
 	digest, err := digestExecutable(selection.Executable)
 	if err != nil || digest != selection.ExecutableDigest {
 		return fmt.Errorf("prepared framework executable content changed: %v", err)
-	}
-	moduleRoot, _, err := ResolveFrameworkModule(ctx, selection.AppRoot, false)
-	if err != nil {
-		return err
-	}
-	module, err := FrameworkSourceManifest(moduleRoot)
-	if err != nil || module.Digest != selection.Source.Digest {
-		return fmt.Errorf("application module and prepared Scenery producer disagree; run scenery framework use again")
 	}
 	return nil
 }

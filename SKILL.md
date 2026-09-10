@@ -61,6 +61,11 @@ executable bytes. Explicit co-development uses `framework use --source <root>`:
 it snapshots dirty source and selects that immutable copy in the app's module.
 Do not commit that local replacement or infer parity from a checkout SHA alone.
 Another checkout's edits cannot update this session; select an update explicitly.
+The selected producer publishes its own receipt, including across spec changes.
+After a pin edit, use the app launcher to inspect/stop the existing runtime via
+its retained producer; do not gate `ps`, `logs` or `down` on desired-source parity.
+`framework inspect --runtime` checks that producer locator, not HTTP health or
+the new source. New compilation/startup still requires coherent desired inputs.
 
 App-required build flags belong in `build.go_flags` in app config. Non-runtime tracked trees that should not trigger rebuilds belong in `watch.ignore`. Do not add ambient environment controls when checked-in config or an explicit flag is sufficient.
 
@@ -276,6 +281,12 @@ Use app-owned `validation.profiles` as the executable check mapping and
 Selection includes branch changes, tracked working-tree edits and non-ignored
 untracked paths. `harness --with-validation=<profile>` composes framework and
 domain proof; a core harness alone does not establish a mutation journey.
+Inspect `selection.coverage`: planned checks are not executed proof. Unmatched
+paths and `manual: true` owner lanes remain unverified even when quick checks
+pass; reasoned `validation.exemptions` apply only to otherwise unmatched paths.
+Dev HTTP identity headers identify the actually served linked build. Bind them
+to the build-input manifest and current `build --development` candidate when reporting smoke results;
+an origin or a newer bundle on disk alone is insufficient.
 
 Single-file Go code tasks live under a domain `tasks` directory and use `//go:build ignore`; that build constraint is not an application declaration.
 

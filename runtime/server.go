@@ -191,7 +191,7 @@ func newServer(listenAddr string) (*http.Server, error) {
 
 	httpServer := &http.Server{
 		Addr:    listenAddr,
-		Handler: withTraceID(withCORS(withGzip(s.public))),
+		Handler: withRuntimeIdentity(withTraceID(withCORS(withGzip(s.public)))),
 	}
 	for _, endpoint := range endpoints {
 		policy := endpoint.ContractPolicy

@@ -16,15 +16,14 @@
       "const": "scenery.validation.inspect"
     },
     "schema_revision": {
-      "const": "sha256:cebd1d3580ec6f91147dc707bca344abbb5d20787749fd5dd28e76bdf480b085"
+      "const": "sha256:b433068a332850fcce0ba8141f304a8ded1d54040283b07567270600f9a043e4"
     },
     "app": {
       "type": "object",
       "additionalProperties": true
     },
     "profile": {
-      "type": "object",
-      "additionalProperties": true
+      "$ref": "scenery.inspect.validation.schema.json#/$defs/profile"
     },
     "resolved_steps": {
       "type": "array",

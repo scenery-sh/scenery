@@ -39,6 +39,7 @@ type validationProfileRecord struct {
 	Name        string   `json:"name"`
 	Description string   `json:"description,omitempty"`
 	Cost        string   `json:"cost,omitempty"`
+	Manual      bool     `json:"manual,omitempty"`
 	Paths       []string `json:"paths"`
 	Steps       []string `json:"steps"`
 	EnvKeys     []string `json:"env_keys,omitempty"`
@@ -227,6 +228,7 @@ func runSceneryValidateWithTaskCommandRunner(ctx context.Context, stdout io.Writ
 			for _, step := range resp.Steps {
 				_, _ = fmt.Fprintf(stdout, "%s\t%s\n", step.Kind, step.Name)
 			}
+			writeValidationCoverage(stdout, resp.Selection)
 			return nil
 		}
 		result := executeValidationPlan(ctx, appRoot, cfg, plan, opts, runCommand)
@@ -444,6 +446,7 @@ func validationProfileRecordFor(cfg appcfg.Config, name string) (validationProfi
 		Name:        name,
 		Description: prof.Description,
 		Cost:        prof.Cost,
+		Manual:      prof.Manual,
 		Paths:       nonNilStrings(prof.Paths),
 		Steps:       nonNilStrings(prof.Steps),
 		EnvKeys:     sortedMapKeys(prof.Env),
@@ -677,19 +680,31 @@ func writeValidationText(stdout io.Writer, result validationResultResponse) erro
 		}
 		_, _ = fmt.Fprintf(stdout, "  %-4s %-28s %.1fs\n", status, step.Name, float64(step.DurationMS)/1000)
 	}
+	writeValidationCoverage(stdout, result.Selection)
 	if result.OK {
 		_, _ = fmt.Fprintln(stdout, "\nvalidation ok")
 		return nil
 	}
-	if len(result.Steps) > 0 {
+	if len(result.Steps) > 0 && !result.Steps[len(result.Steps)-1].OK {
 		failed := result.Steps[len(result.Steps)-1]
 		_, _ = fmt.Fprintf(stdout, "\nfailed: %s\n", failed.Name)
 		if failed.Evidence != nil && failed.Evidence.ReproCommand != "" {
 			_, _ = fmt.Fprintf(stdout, "repro: %s\n", failed.Evidence.ReproCommand)
 		}
-		for _, artifact := range failed.Evidence.Artifacts {
-			_, _ = fmt.Fprintf(stdout, "artifact: %s\n", artifact.Path)
+		if failed.Evidence != nil {
+			for _, artifact := range failed.Evidence.Artifacts {
+				_, _ = fmt.Fprintf(stdout, "artifact: %s\n", artifact.Path)
+			}
 		}
 	}
+	for _, action := range result.NextActions {
+		_, _ = fmt.Fprintln(stdout, "next: "+action)
+	}
 	return nil
+}
+
+func writeValidationCoverage(stdout io.Writer, selection validation.Selection) {
+	for _, path := range selection.Coverage {
+		_, _ = fmt.Fprintf(stdout, "coverage %s\t%s\t%s\n", path.Status, path.Path, path.Reason)
+	}
 }

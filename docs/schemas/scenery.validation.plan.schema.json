@@ -17,7 +17,7 @@
       "const": "scenery.validation.plan"
     },
     "schema_revision": {
-      "const": "sha256:0e5f44a4dd200d6d6e648367b9503ef9dc805f7dc3576420d79ac51e96701067"
+      "const": "sha256:7016ed0dec211f1b98025de55e7a36da32e40cf769c042fe41bbcb5b75366125"
     },
     "ok": {
       "type": "boolean"
@@ -30,8 +30,7 @@
       "type": "string"
     },
     "selection": {
-      "type": "object",
-      "additionalProperties": true
+      "$ref": "#/$defs/selection"
     },
     "steps": {
       "type": "array",
@@ -48,5 +47,47 @@
       }
     }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "resolved_profiles", "coverage_complete"],
+      "properties": {
+        "mode": { "enum": ["explicit", "changed"] },
+        "requested": { "type": "array", "items": { "type": "string" } },
+        "base": { "type": "string" },
+        "changed_files": { "type": "array", "items": { "type": "string" } },
+        "resolved_profiles": { "type": ["array", "null"], "items": { "type": "string" } },
+        "matched_profiles": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["profile", "matched_paths", "matched_files"],
+            "properties": {
+              "profile": { "type": "string" },
+              "matched_paths": { "type": "array", "items": { "type": "string" } },
+              "matched_files": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        },
+        "coverage_complete": { "type": "boolean" },
+        "coverage": { "type": "array", "items": { "$ref": "#/$defs/pathCoverage" } }
+      }
+    },
+    "pathCoverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "status"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["planned", "checked", "exempt", "unverified"] },
+        "profiles": { "type": "array", "items": { "type": "string" } },
+        "step_ids": { "type": "array", "items": { "type": "string" } },
+        "manual_profiles": { "type": "array", "items": { "type": "string" } },
+        "reason": { "type": "string" }
+      }
+    }
+  }
 }

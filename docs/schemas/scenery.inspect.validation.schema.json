@@ -15,7 +15,7 @@
       "const": "scenery.inspect.validation"
     },
     "schema_revision": {
-      "const": "sha256:183db6b1f50ba7358e8eeb5466e30baab240e79bf7858a507367855b415305e0"
+      "const": "sha256:2b4942d12ee5ef0ab579e305744bcd76fb63cc191c5bcbb95c339a881d0caa12"
     },
     "app": {
       "$ref": "#/$defs/appRef"
@@ -83,6 +83,7 @@
         "cost": {
           "type": "string"
         },
+        "manual": { "type": "boolean" },
         "paths": {
           "type": "array",
           "items": {

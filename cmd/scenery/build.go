@@ -29,6 +29,7 @@ func buildCommand(out io.Writer, args []string) error {
 	libraryPlatforms := ""
 	envName := ""
 	desktop := false
+	development := false
 	jsonOutput := false
 	flags := newCLIFlagSet("build")
 	flags.StringVar(&outputPath, "output", "", "")
@@ -40,6 +41,7 @@ func buildCommand(out io.Writer, args []string) error {
 	flags.StringVar(&libraryPlatforms, "platform", "", "")
 	flags.StringVar(&envName, "env", "", "")
 	flags.BoolVar(&desktop, "desktop", false, "")
+	flags.BoolVar(&development, "development", false, "")
 	positionals, err := parseCLIFlags(flags, args)
 	if err != nil {
 		return fmt.Errorf("invalid_request: %w", err)
@@ -48,7 +50,7 @@ func buildCommand(out io.Writer, args []string) error {
 		return fmt.Errorf("invalid_request: %w", err)
 	}
 	if desktop {
-		for _, name := range []string{"target", "lib", "version", "platform", "output"} {
+		for _, name := range []string{"target", "lib", "version", "platform", "output", "development"} {
 			if cliFlagSet(flags, name) {
 				return fmt.Errorf("invalid_request: --desktop cannot be combined with --%s", name)
 			}
@@ -56,6 +58,9 @@ func buildCommand(out io.Writer, args []string) error {
 	} else if cliFlagSet(flags, "env") {
 		return fmt.Errorf("invalid_request: --env is only supported with --desktop")
 	} else {
+		if development && cliFlagSet(flags, "lib") {
+			return fmt.Errorf("invalid_request: --development cannot be combined with --lib")
+		}
 		if cliFlagSet(flags, "lib") && strings.TrimSpace(libraryName) == "" {
 			return fmt.Errorf("invalid_request: --lib requires a non-empty selector")
 		}
@@ -110,6 +115,8 @@ func buildCommand(out io.Writer, args []string) error {
 	var result *build.Result
 	if libraryName != "" {
 		result, err = build.Prepare(appRoot, nil, cfg)
+	} else if development {
+		result, err = build.AppForTarget(appRoot, cfg, targetName, "development")
 	} else {
 		result, err = build.BuildArtifactForTarget(appRoot, cfg, targetName, "artifact")
 	}

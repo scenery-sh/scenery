@@ -19,6 +19,18 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0175-producer-transition-hardening.md",
+      "title": "Producer Transition and Verification Hardening",
+      "owner": "scenery runtime / ONLV development",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-10",
+      "review_after": "2026-10-10",
+      "summary": "Locally completed producer-transition hardening with strict cross-spec receipt ownership, retained runtime control, explicit changed-path obligations, served smoke identity and five measured loop stages; not published.",
+      "tags": ["plans", "execplans", "runtime", "validation", "build"]
+    },
+    {
       "path": "docs/schemas/scenery.db.migrate.schema.json",
       "title": "Application Schema Migration Result Schema",
       "owner": "scenery runtime / PostgreSQL",

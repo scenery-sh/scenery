@@ -42,7 +42,7 @@ scenery changes plan --changes <file> --base-workspace-revision <rev> --base-con
 scenery changes apply <plan> --expect-workspace-revision <rev> --expect-contract-revision <rev|null> [--approval-token <file>] [-o human|json]
 scenery changes rename <address> <new-name> [--dry-run] [--approval-token <file>] [-o human|json]
 scenery generate [--target contracts|typescript_client.<name>] [--check] [--app-root <path>] [-o human|json]
-scenery build [--target <go-target>] [--output <binary>] [-o human|json]
+scenery build [--development] [--target <go-target>] [--output <binary>] [-o human|json]
 scenery build --lib <name|address|artifact> [--version <vN.N.N>] [--platform all|host|darwin/arm64|linux/amd64|<csv>] [--output <directory>] [-o human|json]
 scenery build --desktop [--env <name>] [--app-root <path>] [-o human|json]
 scenery snapshot save --output <file.zip> [--db] [--storage] [--app-root <path>] [-o human|json]
@@ -532,7 +532,7 @@ scenery deploy teardown [-o json]
 ### Build, check, and generate
 
 ```text
-scenery build [--app-root <path>] [--target <go-target>] [--output <path>] [-o human|json]
+scenery build [--development] [--app-root <path>] [--target <go-target>] [--output <path>] [-o human|json]
 scenery build --lib <name|address|artifact> [--version <vN.N.N>] [--platform all|host|darwin/arm64|linux/amd64|<csv>] [--app-root <path>] [--output <directory>] [-o human|json]
 scenery build --desktop [--env <name>] [--app-root <path>] [-o human|json]
 scenery check [--app-root <path>] [-o json]
@@ -541,6 +541,12 @@ scenery generate sqlc [--app-root <path>] [--dry-run] [-o json]
 scenery provider lock [--check] [--app-root <path>] [-o human|json]
 scenery test [--app-root <path>] [go test flags/packages...]
 ```
+
+`build --development` builds a candidate with the same source-linked assistant
+assets as `up`, without starting or replacing a runtime. It defaults to the
+development Go target and cannot combine with `--lib` or `--desktop`. Ordinary
+`build` continues to embed production assets. Use the development variant when
+comparing candidate build-input identity with a served development generation.
 
 Plain `generate` has no `--dry-run`; use `--check` to detect drift without
 writing application artifacts. Default generation publishes ordinary Go and
@@ -777,7 +783,7 @@ scenery worktree list [--app-root <path>] [-o json]
 scenery worktree remove <name> [--app-root <path>] [-o json]
 scenery worktree upgrade [--app-root <path>] [--yes --expect-revision <digest>] [-o json]
 scenery framework use [--source <checkout>] [--app-root <path>] [-o human|json]
-scenery framework inspect [--app-root <path>] [-o human|json]
+scenery framework inspect [--runtime] [--app-root <path>] [-o human|json]
 ```
 
 `framework use` prepares the `scenery.sh` version selected by the application's
@@ -790,6 +796,9 @@ app-local immutable source snapshot, preserving other module selections and
 refusing to overwrite a concurrently changed `go.mod`. No runtime is started or
 stopped. Source mode remains an intentional local dependency edit; do not commit
 machine-local cache contents or a dependency on an unavailable local snapshot.
+The bootstrap only prepares candidate bytes. The selected executable recomputes
+and publishes its own final receipt and nested build-input identity, then emits
+its own CLI envelope, including across specification changes.
 
 Both commands emit the bounded `scenery.framework` result with source/executable
 digests and paths, a preparation receipt at `.scenery/build/framework.json`,
@@ -804,6 +813,18 @@ The supervisor verifies its compiled source stamp and the app's actual framework
 before each build; changing another checkout cannot silently select a new runtime.
 Repository validation stamps its worktree-local CLI automatically. An unbound
 source-built executable must prepare a matching producer before starting an app.
+
+The worktree lifetime owner separately publishes
+`.scenery/build/runtime-framework.json`. This is a root-bound producer locator,
+not process or resource authority. It survives shutdown to identify the last
+producer of retained state; only a new lifetime owner replaces it. App launchers
+route lifecycle inspection and shutdown through that executable, whose ordinary
+commands still require exact current retained/health identities and verified
+process ownership. Desired-source changes do not authorize old-state decoding.
+`framework inspect --runtime`, executed by the recorded runtime producer, verifies
+the locator and executable without consulting edited module/source inputs. It
+emits mode `runtime`, not HTTP health or current-source agreement. Generation,
+build and new startup still enforce desired producer/source agreement.
 
 `scenery db list -o json` reports the app Postgres database as `scenery.db.list`; the record includes the database name, redacted URL, source (`managed` or `external`), optional size, and the compiled service bindings. `scenery db shell [service]` opens the matching `psql` inside the identity-verified managed PostgreSQL container (external databases use host `psql`); a service argument pins `search_path` to `<service_schema>,scenery`. Put CLI selectors such as `--app-root` before the service; all following arguments are passed directly to `psql`. `scenery db reset [service]` resets one service schema with `ResetSchema` and clears the current app's discovered seed-ledger identities for that service so the following setup reconstructs its initial data; without a service it resets the managed app database and requires `--yes`. `scenery db drop` drops the managed app database. Destructive reset/drop operations require a stopped worktree, hold its exclusive operation lock, and refuse external DSNs. `scenery db server status|start|stop|logs [--app-root <path>]` selects only that worktree's retained cluster. Status is read-only and reports its scope, retained resource identity, and any incomplete restore; stop retains the container, volume, and credentials. `scenery db apply` applies configured migrations or the mutually exclusive `database.apply.command`; it does not run seeds or SQLC generation. Standalone apply/seed holds worktree ownership through all SQL and child commands; `db setup` holds it continuously across both phases.
 
@@ -985,6 +1006,8 @@ Command split:
 - `scenery validate list|inspect|graph -o json` returns `scenery.validation.list`, `scenery.validation.inspect`, and `scenery.validation.graph`. `scenery validate <profile> --dry-run -o json` returns `scenery.validation.plan` and must not execute shell, task, code-task, harness, database, or generation steps.
 - `scenery validate [<profile>] -o json --write` runs the resolved profile sequentially, fails fast, keeps stdout as one JSON document, captures child output as bounded evidence tails and artifacts, returns `scenery.validation.result`, and writes `.scenery/harness/validation/latest.json` plus `.scenery/harness/validation/<profile>-latest.json`.
 - `scenery validate changed --base <ref>` unions branch changes from `<base>...HEAD`, tracked changes against `HEAD`, and non-ignored untracked files. NUL-delimited Git output preserves literal names; renames include both paths. Paths outside the selected app root are excluded, and the app-relative result is sorted and deduplicated. Selection includes the default profile, adds profiles whose `paths` globs match, resolves nested `profile:` steps, deduplicates profiles, and reports its reasoning in JSON.
+- Changed selection reports `selection.coverage` for every path and `coverage_complete`. Dry-run checks are `planned`, never `checked`; executed required steps must all pass before a path is `checked`. A default profile counts only for its explicitly matched paths. Unmatched paths remain `unverified`, and execution returns `ok: false` even if every selected step passed. `validation.exemptions` contains `paths` and a nonblank `reason`; it marks only otherwise unmatched paths `exempt` and never masks a matching owner lane. Prefix a glob with `./` to anchor it to the app root; unprefixed basename globs retain basename matching.
+- Profiles with `manual: true` require a description and run only by explicit profile selection. Changed matching records them in each path's `manual_profiles` and leaves the obligation `unverified` without running the lane. Defaults and automatic profiles cannot reference manual profiles. Other selected checks still run, and unresolved paths/lanes remain in result `next_actions`. Separate manual runs are distinct evidence, not implicitly imported into a changed result.
 - Native schedule declarations run through the in-process scheduler. The API role reconciles schedules, while `scenery worker` executes scheduled operations without starting the public HTTP server.
 - `scenery worker` builds once and starts the app runtime in worker-only mode with no public HTTP server. It runs scheduled operations and local durable workers; generated binaries use `SCENERY_ROLE=worker`.
 - `scenery worker durable --endpoint <url> --token <token>` builds once and starts the app runtime as a remote durable worker. The generated binary receives `SCENERY_ROLE=worker`, `SCENERY_DURABLE_ENDPOINT`, `SCENERY_DURABLE_TOKEN`, and optional `SCENERY_DURABLE_SERVICES`, then polls remote durable lease endpoints and executes registered Go handlers.
@@ -997,6 +1020,7 @@ Runtime safety:
 
 - Generated binaries do not expose dev/admin endpoints by default.
 - Dev/admin endpoints such as `/__scenery/config`, `/platform.Stats`, and `/debug/pprof/*` are enabled only for the development child process launched by `scenery up` or when `SCENERY_DEV_ENDPOINTS=1` is set explicitly.
+- Complete linked development runtimes add `X-Scenery-Contract-Revision`, `X-Scenery-Implementation-Revision`, `X-Scenery-Build-Input-Digest`, `X-Scenery-Go-Target`, and `X-Scenery-Process-ID` to HTTP responses, including errors. These identify the serving process's linked bundle, never a newer candidate file. They are absent when dev endpoints are disabled or linked identity is incomplete. Compose the build-input digest with its verified runtime-bundle manifest to identify framework source and CLI executable inputs; a disk bundle alone is not served evidence.
 - Runtime CORS reflection is enabled in dev endpoint mode. Outside dev mode, CORS origins must be explicitly allowlisted with `SCENERY_CORS_ALLOW_ORIGINS`.
 - Build workspaces skip local secret and machine artifacts such as `.env`, `.env.*`, `.git`, `.scenery`, `node_modules`, `.DS_Store`, `__MACOSX`, and `coverage`.
 

@@ -89,6 +89,9 @@ func (p Planner) selectChangedProfiles(files []string) []string {
 		selected = append(selected, defaultProfile)
 	}
 	for _, match := range p.matchChangedProfiles(files) {
+		if p.Config.Validation.Profiles[match.Profile].Manual {
+			continue
+		}
 		if !containsString(selected, match.Profile) {
 			selected = append(selected, match.Profile)
 		}
@@ -136,6 +139,7 @@ func containsString(values []string, want string) bool {
 func globMatches(pattern, file string) bool {
 	pattern = filepath.ToSlash(strings.TrimSpace(pattern))
 	file = filepath.ToSlash(strings.TrimSpace(file))
+	pattern, anchored := strings.CutPrefix(pattern, "./")
 	if pattern == "" || file == "" {
 		return false
 	}
@@ -153,7 +157,7 @@ func globMatches(pattern, file string) bool {
 	if ok {
 		return true
 	}
-	if !strings.Contains(pattern, "/") {
+	if !anchored && !strings.Contains(pattern, "/") {
 		ok, _ = filepath.Match(pattern, filepath.Base(file))
 		return ok
 	}

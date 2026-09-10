@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -20,6 +21,7 @@ type frameworkOptions struct {
 	Command string
 	AppRoot string
 	Source  string
+	Runtime bool
 	JSON    bool
 }
 
@@ -48,17 +50,21 @@ func parseFrameworkArgs(args []string) (frameworkOptions, error) {
 	flags := newCLIFlagSet("framework")
 	flags.StringVar(&opts.AppRoot, "app-root", "", "")
 	flags.StringVar(&opts.Source, "source", "", "")
+	flags.BoolVar(&opts.Runtime, "runtime", false, "")
 	registerJSONOutput(flags, &opts.JSON)
 	positionals, err := parseCLIFlags(flags, args)
 	if err != nil {
 		return opts, err
 	}
 	if len(positionals) != 1 || (positionals[0] != "use" && positionals[0] != "inspect") {
-		return opts, fmt.Errorf("usage: scenery framework use|inspect [--source <checkout>] [--app-root <path>] [-o json]")
+		return opts, fmt.Errorf("usage: scenery framework use|inspect [--source <checkout>] [--runtime] [--app-root <path>] [-o json]")
 	}
 	opts.Command = positionals[0]
 	if opts.Command == "inspect" && opts.Source != "" {
 		return opts, fmt.Errorf("--source belongs only to scenery framework use")
+	}
+	if opts.Command != "inspect" && opts.Runtime {
+		return opts, fmt.Errorf("--runtime belongs only to scenery framework inspect")
 	}
 	return opts, nil
 }
@@ -80,11 +86,30 @@ func runFrameworkCommand(ctx context.Context, stdout io.Writer, args []string) e
 	changed := false
 	if opts.Command == "use" {
 		selection, changed, err = useAppFramework(ctx, root, opts.Source)
+		if err == nil && !build.OwnsFrameworkSelection(selection) {
+			// B must publish and emit B's exact protocol. A must not decode,
+			// restamp or wrap that output with its own specification identity.
+			command := exec.CommandContext(ctx, selection.Executable, append([]string{"framework"}, args...)...)
+			command.Stdout, command.Stderr, command.Stdin = stdout, os.Stderr, os.Stdin
+			if err := command.Run(); err != nil {
+				if exit, ok := errors.AsType[*exec.ExitError](err); ok {
+					return &silentCLIError{err: err, code: exit.ExitCode()}
+				}
+				return err
+			}
+			return nil
+		}
+	} else if opts.Runtime {
+		selection, err = build.ReadRuntimeFramework(root)
 	} else {
 		selection, err = build.ReadFrameworkSelection(root)
 	}
 	if err == nil {
-		err = build.VerifyFrameworkSelection(ctx, selection)
+		if opts.Runtime {
+			err = build.VerifyRuntimeFramework(selection)
+		} else {
+			err = build.VerifyFrameworkSelection(ctx, selection)
+		}
 	}
 	if err != nil {
 		return &codedCLIError{err: err, code: 3}
@@ -93,6 +118,9 @@ func runFrameworkCommand(ctx context.Context, stdout io.Writer, args []string) e
 	if selection.Version == "dev" {
 		mode = "source"
 	}
+	if opts.Runtime {
+		mode = "runtime"
+	}
 	quote := func(value string) string { return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'" }
 	result := frameworkResult{
 		cliPayloadIdentity: newCLIPayloadIdentity("scenery.framework"), OK: true, AppRoot: root, Mode: mode,
@@ -100,6 +128,10 @@ func runFrameworkCommand(ctx context.Context, stdout io.Writer, args []string) e
 		SourceRevision: selection.SourceRevision, Executable: selection.Executable, ExecutableDigest: selection.ExecutableDigest,
 		SelectionPath: build.FrameworkSelectionPath(root), ModuleChanged: changed,
 		NextCommand: quote(selection.Executable) + " up --app-root " + quote(root),
+	}
+	if opts.Runtime {
+		result.SelectionPath = build.RuntimeFrameworkPath(root)
+		result.NextCommand = quote(selection.Executable) + " ps --app-root " + quote(root)
 	}
 	if opts.JSON {
 		return writeCLIJSON(stdout, result)
@@ -142,9 +174,18 @@ func useAppFramework(ctx context.Context, root, sourceOverride string) (build.Fr
 	revision := ""
 	if local {
 		version = "dev"
-		command := exec.CommandContext(ctx, "git", "-C", source, "rev-parse", "HEAD")
-		if output, err := command.Output(); err == nil {
-			revision = strings.TrimSpace(string(output))
+		// A private snapshot can sit inside the application's Git checkout.
+		// Never report that enclosing application's HEAD as framework provenance.
+		canonicalSource, _ := filepath.EvalSymlinks(source)
+		canonicalSource, _ = filepath.Abs(canonicalSource)
+		command := exec.CommandContext(ctx, "git", "-C", source, "rev-parse", "--show-toplevel")
+		if output, err := command.Output(); err == nil && strings.TrimSpace(string(output)) == canonicalSource {
+			command = exec.CommandContext(ctx, "git", "-C", source, "rev-parse", "HEAD")
+			if output, err := command.Output(); err == nil {
+				revision = strings.TrimSpace(string(output))
+			}
+		} else if retained, err := build.ReadFrameworkSelection(root); err == nil && retained.Source.Root == canonicalSource {
+			revision = retained.SourceRevision
 		}
 	}
 	selection, err = build.PrepareFramework(ctx, root, source, version, revision)
@@ -161,6 +202,9 @@ func useAppFramework(ctx context.Context, root, sourceOverride string) (build.Fr
 	current, err := os.ReadFile(modulePath)
 	if err != nil || !bytes.Equal(current, before) {
 		return selection, false, fmt.Errorf("application go.mod changed while preparing the framework; retry without overwriting that edit")
+	}
+	if !build.OwnsFrameworkSelection(selection) {
+		return selection, false, nil
 	}
 	// A torn selection is fail-closed: runtime verification compares the receipt,
 	// authored module and actual source. No runtime is started by this command.

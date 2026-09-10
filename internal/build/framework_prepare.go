@@ -36,8 +36,12 @@ func FrameworkSelectionPath(appRoot string) string {
 }
 
 func ReadFrameworkSelection(appRoot string) (FrameworkSelection, error) {
+	return readFrameworkSelection(appRoot, FrameworkSelectionPath(appRoot))
+}
+
+func readFrameworkSelection(appRoot, path string) (FrameworkSelection, error) {
 	var selection FrameworkSelection
-	data, err := os.ReadFile(FrameworkSelectionPath(appRoot))
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return selection, err
 	}
@@ -90,6 +94,31 @@ func PrepareFramework(ctx context.Context, appRoot, sourceRoot, version, revisio
 	}
 	if snapshot.Digest != source.Digest {
 		return selection, fmt.Errorf("framework source changed during materialization; retry from a stable source checkout")
+	}
+	// Repeated preparation can dispatch straight to an existing immutable
+	// producer. Verification is required before reuse; a path hit is not proof.
+	if retained, err := ReadFrameworkSelection(canonical); err == nil &&
+		retained.Source.Digest == source.Digest && retained.Version == version &&
+		VerifyPreparedFramework(retained) == nil {
+		retained.SourceOrigin, retained.SourceRevision = source.Root, revision
+		return retained, nil
+	}
+	// Finalization runs in the selected producer. Reuse its already verified,
+	// content-addressed executable instead of rebuilding it recursively. The
+	// source manifest above was constructed by this process, not the bootstrap.
+	if executable, err := os.Executable(); err == nil {
+		if executable, err = filepath.EvalSymlinks(executable); err == nil {
+			if digest, err := digestExecutable(executable); err == nil {
+				candidate := FrameworkSelection{
+					ArtifactIdentity: machine.NewArtifactIdentity(frameworkSelectionKind, frameworkSelectionSchema),
+					AppRoot:          canonical, Source: snapshot, SourceOrigin: source.Root, SourceRevision: revision,
+					Version: version, Executable: executable, ExecutableDigest: digest,
+				}
+				if OwnsFrameworkSelection(candidate) && VerifyPreparedFramework(candidate) == nil {
+					return candidate, nil
+				}
+			}
+		}
 	}
 	// Module archives contain dashboard source, not ignored compiled assets.
 	// Build only inside the private selected snapshot; never mutate the module
@@ -157,14 +186,38 @@ func PrepareFramework(ctx context.Context, appRoot, sourceRoot, version, revisio
 }
 
 func WriteFrameworkSelection(selection FrameworkSelection) error {
-	if err := ensureFrameworkStateRoot(selection.AppRoot, filepath.Dir(FrameworkSelectionPath(selection.AppRoot))); err != nil {
+	if !OwnsFrameworkSelection(selection) {
+		return fmt.Errorf("only the selected executable may publish its framework selection")
+	}
+	if err := VerifyPreparedFramework(selection); err != nil {
+		return err
+	}
+	return writeFrameworkSelectionAt(selection, FrameworkSelectionPath(selection.AppRoot))
+}
+
+func writeFrameworkSelectionAt(selection FrameworkSelection, path string) error {
+	if err := ensureFrameworkStateRoot(selection.AppRoot, filepath.Dir(path)); err != nil {
 		return err
 	}
 	data, err := json.MarshalIndent(selection, "", "  ")
 	if err != nil {
 		return err
 	}
-	return atomicfile.Write(FrameworkSelectionPath(selection.AppRoot), append(data, '\n'), 0o600, atomicfile.Options{SyncFile: true, SyncDir: true})
+	return atomicfile.Write(path, append(data, '\n'), 0o600, atomicfile.Options{SyncFile: true, SyncDir: true})
+}
+
+// OwnsFrameworkSelection is the finalization boundary, not an old-spec decoder.
+// Bootstrap results locate a candidate but cannot authorize publishing its receipt.
+func OwnsFrameworkSelection(selection FrameworkSelection) bool {
+	if linkedFrameworkDigest == "" || linkedFrameworkDigest != selection.Source.Digest {
+		return false
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		return false
+	}
+	executable, err = filepath.EvalSymlinks(executable)
+	return err == nil && executable == selection.Executable
 }
 
 func materializeFrameworkSource(source FrameworkSource, destination string) error {

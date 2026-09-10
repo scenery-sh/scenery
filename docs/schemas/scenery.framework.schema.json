@@ -7,10 +7,10 @@
   "required": ["kind", "schema_revision", "ok", "app_root", "mode", "framework_version", "source_root", "source_digest", "executable", "executable_digest", "selection_path", "module_changed", "next_command"],
   "properties": {
     "kind": { "const": "scenery.framework" },
-    "schema_revision": { "const": "sha256:ad9ff2eca3bffd35da161a2688dea41cc0825ca00abeb785a8385f6c26be2248" },
+    "schema_revision": { "const": "sha256:98e5bcf96f297588150432f7e2eb3e1ea6f784e2333d870b589112df8b18cf4b" },
     "ok": { "type": "boolean" },
     "app_root": { "type": "string", "minLength": 1 },
-    "mode": { "enum": ["pinned", "source"] },
+    "mode": { "enum": ["pinned", "source", "runtime"] },
     "framework_version": { "type": "string", "minLength": 1 },
     "source_root": { "type": "string", "minLength": 1 },
     "source_digest": { "$ref": "#/$defs/digest" },

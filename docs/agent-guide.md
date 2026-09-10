@@ -297,6 +297,13 @@ attempts recovery from independently retained executable bytes without allowing
 overlapping worker generations. Build failure and current served revision are
 separate evidence.
 
+Framework selection and the last runtime producer are separate. Launchers use
+the root-bound `.scenery/build/runtime-framework.json` locator for lifecycle
+inspection/shutdown after a module edit. Its executable still performs strict
+current protocol and process-ownership checks; `framework inspect --runtime`
+does not require new-source parity. The selected candidate publishes its own
+selection receipt, so bootstrap and candidate may have different spec revisions.
+
 For app schema evolution, declare immutable numbered SQL under
 `database.migrations`, inspect `db migrate --status`, and apply while the managed
 runtime is stopped. Pending SQL and its checksum ledger commit atomically per
@@ -313,6 +320,14 @@ Keep app validation in configured profiles: `validate changed --base <ref>
 --dry-run -o json` includes branch, tracked working-tree and untracked changes.
 Use `harness --with-validation=<profile>` for a selected domain journey; framework
 inspection alone does not establish application writes or browser rendering.
+Changed results account for every path: `planned`, `checked`, `exempt` or
+`unverified`. Default checks do not cover unmatched paths; manual owner profiles
+remain explicit obligations, and incomplete coverage fails the executed result.
+Use root-anchored `./package.json` patterns for root-only consumer fan-out.
+For runtime smoke proof, compare the development HTTP identity headers with a
+fresh `build --development` candidate's build-input manifest (ordinary `build`
+embeds production assistant assets). Record identities around the journey
+and require the intended same-build/new-process relationship across restart.
 
 SQL requirements are compiled once from registered typed `data_source` bindings
 and selected framework auth/durable registrations. Read `sql_requirements` in
