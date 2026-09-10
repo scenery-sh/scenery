@@ -40,3 +40,29 @@ func commandWorktreeClient(ctx context.Context, root string) (*localagent.Client
 	}
 	return client, nil
 }
+
+// commandRetainedWorktreeClient reaches the exact owner socket without
+// requiring the inspecting producer's current agent specification. The socket
+// path is derived from the canonical root; the retained health handshake then
+// proves that the endpoint belongs to that owner. Mutating operations still
+// use commandWorktreeClient or the retained producer itself.
+func commandRetainedWorktreeClient(ctx context.Context, root string) (*localagent.Client, error) {
+	paths, err := commandWorktreePaths(root)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := paths.LoadRetainedWorktreeIdentity(); err != nil {
+		return nil, err
+	}
+	client := localagent.NewClient(paths.Socket)
+	health, err := client.Health(ctx)
+	if err != nil {
+		client.CloseIdleConnections()
+		return nil, err
+	}
+	if err := localagent.ValidateRetainedControlHealth(health, paths.Socket); err != nil {
+		client.CloseIdleConnections()
+		return nil, err
+	}
+	return client, nil
+}

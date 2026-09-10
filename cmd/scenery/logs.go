@@ -168,8 +168,13 @@ func discoverRuntimeAppIdentity(appRootOption string) (string, string, error) {
 		if recordErr == nil {
 			return root, record.AppID, nil
 		}
-		if !errors.Is(recordErr, os.ErrNotExist) {
-			return "", "", recordErr
+		if errors.Is(recordErr, os.ErrNotExist) {
+			// No retained owner: ordinary diagnostics fall back to the desired
+			// configuration below.
+		} else if retained, retainedErr := paths.LoadRetainedWorktreeIdentity(); retainedErr == nil {
+			return root, retained.AppID, nil
+		} else {
+			return "", "", errors.Join(recordErr, retainedErr)
 		}
 	}
 	root, cfg, configErr := discoverConfiguredApp(start)
@@ -275,6 +280,18 @@ func resolveLogsVictoriaStack(ctx context.Context, appRoot string) *victoria.Sta
 	agentCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 	if client, err := commandWorktreeClient(agentCtx, appRoot); err == nil {
+		defer client.CloseIdleConnections()
+		if substrate, err := client.GetSubstrate(agentCtx, localagent.SubstrateVictoria); err == nil {
+			if stack := victoria.FromSubstrate(substrate); stack != nil {
+				return stack
+			}
+		}
+	}
+	// A newer bootstrap producer may not decode the retained worktree record
+	// or share the old agent specification. Read the old owner's substrate
+	// through its root-bound control socket without adopting that agent.
+	if client, err := commandRetainedWorktreeClient(agentCtx, appRoot); err == nil {
+		defer client.CloseIdleConnections()
 		if substrate, err := client.GetSubstrate(agentCtx, localagent.SubstrateVictoria); err == nil {
 			if stack := victoria.FromSubstrate(substrate); stack != nil {
 				return stack
@@ -291,11 +308,15 @@ func resolveLogsSessionID(ctx context.Context, value, appRoot string) (string, e
 	}
 	client, err := commandWorktreeClient(ctx, appRoot)
 	if err != nil {
+		client, err = commandRetainedWorktreeClient(ctx, appRoot)
+	}
+	if err != nil {
 		if value == "current" {
 			return "", err
 		}
 		return "", nil
 	}
+	defer client.CloseIdleConnections()
 	sessions, err := client.List(ctx, appRoot)
 	if err != nil {
 		if value == "current" {

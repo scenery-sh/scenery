@@ -1,9 +1,11 @@
 package agent
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"time"
 
@@ -27,6 +29,49 @@ type WorktreeRecord struct {
 	SQLAllocationChecked bool              `json:"sql_allocation_checked"`
 	RouterAddress        string            `json:"router_address,omitempty"`
 	Postgres             *WorktreePostgres `json:"postgres,omitempty"`
+}
+
+// RetainedWorktreeIdentity is the small, provider-neutral identity needed by
+// read-only control paths while a newer producer is inspecting an older
+// retained runtime. It deliberately ignores the producer/spec header and
+// never authorizes a state mutation; callers must still use the retained
+// control socket and verified process records for lifecycle operations.
+type RetainedWorktreeIdentity struct {
+	AppRoot   string    `json:"app_root"`
+	AppID     string    `json:"app_id"`
+	UserID    int       `json:"user_id"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// LoadRetainedWorktreeIdentity reads only the stable ownership fields from a
+// private worktree record. Unlike LoadRecord, it does not require the current
+// Scenery specification, so a newer bootstrap producer can inspect or route
+// commands to an older retained owner without migrating its durable state.
+func (p WorktreePaths) LoadRetainedWorktreeIdentity() (RetainedWorktreeIdentity, error) {
+	var identity RetainedWorktreeIdentity
+	if err := checkPrivateWorktreeFile(p.Record); err != nil {
+		return identity, err
+	}
+	data, err := os.ReadFile(p.Record)
+	if err != nil {
+		return identity, err
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	if err := decoder.Decode(&identity); err != nil {
+		return RetainedWorktreeIdentity{}, fmt.Errorf("decode retained worktree identity: %w", err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return RetainedWorktreeIdentity{}, fmt.Errorf("retained worktree identity has trailing JSON")
+		}
+		return RetainedWorktreeIdentity{}, fmt.Errorf("decode retained worktree identity: %w", err)
+	}
+	if identity.AppRoot != p.AppRoot || identity.AppID == "" || identity.UserID != os.Getuid() || identity.CreatedAt.IsZero() || identity.UpdatedAt.Before(identity.CreatedAt) {
+		return RetainedWorktreeIdentity{}, fmt.Errorf("retained worktree identity does not match the selected root and local user")
+	}
+	return identity, nil
 }
 
 func NewWorktreeRecord(paths WorktreePaths, appID string) WorktreeRecord {

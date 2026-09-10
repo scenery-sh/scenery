@@ -2,6 +2,7 @@ package agent
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"testing"
 )
@@ -65,5 +66,33 @@ func TestWorktreeRecordDecodeFailureIsReadOnly(t *testing.T) {
 	got, err := os.ReadFile(p.Record)
 	if err != nil || !bytes.Equal(got, broken) {
 		t.Fatal("failed decode modified state")
+	}
+}
+
+func TestRetainedWorktreeIdentityIgnoresProducerSpec(t *testing.T) {
+	p, err := PathsForWorktree(t.TempDir(), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	op, err := p.BeginOperation()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = op.Close() })
+	record := NewWorktreeRecord(p, "books")
+	record.SpecRevision = "sha256:" + string(bytes.Repeat([]byte{'a'}, 64))
+	encoded, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p.Record, encoded, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	identity, err := p.LoadRetainedWorktreeIdentity()
+	if err != nil {
+		t.Fatalf("LoadRetainedWorktreeIdentity() error = %v", err)
+	}
+	if identity.AppRoot != p.AppRoot || identity.AppID != "books" {
+		t.Fatalf("identity = %+v", identity)
 	}
 }

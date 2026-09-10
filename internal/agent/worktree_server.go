@@ -39,6 +39,18 @@ func ValidateControlHealth(health HealthResponse, socket string) error {
 	return nil
 }
 
+// ValidateRetainedControlHealth checks only the frozen endpoint identity used
+// to reach an older retained owner. It intentionally does not compare the
+// current specification or agent schema: the retained owner remains the
+// authority for its own protocol, and lifecycle callers must use read-only
+// inspection or owner-checked operations exposed by that socket.
+func ValidateRetainedControlHealth(health HealthResponse, socket string) error {
+	if health.Kind != AgentStateKind || health.SchemaRevision == "" || health.PID <= 0 || health.SocketPath != socket {
+		return fmt.Errorf("failed_precondition: retained control endpoint does not match the selected owner")
+	}
+	return nil
+}
+
 // NewWorktreeServer embeds the current control and routing handlers in the
 // supervisor. The caller holds the live lock for this server's entire lifetime.
 // No machine edge, trust store, deploy registry, launchd or systemd is consulted.
