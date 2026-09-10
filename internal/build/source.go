@@ -476,7 +476,7 @@ func sourceFileData(path, rel string) ([]byte, error) {
 	}
 	switch rel {
 	case "go.mod":
-		return patchGoModData(data, app.RepoRoot())
+		return patchGoModData(data, filepath.Dir(path))
 	}
 	return data, nil
 }
@@ -496,30 +496,36 @@ func writeFileIfChanged(root, rel string, data []byte) error {
 	return os.WriteFile(path, data, 0o644)
 }
 
-func patchGoModData(data []byte, repoRoot string) ([]byte, error) {
+func patchGoModData(data []byte, moduleRoot string) ([]byte, error) {
 	file, err := modfile.Parse("go.mod", data, nil)
 	if err != nil {
 		return nil, err
 	}
-	// Source checkouts replace the framework so app builds see local Scenery
-	// edits. Release binaries are built with -trimpath and expose a module-
-	// relative caller path (for example "scenery.sh"); preserve the app's exact
-	// published requirement instead of emitting an invalid filesystem replace.
-	if !filepath.IsAbs(repoRoot) || !pathExists(filepath.Join(repoRoot, "go.mod")) {
-		return file.Format()
-	}
-	if err := file.AddRequire("scenery.sh", "v0.0.0"); err != nil && !strings.Contains(err.Error(), "already exists") {
-		return nil, err
-	}
-	_ = file.DropReplace("scenery.sh", "")
-	if err := file.AddReplace("scenery.sh", "", repoRoot, ""); err != nil {
-		return nil, err
+	// The authored module is the dependency selection authority. Moving it to
+	// the generated workspace only requires rebasing local replacement paths;
+	// it must never silently substitute the CLI's source checkout or version.
+	for _, replacement := range file.Replace {
+		if replacement.New.Version != "" || filepath.IsAbs(replacement.New.Path) {
+			continue
+		}
+		path := filepath.Clean(filepath.Join(moduleRoot, replacement.New.Path))
+		if err := file.AddReplace(replacement.Old.Path, replacement.Old.Version, path, ""); err != nil {
+			return nil, err
+		}
 	}
 	formatted, err := file.Format()
 	if err != nil {
 		return nil, err
 	}
 	return formatted, nil
+}
+
+func seedWorkspaceSceneryGoSum(workspaceDir string) error {
+	root, local, err := localSceneryReplaceRoot(filepath.Join(workspaceDir, "go.mod"))
+	if err != nil || !local {
+		return err
+	}
+	return seedSceneryGoSum(workspaceDir, root)
 }
 
 func seedSceneryGoSum(workspaceDir, repoRoot string) error {

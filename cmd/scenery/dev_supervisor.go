@@ -42,6 +42,7 @@ type runningApp struct {
 	buildDir string
 	pid      string
 	output   *safeLineTail
+	launch   *appStartPlan
 }
 
 type devSupervisor struct {
@@ -521,6 +522,14 @@ func (s *devSupervisor) startVictoriaStack(ctx context.Context) *victoria.Stack 
 }
 
 func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, snapshot fileSnapshot) error {
+	previousConfig, previousEnvironment := s.cfg, s.env
+	activated := false
+	defer func() {
+		if !activated {
+			s.cfg, s.env = previousConfig, previousEnvironment
+			s.setAppIdentity(previousConfig)
+		}
+	}()
 	if cfg, err := s.reloadConfig(); err != nil {
 		return s.handleCompileError(ctx, nil, nil, err)
 	} else {
@@ -555,13 +564,13 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 			return err
 		}
 	}
-	if s.assistants != nil {
-		// Prepare private descriptors, managed Node, and helper overlays before
-		// the app child starts. The app-owned MCP gateway then binds those slots;
-		// helper processes start only after the app is accepting connections.
-		_ = s.assistants.Prepare(ctx, plan.Result.Contract)
-		setAssistantImplementationWatch(s.root, assistantDefinitionsFromResult(plan.Result.Contract, s.root))
-		s.refreshAssistantRuntimeConfig()
+	candidate, err := s.prepareAppStart(ctx, plan.Result, plan.Metadata, plan.APIEncoding)
+	defer s.releaseUnusedAppBinary(candidate)
+	if err == nil {
+		err = preflightAppStart(ctx, candidate)
+	}
+	if err != nil {
+		return s.handleCompileError(ctx, nil, nil, err)
 	}
 
 	// Detach before stopping so the exit watchers treat this as an intentional
@@ -569,32 +578,28 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 	// can register the session as "stopped" after the new app is running.
 	previous := s.detachCurrentApp()
 	var current *runningApp
+	var recovered bool
 	if err := s.console.Phase("Starting scenery application", func() error {
-		if previous != nil {
-			if err := previous.stop(); err != nil {
-				return err
-			}
-		}
-		current, err = s.startApp(ctx, plan.Result, plan.Metadata, plan.APIEncoding)
-		if err != nil {
-			return err
-		}
-		return nil
+		current, recovered, err = replaceAppGeneration(ctx, previous, candidate, (*runningApp).stop, s.startPreparedApp)
+		return err
 	}); err != nil {
-		return s.handleCompileError(ctx, plan.Metadata, plan.APIEncoding, err)
+		s.mu.Lock()
+		s.current = current
+		s.mu.Unlock()
+		if recovered {
+			s.setRunning(current.pid, current.launch.metadata, current.launch.apiEncoding)
+			s.writeProcessEvent(ctx, "process/rollback", map[string]any{"pid": current.pid, "reason": err.Error()})
+		}
+		return s.handleCompileError(ctx, nil, nil, err)
 	}
-	if s.assistants != nil {
-		// The generated app composition has now initialized the private gateway;
-		// start helper children against its stable loopback URL. Any helper
-		// outage remains an assistant status/event, never an app startup failure.
-		_ = s.assistants.StartPrepared(ctx)
-		s.refreshAssistantRuntimeConfig()
-	}
-
+	activated = true
 	s.mu.Lock()
 	s.current = current
 	s.buildFailed = false
 	s.mu.Unlock()
+	if previous != nil {
+		s.releaseUnusedAppBinary(previous.launch)
+	}
 
 	s.setCompiling(false, "")
 	s.setRunning(current.pid, plan.Metadata, plan.APIEncoding)
@@ -646,17 +651,12 @@ func (s *devSupervisor) reloadConfig() (app.Config, error) {
 	return cfg, nil
 }
 
-func (s *devSupervisor) startApp(ctx context.Context, result *build.Result, metadata, apiEncoding json.RawMessage) (*runningApp, error) {
+func (s *devSupervisor) prepareAppStart(ctx context.Context, result *build.Result, metadata, apiEncoding json.RawMessage) (*appStartPlan, error) {
 	if result == nil || result.Contract == nil || !result.Contract.Valid() {
 		return nil, fmt.Errorf("application startup requires a valid compiled contract")
 	}
 	agentSession := s.currentAgentSession()
 	binary := result.Binary
-	if sessionBinary, err := prepareSessionAppBinary(agentSession, result.Binary); err != nil {
-		return nil, err
-	} else if sessionBinary != "" {
-		binary = sessionBinary
-	}
 	baseEnv, err := appEnvWithDotEnv(s.processEnvironment(), s.root, s.env.DotEnvFiles()...)
 	if err != nil {
 		return nil, err
@@ -702,10 +702,12 @@ func (s *devSupervisor) startApp(ctx context.Context, result *build.Result, meta
 	if path := strings.TrimSpace(s.assistantTokenKeyPath); path != "" {
 		env = append(env, runtime.AssistantTokenKeyFileEnv+"="+path)
 	}
-	if err := backendAvailableBeforeStartup(s.backend); err != nil {
-		return nil, fmt.Errorf("app listen address %s is unavailable before startup: %w", s.addr, err)
+	if sessionBinary, err := prepareSessionAppBinary(agentSession, result.Binary); err != nil {
+		return nil, err
+	} else if sessionBinary != "" {
+		binary = sessionBinary
 	}
-	process, err := startDevManagedProcess(ctx, devProcessStartRequest{
+	return &appStartPlan{result: result, metadata: metadata, apiEncoding: apiEncoding, request: devProcessStartRequest{
 		Name:    "api",
 		Kind:    "app",
 		Role:    "scenery-api",
@@ -727,24 +729,45 @@ func (s *devSupervisor) startApp(ctx context.Context, result *build.Result, meta
 			}
 			s.eventSink().Output(ctx, source, data)
 		},
-	})
+	}}, nil
+}
+
+func (s *devSupervisor) startPreparedApp(ctx context.Context, plan *appStartPlan) (*runningApp, error) {
+	if s.assistants != nil {
+		// Only replace helper descriptors after the previous app has stopped.
+		// Recovery prepares the retained contract again before starting it.
+		_ = s.assistants.Prepare(ctx, plan.result.Contract)
+		setAssistantImplementationWatch(s.root, assistantDefinitionsFromResult(plan.result.Contract, s.root))
+		s.refreshAssistantRuntimeConfig()
+	}
+	if err := backendAvailableBeforeStartup(s.backend); err != nil {
+		return nil, fmt.Errorf("app listen address %s is unavailable before startup: %w", s.addr, err)
+	}
+	process, err := startDevManagedProcess(ctx, plan.request)
 	if err != nil {
 		return nil, err
 	}
 	app := &runningApp{
 		process:  process,
 		cmd:      process.Cmd,
-		buildDir: result.Dir,
+		buildDir: plan.result.Dir,
 		pid:      fmt.Sprintf("%d", process.PID),
 		output:   process.Tail,
+		launch:   plan,
 	}
 	go func() {
 		<-process.Done
 		s.handleExit(context.Background(), app)
 	}()
 	if err := s.waitForAppStartup(ctx, app); err != nil {
-		_ = app.stop()
+		if stopErr := app.stop(); stopErr != nil {
+			return app, errors.Join(err, fmt.Errorf("candidate shutdown is unconfirmed; rollback refused: %w", stopErr))
+		}
 		return nil, err
+	}
+	if s.assistants != nil {
+		_ = s.assistants.StartPrepared(ctx)
+		s.refreshAssistantRuntimeConfig()
 	}
 	return app, nil
 }
@@ -767,198 +790,6 @@ func (s *devSupervisor) refreshAssistantRuntimeConfig() {
 	if err := runtime.WriteAssistantRuntimeConfig(path, s.assistants.RuntimeConfig()); err != nil {
 		s.eventSink().Emit(context.Background(), devdash.DevSource{ID: "assistant-runtime", Kind: "assistant", Name: "assistant-runtime", Role: "assistant-bootstrap", Status: "error"}, "error", "assistant runtime config unavailable", map[string]any{"error": err.Error()})
 	}
-}
-
-func prepareSessionAppBinary(session *localagent.Session, binary string) (string, error) {
-	if session == nil || strings.TrimSpace(session.StateRoot) == "" || strings.TrimSpace(binary) == "" {
-		return "", nil
-	}
-	dir := filepath.Join(session.StateRoot, "run", "app")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", err
-	}
-	name := filepath.Base(binary)
-	if strings.TrimSpace(name) == "" || name == "." || name == string(filepath.Separator) {
-		name = "scenery-app"
-	}
-	if !strings.HasPrefix(name, "scenery-app") {
-		name = "scenery-app-" + name
-	}
-	target := filepath.Join(dir, name)
-	_ = os.Remove(target)
-	if err := os.Symlink(binary, target); err == nil {
-		return target, nil
-	} else {
-		linkErr := err
-		if err := os.Link(binary, target); err == nil {
-			return target, nil
-		} else if copyErr := copySessionAppBinary(binary, target); copyErr == nil {
-			return target, nil
-		} else {
-			return "", fmt.Errorf("prepare session app binary %s: symlink: %v; hardlink/copy: %w", target, linkErr, copyErr)
-		}
-	}
-}
-
-func copySessionAppBinary(source, target string) error {
-	stat, err := os.Stat(source)
-	if err != nil {
-		return err
-	}
-	in, err := os.Open(source)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = in.Close() }()
-	out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, stat.Mode().Perm())
-	if err != nil {
-		return err
-	}
-	_, copyErr := io.Copy(out, in)
-	closeErr := out.Close()
-	if copyErr != nil {
-		_ = os.Remove(target)
-		return copyErr
-	}
-	if closeErr != nil {
-		_ = os.Remove(target)
-		return closeErr
-	}
-	return nil
-}
-
-type devDatabaseSetup struct {
-	Fingerprint string
-	Seeds       []dbSeedPlan
-}
-
-func (s *devSupervisor) nextDevDatabaseSetup(initial bool, contract *compiler.Result) (devDatabaseSetup, bool, error) {
-	setup, hasWork, err := buildDevDatabaseSetup(s.root, s.cfg, contract)
-	if err != nil || !hasWork {
-		return setup, false, err
-	}
-	if !initial && setup.Fingerprint == s.dbSetupFingerprint {
-		if s.console != nil && s.console.verbose {
-			s.console.Event("database.setup.skip", map[string]any{
-				"reason": "unchanged-inputs",
-			})
-		}
-		return setup, false, nil
-	}
-	return setup, true, nil
-}
-
-func buildDevDatabaseSetup(root string, cfg app.Config, contract *compiler.Result) (devDatabaseSetup, bool, error) {
-	var inputs []string
-	applyCommand := strings.TrimSpace(cfg.Database.Apply.Command)
-	if applyCommand != "" {
-		data, err := json.Marshal(cfg.Database.Apply)
-		if err != nil {
-			return devDatabaseSetup{}, false, err
-		}
-		inputs = append(inputs, "apply:"+string(data))
-	}
-	seeds, err := discoverDBSeedPlansForContract(root, cfg, "development", contract)
-	if err != nil {
-		return devDatabaseSetup{}, false, err
-	}
-	for _, seed := range seeds {
-		inputs = append(inputs, "seed:"+seed.Path+":"+seed.SHA256)
-	}
-	if len(inputs) == 0 {
-		return devDatabaseSetup{}, false, nil
-	}
-	sort.Strings(inputs)
-	sum := sha256.Sum256([]byte(strings.Join(inputs, "\n")))
-	return devDatabaseSetup{
-		Fingerprint: hex.EncodeToString(sum[:]),
-		Seeds:       seeds,
-	}, true, nil
-}
-
-func (s *devSupervisor) runDevDatabaseSetup(ctx context.Context, setup devDatabaseSetup, contract *compiler.Result) error {
-	baseEnv, err := appEnvWithDotEnv(s.processEnvironment(), s.root, s.env.DotEnvFiles()...)
-	if err != nil {
-		return err
-	}
-	appBaseEnv := s.appDatabaseAuthorityEnv(baseEnv, contract.SQLRequirements)
-	managedEnv, err := s.managedAppEnv(ctx, baseEnv, contract.SQLRequirements)
-	if err != nil {
-		return err
-	}
-	env := appChildEnv(
-		appBaseEnv,
-		s.console != nil && s.console.palette.Enabled(),
-		"SCENERY_APP_ID="+s.activeAppID(),
-		"SCENERY_APP_ROOT="+s.root,
-		"SCENERY_ENV="+s.env.Name,
-		"SCENERY_RUNTIME_ENV="+s.env.Name,
-		"SCENERY_DEV_SUPERVISOR=1",
-	)
-	env = append(env, managedEnv...)
-	env = append(env, managedDatabaseSetupEnv(contract.SQLRequirements, managedEnv)...)
-	storageEnv, err := storageCapabilityEnv(ctx, s.root, s.cfg, s.currentAgentSession(), baseEnv, "")
-	if err != nil {
-		return err
-	}
-	env = append(env, storageEnv...)
-	source := devdash.DevSource{ID: "database-setup", Kind: "setup", Name: "database setup", Role: "database", Status: "running"}
-	s.eventSink().Emit(ctx, source, "info", "database setup started", map[string]any{
-		"seed_count": len(setup.Seeds),
-	})
-	if err := waitForDatabaseSetupConnection(ctx, env); err != nil {
-		source.Status = "error"
-		s.eventSink().Emit(ctx, source, "error", "database setup connection failed", map[string]any{
-			"error": err.Error(),
-		})
-		return err
-	}
-	if strings.TrimSpace(s.cfg.Database.Apply.Command) != "" {
-		applyStdout := newSetupOutputWriter(s.console, "stdout", os.Stdout)
-		applyStderr := newSetupOutputWriter(s.console, "stderr", os.Stderr)
-		applyErr := runDatabaseApplyCommandWithEnvIO(ctx, s.root, s.cfg.Database.Apply, env, applyStdout, applyStderr)
-		applyStdout.Close()
-		applyStderr.Close()
-		if applyErr != nil {
-			source.Status = "error"
-			s.eventSink().Emit(ctx, source, "error", "database apply failed", map[string]any{
-				"error": applyErr.Error(),
-			})
-			return applyErr
-		}
-	}
-	seedResult, err := buildDBSeedResultWithContractEnvHooks(ctx, s.root, s.cfg, contract, dbSeedOptions{}, env, false, defaultDBSeedHooks())
-	if err != nil {
-		source.Status = "error"
-		s.eventSink().Emit(ctx, source, "error", "database seed failed", map[string]any{
-			"error": err.Error(),
-		})
-		return err
-	}
-	source.Status = "ready"
-	s.eventSink().Emit(ctx, source, "info", "database setup completed", map[string]any{
-		"seeds": seedResult.Summary,
-	})
-	s.dbSetupFingerprint = setup.Fingerprint
-	return nil
-}
-
-func waitForDatabaseSetupConnection(ctx context.Context, env []string) error {
-	return nil
-}
-
-func managedDatabaseSetupEnv(requirements compiler.SQLRequirements, managedEnv []string) []string {
-	if len(requirements) == 0 {
-		return nil
-	}
-	keys := databaseEnvKeys(requirements)
-	out := make([]string, 0, len(keys))
-	for _, key := range keys {
-		if value := envValueFromList(managedEnv, key); value != "" {
-			out = append(out, key+"="+value)
-		}
-	}
-	return out
 }
 
 func (s *devSupervisor) managedAppEnv(ctx context.Context, baseEnv []string, requirements compiler.SQLRequirements) ([]string, error) {
@@ -1656,7 +1487,7 @@ func (s *devSupervisor) handleCompileError(ctx context.Context, metadata, apiEnc
 	s.buildFailed = true
 	s.mu.Unlock()
 	s.setCompiling(false, err.Error())
-	if len(metadata) > 0 || len(apiEncoding) > 0 {
+	if s.currentPID() == "" && (len(metadata) > 0 || len(apiEncoding) > 0) {
 		s.setMetadata(metadata, apiEncoding)
 	}
 	_ = s.persistStatus(ctx)
@@ -1673,7 +1504,11 @@ func (s *devSupervisor) handleCompileError(ctx context.Context, metadata, apiEnc
 			"error": err.Error(),
 		})
 	}
-	s.updateAgentSession(ctx, "compile-error", "")
+	if pid := s.currentPID(); pid != "" {
+		s.updateAgentSession(ctx, "running", pid)
+	} else {
+		s.updateAgentSession(ctx, "compile-error", "")
+	}
 	return err
 }
 

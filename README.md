@@ -59,6 +59,13 @@ scenery up
 Keep it running while you edit. Use `scenery ps` to find the app's URLs,
 `scenery logs --follow` to follow its logs, and `scenery down` to stop it.
 
+Pin the app's `scenery.sh` dependency and prepare its matching local CLI with
+`scenery framework use -o json`; use the reported executable or your app's
+wrapper thereafter. Explicit co-development can snapshot another checkout with
+`--source <path>`. Application-authored SQL migrations use `scenery db migrate`,
+and configured validation profiles make focused checks executable with
+`scenery validate changed --base main --dry-run -o json`.
+
 ## Working with AI agents
 
 Agents can inspect the same app structure and runtime information that you

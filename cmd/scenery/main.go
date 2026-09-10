@@ -154,6 +154,8 @@ func runWithCLITelemetry(args []string, telemetry *cliTelemetryInvocation) error
 		return dbCommand(args[1:])
 	case "worktree":
 		return worktreeCommand(args[1:])
+	case "framework":
+		return frameworkCommand(args[1:])
 	case "generate":
 		if len(args) > 1 && args[1] == "sqlc" {
 			return generateCommand(args[1:])

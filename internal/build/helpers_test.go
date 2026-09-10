@@ -74,7 +74,21 @@ import "context"
 func Hello(ctx context.Context) error { return nil }
 `
 	writeBuildTestFile(t, appDir, ".scenery.json", `{"name":"buildtest","envs":{"local":{"default":true}}}`)
-	writeBuildTestFile(t, appDir, "app.scn", "application \"buildtest\" {}\n")
+	writeBuildTestFile(t, appDir, "app.scn", `application "buildtest" {}
+go_module "application" {
+  root = "."
+  import_path = "example.com/buildtest"
+}
+go_toolchain "application" { version = "1.27.0" }
+go_target "development" {
+  role = "development"
+  platform = "host"
+  toolchain = go_toolchain.application
+  module = go_module.application
+  packages = ["./..."]
+  cgo = "disabled"
+}
+`)
 	writeBuildTestFile(t, appDir, "go.mod", goMod)
 	writeBuildTestFile(t, appDir, "svc/api.go", serviceSource)
 
@@ -127,6 +141,20 @@ func Hello(ctx context.Context) error { return nil }
 		SourceFiles:               append([]string(nil), sourceFiles...),
 		SourceStamps:              sourceStamps,
 		GeneratedFiles:            append([]string(nil), generatedFiles...),
+	}
+	contract, err := compiler.Compile(appDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := compiler.ResolveGoBuildTarget(contract, "", "development")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result.Contract, result.Target = contract, &target
+	result.BuildInput = newBuildInputManifest(target.Name, map[string]string{"fixture": "sha256:" + strings.Repeat("a", 64)})
+	result.ImplementationRevisions, _ = compiler.ComputeImplementationRevisions(contract, map[string]string{target.Name: result.BuildInput.Digest})
+	if err := writeRuntimeBundle(result); err != nil {
+		t.Fatal(err)
 	}
 	if err := saveBuildState(workspace, buildState{
 		Version:                   buildStateVersion,

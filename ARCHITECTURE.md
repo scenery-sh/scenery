@@ -150,6 +150,12 @@ calls. Consumers retain their distinct registry precedence, validation order,
 framework handling and managed provenance; the selector has no environment,
 configuration, database IO or allocation authority.
 
+`internal/postgresdb` also owns transactional numbered schema migrations,
+schema-local checksum/owner ledgers and explicit initial-baseline verification.
+The CLI resolves app-authored files and verified stopped worktree authority;
+this package executes SQL and ledger publication in one transaction. It does
+not infer migrations, reset populated schemas or adopt unknown schema shapes.
+
 ### `internal/desktop`
 
 `internal/desktop` owns the Tauri-specific project contract: resolving a
@@ -351,6 +357,14 @@ current generated overlay, syncs source and generated files, tracks
 build fingerprints, runs `go mod tidy` when needed, compiles the app binary, and
 writes latest-build metadata. Generation is injected through `GenerateHooks`;
 the production package does not import `internal/generate`.
+
+Framework preparation snapshots the selected module's relevant source inputs,
+builds its content-stamped CLI and binds both digests into existing build input
+manifests. `cmd/scenery/framework.go` owns explicit preparation/inspection, not
+automatic version changes. Cached runtime bundles must restore the same target,
+build-input and implementation identity before reuse. The supervisor owns
+candidate preflight and sequential stop/start/recovery; retained generation
+executables have independent bytes, not links into an evictable build cache.
 
 Preparation publishes current public Go before implementation analysis, including
 cache reuse. Cached private bytes must match the current renderer. Authored

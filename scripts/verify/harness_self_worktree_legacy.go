@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"scenery.sh/internal/build"
 )
 
 const worktreeLegacyRevision = "c56e3e9614e58914e27a8536b171e4d979f32bbb"
@@ -180,7 +182,7 @@ func (p *worktreeRuntimeProbe) prepareLegacySources(dir string, s *worktreeLegac
 	defer func() { p.env = originalEnv }()
 	p.env = envWithOverrides(p.env, "GOOS=linux", "CGO_ENABLED=0", "GOWORK=off")
 	provenance := map[string]any{"baseline_revision": worktreeLegacyRevision}
-	for _, item := range []struct{ name, source string }{{"baseline", baseline}, {"candidate", p.repo}} {
+	for _, item := range []struct{ name, source string }{{"baseline", baseline}} {
 		binary := filepath.Join(dir, item.name+"-scenery")
 		if _, err := p.run(item.source, "go", "build", "-o", binary, "./cmd/scenery"); err != nil {
 			return err
@@ -199,10 +201,38 @@ func (p *worktreeRuntimeProbe) prepareLegacySources(dir string, s *worktreeLegac
 		if _, err := p.run(dir, "docker", "cp", item.source, s.container+":"+item.target); err != nil {
 			return err
 		}
-		if _, err := s.run("go", "-C", item.target, "mod", "download", "all"); err != nil {
-			return err
+		if item.target == "/baseline" {
+			if _, err := s.run("go", "-C", item.target, "mod", "download", "all"); err != nil {
+				return err
+			}
 		}
 	}
+	// Compile the current producer at its actual sandbox source path. A host
+	// cross-build would embed an unavailable host path, and an unstamped CLI
+	// must not be allowed to start an application under the coherence contract.
+	// Do not run download-all in the candidate: it expands go.sum with unused
+	// test dependencies, changing the source after its host-side fingerprint.
+	selectedSource, err := build.FrameworkSourceManifest(candidate)
+	if err != nil {
+		return err
+	}
+	flags, err := build.FrameworkProducerLinkerFlags(selectedSource.Digest)
+	if err != nil {
+		return err
+	}
+	if _, err := s.run("env", "GOWORK=off", "CGO_ENABLED=0", "go", "-C", "/candidate", "build", "-mod=readonly", "-ldflags="+flags, "-o", "/candidate-scenery", "./cmd/scenery"); err != nil {
+		return err
+	}
+	candidateBinary := filepath.Join(dir, "candidate-scenery")
+	if _, err := p.run(dir, "docker", "cp", s.container+":/candidate-scenery", candidateBinary); err != nil {
+		return err
+	}
+	candidateHash, err := worktreeProbeFileSHA(candidateBinary)
+	if err != nil {
+		return err
+	}
+	provenance["candidate_linux_sha256"] = candidateHash
+	provenance["candidate_framework_source_digest"] = selectedSource.Digest
 	for _, name := range []string{"old", "sibling", "new", "migration"} {
 		legacy := name == "old" || name == "sibling"
 		fixture := filepath.Join(dir, "app-"+name)

@@ -202,7 +202,7 @@ func RefreshCachedWorkspaceWithSnapshot(appRoot string, result *Result, snapshot
 	if err := removeUnexpectedFilesFromLists(result.Dir, result.SourceFiles, result.GeneratedFiles); err != nil {
 		return false, err
 	}
-	if err := seedSceneryGoSum(result.Dir, app.RepoRoot()); err != nil {
+	if err := seedWorkspaceSceneryGoSum(result.Dir); err != nil {
 		return false, err
 	}
 	previousFrameworkFingerprint := result.FrameworkFingerprint
@@ -230,6 +230,11 @@ func RefreshCachedWorkspaceWithSnapshot(appRoot string, result *Result, snapshot
 	result.BuildFingerprint = buildFingerprint
 	result.Binary = filepath.Join(result.Dir, workspaceBinaryName(appRoot, buildFingerprint))
 	result.ReuseCompiled = pathExists(result.Binary) && previousFrameworkFingerprint == frameworkFingerprint
+	if result.ReuseCompiled && !restoreCachedRuntimeIdentity(result) {
+		// A binary cache hit without its current bound identity is not a runtime
+		// candidate. Re-prepare normally instead of publishing an unbound result.
+		result.ReuseCompiled = false
+	}
 	return result.ReuseCompiled, nil
 }
 

@@ -148,7 +148,7 @@ func prepareWithContractTarget(appRoot string, model *model.App, cfg app.Config,
 	if err := removeUnexpectedFilesFromLists(workspaceDir, sourceFiles, generatedFiles); err != nil {
 		return nil, err
 	}
-	if err := seedSceneryGoSum(workspaceDir, app.RepoRoot()); err != nil {
+	if err := seedWorkspaceSceneryGoSum(workspaceDir); err != nil {
 		return nil, err
 	}
 	sourceMetadataFingerprint := sourceStampsFingerprint(sourceStamps)

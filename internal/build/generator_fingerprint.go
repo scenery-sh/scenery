@@ -12,17 +12,15 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"unicode"
 	"unicode/utf8"
 
-	"scenery.sh/internal/app"
 	"scenery.sh/internal/machine"
 )
 
-var currentGeneratorFingerprint = sync.OnceValues(func() (string, error) {
-	return cachedGeneratorFingerprint(app.RepoRoot())
-})
+// Generator identity belongs to the running executable, never to mutable
+// source files that happen to remain at its former compile-time path.
+var currentGeneratorFingerprint = executableDigest
 
 const (
 	generatorFingerprintCacheKind             = "scenery.generator-fingerprint"

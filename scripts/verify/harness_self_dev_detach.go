@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"scenery.sh/internal/build"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/graph"
 	"scenery.sh/internal/machine"
@@ -23,7 +24,7 @@ func runHarnessDetachedStartupProbe(parent context.Context, repoRoot string) (ma
 	if err := runHarnessDetachedExitProbe(parent); err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithTimeout(parent, 90*time.Second)
+	ctx, cancel := context.WithTimeout(parent, 150*time.Second)
 	defer cancel()
 	root, err := os.MkdirTemp("/tmp", "scn-detach-")
 	if err != nil {
@@ -50,8 +51,16 @@ func runHarnessDetachedStartupProbe(parent context.Context, repoRoot string) (ma
 			return nil, err
 		}
 	}
+	if err := prepareHarnessHandoffService(appRoot); err != nil {
+		return nil, err
+	}
 	env := envWithOverrides(envWithoutKeys(envpolicy.Environ(), "SCENERY_AGENT_SOCKET", "SCENERY_AGENT_ROUTER_ADDR", "SCENERY_DEV_DASHBOARD_ADDR", "SCENERY_DEV_CACHE_DIR", "DATABASE_URL", detachedDevChildEnv), "SCENERY_AGENT_HOME="+home, "SCENERY_DEV_VICTORIA=0", "SCENERY_DEV_VICTORIA_DOWNLOAD=0")
 	binary := harnessLocalSceneryBinaryPath(repoRoot)
+	framework, err := prepareHarnessSelectedFramework(ctx, repoRoot, root, appRoot, binary, env)
+	if err != nil {
+		return nil, err
+	}
+	binary = framework.Executable
 	defer func() {
 		stopCtx, stop := context.WithTimeout(context.Background(), 10*time.Second)
 		defer stop()
@@ -182,6 +191,7 @@ func runHarnessDetachedStartupProbe(parent context.Context, repoRoot string) (ma
 		return nil, err
 	}
 	var owner int
+	var runtime detachedDevResult
 	for i := range 2 {
 		output, err := run(60 * time.Second)
 		if err != nil {
@@ -203,6 +213,30 @@ func runHarnessDetachedStartupProbe(parent context.Context, repoRoot string) (ma
 			return nil, fmt.Errorf("invalid detached success: %s", output)
 		}
 		owner = result.PID
+		if i == 0 {
+			runtime = result
+		}
 	}
-	return map[string]any{"proof": "dotenv_and_source_failure_preserved_after_cleanup_success_and_duplicate_ready_with_stdout_stderr_noise", "owner_pid": owner}, nil
+	// Change the owned co-development origin after startup. All following real
+	// rebuilds must keep using the selected immutable source and matching CLI.
+	originInput := filepath.Join(framework.SourceOrigin, "runtime/contract_preflight.go")
+	content, err := os.ReadFile(originInput)
+	if err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(originInput, append(content, []byte("\n// Independently edited co-development checkout.\n")...), 0o600); err != nil {
+		return nil, err
+	}
+	handoff, err := runHarnessAppHandoffProbe(ctx, appRoot, home, runtime)
+	if err != nil {
+		return nil, err
+	}
+	bundle, err := build.ReadRuntimeBundle(appRoot, "development")
+	if err != nil {
+		return nil, err
+	}
+	if err := verifyHarnessFrameworkBuildInputs(bundle.BuildInput, framework); err != nil {
+		return nil, err
+	}
+	return map[string]any{"proof": "dotenv_and_source_failure_preserved_after_cleanup_success_and_duplicate_ready_with_stdout_stderr_noise", "owner_pid": owner, "runtime_handoff": handoff, "framework": map[string]any{"source_digest": framework.Source.Digest, "executable_digest": framework.ExecutableDigest, "origin_edit_isolated": true, "runtime_manifest_matches": true}}, nil
 }

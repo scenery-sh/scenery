@@ -158,9 +158,19 @@ func TestRefreshCachedWorkspaceSeedsDependencyFingerprintBeforeReuse(t *testing.
 	t.Parallel()
 
 	appDir, result := newCachedBuildTestWorkspace(t, "graph-1")
+	framework := t.TempDir()
+	writeBuildTestFile(t, framework, "go.mod", "module scenery.sh\n\ngo 1.27.0\n")
+	writeBuildTestFile(t, framework, "go.sum", "example.test/dependency v1.0.0 h1:fixture\n")
+	module := "module example.com/buildtest\n\ngo 1.26.3\nrequire scenery.sh v0.0.0\nreplace scenery.sh => " + framework + "\n"
+	moduleBytes, err := patchGoModData([]byte(module), appDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeBuildTestFile(t, appDir, "go.mod", string(moduleBytes))
+	writeBuildTestFile(t, result.Dir, "go.mod", string(moduleBytes))
 
-	if err := seedSceneryGoSum(result.Dir, repoRoot(t)); err != nil {
-		t.Fatalf("seedSceneryGoSum() error = %v", err)
+	if err := seedWorkspaceSceneryGoSum(result.Dir); err != nil {
+		t.Fatalf("seedWorkspaceSceneryGoSum() error = %v", err)
 	}
 	depFingerprint, err := dependencyFingerprintFromWorkspace(result.Dir)
 	if err != nil {
@@ -171,6 +181,15 @@ func TestRefreshCachedWorkspaceSeedsDependencyFingerprintBeforeReuse(t *testing.
 		t.Fatalf("loadBuildState() error = %v", err)
 	}
 	state.DependencyFingerprint = depFingerprint
+	state.FrameworkFingerprint, err = cachedFrameworkFingerprint(framework)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state.BuildFingerprint, err = workspaceBuildFingerprint(result.Dir, result.GoBuildFlags, result.SourceFiles, result.GeneratedFiles)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result.Binary = filepath.Join(result.Dir, workspaceBinaryName(appDir, state.BuildFingerprint))
 	if err := saveBuildState(result.Dir, state); err != nil {
 		t.Fatalf("saveBuildState() error = %v", err)
 	}

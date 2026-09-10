@@ -25,6 +25,11 @@ func generateMain(appModel *model.App, cfg appcfg.Config, compositionImport stri
 	}
 	buf.WriteString(")\n\n")
 	buf.WriteString("func main() {\n")
+	if compositionImport != "" {
+		buf.WriteString("\tif len(os.Args) == 2 && os.Args[1] == sceneryruntime.RuntimePreflightFlag {\n")
+		buf.WriteString("\t\tproof := os.NewFile(3, \"scenery-runtime-preflight\")\n\t\tdefer proof.Close()\n")
+		buf.WriteString("\t\tif err := sceneryruntime.WriteRuntimePreflight(proof, scenerycomposition.ContractRevision); err != nil {\n\t\t\t_, _ = fmt.Fprintf(os.Stderr, \"scenery: %v\\n\", err)\n\t\t\tos.Exit(1)\n\t\t}\n\t\treturn\n\t}\n")
+	}
 	if len(sql) > 0 {
 		buf.WriteString("\tif err := sceneryruntime.ConfigureSQLBindings([]sceneryruntime.SQLBinding{\n")
 		for _, binding := range sql.Bindings(false) {

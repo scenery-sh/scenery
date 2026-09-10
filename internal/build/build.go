@@ -21,6 +21,8 @@ type Result struct {
 	SourceFingerprint         string
 	SourceMetadataFingerprint string
 	FrameworkFingerprint      string
+	FrameworkSourceRoot       string
+	FrameworkSourceDigest     string
 	GeneratorFingerprint      string
 	BuildFingerprint          string
 	GraphFingerprint          string

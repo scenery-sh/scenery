@@ -10,6 +10,7 @@ import (
 
 	"scenery.sh/internal/envpolicy"
 	inspectdata "scenery.sh/internal/inspect"
+	"scenery.sh/internal/postgresdb"
 )
 
 type dbSetupOptions struct {
@@ -50,6 +51,10 @@ func runDBSetupWithHooks(ctx context.Context, stdout io.Writer, args []string, l
 	if err != nil {
 		return err
 	}
+	migrations, err := discoverDBMigrationPlans(appRoot, cfg, contract.SQLRequirements)
+	if err != nil {
+		return err
+	}
 	env, err := appEnvWithDotEnv(envpolicy.Environ(), appRoot)
 	if err != nil {
 		return err
@@ -70,20 +75,24 @@ func runDBSetupWithHooks(ctx context.Context, stdout io.Writer, args []string, l
 		},
 	}
 
-	if strings.TrimSpace(cfg.Database.Apply.Command) == "" {
+	if strings.TrimSpace(cfg.Database.Apply.Command) == "" && len(migrations) == 0 {
 		result.Apply.Status = "skipped"
 	} else {
 		applyStdout := stdout
 		if opts.JSON {
 			applyStdout = io.Discard
 		}
-		if err := runDatabaseApplyCommandWithEnvIOHooks(ctx, appRoot, cfg.Database.Apply, env, applyStdout, os.Stderr, lifecycle); err != nil {
+		var applyErr error
+		if len(migrations) > 0 {
+			_, applyErr = runDBMigrationPlans(ctx, cfg.AppID(), contract.SQLRequirements, migrations, env, postgresdb.SchemaMigrationOptions{})
+		} else {
+			applyErr = runDatabaseApplyCommandWithEnvIOHooks(ctx, appRoot, cfg.Database.Apply, env, applyStdout, os.Stderr, lifecycle)
+		}
+		if err := applyErr; err != nil {
 			result.Apply.Status = "failed"
 			result.Apply.Error = err.Error()
 			if opts.JSON {
-				if writeErr := writeInspectJSON(stdout, result); writeErr != nil {
-					return writeErr
-				}
+				return writeDBLifecycleJSON(stdout, result, err)
 			} else {
 				renderDBSetupText(stdout, result)
 			}
@@ -95,9 +104,7 @@ func runDBSetupWithHooks(ctx context.Context, stdout io.Writer, args []string, l
 	seedResult, seedErr := buildDBSeedResultWithContractEnvHooks(ctx, appRoot, cfg, contract, dbSeedOptions{}, env, false, seed)
 	result.Seed = seedResult
 	if opts.JSON {
-		if writeErr := writeInspectJSON(stdout, result); writeErr != nil {
-			return writeErr
-		}
+		return writeDBLifecycleJSON(stdout, result, seedErr)
 	} else {
 		renderDBSetupText(stdout, result)
 	}

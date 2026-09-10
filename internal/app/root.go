@@ -215,6 +215,9 @@ func (c Config) ResolveEnv(name string) (ResolvedEnv, error) {
 		if override, exists := env.Frontends[frontendName]; exists && strings.TrimSpace(override.Serve) != "" {
 			frontend.Serve = strings.ToLower(strings.TrimSpace(override.Serve))
 		}
+		if frontend.Serve == "disabled" {
+			continue
+		}
 		if frontend.Tauri != nil {
 			tauri := *frontend.Tauri
 			frontend.Tauri = &tauri
@@ -335,8 +338,17 @@ type SQLCGeneratorSchema struct {
 }
 
 type DatabaseConfig struct {
-	Apply DatabaseApplyConfig `json:"apply"`
-	Seed  DatabaseSeedConfig  `json:"seed"`
+	Apply      DatabaseApplyConfig       `json:"apply"`
+	Seed       DatabaseSeedConfig        `json:"seed"`
+	Migrations []DatabaseMigrationConfig `json:"migrations,omitempty"`
+}
+
+// DatabaseMigrationConfig selects app-authored ordered SQL for one compiled
+// binding. Scenery owns the transaction and ledger, not the transformations.
+type DatabaseMigrationConfig struct {
+	Service             string `json:"service"`
+	Directory           string `json:"directory"`
+	InitialVerification string `json:"initial_verification,omitempty"`
 }
 
 type DatabaseApplyConfig struct {
@@ -457,6 +469,9 @@ func readConfigCandidate(dir string) (string, []byte, error) {
 }
 
 func (c Config) Validate() error {
+	if len(c.Database.Migrations) > 0 && strings.TrimSpace(c.Database.Apply.Command) != "" {
+		return fmt.Errorf("database.migrations and database.apply.command are mutually exclusive schema owners")
+	}
 	if err := c.validateWatch(); err != nil {
 		return err
 	}
@@ -555,8 +570,11 @@ func (c Config) validateEnvs() error {
 				return fmt.Errorf("envs.%s.frontends.%s does not match a configured frontend", name, frontendName)
 			}
 			serve := strings.ToLower(strings.TrimSpace(override.Serve))
-			if serve != "development" && serve != "production" {
-				return fmt.Errorf("envs.%s.frontends.%s.serve must be \"development\" or \"production\"", name, frontendName)
+			if serve != "development" && serve != "production" && serve != "disabled" {
+				return fmt.Errorf("envs.%s.frontends.%s.serve must be \"development\", \"production\", or \"disabled\"", name, frontendName)
+			}
+			if serve == "disabled" && frontendName == c.RootFrontend() {
+				return fmt.Errorf("envs.%s.frontends.%s cannot disable the root frontend", name, frontendName)
 			}
 		}
 		for libraryName, library := range env.Libraries {

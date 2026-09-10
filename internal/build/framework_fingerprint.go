@@ -226,10 +226,17 @@ func frameworkFingerprintFiles(repoRoot string, cachedGoFiles map[string]framewo
 
 func frameworkSourceInputFile(rel string) bool {
 	base := filepath.Base(rel)
-	if base == "" || shouldSkipFile(rel) {
+	if base == "" || shouldSkipFile(rel) || strings.HasSuffix(base, "_test.go") {
 		return false
 	}
-	return base == "go.mod" || base == "go.sum" || filepath.Ext(rel) == ".go"
+	if base == "go.mod" || base == "go.sum" {
+		return true
+	}
+	switch filepath.Ext(rel) {
+	case ".go", ".c", ".cc", ".cpp", ".cxx", ".h", ".hpp", ".m", ".mm", ".s", ".S", ".f", ".F", ".syso":
+		return true
+	}
+	return false
 }
 
 func frameworkMetadataFingerprint(repoRoot string, files []string) (string, error) {

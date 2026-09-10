@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.framework.schema.json",
+  "title": "Scenery Framework Selection",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "schema_revision", "ok", "app_root", "mode", "framework_version", "source_root", "source_digest", "executable", "executable_digest", "selection_path", "module_changed", "next_command"],
+  "properties": {
+    "kind": { "const": "scenery.framework" },
+    "schema_revision": { "const": "sha256:ad9ff2eca3bffd35da161a2688dea41cc0825ca00abeb785a8385f6c26be2248" },
+    "ok": { "type": "boolean" },
+    "app_root": { "type": "string", "minLength": 1 },
+    "mode": { "enum": ["pinned", "source"] },
+    "framework_version": { "type": "string", "minLength": 1 },
+    "source_root": { "type": "string", "minLength": 1 },
+    "source_digest": { "$ref": "#/$defs/digest" },
+    "source_revision": { "type": "string" },
+    "executable": { "type": "string", "minLength": 1 },
+    "executable_digest": { "$ref": "#/$defs/digest" },
+    "selection_path": { "type": "string", "minLength": 1 },
+    "module_changed": { "type": "boolean" },
+    "next_command": { "type": "string", "minLength": 1 }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+  }
+}

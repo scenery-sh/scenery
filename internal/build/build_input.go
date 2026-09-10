@@ -95,6 +95,7 @@ func buildInputManifestFromGoList(result *Result, output []byte) (*BuildInputMan
 	}
 	target := result.Target
 	entries := map[string]string{}
+	frameworkRoot := ""
 	decoder := json.NewDecoder(bytes.NewReader(output))
 	for {
 		var pkg goListPackage
@@ -131,6 +132,13 @@ func buildInputManifestFromGoList(result *Result, output []byte) (*BuildInputMan
 				module = module.Replace
 			}
 			if module.GoMod != "" {
+				if pkg.Module.Path == "scenery.sh" {
+					root := filepath.Dir(module.GoMod)
+					if frameworkRoot != "" && frameworkRoot != root {
+						return nil, fmt.Errorf("go build graph contains multiple Scenery framework roots")
+					}
+					frameworkRoot = root
+				}
 				if err := addBuildInput(entries, "module/"+pkg.Module.Path+"/go.mod", module.GoMod); err != nil {
 					return nil, err
 				}
@@ -139,6 +147,22 @@ func buildInputManifestFromGoList(result *Result, output []byte) (*BuildInputMan
 			sum := sha256.Sum256([]byte(identity))
 			entries["module/"+pkg.Module.Path] = "sha256:" + hex.EncodeToString(sum[:])
 		}
+	}
+	if frameworkRoot != "" {
+		source, err := FrameworkSourceManifest(frameworkRoot)
+		if err != nil {
+			return nil, err
+		}
+		if linkedFrameworkDigest != "" && source.Digest != linkedFrameworkDigest {
+			return nil, fmt.Errorf("actual Go build framework does not match the selected Scenery producer; prepare a coherent framework selection")
+		}
+		producer, err := executableDigest()
+		if err != nil {
+			return nil, err
+		}
+		entries["framework/scenery.sh/source"] = source.Digest
+		entries["producer/scenery-cli/executable"] = producer
+		result.FrameworkSourceRoot, result.FrameworkSourceDigest = source.Root, source.Digest
 	}
 	for _, relative := range append(stringValuesForBuild(target.Effective["native_inputs"]), stringValuesForBuild(target.Effective["native_input"])...) {
 		path := filepath.Join(result.AppRoot, filepath.FromSlash(relative))
@@ -158,12 +182,16 @@ func buildInputManifestFromGoList(result *Result, output []byte) (*BuildInputMan
 			return nil, err
 		}
 	}
+	return newBuildInputManifest(target.Name, entries), nil
+}
+
+func newBuildInputManifest(target string, entries map[string]string) *BuildInputManifest {
 	identities := make([]string, 0, len(entries))
 	for identity := range entries {
 		identities = append(identities, identity)
 	}
 	sort.Strings(identities)
-	manifest := &BuildInputManifest{ArtifactIdentity: machine.NewArtifactIdentity(buildInputKind, buildInputSchemaDescriptor), Target: target.Name}
+	manifest := &BuildInputManifest{ArtifactIdentity: machine.NewArtifactIdentity(buildInputKind, buildInputSchemaDescriptor), Target: target}
 	for _, identity := range identities {
 		manifest.Entries = append(manifest.Entries, BuildInput{Identity: identity, Digest: entries[identity]})
 	}
@@ -174,7 +202,7 @@ func buildInputManifestFromGoList(result *Result, output []byte) (*BuildInputMan
 	}{manifest.ArtifactIdentity, manifest.Target, manifest.Entries})
 	digest := sha256.Sum256(append([]byte("scenery.go-build-input-manifest\x00"), projection...))
 	manifest.Digest = "sha256:" + hex.EncodeToString(digest[:])
-	return manifest, nil
+	return manifest
 }
 
 func addBuildInput(entries map[string]string, identity, path string) error {

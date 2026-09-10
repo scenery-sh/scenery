@@ -7,6 +7,11 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
+- [0174 Version-Coherent, Data-Safe Task Environments](0174-coherent-task-environments.md)
+  - Status: active
+  - Owner: scenery runtime / ONLV development
+  - Created: 2026-09-10
+  - Focus: coherent framework sessions, safe application schema evolution, reproducible populated ONLV worktrees, real validation, and focused runtime/check ergonomics.
 - [0169 One Pure SQL Endpoint Selection](0169-sql-endpoint-resolution.md)
   - Status: active
   - Owner: scenery runtime / PostgreSQL

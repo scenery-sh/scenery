@@ -11,6 +11,9 @@ import (
 func isWatchedFile(rel string) bool {
 	rel = filepath.ToSlash(rel)
 	base := filepath.Base(rel)
+	if strings.HasSuffix(base, "_test.go") {
+		return false
+	}
 	switch base {
 	case ".gitignore", "go.mod", "go.sum", "go.work", "go.work.sum":
 		return true
@@ -53,7 +56,7 @@ func acceptGeneratedSnapshot(root string, snapshot *fileSnapshot) error {
 func changedGeneratedContent(before, after fileSnapshot) []string {
 	var paths []string
 	for path, stamp := range before.generatedContent {
-		if other, ok := after.generatedContent[path]; !ok || other != stamp {
+		if other, ok := after.generatedContent[path]; !ok || !stamp.sameContent(other) {
 			paths = append(paths, path)
 		}
 	}

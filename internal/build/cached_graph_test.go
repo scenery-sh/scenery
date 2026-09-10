@@ -147,6 +147,9 @@ func TestCompileCachedGraphWritesLatestBuildManifest(t *testing.T) {
 	if contract := cached.Result.Contract; contract == nil || !contract.Valid() || contract.Root != appDir {
 		t.Fatalf("reused executable must retain current compiled requirements: %+v", contract)
 	}
+	if cached.Result.Target == nil || cached.Result.BuildInput == nil || len(cached.Result.ImplementationRevisions) == 0 {
+		t.Fatal("cached executable lost its candidate preflight identity")
+	}
 
 	if err := Compile(cached.Result); err != nil {
 		t.Fatalf("compile cached result: %v", err)

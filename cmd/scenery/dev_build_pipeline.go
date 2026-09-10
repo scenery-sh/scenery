@@ -48,6 +48,9 @@ func devBuildError(metadata, apiEncoding json.RawMessage, err error) error {
 }
 
 func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool, snapshot fileSnapshot) (*devRuntimePlan, error) {
+	if err := build.VerifyFrameworkSession(ctx, s.root); err != nil {
+		return nil, err
+	}
 	var (
 		metadata    json.RawMessage
 		apiEncoding json.RawMessage
@@ -120,7 +123,9 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 	}); err != nil {
 		return nil, devBuildError(metadata, apiEncoding, err)
 	}
-	s.setMetadata(metadata, apiEncoding)
+	if s.currentPID() == "" {
+		s.setMetadata(metadata, apiEncoding)
+	}
 	if err := s.persistStatus(ctx); err != nil {
 		return nil, err
 	}

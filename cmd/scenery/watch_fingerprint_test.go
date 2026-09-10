@@ -8,9 +8,8 @@ import (
 	"time"
 )
 
-// The fingerprint byte layout is path\0hash\0size:mtime:mode:embed\0 per file
-// in sorted path order. Buffer-building optimizations must not change the
-// digest, or every running dev session would rebuild once on upgrade.
+// Content identity is path\0hash\0size:mode:embed\0 in sorted path order.
+// File mtimes only control hash reuse and never invalidate a runtime build.
 func TestSnapshotFingerprintLayout(t *testing.T) {
 	t.Parallel()
 
@@ -37,7 +36,7 @@ func TestSnapshotFingerprintLayout(t *testing.T) {
 		h.Write([]byte{0})
 		h.Write([]byte(stamp.hash))
 		h.Write([]byte{0})
-		_, _ = fmt.Fprintf(h, "%d:%d:%o:%t", stamp.size, stamp.modTime.UnixNano(), stamp.mode, stamp.embed)
+		_, _ = fmt.Fprintf(h, "%d:%o:%t", stamp.size, stamp.mode, stamp.embed)
 		h.Write([]byte{0})
 	}
 	want := hex.EncodeToString(h.Sum(nil))

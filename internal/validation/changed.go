@@ -10,8 +10,8 @@ import (
 	"strings"
 )
 
-// CollectChangedFiles lists files changed relative to base, expressed
-// relative to appRoot, using the enclosing git repository. It is a package
+// CollectChangedFiles unions the branch diff, tracked working changes and
+// untracked non-ignored files, relative to appRoot. It is a package
 // variable so tests can substitute a fake collector.
 var CollectChangedFiles = func(ctx context.Context, appRoot, base string) ([]string, error) {
 	return collectChangedFilesWithGit(ctx, appRoot, base, runChangedFilesGit)
@@ -43,19 +43,39 @@ func collectChangedFilesWithGit(ctx context.Context, appRoot, base string, run c
 		return nil, err
 	}
 	appRel = filepath.ToSlash(appRel)
-	args := []string{"diff", "--name-only", base + "...HEAD"}
-	if appRel != "." && appRel != "" {
-		args = []string{"diff", "--name-only", "--relative=" + appRel, base + "...HEAD", "--", appRel}
+	if appRel == ".." || strings.HasPrefix(appRel, "../") || filepath.IsAbs(appRel) {
+		return nil, fmt.Errorf("app root is outside its Git repository")
 	}
-	out, err := run(ctx, gitRoot, args...)
-	if err != nil {
-		return nil, fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
-	}
+	seen := map[string]bool{}
 	var files []string
-	for line := range strings.SplitSeq(string(out), "\n") {
-		line = strings.TrimSpace(filepath.ToSlash(line))
-		if line != "" {
-			files = append(files, line)
+	commands := [][]string{
+		{"diff", "--name-only", "--no-renames", "-z", base + "...HEAD", "--"},
+		{"diff", "--name-only", "--no-renames", "-z", "HEAD", "--"},
+		{"ls-files", "--others", "--exclude-standard", "-z", "--"},
+	}
+	for _, args := range commands {
+		if appRel != "." && appRel != "" {
+			args = append(args, appRel)
+		}
+		out, err := run(ctx, gitRoot, args...)
+		if err != nil {
+			return nil, fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+		}
+		for path := range strings.SplitSeq(string(out), "\x00") {
+			if path == "" {
+				continue
+			}
+			if appRel != "." && appRel != "" {
+				var inside bool
+				path, inside = strings.CutPrefix(path, appRel+"/")
+				if !inside {
+					return nil, fmt.Errorf("git returned a changed path outside the app root")
+				}
+			}
+			if !seen[path] {
+				seen[path] = true
+				files = append(files, path)
+			}
 		}
 	}
 	sort.Strings(files)

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -13,6 +12,7 @@ import (
 	"time"
 
 	localagent "scenery.sh/internal/agent"
+	"scenery.sh/internal/build"
 )
 
 func (p *worktreeRuntimeProbe) mixedProtocol(rootA, rootB string, sentinel detachedDevResult) error {
@@ -26,17 +26,17 @@ func (p *worktreeRuntimeProbe) mixedProtocol(rootA, rootB string, sentinel detac
 		if err != nil {
 			return err
 		}
-		variant, provenance, err := p.buildProtocolVariant()
+		root := filepath.Join(p.root, "protocol-b")
+		p.roots = append(p.roots, root)
+		if _, err := p.run(rootA, "git", "worktree", "add", "--quiet", "-b", "probe-protocol-b", root); err != nil {
+			return err
+		}
+		variant, provenance, err := p.buildProtocolVariant(root)
 		if err != nil {
 			return err
 		}
 		e["binary_provenance"] = provenance
-		root := filepath.Join(p.root, "protocol-b")
-		p.roots = append(p.roots, root)
 		p.binaries[root] = variant
-		if _, err := p.run(rootA, "git", "worktree", "add", "--quiet", "-b", "probe-protocol-b", root); err != nil {
-			return err
-		}
 		runtime, err := p.up(root)
 		if err != nil {
 			return err
@@ -110,12 +110,11 @@ func (p *worktreeRuntimeProbe) mixedProtocol(rootA, rootB string, sentinel detac
 	})
 }
 
-func (p *worktreeRuntimeProbe) buildProtocolVariant() (string, map[string]any, error) {
+func (p *worktreeRuntimeProbe) buildProtocolVariant(appRoot string) (string, map[string]any, error) {
 	dir := filepath.Join(p.root, "protocol-source")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if err := copyHarnessFrameworkSource(p.repo, dir); err != nil {
 		return "", nil, err
 	}
-	replacements := map[string]string{}
 	digests := map[string]any{}
 	for _, name := range []string{"internal/agent/types.go", "internal/agent/artifact.go"} {
 		original, err := os.ReadFile(filepath.Join(p.repo, name))
@@ -133,26 +132,23 @@ func (p *worktreeRuntimeProbe) buildProtocolVariant() (string, map[string]any, e
 		if bytes.Equal(original, changed) {
 			return "", nil, fmt.Errorf("protocol variant source anchor missing in %s", name)
 		}
-		target := filepath.Join(dir, filepath.Base(name))
+		target := filepath.Join(dir, name)
 		if err := os.WriteFile(target, changed, 0o600); err != nil {
 			return "", nil, err
 		}
-		replacements[filepath.Join(p.repo, name)] = target
 		before, after := sha256.Sum256(original), sha256.Sum256(changed)
 		digests[name] = map[string]string{"base_sha256": hex.EncodeToString(before[:]), "variant_sha256": hex.EncodeToString(after[:])}
 	}
-	overlay := filepath.Join(dir, "overlay.json")
-	encoded, err := json.Marshal(map[string]any{"Replace": replacements})
+	// The incompatible protocol is still one coherent producer: prepare the
+	// mutated source through the same public selection used by application work.
+	if _, err := p.run(appRoot, p.binary, "framework", "use", "--source", dir, "--app-root", appRoot, "-o", "json"); err != nil {
+		return "", nil, err
+	}
+	selection, err := build.ReadFrameworkSelection(appRoot)
 	if err != nil {
 		return "", nil, err
 	}
-	if err := os.WriteFile(overlay, encoded, 0o600); err != nil {
-		return "", nil, err
-	}
-	binary := filepath.Join(dir, "scenery-protocol-b")
-	if _, err := p.run(p.repo, "go", "build", "-overlay", overlay, "-o", binary, "./cmd/scenery"); err != nil {
-		return "", nil, err
-	}
+	binary := selection.Executable
 	baseHash, err := worktreeProbeFileSHA(p.binary)
 	if err != nil {
 		return "", nil, err

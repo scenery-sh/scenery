@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.db.migrate.schema.json",
+  "title": "Application Schema Migration Result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "kind",
+    "schema_revision",
+    "app",
+    "status_only",
+    "schemas"
+  ],
+  "properties": {
+    "kind": {
+      "const": "scenery.db.migrate"
+    },
+    "schema_revision": {
+      "const": "sha256:0f400279c74205778e4d2656af9295ce659ce08b93a7502e8dcfb41dd79d81c4"
+    },
+    "app": {
+      "$ref": "#/$defs/appRef"
+    },
+    "status_only": {
+      "type": "boolean"
+    },
+    "schemas": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/service"
+      }
+    }
+  },
+  "$defs": {
+    "appRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "root",
+        "config_path"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "root": {
+          "type": "string"
+        },
+        "config_path": {
+          "type": "string"
+        },
+        "module_path": {
+          "type": "string"
+        }
+      }
+    },
+    "service": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "service",
+        "schema",
+        "status",
+        "migrations"
+      ],
+      "properties": {
+        "service": {
+          "type": "string"
+        },
+        "schema": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "pending",
+            "current",
+            "blocked"
+          ]
+        },
+        "error": {
+          "type": "string"
+        },
+        "migrations": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "$ref": "#/$defs/migration"
+          }
+        }
+      }
+    },
+    "migration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "revision",
+        "path",
+        "checksum",
+        "status"
+      ],
+      "properties": {
+        "revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 256
+        },
+        "path": {
+          "type": "string"
+        },
+        "checksum": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "verification": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path", "checksum"],
+          "properties": {
+            "path": { "type": "string", "minLength": 1 },
+            "checksum": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+          }
+        },
+        "status": {
+          "enum": [
+            "pending",
+            "applied"
+          ]
+        }
+      }
+    }
+  }
+}

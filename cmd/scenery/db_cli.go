@@ -29,7 +29,7 @@ type dbCLIOptions struct {
 
 func dbCommand(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: scenery db list|shell|apply|seed|setup|reset|drop|server [--app-root <path>]")
+		return fmt.Errorf("usage: scenery db list|shell|apply|migrate|seed|setup|reset|drop|server [--app-root <path>]")
 	}
 	switch args[0] {
 	case "list":
@@ -38,6 +38,8 @@ func dbCommand(args []string) error {
 		return dbShellCommand(args[1:])
 	case "apply":
 		return dbApplyCommand(args[1:])
+	case "migrate":
+		return dbMigrateCommand(args[1:])
 	case "seed":
 		return dbSeedCommand(args[1:])
 	case "setup":
@@ -150,6 +152,10 @@ func runDatabaseApplyCommandWithOutputHooks(ctx context.Context, appRoot string,
 	if err != nil {
 		return err
 	}
+	migrations, err := discoverDBMigrationPlans(appRoot, cfg, requirements)
+	if err != nil {
+		return err
+	}
 	env, err := appEnvWithDotEnv(envpolicy.Environ(), appRoot)
 	if err != nil {
 		return err
@@ -159,6 +165,10 @@ func runDatabaseApplyCommandWithOutputHooks(ctx context.Context, appRoot string,
 		return err
 	}
 	defer func() { returnErr = errors.Join(returnErr, closeOperation()) }()
+	if len(migrations) > 0 {
+		_, err := runDBMigrationPlans(ctx, cfg.AppID(), requirements, migrations, env, postgresdb.SchemaMigrationOptions{})
+		return err
+	}
 	return runDatabaseApplyCommandWithEnvIOHooks(ctx, appRoot, apply, env, stdout, stderr, hooks)
 }
 

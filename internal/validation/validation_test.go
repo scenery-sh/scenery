@@ -147,7 +147,11 @@ func TestCollectChangedFilesPlansAppRelativeGitDiffInProcess(t *testing.T) {
 		case 1:
 			return []byte("/repo\n"), nil
 		case 2:
-			return []byte("src/z.go\nsrc/a.go\n"), nil
+			return []byte("app/src/z.go\x00app/src/a.go\x00"), nil
+		case 3:
+			return []byte("app/src/a.go\x00app/src/dirty.go\x00"), nil
+		case 4:
+			return []byte("app/src/new file\n.go\x00"), nil
 		default:
 			t.Fatalf("unexpected git call %d", len(calls))
 			return nil, nil
@@ -156,12 +160,14 @@ func TestCollectChangedFilesPlansAppRelativeGitDiffInProcess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("collect changed files: %v", err)
 	}
-	if !reflect.DeepEqual(files, []string{"src/a.go", "src/z.go"}) {
+	if !reflect.DeepEqual(files, []string{"src/a.go", "src/dirty.go", "src/new file\n.go", "src/z.go"}) {
 		t.Fatalf("files = %+v", files)
 	}
 	want := []gitCall{
 		{dir: "/repo/app", args: []string{"rev-parse", "--show-toplevel"}},
-		{dir: "/repo", args: []string{"diff", "--name-only", "--relative=app", "base...HEAD", "--", "app"}},
+		{dir: "/repo", args: []string{"diff", "--name-only", "--no-renames", "-z", "base...HEAD", "--", "app"}},
+		{dir: "/repo", args: []string{"diff", "--name-only", "--no-renames", "-z", "HEAD", "--", "app"}},
+		{dir: "/repo", args: []string{"ls-files", "--others", "--exclude-standard", "-z", "--", "app"}},
 	}
 	if !reflect.DeepEqual(calls, want) {
 		t.Fatalf("git calls = %#v, want %#v", calls, want)

@@ -88,6 +88,11 @@
         },
         "seed": {
           "$ref": "#/$defs/databaseSeed"
+        },
+        "migrations": {
+          "type": "array",
+          "maxItems": 256,
+          "items": { "$ref": "#/$defs/databaseMigration" }
         }
       },
       "additionalProperties": false
@@ -272,7 +277,7 @@
     "environmentFrontend": {
 	  "type": "object",
 	  "properties": {
-		"serve": { "enum": ["development", "production"] }
+		"serve": { "enum": ["development", "production", "disabled"] }
 	  },
 	  "additionalProperties": false
 	},
@@ -409,6 +414,16 @@
       "required": [
         "sqlc_schema"
       ],
+      "additionalProperties": false
+    },
+    "databaseMigration": {
+      "type": "object",
+      "required": ["service", "directory"],
+      "properties": {
+        "service": { "type": "string", "minLength": 1 },
+        "directory": { "type": "string", "minLength": 1 },
+        "initial_verification": { "type": "string", "minLength": 1, "description": "App-authored SQL query returning true only for the complete known initial schema; used exclusively by explicit db migrate --adopt-initial." }
+      },
       "additionalProperties": false
     },
     "databaseApply": {

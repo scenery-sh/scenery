@@ -250,6 +250,8 @@ even without `--app-root`. Environment-only success applies only when no app
 marker is found; it is not evidence that an app can compile or start.
 
 - Use `scenery up` for the app root's one live development runtime and all safe local capabilities.
+- Prepare its selected framework with `scenery framework use -o json` and use the reported local executable. Ordinary app development pins `scenery.sh` in `go.mod`; explicit co-development uses `framework use --source <checkout>` to freeze that checkout's current source bytes and rewrite only the local Scenery replacement. `framework inspect -o json` verifies selection bytes, not HTTP health. The session rejects producer/source disagreement before replacement; changing the original source checkout does not update a selected snapshot. A framework update requires deliberate selection and restart with the matching executable.
+- For application schema evolution, declare `database.migrations` for the existing compiled SQL binding and append a numbered SQL file. Use `db migrate --status -o json` to inspect the exact checksum-bound history, then stop the app before applying with `db migrate`. Initialization and pending migrations are transactional; unknown populated schemas require deliberate reconciliation and are never treated as initialized merely because tables exist. SQLC still consumes the app's current schema model; generate queries separately and prove preservation through the real app. Do not substitute reset or retained-metadata `worktree upgrade` for a data migration.
 - Use `scenery up --desktop` when a configured
   `frontends.<name>.tauri` shell should open against that same managed frontend
   dev server. Scenery owns the frontend process and desktop child for the
@@ -264,6 +266,8 @@ marker is found; it is not evidence that an app can compile or start.
 - Use `scenery doctor -o json` when startup reports an occupied Scenery port; it distinguishes duplicate Scenery owners from foreign listeners, and startup never falls back to an unadvertised router port.
 - Doctor is prerequisite evidence, not application readiness. Its managed-Postgres check only probes Docker availability, not database health, ownership or credentials. Known failed prerequisites exit 3; unavailable startup capabilities exit 4. Read diagnostic suggestions without printing credentials or copying raw Docker output into public errors.
 - Use `scenery logs --follow` for the current runtime.
+- Test-only Go edits and documentation-only changes do not restart the backend. Runtime source or explicit runtime-embedded data does; metadata-only touches and identical-content rewrites do not. Run the selected tests explicitly to verify changed test code.
+- Before replacing a backend, the supervisor runs the candidate's read-only runtime handshake and checks its exact spec, linked contract, implementation, build-input digest, target, ABI and storage descriptor. A failed handshake leaves the previous backend running. After a successful handshake, replacement stops the old generation before starting the new one; a failed start restores the retained executable and environment only after candidate shutdown is confirmed. Build errors remain visible while a retained or restored backend keeps its served metadata and session PID. Keep application Go `init` functions free of writes: they execute before the generated entrypoint can select preflight mode.
 - Use `scenery down` to stop it; add destructive cleanup flags only intentionally.
 - Use `scenery worker` for a worker-role runtime serving declared durable executions and schedules.
 - Use `scenery build` for a deployable binary.
@@ -280,6 +284,35 @@ Default local routing resolves the single default named env and gives one app ro
 Treat Caddy, dnsmasq, Victoria, proxy sockets, hidden ports, and local stores as substrate unless the task explicitly diagnoses them. Prefer scenery inspection and status commands over direct substrate access.
 
 ## Storage And Databases
+
+For a new app session, first resolve its pinned `scenery.sh` requirement with
+`scenery framework use -o json`; use its returned worktree-local executable (or
+the app's wrapper) for the whole session. `framework inspect -o json` verifies
+the selected source and executable digests. Explicit `--source <checkout>`
+co-development snapshots dirty source and changes only the app's local Scenery
+replacement. Do not commit that private replacement. Intentional updates are
+explicit; unrelated checkout edits do not change an existing runtime. Candidate
+preflight runs before stopping the serving app, and a failed candidate start
+attempts recovery from independently retained executable bytes without allowing
+overlapping worker generations. Build failure and current served revision are
+separate evidence.
+
+For app schema evolution, declare immutable numbered SQL under
+`database.migrations`, inspect `db migrate --status`, and apply while the managed
+runtime is stopped. Pending SQL and its checksum ledger commit atomically per
+service. Populated untracked schemas are blocked; explicit `--adopt-initial`
+requires the app's complete `initial_verification` predicate. Never substitute
+reset or a retained-metadata upgrade for application migration.
+
+App-owned presets should compose `worktree create`, verified DB/object snapshots,
+and declared native filesystem assets. Missing preset prerequisites should fail
+before starting runtime children. A linked worktree receives a retained distinct
+browser origin; the original checkout keeps its configured origin. Runtime
+scope uses environment frontend `serve: "disabled"` (never the root frontend).
+Keep app validation in configured profiles: `validate changed --base <ref>
+--dry-run -o json` includes branch, tracked working-tree and untracked changes.
+Use `harness --with-validation=<profile>` for a selected domain journey; framework
+inspection alone does not establish application writes or browser rendering.
 
 SQL requirements are compiled once from registered typed `data_source` bindings
 and selected framework auth/durable registrations. Read `sql_requirements` in

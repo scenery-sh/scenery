@@ -143,6 +143,12 @@ func CompileContext(ctx context.Context, result *Result) error {
 	if err != nil {
 		return err
 	}
+	if result.FrameworkSourceRoot != "" {
+		source, err := FrameworkSourceManifest(result.FrameworkSourceRoot)
+		if err != nil || source.Digest != result.FrameworkSourceDigest {
+			return fmt.Errorf("framework source changed during application compilation; candidate was not published: %v", err)
+		}
+	}
 	if err := writeRuntimeBundle(result); err != nil {
 		return err
 	}

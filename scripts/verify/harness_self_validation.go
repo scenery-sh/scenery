@@ -91,8 +91,24 @@ func runHarnessValidationGitProbeCheck(ctx context.Context, _ string) (map[strin
 	if len(files) != 1 || files[0] != "src/main.go" {
 		return nil, nil, fmt.Errorf("app-relative changed files = %v, want [src/main.go]", files)
 	}
+	if err := writeHarnessValidationFile(filepath.Join(appRoot, "src", "new file\n.go"), "package main\n"); err != nil {
+		return nil, nil, err
+	}
+	if err := writeHarnessValidationFile(filepath.Join(root, "other", "untracked.go"), "package main\n"); err != nil {
+		return nil, nil, err
+	}
+	if err := writeHarnessValidationFile(filepath.Join(appRoot, "src", "main.go"), "package main\nconst changed = false\n"); err != nil {
+		return nil, nil, err
+	}
+	files, err = validation.CollectChangedFiles(ctx, appRoot, "HEAD")
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(files) != 2 || files[0] != "src/main.go" || files[1] != "src/new file\n.go" {
+		return nil, nil, fmt.Errorf("working and untracked app-relative files = %q", files)
+	}
 	return map[string]any{
-		"proof":         "real_git_history_filtered_to_app_relative_paths",
+		"proof":         "real_git_history_working_changes_and_untracked_files_filtered_to_app_relative_paths",
 		"changed_files": files,
 	}, nil, nil
 }

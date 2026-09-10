@@ -43,7 +43,7 @@ func TestDBListWithoutSQLDoesNotAllocateOrConnect(t *testing.T) {
 func TestDBCommandRejectsMissingOrRemovedSubcommand(t *testing.T) {
 	t.Parallel()
 
-	if err := dbCommand(nil); err == nil || err.Error() != "usage: scenery db list|shell|apply|seed|setup|reset|drop|server [--app-root <path>]" {
+	if err := dbCommand(nil); err == nil || err.Error() != "usage: scenery db list|shell|apply|migrate|seed|setup|reset|drop|server [--app-root <path>]" {
 		t.Fatalf("dbCommand(nil) error = %v", err)
 	}
 	for _, cmd := range []string{"vacuum", "psql", "postgres", "path", "branch"} {

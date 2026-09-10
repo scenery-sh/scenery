@@ -19,6 +19,42 @@
   },
   "documents": [
     {
+      "path": "docs/schemas/scenery.db.migrate.schema.json",
+      "title": "Application Schema Migration Result Schema",
+      "owner": "scenery runtime / PostgreSQL",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-10",
+      "review_after": "2026-10-10",
+      "summary": "Read-only or applied per-service migration history with exact file checksums, atomic initialization and blocked unknown state.",
+      "tags": ["schemas", "cli", "migration", "postgresql"]
+    },
+    {
+      "path": "docs/schemas/scenery.framework.schema.json",
+      "title": "Framework Selection Result Schema",
+      "owner": "scenery runtime / build",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-10",
+      "review_after": "2026-10-10",
+      "summary": "Bounded framework use/inspect results identifying the selected source content, matching immutable local CLI and preparation receipt.",
+      "tags": ["schemas", "cli", "runtime", "build"]
+    },
+    {
+      "path": "docs/plans/0174-coherent-task-environments.md",
+      "title": "Version-Coherent, Data-Safe Task Environments",
+      "owner": "scenery runtime / ONLV development",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-10",
+      "review_after": "2026-10-10",
+      "summary": "Enforced framework session coherence, transactional application schema evolution, curated populated ONLV worktrees, real mutation validation and focused runtime/check selection.",
+      "tags": ["plans", "execplans", "runtime", "migration", "worktree", "validation"]
+    },
+    {
       "path": "docs/runbooks/worktree-state-upgrade.md",
       "title": "Retained Worktree Specification Upgrade",
       "owner": "scenery runtime / storage",

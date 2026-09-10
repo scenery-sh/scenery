@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"scenery.sh/internal/appwalk"
+	"scenery.sh/internal/build"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/testsuite"
 )
@@ -457,11 +458,27 @@ func runHarnessLocalSceneryBuildStep(ctx context.Context, repoRoot, binaryPath s
 		}}
 		return step
 	}
-	step := runHarnessExecStep(ctx, repoRoot, "build scenery binary", []string{"go", "build", "-o", binaryPath, "./cmd/scenery"}, artifactCtxs...)
+	source, err := build.FrameworkSourceManifest(repoRoot)
+	if err != nil {
+		return harnessStep{Name: "build scenery binary", Error: err.Error()}
+	}
+	linkerFlags, err := build.FrameworkProducerLinkerFlags(source.Digest)
+	if err != nil {
+		return harnessStep{Name: "build scenery binary", Error: err.Error()}
+	}
+	step := runHarnessExecStep(ctx, repoRoot, "build scenery binary", []string{"go", "build", "-ldflags=" + linkerFlags, "-o", binaryPath, "./cmd/scenery"}, artifactCtxs...)
 	if step.Summary == nil {
 		step.Summary = map[string]any{}
 	}
 	step.Summary["binary_path"] = binaryPath
+	step.Summary["framework_source_digest"] = source.Digest
+	if step.OK {
+		after, err := build.FrameworkSourceManifest(repoRoot)
+		if err != nil || after.Digest != source.Digest {
+			step.OK = false
+			step.Error = "Scenery source changed during the local CLI build; rerun verification"
+		}
+	}
 	return step
 }
 

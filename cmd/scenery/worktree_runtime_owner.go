@@ -12,6 +12,7 @@ import (
 
 	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/app"
+	"scenery.sh/internal/build"
 )
 
 type worktreeRuntimeOwner struct {
@@ -83,6 +84,20 @@ func acquireWorktreeRuntime(ctx context.Context, machinePaths localagent.Paths, 
 			o.Close()
 		}
 	}()
+	// Preserve duplicate-up inspection, but reject a new incoherent owner before
+	// allocating browser endpoints, services or persisted resource authority.
+	if err := build.VerifyFrameworkSession(ctx, root); err != nil {
+		return nil, &codedCLIError{code: 3, err: err}
+	}
+	if len(cfg.Database.Migrations) > 0 {
+		requirements, err := compileSQLRequirements(root)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := discoverDBMigrationPlans(root, cfg, requirements); err != nil {
+			return nil, &codedCLIError{code: 3, err: err}
+		}
+	}
 	op, err := paths.BeginOperation()
 	if err != nil {
 		return nil, err
@@ -235,7 +250,8 @@ func bindWorktreeBrowser(previous, root string, env app.ResolvedEnv) (net.Listen
 	bind := func(port int) (net.Listener, error) {
 		return net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
 	}
-	if env.Port != 0 {
+	linked := isLinkedGitWorktree(root)
+	if env.Port != 0 && !linked {
 		listener, err := bind(env.Port)
 		if err != nil {
 			return nil, &codedCLIError{code: 3, err: fmt.Errorf("explicit worktree browser port %d is unavailable: %w", env.Port, err)}
@@ -243,7 +259,7 @@ func bindWorktreeBrowser(previous, root string, env app.ResolvedEnv) (net.Listen
 		return listener, nil
 	}
 	if _, portText, err := net.SplitHostPort(previous); err == nil {
-		if port, err := strconv.Atoi(portText); err == nil && port >= start && port <= end {
+		if port, err := strconv.Atoi(portText); err == nil && port >= start && port <= end && (!linked || port != env.Port) {
 			if listener, err := bind(port); err == nil {
 				return listener, nil
 			}
@@ -255,6 +271,9 @@ func bindWorktreeBrowser(previous, root string, env app.ResolvedEnv) (net.Listen
 	}
 	for i := 0; i <= end-start; i++ {
 		port := start + (preferred-start+i)%(end-start+1)
+		if linked && port == env.Port {
+			continue
+		}
 		if listener, err := bind(port); err == nil {
 			return listener, nil
 		}

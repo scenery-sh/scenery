@@ -221,7 +221,8 @@ func splitProductionFrontendPaths(root string, paths []string) ([]string, []stri
 	var names, appPaths []string
 	seen := map[string]bool{}
 	for _, rel := range paths {
-		if !isWatchedFile(rel) {
+		// A Go test file reaches this list only if runtime code embeds it.
+		if !isWatchedFile(rel) && filepath.Ext(rel) != ".go" {
 			if name, ok := productionFrontendForWatchPath(root, rel); ok {
 				if !seen[name] {
 					seen[name] = true
@@ -242,6 +243,12 @@ type fileStamp struct {
 	mode    uint32
 	hash    string
 	embed   bool
+}
+
+// Metadata decides whether to rehash; content decides whether to rebuild.
+func (stamp fileStamp) sameContent(other fileStamp) bool {
+	return stamp.hash == other.hash && stamp.size == other.size &&
+		stamp.mode == other.mode && stamp.embed == other.embed
 }
 
 type fileSnapshot struct {
@@ -714,6 +721,7 @@ func waitForStableChangePolling(ctx context.Context, root string, current fileSn
 			return fileSnapshot{}, false, err
 		}
 		if snapshotsEqual(current, next) {
+			current = next
 			continue
 		}
 		settled, err := waitForSnapshotToSettlePolling(ctx, root, next)
@@ -742,6 +750,7 @@ func waitForStableChangeEvents(ctx context.Context, root string, current fileSna
 				return fileSnapshot{}, false, err
 			}
 			if snapshotsEqual(current, next) {
+				current = next
 				continue
 			}
 			settled, err := waitForSnapshotToSettlePolling(ctx, root, next)
@@ -753,6 +762,7 @@ func waitForStableChangeEvents(ctx context.Context, root string, current fileSna
 			return fileSnapshot{}, false, err
 		}
 		if snapshotsEqual(current, next) {
+			current = next
 			continue
 		}
 		return next, false, nil
@@ -777,6 +787,7 @@ func waitForSnapshotToSettlePolling(ctx context.Context, root string, current fi
 				return fileSnapshot{}, err
 			}
 			if snapshotsEqual(current, next) {
+				current = next
 				continue
 			}
 			current = next
@@ -888,6 +899,11 @@ func scanWatchedFilesReusing(root string, previous fileSnapshot) (fileSnapshot, 
 		if shouldIgnoreWatchPathWithMatcher(rel, false, ignore) {
 			return nil
 		}
+		// Tests and their embed directives do not belong to a runtime build.
+		// Explicit runtime embeds can still add these bytes through the owner.
+		if strings.HasSuffix(rel, "_test.go") {
+			return nil
+		}
 		if !isWatchedFile(rel) && classifyAssistantWatchPath(root, rel) == "" {
 			if _, ok := productionFrontendForWatchPath(root, rel); !ok {
 				return nil
@@ -980,7 +996,7 @@ func snapshotsEqual(a, b fileSnapshot) bool {
 		return false
 	}
 	for path, stamp := range a.files {
-		if other, ok := b.files[path]; !ok || other != stamp {
+		if other, ok := b.files[path]; !ok || !stamp.sameContent(other) {
 			return false
 		}
 	}
@@ -992,7 +1008,7 @@ func changedPaths(before, after fileSnapshot) []string {
 	paths := make([]string, 0, len(before.files)+len(after.files))
 	for path, stamp := range before.files {
 		seen[path] = true
-		if other, ok := after.files[path]; !ok || other != stamp {
+		if other, ok := after.files[path]; !ok || !stamp.sameContent(other) {
 			paths = append(paths, path)
 		}
 	}
@@ -1040,8 +1056,6 @@ func snapshotFingerprint(snapshot fileSnapshot) string {
 		scratch = append(scratch, stamp.hash...)
 		scratch = append(scratch, 0)
 		scratch = strconv.AppendInt(scratch, stamp.size, 10)
-		scratch = append(scratch, ':')
-		scratch = strconv.AppendInt(scratch, stamp.modTime.UnixNano(), 10)
 		scratch = append(scratch, ':')
 		scratch = strconv.AppendUint(scratch, uint64(stamp.mode), 8)
 		scratch = append(scratch, ':')

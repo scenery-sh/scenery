@@ -54,6 +54,14 @@ Run only the route relevant to the task; expand when its evidence points elsewhe
 - Public and auth HTTP bindings are externally reachable. Internal bindings are called through generated clients so auth, visibility, tracing, delivery, and error semantics remain intact.
 - Use Git worktrees for multiple live code copies.
 
+Before a new development session, pin `scenery.sh` in the app's `go.mod` and
+run `scenery framework use -o json`. Use the returned worktree-local executable
+for subsequent commands; `framework inspect -o json` verifies both source and
+executable bytes. Explicit co-development uses `framework use --source <root>`:
+it snapshots dirty source and selects that immutable copy in the app's module.
+Do not commit that local replacement or infer parity from a checkout SHA alone.
+Another checkout's edits cannot update this session; select an update explicitly.
+
 App-required build flags belong in `build.go_flags` in app config. Non-runtime tracked trees that should not trigger rebuilds belong in `watch.ignore`. Do not add ambient environment controls when checked-in config or an explicit flag is sufficient.
 
 ## Native Source and Generated Artifacts
@@ -176,6 +184,13 @@ Detached startup failures preserve the supervisor's structured diagnostic and ex
 
 The selected environment owns domains, exposure, ports, frontend serving, and deployment. Discover URLs with `scenery ps -o json`; never guess hidden ports or substrate paths. Diagnose with bounded logs, traces, and metrics before widening the search.
 
+Disable optional frontends with `envs.<name>.frontends.<frontend>.serve =
+"disabled"`; the root frontend must remain enabled. Test-only Go edits, docs,
+and content-identical rewrites do not restart the backend. A failed candidate
+preflight retains the serving generation; a failed start attempts rollback to
+the retained executable without overlapping write-producing runtimes. Read the
+serving revision separately from the failed build result.
+
 Dotenv files are optional for every environment, including local `scenery up` and `scenery worker`. Missing files contribute no values; process environment takes precedence over available dotenv layers. Do not create empty `.env` placeholders. Unreadable or malformed files, missing required values, and invalid resolved values still fail validation.
 
 Known startup configuration failures use SCN8003 (exit 3); unavailable Docker or a required disabled agent uses SCN8004 (exit 4). Credentials and raw Docker failure output are not public diagnostics. Doctor reports environment prerequisites, not application/database readiness. A passing harness covers only its selected mode; warnings and skipped probes remain unverified, not successful proof.
@@ -194,6 +209,23 @@ See [App Config](docs/local-contract.md#app-config) for binding and sharing rule
 An explicit app `DATABASE_URL` is external; equal external URLs intentionally share data and do not provide managed isolation. Otherwise managed SQL-backed `scenery up` owns a dedicated Postgres container and volume per canonical app root/worktree, with one app database and service-scoped schemas. Non-SQL startup does not provision Postgres. `scenery down` stops only that worktree and retains data/credentials outside the checkout; branch switches reuse its database, while another worktree gets a separate cluster. Git removal retains data. Inspect retained/orphaned roots with `scenery ps -o json`; whole-cluster deletion requires explicit `scenery prune --older-than <duration> --app-root <absolute-path> --db`. Never infer permission to delete data from a worktree removal request. Use `scenery db apply` for schema mutation, `scenery db seed` for initial data and declared `database.seed.commands`, and `scenery db setup` for both, with the runtime stopped for managed database mutation. SQL seeds are immutable; file-backed commands rerun only when their explicit workspace input hash changes and must be atomic or idempotent. Do not make file generation apply database state. Incompatible ownership, missing retained volumes, a changed Docker daemon, or an interrupted restore is a precondition to resolve, never permission to allocate replacement empty data. Stop/cleanup and snapshots resolve retained ownership independently of invalid or removed source.
 
 Snapshots include only selected data. Storage save and load require a stopped worktree; combined capture requires an already-owned managed database and exclusion of external writers. Verify returns the archive's lowercase hexadecimal `sha256`; verify and load accept `--expect-sha256 <digest>`. Verify and dry-run never allocate or recover target state. Use `--dry-run` first and `--mode overwrite --yes` only for explicit replacement. Combined DB/storage merge is rejected. An interrupted restore blocks ordinary access and SQL-only load, even after storage generation publication: follow its exact digest, mode, conflict-policy and data-class resume instruction, never delete its recovery record or retry with fewer data classes. Import creates independent files and fresh ETags, not shared cache references.
+
+## Application Schema Evolution and Presets
+
+Application schema changes use app-authored `database.migrations` entries and
+immutable numbered SQL files. Use `db migrate --status` before applying; stopped
+managed PostgreSQL may need `db server start`. `db migrate` applies each service's
+pending chain and checksum ledger atomically. A populated schema without a
+ledger is blocked. Only explicit `--adopt-initial` plus that service's complete,
+read-only `initial_verification` predicate can establish its known initial
+baseline. Failed verification changes nothing. Append migrations; never reset
+populated data as an ordinary schema-edit step. Retained metadata upgrades are
+a separate operation. See `docs/local-contract.md` for exact contracts.
+
+App presets should compose `worktree create` and verified coordinated snapshots,
+not copy writable state or invent a second snapshot format. Declare native
+filesystem assets separately: a DB/object snapshot cannot prove undeclared
+assets or native recomputation prerequisites.
 
 ## Generated TypeScript Clients
 
@@ -238,6 +270,12 @@ Keep generated page, route, dialog, and query wiring intact rather than rebuildi
 ## Tasks and Workers
 
 Use `scenery task list|inspect|run` for app-local `<domain>:<name>` code tasks; they may run while the graph is temporarily invalid. Use `scenery worker --app-root <path> --env <name>` for the worker role.
+
+Use app-owned `validation.profiles` as the executable check mapping and
+`validate changed --base <ref> --dry-run -o json` to inspect its selected union.
+Selection includes branch changes, tracked working-tree edits and non-ignored
+untracked paths. `harness --with-validation=<profile>` composes framework and
+domain proof; a core harness alone does not establish a mutation journey.
 
 Single-file Go code tasks live under a domain `tasks` directory and use `//go:build ignore`; that build constraint is not an application declaration.
 

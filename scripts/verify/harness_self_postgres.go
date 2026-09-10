@@ -148,6 +148,14 @@ func runHarnessPostgresProbeCheck(parent context.Context, repoRoot string, full 
 		return nil, diagnostics, err
 	}
 	defer func() { _ = appDB.Close() }()
+	var migrations map[string]any
+	if err := segments.run("application_schema_migrations", func() error {
+		var err error
+		migrations, err = runHarnessSchemaMigrations(ctx, repoRoot, rootA, appDB)
+		return err
+	}); err != nil {
+		return nil, diagnostics, err
+	}
 	if err := segments.run("schema_isolation", func() error {
 		for _, schema := range []string{"scenery", "reports", "cache"} {
 			ok, err := postgresSchemaExists(ctx, appDB, schema)
@@ -259,16 +267,17 @@ func runHarnessPostgresProbeCheck(parent context.Context, repoRoot string, full 
 		proof = "full"
 	}
 	summary = map[string]any{
-		"postgres_probe": "ran",
-		"proof":          proof,
-		"container_mode": "two_owned_worktree_clusters",
-		"resource_a":     databaseA.ResourceID,
-		"resource_b":     databaseB.ResourceID,
-		"database_a":     databaseA.Database,
-		"database_b":     databaseB.Database,
-		"schemas":        []string{"scenery", "reports", "cache"},
-		"segments":       segments.entries,
-		"diagnostics":    len(diagnostics),
+		"postgres_probe":                "ran",
+		"proof":                         proof,
+		"container_mode":                "two_owned_worktree_clusters",
+		"resource_a":                    databaseA.ResourceID,
+		"resource_b":                    databaseB.ResourceID,
+		"database_a":                    databaseA.Database,
+		"database_b":                    databaseB.Database,
+		"schemas":                       []string{"scenery", "reports", "cache"},
+		"segments":                      segments.entries,
+		"diagnostics":                   len(diagnostics),
+		"application_schema_migrations": migrations,
 	}
 	if full {
 		summary["durable"] = "roundtrip"
