@@ -1,7 +1,6 @@
 package storagefs
 
 import (
-	"container/heap"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -10,7 +9,7 @@ import (
 	"fmt"
 	"hash"
 	"math"
-	"sort"
+	"path/filepath"
 	"strings"
 
 	"scenery.sh/internal/atomicfile"
@@ -63,6 +62,17 @@ func (s *Store) PreviewDelete(ctx context.Context, prefix string) (DeletePreview
 }
 
 func (s *Store) previewDeleteHeld(ctx context.Context, lease *namespaceLease, prefix string) (DeletePreview, error) {
+	run, err := s.orderedDeleteRun(ctx, lease, prefix)
+	if err != nil {
+		return DeletePreview{}, err
+	}
+	if run != nil {
+		defer func() { _ = run.Remove() }()
+	}
+	return s.previewDeleteRun(ctx, lease, prefix, run)
+}
+
+func (s *Store) previewDeleteRun(ctx context.Context, lease *namespaceLease, prefix string, run *orderedRun[reference]) (DeletePreview, error) {
 	preview := DeletePreview{Scope: s.scope, Prefix: prefix, Incarnation: lease.owner.Incarnation, Generation: lease.owner.Generation, Sample: []string{}}
 	digest := sha256.New()
 	if err := hashJSON(digest, struct {
@@ -74,7 +84,7 @@ func (s *Store) previewDeleteHeld(ctx context.Context, lease *namespaceLease, pr
 	}{"delete-prefix", s.namespace.Binding, lease.owner.Incarnation, lease.owner.Generation, s.scope, prefix}); err != nil {
 		return DeletePreview{}, err
 	}
-	err := scanOrderedReferences(ctx, lease, s.scope, prefix, func(ref reference) error {
+	err := run.Visit(ctx, func(ref reference) error {
 		if err := addTotals(&preview.Objects, &preview.Bytes, ref.Object.SizeBytes); err != nil {
 			return err
 		}
@@ -107,14 +117,21 @@ func (s *Store) ApplyDelete(ctx context.Context, prefix, expected string) (Delet
 		return DeleteResult{}, err
 	}
 	defer func() { _ = mutation.Close() }()
-	preview, err := s.previewDeleteHeld(ctx, lease, prefix)
+	run, err := s.orderedDeleteRun(ctx, lease, prefix)
+	if err != nil {
+		return DeleteResult{}, err
+	}
+	if run != nil {
+		defer func() { _ = run.Remove() }()
+	}
+	preview, err := s.previewDeleteRun(ctx, lease, prefix, run)
 	if err != nil {
 		return DeleteResult{}, err
 	}
 	if preview.SelectionRevision != expected {
 		return DeleteResult{}, fmt.Errorf("%w: destructive selection changed; preview again", ErrPrecondition)
 	}
-	return s.deletePrefixHeld(ctx, lease, prefix)
+	return s.deletePrefixRun(ctx, lease, run)
 }
 
 // DeletePrefix is a sequence of durable object deletions, not a transaction.
@@ -133,13 +150,20 @@ func (s *Store) DeletePrefix(ctx context.Context, prefix string) error {
 		return err
 	}
 	defer func() { _ = mutation.Close() }()
-	_, err = s.deletePrefixHeld(ctx, lease, prefix)
+	run, err := s.orderedDeleteRun(ctx, lease, prefix)
+	if err != nil {
+		return err
+	}
+	if run != nil {
+		defer func() { _ = run.Remove() }()
+	}
+	_, err = s.deletePrefixRun(ctx, lease, run)
 	return err
 }
 
-func (s *Store) deletePrefixHeld(ctx context.Context, lease *namespaceLease, prefix string) (DeleteResult, error) {
+func (s *Store) deletePrefixRun(ctx context.Context, lease *namespaceLease, run *orderedRun[reference]) (DeleteResult, error) {
 	result := DeleteResult{Completion: "complete"}
-	err := scanOrderedReferences(ctx, lease, s.scope, prefix, func(ref reference) error {
+	err := run.Visit(ctx, func(ref reference) error {
 		if err := s.deleteHeld(ctx, lease, ref.Object.Key); err != nil {
 			return err
 		}
@@ -156,6 +180,22 @@ func (s *Store) deletePrefixHeld(ctx context.Context, lease *namespaceLease, pre
 	return result, nil
 }
 
+func (s *Store) orderedDeleteRun(ctx context.Context, lease *namespaceLease, prefix string) (*orderedRun[reference], error) {
+	sorter := newOrderedSorter[reference](lease.root, filepath.Join(generationPath(lease.owner.Generation), "staging"), func(a, b reference) bool {
+		return a.Object.Key < b.Object.Key
+	})
+	err := scanReferences(ctx, lease, s.scope, func(ref reference) error {
+		if !strings.HasPrefix(ref.Object.Key, prefix) {
+			return nil
+		}
+		return sorter.Add(ctx, ref)
+	})
+	if err != nil {
+		return nil, sorter.fail(err)
+	}
+	return sorter.Finish(ctx)
+}
+
 func addTotals(count, bytes *int64, size int64) error {
 	if *count == math.MaxInt64 || size < 0 || size > math.MaxInt64-*bytes {
 		return fmt.Errorf("%w: selection totals overflow", ErrCorrupt)
@@ -167,100 +207,24 @@ func addTotals(count, bytes *int64, size int64) error {
 
 func hashJSON(digest hash.Hash, value any) error { return json.NewEncoder(digest).Encode(value) }
 
-// Canonical fingerprints require ordered references. Repeated bounded scans
-// avoid an in-memory inventory or persistent index; cost is O(N*ceil(N/128)).
-// The caller holds mutation ownership throughout all scans and callbacks.
-func scanOrderedReferences(ctx context.Context, lease *namespaceLease, scope Scope, prefix string, visit func(reference) error) error {
-	last := ""
-	for {
-		candidates := &referenceHeap{}
-		err := scanReferences(ctx, lease, scope, func(ref reference) error {
-			if ref.Object.Key <= last || !strings.HasPrefix(ref.Object.Key, prefix) {
-				return nil
-			}
-			if candidates.Len() == 128 {
-				if ref.Object.Key >= (*candidates)[0].Object.Key {
-					return nil
-				}
-				heap.Pop(candidates)
-			}
-			heap.Push(candidates, ref)
-			return nil
-		})
-		if err != nil {
-			return err
-		}
-		if candidates.Len() == 0 {
-			return nil
-		}
-		sort.Slice(*candidates, func(i, j int) bool { return (*candidates)[i].Object.Key < (*candidates)[j].Object.Key })
-		for _, ref := range *candidates {
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			if err := visit(ref); err != nil {
-				return err
-			}
-			last = ref.Object.Key
-		}
-		if candidates.Len() < 128 {
-			return nil
-		}
-	}
-}
-
-type referenceHeap []reference
-
-func (h referenceHeap) Len() int           { return len(h) }
-func (h referenceHeap) Less(i, j int) bool { return referenceOrder(h[i]) > referenceOrder(h[j]) }
-func (h referenceHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
-func (h *referenceHeap) Push(value any)    { *h = append(*h, value.(reference)) }
-func (h *referenceHeap) Pop() any {
-	old := *h
-	last := old[len(old)-1]
-	*h = old[:len(old)-1]
-	return last
-}
-
 func referenceOrder(ref reference) string {
 	return ref.Object.Store + "\x00" + ref.Object.Tenant + "\x00" + ref.Object.Key
 }
 
 func scanOrderedNamespaceReferences(ctx context.Context, lease *namespaceLease, visit func(reference) error) error {
-	last := ""
-	for {
-		h := &referenceHeap{}
-		if err := scanAllReferences(ctx, lease, func(ref reference) error {
-			key := referenceOrder(ref)
-			if key <= last {
-				return nil
-			}
-			if h.Len() == 128 {
-				if key >= referenceOrder((*h)[0]) {
-					return nil
-				}
-				heap.Pop(h)
-			}
-			heap.Push(h, ref)
-			return nil
-		}); err != nil {
-			return err
-		}
-		if h.Len() == 0 {
-			return nil
-		}
-		sort.Slice(*h, func(i, j int) bool { return referenceOrder((*h)[i]) < referenceOrder((*h)[j]) })
-		for _, ref := range *h {
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			if err := visit(ref); err != nil {
-				return err
-			}
-			last = referenceOrder(ref)
-		}
-		if h.Len() < 128 {
-			return nil
-		}
+	sorter := newOrderedSorter[reference](lease.root, filepath.Join(generationPath(lease.owner.Generation), "staging"), func(a, b reference) bool {
+		return referenceOrder(a) < referenceOrder(b)
+	})
+	if err := scanAllReferences(ctx, lease, func(ref reference) error { return sorter.Add(ctx, ref) }); err != nil {
+		return sorter.fail(err)
 	}
+	run, err := sorter.Finish(ctx)
+	if err != nil {
+		return err
+	}
+	if run == nil {
+		return nil
+	}
+	defer func() { _ = run.Remove() }()
+	return run.Visit(ctx, visit)
 }

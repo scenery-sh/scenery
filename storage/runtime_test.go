@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"scenery.sh/internal/storageconfig"
@@ -12,6 +14,31 @@ import (
 	"strings"
 	"testing"
 )
+
+func TestProxyHeadPreservesFailureIdentityOverUnixTransport(t *testing.T) {
+	socket := startUnixStorageTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		switch req.URL.Path {
+		case "/v1/stores/app/objects/missing":
+			HTTPError(w, &NotFoundError{Store: "app", Key: "missing"})
+		case "/v1/stores/app/objects/recovery":
+			HTTPError(w, storagefs.ErrRecovery)
+		default:
+			http.NotFound(w, req)
+		}
+	}))
+	proxy := newProxyRuntimeStore("app", socket)
+	proxy.binding = "test-binding"
+
+	_, err := proxy.Head(context.Background(), "missing")
+	var missing *NotFoundError
+	if !errors.As(err, &missing) || missing.Store != "app" || missing.Key != "missing" {
+		t.Fatalf("missing HEAD identity: %v", err)
+	}
+	_, err = proxy.Head(context.Background(), "recovery")
+	if !errors.Is(err, ErrRecovery) {
+		t.Fatalf("recovery HEAD identity: %v", err)
+	}
+}
 
 func TestDefaultUsesRuntimeConfigWithoutAllocating(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "external")
@@ -130,4 +157,27 @@ func (s *recordingStore) Delete(_ context.Context, key string, opts DeleteOption
 func (s *recordingStore) DeletePrefix(_ context.Context, prefix string) error {
 	s.keys = append(s.keys, prefix)
 	return nil
+}
+
+func startUnixStorageTestServer(t *testing.T, handler http.Handler) string {
+	t.Helper()
+	directory, err := os.MkdirTemp("", "scenery-storage-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(directory) })
+	socket := filepath.Join(directory, "storage.sock")
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := &http.Server{Handler: handler}
+	done := make(chan error, 1)
+	go func() { done <- server.Serve(listener) }()
+	t.Cleanup(func() {
+		_ = server.Close()
+		_ = listener.Close()
+		<-done
+	})
+	return socket
 }

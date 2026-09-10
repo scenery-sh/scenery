@@ -90,6 +90,11 @@ func scanGenerationMaterials(ctx context.Context, lease *namespaceLease, inactiv
 		return err
 	}
 	err = scanDirectory(ctx, lease.root, filepath.Join(base, "staging"), func(info os.FileInfo) error {
+		if isOrderedRun(info.Name()) {
+			// Ordered scan runs are operation scratch; reclaim removes stale
+			// runs before starting a new ordered material scan.
+			return nil
+		}
 		if !isHexID(info.Name(), 16) {
 			return fmt.Errorf("%w: unknown staging material", ErrCorrupt)
 		}

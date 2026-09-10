@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -169,6 +170,80 @@ func TestStorageProxyPreservesLogicalMetadataAndConditions(t *testing.T) {
 	h.ServeHTTP(recorder, req)
 	if recorder.Code != http.StatusPreconditionFailed || store.deleted.IfMatch != `"old"` {
 		t.Fatalf("conditional delete: %+v status=%d", store.deleted, recorder.Code)
+	}
+}
+
+func TestStorageProxyDeletesEmptyPrefixPerTenant(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	binding := storagefs.Binding{AppID: "storage-proxy-test", AppRoot: root, UserID: os.Getuid()}
+	namespace, err := storagefs.Allocate(ctx, filepath.Join(root, "storage"), binding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	descriptor := storageconfig.Namespace{Root: namespace.Path, Binding: binding, Incarnation: namespace.Incarnation}
+	proxyBinding := descriptor.ProxyBinding()
+	server := &http.Server{Handler: storageProxyHandler(
+		map[string]appcfg.StorageStoreConfig{"app": {TenantScoped: true}},
+		proxyBinding,
+		func(name, tenant string) (publicstorage.Store, error) {
+			if name != "app" {
+				return nil, errors.New("resolved unexpected store")
+			}
+			return namespace.Store(storagefs.Scope{Store: name, Tenant: tenant}, 0)
+		},
+	)}
+	socketDir, err := os.MkdirTemp("", "scenery-storage-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(socketDir) })
+	socket := filepath.Join(socketDir, "storage.sock")
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- server.Serve(listener) }()
+	t.Cleanup(func() {
+		_ = server.Close()
+		_ = listener.Close()
+		<-done
+	})
+	runtimeConfig := storageconfig.RuntimeConfig{
+		ArtifactIdentity: storageconfig.NewRuntimeIdentity(),
+		Namespace:        &descriptor,
+		Default:          "app",
+		Stores: map[string]storageconfig.RuntimeStoreConfig{
+			"app": {Kind: "proxy", ProxySocket: socket, TenantScoped: true},
+		},
+	}
+	data, err := json.Marshal(runtimeConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(storageconfig.RuntimeConfigEnv, string(data))
+	store, err := publicstorage.Default(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tenantA := publicstorage.WithTenantID(ctx, "tenant-a")
+	tenantB := publicstorage.WithTenantID(ctx, "tenant-b")
+	if _, err := store.Put(tenantA, "a", strings.NewReader("tenant a"), publicstorage.PutOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Put(tenantB, "a", strings.NewReader("tenant b"), publicstorage.PutOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.DeletePrefix(tenantA, ""); err != nil {
+		t.Fatalf("empty-prefix delete: %v", err)
+	}
+	var missing *publicstorage.NotFoundError
+	if _, err := store.Head(tenantA, "a"); !errors.As(err, &missing) {
+		t.Fatalf("tenant A was not cleared: %v", err)
+	}
+	if object, err := store.Head(tenantB, "a"); err != nil || object.Key != "a" {
+		t.Fatalf("tenant B was affected: object=%+v error=%v", object, err)
 	}
 }
 

@@ -173,6 +173,10 @@ func storageProxyHandler(stores map[string]appcfg.StorageStoreConfig, binding st
 			return
 		}
 		if !objectRoute {
+			if req.Method == http.MethodDelete && storageProxyBool(req.URL.Query().Get("recursive")) {
+				handleStorageProxyDeletePrefix(w, req, store)
+				return
+			}
 			handleStorageProxyList(w, req, store)
 			return
 		}
@@ -223,6 +227,14 @@ func handleStorageProxyList(w http.ResponseWriter, req *http.Request, store publ
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	_ = json.NewEncoder(w).Encode(page)
+}
+
+func handleStorageProxyDeletePrefix(w http.ResponseWriter, req *http.Request, store publicstorage.Store) {
+	if err := store.DeletePrefix(req.Context(), ""); err != nil {
+		writeStorageProxyError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func handleStorageProxyObject(w http.ResponseWriter, req *http.Request, store publicstorage.Store, key string) {

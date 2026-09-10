@@ -280,17 +280,26 @@ func objectFromProxyHeaders(header http.Header) (*Object, error) {
 }
 
 func proxyStorageError(resp *http.Response, store, key string) error {
-	data, err := io.ReadAll(io.LimitReader(resp.Body, (16<<10)+1))
+	var failure storagefs.Failure
+	if raw := strings.TrimSpace(resp.Header.Get(storageErrorHeader)); raw != "" {
+		if data, err := base64.RawURLEncoding.Strict().DecodeString(raw); err == nil && len(data) <= maxStorageErrorBytes && json.Unmarshal(data, &failure) == nil {
+			return proxyFailureError(failure, store, key)
+		}
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxStorageErrorBytes+1))
 	if err != nil {
 		return err
 	}
-	if len(data) > 16<<10 {
+	if len(data) > maxStorageErrorBytes {
 		return fmt.Errorf("storage proxy returned an oversized error")
 	}
-	var failure storagefs.Failure
 	if err := json.Unmarshal(data, &failure); err != nil {
 		return fmt.Errorf("storage proxy returned invalid HTTP %d error", resp.StatusCode)
 	}
+	return proxyFailureError(failure, store, key)
+}
+
+func proxyFailureError(failure storagefs.Failure, store, key string) error {
 	switch failure.Diagnostic {
 	case "SCN8006":
 		return ErrMigration

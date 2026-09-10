@@ -1,14 +1,12 @@
 package storagefs
 
 import (
-	"container/heap"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"path/filepath"
-	"sort"
 
 	"scenery.sh/internal/atomicfile"
 )
@@ -146,53 +144,22 @@ func (n *Namespace) validateNamespaceReclamation(ctx context.Context, lease *nam
 }
 
 func scanOrderedGenerationMaterials(ctx context.Context, lease *namespaceLease, inactive bool, visit func(reclaimMaterial) error) error {
-	last := ""
-	for {
-		candidates := &materialHeap{}
-		err := scanGenerationMaterials(ctx, lease, inactive, func(material reclaimMaterial) error {
-			if material.Path <= last {
-				return nil
-			}
-			if candidates.Len() == 128 {
-				if material.Path >= (*candidates)[0].Path {
-					return nil
-				}
-				heap.Pop(candidates)
-			}
-			heap.Push(candidates, material)
-			return nil
-		})
-		if err != nil {
-			return err
-		}
-		if candidates.Len() == 0 {
-			return nil
-		}
-		sort.Slice(*candidates, func(i, j int) bool { return (*candidates)[i].Path < (*candidates)[j].Path })
-		for _, material := range *candidates {
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			if err := visit(material); err != nil {
-				return err
-			}
-			last = material.Path
-		}
-		if candidates.Len() < 128 {
-			return nil
-		}
+	if err := removeStaleOrderedRuns(ctx, lease.root, filepath.Join(generationPath(lease.owner.Generation), "staging")); err != nil {
+		return err
 	}
-}
-
-type materialHeap []reclaimMaterial
-
-func (h materialHeap) Len() int           { return len(h) }
-func (h materialHeap) Less(i, j int) bool { return h[i].Path > h[j].Path }
-func (h materialHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
-func (h *materialHeap) Push(value any)    { *h = append(*h, value.(reclaimMaterial)) }
-func (h *materialHeap) Pop() any {
-	old := *h
-	last := old[len(old)-1]
-	*h = old[:len(old)-1]
-	return last
+	sorter := newOrderedSorter[reclaimMaterial](lease.root, filepath.Join(generationPath(lease.owner.Generation), "staging"), func(a, b reclaimMaterial) bool {
+		return a.Path < b.Path
+	})
+	if err := scanGenerationMaterials(ctx, lease, inactive, func(material reclaimMaterial) error { return sorter.Add(ctx, material) }); err != nil {
+		return sorter.fail(err)
+	}
+	run, err := sorter.Finish(ctx)
+	if err != nil {
+		return err
+	}
+	if run == nil {
+		return nil
+	}
+	defer func() { _ = run.Remove() }()
+	return run.Visit(ctx, visit)
 }
