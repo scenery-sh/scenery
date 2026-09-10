@@ -73,7 +73,7 @@ func (n *Namespace) previewPurgeHeld(ctx context.Context, lease *namespaceLease)
 		}); err != nil {
 			return err
 		}
-		return scanOrderedMaterials(ctx, selected, func(material reclaimMaterial) error { return hashJSON(digest, material) })
+		return n.scanOrderedMaterials(ctx, selected, func(material reclaimMaterial) error { return hashJSON(digest, material) })
 	})
 	if err != nil {
 		return PurgePreview{}, err

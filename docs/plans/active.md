@@ -7,6 +7,12 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
+- [0177 Integration Recovery Boundaries](0177-integration-recovery-boundaries.md)
+  - Status: active
+  - Owner: scenery runtime / ONLV development
+  - Created: 2026-09-11
+  - Focus: DevTools authentication, low-space reclamation and retained framework inspection.
+
 - [0169 One Pure SQL Endpoint Selection](0169-sql-endpoint-resolution.md)
   - Status: active
   - Owner: scenery runtime / PostgreSQL

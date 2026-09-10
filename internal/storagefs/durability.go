@@ -12,21 +12,23 @@ import (
 // These concrete boundaries permit deterministic failure-cut tests. Production
 // always uses checked synchronization; there is no runtime durability switch.
 type diskIO struct {
-	syncFile     func(*os.File) error
-	replace      func(*os.Root, string, []byte) error
-	rename       func(*os.Root, string, string) error
-	remove       func(*os.Root, string) error
-	openPayload  func(*os.Root, string) (*os.File, error)
-	clonePayload func(*os.File, *os.Root, string) (*os.File, bool, error)
+	createOrderedRun orderedRunCreator
+	syncFile         func(*os.File) error
+	replace          func(*os.Root, string, []byte) error
+	rename           func(*os.Root, string, string) error
+	remove           func(*os.Root, string) error
+	openPayload      func(*os.Root, string) (*os.File, error)
+	clonePayload     func(*os.File, *os.Root, string) (*os.File, bool, error)
 }
 
 func durableIO() diskIO {
 	return diskIO{
-		syncFile:     func(f *os.File) error { return f.Sync() },
-		rename:       func(r *os.Root, from, to string) error { return r.Rename(from, to) },
-		remove:       func(r *os.Root, name string) error { return r.Remove(name) },
-		openPayload:  func(r *os.Root, name string) (*os.File, error) { return openOwned(r, name, os.O_RDONLY) },
-		clonePayload: clonePayload,
+		createOrderedRun: createOrderedRun,
+		syncFile:         func(f *os.File) error { return f.Sync() },
+		rename:           func(r *os.Root, from, to string) error { return r.Rename(from, to) },
+		remove:           func(r *os.Root, name string) error { return r.Remove(name) },
+		openPayload:      func(r *os.Root, name string) (*os.File, error) { return openOwned(r, name, os.O_RDONLY) },
+		clonePayload:     clonePayload,
 		replace: func(r *os.Root, name string, data []byte) error {
 			return atomicfile.WriteRoot(r, name, data, 0o600, atomicfile.Options{SyncFile: true, SyncDir: true})
 		},

@@ -19,6 +19,18 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0177-integration-recovery-boundaries.md",
+      "title": "Integration Recovery Boundaries",
+      "owner": "scenery runtime / ONLV development",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-11",
+      "review_after": "2026-10-11",
+      "summary": "Authenticate DevTools, retain reclamation under disk pressure and inspect retained producers across specification changes.",
+      "tags": ["plans", "execplans", "runtime", "storage"]
+    },
+    {
       "path": "docs/plans/0176-fast-verified-development-loop.md",
       "title": "Fast Verified Development Loop",
       "owner": "scenery runtime / ONLV development",

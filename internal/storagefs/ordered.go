@@ -31,10 +31,13 @@ type orderedSorter[T any] struct {
 	less    func(T, T) bool
 	runs    []string
 	items   []T
+	create  orderedRunCreator
 }
 
+type orderedRunCreator func(*os.Root, string) (string, io.WriteCloser, error)
+
 func newOrderedSorter[T any](root *os.Root, staging string, less func(T, T) bool) *orderedSorter[T] {
-	return &orderedSorter[T]{root: root, staging: staging, less: less, items: make([]T, 0, orderedRunItems)}
+	return &orderedSorter[T]{root: root, staging: staging, less: less, items: make([]T, 0, orderedRunItems), create: createOrderedRun}
 }
 
 func (s *orderedSorter[T]) Add(ctx context.Context, value T) error {
@@ -68,7 +71,7 @@ func (s *orderedSorter[T]) Finish(ctx context.Context) (*orderedRun[T], error) {
 				next = append(next, s.runs[start])
 				continue
 			}
-			merged, err := mergeOrderedRuns(ctx, s.root, s.staging, s.runs[start:end], s.less)
+			merged, err := mergeOrderedRuns(ctx, s.root, s.staging, s.runs[start:end], s.less, s.create)
 			if err != nil {
 				return nil, s.fail(err, next...)
 			}
@@ -81,7 +84,7 @@ func (s *orderedSorter[T]) Finish(ctx context.Context) (*orderedRun[T], error) {
 		s.runs = next
 	}
 	if len(s.runs) > 1 {
-		merged, err := mergeOrderedRuns(ctx, s.root, s.staging, s.runs, s.less)
+		merged, err := mergeOrderedRuns(ctx, s.root, s.staging, s.runs, s.less, s.create)
 		if err != nil {
 			return nil, s.fail(err)
 		}
@@ -107,7 +110,7 @@ func (s *orderedSorter[T]) flush(ctx context.Context) error {
 		return err
 	}
 	sort.Slice(s.items, func(i, j int) bool { return s.less(s.items[i], s.items[j]) })
-	name, file, err := createOrderedRun(s.root, s.staging)
+	name, file, err := s.create(s.root, s.staging)
 	if err != nil {
 		return err
 	}
@@ -184,7 +187,7 @@ func (r *orderedRun[T]) Remove() error {
 	return r.err
 }
 
-func createOrderedRun(root *os.Root, staging string) (string, *os.File, error) {
+func createOrderedRun(root *os.Root, staging string) (string, io.WriteCloser, error) {
 	for range 4 {
 		id, err := randomID()
 		if err != nil {
@@ -264,8 +267,8 @@ func (h *orderedRunHeap[T]) Pop() any {
 	return last
 }
 
-func mergeOrderedRuns[T any](ctx context.Context, root *os.Root, staging string, names []string, less func(T, T) bool) (string, error) {
-	name, output, err := createOrderedRun(root, staging)
+func mergeOrderedRuns[T any](ctx context.Context, root *os.Root, staging string, names []string, less func(T, T) bool, create orderedRunCreator) (string, error) {
+	name, output, err := create(root, staging)
 	if err != nil {
 		return "", err
 	}
