@@ -644,6 +644,13 @@ func resolveStatusAppRoot(value string) (string, error) {
 	if err == nil {
 		return root, nil
 	}
+	// Status and retained-runtime control must remain available while the
+	// desired configuration is malformed or written in a newer syntax. The
+	// marker-only resolver identifies the canonical checkout; strict decoding
+	// remains the candidate/startup boundary.
+	if markerRoot, markerErr := discoverFrameworkRoot(start); markerErr == nil {
+		return markerRoot, nil
+	}
 	if value != "" {
 		abs, absErr := filepath.Abs(value)
 		if absErr != nil {

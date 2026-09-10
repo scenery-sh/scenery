@@ -1,6 +1,7 @@
 package build
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -43,5 +44,32 @@ func TestCandidateIdentityVerifiesInputsAndProducer(t *testing.T) {
 	selection.ExecutableDigest = a
 	if _, err := candidateIdentity(makeBundle(), selection); err == nil {
 		t.Fatal("accepted another executable")
+	}
+}
+
+func TestRuntimeFrameworkControlAcceptsRetainedProducerFromNewBootstrap(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := digestExecutable(executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selection := FrameworkSelection{
+		ArtifactIdentity: machine.NewArtifactIdentity(frameworkSelectionKind, frameworkSelectionSchema),
+		AppRoot:          t.TempDir(),
+		Source: FrameworkSource{
+			Digest: "sha256:" + strings.Repeat("a", 64),
+			Inputs: &BuildInputManifest{ArtifactIdentity: machine.NewArtifactIdentity(buildInputKind, buildInputSchemaDescriptor)},
+		},
+		Executable:       executable,
+		ExecutableDigest: digest,
+	}
+	if err := VerifyRuntimeFrameworkControl(selection); err != nil {
+		t.Fatalf("VerifyRuntimeFrameworkControl() error = %v", err)
+	}
+	if err := VerifyRuntimeFramework(selection); err == nil {
+		t.Fatal("strict runtime verification accepted a non-owner bootstrap")
 	}
 }

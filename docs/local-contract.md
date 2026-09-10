@@ -842,6 +842,15 @@ process ownership. Desired-source changes do not authorize old-state decoding.
 the locator and executable without consulting edited module/source inputs. It
 emits mode `runtime`, not HTTP health or current-source agreement. Generation,
 build and new startup still enforce desired producer/source agreement.
+Framework use and inspection locate the canonical app root from the config
+marker without decoding the desired `.scenery.json`; a malformed or newer
+configuration syntax therefore cannot strand retained-runtime control. Strict
+configuration decoding remains part of candidate validation and startup.
+Retained worktree status, logs, and shutdown use the same marker-only root
+fallback and verified retained worktree record when present. A newer bootstrap
+producer may inspect the retained runtime locator by validating its artifact and
+executable bytes without claiming ownership of that runtime; ownership remains
+bound to the retained process records and locks.
 
 `scenery db list -o json` reports the app Postgres database as `scenery.db.list`; the record includes the database name, redacted URL, source (`managed` or `external`), optional size, and the compiled service bindings. `scenery db shell [service]` opens the matching `psql` inside the identity-verified managed PostgreSQL container (external databases use host `psql`); a service argument pins `search_path` to `<service_schema>,scenery`. Put CLI selectors such as `--app-root` before the service; all following arguments are passed directly to `psql`. `scenery db reset [service]` resets one service schema with `ResetSchema` and clears the current app's discovered seed-ledger identities for that service so the following setup reconstructs its initial data; without a service it resets the managed app database and requires `--yes`. `scenery db drop` drops the managed app database. Destructive reset/drop operations require a stopped worktree, hold its exclusive operation lock, and refuse external DSNs. `scenery db server status|start|stop|logs [--app-root <path>]` selects only that worktree's retained cluster. Status is read-only and reports its scope, retained resource identity, and any incomplete restore; stop retains the container, volume, and credentials. `scenery db apply` applies configured migrations or the mutually exclusive `database.apply.command`; it does not run seeds or SQLC generation. Standalone apply/seed holds worktree ownership through all SQL and child commands; `db setup` holds it continuously across both phases.
 

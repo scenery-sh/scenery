@@ -56,11 +56,24 @@ func WriteRuntimeFramework(appRoot, version, revision string) error {
 
 // VerifyRuntimeFramework deliberately does not read go.mod or mutable source.
 // Those describe a desired candidate, not the producer controlling retained state.
+// The strict form is used when the current producer publishes the locator.
 func VerifyRuntimeFramework(selection FrameworkSelection) error {
+	return verifyRuntimeFramework(selection, true)
+}
+
+// VerifyRuntimeFrameworkControl validates a retained producer locator from a
+// newer bootstrap producer. It proves the private artifact and executable
+// bytes without requiring the inspecting executable to be the retained one;
+// runtime ownership is checked separately by the worktree records and locks.
+func VerifyRuntimeFrameworkControl(selection FrameworkSelection) error {
+	return verifyRuntimeFramework(selection, false)
+}
+
+func verifyRuntimeFramework(selection FrameworkSelection, requireCurrentProducer bool) error {
 	if err := machine.ValidateArtifactIdentity(selection.ArtifactIdentity, frameworkSelectionKind, frameworkSelectionSchema, "use the runtime's own Scenery executable"); err != nil {
 		return err
 	}
-	if !OwnsFrameworkSelection(selection) {
+	if requireCurrentProducer && !OwnsFrameworkSelection(selection) {
 		return fmt.Errorf("runtime locator does not identify this Scenery executable")
 	}
 	if selection.Source.Inputs == nil {

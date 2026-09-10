@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -11,7 +12,6 @@ import (
 	"time"
 
 	localagent "scenery.sh/internal/agent"
-	"scenery.sh/internal/app"
 	"scenery.sh/internal/devdash"
 	"scenery.sh/internal/victoria"
 )
@@ -111,15 +111,10 @@ func runSceneryLogs(ctx context.Context, stdout io.Writer, args []string) error 
 		return err
 	}
 
-	start, err := resolveAppRoot(opts.AppRoot)
+	appRoot, appID, err := discoverRuntimeAppIdentity(opts.AppRoot)
 	if err != nil {
 		return err
 	}
-	appRoot, cfg, err := app.DiscoverRoot(start)
-	if err != nil {
-		return err
-	}
-	appID := cfg.AppID()
 	sessionID, err := resolveLogsSessionID(ctx, opts.Session, appRoot)
 	if err != nil {
 		return err
@@ -152,6 +147,36 @@ func runSceneryLogs(ctx context.Context, stdout io.Writer, args []string) error 
 		return err
 	}
 	return followVictoriaDevEvents(ctx, stdout, victoria, appID, appRoot, sessionID, opts, devItems)
+}
+
+// discoverRuntimeAppIdentity prefers the retained worktree record because it
+// is the authority for an existing runtime. This keeps logs usable during a
+// configuration-language transition; an absent retained runtime falls back to
+// strict desired-config discovery for ordinary pre-start diagnostics.
+func discoverRuntimeAppIdentity(appRootOption string) (string, string, error) {
+	start, err := resolveAppRoot(appRootOption)
+	if err != nil {
+		return "", "", err
+	}
+	root, markerErr := discoverFrameworkRoot(start)
+	if markerErr == nil {
+		paths, pathsErr := commandWorktreePaths(root)
+		if pathsErr != nil {
+			return "", "", pathsErr
+		}
+		record, recordErr := paths.LoadRecord("")
+		if recordErr == nil {
+			return root, record.AppID, nil
+		}
+		if !errors.Is(recordErr, os.ErrNotExist) {
+			return "", "", recordErr
+		}
+	}
+	root, cfg, configErr := discoverConfiguredApp(start)
+	if configErr != nil {
+		return "", "", configErr
+	}
+	return root, cfg.AppID(), nil
 }
 
 func logsDevEventQuery(opts logsOptions, appID, sessionID string) devdash.DevEventQuery {

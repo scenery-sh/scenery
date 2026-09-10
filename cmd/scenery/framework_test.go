@@ -1,9 +1,13 @@
 package main
 
 import (
+	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	appcfg "scenery.sh/internal/app"
 )
 
 func TestFrameworkSelectionArgsAndExplicitModuleRewrite(t *testing.T) {
@@ -31,5 +35,42 @@ func TestFrameworkSelectionArgsAndExplicitModuleRewrite(t *testing.T) {
 	}
 	if _, err := selectFrameworkSnapshotModule(before, root, filepath.Dir(root)); err == nil {
 		t.Fatal("framework snapshot escaped the app root")
+	}
+}
+
+func TestDiscoverFrameworkRootDoesNotDecodeDesiredConfig(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	child := filepath.Join(root, "apps", "web")
+	if err := os.MkdirAll(child, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// This is intentionally malformed. Framework bootstrap/control must still
+	// locate the canonical root; candidate validation remains strict elsewhere.
+	if err := os.WriteFile(filepath.Join(root, appcfg.PrimaryConfigFilename), []byte(`{"name":"app","validation":{"profiles":{"quick":{"commands":[`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := discoverFrameworkRoot(child)
+	if err != nil {
+		t.Fatalf("discoverFrameworkRoot returned error: %v", err)
+	}
+	want, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("discoverFrameworkRoot = %q, want canonical root %q", got, want)
+	}
+	if _, _, err := discoverConfiguredApp(child); err == nil {
+		t.Fatal("strict app discovery accepted intentionally malformed desired config")
+	}
+}
+
+func TestDiscoverFrameworkRootRequiresConfigMarker(t *testing.T) {
+	t.Parallel()
+	_, err := discoverFrameworkRoot(t.TempDir())
+	if !errors.Is(err, appcfg.ErrRootNotFound) {
+		t.Fatalf("discoverFrameworkRoot error = %v, want %v", err, appcfg.ErrRootNotFound)
 	}
 }

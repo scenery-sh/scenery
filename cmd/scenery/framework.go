@@ -13,6 +13,7 @@ import (
 
 	"golang.org/x/mod/modfile"
 
+	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/atomicfile"
 	"scenery.sh/internal/build"
 )
@@ -74,11 +75,11 @@ func runFrameworkCommand(ctx context.Context, stdout io.Writer, args []string) e
 	if err != nil {
 		return err
 	}
-	root, _, err := discoverConfiguredApp(opts.AppRoot)
-	if err != nil {
-		return err
-	}
-	root, err = filepath.EvalSymlinks(root)
+	// Framework selection and retained-runtime control must remain usable while
+	// the desired app config is being edited, or while it uses a syntax that the
+	// retained producer does not know yet. The marker identifies the canonical
+	// root; candidate startup/build paths still perform the strict config decode.
+	root, err := discoverFrameworkRoot(opts.AppRoot)
 	if err != nil {
 		return err
 	}
@@ -106,7 +107,7 @@ func runFrameworkCommand(ctx context.Context, stdout io.Writer, args []string) e
 	}
 	if err == nil {
 		if opts.Runtime {
-			err = build.VerifyRuntimeFramework(selection)
+			err = build.VerifyRuntimeFrameworkControl(selection)
 		} else {
 			err = build.VerifyFrameworkSelection(ctx, selection)
 		}
@@ -218,6 +219,43 @@ func useAppFramework(ctx context.Context, root, sourceOverride string) (build.Fr
 		}
 	}
 	return selection, changed, nil
+}
+
+// discoverFrameworkRoot locates the app root without decoding .scenery.json.
+// Framework use/inspection is a bootstrap and retained-runtime control path;
+// the desired configuration belongs to the candidate producer and may be
+// temporarily malformed or written in a newer configuration language.
+func discoverFrameworkRoot(appRootOption string) (string, error) {
+	start, err := resolveAppRoot(appRootOption)
+	if err != nil {
+		return "", err
+	}
+	dir, err := filepath.Abs(start)
+	if err != nil {
+		return "", err
+	}
+	for {
+		marker := filepath.Join(dir, appcfg.PrimaryConfigFilename)
+		info, err := os.Stat(marker)
+		if err == nil {
+			if !info.Mode().IsRegular() {
+				return "", fmt.Errorf("%s must be a regular file", marker)
+			}
+			canonical, err := filepath.EvalSymlinks(dir)
+			if err != nil {
+				return "", err
+			}
+			return canonical, nil
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return "", err
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", appcfg.ErrRootNotFound
+		}
+		dir = parent
+	}
 }
 
 func selectFrameworkSnapshotModule(data []byte, appRoot, snapshotRoot string) ([]byte, error) {
