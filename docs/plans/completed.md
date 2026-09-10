@@ -11,6 +11,20 @@ historical records. Do not refresh their review dates or rewrite them as current
 contract prose. Record later guidance here or in the owning current contract;
 use stale knowledge metadata to flag a known contradiction.
 
+## Integration Recovery Boundaries
+
+- Status: completed; implementation published as Scenery de2d8102
+- Owner: scenery runtime / ONLV development
+- Completed: 2026-09-11
+- ExecPlan: [0177 Integration Recovery Boundaries](0177-integration-recovery-boundaries.md)
+
+Authenticated DevTools with persisted trust, bounded non-spilling reclamation
+under scratch space/quota failures, and retained-owner framework inspection are
+implemented. Go tests, lint, default verification, storage probe, five browser
+trust checks, and ONLV published-checkout/retained-environment acceptance pass.
+ONLV consumes `v0.3.7-0.20260910222939-de2d81028baf` without a local replacement.
+Release and all-root timing certification were not selected.
+
 ## Fast Verified Development Loop
 
 - Status: completed locally; not committed or published
