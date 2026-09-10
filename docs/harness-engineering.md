@@ -147,7 +147,7 @@ release certification. Failed steps identify their focused rerun command.
 | `postgres` | Full PostgreSQL service, durable, reset and snapshot proof |
 | `ui` | Dashboard build/freshness and TypeScript conformance/typechecks |
 | `fixtures` | Fixture generation/compilation matrix |
-| `storage` | Storage CLI, routes and restart persistence |
+| `storage` | Storage CLI, routes, restart persistence and a fresh tagged 260-entry disk-pressure reclamation/resume integration test |
 | `core-separation` | Product/verifier dependency and source-only boundaries |
 | `capability-authority` | Runtime capability authority |
 | `auth` | All 15 database/OAuth lifecycle journeys |

@@ -254,6 +254,22 @@ func runHarnessStorageIsolationProbe(ctx context.Context, repoRoot, binary strin
 		return summary, fmt.Errorf("decode native storage fixture: %w", err)
 	}
 	summary["native_boundaries"] = native
+	batchBinary := filepath.Join(base, "storage-reclaim-batches")
+	batchBuild := commandTreeContext(ctx, "go", "test", "-c", "-tags=scenery_storage_integration", "-o", batchBinary, "./internal/storagefs")
+	batchBuild.Dir = repoRoot
+	if output, err := batchBuild.CombinedOutput(); err != nil {
+		return summary, fmt.Errorf("build storage batch integration: %w: %s", err, tailString(string(output), 4096))
+	}
+	batchProbe := commandTreeContext(ctx, batchBinary, "-test.run=^TestReclaimPressureResumesAcrossBatches$", "-test.v")
+	batchProbe.Dir = repoRoot
+	batchOutput, err := batchProbe.CombinedOutput()
+	if err != nil {
+		return summary, fmt.Errorf("storage batch integration: %w: %s", err, tailString(string(batchOutput), 4096))
+	}
+	if !bytes.Contains(batchOutput, []byte("--- PASS: TestReclaimPressureResumesAcrossBatches")) {
+		return summary, fmt.Errorf("storage batch integration did not execute its required journey: %s", tailString(string(batchOutput), 4096))
+	}
+	summary["reclaim_pressure_260_entries_resume"] = "passed"
 	restart, err := runHarnessLocalStorageRestartProbe(ctx, repoRoot, binary, rootB, filepath.Join(base, "restart-home"))
 	for key, value := range restart {
 		summary[key] = value

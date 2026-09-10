@@ -46,6 +46,10 @@ The sole repository command is `go run ./scripts/verify`; do not restore product
 dispatch or a forwarding alias. CI and the release shell delegate common checks
 here; unique source-snapshot and binary packaging checks remain in the shell.
 
+The storage probe compiles the `scenery_storage_integration`-tagged reclamation
+journey and executes its fresh binary. Keep that volume-dependent fixture in
+the explicit probe; ordinary storage tests retain bounded failure-cut coverage.
+
 ## Verification
 
 Run `go test ./scripts/verify` and the root validation union. For changed probe
