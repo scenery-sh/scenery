@@ -71,6 +71,27 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 	if err != nil {
 		return s.handleCompileError(ctx, nil, nil, err)
 	}
+	if s.assistants != nil {
+		s.assistants.lifecycle.Lock()
+		defer s.assistants.lifecycle.Unlock()
+		previousStage := s.assistants.captureStage()
+		defer s.assistants.releaseStage(previousStage)
+		s.mu.Lock()
+		previous := s.current
+		if previous != nil && previous.launch != nil {
+			previous.launch.assistants = previousStage
+		}
+		s.mu.Unlock()
+		err = s.console.Phase("Staging assistant runtimes", func() error {
+			var stageErr error
+			candidate.assistants, stageErr = s.assistants.stage(ctx, plan.Result.Contract)
+			return stageErr
+		})
+		defer s.assistants.releaseStage(candidate.assistants)
+		if err != nil && previous != nil {
+			return s.handleCompileError(ctx, nil, nil, err)
+		}
+	}
 
 	// Detach before stopping so the exit watchers treat this as an intentional
 	// restart rather than a crash; otherwise handleExit races the restart and
@@ -240,9 +261,11 @@ func (s *devSupervisor) prepareAppStart(ctx context.Context, result *build.Resul
 
 func (s *devSupervisor) startPreparedApp(ctx context.Context, plan *appStartPlan) (*runningApp, error) {
 	if s.assistants != nil {
-		// Only replace helper descriptors after the previous app has stopped.
-		// Recovery prepares the retained contract again before starting it.
-		_ = s.console.Phase("Preparing assistant runtimes", func() error { return s.assistants.Prepare(ctx, plan.result.Contract) })
+		if err := s.console.Phase("Activating assistant runtimes", func() error {
+			return s.assistants.activateStage(ctx, plan.assistants)
+		}); err != nil {
+			return nil, err
+		}
 		setAssistantImplementationWatch(s.root, assistantDefinitionsFromResult(plan.result.Contract, s.root))
 		s.refreshAssistantRuntimeConfig()
 	}

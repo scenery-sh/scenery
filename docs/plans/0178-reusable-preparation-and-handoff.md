@@ -29,9 +29,10 @@ no recurring monitor is necessary.
 - [x] (2026-09-11) A: verify source/target/catalog invalidation, mutation isolation,
   current module/deleted-output rejection, no-op transaction absence, real served
   behavior/identity, and repeated edit/start measurements.
-- [ ] B: stage assistant files privately before stopping the working application.
-- [ ] B: measure materialization, evaluate independent copy-on-write files, and
-  prove failed staging, isolation and rollback.
+- [x] (2026-09-11) B: stage assistant files privately before stopping the working
+  application; serialize helper-only changes and retain exact rollback overlays.
+- [x] (2026-09-11) B: measure materialization, evaluate independent copy-on-write
+  files, and prove failed staging, isolation and rollback.
 - [ ] C: validate shorter watcher settling without redundant builds.
 - [ ] C: optimize authoritative database status/setup reuse and verify reset/restore.
 - [ ] Complete repository and ONLV acceptance, record individual samples and
@@ -72,10 +73,17 @@ unavailability.
   than a new persistent artifact protocol. Copy bytes at both ownership
   boundaries. Source, target, producer and live UI catalog changes invalidate
   it; module/path checks and generated-file inspection execute on every hit.
+- 2026-09-11, Codex: retain verified ordinary private copies. On the actual
+  8,046-entry assistant cache, native `cp -cR` plus complete content verification
+  took 2.108, 2.080 and 2.092 seconds; `cp -R` plus verification took 3.108,
+  3.038 and 3.287 seconds. Both paths passed independent-write isolation.
+  Production's fused read/hash/write path took 1.404 and 1.446 seconds, so
+  replacing it with the measured clone-plus-verification path is not justified.
+  No hard links or platform-specific copy dependency are introduced.
 
 ## Outcomes & Retrospective
 
-A is implemented and validated; B and C remain open. The owned fixture's handler
+A and B are implemented and validated; C remains open. The owned fixture's handler
 was restored after measurement. Its temporary local Scenery replacement remains
 intentional until the final published-pair acceptance.
 
@@ -98,6 +106,38 @@ spanning approximately 217–245 ms between first/last failed observations;
 this sampling is not an exact outage boundary. The measurement driver records
 every poll and phase in the owned fixture's
 `.scenery/harness/loop-attribution.json`, labels `latency-0178-A-final-*`.
+
+B semantic edit samples 2, 3 and 4 were 7.088, 6.861 and 6.794 seconds
+(median 6.861, range 6.794–7.088), with focused acceptance at 10.229, 9.907
+and 9.873 seconds. Ten failed availability polls spanned 236–239 ms in each
+sample. This is effectively unchanged from A: these Go-only edits reuse live
+assistant identities and therefore already avoided overlay preparation.
+Sample 1 (8.266 seconds) overlapped a repository package test and is retained
+but excluded from the comparison. B establishes the private preparation and
+rollback boundary, not a claimed Go-only edit speedup.
+
+The first instrumented startup copied 7,075 files / approximately 79.56 MB per
+assistant. Copy evidence separated 603–607 ms reads, 34 ms hashing, 661–703 ms
+writes and 102–105 ms traversal/metadata; manifest relocation took under 1 ms.
+Raw copy comparison evidence is in the owned fixture's
+`.scenery/harness/assistant-copy-evaluation.json`.
+
+B unchanged starts were 8.356, 8.347 and 8.330 seconds (median 8.347,
+range 8.330–8.356), with focused acceptance at 11.598, 11.560 and 11.623
+seconds. Staging took 2.128–2.304 seconds before app replacement; descriptor
+activation took 18–21 ms, and ordinary private copy times were 0.949–1.096
+seconds per assistant once filesystem caches were warm. This preserves the
+roughly 8.3-second startup baseline; no startup speedup is claimed for B.
+The ordinary Go edit source snapshot was `ad486b455e3a24c83f62c2e5b876c5db4522e9376a48c1738777784cfb3c5a8e`;
+final starts used `1516e2b1884c7591972579dc435409566dd1cc64a40bd749f0ed718411f765e8`,
+which additionally propagates unconfirmed helper shutdown errors.
+
+B validation passed `go test ./cmd/scenery`, focused race tests for staging and
+retired retries, `go run ./scripts/verify --summary --write`,
+`go run ./scripts/verify --probe dev-process --probe assistant-runtime --summary --write`,
+and `golangci-lint run ./...`. The full verifier includes the repository Go
+suite, vet and schema checks. Existing 41 knowledge and 22 architecture warnings
+remain unrelated. No all-root timing audit or full release gate was selected.
 The measured source is `sha256:17bb98f72d4787c151bc465363c25558061ce33732c5f18887d502e26a62403e`
 and executable `sha256:2eaedc7fea57bf5ec704c1d6ed57bc6b8880f3affba4d8591e0054643b00463a`.
 

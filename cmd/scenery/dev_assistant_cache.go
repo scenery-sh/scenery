@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"scenery.sh/internal/assistantadapter/eve"
 	"scenery.sh/internal/runtimeassets"
@@ -23,9 +24,11 @@ import (
 // The input includes the complete materialized authored/generated tree, the
 // verified managed toolchain manifest/platform and exact Node executable bytes.
 type assistantOverlayCache struct {
-	path   string
-	key    string
-	mcpURL string
+	path       string
+	key        string
+	mcpURL     string
+	onCopy     func(assistantCopyStats, error)
+	onRelocate func(time.Time, error)
 }
 
 type assistantOverlayCacheRecord struct {
@@ -128,9 +131,21 @@ func (c *assistantOverlayCache) restore(ctx context.Context, overlay string) (bo
 	if err := record.Tree.Validate(); err != nil {
 		return false, err
 	}
-	if err := copyAssistantPreparedTree(ctx, filepath.Join(c.path, "tree"), overlay, &record.Tree); err != nil {
+	stats := assistantCopyStats{Started: time.Now()}
+	err = copyAssistantPreparedTreeMeasured(ctx, filepath.Join(c.path, "tree"), overlay, &record.Tree, &stats)
+	stats.Duration = time.Since(stats.Started)
+	if c.onCopy != nil {
+		c.onCopy(stats, err)
+	}
+	if err != nil {
 		return false, err
 	}
+	relocationStarted := time.Now()
+	defer func() {
+		if c.onRelocate != nil {
+			c.onRelocate(relocationStarted, err)
+		}
+	}()
 	index := filepath.Join(overlay, ".output", "server", "index.mjs")
 	data, err = os.ReadFile(index)
 	if err != nil {
@@ -140,7 +155,7 @@ func (c *assistantOverlayCache) restore(ctx context.Context, overlay string) (bo
 	if err != nil {
 		return false, err
 	}
-	if err := os.WriteFile(index, data, 0o644); err != nil {
+	if err = os.WriteFile(index, data, 0o644); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -205,6 +220,10 @@ func assistantPreparedPath(path string) bool {
 }
 
 func copyAssistantPreparedTree(ctx context.Context, source, destination string, expected *runtimeassets.Descriptor) error {
+	return copyAssistantPreparedTreeMeasured(ctx, source, destination, expected, nil)
+}
+
+func copyAssistantPreparedTreeMeasured(ctx context.Context, source, destination string, expected *runtimeassets.Descriptor, stats *assistantCopyStats) error {
 	entries := map[string]runtimeassets.Entry{}
 	if expected != nil {
 		for _, entry := range expected.Entries {
@@ -263,11 +282,21 @@ func copyAssistantPreparedTree(ctx context.Context, source, destination string, 
 		}
 		var data []byte
 		if actual.Kind == runtimeassets.EntryFile {
+			started := time.Now()
 			data, err = os.ReadFile(path)
+			if stats != nil {
+				stats.Read += time.Since(started)
+			}
 			if err != nil {
 				return err
 			}
+			started = time.Now()
 			actual.Size, actual.Digest = int64(len(data)), digestBytes(data)
+			if stats != nil {
+				stats.Hash += time.Since(started)
+				stats.Files++
+				stats.Bytes += actual.Size
+			}
 		}
 		if expected != nil {
 			if want, ok := entries[relative]; !ok || want != actual {
@@ -275,14 +304,22 @@ func copyAssistantPreparedTree(ctx context.Context, source, destination string, 
 			}
 			delete(entries, relative)
 		}
+		if stats != nil {
+			stats.Entries++
+		}
+		started := time.Now()
 		switch actual.Kind {
 		case runtimeassets.EntryDirectory:
-			return os.Mkdir(target, 0o755)
+			err = os.Mkdir(target, 0o755)
 		case runtimeassets.EntrySymlink:
-			return os.Symlink(actual.Target, target)
+			err = os.Symlink(actual.Target, target)
 		default:
-			return os.WriteFile(target, data, fs.FileMode(actual.Mode))
+			err = os.WriteFile(target, data, fs.FileMode(actual.Mode))
 		}
+		if stats != nil {
+			stats.Write += time.Since(started)
+		}
+		return err
 	})
 	if err != nil {
 		return err

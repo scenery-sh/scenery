@@ -21,6 +21,7 @@ type appStartPlan struct {
 	result      *build.Result
 	metadata    json.RawMessage
 	apiEncoding json.RawMessage
+	assistants  *assistantStage
 }
 
 func preflightAppStart(ctx context.Context, plan *appStartPlan) error {

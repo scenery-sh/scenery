@@ -697,6 +697,15 @@ handshakes. A helper outage is reported as typed assistant unavailability while
 the Go app remains alive. `scenery up` and `scenery build` use managed Node/npm
 and exact assistant package locks without rewriting authored package files.
 
+On development rebuilds, candidate helper files and dependencies are staged
+privately while the current API remains running. Staging does not replace live
+descriptors or restart helpers. A staging failure preserves the current API
+and assistant generation. After the old API stops, activation publishes the
+prepared descriptor set; startup failure restores the retained previous
+executable, environment, helper descriptors and private overlay bytes without
+re-reading edited assistant source. Initial startup still reports a failed
+helper as unavailable without aborting the unrelated Go application.
+
 Use `scenery assistant status <name> -o json` or default
 `scenery inspect assistants -o json` for provider-neutral readiness, policy,
 restart, failure-code, and expected/actual revision state. Add

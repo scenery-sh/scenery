@@ -154,6 +154,7 @@ type assistantPreparedRuntime struct {
 }
 
 type assistantSupervisor struct {
+	lifecycle     sync.Mutex
 	cacheOverlays bool
 	ctx           context.Context
 	cancel        context.CancelFunc
@@ -230,7 +231,7 @@ func (s *assistantSupervisor) StartPrepared(ctx context.Context) error {
 		prepared, ok := s.prepared[address]
 		instance := s.instances[address]
 		s.mu.Unlock()
-		if !ok {
+		if !ok || !prepared.hasDescriptor() {
 			continue
 		}
 		if instance != nil && instance.process != nil && !instance.stopping && instance.definition.Identity == prepared.definition.Identity {
@@ -249,6 +250,11 @@ func (s *assistantSupervisor) StartPrepared(ctx context.Context) error {
 // Reconcile preserves the original one-call lifecycle for tests and callers
 // that do not own an app child. The dev supervisor uses the two phases above.
 func (s *assistantSupervisor) Reconcile(ctx context.Context, result *compiler.Result) error {
+	if s == nil {
+		return nil
+	}
+	s.lifecycle.Lock()
+	defer s.lifecycle.Unlock()
 	if err := s.Prepare(ctx, result); err != nil {
 		return err
 	}
@@ -261,6 +267,8 @@ func (s *assistantSupervisor) HandleChanges(ctx context.Context, paths []string)
 	if s == nil || len(paths) == 0 {
 		return
 	}
+	s.lifecycle.Lock()
+	defer s.lifecycle.Unlock()
 	addresses := map[string]bool{}
 	s.mu.Lock()
 	definitions := make(map[string]assistantDefinition, len(s.instances)+len(s.prepared))
@@ -284,7 +292,10 @@ func (s *assistantSupervisor) HandleChanges(ctx context.Context, paths []string)
 		definition := definitions[address]
 		s.mu.Unlock()
 		if instance != nil {
-			s.stopInstance(instance)
+			if err := s.stopInstance(instance); err != nil {
+				s.emit(ctx, definition, "error", "assistant shutdown unconfirmed; replacement refused", map[string]any{"error_code": "assistant_helper_unavailable"})
+				continue
+			}
 			s.mu.Lock()
 			if s.instances[address] == instance {
 				delete(s.instances, address)
@@ -330,14 +341,10 @@ func assistantPathWithin(root, path string) bool {
 func (s *assistantSupervisor) startDefinition(ctx context.Context, definition assistantDefinition) error {
 	s.mu.Lock()
 	prepared, ok := s.prepared[definition.Address]
+	current := !s.closed && ok && prepared.definition.Identity == definition.Identity
 	s.mu.Unlock()
-	if !ok || prepared.definition.Identity != definition.Identity {
-		if err := s.prepareDefinition(ctx, definition); err != nil {
-			return err
-		}
-		s.mu.Lock()
-		prepared = s.prepared[definition.Address]
-		s.mu.Unlock()
+	if !current {
+		return nil
 	}
 	err := s.startPreparedDefinition(ctx, prepared)
 	if err != nil {
@@ -499,8 +506,7 @@ func (s *assistantSupervisor) startPreparedDefinition(ctx context.Context, prepa
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
-		s.stopInstance(instance)
-		return nil
+		return s.stopInstance(instance)
 	}
 	s.instances[definition.Address] = instance
 	status := s.statuses[definition.Address]
@@ -760,14 +766,16 @@ func (s *assistantSupervisor) scheduleRestart(definition assistantDefinition) {
 		select {
 		case <-s.ctx.Done():
 		case <-timer.C:
+			s.lifecycle.Lock()
+			defer s.lifecycle.Unlock()
 			_ = s.startDefinition(s.ctx, definition)
 		}
 	}()
 }
 
-func (s *assistantSupervisor) stopInstance(instance *assistantProcessInstance) {
+func (s *assistantSupervisor) stopInstance(instance *assistantProcessInstance) error {
 	if instance == nil {
-		return
+		return nil
 	}
 	s.mu.Lock()
 	instance.stopping = true
@@ -782,7 +790,9 @@ func (s *assistantSupervisor) stopInstance(instance *assistantProcessInstance) {
 		_ = instance.client.Close()
 	}
 	if instance.process != nil {
-		_ = instance.process.Stop(stopTimeout)
+		if err := instance.process.Stop(stopTimeout); err != nil {
+			return err
+		}
 	}
 	if instance.gateway != nil {
 		_ = instance.gateway.Close()
@@ -800,6 +810,7 @@ func (s *assistantSupervisor) stopInstance(instance *assistantProcessInstance) {
 		}
 		_ = os.RemoveAll(ownedRoot)
 	}
+	return nil
 }
 
 // Close stops assistants before callers tear down the ordinary app process.
@@ -808,6 +819,8 @@ func (s *assistantSupervisor) Close() error {
 	if s == nil {
 		return nil
 	}
+	s.lifecycle.Lock()
+	defer s.lifecycle.Unlock()
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
@@ -830,8 +843,14 @@ func (s *assistantSupervisor) Close() error {
 	if s.cancel != nil {
 		s.cancel()
 	}
+	var stopErrors []error
 	for _, instance := range instances {
-		s.stopInstance(instance)
+		if err := s.stopInstance(instance); err != nil {
+			stopErrors = append(stopErrors, err)
+		}
+	}
+	if len(stopErrors) != 0 {
+		return errors.Join(stopErrors...)
 	}
 	for _, root := range roots {
 		_ = os.RemoveAll(root)
@@ -879,6 +898,9 @@ func (s *assistantSupervisor) RuntimeConfig() runtime.AssistantRuntimeConfig {
 	config := runtime.AssistantRuntimeConfig{Assistants: make([]runtime.AssistantBootstrapDescriptor, 0, len(addresses))}
 	for _, address := range addresses {
 		prepared := s.prepared[address]
+		if !prepared.hasDescriptor() {
+			continue
+		}
 		config.Assistants = append(config.Assistants, runtime.AssistantBootstrapDescriptor{
 			AssistantAddress: prepared.definition.Address, ControlAddress: prepared.controlURL,
 			ControlToken: prepared.controlToken, MCPListenAddress: prepared.mcpListenAddress,

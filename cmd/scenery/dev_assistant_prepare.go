@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"scenery.sh/internal/assistantadapter/eve"
-	"scenery.sh/internal/assistantruntime"
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/mcpprojection"
 	"scenery.sh/internal/toolchain"
@@ -146,165 +145,30 @@ func (s *assistantSupervisor) Prepare(ctx context.Context, result *compiler.Resu
 	if s == nil {
 		return nil
 	}
-	if ctx == nil {
-		ctx = s.ctx
-	}
-	definitions := assistantDefinitionsFromResult(result, s.config.Root)
-	byAddress := make(map[string]assistantDefinition, len(definitions))
-	for _, definition := range definitions {
-		byAddress[definition.Address] = definition
-	}
-	s.mu.Lock()
-	if s.closed {
-		s.mu.Unlock()
-		return nil
-	}
-	s.contract = result
-	stale := make([]*assistantProcessInstance, 0)
-	staleRoots := make([]string, 0)
-	for address, instance := range s.instances {
-		if _, ok := byAddress[address]; !ok {
-			delete(s.instances, address)
-			delete(s.prepared, address)
-			if root := s.ownedRoots[address]; root != "" {
-				staleRoots = append(staleRoots, root)
-				delete(s.ownedRoots, address)
-			}
-			delete(s.statuses, address)
-			stale = append(stale, instance)
-		}
-	}
-	for address := range s.prepared {
-		if _, ok := byAddress[address]; ok {
-			continue
-		}
-		delete(s.prepared, address)
-		if root := s.ownedRoots[address]; root != "" {
-			staleRoots = append(staleRoots, root)
-			delete(s.ownedRoots, address)
-		}
-		delete(s.statuses, address)
-	}
-	s.mu.Unlock()
-	if len(stale) > 0 || len(definitions) == 0 {
-		s.publishStatuses()
-	}
-	for _, instance := range stale {
-		s.stopInstance(instance)
-	}
-	for _, root := range staleRoots {
-		_ = os.RemoveAll(root)
-	}
-	for _, definition := range definitions {
-		s.mu.Lock()
-		current := s.instances[definition.Address]
-		prepared, hasPrepared := s.prepared[definition.Address]
-		unchanged := current != nil && current.definition.Identity == definition.Identity && current.process != nil && !current.stopping
-		preparedUnchanged := hasPrepared && prepared.definition.Identity == definition.Identity
-		s.mu.Unlock()
-		if unchanged || preparedUnchanged {
-			s.emitStep(ctx, definition, "assistant.prepare", time.Now(), "hit", "prepared_identity_unchanged", nil)
-			continue
-		}
-		if current != nil {
-			s.mu.Lock()
-			delete(s.prepared, definition.Address)
-			s.mu.Unlock()
-			s.stopInstance(current)
-			s.mu.Lock()
-			if s.instances[definition.Address] == current {
-				delete(s.instances, definition.Address)
-			}
-			s.mu.Unlock()
-		}
-		if current == nil {
-			s.mu.Lock()
-			// A crashed or unavailable helper can leave a prepared overlay
-			// without a live process. If the graph identity changed, discard
-			// that old manager-owned tree before installing the new slot; the
-			// normal live-process branch above removes it through stopInstance.
-			oldRoot := s.ownedRoots[definition.Address]
-			delete(s.ownedRoots, definition.Address)
-			delete(s.prepared, definition.Address)
-			s.mu.Unlock()
-			if oldRoot != "" {
-				_ = os.RemoveAll(oldRoot)
-			}
-		}
-		// Preparation records all setup failures as unavailable but does not
-		// abort the unrelated Go app.
-		_ = s.prepareDefinition(ctx, definition)
-	}
-	return nil
-}
-
-func (s *assistantSupervisor) prepareDefinition(ctx context.Context, definition assistantDefinition) error {
-	if ctx == nil {
-		ctx = s.ctx
-	}
-	state := AssistantStatusRecord{
-		Address: definition.Address, Name: definition.Name, SourceID: "assistant:" + definition.Name,
-		State: string(assistantruntime.StateStarting), Required: definition.Required,
-		RuntimeRevision: definition.RuntimeRevision, CapabilityRevision: definition.CapabilityRevision,
-		LogSource: "assistant:" + definition.Name,
-	}
-	s.mu.Lock()
-	state.RestartCount = s.restarts[definition.Address]
-	s.statuses[definition.Address] = state
-	s.mu.Unlock()
-	s.publishStatuses()
-	s.emit(ctx, definition, "info", "assistant helper preparing", map[string]any{"address": definition.Address})
-	if err := os.MkdirAll(s.config.StateRoot, 0o700); err != nil {
-		return s.failDefinition(ctx, definition, fmt.Errorf("assistant state root: %w", err))
-	}
-	controlURL, err := assistantControlURLAllocator()
-	if err != nil {
-		return s.failDefinition(ctx, definition, err)
-	}
-	controlToken, err := randomToken()
-	if err != nil {
-		return s.failDefinition(ctx, definition, err)
-	}
-	mcpListenAddress, err := assistantMCPListenAddressAllocator()
-	if err != nil {
-		return s.failDefinition(ctx, definition, err)
-	}
-	bridgeSecret, err := randomSecret()
-	if err != nil {
-		return s.failDefinition(ctx, definition, err)
-	}
-	prepared := assistantPreparedRuntime{definition: definition, approvalNeverTools: assistantApprovalNeverTools(s.contract, definition.MCPServer), controlURL: controlURL, controlToken: controlToken, mcpListenAddress: mcpListenAddress, mcpURL: "http://" + mcpListenAddress, bridgeSecret: bridgeSecret}
-	// Publish the stable private descriptor before any managed-Node or overlay
-	// work. If preparation fails, the app child can still bind its MCP gateway
-	// and expose the assistant as unavailable while a later helper retry repairs
-	// the overlay.
-	s.mu.Lock()
-	s.prepared[definition.Address] = prepared
-	state = s.statuses[definition.Address]
-	state.ControlAddress = prepared.controlURL
-	state.MCPAddress = prepared.mcpURL
-	s.statuses[definition.Address] = state
-	s.mu.Unlock()
-	s.publishStatuses()
-	if s.config.UseAppGateway {
-		if err := s.prepareOverlay(ctx, &prepared); err != nil {
-			return s.failDefinition(ctx, definition, err)
-		}
-	}
-	s.mu.Lock()
-	if current, ok := s.prepared[definition.Address]; ok && current.definition.Identity == definition.Identity {
-		state = s.statuses[definition.Address]
-		state.ControlAddress = current.controlURL
-		state.MCPAddress = current.mcpURL
-		state.OverlayPath = current.overlay.Root
-		s.statuses[definition.Address] = state
-	}
-	s.mu.Unlock()
-	s.publishStatuses()
-	return nil
+	previous := s.captureStage()
+	defer s.releaseStage(previous)
+	stage, _ := s.stage(ctx, result)
+	defer s.releaseStage(stage)
+	// Initial startup keeps the Go application available when a helper fails.
+	// Rebuild handoff rejects a failed stage before stopping its predecessor.
+	return s.activateStage(ctx, stage)
 }
 
 func (s *assistantSupervisor) prepareOverlay(ctx context.Context, prepared *assistantPreparedRuntime) error {
+	if err := s.materializeOverlay(ctx, prepared); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	if current, ok := s.prepared[prepared.definition.Address]; ok && current.definition.Identity == prepared.definition.Identity {
+		s.prepared[prepared.definition.Address] = *prepared
+		s.ownedRoots[prepared.definition.Address] = prepared.ownedRoot
+	}
+	s.mu.Unlock()
+	return nil
+}
+
+// materializeOverlay writes only candidate-private files, never active slots.
+func (s *assistantSupervisor) materializeOverlay(ctx context.Context, prepared *assistantPreparedRuntime) error {
 	if prepared == nil {
 		return errors.New("assistant prepared runtime is nil")
 	}
@@ -321,9 +185,6 @@ func (s *assistantSupervisor) prepareOverlay(ctx context.Context, prepared *assi
 		return fmt.Errorf("assistant overlay: %w", err)
 	}
 	prepared.ownedRoot = ownedRoot
-	s.mu.Lock()
-	s.ownedRoots[prepared.definition.Address] = ownedRoot
-	s.mu.Unlock()
 	nodePath, npmPath, nodeHome, err := s.config.NodeResolver(ctx)
 	if err != nil {
 		_ = os.RemoveAll(ownedRoot)
@@ -345,6 +206,7 @@ func (s *assistantSupervisor) prepareOverlay(ctx context.Context, prepared *assi
 	if s.cacheOverlays {
 		cache, err = openAssistantOverlayCache(s.config.Root, overlay.Root, nodePath, prepared.mcpURL)
 		if err == nil {
+			s.traceAssistantCache(ctx, prepared.definition, cache)
 			var hit bool
 			hit, err = cache.restore(ctx, overlay.Root)
 			if hit && err == nil {
@@ -382,13 +244,6 @@ func (s *assistantSupervisor) prepareOverlay(ctx context.Context, prepared *assi
 	}
 preparedOverlay:
 	prepared.overlay = overlay
-	s.mu.Lock()
-	if current, ok := s.prepared[prepared.definition.Address]; ok && current.definition.Identity == prepared.definition.Identity {
-		current.nodePath, current.npmPath, current.nodeHome = prepared.nodePath, prepared.npmPath, prepared.nodeHome
-		current.overlay, current.ownedRoot = prepared.overlay, prepared.ownedRoot
-		s.prepared[prepared.definition.Address] = current
-	}
-	s.mu.Unlock()
 	return nil
 }
 

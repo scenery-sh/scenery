@@ -425,6 +425,14 @@ supervisor descriptors under `.scenery/assistants/` and `.scenery/run/` are
 machine-local evidence; inspect them through the assistant status/inspection
 commands rather than treating their fields as an application contract.
 
+Development rebuilds stage assistant dependencies and files before stopping
+the active API. A failed stage leaves the current generation serving; a failed
+candidate startup rolls back to retained private helper bytes and descriptors.
+Helper-only watches and delayed retries are serialized with this handoff.
+The `assistant.stage`, `assistant.cache_copy` and `assistant.cache_relocate`
+trace steps distinguish preparation from activation; copy evidence includes
+entry/file/byte counts and read, hash, write and traversal time.
+
 ## TypeScript Client Integration
 
 Declare each target in root `app.scn`, select exact gateways, and choose `materialization = "source"` for a checked-in SDK or `materialization = "cache"` for `.scenery/gen/typescript/<name>`. Source output must remain beneath a managed root. Generated clients derive only from reachable canonical resources and exact binding codecs; they do not infer routes or auth from Go symbols. HTTP methods are thin typed wrappers over a shared runtime helper and a per-binding descriptor table; runtime emit omits query, binding header/cookie, multipart, retry, and record-validation branches when the selected bindings, reachable records, and target do not use those capabilities. Repeated failure sets use private aliases that preserve exact outcome narrowing. Public barrel imports allow unused metadata to be removed by bundlers; imported metadata remains deeply frozen.
