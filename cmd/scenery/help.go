@@ -432,12 +432,13 @@ var helpCommands = []helpCommandEntry{
 		Group:   "Build and checks",
 		Summary: "Build a deployable binary, development candidate, declared shared library, or configured desktop shell.",
 		Usage: []string{
-			"scenery build [--development] [--target <go-target>] [--app-root <path>] [--output <binary>] [-o human|json]",
+			"scenery build [--development] [--verify-generation] [--target <go-target>] [--app-root <path>] [--output <binary>] [-o human|json]",
 			"scenery build --lib <name|address|artifact> [--version <vN.N.N>] [--platform all|host|darwin/arm64|linux/amd64|<csv>] [--app-root <path>] [--output <directory>] [-o human|json]",
 			"scenery build --desktop [--env <name>] [--app-root <path>] [-o human|json]",
 		},
 		Flags: []string{
 			"--development",
+			"--verify-generation",
 			"--target <go-target>",
 			"--output <binary|directory>",
 			"--lib <name|address|artifact>",
@@ -450,6 +451,7 @@ var helpCommands = []helpCommandEntry{
 		},
 		RequiredCombinations: []helpRequiredCombination{
 			{When: "--version", Requires: []string{"--lib"}},
+			{When: "--verify-generation", Requires: []string{"--development"}, ConflictsWith: []string{"--lib", "--desktop"}},
 			{When: "--platform", Requires: []string{"--lib"}},
 			{When: "--env", Requires: []string{"--desktop"}},
 			{When: "--development", ConflictsWith: []string{"--lib", "--desktop"}},
@@ -512,12 +514,13 @@ var helpCommands = []helpCommandEntry{
 		Usage: []string{
 			"scenery inspect app|routes|services|endpoints|build|paths|generators|durable|storage|observability|validation|assistants -o json [--app-root <path>]",
 			"scenery inspect assistants [--implementation] -o json [--app-root <path>]",
+			"scenery inspect build [--verify-generation] -o json [--app-root <path>]",
 			"scenery inspect ui [--frontend <name>] [--app-root <path>] [-o human|json]",
 			"scenery inspect docs -o json [--repo-root <path>] [--for-path <path>|--tag <tag>|--status active|reference|completed|deprecated|--review-due|--all]",
 			"scenery inspect harness [artifact <name>|diagnostics --severity error|warning|timing --top <n>] -o json [--app-root <path>] [--repo-root <path>]",
 		},
 		Subcommands:   []string{"app", "routes", "services", "endpoints", "build", "paths", "generators", "durable", "storage", "observability", "validation", "assistants", "ui", "docs", "harness"},
-		Flags:         []string{"-o", "human|json", "--app-root <path>", "--implementation", "--frontend <name>", "--repo-root <path>", "--for-path <path>", "--tag <tag>", "--status active|reference|completed|deprecated", "--review-due", "--all"},
+		Flags:         []string{"-o", "human|json", "--app-root <path>", "--implementation", "--verify-generation", "--frontend <name>", "--repo-root <path>", "--for-path <path>", "--tag <tag>", "--status active|reference|completed|deprecated", "--review-due", "--all"},
 		OutputSchemas: []helpOutputSchema{{Mode: "assistants", Kind: "scenery.inspect.assistants"}},
 		JSON:          true,
 		Stability:     "stable",

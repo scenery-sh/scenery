@@ -65,6 +65,9 @@ func newRunConsole(out, err io.Writer, verbose, jsonMode bool, appName, appRoot 
 }
 
 func (c *runConsole) Phase(title string, fn func() error) error {
+	if c == nil {
+		return fn()
+	}
 	started := time.Now()
 	if c.json {
 		c.Event("phase.start", map[string]any{

@@ -111,7 +111,12 @@ func RuntimeBundlePath(appRoot, target string) string {
 }
 
 func ReadRuntimeBundle(appRoot, target string) (RuntimeBundleDescriptor, error) {
-	data, err := os.ReadFile(RuntimeBundlePath(appRoot, target))
+	return ReadRuntimeBundleFile(RuntimeBundlePath(appRoot, target), target)
+}
+
+// ReadRuntimeBundleFile verifies the exact descriptor copied beside a build.
+func ReadRuntimeBundleFile(path, target string) (RuntimeBundleDescriptor, error) {
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return RuntimeBundleDescriptor{}, err
 	}

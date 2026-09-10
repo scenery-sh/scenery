@@ -181,7 +181,7 @@ Standard-auth tenant tables are framework-owned under the app database's `scener
 
 ## Local Development and Debugging
 
-Use `scenery up` for the live loop, `--detach` for a background runtime, and `--desktop` for configured Tauri shells. The default wait proves advertised routes and one frontend asset; use `--wait registered` only when readiness is intentionally deferred.
+Use `scenery up` for the live loop, `--detach` for a background runtime, and `--desktop` for configured Tauri shells. The default wait proves advertised routes, one frontend asset, and immediately inspectable verified supervisor/API process identities; use `--wait registered` only when readiness is intentionally deferred.
 
 `scenery up` is idempotent per app root. Foreground reruns attach to its logs, Ctrl+C detaches without stopping it, and detached reruns report `already_running: true`. Use a worktree for a second live code copy.
 
@@ -278,6 +278,9 @@ Use `scenery task list|inspect|run` for app-local `<domain>:<name>` code tasks; 
 
 Use app-owned `validation.profiles` as the executable check mapping and
 `validate changed --base <ref> --dry-run -o json` to inspect its selected union.
+Use profile `commands: [{"command": "go", "args": ["test", "./..."]}]`
+for external checks; they run after referenced steps with literal argv, without
+a shell. Do not transport command definitions through environment values.
 Selection includes branch changes, tracked working-tree edits and non-ignored
 untracked paths. `harness --with-validation=<profile>` composes framework and
 domain proof; a core harness alone does not establish a mutation journey.

@@ -42,7 +42,7 @@ scenery changes plan --changes <file> --base-workspace-revision <rev> --base-con
 scenery changes apply <plan> --expect-workspace-revision <rev> --expect-contract-revision <rev|null> [--approval-token <file>] [-o human|json]
 scenery changes rename <address> <new-name> [--dry-run] [--approval-token <file>] [-o human|json]
 scenery generate [--target contracts|typescript_client.<name>] [--check] [--app-root <path>] [-o human|json]
-scenery build [--development] [--target <go-target>] [--output <binary>] [-o human|json]
+scenery build [--development] [--verify-generation] [--target <go-target>] [--output <binary>] [-o human|json]
 scenery build --lib <name|address|artifact> [--version <vN.N.N>] [--platform all|host|darwin/arm64|linux/amd64|<csv>] [--output <directory>] [-o human|json]
 scenery build --desktop [--env <name>] [--app-root <path>] [-o human|json]
 scenery snapshot save --output <file.zip> [--db] [--storage] [--app-root <path>] [-o human|json]
@@ -465,6 +465,7 @@ Generated table pages default to `scroll = "table"`, keeping controls fixed whil
 - Code tasks are beta app-local targets under `<domain>/tasks/`. Targets use `<domain>:<name>`, and both segments must match `[A-Za-z0-9_][A-Za-z0-9_-]*`. `scenery task list`, `scenery task inspect`, and `scenery task run <domain>:<name> [-- task args...]` discover and execute them without requiring the app model to parse cleanly.
 - `validation` is a beta app-owned quality-gate layer. It has `default` and `profiles`; each profile can define `description`, `cost` (`low`, `medium`, or `high`), `paths`, `steps`, string `env`, and advisory `artifacts`. Profile names use the configured-task name rule and cannot contain `:`.
 - Validation profile steps are not shell. They accept `profile:<name>`, `task:<domain>:<name>`, `harness:core`, `harness:ui`, `harness`, `check`, `test`, `test:go`, `generate`, `generate:sqlc`, `db:apply`, `db:seed`, and `db:setup`.
+- Profiles may declare `commands: [{"command": "go", "args": ["test", "./..."]}]`. These literal executable/argument vectors run sequentially after the profile's referenced `steps`, at the app root with the profile environment, without shell parsing. Empty executables and NUL bytes are rejected; empty arguments are preserved. A profile requires at least one step or command. Inspection exposes commands, dry runs resolve exact argv, and execution captures each command separately with ordinary fail-fast evidence.
 - `scenery db branch`, `scenery db path`, and `scenery db snapshot` are removed. Worktree isolation uses per-worktree managed Postgres database names, and `scenery worktree create` only creates the Git worktree. Portable save/load is tracked by active plan 0100.
 - Declaring `storage.stores` is sufficient for managed `scenery up`; storage has no separately managed process, database, index or catalog. The retained root owns `<agent-home>/worktrees/<worktree-key>/storage/` with stable maintenance/mutation lock files, an incarnation owner and generation directories. Normal callers never select those internals. Uploads stream to private immutable versions; atomic references publish complete metadata and bytes. Reads retain shared maintenance ownership through stream close. Capture/restore/reclamation acquire exclusive maintenance, and offline lifecycle operations also hold the verified stopped worktree's live and operation locks. Unknown/corrupt material is not inferred to be absent. Clones are independent files, never hardlinks or live cache references.
 - Standard auth uses the `scenery.sh/auth` top surface and stores DB-backed auth state in the app Postgres database's `scenery` schema.
@@ -532,7 +533,7 @@ scenery deploy teardown [-o json]
 ### Build, check, and generate
 
 ```text
-scenery build [--development] [--app-root <path>] [--target <go-target>] [--output <path>] [-o human|json]
+scenery build [--development] [--verify-generation] [--app-root <path>] [--target <go-target>] [--output <path>] [-o human|json]
 scenery build --lib <name|address|artifact> [--version <vN.N.N>] [--platform all|host|darwin/arm64|linux/amd64|<csv>] [--app-root <path>] [--output <directory>] [-o human|json]
 scenery build --desktop [--env <name>] [--app-root <path>] [-o human|json]
 scenery check [--app-root <path>] [-o json]
@@ -547,6 +548,22 @@ assets as `up`, without starting or replacing a runtime. It defaults to the
 development Go target and cannot combine with `--lib` or `--desktop`. Ordinary
 `build` continues to embed production assets. Use the development variant when
 comparing candidate build-input identity with a served development generation.
+
+`build --development --verify-generation` additionally requires a prepared desired
+framework and returns `candidate_identity` in `scenery.build.result`. It validates
+the copied runtime bundle's exact schema/spec/producer, ordered checksummed input
+manifest, target and selected framework source/executable digests. It does not
+start, stop or probe a runtime. Other builds return `candidate_identity: null`.
+The build also materializes `<binary>.scenery.verify.ts` and returns
+`verification_module_path` plus `verification_module_digest` (both empty without
+the flag). This producer-embedded TypeScript helper exports `responseIdentity`,
+`assertSameBuild`, `assertServedResponse`, `assertSession` and `assertRestart`.
+Consumers must confine the returned path to their output and verify its digest
+before importing the verified bytes. Helpers compare each response's linked
+identity and process, bind the config response to a separately verified session,
+and require a same-build restart to retain the root while replacing API and owner
+PIDs. HTTP/session acquisition and application assertions remain consumer-owned;
+a candidate is not live evidence, and Go identity does not cover frontend source.
 
 Plain `generate` has no `--dry-run`; use `--check` to detect drift without
 writing application artifacts. Default generation publishes ordinary Go and
@@ -955,6 +972,11 @@ Toolchain rules:
 
 Command split:
 
+- Detached ready requires published supervisor/API process records with PID and
+  fingerprints that pass live ownership verification. Missing API publication
+  remains pending. Contradictory ownership is SCN8003 / exit 3; permanent
+  control/specification failures return immediately instead of consuming the
+  readiness deadline. `--wait registered` does not promise process publication.
 - `scenery up` starts the app root's one live dev runtime: app process, file watching, and rebuild/restart supervision. The file watcher treats `.gitignore`-ignored paths and app config `watch.ignore` paths as outside the watch surface and does not descend into ignored directories. `watch.ignore` also excludes those paths from the rebuild/change fingerprint used by the dev loop, but it does not affect Git tracking. A second live code copy requires a separate Git worktree. Re-running `scenery up` while a verified live owner already runs the same app root is an idempotent success, not an error, and never starts a second supervisor: the human foreground form reports the existing runtime's owner PID, routed URLs, and the log/stop commands, then attaches to the running runtime's structured logs. The attached follower never takes ownership: Ctrl+C detaches with exit code `0` and leaves the runtime running (stopping stays explicit through `scenery down`), and the follower exits on its own once the app root no longer has a live verified owner. `-o jsonl` does not attach; it emits a `run.already_running` event and returns `0`.
 - After a failed build, changes to declared generated artifacts wake the watcher so regenerating stale clients retries the current contract automatically. Successful builds ignore generated content writes to prevent self-triggered rebuild loops; authored changes made during a build remain pending.
 - `scenery up --detach` starts the same worktree-owning supervisor and embedded private control plane in a background child process. By default (`--wait ready`) it waits up to two minutes until the child session is registered, its status is `running`, the API and configured frontend backends accept connections, every advertised route completes without an infrastructure 5xx response, and one script or stylesheet asset discovered in each frontend HTML shell loads successfully, then prints the app action summary, status/log/stop commands, and registered routes. Application-level 401 or 404 responses prove routing; discovered frontend assets must return below 400. `--wait registered` has a 30-second budget and returns when the child registers as the root's runtime owner, without promising serving readiness. Timeout errors report the actual child PID and last route/asset failure. Supervisor stdout/stderr is retained beneath the worktree's private control directory. A compatible live owner with the same selected environment is reused: the requested readiness check still applies, `scenery.dev.detach.already_running` is true, and `log_path` is omitted because no child was started. A different environment or incompatible identity fails without replacing the owner.
@@ -1545,10 +1567,28 @@ rows. JSON uses kind `scenery.inspect.ui` and the payload schema
 
 ### `scenery inspect build -o json`
 
+Add `--verify-generation` for read-only current-source verification of the existing
+development candidate. It reuses the strict build candidate verification, checks
+authored-source and workspace-content fingerprints against current build state,
+resolves current declarations and target identity, and recomputes the Go input
+manifest in module-readonly mode (including dependency, embed and native inputs).
+Runtime-backed state uses a freshly read runtime watcher source projection, not
+the standalone build projection (test files and Go module rebasing differ).
+The workspace fingerprint and canonical input manifest both verify the actual
+final post-tidy bytes; inspection does not reconstruct a pre-tidy projection.
+It does not generate, compile/link Go, publish build state, or require a prior
+standalone build. Changed source, missing state or concurrent rebuild fails closed.
+These unmet verification prerequisites are `SCN8003` / `failed_precondition`, not
+opaque internal errors.
+The optional response fields `candidate_identity`, `verification_module_source`
+and `verification_module_digest` provide the same identity/helper inline without
+artifact writes. Import only the checksum-verified source bytes. Use this for
+before/after fast feedback; retain explicit builds for full acceptance when needed.
+
 ```json
 {
   "kind": "scenery.inspect.build",
-  "schema_revision": "sha256:5787ddfb761b34a352c20b45dc37f50a85356824ecb7579d00abe36a87e65572",
+  "schema_revision": "sha256:f34b323c11b11faa7c4000f779549ac859eb689c4d0f6b6073473d41924b6df3",
   "app": {
     "name": "billing",
     "root": "/repo/billing",

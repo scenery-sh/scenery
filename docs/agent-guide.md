@@ -256,7 +256,7 @@ marker is found; it is not evidence that an app can compile or start.
   `frontends.<name>.tauri` shell should open against that same managed frontend
   dev server. Scenery owns the frontend process and desktop child for the
   session; closing the window does not stop or restart the app.
-- Use `scenery up --detach` when the local agent should retain it; the default wait returns only after every advertised route and one declared frontend asset are reachable.
+- Use `scenery up --detach` when the local agent should retain it; the default wait returns only after every advertised route and one declared frontend asset are reachable and verified supervisor/API process identities are published for immediate inspection. Missing API identity is pending startup; contradictory ownership and permanent protocol/specification failures return immediately.
 - Detached startup failures return the supervisor's structured diagnostic and exit classification promptly even after session cleanup. `details.detached_startup` carries the reason (`child_failure`, `child_exit`, `protocol_error`, `timeout`, or `wait_failure`), owner PID, wait mode, and log path. Internal failures retain their original report token; logs are context, never parsed as startup-result authority.
 - `scenery up` reruns against an already-live app root are idempotent instead of failing: human foreground reruns report the existing runtime and attach to its logs (Ctrl+C detaches without stopping it), while `-o jsonl` and `--detach` reruns report and exit `0` (detached JSON sets `already_running: true`).
 - Use `scenery ps -o json` to discover the current base URL, route manifest, child health, and substrate state.
@@ -304,6 +304,21 @@ current protocol and process-ownership checks; `framework inspect --runtime`
 does not require new-source parity. The selected candidate publishes its own
 selection receipt, so bootstrap and candidate may have different spec revisions.
 
+For revision-bound feature acceptance, use `build --development --verify-generation`
+with an app-owned output path. Its verified `candidate_identity` and checksummed
+TypeScript verification module replace app reimplementations of bundle schemas,
+Go input serialization and response/restart comparisons. Verify the module path
+and bytes before importing it. Acquire a verified runtime session, compare each
+HTTP response with that candidate, and use the same helper for optional restart
+acceptance. Go candidate identity is not proof of the frontend source generation.
+Use `inspect build --verify-generation -o json` for an already-built runtime:
+it verifies current inputs without rebuilding or mutating the build cache and
+returns the checksummed helper inline. This is the fast feature/measurement path;
+explicit candidate builds remain the broader integration acceptance path.
+The launcher's pre-exec locator confinement and executable digest check remain
+the bootstrap trust boundary; asking the located binary to validate itself would
+not replace that check safely.
+
 For app schema evolution, declare immutable numbered SQL under
 `database.migrations`, inspect `db migrate --status`, and apply while the managed
 runtime is stopped. Pending SQL and its checksum ledger commit atomically per
@@ -324,6 +339,9 @@ Changed results account for every path: `planned`, `checked`, `exempt` or
 `unverified`. Default checks do not cover unmatched paths; manual owner profiles
 remain explicit obligations, and incomplete coverage fails the executed result.
 Use root-anchored `./package.json` patterns for root-only consumer fan-out.
+Declare external checks as profile `commands` objects with `command` and literal
+`args`, not JSON encoded in environment values. They execute after referenced
+`steps`; inspection and dry-run plans show their exact argument vectors.
 For runtime smoke proof, compare the development HTTP identity headers with a
 fresh `build --development` candidate's build-input manifest (ordinary `build`
 embeds production assistant assets). Record identities around the journey

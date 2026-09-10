@@ -206,20 +206,23 @@ func consumeGeneratedLibrary() {
 	if err != nil || !result.Valid() {
 		t.Fatalf("compile: %v diagnostics=%#v", err, result.Diagnostics)
 	}
-	patterns, err := GoVerificationPatterns(result)
-	if err != nil || !slices.Contains(patterns, "./pkg/geometry/scenerylib_geometry") {
-		t.Fatalf("library verification patterns = %#v, %v", patterns, err)
-	}
-	files, err := RenderGoWorkspaceFiles(result)
+	projection, err := PrepareGoWorkspace(result)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if !slices.Contains(projection.VerificationPatterns, "./pkg/geometry/scenerylib_geometry") {
+		t.Fatalf("library verification patterns = %#v", projection.VerificationPatterns)
+	}
+	files := projection.Files
 	for _, path := range []string{
 		"pkg/geometry/scenerylib_geometry/facade.gen.go",
 		"pkg/geometry/scenerylib_geometry/scenery.library-generated.json",
 	} {
 		if len(files[path]) == 0 {
 			t.Fatalf("generated library facade file %q is missing", path)
+		}
+		if filepath.Ext(path) == ".go" && string(projection.VerificationOverlay[filepath.Join(root, path)]) != string(files[path]) {
+			t.Fatalf("verification overlay does not use workspace bytes for %q", path)
 		}
 	}
 }

@@ -66,10 +66,14 @@ func goVerificationFiles(result *compiler.Result) ([]generatedFile, error) {
 	if err != nil {
 		return nil, err
 	}
+	return goVerificationRetirements(result, files), nil
+}
+
+func goVerificationRetirements(result *compiler.Result, files []generatedFile) []generatedFile {
 	// Ownership/freshness checking reports local conflicts separately. They
 	// must not prevent ABI analysis from using the current expected contracts.
 	if withRetirements, err := includeStaleGeneratedFiles(result.Root, files, goGeneratedDescriptorNames(), protectedGoGeneratedDescriptors(result)); err == nil {
-		return withRetirements, nil
+		return withRetirements
 	}
-	return files, nil
+	return files
 }

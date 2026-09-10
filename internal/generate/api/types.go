@@ -3,6 +3,14 @@
 // descriptors. Heavy codegen stays in internal/generate.
 package generateapi
 
+// GoWorkspaceProjection shares one rendered artifact set between private
+// workspace preparation and native package analysis for that preparation.
+type GoWorkspaceProjection struct {
+	Files                map[string][]byte
+	VerificationOverlay  map[string][]byte
+	VerificationPatterns []string
+}
+
 // LibraryBuildSpec is the portable identity of one declared Go library used
 // by shared-object builds. Resolution from a compiler result stays in
 // internal/generate.

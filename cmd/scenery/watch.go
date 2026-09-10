@@ -55,8 +55,8 @@ const (
 	assistantWatchApp        = "app"
 )
 
-// assistantImplementationWatch is populated after the first valid graph
-// compile. It is intentionally independent from the provider adapter: watch
+// assistantImplementationWatch is populated before the initial file scan and
+// refreshed after graph changes. It is independent from the provider adapter: watch
 // decisions are based on authored implementation paths only.
 var assistantImplementationWatch struct {
 	sync.RWMutex
@@ -352,15 +352,6 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode, desktop bool, appR
 		}
 	}()
 
-	var snapshot fileSnapshot
-	if err := console.Phase("Scanning source files", func() error {
-		var err error
-		snapshot, err = scanWatchedFiles(root)
-		return err
-	}); err != nil {
-		return err
-	}
-
 	preparedSession, err := prepareDevAgentSessionDetailed(ctx, root, cfg, resolvedEnv, listen, console)
 	if err != nil {
 		if preparedSession != nil && preparedSession.Cleanup != nil {
@@ -389,6 +380,15 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode, desktop bool, appR
 		restoreAgentEnv = func() {}
 	}
 	defer restoreAgentEnv()
+
+	var snapshot fileSnapshot
+	if err := console.Phase("Scanning source files", func() error {
+		var err error
+		snapshot, err = scanInitialWatchedFiles(root, compiler.Compile)
+		return err
+	}); err != nil {
+		return err
+	}
 
 	supervisor, err := newDevSupervisor(ctx, root, cfg, resolvedEnv, backend, console, agentClient, agentSession)
 	if err != nil {

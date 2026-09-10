@@ -223,6 +223,14 @@ func (p Planner) addProfile(plan *ResolvedPlan, name string, stack []string, see
 			Env:      profileEnv,
 		})
 	}
+	for idx, command := range prof.Commands {
+		label := fmt.Sprintf("command-%d", idx+1)
+		plan.Steps = append(plan.Steps, PlanStep{
+			ID: strings.Join(append(stack, label), "/"), Name: label, Kind: "command", Profile: name,
+			Command: append([]string{command.Command}, command.Args...), CWD: p.AppRoot,
+			Artifact: append([]string(nil), prof.Artifacts...), Env: profileEnv,
+		})
+	}
 }
 
 // ValidateConfig reports every configuration diagnostic for the app's
@@ -243,8 +251,18 @@ func (p Planner) ValidateConfig() []Diagnostic {
 		if prof.Manual && strings.TrimSpace(prof.Description) == "" {
 			diags = append(diags, errorDiagnostic("manual validation profile "+name+" requires an owner-lane description"))
 		}
-		if len(prof.Steps) == 0 {
+		if len(prof.Steps) == 0 && len(prof.Commands) == 0 {
 			diags = append(diags, errorDiagnostic("validation profile "+name+" has no steps"))
+		}
+		for idx, command := range prof.Commands {
+			if strings.TrimSpace(command.Command) == "" || strings.ContainsRune(command.Command, '\x00') {
+				diags = append(diags, errorDiagnostic(fmt.Sprintf("validation profile %s command %d requires a nonempty executable without NUL", name, idx+1)))
+			}
+			for _, arg := range command.Args {
+				if strings.ContainsRune(arg, '\x00') {
+					diags = append(diags, errorDiagnostic(fmt.Sprintf("validation profile %s command %d has a NUL argument", name, idx+1)))
+				}
+			}
 		}
 		for _, glob := range prof.Paths {
 			if strings.TrimSpace(glob) == "" {

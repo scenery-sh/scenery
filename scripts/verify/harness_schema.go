@@ -234,6 +234,7 @@ func buildHarnessSchemaValidationReportWithReader(repoRoot string, resp harnessS
 		})},
 		{name: "build.result", schemaRel: "docs/schemas/scenery.build.result.schema.json", payload: withCLIPayloadIdentity("scenery.build.result", map[string]any{
 			"output_path": "/tmp/scenery-app", "descriptor_path": "/tmp/scenery-app.scenery.runtime-bundle.json", "copied": true,
+			"candidate_identity": nil, "verification_module_path": "", "verification_module_digest": "",
 		})},
 		{name: "build.desktop", schemaRel: "docs/schemas/scenery.build.desktop.schema.json", payload: withCLIPayloadIdentity("scenery.build.desktop", map[string]any{
 			"environment": "production",

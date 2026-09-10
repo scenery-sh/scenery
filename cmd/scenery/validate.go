@@ -12,6 +12,7 @@ import (
 	"time"
 
 	appcfg "scenery.sh/internal/app"
+	"scenery.sh/internal/envpolicy"
 	inspectdata "scenery.sh/internal/inspect"
 	"scenery.sh/internal/validation"
 )
@@ -36,16 +37,17 @@ type validateOptions struct {
 }
 
 type validationProfileRecord struct {
-	Name        string   `json:"name"`
-	Description string   `json:"description,omitempty"`
-	Cost        string   `json:"cost,omitempty"`
-	Manual      bool     `json:"manual,omitempty"`
-	Paths       []string `json:"paths"`
-	Steps       []string `json:"steps"`
-	EnvKeys     []string `json:"env_keys,omitempty"`
-	Artifacts   []string `json:"artifacts"`
-	Default     bool     `json:"default,omitempty"`
-	StepCount   int      `json:"step_count,omitempty"`
+	Name        string                           `json:"name"`
+	Description string                           `json:"description,omitempty"`
+	Cost        string                           `json:"cost,omitempty"`
+	Manual      bool                             `json:"manual,omitempty"`
+	Paths       []string                         `json:"paths"`
+	Steps       []string                         `json:"steps"`
+	Commands    []appcfg.ValidationCommandConfig `json:"commands,omitempty"`
+	EnvKeys     []string                         `json:"env_keys,omitempty"`
+	Artifacts   []string                         `json:"artifacts"`
+	Default     bool                             `json:"default,omitempty"`
+	StepCount   int                              `json:"step_count,omitempty"`
 }
 
 type inspectValidationResponse struct {
@@ -403,6 +405,11 @@ func buildValidationGraphResponse(appRoot string, cfg appcfg.Config, profile str
 				walk(ref.Name, append(stack, name))
 			}
 		}
+		for index, command := range prof.Commands {
+			childID := fmt.Sprintf("command:%s:%d", name, index+1)
+			addNode(validationGraphNode{ID: childID, Name: command.Command, Kind: "command", Source: configRel})
+			resp.Edges = append(resp.Edges, validationGraphEdge{From: id, To: childID, Kind: "command"})
+		}
 	}
 	walk(profile, nil)
 	sort.Slice(resp.Nodes, func(i, j int) bool { return resp.Nodes[i].ID < resp.Nodes[j].ID })
@@ -449,10 +456,11 @@ func validationProfileRecordFor(cfg appcfg.Config, name string) (validationProfi
 		Manual:      prof.Manual,
 		Paths:       nonNilStrings(prof.Paths),
 		Steps:       nonNilStrings(prof.Steps),
+		Commands:    prof.Commands,
 		EnvKeys:     sortedMapKeys(prof.Env),
 		Artifacts:   nonNilStrings(prof.Artifacts),
 		Default:     name == cfg.Validation.Default || cfg.Validation.Default == "" && name == "quick",
-		StepCount:   len(prof.Steps),
+		StepCount:   len(prof.Steps) + len(prof.Commands),
 	}, true
 }
 
@@ -552,6 +560,22 @@ func runValidationStepCommand(ctx context.Context, appRoot string, cfg appcfg.Co
 	if !capture {
 		stdout = os.Stdout
 		stderr = os.Stderr
+	}
+	if step.Kind == "command" {
+		if len(step.Command) == 0 {
+			return fmt.Errorf("validation command has no executable")
+		}
+		cmd := commandTreeContext(ctx, step.Command[0], step.Command[1:]...)
+		cmd.Dir, cmd.Stdout, cmd.Stderr = step.CWD, stdout, stderr
+		overrides := make([]string, 0, len(step.Env))
+		for _, key := range sortedMapKeys(step.Env) {
+			overrides = append(overrides, key+"="+step.Env[key])
+		}
+		cmd.Env = envWithOverrides(envpolicy.Environ(), overrides...)
+		if runCommand != nil {
+			return runCommand(cmd)
+		}
+		return cmd.Run()
 	}
 	switch ref.Kind {
 	case "task":

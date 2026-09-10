@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"time"
 
 	"scenery.sh/internal/build"
 )
@@ -48,7 +49,14 @@ func devBuildError(metadata, apiEncoding json.RawMessage, err error) error {
 }
 
 func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool, snapshot fileSnapshot) (*devRuntimePlan, error) {
-	if err := build.VerifyFrameworkSession(ctx, s.root); err != nil {
+	ctx = build.WithTrace(ctx, func(step build.Step) {
+		s.console.Event("build.step", map[string]any{
+			"name": step.Name, "started_at": step.StartedAt.UTC().Format(time.RFC3339Nano),
+			"duration_ms": float64(step.Duration.Microseconds()) / 1000,
+			"cache":       step.Cache, "reason": step.Reason, "ok": step.OK,
+		})
+	})
+	if err := s.console.Phase("Verifying framework source and producer", func() error { return build.VerifyFrameworkSession(ctx, s.root) }); err != nil {
 		return nil, err
 	}
 	var (
@@ -61,7 +69,7 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 	graphFingerprint := snapshotFingerprint(snapshot)
 	sourceSnapshot := buildSourceSnapshot(snapshot)
 	if err := s.console.Phase("Building scenery application graph", func() error {
-		cached, _, err = build.LoadCachedGraph(s.root, s.cfg, graphFingerprint)
+		cached, _, err = build.LoadCachedGraphContext(ctx, s.root, s.cfg, graphFingerprint)
 		if err != nil {
 			return err
 		}
@@ -77,39 +85,40 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 	}); err != nil {
 		return nil, devBuildError(nil, nil, err)
 	}
-	if err := s.console.Phase("Analyzing service topology", func() error {
-		if len(metadata) > 0 && len(apiEncoding) > 0 {
-			return nil
-		}
-		metadata, apiEncoding, err = buildDevMetadata(s.root)
-		return err
-	}); err != nil {
-		return nil, devBuildError(nil, nil, err)
-	}
 	if err := validateLocalSecretsFiles(s.root, s.cfg, s.env); err != nil {
 		return nil, devBuildError(metadata, apiEncoding, err)
 	}
 	if err := s.console.Phase("Generating boilerplate code", func() error {
 		if cached != nil {
-			reused, refreshErr := build.RefreshCachedWorkspaceWithSnapshot(s.root, result, sourceSnapshot)
+			reused, refreshErr := build.RefreshCachedWorkspaceWithSnapshotContext(ctx, s.root, result, sourceSnapshot)
 			if refreshErr != nil {
 				return refreshErr
 			}
 			if reused {
 				return nil
 			}
-			metadata, apiEncoding, err = buildDevMetadata(s.root)
-			if err != nil {
-				return err
-			}
+			metadata, apiEncoding = nil, nil
 		}
-		result, err = build.PrepareWithSnapshot(s.root, nil, s.cfg, sourceSnapshot)
+		result, err = build.PrepareWithSnapshotContext(ctx, s.root, nil, s.cfg, sourceSnapshot)
 		if err == nil && result != nil {
 			result.GraphFingerprint = graphFingerprint
 			result.Metadata = append(json.RawMessage(nil), metadata...)
 			result.APIEncoding = append(json.RawMessage(nil), apiEncoding...)
 		}
 		return err
+	}); err != nil {
+		return nil, devBuildError(metadata, apiEncoding, err)
+	}
+	if err := s.console.Phase("Analyzing service topology", func() error {
+		if len(metadata) == 0 || len(apiEncoding) == 0 {
+			metadata, apiEncoding, err = buildDevMetadataFromResult(result.Contract)
+			if err != nil {
+				return err
+			}
+		}
+		result.Metadata = append(json.RawMessage(nil), metadata...)
+		result.APIEncoding = append(json.RawMessage(nil), apiEncoding...)
+		return nil
 	}); err != nil {
 		return nil, devBuildError(metadata, apiEncoding, err)
 	}

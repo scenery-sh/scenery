@@ -1,37 +1,53 @@
 package build
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/codegen"
 	"scenery.sh/internal/compiler"
+	generateapi "scenery.sh/internal/generate/api"
 	"scenery.sh/internal/gotarget"
-	"scenery.sh/internal/model"
+	gomodel "scenery.sh/internal/model"
 	"scenery.sh/internal/parse"
 )
 
-func Prepare(appRoot string, model *model.App, cfg app.Config) (*Result, error) {
+func Prepare(appRoot string, model *gomodel.App, cfg app.Config) (*Result, error) {
 	return PrepareWithSnapshot(appRoot, model, cfg, nil)
 }
 
-func PrepareWithSnapshot(appRoot string, model *model.App, cfg app.Config, snapshot *SourceSnapshot) (*Result, error) {
+func PrepareWithSnapshot(appRoot string, model *gomodel.App, cfg app.Config, snapshot *SourceSnapshot) (*Result, error) {
+	return PrepareWithSnapshotContext(context.Background(), appRoot, model, cfg, snapshot)
+}
+
+func PrepareWithSnapshotContext(ctx context.Context, appRoot string, model *gomodel.App, cfg app.Config, snapshot *SourceSnapshot) (*Result, error) {
 	if err := requireGenerateHooks(); err != nil {
 		return nil, err
 	}
-	contract, err := compiler.Check(appRoot)
+	contract, err := observeBuild(ctx, "contract.check", func() (*compiler.Result, error) { return compiler.Check(appRoot) })
 	if err != nil {
 		return nil, err
 	}
 	if contract.ContractStatus == "valid" {
-		if err := generateHooks.SyncGoPackages(contract); err != nil {
+		if err := observeBuildAction(ctx, "projection.public_go", func() error { return generateHooks.SyncGoPackages(contract) }); err != nil {
 			return nil, err
 		}
 	}
-	generateHooks.ApplyImplementationCheck(contract)
+	var analyses []verifiedGoAnalysis
+	var projection *generateapi.GoWorkspaceProjection
+	if err := observeBuildAction(ctx, "implementation.check", func() error {
+		projection = generateHooks.ApplyImplementationCheck(contract, func(target gotarget.Context, app *gomodel.App) {
+			analyses = append(analyses, verifiedGoAnalysis{target: target, app: app})
+		})
+		return nil
+	}); err != nil {
+		return nil, err
+	}
 	if !contract.Valid() {
 		for _, diagnostic := range contract.Diagnostics {
 			if diagnostic.Severity == "error" {
@@ -44,7 +60,7 @@ func PrepareWithSnapshot(appRoot string, model *model.App, cfg app.Config, snaps
 	if err != nil {
 		return nil, err
 	}
-	return prepareWithContractTarget(appRoot, model, cfg, snapshot, contract, target)
+	return prepareWithContractTargetContext(ctx, appRoot, model, cfg, snapshot, contract, target, analyses, projection)
 }
 
 // ContractError retains compiler diagnostics across build and detached-startup
@@ -66,28 +82,43 @@ func (e *ContractError) ExitCode() int {
 	return 3
 }
 
-func prepareWithContractTarget(appRoot string, model *model.App, cfg app.Config, snapshot *SourceSnapshot, contract *compiler.Result, target compiler.GoBuildTarget) (*Result, error) {
+func prepareWithContractTarget(appRoot string, model *gomodel.App, cfg app.Config, snapshot *SourceSnapshot, contract *compiler.Result, target compiler.GoBuildTarget) (*Result, error) {
 	if err := generateHooks.SyncGoPackages(contract); err != nil {
 		return nil, err
 	}
-	if err := generateHooks.SyncCachedTypeScript(contract); err != nil {
+	return prepareWithContractTargetContext(context.Background(), appRoot, model, cfg, snapshot, contract, target, nil, nil)
+}
+
+// The caller publishes public Go projections before implementation checking or
+// target preparation. Keep that transaction outside the shared workspace phase
+// so ordinary development does not publish the same projection twice.
+func prepareWithContractTargetContext(ctx context.Context, appRoot string, model *gomodel.App, cfg app.Config, snapshot *SourceSnapshot, contract *compiler.Result, target compiler.GoBuildTarget, analyses []verifiedGoAnalysis, projection *generateapi.GoWorkspaceProjection) (*Result, error) {
+	if err := observeBuildAction(ctx, "projection.typescript", func() error { return generateHooks.SyncCachedTypeScript(contract) }); err != nil {
 		return nil, err
 	}
-	renderedGo, err := generateHooks.RenderGoWorkspaceFiles(contract)
-	if err != nil {
-		return nil, err
+	var err error
+	if projection == nil {
+		rendered, renderErr := observeBuild(ctx, "projection.private_go", func() (generateapi.GoWorkspaceProjection, error) { return generateHooks.PrepareGoWorkspace(contract) })
+		if renderErr != nil {
+			return nil, renderErr
+		}
+		projection = &rendered
+	} else {
+		finishStep(ctx, "projection.private_go", time.Now(), "hit", "same_preparation_verified_projection", nil)
 	}
 	if model == nil {
-		overlay, overlayErr := generateHooks.GoVerificationOverlay(contract)
-		if overlayErr != nil {
-			return nil, overlayErr
+		target.Context.Patterns = append(target.Context.Patterns, projection.VerificationPatterns...)
+		started := time.Now()
+		model = matchingGoAnalysis(analyses, appRoot, cfg.Name, target.Context)
+		if model != nil {
+			finishStep(ctx, "go.analysis", started, "hit", "same_preparation_exact_verified_target", nil)
 		}
-		patterns, patternsErr := generateHooks.GoVerificationPatterns(contract)
-		if patternsErr != nil {
-			return nil, patternsErr
-		}
-		target.Context.Patterns = append(target.Context.Patterns, patterns...)
-		model, err = parse.AnalyzeTarget(appRoot, cfg.Name, overlay, target.Context)
+	}
+	if model == nil {
+		err = observeBuildAction(ctx, "go.analysis", func() error {
+			model, err = parse.AnalyzeTarget(appRoot, cfg.Name, projection.VerificationOverlay, target.Context)
+			return err
+		})
 		if err != nil {
 			return nil, err
 		}
@@ -100,11 +131,13 @@ func prepareWithContractTarget(appRoot string, model *model.App, cfg app.Config,
 	if len(target.Context.BuildTags) > 0 {
 		goBuildFlags = append(goBuildFlags, "-tags="+strings.Join(target.Context.BuildTags, ","))
 	}
-	gen, err := codegen.Generate(model, cfg, runtimePlan.CompositionImport, contract.SQLRequirements)
+	gen, err := observeBuild(ctx, "workspace.render", func() (*codegen.Output, error) {
+		return codegen.Generate(model, cfg, runtimePlan.CompositionImport, contract.SQLRequirements)
+	})
 	if err != nil {
 		return nil, err
 	}
-	for relative, contents := range renderedGo {
+	for relative, contents := range projection.Files {
 		if _, exists := gen.Generated[relative]; exists {
 			return nil, fmt.Errorf("generated artifact path collision: %s", relative)
 		}
@@ -160,7 +193,10 @@ func prepareWithContractTarget(appRoot string, model *model.App, cfg app.Config,
 	if err != nil {
 		return nil, err
 	}
-	frameworkFingerprint, _, err := currentFrameworkFingerprintFromWorkspace(workspaceDir)
+	frameworkFingerprint, err := observeBuild(ctx, "framework.workspace_fingerprint", func() (string, error) {
+		fingerprint, _, err := currentFrameworkFingerprintFromWorkspace(workspaceDir)
+		return fingerprint, err
+	})
 	if err != nil {
 		return nil, err
 	}

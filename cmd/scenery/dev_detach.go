@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 	"unicode"
 
@@ -33,6 +34,7 @@ var detachedDevStartupInterval = 100 * time.Millisecond
 
 var detachedDevBackendAcceptsConnections = backendAcceptsConnections
 var detachedDevRoutesReachable = probeDetachedDevRoutes
+var detachedDevVerifyOwner = localagent.VerifyOwner
 
 type detachedDevResult struct {
 	cliPayloadIdentity
@@ -323,11 +325,27 @@ func waitForDetachedDevSessionWithLister(ctx context.Context, list detachedDevSe
 	for {
 		sessions, err := list(ctx, appRoot)
 		if err != nil {
+			if !errors.Is(err, os.ErrNotExist) && !errors.Is(err, syscall.ECONNREFUSED) && !errors.Is(err, syscall.ECONNRESET) && !errors.Is(err, io.EOF) {
+				return lastSession, err
+			}
 			lastErr = err
 		}
 		for _, session := range sessions {
 			if session.OwnerPID == ownerPID {
+				if filepath.Clean(session.AppRoot) != filepath.Clean(appRoot) {
+					return session, detachedDevOwnershipFailure("Detached runtime owner belongs to another app root.", nil)
+				}
 				lastSession = session
+				if waitMode == detachedDevWaitReady && session.Status == "running" {
+					state, err := detachedDevPublishedIdentity(session, detachedDevVerifyOwner)
+					if err != nil {
+						return session, err
+					}
+					if state != "" {
+						lastState = state
+						continue
+					}
+				}
 				ready, state := detachedDevReadinessState(ctx, session, waitMode, expectedFrontends)
 				lastState = state
 				if ready {

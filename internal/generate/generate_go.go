@@ -115,69 +115,6 @@ func renderExpectedGoPackageFiles(result *Result) ([]generatedFile, error) {
 	return files, nil
 }
 
-// RenderGoWorkspaceFiles returns every generated Go artifact needed by a
-// build without reading or writing materialized artifacts in the app checkout.
-func RenderGoWorkspaceFiles(result *compiler.Result) (map[string][]byte, error) {
-	if result == nil || result.Manifest == nil || result.ContractStatus != "valid" {
-		return nil, fmt.Errorf("cannot render generated Go workspace from invalid contract")
-	}
-	files, err := renderExpectedGoContractFiles(result)
-	if err != nil {
-		return nil, err
-	}
-	rendered := make(map[string][]byte, len(files))
-	for _, file := range files {
-		if file.Remove {
-			continue
-		}
-		relative, err := filepath.Rel(result.Root, file.Path)
-		if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-			return nil, fmt.Errorf("generated artifact escapes app root: %s", file.Path)
-		}
-		relative = filepath.ToSlash(relative)
-		if _, exists := rendered[relative]; exists {
-			return nil, fmt.Errorf("generated artifact path collision: %s", relative)
-		}
-		rendered[relative] = append([]byte(nil), file.Bytes...)
-	}
-	return rendered, nil
-}
-
-// GoVerificationPatterns returns overlay-only facade packages that must be
-// named explicitly because go/packages cannot discover a wholly virtual
-// imported directory through ./... alone.
-func GoVerificationPatterns(result *compiler.Result) ([]string, error) {
-	if result == nil || result.Manifest == nil || result.ContractStatus != "valid" {
-		return nil, nil
-	}
-	files, err := renderExpectedGoContractFiles(result)
-	if err != nil {
-		return nil, err
-	}
-	return generatedLibraryPackagePatterns(result.Root, files), nil
-}
-
-func generatedLibraryPackagePatterns(root string, files []generatedFile) []string {
-	seen := map[string]bool{}
-	var patterns []string
-	for _, file := range files {
-		if filepath.Base(file.Path) != "scenery.library-generated.json" {
-			continue
-		}
-		relative, err := filepath.Rel(root, filepath.Dir(file.Path))
-		if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-			continue
-		}
-		pattern := "./" + filepath.ToSlash(relative)
-		if !seen[pattern] {
-			seen[pattern] = true
-			patterns = append(patterns, pattern)
-		}
-	}
-	sort.Strings(patterns)
-	return patterns
-}
-
 func finishGeneratedFiles(root string, files []generatedFile, check bool, staleMessage string) (GenerateResult, error) {
 	generated, err := inspectGeneratedFiles(root, files)
 	if err != nil {

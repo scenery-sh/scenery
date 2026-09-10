@@ -11,6 +11,21 @@ historical records. Do not refresh their review dates or rewrite them as current
 contract prose. Record later guidance here or in the owning current contract;
 use stale knowledge metadata to flag a known contradiction.
 
+## Fast Verified Development Loop
+
+- Status: completed locally; not committed or published
+- Owner: scenery runtime / ONLV development
+- Completed: 2026-09-10
+- ExecPlan: [0176 Fast Verified Development Loop](0176-fast-verified-development-loop.md)
+
+Verified readiness, exact graph/workspace/assistant cache reuse, framework-owned
+generation verification, typed command vectors and shared fast/full acceptance
+are implemented. Three local samples give restart median 10.066 s and semantic
+edit median 8.519 s, improvements of 50.5% and 27.0% against the instrumented
+baseline; the five-second aspiration is explicitly unmet. Native process probes,
+same-build restart persistence, different-spec launcher control and source-bound
+Chrome feature acceptance pass. Full release and publication remain unselected.
+
 ## Producer Transition and Verification Hardening
 
 - Status: completed; publication is tracked by Git history

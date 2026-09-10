@@ -378,11 +378,12 @@ func TestCompileRetriesTidyWhenBuildReportsStaleGoMod(t *testing.T) {
 		SourceFiles:    []string{"go.mod"},
 		GeneratedFiles: []string{"scenery_internal_main/main.go"},
 	})
+	initialBuildCommand := strings.Join(goBuildArgs(result.Binary, effectiveGoBuildFlags(result)), " ")
 	if err := Compile(result); err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
 	buildCommand := strings.Join(goBuildArgs(result.Binary, effectiveGoBuildFlags(result)), " ")
-	if got, want := strings.Join(commands, "|"), buildCommand+"|mod tidy|"+buildCommand; got != want {
+	if got, want := strings.Join(commands, "|"), initialBuildCommand+"|mod tidy|"+buildCommand; got != want {
 		t.Fatalf("go commands = %q, want %q", got, want)
 	}
 }

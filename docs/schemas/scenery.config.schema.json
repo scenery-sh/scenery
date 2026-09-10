@@ -524,6 +524,18 @@
     "validationProfile": {
       "type": "object",
       "properties": {
+        "commands": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["command"],
+            "properties": {
+              "command": { "type": "string", "minLength": 1 },
+              "args": { "type": "array", "items": { "type": "string" } }
+            },
+            "additionalProperties": false
+          }
+        },
         "manual": { "type": "boolean" },
         "description": {
           "type": "string"

@@ -154,7 +154,7 @@ import _ "rsc.io/quote"
 	}
 }
 
-func TestRefreshCachedWorkspaceSeedsDependencyFingerprintBeforeReuse(t *testing.T) {
+func TestRefreshCachedWorkspacePreservesTidiedDependencyBytesBeforeReuse(t *testing.T) {
 	t.Parallel()
 
 	appDir, result := newCachedBuildTestWorkspace(t, "graph-1")
@@ -169,9 +169,9 @@ func TestRefreshCachedWorkspaceSeedsDependencyFingerprintBeforeReuse(t *testing.
 	writeBuildTestFile(t, appDir, "go.mod", string(moduleBytes))
 	writeBuildTestFile(t, result.Dir, "go.mod", string(moduleBytes))
 
-	if err := seedWorkspaceSceneryGoSum(result.Dir); err != nil {
-		t.Fatalf("seedWorkspaceSceneryGoSum() error = %v", err)
-	}
+	// Tidy discarded this unused framework checksum. A verified refresh must
+	// consume that final workspace, not reintroduce the seed and change its key.
+	writeBuildTestFile(t, result.Dir, "go.sum", "")
 	depFingerprint, err := dependencyFingerprintFromWorkspace(result.Dir)
 	if err != nil {
 		t.Fatalf("dependencyFingerprintFromWorkspace() error = %v", err)
@@ -196,9 +196,6 @@ func TestRefreshCachedWorkspaceSeedsDependencyFingerprintBeforeReuse(t *testing.
 	if err := os.WriteFile(result.Binary, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
 		t.Fatalf("write cached binary: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(result.Dir, "go.sum"), nil, 0o644); err != nil {
-		t.Fatalf("write stale workspace go.sum: %v", err)
-	}
 
 	cached, ok, err := LoadCachedGraph(appDir, appcfg.Config{Name: "buildtest"}, "graph-1")
 	if err != nil {
@@ -215,13 +212,16 @@ func TestRefreshCachedWorkspaceSeedsDependencyFingerprintBeforeReuse(t *testing.
 		t.Fatal("expected cached workspace refresh to be reusable")
 	}
 	if cached.Result.NeedsTidy {
-		t.Fatal("expected seeded dependency fingerprint to avoid tidy")
+		t.Fatal("expected unchanged final dependency fingerprint to avoid tidy")
 	}
 	if !cached.Result.ReuseCompiled {
 		t.Fatal("expected existing fingerprint binary to be reused")
 	}
 	if cached.Result.DependencyFingerprint != depFingerprint {
-		t.Fatalf("dependency fingerprint = %q, want seeded %q", cached.Result.DependencyFingerprint, depFingerprint)
+		t.Fatalf("dependency fingerprint = %q, want final %q", cached.Result.DependencyFingerprint, depFingerprint)
+	}
+	if sum, err := os.ReadFile(filepath.Join(result.Dir, "go.sum")); err != nil || len(sum) != 0 {
+		t.Fatalf("refresh changed final go.sum: %q, %v", sum, err)
 	}
 }
 

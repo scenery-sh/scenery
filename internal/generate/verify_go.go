@@ -6,38 +6,47 @@ import (
 	"strings"
 
 	"scenery.sh/internal/compiler"
+	generateapi "scenery.sh/internal/generate/api"
+	"scenery.sh/internal/gotarget"
+	"scenery.sh/internal/model"
 	"scenery.sh/internal/parse"
 )
 
 // VerifyImplementation checks native Go services against artifacts rendered
 // from the same immutable compiler result without writing them.
 func VerifyImplementation(result *compiler.Result) []Diagnostic {
+	diagnostics, _ := verifyImplementationWithAnalysis(result, nil)
+	return diagnostics
+}
+
+func verifyImplementationWithAnalysis(result *compiler.Result, analyzed func(gotarget.Context, *model.App)) ([]Diagnostic, *generateapi.GoWorkspaceProjection) {
 	if result == nil || result.Manifest == nil {
-		return nil
+		return nil, nil
 	}
 	if !usesGoImplementation(result.Manifest.Resources) || !hasNativeGoHandlers(result.Manifest.Resources) {
-		return nil
+		return nil, nil
 	}
 	if err := validateInvariantPackageABIs(result); err != nil {
-		return []Diagnostic{{Code: "SCN6208", Severity: "error", Message: err.Error()}}
+		return []Diagnostic{{Code: "SCN6208", Severity: "error", Message: err.Error()}}, nil
 	}
 	files, err := goVerificationFiles(result)
 	if err != nil {
-		return []Diagnostic{{Code: "SCN6207", Severity: "error", Message: err.Error()}}
+		return []Diagnostic{{Code: "SCN6207", Severity: "error", Message: err.Error()}}, nil
 	}
 	overlay, err := generatedGoVerificationOverlay(files)
 	if err != nil {
-		return []Diagnostic{{Code: "SCN6207", Severity: "error", Message: err.Error()}}
+		return []Diagnostic{{Code: "SCN6207", Severity: "error", Message: err.Error()}}, nil
 	}
 	targets, err := compiler.VerificationGoTargets(result)
 	if err != nil {
-		return []Diagnostic{{Code: "SCN6202", Severity: "error", Message: fmt.Sprintf("resolve Go verification targets: %v", err)}}
+		return []Diagnostic{{Code: "SCN6202", Severity: "error", Message: fmt.Sprintf("resolve Go verification targets: %v", err)}}, nil
 	}
+	patterns := generatedLibraryPackagePatterns(result.Root, files)
 	var diagnostics []Diagnostic
 	for _, target := range targets {
 		sourceContext := target.Context
 		verificationContext := sourceContext
-		verificationContext.Patterns = append(slices.Clone(sourceContext.Patterns), generatedLibraryPackagePatterns(result.Root, files)...)
+		verificationContext.Patterns = append(slices.Clone(sourceContext.Patterns), patterns...)
 		appModel, appModelErr := parse.AnalyzeTarget(result.Root, result.Manifest.Application.Name, overlay, verificationContext)
 		if appModelErr != nil {
 			if missing, err := parse.MissingHermeticModulePackages(sourceContext); err == nil && len(missing) > 0 {
@@ -47,6 +56,9 @@ func VerifyImplementation(result *compiler.Result) []Diagnostic {
 			diagnostics = append(diagnostics, Diagnostic{Code: "SCN6202", Severity: "error", Message: fmt.Sprintf("staged Go implementation verification failed for %s: %v", target.Address, appModelErr), Address: target.Address})
 			continue
 		}
+		if analyzed != nil {
+			analyzed(verificationContext, appModel)
+		}
 		if target.Role == "contract" {
 			continue
 		}
@@ -54,7 +66,16 @@ func VerifyImplementation(result *compiler.Result) []Diagnostic {
 		diagnostics = append(diagnostics, validateNativeGoHandlers(appModel, result.Manifest.Resources)...)
 		diagnostics = append(diagnostics, validateNativeGoLibraries(appModel, result.Manifest.Resources)...)
 	}
-	return diagnostics
+	// Only build callers retain the projection; ordinary check need not create
+	// another workspace byte map after its analysis has completed.
+	if analyzed == nil {
+		return diagnostics, nil
+	}
+	workspace, err := renderedGoWorkspaceFiles(result.Root, files)
+	if err != nil {
+		return append(diagnostics, Diagnostic{Code: "SCN6207", Severity: "error", Message: err.Error()}), nil
+	}
+	return diagnostics, &generateapi.GoWorkspaceProjection{Files: workspace, VerificationOverlay: overlay, VerificationPatterns: patterns}
 }
 
 func hermeticModuleCacheDiagnostic(address string, missing []string) Diagnostic {

@@ -8,7 +8,7 @@ import (
 
 func wireBuildGenerateHooks() {
 	build.SetGenerateHooks(build.GenerateHooks{
-		ApplyImplementationCheck: generate.ApplyImplementationCheck,
+		ApplyImplementationCheck: generate.ApplyImplementationCheckWithAnalysis,
 		SyncGoPackages: func(result *compiler.Result) error {
 			_, err := generate.GenerateGoContractsFromResult(result, false)
 			return err
@@ -18,8 +18,7 @@ func wireBuildGenerateHooks() {
 			return err
 		},
 		RenderGoWorkspaceFiles: generate.RenderGoWorkspaceFiles,
-		GoVerificationOverlay:  generate.GoVerificationOverlay,
-		GoVerificationPatterns: generate.GoVerificationPatterns,
+		PrepareGoWorkspace:     generate.PrepareGoWorkspace,
 		RuntimeIntegrationPlan: generate.BuildRuntimeIntegrationPlan,
 		RenderAssistantAssets:  generate.RenderAssistantAssetRegistry,
 	})

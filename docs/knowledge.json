@@ -19,6 +19,18 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0176-fast-verified-development-loop.md",
+      "title": "Fast Verified Development Loop",
+      "owner": "scenery runtime / ONLV development",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-10",
+      "review_after": "2026-10-10",
+      "summary": "Locally completed verified readiness, measured 50.5% restart and 27.0% semantic-edit reductions, framework-owned verification, typed validation and real API/browser/restart acceptance. Five-second aspiration remains unmet; not published.",
+      "tags": ["plans", "execplans", "runtime", "validation", "build"]
+    },
+    {
       "path": "docs/plans/0175-producer-transition-hardening.md",
       "title": "Producer Transition and Verification Hardening",
       "owner": "scenery runtime / ONLV development",

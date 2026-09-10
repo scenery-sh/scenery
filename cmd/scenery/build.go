@@ -30,6 +30,7 @@ func buildCommand(out io.Writer, args []string) error {
 	envName := ""
 	desktop := false
 	development := false
+	verifyGeneration := false
 	jsonOutput := false
 	flags := newCLIFlagSet("build")
 	flags.StringVar(&outputPath, "output", "", "")
@@ -42,12 +43,16 @@ func buildCommand(out io.Writer, args []string) error {
 	flags.StringVar(&envName, "env", "", "")
 	flags.BoolVar(&desktop, "desktop", false, "")
 	flags.BoolVar(&development, "development", false, "")
+	flags.BoolVar(&verifyGeneration, "verify-generation", false, "")
 	positionals, err := parseCLIFlags(flags, args)
 	if err != nil {
 		return fmt.Errorf("invalid_request: %w", err)
 	}
 	if err := rejectCLIPositionals(positionals); err != nil {
 		return fmt.Errorf("invalid_request: %w", err)
+	}
+	if verifyGeneration && (!development || desktop || libraryName != "") {
+		return fmt.Errorf("invalid_request: --verify-generation requires a --development application build")
 	}
 	if desktop {
 		for _, name := range []string{"target", "lib", "version", "platform", "output", "development"} {
@@ -206,11 +211,29 @@ func buildCommand(out io.Writer, args []string) error {
 			return err
 		}
 	}
+	var candidate *build.CandidateIdentity
+	verificationModulePath := ""
+	verificationModuleDigest := ""
+	if verifyGeneration {
+		identity, err := build.VerifyCandidate(context.Background(), appRoot, result.Target.Name, descriptorPath)
+		if err != nil {
+			return fmt.Errorf("failed_precondition: built generation is not verified: %w", err)
+		}
+		candidate = &identity
+		verificationModulePath = outputPath + ".scenery.verify.ts"
+		if err := build.WriteRuntimeVerificationModule(verificationModulePath); err != nil {
+			return err
+		}
+		verificationModuleDigest = build.RuntimeVerificationModuleDigest()
+	}
 	if jsonOutput {
 		return writeCLIJSON(out, withCLIPayloadIdentity("scenery.build.result", map[string]any{
-			"output_path":     outputPath,
-			"descriptor_path": descriptorPath,
-			"copied":          copied,
+			"output_path":                outputPath,
+			"descriptor_path":            descriptorPath,
+			"copied":                     copied,
+			"candidate_identity":         candidate,
+			"verification_module_path":   verificationModulePath,
+			"verification_module_digest": verificationModuleDigest,
 		}))
 	}
 	_, _ = fmt.Fprintf(out, "scenery: built %s\n", outputPath)

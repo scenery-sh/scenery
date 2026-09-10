@@ -1,12 +1,35 @@
 package main
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/compiler"
 )
+
+// Register authored assistant inputs before the first fingerprint. Otherwise
+// an unchanged restart compares a Go-only snapshot with the previous process's
+// complete snapshot and needlessly invalidates the graph cache.
+func scanInitialWatchedFiles(root string, compile func(string) (*compiler.Result, error)) (fileSnapshot, error) {
+	result, err := compile(root)
+	if err != nil {
+		return fileSnapshot{}, err
+	}
+	if !result.Valid() {
+		for _, diagnostic := range result.Diagnostics {
+			if diagnostic.Severity == "error" {
+				return fileSnapshot{}, &cliDiagnosticError{
+					code: contractInvalidExitCode(result), diagnostic: diagnostic,
+				}
+			}
+		}
+		return fileSnapshot{}, fmt.Errorf("app contract graph is invalid")
+	}
+	setAssistantImplementationWatch(root, assistantDefinitionsFromResult(result, root))
+	return scanWatchedFiles(root)
+}
 
 func isWatchedFile(rel string) bool {
 	rel = filepath.ToSlash(rel)

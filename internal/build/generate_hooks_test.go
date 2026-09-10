@@ -4,7 +4,7 @@ import "scenery.sh/internal/generate"
 
 func init() {
 	SetGenerateHooks(GenerateHooks{
-		ApplyImplementationCheck: generate.ApplyImplementationCheck,
+		ApplyImplementationCheck: generate.ApplyImplementationCheckWithAnalysis,
 		SyncGoPackages: func(result *generate.Result) error {
 			_, err := generate.GenerateGoContractsFromResult(result, false)
 			return err
@@ -14,8 +14,7 @@ func init() {
 			return err
 		},
 		RenderGoWorkspaceFiles: generate.RenderGoWorkspaceFiles,
-		GoVerificationOverlay:  generate.GoVerificationOverlay,
-		GoVerificationPatterns: generate.GoVerificationPatterns,
+		PrepareGoWorkspace:     generate.PrepareGoWorkspace,
 		RuntimeIntegrationPlan: generate.BuildRuntimeIntegrationPlan,
 		RenderAssistantAssets:  generate.RenderAssistantAssetRegistry,
 	})

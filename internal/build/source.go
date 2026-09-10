@@ -559,7 +559,7 @@ func seedSceneryGoSum(workspaceDir, repoRoot string) error {
 		merged = append(merged, line)
 	}
 	sort.Strings(merged)
-	return writeFileIfChanged(workspaceDir, "go.sum", []byte(strings.Join(merged, "\n")+"\n"))
+	return writeFileIfChanged(workspaceDir, "go.sum", []byte(strings.Join(merged, "\n") + "\n"))
 }
 
 func removeUnexpectedFilesFromLists(root string, sourceFiles, generatedFiles []string) error {

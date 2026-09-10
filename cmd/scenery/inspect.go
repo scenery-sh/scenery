@@ -21,22 +21,26 @@ import (
 )
 
 type inspectOptions struct {
-	Subject        string
-	AppRoot        string
-	RepoRoot       string
-	JSON           bool
-	Implementation bool
-	StorageStats   bool
-	Docs           inspectDocsOptions
-	UI             inspectUIOptions
-	Trace          inspectTraceQueryOptions
-	Harness        inspectHarnessOptions
+	Subject          string
+	AppRoot          string
+	RepoRoot         string
+	JSON             bool
+	Implementation   bool
+	VerifyGeneration bool
+	StorageStats     bool
+	Docs             inspectDocsOptions
+	UI               inspectUIOptions
+	Trace            inspectTraceQueryOptions
+	Harness          inspectHarnessOptions
 }
 
 type inspectBuildResponse struct {
 	cliPayloadIdentity
-	App   inspectdata.AppRef `json:"app"`
-	Build inspectBuildRecord `json:"build"`
+	App                      inspectdata.AppRef       `json:"app"`
+	Build                    inspectBuildRecord       `json:"build"`
+	CandidateIdentity        *build.CandidateIdentity `json:"candidate_identity,omitempty"`
+	VerificationModuleSource string                   `json:"verification_module_source,omitempty"`
+	VerificationModuleDigest string                   `json:"verification_module_digest,omitempty"`
 }
 
 type inspectBuildRecord struct {
@@ -223,6 +227,21 @@ func runSceneryInspect(args []string, stdout io.Writer) error {
 		if err != nil {
 			return err
 		}
+		if opts.VerifyGeneration {
+			identity, err := build.VerifyCurrentCandidate(context.Background(), appRoot, cfg, func() (*build.SourceSnapshot, error) {
+				snapshot, err := scanWatchedFiles(appRoot)
+				if err != nil {
+					return nil, err
+				}
+				return buildSourceSnapshot(snapshot), nil
+			})
+			if err != nil {
+				return fmt.Errorf("failed_precondition: current generation is not verified: %w", err)
+			}
+			resp.CandidateIdentity = &identity
+			resp.VerificationModuleSource = build.RuntimeVerificationModuleSource()
+			resp.VerificationModuleDigest = build.RuntimeVerificationModuleDigest()
+		}
 		return writeInspectJSON(stdout, resp)
 	case "paths":
 		resp, err := buildInspectPathsResponse(appRoot, cfg)
@@ -336,6 +355,7 @@ func parseInspectArgsInternal(args []string, allowObservability bool) (inspectOp
 	flags.StringVar(&opts.AppRoot, "app-root", "", "")
 	flags.StringVar(&opts.RepoRoot, "repo-root", "", "")
 	flags.BoolVar(&opts.Implementation, "implementation", false, "")
+	flags.BoolVar(&opts.VerifyGeneration, "verify-generation", false, "")
 	flags.BoolVar(&opts.StorageStats, "stats", false, "")
 	flags.StringVar(&opts.Docs.ForPath, "for-path", "", "")
 	flags.StringVar(&opts.Docs.Tag, "tag", "", "")
@@ -360,6 +380,9 @@ func parseInspectArgsInternal(args []string, allowObservability bool) (inspectOp
 	}
 	if cliFlagSet(flags, "stats") && opts.Subject != "storage" {
 		return inspectOptions{}, fmt.Errorf("--stats requires inspect storage")
+	}
+	if cliFlagSet(flags, "verify-generation") && opts.Subject != "build" {
+		return inspectOptions{}, fmt.Errorf("--verify-generation requires inspect build")
 	}
 	if cliFlagSet(flags, "frontend") && opts.Subject != "ui" {
 		return inspectOptions{}, fmt.Errorf("--frontend is only supported for inspect ui")

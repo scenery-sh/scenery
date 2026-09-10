@@ -9,11 +9,9 @@ import (
 	"scenery.sh/internal/compiler"
 )
 
-func buildDevMetadata(root string) (json.RawMessage, json.RawMessage, error) {
-	result, err := compiler.Compile(root)
-	if err != nil {
-		return nil, nil, err
-	}
+// Project metadata from the same immutable contract used for generation.
+// Development preparation already compiled it; do not reload the source here.
+func buildDevMetadataFromResult(result *compiler.Result) (json.RawMessage, json.RawMessage, error) {
 	if !result.Valid() {
 		for _, diagnostic := range result.Diagnostics {
 			if diagnostic.Severity == "error" {

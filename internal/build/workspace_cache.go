@@ -2,6 +2,7 @@ package build
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -16,6 +17,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/codegen"
@@ -107,6 +109,19 @@ func loadBuildState(root string) (buildState, error) {
 }
 
 func LoadCachedGraph(appRoot string, cfg app.Config, graphFingerprint string) (*CachedGraph, bool, error) {
+	return LoadCachedGraphContext(context.Background(), appRoot, cfg, graphFingerprint)
+}
+
+func LoadCachedGraphContext(ctx context.Context, appRoot string, cfg app.Config, graphFingerprint string) (cached *CachedGraph, hit bool, err error) {
+	started := time.Now()
+	reason := "read_failed"
+	defer func() {
+		cache := "miss"
+		if hit {
+			cache = "hit"
+		}
+		finishStep(ctx, "graph.cache", started, cache, reason, err)
+	}()
 	goBuildFlags := normalizeGoBuildFlags(cfg.Build.GoFlags)
 	root, err := workspaceDir(appRoot, cfg.Name)
 	if err != nil {
@@ -117,9 +132,11 @@ func LoadCachedGraph(appRoot string, cfg app.Config, graphFingerprint string) (*
 		return nil, false, err
 	}
 	if state.Version != buildStateVersion {
+		reason = "build_state_missing_or_changed"
 		return nil, false, nil
 	}
 	if state.GraphFingerprint == "" || state.GraphFingerprint != graphFingerprint {
+		reason = "source_snapshot_changed"
 		return nil, false, nil
 	}
 	generatorFingerprint, err := currentGeneratorFingerprint()
@@ -127,18 +144,23 @@ func LoadCachedGraph(appRoot string, cfg app.Config, graphFingerprint string) (*
 		return nil, false, err
 	}
 	if state.GeneratorFingerprint == "" || state.GeneratorFingerprint != generatorFingerprint {
+		reason = "generator_changed"
 		return nil, false, nil
 	}
 	if !slices.Equal(state.GoBuildFlags, goBuildFlags) {
+		reason = "go_flags_changed"
 		return nil, false, nil
 	}
 	if _, err := os.Stat(filepath.Join(root, "scenery_internal_main", "main.go")); err != nil {
+		reason = "generated_main_missing"
 		return nil, false, nil
 	}
 	if state.BuildFingerprint == "" {
+		reason = "build_fingerprint_missing"
 		return nil, false, nil
 	}
 	if len(state.Metadata) == 0 || len(state.APIEncoding) == 0 {
+		reason = "metadata_missing"
 		return nil, false, nil
 	}
 	result := &Result{
@@ -162,6 +184,7 @@ func LoadCachedGraph(appRoot string, cfg app.Config, graphFingerprint string) (*
 		GeneratedFiles:            append([]string(nil), state.GeneratedFiles...),
 		GoBuildFlags:              append([]string(nil), goBuildFlags...),
 	}
+	reason = "source_and_generator_match"
 	return &CachedGraph{
 		Result:      result,
 		Metadata:    append(json.RawMessage(nil), state.Metadata...),
@@ -174,6 +197,19 @@ func RefreshCachedWorkspace(appRoot string, result *Result) (bool, error) {
 }
 
 func RefreshCachedWorkspaceWithSnapshot(appRoot string, result *Result, snapshot *SourceSnapshot) (bool, error) {
+	return RefreshCachedWorkspaceWithSnapshotContext(context.Background(), appRoot, result, snapshot)
+}
+
+func RefreshCachedWorkspaceWithSnapshotContext(ctx context.Context, appRoot string, result *Result, snapshot *SourceSnapshot) (reused bool, err error) {
+	started := time.Now()
+	reason := "projection_changed_or_missing"
+	defer func() {
+		cache := "miss"
+		if reused {
+			cache = "hit"
+		}
+		finishStep(ctx, "workspace.cache", started, cache, reason, err)
+	}()
 	if result == nil {
 		return false, fmt.Errorf("nil build result")
 	}
@@ -181,6 +217,7 @@ func RefreshCachedWorkspaceWithSnapshot(appRoot string, result *Result, snapshot
 	if err != nil || !current {
 		return false, err
 	}
+	reason = "generated_file_missing"
 	generated := make(map[string]struct{}, len(result.GeneratedFiles))
 	for _, rel := range result.GeneratedFiles {
 		rel = filepath.ToSlash(rel)
@@ -202,9 +239,6 @@ func RefreshCachedWorkspaceWithSnapshot(appRoot string, result *Result, snapshot
 	if err := removeUnexpectedFilesFromLists(result.Dir, result.SourceFiles, result.GeneratedFiles); err != nil {
 		return false, err
 	}
-	if err := seedWorkspaceSceneryGoSum(result.Dir); err != nil {
-		return false, err
-	}
 	previousFrameworkFingerprint := result.FrameworkFingerprint
 	frameworkFingerprint, _, err := currentFrameworkFingerprintFromWorkspace(result.Dir)
 	if err != nil {
@@ -215,6 +249,7 @@ func RefreshCachedWorkspaceWithSnapshot(appRoot string, result *Result, snapshot
 	// runtime linker metadata. Re-prepare the full build when Scenery itself
 	// changes instead of producing an unbound runtime binary.
 	if previousFrameworkFingerprint != frameworkFingerprint {
+		reason = "framework_changed"
 		return false, nil
 	}
 	depFingerprint, err := dependencyFingerprintFromWorkspace(result.Dir)
@@ -227,13 +262,22 @@ func RefreshCachedWorkspaceWithSnapshot(appRoot string, result *Result, snapshot
 	if err != nil {
 		return false, err
 	}
+	previousBuildFingerprint := result.BuildFingerprint
 	result.BuildFingerprint = buildFingerprint
 	result.Binary = filepath.Join(result.Dir, workspaceBinaryName(appRoot, buildFingerprint))
+	reason = "workspace_binary_missing"
+	if previousBuildFingerprint != buildFingerprint {
+		reason = fmt.Sprintf("workspace_inputs_changed:%s:%s", previousBuildFingerprint, buildFingerprint)
+	}
 	result.ReuseCompiled = pathExists(result.Binary) && previousFrameworkFingerprint == frameworkFingerprint
 	if result.ReuseCompiled && !restoreCachedRuntimeIdentity(result) {
 		// A binary cache hit without its current bound identity is not a runtime
 		// candidate. Re-prepare normally instead of publishing an unbound result.
 		result.ReuseCompiled = false
+		reason = "runtime_identity_not_reusable"
+	}
+	if result.ReuseCompiled {
+		reason = "verified_workspace_and_runtime_identity"
 	}
 	return result.ReuseCompiled, nil
 }
@@ -289,7 +333,9 @@ func saveBuildState(root string, state buildState) error {
 }
 
 func workspaceBuildFingerprint(root string, goBuildFlags []string, groups ...[]string) (string, error) {
-	files := map[string]struct{}{}
+	// Tidy can create go.sum even when it is absent from authored source lists.
+	// Both module files are consumed workspace inputs, not source projections.
+	files := map[string]struct{}{"go.mod": {}, "go.sum": {}}
 	for _, group := range groups {
 		for _, rel := range group {
 			rel = filepath.ToSlash(rel)

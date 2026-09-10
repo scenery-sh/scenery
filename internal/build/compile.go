@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 func Compile(result *Result) error {
@@ -36,6 +37,23 @@ func tidyWorkspace(ctx context.Context, result *Result) error {
 	}
 	result.DependencyFingerprint = fingerprint
 	result.NeedsTidy = false
+	return refreshWorkspaceBuildIdentity(result)
+}
+
+// Tidy changes the consumed workspace, so its final bytes own the binary key
+// and any linked runtime identity. A retry must prepare its bundle again.
+func refreshWorkspaceBuildIdentity(result *Result) error {
+	fingerprint, err := workspaceBuildFingerprint(result.Dir, result.GoBuildFlags, result.SourceFiles, result.GeneratedFiles)
+	if err != nil {
+		return err
+	}
+	if result.BuildFingerprint != fingerprint && result.BuildInput != nil {
+		result.BuildInput = nil
+		result.ImplementationRevisions = nil
+		result.RuntimeLinkerMetadata = nil
+	}
+	result.BuildFingerprint = fingerprint
+	result.Binary = filepath.Join(result.Dir, workspaceBinaryName(result.AppRoot, fingerprint))
 	return nil
 }
 
@@ -94,12 +112,9 @@ func CompileContext(ctx context.Context, result *Result) error {
 			return err
 		}
 		if len(result.GeneratedFiles) != generatedBefore || len(result.AssistantAssets) > 0 {
-			fingerprint, fingerprintErr := workspaceBuildFingerprint(result.Dir, result.GoBuildFlags, result.SourceFiles, result.GeneratedFiles)
-			if fingerprintErr != nil {
-				return fingerprintErr
+			if err := refreshWorkspaceBuildIdentity(result); err != nil {
+				return err
 			}
-			result.BuildFingerprint = fingerprint
-			result.Binary = filepath.Join(result.Dir, workspaceBinaryName(result.AppRoot, fingerprint))
 		}
 	}
 	if result.ReuseCompiled {
@@ -118,7 +133,7 @@ func CompileContext(ctx context.Context, result *Result) error {
 		}
 	}
 	if len(result.RuntimeLinkerMetadata) == 0 {
-		if err := prepareRuntimeBundle(ctx, result); err != nil {
+		if err := observeBuildAction(ctx, "runtime.bundle", func() error { return prepareRuntimeBundle(ctx, result) }); err != nil {
 			return err
 		}
 	}
@@ -134,6 +149,14 @@ func CompileContext(ctx context.Context, result *Result) error {
 	if err != nil && (result.NeedsTidy || goBuildNeedsWorkspaceTidy(err)) {
 		if tidyErr := tidyWorkspace(ctx, result); tidyErr != nil {
 			return tidyErr
+		}
+		if len(result.RuntimeLinkerMetadata) == 0 {
+			if bundleErr := observeBuildAction(ctx, "runtime.bundle", func() error { return prepareRuntimeBundle(ctx, result) }); bundleErr != nil {
+				return bundleErr
+			}
+		}
+		if metadataErr := validateRuntimeLinkerMetadata(result.RuntimeLinkerMetadata); metadataErr != nil {
+			return metadataErr
 		}
 		if saveErr := savePrimedWorkspace(result); saveErr != nil {
 			return saveErr
@@ -215,7 +238,14 @@ func runRealGo(ctx context.Context, dir string, environment []string, args ...st
 }
 
 func runGoContextWithEnvironment(ctx context.Context, dir string, environment []string, args ...string) error {
-	return runGo(ctx, dir, environment, args...)
+	started := time.Now()
+	err := runGo(ctx, dir, environment, args...)
+	reason := "go_tool"
+	if len(args) > 0 {
+		reason = args[0]
+	}
+	finishStep(ctx, "go.command", started, "go_managed", reason, err)
+	return err
 }
 
 func normalizeGoBuildFlags(flags []string) []string {

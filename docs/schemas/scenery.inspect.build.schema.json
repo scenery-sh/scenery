@@ -14,7 +14,7 @@
       "const": "scenery.inspect.build"
     },
     "schema_revision": {
-      "const": "sha256:5787ddfb761b34a352c20b45dc37f50a85356824ecb7579d00abe36a87e65572"
+      "const": "sha256:f34b323c11b11faa7c4000f779549ac859eb689c4d0f6b6073473d41924b6df3"
     },
     "app": {
       "$ref": "#/$defs/appRef"
@@ -77,6 +77,17 @@
         }
       },
       "additionalProperties": false
+    },
+    "candidate_identity": {
+      "$ref": "scenery.build.result.schema.json#/properties/candidate_identity"
+    },
+    "verification_module_source": {
+      "type": "string",
+      "minLength": 1
+    },
+    "verification_module_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
     }
   },
   "additionalProperties": false,

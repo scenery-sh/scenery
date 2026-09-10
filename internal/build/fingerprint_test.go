@@ -60,6 +60,16 @@ func TestCompileUpdatesDependencyFingerprintAfterSuccessfulBuild(t *testing.T) {
 	if state.DependencyFingerprint != want {
 		t.Fatalf("saved dependency fingerprint = %q, want post-build fingerprint %q", state.DependencyFingerprint, want)
 	}
+	final, err := workspaceBuildFingerprint(workspace, result.GoBuildFlags, result.SourceFiles, result.GeneratedFiles)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.BuildFingerprint != final || state.BuildFingerprint != final || result.Binary != filepath.Join(workspace, workspaceBinaryName(appDir, final)) {
+		t.Fatal("binary/result/state retained a pre-tidy build key")
+	}
+	if _, err := os.Stat(result.Binary); err != nil {
+		t.Fatalf("final keyed binary was not built: %v", err)
+	}
 }
 
 func TestCompileReusesExistingBinaryDespiteDependencyFingerprintDrift(t *testing.T) {

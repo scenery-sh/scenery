@@ -135,6 +135,7 @@ func TestWaitForDetachedDevSessionRegisteredModeReturnsBeforeReady(t *testing.T)
 }
 
 func TestWaitForDetachedDevSessionReadyModeWaitsForAPIAndFrontends(t *testing.T) {
+	stubDetachedReadyOwners(t)
 	oldInterval := detachedDevStartupInterval
 	detachedDevStartupInterval = time.Millisecond
 	t.Cleanup(func() { detachedDevStartupInterval = oldInterval })
@@ -153,9 +154,12 @@ func TestWaitForDetachedDevSessionReadyModeWaitsForAPIAndFrontends(t *testing.T)
 	session, err := waitForDetachedDevSessionWithLister(waitCtx, func(context.Context, string) ([]localagent.Session, error) {
 		calls++
 		session := localagent.Session{
-			AppRoot:  "/tmp/app",
-			OwnerPID: 4242,
-			Status:   "running",
+			AppRoot:   "/tmp/app",
+			OwnerPID:  4242,
+			Owner:     localagent.Owner{PID: 4242, StartedAt: "supervisor"},
+			AppPID:    "4243",
+			Processes: map[string]localagent.Process{localagent.RouteAPI: {PID: 4243, Owner: localagent.Owner{PID: 4243, StartedAt: "api"}}},
+			Status:    "running",
 			Backends: map[string]localagent.Backend{
 				localagent.RouteAPI: {Network: "unix", Addr: "ready-api"},
 			},
@@ -177,6 +181,7 @@ func TestWaitForDetachedDevSessionReadyModeWaitsForAPIAndFrontends(t *testing.T)
 }
 
 func TestWaitForDetachedDevSessionReadyModeWaitsForAdvertisedRoutes(t *testing.T) {
+	stubDetachedReadyOwners(t)
 	oldInterval := detachedDevStartupInterval
 	detachedDevStartupInterval = time.Millisecond
 	t.Cleanup(func() { detachedDevStartupInterval = oldInterval })
@@ -196,7 +201,10 @@ func TestWaitForDetachedDevSessionReadyModeWaitsForAdvertisedRoutes(t *testing.T
 
 	session := localagent.Session{
 		AppRoot: "/tmp/app", OwnerPID: 4242, Status: "running",
-		Backends: map[string]localagent.Backend{localagent.RouteAPI: {Network: "unix", Addr: "api"}},
+		Owner:     localagent.Owner{PID: 4242, StartedAt: "supervisor"},
+		AppPID:    "4243",
+		Processes: map[string]localagent.Process{localagent.RouteAPI: {PID: 4243, Owner: localagent.Owner{PID: 4243, StartedAt: "api"}}},
+		Backends:  map[string]localagent.Backend{localagent.RouteAPI: {Network: "unix", Addr: "api"}},
 	}
 	waitCtx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()

@@ -15,7 +15,7 @@
       "const": "scenery.inspect.validation"
     },
     "schema_revision": {
-      "const": "sha256:2b4942d12ee5ef0ab579e305744bcd76fb63cc191c5bcbb95c339a881d0caa12"
+      "const": "sha256:ba62dab0314bd6961b64e8fc3edcfd7b1e2228dec80fa2d55c6d4a535159b8b9"
     },
     "app": {
       "$ref": "#/$defs/appRef"
@@ -74,6 +74,18 @@
         "artifacts"
       ],
       "properties": {
+        "commands": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["command"],
+            "properties": {
+              "command": { "type": "string", "minLength": 1 },
+              "args": { "type": "array", "items": { "type": "string" } }
+            },
+            "additionalProperties": false
+          }
+        },
         "name": {
           "type": "string"
         },

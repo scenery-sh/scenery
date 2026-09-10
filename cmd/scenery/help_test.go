@@ -32,7 +32,7 @@ func TestHelpCommandJSONScopesBuildDescriptor(t *testing.T) {
 		t.Fatalf("build descriptor identity = %#v", build)
 	}
 	wantUsage := []string{
-		"scenery build [--development] [--target <go-target>] [--app-root <path>] [--output <binary>] [-o human|json]",
+		"scenery build [--development] [--verify-generation] [--target <go-target>] [--app-root <path>] [--output <binary>] [-o human|json]",
 		"scenery build --lib <name|address|artifact> [--version <vN.N.N>] [--platform all|host|darwin/arm64|linux/amd64|<csv>] [--app-root <path>] [--output <directory>] [-o human|json]",
 		"scenery build --desktop [--env <name>] [--app-root <path>] [-o human|json]",
 	}

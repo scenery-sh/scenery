@@ -389,13 +389,20 @@ type ValidationExemptionConfig struct {
 }
 
 type ValidationProfileConfig struct {
-	Description string            `json:"description"`
-	Cost        string            `json:"cost"`
-	Manual      bool              `json:"manual,omitempty"`
-	Paths       []string          `json:"paths"`
-	Steps       []string          `json:"steps"`
-	Env         map[string]string `json:"env"`
-	Artifacts   []string          `json:"artifacts"`
+	Description string                    `json:"description"`
+	Cost        string                    `json:"cost"`
+	Manual      bool                      `json:"manual,omitempty"`
+	Paths       []string                  `json:"paths"`
+	Steps       []string                  `json:"steps"`
+	Commands    []ValidationCommandConfig `json:"commands,omitempty"`
+	Env         map[string]string         `json:"env"`
+	Artifacts   []string                  `json:"artifacts"`
+}
+
+// ValidationCommandConfig executes literal arguments without a shell, at the app root.
+type ValidationCommandConfig struct {
+	Command string   `json:"command"`
+	Args    []string `json:"args,omitempty"`
 }
 
 type AuthConfig struct {
