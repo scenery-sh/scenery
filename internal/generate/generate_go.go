@@ -88,9 +88,7 @@ func renderExpectedGoContractFiles(result *Result) ([]generatedFile, error) {
 	return files, nil
 }
 
-// renderExpectedGoPackageFiles is the shared app-imported projection. Build
-// workspaces add private adapters/composition to these exact package bytes.
-func renderExpectedGoPackageFiles(result *Result) ([]generatedFile, error) {
+func renderGoPackages(result *Result) ([]generatedFile, error) {
 	if err := validateInvariantPackageABIs(result); err != nil {
 		return nil, err
 	}
@@ -109,9 +107,6 @@ func renderExpectedGoPackageFiles(result *Result) ([]generatedFile, error) {
 		return nil, err
 	}
 	files = append(files, libraryFiles...)
-	if err := validateGoPackageLocations(result, files); err != nil {
-		return nil, err
-	}
 	return files, nil
 }
 

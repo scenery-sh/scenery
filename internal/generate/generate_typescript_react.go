@@ -47,16 +47,12 @@ var splitPageSlotNames = []string{"sidebar", "detail", "sidebar_actions", "detai
 // content_page source schema; order fixes the generated import alias numbering.
 var contentPageSlotNames = []string{"content", "actions"}
 
-func renderTypeScriptReact(result *Result, target Resource, root string, bindings []Resource, assistants []Resource) ([]generatedFile, []string, error) {
+func renderTypeScriptReactWithCatalog(result *Result, target Resource, root string, bindings []Resource, assistants []Resource, catalog []generatedFile) ([]generatedFile, []string, error) {
 	if _, ok := target.Spec["react"].(map[string]any); !ok {
 		return nil, []string{}, nil
 	}
 	reactRoot := filepath.Join(root, "react")
-	catalogRoot := filepath.Join(reactRoot, "scenery-ui")
-	files, err := renderUICatalog(result.Root, catalogRoot)
-	if err != nil {
-		return nil, nil, err
-	}
+	files := cloneProjection(catalog)
 	if source := renderReactStatusMaps(result.Manifest.Resources); source != "" {
 		files = append(files, generatedFile{Path: filepath.Join(reactRoot, "status-maps.generated.ts"), Bytes: []byte(source)})
 	}

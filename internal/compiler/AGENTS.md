@@ -14,6 +14,9 @@ current application graph.
   this package's tests so the leaf does not grow a test binary.
 - Compiler results are immutable graph snapshots; evolution, generation, and
   deployment planning consume them without redefining the graph model.
+- Reuse of a local snapshot must verify current source membership and bytes
+  plus the full workspace revision. Registry-backed snapshots still require
+  ordinary lock/package validation; timestamps never establish equivalence.
 - Local directory groups prefix HTTP binding/CRUD paths once after patches and
   before expansion. Source paths stay authored; effective paths and provenance
   own routing for every consumer. Registry cache paths never supply URL groups.

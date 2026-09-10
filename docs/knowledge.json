@@ -19,6 +19,18 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0178-reusable-preparation-and-handoff.md",
+      "title": "Reusable Preparation and Shorter Runtime Handoff",
+      "owner": "scenery runtime / ONLV development",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-11",
+      "review_after": "2026-10-11",
+      "summary": "Reuse pure generated projections, share verified byte inventories, stage assistants before handoff and reduce measured watcher/database overhead without weakening correctness.",
+      "tags": ["plans", "execplans", "runtime", "performance"]
+    },
+    {
       "path": "docs/plans/0177-integration-recovery-boundaries.md",
       "title": "Integration Recovery Boundaries",
       "owner": "scenery runtime / ONLV development",

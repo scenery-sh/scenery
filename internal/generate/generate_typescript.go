@@ -221,6 +221,19 @@ func renderTypeScriptTarget(result *Result, target Resource) ([]generatedFile, e
 	if err != nil {
 		return nil, err
 	}
+	var catalog []generatedFile
+	if _, ok := target.Spec["react"].(map[string]any); ok {
+		catalog, err = renderUICatalog(result.Root, filepath.Join(root, "react", "scenery-ui"))
+		if err != nil {
+			return nil, err
+		}
+	}
+	return cachedProjection(result, "typescript", []any{target, catalog}, func() ([]generatedFile, error) {
+		return renderTypeScriptTargetWithCatalog(result, target, root, catalog)
+	})
+}
+
+func renderTypeScriptTargetWithCatalog(result *Result, target Resource, root string, catalog []generatedFile) ([]generatedFile, error) {
 	resources := append([]Resource(nil), result.Manifest.Resources...)
 	resources = append(resources, result.FrameworkResources...)
 	bindings := publicHTTPBindings(resources, target)
@@ -241,7 +254,7 @@ func renderTypeScriptTarget(result *Result, target Resource) ([]generatedFile, e
 	if len(assistants) > 0 {
 		files = append(files, generatedFile{Path: assistantGeneratedPath(root), Bytes: []byte(renderTypeScriptAssistantFile(target, assistants))})
 	}
-	reactFiles, catalogRoots, err := renderTypeScriptReact(result, target, root, bindings, assistants)
+	reactFiles, catalogRoots, err := renderTypeScriptReactWithCatalog(result, target, root, bindings, assistants, catalog)
 	if err != nil {
 		return nil, err
 	}

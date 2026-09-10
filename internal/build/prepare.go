@@ -189,7 +189,8 @@ func prepareWithContractTargetContext(ctx context.Context, appRoot string, model
 	if err != nil {
 		return nil, err
 	}
-	depFingerprint, err := dependencyFingerprintFromWorkspace(workspaceDir)
+	inventory := newWorkspaceInventory(workspaceDir)
+	depFingerprint, err := dependencyFingerprintFromInventory(inventory)
 	if err != nil {
 		return nil, err
 	}
@@ -201,7 +202,7 @@ func prepareWithContractTargetContext(ctx context.Context, appRoot string, model
 		return nil, err
 	}
 	needsTidy := state.DependencyFingerprint != depFingerprint
-	buildFingerprint, err := workspaceBuildFingerprint(workspaceDir, goBuildFlags, sourceFiles, generatedFiles)
+	buildFingerprint, err := workspaceBuildFingerprintFromInventory(inventory, goBuildFlags, sourceFiles, generatedFiles)
 	if err != nil {
 		return nil, err
 	}

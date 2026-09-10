@@ -7,6 +7,12 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
+- [0178 Reusable Preparation and Shorter Runtime Handoff](0178-reusable-preparation-and-handoff.md)
+  - Status: active
+  - Owner: scenery runtime / ONLV development
+  - Created: 2026-09-11
+  - Focus: reusable projections, cheaper workspace verification, staged assistants and measured watch/database fixed costs.
+
 - [0169 One Pure SQL Endpoint Selection](0169-sql-endpoint-resolution.md)
   - Status: active
   - Owner: scenery runtime / PostgreSQL

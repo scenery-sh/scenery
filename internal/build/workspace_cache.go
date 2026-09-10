@@ -25,12 +25,17 @@ import (
 )
 
 func dependencyFingerprintFromWorkspace(root string) (string, error) {
+	return dependencyFingerprintFromInventory(newWorkspaceInventory(root))
+}
+
+func dependencyFingerprintFromInventory(inventory *workspaceInventory) (string, error) {
+	root := inventory.root
 	h := sha256.New()
-	if data, err := os.ReadFile(filepath.Join(root, "go.mod")); err == nil {
+	if data, err := inventory.read("go.mod"); err == nil {
 		_, _ = h.Write([]byte("go.mod\x00"))
 		_, _ = h.Write(data)
 	}
-	if data, err := os.ReadFile(filepath.Join(root, "go.sum")); err == nil {
+	if data, err := inventory.read("go.sum"); err == nil {
 		_, _ = h.Write([]byte("go.sum\x00"))
 		_, _ = h.Write(data)
 	}
@@ -60,7 +65,7 @@ func dependencyFingerprintFromWorkspace(root string) (string, error) {
 	}
 	sort.Strings(goFiles)
 	for _, rel := range goFiles {
-		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+		data, err := inventory.read(rel)
 		if err != nil {
 			return "", err
 		}
@@ -252,13 +257,14 @@ func RefreshCachedWorkspaceWithSnapshotContext(ctx context.Context, appRoot stri
 		reason = "framework_changed"
 		return false, nil
 	}
-	depFingerprint, err := dependencyFingerprintFromWorkspace(result.Dir)
+	inventory := newWorkspaceInventory(result.Dir)
+	depFingerprint, err := dependencyFingerprintFromInventory(inventory)
 	if err != nil {
 		return false, err
 	}
 	result.NeedsTidy = result.DependencyFingerprint != depFingerprint
 	result.DependencyFingerprint = depFingerprint
-	buildFingerprint, err := workspaceBuildFingerprint(result.Dir, result.GoBuildFlags, result.SourceFiles, result.GeneratedFiles)
+	buildFingerprint, err := workspaceBuildFingerprintFromInventory(inventory, result.GoBuildFlags, result.SourceFiles, result.GeneratedFiles)
 	if err != nil {
 		return false, err
 	}
@@ -333,6 +339,10 @@ func saveBuildState(root string, state buildState) error {
 }
 
 func workspaceBuildFingerprint(root string, goBuildFlags []string, groups ...[]string) (string, error) {
+	return workspaceBuildFingerprintFromInventory(newWorkspaceInventory(root), goBuildFlags, groups...)
+}
+
+func workspaceBuildFingerprintFromInventory(inventory *workspaceInventory, goBuildFlags []string, groups ...[]string) (string, error) {
 	// Tidy can create go.sum even when it is absent from authored source lists.
 	// Both module files are consumed workspace inputs, not source projections.
 	files := map[string]struct{}{"go.mod": {}, "go.sum": {}}
@@ -358,7 +368,7 @@ func workspaceBuildFingerprint(root string, goBuildFlags []string, groups ...[]s
 		_, _ = h.Write([]byte{0})
 	}
 	for _, rel := range paths {
-		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+		data, err := inventory.read(rel)
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
 				continue

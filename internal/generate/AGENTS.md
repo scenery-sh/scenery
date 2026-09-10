@@ -27,6 +27,9 @@ hooks; CLI wires the live generate functions.
   modules and managed roots. Exact authored Git ignores keep them out of normal
   application commits; generation never edits ignores or creates nested modules.
 - Keep private composition in the build cache using the same public renderer.
+- Cache only pure projections, keyed by complete inputs including live catalogs.
+  Validate ownership, implementation and current snapshots on hits; open a
+  revalidated publication transaction only for changed output.
 - For declared Go libraries, render the typed `scenerylib_<name>` facade,
   source/shared backends, c-shared export shim, and detached descriptor into
   the declared in-module root. Do not hand-edit projections; publishing a Go

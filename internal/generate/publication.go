@@ -34,18 +34,44 @@ func generateFromResult(result *compiler.Result, check bool, message string, ren
 	if result == nil || result.ContractStatus != "valid" || result.Manifest == nil {
 		return GenerateResult{}, fmt.Errorf("cannot generate from invalid contract")
 	}
+	if !check {
+		// Unchanged outputs need validation, not a durable write transaction.
+		// A real update still repeats preparation under the publication lock.
+		unchanged, err := compiler.SnapshotUnchanged(result)
+		if err != nil {
+			return GenerateResult{}, err
+		}
+		if !unchanged {
+			return GenerateResult{}, fmt.Errorf("revision_conflict: application changed after the generation snapshot; retry generation")
+		}
+		files, err := render(result)
+		if err != nil {
+			return GenerateResult{}, err
+		}
+		inspected, err := inspectGeneratedFiles(result.Root, files)
+		if err != nil || len(inspected.Changed) == 0 {
+			return inspected, err
+		}
+	}
 	return publishGenerated(result.Root, check, message, func() ([]generatedFile, error) {
 		if !check {
 			current, err := compiler.CompileDuringChangeTransaction(result.Root)
 			if err != nil {
 				return nil, err
 			}
-			if current.Manifest == nil || current.WorkspaceRevision != result.WorkspaceRevision || current.Manifest.ContractRevision != result.Manifest.ContractRevision {
-				return nil, fmt.Errorf("revision_conflict: application changed after the generation snapshot; retry generation")
+			if err := requireGenerationSnapshot(result, current); err != nil {
+				return nil, err
 			}
 		}
 		return render(result)
 	})
+}
+
+func requireGenerationSnapshot(expected, current *compiler.Result) error {
+	if current.Manifest == nil || current.WorkspaceRevision != expected.WorkspaceRevision || current.Manifest.ContractRevision != expected.Manifest.ContractRevision {
+		return fmt.Errorf("revision_conflict: application changed after the generation snapshot; retry generation")
+	}
+	return nil
 }
 
 func publishGenerated(root string, check bool, message string, render func() ([]generatedFile, error)) (GenerateResult, error) {
