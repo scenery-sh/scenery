@@ -27,7 +27,7 @@ import (
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/devdash"
 	"scenery.sh/internal/envpolicy"
-	"scenery.sh/runtime"
+	runtime "scenery.sh/runtime/host"
 )
 
 const (

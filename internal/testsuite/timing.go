@@ -14,7 +14,7 @@ var bootstrapTiming = map[string]float64{
 	"scenery.sh/internal/compiler":   70,
 	"scenery.sh/internal/deployplan": 60,
 	"scenery.sh/internal/edge":       50,
-	"scenery.sh/runtime":             30,
+	"scenery.sh/runtime/host":        30,
 }
 
 func loadTimingEstimates(path string) map[string]float64 {

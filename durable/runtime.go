@@ -5,14 +5,14 @@ import (
 	"encoding/json"
 	"strings"
 
-	"scenery.sh/runtime"
+	"scenery.sh/internal/nativedurable"
 )
 
 type SignalOptions struct {
 	DedupeKey string
 }
 
-func Signal(ctx context.Context, run runtime.DurableRun, name string, payload any, opts ...SignalOptions) error {
+func Signal(ctx context.Context, run nativedurable.Run, name string, payload any, opts ...SignalOptions) error {
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return err
@@ -23,12 +23,12 @@ func Signal(ctx context.Context, run runtime.DurableRun, name string, payload an
 			dedupeKey = strings.TrimSpace(opt.DedupeKey)
 		}
 	}
-	return runtime.DurableSignal(ctx, run.Service, run.ID, name, dedupeKey, data)
+	return nativedurable.Signal(ctx, run.Service, run.ID, name, dedupeKey, data)
 }
 
 func Step[O any](ctx context.Context, key string, fn func(context.Context) (O, error)) (O, error) {
 	var zero O
-	data, err := runtime.DurableStep(ctx, key, func(stepCtx context.Context) ([]byte, error) {
+	data, err := nativedurable.Step(ctx, key, func(stepCtx context.Context) ([]byte, error) {
 		value, err := fn(stepCtx)
 		if err != nil {
 			return nil, err

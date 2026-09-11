@@ -14,7 +14,7 @@ import (
 	"scenery.sh/internal/build"
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/devdash"
-	"scenery.sh/runtime"
+	runtime "scenery.sh/runtime/host"
 )
 
 func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, snapshot fileSnapshot) error {

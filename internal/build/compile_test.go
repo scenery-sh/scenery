@@ -247,7 +247,7 @@ func TestRuntimeLinkerMetadataInvariantRejectsEmptyIdentity(t *testing.T) {
 		t.Fatal("expected empty runtime linker metadata to be rejected")
 	}
 	metadata := prepareCompileTestResult(&Result{}).RuntimeLinkerMetadata
-	delete(metadata, "scenery.sh/runtime.linkedBuildInputDigest")
+	delete(metadata, "scenery.sh/runtime/host.linkedBuildInputDigest")
 	if err := validateRuntimeLinkerMetadata(metadata); err == nil {
 		t.Fatal("expected incomplete runtime linker metadata to be rejected")
 	}

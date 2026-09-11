@@ -39,6 +39,7 @@ type BuildInputManifest struct {
 type goListPackage struct {
 	Dir          string
 	ImportPath   string
+	Imports      []string
 	Standard     bool
 	GoFiles      []string
 	CgoFiles     []string
@@ -67,9 +68,32 @@ type goListModule struct {
 
 // Ask Go for the complete consumed-file/module projection, without computing
 // unrelated package presentation fields such as transitive import summaries.
-const goBuildInputFields = "Dir,ImportPath,Standard,GoFiles,CgoFiles,CFiles,CXXFiles,MFiles,HFiles,FFiles,SFiles,SwigFiles,SwigCXXFiles,SysoFiles,EmbedFiles,Module"
+const goBuildInputFields = "Dir,ImportPath,Imports,Standard,GoFiles,CgoFiles,CFiles,CXXFiles,MFiles,HFiles,FFiles,SFiles,SwigFiles,SwigCXXFiles,SysoFiles,EmbedFiles,Module"
 
-func buildInputManifest(ctx context.Context, result *Result) (*BuildInputManifest, error) {
+func buildInputManifest(ctx context.Context, result *Result, extraEntrypoints ...string) (*BuildInputManifest, error) {
+	if result == nil || result.Target == nil {
+		return nil, fmt.Errorf("build target is unavailable")
+	}
+	patterns := append([]string(nil), result.Target.Context.Patterns...)
+	patterns = append(patterns, "./scenery_internal_main")
+	patterns = append(patterns, extraEntrypoints...)
+	return discoverBuildInputManifest(ctx, result, patterns)
+}
+
+// The ordinary caller supplies the full declared target plus its entrypoint.
+// The private kernel artifact additionally needs its own consumed-file identity;
+// this never replaces the experiment's full-target discovery or native check.
+func discoverBuildInputManifest(ctx context.Context, result *Result, patterns []string) (*BuildInputManifest, error) {
+	output, err := captureBuildInputGraph(ctx, result, patterns)
+	if err != nil {
+		return nil, err
+	}
+	return observeBuild(ctx, "go.input_fingerprint", func() (*BuildInputManifest, error) {
+		return buildInputManifestFromGoList(result, output)
+	})
+}
+
+func captureBuildInputGraph(ctx context.Context, result *Result, patterns []string) ([]byte, error) {
 	if result == nil || result.Target == nil {
 		return nil, fmt.Errorf("build target is unavailable")
 	}
@@ -79,8 +103,7 @@ func buildInputManifest(ctx context.Context, result *Result) (*BuildInputManifes
 	if len(target.Context.BuildTags) > 0 {
 		args = append(args, "-tags="+strings.Join(target.Context.BuildTags, ","))
 	}
-	patterns := append([]string(nil), target.Context.Patterns...)
-	patterns = append(patterns, "./scenery_internal_main")
+	patterns = slices.Clone(patterns)
 	slices.Sort(patterns)
 	patterns = slices.Compact(patterns)
 	args = append(args, patterns...)
@@ -96,13 +119,7 @@ func buildInputManifest(ctx context.Context, result *Result) (*BuildInputManifes
 	if err != nil {
 		return nil, fmt.Errorf("go %s failed while producing build inputs: %w\n%s", strings.Join(args, " "), err, output)
 	}
-	var manifest *BuildInputManifest
-	err = observeBuildAction(ctx, "go.input_fingerprint", func() error {
-		var err error
-		manifest, err = buildInputManifestFromGoList(result, output)
-		return err
-	})
-	return manifest, err
+	return output, nil
 }
 
 func buildInputManifestFromGoList(result *Result, output []byte) (*BuildInputManifest, error) {
@@ -123,19 +140,7 @@ func buildInputManifestFromGoList(result *Result, output []byte) (*BuildInputMan
 		if pkg.Standard {
 			continue
 		}
-		files := append([]string{}, pkg.GoFiles...)
-		files = append(files, pkg.CgoFiles...)
-		files = append(files, pkg.CFiles...)
-		files = append(files, pkg.CXXFiles...)
-		files = append(files, pkg.MFiles...)
-		files = append(files, pkg.HFiles...)
-		files = append(files, pkg.FFiles...)
-		files = append(files, pkg.SFiles...)
-		files = append(files, pkg.SwigFiles...)
-		files = append(files, pkg.SwigCXXFiles...)
-		files = append(files, pkg.SysoFiles...)
-		files = append(files, pkg.EmbedFiles...)
-		for _, name := range files {
+		for _, name := range consumedPackageFiles(pkg) {
 			path := filepath.Join(pkg.Dir, filepath.FromSlash(name))
 			identity := "package/" + pkg.ImportPath + "/" + filepath.ToSlash(name)
 			if err := addBuildInput(entries, identity, path); err != nil {
@@ -204,6 +209,12 @@ func buildInputManifestFromGoList(result *Result, output []byte) (*BuildInputMan
 		}
 	}
 	return newBuildInputManifest(target.Name, entries), nil
+}
+
+func consumedPackageFiles(pkg goListPackage) []string {
+	return slices.Concat(pkg.GoFiles, pkg.CgoFiles, pkg.CFiles, pkg.CXXFiles,
+		pkg.MFiles, pkg.HFiles, pkg.FFiles, pkg.SFiles, pkg.SwigFiles,
+		pkg.SwigCXXFiles, pkg.SysoFiles, pkg.EmbedFiles)
 }
 
 func newBuildInputManifest(target string, entries map[string]string) *BuildInputManifest {

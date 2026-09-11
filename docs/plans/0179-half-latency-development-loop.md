@@ -13,6 +13,23 @@ source validation, exact served identity, readiness, isolation or rollback.
 
 ## Progress
 
+- [x] (2026-09-11) Audit the 0180 measurement in
+  [0181](0181-native-worker-measurement-audit.md). Remove redundant input discovery
+  and rendering, preserve full freshness, and repeat two six-pair series. With
+  matched post-build checks, medians are 6414.336 ms control and 6532.735 ms
+  worker (+118.399 ms, 1.85%). Withdraw the architectural rejection based on the
+  earlier 19% slowdown; this corrected prototype still proves no substantial
+  speedup and does not satisfy either full-loop threshold.
+
+- [x] (2026-09-11) Complete the architectural feasibility gate in
+  [0180](0180-native-worker-feasibility.md). The real native worker preserves
+  closure, target checks and behavior, but all six paired candidates are slower:
+  4998.205 ms control median versus 5945.482 ms worker. The interpretation of
+  this historical result is corrected by 0181 above. No BuildSession migration
+  has followed. This bounded API path
+  excludes the full supervisor/frontend/assistant loop and does not replace
+  this plan's unchanged end-to-end thresholds or prior observations.
+
 - [x] (2026-09-11) Complete the final authorized Oracle consultation and delete
   its exact monitor. Oracle recommends no further speculative optimization in
   this series; a different runtime-artifact model needs an explicit decision.

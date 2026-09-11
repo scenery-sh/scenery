@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"scenery.sh/runtime"
+	runtime "scenery.sh/runtime/host"
 )
 
 func TestMetaIncludesLocalEnvironmentDefaults(t *testing.T) {

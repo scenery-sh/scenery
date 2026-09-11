@@ -19,6 +19,79 @@
   },
   "documents": [
     {
+      "path": "docs/native-worker-findings.md",
+      "title": "Native Worker Findings and Review Handoff",
+      "owner": "scenery runtime / ONLV development",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-11",
+      "review_after": "2026-10-11",
+      "summary": "Current native worker findings, corrected paired performance results, proof limits and a bounded next decision for reviewing the experimental split.",
+      "tags": ["runtime", "performance", "architecture"]
+    },
+    {
+      "path": "docs/plans/0181-native-worker-measurement-audit.md",
+      "title": "Native Worker Measurement Audit",
+      "owner": "scenery runtime / ONLV development",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-11",
+      "review_after": "2026-10-11",
+      "summary": "Completed measurement correction: shared full inputs and two six-pair series; matched checks differ by 118 ms, withdrawing the earlier architectural rejection without claiming substantial speedup.",
+      "tags": ["plans", "execplans", "runtime", "performance"]
+    },
+    {
+      "path": "runtime/host/AGENTS.md",
+      "title": "Runtime Host Agent Instructions",
+      "owner": "scenery runtime",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-11",
+      "review_after": "2026-10-11",
+      "summary": "Own the explicit generated runtime host, native callback integration, lifecycle and bootstrap validation.",
+      "tags": [
+        "instructions",
+        "runtime",
+        "agents"
+      ]
+    },
+    {
+      "path": "runtime/worker/AGENTS.md",
+      "title": "Native Worker Experiment Agent Instructions",
+      "owner": "scenery runtime",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-11",
+      "review_after": "2026-10-11",
+      "summary": "Own the complete native callback registry, explicit experimental wire admission, proof and activation, and failure-boundary validation.",
+      "tags": [
+        "instructions",
+        "runtime",
+        "agents"
+      ]
+    },
+    {
+      "path": "docs/plans/0180-native-worker-feasibility.md",
+      "title": "Native Worker Feasibility Gate",
+      "owner": "scenery runtime / ONLV development",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-11",
+      "review_after": "2026-10-11",
+      "summary": "Historical native-worker experiment with complete closure and behavior proof; 0181 corrects asymmetric validation and withdraws the architectural rejection based on its slowdown.",
+      "tags": [
+        "plans",
+        "execplans",
+        "runtime",
+        "performance"
+      ]
+    },
+    {
       "path": "docs/plans/0179-half-latency-development-loop.md",
       "title": "Halve the Verified Development Loop",
       "owner": "scenery runtime / ONLV development",

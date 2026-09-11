@@ -696,6 +696,8 @@ When editing source that changes the public app model, confirm the docs and test
 - public packages: `scenery` (`Meta`, `CurrentRequest`, `StartSpan`), `auth`,
   `errs`, `durable`, `db`, `datasource`, `object`, `storage`
 - standard auth configuration and generated endpoints
+- native `runtime` calls and the explicit generated `runtime/host` bootstrap
+  (plan 0180 separately tracks the explicitly generated worker experiment)
 - private/internal call behavior
 - worker, durable, schedule, middleware, and generated TypeScript client behavior when touched
 - assistant helper lifecycle, private control/MCP boundary, managed runtime assets,
@@ -705,7 +707,7 @@ When editing source that changes the public app model, confirm the docs and test
 ### Standard Auth Application Permissions
 
 An application may configure one process-wide `auth.PermissionChecker` during
-startup, before `runtime.Main` serves requests. `auth.HasPermissions` validates
+startup, before the generated runtime host serves requests. `auth.HasPermissions` validates
 that at least one nonblank name was requested, loads the current provider-neutral
 `*auth.AuthData`, and calls the checker once with every exact, case-sensitive
 name. The checker owns its permission vocabulary, storage, role or membership

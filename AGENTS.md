@@ -1,8 +1,8 @@
 # scenery Agent Instructions
 
-This file is the repo-local operating manual for AI agents changing `scenery.sh`.
+Operating rules for agents changing `scenery.sh`.
 
-Prefer concise rules, exact commands, and machine-readable contracts. Read only task-relevant sources.
+Use concise rules and machine-readable contracts. Read task-relevant sources.
 
 ## Communication And Repository Language
 
@@ -51,6 +51,8 @@ Add a child `AGENTS.md` only when a directory becomes a durable boundary with it
 
 ### Child Agent Index
 
+- `runtime/host/AGENTS.md` owns hosting.
+- `runtime/worker/AGENTS.md` owns native worker experiments.
 - `scripts/verify/AGENTS.md` owns repository verification, release probes, and exact-root timing enforcement outside the product CLI.
 
 - `apps/console/AGENTS.md` owns the Vite/React Astryx + StyleX dashboard and frontend validation commands.

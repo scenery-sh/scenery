@@ -221,7 +221,7 @@ func runHarnessDetachedStartupProbe(parent context.Context, repoRoot string) (ma
 	}
 	// Change the owned co-development origin after startup. All following real
 	// rebuilds must keep using the selected immutable source and matching CLI.
-	originInput := filepath.Join(framework.SourceOrigin, "runtime/contract_preflight.go")
+	originInput := filepath.Join(framework.SourceOrigin, "runtime/host/contract_preflight.go")
 	content, err := os.ReadFile(originInput)
 	if err != nil {
 		return nil, err

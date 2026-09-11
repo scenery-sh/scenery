@@ -133,6 +133,39 @@ Go generation stages contract packages, provider/application adapters, compositi
 
 The HTTP effective graph fixes the current defaults at 64 KiB request headers, 8 MiB buffered request bodies, 16 MiB decompressed requests, 32 MiB multipart bodies, 16 MiB file parts, 1 MiB non-file parts, 128 parts, and 16 MiB buffered responses. Typed responses may split one outcome across body, header, and cookie mappings; generated Go adapters encode every declared scalar and generated TypeScript clients reconstruct the original camel-cased typed payload. Distinct same-status completion mappings are decoded independently and exactly one must validate; the compiler proves disjointness from observable media types and structural wire shapes, never nominal type or destination names, and rejects mappings where overlap cannot be excluded. Multipart clients encode only declared parts and enforce their exact names, kinds, accepted media, byte limits, filename retention, and multiplicity. Optional absent metadata stays absent. Effective response-cookie defaults are path `/`, empty domain, session expiry (`max_age=0`, no `expires`), `secure=true`, `http_only=true`, and `same_site=lax`. Fetch cannot preserve repeated request-header field lines, so a TypeScript target selecting a repeated list/set request header is rejected with `SCN6316`; use explicit comma encoding only when the scalar codec permits it. Scalar response headers consume the standard Fetch combined field value, preserving commas in dates and cache directives. Repeated list/set response headers require a Fetch `Headers.getAll(name)` extension, and response cookies require `Headers.getSetCookie()`; a runtime that cannot preserve the declared repetitions fails with `unsupported_runtime` instead of silently collapsing values. `std.authorization.none` is a valid explicit deny-all policy; it does not make a binding anonymous. `dispatch.wait_timeout` is the canonical wait outcome. Stream delivery and `server_sent_events` declarations fail with `feature_unavailable` until streaming support is implemented in the current contract. Generated TypeScript sets encode and validate canonical JSON element order by UTF-8 bytes across JSON, query, form, and header mappings. Declared transport, admission, and dispatch failures are returned as closed typed failure outcomes; only undeclared/system failures throw, and clients never add an implicit retry. Public `system.internal` responses always use the stable message `contract implementation failure`; the wrapped implementation cause remains available to internal error handling but is never serialized to the caller.
 
+Generated Go entrypoints and application adapters explicitly import
+`scenery.sh/runtime/host` for registration, orchestration and HTTP serving.
+`scenery.sh/runtime` retains native application calls without linking that
+host. Linked contract, implementation, build-input and target variables use
+the `scenery.sh/runtime/host` namespace; the runtime-bundle JSON shape and
+`scenery.go-runtime/v1` ABI remain unchanged. The Go-generation semantic
+revision changes with this import boundary, invalidating old generated inputs.
+This is a package boundary within the current single application process,
+not a second runtime or a completed worker transport.
+
+Plan 0180 additionally owns an explicitly rendered kernel/worker experiment.
+It is not selected by `up`, `build` or a runtime environment switch. Its private
+`scenery.native-worker-experiment` unary messages carry an exact protocol revision
+and bind the compiled contract,
+full prepared-target input digest, admitted operation and caller binding to a private
+owner channel. Standard auth identity is explicit; arbitrary Go contexts,
+callbacks, SQL objects and concrete errors are never wire values. Missing or
+unconverted operations fail. This experimental proof does not replace the
+current runtime-bundle, full target/input, streaming or lifecycle contracts. The
+explicit `scripts/native-worker-experiment` tool retains the full declared
+native verifier and target patterns. Worker proof additionally carries the
+linked implementation revision and Go target. The kernel proves its own
+compiled contract/input/implementation identity before setup. Its independent
+artifact can be reused only after fresh consumed-input discovery, resolved-target
+identity comparison and full retained-executable checksum verification. No
+experimental receipt admits an ordinary runtime or suppresses native checks.
+The worker's kernel input identity is projected from the same fresh complete
+target capture and bytes; a full rediscovery after the build/check join validates
+both identities. The experiment's `baseline` mode retains the ordinary build
+path, while `control` additionally matches this full post-build check. An explicit
+`--verify-kernel-projection` worker audit compares the projection against separate
+kernel discovery outside timed samples. See plan 0181 for corrected measurements.
+
 Native `protocol = "cli"` bindings execute directly as `scenery <declared command...>` from the app root. Command and flag names are lower-kebab-case, command paths are unique, and their first segment cannot collide with a built-in Scenery command. `--help`, `scenery completion <words...>`, human output, `-o json`, and exit codes are derived from the binding outcome map. Argument and flag values are decoded with the operation's declared type; required fields must be mapped exactly once. Scenery builds the declared development target, mints the local-developer principal from the OS user, injects only runtime-trusted context fields, runs authorization, and invokes call, wait, or enqueue delivery through the generated composition. Caller input cannot overwrite a context-mapped field.
 
 Fixtures are typed contract resources, not arbitrary SQL. Deployment projection includes only fixtures whose `environments` contain the selected deployment environment. `scenery db seed --env <environment>` uses the same selection and deterministically projects validated PostgreSQL `INSERT`/`ON CONFLICT` statements under `.scenery/fixtures/`; the ordinary seed ledger and destructive-SQL checks still apply.

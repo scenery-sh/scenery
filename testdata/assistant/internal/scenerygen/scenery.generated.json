@@ -1,7 +1,7 @@
 {
   "artifact_kind": "go_application_adapters",
-  "content_digest": "sha256:999256e776c55b243cfd75e54de8221acbc7a91583ca9c280a97af46a165a850",
-  "contract_revision": "sha256:3e97dd95fe632d4587b630eadb5a39cc82d9a486213e4a0c023ac1765458c1d8",
+  "content_digest": "sha256:9de6f794bc545e685d23614a63182ef6675a5531d08cd7258e85fc6da56e724b",
+  "contract_revision": "sha256:13646063fc98126b9a571c162653af4f20854d78d3819c44cdd73133a91db857",
   "covered": [
     "app/assistant/support",
     "app/mcp_connection/docs",
@@ -20,12 +20,12 @@
   ],
   "generator": "scenery.generate.go-application",
   "http_surface_revisions": {
-    "app/http_gateway/public_api": "sha256:cc5412f6fe80404e66f4c0263226145749754e67d92b0d3393c5417790d138f9"
+    "app/http_gateway/public_api": "sha256:ed27b8b86579303b1a62ad565ec554bd4a8cbea9fc43f9cd35348fec39440769"
   },
   "implementation_revision": null,
   "kind": "scenery.generated",
   "openapi_revisions": {
-    "app/http_gateway/public_api": "sha256:9a66444c5109019a157df797c786f808bfd81115688270ed8731fed1abfd4d89"
+    "app/http_gateway/public_api": "sha256:1b8c5646d36e849651f27c55893620e4a7b06a1bdcfe9689f8f0d693ab6702e9"
   },
   "package_contract_abi_revisions": {
     "example.test/assistantfixture/house/scenerycontract": "sha256:7dad4c4e4896c9b8de8b3eab27221407c2a0273feac0fa7518b57cea8fa61f55"
@@ -33,12 +33,12 @@
   "producer": {
     "version": "dev",
     "toolchain": {
-      "go_version": "go1.26.5"
+      "go_version": "go1.27.0"
     }
   },
   "provider_capability_abis": {
     "registry.scenery.dev/core/durable": {
-      "compile_descriptor_digest": "sha256:036dd947333a33133062d9ba104f9709e16932940135ec65a8c4e86a8544de3a",
+      "compile_descriptor_digest": "sha256:1d096d5c72c3433f0b728da8279fbb91b9a5076b0f656b695d1a9a60fbd62079",
       "deployment": "scenery.deployment-provider/v1",
       "migration": "",
       "runtime": "scenery.execution-runtime/v1"
@@ -47,5 +47,5 @@
   "runtime_abi": "scenery.go-runtime/v1",
   "runtime_abi_range": "scenery.go-runtime/v1",
   "schema_revision": "sha256:e5ec71660dc6740e8fa94a5e0c924f604c696225e4b1799d2908a9b3a5419f3d",
-  "spec_revision": "sha256:351b04a1172e8db7c4a15a1c0295ceb3c7d9c765d162ac3c0c01d63be04331ba"
+  "spec_revision": "sha256:56aae20837685d925a62ef085831b323040fbd5945936340a6779b0578d92f36"
 }

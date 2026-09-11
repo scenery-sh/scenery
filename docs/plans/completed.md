@@ -11,6 +11,43 @@ historical records. Do not refresh their review dates or rewrite them as current
 contract prose. Record later guidance here or in the owning current contract;
 use stale knowledge metadata to flag a known contradiction.
 
+## Native Worker Measurement Audit
+
+- Status: completed locally; correction validated, not committed or published
+- Owner: scenery runtime / ONLV development
+- Completed: 2026-09-11
+- ExecPlan: [0181 Native Worker Measurement Audit](0181-native-worker-measurement-audit.md)
+
+The original prototype repeated input discovery four times while its ordinary
+control did so once, and repeated already prepared rendering. The correction
+shares complete captured inputs with the kernel while preserving post-build
+freshness. Two new six-pair series measured 5978.692/6633.047 ms against the
+ordinary baseline and 6414.336/6532.735 ms with matched checks. The latter differs
+by 118.399 ms (1.85%); it does not establish a material architectural penalty or
+speedup. All input, symbol, SQL/auth, identity and cleanup proofs pass. The earlier
+architectural rejection is withdrawn. Significant speedup, production admission
+and 0179's full-loop thresholds remain unproven.
+
+## Native Worker Feasibility Gate
+
+Current correction: [0181](0181-native-worker-measurement-audit.md) found and fixed
+unequal discovery/freshness work and redundant rendering. The historical samples
+below remain valid for that prototype; its architectural rejection is withdrawn.
+
+- Status: completed historical experiment; rejection superseded by 0181, not committed or published
+- Owner: scenery runtime / ONLV development
+- Completed: 2026-09-11
+- ExecPlan: [0180 Native Worker Feasibility Gate](0180-native-worker-feasibility.md)
+
+The real ONLV worker preserves all 166 native packages, 215 operations and
+5063 baseline native symbols. Full target verification, independent retention,
+authentication, SQL behavior and shutdown proofs pass. Its six alternating pairs
+originally led to rejection: the bounded edit-to-authenticated-response median increased
+from 4998.205 ms to 5945.482 ms, with every candidate slower despite verified
+kernel reuse. Ordinary app commands do not select the experiment. No broader
+runtime/session migration or production promotion has followed; 0179's complete
+edit/start thresholds remain unmet. Use 0181's corrected evidence for current decisions.
+
 ## Reusable Preparation and Shorter Runtime Handoff
 
 - Status: completed locally; commits e9f8eccd, 7649b613 and bc879b7d, not published

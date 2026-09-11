@@ -7,6 +7,8 @@ import (
 	"reflect"
 	"testing"
 	"time"
+
+	_ "scenery.sh/runtime/host" // Exercise the real standard-auth HTTP codec and registration owner.
 )
 
 func TestResolveRefreshToken(t *testing.T) {

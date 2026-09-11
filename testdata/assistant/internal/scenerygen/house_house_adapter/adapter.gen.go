@@ -7,10 +7,10 @@ import (
 	contract "example.test/assistantfixture/house/scenerycontract"
 	"fmt"
 	scenery "scenery.sh"
-	sceneryruntime "scenery.sh/runtime"
+	sceneryruntime "scenery.sh/runtime/host"
 )
 
-const ContractRevision = "sha256:3e97dd95fe632d4587b630eadb5a39cc82d9a486213e4a0c023ac1765458c1d8"
+const ContractRevision = "sha256:13646063fc98126b9a571c162653af4f20854d78d3819c44cdd73133a91db857"
 const PackageIdentity = "house"
 const PackageContractABIRevision = "sha256:7dad4c4e4896c9b8de8b3eab27221407c2a0273feac0fa7518b57cea8fa61f55"
 
@@ -85,19 +85,23 @@ func Register(registry scenery.Registry) error {
 					if outcome == nil {
 						return nil, fmt.Errorf("handler returned nil outcome without error")
 					}
-					cloned, err := contract.CloneProcessSceneOutcome(outcome)
+					raw, err := contract.MarshalProcessSceneOutcome(outcome)
+					if err != nil {
+						return nil, err
+					}
+					cloned, err := contract.UnmarshalProcessSceneOutcome(raw)
 					if err != nil {
 						return nil, err
 					}
 					if err := sceneryruntime.PublishContractOperationOutcome(ctx, "house/operation/process_scene", cloned); err != nil {
 						return nil, err
 					}
-					return contract.MarshalProcessSceneOutcome(cloned)
+					return raw, nil
 				},
 			}); err != nil {
 				return err
 			}
-			if err := sceneryruntime.RegisterMCPTool(sceneryruntime.MCPToolRegistration{ID: "app/assistant/support#house/binding/process_scene_mcp", Name: "house__process_scene", AssistantAddress: "app/assistant/support", CapabilityRevision: "sha256:3e97dd95fe632d4587b630eadb5a39cc82d9a486213e4a0c023ac1765458c1d8", OperationAddress: "house/operation/process_scene", ExecutionAddress: "house/execution/process_scene_direct", Policy: &sceneryruntime.ContractHTTPPolicy{BindingAddress: "house/binding/process_scene_mcp", AuthorizationStrategy: "public", AuthorizationRuleCount: 0, AuthorizationRules: []sceneryruntime.ContractAuthorizationRule{}, PipelineSteps: []string{}}, Limits: sceneryruntime.MCPToolLimits{MaxInputBytes: 262144, MaxResultBytes: 1048576}, Effect: sceneryruntime.MCPToolEffect{ReadOnly: false, Destructive: false, Idempotent: false, OpenWorld: false}, Approval: "always", Durable: false, DurableService: "house", DurableTask: "house/execution/process_scene_direct", DecodeInput: func(data []byte) (any, error) { return contract.UnmarshalProcessSceneInput(data) }, EncodeOutput: func(value any) ([]byte, error) {
+			if err := sceneryruntime.RegisterMCPTool(sceneryruntime.MCPToolRegistration{ID: "app/assistant/support#house/binding/process_scene_mcp", Name: "house__process_scene", AssistantAddress: "app/assistant/support", CapabilityRevision: "sha256:13646063fc98126b9a571c162653af4f20854d78d3819c44cdd73133a91db857", OperationAddress: "house/operation/process_scene", ExecutionAddress: "house/execution/process_scene_direct", Policy: &sceneryruntime.ContractHTTPPolicy{BindingAddress: "house/binding/process_scene_mcp", AuthorizationStrategy: "public", AuthorizationRuleCount: 0, AuthorizationRules: []sceneryruntime.ContractAuthorizationRule{}, PipelineSteps: []string{}}, Limits: sceneryruntime.MCPToolLimits{MaxInputBytes: 262144, MaxResultBytes: 1048576}, Effect: sceneryruntime.MCPToolEffect{ReadOnly: false, Destructive: false, Idempotent: false, OpenWorld: false}, Approval: "always", Durable: false, DurableService: "house", DurableTask: "house/execution/process_scene_direct", DecodeInput: func(data []byte) (any, error) { return contract.UnmarshalProcessSceneInput(data) }, EncodeOutput: func(value any) ([]byte, error) {
 				typed, ok := value.(contract.ProcessSceneOutcome)
 				if !ok {
 					return nil, fmt.Errorf("MCP tool returned %T, want contract.ProcessSceneOutcome", value)
@@ -133,7 +137,7 @@ func Register(registry scenery.Registry) error {
 			}}); err != nil {
 				return err
 			}
-			if err := sceneryruntime.RegisterMCPTool(sceneryruntime.MCPToolRegistration{ID: "app/assistant/support#house/binding/process_scene_durable_mcp", Name: "house__process_scene_durable", AssistantAddress: "app/assistant/support", CapabilityRevision: "sha256:3e97dd95fe632d4587b630eadb5a39cc82d9a486213e4a0c023ac1765458c1d8", OperationAddress: "house/operation/process_scene", ExecutionAddress: "house/execution/process_scene_durable", Policy: &sceneryruntime.ContractHTTPPolicy{BindingAddress: "house/binding/process_scene_durable_mcp", AuthorizationStrategy: "public", AuthorizationRuleCount: 0, AuthorizationRules: []sceneryruntime.ContractAuthorizationRule{}, PipelineSteps: []string{}}, Limits: sceneryruntime.MCPToolLimits{MaxInputBytes: 262144, MaxResultBytes: 1048576}, Effect: sceneryruntime.MCPToolEffect{ReadOnly: false, Destructive: false, Idempotent: false, OpenWorld: false}, Approval: "never", Durable: true, DurableService: "house", DurableTask: "house/execution/process_scene_durable", DecodeInput: func(data []byte) (any, error) { return contract.UnmarshalProcessSceneInput(data) }, EncodeOutput: func(value any) ([]byte, error) {
+			if err := sceneryruntime.RegisterMCPTool(sceneryruntime.MCPToolRegistration{ID: "app/assistant/support#house/binding/process_scene_durable_mcp", Name: "house__process_scene_durable", AssistantAddress: "app/assistant/support", CapabilityRevision: "sha256:13646063fc98126b9a571c162653af4f20854d78d3819c44cdd73133a91db857", OperationAddress: "house/operation/process_scene", ExecutionAddress: "house/execution/process_scene_durable", Policy: &sceneryruntime.ContractHTTPPolicy{BindingAddress: "house/binding/process_scene_durable_mcp", AuthorizationStrategy: "public", AuthorizationRuleCount: 0, AuthorizationRules: []sceneryruntime.ContractAuthorizationRule{}, PipelineSteps: []string{}}, Limits: sceneryruntime.MCPToolLimits{MaxInputBytes: 262144, MaxResultBytes: 1048576}, Effect: sceneryruntime.MCPToolEffect{ReadOnly: false, Destructive: false, Idempotent: false, OpenWorld: false}, Approval: "never", Durable: true, DurableService: "house", DurableTask: "house/execution/process_scene_durable", DecodeInput: func(data []byte) (any, error) { return contract.UnmarshalProcessSceneInput(data) }, EncodeOutput: func(value any) ([]byte, error) {
 				receipt, ok := value.(scenery.ExecutionReceipt)
 				if !ok {
 					return nil, fmt.Errorf("MCP durable tool returned %T, want scenery.ExecutionReceipt", value)

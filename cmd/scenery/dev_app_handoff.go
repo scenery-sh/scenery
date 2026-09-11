@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"scenery.sh/internal/build"
-	"scenery.sh/runtime"
+	runtime "scenery.sh/runtime/host"
 )
 
 // appStartPlan retains the exact executable and environment of a successful
