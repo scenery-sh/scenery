@@ -50,6 +50,11 @@ The storage probe compiles the `scenery_storage_integration`-tagged reclamation
 journey and executes its fresh binary. Keep that volume-dependent fixture in
 the explicit probe; ordinary storage tests retain bounded failure-cut coverage.
 
+The `dev-process` probe exercises production watch timing without test timing
+overrides. It counts builds for atomic multi-file saves and edits during Go
+compilation, verifies the final served response, and rejects generated-output
+feedback. Fake-clock tests retain the ordinary settling boundary coverage.
+
 ## Verification
 
 Run `go test ./scripts/verify` and the root validation union. For changed probe

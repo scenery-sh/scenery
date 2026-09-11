@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -27,7 +28,7 @@ func (s *devSupervisor) nextDevDatabaseSetup(initial bool, contract *compiler.Re
 	if err != nil || !hasWork {
 		return setup, false, err
 	}
-	if !initial && setup.Fingerprint == s.dbSetupFingerprint {
+	if !initial && s.currentPID() != "" && setup.Fingerprint == s.dbSetupFingerprint {
 		if s.console != nil && s.console.verbose {
 			s.console.Event("database.setup.skip", map[string]any{
 				"reason": "unchanged-inputs",
@@ -76,16 +77,8 @@ func buildDevDatabaseSetup(root string, cfg app.Config, contract *compiler.Resul
 	}, true, nil
 }
 
-func (s *devSupervisor) runDevDatabaseSetup(ctx context.Context, setup devDatabaseSetup, contract *compiler.Result) error {
-	baseEnv, err := appEnvWithDotEnv(s.processEnvironment(), s.root, s.env.DotEnvFiles()...)
-	if err != nil {
-		return err
-	}
-	appBaseEnv := s.appDatabaseAuthorityEnv(baseEnv, contract.SQLRequirements)
-	managedEnv, err := s.managedAppEnv(ctx, baseEnv, contract.SQLRequirements)
-	if err != nil {
-		return err
-	}
+func (s *devSupervisor) runDevDatabaseSetup(ctx context.Context, setup devDatabaseSetup, contract *compiler.Result, environment *devRuntimeEnvironment) (returnErr error) {
+	appBaseEnv := s.appDatabaseAuthorityEnv(environment.base, contract.SQLRequirements)
 	env := appChildEnv(
 		appBaseEnv,
 		s.console != nil && s.console.palette.Enabled(),
@@ -95,30 +88,28 @@ func (s *devSupervisor) runDevDatabaseSetup(ctx context.Context, setup devDataba
 		"SCENERY_RUNTIME_ENV="+s.env.Name,
 		"SCENERY_DEV_SUPERVISOR=1",
 	)
-	env = append(env, managedEnv...)
-	env = append(env, managedDatabaseSetupEnv(contract.SQLRequirements, managedEnv)...)
-	storageEnv, err := storageCapabilityEnv(ctx, s.root, s.cfg, s.currentAgentSession(), baseEnv, "")
-	if err != nil {
-		return err
+	env = append(env, environment.managed...)
+	env = append(env, managedDatabaseSetupEnv(contract.SQLRequirements, environment.managed)...)
+	env = append(env, environment.storage...)
+	connections := newDBSetupConnections()
+	defer func() { returnErr = errors.Join(returnErr, connections.Close()) }()
+	for _, plan := range setup.Seeds {
+		dsn, err := resolveDatabaseURLForServiceFromEnv(contract.SQLRequirements, env, plan.Service)
+		if err != nil {
+			return err
+		}
+		connections.retained[dsn] = true
 	}
-	env = append(env, storageEnv...)
 	source := devdash.DevSource{ID: "database-setup", Kind: "setup", Name: "database setup", Role: "database", Status: "running"}
 	s.eventSink().Emit(ctx, source, "info", "database setup started", map[string]any{
 		"seed_count": len(setup.Seeds),
 	})
-	if err := waitForDatabaseSetupConnection(ctx, env); err != nil {
-		source.Status = "error"
-		s.eventSink().Emit(ctx, source, "error", "database setup connection failed", map[string]any{
-			"error": err.Error(),
-		})
-		return err
-	}
 	if len(setup.Migrations) > 0 {
 		// A live generation may still write against its old schema. Migration
 		// status is safe here; actual evolution requires an explicit stopped
 		// owner, and therefore cannot undermine failed-start rollback.
 		statusOnly := s.currentPID() != ""
-		results, err := runDBMigrationPlans(ctx, s.cfg.AppID(), contract.SQLRequirements, setup.Migrations, env, postgresdb.SchemaMigrationOptions{StatusOnly: statusOnly})
+		results, err := runDBMigrationPlansWithDatabase(ctx, s.cfg.AppID(), contract.SQLRequirements, setup.Migrations, env, postgresdb.SchemaMigrationOptions{StatusOnly: statusOnly}, connections)
 		if err != nil {
 			return err
 		}
@@ -142,7 +133,9 @@ func (s *devSupervisor) runDevDatabaseSetup(ctx context.Context, setup devDataba
 			return applyErr
 		}
 	}
-	seedResult, err := buildDBSeedResultWithContractEnvHooks(ctx, s.root, s.cfg, contract, dbSeedOptions{}, env, false, defaultDBSeedHooks())
+	hooks := defaultDBSeedHooks()
+	hooks.openStore = connections.SeedStore
+	seedResult, err := buildDBSeedResultWithContractEnvHooks(ctx, s.root, s.cfg, contract, dbSeedOptions{}, env, false, hooks)
 	if err != nil {
 		source.Status = "error"
 		s.eventSink().Emit(ctx, source, "error", "database seed failed", map[string]any{
@@ -152,13 +145,12 @@ func (s *devSupervisor) runDevDatabaseSetup(ctx context.Context, setup devDataba
 	}
 	source.Status = "ready"
 	s.eventSink().Emit(ctx, source, "info", "database setup completed", map[string]any{
-		"seeds": seedResult.Summary,
+		"seeds":                seedResult.Summary,
+		"migration_services":   len(setup.Migrations),
+		"database_connections": connections.opened,
+		"connection_reuses":    connections.reuses,
 	})
 	s.dbSetupFingerprint = setup.Fingerprint
-	return nil
-}
-
-func waitForDatabaseSetupConnection(ctx context.Context, env []string) error {
 	return nil
 }
 

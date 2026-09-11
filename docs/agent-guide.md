@@ -433,6 +433,17 @@ The `assistant.stage`, `assistant.cache_copy` and `assistant.cache_relocate`
 trace steps distinguish preparation from activation; copy evidence includes
 entry/file/byte counts and read, hash, write and traversal time.
 
+The development watcher uses a 100 ms quiet window; its 250 ms fallback poll
+interval is unchanged. Atomic/multi-file saves are coalesced, and authored
+changes arriving during a build remain pending for the next generation.
+Generated publication does not create a rebuild feedback loop.
+
+Within a candidate preparation, database setup and child launch share freshly
+resolved endpoints. Migration and seed work reuse exact-endpoint connections
+only until that setup invocation ends. Current database ledgers are queried
+before migration/seed writes; no persisted source-only setup-success marker
+can bypass database truth on a later startup or after reset/restore.
+
 ## TypeScript Client Integration
 
 Declare each target in root `app.scn`, select exact gateways, and choose `materialization = "source"` for a checked-in SDK or `materialization = "cache"` for `.scenery/gen/typescript/<name>`. Source output must remain beneath a managed root. Generated clients derive only from reachable canonical resources and exact binding codecs; they do not infer routes or auth from Go symbols. HTTP methods are thin typed wrappers over a shared runtime helper and a per-binding descriptor table; runtime emit omits query, binding header/cookie, multipart, retry, and record-validation branches when the selected bindings, reachable records, and target do not use those capabilities. Repeated failure sets use private aliases that preserve exact outcome narrowing. Public barrel imports allow unused metadata to be removed by bundlers; imported metadata remains deeply frozen.

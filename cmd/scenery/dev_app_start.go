@@ -61,7 +61,7 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 	}
 	var candidate *appStartPlan
 	err = s.console.Phase("Preparing candidate process", func() error {
-		candidate, err = s.prepareAppStart(ctx, plan.Result, plan.Metadata, plan.APIEncoding)
+		candidate, err = s.prepareAppStart(ctx, plan.Result, plan.Metadata, plan.APIEncoding, plan.Environment)
 		return err
 	})
 	defer s.releaseUnusedAppBinary(candidate)
@@ -178,17 +178,20 @@ func (s *devSupervisor) reloadConfig() (app.Config, error) {
 	return cfg, nil
 }
 
-func (s *devSupervisor) prepareAppStart(ctx context.Context, result *build.Result, metadata, apiEncoding json.RawMessage) (*appStartPlan, error) {
+func (s *devSupervisor) prepareAppStart(ctx context.Context, result *build.Result, metadata, apiEncoding json.RawMessage, environment *devRuntimeEnvironment) (*appStartPlan, error) {
 	if result == nil || result.Contract == nil || !result.Contract.Valid() {
 		return nil, fmt.Errorf("application startup requires a valid compiled contract")
 	}
 	agentSession := s.currentAgentSession()
 	binary := result.Binary
-	baseEnv, err := appEnvWithDotEnv(s.processEnvironment(), s.root, s.env.DotEnvFiles()...)
-	if err != nil {
-		return nil, err
+	if environment == nil {
+		var err error
+		environment, err = s.prepareRuntimeEnvironment(ctx, result.Contract)
+		if err != nil {
+			return nil, err
+		}
 	}
-	appBaseEnv := s.appDatabaseAuthorityEnv(baseEnv, result.Contract.SQLRequirements)
+	appBaseEnv := s.appDatabaseAuthorityEnv(environment.base, result.Contract.SQLRequirements)
 	env := appChildEnv(
 		appBaseEnv,
 		s.console != nil && s.console.palette.Enabled(),
@@ -206,16 +209,8 @@ func (s *devSupervisor) prepareAppStart(ctx context.Context, result *build.Resul
 	)
 	env = append(env, s.observabilityEnvironment()...)
 	env = append(env, s.sessionIdentityEnv()...)
-	managedEnv, err := s.managedAppEnv(ctx, baseEnv, result.Contract.SQLRequirements)
-	if err != nil {
-		return nil, err
-	}
-	env = append(env, managedEnv...)
-	storageEnv, err := storageCapabilityEnv(ctx, s.root, s.cfg, agentSession, baseEnv, "")
-	if err != nil {
-		return nil, err
-	}
-	env = append(env, storageEnv...)
+	env = append(env, environment.managed...)
+	env = append(env, environment.storage...)
 	if agentSession != nil && agentSession.RouteManifest.Routes[localagent.RouteAPI].URL != "" {
 		env = append(env, "SCENERY_PUBLIC_BASE_URL="+agentSession.RouteManifest.Routes[localagent.RouteAPI].URL)
 	}

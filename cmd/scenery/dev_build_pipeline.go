@@ -14,6 +14,7 @@ type devRuntimePlan struct {
 	Metadata    json.RawMessage
 	APIEncoding json.RawMessage
 	Initial     bool
+	Environment *devRuntimeEnvironment
 }
 
 type devBuildPhaseError struct {
@@ -142,9 +143,14 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 	if err != nil {
 		return nil, devBuildError(metadata, apiEncoding, err)
 	}
+	var environment *devRuntimeEnvironment
 	if shouldRunDBSetup {
 		if err := s.console.Phase("Running database setup", func() error {
-			return s.runDevDatabaseSetup(ctx, dbSetup, result.Contract)
+			environment, err = s.prepareRuntimeEnvironment(ctx, result.Contract)
+			if err != nil {
+				return err
+			}
+			return s.runDevDatabaseSetup(ctx, dbSetup, result.Contract, environment)
 		}); err != nil {
 			return nil, devBuildError(metadata, apiEncoding, err)
 		}
@@ -154,5 +160,6 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 		Metadata:    metadata,
 		APIEncoding: apiEncoding,
 		Initial:     initial,
+		Environment: environment,
 	}, nil
 }

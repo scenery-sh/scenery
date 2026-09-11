@@ -33,10 +33,12 @@ no recurring monitor is necessary.
   application; serialize helper-only changes and retain exact rollback overlays.
 - [x] (2026-09-11) B: measure materialization, evaluate independent copy-on-write
   files, and prove failed staging, isolation and rollback.
-- [ ] C: validate shorter watcher settling without redundant builds.
-- [ ] C: optimize authoritative database status/setup reuse and verify reset/restore.
+- [x] (2026-09-11) C: validate 100 ms watcher settling without redundant builds,
+  including atomic saves and edits during a real Go compilation.
+- [x] (2026-09-11) C: optimize authoritative database status/setup reuse and verify
+  reset, recreation, migration state and snapshot restore.
 - [ ] Complete repository and ONLV acceptance, record individual samples and
-  separate commits for A, B and C, then publish the coherent dependency pair.
+  separate local commits for A, B and C. Publication is not requested.
 
 ## Surprises & Discoveries
 
@@ -80,12 +82,25 @@ unavailability.
   Production's fused read/hash/write path took 1.404 and 1.446 seconds, so
   replacing it with the measured clone-plus-verification path is not justified.
   No hard links or platform-specific copy dependency are introduced.
+- 2026-09-11, Codex: use a 100 ms watch quiet window, retaining 250 ms polling
+  and the existing backup interval. Polling verifies the last quiet boundary
+  even when it occurs before the next regular poll.
+- 2026-09-11, Codex: share freshly resolved runtime endpoints only within one
+  candidate preparation. Reuse exact-DSN pools for migration status/apply and
+  following seeds; release migration-only pools immediately instead of holding
+  one idle connection per schema. Current ledgers remain authoritative.
+- 2026-09-11, Codex: the adopted reply requests separately attributable commits,
+  not remote publication. The initial publication checkbox was broader than
+  the request and is corrected here. Validate the code through the explicit
+  local-source fixture selection; leave ONLV's published pin and personal
+  runtime unchanged. Push/pin publication requires separate authorization.
 
 ## Outcomes & Retrospective
 
-A and B are implemented and validated; C remains open. The owned fixture's handler
+A, B and C are implemented; final ONLV acceptance remains open. The owned fixture's handler
 was restored after measurement. Its temporary local Scenery replacement remains
-intentional until the final published-pair acceptance.
+intentional until final local-source acceptance, then restore the fixture's
+original published selection without deleting its data.
 
 Final A semantic-edit samples 1, 2 and 4 were 7.373, 6.687 and 6.840 seconds
 (median 6.840, range 6.687–7.373); focused acceptance finished at 10.405, 9.763
@@ -164,6 +179,39 @@ and database setup paths remain in the supervisor; named native probes in
 `scripts/verify` own external proof. ONLV's `development` helpers verify real
 API/Chrome behavior against the intended linked build.
 
+### Final C Measurements and Verification
+
+Final C semantic edits took 6302.50, 6373.20 and 6306.76 ms (median 6306.76,
+range 6302.50–6373.20), with focused acceptance at 9471.57, 9351.63 and
+9321.17 ms. All served the intended changed value with a new exact identity.
+Ten failed availability polls spanned 235.34–241.79 ms; this remains a sampled
+interval, not an exact outage measurement. Against baseline, the edit median
+improved by 23.7%; the under-five-second target remains unmet.
+
+C unchanged starts 2, 3 and 4 took 8105.47, 8034.49 and 8013.51 ms
+(median 8034.49, range 8013.51–8105.47), with focused acceptance at
+11300.75, 11263.65 and 11238.48 ms. All hit graph/workspace caches and ran
+no Go build. Workspace verification took 1388.95, 1396.72 and 1399.63 ms;
+database setup took 794, 760 and 755 ms. Startup median improved by 14.8%
+against baseline. Start 1 (11529.87 ms) rebuilt restored handler source and
+is retained as restoration evidence, not counted as an unchanged cache hit.
+The measured source digest is
+`f6920738c2146e0ce4b0e7ced784f0e855c6496f702f122db7c02253352007bf`,
+executable digest
+`4538ca76ec9758c2db644db1bcd0e7f0eeeb48792bad0e381697509e0062c428`;
+raw labels are `latency-0178-C-*` in `loop-attribution.json`.
+
+C validation passed affected `go test ./cmd/scenery` and
+`go test ./scripts/verify`, `golangci-lint run ./...` (zero issues),
+`go run ./scripts/verify --summary --write`, and explicit `dev-process` and
+`postgres` probes. The real watcher probe verifies one build for an atomic
+multi-file save, exactly two builds for edits during compilation, and no build
+for unchanged generated publication. PostgreSQL proof covers ledger status,
+reset/recreation, snapshot restore, migration rollback and adoption. The full
+verifier retained 41 knowledge and 22 architecture warnings; its Go-suite
+5.382 s advisory was measured concurrently with integration work and is not
+an isolated exact-root timing result. No 100 ms root-budget exception is added.
+
 ## Milestones
 
 A: pure projection reuse and cheaper unchanged workspace verification. Target
@@ -209,12 +257,20 @@ From ONLV run `bun test development`,
 `apps/nextnext/node_modules/.bin/tsc -p development/tsconfig.json --noEmit`,
 `just check-harness`, and `just repo-harness`. In the owned fixture run
 `./scripts/scenery check -o json`, `go test ./...`, `./scripts/scenery harness -o json --write`,
-`just feature projects`, `just feature ahjs`, and `just smoke` after the final
+`just feature ahjs` and `just smoke` after the final
 producer selection. Repeat the updated loop measurement commands for three
 samples per workflow and milestone; write exact invocations/results below.
-Before final delivery run the published-checkout and retained-runtime proofs
-against the resulting published pin. Full release and all-root timing audits
+Before final delivery run `just smoke` in the owned ONLV fixture against the
+explicit local-source selection, then restore its original published selection.
+Run `bun test development`, `just check-harness` and the development TypeScript
+check in ONLV for the promoted measurement command. Published-checkout and
+retained-producer transition proofs are unselected: this change does not alter
+the launcher protocol and remote publication is not requested.
+Full release and all-root timing audits
 are not requested; these local workflow measurements are explicitly authorized.
+Full smoke includes the same project assertions as `just feature projects`
+and additionally verifies restart persistence; a duplicate project-only run
+is therefore unnecessary.
 
 ## Validation and Acceptance
 

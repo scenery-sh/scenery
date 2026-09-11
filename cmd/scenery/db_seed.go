@@ -273,12 +273,6 @@ func buildDBSeedResultWithContractEnvHooks(ctx context.Context, appRoot string, 
 			}
 			stores[dsn] = store
 		}
-		if !opts.DryRun && !ledgerReady[dsn] {
-			if err := store.EnsureLedger(ctx); err != nil {
-				return nil, "", err
-			}
-			ledgerReady[dsn] = true
-		}
 		return store, dsn, nil
 	}
 	var errs []error
@@ -322,6 +316,17 @@ func buildDBSeedResultWithContractEnvHooks(ctx context.Context, appRoot string, 
 			record.Status = "planned"
 			result.addSeedRecord(record)
 			continue
+		}
+		// Read the authoritative ledger before any setup DDL. An unchanged
+		// seed needs no write; an absent/reset ledger still reaches this path.
+		if !ledgerReady[dsn] {
+			if err := store.EnsureLedger(ctx); err != nil {
+				record.Status, record.Error = "failed", err.Error()
+				result.addSeedRecord(record)
+				errs = append(errs, fmt.Errorf("prepare seed ledger %s: %w", plan.Path, err))
+				continue
+			}
+			ledgerReady[dsn] = true
 		}
 		if plan.Kind == dbSeedPlanKindCommand {
 			output, runErr := runDBSeedCommandPlan(ctx, appRoot, dsn, env, plan, hooks)

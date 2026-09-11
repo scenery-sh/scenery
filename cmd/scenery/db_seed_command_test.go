@@ -95,11 +95,12 @@ func TestDBSeedCommandAppliesSkipsAndRerunsChangedInput(t *testing.T) {
 		t.Fatalf("runs = %d recorded = %+v", runs, store.commandRecorded)
 	}
 
+	store.ensureRan = false
 	second, err := buildDBSeedResultWithEnvHooks(context.Background(), root, cfg, dbSeedOptions{}, env, false, hooks)
 	if err != nil {
 		t.Fatalf("second seed: %v", err)
 	}
-	if second.Summary.Skipped != 1 || runs != 1 {
+	if second.Summary.Skipped != 1 || runs != 1 || store.ensureRan {
 		t.Fatalf("second result = %+v runs = %d", second, runs)
 	}
 
@@ -110,6 +111,14 @@ func TestDBSeedCommandAppliesSkipsAndRerunsChangedInput(t *testing.T) {
 	}
 	if third.Summary.Applied != 1 || third.Seeds[0].SHA256 == firstHash || runs != 2 || len(store.commandRecorded) != 2 {
 		t.Fatalf("third result = %+v runs = %d recorded = %+v", third, runs, store.commandRecorded)
+	}
+	// A reset/recreated database loses its ledger without changing source.
+	// Every invocation must observe that absence and reapply the seed.
+	store.ledger = map[string]string{}
+	store.ensureRan = false
+	fourth, err := buildDBSeedResultWithEnvHooks(context.Background(), root, cfg, dbSeedOptions{}, env, false, hooks)
+	if err != nil || fourth.Summary.Applied != 1 || runs != 3 || !store.ensureRan {
+		t.Fatalf("reset ledger was treated as a source-cache hit: result=%+v runs=%d err=%v", fourth, runs, err)
 	}
 }
 

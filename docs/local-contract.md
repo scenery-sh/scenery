@@ -757,6 +757,13 @@ A managed database must already be running; otherwise the command returns an
 explicit-start precondition. An absent ledger means no prior applied seeds.
 External URLs retain their declared ownership and are not provisioned by Scenery.
 
+Database setup reads migration status and the seed ledger before running
+pending work. Current migration chains use a read-only transaction; applying
+pending migrations reacquires the exclusive lock and verifies the ledger again.
+An unchanged seed does not issue ledger-creation DDL. Endpoint/connection reuse
+is invocation-local: a later startup reads the current database again, including
+after reset, restore or recreation with unchanged source files.
+
 ### Tasks and validation
 
 ```text

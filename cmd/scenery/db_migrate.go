@@ -234,20 +234,38 @@ func discoverDBMigrationPlans(root string, cfg appcfg.Config, requirements compi
 	return plans, nil
 }
 
-func runDBMigrationPlans(ctx context.Context, appID string, requirements compiler.SQLRequirements, plans []dbMigrationPlan, env []string, opts postgresdb.SchemaMigrationOptions) ([]postgresdb.SchemaMigrationResult, error) {
+func runDBMigrationPlans(ctx context.Context, appID string, requirements compiler.SQLRequirements, plans []dbMigrationPlan, env []string, opts postgresdb.SchemaMigrationOptions) (_ []postgresdb.SchemaMigrationResult, returnErr error) {
+	connections := newDBSetupConnections()
+	defer func() { returnErr = errors.Join(returnErr, connections.Close()) }()
+	return runDBMigrationPlansWithDatabase(ctx, appID, requirements, plans, env, opts, connections)
+}
+
+func runDBMigrationPlansWithDatabase(ctx context.Context, appID string, requirements compiler.SQLRequirements, plans []dbMigrationPlan, env []string, opts postgresdb.SchemaMigrationOptions, connections *dbSetupConnections) ([]postgresdb.SchemaMigrationResult, error) {
 	results := make([]postgresdb.SchemaMigrationResult, 0, len(plans))
 	for _, plan := range plans {
 		dsn, err := resolveDatabaseURLForServiceFromEnv(requirements, env, plan.Service)
 		if err != nil {
 			return results, err
 		}
-		database, err := openPostgresDatabase(ctx, dsn)
+		database, err := connections.Open(ctx, dsn)
 		if err != nil {
 			return results, fmt.Errorf("migration service %s database is unavailable; inspect scenery doctor and db server status", plan.Service)
 		}
 		opts.InitialVerification = plan.InitialVerification
-		result, migrationErr := postgresdb.SchemaMigrations(ctx, database, appID, plan.Service, plan.Schema, plan.Migrations, opts)
-		err = errors.Join(migrationErr, database.Close())
+		var result postgresdb.SchemaMigrationResult
+		if !opts.StatusOnly && !opts.AdoptInitial {
+			statusOptions := opts
+			statusOptions.StatusOnly = true
+			result, err = postgresdb.SchemaMigrations(ctx, database, appID, plan.Service, plan.Schema, plan.Migrations, statusOptions)
+			if err == nil && result.Status != "current" {
+				// Applying reacquires the exclusive transaction lock and rereads
+				// the ledger; the status read is never mutation authority.
+				result, err = postgresdb.SchemaMigrations(ctx, database, appID, plan.Service, plan.Schema, plan.Migrations, opts)
+			}
+		} else {
+			result, err = postgresdb.SchemaMigrations(ctx, database, appID, plan.Service, plan.Schema, plan.Migrations, opts)
+		}
+		err = errors.Join(err, connections.ReleaseMigration(dsn))
 		results = append(results, result)
 		if err != nil {
 			return results, err

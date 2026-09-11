@@ -156,7 +156,12 @@ func runHarnessAppHandoffProbe(parent context.Context, root, home string, starte
 	if err != nil {
 		return nil, fmt.Errorf("correct served revision after recovery: %w", err)
 	}
+	watch, err := runHarnessWatchBatchProbe(ctx, root, started, updated, readSession, waitReplacement)
+	if err != nil {
+		return nil, err
+	}
 	return map[string]any{
+		"watch_batches":                         watch,
 		"test_doc_identical_edits_no_restart":   true,
 		"failed_start_restored_previous":        true,
 		"preflight_rejection_preserved_backend": true,
