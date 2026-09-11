@@ -730,7 +730,18 @@ Independent kernel discovery is an explicit untimed audit check.
 `internal/build.RetainBinary` is the shared executable-copy boundary.
 `scripts/native-worker-experiment` explicitly drives the unchanged ordinary
 baseline, a control with matched post-build input checks, or the direct worker.
-These modes are not product commands. Traces record preparation, full build and
+These modes are not product commands. The private
+`scenery_native_lifecycle_probe` build of `cmd/scenery` uses the actual watcher
+and `devBuildPreparation` shared with `prepareDevRuntimePlan`. Separate persistent
+owners retain process caches across edits and carry real `SourceSnapshot` values.
+Native graph hits select `RefreshNativeExperiment` in their owned workspace,
+which prepares a new full verifier with the native renderer; ordinary refresh
+rejects native results. Only a fully checked generation updates the native
+owner's accepted graph. The shared final watcher recapture rejects source changes
+without replacing the captured baseline, preserving pending edits. The alternate
+entrypoint is an explicit integration probe, not a product runtime selector.
+
+Traces record preparation, full build and
 verifier branches, their joined interval and final recapture/retention; overlapping
 Go-command sums are not the build branch's wall time.
 

@@ -19,6 +19,18 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0183-native-worker-supervisor-lifecycle.md",
+      "title": "Native Worker Supervisor Preparation Lifecycle",
+      "owner": "scenery runtime / ONLV development",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-11",
+      "review_after": "2026-10-11",
+      "summary": "Completed shared supervisor snapshot/cache lifecycle: six pairs retain only 174 ms artifact and 229 ms authored-edit gains, so most prior benefit is lost and worker migration stops.",
+      "tags": ["plans", "execplans", "runtime", "performance"]
+    },
+    {
       "path": "docs/plans/0182-direct-native-worker-preparation.md",
       "title": "Direct Native Worker Preparation",
       "owner": "scenery runtime / ONLV development",
@@ -39,7 +51,7 @@
       "freshness": "current",
       "last_reviewed": "2026-09-11",
       "review_after": "2026-10-11",
-      "summary": "Current direct native worker findings, six matched pairs with 11.6 percent bounded gain, exact input and ownership proofs, and unchanged full-loop promotion limits.",
+      "summary": "Current supervisor-lifecycle findings: 174 ms artifact and 229 ms authored-edit gains; most prior benefit is lost, so broader worker migration stops at the decision gate.",
       "tags": ["runtime", "performance", "architecture"]
     },
     {

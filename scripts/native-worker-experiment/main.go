@@ -96,7 +96,7 @@ func run() error {
 	prepareStarted := time.Now()
 	var prepared *build.Result
 	if *mode == "worker" {
-		prepared, err = build.PrepareNativeExperiment(ctx, root, cfg, filepath.Join(out, "native-workspace"), func(result *compiler.Result) (generateapi.GoWorkspaceProjection, error) {
+		prepared, err = build.PrepareNativeExperiment(ctx, root, cfg, nil, filepath.Join(out, "native-workspace"), func(result *compiler.Result) (generateapi.GoWorkspaceProjection, error) {
 			return generate.PrepareNativeWorkerGoWorkspace(result, cfg, *binding)
 		})
 	} else {

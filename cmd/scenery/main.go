@@ -25,14 +25,6 @@ import (
 
 var cliStderr io.Writer = os.Stderr
 
-func main() {
-	os.Exit(executeCLI(os.Args[1:]))
-}
-
-func executeCLI(args []string) int {
-	return executeCLIWith(args, os.Stdout, os.Stderr, time.Now(), runWithCLITelemetry, recordCLITelemetry)
-}
-
 type cliRunFunc func([]string, *cliTelemetryInvocation) error
 
 func executeCLIWith(args []string, stdout, stderr io.Writer, started time.Time, runCLI cliRunFunc, record func(cliTelemetryRecord)) int {

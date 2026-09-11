@@ -175,6 +175,20 @@ receipt, change ordinary latest-build state or prune previous retained artifacts
 See plan 0181 for the historical measurement correction and
 [0182](plans/0182-direct-native-worker-preparation.md) for direct preparation and
 six matched pairs. The kernel remains a fresh process in each sample.
+[0183](plans/0183-native-worker-supervisor-lifecycle.md) transfers preparation to
+actual supervisor snapshots and persistent preparation owners through a private
+`scenery_native_lifecycle_probe` build of the CLI package. It exposes no product
+command or environment switch. Product and probe share graph-cache selection,
+preparation, metadata analysis, compilation admission and final watcher recapture.
+A source change during compilation rejects the candidate while retaining the
+captured baseline so the next watch iteration still sees the pending edit.
+Native graph reuse remains bound to its explicitly selected private workspace
+and renderer, always preparing a fresh full verifier; it cannot load ordinary
+successful-build state or use ordinary cached refresh. This preparation probe
+does not establish runtime protocol parity or full development-loop acceptance.
+Its completed lifecycle gate stops broader worker migration: the surviving
+174 ms artifact gain does not justify generation integration under the requested
+conservative gate. See [current findings](native-worker-findings.md).
 
 Native `protocol = "cli"` bindings execute directly as `scenery <declared command...>` from the app root. Command and flag names are lower-kebab-case, command paths are unique, and their first segment cannot collide with a built-in Scenery command. `--help`, `scenery completion <words...>`, human output, `-o json`, and exit codes are derived from the binding outcome map. Argument and flag values are decoded with the operation's declared type; required fields must be mapped exactly once. Scenery builds the declared development target, mints the local-developer principal from the OS user, injects only runtime-trusted context fields, runs authorization, and invokes call, wait, or enqueue delivery through the generated composition. Caller input cannot overwrite a context-mapped field.
 

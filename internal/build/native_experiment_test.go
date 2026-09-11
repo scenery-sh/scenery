@@ -1,8 +1,10 @@
 package build
 
 import (
+	"context"
 	"os"
 	"path/filepath"
+	"scenery.sh/internal/app"
 	"scenery.sh/internal/compiler"
 	"strings"
 	"testing"
@@ -111,5 +113,19 @@ func TestNativeKernelReuseRequiresCurrentInputsAndExactRetainedBytes(t *testing.
 	}
 	if reuse, err := reusableNativeKernel(previous, current, dir); err == nil || reuse {
 		t.Fatal("corrupt kernel bytes reused")
+	}
+}
+
+func TestNativeRefreshRejectsOrdinaryState(t *testing.T) {
+	ctx := context.Background()
+	native := &Result{nativeExperiment: true, AppRoot: "/app", Dir: "/native"}
+	if _, err := RefreshCachedWorkspaceWithSnapshotContext(ctx, "/app", native, nil); err == nil {
+		t.Fatal("ordinary refresh admitted native projection")
+	}
+	if _, err := RefreshNativeExperiment(ctx, "/app", app.Config{}, nil, "/native", nil, &Result{AppRoot: "/app", Dir: "/native"}); err == nil {
+		t.Fatal("native refresh adopted ordinary result")
+	}
+	if _, err := RefreshNativeExperiment(ctx, "/other", app.Config{}, nil, "/native", nil, native); err == nil {
+		t.Fatal("native refresh adopted another root")
 	}
 }

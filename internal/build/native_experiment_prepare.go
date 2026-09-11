@@ -15,7 +15,7 @@ import (
 // PrepareNativeExperiment selects the private projection before rendering or
 // materializing any executable. Its workspace is owned separately from ordinary
 // build state; failed preparation never authorizes pruning retained artifacts.
-func PrepareNativeExperiment(ctx context.Context, appRoot string, cfg app.Config, workspace string, project func(*compiler.Result) (generateapi.GoWorkspaceProjection, error)) (*Result, error) {
+func PrepareNativeExperiment(ctx context.Context, appRoot string, cfg app.Config, snapshot *SourceSnapshot, workspace string, project func(*compiler.Result) (generateapi.GoWorkspaceProjection, error)) (*Result, error) {
 	if project == nil {
 		return nil, fmt.Errorf("native experiment requires a projection renderer")
 	}
@@ -26,7 +26,7 @@ func PrepareNativeExperiment(ctx context.Context, appRoot string, cfg app.Config
 	if err := claimNativeExperimentWorkspace(appRoot, ordinary, workspace); err != nil {
 		return nil, err
 	}
-	return prepareForCompileWithProjection(ctx, appRoot, cfg, nil, project, workspace)
+	return prepareForCompileWithProjection(ctx, appRoot, cfg, snapshot, project, workspace)
 }
 
 func claimNativeExperimentWorkspace(appRoot, ordinary, workspace string) error {
@@ -108,4 +108,14 @@ func validateNativeExperimentProjection(files map[string][]byte) error {
 		}
 	}
 	return nil
+}
+
+// RefreshNativeExperiment preserves explicit projection ownership on graph hits.
+// Native generations always receive a fresh pending full verifier; only source,
+// dependency and generator preparation caches are reused, never an executable.
+func RefreshNativeExperiment(ctx context.Context, appRoot string, cfg app.Config, snapshot *SourceSnapshot, workspace string, project func(*compiler.Result) (generateapi.GoWorkspaceProjection, error), previous *Result) (*Result, error) {
+	if previous == nil || !previous.nativeExperiment || previous.AppRoot != appRoot || previous.Dir != workspace {
+		return nil, fmt.Errorf("native refresh requires its own accepted projection workspace")
+	}
+	return PrepareNativeExperiment(ctx, appRoot, cfg, snapshot, workspace, project)
 }

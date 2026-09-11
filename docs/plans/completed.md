@@ -11,6 +11,23 @@ historical records. Do not refresh their review dates or rewrite them as current
 contract prose. Record later guidance here or in the owning current contract;
 use stale knowledge metadata to flag a known contradiction.
 
+## Native Worker Supervisor Preparation Lifecycle
+
+- Status: completed bounded gate for draft PR #193; stop further worker migration
+- Owner: scenery runtime / ONLV development
+- Completed: 2026-09-11
+- ExecPlan: [0183 Native Worker Supervisor Preparation Lifecycle](0183-native-worker-supervisor-lifecycle.md)
+
+The product and probe share actual watcher snapshots, cache selection,
+preparation and final source admission. Explicit native graph refresh cannot
+adopt ordinary successful state. Persistent owners, pending-edit/repair negatives,
+previous live-generation survival, full input checks and 56 real behavior
+assertions pass. Six fixed pairs show 174.013 ms gain to a retained artifact and
+228.600 ms (4.55%) from authored write to supported SQL response. Most of 0182's
+636.515 ms advantage disappears. Stop the product migration under the requested
+gate; no GenerationCandidate, persistent kernel, protocol expansion or full-loop
+50% acceptance follows. See [current findings](../native-worker-findings.md).
+
 ## Direct Native Worker Preparation
 
 - Status: completed bounded experiment for draft PR #193; not a product runtime
@@ -26,6 +43,8 @@ control/worker medians: 636.515 ms (11.6%) gain, and 631.524 ms median paired ga
 Every pair is faster. Observed kernel startup is 44–54 ms with a new process each
 time. This bounded improvement does not prove the full development-loop 50% goal
 or authorize the broad rewrite, persistent kernel or runtime promotion.
+The later 0183 lifecycle gate above supersedes this result for migration
+decisions; the original 0182 plan remains a historical measurement record.
 
 ## Native Worker Measurement Audit
 

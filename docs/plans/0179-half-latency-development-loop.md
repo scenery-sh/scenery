@@ -13,6 +13,14 @@ source validation, exact served identity, readiness, isolation or rollback.
 
 ## Progress
 
+- [x] (2026-09-11) Transfer actual snapshots and persistent preparation ownership in
+  [0183](0183-native-worker-supervisor-lifecycle.md). Six matched pairs preserve
+  identical snapshots and full checks, but the surviving gain is only 174.013 ms
+  to a checked retained artifact and 228.600 ms (4.55%) from authored write to
+  supported SQL response. Most of 0182's advantage disappears. Stop worker product
+  migration at the requested gate; do not start GenerationCandidate. Neither
+  fixed full-loop threshold is met or redefined by this bounded experiment.
+
 - [x] (2026-09-11) Complete the bounded direct preparation experiment in
   [0182](0182-direct-native-worker-preparation.md). Six matched pairs preserve
   exact native/public inputs and full checks; control/worker medians are
