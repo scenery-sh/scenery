@@ -1,0 +1,1110 @@
+diff --git a/cmd/scenery/dev_app_binary.go b/cmd/scenery/dev_app_binary.go
+index 848685e5..870b9326 100644
+--- a/cmd/scenery/dev_app_binary.go
++++ b/cmd/scenery/dev_app_binary.go
+@@ -93,6 +93,12 @@ func (s *devSupervisor) releaseUnusedAppBinary(plan *appStartPlan) {
+ 	s.mu.RLock()
+ 	current := s.current
+ 	s.mu.RUnlock()
++	if plan.executable != nil {
++		if current == nil || current.launch != plan {
++			_ = plan.executable.Release()
++		}
++		return
++	}
+ 	if current != nil && current.launch != nil && current.launch.request.Command == plan.request.Command {
+ 		return
+ 	}
+diff --git a/cmd/scenery/dev_app_handoff.go b/cmd/scenery/dev_app_handoff.go
+index 13d10a77..10408ae4 100644
+--- a/cmd/scenery/dev_app_handoff.go
++++ b/cmd/scenery/dev_app_handoff.go
+@@ -17,6 +17,7 @@ import (
+ // appStartPlan retains the exact executable and environment of a successful
+ // generation. Rollback must not re-read edited dotenv/config/source files.
+ type appStartPlan struct {
++	executable  *build.ExecutableArtifact
+ 	request     devProcessStartRequest
+ 	result      *build.Result
+ 	metadata    json.RawMessage
+diff --git a/cmd/scenery/dev_app_start.go b/cmd/scenery/dev_app_start.go
+index 61a40cff..f3babd33 100644
+--- a/cmd/scenery/dev_app_start.go
++++ b/cmd/scenery/dev_app_start.go
+@@ -62,6 +62,7 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
+ 		metadata, apiEncoding := devBuildErrorPayload(err)
+ 		return s.handleCompileError(ctx, metadata, apiEncoding, err)
+ 	}
++	defer func() { _ = plan.Result.ReleaseExecutable() }()
+ 	if initial {
+ 		if err := s.waitForStartupReady(ctx); err != nil {
+ 			return err
+@@ -212,7 +213,16 @@ func (s *devSupervisor) prepareAppStart(ctx context.Context, result *build.Resul
+ 	}
+ 	agentSession := s.currentAgentSession()
+ 	binary := result.Binary
++	var executable *build.ExecutableArtifact
+ 	sessionBinary, environment, err := prepareAppStartInputs(func() (string, error) {
++		if result.ExecutableArtifact != nil {
++			var err error
++			executable, err = result.ExecutableArtifact.Retain()
++			if err != nil {
++				return "", err
++			}
++			return executable.Path, nil
++		}
+ 		return prepareSessionAppBinary(agentSession, result.Binary)
+ 	}, func() (*devRuntimeEnvironment, error) {
+ 		if environment != nil {
+@@ -220,7 +230,7 @@ func (s *devSupervisor) prepareAppStart(ctx context.Context, result *build.Resul
+ 		}
+ 		return s.prepareRuntimeEnvironment(ctx, result.Contract)
+ 	}, func(path string) {
+-		s.releaseUnusedAppBinary(&appStartPlan{request: devProcessStartRequest{Command: path}})
++		s.releaseUnusedAppBinary(&appStartPlan{executable: executable, request: devProcessStartRequest{Command: path}})
+ 	})
+ 	if err != nil {
+ 		return nil, err
+@@ -261,7 +271,7 @@ func (s *devSupervisor) prepareAppStart(ctx context.Context, result *build.Resul
+ 	if path := strings.TrimSpace(s.assistantTokenKeyPath); path != "" {
+ 		env = append(env, runtime.AssistantTokenKeyFileEnv+"="+path)
+ 	}
+-	return &appStartPlan{result: result, metadata: metadata, apiEncoding: apiEncoding, request: devProcessStartRequest{
++	return &appStartPlan{executable: executable, result: result, metadata: metadata, apiEncoding: apiEncoding, request: devProcessStartRequest{
+ 		Name:    "api",
+ 		Kind:    "app",
+ 		Role:    "scenery-api",
+diff --git a/cmd/scenery/dev_build_pipeline.go b/cmd/scenery/dev_build_pipeline.go
+index 57e1ef77..61e3cca1 100644
+--- a/cmd/scenery/dev_build_pipeline.go
++++ b/cmd/scenery/dev_build_pipeline.go
+@@ -4,6 +4,8 @@ import (
+ 	"context"
+ 	"encoding/json"
+ 	"errors"
++	"fmt"
++	"path/filepath"
+ 	"time"
+ 
+ 	"scenery.sh/internal/build"
+@@ -50,6 +52,17 @@ func devBuildError(metadata, apiEncoding json.RawMessage, err error) error {
+ }
+ 
+ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool, snapshot fileSnapshot) (*devRuntimePlan, error) {
++	if s.executableOwner == nil {
++		if s.worktreeRootPaths == nil {
++			return nil, fmt.Errorf("executable retention requires worktree ownership")
++		}
++		owner, err := build.OpenExecutableOwner(filepath.Join(s.worktreeRootPaths.Directory, "executables"), s.root)
++		if err != nil {
++			return nil, err
++		}
++		s.executableOwner = owner
++	}
++	ctx = build.WithExecutableOwner(ctx, s.executableOwner)
+ 	ctx = build.WithTrace(ctx, func(step build.Step) {
+ 		s.console.Event("build.step", map[string]any{
+ 			"name": step.Name, "started_at": step.StartedAt.UTC().Format(time.RFC3339Nano),
+@@ -67,6 +80,12 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
+ 		err         error
+ 	)
+ 	var preparation *devBuildPreparation
++	succeeded := false
++	defer func() {
++		if !succeeded && preparation != nil {
++			_ = preparation.result.ReleaseExecutable()
++		}
++	}()
+ 	if err := s.console.Phase("Building scenery application graph", func() error {
+ 		preparation, err = loadDevBuildPreparation(ctx, s.root, s.cfg, snapshot)
+ 		if err == nil {
+@@ -132,6 +151,7 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
+ 			return nil, devBuildError(metadata, apiEncoding, err)
+ 		}
+ 	}
++	succeeded = true
+ 	return &devRuntimePlan{
+ 		Result:      result,
+ 		Metadata:    metadata,
+diff --git a/cmd/scenery/dev_supervisor.go b/cmd/scenery/dev_supervisor.go
+index 18614af9..4f234892 100644
+--- a/cmd/scenery/dev_supervisor.go
++++ b/cmd/scenery/dev_supervisor.go
+@@ -25,6 +25,7 @@ import (
+ 
+ 	localagent "scenery.sh/internal/agent"
+ 	"scenery.sh/internal/app"
++	"scenery.sh/internal/build"
+ 	"scenery.sh/internal/compiler"
+ 	"scenery.sh/internal/devdash"
+ 	"scenery.sh/internal/envfile"
+@@ -45,6 +46,7 @@ type runningApp struct {
+ }
+ 
+ type devSupervisor struct {
++	executableOwner       *build.ExecutableOwner
+ 	ctx                   context.Context
+ 	cancel                context.CancelFunc
+ 	root                  string
+@@ -298,6 +300,8 @@ func (s *devSupervisor) Close() error {
+ 		if app != nil {
+ 			if err := app.waitOrKill(stopTimeout); err != nil {
+ 				errs = append(errs, err)
++			} else if app.launch != nil && app.launch.executable != nil {
++				errs = append(errs, app.launch.executable.Release())
+ 			}
+ 		}
+ 		for _, frontend := range frontends {
+@@ -321,6 +325,9 @@ func (s *devSupervisor) Close() error {
+ 			}
+ 		}
+ 
++		if s.executableOwner != nil {
++			errs = append(errs, s.executableOwner.Close())
++		}
+ 		if s.store != nil {
+ 			if err := s.store.Close(); err != nil {
+ 				errs = append(errs, err)
+diff --git a/internal/build/build.go b/internal/build/build.go
+index 4d2e9bdb..7867def3 100644
+--- a/internal/build/build.go
++++ b/internal/build/build.go
+@@ -16,6 +16,9 @@ type Result struct {
+ 	AppID                     string
+ 	Dir                       string
+ 	Binary                    string
++	ExecutableOwner           *ExecutableOwner
++	ExecutableArtifact        *ExecutableArtifact
++	privateOutput             string
+ 	NeedsTidy                 bool
+ 	DependencyFingerprint     string
+ 	SourceFingerprint         string
+@@ -76,6 +79,8 @@ type SourceSnapshotFile struct {
+ 
+ type buildState struct {
+ 	Version                   string                 `json:"version,omitempty"`
++	ExecutablePath            string                 `json:"executable_path,omitempty"`
++	ExecutableDigest          string                 `json:"executable_digest,omitempty"`
+ 	DependencyFingerprint     string                 `json:"dependency_fingerprint"`
+ 	SourceFingerprint         string                 `json:"source_fingerprint,omitempty"`
+ 	SourceMetadataFingerprint string                 `json:"source_metadata_fingerprint,omitempty"`
+@@ -92,7 +97,7 @@ type buildState struct {
+ 
+ const (
+ 	buildStateFile    = ".scenery-build-state.json"
+-	buildStateVersion = "6"
++	buildStateVersion = "7"
+ )
+ 
+ type CachedGraph struct {
+diff --git a/internal/build/compile.go b/internal/build/compile.go
+index 4c8094bc..e4d39df2 100644
+--- a/internal/build/compile.go
++++ b/internal/build/compile.go
+@@ -67,8 +67,14 @@ func refreshWorkspaceBuildIdentity(result *Result) error {
+ }
+ 
+ func savePrimedWorkspace(result *Result) error {
++	digest, executablePath := "", ""
++	if result.ExecutableArtifact != nil {
++		digest, executablePath = result.ExecutableArtifact.Digest, result.ExecutableArtifact.Path
++	}
++
+ 	if err := saveBuildState(result.Dir, buildState{
+-		Version:                   buildStateVersion,
++		Version:          buildStateVersion,
++		ExecutableDigest: digest, ExecutablePath: executablePath,
+ 		DependencyFingerprint:     result.DependencyFingerprint,
+ 		SourceFingerprint:         result.SourceFingerprint,
+ 		SourceMetadataFingerprint: result.SourceMetadataFingerprint,
+@@ -90,7 +96,7 @@ func savePrimedWorkspace(result *Result) error {
+ 	return nil
+ }
+ 
+-func CompileContext(ctx context.Context, result *Result) error {
++func CompileContext(ctx context.Context, result *Result) (retErr error) {
+ 	if result == nil {
+ 		return fmt.Errorf("nil build result")
+ 	}
+@@ -107,6 +113,12 @@ func CompileContext(ctx context.Context, result *Result) error {
+ 		return err
+ 	}
+ 	defer unlock()
++	defer func() {
++		if result.privateOutput != "" && result.ExecutableOwner != nil {
++			retErr = errors.Join(retErr, result.ExecutableOwner.DiscardPrivate(result.privateOutput))
++			result.privateOutput = ""
++		}
++	}()
+ 	previousBinary := ""
+ 	previousState, err := loadBuildState(result.Dir)
+ 	if err != nil {
+@@ -169,6 +181,9 @@ func CompileContext(ctx context.Context, result *Result) error {
+ 		})
+ 	}
+ 	if err != nil {
++		if result.ExecutableOwner != nil {
++			return err
++		}
+ 		if removeErr := os.Remove(result.Binary); removeErr != nil && !os.IsNotExist(removeErr) {
+ 			return errors.Join(err, fmt.Errorf("remove failed private build: %w", removeErr))
+ 		}
+@@ -193,6 +208,14 @@ func CompileContext(ctx context.Context, result *Result) error {
+ 		result.DependencyFingerprint = fingerprint
+ 		result.NeedsTidy = false
+ 	}
++	if result.ExecutableOwner != nil {
++		artifact, err := result.ExecutableOwner.Publish(result.privateOutput)
++		if err != nil {
++			return err
++		}
++		result.privateOutput = ""
++		result.ExecutableArtifact, result.Binary = artifact, artifact.Path
++	}
+ 	// Success publication is downstream of the full verification/build join.
+ 	if err := writeRuntimeBundle(result); err != nil {
+ 		return err
+@@ -206,6 +229,11 @@ func CompileContext(ctx context.Context, result *Result) error {
+ 	if err := WriteLatestBuildManifest(result, "compiled"); err != nil {
+ 		return err
+ 	}
++	if result.ExecutableOwner != nil {
++		if err := result.ExecutableOwner.Cache(executableCacheIdentity(result), result.ExecutableArtifact); err != nil {
++			return err
++		}
++	}
+ 	result.verification = nil
+ 	return nil
+ }
+@@ -219,14 +247,28 @@ func compilePrivateWorkspace(ctx context.Context, result *Result) error {
+ 	if err := validateRuntimeLinkerMetadata(result.RuntimeLinkerMetadata); err != nil {
+ 		return err
+ 	}
+-	return runGoBuildContext(ctx, result)
++	output := result.Binary
++	if result.ExecutableOwner != nil {
++		if result.privateOutput != "" {
++			if err := result.ExecutableOwner.DiscardPrivate(result.privateOutput); err != nil {
++				return err
++			}
++		}
++		var err error
++		output, err = result.ExecutableOwner.PrivateOutput()
++		if err != nil {
++			return err
++		}
++		result.privateOutput = output
++	}
++	return runGoBuildContext(ctx, result, output)
+ }
+ 
+-func runGoBuildContext(ctx context.Context, result *Result) error {
+-	if err := os.Remove(result.Binary); err != nil && !os.IsNotExist(err) {
+-		return fmt.Errorf("remove stale build output %s: %w", result.Binary, err)
++func runGoBuildContext(ctx context.Context, result *Result, output string) error {
++	if err := os.Remove(output); err != nil && !os.IsNotExist(err) {
++		return fmt.Errorf("remove stale build output %s: %w", output, err)
+ 	}
+-	return runGoContextWithEnvironment(ctx, result.Dir, result.GoEnvironment, goBuildArgs(result.Binary, effectiveGoBuildFlags(result))...)
++	return runGoContextWithEnvironment(ctx, result.Dir, result.GoEnvironment, goBuildArgs(output, effectiveGoBuildFlags(result))...)
+ }
+ 
+ func goBuildNeedsWorkspaceTidy(err error) bool {
+diff --git a/internal/build/prepare.go b/internal/build/prepare.go
+index 309001ec..a16310d2 100644
+--- a/internal/build/prepare.go
++++ b/internal/build/prepare.go
+@@ -210,6 +210,7 @@ func prepareWithContractTargetContext(ctx context.Context, appRoot string, cfg a
+ 		AppID:                     cfg.ID,
+ 		Dir:                       workspaceDir,
+ 		Binary:                    binary,
++		ExecutableOwner:           executableOwnerFromContext(ctx),
+ 		NeedsTidy:                 needsTidy,
+ 		DependencyFingerprint:     depFingerprint,
+ 		SourceFingerprint:         sourceFingerprint,
+diff --git a/internal/build/runtime_identity.go b/internal/build/runtime_identity.go
+index 854c8080..15755a5e 100644
+--- a/internal/build/runtime_identity.go
++++ b/internal/build/runtime_identity.go
+@@ -4,7 +4,9 @@ import (
+ 	"context"
+ 	"crypto/sha256"
+ 	_ "embed"
++	"encoding/hex"
+ 	"fmt"
++	"io"
+ 	"os"
+ 	"path/filepath"
+ 	"reflect"
+@@ -140,7 +142,25 @@ func verifyCurrentSourceStateWithSnapshot(root, workspace string, state buildSta
+ 	if fingerprint != state.BuildFingerprint {
+ 		return fmt.Errorf("candidate workspace inputs changed (built=%s current=%s); rebuild the application", state.BuildFingerprint, fingerprint)
+ 	}
+-	if _, err := os.Stat(filepath.Join(workspace, workspaceBinaryName(root, state.BuildFingerprint))); err != nil {
++	binary := filepath.Join(workspace, workspaceBinaryName(root, state.BuildFingerprint))
++	if state.ExecutableDigest != "" {
++		if !validExecutableDigest(state.ExecutableDigest) {
++			return fmt.Errorf("invalid executable digest")
++		}
++		binary = state.ExecutablePath
++		file, err := os.Open(binary)
++		if err != nil {
++			return err
++		}
++		hash := sha256.New()
++		_, readErr := io.Copy(hash, file)
++		closeErr := file.Close()
++		info, statErr := os.Lstat(binary)
++		if readErr != nil || closeErr != nil || statErr != nil || !info.Mode().IsRegular() || hex.EncodeToString(hash.Sum(nil)) != state.ExecutableDigest {
++			return fmt.Errorf("retained candidate executable changed")
++		}
++	}
++	if _, err := os.Stat(binary); err != nil {
+ 		return fmt.Errorf("candidate executable is missing: %w", err)
+ 	}
+ 	current, err := loadBuildState(workspace)
+diff --git a/internal/build/workspace_cache.go b/internal/build/workspace_cache.go
+index fe066cd0..1ae2b3b3 100644
+--- a/internal/build/workspace_cache.go
++++ b/internal/build/workspace_cache.go
+@@ -169,6 +169,7 @@ func LoadCachedGraphContext(ctx context.Context, appRoot string, cfg app.Config,
+ 	}
+ 	result := &Result{
+ 		AppRoot:                   appRoot,
++		ExecutableOwner:           executableOwnerFromContext(ctx),
+ 		AppName:                   cfg.Name,
+ 		AppID:                     cfg.ID,
+ 		Dir:                       root,
+@@ -274,11 +275,25 @@ func RefreshCachedWorkspaceWithSnapshotContext(ctx context.Context, appRoot stri
+ 	if previousBuildFingerprint != buildFingerprint {
+ 		reason = fmt.Sprintf("workspace_inputs_changed:%s:%s", previousBuildFingerprint, buildFingerprint)
+ 	}
++	if result.ExecutableOwner != nil {
++		artifact, loadErr := result.ExecutableOwner.Load(executableCacheIdentity(result))
++		if loadErr != nil {
++			return false, loadErr
++		}
++		result.ExecutableArtifact = artifact
++		result.Binary = ""
++		if artifact != nil {
++			result.Binary = artifact.Path
++		}
++	}
+ 	result.ReuseCompiled = pathExists(result.Binary) && previousFrameworkFingerprint == frameworkFingerprint
+ 	if result.ReuseCompiled && !restoreCachedRuntimeIdentity(result) {
+ 		// A binary cache hit without its current bound identity is not a runtime
+ 		// candidate. Re-prepare normally instead of publishing an unbound result.
+ 		result.ReuseCompiled = false
++		if err := result.ReleaseExecutable(); err != nil {
++			return false, err
++		}
+ 		reason = "runtime_identity_not_reusable"
+ 	}
+ 	if result.ReuseCompiled {
+diff --git a/internal/build/executable_artifact.go b/internal/build/executable_artifact.go
+new file mode 100644
+index 00000000..b8856749
+--- /dev/null
++++ b/internal/build/executable_artifact.go
+@@ -0,0 +1,442 @@
++package build
++
++import (
++	"context"
++	"crypto/rand"
++	"crypto/sha256"
++	"encoding/hex"
++	"encoding/json"
++	"errors"
++	"fmt"
++	"io"
++	"os"
++	"path/filepath"
++	"sync"
++
++	"scenery.sh/internal/atomicfile"
++)
++
++// ExecutableOwner retains outputs independently of disposable build workspaces.
++// Its caller must hold worktree lifetime ownership and confirm old children have
++// stopped before recovering references left by a previous supervisor.
++type ExecutableOwner struct {
++	mu         sync.Mutex
++	root       *os.Root
++	dir        string
++	state      executableState
++	unlock     func()
++	failed     error
++	syncFile   func(*os.File) error
++	writeState func([]byte) error
++}
++
++type executableState struct {
++	Pending       map[string]string `json:"pending,omitempty"`
++	AppRoot       string            `json:"app_root"`
++	Cache         string            `json:"cache,omitempty"`
++	CacheIdentity string            `json:"cache_identity,omitempty"`
++	Artifacts     map[string]bool   `json:"artifacts"`
++	References    map[string]string `json:"references"`
++}
++
++// ExecutableArtifact is one independent durable reference, not a cache alias.
++type ExecutableArtifact struct {
++	owner  *ExecutableOwner
++	token  string
++	Digest string
++	Path   string
++}
++
++// OpenExecutableOwner serializes all publication/reclamation for this store.
++// Reopening does not infer dead runtime ownership from a disappeared process.
++func OpenExecutableOwner(dir, appRoot string) (*ExecutableOwner, error) {
++	if !filepath.IsAbs(dir) || !filepath.IsAbs(appRoot) {
++		return nil, fmt.Errorf("executable owner requires absolute roots")
++	}
++	if err := os.MkdirAll(dir, 0700); err != nil {
++		return nil, err
++	}
++	info, err := os.Lstat(dir)
++	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
++		return nil, fmt.Errorf("invalid executable owner directory")
++	}
++	unlock, err := lockWorkspace(dir)
++	if err != nil {
++		return nil, err
++	}
++	root, err := os.OpenRoot(dir)
++	if err != nil {
++		unlock()
++		return nil, err
++	}
++	o := &ExecutableOwner{root: root, dir: dir, unlock: unlock, syncFile: func(f *os.File) error { return f.Sync() }}
++	o.writeState = func(b []byte) error {
++		return atomicfile.WriteRoot(o.root, "owner.json", b, 0600, atomicfile.Options{SyncFile: true, SyncDir: true})
++	}
++	o.state = executableState{AppRoot: filepath.Clean(appRoot), Artifacts: map[string]bool{}, References: map[string]string{}}
++	data, err := root.ReadFile("owner.json")
++	if err == nil {
++		if err = json.Unmarshal(data, &o.state); err != nil || o.state.AppRoot != filepath.Clean(appRoot) || o.state.Artifacts == nil || o.state.References == nil {
++			o.Close()
++			return nil, fmt.Errorf("invalid executable owner record: %v", err)
++		}
++		for digest := range o.state.Artifacts {
++			if !validExecutableDigest(digest) {
++				o.Close()
++				return nil, fmt.Errorf("invalid owned executable digest")
++			}
++		}
++		for _, digest := range o.state.References {
++			if !o.state.Artifacts[digest] {
++				o.Close()
++				return nil, fmt.Errorf("unknown executable reference")
++			}
++		}
++		if o.state.Cache != "" && !o.state.Artifacts[o.state.Cache] {
++			o.Close()
++			return nil, fmt.Errorf("unknown cached executable")
++		}
++	} else if !errors.Is(err, os.ErrNotExist) {
++		o.Close()
++		return nil, err
++	} else if err = o.persist(); err != nil {
++		o.Close()
++		return nil, err
++	}
++	if len(o.state.Pending) != 0 {
++		o.failed = fmt.Errorf("interrupted executable publication requires ownership reconciliation")
++	}
++	return o, nil
++}
++
++func validExecutableDigest(s string) bool {
++	b, e := hex.DecodeString(s)
++	return e == nil && len(b) == sha256.Size && hex.EncodeToString(b) == s
++}
++func (o *ExecutableOwner) persist() error {
++	if o.failed != nil {
++		return o.failed
++	}
++	b, err := json.Marshal(o.state)
++	if err != nil {
++		return err
++	}
++	err = o.writeState(b)
++	if err != nil {
++		o.failed = err
++	}
++	return err
++}
++func (o *ExecutableOwner) syncDir(name string) error {
++	f, err := o.root.Open(name)
++	if err != nil {
++		return err
++	}
++	err = o.syncFile(f)
++	return errors.Join(err, f.Close())
++}
++
++// PrivateOutput creates a fresh, same-filesystem output for exactly one attempt.
++func (o *ExecutableOwner) PrivateOutput() (string, error) {
++	o.mu.Lock()
++	defer o.mu.Unlock()
++	if o.failed != nil {
++		return "", o.failed
++	}
++	dir, err := os.MkdirTemp(o.dir, ".attempt-")
++	if err != nil {
++		return "", err
++	}
++	return filepath.Join(dir, "program"), nil
++}
++func (o *ExecutableOwner) discardPrivate(path string) error {
++	rel, err := filepath.Rel(o.dir, filepath.Dir(path))
++	if err != nil || filepath.Dir(rel) != "." || len(rel) < 9 || rel[:9] != ".attempt-" || filepath.Base(path) != "program" {
++		return fmt.Errorf("not this owner's private output")
++	}
++	if err := o.root.RemoveAll(rel); err != nil {
++		return err
++	}
++	return o.syncDir(".")
++}
++func (o *ExecutableOwner) DiscardPrivate(path string) error {
++	o.mu.Lock()
++	defer o.mu.Unlock()
++	return o.discardPrivate(path)
++}
++
++// Publish hashes and synchronizes the original Go output, then renames its
++// nonempty directory. An existing digest directory is never overwritten.
++func (o *ExecutableOwner) Publish(path string) (*ExecutableArtifact, error) {
++	o.mu.Lock()
++	defer o.mu.Unlock()
++	if o.failed != nil {
++		return nil, o.failed
++	}
++	rel, err := filepath.Rel(o.dir, path)
++	if err != nil || filepath.Base(rel) != "program" || filepath.Dir(filepath.Dir(rel)) != "." || len(filepath.Dir(rel)) < 9 || filepath.Dir(rel)[:9] != ".attempt-" {
++		return nil, fmt.Errorf("not this owner's private output")
++	}
++	digest, err := o.hash(rel, true)
++	if err != nil {
++		return nil, err
++	}
++	if err = o.syncDir(filepath.Dir(rel)); err != nil {
++		return nil, err
++	}
++	target := filepath.Join(digest, "program")
++	if _, err = o.root.Lstat(digest); err == nil {
++		if !o.state.Artifacts[digest] {
++			return nil, fmt.Errorf("digest exists without owner authority")
++		}
++		if err = o.verify(digest); err != nil {
++			return nil, err
++		}
++		if err = o.discardPrivate(path); err != nil {
++			return nil, err
++		}
++	} else if !errors.Is(err, os.ErrNotExist) {
++		return nil, err
++	} else {
++		// Intent is durable before publication. Any uncertainty retains this digest.
++		if o.state.Pending == nil {
++			o.state.Pending = map[string]string{}
++		}
++		o.state.Pending[digest] = filepath.Dir(rel)
++		if err = o.persist(); err != nil {
++			return nil, err
++		}
++		if err = o.root.Rename(filepath.Dir(rel), digest); err != nil {
++			o.failed = &atomicfile.PublicationError{Err: err}
++			return nil, o.failed
++		}
++		if err = o.syncDir("."); err != nil {
++			o.failed = &atomicfile.PublicationError{Err: err}
++			return nil, o.failed
++		}
++		o.state.Artifacts[digest] = true
++		delete(o.state.Pending, digest)
++		if err = o.verify(digest); err != nil {
++			o.failed = err
++			return nil, err
++		}
++	}
++	token := rand.Text()
++	o.state.References[token] = digest
++	if err = o.persist(); err != nil {
++		return nil, err
++	}
++	return &ExecutableArtifact{owner: o, token: token, Digest: digest, Path: filepath.Join(o.dir, target)}, nil
++}
++func (o *ExecutableOwner) hash(name string, durable bool) (string, error) {
++	info, err := o.root.Lstat(name)
++	if err != nil {
++		return "", err
++	}
++	if !info.Mode().IsRegular() {
++		return "", fmt.Errorf("executable is not a regular file")
++	}
++	f, err := o.root.Open(name)
++	if err != nil {
++		return "", err
++	}
++	defer func() { _ = f.Close() }()
++	actual, err := f.Stat()
++	if err != nil {
++		return "", err
++	}
++	if !os.SameFile(info, actual) {
++		return "", fmt.Errorf("executable ownership changed")
++	}
++	h := sha256.New()
++	if _, err = io.Copy(h, f); err != nil {
++		return "", err
++	}
++	if durable {
++		if err = o.syncFile(f); err != nil {
++			return "", err
++		}
++	}
++	return hex.EncodeToString(h.Sum(nil)), nil
++}
++func (o *ExecutableOwner) verify(digest string) error {
++	if !validExecutableDigest(digest) || !o.state.Artifacts[digest] {
++		return fmt.Errorf("unknown executable artifact")
++	}
++	info, err := o.root.Lstat(digest)
++	if err != nil {
++		return err
++	}
++	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
++		return fmt.Errorf("invalid executable artifact directory")
++	}
++	actual, err := o.hash(filepath.Join(digest, "program"), false)
++	if err != nil {
++		return err
++	}
++	if actual != digest {
++		return fmt.Errorf("retained executable bytes changed")
++	}
++	return nil
++}
++func (a *ExecutableArtifact) Retain() (*ExecutableArtifact, error) {
++	o := a.owner
++	o.mu.Lock()
++	defer o.mu.Unlock()
++	if o.failed != nil {
++		return nil, o.failed
++	}
++	if o.state.References[a.token] != a.Digest {
++		return nil, fmt.Errorf("released executable reference")
++	}
++	if err := o.verify(a.Digest); err != nil {
++		return nil, err
++	}
++	token := rand.Text()
++	o.state.References[token] = a.Digest
++	if err := o.persist(); err != nil {
++		return nil, err
++	}
++	return &ExecutableArtifact{owner: o, token: token, Digest: a.Digest, Path: a.Path}, nil
++}
++func (a *ExecutableArtifact) Release() error {
++	if a == nil {
++		return nil
++	}
++	o := a.owner
++	o.mu.Lock()
++	defer o.mu.Unlock()
++	if o.failed != nil {
++		return o.failed
++	}
++	delete(o.state.References, a.token)
++	if err := o.persist(); err != nil {
++		return err
++	}
++	return o.collect()
++}
++
++// Cache owns one independent reference; eviction cannot release runtime handles.
++func (o *ExecutableOwner) Cache(identity string, a *ExecutableArtifact) error {
++	o.mu.Lock()
++	defer o.mu.Unlock()
++	if o.failed != nil {
++		return o.failed
++	}
++	if a == nil || a.owner != o || o.state.References[a.token] != a.Digest {
++		return fmt.Errorf("cache requires owned executable reference")
++	}
++	o.state.Cache, o.state.CacheIdentity = a.Digest, identity
++	if err := o.persist(); err != nil {
++		return err
++	}
++	return o.collect()
++}
++func (o *ExecutableOwner) Load(identity string) (*ExecutableArtifact, error) {
++	o.mu.Lock()
++	defer o.mu.Unlock()
++	if o.failed != nil {
++		return nil, o.failed
++	}
++	if identity == "" || o.state.CacheIdentity != identity || o.state.Cache == "" {
++		return nil, nil
++	}
++	if err := o.verify(o.state.Cache); err != nil {
++		return nil, err
++	}
++	token := rand.Text()
++	o.state.References[token] = o.state.Cache
++	if err := o.persist(); err != nil {
++		return nil, err
++	}
++	return &ExecutableArtifact{owner: o, token: token, Digest: o.state.Cache, Path: filepath.Join(o.dir, o.state.Cache, "program")}, nil
++}
++func (o *ExecutableOwner) EvictCache() error {
++	o.mu.Lock()
++	defer o.mu.Unlock()
++	if o.failed != nil {
++		return o.failed
++	}
++	o.state.Cache, o.state.CacheIdentity = "", ""
++	if err := o.persist(); err != nil {
++		return err
++	}
++	return o.collect()
++}
++func (o *ExecutableOwner) collect() error {
++	for digest := range o.state.Artifacts {
++		if digest == o.state.Cache {
++			continue
++		}
++		used := false
++		for _, d := range o.state.References {
++			if d == digest {
++				used = true
++				break
++			}
++		}
++		if used {
++			continue
++		}
++		if err := o.root.RemoveAll(digest); err != nil {
++			return err
++		}
++		if err := o.syncDir("."); err != nil {
++			o.failed = &atomicfile.PublicationError{Err: err}
++			return o.failed
++		}
++		delete(o.state.Artifacts, digest)
++	}
++	return o.persist()
++}
++
++// RecoverStopped is authorized only after the worktree owner confirms all prior
++// application children stopped. A PID observation alone is insufficient.
++func (o *ExecutableOwner) RecoverStopped() error {
++	o.mu.Lock()
++	defer o.mu.Unlock()
++	if o.failed != nil {
++		return o.failed
++	}
++	o.state.References = map[string]string{}
++	if err := o.persist(); err != nil {
++		return err
++	}
++	return o.collect()
++}
++func (o *ExecutableOwner) Close() error {
++	o.mu.Lock()
++	defer o.mu.Unlock()
++	if o.root == nil {
++		return nil
++	}
++	err := o.root.Close()
++	o.root = nil
++	o.unlock()
++	return err
++}
++
++// WithExecutableOwner selects the output owner without changing any Go inputs.
++func WithExecutableOwner(ctx context.Context, owner *ExecutableOwner) context.Context {
++	return context.WithValue(ctx, executableOwnerKey{}, owner)
++}
++
++type executableOwnerKey struct{}
++
++func executableOwnerFromContext(ctx context.Context) *ExecutableOwner {
++	o, _ := ctx.Value(executableOwnerKey{}).(*ExecutableOwner)
++	return o
++}
++func (r *Result) ReleaseExecutable() error {
++	if r == nil || r.ExecutableArtifact == nil {
++		return nil
++	}
++	err := r.ExecutableArtifact.Release()
++	if err == nil {
++		r.ExecutableArtifact = nil
++	}
++	return err
++}
++func executableCacheIdentity(r *Result) string {
++	return r.BuildFingerprint + ":" + r.FrameworkFingerprint + ":" + r.GeneratorFingerprint
++}
+diff --git a/internal/build/executable_artifact_test.go b/internal/build/executable_artifact_test.go
+new file mode 100644
+index 00000000..9fc2985a
+--- /dev/null
++++ b/internal/build/executable_artifact_test.go
+@@ -0,0 +1,253 @@
++package build
++
++import (
++	"errors"
++	"os"
++	"path/filepath"
++	"testing"
++
++	"scenery.sh/internal/atomicfile"
++)
++
++func artifactTestOwner(t *testing.T) *ExecutableOwner {
++	t.Helper()
++	base := t.TempDir()
++	o, err := OpenExecutableOwner(filepath.Join(base, "retained"), base)
++	if err != nil {
++		t.Fatal(err)
++	}
++	// Ordinary tests cover ownership transitions; the native probe owns actual
++	// durability latency and process-boundary proof.
++	o.syncFile = func(*os.File) error { return nil }
++	o.writeState = func(b []byte) error { return atomicfile.WriteRoot(o.root, "owner.json", b, 0600, atomicfile.Options{}) }
++	t.Cleanup(func() { _ = o.Close() })
++	return o
++}
++func artifactTestPublish(t *testing.T, o *ExecutableOwner, body string) *ExecutableArtifact {
++	t.Helper()
++	p, err := o.PrivateOutput()
++	if err != nil {
++		t.Fatal(err)
++	}
++	if err = os.WriteFile(p, []byte(body), 0700); err != nil {
++		t.Fatal(err)
++	}
++	a, err := o.Publish(p)
++	if err != nil {
++		t.Fatal(err)
++	}
++	return a
++}
++func TestExecutableReferencesSurviveCacheEviction(t *testing.T) {
++	o := artifactTestOwner(t)
++	a := artifactTestPublish(t, o, "previous")
++	if err := o.Cache("input", a); err != nil {
++		t.Fatal(err)
++	}
++	active, err := a.Retain()
++	if err != nil {
++		t.Fatal(err)
++	}
++	rollback, err := a.Retain()
++	if err != nil {
++		t.Fatal(err)
++	}
++	if err = a.Release(); err != nil {
++		t.Fatal(err)
++	}
++	if err = o.EvictCache(); err != nil {
++		t.Fatal(err)
++	}
++	if err = active.Release(); err != nil {
++		t.Fatal(err)
++	}
++	if err = o.verify(rollback.Digest); err != nil {
++		t.Fatal(err)
++	}
++	if err = rollback.Release(); err != nil {
++		t.Fatal(err)
++	}
++	if _, err = os.Stat(a.Path); !errors.Is(err, os.ErrNotExist) {
++		t.Fatalf("last owner did not delete: %v", err)
++	}
++}
++func TestExecutablePrivateFailurePreservesRetained(t *testing.T) {
++	o := artifactTestOwner(t)
++	a := artifactTestPublish(t, o, "previous")
++	p, err := o.PrivateOutput()
++	if err != nil {
++		t.Fatal(err)
++	}
++	if err = os.WriteFile(p, []byte("partial"), 0700); err != nil {
++		t.Fatal(err)
++	}
++	if err = o.DiscardPrivate(p); err != nil {
++		t.Fatal(err)
++	}
++	if err = o.verify(a.Digest); err != nil {
++		t.Fatal(err)
++	}
++	if err = o.DiscardPrivate(a.Path); err == nil {
++		t.Fatal("accepted published output for private cleanup")
++	}
++}
++func TestExecutableExistingDigestVerifiesBytes(t *testing.T) {
++	o := artifactTestOwner(t)
++	a := artifactTestPublish(t, o, "same")
++	b := artifactTestPublish(t, o, "same")
++	if a.Path != b.Path || a.token == b.token {
++		t.Fatal("expected one file and two references")
++	}
++	if err := os.WriteFile(a.Path, []byte("evil"), 0700); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := a.Retain(); err == nil {
++		t.Fatal("accepted tampered bytes")
++	}
++	p, err := o.PrivateOutput()
++	if err != nil {
++		t.Fatal(err)
++	}
++	if err = os.WriteFile(p, []byte("same"), 0700); err != nil {
++		t.Fatal(err)
++	}
++	if _, err = o.Publish(p); err == nil {
++		t.Fatal("overwrote invalid existing digest")
++	}
++	data, err := os.ReadFile(a.Path)
++	if err != nil || string(data) != "evil" {
++		t.Fatal("existing artifact was replaced")
++	}
++}
++func TestExecutableRejectsSymlinkOutput(t *testing.T) {
++	o := artifactTestOwner(t)
++	p, err := o.PrivateOutput()
++	if err != nil {
++		t.Fatal(err)
++	}
++	outside := filepath.Join(t.TempDir(), "foreign")
++	if err = os.WriteFile(outside, []byte("foreign"), 0700); err != nil {
++		t.Fatal(err)
++	}
++	if err = os.Symlink(outside, p); err != nil {
++		t.Fatal(err)
++	}
++	if _, err = o.Publish(p); err == nil {
++		t.Fatal("accepted symlink")
++	}
++	if err = o.DiscardPrivate(p); err != nil {
++		t.Fatal(err)
++	}
++	if _, err = os.Stat(outside); err != nil {
++		t.Fatal(err)
++	}
++}
++func TestExecutableAmbiguousPublicationStopsReclamation(t *testing.T) {
++	o := artifactTestOwner(t)
++	a := artifactTestPublish(t, o, "previous")
++	if err := o.Cache("input", a); err != nil {
++		t.Fatal(err)
++	}
++	p, err := o.PrivateOutput()
++	if err != nil {
++		t.Fatal(err)
++	}
++	if err = os.WriteFile(p, []byte("next"), 0700); err != nil {
++		t.Fatal(err)
++	}
++	// OpenRoot reports absolute names; fail precisely at the owner-directory sync.
++	o.syncFile = func(f *os.File) error {
++		info, err := f.Stat()
++		if err != nil {
++			return err
++		}
++		if info.IsDir() && filepath.Clean(f.Name()) == filepath.Clean(o.dir) {
++			return errors.New("sync fault")
++		}
++		return nil
++	}
++	_, err = o.Publish(p)
++	var publication *atomicfile.PublicationError
++	if !errors.As(err, &publication) {
++		t.Fatalf("missing publication uncertainty: %v", err)
++	}
++	if err = o.EvictCache(); err == nil {
++		t.Fatal("uncertain owner allowed eviction")
++	}
++	if err = a.Release(); err == nil {
++		t.Fatal("uncertain owner allowed release")
++	}
++	if _, err = os.Stat(a.Path); err != nil {
++		t.Fatal("previous artifact lost")
++	}
++}
++func TestExecutableRepeatedEditsRemainBounded(t *testing.T) {
++	o := artifactTestOwner(t)
++	var active *ExecutableArtifact
++	for _, body := range []string{"one", "two", "three", "four", "five"} {
++		a := artifactTestPublish(t, o, body)
++		if err := o.Cache(body, a); err != nil {
++			t.Fatal(err)
++		}
++		if active != nil {
++			if err := active.Release(); err != nil {
++				t.Fatal(err)
++			}
++		}
++		active = a
++		if len(o.state.Artifacts) != 1 || len(o.state.References) != 1 {
++			t.Fatalf("unbounded state: %+v", o.state)
++		}
++	}
++}
++
++func TestExecutableReopenRechecksCachedBytes(t *testing.T) {
++	o := artifactTestOwner(t)
++	a := artifactTestPublish(t, o, "retained")
++	if err := o.Cache("current", a); err != nil {
++		t.Fatal(err)
++	}
++	if err := o.Close(); err != nil {
++		t.Fatal(err)
++	}
++	reopened, err := OpenExecutableOwner(o.dir, o.state.AppRoot)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer reopened.Close()
++	if missing, err := reopened.Load("different"); err != nil || missing != nil {
++		t.Fatalf("reused different input: %v", err)
++	}
++	if err := os.WriteFile(a.Path, []byte("tampered"), 0700); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := reopened.Load("current"); err == nil {
++		t.Fatal("reopen trusted cached reference without byte verification")
++	}
++}
++
++func TestExecutableInterruptedPublicationRefusesReuse(t *testing.T) {
++	o := artifactTestOwner(t)
++	a := artifactTestPublish(t, o, "retained")
++	o.state.Pending = map[string]string{a.Digest: ".attempt-interrupted"}
++	if err := o.persist(); err != nil {
++		t.Fatal(err)
++	}
++	if err := o.Close(); err != nil {
++		t.Fatal(err)
++	}
++	reopened, err := OpenExecutableOwner(o.dir, o.state.AppRoot)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer reopened.Close()
++	if _, err := reopened.PrivateOutput(); err == nil {
++		t.Fatal("interrupted publication resumed writes")
++	}
++	if err := reopened.RecoverStopped(); err == nil {
++		t.Fatal("unreconciled publication reclaimed artifacts")
++	}
++	if _, err := os.Stat(a.Path); err != nil {
++		t.Fatal("interrupted publication lost prior executable")
++	}
++}

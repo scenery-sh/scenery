@@ -1,0 +1,4021 @@
+{
+  "original_report_sha256": "41d9b303f93504b87b906707566ba6d07186f7e78829bbe69b95f5310b73f84f",
+  "producer_sha256": "0de26c71244c7f65ff1c31304c16a15b5928b65b63f50249f2a1aaf3ebc1fd85",
+  "order": [
+    "AB",
+    "BA",
+    "AB",
+    "BA",
+    "AB",
+    "BA"
+  ],
+  "startup_order": [
+    "BA",
+    "AB",
+    "BA",
+    "AB",
+    "BA",
+    "AB"
+  ],
+  "omissions": "Build input entry inventories, HTTP bodies/headers, local absolute paths and container inventory omitted; all recorded per-pair spans/timestamps and total metrics retained unchanged.",
+  "samples": [
+    {
+      "mode": "baseline",
+      "label": "pair-1-pairs-4ccaf01619",
+      "wall_elapsed_ms": 4245.081000030041,
+      "source_sha256": "2f075602b6fe41f505d26dd7fde1fd47e9a2f1ab4308f527490ef3728dab061a",
+      "elapsed_ms": 4139.532089233398,
+      "record": {
+        "CapturedAt": "2026-09-11T20:34:58.187529+02:00",
+        "CapturedEditToArtifactMS": 3014.420584,
+        "ExecutableBytes": 155969862,
+        "ExecutableCount": 3,
+        "GraphCacheHit": false,
+        "Label": "pair-1-pairs-4ccaf01619",
+        "OK": true,
+        "PID": 53605,
+        "ResponseAt": "2026-09-11T20:35:02.169692+02:00",
+        "StartedAt": "2026-09-11T20:34:58.030335+02:00",
+        "Steps": [
+          {
+            "Name": "audit.framework",
+            "StartedAt": "2026-09-11T20:34:58.18753+02:00",
+            "Duration": 54578916,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "graph.cache",
+            "StartedAt": "2026-09-11T20:34:58.242217+02:00",
+            "Duration": 586791,
+            "Cache": "miss",
+            "Reason": "source_snapshot_changed",
+            "OK": true
+          },
+          {
+            "Name": "audit.graph",
+            "StartedAt": "2026-09-11T20:34:58.24211+02:00",
+            "Duration": 695042,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "contract.check",
+            "StartedAt": "2026-09-11T20:34:58.242835+02:00",
+            "Duration": 355094584,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "projection.go",
+            "StartedAt": "2026-09-11T20:34:58.597933+02:00",
+            "Duration": 177381917,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "projection.typescript",
+            "StartedAt": "2026-09-11T20:34:58.775778+02:00",
+            "Duration": 66844333,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "workspace.render",
+            "StartedAt": "2026-09-11T20:34:58.843139+02:00",
+            "Duration": 365209,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "framework.workspace_fingerprint",
+            "StartedAt": "2026-09-11T20:34:58.931306+02:00",
+            "Duration": 10833459,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "audit.prepare",
+            "StartedAt": "2026-09-11T20:34:58.242805+02:00",
+            "Duration": 707939791,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.analyze",
+            "StartedAt": "2026-09-11T20:34:58.950751+02:00",
+            "Duration": 2517333,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "go.command",
+            "StartedAt": "2026-09-11T20:34:58.977598+02:00",
+            "Duration": 138442000,
+            "Cache": "go_managed",
+            "Reason": "mod",
+            "OK": true
+          },
+          {
+            "Name": "go.input_discovery",
+            "StartedAt": "2026-09-11T20:34:59.159287+02:00",
+            "Duration": 179338292,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "go.input_fingerprint",
+            "StartedAt": "2026-09-11T20:34:59.338627+02:00",
+            "Duration": 102429917,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "runtime.bundle",
+            "StartedAt": "2026-09-11T20:34:59.159186+02:00",
+            "Duration": 317408250,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "implementation.check",
+            "StartedAt": "2026-09-11T20:34:59.159202+02:00",
+            "Duration": 828666500,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "go.command",
+            "StartedAt": "2026-09-11T20:34:59.476633+02:00",
+            "Duration": 1305803542,
+            "Cache": "go_managed",
+            "Reason": "build",
+            "OK": true
+          },
+          {
+            "Name": "audit.compile_admission",
+            "StartedAt": "2026-09-11T20:34:58.953269+02:00",
+            "Duration": 2139695209,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.retain",
+            "StartedAt": "2026-09-11T20:35:01.092977+02:00",
+            "Duration": 108988416,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.preflight",
+            "StartedAt": "2026-09-11T20:35:01.201968+02:00",
+            "Duration": 756745041,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.handoff",
+            "StartedAt": "2026-09-11T20:35:01.958722+02:00",
+            "Duration": 179645083,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.release_preparation",
+            "StartedAt": "2026-09-11T20:35:02.138374+02:00",
+            "Duration": 292,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.accept_generated",
+            "StartedAt": "2026-09-11T20:35:02.138374+02:00",
+            "Duration": 25716542,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.response",
+            "StartedAt": "2026-09-11T20:35:02.164091+02:00",
+            "Duration": 5604833,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          }
+        ]
+      },
+      "retained_relative_path": "session/run/app/scenery-app-da9d31626dd87fb7b053073b420e6c7ea8b59f730c4e0bed4128b48ad9834b8c"
+    },
+    {
+      "mode": "candidate",
+      "label": "pair-1-pairs-4ccaf01619",
+      "wall_elapsed_ms": 4264.771000016481,
+      "source_sha256": "2f075602b6fe41f505d26dd7fde1fd47e9a2f1ab4308f527490ef3728dab061a",
+      "elapsed_ms": 4154.790163040161,
+      "record": {
+        "CapturedAt": "2026-09-11T20:35:02.443032+02:00",
+        "CapturedEditToArtifactMS": 2970.499166,
+        "ExecutableBytes": 51989954,
+        "ExecutableCount": 1,
+        "GraphCacheHit": false,
+        "Label": "pair-1-pairs-4ccaf01619",
+        "OK": true,
+        "PID": 53606,
+        "ResponseAt": "2026-09-11T20:35:06.43562+02:00",
+        "StartedAt": "2026-09-11T20:35:02.281013+02:00",
+        "Steps": [
+          {
+            "Name": "audit.framework",
+            "StartedAt": "2026-09-11T20:35:02.443033+02:00",
+            "Duration": 53574042,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "graph.cache",
+            "StartedAt": "2026-09-11T20:35:02.496713+02:00",
+            "Duration": 574333,
+            "Cache": "miss",
+            "Reason": "source_snapshot_changed",
+            "OK": true
+          },
+          {
+            "Name": "audit.graph",
+            "StartedAt": "2026-09-11T20:35:02.496608+02:00",
+            "Duration": 679625,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "contract.check",
+            "StartedAt": "2026-09-11T20:35:02.497312+02:00",
+            "Duration": 357867208,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "projection.go",
+            "StartedAt": "2026-09-11T20:35:02.855183+02:00",
+            "Duration": 177948708,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "projection.typescript",
+            "StartedAt": "2026-09-11T20:35:03.033548+02:00",
+            "Duration": 57273750,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "workspace.render",
+            "StartedAt": "2026-09-11T20:35:03.091282+02:00",
+            "Duration": 339167,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "framework.workspace_fingerprint",
+            "StartedAt": "2026-09-11T20:35:03.165895+02:00",
+            "Duration": 9607000,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "audit.prepare",
+            "StartedAt": "2026-09-11T20:35:02.497288+02:00",
+            "Duration": 686064167,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.analyze",
+            "StartedAt": "2026-09-11T20:35:03.183358+02:00",
+            "Duration": 2400667,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "go.command",
+            "StartedAt": "2026-09-11T20:35:03.208251+02:00",
+            "Duration": 136088458,
+            "Cache": "go_managed",
+            "Reason": "mod",
+            "OK": true
+          },
+          {
+            "Name": "go.input_discovery",
+            "StartedAt": "2026-09-11T20:35:03.380644+02:00",
+            "Duration": 195186875,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "go.input_fingerprint",
+            "StartedAt": "2026-09-11T20:35:03.575833+02:00",
+            "Duration": 142294959,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "runtime.bundle",
+            "StartedAt": "2026-09-11T20:35:03.380552+02:00",
+            "Duration": 373231458,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "implementation.check",
+            "StartedAt": "2026-09-11T20:35:03.380574+02:00",
+            "Duration": 854708958,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "go.command",
+            "StartedAt": "2026-09-11T20:35:03.753915+02:00",
+            "Duration": 1202239541,
+            "Cache": "go_managed",
+            "Reason": "build",
+            "OK": true
+          },
+          {
+            "Name": "audit.compile_admission",
+            "StartedAt": "2026-09-11T20:35:03.185759+02:00",
+            "Duration": 2194005916,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.retain",
+            "StartedAt": "2026-09-11T20:35:05.379779+02:00",
+            "Duration": 33764833,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.preflight",
+            "StartedAt": "2026-09-11T20:35:05.413549+02:00",
+            "Duration": 729061500,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.handoff",
+            "StartedAt": "2026-09-11T20:35:06.142618+02:00",
+            "Duration": 208164709,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.release_preparation",
+            "StartedAt": "2026-09-11T20:35:06.350788+02:00",
+            "Duration": 35906875,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.accept_generated",
+            "StartedAt": "2026-09-11T20:35:06.386696+02:00",
+            "Duration": 42971208,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.response",
+            "StartedAt": "2026-09-11T20:35:06.429668+02:00",
+            "Duration": 5958042,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          }
+        ]
+      },
+      "retained_relative_path": "executables/95e7a4f2751b57c10b8746f14fb75a9cf18e72dcb46475e78648409e9e1a9eee/program"
+    },
+    {
+      "mode": "candidate",
+      "label": "pair-2-pairs-4ccaf01619",
+      "wall_elapsed_ms": 4129.836790962145,
+      "source_sha256": "e79a0eb12b9e83688311d86c0367634a56f8f466d91edfb4664128841f4cc73f",
+      "elapsed_ms": 4018.127918243408,
+      "record": {
+        "CapturedAt": "2026-09-11T20:35:06.709979+02:00",
+        "CapturedEditToArtifactMS": 2902.042083,
+        "ExecutableBytes": 51989954,
+        "ExecutableCount": 1,
+        "GraphCacheHit": false,
+        "Label": "pair-2-pairs-4ccaf01619",
+        "OK": true,
+        "PID": 53606,
+        "ResponseAt": "2026-09-11T20:35:10.571839+02:00",
+        "StartedAt": "2026-09-11T20:35:06.553881+02:00",
+        "Steps": [
+          {
+            "Name": "audit.framework",
+            "StartedAt": "2026-09-11T20:35:06.70998+02:00",
+            "Duration": 60293875,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "graph.cache",
+            "StartedAt": "2026-09-11T20:35:06.770387+02:00",
+            "Duration": 605959,
+            "Cache": "miss",
+            "Reason": "source_snapshot_changed",
+            "OK": true
+          },
+          {
+            "Name": "audit.graph",
+            "StartedAt": "2026-09-11T20:35:06.770275+02:00",
+            "Duration": 718417,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "contract.check",
+            "StartedAt": "2026-09-11T20:35:06.771018+02:00",
+            "Duration": 367989458,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "projection.go",
+            "StartedAt": "2026-09-11T20:35:07.139011+02:00",
+            "Duration": 177038417,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "projection.typescript",
+            "StartedAt": "2026-09-11T20:35:07.316467+02:00",
+            "Duration": 57843958,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "workspace.render",
+            "StartedAt": "2026-09-11T20:35:07.374734+02:00",
+            "Duration": 332875,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "framework.workspace_fingerprint",
+            "StartedAt": "2026-09-11T20:35:07.4467+02:00",
+            "Duration": 9631250,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "audit.prepare",
+            "StartedAt": "2026-09-11T20:35:06.770994+02:00",
+            "Duration": 693299084,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.analyze",
+            "StartedAt": "2026-09-11T20:35:07.464298+02:00",
+            "Duration": 2502750,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "go.command",
+            "StartedAt": "2026-09-11T20:35:07.489652+02:00",
+            "Duration": 70653042,
+            "Cache": "go_managed",
+            "Reason": "mod",
+            "OK": true
+          },
+          {
+            "Name": "go.input_discovery",
+            "StartedAt": "2026-09-11T20:35:07.608466+02:00",
+            "Duration": 230486167,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "go.input_fingerprint",
+            "StartedAt": "2026-09-11T20:35:07.838955+02:00",
+            "Duration": 120100583,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "runtime.bundle",
+            "StartedAt": "2026-09-11T20:35:07.608331+02:00",
+            "Duration": 387605125,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "implementation.check",
+            "StartedAt": "2026-09-11T20:35:07.608355+02:00",
+            "Duration": 849945500,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "go.command",
+            "StartedAt": "2026-09-11T20:35:07.996054+02:00",
+            "Duration": 1185648583,
+            "Cache": "go_managed",
+            "Reason": "build",
+            "OK": true
+          },
+          {
+            "Name": "audit.compile_admission",
+            "StartedAt": "2026-09-11T20:35:07.466801+02:00",
+            "Duration": 2111813417,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.retain",
+            "StartedAt": "2026-09-11T20:35:09.578628+02:00",
+            "Duration": 33407250,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.preflight",
+            "StartedAt": "2026-09-11T20:35:09.612039+02:00",
+            "Duration": 711925250,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.handoff",
+            "StartedAt": "2026-09-11T20:35:10.323974+02:00",
+            "Duration": 191754834,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.release_preparation",
+            "StartedAt": "2026-09-11T20:35:10.515734+02:00",
+            "Duration": 19985625,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.accept_generated",
+            "StartedAt": "2026-09-11T20:35:10.53572+02:00",
+            "Duration": 28455542,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.response",
+            "StartedAt": "2026-09-11T20:35:10.564177+02:00",
+            "Duration": 7672667,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          }
+        ]
+      },
+      "retained_relative_path": "executables/4dd00726aff882ca9011047167eef6b8c9259538e355e8d1aee1e164add0959b/program"
+    },
+    {
+      "mode": "baseline",
+      "label": "pair-2-pairs-4ccaf01619",
+      "wall_elapsed_ms": 4036.617749836296,
+      "source_sha256": "e79a0eb12b9e83688311d86c0367634a56f8f466d91edfb4664128841f4cc73f",
+      "elapsed_ms": 3927.8550148010254,
+      "record": {
+        "CapturedAt": "2026-09-11T20:35:10.86517+02:00",
+        "CapturedEditToArtifactMS": 2820.500375,
+        "ExecutableBytes": 155969862,
+        "ExecutableCount": 3,
+        "GraphCacheHit": false,
+        "Label": "pair-2-pairs-4ccaf01619",
+        "OK": true,
+        "PID": 53605,
+        "ResponseAt": "2026-09-11T20:35:14.620337+02:00",
+        "StartedAt": "2026-09-11T20:35:10.692642+02:00",
+        "Steps": [
+          {
+            "Name": "audit.framework",
+            "StartedAt": "2026-09-11T20:35:10.865172+02:00",
+            "Duration": 61052583,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "graph.cache",
+            "StartedAt": "2026-09-11T20:35:10.926343+02:00",
+            "Duration": 624250,
+            "Cache": "miss",
+            "Reason": "source_snapshot_changed",
+            "OK": true
+          },
+          {
+            "Name": "audit.graph",
+            "StartedAt": "2026-09-11T20:35:10.926225+02:00",
+            "Duration": 742250,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "contract.check",
+            "StartedAt": "2026-09-11T20:35:10.926997+02:00",
+            "Duration": 351196792,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "projection.go",
+            "StartedAt": "2026-09-11T20:35:11.278196+02:00",
+            "Duration": 171981666,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "projection.typescript",
+            "StartedAt": "2026-09-11T20:35:11.450598+02:00",
+            "Duration": 58581875,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "workspace.render",
+            "StartedAt": "2026-09-11T20:35:11.509608+02:00",
+            "Duration": 337583,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "framework.workspace_fingerprint",
+            "StartedAt": "2026-09-11T20:35:11.606588+02:00",
+            "Duration": 15776042,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "audit.prepare",
+            "StartedAt": "2026-09-11T20:35:10.926968+02:00",
+            "Duration": 705741792,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.analyze",
+            "StartedAt": "2026-09-11T20:35:11.632715+02:00",
+            "Duration": 2482209,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "go.command",
+            "StartedAt": "2026-09-11T20:35:11.66444+02:00",
+            "Duration": 81656375,
+            "Cache": "go_managed",
+            "Reason": "mod",
+            "OK": true
+          },
+          {
+            "Name": "go.input_discovery",
+            "StartedAt": "2026-09-11T20:35:11.793992+02:00",
+            "Duration": 186965583,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "go.input_fingerprint",
+            "StartedAt": "2026-09-11T20:35:11.980959+02:00",
+            "Duration": 106275541,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "runtime.bundle",
+            "StartedAt": "2026-09-11T20:35:11.793904+02:00",
+            "Duration": 330079250,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "implementation.check",
+            "StartedAt": "2026-09-11T20:35:11.793919+02:00",
+            "Duration": 781461209,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "go.command",
+            "StartedAt": "2026-09-11T20:35:12.124016+02:00",
+            "Duration": 1188096375,
+            "Cache": "go_managed",
+            "Reason": "build",
+            "OK": true
+          },
+          {
+            "Name": "audit.compile_admission",
+            "StartedAt": "2026-09-11T20:35:11.635198+02:00",
+            "Duration": 1962880834,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.retain",
+            "StartedAt": "2026-09-11T20:35:13.598091+02:00",
+            "Duration": 87594792,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.preflight",
+            "StartedAt": "2026-09-11T20:35:13.685688+02:00",
+            "Duration": 730131417,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.handoff",
+            "StartedAt": "2026-09-11T20:35:14.415828+02:00",
+            "Duration": 168050917,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.release_preparation",
+            "StartedAt": "2026-09-11T20:35:14.583885+02:00",
+            "Duration": 208,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.accept_generated",
+            "StartedAt": "2026-09-11T20:35:14.583885+02:00",
+            "Duration": 30089375,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.response",
+            "StartedAt": "2026-09-11T20:35:14.613975+02:00",
+            "Duration": 6370667,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          }
+        ]
+      },
+      "retained_relative_path": "session/run/app/scenery-app-48ee6681c58dd14e1d9dca5530b068e502e0a13847e8bacfe97e60e7b0742070"
+    },
+    {
+      "mode": "baseline",
+      "label": "pair-3-pairs-4ccaf01619",
+      "wall_elapsed_ms": 4018.159208120778,
+      "source_sha256": "76b22573f300562b8cbe79481466877009fcce814557de8ea5587ef30f9d8edd",
+      "elapsed_ms": 3911.21506690979,
+      "record": {
+        "CapturedAt": "2026-09-11T20:35:14.905829+02:00",
+        "CapturedEditToArtifactMS": 2810.707375,
+        "ExecutableBytes": 155969862,
+        "ExecutableCount": 3,
+        "GraphCacheHit": false,
+        "Label": "pair-3-pairs-4ccaf01619",
+        "OK": true,
+        "PID": 53605,
+        "ResponseAt": "2026-09-11T20:35:18.652141+02:00",
+        "StartedAt": "2026-09-11T20:35:14.741078+02:00",
+        "Steps": [
+          {
+            "Name": "audit.framework",
+            "StartedAt": "2026-09-11T20:35:14.90583+02:00",
+            "Duration": 55070042,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "graph.cache",
+            "StartedAt": "2026-09-11T20:35:14.961031+02:00",
+            "Duration": 688958,
+            "Cache": "miss",
+            "Reason": "source_snapshot_changed",
+            "OK": true
+          },
+          {
+            "Name": "audit.graph",
+            "StartedAt": "2026-09-11T20:35:14.960904+02:00",
+            "Duration": 817333,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "contract.check",
+            "StartedAt": "2026-09-11T20:35:14.96175+02:00",
+            "Duration": 353780292,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "projection.go",
+            "StartedAt": "2026-09-11T20:35:15.315534+02:00",
+            "Duration": 175136709,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "projection.typescript",
+            "StartedAt": "2026-09-11T20:35:15.491079+02:00",
+            "Duration": 68547375,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "workspace.render",
+            "StartedAt": "2026-09-11T20:35:15.560089+02:00",
+            "Duration": 343250,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "framework.workspace_fingerprint",
+            "StartedAt": "2026-09-11T20:35:15.662637+02:00",
+            "Duration": 13357917,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "audit.prepare",
+            "StartedAt": "2026-09-11T20:35:14.961721+02:00",
+            "Duration": 723421125,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.analyze",
+            "StartedAt": "2026-09-11T20:35:15.685148+02:00",
+            "Duration": 2776916,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "go.command",
+            "StartedAt": "2026-09-11T20:35:15.715722+02:00",
+            "Duration": 79671125,
+            "Cache": "go_managed",
+            "Reason": "mod",
+            "OK": true
+          },
+          {
+            "Name": "go.input_discovery",
+            "StartedAt": "2026-09-11T20:35:15.83643+02:00",
+            "Duration": 185968666,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "go.input_fingerprint",
+            "StartedAt": "2026-09-11T20:35:16.022401+02:00",
+            "Duration": 98796084,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "runtime.bundle",
+            "StartedAt": "2026-09-11T20:35:15.836319+02:00",
+            "Duration": 326369417,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "implementation.check",
+            "StartedAt": "2026-09-11T20:35:15.836335+02:00",
+            "Duration": 775640459,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "go.command",
+            "StartedAt": "2026-09-11T20:35:16.162714+02:00",
+            "Duration": 1180073083,
+            "Cache": "go_managed",
+            "Reason": "build",
+            "OK": true
+          },
+          {
+            "Name": "audit.compile_admission",
+            "StartedAt": "2026-09-11T20:35:15.687926+02:00",
+            "Duration": 1940577916,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.retain",
+            "StartedAt": "2026-09-11T20:35:17.628516+02:00",
+            "Duration": 88031250,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.preflight",
+            "StartedAt": "2026-09-11T20:35:17.716553+02:00",
+            "Duration": 739581250,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.handoff",
+            "StartedAt": "2026-09-11T20:35:18.456142+02:00",
+            "Duration": 167429625,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.release_preparation",
+            "StartedAt": "2026-09-11T20:35:18.623577+02:00",
+            "Duration": 292,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.accept_generated",
+            "StartedAt": "2026-09-11T20:35:18.623578+02:00",
+            "Duration": 24776208,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.response",
+            "StartedAt": "2026-09-11T20:35:18.648355+02:00",
+            "Duration": 3791916,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          }
+        ]
+      },
+      "retained_relative_path": "session/run/app/scenery-app-9d69fe70903a95767ffd1dcc4eabac19bb8e85e20d4b1ca7c39d42a6371c77ce"
+    },
+    {
+      "mode": "candidate",
+      "label": "pair-3-pairs-4ccaf01619",
+      "wall_elapsed_ms": 4162.833624985069,
+      "source_sha256": "76b22573f300562b8cbe79481466877009fcce814557de8ea5587ef30f9d8edd",
+      "elapsed_ms": 4031.8808555603027,
+      "record": {
+        "CapturedAt": "2026-09-11T20:35:18.944722+02:00",
+        "CapturedEditToArtifactMS": 2882.537708,
+        "ExecutableBytes": 51989954,
+        "ExecutableCount": 1,
+        "GraphCacheHit": false,
+        "Label": "pair-3-pairs-4ccaf01619",
+        "OK": true,
+        "PID": 53606,
+        "ResponseAt": "2026-09-11T20:35:22.804482+02:00",
+        "StartedAt": "2026-09-11T20:35:18.772781+02:00",
+        "Steps": [
+          {
+            "Name": "audit.framework",
+            "StartedAt": "2026-09-11T20:35:18.944723+02:00",
+            "Duration": 50101167,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "graph.cache",
+            "StartedAt": "2026-09-11T20:35:18.994932+02:00",
+            "Duration": 577542,
+            "Cache": "miss",
+            "Reason": "source_snapshot_changed",
+            "OK": true
+          },
+          {
+            "Name": "audit.graph",
+            "StartedAt": "2026-09-11T20:35:18.994825+02:00",
+            "Duration": 684625,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "contract.check",
+            "StartedAt": "2026-09-11T20:35:18.995537+02:00",
+            "Duration": 350411583,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "projection.go",
+            "StartedAt": "2026-09-11T20:35:19.345952+02:00",
+            "Duration": 176336709,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "projection.typescript",
+            "StartedAt": "2026-09-11T20:35:19.522732+02:00",
+            "Duration": 74004750,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "workspace.render",
+            "StartedAt": "2026-09-11T20:35:19.597322+02:00",
+            "Duration": 347375,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "framework.workspace_fingerprint",
+            "StartedAt": "2026-09-11T20:35:19.701689+02:00",
+            "Duration": 11181625,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "audit.prepare",
+            "StartedAt": "2026-09-11T20:35:18.99551+02:00",
+            "Duration": 725981500,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.analyze",
+            "StartedAt": "2026-09-11T20:35:19.721497+02:00",
+            "Duration": 2698917,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "go.command",
+            "StartedAt": "2026-09-11T20:35:19.75065+02:00",
+            "Duration": 70209792,
+            "Cache": "go_managed",
+            "Reason": "mod",
+            "OK": true
+          },
+          {
+            "Name": "go.input_discovery",
+            "StartedAt": "2026-09-11T20:35:19.864868+02:00",
+            "Duration": 185482958,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "go.input_fingerprint",
+            "StartedAt": "2026-09-11T20:35:20.050353+02:00",
+            "Duration": 107935709,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "runtime.bundle",
+            "StartedAt": "2026-09-11T20:35:19.86478+02:00",
+            "Duration": 330651125,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "implementation.check",
+            "StartedAt": "2026-09-11T20:35:19.864793+02:00",
+            "Duration": 804144250,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "go.command",
+            "StartedAt": "2026-09-11T20:35:20.195564+02:00",
+            "Duration": 1179010541,
+            "Cache": "go_managed",
+            "Reason": "build",
+            "OK": true
+          },
+          {
+            "Name": "audit.compile_admission",
+            "StartedAt": "2026-09-11T20:35:19.724197+02:00",
+            "Duration": 2067635542,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.retain",
+            "StartedAt": "2026-09-11T20:35:21.791845+02:00",
+            "Duration": 35430292,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.preflight",
+            "StartedAt": "2026-09-11T20:35:21.827277+02:00",
+            "Duration": 718308625,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.handoff",
+            "StartedAt": "2026-09-11T20:35:22.545594+02:00",
+            "Duration": 194434750,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.release_preparation",
+            "StartedAt": "2026-09-11T20:35:22.740035+02:00",
+            "Duration": 20917875,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.accept_generated",
+            "StartedAt": "2026-09-11T20:35:22.760953+02:00",
+            "Duration": 37076000,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.response",
+            "StartedAt": "2026-09-11T20:35:22.79803+02:00",
+            "Duration": 6456375,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          }
+        ]
+      },
+      "retained_relative_path": "executables/28a67b44b509b250fc075d80278e04cfb155b94755f7f31d7aae1b59f4ed8bac/program"
+    },
+    {
+      "mode": "candidate",
+      "label": "pair-4-pairs-4ccaf01619",
+      "wall_elapsed_ms": 4191.217707935721,
+      "source_sha256": "5e10ab087a4b7d1fa8d96128fc011ad3d563a9cae343cba71fcb177224b867ab",
+      "elapsed_ms": 4084.630250930786,
+      "record": {
+        "CapturedAt": "2026-09-11T20:35:23.104606+02:00",
+        "CapturedEditToArtifactMS": 2925.711959,
+        "ExecutableBytes": 51989954,
+        "ExecutableCount": 1,
+        "GraphCacheHit": false,
+        "Label": "pair-4-pairs-4ccaf01619",
+        "OK": true,
+        "PID": 53606,
+        "ResponseAt": "2026-09-11T20:35:27.035665+02:00",
+        "StartedAt": "2026-09-11T20:35:22.95121+02:00",
+        "Steps": [
+          {
+            "Name": "audit.framework",
+            "StartedAt": "2026-09-11T20:35:23.10461+02:00",
+            "Duration": 51745792,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "graph.cache",
+            "StartedAt": "2026-09-11T20:35:23.156459+02:00",
+            "Duration": 597375,
+            "Cache": "miss",
+            "Reason": "source_snapshot_changed",
+            "OK": true
+          },
+          {
+            "Name": "audit.graph",
+            "StartedAt": "2026-09-11T20:35:23.156356+02:00",
+            "Duration": 700667,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "contract.check",
+            "StartedAt": "2026-09-11T20:35:23.15708+02:00",
+            "Duration": 352884500,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "projection.go",
+            "StartedAt": "2026-09-11T20:35:23.509971+02:00",
+            "Duration": 213564834,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "projection.typescript",
+            "StartedAt": "2026-09-11T20:35:23.723973+02:00",
+            "Duration": 71824542,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "workspace.render",
+            "StartedAt": "2026-09-11T20:35:23.796367+02:00",
+            "Duration": 364417,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "framework.workspace_fingerprint",
+            "StartedAt": "2026-09-11T20:35:23.880064+02:00",
+            "Duration": 9903000,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "audit.prepare",
+            "StartedAt": "2026-09-11T20:35:23.157057+02:00",
+            "Duration": 740799541,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.analyze",
+            "StartedAt": "2026-09-11T20:35:23.897863+02:00",
+            "Duration": 2543667,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "go.command",
+            "StartedAt": "2026-09-11T20:35:23.92268+02:00",
+            "Duration": 62420000,
+            "Cache": "go_managed",
+            "Reason": "mod",
+            "OK": true
+          },
+          {
+            "Name": "go.input_discovery",
+            "StartedAt": "2026-09-11T20:35:24.028203+02:00",
+            "Duration": 192640333,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "go.input_fingerprint",
+            "StartedAt": "2026-09-11T20:35:24.220846+02:00",
+            "Duration": 116774583,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "runtime.bundle",
+            "StartedAt": "2026-09-11T20:35:24.028112+02:00",
+            "Duration": 346928667,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "implementation.check",
+            "StartedAt": "2026-09-11T20:35:24.028122+02:00",
+            "Duration": 858695667,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "go.command",
+            "StartedAt": "2026-09-11T20:35:24.375154+02:00",
+            "Duration": 1203271375,
+            "Cache": "go_managed",
+            "Reason": "build",
+            "OK": true
+          },
+          {
+            "Name": "audit.compile_admission",
+            "StartedAt": "2026-09-11T20:35:23.900406+02:00",
+            "Duration": 2095075500,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.retain",
+            "StartedAt": "2026-09-11T20:35:25.995495+02:00",
+            "Duration": 34839375,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.preflight",
+            "StartedAt": "2026-09-11T20:35:26.030336+02:00",
+            "Duration": 736002625,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.handoff",
+            "StartedAt": "2026-09-11T20:35:26.766347+02:00",
+            "Duration": 212605083,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.release_preparation",
+            "StartedAt": "2026-09-11T20:35:26.978959+02:00",
+            "Duration": 21026625,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.accept_generated",
+            "StartedAt": "2026-09-11T20:35:26.999986+02:00",
+            "Duration": 29864792,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.response",
+            "StartedAt": "2026-09-11T20:35:27.029852+02:00",
+            "Duration": 5815833,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          }
+        ]
+      },
+      "retained_relative_path": "executables/fffbe1edd04d139d12a41c8ceccbe70908e7ae3b75f44323f4d793ec46f475e0/program"
+    },
+    {
+      "mode": "baseline",
+      "label": "pair-4-pairs-4ccaf01619",
+      "wall_elapsed_ms": 4103.808084037155,
+      "source_sha256": "5e10ab087a4b7d1fa8d96128fc011ad3d563a9cae343cba71fcb177224b867ab",
+      "elapsed_ms": 3991.051197052002,
+      "record": {
+        "CapturedAt": "2026-09-11T20:35:27.314965+02:00",
+        "CapturedEditToArtifactMS": 2902.023,
+        "ExecutableBytes": 155969862,
+        "ExecutableCount": 3,
+        "GraphCacheHit": false,
+        "Label": "pair-4-pairs-4ccaf01619",
+        "OK": true,
+        "PID": 53605,
+        "ResponseAt": "2026-09-11T20:35:31.150216+02:00",
+        "StartedAt": "2026-09-11T20:35:27.159335+02:00",
+        "Steps": [
+          {
+            "Name": "audit.framework",
+            "StartedAt": "2026-09-11T20:35:27.314967+02:00",
+            "Duration": 54572791,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "graph.cache",
+            "StartedAt": "2026-09-11T20:35:27.369648+02:00",
+            "Duration": 540167,
+            "Cache": "miss",
+            "Reason": "source_snapshot_changed",
+            "OK": true
+          },
+          {
+            "Name": "audit.graph",
+            "StartedAt": "2026-09-11T20:35:27.36954+02:00",
+            "Duration": 648666,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "contract.check",
+            "StartedAt": "2026-09-11T20:35:27.370214+02:00",
+            "Duration": 370919875,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "projection.go",
+            "StartedAt": "2026-09-11T20:35:27.741137+02:00",
+            "Duration": 185575709,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "projection.typescript",
+            "StartedAt": "2026-09-11T20:35:27.927153+02:00",
+            "Duration": 61791041,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "workspace.render",
+            "StartedAt": "2026-09-11T20:35:27.989424+02:00",
+            "Duration": 343208,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "framework.workspace_fingerprint",
+            "StartedAt": "2026-09-11T20:35:28.069459+02:00",
+            "Duration": 10378667,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "audit.prepare",
+            "StartedAt": "2026-09-11T20:35:27.370189+02:00",
+            "Duration": 717968125,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.analyze",
+            "StartedAt": "2026-09-11T20:35:28.088163+02:00",
+            "Duration": 2842917,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "go.command",
+            "StartedAt": "2026-09-11T20:35:28.11597+02:00",
+            "Duration": 73487792,
+            "Cache": "go_managed",
+            "Reason": "mod",
+            "OK": true
+          },
+          {
+            "Name": "go.input_discovery",
+            "StartedAt": "2026-09-11T20:35:28.237938+02:00",
+            "Duration": 195816833,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "go.input_fingerprint",
+            "StartedAt": "2026-09-11T20:35:28.433757+02:00",
+            "Duration": 132485833,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "runtime.bundle",
+            "StartedAt": "2026-09-11T20:35:28.237763+02:00",
+            "Duration": 370128833,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "implementation.check",
+            "StartedAt": "2026-09-11T20:35:28.237777+02:00",
+            "Duration": 862820584,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "go.command",
+            "StartedAt": "2026-09-11T20:35:28.607916+02:00",
+            "Duration": 1219171792,
+            "Cache": "go_managed",
+            "Reason": "build",
+            "OK": true
+          },
+          {
+            "Name": "audit.compile_admission",
+            "StartedAt": "2026-09-11T20:35:28.091006+02:00",
+            "Duration": 2021974500,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.retain",
+            "StartedAt": "2026-09-11T20:35:30.112993+02:00",
+            "Duration": 104008209,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.preflight",
+            "StartedAt": "2026-09-11T20:35:30.217006+02:00",
+            "Duration": 721478042,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.handoff",
+            "StartedAt": "2026-09-11T20:35:30.938492+02:00",
+            "Duration": 179868583,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.release_preparation",
+            "StartedAt": "2026-09-11T20:35:31.118365+02:00",
+            "Duration": 250,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.accept_generated",
+            "StartedAt": "2026-09-11T20:35:31.118366+02:00",
+            "Duration": 25399584,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.response",
+            "StartedAt": "2026-09-11T20:35:31.143766+02:00",
+            "Duration": 6453667,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          }
+        ]
+      },
+      "retained_relative_path": "session/run/app/scenery-app-8fe70f73f565e3ab15ea7466c8e9fc98b0dd69932e2681337a3fe21ef9d1a5cb"
+    },
+    {
+      "mode": "baseline",
+      "label": "pair-5-pairs-4ccaf01619",
+      "wall_elapsed_ms": 3977.9625840019435,
+      "source_sha256": "d943ad1e1c3a927de96bfda874890fc89d4080e4535e2e34ab90eeba541a1983",
+      "elapsed_ms": 3868.975877761841,
+      "record": {
+        "CapturedAt": "2026-09-11T20:35:31.429547+02:00",
+        "CapturedEditToArtifactMS": 2776.230084,
+        "ExecutableBytes": 155969862,
+        "ExecutableCount": 3,
+        "GraphCacheHit": false,
+        "Label": "pair-5-pairs-4ccaf01619",
+        "OK": true,
+        "PID": 53605,
+        "ResponseAt": "2026-09-11T20:35:35.150002+02:00",
+        "StartedAt": "2026-09-11T20:35:31.281171+02:00",
+        "Steps": [
+          {
+            "Name": "audit.framework",
+            "StartedAt": "2026-09-11T20:35:31.429548+02:00",
+            "Duration": 49775375,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "graph.cache",
+            "StartedAt": "2026-09-11T20:35:31.479422+02:00",
+            "Duration": 519084,
+            "Cache": "miss",
+            "Reason": "source_snapshot_changed",
+            "OK": true
+          },
+          {
+            "Name": "audit.graph",
+            "StartedAt": "2026-09-11T20:35:31.479324+02:00",
+            "Duration": 618125,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "contract.check",
+            "StartedAt": "2026-09-11T20:35:31.479966+02:00",
+            "Duration": 367399292,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "projection.go",
+            "StartedAt": "2026-09-11T20:35:31.847368+02:00",
+            "Duration": 175066625,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "projection.typescript",
+            "StartedAt": "2026-09-11T20:35:32.022842+02:00",
+            "Duration": 55434125,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "workspace.render",
+            "StartedAt": "2026-09-11T20:35:32.078714+02:00",
+            "Duration": 319083,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "framework.workspace_fingerprint",
+            "StartedAt": "2026-09-11T20:35:32.148666+02:00",
+            "Duration": 9593625,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "audit.prepare",
+            "StartedAt": "2026-09-11T20:35:31.479942+02:00",
+            "Duration": 685946542,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.analyze",
+            "StartedAt": "2026-09-11T20:35:32.165894+02:00",
+            "Duration": 2566459,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "go.command",
+            "StartedAt": "2026-09-11T20:35:32.19114+02:00",
+            "Duration": 64051875,
+            "Cache": "go_managed",
+            "Reason": "mod",
+            "OK": true
+          },
+          {
+            "Name": "go.input_discovery",
+            "StartedAt": "2026-09-11T20:35:32.293463+02:00",
+            "Duration": 194458834,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "go.input_fingerprint",
+            "StartedAt": "2026-09-11T20:35:32.487924+02:00",
+            "Duration": 109557750,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "runtime.bundle",
+            "StartedAt": "2026-09-11T20:35:32.293369+02:00",
+            "Duration": 342012417,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "implementation.check",
+            "StartedAt": "2026-09-11T20:35:32.293386+02:00",
+            "Duration": 820362875,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "go.command",
+            "StartedAt": "2026-09-11T20:35:32.635405+02:00",
+            "Duration": 1195074250,
+            "Cache": "go_managed",
+            "Reason": "build",
+            "OK": true
+          },
+          {
+            "Name": "audit.compile_admission",
+            "StartedAt": "2026-09-11T20:35:32.168461+02:00",
+            "Duration": 1942303041,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.retain",
+            "StartedAt": "2026-09-11T20:35:34.110776+02:00",
+            "Duration": 95009750,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.preflight",
+            "StartedAt": "2026-09-11T20:35:34.205794+02:00",
+            "Duration": 732323417,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.handoff",
+            "StartedAt": "2026-09-11T20:35:34.938127+02:00",
+            "Duration": 177941667,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.release_preparation",
+            "StartedAt": "2026-09-11T20:35:35.116078+02:00",
+            "Duration": 250,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.accept_generated",
+            "StartedAt": "2026-09-11T20:35:35.116078+02:00",
+            "Duration": 28169166,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.response",
+            "StartedAt": "2026-09-11T20:35:35.144248+02:00",
+            "Duration": 5759500,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          }
+        ]
+      },
+      "retained_relative_path": "session/run/app/scenery-app-f0ef4c54f5119bc14b8ef34e2a7f62c77512b5e986b81eee9b8a3356e697b0d2"
+    },
+    {
+      "mode": "candidate",
+      "label": "pair-5-pairs-4ccaf01619",
+      "wall_elapsed_ms": 4081.6017910838127,
+      "source_sha256": "d943ad1e1c3a927de96bfda874890fc89d4080e4535e2e34ab90eeba541a1983",
+      "elapsed_ms": 3974.0312099456787,
+      "record": {
+        "CapturedAt": "2026-09-11T20:35:35.436513+02:00",
+        "CapturedEditToArtifactMS": 2830.176792,
+        "ExecutableBytes": 51989954,
+        "ExecutableCount": 1,
+        "GraphCacheHit": false,
+        "Label": "pair-5-pairs-4ccaf01619",
+        "OK": true,
+        "PID": 53606,
+        "ResponseAt": "2026-09-11T20:35:39.254357+02:00",
+        "StartedAt": "2026-09-11T20:35:35.280509+02:00",
+        "Steps": [
+          {
+            "Name": "audit.framework",
+            "StartedAt": "2026-09-11T20:35:35.436514+02:00",
+            "Duration": 53145917,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "graph.cache",
+            "StartedAt": "2026-09-11T20:35:35.489761+02:00",
+            "Duration": 573584,
+            "Cache": "miss",
+            "Reason": "source_snapshot_changed",
+            "OK": true
+          },
+          {
+            "Name": "audit.graph",
+            "StartedAt": "2026-09-11T20:35:35.48966+02:00",
+            "Duration": 674417,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "contract.check",
+            "StartedAt": "2026-09-11T20:35:35.490358+02:00",
+            "Duration": 379791542,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "projection.go",
+            "StartedAt": "2026-09-11T20:35:35.870153+02:00",
+            "Duration": 172162958,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "projection.typescript",
+            "StartedAt": "2026-09-11T20:35:36.042727+02:00",
+            "Duration": 56401333,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "workspace.render",
+            "StartedAt": "2026-09-11T20:35:36.099559+02:00",
+            "Duration": 319792,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "framework.workspace_fingerprint",
+            "StartedAt": "2026-09-11T20:35:36.172705+02:00",
+            "Duration": 9721125,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "audit.prepare",
+            "StartedAt": "2026-09-11T20:35:35.490335+02:00",
+            "Duration": 700162083,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.analyze",
+            "StartedAt": "2026-09-11T20:35:36.190503+02:00",
+            "Duration": 2435625,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "go.command",
+            "StartedAt": "2026-09-11T20:35:36.215191+02:00",
+            "Duration": 62959125,
+            "Cache": "go_managed",
+            "Reason": "mod",
+            "OK": true
+          },
+          {
+            "Name": "go.input_discovery",
+            "StartedAt": "2026-09-11T20:35:36.315052+02:00",
+            "Duration": 194303875,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "go.input_fingerprint",
+            "StartedAt": "2026-09-11T20:35:36.509358+02:00",
+            "Duration": 112654917,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "runtime.bundle",
+            "StartedAt": "2026-09-11T20:35:36.314965+02:00",
+            "Duration": 348639583,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "implementation.check",
+            "StartedAt": "2026-09-11T20:35:36.314982+02:00",
+            "Duration": 827039792,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "go.command",
+            "StartedAt": "2026-09-11T20:35:36.663718+02:00",
+            "Duration": 1199057292,
+            "Cache": "go_managed",
+            "Reason": "build",
+            "OK": true
+          },
+          {
+            "Name": "audit.compile_admission",
+            "StartedAt": "2026-09-11T20:35:36.192939+02:00",
+            "Duration": 2040103791,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.retain",
+            "StartedAt": "2026-09-11T20:35:38.233055+02:00",
+            "Duration": 33644000,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.preflight",
+            "StartedAt": "2026-09-11T20:35:38.266707+02:00",
+            "Duration": 730581208,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.handoff",
+            "StartedAt": "2026-09-11T20:35:38.997297+02:00",
+            "Duration": 193533833,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.release_preparation",
+            "StartedAt": "2026-09-11T20:35:39.190837+02:00",
+            "Duration": 18975000,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.accept_generated",
+            "StartedAt": "2026-09-11T20:35:39.209813+02:00",
+            "Duration": 34571292,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.response",
+            "StartedAt": "2026-09-11T20:35:39.244384+02:00",
+            "Duration": 9976417,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          }
+        ]
+      },
+      "retained_relative_path": "executables/0b5137943674590c19221cd1c92bb7284a99e529fcf8bc0af7bb2465238d80f6/program"
+    },
+    {
+      "mode": "candidate",
+      "label": "pair-6-pairs-4ccaf01619",
+      "wall_elapsed_ms": 4085.7457499951124,
+      "source_sha256": "bef87c51dade5157cd0fd3e013726235854701e1a236356eff8633dbd921a8c5",
+      "elapsed_ms": 3966.792106628418,
+      "record": {
+        "CapturedAt": "2026-09-11T20:35:39.536838+02:00",
+        "CapturedEditToArtifactMS": 2863.647458,
+        "ExecutableBytes": 51989954,
+        "ExecutableCount": 1,
+        "GraphCacheHit": false,
+        "Label": "pair-6-pairs-4ccaf01619",
+        "OK": true,
+        "PID": 53606,
+        "ResponseAt": "2026-09-11T20:35:43.351855+02:00",
+        "StartedAt": "2026-09-11T20:35:39.385217+02:00",
+        "Steps": [
+          {
+            "Name": "audit.framework",
+            "StartedAt": "2026-09-11T20:35:39.536839+02:00",
+            "Duration": 66086667,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "graph.cache",
+            "StartedAt": "2026-09-11T20:35:39.603026+02:00",
+            "Duration": 584250,
+            "Cache": "miss",
+            "Reason": "source_snapshot_changed",
+            "OK": true
+          },
+          {
+            "Name": "audit.graph",
+            "StartedAt": "2026-09-11T20:35:39.602927+02:00",
+            "Duration": 684458,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "contract.check",
+            "StartedAt": "2026-09-11T20:35:39.603634+02:00",
+            "Duration": 367417500,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "projection.go",
+            "StartedAt": "2026-09-11T20:35:39.971055+02:00",
+            "Duration": 173283250,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "projection.typescript",
+            "StartedAt": "2026-09-11T20:35:40.144779+02:00",
+            "Duration": 56298625,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "workspace.render",
+            "StartedAt": "2026-09-11T20:35:40.201501+02:00",
+            "Duration": 317791,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "framework.workspace_fingerprint",
+            "StartedAt": "2026-09-11T20:35:40.27395+02:00",
+            "Duration": 9693542,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "audit.prepare",
+            "StartedAt": "2026-09-11T20:35:39.603611+02:00",
+            "Duration": 688338500,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.analyze",
+            "StartedAt": "2026-09-11T20:35:40.291955+02:00",
+            "Duration": 2481250,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "go.command",
+            "StartedAt": "2026-09-11T20:35:40.320002+02:00",
+            "Duration": 63492042,
+            "Cache": "go_managed",
+            "Reason": "mod",
+            "OK": true
+          },
+          {
+            "Name": "go.input_discovery",
+            "StartedAt": "2026-09-11T20:35:40.428083+02:00",
+            "Duration": 199098958,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "go.input_fingerprint",
+            "StartedAt": "2026-09-11T20:35:40.627184+02:00",
+            "Duration": 112516667,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "runtime.bundle",
+            "StartedAt": "2026-09-11T20:35:40.427983+02:00",
+            "Duration": 352887125,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "implementation.check",
+            "StartedAt": "2026-09-11T20:35:40.428+02:00",
+            "Duration": 849569542,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "go.command",
+            "StartedAt": "2026-09-11T20:35:40.780987+02:00",
+            "Duration": 1209180208,
+            "Cache": "go_managed",
+            "Reason": "build",
+            "OK": true
+          },
+          {
+            "Name": "audit.compile_admission",
+            "StartedAt": "2026-09-11T20:35:40.294437+02:00",
+            "Duration": 2072995125,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.retain",
+            "StartedAt": "2026-09-11T20:35:42.367445+02:00",
+            "Duration": 33052417,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.preflight",
+            "StartedAt": "2026-09-11T20:35:42.400503+02:00",
+            "Duration": 712182958,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.handoff",
+            "StartedAt": "2026-09-11T20:35:43.112694+02:00",
+            "Duration": 183305708,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.release_preparation",
+            "StartedAt": "2026-09-11T20:35:43.296005+02:00",
+            "Duration": 17003917,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.accept_generated",
+            "StartedAt": "2026-09-11T20:35:43.31301+02:00",
+            "Duration": 33326375,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.response",
+            "StartedAt": "2026-09-11T20:35:43.346337+02:00",
+            "Duration": 5525792,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          }
+        ]
+      },
+      "retained_relative_path": "executables/f7d1d40bc264906036847e9f5a376f07fcedef50720c406021845e20fedd7b02/program"
+    },
+    {
+      "mode": "baseline",
+      "label": "pair-6-pairs-4ccaf01619",
+      "wall_elapsed_ms": 4045.8282500039786,
+      "source_sha256": "bef87c51dade5157cd0fd3e013726235854701e1a236356eff8633dbd921a8c5",
+      "elapsed_ms": 3933.63094329834,
+      "record": {
+        "CapturedAt": "2026-09-11T20:35:43.684099+02:00",
+        "CapturedEditToArtifactMS": 2825.196167,
+        "ExecutableBytes": 155969862,
+        "ExecutableCount": 3,
+        "GraphCacheHit": false,
+        "Label": "pair-6-pairs-4ccaf01619",
+        "OK": true,
+        "PID": 53605,
+        "ResponseAt": "2026-09-11T20:35:47.43084+02:00",
+        "StartedAt": "2026-09-11T20:35:43.497416+02:00",
+        "Steps": [
+          {
+            "Name": "audit.framework",
+            "StartedAt": "2026-09-11T20:35:43.6841+02:00",
+            "Duration": 60650042,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "graph.cache",
+            "StartedAt": "2026-09-11T20:35:43.744864+02:00",
+            "Duration": 618125,
+            "Cache": "miss",
+            "Reason": "source_snapshot_changed",
+            "OK": true
+          },
+          {
+            "Name": "audit.graph",
+            "StartedAt": "2026-09-11T20:35:43.744751+02:00",
+            "Duration": 731208,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "contract.check",
+            "StartedAt": "2026-09-11T20:35:43.745514+02:00",
+            "Duration": 368627500,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "projection.go",
+            "StartedAt": "2026-09-11T20:35:44.114145+02:00",
+            "Duration": 170277625,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "projection.typescript",
+            "StartedAt": "2026-09-11T20:35:44.284833+02:00",
+            "Duration": 56598000,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "workspace.render",
+            "StartedAt": "2026-09-11T20:35:44.341873+02:00",
+            "Duration": 328625,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "framework.workspace_fingerprint",
+            "StartedAt": "2026-09-11T20:35:44.419358+02:00",
+            "Duration": 11875333,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "audit.prepare",
+            "StartedAt": "2026-09-11T20:35:43.745483+02:00",
+            "Duration": 694145917,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.analyze",
+            "StartedAt": "2026-09-11T20:35:44.439634+02:00",
+            "Duration": 2526542,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "go.command",
+            "StartedAt": "2026-09-11T20:35:44.46814+02:00",
+            "Duration": 67502500,
+            "Cache": "go_managed",
+            "Reason": "mod",
+            "OK": true
+          },
+          {
+            "Name": "go.input_discovery",
+            "StartedAt": "2026-09-11T20:35:44.574405+02:00",
+            "Duration": 203142250,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "go.input_fingerprint",
+            "StartedAt": "2026-09-11T20:35:44.777549+02:00",
+            "Duration": 142184625,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "runtime.bundle",
+            "StartedAt": "2026-09-11T20:35:44.574307+02:00",
+            "Duration": 383451417,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "implementation.check",
+            "StartedAt": "2026-09-11T20:35:44.574317+02:00",
+            "Duration": 864493083,
+            "Cache": "not_applicable",
+            "Reason": "executed",
+            "OK": true
+          },
+          {
+            "Name": "go.command",
+            "StartedAt": "2026-09-11T20:35:44.957808+02:00",
+            "Duration": 1203190167,
+            "Cache": "go_managed",
+            "Reason": "build",
+            "OK": true
+          },
+          {
+            "Name": "audit.compile_admission",
+            "StartedAt": "2026-09-11T20:35:44.44216+02:00",
+            "Duration": 1984848166,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.retain",
+            "StartedAt": "2026-09-11T20:35:46.427021+02:00",
+            "Duration": 82288042,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.preflight",
+            "StartedAt": "2026-09-11T20:35:46.509312+02:00",
+            "Duration": 732483917,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.handoff",
+            "StartedAt": "2026-09-11T20:35:47.241805+02:00",
+            "Duration": 158243834,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.release_preparation",
+            "StartedAt": "2026-09-11T20:35:47.400056+02:00",
+            "Duration": 125,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.accept_generated",
+            "StartedAt": "2026-09-11T20:35:47.400056+02:00",
+            "Duration": 24390208,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.response",
+            "StartedAt": "2026-09-11T20:35:47.424447+02:00",
+            "Duration": 6400833,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          }
+        ]
+      },
+      "retained_relative_path": "session/run/app/scenery-app-5f9c1e26044a3456803b4fea2f32d08acad72c6107bf80998d36b14709da5827"
+    }
+  ],
+  "startup": [
+    {
+      "mode": "candidate",
+      "label": "pair-6-pairs-4ccaf01619",
+      "wall_elapsed_ms": 2105.046165874228,
+      "source_sha256": "bef87c51dade5157cd0fd3e013726235854701e1a236356eff8633dbd921a8c5",
+      "elapsed_ms": 1979.119062423706,
+      "owner_start_to_response_ms": 2138.863750034943,
+      "record": {
+        "CapturedAt": "2026-09-11T20:35:48.232174+02:00",
+        "CapturedEditToArtifactMS": 1082.562791,
+        "ExecutableBytes": 51989954,
+        "ExecutableCount": 1,
+        "GraphCacheHit": true,
+        "Label": "pair-6-pairs-4ccaf01619",
+        "OK": true,
+        "PID": 55590,
+        "ResponseAt": "2026-09-11T20:35:49.62991+02:00",
+        "StartedAt": "2026-09-11T20:35:47.686166+02:00",
+        "Steps": [
+          {
+            "Name": "audit.framework",
+            "StartedAt": "2026-09-11T20:35:48.23218+02:00",
+            "Duration": 43218416,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "graph.cache",
+            "StartedAt": "2026-09-11T20:35:48.275524+02:00",
+            "Duration": 17205583,
+            "Cache": "hit",
+            "Reason": "source_and_generator_match",
+            "OK": true
+          },
+          {
+            "Name": "audit.graph",
+            "StartedAt": "2026-09-11T20:35:48.275399+02:00",
+            "Duration": 17336500,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "workspace.cache",
+            "StartedAt": "2026-09-11T20:35:48.292757+02:00",
+            "Duration": 823275583,
+            "Cache": "hit",
+            "Reason": "verified_workspace_and_runtime_identity",
+            "OK": true
+          },
+          {
+            "Name": "audit.prepare",
+            "StartedAt": "2026-09-11T20:35:48.292736+02:00",
+            "Duration": 823296875,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.analyze",
+            "StartedAt": "2026-09-11T20:35:49.116039+02:00",
+            "Duration": 16667,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.compile_admission",
+            "StartedAt": "2026-09-11T20:35:49.116055+02:00",
+            "Duration": 163482333,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.retain",
+            "StartedAt": "2026-09-11T20:35:49.279539+02:00",
+            "Duration": 35203834,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.preflight",
+            "StartedAt": "2026-09-11T20:35:49.314743+02:00",
+            "Duration": 49259792,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.handoff",
+            "StartedAt": "2026-09-11T20:35:49.364007+02:00",
+            "Duration": 212368709,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.release_preparation",
+            "StartedAt": "2026-09-11T20:35:49.576378+02:00",
+            "Duration": 19314625,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.accept_generated",
+            "StartedAt": "2026-09-11T20:35:49.595693+02:00",
+            "Duration": 28194750,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.response",
+            "StartedAt": "2026-09-11T20:35:49.623889+02:00",
+            "Duration": 6023416,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          }
+        ]
+      },
+      "retained_relative_path": "executables/f7d1d40bc264906036847e9f5a376f07fcedef50720c406021845e20fedd7b02/program"
+    },
+    {
+      "mode": "baseline",
+      "label": "pair-6-pairs-4ccaf01619",
+      "wall_elapsed_ms": 2675.0725829042494,
+      "source_sha256": "bef87c51dade5157cd0fd3e013726235854701e1a236356eff8633dbd921a8c5",
+      "elapsed_ms": 2561.614990234375,
+      "owner_start_to_response_ms": 2709.5353328622878,
+      "record": {
+        "CapturedAt": "2026-09-11T20:35:50.387438+02:00",
+        "CapturedEditToArtifactMS": 1106.899375,
+        "ExecutableBytes": 103979908,
+        "ExecutableCount": 2,
+        "GraphCacheHit": true,
+        "Label": "pair-6-pairs-4ccaf01619",
+        "OK": true,
+        "PID": 55623,
+        "ResponseAt": "2026-09-11T20:35:52.384003+02:00",
+        "StartedAt": "2026-09-11T20:35:49.856096+02:00",
+        "Steps": [
+          {
+            "Name": "audit.framework",
+            "StartedAt": "2026-09-11T20:35:50.387442+02:00",
+            "Duration": 52034417,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "graph.cache",
+            "StartedAt": "2026-09-11T20:35:50.439581+02:00",
+            "Duration": 17628250,
+            "Cache": "hit",
+            "Reason": "source_and_generator_match",
+            "OK": true
+          },
+          {
+            "Name": "audit.graph",
+            "StartedAt": "2026-09-11T20:35:50.439477+02:00",
+            "Duration": 17741042,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "workspace.cache",
+            "StartedAt": "2026-09-11T20:35:50.457242+02:00",
+            "Duration": 791021750,
+            "Cache": "hit",
+            "Reason": "verified_workspace_and_runtime_identity",
+            "OK": true
+          },
+          {
+            "Name": "audit.prepare",
+            "StartedAt": "2026-09-11T20:35:50.457219+02:00",
+            "Duration": 791045333,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.analyze",
+            "StartedAt": "2026-09-11T20:35:51.24827+02:00",
+            "Duration": 19667,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.compile_admission",
+            "StartedAt": "2026-09-11T20:35:51.24829+02:00",
+            "Duration": 168165875,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.retain",
+            "StartedAt": "2026-09-11T20:35:51.416458+02:00",
+            "Duration": 77885708,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.preflight",
+            "StartedAt": "2026-09-11T20:35:51.494345+02:00",
+            "Duration": 624640084,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.handoff",
+            "StartedAt": "2026-09-11T20:35:52.11901+02:00",
+            "Duration": 232749375,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.release_preparation",
+            "StartedAt": "2026-09-11T20:35:52.351764+02:00",
+            "Duration": 583,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.accept_generated",
+            "StartedAt": "2026-09-11T20:35:52.351765+02:00",
+            "Duration": 27087792,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.response",
+            "StartedAt": "2026-09-11T20:35:52.378854+02:00",
+            "Duration": 5151666,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          }
+        ]
+      },
+      "retained_relative_path": "session/run/app/scenery-app-5f9c1e26044a3456803b4fea2f32d08acad72c6107bf80998d36b14709da5827"
+    },
+    {
+      "mode": "baseline",
+      "label": "pair-6-pairs-4ccaf01619",
+      "wall_elapsed_ms": 2621.1364169139415,
+      "source_sha256": "bef87c51dade5157cd0fd3e013726235854701e1a236356eff8633dbd921a8c5",
+      "elapsed_ms": 2508.023977279663,
+      "owner_start_to_response_ms": 2657.796625047922,
+      "record": {
+        "CapturedAt": "2026-09-11T20:35:53.146026+02:00",
+        "CapturedEditToArtifactMS": 1101.447208,
+        "ExecutableBytes": 103979908,
+        "ExecutableCount": 2,
+        "GraphCacheHit": true,
+        "Label": "pair-6-pairs-4ccaf01619",
+        "OK": true,
+        "PID": 55655,
+        "ResponseAt": "2026-09-11T20:35:55.077091+02:00",
+        "StartedAt": "2026-09-11T20:35:52.60224+02:00",
+        "Steps": [
+          {
+            "Name": "audit.framework",
+            "StartedAt": "2026-09-11T20:35:53.14603+02:00",
+            "Duration": 42484083,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "graph.cache",
+            "StartedAt": "2026-09-11T20:35:53.188613+02:00",
+            "Duration": 17172042,
+            "Cache": "hit",
+            "Reason": "source_and_generator_match",
+            "OK": true
+          },
+          {
+            "Name": "audit.graph",
+            "StartedAt": "2026-09-11T20:35:53.188515+02:00",
+            "Duration": 17275125,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "workspace.cache",
+            "StartedAt": "2026-09-11T20:35:53.205809+02:00",
+            "Duration": 786489916,
+            "Cache": "hit",
+            "Reason": "verified_workspace_and_runtime_identity",
+            "OK": true
+          },
+          {
+            "Name": "audit.prepare",
+            "StartedAt": "2026-09-11T20:35:53.205791+02:00",
+            "Duration": 786508708,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.analyze",
+            "StartedAt": "2026-09-11T20:35:53.992309+02:00",
+            "Duration": 20250,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.compile_admission",
+            "StartedAt": "2026-09-11T20:35:53.99233+02:00",
+            "Duration": 173859084,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.retain",
+            "StartedAt": "2026-09-11T20:35:54.16619+02:00",
+            "Duration": 81289041,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.preflight",
+            "StartedAt": "2026-09-11T20:35:54.24748+02:00",
+            "Duration": 614217125,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.handoff",
+            "StartedAt": "2026-09-11T20:35:54.86171+02:00",
+            "Duration": 183268916,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.release_preparation",
+            "StartedAt": "2026-09-11T20:35:55.044983+02:00",
+            "Duration": 250,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.accept_generated",
+            "StartedAt": "2026-09-11T20:35:55.044983+02:00",
+            "Duration": 25861042,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.response",
+            "StartedAt": "2026-09-11T20:35:55.070845+02:00",
+            "Duration": 6247584,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          }
+        ]
+      },
+      "retained_relative_path": "session/run/app/scenery-app-5f9c1e26044a3456803b4fea2f32d08acad72c6107bf80998d36b14709da5827"
+    },
+    {
+      "mode": "candidate",
+      "label": "pair-6-pairs-4ccaf01619",
+      "wall_elapsed_ms": 2122.4048328585923,
+      "source_sha256": "bef87c51dade5157cd0fd3e013726235854701e1a236356eff8633dbd921a8c5",
+      "elapsed_ms": 2014.4951343536377,
+      "owner_start_to_response_ms": 2158.522083889693,
+      "record": {
+        "CapturedAt": "2026-09-11T20:35:55.886+02:00",
+        "CapturedEditToArtifactMS": 1090.447,
+        "ExecutableBytes": 51989954,
+        "ExecutableCount": 1,
+        "GraphCacheHit": true,
+        "Label": "pair-6-pairs-4ccaf01619",
+        "OK": true,
+        "PID": 55697,
+        "ResponseAt": "2026-09-11T20:35:57.29798+02:00",
+        "StartedAt": "2026-09-11T20:35:55.316657+02:00",
+        "Steps": [
+          {
+            "Name": "audit.framework",
+            "StartedAt": "2026-09-11T20:35:55.886005+02:00",
+            "Duration": 50402292,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "graph.cache",
+            "StartedAt": "2026-09-11T20:35:55.936507+02:00",
+            "Duration": 17113834,
+            "Cache": "hit",
+            "Reason": "source_and_generator_match",
+            "OK": true
+          },
+          {
+            "Name": "audit.graph",
+            "StartedAt": "2026-09-11T20:35:55.936408+02:00",
+            "Duration": 17218417,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "workspace.cache",
+            "StartedAt": "2026-09-11T20:35:55.953647+02:00",
+            "Duration": 803090166,
+            "Cache": "hit",
+            "Reason": "verified_workspace_and_runtime_identity",
+            "OK": true
+          },
+          {
+            "Name": "audit.prepare",
+            "StartedAt": "2026-09-11T20:35:55.953627+02:00",
+            "Duration": 803111042,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.analyze",
+            "StartedAt": "2026-09-11T20:35:56.756744+02:00",
+            "Duration": 20625,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.compile_admission",
+            "StartedAt": "2026-09-11T20:35:56.756765+02:00",
+            "Duration": 183947959,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.retain",
+            "StartedAt": "2026-09-11T20:35:56.940715+02:00",
+            "Duration": 35738709,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.preflight",
+            "StartedAt": "2026-09-11T20:35:56.976454+02:00",
+            "Duration": 49281875,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.handoff",
+            "StartedAt": "2026-09-11T20:35:57.025742+02:00",
+            "Duration": 213426541,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.release_preparation",
+            "StartedAt": "2026-09-11T20:35:57.239172+02:00",
+            "Duration": 19722333,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.accept_generated",
+            "StartedAt": "2026-09-11T20:35:57.258895+02:00",
+            "Duration": 32164167,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.response",
+            "StartedAt": "2026-09-11T20:35:57.29106+02:00",
+            "Duration": 6922375,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          }
+        ]
+      },
+      "retained_relative_path": "executables/f7d1d40bc264906036847e9f5a376f07fcedef50720c406021845e20fedd7b02/program"
+    },
+    {
+      "mode": "candidate",
+      "label": "pair-6-pairs-4ccaf01619",
+      "wall_elapsed_ms": 2189.312417060137,
+      "source_sha256": "bef87c51dade5157cd0fd3e013726235854701e1a236356eff8633dbd921a8c5",
+      "elapsed_ms": 2059.9169731140137,
+      "owner_start_to_response_ms": 2231.082416838035,
+      "record": {
+        "CapturedAt": "2026-09-11T20:35:58.07909+02:00",
+        "CapturedEditToArtifactMS": 1118.509791,
+        "ExecutableBytes": 51989954,
+        "ExecutableCount": 1,
+        "GraphCacheHit": true,
+        "Label": "pair-6-pairs-4ccaf01619",
+        "OK": true,
+        "PID": 55726,
+        "ResponseAt": "2026-09-11T20:35:59.55528+02:00",
+        "StartedAt": "2026-09-11T20:35:57.527989+02:00",
+        "Steps": [
+          {
+            "Name": "audit.framework",
+            "StartedAt": "2026-09-11T20:35:58.079095+02:00",
+            "Duration": 44216792,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "graph.cache",
+            "StartedAt": "2026-09-11T20:35:58.123411+02:00",
+            "Duration": 17108125,
+            "Cache": "hit",
+            "Reason": "source_and_generator_match",
+            "OK": true
+          },
+          {
+            "Name": "audit.graph",
+            "StartedAt": "2026-09-11T20:35:58.123312+02:00",
+            "Duration": 17212917,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "workspace.cache",
+            "StartedAt": "2026-09-11T20:35:58.140549+02:00",
+            "Duration": 856558500,
+            "Cache": "hit",
+            "Reason": "verified_workspace_and_runtime_identity",
+            "OK": true
+          },
+          {
+            "Name": "audit.prepare",
+            "StartedAt": "2026-09-11T20:35:58.140526+02:00",
+            "Duration": 856582667,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.analyze",
+            "StartedAt": "2026-09-11T20:35:58.997115+02:00",
+            "Duration": 22250,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.compile_admission",
+            "StartedAt": "2026-09-11T20:35:58.997137+02:00",
+            "Duration": 165128584,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.retain",
+            "StartedAt": "2026-09-11T20:35:59.162267+02:00",
+            "Duration": 35338667,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.preflight",
+            "StartedAt": "2026-09-11T20:35:59.197606+02:00",
+            "Duration": 48215709,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.handoff",
+            "StartedAt": "2026-09-11T20:35:59.245829+02:00",
+            "Duration": 243275833,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.release_preparation",
+            "StartedAt": "2026-09-11T20:35:59.489111+02:00",
+            "Duration": 21723833,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.accept_generated",
+            "StartedAt": "2026-09-11T20:35:59.510835+02:00",
+            "Duration": 38141750,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.response",
+            "StartedAt": "2026-09-11T20:35:59.548978+02:00",
+            "Duration": 6303125,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          }
+        ]
+      },
+      "retained_relative_path": "executables/f7d1d40bc264906036847e9f5a376f07fcedef50720c406021845e20fedd7b02/program"
+    },
+    {
+      "mode": "baseline",
+      "label": "pair-6-pairs-4ccaf01619",
+      "wall_elapsed_ms": 2764.317166991532,
+      "source_sha256": "bef87c51dade5157cd0fd3e013726235854701e1a236356eff8633dbd921a8c5",
+      "elapsed_ms": 2655.3890705108643,
+      "owner_start_to_response_ms": 2806.159125175327,
+      "record": {
+        "CapturedAt": "2026-09-11T20:36:00.339496+02:00",
+        "CapturedEditToArtifactMS": 1106.013125,
+        "ExecutableBytes": 103979908,
+        "ExecutableCount": 2,
+        "GraphCacheHit": true,
+        "Label": "pair-6-pairs-4ccaf01619",
+        "OK": true,
+        "PID": 55762,
+        "ResponseAt": "2026-09-11T20:36:02.419973+02:00",
+        "StartedAt": "2026-09-11T20:35:59.798912+02:00",
+        "Steps": [
+          {
+            "Name": "audit.framework",
+            "StartedAt": "2026-09-11T20:36:00.339502+02:00",
+            "Duration": 47641709,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "graph.cache",
+            "StartedAt": "2026-09-11T20:36:00.387246+02:00",
+            "Duration": 17720542,
+            "Cache": "hit",
+            "Reason": "source_and_generator_match",
+            "OK": true
+          },
+          {
+            "Name": "audit.graph",
+            "StartedAt": "2026-09-11T20:36:00.387144+02:00",
+            "Duration": 17827916,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "workspace.cache",
+            "StartedAt": "2026-09-11T20:36:00.404995+02:00",
+            "Duration": 789326084,
+            "Cache": "hit",
+            "Reason": "verified_workspace_and_runtime_identity",
+            "OK": true
+          },
+          {
+            "Name": "audit.prepare",
+            "StartedAt": "2026-09-11T20:36:00.404973+02:00",
+            "Duration": 789348833,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.analyze",
+            "StartedAt": "2026-09-11T20:36:01.194329+02:00",
+            "Duration": 16875,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.compile_admission",
+            "StartedAt": "2026-09-11T20:36:01.194346+02:00",
+            "Duration": 164639916,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.retain",
+            "StartedAt": "2026-09-11T20:36:01.358987+02:00",
+            "Duration": 86527709,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.preflight",
+            "StartedAt": "2026-09-11T20:36:01.445516+02:00",
+            "Duration": 649754167,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.handoff",
+            "StartedAt": "2026-09-11T20:36:02.095286+02:00",
+            "Duration": 283110666,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.release_preparation",
+            "StartedAt": "2026-09-11T20:36:02.378406+02:00",
+            "Duration": 458,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.accept_generated",
+            "StartedAt": "2026-09-11T20:36:02.378406+02:00",
+            "Duration": 37380458,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.response",
+            "StartedAt": "2026-09-11T20:36:02.415787+02:00",
+            "Duration": 4186750,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          }
+        ]
+      },
+      "retained_relative_path": "session/run/app/scenery-app-5f9c1e26044a3456803b4fea2f32d08acad72c6107bf80998d36b14709da5827"
+    },
+    {
+      "mode": "baseline",
+      "label": "pair-6-pairs-4ccaf01619",
+      "wall_elapsed_ms": 2655.628625070676,
+      "source_sha256": "bef87c51dade5157cd0fd3e013726235854701e1a236356eff8633dbd921a8c5",
+      "elapsed_ms": 2545.820951461792,
+      "owner_start_to_response_ms": 2700.1436250284314,
+      "record": {
+        "CapturedAt": "2026-09-11T20:36:03.187888+02:00",
+        "CapturedEditToArtifactMS": 1101.196334,
+        "ExecutableBytes": 103979908,
+        "ExecutableCount": 2,
+        "GraphCacheHit": true,
+        "Label": "pair-6-pairs-4ccaf01619",
+        "OK": true,
+        "PID": 55799,
+        "ResponseAt": "2026-09-11T20:36:05.146004+02:00",
+        "StartedAt": "2026-09-11T20:36:02.633745+02:00",
+        "Steps": [
+          {
+            "Name": "audit.framework",
+            "StartedAt": "2026-09-11T20:36:03.187892+02:00",
+            "Duration": 42716000,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "graph.cache",
+            "StartedAt": "2026-09-11T20:36:03.230705+02:00",
+            "Duration": 17198375,
+            "Cache": "hit",
+            "Reason": "source_and_generator_match",
+            "OK": true
+          },
+          {
+            "Name": "audit.graph",
+            "StartedAt": "2026-09-11T20:36:03.230609+02:00",
+            "Duration": 17299708,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "workspace.cache",
+            "StartedAt": "2026-09-11T20:36:03.247925+02:00",
+            "Duration": 783547000,
+            "Cache": "hit",
+            "Reason": "verified_workspace_and_runtime_identity",
+            "OK": true
+          },
+          {
+            "Name": "audit.prepare",
+            "StartedAt": "2026-09-11T20:36:03.247909+02:00",
+            "Duration": 783566625,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.analyze",
+            "StartedAt": "2026-09-11T20:36:04.031482+02:00",
+            "Duration": 20541,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.compile_admission",
+            "StartedAt": "2026-09-11T20:36:04.031502+02:00",
+            "Duration": 173109417,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.retain",
+            "StartedAt": "2026-09-11T20:36:04.204613+02:00",
+            "Duration": 84477208,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.preflight",
+            "StartedAt": "2026-09-11T20:36:04.289092+02:00",
+            "Duration": 618584583,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.handoff",
+            "StartedAt": "2026-09-11T20:36:04.907688+02:00",
+            "Duration": 203536208,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.release_preparation",
+            "StartedAt": "2026-09-11T20:36:05.111229+02:00",
+            "Duration": 375,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.accept_generated",
+            "StartedAt": "2026-09-11T20:36:05.11123+02:00",
+            "Duration": 29096167,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.response",
+            "StartedAt": "2026-09-11T20:36:05.140326+02:00",
+            "Duration": 5678916,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          }
+        ]
+      },
+      "retained_relative_path": "session/run/app/scenery-app-5f9c1e26044a3456803b4fea2f32d08acad72c6107bf80998d36b14709da5827"
+    },
+    {
+      "mode": "candidate",
+      "label": "pair-6-pairs-4ccaf01619",
+      "wall_elapsed_ms": 2135.1775000803173,
+      "source_sha256": "bef87c51dade5157cd0fd3e013726235854701e1a236356eff8633dbd921a8c5",
+      "elapsed_ms": 2027.3571014404297,
+      "owner_start_to_response_ms": 2181.2652088701725,
+      "record": {
+        "CapturedAt": "2026-09-11T20:36:05.964144+02:00",
+        "CapturedEditToArtifactMS": 1092.922458,
+        "ExecutableBytes": 51989954,
+        "ExecutableCount": 1,
+        "GraphCacheHit": true,
+        "Label": "pair-6-pairs-4ccaf01619",
+        "OK": true,
+        "PID": 55840,
+        "ResponseAt": "2026-09-11T20:36:07.387454+02:00",
+        "StartedAt": "2026-09-11T20:36:05.3926+02:00",
+        "Steps": [
+          {
+            "Name": "audit.framework",
+            "StartedAt": "2026-09-11T20:36:05.964149+02:00",
+            "Duration": 49224750,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "graph.cache",
+            "StartedAt": "2026-09-11T20:36:06.01348+02:00",
+            "Duration": 17314208,
+            "Cache": "hit",
+            "Reason": "source_and_generator_match",
+            "OK": true
+          },
+          {
+            "Name": "audit.graph",
+            "StartedAt": "2026-09-11T20:36:06.013374+02:00",
+            "Duration": 17427333,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "workspace.cache",
+            "StartedAt": "2026-09-11T20:36:06.030823+02:00",
+            "Duration": 807470584,
+            "Cache": "hit",
+            "Reason": "verified_workspace_and_runtime_identity",
+            "OK": true
+          },
+          {
+            "Name": "audit.prepare",
+            "StartedAt": "2026-09-11T20:36:06.030802+02:00",
+            "Duration": 807492208,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.analyze",
+            "StartedAt": "2026-09-11T20:36:06.8383+02:00",
+            "Duration": 17166,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.compile_admission",
+            "StartedAt": "2026-09-11T20:36:06.838318+02:00",
+            "Duration": 184851417,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.retain",
+            "StartedAt": "2026-09-11T20:36:07.023171+02:00",
+            "Duration": 33902375,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.preflight",
+            "StartedAt": "2026-09-11T20:36:07.057074+02:00",
+            "Duration": 49120917,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.handoff",
+            "StartedAt": "2026-09-11T20:36:07.1062+02:00",
+            "Duration": 224501542,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.release_preparation",
+            "StartedAt": "2026-09-11T20:36:07.330704+02:00",
+            "Duration": 20681417,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.accept_generated",
+            "StartedAt": "2026-09-11T20:36:07.351386+02:00",
+            "Duration": 30202750,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.response",
+            "StartedAt": "2026-09-11T20:36:07.381589+02:00",
+            "Duration": 5866458,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          }
+        ]
+      },
+      "retained_relative_path": "executables/f7d1d40bc264906036847e9f5a376f07fcedef50720c406021845e20fedd7b02/program"
+    },
+    {
+      "mode": "candidate",
+      "label": "pair-6-pairs-4ccaf01619",
+      "wall_elapsed_ms": 2121.5553749352694,
+      "source_sha256": "bef87c51dade5157cd0fd3e013726235854701e1a236356eff8633dbd921a8c5",
+      "elapsed_ms": 1992.9728507995605,
+      "owner_start_to_response_ms": 2173.7216669134796,
+      "record": {
+        "CapturedAt": "2026-09-11T20:36:08.181901+02:00",
+        "CapturedEditToArtifactMS": 1086.031667,
+        "ExecutableBytes": 51989954,
+        "ExecutableCount": 1,
+        "GraphCacheHit": true,
+        "Label": "pair-6-pairs-4ccaf01619",
+        "OK": true,
+        "PID": 55872,
+        "ResponseAt": "2026-09-11T20:36:09.59419+02:00",
+        "StartedAt": "2026-09-11T20:36:07.637848+02:00",
+        "Steps": [
+          {
+            "Name": "audit.framework",
+            "StartedAt": "2026-09-11T20:36:08.181904+02:00",
+            "Duration": 41952375,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "graph.cache",
+            "StartedAt": "2026-09-11T20:36:08.223955+02:00",
+            "Duration": 17148417,
+            "Cache": "hit",
+            "Reason": "source_and_generator_match",
+            "OK": true
+          },
+          {
+            "Name": "audit.graph",
+            "StartedAt": "2026-09-11T20:36:08.223857+02:00",
+            "Duration": 17254333,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "workspace.cache",
+            "StartedAt": "2026-09-11T20:36:08.241133+02:00",
+            "Duration": 825443667,
+            "Cache": "hit",
+            "Reason": "verified_workspace_and_runtime_identity",
+            "OK": true
+          },
+          {
+            "Name": "audit.prepare",
+            "StartedAt": "2026-09-11T20:36:08.241112+02:00",
+            "Duration": 825463917,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.analyze",
+            "StartedAt": "2026-09-11T20:36:09.066582+02:00",
+            "Duration": 15375,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.compile_admission",
+            "StartedAt": "2026-09-11T20:36:09.066598+02:00",
+            "Duration": 167231375,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.retain",
+            "StartedAt": "2026-09-11T20:36:09.23383+02:00",
+            "Duration": 34108458,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.preflight",
+            "StartedAt": "2026-09-11T20:36:09.267939+02:00",
+            "Duration": 49273667,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.handoff",
+            "StartedAt": "2026-09-11T20:36:09.31722+02:00",
+            "Duration": 222644167,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.release_preparation",
+            "StartedAt": "2026-09-11T20:36:09.53987+02:00",
+            "Duration": 19808417,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.accept_generated",
+            "StartedAt": "2026-09-11T20:36:09.559679+02:00",
+            "Duration": 28742958,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.response",
+            "StartedAt": "2026-09-11T20:36:09.588422+02:00",
+            "Duration": 5768667,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          }
+        ]
+      },
+      "retained_relative_path": "executables/f7d1d40bc264906036847e9f5a376f07fcedef50720c406021845e20fedd7b02/program"
+    },
+    {
+      "mode": "baseline",
+      "label": "pair-6-pairs-4ccaf01619",
+      "wall_elapsed_ms": 2709.1669170185924,
+      "source_sha256": "bef87c51dade5157cd0fd3e013726235854701e1a236356eff8633dbd921a8c5",
+      "elapsed_ms": 2600.635051727295,
+      "owner_start_to_response_ms": 2761.295999865979,
+      "record": {
+        "CapturedAt": "2026-09-11T20:36:10.371681+02:00",
+        "CapturedEditToArtifactMS": 1111.613041,
+        "ExecutableBytes": 103979908,
+        "ExecutableCount": 2,
+        "GraphCacheHit": true,
+        "Label": "pair-6-pairs-4ccaf01619",
+        "OK": true,
+        "PID": 55912,
+        "ResponseAt": "2026-09-11T20:36:12.409592+02:00",
+        "StartedAt": "2026-09-11T20:36:09.841325+02:00",
+        "Steps": [
+          {
+            "Name": "audit.framework",
+            "StartedAt": "2026-09-11T20:36:10.371685+02:00",
+            "Duration": 51012792,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "graph.cache",
+            "StartedAt": "2026-09-11T20:36:10.422804+02:00",
+            "Duration": 17854583,
+            "Cache": "hit",
+            "Reason": "source_and_generator_match",
+            "OK": true
+          },
+          {
+            "Name": "audit.graph",
+            "StartedAt": "2026-09-11T20:36:10.422699+02:00",
+            "Duration": 17965875,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "workspace.cache",
+            "StartedAt": "2026-09-11T20:36:10.440688+02:00",
+            "Duration": 798629542,
+            "Cache": "hit",
+            "Reason": "verified_workspace_and_runtime_identity",
+            "OK": true
+          },
+          {
+            "Name": "audit.prepare",
+            "StartedAt": "2026-09-11T20:36:10.440666+02:00",
+            "Duration": 798652667,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.analyze",
+            "StartedAt": "2026-09-11T20:36:11.239325+02:00",
+            "Duration": 23666,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.compile_admission",
+            "StartedAt": "2026-09-11T20:36:11.239348+02:00",
+            "Duration": 164797000,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.retain",
+            "StartedAt": "2026-09-11T20:36:11.404147+02:00",
+            "Duration": 79153084,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.preflight",
+            "StartedAt": "2026-09-11T20:36:11.483301+02:00",
+            "Duration": 632557584,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.handoff",
+            "StartedAt": "2026-09-11T20:36:12.115869+02:00",
+            "Duration": 253369500,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.release_preparation",
+            "StartedAt": "2026-09-11T20:36:12.369246+02:00",
+            "Duration": 250,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.accept_generated",
+            "StartedAt": "2026-09-11T20:36:12.369247+02:00",
+            "Duration": 36379000,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.response",
+            "StartedAt": "2026-09-11T20:36:12.405626+02:00",
+            "Duration": 3966292,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          }
+        ]
+      },
+      "retained_relative_path": "session/run/app/scenery-app-5f9c1e26044a3456803b4fea2f32d08acad72c6107bf80998d36b14709da5827"
+    },
+    {
+      "mode": "baseline",
+      "label": "pair-6-pairs-4ccaf01619",
+      "wall_elapsed_ms": 2622.529999818653,
+      "source_sha256": "bef87c51dade5157cd0fd3e013726235854701e1a236356eff8633dbd921a8c5",
+      "elapsed_ms": 2516.450881958008,
+      "owner_start_to_response_ms": 2676.3344169594347,
+      "record": {
+        "CapturedAt": "2026-09-11T20:36:13.181915+02:00",
+        "CapturedEditToArtifactMS": 1095.037041,
+        "ExecutableBytes": 103979908,
+        "ExecutableCount": 2,
+        "GraphCacheHit": true,
+        "Label": "pair-6-pairs-4ccaf01619",
+        "OK": true,
+        "PID": 55943,
+        "ResponseAt": "2026-09-11T20:36:15.120688+02:00",
+        "StartedAt": "2026-09-11T20:36:12.636452+02:00",
+        "Steps": [
+          {
+            "Name": "audit.framework",
+            "StartedAt": "2026-09-11T20:36:13.181922+02:00",
+            "Duration": 43083500,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "graph.cache",
+            "StartedAt": "2026-09-11T20:36:13.225105+02:00",
+            "Duration": 17077958,
+            "Cache": "hit",
+            "Reason": "source_and_generator_match",
+            "OK": true
+          },
+          {
+            "Name": "audit.graph",
+            "StartedAt": "2026-09-11T20:36:13.225006+02:00",
+            "Duration": 17184750,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "workspace.cache",
+            "StartedAt": "2026-09-11T20:36:13.242211+02:00",
+            "Duration": 777790916,
+            "Cache": "hit",
+            "Reason": "verified_workspace_and_runtime_identity",
+            "OK": true
+          },
+          {
+            "Name": "audit.prepare",
+            "StartedAt": "2026-09-11T20:36:13.242192+02:00",
+            "Duration": 777811167,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.analyze",
+            "StartedAt": "2026-09-11T20:36:14.020008+02:00",
+            "Duration": 9291,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.compile_admission",
+            "StartedAt": "2026-09-11T20:36:14.020018+02:00",
+            "Duration": 173342209,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.retain",
+            "StartedAt": "2026-09-11T20:36:14.193361+02:00",
+            "Duration": 83596416,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.preflight",
+            "StartedAt": "2026-09-11T20:36:14.276959+02:00",
+            "Duration": 615706334,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.handoff",
+            "StartedAt": "2026-09-11T20:36:14.892679+02:00",
+            "Duration": 193435417,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.release_preparation",
+            "StartedAt": "2026-09-11T20:36:15.086119+02:00",
+            "Duration": 292,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.accept_generated",
+            "StartedAt": "2026-09-11T20:36:15.08612+02:00",
+            "Duration": 31086959,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.response",
+            "StartedAt": "2026-09-11T20:36:15.117207+02:00",
+            "Duration": 3481667,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          }
+        ]
+      },
+      "retained_relative_path": "session/run/app/scenery-app-5f9c1e26044a3456803b4fea2f32d08acad72c6107bf80998d36b14709da5827"
+    },
+    {
+      "mode": "candidate",
+      "label": "pair-6-pairs-4ccaf01619",
+      "wall_elapsed_ms": 2171.0340410936624,
+      "source_sha256": "bef87c51dade5157cd0fd3e013726235854701e1a236356eff8633dbd921a8c5",
+      "elapsed_ms": 2059.964895248413,
+      "owner_start_to_response_ms": 2225.0915409531444,
+      "record": {
+        "CapturedAt": "2026-09-11T20:36:15.949258+02:00",
+        "CapturedEditToArtifactMS": 1090.575667,
+        "ExecutableBytes": 51989954,
+        "ExecutableCount": 1,
+        "GraphCacheHit": true,
+        "Label": "pair-6-pairs-4ccaf01619",
+        "OK": true,
+        "PID": 55985,
+        "ResponseAt": "2026-09-11T20:36:17.403287+02:00",
+        "StartedAt": "2026-09-11T20:36:15.376554+02:00",
+        "Steps": [
+          {
+            "Name": "audit.framework",
+            "StartedAt": "2026-09-11T20:36:15.949261+02:00",
+            "Duration": 49678750,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "graph.cache",
+            "StartedAt": "2026-09-11T20:36:15.999076+02:00",
+            "Duration": 17224458,
+            "Cache": "hit",
+            "Reason": "source_and_generator_match",
+            "OK": true
+          },
+          {
+            "Name": "audit.graph",
+            "StartedAt": "2026-09-11T20:36:15.998941+02:00",
+            "Duration": 17369458,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "workspace.cache",
+            "StartedAt": "2026-09-11T20:36:16.016332+02:00",
+            "Duration": 807859625,
+            "Cache": "hit",
+            "Reason": "verified_workspace_and_runtime_identity",
+            "OK": true
+          },
+          {
+            "Name": "audit.prepare",
+            "StartedAt": "2026-09-11T20:36:16.016311+02:00",
+            "Duration": 807885125,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.analyze",
+            "StartedAt": "2026-09-11T20:36:16.824202+02:00",
+            "Duration": 23291,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.compile_admission",
+            "StartedAt": "2026-09-11T20:36:16.824225+02:00",
+            "Duration": 181484041,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.retain",
+            "StartedAt": "2026-09-11T20:36:17.005711+02:00",
+            "Duration": 34128500,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.preflight",
+            "StartedAt": "2026-09-11T20:36:17.03984+02:00",
+            "Duration": 48630333,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.handoff",
+            "StartedAt": "2026-09-11T20:36:17.088492+02:00",
+            "Duration": 253703583,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.release_preparation",
+            "StartedAt": "2026-09-11T20:36:17.342202+02:00",
+            "Duration": 20588375,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.accept_generated",
+            "StartedAt": "2026-09-11T20:36:17.362791+02:00",
+            "Duration": 33842291,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          },
+          {
+            "Name": "audit.response",
+            "StartedAt": "2026-09-11T20:36:17.396634+02:00",
+            "Duration": 6654791,
+            "Cache": "",
+            "Reason": "",
+            "OK": true
+          }
+        ]
+      },
+      "retained_relative_path": "executables/f7d1d40bc264906036847e9f5a376f07fcedef50720c406021845e20fedd7b02/program"
+    }
+  ]
+}
