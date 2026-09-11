@@ -5,10 +5,9 @@
 `internal/generate` owns deterministic Go contracts, runtime composition,
 TypeScript clients, OpenAPI documents, and their generated-file transactions.
 `internal/generate/api` is the stdlib-only leaf for library build specs,
-runtime-integration plans and assistant-asset
-descriptor types so callers that do not render artifacts do not link the
-generator. Production `internal/build` consumes those types through injected
-hooks; CLI wires the live generate functions.
+runtime-integration plans and assistant-asset descriptors, avoiding generator
+linkage for non-rendering callers. `internal/build` consumes injected hooks;
+CLI wires generation.
 
 ## Local Contracts
 
@@ -26,10 +25,11 @@ hooks; CLI wires the live generate functions.
 - Publish application-imported Go packages inside their declared existing Go
   modules and managed roots. Exact authored Git ignores keep them out of normal
   application commits; generation never edits ignores or creates nested modules.
-- Keep private composition in the build cache using the same public renderer.
-- Cache only pure projections, keyed by complete inputs including live catalogs.
-  Validate ownership, implementation and current snapshots on hits; open a
-  revalidated publication transaction only for changed output.
+- Keep private composition in build cache; share public projection bytes across
+  publication and preparation.
+- Cache pure projections by complete inputs, including live catalogs and private
+  composition's workspace/implementation revisions. Recheck ownership,
+  implementation and snapshots on hits; transact only changed output.
 - For declared Go libraries, render the typed `scenerylib_<name>` facade,
   source/shared backends, c-shared export shim, and detached descriptor into
   the declared in-module root. Do not hand-edit projections; publishing a Go
@@ -72,9 +72,10 @@ hooks; CLI wires the live generate functions.
 - Generation checks return diagnostics plus an explicit implementation state:
   native verification is `valid` or `invalid`; compile-only/non-native checks
   remain `not_requested`.
-- Generation reports use the renderer's actual client selection and changed/
-  checked files. There is no editor-workspace API, report field, or root workfile
-  maintenance; user workspaces are preserved.
+- Reports use actual renderer selection and changed/checked files. Never manage
+  user workfiles or add editor-workspace APIs.
+- Builds verify default and selected Go targets in the owned private workspace;
+  check-only commands use expected overlays. Keep each target's full context.
 
 ## Verification
 

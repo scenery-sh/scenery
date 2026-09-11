@@ -252,6 +252,7 @@ func (stamp fileStamp) sameContent(other fileStamp) bool {
 }
 
 type fileSnapshot struct {
+	contract         *compiler.Result
 	files            map[string]fileStamp
 	dirs             []string
 	generated        map[string]bool
@@ -381,12 +382,9 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode, desktop bool, appR
 	}
 	defer restoreAgentEnv()
 
-	var snapshot fileSnapshot
-	if err := console.Phase("Scanning source files", func() error {
-		var err error
-		snapshot, err = scanInitialWatchedFiles(root, compiler.Compile)
-		return err
-	}); err != nil {
+	snapshot, err := preparedSession.Owner.startupScan.wait()
+	preparedSession.Owner.startupScan = nil
+	if err != nil {
 		return err
 	}
 
@@ -946,7 +944,7 @@ func buildSourceSnapshot(snapshot fileSnapshot) *build.SourceSnapshot {
 			Embedded:    stamp.embed,
 		}
 	}
-	return &build.SourceSnapshot{Files: files}
+	return &build.SourceSnapshot{Files: files, Contract: snapshot.contract}
 }
 
 type fileChangeWatcher struct {

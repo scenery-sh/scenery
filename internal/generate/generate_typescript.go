@@ -228,7 +228,7 @@ func renderTypeScriptTarget(result *Result, target Resource) ([]generatedFile, e
 			return nil, err
 		}
 	}
-	return cachedProjection(result, "typescript", []any{target, catalog}, func() ([]generatedFile, error) {
+	return cachedProjection(newProjectionInput(result), "typescript", []any{target, catalog}, func() ([]generatedFile, error) {
 		return renderTypeScriptTargetWithCatalog(result, target, root, catalog)
 	})
 }

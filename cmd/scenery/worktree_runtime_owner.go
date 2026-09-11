@@ -13,20 +13,22 @@ import (
 	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/build"
+	"scenery.sh/internal/compiler"
 )
 
 type worktreeRuntimeOwner struct {
-	paths     localagent.WorktreePaths
-	record    localagent.WorktreeRecord
-	client    *localagent.Client
-	server    *localagent.Server
-	dashboard *agentDashboardRuntime
-	live      *localagent.ProcessLock
-	browser   net.Listener
-	cancel    context.CancelFunc
-	failure   chan error
-	runDone   chan struct{}
-	once      sync.Once
+	startupScan *initialWatchScan
+	paths       localagent.WorktreePaths
+	record      localagent.WorktreeRecord
+	client      *localagent.Client
+	server      *localagent.Server
+	dashboard   *agentDashboardRuntime
+	live        *localagent.ProcessLock
+	browser     net.Listener
+	cancel      context.CancelFunc
+	failure     chan error
+	runDone     chan struct{}
+	once        sync.Once
 }
 
 func (o *worktreeRuntimeOwner) Close() {
@@ -34,6 +36,9 @@ func (o *worktreeRuntimeOwner) Close() {
 		return
 	}
 	o.once.Do(func() {
+		if o.startupScan != nil {
+			_, _ = o.startupScan.wait()
+		}
 		if o.dashboard != nil {
 			_ = o.dashboard.Close()
 		}
@@ -65,7 +70,7 @@ func (o *worktreeRuntimeOwner) Close() {
 	})
 }
 
-func acquireWorktreeRuntime(ctx context.Context, machinePaths localagent.Paths, root string, cfg app.Config, env app.ResolvedEnv) (*worktreeRuntimeOwner, error) {
+func acquireWorktreeRuntime(ctx context.Context, machinePaths localagent.Paths, root string, cfg app.Config, env app.ResolvedEnv, console *runConsole) (*worktreeRuntimeOwner, error) {
 	paths, err := localagent.PathsForWorktree(machinePaths.Home, root)
 	if err != nil {
 		return nil, err
@@ -89,15 +94,39 @@ func acquireWorktreeRuntime(ctx context.Context, machinePaths localagent.Paths, 
 	if err := build.VerifyFrameworkSession(ctx, root); err != nil {
 		return nil, &codedCLIError{code: 3, err: err}
 	}
+	var startupContract *compiler.Result
 	if len(cfg.Database.Migrations) > 0 {
-		requirements, err := compileSQLRequirements(root)
+		contract, err := compileSQLContract(root)
 		if err != nil {
 			return nil, err
 		}
-		if _, err := discoverDBMigrationPlans(root, cfg, requirements); err != nil {
+		if _, err := discoverDBMigrationPlans(root, cfg, contract.SQLRequirements); err != nil {
 			return nil, &codedCLIError{code: 3, err: err}
 		}
+		startupContract = contract
 	}
+	// Source reads can overlap control-plane setup after exclusive ownership,
+	// framework freshness and migration-source checks. No application or SQL
+	// work consumes the snapshot until the existing startup join below.
+	o.startupScan = beginInitialWatchScan(func() (fileSnapshot, error) {
+		var snapshot fileSnapshot
+		scan := func() error {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			var err error
+			snapshot, err = scanInitialWatchedFiles(root, func(root string) (*compiler.Result, error) {
+				return reuseStartupCompilerResult(root, startupContract)
+			})
+			return err
+		}
+		if console != nil {
+			err := console.Phase("Scanning source files", scan)
+			return snapshot, err
+		}
+		err := scan()
+		return snapshot, err
+	})
 	op, err := paths.BeginOperation()
 	if err != nil {
 		return nil, err

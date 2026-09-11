@@ -74,12 +74,13 @@ func renderGoContractFiles(result *Result) ([]generatedFile, error) {
 }
 
 func renderExpectedGoContractFiles(result *Result) ([]generatedFile, error) {
-	files, err := renderExpectedGoPackageFiles(result)
+	input := newProjectionInput(result)
+	files, err := renderGoPackageProjection(result, input)
 	if err != nil {
 		return nil, err
 	}
 	if usesGoImplementation(result.Manifest.Resources) {
-		applicationFiles, err := generateApplicationArtifacts(result, newResourceIndex(result.Manifest.Resources))
+		applicationFiles, err := renderExpectedGoApplicationFiles(result, input)
 		if err != nil {
 			return nil, err
 		}

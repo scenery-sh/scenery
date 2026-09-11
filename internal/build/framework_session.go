@@ -27,7 +27,21 @@ func VerifyFrameworkSession(ctx context.Context, appRoot string) error {
 	if err != nil {
 		return err
 	}
-	selected, err := FrameworkSourceManifest(selectedRoot)
+	canonical, err := filepath.EvalSymlinks(selectedRoot)
+	if err != nil {
+		return err
+	}
+	canonical, err = filepath.Abs(canonical)
+	if err != nil {
+		return err
+	}
+	// Producer verification just read this complete tree. One canonical source
+	// selected for both roles needs one fresh content read, not a second hash.
+	// Different roots still require independent current-byte verification.
+	if canonical == producer.Root {
+		return nil
+	}
+	selected, err := FrameworkSourceManifest(canonical)
 	if err != nil {
 		return err
 	}

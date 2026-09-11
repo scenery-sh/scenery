@@ -2,6 +2,7 @@ package build
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -19,10 +20,18 @@ func PrimeWorkspaceContext(ctx context.Context, result *Result) error {
 	if result == nil {
 		return fmt.Errorf("nil build result")
 	}
+	unlock, err := lockWorkspace(result.Dir)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	if result.NeedsTidy {
 		if err := tidyWorkspace(ctx, result); err != nil {
 			return err
 		}
+	}
+	if err := completePreparedVerification(ctx, result); err != nil {
+		return err
 	}
 	return savePrimedWorkspace(result)
 }
@@ -106,6 +115,12 @@ func CompileContext(ctx context.Context, result *Result) error {
 	if previousState.BuildFingerprint != "" {
 		previousBinary = filepath.Join(result.Dir, workspaceBinaryName(result.AppRoot, previousState.BuildFingerprint))
 	}
+	verifyWorkspace := result.verification != nil
+	if verifyWorkspace {
+		if err := verifyPreparedWorkspace(result); err != nil {
+			return err
+		}
+	}
 	if !result.ReuseCompiled && result.ProductionAssets && result.Contract != nil && result.Target != nil {
 		generatedBefore := len(result.GeneratedFiles)
 		if err := prepareAssistantRuntimeAssets(ctx, result); err != nil {
@@ -119,6 +134,14 @@ func CompileContext(ctx context.Context, result *Result) error {
 	}
 	if result.ReuseCompiled {
 		result.NeedsTidy = false
+		if err := completePreparedVerification(ctx, result); err != nil {
+			return err
+		}
+		if verifyWorkspace {
+			if err := verifyPreparedWorkspace(result); err != nil {
+				return err
+			}
+		}
 		if err := savePrimedWorkspace(result); err != nil {
 			return err
 		}
@@ -132,48 +155,35 @@ func CompileContext(ctx context.Context, result *Result) error {
 			return err
 		}
 	}
-	if len(result.RuntimeLinkerMetadata) == 0 {
-		if err := observeBuildAction(ctx, "runtime.bundle", func() error { return prepareRuntimeBundle(ctx, result) }); err != nil {
-			return err
-		}
-	}
-	if err := validateRuntimeLinkerMetadata(result.RuntimeLinkerMetadata); err != nil {
-		return err
-	}
-	if !result.NeedsTidy {
-		if err := savePrimedWorkspace(result); err != nil {
-			return err
-		}
-	}
-	err = runGoBuildContext(ctx, result)
+	err = compileWithPreparedVerification(ctx, result, func(ctx context.Context) error {
+		return compilePrivateWorkspace(ctx, result)
+	})
 	if err != nil && (result.NeedsTidy || goBuildNeedsWorkspaceTidy(err)) {
+		// The failed operation has joined its checker. Tidy may now mutate
+		// module files, then the complete verification/build pair runs anew.
 		if tidyErr := tidyWorkspace(ctx, result); tidyErr != nil {
 			return tidyErr
 		}
-		if len(result.RuntimeLinkerMetadata) == 0 {
-			if bundleErr := observeBuildAction(ctx, "runtime.bundle", func() error { return prepareRuntimeBundle(ctx, result) }); bundleErr != nil {
-				return bundleErr
-			}
-		}
-		if metadataErr := validateRuntimeLinkerMetadata(result.RuntimeLinkerMetadata); metadataErr != nil {
-			return metadataErr
-		}
-		if saveErr := savePrimedWorkspace(result); saveErr != nil {
-			return saveErr
-		}
-		err = runGoBuildContext(ctx, result)
+		err = compileWithPreparedVerification(ctx, result, func(ctx context.Context) error {
+			return compilePrivateWorkspace(ctx, result)
+		})
 	}
 	if err != nil {
+		if removeErr := os.Remove(result.Binary); removeErr != nil && !os.IsNotExist(removeErr) {
+			return errors.Join(err, fmt.Errorf("remove failed private build: %w", removeErr))
+		}
 		return err
+	}
+	if verifyWorkspace {
+		if err := verifyPreparedWorkspace(result); err != nil {
+			return err
+		}
 	}
 	if result.FrameworkSourceRoot != "" {
 		source, err := FrameworkSourceManifest(result.FrameworkSourceRoot)
 		if err != nil || source.Digest != result.FrameworkSourceDigest {
 			return fmt.Errorf("framework source changed during application compilation; candidate was not published: %v", err)
 		}
-	}
-	if err := writeRuntimeBundle(result); err != nil {
-		return err
 	}
 	if result.NeedsTidy {
 		fingerprint, fingerprintErr := dependencyFingerprintFromWorkspace(result.Dir)
@@ -182,9 +192,13 @@ func CompileContext(ctx context.Context, result *Result) error {
 		}
 		result.DependencyFingerprint = fingerprint
 		result.NeedsTidy = false
-		if err := savePrimedWorkspace(result); err != nil {
-			return err
-		}
+	}
+	// Success publication is downstream of the full verification/build join.
+	if err := writeRuntimeBundle(result); err != nil {
+		return err
+	}
+	if err := savePrimedWorkspace(result); err != nil {
+		return err
 	}
 	if err := pruneStaleWorkspaceBinaries(result.Dir, result.Binary, previousBinary); err != nil {
 		return err
@@ -192,7 +206,20 @@ func CompileContext(ctx context.Context, result *Result) error {
 	if err := WriteLatestBuildManifest(result, "compiled"); err != nil {
 		return err
 	}
+	result.verification = nil
 	return nil
+}
+
+func compilePrivateWorkspace(ctx context.Context, result *Result) error {
+	if len(result.RuntimeLinkerMetadata) == 0 {
+		if err := observeBuildAction(ctx, "runtime.bundle", func() error { return prepareRuntimeBundle(ctx, result) }); err != nil {
+			return err
+		}
+	}
+	if err := validateRuntimeLinkerMetadata(result.RuntimeLinkerMetadata); err != nil {
+		return err
+	}
+	return runGoBuildContext(ctx, result)
 }
 
 func runGoBuildContext(ctx context.Context, result *Result) error {

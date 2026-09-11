@@ -96,7 +96,7 @@ func prepareTestWorkspace(ctx context.Context, appRoot string, cfg app.Config) (
 		}
 	}
 	if result == nil {
-		prepared, err := build.Prepare(appRoot, nil, cfg)
+		prepared, err := build.Prepare(appRoot, cfg)
 		if err != nil {
 			return nil, err
 		}

@@ -89,6 +89,14 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 	if err := validateLocalSecretsFiles(s.root, s.cfg, s.env); err != nil {
 		return nil, devBuildError(metadata, apiEncoding, err)
 	}
+	var postgresStart *postgresStartAttempt
+	if initial {
+		postgresStart, err = s.beginRetainedPostgresStart(ctx, snapshot.contract)
+		if err != nil {
+			return nil, devBuildError(metadata, apiEncoding, err)
+		}
+		defer postgresStart.release()
+	}
 	if err := s.console.Phase("Generating boilerplate code", func() error {
 		if cached != nil {
 			reused, refreshErr := build.RefreshCachedWorkspaceWithSnapshotContext(ctx, s.root, result, sourceSnapshot)
@@ -100,7 +108,7 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 			}
 			metadata, apiEncoding = nil, nil
 		}
-		result, err = build.PrepareWithSnapshotContext(ctx, s.root, nil, s.cfg, sourceSnapshot)
+		result, err = build.PrepareForCompileWithSnapshotContext(ctx, s.root, s.cfg, sourceSnapshot)
 		if err == nil && result != nil {
 			result.GraphFingerprint = graphFingerprint
 			result.Metadata = append(json.RawMessage(nil), metadata...)
@@ -139,6 +147,9 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 	if err := s.persistStatus(ctx); err != nil {
 		return nil, err
 	}
+	if err := postgresStart.wait(); err != nil {
+		return nil, devBuildError(metadata, apiEncoding, err)
+	}
 	dbSetup, shouldRunDBSetup, err := s.nextDevDatabaseSetup(initial, result.Contract)
 	if err != nil {
 		return nil, devBuildError(metadata, apiEncoding, err)
@@ -146,8 +157,10 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 	var environment *devRuntimeEnvironment
 	if shouldRunDBSetup {
 		if err := s.console.Phase("Running database setup", func() error {
-			environment, err = s.prepareRuntimeEnvironment(ctx, result.Contract)
-			if err != nil {
+			if err := s.console.Phase("Resolving database and storage capabilities", func() error {
+				environment, err = s.prepareRuntimeEnvironment(ctx, result.Contract)
+				return err
+			}); err != nil {
 				return err
 			}
 			return s.runDevDatabaseSetup(ctx, dbSetup, result.Contract, environment)

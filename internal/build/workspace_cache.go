@@ -21,7 +21,6 @@ import (
 
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/codegen"
-	"scenery.sh/internal/compiler"
 )
 
 func dependencyFingerprintFromWorkspace(root string) (string, error) {
@@ -218,7 +217,7 @@ func RefreshCachedWorkspaceWithSnapshotContext(ctx context.Context, appRoot stri
 	if result == nil {
 		return false, fmt.Errorf("nil build result")
 	}
-	current, err := refreshCachedGoProjection(appRoot, result)
+	current, err := refreshCachedGoProjection(appRoot, result, snapshot)
 	if err != nil || !current {
 		return false, err
 	}
@@ -291,28 +290,25 @@ func RefreshCachedWorkspaceWithSnapshotContext(ctx context.Context, appRoot stri
 // A cached executable is usable only after publishing the current public
 // projection and proving its private workspace still contains those bytes.
 // Cache metadata alone cannot establish this after deletion or a branch switch.
-func refreshCachedGoProjection(appRoot string, result *Result) (bool, error) {
+func refreshCachedGoProjection(appRoot string, result *Result, snapshot *SourceSnapshot) (bool, error) {
 	if err := requireGenerateHooks(); err != nil {
 		return false, err
 	}
-	contract, err := compiler.Compile(appRoot)
+	contract, err := compileWorkspaceContract(appRoot, snapshot)
 	if err != nil {
 		return false, err
 	}
 	if !contract.Valid() {
 		return false, nil
 	}
-	if err := generateHooks.SyncGoPackages(contract); err != nil {
+	projection, err := generateHooks.PrepareBuildGoWorkspace(contract)
+	if err != nil {
 		return false, err
 	}
 	if err := generateHooks.SyncCachedTypeScript(contract); err != nil {
 		return false, err
 	}
-	rendered, err := generateHooks.RenderGoWorkspaceFiles(contract)
-	if err != nil {
-		return false, err
-	}
-	for rel, expected := range rendered {
+	for rel, expected := range projection.Files {
 		actual, err := os.ReadFile(filepath.Join(result.Dir, filepath.FromSlash(rel)))
 		if errors.Is(err, os.ErrNotExist) {
 			return false, nil

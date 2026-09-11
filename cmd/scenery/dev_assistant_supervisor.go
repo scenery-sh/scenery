@@ -155,6 +155,8 @@ type assistantPreparedRuntime struct {
 
 type assistantSupervisor struct {
 	lifecycle     sync.Mutex
+	callbacks     sync.Mutex
+	output        sync.Mutex
 	cacheOverlays bool
 	ctx           context.Context
 	cancel        context.CancelFunc
@@ -209,42 +211,6 @@ func newAssistantSupervisor(parent context.Context, config assistantSupervisorCo
 		restarts:      map[string]int{},
 		ownedRoots:    map[string]string{},
 	}
-}
-
-// StartPrepared starts every helper whose private state was prepared by
-// Prepare. It is called after the app child owns the MCP listeners. A direct
-// Reconcile call (used by tests and non-supervisor callers) still gets the
-// complete lifecycle by invoking both phases.
-func (s *assistantSupervisor) StartPrepared(ctx context.Context) error {
-	if s == nil {
-		return nil
-	}
-	s.mu.Lock()
-	addresses := make([]string, 0, len(s.prepared))
-	for address := range s.prepared {
-		addresses = append(addresses, address)
-	}
-	s.mu.Unlock()
-	sort.Strings(addresses)
-	for _, address := range addresses {
-		s.mu.Lock()
-		prepared, ok := s.prepared[address]
-		instance := s.instances[address]
-		s.mu.Unlock()
-		if !ok || !prepared.hasDescriptor() {
-			continue
-		}
-		if instance != nil && instance.process != nil && !instance.stopping && instance.definition.Identity == prepared.definition.Identity {
-			continue
-		}
-		if err := s.startPreparedDefinition(ctx, prepared); err != nil {
-			// The helper failure is represented in status; keep starting other
-			// assistants and leave the app process alive.
-			s.scheduleRestart(prepared.definition)
-			continue
-		}
-	}
-	return nil
 }
 
 // Reconcile preserves the original one-call lifecycle for tests and callers
@@ -358,6 +324,18 @@ func (s *assistantSupervisor) startPreparedDefinition(ctx context.Context, prepa
 		ctx = s.ctx
 	}
 	definition := prepared.definition
+	s.mu.Lock()
+	closed, existing := s.closed, s.instances[definition.Address]
+	s.mu.Unlock()
+	if closed {
+		return errors.New("assistant supervisor is closed")
+	}
+	if existing != nil {
+		if existing.stopping {
+			return errors.New("assistant shutdown is unconfirmed; replacement refused")
+		}
+		return nil
+	}
 	state := AssistantStatusRecord{
 		Address: definition.Address, Name: definition.Name, SourceID: "assistant:" + definition.Name,
 		State: string(assistantruntime.StateStarting), Required: definition.Required,
@@ -454,7 +432,7 @@ func (s *assistantSupervisor) startPreparedDefinition(ctx context.Context, prepa
 		"SCENERY_RUNTIME_REVISION="+definition.RuntimeRevision,
 	)
 	env := assistantHelperEnv(nodeHome, overlay.Root, helperValues...)
-	process, err := s.config.ProcessFactory(ctx, devProcessStartRequest{Name: "assistant:" + definition.Name, Kind: "assistant", Role: "assistant-helper", Dir: overlay.Root, Command: nodePath, Args: []string{overlay.BootstrapPath}, Env: env, Stdout: s.config.Output, Stderr: s.config.ErrOutput, TailLines: 120, OnOutput: func(pid int, stream string, data []byte) {
+	process, err := s.config.ProcessFactory(ctx, devProcessStartRequest{Name: "assistant:" + definition.Name, Kind: "assistant", Role: "assistant-helper", Dir: overlay.Root, Command: nodePath, Args: []string{overlay.BootstrapPath}, Env: env, Stdout: s.outputWriter(s.config.Output), Stderr: s.outputWriter(s.config.ErrOutput), TailLines: 120, OnOutput: func(pid int, stream string, data []byte) {
 		s.emit(ctx, definition, "info", "assistant helper output", map[string]any{"pid": pid, "stream": stream, "bytes": len(data)})
 	}})
 	if err != nil {
@@ -463,14 +441,12 @@ func (s *assistantSupervisor) startPreparedDefinition(ctx context.Context, prepa
 		}
 		return s.failDefinition(ctx, definition, fmt.Errorf("assistant helper start: %w", err))
 	}
+	instance := &assistantProcessInstance{definition: definition, overlay: overlay, gateway: gateway, process: process, controlURL: prepared.controlURL, controlToken: prepared.controlToken, secret: append([]byte(nil), prepared.bridgeSecret...)}
 	client, err := assistantruntime.NewHTTPClient(assistantruntime.HTTPClientConfig{ControlBase: prepared.controlURL, ControlToken: prepared.controlToken, AssistantAddress: definition.Address, RuntimeRevision: definition.RuntimeRevision, CapabilityRevision: definition.CapabilityRevision, ControlTimeout: assistantStartupTimeout, StreamTimeout: assistantStartupTimeout})
 	if err != nil {
-		_ = process.Stop(stopTimeout)
-		if gateway != nil {
-			_ = gateway.Close()
-		}
-		return s.failDefinition(ctx, definition, fmt.Errorf("assistant helper client: %w", err))
+		return s.failStartedDefinition(ctx, instance, fmt.Errorf("assistant helper client: %w", err))
 	}
+	instance.client = client
 	probeCtx, cancel := context.WithTimeout(ctx, assistantStartupTimeout)
 	probeErr := process.WaitReady(probeCtx, devProcessReadyRequest{Timeout: assistantStartupTimeout, Interval: assistantProbeInterval, Probe: func(probe context.Context) error {
 		health, err := client.Health(probe)
@@ -491,22 +467,16 @@ func (s *assistantSupervisor) startPreparedDefinition(ctx context.Context, prepa
 	}})
 	cancel()
 	if probeErr != nil {
-		_ = client.Close()
-		_ = process.Stop(stopTimeout)
-		if gateway != nil {
-			_ = gateway.Close()
-		}
-		return s.failDefinition(ctx, definition, fmt.Errorf("assistant helper readiness: %w", probeErr))
+		return s.failStartedDefinition(ctx, instance, fmt.Errorf("assistant helper readiness: %w", probeErr))
 	}
 	actualRuntimeRevision, actualCapabilityRevision := definition.RuntimeRevision, definition.CapabilityRevision
 	if health, healthErr := client.Health(ctx); healthErr == nil {
 		actualRuntimeRevision, actualCapabilityRevision = health.RuntimeRevision, health.CapabilityRevision
 	}
-	instance := &assistantProcessInstance{definition: definition, overlay: overlay, gateway: gateway, process: process, client: client, controlURL: prepared.controlURL, controlToken: prepared.controlToken, secret: append([]byte(nil), prepared.bridgeSecret...)}
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
-		return s.stopInstance(instance)
+		return s.failStartedDefinition(ctx, instance, errors.New("assistant supervisor closed during startup"))
 	}
 	s.instances[definition.Address] = instance
 	status := s.statuses[definition.Address]
@@ -522,9 +492,7 @@ func (s *assistantSupervisor) startPreparedDefinition(ctx context.Context, prepa
 	s.statuses[definition.Address] = status
 	s.mu.Unlock()
 	s.publishStatuses()
-	if s.config.OnProcess != nil {
-		s.config.OnProcess(definition.Name, process.PID)
-	}
+	s.reportProcess(definition.Name, process.PID)
 	s.emit(ctx, definition, "info", "assistant helper ready", map[string]any{"pid": process.PID})
 	go s.monitorInstance(instance)
 	return nil
@@ -727,16 +695,14 @@ func (s *assistantSupervisor) monitorInstance(instance *assistantProcessInstance
 	if instance.gateway != nil {
 		_ = instance.gateway.Close()
 	}
-	if s.config.OnProcess != nil {
-		s.config.OnProcess(instance.definition.Name, 0)
-	}
+	s.reportProcess(instance.definition.Name, 0)
 	s.emit(context.Background(), instance.definition, "error", "assistant helper exited", map[string]any{"pid": instance.process.PID})
 	s.scheduleRestart(instance.definition)
 }
 
 func (s *assistantSupervisor) scheduleRestart(definition assistantDefinition) {
 	s.mu.Lock()
-	if s.closed {
+	if s.closed || s.instances[definition.Address] != nil {
 		s.mu.Unlock()
 		return
 	}
@@ -797,9 +763,7 @@ func (s *assistantSupervisor) stopInstance(instance *assistantProcessInstance) e
 	if instance.gateway != nil {
 		_ = instance.gateway.Close()
 	}
-	if s.config.OnProcess != nil {
-		s.config.OnProcess(instance.definition.Name, 0)
-	}
+	s.reportProcess(instance.definition.Name, 0)
 	if instance.overlay.Root != "" && !preservePrepared {
 		s.mu.Lock()
 		ownedRoot := s.ownedRoots[instance.definition.Address]
@@ -822,7 +786,7 @@ func (s *assistantSupervisor) Close() error {
 	s.lifecycle.Lock()
 	defer s.lifecycle.Unlock()
 	s.mu.Lock()
-	if s.closed {
+	if s.closed && len(s.instances) == 0 {
 		s.mu.Unlock()
 		return nil
 	}
@@ -831,8 +795,7 @@ func (s *assistantSupervisor) Close() error {
 		delete(s.prepared, address)
 	}
 	instances := make([]*assistantProcessInstance, 0, len(s.instances))
-	for address, instance := range s.instances {
-		delete(s.instances, address)
+	for _, instance := range s.instances {
 		instances = append(instances, instance)
 	}
 	roots := make([]string, 0, len(s.ownedRoots))
@@ -847,7 +810,11 @@ func (s *assistantSupervisor) Close() error {
 	for _, instance := range instances {
 		if err := s.stopInstance(instance); err != nil {
 			stopErrors = append(stopErrors, err)
+			continue
 		}
+		s.mu.Lock()
+		delete(s.instances, instance.definition.Address)
+		s.mu.Unlock()
 	}
 	if len(stopErrors) != 0 {
 		return errors.Join(stopErrors...)
@@ -915,6 +882,8 @@ func (s *assistantSupervisor) publishStatuses() {
 	if s == nil || s.config.OnStatus == nil {
 		return
 	}
+	s.callbacks.Lock()
+	defer s.callbacks.Unlock()
 	s.config.OnStatus(s.Status())
 }
 
@@ -943,7 +912,7 @@ func (s *assistantSupervisor) ProcessSnapshot() map[string]localagent.Process {
 	defer s.mu.Unlock()
 	result := make(map[string]localagent.Process)
 	for _, instance := range s.instances {
-		if instance != nil && instance.process != nil && instance.process.PID > 0 && !instance.stopping {
+		if instance != nil && instance.process != nil && instance.process.PID > 0 {
 			result["assistant-"+instance.definition.Name] = localagent.Process{PID: instance.process.PID}
 		}
 	}
@@ -957,6 +926,8 @@ func (s *assistantSupervisor) emit(ctx context.Context, definition assistantDefi
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	s.callbacks.Lock()
+	defer s.callbacks.Unlock()
 	s.config.OnEvent(ctx, devdash.DevSource{ID: "assistant:" + definition.Name, Kind: "assistant", Name: definition.Name, Role: "assistant-helper", Status: level}, level, message, fields)
 }
 

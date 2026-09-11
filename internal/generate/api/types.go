@@ -7,7 +7,6 @@ package generateapi
 // workspace preparation and native package analysis for that preparation.
 type GoWorkspaceProjection struct {
 	Files                map[string][]byte
-	VerificationOverlay  map[string][]byte
 	VerificationPatterns []string
 }
 

@@ -11,6 +11,52 @@ import (
 	"scenery.sh/internal/graph"
 )
 
+func TestInitialWatchScanJoinsResultAndFailure(t *testing.T) {
+	t.Parallel()
+	entered, release := make(chan struct{}), make(chan struct{})
+	want := errors.New("source read failed")
+	contract := &compiler.Result{Root: "owned"}
+	scan := beginInitialWatchScan(func() (fileSnapshot, error) {
+		close(entered)
+		<-release
+		return fileSnapshot{contract: contract}, want
+	})
+	<-entered
+	select {
+	case <-scan.done:
+		t.Fatal("scan completed before its source read")
+	default:
+	}
+	close(release)
+	for range 2 {
+		snapshot, err := scan.wait()
+		if snapshot.contract != contract || !errors.Is(err, want) {
+			t.Fatalf("startup scan lost its exact result: %p %v", snapshot.contract, err)
+		}
+	}
+}
+
+func TestWorktreeOwnerCloseJoinsInitialScan(t *testing.T) {
+	t.Parallel()
+	entered, release := make(chan struct{}), make(chan struct{})
+	owner := &worktreeRuntimeOwner{startupScan: beginInitialWatchScan(func() (fileSnapshot, error) {
+		close(entered)
+		<-release
+		return fileSnapshot{}, nil
+	})}
+	<-entered
+	closed := make(chan struct{})
+	go func() { owner.Close(); close(closed) }()
+	select {
+	case <-closed:
+		t.Fatal("owner released a still-running startup scan")
+	default:
+	}
+	close(release)
+	<-closed
+	owner.Close()
+}
+
 func TestInitialWatchSnapshotIncludesAssistantInputs(t *testing.T) {
 	root := t.TempDir()
 	source := filepath.Join(root, "assistants", "support")
@@ -79,5 +125,29 @@ func TestInitialWatchSnapshotPreservesSourceFailure(t *testing.T) {
 	})
 	if !errors.Is(err, compileErr) {
 		t.Fatalf("compiler failure changed: %v", err)
+	}
+}
+
+func TestStartupMigrationGraphReuseChecksCurrentSource(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	path := filepath.Join(root, "app.scn")
+	if err := os.WriteFile(path, []byte("application \"before\" {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := compiler.Compile(root)
+	if err != nil || !result.Valid() {
+		t.Fatalf("compile: %v", err)
+	}
+	got, err := reuseStartupCompilerResult(root, result)
+	if err != nil || got != result {
+		t.Fatalf("unchanged startup did not reuse its migration graph: %v", err)
+	}
+	if err := os.WriteFile(path, []byte("application \"after\" {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err = reuseStartupCompilerResult(root, result)
+	if err != nil || got == result || got.Manifest.Application.Name != "after" {
+		t.Fatalf("changed startup accepted stale migration graph: %v", err)
 	}
 }

@@ -65,12 +65,16 @@ type goListModule struct {
 	Replace  *goListModule
 }
 
+// Ask Go for the complete consumed-file/module projection, without computing
+// unrelated package presentation fields such as transitive import summaries.
+const goBuildInputFields = "Dir,ImportPath,Standard,GoFiles,CgoFiles,CFiles,CXXFiles,MFiles,HFiles,FFiles,SFiles,SwigFiles,SwigCXXFiles,SysoFiles,EmbedFiles,Module"
+
 func buildInputManifest(ctx context.Context, result *Result) (*BuildInputManifest, error) {
 	if result == nil || result.Target == nil {
 		return nil, fmt.Errorf("build target is unavailable")
 	}
 	target := result.Target
-	args := []string{"list", "-deps", "-json"}
+	args := []string{"list", "-deps", "-json=" + goBuildInputFields}
 	args = append(args, target.Context.BuildFlags...)
 	if len(target.Context.BuildTags) > 0 {
 		args = append(args, "-tags="+strings.Join(target.Context.BuildTags, ","))
@@ -83,11 +87,22 @@ func buildInputManifest(ctx context.Context, result *Result) (*BuildInputManifes
 	command := exec.CommandContext(ctx, "go", args...)
 	command.Dir = result.Dir
 	command.Env = gotarget.Environment(target.Context)
-	output, err := command.CombinedOutput()
+	var output []byte
+	err := observeBuildAction(ctx, "go.input_discovery", func() error {
+		var err error
+		output, err = command.CombinedOutput()
+		return err
+	})
 	if err != nil {
 		return nil, fmt.Errorf("go %s failed while producing build inputs: %w\n%s", strings.Join(args, " "), err, output)
 	}
-	return buildInputManifestFromGoList(result, output)
+	var manifest *BuildInputManifest
+	err = observeBuildAction(ctx, "go.input_fingerprint", func() error {
+		var err error
+		manifest, err = buildInputManifestFromGoList(result, output)
+		return err
+	})
+	return manifest, err
 }
 
 func buildInputManifestFromGoList(result *Result, output []byte) (*BuildInputManifest, error) {

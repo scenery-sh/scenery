@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	"scenery.sh/internal/assistantruntime"
@@ -35,7 +36,12 @@ func (s *assistantSupervisor) stage(ctx context.Context, result *compiler.Result
 		ctx = s.ctx
 	}
 	stage := &assistantStage{contract: result, prepared: map[string]assistantPreparedRuntime{}, failures: map[string]error{}}
-	var failures []error
+	type preparation struct {
+		runtime assistantPreparedRuntime
+		started time.Time
+		err     error
+	}
+	var pending []preparation
 	for _, definition := range assistantDefinitionsFromResult(result, s.config.Root) {
 		started := time.Now()
 		s.mu.Lock()
@@ -47,15 +53,47 @@ func (s *assistantSupervisor) stage(ctx context.Context, result *compiler.Result
 			continue
 		}
 		prepared, err := newAssistantPreparedRuntime(result, definition)
-		if err == nil && s.config.UseAppGateway {
-			err = s.materializeOverlay(ctx, &prepared)
+		pending = append(pending, preparation{runtime: prepared, started: started, err: err})
+	}
+	if s.config.UseAppGateway && len(pending) > 0 {
+		// One invocation owns the verified toolchain selection. Independent
+		// private trees can then be copied/built concurrently, with bounded IO.
+		node, npm, home, nodeErr := s.config.NodeResolver(ctx)
+		selection := assistantNodeSelection{node: node, npm: npm, home: home}
+		if nodeErr != nil {
+			nodeErr = fmt.Errorf("assistant managed Node: %w", nodeErr)
 		}
-		stage.prepared[definition.Address] = prepared
-		if err != nil {
-			stage.failures[definition.Address] = err
-			failures = append(failures, fmt.Errorf("stage assistant %s: %w", definition.Address, err))
+		for index := range pending {
+			if pending[index].err == nil {
+				pending[index].err = nodeErr
+			}
 		}
-		s.emitStep(ctx, definition, "assistant.stage", started, "miss", "candidate_private_preparation", err)
+		var workers sync.WaitGroup
+		jobs := make(chan int)
+		for range min(2, len(pending)) {
+			workers.Go(func() {
+				for index := range jobs {
+					if pending[index].err == nil {
+						pending[index].err = s.materializeOverlay(ctx, &pending[index].runtime, &selection)
+					}
+				}
+			})
+		}
+		for index := range pending {
+			jobs <- index
+		}
+		close(jobs)
+		workers.Wait()
+	}
+	var failures []error
+	for _, item := range pending {
+		definition := item.runtime.definition
+		stage.prepared[definition.Address] = item.runtime
+		if item.err != nil {
+			stage.failures[definition.Address] = item.err
+			failures = append(failures, fmt.Errorf("stage assistant %s: %w", definition.Address, item.err))
+		}
+		s.emitStep(ctx, definition, "assistant.stage", item.started, "miss", "candidate_private_preparation", item.err)
 	}
 	return stage, errors.Join(failures...)
 }

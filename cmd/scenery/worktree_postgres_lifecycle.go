@@ -8,6 +8,71 @@ import (
 	localagent "scenery.sh/internal/agent"
 )
 
+// startRetained only wakes a fully initialized owned server. Missing resources
+// and interrupted provisioning stay with ordinary post-build preparation.
+func (r worktreePostgresResolver) startRetained(ctx context.Context) error {
+	op, err := r.beginOperation()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = op.Close() }()
+	record, err := r.load()
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	p := record.Postgres
+	if p.Major != 18 {
+		return worktreePostgresPrecondition("the retained PostgreSQL major requires an explicit validated engine migration")
+	}
+	if p.Phase != "ready" || p.SystemID == "" || p.Restore != nil {
+		return nil
+	}
+	_, container, err := r.inspect(ctx, record)
+	if err != nil || container == nil {
+		return err
+	}
+	_, err = r.ensureRetainedEndpoint(ctx, op, record, container)
+	return err
+}
+
+// The caller holds the operation lock and has verified Docker ownership.
+// Authenticate retained data before persisting any endpoint reconciliation.
+func (r worktreePostgresResolver) ensureRetainedEndpoint(ctx context.Context, op worktreePostgresOperation, record localagent.WorktreeRecord, container *worktreePostgresContainer) (*localagent.WorktreePostgres, error) {
+	if !container.Running {
+		if err := r.docker.Start(ctx, record, container.ID); err != nil {
+			return nil, err
+		}
+		_, current, err := r.inspect(ctx, record)
+		if err != nil {
+			return nil, err
+		}
+		if current == nil || !current.Running {
+			return nil, worktreePostgresPrecondition("the verified container did not start")
+		}
+		container = current
+	}
+	p := record.Postgres
+	observed := *p
+	observed.Port = container.Port
+	systemID, err := r.probe(ctx, &observed)
+	if err != nil || systemID == "" {
+		return nil, worktreePostgresPrecondition("authenticated cluster readiness failed; raw connection errors are omitted to protect credentials")
+	}
+	if systemID != p.SystemID {
+		return nil, worktreePostgresPrecondition("authenticated PostgreSQL cluster identity differs from retained data")
+	}
+	if p.Port != observed.Port || p.Phase != "ready" {
+		p.Port, p.Phase = observed.Port, "ready"
+		if err := op.SaveRecord(record); err != nil {
+			return nil, err
+		}
+	}
+	return p, nil
+}
+
 // observe never acquires a creating lock or changes retained state or Docker.
 func (r worktreePostgresResolver) observe(ctx context.Context) (*localagent.WorktreePostgres, bool, error) {
 	record, err := r.load()

@@ -65,11 +65,11 @@ func runHarnessAppHandoffProbe(parent context.Context, root, home string, starte
 		return sessions[0], nil
 	}
 	apiURL := strings.TrimRight(started.Session.RouteManifest.Routes[localagent.RouteAPI].URL, "/") + "/echo"
-	if err := harnessHandoffEcho(ctx, apiURL, "echo:handoff"); err != nil {
-		return nil, err
-	}
 	initial, err := readSession()
 	if err != nil {
+		return nil, err
+	}
+	if err := harnessHandoffEcho(ctx, apiURL, "echo:handoff", initial.AppPID); err != nil {
 		return nil, err
 	}
 	sourcePath := filepath.Join(root, "service/api.go")
@@ -118,7 +118,7 @@ func runHarnessAppHandoffProbe(parent context.Context, root, home string, starte
 	if err != nil || preserved.AppPID != initial.AppPID || preserved.Status != "running" {
 		return nil, fmt.Errorf("rejected candidate displaced the live generation: %+v: %v", preserved, err)
 	}
-	if err := harnessHandoffEcho(ctx, apiURL, "echo:handoff"); err != nil {
+	if err := harnessHandoffEcho(ctx, apiURL, "echo:handoff", preserved.AppPID); err != nil {
 		return nil, err
 	}
 	if err := os.Remove(rejectedPath); err != nil {
@@ -129,7 +129,7 @@ func runHarnessAppHandoffProbe(parent context.Context, root, home string, starte
 		for {
 			session, readErr := readSession()
 			if readErr == nil && session.Status == "running" && session.AppPID != "" && session.AppPID != previousPID {
-				if last = harnessHandoffEcho(ctx, apiURL, response); last == nil {
+				if last = harnessHandoffEcho(ctx, apiURL, response, session.AppPID); last == nil {
 					return session, nil
 				}
 			} else {
@@ -171,7 +171,7 @@ func runHarnessAppHandoffProbe(parent context.Context, root, home string, starte
 	}, nil
 }
 
-func harnessHandoffEcho(ctx context.Context, url, want string) error {
+func harnessHandoffEcho(ctx context.Context, url, want, processID string) error {
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader(`{"message":"handoff"}`))
 	if err != nil {
 		return err
@@ -182,6 +182,11 @@ func harnessHandoffEcho(ctx context.Context, url, want string) error {
 		return err
 	}
 	defer func() { _ = response.Body.Close() }()
+	// Session inspection and HTTP are separate observations. A later generation
+	// may already serve this response; never attribute it to the earlier PID.
+	if actual := response.Header.Get("X-Scenery-Process-ID"); processID == "" || actual != processID {
+		return fmt.Errorf("served process %q; want observed session process %q", actual, processID)
+	}
 	data, err := io.ReadAll(io.LimitReader(response.Body, 4096))
 	if err != nil {
 		return err

@@ -7,10 +7,9 @@ import (
 
 	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/compiler"
-	"scenery.sh/internal/model"
 )
 
-func generateMain(appModel *model.App, cfg appcfg.Config, compositionImport string, sql compiler.SQLRequirements) ([]byte, error) {
+func generateMain(appName string, cfg appcfg.Config, compositionImport string, sql compiler.SQLRequirements) ([]byte, error) {
 	var buf strings.Builder
 	buf.WriteString("package main\n\n")
 	buf.WriteString("import (\n")
@@ -56,7 +55,7 @@ func generateMain(appModel *model.App, cfg appcfg.Config, compositionImport stri
 		buf.WriteString("\tif err == nil { err = contractRegistry.Seal() }\n")
 		buf.WriteString("\tif err != nil {\n\t\t_, _ = fmt.Fprintf(os.Stderr, \"scenery: %v\\n\", err)\n\t\tos.Exit(1)\n\t}\n")
 	}
-	fmt.Fprintf(&buf, "\tif err := sceneryruntime.Main(%s); err != nil {\n", appConfigLiteral(appModel.Name, cfg))
+	fmt.Fprintf(&buf, "\tif err := sceneryruntime.Main(%s); err != nil {\n", appConfigLiteral(appName, cfg))
 	buf.WriteString("\t\t_, _ = fmt.Fprintf(os.Stderr, \"scenery: %v\\n\", err)\n")
 	buf.WriteString("\t\tos.Exit(1)\n")
 	buf.WriteString("\t}\n")

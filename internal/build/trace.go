@@ -2,6 +2,7 @@ package build
 
 import (
 	"context"
+	"sync"
 	"time"
 )
 
@@ -19,7 +20,14 @@ type Step struct {
 type traceKey struct{}
 
 func WithTrace(ctx context.Context, emit func(Step)) context.Context {
-	return context.WithValue(ctx, traceKey{}, emit)
+	var mu sync.Mutex
+	return context.WithValue(ctx, traceKey{}, func(step Step) {
+		if emit != nil {
+			mu.Lock()
+			defer mu.Unlock()
+			emit(step)
+		}
+	})
 }
 
 func finishStep(ctx context.Context, name string, started time.Time, cache, reason string, err error) {

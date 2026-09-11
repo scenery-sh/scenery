@@ -5,15 +5,17 @@ import (
 	"testing"
 
 	"scenery.sh/internal/app"
-	"scenery.sh/internal/model"
 )
 
 func TestGeneratedPreflightPrecedesApplicationInitialization(t *testing.T) {
-	generated, err := generateMain(&model.App{Name: "fixture"}, app.Config{Auth: app.AuthConfig{Enabled: true}}, "example.test/fixture/internal/composition", nil)
+	generated, err := generateMain("fixture", app.Config{Auth: app.AuthConfig{Enabled: true}}, "example.test/fixture/internal/composition", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	source := string(generated)
+	if !strings.Contains(source, `Name: "fixture"`) {
+		t.Fatal("entrypoint lost the explicitly supplied application name")
+	}
 	preflight := strings.Index(source, "sceneryruntime.WriteRuntimePreflight(")
 	if preflight < 0 {
 		t.Fatal("missing read-only runtime handshake")

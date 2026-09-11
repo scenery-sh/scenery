@@ -267,6 +267,8 @@ marker is found; it is not evidence that an app can compile or start.
 - Doctor is prerequisite evidence, not application readiness. Its managed-Postgres check only probes Docker availability, not database health, ownership or credentials. Known failed prerequisites exit 3; unavailable startup capabilities exit 4. Read diagnostic suggestions without printing credentials or copying raw Docker output into public errors.
 - Use `scenery logs --follow` for the current runtime.
 - Test-only Go edits and documentation-only changes do not restart the backend. Runtime source or explicit runtime-embedded data does; metadata-only touches and identical-content rewrites do not. Run the selected tests explicitly to verify changed test code.
+- Initial startup may reuse the graph compiled to discover assistant watch inputs, after rechecking current source membership, bytes and the complete workspace revision. Source scanning may overlap control-plane setup only after acquiring lifetime ownership and passing framework and migration-source checks; startup and cleanup both join it. Changed source still requires a fresh compilation; this does not skip generated-artifact verification or candidate readiness.
+- Initial startup may wake an already initialized, ownership-verified managed PostgreSQL server alongside Go preparation after validating the current graph and endpoint selection. That branch does not allocate or recreate resources, create schemas, migrate or seed; it is joined before fresh post-build database resolution. No-SQL and explicitly external database selections do not start retained managed PostgreSQL.
 - Before replacing a backend, the supervisor runs the candidate's read-only runtime handshake and checks its exact spec, linked contract, implementation, build-input digest, target, ABI and storage descriptor. A failed handshake leaves the previous backend running. After a successful handshake, replacement stops the old generation before starting the new one; a failed start restores the retained executable and environment only after candidate shutdown is confirmed. Build errors remain visible while a retained or restored backend keeps its served metadata and session PID. Keep application Go `init` functions free of writes: they execute before the generated entrypoint can select preflight mode.
 - Use `scenery down` to stop it; add destructive cleanup flags only intentionally.
 - Use `scenery worker` for a worker-role runtime serving declared durable executions and schedules.
@@ -418,6 +420,18 @@ Application-imported Go projections are ordinary in-module packages, ignored by 
 
 Existing Scenery editor workfiles require the explicit [one-time cutover](app-development-cookbook.md#retire-an-old-scenery-editor-workfile). No command migrates existing apps, deletes global editor caches, or rewrites user workspaces automatically.
 
+Fresh builds materialize and prime one private Go workspace before overlapping
+complete native checking with Go compilation. Public Go publication and the
+private workspace share one rendered package projection, with live snapshot,
+module ownership and retirement checks at publication. Checking covers default verification
+targets and the selected build target, with separate complete type contexts.
+Both branches consume the same locked workspace; membership and bytes are checked
+when acquiring it and before publication. Cancellation or failure joins both
+branches before returning. Runtime-bundle publication, reusable build state and
+binary pruning happen only after the join. The real candidate preflight and old
+process shutdown still occur afterwards. Check-only commands continue to verify
+expected overlays without materializing private build output.
+
 Assistant builds add provider-neutral runtime asset descriptors under the
 managed build cache and content-addressed Node/npm dependencies under
 `.scenery/assistant-cache/<package-lock-digest>/`. Private helper state and
@@ -428,7 +442,11 @@ commands rather than treating their fields as an application contract.
 Development rebuilds stage assistant dependencies and files before stopping
 the active API. A failed stage leaves the current generation serving; a failed
 candidate startup rolls back to retained private helper bytes and descriptors.
+Initial startup overlaps candidate-private staging with workspace/database
+preparation, then joins and revalidates the graph and source before activation.
 Helper-only watches and delayed retries are serialized with this handoff.
+Helper startup handshakes run with a two-address bound after the API listener;
+unconfirmed shutdown retains process/file ownership and prevents duplicate starts.
 The `assistant.stage`, `assistant.cache_copy` and `assistant.cache_relocate`
 trace steps distinguish preparation from activation; copy evidence includes
 entry/file/byte counts and read, hash, write and traversal time.

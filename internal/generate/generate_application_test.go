@@ -69,7 +69,7 @@ func TestGenerateGoConstructorInjectsTypedInternalClient(t *testing.T) {
 			t.Fatalf("contract missing %q:\n%s", fragment, contractSource)
 		}
 	}
-	applicationFiles, err := generateApplicationArtifacts(result, newResourceIndex(result.Manifest.Resources))
+	applicationFiles, err := generateApplicationArtifacts(result, newResourceIndex(result.Manifest.Resources), newProjectionInput(result))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +101,7 @@ func TestGenerateApplicationAdapterRegistersExecutablePageContract(t *testing.T)
 			"page": map[string]any{"$ref": "page.scene_detail"}, "runtime": "web", "module": "ui/SceneDetail.tsx", "implementation_digest": "sha256:renderer", "config": map[string]any{"theme": "dark"},
 		}},
 	)
-	files, err := generateApplicationArtifacts(result, newResourceIndex(result.Manifest.Resources))
+	files, err := generateApplicationArtifacts(result, newResourceIndex(result.Manifest.Resources), newProjectionInput(result))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +158,7 @@ func TestGenerateGoInternalClientImportsCrossPackageContract(t *testing.T) {
 			t.Fatalf("cross-package contract missing %q:\n%s", fragment, contractSource)
 		}
 	}
-	applicationFiles, err := generateApplicationArtifacts(result, newResourceIndex(result.Manifest.Resources))
+	applicationFiles, err := generateApplicationArtifacts(result, newResourceIndex(result.Manifest.Resources), newProjectionInput(result))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,7 +215,7 @@ func TestGenerateApplicationAdapterRegistersAndDispatchesDurableExecution(t *tes
 			}
 		}
 	}
-	files, err := generateApplicationArtifacts(result, newResourceIndex(result.Manifest.Resources))
+	files, err := generateApplicationArtifacts(result, newResourceIndex(result.Manifest.Resources), newProjectionInput(result))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -273,7 +273,7 @@ func TestGenerateApplicationAdapterRegistersSchedulesConsumersAndEmissions(t *te
 			"invoke": map[string]any{"operation": map[string]any{"$ref": "operation.process_scene"}, "execution": map[string]any{"$ref": "execution.process_scene_direct"}, "identity": map[string]any{"$ref": "std.workload_identity.scheduler"}, "authorization": map[string]any{"$ref": "std.authorization.scheduled"}, "pipeline": map[string]any{"$ref": "std.pipeline.empty"}, "input": map[string]any{"scene_id": "nightly"}},
 		}},
 	)
-	files, err := generateApplicationArtifacts(result, newResourceIndex(result.Manifest.Resources))
+	files, err := generateApplicationArtifacts(result, newResourceIndex(result.Manifest.Resources), newProjectionInput(result))
 	if err != nil {
 		t.Fatal(err)
 	}

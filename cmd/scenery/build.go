@@ -119,7 +119,7 @@ func buildCommand(out io.Writer, args []string) error {
 	}
 	var result *build.Result
 	if libraryName != "" {
-		result, err = build.Prepare(appRoot, nil, cfg)
+		result, err = build.Prepare(appRoot, cfg)
 	} else if development {
 		result, err = build.AppForTarget(appRoot, cfg, targetName, "development")
 	} else {

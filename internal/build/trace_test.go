@@ -3,6 +3,7 @@ package build
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 )
@@ -28,6 +29,14 @@ func TestBuildTracePreservesNestedIntervalsAndFailure(t *testing.T) {
 	}
 	if outer.StartedAt.After(inner.StartedAt) || outer.Duration < inner.Duration {
 		t.Fatalf("nested intervals lost their critical-path relation: %+v", steps)
+	}
+	var joined sync.WaitGroup
+	for range 2 {
+		joined.Go(func() { finishStep(ctx, "parallel", time.Now(), "miss", "executed", nil) })
+	}
+	joined.Wait()
+	if len(steps) != 5 {
+		t.Fatal("parallel build branches lost trace events")
 	}
 }
 

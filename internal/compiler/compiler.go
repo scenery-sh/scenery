@@ -1,7 +1,6 @@
 package compiler
 
 import (
-	"encoding/json"
 	"fmt"
 	pathpkg "path"
 	"path/filepath"
@@ -419,13 +418,6 @@ func compileSources(root string, sources []*Source, lockfile *Lockfile) (*Manife
 		"expanded":  manifest,
 	}
 	return manifest, views, diagnostics, packageSources
-}
-
-func cloneResourceView(resources []Resource) []Resource {
-	data, _ := json.Marshal(resources)
-	var cloned []Resource
-	_ = json.Unmarshal(data, &cloned)
-	return cloned
 }
 
 func authoredResourceView(resource Resource) Resource {

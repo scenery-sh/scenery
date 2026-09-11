@@ -19,7 +19,7 @@ func TestProjectionCacheInputsAndOwnership(t *testing.T) {
 	}
 	read := func(extra string) []generatedFile {
 		t.Helper()
-		files, err := cachedProjection(result, "test", extra, render)
+		files, err := cachedProjection(newProjectionInput(result), "test", extra, render)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -92,7 +92,7 @@ func TestProjectionCacheDoesNotRetainFailures(t *testing.T) {
 	want := errors.New("render failed")
 	calls := 0
 	for range 2 {
-		_, err := cachedProjection(result, "failure", nil, func() ([]generatedFile, error) {
+		_, err := cachedProjection(newProjectionInput(result), "failure", nil, func() ([]generatedFile, error) {
 			calls++
 			return nil, want
 		})
@@ -102,5 +102,40 @@ func TestProjectionCacheDoesNotRetainFailures(t *testing.T) {
 	}
 	if calls != 2 {
 		t.Fatal("failed rendering was cached")
+	}
+}
+
+func TestProjectionInputSeparatesSelectionsAndFreshOperations(t *testing.T) {
+	result := &compiler.Result{Root: "workspace", Sources: []*scn.Source{{Bytes: []byte("declaration")}}}
+	input := newProjectionInput(result)
+	first, err := input.key("public", "catalog")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, selection := range []struct{ kind, extra string }{{"private", "catalog"}, {"public", "changed-catalog"}} {
+		key, err := input.key(selection.kind, selection.extra)
+		if err != nil || key == first {
+			t.Fatalf("projection selection was not isolated: %v", err)
+		}
+	}
+	result.Sources[0].Bytes = []byte("changed declaration")
+	fresh, err := newProjectionInput(result).key("public", "catalog")
+	if err != nil || fresh == first {
+		t.Fatalf("a fresh operation reused changed source identity: %v", err)
+	}
+	result.Sources[0].Blocks = []*scn.Block{{Attributes: map[string]scn.Expression{"unsupported": {Value: make(chan int)}}}}
+	invalid := newProjectionInput(result)
+	calls := 0
+	for range 2 {
+		_, err := cachedProjection(invalid, "invalid", nil, func() ([]generatedFile, error) {
+			calls++
+			return nil, nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if calls != 2 {
+		t.Fatal("unserializable common input was cached")
 	}
 }

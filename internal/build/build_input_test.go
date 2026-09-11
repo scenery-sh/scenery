@@ -5,10 +5,27 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
+	"slices"
+	"strings"
 	"testing"
 
 	"scenery.sh/internal/compiler"
 )
+
+func TestGoInputDiscoveryRequestsEveryConsumedField(t *testing.T) {
+	requested := strings.Split(goBuildInputFields, ",")
+	shape := reflect.TypeFor[goListPackage]()
+	var fields []string
+	for i := 0; i < shape.NumField(); i++ {
+		fields = append(fields, shape.Field(i).Name)
+	}
+	slices.Sort(fields)
+	slices.Sort(requested)
+	if !slices.Equal(fields, requested) {
+		t.Fatalf("Go input projection does not match consumed fields: requested=%v consumed=%v", requested, fields)
+	}
+}
 
 func TestBuildInputManifestIncludesLocalReplaceBytesFromGoListInProcess(t *testing.T) {
 	t.Parallel()

@@ -45,6 +45,7 @@ type Result struct {
 	ImplementationRevisions map[string]string
 	AssistantAssets         []generateapi.AssistantAssetDescriptor
 	ProductionAssets        bool
+	verification            *preparedVerification
 }
 
 // SourceStamp records the size/mtime/permissions of an app source file as
@@ -60,6 +61,9 @@ type SourceStamp struct {
 
 type SourceSnapshot struct {
 	Files map[string]SourceSnapshotFile
+	// Contract is an optional already-compiled startup snapshot. Consumers
+	// verify current membership and bytes before reusing its pure graph.
+	Contract *compiler.Result
 }
 
 type SourceSnapshotFile struct {
@@ -154,7 +158,7 @@ func appForTarget(appRoot string, cfg app.Config, targetName, defaultRole string
 	if target.Role == "contract" {
 		return nil, fmt.Errorf("go contract target %s does not produce a runtime binary", target.Name)
 	}
-	result, err := prepareWithContractTarget(appRoot, nil, cfg, nil, contract, target)
+	result, err := prepareWithContractTarget(appRoot, cfg, nil, contract, target)
 	if err != nil {
 		return nil, err
 	}

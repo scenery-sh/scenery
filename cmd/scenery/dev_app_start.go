@@ -12,6 +12,7 @@ import (
 	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/build"
+	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/devdash"
 	"scenery.sh/runtime"
 )
@@ -49,6 +50,13 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 		})
 	}
 
+	var earlyAssistants *assistantStageAttempt
+	if initial && s.assistants != nil && snapshot.contract.Valid() {
+		s.assistants.lifecycle.Lock()
+		defer s.assistants.lifecycle.Unlock()
+		earlyAssistants = s.assistants.beginStage(ctx, snapshot.contract)
+		defer earlyAssistants.release()
+	}
 	plan, err := s.prepareDevRuntimePlan(ctx, initial, snapshot)
 	if err != nil {
 		metadata, apiEncoding := devBuildErrorPayload(err)
@@ -72,8 +80,10 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 		return s.handleCompileError(ctx, nil, nil, err)
 	}
 	if s.assistants != nil {
-		s.assistants.lifecycle.Lock()
-		defer s.assistants.lifecycle.Unlock()
+		if earlyAssistants == nil {
+			s.assistants.lifecycle.Lock()
+			defer s.assistants.lifecycle.Unlock()
+		}
 		previousStage := s.assistants.captureStage()
 		defer s.assistants.releaseStage(previousStage)
 		s.mu.Lock()
@@ -84,12 +94,30 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 		s.mu.Unlock()
 		err = s.console.Phase("Staging assistant runtimes", func() error {
 			var stageErr error
+			if earlyAssistants != nil {
+				if earlyAssistants.matches(plan.Result.Contract) {
+					candidate.assistants, stageErr = earlyAssistants.wait()
+					return stageErr
+				}
+				// A source change during startup may have forced a fresh graph.
+				// Join and retire the old private stage before preparing that graph.
+				earlyAssistants.release()
+			}
 			candidate.assistants, stageErr = s.assistants.stage(ctx, plan.Result.Contract)
 			return stageErr
 		})
 		defer s.assistants.releaseStage(candidate.assistants)
 		if err != nil && previous != nil {
 			return s.handleCompileError(ctx, nil, nil, err)
+		}
+		if earlyAssistants != nil {
+			unchanged, checkErr := compiler.SnapshotUnchanged(plan.Result.Contract)
+			if checkErr != nil {
+				return s.handleCompileError(ctx, nil, nil, checkErr)
+			}
+			if !unchanged {
+				return s.handleCompileError(ctx, nil, nil, errors.New("source changed during startup preparation; retry from a stable snapshot"))
+			}
 		}
 	}
 
@@ -184,12 +212,21 @@ func (s *devSupervisor) prepareAppStart(ctx context.Context, result *build.Resul
 	}
 	agentSession := s.currentAgentSession()
 	binary := result.Binary
-	if environment == nil {
-		var err error
-		environment, err = s.prepareRuntimeEnvironment(ctx, result.Contract)
-		if err != nil {
-			return nil, err
+	sessionBinary, environment, err := prepareAppStartInputs(func() (string, error) {
+		return prepareSessionAppBinary(agentSession, result.Binary)
+	}, func() (*devRuntimeEnvironment, error) {
+		if environment != nil {
+			return environment, nil
 		}
+		return s.prepareRuntimeEnvironment(ctx, result.Contract)
+	}, func(path string) {
+		s.releaseUnusedAppBinary(&appStartPlan{request: devProcessStartRequest{Command: path}})
+	})
+	if err != nil {
+		return nil, err
+	}
+	if sessionBinary != "" {
+		binary = sessionBinary
 	}
 	appBaseEnv := s.appDatabaseAuthorityEnv(environment.base, result.Contract.SQLRequirements)
 	env := appChildEnv(
@@ -223,11 +260,6 @@ func (s *devSupervisor) prepareAppStart(ctx context.Context, result *build.Resul
 	}
 	if path := strings.TrimSpace(s.assistantTokenKeyPath); path != "" {
 		env = append(env, runtime.AssistantTokenKeyFileEnv+"="+path)
-	}
-	if sessionBinary, err := prepareSessionAppBinary(agentSession, result.Binary); err != nil {
-		return nil, err
-	} else if sessionBinary != "" {
-		binary = sessionBinary
 	}
 	return &appStartPlan{result: result, metadata: metadata, apiEncoding: apiEncoding, request: devProcessStartRequest{
 		Name:    "api",

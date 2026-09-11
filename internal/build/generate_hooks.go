@@ -1,25 +1,22 @@
 package build
 
 import (
+	"context"
 	"fmt"
 
 	"scenery.sh/internal/compiler"
 	generateapi "scenery.sh/internal/generate/api"
-	"scenery.sh/internal/gotarget"
-	"scenery.sh/internal/model"
 )
 
 // GenerateHooks are the generate callbacks used by prepare and assistant
 // asset materialization. Production CLI and build tests wire them; the
 // production package does not import internal/generate.
 type GenerateHooks struct {
-	ApplyImplementationCheck func(*compiler.Result, func(gotarget.Context, *model.App)) *generateapi.GoWorkspaceProjection
-	SyncGoPackages           func(*compiler.Result) error
-	SyncCachedTypeScript     func(*compiler.Result) error
-	RenderGoWorkspaceFiles   func(*compiler.Result) (map[string][]byte, error)
-	PrepareGoWorkspace       func(*compiler.Result) (generateapi.GoWorkspaceProjection, error)
-	RuntimeIntegrationPlan   func(*compiler.Result) (generateapi.RuntimeIntegrationPlan, error)
-	RenderAssistantAssets    func(*compiler.Result, []generateapi.AssistantAssetInput) (map[string][]byte, error)
+	ApplyPreparedImplementationCheck func(context.Context, *compiler.Result, string, []string, compiler.GoBuildTarget) error
+	SyncCachedTypeScript             func(*compiler.Result) error
+	PrepareBuildGoWorkspace          func(*compiler.Result) (generateapi.GoWorkspaceProjection, error)
+	RuntimeIntegrationPlan           func(*compiler.Result) (generateapi.RuntimeIntegrationPlan, error)
+	RenderAssistantAssets            func(*compiler.Result, []generateapi.AssistantAssetInput) (map[string][]byte, error)
 }
 
 var generateHooks GenerateHooks
@@ -31,9 +28,8 @@ func SetGenerateHooks(hooks GenerateHooks) {
 
 func requireGenerateHooks() error {
 	hooks := generateHooks
-	if hooks.ApplyImplementationCheck == nil || hooks.SyncGoPackages == nil ||
-		hooks.SyncCachedTypeScript == nil || hooks.RenderGoWorkspaceFiles == nil ||
-		hooks.PrepareGoWorkspace == nil ||
+	if hooks.ApplyPreparedImplementationCheck == nil ||
+		hooks.SyncCachedTypeScript == nil || hooks.PrepareBuildGoWorkspace == nil ||
 		hooks.RuntimeIntegrationPlan == nil || hooks.RenderAssistantAssets == nil {
 		return fmt.Errorf("build generate hooks are not wired")
 	}

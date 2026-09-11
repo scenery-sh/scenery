@@ -155,7 +155,7 @@ func (s *assistantSupervisor) Prepare(ctx context.Context, result *compiler.Resu
 }
 
 func (s *assistantSupervisor) prepareOverlay(ctx context.Context, prepared *assistantPreparedRuntime) error {
-	if err := s.materializeOverlay(ctx, prepared); err != nil {
+	if err := s.materializeOverlay(ctx, prepared, nil); err != nil {
 		return err
 	}
 	s.mu.Lock()
@@ -168,7 +168,7 @@ func (s *assistantSupervisor) prepareOverlay(ctx context.Context, prepared *assi
 }
 
 // materializeOverlay writes only candidate-private files, never active slots.
-func (s *assistantSupervisor) materializeOverlay(ctx context.Context, prepared *assistantPreparedRuntime) error {
+func (s *assistantSupervisor) materializeOverlay(ctx context.Context, prepared *assistantPreparedRuntime, selection *assistantNodeSelection) error {
 	if prepared == nil {
 		return errors.New("assistant prepared runtime is nil")
 	}
@@ -185,11 +185,16 @@ func (s *assistantSupervisor) materializeOverlay(ctx context.Context, prepared *
 		return fmt.Errorf("assistant overlay: %w", err)
 	}
 	prepared.ownedRoot = ownedRoot
-	nodePath, npmPath, nodeHome, err := s.config.NodeResolver(ctx)
-	if err != nil {
-		_ = os.RemoveAll(ownedRoot)
-		return fmt.Errorf("assistant managed Node: %w", err)
+	if selection == nil {
+		var selected assistantNodeSelection
+		selected.node, selected.npm, selected.home, err = s.config.NodeResolver(ctx)
+		if err != nil {
+			_ = os.RemoveAll(ownedRoot)
+			return fmt.Errorf("assistant managed Node: %w", err)
+		}
+		selection = &selected
 	}
+	nodePath, npmPath, nodeHome := selection.node, selection.npm, selection.home
 	prepared.nodePath, prepared.npmPath, prepared.nodeHome = nodePath, npmPath, nodeHome
 	overlay, err := eve.Materialize(eve.OverlayRequest{
 		SourceRoot: prepared.definition.SourceRoot, OverlayRoot: filepath.Join(ownedRoot, "overlay"),
@@ -246,6 +251,9 @@ preparedOverlay:
 	prepared.overlay = overlay
 	return nil
 }
+
+// A selection is shared only by one stage, never retained as retry authority.
+type assistantNodeSelection struct{ node, npm, home string }
 
 func resolveAssistantManagedNode(ctx context.Context, root string) (string, string, string, error) {
 	manifest, err := toolchain.LoadBundledManifest()

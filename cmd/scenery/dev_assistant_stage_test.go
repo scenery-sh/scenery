@@ -6,11 +6,75 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sync/atomic"
 	"testing"
 
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/graph"
 )
+
+func TestAssistantStageBoundsIndependentPreparation(t *testing.T) {
+	s, result, _ := assistantStageFixture(t)
+	candidate := nextAssistantStageResult(result)
+	resource := candidate.Manifest.Resources[0]
+	candidate.Manifest.Resources = nil
+	for _, name := range []string{"one", "two", "three"} {
+		next := resource
+		next.Address, next.Name = "app/assistant/"+name, name
+		candidate.Manifest.Resources = append(candidate.Manifest.Resources, next)
+	}
+	before := s.RuntimeConfig()
+	resolved := 0
+	s.config.NodeResolver = func(context.Context) (string, string, string, error) {
+		resolved++
+		return "/node", "/npm", "/home", nil
+	}
+	entered := make(chan string, 3)
+	release := make(chan struct{}, 3)
+	var active, maximum atomic.Int32
+	s.config.InstallDeps = func(_ context.Context, root, _, _ string) error {
+		current := active.Add(1)
+		defer active.Add(-1)
+		for previous := maximum.Load(); current > previous && !maximum.CompareAndSwap(previous, current); previous = maximum.Load() {
+		}
+		entered <- root
+		<-release
+		return nil
+	}
+	type outcome struct {
+		stage *assistantStage
+		err   error
+	}
+	done := make(chan outcome, 1)
+	go func() {
+		stage, err := s.stage(context.Background(), candidate)
+		done <- outcome{stage, err}
+	}()
+	first, second := <-entered, <-entered
+	if first == second {
+		t.Error("parallel preparations share writable roots")
+	}
+	select {
+	case <-entered:
+		t.Error("more than two preparations started before a slot was released")
+	default:
+	}
+	release <- struct{}{}
+	third := <-entered
+	if third == first || third == second {
+		t.Error("third preparation reused another writable root")
+	}
+	release <- struct{}{}
+	release <- struct{}{}
+	finished := <-done
+	defer s.releaseStage(finished.stage)
+	if finished.err != nil || resolved != 1 || maximum.Load() != 2 || len(finished.stage.prepared) != 3 {
+		t.Fatalf("stage: err=%v resolutions=%d maximum=%d", finished.err, resolved, maximum.Load())
+	}
+	if !reflect.DeepEqual(before, s.RuntimeConfig()) {
+		t.Fatal("parallel staging changed active descriptors")
+	}
+}
 
 func assistantStageFixture(t *testing.T) (*assistantSupervisor, *compiler.Result, string) {
 	t.Helper()

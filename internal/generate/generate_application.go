@@ -43,7 +43,7 @@ func BuildRuntimeIntegrationPlan(result *Result) (RuntimeIntegrationPlan, error)
 	return RuntimeIntegrationPlan{CompositionImport: generatedImport + "/composition"}, nil
 }
 
-func generateApplicationArtifacts(result *Result, idx *resourceIndex) ([]generatedFile, error) {
+func generateApplicationArtifacts(result *Result, idx *resourceIndex, input projectionInput) ([]generatedFile, error) {
 	services := compiler.RuntimeServices(result.Manifest.Resources)
 	assistants := canonicalAssistantResources(result.Manifest.Resources)
 	mcpServers := canonicalMCPServers(result.Manifest.Resources)
@@ -54,23 +54,12 @@ func generateApplicationArtifacts(result *Result, idx *resourceIndex) ([]generat
 	if err != nil {
 		return nil, err
 	}
-	modules := map[string]Resource{}
-	for _, module := range localModuleInstances(result.Manifest.Resources) {
-		modules[moduleInstancePath(module)] = module
+	adapters, err := cachedApplicationAdapters(input, generatedImport, func() ([]applicationAdapter, error) {
+		return renderApplicationAdapters(result, idx, generatedImport)
+	})
+	if err != nil {
+		return nil, err
 	}
-	var adapters []applicationAdapter
-	for _, service := range services {
-		module, ok := modules[service.Module]
-		if !ok {
-			return nil, fmt.Errorf("native service %s is not owned by a local module", service.Address)
-		}
-		adapter, err := renderApplicationAdapter(result, idx, module, service, generatedImport)
-		if err != nil {
-			return nil, err
-		}
-		adapters = append(adapters, adapter)
-	}
-	sort.Slice(adapters, func(i, j int) bool { return adapters[i].Address < adapters[j].Address })
 	var files []generatedFile
 	for _, adapter := range adapters {
 		files = append(files, generatedFile{Path: filepath.Join(generatedRoot, filepath.FromSlash(adapter.RelativeDir), "adapter.gen.go"), Bytes: adapter.Source})

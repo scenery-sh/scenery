@@ -4,25 +4,25 @@ import (
 	"slices"
 
 	"scenery.sh/internal/compiler"
-	generateapi "scenery.sh/internal/generate/api"
-	"scenery.sh/internal/gotarget"
-	"scenery.sh/internal/model"
 )
 
 type CheckResult struct {
 	Diagnostics           []Diagnostic
 	ImplementationStatus  string
 	ImplementationChecked bool
-	goWorkspace           *generateapi.GoWorkspaceProjection
 }
 
 // Check verifies generated artifacts and native Go implementations without
 // mutating the compiler result or the workspace.
 func Check(result *compiler.Result) CheckResult {
-	return checkWithGoAnalysis(result, nil)
+	check := checkGeneratedArtifacts(result)
+	if result != nil && result.Valid() {
+		finishImplementationCheck(&check, VerifyImplementation(result))
+	}
+	return check
 }
 
-func checkWithGoAnalysis(result *compiler.Result, analyzed func(gotarget.Context, *model.App)) CheckResult {
+func checkGeneratedArtifacts(result *compiler.Result) CheckResult {
 	checked := result != nil && result.Manifest != nil && usesGoImplementation(result.Manifest.Resources) && hasNativeGoHandlers(result.Manifest.Resources)
 	check := CheckResult{ImplementationStatus: "not_requested", ImplementationChecked: checked}
 	if result == nil || !result.Valid() {
@@ -41,10 +41,12 @@ func checkWithGoAnalysis(result *compiler.Result, analyzed func(gotarget.Context
 	} else if _, err := finishGeneratedFiles(result.Root, files, true, "generated TypeScript clients are stale"); err != nil {
 		check.Diagnostics = append(check.Diagnostics, Diagnostic{Code: "SCN6204", Severity: "error", Message: err.Error(), Suggestions: refresh})
 	}
-	diagnostics, projection := verifyImplementationWithAnalysis(result, analyzed)
+	return check
+}
+
+func finishImplementationCheck(check *CheckResult, diagnostics []Diagnostic) {
 	check.Diagnostics = append(check.Diagnostics, diagnostics...)
-	check.goWorkspace = projection
-	if checked {
+	if check.ImplementationChecked {
 		check.ImplementationStatus = "valid"
 		for _, diagnostic := range check.Diagnostics {
 			if diagnostic.Severity == "error" {
@@ -53,7 +55,6 @@ func checkWithGoAnalysis(result *compiler.Result, analyzed func(gotarget.Context
 			}
 		}
 	}
-	return check
 }
 
 // typescriptRefreshSuggestions names the exact regeneration command for every

@@ -434,6 +434,8 @@ Rules:
 - An explicit app/setup `DATABASE_URL` selects external PostgreSQL supply: Scenery does not create/delete its server or database, and equal URLs intentionally share data. Without it, local provisioning requires every selected SQL requirement to declare `lifecycle = "managed"`; external/attached/ephemeral requirements do not authorize allocation. `scenery up` uses the existing dedicated container and volume per canonical app root/worktree, one app database, logical schemas and `scenery`. A no-SQL app starts without PostgreSQL; `db list -o json` succeeds with `database: null` and performs no allocation. Managed names derive from app ID and the canonical app root.
 - App processes and setup receive `DATABASE_URL`, per-binding `<SERVICE>_DATABASE_URL`, and `SCENERY_DATABASE_JSON` describing resolved SQL supply (`managed` or `external`). Generated entrypoints configure those existing bindings before constructors, without database IO; explicit per-binding URLs remain supported in standalone generated runtimes. `db.Get()` selects the single supplied application binding (excluding framework `scenery` when another binding exists); ambiguous calls require a name. `db.Get(name)` consumes supplied bindings, or explicit endpoint supply for a named standalone caller, and never discovers `.scenery.json`. Workers with local SQL requirements require explicit `DATABASE_URL`.
 - Retained ownership, not current requirements, controls database stop, cleanup and snapshot recovery. Snapshot schemas come from the selected actual database catalog, not current declarations; invalid or removed `.scn` does not strand owned data. An archive is never proof of target ownership. Existing stopped-owner, verified-allocation and explicit overwrite-approval requirements still apply.
+- Initial `up` source scanning may overlap control-plane setup after lifetime ownership, framework freshness and migration-source checks. The owner joins that invocation-local scan before source consumption and on every failed startup; duplicate acquisition starts no scan. Current generated/workspace validation and readiness remain unchanged.
+- Initial `up` may start an already initialized retained PostgreSQL container during Go preparation, after fresh graph, framework and managed-supply validation. It verifies Docker ownership and authenticated cluster identity under the worktree operation lock, never allocates or recreates resources, and joins before post-build database setup. Database/schema creation, migrations and seeds remain after successful compilation; the consumed endpoint is resolved and verified again. No-SQL or explicit external supply does not trigger this managed-server branch.
 - `scenery up` prepares declared local DB setup before the app process starts. When app config declares `database.apply`, service-local seed files, typed fixtures, or `database.seed.commands`, the supervisor runs the same split lifecycle as `scenery db setup`: apply first, then seed. It passes the same managed database URL env values that the app child receives, so setup targets the dev-runtime database. Successful setup is fingerprinted from `database.apply` config plus every seed SQL, fixture, command definition, and declared command-input hash; ordinary rebuilds skip setup until those inputs change. Apps can set `database.seed.enabled: false` to opt out of every seed kind.
 - Native TypeScript clients are declared with `typescript_client` resources in `app.scn`; `materialization = "source"` writes the managed `output_root`, while `"cache"` writes `.scenery/gen/typescript/<name>`. Generate either with `scenery generate --target typescript_client.<name>`. Standard Google OAuth contributes framework-owned connection start, connection status, and disconnect resources to inspection and client generation when it is enabled; these describe the existing runtime handlers without adding a second runtime composition path. An optional singleton `react { tsconfig = "path/to/tsconfig.json" }` block adds a managed `react/` subtree: one adapter per declared `content_page`, `table_page`, `split_page`, `workspace_page`, or `detail_page`; typed `routes.generated.ts`; the TanStack-only `app.generated.tsx` route-tree/shell adapter; `index.ts`; and the binary-owned `@scenery/ui` catalog under `react/scenery-ui/`. Generated search validators read each authored query wire name (including snake-case names) and expose its camel-case TypeScript property. Dynamic authored path segments become TanStack route segments and are passed to generated detail components as typed string params. `createSceneryApp` combines generated pages with one app-owned `SceneryRouteDescriptor` array and fixed auth/top-bar/content/link/icon slots. Its optional generated `client` option is passed to every generated page, so one app-owned `PublicApiClient` can supply bearer authentication, custom fetch behavior, or a non-default API base without replacing generated routes. The generated adapter owns the root/shell route tree, `Outlet`, active navigation, intent preloading, and catalog `ClientAppShell`; TanStack Router remains a consuming-app peer and no catalog file imports it. Generated loaders otherwise use the browser-facing `/api/` route on the current origin, accept an optional generated-client `client` prop for app-owned fetch/auth behavior, preserve authored order, and run through the consuming app's TanStack Query client. Stable page-address query keys provide caching, deduplication, retry, and invalidation; typed client failures remain renderable data, while exhausted transport or decoding exceptions map back into the same page error state. Persistent storage is an app-owned QueryClient policy and is not enabled for arbitrary generated results. Reusable catalog components and blessed Astryx primitives are exported from `react/scenery-ui/index.ts`; semantic StyleX variables are the `t` var group in the generated-ownership-marked `react/scenery-ui/tokens.stylex.ts`. Both surfaces keep Astryx, StyleX, React, TanStack Query, and TanStack Router as peers, and the consuming React tree provides one `QueryClientProvider`. A consuming app aliases `@scenery/ui` to the materialized `index.ts` in TypeScript and its bundler. Apps using semantic tokens also alias `@scenery/ui/tokens.stylex` to the materialized defining module in TypeScript, the bundler, and the StyleX compiler plugin's own `aliases` option; a TypeScript-or-bundler-only alias is insufficient because StyleX resolves defining modules independently. Direct Astryx imports remain the escape hatch for unblessed UI. The descriptor records `ui_catalog_roots`. Before any artifact commit, Scenery stages the whole target beside its final root and runs the exact checksummed managed TypeScript 7 `tsc` binary with the declared config; `SCN6320` identifies an incompatible declared override, `SCN6321` an unrelated reachable application error, and `SCN6322` missing checker/config/dependency readiness. Generation never invokes Node, bun, or a `PATH` TypeScript compiler.
 
@@ -548,6 +550,17 @@ assets as `up`, without starting or replacing a runtime. It defaults to the
 development Go target and cannot combine with `--lib` or `--desktop`. Ordinary
 `build` continues to embed production assets. Use the development variant when
 comparing candidate build-input identity with a served development generation.
+
+Fresh native builds verify generated-artifact ownership and all default plus
+selected Go targets against the same locked, materialized workspace used by Go
+compilation. Public publication and that workspace consume the same rendered
+package bytes; current snapshot and retirement checks still guard publication.
+Compilation and verification may overlap, but both must complete
+before publishing runtime-bundle/build-success state or pruning prior binaries.
+Write-capable module preparation precedes the fork; a tidy retry joins the old
+attempt first. Changed workspace membership or bytes fail before publication.
+This does not replace the candidate's real runtime preflight or permit overlapping
+write-capable application generations.
 
 `build --development --verify-generation` additionally requires a prepared desired
 framework and returns `candidate_identity` in `scenery.build.result`. It validates
@@ -699,12 +712,23 @@ and exact assistant package locks without rewriting authored package files.
 
 On development rebuilds, candidate helper files and dependencies are staged
 privately while the current API remains running. Staging does not replace live
-descriptors or restart helpers. A staging failure preserves the current API
+descriptors or restart helpers. Initial startup can stage from its verified
+discovery graph during framework/workspace/database preparation. It joins all
+preparation, rejects mismatched graph/definitions and revalidates current source
+before activation; cancellation joins workers before releasing private files.
+One staging invocation verifies its managed
+Node selection once and prepares at most two independent private trees
+concurrently; completion still waits for every selected assistant. A staging failure preserves the current API
 and assistant generation. After the old API stops, activation publishes the
 prepared descriptor set; startup failure restores the retained previous
 executable, environment, helper descriptors and private overlay bytes without
 re-reading edited assistant source. Initial startup still reports a failed
 helper as unavailable without aborting the unrelated Go application.
+After the API listener is ready, at most two distinct helper startups run
+concurrently; readiness waits for all selected attempts. Helper status/process
+callbacks and shared output delivery are serialized. A helper that started but
+whose shutdown is unconfirmed remains owned, including its private files and
+PID, and blocks retries or replacement until process exit is confirmed.
 
 Use `scenery assistant status <name> -o json` or default
 `scenery inspect assistants -o json` for provider-neutral readiness, policy,

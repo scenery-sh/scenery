@@ -2,6 +2,7 @@ package parse
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -22,14 +23,20 @@ import (
 const moduleLookupDisabled = "module lookup disabled by GOPROXY=off"
 
 func Analyze(root, name string) (*model.App, error) {
-	return analyze(root, name, nil, []string{"./..."}, nil)
+	return analyze(context.Background(), root, name, nil, []string{"./..."}, nil)
 }
 
 func AnalyzeTarget(root, name string, overlay map[string][]byte, target gotarget.Context) (*model.App, error) {
+	return AnalyzeTargetContext(context.Background(), root, name, overlay, target)
+}
+
+// AnalyzeTargetContext keeps cancellation attached to the complete Go loader
+// operation, including its toolchain subprocesses.
+func AnalyzeTargetContext(ctx context.Context, root, name string, overlay map[string][]byte, target gotarget.Context) (*model.App, error) {
 	if len(target.Patterns) == 0 {
 		return nil, errors.New("go target has no package patterns")
 	}
-	return analyze(root, name, overlay, target.Patterns, &target)
+	return analyze(ctx, root, name, overlay, target.Patterns, &target)
 }
 
 // MissingHermeticModulePackages returns imports that the declared target needs
@@ -93,12 +100,13 @@ func MissingHermeticModulePackages(target gotarget.Context) ([]string, error) {
 	return slices.Compact(missing), nil
 }
 
-func analyze(root, name string, overlay map[string][]byte, patterns []string, target *gotarget.Context) (*model.App, error) {
+func analyze(ctx context.Context, root, name string, overlay map[string][]byte, patterns []string, target *gotarget.Context) (*model.App, error) {
 	root, err := filepath.Abs(root)
 	if err != nil {
 		return nil, err
 	}
 	cfg := &packages.Config{
+		Context: ctx,
 		Mode: packages.NeedName |
 			packages.NeedFiles |
 			packages.NeedCompiledGoFiles |

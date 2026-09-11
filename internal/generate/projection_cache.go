@@ -20,7 +20,14 @@ var projections = struct {
 
 const projectionCacheLimit = 32 << 20
 
-func cachedProjection(result *Result, kind string, extra any, render func() ([]generatedFile, error)) ([]generatedFile, error) {
+// One render operation may select several projections from the same immutable
+// result. Capture their complete common input once, never across operations.
+type projectionInput struct {
+	digest [32]byte
+	err    error
+}
+
+func newProjectionInput(result *Result) projectionInput {
 	// Include parsed declarations as well as original bytes: callers can supply
 	// synthetic compiler snapshots without reparsing a source file.
 	type sourceInput struct {
@@ -35,12 +42,24 @@ func cachedProjection(result *Result, kind string, extra any, render func() ([]g
 			sources[i] = sourceInput{source.ID, source.Path, source.Relative, source.Bytes, source.Blocks, source.External}
 		}
 	}
-	input, err := json.Marshal([]any{kind, result.Root, machine.RuntimeProducer(), result.Manifest, result.FrameworkResources, sources, result.HTTPSurfaceRevisions, result.OpenAPIRevisions, extra})
+	input, err := json.Marshal([]any{result.Root, machine.RuntimeProducer(), result.Manifest, result.FrameworkResources, sources, result.HTTPSurfaceRevisions, result.OpenAPIRevisions})
+	return projectionInput{digest: sha256.Sum256(input), err: err}
+}
+
+func (input projectionInput) key(kind string, extra any) ([32]byte, error) {
+	if input.err != nil {
+		return [32]byte{}, input.err
+	}
+	data, err := json.Marshal([]any{kind, input.digest, extra})
+	return sha256.Sum256(data), err
+}
+
+func cachedProjection(input projectionInput, kind string, extra any, render func() ([]generatedFile, error)) ([]generatedFile, error) {
+	key, err := input.key(kind, extra)
 	if err != nil {
 		// Non-serializable synthetic input must not change rendering semantics.
 		return render()
 	}
-	key := sha256.Sum256(input)
 	projections.Lock()
 	files, found := projections.entries[key]
 	if found {

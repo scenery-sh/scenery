@@ -125,6 +125,25 @@ func TestDevManagedProcessStopIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestDevManagedProcessStopRetainsUnconfirmedFailure(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		done := make(chan struct{})
+		process := testProcess(done)
+		first := process.Stop(time.Millisecond)
+		if first == nil {
+			t.Fatal("Stop accepted an unconfirmed process exit")
+		}
+		if second := process.Stop(time.Millisecond); !errors.Is(second, first) {
+			t.Fatalf("repeated Stop = %v, want retained failure %v", second, first)
+		}
+		close(done)
+		if err := process.Stop(time.Millisecond); err != nil {
+			t.Fatalf("confirmed later exit did not release stop failure: %v", err)
+		}
+	})
+}
+
 func TestDevManagedProcessWaitReadyTimeoutUsesFakeDeadline(t *testing.T) {
 	t.Parallel()
 

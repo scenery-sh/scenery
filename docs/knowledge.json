@@ -19,6 +19,18 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0179-half-latency-development-loop.md",
+      "title": "Halve the Verified Development Loop",
+      "owner": "scenery runtime / ONLV development",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-11",
+      "review_after": "2026-10-11",
+      "summary": "Achieve at least 50% lower semantic-edit and unchanged-start medians than final 0178 without weakening exact source, readiness, isolation or rollback.",
+      "tags": ["plans", "execplans", "runtime", "performance"]
+    },
+    {
       "path": "docs/plans/0178-reusable-preparation-and-handoff.md",
       "title": "Reusable Preparation and Shorter Runtime Handoff",
       "owner": "scenery runtime / ONLV development",

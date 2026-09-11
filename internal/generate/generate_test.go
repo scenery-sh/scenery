@@ -206,7 +206,7 @@ func consumeGeneratedLibrary() {
 	if err != nil || !result.Valid() {
 		t.Fatalf("compile: %v diagnostics=%#v", err, result.Diagnostics)
 	}
-	projection, err := PrepareGoWorkspace(result)
+	projection, err := PrepareBuildGoWorkspace(result)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -220,9 +220,6 @@ func consumeGeneratedLibrary() {
 	} {
 		if len(files[path]) == 0 {
 			t.Fatalf("generated library facade file %q is missing", path)
-		}
-		if filepath.Ext(path) == ".go" && string(projection.VerificationOverlay[filepath.Join(root, path)]) != string(files[path]) {
-			t.Fatalf("verification overlay does not use workspace bytes for %q", path)
 		}
 	}
 }
@@ -399,7 +396,7 @@ func TestNativeImplementationVerificationOverlayStaysInProcess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	applicationFiles, err := generateApplicationArtifacts(result, index)
+	applicationFiles, err := generateApplicationArtifacts(result, index, newProjectionInput(result))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -429,7 +426,7 @@ func TestGenerateBootstrapsContractArtifactsForInvalidImplementationInProcess(t 
 	if err != nil {
 		t.Fatalf("bootstrap generation failed: %v", err)
 	}
-	applicationFiles, err := generateApplicationArtifacts(result, index)
+	applicationFiles, err := generateApplicationArtifacts(result, index, newProjectionInput(result))
 	if err != nil {
 		t.Fatalf("bootstrap application generation failed: %v", err)
 	}
@@ -856,7 +853,7 @@ func TestTypeScriptRetryRequiresIdempotentReplayableOperation(t *testing.T) {
 func TestGenerateApplicationArtifactsUsesExplicitRegistryAndComposition(t *testing.T) {
 	root := t.TempDir()
 	result := nativeApplicationGenerationFixture(root)
-	files, err := generateApplicationArtifacts(result, newResourceIndex(result.Manifest.Resources))
+	files, err := generateApplicationArtifacts(result, newResourceIndex(result.Manifest.Resources), newProjectionInput(result))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1401,7 +1398,7 @@ func (service *Service) SceneQuickCreate(_ context.Context, _ housecontract.Scen
 	if err != nil || !compiled.Valid() {
 		t.Fatalf("compile generated CRUD list: %v diagnostics=%#v", err, compiled.Diagnostics)
 	}
-	goFiles, err := generateApplicationArtifacts(compiled, newResourceIndex(compiled.Manifest.Resources))
+	goFiles, err := generateApplicationArtifacts(compiled, newResourceIndex(compiled.Manifest.Resources), newProjectionInput(compiled))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1637,7 +1634,7 @@ func TestGenerateApplicationAdapterEmitsTypedPathMappingAndGatewayBasePath(t *te
 			httpSpec["path_parameter"] = map[string]any{"name": "scene_id", "to": map[string]any{"$ref": "operation.process_scene.input.scene_id"}}
 		}
 	}
-	files, err := generateApplicationArtifacts(result, newResourceIndex(result.Manifest.Resources))
+	files, err := generateApplicationArtifacts(result, newResourceIndex(result.Manifest.Resources), newProjectionInput(result))
 	if err != nil {
 		t.Fatal(err)
 	}

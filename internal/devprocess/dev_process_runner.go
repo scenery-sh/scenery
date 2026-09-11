@@ -25,6 +25,7 @@ type ManagedProcess struct {
 
 	outputDone chan struct{}
 	stopOnce   sync.Once
+	stopErr    error // Published by stopOnce; failure remains authoritative until Done.
 
 	mu      sync.Mutex
 	waitErr error
@@ -229,15 +230,22 @@ func (p *ManagedProcess) WaitOrKill(grace time.Duration) error {
 }
 
 func (p *ManagedProcess) Stop(grace time.Duration) error {
-	var err error
+	if p == nil {
+		return nil
+	}
 	p.stopOnce.Do(func() {
 		if interruptErr := p.Interrupt(); interruptErr != nil {
-			err = interruptErr
+			p.stopErr = interruptErr
 			return
 		}
-		err = p.WaitOrKill(grace)
+		p.stopErr = p.WaitOrKill(grace)
 	})
-	return err
+	select {
+	case <-p.Done:
+		return p.expectedWaitErr()
+	default:
+		return p.stopErr
+	}
 }
 
 func (p *ManagedProcess) WaitError() error {

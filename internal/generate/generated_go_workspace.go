@@ -23,24 +23,41 @@ func RenderGoWorkspaceFiles(result *compiler.Result) (map[string][]byte, error) 
 	return renderedGoWorkspaceFiles(result.Root, files)
 }
 
-// PrepareGoWorkspace renders once for the private workspace and its analysis.
-// Retirement ownership is still inspected against the current checkout.
-func PrepareGoWorkspace(result *compiler.Result) (generateapi.GoWorkspaceProjection, error) {
+// PrepareBuildGoWorkspace publishes public packages and returns those exact
+// bytes with private composition for build and native analysis. Publication
+// retains its fresh snapshot, module ownership and retirement checks.
+func PrepareBuildGoWorkspace(result *compiler.Result) (generateapi.GoWorkspaceProjection, error) {
 	var projection generateapi.GoWorkspaceProjection
 	if result == nil || result.Manifest == nil || result.ContractStatus != "valid" {
 		return projection, fmt.Errorf("cannot render generated Go workspace from invalid contract")
 	}
-	files, err := renderExpectedGoContractFiles(result)
+	input := newProjectionInput(result)
+	files, err := renderGoPackageProjection(result, input)
 	if err != nil {
 		return projection, err
+	}
+	_, err = generateFromResult(result, false, "generated contracts are stale", func(current *compiler.Result) ([]generatedFile, error) {
+		if err := validateGoPackageLocations(current, files); err != nil {
+			return nil, err
+		}
+		return includeStaleGeneratedFiles(current.Root, cloneProjection(files), goGeneratedDescriptorNames(), protectedGoGeneratedDescriptors(current))
+	})
+	if err != nil {
+		return projection, err
+	}
+	if usesGoImplementation(result.Manifest.Resources) {
+		applicationFiles, err := renderExpectedGoApplicationFiles(result, input)
+		if err != nil {
+			return projection, err
+		}
+		files = append(files, applicationFiles...)
 	}
 	projection.Files, err = renderedGoWorkspaceFiles(result.Root, files)
 	if err != nil {
 		return projection, err
 	}
 	projection.VerificationPatterns = generatedLibraryPackagePatterns(result.Root, files)
-	projection.VerificationOverlay, err = generatedGoVerificationOverlay(goVerificationRetirements(result, files))
-	return projection, err
+	return projection, nil
 }
 
 func renderedGoWorkspaceFiles(root string, files []generatedFile) (map[string][]byte, error) {

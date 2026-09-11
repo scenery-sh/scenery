@@ -88,7 +88,7 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 	var owner *worktreeRuntimeOwner
 	if err := c.runPhase("Starting worktree control", func() error {
 		var err error
-		owner, err = acquireWorktreeRuntime(ctx, machinePaths, c.root, c.cfg, c.env)
+		owner, err = acquireWorktreeRuntime(ctx, machinePaths, c.root, c.cfg, c.env, c.console)
 		return err
 	}); err != nil {
 		return prepared, err

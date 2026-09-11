@@ -9,6 +9,21 @@ import (
 	"scenery.sh/internal/compiler"
 )
 
+// Migration preflight may already have compiled this startup's graph. Verify
+// it again before using its assistant input scope; never retain it across runs.
+func reuseStartupCompilerResult(root string, result *compiler.Result) (*compiler.Result, error) {
+	if result != nil && filepath.Clean(result.Root) == filepath.Clean(root) {
+		unchanged, err := compiler.SnapshotUnchanged(result)
+		if err != nil {
+			return nil, err
+		}
+		if unchanged {
+			return result, nil
+		}
+	}
+	return compiler.Compile(root)
+}
+
 // Register authored assistant inputs before the first fingerprint. Otherwise
 // an unchanged restart compares a Go-only snapshot with the previous process's
 // complete snapshot and needlessly invalidates the graph cache.
@@ -28,7 +43,9 @@ func scanInitialWatchedFiles(root string, compile func(string) (*compiler.Result
 		return fileSnapshot{}, fmt.Errorf("app contract graph is invalid")
 	}
 	setAssistantImplementationWatch(root, assistantDefinitionsFromResult(result, root))
-	return scanWatchedFiles(root)
+	snapshot, err := scanWatchedFiles(root)
+	snapshot.contract = result
+	return snapshot, err
 }
 
 func isWatchedFile(rel string) bool {

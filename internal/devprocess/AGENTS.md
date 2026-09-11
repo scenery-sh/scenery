@@ -10,6 +10,7 @@ observation, and the existing concrete named substrate locks.
 
 - Keep application/session decisions and restart policy in their existing owners.
 - `Done` is receive-only; only the process runner closes the live completion signal.
+- Repeated stop must retain an unconfirmed-shutdown error until `Done` confirms exit.
 - Preserve Linux parent-death behavior and detached-child distinctions.
 - Preserve current default deadlines and process-tree cancellation semantics.
 - Process-table rows are observations, never ownership credentials. Session

@@ -8,18 +8,13 @@ import (
 
 func wireBuildGenerateHooks() {
 	build.SetGenerateHooks(build.GenerateHooks{
-		ApplyImplementationCheck: generate.ApplyImplementationCheckWithAnalysis,
-		SyncGoPackages: func(result *compiler.Result) error {
-			_, err := generate.GenerateGoContractsFromResult(result, false)
-			return err
-		},
+		ApplyPreparedImplementationCheck: generate.ApplyPreparedImplementationCheck,
 		SyncCachedTypeScript: func(result *compiler.Result) error {
 			_, err := generate.SyncCachedTypeScriptClients(result)
 			return err
 		},
-		RenderGoWorkspaceFiles: generate.RenderGoWorkspaceFiles,
-		PrepareGoWorkspace:     generate.PrepareGoWorkspace,
-		RuntimeIntegrationPlan: generate.BuildRuntimeIntegrationPlan,
-		RenderAssistantAssets:  generate.RenderAssistantAssetRegistry,
+		PrepareBuildGoWorkspace: generate.PrepareBuildGoWorkspace,
+		RuntimeIntegrationPlan:  generate.BuildRuntimeIntegrationPlan,
+		RenderAssistantAssets:   generate.RenderAssistantAssetRegistry,
 	})
 }

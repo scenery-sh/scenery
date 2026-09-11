@@ -251,36 +251,7 @@ func (r worktreePostgresResolver) ensureResourceWithOperation(ctx context.Contex
 		return nil, err
 	}
 	if p.SystemID != "" && container != nil && !restoreRecovery {
-		// Authenticate retained data before persisting any reconciliation.
-		// A bad credential or cluster identity must not rewrite authority.
-		if !container.Running {
-			if err := r.docker.Start(ctx, record, container.ID); err != nil {
-				return nil, err
-			}
-			_, container, err = r.inspect(ctx, record)
-			if err != nil {
-				return nil, err
-			}
-			if container == nil || !container.Running {
-				return nil, worktreePostgresPrecondition("the verified container did not start")
-			}
-		}
-		observed := *p
-		observed.Port = container.Port
-		systemID, err := r.probe(ctx, &observed)
-		if err != nil || systemID == "" {
-			return nil, worktreePostgresPrecondition("authenticated cluster readiness failed; raw connection errors are omitted to protect credentials")
-		}
-		if systemID != p.SystemID {
-			return nil, worktreePostgresPrecondition("authenticated PostgreSQL cluster identity differs from retained data")
-		}
-		if p.Port != observed.Port || p.Phase != "ready" {
-			p.Port, p.Phase = observed.Port, "ready"
-			if err := op.SaveRecord(record); err != nil {
-				return nil, err
-			}
-		}
-		return p, nil
+		return r.ensureRetainedEndpoint(ctx, op, record, container)
 	}
 	if volume == nil {
 		if err := r.docker.CreateVolume(ctx, record); err != nil {

@@ -23,7 +23,7 @@ func TestGeneratedHTTPByteStreamKeepsBodyOutOfOutcomeClone(t *testing.T) {
 			}
 		}
 	}
-	files, err := generateApplicationArtifacts(result, newResourceIndex(result.Manifest.Resources))
+	files, err := generateApplicationArtifacts(result, newResourceIndex(result.Manifest.Resources), newProjectionInput(result))
 	if err != nil {
 		t.Fatal(err)
 	}

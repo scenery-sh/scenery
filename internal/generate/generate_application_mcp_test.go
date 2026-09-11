@@ -20,7 +20,7 @@ func TestGeneratedApplicationAdapterRegistersMCPToolThroughRuntime(t *testing.T)
 	if err != nil || !result.Valid() {
 		t.Fatalf("check: %v %#v", err, result.Diagnostics)
 	}
-	files, err := generateApplicationArtifacts(result, newResourceIndex(result.Manifest.Resources))
+	files, err := generateApplicationArtifacts(result, newResourceIndex(result.Manifest.Resources), newProjectionInput(result))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +121,7 @@ func TestGeneratedApplicationCompositionRegistersAssistantSurface(t *testing.T) 
 	if err != nil || !result.Valid() {
 		t.Fatalf("check: %v %#v", err, result.Diagnostics)
 	}
-	files, err := generateApplicationArtifacts(result, newResourceIndex(result.Manifest.Resources))
+	files, err := generateApplicationArtifacts(result, newResourceIndex(result.Manifest.Resources), newProjectionInput(result))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,7 +207,7 @@ func TestGeneratedApplicationCompositionAssistantOrderingAndImplementationRevisi
 		"z-development": "sha256:" + strings.Repeat("z", 64),
 		"a-development": "sha256:" + strings.Repeat("a", 64),
 	}
-	files, err := generateApplicationArtifacts(result, newResourceIndex(result.Manifest.Resources))
+	files, err := generateApplicationArtifacts(result, newResourceIndex(result.Manifest.Resources), newProjectionInput(result))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -259,7 +259,7 @@ func TestGeneratedApplicationCompositionSupportsAssistantOnlyApps(t *testing.T) 
 	}
 	manifest.Resources = filtered
 	result.Manifest = &manifest
-	files, err := generateApplicationArtifacts(result, newResourceIndex(result.Manifest.Resources))
+	files, err := generateApplicationArtifacts(result, newResourceIndex(result.Manifest.Resources), newProjectionInput(result))
 	if err != nil {
 		t.Fatal(err)
 	}
