@@ -64,25 +64,15 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 		metadata    json.RawMessage
 		apiEncoding json.RawMessage
 		result      *build.Result
-		cached      *build.CachedGraph
 		err         error
 	)
-	graphFingerprint := snapshotFingerprint(snapshot)
-	sourceSnapshot := buildSourceSnapshot(snapshot)
+	var preparation *devBuildPreparation
 	if err := s.console.Phase("Building scenery application graph", func() error {
-		cached, _, err = build.LoadCachedGraphContext(ctx, s.root, s.cfg, graphFingerprint)
-		if err != nil {
-			return err
+		preparation, err = loadDevBuildPreparation(ctx, s.root, s.cfg, snapshot)
+		if err == nil {
+			metadata, apiEncoding = preparation.metadata, preparation.apiEncoding
 		}
-		if cached != nil {
-			metadata = append(json.RawMessage(nil), cached.Metadata...)
-			apiEncoding = append(json.RawMessage(nil), cached.APIEncoding...)
-			result = cached.Result
-			if len(metadata) > 0 && len(apiEncoding) > 0 {
-				return nil
-			}
-		}
-		return nil
+		return err
 	}); err != nil {
 		return nil, devBuildError(nil, nil, err)
 	}
@@ -98,47 +88,21 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 		defer postgresStart.release()
 	}
 	if err := s.console.Phase("Generating boilerplate code", func() error {
-		if cached != nil {
-			reused, refreshErr := build.RefreshCachedWorkspaceWithSnapshotContext(ctx, s.root, result, sourceSnapshot)
-			if refreshErr != nil {
-				return refreshErr
-			}
-			if reused {
-				return nil
-			}
-			metadata, apiEncoding = nil, nil
-		}
-		result, err = build.PrepareForCompileWithSnapshotContext(ctx, s.root, s.cfg, sourceSnapshot)
-		if err == nil && result != nil {
-			result.GraphFingerprint = graphFingerprint
-			result.Metadata = append(json.RawMessage(nil), metadata...)
-			result.APIEncoding = append(json.RawMessage(nil), apiEncoding...)
-		}
+		err := preparation.prepare(ctx)
+		metadata, apiEncoding = preparation.metadata, preparation.apiEncoding
 		return err
 	}); err != nil {
 		return nil, devBuildError(metadata, apiEncoding, err)
 	}
 	if err := s.console.Phase("Analyzing service topology", func() error {
-		if len(metadata) == 0 || len(apiEncoding) == 0 {
-			metadata, apiEncoding, err = buildDevMetadataFromResult(result.Contract)
-			if err != nil {
-				return err
-			}
-		}
-		result.Metadata = append(json.RawMessage(nil), metadata...)
-		result.APIEncoding = append(json.RawMessage(nil), apiEncoding...)
-		return nil
+		err := preparation.analyze()
+		metadata, apiEncoding = preparation.metadata, preparation.apiEncoding
+		return err
 	}); err != nil {
 		return nil, devBuildError(metadata, apiEncoding, err)
 	}
-	if err := s.console.Phase("Compiling application source code", func() error {
-		if result != nil && result.GraphFingerprint == "" {
-			result.GraphFingerprint = graphFingerprint
-			result.Metadata = append(json.RawMessage(nil), metadata...)
-			result.APIEncoding = append(json.RawMessage(nil), apiEncoding...)
-		}
-		return build.CompileContext(ctx, result)
-	}); err != nil {
+	result, metadata, apiEncoding = preparation.result, preparation.metadata, preparation.apiEncoding
+	if err := s.console.Phase("Compiling application source code", func() error { return preparation.compile(ctx, build.CompileContext) }); err != nil {
 		return nil, devBuildError(metadata, apiEncoding, err)
 	}
 	if s.currentPID() == "" {

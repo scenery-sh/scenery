@@ -3044,6 +3044,23 @@
         "risk",
         "agents"
       ]
+    },
+    {
+      "path": "docs/plans/0184-ordinary-artifact-preparation-audit.md",
+      "title": "Ordinary Artifact Preparation Audit",
+      "owner": "scenery runtime / ONLV development",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-11",
+      "review_after": "2026-10-11",
+      "summary": "Completed ordinary input deduplication and source admission in draft PR 194 with real publication rejection proof; component savings and the added guard cost are measured, while the 50 percent goals remain open.",
+      "tags": [
+        "plan",
+        "build",
+        "performance",
+        "correctness"
+      ]
     }
   ],
   "plans": {

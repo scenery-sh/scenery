@@ -11,6 +11,33 @@ historical records. Do not refresh their review dates or rewrite them as current
 contract prose. Record later guidance here or in the owning current contract;
 use stale knowledge metadata to flag a known contradiction.
 
+## Ordinary Artifact Preparation Audit
+
+- Status: completed in [draft PR 194](https://github.com/scenery-sh/scenery/pull/194), not merged
+- Owner: scenery build / development supervisor
+- Completed: 2026-09-11
+- ExecPlan: [0184 Ordinary Artifact Preparation Audit](0184-ordinary-artifact-preparation-audit.md)
+
+Per-capture module deduplication and source-only final admission preserve input
+identity and watcher repair. A real-process probe proves allowed cache publication,
+retained serving-generation ownership, rejection and repair. Component savings
+were 8.1 ms and 5.7 ms in separate experiments; they are not an additive measured
+development-loop saving. The whole patch increased the measured artifact interval
+versus main by 193.7 ms (5.68%). The final scan is added work, but the difference
+between whole-patch medians does not isolate its cost. Interpret the completed
+plan's attribution to the guard with this qualification.
+
+PR 194 is a correctness change with two small work reductions. Retain final
+admission under the requested freshness policy while keeping the measured patch
+regression visible in its merge decision. It rejects differences detected by the
+scan; it is not an atomic source lock until activation. The observed publication
+scenario supports valid earlier-snapshot cache publication and preserved serving
+ownership, not every possible failure scenario. No publication reorder is selected.
+
+The audit is closed. These findings do not justify another session framework,
+worker migration, or retention/pruning experiment. No 50% latency goal is closed;
+draft PR 193 and the historical evidence remain preserved.
+
 ## Reusable Preparation and Shorter Runtime Handoff
 
 - Status: completed locally; commits e9f8eccd, 7649b613 and bc879b7d, not published

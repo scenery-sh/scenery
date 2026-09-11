@@ -90,7 +90,12 @@ func runHarnessDevManagedProcessProbeCheck(parent context.Context, repoRoot stri
 	if err != nil {
 		return nil, nil, err
 	}
+	publication, err := runHarnessDevPublicationProbe(parent, repoRoot)
+	if err != nil {
+		return nil, nil, err
+	}
 	return map[string]any{
+		"ordinary_publication":    publication,
 		"basic_lifecycle":         basics,
 		"unready_stop_idempotent": true,
 		"detached_startup":        detached,

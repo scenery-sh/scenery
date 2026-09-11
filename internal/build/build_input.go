@@ -106,11 +106,25 @@ func buildInputManifest(ctx context.Context, result *Result) (*BuildInputManifes
 }
 
 func buildInputManifestFromGoList(result *Result, output []byte) (*BuildInputManifest, error) {
+	return captureBuildInputManifest(result, output, addBuildInput)
+}
+func captureBuildInputManifest(result *Result, output []byte, capture func(map[string]string, string, string) error) (*BuildInputManifest, error) {
 	if result == nil || result.Target == nil {
 		return nil, fmt.Errorf("build target is unavailable")
 	}
 	target := result.Target
 	entries := map[string]string{}
+	// Establish one path for each consumed identity before reading any bytes.
+	// This collection belongs to one capture; a later capture starts empty.
+	paths := map[string]string{}
+	register := func(identity, path string) error {
+		path = filepath.Clean(path)
+		if previous, exists := paths[identity]; exists && previous != path {
+			return fmt.Errorf("go build input identity collision: %s resolves to multiple paths", identity)
+		}
+		paths[identity] = path
+		return nil
+	}
 	frameworkRoot := ""
 	decoder := json.NewDecoder(bytes.NewReader(output))
 	for {
@@ -138,7 +152,7 @@ func buildInputManifestFromGoList(result *Result, output []byte) (*BuildInputMan
 		for _, name := range files {
 			path := filepath.Join(pkg.Dir, filepath.FromSlash(name))
 			identity := "package/" + pkg.ImportPath + "/" + filepath.ToSlash(name)
-			if err := addBuildInput(entries, identity, path); err != nil {
+			if err := register(identity, path); err != nil {
 				return nil, err
 			}
 		}
@@ -160,13 +174,46 @@ func buildInputManifestFromGoList(result *Result, output []byte) (*BuildInputMan
 				frameworkRoot = root
 			}
 			if module.GoMod != "" {
-				if err := addBuildInput(entries, "module/"+pkg.Module.Path+"/go.mod", module.GoMod); err != nil {
+				if err := register("module/"+pkg.Module.Path+"/go.mod", module.GoMod); err != nil {
 					return nil, err
 				}
 			}
 			identity := pkg.Module.Path + "@" + pkg.Module.Version + "\x00" + pkg.Module.Sum + "\x00" + pkg.Module.GoModSum
 			sum := sha256.Sum256([]byte(identity))
-			entries["module/"+pkg.Module.Path] = "sha256:" + hex.EncodeToString(sum[:])
+			digest := "sha256:" + hex.EncodeToString(sum[:])
+			key := "module/" + pkg.Module.Path
+			if previous := entries[key]; previous != "" && previous != digest {
+				return nil, fmt.Errorf("go build input identity collision: %s has multiple module identities", key)
+			}
+			entries[key] = digest
+		}
+	}
+	for _, relative := range append(stringValuesForBuild(target.Effective["native_inputs"]), stringValuesForBuild(target.Effective["native_input"])...) {
+		path := filepath.Join(result.AppRoot, filepath.FromSlash(relative))
+		if err := filepath.WalkDir(path, func(filePath string, entry os.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+			if entry.IsDir() {
+				return nil
+			}
+			rel, err := filepath.Rel(path, filePath)
+			if err != nil {
+				return err
+			}
+			return register("native/"+filepath.ToSlash(relative)+"/"+filepath.ToSlash(rel), filePath)
+		}); err != nil {
+			return nil, err
+		}
+	}
+	identities := make([]string, 0, len(paths))
+	for identity := range paths {
+		identities = append(identities, identity)
+	}
+	sort.Strings(identities)
+	for _, identity := range identities {
+		if err := capture(entries, identity, paths[identity]); err != nil {
+			return nil, err
 		}
 	}
 	if frameworkRoot != "" {
@@ -184,24 +231,6 @@ func buildInputManifestFromGoList(result *Result, output []byte) (*BuildInputMan
 		entries["framework/scenery.sh/source"] = source.Digest
 		entries["producer/scenery-cli/executable"] = producer
 		result.FrameworkSourceRoot, result.FrameworkSourceDigest = source.Root, source.Digest
-	}
-	for _, relative := range append(stringValuesForBuild(target.Effective["native_inputs"]), stringValuesForBuild(target.Effective["native_input"])...) {
-		path := filepath.Join(result.AppRoot, filepath.FromSlash(relative))
-		if err := filepath.WalkDir(path, func(filePath string, entry os.DirEntry, walkErr error) error {
-			if walkErr != nil {
-				return walkErr
-			}
-			if entry.IsDir() {
-				return nil
-			}
-			rel, err := filepath.Rel(path, filePath)
-			if err != nil {
-				return err
-			}
-			return addBuildInput(entries, "native/"+filepath.ToSlash(relative)+"/"+filepath.ToSlash(rel), filePath)
-		}); err != nil {
-			return nil, err
-		}
 	}
 	return newBuildInputManifest(target.Name, entries), nil
 }

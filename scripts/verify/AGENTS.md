@@ -56,6 +56,10 @@ compilation, verifies the final served response, and rejects generated-output
 feedback. Bind each response to the inspected session PID through its runtime
 identity header; separate observations can otherwise span a replacement.
 Fake-clock tests retain the ordinary settling boundary coverage.
+The same probe uses a disposable source overlay to pause the actual supervisor
+between successful cache publication and final source admission. Verify published
+bundle/state and pruning, unchanged retained serving bytes, rejection of a later
+edit, and a repaired HTTP generation. The overlay adds no product switch or API.
 
 ## Verification
 
