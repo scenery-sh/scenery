@@ -7,6 +7,12 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
+- [0184 Ordinary Artifact Preparation Audit](0184-ordinary-artifact-preparation-audit.md)
+  - Status: active
+  - Owner: scenery build / development supervisor
+  - Created: 2026-09-11
+  - Focus: per-capture input deduplication, source-only admission, and actual publication rejection proof, without worker migration.
+
 - [0179 Halve the Verified Development Loop](0179-half-latency-development-loop.md)
   - Status: active
   - Owner: scenery runtime / ONLV development

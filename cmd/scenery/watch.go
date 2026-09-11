@@ -694,6 +694,12 @@ func discoverDevGitBranch(root string) string {
 // wake: the caller must rebuild even when no watched file changed, because the
 // requester fixed build inputs the watcher cannot see.
 
+// scanSourceAdmissionFiles preserves fresh authored membership and bytes. The
+// admission fingerprint does not consume generated-content repair state.
+func scanSourceAdmissionFiles(root string) (fileSnapshot, error) {
+	return scanWatchedFilesWithGeneratedContent(root, fileSnapshot{}, false)
+}
+
 func scanWatchedFiles(root string) (fileSnapshot, error) {
 	return scanWatchedFilesReusing(root, fileSnapshot{})
 }
@@ -703,26 +709,32 @@ func scanWatchedFiles(root string) (fileSnapshot, error) {
 // unchanged, so steady-state watch ticks stat files instead of re-reading and
 // re-hashing the whole workspace.
 func scanWatchedFilesReusing(root string, previous fileSnapshot) (fileSnapshot, error) {
+	return scanWatchedFilesWithGeneratedContent(root, previous, true)
+}
+
+func scanWatchedFilesWithGeneratedContent(root string, previous fileSnapshot, includeGenerated bool) (fileSnapshot, error) {
 	snapshot := fileSnapshot{files: make(map[string]fileStamp, len(previous.files))}
 	generated, err := compiler.GeneratedPaths(root)
 	if err != nil {
 		return fileSnapshot{}, err
 	}
-	snapshot.generated = make(map[string]bool, len(generated))
-	snapshot.generatedContent = make(map[string]fileStamp, len(generated))
-	snapshot.retryGenerated = previous.retryGenerated
-	for rel := range generated {
-		info, err := os.Lstat(filepath.Join(root, filepath.FromSlash(rel)))
-		snapshot.generated[rel] = err == nil && info.Mode().IsRegular()
-		if snapshot.generated[rel] {
-			stamp, reused := reusableStamp(previous.generatedContent, rel, info, false)
-			if !reused {
-				stamp, _, err = stampWatchedFile(filepath.Join(root, filepath.FromSlash(rel)), info, false)
-				if err != nil {
-					continue
+	if includeGenerated {
+		snapshot.generated = make(map[string]bool, len(generated))
+		snapshot.generatedContent = make(map[string]fileStamp, len(generated))
+		snapshot.retryGenerated = previous.retryGenerated
+		for rel := range generated {
+			info, err := os.Lstat(filepath.Join(root, filepath.FromSlash(rel)))
+			snapshot.generated[rel] = err == nil && info.Mode().IsRegular()
+			if snapshot.generated[rel] {
+				stamp, reused := reusableStamp(previous.generatedContent, rel, info, false)
+				if !reused {
+					stamp, _, err = stampWatchedFile(filepath.Join(root, filepath.FromSlash(rel)), info, false)
+					if err != nil {
+						continue
+					}
 				}
+				snapshot.generatedContent[rel] = stamp
 			}
-			snapshot.generatedContent[rel] = stamp
 		}
 	}
 	var dirs []string

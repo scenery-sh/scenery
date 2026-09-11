@@ -3044,6 +3044,23 @@
         "risk",
         "agents"
       ]
+    },
+    {
+      "path": "docs/plans/0184-ordinary-artifact-preparation-audit.md",
+      "title": "Ordinary Artifact Preparation Audit",
+      "owner": "scenery runtime / ONLV development",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-11",
+      "review_after": "2026-10-11",
+      "summary": "Ordinary artifact attribution, duplicate input capture and source-admission work, actual publication rejection proof, and a separate worker-free production extraction.",
+      "tags": [
+        "plan",
+        "build",
+        "performance",
+        "correctness"
+      ]
     }
   ],
   "plans": {

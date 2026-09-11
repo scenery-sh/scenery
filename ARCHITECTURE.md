@@ -77,6 +77,12 @@ The same supervisor owns managed assistant children. `scenery assistant init`,
 `inspect assistants --implementation` is the explicit developer/operator view
 for implementation paths and private process descriptors.
 
+`devBuildPreparation` owns ordinary graph reuse, workspace preparation, metadata
+and the final authored-source admission check. Cache publication belongs to
+`internal/build.CompileContext`; runtime admission can reject a newer concurrent
+edit after that earlier-snapshot cache has been published. Session retention
+protects the serving executable independently from build-cache pruning.
+
 Architecture invariant: non-CLI packages must not import `cmd/scenery`. Shared
 logic belongs in `internal/` or a public package, depending on whether user apps
 need it.

@@ -428,8 +428,14 @@ targets and the selected build target, with separate complete type contexts.
 Both branches consume the same locked workspace; membership and bytes are checked
 when acquiring it and before publication. Cancellation or failure joins both
 branches before returning. Runtime-bundle publication, reusable build state and
-binary pruning happen only after the join. The real candidate preflight and old
-process shutdown still occur afterwards. Check-only commands continue to verify
+binary pruning happen only after the join. A final fresh authored-source scan
+then admits the captured revision to runtime preparation. A later edit rejects
+activation and remains pending; valid cache state and bundles for the earlier
+captured revision may already be published. Rejection does not roll them back.
+The currently serving executable is an independent retained copy, not a prunable
+cache path. A failed subsequent build preserves successful state and bundle,
+while the latest build manifest can describe its prepared, unsuccessful attempt.
+The real candidate preflight and old process shutdown still occur afterwards. Check-only commands continue to verify
 expected overlays without materializing private build output.
 
 Assistant builds add provider-neutral runtime asset descriptors under the
