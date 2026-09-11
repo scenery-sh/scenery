@@ -82,6 +82,8 @@ and the final authored-source admission check. Cache publication belongs to
 `internal/build.CompileContext`; runtime admission can reject a newer concurrent
 edit after that earlier-snapshot cache has been published. Session retention
 protects the serving executable independently from build-cache pruning.
+Admission checks the source visible to that scan; it does not lock editor writes
+between the scan and runtime activation.
 
 Architecture invariant: non-CLI packages must not import `cmd/scenery`. Shared
 logic belongs in `internal/` or a public package, depending on whether user apps

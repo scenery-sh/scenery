@@ -567,8 +567,10 @@ bytes again, including same-size and same-mtime changes.
 After compilation publishes its cache bundle, successful build state and latest
 compiled manifest and prunes stale cache binaries, the development supervisor
 freshly checks authored source membership and bytes before runtime preparation.
-A concurrent edit prevents that captured revision from activating and remains
-pending. Earlier-snapshot cache publication is not rolled back. The serving
+A source difference detected by that scan rejects the captured revision before
+runtime preparation and remains pending. This is a point-in-time check, not an
+atomic source lock through activation; an edit after the scan is outside this
+check's guarantee. Earlier-snapshot cache publication is not rolled back. The serving
 executable is retained independently of the cache. Failed retries preserve the
 successful state and bundle; the latest manifest may report the failed attempt's
 prepared phase. Source admission still discovers generated paths, but does not

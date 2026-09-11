@@ -429,8 +429,10 @@ Both branches consume the same locked workspace; membership and bytes are checke
 when acquiring it and before publication. Cancellation or failure joins both
 branches before returning. Runtime-bundle publication, reusable build state and
 binary pruning happen only after the join. A final fresh authored-source scan
-then admits the captured revision to runtime preparation. A later edit rejects
-activation and remains pending; valid cache state and bundles for the earlier
+then admits the captured revision to runtime preparation. A source difference
+detected by this scan rejects that preparation and remains pending. The scan is
+not an atomic source lock through activation and does not cover edits arriving
+after it; valid cache state and bundles for the earlier
 captured revision may already be published. Rejection does not roll them back.
 The currently serving executable is an independent retained copy, not a prunable
 cache path. A failed subsequent build preserves successful state and bundle,
