@@ -46,6 +46,10 @@ func Prepare(appRoot string, cfg app.Config) (*Result, error) {
 // bytes. CompileContext performs its pending full verification and joins it
 // before publishing any successful build evidence.
 func PrepareForCompileWithSnapshotContext(ctx context.Context, appRoot string, cfg app.Config, snapshot *SourceSnapshot) (*Result, error) {
+	return prepareForCompileWithProjection(ctx, appRoot, cfg, snapshot, generateHooks.PrepareBuildGoWorkspace, "")
+}
+
+func prepareForCompileWithProjection(ctx context.Context, appRoot string, cfg app.Config, snapshot *SourceSnapshot, project func(*compiler.Result) (generateapi.GoWorkspaceProjection, error), nativeWorkspace string) (*Result, error) {
 	if err := requireGenerateHooks(); err != nil {
 		return nil, err
 	}
@@ -57,7 +61,7 @@ func PrepareForCompileWithSnapshotContext(ctx context.Context, appRoot string, c
 		return nil, err
 	}
 	projection, err := observeBuild(ctx, "projection.go", func() (generateapi.GoWorkspaceProjection, error) {
-		return generateHooks.PrepareBuildGoWorkspace(contract)
+		return project(contract)
 	})
 	if err != nil {
 		return nil, err
@@ -66,7 +70,7 @@ func PrepareForCompileWithSnapshotContext(ctx context.Context, appRoot string, c
 	if err != nil {
 		return nil, err
 	}
-	return prepareWithContractTargetContext(ctx, appRoot, cfg, snapshot, contract, target, projection)
+	return prepareWithSelectedTargetContext(ctx, appRoot, cfg, snapshot, contract, target, projection, nativeWorkspace)
 }
 
 func preparedContractError(contract *compiler.Result) error {
@@ -117,11 +121,11 @@ func prepareWithContractTarget(appRoot string, cfg app.Config, snapshot *SourceS
 // target preparation. Keep that transaction outside the shared workspace phase
 // so ordinary development does not publish the same projection twice.
 func prepareWithContractTargetContext(ctx context.Context, appRoot string, cfg app.Config, snapshot *SourceSnapshot, contract *compiler.Result, target compiler.GoBuildTarget, projection generateapi.GoWorkspaceProjection) (*Result, error) {
+	return prepareWithSelectedTargetContext(ctx, appRoot, cfg, snapshot, contract, target, projection, "")
+}
+
+func prepareWithSelectedTargetContext(ctx context.Context, appRoot string, cfg app.Config, snapshot *SourceSnapshot, contract *compiler.Result, target compiler.GoBuildTarget, projection generateapi.GoWorkspaceProjection, nativeWorkspace string) (*Result, error) {
 	if err := observeBuildAction(ctx, "projection.typescript", func() error { return generateHooks.SyncCachedTypeScript(contract) }); err != nil {
-		return nil, err
-	}
-	runtimePlan, err := generateHooks.RuntimeIntegrationPlan(contract)
-	if err != nil {
 		return nil, err
 	}
 	goBuildFlags := append([]string(nil), target.Context.BuildFlags...)
@@ -129,6 +133,16 @@ func prepareWithContractTargetContext(ctx context.Context, appRoot string, cfg a
 		goBuildFlags = append(goBuildFlags, "-tags="+strings.Join(target.Context.BuildTags, ","))
 	}
 	gen, err := observeBuild(ctx, "workspace.render", func() (*codegen.Output, error) {
+		if nativeWorkspace != "" {
+			if err := validateNativeExperimentProjection(projection.Files); err != nil {
+				return nil, err
+			}
+			return &codegen.Output{Generated: map[string][]byte{}}, nil
+		}
+		runtimePlan, err := generateHooks.RuntimeIntegrationPlan(contract)
+		if err != nil {
+			return nil, err
+		}
 		return codegen.Generate(cfg.Name, cfg, runtimePlan.CompositionImport, contract.SQLRequirements)
 	})
 	if err != nil {
@@ -140,10 +154,14 @@ func prepareWithContractTargetContext(ctx context.Context, appRoot string, cfg a
 		}
 		gen.Generated[relative] = contents
 	}
-	workspaceDir, err := workspaceDir(appRoot, cfg.Name)
-	if err != nil {
-		return nil, err
+	selectedWorkspace := nativeWorkspace
+	if selectedWorkspace == "" {
+		selectedWorkspace, err = workspaceDir(appRoot, cfg.Name)
+		if err != nil {
+			return nil, err
+		}
 	}
+	workspaceDir := selectedWorkspace
 	if err := os.MkdirAll(workspaceDir, 0o755); err != nil {
 		return nil, err
 	}
@@ -225,13 +243,16 @@ func prepareWithContractTargetContext(ctx context.Context, appRoot string, cfg a
 		Contract:                  contract,
 		Target:                    &target,
 		verification:              &preparedVerification{patterns: append([]string(nil), projection.VerificationPatterns...)},
+		nativeExperiment:          nativeWorkspace != "",
 	}
 	result.GoEnvironment = gotarget.Environment(target.Context)
 	// Runtime bundles are target-specific, so an unbound workspace binary is
 	// never reused across build targets.
 	result.ReuseCompiled = false
-	if err := WriteLatestBuildManifest(result, "prepared"); err != nil {
-		return nil, err
+	if !result.nativeExperiment {
+		if err := WriteLatestBuildManifest(result, "prepared"); err != nil {
+			return nil, err
+		}
 	}
 	return result, nil
 }

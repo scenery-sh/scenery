@@ -8,48 +8,47 @@ import (
 	"testing"
 )
 
-func TestNativeExperimentPreservesPreparedProjections(t *testing.T) {
-	for _, change := range []string{"projection", "authored", "escape", "module", "missing-entry"} {
-		t.Run(change, func(t *testing.T) {
-			root := t.TempDir()
-			writeBuildTestFile(t, root, "internal/generated.go", "original")
-			writeBuildTestFile(t, root, "authored.go", "authored")
-			result := &Result{Dir: root, GeneratedFiles: []string{"internal/generated.go"}, SourceFiles: []string{"authored.go"}}
-			files := map[string][]byte{"scenery_native_worker/main.go": []byte("worker"), "scenery_framework_kernel/main.go": []byte("kernel")}
-			switch change {
-			case "projection":
-				files["internal/generated.go"] = []byte("changed")
-			case "authored":
-				files["authored.go"] = []byte("authored")
-			case "escape":
-				files["../escaped.go"] = []byte("escape")
-			case "module":
-				files["internal/foreign/go.mod"] = []byte("module foreign")
-			case "missing-entry":
-				delete(files, "scenery_native_worker/main.go")
-			}
-			if err := addNativeExperimentFiles(result, files); err == nil {
-				t.Fatal("accepted replacement or unsupported addition")
-			}
-			for path, want := range map[string]string{"internal/generated.go": "original", "authored.go": "authored"} {
-				data, err := os.ReadFile(filepath.Join(root, path))
-				if err != nil || string(data) != want {
-					t.Fatalf("modified %s: %v", path, err)
-				}
-			}
-			if _, err := os.Stat(filepath.Join(root, "scenery_native_worker")); !os.IsNotExist(err) {
-				t.Fatal("partial publication before validation")
-			}
-		})
+func TestNativeExperimentWorkspaceOwnership(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	appRoot, ordinary, workspace := filepath.Join(root, "app"), filepath.Join(root, "ordinary"), filepath.Join(root, "experiment")
+	if err := claimNativeExperimentWorkspace(appRoot, ordinary, workspace); err != nil {
+		t.Fatal(err)
+	}
+	writeBuildTestFile(t, workspace, "previous.go", "owned")
+	if err := claimNativeExperimentWorkspace(appRoot, ordinary, workspace); err != nil {
+		t.Fatal(err)
+	}
+	if err := claimNativeExperimentWorkspace(appRoot+"other", ordinary, workspace); err == nil {
+		t.Fatal("adopted foreign workspace")
+	}
+	for _, path := range []string{appRoot, ordinary, root, filepath.Join(appRoot, "child")} {
+		if err := claimNativeExperimentWorkspace(appRoot, ordinary, path); err == nil {
+			t.Fatal("accepted overlapping workspace")
+		}
+	}
+	unowned := filepath.Join(root, "unowned")
+	writeBuildTestFile(t, unowned, "retained", "preserve")
+	if err := claimNativeExperimentWorkspace(appRoot, ordinary, unowned); err == nil {
+		t.Fatal("adopted nonempty workspace")
+	}
+	data, err := os.ReadFile(filepath.Join(unowned, "retained"))
+	if err != nil || string(data) != "preserve" {
+		t.Fatal("modified unowned bytes")
 	}
 }
 
-func TestNativeExperimentTracksAddedEntrypointBytes(t *testing.T) {
+func TestNativeExperimentTracksSelectedEntrypointBytes(t *testing.T) {
 	root := t.TempDir()
-	result := &Result{Dir: root}
+	result := &Result{Dir: root, GeneratedFiles: []string{"scenery_native_worker/main.go", "scenery_framework_kernel/main.go"}}
 	files := map[string][]byte{"scenery_native_worker/main.go": []byte("worker"), "scenery_framework_kernel/main.go": []byte("kernel")}
-	if err := addNativeExperimentFiles(result, files); err != nil {
+	if err := validateNativeExperimentProjection(files); err != nil {
 		t.Fatal(err)
+	}
+	for path, data := range files {
+		writeBuildTestFile(t, root, path, string(data))
 	}
 	var err error
 	result.BuildFingerprint, err = workspaceBuildFingerprint(root, nil, result.SourceFiles, result.GeneratedFiles)
@@ -62,6 +61,17 @@ func TestNativeExperimentTracksAddedEntrypointBytes(t *testing.T) {
 	writeBuildTestFile(t, root, "scenery_native_worker/main.go", "edited")
 	if err := verifyPreparedWorkspace(result); err == nil {
 		t.Fatal("accepted modified worker entrypoint")
+	}
+	for _, path := range []string{"../escape.go", "scenery_internal_main/main.go"} {
+		files[path] = []byte("invalid")
+		if err := validateNativeExperimentProjection(files); err == nil {
+			t.Fatal("accepted invalid projection")
+		}
+		delete(files, path)
+	}
+	delete(files, "scenery_native_worker/main.go")
+	if err := validateNativeExperimentProjection(files); err == nil {
+		t.Fatal("accepted missing entry")
 	}
 }
 

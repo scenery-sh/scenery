@@ -244,7 +244,10 @@ are retained until the single host binds; service initialization remains lazy.
 Full native worker separation, including internal/durable dispatch, is not
 promoted. [0181](docs/plans/0181-native-worker-measurement-audit.md) corrected
 asymmetric validation in 0180's measurements and withdrew the architectural
-rejection. The corrected prototype has not demonstrated a substantial speedup.
+rejection. [0182](docs/plans/0182-direct-native-worker-preparation.md) then
+removed ordinary private preparation from the candidate and measured an 11.6%
+gain in six matched API pairs. This does not establish the full-loop 50% goal
+or qualify the worker for production.
 
 ### Native invocation and durable helpers
 
@@ -703,19 +706,33 @@ same series' notes on testing, workspaces, and build-time discipline.
 
 ### Native worker feasibility experiment
 
-`internal/build.CompileNativeExperiment` consumes a pending ordinary prepared
-target, preserves full native verification and input discovery, and publishes
-only private evidence after the checker/build/freshness join. The framework
-kernel has a separate consumed-input identity projected from the same complete
-graph and hashed bytes. The full graph is rediscovered after the join; reuse
-still verifies current inputs and exact retained executable bytes. Independent
-kernel discovery is an explicit untimed audit check. `internal/build.RetainBinary` is
-the shared executable-copy boundary used by ordinary sessions and this
-experiment. `scripts/native-worker-experiment` explicitly drives the unchanged
-ordinary baseline, a control with matched post-build input checks, or the worker.
-These measurement modes are not product commands. The worker renderer adds only
-worker files to the already prepared workspace and reuses its pure adapter
-projection; it does not request ordinary artifacts a second time.
+`internal/build.PrepareNativeExperiment` selects public plus worker/kernel
+projection before one materialization in an explicitly owned private workspace.
+`internal/generate.PrepareNativeWorkerGoWorkspace` shares compiler/public
+publication, module ownership and required verification patterns with ordinary
+preparation. Both adapter renderers consume validated metadata; the worker never
+renders ordinary adapter source to obtain it. Ordinary composition, adapters and
+entrypoint are absent from the candidate. Declared target patterns are preserved;
+only the internally forced ordinary entrypoint is omitted from its discovery.
+
+`internal/build.CompileNativeExperiment` consumes that exact pending projection,
+preserves full native verification and input discovery, and publishes only
+private evidence after the checker/build/freshness join. It cannot add files to
+an ordinary prepared workspace. Separate native preparation hints contain no
+ordinary successful binary or graph identity; ordinary compile/prime entrypoints
+reject the experimental result. Failed preparation or recapture preserves the
+ordinary latest manifest, previous receipt and retained artifacts.
+
+The framework kernel has a separate consumed-input identity projected from the
+same complete graph and hashed bytes. The full graph is rediscovered after the
+join; reuse verifies current inputs and exact retained executable bytes.
+Independent kernel discovery is an explicit untimed audit check.
+`internal/build.RetainBinary` is the shared executable-copy boundary.
+`scripts/native-worker-experiment` explicitly drives the unchanged ordinary
+baseline, a control with matched post-build input checks, or the direct worker.
+These modes are not product commands. Traces record preparation, full build and
+verifier branches, their joined interval and final recapture/retention; overlapping
+Go-command sums are not the build branch's wall time.
 
 `runtime/worker` owns an explicitly generated plan-0180 experiment, selected only
 through `internal/generate.RenderNativeWorkerWorkspaceFiles`; ordinary app

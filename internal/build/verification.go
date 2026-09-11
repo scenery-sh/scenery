@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"time"
 
 	"scenery.sh/internal/compiler"
 )
@@ -62,7 +63,11 @@ func completePreparedVerification(ctx context.Context, result *Result) error {
 // success. A build error still waits for authoritative native diagnostics;
 // verification failure and caller cancellation stop the build branch. Both
 // branches are joined before returning in every case.
-func compileWithPreparedVerification(ctx context.Context, result *Result, compile func(context.Context) error) error {
+func compileWithPreparedVerification(ctx context.Context, result *Result, compile func(context.Context) error) (returnedErr error) {
+	started := time.Now()
+	defer func() {
+		finishStep(ctx, "compile.join", started, "not_applicable", "full_verifier_and_build", returnedErr)
+	}()
 	if result.verification == nil {
 		return compile(ctx)
 	}
@@ -82,7 +87,7 @@ func compileWithPreparedVerification(ctx context.Context, result *Result, compil
 			cancel()
 		}
 	}()
-	compileErr := compile(ctx)
+	compileErr := observeBuildAction(ctx, "compile.build_branch", func() error { return compile(ctx) })
 	if errors.Is(compileErr, context.Canceled) || errors.Is(compileErr, context.DeadlineExceeded) {
 		cancel()
 	}

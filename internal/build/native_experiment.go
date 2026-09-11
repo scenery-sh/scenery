@@ -1,7 +1,6 @@
 package build
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -33,12 +32,11 @@ type NativeKernelArtifact struct {
 	ImplementationRevision string
 }
 
-// CompileNativeExperiment consumes a freshly prepared target and adds the
-// experimental renderers' files. Full target patterns, generated native checks,
+// CompileNativeExperiment consumes a directly prepared experimental target. Full target patterns, generated native checks,
 // framework provenance and independent executable retention remain mandatory.
 // Callers must own the app/cache root; this consumes its pending preparation.
-func CompileNativeExperiment(ctx context.Context, prepared *Result, files map[string][]byte, retentionDir string, previousKernel *NativeKernelArtifact) (*NativeExperiment, error) {
-	if prepared == nil || prepared.verification == nil || prepared.Contract == nil || prepared.Target == nil {
+func CompileNativeExperiment(ctx context.Context, prepared *Result, retentionDir string, previousKernel *NativeKernelArtifact) (*NativeExperiment, error) {
+	if prepared == nil || !prepared.nativeExperiment || prepared.verification == nil || prepared.Contract == nil || prepared.Target == nil {
 		return nil, fmt.Errorf("native experiment requires a fresh pending prepared target")
 	}
 	if !filepath.IsAbs(retentionDir) {
@@ -61,12 +59,6 @@ func CompileNativeExperiment(ctx context.Context, prepared *Result, files map[st
 	result := *prepared
 	result.GeneratedFiles = slices.Clone(prepared.GeneratedFiles)
 	result.BuildInput, result.RuntimeLinkerMetadata, result.ImplementationRevisions = nil, nil, nil
-	if err := addNativeExperimentFiles(&result, files); err != nil {
-		return nil, err
-	}
-	if err := refreshWorkspaceBuildIdentity(&result); err != nil {
-		return nil, err
-	}
 	if result.NeedsTidy {
 		if err := tidyWorkspace(ctx, &result); err != nil {
 			return nil, err
@@ -115,34 +107,41 @@ func CompileNativeExperiment(ctx context.Context, prepared *Result, files map[st
 	if err != nil {
 		return nil, err
 	}
-	if err := verifyPreparedWorkspace(&result); err != nil {
-		return nil, err
-	}
-	// Re-discover membership and re-hash consumed dependency/module/native bytes;
-	// source timestamps and a successful compiler invocation are not freshness.
-	after, kernelAfter, err := discoverNativeExperimentInputs(ctx, &result)
-	if err != nil {
-		return nil, err
-	}
-	if after.Digest != result.BuildInput.Digest {
-		return nil, fmt.Errorf("native experiment build inputs changed during compilation")
-	}
-	if kernelAfter.Digest != kernelResult.BuildInput.Digest {
-		return nil, fmt.Errorf("native kernel inputs changed during compilation")
-	}
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	retainedWorker, err := RetainBinary(retentionDir, worker)
-	if err != nil {
-		return nil, err
-	}
-	retainedKernel, err := RetainBinary(retentionDir, kernel)
-	if err != nil {
-		return nil, err
-	}
-	return &NativeExperiment{Worker: retainedWorker, Kernel: &NativeKernelArtifact{Binary: retainedKernel, Digest: strings.TrimPrefix(filepath.Base(retainedKernel), "scenery-app-"), BuildInput: kernelResult.BuildInput, ImplementationRevision: kernelResult.ImplementationRevisions[kernelResult.Target.Name]}, KernelReused: kernelReused, BuildInput: result.BuildInput,
-		ImplementationRevision: result.ImplementationRevisions[result.Target.Name], ResolvedGoTarget: result.Target.Resolved}, nil
+	return observeBuild(ctx, "experiment.recapture_retention", func() (*NativeExperiment, error) {
+		if err := verifyPreparedWorkspace(&result); err != nil {
+			return nil, err
+		}
+		// Re-discover membership and re-hash consumed dependency/module/native bytes;
+		// source timestamps and a successful compiler invocation are not freshness.
+		after, kernelAfter, err := discoverNativeExperimentInputs(ctx, &result)
+		if err != nil {
+			return nil, err
+		}
+		if after.Digest != result.BuildInput.Digest {
+			return nil, fmt.Errorf("native experiment build inputs changed during compilation")
+		}
+		if kernelAfter.Digest != kernelResult.BuildInput.Digest {
+			return nil, fmt.Errorf("native kernel inputs changed during compilation")
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		retainedWorker, err := RetainBinary(retentionDir, worker)
+		if err != nil {
+			return nil, err
+		}
+		retainedKernel, err := RetainBinary(retentionDir, kernel)
+		if err != nil {
+			return nil, err
+		}
+		// Retain only preparation hints in this separately owned workspace. There
+		// is no successful binary/graph fingerprint for the ordinary cache to admit.
+		if err := saveBuildState(result.Dir, buildState{Version: buildStateVersion, DependencyFingerprint: result.DependencyFingerprint, SourceStamps: result.SourceStamps, GeneratedFiles: result.GeneratedFiles}); err != nil {
+			return nil, err
+		}
+		return &NativeExperiment{Worker: retainedWorker, Kernel: &NativeKernelArtifact{Binary: retainedKernel, Digest: strings.TrimPrefix(filepath.Base(retainedKernel), "scenery-app-"), BuildInput: kernelResult.BuildInput, ImplementationRevision: kernelResult.ImplementationRevisions[kernelResult.Target.Name]}, KernelReused: kernelReused, BuildInput: result.BuildInput,
+			ImplementationRevision: result.ImplementationRevisions[result.Target.Name], ResolvedGoTarget: result.Target.Resolved}, nil
+	})
 }
 
 func buildNativeExperimentEntry(ctx context.Context, result *Result, binary, entry string, flags []string) error {
@@ -162,57 +161,4 @@ func reusableNativeKernel(previous *NativeKernelArtifact, current *Result, reten
 		return false, err
 	}
 	return true, nil
-}
-
-func addNativeExperimentFiles(result *Result, files map[string][]byte) error {
-	for _, entry := range []string{"scenery_native_worker/main.go", "scenery_framework_kernel/main.go"} {
-		if len(files[entry]) == 0 {
-			return fmt.Errorf("native experiment entrypoint missing: %s", entry)
-		}
-	}
-	// Validate the complete set before writing. Existing projections must match
-	// exactly: this API cannot bless edited native interfaces or authored bytes.
-	var additions []string
-	for relative, data := range files {
-		if !filepath.IsLocal(relative) || filepath.ToSlash(filepath.Clean(relative)) != relative {
-			return fmt.Errorf("invalid native experiment generated path: %s", relative)
-		}
-		path := filepath.Join(result.Dir, filepath.FromSlash(relative))
-		before, err := os.ReadFile(path)
-		if err == nil {
-			if !slices.Contains(result.GeneratedFiles, relative) || !bytes.Equal(before, data) {
-				return fmt.Errorf("native experiment cannot replace prepared input: %s", relative)
-			}
-			continue
-		}
-		if !os.IsNotExist(err) {
-			return err
-		}
-		if !strings.HasSuffix(relative, ".go") || (!strings.HasPrefix(relative, "internal/") && !strings.HasPrefix(relative, "scenery_native_worker/") && !strings.HasPrefix(relative, "scenery_framework_kernel/")) {
-			return fmt.Errorf("native experiment file is outside private generated roots: %s", relative)
-		}
-		additions = append(additions, relative)
-	}
-	slices.Sort(additions)
-	for _, relative := range additions {
-		path := filepath.Join(result.Dir, filepath.FromSlash(relative))
-		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-			return err
-		}
-		file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
-		if err != nil {
-			return err
-		}
-		_, writeErr := file.Write(files[relative])
-		closeErr := file.Close()
-		if writeErr != nil {
-			return writeErr
-		}
-		if closeErr != nil {
-			return closeErr
-		}
-		result.GeneratedFiles = append(result.GeneratedFiles, relative)
-	}
-	slices.Sort(result.GeneratedFiles)
-	return nil
 }

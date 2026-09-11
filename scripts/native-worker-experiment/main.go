@@ -16,6 +16,7 @@ import (
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/devcache"
 	"scenery.sh/internal/generate"
+	generateapi "scenery.sh/internal/generate/api"
 )
 
 func main() {
@@ -92,28 +93,21 @@ func run() error {
 	})
 	var steps []build.Step
 	ctx := build.WithTrace(context.Background(), func(step build.Step) { steps = append(steps, step) })
-	prepared, err := build.PrepareForCompileWithSnapshotContext(ctx, root, cfg, nil)
+	prepareStarted := time.Now()
+	var prepared *build.Result
+	if *mode == "worker" {
+		prepared, err = build.PrepareNativeExperiment(ctx, root, cfg, filepath.Join(out, "native-workspace"), func(result *compiler.Result) (generateapi.GoWorkspaceProjection, error) {
+			return generate.PrepareNativeWorkerGoWorkspace(result, cfg, *binding)
+		})
+	} else {
+		prepared, err = build.PrepareForCompileWithSnapshotContext(ctx, root, cfg, nil)
+	}
 	if err != nil {
 		return err
 	}
+	steps = append(steps, build.Step{Name: "experiment.preparation", StartedAt: prepareStarted, Duration: time.Since(prepareStarted), OK: true})
 	var candidate *build.NativeExperiment
 	if *mode == "worker" {
-		renderStarted := time.Now()
-		files, err := generate.RenderNativeWorkerWorkspaceFiles(prepared.Contract, *binding)
-		if err != nil {
-			return err
-		}
-		kernel, err := generate.RenderNativeKernelWorkspaceFiles(prepared.Contract, cfg, *binding)
-		if err != nil {
-			return err
-		}
-		for path, data := range kernel {
-			if _, exists := files[path]; exists {
-				return fmt.Errorf("kernel/worker generated path collision: %s", path)
-			}
-			files[path] = data
-		}
-		steps = append(steps, build.Step{Name: "experiment.projection", StartedAt: renderStarted, Duration: time.Since(renderStarted), OK: true})
 		var previous struct{ Evidence *build.NativeExperiment }
 		if data, err := os.ReadFile(filepath.Join(out, "worker-evidence.json")); err == nil {
 			if err := json.Unmarshal(data, &previous); err != nil {
@@ -126,7 +120,7 @@ func run() error {
 		if previous.Evidence != nil {
 			previousKernel = previous.Evidence.Kernel
 		}
-		candidate, err = build.CompileNativeExperiment(ctx, prepared, files, filepath.Join(out, "retained"), previousKernel)
+		candidate, err = build.CompileNativeExperiment(ctx, prepared, filepath.Join(out, "retained"), previousKernel)
 		if err != nil {
 			return err
 		}
@@ -144,10 +138,12 @@ func run() error {
 				return err
 			}
 		}
+		retentionStarted := time.Now()
 		retained, err := build.RetainBinary(filepath.Join(out, "retained"), prepared.Binary)
 		if err != nil {
 			return err
 		}
+		steps = append(steps, build.Step{Name: "experiment.control_retention", StartedAt: retentionStarted, Duration: time.Since(retentionStarted), OK: true})
 		candidate = &build.NativeExperiment{Worker: retained, BuildInput: prepared.BuildInput, ImplementationRevision: prepared.ImplementationRevisions[prepared.Target.Name], ResolvedGoTarget: prepared.Target.Resolved}
 	}
 	record := struct {

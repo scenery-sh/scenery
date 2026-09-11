@@ -15,7 +15,7 @@ import (
 	"scenery.sh/internal/scn"
 )
 
-type applicationAdapter struct {
+type applicationAdapterMetadata struct {
 	PackageIdentity string
 	Address         string
 	ImportPath      string
@@ -25,7 +25,11 @@ type applicationAdapter struct {
 	PackageABI      string
 	Implementation  string
 	Contract        string
-	Source          []byte
+}
+
+type applicationAdapter struct {
+	applicationAdapterMetadata
+	Source []byte
 }
 
 type RuntimeIntegrationPlan = generateapi.RuntimeIntegrationPlan
@@ -201,7 +205,7 @@ func resolveApplicationGeneratedRoot(result *Result) (string, string, error) {
 	return "", "", fmt.Errorf("native application adapters require a go_module mapping for %s", relativeRoot)
 }
 
-func renderApplicationAdapter(result *Result, idx *resourceIndex, module, service Resource, generatedImport string) (applicationAdapter, error) {
+func prepareApplicationAdapter(result *Result, idx *resourceIndex, module, service Resource, generatedImport string) (applicationAdapterMetadata, error) {
 	moduleSource, _ := module.Spec["workspace_package_root"].(string)
 	if moduleSource == "" {
 		moduleSource, _ = module.Spec["source"].(string)
@@ -220,12 +224,12 @@ func renderApplicationAdapter(result *Result, idx *resourceIndex, module, servic
 		}
 	}
 	if implementationImport == "" {
-		return applicationAdapter{}, fmt.Errorf("native service %s has no go_contract import path", service.Address)
+		return applicationAdapterMetadata{}, fmt.Errorf("native service %s has no go_contract import path", service.Address)
 	}
 	moduleResources := idx.moduleResources(moduleInstancePath(module))
 	packageABI, err := packageABIRevision(implementationImport, moduleResources, idx)
 	if err != nil {
-		return applicationAdapter{}, err
+		return applicationAdapterMetadata{}, err
 	}
 	operations := compiler.ServiceOperations(result.Manifest.Resources, service)
 	if compiler.IsProviderCRUDService(service) {
@@ -246,11 +250,7 @@ func renderApplicationAdapter(result *Result, idx *resourceIndex, module, servic
 		packageName := goPackageName(moduleInstancePath(module) + "_" + service.Name + "_adapter")
 		contractImport := implementationImport + "/scenerycontract"
 		adapterImport := generatedImport + "/" + dirName
-		source, renderErr := renderProviderCRUDAdapterSource(result.Manifest.ContractRevision, packageIdentity, packageABI, contractImport, packageName, service, operations, bindings, mcpBindings, result.Manifest.Resources, covered, providerRuntimeABIs(result.Manifest.Resources))
-		if renderErr != nil {
-			return applicationAdapter{}, renderErr
-		}
-		return applicationAdapter{PackageIdentity: packageIdentity, Address: service.Address, ImportPath: adapterImport, PackageName: packageName, RelativeDir: dirName, Covered: covered, PackageABI: packageABI, Implementation: "scenery.sh/datasource", Contract: contractImport, Source: source}, nil
+		return applicationAdapterMetadata{PackageIdentity: packageIdentity, Address: service.Address, ImportPath: adapterImport, PackageName: packageName, RelativeDir: dirName, Covered: covered, PackageABI: packageABI, Implementation: "scenery.sh/datasource", Contract: contractImport}, nil
 	}
 	bindings := serviceHTTPBindings(result.Manifest.Resources, operations)
 	internalBindings := internalBindingsForOperations(result.Manifest.Resources, operations)
@@ -275,15 +275,31 @@ func renderApplicationAdapter(result *Result, idx *resourceIndex, module, servic
 	packageName := goPackageName(moduleInstancePath(module) + "_" + service.Name + "_adapter")
 	contractImport := implementationImport + "/scenerycontract"
 	adapterImport := generatedImport + "/" + dirName
-	source, err := renderApplicationAdapterSource(result.Manifest.ContractRevision, packageIdentity, packageABI, implementationImport, contractImport, packageName, service, operations, bindings, mcpBindings, result.Manifest.Resources, idx, covered, providerRuntimeABIs(result.Manifest.Resources))
+	return applicationAdapterMetadata{
+		PackageIdentity: packageIdentity,
+		Address:         service.Address, ImportPath: adapterImport, PackageName: packageName, RelativeDir: dirName,
+		Covered: covered, PackageABI: packageABI, Implementation: implementationImport, Contract: contractImport,
+	}, nil
+}
+
+// Ordinary source is rendered only after the shared metadata has been validated.
+// The worker consumes applicationAdapterMetadata directly and never calls this.
+func renderApplicationAdapter(result *Result, idx *resourceIndex, metadata applicationAdapterMetadata) (applicationAdapter, error) {
+	service := idx.byAddress[metadata.Address]
+	operations := compiler.ServiceOperations(result.Manifest.Resources, service)
+	bindings := serviceHTTPBindings(result.Manifest.Resources, operations)
+	mcpBindings := mcpBindingsForService(result.Manifest.Resources, service, operations)
+	var source []byte
+	var err error
+	if compiler.IsProviderCRUDService(service) {
+		source, err = renderProviderCRUDAdapterSource(result.Manifest.ContractRevision, metadata.PackageIdentity, metadata.PackageABI, metadata.Contract, metadata.PackageName, service, operations, bindings, mcpBindings, result.Manifest.Resources, metadata.Covered, providerRuntimeABIs(result.Manifest.Resources))
+	} else {
+		source, err = renderApplicationAdapterSource(result.Manifest.ContractRevision, metadata.PackageIdentity, metadata.PackageABI, metadata.Implementation, metadata.Contract, metadata.PackageName, service, operations, bindings, mcpBindings, result.Manifest.Resources, idx, metadata.Covered, providerRuntimeABIs(result.Manifest.Resources))
+	}
 	if err != nil {
 		return applicationAdapter{}, err
 	}
-	return applicationAdapter{
-		PackageIdentity: packageIdentity,
-		Address:         service.Address, ImportPath: adapterImport, PackageName: packageName, RelativeDir: dirName,
-		Covered: covered, PackageABI: packageABI, Implementation: implementationImport, Contract: contractImport, Source: source,
-	}, nil
+	return applicationAdapter{applicationAdapterMetadata: metadata, Source: source}, nil
 }
 
 func renderApplicationAdapterSource(contractRevision, packageIdentity, packageABI, implementationImport, contractImport, packageName string, service Resource, operations, bindings []Resource, mcpBindings []mcpToolTarget, resources []Resource, idx *resourceIndex, covered []string, providerABIs map[string]string) ([]byte, error) {

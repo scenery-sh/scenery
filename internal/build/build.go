@@ -46,6 +46,7 @@ type Result struct {
 	AssistantAssets         []generateapi.AssistantAssetDescriptor
 	ProductionAssets        bool
 	verification            *preparedVerification
+	nativeExperiment        bool
 }
 
 // SourceStamp records the size/mtime/permissions of an app source file as

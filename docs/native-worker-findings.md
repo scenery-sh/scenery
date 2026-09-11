@@ -1,105 +1,134 @@
 # Native Worker Findings and Review Handoff
 
-Status: experimental implementation for review, not a production runtime choice.
-The current findings are from 2026-09-11. Read this before the historical decision
-in [0180](plans/0180-native-worker-feasibility.md): the measurement audit in
-[0181](plans/0181-native-worker-measurement-audit.md) withdrew that architectural
-rejection. Its complete sample tables and validation commands are committed.
+Status: bounded experiment completed for draft PR #193; no production runtime
+promotion. Current findings are from 2026-09-11. The historical measurement
+correction in [0181](plans/0181-native-worker-measurement-audit.md) withdrew the
+architectural rejection based on the original 19% slowdown. The direct preparation
+follow-up in [0182](plans/0182-direct-native-worker-preparation.md) now measures a
+repeatable gain within its six-pair API probe. The complete-loop 50% goal remains
+unproven.
 
 ## What the diff implements
 
 Application-facing `scenery`, `auth`, `db`, `durable` and native `runtime` calls
 no longer pull in the framework host. HTTP, policy, scheduling, MCP and host
-bootstrap move to `runtime/host`; generated ordinary bootstrap imports that host
+bootstrap live in `runtime/host`; generated ordinary bootstrap imports that host
 explicitly. Native state, callbacks, service lifecycle and composition have small
 shared owners under `internal/native*`, `internal/runtimeapp` and
-`internal/runtimescope`. Generated fixtures and the semantic generation revision
-change with the import boundary. Most of the large runtime diff is file movement.
+`internal/runtimescope`. Most of this earlier runtime diff is file movement.
 
-The private experiment renders a native worker and a framework kernel. It uses
-the full prepared target and native verifier, complete consumed-input identities,
-content-addressed binary retention, linked first-execution proof and explicit
-activation. The kernel's independently verified artifact is reused across edits.
-The ordinary product CLI does not select the worker experiment.
+The private experiment now prepares the worker and kernel directly. It selects
+shared public projection plus the selected private output before materializing
+one owned workspace. Ordinary composition, ordinary adapters and the ordinary
+entrypoint are never generated there. Adapter metadata and common validation are
+separate from ordinary `Source`; the worker renderer does not invoke that source
+renderer even on a cold cache. Compilation consumes the prepared set without
+adding or repairing files afterward.
 
-## What is established
+Compiler/public Go publication, TypeScript, source ownership, complete authored
+target patterns, default plus selected ABI checks and post-build recapture remain
+mandatory. Only the internally forced unused ordinary entrypoint disappears.
+An explicitly authored pattern requesting it still fails rather than being
+rewritten. The ordinary product CLI continues to use its existing executable.
 
-The real ONLV worker retains all 166 native application packages, registers 215
-operations and preserves all 5063 baseline native text symbols. Its dependency
-graph has 578 packages; the separate kernel has 331 and no native application
-package. Every measured pair retains the same 509 authored native, embedded and
-public-projection file identities, with only the intended handler-body edit.
-Kernel input projection equals independent discovery of its 687 inputs; complete
-worker target identity includes 1681 inputs and is rechecked after compilation.
+## What is established for the direct candidate
 
-One real authenticated project-list HTTP binding works through kernel and worker
-using actual constructors and PostgreSQL. Observed proof includes two-tenant
-isolation, anonymous/invalid-token rejection, SQL failure, in-flight SQL
-cancellation, worker loss, linked response identities and owner-channel shutdown.
-Arbitrary pointers, contexts and SQL objects are not serialized across processes.
+Independent dependency captures preserve exactly the same 166 native packages
+and 215 operation identities. All six pairs preserve exactly 509 app/native,
+embedded and public-projection input identities and bytes, except the intended
+project-list body edit. The full target manifest changes from 1628 control inputs
+to 1631 candidate inputs: 50 ordinary private inputs disappear (47 adapters,
+composition, empty assistant assets and entrypoint), and 53 selected inputs enter
+(47 worker adapters, two entrypoints and four worker runtime source files).
+There is no unexplained change to common inputs.
 
-## Performance result and the methodological correction
+The kernel's 687-input projection matches independent discovery. Both arms
+perform two full discovery passes. Each candidate has a distinct retained worker
+executable; all six reuse one checksum-verified kernel executable while starting
+six new kernel processes. Native preparation cache hints contain no ordinary
+successful binary or graph identity. Failure proofs preserve the actual ordinary
+latest-build manifest, previous receipt and retained binary bytes.
 
-Each new comparison contains six alternating AB/BA pairs, distinct semantic edits,
-fresh worker binaries, first executions and real authenticated SQL responses.
-Every worker sample reuses verified kernel bytes but starts a new kernel process.
-Warmups are separate and no measured sample is discarded.
+Ten negative toolchain proofs cover an unrelated native constructor signature,
+unrelated invalid body, distinct selected-target tags, explicit ordinary target
+pattern, projection preparation failure, generated-file tampering, imports,
+tags, embedded membership and canceled final recapture. The initial target-test
+attempt stopped on stale TypeScript; the corrected proof refreshed the authored
+public projection and then reached the intended Go-target failure. That earlier
+attempt remains recorded rather than counted as ABI coverage.
 
-| Comparison | Control median | Worker median | Observed difference |
-| --- | ---: | ---: | ---: |
-| Ordinary build versus corrected worker | 5978.692 ms | 6633.047 ms | +654.355 ms / +10.945% |
-| Both with complete post-build input checks | 6414.336 ms | 6532.735 ms | +118.399 ms / +1.846% |
+Real PostgreSQL/auth proof passes 53 assertions, including exact operation
+registration, anonymous/invalid-token rejection, two tenants, trusted auth data
+over caller tenant paths, SQL table failure with sanitized HTTP errors, in-flight
+SQL cancellation, worker loss and both owner-channel shutdowns. Earlier 0181
+symbol evidence remains historical; this follow-up specifically repeats exact
+package/operation/input membership and the real behavior proof.
 
-The original 19% slowdown was not a fair architectural comparison: the worker
-performed four discovery/hash passes versus one and repeated prepared rendering.
-The correction shares one full captured graph and its bytes with the kernel,
-retains a complete post-build recapture, and reuses existing pure projections.
-The matched control adds that same final check; it is a separate attribution
-control, not an optimization or replacement of the ordinary product build.
+## Six matched pairs
 
-In the matched series, summed Go-command medians fell from 1813.351 to 1609.017 ms
-(204.334 ms), while native checking was 1192.075/1349.354 ms and worker rendering
-149.635 ms. These spans overlap: their medians must not be added into a claimed
-critical-path saving. Absolute times drifted between series; compare within each
-series, not across them. Six pairs establish neither statistical equivalence nor
-an inherent 1.8% architectural penalty. They also do not demonstrate a large gain.
+Each sample makes a distinct semantic edit and measures full preparation through
+first proof, activation and the real authenticated SQL response. Two warmups are
+separate. Every measured sample is retained; every candidate is faster within its
+pair. A positive gain below means control minus worker.
 
-## Remaining uncertainty and decision
+| Metric | Result |
+| --- | ---: |
+| Control median | 5471.196 ms |
+| Direct worker median | 4834.681 ms |
+| Difference of arm medians | 636.515 ms / 11.634% gain |
+| Median within-pair gain | 631.524 ms |
+| Within-pair gain range | 520.523–1035.094 ms |
 
-The candidate still prepares ordinary private composition alongside worker
-additions and verifies the resulting full target. That extra preparation is a
-prototype cost. A kernel process surviving semantic edits has not been tested;
-only its executable is reused. Neither potential saving should be counted yet.
-The measured path excludes the complete supervisor, frontend and assistant loop,
-so it cannot establish the 0179 edit/start goals of 3153.378/4017.245 ms.
+The full sample and timeline tables are in 0182. Median preparation is
+1471.587/1223.858 ms (control/worker). The actual joined build/verifier interval is
+1886.204/1725.063 ms; the build branch dominates every pair. Its median paired
+saving is 165.301 ms. Summed Go-command time is not that branch's complete wall
+time, and verifier savings cannot be added to build savings. Final recapture and
+retention remain approximately 565 ms in both arms. Component medians are not
+additive.
 
-Only the selected unary HTTP binding is admitted. Streaming/backpressure,
-custom auth, all internal/durable paths, complete telemetry parity, debugger
-behavior and request latency/throughput/resource budgets are not qualified for
-the split runtime. BuildSession, DeclarationPlan, GoSession and broad retained
-generation/lifecycle migration have not been implemented.
+Observed exposed kernel startup, from process spawn through compiled proof and
+private setup to first TCP acceptance, has a 44.720 ms median and a
+44.147–53.543 ms range. The polling resolution is 10 ms. Startup depends on an
+already activated worker; authenticated SQL response time is separate. This is
+only an observed upper bound on removable restart cost in these samples, not a
+credit for an unimplemented surviving kernel.
 
-Recommended next decision: authorize one bounded experiment that prepares only
-the candidate's private composition while preserving every authored package,
-public projection, native input, target/ABI check, freshness check and lifecycle
-invariant. Attribute the actual remaining wall-time path, then repeat the same
-paired experiment. If the gain still remains in tens or low hundreds of
-milliseconds, it does not justify the proposed platform-wide migration. A kernel
-that survives edits is a separate, more involved lifecycle experiment and cannot
-be used to make unchanged-start measurements appear faster.
+## Decision and actual development-path limits
 
-## Focus for a cloud reviewer
+Keep the direct candidate in draft for review. The approximately 0.63-second
+paired gain is useful evidence for this bounded cut. It does not demonstrate
+that a broad runtime migration will halve the complete development loop, and no
+such rewrite or production promotion follows from this result.
 
-Check `internal/build/native_experiment*.go`, the worker/kernel renderers and
-`runtime/worker` first. Identify a concrete redundant cost or correctness defect
-with code evidence; do not infer the complete loop's performance from file moves,
-binary size or the count of imported packages. Preserve the distinction between
-native callbacks remaining reachable and every protocol being implemented.
+The source maps preparation and the joined build to the real edit path in
+`cmd/scenery/dev_build_pipeline.go`. That path first attempts cached refresh,
+passes a source snapshot, and continues through metadata, service/runtime setup,
+activation and frontend/assistant work. Cached refresh also renders ordinary
+projection via `internal/build/workspace_cache.go`, but the experiment uses a
+fresh driver and nil snapshot. Neither its preparation saving nor its complete
+11.6% result is a measured saving in the full supervisor loop. Do not subtract
+636 ms from the older 4.495-second edit sample or compare absolute times across
+0180/0181/0182 series.
 
-Full Go tests, focused race tests, lint, generator fixtures, TypeScript checks,
-the default verifier and named native/process/auth/SQL probes passed locally;
-0180/0181 record exact commands, stages and remaining warnings. Full release and
-unconverted runtime promotion gates were not selected. The ONLV fixture, raw
-machine-local captures and process/SQL logs are not part of this repository;
-cloud reviewers can inspect the diff and committed result tables but cannot
-reproduce those application timings from the Scenery checkout alone.
+Only one unary HTTP binding is admitted. Streams/backpressure, custom auth,
+all internal/durable paths, telemetry parity, debugger behavior and complete
+resource/throughput budgets are not qualified for the split runtime.
+BuildSession, DeclarationPlan, GoSession and persistent-kernel generation rebinding
+remain unimplemented. The measured kernel restart interval is too small to
+supply the missing 50% evidence by assumption.
+
+## Review and validation
+
+Review `internal/build/native_experiment*.go`, shared preparation and the split
+metadata/worker renderers first. Ordinary source selection must remain separate
+from shared validation; complete captured inputs and retained bytes remain the
+admission boundary. Native registration reachability is not full protocol parity.
+
+Affected Go tests, focused race tests, lint, generator fixture refreshes,
+TypeScript checks, the default verifier and the named `native-contract`,
+`dev-process`, `build-info` and `assistant-runtime` probes pass. 0182 records exact
+commands, output artifacts and existing warnings. Full release and runtime
+promotion gates were not selected. The private ONLV fixture and machine-local
+captures remain outside the PR; cloud reviewers can inspect source and committed
+tables, but cannot reproduce those application timings from this checkout alone.

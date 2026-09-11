@@ -19,6 +19,18 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0182-direct-native-worker-preparation.md",
+      "title": "Direct Native Worker Preparation",
+      "owner": "scenery runtime / ONLV development",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-11",
+      "review_after": "2026-10-11",
+      "summary": "Completed direct worker preparation: exact native inputs and full checks retained; six matched pairs show 11.6 percent bounded gain without proving the full-loop 50 percent goal.",
+      "tags": ["plans", "execplans", "runtime", "performance"]
+    },
+    {
       "path": "docs/native-worker-findings.md",
       "title": "Native Worker Findings and Review Handoff",
       "owner": "scenery runtime / ONLV development",
@@ -27,7 +39,7 @@
       "freshness": "current",
       "last_reviewed": "2026-09-11",
       "review_after": "2026-10-11",
-      "summary": "Current native worker findings, corrected paired performance results, proof limits and a bounded next decision for reviewing the experimental split.",
+      "summary": "Current direct native worker findings, six matched pairs with 11.6 percent bounded gain, exact input and ownership proofs, and unchanged full-loop promotion limits.",
       "tags": ["runtime", "performance", "architecture"]
     },
     {

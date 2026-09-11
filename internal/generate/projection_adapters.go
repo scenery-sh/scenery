@@ -68,23 +68,39 @@ func cloneApplicationAdapters(adapters []applicationAdapter) []applicationAdapte
 }
 
 func renderApplicationAdapters(result *Result, idx *resourceIndex, generatedImport string) ([]applicationAdapter, error) {
-	modules := map[string]Resource{}
-	for _, module := range localModuleInstances(result.Manifest.Resources) {
-		modules[moduleInstancePath(module)] = module
+	metadata, err := prepareApplicationAdapters(result, idx, generatedImport)
+	if err != nil {
+		return nil, err
 	}
-	var adapters []applicationAdapter
-	for _, service := range compiler.RuntimeServices(result.Manifest.Resources) {
-		module, ok := modules[service.Module]
-		if !ok {
-			return nil, fmt.Errorf("native service %s is not owned by a local module", service.Address)
-		}
-		adapter, err := renderApplicationAdapter(result, idx, module, service, generatedImport)
+	adapters := make([]applicationAdapter, 0, len(metadata))
+	for _, item := range metadata {
+		adapter, err := renderApplicationAdapter(result, idx, item)
 		if err != nil {
 			return nil, err
 		}
 		adapters = append(adapters, adapter)
 	}
-	slices.SortFunc(adapters, func(a, b applicationAdapter) int {
+	return adapters, nil
+}
+
+func prepareApplicationAdapters(result *Result, idx *resourceIndex, generatedImport string) ([]applicationAdapterMetadata, error) {
+	modules := map[string]Resource{}
+	for _, module := range localModuleInstances(result.Manifest.Resources) {
+		modules[moduleInstancePath(module)] = module
+	}
+	var adapters []applicationAdapterMetadata
+	for _, service := range compiler.RuntimeServices(result.Manifest.Resources) {
+		module, ok := modules[service.Module]
+		if !ok {
+			return nil, fmt.Errorf("native service %s is not owned by a local module", service.Address)
+		}
+		adapter, err := prepareApplicationAdapter(result, idx, module, service, generatedImport)
+		if err != nil {
+			return nil, err
+		}
+		adapters = append(adapters, adapter)
+	}
+	slices.SortFunc(adapters, func(a, b applicationAdapterMetadata) int {
 		return cmp.Compare(a.Address, b.Address)
 	})
 	return adapters, nil

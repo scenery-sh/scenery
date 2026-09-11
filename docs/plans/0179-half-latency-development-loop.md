@@ -13,6 +13,14 @@ source validation, exact served identity, readiness, isolation or rollback.
 
 ## Progress
 
+- [x] (2026-09-11) Complete the bounded direct preparation experiment in
+  [0182](0182-direct-native-worker-preparation.md). Six matched pairs preserve
+  exact native/public inputs and full checks; control/worker medians are
+  5471.196/4834.681 ms (11.6% gain), with a 631.524 ms median within-pair gain.
+  This private API probe uses fresh preparation with a nil snapshot, so its gain
+  cannot be subtracted from this plan's earlier development-loop samples. Both
+  full-loop thresholds remain open; no broader runtime migration is authorized.
+
 - [x] (2026-09-11) Audit the 0180 measurement in
   [0181](0181-native-worker-measurement-audit.md). Remove redundant input discovery
   and rendering, preserve full freshness, and repeat two six-pair series. With

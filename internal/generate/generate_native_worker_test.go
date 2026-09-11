@@ -1,6 +1,7 @@
 package generate
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 
@@ -68,5 +69,62 @@ func TestNativeKernelRetainsPolicyWithoutApplicationImports(t *testing.T) {
 	}
 	if _, err := RenderNativeKernelWorkspaceFiles(result, appcfg.Config{Name: "fixture"}, "house/binding/process_scene_http"); err == nil {
 		t.Fatal("stream was silently buffered")
+	}
+}
+
+func TestNativeWorkerColdMetadataDoesNotRenderOrdinaryAdapters(t *testing.T) {
+	result := nativeApplicationGenerationFixture(t.TempDir())
+	input := newProjectionInput(result)
+	_, generatedImport, err := resolveApplicationGeneratedRoot(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, err := input.key("go-application-adapters", generatedImport)
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapterProjections.Lock()
+	_, found := adapterProjections.entries[key]
+	adapterProjections.Unlock()
+	if found {
+		t.Fatal("fixture must start without ordinary adapter cache")
+	}
+	publicBefore, err := renderGoPackageProjection(result, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files, err := RenderNativeWorkerWorkspaceFiles(result, "house/binding/process_scene_http")
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapterProjections.Lock()
+	_, found = adapterProjections.entries[key]
+	adapterProjections.Unlock()
+	if found {
+		t.Fatal("worker populated ordinary adapter sources")
+	}
+	for path := range files {
+		if path != "scenery_native_worker/main.go" && !strings.Contains(path, "/nativeworker/") {
+			t.Fatalf("unexpected private output %s", path)
+		}
+	}
+	publicAfter, err := renderGoPackageProjection(result, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(publicBefore) != len(publicAfter) {
+		t.Fatal("public membership changed")
+	}
+	for i, before := range publicBefore {
+		if before.Path != publicAfter[i].Path || !bytes.Equal(before.Bytes, publicAfter[i].Bytes) {
+			t.Fatal("public projection changed")
+		}
+	}
+	ordinary, err := renderApplicationAdapters(result, newResourceIndex(result.Manifest.Resources), generatedImport)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ordinary) != 1 || len(ordinary[0].Source) == 0 || !strings.Contains(string(ordinary[0].Source), "scenery.sh/runtime/host") {
+		t.Fatal("ordinary renderer lost host source")
 	}
 }

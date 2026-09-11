@@ -9,12 +9,13 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 )
 
 // Both artifact identities use the same fresh full-target resolution and bytes.
 // The kernel projection is not permission to omit any native target inputs.
 func discoverNativeExperimentInputs(ctx context.Context, result *Result) (*BuildInputManifest, *BuildInputManifest, error) {
-	patterns := append(slices.Clone(result.Target.Context.Patterns), "./scenery_internal_main", nativeWorkerEntry, nativeKernelEntry)
+	patterns := append(slices.Clone(result.Target.Context.Patterns), nativeWorkerEntry, nativeKernelEntry)
 	output, err := captureBuildInputGraph(ctx, result, patterns)
 	if err != nil {
 		return nil, nil, err
@@ -104,7 +105,11 @@ func projectNativeKernelInputs(result *Result, output []byte, full *BuildInputMa
 // VerifyNativeExperimentControl adds the candidate's full post-build membership
 // and byte check to an explicitly labeled control. Ordinary CompileContext stays
 // unchanged; the experiment must call this before retaining/emitting its receipt.
-func VerifyNativeExperimentControl(ctx context.Context, result *Result) error {
+func VerifyNativeExperimentControl(ctx context.Context, result *Result) (returnedErr error) {
+	started := time.Now()
+	defer func() {
+		finishStep(ctx, "experiment.control_recapture", started, "not_applicable", "full_input_recapture", returnedErr)
+	}()
 	if result == nil || result.BuildInput == nil || result.verification != nil {
 		return fmt.Errorf("native experiment control requires a completely verified build")
 	}

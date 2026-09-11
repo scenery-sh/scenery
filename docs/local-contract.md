@@ -164,7 +164,17 @@ target capture and bytes; a full rediscovery after the build/check join validate
 both identities. The experiment's `baseline` mode retains the ordinary build
 path, while `control` additionally matches this full post-build check. An explicit
 `--verify-kernel-projection` worker audit compares the projection against separate
-kernel discovery outside timed samples. See plan 0181 for corrected measurements.
+kernel discovery outside timed samples. The worker mode selects the complete
+public plus worker/kernel projection before materializing an explicitly owned
+workspace. It does not render ordinary adapter source, composition or entrypoint,
+and does not internally add the ordinary entrypoint to discovery. Explicit
+authored patterns are never narrowed; an authored request for an absent ordinary
+entrypoint fails. Preparation hints in this workspace contain no ordinary build
+success identity. Failed preparation/recapture cannot publish an experimental
+receipt, change ordinary latest-build state or prune previous retained artifacts.
+See plan 0181 for the historical measurement correction and
+[0182](plans/0182-direct-native-worker-preparation.md) for direct preparation and
+six matched pairs. The kernel remains a fresh process in each sample.
 
 Native `protocol = "cli"` bindings execute directly as `scenery <declared command...>` from the app root. Command and flag names are lower-kebab-case, command paths are unique, and their first segment cannot collide with a built-in Scenery command. `--help`, `scenery completion <words...>`, human output, `-o json`, and exit codes are derived from the binding outcome map. Argument and flag values are decoded with the operation's declared type; required fields must be mapped exactly once. Scenery builds the declared development target, mints the local-developer principal from the OS user, injects only runtime-trusted context fields, runs authorization, and invokes call, wait, or enqueue delivery through the generated composition. Caller input cannot overwrite a context-mapped field.
 

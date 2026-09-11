@@ -6,12 +6,37 @@ import (
 	"path/filepath"
 	"strings"
 
+	"scenery.sh/internal/app"
 	"scenery.sh/internal/codegen"
 	"scenery.sh/internal/compiler"
+	generateapi "scenery.sh/internal/generate/api"
 )
 
+// PrepareNativeWorkerGoWorkspace selects the complete worker/kernel artifact
+// before materialization, sharing only public publication with ordinary builds.
+func PrepareNativeWorkerGoWorkspace(result *compiler.Result, cfg app.Config, bindingAddress string) (generateapi.GoWorkspaceProjection, error) {
+	projection, _, err := preparePublicGoWorkspace(result)
+	if err != nil {
+		return projection, err
+	}
+	worker, err := RenderNativeWorkerWorkspaceFiles(result, bindingAddress)
+	if err != nil {
+		return projection, err
+	}
+	kernel, err := RenderNativeKernelWorkspaceFiles(result, cfg, bindingAddress)
+	if err != nil {
+		return projection, err
+	}
+	for _, files := range []map[string][]byte{worker, kernel} {
+		if err := mergeGoWorkspaceFiles(projection.Files, files); err != nil {
+			return projection, err
+		}
+	}
+	return projection, nil
+}
+
 // RenderNativeWorkerWorkspaceFiles renders the explicitly selected plan-0180
-// additions to a fully prepared caller-owned workspace. It never publishes files, selects a
+// private worker projection without rendering ordinary adapter source. It never publishes files, selects a
 // runtime, or makes the experiment available through ordinary product commands.
 // All native services/operations are retained, including unadmitted operations.
 func RenderNativeWorkerWorkspaceFiles(result *compiler.Result, bindingAddress string) (map[string][]byte, error) {
@@ -31,9 +56,7 @@ func RenderNativeWorkerWorkspaceFiles(result *compiler.Result, bindingAddress st
 	if err != nil {
 		return nil, err
 	}
-	adapters, err := cachedApplicationAdapters(newProjectionInput(result), generatedImport, func() ([]applicationAdapter, error) {
-		return renderApplicationAdapters(result, idx, generatedImport)
-	})
+	adapters, err := prepareApplicationAdapters(result, idx, generatedImport)
 	if err != nil {
 		return nil, err
 	}
@@ -85,7 +108,7 @@ func RenderNativeWorkerWorkspaceFiles(result *compiler.Result, bindingAddress st
 	return files, nil
 }
 
-func renderWorkerAdapter(result *compiler.Result, idx *resourceIndex, adapter applicationAdapter, service Resource, operations, bindings []Resource, covered []string) ([]byte, error) {
+func renderWorkerAdapter(result *compiler.Result, idx *resourceIndex, adapter applicationAdapterMetadata, service Resource, operations, bindings []Resource, covered []string) ([]byte, error) {
 	b, err := renderNativeAdapterPreamble(result.Manifest.ContractRevision, adapter.PackageIdentity, adapter.PackageABI, adapter.Implementation, adapter.Contract, adapter.PackageName, service, operations, bindings, idx, "scenery.sh/runtime/worker", false)
 	if err != nil {
 		return nil, err

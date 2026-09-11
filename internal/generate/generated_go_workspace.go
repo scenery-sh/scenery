@@ -27,14 +27,37 @@ func RenderGoWorkspaceFiles(result *compiler.Result) (map[string][]byte, error) 
 // bytes with private composition for build and native analysis. Publication
 // retains its fresh snapshot, module ownership and retirement checks.
 func PrepareBuildGoWorkspace(result *compiler.Result) (generateapi.GoWorkspaceProjection, error) {
+	projection, input, err := preparePublicGoWorkspace(result)
+	if err != nil {
+		return projection, err
+	}
+	if usesGoImplementation(result.Manifest.Resources) {
+		files, err := renderExpectedGoApplicationFiles(result, input)
+		if err != nil {
+			return projection, err
+		}
+		private, err := renderedGoWorkspaceFiles(result.Root, files)
+		if err != nil {
+			return projection, err
+		}
+		if err := mergeGoWorkspaceFiles(projection.Files, private); err != nil {
+			return projection, err
+		}
+	}
+	return projection, nil
+}
+
+// Public publication and ownership checks are identical for either executable.
+// Selecting the private renderer must not require ordinary application artifacts.
+func preparePublicGoWorkspace(result *compiler.Result) (generateapi.GoWorkspaceProjection, projectionInput, error) {
 	var projection generateapi.GoWorkspaceProjection
 	if result == nil || result.Manifest == nil || result.ContractStatus != "valid" {
-		return projection, fmt.Errorf("cannot render generated Go workspace from invalid contract")
+		return projection, projectionInput{}, fmt.Errorf("cannot render generated Go workspace from invalid contract")
 	}
 	input := newProjectionInput(result)
 	files, err := renderGoPackageProjection(result, input)
 	if err != nil {
-		return projection, err
+		return projection, input, err
 	}
 	_, err = generateFromResult(result, false, "generated contracts are stale", func(current *compiler.Result) ([]generatedFile, error) {
 		if err := validateGoPackageLocations(current, files); err != nil {
@@ -43,21 +66,24 @@ func PrepareBuildGoWorkspace(result *compiler.Result) (generateapi.GoWorkspacePr
 		return includeStaleGeneratedFiles(current.Root, cloneProjection(files), goGeneratedDescriptorNames(), protectedGoGeneratedDescriptors(current))
 	})
 	if err != nil {
-		return projection, err
-	}
-	if usesGoImplementation(result.Manifest.Resources) {
-		applicationFiles, err := renderExpectedGoApplicationFiles(result, input)
-		if err != nil {
-			return projection, err
-		}
-		files = append(files, applicationFiles...)
+		return projection, input, err
 	}
 	projection.Files, err = renderedGoWorkspaceFiles(result.Root, files)
 	if err != nil {
-		return projection, err
+		return projection, input, err
 	}
 	projection.VerificationPatterns = generatedLibraryPackagePatterns(result.Root, files)
-	return projection, nil
+	return projection, input, nil
+}
+
+func mergeGoWorkspaceFiles(destination, selected map[string][]byte) error {
+	for path, data := range selected {
+		if _, exists := destination[path]; exists {
+			return fmt.Errorf("generated artifact path collision: %s", path)
+		}
+		destination[path] = data
+	}
+	return nil
 }
 
 func renderedGoWorkspaceFiles(root string, files []generatedFile) (map[string][]byte, error) {

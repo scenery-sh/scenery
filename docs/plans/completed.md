@@ -11,9 +11,25 @@ historical records. Do not refresh their review dates or rewrite them as current
 contract prose. Record later guidance here or in the owning current contract;
 use stale knowledge metadata to flag a known contradiction.
 
+## Direct Native Worker Preparation
+
+- Status: completed bounded experiment for draft PR #193; not a product runtime
+- Owner: scenery runtime / ONLV development
+- Completed: 2026-09-11
+- ExecPlan: [0182 Direct Native Worker Preparation](0182-direct-native-worker-preparation.md)
+
+The candidate selects validated metadata and public plus worker/kernel output
+before materialization, with no ordinary private source. Exact packages,
+operations, public/native/embed inputs, negative verification, ownership and real
+SQL/auth/lifecycle proofs pass. Six matched pairs measure 5471.196/4834.681 ms
+control/worker medians: 636.515 ms (11.6%) gain, and 631.524 ms median paired gain.
+Every pair is faster. Observed kernel startup is 44–54 ms with a new process each
+time. This bounded improvement does not prove the full development-loop 50% goal
+or authorize the broad rewrite, persistent kernel or runtime promotion.
+
 ## Native Worker Measurement Audit
 
-- Status: completed locally; correction validated, not committed or published
+- Status: completed; correction committed in draft PR #193, not promoted
 - Owner: scenery runtime / ONLV development
 - Completed: 2026-09-11
 - ExecPlan: [0181 Native Worker Measurement Audit](0181-native-worker-measurement-audit.md)
@@ -34,7 +50,7 @@ Current correction: [0181](0181-native-worker-measurement-audit.md) found and fi
 unequal discovery/freshness work and redundant rendering. The historical samples
 below remain valid for that prototype; its architectural rejection is withdrawn.
 
-- Status: completed historical experiment; rejection superseded by 0181, not committed or published
+- Status: completed historical experiment in draft PR #193; rejection superseded by 0181
 - Owner: scenery runtime / ONLV development
 - Completed: 2026-09-11
 - ExecPlan: [0180 Native Worker Feasibility Gate](0180-native-worker-feasibility.md)
