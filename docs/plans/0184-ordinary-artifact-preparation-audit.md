@@ -35,7 +35,8 @@ is included. The earlier 50 percent startup and edit goals remain open.
   pairs and 12 same-producer input-capture pairs. Recorded the new guard's cost.
 - [x] 2026-09-11: Passed affected/full Go tests, lint, default verifier and the
   combined dev-process/native-contract/build-info probe run.
-- [ ] Publish the separate draft PR and close the audit record.
+- [x] 2026-09-11: Published separate [draft PR 194](https://github.com/scenery-sh/scenery/pull/194),
+  closed this audit record, and preserved draft PR 193 unchanged.
 
 ## Surprises & Discoveries
 
@@ -82,7 +83,9 @@ original paths, hashes and modes. No global Go cache or original app was deleted
 
 ## Outcomes & Retrospective
 
-The three initial cases have implementation and observed proof. Repository validation passed; separate draft PR delivery is pending. The measured component improvements
+The three initial cases have implementation and observed proof. Repository
+validation passed and [draft PR 194](https://github.com/scenery-sh/scenery/pull/194)
+delivers the isolated ordinary change. It is not merged; PR 193 is unchanged. The measured component improvements
 are approximately 8.1 ms for input capture and 5.7 ms for source admission relative
 to their more expensive equivalents. Neither establishes a full-loop saving.
 The final guard adds approximately 194 ms to the measured artifact interval versus
@@ -175,14 +178,14 @@ activation rejection does not imply a cache transaction rollback.
 
 1. Completed: exclusive artifact attribution and per-finding correctness evidence.
 2. Completed: narrow module and scanner corrections plus ordinary final admission.
-3. Validation complete; separate draft PR delivery pending. Preserve the experimental PR.
+3. Completed: required validation and separate draft PR 194; experimental PR 193 preserved.
 
 ## Plan of Work
 
-The implementation scope is frozen to the three cases above. The required
-validation union passed and the diff excludes worker/runtime instrumentation.
-Commit and publish the separate draft PR, then close the audit record. Do not
-merge either PR or extend the performance budget from these bounded measurements.
+The three-case implementation and validation are complete in draft PR 194.
+The diff excludes worker/runtime instrumentation. Follow-up work must use a new
+plan; this completed record does not authorize merging either PR or extending
+the performance budget from these bounded measurements.
 
 ## Concrete Steps
 
@@ -221,7 +224,8 @@ current results:
 | `go test ./cmd/scenery ./internal/build ./scripts/verify` | PASS final affected-package run |
 | `go test ./...` | PASS |
 | `golangci-lint run ./...` | PASS; repeated after final probe assertion refinement |
-| `go run ./scripts/verify --summary --write` | PASS, including Go tests, vet, knowledge, drift and schemas; supersedes quick |
+| `go run ./scripts/verify --summary --write` | PASS, including Go tests, vet, knowledge, drift and schemas |
+| `go run ./scripts/verify --quick --summary --write` | PASS, final documentation closure |
 | `go run ./scripts/verify --probe dev-process --probe native-contract --probe build-info --summary --write` | PASS all three probes, including actual candidate state identity, publication rejection, repair and confirmed cleanup |
 
 The first default verifier failed only the new plan's required living-document

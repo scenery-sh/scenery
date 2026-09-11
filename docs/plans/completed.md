@@ -11,6 +11,20 @@ historical records. Do not refresh their review dates or rewrite them as current
 contract prose. Record later guidance here or in the owning current contract;
 use stale knowledge metadata to flag a known contradiction.
 
+## Ordinary Artifact Preparation Audit
+
+- Status: completed in [draft PR 194](https://github.com/scenery-sh/scenery/pull/194), not merged
+- Owner: scenery build / development supervisor
+- Completed: 2026-09-11
+- ExecPlan: [0184 Ordinary Artifact Preparation Audit](0184-ordinary-artifact-preparation-audit.md)
+
+Per-capture module deduplication and source-only final admission preserve input
+identity and watcher repair. A real-process probe proves allowed cache publication,
+retained serving-generation ownership, rejection and repair. Component savings
+were 8.1 ms and 5.7 ms, but adding the final guard increased the measured artifact
+interval versus main by 193.7 ms (5.68%). No 50% latency goal is closed. Worker
+migration remains stopped; draft PR 193 and its historical evidence are preserved.
+
 ## Reusable Preparation and Shorter Runtime Handoff
 
 - Status: completed locally; commits e9f8eccd, 7649b613 and bc879b7d, not published
