@@ -5,7 +5,7 @@ export const sceneryClientMetadata = /* @__PURE__ */ freezeMetadata({
     "house/binding/process_scene_http"
   ],
   "compatibilityCatalog": "scenery.compatibility-core",
-  "contractRevision": "sha256:c6fd34d7e5d61a3f5e4c476294e4a6ce9a3d1d0e052bc3b84def9e4316725863",
+  "contractRevision": "sha256:a331d60238937e86c56f2fd77ed25d201cca05e17c37552473bd639e6eaf2bd6",
   "gateways": [
     "http_gateway.public_api"
   ],

@@ -37,7 +37,7 @@ canonical source/effective/expanded manifests
 generated contracts/composition/library facades + internal/build
         |
         v
-generated workspace + scenery.sh/runtime
+generated workspace + scenery.sh/runtime/host
         |
         v
 single local server + dev/inspect/harness tooling
@@ -217,15 +217,60 @@ lexer, parser, and evaluator. Both depend only on `internal/spec`,
 The root `scenery.sh` package is the app-facing spelling of the contract
 surface: it re-exports `internal/contract` as type aliases and thin forwarders,
 so generated app code keeps using `scenery.Duration`, `scenery.Registry`, and
-`scenery.MarshalContractValue` unchanged. `scenery.sh/runtime` is the only
+`scenery.MarshalContractValue` unchanged. `scenery.sh/runtime/host` is the only
 consumer of `internal/contractpolicy`'s evaluator.
 
 Architecture invariant: compiler-side packages depend on `internal/contract` and
 `internal/contractpolicy` directly, never on the root `scenery.sh` façade or on
-`scenery.sh/runtime`. The façade links the app runtime; the leaves do not, so
-source, compiler, generator, and deployment packages must not link the runtime,
+`scenery.sh/runtime/host`. The façade's application values and process-local binding
+live in `internal/runtimeapp`, without importing the runtime host. Source,
+compiler, generator, and deployment packages must not link the runtime,
 its HTTP stack, or the PostgreSQL driver. `contract_surface_test.go` pins the
 façade to the leaf so the app-facing spelling cannot silently drift.
+
+### `internal/runtimeapp`
+
+This leaf owns application span completion, native byte-stream ownership, the
+process-wide dotenv parse, and the small application binding for metadata,
+current request, authentication context and span creation. `runtime/host` installs one complete binding
+during initialization; duplicate owners fail. Callbacks execute in the same
+native Go process, preserving contexts, pointer identity and request scope.
+The binding does not serialize calls or provide a second runtime implementation.
+Standalone library use retains empty request and no-op span behavior. The
+public `scenery`, `db`, `durable` and `auth` packages no longer import the runtime host.
+`internal/authbridge` supplies standard auth with native HTTP registration,
+codec and lifecycle callbacks. Registrations made before host initialization
+are retained until the single host binds; service initialization remains lazy.
+Full native worker separation, including internal/durable dispatch, is not
+promoted. [0181](docs/plans/0181-native-worker-measurement-audit.md) corrected
+asymmetric validation in 0180's measurements and withdrew the architectural
+rejection. [0182](docs/plans/0182-direct-native-worker-preparation.md) then
+removed ordinary private preparation from the candidate and measured an 11.6%
+gain in six matched API pairs. This does not establish the full-loop 50% goal
+or qualify the worker for production.
+
+### Native invocation and durable helpers
+
+`internal/nativecall` owns internal binding registration, package visibility,
+trusted invocation checks, codec dispatch and native callback execution. The
+runtime supplies the existing authorization/pipeline and system-error owner.
+Registry snapshots preserve composition rollback; locks are released before
+callbacks, including nested calls. Native input/output pointers and arbitrary
+context values stay in the application process.
+
+`internal/nativedurable` owns durable service-name normalization, native run
+values, signal dispatch and step replay/retry. The runtime binds the signal
+store owner and supplies a request-local step store adapter. SQL handles and
+step callbacks remain native; persisted result/error bytes keep their existing
+format. Neither package imports the runtime host or a database driver. This
+is dependency ownership, not a completed kernel/worker process boundary.
+
+`internal/nativeservice` owns the constructor dependency graph, parallel ready
+batches, failure propagation and reverse shutdown. `internal/nativecompose`
+owns adapter ABI/resource admission and delayed transactional apply. The host
+supplies rollback and final page validation. Admission verifies all resources
+before claiming any, so a rejected adapter cannot poison a later retry.
+These packages retain native callback values and do not import the host.
 
 ### `internal/compiler`
 
@@ -424,9 +469,13 @@ Architecture invariant: edge lifecycle code exposes a small concrete interface
 and does not import the CLI. Platform-specific child-process behavior stays
 inside the module so command tests do not need to duplicate process semantics.
 
-### `scenery.sh/runtime`
+### `scenery.sh/runtime` and `scenery.sh/runtime/host`
 
-`runtime` is linked into generated app binaries. It registers generated
+`runtime` is the lightweight native application-call facade: current request,
+auth, spans, database tracing, internal dispatch and durable operations. Its
+process-local bindings retain Go contexts, pointers and concrete errors.
+It does not import the host. Generated entrypoints and application adapters
+explicitly import `runtime/host`; that host is linked into generated app binaries. It registers generated
 services, bindings, middleware, auth policies, durable executions, schedules,
 events, data resources, and pages, then starts one local HTTP server.
 
@@ -654,3 +703,61 @@ This document follows the style suggested by matklad's `ARCHITECTURE.md` essay:
 short overview, codemap, invariants, boundaries, and cross-cutting concerns. It
 also borrows ideas from the linked rust-analyzer architecture document and the
 same series' notes on testing, workspaces, and build-time discipline.
+
+### Native worker feasibility experiment
+
+`internal/build.PrepareNativeExperiment` selects public plus worker/kernel
+projection before one materialization in an explicitly owned private workspace.
+`internal/generate.PrepareNativeWorkerGoWorkspace` shares compiler/public
+publication, module ownership and required verification patterns with ordinary
+preparation. Both adapter renderers consume validated metadata; the worker never
+renders ordinary adapter source to obtain it. Ordinary composition, adapters and
+entrypoint are absent from the candidate. Declared target patterns are preserved;
+only the internally forced ordinary entrypoint is omitted from its discovery.
+
+`internal/build.CompileNativeExperiment` consumes that exact pending projection,
+preserves full native verification and input discovery, and publishes only
+private evidence after the checker/build/freshness join. It cannot add files to
+an ordinary prepared workspace. Separate native preparation hints contain no
+ordinary successful binary or graph identity; ordinary compile/prime entrypoints
+reject the experimental result. Failed preparation or recapture preserves the
+ordinary latest manifest, previous receipt and retained artifacts.
+
+The framework kernel has a separate consumed-input identity projected from the
+same complete graph and hashed bytes. The full graph is rediscovered after the
+join; reuse verifies current inputs and exact retained executable bytes.
+Independent kernel discovery is an explicit untimed audit check.
+`internal/build.RetainBinary` is the shared executable-copy boundary.
+`scripts/native-worker-experiment` explicitly drives the unchanged ordinary
+baseline, a control with matched post-build input checks, or the direct worker.
+These modes are not product commands. The private
+`scenery_native_lifecycle_probe` build of `cmd/scenery` uses the actual watcher
+and `devBuildPreparation` shared with `prepareDevRuntimePlan`. Separate persistent
+owners retain process caches across edits and carry real `SourceSnapshot` values.
+Native graph hits select `RefreshNativeExperiment` in their owned workspace,
+which prepares a new full verifier with the native renderer; ordinary refresh
+rejects native results. Only a fully checked generation updates the native
+owner's accepted graph. The shared final watcher recapture rejects source changes
+without replacing the captured baseline, preserving pending edits. The alternate
+entrypoint is an explicit integration probe, not a product runtime selector.
+
+Traces record preparation, full build and
+verifier branches, their joined interval and final recapture/retention; overlapping
+Go-command sums are not the build branch's wall time.
+
+`runtime/worker` owns an explicitly generated plan-0180 experiment, selected only
+through `internal/generate.RenderNativeWorkerWorkspaceFiles`; ordinary app
+commands do not select it. Its complete native operation/constructor registry
+uses `internal/nativecompose` and `internal/nativeservice`. Shared SQL supply,
+metadata and synchronous request scope live in `internal/nativesql`,
+`internal/runtimeapp` and `internal/runtimescope` respectively.
+
+`internal/nativeprotocol` defines the private unary wire values. The experimental
+kernel uses the current host HTTP admission/auth/codec path and
+`host.NativeWorkerClient`, with no application imports. Standard auth crosses via
+an explicit identity snapshot and restores `*auth.AuthData` inside the worker.
+Other auth types, stream transport and unconverted native internal/durable
+bindings are not admitted. Native callback registration does not claim that
+these unconverted framework behaviors are implemented. The current experiment
+compiles one binding's declarative policy into its kernel; dynamic declaration
+plans and ordinary runtime promotion remain later milestones.

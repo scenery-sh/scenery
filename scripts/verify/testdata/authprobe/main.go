@@ -25,7 +25,7 @@ import (
 	authdb "scenery.sh/auth/db/gen"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/postgresdb"
-	"scenery.sh/runtime"
+	runtime "scenery.sh/runtime/host"
 )
 
 const (

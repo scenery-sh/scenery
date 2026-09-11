@@ -8,10 +8,10 @@ import (
 	"fmt"
 	"net/http"
 	scenery "scenery.sh"
-	sceneryruntime "scenery.sh/runtime"
+	sceneryruntime "scenery.sh/runtime/host"
 )
 
-const ContractRevision = "sha256:f4e307e816c575920c3772b77164204f9446d35280b84e0a362b34025808c8db"
+const ContractRevision = "sha256:a331d60238937e86c56f2fd77ed25d201cca05e17c37552473bd639e6eaf2bd6"
 const PackageIdentity = "house"
 const PackageContractABIRevision = "sha256:76f2aa33a3093803149d651d1ef3c49b46eb9abbba6adf798b4d4b13815f5b10"
 
@@ -91,7 +91,7 @@ func Register(registry scenery.Registry) error {
 			}}); err != nil {
 				return err
 			}
-			if err := sceneryruntime.RegisterMCPTool(sceneryruntime.MCPToolRegistration{ID: "app/assistant/support#house/binding/process_scene_mcp", Name: "house__process_scene", AssistantAddress: "app/assistant/support", CapabilityRevision: "sha256:f4e307e816c575920c3772b77164204f9446d35280b84e0a362b34025808c8db", OperationAddress: "house/operation/process_scene", ExecutionAddress: "house/execution/process_scene_direct", Policy: &sceneryruntime.ContractHTTPPolicy{BindingAddress: "house/binding/process_scene_mcp", AuthorizationStrategy: "public", AuthorizationRuleCount: 0, AuthorizationRules: []sceneryruntime.ContractAuthorizationRule{}, PipelineSteps: []string{}}, Limits: sceneryruntime.MCPToolLimits{MaxInputBytes: 262144, MaxResultBytes: 1048576}, Effect: sceneryruntime.MCPToolEffect{ReadOnly: false, Destructive: false, Idempotent: false, OpenWorld: false}, Approval: "always", Durable: false, DurableService: "house", DurableTask: "house/execution/process_scene_direct", DecodeInput: func(data []byte) (any, error) { return contract.UnmarshalProcessSceneInput(data) }, EncodeOutput: func(value any) ([]byte, error) {
+			if err := sceneryruntime.RegisterMCPTool(sceneryruntime.MCPToolRegistration{ID: "app/assistant/support#house/binding/process_scene_mcp", Name: "house__process_scene", AssistantAddress: "app/assistant/support", CapabilityRevision: "sha256:a331d60238937e86c56f2fd77ed25d201cca05e17c37552473bd639e6eaf2bd6", OperationAddress: "house/operation/process_scene", ExecutionAddress: "house/execution/process_scene_direct", Policy: &sceneryruntime.ContractHTTPPolicy{BindingAddress: "house/binding/process_scene_mcp", AuthorizationStrategy: "public", AuthorizationRuleCount: 0, AuthorizationRules: []sceneryruntime.ContractAuthorizationRule{}, PipelineSteps: []string{}}, Limits: sceneryruntime.MCPToolLimits{MaxInputBytes: 262144, MaxResultBytes: 1048576}, Effect: sceneryruntime.MCPToolEffect{ReadOnly: false, Destructive: false, Idempotent: false, OpenWorld: false}, Approval: "always", Durable: false, DurableService: "house", DurableTask: "house/execution/process_scene_direct", DecodeInput: func(data []byte) (any, error) { return contract.UnmarshalProcessSceneInput(data) }, EncodeOutput: func(value any) ([]byte, error) {
 				typed, ok := value.(contract.ProcessSceneOutcome)
 				if !ok {
 					return nil, fmt.Errorf("MCP tool returned %T, want contract.ProcessSceneOutcome", value)
@@ -228,20 +228,26 @@ func Register(registry scenery.Registry) error {
 					if outcome == nil {
 						return nil, sceneryruntime.ContractSystemError(fmt.Errorf("handler returned nil outcome without error"))
 					}
-					cloned, err := contract.CloneProcessSceneOutcome(outcome)
+					raw, err := contract.MarshalProcessSceneOutcome(outcome)
+					if err != nil {
+						return nil, sceneryruntime.ContractSystemError(err)
+					}
+					cloned, err := contract.UnmarshalProcessSceneOutcome(raw)
 					if err != nil {
 						return nil, sceneryruntime.ContractSystemError(err)
 					}
 					if err := sceneryruntime.PublishContractOperationOutcome(ctx, "house/operation/process_scene", cloned); err != nil {
 						return nil, sceneryruntime.ContractSystemError(err)
 					}
-					return cloned, nil
+					return sceneryruntime.NewContractPreparedOutcome(cloned, raw), nil
 				},
 				EncodeContractOutcome: func(request *http.Request, outcome any) (sceneryruntime.ContractHTTPResponse, error) {
 					_ = request
+					outcome, envelope := sceneryruntime.ContractPreparedOutcomeValue(outcome)
+					_ = envelope
 					switch typed := outcome.(type) {
 					case contract.ProcessSceneProcessed:
-						response, err := sceneryruntime.EncodeContractRepresentationWithOptions(request, 200, typed.Value, "json", []string{"application/json"}, sceneryruntime.ContractResponseOptions{MaxBytes: 16777216, CompressionAlgorithms: []string{"gzip"}, CompressionThreshold: 1024, TypeExpression: "record.process_scene_result", EncodeValue: func(value any) ([]byte, error) {
+						response, err := sceneryruntime.EncodeContractPreparedRepresentationWithOptions(request, 200, envelope, typed.Value, "json", []string{"application/json"}, sceneryruntime.ContractResponseOptions{MaxBytes: 16777216, CompressionAlgorithms: []string{"gzip"}, CompressionThreshold: 1024, TypeExpression: "record.process_scene_result", EncodeValue: func(value any) ([]byte, error) {
 							return scenery.MarshalContractValue(value, "record.process_scene_result")
 						}})
 						if err != nil {

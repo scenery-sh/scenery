@@ -144,7 +144,7 @@ release certification. Failed steps identify their focused rerun command.
 | ID | External boundary |
 |---|---|
 | `parallel-runtime` | Parallel runtime/session isolation |
-| `postgres` | Full PostgreSQL service, durable, reset and snapshot proof |
+| `postgres` | Full PostgreSQL service, durable step persistence/replay, reset and snapshot proof |
 | `ui` | Dashboard build/freshness and TypeScript conformance/typechecks |
 | `fixtures` | Fixture generation/compilation matrix |
 | `storage` | Storage CLI, routes, restart persistence and a fresh tagged 260-entry disk-pressure reclamation/resume integration test |

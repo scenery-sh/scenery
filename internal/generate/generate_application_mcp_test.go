@@ -136,7 +136,7 @@ func TestGeneratedApplicationCompositionRegistersAssistantSurface(t *testing.T) 
 		t.Fatal("generated composition was not rendered")
 	}
 	want := []string{
-		`sceneryruntime "scenery.sh/runtime"`,
+		`sceneryruntime "scenery.sh/runtime/host"`,
 		`registry.Register("scenery/assistants"`,
 		`CoveredAddresses: []string{"app/assistant/support"}`, // root ownership is explicit
 		`"house/binding/process_scene_mcp"`,

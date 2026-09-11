@@ -217,6 +217,9 @@ func RefreshCachedWorkspaceWithSnapshotContext(ctx context.Context, appRoot stri
 	if result == nil {
 		return false, fmt.Errorf("nil build result")
 	}
+	if result.nativeExperiment {
+		return false, fmt.Errorf("native experiment requires explicit native refresh ownership")
+	}
 	current, err := refreshCachedGoProjection(appRoot, result, snapshot)
 	if err != nil || !current {
 		return false, err

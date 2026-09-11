@@ -29,6 +29,8 @@ must not import this command or that engine.
   then proves coexistence/native migration in a separate current home inside the
   same disposable daemon. Preserve the old-data and continuous-sibling checks;
   do not add a product compatibility decoder to satisfy the old fixture.
+- The `postgres` probe executes a native durable step twice through the production
+  store context, proving one callback execution and unchanged persisted JSON.
 - Reports use the existing machine envelope and shared report/evidence values.
 - The `--probe auth` step (also mandatory in release) builds
   `testdata/authprobe` and runs all 15 inventoried public-boundary journeys

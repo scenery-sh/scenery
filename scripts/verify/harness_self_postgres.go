@@ -13,6 +13,7 @@ import (
 	"time"
 
 	appdb "scenery.sh/db"
+	"scenery.sh/durable"
 	"scenery.sh/internal/app"
 	durablestore "scenery.sh/internal/durable/store"
 	"scenery.sh/internal/postgresdb"
@@ -449,6 +450,34 @@ func runPostgresHarnessDurableRoundTrip(ctx context.Context, databaseURL string)
 	}
 	if !ok || leased.ID != "harness-job" {
 		return fmt.Errorf("durable harness expected to lease harness-job, got %+v ok=%v", leased, ok)
+	}
+
+	stepCtx := s.StepContext(ctx, leased.ID)
+	attempts := 0
+	for range 2 {
+		result, err := durable.Step(stepCtx, "native-step", func(got context.Context) (string, error) {
+			attempts++
+			if got != stepCtx {
+				return "", fmt.Errorf("durable step changed native context")
+			}
+			return "native-result", nil
+		})
+		if err != nil {
+			return err
+		}
+		if result != "native-result" {
+			return fmt.Errorf("durable step replay returned %q", result)
+		}
+	}
+	if attempts != 1 {
+		return fmt.Errorf("durable step replay executed callback %d times", attempts)
+	}
+	persisted, exists, err := s.GetStep(ctx, leased.ID, "native-step")
+	if err != nil {
+		return err
+	}
+	if !exists || persisted.State != "succeeded" || persisted.ResultCodec != "json" || string(persisted.ResultBlob) != `"native-result"` {
+		return fmt.Errorf("durable step did not preserve persisted JSON outcome")
 	}
 	return s.CompleteLeasedJob(ctx, leased.ID, "harness-worker", "harness-lease", []byte(`{"done":true}`))
 }

@@ -21,10 +21,10 @@ const (
 )
 
 var runtimeLinkerMetadataKeys = [...]string{
-	"scenery.sh/runtime.linkedContractRevision",
-	"scenery.sh/runtime.linkedImplementationRevision",
-	"scenery.sh/runtime.linkedBuildInputDigest",
-	"scenery.sh/runtime.linkedGoTarget",
+	"scenery.sh/runtime/host.linkedContractRevision",
+	"scenery.sh/runtime/host.linkedImplementationRevision",
+	"scenery.sh/runtime/host.linkedBuildInputDigest",
+	"scenery.sh/runtime/host.linkedGoTarget",
 }
 
 type RuntimeBundleDescriptor struct {
@@ -40,14 +40,18 @@ type RuntimeBundleDescriptor struct {
 	AssistantAssets        []generateapi.AssistantAssetDescriptor `json:"assistant_assets,omitempty"`
 }
 
-func prepareRuntimeBundle(ctx context.Context, result *Result) error {
+func prepareRuntimeBundle(ctx context.Context, result *Result, extraEntrypoints ...string) error {
 	if result.Contract == nil || result.Target == nil {
 		return nil
 	}
-	manifest, err := buildInputManifest(ctx, result)
+	manifest, err := buildInputManifest(ctx, result, extraEntrypoints...)
 	if err != nil {
 		return err
 	}
+	return applyRuntimeBundleManifest(result, manifest)
+}
+
+func applyRuntimeBundleManifest(result *Result, manifest *BuildInputManifest) error {
 	revisions, diagnostics := compiler.ComputeImplementationRevisions(result.Contract, map[string]string{result.Target.Name: manifest.Digest})
 	for _, diagnostic := range diagnostics {
 		if diagnostic.Severity == "error" {
@@ -61,10 +65,10 @@ func prepareRuntimeBundle(ctx context.Context, result *Result) error {
 	result.BuildInput = manifest
 	result.ImplementationRevisions = revisions
 	result.RuntimeLinkerMetadata = map[string]string{
-		"scenery.sh/runtime.linkedContractRevision":       result.Contract.Manifest.ContractRevision,
-		"scenery.sh/runtime.linkedImplementationRevision": implementationRevision,
-		"scenery.sh/runtime.linkedBuildInputDigest":       manifest.Digest,
-		"scenery.sh/runtime.linkedGoTarget":               result.Target.Name,
+		"scenery.sh/runtime/host.linkedContractRevision":       result.Contract.Manifest.ContractRevision,
+		"scenery.sh/runtime/host.linkedImplementationRevision": implementationRevision,
+		"scenery.sh/runtime/host.linkedBuildInputDigest":       manifest.Digest,
+		"scenery.sh/runtime/host.linkedGoTarget":               result.Target.Name,
 	}
 	return nil
 }

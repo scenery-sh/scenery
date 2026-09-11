@@ -10,14 +10,14 @@ import (
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/postgresdb"
 	"scenery.sh/internal/postgresname"
-	sceneryruntime "scenery.sh/runtime"
+	"scenery.sh/internal/runtimeapp"
 )
 
 var (
 	poolsMu sync.Mutex
 	pools   = map[string]*sql.DB{}
 
-	loadDotEnv = sceneryruntime.LoadDotEnvIntoEnv
+	loadDotEnv = runtimeapp.LoadDotEnvIntoEnv
 	getEnv     = envpolicy.Get
 )
 

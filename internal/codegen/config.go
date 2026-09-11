@@ -18,7 +18,7 @@ func generateMain(appName string, cfg appcfg.Config, compositionImport string, s
 	if cfg.Auth.Enabled {
 		buf.WriteString("\tsceneryauth \"scenery.sh/auth\"\n")
 	}
-	buf.WriteString("\tsceneryruntime \"scenery.sh/runtime\"\n")
+	buf.WriteString("\tsceneryruntime \"scenery.sh/runtime/host\"\n")
 	if compositionImport != "" {
 		fmt.Fprintf(&buf, "\tscenerycomposition %q\n", compositionImport)
 	}
@@ -30,20 +30,10 @@ func generateMain(appName string, cfg appcfg.Config, compositionImport string, s
 		buf.WriteString("\t\tif err := sceneryruntime.WriteRuntimePreflight(proof, scenerycomposition.ContractRevision); err != nil {\n\t\t\t_, _ = fmt.Fprintf(os.Stderr, \"scenery: %v\\n\", err)\n\t\t\tos.Exit(1)\n\t\t}\n\t\treturn\n\t}\n")
 	}
 	if len(sql) > 0 {
-		buf.WriteString("\tif err := sceneryruntime.ConfigureSQLBindings([]sceneryruntime.SQLBinding{\n")
-		for _, binding := range sql.Bindings(false) {
-			durableOnly := true
-			for _, requirement := range sql {
-				if requirement.Name == binding.Name && requirement.Kind != compiler.SQLDurable {
-					durableOnly = false
-				}
-			}
-			fmt.Fprintf(&buf, "\t\t{Name: %q, Schema: %q, DurableOnly: %t},\n", binding.Name, binding.Schema, durableOnly)
-		}
-		buf.WriteString("\t}); err != nil {\n\t\t_, _ = fmt.Fprintf(os.Stderr, \"scenery: %v\\n\", err)\n\t\tos.Exit(1)\n\t}\n")
+		fmt.Fprintf(&buf, "\tif err := sceneryruntime.ConfigureSQLBindings(%s); err != nil {\n\t\t_, _ = fmt.Fprintf(os.Stderr, \"scenery: %%v\\n\", err)\n\t\tos.Exit(1)\n\t}\n", SQLBindingsExpression(sql))
 	}
 	if cfg.Auth.Enabled {
-		fmt.Fprintf(&buf, "\tif err := sceneryauth.RegisterStandard(%s); err != nil {\n", authConfigLiteral(cfg.Auth))
+		fmt.Fprintf(&buf, "\tif err := sceneryauth.RegisterStandard(%s); err != nil {\n", AuthConfigExpression(cfg.Auth))
 		buf.WriteString("\t\t_, _ = fmt.Fprintf(os.Stderr, \"scenery: %v\\n\", err)\n")
 		buf.WriteString("\t\tos.Exit(1)\n")
 		buf.WriteString("\t}\n")
@@ -63,7 +53,9 @@ func generateMain(appName string, cfg appcfg.Config, compositionImport string, s
 	return format.Source([]byte(buf.String()))
 }
 
-func authConfigLiteral(cfg appcfg.AuthConfig) string {
+// AuthConfigExpression renders the standard-auth bootstrap shared by native
+// application and experimental kernel entrypoints.
+func AuthConfigExpression(cfg appcfg.AuthConfig) string {
 	fields := []string{"Enabled: true"}
 	if cfg.AutoBootstrapDatabase {
 		fields = append(fields, "AutoBootstrapDatabase: true")
@@ -160,4 +152,21 @@ func stringSliceLiteral(values []string) string {
 		quoted = append(quoted, fmt.Sprintf("%q", value))
 	}
 	return "[]string{" + strings.Join(quoted, ", ") + "}"
+}
+
+// SQLBindingsExpression renders only the compiler-owned SQL supply requirements.
+func SQLBindingsExpression(sql compiler.SQLRequirements) string {
+	var source strings.Builder
+	source.WriteString("[]sceneryruntime.SQLBinding{\n")
+	for _, binding := range sql.Bindings(false) {
+		durableOnly := true
+		for _, requirement := range sql {
+			if requirement.Name == binding.Name && requirement.Kind != compiler.SQLDurable {
+				durableOnly = false
+			}
+		}
+		fmt.Fprintf(&source, "{Name:%q,Schema:%q,DurableOnly:%t},\n", binding.Name, binding.Schema, durableOnly)
+	}
+	source.WriteString("}")
+	return source.String()
 }

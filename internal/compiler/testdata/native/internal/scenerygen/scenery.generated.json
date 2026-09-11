@@ -1,7 +1,7 @@
 {
   "artifact_kind": "go_application_adapters",
-  "content_digest": "sha256:4f66095f018c6b2b3ce2b7f03ba3b9f9812708398b0fa58f3b24efa2c584c293",
-  "contract_revision": "sha256:f4e307e816c575920c3772b77164204f9446d35280b84e0a362b34025808c8db",
+  "content_digest": "sha256:f4c3f8e310f4d777605499ebdef29b481342f093b29acc3c6d6c4cf904bf6388",
+  "contract_revision": "sha256:a331d60238937e86c56f2fd77ed25d201cca05e17c37552473bd639e6eaf2bd6",
   "covered": [
     "app/assistant/support",
     "app/mcp_connection/docs",
@@ -20,12 +20,12 @@
   ],
   "generator": "scenery.generate.go-application",
   "http_surface_revisions": {
-    "app/http_gateway/public_api": "sha256:1fa1da9cd82d0cddeac3e8350cddb9e6ecd5b1d9bc9a53c5d46d7bc749a3ceb2"
+    "app/http_gateway/public_api": "sha256:c16f43f7a365a1257b2a75564042e218eec7c3aa84de9ba35c10c835f3d62e5d"
   },
   "implementation_revision": null,
   "kind": "scenery.generated",
   "openapi_revisions": {
-    "app/http_gateway/public_api": "sha256:d6cfd377752fbe3fdad018310fc901fdddb12cfd8819cb4295ff18d35c96ac91"
+    "app/http_gateway/public_api": "sha256:daf622a572893c98da579dcf4a87ef3406853d5dc6bda89bbacb77446e952e37"
   },
   "package_contract_abi_revisions": {
     "example.test/nativeapp/house/scenerycontract": "sha256:76f2aa33a3093803149d651d1ef3c49b46eb9abbba6adf798b4d4b13815f5b10"
@@ -33,12 +33,12 @@
   "producer": {
     "version": "dev",
     "toolchain": {
-      "go_version": "go1.26.5"
+      "go_version": "go1.27.0"
     }
   },
   "provider_capability_abis": {},
   "runtime_abi": "scenery.go-runtime/v1",
   "runtime_abi_range": "scenery.go-runtime/v1",
   "schema_revision": "sha256:e5ec71660dc6740e8fa94a5e0c924f604c696225e4b1799d2908a9b3a5419f3d",
-  "spec_revision": "sha256:33bd6d2f6368d221a9359b0e97072fd51ec36c268d7f5d13dbe9425fcb112340"
+  "spec_revision": "sha256:56aae20837685d925a62ef085831b323040fbd5945936340a6779b0578d92f36"
 }

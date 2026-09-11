@@ -12,7 +12,7 @@ func TestAdapterProjectionSeparatesBuildIdentityAndOwnsValues(t *testing.T) {
 	calls := 0
 	render := func() ([]applicationAdapter, error) {
 		calls++
-		return []applicationAdapter{{Source: []byte("source"), Covered: []string{"operation"}}}, nil
+		return []applicationAdapter{{Source: []byte("source"), applicationAdapterMetadata: applicationAdapterMetadata{Covered: []string{"operation"}}}}, nil
 	}
 	read := func(importPath string) []applicationAdapter {
 		t.Helper()

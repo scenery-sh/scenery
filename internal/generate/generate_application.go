@@ -15,16 +15,21 @@ import (
 	"scenery.sh/internal/scn"
 )
 
+type applicationAdapterMetadata struct {
+	PackageIdentity string
+	Address         string
+	ImportPath      string
+	PackageName     string
+	RelativeDir     string
+	Covered         []string
+	PackageABI      string
+	Implementation  string
+	Contract        string
+}
+
 type applicationAdapter struct {
-	Address        string
-	ImportPath     string
-	PackageName    string
-	RelativeDir    string
-	Covered        []string
-	PackageABI     string
-	Implementation string
-	Contract       string
-	Source         []byte
+	applicationAdapterMetadata
+	Source []byte
 }
 
 type RuntimeIntegrationPlan = generateapi.RuntimeIntegrationPlan
@@ -200,7 +205,7 @@ func resolveApplicationGeneratedRoot(result *Result) (string, string, error) {
 	return "", "", fmt.Errorf("native application adapters require a go_module mapping for %s", relativeRoot)
 }
 
-func renderApplicationAdapter(result *Result, idx *resourceIndex, module, service Resource, generatedImport string) (applicationAdapter, error) {
+func prepareApplicationAdapter(result *Result, idx *resourceIndex, module, service Resource, generatedImport string) (applicationAdapterMetadata, error) {
 	moduleSource, _ := module.Spec["workspace_package_root"].(string)
 	if moduleSource == "" {
 		moduleSource, _ = module.Spec["source"].(string)
@@ -219,12 +224,12 @@ func renderApplicationAdapter(result *Result, idx *resourceIndex, module, servic
 		}
 	}
 	if implementationImport == "" {
-		return applicationAdapter{}, fmt.Errorf("native service %s has no go_contract import path", service.Address)
+		return applicationAdapterMetadata{}, fmt.Errorf("native service %s has no go_contract import path", service.Address)
 	}
 	moduleResources := idx.moduleResources(moduleInstancePath(module))
 	packageABI, err := packageABIRevision(implementationImport, moduleResources, idx)
 	if err != nil {
-		return applicationAdapter{}, err
+		return applicationAdapterMetadata{}, err
 	}
 	operations := compiler.ServiceOperations(result.Manifest.Resources, service)
 	if compiler.IsProviderCRUDService(service) {
@@ -245,11 +250,7 @@ func renderApplicationAdapter(result *Result, idx *resourceIndex, module, servic
 		packageName := goPackageName(moduleInstancePath(module) + "_" + service.Name + "_adapter")
 		contractImport := implementationImport + "/scenerycontract"
 		adapterImport := generatedImport + "/" + dirName
-		source, renderErr := renderProviderCRUDAdapterSource(result.Manifest.ContractRevision, packageIdentity, packageABI, contractImport, packageName, service, operations, bindings, mcpBindings, result.Manifest.Resources, covered, providerRuntimeABIs(result.Manifest.Resources))
-		if renderErr != nil {
-			return applicationAdapter{}, renderErr
-		}
-		return applicationAdapter{Address: service.Address, ImportPath: adapterImport, PackageName: packageName, RelativeDir: dirName, Covered: covered, PackageABI: packageABI, Implementation: "scenery.sh/datasource", Contract: contractImport, Source: source}, nil
+		return applicationAdapterMetadata{PackageIdentity: packageIdentity, Address: service.Address, ImportPath: adapterImport, PackageName: packageName, RelativeDir: dirName, Covered: covered, PackageABI: packageABI, Implementation: "scenery.sh/datasource", Contract: contractImport}, nil
 	}
 	bindings := serviceHTTPBindings(result.Manifest.Resources, operations)
 	internalBindings := internalBindingsForOperations(result.Manifest.Resources, operations)
@@ -274,170 +275,58 @@ func renderApplicationAdapter(result *Result, idx *resourceIndex, module, servic
 	packageName := goPackageName(moduleInstancePath(module) + "_" + service.Name + "_adapter")
 	contractImport := implementationImport + "/scenerycontract"
 	adapterImport := generatedImport + "/" + dirName
-	source, err := renderApplicationAdapterSource(result.Manifest.ContractRevision, packageIdentity, packageABI, implementationImport, contractImport, packageName, service, operations, bindings, mcpBindings, result.Manifest.Resources, idx, covered, providerRuntimeABIs(result.Manifest.Resources))
-	if err != nil {
-		return applicationAdapter{}, err
-	}
-	return applicationAdapter{
-		Address: service.Address, ImportPath: adapterImport, PackageName: packageName, RelativeDir: dirName,
-		Covered: covered, PackageABI: packageABI, Implementation: implementationImport, Contract: contractImport, Source: source,
+	return applicationAdapterMetadata{
+		PackageIdentity: packageIdentity,
+		Address:         service.Address, ImportPath: adapterImport, PackageName: packageName, RelativeDir: dirName,
+		Covered: covered, PackageABI: packageABI, Implementation: implementationImport, Contract: contractImport,
 	}, nil
 }
 
+// Ordinary source is rendered only after the shared metadata has been validated.
+// The worker consumes applicationAdapterMetadata directly and never calls this.
+func renderApplicationAdapter(result *Result, idx *resourceIndex, metadata applicationAdapterMetadata) (applicationAdapter, error) {
+	service := idx.byAddress[metadata.Address]
+	operations := compiler.ServiceOperations(result.Manifest.Resources, service)
+	bindings := serviceHTTPBindings(result.Manifest.Resources, operations)
+	mcpBindings := mcpBindingsForService(result.Manifest.Resources, service, operations)
+	var source []byte
+	var err error
+	if compiler.IsProviderCRUDService(service) {
+		source, err = renderProviderCRUDAdapterSource(result.Manifest.ContractRevision, metadata.PackageIdentity, metadata.PackageABI, metadata.Contract, metadata.PackageName, service, operations, bindings, mcpBindings, result.Manifest.Resources, metadata.Covered, providerRuntimeABIs(result.Manifest.Resources))
+	} else {
+		source, err = renderApplicationAdapterSource(result.Manifest.ContractRevision, metadata.PackageIdentity, metadata.PackageABI, metadata.Implementation, metadata.Contract, metadata.PackageName, service, operations, bindings, mcpBindings, result.Manifest.Resources, idx, metadata.Covered, providerRuntimeABIs(result.Manifest.Resources))
+	}
+	if err != nil {
+		return applicationAdapter{}, err
+	}
+	return applicationAdapter{applicationAdapterMetadata: metadata, Source: source}, nil
+}
+
 func renderApplicationAdapterSource(contractRevision, packageIdentity, packageABI, implementationImport, contractImport, packageName string, service Resource, operations, bindings []Resource, mcpBindings []mcpToolTarget, resources []Resource, idx *resourceIndex, covered []string, providerABIs map[string]string) ([]byte, error) {
-	implementation, _ := service.Spec["implementation"].(map[string]any)
-	constructor, _ := implementation["constructor"].(string)
-	if constructor == "" {
-		return nil, fmt.Errorf("native service %s has no constructor", service.Address)
-	}
-	dependencies, err := compiler.ServiceGoDependencies(idx.byAddress, service)
+	b, err := renderNativeAdapterPreamble(contractRevision, packageIdentity, packageABI, implementationImport, contractImport, packageName, service, operations, bindings, idx, "scenery.sh/runtime/host", true)
 	if err != nil {
 		return nil, err
 	}
-	clients, err := serviceGoClients(idx, service)
-	if err != nil {
+	if err := renderDurableDispatchOptionHelpers(b, operations, resources); err != nil {
 		return nil, err
 	}
-	serviceName := goName(service.Name)
-	var b strings.Builder
-	b.WriteString("// Code generated by Scenery. DO NOT EDIT.\npackage " + packageName + "\n\n")
-	b.WriteString("import (\n\t\"context\"\n\t\"fmt\"\n")
-	if len(bindings) > 0 {
-		b.WriteString("\t\"net/http\"\n")
-	}
-	fmt.Fprintf(&b, "\tscenery %q\n", "scenery.sh")
-	fmt.Fprintf(&b, "\tsceneryruntime %q\n", "scenery.sh/runtime")
-	dependencyImports := map[string]bool{}
-	for _, dependency := range dependencies {
-		if dependencyImports[dependency.Resolver] {
-			continue
-		}
-		dependencyImports[dependency.Resolver] = true
-		switch dependency.Resolver {
-		case "sql":
-			fmt.Fprintf(&b, "\tscenerydb %q\n", "scenery.sh/db")
-		case "object":
-			fmt.Fprintf(&b, "\tscenerystorage %q\n", "scenery.sh/storage")
-		}
-	}
-	clientImports := map[string]string{}
-	for _, client := range clients {
-		if client.ContractAlias == "" {
-			continue
-		}
-		if existing := clientImports[client.ContractAlias]; existing != "" && existing != client.ContractImport {
-			return nil, fmt.Errorf("generated client import alias %s resolves to both %s and %s", client.ContractAlias, existing, client.ContractImport)
-		}
-		clientImports[client.ContractAlias] = client.ContractImport
-	}
-	clientAliases := make([]string, 0, len(clientImports))
-	for alias := range clientImports {
-		clientAliases = append(clientAliases, alias)
-	}
-	sort.Strings(clientAliases)
-	for _, alias := range clientAliases {
-		fmt.Fprintf(&b, "\t%s %q\n", alias, clientImports[alias])
-	}
-	fmt.Fprintf(&b, "\timplementation %q\n", implementationImport)
-	fmt.Fprintf(&b, "\tcontract %q\n", contractImport)
-	b.WriteString(")\n\n")
-	fmt.Fprintf(&b, "const ContractRevision = %q\nconst PackageIdentity = %q\nconst PackageContractABIRevision = %q\n\n", contractRevision, packageIdentity, packageABI)
-	b.WriteString("type serviceImplementation interface {\n")
-	for _, operation := range operations {
-		handler, _ := operation.Spec["handler"].(map[string]any)
-		method, _ := handler["method"].(string)
-		if operationUsesHTTPStream(operation, bindings) {
-			fmt.Fprintf(&b, "\t%s(context.Context, contract.%sInput) (contract.%sOutcome, scenery.ByteStream, error)\n", method, goName(operation.Name), goName(operation.Name))
-		} else {
-			fmt.Fprintf(&b, "\t%s(context.Context, contract.%sInput) (contract.%sOutcome, error)\n", method, goName(operation.Name), goName(operation.Name))
-		}
-	}
-	lifecycle, _ := service.Spec["lifecycle"].(map[string]any)
-	if method := stringValue(lifecycle["start"]); method != "" {
-		fmt.Fprintf(&b, "\t%s(context.Context) error\n", method)
-	}
-	if method := stringValue(lifecycle["stop"]); method != "" {
-		fmt.Fprintf(&b, "\t%s(context.Context) error\n", method)
-	}
-	b.WriteString("}\n\ntype serviceAdapter struct { native serviceImplementation }\n\nvar service *serviceAdapter\n\n")
-	if err := renderServiceOperationAdapters(&b, operations, bindings); err != nil {
-		return nil, err
-	}
-	for _, client := range clients {
-		operationName := goName(client.Operation.Name)
-		clientType := semanticPathName(client.Name) + "InternalClient"
-		contractQualifier := "contract."
-		if client.ContractAlias != "" {
-			contractQualifier = client.ContractAlias + "."
-		}
-		fmt.Fprintf(&b, "type %s struct{}\n", clientType)
-		if client.Delivery == "enqueue" {
-			fmt.Fprintf(&b, "func (%s) Enqueue(ctx context.Context, invocation scenery.Invocation, input %s%sInput) (scenery.ExecutionReceipt, error) { copied, err := %sClone%sInput(input); if err != nil { return scenery.ExecutionReceipt{}, fmt.Errorf(\"copy internal client input: %%w\", err) }; value, err := sceneryruntime.InvokeContractBindingFrom(ctx, %q, %q, invocation, copied); if err != nil { return scenery.ExecutionReceipt{}, err }; typed, ok := value.(scenery.ExecutionReceipt); if !ok { return scenery.ExecutionReceipt{}, fmt.Errorf(\"binding returned %%T, want scenery.ExecutionReceipt\", value) }; return typed, nil }\n\n", clientType, contractQualifier, operationName, contractQualifier, operationName, client.Binding.Address, service.Module)
-		} else {
-			fmt.Fprintf(&b, "func (%s) Invoke(ctx context.Context, invocation scenery.Invocation, input %s%sInput) (%s%sOutcome, error) { copied, err := %sClone%sInput(input); if err != nil { return nil, fmt.Errorf(\"copy internal client input: %%w\", err) }; value, err := sceneryruntime.InvokeContractBindingFrom(ctx, %q, %q, invocation, copied); if err != nil { return nil, err }; typed, ok := value.(%s%sOutcome); if !ok { return nil, fmt.Errorf(\"binding returned %%T, want %s%sOutcome\", value) }; cloned, err := %sClone%sOutcome(typed); if err != nil { return nil, fmt.Errorf(\"copy internal client outcome: %%w\", err) }; return cloned, nil }\n\n", clientType, contractQualifier, operationName, contractQualifier, operationName, contractQualifier, operationName, client.Binding.Address, service.Module, contractQualifier, operationName, contractQualifier, operationName, contractQualifier, operationName)
-		}
-	}
-	if err := renderDurableDispatchOptionHelpers(&b, operations, resources); err != nil {
-		return nil, err
-	}
-	renderCLIOutcomeHelpers(&b, resources, operations)
+	renderCLIOutcomeHelpers(b, resources, operations)
 	b.WriteString("func Register(registry scenery.Registry) error {\n")
-	fmt.Fprintf(&b, "\treturn registry.Register(%q, sceneryruntime.ContractRegistration{\n", service.Address+"/adapter")
-	fmt.Fprintf(&b, "\t\tContractRevision: ContractRevision, PackageContractABIRevision: PackageContractABIRevision, RuntimeABI: sceneryruntime.ContractRuntimeABI,\n\t\tProviderABIs: %s, CoveredAddresses: %#v,\n", goStringStringMap(providerABIs), covered)
+	fmt.Fprintf(b, "\treturn registry.Register(%q, sceneryruntime.ContractRegistration{\n", service.Address+"/adapter")
+	fmt.Fprintf(b, "\t\tContractRevision: ContractRevision, PackageContractABIRevision: PackageContractABIRevision, RuntimeABI: sceneryruntime.ContractRuntimeABI,\n\t\tProviderABIs: %s, CoveredAddresses: %#v,\n", goStringStringMap(providerABIs), covered)
 	b.WriteString("\t\tApply: func() error {\n")
-	fmt.Fprintf(&b, "\t\t\tif contract.PackageIdentity != PackageIdentity { return fmt.Errorf(\"package identity mismatch\") }\n")
-	fmt.Fprintf(&b, "\t\t\tif contract.PackageContractABIRevision != PackageContractABIRevision { return fmt.Errorf(\"package contract ABI mismatch\") }\n")
-	fmt.Fprintf(&b, "\t\t\tif err := sceneryruntime.RegisterNativeService(sceneryruntime.NativeServiceRegistration{Address: %q, Initialize: func(ctx context.Context) error {\n", service.Address)
-	fmt.Fprintf(&b, "\t\t\t\tinput := contract.%sConstructorInput{}\n", serviceName)
-	for index, dependency := range dependencies {
-		variable := fmt.Sprintf("dependency%d", index)
-		switch dependency.Resolver {
-		case "sql":
-			fmt.Fprintf(&b, "\t\t\t\t%s, err := scenerydb.Get(ctx, %q); if err != nil { return fmt.Errorf(\"resolve dependency %s: %%w\", err) }; input.Dependencies.%s = %s\n", variable, dependency.RuntimeName, dependency.Name, dependency.Field, variable)
-		case "object":
-			fmt.Fprintf(&b, "\t\t\t\t%s, err := scenerystorage.Named(ctx, %q); if err != nil { return fmt.Errorf(\"resolve dependency %s: %%w\", err) }; input.Dependencies.%s = %s\n", variable, dependency.RuntimeName, dependency.Name, dependency.Field, variable)
-		}
-	}
-	config, _ := service.Spec["config"].(map[string]any)
-	for _, field := range namedChildren(service.Spec, "config_schema") {
-		name, typeExpression := stringValue(field["name"]), stringValue(field["type"])
-		value, exists := config[name]
-		if !exists {
-			return nil, fmt.Errorf("native service %s config %s has no resolved value", service.Address, name)
-		}
-		if typeExpression == `resource_ref("secret")` {
-			address := resolveResourceRef(service, refString(value), "secret")
-			if address == "" {
-				return nil, fmt.Errorf("native service %s sensitive config %s requires a secret reference", service.Address, name)
-			}
-			fmt.Fprintf(&b, "\t\t\t\tinput.Config.%s = scenery.SecretRef{Address: %q}\n", goName(name), address)
-			continue
-		}
-		wire, err := goConfigWireJSON(value, typeExpression)
-		if err != nil {
-			return nil, fmt.Errorf("native service %s config %s: %w", service.Address, name, err)
-		}
-		fmt.Fprintf(&b, "\t\t\t\tif err := scenery.UnmarshalContractValue([]byte(%q), &input.Config.%s, %q); err != nil { return fmt.Errorf(\"resolve config %s: %%w\", err) }\n", string(wire), goName(name), typeExpression, name)
-	}
-	for _, client := range clients {
-		fmt.Fprintf(&b, "\t\t\t\tinput.Clients.%s = %s{}\n", client.Field, semanticPathName(client.Name)+"InternalClient")
-	}
-	fmt.Fprintf(&b, "\t\t\t\tvalue, err := implementation.%s(ctx, input); if err != nil { return err }; if value == nil { return fmt.Errorf(\"constructor returned nil service\") }; service = &serviceAdapter{native: value}\n", constructor)
-	if method := stringValue(lifecycle["start"]); method != "" {
-		fmt.Fprintf(&b, "\t\t\t\tif err := service.native.%s(ctx); err != nil { service = nil; return err }\n", method)
-	}
-	b.WriteString("\t\t\t\treturn nil\n\t\t\t}")
-	if method := stringValue(lifecycle["stop"]); method != "" {
-		fmt.Fprintf(&b, ", Shutdown: func(ctx context.Context) error { if service == nil || service.native == nil { return nil }; return service.native.%s(ctx) }", method)
-	}
-	b.WriteString("}); err != nil { return err }\n")
-	if err := renderDurableExecutionRegistrations(&b, service, operations, resources); err != nil {
+	fmt.Fprintf(b, "\t\t\tif contract.PackageIdentity != PackageIdentity { return fmt.Errorf(\"package identity mismatch\") }\n")
+	fmt.Fprintf(b, "\t\t\tif contract.PackageContractABIRevision != PackageContractABIRevision { return fmt.Errorf(\"package contract ABI mismatch\") }\n")
+	if err := renderNativeServiceInitialization(b, idx, service); err != nil {
 		return nil, err
 	}
-	if err := renderMCPToolRegistrations(&b, contractRevision, service, mcpBindings, resources); err != nil {
+	if err := renderDurableExecutionRegistrations(b, service, operations, resources); err != nil {
 		return nil, err
 	}
-	if err := renderScheduleAndEventRegistrations(&b, operations, resources); err != nil {
+	if err := renderMCPToolRegistrations(b, contractRevision, service, mcpBindings, resources); err != nil {
+		return nil, err
+	}
+	if err := renderScheduleAndEventRegistrations(b, operations, resources); err != nil {
 		return nil, err
 	}
 	for _, binding := range internalBindingsForOperations(resources, operations) {
@@ -459,21 +348,21 @@ func renderApplicationAdapterSource(contractRevision, packageIdentity, packageAB
 			if !ok || stringValue(execution.Spec["mode"]) != "durable" {
 				return nil, fmt.Errorf("enqueue binding %s does not select a durable execution", binding.Address)
 			}
-			fmt.Fprintf(&b, "\t\t\tif err := sceneryruntime.RegisterContractInternalBindingWithPolicy(sceneryruntime.ContractInternalBindingRegistration{Address: %q, Visibility: %q, Package: %q, Policy: %s, %s Invoke: func(ctx context.Context, _ any, input any) (any, error) { typed, ok := input.(contract.%sInput); if !ok { return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"internal binding input has type %%T\", input)) }; copied, err := contract.Clone%sInput(typed); if err != nil { return nil, sceneryruntime.ContractSystemError(err) }; options, err := %s(copied); if err != nil { return nil, sceneryruntime.ContractSystemError(err) }; return sceneryruntime.DispatchContractDurableExecutionWithOptions(ctx, %q, copied, options) }}); err != nil { return err }\n", binding.Address, visibility, binding.Module, internalPolicy, jsonCodecs, operationName, operationName, durableDispatchOptionsFunction(execution), execution.Address)
+			fmt.Fprintf(b, "\t\t\tif err := sceneryruntime.RegisterContractInternalBindingWithPolicy(sceneryruntime.ContractInternalBindingRegistration{Address: %q, Visibility: %q, Package: %q, Policy: %s, %s Invoke: func(ctx context.Context, _ any, input any) (any, error) { typed, ok := input.(contract.%sInput); if !ok { return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"internal binding input has type %%T\", input)) }; copied, err := contract.Clone%sInput(typed); if err != nil { return nil, sceneryruntime.ContractSystemError(err) }; options, err := %s(copied); if err != nil { return nil, sceneryruntime.ContractSystemError(err) }; return sceneryruntime.DispatchContractDurableExecutionWithOptions(ctx, %q, copied, options) }}); err != nil { return err }\n", binding.Address, visibility, binding.Module, internalPolicy, jsonCodecs, operationName, operationName, durableDispatchOptionsFunction(execution), execution.Address)
 		case "wait":
 			execution, ok := executionForBinding(resourcesByAddress(&Manifest{Resources: resources}), binding)
 			if !ok || stringValue(execution.Spec["mode"]) != "durable" {
 				return nil, fmt.Errorf("wait binding %s does not select a durable execution", binding.Address)
 			}
-			fmt.Fprintf(&b, "\t\t\tif err := sceneryruntime.RegisterContractInternalBindingWithPolicy(sceneryruntime.ContractInternalBindingRegistration{Address: %q, Visibility: %q, Package: %q, Policy: %s, %s Invoke: func(ctx context.Context, _ any, input any) (any, error) { typed, ok := input.(contract.%sInput); if !ok { return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"internal binding input has type %%T\", input)) }; copied, err := contract.Clone%sInput(typed); if err != nil { return nil, sceneryruntime.ContractSystemError(err) }; options, err := %s(copied); if err != nil { return nil, sceneryruntime.ContractSystemError(err) }; data, err := sceneryruntime.DispatchAndWaitContractDurableExecutionWithOptions(ctx, %q, copied, options); if err != nil { return nil, err }; return contract.Unmarshal%sOutcome(data) }}); err != nil { return err }\n", binding.Address, visibility, binding.Module, internalPolicy, jsonCodecs, operationName, operationName, durableDispatchOptionsFunction(execution), execution.Address, operationName)
+			fmt.Fprintf(b, "\t\t\tif err := sceneryruntime.RegisterContractInternalBindingWithPolicy(sceneryruntime.ContractInternalBindingRegistration{Address: %q, Visibility: %q, Package: %q, Policy: %s, %s Invoke: func(ctx context.Context, _ any, input any) (any, error) { typed, ok := input.(contract.%sInput); if !ok { return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"internal binding input has type %%T\", input)) }; copied, err := contract.Clone%sInput(typed); if err != nil { return nil, sceneryruntime.ContractSystemError(err) }; options, err := %s(copied); if err != nil { return nil, sceneryruntime.ContractSystemError(err) }; data, err := sceneryruntime.DispatchAndWaitContractDurableExecutionWithOptions(ctx, %q, copied, options); if err != nil { return nil, err }; return contract.Unmarshal%sOutcome(data) }}); err != nil { return err }\n", binding.Address, visibility, binding.Module, internalPolicy, jsonCodecs, operationName, operationName, durableDispatchOptionsFunction(execution), execution.Address, operationName)
 		default:
-			fmt.Fprintf(&b, "\t\t\tif err := sceneryruntime.RegisterContractInternalBindingWithPolicy(sceneryruntime.ContractInternalBindingRegistration{Address: %q, Visibility: %q, Package: %q, Policy: %s, %s Invoke: func(ctx context.Context, _ any, input any) (any, error) { if service == nil { return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"service is not initialized\")) }; typed, ok := input.(contract.%sInput); if !ok { return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"internal binding input has type %%T\", input)) }; copied, err := contract.Clone%sInput(typed); if err != nil { return nil, sceneryruntime.ContractSystemError(err) }; outcome, err := service.%s(ctx, copied); if err != nil { if outcome != nil { return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"handler returned outcome and error\")) }; return nil, sceneryruntime.ContractSystemError(err) }; if outcome == nil { return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"handler returned nil outcome without error\")) }; cloned, err := contract.Clone%sOutcome(outcome); if err != nil { return nil, sceneryruntime.ContractSystemError(err) }; if err := sceneryruntime.PublishContractOperationOutcome(ctx, %q, cloned); err != nil { return nil, sceneryruntime.ContractSystemError(err) }; return cloned, nil }}); err != nil { return err }\n", binding.Address, visibility, binding.Module, internalPolicy, jsonCodecs, operationName, operationName, method, operationName, operation.Address)
+			fmt.Fprintf(b, "\t\t\tif err := sceneryruntime.RegisterContractInternalBindingWithPolicy(sceneryruntime.ContractInternalBindingRegistration{Address: %q, Visibility: %q, Package: %q, Policy: %s, %s Invoke: func(ctx context.Context, _ any, input any) (any, error) { if service == nil { return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"service is not initialized\")) }; typed, ok := input.(contract.%sInput); if !ok { return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"internal binding input has type %%T\", input)) }; copied, err := contract.Clone%sInput(typed); if err != nil { return nil, sceneryruntime.ContractSystemError(err) }; outcome, err := service.%s(ctx, copied); if err != nil { if outcome != nil { return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"handler returned outcome and error\")) }; return nil, sceneryruntime.ContractSystemError(err) }; if outcome == nil { return nil, sceneryruntime.ContractSystemError(fmt.Errorf(\"handler returned nil outcome without error\")) }; cloned, err := contract.Clone%sOutcome(outcome); if err != nil { return nil, sceneryruntime.ContractSystemError(err) }; if err := sceneryruntime.PublishContractOperationOutcome(ctx, %q, cloned); err != nil { return nil, sceneryruntime.ContractSystemError(err) }; return cloned, nil }}); err != nil { return err }\n", binding.Address, visibility, binding.Module, internalPolicy, jsonCodecs, operationName, operationName, method, operationName, operation.Address)
 		}
 	}
-	if err := renderCLIBindingRegistrations(&b, resources, service, operations); err != nil {
+	if err := renderCLIBindingRegistrations(b, resources, service, operations); err != nil {
 		return nil, err
 	}
-	if err := renderPageRegistrations(&b, resources, operations); err != nil {
+	if err := renderPageRegistrations(b, resources, operations); err != nil {
 		return nil, err
 	}
 	for _, binding := range bindings {
@@ -481,7 +370,7 @@ func renderApplicationAdapterSource(contractRevision, packageIdentity, packageAB
 		if operation == nil {
 			return nil, fmt.Errorf("binding %s references an unknown service operation", binding.Address)
 		}
-		if err := renderHTTPBindingRegistration(&b, resources, service, *operation, binding); err != nil {
+		if err := renderHTTPBindingRegistration(b, resources, service, *operation, binding); err != nil {
 			return nil, err
 		}
 	}
@@ -517,7 +406,7 @@ func renderApplicationComposition(result *Result, providerABIs map[string]string
 		assetsImport = generatedImport + "/assets"
 	}
 	if len(assistants) > 0 || len(federations) > 0 {
-		b.WriteString("\tsceneryruntime \"scenery.sh/runtime\"\n")
+		b.WriteString("\tsceneryruntime \"scenery.sh/runtime/host\"\n")
 		if assetsImport != "" {
 			fmt.Fprintf(&b, "\tsceneryassets %q\n", assetsImport)
 		}

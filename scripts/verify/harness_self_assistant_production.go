@@ -14,7 +14,7 @@ import (
 
 	"scenery.sh/internal/mcpcontract"
 	"scenery.sh/internal/runtimeassets"
-	sceneryruntime "scenery.sh/runtime"
+	sceneryruntime "scenery.sh/runtime/host"
 )
 
 const harnessAssistantProductionProbeName = "assistant production process probe"

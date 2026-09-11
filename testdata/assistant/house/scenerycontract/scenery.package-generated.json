@@ -26,10 +26,10 @@
   "producer": {
     "version": "dev",
     "toolchain": {
-      "go_version": "go1.26.5"
+      "go_version": "go1.27.0"
     }
   },
   "runtime_abi_range": "scenery.go-runtime/v1",
   "schema_revision": "sha256:fa325f0aa48e8489c7ae85ab996efe2bd50962483ba9a3fcfc0e162384ffdca0",
-  "spec_revision": "sha256:351b04a1172e8db7c4a15a1c0295ceb3c7d9c765d162ac3c0c01d63be04331ba"
+  "spec_revision": "sha256:56aae20837685d925a62ef085831b323040fbd5945936340a6779b0578d92f36"
 }

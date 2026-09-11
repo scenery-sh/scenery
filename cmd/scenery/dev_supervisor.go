@@ -31,7 +31,7 @@ import (
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/netprobe"
 	"scenery.sh/internal/victoria"
-	"scenery.sh/runtime"
+	runtime "scenery.sh/runtime/host"
 )
 
 type runningApp struct {

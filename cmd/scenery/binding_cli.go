@@ -17,7 +17,7 @@ import (
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/graph"
-	sceneryruntime "scenery.sh/runtime"
+	sceneryruntime "scenery.sh/runtime/host"
 )
 
 func runBindingCLI(stdout, stderr io.Writer, arguments []string) (bool, error) {

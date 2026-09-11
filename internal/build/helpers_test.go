@@ -227,10 +227,10 @@ func prepareCompileTestResult(result *Result) *Result {
 	result.Contract = &compiler.Result{}
 	result.Target = &compiler.GoBuildTarget{}
 	result.RuntimeLinkerMetadata = map[string]string{
-		"scenery.sh/runtime.linkedContractRevision":       "test-contract",
-		"scenery.sh/runtime.linkedImplementationRevision": "test-implementation",
-		"scenery.sh/runtime.linkedBuildInputDigest":       "test-build-input",
-		"scenery.sh/runtime.linkedGoTarget":               "test-target",
+		"scenery.sh/runtime/host.linkedContractRevision":       "test-contract",
+		"scenery.sh/runtime/host.linkedImplementationRevision": "test-implementation",
+		"scenery.sh/runtime/host.linkedBuildInputDigest":       "test-build-input",
+		"scenery.sh/runtime/host.linkedGoTarget":               "test-target",
 	}
 	return result
 }

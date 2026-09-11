@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"scenery.sh/internal/authbridge"
-	"scenery.sh/runtime"
+	"scenery.sh/internal/runtimeapp"
 )
 
 type UID string
@@ -14,6 +14,13 @@ type authDataContextKey struct{}
 
 func init() {
 	authbridge.Register(authbridge.Provider{
+		StandardIdentity: func(data any) (*authbridge.StandardIdentity, bool) {
+			typed, ok := data.(*AuthData)
+			if !ok || typed == nil {
+				return nil, false
+			}
+			return &authbridge.StandardIdentity{UserID: string(typed.UserID), TenantID: string(typed.TenantID), SessionID: typed.SessionID, ActorUserID: string(typed.ActorUserID), ImpersonationID: typed.ImpersonationID}, true
+		},
 		UserID: func() (string, bool) {
 			uid, ok := UserID()
 			return string(uid), ok
@@ -30,7 +37,7 @@ func init() {
 }
 
 func UserID() (UID, bool) {
-	info := runtime.CurrentAuth()
+	info := runtimeapp.CurrentAuth()
 	if info == nil || info.UID == "" {
 		return "", false
 	}
@@ -38,7 +45,7 @@ func UserID() (UID, bool) {
 }
 
 func Data() any {
-	info := runtime.CurrentAuth()
+	info := runtimeapp.CurrentAuth()
 	if info == nil {
 		return nil
 	}
@@ -61,7 +68,7 @@ func CurrentAuditIdentity(ctx context.Context) (AuditIdentity, error) {
 }
 
 func WithContext(ctx context.Context, uid UID, data any) context.Context {
-	ctx = runtime.WithAuthContext(ctx, runtime.AuthInfo{
+	ctx = runtimeapp.WithAuthContext(ctx, runtimeapp.AuthInfo{
 		UID:  string(uid),
 		Data: data,
 	})

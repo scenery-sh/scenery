@@ -17,6 +17,9 @@ func Compile(result *Result) error {
 }
 
 func PrimeWorkspaceContext(ctx context.Context, result *Result) error {
+	if result != nil && result.nativeExperiment {
+		return fmt.Errorf("native experiment cannot publish ordinary primed state")
+	}
 	if result == nil {
 		return fmt.Errorf("nil build result")
 	}
@@ -93,6 +96,9 @@ func savePrimedWorkspace(result *Result) error {
 func CompileContext(ctx context.Context, result *Result) error {
 	if result == nil {
 		return fmt.Errorf("nil build result")
+	}
+	if result.nativeExperiment {
+		return fmt.Errorf("native experiment cannot publish an ordinary build")
 	}
 	if !result.ReuseCompiled {
 		if result.Contract == nil {

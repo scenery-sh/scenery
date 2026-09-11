@@ -3,13 +3,13 @@ package scenery
 import (
 	"io"
 
-	"scenery.sh/runtime"
+	"scenery.sh/internal/runtimeapp"
 )
 
 // ByteStream is an exact-length HTTP response body. A successful streaming
 // handler transfers ownership of Reader to Scenery, which always closes it.
-type ByteStream = runtime.ContractByteStream
+type ByteStream = runtimeapp.ByteStream
 
 func NewByteStream(reader io.ReadCloser, size int64) ByteStream {
-	return runtime.NewContractByteStream(reader, size)
+	return runtimeapp.NewByteStream(reader, size)
 }

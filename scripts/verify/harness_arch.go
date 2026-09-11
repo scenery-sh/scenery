@@ -153,12 +153,8 @@ type packageLayerRule struct {
 
 var packageLayerRules = []packageLayerRule{
 	{
-		// The root scenery.sh façade links the app runtime, its HTTP stack, and
-		// the PostgreSQL driver. Compiler-side packages need only the contract
-		// value types, so they depend on internal/contract and
-		// internal/contractpolicy directly and stay runtime-free. Importing the
-		// façade here silently relinks that whole closure into every one of
-		// these test binaries.
+		// Compiler-side packages consume contract values directly, without the
+		// application facade or its process-local runtime binding.
 		Name: "compiler-side packages stay free of the app runtime",
 		PathPrefixes: []string{
 			"internal/scn/", "internal/graph/", "internal/compiler/", "internal/generate/",
@@ -168,8 +164,18 @@ var packageLayerRules = []packageLayerRule{
 		},
 		ForbiddenImports: []string{
 			"scenery.sh",
-			"scenery.sh/runtime",
+			"scenery.sh/runtime/host",
 		},
+	},
+	{
+		Name:         "native application calls, auth, durable and SQL access do not link the runtime host",
+		PathPrefixes: []string{"scenery.go", "stream.go", "internal/runtimeapp/", "internal/authbridge/", "runtime/native.go", "internal/nativecall/", "internal/nativedurable/", "internal/nativecompose/", "internal/nativeservice/", "internal/nativesql/", "internal/nativeprotocol/", "internal/runtimescope/", "runtime/worker/", "auth/", "durable/", "db/"},
+		ForbiddenImports: []string{
+			"scenery.sh/runtime/host", "scenery.sh/internal/assistantruntime",
+			"scenery.sh/internal/mcpgateway", "scenery.sh/internal/mcpfederation",
+			"scenery.sh/internal/compiler", "scenery.sh/internal/generate",
+		},
+		AllowTestImports: []string{"scenery.sh/runtime/host"},
 	},
 	{
 		Name:         "internal/scn stays foundational",
