@@ -22,12 +22,12 @@
       "path": "docs/plans/0178-reusable-preparation-and-handoff.md",
       "title": "Reusable Preparation and Shorter Runtime Handoff",
       "owner": "scenery runtime / ONLV development",
-      "status": "active",
+      "status": "completed",
       "quality": "B",
       "freshness": "current",
       "last_reviewed": "2026-09-11",
       "review_after": "2026-10-11",
-      "summary": "Reuse pure generated projections, share verified byte inventories, stage assistants before handoff and reduce measured watcher/database overhead without weakening correctness.",
+      "summary": "Completed local projection reuse, verified byte inventories, private assistant staging and watcher/database optimization with measured ONLV acceptance; five-second goals remain unmet and publication was not requested.",
       "tags": ["plans", "execplans", "runtime", "performance"]
     },
     {

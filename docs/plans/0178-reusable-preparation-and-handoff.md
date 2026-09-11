@@ -37,7 +37,7 @@ no recurring monitor is necessary.
   including atomic saves and edits during a real Go compilation.
 - [x] (2026-09-11) C: optimize authoritative database status/setup reuse and verify
   reset, recreation, migration state and snapshot restore.
-- [ ] Complete repository and ONLV acceptance, record individual samples and
+- [x] (2026-09-11) Complete repository and ONLV acceptance, record individual samples and
   separate local commits for A, B and C. Publication is not requested.
 
 ## Surprises & Discoveries
@@ -97,10 +97,29 @@ unavailability.
 
 ## Outcomes & Retrospective
 
-A, B and C are implemented; final ONLV acceptance remains open. The owned fixture's handler
-was restored after measurement. Its temporary local Scenery replacement remains
-intentional until final local-source acceptance, then restore the fixture's
-original published selection without deleting its data.
+A, B and C are implemented and locally committed as `e9f8eccd`, `7649b613`
+and `bc879b7d`. ONLV's measurement driver is committed as `8f5ddd55`.
+Nothing was pushed or published. ONLV acceptance against the exact measured C
+source passed: `./scripts/scenery check -o json`, `go test ./...`,
+`./scripts/scenery harness -o json --write`, `just smoke`, and
+`just feature ahjs`. Smoke proves real project/object bytes across restart and
+cross-tenant denial; AHJ proof includes actual Chrome search, clear, reload,
+source-map identity and a screenshot. Main ONLV `bun test development` passed
+13 tests, the development TypeScript check passed, and `just check-harness`
+passed (including `just repo-harness`).
+
+The owned fixture's handler and module selection are restored byte-for-byte;
+its working tree is clean. `./scripts/scenery framework use -o json` selected
+the original published `de2d81028baf` producer, followed by successful
+`./scripts/scenery up --detach --wait ready -o json` and HTTP 200 from the
+owned 4070 API. Runtime/database/object state was retained. The personal
+ONLV 4920 runtime and its module pin were not changed.
+
+Final `go run ./scripts/verify --probe worktree --summary --write` passed
+the worktree/runtime/PostgreSQL boundary in 269.649 seconds. The post-acceptance
+quick verifier passed with the same pre-existing warning inventory. All current
+non-test Go files compare byte-for-byte with the measured C source snapshot;
+subsequent changes only record acceptance. Completed locally, not published.
 
 Final A semantic-edit samples 1, 2 and 4 were 7.373, 6.687 and 6.840 seconds
 (median 6.840, range 6.687–7.373); focused acceptance finished at 10.405, 9.763

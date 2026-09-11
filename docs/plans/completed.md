@@ -11,6 +11,21 @@ historical records. Do not refresh their review dates or rewrite them as current
 contract prose. Record later guidance here or in the owning current contract;
 use stale knowledge metadata to flag a known contradiction.
 
+## Reusable Preparation and Shorter Runtime Handoff
+
+- Status: completed locally; commits e9f8eccd, 7649b613 and bc879b7d, not published
+- Owner: scenery runtime / ONLV development
+- Completed: 2026-09-11
+- ExecPlan: [0178 Reusable Preparation and Shorter Runtime Handoff](0178-reusable-preparation-and-handoff.md)
+
+Pure projection reuse, operation-local verified bytes, pre-handoff private
+assistant staging, 100 ms watcher settling and authoritative database setup
+reuse are implemented. Three-sample semantic-edit median is 6.307 s (23.7%
+better), unchanged start 8.034 s (14.8% better); the five-second targets remain
+unmet. Repository, native boundary and ONLV restart/Chrome acceptance passed.
+The owned fixture was restored with data retained; the personal runtime and
+published pin were unchanged. Full release and all-root timing were not selected.
+
 ## Integration Recovery Boundaries
 
 - Status: completed; implementation published as Scenery de2d8102
