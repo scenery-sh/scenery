@@ -1,6 +1,7 @@
 # Native Reload Execution Technology Decision
 
-Status: evidence checkpoint; no alternative selected or implemented.
+Status: process and standard-plugin native replacement rejected; no alternative
+selected or implemented.
 
 ## Decision
 
@@ -9,6 +10,11 @@ The real ONLV AHJ implementation island is dramatically smaller than the current
 monolith, but it does not pass the predeclared native replacement gate. Keep the
 Plan 0180 snapshot/SDK/artifact-safety work and stop optimizing Scenery
 orchestration around whole native executables.
+
+Do not integrate standard Go plugins either. Plan 0187 kept the real 238-package
+ONLV implementation closure and a stable host, but plugin build/link, dynamic
+open and non-unloadable retention were worse than the rejected executable
+island. Removing process launch did not create latency headroom.
 
 Scope clarification: only the Plan 0181 execution experiment was not promoted.
 PR #195 already changes production preparation and shared executable caching in
@@ -108,6 +114,52 @@ The historical direct command replays cannot establish an exact additive
 attribution of the remaining build time. These results describe this machine,
 not a universal stock-Go floor or an interleaved improvement comparison.
 
+### Stable-host Go plugin checkpoint
+
+Plan 0187 tested the materially different standard-plugin boundary on the same
+pinned real ONLV AHJ operation. The corrected run is bound to Scenery HEAD
+`59189167d8776253a9337c6b169d80c5bc77734b`, dirty framework source digest
+`sha256:4fd4fd51ee71b69b2afa85d55d6688c092a79052ded683c511c7df1d7d467cf3`,
+prepared executable digest
+`sha256:faa0d41f8d0acb167892a9fb8db65fdc634ada7df4b73d3d78705a448879f0a6`,
+ONLV commit `4f8126a3e3806b7100ab7efaca1b7dd06b894221`, Go 1.27.0,
+darwin/arm64, and the same Apple M2 Ultra class of machine. Existing Go caches
+were retained; load averages were 8.65 / 7.27 / 6.77.
+
+| Artifact or boundary | Result |
+|---|---:|
+| Stable host closure / bytes | 222 packages / 11,654,882 bytes |
+| Real AHJ plugin closure / representative bytes | 238 packages / 15,483,074 bytes |
+| Five unique edits, plugin build p50 / p95 | 1,333.538 / 1,383.796 ms |
+| `plugin.Open` + explicit activation p50 / p95 | 453.407 / 476.757 ms |
+| Build through verified typed response p50 / p95 | 1,814.363 / 1,860.485 ms |
+| Edit through typed response p50 / p95 | 2,194.590 / 2,260.516 ms |
+| Explicit activation range | 0.140--0.293 ms |
+| Steady typed invocation per-sample p50 range | 0.066--0.089 ms |
+| Seven loaded generations, RSS growth | 24,526,848 bytes |
+
+Two warmups preceded five unique implementation edits. Each plugin had a unique
+package import path and artifact path, linked exact identity, and returned its
+new behavior through the generated typed codec in the same stable host. The
+host rejected foreign session and wrong artifact identities before open. A
+plugin compiled against a changed common generated contract failed closed with
+`plugin.Open` reporting a different package version, preserving the active
+generation. Go exposes no plugin unload operation.
+
+All 200/50/250 ms build/open/native gates failed. Compared with Plan 0181, the
+plugin retained the same package closure, was 1.90 times the artifact size,
+made warm build about 2.55 times slower, and made total native replacement about
+1.92 times slower. The predeclared rule therefore stopped after five measured
+edits instead of manufacturing a 30-sample acceptance distribution.
+
+Corrected raw evidence is under
+`.scenery/harness/minimal-native-reload-plugin/attested-2471988027/`;
+`report.json` SHA-256 is
+`c69d1189e9b6aeeb91ca1508de3d8a6e9f24a76a0e13568799c18c1be006a925`.
+The stable host stopped, the owned worktree was removed, and the original ONLV
+checkout remained unchanged. This is architecture rejection evidence, not
+production runtime, SQL, streaming, debugger or portability proof.
+
 ## Required Semantic Boundary
 
 Any alternative must preserve the private semantic ABI defined by Plan 0181:
@@ -127,7 +179,7 @@ their documented meaning.
 
 | Technology | Why it could change the measured floor | Principal risks and required proof |
 |---|---|---|
-| Standard Go plugin-like loading | Keeps the host process alive and can share Go values directly, removing process launch and IPC from the happy path. | Local Go documentation warns that plugins cannot be closed, initialize packages once, have poor race-detector support, require exact toolchain/flags/common sources, and are supported only on Linux, FreeBSD, and macOS. Measure real AHJ plugin build/load, unique generations, symbol identity, debugger behavior, failure containment, memory growth, and cross-platform deployment separation before selection. |
+| Standard Go plugin-like loading | Plan 0187 proved typed in-process calls are cheap, but the real plugin retained 238 packages and build/open made replacement materially slower. | Rejected for the ordinary reload boundary: five-edit native p50 1,814.363 ms, non-unloadable RSS growth, exact common-package compatibility, poor race-detector support, and limited platforms. |
 | Recyclable c-shared loader process | A stable loader could isolate crashes and load a smaller C ABI library without replacing the public host listener. Scenery already knows how to build explicit c-shared libraries. | The library carries a Go runtime, C framing can erode typed semantics, unloading Go shared libraries is not assumed safe, and build/link time may be worse. Measure real island build/load, repeated generations, runtime coexistence, callbacks, cancellation, streams, SQL/native state, debugging, and bounded loader recycling. |
 | Alternative incremental Go compiler/backend | Could remove the stock `go build` package/action and link floor while preserving a process boundary. | Must compile ordinary Go and cgo accurately, preserve standard toolchain ABI/debug information/race behavior, accept current generated code, and remain supportable without an external mandatory service. First qualify source compatibility and real island artifacts; do not infer it from a toy benchmark. |
 | Development-only interpreted or JIT execution | Could replace handler bodies without native linking. | Largest semantic gap: ordinary Go language coverage, generics/reflection/cgo, initialization, debugger behavior, races, SQL/native libraries, and exact generated contract types. It is inadmissible unless it runs unchanged application source and passes the same native contracts. |
@@ -135,18 +187,15 @@ their documented meaning.
 
 ## Next Evidence Gate
 
-If another spike is authorized, standard Go plugin-like loading could test
-whether removing process replacement changes the measured floor while retaining
-typed in-process Go values. That is a hypothesis for comparison, not a selected
-technology, production recommendation or implementation authority.
+The standard-plugin experiment is complete and failed. Do not build stable-host
+RPC, lifecycle, SQL or streaming infrastructure around it and do not hide it
+behind a permanent mode flag.
 
-Before any production change, that experiment must predeclare thresholds, use
-at least five unique implementation edits before a 30-edit series, retain every
-failure, and prove exact toolchain/common-dependency identity. A result is not
-promotable until race/debug limitations, non-unloadable generations, memory
-retention, initialization, rollback, SQL, internal calls, streaming, worktree
-isolation, and standalone deployment have explicit answers.
-
-If plugin build plus first `Open` remains above 250 ms or cannot meet those
-contracts, stop again. Compare c-shared loader and compiler/backend evidence
-without implementing a permanent fallback mode.
+Any next execution experiment must name and directly remove the now-measured
+cost. A recyclable c-shared loader is admissible only if an isolated real AHJ
+library build/load measurement first shows why it differs from the slower Go
+plugin. An incremental compiler/backend investigation is the more direct match
+for the 1.325 s plugin build and the earlier 519 ms executable build, but must
+first qualify unchanged ordinary Go source, generated types, cgo, debug/race
+behavior and supportability. This document compares those options; it does not
+authorize implementing either or a permanent fallback runtime.

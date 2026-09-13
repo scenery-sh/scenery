@@ -82,6 +82,14 @@ inherited pipes, and a separate activation/constructor boundary. It never runs
 in the functional release catalog. Retain rejected cases and source/toolchain
 identities; a successful benchmark execution can still report `no_go`.
 
+The explicit `--benchmark native-reload-plugin --workload-root
+<ONLV-repository>` lane owns the Plan 0187 feasibility experiment. It keeps one
+experimental host alive and builds unique, non-unloadable Go plugins containing
+the same real implementation and typed codec. Preserve exact host/plugin/input
+identity, incompatibility rejection, RSS retention evidence, and the rule that
+a successful verifier step may still report `no_go`. This lane is not a product
+runtime and never joins the functional release catalog.
+
 Run `go test ./scripts/verify` and the root validation union. For changed probe
 execution or ownership, run its exact `--probe <id>` and check its assertion
 inventory and cleanup. Full release and timing audits are explicit workflows,

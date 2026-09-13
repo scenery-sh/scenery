@@ -11,6 +11,21 @@ historical records. Do not refresh their review dates or rewrite them as current
 contract prose. Record later guidance here or in the owning current contract;
 use stale knowledge metadata to flag a known contradiction.
 
+## Go Plugin Reload Feasibility
+
+- Status: completed NO-GO architecture experiment; publication tracked by Git history
+- Owner: scenery verifier / native reload architecture evidence
+- Completed: 2026-09-14
+- ExecPlan: [0187 Go Plugin Reload Feasibility](0187-go-plugin-reload-feasibility.md)
+
+A stable experimental host loaded seven unique real ONLV AHJ implementation
+plugins with exact identity and typed behavior, but retained the 238-package
+closure. Five measured edits produced 1,333.538 ms build p50, 453.407 ms
+open-plus-activation p50 and 1,814.363 ms native replacement p50. Every gate
+failed, the plugin was 1.90 times the executable-island size, and seven
+non-unloadable generations added 24,526,848 bytes of host RSS. Standard Go
+plugins are rejected for ordinary reload; no product runtime mode was added.
+
 ## Owned External Go Inputs
 
 - Status: completed; publication tracked by Git history

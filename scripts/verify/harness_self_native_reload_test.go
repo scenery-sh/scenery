@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -102,9 +104,89 @@ func TestNativeReloadActionAttribution(t *testing.T) {
 
 func TestNativeReloadEffects(t *testing.T) {
 	t.Parallel()
-	got := harnessStepEffects(harnessStep{Name: harnessNativeReloadName})
 	want := []string{"external-binary", "filesystem-read", "filesystem-write", "tempdir", "test-cache"}
-	if !slices.Equal(got, want) {
-		t.Fatalf("experiment effects = %v, want %v", got, want)
+	for _, name := range []string{harnessNativeReloadName, harnessNativeReloadPluginName} {
+		got := harnessStepEffects(harnessStep{Name: name})
+		if !slices.Equal(got, want) {
+			t.Fatalf("%s effects = %v, want %v", name, got, want)
+		}
+	}
+}
+
+func pluginReloadTestIdentity(t *testing.T) (pluginReloadHostIdentity, pluginReloadIdentity) {
+	t.Helper()
+	digest := pluginReloadDigest([]byte("input"))
+	host := pluginReloadHostIdentity{Base: pluginReloadHostBase{ABI: pluginReloadABI, ProtocolRevision: digest,
+		FrameworkSource: digest, FrameworkExecutable: digest, ContractABI: digest, HostBuildInputs: digest,
+		ArtifactRoot: t.TempDir(), Worktree: "/owned/onlv", Session: "session", Toolchain: "go1.27.0", Target: "darwin/arm64"},
+		ExecutableDigest: digest}
+	linked := pluginReloadLinkedIdentity{Host: host, BuildInputs: digest, Implementation: digest}
+	data, err := json.Marshal(linked)
+	if err != nil {
+		t.Fatal(err)
+	}
+	linked.ExecutionGeneration = pluginReloadDigest(data)
+	identity := pluginReloadIdentity{Linked: linked, ArtifactDigest: digest}
+	return host, identity
+}
+
+func TestPluginReloadStrictIdentityFramesAndPaths(t *testing.T) {
+	t.Parallel()
+	host, identity := pluginReloadTestIdentity(t)
+	if err := pluginReloadCheckIdentity(host, identity, identity); err != nil {
+		t.Fatal(err)
+	}
+	stale := identity
+	stale.Linked.Host.Base.Session += "-foreign"
+	if err := pluginReloadCheckIdentity(host, identity, stale); err == nil {
+		t.Fatal("accepted a foreign plugin session")
+	}
+	stale = identity
+	stale.ArtifactDigest = pluginReloadDigest([]byte("other artifact"))
+	if err := pluginReloadCheckIdentity(host, identity, stale); err == nil {
+		t.Fatal("accepted a different plugin artifact")
+	}
+	stale = identity
+	stale.Linked.ExecutionGeneration = pluginReloadDigest([]byte("invented generation"))
+	if err := pluginReloadCheckIdentity(host, stale, stale); err == nil {
+		t.Fatal("accepted a generation not derived from the linked inputs")
+	}
+	for _, data := range []string{`{"kind":"host_ready","unknown":true}`, `{} {}`, strings.Repeat(" ", pluginReloadFrameLimit+1)} {
+		if _, err := pluginReloadDecodeFrame([]byte(data)); err == nil {
+			t.Fatalf("accepted malformed plugin frame with %d bytes", len(data))
+		}
+	}
+	inside := filepath.Join(host.Base.ArtifactRoot, "generation.so")
+	if !pluginReloadPathWithin(host.Base.ArtifactRoot, inside) || pluginReloadPathWithin(host.Base.ArtifactRoot, host.Base.ArtifactRoot) || pluginReloadPathWithin(host.Base.ArtifactRoot, filepath.Join(host.Base.ArtifactRoot, "..", "foreign.so")) {
+		t.Fatal("plugin artifact confinement changed")
+	}
+}
+
+func TestPluginReloadUsesUniqueGeneratedPackages(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	bench := &nativeReloadPluginBenchmark{
+		common:         &nativeReloadBenchmark{appRoot: root},
+		pluginTemplate: []byte("package main\n"),
+	}
+	first, err := bench.preparePluginPackage("edit-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := bench.preparePluginPackage("edit-02")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second || first != "./scenery_implementation_plugin_edit_01" || second != "./scenery_implementation_plugin_edit_02" {
+		t.Fatalf("plugin package paths are not unique: %q %q", first, second)
+	}
+	for _, path := range []string{first, second} {
+		data, err := os.ReadFile(filepath.Join(root, strings.TrimPrefix(path, "./"), "main.go"))
+		if err != nil || string(data) != "package main\n" {
+			t.Fatalf("generated plugin package %q: %q %v", path, data, err)
+		}
+	}
+	if _, err := bench.preparePluginPackage("../foreign"); err == nil {
+		t.Fatal("accepted a plugin package outside the owned root")
 	}
 }

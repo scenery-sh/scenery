@@ -19,6 +19,18 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0187-go-plugin-reload-feasibility.md",
+      "title": "Go Plugin Reload Feasibility",
+      "owner": "scenery verifier / native reload architecture evidence",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-14",
+      "review_after": "2026-10-14",
+      "summary": "Completed NO-GO experiment: a stable host loaded real ONLV AHJ plugins correctly, but build/open took 1.814 s p50 and non-unloadable generations retained memory, so no product runtime mode was added.",
+      "tags": ["plans", "execplans", "runtime", "build", "performance", "verification"]
+    },
+    {
       "path": "docs/plans/0186-owned-external-go-inputs.md",
       "title": "Owned External Go Inputs",
       "owner": "scenery build / source generation ownership",
@@ -85,9 +97,9 @@
       "status": "active",
       "quality": "B",
       "freshness": "current",
-      "last_reviewed": "2026-09-13",
-      "review_after": "2026-10-13",
-      "summary": "Measured rejection of stock-Go process-per-edit implementation islands and the evidence gates for plugin-like, c-shared, compiler-backend, or interpreted alternatives.",
+      "last_reviewed": "2026-09-14",
+      "review_after": "2026-10-14",
+      "summary": "Measured rejection of both stock-Go process-per-edit islands and stable-host Go plugins; compares c-shared, compiler-backend, interpreted, and non-Go loader alternatives without selecting one.",
       "tags": ["architecture", "runtime", "build", "performance", "decision"]
     },
     {

@@ -1,0 +1,70 @@
+package main
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+
+	ahjs "clean.tech/solar/ahjs"
+	contract "clean.tech/solar/ahjs/scenerycontract"
+)
+
+// SceneryNativeReloadIdentity is linked by the experiment builder. The plugin
+// exports its own immutable inputs and generation; requests cannot substitute it.
+var SceneryNativeReloadIdentity string
+
+var service *ahjs.Service
+
+const pluginReloadOperation = "ahjs/operation/list_ahjs"
+const pluginReloadBinding = "ahjs/binding/list_ahjs_http"
+
+type experimentDatabase struct{}
+
+func (experimentDatabase) ExecContext(context.Context, string, ...any) (sql.Result, error) {
+	return nil, fmt.Errorf("SQL is outside this feasibility experiment")
+}
+func (experimentDatabase) PrepareContext(context.Context, string) (*sql.Stmt, error) {
+	return nil, fmt.Errorf("SQL is outside this feasibility experiment")
+}
+func (experimentDatabase) QueryContext(context.Context, string, ...any) (*sql.Rows, error) {
+	return nil, fmt.Errorf("SQL is outside this feasibility experiment")
+}
+func (experimentDatabase) QueryRowContext(context.Context, string, ...any) *sql.Row {
+	panic("unexpected SQL query in validation-only experiment")
+}
+func (experimentDatabase) BeginTx(context.Context, *sql.TxOptions) (*sql.Tx, error) {
+	return nil, fmt.Errorf("SQL is outside this feasibility experiment")
+}
+
+// SceneryNativeReloadActivate constructs generation-scoped application state.
+func SceneryNativeReloadActivate(fail bool) error {
+	if service != nil {
+		return fmt.Errorf("plugin generation is already active")
+	}
+	input := contract.AhjsConstructorInput{}
+	if !fail {
+		input.Dependencies.Database = experimentDatabase{}
+	}
+	var err error
+	service, err = ahjs.NewService(context.Background(), input)
+	return err
+}
+
+// SceneryNativeReloadInvoke retains generated typed decode/outcome encoding.
+func SceneryNativeReloadInvoke(operation, binding string, input []byte) ([]byte, error) {
+	if service == nil {
+		return nil, fmt.Errorf("plugin generation is not active")
+	}
+	if operation != pluginReloadOperation || binding != pluginReloadBinding {
+		return nil, fmt.Errorf("unknown operation or binding")
+	}
+	value, err := contract.UnmarshalListAhjsInput(input)
+	if err != nil {
+		return nil, err
+	}
+	outcome, err := service.ListVNext(context.Background(), value)
+	if err != nil || outcome == nil {
+		return nil, fmt.Errorf("invoke AHJ implementation: %w", err)
+	}
+	return contract.MarshalListAhjsOutcome(outcome)
+}

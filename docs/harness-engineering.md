@@ -21,7 +21,7 @@ remain current data contracts, not an executable product subcommand.
 
 ```text
 scenery harness [--app-root <path>] [-o json] [--write]
-go run ./scripts/verify [--repo-root <path>] [--summary] [-o human|json] [--write] [--quick|--race|--release|--probe <id>...|--benchmark edit-latency|--benchmark worktree-cost|--benchmark native-reload --workload-root <path>] [--fresh-tests]
+go run ./scripts/verify [--repo-root <path>] [--summary] [-o human|json] [--write] [--quick|--race|--release|--probe <id>...|--benchmark edit-latency|--benchmark worktree-cost|--benchmark native-reload --workload-root <path>|--benchmark native-reload-plugin --workload-root <path>] [--fresh-tests]
 scenery harness ui [--app-root <path>] [--dashboard-url <url>] [--headed] [-o json] [--write]
 scenery inspect harness [artifact <name>|diagnostics --severity error|warning|timing --top <n>] -o json [--app-root <path>] [--repo-root <path>]
 ```
@@ -131,6 +131,25 @@ and digests, failed cases, protocol responses and intervals are retained beneath
 `.scenery/harness/minimal-native-reload/` with `--write`. Children are stopped
 before worktree removal; unconfirmed shutdown retains the owned root. This
 benchmark never runs in default, quick, race or release.
+
+`--benchmark native-reload-plugin --workload-root <path>` runs the Plan 0187
+follow-up against the same pinned ONLV AHJ implementation. It builds one stable
+experimental host, then builds a unique Go plugin for every run-unique handler
+edit. The host imports the generated contract but not the AHJ implementation;
+each plugin retains the real implementation, constructor state and generated
+typed codec. Private inherited pipes carry requests. Exact framework, contract,
+toolchain, host, worktree, session, build-input, implementation, execution and
+artifact identities are checked before activation.
+
+Two warmups precede five unique edits. The series extends to 30 only when its
+first-five native replacement p50 is at most 325 ms and closure is at most 310
+packages. Feasibility requires build p50 at most 200 ms, first `plugin.Open`
+plus activation p50 at most 50 ms, and build-to-typed-response p50 at most 250
+ms across all 30 edits. The report separately records retained plugin count and
+stable-host RSS because Go plugins cannot be unloaded. A selected benchmark may
+pass while reporting `no_go`; it is architecture evidence, not a product runtime
+or production-equivalence claim. Raw evidence is retained beneath
+`.scenery/harness/minimal-native-reload-plugin/` with `--write`.
 
 Keep the release guard strict, but make the strictness land on Scenery-owned
 release safety: contracts, schemas, release artifacts, fixture runtimes, route
@@ -322,6 +341,7 @@ contract drift, and schema conformance. The additional work depends on mode:
 | `--benchmark edit-latency` | Two separately warmed, interleaved 30-edit lanes comparing immutable `HEAD` with current source through the normal endpoint and exact candidate identity; no functional probe set or full Go suite. |
 | `--benchmark worktree-cost` | Only A18 resource measurement after common checks; no functional probe set or full Go suite. |
 | `--benchmark native-reload --workload-root <path>` | Only the pinned ONLV implementation-island experiment after common checks; exact experimental identity, activation and negative cases, with an explicit GO/NO-GO result. |
+| `--benchmark native-reload-plugin --workload-root <path>` | Only the pinned ONLV stable-host/Go-plugin experiment after common checks; unique artifacts, exact experimental identity, typed behavior, incompatibility and retention evidence, with an explicit GO/NO-GO result. |
 
 The release edge-process step runs the published static frontend journey
 against managed Caddy on disposable loopback ports, with local TLS issuance

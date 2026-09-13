@@ -1,0 +1,187 @@
+package main
+
+import (
+	"bufio"
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"plugin"
+	"time"
+
+	contract "clean.tech/solar/ahjs/scenerycontract"
+)
+
+var pluginReloadHostRecord string
+
+type loadedPlugin struct {
+	identity pluginReloadIdentity
+	invoke   func(string, string, []byte) ([]byte, error)
+}
+
+func pluginReloadMS(duration time.Duration) float64 {
+	return float64(duration.Nanoseconds()) / 1e6
+}
+
+func main() {
+	if err := runPluginHost(); err != nil {
+		_, _ = fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+}
+
+func runPluginHost() error {
+	data, err := base64.RawStdEncoding.DecodeString(pluginReloadHostRecord)
+	if err != nil {
+		return err
+	}
+	var base pluginReloadHostBase
+	if err := json.Unmarshal(data, &base); err != nil {
+		return err
+	}
+	if base.ContractABI != contract.PackageContractABIRevision {
+		return fmt.Errorf("linked host contract does not match compiled contract")
+	}
+	path, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	digest, err := pluginReloadFileDigest(path)
+	if err != nil {
+		return err
+	}
+	host := pluginReloadHostIdentity{Base: base, ExecutableDigest: digest}
+	if err := pluginReloadCheckHostIdentity(host, host); err != nil {
+		return err
+	}
+	input, output := os.NewFile(3, "plugin-requests"), os.NewFile(4, "plugin-results")
+	defer func() { _ = input.Close(); _ = output.Close() }()
+	encoder := json.NewEncoder(output)
+	if err := encoder.Encode(pluginReloadFrame{Kind: "host_ready", Host: host, PID: os.Getpid()}); err != nil {
+		return err
+	}
+	var current *loadedPlugin
+	scanner := bufio.NewScanner(input)
+	scanner.Buffer(make([]byte, 4096), pluginReloadFrameLimit)
+	for scanner.Scan() {
+		request, err := pluginReloadDecodeFrame(scanner.Bytes())
+		if err != nil {
+			return err
+		}
+		response := pluginReloadFrame{Kind: "rejected", Host: host, Identity: request.Identity, PID: os.Getpid(), Nonce: request.Nonce, Constructed: current != nil}
+		if request.Nonce == "" || pluginReloadCheckIdentity(host, request.Identity, request.Identity) != nil {
+			response.Failure = "identity_mismatch"
+		} else {
+			switch request.Kind {
+			case "load":
+				current, response = loadPluginGeneration(host, request, current)
+			case "invoke":
+				if current == nil || pluginReloadCheckIdentity(host, current.identity, request.Identity) != nil {
+					response.Failure = "generation_mismatch"
+					break
+				}
+				started := time.Now()
+				response.Outcome, err = current.invoke(request.Operation, request.Binding, request.Input)
+				response.InvocationMS = pluginReloadMS(time.Since(started))
+				if err != nil {
+					response.Failure = "invoke_failed"
+					break
+				}
+				response.Kind, response.Constructed = "result", true
+			case "ping":
+				response.Kind = "pong"
+			default:
+				response.Failure = "unknown_action"
+			}
+		}
+		if err := encoder.Encode(response); err != nil {
+			return err
+		}
+	}
+	return scanner.Err()
+}
+
+func loadPluginGeneration(host pluginReloadHostIdentity, request pluginReloadFrame, current *loadedPlugin) (*loadedPlugin, pluginReloadFrame) {
+	response := pluginReloadFrame{Kind: "rejected", Host: host, Identity: request.Identity, PID: os.Getpid(), Nonce: request.Nonce, Constructed: current != nil}
+	path, err := filepath.Abs(request.PluginPath)
+	if err != nil || path != request.PluginPath || !pluginReloadPathWithin(host.Base.ArtifactRoot, path) {
+		response.Failure = "path_rejected"
+		return current, response
+	}
+	before, err := pluginReloadFileDigest(path)
+	if err != nil || before != request.Identity.ArtifactDigest {
+		response.Failure = "artifact_mismatch"
+		return current, response
+	}
+	openedAt := time.Now()
+	loaded, err := plugin.Open(path)
+	response.OpenMS = pluginReloadMS(time.Since(openedAt))
+	if err != nil {
+		response.Failure = "open_failed"
+		response.Detail = err.Error()
+		return current, response
+	}
+	after, err := pluginReloadFileDigest(path)
+	if err != nil || after != before {
+		response.Failure = "artifact_changed"
+		return current, response
+	}
+	record, err := loaded.Lookup("SceneryNativeReloadIdentity")
+	if err != nil {
+		response.Failure = "identity_symbol_missing"
+		return current, response
+	}
+	encoded, ok := record.(*string)
+	if !ok {
+		response.Failure = "identity_symbol_type"
+		return current, response
+	}
+	data, err := base64.RawStdEncoding.DecodeString(*encoded)
+	if err != nil {
+		response.Failure = "identity_symbol_decode"
+		return current, response
+	}
+	var linked pluginReloadLinkedIdentity
+	if err := json.Unmarshal(data, &linked); err != nil || linked != request.Identity.Linked {
+		response.Failure = "identity_symbol_mismatch"
+		return current, response
+	}
+	activateSymbol, err := loaded.Lookup("SceneryNativeReloadActivate")
+	if err != nil {
+		response.Failure = "activate_symbol_missing"
+		return current, response
+	}
+	activate, ok := activateSymbol.(func(bool) error)
+	if !ok {
+		response.Failure = "activate_symbol_type"
+		return current, response
+	}
+	invokeSymbol, err := loaded.Lookup("SceneryNativeReloadInvoke")
+	if err != nil {
+		response.Failure = "invoke_symbol_missing"
+		return current, response
+	}
+	invoke, ok := invokeSymbol.(func(string, string, []byte) ([]byte, error))
+	if !ok {
+		response.Failure = "invoke_symbol_type"
+		return current, response
+	}
+	activatedAt := time.Now()
+	if err := activate(request.FailConstructor); err != nil {
+		response.ActivationMS = pluginReloadMS(time.Since(activatedAt))
+		response.Failure = "constructor_failed"
+		return current, response
+	}
+	response.ActivationMS = pluginReloadMS(time.Since(activatedAt))
+	candidate := &loadedPlugin{identity: request.Identity, invoke: invoke}
+	invokedAt := time.Now()
+	response.Outcome, err = invoke(request.Operation, request.Binding, request.Input)
+	response.InvocationMS = pluginReloadMS(time.Since(invokedAt))
+	if err != nil {
+		response.Failure = "invoke_failed"
+		return current, response
+	}
+	response.Kind, response.Constructed = "result", true
+	return candidate, response
+}
