@@ -8,9 +8,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
+	"scenery.sh/internal/build"
 	"scenery.sh/internal/envpolicy"
 )
 
@@ -81,6 +83,17 @@ func runHarnessCoreSeparation(parent context.Context, repoRoot string) (summary 
 		}
 	}
 	assertions["A3_product_dependency_closure"] = true
+	sdkDeps, err := run(source, "go", "list", "-deps", ".")
+	if err != nil {
+		return summary, err
+	}
+	sdkPackages := strings.Fields(string(sdkDeps))
+	if slices.Contains(sdkPackages, "scenery.sh/runtime") {
+		return summary, fmt.Errorf("public SDK dependency closure retains scenery.sh/runtime")
+	}
+	assertions["A3_public_sdk_dependency_closure"] = map[string]any{
+		"package_count": len(sdkPackages), "runtime_linked": false,
+	}
 	missingToolchain := filepath.Join(root, "unavailable-toolchain")
 	if err := writeHarnessToolchainSourceFile(filepath.Join(missingToolchain, "go.mod"), "module example.test/unavailable\n\ngo 1.999.99\n", 0o600); err != nil {
 		return summary, err
@@ -104,7 +117,19 @@ func runHarnessCoreSeparation(parent context.Context, repoRoot string) (summary 
 		return summary, err
 	}
 	product := harnessLocalSceneryBinaryPath(source)
-	if _, err := run(source, "go", "build", "-o", product, "./cmd/scenery"); err != nil {
+	buildProduct := func() error {
+		producer, err := build.FrameworkSourceManifest(source)
+		if err != nil {
+			return err
+		}
+		linkerFlags, err := build.FrameworkProducerLinkerFlags(producer.Digest)
+		if err != nil {
+			return err
+		}
+		_, err = run(source, "go", "build", "-ldflags="+linkerFlags, "-o", product, "./cmd/scenery")
+		return err
+	}
+	if err := buildProduct(); err != nil {
 		return summary, err
 	}
 	staleSHA, err := worktreeProbeFileSHA(product)
@@ -123,7 +148,7 @@ func runHarnessCoreSeparation(parent context.Context, repoRoot string) (summary 
 	if err := copyHarnessDirectory(filepath.Join(repoRoot, "cmd/scenery/dashboard_static/dist"), embed); err != nil {
 		return summary, err
 	}
-	if _, err := run(source, "go", "build", "-o", product, "./cmd/scenery"); err != nil {
+	if err := buildProduct(); err != nil {
 		return summary, err
 	}
 	matched, failure := harnessDashboardFreshness(ctx, source)
@@ -145,6 +170,9 @@ func runHarnessCoreSeparation(parent context.Context, repoRoot string) (summary 
 		if err := os.RemoveAll(filepath.Join(source, rel)); err != nil {
 			return summary, err
 		}
+	}
+	if err := buildProduct(); err != nil {
+		return summary, fmt.Errorf("build product without repository execution sources: %w", err)
 	}
 	if err := verifyHarnessProductWithoutRepositoryTools(ctx, source, root, assertions); err != nil {
 		return summary, err

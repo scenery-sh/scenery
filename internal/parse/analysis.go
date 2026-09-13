@@ -101,10 +101,15 @@ func MissingHermeticModulePackages(target gotarget.Context) ([]string, error) {
 }
 
 func analyze(ctx context.Context, root, name string, overlay map[string][]byte, patterns []string, target *gotarget.Context) (*model.App, error) {
-	root, err := filepath.Abs(root)
+	logicalRoot, err := filepath.Abs(root)
 	if err != nil {
 		return nil, err
 	}
+	root, err = filepath.EvalSymlinks(logicalRoot)
+	if err != nil {
+		return nil, err
+	}
+	overlay = canonicalizeAnalysisOverlay(logicalRoot, root, overlay)
 	cfg := &packages.Config{
 		Context: ctx,
 		Mode: packages.NeedName |
@@ -119,9 +124,23 @@ func analyze(ctx context.Context, root, name string, overlay map[string][]byte, 
 		cfg.Env = gotarget.Hermetic(nil)
 	}
 	if target != nil {
-		cfg.Dir = target.ModuleRoot
+		cfg.Dir, err = filepath.EvalSymlinks(target.ModuleRoot)
+		if err != nil {
+			return nil, err
+		}
 		cfg.Env = gotarget.Hermetic(target)
 		cfg.BuildFlags = append([]string(nil), target.BuildFlags...)
+		if overlay != nil {
+			modFile, cleanup, err := prepareAnalysisModFile(cfg.Dir)
+			if err != nil {
+				return nil, err
+			}
+			defer cleanup()
+			// Generated overlays can import implementation-only dependencies
+			// which an ordinary source-only `go mod tidy` correctly removes.
+			// Let Go update only this private copy while loading the overlay.
+			cfg.BuildFlags = append(cfg.BuildFlags, "-mod=mod", "-modfile="+modFile)
+		}
 		if len(target.BuildTags) > 0 {
 			cfg.BuildFlags = append(cfg.BuildFlags, "-tags="+strings.Join(target.BuildTags, ","))
 		}
@@ -170,6 +189,61 @@ func analyze(ctx context.Context, root, name string, overlay map[string][]byte, 
 		return strings.Compare(left.RelDir, right.RelDir)
 	})
 	return app, nil
+}
+
+// Go canonicalizes its working directory before matching overlay paths. Keep
+// virtual generated files on that same physical-root spelling, especially on
+// macOS where /var resolves to /private/var.
+func canonicalizeAnalysisOverlay(logicalRoot, physicalRoot string, overlay map[string][]byte) map[string][]byte {
+	if len(overlay) == 0 || logicalRoot == physicalRoot {
+		return overlay
+	}
+	canonical := make(map[string][]byte, len(overlay))
+	for path, data := range overlay {
+		relative, err := filepath.Rel(logicalRoot, path)
+		if err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+			path = filepath.Join(physicalRoot, relative)
+		}
+		canonical[path] = data
+	}
+	return canonical
+}
+
+func prepareAnalysisModFile(moduleRoot string) (string, func(), error) {
+	modData, err := os.ReadFile(filepath.Join(moduleRoot, "go.mod"))
+	if err != nil {
+		return "", nil, fmt.Errorf("read target go.mod for staged analysis: %w", err)
+	}
+	file, err := os.CreateTemp("", "scenery-analysis-*.mod")
+	if err != nil {
+		return "", nil, fmt.Errorf("create staged analysis go.mod: %w", err)
+	}
+	modPath := file.Name()
+	sumPath := strings.TrimSuffix(modPath, ".mod") + ".sum"
+	cleanup := func() {
+		_ = os.Remove(modPath)
+		_ = os.Remove(sumPath)
+	}
+	if _, err := file.Write(modData); err != nil {
+		_ = file.Close()
+		cleanup()
+		return "", nil, fmt.Errorf("write staged analysis go.mod: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		cleanup()
+		return "", nil, fmt.Errorf("close staged analysis go.mod: %w", err)
+	}
+	sumData, err := os.ReadFile(filepath.Join(moduleRoot, "go.sum"))
+	if err == nil {
+		if err := os.WriteFile(sumPath, sumData, 0o600); err != nil {
+			cleanup()
+			return "", nil, fmt.Errorf("write staged analysis go.sum: %w", err)
+		}
+	} else if !os.IsNotExist(err) {
+		cleanup()
+		return "", nil, fmt.Errorf("read target go.sum for staged analysis: %w", err)
+	}
+	return modPath, cleanup, nil
 }
 
 func packageFilePaths(pkg *packages.Package) []string {

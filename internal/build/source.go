@@ -1,6 +1,7 @@
 package build
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -16,6 +17,50 @@ import (
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/compiler"
 )
+
+const buildTracePathLimit = 32
+
+// workspaceMutation records bounded evidence about bytes actually changed in
+// the private workspace. Counts remain exact when the diagnostic path samples
+// reach their cap.
+type workspaceMutation struct {
+	filesWritten int
+	filesRemoved int
+	bytesWritten int64
+	cacheHits    int
+	cacheMisses  int
+	writtenPaths []string
+	removedPaths []string
+}
+
+func (m *workspaceMutation) wrote(rel string, bytes int) {
+	if m == nil {
+		return
+	}
+	m.filesWritten++
+	m.bytesWritten += int64(bytes)
+	m.cacheMisses++
+	if len(m.writtenPaths) < buildTracePathLimit {
+		m.writtenPaths = append(m.writtenPaths, filepath.ToSlash(rel))
+	}
+}
+
+func (m *workspaceMutation) removed(rel string) {
+	if m == nil {
+		return
+	}
+	m.filesRemoved++
+	m.cacheMisses++
+	if len(m.removedPaths) < buildTracePathLimit {
+		m.removedPaths = append(m.removedPaths, filepath.ToSlash(rel))
+	}
+}
+
+func (m *workspaceMutation) reused() {
+	if m != nil {
+		m.cacheHits++
+	}
+}
 
 func copyTree(src, dst string) error {
 	return filepath.WalkDir(src, func(path string, d os.DirEntry, err error) error {
@@ -64,8 +109,12 @@ func syncSourceFiles(root, appRoot string, prevStamps map[string]SourceStamp, sk
 }
 
 func syncSourceFilesWithSnapshot(root, appRoot string, prevStamps map[string]SourceStamp, skip map[string]struct{}, snapshot *SourceSnapshot) ([]string, map[string]SourceStamp, error) {
+	return syncSourceFilesWithSnapshotObserved(root, appRoot, prevStamps, skip, snapshot, nil)
+}
+
+func syncSourceFilesWithSnapshotObserved(root, appRoot string, prevStamps map[string]SourceStamp, skip map[string]struct{}, snapshot *SourceSnapshot, mutation *workspaceMutation) ([]string, map[string]SourceStamp, error) {
 	if snapshot == nil {
-		return syncSourceFilesFromDisk(root, appRoot, prevStamps, skip)
+		return syncSourceFilesFromDiskObserved(root, appRoot, prevStamps, skip, mutation)
 	}
 	currentFiles, err := snapshotSourceFilesForRoot(appRoot, snapshot)
 	if err != nil {
@@ -80,17 +129,18 @@ func syncSourceFilesWithSnapshot(root, appRoot string, prevStamps map[string]Sou
 		}
 		if prev, ok := prevStamps[rel]; ok && prev == stamp {
 			if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel))); err == nil {
+				mutation.reused()
 				stamps[rel] = stamp
 				continue
 			} else if !errors.Is(err, os.ErrNotExist) {
 				return nil, nil, err
 			}
 		}
-		data, err := sourceFileData(filepath.Join(appRoot, filepath.FromSlash(rel)), rel)
+		data, err := sourceSnapshotFileData(appRoot, rel, snapshot.Files[rel])
 		if err != nil {
 			return nil, nil, err
 		}
-		if err := writeFileIfChanged(root, rel, data); err != nil {
+		if _, err := writeFileIfChangedObserved(root, rel, data, mutation); err != nil {
 			return nil, nil, err
 		}
 		stamps[rel] = stamp
@@ -102,14 +152,14 @@ func syncSourceFilesWithSnapshot(root, appRoot string, prevStamps map[string]Sou
 		if _, ok := stamps[rel]; ok {
 			continue
 		}
-		if err := os.Remove(filepath.Join(root, filepath.FromSlash(rel))); err != nil && !errors.Is(err, os.ErrNotExist) {
+		if _, err := removeFileIfExistsObserved(root, rel, mutation); err != nil {
 			return nil, nil, err
 		}
 	}
 	return sourceFilesFromStamps(stamps), stamps, nil
 }
 
-func syncSourceFilesFromDisk(root, appRoot string, prevStamps map[string]SourceStamp, skip map[string]struct{}) ([]string, map[string]SourceStamp, error) {
+func syncSourceFilesFromDiskObserved(root, appRoot string, prevStamps map[string]SourceStamp, skip map[string]struct{}, mutation *workspaceMutation) ([]string, map[string]SourceStamp, error) {
 	currentFiles, err := listSourceFiles(appRoot)
 	if err != nil {
 		return nil, nil, err
@@ -125,23 +175,36 @@ func syncSourceFilesFromDisk(root, appRoot string, prevStamps map[string]SourceS
 			return nil, nil, err
 		}
 		stamp := sourceStampFromInfo(info)
+		raw, err := os.ReadFile(src)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			return nil, nil, err
+		}
+		sum := sha256.Sum256(raw)
+		stamp.Hash = hex.EncodeToString(sum[:])
 		if _, ok := skip[rel]; ok {
 			stamps[rel] = stamp
 			continue
 		}
 		if prev, ok := prevStamps[rel]; ok && prev == stamp {
 			if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel))); err == nil {
+				mutation.reused()
 				stamps[rel] = stamp
 				continue
 			} else if !errors.Is(err, os.ErrNotExist) {
 				return nil, nil, err
 			}
 		}
-		data, err := sourceFileData(src, rel)
-		if err != nil {
-			return nil, nil, err
+		data := raw
+		if rel == "go.mod" {
+			data, err = patchGoModData(raw, filepath.Dir(src))
+			if err != nil {
+				return nil, nil, err
+			}
 		}
-		if err := writeFileIfChanged(root, rel, data); err != nil {
+		if _, err := writeFileIfChangedObserved(root, rel, data, mutation); err != nil {
 			return nil, nil, err
 		}
 		stamps[rel] = stamp
@@ -153,7 +216,7 @@ func syncSourceFilesFromDisk(root, appRoot string, prevStamps map[string]SourceS
 		if _, ok := stamps[rel]; ok {
 			continue
 		}
-		if err := os.Remove(filepath.Join(root, filepath.FromSlash(rel))); err != nil && !errors.Is(err, os.ErrNotExist) {
+		if _, err := removeFileIfExistsObserved(root, rel, mutation); err != nil {
 			return nil, nil, err
 		}
 	}
@@ -165,6 +228,7 @@ func sourceStampFromSnapshot(file SourceSnapshotFile) SourceStamp {
 		Size:        file.Size,
 		ModTimeNano: file.ModTimeNano,
 		Perm:        file.Perm,
+		Hash:        file.Hash,
 	}
 }
 
@@ -195,7 +259,7 @@ func sourceStampsFingerprint(stamps map[string]SourceStamp) string {
 		stamp := stamps[rel]
 		_, _ = h.Write([]byte(rel))
 		_, _ = h.Write([]byte{0})
-		_, _ = h.Write(fmt.Appendf(nil, "%d:%d:%o", stamp.Size, stamp.ModTimeNano, stamp.Perm))
+		_, _ = h.Write(fmt.Appendf(nil, "%d:%d:%o:%s", stamp.Size, stamp.ModTimeNano, stamp.Perm, stamp.Hash))
 		_, _ = h.Write([]byte{0})
 	}
 	return hex.EncodeToString(h.Sum(nil))
@@ -481,19 +545,56 @@ func sourceFileData(path, rel string) ([]byte, error) {
 	return data, nil
 }
 
+func sourceSnapshotFileData(appRoot, rel string, file SourceSnapshotFile) ([]byte, error) {
+	if file.Data == nil {
+		return nil, fmt.Errorf("captured source bytes are unavailable for %s", rel)
+	}
+	digest := sha256.Sum256(file.Data)
+	if int64(len(file.Data)) != file.Size || hex.EncodeToString(digest[:]) != file.Hash {
+		return nil, fmt.Errorf("captured source identity does not match bytes for %s", rel)
+	}
+	data := append([]byte(nil), file.Data...)
+	if rel == "go.mod" {
+		return patchGoModData(data, appRoot)
+	}
+	return data, nil
+}
+
 func writeFileIfChanged(root, rel string, data []byte) error {
+	_, err := writeFileIfChangedObserved(root, rel, data, nil)
+	return err
+}
+
+func writeFileIfChangedObserved(root, rel string, data []byte, mutation *workspaceMutation) (bool, error) {
 	path := filepath.Join(root, filepath.FromSlash(rel))
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
+		return false, err
 	}
 	current, err := os.ReadFile(path)
-	if err == nil && string(current) == string(data) {
-		return nil
+	if err == nil && bytes.Equal(current, data) {
+		mutation.reused()
+		return false, nil
 	}
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
+		return false, err
 	}
-	return os.WriteFile(path, data, 0o644)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return false, err
+	}
+	mutation.wrote(rel, len(data))
+	return true, nil
+}
+
+func removeFileIfExistsObserved(root, rel string, mutation *workspaceMutation) (bool, error) {
+	err := os.Remove(filepath.Join(root, filepath.FromSlash(rel)))
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	mutation.removed(rel)
+	return true, nil
 }
 
 func patchGoModData(data []byte, moduleRoot string) ([]byte, error) {
@@ -520,15 +621,19 @@ func patchGoModData(data []byte, moduleRoot string) ([]byte, error) {
 	return formatted, nil
 }
 
-func seedWorkspaceSceneryGoSum(workspaceDir string) error {
+func seedWorkspaceSceneryGoSumObserved(workspaceDir string, mutation *workspaceMutation) error {
 	root, local, err := localSceneryReplaceRoot(filepath.Join(workspaceDir, "go.mod"))
 	if err != nil || !local {
 		return err
 	}
-	return seedSceneryGoSum(workspaceDir, root)
+	return seedSceneryGoSumObserved(workspaceDir, root, mutation)
 }
 
 func seedSceneryGoSum(workspaceDir, repoRoot string) error {
+	return seedSceneryGoSumObserved(workspaceDir, repoRoot, nil)
+}
+
+func seedSceneryGoSumObserved(workspaceDir, repoRoot string, mutation *workspaceMutation) error {
 	repoSum, err := os.ReadFile(filepath.Join(repoRoot, "go.sum"))
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -559,10 +664,15 @@ func seedSceneryGoSum(workspaceDir, repoRoot string) error {
 		merged = append(merged, line)
 	}
 	sort.Strings(merged)
-	return writeFileIfChanged(workspaceDir, "go.sum", []byte(strings.Join(merged, "\n") + "\n"))
+	_, err = writeFileIfChangedObserved(workspaceDir, "go.sum", []byte(strings.Join(merged, "\n")+"\n"), mutation)
+	return err
 }
 
 func removeUnexpectedFilesFromLists(root string, sourceFiles, generatedFiles []string) error {
+	return removeUnexpectedFilesFromListsObserved(root, sourceFiles, generatedFiles, nil)
+}
+
+func removeUnexpectedFilesFromListsObserved(root string, sourceFiles, generatedFiles []string, mutation *workspaceMutation) error {
 	keepFiles := make(map[string]struct{}, len(sourceFiles)+len(generatedFiles)+2)
 	keepDirs := map[string]struct{}{
 		".": {},
@@ -609,7 +719,11 @@ func removeUnexpectedFilesFromLists(root string, sourceFiles, generatedFiles []s
 		return err
 	}
 	for _, path := range files {
-		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		if _, err := removeFileIfExistsObserved(root, filepath.ToSlash(rel), mutation); err != nil {
 			return err
 		}
 	}

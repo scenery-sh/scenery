@@ -9,9 +9,9 @@ import (
 func wireBuildGenerateHooks() {
 	build.SetGenerateHooks(build.GenerateHooks{
 		ApplyPreparedImplementationCheck: generate.ApplyPreparedImplementationCheck,
-		SyncCachedTypeScript: func(result *compiler.Result) error {
-			_, err := generate.SyncCachedTypeScriptClients(result)
-			return err
+		SyncCachedTypeScript: func(result *compiler.Result) ([]string, error) {
+			generated, err := generate.SyncCachedTypeScriptClients(result)
+			return generated.Checked, err
 		},
 		PrepareBuildGoWorkspace: generate.PrepareBuildGoWorkspace,
 		RuntimeIntegrationPlan:  generate.BuildRuntimeIntegrationPlan,

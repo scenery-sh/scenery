@@ -184,7 +184,7 @@ func worktreeDockerMemoryBytes(value string) (float64, error) {
 	return 0, fmt.Errorf("invalid Docker memory measurement")
 }
 
-func (p *worktreeRuntimeProbe) costDisk(cohort worktreeCostCohort, cache string) (map[string]any, error) {
+func (p *worktreeRuntimeProbe) costDisk(cohort worktreeCostCohort, cache, sceneryCache string) (map[string]any, error) {
 	var nativeKiB, retainedKiB, postgresKiB int64
 	for i, root := range cohort.roots {
 		out, err := p.run(p.repo, "du", "-sk", root)
@@ -239,5 +239,10 @@ func (p *worktreeRuntimeProbe) costDisk(cohort worktreeCostCohort, cache string)
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"checkout_allocated_kib": nativeKiB, "retained_capabilities_and_victoria_allocated_kib": retainedKiB, "postgres_allocated_kib": postgresKiB, "cohort_go_cache_du": strings.TrimSpace(string(out)), "shared_toolchain_and_module_cache_excluded": true}, nil
+	goCacheDU := strings.TrimSpace(string(out))
+	out, err = p.run(p.repo, "du", "-sk", sceneryCache)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"checkout_allocated_kib": nativeKiB, "retained_capabilities_and_victoria_allocated_kib": retainedKiB, "postgres_allocated_kib": postgresKiB, "cohort_go_cache_du": goCacheDU, "cohort_scenery_cache_du": strings.TrimSpace(string(out)), "shared_toolchain_and_module_cache_excluded": true}, nil
 }

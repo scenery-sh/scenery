@@ -52,10 +52,17 @@ the explicit probe; ordinary storage tests retain bounded failure-cut coverage.
 
 The `dev-process` probe exercises production watch timing without test timing
 overrides. It counts builds for atomic multi-file saves and edits during Go
-compilation, verifies the final served response, and rejects generated-output
-feedback. Bind each response to the inspected session PID through its runtime
-identity header; separate observations can otherwise span a replacement.
-Fake-clock tests retain the ordinary settling boundary coverage.
+compilation; verifies handler, shared-dependency, newly declared input,
+semantic-contract, configuration, and embedded-asset changes through the normal
+endpoint; returns from a new behavior to an exactly identified previously
+compiled behavior; and rejects generated-output feedback. The round-trip must
+observe a new PID and the prior exact implementation and build-input identities,
+not identity restored from an unrelated latest bundle. Its tagged build-cache
+segment uses distinct helper processes to prove subscriber crash cancellation
+and bounded oldest-ticket link admission. Bind each response to the inspected
+session PID through its runtime identity header; separate observations can
+otherwise span a replacement. Fake-clock tests retain the ordinary settling
+and in-process cache coverage.
 
 ## Verification
 

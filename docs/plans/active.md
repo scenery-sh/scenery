@@ -7,6 +7,12 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
+- [0180 Incremental Worktree-Native Development Loop](0180-incremental-worktree-native-loop.md)
+  - Status: active
+  - Owner: scenery runtime / build / worktree development
+  - Created: 2026-09-13
+  - Focus: preserve public contracts while making edit-to-verified-response work incremental, share immutable work across isolated worktrees, and promote a smaller host/worker artifact only after real contract and latency proof.
+
 - [0179 Halve the Verified Development Loop](0179-half-latency-development-loop.md)
   - Status: active
   - Owner: scenery runtime / ONLV development

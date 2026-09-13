@@ -15,6 +15,7 @@ import (
 
 func TestPrepareAndCompileWriteLatestBuildManifestInProcess(t *testing.T) {
 	t.Parallel()
+	useFakeGoRunner(t)
 
 	appDir := t.TempDir()
 	writeBuildTestFile(t, appDir, ".scenery.json", `{"name":"nativeapp"}`)
@@ -26,11 +27,10 @@ func TestPrepareAndCompileWriteLatestBuildManifestInProcess(t *testing.T) {
 		t.Fatal(err)
 	}
 	result := prepareCompileTestResult(&Result{
-		AppRoot:       appDir,
-		AppName:       "nativeapp",
-		Dir:           workspace,
-		Binary:        filepath.Join(workspace, "scenery-app"),
-		ReuseCompiled: true,
+		AppRoot: appDir,
+		AppName: "nativeapp",
+		Dir:     workspace,
+		Binary:  filepath.Join(workspace, "scenery-app"),
 	})
 	if err := WriteLatestBuildManifest(result, "prepared"); err != nil {
 		t.Fatalf("write prepared manifest: %v", err)
@@ -54,12 +54,11 @@ func TestPrepareAndCompileWriteLatestBuildManifestInProcess(t *testing.T) {
 	}
 
 	if err := os.WriteFile(result.Binary, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
-		t.Fatalf("write reusable binary: %v", err)
+		t.Fatalf("write prior binary: %v", err)
 	}
 	result.NeedsTidy = false
-	result.ReuseCompiled = true
 	if err := Compile(result); err != nil {
-		t.Fatalf("compile reusable result: %v", err)
+		t.Fatalf("compile prepared result: %v", err)
 	}
 	manifest, ok, err = ReadLatestBuildManifest(appDir)
 	if err != nil {
@@ -220,7 +219,7 @@ func TestCompilePassesConfiguredGoBuildFlags(t *testing.T) {
 	}
 }
 
-func TestCompileRejectsNonReusableUnpreparedResult(t *testing.T) {
+func TestCompileRejectsUnpreparedResult(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -233,7 +232,7 @@ func TestCompileRejectsNonReusableUnpreparedResult(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			if err := Compile(test.result); err == nil || !strings.Contains(err.Error(), "refusing non-reusable build") {
+			if err := Compile(test.result); err == nil || !strings.Contains(err.Error(), "refusing build without a prepared") {
 				t.Fatalf("Compile() error = %v, want prepared-runtime invariant failure", err)
 			}
 		})

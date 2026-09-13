@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -25,7 +23,6 @@ import (
 
 	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/app"
-	"scenery.sh/internal/build"
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/localproxy"
@@ -238,11 +235,13 @@ func splitProductionFrontendPaths(root string, paths []string) ([]string, []stri
 }
 
 type fileStamp struct {
-	modTime time.Time
-	size    int64
-	mode    uint32
-	hash    string
-	embed   bool
+	modTime    time.Time
+	changeTime int64
+	size       int64
+	mode       uint32
+	hash       string
+	embed      bool
+	data       []byte
 }
 
 // Metadata decides whether to rehash; content decides whether to rebuild.
@@ -252,12 +251,20 @@ func (stamp fileStamp) sameContent(other fileStamp) bool {
 }
 
 type fileSnapshot struct {
-	contract         *compiler.Result
-	files            map[string]fileStamp
-	dirs             []string
-	generated        map[string]bool
-	generatedContent map[string]fileStamp
-	retryGenerated   bool
+	contract               *compiler.Result
+	contractFiles          map[string]fileStamp
+	contractCompiler       map[string]fileStamp
+	contractCompilerAbsent map[string]bool
+	capturedAt             time.Time
+	files                  map[string]fileStamp
+	compilerFiles          map[string]fileStamp
+	compilerImpl           map[string]bool
+	compilerAbsent         map[string]bool
+	compilerValid          bool
+	dirs                   []string
+	generated              map[string]bool
+	generatedContent       map[string]fileStamp
+	retryGenerated         bool
 }
 
 type devBackend struct {
@@ -434,7 +441,7 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode, desktop bool, appR
 		startUICatalogDevSync(ctx, console, supervisor, root, uiCatalogDir, resolvedEnv)
 	}
 
-	if err := supervisor.RebuildAndRestart(ctx, true, snapshot); err != nil {
+	if err := supervisor.RebuildAndRestart(ctx, true, &snapshot); err != nil {
 		snapshot.retryGenerated = true
 		err = preserveCLIDiagnostic(err)
 		err = startup.Report(err)
@@ -484,7 +491,7 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode, desktop bool, appR
 			continue
 		}
 		supervisor.announceRebuild(appPaths)
-		if err := supervisor.RebuildAndRestart(ctx, false, snapshot); err != nil {
+		if err := supervisor.RebuildAndRestart(ctx, false, &snapshot); err != nil {
 			snapshot.retryGenerated = true
 			supervisor.console.RebuildFailed(err)
 		} else {
@@ -703,7 +710,11 @@ func scanWatchedFiles(root string) (fileSnapshot, error) {
 // unchanged, so steady-state watch ticks stat files instead of re-reading and
 // re-hashing the whole workspace.
 func scanWatchedFilesReusing(root string, previous fileSnapshot) (fileSnapshot, error) {
-	snapshot := fileSnapshot{files: make(map[string]fileStamp, len(previous.files))}
+	snapshot := fileSnapshot{
+		contract: previous.contract, contractFiles: previous.contractFiles, contractCompiler: previous.contractCompiler,
+		contractCompilerAbsent: previous.contractCompilerAbsent,
+		files:                  make(map[string]fileStamp, len(previous.files)), compilerValid: true,
+	}
 	generated, err := compiler.GeneratedPaths(root)
 	if err != nil {
 		return fileSnapshot{}, err
@@ -817,134 +828,9 @@ func scanWatchedFilesReusing(root string, previous fileSnapshot) (fileSnapshot, 
 	// unique; DFS pre-order is not string-sorted, so sort stays.
 	sort.Strings(dirs)
 	snapshot.dirs = dirs
+	snapshot.captureCompilerRevisionFiles(root, previous)
+	snapshot.capturedAt = time.Now()
 	return snapshot, nil
-}
-
-// reusableStamp returns the previous stamp for rel when the file's size,
-// permissions, and mtime are unchanged, matching Git's index heuristic. An
-// in-place rewrite that preserves all three within mtime resolution is not
-// detected until the file is touched again.
-func reusableStamp(previous map[string]fileStamp, rel string, info fs.FileInfo, embedded bool) (fileStamp, bool) {
-	prev, ok := previous[rel]
-	if !ok || prev.embed != embedded || prev.size != info.Size() || prev.mode != uint32(info.Mode().Perm()) || !prev.modTime.Equal(info.ModTime().UTC().Round(0)) {
-		return fileStamp{}, false
-	}
-	return prev, true
-}
-
-func stampWatchedFile(path string, info fs.FileInfo, embedded bool) (fileStamp, []byte, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return fileStamp{}, nil, err
-	}
-	sum := sha256.Sum256(data)
-	return fileStamp{
-		modTime: info.ModTime().UTC().Round(0),
-		size:    info.Size(),
-		mode:    uint32(info.Mode().Perm()),
-		hash:    hex.EncodeToString(sum[:]),
-		embed:   embedded,
-	}, data, nil
-}
-
-func snapshotsEqual(a, b fileSnapshot) bool {
-	if a.retryGenerated && len(changedGeneratedContent(a, b)) > 0 {
-		return false
-	}
-	if len(a.generated) != len(b.generated) {
-		return false
-	}
-	for path, present := range a.generated {
-		if other, ok := b.generated[path]; !ok || other != present {
-			return false
-		}
-	}
-	if len(a.files) != len(b.files) {
-		return false
-	}
-	for path, stamp := range a.files {
-		if other, ok := b.files[path]; !ok || !stamp.sameContent(other) {
-			return false
-		}
-	}
-	return true
-}
-
-func changedPaths(before, after fileSnapshot) []string {
-	seen := make(map[string]bool, len(before.files)+len(after.files))
-	paths := make([]string, 0, len(before.files)+len(after.files))
-	for path, stamp := range before.files {
-		seen[path] = true
-		if other, ok := after.files[path]; !ok || !stamp.sameContent(other) {
-			paths = append(paths, path)
-		}
-	}
-	for path := range after.files {
-		if _, ok := seen[path]; ok {
-			continue
-		}
-		paths = append(paths, path)
-		seen[path] = true
-	}
-	for path, present := range before.generated {
-		if other, ok := after.generated[path]; (!ok || other != present) && !seen[path] {
-			paths = append(paths, path)
-			seen[path] = true
-		}
-	}
-	for path := range after.generated {
-		if _, existed := before.generated[path]; !existed && !seen[path] {
-			paths = append(paths, path)
-		}
-	}
-	if before.retryGenerated {
-		for _, path := range changedGeneratedContent(before, after) {
-			if !seen[path] {
-				paths = append(paths, path)
-			}
-		}
-	}
-	sort.Strings(paths)
-	return paths
-}
-
-func snapshotFingerprint(snapshot fileSnapshot) string {
-	paths := make([]string, 0, len(snapshot.files))
-	for path := range snapshot.files {
-		paths = append(paths, path)
-	}
-	sort.Strings(paths)
-	h := sha256.New()
-	var scratch []byte
-	for _, path := range paths {
-		stamp := snapshot.files[path]
-		scratch = append(scratch[:0], path...)
-		scratch = append(scratch, 0)
-		scratch = append(scratch, stamp.hash...)
-		scratch = append(scratch, 0)
-		scratch = strconv.AppendInt(scratch, stamp.size, 10)
-		scratch = append(scratch, ':')
-		scratch = strconv.AppendUint(scratch, uint64(stamp.mode), 8)
-		scratch = append(scratch, ':')
-		scratch = strconv.AppendBool(scratch, stamp.embed)
-		scratch = append(scratch, 0)
-		_, _ = h.Write(scratch)
-	}
-	return hex.EncodeToString(h.Sum(nil))
-}
-
-func buildSourceSnapshot(snapshot fileSnapshot) *build.SourceSnapshot {
-	files := make(map[string]build.SourceSnapshotFile, len(snapshot.files))
-	for rel, stamp := range snapshot.files {
-		files[rel] = build.SourceSnapshotFile{
-			Size:        stamp.size,
-			ModTimeNano: stamp.modTime.UnixNano(),
-			Perm:        stamp.mode,
-			Hash:        stamp.hash,
-			Embedded:    stamp.embed,
-		}
-	}
-	return &build.SourceSnapshot{Files: files, Contract: snapshot.contract}
 }
 
 type fileChangeWatcher struct {

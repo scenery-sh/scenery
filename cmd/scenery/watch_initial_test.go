@@ -69,7 +69,7 @@ func TestInitialWatchSnapshotIncludesAssistantInputs(t *testing.T) {
 		}
 	}
 	compile := func(string) (*compiler.Result, error) {
-		return &compiler.Result{ContractStatus: "valid", Manifest: &graph.Manifest{Resources: []graph.Resource{{
+		return &compiler.Result{Root: root, WorkspaceRevision: "sha256:d1727e1539910b1be9e99fd292d76acccc82614e6c45a30fe80cf80dfc70f524", ContractStatus: "valid", Manifest: &graph.Manifest{Resources: []graph.Resource{{
 			Address: "app/assistant/support", Kind: "scenery.assistant", Name: "support",
 			Spec: map[string]any{"implementation": map[string]any{
 				"source": "./assistants/support", "package": "./assistants/support/package.json",
@@ -88,17 +88,17 @@ func TestInitialWatchSnapshotIncludesAssistantInputs(t *testing.T) {
 			t.Fatalf("initial snapshot omitted %s", name)
 		}
 	}
-	next, err := scanWatchedFiles(root)
+	next, err := scanWatchedFilesReusing(root, first)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if snapshotFingerprint(first) != snapshotFingerprint(next) {
-		t.Fatal("unchanged input scope changed after startup")
+		t.Fatalf("unchanged input scope changed after startup: first=%s next=%s first_absent=%v next_absent=%v first_valid=%t next_valid=%t contract=%t", snapshotFingerprint(first), snapshotFingerprint(next), first.compilerAbsent, next.compilerAbsent, first.compilerValid, next.compilerValid, first.contract != nil)
 	}
 	if err := os.WriteFile(filepath.Join(source, "index.ts"), []byte("changed"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	changed, err := scanWatchedFiles(root)
+	changed, err := scanWatchedFilesReusing(root, next)
 	if err != nil {
 		t.Fatal(err)
 	}

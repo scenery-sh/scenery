@@ -445,19 +445,9 @@ func DiscoverRoot(start string) (string, Config, error) {
 			return "", Config{}, err
 		}
 		if path != "" {
-			var cfg Config
-			if err := decodeConfig(path, data, &cfg); err != nil {
+			cfg, err := ParseConfig(dir, data)
+			if err != nil {
 				return "", Config{}, err
-			}
-			cfg.ConfigPath = path
-			if cfg.Name == "" {
-				cfg.Name = cfg.ID
-			}
-			if cfg.Name == "" {
-				return "", Config{}, &ConfigError{fmt.Errorf("%s must define a non-empty name or id", path)}
-			}
-			if err := cfg.Validate(); err != nil {
-				return "", Config{}, &ConfigError{fmt.Errorf("%s: %w", path, err)}
 			}
 			return dir, cfg, nil
 		}
@@ -468,6 +458,32 @@ func DiscoverRoot(start string) (string, Config, error) {
 		dir = parent
 	}
 	return "", Config{}, ErrRootNotFound
+}
+
+// ParseConfig validates exact captured .scenery.json bytes for appRoot. Long-
+// lived owners use it to keep configuration consumption bound to the same
+// source snapshot as compilation and workspace preparation.
+func ParseConfig(appRoot string, data []byte) (Config, error) {
+	root, err := filepath.Abs(appRoot)
+	if err != nil {
+		return Config{}, err
+	}
+	path := ConfigPath(root)
+	var cfg Config
+	if err := decodeConfig(path, data, &cfg); err != nil {
+		return Config{}, err
+	}
+	cfg.ConfigPath = path
+	if cfg.Name == "" {
+		cfg.Name = cfg.ID
+	}
+	if cfg.Name == "" {
+		return Config{}, &ConfigError{fmt.Errorf("%s must define a non-empty name or id", path)}
+	}
+	if err := cfg.Validate(); err != nil {
+		return Config{}, &ConfigError{fmt.Errorf("%s: %w", path, err)}
+	}
+	return cfg, nil
 }
 
 func readConfigCandidate(dir string) (string, []byte, error) {

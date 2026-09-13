@@ -6,8 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
+	"time"
 
 	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/app"
@@ -17,7 +17,37 @@ import (
 	"scenery.sh/runtime"
 )
 
-func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, snapshot fileSnapshot) error {
+func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, snapshot *fileSnapshot) (returnErr error) {
+	if snapshot == nil {
+		return errors.New("application rebuild requires a captured source snapshot")
+	}
+	if err := refreshBuildCompilerMembership(s.root, snapshot); err != nil {
+		return err
+	}
+	captured := *snapshot
+	operationID := newDevBuildOperationID()
+	ctx = build.WithTraceOperation(ctx, operationID, s.emitBuildStep)
+	requestStarted := time.Now()
+	defer func() {
+		reason := "source_rebuild"
+		if initial {
+			reason = "initial_build"
+		}
+		build.RecordStep(ctx, build.Step{
+			Name: "build.request", StartedAt: requestStarted, Duration: time.Since(requestStarted),
+			Cache: "not_applicable", Reason: reason, OK: returnErr == nil, SnapshotDigest: snapshotFingerprint(captured),
+		})
+	}()
+	if !captured.capturedAt.IsZero() {
+		queue := time.Since(captured.capturedAt)
+		if queue < 0 {
+			queue = 0
+		}
+		build.RecordStep(ctx, build.Step{
+			Name: "build.queue", StartedAt: captured.capturedAt, Duration: queue, QueueDuration: queue,
+			Cache: "not_applicable", Reason: "captured_snapshot_to_build_start", OK: true, SnapshotDigest: snapshotFingerprint(captured),
+		})
+	}
 	previousConfig, previousEnvironment := s.cfg, s.env
 	activated := false
 	defer func() {
@@ -26,7 +56,7 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 			s.setAppIdentity(previousConfig)
 		}
 	}()
-	if cfg, err := s.reloadConfig(); err != nil {
+	if cfg, err := s.reloadConfig(captured); err != nil {
 		return s.handleCompileError(ctx, nil, nil, err)
 	} else {
 		s.cfg = cfg
@@ -51,13 +81,16 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 	}
 
 	var earlyAssistants *assistantStageAttempt
-	if initial && s.assistants != nil && snapshot.contract.Valid() {
+	if initial && s.assistants != nil && captured.contract.Valid() {
 		s.assistants.lifecycle.Lock()
 		defer s.assistants.lifecycle.Unlock()
-		earlyAssistants = s.assistants.beginStage(ctx, snapshot.contract)
+		earlyAssistants = s.assistants.beginStage(ctx, captured.contract)
 		defer earlyAssistants.release()
 	}
-	plan, err := s.prepareDevRuntimePlan(ctx, initial, snapshot)
+	if err := s.requireCurrentBuildSnapshot(captured); err != nil {
+		return s.handleCompileError(ctx, nil, nil, err)
+	}
+	plan, err := s.prepareDevRuntimePlan(ctx, initial, captured)
 	if err != nil {
 		metadata, apiEncoding := devBuildErrorPayload(err)
 		return s.handleCompileError(ctx, metadata, apiEncoding, err)
@@ -67,14 +100,21 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 			return err
 		}
 	}
+	if err := s.requireCurrentBuildSnapshot(captured); err != nil {
+		return s.handleCompileError(ctx, plan.Metadata, plan.APIEncoding, err)
+	}
 	var candidate *appStartPlan
+	candidateStarted := time.Now()
 	err = s.console.Phase("Preparing candidate process", func() error {
 		candidate, err = s.prepareAppStart(ctx, plan.Result, plan.Metadata, plan.APIEncoding, plan.Environment)
 		return err
 	})
+	build.RecordStep(ctx, build.Step{Name: "candidate.prepare", StartedAt: candidateStarted, Duration: time.Since(candidateStarted), Cache: "not_applicable", Reason: "retained_executable_and_environment", OK: err == nil})
 	defer s.releaseUnusedAppBinary(candidate)
 	if err == nil {
+		preflightStarted := time.Now()
 		err = s.console.Phase("Verifying candidate preflight", func() error { return preflightAppStart(ctx, candidate) })
+		build.RecordStep(ctx, build.Step{Name: "candidate.preflight", StartedAt: preflightStarted, Duration: time.Since(preflightStarted), Cache: "not_applicable", Reason: "exact_executable_attestation", OK: err == nil})
 	}
 	if err != nil {
 		return s.handleCompileError(ctx, nil, nil, err)
@@ -124,15 +164,38 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 	// Detach before stopping so the exit watchers treat this as an intentional
 	// restart rather than a crash; otherwise handleExit races the restart and
 	// can register the session as "stopped" after the new app is running.
+	if err := s.requireCurrentBuildSnapshot(captured); err != nil {
+		return s.handleCompileError(ctx, plan.Metadata, plan.APIEncoding, err)
+	}
+	activationStarted := time.Now()
 	previous := s.detachCurrentApp()
 	var current *runningApp
 	var recovered bool
-	if err := s.console.Phase("Starting scenery application", func() error {
+	err = s.console.Phase("Starting scenery application", func() error {
 		current, recovered, err = replaceAppGeneration(ctx, previous, candidate, func(app *runningApp) error {
 			return s.console.Phase("Stopping previous application process", app.stop)
 		}, s.startPreparedApp)
 		return err
-	}); err != nil {
+	})
+	activationStep := build.Step{
+		Name: "runtime.activation", StartedAt: activationStarted, Duration: time.Since(activationStarted),
+		Cache: "not_applicable", Reason: "retire_launch_listener", OK: err == nil,
+	}
+	if candidate != nil && candidate.result != nil {
+		activationStep.FrameworkSourceDigest = candidate.result.FrameworkSourceDigest
+		if candidate.result.Target != nil {
+			activationStep.GoTarget = candidate.result.Target.Name
+			activationStep.ImplementationRevision = candidate.result.ImplementationRevisions[candidate.result.Target.Name]
+		}
+		if candidate.result.Contract != nil && candidate.result.Contract.Manifest != nil {
+			activationStep.ContractRevision = candidate.result.Contract.Manifest.ContractRevision
+		}
+		if candidate.result.BuildInput != nil {
+			activationStep.BuildInputDigest = candidate.result.BuildInput.Digest
+		}
+	}
+	build.RecordStep(ctx, activationStep)
+	if err != nil {
 		s.mu.Lock()
 		s.current = current
 		s.mu.Unlock()
@@ -186,16 +249,29 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 	if initial {
 		s.console.Banner(s.runURLs())
 	}
+	refreshSnapshotContract(s.root, snapshot, plan.Result.Contract)
 	return nil
 }
 
-func (s *devSupervisor) reloadConfig() (app.Config, error) {
-	root, cfg, err := app.DiscoverRoot(s.root)
+func (s *devSupervisor) requireCurrentBuildSnapshot(snapshot fileSnapshot) error {
+	current, err := scanWatchedFilesReusing(s.root, snapshot)
+	if err != nil {
+		return fmt.Errorf("verify current build inputs: %w", err)
+	}
+	if !buildInputSnapshotsEqual(snapshot, current) {
+		return fmt.Errorf("source changed during candidate preparation; discard the superseded generation and retry")
+	}
+	return nil
+}
+
+func (s *devSupervisor) reloadConfig(snapshot fileSnapshot) (app.Config, error) {
+	stamp, ok := snapshot.files[app.PrimaryConfigFilename]
+	if !ok || stamp.data == nil {
+		return app.Config{}, fmt.Errorf("scenery app config moved from %s", s.root)
+	}
+	cfg, err := app.ParseConfig(s.root, stamp.data)
 	if err != nil {
 		return app.Config{}, err
-	}
-	if filepath.Clean(root) != filepath.Clean(s.root) {
-		return app.Config{}, fmt.Errorf("scenery app config moved from %s to %s", s.root, root)
 	}
 	resolved, err := cfg.ResolveEnv(s.env.Name)
 	if err != nil {

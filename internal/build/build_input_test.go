@@ -9,9 +9,74 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"scenery.sh/internal/compiler"
 )
+
+func TestBuildInputDigestCacheReusesMetadataStableBytesAndRejectsPreservedMtimeEdit(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "input.go")
+	if err := os.WriteFile(path, []byte("package input\nconst Value = 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if buildInputFileChangeTime(info) == 0 {
+		t.Skip("platform does not expose a conservative file change timestamp")
+	}
+	reads := 0
+	read := func(path string) ([]byte, error) {
+		reads++
+		return os.ReadFile(path)
+	}
+	first, hit, err := cachedBuildInputFileDigest(path, info, read)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hit {
+		t.Fatal("first digest unexpectedly hit the cache")
+	}
+	secondInfo, err := os.Lstat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, hit, err := cachedBuildInputFileDigest(path, secondInfo, read)
+	if err != nil || !hit || second != first || reads != 1 {
+		t.Fatalf("stable digest reuse: first=%s second=%s hit=%t reads=%d err=%v", first, second, hit, reads, err)
+	}
+	if err := os.WriteFile(path, []byte("package input\nconst Value = 2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(path, info.ModTime(), info.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	// Some filesystems can coalesce rapid metadata updates. Wait only when the
+	// observed change timestamp has not advanced, then rewrite once more.
+	changedInfo, err := os.Lstat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if buildInputFileChangeTime(changedInfo) == buildInputFileChangeTime(info) {
+		time.Sleep(time.Millisecond)
+		if err := os.WriteFile(path, []byte("package input\nconst Value = 3\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(path, info.ModTime(), info.ModTime()); err != nil {
+			t.Fatal(err)
+		}
+		changedInfo, err = os.Lstat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	changed, hit, err := cachedBuildInputFileDigest(path, changedInfo, read)
+	if err != nil || hit || changed == first || reads != 2 {
+		t.Fatalf("preserved-mtime edit: before=%s after=%s hit=%t reads=%d err=%v", first, changed, hit, reads, err)
+	}
+}
 
 func TestGoInputDiscoveryRequestsEveryConsumedField(t *testing.T) {
 	requested := strings.Split(goBuildInputFields, ",")

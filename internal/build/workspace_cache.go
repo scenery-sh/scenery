@@ -21,7 +21,58 @@ import (
 
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/codegen"
+	"scenery.sh/internal/compiler"
+	"scenery.sh/internal/gotarget"
 )
+
+// PreparationFingerprint identifies declaration/configuration work that is
+// independent of ordinary implementation bytes. Producer/generator identity is
+// checked separately when the persisted preparation is loaded.
+func PreparationFingerprint(cfg app.Config, contract *compiler.Result) (string, error) {
+	if contract == nil || !contract.Valid() || contract.Manifest == nil {
+		return "", fmt.Errorf("preparation fingerprint requires a valid contract")
+	}
+	encoded, err := json.Marshal(struct {
+		Config           app.Config `json:"config"`
+		ContractRevision string     `json:"contract_revision"`
+	}{Config: cfg, ContractRevision: contract.Manifest.ContractRevision})
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(encoded)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+const absentArtifactStamp = "absent"
+
+func artifactPathStamps(root string, paths []string) (map[string]string, error) {
+	stamps := make(map[string]string, len(paths))
+	for _, rel := range paths {
+		rel = filepath.ToSlash(filepath.Clean(rel))
+		if rel == "." || filepath.IsAbs(rel) || rel == ".." || strings.HasPrefix(rel, "../") {
+			return nil, fmt.Errorf("artifact path escapes root: %s", rel)
+		}
+		path := filepath.Join(root, filepath.FromSlash(rel))
+		info, err := os.Lstat(path)
+		if errors.Is(err, os.ErrNotExist) {
+			stamps[rel] = absentArtifactStamp
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			return nil, fmt.Errorf("artifact path is not a regular file: %s", rel)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
+		sum := sha256.Sum256(data)
+		stamps[rel] = hex.EncodeToString(sum[:])
+	}
+	return stamps, nil
+}
 
 func dependencyFingerprintFromWorkspace(root string) (string, error) {
 	return dependencyFingerprintFromInventory(newWorkspaceInventory(root))
@@ -117,6 +168,22 @@ func LoadCachedGraph(appRoot string, cfg app.Config, graphFingerprint string) (*
 }
 
 func LoadCachedGraphContext(ctx context.Context, appRoot string, cfg app.Config, graphFingerprint string) (cached *CachedGraph, hit bool, err error) {
+	return loadCachedGraphContext(ctx, appRoot, cfg, graphFingerprint, "", nil)
+}
+
+// LoadCachedPreparationContext reuses declaration-derived preparation across
+// implementation-only source changes. graphFingerprint remains the identity of
+// the complete captured input set; preparationFingerprint deliberately omits
+// implementation bytes and is accepted only with the caller's freshly
+// compiled, matching contract.
+func LoadCachedPreparationContext(ctx context.Context, appRoot string, cfg app.Config, graphFingerprint, preparationFingerprint string, contract *compiler.Result) (*CachedGraph, bool, error) {
+	if contract == nil || !contract.Valid() || preparationFingerprint == "" {
+		return nil, false, nil
+	}
+	return loadCachedGraphContext(ctx, appRoot, cfg, graphFingerprint, preparationFingerprint, contract)
+}
+
+func loadCachedGraphContext(ctx context.Context, appRoot string, cfg app.Config, graphFingerprint, preparationFingerprint string, contract *compiler.Result) (cached *CachedGraph, hit bool, err error) {
 	started := time.Now()
 	reason := "read_failed"
 	defer func() {
@@ -139,8 +206,13 @@ func LoadCachedGraphContext(ctx context.Context, appRoot string, cfg app.Config,
 		reason = "build_state_missing_or_changed"
 		return nil, false, nil
 	}
-	if state.GraphFingerprint == "" || state.GraphFingerprint != graphFingerprint {
-		reason = "source_snapshot_changed"
+	if preparationFingerprint == "" {
+		if state.GraphFingerprint == "" || state.GraphFingerprint != graphFingerprint {
+			reason = "source_snapshot_changed"
+			return nil, false, nil
+		}
+	} else if state.PreparationFingerprint == "" || state.PreparationFingerprint != preparationFingerprint {
+		reason = "preparation_inputs_changed"
 		return nil, false, nil
 	}
 	generatorFingerprint, err := currentGeneratorFingerprint()
@@ -179,6 +251,7 @@ func LoadCachedGraphContext(ctx context.Context, appRoot string, cfg app.Config,
 		SourceMetadataFingerprint: state.SourceMetadataFingerprint,
 		FrameworkFingerprint:      state.FrameworkFingerprint,
 		GeneratorFingerprint:      state.GeneratorFingerprint,
+		PreparationFingerprint:    state.PreparationFingerprint,
 		BuildFingerprint:          state.BuildFingerprint,
 		GraphFingerprint:          state.GraphFingerprint,
 		Metadata:                  append(json.RawMessage(nil), state.Metadata...),
@@ -186,7 +259,16 @@ func LoadCachedGraphContext(ctx context.Context, appRoot string, cfg app.Config,
 		SourceFiles:               sourceFilesFromStamps(state.SourceStamps),
 		SourceStamps:              maps.Clone(state.SourceStamps),
 		GeneratedFiles:            append([]string(nil), state.GeneratedFiles...),
+		GeneratedStamps:           maps.Clone(state.GeneratedStamps),
+		PublicGeneratedStamps:     maps.Clone(state.PublicGeneratedStamps),
+		CachedTypeScriptStamps:    maps.Clone(state.CachedTypeScriptStamps),
+		VerificationPatterns:      append([]string(nil), state.VerificationPatterns...),
+		ManagedGeneratedPaths:     append([]string(nil), state.ManagedGeneratedPaths...),
 		GoBuildFlags:              append([]string(nil), goBuildFlags...),
+		Contract:                  contract,
+	}
+	if preparationFingerprint != "" {
+		result.GraphFingerprint = graphFingerprint
 	}
 	reason = "source_and_generator_match"
 	return &CachedGraph{
@@ -205,11 +287,21 @@ func RefreshCachedWorkspaceWithSnapshot(appRoot string, result *Result, snapshot
 }
 
 func RefreshCachedWorkspaceWithSnapshotContext(ctx context.Context, appRoot string, result *Result, snapshot *SourceSnapshot) (reused bool, err error) {
+	prepared, err := PrepareCachedWorkspaceWithSnapshotContext(ctx, appRoot, app.Config{}, result, snapshot)
+	return prepared, err
+}
+
+// PrepareCachedWorkspaceWithSnapshotContext refreshes a declaration-equivalent
+// private workspace for the current captured implementation. A true result
+// means the workspace can proceed directly to CompileContext. Executable reuse
+// belongs exclusively to the identity-bound shared binary cache; a bare old
+// workspace executable has no generation-specific identity to authorize reuse.
+func PrepareCachedWorkspaceWithSnapshotContext(ctx context.Context, appRoot string, cfg app.Config, result *Result, snapshot *SourceSnapshot) (prepared bool, err error) {
 	started := time.Now()
 	reason := "projection_changed_or_missing"
 	defer func() {
 		cache := "miss"
-		if reused {
+		if prepared {
 			cache = "hit"
 		}
 		finishStep(ctx, "workspace.cache", started, cache, reason, err)
@@ -217,10 +309,43 @@ func RefreshCachedWorkspaceWithSnapshotContext(ctx context.Context, appRoot stri
 	if result == nil {
 		return false, fmt.Errorf("nil build result")
 	}
-	current, err := refreshCachedGoProjection(appRoot, result, snapshot)
+	contract := result.Contract
+	var current bool
+	if cfg.Name != "" {
+		projectionStarted := time.Now()
+		current, err = cachedProjectionCurrent(appRoot, result)
+		cache, projectionReason := "miss", "artifact_missing_or_changed"
+		if current {
+			cache, projectionReason = "hit", "preparation_key_and_artifacts_match"
+			result.verification = &preparedVerification{patterns: append([]string(nil), result.VerificationPatterns...)}
+		}
+		finishStep(ctx, "projection.go", projectionStarted, cache, projectionReason, err)
+		finishStep(ctx, "projection.typescript", projectionStarted, cache, projectionReason, err)
+	} else {
+		current, err = refreshCachedGoProjection(appRoot, result, snapshot, contract)
+	}
 	if err != nil || !current {
 		return false, err
 	}
+	contract = result.Contract
+	target, err := compiler.ResolveGoBuildTarget(contract, "", "development")
+	if err != nil {
+		return false, err
+	}
+	goBuildFlags := append([]string(nil), target.Context.BuildFlags...)
+	if len(target.Context.BuildTags) > 0 {
+		goBuildFlags = append(goBuildFlags, "-tags="+strings.Join(target.Context.BuildTags, ","))
+	}
+	if cfg.Name != "" && cfg.Name != result.AppName {
+		reason = "app_config_changed"
+		return false, nil
+	}
+	if !slices.Equal(normalizeGoBuildFlags(goBuildFlags), normalizeGoBuildFlags(result.GoBuildFlags)) {
+		reason = "target_flags_changed"
+		return false, nil
+	}
+	result.Target = &target
+	result.GoEnvironment = gotarget.Environment(target.Context)
 	reason = "generated_file_missing"
 	generated := make(map[string]struct{}, len(result.GeneratedFiles))
 	for _, rel := range result.GeneratedFiles {
@@ -233,15 +358,21 @@ func RefreshCachedWorkspaceWithSnapshotContext(ctx context.Context, appRoot stri
 			return false, err
 		}
 	}
-	sourceFiles, sourceStamps, err := syncSourceFilesWithSnapshot(result.Dir, appRoot, result.SourceStamps, generated, snapshot)
-	if err != nil {
-		return false, err
-	}
-	result.SourceFiles = sourceFiles
-	result.SourceStamps = sourceStamps
-	result.SourceMetadataFingerprint = sourceStampsFingerprint(sourceStamps)
-	if err := removeUnexpectedFilesFromLists(result.Dir, result.SourceFiles, result.GeneratedFiles); err != nil {
-		return false, err
+	var mutation workspaceMutation
+	materializeStarted := time.Now()
+	materializeErr := func() error {
+		sourceFiles, sourceStamps, syncErr := syncSourceFilesWithSnapshotObserved(result.Dir, appRoot, result.SourceStamps, generated, snapshot, &mutation)
+		if syncErr != nil {
+			return syncErr
+		}
+		result.SourceFiles = sourceFiles
+		result.SourceStamps = sourceStamps
+		result.SourceMetadataFingerprint = sourceStampsFingerprint(sourceStamps)
+		return removeUnexpectedFilesFromListsObserved(result.Dir, result.SourceFiles, result.GeneratedFiles, &mutation)
+	}()
+	recordWorkspaceMaterialization(ctx, materializeStarted, mutation, materializeErr)
+	if materializeErr != nil {
+		return false, materializeErr
 	}
 	previousFrameworkFingerprint := result.FrameworkFingerprint
 	frameworkFingerprint, _, err := currentFrameworkFingerprintFromWorkspace(result.Dir)
@@ -274,29 +405,68 @@ func RefreshCachedWorkspaceWithSnapshotContext(ctx context.Context, appRoot stri
 	if previousBuildFingerprint != buildFingerprint {
 		reason = fmt.Sprintf("workspace_inputs_changed:%s:%s", previousBuildFingerprint, buildFingerprint)
 	}
-	result.ReuseCompiled = pathExists(result.Binary) && previousFrameworkFingerprint == frameworkFingerprint
-	if result.ReuseCompiled && !restoreCachedRuntimeIdentity(result) {
-		// A binary cache hit without its current bound identity is not a runtime
-		// candidate. Re-prepare normally instead of publishing an unbound result.
-		result.ReuseCompiled = false
-		reason = "runtime_identity_not_reusable"
+	if reason == "workspace_binary_missing" {
+		reason = "prepared_workspace_requires_compile"
 	}
-	if result.ReuseCompiled {
-		reason = "verified_workspace_and_runtime_identity"
+	return true, nil
+}
+
+func cachedProjectionCurrent(appRoot string, result *Result) (bool, error) {
+	if result == nil || result.Contract == nil || !result.Contract.Valid() || len(result.GeneratedFiles) == 0 || len(result.GeneratedStamps) == 0 {
+		return false, nil
 	}
-	return result.ReuseCompiled, nil
+	managed, err := compiler.GeneratedPaths(appRoot)
+	if err != nil {
+		return false, err
+	}
+	managedPaths := make([]string, 0, len(managed))
+	for rel := range managed {
+		managedPaths = append(managedPaths, filepath.ToSlash(rel))
+	}
+	sort.Strings(managedPaths)
+	if !slices.Equal(managedPaths, result.ManagedGeneratedPaths) {
+		return false, nil
+	}
+	private, err := artifactPathStamps(result.Dir, result.GeneratedFiles)
+	if err != nil || !maps.Equal(private, result.GeneratedStamps) {
+		return false, err
+	}
+	publicPaths := make([]string, 0, len(result.PublicGeneratedStamps))
+	for rel := range result.PublicGeneratedStamps {
+		publicPaths = append(publicPaths, rel)
+	}
+	public, err := artifactPathStamps(appRoot, publicPaths)
+	if err != nil || !maps.Equal(public, result.PublicGeneratedStamps) {
+		return false, err
+	}
+	typeScriptPaths := make([]string, 0, len(result.CachedTypeScriptStamps))
+	for rel := range result.CachedTypeScriptStamps {
+		typeScriptPaths = append(typeScriptPaths, rel)
+	}
+	typeScript, err := artifactPathStamps(appRoot, typeScriptPaths)
+	if err != nil || !maps.Equal(typeScript, result.CachedTypeScriptStamps) {
+		return false, err
+	}
+	return true, nil
 }
 
 // A cached executable is usable only after publishing the current public
 // projection and proving its private workspace still contains those bytes.
 // Cache metadata alone cannot establish this after deletion or a branch switch.
-func refreshCachedGoProjection(appRoot string, result *Result, snapshot *SourceSnapshot) (bool, error) {
+func refreshCachedGoProjection(appRoot string, result *Result, snapshot *SourceSnapshot, prepared ...*compiler.Result) (bool, error) {
 	if err := requireGenerateHooks(); err != nil {
 		return false, err
 	}
-	contract, err := compileWorkspaceContract(appRoot, snapshot)
-	if err != nil {
-		return false, err
+	var contract *compiler.Result
+	if len(prepared) > 0 {
+		contract = prepared[0]
+	}
+	if contract == nil {
+		var err error
+		contract, err = compileWorkspaceContract(appRoot, snapshot)
+		if err != nil {
+			return false, err
+		}
 	}
 	if !contract.Valid() {
 		return false, nil
@@ -305,7 +475,7 @@ func refreshCachedGoProjection(appRoot string, result *Result, snapshot *SourceS
 	if err != nil {
 		return false, err
 	}
-	if err := generateHooks.SyncCachedTypeScript(contract); err != nil {
+	if _, err := generateHooks.SyncCachedTypeScript(contract); err != nil {
 		return false, err
 	}
 	for rel, expected := range projection.Files {
@@ -323,6 +493,7 @@ func refreshCachedGoProjection(appRoot string, result *Result, snapshot *SourceS
 	// Runtime setup needs current compiled requirements even when the executable
 	// is reusable. Retain this verified snapshot, not persisted cache metadata.
 	result.Contract = contract
+	result.verification = &preparedVerification{patterns: append([]string(nil), projection.VerificationPatterns...)}
 	return true, nil
 }
 
@@ -380,12 +551,16 @@ func workspaceBuildFingerprintFromInventory(inventory *workspaceInventory, goBui
 }
 
 func syncGeneratedFiles(root, appRoot string, gen *codegen.Output, prev, sourceFiles []string) ([]string, error) {
+	return syncGeneratedFilesObserved(root, appRoot, gen, prev, sourceFiles, nil)
+}
+
+func syncGeneratedFilesObserved(root, appRoot string, gen *codegen.Output, prev, sourceFiles []string, mutation *workspaceMutation) ([]string, error) {
 	next := make(map[string][]byte, len(gen.Generated))
 	for rel, data := range gen.Generated {
 		next[filepath.ToSlash(rel)] = data
 	}
 	for rel, data := range next {
-		if err := writeFileIfChanged(root, rel, data); err != nil {
+		if _, err := writeFileIfChangedObserved(root, rel, data, mutation); err != nil {
 			return nil, err
 		}
 	}
@@ -397,7 +572,7 @@ func syncGeneratedFiles(root, appRoot string, gen *codegen.Output, prev, sourceF
 		if slices.Contains(sourceFiles, rel) {
 			continue
 		}
-		if err := os.Remove(filepath.Join(root, filepath.FromSlash(rel))); err != nil && !errors.Is(err, os.ErrNotExist) {
+		if _, err := removeFileIfExistsObserved(root, rel, mutation); err != nil {
 			return nil, err
 		}
 	}

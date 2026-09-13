@@ -19,6 +19,18 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0180-incremental-worktree-native-loop.md",
+      "title": "Incremental Worktree-Native Development Loop",
+      "owner": "scenery runtime / build / worktree development",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-13",
+      "review_after": "2026-10-13",
+      "summary": "Preserve Scenery contracts while introducing attributable incremental preparation, immutable cross-worktree reuse, and a conditionally promoted smaller application execution artifact.",
+      "tags": ["plans", "execplans", "runtime", "build", "worktree", "performance"]
+    },
+    {
       "path": "docs/plans/0179-half-latency-development-loop.md",
       "title": "Halve the Verified Development Loop",
       "owner": "scenery runtime / ONLV development",

@@ -7,6 +7,9 @@ import (
 	"scenery.sh/runtime"
 )
 
+var _ *runtime.Span = (*Span)(nil)
+var _ runtime.ContractByteStream = ByteStream{}
+
 func TestMetaIncludesLocalEnvironmentDefaults(t *testing.T) {
 	runtime.SetAppConfig(runtime.AppConfig{
 		Name:       "test-app",

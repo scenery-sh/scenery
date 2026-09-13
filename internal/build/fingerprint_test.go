@@ -72,57 +72,6 @@ func TestCompileUpdatesDependencyFingerprintAfterSuccessfulBuild(t *testing.T) {
 	}
 }
 
-func TestCompileReusesExistingBinaryDespiteDependencyFingerprintDrift(t *testing.T) {
-	old := runGo
-	runGo = func(_ context.Context, dir string, _ []string, args ...string) error {
-		return fmt.Errorf("unexpected fake go command in %s: go %s", dir, strings.Join(args, " "))
-	}
-	t.Cleanup(func() { runGo = old })
-
-	appDir := newBuildTestApp(t)
-	workspace, err := workspaceDir(appDir, "buildtest")
-	if err != nil {
-		t.Fatal(err)
-	}
-	writeBuildTestFile(t, workspace, "go.mod", "module example.com/buildtest\n\ngo 1.26.3\n")
-	writeBuildTestFile(t, workspace, "go.sum", "example.com/dep v1.0.0 h1:dep\n")
-	writeBuildTestFile(t, workspace, "scenery_internal_main/main.go", "package main\n\nfunc main() {}\n")
-	depFingerprint, err := dependencyFingerprintFromWorkspace(workspace)
-	if err != nil {
-		t.Fatalf("dependencyFingerprintFromWorkspace: %v", err)
-	}
-	binary := filepath.Join(workspace, "scenery-app-existing")
-	if err := os.WriteFile(binary, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
-		t.Fatalf("write cached binary: %v", err)
-	}
-	result := &Result{
-		AppRoot:               appDir,
-		AppName:               "buildtest",
-		Dir:                   workspace,
-		Binary:                binary,
-		NeedsTidy:             true,
-		DependencyFingerprint: depFingerprint,
-		BuildFingerprint:      "existing",
-		ReuseCompiled:         true,
-		SourceFiles:           []string{"go.mod"},
-		GeneratedFiles:        []string{"scenery_internal_main/main.go"},
-	}
-
-	if err := Compile(result); err != nil {
-		t.Fatalf("Compile: %v", err)
-	}
-	if result.NeedsTidy {
-		t.Fatal("expected cached compile to clear NeedsTidy")
-	}
-	state, err := loadBuildState(workspace)
-	if err != nil {
-		t.Fatalf("loadBuildState: %v", err)
-	}
-	if state.DependencyFingerprint != depFingerprint {
-		t.Fatalf("saved dependency fingerprint = %q, want %q", state.DependencyFingerprint, depFingerprint)
-	}
-}
-
 func TestCachedGeneratorFingerprintInvalidatesOnSourceMetadata(t *testing.T) {
 	t.Parallel()
 

@@ -13,7 +13,7 @@ import (
 // production package does not import internal/generate.
 type GenerateHooks struct {
 	ApplyPreparedImplementationCheck func(context.Context, *compiler.Result, string, []string, compiler.GoBuildTarget) error
-	SyncCachedTypeScript             func(*compiler.Result) error
+	SyncCachedTypeScript             func(*compiler.Result) ([]string, error)
 	PrepareBuildGoWorkspace          func(*compiler.Result) (generateapi.GoWorkspaceProjection, error)
 	RuntimeIntegrationPlan           func(*compiler.Result) (generateapi.RuntimeIntegrationPlan, error)
 	RenderAssistantAssets            func(*compiler.Result, []generateapi.AssistantAssetInput) (map[string][]byte, error)

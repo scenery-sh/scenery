@@ -33,7 +33,7 @@ var eveBuildPathPattern = regexp.MustCompile(`\.eve/builds/[A-Za-z0-9_-]+/`)
 
 // prepareAssistantRuntimeAssets builds the immutable production inputs for
 // every declared assistant and writes the generated embed package into the Go
-// workspace.  It is called only for a non-reusable build, after authored files
+// workspace. It is called after authored files
 // have been synchronized into that workspace.  The source checkout remains
 // read-only throughout the operation.
 func prepareAssistantRuntimeAssets(ctx context.Context, result *Result) error {

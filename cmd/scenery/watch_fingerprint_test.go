@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"slices"
 	"testing"
 	"time"
 )
@@ -43,5 +44,57 @@ func TestSnapshotFingerprintLayout(t *testing.T) {
 
 	if got := snapshotFingerprint(snapshot); got != want {
 		t.Fatalf("snapshotFingerprint layout changed: got %s, want %s", got, want)
+	}
+}
+
+func TestSnapshotFingerprintTracksAbsentCompilerInputAppearance(t *testing.T) {
+	t.Parallel()
+	before := fileSnapshot{
+		compilerAbsent: map[string]bool{"ui/card.tsx": false},
+		compilerImpl:   map[string]bool{"ui/card.tsx": false},
+		compilerValid:  true,
+	}
+	after := fileSnapshot{
+		compilerFiles: map[string]fileStamp{"ui/card.tsx": {hash: "present", size: 7, mode: 0o644}},
+		compilerImpl:  map[string]bool{"ui/card.tsx": false},
+		compilerValid: true,
+	}
+	if snapshotsEqual(before, after) {
+		t.Fatal("newly appearing compiler input did not invalidate the runtime snapshot")
+	}
+	if got := changedPaths(before, after); !slices.Equal(got, []string{"ui/card.tsx"}) {
+		t.Fatalf("changed paths = %v", got)
+	}
+	if snapshotFingerprint(before) == snapshotFingerprint(after) {
+		t.Fatal("absent and present compiler inputs produced the same fingerprint")
+	}
+}
+
+func TestDeclaredCompilerTestFileStillAffectsRuntime(t *testing.T) {
+	t.Parallel()
+	before := fileSnapshot{
+		compilerAbsent: map[string]bool{"ui/card_test.go": false},
+		compilerValid:  true,
+	}
+	after := fileSnapshot{
+		compilerFiles: map[string]fileStamp{"ui/card_test.go": {hash: "present", size: 7, mode: 0o644}},
+		compilerImpl:  map[string]bool{"ui/card_test.go": false},
+		compilerValid: true,
+	}
+	if snapshotsEqual(before, after) || snapshotFingerprint(before) == snapshotFingerprint(after) {
+		t.Fatal("declared graph input was ignored merely because its name ended in _test.go")
+	}
+}
+
+func TestBuildInputSnapshotsIgnoreOnlyGeneratedPublication(t *testing.T) {
+	t.Parallel()
+	before := fileSnapshot{files: map[string]fileStamp{"service/api.go": {hash: "one", size: 3}}, generated: map[string]bool{"service/generated.go": false}}
+	after := fileSnapshot{files: map[string]fileStamp{"service/api.go": {hash: "one", size: 3}}, generated: map[string]bool{"service/generated.go": true}}
+	if !buildInputSnapshotsEqual(before, after) {
+		t.Fatal("generated publication invalidated an otherwise exact captured input set")
+	}
+	after.files["service/api.go"] = fileStamp{hash: "two", size: 3}
+	if buildInputSnapshotsEqual(before, after) {
+		t.Fatal("changed source bytes were accepted as the captured input set")
 	}
 }

@@ -214,6 +214,15 @@ func rendererModulePath(root string, resources map[string]Resource, renderer Res
 }
 
 func resolveDeclaredModulePath(path string) (string, bool) {
+	for _, candidate := range declaredModuleCandidates(path) {
+		if info, err := os.Stat(candidate); err == nil && info.Mode().IsRegular() {
+			return candidate, true
+		}
+	}
+	return "", false
+}
+
+func declaredModuleCandidates(path string) []string {
 	candidates := []string{path}
 	if filepath.Ext(path) == "" {
 		for _, extension := range []string{".tsx", ".ts", ".jsx", ".js"} {
@@ -223,12 +232,7 @@ func resolveDeclaredModulePath(path string) (string, bool) {
 			candidates = append(candidates, filepath.Join(path, "index"+extension))
 		}
 	}
-	for _, candidate := range candidates {
-		if info, err := os.Stat(candidate); err == nil && info.Mode().IsRegular() {
-			return candidate, true
-		}
-	}
-	return "", false
+	return candidates
 }
 
 func uiDiagnostic(code, message string, resource Resource) Diagnostic {

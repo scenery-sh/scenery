@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/devcache"
 )
@@ -108,6 +109,10 @@ go_target "development" {
 	}
 	sourceFiles := []string{".scenery.json", "go.mod", "svc/api.go"}
 	generatedFiles := []string{"scenery_internal_main/main.go", "svc/scenery.gen.go"}
+	generatedStamps, err := artifactPathStamps(workspace, generatedFiles)
+	if err != nil {
+		t.Fatal(err)
+	}
 	buildFingerprint, err := workspaceBuildFingerprint(workspace, nil, sourceFiles, generatedFiles)
 	if err != nil {
 		t.Fatal(err)
@@ -141,6 +146,7 @@ go_target "development" {
 		SourceFiles:               append([]string(nil), sourceFiles...),
 		SourceStamps:              sourceStamps,
 		GeneratedFiles:            append([]string(nil), generatedFiles...),
+		GeneratedStamps:           generatedStamps,
 	}
 	contract, err := compiler.Compile(appDir)
 	if err != nil {
@@ -151,6 +157,11 @@ go_target "development" {
 		t.Fatal(err)
 	}
 	result.Contract, result.Target = contract, &target
+	preparationFingerprint, err := PreparationFingerprint(appcfg.Config{Name: "buildtest"}, contract)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result.PreparationFingerprint = preparationFingerprint
 	result.BuildInput = newBuildInputManifest(target.Name, map[string]string{"fixture": "sha256:" + strings.Repeat("a", 64)})
 	result.ImplementationRevisions, _ = compiler.ComputeImplementationRevisions(contract, map[string]string{target.Name: result.BuildInput.Digest})
 	if err := writeRuntimeBundle(result); err != nil {
@@ -161,12 +172,16 @@ go_target "development" {
 		DependencyFingerprint:     depFingerprint,
 		SourceMetadataFingerprint: sourceMetadataFingerprint,
 		GeneratorFingerprint:      generatorFingerprint,
+		PreparationFingerprint:    preparationFingerprint,
 		BuildFingerprint:          buildFingerprint,
 		GraphFingerprint:          graphFingerprint,
 		Metadata:                  append([]byte(nil), result.Metadata...),
 		APIEncoding:               append([]byte(nil), result.APIEncoding...),
 		SourceStamps:              sourceStamps,
 		GeneratedFiles:            generatedFiles,
+		GeneratedStamps:           generatedStamps,
+		PublicGeneratedStamps:     map[string]string{},
+		CachedTypeScriptStamps:    map[string]string{},
 	}); err != nil {
 		t.Fatal(err)
 	}
