@@ -19,6 +19,30 @@
   },
   "documents": [
     {
+      "path": "docs/native-reload-execution-technology-decision.md",
+      "title": "Native Reload Execution Technology Decision",
+      "owner": "scenery runtime / native development execution",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-13",
+      "review_after": "2026-10-13",
+      "summary": "Measured rejection of stock-Go process-per-edit implementation islands and the evidence gates for plugin-like, c-shared, compiler-backend, or interpreted alternatives.",
+      "tags": ["architecture", "runtime", "build", "performance", "decision"]
+    },
+    {
+      "path": "docs/plans/0181-minimal-native-reload-artifact.md",
+      "title": "Minimal Native Reload Artifact",
+      "owner": "scenery runtime / native development execution",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-13",
+      "review_after": "2026-10-13",
+      "summary": "Reproducible real ONLV implementation-island experiment with independent artifact identity and activation proof; 934 ms native replacement p50 is NO-GO for stable-host integration.",
+      "tags": ["plans", "execplans", "runtime", "build", "performance", "worktree"]
+    },
+    {
       "path": "docs/plans/0180-incremental-worktree-native-loop.md",
       "title": "Incremental Worktree-Native Development Loop",
       "owner": "scenery runtime / build / worktree development",

@@ -28,6 +28,7 @@ Build a missing local CLI using [Fresh Worktree Preflight](agent-guide.md#fresh-
 ## Core Contracts
 
 - [Architecture](../ARCHITECTURE.md): high-level repo map, boundaries, and architectural invariants.
+- [Native Reload Execution Technology Decision](native-reload-execution-technology-decision.md): measured rejection of stock-Go process-per-edit islands and bounded alternatives for the next architecture experiment.
 - [Local Contract](local-contract.md): CLI grammar, stable JSON schemas, generated artifacts, and local runtime contracts.
 - [Environment Reference](environment.md): scenery-owned env vars, app-injected env, and local override escape hatches.
 - [App Development Cookbook](app-development-cookbook.md): practical recipes for building scenery apps, including single-server storage with offsite S3 replication.

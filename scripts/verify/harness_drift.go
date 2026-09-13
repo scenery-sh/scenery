@@ -713,6 +713,12 @@ func harnessStepEffects(step harnessStep) []string {
 		}
 	}
 	switch step.Name {
+	case harnessNativeReloadName:
+		set["external-binary"] = true
+		set["filesystem-read"] = true
+		set["filesystem-write"] = true
+		set["tempdir"] = true
+		set["test-cache"] = true
 	case harnessStandardAuthName:
 		for _, effect := range []string{"external-binary", "filesystem-write", "loopback-network", "ports", "tempdir", "agent-socket", "docker"} {
 			set[effect] = true

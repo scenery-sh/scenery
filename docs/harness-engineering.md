@@ -21,7 +21,7 @@ remain current data contracts, not an executable product subcommand.
 
 ```text
 scenery harness [--app-root <path>] [-o json] [--write]
-go run ./scripts/verify [--repo-root <path>] [--summary] [-o human|json] [--write] [--quick|--race|--release|--probe <id>...|--benchmark edit-latency|--benchmark worktree-cost] [--fresh-tests]
+go run ./scripts/verify [--repo-root <path>] [--summary] [-o human|json] [--write] [--quick|--race|--release|--probe <id>...|--benchmark edit-latency|--benchmark worktree-cost|--benchmark native-reload --workload-root <path>] [--fresh-tests]
 scenery harness ui [--app-root <path>] [--dashboard-url <url>] [--headed] [-o json] [--write]
 scenery inspect harness [artifact <name>|diagnostics --severity error|warning|timing --top <n>] -o json [--app-root <path>] [--repo-root <path>]
 ```
@@ -109,6 +109,28 @@ memory/CPU, fixed-window idle/load samples, disk usage and hardware/daemon
 identity. Cold means fresh roots and cohort Go cache, not flushed host/module
 or toolchain caches. Background developer workloads are not stopped, shared
 pages can appear in multiple RSS values, and no capacity ceiling is inferred.
+
+`--benchmark native-reload --workload-root <path>` runs the Plan 0181 experiment
+against a read-only ONLV repository containing commit
+`4f8126a3e3806b7100ab7efaca1b7dd06b894221`. It creates an owned detached worktree,
+selects the exact current-source framework with the prepared local binary,
+generates contracts and builds the real AHJ implementation package with a small
+experimental dispatch shim. Private inherited pipes separate protocol data from
+application init output. Both parent and child hash the executable; the child
+reports linked generation, producer, input, contract and owner fields rather
+than echoing requested identity. A distinct activation message runs the real
+constructor, followed by ready and the first typed response. Real SQL, public
+endpoint dispatch and full runtime equivalence are not claimed by this lane.
+
+Two warmups precede five unique handler-body edits. The series extends to 30
+only if the first-five native replacement p50 is at most 325 ms and the closure
+has at most 310 packages. The 200/100/250 ms build/launch-through-ready/combined
+gates remain feasibility gates. The selected checks may pass with a `no_go`
+decision; inspect `feasibility_passed` separately. Raw commands, input membership
+and digests, failed cases, protocol responses and intervals are retained beneath
+`.scenery/harness/minimal-native-reload/` with `--write`. Children are stopped
+before worktree removal; unconfirmed shutdown retains the owned root. This
+benchmark never runs in default, quick, race or release.
 
 Keep the release guard strict, but make the strictness land on Scenery-owned
 release safety: contracts, schemas, release artifacts, fixture runtimes, route
@@ -299,6 +321,7 @@ contract drift, and schema conformance. The additional work depends on mode:
 | `--probe <id>` | Only selected external probes after common checks; no full Go suite. |
 | `--benchmark edit-latency` | Two separately warmed, interleaved 30-edit lanes comparing immutable `HEAD` with current source through the normal endpoint and exact candidate identity; no functional probe set or full Go suite. |
 | `--benchmark worktree-cost` | Only A18 resource measurement after common checks; no functional probe set or full Go suite. |
+| `--benchmark native-reload --workload-root <path>` | Only the pinned ONLV implementation-island experiment after common checks; exact experimental identity, activation and negative cases, with an explicit GO/NO-GO result. |
 
 The release edge-process step runs the published static frontend journey
 against managed Caddy on disposable loopback ports, with local TLS issuance

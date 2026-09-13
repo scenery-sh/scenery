@@ -27,7 +27,7 @@ func TestHarnessExplicitProofSelection(t *testing.T) {
 		{[]string{"--probe", "auth"}, harnessSelfModeProbe, []string{"auth"}},
 		{[]string{"--benchmark", "edit-latency"}, harnessSelfModeBenchmark, nil},
 		{[]string{"--benchmark", "worktree-cost"}, harnessSelfModeBenchmark, nil},
-		{[]string{"--benchmark", "edit-latency"}, harnessSelfModeBenchmark, nil},
+		{[]string{"--benchmark", "native-reload", "--workload-root", "/onlv"}, harnessSelfModeBenchmark, nil},
 	} {
 		opts, err := parseHarnessSelfArgs(tc.args)
 		if err != nil || opts.Mode != tc.mode {
@@ -61,6 +61,9 @@ func TestHarnessInvalidProofSelectionFailsBeforeWork(t *testing.T) {
 		{"--benchmark", "worktree-cost", "--probe", "auth"},
 		{"--probe", "auth", "--fresh-tests"}, {"--benchmark", "worktree-cost", "--fresh-tests"},
 		{"--probe"}, {"--benchmark"}, {"--probe", ""},
+		{"--benchmark", "native-reload"}, {"--workload-root", "/onlv"},
+		{"--quick", "--workload-root", "/onlv"},
+		{"--benchmark", "worktree-cost", "--workload-root", "/onlv"},
 	} {
 		_, parseErr := parseHarnessSelfArgs(args)
 		if parseErr == nil {

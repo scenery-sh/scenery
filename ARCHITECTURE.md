@@ -122,6 +122,12 @@ for repository tests. The application CLI neither dispatches repository
 verification nor depends on its execution engine. Its app/UI harnesses and
 bounded report readers remain product capabilities.
 
+The explicit `native-reload` benchmark keeps the minimal ONLV artifact spike
+under `scripts/verify` and its `testdata`, outside product runtime ownership.
+Its inherited-pipe fixture measures linked identity, executable hashing and
+constructor activation using `internal/devprocess`; it is not a supported
+second runtime. Plan 0181 owns its feasibility decision and promotion gates.
+
 ### `internal/app`
 
 `internal/app` owns repository and app-root discovery. It walks upward to find

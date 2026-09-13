@@ -20,14 +20,15 @@ import (
 )
 
 type harnessSelfOptions struct {
-	RepoRoot   string
-	JSON       bool
-	Write      bool
-	Mode       string
-	Output     string
-	FreshTests bool
-	Probes     []string
-	Benchmark  string
+	RepoRoot     string
+	JSON         bool
+	Write        bool
+	Mode         string
+	Output       string
+	FreshTests   bool
+	Probes       []string
+	Benchmark    string
+	WorkloadRoot string
 }
 
 func runSceneryHarnessSelf(ctx context.Context, stdout io.Writer, args []string) error {
@@ -104,6 +105,8 @@ func runSceneryHarnessSelf(ctx context.Context, stdout io.Writer, args []string)
 	}
 	if opts.Mode == harnessSelfModeBenchmark {
 		switch opts.Benchmark {
+		case "native-reload":
+			resp.Steps = append(resp.Steps, runHarnessNativeReloadStep(ctx, repoRoot, opts.WorkloadRoot, opts.Write))
 		case "edit-latency":
 			resp.Steps = append(resp.Steps, runHarnessEditLatencyStep(ctx, repoRoot))
 		case "worktree-cost":
@@ -251,6 +254,7 @@ func parseHarnessSelfArgs(args []string) (harnessSelfOptions, error) {
 	flags := flag.NewFlagSet("verify", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	flags.StringVar(&opts.RepoRoot, "repo-root", "", "")
+	flags.StringVar(&opts.WorkloadRoot, "workload-root", "", "read-only source repository for the native-reload experiment")
 	flags.Func("o", "human or json", func(value string) error {
 		switch value {
 		case "human":
@@ -300,8 +304,8 @@ func parseHarnessSelfArgs(args []string) (harnessSelfOptions, error) {
 		if err := setMode(harnessSelfModeBenchmark)(""); err != nil {
 			return err
 		}
-		if id != "worktree-cost" && id != "edit-latency" {
-			return fmt.Errorf("unknown benchmark %q; available: edit-latency, worktree-cost", id)
+		if id != "worktree-cost" && id != "edit-latency" && id != "native-reload" {
+			return fmt.Errorf("unknown benchmark %q; available: edit-latency, native-reload, worktree-cost", id)
 		}
 		opts.Benchmark = id
 		return nil
@@ -314,6 +318,9 @@ func parseHarnessSelfArgs(args []string) (harnessSelfOptions, error) {
 	}
 	if opts.FreshTests && (opts.Mode == harnessSelfModeProbe || opts.Mode == harnessSelfModeBenchmark) {
 		return harnessSelfOptions{}, fmt.Errorf("--fresh-tests cannot be combined with --probe or --benchmark")
+	}
+	if (opts.Benchmark == "native-reload") != (strings.TrimSpace(opts.WorkloadRoot) != "") {
+		return harnessSelfOptions{}, fmt.Errorf("--workload-root is required only with --benchmark native-reload")
 	}
 	return opts, nil
 }

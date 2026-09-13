@@ -1,0 +1,147 @@
+package main
+
+import (
+	"bufio"
+	"context"
+	"database/sql"
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"os"
+	"time"
+
+	ahjs "clean.tech/solar/ahjs"
+	contract "clean.tech/solar/ahjs/scenerycontract"
+)
+
+// Linked by the experiment builder; neither requests nor environment can
+// substitute the artifact's generation, build inputs, producer or owner.
+var nativeReloadBuildRecord string
+
+// The initial closure experiment exercises typed validation before SQL. This
+// rejecting capability is not database equivalence or a SQL proxy.
+type experimentDatabase struct{}
+
+func (experimentDatabase) ExecContext(context.Context, string, ...any) (sql.Result, error) {
+	return nil, fmt.Errorf("SQL is outside this feasibility experiment")
+}
+func (experimentDatabase) PrepareContext(context.Context, string) (*sql.Stmt, error) {
+	return nil, fmt.Errorf("SQL is outside this feasibility experiment")
+}
+func (experimentDatabase) QueryContext(context.Context, string, ...any) (*sql.Rows, error) {
+	return nil, fmt.Errorf("SQL is outside this feasibility experiment")
+}
+func (experimentDatabase) QueryRowContext(context.Context, string, ...any) *sql.Row {
+	panic("unexpected SQL query in validation-only experiment")
+}
+func (experimentDatabase) BeginTx(context.Context, *sql.TxOptions) (*sql.Tx, error) {
+	return nil, fmt.Errorf("SQL is outside this feasibility experiment")
+}
+
+func main() {
+	if err := run(); err != nil {
+		_, _ = fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
+	data, err := base64.RawStdEncoding.DecodeString(nativeReloadBuildRecord)
+	if err != nil {
+		return err
+	}
+	var own nativeReloadIdentity
+	if err := json.Unmarshal(data, &own); err != nil {
+		return err
+	}
+	if own.ContractABI != contract.PackageContractABIRevision {
+		return fmt.Errorf("linked contract does not match compiled contract")
+	}
+	path, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	hashStarted := time.Now()
+	own.ExecutableDigest, err = nativeReloadFileDigest(path)
+	if err != nil {
+		return err
+	}
+	selfHashMS := float64(time.Since(hashStarted).Nanoseconds()) / 1e6
+	if err := nativeReloadCheckIdentity(own, own); err != nil {
+		return err
+	}
+	input, output := os.NewFile(3, "invocations"), os.NewFile(4, "results")
+	defer func() { _ = input.Close(); _ = output.Close() }()
+	encoder := json.NewEncoder(output)
+	if err := encoder.Encode(nativeReloadFrame{Kind: "attested", Identity: own, PID: os.Getpid(), SelfHashMS: selfHashMS}); err != nil {
+		return err
+	}
+	var service *ahjs.Service
+	scanner := bufio.NewScanner(input)
+	scanner.Buffer(make([]byte, 4096), nativeReloadFrameLimit)
+	for scanner.Scan() {
+		call, err := nativeReloadDecodeFrame(scanner.Bytes())
+		if err != nil {
+			return err
+		}
+		response := nativeReloadFrame{Kind: "rejected", Identity: own, PID: os.Getpid(), Nonce: call.Nonce, Constructed: service != nil}
+		if err := nativeReloadCheckIdentity(own, call.Identity); err != nil || call.Nonce == "" {
+			response.Failure = "identity_mismatch"
+		} else {
+			switch call.Kind {
+			case "activate":
+				if service != nil {
+					response.Failure = "already_active"
+					break
+				}
+				constructorInput := contract.AhjsConstructorInput{}
+				if !call.FailConstructor {
+					constructorInput.Dependencies.Database = experimentDatabase{}
+				}
+				started := time.Now()
+				service, err = ahjs.NewService(context.Background(), constructorInput)
+				response.ConstructorMS = float64(time.Since(started).Nanoseconds()) / 1e6
+				if err != nil || service == nil {
+					response.Failure = "constructor_failed"
+					if sendErr := encoder.Encode(response); sendErr != nil {
+						return sendErr
+					}
+					return fmt.Errorf("constructor failed")
+				}
+				response.Kind, response.Constructed = "ready", true
+			case "ping":
+				response.Kind = "pong"
+			case "invoke":
+				if service == nil {
+					response.Failure = "not_active"
+					break
+				}
+				if call.Operation != nativeReloadOperation || call.Binding != nativeReloadBinding {
+					response.Failure = "binding_mismatch"
+					break
+				}
+				value, decodeErr := contract.UnmarshalListAhjsInput(call.Input)
+				if decodeErr != nil {
+					response.Failure = "decode_failed"
+					break
+				}
+				outcome, invokeErr := service.ListVNext(context.Background(), value)
+				if invokeErr != nil || outcome == nil {
+					response.Failure = "invoke_failed"
+					break
+				}
+				response.Outcome, err = contract.MarshalListAhjsOutcome(outcome)
+				if err != nil {
+					return err
+				}
+				response.Kind, response.Operation, response.Binding = "result", nativeReloadOperation, nativeReloadBinding
+			default:
+				response.Failure = "unknown_action"
+			}
+		}
+		if err := encoder.Encode(response); err != nil {
+			return err
+		}
+	}
+	return scanner.Err()
+}

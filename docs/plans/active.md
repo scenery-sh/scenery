@@ -7,6 +7,12 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
+- [0181 Minimal Native Reload Artifact](0181-minimal-native-reload-artifact.md)
+  - Status: active
+  - Owner: scenery runtime / native development execution
+  - Created: 2026-09-13
+  - Focus: corrected real ONLV island checkpoint is NO-GO (238 packages; 934 ms native replacement p50). Keep the reproducible experiment and exact identity/activation evidence; stable-host integration and the latency target remain open.
+
 - [0180 Incremental Worktree-Native Development Loop](0180-incremental-worktree-native-loop.md)
   - Status: active
   - Owner: scenery runtime / build / worktree development

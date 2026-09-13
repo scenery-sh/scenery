@@ -66,6 +66,13 @@ and in-process cache coverage.
 
 ## Verification
 
+The explicit `--benchmark native-reload --workload-root <ONLV-repository>` lane
+owns the Plan 0181 feasibility experiment. It uses the pinned real ONLV commit
+in a disposable worktree, compiled identity and self-executable hashes over
+inherited pipes, and a separate activation/constructor boundary. It never runs
+in the functional release catalog. Retain rejected cases and source/toolchain
+identities; a successful benchmark execution can still report `no_go`.
+
 Run `go test ./scripts/verify` and the root validation union. For changed probe
 execution or ownership, run its exact `--probe <id>` and check its assertion
 inventory and cleanup. Full release and timing audits are explicit workflows,
