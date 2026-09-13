@@ -24,11 +24,11 @@ worktree-cost benchmark remains the creation/removal and 1/5/10 contention proof
   the supplied review, verifier ownership and the existing A18 benchmark.
 - [x] 2026-09-13: Run and retain the current 30+30 unique-edit benchmark and
   repeated 1/5/10-worktree cost benchmark before changing the acceptance harness.
-- [ ] Add the native-input and bounded repeated-edit/resource evidence to the
+- [x] 2026-09-13: Add the native-input and bounded repeated-edit/resource evidence to the
   existing `dev-process` probe without adding an ordinary test or runtime mode.
-- [ ] Run focused tests, refresh changed-area selection, run its exact cumulative
+- [x] 2026-09-13: Run focused tests, refresh changed-area selection, run its exact cumulative
   commands and the selected `dev-process` probe, then record cleanup and limits.
-- [ ] Commit and update PR #195 only with this already-scoped acceptance evidence;
+- [x] 2026-09-13: Commit `e5b170d9` and update PR #195 only with this already-scoped acceptance evidence;
   leave owned external input capture to a separate plan and branch.
 
 ## Surprises & Discoveries
@@ -59,7 +59,26 @@ narrow and avoids building a second framework snapshot mechanism.
 
 ## Outcomes & Retrospective
 
-Not yet completed.
+Completed the remaining Plan 0180 resilience acceptance without changing the
+production runtime or reopening unsafe executable reuse. The selected probe
+served 20 genuinely unique Go behaviors and one behavior-preserving native C
+edit through the normal endpoint with exact generation identity. Existing
+supersession, failed build/preflight, predecessor recovery, exclusive writer and
+input-invalidation checks still passed.
+
+After the series, the private tree retained exactly two processes and one runtime
+child. Deltas were +3 FDs, +1,632 KiB owner RSS, +672 KiB aggregate RSS,
++6 files/+21,944,660 bytes in the Scenery cache, and +449 files/+10,769,079
+bytes in the Go cache. Every value is below the fixed pre-run bounds. The probe
+root and processes were absent after cleanup. The independently selected A18
+benchmark also completed all nine 1/5/10 cohorts and verified resource cleanup.
+
+The current safe handler-edit baseline is p50/p95/worst
+1,623.085/1,676.726/1,686.346 ms. The cgo edit was 2,769.285 ms and the 20-edit
+cgo-enabled churn series was 2,652.676/2,659.123/2,659.448 ms. These are honest
+non-acceptance performance results; the 300/500 ms goal remains open in Plan
+0180. Commit `e5b170d9` is published on PR #195. Owned external module snapshots
+are deliberately outside this completed repair plan.
 
 ## Context and Orientation
 
@@ -169,12 +188,35 @@ Current baseline reports are ignored machine evidence:
   `520e0312523775397e341cdbafe099983f8bda84027d138ad60597ff1a40965c`.
 - `.scenery/harness/0185-safe-path/worktree-cost-c4702b33.json`, SHA-256
   `feae501f0f3fa015f5113659474706d0f8133f5f84edff7d3ab1e6d561b34422`.
+- `.scenery/harness/0185-safe-path/dev-process-resilience.json`, SHA-256
+  `9fc6e23dcf49dab5ad2280c1d49e54ff9a7cfdeb7c8fd865d56b8a7112818b39`.
 
 The edit benchmark ran on macOS 26.5.2, Mac14,14, 64 GiB, 24 logical CPUs,
 Go 1.27.0 darwin/arm64, with developer workloads left running. The worktree run
 completed all nine cohorts in 695,210 ms and removed their verified SQL and
 observability resources. Warm cohort wall times were 2,263–2,277 ms (1),
 4,876–5,071 ms (5), and 8,781–9,576 ms (10).
+
+Completed validation from `/Users/petrbrazdil/Repos/scenery`, Go 1.27.0
+darwin/arm64:
+
+| Command | Result |
+| --- | --- |
+| `go test ./scripts/verify` | pass |
+| `go test ./cmd/scenery ./scripts/verify` | pass |
+| `go test ./...` | pass |
+| `golangci-lint run ./...` | pass, zero issues |
+| `go run ./scripts/verify --quick --summary --write` | pass with 41 existing knowledge and 21 existing architecture warnings |
+| `go run ./scripts/verify --summary --write` | pass; advisory 5.346-second cached suite wall time |
+| `go run ./scripts/verify --race --summary --write` | pass including race shortlist |
+| `go run ./scripts/verify --probe dev-process --summary --write` | pass in 163,922 ms; native/churn/resource evidence and cleanup present |
+| `go run ./scripts/verify --benchmark edit-latency --summary --write` | pass; 30+30 unique edits, target not met |
+| `go run ./scripts/verify --benchmark worktree-cost --summary --write` | pass in 695,210 ms; all 1/5/10 cohorts cleaned |
+| `git diff --check` | pass |
+
+Full release certification, compiler/generator fixture refreshes, storage,
+assistant and deployment probes were not selected for the exact conditions in
+Validation and Acceptance; none is reported as passed.
 
 ## Interfaces and Dependencies
 

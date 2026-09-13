@@ -11,6 +11,19 @@ historical records. Do not refresh their review dates or rewrite them as current
 contract prose. Record later guidance here or in the owning current contract;
 use stale knowledge metadata to flag a known contradiction.
 
+## Safe Development Path Resilience
+
+- Status: completed; commit `e5b170d9` on PR #195
+- Owner: scenery verifier / development process acceptance
+- Completed: 2026-09-13
+- ExecPlan: [0185 Safe Development Path Resilience](0185-safe-development-resilience.md)
+
+Closed Plan 0180's remaining resilience evidence with a real behavior-preserving
+cgo edit, 20 unique endpoint-verified implementation generations and fixed-bound
+process/FD/RSS/cache settling. The current 30-edit safe-path baseline and all
+nine 1/5/10 worktree-resource cohorts are preserved separately. Correctness and
+cleanup passed; the 300/500 ms target remains explicitly unmet.
+
 ## External Input Selection Regression Proof
 
 - Status: completed; publication tracked by Git history and PR #195
