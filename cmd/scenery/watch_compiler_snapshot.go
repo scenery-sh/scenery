@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"os"
@@ -119,7 +120,7 @@ func buildSourceSnapshot(snapshot fileSnapshot) *build.SourceSnapshot {
 				Hash:           stamp.hash,
 				Embedded:       stamp.embed,
 				Implementation: implementation[rel],
-				Data:           append([]byte(nil), stamp.data...),
+				Data:           bytes.Clone(stamp.data),
 			}
 		}
 		return files

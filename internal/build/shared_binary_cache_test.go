@@ -29,10 +29,10 @@ func TestSharedDevelopmentBinaryReusesExactArtifactAndRepairsCorruption(t *testi
 		return os.WriteFile(output, []byte("shared-executable"), 0o755)
 	})
 	t.Cleanup(restore)
-	if err := runSharedGoBuildContext(context.Background(), first); err != nil {
+	if err := runSharedBinaryTestBuild(context.Background(), first); err != nil {
 		t.Fatal(err)
 	}
-	if err := runSharedGoBuildContext(context.Background(), second); err != nil {
+	if err := runSharedBinaryTestBuild(context.Background(), second); err != nil {
 		t.Fatal(err)
 	}
 	if builds.Load() != 1 {
@@ -46,7 +46,7 @@ func TestSharedDevelopmentBinaryReusesExactArtifactAndRepairsCorruption(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := runSharedGoBuildContext(context.Background(), second); err != nil {
+	if err := runSharedBinaryTestBuild(context.Background(), second); err != nil {
 		t.Fatal(err)
 	}
 	after, err := os.Stat(second.Binary)
@@ -74,7 +74,7 @@ func TestSharedDevelopmentBinaryReusesExactArtifactAndRepairsCorruption(t *testi
 		}
 	}
 	third := cloneSharedBinaryTestResult(first, filepath.Join(t.TempDir(), "third"))
-	if err := runSharedGoBuildContext(context.Background(), third); err != nil {
+	if err := runSharedBinaryTestBuild(context.Background(), third); err != nil {
 		t.Fatal(err)
 	}
 	if builds.Load() != 2 {
@@ -84,7 +84,7 @@ func TestSharedDevelopmentBinaryReusesExactArtifactAndRepairsCorruption(t *testi
 		t.Fatal(err)
 	}
 	fourth := cloneSharedBinaryTestResult(first, filepath.Join(t.TempDir(), "fourth"))
-	if err := runSharedGoBuildContext(context.Background(), fourth); err != nil {
+	if err := runSharedBinaryTestBuild(context.Background(), fourth); err != nil {
 		t.Fatal(err)
 	}
 	if builds.Load() != 3 {
@@ -117,13 +117,13 @@ func TestSharedDevelopmentBinaryDeduplicatesInflightAndDetachesCanceledWaiter(t 
 	})
 	t.Cleanup(restore)
 	firstDone := make(chan error, 1)
-	go func() { firstDone <- runSharedGoBuildContext(context.Background(), first) }()
+	go func() { firstDone <- runSharedBinaryTestBuild(context.Background(), first) }()
 	<-started
 	secondDone := make(chan error, 1)
-	go func() { secondDone <- runSharedGoBuildContext(context.Background(), second) }()
+	go func() { secondDone <- runSharedBinaryTestBuild(context.Background(), second) }()
 	canceledCtx, cancel := context.WithCancel(context.Background())
 	thirdDone := make(chan error, 1)
-	go func() { thirdDone <- runSharedGoBuildContext(canceledCtx, third) }()
+	go func() { thirdDone <- runSharedBinaryTestBuild(canceledCtx, third) }()
 	cancel()
 	if err := <-thirdDone; !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled waiter = %v, want context canceled", err)
@@ -167,10 +167,10 @@ func TestSharedDevelopmentBinaryProducerCancellationKeepsSubscribedBuild(t *test
 
 	firstCtx, cancelFirst := context.WithCancel(context.Background())
 	firstDone := make(chan error, 1)
-	go func() { firstDone <- runSharedGoBuildContext(firstCtx, first) }()
+	go func() { firstDone <- runSharedBinaryTestBuild(firstCtx, first) }()
 	<-started
 	secondDone := make(chan error, 1)
-	go func() { secondDone <- runSharedGoBuildContext(context.Background(), second) }()
+	go func() { secondDone <- runSharedBinaryTestBuild(context.Background(), second) }()
 
 	key, _, err := sharedBinaryKey(first)
 	if err != nil {
@@ -197,15 +197,15 @@ func TestSharedDevelopmentBinaryProducerCancellationKeepsSubscribedBuild(t *test
 	}
 
 	cancelFirst()
-	if err := <-firstDone; !errors.Is(err, context.Canceled) {
-		t.Fatalf("producer caller cancellation = %v", err)
-	}
 	select {
 	case <-buildCanceled:
 		t.Fatal("producer work was canceled while another subscriber remained")
 	default:
 	}
 	close(releaseBuild)
+	if err := <-firstDone; !errors.Is(err, context.Canceled) {
+		t.Fatalf("producer caller cancellation = %v", err)
+	}
 	if err := <-secondDone; err != nil {
 		t.Fatal(err)
 	}
@@ -236,7 +236,7 @@ func TestSharedDevelopmentBinaryLastSubscriberCancelsProducer(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- runSharedGoBuildContext(ctx, result) }()
+	go func() { done <- runSharedBinaryTestBuild(ctx, result) }()
 	<-started
 	cancel()
 	if err := <-done; !errors.Is(err, context.Canceled) {
@@ -425,6 +425,10 @@ func prepareSharedBinaryTestResult(root string, result *Result) {
 	result.AppRoot = root
 	result.Target.Context.ModuleRoot = root
 	result.BuildInput = newBuildInputManifest(result.Target.Name, map[string]string{"fixture": "sha256:" + strings.Repeat("b", 64)})
+	bindSharedBinaryTestIdentity(result)
+}
+
+func bindSharedBinaryTestIdentity(result *Result) {
 	result.ImplementationRevisions, _ = compiler.ComputeImplementationRevisions(result.Contract, map[string]string{result.Target.Name: result.BuildInput.Digest})
 	result.RuntimeLinkerMetadata = map[string]string{
 		"scenery.sh/runtime.linkedContractRevision":       result.Contract.Manifest.ContractRevision,
@@ -432,6 +436,12 @@ func prepareSharedBinaryTestResult(root string, result *Result) {
 		"scenery.sh/runtime.linkedBuildInputDigest":       result.BuildInput.Digest,
 		"scenery.sh/runtime.linkedGoTarget":               result.Target.Name,
 	}
+}
+
+func runSharedBinaryTestBuild(ctx context.Context, result *Result) error {
+	return runSharedGoBuildWithInputCheck(ctx, result, func(context.Context) error {
+		return verifyPreparedWorkspace(result)
+	})
 }
 
 func cloneSharedBinaryTestResult(source *Result, binary string) *Result {

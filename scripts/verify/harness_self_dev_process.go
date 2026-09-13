@@ -116,11 +116,14 @@ func runHarnessSharedBuildProcessProof(parent context.Context, repoRoot string) 
 		return nil, fmt.Errorf("shared build cross-process proof: %w: %s", err, strings.TrimSpace(string(output)))
 	}
 	return map[string]any{
-		"last_subscriber_cancels_producer": true,
-		"crashed_lease_reclaimed":          true,
-		"link_slots":                       2,
-		"oldest_ticket_admission":          true,
-		"command":                          "go test -tags=scenery_build_cache_integration ./internal/build -run=^TestSharedBinaryCrossProcess -count=1",
+		"last_subscriber_cancels_producer":  true,
+		"crashed_lease_reclaimed":           true,
+		"link_slots":                        2,
+		"oldest_ticket_admission":           true,
+		"canceled_producer_retains_inputs":  true,
+		"rejected_native_inputs_not_cached": true,
+		"crashed_publication_reclaimed":     true,
+		"command":                           "go test -tags=scenery_build_cache_integration ./internal/build -run=^TestSharedBinaryCrossProcess -count=1",
 	}, nil
 }
 

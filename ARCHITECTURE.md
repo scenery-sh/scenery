@@ -404,7 +404,19 @@ process-local digest cache, but accepts a hit only after current path, type,
 metadata, change-time, device, and inode checks; platforms without a usable
 change timestamp conservatively rehash. A bounded shared-binary coordinator deduplicates an exact in-flight
 development link and atomically publishes producer- and build-input-bound
-executables under the existing cache root. Its key retains the absolute module
+executables under the existing cache root. Before reusable publication it
+rechecks workspace bytes/membership, framework source, and Go's complete current
+input projection, including live local replacements. Hits still perform current
+input and application verification. Run-local file/change-time/inode and external
+package-directory observations additionally reject consumed inputs changed and
+restored within the action; they do not replace membership/content checks or
+become persisted identity. A canceled producing caller leaves its
+subscription but retains the borrowed workspace lock until the producer and its
+cleanup have joined; other subscribers may still need that action. Publication
+stages use the same leased cleanup protocol as link stages. The v2 cache does
+not reuse pre-guard v1 entries or reclaim another version's active resources.
+Semantic manifest mismatch rebuilds and replaces the entry; destination reuse
+also requires the executable's expected mode. Its key retains the absolute module
 root because relocatability is not assumed; cross-worktree sharing remains at
 the Go toolchain package-cache layer until a path-independent executable is
 separately proven. Root-independent generated runtime-composition bytes use a

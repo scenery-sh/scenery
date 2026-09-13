@@ -64,6 +64,9 @@ type BuildInputManifest struct {
 	Target  string       `json:"target"`
 	Entries []BuildInput `json:"entries"`
 	Digest  string       `json:"digest"`
+	// Run-local observations reject inputs changed and restored during the
+	// action. They are not portable identity or a persisted verification verdict.
+	observed map[string]buildInputFileStamp
 }
 
 type goListPackage struct {
@@ -99,6 +102,12 @@ type goListModule struct {
 // unrelated package presentation fields such as transitive import summaries.
 const goBuildInputFields = "Dir,ImportPath,Standard,GoFiles,CgoFiles,CFiles,CXXFiles,MFiles,HFiles,FFiles,SFiles,SwigFiles,SwigCXXFiles,SysoFiles,EmbedFiles,Module"
 
+var runGoInputList = func(ctx context.Context, directory string, environment []string, args ...string) ([]byte, error) {
+	command := exec.CommandContext(ctx, "go", args...)
+	command.Dir, command.Env = directory, environment
+	return command.CombinedOutput()
+}
+
 func buildInputManifest(ctx context.Context, result *Result) (*BuildInputManifest, error) {
 	if result == nil || result.Target == nil {
 		return nil, fmt.Errorf("build target is unavailable")
@@ -114,13 +123,10 @@ func buildInputManifest(ctx context.Context, result *Result) (*BuildInputManifes
 	slices.Sort(patterns)
 	patterns = slices.Compact(patterns)
 	args = append(args, patterns...)
-	command := exec.CommandContext(ctx, "go", args...)
-	command.Dir = result.Dir
-	command.Env = gotarget.Environment(target.Context)
 	var output []byte
 	err := observeBuildAction(ctx, "go.input_discovery", func() error {
 		var err error
-		output, err = command.CombinedOutput()
+		output, err = runGoInputList(ctx, result.Dir, gotarget.Environment(target.Context), args...)
 		return err
 	})
 	if err != nil {
@@ -147,6 +153,16 @@ func buildInputManifestFromGoListObserved(result *Result, output []byte, stats *
 	}
 	target := result.Target
 	entries := map[string]string{}
+	observed := map[string]buildInputFileStamp{}
+	addFile := func(identity, path string) error {
+		if err := observeBuildInputPath(observed, path); err != nil {
+			return err
+		}
+		if err := addBuildInputObserved(entries, identity, path, stats); err != nil {
+			return err
+		}
+		return observeBuildInputPath(observed, path)
+	}
 	frameworkRoot := ""
 	decoder := json.NewDecoder(bytes.NewReader(output))
 	for {
@@ -158,6 +174,12 @@ func buildInputManifestFromGoListObserved(result *Result, output []byte, stats *
 		}
 		if pkg.Standard {
 			continue
+		}
+		// Workspace directories are mutable only under the held workspace lock
+		// and also contain our output/lock metadata. External package directories
+		// need observations for transient new/deleted Go membership as well.
+		if err := observeExternalBuildInputDirectories(observed, result.Dir, pkg.Dir, pkg.Dir); err != nil {
+			return nil, err
 		}
 		files := append([]string{}, pkg.GoFiles...)
 		files = append(files, pkg.CgoFiles...)
@@ -174,7 +196,10 @@ func buildInputManifestFromGoListObserved(result *Result, output []byte, stats *
 		for _, name := range files {
 			path := filepath.Join(pkg.Dir, filepath.FromSlash(name))
 			identity := "package/" + pkg.ImportPath + "/" + filepath.ToSlash(name)
-			if err := addBuildInputObserved(entries, identity, path, stats); err != nil {
+			if err := observeExternalBuildInputDirectories(observed, result.Dir, filepath.Dir(path), pkg.Dir); err != nil {
+				return nil, err
+			}
+			if err := addFile(identity, path); err != nil {
 				return nil, err
 			}
 		}
@@ -196,7 +221,7 @@ func buildInputManifestFromGoListObserved(result *Result, output []byte, stats *
 				frameworkRoot = root
 			}
 			if module.GoMod != "" {
-				if err := addBuildInputObserved(entries, "module/"+pkg.Module.Path+"/go.mod", module.GoMod, stats); err != nil {
+				if err := addFile("module/"+pkg.Module.Path+"/go.mod", module.GoMod); err != nil {
 					return nil, err
 				}
 			}
@@ -228,18 +253,20 @@ func buildInputManifestFromGoListObserved(result *Result, output []byte, stats *
 				return walkErr
 			}
 			if entry.IsDir() {
-				return nil
+				return observeBuildInputPath(observed, filePath)
 			}
 			rel, err := filepath.Rel(path, filePath)
 			if err != nil {
 				return err
 			}
-			return addBuildInputObserved(entries, "native/"+filepath.ToSlash(relative)+"/"+filepath.ToSlash(rel), filePath, stats)
+			return addFile("native/"+filepath.ToSlash(relative)+"/"+filepath.ToSlash(rel), filePath)
 		}); err != nil {
 			return nil, err
 		}
 	}
-	return newBuildInputManifest(target.Name, entries), nil
+	manifest := newBuildInputManifest(target.Name, entries)
+	manifest.observed = observed
+	return manifest, nil
 }
 
 func newBuildInputManifest(target string, entries map[string]string) *BuildInputManifest {

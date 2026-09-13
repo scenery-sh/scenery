@@ -553,7 +553,7 @@ func sourceSnapshotFileData(appRoot, rel string, file SourceSnapshotFile) ([]byt
 	if int64(len(file.Data)) != file.Size || hex.EncodeToString(digest[:]) != file.Hash {
 		return nil, fmt.Errorf("captured source identity does not match bytes for %s", rel)
 	}
-	data := append([]byte(nil), file.Data...)
+	data := bytes.Clone(file.Data)
 	if rel == "go.mod" {
 		return patchGoModData(data, appRoot)
 	}

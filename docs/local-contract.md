@@ -559,6 +559,14 @@ Compilation and verification may overlap, but both must complete
 before publishing runtime-bundle/build-success state or pruning prior binaries.
 Write-capable module preparation precedes the fork; a tidy retry joins the old
 attempt first. Changed workspace membership or bytes fail before publication.
+Shared executable publication additionally revalidates framework source and the
+complete current Go input manifest, including local replacements. Shared cache
+hits still require live input and implementation verification. Cancellation
+releases a subscriber but retains its borrowed workspace until the underlying
+producer and cleanup finish. Corrupt semantic metadata is rebuilt, and a cache
+hit repairs a destination whose executable permissions were lost. Publication
+staging is leased and abandoned partial bytes are reclaimed; active publishers
+and retained generation copies remain protected.
 This does not replace the candidate's real runtime preflight or permit overlapping
 write-capable application generations.
 

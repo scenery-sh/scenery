@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"io/fs"
@@ -37,7 +38,7 @@ func stampWatchedFile(path string, info fs.FileInfo, embedded bool) (fileStamp, 
 		mode:       uint32(info.Mode().Perm()),
 		hash:       hex.EncodeToString(sum[:]),
 		embed:      embedded,
-		data:       append([]byte(nil), data...),
+		data:       bytes.Clone(data),
 	}, data, nil
 }
 

@@ -1,6 +1,7 @@
 package build
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -210,7 +211,7 @@ func exactCapturedBytes(rel string, file SourceSnapshotFile) ([]byte, error) {
 	if !capturedFileIdentityValid(file) {
 		return nil, fmt.Errorf("captured compiler identity does not match bytes for %s", rel)
 	}
-	return append([]byte(nil), file.Data...), nil
+	return bytes.Clone(file.Data), nil
 }
 
 func capturedFileIdentityValid(file SourceSnapshotFile) bool {

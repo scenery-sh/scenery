@@ -19,6 +19,18 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0182-shared-build-input-ownership.md",
+      "title": "Shared Build Input Ownership and Recovery",
+      "owner": "scenery build / worktree ownership",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-13",
+      "review_after": "2026-10-13",
+      "summary": "Completed repair of six PR 195 cache/snapshot defects with input validation before publication, retained producer ownership, recovery regressions, race/probe proof and 11-root timing confirmation; no new runtime or latency claim.",
+      "tags": ["plans", "execplans", "build", "worktree", "ownership", "recovery"]
+    },
+    {
       "path": "docs/native-reload-execution-technology-decision.md",
       "title": "Native Reload Execution Technology Decision",
       "owner": "scenery runtime / native development execution",

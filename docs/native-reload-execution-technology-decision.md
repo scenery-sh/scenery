@@ -10,6 +10,12 @@ monolith, but it does not pass the predeclared native replacement gate. Keep the
 Plan 0180 snapshot/SDK/artifact-safety work and stop optimizing Scenery
 orchestration around whole native executables.
 
+Scope clarification: only the Plan 0181 execution experiment was not promoted.
+PR #195 already changes production preparation and shared executable caching in
+Plan 0180. The experiment's NO-GO evidence does not certify those paths; their
+reviewed input-ownership/publication and recovery repairs are tracked in
+[Plan 0182](plans/0182-shared-build-input-ownership.md).
+
 No dynamic execution technology is selected by this document. The next
 architecture experiment must compare one candidate against the exact real island
 and contracts below before it can change production ownership.

@@ -432,6 +432,15 @@ binary pruning happen only after the join. The real candidate preflight and old
 process shutdown still occur afterwards. Check-only commands continue to verify
 expected overlays without materializing private build output.
 
+Shared native output is reusable only after current workspace, framework and Go
+input checks, including local replacement dependencies; it is not a cached
+application-verification verdict. A canceled caller that supplied the workspace
+waits for the shared producer to finish before releasing that workspace, even
+when another subscriber keeps the build alive. Leased publication stages are
+reclaimed after a crash, without touching active publishers or independently
+owned retained executables. Empty captured files remain valid inputs; missing
+captures and mismatching hashes still fail closed.
+
 Assistant builds add provider-neutral runtime asset descriptors under the
 managed build cache and content-addressed Node/npm dependencies under
 `.scenery/assistant-cache/<package-lock-digest>/`. Private helper state and

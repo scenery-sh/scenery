@@ -1,6 +1,7 @@
 package build
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"os"
@@ -133,7 +134,64 @@ func captureCompilerSourceSnapshot(t *testing.T, root string, contract *compiler
 
 func capturedTestFile(data []byte, implementation bool) SourceSnapshotFile {
 	sum := sha256.Sum256(data)
-	return SourceSnapshotFile{Size: int64(len(data)), Perm: 0o644, Hash: hex.EncodeToString(sum[:]), Data: append([]byte(nil), data...), Implementation: implementation}
+	return SourceSnapshotFile{Size: int64(len(data)), Perm: 0o644, Hash: hex.EncodeToString(sum[:]), Data: bytes.Clone(data), Implementation: implementation}
+}
+
+func TestCapturedEmptyFilesRemainPresentThroughPreparation(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeBuildTestFile(t, root, "app.scn", "application \"snapshot\" {}\n")
+	writeBuildTestFile(t, root, "go.mod", "module example.test/snapshot\n")
+	writeBuildTestFile(t, root, ".gitignore", "")
+	writeBuildTestFile(t, root, "handler.go", "package app\nimport _ \"embed\"\n//go:embed empty.txt\nvar asset []byte\n")
+	writeBuildTestFile(t, root, "empty.txt", "")
+	contract, err := compiler.Compile(root)
+	if err != nil || !contract.Valid() {
+		t.Fatalf("initial contract: %v", err)
+	}
+	snapshot := captureCompilerSourceSnapshot(t, root, contract, nil)
+	snapshot.Files[".gitignore"] = capturedTestFile([]byte{}, false)
+	snapshot.Files["empty.txt"] = capturedTestFile([]byte{}, true)
+	snapshot.ContractFiles[".gitignore"] = snapshot.Files[".gitignore"]
+	workspace := t.TempDir()
+	var stamps map[string]SourceStamp
+	for _, cached := range []bool{false, true} {
+		if cached {
+			snapshot.Contract = contract
+		} else {
+			snapshot.Contract = nil
+		}
+		compiled, err := compileWorkspaceContract(root, snapshot)
+		if err != nil || !compiled.Valid() {
+			t.Fatalf("empty capture contract cached=%t: %v", cached, err)
+		}
+		if cached && &compiled.Sources[0].Bytes[0] != &contract.Sources[0].Bytes[0] {
+			t.Fatal("empty capture failed to reuse the captured contract")
+		}
+		for _, path := range []string{".gitignore", "empty.txt"} {
+			file := snapshot.Files[path]
+			data, err := exactCapturedBytes(path, file)
+			if err != nil || data == nil || len(data) != 0 {
+				t.Fatalf("empty compiler capture %s cached=%t: nil=%t err=%v", path, cached, data == nil, err)
+			}
+			file.Data = data
+			if data, err := sourceSnapshotFileData(root, path, file); err != nil || data == nil {
+				t.Fatalf("empty source capture %s cached=%t: %v", path, cached, err)
+			}
+		}
+		_, stamps, err = syncSourceFilesWithSnapshot(workspace, root, stamps, nil, snapshot)
+		if err != nil {
+			t.Fatalf("empty materialization cached=%t: %v", cached, err)
+		}
+	}
+	for _, invalid := range []SourceSnapshotFile{{Data: nil}, {Data: []byte{}, Size: 1}, {Data: []byte{}, Hash: "wrong"}} {
+		if _, err := exactCapturedBytes("empty.txt", invalid); err == nil {
+			t.Fatal("missing/tampered empty compiler capture accepted")
+		}
+		if _, err := sourceSnapshotFileData(root, "empty.txt", invalid); err == nil {
+			t.Fatal("missing/tampered empty source capture accepted")
+		}
+	}
 }
 
 func TestCapturedContractInputsIncludeAbsentResolverMembership(t *testing.T) {

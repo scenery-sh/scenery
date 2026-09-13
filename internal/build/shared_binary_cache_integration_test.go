@@ -5,11 +5,13 @@ package build
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -37,6 +39,35 @@ func TestSharedBinaryIntegrationHelper(t *testing.T) {
 		t.Fatal("shared binary integration helper is missing its exact scope")
 	}
 	switch mode {
+	case "publisher":
+		stage, release, err := createSharedBinaryStageIn(context.Background(), root, filepath.Join(root, "artifacts"), ".publish-")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer release()
+		writeBuildTestFile(t, stage, "application", "partial executable")
+		if err := os.Truncate(filepath.Join(stage, "application"), sharedBinaryCacheBytes+1); err != nil {
+			t.Fatal(err)
+		}
+		writeBuildTestFile(t, filepath.Dir(ready), filepath.Base(ready), stage)
+		for {
+			time.Sleep(time.Hour)
+		}
+	case "workspace-writer":
+		release, acquired, exists, err := trySharedBinaryExistingLock(filepath.Join(root, ".scenery-workspace.lock"))
+		if err != nil || !exists || acquired {
+			if acquired {
+				release()
+			}
+			t.Fatalf("producer does not hold workspace: acquired=%t exists=%t err=%v", acquired, exists, err)
+		}
+		writeBuildTestFile(t, filepath.Dir(ready), filepath.Base(ready), "blocked")
+		unlock, err := lockWorkspace(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer unlock()
+		writeBuildTestFile(t, root, "svc/api.go", "package svc // next generation\n")
 	case "subscriber":
 		subscriber, err := subscribeSharedBinary(root, key)
 		if err != nil {
@@ -151,6 +182,203 @@ func TestSharedBinaryCrossProcessSlotsAreBoundedAndFair(t *testing.T) {
 	waitSharedBinaryIntegrationExit(t, second.command)
 	release(third)
 	release(fourth)
+}
+
+func TestSharedBinaryCrossProcessPublicationCrashRecovery(t *testing.T) {
+	root := t.TempDir()
+	ready := filepath.Join(root, "publisher.ready")
+	helper := startSharedBinaryIntegrationHelper(t, "publisher", root, strings.Repeat("c", 64), ready, "")
+	waitSharedBinaryIntegrationPath(t, ready)
+	data, err := os.ReadFile(ready)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stage := string(data)
+	if filepath.Dir(stage) != filepath.Join(root, "artifacts") || !strings.HasPrefix(filepath.Base(stage), ".publish-") {
+		t.Fatalf("publisher stage outside owned root: %q", stage)
+	}
+	if err := pruneSharedBinaries(root, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(stage, "application")); err != nil {
+		t.Fatalf("live publisher was reclaimed: %v", err)
+	}
+	killSharedBinaryIntegrationHelper(t, helper)
+	if err := pruneSharedBinaries(root, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(stage); !os.IsNotExist(err) {
+		t.Fatalf("crashed publication escaped retention: %v", err)
+	}
+}
+
+func TestSharedBinaryCrossProcessCanceledProducerInputLease(t *testing.T) {
+	t.Setenv("SCENERY_DEV_CACHE_DIR", t.TempDir())
+	appRoot, result := newCachedBuildTestWorkspace(t, "process-input-lease")
+	prepareSharedBinaryTestResult(appRoot, result)
+	cacheRoot, err := sharedBinaryRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, expected, err := sharedBinaryKey(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := subscribeSharedBinary(cacheRoot, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer other.Close()
+	original, err := os.ReadFile(filepath.Join(result.Dir, "svc/api.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	started, release := make(chan struct{}), make(chan struct{})
+	var releaseOnce sync.Once
+	defer releaseOnce.Do(func() { close(release) })
+	restore := SetGoRunnerForTesting(func(_ context.Context, dir string, args ...string) error {
+		output, ok := fakeGoBuildOutput(args)
+		if !ok {
+			return fmt.Errorf("unexpected Go command: %v", args)
+		}
+		close(started)
+		<-release
+		data, err := os.ReadFile(filepath.Join(dir, "svc/api.go"))
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(output, data, 0o755)
+	})
+	defer restore()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		unlock, err := lockWorkspace(result.Dir)
+		if err == nil {
+			err = runSharedBinaryTestBuild(ctx, result)
+			unlock()
+		}
+		done <- err
+	}()
+	<-started
+	cancel()
+	// Wait for the subscriber to leave, not for the still-borrowing producer.
+	deadline := time.Now().Add(time.Second)
+	for {
+		active, err := activeSharedBinarySubscribers(other.directory, time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if active == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("canceled subscriber remained registered")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	ready := filepath.Join(t.TempDir(), "writer.ready")
+	writer := startSharedBinaryIntegrationHelper(t, "workspace-writer", result.Dir, key, ready, "")
+	waitSharedBinaryIntegrationPath(t, ready)
+	releaseOnce.Do(func() { close(release) })
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled producer: %v", err)
+	}
+	waitSharedBinaryIntegrationExit(t, writer)
+	artifact, data, hit, err := loadSharedBinary(cacheRoot, key)
+	if err != nil || !hit || !sharedBinaryMetadataEqual(artifact, expected) || string(data) != string(original) {
+		t.Fatalf("producer consumed replacement workspace: hit=%t data=%q err=%v", hit, data, err)
+	}
+	current, err := os.ReadFile(filepath.Join(result.Dir, "svc/api.go"))
+	if err != nil || bytes.Equal(current, original) {
+		t.Fatalf("next materializer never acquired released workspace: %v", err)
+	}
+}
+
+func TestSharedBinaryCrossProcessRejectsChangedNativeInputs(t *testing.T) {
+	t.Setenv("SCENERY_DEV_CACHE_DIR", t.TempDir())
+	appRoot, result := newCachedBuildTestWorkspace(t, "native-input-proof")
+	dependency := t.TempDir()
+	writeBuildTestFile(t, dependency, "go.mod", "module example.test/dependency\n\ngo 1.27.0\n")
+	writeBuildTestFile(t, dependency, "dep.go", "package dependency\nconst Value = \"A\"\n")
+	writeBuildTestFile(t, result.Dir, "go.mod", "module example.com/buildtest\n\ngo 1.27.0\n\nrequire example.test/dependency v0.0.0\nreplace example.test/dependency => "+dependency+"\n")
+	writeBuildTestFile(t, result.Dir, "scenery_internal_main/main.go", "package main\nimport (\"fmt\"; \"example.test/dependency\")\nfunc main() { fmt.Print(dependency.Value) }\n")
+	prepareSharedBinaryTestResult(appRoot, result)
+	if err := refreshWorkspaceBuildIdentity(result); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	if err := prepareRuntimeBundle(ctx, result); err != nil {
+		t.Fatal(err)
+	}
+	key, _, err := sharedBinaryKey(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cacheRoot, err := sharedBinaryRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	started, release := make(chan struct{}), make(chan struct{})
+	var releaseOnce sync.Once
+	defer releaseOnce.Do(func() { close(release) })
+	builds := 0
+	oldGo := runGo
+	defer func() { runGo = oldGo }()
+	runGo = func(ctx context.Context, dir string, env []string, args ...string) error {
+		builds++
+		if builds == 1 {
+			close(started)
+			<-release
+		}
+		if err := runRealGo(ctx, dir, env, args...); err != nil {
+			return err
+		}
+		output, ok := fakeGoBuildOutput(args)
+		if !ok {
+			return fmt.Errorf("unexpected Go invocation: %v", args)
+		}
+		data, err := exec.CommandContext(ctx, output).Output()
+		want := "A"
+		if builds == 1 {
+			want = "B"
+		}
+		if err != nil || string(data) != want {
+			return fmt.Errorf("native binary did not consume %s: output=%q err=%w", want, data, err)
+		}
+		return nil
+	}
+	done := make(chan error, 1)
+	go func() { done <- runSharedGoBuildContext(ctx, result) }()
+	<-started
+	writeBuildTestFile(t, dependency, "dep.go", "package dependency\nconst Value = \"B\"\n")
+	releaseOnce.Do(func() { close(release) })
+	if err := <-done; err == nil || !strings.Contains(err.Error(), "go build inputs changed") {
+		t.Fatalf("changed native inputs were not rejected: %v", err)
+	}
+	if _, _, hit, err := loadSharedBinary(cacheRoot, key); err != nil || hit {
+		t.Fatalf("rejected native binary was published: hit=%t err=%v", hit, err)
+	}
+	writeBuildTestFile(t, dependency, "dep.go", "package dependency\nconst Value = \"A\"\n")
+	for range 2 {
+		if err := prepareRuntimeBundle(ctx, result); err != nil {
+			t.Fatal(err)
+		}
+		if err := runSharedGoBuildContext(ctx, result); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A hit is not permission to skip live discovery. Newly appearing Go
+	// membership in a local replacement must invalidate that caller's proof.
+	writeBuildTestFile(t, dependency, "added.go", "package dependency\nconst Added = true\n")
+	if err := runSharedGoBuildContext(ctx, result); err == nil || !strings.Contains(err.Error(), "go build inputs changed") {
+		t.Fatalf("cache hit skipped current dependency membership: %v", err)
+	}
+	if builds != 2 {
+		t.Fatalf("rejected retry/control build count = %d, want 2", builds)
+	}
 }
 
 type sharedBinaryIntegrationCommand struct {

@@ -3,12 +3,14 @@ package build
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	appcfg "scenery.sh/internal/app"
+	"scenery.sh/internal/compiler"
 )
 
 func TestSyncWorkspaceRemovesStaleFiles(t *testing.T) {
@@ -155,6 +157,41 @@ func TestLoadCachedGraphRequiresMatchingGoBuildFlags(t *testing.T) {
 func TestCompileCachedGraphWritesLatestBuildManifest(t *testing.T) {
 	useFakeGoRunner(t)
 	appDir, result := newCachedBuildTestWorkspace(t, "graph-1")
+	// Native discovery/checking belong to the tagged input and native-contract
+	// probes. Keep hashing, verification ownership and publication in-process.
+	oldCheck := generateHooks.ApplyPreparedImplementationCheck
+	t.Cleanup(func() { generateHooks.ApplyPreparedImplementationCheck = oldCheck })
+	checks := 0
+	generateHooks.ApplyPreparedImplementationCheck = func(_ context.Context, checked *compiler.Result, workspace string, _ []string, target compiler.GoBuildTarget) error {
+		if workspace != result.Dir || target.Name != result.Target.Name {
+			return fmt.Errorf("verification did not use the prepared workspace/target")
+		}
+		checks++
+		checked.ImplementationStatus = "valid"
+		return nil
+	}
+	oldList := runGoInputList
+	t.Cleanup(func() { runGoInputList = oldList })
+	lists := 0
+	runGoInputList = func(_ context.Context, directory string, _ []string, args ...string) ([]byte, error) {
+		lists++
+		if directory != result.Dir || len(args) < 3 || args[0] != "list" || args[1] != "-deps" || args[2] != "-json="+goBuildInputFields {
+			return nil, fmt.Errorf("unexpected Go input discovery: %s %v", directory, args)
+		}
+		module := &goListModule{Path: "example.com/buildtest", GoMod: filepath.Join(directory, "go.mod")}
+		var output []byte
+		for _, pkg := range []goListPackage{
+			{Dir: filepath.Join(directory, "svc"), ImportPath: "example.com/buildtest/svc", GoFiles: []string{"api.go", "scenery.gen.go"}, Module: module},
+			{Dir: filepath.Join(directory, "scenery_internal_main"), ImportPath: "example.com/buildtest/scenery_internal_main", GoFiles: []string{"main.go"}, Module: module},
+		} {
+			data, err := json.Marshal(pkg)
+			if err != nil {
+				return nil, err
+			}
+			output = append(output, data...)
+		}
+		return output, nil
+	}
 	if err := os.WriteFile(result.Binary, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
 		t.Fatalf("write cached binary: %v", err)
 	}
@@ -185,6 +222,9 @@ func TestCompileCachedGraphWritesLatestBuildManifest(t *testing.T) {
 	}
 	if cached.Result.BuildInput == nil || len(cached.Result.ImplementationRevisions) == 0 {
 		t.Fatal("identity-bound build did not prepare candidate preflight identity")
+	}
+	if lists != 2 || checks != 1 {
+		t.Fatalf("publication skipped current proof: discovery calls=%d verification calls=%d, want 2/1", lists, checks)
 	}
 
 	manifest, ok, err := ReadLatestBuildManifest(appDir)

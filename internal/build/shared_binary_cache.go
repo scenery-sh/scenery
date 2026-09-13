@@ -20,9 +20,11 @@ import (
 )
 
 const (
-	sharedBinaryKind                    = "scenery.shared-development-binary"
-	sharedBinarySchemaDescriptor        = `{"binary_sha256":"digest","binary_size":"integer","build_input_digest":"digest","contract_revision":"digest","framework_source_digest":"digest","go_build_flags":"array<string>","implementation_revision":"digest","key":"digest","kind":"scenery.shared-development-binary","producer":"producer","runtime_linker_metadata":"map<string,string>","schema_revision":"digest","spec_revision":"digest","target":"go-target"}`
-	sharedBinaryCacheVersion            = "v1"
+	sharedBinaryKind             = "scenery.shared-development-binary"
+	sharedBinarySchemaDescriptor = `{"binary_sha256":"digest","binary_size":"integer","build_input_digest":"digest","contract_revision":"digest","framework_source_digest":"digest","go_build_flags":"array<string>","implementation_revision":"digest","key":"digest","kind":"scenery.shared-development-binary","producer":"producer","runtime_linker_metadata":"map<string,string>","schema_revision":"digest","spec_revision":"digest","target":"go-target"}`
+	// Entries from before the action-input publication guard are not proof.
+	// Keep incompatible live producers and their unleased stages out of v2.
+	sharedBinaryCacheVersion            = "v2"
 	sharedBinaryCacheEntries            = 64
 	sharedBinaryCacheBytes        int64 = 4 << 30
 	sharedBinaryLinkSlots               = 2
@@ -141,6 +143,14 @@ func runSharedGoBuildContext(ctx context.Context, result *Result) error {
 	if result == nil || result.Target == nil || result.Target.Role != "development" || result.Ephemeral || result.ProductionAssets {
 		return runGoBuildContext(ctx, result)
 	}
+	return runSharedGoBuildWithInputCheck(ctx, result, func(ctx context.Context) error {
+		return verifySharedBinaryInputs(ctx, result, buildInputManifest)
+	})
+}
+
+// Input discovery is injected at the native tool boundary for in-process tests.
+// Every production caller supplies the complete current Go input check above.
+func runSharedGoBuildWithInputCheck(ctx context.Context, result *Result, checkInputs func(context.Context) error) error {
 	key, expected, err := sharedBinaryKey(result)
 	if err != nil {
 		return err
@@ -152,6 +162,9 @@ func runSharedGoBuildContext(ctx context.Context, result *Result) error {
 	if hit, err := restoreSharedBinary(root, key, expected, result.Binary); err != nil {
 		return err
 	} else if hit {
+		if err := checkInputs(ctx); err != nil {
+			return err
+		}
 		return recordSharedBinaryStep(ctx, result.Binary, "hit", "complete_content_addressed_artifact", nil)
 	}
 	subscriber, err := subscribeSharedBinary(root, key)
@@ -172,6 +185,9 @@ func runSharedGoBuildContext(ctx context.Context, result *Result) error {
 		return err
 	} else if hit {
 		releaseAction()
+		if err := checkInputs(ctx); err != nil {
+			return err
+		}
 		return recordSharedBinaryStep(ctx, result.Binary, "hit", "joined_inflight_artifact", nil)
 	}
 
@@ -181,13 +197,18 @@ func runSharedGoBuildContext(ctx context.Context, result *Result) error {
 	producerContext, stopProducer := sharedBinaryProducerContext(ctx, subscriber.directory)
 	produced := make(chan sharedBinaryProduction, 1)
 	go func() {
-		defer releaseAction()
-		defer stopProducer()
-		produced <- produceSharedBinary(producerContext, root, key, expected, result)
+		production := produceSharedBinary(producerContext, root, key, expected, result, checkInputs)
+		stopProducer()
+		releaseAction()
+		// Completion includes producer cleanup, not just the Go command.
+		produced <- production
 	}()
 
 	select {
 	case production := <-produced:
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if production.err != nil {
 			return production.err
 		}
@@ -204,6 +225,10 @@ func runSharedGoBuildContext(ctx context.Context, result *Result) error {
 		return writeExecutableAtomically(result.Binary, production.data)
 	case <-ctx.Done():
 		subscriber.Close()
+		// The action borrows result.Dir under CompileContext's workspace lock.
+		// Detach this subscriber, but do not release that lock while Go still
+		// reads its inputs for another subscriber (or is stopping the last one).
+		<-produced
 		return ctx.Err()
 	}
 }
@@ -214,7 +239,7 @@ type sharedBinaryProduction struct {
 	err       error
 }
 
-func produceSharedBinary(ctx context.Context, root, key string, expected sharedBinaryArtifact, result *Result) sharedBinaryProduction {
+func produceSharedBinary(ctx context.Context, root, key string, expected sharedBinaryArtifact, result *Result, checkInputs func(context.Context) error) sharedBinaryProduction {
 	waitStarted := time.Now()
 	releaseSlot, err := acquireSharedBinarySlot(ctx, root, key)
 	queue := time.Since(waitStarted)
@@ -236,6 +261,9 @@ func produceSharedBinary(ctx context.Context, root, key string, expected sharedB
 	staged.Binary = filepath.Join(stage, "application")
 	if err := runGoBuildContext(ctx, &staged); err != nil {
 		_ = recordSharedBinaryStep(ctx, staged.Binary, "miss", "link_failed", err)
+		return sharedBinaryProduction{err: err}
+	}
+	if err := observeBuildAction(ctx, "build.shared_input_check", func() error { return checkInputs(ctx) }); err != nil {
 		return sharedBinaryProduction{err: err}
 	}
 	data, err := os.ReadFile(staged.Binary)
@@ -287,7 +315,9 @@ func (s *sharedBinarySubscriber) Close() {
 func sharedBinaryProducerContext(parent context.Context, subscriberDirectory string) (context.Context, func()) {
 	ctx, cancel := context.WithCancel(context.WithoutCancel(parent))
 	done := make(chan struct{})
+	stopped := make(chan struct{})
 	go func() {
+		defer close(stopped)
 		ticker := time.NewTicker(sharedBinarySubscriberPoll)
 		defer ticker.Stop()
 		for {
@@ -308,6 +338,7 @@ func sharedBinaryProducerContext(parent context.Context, subscriberDirectory str
 		once.Do(func() {
 			close(done)
 			cancel()
+			<-stopped
 		})
 	}
 }
@@ -493,7 +524,10 @@ func cleanupAbandonedSharedBinaryRegistration(directory string, entry os.DirEntr
 }
 
 func createSharedBinaryStage(ctx context.Context, root string) (string, func(), error) {
-	stagingRoot := filepath.Join(root, "staging")
+	return createSharedBinaryStageIn(ctx, root, filepath.Join(root, "staging"), ".build-")
+}
+
+func createSharedBinaryStageIn(ctx context.Context, root, stagingRoot, prefix string) (string, func(), error) {
 	releaseCleanup, err := acquireSharedBinaryLock(ctx, filepath.Join(root, "locks", "staging-cleanup.lock"))
 	if err != nil {
 		return "", nil, err
@@ -502,7 +536,7 @@ func createSharedBinaryStage(ctx context.Context, root string) (string, func(), 
 	if err := cleanupSharedBinaryStages(stagingRoot); err != nil {
 		return "", nil, err
 	}
-	stage, err := os.MkdirTemp(stagingRoot, ".build-")
+	stage, err := os.MkdirTemp(stagingRoot, prefix)
 	if err != nil {
 		return "", nil, err
 	}
@@ -526,7 +560,7 @@ func cleanupSharedBinaryStages(stagingRoot string) error {
 		return err
 	}
 	for _, entry := range entries {
-		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), ".build-") {
+		if !entry.IsDir() || (!strings.HasPrefix(entry.Name(), ".build-") && !strings.HasPrefix(entry.Name(), ".publish-")) {
 			continue
 		}
 		stage := filepath.Join(stagingRoot, entry.Name())
@@ -586,6 +620,10 @@ func restoreSharedBinary(root, key string, expected sharedBinaryArtifact, destin
 
 func sharedBinaryDestinationMatches(path string, artifact sharedBinaryArtifact) bool {
 	if ok, err := regularArtifactPath(path); err != nil || !ok {
+		return false
+	}
+	info, err := os.Lstat(path)
+	if err != nil || info.Mode().Perm() != 0o755 {
 		return false
 	}
 	data, err := os.ReadFile(path)
@@ -671,12 +709,13 @@ func publishSharedBinary(root, key string, artifact sharedBinaryArtifact, source
 	if err := os.MkdirAll(artifactsRoot, 0o755); err != nil {
 		return err
 	}
-	stage, err := os.MkdirTemp(artifactsRoot, ".publish-")
+	stage, releaseStage, err := createSharedBinaryStageIn(context.Background(), root, artifactsRoot, ".publish-")
 	if err != nil {
 		return err
 	}
 	keep := false
 	defer func() {
+		releaseStage()
 		if !keep {
 			_ = os.RemoveAll(stage)
 		}
@@ -688,9 +727,9 @@ func publishSharedBinary(root, key string, artifact sharedBinaryArtifact, source
 		return err
 	}
 	final := filepath.Join(artifactsRoot, key)
-	if _, _, ok, loadErr := loadSharedBinary(root, key); loadErr != nil {
+	if existing, _, ok, loadErr := loadSharedBinary(root, key); loadErr != nil {
 		return loadErr
-	} else if ok {
+	} else if ok && sharedBinaryMetadataEqual(existing, artifact) {
 		return nil
 	}
 	if err := os.RemoveAll(final); err != nil {
@@ -755,7 +794,20 @@ type sharedBinaryCacheEntry struct {
 }
 
 func pruneSharedBinaries(root, keep string) error {
+	// The same gate makes directory creation plus lease acquisition atomic
+	// with respect to recovery. Reclaim partial bytes before applying retention
+	// limits; a live lease protects a publisher even if its output is large.
+	releaseCleanup, err := acquireSharedBinaryLock(context.Background(), filepath.Join(root, "locks", "staging-cleanup.lock"))
+	if err != nil {
+		return err
+	}
+	defer releaseCleanup()
 	artifactsRoot := filepath.Join(root, "artifacts")
+	for _, directory := range []string{filepath.Join(root, "staging"), artifactsRoot} {
+		if err := cleanupSharedBinaryStages(directory); err != nil {
+			return err
+		}
+	}
 	entries, err := os.ReadDir(artifactsRoot)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {

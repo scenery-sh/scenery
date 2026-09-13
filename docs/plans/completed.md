@@ -11,6 +11,22 @@ historical records. Do not refresh their review dates or rewrite them as current
 contract prose. Record later guidance here or in the owning current contract;
 use stale knowledge metadata to flag a known contradiction.
 
+## Shared Build Input Ownership and Recovery
+
+- Status: completed locally; publication tracked by Git history and PR #195
+- Owner: scenery build / worktree ownership
+- Completed: 2026-09-13
+- ExecPlan: [0182 Shared Build Input Ownership and Recovery](0182-shared-build-input-ownership.md)
+
+Repaired six PR-review findings: input identity before shared publication,
+canceled-producer workspace lifetime, empty captures, semantic manifest repair,
+leased publication crash cleanup and executable-mode recovery. Repository tests,
+lint, quick/default/race verification, build-package race tests and the seven-probe
+runtime/worktree union passed. Eleven affected roots have 20-process p95 below
+100 ms. No new latency target or host/worker promotion is claimed; 0180/0181
+remain active. Full release and new performance/worktree-cost benchmarks were
+not selected, and old-version cache storage was left untouched.
+
 ## Reusable Preparation and Shorter Runtime Handoff
 
 - Status: completed locally; commits e9f8eccd, 7649b613 and bc879b7d, not published
