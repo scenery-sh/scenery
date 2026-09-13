@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 
 	localagent "scenery.sh/internal/agent"
@@ -248,25 +249,80 @@ func runHarnessWatchBatchProbe(ctx context.Context, root string, started detache
 	if err != nil || stable.AppPID != embeddedEdit.AppPID {
 		return nil, fmt.Errorf("generated publication restarted the final generation: %v", err)
 	}
+	churnOffset, err := logOffset()
+	if err != nil {
+		return nil, err
+	}
+	churnCurrent := embeddedEdit
+	churnIdentities := map[string]struct{}{}
+	churnLatencies := make([]float64, 0, 20)
+	for ordinal := 1; ordinal <= 20; ordinal++ {
+		value := fmt.Sprintf("churn-%03d:", ordinal)
+		if err := harnessAtomicWatchSave(prefixPath, prefix(value)); err != nil {
+			return nil, err
+		}
+		completed := time.Now()
+		next, identity, latency, err := waitReplacement(churnCurrent.AppPID, "asset:dependency:"+value+"handoff", nil, completed)
+		if err != nil {
+			return nil, fmt.Errorf("unique churn edit %d did not serve its generation: %w", ordinal, err)
+		}
+		if _, duplicate := churnIdentities[identity.ImplementationRevision]; duplicate {
+			return nil, fmt.Errorf("unique churn edit %d reused an implementation revision", ordinal)
+		}
+		churnIdentities[identity.ImplementationRevision] = struct{}{}
+		churnLatencies = append(churnLatencies, float64(latency.Microseconds())/1000)
+		churnCurrent = next
+	}
+	if err := harnessAssertWatchBuildCount(ctx, started.LogPath, churnOffset, 20); err != nil {
+		return nil, err
+	}
+	nativePath := filepath.Join(root, "nativevalue/native.c")
+	nativeSource, err := os.ReadFile(nativePath)
+	if err != nil {
+		return nil, err
+	}
+	nativeChanged := bytes.Replace(nativeSource, []byte("return 7;"), []byte("return 3 + 4;"), 1)
+	if bytes.Equal(nativeSource, nativeChanged) {
+		return nil, fmt.Errorf("native input edit anchor is missing")
+	}
+	if err := harnessAtomicWatchSave(nativePath, nativeChanged); err != nil {
+		return nil, err
+	}
+	nativeCompleted := time.Now()
+	nativeSession, nativeIdentity, nativeLatency, err := waitReplacement(churnCurrent.AppPID, "asset:dependency:churn-020:handoff", nil, nativeCompleted)
+	if err != nil {
+		return nil, fmt.Errorf("behavior-preserving native input edit did not activate: %w", err)
+	}
+	if nativeSession.AppPID == churnCurrent.AppPID || nativeIdentity.ImplementationRevision == "" {
+		return nil, fmt.Errorf("native input edit retained the previous execution generation")
+	}
+	slices.Sort(churnLatencies)
 	return map[string]any{
 		"production_settle_ms": 100, "atomic_multifile_builds": 1,
 		"inflight_batch_builds": 2, "rapid_final_response": true,
-		"previous_behavior_roundtrip_verified": true,
-		"generated_publication_no_extra_build": true,
-		"shared_dependency_behavior_verified":  true,
-		"new_revision_input_captured":          true,
-		"semantic_contract_revision_changed":   true,
-		"configuration_edit_verified":          true,
-		"embedded_asset_behavior_verified":     true,
-		"batch_edit_to_verified_response_ms":   float64(batchLatency.Microseconds()) / 1000,
-		"rapid_edit_to_verified_response_ms":   float64(rapidLatency.Microseconds()) / 1000,
-		"roundtrip_to_verified_response_ms":    float64(roundtripLatency.Microseconds()) / 1000,
-		"shared_dependency_to_response_ms":     float64(dependencyLatency.Microseconds()) / 1000,
-		"declaration_input_to_response_ms":     float64(declarationLatency.Microseconds()) / 1000,
-		"contract_change_to_response_ms":       float64(contractLatency.Microseconds()) / 1000,
-		"configuration_change_to_response_ms":  float64(configLatency.Microseconds()) / 1000,
-		"embed_setup_to_response_ms":           float64(embedSetupLatency.Microseconds()) / 1000,
-		"embedded_asset_to_response_ms":        float64(embedEditLatency.Microseconds()) / 1000,
+		"previous_behavior_roundtrip_verified":  true,
+		"generated_publication_no_extra_build":  true,
+		"shared_dependency_behavior_verified":   true,
+		"new_revision_input_captured":           true,
+		"semantic_contract_revision_changed":    true,
+		"configuration_edit_verified":           true,
+		"embedded_asset_behavior_verified":      true,
+		"unique_churn_edits_verified":           len(churnIdentities),
+		"unique_churn_latency":                  nativeReloadStats(churnLatencies),
+		"native_input_behavior_preserved":       true,
+		"native_input_new_generation":           true,
+		"native_input_to_response_ms":           float64(nativeLatency.Microseconds()) / 1000,
+		"native_served_implementation_revision": nativeIdentity.ImplementationRevision,
+		"native_served_build_input_digest":      nativeIdentity.BuildInputDigest,
+		"batch_edit_to_verified_response_ms":    float64(batchLatency.Microseconds()) / 1000,
+		"rapid_edit_to_verified_response_ms":    float64(rapidLatency.Microseconds()) / 1000,
+		"roundtrip_to_verified_response_ms":     float64(roundtripLatency.Microseconds()) / 1000,
+		"shared_dependency_to_response_ms":      float64(dependencyLatency.Microseconds()) / 1000,
+		"declaration_input_to_response_ms":      float64(declarationLatency.Microseconds()) / 1000,
+		"contract_change_to_response_ms":        float64(contractLatency.Microseconds()) / 1000,
+		"configuration_change_to_response_ms":   float64(configLatency.Microseconds()) / 1000,
+		"embed_setup_to_response_ms":            float64(embedSetupLatency.Microseconds()) / 1000,
+		"embedded_asset_to_response_ms":         float64(embedEditLatency.Microseconds()) / 1000,
 	}, nil
 }
 

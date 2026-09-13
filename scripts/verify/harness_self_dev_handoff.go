@@ -54,7 +54,54 @@ func (*Service) Echo(_ context.Context, input servicecontract.EchoInput) (servic
 	return os.WriteFile(filepath.Join(appRoot, "service/api.go"), []byte(source), 0o600)
 }
 
-func runHarnessAppHandoffProbe(parent context.Context, root, home string, started detachedDevResult) (map[string]any, error) {
+// prepareHarnessNativeHandoffService adds one real cgo dependency without
+// changing the public handler shape. The probe later changes only the C
+// expression while preserving its returned value.
+func prepareHarnessNativeHandoffService(appRoot string) error {
+	appPath := filepath.Join(appRoot, "app.scn")
+	declaration, err := os.ReadFile(appPath)
+	if err != nil {
+		return err
+	}
+	declaration = bytes.Replace(declaration,
+		[]byte(`revision_include = ["**/*.go", "go.mod"]`),
+		[]byte(`revision_include = ["**/*.go", "**/*.c", "**/*.h", "go.mod"]`), 1)
+	declaration = bytes.Replace(declaration, []byte(`cgo       = "disabled"`), []byte(`cgo       = "host"`), 1)
+	if !bytes.Contains(declaration, []byte(`cgo       = "host"`)) || !bytes.Contains(declaration, []byte(`"**/*.c"`)) {
+		return fmt.Errorf("native handoff declaration anchors are missing")
+	}
+	if err := os.WriteFile(appPath, declaration, 0o600); err != nil {
+		return err
+	}
+	servicePath := filepath.Join(appRoot, "service/api.go")
+	service, err := os.ReadFile(servicePath)
+	if err != nil {
+		return err
+	}
+	service = bytes.Replace(service,
+		[]byte(`  sharedprefix "example.com/basicapp/sharedprefix"`),
+		[]byte("  nativevalue \"example.com/basicapp/nativevalue\"\n  sharedprefix \"example.com/basicapp/sharedprefix\""), 1)
+	service = bytes.Replace(service,
+		[]byte("func (*Service) Echo(_ context.Context, input servicecontract.EchoInput) (servicecontract.EchoOutcome, error) {\n"),
+		[]byte("func (*Service) Echo(_ context.Context, input servicecontract.EchoInput) (servicecontract.EchoOutcome, error) {\n  _ = nativevalue.Value()\n"), 1)
+	if !bytes.Contains(service, []byte(`nativevalue.Value()`)) {
+		return fmt.Errorf("native handoff service anchor is missing")
+	}
+	if err := os.WriteFile(servicePath, service, 0o600); err != nil {
+		return err
+	}
+	nativeRoot := filepath.Join(appRoot, "nativevalue")
+	if err := os.MkdirAll(nativeRoot, 0o755); err != nil {
+		return err
+	}
+	goSource := "package nativevalue\n\n/*\nint scenery_probe_value(void);\n*/\nimport \"C\"\n\nfunc Value() int { return int(C.scenery_probe_value()) }\n"
+	if err := os.WriteFile(filepath.Join(nativeRoot, "native.go"), []byte(goSource), 0o600); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(nativeRoot, "native.c"), []byte("int scenery_probe_value(void) { return 7; }\n"), 0o600)
+}
+
+func runHarnessAppHandoffProbe(parent context.Context, root, home, sceneryCache, goCache string, started detachedDevResult) (map[string]any, error) {
 	ctx, cancel := context.WithTimeout(parent, 180*time.Second)
 	defer cancel()
 	paths, err := localagent.PathsForWorktree(home, root)
@@ -79,6 +126,10 @@ func runHarnessAppHandoffProbe(parent context.Context, root, home string, starte
 		return nil, err
 	}
 	initialIdentity, _, err := harnessHandoffEcho(ctx, root, apiURL, "echo:handoff", initial.AppPID, nil)
+	if err != nil {
+		return nil, err
+	}
+	resourcesBefore, err := captureHarnessDevResources(ctx, started.PID, sceneryCache, goCache)
 	if err != nil {
 		return nil, err
 	}
@@ -189,6 +240,17 @@ func runHarnessAppHandoffProbe(parent context.Context, root, home string, starte
 	if err != nil {
 		return nil, err
 	}
+	if err := harnessWaitContext(ctx, 500*time.Millisecond); err != nil {
+		return nil, err
+	}
+	resourcesAfter, err := captureHarnessDevResources(ctx, started.PID, sceneryCache, goCache)
+	if err != nil {
+		return nil, err
+	}
+	resourceSettling, err := harnessDevResourceSettling(resourcesBefore, resourcesAfter)
+	if err != nil {
+		return nil, err
+	}
 	return map[string]any{
 		"watch_batches":                         watch,
 		"test_doc_identical_edits_no_restart":   true,
@@ -205,6 +267,7 @@ func runHarnessAppHandoffProbe(parent context.Context, root, home string, starte
 		"served_implementation_revision":        updatedIdentity.ImplementationRevision,
 		"served_build_input_digest":             updatedIdentity.BuildInputDigest,
 		"served_go_target":                      updatedIdentity.Target,
+		"resource_settling":                     resourceSettling,
 		"initial_pid":                           initial.AppPID, "restored_pid": recovered.AppPID, "updated_pid": updated.AppPID,
 	}, nil
 }

@@ -65,9 +65,12 @@ without change-time information never entering shared reuse, temporarily enabled
 ignored Go files and temporary embeds in initially empty directories, and leased
 publication crash recovery. Each restored case executes B after restoring A,
 compares complete input entries and observations, excludes shared publication
-and recompiles A privately. Bind each response to the inspected
-session PID through its runtime identity header; separate observations can
-otherwise span a replacement. Fake-clock tests retain the ordinary settling
+and recompiles A privately. The real application path additionally performs a
+behavior-preserving cgo input edit and 20 genuinely unique handler edits, then
+compares the private process tree, file descriptors, owner/aggregate RSS and
+Go/Scenery cache growth with fixed pre-run bounds. Bind each response to the
+inspected session PID through its runtime identity header; separate observations
+can otherwise span a replacement. Fake-clock tests retain the ordinary settling
 and in-process cache coverage.
 
 ## Verification

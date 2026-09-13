@@ -19,6 +19,18 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0185-safe-development-resilience.md",
+      "title": "Safe Development Path Resilience",
+      "owner": "scenery verifier / development process acceptance",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-13",
+      "review_after": "2026-10-13",
+      "summary": "Finish PR 195 resilience acceptance with a current safe-path baseline, behavior-preserving native edit and bounded process, FD, RSS and cache settling after unique-edit churn.",
+      "tags": ["plans", "execplans", "build", "runtime", "performance", "verification"]
+    },
+    {
       "path": "docs/plans/0184-external-input-selection-regressions.md",
       "title": "External Input Selection Regression Proof",
       "owner": "scenery build / native verification",

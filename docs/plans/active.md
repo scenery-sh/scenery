@@ -7,6 +7,12 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
+- [0185 Safe Development Path Resilience](0185-safe-development-resilience.md)
+  - Status: active
+  - Owner: scenery verifier / development process acceptance
+  - Created: 2026-09-13
+  - Focus: close PR #195 resilience acceptance with a behavior-preserving native edit, bounded unique-edit churn/resource settling, and a current safe-path baseline without broadening executable reuse.
+
 - [0181 Minimal Native Reload Artifact](0181-minimal-native-reload-artifact.md)
   - Status: active
   - Owner: scenery runtime / native development execution

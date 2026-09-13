@@ -172,6 +172,16 @@ architectural boundary that 0179 explicitly left for a separate decision.
   probes, worktree-cost benchmark, repository fixture, disposable ONLV
   correctness, and final comparison after the latest C slice; record every
   skipped condition. Earlier complete evidence remains recorded below.
+- [x] (2026-09-13) Close the outstanding behavior-preserving native-input edit:
+  the selected dev-process probe changed `return 7` to `return 3 + 4` in a real
+  cgo dependency, served identical typed behavior from a new exact generation,
+  and recorded 2,769.285 ms edit-to-response on the current safe private path.
+- [x] (2026-09-13) Close the bounded churn/resource acceptance with 20 unique
+  implementation generations plus the existing cancellation/failure/recovery
+  matrix. The private tree settled at the same two processes/one runtime child;
+  deltas were +3 FDs, +1,632 KiB owner RSS, +672 KiB aggregate RSS, +6/21,944,660
+  Scenery-cache files/bytes and +449/10,769,079 Go-cache files/bytes, all below
+  fixed limits selected before the run.
 
 ## Surprises & Discoveries
 
@@ -557,10 +567,11 @@ bounded retention, independent retained executable ownership, and repeated
 rejects relocatable executable reuse; this is a safe boundary decision rather
 than a missing claim. Cold, declaration, shared-dependency, configuration, and
 embedded-input timings are fixture observations on this machine, not universal
-bounds. A separate native-input latency mutation remains unperformed because
-the available cgo-disabled fixture has no behavior-preserving native input; the
-unchanged real ONLV native closure passed correctness but does not substitute
-for that measurement. A future performance slice needs a
+bounds. A behavior-preserving cgo edit and bounded repeated-edit resource series
+now close the remaining resilience evidence. Their current-path timings are
+slower, not a performance claim: the cgo edit took 2,769.285 ms and the 20-edit
+series measured p50/p95/worst 2,652.676/2,659.123/2,659.448 ms. A future
+performance slice needs a
 materially different artifact-boundary hypothesis; the rejected near-monolithic
 worker must not be repeated unchanged.
 
@@ -1152,9 +1163,9 @@ Current slice evidence (2026-09-13):
   because their ownership and packaging boundaries did not change. Broad
   invalidation, multi-process contention, cache corruption, and active/rollback
   reclamation now have selected evidence. Remaining open acceptance is the
-  numerical 300/500 ms goal, a behavior-preserving native-input latency
-  mutation, and a longer bounded process/file-descriptor/memory/cache-growth
-  churn series.
+  numerical 300/500 ms goal. The behavior-preserving native-input latency and
+  bounded process/file-descriptor/memory/cache-growth churn series completed in
+  Plan 0185; neither is rounded into performance acceptance.
 
 Do not paste large Go `-json` action graphs or raw traces into default output.
 Reference their exact artifact paths and summarize non-overlapping critical-path
