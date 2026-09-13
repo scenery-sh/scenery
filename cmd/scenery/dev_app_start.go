@@ -103,6 +103,9 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 	if err := s.requireCurrentBuildSnapshot(captured); err != nil {
 		return s.handleCompileError(ctx, plan.Metadata, plan.APIEncoding, err)
 	}
+	if err := build.VerifyOwnedGoModuleSourcesContext(ctx, plan.Result.OwnedGoModuleSources); err != nil {
+		return s.handleCompileError(ctx, plan.Metadata, plan.APIEncoding, err)
+	}
 	var candidate *appStartPlan
 	candidateStarted := time.Now()
 	err = s.console.Phase("Preparing candidate process", func() error {
@@ -165,6 +168,9 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 	// restart rather than a crash; otherwise handleExit races the restart and
 	// can register the session as "stopped" after the new app is running.
 	if err := s.requireCurrentBuildSnapshot(captured); err != nil {
+		return s.handleCompileError(ctx, plan.Metadata, plan.APIEncoding, err)
+	}
+	if err := build.VerifyOwnedGoModuleSourcesContext(ctx, plan.Result.OwnedGoModuleSources); err != nil {
 		return s.handleCompileError(ctx, plan.Metadata, plan.APIEncoding, err)
 	}
 	activationStarted := time.Now()

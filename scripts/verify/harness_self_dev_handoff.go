@@ -284,6 +284,7 @@ func harnessIncrementalPreparationEvidence(log string, offset int64) (map[string
 	hits := map[string]bool{}
 	contractChecks := 0
 	filesWritten := -1
+	var writtenPaths []string
 	operationID := ""
 	for _, event := range events {
 		if event.Type != "build.step" {
@@ -304,10 +305,11 @@ func harnessIncrementalPreparationEvidence(log string, offset int64) (map[string
 			}
 		case "workspace.materialize":
 			filesWritten = event.Data.FilesWritten
+			writtenPaths = append([]string(nil), event.Data.WrittenPaths...)
 		}
 	}
 	if contractChecks != 1 || !hits["projection.go"] || !hits["projection.typescript"] || filesWritten != 1 {
-		return nil, fmt.Errorf("implementation edit did not use the incremental preparation path: contract_checks=%d go_projection_hit=%t typescript_projection_hit=%t files_written=%d", contractChecks, hits["projection.go"], hits["projection.typescript"], filesWritten)
+		return nil, fmt.Errorf("implementation edit did not use the incremental preparation path: contract_checks=%d go_projection_hit=%t typescript_projection_hit=%t files_written=%d written_paths=%v", contractChecks, hits["projection.go"], hits["projection.typescript"], filesWritten, writtenPaths)
 	}
 	if operationID == "" {
 		return nil, fmt.Errorf("implementation edit did not emit a successful correlated build request")

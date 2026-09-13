@@ -383,6 +383,17 @@ The supervisor still owns current candidate preflight and sequential
 stop/start/recovery; retained generation executables have independent bytes,
 not links into an evictable build cache.
 
+Authored non-framework local module replacements are copied, never linked, into
+an app-owned content-addressed generation before any Go discovery, checking or
+compilation. Complete regular-file and directory membership, content and
+executable modes define that private generation; VCS metadata and Scenery state
+are not source. The workspace `go.mod` selects the owned roots, while retained
+build state preserves each mutable origin for byte-and-membership freshness
+checks after compilation, during candidate activation and during later current-
+candidate inspection. Corrupt generations are quarantined and rebuilt, and
+bounded pruning protects the current published generation. This boundary does
+not widen shared-executable admission.
+
 Preparation publishes current public Go before implementation analysis, including
 cache reuse. Cached private bytes must match the current renderer. Authored
 fingerprints exclude exact generated paths; implementation fingerprints include
@@ -414,10 +425,12 @@ Ordinary Scenery applications currently consume an external framework and
 therefore compile privately, retaining Go's package cache and the same fair link
 budget. No application configuration is required to select this internal policy.
 Before publication or reuse, current workspace membership/bytes and Go input
-checks still run; private builds retain these freshness checks too. End-of-action
-hashes cannot detect external A-to-B-to-A changes, and no file/directory metadata
-heuristic grants reuse authority. Existing metadata observations still reject
-detectable mutation as a best-effort freshness check. Run-local admission is not serialized in the
+checks still run; private builds retain these freshness checks too. Local
+replacement compilation reads only its owned generation, so an external
+A-to-B-to-A change cannot alter compiler input under the captured A identity.
+No file/directory metadata heuristic grants reuse authority. Remaining unowned
+toolchain, module-cache and explicit tool/native reads retain conservative
+freshness checks and remain outside shared reuse. Run-local admission is not serialized in the
 public build-input manifest. A canceled producing caller leaves its
 subscription but retains the borrowed workspace lock until the producer and its
 cleanup have joined; other subscribers may still need that action. Publication

@@ -11,6 +11,20 @@ historical records. Do not refresh their review dates or rewrite them as current
 contract prose. Record later guidance here or in the owning current contract;
 use stale knowledge metadata to flag a known contradiction.
 
+## Owned External Go Inputs
+
+- Status: completed; publication tracked by Git history
+- Owner: scenery build / source generation ownership
+- Completed: 2026-09-13
+- ExecPlan: [0186 Owned External Go Inputs](0186-owned-external-go-inputs.md)
+
+Local non-framework Go replacements now compile from independent app-owned,
+content-addressed source generations. Complete membership and bytes determine
+identity, candidate freshness rechecks both the owned generation and live
+origin, and deterministic real-Go A/B/A coverage includes ignored Go, empty-dir
+embed and cgo inputs without change-time evidence. Shared executable reuse stays
+restricted; arbitrary tool and module-cache inputs are not claimed as owned.
+
 ## Safe Development Path Resilience
 
 - Status: completed; commit `e5b170d9` on PR #195

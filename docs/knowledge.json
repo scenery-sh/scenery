@@ -19,6 +19,18 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0186-owned-external-go-inputs.md",
+      "title": "Owned External Go Inputs",
+      "owner": "scenery build / source generation ownership",
+      "status": "completed",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-09-13",
+      "review_after": "2026-10-13",
+      "summary": "Completed local replacement capture: Go discovery, verification and compilation consume app-owned content-addressed source generations with byte and membership freshness, while shared executable reuse remains restricted.",
+      "tags": ["plans", "execplans", "build", "ownership", "snapshot", "worktree"]
+    },
+    {
       "path": "docs/plans/0185-safe-development-resilience.md",
       "title": "Safe Development Path Resilience",
       "owner": "scenery verifier / development process acceptance",

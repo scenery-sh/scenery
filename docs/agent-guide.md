@@ -268,7 +268,7 @@ marker is found; it is not evidence that an app can compile or start.
 - Use `scenery logs --follow` for the current runtime.
 - Test-only Go edits and documentation-only changes do not restart the backend. Runtime source or explicit runtime-embedded data does; metadata-only touches and identical-content rewrites do not. Run the selected tests explicitly to verify changed test code.
 - Initial startup may reuse the graph compiled to discover assistant watch inputs, after rechecking current source membership, bytes and the complete workspace revision. Source scanning may overlap control-plane setup only after acquiring lifetime ownership and passing framework and migration-source checks; startup and cleanup both join it. Changed source still requires a fresh compilation; this does not skip generated-artifact verification or candidate readiness.
-- Shared executable reuse is internal and conservative: a build consuming framework source, replacements or module dependencies outside its locked private workspace compiles privately and never restores or publishes a shared executable. Go's package cache and the link concurrency budget remain active. A final content hash cannot establish which external bytes a compiler consumed during a transient edit/restore; current input checks remain freshness checks, not that proof. No app API, configuration or runtime mode changes.
+- Shared executable reuse is internal and conservative: a build consuming framework source, replacements or module dependencies outside its locked private workspace compiles privately and never restores or publishes a shared executable. Go's package cache and the link concurrency budget remain active. Before that private build, Scenery copies each authored non-framework local replacement into an app-owned content generation, rewrites the build workspace to that root, and checks the live origin again before activation. Thus Go cannot consume transient replacement bytes under another captured identity; timestamps are not equivalence. Module-cache and custom tool inputs remain outside this snapshot claim and shared reuse. No app API, configuration or runtime mode changes.
 - Initial startup may wake an already initialized, ownership-verified managed PostgreSQL server alongside Go preparation after validating the current graph and endpoint selection. That branch does not allocate or recreate resources, create schemas, migrate or seed; it is joined before fresh post-build database resolution. No-SQL and explicitly external database selections do not start retained managed PostgreSQL.
 - Before replacing a backend, the supervisor runs the candidate's read-only runtime handshake and checks its exact spec, linked contract, implementation, build-input digest, target, ABI and storage descriptor. A failed handshake leaves the previous backend running. After a successful handshake, replacement stops the old generation before starting the new one; a failed start restores the retained executable and environment only after candidate shutdown is confirmed. Build errors remain visible while a retained or restored backend keeps its served metadata and session PID. Keep application Go `init` functions free of writes: they execute before the generated entrypoint can select preflight mode.
 - Use `scenery down` to stop it; add destructive cleanup flags only intentionally.
@@ -441,6 +441,14 @@ when another subscriber keeps the build alive. Leased publication stages are
 reclaimed after a crash, without touching active publishers or independently
 owned retained executables. Empty captured files remain valid inputs; missing
 captures and mismatching hashes still fail closed.
+
+Private local-replacement builds use complete app-owned source generations, not
+the mutable replacement roots. Each generation preserves file and directory
+membership, bytes and executable modes, including embed and native inputs, and
+contains no source hard links. Build state retains the origin mapping so current
+candidate inspection and subsequent activation reject a changed origin even
+after a supervisor restart. A failed or superseded generation never replaces the
+serving candidate; corrupt retained source is rebuilt from current bytes.
 
 Assistant builds add provider-neutral runtime asset descriptors under the
 managed build cache and content-addressed Node/npm dependencies under

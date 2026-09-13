@@ -133,6 +133,9 @@ func verifyCurrentSourceStateWithSnapshot(root, workspace string, state buildSta
 	if source != state.SourceFingerprint {
 		return fmt.Errorf("current authored source differs from the candidate; wait for a successful runtime rebuild")
 	}
+	if err := VerifyOwnedGoModuleSourcesContext(context.Background(), state.OwnedGoModuleSources); err != nil {
+		return fmt.Errorf("current local module source differs from the candidate: %w", err)
+	}
 	fingerprint, err := workspaceBuildFingerprint(workspace, state.GoBuildFlags, sourceFilesFromStamps(state.SourceStamps), state.GeneratedFiles)
 	if err != nil {
 		return err

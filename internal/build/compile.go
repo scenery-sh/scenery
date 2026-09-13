@@ -33,6 +33,9 @@ func PrimeWorkspaceContext(ctx context.Context, result *Result) error {
 	if err := completePreparedVerification(ctx, result); err != nil {
 		return err
 	}
+	if err := VerifyOwnedGoModuleSourcesContext(ctx, result.OwnedGoModuleSources); err != nil {
+		return err
+	}
 	return savePrimedWorkspace(result)
 }
 
@@ -87,6 +90,7 @@ func savePrimedWorkspace(result *Result) error {
 		VerificationPatterns:      append([]string(nil), result.VerificationPatterns...),
 		ManagedGeneratedPaths:     append([]string(nil), result.ManagedGeneratedPaths...),
 		GoBuildFlags:              append([]string(nil), result.GoBuildFlags...),
+		OwnedGoModuleSources:      cloneOwnedGoModuleSources(result.OwnedGoModuleSources),
 	}); err != nil {
 		return err
 	}
@@ -124,6 +128,9 @@ func CompileContext(ctx context.Context, result *Result) error {
 		if err := verifyPreparedWorkspace(result); err != nil {
 			return err
 		}
+	}
+	if err := VerifyOwnedGoModuleSourcesContext(ctx, result.OwnedGoModuleSources); err != nil {
+		return err
 	}
 	if result.ProductionAssets {
 		generatedBefore := len(result.GeneratedFiles)
@@ -164,6 +171,9 @@ func CompileContext(ctx context.Context, result *Result) error {
 		if err := verifyPreparedWorkspace(result); err != nil {
 			return err
 		}
+	}
+	if err := VerifyOwnedGoModuleSourcesContext(ctx, result.OwnedGoModuleSources); err != nil {
+		return err
 	}
 	if result.FrameworkSourceRoot != "" {
 		source, err := FrameworkSourceManifest(result.FrameworkSourceRoot)

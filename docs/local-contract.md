@@ -555,6 +555,17 @@ Fresh native builds verify generated-artifact ownership and all default plus
 selected Go targets against the same locked, materialized workspace used by Go
 compilation. Public publication and that workspace consume the same rendered
 package bytes; current snapshot and retirement checks still guard publication.
+Non-framework local module replacements are first copied into app-owned,
+content-addressed source generations and the private workspace selects those
+roots. Go discovery, implementation checking and compilation therefore consume
+the same captured membership and bytes. The generation contains ordinary,
+hidden, embedded and native files plus empty directories, rejects symlinks and
+special files, and excludes only VCS metadata and Scenery-owned state. It never
+hard-links to a mutable checkout. Successful compilation, candidate preparation,
+activation and later current-candidate inspection all require the live origin to
+still equal the captured generation by membership and content; timestamps do not
+prove equality. These private generations are bounded build state and do not
+authorize shared-executable reuse.
 Compilation and verification may overlap, but both must complete
 before publishing runtime-bundle/build-success state or pruning prior binaries.
 Write-capable module preparation precedes the fork; a tidy retry joins the old
@@ -1365,8 +1376,10 @@ bounded link scheduling and current input/conformance/readiness checks. The
 bounded build step reports `cache: "bypass"` and
 `reason: "inputs_outside_shared_reuse_domain"`; application identity fields keep
 their existing meanings. A content-addressed directory or read-only mode is not
-an immutable-input guarantee. This does not make externally mutable private
-compilation an immutable snapshot.
+an immutable-input guarantee by itself. Private compilation of authored local
+replacements is separately bound to its verified owned source generation;
+module-cache, toolchain and uncaptured custom/native tool inputs remain outside
+that claim and outside shared reuse.
 
 Durable local runtime authority is deliberately outside the checkout:
 

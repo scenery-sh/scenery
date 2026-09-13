@@ -52,6 +52,46 @@ func TestCurrentCandidateSourceStateRejectsChangedInputsWithoutWriting(t *testin
 	}
 }
 
+func TestCurrentCandidateSourceStateRejectsChangedOwnedModuleOrigin(t *testing.T) {
+	root, workspace, dependency := t.TempDir(), t.TempDir(), t.TempDir()
+	writeBuildTestFile(t, root, ".scenery.json", `{"name":"app"}`)
+	writeOwnedModuleFixture(t, root, workspace, dependency)
+	writeBuildTestFile(t, root, "main.go", "package app\n")
+	writeBuildTestFile(t, workspace, "main.go", "package app\n")
+	writeBuildTestFile(t, dependency, "dep.go", "package dependency\nconst Value = \"A\"\n")
+	sources, err := bindOwnedGoModuleSources(t.Context(), root, workspace, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source, err := currentAppSourceFingerprintFromDisk(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fingerprint, err := workspaceBuildFingerprint(workspace, nil, []string{"go.mod", "main.go"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := buildState{
+		Version: buildStateVersion, SourceFingerprint: source, BuildFingerprint: fingerprint,
+		SourceStamps: map[string]SourceStamp{"go.mod": {}, "main.go": {}}, OwnedGoModuleSources: sources,
+	}
+	writeBuildTestFile(t, workspace, workspaceBinaryName(root, fingerprint), "binary")
+	if err := saveBuildState(workspace, state); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := loadBuildState(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyCurrentSourceState(root, workspace, loaded); err != nil {
+		t.Fatal(err)
+	}
+	writeBuildTestFile(t, dependency, "dep.go", "package dependency\nconst Value = \"B\"\n")
+	if err := verifyCurrentSourceState(root, workspace, loaded); err == nil || !strings.Contains(err.Error(), "local module source differs") {
+		t.Fatalf("changed local module remained current: %v", err)
+	}
+}
+
 func TestRuntimeCandidateUsesFreshRuntimeSnapshotNotStandaloneProjection(t *testing.T) {
 	root, workspace := t.TempDir(), t.TempDir()
 	writeBuildTestFile(t, root, ".scenery.json", `{"name":"app"}`)

@@ -37,6 +37,9 @@ func Prepare(appRoot string, cfg app.Config) (*Result, error) {
 	if err := completePreparedVerification(ctx, result); err != nil {
 		return nil, err
 	}
+	if err := VerifyOwnedGoModuleSourcesContext(ctx, result.OwnedGoModuleSources); err != nil {
+		return nil, err
+	}
 	if err := verifyPreparedWorkspace(result); err != nil {
 		return nil, err
 	}
@@ -189,6 +192,7 @@ func prepareWithContractTargetContext(ctx context.Context, appRoot string, cfg a
 		sourceFiles    []string
 		sourceStamps   map[string]SourceStamp
 		generatedFiles []string
+		ownedSources   []OwnedGoModuleSource
 		mutation       workspaceMutation
 	)
 	materializeStarted := time.Now()
@@ -203,6 +207,10 @@ func prepareWithContractTargetContext(ctx context.Context, appRoot string, cfg a
 			return syncErr
 		}
 		if syncErr = removeUnexpectedFilesFromListsObserved(workspaceDir, sourceFiles, generatedFiles, &mutation); syncErr != nil {
+			return syncErr
+		}
+		ownedSources, syncErr = bindOwnedGoModuleSources(ctx, appRoot, workspaceDir, snapshot, &mutation)
+		if syncErr != nil {
 			return syncErr
 		}
 		return seedWorkspaceSceneryGoSumObserved(workspaceDir, &mutation)
@@ -286,6 +294,7 @@ func prepareWithContractTargetContext(ctx context.Context, appRoot string, cfg a
 		VerificationPatterns:      append([]string(nil), projection.VerificationPatterns...),
 		ManagedGeneratedPaths:     managedGeneratedPaths,
 		GoBuildFlags:              append([]string(nil), goBuildFlags...),
+		OwnedGoModuleSources:      ownedSources,
 		Contract:                  contract,
 		Target:                    &target,
 		verification:              &preparedVerification{patterns: append([]string(nil), projection.VerificationPatterns...)},

@@ -265,6 +265,7 @@ func loadCachedGraphContext(ctx context.Context, appRoot string, cfg app.Config,
 		VerificationPatterns:      append([]string(nil), state.VerificationPatterns...),
 		ManagedGeneratedPaths:     append([]string(nil), state.ManagedGeneratedPaths...),
 		GoBuildFlags:              append([]string(nil), goBuildFlags...),
+		OwnedGoModuleSources:      cloneOwnedGoModuleSources(state.OwnedGoModuleSources),
 		Contract:                  contract,
 	}
 	if preparationFingerprint != "" {
@@ -368,7 +369,11 @@ func PrepareCachedWorkspaceWithSnapshotContext(ctx context.Context, appRoot stri
 		result.SourceFiles = sourceFiles
 		result.SourceStamps = sourceStamps
 		result.SourceMetadataFingerprint = sourceStampsFingerprint(sourceStamps)
-		return removeUnexpectedFilesFromListsObserved(result.Dir, result.SourceFiles, result.GeneratedFiles, &mutation)
+		if syncErr = removeUnexpectedFilesFromListsObserved(result.Dir, result.SourceFiles, result.GeneratedFiles, &mutation); syncErr != nil {
+			return syncErr
+		}
+		result.OwnedGoModuleSources, syncErr = bindOwnedGoModuleSources(ctx, appRoot, result.Dir, snapshot, &mutation)
+		return syncErr
 	}()
 	recordWorkspaceMaterialization(ctx, materializeStarted, mutation, materializeErr)
 	if materializeErr != nil {

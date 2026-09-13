@@ -50,6 +50,7 @@ type Result struct {
 	ImplementationRevisions map[string]string
 	AssistantAssets         []generateapi.AssistantAssetDescriptor
 	ProductionAssets        bool
+	OwnedGoModuleSources    []OwnedGoModuleSource
 	verification            *preparedVerification
 }
 
@@ -114,11 +115,12 @@ type buildState struct {
 	VerificationPatterns      []string               `json:"verification_patterns,omitempty"`
 	ManagedGeneratedPaths     []string               `json:"managed_generated_paths,omitempty"`
 	GoBuildFlags              []string               `json:"go_build_flags,omitempty"`
+	OwnedGoModuleSources      []OwnedGoModuleSource  `json:"owned_go_module_sources,omitempty"`
 }
 
 const (
 	buildStateFile    = ".scenery-build-state.json"
-	buildStateVersion = "9"
+	buildStateVersion = "10"
 )
 
 type CachedGraph struct {
