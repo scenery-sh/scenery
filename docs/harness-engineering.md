@@ -180,7 +180,7 @@ release certification. Failed steps identify their focused rerun command.
 | `build-info` | Build identity freshness |
 | `cli-process` | CLI exit and telemetry |
 | `dev-follower` | Development follower process |
-| `dev-process` | Managed child-process lifecycle, captured-input invalidation matrix, exact previously compiled A-to-B-to-A generation round-trip, and tagged build-cache input mutation/rejection/retry, canceled-producer workspace ownership, publication crash recovery and lease/link-slot proof |
+| `dev-process` | Managed child-process lifecycle, captured-input invalidation matrix, exact previously compiled A-to-B-to-A generation round-trip, and tagged build-cache input mutation/rejection/retry, restored external-source bypass without change time (including temporarily enabled ignored Go files and temporary embeds in initially empty directories), canceled-producer workspace ownership, publication crash recovery and lease/link-slot proof |
 | `dev-lock` | Named process locks |
 | `dev-cleanup` | Session cleanup |
 | `inspect-go` | Go-package documentation inspection |

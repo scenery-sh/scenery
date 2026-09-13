@@ -192,7 +192,7 @@ func runHarnessNativeContractApplicationProbeCheck(parent context.Context, repoR
 	summary["implementation_revision"] = bundle.ImplementationRevision
 	summary["build_input_digest"] = bundle.BuildInput.Digest
 	summary["local_replace_build_inputs"] = localReplaceBuildInputs
-	summary["latest_build_manifest_proof"] = "compiled_phase_and_real_public_restart_reuse"
+	summary["latest_build_manifest_proof"] = "compiled_phase_and_public_restart_with_external_source_bypass"
 	summary["prepared_phase_assertion"] = "internal/build.TestPrepareAndCompileWriteLatestBuildManifestInProcess"
 	summary["configured_flags_assertion"] = "internal/build.TestCompilePassesConfiguredGoBuildFlags"
 	summary["grouped_route"] = "/api/group1/nested/house/process"

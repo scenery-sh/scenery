@@ -404,13 +404,21 @@ process-local digest cache, but accepts a hit only after current path, type,
 metadata, change-time, device, and inode checks; platforms without a usable
 change timestamp conservatively rehash. A bounded shared-binary coordinator deduplicates an exact in-flight
 development link and atomically publishes producer- and build-input-bound
-executables under the existing cache root. Before reusable publication it
-rechecks workspace bytes/membership, framework source, and Go's complete current
-input projection, including live local replacements. Hits still perform current
-input and application verification. Run-local file/change-time/inode and external
-package-directory observations additionally reject consumed inputs changed and
-restored within the action; they do not replace membership/content checks or
-become persisted identity. A canceled producing caller leaves its
+executables under the existing cache root. Shared executable admission is limited
+to a freshly discovered standalone pure-Go module whose non-toolchain inputs
+belong to the locked private workspace. Framework source outside it, local
+replacements, module-cache dependencies, native/assembly inputs, custom tool
+flags and unknown provenance bypass lookup, in-flight joins and publication.
+Content-addressed paths or read-only permissions do not prove immutable source.
+Ordinary Scenery applications currently consume an external framework and
+therefore compile privately, retaining Go's package cache and the same fair link
+budget. No application configuration is required to select this internal policy.
+Before publication or reuse, current workspace membership/bytes and Go input
+checks still run; private builds retain these freshness checks too. End-of-action
+hashes cannot detect external A-to-B-to-A changes, and no file/directory metadata
+heuristic grants reuse authority. Existing metadata observations still reject
+detectable mutation as a best-effort freshness check. Run-local admission is not serialized in the
+public build-input manifest. A canceled producing caller leaves its
 subscription but retains the borrowed workspace lock until the producer and its
 cleanup have joined; other subscribers may still need that action. Publication
 stages use the same leased cleanup protocol as link stages. The v2 cache does

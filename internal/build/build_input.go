@@ -64,8 +64,10 @@ type BuildInputManifest struct {
 	Target  string       `json:"target"`
 	Entries []BuildInput `json:"entries"`
 	Digest  string       `json:"digest"`
-	// Run-local observations reject inputs changed and restored during the
-	// action. They are not portable identity or a persisted verification verdict.
+	// Nonempty only for a freshly discovered, workspace-owned input domain.
+	// It is not serialized: an old manifest cannot grant cache admission.
+	sharedWorkspace string
+	// Best-effort live mutation detection only, never shared-cache admission.
 	observed map[string]buildInputFileStamp
 }
 
@@ -107,6 +109,10 @@ var runGoInputList = func(ctx context.Context, directory string, environment []s
 	command.Dir, command.Env = directory, environment
 	return command.CombinedOutput()
 }
+
+// Tests can model filesystems without a change timestamp without skipping
+// publication regressions on platforms that normally expose one.
+var buildInputLstat = os.Lstat
 
 func buildInputManifest(ctx context.Context, result *Result) (*BuildInputManifest, error) {
 	if result == nil || result.Target == nil {
@@ -153,8 +159,10 @@ func buildInputManifestFromGoListObserved(result *Result, output []byte, stats *
 	}
 	target := result.Target
 	entries := map[string]string{}
+	workspaceOnly, entrypoint := filepath.IsAbs(result.Dir), false
 	observed := map[string]buildInputFileStamp{}
 	addFile := func(identity, path string) error {
+		workspaceOnly = workspaceOnly && sharedBinaryWorkspacePath(result.Dir, path)
 		if err := observeBuildInputPath(observed, path); err != nil {
 			return err
 		}
@@ -175,12 +183,14 @@ func buildInputManifestFromGoListObserved(result *Result, output []byte, stats *
 		if pkg.Standard {
 			continue
 		}
-		// Workspace directories are mutable only under the held workspace lock
-		// and also contain our output/lock metadata. External package directories
-		// need observations for transient new/deleted Go membership as well.
+		workspaceOnly = workspaceOnly && sharedBinaryWorkspacePath(result.Dir, pkg.Dir)
 		if err := observeExternalBuildInputDirectories(observed, result.Dir, pkg.Dir, pkg.Dir); err != nil {
 			return nil, err
 		}
+		entrypoint = entrypoint || (pkg.Dir == filepath.Join(result.Dir, "scenery_internal_main") && len(pkg.GoFiles) > 0)
+		// Native/assembly tools can read includes and link inputs outside Go's
+		// file projection. No shared executable until those reads are owned.
+		workspaceOnly = workspaceOnly && len(pkg.CgoFiles)+len(pkg.CFiles)+len(pkg.CXXFiles)+len(pkg.MFiles)+len(pkg.HFiles)+len(pkg.FFiles)+len(pkg.SFiles)+len(pkg.SwigFiles)+len(pkg.SwigCXXFiles)+len(pkg.SysoFiles) == 0
 		files := append([]string{}, pkg.GoFiles...)
 		files = append(files, pkg.CgoFiles...)
 		files = append(files, pkg.CFiles...)
@@ -204,6 +214,11 @@ func buildInputManifestFromGoListObserved(result *Result, output []byte, stats *
 			}
 		}
 		if pkg.Module != nil {
+			// Only the private main module is in the supported reuse domain.
+			// Module-cache paths and even in-workspace replacements are excluded;
+			// their resolver inputs need a separate ownership proof.
+			workspaceOnly = workspaceOnly && pkg.Module.Replace == nil && pkg.Module.Version == "" &&
+				pkg.Module.Dir == result.Dir && pkg.Module.GoMod == filepath.Join(result.Dir, "go.mod")
 			module := pkg.Module
 			if module.Replace != nil {
 				module = module.Replace
@@ -228,6 +243,8 @@ func buildInputManifestFromGoListObserved(result *Result, output []byte, stats *
 			identity := pkg.Module.Path + "@" + pkg.Module.Version + "\x00" + pkg.Module.Sum + "\x00" + pkg.Module.GoModSum
 			sum := sha256.Sum256([]byte(identity))
 			entries["module/"+pkg.Module.Path] = "sha256:" + hex.EncodeToString(sum[:])
+		} else {
+			workspaceOnly = false
 		}
 	}
 	if frameworkRoot != "" {
@@ -247,6 +264,7 @@ func buildInputManifestFromGoListObserved(result *Result, output []byte, stats *
 		result.FrameworkSourceRoot, result.FrameworkSourceDigest = source.Root, source.Digest
 	}
 	for _, relative := range append(stringValuesForBuild(target.Effective["native_inputs"]), stringValuesForBuild(target.Effective["native_input"])...) {
+		workspaceOnly = false
 		path := filepath.Join(result.AppRoot, filepath.FromSlash(relative))
 		if err := filepath.WalkDir(path, func(filePath string, entry os.DirEntry, walkErr error) error {
 			if walkErr != nil {
@@ -266,6 +284,9 @@ func buildInputManifestFromGoListObserved(result *Result, output []byte, stats *
 	}
 	manifest := newBuildInputManifest(target.Name, entries)
 	manifest.observed = observed
+	if workspaceOnly && entrypoint && sharedBinaryStandaloneModule(result.Dir) {
+		manifest.sharedWorkspace = result.Dir
+	}
 	return manifest, nil
 }
 
@@ -294,7 +315,7 @@ func addBuildInput(entries map[string]string, identity, path string) error {
 }
 
 func addBuildInputObserved(entries map[string]string, identity, path string, stats *buildInputDigestStats) error {
-	info, err := os.Lstat(path)
+	info, err := buildInputLstat(path)
 	if err != nil {
 		return err
 	}
@@ -327,7 +348,7 @@ func cachedBuildInputFileDigest(path string, before os.FileInfo, read func(strin
 		entry, ok := buildInputDigestCache.entries[canonical]
 		buildInputDigestCache.Unlock()
 		if ok && entry.stamp == stamp {
-			after, err := os.Lstat(path)
+			after, err := buildInputLstat(path)
 			if err != nil {
 				return "", false, err
 			}
@@ -344,7 +365,7 @@ func cachedBuildInputFileDigest(path string, before os.FileInfo, read func(strin
 	if err != nil {
 		return "", false, err
 	}
-	after, err := os.Lstat(path)
+	after, err := buildInputLstat(path)
 	if err != nil {
 		return "", false, err
 	}

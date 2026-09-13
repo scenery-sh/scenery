@@ -1355,6 +1355,19 @@ mismatches, unsupported hosts, or missing symbols before routing calls.
 
 ### Repo-Local Cache Locations
 
+Shared development executables under the existing cache root are reusable only
+for a freshly discovered standalone pure-Go module with non-toolchain inputs
+inside the locked private build workspace. External framework/module source,
+local replacements, native/assembly inputs and custom tool reads bypass shared
+lookup, in-flight reuse and publication, even if final bytes match the old input
+digest. Such builds keep private executable ownership, Go's package cache,
+bounded link scheduling and current input/conformance/readiness checks. The
+bounded build step reports `cache: "bypass"` and
+`reason: "inputs_outside_shared_reuse_domain"`; application identity fields keep
+their existing meanings. A content-addressed directory or read-only mode is not
+an immutable-input guarantee. This does not make externally mutable private
+compilation an immutable snapshot.
+
 Durable local runtime authority is deliberately outside the checkout:
 
 ```text

@@ -11,12 +11,52 @@ historical records. Do not refresh their review dates or rewrite them as current
 contract prose. Record later guidance here or in the owning current contract;
 use stale knowledge metadata to flag a known contradiction.
 
+## External Input Selection Regression Proof
+
+- Status: completed; publication tracked by Git history and PR #195
+- Owner: scenery build / native verification
+- Completed: 2026-09-13
+- ExecPlan: [0184 External Input Selection Regression Proof](0184-external-input-selection-regressions.md)
+
+Added real-Go temporary ignored-source and empty-directory embed regressions.
+Both reproduce wrong shared publication with the historical cache owner and pass
+with the 0183 domain restriction, without change time. Native A retries, exact
+input/observation equality, tagged race checks and the full dev-process probe
+pass; no additional production boundary change or performance claim.
+
+## Shared Executable Reuse Domain
+
+- Status: completed; publication tracked by Git history and PR #195
+- Owner: scenery build / input ownership
+- Completed: 2026-09-13
+- ExecPlan: [0183 Shared Executable Reuse Domain](0183-shared-executable-reuse-domain.md)
+
+Closed mutable-external-input shared-publication TOCTOU by limiting executable
+reuse to a freshly discovered standalone, workspace-owned pure-Go domain.
+Restored A/B source without change time and preexisting-cache bypass have
+deterministic and real-native proof. Tests, lint, quick/default/race verification,
+the seven-probe union and 16-root timing confirmation passed. Ordinary external
+framework builds compile privately; Go package caching and link scheduling
+remain. This does not claim immutable private external compilation or achievement
+of the open 0180/0181 latency/runtime goals. These are local validation results,
+not remote CI or release certification. The numbered plans preserve the local
+handoff before publication; subsequent commits do not rewrite that history.
+
+Additional input-selection regression evidence is recorded in
+[0184](0184-external-input-selection-regressions.md); this does not rewrite the
+completed 0183 record or broaden its supported reuse domain.
+
 ## Shared Build Input Ownership and Recovery
 
 - Status: completed locally; publication tracked by Git history and PR #195
 - Owner: scenery build / worktree ownership
 - Completed: 2026-09-13
 - ExecPlan: [0182 Shared Build Input Ownership and Recovery](0182-shared-build-input-ownership.md)
+
+Later correction: [0183](0183-shared-executable-reuse-domain.md) closes the
+remaining restored-external-input gap by narrowing executable reuse. The 0182
+file/change-time observations are historical evidence, not current admission
+authority or proof of compiler-consumed bytes.
 
 Repaired six PR-review findings: input identity before shared publication,
 canceled-producer workspace lifetime, empty captures, semantic manifest repair,

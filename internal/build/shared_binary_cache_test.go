@@ -12,12 +12,12 @@ import (
 	"time"
 
 	"scenery.sh/internal/compiler"
+	"scenery.sh/internal/gotarget"
 )
 
 func TestSharedDevelopmentBinaryReusesExactArtifactAndRepairsCorruption(t *testing.T) {
-	t.Setenv("SCENERY_DEV_CACHE_DIR", t.TempDir())
-	firstRoot, first := newCachedBuildTestWorkspace(t, "first")
-	prepareSharedBinaryTestResult(firstRoot, first)
+	first, mainPackage := newSharedBinaryDomainFixture(t)
+	setSharedBinaryDomainDiscovery(t, first, mainPackage)
 	second := cloneSharedBinaryTestResult(first, filepath.Join(t.TempDir(), "second"))
 	var builds atomic.Int32
 	restore := SetGoRunnerForTesting(func(_ context.Context, _ string, args ...string) error {
@@ -424,7 +424,11 @@ func TestSharedBinaryPruneBoundsEntriesAndPreservesCurrentArtifact(t *testing.T)
 func prepareSharedBinaryTestResult(root string, result *Result) {
 	result.AppRoot = root
 	result.Target.Context.ModuleRoot = root
+	result.GoEnvironment = gotarget.Environment(result.Target.Context)
 	result.BuildInput = newBuildInputManifest(result.Target.Name, map[string]string{"fixture": "sha256:" + strings.Repeat("b", 64)})
+	// These store/coordination tests inject native discovery; domain tests use
+	// the production listing and admission path instead.
+	result.BuildInput.sharedWorkspace = result.Dir
 	bindSharedBinaryTestIdentity(result)
 }
 

@@ -123,8 +123,8 @@ func testSharedBinaryRejectsChangedInputs(t *testing.T, kind string) {
 	if err := os.WriteFile(inputPath, original, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// The retry is a new request and therefore captures current observations;
-	// identical bytes still derive the original content-addressed action key.
+	// Identical bytes still derive the original key, but the live external
+	// dependency keeps this retry outside the shared executable reuse domain.
 	result.BuildInput, err = discover(context.Background(), result)
 	if err != nil {
 		t.Fatal(err)
@@ -136,8 +136,8 @@ func testSharedBinaryRejectsChangedInputs(t *testing.T, kind string) {
 	if err != nil || string(data) != string(original) || builds != 2 {
 		t.Fatalf("A retry restored rejected B: builds=%d data=%q err=%v", builds, data, err)
 	}
-	if hit, err := restoreSharedBinary(cacheRoot, key, expected, result.Binary); err != nil || !hit {
-		t.Fatalf("valid retry was not reusable: hit=%t err=%v", hit, err)
+	if hit, err := restoreSharedBinary(cacheRoot, key, expected, result.Binary); err != nil || hit {
+		t.Fatalf("external-input retry became reusable: hit=%t err=%v", hit, err)
 	}
 }
 

@@ -60,8 +60,12 @@ observe a new PID and the prior exact implementation and build-input identities,
 not identity restored from an unrelated latest bundle. Its tagged build-cache
 segment uses distinct helper processes to prove subscriber crash cancellation
 and bounded oldest-ticket link admission, canceled-producer workspace ownership,
-native local-replacement mutation/rejection/retry, and leased publication crash
-recovery. Bind each response to the inspected
+native local-replacement mutation/rejection/retry, restored A-to-B-to-A source
+without change-time information never entering shared reuse, temporarily enabled
+ignored Go files and temporary embeds in initially empty directories, and leased
+publication crash recovery. Each restored case executes B after restoring A,
+compares complete input entries and observations, excludes shared publication
+and recompiles A privately. Bind each response to the inspected
 session PID through its runtime identity header; separate observations can
 otherwise span a replacement. Fake-clock tests retain the ordinary settling
 and in-process cache coverage.

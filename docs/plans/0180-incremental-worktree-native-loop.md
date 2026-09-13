@@ -40,6 +40,13 @@ architectural boundary that 0179 explicitly left for a separate decision.
 
 ## Progress
 
+- [x] (2026-09-13) Correctness follow-up [0183](0183-shared-executable-reuse-domain.md)
+  narrows shared executable admission to standalone, workspace-owned pure-Go
+  inputs. Ordinary applications consume external framework/module source and
+  therefore bypass shared executable reuse/publication while retaining Go's
+  package cache and the link budget. The earlier reuse measurements are
+  historical, not current cache-hit claims; all latency targets remain open.
+
 - [x] (2026-09-13) Confirm the actual checkout is clean `main` at
   `27ebaf12ca87355c6ee7ed340d1be63ffbe814f7`, matching the reviewed reference;
   do not reset or downgrade it.

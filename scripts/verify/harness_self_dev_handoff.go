@@ -214,10 +214,13 @@ func harnessIncrementalPreparationEvidence(log string, offset int64) (map[string
 	if err != nil {
 		return nil, err
 	}
+	privateBuild, err := harnessPrivateExternalBuildEvidence(events)
+	if err != nil {
+		return nil, err
+	}
 	hits := map[string]bool{}
 	contractChecks := 0
 	filesWritten := -1
-	sharedQueued, sharedPublished := false, false
 	operationID := ""
 	for _, event := range events {
 		if event.Type != "build.step" {
@@ -238,14 +241,10 @@ func harnessIncrementalPreparationEvidence(log string, offset int64) (map[string
 			}
 		case "workspace.materialize":
 			filesWritten = event.Data.FilesWritten
-		case "build.shared_queue":
-			sharedQueued = true
-		case "build.shared_artifact":
-			sharedPublished = event.Data.Cache == "miss" && event.Data.Reason == "linked_and_published"
 		}
 	}
-	if contractChecks != 1 || !hits["projection.go"] || !hits["projection.typescript"] || filesWritten != 1 || !sharedQueued || !sharedPublished {
-		return nil, fmt.Errorf("implementation edit did not use the incremental preparation path: contract_checks=%d go_projection_hit=%t typescript_projection_hit=%t files_written=%d shared_queued=%t shared_published=%t", contractChecks, hits["projection.go"], hits["projection.typescript"], filesWritten, sharedQueued, sharedPublished)
+	if contractChecks != 1 || !hits["projection.go"] || !hits["projection.typescript"] || filesWritten != 1 {
+		return nil, fmt.Errorf("implementation edit did not use the incremental preparation path: contract_checks=%d go_projection_hit=%t typescript_projection_hit=%t files_written=%d", contractChecks, hits["projection.go"], hits["projection.typescript"], filesWritten)
 	}
 	if operationID == "" {
 		return nil, fmt.Errorf("implementation edit did not emit a successful correlated build request")
@@ -301,8 +300,7 @@ func harnessIncrementalPreparationEvidence(log string, offset int64) (map[string
 		"go_projection_cache_hit":   true,
 		"typescript_projection_hit": true,
 		"workspace_files_written":   filesWritten,
-		"shared_link_queued":        true,
-		"shared_artifact_published": true,
+		"external_source_build":     privateBuild,
 	}, nil
 }
 

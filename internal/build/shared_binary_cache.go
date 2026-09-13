@@ -159,6 +159,23 @@ func runSharedGoBuildWithInputCheck(ctx context.Context, result *Result, checkIn
 	if err != nil {
 		return err
 	}
+	if !sharedBinaryInputsSupported(result) {
+		// Do not look up an old entry, subscribe to another producer or publish
+		// this output. Final A bytes cannot attest compilation of external B.
+		// Keep the same fair link budget, but cancellation owns only this build.
+		releaseSlot, err := acquireSharedBinarySlotObserved(ctx, root, key)
+		if err != nil {
+			return err
+		}
+		defer releaseSlot()
+		if err := runGoBuildContext(ctx, result); err != nil {
+			return err
+		}
+		if err := observeBuildAction(ctx, "build.shared_input_check", func() error { return checkInputs(ctx) }); err != nil {
+			return err
+		}
+		return recordSharedBinaryStep(ctx, result.Binary, "bypass", "inputs_outside_shared_reuse_domain", nil)
+	}
 	if hit, err := restoreSharedBinary(root, key, expected, result.Binary); err != nil {
 		return err
 	} else if hit {
@@ -240,10 +257,7 @@ type sharedBinaryProduction struct {
 }
 
 func produceSharedBinary(ctx context.Context, root, key string, expected sharedBinaryArtifact, result *Result, checkInputs func(context.Context) error) sharedBinaryProduction {
-	waitStarted := time.Now()
-	releaseSlot, err := acquireSharedBinarySlot(ctx, root, key)
-	queue := time.Since(waitStarted)
-	RecordStep(ctx, Step{Name: "build.shared_link_queue", StartedAt: waitStarted, Duration: queue, QueueDuration: queue, Cache: "not_applicable", Reason: "fair_link_slot", OK: err == nil})
+	releaseSlot, err := acquireSharedBinarySlotObserved(ctx, root, key)
 	if err != nil {
 		return sharedBinaryProduction{err: err}
 	}
@@ -381,6 +395,14 @@ func activeSharedBinarySubscribers(directory string, _ time.Time) (int, error) {
 		_ = os.Remove(directory)
 	}
 	return active, nil
+}
+
+func acquireSharedBinarySlotObserved(ctx context.Context, root, key string) (func(), error) {
+	waitStarted := time.Now()
+	release, err := acquireSharedBinarySlot(ctx, root, key)
+	queue := time.Since(waitStarted)
+	RecordStep(ctx, Step{Name: "build.shared_link_queue", StartedAt: waitStarted, Duration: queue, QueueDuration: queue, Cache: "not_applicable", Reason: "fair_link_slot", OK: err == nil})
+	return release, err
 }
 
 func acquireSharedBinarySlot(ctx context.Context, root, key string) (func(), error) {
