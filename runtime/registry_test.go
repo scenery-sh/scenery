@@ -8,6 +8,7 @@ import (
 	"testing"
 	"testing/synctest"
 
+	"scenery.sh/internal/appsdk"
 	"scenery.sh/internal/mcpcontract"
 	"scenery.sh/internal/mcpgateway"
 	"scenery.sh/runtime/shared"
@@ -188,7 +189,7 @@ func TestShutdownServicesRunsInReverseInitializerOrder(t *testing.T) {
 
 func TestDefaultEnvironmentUsesTestMode(t *testing.T) {
 	t.Setenv("SCENERY_RUNTIME_ENV", "test")
-	env := defaultEnvironment()
+	env := appsdk.DefaultEnvironment()
 	if env.Name != "test" {
 		t.Fatalf("defaultEnvironment().Name = %q, want %q", env.Name, "test")
 	}
@@ -240,6 +241,7 @@ func TestSetAppConfigUsesSessionIdentityEnv(t *testing.T) {
 
 func replaceGlobalRegistryForTest() func() {
 	prev := global
+	previousMetadata := *appsdk.Metadata()
 	mcpDurableOwners.Lock()
 	prevMCPDurableOwners := make(map[string]mcpDurableOwner, len(mcpDurableOwners.values))
 	maps.Copy(prevMCPDurableOwners, mcpDurableOwners.values)
@@ -275,12 +277,11 @@ func replaceGlobalRegistryForTest() func() {
 		serviceInitializers:       make(map[string]serviceInitializer),
 		serviceInitOrder:          make(map[string]int),
 		serviceShutdowns:          make(map[string]serviceShutdown),
-		meta: shared.AppMetadata{
-			Environment: defaultEnvironment(),
-		},
 	}
+	appsdk.SetMetadata(shared.AppMetadata{Environment: appsdk.DefaultEnvironment()})
 	return func() {
 		global = prev
+		appsdk.SetMetadata(previousMetadata)
 		mcpDurableOwners.Lock()
 		mcpDurableOwners.values = prevMCPDurableOwners
 		mcpDurableOwners.Unlock()

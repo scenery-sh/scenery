@@ -11,9 +11,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"sort"
 	"strings"
+	"sync"
+	"time"
 
 	"scenery.sh/internal/gotarget"
 	"scenery.sh/internal/machine"
@@ -23,6 +26,33 @@ const (
 	buildInputKind             = "scenery.go-build-input-manifest"
 	buildInputSchemaDescriptor = machine.ExactSchemaRevision("sha256:0b3dbb89ce6779d9102139831f455f792adee4a3c0e332099816a2761c4d9ec2")
 )
+
+const buildInputDigestCacheLimit = 16_384
+
+type buildInputFileStamp struct {
+	Size            int64
+	ModTimeUnixNano int64
+	Perm            uint32
+	ChangeTimeNano  int64
+	Device          uint64
+	Inode           uint64
+}
+
+type buildInputDigestCacheEntry struct {
+	stamp  buildInputFileStamp
+	digest string
+}
+
+var buildInputDigestCache = struct {
+	sync.Mutex
+	entries map[string]buildInputDigestCacheEntry
+	order   []string
+}{entries: map[string]buildInputDigestCacheEntry{}}
+
+type buildInputDigestStats struct {
+	hits   int
+	misses int
+}
 
 type BuildInput struct {
 	Identity string `json:"identity"`
@@ -97,15 +127,21 @@ func buildInputManifest(ctx context.Context, result *Result) (*BuildInputManifes
 		return nil, fmt.Errorf("go %s failed while producing build inputs: %w\n%s", strings.Join(args, " "), err, output)
 	}
 	var manifest *BuildInputManifest
-	err = observeBuildAction(ctx, "go.input_fingerprint", func() error {
-		var err error
-		manifest, err = buildInputManifestFromGoList(result, output)
-		return err
+	stats := buildInputDigestStats{}
+	started := time.Now()
+	manifest, err = buildInputManifestFromGoListObserved(result, output, &stats)
+	RecordStep(ctx, Step{
+		Name: "go.input_fingerprint", StartedAt: started, Duration: time.Since(started), Cache: "content_stamp",
+		Reason: "exact_consumed_bytes", OK: err == nil, Actions: stats.hits + stats.misses, CacheHits: stats.hits, CacheMisses: stats.misses,
 	})
 	return manifest, err
 }
 
 func buildInputManifestFromGoList(result *Result, output []byte) (*BuildInputManifest, error) {
+	return buildInputManifestFromGoListObserved(result, output, nil)
+}
+
+func buildInputManifestFromGoListObserved(result *Result, output []byte, stats *buildInputDigestStats) (*BuildInputManifest, error) {
 	if result == nil || result.Target == nil {
 		return nil, fmt.Errorf("build target is unavailable")
 	}
@@ -138,7 +174,7 @@ func buildInputManifestFromGoList(result *Result, output []byte) (*BuildInputMan
 		for _, name := range files {
 			path := filepath.Join(pkg.Dir, filepath.FromSlash(name))
 			identity := "package/" + pkg.ImportPath + "/" + filepath.ToSlash(name)
-			if err := addBuildInput(entries, identity, path); err != nil {
+			if err := addBuildInputObserved(entries, identity, path, stats); err != nil {
 				return nil, err
 			}
 		}
@@ -160,7 +196,7 @@ func buildInputManifestFromGoList(result *Result, output []byte) (*BuildInputMan
 				frameworkRoot = root
 			}
 			if module.GoMod != "" {
-				if err := addBuildInput(entries, "module/"+pkg.Module.Path+"/go.mod", module.GoMod); err != nil {
+				if err := addBuildInputObserved(entries, "module/"+pkg.Module.Path+"/go.mod", module.GoMod, stats); err != nil {
 					return nil, err
 				}
 			}
@@ -198,7 +234,7 @@ func buildInputManifestFromGoList(result *Result, output []byte) (*BuildInputMan
 			if err != nil {
 				return err
 			}
-			return addBuildInput(entries, "native/"+filepath.ToSlash(relative)+"/"+filepath.ToSlash(rel), filePath)
+			return addBuildInputObserved(entries, "native/"+filepath.ToSlash(relative)+"/"+filepath.ToSlash(rel), filePath, stats)
 		}); err != nil {
 			return nil, err
 		}
@@ -227,6 +263,10 @@ func newBuildInputManifest(target string, entries map[string]string) *BuildInput
 }
 
 func addBuildInput(entries map[string]string, identity, path string) error {
+	return addBuildInputObserved(entries, identity, path, nil)
+}
+
+func addBuildInputObserved(entries map[string]string, identity, path string, stats *buildInputDigestStats) error {
 	info, err := os.Lstat(path)
 	if err != nil {
 		return err
@@ -234,17 +274,136 @@ func addBuildInput(entries map[string]string, identity, path string) error {
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 		return fmt.Errorf("go build input is not a regular non-symlink file: %s", path)
 	}
-	data, err := os.ReadFile(path)
+	digest, hit, err := cachedBuildInputFileDigest(path, info, os.ReadFile)
 	if err != nil {
 		return err
 	}
-	sum := sha256.Sum256(data)
-	digest := "sha256:" + hex.EncodeToString(sum[:])
+	if stats != nil {
+		if hit {
+			stats.hits++
+		} else {
+			stats.misses++
+		}
+	}
 	if previous := entries[identity]; previous != "" && previous != digest {
 		return fmt.Errorf("go build input identity collision: %s", identity)
 	}
 	entries[identity] = digest
 	return nil
+}
+
+func cachedBuildInputFileDigest(path string, before os.FileInfo, read func(string) ([]byte, error)) (string, bool, error) {
+	stamp := buildInputStamp(before)
+	canonical := filepath.Clean(path)
+	if stamp.ChangeTimeNano != 0 {
+		buildInputDigestCache.Lock()
+		entry, ok := buildInputDigestCache.entries[canonical]
+		buildInputDigestCache.Unlock()
+		if ok && entry.stamp == stamp {
+			after, err := os.Lstat(path)
+			if err != nil {
+				return "", false, err
+			}
+			if after.Mode()&os.ModeSymlink != 0 || !after.Mode().IsRegular() {
+				return "", false, fmt.Errorf("go build input changed type while checking cached digest: %s", path)
+			}
+			if buildInputStamp(after) == stamp {
+				return entry.digest, true, nil
+			}
+			stamp = buildInputStamp(after)
+		}
+	}
+	data, err := read(path)
+	if err != nil {
+		return "", false, err
+	}
+	after, err := os.Lstat(path)
+	if err != nil {
+		return "", false, err
+	}
+	if after.Mode()&os.ModeSymlink != 0 || !after.Mode().IsRegular() {
+		return "", false, fmt.Errorf("go build input changed type while hashing: %s", path)
+	}
+	afterStamp := buildInputStamp(after)
+	if stamp != afterStamp || afterStamp.ChangeTimeNano == 0 {
+		if stamp != afterStamp {
+			return "", false, fmt.Errorf("go build input changed while hashing: %s", path)
+		}
+		sum := sha256.Sum256(data)
+		return "sha256:" + hex.EncodeToString(sum[:]), false, nil
+	}
+	sum := sha256.Sum256(data)
+	digest := "sha256:" + hex.EncodeToString(sum[:])
+	buildInputDigestCache.Lock()
+	if _, exists := buildInputDigestCache.entries[canonical]; !exists {
+		buildInputDigestCache.order = append(buildInputDigestCache.order, canonical)
+	}
+	buildInputDigestCache.entries[canonical] = buildInputDigestCacheEntry{stamp: afterStamp, digest: digest}
+	for len(buildInputDigestCache.entries) > buildInputDigestCacheLimit && len(buildInputDigestCache.order) > 0 {
+		oldest := buildInputDigestCache.order[0]
+		buildInputDigestCache.order = buildInputDigestCache.order[1:]
+		delete(buildInputDigestCache.entries, oldest)
+	}
+	buildInputDigestCache.Unlock()
+	return digest, false, nil
+}
+
+func buildInputStamp(info os.FileInfo) buildInputFileStamp {
+	device, inode := buildInputFileIdentity(info)
+	return buildInputFileStamp{
+		Size: info.Size(), ModTimeUnixNano: info.ModTime().UnixNano(), Perm: uint32(info.Mode().Perm()), ChangeTimeNano: buildInputFileChangeTime(info), Device: device, Inode: inode,
+	}
+}
+
+func buildInputFileIdentity(info os.FileInfo) (uint64, uint64) {
+	if info == nil || info.Sys() == nil {
+		return 0, 0
+	}
+	value := reflect.ValueOf(info.Sys())
+	if value.Kind() == reflect.Pointer {
+		if value.IsNil() {
+			return 0, 0
+		}
+		value = value.Elem()
+	}
+	if value.Kind() != reflect.Struct {
+		return 0, 0
+	}
+	read := func(name string) uint64 {
+		field := value.FieldByName(name)
+		if field.IsValid() && field.CanUint() {
+			return field.Uint()
+		}
+		return 0
+	}
+	return read("Dev"), read("Ino")
+}
+
+func buildInputFileChangeTime(info os.FileInfo) int64 {
+	if info == nil || info.Sys() == nil {
+		return 0
+	}
+	value := reflect.ValueOf(info.Sys())
+	if value.Kind() == reflect.Pointer {
+		if value.IsNil() {
+			return 0
+		}
+		value = value.Elem()
+	}
+	if value.Kind() != reflect.Struct {
+		return 0
+	}
+	for _, name := range []string{"Ctimespec", "Ctim", "Ctimen"} {
+		stamp := value.FieldByName(name)
+		if !stamp.IsValid() || stamp.Kind() != reflect.Struct {
+			continue
+		}
+		seconds, nanos := stamp.FieldByName("Sec"), stamp.FieldByName("Nsec")
+		if seconds.IsValid() && nanos.IsValid() && seconds.CanInt() && nanos.CanInt() {
+			return seconds.Int()*int64(time.Second) + nanos.Int()
+		}
+	}
+	return 0
 }
 
 func stringValuesForBuild(value any) []string {

@@ -71,7 +71,8 @@ func (p *worktreeRuntimeProbe) resourceCosts(source string) error {
 		for _, count := range []int{1, 5, 10} {
 			for repetition := 1; repetition <= 3; repetition++ {
 				cache := filepath.Join(p.root, fmt.Sprintf("cost-cache-%d-%d", count, repetition))
-				p.env = envWithOverrides(profileEnv, "GOCACHE="+cache)
+				sceneryCache := filepath.Join(p.root, fmt.Sprintf("cost-scenery-cache-%d-%d", count, repetition))
+				p.env = envWithOverrides(profileEnv, "GOCACHE="+cache, "SCENERY_DEV_CACHE_DIR="+sceneryCache)
 				cohort := worktreeCostCohort{}
 				for i := 0; i < count; i++ {
 					name := fmt.Sprintf("cost-%d-%d-%d", count, repetition, i+1)
@@ -82,7 +83,7 @@ func (p *worktreeRuntimeProbe) resourceCosts(source string) error {
 					p.roots = append(p.roots, root)
 					cohort.roots = append(cohort.roots, root)
 				}
-				cold, err := p.startCostCohort(&cohort)
+				cold, err := p.startCostCohort(&cohort, true)
 				if err != nil {
 					return err
 				}
@@ -92,7 +93,7 @@ func (p *worktreeRuntimeProbe) resourceCosts(source string) error {
 						return err
 					}
 				}
-				warm, err := p.startCostCohort(&cohort)
+				warm, err := p.startCostCohort(&cohort, false)
 				if err != nil {
 					return err
 				}
@@ -109,7 +110,7 @@ func (p *worktreeRuntimeProbe) resourceCosts(source string) error {
 				if err != nil {
 					return err
 				}
-				disk, err := p.costDisk(cohort, cache)
+				disk, err := p.costDisk(cohort, cache, sceneryCache)
 				if err != nil {
 					return err
 				}
@@ -130,6 +131,9 @@ func (p *worktreeRuntimeProbe) resourceCosts(source string) error {
 				if err := os.RemoveAll(cache); err != nil {
 					return err
 				}
+				if err := os.RemoveAll(sceneryCache); err != nil {
+					return err
+				}
 			}
 		}
 		sourceAfter, err := p.sourceDigest()
@@ -144,7 +148,7 @@ func (p *worktreeRuntimeProbe) resourceCosts(source string) error {
 	})
 }
 
-func (p *worktreeRuntimeProbe) startCostCohort(cohort *worktreeCostCohort) (map[string]any, error) {
+func (p *worktreeRuntimeProbe) startCostCohort(cohort *worktreeCostCohort, requireSharedComposition bool) (map[string]any, error) {
 	type started struct {
 		index   int
 		runtime detachedDevResult
@@ -174,6 +178,11 @@ func (p *worktreeRuntimeProbe) startCostCohort(cohort *worktreeCostCohort) (map[
 		return nil, startErr
 	}
 	evidence := map[string]any{"required_serving_ms": elapsed, "cohort_required_serving_wall_ms": time.Since(begin).Milliseconds()}
+	shared, err := p.sharedCompositionEvidence(cohort.runtimes, requireSharedComposition)
+	if err != nil {
+		return nil, err
+	}
+	evidence["shared_composition"] = shared
 	cohort.records, cohort.pids = nil, nil
 	for i, root := range cohort.roots {
 		runtime := cohort.runtimes[i]
@@ -210,4 +219,40 @@ func (p *worktreeRuntimeProbe) startCostCohort(cohort *worktreeCostCohort) (map[
 	}
 	evidence["all_optional_ready_wall_ms"], evidence["native_processes"], evidence["postgres_containers"] = time.Since(begin).Milliseconds(), len(cohort.pids), len(cohort.records)
 	return evidence, nil
+}
+
+func (p *worktreeRuntimeProbe) sharedCompositionEvidence(runtimes []detachedDevResult, required bool) (map[string]any, error) {
+	misses, hits := 0, 0
+	perWorktree := make([]map[string]any, 0, len(runtimes))
+	for _, runtime := range runtimes {
+		events, err := harnessWatchEvents(runtime.LogPath, 0)
+		if err != nil {
+			return nil, err
+		}
+		entry := map[string]any{"app_root": runtime.Session.AppRoot, "cache": "missing"}
+		for _, event := range events {
+			if event.Type != "build.step" || event.Data.Name != "workspace.render" || !event.Data.OK {
+				continue
+			}
+			switch event.Data.Reason {
+			case "rendered_and_published":
+				misses++
+				entry["cache"] = "miss"
+			case "shared_content_artifact", "joined_shared_content_artifact":
+				hits++
+				entry["cache"] = "hit"
+			}
+		}
+		perWorktree = append(perWorktree, entry)
+	}
+	if !required && misses == 0 && hits == 0 {
+		return map[string]any{"workspace_preparation_reused": true}, nil
+	}
+	if misses != 1 || hits != len(runtimes)-1 {
+		return nil, fmt.Errorf("cross-worktree composition reuse = %d misses and %d hits; want one publish and %d immutable hits", misses, hits, len(runtimes)-1)
+	}
+	return map[string]any{
+		"artifact_publishes": misses, "artifact_hits": hits,
+		"isolated_mutable_workspaces": len(runtimes), "per_worktree": perWorktree,
+	}, nil
 }

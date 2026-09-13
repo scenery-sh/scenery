@@ -82,7 +82,7 @@ func effectiveGoBuildFlags(result *Result) []string {
 func validateRuntimeLinkerMetadata(values map[string]string) error {
 	for _, key := range runtimeLinkerMetadataKeys {
 		if strings.TrimSpace(values[key]) == "" {
-			return fmt.Errorf("refusing non-reusable build without complete runtime linker metadata")
+			return fmt.Errorf("refusing build without complete runtime linker metadata")
 		}
 	}
 	return nil

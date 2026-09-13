@@ -74,12 +74,18 @@ func savePrimedWorkspace(result *Result) error {
 		SourceMetadataFingerprint: result.SourceMetadataFingerprint,
 		FrameworkFingerprint:      result.FrameworkFingerprint,
 		GeneratorFingerprint:      result.GeneratorFingerprint,
+		PreparationFingerprint:    result.PreparationFingerprint,
 		BuildFingerprint:          result.BuildFingerprint,
 		GraphFingerprint:          result.GraphFingerprint,
 		Metadata:                  append([]byte(nil), result.Metadata...),
 		APIEncoding:               append([]byte(nil), result.APIEncoding...),
 		SourceStamps:              maps.Clone(result.SourceStamps),
 		GeneratedFiles:            append([]string(nil), result.GeneratedFiles...),
+		GeneratedStamps:           maps.Clone(result.GeneratedStamps),
+		PublicGeneratedStamps:     maps.Clone(result.PublicGeneratedStamps),
+		CachedTypeScriptStamps:    maps.Clone(result.CachedTypeScriptStamps),
+		VerificationPatterns:      append([]string(nil), result.VerificationPatterns...),
+		ManagedGeneratedPaths:     append([]string(nil), result.ManagedGeneratedPaths...),
 		GoBuildFlags:              append([]string(nil), result.GoBuildFlags...),
 	}); err != nil {
 		return err
@@ -94,13 +100,11 @@ func CompileContext(ctx context.Context, result *Result) error {
 	if result == nil {
 		return fmt.Errorf("nil build result")
 	}
-	if !result.ReuseCompiled {
-		if result.Contract == nil {
-			return fmt.Errorf("refusing non-reusable build without a prepared contract")
-		}
-		if result.Target == nil {
-			return fmt.Errorf("refusing non-reusable build without a prepared target")
-		}
+	if result.Contract == nil {
+		return fmt.Errorf("refusing build without a prepared contract")
+	}
+	if result.Target == nil {
+		return fmt.Errorf("refusing build without a prepared target")
 	}
 	unlock, err := lockWorkspace(result.Dir)
 	if err != nil {
@@ -121,7 +125,7 @@ func CompileContext(ctx context.Context, result *Result) error {
 			return err
 		}
 	}
-	if !result.ReuseCompiled && result.ProductionAssets && result.Contract != nil && result.Target != nil {
+	if result.ProductionAssets {
 		generatedBefore := len(result.GeneratedFiles)
 		if err := prepareAssistantRuntimeAssets(ctx, result); err != nil {
 			return err
@@ -131,24 +135,6 @@ func CompileContext(ctx context.Context, result *Result) error {
 				return err
 			}
 		}
-	}
-	if result.ReuseCompiled {
-		result.NeedsTidy = false
-		if err := completePreparedVerification(ctx, result); err != nil {
-			return err
-		}
-		if verifyWorkspace {
-			if err := verifyPreparedWorkspace(result); err != nil {
-				return err
-			}
-		}
-		if err := savePrimedWorkspace(result); err != nil {
-			return err
-		}
-		if err := pruneStaleWorkspaceBinaries(result.Dir, result.Binary, previousBinary); err != nil {
-			return err
-		}
-		return WriteLatestBuildManifest(result, "compiled")
 	}
 	if result.Target != nil && result.NeedsTidy {
 		if err := tidyWorkspace(ctx, result); err != nil {
@@ -219,14 +205,36 @@ func compilePrivateWorkspace(ctx context.Context, result *Result) error {
 	if err := validateRuntimeLinkerMetadata(result.RuntimeLinkerMetadata); err != nil {
 		return err
 	}
-	return runGoBuildContext(ctx, result)
+	return runSharedGoBuildContext(ctx, result)
 }
 
 func runGoBuildContext(ctx context.Context, result *Result) error {
 	if err := os.Remove(result.Binary); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove stale build output %s: %w", result.Binary, err)
 	}
-	return runGoContextWithEnvironment(ctx, result.Dir, result.GoEnvironment, goBuildArgs(result.Binary, effectiveGoBuildFlags(result))...)
+	if err := runGoContextWithEnvironment(ctx, result.Dir, result.GoEnvironment, goBuildArgs(result.Binary, effectiveGoBuildFlags(result))...); err != nil {
+		return err
+	}
+	return recordBuildArtifact(ctx, result.Binary, "miss")
+}
+
+func recordBuildArtifact(ctx context.Context, path, cache string) error {
+	started := time.Now()
+	info, err := os.Stat(path)
+	RecordStep(ctx, Step{
+		Name: "build.artifact", StartedAt: started, Duration: time.Since(started), Cache: cache,
+		Reason: "linked_application_executable", OK: err == nil,
+		ExecutableBytes: func() int64 {
+			if info != nil {
+				return info.Size()
+			}
+			return 0
+		}(),
+	})
+	if err != nil {
+		return fmt.Errorf("stat compiled application %s: %w", path, err)
+	}
+	return nil
 }
 
 func goBuildNeedsWorkspaceTidy(err error) bool {
@@ -271,7 +279,13 @@ func runGoContextWithEnvironment(ctx context.Context, dir string, environment []
 	if len(args) > 0 {
 		reason = args[0]
 	}
-	finishStep(ctx, "go.command", started, "go_managed", reason, err)
+	step := Step{Name: "go.command", StartedAt: started, Duration: time.Since(started), Cache: "go_managed", Reason: reason, OK: err == nil, Actions: 1}
+	if reason == "build" {
+		// The stock Go command exposes no successful package rebuild inventory
+		// without enabling its much more expensive verbose action trace.
+		step.PackagesRebuiltAvailable = false
+	}
+	RecordStep(ctx, step)
 	return err
 }
 

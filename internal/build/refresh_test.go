@@ -1,9 +1,12 @@
 package build
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	appcfg "scenery.sh/internal/app"
@@ -33,12 +36,12 @@ func TestRefreshCachedWorkspaceResyncsMissingSourceFiles(t *testing.T) {
 		t.Fatalf("expected cached workspace to initially miss %s, stat err=%v", newFile, err)
 	}
 
-	reused, err := RefreshCachedWorkspace(appDir, cached.Result)
+	prepared, err := RefreshCachedWorkspace(appDir, cached.Result)
 	if err != nil {
 		t.Fatalf("RefreshCachedWorkspace() error = %v", err)
 	}
-	if reused {
-		t.Fatal("expected a changed build fingerprint without a binary to force full preparation")
+	if !prepared {
+		t.Fatal("changed source should retain the declaration-equivalent prepared workspace")
 	}
 	if _, err := os.Stat(filepath.Join(cached.Result.Dir, filepath.FromSlash(newFile))); err != nil {
 		t.Fatalf("expected refreshed workspace to include %s: %v", newFile, err)
@@ -75,12 +78,12 @@ func pulledInChange() {}
 		t.Fatal("expected cached graph to load")
 	}
 
-	reused, err := RefreshCachedWorkspace(appDir, cached.Result)
+	prepared, err := RefreshCachedWorkspace(appDir, cached.Result)
 	if err != nil {
 		t.Fatalf("RefreshCachedWorkspace() error = %v", err)
 	}
-	if reused {
-		t.Fatal("expected a changed build fingerprint without a binary to force full preparation")
+	if !prepared {
+		t.Fatal("changed source should retain the declaration-equivalent prepared workspace")
 	}
 	data, err := os.ReadFile(filepath.Join(cached.Result.Dir, "svc", "api.go"))
 	if err != nil {
@@ -142,19 +145,19 @@ import _ "rsc.io/quote"
 		t.Fatal("expected cached graph to load")
 	}
 
-	reused, err := RefreshCachedWorkspace(appDir, cached.Result)
+	prepared, err := RefreshCachedWorkspace(appDir, cached.Result)
 	if err != nil {
 		t.Fatalf("RefreshCachedWorkspace() error = %v", err)
 	}
-	if reused {
-		t.Fatal("expected changed imports without a matching binary to force full preparation")
+	if !prepared {
+		t.Fatal("changed imports should retain the declaration-equivalent prepared workspace")
 	}
 	if !cached.Result.NeedsTidy {
 		t.Fatal("expected refreshed cached workspace to require go mod tidy")
 	}
 }
 
-func TestRefreshCachedWorkspacePreservesTidiedDependencyBytesBeforeReuse(t *testing.T) {
+func TestRefreshCachedWorkspacePreservesTidiedDependencyBytesWithoutTrustingBareBinary(t *testing.T) {
 	t.Parallel()
 
 	appDir, result := newCachedBuildTestWorkspace(t, "graph-1")
@@ -209,13 +212,13 @@ func TestRefreshCachedWorkspacePreservesTidiedDependencyBytesBeforeReuse(t *test
 		t.Fatalf("RefreshCachedWorkspace() error = %v", err)
 	}
 	if !reused {
-		t.Fatal("expected cached workspace refresh to be reusable")
+		t.Fatal("expected cached workspace refresh to remain prepared")
 	}
 	if cached.Result.NeedsTidy {
 		t.Fatal("expected unchanged final dependency fingerprint to avoid tidy")
 	}
-	if !cached.Result.ReuseCompiled {
-		t.Fatal("expected existing fingerprint binary to be reused")
+	if cached.Result.BuildInput != nil || len(cached.Result.RuntimeLinkerMetadata) != 0 {
+		t.Fatal("bare workspace binary unexpectedly supplied generation identity")
 	}
 	if cached.Result.DependencyFingerprint != depFingerprint {
 		t.Fatalf("dependency fingerprint = %q, want final %q", cached.Result.DependencyFingerprint, depFingerprint)
@@ -225,7 +228,7 @@ func TestRefreshCachedWorkspacePreservesTidiedDependencyBytesBeforeReuse(t *test
 	}
 }
 
-func TestRefreshCachedWorkspaceFallsBackWhenBinaryMissing(t *testing.T) {
+func TestRefreshCachedWorkspaceRemainsPreparedWhenBinaryMissing(t *testing.T) {
 	t.Parallel()
 
 	appDir, _ := newCachedBuildTestWorkspace(t, "graph-1")
@@ -236,16 +239,12 @@ func TestRefreshCachedWorkspaceFallsBackWhenBinaryMissing(t *testing.T) {
 	if !ok || cached == nil || cached.Result == nil {
 		t.Fatal("expected cached graph to load")
 	}
-	if cached.Result.ReuseCompiled {
-		t.Fatal("expected fixture to begin without a compiled binary")
-	}
-
 	reused, err := RefreshCachedWorkspace(appDir, cached.Result)
 	if err != nil {
 		t.Fatalf("RefreshCachedWorkspace() error = %v", err)
 	}
-	if reused || cached.Result.ReuseCompiled {
-		t.Fatal("expected a missing fingerprint binary to force full preparation")
+	if !reused {
+		t.Fatal("missing binary should still allow the prepared workspace to reach the identity-bound shared build cache")
 	}
 }
 
@@ -356,6 +355,67 @@ func TestSyncSourceFilesResyncsFilesChangedOnDisk(t *testing.T) {
 	}
 	if string(data) != updated {
 		t.Fatalf("workspace copy = %q, want resynced %q", data, updated)
+	}
+}
+
+func TestSyncSourceFilesRejectsPreservedMetadataAsContentIdentity(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	appRoot := t.TempDir()
+	writeBuildTestFile(t, appRoot, "go.mod", "module example.com/test\n\ngo 1.25.0\n")
+	const rel = "svc/api.go"
+	writeBuildTestFile(t, appRoot, rel, "package svc\nconst value = 1\n")
+	_, previous, err := syncSourceFiles(root, appRoot, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(appRoot, filepath.FromSlash(rel))
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeBuildTestFile(t, appRoot, rel, "package svc\nconst value = 2\n")
+	if err := os.Chtimes(path, info.ModTime(), info.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	_, current, err := syncSourceFiles(root, appRoot, previous, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current[rel].Hash == previous[rel].Hash {
+		t.Fatal("same-size same-mtime source edit retained the previous content identity")
+	}
+	data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+	if err != nil || !strings.Contains(string(data), "value = 2") {
+		t.Fatalf("workspace did not capture changed bytes: %q %v", data, err)
+	}
+}
+
+func TestSyncSourceFilesUsesCapturedBytes(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	appRoot := t.TempDir()
+	writeBuildTestFile(t, appRoot, "go.mod", "module example.com/test\n\ngo 1.25.0\n")
+	const rel = "svc/api.go"
+	captured := []byte("package svc\nconst value = 1\n")
+	writeBuildTestFile(t, appRoot, rel, string(captured))
+	info, err := os.Stat(filepath.Join(appRoot, filepath.FromSlash(rel)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(captured)
+	snapshot := &SourceSnapshot{Files: map[string]SourceSnapshotFile{
+		rel: {Size: info.Size(), ModTimeNano: info.ModTime().UnixNano(), Perm: uint32(info.Mode().Perm()), Hash: hex.EncodeToString(digest[:]), Data: captured},
+	}}
+	writeBuildTestFile(t, appRoot, rel, "package svc\nconst value = 2\n")
+	if _, _, err := syncSourceFilesWithSnapshot(root, appRoot, nil, nil, snapshot); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+	if err != nil || string(data) != string(captured) {
+		t.Fatalf("workspace bytes = %q, want captured %q: %v", data, captured, err)
 	}
 }
 

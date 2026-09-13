@@ -103,7 +103,12 @@ func runSceneryHarnessSelf(ctx context.Context, stdout io.Writer, args []string)
 		resp.Steps = append(resp.Steps, runHarnessExecStep(ctx, repoRoot, "race full suite", []string{"go", "test", "-race", "./..."}, artifactCtx))
 	}
 	if opts.Mode == harnessSelfModeBenchmark {
-		resp.Steps = append(resp.Steps, runHarnessWorktreeCostStep(ctx, repoRoot))
+		switch opts.Benchmark {
+		case "edit-latency":
+			resp.Steps = append(resp.Steps, runHarnessEditLatencyStep(ctx, repoRoot))
+		case "worktree-cost":
+			resp.Steps = append(resp.Steps, runHarnessWorktreeCostStep(ctx, repoRoot))
+		}
 	}
 	if opts.Write {
 		resp.Wrote = filepath.Join(repoRoot, ".scenery", "harness", "self-latest.json")
@@ -295,8 +300,8 @@ func parseHarnessSelfArgs(args []string) (harnessSelfOptions, error) {
 		if err := setMode(harnessSelfModeBenchmark)(""); err != nil {
 			return err
 		}
-		if id != "worktree-cost" {
-			return fmt.Errorf("unknown benchmark %q; available: worktree-cost", id)
+		if id != "worktree-cost" && id != "edit-latency" {
+			return fmt.Errorf("unknown benchmark %q; available: edit-latency, worktree-cost", id)
 		}
 		opts.Benchmark = id
 		return nil

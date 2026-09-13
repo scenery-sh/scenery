@@ -21,7 +21,7 @@ remain current data contracts, not an executable product subcommand.
 
 ```text
 scenery harness [--app-root <path>] [-o json] [--write]
-go run ./scripts/verify [--repo-root <path>] [--summary] [-o human|json] [--write] [--quick|--race|--release|--probe <id>...|--benchmark worktree-cost] [--fresh-tests]
+go run ./scripts/verify [--repo-root <path>] [--summary] [-o human|json] [--write] [--quick|--race|--release|--probe <id>...|--benchmark edit-latency|--benchmark worktree-cost] [--fresh-tests]
 scenery harness ui [--app-root <path>] [--dashboard-url <url>] [--headed] [-o json] [--write]
 scenery inspect harness [artifact <name>|diagnostics --severity error|warning|timing --top <n>] -o json [--app-root <path>] [--repo-root <path>]
 ```
@@ -158,7 +158,7 @@ release certification. Failed steps identify their focused rerun command.
 | `build-info` | Build identity freshness |
 | `cli-process` | CLI exit and telemetry |
 | `dev-follower` | Development follower process |
-| `dev-process` | Managed child-process lifecycle |
+| `dev-process` | Managed child-process lifecycle, captured-input invalidation matrix, exact previously compiled A-to-B-to-A generation round-trip, and tagged cross-process build-cache lease/link-slot proof |
 | `dev-lock` | Named process locks |
 | `dev-cleanup` | Session cleanup |
 | `inspect-go` | Go-package documentation inspection |
@@ -297,6 +297,7 @@ contract drift, and schema conformance. The additional work depends on mode:
 | `--race` | Default coverage plus the race shortlist. |
 | `--release` | Default coverage plus every functional probe, full race suite and enforced release budgets; no resource benchmark. |
 | `--probe <id>` | Only selected external probes after common checks; no full Go suite. |
+| `--benchmark edit-latency` | Two separately warmed, interleaved 30-edit lanes comparing immutable `HEAD` with current source through the normal endpoint and exact candidate identity; no functional probe set or full Go suite. |
 | `--benchmark worktree-cost` | Only A18 resource measurement after common checks; no functional probe set or full Go suite. |
 
 The release edge-process step runs the published static frontend journey

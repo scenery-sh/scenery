@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"scenery.sh/internal/appsdk"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/mcpcontract"
 	"scenery.sh/internal/runtimeapi"
@@ -99,24 +100,10 @@ func (response *ContractHTTPResponse) Close() error {
 	return err
 }
 
-// ContractByteStream is an exact-length response body whose reader ownership
-// transfers to Scenery after a successful streaming handler return.
-type ContractByteStream struct {
-	Reader io.ReadCloser
-	Size   int64
-}
+type ContractByteStream = shared.ByteStream
 
 func NewContractByteStream(reader io.ReadCloser, size int64) ContractByteStream {
-	return ContractByteStream{Reader: reader, Size: size}
-}
-
-func (stream *ContractByteStream) Close() error {
-	if stream == nil || stream.Reader == nil {
-		return nil
-	}
-	reader := stream.Reader
-	stream.Reader = nil
-	return reader.Close()
+	return shared.NewByteStream(reader, size)
 }
 
 // ContractStreamOutcome keeps a typed operation outcome separate from its
@@ -225,7 +212,6 @@ type NativeServiceRegistration struct {
 
 type registry struct {
 	mu                        sync.RWMutex
-	meta                      shared.AppMetadata
 	endpoints                 map[string]*Endpoint
 	authHandler               *AuthHandler
 	cronJobs                  map[string]*CronJob
@@ -273,9 +259,6 @@ var global = &registry{
 	serviceInitializers:       make(map[string]serviceInitializer),
 	serviceInitOrder:          make(map[string]int),
 	serviceShutdowns:          make(map[string]serviceShutdown),
-	meta: shared.AppMetadata{
-		Environment: defaultEnvironment(),
-	},
 }
 
 func SetAppConfig(cfg AppConfig) {
@@ -289,45 +272,26 @@ func SetAppConfig(cfg AppConfig) {
 	if runtimeAppID == "" {
 		runtimeAppID = baseAppID
 	}
-	global.meta.AppID = cfg.Name
-	global.meta.BaseAppID = baseAppID
-	global.meta.RuntimeAppID = runtimeAppID
-	global.meta.SessionID = strings.TrimSpace(envpolicy.Get("SCENERY_SESSION_ID"))
-	global.meta.Environment = defaultEnvironment()
+	meta := shared.AppMetadata{
+		AppID: cfg.Name, BaseAppID: baseAppID, RuntimeAppID: runtimeAppID,
+		SessionID: strings.TrimSpace(envpolicy.Get("SCENERY_SESSION_ID")), Environment: appsdk.DefaultEnvironment(),
+	}
 	global.observability = cfg.Observability
 	if publicBaseURL := strings.TrimSpace(envpolicy.Get("SCENERY_PUBLIC_BASE_URL")); publicBaseURL != "" {
-		global.meta.APIBaseURL = publicBaseURL
+		meta.APIBaseURL = publicBaseURL
+		appsdk.SetMetadata(meta)
 		return
 	}
-	global.meta.APIBaseURL = "http://" + cfg.ListenAddr
+	meta.APIBaseURL = "http://" + cfg.ListenAddr
+	appsdk.SetMetadata(meta)
 }
 
 func SetPublicBaseURL(baseURL string) {
-	global.mu.Lock()
-	defer global.mu.Unlock()
-	global.meta.APIBaseURL = baseURL
+	appsdk.SetPublicBaseURL(baseURL)
 }
 
 func Meta() *shared.AppMetadata {
-	global.mu.RLock()
-	defer global.mu.RUnlock()
-	meta := global.meta
-	return &meta
-}
-
-func defaultEnvironment() shared.Environment {
-	if strings.EqualFold(strings.TrimSpace(envpolicy.Get("SCENERY_RUNTIME_ENV")), "test") {
-		return shared.Environment{
-			Name:  "test",
-			Type:  shared.EnvTest,
-			Cloud: shared.CloudLocal,
-		}
-	}
-	return shared.Environment{
-		Name:  "local",
-		Type:  shared.EnvDevelopment,
-		Cloud: shared.CloudLocal,
-	}
+	return appsdk.Metadata()
 }
 
 func RegisterEndpoint(ep *Endpoint) {

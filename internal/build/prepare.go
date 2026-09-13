@@ -5,10 +5,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+	"time"
 
 	"scenery.sh/internal/app"
-	"scenery.sh/internal/codegen"
 	"scenery.sh/internal/compiler"
 	generateapi "scenery.sh/internal/generate/api"
 	"scenery.sh/internal/gotarget"
@@ -51,6 +52,20 @@ func PrepareForCompileWithSnapshotContext(ctx context.Context, appRoot string, c
 	}
 	contract, err := observeBuild(ctx, "contract.check", func() (*compiler.Result, error) { return compileWorkspaceContract(appRoot, snapshot) })
 	if err != nil {
+		return nil, err
+	}
+	if err := preparedContractError(contract); err != nil {
+		return nil, err
+	}
+	return PrepareForCompileWithContractSnapshotContext(ctx, appRoot, cfg, snapshot, contract)
+}
+
+// PrepareForCompileWithContractSnapshotContext continues preparation from the
+// exact graph already computed by the development engine. It prevents a cache
+// miss from recompiling the same graph while retaining the ordinary public
+// generation transaction and target checks.
+func PrepareForCompileWithContractSnapshotContext(ctx context.Context, appRoot string, cfg app.Config, snapshot *SourceSnapshot, contract *compiler.Result) (*Result, error) {
+	if err := requireGenerateHooks(); err != nil {
 		return nil, err
 	}
 	if err := preparedContractError(contract); err != nil {
@@ -117,7 +132,8 @@ func prepareWithContractTarget(appRoot string, cfg app.Config, snapshot *SourceS
 // target preparation. Keep that transaction outside the shared workspace phase
 // so ordinary development does not publish the same projection twice.
 func prepareWithContractTargetContext(ctx context.Context, appRoot string, cfg app.Config, snapshot *SourceSnapshot, contract *compiler.Result, target compiler.GoBuildTarget, projection generateapi.GoWorkspaceProjection) (*Result, error) {
-	if err := observeBuildAction(ctx, "projection.typescript", func() error { return generateHooks.SyncCachedTypeScript(contract) }); err != nil {
+	typeScriptPaths, err := observeBuild(ctx, "projection.typescript", func() ([]string, error) { return generateHooks.SyncCachedTypeScript(contract) })
+	if err != nil {
 		return nil, err
 	}
 	runtimePlan, err := generateHooks.RuntimeIntegrationPlan(contract)
@@ -128,9 +144,11 @@ func prepareWithContractTargetContext(ctx context.Context, appRoot string, cfg a
 	if len(target.Context.BuildTags) > 0 {
 		goBuildFlags = append(goBuildFlags, "-tags="+strings.Join(target.Context.BuildTags, ","))
 	}
-	gen, err := observeBuild(ctx, "workspace.render", func() (*codegen.Output, error) {
-		return codegen.Generate(cfg.Name, cfg, runtimePlan.CompositionImport, contract.SQLRequirements)
-	})
+	generatorFingerprint, err := currentGeneratorFingerprint()
+	if err != nil {
+		return nil, err
+	}
+	gen, err := renderSharedCompositionContext(ctx, cfg.Name, cfg, runtimePlan.CompositionImport, contract.SQLRequirements, generatorFingerprint)
 	if err != nil {
 		return nil, err
 	}
@@ -167,22 +185,63 @@ func prepareWithContractTargetContext(ctx context.Context, appRoot string, cfg a
 	for relative := range gen.Generated {
 		generatedPaths[filepath.ToSlash(relative)] = struct{}{}
 	}
-	sourceFiles, sourceStamps, err := syncSourceFilesWithSnapshot(workspaceDir, appRoot, state.SourceStamps, generatedPaths, snapshot)
+	var (
+		sourceFiles    []string
+		sourceStamps   map[string]SourceStamp
+		generatedFiles []string
+		mutation       workspaceMutation
+	)
+	materializeStarted := time.Now()
+	materializeErr := func() error {
+		var syncErr error
+		sourceFiles, sourceStamps, syncErr = syncSourceFilesWithSnapshotObserved(workspaceDir, appRoot, state.SourceStamps, generatedPaths, snapshot, &mutation)
+		if syncErr != nil {
+			return syncErr
+		}
+		generatedFiles, syncErr = syncGeneratedFilesObserved(workspaceDir, appRoot, gen, state.GeneratedFiles, sourceFiles, &mutation)
+		if syncErr != nil {
+			return syncErr
+		}
+		if syncErr = removeUnexpectedFilesFromListsObserved(workspaceDir, sourceFiles, generatedFiles, &mutation); syncErr != nil {
+			return syncErr
+		}
+		return seedWorkspaceSceneryGoSumObserved(workspaceDir, &mutation)
+	}()
+	recordWorkspaceMaterialization(ctx, materializeStarted, mutation, materializeErr)
+	if materializeErr != nil {
+		return nil, materializeErr
+	}
+	generatedStamps, err := artifactPathStamps(workspaceDir, generatedFiles)
 	if err != nil {
 		return nil, err
 	}
-	generatedFiles, err := syncGeneratedFiles(workspaceDir, appRoot, gen, state.GeneratedFiles, sourceFiles)
+	publicGeneratedPaths := make([]string, 0, len(projection.Files))
+	for rel := range projection.Files {
+		if _, statErr := os.Lstat(filepath.Join(appRoot, filepath.FromSlash(rel))); statErr == nil {
+			publicGeneratedPaths = append(publicGeneratedPaths, rel)
+		} else if !os.IsNotExist(statErr) {
+			return nil, statErr
+		}
+	}
+	publicGeneratedStamps, err := artifactPathStamps(appRoot, publicGeneratedPaths)
 	if err != nil {
 		return nil, err
 	}
-	if err := removeUnexpectedFilesFromLists(workspaceDir, sourceFiles, generatedFiles); err != nil {
+	cachedTypeScriptStamps, err := artifactPathStamps(appRoot, typeScriptPaths)
+	if err != nil {
 		return nil, err
 	}
-	if err := seedWorkspaceSceneryGoSum(workspaceDir); err != nil {
+	managedGenerated, err := compiler.GeneratedPaths(appRoot)
+	if err != nil {
 		return nil, err
 	}
+	managedGeneratedPaths := make([]string, 0, len(managedGenerated))
+	for rel := range managedGenerated {
+		managedGeneratedPaths = append(managedGeneratedPaths, filepath.ToSlash(rel))
+	}
+	sort.Strings(managedGeneratedPaths)
 	sourceMetadataFingerprint := sourceStampsFingerprint(sourceStamps)
-	generatorFingerprint, err := currentGeneratorFingerprint()
+	preparationFingerprint, err := PreparationFingerprint(cfg, contract)
 	if err != nil {
 		return nil, err
 	}
@@ -216,20 +275,22 @@ func prepareWithContractTargetContext(ctx context.Context, appRoot string, cfg a
 		SourceMetadataFingerprint: sourceMetadataFingerprint,
 		FrameworkFingerprint:      frameworkFingerprint,
 		GeneratorFingerprint:      generatorFingerprint,
+		PreparationFingerprint:    preparationFingerprint,
 		BuildFingerprint:          buildFingerprint,
-		ReuseCompiled:             buildFingerprint != "" && pathExists(binary) && state.FrameworkFingerprint == frameworkFingerprint,
 		SourceFiles:               sourceFiles,
 		SourceStamps:              sourceStamps,
 		GeneratedFiles:            generatedFiles,
+		GeneratedStamps:           generatedStamps,
+		PublicGeneratedStamps:     publicGeneratedStamps,
+		CachedTypeScriptStamps:    cachedTypeScriptStamps,
+		VerificationPatterns:      append([]string(nil), projection.VerificationPatterns...),
+		ManagedGeneratedPaths:     managedGeneratedPaths,
 		GoBuildFlags:              append([]string(nil), goBuildFlags...),
 		Contract:                  contract,
 		Target:                    &target,
 		verification:              &preparedVerification{patterns: append([]string(nil), projection.VerificationPatterns...)},
 	}
 	result.GoEnvironment = gotarget.Environment(target.Context)
-	// Runtime bundles are target-specific, so an unbound workspace binary is
-	// never reused across build targets.
-	result.ReuseCompiled = false
 	if err := WriteLatestBuildManifest(result, "prepared"); err != nil {
 		return nil, err
 	}

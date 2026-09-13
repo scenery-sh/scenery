@@ -24,6 +24,7 @@ type Result struct {
 	FrameworkSourceRoot       string
 	FrameworkSourceDigest     string
 	GeneratorFingerprint      string
+	PreparationFingerprint    string
 	BuildFingerprint          string
 	GraphFingerprint          string
 	Metadata                  json.RawMessage
@@ -31,7 +32,11 @@ type Result struct {
 	SourceFiles               []string
 	SourceStamps              map[string]SourceStamp
 	GeneratedFiles            []string
-	ReuseCompiled             bool
+	GeneratedStamps           map[string]string
+	PublicGeneratedStamps     map[string]string
+	CachedTypeScriptStamps    map[string]string
+	VerificationPatterns      []string
+	ManagedGeneratedPaths     []string
 	Ephemeral                 bool
 	GoBuildFlags              []string
 	// RuntimeLinkerMetadata holds the -X linker values injected at go build
@@ -57,21 +62,36 @@ type SourceStamp struct {
 	Size        int64  `json:"size"`
 	ModTimeNano int64  `json:"mtime_unix_nano"`
 	Perm        uint32 `json:"perm"`
+	Hash        string `json:"sha256,omitempty"`
 }
 
 type SourceSnapshot struct {
-	Files map[string]SourceSnapshotFile
+	Files         map[string]SourceSnapshotFile
+	CompilerFiles map[string]SourceSnapshotFile
+	// CompilerAbsent records relevant missing resolver alternatives and
+	// optional revision inputs. Their later appearance changes membership even
+	// though there were no bytes to capture in this snapshot.
+	CompilerAbsent map[string]bool
+	// ContractFiles and ContractCompilerFiles are the non-implementation
+	// inputs captured with Contract. They let the ordinary handler-edit path
+	// prove graph equivalence without asking the compiler to reread appRoot.
+	ContractFiles          map[string]SourceSnapshotFile
+	ContractCompilerFiles  map[string]SourceSnapshotFile
+	ContractCompilerAbsent map[string]bool
+	CompilerCaptureValid   bool
 	// Contract is an optional already-compiled startup snapshot. Consumers
-	// verify current membership and bytes before reusing its pure graph.
+	// verify captured graph inputs before reusing its pure graph.
 	Contract *compiler.Result
 }
 
 type SourceSnapshotFile struct {
-	Size        int64
-	ModTimeNano int64
-	Perm        uint32
-	Hash        string
-	Embedded    bool
+	Size           int64
+	ModTimeNano    int64
+	Perm           uint32
+	Hash           string
+	Embedded       bool
+	Implementation bool
+	Data           []byte
 }
 
 type buildState struct {
@@ -81,18 +101,24 @@ type buildState struct {
 	SourceMetadataFingerprint string                 `json:"source_metadata_fingerprint,omitempty"`
 	FrameworkFingerprint      string                 `json:"framework_fingerprint,omitempty"`
 	GeneratorFingerprint      string                 `json:"generator_fingerprint,omitempty"`
+	PreparationFingerprint    string                 `json:"preparation_fingerprint,omitempty"`
 	BuildFingerprint          string                 `json:"build_fingerprint,omitempty"`
 	GraphFingerprint          string                 `json:"graph_fingerprint,omitempty"`
 	Metadata                  []byte                 `json:"metadata,omitempty"`
 	APIEncoding               []byte                 `json:"api_encoding,omitempty"`
 	SourceStamps              map[string]SourceStamp `json:"source_file_stamps,omitempty"`
 	GeneratedFiles            []string               `json:"generated_files,omitempty"`
+	GeneratedStamps           map[string]string      `json:"generated_file_sha256,omitempty"`
+	PublicGeneratedStamps     map[string]string      `json:"public_generated_sha256,omitempty"`
+	CachedTypeScriptStamps    map[string]string      `json:"cached_typescript_sha256,omitempty"`
+	VerificationPatterns      []string               `json:"verification_patterns,omitempty"`
+	ManagedGeneratedPaths     []string               `json:"managed_generated_paths,omitempty"`
 	GoBuildFlags              []string               `json:"go_build_flags,omitempty"`
 }
 
 const (
 	buildStateFile    = ".scenery-build-state.json"
-	buildStateVersion = "6"
+	buildStateVersion = "9"
 )
 
 type CachedGraph struct {

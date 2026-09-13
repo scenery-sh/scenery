@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 )
@@ -86,18 +87,41 @@ func runHarnessDevManagedProcessProbeCheck(parent context.Context, repoRoot stri
 	if err != nil {
 		return nil, nil, err
 	}
+	sharedBuild, err := runHarnessSharedBuildProcessProof(parent, repoRoot)
+	if err != nil {
+		return nil, nil, err
+	}
 	detached, err := runHarnessDetachedStartupProbe(parent, repoRoot)
 	if err != nil {
 		return nil, nil, err
 	}
 	return map[string]any{
 		"basic_lifecycle":         basics,
+		"shared_build_processes":  sharedBuild,
 		"unready_stop_idempotent": true,
 		"detached_startup":        detached,
 		"proof":                   "real_managed_child_timeout_reported_last_probe_and_output_tail_then_reaped",
 		"process_pid":             process.PID,
 		"diagnostic":              diagnostic,
 	}, nil, nil
+}
+
+func runHarnessSharedBuildProcessProof(parent context.Context, repoRoot string) (map[string]any, error) {
+	ctx, cancel := context.WithTimeout(parent, 30*time.Second)
+	defer cancel()
+	command := exec.CommandContext(ctx, "go", "test", "-tags=scenery_build_cache_integration", "./internal/build", "-run=^TestSharedBinaryCrossProcess", "-count=1")
+	command.Dir = repoRoot
+	output, err := command.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("shared build cross-process proof: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	return map[string]any{
+		"last_subscriber_cancels_producer": true,
+		"crashed_lease_reclaimed":          true,
+		"link_slots":                       2,
+		"oldest_ticket_admission":          true,
+		"command":                          "go test -tags=scenery_build_cache_integration ./internal/build -run=^TestSharedBinaryCrossProcess -count=1",
+	}, nil
 }
 
 // These OS assertions moved from the ordinary process-runner tests. The fast

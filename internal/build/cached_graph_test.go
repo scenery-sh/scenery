@@ -1,6 +1,7 @@
 package build
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -55,6 +56,34 @@ func TestLoadCachedGraph(t *testing.T) {
 	}
 	if cached.Result.AppRoot != appDir || cached.Result.AppName != "buildtest" {
 		t.Fatalf("cached result identity = %+v", cached.Result)
+	}
+}
+
+func TestLoadCachedPreparationSurvivesImplementationFingerprintChange(t *testing.T) {
+	t.Parallel()
+
+	appDir, original := newCachedBuildTestWorkspace(t, "graph-before")
+	writeBuildTestFile(t, appDir, "svc/api.go", "package svc\n\nfunc Hello() string { return \"after\" }\n")
+	contract, err := CompileContractWithSnapshot(appDir, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if contract.Manifest.ContractRevision != original.Contract.Manifest.ContractRevision {
+		t.Fatalf("implementation body changed contract revision: %s -> %s", original.Contract.Manifest.ContractRevision, contract.Manifest.ContractRevision)
+	}
+	fingerprint, err := PreparationFingerprint(appcfg.Config{Name: "buildtest"}, contract)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cached, ok, err := LoadCachedPreparationContext(context.Background(), appDir, appcfg.Config{Name: "buildtest"}, "graph-after", fingerprint, contract)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || cached == nil || cached.Result == nil {
+		t.Fatal("implementation-only edit did not reuse declaration preparation")
+	}
+	if cached.Result.GraphFingerprint != "graph-after" || cached.Result.Contract != contract {
+		t.Fatalf("cached preparation is not bound to current inputs: %#v", cached.Result)
 	}
 }
 
@@ -137,22 +166,25 @@ func TestCompileCachedGraphWritesLatestBuildManifest(t *testing.T) {
 	if !ok || cached == nil || cached.Result == nil {
 		t.Fatal("expected cached graph to load")
 	}
-	reused, err := RefreshCachedWorkspace(appDir, cached.Result)
+	prepared, err := RefreshCachedWorkspace(appDir, cached.Result)
 	if err != nil {
 		t.Fatalf("refresh cached workspace: %v", err)
 	}
-	if !reused {
-		t.Fatal("expected existing fingerprint binary to be reusable")
+	if !prepared {
+		t.Fatal("expected cached graph workspace to remain prepared")
 	}
 	if contract := cached.Result.Contract; contract == nil || !contract.Valid() || contract.Root != appDir {
 		t.Fatalf("reused executable must retain current compiled requirements: %+v", contract)
 	}
-	if cached.Result.Target == nil || cached.Result.BuildInput == nil || len(cached.Result.ImplementationRevisions) == 0 {
-		t.Fatal("cached executable lost its candidate preflight identity")
+	if cached.Result.Target == nil || cached.Result.BuildInput != nil || len(cached.Result.ImplementationRevisions) != 0 {
+		t.Fatal("bare cached executable unexpectedly supplied candidate preflight identity")
 	}
 
 	if err := Compile(cached.Result); err != nil {
 		t.Fatalf("compile cached result: %v", err)
+	}
+	if cached.Result.BuildInput == nil || len(cached.Result.ImplementationRevisions) == 0 {
+		t.Fatal("identity-bound build did not prepare candidate preflight identity")
 	}
 
 	manifest, ok, err := ReadLatestBuildManifest(appDir)

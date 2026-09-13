@@ -153,9 +153,8 @@ type packageLayerRule struct {
 
 var packageLayerRules = []packageLayerRule{
 	{
-		// The root scenery.sh façade links the app runtime, its HTTP stack, and
-		// the PostgreSQL driver. Compiler-side packages need only the contract
-		// value types, so they depend on internal/contract and
+		// Compiler-side packages need only the contract value types, so they
+		// depend on internal/contract and
 		// internal/contractpolicy directly and stay runtime-free. Importing the
 		// façade here silently relinks that whole closure into every one of
 		// these test binaries.
@@ -700,6 +699,15 @@ func checkArchitectureGoImports(path, rel string) ([]checkDiagnostic, error) {
 				File:            rel,
 				Message:         "non-CLI package imports scenery.sh/cmd/scenery",
 				SuggestedAction: "Move shared code into internal/ instead of importing the CLI package.",
+			})
+		}
+		if filepath.Dir(filepath.FromSlash(rel)) == "." && !strings.HasSuffix(rel, "_test.go") && importPath == "scenery.sh/runtime" {
+			diagnostics = append(diagnostics, checkDiagnostic{
+				Stage:           "architecture checks",
+				Severity:        "error",
+				File:            rel,
+				Message:         "public SDK facade imports the full application runtime",
+				SuggestedAction: "Keep app-facing values in the lightweight SDK/shared owners and bridge runtime behavior through request context.",
 			})
 		}
 		if strings.HasPrefix(rel, "internal/app/") && importPath == "scenery.sh/internal/postgresdb" {

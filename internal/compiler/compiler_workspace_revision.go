@@ -24,24 +24,15 @@ func computeWorkspaceRevision(root string, sources []*Source) (string, error) {
 		}
 		entries[source.Relative] = source.Bytes
 	}
-	lockPath := filepath.Join(root, scn.AppLockFilename)
-	if info, err := os.Lstat(lockPath); err == nil {
-		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-			return "", fmt.Errorf("%s must be a regular workspace file", scn.AppLockFilename)
-		}
-		b, err := os.ReadFile(lockPath)
-		if err != nil {
-			return "", err
-		}
-		entries[scn.AppLockFilename] = b
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return "", err
-	}
 	declared, err := declaredWorkspaceEntries(root, sources)
 	if err != nil {
 		return "", err
 	}
 	maps.Copy(entries, declared)
+	return workspaceRevisionForEntries(entries), nil
+}
+
+func workspaceRevisionForEntries(entries map[string][]byte) string {
 	paths := make([]string, 0, len(entries))
 	for path := range entries {
 		paths = append(paths, path)
@@ -55,7 +46,82 @@ func computeWorkspaceRevision(root string, sources []*Source) (string, error) {
 		_ = binary.Write(h, binary.BigEndian, uint64(len(entries[path])))
 		_, _ = h.Write(entries[path])
 	}
-	return "sha256:" + hex.EncodeToString(h.Sum(nil)), nil
+	return "sha256:" + hex.EncodeToString(h.Sum(nil))
+}
+
+// WorkspaceRevisionInput names one non-declaration file that contributes to
+// the exact workspace revision. Implementation is false for files whose bytes
+// also affect the compiled contract graph (for example a view SQL module).
+type WorkspaceRevisionInput struct {
+	Path           string
+	Implementation bool
+	// Present distinguishes a consumed file from a relevant absent resolver
+	// alternative. Callers retain both states so a newly appearing higher-
+	// priority module or optional revision input invalidates the snapshot.
+	Present bool
+}
+
+// WorkspaceRevisionInputs resolves the complete current membership selected by
+// a compiled graph. Callers capture these files together with the declaration
+// sources, then use BindCapturedWorkspaceRevision without another tree read.
+func WorkspaceRevisionInputs(result *Result) ([]WorkspaceRevisionInput, error) {
+	return WorkspaceRevisionInputsWithGenerated(result, nil)
+}
+
+// WorkspaceRevisionInputsWithGenerated is WorkspaceRevisionInputs with an
+// already captured generated-path set. It avoids repeating descriptor
+// discovery in long-lived watch owners that necessarily classified those
+// paths before scanning authored files.
+func WorkspaceRevisionInputsWithGenerated(result *Result, generated map[string]bool) ([]WorkspaceRevisionInput, error) {
+	if result == nil {
+		return nil, errors.New("compiler result is unavailable")
+	}
+	paths, err := workspaceRevisionInputPathsWithGenerated(result.Root, result.Sources, generated)
+	if err != nil {
+		return nil, err
+	}
+	inputs := make([]WorkspaceRevisionInput, 0, len(paths))
+	declarations := make(map[string]bool, len(result.Sources))
+	for _, source := range result.Sources {
+		if source != nil && !source.External {
+			declarations[source.Relative] = true
+		}
+	}
+	for _, path := range paths {
+		if declarations[path.relative] {
+			continue
+		}
+		inputs = append(inputs, WorkspaceRevisionInput{Path: path.relative, Implementation: path.implementation, Present: path.present})
+	}
+	return inputs, nil
+}
+
+// BindCapturedWorkspaceRevision binds an otherwise unchanged graph to exact
+// captured revision bytes. The caller supplies precisely the membership from
+// WorkspaceRevisionInputs; no filesystem reads occur here.
+func BindCapturedWorkspaceRevision(result *Result, captured map[string][]byte) error {
+	if result == nil {
+		return errors.New("compiler result is unavailable")
+	}
+	entries := make(map[string][]byte, len(result.Sources)+len(captured))
+	for _, source := range result.Sources {
+		if source == nil || source.External {
+			continue
+		}
+		entries[source.Relative] = source.Bytes
+	}
+	for path, data := range captured {
+		clean := filepath.ToSlash(filepath.Clean(path))
+		if path == "" || filepath.IsAbs(path) || clean == "." || clean == ".." || strings.HasPrefix(clean, "../") || forbiddenWorkspacePath(clean) {
+			return fmt.Errorf("captured workspace revision input is unsafe: %s", path)
+		}
+		if _, declared := entries[clean]; declared {
+			return fmt.Errorf("captured workspace revision input duplicates declaration source: %s", clean)
+		}
+		entries[clean] = data
+	}
+	result.WorkspaceRevision = workspaceRevisionForEntries(entries)
+	return nil
 }
 
 // RefreshWorkspaceRevision re-hashes an unchanged compiler result after its
@@ -73,8 +139,62 @@ func RefreshWorkspaceRevision(result *Result) error {
 }
 
 func declaredWorkspaceEntries(root string, sources []*Source) (map[string][]byte, error) {
-	entries, err := declaredResourceFileEntries(root, sources)
+	paths, err := workspaceRevisionInputPaths(root, sources)
 	if err != nil {
+		return nil, err
+	}
+	entries := make(map[string][]byte, len(paths))
+	for _, input := range paths {
+		if !input.present {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(input.relative)))
+		if err != nil {
+			return nil, err
+		}
+		entries[input.relative] = data
+	}
+	return entries, nil
+}
+
+type workspaceRevisionInputPath struct {
+	relative       string
+	implementation bool
+	present        bool
+}
+
+func workspaceRevisionInputPaths(root string, sources []*Source) ([]workspaceRevisionInputPath, error) {
+	return workspaceRevisionInputPathsWithGenerated(root, sources, nil)
+}
+
+func workspaceRevisionInputPathsWithGenerated(root string, sources []*Source, generatedPaths map[string]bool) ([]workspaceRevisionInputPath, error) {
+	resourcePaths, err := declaredResourceFileInputs(root, sources)
+	if err != nil {
+		return nil, err
+	}
+	paths := make(map[string]workspaceRevisionInputPath, len(resourcePaths))
+	add := func(rel string, implementation, present bool) {
+		rel = filepath.ToSlash(rel)
+		if current, exists := paths[rel]; exists {
+			// Graph inputs dominate implementation-only classification and a
+			// present observation dominates a semantic absence.
+			implementation = implementation && current.implementation
+			present = present || current.present
+		}
+		paths[rel] = workspaceRevisionInputPath{relative: rel, implementation: implementation, present: present}
+	}
+	for _, input := range resourcePaths {
+		add(input.relative, false, input.present)
+	}
+	lockPath := filepath.Join(root, scn.AppLockFilename)
+	if info, err := os.Lstat(lockPath); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			return nil, fmt.Errorf("%s must be a regular workspace file", scn.AppLockFilename)
+		}
+		add(scn.AppLockFilename, false, true)
+	} else if errors.Is(err, os.ErrNotExist) {
+		add(scn.AppLockFilename, false, false)
+	} else if !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
 	var workspace *Block
@@ -89,15 +209,17 @@ func declaredWorkspaceEntries(root string, sources []*Source) (map[string][]byte
 		}
 	}
 	if workspace == nil {
-		return entries, nil
+		return sortedWorkspaceRevisionInputPaths(paths), nil
 	}
 	managedRoots, err := workspaceManagedGeneratedRoots(workspace)
 	if err != nil {
 		return nil, err
 	}
-	generatedPaths, err := GeneratedPaths(root)
-	if err != nil {
-		return nil, err
+	if generatedPaths == nil {
+		generatedPaths, err = GeneratedPaths(root)
+		if err != nil {
+			return nil, err
+		}
 	}
 	for _, implementationRoot := range workspace.Blocks {
 		if implementationRoot.Type != "implementation_root" {
@@ -147,11 +269,7 @@ func declaredWorkspaceEntries(root string, sources []*Source) (map[string][]byte
 			if entry.Type()&os.ModeSymlink != 0 {
 				return fmt.Errorf("workspace revision input is a symlink: %s", filePath)
 			}
-			b, err := os.ReadFile(filePath)
-			if err != nil {
-				return err
-			}
-			entries[filepath.ToSlash(workspaceRelative)] = b
+			add(workspaceRelative, true, true)
 			return nil
 		})
 		if err != nil {
@@ -179,6 +297,7 @@ func declaredWorkspaceEntries(root string, sources []*Source) (map[string][]byte
 			path := filepath.Join(root, filepath.FromSlash(clean))
 			info, err := os.Lstat(path)
 			if errors.Is(err, os.ErrNotExist) && optional {
+				add(clean, true, false)
 				continue
 			}
 			if err != nil {
@@ -190,14 +309,19 @@ func declaredWorkspaceEntries(root string, sources []*Source) (map[string][]byte
 			if err := rejectPathSymlinks(root, path); err != nil {
 				return nil, fmt.Errorf("revision_input %s: %w", clean, err)
 			}
-			data, err := os.ReadFile(path)
-			if err != nil {
-				return nil, err
-			}
-			entries[clean] = data
+			add(clean, true, true)
 		}
 	}
-	return entries, nil
+	return sortedWorkspaceRevisionInputPaths(paths), nil
+}
+
+func sortedWorkspaceRevisionInputPaths(paths map[string]workspaceRevisionInputPath) []workspaceRevisionInputPath {
+	result := make([]workspaceRevisionInputPath, 0, len(paths))
+	for _, input := range paths {
+		result = append(result, input)
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].relative < result[j].relative })
+	return result
 }
 
 func workspaceManagedGeneratedRoots(workspace *Block) ([]string, error) {
@@ -258,8 +382,11 @@ func forbiddenWorkspacePath(path string) bool {
 	return false
 }
 
-func declaredResourceFileEntries(root string, sources []*Source) (map[string][]byte, error) {
-	entries := map[string][]byte{}
+func declaredResourceFileInputs(root string, sources []*Source) ([]workspaceRevisionInputPath, error) {
+	paths := map[string]workspaceRevisionInputPath{}
+	add := func(path string, present bool) {
+		paths[path] = workspaceRevisionInputPath{relative: path, present: present}
+	}
 	for _, source := range sources {
 		for _, block := range source.Blocks {
 			var declarations []string
@@ -285,28 +412,60 @@ func declaredResourceFileEntries(root string, sources []*Source) (map[string][]b
 				if !pathWithin(root, path) {
 					return nil, fmt.Errorf("declared resource file escapes workspace: %s", declared)
 				}
-				readPath := path
+				readPaths := []string{path}
 				if block.Type == "renderer" {
-					resolved, ok := resolveDeclaredModulePath(path)
-					if !ok {
+					readPaths = nil
+					resolved := false
+					for _, candidate := range declaredModuleCandidates(path) {
+						info, statErr := os.Stat(candidate)
+						if statErr != nil || !info.Mode().IsRegular() {
+							readPaths = append(readPaths, candidate)
+							continue
+						}
+						readPaths = append(readPaths, candidate)
+						resolved = true
+						break
+					}
+					if !resolved {
 						return nil, fmt.Errorf("read declared resource file %s: file is unavailable", declared)
 					}
-					readPath = resolved
+				} else {
+					if err := rejectPathSymlinks(root, path); err != nil {
+						return nil, fmt.Errorf("read declared resource file %s: %w", declared, err)
+					}
+					if info, statErr := os.Stat(path); statErr != nil || !info.Mode().IsRegular() {
+						if statErr != nil {
+							return nil, fmt.Errorf("read declared resource file %s: %w", declared, statErr)
+						}
+						return nil, fmt.Errorf("read declared resource file %s: file is unavailable", declared)
+					}
 				}
-				if err := rejectPathSymlinks(root, readPath); err != nil {
-					return nil, fmt.Errorf("read declared resource file %s: %w", declared, err)
+				selected := false
+				for _, readPath := range readPaths {
+					info, statErr := os.Stat(readPath)
+					present := statErr == nil && info.Mode().IsRegular()
+					if present {
+						if err := rejectPathSymlinks(root, readPath); err != nil {
+							return nil, fmt.Errorf("read declared resource file %s: %w", declared, err)
+						}
+						selected = true
+					}
+					relative, err := filepath.Rel(root, readPath)
+					if err != nil {
+						return nil, err
+					}
+					add(filepath.ToSlash(relative), present)
+					if selected {
+						break
+					}
 				}
-				data, err := os.ReadFile(readPath)
-				if err != nil {
-					return nil, fmt.Errorf("read declared resource file %s: %w", declared, err)
-				}
-				relative, err := filepath.Rel(root, readPath)
-				if err != nil {
-					return nil, err
-				}
-				entries[filepath.ToSlash(relative)] = data
 			}
 		}
 	}
-	return entries, nil
+	result := make([]workspaceRevisionInputPath, 0, len(paths))
+	for _, input := range paths {
+		result = append(result, input)
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].relative < result[j].relative })
+	return result, nil
 }

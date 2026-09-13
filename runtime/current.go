@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"scenery.sh/internal/appsdk"
 	"scenery.sh/internal/runtimeapi"
 	"scenery.sh/runtime/shared"
 )
@@ -30,12 +31,7 @@ type requestState struct {
 var stateStore sync.Map
 
 func CurrentRequest() *shared.Request {
-	state := currentState()
-	if state == nil {
-		return &shared.Request{Type: shared.None}
-	}
-	req := state.request
-	return &req
+	return appsdk.CurrentRequest()
 }
 
 func CurrentAuth() *AuthInfo {
@@ -77,7 +73,11 @@ func stateFromContext(ctx context.Context) *requestState {
 }
 
 func withState(ctx context.Context, state *requestState) context.Context {
-	return context.WithValue(ctx, requestStateKey{}, state)
+	ctx = context.WithValue(ctx, requestStateKey{}, state)
+	if state == nil {
+		return ctx
+	}
+	return appsdk.WithInvocation(ctx, &state.request, applicationSpanStarter{})
 }
 
 func withRuntimeInvocation(ctx context.Context, state *requestState) context.Context {
@@ -121,7 +121,12 @@ func enterState(state *requestState) func() {
 	id := goroutineID()
 	prev, hadPrev := stateStore.Load(id)
 	stateStore.Store(id, state)
+	restoreSDK := func() {}
+	if state != nil {
+		restoreSDK = appsdk.EnterInvocation(&state.request, applicationSpanStarter{})
+	}
 	return func() {
+		restoreSDK()
 		if hadPrev {
 			stateStore.Store(id, prev)
 			return

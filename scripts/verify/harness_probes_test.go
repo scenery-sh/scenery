@@ -25,7 +25,9 @@ func TestHarnessExplicitProofSelection(t *testing.T) {
 		{[]string{"--release"}, harnessSelfModeRelease, want},
 		{[]string{"--probe", "worktree", "--probe", "auth"}, harnessSelfModeProbe, []string{"auth", "worktree"}},
 		{[]string{"--probe", "auth"}, harnessSelfModeProbe, []string{"auth"}},
+		{[]string{"--benchmark", "edit-latency"}, harnessSelfModeBenchmark, nil},
 		{[]string{"--benchmark", "worktree-cost"}, harnessSelfModeBenchmark, nil},
+		{[]string{"--benchmark", "edit-latency"}, harnessSelfModeBenchmark, nil},
 	} {
 		opts, err := parseHarnessSelfArgs(tc.args)
 		if err != nil || opts.Mode != tc.mode {
@@ -41,7 +43,7 @@ func TestHarnessExplicitProofSelection(t *testing.T) {
 		if !slices.Equal(ids, tc.ids) {
 			t.Fatalf("%v selected %v, want %v", tc.args, ids, tc.ids)
 		}
-		if tc.mode == harnessSelfModeBenchmark && opts.Benchmark != "worktree-cost" {
+		if tc.mode == harnessSelfModeBenchmark && opts.Benchmark != tc.args[1] {
 			t.Fatalf("benchmark lost: %+v", opts)
 		}
 	}
@@ -52,6 +54,7 @@ func TestHarnessInvalidProofSelectionFailsBeforeWork(t *testing.T) {
 	for _, args := range [][]string{
 		{"--probe", "unknown"}, {"--probe", "auth", "--probe", "auth"},
 		{"--benchmark", "unknown"}, {"--benchmark", "worktree-cost", "--benchmark", "worktree-cost"},
+		{"--benchmark", "edit-latency", "--benchmark", "edit-latency"},
 		{"--release", "--probe", "auth"}, {"--probe", "auth", "--release"},
 		{"--quick", "--probe", "auth"}, {"--probe", "auth", "--race"},
 		{"--probe", "auth", "--benchmark", "worktree-cost"},
