@@ -1,5 +1,109 @@
 # Product and Island Build Comparison
 
+## Identical full-ONLV result (supersedes the scope-mismatched comparison)
+
+The human required identical compilation scope. The direct-driver experiment
+now compiles the actual complete product `./scenery_internal_main`, not an AHJ
+shim. Thirty accepted paired builds show no observed build-speed advantage:
+
+| Real Go subprocess, nearest-rank statistics | Product invocation | Full-ONLV direct-driver experiment |
+|---|---:|---:|
+| p50 | 1169.606 ms | 1170.521 ms |
+| p95 | 1275.589 ms | 1339.742 ms |
+| Mean | 1185.342 ms | 1194.955 ms |
+
+The median paired experiment-minus-product difference is -0.156 ms; the mean
+paired difference is +9.613 ms. The experiment is not demonstrably faster in
+this cohort. Both lanes use the same stock Go driver algorithm. This experiment
+does not implement direct compiler/linker integration or promote a new backend.
+The previous approximately 400 ms AHJ build was a smaller workload, not evidence
+that the full ONLV application can build that quickly.
+
+### Exact scope and equality proof
+
+Every pair has 620 Go packages and 2899 Go-reported source/module/native/embed
+input files, including the real generated main and all its application service
+dependencies. Both outputs are byte-identical approximately 52 MB executables.
+This is the full production Go application binary, not a frontend build or
+independent assistant-worker asset rebuild.
+
+A run-owned Go wrapper receives the complete actual production argv, cwd and
+environment directly from the running product. It executes that command and
+the experimental command, changing only output destination and GOCACHE. Full
+linker identity flags, cgo configuration, build target and source bytes remain
+identical; no lower-level trace command is reconstructed. Go itself discovers
+the complete dependency/file inventory in both cache contexts. Content hashes
+must match before the pair and remain unchanged afterward. Executable SHA-256
+must match. The product then passes normal candidate admission, serves the new
+authenticated AHJ behavior, and passes independent current-candidate verification.
+
+Both driver caches are run-owned and separate. Native implementation checking
+uses a third cache so it cannot precompile the current edit into only one lane.
+Initial setup and two warmups are excluded; the 30 pairs alternate execution
+order, 15 product-first and 15 experiment-first. The first exploratory cohort,
+`full-onlv-paired-20260914`, had a possible validation-cache priming advantage and
+is diagnostic only. The final cohort is `full-onlv-isolated-20260914`.
+
+Times start immediately before launching the actual Go binary and end at its
+exit. Input discovery, hashing and product orchestration are outside these
+numbers. The wrapper runs both builds before returning to the supervisor, so
+its outer `go.command` and HTTP edit-loop timings intentionally include duplicate
+work and are **not** production latency estimates. First-execution/startup speed
+was not compared in this cohort. Warm Go action caches and source pages were
+used, not cold-machine compilation. Other developer workloads were not stopped;
+no statistical equivalence claim beyond the observed cohort is made.
+
+### Revisions, commands and evidence
+
+ONLV commit is `4f8126a3e3806b7100ab7efaca1b7dd06b894221`. The already selected
+immutable Scenery snapshot is HEAD `825f46194bf109887b4856b20c82e261ce565e4c`
+plus the source-identity fix, source digest
+`sha256:724ebe661cda1eef291a81053b33ab25de0dbc2064307b0497de4fd2a22c869f`,
+producer executable digest
+`sha256:911af0a7c81db3f94986966a6bed012cece48a54abec6bcf1a3e2e7d79f2e643`.
+Native macOS arm64 uses Go 1.27.0, GOMAXPROCS=2, cgo enabled and product
+`-buildvcs=false` in both lanes. Concurrent instruction edits in the source
+checkout were not substituted into that selected framework snapshot.
+
+The wrapper lives at `.scenery/harness/full-onlv-build/run-20260914/bin/go`.
+Only the owned ONLV fixture is started with that directory prepended to PATH
+and sibling `product-cache` as GOCACHE. It internally separates
+`experimental-cache` and `validation-cache`. From the Scenery root:
+
+```sh
+bun .scenery/harness/builder-comparison/measure-product.ts full-onlv-isolated-20260914
+bun .scenery/harness/full-onlv-build/summarize.ts full-onlv-isolated-20260914
+```
+
+- Summary: `.scenery/harness/full-onlv-build/run-20260914/summary.json`,
+  SHA-256 `3d3758f7fbc7ae4ac23d5a4f493a933e3b7dd38a60b3e8e1554688c9872a0da5`.
+- Full pair manifests, argv, environment digest, timings and binary hashes are
+  under its `pairs/` directory and individually hash-bound by the summary.
+- Runtime identity/restoration report:
+  `.scenery/harness/builder-comparison/full-onlv-isolated-20260914/report.json`,
+  SHA-256 `a7e42dfa77b91980c29dd4ba617de72fb657b5bb213c006360cf8443ac99a6ac`.
+- Wrapper SHA-256:
+  `48bb5f4940085b48706e91cfac80661497552ae6e3e52aefd76ae3c21cc584b0`.
+
+All 30 pairs passed input, executable and served-identity checks. Original source
+was restored byte-for-byte and verified; a fresh `ps` reports the owned fixture
+stopped with no sessions. Experimental output copies were removed after hash
+comparison; owned caches and evidence are retained. No product default, shared
+cache, installed CLI or human-owned target document was changed by this experiment. The wrapper is
+run-local experimental tooling, not a new supported product build mode.
+See [Plan 0192](plans/0192-identical-full-onlv-build-comparison.md).
+
+Documentation validation: `go run ./scripts/verify --quick --summary --write`
+passed with 41 knowledge and 21 architecture warnings, no errors;
+`git diff --check` passed. Product/verifier Go code was not changed by this
+same-scope experiment, so no new package test/lint or release probe was needed.
+Linux and full release certification were not selected.
+
+## Historical smaller-island comparison
+
+The comparison below does not satisfy identical full-ONLV compilation scope and
+must not be cited as a same-workload builder speedup.
+
 Status: comparison completed after repairing cached-preparation source identity.
 Both current series have 30 accepted samples. This is a comparison of differently
 scoped workflows, not proof of a faster compiler or an interchangeable backend.

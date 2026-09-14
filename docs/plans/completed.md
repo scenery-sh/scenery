@@ -1,5 +1,7 @@
 # Completed Plans
 
+- [0191 Task-Scoped Agent Instructions](0191-task-scoped-agent-instructions.md) — 2026-09-14: compact entrypoints, preserved safeguards, corrected validation selection, and two executed documentation/Go/runtime exercises with exact HTTP/build identity.
+
 This file records completed milestones so agents can distinguish shipped behavior from future intent.
 
 Completed means implemented or shipped at least once. It does not imply stable
@@ -10,6 +12,20 @@ This index remains living, but the completed ExecPlans it links are immutable
 historical records. Do not refresh their review dates or rewrite them as current
 contract prose. Record later guidance here or in the owning current contract;
 use stale knowledge metadata to flag a known contradiction.
+
+## Identical Full ONLV Build Comparison
+
+- Status: completed; no observed direct-driver build-speed advantage at equal scope
+- Owner: scenery verifier / native development execution
+- Completed: 2026-09-14
+- ExecPlan: [0192 Identical Full ONLV Build Comparison](0192-identical-full-onlv-build-comparison.md)
+
+Thirty paired builds compiled the same full 620-package ONLV target with
+identical inputs and byte-identical executables. Product Go subprocess p50/p95
+was 1169.606 / 1275.589 ms; the direct-driver experiment was 1170.521 / 1339.742 ms.
+Independent driver/validation caches, alternating order, runtime identity and
+cleanup passed. The earlier smaller AHJ cohort is not a same-scope comparison.
+See the [living report](../product-and-island-build-comparison.md).
 
 ## Product and Island Build Comparison
 

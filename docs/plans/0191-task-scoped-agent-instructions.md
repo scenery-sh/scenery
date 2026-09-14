@@ -15,10 +15,10 @@ Decision Log, and Outcomes & Retrospective current as work proceeds.
   `.scenery/harness/instruction-refresh-0191/before`; record unrelated changes.
 - [x] 2026-09-14: Find unconditional full-verifier insertion in path-scoped
   documentation inspection despite the existing changed-area classifier.
-- [ ] Compact entrypoints and preserve displaced operational guidance.
-- [ ] Correct validation selection and align current contracts.
-- [ ] Execute documentation, Go, and runtime exercises and record evidence.
-- [ ] Complete required validation and the six-item acceptance audit.
+- [x] 2026-09-14: Compact entrypoints, add scoped ownership and preserve operational references.
+- [x] 2026-09-14: Correct validation selection, root-document classification and current contracts.
+- [x] 2026-09-14: Both fixture copies pass documentation, Go and live runtime exercises; HTTP headers match current source/build manifests and all owned processes are stopped.
+- [x] 2026-09-14: Required CLI/verifier tests, lint, full repository verification and the six-item acceptance audit passed; retain final metadata verification as a directly captured JSON response.
 
 ## Surprises & Discoveries
 
@@ -42,7 +42,30 @@ The baseline skill has 3,870 whitespace-separated words; root instructions have
 
 ## Outcomes & Retrospective
 
-Not yet completed.
+All six accepted recommendations are implemented and exercised. Root instructions
+fell from 2,500 to 1,924 words; the app skill from 3,870 to 829. All 16 skill
+references resolve. Scoped app/config and Go-loader instructions preserve the
+moved package rules, and CLI discovery returns classifier-selected checks with
+full replacing quick. Root README/architecture files now classify as docs.
+
+Both disposable copies passed the documentation correction, a Go operation
+red/green test, and live HTTP replacement. Current source SHA-256, runtime bundle
+and HTTP identity matched; all six owned supervisor/API processes were absent
+after scoped shutdown. No broader model-speed claim follows from this session.
+
+`go test ./cmd/scenery ./internal/repoinfo`, `go test ./scripts/verify`,
+`golangci-lint run ./...`, the skill validator and full verifier passed. Full
+reported 41 documentation freshness and 21 existing architecture warnings with
+zero errors. Its repository Go suite, vet, schema and drift checks passed.
+Release certification, named external probes and all-root timing were not
+selected because the changed product boundary is read-only documentation
+routing. [The evaluation](../agent-instruction-evaluation.md) records exact
+commands, limitations, safeguards and runtime identities.
+
+A concurrent commit (`6028a01d`) included part of this task without being made
+by this session. Preserve the combined history and unrelated Plan 0192 work.
+The shared latest report can be replaced by other runs; capture final validation
+stdout directly in `.scenery/harness/instruction-refresh-0191/full-final.json`.
 
 ## Context and Orientation
 

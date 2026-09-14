@@ -15,15 +15,25 @@ do not imply a distinct compiler exists.
 
 - [x] (2026-09-14) Confirmed both existing paths use stock Go; smaller island
   scope invalidates a same-workload speedup claim.
-- [ ] Capture and execute complete full-ONLV driver commands in both lanes.
-- [ ] Accept two warmups and 30 paired builds with identical input manifests
+- [x] (2026-09-14) Capture and execute complete full-ONLV driver commands in both lanes.
+- [x] (2026-09-14) Accept two warmups and 30 paired builds with identical input manifests
   and executable hashes, then restore source and stop the owned runtime.
-- [ ] Publish results and validate documentation.
+- [x] (2026-09-14) Publish results and validate documentation with the quick
+  verifier (41 knowledge and 21 architecture warnings, no errors) and diff check.
 
 ## Surprises & Discoveries
 
-Not yet measured. Other tasks are concurrently editing instruction documents;
-preserve their changes and bind measurements to the selected framework snapshot.
+The complete target has 620 Go packages and 2899 inventoried input files; both
+lanes produced byte-identical executables of about 52 MB. The initial wrapper
+buffered non-build Go stdout and caused a startup JSON EOF; inherited streams
+fixed the instrumentation before measurement.
+
+A first 30-pair diagnostic series passed input, executable and HTTP identity,
+but native implementation verification could prime the product cache. Retain
+that series as diagnostic, not the final isolated comparison. The final series
+routes non-build Go calls to a third validation cache. Both driver caches remain
+separate and receive unique full-app edits. Other tasks concurrently edit repo
+instructions; measurements use the already immutable selected framework snapshot.
 
 ## Decision Log
 
@@ -39,10 +49,18 @@ preserve their changes and bind measurements to the selected framework snapshot.
 - 2026-09-14, Codex: wrapper runs both builds before returning to the supervisor,
   so instrumented edit-to-response and outer go.command times are not product
   latency estimates. Only separately timed real-Go subprocesses are compared.
+- 2026-09-14, Codex: isolate native verification in a third cache, preventing
+  precompiled exports of the current edit from advantaging the product lane.
 
 ## Outcomes & Retrospective
 
-Not yet completed.
+Completed on 2026-09-14. The final isolated-cache cohort accepted 30 pairs with identical full ONLV
+inputs and executable hashes. Product p50/p95 is 1169.606 / 1275.589 ms;
+experiment is 1170.521 / 1339.742 ms. No observed build-speed advantage remains
+at equal scope. Both paths use stock Go. Source restoration, independent runtime
+identity verification and owned shutdown passed. Documentation validation passed.
+No product build mode was added or promoted; the run-local experiment confirms
+that the direct-driver approach has no observed advantage for the same full app.
 
 ## Context and Orientation
 
@@ -78,6 +96,18 @@ Keep run-owned tooling and evidence under `.scenery/harness/full-onlv-build/`.
 Use the existing measurement runner with a unique label, two warmups and 30
 measurements. Record exact commands and artifact hashes in the report. Do not
 modify the main ONLV checkout, shared caches, installed CLI, or VNEXT.md.
+
+Wrapper: `.scenery/harness/full-onlv-build/run-20260914/bin/go`.
+Start the owned fixture with that directory prepended to PATH and GOCACHE set
+to its sibling `product-cache`; only the wrapper uses the sibling
+`experimental-cache` and `validation-cache`. Run from the Scenery root:
+
+```sh
+bun .scenery/harness/builder-comparison/measure-product.ts full-onlv-isolated-20260914
+bun .scenery/harness/full-onlv-build/summarize.ts full-onlv-isolated-20260914
+```
+
+The earlier `full-onlv-paired-20260914` series remains diagnostic only.
 
 ## Validation and Acceptance
 
