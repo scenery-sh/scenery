@@ -19,6 +19,18 @@
   },
   "documents": [
     {
+      "path": "VNEXT.md",
+      "title": "Scenery VNEXT",
+      "owner": "scenery maintainers",
+      "status": "reference",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-14",
+      "review_after": "2026-10-14",
+      "summary": "Target architecture for persistent incremental builds, a stable runtime host, replaceable Go implementations and isolated worktrees, with 300/500 ms warm-edit goals. Baseline comparisons describe the proposal's starting point, not current implementation status.",
+      "tags": ["architecture", "roadmap", "runtime", "build", "worktree", "performance"]
+    },
+    {
       "path": "docs/plans/0187-go-plugin-reload-feasibility.md",
       "title": "Go Plugin Reload Feasibility",
       "owner": "scenery verifier / native reload architecture evidence",

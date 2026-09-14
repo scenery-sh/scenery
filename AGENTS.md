@@ -136,6 +136,8 @@ scenery logs -o jsonl --limit 200
 
 ## Documentation Update Rules
 
+Only humans may modify `VNEXT.md`.
+
 When changing behavior, update every affected layer in the same change. Small implementation-only edits need no instruction-doc updates; still report that docs were intentionally left unchanged.
 
 | What changed | Update |

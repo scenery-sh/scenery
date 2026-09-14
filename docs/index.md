@@ -41,6 +41,7 @@ Scenery has one evolving application contract. Start with the [Scenery Specifica
 
 ## Product Plans
 
+- [Scenery VNEXT](../VNEXT.md): target architecture and acceptance goals for a long-lived execution platform; baseline comparisons describe the proposal's starting point, not current implementation status.
 - [Roadmap](../PLAN.md): strategic priorities and links to executable work.
 - [Active Plans](plans/active.md): planned or in-progress work that agents should consider when editing the repo.
 - [Completed Plans](plans/completed.md): shipped milestones and acceptance notes.
