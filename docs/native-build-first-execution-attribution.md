@@ -1,6 +1,7 @@
 # Native Build and First-Execution Attribution
 
-Status: macOS measurement complete; causal attribution remains insufficient.
+Status: macOS measurement complete; Git stamping follow-up identifies a large
+avoidable driver cost. Exact platform-loading causality remains unresolved.
 Linux is deferred by the human. No production backend changed. The human added
 ChatGPT to Developer Tools; the agent did not change security policy.
 
@@ -11,11 +12,91 @@ launch regime. Package loading is a measured substantial phase, not an inferred
 remainder. The evidence does not establish a universal 400 ms first-launch floor
 or identify the platform mechanism behind the change between runs.
 
-The next useful build investigation is package loading, action setup and cache
-validation. A lower-level compile/link experiment is legitimate, but not yet a
+The follow-up below narrows the broad package-loading label: much of its cost
+is Git provenance/version discovery, not source parsing. The product's app build
+already passes `-buildvcs=false`; this experiment removes overhead from its own
+benchmark, not newly from the product. Remaining
+loading, action setup and cache validation still need investigation.
+A lower-level compile/link experiment is legitimate, but not yet a
 validated replacement: it must preserve complete Go-derived dependency inputs,
 include ongoing validation costs, and receive separate authorization. No command
 strings from these reports may be replayed as a complete build recipe.
+
+## Git stamping follow-up: 2026-09-14
+
+Product-scope correction: `internal/build/compile.go` already appends
+`-buildvcs=false` when building `./scenery_internal_main`; the ordinary
+`scenery up` pipeline calls that owner. Framework preparation also disables
+automatic VCS stamping. Therefore the reductions below are benchmark results,
+not an additional available speedup for the product's existing Go build.
+Product input discovery requests selected Go JSON fields and uses a guarded
+digest cache, unlike this benchmark's full capture. Neither the 257 ms capture
+nor the 690 ms total is a measurement of the full product path.
+
+The human authorized trying `-buildvcs=false`. No verifier or production source
+changed. From clean Scenery commit `4b275d14c5f35eba2fd7fdaac31f50133e3431e9`,
+two serial cohorts used the existing runner, each with two excluded warmups,
+30 unique-artifact first/repeated pairs and five separate diagnostic pairs:
+
+```sh
+GOFLAGS=-buildvcs=false go run ./scripts/verify --benchmark native-reload-attribution --workload-root /Users/petrbrazdil/Repos/onlv --summary --write
+GOFLAGS=-buildvcs=auto go run ./scripts/verify --benchmark native-reload-attribution --workload-root /Users/petrbrazdil/Repos/onlv --summary --write
+```
+
+The disabled cohort ran first, then the automatic-stamping control. `GOFLAGS`
+applies to the harness's `go list` as well as `go build` and framework preparation;
+this is not a build-command-only treatment. The recorded Go environment and
+input identity include the flag. No persistent Go configuration was changed.
+Both use the same pinned ONLV revision and framework source digest recorded
+below, Go 1.27.0, and the same host/launcher. Native Settings showed ChatGPT
+enabled in Developer Tools during the disabled run and after both cohorts.
+
+| Boundary | `auto` p50 / p95 ms | `false` p50 / p95 ms |
+|---|---:|---:|
+| Input discovery, hashing and evidence | 403.742 / 420.171 | 256.584 / 284.686 |
+| Build | 551.220 / 606.307 | 398.853 / 431.122 |
+| First launch through ready | 34.513 / 36.113 | 34.124 / 36.788 |
+| Build through verified first response | 591.987 / 648.775 | 437.447 / 471.951 |
+| Edit through verified first response | 992.548 / 1032.757 | 690.349 / 739.013 |
+
+These are separate distributions, not additive phase medians. The observed
+build p50 reduction is 152.368 ms (27.6%); edit p50 reduction is 302.199 ms (30.4%).
+First launch is essentially unchanged. Both total and experimental build gates
+still fail. Removing Go's optional Git stamp does not remove compiler dependency
+validation, and the fixture still proves its own linked generation, input
+identity, independent executable digest, constructor and new typed response.
+
+The diagnostic `load.PackagesAndErrors` span fell from 266.734–292.869 ms with
+automatic stamping to 110.387–121.826 ms without it. Inspection of the stock
+Go 1.27 source shows `setBuildInfo` performing `git status`, `git log`, and local
+revision/tag/version lookup. In the earlier automatic diagnostic 01, the runtime
+syscall profile attributed 139.510 ms aggregate blocking to `setBuildInfo`,
+including 62.48 ms under `gitStatus` and 76.58 ms under module revision lookup.
+Disabled-cohort diagnostic 01 attributed only 0.147 ms there. Profile blocking
+is not an additive wall-clock partition, but it corroborates the mechanism and
+the separately measured build reduction.
+
+Limitations: fixed cohort order, separate disposable worktrees, different
+run-unique markers/framework executable identities, retained shared caches and
+uncontrolled background load. This is not randomized/interleaved same-worktree
+A/B evidence, and diagnostics are not pooled with primary samples. The return
+to roughly 551 ms in the later control supports the flag effect, but does not
+establish an exact guaranteed saving. The product already disables automatic
+Git stamping on app compilation; any remaining optimization must be measured
+through the actual product path while preserving Scenery's identity checks.
+
+Both benchmark commands passed with the existing 41 knowledge and 21 architecture
+warnings. Each report verifies 30 distinct first digests/inodes, same-artifact
+repeats with new PIDs, negative identity/lifecycle checks, stopped children,
+removed owned worktree and unchanged original checkout. No production source,
+completed plan, protected target or installed CLI was modified.
+
+Raw evidence under `.scenery/harness/native-reload-attribution/`:
+
+- Disabled: `attested-2273766442/report.json`, SHA-256
+  `102c82e7cab285aa12a92f8f8f0c867932607ba4534a7f7289debb150707884b`.
+- Automatic control: `attested-540312906/report.json`, SHA-256
+  `bec6e5d4960cee6b4cab221ae58dc09c855bdca95075c6a043b1263b3ce80d19`.
 
 ## Policy-observed confirmation cohort
 

@@ -28,6 +28,19 @@ and contracts below before it can change production ownership.
 
 ## Evidence
 
+A later authorized stock-Go flag experiment in the
+[attribution report](native-build-first-execution-attribution.md#git-stamping-follow-up-2026-09-14)
+compared two serial 30-sample cohorts. `GOFLAGS=-buildvcs=false` reduced build
+p50 from 551.220 to 398.853 ms and edit-through-verified-response p50 from
+992.548 to 690.349 ms, while first launch stayed near 34 ms. The flag also applied
+to the harness's preliminary `go list`; the total saving is not build-only.
+Git provenance/version lookup explains a substantial part of the broad loading
+span. Product app compilation already passes `-buildvcs=false` in
+`internal/build/compile.go`: this fixes benchmark overhead, not newly identified
+production overhead. Product input discovery also differs from the full-capture
+fixture. These timings are not full `scenery up` acceptance, and the remaining
+experimental latency still fails the target.
+
 The later [macOS attribution report](native-build-first-execution-attribution.md)
 keeps this decision unpromoted. Thirty new artifacts measured 531 ms build and
 567 ms build-through-first-response p50 even in a roughly 32 ms first-launch

@@ -27,7 +27,7 @@
       "freshness": "current",
       "last_reviewed": "2026-09-14",
       "review_after": "2026-10-14",
-      "summary": "Measured macOS first/repeated cohorts, stock-Go phase evidence, enabled Developer Tools UI observation and human confirmation, with insufficient causal attribution; Linux deferred.",
+      "summary": "Measured macOS AHJ experiment: disabling Git stamping reduces build p50 551 to 399 ms and edit p50 993 to 690 ms. Product app builds already disable stamping; these are not product-path timings. Developer Tools enabled; Linux deferred.",
       "tags": ["build", "runtime", "performance", "verification"]
     },
     {
