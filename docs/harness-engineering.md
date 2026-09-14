@@ -398,8 +398,8 @@ before calling a run complete; a successful subset does not prove skipped work.
 
 ## Doc Gardening
 
-Run `scenery inspect docs --for-path <path> -o json` before non-trivial repo
-changes. It reuses the changed-area router to return applicable instruction
+Use `scenery inspect docs --for-path <path> -o json` to locate context for a
+repository change. Known local edits need no broad discovery. It reuses the changed-area router to return applicable instruction
 scopes, owning sections, active plans, schemas, and verification commands.
 Use `scenery inspect docs --review-due -o json` to choose cleanup work and
 `--all` only for complete catalog validation. `go run ./scripts/verify --summary

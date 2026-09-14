@@ -177,12 +177,14 @@ func buildInspectDocsPathRoute(repoRoot, targetPath string, documents []inspectD
 	}}, packages, nil)
 
 	commandSet := stringSet(changedArea.RecommendedCommands)
-	commandSet[harnessValidationFullCommand] = struct{}{}
 	if len(route.AgentScopes) > 1 {
 		nearest := route.AgentScopes[len(route.AgentScopes)-1]
 		for _, command := range inspectDocsVerificationCommands(repoRoot, nearest.Path) {
 			commandSet[command] = struct{}{}
 		}
+	}
+	if _, full := commandSet[harnessValidationFullCommand]; full {
+		delete(commandSet, harnessValidationQuickCommand)
 	}
 	route.VerificationCommands = sortedStringSetMap(commandSet)
 

@@ -1,362 +1,92 @@
 ---
 name: scenery
-description: Use when building, running, debugging, inspecting, validating, or generating clients for current scenery applications. Scenery is a Go-native runtime and CLI whose singular application model is declared in app.scn and package-local package.scn files.
+description: Build, run, debug, and validate applications using Scenery's .scn graph, Go runtime, and generated clients.
 ---
 
 # scenery
 
-Scenery runs one supervised local runtime from the canonical graph in `app.scn` and package-local `package.scn` files. Go packages implement generated contracts; comments and package initialization register nothing.
+Scenery runs one supervised runtime per canonical app root. `.scenery.json`
+marks that root; `app.scn` and package-local `package.scn` declare the application
+graph. Go implements generated contracts. Source, effective, and expanded graph
+views answer different questions; choose the view the task needs.
 
-This skill complements app-local instructions. Read the root `AGENTS.md` and every child scope on the path to files you will touch. Keep app-specific roots, outputs, environment names, validation, and product invariants in the client repository.
-
-The paths below are relative to the Scenery source checkout, not the target
-app. Use the corresponding documentation from the installed skill when
-bundled; otherwise use a Scenery checkout matching the installed binary.
-For command syntax without a checkout, start with `scenery help <command> -o json`.
-
-Read next when needed:
-
-- `docs/agent-guide.md` for agent workflow and generated-artifact rules.
-- `docs/local-contract.md` for exact CLI grammar, JSON schemas, and artifact paths.
-- `docs/app-development-cookbook.md` for native app recipes.
-- `docs/ui-agent-contract.md` before changing Scenery's generated UI catalog.
+Read the app's root and applicable child `AGENTS.md` files. App-specific paths,
+environment names, validation profiles, and product invariants belong there.
+This skill supports the requested task; a reference does not expand its scope
+or grant permission for external actions or subagents.
 
 ## Route by Task
 
-| Intent | Start with |
-|---|---|
-| Understand the application | `scenery inspect app -o json` |
-| Investigate routing | `scenery inspect routes -o json` |
-| Declare or debug an assistant | Read the assistant sections of `docs/local-contract.md` and `docs/spec/SPEC.md`; use `scenery inspect assistants -o json` |
-| Investigate an operation | `scenery inspect endpoints -o json` |
-| Investigate a runtime failure | `scenery doctor -o json`, then bounded `scenery logs -o jsonl --limit 200` |
-| Change the source contract | `scenery fmt --check -o json`, `scenery check -o json`, then the applicable `scenery compile --view source\|effective\|expanded -o json` |
-| Validate a completed application change | Focused tests, `scenery generate --check -o json`, then the applicable `scenery harness -o json --write` |
-| Validate a Scenery repository change | Refresh `.scenery/harness/agent-context.json`, then run its exact `changed_area.recommended_commands` union |
-
-Run only the route relevant to the task; expand when its evidence points elsewhere. Prefer `-o json` and `-o jsonl`, verify schema/spec revisions and producer identity, branch on stable `SCNxxxx` diagnostics, and resolve opaque source IDs through the returned source map.
-
-## Mental Model
-
-- `.scenery.json` marks the app root.
-- `app.scn` installs package-local modules and pairs with generated `app.lock.scn`; `SCN1021` requires an exact filename migration, not an alias.
-- Choose graph views intentionally: source preserves authored expressions, effective resolves inputs/defaults/patches, and expanded adds generators. Provenance paths are RFC 6901 pointers into the selected resource spec.
-- Workspace, contract, implementation, deployment, and artifact revisions are separate. `scenery compile` does not invent an implementation revision; build supplies an exact target input manifest.
-- Declare services, operations, bindings, auth, middleware, durable work, schedules, events, data, and UI in `.scn`.
-- Declare MCP bindings, `mcp_server`/`mcp_connection` resources, and `assistant`
-  surfaces in `.scn`. Scenery exposes a provider-neutral conversation API and
-  keeps the selected implementation adapter in a supervised child behind
-  private control and loopback MCP protocols.
-- Generated Go contract and application-composition files are outputs, never source of truth.
-- Declared `pkg/` libraries expose generated `scenerylib_<name>` facades; environments choose source or verified shared linkage without changing imports.
-- `scenery up` starts the app process, rebuild loop, dashboard, API explorer, logs, traces, metrics, managed dev services, and configured frontends for one app root. `scenery up --desktop` additionally opens every frontend declaring `tauri` through the app-local Tauri 2 CLI; closing that window leaves the runtime running.
-- Top-level `.scenery.json` `root` names the frontend served only at `/` across local, branded-domain, agent-proxied, and published-edge surfaces. A single frontend is the default root; other frontends remain at `/<name>/`.
-- Public and auth HTTP bindings are externally reachable. Internal bindings are called through generated clients so auth, visibility, tracing, delivery, and error semantics remain intact.
-- Use Git worktrees for multiple live code copies.
-
-Before a new development session, pin `scenery.sh` in the app's `go.mod` and
-run `scenery framework use -o json`. Use the returned worktree-local executable
-for subsequent commands; `framework inspect -o json` verifies both source and
-executable bytes. Explicit co-development uses `framework use --source <root>`:
-it snapshots dirty source and selects that immutable copy in the app's module.
-Do not commit that local replacement or infer parity from a checkout SHA alone.
-Another checkout's edits cannot update this session; select an update explicitly.
-The selected producer publishes its own receipt, including across spec changes.
-After a pin edit, use the app launcher to inspect/stop the existing runtime via
-its retained producer; do not gate `ps`, `logs` or `down` on desired-source parity.
-`framework inspect --runtime` checks that producer locator, not HTTP health or
-the new source. New compilation/startup still requires coherent desired inputs.
-
-App-required build flags belong in `build.go_flags` in app config. Non-runtime tracked trees that should not trigger rebuilds belong in `watch.ignore`. Do not add ambient environment controls when checked-in config or an explicit flag is sufficient.
-
-## Native Source and Generated Artifacts
-
-Start from `testdata/apps/basic` or `examples/webhook-inbox/README.md`. Declare the workspace, app, toolchain, target, gateway, module, package import path, service constructor, typed records, operation, execution, and bindings; implement the constructor and methods with generated `scenerycontract` types.
-
-Local HTTP packages inherit their parent directories as URL groups:
-`group1/maps` plus authored `/maps/list` and gateway base `/v1` becomes
-`/v1/group1/maps/list`, before the external runtime mount. Source paths remain
-authored; effective/expanded paths carry the group. Do not manually add the same
-group to the endpoint or gateway. Moving a package requires client regeneration
-and raw URL migration; old URLs have no alias. Registry cache directories and
-framework-owned routes do not contribute groups.
-
-Use this loop:
-
-```sh
-scenery fmt --check -o json
-scenery compile --view expanded -o json
-scenery generate -o json
-scenery generate --check -o json
-scenery check -o json
-go test ./...
-```
-
-After declaring builtin providers, explicitly run `scenery provider lock -o json`
-before compilation; review and commit `app.lock.scn`. This command is offline,
-preserves unrelated locks, and never downloads external providers. Use
-`provider lock --check` for drift detection, not implicit relocking in checks.
-Use qualified schema names, such as `scenery schema scenery.execution -o json`.
-
-Run `scenery generate --target contracts` once after a fresh checkout before raw Go tooling. It writes ordinary in-module `scenerycontract` and application-imported `scenerylib_<name>` packages; add their exact roots to authored `.gitignore` once. Never hand-edit them. Build/test/up prepare them automatically; check-only commands report drift without repair. Private `internal/scenerygen` composition stays in the build cache. Publishing a Go module explicitly includes its required generated source, using the same renderer. TypeScript targets keep their declared source/cache materialization policy.
-
-For a complete HTTP-to-durable-worker example with SQL, protected status, and a
-typed client, use `examples/webhook-inbox/README.md` in the Scenery source tree.
-Use a disposable external copy when proving independent Go module resolution.
-Read `generate`'s `clients` report: empty selection can mean missing package
-operation exports. Generation creates no `go.work`, nested module, or generated
-replacement; existing user workspaces remain unchanged. After generation, use
-`go doc <package-import>/scenerycontract` to inspect exact constructor/input/
-outcome names instead of guessing fields. See the cookbook for full auth wiring.
-
-For a large direct HTTP download, declare `delivery = "stream"`, map every
-result body from a required `bytes` value, and return the typed outcome plus
-`scenery.NewByteStream(body, exactSize)`. Leave the mapped byte field empty and
-do not close the body after a successful return; the generated adapter and
-runtime own it. This is a typed response-only path, not a raw HTTP handler.
-
-Import a declared library through its generated facade. Shared linkage requires an app-root-relative artifact manifest; build the fixed darwin/arm64 and linux/amd64 matrix with `scenery build --lib <name> --version <vN.N.N> -o json`. Swap verified versions alongside each other; never unload a Go c-shared runtime.
-
-Use `scenery list|get|explain|graph ... -o json` for graph facts and `scenery diff --semantic` for compatibility. Semantic changes and deployments use immutable revision-bound plan/apply with one durable commit and authenticated receipt replay. The model-facing flow is `changes.plan` (compact summary), optional trusted `plans.get` (full review artifact), `changes.apply({plan_id})`, and `changes.receipt.get` for recovery. Apply loads the exact app-local issued plan, binds the server-owned caller/capabilities context, and rejects caller-recomputed approvals, operations, edits, or provider actions. A retry of an already committed plan returns its validated receipt without repeating side effects; corrupt or mismatched receipts fail closed.
-
-Before semantic creation, read `resource_create_kinds` and `schema.get`; unadvertised kinds are unavailable. A terminal HTTP path tail uses final `{name...}` syntax plus one typed `path_tail` mapping, never a router glob or pre-encoded fragment.
-
-Mutation-capable Eve adapters derive the principal from `ctx.session.auth` and
-bind identity, app root, granted capabilities, and available session metadata
-in server-owned execution context. `caller`, claimed capabilities, and approval
-tokens are not model-visible tool inputs. The approval handler obtains a
-plan-bound token only after user approval. Eve MCP connection definitions do
-not currently expose per-action `callId` or configurable `toModelOutput`; use
-Scenery's compact plan response and gateway-generated request ID. A separately
-authored Eve tool may project richer review data with `toModelOutput`. Eve's
-ordinary MCP tool approval is not an evolution approval token; approval-bearing
-contract-agent apply still needs a trusted adapter/operator context until a
-dedicated plan-bound broker exists.
-
-## Assistant Surfaces
-
-An assistant is a graph resource that binds one `mcp_server` to an authored
-implementation and a Scenery-owned public conversation surface. Expose each
-local operation through an ordinary `protocol = "mcp"`, `delivery = "call"`
-binding. Use `mcp_connection` for remote Streamable HTTP tools; Scenery owns
-credential termination, filtering, readiness, and authorization.
-
-Use the provider-neutral lifecycle commands:
-
-```sh
-scenery assistant init <name> --mcp-server <name> --client <name> -o json
-scenery assistant sync <name> -o json
-scenery assistant status <name> -o json
-scenery inspect assistants -o json
-scenery inspect assistants --implementation -o json
-```
-
-Public conversation routes use opaque Scenery handles and normalized NDJSON
-events with exclusive-cursor reconnects. Approval and cancellation are typed
-public operations. The implementation adapter (currently `eve`) is private
-developer/operator data: it may appear in authored source and explicit
-implementation inspection, but not in public routes, generated clients,
-OpenAPI/schemas, cookies, events, errors, or default status. `sync` reuses the
-exact package/lock bytes in Scenery's content-addressed Node/npm cache and
-never rewrites authored package files.
-
-## Public Go Capabilities
-
-- `scenery.sh` for runtime metadata and contract wire helpers.
-- `scenery.sh/auth` for request auth, live standard-auth profiles, application
-  permission checks, user lifecycle controls, and Google connection helpers. Configure one read-only
-  `auth.PermissionChecker` during startup; permission names and storage remain
-  application-owned, and `auth.HasPermissions` requires every supplied name.
-  Persist `auth.CurrentAuditIdentity(ctx)` for audited work so impersonation
-  retains separate effective and actor users.
-- `scenery.sh/errs` for coded errors.
-- `scenery.sh/library` for generated facade loading and load-alongside swaps;
-  app code normally uses its typed facade instead of this package directly.
-- `scenery.sh/durable` for non-registering durable steps and signals; ownership is declared in `.scn`.
-- `scenery.sh/db` for service-scoped Postgres pools.
-- `scenery.sh/datasource` and `scenery.sh/object` for typed constructor capabilities.
-- `scenery.sh/storage` for app storage.
-
-Standard-auth tenant tables are framework-owned under the app database's `scenery` schema. Use `auth.CurrentUser(ctx)` instead of querying the framework-owned user table. An app-owned, authorized lifecycle command may call `auth.DisableUser`, `auth.EnableUser`, or `auth.RevokeUserSessions`; disabling and session revocation are atomic, and enabling requires a fresh sign-in. Google-enabled apps use `auth.GoogleAccessToken` or `auth.GoogleAccessTokenForUser`; clients treat `google_reauth_required` as a reconnect prompt.
-
-## Local Development and Debugging
-
-Use `scenery up` for the live loop, `--detach` for a background runtime, and `--desktop` for configured Tauri shells. The default wait proves advertised routes, one frontend asset, and immediately inspectable verified supervisor/API process identities; use `--wait registered` only when readiness is intentionally deferred.
-
-`scenery up` is idempotent per app root. Foreground reruns attach to its logs, Ctrl+C detaches without stopping it, and detached reruns report `already_running: true`. Use a worktree for a second live code copy.
-
-Detached startup failures preserve the supervisor's structured diagnostic and exit code, including internal report tokens. Inspect `diagnostic.details.detached_startup` for the failure reason, owner PID, wait mode, and log path. Child failure, exit without a result, invalid startup protocol, and readiness timeout are distinct; raw child stdout/stderr is never the startup-result authority.
-
-The selected environment owns domains, exposure, ports, frontend serving, and deployment. Discover URLs with `scenery ps -o json`; never guess hidden ports or substrate paths. Diagnose with bounded logs, traces, and metrics before widening the search.
-
-Disable optional frontends with `envs.<name>.frontends.<frontend>.serve =
-"disabled"`; the root frontend must remain enabled. Test-only Go edits, docs,
-and content-identical rewrites do not restart the backend. A failed candidate
-preflight retains the serving generation; a failed start attempts rollback to
-the retained executable without overlapping write-producing runtimes. Read the
-serving revision separately from the failed build result.
-
-Dotenv files are optional for every environment, including local `scenery up` and `scenery worker`. Missing files contribute no values; process environment takes precedence over available dotenv layers. Do not create empty `.env` placeholders. Unreadable or malformed files, missing required values, and invalid resolved values still fail validation.
-
-Known startup configuration failures use SCN8003 (exit 3); unavailable Docker or a required disabled agent uses SCN8004 (exit 4). Credentials and raw Docker failure output are not public diagnostics. Doctor reports environment prerequisites, not application/database readiness. A passing harness covers only its selected mode; warnings and skipped probes remain unverified, not successful proof.
-
-Deploy through a configured environment or its singular SSH target. SSH uses passwordless OpenSSH and rsync, preserves remote `.env*` and `.scenery`, waits for readiness, and provides no backend rollback. Verify with `scenery deploy status -o json`.
-
-## Storage and Databases
-
-Declare stores in app config. Managed storage belongs to the canonical app root/worktree: branch switches retain it, another worktree gets independent state, and Git removal is not deletion authority. App code uses `scenery.sh/storage`, never proxy sockets, owner records or object directories. Tenant-scoped private calls require auth context or `storage.WithTenantID`; CLI calls require `--tenant`. Inspect with `scenery inspect storage -o json` (`--stats` explicitly scans exact totals); operate through `scenery storage ls|stat|put|get|rm|cleanup`. Recursive deletion and cleanup preview by default; apply only the reviewed selector with `--yes --expect-revision <digest>`. Purge requires a stopped verified worktree. Never revive missing/corrupt state as empty storage or attach legacy cells; use the explicit [migration runbook](docs/runbooks/worktree-storage-migration.md).
-
-Read compiled `sql_requirements` in `scenery inspect app -o json`: typed `.scn`
-dependencies and selected framework auth/durable registrations own requirements;
-`dev.services` is removed. Only managed lifecycle authorizes local allocation.
-See [App Config](docs/local-contract.md#app-config) for binding and sharing rules.
-
-An explicit app `DATABASE_URL` is external; equal external URLs intentionally share data and do not provide managed isolation. Otherwise managed SQL-backed `scenery up` owns a dedicated Postgres container and volume per canonical app root/worktree, with one app database and service-scoped schemas. Non-SQL startup does not provision Postgres. `scenery down` stops only that worktree and retains data/credentials outside the checkout; branch switches reuse its database, while another worktree gets a separate cluster. Git removal retains data. Inspect retained/orphaned roots with `scenery ps -o json`; whole-cluster deletion requires explicit `scenery prune --older-than <duration> --app-root <absolute-path> --db`. Never infer permission to delete data from a worktree removal request. Use `scenery db apply` for schema mutation, `scenery db seed` for initial data and declared `database.seed.commands`, and `scenery db setup` for both, with the runtime stopped for managed database mutation. SQL seeds are immutable; file-backed commands rerun only when their explicit workspace input hash changes and must be atomic or idempotent. Do not make file generation apply database state. Incompatible ownership, missing retained volumes, a changed Docker daemon, or an interrupted restore is a precondition to resolve, never permission to allocate replacement empty data. Stop/cleanup and snapshots resolve retained ownership independently of invalid or removed source.
-
-Snapshots include only selected data. Storage save and load require a stopped worktree; combined capture requires an already-owned managed database and exclusion of external writers. Verify returns the archive's lowercase hexadecimal `sha256`; verify and load accept `--expect-sha256 <digest>`. Verify and dry-run never allocate or recover target state. Use `--dry-run` first and `--mode overwrite --yes` only for explicit replacement. Combined DB/storage merge is rejected. An interrupted restore blocks ordinary access and SQL-only load, even after storage generation publication: follow its exact digest, mode, conflict-policy and data-class resume instruction, never delete its recovery record or retry with fewer data classes. Import creates independent files and fresh ETags, not shared cache references.
-
-## Application Schema Evolution and Presets
-
-Application schema changes use app-authored `database.migrations` entries and
-immutable numbered SQL files. Use `db migrate --status` before applying; stopped
-managed PostgreSQL may need `db server start`. `db migrate` applies each service's
-pending chain and checksum ledger atomically. A populated schema without a
-ledger is blocked. Only explicit `--adopt-initial` plus that service's complete,
-read-only `initial_verification` predicate can establish its known initial
-baseline. Failed verification changes nothing. Append migrations; never reset
-populated data as an ordinary schema-edit step. Retained metadata upgrades are
-a separate operation. See `docs/local-contract.md` for exact contracts.
-
-App presets should compose `worktree create` and verified coordinated snapshots,
-not copy writable state or invent a second snapshot format. Declare native
-filesystem assets separately: a DB/object snapshot cannot prove undeclared
-assets or native recomputation prerequisites.
-
-## Generated TypeScript Clients
-
-Declare each `typescript_client` target in `app.scn`, including gateways, materialization, and a managed output root for source mode:
-
-```sh
-scenery generate --target typescript_client.public_api -o json
-scenery generate --target typescript_client.public_api --check -o json
-```
-
-Generated clients implement declared HTTP mappings and outcomes; they never infer routes or auth from Go names. Regenerate after reachable binding, type, codec, or auth changes. Every app HTTP response includes `X-Trace-Id`; browser observers should read that header.
-
-For expensive application phases, use stable source-defined names with
-`scenery.StartSpan`, pass its returned context into nested work, and call
-`span.End(err)`. Never encode request values, user data, coordinates, IDs, or
-other high-cardinality content in span names.
-
-When an assistant is reachable from a target, the generated client also exposes
-provider-neutral `client.assistants.<name>.createConversation`, `sendTurn`,
-`streamEvents`, `resolveApproval`, and `cancelRun` methods. Its event/error
-unions and NDJSON cursor handling are generated from the assistant public
-schemas; no provider adapter import, URL, token, or private control field is
-emitted.
-
-For React, declare a page macro and any typed search/navigation metadata, then set the target's React tsconfig. Scenery owns generated adapters, routes, app shell, catalog, and staged typecheck. Use `createSceneryApp`, one authored route descriptor array, and the fixed slots; do not rebuild route selection, navigation, or the shell. Vite apps alias `@scenery/ui` and its token subpath to the materialized catalog and provide its peer dependencies.
-
-Generated page macros and workspace tabs may carry opaque `application_key`
-and `access_key` values. Supply one synchronous `resolveAccess` callback after
-loading app-owned entitlements; Scenery uses it for navigation, direct-route
-invocation, and tabs, but never as backend authorization. Reuse the returned
-`routes` catalog and `matchSceneryRoute` instead of URL-prefix maps.
-
-Choose the page macro by shape, inspect it with `scenery schema scenery.<kind> -o json`, and read the full contract only for that macro:
-
-- `split_page` — two panes with app-owned sidebar/detail request-state slots; Scenery owns selection and layout.
-- `content_page` — one required content slot; omit the source for static content.
-- `detail_page` — one routed record whose declared business error maps to HTTP 404; use simple form dialogs or a typed app-owned action slot and refresh after mutation.
-- `table_page` — a cursor-paginated, numeric-pagination, or complete-list workbench with typed filters/actions; only complete lists may group.
-
-Keep generated page, route, dialog, and query wiring intact rather than rebuilding it in app code.
-
-## Tasks and Workers
-
-Use `scenery task list|inspect|run` for app-local `<domain>:<name>` code tasks; they may run while the graph is temporarily invalid. Use `scenery worker --app-root <path> --env <name>` for the worker role.
-
-Use app-owned `validation.profiles` as the executable check mapping and
-`validate changed --base <ref> --dry-run -o json` to inspect its selected union.
-Use profile `commands: [{"command": "go", "args": ["test", "./..."]}]`
-for external checks; they run after referenced steps with literal argv, without
-a shell. Do not transport command definitions through environment values.
-Selection includes branch changes, tracked working-tree edits and non-ignored
-untracked paths. `harness --with-validation=<profile>` composes framework and
-domain proof; a core harness alone does not establish a mutation journey.
-Inspect `selection.coverage`: planned checks are not executed proof. Unmatched
-paths and `manual: true` owner lanes remain unverified even when quick checks
-pass; reasoned `validation.exemptions` apply only to otherwise unmatched paths.
-Dev HTTP identity headers identify the actually served linked build. Bind them
-to the build-input manifest and current `build --development` candidate when reporting smoke results;
-an origin or a newer bundle on disk alone is insufficient.
-
-Single-file Go code tasks live under a domain `tasks` directory and use `//go:build ignore`; that build constraint is not an application declaration.
-
-## UI Work
-
-In a Scenery checkout, follow `apps/console/AGENTS.md` for dashboard work and
-`ui/AGENTS.md` for catalog work. In a target app, generated table pages use
-Scenery's binary-owned catalog; mount `generatedPages` and customize declared
-slots or CSS tokens instead of editing materialized catalog files.
-
-Before rewriting an app frontend, run `scenery inspect ui --frontend <name> -o human`. Move the top offender onto Astryx/`@scenery/ui` and StyleX tokens, then rerun; the score is triage guidance, not enforcement.
-
-Run the target app's own frontend validation and browser acceptance. The
-`scenery harness ui` command verifies Scenery's dashboard, not arbitrary
-application pages.
-
-## Command Reference
-
-Use `scenery help <command> -o json` for one scoped machine-readable command
-descriptor; omit `-o json` for human help. The full grammar lives in
-`docs/local-contract.md`. Choose one command or graph view at a time; pipes
-in syntax descriptions denote alternatives, not shell pipelines.
-
-Scenery repository validation uses `go run ./scripts/verify --summary --write`
-from that checkout and its root validation matrix. This repository-only tool
-is not an installed product command. `scenery harness ui -o json` is the
-separate dashboard browser harness.
-
-## Validation Before Finishing
-
-For app changes:
-
-```sh
-scenery check -o json
-scenery generate --check -o json
-go test ./...
-scenery harness -o json --write
-```
-
-When an assistant surface is changed, also run `scenery inspect assistants
--o json`, inspect the explicit `--implementation` view when debugging the
-helper, and regenerate the declared TypeScript client. Check that provider
-identity and private signatures stay out of public artifacts. When changing
-Scenery itself, also run its `./scripts/test-assistant-public-surface.sh`.
-
-For Scenery repository changes, follow the root `AGENTS.md`; changed paths and contract surfaces calculate the validation classes and exact command union. Keep Go's test cache enabled. Use `-count=1` or `--fresh-tests` only for explicit measurement or nondeterminism investigation.
-
-Do not run `go install ./cmd/scenery` unless the human explicitly asks. Multiple worktrees share the installed binary; self-harness builds a worktree-local binary.
-
-CLI installation and updates are source-only. Select a checkout revision and
-build its dashboard before an explicitly requested install. Use separate
-absolute binary paths for parallel versions. Each ordinary app root owns its
-runtime control plane; different roots do not share a machine agent or database
-container. Same-root acquisition requires exact current health/schema identity
-and the same selected environment; incompatibility never replaces a live owner.
-Explicit edge/deploy operations still share the intentionally managed machine
-control plane. Changing agent home does not isolate machine-global DNS/edge
-listeners. Retained pre-cutover shared-database authority blocks implicit empty
-allocation: migrate verified data explicitly instead of deleting or relabeling
-old state. Do not remove/recreate/adopt a container or rewrite its authority
-without verifying its owner and coordinating with its users.
-Installing a CLI does not migrate application dependencies or durable data.
-
-When only retained metadata's specification identity is stale, use the
-[same-schema upgrade runbook](docs/runbooks/worktree-state-upgrade.md).
-`scenery worktree upgrade -o json` is read-only; applying its reviewed revision
-requires explicit operator authorization and `--yes --expect-revision`.
-Keep the source stopped, back up first, and resume any pending transaction
-exactly. Do not relabel files manually, change roots/homes, or treat this as an
-engine/shared-data-format migration.
+Use one relevant route and read only its linked section. Follow additional
+references when the task crosses their boundary, not as a startup checklist.
+
+| Task | Start with | Read for that change |
+|---|---|---|
+| Understand an app, route, or operation | `scenery inspect app`, `inspect routes`, or `inspect endpoints`, with `-o json` | [Application model](docs/agent-guide.md#current-application-model) |
+| Edit declarations or Go contracts | `scenery check -o json`; generate missing contracts before raw Go tools | [Native change loop](docs/agent-guide.md#native-change-loop) |
+| Start or diagnose a runtime | `scenery ps -o json`; `scenery doctor -o json` for environment failures; bounded `scenery logs -o jsonl --limit 200` | [Runtime command choice](docs/agent-guide.md#runtime-command-choice) |
+| Generate TypeScript or React UI | Regenerate the declared client target; customize app-owned slots | [Client integration](docs/agent-guide.md#typescript-client-integration) |
+| Declare or debug an assistant | `scenery inspect assistants -o json` | [Assistant change loop](docs/agent-guide.md#assistant-change-loop) |
+| Change storage, SQL, migrations, or snapshots | Inspect the selected resource and retained owner before mutation | [Storage and databases](docs/agent-guide.md#storage-and-databases) |
+| Plan a semantic mutation | Inspect schemas and capabilities, then review the issued revision-bound plan | [Diagnostics and semantic changes](docs/agent-guide.md#diagnostics-and-semantic-changes) |
+| Build or swap a declared Go library | Use its generated facade | [Declared Go libraries](docs/agent-guide.md#declared-go-libraries) |
+| Run an app-local code task | `scenery task list -o json` | [Code tasks](docs/app-development-cookbook.md#app-local-code-tasks) |
+| Deploy an authorized change | Inspect the configured environment and deployment status | [Deployment](docs/agent-guide.md#runtime-command-choice) |
+| Validate app work | Select app-owned profiles and the acceptance scenario | [Application validation](docs/agent-guide.md#application-validation-and-completion) |
+| Change Scenery itself | Read its root and applicable child instructions | [Repository workflow](docs/agent-guide.md#working-in-the-scenery-repository) |
+
+Documentation paths are relative to the Scenery checkout. Use bundled references
+when available, otherwise a checkout matching the selected binary. Get exact
+syntax without a checkout with `scenery help <command> -o json`; do not guess
+an unavailable procedure. Practical examples live in the
+[cookbook](docs/app-development-cookbook.md), including the independent
+[webhook inbox](examples/webhook-inbox/README.md).
+
+## Source and Runtime Ownership
+
+- Declare application identities and behavior in `.scn`; Go comments and package
+  initialization register nothing. Keep the singular current specification,
+  compiler, runtime, and machine protocol; do not add compatibility aliases.
+- Edit authored files. Generated contracts, library facades, TypeScript clients,
+  and private composition are outputs. Preserve declared managed roots and the
+  existing Go module; never synthesize editor modules or manage root workfiles.
+  See [generated artifacts](docs/agent-guide.md#generated-and-cache-artifacts).
+- Pin `scenery.sh` in the app's `go.mod`, run `scenery framework use -o json`, and
+  use the reported worktree-local executable. Explicit co-development selects
+  `framework use --source <checkout>`; it freezes source bytes. Do not commit
+  its local replacement or infer runtime parity from a checkout SHA.
+- Use `scenery up` for the live loop and another worktree for another code copy.
+  Discover URLs through `scenery ps -o json`. An incompatible owner is not
+  permission to replace a live runtime. Installation does not migrate apps/data.
+- Prefer `-o json` and `-o jsonl`. Check schema/spec revisions and producer
+  identity, branch on stable `SCNxxxx` diagnostics, and resolve opaque source
+  IDs through the source map. Never guess substrate ports or owner records.
+
+## Authorization and Data
+
+Continue authorized local edits, builds, checks, and corrections without asking
+for the same permission again. Follow the user's and app's actual delegation,
+deployment, installation, and destructive-action boundaries.
+
+Retained databases and storage belong to their verified canonical worktree.
+Branch switches and Git/worktree removal do not authorize deleting data.
+Never adopt mismatched resources or replace missing/corrupt state with empty
+data. App code uses public capabilities and authenticated tenant context.
+Before deletion, migration, restore, or retained-state repair, read the
+[owning workflow](docs/agent-guide.md#storage-and-databases) and its linked
+runbook. Preview first; apply only the authorized selector/revision. Keep
+plan approvals and caller identity in trusted execution context.
+
+## Completion
+
+Complete the requested behavior, its selected validation, and corrections caused
+by the change. Runtime/UI tasks require the requested live scenario and current
+served identity, not only compilation. Report commands, results, and unresolved
+coverage; planned, skipped, or warning-only checks are not successful proof.
+
+Use the app's frontend checks and browser acceptance for its pages.
+`scenery harness ui -o json` validates Scenery's dashboard. Repository validation
+uses `go run ./scripts/verify --summary --write` or the quick mode selected by
+the root matrix; it is not an installed app command. Reuse successful checks
+for unchanged inputs and keep Go's test cache enabled.
+Do not run `go install ./cmd/scenery` unless the human explicitly asks.

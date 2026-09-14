@@ -75,6 +75,13 @@ func TestCachedPreparationCompilesImplementationEditWithoutFullPrepare(t *testin
 	if cached.Result.Target == nil || cached.Result.verification == nil || cached.Result.Contract != contract {
 		t.Fatalf("cached preparation is not compile-ready: %#v", cached.Result)
 	}
+	sourceFingerprint, err := currentAppSourceFingerprintFromDisk(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cached.Result.SourceFingerprint != sourceFingerprint || cached.Result.SourceFingerprint == original.SourceFingerprint {
+		t.Fatalf("cached preparation retained stale source identity: got %q, want %q", cached.Result.SourceFingerprint, sourceFingerprint)
+	}
 	if goProjectionCalls != 0 || typeScriptProjectionCalls != 0 {
 		t.Fatalf("implementation-only edit reran unrelated projections: go=%d typescript=%d", goProjectionCalls, typeScriptProjectionCalls)
 	}

@@ -7,6 +7,18 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
+- [0192 Identical Full ONLV Build Comparison](0192-identical-full-onlv-build-comparison.md)
+  - Status: active; identical full-runtime inputs and paired executable equality required
+  - Owner: scenery verifier / native development execution
+  - Created: 2026-09-14
+
+
+- [0191 Task-Scoped Agent Instructions](0191-task-scoped-agent-instructions.md)
+  - Status: active
+  - Owner: scenery agent workflow / documentation discovery
+  - Created: 2026-09-14
+  - Focus: implement the six accepted instruction changes and prove documentation, Go, and runtime task workflows.
+
 - [0181 Minimal Native Reload Artifact](0181-minimal-native-reload-artifact.md)
   - Status: active
   - Owner: scenery runtime / native development execution

@@ -359,6 +359,12 @@ func PrepareCachedWorkspaceWithSnapshotContext(ctx context.Context, appRoot stri
 			return false, err
 		}
 	}
+	// Capture identity before copying, as in full preparation: a concurrent
+	// source change must invalidate the candidate, not bless uncopied bytes.
+	sourceFingerprint, err := currentAppSourceFingerprintWithSnapshot(appRoot, snapshot)
+	if err != nil {
+		return false, err
+	}
 	var mutation workspaceMutation
 	materializeStarted := time.Now()
 	materializeErr := func() error {
@@ -379,6 +385,7 @@ func PrepareCachedWorkspaceWithSnapshotContext(ctx context.Context, appRoot stri
 	if materializeErr != nil {
 		return false, materializeErr
 	}
+	result.SourceFingerprint = sourceFingerprint
 	previousFrameworkFingerprint := result.FrameworkFingerprint
 	frameworkFingerprint, _, err := currentFrameworkFingerprintFromWorkspace(result.Dir)
 	if err != nil {

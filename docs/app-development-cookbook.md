@@ -1153,14 +1153,8 @@ scenery logs -o jsonl --limit 200
 
 ## Validation Checklist
 
-Before finishing an app change:
-
-```sh
-scenery fmt --check -o json
-scenery check -o json
-scenery generate --check -o json
-go test ./...
-scenery harness -o json --write
-```
-
-For generated TypeScript, also run the host app's typecheck/tests. For UI work, follow the target subtree instructions and use `scenery harness ui -o json --write` when behavior is browser-visible.
+Follow [application validation and completion](agent-guide.md#application-validation-and-completion)
+for baseline commands, declared profiles, and evidence reuse. Changed `.scn`
+source requires `scenery fmt --check -o json`. Generated TypeScript also requires
+the app's typecheck/tests. Validate app pages with their own browser acceptance;
+`scenery harness ui -o json --write` covers Scenery's dashboard only.

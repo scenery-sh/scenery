@@ -64,7 +64,7 @@ Prefer additive milestones that keep the repo testable. If a prototype is needed
 
 ## Validation Requirements
 
-Every ExecPlan must include project-specific validation commands. For scenery repo changes, name the expected changed-area classes from the root [Validation Matrix](AGENTS.md#validation-matrix), refresh `.scenery/harness/agent-context.json`, and run the exact union in `changed_area.recommended_commands`. A plan that spans more than one class must carry every matching command.
+Every ExecPlan must include project-specific validation commands. For scenery repo changes, name the expected changed-area classes from the root [Validation Matrix](AGENTS.md#validation-matrix), choose quick or full before execution, refresh `.scenery/harness/agent-context.json` with that selected run, and fulfill the exact union in `changed_area.recommended_commands`. Successful verifier steps satisfy the same checks for unchanged inputs and scope; do not run quick before a required full run. A plan that spans more than one class must carry every matching command.
 
 Every validation item must name its exact command and working directory. A conditional item must state the exact observable condition that permits it to be skipped and the evidence that will record that condition. Do not use phrases such as “when practical,” “as appropriate,” “relevant validation,” or “for substantial changes” as substitutes for a command or skip condition.
 

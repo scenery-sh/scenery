@@ -11,6 +11,19 @@ historical records. Do not refresh their review dates or rewrite them as current
 contract prose. Record later guidance here or in the owning current contract;
 use stale knowledge metadata to flag a known contradiction.
 
+## Product and Island Build Comparison
+
+- Status: completed comparison; differently scoped workflows, no backend promotion
+- Owner: scenery verifier / native development execution
+- Completed: 2026-09-14
+- ExecPlan: [0190 Product and Island Build Comparison](0190-product-and-island-build-comparison.md)
+
+After fixing stale source identity in cached preparation, 30 authenticated ONLV
+edits and 30 AHJ island first executions passed identity and cleanup checks.
+Product edit p50/p95 is 4110.905 / 4383.164 ms; smaller island is 687.096 /
+751.062 ms. Both use stock Go. See the [comparison report](../product-and-island-build-comparison.md)
+for build phases, exact revisions, failed warmups and scope limitations.
+
 ## Native Build and First-Execution Attribution
 
 - Status: completed macOS attribution delivery; exact platform mechanism unresolved

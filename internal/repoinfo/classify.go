@@ -104,7 +104,7 @@ func classifyHarnessChangedFile(path string) string {
 		return "schema"
 	case strings.HasPrefix(path, "docs/plans/"):
 		return "exec-plan"
-	case strings.HasPrefix(path, "docs/") || path == "SKILL.md" || path == "PLAN.md" || path == "PLANS.md":
+	case strings.HasPrefix(path, "docs/") || path == "SKILL.md" || path == "PLAN.md" || path == "PLANS.md" || path == "README.md" || path == "ARCHITECTURE.md":
 		return "docs"
 	case strings.HasPrefix(path, "testdata/"):
 		return "fixture"

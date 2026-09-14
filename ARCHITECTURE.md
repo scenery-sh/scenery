@@ -130,6 +130,8 @@ second runtime. Plan 0181 owns its feasibility decision and promotion gates.
 
 ### `internal/app`
 
+Follow [app instructions](internal/app/AGENTS.md) for this boundary.
+
 `internal/app` owns repository and app-root discovery. It walks upward to find
 `.scenery.json`, decodes app config, and provides repo-root helpers for self-harness
 work.
@@ -181,6 +183,8 @@ environment used by both compiler and parse. Field identity is part of
 implementation revision.
 
 ### `internal/parse`
+
+Follow [parse instructions](internal/parse/AGENTS.md) for this boundary.
 
 `internal/parse` is the narrow Go package-analysis boundary used by current
 constructor and handler ABI verification. It loads syntax, types, and package

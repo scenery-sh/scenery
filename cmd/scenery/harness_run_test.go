@@ -117,7 +117,7 @@ func TestChangedAreaSelectsDeterministicValidationByPath(t *testing.T) {
 	}{
 		{
 			name:           "documentation only",
-			paths:          []string{"AGENTS.md", "PLANS.md", "ui/AGENTS.md", "ui/components/AGENTS.md"},
+			paths:          []string{"README.md", "ARCHITECTURE.md", "AGENTS.md", "PLANS.md", "ui/AGENTS.md", "ui/components/AGENTS.md"},
 			wantClasses:    []string{harnessValidationDocumentation},
 			wantCommands:   []string{harnessValidationQuickCommand},
 			forbidCommands: []string{"go test ./...", harnessValidationFullCommand},

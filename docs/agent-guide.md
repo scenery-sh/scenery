@@ -52,16 +52,11 @@ Source preserves authored expressions. Effective resolves inputs, defaults, and 
 
 ## Native Change Loop
 
-For ordinary app changes:
-
-```sh
-scenery doctor -o json
-scenery fmt --check -o json
-scenery check -o json
-scenery generate --check -o json
-go test ./...
-scenery harness -o json --write
-```
+Use this section when changing native declarations or their Go implementation.
+Read the root and affected package declarations for that change. Run generation
+when its authored inputs change, and finish with
+[application validation](#application-validation-and-completion); do not repeat
+an entire check sequence at each editing step.
 
 Edit authored `.scn` and Go implementation files. After a fresh checkout, run `scenery generate --target contracts` before raw Go tooling. It publishes application-imported contracts and library facades as ordinary packages inside the declared existing Go module. Add exact generated roots to authored `.gitignore` once; generation does not change Git policy. `test`, `build`, and `up` prepare these packages automatically, including cache reuse. `check` and `generate --check` report missing/stale output without repairing it; native ABI verification uses the current expected overlay. Private adapters/composition remain in the external build cache. Never hand-edit generated output. Publishing a Go module explicitly includes its required generated source using the same renderer.
 
@@ -119,6 +114,11 @@ authored package/lock paths, private listener addresses, and child PID. `up` and
 do not rewrite package manifests. Generated clients expose the public
 conversation routes, normalized NDJSON event stream, approvals, and cancellation;
 their types and errors do not import or name the provider adapter.
+
+For assistant-surface changes in Scenery itself, also run
+`./scripts/test-assistant-public-surface.sh` with the root validation union.
+It checks that private provider identity and signatures stay out of public
+artifacts; app-level assistant changes still regenerate their declared client.
 
 ### Declared Go libraries
 
@@ -334,21 +334,6 @@ and declared native filesystem assets. Missing preset prerequisites should fail
 before starting runtime children. A linked worktree receives a retained distinct
 browser origin; the original checkout keeps its configured origin. Runtime
 scope uses environment frontend `serve: "disabled"` (never the root frontend).
-Keep app validation in configured profiles: `validate changed --base <ref>
---dry-run -o json` includes branch, tracked working-tree and untracked changes.
-Use `harness --with-validation=<profile>` for a selected domain journey; framework
-inspection alone does not establish application writes or browser rendering.
-Changed results account for every path: `planned`, `checked`, `exempt` or
-`unverified`. Default checks do not cover unmatched paths; manual owner profiles
-remain explicit obligations, and incomplete coverage fails the executed result.
-Use root-anchored `./package.json` patterns for root-only consumer fan-out.
-Declare external checks as profile `commands` objects with `command` and literal
-`args`, not JSON encoded in environment values. They execute after referenced
-`steps`; inspection and dry-run plans show their exact argument vectors.
-For runtime smoke proof, compare the development HTTP identity headers with a
-fresh `build --development` candidate's build-input manifest (ordinary `build`
-embeds production assistant assets). Record identities around the journey
-and require the intended same-build/new-process relationship across restart.
 
 SQL requirements are compiled once from registered typed `data_source` bindings
 and selected framework auth/durable registrations. Read `sql_requirements` in
@@ -539,23 +524,73 @@ The installable skill is necessary but not sufficient for a client repository. K
 
 Do not copy scenery's full skill or repository manual into every app.
 
+## Application Validation and Completion
+
+For an application change, complete these baseline checks from the app root
+with its selected Scenery executable:
+
+```sh
+scenery check -o json
+scenery generate --check -o json
+go test ./...
+scenery harness -o json --write
+```
+
+Use `scenery fmt --check -o json` for changed `.scn` source. Run `scenery doctor
+-o json` when environment readiness is unknown or a prerequisite fails; it is
+not a required prelude to every edit. Reuse successful checks for unchanged
+inputs and scope, keep Go's result cache enabled, and rerun affected checks
+when a correction changes their inputs. Repository-only verification follows
+[the repository workflow](#working-in-the-scenery-repository).
+
+Keep app validation in configured profiles: `validate changed --base <ref>
+--dry-run -o json` includes branch, tracked working-tree and untracked changes.
+Use `harness --with-validation=<profile>` for a selected domain journey; framework
+inspection alone does not establish application writes or browser rendering.
+Changed results account for every path: `planned`, `checked`, `exempt` or
+`unverified`. Default checks do not cover unmatched paths; manual owner profiles
+remain explicit obligations, and incomplete coverage fails the executed result.
+Use root-anchored `./package.json` patterns for root-only consumer fan-out.
+Declare external checks as profile `commands` objects with `command` and literal
+`args`, not JSON encoded in environment values. They execute after referenced
+`steps`; inspection and dry-run plans show their exact argument vectors.
+For runtime smoke proof, compare the development HTTP identity headers with a
+fresh `build --development` candidate's build-input manifest (ordinary `build`
+embeds production assistant assets). Record identities around the journey
+and require the intended same-build/new-process relationship across restart.
+
+Define the observable acceptance scenario before runtime or UI implementation.
+Continue until the requested change passes its selected checks and that scenario;
+fix failures caused by the change without another permission round. Stop for an
+actual missing authorization or consequential unresolved decision, preserving
+independent progress. Already granted permission remains valid within its scope.
+A build, planned profile, warning or skipped check does not establish acceptance.
+Report the commands and outcomes, current served identity, and uncovered work.
+
 ## Working In The scenery Repository
 
-Start with `scenery inspect docs --for-path <path> -o json`; it returns the applicable instruction scopes, owning architecture and current-contract sections, relevant active ExecPlans, related schemas, and verification commands without loading the full catalog. Read those scopes and sections before editing. Use `--review-due` for doc gardening and `--all` only for complete catalog validation. Use an ExecPlan for complex features, migrations, or substantial refactors.
+Use `scenery inspect docs --for-path <path> -o json` when you need to locate applicable instruction scopes, architecture/contract sections, active plans, schemas or verification commands. Read applicable root/child instructions and only the reference sections required by the change; a known typo does not require broad discovery. Use `--review-due` for doc gardening and `--all` for the complete catalog. Complex features, migrations and substantial refactors use an ExecPlan; small fixes do not.
 
-Refresh the worktree-local validation oracle with:
+After editing, choose the mode from the current changed paths and the root
+[validation matrix](../AGENTS.md#validation-matrix). If any area requires full,
+run it directly; otherwise use quick. Do not run quick first just to discover
+that full is required. Both modes write the current evidence snapshot:
 
 ```sh
 go run ./scripts/verify --quick --summary --write
-cat .scenery/harness/agent-context.json
 ```
 
-Refresh this snapshot after editing; a pre-edit snapshot cannot classify the
-new changes. Run the exact union in `changed_area.recommended_commands`. The calculated
-`validation_classification` explains which root `AGENTS.md` changed-area rows
-apply; multiple matches are cumulative. Final validation uses Go's test result
-cache. Use `-count=1` or `go run ./scripts/verify --fresh-tests` only when
-explicitly measuring fresh execution or investigating nondeterminism.
+For full, omit `--quick`. Read `.scenery/harness/agent-context.json` from that
+selected run and fulfill the union in `changed_area.recommended_commands`.
+`validation_classification` explains the cumulative matching rows. A successful
+step already executed by the verifier satisfies the same required command for
+the same inputs and scope; full's repository suite need not run again separately.
+New changes or uncovered classes require their additional checks. A pre-edit
+snapshot does not classify final changes.
+
+Keep Go's test cache enabled. Use `-count=1` or `--fresh-tests` only for explicit
+fresh measurement or nondeterminism investigation. Report actual command results
+and skipped coverage; do not broaden successful validation without a new reason.
 
 For changed external boundaries, select the exact `--probe <id>` commands in
 [Harness Engineering](harness-engineering.md#explicit-probe-catalog) and record

@@ -1887,7 +1887,7 @@ the backend `result_type`, and returns normalized metric series and samples.
 
 ### `scenery inspect docs -o json`
 
-Use task-scoped inspection before changing a repository path:
+Use task-scoped inspection to locate context and checks for a repository path:
 
 ```text
 scenery inspect docs --for-path internal/generate/client.go -o json
@@ -1918,7 +1918,14 @@ Path-query output contains only applicable `AGENTS.md` scopes, the owning
 ExecPlans, related schemas, and applicable verification commands. A completed
 historical plan is omitted unless its own path is queried directly. Ordinary
 path queries are capped at eight documents and should remain below 10 KiB.
-Routing and commands reuse self-harness changed-area logic.
+Routing and commands reuse self-harness changed-area logic. The command list
+is prospective for the queried path, not proof of execution or a classification
+of the whole working-tree diff. Documentation selects quick; ordinary Go edits
+retain their package/repository tests; runtime selects full. The nearest child
+instruction's fenced verification commands supplement that set. Full supersedes
+quick in the resulting union; inspection never adds full unconditionally.
+Choose the repository verification mode using the complete change and the root
+validation matrix, then record the selected run's actual results.
 
 Scheduled freshness applies to living contracts, instructions, schemas, and
 active plans. A completed numbered ExecPlan is immutable historical evidence:
@@ -1999,7 +2006,8 @@ Example output:
     }
   ],
   "verification_commands": [
-    "go run ./scripts/verify --summary --write",
+    "go run ./cmd/scenery generate --target typescript_client.public_api --app-root internal/compiler/testdata/house -o json",
+    "go run ./cmd/scenery generate --target typescript_client.public_api --app-root internal/compiler/testdata/native -o json",
     "go test ./...",
     "go test ./internal/generate"
   ]

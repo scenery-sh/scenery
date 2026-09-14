@@ -244,7 +244,9 @@ Generate and check the target before handoff.
 	for _, command := range []string{
 		"go test ./internal/generate",
 		"bun test internal/generate/testdata/typescript_client_conformance.test.ts",
-		"go run ./scripts/verify --summary --write",
+		"go test ./...",
+		"go run ./cmd/scenery generate --target typescript_client.public_api --app-root internal/compiler/testdata/native -o json",
+		"go run ./cmd/scenery generate --target typescript_client.public_api --app-root internal/compiler/testdata/house -o json",
 	} {
 		if !stringSliceContains(payload.VerificationCommands, command) {
 			t.Fatalf("missing command %q in %+v", command, payload.VerificationCommands)
@@ -252,6 +254,36 @@ Generate and check the target before handoff.
 	}
 	if out.Len() >= 10*1024 {
 		t.Fatalf("path response = %d bytes, want < 10 KiB", out.Len())
+	}
+}
+
+func TestInspectDocsVerificationModes(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeTestAppFile(t, root, "runtime/AGENTS.md", "# Runtime\n\n## Verification\n\n```sh\n"+harnessValidationQuickCommand+"\ngo test ./runtime\n```\n")
+	agents := inspectDocsAgents{Scopes: []inspectDocsAgentScope{
+		{Path: "AGENTS.md", Scope: "."},
+		{Path: "runtime/AGENTS.md", Scope: "runtime"},
+	}}
+	for _, tc := range []struct {
+		path string
+		want string
+	}{
+		{"docs/guide.md", harnessValidationQuickCommand},
+		{"README.md", harnessValidationQuickCommand},
+		{"ARCHITECTURE.md", harnessValidationQuickCommand},
+		{"internal/postgresname", "go test ./..."},
+		{"runtime/server", harnessValidationFullCommand + "\ngo test ./runtime"},
+	} {
+		// Directory queries exercise classification without starting Go tooling.
+		route, err := buildInspectDocsPathRoute(root, tc.path, nil, agents)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.path, err)
+		}
+		if got := strings.Join(route.VerificationCommands, "\n"); got != tc.want {
+			t.Errorf("%s commands = %q, want %q", tc.path, got, tc.want)
+		}
 	}
 }
 
