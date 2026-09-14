@@ -28,6 +28,20 @@ and contracts below before it can change production ownership.
 
 ## Evidence
 
+The later [macOS attribution report](native-build-first-execution-attribution.md)
+keeps this decision unpromoted. Thirty new artifacts measured 531 ms build and
+567 ms build-through-first-response p50 even in a roughly 32 ms first-launch
+regime. A preceding incomplete run retained a roughly 394 ms first-launch p50;
+the difference is not a controlled A/B or a diagnosed platform mechanism.
+The human subsequently confirmed adding ChatGPT to Developer Tools. A separate
+30-pair cohort with its enabled UI state observed before and after measured
+549 ms build, 34 ms first-ready and 985 ms edit-to-response p50. This records
+the changed environment, not a controlled causal policy comparison.
+Stock-Go package loading is now directly observed at 246–279 ms in separate
+diagnostics. Investigate loading/setup/cache validation before selecting another
+backend; complete Go-derived inputs and fresh-artifact acceptance remain required.
+These measurements supplement, and do not rewrite, the historical evidence below.
+
 The corrected measurement is bound to Scenery commit
 `50d89dad1892e75fb5b505e1d4db51a64d4ac225`, framework source digest
 `sha256:006a4e04513adc03b6f1978ea4d5c2f2c18c73c1a65b6f5f3d9b360e7079cd5c`

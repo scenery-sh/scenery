@@ -713,7 +713,7 @@ func harnessStepEffects(step harnessStep) []string {
 		}
 	}
 	switch step.Name {
-	case harnessNativeReloadName, harnessNativeReloadPluginName:
+	case harnessNativeReloadName, harnessNativeReloadPluginName, harnessNativeAttributionName:
 		set["external-binary"] = true
 		set["filesystem-read"] = true
 		set["filesystem-write"] = true

@@ -21,7 +21,7 @@ remain current data contracts, not an executable product subcommand.
 
 ```text
 scenery harness [--app-root <path>] [-o json] [--write]
-go run ./scripts/verify [--repo-root <path>] [--summary] [-o human|json] [--write] [--quick|--race|--release|--probe <id>...|--benchmark edit-latency|--benchmark worktree-cost|--benchmark native-reload --workload-root <path>|--benchmark native-reload-plugin --workload-root <path>] [--fresh-tests]
+go run ./scripts/verify [--repo-root <path>] [--summary] [-o human|json] [--write] [--quick|--race|--release|--probe <id>...|--benchmark edit-latency|--benchmark worktree-cost|--benchmark native-reload --workload-root <path>|--benchmark native-reload-plugin --workload-root <path>|--benchmark native-reload-attribution --workload-root <path>] [--fresh-tests]
 scenery harness ui [--app-root <path>] [--dashboard-url <url>] [--headed] [-o json] [--write]
 scenery inspect harness [artifact <name>|diagnostics --severity error|warning|timing --top <n>] -o json [--app-root <path>] [--repo-root <path>]
 ```
@@ -131,6 +131,18 @@ and digests, failed cases, protocol responses and intervals are retained beneath
 `.scenery/harness/minimal-native-reload/` with `--write`. Children are stopped
 before worktree removal; unconfirmed shutdown retains the owned root. This
 benchmark never runs in default, quick, race or release.
+
+`--benchmark native-reload-attribution --workload-root <path>` runs the Plan 0189
+macOS attribution lane with the same read-only source and owned fixture. Two
+excluded warmups precede 30 unique-artifact first/repeated execution pairs;
+five additional unique pairs capture Go action/driver traces and first/repeated
+init traces outside the primary series. The deadline is 20 minutes. Slowness
+does not invoke the feasibility lane's first-five stop rule. Identity, behavior,
+ownership, evidence or cleanup failure stops the run and retains failed evidence.
+Reports under `.scenery/harness/native-reload-attribution/` keep parent timings
+separate from trace-local wall clocks and explicitly retain unknown loader,
+cache and scheduler attribution. `insufficient_attribution` is not a backend
+promotion or a performance pass. Linux remains deferred by the human.
 
 `--benchmark native-reload-plugin --workload-root <path>` runs the Plan 0187
 follow-up against the same pinned ONLV AHJ implementation. It builds one stable
@@ -342,6 +354,7 @@ contract drift, and schema conformance. The additional work depends on mode:
 | `--benchmark worktree-cost` | Only A18 resource measurement after common checks; no functional probe set or full Go suite. |
 | `--benchmark native-reload --workload-root <path>` | Only the pinned ONLV implementation-island experiment after common checks; exact experimental identity, activation and negative cases, with an explicit GO/NO-GO result. |
 | `--benchmark native-reload-plugin --workload-root <path>` | Only the pinned ONLV stable-host/Go-plugin experiment after common checks; unique artifacts, exact experimental identity, typed behavior, incompatibility and retention evidence, with an explicit GO/NO-GO result. |
+| `--benchmark native-reload-attribution --workload-root <path>` | Only the macOS first/repeated-artifact attribution experiment after common checks; 30 primary pairs and five separate diagnostic pairs, identity checks, phase accounting and explicit unknowns. |
 
 The release edge-process step runs the published static frontend journey
 against managed Caddy on disposable loopback ports, with local TLS issuance

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -16,34 +17,52 @@ import (
 )
 
 type nativeReloadSample struct {
-	Label               string                   `json:"label"`
-	Behavior            string                   `json:"behavior"`
-	Binary              string                   `json:"binary"`
-	Identity            nativeReloadIdentity     `json:"identity"`
-	ExecutableBytes     int64                    `json:"executable_bytes"`
-	PackageCount        int                      `json:"package_count"`
-	EditCompletedAt     string                   `json:"edit_completed_at"`
-	ResponseCompletedAt string                   `json:"response_completed_at,omitempty"`
-	InputCaptureMS      float64                  `json:"input_capture_ms"`
-	BuildMS             float64                  `json:"build_ms"`
-	ToolActions         []nativeReloadToolAction `json:"tool_actions"`
-	ParentDigestMS      float64                  `json:"parent_digest_ms"`
-	LaunchAttestMS      float64                  `json:"launch_attest_ms"`
-	ActivationMS        float64                  `json:"activation_ms"`
-	FirstInvocationMS   float64                  `json:"first_invocation_ms"`
-	NativeReplacementMS float64                  `json:"native_replacement_ms"`
-	EditToResponseMS    float64                  `json:"edit_to_response_ms"`
-	Attestation         nativeReloadFrame        `json:"attestation"`
-	Ready               nativeReloadFrame        `json:"ready"`
-	Response            nativeReloadFrame        `json:"response"`
-	SteadyCalls         map[string]any           `json:"steady_calls,omitempty"`
-	Assertions          []string                 `json:"assertions,omitempty"`
-	InputsUnchanged     bool                     `json:"inputs_unchanged"`
-	Error               string                   `json:"error,omitempty"`
+	Label               string               `json:"label"`
+	Behavior            string               `json:"behavior"`
+	Binary              string               `json:"binary"`
+	Identity            nativeReloadIdentity `json:"identity"`
+	ExecutableBytes     int64                `json:"executable_bytes"`
+	ArtifactStat        any                  `json:"artifact_stat,omitempty"`
+	artifactInfo        os.FileInfo
+	PackageCount        int                          `json:"package_count"`
+	EditCompletedAt     string                       `json:"edit_completed_at"`
+	ResponseCompletedAt string                       `json:"response_completed_at,omitempty"`
+	InputCaptureMS      float64                      `json:"input_capture_ms"`
+	BuildMS             float64                      `json:"build_ms"`
+	ToolActions         []nativeReloadToolAction     `json:"tool_actions"`
+	ParentDigestMS      float64                      `json:"parent_digest_ms"`
+	LaunchAttestMS      float64                      `json:"launch_attest_ms"`
+	StartCallMS         float64                      `json:"start_call_ms,omitempty"`
+	InitTrace           string                       `json:"init_trace,omitempty"`
+	DriverTrace         *nativeAttributionLedger     `json:"driver_trace,omitempty"`
+	DriverRuntimeTrace  string                       `json:"driver_runtime_trace,omitempty"`
+	ParentTimeline      *nativeAttributionLedger     `json:"parent_timeline,omitempty"`
+	ParentAccounting    *nativeAttributionAccounting `json:"parent_accounting,omitempty"`
+	ActivationMS        float64                      `json:"activation_ms"`
+	FirstInvocationMS   float64                      `json:"first_invocation_ms"`
+	NativeReplacementMS float64                      `json:"native_replacement_ms"`
+	EditToResponseMS    float64                      `json:"edit_to_response_ms"`
+	Attestation         nativeReloadFrame            `json:"attestation"`
+	Ready               nativeReloadFrame            `json:"ready"`
+	Response            nativeReloadFrame            `json:"response"`
+	SteadyCalls         map[string]any               `json:"steady_calls,omitempty"`
+	Assertions          []string                     `json:"assertions,omitempty"`
+	InputsUnchanged     bool                         `json:"inputs_unchanged"`
+	Error               string                       `json:"error,omitempty"`
 }
 
 func (b *nativeReloadBenchmark) start(binary string, want nativeReloadIdentity) (*nativeReloadChild, nativeReloadFrame, error) {
-	child, hello, err := startNativeReloadChild(b.ctx, b.appRoot, binary, b.env, want, nil)
+	return b.startObserved(binary, want, nil)
+}
+
+func (b *nativeReloadBenchmark) startObserved(binary string, want nativeReloadIdentity, initOutput *nativeReloadOutput) (*nativeReloadChild, nativeReloadFrame, error) {
+	env := b.env
+	var stderr io.Writer
+	if initOutput != nil {
+		env = envWithOverrides(env, "GODEBUG=inittrace=1")
+		stderr = initOutput
+	}
+	child, hello, err := startNativeReloadChild(b.ctx, b.appRoot, binary, env, want, stderr)
 	if child != nil {
 		b.children = append(b.children, child)
 	}
@@ -143,6 +162,14 @@ func nativeReloadSampleStats(samples []nativeReloadSample, field func(nativeRelo
 }
 
 func (b *nativeReloadBenchmark) sample(label string, negative, traceActions bool) (sample nativeReloadSample, resultErr error) {
+	return b.sampleWithOptions(label, negative, nativeReloadSampleOptions{actions: traceActions})
+}
+
+type nativeReloadSampleOptions struct {
+	actions, initialization, driverTrace, attribution bool
+}
+
+func (b *nativeReloadBenchmark) sampleWithOptions(label string, negative bool, options nativeReloadSampleOptions) (sample nativeReloadSample, resultErr error) {
 	sample.Label, sample.Behavior = label, b.base.Session+"-"+label
 	defer func() {
 		if resultErr != nil {
@@ -170,7 +197,8 @@ func (b *nativeReloadBenchmark) sample(label string, negative, traceActions bool
 	if err := nativeReloadWriteJSON(filepath.Join(b.evidence, label+"-inputs.json"), inputs); err != nil {
 		return sample, err
 	}
-	sample.InputCaptureMS, sample.PackageCount = nativeReloadMS(time.Since(editCompleted)), len(inputs.Packages)
+	captureCompleted := time.Now()
+	sample.InputCaptureMS, sample.PackageCount = nativeReloadMS(captureCompleted.Sub(editCompleted)), len(inputs.Packages)
 	sample.Identity = b.base
 	sample.Identity.BuildInputs, sample.Identity.Implementation = inputs.Digest, nativeReloadDigest(changed)
 	record, err := json.Marshal(sample.Identity)
@@ -186,8 +214,14 @@ func (b *nativeReloadBenchmark) sample(label string, negative, traceActions bool
 	buildStarted := time.Now()
 	actionGraph := filepath.Join(b.evidence, label+"-actions.json")
 	args := []string{"build", "-mod=readonly", "-ldflags", "-X=main.nativeReloadBuildRecord=" + base64.RawStdEncoding.EncodeToString(record), "-o", sample.Binary}
-	if traceActions {
+	if options.actions {
 		args = append(args, "-debug-actiongraph="+actionGraph)
+	}
+	driverTrace := filepath.Join(b.evidence, label+"-driver-trace.json")
+	if options.driverTrace {
+		args = append(args, "-debug-trace="+driverTrace)
+		sample.DriverRuntimeTrace = filepath.Join(b.evidence, label+"-driver-runtime.trace")
+		args = append(args, "-debug-runtime-trace="+sample.DriverRuntimeTrace)
 	}
 	args = append(args, "./scenery_implementation_island")
 	_, command, err := nativeReloadCommand(b.ctx, b.appRoot, b.env, filepath.Join(b.evidence, label+"-build.log"), "go", args...)
@@ -201,18 +235,28 @@ func (b *nativeReloadBenchmark) sample(label string, negative, traceActions bool
 	if err != nil {
 		return sample, err
 	}
+	if err := os.Chmod(sample.Binary, 0o500); err != nil {
+		return sample, err
+	}
 	info, err := os.Stat(sample.Binary)
 	if err != nil {
 		return sample, err
 	}
 	sample.ExecutableBytes = info.Size()
-	if err := os.Chmod(sample.Binary, 0o500); err != nil {
-		return sample, err
+	sample.ArtifactStat, sample.artifactInfo = info.Sys(), info
+	digestCompleted := time.Now()
+	sample.ParentDigestMS = nativeReloadMS(digestCompleted.Sub(hashStarted))
+	var initOutput *nativeReloadOutput
+	if options.initialization {
+		initOutput = &nativeReloadOutput{limit: 64 << 10}
 	}
-	sample.ParentDigestMS = nativeReloadMS(time.Since(hashStarted))
 	launchStarted := time.Now()
-	child, hello, err := b.start(sample.Binary, sample.Identity)
-	sample.Attestation, sample.LaunchAttestMS = hello, nativeReloadMS(time.Since(launchStarted))
+	child, hello, err := b.startObserved(sample.Binary, sample.Identity, initOutput)
+	attested := time.Now()
+	sample.Attestation, sample.LaunchAttestMS = hello, nativeReloadMS(attested.Sub(launchStarted))
+	if child != nil {
+		sample.StartCallMS = child.startCallMS
+	}
 	if err != nil {
 		return sample, err
 	}
@@ -227,7 +271,8 @@ func (b *nativeReloadBenchmark) sample(label string, negative, traceActions bool
 	}
 	activationStarted := time.Now()
 	sample.Ready, err = child.call(ctx, nativeReloadFrame{Kind: "activate", Identity: sample.Identity})
-	sample.ActivationMS = nativeReloadMS(time.Since(activationStarted))
+	readyObserved := time.Now()
+	sample.ActivationMS = nativeReloadMS(readyObserved.Sub(activationStarted))
 	if err != nil || sample.Ready.Kind != "ready" || !sample.Ready.Constructed || sample.Ready.Failure != "" {
 		return sample, fmt.Errorf("activation did not construct a ready service: %v", err)
 	}
@@ -249,10 +294,49 @@ func (b *nativeReloadBenchmark) sample(label string, negative, traceActions bool
 	if err := nativeReloadCheckBehavior(sample.Response, expected); err != nil {
 		return sample, err
 	}
-	if traceActions {
+	if options.attribution {
+		// This lane ends after verification, not merely receipt of a frame.
+		responseCompleted = time.Now()
+		sample.FirstInvocationMS = nativeReloadMS(responseCompleted.Sub(invokeStarted))
+		sample.NativeReplacementMS = nativeReloadMS(responseCompleted.Sub(buildStarted))
+		sample.EditToResponseMS = nativeReloadMS(responseCompleted.Sub(editCompleted))
+		sample.ResponseCompletedAt = responseCompleted.UTC().Format(time.RFC3339Nano)
+		ledger := nativeAttributionLedger{Clock: "parent monotonic elapsed since source write completion", DurationMS: sample.EditToResponseMS,
+			Unknown: []nativeAttributionUnknown{
+				{Category: "build_internals", Reason: "driver is enclosing; diagnostic Go clocks are reported separately"},
+				{Category: "executable_loading", Reason: "no OS loader event observed"},
+				{Category: "go_initialization", Reason: "child init tracing is diagnostic-only and not aligned to this parent clock"},
+				{Category: "readiness_observation", Reason: "activation includes constructor, pipe transfer and observer scheduling"},
+			}}
+		for _, phase := range []struct {
+			id, category string
+			from, to     time.Time
+			enclosing    bool
+		}{
+			{"capture", "input_capture", editCompleted, captureCompleted, false},
+			{"driver", "go_driver", command.started, command.finished, true},
+			{"artifact", "artifact_handling", hashStarted, digestCompleted, false},
+			{"launch", "launch_to_attestation", launchStarted, attested, true},
+			{"start", "process_start_api", child.startRequested, child.startReturned, false},
+			{"activation", "activation_to_ready", activationStarted, readyObserved, true},
+			{"response", "typed_response_verification", invokeStarted, responseCompleted, false},
+		} {
+			span := nativeAttributionSpan{ID: phase.id, Category: phase.category, Source: "parent monotonic boundary", StartMS: nativeReloadMS(phase.from.Sub(editCompleted)), EndMS: nativeReloadMS(phase.to.Sub(editCompleted)), Enclosing: phase.enclosing}
+			if phase.id == "start" {
+				span.Parent = "launch"
+			}
+			ledger.Spans = append(ledger.Spans, span)
+		}
+		accounting, err := ledger.account()
+		if err != nil {
+			return sample, err
+		}
+		sample.ParentTimeline, sample.ParentAccounting = &ledger, &accounting
+	}
+	if options.actions {
 		// This separate unique-edit diagnostic is not in the decision series.
 		// Action intervals may overlap; never add them as sequential latency.
-		actions, err := os.ReadFile(actionGraph)
+		actions, err := nativeAttributionRead(actionGraph)
 		if err != nil {
 			return sample, err
 		}
@@ -283,6 +367,26 @@ func (b *nativeReloadBenchmark) sample(label string, negative, traceActions bool
 	sample.SteadyCalls = map[string]any{"transport_ping": nativeReloadStats(pings), "typed_invocation": nativeReloadStats(invocations), "ping_samples_ms": pings, "typed_samples_ms": invocations}
 	if err := child.close(); err != nil {
 		return sample, err
+	}
+	if initOutput != nil {
+		if initOutput.truncated {
+			return sample, fmt.Errorf("initialization trace exceeded 64 KiB")
+		}
+		sample.InitTrace = filepath.Join(b.evidence, label+"-first-inittrace.log")
+		if err := atomicfile.Write(sample.InitTrace, initOutput.Bytes(), 0o600, atomicfile.Options{}); err != nil {
+			return sample, err
+		}
+	}
+	if options.driverTrace {
+		data, err := nativeAttributionRead(driverTrace)
+		if err != nil {
+			return sample, err
+		}
+		ledger, err := nativeAttributionGoTrace(data)
+		if err != nil {
+			return sample, err
+		}
+		sample.DriverTrace = &ledger
 	}
 	postData, err := b.command(b.appRoot, label+"-deps-after", "go", "list", "-mod=readonly", "-deps", "-json", "./scenery_implementation_island")
 	if err != nil {

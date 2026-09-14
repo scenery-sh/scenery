@@ -567,9 +567,14 @@ func currentSurfaceResidueDiagnostics(rule currentSurfaceResidueRule, rel string
 }
 
 func currentSurfaceResidueAllowed(rule currentSurfaceResidueRule, rel, match, text string) bool {
-	if rule.Name == "active next-generation name" && filepath.ToSlash(rel) == "docs/knowledge.json" {
-		_, ok := historicalKnowledgeLines[strings.TrimSpace(text)]
-		return ok
+	if rule.Name == "active next-generation name" {
+		if currentSurfaceHumanTargetReference(rel, text, rule.Pattern) {
+			return true
+		}
+		if filepath.ToSlash(rel) == "docs/knowledge.json" {
+			_, ok := historicalKnowledgeLines[strings.TrimSpace(text)]
+			return ok
+		}
 	}
 	if rule.Name != "versioned first-party identity" {
 		return false
@@ -579,6 +584,27 @@ func currentSurfaceResidueAllowed(rule currentSurfaceResidueRule, rel, match, te
 	}
 	_, ok := legacyIdentityMigrationFiles[filepath.ToSlash(rel)]
 	return ok
+}
+
+// The human-owned target is a proposal, not an alternate current product API.
+// Only its exact governance/catalog references are exempt elsewhere.
+func currentSurfaceHumanTargetReference(rel, text string, pattern *regexp.Regexp) bool {
+	const target = "V" + "NEXT.md"
+	text = strings.TrimSpace(text)
+	switch filepath.ToSlash(rel) {
+	case target:
+		return true
+	case "AGENTS.md", "CLAUDE.md":
+		return text == "Only humans may modify `"+target+"`."
+	case "docs/knowledge.json":
+		return text == `"path": "`+target+`",` || text == `"title": "Scenery V`+`NEXT",`
+	case "docs/index.md":
+		prefix := "- [Scenery V" + "NEXT](../" + target + "):"
+		rest, found := strings.CutPrefix(text, prefix)
+		return found && !pattern.MatchString(rest)
+	default:
+		return false
+	}
 }
 
 func currentSurfaceResidueCandidate(rel string) bool {

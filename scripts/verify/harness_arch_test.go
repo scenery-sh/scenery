@@ -98,6 +98,7 @@ func TestCheckUICatalogAstryxComposition(t *testing.T) {
 
 func TestCheckCurrentSurfaceResidue(t *testing.T) {
 	t.Parallel()
+	const humanTarget = "V" + "NEXT.md"
 
 	tests := []struct {
 		name    string
@@ -110,6 +111,16 @@ func TestCheckCurrentSurfaceResidue(t *testing.T) {
 		{name: "active next name in path", rel: "internal/" + "v" + "next/compiler.go", content: "package compiler\n", want: "active next-generation name"},
 		{name: "historical knowledge path", rel: "docs/knowledge.json", content: `"path": "docs/plans/0103-` + "v" + `next-language-and-onlv-house-migration.md",` + "\n"},
 		{name: "active knowledge name", rel: "docs/knowledge.json", content: `"title": "New ` + "v" + `Next feature",` + "\n", want: "active next-generation name"},
+		{name: "human target document", rel: humanTarget, content: "# Target\n"},
+		{name: "target governance", rel: "AGENTS.md", content: "Only humans may modify `" + humanTarget + "`.\n"},
+		{name: "target governance view", rel: "CLAUDE.md", content: "Only humans may modify `" + humanTarget + "`.\n"},
+		{name: "target catalog path", rel: "docs/knowledge.json", content: `"path": "` + humanTarget + `",`},
+		{name: "target catalog title", rel: "docs/knowledge.json", content: `"title": "Scenery V` + `NEXT",`},
+		{name: "target index reference", rel: "docs/index.md", content: "- [Scenery V" + "NEXT](../" + humanTarget + "): human target."},
+		{name: "index reference cannot shelter another name", rel: "docs/index.md", content: "- [Scenery V" + "NEXT](../" + humanTarget + "): console" + "Next API.", want: "active next-generation name"},
+		{name: "target filename not allowed elsewhere", rel: "docs/" + humanTarget, content: "# Target\n", want: "active next-generation name"},
+		{name: "governance exception is exact", rel: "AGENTS.md", content: "Only humans may modify `" + humanTarget + "`. New console" + "Next API.\n", want: "active next-generation name"},
+		{name: "other checks remain inside human target", rel: humanTarget, content: "language " + "{ }", want: "authored language selector"},
 		{name: "versioned logical identity", rel: "internal/spec/catalog.go", content: "const kind = \"scenery.record" + "/v1\"\n", want: "versioned first-party identity"},
 		{name: "retained ABI", rel: "runtime/contract_registry.go", content: "const abi = \"scenery.go-runtime/v1\"\n"},
 		{name: "legacy state migration detector", rel: "internal/evolution/recovery.go", content: "const legacy = \"scenery.change-transaction" + "/v1\"\n"},

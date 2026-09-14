@@ -19,6 +19,30 @@
   },
   "documents": [
     {
+      "path": "docs/native-build-first-execution-attribution.md",
+      "title": "Native Build and First-Execution Attribution Report",
+      "owner": "scenery verifier / native development execution",
+      "status": "reference",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-14",
+      "review_after": "2026-10-14",
+      "summary": "Measured macOS first/repeated cohorts, stock-Go phase evidence, enabled Developer Tools UI observation and human confirmation, with insufficient causal attribution; Linux deferred.",
+      "tags": ["build", "runtime", "performance", "verification"]
+    },
+    {
+      "path": "docs/plans/0189-native-build-first-execution-attribution.md",
+      "title": "Native Build and First-Execution Attribution",
+      "owner": "scenery verifier / native development execution",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-14",
+      "review_after": "2026-10-14",
+      "summary": "Implemented macOS attribution lane with first/repeated cohorts and separate Go diagnostics; causal platform attribution remains insufficient and Linux is deferred by the human.",
+      "tags": ["plans", "execplans", "build", "runtime", "performance", "verification"]
+    },
+    {
       "path": "VNEXT.md",
       "title": "Scenery VNEXT",
       "owner": "scenery maintainers",

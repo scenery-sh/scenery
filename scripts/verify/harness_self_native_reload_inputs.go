@@ -40,11 +40,14 @@ func (b *nativeReloadOutput) Write(data []byte) (int, error) {
 }
 
 type nativeReloadCommandRecord struct {
-	CWD        string   `json:"cwd"`
-	Argv       []string `json:"argv"`
-	DurationMS float64  `json:"duration_ms"`
-	Error      string   `json:"error,omitempty"`
-	Output     string   `json:"output_artifact,omitempty"`
+	CWD               string   `json:"cwd"`
+	Argv              []string `json:"argv"`
+	DurationMS        float64  `json:"duration_ms"`
+	Error             string   `json:"error,omitempty"`
+	Output            string   `json:"output_artifact,omitempty"`
+	UserMS            float64  `json:"user_ms,omitempty"`
+	SystemMS          float64  `json:"system_ms,omitempty"`
+	started, finished time.Time
 }
 
 // CommandContext retains the existing process-tree cancellation mechanism.
@@ -56,7 +59,12 @@ func nativeReloadCommand(ctx context.Context, cwd string, env []string, outputPa
 	command.Stdout, command.Stderr = output, output
 	started := time.Now()
 	err := command.Run()
-	record := nativeReloadCommandRecord{CWD: cwd, Argv: append([]string{program}, args...), DurationMS: nativeReloadMS(time.Since(started)), Output: outputPath}
+	finished := time.Now()
+	record := nativeReloadCommandRecord{CWD: cwd, Argv: append([]string{program}, args...), DurationMS: nativeReloadMS(finished.Sub(started)), Output: outputPath, started: started, finished: finished}
+	if command.ProcessState != nil {
+		record.UserMS = nativeReloadMS(command.ProcessState.UserTime())
+		record.SystemMS = nativeReloadMS(command.ProcessState.SystemTime())
+	}
 	if output.truncated {
 		err = errors.Join(err, fmt.Errorf("command output exceeded 32 MiB"))
 	}
@@ -206,11 +214,14 @@ func nativeReloadEditedSource(original []byte, behavior string) ([]byte, error) 
 }
 
 type nativeReloadToolAction struct {
-	Mode      string  `json:"mode"`
-	Package   string  `json:"package"`
-	CommandMS float64 `json:"command_ms"`
-	ActionMS  float64 `json:"action_ms"`
-	QueueMS   float64 `json:"queue_ms"`
+	Mode            string   `json:"mode"`
+	Package         string   `json:"package"`
+	CommandMS       float64  `json:"command_ms"`
+	CommandUserMS   float64  `json:"command_user_ms"`
+	CommandSystemMS float64  `json:"command_system_ms"`
+	Command         []string `json:"command"`
+	ActionMS        float64  `json:"action_ms"`
+	QueueMS         float64  `json:"queue_ms"`
 }
 
 // The current stock Go tool exposes command and enclosing action intervals in
@@ -219,7 +230,7 @@ func nativeReloadToolActions(data []byte) ([]nativeReloadToolAction, error) {
 	var graph []struct {
 		Mode, Package                  string
 		Cmd                            []string
-		CmdReal                        time.Duration
+		CmdReal, CmdUser, CmdSys       time.Duration
 		TimeReady, TimeStart, TimeDone time.Time
 	}
 	if err := json.Unmarshal(data, &graph); err != nil {
@@ -238,6 +249,7 @@ func nativeReloadToolActions(data []byte) ([]nativeReloadToolAction, error) {
 			queue = action.TimeStart.Sub(action.TimeReady)
 		}
 		actions = append(actions, nativeReloadToolAction{Mode: action.Mode, Package: action.Package, CommandMS: nativeReloadMS(action.CmdReal),
+			Command: slices.Clone(action.Cmd), CommandUserMS: nativeReloadMS(action.CmdUser), CommandSystemMS: nativeReloadMS(action.CmdSys),
 			ActionMS: nativeReloadMS(action.TimeDone.Sub(action.TimeStart)), QueueMS: nativeReloadMS(queue)})
 	}
 	if len(actions) == 0 {

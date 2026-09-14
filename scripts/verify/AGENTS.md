@@ -75,6 +75,10 @@ and in-process cache coverage.
 
 ## Verification
 
+`native-reload-attribution` separates first/repeated
+and diagnostic cohorts. Preserve unknown intervals and artifact identity; never
+replace first-execution acceptance.
+
 The explicit `--benchmark native-reload --workload-root <ONLV-repository>` lane
 owns the Plan 0181 feasibility experiment. It uses the pinned real ONLV commit
 in a disposable worktree, compiled identity and self-executable hashes over

@@ -48,6 +48,7 @@ type nativeReloadFrame struct {
 	FailConstructor bool                 `json:"fail_constructor,omitempty"`
 	ConstructorMS   float64              `json:"constructor_ms,omitempty"`
 	SelfHashMS      float64              `json:"self_hash_ms,omitempty"`
+	MainToAttestMS  float64              `json:"main_to_attest_ms,omitempty"`
 }
 
 func nativeReloadCheckIdentity(want, got nativeReloadIdentity) error {

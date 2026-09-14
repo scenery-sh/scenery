@@ -48,10 +48,25 @@ func runHarnessNativeReloadStep(ctx context.Context, repoRoot, workloadRoot stri
 }
 
 func runNativeReloadBenchmark(parent context.Context, repoRoot, sourceRoot string, write bool) (summary map[string]any, resultErr error) {
-	ctx, cancel := context.WithTimeout(parent, 10*time.Minute)
+	return runNativeReloadExperiment(parent, repoRoot, sourceRoot, write, nativeReloadExperiment{
+		id: "native-reload", evidenceDirectory: "minimal-native-reload", timeout: 10 * time.Minute,
+		measure: (*nativeReloadBenchmark).measure,
+	})
+}
+
+type nativeReloadExperiment struct {
+	id, evidenceDirectory string
+	timeout               time.Duration
+	measure               func(*nativeReloadBenchmark) error
+}
+
+// Both selected process experiments retain the same owned preparation,
+// source checks and cleanup; only their explicit measurement algorithms differ.
+func runNativeReloadExperiment(parent context.Context, repoRoot, sourceRoot string, write bool, experiment nativeReloadExperiment) (summary map[string]any, resultErr error) {
+	ctx, cancel := context.WithTimeout(parent, experiment.timeout)
 	defer cancel()
 	bench := &nativeReloadBenchmark{ctx: ctx, repoRoot: repoRoot, summary: map[string]any{
-		"benchmark": "native-reload", "decision": "incomplete", "feasibility_passed": false,
+		"benchmark": experiment.id, "decision": "incomplete", "feasibility_passed": false,
 		"workload_commit": nativeReloadONLVCommit, "warmup_count": 2, "early_sample_count": 5,
 		"gate":                map[string]any{"build_p50_ms": 200, "launch_attest_ready_p50_ms": 100, "native_replacement_p50_ms": 250, "continue_to_30_max_p50_ms": 325},
 		"scope":               "real ONLV AHJ typed validation path; experimental pipes, no public endpoint or production-equivalence claim",
@@ -84,7 +99,7 @@ func runNativeReloadBenchmark(parent context.Context, repoRoot, sourceRoot strin
 	bench.appRoot = filepath.Join(bench.root, "onlv")
 	bench.evidence = filepath.Join(bench.root, "evidence")
 	if write {
-		parent := filepath.Join(repoRoot, ".scenery/harness/minimal-native-reload")
+		parent := filepath.Join(repoRoot, ".scenery/harness", experiment.evidenceDirectory)
 		if err := os.MkdirAll(parent, 0o700); err != nil {
 			return summary, err
 		}
@@ -158,7 +173,7 @@ func runNativeReloadBenchmark(parent context.Context, repoRoot, sourceRoot strin
 	if err := bench.prepare(); err != nil {
 		return summary, err
 	}
-	if err := bench.measure(); err != nil {
+	if err := experiment.measure(bench); err != nil {
 		return summary, err
 	}
 	if err := os.WriteFile(filepath.Join(bench.appRoot, "solar/ahjs/service.go"), bench.original, 0o600); err != nil {

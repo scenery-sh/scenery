@@ -15,12 +15,14 @@ import (
 )
 
 type nativeReloadChild struct {
-	process *devprocess.ManagedProcess
-	input   *os.File
-	output  *os.File
-	frames  chan nativeReloadRead
-	cancel  context.CancelFunc
-	want    nativeReloadIdentity
+	process                       *devprocess.ManagedProcess
+	input                         *os.File
+	output                        *os.File
+	frames                        chan nativeReloadRead
+	cancel                        context.CancelFunc
+	want                          nativeReloadIdentity
+	startCallMS                   float64
+	startRequested, startReturned time.Time
 }
 
 type nativeReloadRead struct {
@@ -42,11 +44,14 @@ func startNativeReloadChild(parent context.Context, dir, binary string, env []st
 	}
 	ctx, cancel := context.WithCancel(parent)
 	child := &nativeReloadChild{input: input, output: output, frames: make(chan nativeReloadRead, 1), cancel: cancel, want: want}
+	startCall := time.Now()
 	child.process, err = devprocess.Start(ctx, devprocess.StartRequest{
 		Name: "ONLV AHJ island", Kind: "experiment", Command: binary, Dir: dir, Env: env, TailLines: 20,
 		Stderr:    stderr,
 		Configure: func(command *exec.Cmd) { command.ExtraFiles = []*os.File{requests, responses} },
 	})
+	child.startRequested, child.startReturned = startCall, time.Now()
+	child.startCallMS = nativeReloadMS(child.startReturned.Sub(startCall))
 	_ = requests.Close()
 	_ = responses.Close()
 	if err != nil {

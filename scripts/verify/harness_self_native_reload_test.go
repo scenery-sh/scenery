@@ -105,7 +105,7 @@ func TestNativeReloadActionAttribution(t *testing.T) {
 func TestNativeReloadEffects(t *testing.T) {
 	t.Parallel()
 	want := []string{"external-binary", "filesystem-read", "filesystem-write", "tempdir", "test-cache"}
-	for _, name := range []string{harnessNativeReloadName, harnessNativeReloadPluginName} {
+	for _, name := range []string{harnessNativeReloadName, harnessNativeReloadPluginName, harnessNativeAttributionName} {
 		got := harnessStepEffects(harnessStep{Name: name})
 		if !slices.Equal(got, want) {
 			t.Fatalf("%s effects = %v, want %v", name, got, want)

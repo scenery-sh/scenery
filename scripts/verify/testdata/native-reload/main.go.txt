@@ -39,13 +39,13 @@ func (experimentDatabase) BeginTx(context.Context, *sql.TxOptions) (*sql.Tx, err
 }
 
 func main() {
-	if err := run(); err != nil {
+	if err := run(time.Now()); err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
 
-func run() error {
+func run(mainEntered time.Time) error {
 	data, err := base64.RawStdEncoding.DecodeString(nativeReloadBuildRecord)
 	if err != nil {
 		return err
@@ -73,7 +73,7 @@ func run() error {
 	input, output := os.NewFile(3, "invocations"), os.NewFile(4, "results")
 	defer func() { _ = input.Close(); _ = output.Close() }()
 	encoder := json.NewEncoder(output)
-	if err := encoder.Encode(nativeReloadFrame{Kind: "attested", Identity: own, PID: os.Getpid(), SelfHashMS: selfHashMS}); err != nil {
+	if err := encoder.Encode(nativeReloadFrame{Kind: "attested", Identity: own, PID: os.Getpid(), SelfHashMS: selfHashMS, MainToAttestMS: float64(time.Since(mainEntered).Nanoseconds()) / 1e6}); err != nil {
 		return err
 	}
 	var service *ahjs.Service

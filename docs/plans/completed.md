@@ -11,6 +11,22 @@ historical records. Do not refresh their review dates or rewrite them as current
 contract prose. Record later guidance here or in the owning current contract;
 use stale knowledge metadata to flag a known contradiction.
 
+## Native Build and First-Execution Attribution
+
+- Status: completed macOS attribution delivery; exact platform mechanism unresolved
+- Owner: scenery verifier / native development execution
+- Completed: 2026-09-14
+- ExecPlan: [0189 Native Build and First-Execution Attribution](0189-native-build-first-execution-attribution.md)
+
+The policy-observed cohort contains 30 first/repeated pairs and five separate
+diagnostic pairs. With ChatGPT shown enabled in Developer Tools before and after
+the run, build p50 was 549.368 ms, first-ready 34.292 ms and edit-to-verified-
+response 985.042 ms. Identity, behavior and owned cleanup passed. Package loading
+is a measured build bottleneck, but detailed cache/loader causality remains
+insufficiently attributed. No backend was promoted and the latency target still
+fails. Linux is explicitly deferred by the human. See the living
+[phase report](../native-build-first-execution-attribution.md) for evidence and limits.
+
 ## Go Plugin Reload Feasibility
 
 - Status: completed NO-GO architecture experiment; publication tracked by Git history

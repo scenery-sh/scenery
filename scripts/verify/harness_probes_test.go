@@ -29,6 +29,7 @@ func TestHarnessExplicitProofSelection(t *testing.T) {
 		{[]string{"--benchmark", "worktree-cost"}, harnessSelfModeBenchmark, nil},
 		{[]string{"--benchmark", "native-reload", "--workload-root", "/onlv"}, harnessSelfModeBenchmark, nil},
 		{[]string{"--benchmark", "native-reload-plugin", "--workload-root", "/onlv"}, harnessSelfModeBenchmark, nil},
+		{[]string{"--benchmark", "native-reload-attribution", "--workload-root", "/onlv"}, harnessSelfModeBenchmark, nil},
 	} {
 		opts, err := parseHarnessSelfArgs(tc.args)
 		if err != nil || opts.Mode != tc.mode {
@@ -64,6 +65,7 @@ func TestHarnessInvalidProofSelectionFailsBeforeWork(t *testing.T) {
 		{"--probe"}, {"--benchmark"}, {"--probe", ""},
 		{"--benchmark", "native-reload"}, {"--workload-root", "/onlv"},
 		{"--benchmark", "native-reload-plugin"},
+		{"--benchmark", "native-reload-attribution"},
 		{"--quick", "--workload-root", "/onlv"},
 		{"--benchmark", "worktree-cost", "--workload-root", "/onlv"},
 	} {
