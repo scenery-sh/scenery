@@ -248,6 +248,20 @@ compile the application graph as it needs.
   the previous host and services exit. Pass in 27.4 s (echo edit to response
   1,199 ms, shared edit 1,228 ms). With retained-generation references removed
   the probe failed: the pinned request answered 500 `system.internal`.
+- [x] (2026-09-16) ONLV after the lifecycle changes (same disposable worktree,
+  framework a12d7174, process model): the initial build request took 16.6 s
+  (stock `go build` of 48 entrypoints 8.8 s with no fair-slot wait,
+  implementation check 6.1 s, activation 3.5 s including activation of 47
+  services in 3 ms). The conformance smoke matched the earlier runs: the
+  streamed map download returned the preset digest from `drive`, the invoice
+  request passed the `contacts` internal binding and failed at `issue_date`, an
+  unauthenticated request answered 401, and the host MCP gateway listed 54 tools
+  with `workspace__describe` answered by `copilot`. Six `ahjs` handler edits
+  each published a generation that changed only `ahjs_ahjs`, and the edit to
+  response took 2,686 ms for the first edit, then 2,295-2,381 ms; drain and
+  activation each took under 1 ms. Replaced instances retired: the supervisor
+  kept 48 application processes (47 services and the host) beside the frontend,
+  assistant helpers and Victoria.
 - [ ] Follow-ups from the 9a0b54d0 review, not yet scheduled: bound link
   parallelism inside one process build (the fair slot admits the build, but
   `go build` still links up to `-p` entrypoints at once; measure peak memory of
