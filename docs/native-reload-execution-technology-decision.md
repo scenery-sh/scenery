@@ -1,7 +1,7 @@
 # Native Reload Execution Technology Decision
 
-Status: process and standard-plugin native replacement rejected; no alternative
-selected or implemented.
+Status: process, standard-plugin, WebAssembly and `c-shared` native replacement
+rejected; no alternative selected or implemented.
 
 ## Decision
 
@@ -186,6 +186,26 @@ Corrected raw evidence is under
 The stable host stopped, the owned worktree was removed, and the original ONLV
 checkout remained unchanged. This is architecture rejection evidence, not
 production runtime, SQL, streaming, debugger or portability proof.
+
+### Unloadable island checkpoint
+
+Plan 0199 screened three boundaries that can release a replaced generation,
+using the same real AHJ implementation, typed codec and validation input. An
+in-process `wasip1` reactor module executed by wazero released generations
+(host RSS plateaued at 421.7 MB after close), but needed a 475–515 ms build,
+3.8 s module compilation and 0.3 s instantiation per edit in compiler mode, or
+10.7 s instantiation in interpreter mode, and only compiled after stubbing the
+framework's `darwin || linux` storage primitives. A Go `c-shared` library
+unloaded its image with `dlclose` but kept its Go runtime heap, so a toy host
+grew from 69 to 202 MB across three generations. An out-of-process island
+releases everything at exit; direct compile/link replay with `-w` built it in
+262–278 ms (link 187–196 ms), but the first execution of each new executable
+took 513–560 ms from the probe's app-launched shell and 34 ms in Plan 0189's
+Developer Tools-enabled context. No candidate meets the 200/50/250 ms gates.
+The process island remains the only unloadable boundary near the target; it
+requires a smaller link closure, measured launch in the supervisor's real
+context and island-owned SQL state before further design. See
+[Plan 0199](plans/0199-unloadable-island-reload.md) for the measurements.
 
 ## Required Semantic Boundary
 

@@ -19,6 +19,18 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0199-unloadable-island-reload.md",
+      "title": "Unloadable Island Reload",
+      "owner": "scenery verifier / native reload architecture evidence",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-15",
+      "review_after": "2026-10-15",
+      "summary": "Stage 1 screen of unloadable real ONLV AHJ island boundaries: WebAssembly and c-shared rejected, process island releases memory but misses the 250 ms gate at its build and first-execution floor.",
+      "tags": ["plans", "execplans", "runtime", "build", "performance", "benchmark"]
+    },
+    {
       "path": "docs/plans/0198-development-link-latency.md",
       "title": "Development Link Latency",
       "owner": "scenery runtime / build / native compiler verification",
@@ -277,9 +289,9 @@
       "status": "active",
       "quality": "B",
       "freshness": "current",
-      "last_reviewed": "2026-09-14",
-      "review_after": "2026-10-14",
-      "summary": "Measured rejection of both stock-Go process-per-edit islands and stable-host Go plugins; compares c-shared, compiler-backend, interpreted, and non-Go loader alternatives without selecting one.",
+      "last_reviewed": "2026-09-15",
+      "review_after": "2026-10-15",
+      "summary": "Measured rejection of stock-Go process-per-edit islands, stable-host Go plugins, wazero WebAssembly islands and dlclose-based c-shared libraries; the process island is the only unloadable boundary near the gate, and the next evidence gate is recorded.",
       "tags": ["architecture", "runtime", "build", "performance", "decision"]
     },
     {
