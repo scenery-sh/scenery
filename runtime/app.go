@@ -44,6 +44,9 @@ func Main(cfg AppConfig) error {
 	if err != nil {
 		return err
 	}
+	if err := requireValidProcessLink(); err != nil {
+		return err
+	}
 	if cfg.ListenAddr == "" {
 		cfg.ListenAddr = ListenAddrFromEnv()
 	}

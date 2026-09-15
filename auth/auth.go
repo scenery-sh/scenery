@@ -1,7 +1,9 @@
 package auth
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"strings"
 
 	"scenery.sh/internal/authbridge"
@@ -26,6 +28,26 @@ func init() {
 			return data, ok
 		},
 		TenantID: tenantIDFromAuthData,
+	})
+	authbridge.RegisterDataCodec(authbridge.DataCodec{
+		Kind: "scenery.auth.standard",
+		Encode: func(data any) ([]byte, bool, error) {
+			typed, ok := data.(*AuthData)
+			if !ok || typed == nil {
+				return nil, false, nil
+			}
+			raw, err := json.Marshal(typed)
+			return raw, true, err
+		},
+		Decode: func(raw []byte) (any, error) {
+			var data AuthData
+			decoder := json.NewDecoder(bytes.NewReader(raw))
+			decoder.DisallowUnknownFields()
+			if err := decoder.Decode(&data); err != nil {
+				return nil, err
+			}
+			return &data, nil
+		},
 	})
 }
 

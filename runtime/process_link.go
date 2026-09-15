@@ -24,7 +24,7 @@ import (
 // session. The supervisor writes a private file naming the session token, the
 // process that owns each internal binding and each service process's listener;
 // a binding absent from this process's registry is invoked in its owner with the
-// caller's invocation metadata.
+// caller's invocation token and request state.
 const processLinkBindingPath = "/__scenery/process/v1/bindings/invoke"
 
 const processLinkMaxBody = 32 << 20
@@ -52,21 +52,12 @@ type processLinkInvocation struct {
 	Locale        string     `json:"locale,omitempty"`
 }
 
-type processLinkRequest struct {
+type processLinkEnvelope struct {
 	Address       string                `json:"address"`
 	CallerPackage string                `json:"caller_package,omitempty"`
 	Invocation    processLinkInvocation `json:"invocation"`
+	Call          *processLinkCallState `json:"call,omitempty"`
 	Input         json.RawMessage       `json:"input"`
-}
-
-type processLinkError struct {
-	Kind    string        `json:"kind"`
-	Outcome string        `json:"outcome,omitempty"`
-	Status  int           `json:"status,omitempty"`
-	Code    errs.ErrCode  `json:"code,omitempty"`
-	Message string        `json:"message"`
-	Meta    errs.Metadata `json:"meta,omitempty"`
-	Cause   string        `json:"cause,omitempty"`
 }
 
 type processLinkResponse struct {
@@ -93,6 +84,13 @@ func currentProcessLink() (*processLinkConfig, error) {
 		processLinkState.config, processLinkState.err = readProcessLink(path)
 	})
 	return processLinkState.config, processLinkState.err
+}
+
+// requireValidProcessLink fails startup when process wiring was injected but
+// cannot be used; a runtime without wiring stays a single-process runtime.
+func requireValidProcessLink() error {
+	_, err := currentProcessLink()
+	return err
 }
 
 func readProcessLink(path string) (*processLinkConfig, error) {
@@ -128,6 +126,14 @@ func processLinkedBinding(address string) (*processLinkConfig, processLinkTarget
 	return config, target, ok, nil
 }
 
+// processLinkDialError marks a call that never reached its owner, as opposed
+// to a connection lost after the request may have executed.
+type processLinkDialError struct{ err error }
+
+func (e *processLinkDialError) Error() string { return e.err.Error() }
+
+func (e *processLinkDialError) Unwrap() error { return e.err }
+
 func processLinkClient(target processLinkTarget) *http.Client {
 	processLinkState.mu.Lock()
 	defer processLinkState.mu.Unlock()
@@ -137,7 +143,11 @@ func processLinkClient(target processLinkTarget) *http.Client {
 	dialer := &net.Dialer{}
 	client := &http.Client{Transport: &http.Transport{
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			return dialer.DialContext(ctx, target.Network, target.Address)
+			conn, err := dialer.DialContext(ctx, target.Network, target.Address)
+			if err != nil {
+				return nil, &processLinkDialError{err: err}
+			}
+			return conn, nil
 		},
 		DisableCompression:  true,
 		MaxIdleConnsPerHost: 16,
@@ -148,6 +158,10 @@ func processLinkClient(target processLinkTarget) *http.Client {
 }
 
 func invokeProcessLinkedBindingJSON(ctx context.Context, config *processLinkConfig, target processLinkTarget, address, callerPackage string, invocation runtimeapi.Invocation, input []byte) ([]byte, error) {
+	call, err := captureProcessLinkedCall(ctx)
+	if err != nil {
+		return nil, ContractSystemError(fmt.Errorf("internal binding %s: %w", address, err))
+	}
 	metadata := processLinkInvocation{
 		ID: invocation.ID(), Principal: invocation.Principal(), TenantID: invocation.TenantID(), TraceID: invocation.TraceID(),
 		CallerBinding: invocation.CallerBinding(), ExecutionID: invocation.ExecutionID(), Deployment: invocation.Deployment(), Locale: invocation.Locale(),
@@ -158,7 +172,7 @@ func invokeProcessLinkedBindingJSON(ctx context.Context, config *processLinkConf
 		ctx, cancel = context.WithDeadline(ctx, deadline)
 		defer cancel()
 	}
-	body, err := json.Marshal(processLinkRequest{Address: address, CallerPackage: callerPackage, Invocation: metadata, Input: json.RawMessage(input)})
+	body, err := json.Marshal(processLinkEnvelope{Address: address, CallerPackage: callerPackage, Invocation: metadata, Call: call, Input: json.RawMessage(input)})
 	if err != nil {
 		return nil, fmt.Errorf("invalid_argument: encode process link request: %w", err)
 	}
@@ -170,12 +184,12 @@ func invokeProcessLinkedBindingJSON(ctx context.Context, config *processLinkConf
 	request.Header.Set("Content-Type", "application/json")
 	response, err := processLinkClient(target).Do(request)
 	if err != nil {
-		return nil, ContractSystemError(fmt.Errorf("internal binding %s owner is unavailable: %w", address, err))
+		return nil, processLinkCallFailure(ctx, address, err)
 	}
 	defer func() { _ = response.Body.Close() }()
 	var decoded processLinkResponse
 	if err := json.NewDecoder(io.LimitReader(response.Body, processLinkMaxBody)).Decode(&decoded); err != nil {
-		return nil, ContractSystemError(fmt.Errorf("decode internal binding %s response (HTTP %d): %w", address, response.StatusCode, err))
+		return nil, processLinkCallFailure(ctx, address, fmt.Errorf("decode response (HTTP %d): %w", response.StatusCode, err))
 	}
 	if decoded.Error != nil {
 		return nil, decoded.Error.err()
@@ -186,33 +200,22 @@ func invokeProcessLinkedBindingJSON(ctx context.Context, config *processLinkConf
 	return decoded.Output, nil
 }
 
-func newProcessLinkError(err error) *processLinkError {
-	var transport *ContractTransportError
-	if errors.As(err, &transport) {
-		encoded := &processLinkError{Kind: "transport", Outcome: transport.Outcome, Status: transport.Status, Message: transport.Message}
-		if transport.Cause != nil {
-			encoded.Cause = transport.Cause.Error()
-		}
-		return encoded
+// processLinkCallFailure classifies a call without a decoded owner answer. The
+// caller's cancellation or deadline keeps its identity, as it would when an
+// in-process handler returns it. Otherwise the owner is unavailable: either the
+// request was never delivered, or the connection was lost after delivery and
+// the outcome is unknown. Neither case is retried here.
+func processLinkCallFailure(ctx context.Context, address string, err error) error {
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ContractSystemError(fmt.Errorf("internal binding %s: %w", address, ctxErr))
 	}
-	if typed, ok := errs.As(err); ok {
-		return &processLinkError{Kind: "errs", Code: typed.Code, Message: typed.Message, Meta: typed.Meta}
+	delivery := "unknown"
+	if _, notSent := errors.AsType[*processLinkDialError](err); notSent {
+		delivery = "not_sent"
 	}
-	return &processLinkError{Kind: "error", Message: err.Error()}
-}
-
-func (encoded *processLinkError) err() error {
-	switch encoded.Kind {
-	case "transport":
-		transport := &ContractTransportError{Outcome: encoded.Outcome, Status: encoded.Status, Message: encoded.Message}
-		if encoded.Cause != "" {
-			transport.Cause = errors.New(encoded.Cause)
-		}
-		return transport
-	case "errs":
-		return &errs.Error{Code: encoded.Code, Message: encoded.Message, Meta: encoded.Meta}
-	default:
-		return errors.New(encoded.Message)
+	return &errs.Error{
+		Code: errs.Unavailable, Message: fmt.Sprintf("internal binding %s owner is unavailable", address),
+		Meta: errs.Metadata{"delivery": delivery}, Cause: err,
 	}
 }
 
@@ -236,7 +239,7 @@ func (s *server) handleProcessLinkedBinding(w http.ResponseWriter, req *http.Req
 		writeProcessLinkResponse(w, http.StatusUnauthorized, processLinkResponse{Error: &processLinkError{Kind: "error", Message: "permission_denied: process link token rejected"}})
 		return
 	}
-	var body processLinkRequest
+	var body processLinkEnvelope
 	decoder := json.NewDecoder(io.LimitReader(req.Body, processLinkMaxBody))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&body); err != nil || strings.TrimSpace(body.Address) == "" || strings.TrimSpace(body.Invocation.ID) == "" {
@@ -261,7 +264,12 @@ func (s *server) handleProcessLinkedBinding(w http.ResponseWriter, req *http.Req
 		ctx, cancel = context.WithDeadline(ctx, *body.Invocation.Deadline)
 		defer cancel()
 	}
-	ctx = runtimeapi.WithInvocation(ctx, runtimeapi.NewInvocationWithMetadata(metadata))
+	ctx, restore, err := enterProcessLinkedCall(ctx, metadata, body.Call)
+	defer restore()
+	if err != nil {
+		writeProcessLinkResponse(w, http.StatusOK, processLinkResponse{Error: newProcessLinkError(ContractSystemError(err))})
+		return
+	}
 	output, err := invokeRegisteredContractBindingJSON(ctx, registration, body.Address, body.CallerPackage, body.Input)
 	if err != nil {
 		writeProcessLinkResponse(w, http.StatusOK, processLinkResponse{Error: newProcessLinkError(err)})

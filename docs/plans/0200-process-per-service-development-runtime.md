@@ -68,10 +68,26 @@ compile the application graph as it needs.
   returned `{"message":"greeter:echo:hello petr"}`, `GET /greet` 405 and an
   unknown path the runtime 404; with `echo` stopped the host answered 503
   `unavailable` for `/echo` and `greeter` a sanitized 500 `system.internal`.
-- [ ] Milestone 3: supervisor builds, starts, preflights, routes and replaces
-  individual service processes; rebuild sets from the Go dependency closure.
-- [ ] Milestone 4: ONLV acceptance for all services, semantic conformance, and
-  the edit-to-response measurement.
+- [x] (2026-09-15) Review of 8f28f9d1 shared by the human confirmed four
+  boundary defects, each reproduced in code before fixing: forwarded calls did
+  not restore authentication, request or trace state; failures lost cancellation
+  and deadline identity; invalid injected wiring started a runtime without its
+  process-link route; and the process directory was static and generation-blind.
+  The first three are fixed: the callee re-enters the caller's authentication
+  (typed standard auth data through a registered codec, unknown types fail
+  closed), request metadata, SDK request and trace parent; failures carry
+  `transport`, `errs`, `canceled` and `deadline_exceeded` categories and owner
+  loss becomes `unavailable` with `delivery` `not_sent` or `unknown`; and
+  `runtime.Main` fails before initialization when `SCENERY_PROCESS_LINK` is set
+  but invalid. `TestProcessLinkedCallMatchesInProcessSemantics` compares the
+  same authorized call in-process and process-linked (principal, tenant, role
+  rule, invocation token, `CurrentRequest`, application child span parent) and
+  failed with "authorization rule evaluation failed" when state re-entry was
+  disabled.
+- [ ] Milestone 3: generation-aware dispatch through the host and supervisor
+  replacement of individual service processes (see Milestones).
+- [ ] Milestone 4: ONLV rebaseline, resources, background-work ownership,
+  semantic conformance, and the edit-to-response measurement.
 
 ## Surprises & Discoveries
 
@@ -115,10 +131,32 @@ compile the application graph as it needs.
   outside every service adapter, so no generated service process registers them
   yet. Applications with those resources need a host-side or owning-process
   answer before Milestone 4.
-- While a service process is replaced, internal calls to it fail as sanitized
-  `system.internal` in callers and forwarded requests fail as 503 `unavailable`
-  from the host. Milestone 3 needs a replacement window that holds or retries
-  these instead of surfacing errors.
+- With stop-then-start replacement, internal calls to the stopped process fail
+  in callers (now `errs.Unavailable`, `delivery: not_sent`; the fixture run above
+  predates this and showed a sanitized `system.internal`) and forwarded requests
+  fail as 503 `unavailable` from the host. Generation-aware replacement keeps
+  the previous instance serving until the next generation is published.
+- Authorization (`CurrentAuth`), the public `CurrentRequest` and application
+  spans read goroutine-local request state entered with `enterState` and
+  `appsdk.EnterInvocation`, not the `runtimeapi.Invocation` token. An
+  in-process internal call inherits that state because it runs on the caller's
+  goroutine; the first process link forwarded only the token, so a callee policy
+  saw an unauthenticated principal.
+- Standard authentication data is the typed `*auth.AuthData`, and
+  `auth.CurrentAuthData` and `CurrentAuditIdentity` type-assert it. Rebuilding
+  claims as a JSON map would authorize correctly but silently break audit
+  identity, so the auth package registers a codec and other data types fail
+  closed. Other runtime-created principals already use JSON maps.
+- The partition baseline above used framework `de2d81028baf`, where the root
+  facade imported `scenery.sh/runtime`; the current facade imports
+  `internal/appsdk` and `runtime/shared`, although every generated process main
+  still links `scenery.sh/runtime` through `runtime.Main`. The fixture timings
+  used stock builds without `-w` from the Claude desktop shell. Performance
+  decisions need a rebaseline with the current producer, effective development
+  flags and the same launcher for whole-application and per-service replacement.
+- One resident process per service is 48 processes plus the host for one ONLV
+  worktree before any latency work; memory, database connections, idle CPU and
+  cleanup need measurement early rather than after the latency milestone.
 - Fixture timing with stock `go build` (no `-w`, load average about 15, probe
   launched from the Claude desktop shell): build 649–666 ms after the first
   1,712 ms, stopping the old `echo` 41–45 ms, new process start to listening
@@ -178,6 +216,75 @@ compile the application graph as it needs.
   whose methods are split across processes reports only the owner's `Allow`
   methods; durable HTTP worker routes stay with the fallback until durable
   ownership is designed in Milestone 4. Date: 2026-09-15. Author: Claude.
+- Decision: until Milestone 4 accepts ONLV, the development supervisor selects
+  the process model only when `SCENERY_DEV_PROCESS_MODEL=service` is injected;
+  the default stays the single application executable. Rationale: `scenery up`
+  flags and `.scenery.json` are stable public contracts, while this selector is
+  a temporary rollout gate that disappears when the process model becomes the
+  only development model or is abandoned; an automatic capability gate would
+  switch existing multi-service fixtures and applications to unproven lifecycle
+  code. The registry entry records the sunset. Date: 2026-09-15. Author: Claude.
+- Decision: every development process is linked with its own runtime identity.
+  Its build input digest covers the build-input entries of the packages in that
+  main package's Go import closure plus module, framework, producer and native
+  entries, and its implementation revision is computed from that digest. The
+  compilation graph alone selects the rebuild set: a process is relinked and
+  replaced exactly when its identity changed, including a caller that imports
+  another service's code as a library, while a caller that reaches a changed
+  service only through an internal binding keeps running. The runtime-call
+  graph (bindings and routes) decides dispatch and availability, not rebuilds.
+  A changed contract revision replaces every process. Rationale: the same
+  digest proves what a running process executes and selects the rebuild set
+  without trusting watch event paths. Date: 2026-09-15. Author: Claude.
+- Decision: dispatch is generation-aware and owned by the host. The supervisor
+  publishes an application generation manifest to the host: generation number,
+  contract revision, and for each process instance its private socket, PID and
+  linked identity (contract revision, implementation revision, build input
+  digest, Go target, the meanings of the existing response identity headers).
+  Every process instance gets its own socket path; a replacement starts on a new
+  path while the previous instance still serves. The host tags each forwarded
+  request with the generation current at ingress, service processes carry that
+  generation in forwarded call state, and internal calls go to the host, which
+  dispatches to the owner of that binding in that generation and verifies the
+  identity the owner returns. A generation stays dispatchable until the host has
+  no in-flight work pinned to it; its replaced instances are then stopped. Work
+  started outside a forwarded request (schedules, durable and event consumers)
+  is pinned to the generation current when it calls. Rationale: reusing a
+  socket path cannot prove which generation answered and a once-loaded
+  directory leaves unchanged callers blind to ownership changes; host dispatch
+  gives unchanged callers ownership changes without their own directory updates,
+  and generation pinning prevents a request from combining a new and a previous
+  service generation that were never published together. Direct
+  service-to-service routing remains a later optimization with the same
+  guarantees. This replaces an earlier same-day choice of stable socket paths
+  with stop-then-start replacement. Date: 2026-09-15. Author: Claude, after the
+  human-shared review.
+- Decision: a forwarded internal call re-enters the caller's request state in
+  the owner through one runtime entry point (`enterProcessLinkedCall`):
+  authentication UID and data, request metadata (type, method, path, path
+  parameters, headers, invocation, trace, caller binding, execution, deployment,
+  locale, deadline, cron idempotency key), log and trace enablement, and the
+  current span as trace parent; the invocation token is the caller's token.
+  Authentication data crosses only as `nil`, a JSON map, or a type with a codec
+  registered through `internal/authbridge` (the standard `*auth.AuthData`); any
+  other type fails the call instead of degrading claims. The request payload
+  does not cross. The trust basis is the session process-link token, which only
+  supervisor-started processes of the session can read. Date: 2026-09-15.
+  Author: Claude.
+- Decision: forwarded failures preserve only a declared identity: transport
+  outcomes with status and message, `errs` codes with metadata, cancellation and
+  deadline expiry (matchable with `errors.Is`), each with its supported cause
+  chain; other Go errors keep their message only. A call that cannot reach the
+  owner returns `errs.Unavailable` with `delivery: not_sent`, one whose
+  connection is lost after sending returns `delivery: unknown`, and neither is
+  retried automatically because the owner may already have executed. The
+  caller's own cancellation or deadline returns a sanitized `system.internal`
+  wrapping the context error, as an in-process handler returning it would.
+  Date: 2026-09-15. Author: Claude.
+- Decision: `runtime.Main` validates injected process wiring before service
+  initialization, so a candidate with invalid `SCENERY_PROCESS_LINK` exits and
+  never becomes ready; an absent variable keeps the single-process runtime.
+  Date: 2026-09-15. Author: Claude.
 - Decision: per-service routes come from the same generator data that renders
   endpoint registrations (`runtimeBindingPath`, `renderContractPathTail`) and are
   checked against rendered adapter sources in tests. Rationale: a route table
@@ -234,16 +341,33 @@ the owning service with the encoded invocation. Unit tests cover forwarding,
 invocation propagation and failure mapping; a fixture probe proves both
 fixture paths through separate processes.
 
-Milestone 3 teaches the development supervisor to build the host and every
-service process (retained recipe per main), start and preflight them, publish a
-route and binding directory, and replace only the rebuild set after an edit.
-Logs, status and runtime identity report per-process generations plus an
-application generation that binds them.
+Milestone 3 implements generation-aware dispatch and supervisor replacement.
+The runtime host accepts published generation manifests, pins forwarded
+requests to a generation, dispatches internal calls, verifies owner identity and
+reports in-flight work per generation; service processes send internal calls to
+the host. The development supervisor, behind the rollout gate, builds the host
+and every service process with per-process identity, starts and preflights
+them, publishes generations, and after an edit starts only the rebuild set on
+new sockets, publishes the next generation and retires drained instances.
+Acceptance through `scenery up` on the multiservice fixture: an `echo` body edit
+restarts only `echo`, `greeter` and host keep their PIDs, and `/greet` returns
+the new behavior with owner identity proving the new `echo` generation; an
+in-flight call pinned to the previous generation completes against the previous
+`echo`; a failing candidate leaves the published generation serving; and an
+edit to a package imported by both services replaces both in one generation.
+The fixture scenario becomes a repeatable repository probe in `scripts/verify`.
 
-Milestone 4 applies the model to ONLV, runs semantic conformance (typed errors,
-auth, SQL transactions within a service, internal calls, durable work, storage,
-streams, cancellation) and measures warm body edits against the 300/500 ms
-targets.
+Milestone 4 applies the model to ONLV. It first rebaselines whole-application
+versus per-service replacement with the current producer, effective flags,
+launcher and correctness checks through the normal endpoint; measures memory,
+database connections, idle CPU, startup concurrency and cleanup for one
+worktree; and records the owner of migrations, schedules, event consumers and
+durable acquisition per process. It then runs semantic conformance (typed
+errors, auth, SQL transactions within a service, internal calls, durable work,
+storage, streams, cancellation) and measures warm body edits against the
+300/500 ms targets, reporting packages compiled, processes replaced,
+constructors rerun and services that stayed available. Process topology stays
+private to Scenery so services can later be co-located or activated lazily.
 
 ## Plan of Work
 
@@ -319,7 +443,12 @@ which requires `Authorization: Bearer <token>` and accepts
 `{"error": {"kind": "transport"|"errs"|"error", ...}}`, and invokes only
 bindings registered in that process. The optional `"processes": {"<service
 process>": {"network", "address"}}` map names each service process listener
-for the host.
+for the host. The request also carries `"call"`, the caller's request state
+(`auth` with `uid`, `data_kind` and `data`; `request` metadata; `trace_id`,
+`span_id`, `logs_enabled`, `trace_enabled`), omitted when the caller has none.
+Errors use kinds `transport` (`outcome`, `status`, `message`, `cause`), `errs`
+(`code`, `message`, `meta`, `cause`), `canceled`, `deadline_exceeded` and
+`error`.
 
 Generated internal clients (implemented in `runtime/process_link.go`):
 `InvokeContractBindingCodec(ctx, address, callerPackage, invocation, input,
