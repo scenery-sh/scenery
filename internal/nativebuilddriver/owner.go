@@ -44,6 +44,9 @@ func (owner *Owner) Serve(ctx context.Context, socket string) error {
 	if owner.Recipe == nil || owner.Session == "" || owner.Workspace == "" {
 		return fmt.Errorf("owner identity or recipe is incomplete")
 	}
+	if err := owner.Recipe.Validate(); err != nil {
+		return fmt.Errorf("invalid retained recipe: %w", err)
+	}
 	if err := os.MkdirAll(filepath.Dir(socket), 0o700); err != nil {
 		return err
 	}
@@ -63,12 +66,12 @@ func (owner *Owner) Serve(ctx context.Context, socket string) error {
 	}
 	owner.listener = listener
 	defer func() {
-		listener.Close()
-		os.Remove(socket)
+		_ = listener.Close()
+		_ = os.Remove(socket)
 	}()
 	go func() {
 		<-ctx.Done()
-		listener.Close()
+		_ = listener.Close()
 	}()
 	for {
 		conn, err := listener.Accept()
@@ -83,13 +86,13 @@ func (owner *Owner) Serve(ctx context.Context, socket string) error {
 }
 
 func (owner *Owner) handle(parent context.Context, conn net.Conn) {
-	defer conn.Close()
-	conn.SetDeadline(time.Now().Add(3 * time.Minute))
+	defer func() { _ = conn.Close() }()
+	_ = conn.SetDeadline(time.Now().Add(3 * time.Minute))
 	var request OwnerRequest
 	response := OwnerResponse{Protocol: ProtocolVersion}
 	if err := json.NewDecoder(bufio.NewReader(conn)).Decode(&request); err != nil {
 		response.Error = "invalid_request: " + err.Error()
-		json.NewEncoder(conn).Encode(response)
+		_ = json.NewEncoder(conn).Encode(response)
 		return
 	}
 	result, err := owner.build(parent, request)
@@ -97,7 +100,7 @@ func (owner *Owner) handle(parent context.Context, conn net.Conn) {
 	if err != nil {
 		response.Error = err.Error()
 	}
-	json.NewEncoder(conn).Encode(response)
+	_ = json.NewEncoder(conn).Encode(response)
 }
 
 func (owner *Owner) build(parent context.Context, request OwnerRequest) (BuildResult, error) {
@@ -122,30 +125,30 @@ func (owner *Owner) build(parent context.Context, request OwnerRequest) (BuildRe
 	request.Build.Output = candidate
 	result, err := owner.Recipe.Build(ctx, request.Build)
 	if err != nil {
-		os.Remove(candidate)
-		if errors.Is(err, context.Canceled) {
+		_ = os.Remove(candidate)
+		if errors.Is(err, context.Canceled) || ctx.Err() != nil {
 			result.Status, result.Reason = "unsupported", "superseded_or_canceled"
 			return result, nil
 		}
 		return result, err
 	}
 	if result.Status != "supported_and_rebuilt" {
-		os.Remove(candidate)
+		_ = os.Remove(candidate)
 		return result, nil
 	}
 	owner.mu.Lock()
 	defer owner.mu.Unlock()
 	if owner.latest != request.Sequence {
-		os.Remove(candidate)
+		_ = os.Remove(candidate)
 		result.Status, result.Reason = "unsupported", "stale_generation"
 		return result, nil
 	}
 	if err := os.MkdirAll(filepath.Dir(destination), 0o700); err != nil {
-		os.Remove(candidate)
+		_ = os.Remove(candidate)
 		return result, err
 	}
 	if err := os.Rename(candidate, destination); err != nil {
-		os.Remove(candidate)
+		_ = os.Remove(candidate)
 		return result, err
 	}
 	return result, nil
@@ -158,9 +161,11 @@ func RequestOwner(ctx context.Context, socket string, request OwnerRequest) (Own
 	if err != nil {
 		return response, err
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	if deadline, ok := ctx.Deadline(); ok {
-		conn.SetDeadline(deadline)
+		if err := conn.SetDeadline(deadline); err != nil {
+			return response, err
+		}
 	}
 	if err := json.NewEncoder(conn).Encode(request); err != nil {
 		return response, err

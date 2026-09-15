@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"scenery.sh/internal/envpolicy"
-	"scenery.sh/scripts/verify/internal/nativebuilddriver"
+	"scenery.sh/internal/nativebuilddriver"
 )
 
 func main() {
@@ -58,7 +58,7 @@ func run() error {
 	switch mode {
 	case "bootstrap":
 		return bootstrap(realGo, root, cwd, output, generation, args, buildArgv)
-	case "driver":
+	case "driver", "compiler":
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
 		sequence, err := generationSequence(generation)
@@ -71,7 +71,7 @@ func run() error {
 		}
 		response, buildErr := nativebuilddriver.RequestOwner(ctx, socket, nativebuilddriver.OwnerRequest{
 			Protocol: nativebuilddriver.ProtocolVersion, Session: config.Session, Workspace: cwd, Sequence: sequence,
-			Build: nativebuilddriver.BuildRequest{Workspace: cwd, Output: output, GenerationRoot: generation, BuildArgv: buildArgv, Environment: envpolicy.Environ(), BuildFlags: buildFlags(args)},
+			Build: nativebuilddriver.BuildRequest{Workspace: cwd, Output: output, GenerationRoot: generation, BuildArgv: buildArgv, Environment: envpolicy.Environ(), BuildFlags: buildFlags(args), CaptureMode: map[bool]string{true: "retained", false: "full"}[mode == "compiler"]},
 		})
 		result := response.Result
 		if err := writeJSON(filepath.Join(generation, "result.json"), result); err != nil {
@@ -193,9 +193,18 @@ func bootstrap(realGo, root, cwd, output, generation string, args, buildArgv []s
 			return err
 		}
 	}
+	actionRecords, err := filepath.Glob(filepath.Join(recordRoot, "actions", "action-*", "record.json"))
+	if err != nil {
+		return err
+	}
+	artifactDigest, executableBytes, err := nativebuilddriver.FileDigest(output)
+	if err != nil {
+		return err
+	}
 	result := map[string]any{"protocol": nativebuilddriver.ProtocolVersion, "status": "bootstrap_complete", "bootstrap_build_ms": buildMS, "capture_ms": capture.DurationMS,
 		"package_count": len(capture.Packages), "input_count": len(capture.Files), "retained_bytes": recipe.RetainedBytes, "retention_limit": recipe.RetentionLimit,
-		"build_argv": buildArgv, "artifact": output}
+		"support_artifact_count": len(recipe.Support), "tool_invocations": len(actionRecords), "compiled_packages": len(recipe.Compiles),
+		"build_argv": buildArgv, "artifact": output, "artifact_digest": artifactDigest, "executable_bytes": executableBytes}
 	return writeJSON(filepath.Join(generation, "result.json"), result)
 }
 
@@ -291,14 +300,6 @@ func flagValue(args []string, name string) string {
 		}
 	}
 	return ""
-}
-
-func readJSON(path string, value any) error {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	return json.Unmarshal(data, value)
 }
 
 func writeJSON(path string, value any) error {

@@ -105,6 +105,8 @@ func runSceneryHarnessSelf(ctx context.Context, stdout io.Writer, args []string)
 	}
 	if opts.Mode == harnessSelfModeBenchmark {
 		switch opts.Benchmark {
+		case "native-build-compiler":
+			resp.Steps = append(resp.Steps, runHarnessNativeBuildCompilerStep(ctx, repoRoot, opts.WorkloadRoot, opts.Write))
 		case "native-build-driver":
 			resp.Steps = append(resp.Steps, runHarnessNativeBuildDriverStep(ctx, repoRoot, opts.WorkloadRoot, opts.Write))
 		case "native-reload-attribution":
@@ -310,8 +312,8 @@ func parseHarnessSelfArgs(args []string) (harnessSelfOptions, error) {
 		if err := setMode(harnessSelfModeBenchmark)(""); err != nil {
 			return err
 		}
-		if id != "worktree-cost" && id != "edit-latency" && id != "native-build-driver" && id != "native-reload" && id != "native-reload-plugin" && id != "native-reload-attribution" {
-			return fmt.Errorf("unknown benchmark %q; available: edit-latency, native-build-driver, native-reload, native-reload-attribution, native-reload-plugin, worktree-cost", id)
+		if id != "worktree-cost" && id != "edit-latency" && id != "native-build-compiler" && id != "native-build-driver" && id != "native-reload" && id != "native-reload-plugin" && id != "native-reload-attribution" {
+			return fmt.Errorf("unknown benchmark %q; available: edit-latency, native-build-compiler, native-build-driver, native-reload, native-reload-attribution, native-reload-plugin, worktree-cost", id)
 		}
 		opts.Benchmark = id
 		return nil
@@ -325,9 +327,9 @@ func parseHarnessSelfArgs(args []string) (harnessSelfOptions, error) {
 	if opts.FreshTests && (opts.Mode == harnessSelfModeProbe || opts.Mode == harnessSelfModeBenchmark) {
 		return harnessSelfOptions{}, fmt.Errorf("--fresh-tests cannot be combined with --probe or --benchmark")
 	}
-	needsWorkload := opts.Benchmark == "native-build-driver" || opts.Benchmark == "native-reload" || opts.Benchmark == "native-reload-plugin" || opts.Benchmark == "native-reload-attribution"
+	needsWorkload := opts.Benchmark == "native-build-compiler" || opts.Benchmark == "native-build-driver" || opts.Benchmark == "native-reload" || opts.Benchmark == "native-reload-plugin" || opts.Benchmark == "native-reload-attribution"
 	if needsWorkload != (strings.TrimSpace(opts.WorkloadRoot) != "") {
-		return harnessSelfOptions{}, fmt.Errorf("--workload-root is required only with a native-reload benchmark")
+		return harnessSelfOptions{}, fmt.Errorf("--workload-root is required only with a native workload benchmark")
 	}
 	return opts, nil
 }

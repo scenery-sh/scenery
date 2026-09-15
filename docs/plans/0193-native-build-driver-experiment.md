@@ -17,9 +17,12 @@ Decision Log, and Outcomes & Retrospective current while the experiment runs.
   decision gates, workload commit, and evidence location before primary cohorts.
 - [x] 2026-09-14: Record a structured 620-package full-ONLV recipe and prove one
   direct compile/link vertical slice plus 30 diagnostic authenticated edits.
-- [ ] Complete correctness and rejection matrix.
-- [ ] Complete two 30-pair primary cohorts and the 50-edit churn cohort.
-- [ ] Publish the decision report, run the validation union, and clean owned roots.
+- [x] 2026-09-14: Complete correctness and rejection matrix.
+- [x] 2026-09-15: Complete two 30-pair primary cohorts. Observe 48 complete
+  churn edits and the successful build artifact for edit 49; explicitly waive
+  edit 50 after the watchdog fired rather than repeat the experimental run.
+- [x] 2026-09-15: Publish the NO-GO decision and clean owned roots. Repository
+  validation is shared with the immediately following Plan 0194 experiment.
 
 ## Surprises & Discoveries
 
@@ -30,6 +33,16 @@ the stock linker. A preliminary full-runtime diagnostic completed 30 edits with
 verified response and candidate identities, but approximately 0.7 seconds of
 complete capture plus 1.1 seconds of artifact work already makes the payoff gate
 unlikely. This diagnostic is not a primary paired cohort.
+
+The two primary cohorts confirmed that complete repeated capture erases most of
+the direct compile/link advantage. Across 60 samples per backend, stock
+accountable-build p50/p95 was 2,352.273/3,048.912 ms and the retained driver was
+2,268.237/2,677.773 ms. The 84.036 ms median reduction is only 3.6 percent. The
+watchdog fired during churn edit 49 after its build artifact was published but
+before the authenticated-response observation completed. Cleanup had already
+partially removed the lane when the run was inspected, so edit 50 was explicitly
+waived for this non-release experiment. The decision still rests on the complete
+60-pair primary evidence, not the waived churn tail.
 
 ## Decision Log
 
@@ -46,10 +59,23 @@ unlikely. This diagnostic is not a primary paired cohort.
   and 100 ms median payoff gate in each cohort. It is unperformed otherwise.
 - 2026-09-14, Codex: Retain at most twice captured archives plus 512 MiB; publish
   only the newest owner sequence by atomic rename and reject foreign identities.
+- 2026-09-15, Codex: Reject the candidate after both full-ONLV cohorts. Its
+  accountable-build p50 improvement was 84.036 ms (3.6 percent), below both
+  payoff gates; its accepted-edit p50 improvement was 97.678 ms (1.3 percent).
+- 2026-09-15, Petr: Treat the missing final churn observation as an experimental
+  waiver rather than rerunning the hour-long benchmark. Preserve the distinction
+  between 48 end-to-end edits, one build-only observation, and one unexecuted edit.
 
 ## Outcomes & Retrospective
 
-Not yet completed.
+The experiment completed 60 stock and 60 retained-driver full-ONLV samples.
+Stock accountable-build p50 was 2,352.273 ms versus 2,268.237 ms for the driver;
+accepted-edit p50 was 7,518.618 ms versus 7,420.941 ms. The driver therefore
+failed the 25 percent plus 100 ms payoff gate and Stage II was not run. The churn
+tail contains 48 complete edits, one successful build without response proof,
+and one explicitly waived edit. Plan 0194 subsequently isolated repeated
+discovery and validation as the actionable bottleneck rather than promoting
+this candidate.
 
 ## Context and Orientation
 

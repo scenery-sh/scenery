@@ -37,6 +37,25 @@ func TestTelemetryClassification(t *testing.T) {
 	}
 }
 
+func TestInternalToolingDoesNotRecordCLITelemetry(t *testing.T) {
+	var records []cliTelemetryRecord
+	var stdout, stderr bytes.Buffer
+	code := executeCLIWith(
+		[]string{"internal", "native-build-toolexec"},
+		&stdout,
+		&stderr,
+		time.Now(),
+		runWithCLITelemetry,
+		func(record cliTelemetryRecord) { records = append(records, record) },
+	)
+	if code != 2 {
+		t.Fatalf("exit code = %d, want 2", code)
+	}
+	if len(records) != 0 {
+		t.Fatalf("internal tool telemetry = %+v", records)
+	}
+}
+
 func TestRecordCLITelemetryAppendsPrivateJSONL(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

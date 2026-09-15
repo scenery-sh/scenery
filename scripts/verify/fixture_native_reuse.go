@@ -61,9 +61,9 @@ func verifyHarnessNativeRuntimeReuse(ctx context.Context, repoRoot, appRoot stri
 	return nil
 }
 
-// Both real-app probes have an external Scenery source replacement. Require
-// positive bypass, compilation, live checking and link-budget evidence for the
-// successful request; an old generation's events cannot satisfy this assertion.
+// Both real-app probes have an external Scenery source replacement. Require a
+// current-operation stock private build or retained default build, plus the
+// common link budget. An old generation's events cannot satisfy this assertion.
 func harnessPrivateExternalBuildEvidence(events []harnessWatchEvent) (map[string]any, error) {
 	operation := ""
 	for _, event := range events {
@@ -71,8 +71,9 @@ func harnessPrivateExternalBuildEvidence(events []harnessWatchEvent) (map[string
 			operation = event.Data.OperationID
 		}
 	}
-	builds, artifacts := 0, 0
+	builds, artifacts, retainedArtifacts := 0, 0, 0
 	bypassed, checked, queued, sharedAction := false, false, false, false
+	retainedBootstrap, retainedCompile, retainedBackend := false, false, ""
 	for _, event := range events {
 		data := event.Data
 		if event.Type != "build.step" || data.OperationID != operation {
@@ -81,7 +82,25 @@ func harnessPrivateExternalBuildEvidence(events []harnessWatchEvent) (map[string
 		switch data.Name {
 		case "go.command":
 			if data.Reason == "build" && data.OK {
-				builds++
+				if data.Cache == "retained_recipe" {
+					retainedCompile = true
+				} else {
+					builds++
+				}
+			}
+			if data.Reason == "retained_bootstrap" && data.Cache == "miss" && data.OK {
+				retainedBootstrap = true
+			}
+		case "build.backend":
+			if data.OK && data.Cache == "hit" && data.Reason == "retained_compiler" {
+				retainedBackend = "retained_compiler"
+			}
+			if data.OK && data.Cache == "miss" && (data.Reason == "missing_recipe" || data.Reason == "invalid_recipe" || data.Reason == "incompatible_recipe") {
+				retainedBackend = "retained_bootstrap"
+			}
+		case "build.artifact":
+			if data.OK && (data.Cache == "retained_recipe" || data.Cache == "retained_bootstrap") && data.ExecutableBytes > 0 {
+				retainedArtifacts++
 			}
 		case "build.shared_input_check":
 			checked = data.OK
@@ -94,8 +113,14 @@ func harnessPrivateExternalBuildEvidence(events []harnessWatchEvent) (map[string
 			bypassed = data.OK && data.Cache == "bypass" && data.Reason == "inputs_outside_shared_reuse_domain" && data.ExecutableBytes > 0
 		}
 	}
-	if operation == "" || builds != 1 || artifacts != 1 || !bypassed || !checked || !queued || sharedAction {
-		return nil, fmt.Errorf("external-input build did not prove private compilation: operation=%q builds=%d artifacts=%d bypass=%t checked=%t link_queued=%t shared_action=%t", operation, builds, artifacts, bypassed, checked, queued, sharedAction)
+	stock := builds == 1 && artifacts == 1 && bypassed && checked
+	retained := retainedArtifacts == 1 && ((retainedBootstrap && retainedBackend == "retained_bootstrap") || (retainedCompile && retainedBackend == "retained_compiler"))
+	if operation == "" || !queued || sharedAction || (!stock && !retained) {
+		return nil, fmt.Errorf("external-input build did not prove private or retained compilation: operation=%q builds=%d shared_artifacts=%d retained_artifacts=%d bypass=%t checked=%t retained_bootstrap=%t retained_compile=%t retained_backend=%q link_queued=%t shared_action=%t", operation, builds, artifacts, retainedArtifacts, bypassed, checked, retainedBootstrap, retainedCompile, retainedBackend, queued, sharedAction)
 	}
-	return map[string]any{"operation_id": operation, "native_builds": builds, "shared_artifact_bypassed": true, "shared_artifact_published": false, "live_input_check": true, "link_budget_queued": true}, nil
+	backend := "stock_private"
+	if retained {
+		backend = retainedBackend
+	}
+	return map[string]any{"operation_id": operation, "build_backend": backend, "shared_artifact_published": false, "live_input_check": true, "link_budget_queued": true}, nil
 }

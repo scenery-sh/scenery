@@ -368,6 +368,18 @@ development cache root. Production honors `SCENERY_DEV_CACHE_DIR`; tests inject
 `SetRoot`. Doctor, build, and CLI resolve the cache here instead of linking
 through `internal/build`.
 
+### `internal/nativebuilddriver`
+
+`internal/nativebuilddriver` owns the retained Go input-domain model and the
+stock-tool recipe used by development compilation. A bootstrap `go build -a`
+records the complete compiler and linker invocations selected by `cmd/go`.
+Compatible body-only edits then validate the retained package/file/config/tool
+identity, rebuild changed packages and transitive consumers with the captured
+stock compiler, and link the current application with the captured stock
+linker. It returns `needs_rebootstrap` for package membership, import,
+directive, module, environment, tool, native-input, or retained-artifact drift;
+it does not invent dependency rules or publish application binaries.
+
 ### `internal/build`
 
 `internal/build` owns the transient app build workspace. It materializes the
@@ -425,9 +437,14 @@ belong to the locked private workspace. Framework source outside it, local
 replacements, module-cache dependencies, native/assembly inputs, custom tool
 flags and unknown provenance bypass lookup, in-flight joins and publication.
 Content-addressed paths or read-only permissions do not prove immutable source.
-Ordinary Scenery applications currently consume an external framework and
-therefore compile privately, retaining Go's package cache and the same fair link
-budget. No application configuration is required to select this internal policy.
+Ordinary development builds use the retained compiler by default under the
+existing supervisor and fair link budget. The first build, or any incompatible
+input/tool change, uses a complete captured stock build and atomically records a
+workspace-bound recipe beneath the private development cache; compatible later
+body edits use the retained package domain. Candidate preflight, activation,
+rollback, and executable ownership remain unchanged. Ephemeral, production-
+asset, and deployable builds remain on stock `go build`. No application
+configuration is required to select this internal policy.
 Before publication or reuse, current workspace membership/bytes and Go input
 checks still run; private builds retain these freshness checks too. Local
 replacement compilation reads only its owned generation, so an external

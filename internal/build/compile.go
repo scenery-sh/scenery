@@ -215,7 +215,7 @@ func compilePrivateWorkspace(ctx context.Context, result *Result) error {
 	if err := validateRuntimeLinkerMetadata(result.RuntimeLinkerMetadata); err != nil {
 		return err
 	}
-	return runSharedGoBuildContext(ctx, result)
+	return compileApplicationBinaryContext(ctx, result)
 }
 
 func runGoBuildContext(ctx context.Context, result *Result) error {

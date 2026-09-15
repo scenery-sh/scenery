@@ -1,5 +1,8 @@
 # Completed Plans
 
+- [0195 Default Retained Go Compiler](0195-default-retained-go-compiler.md) — 2026-09-15: promoted retained-domain compilation to the default development path under the existing supervisor, with stock bootstrap/rebootstrap, atomic publication, exact runtime identity, and production artifacts left on stock `go build`; focused macOS activation passed while the broader 240-second dev-process probe timed out after repeated intentional bootstraps.
+- [0194 Retained Go Compiler Experiment](0194-retained-go-compiler.md) — 2026-09-14: complete retained-domain validation cut full-ONLV accountable-build p50 from 2,017.491 to 1,296.027 ms while preserving stock compile/link, exact runtime identity, authenticated behavior, and fail-closed unsupported changes; GO for production-boundary design, not backend activation.
+- [0193 Native Build Driver Experiment](0193-native-build-driver-experiment.md) — 2026-09-15: equal complete capture plus direct stock compile/link improved accountable-build p50 by only 3.6 percent; 60 samples per lane produced a NO-GO decision, with the watchdog-interrupted churn tail recorded as 48 end-to-end, one build-only, and one waived edit.
 - [0191 Task-Scoped Agent Instructions](0191-task-scoped-agent-instructions.md) — 2026-09-14: compact entrypoints, preserved safeguards, corrected validation selection, and two executed documentation/Go/runtime exercises with exact HTTP/build identity.
 
 This file records completed milestones so agents can distinguish shipped behavior from future intent.

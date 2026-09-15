@@ -45,3 +45,32 @@ func TestHarnessPrivateExternalBuildEvidence(t *testing.T) {
 		})
 	}
 }
+
+func TestHarnessPrivateExternalBuildEvidenceAcceptsRetainedDefault(t *testing.T) {
+	for _, test := range []struct {
+		name, commandReason, commandCache, artifactCache, backendReason, backendCache string
+	}{
+		{name: "bootstrap", commandReason: "retained_bootstrap", commandCache: "miss", artifactCache: "retained_bootstrap", backendReason: "missing_recipe", backendCache: "miss"},
+		{name: "compatible edit", commandReason: "build", commandCache: "retained_recipe", artifactCache: "retained_recipe", backendReason: "retained_compiler", backendCache: "hit"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			events := make([]harnessWatchEvent, 0, 4)
+			for _, name := range []string{"go.command", "build.shared_link_queue", "build.artifact", "build.backend", "build.request"} {
+				event := harnessWatchEvent{Type: "build.step"}
+				event.Data.Name, event.Data.OperationID, event.Data.OK = name, "current", true
+				switch name {
+				case "go.command":
+					event.Data.Reason, event.Data.Cache = test.commandReason, test.commandCache
+				case "build.artifact":
+					event.Data.Cache, event.Data.ExecutableBytes = test.artifactCache, 1
+				case "build.backend":
+					event.Data.Reason, event.Data.Cache = test.backendReason, test.backendCache
+				}
+				events = append(events, event)
+			}
+			if _, err := harnessPrivateExternalBuildEvidence(events); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}

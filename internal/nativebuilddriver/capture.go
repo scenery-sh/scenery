@@ -6,13 +6,16 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"go/parser"
+	"go/scanner"
 	"go/token"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"sort"
 	"strconv"
@@ -37,24 +40,37 @@ type Package struct {
 }
 
 type Capture struct {
-	Protocol      string             `json:"protocol"`
-	Workspace     string             `json:"workspace"`
-	StartedAt     time.Time          `json:"started_at"`
-	DurationMS    float64            `json:"duration_ms"`
-	Packages      map[string]Package `json:"packages"`
-	Files         map[string]string  `json:"files"`
-	Syntax        map[string]string  `json:"syntax"`
-	SnapshotFiles map[string]string  `json:"snapshot_files,omitempty"`
-	GoVersion     string             `json:"go_version"`
-	GoToolDigest  string             `json:"go_tool_digest"`
-	BuildFlags    []string           `json:"build_flags"`
-	Environment   map[string]string  `json:"environment"`
-	Digest        string             `json:"digest"`
+	Protocol              string               `json:"protocol"`
+	Workspace             string               `json:"workspace"`
+	StartedAt             time.Time            `json:"started_at"`
+	DurationMS            float64              `json:"duration_ms"`
+	Packages              map[string]Package   `json:"packages"`
+	Files                 map[string]string    `json:"files"`
+	FileStamps            map[string]FileStamp `json:"file_stamps"`
+	Syntax                map[string]string    `json:"syntax"`
+	Directories           map[string]string    `json:"directories"`
+	SnapshotFiles         map[string]string    `json:"snapshot_files,omitempty"`
+	GoVersion             string               `json:"go_version"`
+	GoToolDigest          string               `json:"go_tool_digest"`
+	BuildFlags            []string             `json:"build_flags"`
+	Environment           map[string]string    `json:"environment"`
+	RequestEnv            map[string]string    `json:"request_environment"`
+	Digest                string               `json:"digest"`
+	Reason                string               `json:"reason,omitempty"`
+	DirectoryValidationMS float64              `json:"directory_validation_ms,omitempty"`
+	InputHashMS           float64              `json:"input_hash_ms,omitempty"`
+	SnapshotMS            float64              `json:"snapshot_ms,omitempty"`
+}
+
+type FileStamp struct {
+	Size, ModTimeNano, ChangeTimeNano int64
+	Mode                              uint32
+	Device, Inode                     uint64
 }
 
 func FullCapture(ctx context.Context, goTool, workspace, snapshotRoot string, env []string, buildFlags []string) (Capture, error) {
 	started := time.Now()
-	result := Capture{Protocol: ProtocolVersion, Workspace: workspace, StartedAt: started.UTC(), Packages: map[string]Package{}, Files: map[string]string{}, Syntax: map[string]string{}, SnapshotFiles: map[string]string{}, BuildFlags: append([]string(nil), buildFlags...)}
+	result := Capture{Protocol: ProtocolVersion, Workspace: workspace, StartedAt: started.UTC(), Packages: map[string]Package{}, Files: map[string]string{}, FileStamps: map[string]FileStamp{}, Syntax: map[string]string{}, Directories: map[string]string{}, SnapshotFiles: map[string]string{}, BuildFlags: append([]string(nil), buildFlags...), RequestEnv: relevantRequestEnvironment(env)}
 	goPath, err := exec.LookPath(goTool)
 	if err != nil {
 		return result, err
@@ -81,7 +97,8 @@ func FullCapture(ctx context.Context, goTool, workspace, snapshotRoot string, en
 	cmd.Dir, cmd.Env = workspace, env
 	data, err := cmd.Output()
 	if err != nil {
-		if exit, ok := err.(*exec.ExitError); ok {
+		var exit *exec.ExitError
+		if errors.As(err, &exit) {
 			return result, fmt.Errorf("go list failed: %w: %s", err, exit.Stderr)
 		}
 		return result, err
@@ -103,6 +120,9 @@ func FullCapture(ctx context.Context, goTool, workspace, snapshotRoot string, en
 		return result, fmt.Errorf("empty package closure")
 	}
 	for _, pkg := range result.Packages {
+		if err := capturePackageDirectories(&result, pkg); err != nil {
+			return result, err
+		}
 		groups := [][]string{pkg.GoFiles, pkg.CgoFiles, pkg.CFiles, pkg.CXXFiles, pkg.MFiles, pkg.HFiles, pkg.FFiles, pkg.SFiles, pkg.SwigFiles, pkg.SwigCXXFiles, pkg.SysoFiles, pkg.EmbedFiles, pkg.IgnoredGoFiles, pkg.IgnoredOtherFiles}
 		for groupIndex, files := range groups {
 			for _, name := range files {
@@ -145,11 +165,27 @@ func captureFile(result *Capture, workspace, snapshotRoot, path string, goSyntax
 	if err != nil {
 		return err
 	}
+	before, err := os.Lstat(path)
+	if err != nil {
+		return fmt.Errorf("stat captured input %s: %w", path, err)
+	}
+	if !before.Mode().IsRegular() {
+		return fmt.Errorf("captured input is not regular: %s", path)
+	}
+	beforeStamp := fileStamp(before)
 	digest, _, err := FileDigest(path)
 	if err != nil {
 		return err
 	}
+	after, err := os.Lstat(path)
+	if err != nil {
+		return fmt.Errorf("stat captured input after hashing %s: %w", path, err)
+	}
+	if fileStamp(after) != beforeStamp {
+		return fmt.Errorf("source changed while hashing: %s", path)
+	}
 	result.Files[path] = digest
+	result.FileStamps[path] = beforeStamp
 	if goSyntax && strings.HasSuffix(path, ".go") {
 		syntax, err := sourceSelectionIdentity(path)
 		if err != nil {
@@ -178,7 +214,7 @@ func sourceSelectionIdentity(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	file, err := parser.ParseFile(token.NewFileSet(), path, data, parser.ImportsOnly|parser.ParseComments)
+	file, err := parser.ParseFile(token.NewFileSet(), path, data, parser.ImportsOnly)
 	if err != nil {
 		return "", err
 	}
@@ -194,9 +230,20 @@ func sourceSelectionIdentity(path string) (string, error) {
 		}
 		values = append(values, "import="+name+":"+value)
 	}
-	for _, group := range file.Comments {
-		for _, comment := range group.List {
-			text := strings.TrimSpace(comment.Text)
+	fileSet := token.NewFileSet()
+	position := fileSet.AddFile(path, -1, len(data))
+	var sourceScanner scanner.Scanner
+	sourceScanner.Init(position, data, nil, scanner.ScanComments)
+	for {
+		_, tok, literal := sourceScanner.Scan()
+		if tok == token.EOF {
+			break
+		}
+		if tok != token.COMMENT {
+			continue
+		}
+		for _, line := range strings.Split(literal, "\n") {
+			text := strings.TrimSpace(line)
 			if strings.HasPrefix(text, "//go:") || strings.HasPrefix(text, "// +build") {
 				values = append(values, "directive="+text)
 			}
@@ -252,13 +299,121 @@ func canonicalCapture(value Capture) ([]byte, error) {
 		packages = append(packages, pkg{p.ImportPath, p.Name, p.Dir, imports, p.ImportMap, moduleGoMod, all})
 	}
 	sort.Slice(packages, func(i, j int) bool { return packages[i].ImportPath < packages[j].ImportPath })
+	type directory struct{ Path, Digest string }
+	var directories []directory
+	for path, digest := range value.Directories {
+		directories = append(directories, directory{path, digest})
+	}
+	sort.Slice(directories, func(i, j int) bool { return directories[i].Path < directories[j].Path })
 	return json.Marshal(struct {
 		Protocol, Workspace, GoVersion, GoToolDigest string
 		BuildFlags                                   []string
 		Environment                                  map[string]string
+		RequestEnvironment                           map[string]string
 		Files                                        []file
 		Packages                                     []pkg
-	}{ProtocolVersion, value.Workspace, value.GoVersion, value.GoToolDigest, value.BuildFlags, value.Environment, files, packages})
+		Directories                                  []directory
+	}{ProtocolVersion, value.Workspace, value.GoVersion, value.GoToolDigest, value.BuildFlags, value.Environment, value.RequestEnv, files, packages, directories})
+}
+
+func capturePackageDirectories(result *Capture, pkg Package) error {
+	if pkg.Dir == "" {
+		return fmt.Errorf("package %s has no source directory", pkg.ImportPath)
+	}
+	if err := captureDirectory(result.Directories, pkg.Dir); err != nil {
+		return err
+	}
+	if len(pkg.EmbedFiles) == 0 {
+		return nil
+	}
+	return filepath.WalkDir(pkg.Dir, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !entry.IsDir() || path == pkg.Dir {
+			return nil
+		}
+		return captureDirectory(result.Directories, path)
+	})
+}
+
+func captureDirectory(target map[string]string, path string) error {
+	digest, err := directoryDigest(path)
+	if err != nil {
+		return err
+	}
+	target[path] = digest
+	return nil
+}
+
+func directoryDigest(path string) (string, error) {
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return "", err
+	}
+	values := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		info, err := entry.Info()
+		if err != nil {
+			return "", err
+		}
+		values = append(values, entry.Name()+"\x00"+info.Mode().String())
+	}
+	sort.Strings(values)
+	digest := sha256.Sum256([]byte(strings.Join(values, "\n")))
+	return "sha256:" + hex.EncodeToString(digest[:]), nil
+}
+
+func relevantRequestEnvironment(env []string) map[string]string {
+	keys := map[string]bool{}
+	for _, key := range []string{"GOROOT", "GOOS", "GOARCH", "GOAMD64", "GOARM64", "GOEXPERIMENT", "GOTOOLCHAIN", "GOFLAGS", "GOWORK", "CGO_ENABLED", "CC", "CXX", "CGO_CFLAGS", "CGO_CPPFLAGS", "CGO_CXXFLAGS", "CGO_LDFLAGS"} {
+		keys[key] = true
+	}
+	result := map[string]string{}
+	for _, entry := range env {
+		name, value, found := strings.Cut(entry, "=")
+		if found && keys[name] {
+			result[name] = value
+		}
+	}
+	return result
+}
+
+func fileStamp(info os.FileInfo) FileStamp {
+	stamp := FileStamp{Size: info.Size(), ModTimeNano: info.ModTime().UnixNano(), Mode: uint32(info.Mode())}
+	if info.Sys() == nil {
+		return stamp
+	}
+	value := reflect.ValueOf(info.Sys())
+	if value.Kind() == reflect.Pointer {
+		if value.IsNil() {
+			return stamp
+		}
+		value = value.Elem()
+	}
+	if value.Kind() != reflect.Struct {
+		return stamp
+	}
+	readUint := func(name string) uint64 {
+		field := value.FieldByName(name)
+		if field.IsValid() && field.CanUint() {
+			return field.Uint()
+		}
+		return 0
+	}
+	stamp.Device, stamp.Inode = readUint("Dev"), readUint("Ino")
+	for _, name := range []string{"Ctimespec", "Ctim", "Ctimen"} {
+		field := value.FieldByName(name)
+		if !field.IsValid() || field.Kind() != reflect.Struct {
+			continue
+		}
+		seconds, nanos := field.FieldByName("Sec"), field.FieldByName("Nsec")
+		if seconds.IsValid() && nanos.IsValid() && seconds.CanInt() && nanos.CanInt() {
+			stamp.ChangeTimeNano = seconds.Int()*int64(time.Second) + nanos.Int()
+			break
+		}
+	}
+	return stamp
 }
 
 func effectiveGoEnvironment(ctx context.Context, goTool, workspace string, env []string) (map[string]string, error) {

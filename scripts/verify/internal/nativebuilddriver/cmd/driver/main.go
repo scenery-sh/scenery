@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"scenery.sh/internal/envpolicy"
-	"scenery.sh/scripts/verify/internal/nativebuilddriver"
+	"scenery.sh/internal/nativebuilddriver"
 )
 
 func main() {

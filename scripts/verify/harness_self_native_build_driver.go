@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -25,41 +26,70 @@ import (
 )
 
 const harnessNativeBuildDriverName = "full ONLV retained Go build driver experiment"
+const harnessNativeBuildCompilerName = "full ONLV retained Go compiler experiment"
+
+type nativeBuildExperimentSpec struct {
+	benchmark, stepName, candidate, candidateMode, stage, orderSeed string
+}
+
+var nativeBuildDriverSpec = nativeBuildExperimentSpec{
+	benchmark: "native-build-driver", stepName: harnessNativeBuildDriverName, candidate: "driver", candidateMode: "driver",
+	stage: "full_capture_stock_vs_full_capture_retained_driver", orderSeed: "0193-v1-balanced",
+}
+
+var nativeBuildCompilerSpec = nativeBuildExperimentSpec{
+	benchmark: "native-build-compiler", stepName: harnessNativeBuildCompilerName, candidate: "compiler", candidateMode: "compiler",
+	stage: "full_capture_stock_vs_retained_manifest_compiler", orderSeed: "0194-v1-balanced",
+}
 
 type nativeBuildDriverLane struct {
 	name, backend, appRoot, stateRoot, socket, session, origin, token string
 	scenery, source                                                   string
 	env                                                               []string
-	original                                                          []byte
+	original, current                                                 []byte
 	lastPID                                                           int
+	logPath                                                           string
+	initialIdentity, lastIdentity                                     nativeBuildServedIdentity
+	bootstrap                                                         map[string]any
+	buildArgv                                                         []string
+	prepareMS                                                         float64
 	owner                                                             *exec.Cmd
 	ownerLog                                                          *os.File
 }
 
 type nativeBuildDriverSample struct {
-	Cohort                  string   `json:"cohort"`
-	Lane                    string   `json:"lane"`
-	Backend                 string   `json:"backend"`
-	Marker                  string   `json:"marker"`
-	Pair                    int      `json:"pair"`
-	Order                   int      `json:"order"`
-	CaptureMS               float64  `json:"capture_ms"`
-	ArtifactBuildMS         float64  `json:"artifact_build_ms"`
-	AccountableBuildMS      float64  `json:"accountable_build_ms"`
-	FirstVerifiedResponseMS float64  `json:"first_verified_response_ms"`
-	AcceptedEditMS          float64  `json:"accepted_edit_ms"`
-	CandidateVerificationMS float64  `json:"candidate_verification_ms"`
-	CompileMS               float64  `json:"compile_ms,omitempty"`
-	LinkMS                  float64  `json:"link_ms,omitempty"`
-	ToolInvocations         int      `json:"tool_invocations"`
-	RebuiltPackages         []string `json:"rebuilt_packages,omitempty"`
-	ArtifactDigest          string   `json:"artifact_digest"`
-	ImplementationRevision  string   `json:"implementation_revision"`
-	BuildInputDigest        string   `json:"build_input_digest"`
-	ProcessID               int      `json:"process_id"`
-	Generation              int      `json:"generation"`
-	OK                      bool     `json:"ok"`
-	Error                   string   `json:"error,omitempty"`
+	Cohort                  string                    `json:"cohort"`
+	Lane                    string                    `json:"lane"`
+	Backend                 string                    `json:"backend"`
+	Marker                  string                    `json:"marker"`
+	Pair                    int                       `json:"pair"`
+	Order                   int                       `json:"order"`
+	CaptureMS               float64                   `json:"capture_ms"`
+	ArchiveValidationMS     float64                   `json:"archive_validation_ms,omitempty"`
+	SupportValidationMS     float64                   `json:"support_validation_ms,omitempty"`
+	ArtifactBuildMS         float64                   `json:"artifact_build_ms"`
+	BackendFinalizationMS   float64                   `json:"backend_finalization_ms,omitempty"`
+	AccountableBuildMS      float64                   `json:"accountable_build_ms"`
+	FirstVerifiedResponseMS float64                   `json:"first_verified_response_ms"`
+	AcceptedEditMS          float64                   `json:"accepted_edit_ms"`
+	CandidateVerificationMS float64                   `json:"candidate_verification_ms"`
+	FirstLaunchMS           float64                   `json:"first_launch_attestation_ms,omitempty"`
+	ActivationMS            float64                   `json:"runtime_activation_ms,omitempty"`
+	ArtifactHandlingMS      float64                   `json:"artifact_handling_ms,omitempty"`
+	SchedulerDelayMS        float64                   `json:"scheduler_delay_ms,omitempty"`
+	OperationID             string                    `json:"operation_id,omitempty"`
+	Phases                  []harnessEditLatencyPhase `json:"phases,omitempty"`
+	CompileMS               float64                   `json:"compile_ms,omitempty"`
+	LinkMS                  float64                   `json:"link_ms,omitempty"`
+	ToolInvocations         int                       `json:"tool_invocations"`
+	RebuiltPackages         []string                  `json:"rebuilt_packages,omitempty"`
+	ArtifactDigest          string                    `json:"artifact_digest"`
+	ImplementationRevision  string                    `json:"implementation_revision"`
+	BuildInputDigest        string                    `json:"build_input_digest"`
+	ProcessID               int                       `json:"process_id"`
+	Generation              int                       `json:"generation"`
+	OK                      bool                      `json:"ok"`
+	Error                   string                    `json:"error,omitempty"`
 }
 
 type nativeBuildDriverRun struct {
@@ -72,13 +102,22 @@ type nativeBuildDriverRun struct {
 	lanes                 []*nativeBuildDriverLane
 	ownerDigest           string
 	summary               map[string]any
+	spec                  nativeBuildExperimentSpec
 }
 
 func runHarnessNativeBuildDriverStep(ctx context.Context, repoRoot, workloadRoot string, write bool) harnessStep {
+	return runHarnessNativeBuildExperimentStep(ctx, repoRoot, workloadRoot, write, nativeBuildDriverSpec)
+}
+
+func runHarnessNativeBuildCompilerStep(ctx context.Context, repoRoot, workloadRoot string, write bool) harnessStep {
+	return runHarnessNativeBuildExperimentStep(ctx, repoRoot, workloadRoot, write, nativeBuildCompilerSpec)
+}
+
+func runHarnessNativeBuildExperimentStep(ctx context.Context, repoRoot, workloadRoot string, write bool, spec nativeBuildExperimentSpec) harnessStep {
 	started := time.Now()
-	step := harnessStep{Name: harnessNativeBuildDriverName, Command: []string{"go", "run", "./scripts/verify", "--benchmark", "native-build-driver", "--workload-root", workloadRoot, "--summary", "--write"}}
+	step := harnessStep{Name: spec.stepName, Command: []string{"go", "run", "./scripts/verify", "--benchmark", spec.benchmark, "--workload-root", workloadRoot, "--summary", "--write"}}
 	var err error
-	step.Summary, err = runNativeBuildDriverBenchmark(ctx, repoRoot, workloadRoot, write)
+	step.Summary, err = runNativeBuildExperimentBenchmark(ctx, repoRoot, workloadRoot, write, spec)
 	step.OK, step.DurationMS = err == nil, time.Since(started).Milliseconds()
 	if err != nil {
 		step.Error = err.Error()
@@ -86,16 +125,16 @@ func runHarnessNativeBuildDriverStep(ctx context.Context, repoRoot, workloadRoot
 	return step
 }
 
-func runNativeBuildDriverBenchmark(parent context.Context, repoRoot, sourceRoot string, write bool) (summary map[string]any, resultErr error) {
-	ctx, cancel := context.WithTimeout(parent, 35*time.Minute)
+func runNativeBuildExperimentBenchmark(parent context.Context, repoRoot, sourceRoot string, write bool, spec nativeBuildExperimentSpec) (summary map[string]any, resultErr error) {
+	ctx, cancel := context.WithTimeout(parent, 60*time.Minute)
 	defer cancel()
-	run := &nativeBuildDriverRun{ctx: ctx, repoRoot: repoRoot, summary: map[string]any{
-		"benchmark": "native-build-driver", "protocol": "scenery.native-build-driver", "protocol_version": 1, "decision": "incomplete",
-		"workload_commit": nativeReloadONLVCommit, "stage_i": "full_capture_stock_vs_full_capture_retained_driver",
-		"stage_ii": "conditional", "product_acceptance": "not_measured", "warmups_per_lane": 2, "pairs_per_cohort": 30,
-		"cohort_count": 2, "churn_edits": 50, "order_seed": "0193-v1-balanced", "quantile_method": "nearest-rank",
+	run := &nativeBuildDriverRun{ctx: ctx, repoRoot: repoRoot, spec: spec, summary: map[string]any{
+		"benchmark": spec.benchmark, "protocol": "scenery.native-build-driver", "protocol_version": 1, "decision": "incomplete",
+		"workload_commit": nativeReloadONLVCommit, "comparison": spec.stage, "stage_i": spec.stage, "stage_ii": "conditional",
+		"product_acceptance": "not_measured", "warmups_per_lane": 2, "pairs_per_cohort": 30,
+		"cohort_count": 2, "churn_edits": 50, "order_seed": spec.orderSeed, "quantile_method": "nearest-rank",
 		"scope":                "complete generated ONLV ./scenery_internal_main; identical logical AHJ handler bytes, production flags, generated contracts, target and runtime protocol",
-		"cache_policy":         "lane-private GOCACHE; driver bootstrap uses a separate disposable cache; stock and driver never share changed archives",
+		"cache_policy":         "lane-private GOCACHE; candidate bootstrap uses a separate disposable cache; stock and candidate never share changed archives",
 		"payoff_gate":          map[string]any{"median_relative_reduction": 0.25, "median_absolute_reduction_ms": 100, "p95_max_regression": 0.05},
 		"native_checkpoint_ms": map[string]any{"build_p50": 200, "launch_ready_p50": 100, "build_to_response_p50": 250},
 		"hardware":             map[string]any{"goos": runtime.GOOS, "goarch": runtime.GOARCH, "cpus": runtime.NumCPU()},
@@ -106,7 +145,7 @@ func runNativeBuildDriverBenchmark(parent context.Context, repoRoot, sourceRoot 
 	if err != nil {
 		return summary, err
 	}
-	run.root, err = os.MkdirTemp("", "scn-native-build-driver-")
+	run.root, err = os.MkdirTemp("", "scn-"+spec.benchmark+"-")
 	if err != nil {
 		return summary, err
 	}
@@ -121,7 +160,7 @@ func runNativeBuildDriverBenchmark(parent context.Context, repoRoot, sourceRoot 
 	run.runID = time.Now().UTC().Format("20060102T150405Z") + "-" + hex.EncodeToString(nonce[:])
 	run.evidence = filepath.Join(run.root, "evidence")
 	if write {
-		run.evidence = filepath.Join(repoRoot, ".scenery", "harness", "native-build-driver", run.runID)
+		run.evidence = filepath.Join(repoRoot, ".scenery", "harness", spec.benchmark, run.runID)
 	}
 	if err := os.MkdirAll(run.evidence, 0o700); err != nil {
 		return summary, err
@@ -129,7 +168,7 @@ func runNativeBuildDriverBenchmark(parent context.Context, repoRoot, sourceRoot 
 	run.baseEnv = envWithOverrides(envWithoutKeys(envpolicy.Environ(), "SCENERY_AGENT_SOCKET", "SCENERY_AGENT_ROUTER_ADDR", "DATABASE_URL", "SCENERY_DEV_CACHE_DIR"),
 		"GOWORK=off", "SCENERY_DEV_CACHE_DIR="+filepath.Join(run.root, "cache"), "SCENERY_AGENT_HOME="+filepath.Join(run.root, "agent"))
 	marker := filepath.Join(run.root, "owner.json")
-	if err := nativeReloadWriteJSON(marker, map[string]any{"kind": "native-build-driver-experiment", "pid": os.Getpid(), "run_id": run.runID, "source": run.sourceRoot, "commit": nativeReloadONLVCommit, "created_at": time.Now().UTC()}); err != nil {
+	if err := nativeReloadWriteJSON(marker, map[string]any{"kind": spec.benchmark + "-experiment", "pid": os.Getpid(), "run_id": run.runID, "source": run.sourceRoot, "commit": nativeReloadONLVCommit, "created_at": time.Now().UTC()}); err != nil {
 		return summary, err
 	}
 	run.ownerDigest, err = nativeReloadFileDigest(marker)
@@ -137,7 +176,7 @@ func runNativeBuildDriverBenchmark(parent context.Context, repoRoot, sourceRoot 
 		return summary, err
 	}
 	summary["run_id"], summary["evidence_root"], summary["owned_root"] = run.runID, run.evidence, run.root
-	summary["command"] = []string{"go", "run", "./scripts/verify", "--benchmark", "native-build-driver", "--workload-root", run.sourceRoot, "--summary", "--write"}
+	summary["command"] = []string{"go", "run", "./scripts/verify", "--benchmark", spec.benchmark, "--workload-root", run.sourceRoot, "--summary", "--write"}
 	summary["cwd"] = repoRoot
 
 	defer func() {
@@ -160,8 +199,22 @@ func runNativeBuildDriverBenchmark(parent context.Context, repoRoot, sourceRoot 
 		return summary, err
 	}
 	run.summary["source_status_before"] = string(before)
+	run.summary["environment"] = run.nativeBuildEnvironmentSnapshot(before)
+	originalTarget := filepath.Join(run.sourceRoot, "solar", "ahjs", "service.go")
+	targetBefore, err := nativeReloadFileDigest(originalTarget)
+	if err != nil {
+		return summary, err
+	}
+	run.summary["original_checkout_target_digest_before"] = targetBefore
 	if err := run.buildTools(); err != nil {
 		return summary, err
+	}
+	if spec.benchmark == nativeBuildDriverSpec.benchmark {
+		correctness, correctnessErr := run.runNativeBuildDriverCorrectness()
+		run.summary["correctness_matrix"] = correctness
+		if correctnessErr != nil {
+			return summary, correctnessErr
+		}
 	}
 	var allSamples []nativeBuildDriverSample
 	for cohort := 1; cohort <= 2; cohort++ {
@@ -173,12 +226,17 @@ func runNativeBuildDriverBenchmark(parent context.Context, repoRoot, sourceRoot 
 		}
 		if cohort == 2 {
 			for _, lane := range lanes {
-				if lane.backend == "driver" {
+				if lane.backend == spec.candidate {
 					churn, churnErr := run.runChurn(lane, 50)
 					run.summary["churn"] = churn
 					if churnErr != nil {
 						return summary, churnErr
 					}
+					resources := run.nativeBuildResourceSnapshot("after-churn", lane)
+					resources["state_footprint"] = nativeBuildStateFootprint(lane.stateRoot)
+					resources["generation_footprint"] = nativeBuildStateFootprint(filepath.Join(lane.stateRoot, "generations"))
+					run.summary["resources_after_churn"] = resources
+					run.summary["evidence_footprint_before_final_report"] = nativeBuildStateFootprint(run.evidence)
 				}
 			}
 		}
@@ -187,16 +245,32 @@ func runNativeBuildDriverBenchmark(parent context.Context, repoRoot, sourceRoot 
 		}
 	}
 	run.summary["samples"] = allSamples
-	decision := nativeBuildDriverDecision(run.summary)
+	aggregate := nativeBuildCohortSummary(allSamples)
+	run.summary["aggregate"] = aggregate
+	run.summary["execution_matrix"] = nativeBuildExecutionMatrix(aggregate, spec)
+	run.summary["comparison_deltas"] = map[string]any{
+		"aggregate": nativeBuildComparisonDeltas(aggregate, spec.candidate),
+		"cohort_1":  nativeBuildComparisonDeltas(run.summary["cohort_1"].(map[string]any), spec.candidate),
+		"cohort_2":  nativeBuildComparisonDeltas(run.summary["cohort_2"].(map[string]any), spec.candidate),
+	}
+	run.summary["native_checkpoint"] = nativeBuildCheckpoint(aggregate, spec.candidate)
+	run.summary["economics"] = nativeBuildEconomics(run.summary, aggregate, spec.candidate)
+	decision := nativeBuildCandidateDecision(run.summary, spec.candidate)
 	run.summary["decision"] = decision
 	if decision == "no_go_current_candidate" {
 		run.summary["stage_ii"] = "unperformed_stage_i_payoff_gate_failed"
 	}
 	after, err := run.command(run.sourceRoot, "source-status-after", "git", "status", "--porcelain=v1")
-	if err != nil || string(after) != string(before) {
-		return summary, fmt.Errorf("original ONLV checkout changed: %v", err)
+	if err != nil {
+		return summary, err
 	}
-	run.summary["original_checkout_status_unchanged"] = true
+	run.summary["source_status_after"] = string(after)
+	run.summary["source_status_unchanged"] = string(after) == string(before)
+	targetAfter, err := nativeReloadFileDigest(originalTarget)
+	if err != nil || targetAfter != targetBefore {
+		return summary, fmt.Errorf("original ONLV benchmark target changed: %v", err)
+	}
+	run.summary["original_checkout_target_unchanged"] = true
 	run.summary["product_acceptance"] = "not_measured"
 	return summary, nil
 }
@@ -213,6 +287,77 @@ func (run *nativeBuildDriverRun) commandEnv(env []string, cwd, name, program str
 	return data, err
 }
 
+func (run *nativeBuildDriverRun) nativeBuildEnvironmentSnapshot(sourceStatus []byte) map[string]any {
+	result := map[string]any{
+		"benchmark_pid": os.Getpid(), "launcher_ancestry": nativeBuildLauncherAncestry(os.Getpid()),
+		"source_status": string(sourceStatus), "goos": runtime.GOOS, "goarch": runtime.GOARCH, "cpus": runtime.NumCPU(),
+	}
+	if data, err := run.command(run.repoRoot, "environment-scenery-commit", "git", "rev-parse", "HEAD"); err == nil {
+		result["scenery_commit"] = strings.TrimSpace(string(data))
+	}
+	if data, err := run.command(run.repoRoot, "environment-scenery-diff", "git", "diff", "HEAD", "--binary", "--"); err == nil {
+		hash := sha256.New()
+		_, _ = hash.Write(data)
+		result["scenery_worktree_diff_bytes"] = len(data)
+		if untracked, listErr := run.command(run.repoRoot, "environment-scenery-untracked", "git", "ls-files", "--others", "--exclude-standard"); listErr == nil {
+			paths := strings.Fields(string(untracked))
+			sort.Strings(paths)
+			result["scenery_untracked_files"] = paths
+			for _, path := range paths {
+				content, readErr := os.ReadFile(filepath.Join(run.repoRoot, path))
+				if readErr != nil {
+					continue
+				}
+				_, _ = hash.Write([]byte("\x00" + path + "\x00"))
+				_, _ = hash.Write(content)
+			}
+		}
+		result["scenery_dirty_source_digest"] = "sha256:" + hex.EncodeToString(hash.Sum(nil))
+	}
+	if data, err := run.command(run.repoRoot, "environment-go", "/usr/local/go/bin/go", "env", "-json", "GOOS", "GOARCH", "GOVERSION", "GOROOT", "GOENV", "GOFLAGS", "GOWORK", "GOTOOLCHAIN", "CGO_ENABLED", "CC", "CXX"); err == nil {
+		var value map[string]string
+		if json.Unmarshal(data, &value) == nil {
+			result["go"] = value
+		}
+	}
+	if data, err := run.command(run.repoRoot, "environment-macos", "sw_vers"); err == nil {
+		result["macos"] = strings.TrimSpace(string(data))
+	}
+	if data, err := run.command(run.repoRoot, "environment-hardware", "sysctl", "-n", "hw.model", "hw.memsize", "machdep.cpu.brand_string"); err == nil {
+		result["hardware"] = strings.Split(strings.TrimSpace(string(data)), "\n")
+	}
+	policy := map[string]any{"per_application_authorization": "not exposed by a stable command-line read API; launcher ancestry is recorded"}
+	if data, err := run.command(run.repoRoot, "environment-developer-tools", "/usr/sbin/DevToolsSecurity", "-status"); err == nil {
+		policy["developer_tools_security"] = strings.TrimSpace(string(data))
+	}
+	if data, err := run.command(run.repoRoot, "environment-gatekeeper", "/usr/sbin/spctl", "--status"); err == nil {
+		policy["gatekeeper"] = strings.TrimSpace(string(data))
+	}
+	result["macos_launcher_policy"] = policy
+	return result
+}
+
+func nativeBuildLauncherAncestry(pid int) []string {
+	var result []string
+	for depth := 0; pid > 1 && depth < 12; depth++ {
+		data, err := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "pid=", "-o", "ppid=", "-o", "comm=", "-o", "args=").Output()
+		if err != nil || len(bytes.TrimSpace(data)) == 0 {
+			break
+		}
+		result = append(result, strings.TrimSpace(string(data)))
+		parent, err := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "ppid=").Output()
+		if err != nil {
+			break
+		}
+		next, err := strconv.Atoi(strings.TrimSpace(string(parent)))
+		if err != nil || next == pid {
+			break
+		}
+		pid = next
+	}
+	return result
+}
+
 func (run *nativeBuildDriverRun) buildTools() error {
 	toolsRoot := filepath.Join(run.evidence, "tools")
 	if err := os.MkdirAll(toolsRoot, 0o700); err != nil {
@@ -227,7 +372,7 @@ func (run *nativeBuildDriverRun) buildTools() error {
 }
 
 func (run *nativeBuildDriverRun) runCohort(cohort int) ([]nativeBuildDriverSample, []*nativeBuildDriverLane, error) {
-	backends := []string{"stock", "driver"}
+	backends := []string{"stock", run.spec.candidate}
 	if cohort == 2 {
 		backends[0], backends[1] = backends[1], backends[0]
 	}
@@ -272,6 +417,7 @@ func (run *nativeBuildDriverRun) runCohort(cohort int) ([]nativeBuildDriverSampl
 }
 
 func (run *nativeBuildDriverRun) prepareLane(cohort, slot int, backend string) (*nativeBuildDriverLane, error) {
+	prepareStarted := time.Now()
 	name := fmt.Sprintf("cohort-%d-root-%c-%s", cohort, 'a'+rune(slot), backend)
 	appRoot := filepath.Join(run.root, name)
 	if _, err := run.command(run.sourceRoot, name+"-worktree", "git", "worktree", "add", "--quiet", "--detach", appRoot, nativeReloadONLVCommit); err != nil {
@@ -295,26 +441,32 @@ func (run *nativeBuildDriverRun) prepareLane(cohort, slot int, backend string) (
 	if _, err := run.command(appRoot, name+"-framework-use", harnessLocalSceneryBinaryPath(run.repoRoot), "framework", "use", "--source", run.repoRoot, "-o", "json"); err != nil {
 		return nil, err
 	}
-	if _, err := build.ReadFrameworkSelection(appRoot); err != nil {
+	selection, err := build.ReadFrameworkSelection(appRoot)
+	if err != nil {
 		return nil, err
 	}
 	lane := &nativeBuildDriverLane{name: name, backend: backend, appRoot: appRoot, stateRoot: stateRoot, socket: filepath.Join(run.root, fmt.Sprintf("c%d%c.sock", cohort, 'a'+rune(slot))), session: run.runID + "-" + name, scenery: filepath.Join(appRoot, "scripts", "scenery"), source: filepath.Join(appRoot, "solar", "ahjs", "service.go")}
 	run.lanes = append(run.lanes, lane)
-	if err := run.writeLaneConfig(lane, map[bool]string{true: "bootstrap", false: "stock"}[backend == "driver"]); err != nil {
+	if err := run.writeLaneConfig(lane, map[bool]string{true: "bootstrap", false: "stock"}[backend == run.spec.candidate]); err != nil {
 		return nil, err
 	}
 	lane.env = run.laneEnvironment(lane)
 	if _, err := run.commandEnv(lane.env, appRoot, name+"-prepare", "bun", "development/prepare.ts"); err != nil {
 		return nil, err
 	}
-	if backend == "driver" {
+	bootstrap, buildArgv, err := nativeBuildBootstrapResult(stateRoot)
+	if err != nil {
+		return nil, err
+	}
+	lane.bootstrap, lane.buildArgv = bootstrap, buildArgv
+	if backend == run.spec.candidate {
 		if _, err := run.commandEnv(lane.env, appRoot, name+"-down-bootstrap", lane.scenery, "down", "-o", "json"); err != nil {
 			return nil, err
 		}
 		if err := run.startOwner(lane); err != nil {
 			return nil, err
 		}
-		if err := run.writeLaneConfig(lane, "driver"); err != nil {
+		if err := run.writeLaneConfig(lane, run.spec.candidateMode); err != nil {
 			return nil, err
 		}
 		lane.env = run.laneEnvironment(lane)
@@ -333,6 +485,10 @@ func (run *nativeBuildDriverRun) prepareLane(cohort, slot int, backend string) (
 		return nil, fmt.Errorf("%s fixture origin unavailable: %v", name, err)
 	}
 	lane.origin = task.Origin
+	lane.logPath, err = nativeBuildLaneLogPath(lane.appRoot, lane.name)
+	if err != nil {
+		return nil, err
+	}
 	lane.token, err = nativeBuildDevToken(run.ctx, lane.origin)
 	if err != nil {
 		return nil, err
@@ -341,11 +497,23 @@ func (run *nativeBuildDriverRun) prepareLane(cohort, slot int, backend string) (
 	if err != nil {
 		return nil, err
 	}
+	lane.current = append([]byte(nil), lane.original...)
 	identity, _, err := nativeBuildAwaitResponse(run.ctx, lane, "query must be at most 200 characters", 0)
 	if err != nil {
 		return nil, err
 	}
 	lane.lastPID = identity.ProcessID
+	lane.initialIdentity, lane.lastIdentity = identity, identity
+	lane.prepareMS = nativeReloadMS(time.Since(prepareStarted))
+	bootstrap["lane_prepare_ms"] = lane.prepareMS
+	bootstrap["framework_source_digest"] = selection.Source.Digest
+	bootstrap["framework_executable_digest"] = selection.ExecutableDigest
+	bootstraps, _ := run.summary["bootstraps"].(map[string]any)
+	if bootstraps == nil {
+		bootstraps = map[string]any{}
+		run.summary["bootstraps"] = bootstraps
+	}
+	bootstraps[lane.name] = bootstrap
 	return lane, nil
 }
 
@@ -395,7 +563,12 @@ func (run *nativeBuildDriverRun) startOwner(lane *nativeBuildDriverLane) error {
 	lane.owner = cmd
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
-		if _, err := os.Stat(ready); err == nil {
+		if data, err := os.ReadFile(ready); err == nil {
+			var ownerReady map[string]any
+			if json.Unmarshal(data, &ownerReady) != nil {
+				return fmt.Errorf("driver owner ready record is invalid")
+			}
+			lane.bootstrap["owner_ready"] = ownerReady
 			return nil
 		}
 		if cmd.ProcessState != nil {
@@ -407,24 +580,51 @@ func (run *nativeBuildDriverRun) startOwner(lane *nativeBuildDriverLane) error {
 }
 
 func (run *nativeBuildDriverRun) measureLane(lane *nativeBuildDriverLane, cohort, pair, order int, marker string) (row nativeBuildDriverSample, resultErr error) {
-	row = nativeBuildDriverSample{Cohort: fmt.Sprintf("cohort-%d", cohort), Lane: lane.name, Backend: lane.backend, Marker: marker, Pair: pair, Order: order}
 	changed, err := nativeReloadEditedSource(lane.original, marker)
 	if err != nil {
-		return row, err
+		return nativeBuildDriverSample{}, err
 	}
-	if current, err := os.ReadFile(lane.source); err != nil || (!bytes.Equal(current, lane.original) && !strings.Contains(string(current), "[c")) {
+	return run.measureLaneSource(lane, cohort, pair, order, marker, changed, "query must be at most 200 characters ["+marker+"]", nil)
+}
+
+func (run *nativeBuildDriverRun) measureLaneSource(lane *nativeBuildDriverLane, cohort, pair, order int, marker string, source []byte, expected string, restoreMTime *time.Time) (row nativeBuildDriverSample, resultErr error) {
+	row = nativeBuildDriverSample{Cohort: fmt.Sprintf("cohort-%d", cohort), Lane: lane.name, Backend: lane.backend, Marker: marker, Pair: pair, Order: order}
+	if current, err := os.ReadFile(lane.source); err != nil || !bytes.Equal(current, lane.current) {
 		return row, fmt.Errorf("lane source ownership conflict: %v", err)
 	}
 	beforeGeneration := readNativeBuildCounter(lane.stateRoot)
+	logOffset := int64(0)
+	if info, err := os.Stat(lane.logPath); err == nil {
+		logOffset = info.Size()
+	}
 	started := time.Now()
-	if err := os.WriteFile(lane.source, changed, 0o600); err != nil {
+	if err := os.WriteFile(lane.source, source, 0o600); err != nil {
 		return row, err
 	}
-	identity, responseAt, err := nativeBuildAwaitResponse(run.ctx, lane, "query must be at most 200 characters ["+marker+"]", lane.lastPID)
+	if restoreMTime != nil {
+		if err := os.Chtimes(lane.source, *restoreMTime, *restoreMTime); err != nil {
+			return row, err
+		}
+	}
+	lane.current = append(lane.current[:0], source...)
+	identity, responseAt, err := nativeBuildAwaitResponse(run.ctx, lane, expected, lane.lastPID)
 	row.FirstVerifiedResponseMS = nativeReloadMS(responseAt.Sub(started))
 	if err != nil {
 		row.Error = err.Error()
 		return row, err
+	}
+	row.OperationID, row.Phases = harnessEditLatencyPhases(lane.logPath, logOffset)
+	for _, phase := range row.Phases {
+		switch phase.Name {
+		case "candidate.preflight":
+			row.FirstLaunchMS = phase.DurationMS
+		case "candidate.prepare":
+			row.ArtifactHandlingMS = phase.DurationMS
+		case "build.queue":
+			row.SchedulerDelayMS = phase.DurationMS + phase.QueueMS
+		case "runtime.activation":
+			row.ActivationMS = phase.DurationMS
+		}
 	}
 	verificationStarted := time.Now()
 	candidate, err := run.inspectCandidate(lane)
@@ -443,13 +643,17 @@ func (run *nativeBuildDriverRun) measureLane(lane *nativeBuildDriverLane, cohort
 	}
 	row.CaptureMS, row.ArtifactBuildMS = result.CaptureMS, result.ArtifactBuildMS
 	row.AccountableBuildMS = result.CaptureMS + result.ArtifactBuildMS
+	row.ArchiveValidationMS = result.ArchiveValidationMS
+	row.SupportValidationMS = result.SupportValidationMS
+	row.BackendFinalizationMS = result.FinalizationMS
 	row.CompileMS, row.LinkMS, row.ToolInvocations, row.RebuiltPackages = result.CompileMS, result.LinkMS, result.ToolInvocations, result.RebuiltPackages
 	row.ArtifactDigest, row.Generation = result.ArtifactDigest, generation
 	row.ImplementationRevision, row.BuildInputDigest, row.ProcessID = identity.ImplementationRevision, identity.BuildInputDigest, identity.ProcessID
-	if result.Status != map[bool]string{true: "supported_and_rebuilt", false: "stock_go_build"}[lane.backend == "driver"] || row.ArtifactDigest == "" || identity.ProcessID == lane.lastPID {
+	if result.Status != map[bool]string{true: "supported_and_rebuilt", false: "stock_go_build"}[lane.backend == run.spec.candidate] || row.ArtifactDigest == "" || identity.ProcessID == lane.lastPID {
 		return row, fmt.Errorf("invalid backend result status=%s digest=%q pid=%d", result.Status, row.ArtifactDigest, identity.ProcessID)
 	}
 	lane.lastPID = identity.ProcessID
+	lane.lastIdentity = identity
 	row.OK = true
 	return row, nil
 }
@@ -468,7 +672,7 @@ func nativeBuildAwaitResponse(ctx context.Context, lane *nativeBuildDriverLane, 
 		response, err := http.DefaultClient.Do(request)
 		if err == nil {
 			data, readErr := io.ReadAll(io.LimitReader(response.Body, 64<<10))
-			response.Body.Close()
+			_ = response.Body.Close()
 			pid, _ := strconv.Atoi(response.Header.Get("X-Scenery-Process-ID"))
 			if readErr == nil && response.StatusCode == http.StatusBadRequest && bytes.Contains(data, []byte(strconv.Quote(expected))) && pid > 0 && (previousPID == 0 || pid != previousPID) {
 				implementation, input := response.Header.Get("X-Scenery-Implementation-Revision"), response.Header.Get("X-Scenery-Build-Input-Digest")
@@ -489,7 +693,7 @@ func nativeBuildDevToken(ctx context.Context, origin string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	var result struct {
 		Token string `json:"token"`
 	}
@@ -527,10 +731,11 @@ func (run *nativeBuildDriverRun) inspectCandidate(lane *nativeBuildDriverLane) (
 }
 
 type nativeBuildBackendResult struct {
-	Status, ArtifactDigest                        string
-	CaptureMS, ArtifactBuildMS, CompileMS, LinkMS float64
-	ToolInvocations                               int
-	RebuiltPackages                               []string
+	Status, ArtifactDigest                              string
+	CaptureMS, ArchiveValidationMS, SupportValidationMS float64
+	ArtifactBuildMS, CompileMS, LinkMS, FinalizationMS  float64
+	ToolInvocations                                     int
+	RebuiltPackages                                     []string
 }
 
 func nativeBuildReadResult(root string, previous int) (nativeBuildBackendResult, int, error) {
@@ -546,8 +751,11 @@ func nativeBuildReadResult(root string, previous int) (nativeBuildBackendResult,
 					ArtifactDigest  string   `json:"artifact_digest"`
 					CaptureMS       float64  `json:"capture_ms"`
 					ArtifactBuildMS float64  `json:"artifact_build_ms"`
+					ArchiveMS       float64  `json:"archive_validation_ms"`
+					SupportMS       float64  `json:"support_validation_ms"`
 					CompileMS       float64  `json:"compile_ms"`
 					LinkMS          float64  `json:"link_ms"`
+					FinalizationMS  float64  `json:"finalization_ms"`
 					ToolInvocations int      `json:"tool_invocations"`
 					RebuiltPackages []string `json:"rebuilt_packages"`
 					Capture         struct {
@@ -560,7 +768,7 @@ func nativeBuildReadResult(root string, previous int) (nativeBuildBackendResult,
 				if raw.CaptureMS == 0 {
 					raw.CaptureMS = raw.Capture.DurationMS
 				}
-				return nativeBuildBackendResult{raw.Status, raw.ArtifactDigest, raw.CaptureMS, raw.ArtifactBuildMS, raw.CompileMS, raw.LinkMS, raw.ToolInvocations, raw.RebuiltPackages}, generation, nil
+				return nativeBuildBackendResult{raw.Status, raw.ArtifactDigest, raw.CaptureMS, raw.ArchiveMS, raw.SupportMS, raw.ArtifactBuildMS, raw.CompileMS, raw.LinkMS, raw.FinalizationMS, raw.ToolInvocations, raw.RebuiltPackages}, generation, nil
 			}
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -572,46 +780,6 @@ func readNativeBuildCounter(root string) int {
 	data, _ := os.ReadFile(filepath.Join(root, "counter"))
 	value, _ := strconv.Atoi(strings.TrimSpace(string(data)))
 	return value
-}
-
-func nativeBuildCohortSummary(samples []nativeBuildDriverSample) map[string]any {
-	result := map[string]any{"sample_count": len(samples), "complete_pairs": len(samples) / 2}
-	for _, backend := range []string{"stock", "driver"} {
-		var capture, build, response, accepted []float64
-		for _, sample := range samples {
-			if sample.Backend == backend && sample.OK {
-				capture = append(capture, sample.CaptureMS)
-				build = append(build, sample.AccountableBuildMS)
-				response = append(response, sample.FirstVerifiedResponseMS)
-				accepted = append(accepted, sample.AcceptedEditMS)
-			}
-		}
-		result[backend] = map[string]any{"count": len(build), "capture": nativeReloadStats(capture), "accountable_build": nativeReloadStats(build), "first_verified_response": nativeReloadStats(response), "accepted_edit": nativeReloadStats(accepted)}
-	}
-	return result
-}
-
-func nativeBuildDriverDecision(summary map[string]any) string {
-	for cohort := 1; cohort <= 2; cohort++ {
-		value, ok := summary[fmt.Sprintf("cohort_%d", cohort)].(map[string]any)
-		if !ok || value["complete_pairs"] != 30 {
-			return "incomplete"
-		}
-		stock := value["stock"].(map[string]any)
-		driver := value["driver"].(map[string]any)
-		s50 := stock["accountable_build"].(map[string]any)["p50_ms"].(float64)
-		d50 := driver["accountable_build"].(map[string]any)["p50_ms"].(float64)
-		s95 := stock["accountable_build"].(map[string]any)["p95_ms"].(float64)
-		d95 := driver["accountable_build"].(map[string]any)["p95_ms"].(float64)
-		sa95 := stock["accepted_edit"].(map[string]any)["p95_ms"].(float64)
-		da95 := driver["accepted_edit"].(map[string]any)["p95_ms"].(float64)
-		sa50 := stock["accepted_edit"].(map[string]any)["p50_ms"].(float64)
-		da50 := driver["accepted_edit"].(map[string]any)["p50_ms"].(float64)
-		if s50-d50 < 100 || (s50-d50)/s50 < .25 || d95 > s95*1.05 || da50 >= sa50 || da95 > sa95*1.05 {
-			return "no_go_current_candidate"
-		}
-	}
-	return "go_for_next_experiment"
 }
 
 func (run *nativeBuildDriverRun) runChurn(lane *nativeBuildDriverLane, count int) (map[string]any, error) {
@@ -631,6 +799,25 @@ func (run *nativeBuildDriverRun) runChurn(lane *nativeBuildDriverLane, count int
 	return map[string]any{"completed": count, "start_pid": startPID, "end_pid": lane.lastPID, "retained_generation_count": len(entries), "generation_limit": 4, "child_max_rss_raw": stat.Maxrss}, nil
 }
 
+func nativeBuildStateFootprint(root string) map[string]any {
+	var bytes, files int64
+	err := filepath.Walk(root, func(_ string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if info.Mode().IsRegular() {
+			bytes += info.Size()
+			files++
+		}
+		return nil
+	})
+	result := map[string]any{"bytes": bytes, "files": files}
+	if err != nil {
+		result["error"] = err.Error()
+	}
+	return result
+}
+
 func (run *nativeBuildDriverRun) closeLanes(lanes []*nativeBuildDriverLane) error {
 	var result error
 	for _, lane := range lanes {
@@ -642,6 +829,7 @@ func (run *nativeBuildDriverRun) closeLanes(lanes []*nativeBuildDriverLane) erro
 			result = errors.Join(result, readErr)
 			if readErr == nil && !bytes.Equal(current, lane.original) {
 				result = errors.Join(result, os.WriteFile(lane.source, lane.original, 0o600))
+				lane.current = append(lane.current[:0], lane.original...)
 				if run.ctx.Err() == nil && lane.token != "" && lane.lastPID != 0 {
 					identity, _, restoreErr := nativeBuildAwaitResponse(run.ctx, lane, "query must be at most 200 characters", lane.lastPID)
 					result = errors.Join(result, restoreErr)

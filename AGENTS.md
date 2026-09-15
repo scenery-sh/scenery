@@ -58,6 +58,7 @@ Guidance, Verification and Child Agent Index as useful section headings.
 - `internal/app/AGENTS.md` owns app discovery, configuration and pure SQL requirement supply.
 - `internal/parse/AGENTS.md` owns Go package analysis and model-owned ABI data.
 - `internal/agent/AGENTS.md` owns local agent protocol state, machine ownership records, and their durable identity migrations.
+- `internal/nativebuilddriver/AGENTS.md` owns captured stock-Go recipes, retained input-domain validation, and direct compiler/linker execution.
 - `internal/compiler/AGENTS.md` owns source loading, validation, expansion, and immutable compiler results.
 - `internal/contractagent/AGENTS.md` owns compiled-graph JSON-RPC capabilities and evolution dispatch.
 - `internal/deployplan/AGENTS.md` owns deployment plans, provider coordination, and crash-safe application.

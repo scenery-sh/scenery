@@ -14,22 +14,28 @@ func FileDigest(path string) (string, int64, error) {
 	if err != nil {
 		return "", 0, err
 	}
-	defer f.Close()
 	h := sha256.New()
 	n, err := io.Copy(h, f)
+	closeErr := f.Close()
+	if err == nil {
+		err = closeErr
+	}
 	return "sha256:" + hex.EncodeToString(h.Sum(nil)), n, err
 }
 
 func CopyRegular(src, dst string) (FileCopy, error) {
 	info, err := os.Lstat(src)
-	if err != nil || !info.Mode().IsRegular() {
-		return FileCopy{}, fmt.Errorf("input is not a regular file: %s: %w", src, err)
+	if err != nil {
+		return FileCopy{}, fmt.Errorf("stat input %s: %w", src, err)
+	}
+	if !info.Mode().IsRegular() {
+		return FileCopy{}, fmt.Errorf("input is not a regular file: %s", src)
 	}
 	in, err := os.Open(src)
 	if err != nil {
 		return FileCopy{}, err
 	}
-	defer in.Close()
+	defer func() { _ = in.Close() }()
 	if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
 		return FileCopy{}, err
 	}
