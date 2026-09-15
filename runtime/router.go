@@ -129,6 +129,26 @@ func (r *routeTable) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	errs.HTTPErrorWithCode(w, errs.B().Code(errs.InvalidArgument).Msg("method not allowed").Err(), http.StatusMethodNotAllowed)
 }
 
+// ownerRoute returns the route ServeHTTP dispatches a request for method to, or
+// the highest-precedence route matching path when none allows method.
+func (r *routeTable) ownerRoute(path, method string) *route {
+	for _, route := range r.exact[path] {
+		if routeAllowsMethod(route.methods, method) {
+			return route
+		}
+	}
+	matches := r.matchingRoutes(path)
+	for _, match := range matches {
+		if routeAllowsMethod(match.route.methods, method) {
+			return match.route
+		}
+	}
+	if len(matches) > 0 {
+		return matches[0].route
+	}
+	return nil
+}
+
 func (r *routeTable) serveNotFound(w http.ResponseWriter, req *http.Request) {
 	if r.NotFound != nil {
 		r.NotFound.ServeHTTP(w, req)

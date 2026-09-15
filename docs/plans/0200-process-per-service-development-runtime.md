@@ -54,9 +54,20 @@ compile the application graph as it needs.
   path-routing gateway served both fixture paths; replacing only `echo` three
   times kept `greeter` and the gateway running while `/greet` returned each new
   `echo` behavior.
-- [ ] Milestone 2 generation: generated per-service mains with exact required
-  addresses, a generated host route table, and typed internal clients that
-  encode through the callee contract before crossing processes.
+- [x] (2026-09-15) Milestone 2 generation: build preparation renders
+  `scenery_internal_processes/services/<package>_<service>/main.go` (registers
+  only that adapter and requires exactly its covered addresses) and
+  `scenery_internal_processes/host/main.go` (no adapter imports; literal contract
+  revision and route table). Generated internal clients call
+  `runtime.InvokeContractBindingCodec`, which stays typed in-process and encodes
+  through the callee contract codecs across processes. The multiservice fixture
+  now declares `client "echo"` in `greeter`; through `scenery up` both paths
+  return the typed responses, and through a generated host plus two generated
+  service processes (distinct PIDs, stock `go build` with the prepared linker
+  metadata) `POST /echo` returned `{"message":"echo:hi"}`, `POST /greet`
+  returned `{"message":"greeter:echo:hello petr"}`, `GET /greet` 405 and an
+  unknown path the runtime 404; with `echo` stopped the host answered 503
+  `unavailable` for `/echo` and `greeter` a sanitized 500 `system.internal`.
 - [ ] Milestone 3: supervisor builds, starts, preflights, routes and replaces
   individual service processes; rebuild sets from the Go dependency closure.
 - [ ] Milestone 4: ONLV acceptance for all services, semantic conformance, and
@@ -88,9 +99,26 @@ compile the application graph as it needs.
   rejects the next rebuild with SCN8003 until the worktree-local CLI is rebuilt.
   Runtime prototyping therefore runs service processes directly instead of
   through `scenery up`.
-- Generated typed internal clients call `runtime.InvokeContractBindingFrom` with
-  typed values, which cannot cross a process boundary without the callee
-  contract's codecs. Only the JSON entry point is linked across processes so far.
+- Generated typed internal clients called `runtime.InvokeContractBindingFrom`
+  with typed values, which cannot cross a process boundary without the callee
+  contract's codecs; `InvokeContractBindingCodec` now carries the generated
+  `scenery.MarshalContractValue` input encoder and `Unmarshal<Op>Outcome` decoder.
+- Generated entrypoints refuse to start without the runtime bundle linker
+  metadata (`VerifyLinkedContractBundle`), so every process main must be linked
+  with the same `-X scenery.sh/runtime.linked*` values as the application
+  executable; the supervisor must pass them per process in Milestone 3.
+- A default `http.Transport` asks for gzip and the runtime server compresses
+  when asked, so process-link calls and host forwarding would compress and
+  decompress every local response; both transports disable compression and the
+  host forwards the client's own `Accept-Encoding`.
+- The composition registers application-level assistants and MCP federation
+  outside every service adapter, so no generated service process registers them
+  yet. Applications with those resources need a host-side or owning-process
+  answer before Milestone 4.
+- While a service process is replaced, internal calls to it fail as sanitized
+  `system.internal` in callers and forwarded requests fail as 503 `unavailable`
+  from the host. Milestone 3 needs a replacement window that holds or retries
+  these instead of surfacing errors.
 - Fixture timing with stock `go build` (no `-w`, load average about 15, probe
   launched from the Claude desktop shell): build 649–666 ms after the first
   1,712 ms, stopping the old `echo` 41–45 ms, new process start to listening
@@ -132,6 +160,29 @@ compile the application graph as it needs.
   returns "not registered in this process" instead of forwarding again.
   Rationale: a stale or inconsistent directory must fail visibly rather than
   loop. Date: 2026-09-15. Author: Claude.
+- Decision: the host is a generated entrypoint that imports only
+  `scenery.sh/runtime` and calls `runtime.MainProcessHost` with a literal route
+  table; it selects the owning process with the runtime's own route table
+  (`routeTable.ownerRoute`) and forwards the unmodified request through
+  `httputil.ReverseProxy`, restoring the client's forwarded headers. Rationale:
+  importing adapters would put every implementation package in the host's Go
+  closure and restart it on every edit; forwarding whole requests keeps CORS,
+  gzip, trace IDs, response identity, policies and streaming in the owning
+  process, and reusing the route table keeps precedence identical. Date:
+  2026-09-15. Author: Claude.
+- Decision: requests that match no route (including `/__scenery/config`, pprof
+  and platform stats) go to the first service process by address; a path that
+  matches routes but not the method, and a CORS preflight whose requested method
+  no route allows, go to the highest-precedence matching route's owner.
+  Rationale: runtime processes produce every response body and header. A path
+  whose methods are split across processes reports only the owner's `Allow`
+  methods; durable HTTP worker routes stay with the fallback until durable
+  ownership is designed in Milestone 4. Date: 2026-09-15. Author: Claude.
+- Decision: per-service routes come from the same generator data that renders
+  endpoint registrations (`runtimeBindingPath`, `renderContractPathTail`) and are
+  checked against rendered adapter sources in tests. Rationale: a route table
+  generated separately from registrations would drift. Date: 2026-09-15.
+  Author: Claude.
 
 ## Outcomes & Retrospective
 
@@ -266,4 +317,21 @@ which requires `Authorization: Bearer <token>` and accepts
 "trace_id", "deadline", "caller_binding", "execution_id", "deployment",
 "locale"}, "input": <JSON>}`. It answers `{"output": <outcome JSON>}` or
 `{"error": {"kind": "transport"|"errs"|"error", ...}}`, and invokes only
-bindings registered in that process.
+bindings registered in that process. The optional `"processes": {"<service
+process>": {"network", "address"}}` map names each service process listener
+for the host.
+
+Generated internal clients (implemented in `runtime/process_link.go`):
+`InvokeContractBindingCodec(ctx, address, callerPackage, invocation, input,
+encodeInput, decodeOutput)` invokes a locally registered binding with typed
+values and otherwise requires the current invocation, encodes the input, calls
+the owner through the process link, and decodes the outcome.
+
+Process host (implemented in `runtime/process_host.go`):
+`MainProcessHost(ProcessHostConfig{Name, ListenAddr, Fallback, Routes:
+[]ProcessHostRoute{{Process, Methods, Path, PathTail}}})` listens on
+`SCENERY_LISTEN_*`, requires `SCENERY_PROCESS_LINK` targets for every named
+process, and answers an unreachable process with 503 `unavailable`. Generated
+workspace layout: `scenery_internal_processes/host/main.go` and
+`scenery_internal_processes/services/<package>_<service>/main.go`, excluded from
+watch and source scans like `scenery_internal_main`.

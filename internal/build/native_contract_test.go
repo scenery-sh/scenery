@@ -7,6 +7,7 @@ import (
 	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/codegen"
 	"scenery.sh/internal/compiler"
+	generateapi "scenery.sh/internal/generate/api"
 )
 
 func TestGenerateNativeContractApplicationEntrypointInProcess(t *testing.T) {
@@ -16,7 +17,7 @@ func TestGenerateNativeContractApplicationEntrypointInProcess(t *testing.T) {
 	generated, err := codegen.Generate(
 		"nativeapp",
 		appcfg.Config{Name: "nativeapp"},
-		compositionImport,
+		generateapi.RuntimeIntegrationPlan{CompositionImport: compositionImport},
 		nil,
 	)
 	if err != nil {
@@ -45,7 +46,7 @@ func TestGenerateNativeContractApplicationEntrypointInProcess(t *testing.T) {
 		if authEnabled {
 			requirements = append(requirements, compiler.SQLRequirement{Kind: compiler.SQLStandardAuth, Name: "scenery", Schema: "scenery"})
 		}
-		generated, err := codegen.Generate("nativeapp", appcfg.Config{Name: "nativeapp", Auth: appcfg.AuthConfig{Enabled: authEnabled}}, compositionImport, requirements)
+		generated, err := codegen.Generate("nativeapp", appcfg.Config{Name: "nativeapp", Auth: appcfg.AuthConfig{Enabled: authEnabled}}, generateapi.RuntimeIntegrationPlan{CompositionImport: compositionImport}, requirements)
 		if err != nil {
 			t.Fatal(err)
 		}

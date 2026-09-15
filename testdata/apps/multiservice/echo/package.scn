@@ -81,6 +81,10 @@ binding "echo_http" {
   }
 }
 
+export "echo_internal" {
+  value = binding.echo_internal
+}
+
 binding "echo_internal" {
   operation = operation.echo
   execution = execution.echo_direct

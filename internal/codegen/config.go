@@ -3,13 +3,95 @@ package codegen
 import (
 	"fmt"
 	"go/format"
+	"strconv"
 	"strings"
 
 	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/compiler"
+	generateapi "scenery.sh/internal/generate/api"
 )
 
+// entrypointRegistration names the generated package whose Register function
+// populates the contract registry, and the Go expression for the resources that
+// registry must cover.
+type entrypointRegistration struct {
+	Import            string
+	RequiredAddresses string
+}
+
 func generateMain(appName string, cfg appcfg.Config, compositionImport string, sql compiler.SQLRequirements) ([]byte, error) {
+	registration := entrypointRegistration{}
+	if compositionImport != "" {
+		registration = entrypointRegistration{Import: compositionImport, RequiredAddresses: "scenerycomposition.RequiredAddresses"}
+	}
+	return renderEntrypoint(appName, cfg, registration, sql)
+}
+
+// generateServiceMain renders the entrypoint of one service process: the same
+// SQL, auth and runtime startup as the application entrypoint, registering only
+// that service's adapter and requiring exactly the resources it covers.
+func generateServiceMain(appName string, cfg appcfg.Config, service generateapi.ServiceProcessPlan, sql compiler.SQLRequirements) ([]byte, error) {
+	return renderEntrypoint(appName, cfg, entrypointRegistration{Import: service.AdapterImport, RequiredAddresses: fmt.Sprintf("%#v", service.RequiredAddresses)}, sql)
+}
+
+// generateHostMain renders the process host entrypoint. It links no adapter, so
+// implementation edits never rebuild it; the route table and contract revision
+// are literal data, and the first service process serves framework and
+// unmatched routes.
+func generateHostMain(appName string, plan generateapi.RuntimeIntegrationPlan) ([]byte, error) {
+	if plan.ContractRevision == "" {
+		return nil, fmt.Errorf("process host requires a contract revision")
+	}
+	var routes strings.Builder
+	for _, service := range plan.Services {
+		for _, route := range service.Routes {
+			if len(route.Methods) == 0 || !strings.HasPrefix(route.Path, "/") {
+				return nil, fmt.Errorf("service process %s has an invalid route %q", service.Name, route.Path)
+			}
+			fmt.Fprintf(&routes, "\t\t{Process: %q, Methods: %#v, Path: %q, PathTail: %t},\n", service.Name, route.Methods, route.Path, route.PathTail)
+		}
+	}
+	source := strings.NewReplacer(
+		"{{revision}}", strconv.Quote(plan.ContractRevision), "{{name}}", strconv.Quote(appName),
+		"{{fallback}}", strconv.Quote(plan.Services[0].Name), "{{routes}}", routes.String(),
+	).Replace(processHostEntrypoint)
+	return format.Source([]byte(source))
+}
+
+const processHostEntrypoint = `package main
+
+import (
+	"fmt"
+	"os"
+
+	sceneryruntime "scenery.sh/runtime"
+)
+
+const contractRevision = {{revision}}
+
+func main() {
+	if len(os.Args) == 2 && os.Args[1] == sceneryruntime.RuntimePreflightFlag {
+		proof := os.NewFile(3, "scenery-runtime-preflight")
+		defer proof.Close()
+		if err := sceneryruntime.WriteRuntimePreflight(proof, contractRevision); err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "scenery: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+	if err := sceneryruntime.VerifyLinkedContractBundle(contractRevision); err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "scenery: %v\n", err)
+		os.Exit(1)
+	}
+	if err := sceneryruntime.MainProcessHost(sceneryruntime.ProcessHostConfig{Name: {{name}}, ListenAddr: sceneryruntime.ListenAddrFromEnv(), Fallback: {{fallback}}, Routes: []sceneryruntime.ProcessHostRoute{
+{{routes}}	}}); err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "scenery: %v\n", err)
+		os.Exit(1)
+	}
+}
+`
+
+func renderEntrypoint(appName string, cfg appcfg.Config, registration entrypointRegistration, sql compiler.SQLRequirements) ([]byte, error) {
 	var buf strings.Builder
 	buf.WriteString("package main\n\n")
 	buf.WriteString("import (\n")
@@ -19,12 +101,12 @@ func generateMain(appName string, cfg appcfg.Config, compositionImport string, s
 		buf.WriteString("\tsceneryauth \"scenery.sh/auth\"\n")
 	}
 	buf.WriteString("\tsceneryruntime \"scenery.sh/runtime\"\n")
-	if compositionImport != "" {
-		fmt.Fprintf(&buf, "\tscenerycomposition %q\n", compositionImport)
+	if registration.Import != "" {
+		fmt.Fprintf(&buf, "\tscenerycomposition %q\n", registration.Import)
 	}
 	buf.WriteString(")\n\n")
 	buf.WriteString("func main() {\n")
-	if compositionImport != "" {
+	if registration.Import != "" {
 		buf.WriteString("\tif len(os.Args) == 2 && os.Args[1] == sceneryruntime.RuntimePreflightFlag {\n")
 		buf.WriteString("\t\tproof := os.NewFile(3, \"scenery-runtime-preflight\")\n\t\tdefer proof.Close()\n")
 		buf.WriteString("\t\tif err := sceneryruntime.WriteRuntimePreflight(proof, scenerycomposition.ContractRevision); err != nil {\n\t\t\t_, _ = fmt.Fprintf(os.Stderr, \"scenery: %v\\n\", err)\n\t\t\tos.Exit(1)\n\t\t}\n\t\treturn\n\t}\n")
@@ -48,9 +130,9 @@ func generateMain(appName string, cfg appcfg.Config, compositionImport string, s
 		buf.WriteString("\t\tos.Exit(1)\n")
 		buf.WriteString("\t}\n")
 	}
-	if compositionImport != "" {
+	if registration.Import != "" {
 		buf.WriteString("\tif err := sceneryruntime.VerifyLinkedContractBundle(scenerycomposition.ContractRevision); err != nil {\n\t\t_, _ = fmt.Fprintf(os.Stderr, \"scenery: %v\\n\", err)\n\t\tos.Exit(1)\n\t}\n")
-		buf.WriteString("\tcontractRegistry, err := sceneryruntime.NewContractRegistry(sceneryruntime.ContractRegistryOptions{ContractRevision: scenerycomposition.ContractRevision, RequiredAddresses: scenerycomposition.RequiredAddresses, ProviderABIs: sceneryruntime.ContractProviderABIs()})\n")
+		fmt.Fprintf(&buf, "\tcontractRegistry, err := sceneryruntime.NewContractRegistry(sceneryruntime.ContractRegistryOptions{ContractRevision: scenerycomposition.ContractRevision, RequiredAddresses: %s, ProviderABIs: sceneryruntime.ContractProviderABIs()})\n", registration.RequiredAddresses)
 		buf.WriteString("\tif err == nil { err = scenerycomposition.Register(contractRegistry) }\n")
 		buf.WriteString("\tif err == nil { err = contractRegistry.Seal() }\n")
 		buf.WriteString("\tif err != nil {\n\t\t_, _ = fmt.Fprintf(os.Stderr, \"scenery: %v\\n\", err)\n\t\tos.Exit(1)\n\t}\n")

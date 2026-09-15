@@ -54,5 +54,6 @@ module "greeter" {
 
   inputs = {
     gateway = http_gateway.public_api
+    echo    = module.echo.echo_internal
   }
 }

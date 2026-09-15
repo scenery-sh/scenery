@@ -90,7 +90,7 @@ func shouldIgnoreWatchPathBuiltin(rel string, isDir bool) bool {
 			return true
 		}
 		switch part {
-		case "node_modules", "scenery_internal_main":
+		case "node_modules", "scenery_internal_main", "scenery_internal_processes":
 			return true
 		}
 	}

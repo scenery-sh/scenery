@@ -68,24 +68,56 @@ func cloneApplicationAdapters(adapters []applicationAdapter) []applicationAdapte
 }
 
 func renderApplicationAdapters(result *Result, idx *resourceIndex, generatedImport string) ([]applicationAdapter, error) {
-	modules := map[string]Resource{}
-	for _, module := range localModuleInstances(result.Manifest.Resources) {
-		modules[moduleInstancePath(module)] = module
-	}
 	var adapters []applicationAdapter
-	for _, service := range compiler.RuntimeServices(result.Manifest.Resources) {
-		module, ok := modules[service.Module]
-		if !ok {
-			return nil, fmt.Errorf("native service %s is not owned by a local module", service.Address)
-		}
+	err := forEachNativeServiceModule(result, func(module, service Resource) error {
 		adapter, err := renderApplicationAdapter(result, idx, module, service, generatedImport)
-		if err != nil {
-			return nil, err
+		if err == nil {
+			adapters = append(adapters, adapter)
 		}
-		adapters = append(adapters, adapter)
+		return err
+	})
+	if err != nil {
+		return nil, err
 	}
 	slices.SortFunc(adapters, func(a, b applicationAdapter) int {
 		return cmp.Compare(a.Address, b.Address)
 	})
 	return adapters, nil
+}
+
+// planApplicationAdapters returns adapter identities without rendering sources,
+// so build preparation can list service processes on every rebuild cheaply.
+func planApplicationAdapters(result *Result, generatedImport string) ([]applicationAdapterPlan, error) {
+	var plans []applicationAdapterPlan
+	err := forEachNativeServiceModule(result, func(module, service Resource) error {
+		plan, err := planApplicationAdapter(result, module, service, generatedImport)
+		if err == nil {
+			plans = append(plans, plan)
+		}
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	slices.SortFunc(plans, func(a, b applicationAdapterPlan) int {
+		return cmp.Compare(a.Address, b.Address)
+	})
+	return plans, nil
+}
+
+func forEachNativeServiceModule(result *Result, visit func(module, service Resource) error) error {
+	modules := map[string]Resource{}
+	for _, module := range localModuleInstances(result.Manifest.Resources) {
+		modules[moduleInstancePath(module)] = module
+	}
+	for _, service := range compiler.RuntimeServices(result.Manifest.Resources) {
+		module, ok := modules[service.Module]
+		if !ok {
+			return fmt.Errorf("native service %s is not owned by a local module", service.Address)
+		}
+		if err := visit(module, service); err != nil {
+			return err
+		}
+	}
+	return nil
 }

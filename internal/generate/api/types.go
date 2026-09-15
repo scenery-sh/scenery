@@ -24,9 +24,32 @@ type LibraryBuildSpec struct {
 }
 
 // RuntimeIntegrationPlan is the generated composition import consumed by
-// codegen when preparing a build workspace.
+// codegen when preparing a build workspace. Services lists every native service
+// adapter so codegen can render one entrypoint per service process and a host
+// entrypoint that routes to them.
 type RuntimeIntegrationPlan struct {
 	CompositionImport string
+	ContractRevision  string
+	Services          []ServiceProcessPlan
+}
+
+// ServiceProcessPlan identifies the generated adapter a service process
+// registers, the exact contract resources that process must cover, and the HTTP
+// endpoints its adapter registers.
+type ServiceProcessPlan struct {
+	Address           string
+	Name              string
+	AdapterImport     string
+	RequiredAddresses []string
+	Routes            []ServiceProcessRoute
+}
+
+// ServiceProcessRoute is one runtime HTTP endpoint pattern registered by a
+// service adapter.
+type ServiceProcessRoute struct {
+	Methods  []string
+	Path     string
+	PathTail bool
 }
 
 // AssistantAssetDescriptor is the provider-neutral identity of one

@@ -16,6 +16,7 @@ import (
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/codegen"
 	"scenery.sh/internal/compiler"
+	generateapi "scenery.sh/internal/generate/api"
 	"scenery.sh/internal/machine"
 )
 
@@ -36,21 +37,23 @@ type sharedCompositionArtifact struct {
 }
 
 type sharedCompositionKeyInput struct {
-	Producer             machine.Producer         `json:"producer"`
-	GeneratorFingerprint string                   `json:"generator_fingerprint"`
-	AppName              string                   `json:"app_name"`
-	Config               app.Config               `json:"config"`
-	CompositionImport    string                   `json:"composition_import"`
-	SQLRequirements      compiler.SQLRequirements `json:"sql_requirements"`
+	Producer             machine.Producer                 `json:"producer"`
+	GeneratorFingerprint string                           `json:"generator_fingerprint"`
+	AppName              string                           `json:"app_name"`
+	Config               app.Config                       `json:"config"`
+	CompositionImport    string                           `json:"composition_import"`
+	ContractRevision     string                           `json:"contract_revision,omitempty"`
+	Services             []generateapi.ServiceProcessPlan `json:"services,omitempty"`
+	SQLRequirements      compiler.SQLRequirements         `json:"sql_requirements"`
 }
 
-func sharedCompositionKey(appName string, cfg app.Config, compositionImport string, sql compiler.SQLRequirements, generatorFingerprint string) (string, error) {
+func sharedCompositionKey(appName string, cfg app.Config, plan generateapi.RuntimeIntegrationPlan, sql compiler.SQLRequirements, generatorFingerprint string) (string, error) {
 	if strings.TrimSpace(generatorFingerprint) == "" {
 		return "", fmt.Errorf("shared composition cache requires generator identity")
 	}
 	encoded, err := json.Marshal(sharedCompositionKeyInput{
 		Producer: machine.RuntimeProducer(), GeneratorFingerprint: generatorFingerprint,
-		AppName: appName, Config: cfg, CompositionImport: compositionImport,
+		AppName: appName, Config: cfg, CompositionImport: plan.CompositionImport, ContractRevision: plan.ContractRevision, Services: plan.Services,
 		SQLRequirements: sql,
 	})
 	if err != nil {
@@ -68,9 +71,9 @@ func sharedCompositionRoot() (string, error) {
 	return filepath.Join(root, "build", "shared-compositions", sharedCompositionCacheVersion), nil
 }
 
-func renderSharedCompositionContext(ctx context.Context, appName string, cfg app.Config, compositionImport string, sql compiler.SQLRequirements, generatorFingerprint string) (*codegen.Output, error) {
+func renderSharedCompositionContext(ctx context.Context, appName string, cfg app.Config, plan generateapi.RuntimeIntegrationPlan, sql compiler.SQLRequirements, generatorFingerprint string) (*codegen.Output, error) {
 	started := time.Now()
-	key, err := sharedCompositionKey(appName, cfg, compositionImport, sql, generatorFingerprint)
+	key, err := sharedCompositionKey(appName, cfg, plan, sql, generatorFingerprint)
 	if err != nil {
 		finishStep(ctx, "workspace.render", started, "miss", "invalid_content_key", err)
 		return nil, err
@@ -97,7 +100,7 @@ func renderSharedCompositionContext(ctx context.Context, appName string, cfg app
 		}
 	}
 
-	output, renderErr := codegen.Generate(appName, cfg, compositionImport, sql)
+	output, renderErr := codegen.Generate(appName, cfg, plan, sql)
 	if renderErr != nil {
 		finishStep(ctx, "workspace.render", started, "miss", "render_failed", renderErr)
 		return nil, renderErr

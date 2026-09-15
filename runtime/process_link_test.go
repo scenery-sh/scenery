@@ -155,4 +155,21 @@ func TestProcessLinkedBindingCallerForwardsInvocationAndRestoresErrors(t *testin
 	if _, err = InvokeContractBindingJSON(ctx, "unlinked/binding/x", "greeter", nil); err == nil || !strings.Contains(err.Error(), "not registered") {
 		t.Fatalf("unlinked binding = %v", err)
 	}
+	invocation, _ := runtimeapi.InvocationFromContext(ctx)
+	encode := func(value any) ([]byte, error) { return json.Marshal(map[string]any{"message": value}) }
+	decode := func(data []byte) (any, error) { return "decoded:" + string(data), nil }
+	value, err := InvokeContractBindingCodec(ctx, "echo/binding/echo_internal", "greeter", invocation, "hi", encode, decode)
+	if err != nil || value != `decoded:{"kind":"result","name":"ok"}` {
+		t.Fatalf("linked codec value = %#v, %v", value, err)
+	}
+	other := runtimeapi.NewInvocation("invocation-3", "user-2", "", "", time.Time{})
+	if _, err = InvokeContractBindingCodec(ctx, "echo/binding/echo_internal", "greeter", other, "hi", encode, decode); err == nil || !strings.Contains(err.Error(), "permission_denied") {
+		t.Fatalf("codec call with foreign invocation = %v", err)
+	}
+	if err := RegisterContractInternalBinding("local/binding/typed", func(_ context.Context, _, input any) (any, error) { return input.(string) + "!", nil }); err != nil {
+		t.Fatal(err)
+	}
+	if value, err = InvokeContractBindingCodec(ctx, "local/binding/typed", "greeter", invocation, "hi", nil, nil); err != nil || value != "hi!" {
+		t.Fatalf("local codec value = %#v, %v", value, err)
+	}
 }

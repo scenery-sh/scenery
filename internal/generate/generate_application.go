@@ -40,7 +40,27 @@ func BuildRuntimeIntegrationPlan(result *Result) (RuntimeIntegrationPlan, error)
 	if err != nil {
 		return RuntimeIntegrationPlan{}, err
 	}
-	return RuntimeIntegrationPlan{CompositionImport: generatedImport + "/composition"}, nil
+	plan := RuntimeIntegrationPlan{CompositionImport: generatedImport + "/composition", ContractRevision: result.Manifest.ContractRevision}
+	adapters, err := planApplicationAdapters(result, generatedImport)
+	if err != nil {
+		return RuntimeIntegrationPlan{}, err
+	}
+	resources := resourcesByAddress(&Manifest{Resources: result.Manifest.Resources})
+	for _, adapter := range adapters {
+		service := generateapi.ServiceProcessPlan{
+			Address: adapter.Address, Name: strings.TrimSuffix(adapter.RelativeDir, "_adapter"),
+			AdapterImport: adapter.ImportPath, RequiredAddresses: append([]string(nil), adapter.Covered...),
+		}
+		for _, binding := range adapter.Bindings {
+			httpSpec, _ := binding.Spec["http"].(map[string]any)
+			service.Routes = append(service.Routes, generateapi.ServiceProcessRoute{
+				Methods: []string{stringValue(httpSpec["method"])}, Path: runtimeBindingPath(resources, binding, stringValue(httpSpec["path"])),
+				PathTail: renderContractPathTail(resources, binding, httpSpec) != "nil",
+			})
+		}
+		plan.Services = append(plan.Services, service)
+	}
+	return plan, nil
 }
 
 func generateApplicationArtifacts(result *Result, idx *resourceIndex, input projectionInput) ([]generatedFile, error) {
@@ -200,7 +220,24 @@ func resolveApplicationGeneratedRoot(result *Result) (string, string, error) {
 	return "", "", fmt.Errorf("native application adapters require a go_module mapping for %s", relativeRoot)
 }
 
-func renderApplicationAdapter(result *Result, idx *resourceIndex, module, service Resource, generatedImport string) (applicationAdapter, error) {
+// applicationAdapterPlan is the rendering-independent identity of one native
+// service adapter: its generated import and the contract resources it covers.
+type applicationAdapterPlan struct {
+	Address              string
+	ImportPath           string
+	PackageName          string
+	RelativeDir          string
+	Covered              []string
+	PackageIdentity      string
+	ImplementationImport string
+	ContractImport       string
+	CRUD                 bool
+	Operations           []Resource
+	Bindings             []Resource
+	MCPBindings          []mcpToolTarget
+}
+
+func planApplicationAdapter(result *Result, module, service Resource, generatedImport string) (applicationAdapterPlan, error) {
 	moduleSource, _ := module.Spec["workspace_package_root"].(string)
 	if moduleSource == "" {
 		moduleSource, _ = module.Spec["source"].(string)
@@ -219,69 +256,63 @@ func renderApplicationAdapter(result *Result, idx *resourceIndex, module, servic
 		}
 	}
 	if implementationImport == "" {
-		return applicationAdapter{}, fmt.Errorf("native service %s has no go_contract import path", service.Address)
+		return applicationAdapterPlan{}, fmt.Errorf("native service %s has no go_contract import path", service.Address)
 	}
-	moduleResources := idx.moduleResources(moduleInstancePath(module))
-	packageABI, err := packageABIRevision(implementationImport, moduleResources, idx)
-	if err != nil {
-		return applicationAdapter{}, err
-	}
-	operations := compiler.ServiceOperations(result.Manifest.Resources, service)
-	if compiler.IsProviderCRUDService(service) {
-		bindings := serviceHTTPBindings(result.Manifest.Resources, operations)
-		internalBindings := internalBindingsForOperations(result.Manifest.Resources, operations)
-		mcpBindings := mcpBindingsForService(result.Manifest.Resources, service, operations)
-		covered := []string{service.Address}
-		covered = append(covered, resourceAddresses(operations)...)
-		covered = append(covered, resourceAddresses(bindings)...)
-		covered = append(covered, resourceAddresses(internalBindings)...)
-		mcpResources := mcpBindingResources(mcpBindings)
-		covered = append(covered, resourceAddresses(mcpResources)...)
-		covered = append(covered, pageOwnedResourceAddresses(result.Manifest.Resources, operations)...)
-		allBindings := append(append(append([]Resource(nil), bindings...), internalBindings...), mcpResources...)
-		covered = append(covered, referencedExecutions(result.Manifest.Resources, allBindings)...)
-		covered = canonicalStrings(covered)
-		dirName := semanticPathName(moduleInstancePath(module) + "_" + service.Name + "_adapter")
-		packageName := goPackageName(moduleInstancePath(module) + "_" + service.Name + "_adapter")
-		contractImport := implementationImport + "/scenerycontract"
-		adapterImport := generatedImport + "/" + dirName
-		source, renderErr := renderProviderCRUDAdapterSource(result.Manifest.ContractRevision, packageIdentity, packageABI, contractImport, packageName, service, operations, bindings, mcpBindings, result.Manifest.Resources, covered, providerRuntimeABIs(result.Manifest.Resources))
-		if renderErr != nil {
-			return applicationAdapter{}, renderErr
-		}
-		return applicationAdapter{Address: service.Address, ImportPath: adapterImport, PackageName: packageName, RelativeDir: dirName, Covered: covered, PackageABI: packageABI, Implementation: "scenery.sh/datasource", Contract: contractImport, Source: source}, nil
-	}
-	bindings := serviceHTTPBindings(result.Manifest.Resources, operations)
-	internalBindings := internalBindingsForOperations(result.Manifest.Resources, operations)
-	mcpBindings := mcpBindingsForService(result.Manifest.Resources, service, operations)
-	eventBindings := eventBindingsForOperations(result.Manifest.Resources, operations)
-	schedules := schedulesForOperations(result.Manifest.Resources, operations)
-	emissions := eventEmissionsForOperations(result.Manifest.Resources, operations)
+	resources := result.Manifest.Resources
+	operations := compiler.ServiceOperations(resources, service)
+	bindings := serviceHTTPBindings(resources, operations)
+	internalBindings := internalBindingsForOperations(resources, operations)
+	mcpBindings := mcpBindingsForService(resources, service, operations)
+	mcpResources := mcpBindingResources(mcpBindings)
 	covered := []string{service.Address}
 	covered = append(covered, resourceAddresses(operations)...)
 	covered = append(covered, resourceAddresses(bindings)...)
 	covered = append(covered, resourceAddresses(internalBindings)...)
-	mcpResources := mcpBindingResources(mcpBindings)
 	covered = append(covered, resourceAddresses(mcpResources)...)
-	covered = append(covered, resourceAddresses(eventBindings)...)
-	covered = append(covered, resourceAddresses(schedules)...)
-	covered = append(covered, resourceAddresses(emissions)...)
-	covered = append(covered, pageOwnedResourceAddresses(result.Manifest.Resources, operations)...)
-	allBindings := append(append(append(append([]Resource(nil), bindings...), internalBindings...), mcpResources...), eventBindings...)
-	covered = append(covered, referencedExecutions(result.Manifest.Resources, allBindings)...)
-	covered = canonicalStrings(covered)
+	allBindings := append(append(append([]Resource(nil), bindings...), internalBindings...), mcpResources...)
+	crud := compiler.IsProviderCRUDService(service)
+	if !crud {
+		eventBindings := eventBindingsForOperations(resources, operations)
+		covered = append(covered, resourceAddresses(eventBindings)...)
+		covered = append(covered, resourceAddresses(schedulesForOperations(resources, operations))...)
+		covered = append(covered, resourceAddresses(eventEmissionsForOperations(resources, operations))...)
+		allBindings = append(allBindings, eventBindings...)
+	}
+	covered = append(covered, pageOwnedResourceAddresses(resources, operations)...)
+	covered = append(covered, referencedExecutions(resources, allBindings)...)
 	dirName := semanticPathName(moduleInstancePath(module) + "_" + service.Name + "_adapter")
-	packageName := goPackageName(moduleInstancePath(module) + "_" + service.Name + "_adapter")
-	contractImport := implementationImport + "/scenerycontract"
-	adapterImport := generatedImport + "/" + dirName
-	source, err := renderApplicationAdapterSource(result.Manifest.ContractRevision, packageIdentity, packageABI, implementationImport, contractImport, packageName, service, operations, bindings, mcpBindings, result.Manifest.Resources, idx, covered, providerRuntimeABIs(result.Manifest.Resources))
+	return applicationAdapterPlan{
+		Address: service.Address, ImportPath: generatedImport + "/" + dirName,
+		PackageName: goPackageName(moduleInstancePath(module) + "_" + service.Name + "_adapter"), RelativeDir: dirName,
+		Covered: canonicalStrings(covered), PackageIdentity: packageIdentity, ImplementationImport: implementationImport,
+		ContractImport: implementationImport + "/scenerycontract", CRUD: crud, Operations: operations, Bindings: bindings, MCPBindings: mcpBindings,
+	}, nil
+}
+
+func renderApplicationAdapter(result *Result, idx *resourceIndex, module, service Resource, generatedImport string) (applicationAdapter, error) {
+	plan, err := planApplicationAdapter(result, module, service, generatedImport)
 	if err != nil {
 		return applicationAdapter{}, err
 	}
-	return applicationAdapter{
-		Address: service.Address, ImportPath: adapterImport, PackageName: packageName, RelativeDir: dirName,
-		Covered: covered, PackageABI: packageABI, Implementation: implementationImport, Contract: contractImport, Source: source,
-	}, nil
+	moduleResources := idx.moduleResources(moduleInstancePath(module))
+	packageABI, err := packageABIRevision(plan.ImplementationImport, moduleResources, idx)
+	if err != nil {
+		return applicationAdapter{}, err
+	}
+	adapter := applicationAdapter{
+		Address: plan.Address, ImportPath: plan.ImportPath, PackageName: plan.PackageName, RelativeDir: plan.RelativeDir,
+		Covered: plan.Covered, PackageABI: packageABI, Implementation: plan.ImplementationImport, Contract: plan.ContractImport,
+	}
+	if plan.CRUD {
+		adapter.Implementation = "scenery.sh/datasource"
+		adapter.Source, err = renderProviderCRUDAdapterSource(result.Manifest.ContractRevision, plan.PackageIdentity, packageABI, plan.ContractImport, plan.PackageName, service, plan.Operations, plan.Bindings, plan.MCPBindings, result.Manifest.Resources, plan.Covered, providerRuntimeABIs(result.Manifest.Resources))
+	} else {
+		adapter.Source, err = renderApplicationAdapterSource(result.Manifest.ContractRevision, plan.PackageIdentity, packageABI, plan.ImplementationImport, plan.ContractImport, plan.PackageName, service, plan.Operations, plan.Bindings, plan.MCPBindings, result.Manifest.Resources, idx, plan.Covered, providerRuntimeABIs(result.Manifest.Resources))
+	}
+	if err != nil {
+		return applicationAdapter{}, err
+	}
+	return adapter, nil
 }
 
 func renderApplicationAdapterSource(contractRevision, packageIdentity, packageABI, implementationImport, contractImport, packageName string, service Resource, operations, bindings []Resource, mcpBindings []mcpToolTarget, resources []Resource, idx *resourceIndex, covered []string, providerABIs map[string]string) ([]byte, error) {
@@ -372,9 +403,9 @@ func renderApplicationAdapterSource(contractRevision, packageIdentity, packageAB
 		}
 		fmt.Fprintf(&b, "type %s struct{}\n", clientType)
 		if client.Delivery == "enqueue" {
-			fmt.Fprintf(&b, "func (%s) Enqueue(ctx context.Context, invocation scenery.Invocation, input %s%sInput) (scenery.ExecutionReceipt, error) { copied, err := %sClone%sInput(input); if err != nil { return scenery.ExecutionReceipt{}, fmt.Errorf(\"copy internal client input: %%w\", err) }; value, err := sceneryruntime.InvokeContractBindingFrom(ctx, %q, %q, invocation, copied); if err != nil { return scenery.ExecutionReceipt{}, err }; typed, ok := value.(scenery.ExecutionReceipt); if !ok { return scenery.ExecutionReceipt{}, fmt.Errorf(\"binding returned %%T, want scenery.ExecutionReceipt\", value) }; return typed, nil }\n\n", clientType, contractQualifier, operationName, contractQualifier, operationName, client.Binding.Address, service.Module)
+			fmt.Fprintf(&b, "func (%s) Enqueue(ctx context.Context, invocation scenery.Invocation, input %s%sInput) (scenery.ExecutionReceipt, error) { copied, err := %sClone%sInput(input); if err != nil { return scenery.ExecutionReceipt{}, fmt.Errorf(\"copy internal client input: %%w\", err) }; value, err := sceneryruntime.InvokeContractBindingCodec(ctx, %q, %q, invocation, copied, func(value any) ([]byte, error) { return scenery.MarshalContractValue(value, %q) }, func(data []byte) (any, error) { var receipt scenery.ExecutionReceipt; if err := scenery.UnmarshalContractValue(data, &receipt, \"std.type.execution_receipt\"); err != nil { return nil, err }; return receipt, nil }); if err != nil { return scenery.ExecutionReceipt{}, err }; typed, ok := value.(scenery.ExecutionReceipt); if !ok { return scenery.ExecutionReceipt{}, fmt.Errorf(\"binding returned %%T, want scenery.ExecutionReceipt\", value) }; return typed, nil }\n\n", clientType, contractQualifier, operationName, contractQualifier, operationName, client.Binding.Address, service.Module, goWireTypeExpression(client.Operation.Spec["input"]))
 		} else {
-			fmt.Fprintf(&b, "func (%s) Invoke(ctx context.Context, invocation scenery.Invocation, input %s%sInput) (%s%sOutcome, error) { copied, err := %sClone%sInput(input); if err != nil { return nil, fmt.Errorf(\"copy internal client input: %%w\", err) }; value, err := sceneryruntime.InvokeContractBindingFrom(ctx, %q, %q, invocation, copied); if err != nil { return nil, err }; typed, ok := value.(%s%sOutcome); if !ok { return nil, fmt.Errorf(\"binding returned %%T, want %s%sOutcome\", value) }; cloned, err := %sClone%sOutcome(typed); if err != nil { return nil, fmt.Errorf(\"copy internal client outcome: %%w\", err) }; return cloned, nil }\n\n", clientType, contractQualifier, operationName, contractQualifier, operationName, contractQualifier, operationName, client.Binding.Address, service.Module, contractQualifier, operationName, contractQualifier, operationName, contractQualifier, operationName)
+			fmt.Fprintf(&b, "func (%s) Invoke(ctx context.Context, invocation scenery.Invocation, input %s%sInput) (%s%sOutcome, error) { copied, err := %sClone%sInput(input); if err != nil { return nil, fmt.Errorf(\"copy internal client input: %%w\", err) }; value, err := sceneryruntime.InvokeContractBindingCodec(ctx, %q, %q, invocation, copied, func(value any) ([]byte, error) { return scenery.MarshalContractValue(value, %q) }, func(data []byte) (any, error) { return %sUnmarshal%sOutcome(data) }); if err != nil { return nil, err }; typed, ok := value.(%s%sOutcome); if !ok { return nil, fmt.Errorf(\"binding returned %%T, want %s%sOutcome\", value) }; cloned, err := %sClone%sOutcome(typed); if err != nil { return nil, fmt.Errorf(\"copy internal client outcome: %%w\", err) }; return cloned, nil }\n\n", clientType, contractQualifier, operationName, contractQualifier, operationName, contractQualifier, operationName, client.Binding.Address, service.Module, goWireTypeExpression(client.Operation.Spec["input"]), contractQualifier, operationName, contractQualifier, operationName, contractQualifier, operationName, contractQualifier, operationName)
 		}
 	}
 	if err := renderDurableDispatchOptionHelpers(&b, operations, resources); err != nil {

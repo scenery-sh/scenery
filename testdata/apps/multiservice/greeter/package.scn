@@ -9,11 +9,19 @@ input "gateway" {
   type = resource_ref("http_gateway")
 }
 
+input "echo" {
+  type = resource_ref("binding")
+}
+
 service "greeter" {
   runtime = "go"
 
   implementation {
     constructor = "NewService"
+  }
+
+  client "echo" {
+    binding = var.echo
   }
 }
 

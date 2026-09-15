@@ -468,7 +468,7 @@ func shouldSkipDir(rel string) bool {
 		return true
 	}
 	switch base {
-	case "node_modules", "scenery_internal_main", "__MACOSX", "coverage":
+	case "node_modules", "scenery_internal_main", "scenery_internal_processes", "__MACOSX", "coverage":
 		return true
 	default:
 		return false

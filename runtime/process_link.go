@@ -21,9 +21,10 @@ import (
 )
 
 // A process link connects generated service processes of one development
-// session. The supervisor writes a private file naming the session token and the
-// process that owns each internal binding; a binding absent from this process's
-// registry is invoked in its owner with the caller's invocation metadata.
+// session. The supervisor writes a private file naming the session token, the
+// process that owns each internal binding and each service process's listener;
+// a binding absent from this process's registry is invoked in its owner with the
+// caller's invocation metadata.
 const processLinkBindingPath = "/__scenery/process/v1/bindings/invoke"
 
 const processLinkMaxBody = 32 << 20
@@ -34,8 +35,9 @@ type processLinkTarget struct {
 }
 
 type processLinkConfig struct {
-	Token    string                       `json:"token"`
-	Bindings map[string]processLinkTarget `json:"bindings"`
+	Token     string                       `json:"token"`
+	Bindings  map[string]processLinkTarget `json:"bindings"`
+	Processes map[string]processLinkTarget `json:"processes,omitempty"`
 }
 
 type processLinkInvocation struct {
@@ -107,9 +109,11 @@ func readProcessLink(path string) (*processLinkConfig, error) {
 	if len(config.Token) < 32 {
 		return nil, fmt.Errorf("runtime: process link token is too short")
 	}
-	for address, target := range config.Bindings {
-		if strings.TrimSpace(address) == "" || (target.Network != "unix" && target.Network != "tcp") || strings.TrimSpace(target.Address) == "" {
-			return nil, fmt.Errorf("runtime: process link target for %q is invalid", address)
+	for _, targets := range []map[string]processLinkTarget{config.Bindings, config.Processes} {
+		for name, target := range targets {
+			if strings.TrimSpace(name) == "" || (target.Network != "unix" && target.Network != "tcp") || strings.TrimSpace(target.Address) == "" {
+				return nil, fmt.Errorf("runtime: process link target for %q is invalid", name)
+			}
 		}
 	}
 	return &config, nil
@@ -135,6 +139,7 @@ func processLinkClient(target processLinkTarget) *http.Client {
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 			return dialer.DialContext(ctx, target.Network, target.Address)
 		},
+		DisableCompression:  true,
 		MaxIdleConnsPerHost: 16,
 		IdleConnTimeout:     90 * time.Second,
 	}}
@@ -269,4 +274,47 @@ func writeProcessLinkResponse(w http.ResponseWriter, status int, response proces
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(response)
+}
+
+// InvokeContractBindingCodec invokes an internal binding with typed values when
+// this process registers it, and otherwise through the process link. The
+// callee contract's codecs carry the typed input and outcome across processes.
+func InvokeContractBindingCodec(ctx context.Context, address, callerPackage string, invocation, input any, encodeInput func(any) ([]byte, error), decodeOutput func([]byte) (any, error)) (any, error) {
+	global.mu.RLock()
+	registered := global.contractBindings[address].Invoke != nil
+	global.mu.RUnlock()
+	if registered {
+		return InvokeContractBindingFrom(ctx, address, callerPackage, invocation, input)
+	}
+	config, target, linked, err := processLinkedBinding(address)
+	if err != nil {
+		return nil, ContractSystemError(err)
+	}
+	if !linked {
+		return nil, fmt.Errorf("contract internal binding %s is not registered", address)
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	token, ok := invocation.(runtimeapi.Invocation)
+	current, currentOK := runtimeapi.InvocationFromContext(ctx)
+	if !ok || !token.Valid() || !currentOK || !runtimeapi.SameInvocation(token, current) {
+		return nil, fmt.Errorf("permission_denied: internal binding requires the current runtime invocation")
+	}
+	if encodeInput == nil || decodeOutput == nil {
+		return nil, fmt.Errorf("capability_unavailable: internal binding %s has no cross-process codec", address)
+	}
+	encoded, err := encodeInput(input)
+	if err != nil {
+		return nil, ContractSystemError(fmt.Errorf("encode internal binding %s input: %w", address, err))
+	}
+	output, err := invokeProcessLinkedBindingJSON(ctx, config, target, address, callerPackage, token, encoded)
+	if err != nil {
+		return nil, err
+	}
+	value, err := decodeOutput(output)
+	if err != nil {
+		return nil, ContractSystemError(fmt.Errorf("decode internal binding %s output: %w", address, err))
+	}
+	return value, nil
 }

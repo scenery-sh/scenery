@@ -76,7 +76,8 @@ func TestGenerateGoConstructorInjectsTypedInternalClient(t *testing.T) {
 	adapter := generatedSourceWithSuffix(applicationFiles, "/house_house_adapter/adapter.gen.go")
 	for _, fragment := range []string{
 		"type selfInternalClient struct{}",
-		`InvokeContractBindingFrom(ctx, "house/binding/process_scene_internal", "house", invocation, copied)`,
+		`InvokeContractBindingCodec(ctx, "house/binding/process_scene_internal", "house", invocation, copied, func(value any) ([]byte, error)`,
+		`return contract.UnmarshalProcessSceneOutcome(data)`,
 		"input.Clients.Self = selfInternalClient{}",
 		`RegisterContractInternalBindingWithPolicy(sceneryruntime.ContractInternalBindingRegistration{Address: "house/binding/process_scene_internal"`,
 	} {
@@ -163,7 +164,7 @@ func TestGenerateGoInternalClientImportsCrossPackageContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	adapter := generatedSourceWithSuffix(applicationFiles, "/house_house_adapter/adapter.gen.go")
-	for _, fragment := range []string{`auditcontract "clean.tech/audit/scenerycontract"`, `input auditcontract.WriteInput`, `auditcontract.CloneWriteInput`, `value.(auditcontract.WriteOutcome)`, `InvokeContractBindingFrom(ctx, "audit/binding/write_internal", "house"`} {
+	for _, fragment := range []string{`auditcontract "clean.tech/audit/scenerycontract"`, `input auditcontract.WriteInput`, `auditcontract.CloneWriteInput`, `value.(auditcontract.WriteOutcome)`, `InvokeContractBindingCodec(ctx, "audit/binding/write_internal", "house"`, `return auditcontract.UnmarshalWriteOutcome(data)`} {
 		if !strings.Contains(adapter, fragment) {
 			t.Fatalf("cross-package adapter missing %q:\n%s", fragment, adapter)
 		}

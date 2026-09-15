@@ -1584,7 +1584,7 @@
         "tests"
       ],
       "owner": "scenery runtime",
-      "rationale": "Private process-link file injected into development service processes; it names the session token and each internal binding owner socket",
+      "rationale": "Private process-link file injected into development service processes and their host; it names the session token, each internal binding owner socket and each service process listener",
       "preferred_surface": "internal development supervisor wiring; not user configuration",
       "replacement": "",
       "sunset": "",

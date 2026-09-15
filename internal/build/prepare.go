@@ -151,7 +151,7 @@ func prepareWithContractTargetContext(ctx context.Context, appRoot string, cfg a
 	if err != nil {
 		return nil, err
 	}
-	gen, err := renderSharedCompositionContext(ctx, cfg.Name, cfg, runtimePlan.CompositionImport, contract.SQLRequirements, generatorFingerprint)
+	gen, err := renderSharedCompositionContext(ctx, cfg.Name, cfg, runtimePlan, contract.SQLRequirements, generatorFingerprint)
 	if err != nil {
 		return nil, err
 	}

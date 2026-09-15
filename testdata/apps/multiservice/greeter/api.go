@@ -2,41 +2,34 @@ package greeter
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
+	echocontract "example.com/multiservice/echo/scenerycontract"
 	greetercontract "example.com/multiservice/greeter/scenerycontract"
-	sceneryruntime "scenery.sh/runtime"
+	"scenery.sh"
 )
 
-type Service struct{}
-
-func NewService(context.Context, greetercontract.GreeterConstructorInput) (*Service, error) {
-	return &Service{}, nil
+type Service struct {
+	echo greetercontract.EchoInternalClient
 }
 
-// Greet crosses the service boundary through echo's internal binding.
-func (*Service) Greet(ctx context.Context, input greetercontract.GreetInput) (greetercontract.GreetOutcome, error) {
-	request, err := json.Marshal(map[string]string{"message": "hello " + input.Name})
-	if err != nil {
-		return nil, err
+func NewService(_ context.Context, input greetercontract.GreeterConstructorInput) (*Service, error) {
+	return &Service{echo: input.Clients.Echo}, nil
+}
+
+// Greet crosses the service boundary through echo's typed internal client.
+func (s *Service) Greet(ctx context.Context, input greetercontract.GreetInput) (greetercontract.GreetOutcome, error) {
+	invocation, ok := scenery.InvocationFromContext(ctx)
+	if !ok {
+		return nil, fmt.Errorf("greet requires a runtime invocation")
 	}
-	response, err := sceneryruntime.InvokeContractBindingJSON(ctx, "echo/binding/echo_internal", "greeter", request)
+	outcome, err := s.echo.Invoke(ctx, invocation, echocontract.EchoInput{Message: "hello " + input.Name})
 	if err != nil {
 		return nil, fmt.Errorf("invoke echo: %w", err)
 	}
-	var outcome struct {
-		Kind  string `json:"kind"`
-		Name  string `json:"name"`
-		Value struct {
-			Message string `json:"message"`
-		} `json:"value"`
+	result, ok := outcome.(echocontract.EchoOk)
+	if !ok {
+		return nil, fmt.Errorf("echo returned %T", outcome)
 	}
-	if err := json.Unmarshal(response, &outcome); err != nil {
-		return nil, err
-	}
-	if outcome.Kind != "result" || outcome.Name != "ok" {
-		return nil, fmt.Errorf("echo returned %s %s", outcome.Kind, outcome.Name)
-	}
-	return greetercontract.GreetOk{Value: greetercontract.GreetResult{Message: "greeter:" + outcome.Value.Message}}, nil
+	return greetercontract.GreetOk{Value: greetercontract.GreetResult{Message: "greeter:" + result.Value.Message}}, nil
 }
