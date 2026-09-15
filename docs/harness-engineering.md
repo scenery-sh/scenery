@@ -236,6 +236,7 @@ release certification. Failed steps identify their focused rerun command.
 | `cli-process` | CLI exit and telemetry |
 | `dev-follower` | Development follower process |
 | `dev-process` | Managed child-process lifecycle, captured-input invalidation matrix, exact previously compiled A-to-B-to-A generation round-trip, behavior-preserving cgo/native edit, 20 unique edit-to-exact-response generations, bounded process/FD/RSS/cache settling, and tagged build-cache input mutation/rejection/retry, restored external-source bypass without change time (including temporarily enabled ignored Go files and temporary embeds in initially empty directories), canceled-producer workspace ownership, publication crash recovery and lease/link-slot proof |
+| `process-model` | `testdata/apps/multiservice` through `scenery up` with `SCENERY_DEV_PROCESS_MODEL=service`: three distinct processes, an `echo` edit replacing only `echo` while a request pinned to the previous generation completes against the previous `echo`, drained retirement, a failed build and identical restored source keeping the published generation, a shared package edit replacing both services in one generation with an unchanged host, and process/socket/link cleanup |
 | `dev-lock` | Named process locks |
 | `dev-cleanup` | Session cleanup |
 | `inspect-go` | Go-package documentation inspection |

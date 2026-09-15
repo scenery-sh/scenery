@@ -117,9 +117,21 @@ compile the application graph as it needs.
   services, replaced both in one generation (`packages_rebuilt` `echo_echo`,
   `greeter_greeter`, host unchanged) and the first new response already
   combined both edits; `scenery down` left no process, socket or link file.
-- [ ] Milestone 3 remaining: a repeatable `scripts/verify` probe for the
-  fixture scenario including an in-flight request pinned to the previous
-  generation, and per-process status in dashboard and session records.
+- [x] (2026-09-15) Repeatable proof: `go run ./scripts/verify --probe
+  process-model --summary --write` copies the multiservice fixture into a
+  disposable root and agent home and runs it through `scenery up --detach` with
+  the gate. It attributes every response through `X-Scenery-Process-ID`, keeps a
+  `greet` request (fixture `wait:8s:` name) in flight while `echo` is replaced
+  and requires it to answer from the first `echo`, requires the replaced `echo`
+  to exit, a failed build and restored identical source to keep the published
+  generation, a shared `internal/text` edit to rebuild exactly `echo_echo` and
+  `greeter_greeter` with the host PID unchanged, and every observed process,
+  socket and link file to disappear after `scenery down`. First run: pass in
+  13.1 s (echo edit to response 1,267 ms, shared edit 1,277 ms). With host
+  pinning disabled the probe failed on `greeter:echo-two:hello pinned`.
+- [ ] Milestone 3 remaining: per-process status in dashboard and session
+  records, and process-model support for application assistants and MCP
+  federation.
 - [ ] Milestone 4: ONLV rebaseline, resources, background-work ownership,
   semantic conformance, and the edit-to-response measurement.
 
