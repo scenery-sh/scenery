@@ -92,6 +92,9 @@ func Main(cfg AppConfig) error {
 		_ = stopDurable(context.Background())
 		return err
 	}
+	setProcessBackgroundDrain(func(ctx context.Context) error {
+		return errorsJoin(scheduler.Stop(ctx), events.Stop(ctx), stopDurableBackground(ctx))
+	})
 
 	sigCtx, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stopSignals()

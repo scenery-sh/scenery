@@ -97,4 +97,21 @@ func TestRuntimeIntegrationPlanListsEveryRenderedServiceAdapter(t *testing.T) {
 	if plan.ContractRevision != result.Manifest.ContractRevision {
 		t.Fatalf("plan contract revision = %q", plan.ContractRevision)
 	}
+	host := string(plan.HostApplication)
+	if !strings.Contains(host, "package main") || !strings.Contains(host, "sceneryruntime.RegisterMCPFederationChecked(") || !strings.Contains(host, "func registerApplication(registry scenery.Registry) error") ||
+		strings.Contains(host, "_adapter") || strings.Contains(host, "RegisterMCPTool(") {
+		t.Fatalf("host application registrations link service code or omit federation:\n%s", host)
+	}
+	var tools []string
+	for _, service := range plan.Services {
+		for _, tool := range service.MCPTools {
+			tools = append(tools, service.Name+"="+tool.AssistantAddress+"#"+tool.Name)
+			if !strings.Contains(string(adapters[slices.IndexFunc(adapters, func(adapter applicationAdapter) bool { return adapter.Address == service.Address })].Source), fmt.Sprintf("Name: %q, AssistantAddress: %q", tool.Name, tool.AssistantAddress)) {
+				t.Fatalf("service process %s plans MCP tool %#v its adapter does not register", service.Name, tool)
+			}
+		}
+	}
+	if len(tools) == 0 {
+		t.Fatal("native fixture plan lists no MCP tools")
+	}
 }

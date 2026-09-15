@@ -31,6 +31,9 @@ type RuntimeIntegrationPlan struct {
 	CompositionImport string
 	ContractRevision  string
 	Services          []ServiceProcessPlan
+	// HostApplication is the generated source of the host's application-level
+	// registrations (assistants and MCP federation); empty when there are none.
+	HostApplication []byte
 }
 
 // ServiceProcessPlan identifies the generated adapter a service process
@@ -42,6 +45,13 @@ type ServiceProcessPlan struct {
 	AdapterImport     string
 	RequiredAddresses []string
 	Routes            []ServiceProcessRoute
+	MCPTools          []ServiceProcessMCPTool
+}
+
+// ServiceProcessMCPTool is one MCP tool a service adapter registers.
+type ServiceProcessMCPTool struct {
+	AssistantAddress string
+	Name             string
 }
 
 // ServiceProcessRoute is one runtime HTTP endpoint pattern registered by a

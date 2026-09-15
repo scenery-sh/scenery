@@ -37,10 +37,13 @@ func Generate(appName string, cfg appcfg.Config, plan generateapi.RuntimeIntegra
 		}
 		out.Generated[path] = serviceMain
 	}
-	hostMain, err := generateHostMain(appName, plan)
+	hostMain, err := generateHostMain(appName, cfg, plan, sql)
 	if err != nil {
 		return nil, fmt.Errorf("render process host entrypoint: %w", err)
 	}
 	out.Generated[ProcessMainRoot+"/host/main.go"] = hostMain
+	if len(plan.HostApplication) > 0 {
+		out.Generated[ProcessMainRoot+"/host/application.go"] = append([]byte(nil), plan.HostApplication...)
+	}
 	return out, nil
 }

@@ -41,6 +41,9 @@ func BuildRuntimeIntegrationPlan(result *Result) (RuntimeIntegrationPlan, error)
 		return RuntimeIntegrationPlan{}, err
 	}
 	plan := RuntimeIntegrationPlan{CompositionImport: generatedImport + "/composition", ContractRevision: result.Manifest.ContractRevision}
+	if plan.HostApplication, err = renderProcessHostApplication(result); err != nil {
+		return RuntimeIntegrationPlan{}, err
+	}
 	adapters, err := planApplicationAdapters(result, generatedImport)
 	if err != nil {
 		return RuntimeIntegrationPlan{}, err
@@ -50,6 +53,9 @@ func BuildRuntimeIntegrationPlan(result *Result) (RuntimeIntegrationPlan, error)
 		service := generateapi.ServiceProcessPlan{
 			Address: adapter.Address, Name: strings.TrimSuffix(adapter.RelativeDir, "_adapter"),
 			AdapterImport: adapter.ImportPath, RequiredAddresses: append([]string(nil), adapter.Covered...),
+		}
+		for _, tool := range adapter.MCPBindings {
+			service.MCPTools = append(service.MCPTools, generateapi.ServiceProcessMCPTool{AssistantAddress: tool.AssistantAddress, Name: tool.Name})
 		}
 		for _, binding := range adapter.Bindings {
 			httpSpec, _ := binding.Spec["http"].(map[string]any)
@@ -569,27 +575,8 @@ func renderApplicationComposition(result *Result, providerABIs map[string]string
 	for index := range adapters {
 		fmt.Fprintf(&b, "\tif err := adapter%d.Register(registry); err != nil { return err }\n", index)
 	}
-	if len(assistants) > 0 {
-		resources := resourcesByAddress(&Manifest{Resources: result.Manifest.Resources})
-		b.WriteString("\tif err := registry.Register(\"scenery/assistants\", sceneryruntime.ContractRegistration{\n")
-		fmt.Fprintf(&b, "\t\tContractRevision: ContractRevision, PackageContractABIRevision: ContractRevision, RuntimeABI: sceneryruntime.ContractRuntimeABI, CoveredAddresses: %#v,\n", resourceAddresses(assistants))
-		b.WriteString("\t\tApply: func() error {\n")
-		for _, assistant := range assistants {
-			registration, err := renderAssistantRegistration(result, resources, assistant)
-			if err != nil {
-				return nil, err
-			}
-			b.WriteString("\t\t\t")
-			b.WriteString(registration)
-		}
-		b.WriteString("\t\tembeddedAssets := sceneryassets.Assets()\n")
-		b.WriteString("\t\truntimeAssets := make([]sceneryruntime.AssistantEmbeddedAsset, 0, len(embeddedAssets))\n")
-		b.WriteString("\t\tfor _, asset := range embeddedAssets {\n")
-		b.WriteString("\t\t\truntimeAssets = append(runtimeAssets, sceneryruntime.AssistantEmbeddedAsset{\n")
-		b.WriteString("\t\t\tDescriptor: sceneryruntime.AssistantAssetDescriptor{Kind: asset.Descriptor.Kind, SchemaRevision: asset.Descriptor.SchemaRevision, AssistantAddress: asset.Descriptor.AssistantAddress, Target: asset.Descriptor.Target, RuntimeRevision: asset.Descriptor.RuntimeRevision, CapabilityRevision: asset.Descriptor.CapabilityRevision, NodeArchiveDigest: asset.Descriptor.NodeArchiveDigest, NodeTreeDigest: asset.Descriptor.NodeTreeDigest, CapsuleArchiveDigest: asset.Descriptor.CapsuleArchiveDigest, CapsuleTreeDigest: asset.Descriptor.CapsuleTreeDigest, CapsuleEntry: asset.Descriptor.CapsuleEntry, PackageLockDigest: asset.Descriptor.PackageLockDigest}, DescriptorJSON: asset.DescriptorJSON, NodeArchive: asset.NodeArchive, NodeDescriptorJSON: asset.NodeDescriptorJSON, CapsuleArchive: asset.CapsuleArchive, CapsuleDescriptorJSON: asset.CapsuleDescriptorJSON})\n")
-		b.WriteString("\t\t}\n")
-		fmt.Fprintf(&b, "\t\tif err := sceneryruntime.RegisterEmbeddedAssistantAssets(sceneryruntime.AssistantProductionOptions{ApplicationID: %q}, runtimeAssets); err != nil { return err }\n", result.Manifest.Application.Name)
-		b.WriteString("\t\t\treturn nil\n\t\t},\n\t}); err != nil { return err }\n")
+	if err := renderAssistantRegistrations(result, &b, assistants); err != nil {
+		return nil, err
 	}
 	if err := renderMCPFederationRegistrations(result, &b); err != nil {
 		return nil, err
@@ -747,4 +734,77 @@ func sortedBoolKeys(values map[string]bool) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+// renderAssistantRegistrations renders the application-level assistant
+// registrations shared by the application composition and the process host.
+func renderAssistantRegistrations(result *Result, b *strings.Builder, assistants []Resource) error {
+	if len(assistants) == 0 {
+		return nil
+	}
+	resources := resourcesByAddress(&Manifest{Resources: result.Manifest.Resources})
+	b.WriteString("\tif err := registry.Register(\"scenery/assistants\", sceneryruntime.ContractRegistration{\n")
+	fmt.Fprintf(b, "\t\tContractRevision: ContractRevision, PackageContractABIRevision: ContractRevision, RuntimeABI: sceneryruntime.ContractRuntimeABI, CoveredAddresses: %#v,\n", resourceAddresses(assistants))
+	b.WriteString("\t\tApply: func() error {\n")
+	for _, assistant := range assistants {
+		registration, err := renderAssistantRegistration(result, resources, assistant)
+		if err != nil {
+			return err
+		}
+		b.WriteString("\t\t\t")
+		b.WriteString(registration)
+	}
+	b.WriteString("\t\tembeddedAssets := sceneryassets.Assets()\n")
+	b.WriteString("\t\truntimeAssets := make([]sceneryruntime.AssistantEmbeddedAsset, 0, len(embeddedAssets))\n")
+	b.WriteString("\t\tfor _, asset := range embeddedAssets {\n")
+	b.WriteString("\t\t\truntimeAssets = append(runtimeAssets, sceneryruntime.AssistantEmbeddedAsset{\n")
+	b.WriteString("\t\t\tDescriptor: sceneryruntime.AssistantAssetDescriptor{Kind: asset.Descriptor.Kind, SchemaRevision: asset.Descriptor.SchemaRevision, AssistantAddress: asset.Descriptor.AssistantAddress, Target: asset.Descriptor.Target, RuntimeRevision: asset.Descriptor.RuntimeRevision, CapabilityRevision: asset.Descriptor.CapabilityRevision, NodeArchiveDigest: asset.Descriptor.NodeArchiveDigest, NodeTreeDigest: asset.Descriptor.NodeTreeDigest, CapsuleArchiveDigest: asset.Descriptor.CapsuleArchiveDigest, CapsuleTreeDigest: asset.Descriptor.CapsuleTreeDigest, CapsuleEntry: asset.Descriptor.CapsuleEntry, PackageLockDigest: asset.Descriptor.PackageLockDigest}, DescriptorJSON: asset.DescriptorJSON, NodeArchive: asset.NodeArchive, NodeDescriptorJSON: asset.NodeDescriptorJSON, CapsuleArchive: asset.CapsuleArchive, CapsuleDescriptorJSON: asset.CapsuleDescriptorJSON})\n")
+	b.WriteString("\t\t}\n")
+	fmt.Fprintf(b, "\t\tif err := sceneryruntime.RegisterEmbeddedAssistantAssets(sceneryruntime.AssistantProductionOptions{ApplicationID: %q}, runtimeAssets); err != nil { return err }\n", result.Manifest.Application.Name)
+	b.WriteString("\t\t\treturn nil\n\t\t},\n\t}); err != nil { return err }\n")
+	return nil
+}
+
+// renderProcessHostApplication renders the process host's application-level
+// registrations: assistants and MCP federation, which no service adapter owns.
+// It references the host entrypoint's contractRevision and links no adapter.
+func renderProcessHostApplication(result *Result) ([]byte, error) {
+	assistants := canonicalAssistantResources(result.Manifest.Resources)
+	federations, err := mcpFederationTargets(result)
+	if err != nil || len(assistants) == 0 && len(federations) == 0 {
+		return nil, err
+	}
+	covered := map[string]bool{}
+	var b strings.Builder
+	b.WriteString("// Code generated by Scenery. DO NOT EDIT.\npackage main\n\nimport (\n\tscenery \"scenery.sh\"\n\tsceneryruntime \"scenery.sh/runtime\"\n")
+	if len(assistants) > 0 {
+		_, generatedImport, importErr := resolveApplicationGeneratedRoot(result)
+		if importErr != nil {
+			return nil, importErr
+		}
+		fmt.Fprintf(&b, "\tsceneryassets %q\n", generatedImport+"/assets")
+		for _, assistant := range assistants {
+			covered[assistant.Address] = true
+		}
+	}
+	for _, federation := range federations {
+		for _, address := range federation.CoveredAddresses {
+			covered[address] = true
+		}
+	}
+	b.WriteString(")\n\n// ContractRevision is the revision the application registrations cover.\nconst ContractRevision = contractRevision\n\n")
+	fmt.Fprintf(&b, "var applicationRequiredAddresses = %#v\n\n", sortedBoolKeys(covered))
+	b.WriteString("func registerApplication(registry scenery.Registry) error {\n")
+	if err := renderAssistantRegistrations(result, &b, assistants); err != nil {
+		return nil, err
+	}
+	if err := renderMCPFederationRegistrations(result, &b); err != nil {
+		return nil, err
+	}
+	b.WriteString("\treturn nil\n}\n")
+	formatted, err := format.Source([]byte(b.String()))
+	if err != nil {
+		return nil, fmt.Errorf("format process host application registrations: %w\n%s", err, b.String())
+	}
+	return formatted, nil
 }

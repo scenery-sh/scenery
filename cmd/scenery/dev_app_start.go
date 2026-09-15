@@ -106,7 +106,7 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 			return s.handleCompileError(ctx, plan.Metadata, plan.APIEncoding, err)
 		}
 		activationStarted := time.Now()
-		current, reload, err := s.activateDevProcesses(ctx, plan)
+		current, reload, err := s.activateDevProcesses(ctx, plan, earlyAssistants)
 		build.RecordStep(ctx, build.Step{
 			Name: "runtime.activation", StartedAt: activationStarted, Duration: time.Since(activationStarted),
 			Cache: "not_applicable", Reason: "publish_process_generation", OK: err == nil, PackagesRebuilt: plan.Processes.Rebuilt,

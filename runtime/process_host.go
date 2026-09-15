@@ -51,12 +51,20 @@ type ProcessHostRoute struct {
 	PathTail bool
 }
 
+// ProcessHostMCPTool names the service process that registers one MCP tool.
+type ProcessHostMCPTool struct {
+	Process          string
+	AssistantAddress string
+	Name             string
+}
+
 // ProcessHostConfig is rendered into the generated host entrypoint. Fallback
 // serves framework routes and requests that match no contract route.
 type ProcessHostConfig struct {
 	Name       string
 	ListenAddr string
 	Routes     []ProcessHostRoute
+	MCPTools   []ProcessHostMCPTool
 	Fallback   string
 }
 
@@ -99,6 +107,14 @@ type processHost struct {
 	routes   *routeTable
 	fallback string
 	required []string
+	mcpTools map[string]string
+
+	// local serves the host's own application-level endpoints (assistant
+	// gateways) that localRoutes matches.
+	local       http.Handler
+	localRoutes *routeTable
+
+	owners processHostDurableOwners
 
 	mu          sync.RWMutex
 	current     *processHostGeneration
@@ -117,6 +133,7 @@ type processHostInstance struct {
 	spec     processGenerationInstance
 	ingress  http.Handler
 	dispatch http.Handler
+	client   *http.Client
 }
 
 type processHostGenerationKey struct{}
@@ -138,6 +155,33 @@ func MainProcessHost(cfg ProcessHostConfig) error {
 	}
 	if cfg.ListenAddr == "" {
 		cfg.ListenAddr = ListenAddrFromEnv()
+	}
+	SetAppConfig(AppConfig{Name: cfg.Name, ListenAddr: cfg.ListenAddr})
+	stopReporting := startDevelopmentReporting(AppConfig{Name: cfg.Name, ListenAddr: cfg.ListenAddr})
+	defer stopReporting()
+	// Application-level registrations (assistant gateways and their private MCP
+	// gateways) run in the host and reach service-owned MCP tools through it.
+	setActiveProcessHost(host)
+	defer setActiveProcessHost(nil)
+	if err := InitializeServices(); err != nil {
+		shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), processHostShutdownGrace)
+		defer cancelShutdown()
+		return errors.Join(err, ShutdownServices(shutdownCtx))
+	}
+	defer func() {
+		shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), processHostShutdownGrace)
+		defer cancelShutdown()
+		_ = ShutdownServices(shutdownCtx)
+	}()
+	if endpoints := listEndpoints(); len(endpoints) > 0 {
+		local, err := newServer(cfg.ListenAddr)
+		if err != nil {
+			return err
+		}
+		host.local, host.localRoutes = local.Handler, newRouteTable()
+		for _, endpoint := range endpoints {
+			registerEndpointRoute(host.localRoutes, endpoint, func(http.ResponseWriter, *http.Request, routeParams) {})
+		}
 	}
 	runCtx, cancelRun := context.WithCancel(context.Background())
 	defer cancelRun()
@@ -187,8 +231,16 @@ func newProcessHost(cfg ProcessHostConfig, token, contract string) (*processHost
 	if strings.TrimSpace(cfg.Fallback) == "" {
 		return nil, fmt.Errorf("runtime: process host requires a fallback process")
 	}
-	host := &processHost{name: cfg.Name, token: token, contract: contract, routes: newRouteTable(), fallback: cfg.Fallback, generations: map[uint64]*processHostGeneration{}}
+	host := &processHost{name: cfg.Name, token: token, contract: contract, routes: newRouteTable(), fallback: cfg.Fallback, generations: map[uint64]*processHostGeneration{}, mcpTools: map[string]string{}}
 	required := map[string]bool{cfg.Fallback: true}
+	for _, tool := range cfg.MCPTools {
+		key := tool.AssistantAddress + "\x00" + tool.Name
+		if strings.TrimSpace(tool.Process) == "" || strings.TrimSpace(tool.Name) == "" || host.mcpTools[key] != "" {
+			return nil, fmt.Errorf("runtime: process host MCP tool %q for %q is invalid", tool.Name, tool.Process)
+		}
+		host.mcpTools[key] = tool.Process
+		required[tool.Process] = true
+	}
 	for _, route := range cfg.Routes {
 		if strings.TrimSpace(route.Process) == "" || len(route.Methods) == 0 || !strings.HasPrefix(route.Path, "/") {
 			return nil, fmt.Errorf("runtime: process host route %q for %q is invalid", route.Path, route.Process)
@@ -210,6 +262,16 @@ func newProcessHost(cfg ProcessHostConfig, token, contract string) (*processHost
 }
 
 func (h *processHost) serveIngress(w http.ResponseWriter, req *http.Request) {
+	if h.local != nil {
+		method := req.Method
+		if requested := strings.TrimSpace(req.Header.Get("Access-Control-Request-Method")); method == http.MethodOptions && requested != "" {
+			method = requested
+		}
+		if h.localRoutes.ownerRoute(req.URL.EscapedPath(), method) != nil {
+			h.local.ServeHTTP(w, req)
+			return
+		}
+	}
 	generation := h.acquire(0)
 	if generation == nil {
 		errs.HTTPErrorWithCode(w, errs.B().Code(errs.Unavailable).Msg("application generation is not published").Err(), http.StatusServiceUnavailable)
@@ -428,7 +490,7 @@ func newProcessHostInstance(name string, spec processGenerationInstance) *proces
 		}
 	}
 	return &processHostInstance{
-		name: name, spec: spec,
+		name: name, spec: spec, client: &http.Client{Transport: transport},
 		ingress: &httputil.ReverseProxy{Rewrite: rewrite, Transport: transport, FlushInterval: -1, ModifyResponse: verify,
 			ErrorHandler: func(w http.ResponseWriter, req *http.Request, err error) {
 				logTrace(req.Context(), fmt.Sprintf("service process %s did not answer: %v", name, err))

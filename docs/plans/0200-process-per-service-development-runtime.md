@@ -129,9 +129,20 @@ compile the application graph as it needs.
   socket and link file to disappear after `scenery down`. First run: pass in
   13.1 s (echo edit to response 1,267 ms, shared edit 1,277 ms). With host
   pinning disabled the probe failed on `greeter:echo-two:hello pinned`.
+- [x] (2026-09-15) Milestone 4 readiness for ONLV: the host now runs the
+  application-level registrations no service adapter owns (assistant gateways,
+  assistant MCP manifests and MCP federation) from a generated
+  `scenery_internal_processes/host/application.go` with the entrypoint's SQL
+  and authentication wiring, serves those endpoints itself, and its assistant
+  MCP gateways forward tool calls to the service process that registers each
+  tool (literal `ProcessHostMCPTool` table) and durable status or cancellation
+  to the process that accepted the receipt. Service processes answer
+  `/__scenery/process/v1/mcp/call`, `/mcp/durable` and `/drain`; the supervisor
+  stages and starts assistant helpers around a full generation start, drains
+  schedules, event consumers and durable acquisition of replaced instances
+  before retiring them, and refuses event consumers and emissions.
 - [ ] Milestone 3 remaining: per-process status in dashboard and session
-  records, and process-model support for application assistants and MCP
-  federation.
+  records.
 - [ ] Milestone 4: ONLV rebaseline, resources, background-work ownership,
   semantic conformance, and the edit-to-response measurement.
 
@@ -337,6 +348,25 @@ compile the application graph as it needs.
 - Decision: `runtime.Main` validates injected process wiring before service
   initialization, so a candidate with invalid `SCENERY_PROCESS_LINK` exits and
   never becomes ready; an absent variable keeps the single-process runtime.
+  Date: 2026-09-15. Author: Claude.
+- Decision: application-level registrations run in the host, and the host
+  forwards MCP tool calls of its assistant gateways to the owning service
+  process of the current generation; durable status and cancellation go to the
+  process that accepted the receipt, whose owner record authorizes them.
+  Rationale: assistants and MCP federation belong to no service adapter, the
+  host already survives implementation edits, and forwarding keeps each tool's
+  policy, codecs and durable owner store in the process that registers it.
+  Owner records live in process memory, as in the single application process,
+  so replacing an instance loses its receipts exactly as an application restart
+  does. Date: 2026-09-15. Author: Claude.
+- Decision: a replaced service instance is drained (schedules, event consumers,
+  durable workers and schedule loops stop, durable stores stay open) as soon as
+  the next generation is published, then retired when its generation has no
+  pinned work. Rationale: without draining, an old instance could claim new
+  background work with old code during the retirement window; closing stores
+  would break durable dispatch by requests still pinned to it. Event consumers
+  and emissions are refused until their bus ownership across processes is
+  proven. Migrations and seeds stay supervisor-owned (`scenery db setup`).
   Date: 2026-09-15. Author: Claude.
 - Decision: per-service routes come from the same generator data that renders
   endpoint registrations (`runtimeBindingPath`, `renderContractPathTail`) and are

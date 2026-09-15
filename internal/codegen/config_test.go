@@ -70,8 +70,31 @@ func TestServiceProcessEntrypointsRegisterOnlyTheirAdapter(t *testing.T) {
 			t.Fatalf("host entrypoint missing %q:\n%s", fragment, host)
 		}
 	}
-	if strings.Contains(host, "scenerygen") || strings.Contains(host, "sceneryruntime.Main(") {
-		t.Fatalf("host entrypoint links service registrations:\n%s", host)
+	if strings.Contains(host, "scenerygen") || strings.Contains(host, "sceneryruntime.Main(") || strings.Contains(host, "registerApplication") || strings.Contains(host, "sceneryauth") {
+		t.Fatalf("host entrypoint links service or application registrations:\n%s", host)
+	}
+	if _, exists := output.Generated[ProcessMainRoot+"/host/application.go"]; exists {
+		t.Fatal("host without application registrations rendered application.go")
+	}
+	withApplication := plan
+	withApplication.HostApplication = []byte("package main\n")
+	withApplication.Services = append([]generateapi.ServiceProcessPlan(nil), plan.Services...)
+	withApplication.Services[0].MCPTools = []generateapi.ServiceProcessMCPTool{{AssistantAddress: "app/assistant/support", Name: "echo__echo"}}
+	output, err = Generate("app", app.Config{Auth: app.AuthConfig{Enabled: true}}, withApplication, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	host = string(output.Generated[ProcessMainRoot+"/host/main.go"])
+	for _, fragment := range []string{
+		"sceneryauth.RegisterStandard(", "RequiredAddresses: applicationRequiredAddresses", "registerApplication(contractRegistry)", "contractRegistry.Seal()",
+		`{Process: "echo_echo", AssistantAddress: "app/assistant/support", Name: "echo__echo"}`,
+	} {
+		if !strings.Contains(host, fragment) {
+			t.Fatalf("application host entrypoint missing %q:\n%s", fragment, host)
+		}
+	}
+	if string(output.Generated[ProcessMainRoot+"/host/application.go"]) != "package main\n" {
+		t.Fatal("host application registrations were not rendered beside the entrypoint")
 	}
 	for name, invalid := range map[string]generateapi.ServiceProcessPlan{
 		"duplicate": plan.Services[0],

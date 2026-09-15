@@ -44,6 +44,7 @@ type sharedCompositionKeyInput struct {
 	CompositionImport    string                           `json:"composition_import"`
 	ContractRevision     string                           `json:"contract_revision,omitempty"`
 	Services             []generateapi.ServiceProcessPlan `json:"services,omitempty"`
+	HostApplication      []byte                           `json:"host_application,omitempty"`
 	SQLRequirements      compiler.SQLRequirements         `json:"sql_requirements"`
 }
 
@@ -53,7 +54,7 @@ func sharedCompositionKey(appName string, cfg app.Config, plan generateapi.Runti
 	}
 	encoded, err := json.Marshal(sharedCompositionKeyInput{
 		Producer: machine.RuntimeProducer(), GeneratorFingerprint: generatorFingerprint,
-		AppName: appName, Config: cfg, CompositionImport: plan.CompositionImport, ContractRevision: plan.ContractRevision, Services: plan.Services,
+		AppName: appName, Config: cfg, CompositionImport: plan.CompositionImport, ContractRevision: plan.ContractRevision, Services: plan.Services, HostApplication: plan.HostApplication,
 		SQLRequirements: sql,
 	})
 	if err != nil {

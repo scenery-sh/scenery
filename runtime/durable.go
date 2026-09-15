@@ -101,7 +101,9 @@ func startDurableRuntime(ctx context.Context, cfg AppConfig) (func(context.Conte
 		if remoteCfg.Token == "" {
 			return nil, fmt.Errorf("runtime: %s is required when %s is set", envDurableToken, envDurableEndpoint)
 		}
-		return startDurableRemoteWorkers(ctx, handlers, remoteCfg), nil
+		remote := &onceStop{stop: startDurableRemoteWorkers(ctx, handlers, remoteCfg)}
+		setDurableBackgroundStop(remote.Stop)
+		return remote.Stop, nil
 	}
 	databaseURL, err := durableDatabaseURL()
 	if err != nil {
@@ -137,13 +139,50 @@ func startDurableRuntime(ctx context.Context, cfg AppConfig) (func(context.Conte
 	stopWorkers := startDurableLocalWorkers(ctx, opened, handlers, cfg.Role)
 	stopSchedules := startDurableScheduleLoop(ctx, opened, cfg.Role)
 	stopRetention := startDurableRetentionLoop(ctx, opened)
+	background := &onceStop{stop: func(stopCtx context.Context) error {
+		return errors.Join(stopWorkers(stopCtx), stopSchedules(stopCtx), stopRetention(stopCtx))
+	}}
+	setDurableBackgroundStop(background.Stop)
 	return func(stopCtx context.Context) error {
-		workerErr := stopWorkers(stopCtx)
-		scheduleErr := stopSchedules(stopCtx)
-		retentionErr := stopRetention(stopCtx)
+		backgroundErr := background.Stop(stopCtx)
 		clearActiveDurableStores(opened)
-		return errors.Join(workerErr, scheduleErr, retentionErr, closeDurableStores(opened))
+		return errors.Join(backgroundErr, closeDurableStores(opened))
 	}, nil
+}
+
+// onceStop runs a stop function once; later callers receive its result.
+type onceStop struct {
+	once sync.Once
+	err  error
+	stop func(context.Context) error
+}
+
+func (stop *onceStop) Stop(ctx context.Context) error {
+	stop.once.Do(func() { stop.err = stop.stop(ctx) })
+	return stop.err
+}
+
+var durableBackgroundStop struct {
+	sync.Mutex
+	stop func(context.Context) error
+}
+
+// setDurableBackgroundStop records how to stop acquiring and scheduling
+// durable work while keeping durable stores open for dispatch.
+func setDurableBackgroundStop(stop func(context.Context) error) {
+	durableBackgroundStop.Lock()
+	durableBackgroundStop.stop = stop
+	durableBackgroundStop.Unlock()
+}
+
+func stopDurableBackground(ctx context.Context) error {
+	durableBackgroundStop.Lock()
+	stop := durableBackgroundStop.stop
+	durableBackgroundStop.Unlock()
+	if stop == nil {
+		return nil
+	}
+	return stop(ctx)
 }
 
 func startDurableRetentionLoop(parent context.Context, stores []*store.Store) func(context.Context) error {

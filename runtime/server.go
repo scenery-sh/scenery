@@ -185,6 +185,7 @@ func newServer(listenAddr string) (*http.Server, error) {
 	}
 	if processLinkConfigured() {
 		s.registerProcessLinkRoutes()
+		s.registerProcessServiceRoutes()
 	}
 	if devEndpointsEnabled() {
 		s.registerSceneryConfig()

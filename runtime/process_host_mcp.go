@@ -1,0 +1,167 @@
+package runtime
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+	"sync"
+
+	"scenery.sh/errs"
+	"scenery.sh/internal/mcpcontract"
+	"scenery.sh/internal/mcpgateway"
+)
+
+// In a process-model session the host runs assistant gateways, and their MCP
+// tools are registered by service processes. The host dispatcher forwards each
+// tool call to the owning process of the current generation and remembers which
+// process accepted a durable receipt, so status and cancellation reach the
+// process whose owner record authorizes them.
+
+var activeProcessHost struct {
+	sync.RWMutex
+	host *processHost
+}
+
+func setActiveProcessHost(host *processHost) {
+	activeProcessHost.Lock()
+	activeProcessHost.host = host
+	activeProcessHost.Unlock()
+}
+
+// assistantMCPDispatchers selects the dispatcher of an assistant MCP gateway.
+func assistantMCPDispatchers() (mcpcontract.ToolDispatcher, mcpgateway.DurableOperations) {
+	activeProcessHost.RLock()
+	host := activeProcessHost.host
+	activeProcessHost.RUnlock()
+	if host == nil {
+		return MCPToolDispatcher{}, MCPToolDispatcher{}
+	}
+	dispatcher := processHostMCPDispatcher{host: host}
+	return dispatcher, dispatcher
+}
+
+type processHostDurableOwners struct {
+	sync.RWMutex
+	values map[string]string
+}
+
+type processHostMCPDispatcher struct {
+	host *processHost
+}
+
+func (d processHostMCPDispatcher) CallTool(ctx context.Context, call mcpcontract.ToolCallContext, name string, input json.RawMessage) (mcpcontract.ToolOutcome, error) {
+	process, err := d.host.mcpToolOwner(strings.TrimSpace(call.AssistantAddress), strings.TrimSpace(name))
+	if err != nil {
+		return mcpcontract.ToolOutcome{}, err
+	}
+	body, err := json.Marshal(processMCPCallRequest{Call: call, Name: name, Input: input})
+	if err != nil {
+		return mcpcontract.ToolOutcome{}, ContractSystemError(err)
+	}
+	response, err := d.host.callProcess(ctx, process, processMCPCallPath, body)
+	if err != nil {
+		return mcpcontract.ToolOutcome{}, err
+	}
+	if response.Outcome == nil {
+		return mcpcontract.ToolOutcome{}, ContractSystemError(fmt.Errorf("service process %s returned no MCP outcome", process))
+	}
+	if receipt := response.Outcome.Receipt; receipt != nil && receipt.ExecutionID != "" {
+		d.host.owners.Lock()
+		if d.host.owners.values == nil {
+			d.host.owners.values = map[string]string{}
+		}
+		d.host.owners.values[strings.TrimSpace(call.Principal)+"\x00"+receipt.ExecutionID] = process
+		d.host.owners.Unlock()
+	}
+	return *response.Outcome, nil
+}
+
+func (d processHostMCPDispatcher) Status(ctx context.Context, call mcpcontract.ToolCallContext, executionID string) (json.RawMessage, error) {
+	return d.durable(ctx, "status", call, executionID)
+}
+
+func (d processHostMCPDispatcher) Cancel(ctx context.Context, call mcpcontract.ToolCallContext, executionID string) (json.RawMessage, error) {
+	return d.durable(ctx, "cancel", call, executionID)
+}
+
+func (d processHostMCPDispatcher) durable(ctx context.Context, operation string, call mcpcontract.ToolCallContext, executionID string) (json.RawMessage, error) {
+	executionID = strings.TrimSpace(executionID)
+	d.host.owners.RLock()
+	process := d.host.owners.values[strings.TrimSpace(call.Principal)+"\x00"+executionID]
+	d.host.owners.RUnlock()
+	if process == "" {
+		return nil, errors.New("not_found: durable execution not found")
+	}
+	body, err := json.Marshal(processMCPDurableRequest{Operation: operation, Call: call, ExecutionID: executionID})
+	if err != nil {
+		return nil, ContractSystemError(err)
+	}
+	response, err := d.host.callProcess(ctx, process, processMCPDurablePath, body)
+	if err != nil {
+		return nil, err
+	}
+	return response.Result, nil
+}
+
+func (h *processHost) mcpToolOwner(assistantAddress, name string) (string, error) {
+	if process := h.mcpTools[assistantAddress+"\x00"+name]; assistantAddress != "" && process != "" {
+		return process, nil
+	}
+	match := ""
+	for key, process := range h.mcpTools {
+		if strings.HasSuffix(key, "\x00"+name) && (assistantAddress == "" || strings.HasPrefix(key, assistantAddress+"\x00")) {
+			if match != "" {
+				return "", fmt.Errorf("invalid_argument: MCP tool %s is ambiguous", name)
+			}
+			match = process
+		}
+	}
+	if match == "" {
+		return "", errors.New("not_found: MCP tool not found")
+	}
+	return match, nil
+}
+
+// callProcess sends one host-originated call to a service process of the
+// current generation and verifies the answering identity.
+func (h *processHost) callProcess(ctx context.Context, process, path string, body []byte) (processMCPResponse, error) {
+	generation := h.acquire(0)
+	if generation == nil {
+		return processMCPResponse{}, &errs.Error{Code: errs.Unavailable, Message: "application generation is not published", Meta: errs.Metadata{"delivery": "not_sent"}}
+	}
+	defer generation.inFlight.Add(-1)
+	instance := generation.instances[process]
+	if instance == nil {
+		return processMCPResponse{}, &errs.Error{Code: errs.Unavailable, Message: fmt.Sprintf(processHostUnavailableReason, process), Meta: errs.Metadata{"delivery": "not_sent"}}
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://scenery-process"+path, bytes.NewReader(body))
+	if err != nil {
+		return processMCPResponse{}, err
+	}
+	request.Header.Set("Authorization", "Bearer "+h.token)
+	request.Header.Set("Content-Type", "application/json")
+	response, err := instance.client.Do(request)
+	if err != nil {
+		return processMCPResponse{}, processLinkCallFailure(ctx, process, err)
+	}
+	defer func() { _ = response.Body.Close() }()
+	if !processIdentityMatches(response.Header, instance.spec) {
+		return processMCPResponse{}, &errs.Error{Code: errs.Unavailable, Message: (&processIdentityMismatchError{process: process}).Error(), Meta: errs.Metadata{"delivery": "unknown"}}
+	}
+	var decoded processMCPResponse
+	if err := json.NewDecoder(io.LimitReader(response.Body, processLinkMaxBody)).Decode(&decoded); err != nil {
+		return processMCPResponse{}, processLinkCallFailure(ctx, process, err)
+	}
+	if decoded.Error != nil {
+		return processMCPResponse{}, decoded.Error.err()
+	}
+	if response.StatusCode != http.StatusOK {
+		return processMCPResponse{}, ContractSystemError(fmt.Errorf("service process %s answered HTTP %d", process, response.StatusCode))
+	}
+	return decoded, nil
+}

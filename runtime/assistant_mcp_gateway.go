@@ -222,12 +222,13 @@ func initializeAssistantMCPGateway(ctx context.Context, assistantAddress string)
 	if value, exists := LookupAssistantMCPFederation(assistantAddress); exists {
 		federation = value
 	}
+	dispatch, durable := assistantMCPDispatchers()
 	gateway, err := mcpgateway.New(mcpgateway.Config{
 		Manifest:           manifest,
 		CapabilityRevision: descriptor.CapabilityRevision,
 		Verify:             mcpgateway.HMACAssertionVerifier{Secret: []byte(descriptor.MCPBridgeSecret), Audience: "scenery"},
-		Dispatch:           MCPToolDispatcher{},
-		Durable:            MCPToolDispatcher{},
+		Dispatch:           dispatch,
+		Durable:            durable,
 		Federation:         federation,
 		ListenAddr:         descriptor.MCPListenAddress,
 		Version:            "scenery-app-assistant",

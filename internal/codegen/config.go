@@ -3,7 +3,6 @@ package codegen
 import (
 	"fmt"
 	"go/format"
-	"strconv"
 	"strings"
 
 	appcfg "scenery.sh/internal/app"
@@ -35,61 +34,82 @@ func generateServiceMain(appName string, cfg appcfg.Config, service generateapi.
 }
 
 // generateHostMain renders the process host entrypoint. It links no adapter, so
-// implementation edits never rebuild it; the route table and contract revision
-// are literal data, and the first service process serves framework and
-// unmatched routes.
-func generateHostMain(appName string, plan generateapi.RuntimeIntegrationPlan) ([]byte, error) {
+// implementation edits never rebuild it; the route and MCP tool tables and the
+// contract revision are literal data, and the first service process serves
+// framework and unmatched routes. Application-level registrations (assistants
+// and MCP federation) are rendered beside it with the entrypoint's SQL and
+// authentication wiring.
+func generateHostMain(appName string, cfg appcfg.Config, plan generateapi.RuntimeIntegrationPlan, sql compiler.SQLRequirements) ([]byte, error) {
 	if plan.ContractRevision == "" {
 		return nil, fmt.Errorf("process host requires a contract revision")
 	}
-	var routes strings.Builder
+	application := len(plan.HostApplication) > 0
+	var buf strings.Builder
+	buf.WriteString("package main\n\nimport (\n\t\"fmt\"\n\t\"os\"\n")
+	if application && cfg.Auth.Enabled {
+		buf.WriteString("\tsceneryauth \"scenery.sh/auth\"\n")
+	}
+	buf.WriteString("\tsceneryruntime \"scenery.sh/runtime\"\n)\n\n")
+	fmt.Fprintf(&buf, "const contractRevision = %q\n\n", plan.ContractRevision)
+	buf.WriteString("func main() {\n")
+	buf.WriteString("\tif len(os.Args) == 2 && os.Args[1] == sceneryruntime.RuntimePreflightFlag {\n")
+	buf.WriteString("\t\tproof := os.NewFile(3, \"scenery-runtime-preflight\")\n\t\tdefer proof.Close()\n")
+	buf.WriteString("\t\tif err := sceneryruntime.WriteRuntimePreflight(proof, contractRevision); err != nil {\n\t\t\t_, _ = fmt.Fprintf(os.Stderr, \"scenery: %v\\n\", err)\n\t\t\tos.Exit(1)\n\t\t}\n\t\treturn\n\t}\n")
+	buf.WriteString("\tif err := sceneryruntime.VerifyLinkedContractBundle(contractRevision); err != nil {\n\t\t_, _ = fmt.Fprintf(os.Stderr, \"scenery: %v\\n\", err)\n\t\tos.Exit(1)\n\t}\n")
+	if application {
+		renderSQLBindings(&buf, sql)
+		renderAuthRegistration(&buf, cfg)
+		buf.WriteString("\tcontractRegistry, err := sceneryruntime.NewContractRegistry(sceneryruntime.ContractRegistryOptions{ContractRevision: contractRevision, RequiredAddresses: applicationRequiredAddresses, ProviderABIs: sceneryruntime.ContractProviderABIs()})\n")
+		buf.WriteString("\tif err == nil { err = registerApplication(contractRegistry) }\n")
+		buf.WriteString("\tif err == nil { err = contractRegistry.Seal() }\n")
+		buf.WriteString("\tif err != nil {\n\t\t_, _ = fmt.Fprintf(os.Stderr, \"scenery: %v\\n\", err)\n\t\tos.Exit(1)\n\t}\n")
+	}
+	fmt.Fprintf(&buf, "\tif err := sceneryruntime.MainProcessHost(sceneryruntime.ProcessHostConfig{Name: %q, ListenAddr: sceneryruntime.ListenAddrFromEnv(), Fallback: %q,\n", appName, plan.Services[0].Name)
+	buf.WriteString("\t\tRoutes: []sceneryruntime.ProcessHostRoute{\n")
 	for _, service := range plan.Services {
 		for _, route := range service.Routes {
 			if len(route.Methods) == 0 || !strings.HasPrefix(route.Path, "/") {
 				return nil, fmt.Errorf("service process %s has an invalid route %q", service.Name, route.Path)
 			}
-			fmt.Fprintf(&routes, "\t\t{Process: %q, Methods: %#v, Path: %q, PathTail: %t},\n", service.Name, route.Methods, route.Path, route.PathTail)
+			fmt.Fprintf(&buf, "\t\t\t{Process: %q, Methods: %#v, Path: %q, PathTail: %t},\n", service.Name, route.Methods, route.Path, route.PathTail)
 		}
 	}
-	source := strings.NewReplacer(
-		"{{revision}}", strconv.Quote(plan.ContractRevision), "{{name}}", strconv.Quote(appName),
-		"{{fallback}}", strconv.Quote(plan.Services[0].Name), "{{routes}}", routes.String(),
-	).Replace(processHostEntrypoint)
-	return format.Source([]byte(source))
+	buf.WriteString("\t\t},\n\t\tMCPTools: []sceneryruntime.ProcessHostMCPTool{\n")
+	for _, service := range plan.Services {
+		for _, tool := range service.MCPTools {
+			fmt.Fprintf(&buf, "\t\t\t{Process: %q, AssistantAddress: %q, Name: %q},\n", service.Name, tool.AssistantAddress, tool.Name)
+		}
+	}
+	buf.WriteString("\t\t},\n\t}); err != nil {\n\t\t_, _ = fmt.Fprintf(os.Stderr, \"scenery: %v\\n\", err)\n\t\tos.Exit(1)\n\t}\n}\n")
+	return format.Source([]byte(buf.String()))
 }
 
-const processHostEntrypoint = `package main
-
-import (
-	"fmt"
-	"os"
-
-	sceneryruntime "scenery.sh/runtime"
-)
-
-const contractRevision = {{revision}}
-
-func main() {
-	if len(os.Args) == 2 && os.Args[1] == sceneryruntime.RuntimePreflightFlag {
-		proof := os.NewFile(3, "scenery-runtime-preflight")
-		defer proof.Close()
-		if err := sceneryruntime.WriteRuntimePreflight(proof, contractRevision); err != nil {
-			_, _ = fmt.Fprintf(os.Stderr, "scenery: %v\n", err)
-			os.Exit(1)
-		}
+func renderSQLBindings(buf *strings.Builder, sql compiler.SQLRequirements) {
+	if len(sql) == 0 {
 		return
 	}
-	if err := sceneryruntime.VerifyLinkedContractBundle(contractRevision); err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "scenery: %v\n", err)
-		os.Exit(1)
+	buf.WriteString("\tif err := sceneryruntime.ConfigureSQLBindings([]sceneryruntime.SQLBinding{\n")
+	for _, binding := range sql.Bindings(false) {
+		durableOnly := true
+		for _, requirement := range sql {
+			if requirement.Name == binding.Name && requirement.Kind != compiler.SQLDurable {
+				durableOnly = false
+			}
+		}
+		fmt.Fprintf(buf, "\t\t{Name: %q, Schema: %q, DurableOnly: %t},\n", binding.Name, binding.Schema, durableOnly)
 	}
-	if err := sceneryruntime.MainProcessHost(sceneryruntime.ProcessHostConfig{Name: {{name}}, ListenAddr: sceneryruntime.ListenAddrFromEnv(), Fallback: {{fallback}}, Routes: []sceneryruntime.ProcessHostRoute{
-{{routes}}	}}); err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "scenery: %v\n", err)
-		os.Exit(1)
-	}
+	buf.WriteString("\t}); err != nil {\n\t\t_, _ = fmt.Fprintf(os.Stderr, \"scenery: %v\\n\", err)\n\t\tos.Exit(1)\n\t}\n")
 }
-`
+
+func renderAuthRegistration(buf *strings.Builder, cfg appcfg.Config) {
+	if !cfg.Auth.Enabled {
+		return
+	}
+	fmt.Fprintf(buf, "\tif err := sceneryauth.RegisterStandard(%s); err != nil {\n", authConfigLiteral(cfg.Auth))
+	buf.WriteString("\t\t_, _ = fmt.Fprintf(os.Stderr, \"scenery: %v\\n\", err)\n")
+	buf.WriteString("\t\tos.Exit(1)\n")
+	buf.WriteString("\t}\n")
+}
 
 func renderEntrypoint(appName string, cfg appcfg.Config, registration entrypointRegistration, sql compiler.SQLRequirements) ([]byte, error) {
 	var buf strings.Builder
@@ -111,25 +131,8 @@ func renderEntrypoint(appName string, cfg appcfg.Config, registration entrypoint
 		buf.WriteString("\t\tproof := os.NewFile(3, \"scenery-runtime-preflight\")\n\t\tdefer proof.Close()\n")
 		buf.WriteString("\t\tif err := sceneryruntime.WriteRuntimePreflight(proof, scenerycomposition.ContractRevision); err != nil {\n\t\t\t_, _ = fmt.Fprintf(os.Stderr, \"scenery: %v\\n\", err)\n\t\t\tos.Exit(1)\n\t\t}\n\t\treturn\n\t}\n")
 	}
-	if len(sql) > 0 {
-		buf.WriteString("\tif err := sceneryruntime.ConfigureSQLBindings([]sceneryruntime.SQLBinding{\n")
-		for _, binding := range sql.Bindings(false) {
-			durableOnly := true
-			for _, requirement := range sql {
-				if requirement.Name == binding.Name && requirement.Kind != compiler.SQLDurable {
-					durableOnly = false
-				}
-			}
-			fmt.Fprintf(&buf, "\t\t{Name: %q, Schema: %q, DurableOnly: %t},\n", binding.Name, binding.Schema, durableOnly)
-		}
-		buf.WriteString("\t}); err != nil {\n\t\t_, _ = fmt.Fprintf(os.Stderr, \"scenery: %v\\n\", err)\n\t\tos.Exit(1)\n\t}\n")
-	}
-	if cfg.Auth.Enabled {
-		fmt.Fprintf(&buf, "\tif err := sceneryauth.RegisterStandard(%s); err != nil {\n", authConfigLiteral(cfg.Auth))
-		buf.WriteString("\t\t_, _ = fmt.Fprintf(os.Stderr, \"scenery: %v\\n\", err)\n")
-		buf.WriteString("\t\tos.Exit(1)\n")
-		buf.WriteString("\t}\n")
-	}
+	renderSQLBindings(&buf, sql)
+	renderAuthRegistration(&buf, cfg)
 	if registration.Import != "" {
 		buf.WriteString("\tif err := sceneryruntime.VerifyLinkedContractBundle(scenerycomposition.ContractRevision); err != nil {\n\t\t_, _ = fmt.Fprintf(os.Stderr, \"scenery: %v\\n\", err)\n\t\tos.Exit(1)\n\t}\n")
 		fmt.Fprintf(&buf, "\tcontractRegistry, err := sceneryruntime.NewContractRegistry(sceneryruntime.ContractRegistryOptions{ContractRevision: scenerycomposition.ContractRevision, RequiredAddresses: %s, ProviderABIs: sceneryruntime.ContractProviderABIs()})\n", registration.RequiredAddresses)

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -256,4 +257,115 @@ func TestProcessHostPinsRequestsAndCallsToTheirGeneration(t *testing.T) {
 func isUnavailableDelivery(err error, delivery string) bool {
 	typed, ok := errs.As(err)
 	return ok && typed.Code == errs.Unavailable && typed.Meta["delivery"] == delivery
+}
+
+func TestProcessHostForwardsMCPToolsAndDurableReceiptsToTheirOwner(t *testing.T) {
+	restore := replaceGlobalRegistryForTest()
+	defer restore()
+	for pointer, value := range map[*string]string{
+		&linkedContractRevision: processHostTestContract, &linkedImplementationRevision: "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+		&linkedBuildInputDigest: "sha256:3333333333333333333333333333333333333333333333333333333333333333", &linkedGoTarget: "development",
+	} {
+		previous := *pointer
+		*pointer = value
+		t.Cleanup(func() { *pointer = previous })
+	}
+	useProcessLinkForTest(t, &processLinkConfig{Token: processLinkTestToken, Dispatch: processLinkTarget{Network: "unix", Address: "/unused"}})
+	calls := 0
+	if err := RegisterMCPTool(MCPToolRegistration{
+		ID: "app/assistant/support#house/binding/process_scene_mcp", Name: "house__process_scene", AssistantAddress: "app/assistant/support",
+		DecodeInput:  func(data []byte) (any, error) { return string(data), nil },
+		EncodeOutput: func(value any) ([]byte, error) { return json.Marshal(value) },
+		Durable:      true, DurableService: "house", DurableTask: "process_scene",
+		Invoke: func(ctx context.Context, call MCPToolCallContext, input any) (any, error) {
+			calls++
+			if auth := CurrentAuth(); auth == nil || auth.UID != "principal-1" || input != `{"scene":"a"}` {
+				t.Errorf("owner call auth %#v input %#v", auth, input)
+			}
+			return runtimeapi.ExecutionReceipt{DurableIdentity: "house/process_scene", ExecutionID: "execution-1", AcceptedRevision: processHostTestContract}, nil
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	owner := &server{}
+	socket := serveProcessLinkForTest(t, http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		switch req.URL.Path {
+		case processMCPCallPath:
+			owner.handleProcessMCPCall(w, req, nil)
+		case processMCPDurablePath:
+			owner.handleProcessMCPDurable(w, req, nil)
+		default:
+			http.NotFound(w, req)
+		}
+	}))
+	host, err := newProcessHost(ProcessHostConfig{Name: "house", Fallback: "house_house", MCPTools: []ProcessHostMCPTool{
+		{Process: "house_house", AssistantAddress: "app/assistant/support", Name: "house__process_scene"},
+	}}, processLinkTestToken, processHostTestContract)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle := CurrentLinkedContractBundle()
+	if err := host.publish(processGenerationManifest{Generation: 1, ContractRevision: processHostTestContract, Processes: map[string]processGenerationInstance{
+		"house_house": {Network: socket.Network, Address: socket.Address, PID: os.Getpid(), Identity: processInstanceIdentity(bundle)},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	setActiveProcessHost(host)
+	t.Cleanup(func() { setActiveProcessHost(nil) })
+	dispatch, durable := assistantMCPDispatchers()
+	call := MCPToolCallContext{Principal: "principal-1", AssistantAddress: "app/assistant/support", RequestID: "request-1"}
+	outcome, err := dispatch.CallTool(context.Background(), call, "house__process_scene", json.RawMessage(`{"scene":"a"}`))
+	if err != nil || outcome.Outcome != "accepted" || outcome.Receipt == nil || outcome.Receipt.ExecutionID != "execution-1" || calls != 1 {
+		t.Fatalf("forwarded MCP call = %#v, %v (calls %d)", outcome, err, calls)
+	}
+	if _, err := dispatch.CallTool(context.Background(), call, "house__missing", json.RawMessage(`{}`)); err == nil || !strings.Contains(err.Error(), "not_found") {
+		t.Fatalf("unknown MCP tool = %v", err)
+	}
+	other := call
+	other.Principal = "principal-2"
+	if _, err := durable.Status(context.Background(), other, "execution-1"); err == nil || !strings.Contains(err.Error(), "not_found") {
+		t.Fatalf("status for another principal = %v", err)
+	}
+	// The owner process authorizes and reads the receipt itself; without its
+	// durable store the forwarded status reports the owner's own failure.
+	if _, err := durable.Status(context.Background(), call, "execution-1"); err == nil || !strings.Contains(err.Error(), "durable execution store is unavailable") {
+		t.Fatalf("forwarded durable status = %v", err)
+	}
+}
+
+func TestProcessDrainStopsBackgroundWorkWithTheSessionToken(t *testing.T) {
+	useProcessLinkForTest(t, &processLinkConfig{Token: processLinkTestToken, Dispatch: processLinkTarget{Network: "unix", Address: "/unused"}})
+	drained := 0
+	setProcessBackgroundDrain(func(context.Context) error { drained++; return nil })
+	t.Cleanup(func() { setProcessBackgroundDrain(nil) })
+	owner := &server{}
+	for token, want := range map[string]int{"wrong-token-wrong-token-wrong-token": http.StatusUnauthorized, processLinkTestToken: http.StatusNoContent} {
+		request := httptest.NewRequest(http.MethodPost, processDrainPath, nil)
+		request.Header.Set("Authorization", "Bearer "+token)
+		recorder := httptest.NewRecorder()
+		owner.handleProcessDrain(recorder, request, nil)
+		if recorder.Code != want {
+			t.Fatalf("drain with token %q = %d, want %d", token, recorder.Code, want)
+		}
+	}
+	if drained != 1 {
+		t.Fatalf("background drain ran %d times", drained)
+	}
+}
+
+func TestProcessHostServesItsOwnApplicationEndpointsBeforePublication(t *testing.T) {
+	host, err := newProcessHost(ProcessHostConfig{Name: "house", Fallback: "house_house"}, processLinkTestToken, processHostTestContract)
+	if err != nil {
+		t.Fatal(err)
+	}
+	host.local = http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) { _, _ = w.Write([]byte("local:" + req.URL.Path)) })
+	host.localRoutes = newRouteTable()
+	host.localRoutes.Handle([]string{http.MethodPost}, "/assistants/support/:conversation_id/turns", func(http.ResponseWriter, *http.Request, routeParams) {})
+	recorder, _ := processHostTestRequest(t, host.serveIngress, "POST", "/assistants/support/c1/turns", nil)
+	if recorder.Code != http.StatusOK || recorder.Body.String() != "local:/assistants/support/c1/turns" {
+		t.Fatalf("host application endpoint = %d %s", recorder.Code, recorder.Body.String())
+	}
+	if recorder, _ := processHostTestRequest(t, host.serveIngress, "POST", "/greet", nil); recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("service route before publication = %d", recorder.Code)
+	}
 }
