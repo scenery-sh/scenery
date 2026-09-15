@@ -1571,6 +1571,28 @@
       ]
     },
     {
+      "name": "SCENERY_PROCESS_LINK",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "injected",
+      "category": "app.identity",
+      "stability": "injected",
+      "secret": false,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime",
+      "rationale": "Private process-link file injected into development service processes; it names the session token and each internal binding owner socket",
+      "preferred_surface": "internal development supervisor wiring; not user configuration",
+      "replacement": "",
+      "sunset": "",
+      "docs": [
+        "docs/environment.md"
+      ]
+    },
+    {
       "name": "SCENERY_ROUTE_MODE",
       "match": "exact",
       "scope": "runtime",

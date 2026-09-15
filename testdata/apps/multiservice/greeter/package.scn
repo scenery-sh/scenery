@@ -1,0 +1,82 @@
+package "greeter" {
+
+  go_contract {
+    import_path = "example.com/multiservice/greeter"
+  }
+}
+
+input "gateway" {
+  type = resource_ref("http_gateway")
+}
+
+service "greeter" {
+  runtime = "go"
+
+  implementation {
+    constructor = "NewService"
+  }
+}
+
+record "greet_input" {
+  field "name" {
+    type = string
+  }
+}
+
+record "greet_result" {
+  field "message" {
+    type = string
+  }
+}
+
+operation "greet" {
+  service = service.greeter
+  input   = record.greet_input
+
+  handler {
+    method = "Greet"
+  }
+
+  result "ok" {
+    type = record.greet_result
+  }
+}
+
+execution "greet_direct" {
+  operation = operation.greet
+  mode      = "direct"
+  timeout   = "30s"
+}
+
+binding "greet_http" {
+  gateway   = var.gateway
+  operation = operation.greet
+  execution = execution.greet_direct
+  protocol  = "http"
+  delivery  = "call"
+
+  authentication = std.authentication.none
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+
+  http {
+    method        = "POST"
+    path          = "/greet"
+    codec_profile = std.codec.http_json_v1
+
+    body {
+      codec = "json"
+      to    = operation.greet.input
+    }
+
+    response "ok" {
+      when   = result.ok
+      status = 200
+
+      body {
+        codec = "json"
+        from  = result.ok
+      }
+    }
+  }
+}

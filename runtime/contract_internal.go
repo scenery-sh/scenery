@@ -29,8 +29,23 @@ func InvokeContractBindingJSON(ctx context.Context, address, callerPackage strin
 	registration := global.contractBindings[address]
 	global.mu.RUnlock()
 	if registration.Invoke == nil {
-		return nil, fmt.Errorf("contract internal binding %s is not registered", address)
+		config, target, linked, err := processLinkedBinding(address)
+		if err != nil {
+			return nil, ContractSystemError(err)
+		}
+		if !linked {
+			return nil, fmt.Errorf("contract internal binding %s is not registered", address)
+		}
+		invocation, ok := runtimeapi.InvocationFromContext(ctx)
+		if !ok || !invocation.Valid() {
+			return nil, fmt.Errorf("permission_denied: internal binding requires the current runtime invocation")
+		}
+		return invokeProcessLinkedBindingJSON(ctx, config, target, address, callerPackage, invocation, input)
 	}
+	return invokeRegisteredContractBindingJSON(ctx, registration, address, callerPackage, input)
+}
+
+func invokeRegisteredContractBindingJSON(ctx context.Context, registration ContractInternalBindingRegistration, address, callerPackage string, input []byte) ([]byte, error) {
 	if registration.DecodeInput == nil || registration.EncodeOutput == nil {
 		return nil, fmt.Errorf("capability_unavailable: contract internal binding %s has no JSON codec", address)
 	}

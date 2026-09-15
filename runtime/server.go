@@ -183,6 +183,9 @@ func newServer(listenAddr string) (*http.Server, error) {
 	if durableHTTPConfigured() {
 		s.registerDurableRoutes()
 	}
+	if processLinkConfigured() {
+		s.registerProcessLinkRoutes()
+	}
 	if devEndpointsEnabled() {
 		s.registerSceneryConfig()
 		s.registerPlatformStats()

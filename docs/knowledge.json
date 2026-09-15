@@ -19,6 +19,18 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0200-process-per-service-development-runtime.md",
+      "title": "Process-Per-Service Development Runtime",
+      "owner": "scenery runtime / build / development supervisor",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-15",
+      "review_after": "2026-10-15",
+      "summary": "Development artifact model with one process per Go service package, a stable routing host, cross-process internal bindings and rebuild sets from the Go dependency closure; ONLV partition evidence and milestones.",
+      "tags": ["plans", "execplans", "runtime", "build", "performance", "architecture"]
+    },
+    {
       "path": "docs/plans/0199-unloadable-island-reload.md",
       "title": "Unloadable Island Reload",
       "owner": "scenery verifier / native reload architecture evidence",

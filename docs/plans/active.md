@@ -7,6 +7,12 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
+- [0200 Process-Per-Service Development Runtime](0200-process-per-service-development-runtime.md)
+  - Status: active
+  - Owner: scenery runtime / build / development supervisor
+  - Created: 2026-09-15
+  - Focus: run each Go service package as its own development process behind a stable host, route internal bindings across processes, and rebuild only affected service processes; target warm body edit p50 300 ms / p95 500 ms on ONLV.
+
 - [0181 Minimal Native Reload Artifact](0181-minimal-native-reload-artifact.md)
   - Status: active
   - Owner: scenery runtime / native development execution
