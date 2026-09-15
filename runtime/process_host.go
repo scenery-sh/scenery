@@ -1,15 +1,24 @@
 package runtime
 
 import (
+	"bytes"
 	"context"
+	"crypto/subtle"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"maps"
 	"net"
 	"net/http"
 	"net/http/httputil"
 	"os"
 	"os/signal"
+	"sort"
+	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -17,10 +26,22 @@ import (
 )
 
 // A process host is the stable front of a development session whose services
-// run as separate processes. It links no service implementation: it selects the
-// process that owns each request with the same route table the runtime server
-// uses and forwards the unmodified request, so decoding, policies, outcome
-// encoding, streaming and response identity stay in the owning process.
+// run as separate processes. It links no service implementation. The supervisor
+// publishes numbered application generations naming each service process
+// instance, its private socket and its linked identity. The host pins every
+// request to the generation current at ingress, forwards it unmodified to the
+// owning instance of that generation, dispatches internal calls of pinned
+// requests within the same generation, and rejects answers whose identity does
+// not match the published instance. A generation is retired only when no
+// request pinned to it is in flight.
+
+const (
+	processGenerationsPath       = "/__scenery/process/v1/generations"
+	processHostMaxHeaderBytes    = 64 << 20
+	processHostManifestMaxBytes  = 4 << 20
+	processHostShutdownGrace     = 5 * time.Second
+	processHostUnavailableReason = "service process %s is unavailable"
+)
 
 // ProcessHostRoute names the service process that registers one HTTP endpoint.
 type ProcessHostRoute struct {
@@ -39,11 +60,70 @@ type ProcessHostConfig struct {
 	Fallback   string
 }
 
-// processHostMaxHeaderBytes leaves request header limits to the owning process,
-// which applies the endpoint's declared policy.
-const processHostMaxHeaderBytes = 64 << 20
+type processGenerationManifest struct {
+	Generation       uint64                               `json:"generation"`
+	ContractRevision string                               `json:"contract_revision"`
+	Processes        map[string]processGenerationInstance `json:"processes"`
+	Bindings         map[string]string                    `json:"bindings"`
+}
 
-// MainProcessHost serves a process host until the supervisor or a signal stops it.
+type processGenerationInstance struct {
+	Network  string                  `json:"network"`
+	Address  string                  `json:"address"`
+	PID      int                     `json:"pid"`
+	Identity processInstanceIdentity `json:"identity"`
+}
+
+type processInstanceIdentity struct {
+	ContractRevision       string `json:"contract_revision"`
+	ImplementationRevision string `json:"implementation_revision"`
+	BuildInputDigest       string `json:"build_input_digest"`
+	GoTarget               string `json:"go_target"`
+}
+
+type processGenerationStatus struct {
+	Current     uint64                         `json:"current"`
+	Generations []processGenerationStatusEntry `json:"generations"`
+}
+
+type processGenerationStatusEntry struct {
+	Generation uint64         `json:"generation"`
+	InFlight   int64          `json:"in_flight"`
+	Processes  map[string]int `json:"processes"`
+}
+
+type processHost struct {
+	name     string
+	token    string
+	contract string
+	routes   *routeTable
+	fallback string
+	required []string
+
+	mu          sync.RWMutex
+	current     *processHostGeneration
+	generations map[uint64]*processHostGeneration
+}
+
+type processHostGeneration struct {
+	number    uint64
+	instances map[string]*processHostInstance
+	bindings  map[string]string
+	inFlight  atomic.Int64
+}
+
+type processHostInstance struct {
+	name     string
+	spec     processGenerationInstance
+	ingress  http.Handler
+	dispatch http.Handler
+}
+
+type processHostGenerationKey struct{}
+
+// MainProcessHost serves a process host until the supervisor or a signal stops
+// it: public requests on the runtime listen address, and dispatch plus generation
+// control on the private dispatch listener of the process link.
 func MainProcessHost(cfg ProcessHostConfig) error {
 	link, err := currentProcessLink()
 	if err != nil {
@@ -52,7 +132,7 @@ func MainProcessHost(cfg ProcessHostConfig) error {
 	if link == nil {
 		return fmt.Errorf("runtime: process host requires SCENERY_PROCESS_LINK")
 	}
-	handler, err := newProcessHostHandler(cfg, link)
+	host, err := newProcessHost(cfg, link.Token, CurrentLinkedContractBundle().ContractRevision)
 	if err != nil {
 		return err
 	}
@@ -66,73 +146,78 @@ func MainProcessHost(cfg ProcessHostConfig) error {
 	sigCtx, stopSignals := signal.NotifyContext(runCtx, os.Interrupt, syscall.SIGTERM)
 	defer stopSignals()
 
-	listener, err := listenRuntime(ListenNetworkFromEnv(), cfg.ListenAddr)
+	control, err := listenRuntime(link.Dispatch.Network, link.Dispatch.Address)
 	if err != nil {
 		return err
 	}
-	server := &http.Server{Handler: handler, MaxHeaderBytes: processHostMaxHeaderBytes}
-	errCh := make(chan error, 1)
-	go func() { errCh <- server.Serve(listener) }()
+	public, err := listenRuntime(ListenNetworkFromEnv(), cfg.ListenAddr)
+	if err != nil {
+		_ = control.Close()
+		return err
+	}
+	servers := []*http.Server{
+		{Handler: http.HandlerFunc(host.serveControl), MaxHeaderBytes: processHostMaxHeaderBytes},
+		{Handler: http.HandlerFunc(host.serveIngress), MaxHeaderBytes: processHostMaxHeaderBytes},
+	}
+	errCh := make(chan error, 2)
+	for index, listener := range []net.Listener{control, public} {
+		go func() { errCh <- servers[index].Serve(listener) }()
+	}
 	logTrace(context.Background(), fmt.Sprintf("process host %s forwarding %d routes", cfg.Name, len(cfg.Routes)))
+	var serveErr error
 	select {
 	case <-sigCtx.Done():
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
+	case serveErr = <-errCh:
+	}
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), processHostShutdownGrace)
+	defer cancel()
+	shutdownErrs := []error{}
+	if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+		shutdownErrs = append(shutdownErrs, serveErr)
+	}
+	for _, server := range servers {
 		if err := server.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			return err
+			shutdownErrs = append(shutdownErrs, err)
 		}
-		return nil
-	case err := <-errCh:
-		if errors.Is(err, http.ErrServerClosed) {
-			return nil
-		}
-		return err
 	}
+	return errors.Join(shutdownErrs...)
 }
 
-type processHostHandler struct {
-	routes   *routeTable
-	fallback http.Handler
-}
-
-func newProcessHostHandler(cfg ProcessHostConfig, link *processLinkConfig) (*processHostHandler, error) {
-	proxies := map[string]http.Handler{}
-	proxy := func(process string) (http.Handler, error) {
-		if existing := proxies[process]; existing != nil {
-			return existing, nil
-		}
-		target, ok := link.Processes[process]
-		if strings.TrimSpace(process) == "" || !ok {
-			return nil, fmt.Errorf("runtime: process link has no target for service process %q", process)
-		}
-		forward := newProcessHostProxy(process, target)
-		proxies[process] = forward
-		return forward, nil
+func newProcessHost(cfg ProcessHostConfig, token, contract string) (*processHost, error) {
+	if strings.TrimSpace(cfg.Fallback) == "" {
+		return nil, fmt.Errorf("runtime: process host requires a fallback process")
 	}
-	fallback, err := proxy(cfg.Fallback)
-	if err != nil {
-		return nil, err
-	}
-	handler := &processHostHandler{routes: newRouteTable(), fallback: fallback}
+	host := &processHost{name: cfg.Name, token: token, contract: contract, routes: newRouteTable(), fallback: cfg.Fallback, generations: map[uint64]*processHostGeneration{}}
+	required := map[string]bool{cfg.Fallback: true}
 	for _, route := range cfg.Routes {
-		forward, err := proxy(route.Process)
-		if err != nil {
-			return nil, err
+		if strings.TrimSpace(route.Process) == "" || len(route.Methods) == 0 || !strings.HasPrefix(route.Path, "/") {
+			return nil, fmt.Errorf("runtime: process host route %q for %q is invalid", route.Path, route.Process)
 		}
-		if len(route.Methods) == 0 || !strings.HasPrefix(route.Path, "/") {
-			return nil, fmt.Errorf("runtime: process host route %q for %s is invalid", route.Path, route.Process)
-		}
-		handle := func(w http.ResponseWriter, req *http.Request, _ routeParams) { forward.ServeHTTP(w, req) }
+		required[route.Process] = true
+		process := route.Process
+		handle := func(w http.ResponseWriter, req *http.Request, _ routeParams) { host.forward(w, req, process) }
 		if route.PathTail {
-			handler.routes.HandlePathTail(route.Methods, route.Path, handle)
+			host.routes.HandlePathTail(route.Methods, route.Path, handle)
 		} else {
-			handler.routes.Handle(route.Methods, route.Path, handle)
+			host.routes.Handle(route.Methods, route.Path, handle)
 		}
 	}
-	return handler, nil
+	for process := range required {
+		host.required = append(host.required, process)
+	}
+	sort.Strings(host.required)
+	return host, nil
 }
 
-func (h *processHostHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+func (h *processHost) serveIngress(w http.ResponseWriter, req *http.Request) {
+	generation := h.acquire(0)
+	if generation == nil {
+		errs.HTTPErrorWithCode(w, errs.B().Code(errs.Unavailable).Msg("application generation is not published").Err(), http.StatusServiceUnavailable)
+		return
+	}
+	defer generation.inFlight.Add(-1)
+	req.Header.Set(processGenerationHeader, strconv.FormatUint(generation.number, 10))
+	req = req.WithContext(context.WithValue(req.Context(), processHostGenerationKey{}, generation))
 	method := req.Method
 	if requested := strings.TrimSpace(req.Header.Get("Access-Control-Request-Method")); method == http.MethodOptions && requested != "" {
 		method = requested
@@ -141,37 +226,250 @@ func (h *processHostHandler) ServeHTTP(w http.ResponseWriter, req *http.Request)
 		owner.handler(w, req, nil)
 		return
 	}
-	h.fallback.ServeHTTP(w, req)
+	h.forward(w, req, h.fallback)
+}
+
+func (h *processHost) forward(w http.ResponseWriter, req *http.Request, process string) {
+	generation, _ := req.Context().Value(processHostGenerationKey{}).(*processHostGeneration)
+	instance := generation.instances[process]
+	if instance == nil {
+		errs.HTTPErrorWithCode(w, errs.B().Code(errs.Unavailable).Msgf(processHostUnavailableReason, process).Err(), http.StatusServiceUnavailable)
+		return
+	}
+	instance.ingress.ServeHTTP(w, req)
+}
+
+func (h *processHost) serveControl(w http.ResponseWriter, req *http.Request) {
+	token, found := strings.CutPrefix(req.Header.Get("Authorization"), "Bearer ")
+	if !found || subtle.ConstantTimeCompare([]byte(token), []byte(h.token)) != 1 {
+		writeProcessLinkResponse(w, http.StatusUnauthorized, processLinkResponse{Error: &processLinkError{Kind: "error", Message: "permission_denied: process link token rejected"}})
+		return
+	}
+	switch {
+	case req.URL.Path == processLinkBindingPath && req.Method == http.MethodPost:
+		h.dispatch(w, req)
+	case req.URL.Path == processGenerationsPath && req.Method == http.MethodPut:
+		h.servePublish(w, req)
+	case req.URL.Path == processGenerationsPath && req.Method == http.MethodGet:
+		writeProcessHostJSON(w, http.StatusOK, h.status())
+	case strings.HasPrefix(req.URL.Path, processGenerationsPath+"/") && req.Method == http.MethodDelete:
+		number, err := strconv.ParseUint(strings.TrimPrefix(req.URL.Path, processGenerationsPath+"/"), 10, 64)
+		if err != nil || number == 0 {
+			http.Error(w, "invalid generation", http.StatusBadRequest)
+			return
+		}
+		status, message := h.retire(number)
+		http.Error(w, message, status)
+	default:
+		http.NotFound(w, req)
+	}
+}
+
+// dispatch sends one internal call to the owning instance of the generation the
+// caller's request is pinned to, or of the current generation when unpinned.
+func (h *processHost) dispatch(w http.ResponseWriter, req *http.Request) {
+	address := req.Header.Get(processLinkBindingHeader)
+	var number uint64
+	if value := req.Header.Get(processGenerationHeader); value != "" {
+		parsed, err := strconv.ParseUint(value, 10, 64)
+		if err != nil || parsed == 0 {
+			writeProcessLinkResponse(w, http.StatusBadRequest, processLinkResponse{Error: &processLinkError{Kind: "error", Message: "invalid_argument: invalid process generation"}})
+			return
+		}
+		number = parsed
+	}
+	req.Header.Del(processGenerationHeader)
+	generation := h.acquire(number)
+	if generation == nil {
+		writeProcessLinkUnavailable(w, fmt.Sprintf("application generation %d is not dispatchable", number), "not_sent")
+		return
+	}
+	defer generation.inFlight.Add(-1)
+	instance := generation.instances[generation.bindings[address]]
+	if instance == nil {
+		writeProcessLinkResponse(w, http.StatusNotFound, processLinkResponse{Error: &processLinkError{Kind: "error", Message: fmt.Sprintf("contract internal binding %s is not registered", address)}})
+		return
+	}
+	instance.dispatch.ServeHTTP(w, req)
+}
+
+func (h *processHost) acquire(number uint64) *processHostGeneration {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	generation := h.current
+	if number != 0 {
+		generation = h.generations[number]
+	}
+	if generation != nil {
+		generation.inFlight.Add(1)
+	}
+	return generation
+}
+
+func (h *processHost) servePublish(w http.ResponseWriter, req *http.Request) {
+	var manifest processGenerationManifest
+	decoder := json.NewDecoder(io.LimitReader(req.Body, processHostManifestMaxBytes))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&manifest); err != nil {
+		http.Error(w, "malformed generation manifest", http.StatusBadRequest)
+		return
+	}
+	if err := h.publish(manifest); err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *processHost) publish(manifest processGenerationManifest) error {
+	if manifest.ContractRevision != h.contract {
+		return fmt.Errorf("generation %d contract revision %q differs from the host's %q", manifest.Generation, manifest.ContractRevision, h.contract)
+	}
+	for _, process := range h.required {
+		if _, ok := manifest.Processes[process]; !ok {
+			return fmt.Errorf("generation %d has no instance of service process %s", manifest.Generation, process)
+		}
+	}
+	for address, process := range manifest.Bindings {
+		if _, ok := manifest.Processes[process]; !ok {
+			return fmt.Errorf("generation %d binding %s names unknown process %s", manifest.Generation, address, process)
+		}
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.current != nil && manifest.Generation <= h.current.number || manifest.Generation == 0 {
+		return fmt.Errorf("generation %d does not follow the published generation", manifest.Generation)
+	}
+	generation := &processHostGeneration{number: manifest.Generation, instances: map[string]*processHostInstance{}, bindings: maps.Clone(manifest.Bindings)}
+	for name, spec := range manifest.Processes {
+		identity := spec.Identity
+		if !validProcessLinkTarget(processLinkTarget{Network: spec.Network, Address: spec.Address}) || spec.PID <= 0 || identity.ContractRevision != manifest.ContractRevision ||
+			identity.ImplementationRevision == "" || identity.BuildInputDigest == "" || identity.GoTarget == "" {
+			return fmt.Errorf("generation %d instance of %s is invalid", manifest.Generation, name)
+		}
+		if h.current != nil {
+			if previous := h.current.instances[name]; previous != nil && previous.spec == spec {
+				generation.instances[name] = previous
+				continue
+			}
+		}
+		generation.instances[name] = newProcessHostInstance(name, spec)
+	}
+	h.generations[generation.number] = generation
+	h.current = generation
+	return nil
+}
+
+func (h *processHost) retire(number uint64) (int, string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	generation := h.generations[number]
+	switch {
+	case generation == nil:
+		return http.StatusNotFound, "generation is not published"
+	case generation == h.current:
+		return http.StatusConflict, "the current generation cannot be retired"
+	case generation.inFlight.Load() > 0:
+		return http.StatusConflict, fmt.Sprintf("generation has %d requests in flight", generation.inFlight.Load())
+	}
+	delete(h.generations, number)
+	return http.StatusNoContent, ""
+}
+
+func (h *processHost) status() processGenerationStatus {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	status := processGenerationStatus{Generations: []processGenerationStatusEntry{}}
+	if h.current != nil {
+		status.Current = h.current.number
+	}
+	for number, generation := range h.generations {
+		entry := processGenerationStatusEntry{Generation: number, InFlight: generation.inFlight.Load(), Processes: map[string]int{}}
+		for name, instance := range generation.instances {
+			entry.Processes[name] = instance.spec.PID
+		}
+		status.Generations = append(status.Generations, entry)
+	}
+	sort.Slice(status.Generations, func(i, j int) bool { return status.Generations[i].Generation < status.Generations[j].Generation })
+	return status
 }
 
 var processHostForwardedHeaders = [...]string{"Forwarded", "X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto"}
 
-func newProcessHostProxy(process string, target processLinkTarget) http.Handler {
+func newProcessHostInstance(name string, spec processGenerationInstance) *processHostInstance {
 	dialer := &net.Dialer{}
-	return &httputil.ReverseProxy{
-		Rewrite: func(request *httputil.ProxyRequest) {
-			request.Out.URL.Scheme, request.Out.URL.Host = "http", "scenery-process"
-			request.Out.Host = request.In.Host
-			// The owning process applies the gateway's forwarded-header policy
-			// to the headers the host received, not to a host-rewritten set.
-			for _, name := range processHostForwardedHeaders {
-				if values := request.In.Header.Values(name); len(values) > 0 {
-					request.Out.Header[name] = append([]string(nil), values...)
-				}
+	transport := &http.Transport{
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			conn, err := dialer.DialContext(ctx, spec.Network, spec.Address)
+			if err != nil {
+				return nil, &processLinkDialError{err: err}
 			}
+			return conn, nil
 		},
-		Transport: &http.Transport{
-			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-				return dialer.DialContext(ctx, target.Network, target.Address)
-			},
-			DisableCompression:  true,
-			MaxIdleConnsPerHost: 64,
-			IdleConnTimeout:     90 * time.Second,
-		},
-		FlushInterval: -1,
-		ErrorHandler: func(w http.ResponseWriter, req *http.Request, err error) {
-			logTrace(req.Context(), fmt.Sprintf("service process %s is unavailable: %v", process, err))
-			errs.HTTPErrorWithCode(w, errs.B().Code(errs.Unavailable).Msgf("service process %s is unavailable", process).Err(), http.StatusServiceUnavailable)
-		},
+		DisableCompression:  true,
+		MaxIdleConnsPerHost: 64,
+		IdleConnTimeout:     90 * time.Second,
 	}
+	verify := func(response *http.Response) error {
+		if !processIdentityMatches(response.Header, spec) {
+			return &processIdentityMismatchError{process: name}
+		}
+		return nil
+	}
+	rewrite := func(request *httputil.ProxyRequest) {
+		request.Out.URL.Scheme, request.Out.URL.Host = "http", "scenery-process"
+		request.Out.Host = request.In.Host
+		// The owning process applies the gateway's forwarded-header policy to
+		// the headers the host received, not to a host-rewritten set.
+		for _, header := range processHostForwardedHeaders {
+			if values := request.In.Header.Values(header); len(values) > 0 {
+				request.Out.Header[header] = append([]string(nil), values...)
+			}
+		}
+	}
+	return &processHostInstance{
+		name: name, spec: spec,
+		ingress: &httputil.ReverseProxy{Rewrite: rewrite, Transport: transport, FlushInterval: -1, ModifyResponse: verify,
+			ErrorHandler: func(w http.ResponseWriter, req *http.Request, err error) {
+				logTrace(req.Context(), fmt.Sprintf("service process %s did not answer: %v", name, err))
+				errs.HTTPErrorWithCode(w, errs.B().Code(errs.Unavailable).Msgf(processHostUnavailableReason, name).Err(), http.StatusServiceUnavailable)
+			}},
+		dispatch: &httputil.ReverseProxy{Rewrite: rewrite, Transport: transport, FlushInterval: -1, ModifyResponse: verify,
+			ErrorHandler: func(w http.ResponseWriter, req *http.Request, err error) {
+				delivery := "unknown"
+				if _, notSent := errors.AsType[*processLinkDialError](err); notSent {
+					delivery = "not_sent"
+				}
+				writeProcessLinkUnavailable(w, fmt.Sprintf(processHostUnavailableReason, name), delivery)
+			}},
+	}
+}
+
+func processIdentityMatches(headers http.Header, spec processGenerationInstance) bool {
+	return headers.Get(processIdentityContractHdr) == spec.Identity.ContractRevision &&
+		headers.Get(processIdentityImplHeader) == spec.Identity.ImplementationRevision &&
+		headers.Get(processIdentityBuildHeader) == spec.Identity.BuildInputDigest &&
+		headers.Get(processIdentityTargetHeader) == spec.Identity.GoTarget &&
+		headers.Get(processIdentityPIDHeader) == strconv.Itoa(spec.PID)
+}
+
+type processIdentityMismatchError struct{ process string }
+
+func (e *processIdentityMismatchError) Error() string {
+	return fmt.Sprintf("service process %s answered with an identity other than its published instance", e.process)
+}
+
+func writeProcessLinkUnavailable(w http.ResponseWriter, message, delivery string) {
+	writeProcessLinkResponse(w, http.StatusOK, processLinkResponse{Error: &processLinkError{Kind: "errs", Code: errs.Unavailable, Message: message, Meta: errs.Metadata{"delivery": delivery}}})
+}
+
+func writeProcessHostJSON(w http.ResponseWriter, status int, value any) {
+	var body bytes.Buffer
+	if err := json.NewEncoder(&body).Encode(value); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_, _ = w.Write(body.Bytes())
 }

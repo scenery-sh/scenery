@@ -84,8 +84,23 @@ compile the application graph as it needs.
   rule, invocation token, `CurrentRequest`, application child span parent) and
   failed with "authorization rule evaluation failed" when state re-entry was
   disabled.
-- [ ] Milestone 3: generation-aware dispatch through the host and supervisor
-  replacement of individual service processes (see Milestones).
+- [x] (2026-09-15) Milestone 3 runtime slice: the process link names only the
+  session token and the host's private dispatch listener; service processes send
+  every non-local internal call there with the binding and pinned generation as
+  headers. `runtime/process_host.go` accepts generation manifests on the private
+  listener (strictly increasing numbers, the host's contract revision, an
+  instance for every routed process and binding owner), pins public requests to
+  the current generation through `X-Scenery-Process-Generation` (moved out of
+  application headers by the service runtime), dispatches pinned calls within
+  their generation, rejects answers whose identity headers differ from the
+  published instance, reports in-flight work, and refuses to retire the current
+  generation or one with work in flight. `TestProcessHostPinsRequestsAndCallsToTheirGeneration`
+  keeps a request pinned to generation 1 in flight across the publication of
+  generation 2 and proves calls pinned to 1 reach the first `echo` instance,
+  unpinned calls reach the second, and a retired generation answers
+  `unavailable` `not_sent`.
+- [ ] Milestone 3 supervisor slice: per-process builds, instance lifecycle,
+  generation publication and drained retirement through `scenery up`.
 - [ ] Milestone 4: ONLV rebaseline, resources, background-work ownership,
   semantic conformance, and the edit-to-response measurement.
 
@@ -433,17 +448,20 @@ binding directory the supervisor publishes, and the invocation encoding used for
 remote internal bindings.
 
 Process link (implemented in `runtime/process_link.go`): `SCENERY_PROCESS_LINK`
-names a JSON file `{"token": "<at least 32 characters>", "bindings":
-{"<binding address>": {"network": "unix"|"tcp", "address": "<socket>"}}}`. A
+names a JSON file `{"token": "<at least 32 characters>", "dispatch":
+{"network": "unix"|"tcp", "address": "<host private socket>"}}`. A service
+process sends an internal call it does not register to the dispatch listener
+with `X-Scenery-Binding` and, when pinned, `X-Scenery-Process-Generation`. A
 process with that file serves `POST /__scenery/process/v1/bindings/invoke`,
-which requires `Authorization: Bearer <token>` and accepts
+which requires `Authorization: Bearer <token>`, answers with the identity
+headers `X-Scenery-Contract-Revision`, `X-Scenery-Implementation-Revision`,
+`X-Scenery-Build-Input-Digest`, `X-Scenery-Go-Target` and `X-Scenery-Process-ID`,
+and accepts
 `{"address", "caller_package", "invocation": {"id", "principal", "tenant_id",
 "trace_id", "deadline", "caller_binding", "execution_id", "deployment",
 "locale"}, "input": <JSON>}`. It answers `{"output": <outcome JSON>}` or
 `{"error": {"kind": "transport"|"errs"|"error", ...}}`, and invokes only
-bindings registered in that process. The optional `"processes": {"<service
-process>": {"network", "address"}}` map names each service process listener
-for the host. The request also carries `"call"`, the caller's request state
+bindings registered in that process. The request also carries `"call"`, the caller's request state
 (`auth` with `uid`, `data_kind` and `data`; `request` metadata; `trace_id`,
 `span_id`, `logs_enabled`, `trace_enabled`), omitted when the caller has none.
 Errors use kinds `transport` (`outcome`, `status`, `message`, `cause`), `errs`
@@ -458,9 +476,18 @@ the owner through the process link, and decodes the outcome.
 
 Process host (implemented in `runtime/process_host.go`):
 `MainProcessHost(ProcessHostConfig{Name, ListenAddr, Fallback, Routes:
-[]ProcessHostRoute{{Process, Methods, Path, PathTail}}})` listens on
-`SCENERY_LISTEN_*`, requires `SCENERY_PROCESS_LINK` targets for every named
-process, and answers an unreachable process with 503 `unavailable`. Generated
+[]ProcessHostRoute{{Process, Methods, Path, PathTail}}})` serves public requests
+on `SCENERY_LISTEN_NETWORK` and `SCENERY_LISTEN_ADDR` and, on the process link's dispatch listener with the
+session token, internal-call dispatch plus generation control:
+`PUT /__scenery/process/v1/generations` with `{"generation", "contract_revision",
+"processes": {"<process>": {"network", "address", "pid", "identity":
+{"contract_revision", "implementation_revision", "build_input_digest",
+"go_target"}}}, "bindings": {"<binding address>": "<process>"}}` (204 or 409),
+`GET /__scenery/process/v1/generations` returning `{"current", "generations":
+[{"generation", "in_flight", "processes": {"<process>": <pid>}}]}`, and
+`DELETE /__scenery/process/v1/generations/<n>` (204, 404, or 409 for the
+current generation or one with work in flight). Before the first publication
+and for an unreachable instance it answers 503 `unavailable`. Generated
 workspace layout: `scenery_internal_processes/host/main.go` and
 `scenery_internal_processes/services/<package>_<service>/main.go`, excluded from
 watch and source scans like `scenery_internal_main`.

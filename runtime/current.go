@@ -26,6 +26,9 @@ type requestState struct {
 	startLogged  bool
 	logsEnabled  bool
 	traceEnabled bool
+	// processGeneration pins internal calls of a request forwarded by a
+	// process host to the application generation it entered; zero is unpinned.
+	processGeneration uint64
 }
 
 var stateStore sync.Map
@@ -173,11 +176,13 @@ func newExternalState(ep *Endpoint, req *http.Request, path shared.PathParams, p
 	if deadline, ok := req.Context().Deadline(); ok {
 		request.Deadline = deadline.UTC()
 	}
+	generation, _ := req.Context().Value(processGenerationKey{}).(uint64)
 	return &requestState{
-		started:      started,
-		request:      request,
-		auth:         auth,
-		logsEnabled:  logsEnabledForRequest(request),
-		traceEnabled: traceEnabledForRequest(request),
+		started:           started,
+		request:           request,
+		auth:              auth,
+		logsEnabled:       logsEnabledForRequest(request),
+		traceEnabled:      traceEnabledForRequest(request),
+		processGeneration: generation,
 	}
 }

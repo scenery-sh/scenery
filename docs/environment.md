@@ -31,7 +31,7 @@ These are injected by scenery into generated app processes. App code may read th
 | `SCENERY_LISTEN_NETWORK` | injected | Runtime listen network, usually `unix` in agent dev or `tcp` otherwise. |
 | `SCENERY_LISTEN_ADDR` | injected | Runtime listen address or Unix socket path. |
 | `SCENERY_ROLE` | injected | Generated binary role: `all`, `api`, or `worker`. |
-| `SCENERY_PROCESS_LINK` | injected | Private process-link file for development service processes and their host: session token, the socket that owns each internal binding, and each service process listener. |
+| `SCENERY_PROCESS_LINK` | injected | Private process-link file for development service processes and their host: session token and the host's private dispatch listener. Invalid wiring fails runtime startup. |
 | `SCENERY_DURABLE_ENDPOINT` | injected | Remote durable API endpoint for `scenery worker durable`. |
 | `SCENERY_DURABLE_TOKEN` | injected secret | Remote durable worker bearer token passed by `scenery worker durable`. |
 | `SCENERY_DURABLE_SERVICES` | injected | Comma-separated durable services the remote worker should poll. |

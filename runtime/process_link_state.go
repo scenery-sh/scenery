@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"scenery.sh/errs"
@@ -21,6 +22,7 @@ import (
 // types of unregistered authentication data do not cross the boundary.
 
 type processLinkCallState struct {
+	Generation   uint64                  `json:"generation,omitempty"`
 	Auth         processLinkAuth         `json:"auth"`
 	Request      processLinkRequestState `json:"request"`
 	TraceID      string                  `json:"trace_id,omitempty"`
@@ -83,7 +85,7 @@ func captureProcessLinkedCall(ctx context.Context) (*processLinkCallState, error
 		return nil, err
 	}
 	request := requestSource.request
-	call := &processLinkCallState{Auth: auth, LogsEnabled: requestSource.logsEnabled, TraceEnabled: requestSource.traceEnabled, Request: processLinkRequestState{
+	call := &processLinkCallState{Generation: requestSource.processGeneration, Auth: auth, LogsEnabled: requestSource.logsEnabled, TraceEnabled: requestSource.traceEnabled, Request: processLinkRequestState{
 		Type: request.Type, Started: request.Started, InvocationID: request.InvocationID, TraceID: request.TraceID,
 		CallerBinding: request.CallerBinding, ExecutionID: request.ExecutionID, Deployment: request.Deployment, Locale: request.Locale,
 		Deadline: request.Deadline, Service: request.Service, Endpoint: request.Endpoint, Path: request.Path,
@@ -123,7 +125,7 @@ func enterProcessLinkedCall(ctx context.Context, invocation runtimeapi.Invocatio
 	if source.API != nil {
 		request.API = &shared.APIDesc{Raw: source.API.Raw, Exposed: source.API.Exposed, AuthRequired: source.API.AuthRequired}
 	}
-	state := &requestState{started: source.Started, request: request, auth: auth, logsEnabled: call.LogsEnabled, traceEnabled: call.TraceEnabled}
+	state := &requestState{started: source.Started, request: request, auth: auth, logsEnabled: call.LogsEnabled, traceEnabled: call.TraceEnabled, processGeneration: call.Generation}
 	if call.TraceID != "" && call.SpanID != "" {
 		state.trace = &traceSpan{traceID: call.TraceID, spanID: call.SpanID, service: request.Service, endpoint: request.Endpoint, started: source.Started, requestType: request.Type}
 	}
@@ -244,3 +246,28 @@ type processLinkSentinelError struct {
 func (e *processLinkSentinelError) Error() string { return e.message }
 
 func (e *processLinkSentinelError) Unwrap() error { return e.sentinel }
+
+type processGenerationKey struct{}
+
+// withProcessGeneration moves the generation a process host assigned to a
+// forwarded request out of the application-visible headers and into the
+// request context. Only linked service processes accept it.
+func withProcessGeneration(next http.Handler) http.Handler {
+	if !processLinkConfigured() {
+		return next
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		value := req.Header.Get(processGenerationHeader)
+		if value == "" {
+			next.ServeHTTP(w, req)
+			return
+		}
+		req.Header.Del(processGenerationHeader)
+		generation, err := strconv.ParseUint(value, 10, 64)
+		if err != nil || generation == 0 {
+			http.Error(w, "invalid process generation", http.StatusBadRequest)
+			return
+		}
+		next.ServeHTTP(w, req.WithContext(context.WithValue(req.Context(), processGenerationKey{}, generation)))
+	})
+}

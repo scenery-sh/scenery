@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -20,12 +21,26 @@ import (
 	"scenery.sh/internal/runtimeapi"
 )
 
-// A process link connects generated service processes of one development
-// session. The supervisor writes a private file naming the session token, the
-// process that owns each internal binding and each service process's listener;
-// a binding absent from this process's registry is invoked in its owner with the
-// caller's invocation token and request state.
+// A process link connects the processes of one development session. The
+// supervisor writes a private file naming the session token and the host's
+// private dispatch listener. A binding absent from this process's registry is
+// sent to the host, which dispatches it to the owning service process of the
+// caller's pinned generation with the caller's invocation token and request
+// state.
 const processLinkBindingPath = "/__scenery/process/v1/bindings/invoke"
+
+// Headers of a dispatched call: the binding address lets the host route without
+// decoding the body, and the generation pins the call to the application
+// generation its request entered.
+const (
+	processLinkBindingHeader    = "X-Scenery-Binding"
+	processGenerationHeader     = "X-Scenery-Process-Generation"
+	processIdentityPIDHeader    = "X-Scenery-Process-ID"
+	processIdentityBuildHeader  = "X-Scenery-Build-Input-Digest"
+	processIdentityImplHeader   = "X-Scenery-Implementation-Revision"
+	processIdentityTargetHeader = "X-Scenery-Go-Target"
+	processIdentityContractHdr  = "X-Scenery-Contract-Revision"
+)
 
 const processLinkMaxBody = 32 << 20
 
@@ -35,9 +50,8 @@ type processLinkTarget struct {
 }
 
 type processLinkConfig struct {
-	Token     string                       `json:"token"`
-	Bindings  map[string]processLinkTarget `json:"bindings"`
-	Processes map[string]processLinkTarget `json:"processes,omitempty"`
+	Token    string            `json:"token"`
+	Dispatch processLinkTarget `json:"dispatch"`
 }
 
 type processLinkInvocation struct {
@@ -107,23 +121,14 @@ func readProcessLink(path string) (*processLinkConfig, error) {
 	if len(config.Token) < 32 {
 		return nil, fmt.Errorf("runtime: process link token is too short")
 	}
-	for _, targets := range []map[string]processLinkTarget{config.Bindings, config.Processes} {
-		for name, target := range targets {
-			if strings.TrimSpace(name) == "" || (target.Network != "unix" && target.Network != "tcp") || strings.TrimSpace(target.Address) == "" {
-				return nil, fmt.Errorf("runtime: process link target for %q is invalid", name)
-			}
-		}
+	if !validProcessLinkTarget(config.Dispatch) {
+		return nil, fmt.Errorf("runtime: process link dispatch target is invalid")
 	}
 	return &config, nil
 }
 
-func processLinkedBinding(address string) (*processLinkConfig, processLinkTarget, bool, error) {
-	config, err := currentProcessLink()
-	if err != nil || config == nil {
-		return nil, processLinkTarget{}, false, err
-	}
-	target, ok := config.Bindings[address]
-	return config, target, ok, nil
+func validProcessLinkTarget(target processLinkTarget) bool {
+	return (target.Network == "unix" || target.Network == "tcp") && strings.TrimSpace(target.Address) != ""
 }
 
 // processLinkDialError marks a call that never reached its owner, as opposed
@@ -157,7 +162,7 @@ func processLinkClient(target processLinkTarget) *http.Client {
 	return client
 }
 
-func invokeProcessLinkedBindingJSON(ctx context.Context, config *processLinkConfig, target processLinkTarget, address, callerPackage string, invocation runtimeapi.Invocation, input []byte) ([]byte, error) {
+func invokeProcessLinkedBindingJSON(ctx context.Context, config *processLinkConfig, address, callerPackage string, invocation runtimeapi.Invocation, input []byte) ([]byte, error) {
 	call, err := captureProcessLinkedCall(ctx)
 	if err != nil {
 		return nil, ContractSystemError(fmt.Errorf("internal binding %s: %w", address, err))
@@ -182,7 +187,11 @@ func invokeProcessLinkedBindingJSON(ctx context.Context, config *processLinkConf
 	}
 	request.Header.Set("Authorization", "Bearer "+config.Token)
 	request.Header.Set("Content-Type", "application/json")
-	response, err := processLinkClient(target).Do(request)
+	request.Header.Set(processLinkBindingHeader, address)
+	if call != nil && call.Generation != 0 {
+		request.Header.Set(processGenerationHeader, strconv.FormatUint(call.Generation, 10))
+	}
+	response, err := processLinkClient(config.Dispatch).Do(request)
 	if err != nil {
 		return nil, processLinkCallFailure(ctx, address, err)
 	}
@@ -239,10 +248,12 @@ func (s *server) handleProcessLinkedBinding(w http.ResponseWriter, req *http.Req
 		writeProcessLinkResponse(w, http.StatusUnauthorized, processLinkResponse{Error: &processLinkError{Kind: "error", Message: "permission_denied: process link token rejected"}})
 		return
 	}
+	setProcessIdentityHeaders(w.Header())
 	var body processLinkEnvelope
 	decoder := json.NewDecoder(io.LimitReader(req.Body, processLinkMaxBody))
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&body); err != nil || strings.TrimSpace(body.Address) == "" || strings.TrimSpace(body.Invocation.ID) == "" {
+	if err := decoder.Decode(&body); err != nil || strings.TrimSpace(body.Address) == "" || strings.TrimSpace(body.Invocation.ID) == "" ||
+		(req.Header.Get(processLinkBindingHeader) != "" && req.Header.Get(processLinkBindingHeader) != body.Address) {
 		writeProcessLinkResponse(w, http.StatusBadRequest, processLinkResponse{Error: &processLinkError{Kind: "error", Message: "invalid_argument: malformed process link request"}})
 		return
 	}
@@ -278,6 +289,18 @@ func (s *server) handleProcessLinkedBinding(w http.ResponseWriter, req *http.Req
 	writeProcessLinkResponse(w, http.StatusOK, processLinkResponse{Output: output})
 }
 
+// setProcessIdentityHeaders reports the linked runtime identity of the
+// answering process with the meanings of the development response identity
+// headers, so a dispatcher can prove which generation answered.
+func setProcessIdentityHeaders(headers http.Header) {
+	bundle := CurrentLinkedContractBundle()
+	headers.Set(processIdentityContractHdr, bundle.ContractRevision)
+	headers.Set(processIdentityImplHeader, bundle.ImplementationRevision)
+	headers.Set(processIdentityBuildHeader, bundle.BuildInputDigest)
+	headers.Set(processIdentityTargetHeader, bundle.GoTarget)
+	headers.Set(processIdentityPIDHeader, strconv.Itoa(os.Getpid()))
+}
+
 func writeProcessLinkResponse(w http.ResponseWriter, status int, response processLinkResponse) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -294,11 +317,11 @@ func InvokeContractBindingCodec(ctx context.Context, address, callerPackage stri
 	if registered {
 		return InvokeContractBindingFrom(ctx, address, callerPackage, invocation, input)
 	}
-	config, target, linked, err := processLinkedBinding(address)
+	config, err := currentProcessLink()
 	if err != nil {
 		return nil, ContractSystemError(err)
 	}
-	if !linked {
+	if config == nil {
 		return nil, fmt.Errorf("contract internal binding %s is not registered", address)
 	}
 	if ctx == nil {
@@ -316,7 +339,7 @@ func InvokeContractBindingCodec(ctx context.Context, address, callerPackage stri
 	if err != nil {
 		return nil, ContractSystemError(fmt.Errorf("encode internal binding %s input: %w", address, err))
 	}
-	output, err := invokeProcessLinkedBindingJSON(ctx, config, target, address, callerPackage, token, encoded)
+	output, err := invokeProcessLinkedBindingJSON(ctx, config, address, callerPackage, token, encoded)
 	if err != nil {
 		return nil, err
 	}

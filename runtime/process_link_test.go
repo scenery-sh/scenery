@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -71,17 +72,17 @@ func TestProcessLinkConfigurationRejectsWeakOrMalformedLinks(t *testing.T) {
 		}
 		return path
 	}
-	valid := write("valid.json", `{"token":"`+processLinkTestToken+`","bindings":{"echo/binding/echo_internal":{"network":"unix","address":"/tmp/echo.sock"}},"processes":{"echo_echo":{"network":"unix","address":"/tmp/echo.sock"}}}`)
+	valid := write("valid.json", `{"token":"`+processLinkTestToken+`","dispatch":{"network":"unix","address":"/tmp/host.sock"}}`)
 	config, err := readProcessLink(valid)
-	if err != nil || config.Bindings["echo/binding/echo_internal"].Address != "/tmp/echo.sock" || config.Processes["echo_echo"].Network != "unix" {
+	if err != nil || config.Dispatch.Address != "/tmp/host.sock" {
 		t.Fatalf("valid process link = %#v, %v", config, err)
 	}
 	for name, content := range map[string]string{
-		"short-token":   `{"token":"short","bindings":{}}`,
-		"bad-network":   `{"token":"` + processLinkTestToken + `","bindings":{"a":{"network":"udp","address":"x"}}}`,
-		"empty-address": `{"token":"` + processLinkTestToken + `","bindings":{"a":{"network":"unix","address":""}}}`,
-		"bad-process":   `{"token":"` + processLinkTestToken + `","bindings":{},"processes":{"a":{"network":"unix","address":""}}}`,
-		"unknown-field": `{"token":"` + processLinkTestToken + `","bindings":{},"extra":true}`,
+		"short-token":      `{"token":"short","dispatch":{"network":"unix","address":"/tmp/host.sock"}}`,
+		"missing-dispatch": `{"token":"` + processLinkTestToken + `"}`,
+		"bad-network":      `{"token":"` + processLinkTestToken + `","dispatch":{"network":"udp","address":"x"}}`,
+		"empty-address":    `{"token":"` + processLinkTestToken + `","dispatch":{"network":"unix","address":""}}`,
+		"unknown-field":    `{"token":"` + processLinkTestToken + `","dispatch":{"network":"unix","address":"/tmp/host.sock"},"extra":true}`,
 	} {
 		if _, err := readProcessLink(write(name+".json", content)); err == nil {
 			t.Errorf("%s process link was accepted", name)
@@ -100,7 +101,7 @@ func TestProcessLinkedCallMatchesInProcessSemantics(t *testing.T) {
 	useProcessLinkRegistryForTest(t)
 	defer setTestReporter(&devReporter{appID: "app", queue: make(chan devreport.ReportEnvelope, 64)})()
 	target := serveProcessLinkForTest(t, processLinkOwnerHandler())
-	config := &processLinkConfig{Token: processLinkTestToken, Bindings: map[string]processLinkTarget{"echo/binding/whoami": target}}
+	config := &processLinkConfig{Token: processLinkTestToken, Dispatch: target}
 	useProcessLinkForTest(t, config)
 	type observation struct {
 		UID, Tenant, Roles, Principal, InvocationTenant                  string
@@ -149,7 +150,7 @@ func TestProcessLinkedCallMatchesInProcessSemantics(t *testing.T) {
 		var err error
 		if remote {
 			invocation, _ := runtimeapi.InvocationFromContext(ctx)
-			_, err = invokeProcessLinkedBindingJSON(ctx, config, target, "echo/binding/whoami", "greeter", invocation, []byte(`"hi"`))
+			_, err = invokeProcessLinkedBindingJSON(ctx, config, "echo/binding/whoami", "greeter", invocation, []byte(`"hi"`))
 		} else {
 			_, err = InvokeContractBindingJSON(ctx, "echo/binding/whoami", "greeter", []byte(`"hi"`))
 		}
@@ -211,15 +212,16 @@ func TestProcessLinkedBindingCallerForwardsInvocationAndRestoresErrors(t *testin
 		stopped <- ctx.Err()
 		return nil, ctx.Err()
 	})
-	bindings := map[string]processLinkTarget{"echo/binding/crash": crashed, "echo/binding/missing": {Network: "unix", Address: filepath.Join(t.TempDir(), "gone.sock")}}
-	for address := range global.contractBindings {
-		bindings[address] = target
-	}
-	config := &processLinkConfig{Token: processLinkTestToken, Bindings: bindings}
+	config := &processLinkConfig{Token: processLinkTestToken, Dispatch: target}
 	useProcessLinkForTest(t, config)
+	dispatchTargets := map[string]processLinkTarget{"echo/binding/crash": crashed, "echo/binding/missing": {Network: "unix", Address: filepath.Join(t.TempDir(), "gone.sock")}}
 	invoke := func(ctx context.Context, address string) ([]byte, error) {
 		invocation, _ := runtimeapi.InvocationFromContext(ctx)
-		return invokeProcessLinkedBindingJSON(ctx, config, bindings[address], address, "greeter", invocation, []byte(`"hi"`))
+		called := config
+		if dispatch, ok := dispatchTargets[address]; ok {
+			called = &processLinkConfig{Token: processLinkTestToken, Dispatch: dispatch}
+		}
+		return invokeProcessLinkedBindingJSON(ctx, called, address, "greeter", invocation, []byte(`"hi"`))
 	}
 	ctx := runtimeapi.WithInvocation(context.Background(), runtimeapi.NewInvocation("invocation-2", "user-2", "", "", time.Time{}))
 	if output, err := invoke(ctx, "echo/binding/echo_internal"); err != nil || string(output) != `{"kind":"result","name":"ok"}` {
@@ -269,8 +271,8 @@ func TestProcessLinkedBindingCallerForwardsInvocationAndRestoresErrors(t *testin
 	case <-time.After(time.Second):
 		t.Fatal("callee did not observe caller cancellation")
 	}
-	if _, err = InvokeContractBindingJSON(context.Background(), "echo/binding/unlinked", "greeter", nil); err == nil || !strings.Contains(err.Error(), "not registered") {
-		t.Fatalf("unlinked binding = %v", err)
+	if _, err = InvokeContractBindingJSON(ctx, "echo/binding/unlinked", "greeter", nil); err == nil || !strings.Contains(err.Error(), "not registered") {
+		t.Fatalf("unowned binding = %v", err)
 	}
 	encode := func(value any) ([]byte, error) { return json.Marshal(map[string]any{"message": value}) }
 	decode := func(data []byte) (any, error) { return "decoded:" + string(data), nil }
@@ -301,11 +303,48 @@ func TestProcessLinkedBindingOwnerRejectsUnauthenticatedOrUnownedCalls(t *testin
 		{token: "wrong-token-wrong-token-wrong-token", address: "echo/binding/echo_internal", status: http.StatusUnauthorized},
 		{token: processLinkTestToken, address: "missing/binding/x", status: http.StatusNotFound},
 	} {
-		config := &processLinkConfig{Token: check.token}
+		config := &processLinkConfig{Token: check.token, Dispatch: target}
 		invocation := runtimeapi.NewInvocation("invocation-5", "", "", "", time.Time{})
-		_, err := invokeProcessLinkedBindingJSON(runtimeapi.WithInvocation(context.Background(), invocation), config, target, check.address, "greeter", invocation, []byte(`"hi"`))
+		_, err := invokeProcessLinkedBindingJSON(runtimeapi.WithInvocation(context.Background(), invocation), config, check.address, "greeter", invocation, []byte(`"hi"`))
 		if err == nil {
 			t.Fatalf("%s call with token %q was accepted", check.address, check.token)
 		}
+	}
+}
+
+func TestForwardedRequestGenerationPinsItsInternalCalls(t *testing.T) {
+	useProcessLinkRegistryForTest(t)
+	seen := make(chan string, 1)
+	dispatch := serveProcessLinkForTest(t, http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		seen <- req.Header.Get(processGenerationHeader) + " " + req.Header.Get(processLinkBindingHeader)
+		writeProcessLinkResponse(w, http.StatusOK, processLinkResponse{Output: json.RawMessage(`"ok"`)})
+	}))
+	config := &processLinkConfig{Token: processLinkTestToken, Dispatch: dispatch}
+	useProcessLinkForTest(t, config)
+	endpoint := &Endpoint{Service: "greeter", Name: "GreetHttp", Access: Public, Path: "/greet", Methods: []string{"POST"}}
+	handler := withProcessGeneration(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.Header.Get(processGenerationHeader) != "" {
+			t.Error("process generation header reached the application request")
+		}
+		state := newExternalState(endpoint, req, nil, nil, AuthInfo{UID: "user-1"})
+		ctx := withRuntimeInvocation(withState(req.Context(), state), state)
+		restore := enterState(state)
+		defer restore()
+		if _, err := InvokeContractBindingJSON(ctx, "echo/binding/echo_internal", "greeter", []byte(`{}`)); err != nil {
+			t.Error(err)
+		}
+	}))
+	request := httptest.NewRequest(http.MethodPost, "/greet", nil)
+	request.Header.Set(processGenerationHeader, "7")
+	handler.ServeHTTP(httptest.NewRecorder(), request)
+	if got := <-seen; got != "7 echo/binding/echo_internal" {
+		t.Fatalf("dispatched call = %q", got)
+	}
+	invalid := httptest.NewRequest(http.MethodPost, "/greet", nil)
+	invalid.Header.Set(processGenerationHeader, "latest")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, invalid)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("invalid generation status = %d", recorder.Code)
 	}
 }

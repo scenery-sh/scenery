@@ -1,102 +1,259 @@
 package runtime
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
-	"net"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
+	"time"
+
+	"scenery.sh/errs"
+	"scenery.sh/internal/runtimeapi"
 )
 
-func TestProcessHostForwardsEachRequestToTheOwningProcess(t *testing.T) {
-	directory, err := os.MkdirTemp("", "sph")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(directory) })
-	link := &processLinkConfig{Token: processLinkTestToken, Processes: map[string]processLinkTarget{
-		"missing_missing": {Network: "unix", Address: filepath.Join(directory, "missing.sock")},
-	}}
-	for _, process := range []string{"echo_echo", "greeter_greeter"} {
-		socket := filepath.Join(directory, process+".sock")
-		listener, err := net.Listen("unix", socket)
-		if err != nil {
-			t.Fatal(err)
+const processHostTestContract = "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+
+// processHostTestBackend emulates one service process instance: it answers
+// forwarded HTTP and dispatched calls with its own identity headers.
+type processHostTestBackend struct {
+	name     string
+	target   processLinkTarget
+	instance processGenerationInstance
+	release  chan struct{}
+	mu       sync.Mutex
+	seen     []map[string]string
+}
+
+func startProcessHostTestBackend(t *testing.T, name string, pid int, revision string) *processHostTestBackend {
+	t.Helper()
+	backend := &processHostTestBackend{name: name}
+	backend.target = serveProcessLinkForTest(t, http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		identity := backend.instance.Identity
+		w.Header().Set(processIdentityContractHdr, identity.ContractRevision)
+		w.Header().Set(processIdentityImplHeader, identity.ImplementationRevision)
+		w.Header().Set(processIdentityBuildHeader, identity.BuildInputDigest)
+		w.Header().Set(processIdentityTargetHeader, identity.GoTarget)
+		w.Header().Set(processIdentityPIDHeader, strconv.Itoa(backend.instance.PID))
+		if req.URL.Path == "/wrong-identity" {
+			w.Header().Set(processIdentityImplHeader, "sha256:other")
 		}
-		backend := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			_ = json.NewEncoder(w).Encode(map[string]string{
-				"process": process, "method": req.Method, "uri": req.RequestURI, "host": req.Host,
-				"forwarded_for": strings.Join(req.Header.Values("X-Forwarded-For"), ","), "accept_encoding": req.Header.Get("Accept-Encoding"),
-			})
-		}))
-		_ = backend.Listener.Close()
-		backend.Listener = listener
-		backend.Start()
-		t.Cleanup(backend.Close)
-		link.Processes[process] = processLinkTarget{Network: "unix", Address: socket}
+		if req.URL.Path == "/slow" {
+			<-backend.release
+		}
+		seen := map[string]string{"method": req.Method, "uri": req.RequestURI, "host": req.Host, "generation": req.Header.Get(processGenerationHeader),
+			"forwarded_for": req.Header.Get("X-Forwarded-For"), "binding": req.Header.Get(processLinkBindingHeader)}
+		backend.mu.Lock()
+		backend.seen = append(backend.seen, seen)
+		backend.mu.Unlock()
+		if req.URL.Path == processLinkBindingPath {
+			writeProcessLinkResponse(w, http.StatusOK, processLinkResponse{Output: json.RawMessage(strconv.Quote(name + ":" + revision))})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]string{"process": name, "revision": revision})
+	}))
+	backend.instance = processGenerationInstance{Network: backend.target.Network, Address: backend.target.Address, PID: pid, Identity: processInstanceIdentity{
+		ContractRevision: processHostTestContract, ImplementationRevision: revision, BuildInputDigest: revision + "-inputs", GoTarget: "development",
+	}}
+	backend.release = make(chan struct{})
+	return backend
+}
+
+func (b *processHostTestBackend) last() map[string]string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.seen[len(b.seen)-1]
+}
+
+func processHostTestRequest(t *testing.T, handler http.HandlerFunc, method, target string, headers map[string]string) (*httptest.ResponseRecorder, map[string]string) {
+	t.Helper()
+	request := httptest.NewRequest(method, target, bytes.NewReader([]byte(`{}`)))
+	request.Host = "api.example.test"
+	for name, value := range headers {
+		request.Header.Set(name, value)
 	}
-	handler, err := newProcessHostHandler(ProcessHostConfig{Name: "multiservice", Fallback: "echo_echo", Routes: []ProcessHostRoute{
+	recorder := httptest.NewRecorder()
+	handler(recorder, request)
+	var body map[string]string
+	_ = json.Unmarshal(recorder.Body.Bytes(), &body)
+	return recorder, body
+}
+
+func TestProcessHostForwardsEachRequestToTheOwningProcess(t *testing.T) {
+	echo := startProcessHostTestBackend(t, "echo_echo", 101, "sha256:echo-1")
+	greeter := startProcessHostTestBackend(t, "greeter_greeter", 102, "sha256:greeter-1")
+	host, err := newProcessHost(ProcessHostConfig{Name: "multiservice", Fallback: "echo_echo", Routes: []ProcessHostRoute{
 		{Process: "echo_echo", Methods: []string{"POST"}, Path: "/echo"},
 		{Process: "echo_echo", Methods: []string{"GET"}, Path: "/items/:id"},
+		{Process: "echo_echo", Methods: []string{"GET"}, Path: "/wrong-identity"},
 		{Process: "greeter_greeter", Methods: []string{"POST"}, Path: "/greet"},
 		{Process: "greeter_greeter", Methods: []string{"GET"}, Path: "/items/special"},
 		{Process: "greeter_greeter", Methods: []string{"GET"}, Path: "/files/*path", PathTail: true},
-		{Process: "missing_missing", Methods: []string{"GET"}, Path: "/down"},
-	}}, link)
+	}}, processLinkTestToken, processHostTestContract)
 	if err != nil {
 		t.Fatal(err)
 	}
-	serve := func(method, target string, headers map[string]string) (*httptest.ResponseRecorder, map[string]string) {
-		request := httptest.NewRequest(method, target, nil)
-		request.Host = "api.example.test"
-		for name, value := range headers {
-			request.Header.Set(name, value)
-		}
-		recorder := httptest.NewRecorder()
-		handler.ServeHTTP(recorder, request)
-		var body map[string]string
-		_ = json.Unmarshal(recorder.Body.Bytes(), &body)
-		return recorder, body
+	if recorder, _ := processHostTestRequest(t, host.serveIngress, "POST", "/echo", nil); recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("ingress before publication = %d", recorder.Code)
+	}
+	if err := host.publish(processGenerationManifest{Generation: 1, ContractRevision: processHostTestContract, Processes: map[string]processGenerationInstance{
+		"echo_echo": echo.instance, "greeter_greeter": greeter.instance,
+	}}); err != nil {
+		t.Fatal(err)
 	}
 	for _, check := range []struct {
-		method, target, process string
-		headers                 map[string]string
+		method, target string
+		backend        *processHostTestBackend
+		headers        map[string]string
 	}{
-		{method: "POST", target: "/greet?lang=cs", process: "greeter_greeter"},
-		{method: "POST", target: "/echo", process: "echo_echo"},
-		{method: "GET", target: "/items/special", process: "greeter_greeter"},
-		{method: "GET", target: "/items/42", process: "echo_echo"},
-		{method: "HEAD", target: "/files/a/b%2Fc", process: "greeter_greeter"},
-		{method: "DELETE", target: "/greet", process: "greeter_greeter"},
-		{method: "OPTIONS", target: "/items/special", process: "greeter_greeter", headers: map[string]string{"Access-Control-Request-Method": "PUT"}},
-		{method: "OPTIONS", target: "/items/42", process: "echo_echo", headers: map[string]string{"Access-Control-Request-Method": "GET"}},
-		{method: "OPTIONS", target: "/greet", process: "greeter_greeter", headers: map[string]string{"Access-Control-Request-Method": "POST"}},
-		{method: "GET", target: "/__scenery/config", process: "echo_echo"},
-		{method: "GET", target: "/unknown", process: "echo_echo"},
+		{method: "POST", target: "/greet?lang=cs", backend: greeter},
+		{method: "POST", target: "/echo", backend: echo},
+		{method: "GET", target: "/items/special", backend: greeter},
+		{method: "GET", target: "/items/42", backend: echo},
+		{method: "GET", target: "/files/a/b%2Fc", backend: greeter},
+		{method: "DELETE", target: "/greet", backend: greeter},
+		{method: "OPTIONS", target: "/items/special", backend: greeter, headers: map[string]string{"Access-Control-Request-Method": "PUT"}},
+		{method: "OPTIONS", target: "/items/42", backend: echo, headers: map[string]string{"Access-Control-Request-Method": "GET"}},
+		{method: "GET", target: "/__scenery/config", backend: echo},
+		{method: "GET", target: "/unknown", backend: echo, headers: map[string]string{processGenerationHeader: "77", "X-Forwarded-For": "203.0.113.7"}},
 	} {
-		recorder, body := serve(check.method, check.target, check.headers)
-		if check.method == "HEAD" {
-			if recorder.Code != http.StatusOK {
-				t.Errorf("%s %s status = %d", check.method, check.target, recorder.Code)
-			}
-			continue
-		}
-		if recorder.Code != http.StatusOK || body["process"] != check.process || body["method"] != check.method || body["uri"] != check.target {
-			t.Errorf("%s %s reached %#v (status %d), want %s", check.method, check.target, body, recorder.Code, check.process)
+		recorder, body := processHostTestRequest(t, host.serveIngress, check.method, check.target, check.headers)
+		seen := check.backend.last()
+		if recorder.Code != http.StatusOK || body["process"] != check.backend.name || seen["method"] != check.method || seen["uri"] != check.target || seen["generation"] != "1" || seen["host"] != "api.example.test" {
+			t.Errorf("%s %s reached %#v (status %d, seen %#v), want %s in generation 1", check.method, check.target, body, recorder.Code, seen, check.backend.name)
 		}
 	}
-	_, body := serve("POST", "/greet", map[string]string{"X-Forwarded-For": "203.0.113.7", "Accept-Encoding": "gzip"})
-	if body["host"] != "api.example.test" || body["forwarded_for"] != "203.0.113.7" || body["accept_encoding"] != "gzip" {
-		t.Fatalf("forwarded request headers = %#v", body)
+	if seen := echo.last(); seen["forwarded_for"] != "203.0.113.7" {
+		t.Fatalf("forwarded headers = %#v", seen)
 	}
-	recorder, _ := serve("GET", "/down", nil)
-	if recorder.Code != http.StatusServiceUnavailable || !strings.Contains(recorder.Body.String(), `"unavailable"`) || !strings.Contains(recorder.Body.String(), "missing_missing") {
-		t.Fatalf("unavailable process response = %d %s", recorder.Code, recorder.Body.String())
+	recorder, _ := processHostTestRequest(t, host.serveIngress, "GET", "/wrong-identity", nil)
+	if recorder.Code != http.StatusServiceUnavailable || !strings.Contains(recorder.Body.String(), "echo_echo") {
+		t.Fatalf("answer from an unpublished identity = %d %s", recorder.Code, recorder.Body.String())
 	}
-	if _, err := newProcessHostHandler(ProcessHostConfig{Fallback: "echo_echo", Routes: []ProcessHostRoute{{Process: "unknown", Methods: []string{"GET"}, Path: "/x"}}}, link); err == nil {
-		t.Fatal("route to a process without a link target was accepted")
+	if _, err := newProcessHost(ProcessHostConfig{Fallback: "echo_echo", Routes: []ProcessHostRoute{{Process: "echo_echo", Path: "/x"}}}, processLinkTestToken, processHostTestContract); err == nil {
+		t.Fatal("route without methods was accepted")
 	}
+}
+
+func TestProcessHostPinsRequestsAndCallsToTheirGeneration(t *testing.T) {
+	echoOne := startProcessHostTestBackend(t, "echo_echo", 201, "sha256:echo-1")
+	echoTwo := startProcessHostTestBackend(t, "echo_echo", 202, "sha256:echo-2")
+	greeter := startProcessHostTestBackend(t, "greeter_greeter", 203, "sha256:greeter-1")
+	host, err := newProcessHost(ProcessHostConfig{Name: "multiservice", Fallback: "echo_echo", Routes: []ProcessHostRoute{
+		{Process: "greeter_greeter", Methods: []string{"GET"}, Path: "/slow"},
+	}}, processLinkTestToken, processHostTestContract)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bindings := map[string]string{"echo/binding/echo_internal": "echo_echo"}
+	generation := func(number uint64, echo *processHostTestBackend) processGenerationManifest {
+		return processGenerationManifest{Generation: number, ContractRevision: processHostTestContract, Bindings: bindings, Processes: map[string]processGenerationInstance{
+			"echo_echo": echo.instance, "greeter_greeter": greeter.instance,
+		}}
+	}
+	control := serveProcessLinkForTest(t, http.HandlerFunc(host.serveControl))
+	publish := func(manifest processGenerationManifest) int {
+		body, _ := json.Marshal(manifest)
+		request, _ := http.NewRequest(http.MethodPut, "http://host"+processGenerationsPath, bytes.NewReader(body))
+		request.Header.Set("Authorization", "Bearer "+processLinkTestToken)
+		response, err := processLinkClient(control).Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = response.Body.Close()
+		return response.StatusCode
+	}
+	if status := publish(generation(1, echoOne)); status != http.StatusNoContent {
+		t.Fatalf("publish generation 1 = %d", status)
+	}
+	pinned := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		recorder, _ := processHostTestRequest(t, host.serveIngress, "GET", "/slow", nil)
+		pinned <- recorder
+	}()
+	deadline := time.Now().Add(time.Second)
+	for host.status().Generations[0].InFlight == 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	for name, stale := range map[string]processGenerationManifest{
+		"repeated": generation(1, echoTwo),
+		"wrong-contract": func() processGenerationManifest {
+			m := generation(2, echoTwo)
+			m.ContractRevision = "sha256:other"
+			return m
+		}(),
+		"unknown-owner": func() processGenerationManifest {
+			m := generation(2, echoTwo)
+			m.Bindings = map[string]string{"x/binding/y": "missing"}
+			return m
+		}(),
+		"missing-route": func() processGenerationManifest {
+			m := generation(2, echoTwo)
+			delete(m.Processes, "greeter_greeter")
+			return m
+		}(),
+	} {
+		if status := publish(stale); status != http.StatusConflict {
+			t.Errorf("%s generation publication = %d", name, status)
+		}
+	}
+	if status := publish(generation(2, echoTwo)); status != http.StatusNoContent {
+		t.Fatalf("publish generation 2 = %d", status)
+	}
+	config := &processLinkConfig{Token: processLinkTestToken, Dispatch: control}
+	call := func(pinnedGeneration uint64) (string, error) {
+		state := &requestState{processGeneration: pinnedGeneration}
+		ctx := withState(runtimeapi.WithInvocation(context.Background(), runtimeapi.NewInvocation("invocation-9", "", "", "", time.Time{})), state)
+		restore := enterState(state)
+		defer restore()
+		invocation, _ := runtimeapi.InvocationFromContext(ctx)
+		output, err := invokeProcessLinkedBindingJSON(ctx, config, "echo/binding/echo_internal", "greeter", invocation, []byte(`{}`))
+		var value string
+		_ = json.Unmarshal(output, &value)
+		return value, err
+	}
+	if value, err := call(1); err != nil || value != "echo_echo:sha256:echo-1" || echoOne.last()["binding"] != "echo/binding/echo_internal" {
+		t.Fatalf("call pinned to generation 1 = %q, %v", value, err)
+	}
+	if value, err := call(0); err != nil || value != "echo_echo:sha256:echo-2" {
+		t.Fatalf("unpinned call = %q, %v", value, err)
+	}
+	retire := func(number uint64) int {
+		request, _ := http.NewRequest(http.MethodDelete, "http://host"+processGenerationsPath+"/"+strconv.FormatUint(number, 10), nil)
+		request.Header.Set("Authorization", "Bearer "+processLinkTestToken)
+		response, err := processLinkClient(control).Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = response.Body.Close()
+		return response.StatusCode
+	}
+	if status := retire(1); status != http.StatusConflict {
+		t.Fatalf("retire generation with an in-flight request = %d", status)
+	}
+	if status := retire(2); status != http.StatusConflict {
+		t.Fatalf("retire current generation = %d", status)
+	}
+	close(greeter.release)
+	if recorder := <-pinned; recorder.Code != http.StatusOK || greeter.last()["generation"] != "1" {
+		t.Fatalf("in-flight request = %d, seen %#v", recorder.Code, greeter.last())
+	}
+	if status := retire(1); status != http.StatusNoContent {
+		t.Fatalf("retire drained generation = %d", status)
+	}
+	if _, err := call(1); !isUnavailableDelivery(err, "not_sent") {
+		t.Fatalf("call pinned to a retired generation = %#v", err)
+	}
+	if status := host.status(); status.Current != 2 || len(status.Generations) != 1 || status.Generations[0].Processes["echo_echo"] != 202 {
+		t.Fatalf("host status = %#v", status)
+	}
+}
+
+func isUnavailableDelivery(err error, delivery string) bool {
+	typed, ok := errs.As(err)
+	return ok && typed.Code == errs.Unavailable && typed.Meta["delivery"] == delivery
 }
