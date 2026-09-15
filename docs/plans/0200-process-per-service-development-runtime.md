@@ -273,6 +273,24 @@ compile the application graph as it needs.
   are the preflight itself, the implementation check (which delays the
   preparation), the 375 ms of preparation before input discovery and the
   entrypoint build.
+- [x] (2026-09-16) The implementation check now joins after the process build
+  has verified and saved its workspace, so preparing the replacement instance
+  no longer waits for it. ONLV one-service edits took 1,969-1,991 ms, and the
+  publication timeline of a 1,846 ms build request is: 376 ms of preparation
+  before input discovery, 90 ms input fingerprint, 120 ms process identities,
+  548 ms entrypoint build, 45 ms workspace verification, then the preflight
+  (1,215-1,561 ms) beside the database and snapshot checks, 55 ms process start
+  and publication at 1,616 ms. The check itself ended at 1,189 ms, off the
+  critical path.
+- [ ] Reaching the 300/500 ms targets needs the remaining path to shrink about
+  fivefold, and no single step dominates it any more: the entrypoint build
+  (548 ms of stock `go build`), the first execution of the new executable
+  (346 ms preflight), the preparation before input discovery (376 ms: framework
+  verification 53, workspace cache and materialization about 140, projections
+  37), input fingerprint and process identities (210 ms), and the process start
+  (55 ms). The retained compiler for entrypoints and a cheaper workspace
+  preparation are the next candidates; a single-start handshake would save only
+  the second execution (about 55 ms) because the first execution's cost stays.
 - [ ] Follow-ups from the 9a0b54d0 review, not yet scheduled: bound link
   parallelism inside one process build (the fair slot admits the build, but
   `go build` still links up to `-p` entrypoints at once; measure peak memory of

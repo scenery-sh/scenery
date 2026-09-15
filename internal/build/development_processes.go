@@ -72,64 +72,81 @@ func (set *DevelopmentProcessSet) Process(name string) (DevelopmentProcess, bool
 // BuildDevelopmentProcessesContext links the process entrypoints of a prepared
 // development workspace. A process whose linked identity equals a retained
 // executable is reused; every other process is linked by one stock Go build.
-func BuildDevelopmentProcessesContext(ctx context.Context, result *Result) (*DevelopmentProcessSet, error) {
+// The returned join completes the implementation check, which runs beside the
+// build; the caller must call it before using the checked contract, and may
+// prepare the linked executables meanwhile.
+func BuildDevelopmentProcessesContext(ctx context.Context, result *Result) (*DevelopmentProcessSet, func() error, error) {
 	if result == nil || result.Contract == nil || result.Contract.Manifest == nil || result.Target == nil {
-		return nil, fmt.Errorf("development processes require a prepared contract and target")
+		return nil, nil, fmt.Errorf("development processes require a prepared contract and target")
 	}
 	if result.Target.Role != "development" || result.Ephemeral || result.ProductionAssets {
-		return nil, fmt.Errorf("development processes require an ordinary development target")
+		return nil, nil, fmt.Errorf("development processes require an ordinary development target")
 	}
 	if err := requireGenerateHooks(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	plan, err := generateHooks.RuntimeIntegrationPlan(result.Contract)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if len(plan.Services) == 0 {
-		return nil, fmt.Errorf("development processes require at least one native service")
+		return nil, nil, fmt.Errorf("development processes require at least one native service")
 	}
 	unlock, err := lockWorkspace(result.Dir)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	defer unlock()
+	unlocked := false
+	defer func() {
+		if !unlocked {
+			unlock()
+		}
+	}()
 	verifyWorkspace := result.verification != nil
 	if verifyWorkspace {
 		if err := verifyPreparedWorkspace(result); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 	if result.NeedsTidy {
 		if err := tidyWorkspace(ctx, result); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 	var set *DevelopmentProcessSet
-	err = compileWithPreparedVerification(ctx, result, func(ctx context.Context) error {
+	check, err := compileBesidePreparedVerification(ctx, result, func(ctx context.Context) error {
 		var buildErr error
 		set, buildErr = buildDevelopmentProcesses(ctx, result, plan.Services)
 		return buildErr
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if verifyWorkspace {
 		if err := verifyPreparedWorkspace(result); err != nil {
-			return nil, err
+			return nil, nil, errors.Join(err, check())
 		}
 	}
 	if err := VerifyOwnedGoModuleSourcesContext(ctx, result.OwnedGoModuleSources); err != nil {
-		return nil, err
+		return nil, nil, errors.Join(err, check())
 	}
-	result.verification = nil
 	if err := savePrimedWorkspace(result); err != nil {
-		return nil, err
+		return nil, nil, errors.Join(err, check())
 	}
 	if err := WriteLatestBuildManifest(result, "compiled"); err != nil {
-		return nil, err
+		return nil, nil, errors.Join(err, check())
 	}
-	return set, nil
+	// The workspace stays locked until the implementation check, which reads it,
+	// has joined.
+	unlocked = true
+	return set, func() error {
+		defer unlock()
+		if err := check(); err != nil {
+			return err
+		}
+		result.verification = nil
+		return nil
+	}, nil
 }
 
 func buildDevelopmentProcesses(ctx context.Context, result *Result, services []generateapi.ServiceProcessPlan) (*DevelopmentProcessSet, error) {

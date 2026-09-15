@@ -63,15 +63,26 @@ func completePreparedVerification(ctx context.Context, result *Result) error {
 // verification failure and caller cancellation stop the build branch. Both
 // branches are joined before returning in every case.
 func compileWithPreparedVerification(ctx context.Context, result *Result, compile func(context.Context) error) error {
-	if result.verification == nil {
-		return compile(ctx)
-	}
-	check, err := preparedChecker(result)
+	join, err := compileBesidePreparedVerification(ctx, result, compile)
 	if err != nil {
 		return err
 	}
+	return join()
+}
+
+// compileBesidePreparedVerification compiles beside the implementation check
+// and returns the join that installs the checked contract. The caller must
+// call it before using result.Contract, and may prepare the compiled artifacts
+// meanwhile.
+func compileBesidePreparedVerification(ctx context.Context, result *Result, compile func(context.Context) error) (func() error, error) {
+	if result.verification == nil {
+		return func() error { return nil }, compile(ctx)
+	}
+	check, err := preparedChecker(result)
+	if err != nil {
+		return nil, err
+	}
 	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
 	var checked *compiler.Result
 	var checkErr error
 	done := make(chan struct{})
@@ -86,17 +97,25 @@ func compileWithPreparedVerification(ctx context.Context, result *Result, compil
 	if errors.Is(compileErr, context.Canceled) || errors.Is(compileErr, context.DeadlineExceeded) {
 		cancel()
 	}
-	<-done
-	checkCanceled := errors.Is(checkErr, context.Canceled) || errors.Is(checkErr, context.DeadlineExceeded)
-	if checkErr != nil && (compileErr == nil || !checkCanceled) {
-		return checkErr
+	join := func() error {
+		defer cancel()
+		<-done
+		checkCanceled := errors.Is(checkErr, context.Canceled) || errors.Is(checkErr, context.DeadlineExceeded)
+		if checkErr != nil && (compileErr == nil || !checkCanceled) {
+			return checkErr
+		}
+		if compileErr != nil {
+			return compileErr
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		result.Contract = checked
+		return nil
 	}
 	if compileErr != nil {
-		return compileErr
+		// A failed compile owns the outcome; join reports it after the check.
+		return nil, join()
 	}
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	result.Contract = checked
-	return nil
+	return join, nil
 }

@@ -245,6 +245,7 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 		}()
 	}
 	var processes *build.DevelopmentProcessSet
+	joinImplementationCheck := func() error { return nil }
 	if err := s.console.Phase("Compiling application source code", func() error {
 		if result != nil && result.GraphFingerprint == "" {
 			result.GraphFingerprint = graphFingerprint
@@ -253,7 +254,10 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 		}
 		if s.processModel {
 			var buildErr error
-			processes, buildErr = build.BuildDevelopmentProcessesContext(ctx, result)
+			processes, joinImplementationCheck, buildErr = build.BuildDevelopmentProcessesContext(ctx, result)
+			if buildErr != nil {
+				joinImplementationCheck = func() error { return nil }
+			}
 			return buildErr
 		}
 		return build.CompileContext(ctx, result)
@@ -268,6 +272,8 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 	}
 	// Replacement instances are retained and preflighted while the supervisor
 	// verifies the candidate below, so activation only starts them.
+	// The implementation check runs beside the build; replacement instances are
+	// retained and preflighted while it finishes.
 	var prepared *devProcessPreparation
 	if processes != nil && !initial && environment != nil {
 		prepared = s.beginDevProcessPreparation(ctx, result, environment, processes)
@@ -276,6 +282,9 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 				prepared.release(s)
 			}
 		}()
+	}
+	if err := joinImplementationCheck(); err != nil {
+		return nil, devBuildError(metadata, apiEncoding, err)
 	}
 	identityStep := build.Step{
 		Name: "build.identity", StartedAt: time.Now(), Cache: "not_applicable", Reason: "exact_candidate_inputs", OK: true,
