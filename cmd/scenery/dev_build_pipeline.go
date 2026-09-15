@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"sync/atomic"
 	"time"
 
@@ -221,6 +222,25 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 	}); err != nil {
 		return nil, devBuildError(metadata, apiEncoding, err)
 	}
+	// A rebuild resolves its runtime capabilities while Go compiles; they depend
+	// on configuration and SQL requirements, not on the linked executable. A
+	// candidate whose checked contract changed its SQL requirements resolves again.
+	type resolvedEnvironment struct {
+		environment *devRuntimeEnvironment
+		sql         compiler.SQLRequirements
+		err         error
+	}
+	var concurrentEnvironment chan resolvedEnvironment
+	if !initial && result != nil && result.Contract != nil {
+		concurrentEnvironment = make(chan resolvedEnvironment, 1)
+		contract := result.Contract
+		go func() {
+			started := time.Now()
+			environment, err := s.prepareRuntimeEnvironment(ctx, contract)
+			build.RecordStep(ctx, build.Step{Name: "supervisor.environment", StartedAt: started, Duration: time.Since(started), Cache: "not_applicable", Reason: "runtime_capabilities_during_compile", OK: err == nil})
+			concurrentEnvironment <- resolvedEnvironment{environment: environment, sql: contract.SQLRequirements, err: err}
+		}()
+	}
 	var processes *build.DevelopmentProcessSet
 	if err := s.console.Phase("Compiling application source code", func() error {
 		if result != nil && result.GraphFingerprint == "" {
@@ -261,20 +281,33 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 	if s.currentPID() == "" {
 		s.setMetadata(metadata, apiEncoding)
 	}
-	if err := s.persistStatus(ctx); err != nil {
-		return nil, err
+	statusStarted := time.Now()
+	statusErr := s.persistStatus(ctx)
+	build.RecordStep(ctx, build.Step{Name: "supervisor.status", StartedAt: statusStarted, Duration: time.Since(statusStarted), Cache: "not_applicable", Reason: "compiled_candidate_status", OK: statusErr == nil})
+	if statusErr != nil {
+		return nil, statusErr
 	}
 	if err := postgresStart.wait(); err != nil {
 		return nil, devBuildError(metadata, apiEncoding, err)
 	}
+	setupStarted := time.Now()
 	dbSetup, shouldRunDBSetup, err := s.nextDevDatabaseSetup(initial, result.Contract)
+	build.RecordStep(ctx, build.Step{Name: "supervisor.database_setup_check", StartedAt: setupStarted, Duration: time.Since(setupStarted), Cache: "not_applicable", Reason: "migration_and_seed_inputs", OK: err == nil})
 	if err != nil {
 		return nil, devBuildError(metadata, apiEncoding, err)
 	}
 	var environment *devRuntimeEnvironment
+	if concurrentEnvironment != nil {
+		if resolved := <-concurrentEnvironment; resolved.err == nil && reflect.DeepEqual(resolved.sql, result.Contract.SQLRequirements) {
+			environment = resolved.environment
+		}
+	}
 	if shouldRunDBSetup {
 		if err := s.console.Phase("Running database setup", func() error {
 			if err := s.console.Phase("Resolving database and storage capabilities", func() error {
+				if environment != nil {
+					return nil
+				}
 				environment, err = s.prepareRuntimeEnvironment(ctx, result.Contract)
 				return err
 			}); err != nil {

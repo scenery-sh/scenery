@@ -148,7 +148,10 @@ func (s *devSupervisor) activateDevProcesses(ctx context.Context, plan *devRunti
 	}
 	environment := plan.Environment
 	if environment == nil {
-		if environment, err = s.prepareRuntimeEnvironment(ctx, result.Contract); err != nil {
+		environmentStarted := time.Now()
+		environment, err = s.prepareRuntimeEnvironment(ctx, result.Contract)
+		build.RecordStep(ctx, build.Step{Name: "supervisor.environment", StartedAt: environmentStarted, Duration: time.Since(environmentStarted), Cache: "not_applicable", Reason: "runtime_capabilities", OK: err == nil})
+		if err != nil {
 			return nil, false, err
 		}
 	}

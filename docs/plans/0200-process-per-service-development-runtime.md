@@ -187,10 +187,21 @@ compile the application graph as it needs.
   about 0.45 s between the build and activation (status, database setup check,
   current snapshot rescan, runtime environment resolution) and 0.42 s preflight
   and start; the implementation check ends before the build.
-- [ ] Milestone 4 remaining: the retained compiler for process entrypoints;
-  moving environment resolution and snapshot verification off the post-build
-  path; the first-execution cost of new executables; and per-process status in
-  dashboard and session records.
+- [x] (2026-09-15) Rebuilds now resolve runtime capabilities while Go compiles
+  (both models; a candidate whose checked contract changed its SQL requirements
+  resolves again). Post-build telemetry on ONLV: status 6-7 ms, database setup
+  check 62-67 ms, current snapshot rescan 200-214 ms, then activation 420-427 ms
+  (retain 20-25, preflight 349-360, start 45). One-service edits took
+  2.31-2.52 s (median about 2.41 s) with publication about 2.0-2.1 s after the
+  build starts. The implementation check (0.86-0.95 s, concurrent) now ends
+  after the 0.55 s entrypoint build, so a faster link alone no longer shortens
+  the path.
+- [ ] Milestone 4 remaining toward the 300/500 ms targets, in path order: the
+  implementation check on every edit; about 0.42 s of preparation before input
+  discovery (framework verification, workspace cache and materialization); the
+  0.2 s snapshot rescan; the first execution of each new executable from this
+  launching context; the retained compiler for process entrypoints; and
+  per-process status in dashboard and session records.
 - [ ] Milestone 4: ONLV rebaseline, resources, background-work ownership,
   semantic conformance, and the edit-to-response measurement.
 

@@ -102,7 +102,10 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 		return s.handleCompileError(ctx, plan.Metadata, plan.APIEncoding, err)
 	}
 	if plan.Processes != nil {
-		if err := s.requireCurrentBuildSnapshot(captured); err != nil {
+		snapshotStarted := time.Now()
+		err := s.requireCurrentBuildSnapshot(captured)
+		build.RecordStep(ctx, build.Step{Name: "supervisor.snapshot_verify", StartedAt: snapshotStarted, Duration: time.Since(snapshotStarted), Cache: "not_applicable", Reason: "source_unchanged_since_capture", OK: err == nil})
+		if err != nil {
 			return s.handleCompileError(ctx, plan.Metadata, plan.APIEncoding, err)
 		}
 		activationStarted := time.Now()
