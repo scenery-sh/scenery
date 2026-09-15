@@ -177,7 +177,8 @@ func (s *devSupervisor) startDevProcessGeneration(ctx context.Context, model *de
 	hostInstance := &devProcessInstance{process: set.Host, socket: s.backend.normalized().Addr}
 	hostEnv := append(append([]string(nil), base...), "SCENERY_PROCESS_LINK="+model.linkPath)
 	if err := s.startDevProcessInstance(ctx, hostInstance, "host", hostEnv, s.backend); err != nil {
-		_ = s.stopInstances(started)
+		markDevProcessesStopped(started)
+		_ = s.stopInstances(started, currentDevProcessCommands(model))
 		return nil, err
 	}
 	model.host, model.contract, model.generation = hostInstance, contract, 0
@@ -226,7 +227,8 @@ func (s *devSupervisor) replaceDevServiceProcesses(ctx context.Context, model *d
 	model.services = next
 	if err := s.publishDevProcessGeneration(ctx, model, set); err != nil {
 		model.services = previous
-		_ = s.stopInstances(started)
+		markDevProcessesStopped(started)
+		_ = s.stopInstances(started, currentDevProcessCommands(model))
 		return err
 	}
 	var replaced []*devProcessInstance
@@ -258,7 +260,8 @@ func (s *devSupervisor) startDevServiceInstances(ctx context.Context, model *dev
 	}
 	wg.Wait()
 	if err := errors.Join(errs...); err != nil {
-		_ = s.stopInstances(instances)
+		markDevProcessesStopped(instances)
+		_ = s.stopInstances(instances, currentDevProcessCommands(model))
 		return nil, err
 	}
 	for _, instance := range instances {
@@ -365,8 +368,10 @@ func (s *devSupervisor) retireDevProcessGeneration(model *devProcessModel, gener
 	for _, instance := range replaced {
 		delete(model.retiring, instance)
 	}
+	markDevProcessesStopped(replaced)
+	inUse := currentDevProcessCommands(model)
 	model.mu.Unlock()
-	_ = s.stopInstances(replaced)
+	_ = s.stopInstances(replaced, inUse)
 }
 
 func (model *devProcessModel) request(ctx context.Context, method, path string, body []byte, want int) (int, error) {
@@ -409,6 +414,7 @@ func (s *devSupervisor) stopDevProcessInstances(model *devProcessModel, host *ru
 		instances = append(instances, instance)
 	}
 	model.services, model.retiring, model.host = map[string]*devProcessInstance{}, map[*devProcessInstance]bool{}, nil
+	markDevProcessesStopped(instances)
 	var stopErrs []error
 	if host != nil {
 		stopErrs = append(stopErrs, host.stop())
@@ -416,26 +422,53 @@ func (s *devSupervisor) stopDevProcessInstances(model *devProcessModel, host *ru
 			s.releaseUnusedAppBinary(host.launch)
 		}
 	}
-	stopErrs = append(stopErrs, s.stopInstances(instances))
+	stopErrs = append(stopErrs, s.stopInstances(instances, currentDevProcessCommands(model)))
 	return errors.Join(stopErrs...)
 }
 
-func (s *devSupervisor) stopInstances(instances []*devProcessInstance) error {
+// markDevProcessesStopped records an intentional stop before it happens, so
+// the exit watcher does not report it; the caller holds model.mu.
+func markDevProcessesStopped(instances []*devProcessInstance) {
+	for _, instance := range instances {
+		if instance != nil {
+			instance.stopped = true
+		}
+	}
+}
+
+// currentDevProcessCommands lists the session executables current service
+// instances run; the caller holds model.mu.
+func currentDevProcessCommands(model *devProcessModel) map[string]bool {
+	inUse := map[string]bool{}
+	for _, current := range model.services {
+		if current.app != nil && current.app.launch != nil {
+			inUse[current.app.launch.request.Command] = true
+		}
+	}
+	return inUse
+}
+
+// stopInstances stops instances already marked stopped and releases retained
+// session executables that no current instance in inUse still runs.
+func (s *devSupervisor) stopInstances(instances []*devProcessInstance, inUse map[string]bool) error {
 	var wg sync.WaitGroup
 	stopErrs := make([]error, len(instances))
 	for index, instance := range instances {
 		if instance == nil || instance.app == nil {
 			continue
 		}
-		instance.stopped = true
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			stopErrs[index] = instance.app.stop()
-			s.releaseUnusedAppBinary(instance.app.launch)
 		}()
 	}
 	wg.Wait()
+	for _, instance := range instances {
+		if instance != nil && instance.app != nil && instance.app.launch != nil && !inUse[instance.app.launch.request.Command] {
+			s.releaseUnusedAppBinary(instance.app.launch)
+		}
+	}
 	return errors.Join(stopErrs...)
 }
 
