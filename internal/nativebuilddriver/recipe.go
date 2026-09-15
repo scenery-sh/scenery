@@ -796,6 +796,21 @@ func (recipe *Recipe) compileArgs(action *CompileAction, capture Capture, archiv
 		}
 	}
 	args[action.ImportCfgAt] = cfg
+	if embedFlagAt := flagIndex(args, "-embedcfg"); embedFlagAt >= 0 {
+		embedValueAt := embedFlagAt
+		if args[embedFlagAt] == "-embedcfg" {
+			embedValueAt++
+		}
+		file, ok := action.Files[embedValueAt]
+		if !ok || file.Copy == "" {
+			return nil, fmt.Errorf("captured embed configuration is absent for %s", action.Package)
+		}
+		embedCfg := filepath.Join(generationRoot, "configs", digestName(action.Package)+".embedcfg")
+		if err := rewriteEmbedCfg(file.Copy, embedCfg, capture); err != nil {
+			return nil, fmt.Errorf("rewrite embed configuration for %s: %w", action.Package, err)
+		}
+		args = replaceFlagValue(args, "-embedcfg", embedCfg)
+	}
 	args = replaceFlagValue(args, "-trimpath", filepath.Join(generationRoot, "snapshot", "workspace")+"=>"+recipe.Workspace)
 	return args, nil
 }
@@ -939,48 +954,4 @@ func contains(values []string, value string) bool {
 func digestName(value string) string {
 	h := sha256.Sum256([]byte(value))
 	return hex.EncodeToString(h[:16])
-}
-
-func splitQuoted(input string) ([]string, error) {
-	var result []string
-	var current strings.Builder
-	quote, escaped := rune(0), false
-	flush := func() {
-		if current.Len() > 0 {
-			result = append(result, current.String())
-			current.Reset()
-		}
-	}
-	for _, r := range input {
-		if escaped {
-			current.WriteRune(r)
-			escaped = false
-			continue
-		}
-		if r == '\\' && quote != '\'' {
-			escaped = true
-			continue
-		}
-		if quote != 0 {
-			if r == quote {
-				quote = 0
-			} else {
-				current.WriteRune(r)
-			}
-			continue
-		}
-		switch r {
-		case '\'', '"':
-			quote = r
-		case ' ', '\t', '\n':
-			flush()
-		default:
-			current.WriteRune(r)
-		}
-	}
-	if escaped || quote != 0 {
-		return nil, fmt.Errorf("unterminated quoted flags")
-	}
-	flush()
-	return result, nil
 }

@@ -49,6 +49,10 @@ func (s *devSupervisor) emitBuildStep(step build.Step) {
 	optionalInt("files_written", step.FilesWritten)
 	optionalInt("files_removed", step.FilesRemoved)
 	optionalInt64("bytes_written", step.BytesWritten)
+	optionalInt("files_hashed", step.FilesHashed)
+	optionalInt64("bytes_hashed", step.BytesHashed)
+	optionalInt("files_reused", step.FilesReused)
+	optionalInt64("bytes_reused", step.BytesReused)
 	optionalInt64("executable_bytes", step.ExecutableBytes)
 	if step.WrittenPaths != nil {
 		fields["written_paths"] = step.WrittenPaths
@@ -165,13 +169,10 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 	}); err != nil {
 		return nil, devBuildError(nil, nil, err)
 	}
-	// The compiler consumes the captured input set. Confirm the authored tree
-	// still matches before allowing any generated publication or workspace
-	// mutation; later gates repeat before candidate preparation and predecessor
-	// retirement.
-	if err := s.requireCurrentBuildSnapshot(snapshot); err != nil {
-		return nil, devBuildError(metadata, apiEncoding, err)
-	}
+	// Every preparation step consumes the captured bytes. The supervisor checks
+	// the complete authored tree once, immediately before predecessor retirement,
+	// so a concurrently superseded generation may finish private work but can
+	// never become the running application.
 	if err := validateLocalSecretsFiles(s.root, s.cfg, s.env); err != nil {
 		return nil, devBuildError(metadata, apiEncoding, err)
 	}

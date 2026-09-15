@@ -19,6 +19,18 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0197-retained-build-executor-decision.md",
+      "title": "Retained Build Executor Decision",
+      "owner": "scenery runtime / build / native compiler verification",
+      "status": "completed",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-09-15",
+      "review_after": "2026-10-15",
+      "summary": "Retained direct compiler/linker execution is the normal development path without a stock fallback; retained graph/state reuse, embed and refresh correctness, and a corrected five-path macOS comparison are complete.",
+      "tags": ["plans", "execplans", "build", "runtime", "benchmark", "performance"]
+    },
+    {
       "path": "docs/plans/0196-correct-retained-go-compiler.md",
       "title": "Correct Retained Go Compiler",
       "owner": "scenery runtime / build / native compiler verification",

@@ -371,13 +371,13 @@ through `internal/build`.
 ### `internal/nativebuilddriver`
 
 `internal/nativebuilddriver` owns the retained Go input-domain model and the
-stock-tool recipe used by development compilation. A bootstrap `go build -a`
+captured tool recipe used by development compilation. A bootstrap `go build -a`
 records the complete compiler and linker invocations selected by `cmd/go`.
 Compatible body-only edits validate the current package/file/config/tool
-identity, rebuild changed packages and transitive consumers with captured stock
-tools, and atomically advance current source snapshots and archive mappings.
-Package-graph changes may merge actions recorded by an ordinary warm-cache
-stock build; an incomplete refreshed recipe falls back to a complete bootstrap.
+identity, rebuild changed packages and transitive consumers by invoking those
+tools directly, and atomically advance current source snapshots and archive
+mappings. Package-graph changes reconcile actions observed through `cmd/go`;
+an incomplete refresh fails closed and requires a complete new capture.
 The direct path retains and rebinds every captured regular-file argument and
 rejects rebuild frontiers requiring unmodeled cgo, assembly or other native
 actions before tool execution. It does not invent dependency rules or publish
@@ -440,18 +440,21 @@ belong to the locked private workspace. Framework source outside it, local
 replacements, module-cache dependencies, native/assembly inputs, custom tool
 flags and unknown provenance bypass lookup, in-flight joins and publication.
 Content-addressed paths or read-only permissions do not prove immutable source.
-Ordinary development builds use the retained compiler by default under the
-existing supervisor and fair link budget. The first build, or an incompatible
-tool/configuration/retained-state change, uses a complete captured stock build
-and atomically records a workspace-bound recipe beneath the private development
-cache. Package/import changes first use an ordinary shared-cache stock build to
-refresh the recorded graph while preserving compatible archives; a complete
-bootstrap is reserved for refreshes that cannot capture a required action.
-Compatible later body edits use and advance the current retained package state.
+Ordinary development builds use the retained compiler under the existing
+supervisor and fair link budget. Stock execution is neither the development
+default nor a fallback. The first build, or an incompatible tool/configuration/
+retained-state change, uses `cmd/go` to capture a complete workspace-bound tool
+recipe beneath the private development cache. Package/import changes use
+`cmd/go` to reconcile the recorded action graph while preserving compatible
+archives; incomplete capture requires a complete new capture. Compatible later
+body edits reuse the retained package graph for build-input discovery, invoke
+the compiler/linker directly, and advance current retained package state.
 Candidate preflight, activation,
 rollback, and executable ownership remain unchanged. Ephemeral, production-
-asset, and deployable builds remain on stock `go build`. No application
-configuration is required to select this internal policy.
+asset, and deployable builds remain on their existing stock artifact path. No
+application configuration is required to select this internal policy. Stock
+development execution exists only in repository benchmark binaries built with
+the private `scenery_benchmark_stock` tag.
 Before publication or reuse, current workspace membership/bytes and Go input
 checks still run; private builds retain these freshness checks too. Local
 replacement compilation reads only its owned generation, so an external

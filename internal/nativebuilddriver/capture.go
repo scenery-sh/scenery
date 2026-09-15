@@ -57,6 +57,7 @@ type Capture struct {
 	RequestEnv            map[string]string    `json:"request_environment"`
 	Digest                string               `json:"digest"`
 	Reason                string               `json:"reason,omitempty"`
+	PackageLoadingMS      float64              `json:"package_loading_ms,omitempty"`
 	DirectoryValidationMS float64              `json:"directory_validation_ms,omitempty"`
 	InputHashMS           float64              `json:"input_hash_ms,omitempty"`
 	SnapshotMS            float64              `json:"snapshot_ms,omitempty"`
@@ -68,8 +69,31 @@ type FileStamp struct {
 	Device, Inode                     uint64
 }
 
+// ValidateCurrentStamps rejects a capture whose live input domain changed
+// after it was recorded. Stock-Go graph refresh reads the live workspace, so
+// it must pass this check before publishing either recipe or executable.
+func (capture Capture) ValidateCurrentStamps() error {
+	for path, before := range capture.FileStamps {
+		after, err := os.Lstat(path)
+		if err != nil {
+			return fmt.Errorf("captured input changed during build: %s: %w", path, err)
+		}
+		if !after.Mode().IsRegular() || fileStamp(after) != before {
+			return fmt.Errorf("captured input changed during build, including a possible restore: %s", path)
+		}
+	}
+	for path, before := range capture.Directories {
+		after, err := directoryDigest(path)
+		if err != nil || after != before {
+			return fmt.Errorf("captured package membership changed during build: %s", path)
+		}
+	}
+	return nil
+}
+
 func FullCapture(ctx context.Context, goTool, workspace, snapshotRoot string, env []string, buildFlags []string) (Capture, error) {
 	started := time.Now()
+	packageLoadingStarted := started
 	result := Capture{Protocol: ProtocolVersion, Workspace: workspace, StartedAt: started.UTC(), Packages: map[string]Package{}, Files: map[string]string{}, FileStamps: map[string]FileStamp{}, Syntax: map[string]string{}, Directories: map[string]string{}, SnapshotFiles: map[string]string{}, BuildFlags: append([]string(nil), buildFlags...), RequestEnv: relevantRequestEnvironment(env)}
 	goPath, err := exec.LookPath(goTool)
 	if err != nil {
@@ -119,15 +143,19 @@ func FullCapture(ctx context.Context, goTool, workspace, snapshotRoot string, en
 	if len(result.Packages) == 0 {
 		return result, fmt.Errorf("empty package closure")
 	}
+	result.PackageLoadingMS = elapsedMS(packageLoadingStarted)
+	var directoryDuration, inputHashDuration, snapshotDuration time.Duration
 	for _, pkg := range result.Packages {
+		directoryStarted := time.Now()
 		if err := capturePackageDirectories(&result, pkg); err != nil {
 			return result, err
 		}
+		directoryDuration += time.Since(directoryStarted)
 		groups := [][]string{pkg.GoFiles, pkg.CgoFiles, pkg.CFiles, pkg.CXXFiles, pkg.MFiles, pkg.HFiles, pkg.FFiles, pkg.SFiles, pkg.SwigFiles, pkg.SwigCXXFiles, pkg.SysoFiles, pkg.EmbedFiles, pkg.IgnoredGoFiles, pkg.IgnoredOtherFiles}
 		for groupIndex, files := range groups {
 			for _, name := range files {
 				path := filepath.Join(pkg.Dir, name)
-				if err := captureFile(&result, workspace, snapshotRoot, path, groupIndex < 2); err != nil {
+				if err := captureFile(&result, workspace, snapshotRoot, path, groupIndex < 2, &inputHashDuration, &snapshotDuration); err != nil {
 					return result, err
 				}
 			}
@@ -138,18 +166,21 @@ func FullCapture(ctx context.Context, goTool, workspace, snapshotRoot string, en
 				mod = pkg.Module.Replace.GoMod
 			}
 			if mod != "" {
-				if err := captureFile(&result, workspace, snapshotRoot, mod, false); err != nil {
+				if err := captureFile(&result, workspace, snapshotRoot, mod, false, &inputHashDuration, &snapshotDuration); err != nil {
 					return result, err
 				}
 				sum := filepath.Join(filepath.Dir(mod), "go.sum")
 				if info, statErr := os.Lstat(sum); statErr == nil && info.Mode().IsRegular() {
-					if err := captureFile(&result, workspace, snapshotRoot, sum, false); err != nil {
+					if err := captureFile(&result, workspace, snapshotRoot, sum, false, &inputHashDuration, &snapshotDuration); err != nil {
 						return result, err
 					}
 				}
 			}
 		}
 	}
+	result.DirectoryValidationMS = float64(directoryDuration.Nanoseconds()) / 1e6
+	result.InputHashMS = float64(inputHashDuration.Nanoseconds()) / 1e6
+	result.SnapshotMS = float64(snapshotDuration.Nanoseconds()) / 1e6
 	encoded, err := canonicalCapture(result)
 	if err != nil {
 		return result, err
@@ -160,7 +191,8 @@ func FullCapture(ctx context.Context, goTool, workspace, snapshotRoot string, en
 	return result, nil
 }
 
-func captureFile(result *Capture, workspace, snapshotRoot, path string, goSyntax bool) error {
+func captureFile(result *Capture, workspace, snapshotRoot, path string, goSyntax bool, inputHashDuration, snapshotDuration *time.Duration) error {
+	hashStarted := time.Now()
 	path, err := filepath.Abs(path)
 	if err != nil {
 		return err
@@ -193,12 +225,15 @@ func captureFile(result *Capture, workspace, snapshotRoot, path string, goSyntax
 		}
 		result.Syntax[path] = syntax
 	}
+	*inputHashDuration += time.Since(hashStarted)
 	rel, ok := workspaceRelative(workspace, path)
 	if !ok {
 		return nil
 	}
 	dst := filepath.Join(snapshotRoot, "workspace", rel)
+	snapshotStarted := time.Now()
 	copy, err := CopyRegular(path, dst)
+	*snapshotDuration += time.Since(snapshotStarted)
 	if err != nil {
 		return err
 	}
@@ -252,6 +287,12 @@ func sourceSelectionIdentity(path string) (string, error) {
 	slices.Sort(values[1:])
 	h := sha256.Sum256([]byte(strings.Join(values, "\n")))
 	return "sha256:" + hex.EncodeToString(h[:]), nil
+}
+
+// SourceSelectionIdentity identifies the package/import/build-directive part
+// of one Go source file while deliberately ignoring function-body changes.
+func SourceSelectionIdentity(path string) (string, error) {
+	return sourceSelectionIdentity(path)
 }
 
 func canonicalCapture(value Capture) ([]byte, error) {

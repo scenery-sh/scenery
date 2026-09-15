@@ -223,8 +223,8 @@ func TestCompileCachedGraphWritesLatestBuildManifest(t *testing.T) {
 	if cached.Result.BuildInput == nil || len(cached.Result.ImplementationRevisions) == 0 {
 		t.Fatal("identity-bound build did not prepare candidate preflight identity")
 	}
-	if lists != 2 || checks != 1 {
-		t.Fatalf("publication skipped current proof: discovery calls=%d verification calls=%d, want 2/1", lists, checks)
+	if lists != 1 || checks != 1 {
+		t.Fatalf("publication repeated stable discovery: discovery calls=%d verification calls=%d, want 1/1", lists, checks)
 	}
 
 	manifest, ok, err := ReadLatestBuildManifest(appDir)

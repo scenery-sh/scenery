@@ -11,13 +11,12 @@ import (
 	"strings"
 
 	localagent "scenery.sh/internal/agent"
-	"scenery.sh/internal/atomicfile"
 )
 
 // Retain the executable bytes, not a symlink into the disposable build cache.
 // A content-addressed name also separates different framework generations that
 // happen to have the same app-source build filename.
-func prepareSessionAppBinary(session *localagent.Session, binary string) (string, error) {
+func prepareSessionAppBinary(session *localagent.Session, binary, expectedDigest string) (string, error) {
 	if session == nil || strings.TrimSpace(session.StateRoot) == "" || strings.TrimSpace(binary) == "" {
 		return "", nil
 	}
@@ -34,13 +33,47 @@ func prepareSessionAppBinary(session *localagent.Session, binary string) (string
 	if err != nil || !info.Mode().IsRegular() {
 		return "", fmt.Errorf("candidate executable is not a regular file: %s", binary)
 	}
-	hash := sha256.New()
-	if _, err := io.Copy(hash, in); err != nil {
+	expectedDigest = strings.TrimPrefix(expectedDigest, "sha256:")
+	if expectedDigest != "" {
+		decoded, decodeErr := hex.DecodeString(expectedDigest)
+		if decodeErr != nil || len(decoded) != sha256.Size {
+			return "", fmt.Errorf("candidate executable digest is invalid: %q", expectedDigest)
+		}
+	}
+	temporary, err := os.CreateTemp(dir, ".scenery-app-*")
+	if err != nil {
 		return "", err
 	}
-	digest := hex.EncodeToString(hash.Sum(nil))
+	temporaryPath := temporary.Name()
+	keepTemporary := false
+	defer func() {
+		_ = temporary.Close()
+		if !keepTemporary {
+			_ = os.Remove(temporaryPath)
+		}
+	}()
+	var writer io.Writer = temporary
+	var hash = sha256.New()
+	if expectedDigest == "" {
+		writer = io.MultiWriter(temporary, hash)
+	}
+	written, copyErr := io.Copy(writer, io.LimitReader(in, info.Size()+1))
+	if copyErr != nil {
+		return "", copyErr
+	}
+	after, err := in.Stat()
+	if err != nil || written != info.Size() || after.Size() != info.Size() || after.ModTime() != info.ModTime() {
+		return "", fmt.Errorf("candidate executable changed while copying: %s", binary)
+	}
+	digest := expectedDigest
+	if digest == "" {
+		digest = hex.EncodeToString(hash.Sum(nil))
+	}
 	target := filepath.Join(dir, "scenery-app-"+digest)
 	if _, err := os.Lstat(target); err == nil {
+		if closeErr := temporary.Close(); closeErr != nil {
+			return "", closeErr
+		}
 		if err := verifyRetainedAppBinary(target, digest); err != nil {
 			return "", err
 		}
@@ -48,20 +81,29 @@ func prepareSessionAppBinary(session *localagent.Session, binary string) (string
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return "", err
 	}
-	if _, err := in.Seek(0, io.SeekStart); err != nil {
+	if err := temporary.Chmod(info.Mode().Perm()); err != nil {
 		return "", err
 	}
-	owner, err := os.OpenRoot(dir)
+	if err := temporary.Sync(); err != nil {
+		return "", err
+	}
+	if err := temporary.Close(); err != nil {
+		return "", err
+	}
+	if err := os.Rename(temporaryPath, target); err != nil {
+		return "", err
+	}
+	keepTemporary = true
+	directory, err := os.Open(dir)
 	if err != nil {
+		_ = os.Remove(target)
 		return "", err
 	}
-	defer func() { _ = owner.Close() }()
-	if err := atomicfile.CopyRoot(owner, filepath.Base(target), in, info.Size(), info.Mode().Perm(), atomicfile.Options{SyncFile: true, SyncDir: true}); err != nil {
-		return "", err
-	}
-	if err := verifyRetainedAppBinary(target, digest); err != nil {
-		_ = owner.Remove(filepath.Base(target))
-		return "", err
+	syncErr := directory.Sync()
+	closeErr := directory.Close()
+	if syncErr != nil || closeErr != nil {
+		_ = os.Remove(target)
+		return "", errors.Join(syncErr, closeErr)
 	}
 	return target, nil
 }

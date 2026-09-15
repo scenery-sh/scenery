@@ -5,6 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"sort"
@@ -31,7 +34,7 @@ func nativeBuildBootstrapResult(root string) (map[string]any, []string, error) {
 			return nil, nil, err
 		}
 		status, _ := result["status"].(string)
-		if status != "bootstrap_complete" && status != "stock_go_build" {
+		if status != "bootstrap_complete" && status != "stock_go_build" && status != "bare_stock_go_build" {
 			continue
 		}
 		result["result_path"] = path
@@ -93,7 +96,7 @@ func (run *nativeBuildDriverRun) runNativeBuildDriverCorrectness() (result map[s
 	result = map[string]any{"status": "incomplete", "scope": "actual pinned full-ONLV recipe and authenticated AHJ runtime before primary cohorts"}
 	lanes := make([]*nativeBuildDriverLane, 0, 2)
 	defer func() { resultErr = errorsJoin(resultErr, run.closeLanes(lanes)) }()
-	for slot, backend := range []string{"stock", "driver"} {
+	for slot, backend := range []string{"stock", run.spec.candidate} {
 		lane, err := run.prepareLane(0, slot, backend)
 		if err != nil {
 			return result, err
@@ -103,34 +106,34 @@ func (run *nativeBuildDriverRun) runNativeBuildDriverCorrectness() (result map[s
 	if !bytes.Equal(lanes[0].original, lanes[1].original) {
 		return result, fmt.Errorf("correctness lanes do not share identical AHJ source bytes")
 	}
-	driver := lanes[1]
-	result["resources_before_negative"] = run.nativeBuildResourceSnapshot("correctness-owner", driver)
-	if _, err := run.commandEnv(driver.env, driver.appRoot, driver.name+"-down-before-negative", driver.scenery, "down", "-o", "json"); err != nil {
+	candidate := lanes[1]
+	result["resources_before_negative"] = run.nativeBuildResourceSnapshot("correctness-owner", candidate)
+	if _, err := run.commandEnv(candidate.env, candidate.appRoot, candidate.name+"-down-before-negative", candidate.scenery, "down", "-o", "json"); err != nil {
 		return result, err
 	}
-	negative, err := run.runNativeBuildDriverNegativeMatrix(driver)
+	negative, err := run.runNativeBuildDriverNegativeMatrix(candidate)
 	result["negative"] = negative
 	if err != nil {
 		return result, err
 	}
 	restartStarted := time.Now()
-	if _, err := run.commandEnv(driver.env, driver.appRoot, driver.name+"-up-after-negative", driver.scenery, "up", "--detach", "--wait", "ready", "-o", "json"); err != nil {
+	if _, err := run.commandEnv(candidate.env, candidate.appRoot, candidate.name+"-up-after-negative", candidate.scenery, "up", "--detach", "--wait", "ready", "-o", "json"); err != nil {
 		return result, err
 	}
-	driver.logPath, err = nativeBuildLaneLogPath(driver.appRoot, driver.name)
+	candidate.logPath, err = nativeBuildLaneLogPath(candidate.appRoot, candidate.name)
 	if err != nil {
 		return result, err
 	}
-	driver.token, err = nativeBuildDevToken(run.ctx, driver.origin)
+	candidate.token, err = nativeBuildDevToken(run.ctx, candidate.origin)
 	if err != nil {
 		return result, err
 	}
-	restartedIdentity, _, err := nativeBuildAwaitResponse(run.ctx, driver, "query must be at most 200 characters", driver.lastPID)
+	restartedIdentity, _, err := nativeBuildAwaitResponse(run.ctx, candidate, "query must be at most 200 characters", candidate.lastPID)
 	if err != nil {
 		return result, err
 	}
-	driver.lastPID, driver.lastIdentity = restartedIdentity.ProcessID, restartedIdentity
-	result["driver_runtime_restart"] = map[string]any{"wall_ms": nativeReloadMS(time.Since(restartStarted)), "served_identity": restartedIdentity, "passed": true}
+	candidate.lastPID, candidate.lastIdentity = restartedIdentity.ProcessID, restartedIdentity
+	result["candidate_runtime_restart"] = map[string]any{"backend": run.spec.candidate, "wall_ms": nativeReloadMS(time.Since(restartStarted)), "served_identity": restartedIdentity, "passed": true}
 
 	positive := map[string]any{}
 	bodyA, err := nativeReloadEditedSource(lanes[0].original, "matrix-size-a")
@@ -163,8 +166,19 @@ func (run *nativeBuildDriverRun) runNativeBuildDriverCorrectness() (result map[s
 		}
 		positive[lane.backend+"_same_size_restored_mtime"] = row
 	}
+	bodyC, err := nativeReloadEditedSource(lanes[0].original, "matrix-size-c")
+	if err != nil {
+		return result, err
+	}
 	for _, lane := range lanes {
-		row, err := run.measureLaneSource(lane, 0, 3, 0, "matrix-restore-a", lane.original, "query must be at most 200 characters", nil)
+		row, err := run.measureLaneSource(lane, 0, 3, 0, "matrix-size-c", bodyC, "query must be at most 200 characters [matrix-size-c]", nil)
+		if err != nil {
+			return result, err
+		}
+		positive[lane.backend+"_body_c"] = row
+	}
+	for _, lane := range lanes {
+		row, err := run.measureLaneSource(lane, 0, 4, 0, "matrix-restore-a", lane.original, "query must be at most 200 characters", nil)
 		if err != nil {
 			return result, err
 		}
@@ -178,12 +192,12 @@ func (run *nativeBuildDriverRun) runNativeBuildDriverCorrectness() (result map[s
 		if err != nil {
 			return result, err
 		}
-		row, err := run.measureLaneSource(lane, 0, 4, 0, "matrix-generic", generic, "query must be at most 200 characters [matrix-generic]", nil)
+		row, err := run.measureLaneSource(lane, 0, 5, 0, "matrix-generic", generic, "query must be at most 200 characters [matrix-generic]", nil)
 		if err != nil {
 			return result, err
 		}
 		positive[lane.backend+"_generic_inline_candidate"] = row
-		row, err = run.measureLaneSource(lane, 0, 5, 0, "matrix-generic-restore", lane.original, "query must be at most 200 characters", nil)
+		row, err = run.measureLaneSource(lane, 0, 6, 0, "matrix-generic-restore", lane.original, "query must be at most 200 characters", nil)
 		if err != nil {
 			return result, err
 		}
@@ -195,27 +209,27 @@ func (run *nativeBuildDriverRun) runNativeBuildDriverCorrectness() (result map[s
 		if !ok || !row.OK {
 			return result, fmt.Errorf("positive correctness case %s did not pass", name)
 		}
-		if row.Backend != "driver" {
+		if row.Backend != run.spec.candidate {
 			continue
 		}
 		if strings.Contains(name, "restore") {
 			if row.ToolInvocations < 1 || row.LinkMS <= 0 {
-				return result, fmt.Errorf("driver restore case %s did not relink a verified cached archive: tools=%d link_ms=%f", name, row.ToolInvocations, row.LinkMS)
+				return result, fmt.Errorf("candidate restore case %s did not relink a verified cached archive: tools=%d link_ms=%f", name, row.ToolInvocations, row.LinkMS)
 			}
 			continue
 		}
 		if !containsString(row.RebuiltPackages, "clean.tech/solar/ahjs") || !containsString(row.RebuiltPackages, "clean.tech/scenery_internal_main") || len(row.RebuiltPackages) < 2 {
-			return result, fmt.Errorf("driver case %s did not rebuild transitive consumers: %v", name, row.RebuiltPackages)
+			return result, fmt.Errorf("candidate case %s did not rebuild transitive consumers: %v", name, row.RebuiltPackages)
 		}
 	}
-	result["differential"] = map[string]any{"stock_and_driver_source_bytes_equal": true, "typed_behavior_equal": true, "driver_rebuilt_transitive_consumers": true, "owner_reused_across_edits": true}
+	result["differential"] = map[string]any{"stock_and_candidate_source_bytes_equal": true, "typed_behavior_equal": true, "candidate_rebuilt_transitive_consumers": true, "owner_reused_across_edits": true, "sequential_a_b_c": true}
 
 	for _, lane := range lanes {
 		if _, err := run.commandEnv(lane.env, lane.appRoot, lane.name+"-down-after-positive", lane.scenery, "down", "-o", "json"); err != nil {
 			return result, err
 		}
 	}
-	recipeData, err := os.ReadFile(filepath.Join(driver.stateRoot, "recipe.json"))
+	recipeData, err := os.ReadFile(filepath.Join(candidate.stateRoot, "recipe.json"))
 	if err != nil {
 		return result, err
 	}
@@ -232,7 +246,7 @@ func (run *nativeBuildDriverRun) runNativeBuildDriverCorrectness() (result map[s
 	if err != nil {
 		return result, err
 	}
-	owner, err := run.runNativeBuildOwnerRejection(driver, recipe, ownerService, ownerOriginal)
+	owner, err := run.runNativeBuildOwnerRejection(candidate, recipe, ownerService, ownerOriginal)
 	negative["owner_and_cancellation"] = owner
 	if err != nil {
 		return result, err
@@ -318,7 +332,9 @@ func (run *nativeBuildDriverRun) runNativeBuildDriverNegativeMatrix(lane *native
 		return nil, fmt.Errorf("actual AHJ compile action is absent")
 	}
 	importCfg := compile.Files[compile.ImportCfgAt].Copy
-	embed, err := smallestOwnedInput(base, lane.appRoot, func(pkg nativebuilddriver.Package, name string) bool { return containsString(pkg.EmbedFiles, name) })
+	embed, err := smallestOwnedInput(base, base.Workspace, func(pkg nativebuilddriver.Package, name string) bool {
+		return strings.HasPrefix(pkg.ImportPath, "clean.tech/") && containsString(pkg.EmbedFiles, name)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -382,6 +398,11 @@ func (run *nativeBuildDriverRun) runNativeBuildDriverNegativeMatrix(lane *native
 
 	snapshot, err := run.runNativeBuildSnapshotIsolation(lane, base, service, originalService)
 	results["live_source_a_b_a_during_compile"] = snapshot
+	if err != nil {
+		return results, err
+	}
+	embedSnapshot, err := run.runNativeBuildEmbedIsolation(lane, base, embed)
+	results["live_embed_a_b_during_compile"] = embedSnapshot
 	if err != nil {
 		return results, err
 	}
@@ -686,6 +707,141 @@ func (run *nativeBuildDriverRun) runNativeBuildSnapshotIsolation(lane *nativeBui
 		return entry, fmt.Errorf("captured-source isolation proof failed")
 	}
 	return entry, nil
+}
+
+func (run *nativeBuildDriverRun) runNativeBuildEmbedIsolation(lane *nativeBuildDriverLane, recipe nativebuilddriver.Recipe, asset string) (map[string]any, error) {
+	var owner nativebuilddriver.Package
+	for _, pkg := range recipe.Current.Packages {
+		for _, name := range pkg.EmbedFiles {
+			if filepath.Clean(filepath.Join(pkg.Dir, name)) == filepath.Clean(asset) {
+				owner = pkg
+				break
+			}
+		}
+	}
+	if owner.ImportPath == "" || len(owner.GoFiles) == 0 {
+		return nil, fmt.Errorf("embedded correctness asset has no captured Go package owner: %s", asset)
+	}
+	source := ""
+	var sourceOriginal, sourceChanged []byte
+	for _, name := range owner.GoFiles {
+		candidate := filepath.Join(owner.Dir, name)
+		data, err := os.ReadFile(candidate)
+		if err != nil {
+			return nil, err
+		}
+		changed, err := nativeBuildFunctionBodyEdit(candidate, data, "embed-isolation-trigger")
+		if err == nil {
+			source, sourceOriginal, sourceChanged = candidate, data, changed
+			break
+		}
+	}
+	if source == "" {
+		return nil, fmt.Errorf("embedded package %s has no editable function body", owner.ImportPath)
+	}
+	assetOriginal, err := os.ReadFile(asset)
+	if err != nil {
+		return nil, err
+	}
+	assetInfo, err := os.Stat(asset)
+	if err != nil {
+		return nil, err
+	}
+	sourceInfo, err := os.Stat(source)
+	if err != nil {
+		return nil, err
+	}
+	capturedA := []byte("scenery-captured-embed-a-" + strings.Repeat("a", 96))
+	liveB := []byte("scenery-mutable-embed-b-" + strings.Repeat("b", 97))
+	if len(capturedA) != len(liveB) {
+		return nil, fmt.Errorf("embed correctness markers differ in length")
+	}
+	if err := os.WriteFile(asset, capturedA, assetInfo.Mode().Perm()); err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(source, sourceChanged, sourceInfo.Mode().Perm()); err != nil {
+		_ = os.WriteFile(asset, assetOriginal, assetInfo.Mode().Perm())
+		return nil, err
+	}
+	defer func() {
+		_ = os.WriteFile(source, sourceOriginal, sourceInfo.Mode().Perm())
+		_ = os.WriteFile(asset, assetOriginal, assetInfo.Mode().Perm())
+	}()
+	digestA, _, err := nativebuilddriver.FileDigest(asset)
+	if err != nil {
+		return nil, err
+	}
+	recipe.Current.Files[asset] = digestA
+	recipe.Current.Digest = "sha256:embed-isolation-baseline"
+	request := nativeBuildRequestForMatrix(lane, &recipe, "embed-isolation")
+	_ = os.Remove(request.Output)
+	type outcome struct {
+		result nativebuilddriver.BuildResult
+		err    error
+	}
+	done := make(chan outcome, 1)
+	go func() {
+		result, err := recipe.Build(run.ctx, request)
+		done <- outcome{result, err}
+	}()
+	rel, err := filepath.Rel(recipe.Workspace, asset)
+	if err != nil {
+		return nil, err
+	}
+	snapshot := filepath.Join(request.GenerationRoot, "snapshot", "workspace", rel)
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		if data, readErr := os.ReadFile(snapshot); readErr == nil && bytes.Equal(data, capturedA) {
+			break
+		}
+		select {
+		case observed := <-done:
+			return map[string]any{"passed": false, "build": observed.result, "error": fmt.Sprint(observed.err)}, fmt.Errorf("embed build completed before snapshot mutation barrier")
+		default:
+		}
+		if time.Now().After(deadline) {
+			return nil, fmt.Errorf("embed snapshot mutation barrier timed out")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if err := os.WriteFile(asset, liveB, assetInfo.Mode().Perm()); err != nil {
+		return nil, err
+	}
+	observed := <-done
+	artifact, readErr := os.ReadFile(request.Output)
+	containsA, containsB := bytes.Contains(artifact, capturedA), bytes.Contains(artifact, liveB)
+	passed := observed.err == nil && observed.result.Status == "supported_and_rebuilt" && readErr == nil && containsA && !containsB && containsString(observed.result.RebuiltPackages, owner.ImportPath)
+	entry := map[string]any{
+		"passed": passed, "status": observed.result.Status, "error": fmt.Sprint(observed.err), "package": owner.ImportPath,
+		"snapshot_path": snapshot, "captured_a_present_in_artifact": containsA, "mutable_b_absent_from_artifact": !containsB,
+		"rebuilt_packages": observed.result.RebuiltPackages,
+	}
+	if !passed {
+		return entry, fmt.Errorf("captured embed isolation proof failed")
+	}
+	return entry, nil
+}
+
+func nativeBuildFunctionBodyEdit(path string, source []byte, marker string) ([]byte, error) {
+	files := token.NewFileSet()
+	parsed, err := parser.ParseFile(files, path, source, 0)
+	if err != nil {
+		return nil, err
+	}
+	for _, declaration := range parsed.Decls {
+		function, ok := declaration.(*ast.FuncDecl)
+		if !ok || function.Body == nil {
+			continue
+		}
+		offset := files.Position(function.Body.Lbrace).Offset + 1
+		insert := []byte("\n\t_ = " + strconv.Quote(marker) + "\n")
+		result := make([]byte, 0, len(source)+len(insert))
+		result = append(result, source[:offset]...)
+		result = append(result, insert...)
+		result = append(result, source[offset:]...)
+		return result, nil
+	}
+	return nil, fmt.Errorf("source has no function body: %s", path)
 }
 
 func (run *nativeBuildDriverRun) runNativeBuildOwnerRejection(lane *nativeBuildDriverLane, recipe nativebuilddriver.Recipe, service string, original []byte) (map[string]any, error) {

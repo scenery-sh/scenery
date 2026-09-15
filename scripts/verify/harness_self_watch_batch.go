@@ -356,6 +356,10 @@ type harnessWatchEvent struct {
 		WrittenPaths              []string `json:"written_paths"`
 		RemovedPaths              []string `json:"removed_paths"`
 		ExecutableBytes           int64    `json:"executable_bytes"`
+		FilesHashed               int      `json:"files_hashed"`
+		BytesHashed               int64    `json:"bytes_hashed"`
+		FilesReused               int      `json:"files_reused"`
+		BytesReused               int64    `json:"bytes_reused"`
 		PackagesRebuilt           []string `json:"packages_rebuilt"`
 		PackagesRebuiltAvailable  bool     `json:"packages_rebuilt_available"`
 		SnapshotDigest            string   `json:"snapshot_digest"`

@@ -87,9 +87,6 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 		earlyAssistants = s.assistants.beginStage(ctx, captured.contract)
 		defer earlyAssistants.release()
 	}
-	if err := s.requireCurrentBuildSnapshot(captured); err != nil {
-		return s.handleCompileError(ctx, nil, nil, err)
-	}
 	plan, err := s.prepareDevRuntimePlan(ctx, initial, captured)
 	if err != nil {
 		metadata, apiEncoding := devBuildErrorPayload(err)
@@ -100,9 +97,6 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 			return err
 		}
 	}
-	if err := s.requireCurrentBuildSnapshot(captured); err != nil {
-		return s.handleCompileError(ctx, plan.Metadata, plan.APIEncoding, err)
-	}
 	if err := build.VerifyOwnedGoModuleSourcesContext(ctx, plan.Result.OwnedGoModuleSources); err != nil {
 		return s.handleCompileError(ctx, plan.Metadata, plan.APIEncoding, err)
 	}
@@ -112,7 +106,11 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 		candidate, err = s.prepareAppStart(ctx, plan.Result, plan.Metadata, plan.APIEncoding, plan.Environment)
 		return err
 	})
-	build.RecordStep(ctx, build.Step{Name: "candidate.prepare", StartedAt: candidateStarted, Duration: time.Since(candidateStarted), Cache: "not_applicable", Reason: "retained_executable_and_environment", OK: err == nil})
+	candidateStep := build.Step{Name: "candidate.prepare", StartedAt: candidateStarted, Duration: time.Since(candidateStarted), Cache: "not_applicable", Reason: "retained_executable_and_environment", OK: err == nil}
+	if candidate != nil && candidate.request.Command != "" {
+		candidateStep.WrittenPaths = []string{candidate.request.Command}
+	}
+	build.RecordStep(ctx, candidateStep)
 	defer s.releaseUnusedAppBinary(candidate)
 	if err == nil {
 		preflightStarted := time.Now()
@@ -295,7 +293,7 @@ func (s *devSupervisor) prepareAppStart(ctx context.Context, result *build.Resul
 	agentSession := s.currentAgentSession()
 	binary := result.Binary
 	sessionBinary, environment, err := prepareAppStartInputs(func() (string, error) {
-		return prepareSessionAppBinary(agentSession, result.Binary)
+		return prepareSessionAppBinary(agentSession, result.Binary, result.ArtifactDigest)
 	}, func() (*devRuntimeEnvironment, error) {
 		if environment != nil {
 			return environment, nil

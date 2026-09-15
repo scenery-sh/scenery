@@ -20,42 +20,53 @@ type BuildRequest struct {
 }
 
 type BuildResult struct {
-	StartedAt       time.Time              `json:"transaction_started_at"`
-	Backend         string                 `json:"backend,omitempty"`
-	Owner           string                 `json:"owner,omitempty"`
-	RequestSequence uint64                 `json:"request_sequence,omitempty"`
-	Status          string                 `json:"status"`
-	CaptureMS       float64                `json:"capture_ms"`
-	ArchiveMS       float64                `json:"archive_validation_ms,omitempty"`
-	SupportMS       float64                `json:"support_validation_ms,omitempty"`
-	DirectoryMS     float64                `json:"directory_validation_ms,omitempty"`
-	InputHashMS     float64                `json:"input_hash_ms,omitempty"`
-	SnapshotMS      float64                `json:"snapshot_ms,omitempty"`
-	ValidationMS    float64                `json:"validation_ms"`
-	PlanningMS      float64                `json:"planning_ms"`
-	CompileMS       float64                `json:"compile_ms"`
-	LinkMS          float64                `json:"link_ms"`
-	FinalizationMS  float64                `json:"finalization_ms"`
-	ArtifactBuildMS float64                `json:"artifact_build_ms"`
-	TransactionMS   float64                `json:"transaction_ms"`
-	Phases          map[string]PhaseTiming `json:"phases,omitempty"`
-	CaptureDigest   string                 `json:"capture_digest"`
-	ArtifactDigest  string                 `json:"artifact_digest"`
-	ExecutableBytes int64                  `json:"executable_bytes"`
-	ChangedPackages []string               `json:"changed_packages"`
-	RebuiltPackages []string               `json:"rebuilt_packages"`
-	ToolInvocations int                    `json:"tool_invocations"`
-	ActionArtifacts map[string]string      `json:"action_artifacts"`
-	Reason          string                 `json:"reason,omitempty"`
-	ExpectedConfig  *BuildConfig           `json:"expected_config,omitempty"`
-	ObservedConfig  *BuildConfig           `json:"observed_config,omitempty"`
-	capture         Capture
-	archiveOutputs  map[string]string
+	StartedAt        time.Time              `json:"transaction_started_at"`
+	Backend          string                 `json:"backend,omitempty"`
+	Owner            string                 `json:"owner,omitempty"`
+	RequestSequence  uint64                 `json:"request_sequence,omitempty"`
+	Status           string                 `json:"status"`
+	CaptureMS        float64                `json:"capture_ms"`
+	ArchiveMS        float64                `json:"archive_validation_ms,omitempty"`
+	SupportMS        float64                `json:"support_validation_ms,omitempty"`
+	PackageLoadingMS float64                `json:"package_loading_ms,omitempty"`
+	DirectoryMS      float64                `json:"directory_validation_ms,omitempty"`
+	InputHashMS      float64                `json:"input_hash_ms,omitempty"`
+	SnapshotMS       float64                `json:"snapshot_ms,omitempty"`
+	ValidationMS     float64                `json:"validation_ms"`
+	PlanningMS       float64                `json:"planning_ms"`
+	CompileMS        float64                `json:"compile_ms"`
+	LinkMS           float64                `json:"link_ms"`
+	FinalizationMS   float64                `json:"finalization_ms"`
+	ArtifactBuildMS  float64                `json:"artifact_build_ms"`
+	TransactionMS    float64                `json:"transaction_ms"`
+	Phases           map[string]PhaseTiming `json:"phases,omitempty"`
+	CaptureDigest    string                 `json:"capture_digest"`
+	ArtifactDigest   string                 `json:"artifact_digest"`
+	ExecutableBytes  int64                  `json:"executable_bytes"`
+	ChangedPackages  []string               `json:"changed_packages"`
+	RebuiltPackages  []string               `json:"rebuilt_packages"`
+	ToolInvocations  int                    `json:"tool_invocations"`
+	ActionArtifacts  map[string]string      `json:"action_artifacts"`
+	Reason           string                 `json:"reason,omitempty"`
+	ExpectedConfig   *BuildConfig           `json:"expected_config,omitempty"`
+	ObservedConfig   *BuildConfig           `json:"observed_config,omitempty"`
+	capture          Capture
+	archiveOutputs   map[string]string
 }
 
 type PhaseTiming struct {
-	StartedAt  time.Time `json:"started_at"`
-	DurationMS float64   `json:"duration_ms"`
+	StartedAt   time.Time `json:"started_at"`
+	DurationMS  float64   `json:"duration_ms"`
+	FilesHashed int       `json:"files_hashed,omitempty"`
+	BytesHashed int64     `json:"bytes_hashed,omitempty"`
+	FilesReused int       `json:"files_reused,omitempty"`
+	BytesReused int64     `json:"bytes_reused,omitempty"`
+}
+
+type StateCommitStats struct {
+	HashStats
+	FilesReused int   `json:"files_reused"`
+	BytesReused int64 `json:"bytes_reused"`
 }
 
 type BuildConfig struct {
@@ -107,7 +118,7 @@ func (recipe *Recipe) Build(ctx context.Context, request BuildRequest) (result B
 	}
 	result.CaptureMS, result.CaptureDigest = capture.DurationMS, capture.Digest
 	recordPhase("input_capture", captureAt)
-	result.DirectoryMS, result.InputHashMS, result.SnapshotMS = capture.DirectoryValidationMS, capture.InputHashMS, capture.SnapshotMS
+	result.PackageLoadingMS, result.DirectoryMS, result.InputHashMS, result.SnapshotMS = capture.PackageLoadingMS, capture.DirectoryValidationMS, capture.InputHashMS, capture.SnapshotMS
 	if err != nil {
 		return result, err
 	}
@@ -202,14 +213,15 @@ func (recipe *Recipe) Build(ctx context.Context, request BuildRequest) (result B
 // Advance returns a self-contained next recipe whose source snapshots and
 // rebuilt archives survive deletion of the build generation. The receiver is
 // unchanged unless the caller atomically publishes the returned manifest.
-func (recipe *Recipe) Advance(result BuildResult, stateRoot string) (*Recipe, error) {
+func (recipe *Recipe) Advance(result BuildResult, stateRoot string) (*Recipe, StateCommitStats, error) {
+	var stats StateCommitStats
 	if result.Status != "supported_and_rebuilt" || result.capture.Digest == "" {
-		return nil, fmt.Errorf("only a successful retained build can advance state")
+		return nil, stats, fmt.Errorf("only a successful retained build can advance state")
 	}
 	next := *recipe
 	next.Current = cloneCaptureValue(result.capture)
 	next.ArchiveByOld = cloneStrings(recipe.ArchiveByOld)
-	next.Retained = map[string]RetainedFile{}
+	next.Retained = cloneRetainedFiles(recipe.Retained)
 	next.Support = cloneRetainedFiles(recipe.Support)
 
 	for original, snapshot := range next.Current.SnapshotFiles {
@@ -220,48 +232,145 @@ func (recipe *Recipe) Advance(result BuildResult, stateRoot string) (*Recipe, er
 			continue
 		}
 		target := filepath.Join(stateRoot, "snapshots", digestName(original+"\x00"+next.Current.Files[original])+filepath.Ext(original))
+		if retained, ok := recipe.Support[target]; ok && retained.Digest == next.Current.Files[original] {
+			next.Current.SnapshotFiles[original] = target
+			continue
+		}
 		if !samePath(snapshot, target) {
-			copy, err := CopyRegular(snapshot, target)
+			copy, err := copyRegularMeasured(snapshot, target, &stats.HashStats)
 			if err != nil {
-				return nil, fmt.Errorf("retain current source snapshot %s: %w", original, err)
+				return nil, stats, fmt.Errorf("retain current source snapshot %s: %w", original, err)
 			}
 			if copy.Digest != next.Current.Files[original] {
-				return nil, fmt.Errorf("current source snapshot identity changed: %s", original)
+				return nil, stats, fmt.Errorf("current source snapshot identity changed: %s", original)
 			}
+			retained, err := retainedFileMetadata(target, copy.Digest, copy.Bytes)
+			if err != nil {
+				return nil, stats, err
+			}
+			next.Support[target] = retained
+		} else if next.Support[target].Digest == "" {
+			digest, size, err := fileDigestMeasured(target, &stats.HashStats)
+			if err != nil {
+				return nil, stats, err
+			}
+			if digest != next.Current.Files[original] {
+				return nil, stats, fmt.Errorf("current source snapshot identity changed: %s", original)
+			}
+			retained, err := retainedFileMetadata(target, digest, size)
+			if err != nil {
+				return nil, stats, err
+			}
+			next.Support[target] = retained
 		}
 		next.Current.SnapshotFiles[original] = target
 	}
 	for pkg, output := range result.archiveOutputs {
 		action := next.Compiles[pkg]
 		if action == nil {
-			return nil, fmt.Errorf("rebuilt package recipe is absent: %s", pkg)
+			return nil, stats, fmt.Errorf("rebuilt package recipe is absent: %s", pkg)
 		}
 		digest := result.ActionArtifacts[pkg]
 		if digest == "" {
-			return nil, fmt.Errorf("rebuilt package digest is absent: %s", pkg)
+			return nil, stats, fmt.Errorf("rebuilt package digest is absent: %s", pkg)
 		}
 		target := filepath.Join(stateRoot, "artifacts", strings.TrimPrefix(digest, "sha256:")+".a")
-		copy, err := CopyRegular(output, target)
-		if err != nil {
-			return nil, fmt.Errorf("retain rebuilt archive %s: %w", pkg, err)
-		}
-		if copy.Digest != digest {
-			return nil, fmt.Errorf("rebuilt archive identity changed: %s", pkg)
+		if retained, ok := recipe.Retained[target]; !ok || retained.Digest != digest {
+			copy, err := copyRegularMeasured(output, target, &stats.HashStats)
+			if err != nil {
+				return nil, stats, fmt.Errorf("retain rebuilt archive %s: %w", pkg, err)
+			}
+			if copy.Digest != digest {
+				return nil, stats, fmt.Errorf("rebuilt archive identity changed: %s", pkg)
+			}
+			retained, err := retainedFileMetadata(target, copy.Digest, copy.Bytes)
+			if err != nil {
+				return nil, stats, err
+			}
+			next.Retained[target] = retained
 		}
 		for _, alias := range next.archiveAliases(pkg) {
 			next.ArchiveByOld[alias] = target
 		}
 	}
-	if err := next.rebuildRetainedAccounting(); err != nil {
-		return nil, err
+	if err := next.reconcileRetainedAccounting(recipe.Retained, &stats); err != nil {
+		return nil, stats, err
 	}
-	if err := next.rebuildSupportAccounting(); err != nil {
-		return nil, err
+	if err := next.reconcileSupportAccounting(recipe.Support, &stats); err != nil {
+		return nil, stats, err
 	}
 	if err := next.Validate(); err != nil {
-		return nil, err
+		return nil, stats, err
 	}
-	return &next, nil
+	return &next, stats, nil
+}
+
+func retainedFileMetadata(path, digest string, size int64) (RetainedFile, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return RetainedFile{}, err
+	}
+	if !info.Mode().IsRegular() || info.Size() != size {
+		return RetainedFile{}, fmt.Errorf("retained build input is not the expected regular file: %s", path)
+	}
+	return RetainedFile{Digest: digest, Bytes: size, Stamp: fileStamp(info)}, nil
+}
+
+func (recipe *Recipe) reconcileRetainedAccounting(previous map[string]RetainedFile, stats *StateCommitStats) error {
+	retained := make(map[string]RetainedFile, len(recipe.ArchiveByOld))
+	var total int64
+	for _, path := range recipe.ArchiveByOld {
+		if _, exists := retained[path]; exists {
+			continue
+		}
+		file, ok := recipe.Retained[path]
+		if !ok || file.Digest == "" || file.Bytes <= 0 {
+			return fmt.Errorf("retained archive metadata is absent: %s", path)
+		}
+		retained[path] = file
+		total += file.Bytes
+		if prior, ok := previous[path]; ok && prior == file {
+			stats.FilesReused++
+			stats.BytesReused += file.Bytes
+		}
+	}
+	recipe.Retained = retained
+	recipe.RetainedBytes = total
+	recipe.RetentionLimit = total*2 + 512<<20
+	return nil
+}
+
+func (recipe *Recipe) reconcileSupportAccounting(previous map[string]RetainedFile, stats *StateCommitStats) error {
+	required := map[string]string{}
+	for _, action := range recipe.Compiles {
+		for _, file := range action.Files {
+			if _, source := recipe.Current.Files[file.Original]; !source {
+				required[file.Copy] = file.Digest
+			}
+		}
+	}
+	for _, file := range recipe.Link.Files {
+		if _, source := recipe.Current.Files[file.Original]; !source {
+			required[file.Copy] = file.Digest
+		}
+	}
+	for original, path := range recipe.Current.SnapshotFiles {
+		required[path] = recipe.Current.Files[original]
+	}
+	support := make(map[string]RetainedFile, len(required))
+	for path, digest := range required {
+		file, ok := recipe.Support[path]
+		if !ok || file.Digest == "" || file.Digest != digest {
+			return fmt.Errorf("retained support metadata is absent: %s", path)
+		}
+		support[path] = file
+		if prior, ok := previous[path]; ok && prior == file {
+			stats.FilesReused++
+			stats.BytesReused += file.Bytes
+		}
+	}
+	recipe.Support = support
+	return nil
 }
 
 // archiveAliases returns every stock-Go archive path that an action or the

@@ -1,6 +1,7 @@
 package build
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -8,7 +9,6 @@ import (
 	"time"
 
 	"scenery.sh/internal/compiler"
-	"scenery.sh/internal/nativebuilddriver"
 )
 
 func TestRetainedNativeCompilerIsDefaultOnlyForDevelopment(t *testing.T) {
@@ -33,18 +33,18 @@ func TestRetainedNativeCompilerIsDefaultOnlyForDevelopment(t *testing.T) {
 	}
 }
 
-func TestRetainedNativeCompilerRespectsSelectedGoDriver(t *testing.T) {
-	stock := filepath.Dir(stockGoDriverPath())
-	if !usesStockGoDriver([]string{"PATH=" + stock}) {
-		t.Fatalf("runtime Go driver at %s was not recognized", stock)
+func TestRetainedNativeCompilerDoesNotFallBackForWrappedPath(t *testing.T) {
+	originalExecutable, originalRun := retainedNativeExecutable, runRetainedNativeCompiler
+	defer func() { retainedNativeExecutable, runRetainedNativeCompiler = originalExecutable, originalRun }()
+	retainedNativeExecutable = func() (string, bool) { return "/fixture/scenery", true }
+	calls := 0
+	runRetainedNativeCompiler = func(context.Context, *Result, string) error {
+		calls++
+		return nil
 	}
-	wrapperRoot := t.TempDir()
-	wrapper := filepath.Join(wrapperRoot, "go")
-	if err := os.WriteFile(wrapper, []byte("wrapper"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if usesStockGoDriver([]string{"PATH=" + wrapperRoot + string(os.PathListSeparator) + stock}) {
-		t.Fatal("custom Go driver was bypassed by the retained backend")
+	result := &Result{Target: &compiler.GoBuildTarget{Role: "development"}, GoEnvironment: []string{"PATH=/fixture/wrapper"}}
+	if err := compileApplicationBinaryContext(context.Background(), result); err != nil || calls != 1 {
+		t.Fatalf("development dispatch calls=%d err=%v", calls, err)
 	}
 }
 
@@ -137,28 +137,10 @@ func TestRetainedNativeCacheEntryLoadsRecipeOnce(t *testing.T) {
 	}
 }
 
-func TestRetainedNativeGraphRefreshFlagsForceOnlyWorkspacePackages(t *testing.T) {
-	parent := t.TempDir()
-	workspace := filepath.Join(parent, "workspace")
-	if err := os.Mkdir(workspace, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	for _, name := range []string{"service", "scenery_internal_main"} {
-		if err := os.Mkdir(filepath.Join(workspace, name), 0o700); err != nil {
-			t.Fatal(err)
-		}
-	}
-	workspaceAlias := filepath.Join(parent, "workspace-alias")
-	if err := os.Symlink(workspace, workspaceAlias); err != nil {
-		t.Fatal(err)
-	}
-	packages := map[string]nativebuilddriver.Package{
-		"example/app/service": {Dir: filepath.Join(workspaceAlias, "service")},
-		"example/app":         {Dir: filepath.Join(workspace, "scenery_internal_main")},
-		"example/dependency":  {Dir: filepath.Join(t.TempDir(), "dependency")},
-	}
+func TestRetainedNativeGraphRefreshFlagsForceOnlySelectedPackages(t *testing.T) {
+	packages := []string{"example/app/service", "example/app"}
 	token := filepath.Join(t.TempDir(), "refresh")
-	got, ok := retainedNativeGraphRefreshFlags(workspace, packages, token, []string{"GOFLAGS=-tags=fixture"}, []string{"-tags=fixture"})
+	got, ok := retainedNativeGraphRefreshFlags(packages, token, []string{"GOFLAGS=-tags=fixture"}, []string{"-tags=fixture"})
 	if !ok {
 		t.Fatal("ordinary build flags rejected graph refresh")
 	}
@@ -171,11 +153,11 @@ func TestRetainedNativeGraphRefreshFlagsForceOnlyWorkspacePackages(t *testing.T)
 		t.Fatalf("flags = %#v, want %#v", got, want)
 	}
 	for _, configured := range [][]string{{"-gcflags=all=-N"}, {"-gcflags", "all=-N"}} {
-		if _, ok := retainedNativeGraphRefreshFlags(workspace, packages, token, nil, configured); ok {
+		if _, ok := retainedNativeGraphRefreshFlags(packages, token, nil, configured); ok {
 			t.Fatalf("configured compiler flags %#v did not require bootstrap", configured)
 		}
 	}
-	if _, ok := retainedNativeGraphRefreshFlags(workspace, packages, token, []string{"GOFLAGS=-gcflags=all=-N"}, nil); ok {
+	if _, ok := retainedNativeGraphRefreshFlags(packages, token, []string{"GOFLAGS=-gcflags=all=-N"}, nil); ok {
 		t.Fatal("GOFLAGS compiler settings did not require bootstrap")
 	}
 }

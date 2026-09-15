@@ -2,6 +2,7 @@ package build
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -89,6 +90,89 @@ func TestGoInputDiscoveryRequestsEveryConsumedField(t *testing.T) {
 	slices.Sort(requested)
 	if !slices.Equal(fields, requested) {
 		t.Fatalf("Go input projection does not match consumed fields: requested=%v consumed=%v", requested, fields)
+	}
+}
+
+func TestRetainedBuildInputGraphSkipsBodyEditListAndRelistsImportChange(t *testing.T) {
+	resetRetainedBuildInputGraphsForTesting()
+	t.Cleanup(resetRetainedBuildInputGraphsForTesting)
+	root := t.TempDir()
+	mainDir := filepath.Join(root, "scenery_internal_main")
+	if err := os.MkdirAll(mainDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	goMod := filepath.Join(root, "go.mod")
+	mainFile := filepath.Join(mainDir, "main.go")
+	if err := os.WriteFile(goMod, []byte("module example.test/app\n\ngo 1.27\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	writeMain := func(source string) {
+		t.Helper()
+		if err := os.WriteFile(mainFile, []byte(source), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeMain("package main\nfunc main() { println(\"A\") }\n")
+	module := &goListModule{Path: "example.test/app", Dir: root, GoMod: goMod}
+	encoded, err := json.Marshal(goListPackage{Dir: mainDir, ImportPath: "example.test/app/scenery_internal_main", GoFiles: []string{"main.go"}, Module: module})
+	if err != nil {
+		t.Fatal(err)
+	}
+	originalList := runGoInputList
+	lists := 0
+	runGoInputList = func(context.Context, string, []string, ...string) ([]byte, error) {
+		lists++
+		return encoded, nil
+	}
+	t.Cleanup(func() { runGoInputList = originalList })
+	result := &Result{AppRoot: root, Dir: root, Target: &compiler.GoBuildTarget{Name: "development"}}
+	first, err := buildInputManifest(context.Background(), result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeMain("package main\nfunc main() { println(\"B\") }\n")
+	second, err := buildInputManifest(context.Background(), result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lists != 1 || first.Digest == second.Digest {
+		t.Fatalf("body edit lists=%d first=%s second=%s", lists, first.Digest, second.Digest)
+	}
+	writeMain("package main\nimport _ \"embed\"\nfunc main() { println(\"C\") }\n")
+	if _, err := buildInputManifest(context.Background(), result); err != nil {
+		t.Fatal(err)
+	}
+	if lists != 2 {
+		t.Fatalf("import edit reused stale package graph: lists=%d", lists)
+	}
+	writeMain("//go:build darwin\n\npackage main\nimport _ \"embed\"\nfunc main() { println(\"D\") }\n")
+	if _, err := buildInputManifest(context.Background(), result); err != nil {
+		t.Fatal(err)
+	}
+	if lists != 3 {
+		t.Fatalf("build directive edit reused stale package graph: lists=%d", lists)
+	}
+	if err := os.WriteFile(filepath.Join(mainDir, "added.go"), []byte("package main\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	changedAt := time.Now().Add(2 * time.Second)
+	if err := os.Chtimes(mainDir, changedAt, changedAt); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := buildInputManifest(context.Background(), result); err != nil {
+		t.Fatal(err)
+	}
+	if lists != 4 {
+		t.Fatalf("package membership edit reused stale package graph: lists=%d", lists)
+	}
+	if err := os.WriteFile(goMod, []byte("module example.test/app\n\ngo 1.27\n\nrequire example.test/dependency v1.0.0\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := buildInputManifest(context.Background(), result); err != nil {
+		t.Fatal(err)
+	}
+	if lists != 5 {
+		t.Fatalf("module edit reused stale package graph: lists=%d", lists)
 	}
 }
 

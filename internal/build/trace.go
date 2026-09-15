@@ -23,6 +23,10 @@ type Step struct {
 	FilesWritten              int
 	FilesRemoved              int
 	BytesWritten              int64
+	FilesHashed               int
+	BytesHashed               int64
+	FilesReused               int
+	BytesReused               int64
 	WrittenPaths              []string
 	RemovedPaths              []string
 	PackagesRebuilt           []string

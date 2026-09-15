@@ -60,19 +60,26 @@ type harnessEditLatencySample struct {
 }
 
 type harnessEditLatencyPhase struct {
-	Name            string  `json:"name"`
-	DurationMS      float64 `json:"duration_ms"`
-	QueueMS         float64 `json:"queue_ms,omitempty"`
-	Cache           string  `json:"cache"`
-	Reason          string  `json:"reason"`
-	OK              bool    `json:"ok"`
-	Actions         int     `json:"actions,omitempty"`
-	CacheHits       int     `json:"cache_hits,omitempty"`
-	CacheMisses     int     `json:"cache_misses,omitempty"`
-	FilesWritten    int     `json:"files_written,omitempty"`
-	FilesRemoved    int     `json:"files_removed,omitempty"`
-	BytesWritten    int64   `json:"bytes_written,omitempty"`
-	ExecutableBytes int64   `json:"executable_bytes,omitempty"`
+	Name            string   `json:"name"`
+	StartedAt       string   `json:"started_at"`
+	DurationMS      float64  `json:"duration_ms"`
+	QueueMS         float64  `json:"queue_ms,omitempty"`
+	Cache           string   `json:"cache"`
+	Reason          string   `json:"reason"`
+	OK              bool     `json:"ok"`
+	Actions         int      `json:"actions,omitempty"`
+	CacheHits       int      `json:"cache_hits,omitempty"`
+	CacheMisses     int      `json:"cache_misses,omitempty"`
+	FilesWritten    int      `json:"files_written,omitempty"`
+	FilesRemoved    int      `json:"files_removed,omitempty"`
+	BytesWritten    int64    `json:"bytes_written,omitempty"`
+	ExecutableBytes int64    `json:"executable_bytes,omitempty"`
+	FilesHashed     int      `json:"files_hashed,omitempty"`
+	BytesHashed     int64    `json:"bytes_hashed,omitempty"`
+	FilesReused     int      `json:"files_reused,omitempty"`
+	BytesReused     int64    `json:"bytes_reused,omitempty"`
+	PackagesRebuilt []string `json:"packages_rebuilt,omitempty"`
+	WrittenPaths    []string `json:"written_paths,omitempty"`
 }
 
 func runHarnessEditLatencyStep(ctx context.Context, repoRoot string) harnessStep {
@@ -415,11 +422,13 @@ func harnessEditLatencyPhases(logPath string, offset int64) (string, []harnessEd
 			continue
 		}
 		phases = append(phases, harnessEditLatencyPhase{
-			Name: event.Data.Name, DurationMS: event.Data.DurationMS, QueueMS: event.Data.QueueMS,
+			Name: event.Data.Name, StartedAt: event.Data.StartedAt, DurationMS: event.Data.DurationMS, QueueMS: event.Data.QueueMS,
 			Cache: event.Data.Cache, Reason: event.Data.Reason, OK: event.Data.OK,
 			Actions: event.Data.Actions, CacheHits: event.Data.CacheHits, CacheMisses: event.Data.CacheMisses,
 			FilesWritten: event.Data.FilesWritten, FilesRemoved: event.Data.FilesRemoved, BytesWritten: event.Data.BytesWritten,
-			ExecutableBytes: event.Data.ExecutableBytes,
+			ExecutableBytes: event.Data.ExecutableBytes, FilesHashed: event.Data.FilesHashed, BytesHashed: event.Data.BytesHashed,
+			FilesReused: event.Data.FilesReused, BytesReused: event.Data.BytesReused, PackagesRebuilt: event.Data.PackagesRebuilt,
+			WrittenPaths: event.Data.WrittenPaths,
 		})
 	}
 	return operationID, phases

@@ -20,6 +20,7 @@ import (
 
 	"scenery.sh/internal/gotarget"
 	"scenery.sh/internal/machine"
+	"scenery.sh/internal/nativebuilddriver"
 )
 
 const (
@@ -72,22 +73,24 @@ type BuildInputManifest struct {
 }
 
 type goListPackage struct {
-	Dir          string
-	ImportPath   string
-	Standard     bool
-	GoFiles      []string
-	CgoFiles     []string
-	CFiles       []string
-	CXXFiles     []string
-	MFiles       []string
-	HFiles       []string
-	FFiles       []string
-	SFiles       []string
-	SwigFiles    []string
-	SwigCXXFiles []string
-	SysoFiles    []string
-	EmbedFiles   []string
-	Module       *goListModule
+	Dir               string
+	ImportPath        string
+	Standard          bool
+	GoFiles           []string
+	CgoFiles          []string
+	CFiles            []string
+	CXXFiles          []string
+	MFiles            []string
+	HFiles            []string
+	FFiles            []string
+	SFiles            []string
+	SwigFiles         []string
+	SwigCXXFiles      []string
+	SysoFiles         []string
+	EmbedFiles        []string
+	IgnoredGoFiles    []string
+	IgnoredOtherFiles []string
+	Module            *goListModule
 }
 
 type goListModule struct {
@@ -102,7 +105,27 @@ type goListModule struct {
 
 // Ask Go for the complete consumed-file/module projection, without computing
 // unrelated package presentation fields such as transitive import summaries.
-const goBuildInputFields = "Dir,ImportPath,Standard,GoFiles,CgoFiles,CFiles,CXXFiles,MFiles,HFiles,FFiles,SFiles,SwigFiles,SwigCXXFiles,SysoFiles,EmbedFiles,Module"
+const goBuildInputFields = "Dir,ImportPath,Standard,GoFiles,CgoFiles,CFiles,CXXFiles,MFiles,HFiles,FFiles,SFiles,SwigFiles,SwigCXXFiles,SysoFiles,EmbedFiles,IgnoredGoFiles,IgnoredOtherFiles,Module"
+
+type retainedBuildInputSelection struct {
+	Stamp       buildInputFileStamp
+	Digest      string
+	FullContent bool
+}
+
+type retainedBuildInputGraph struct {
+	Key         string
+	Output      []byte
+	Directories map[string]buildInputFileStamp
+	Selection   map[string]retainedBuildInputSelection
+}
+
+type retainedBuildInputGraphEntry struct {
+	sync.Mutex
+	state *retainedBuildInputGraph
+}
+
+var retainedBuildInputGraphs sync.Map
 
 var runGoInputList = func(ctx context.Context, directory string, environment []string, args ...string) ([]byte, error) {
 	command := exec.CommandContext(ctx, "go", args...)
@@ -129,24 +152,168 @@ func buildInputManifest(ctx context.Context, result *Result) (*BuildInputManifes
 	slices.Sort(patterns)
 	patterns = slices.Compact(patterns)
 	args = append(args, patterns...)
+	keyData, _ := json.Marshal(struct {
+		Arguments   []string
+		Environment []string
+	}{args, gotarget.Environment(target.Context)})
+	keySum := sha256.Sum256(keyData)
+	graphKey := hex.EncodeToString(keySum[:])
+	cacheValue, _ := retainedBuildInputGraphs.LoadOrStore(filepath.Clean(result.Dir), &retainedBuildInputGraphEntry{})
+	entry := cacheValue.(*retainedBuildInputGraphEntry)
+	entry.Lock()
+	defer entry.Unlock()
 	var output []byte
-	err := observeBuildAction(ctx, "go.input_discovery", func() error {
-		var err error
+	cache, reason, actions := "miss", "go_list_package_projection", 1
+	if entry.state != nil && entry.state.Key == graphKey {
+		if current, currentErr := retainedBuildInputGraphCurrent(entry.state); currentErr == nil && current {
+			output = append([]byte(nil), entry.state.Output...)
+			cache, reason, actions = "hit", "retained_directory_and_import_identity", 0
+		}
+	}
+	started := time.Now()
+	var err error
+	if len(output) == 0 {
 		output, err = runGoInputList(ctx, result.Dir, gotarget.Environment(target.Context), args...)
-		return err
-	})
+	}
+	RecordStep(ctx, Step{Name: "go.input_discovery", StartedAt: started, Duration: time.Since(started), Cache: cache, Reason: reason, OK: err == nil, Actions: actions})
 	if err != nil {
 		return nil, fmt.Errorf("go %s failed while producing build inputs: %w\n%s", strings.Join(args, " "), err, output)
 	}
 	var manifest *BuildInputManifest
 	stats := buildInputDigestStats{}
-	started := time.Now()
+	fingerprintStarted := time.Now()
 	manifest, err = buildInputManifestFromGoListObserved(result, output, &stats)
 	RecordStep(ctx, Step{
-		Name: "go.input_fingerprint", StartedAt: started, Duration: time.Since(started), Cache: "content_stamp",
+		Name: "go.input_fingerprint", StartedAt: fingerprintStarted, Duration: time.Since(fingerprintStarted), Cache: "content_stamp",
 		Reason: "exact_consumed_bytes", OK: err == nil, Actions: stats.hits + stats.misses, CacheHits: stats.hits, CacheMisses: stats.misses,
 	})
+	if err == nil {
+		state, stateErr := newRetainedBuildInputGraph(graphKey, output)
+		if stateErr != nil {
+			return nil, stateErr
+		}
+		entry.state = state
+	}
 	return manifest, err
+}
+
+func retainedBuildInputGraphCurrent(state *retainedBuildInputGraph) (bool, error) {
+	for path, before := range state.Directories {
+		info, err := buildInputLstat(path)
+		if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || buildInputStamp(info) != before {
+			return false, nil
+		}
+	}
+	for path, before := range state.Selection {
+		info, err := buildInputLstat(path)
+		if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+			return false, nil
+		}
+		stamp := buildInputStamp(info)
+		if stamp == before.Stamp {
+			continue
+		}
+		digest, err := retainedBuildInputSelectionIdentity(path, before.FullContent)
+		if err != nil || digest != before.Digest {
+			return false, nil
+		}
+		state.Selection[path] = retainedBuildInputSelection{Stamp: stamp, Digest: digest, FullContent: before.FullContent}
+	}
+	return true, nil
+}
+
+func newRetainedBuildInputGraph(key string, output []byte) (*retainedBuildInputGraph, error) {
+	state := &retainedBuildInputGraph{Key: key, Output: append([]byte(nil), output...), Directories: map[string]buildInputFileStamp{}, Selection: map[string]retainedBuildInputSelection{}}
+	decoder := json.NewDecoder(bytes.NewReader(output))
+	for {
+		var pkg goListPackage
+		if err := decoder.Decode(&pkg); err == io.EOF {
+			break
+		} else if err != nil {
+			return nil, fmt.Errorf("decode retained Go build input graph: %w", err)
+		}
+		if pkg.Standard {
+			continue
+		}
+		if err := retainBuildInputDirectory(state.Directories, pkg.Dir); err != nil {
+			return nil, err
+		}
+		for _, name := range append(append(append([]string{}, pkg.GoFiles...), pkg.CgoFiles...), pkg.IgnoredGoFiles...) {
+			path := filepath.Join(pkg.Dir, filepath.FromSlash(name))
+			info, err := buildInputLstat(path)
+			if err != nil {
+				return nil, err
+			}
+			digest, err := retainedBuildInputSelectionIdentity(path, false)
+			if err != nil {
+				return nil, err
+			}
+			state.Selection[path] = retainedBuildInputSelection{Stamp: buildInputStamp(info), Digest: digest}
+		}
+		module := pkg.Module
+		if module != nil && module.Replace != nil {
+			module = module.Replace
+		}
+		if module != nil && module.GoMod != "" {
+			if err := retainBuildInputSelection(state.Selection, module.GoMod, true); err != nil {
+				return nil, err
+			}
+		}
+		for _, name := range pkg.EmbedFiles {
+			for directory := filepath.Dir(filepath.Join(pkg.Dir, filepath.FromSlash(name))); ; directory = filepath.Dir(directory) {
+				if err := retainBuildInputDirectory(state.Directories, directory); err != nil {
+					return nil, err
+				}
+				if directory == pkg.Dir {
+					break
+				}
+			}
+		}
+	}
+	return state, nil
+}
+
+func retainBuildInputSelection(target map[string]retainedBuildInputSelection, path string, fullContent bool) error {
+	info, err := buildInputLstat(path)
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("go graph selection input is not a regular file: %s", path)
+	}
+	digest, err := retainedBuildInputSelectionIdentity(path, fullContent)
+	if err != nil {
+		return err
+	}
+	target[filepath.Clean(path)] = retainedBuildInputSelection{Stamp: buildInputStamp(info), Digest: digest, FullContent: fullContent}
+	return nil
+}
+
+func retainedBuildInputSelectionIdentity(path string, fullContent bool) (string, error) {
+	if !fullContent {
+		return nativebuilddriver.SourceSelectionIdentity(path)
+	}
+	digest, _, err := nativebuilddriver.FileDigest(path)
+	return digest, err
+}
+
+func retainBuildInputDirectory(target map[string]buildInputFileStamp, path string) error {
+	info, err := buildInputLstat(path)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("go build input package directory is not regular: %s", path)
+	}
+	target[filepath.Clean(path)] = buildInputStamp(info)
+	return nil
+}
+
+func resetRetainedBuildInputGraphsForTesting() {
+	retainedBuildInputGraphs.Range(func(key, _ any) bool {
+		retainedBuildInputGraphs.Delete(key)
+		return true
+	})
 }
 
 func buildInputManifestFromGoList(result *Result, output []byte) (*BuildInputManifest, error) {
@@ -184,7 +351,7 @@ func buildInputManifestFromGoListObserved(result *Result, output []byte, stats *
 			continue
 		}
 		workspaceOnly = workspaceOnly && sharedBinaryWorkspacePath(result.Dir, pkg.Dir)
-		if err := observeExternalBuildInputDirectories(observed, result.Dir, pkg.Dir, pkg.Dir); err != nil {
+		if err := observeBuildInputPath(observed, pkg.Dir); err != nil {
 			return nil, err
 		}
 		entrypoint = entrypoint || (pkg.Dir == filepath.Join(result.Dir, "scenery_internal_main") && len(pkg.GoFiles) > 0)
@@ -206,7 +373,7 @@ func buildInputManifestFromGoListObserved(result *Result, output []byte, stats *
 		for _, name := range files {
 			path := filepath.Join(pkg.Dir, filepath.FromSlash(name))
 			identity := "package/" + pkg.ImportPath + "/" + filepath.ToSlash(name)
-			if err := observeExternalBuildInputDirectories(observed, result.Dir, filepath.Dir(path), pkg.Dir); err != nil {
+			if err := observeBuildInputDirectories(observed, filepath.Dir(path), pkg.Dir); err != nil {
 				return nil, err
 			}
 			if err := addFile(identity, path); err != nil {

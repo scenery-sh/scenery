@@ -1,6 +1,7 @@
 package nativebuilddriver
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -66,13 +67,39 @@ func TestEligibilitySupportsOnlyFrozenGraphBodyEdits(t *testing.T) {
 
 func TestAdvanceMovesTheBaselineAndReusesEarlierPackageResults(t *testing.T) {
 	recipe, files := newRetainedRecipeFixture(t)
+	largeArchive := filepath.Join(recipe.Root, "large-unchanged.a")
+	largeBytes := int64(4 << 20)
+	if err := os.WriteFile(largeArchive, bytes.Repeat([]byte{'x'}, int(largeBytes)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	largeDigest, size, err := FileDigest(largeArchive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	largeInfo, err := os.Lstat(largeArchive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recipe.ArchiveByOld[largeArchive] = largeArchive
+	recipe.Retained[largeArchive] = RetainedFile{Digest: largeDigest, Bytes: size, Stamp: fileStamp(largeInfo)}
+	recipe.RetainedBytes += size
+	recipe.RetentionLimit = recipe.RetainedBytes*2 + 512<<20
 	linkAlias := filepath.Join(recipe.Root, "go-cache", "a.a")
 	recipe.Link.Imports[linkAlias] = "example/a"
 	recipe.ArchiveByOld[linkAlias] = recipe.ArchiveByOld[recipe.Compiles["example/a"].Output.Original]
 	buildA := retainedFixtureBuild(t, recipe, files, "a")
-	next, err := recipe.Advance(buildA, filepath.Join(t.TempDir(), "state"))
+	next, stats, err := recipe.Advance(buildA, filepath.Join(t.TempDir(), "state"))
 	if err != nil {
 		t.Fatal(err)
+	}
+	if stats.FilesHashed == 0 || stats.BytesHashed == 0 {
+		t.Fatalf("new state was not accounted as hashed: %+v", stats)
+	}
+	if stats.BytesHashed >= largeBytes {
+		t.Fatalf("unchanged large archive was rehashed during state commit: %+v", stats)
+	}
+	if stats.BytesReused < largeBytes {
+		t.Fatalf("unchanged large archive was not reported as metadata reuse: %+v", stats)
 	}
 	if next.Current.Files[files["a"]] == recipe.Current.Files[files["a"]] {
 		t.Fatal("successful A source identity was not committed")
@@ -104,7 +131,7 @@ func TestAdvanceMovesTheBaselineAndReusesEarlierPackageResults(t *testing.T) {
 
 	failed := retainedFixtureBuild(t, next, files, "c")
 	failed.archiveOutputs["example/c"] = filepath.Join(t.TempDir(), "missing")
-	if _, err := next.Advance(failed, filepath.Join(t.TempDir(), "failed-state")); err == nil {
+	if _, _, err := next.Advance(failed, filepath.Join(t.TempDir(), "failed-state")); err == nil {
 		t.Fatal("missing candidate archive was committed")
 	}
 	if next.Current.Files[files["c"]] != recipe.Current.Files[files["c"]] {
@@ -120,10 +147,13 @@ func TestCompileArgsRebindsRetainedEmbedConfiguration(t *testing.T) {
 	}
 	source := filepath.Join(workspace, "embed.go")
 	snapshot := filepath.Join(root, "snapshot.go")
+	asset := filepath.Join(workspace, "asset.txt")
+	assetSnapshot := filepath.Join(root, "snapshot-asset.txt")
 	embedOriginal := filepath.Join(root, "deleted-bootstrap", "embedcfg")
 	embedCopy := filepath.Join(root, "retained", "embedcfg")
 	importCfg := filepath.Join(root, "retained", "importcfg")
-	for path, data := range map[string]string{source: "package embed\n", snapshot: "package embed\n", embedCopy: `{\"Patterns\":{},\"Files\":{}}`, importCfg: ""} {
+	embedJSON := fmt.Sprintf(`{"Patterns":{"asset.txt":["asset.txt"]},"Files":{"asset.txt":%q}}`, asset)
+	for path, data := range map[string]string{source: "package embed\n", snapshot: "package embed\n", asset: "live-B", assetSnapshot: "captured-A", embedCopy: embedJSON, importCfg: ""} {
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -134,16 +164,38 @@ func TestCompileArgsRebindsRetainedEmbedConfiguration(t *testing.T) {
 	action := &CompileAction{Package: "example/embed", Argv: []string{"-o", "old", "-p", "example/embed", "-importcfg", "old-importcfg", "-embedcfg", embedOriginal, source}, OutputAt: 0, ImportCfgAt: 5,
 		Files: map[int]FileCopy{5: {Original: importCfg, Copy: importCfg}, 7: {Original: embedOriginal, Copy: embedCopy}, 8: {Original: source, Copy: snapshot}}}
 	recipe := &Recipe{Workspace: workspace}
-	capture := Capture{Digest: "sha256:current", Files: map[string]string{source: "sha256:source"}, SnapshotFiles: map[string]string{source: snapshot}}
+	assetDigest, _, err := FileDigest(assetSnapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	capture := Capture{Digest: "sha256:current", Files: map[string]string{source: "sha256:source", asset: assetDigest}, SnapshotFiles: map[string]string{source: snapshot, asset: assetSnapshot}}
 	args, err := recipe.compileArgs(action, capture, nil, filepath.Join(root, "out.a"), filepath.Join(root, "generation"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if args[7] != embedCopy || args[7] == embedOriginal {
+	if args[7] == embedCopy || args[7] == embedOriginal {
 		t.Fatalf("embedcfg was not rebound: %q", args[7])
 	}
 	if _, err := os.Stat(args[7]); err != nil {
 		t.Fatalf("rebound embedcfg is unavailable: %v", err)
+	}
+	data, err := os.ReadFile(args[7])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var config struct {
+		Files map[string]string
+	}
+	if err := json.Unmarshal(data, &config); err != nil {
+		t.Fatal(err)
+	}
+	if config.Files["asset.txt"] != assetSnapshot {
+		t.Fatalf("embedded asset was not rebound to captured bytes: %#v", config.Files)
+	}
+
+	delete(capture.SnapshotFiles, asset)
+	if _, err := recipe.compileArgs(action, capture, nil, filepath.Join(root, "rejected.a"), filepath.Join(root, "rejected-generation")); err == nil {
+		t.Fatal("missing embedded snapshot did not fail closed")
 	}
 }
 
@@ -158,6 +210,30 @@ func TestUnsupportedNativeFrontierIsRejectedBeforeExecution(t *testing.T) {
 	}
 	if reason := recipe.unsupportedFrontier(rebuilt); reason != "unsupported_native_action_frontier" {
 		t.Fatalf("reason=%q rebuilt=%v", reason, rebuilt)
+	}
+}
+
+func TestGraphRefreshPackagesExcludesUnrelatedWorkspacePackages(t *testing.T) {
+	workspace := t.TempDir()
+	packages := map[string]Package{}
+	compiles := map[string]*CompileAction{}
+	for _, name := range []string{"a", "b", "c", "d", "dependency"} {
+		importPath := "example/" + name
+		packages[importPath] = Package{ImportPath: importPath, Name: name, Dir: filepath.Join(workspace, name)}
+		compiles[importPath] = &CompileAction{}
+	}
+	packages["example/main"] = Package{ImportPath: "example/main", Name: "main", Dir: filepath.Join(workspace, "scenery_internal_main"), Imports: []string{"example/a", "example/b", "example/c", "example/d"}}
+	compiles["example/main"] = &CompileAction{}
+	baseline := Capture{Protocol: ProtocolVersion, Digest: "sha256:baseline", Packages: packages, Files: map[string]string{}}
+	current := cloneCaptureValue(baseline)
+	current.Digest = "sha256:current"
+	a := current.Packages["example/a"]
+	a.Imports = []string{"example/dependency"}
+	current.Packages["example/a"] = a
+	recipe := &Recipe{Workspace: workspace, Current: baseline, Compiles: compiles}
+	want := []string{"example/a", "example/main"}
+	if got := recipe.GraphRefreshPackages(current); !reflect.DeepEqual(got, want) {
+		t.Fatalf("refresh frontier = %#v, want %#v", got, want)
 	}
 }
 

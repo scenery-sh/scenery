@@ -91,6 +91,9 @@ func run() error {
 		if result.Status != "supported_and_rebuilt" {
 			return fmt.Errorf("%s: %s", result.Status, result.Reason)
 		}
+		if err := preserveArtifact(output, generation); err != nil {
+			return err
+		}
 		_ = pruneGenerations(root, generation, 4)
 		return nil
 	case "stock":
@@ -104,7 +107,7 @@ func run() error {
 		started := time.Now()
 		err = forward(realGo, args)
 		result := map[string]any{"protocol": nativebuilddriver.ProtocolVersion, "backend": "stock", "owner": config.Session, "request_sequence": mustGenerationSequence(generation), "status": "stock_go_build", "capture": capture,
-			"artifact_build_ms": float64(time.Since(started).Nanoseconds()) / 1e6, "error": fmt.Sprint(err)}
+			"artifact_build_ms": float64(time.Since(started).Nanoseconds()) / 1e6, "error": fmt.Sprint(err), "build_argv": buildArgv}
 		if err == nil {
 			digest, size, digestErr := nativebuilddriver.FileDigest(output)
 			if digestErr != nil {
@@ -113,6 +116,34 @@ func run() error {
 			result["artifact_digest"], result["executable_bytes"] = digest, size
 		}
 		result["transaction_ms"] = float64(time.Since(transactionStarted).Nanoseconds()) / 1e6
+		if err == nil {
+			err = preserveArtifact(output, generation)
+		}
+		if writeErr := writeJSON(filepath.Join(generation, "result.json"), result); writeErr != nil {
+			return writeErr
+		}
+		_ = pruneGenerations(root, generation, 4)
+		return err
+	case "bare-stock":
+		transactionStarted := time.Now()
+		started := time.Now()
+		err = forward(realGo, args)
+		result := map[string]any{
+			"protocol": nativebuilddriver.ProtocolVersion, "backend": "bare_stock", "owner": config.Session,
+			"request_sequence": mustGenerationSequence(generation), "status": "bare_stock_go_build",
+			"artifact_build_ms": float64(time.Since(started).Nanoseconds()) / 1e6, "error": fmt.Sprint(err), "build_argv": buildArgv,
+		}
+		if err == nil {
+			digest, size, digestErr := nativebuilddriver.FileDigest(output)
+			if digestErr != nil {
+				return digestErr
+			}
+			result["artifact_digest"], result["executable_bytes"] = digest, size
+		}
+		result["transaction_ms"] = float64(time.Since(transactionStarted).Nanoseconds()) / 1e6
+		if err == nil {
+			err = preserveArtifact(output, generation)
+		}
 		if writeErr := writeJSON(filepath.Join(generation, "result.json"), result); writeErr != nil {
 			return writeErr
 		}
@@ -120,32 +151,71 @@ func run() error {
 		return err
 	case "retained-stock":
 		transactionStarted := time.Now()
-		var recipe nativebuilddriver.Recipe
-		if err := readJSON(filepath.Join(root, "recipe.json"), &recipe); err != nil {
-			return err
-		}
-		archiveMS, supportMS, err := recipe.ValidateRetainedState()
-		if err != nil {
-			return err
-		}
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
-		capture, err := recipe.RetainedCapture(ctx, realGo, filepath.Join(generation, "snapshot"), envpolicy.Environ(), buildFlags(args))
+		statePath := filepath.Join(root, "input-state.json")
+		stateRoot := filepath.Join(root, "input-state")
+		var state nativebuilddriver.InputState
+		validationStarted := time.Now()
+		stateValid := readJSON(statePath, &state) == nil && state.ValidateArtifacts() == nil
+		supportValidationMS := float64(time.Since(validationStarted).Nanoseconds()) / 1e6
+		if !stateValid {
+			state = nativebuilddriver.InputState{}
+			if err := os.RemoveAll(stateRoot); err != nil {
+				return err
+			}
+		}
+		captureMode, captureReason := "retained", "compatible_retained_input"
+		capture, captureErr := state.RetainedCapture(ctx, realGo, filepath.Join(generation, "snapshot"), envpolicy.Environ(), buildFlags(args))
+		if captureErr != nil {
+			captureMode, captureReason = "full", "missing_or_invalid_retained_input"
+		} else if _, reason := state.CheckEligibility(capture); reason != "" {
+			captureMode, captureReason = "full", "retained_input_"+reason
+		}
+		if captureMode == "full" {
+			capture, err = nativebuilddriver.FullCapture(ctx, realGo, cwd, filepath.Join(generation, "snapshot-full"), envpolicy.Environ(), buildFlags(args))
+		} else {
+			err = captureErr
+		}
 		if err != nil {
 			return err
 		}
 		started := time.Now()
 		err = forward(realGo, args)
-		result := map[string]any{"protocol": nativebuilddriver.ProtocolVersion, "backend": "retained_stock", "owner": config.Session, "request_sequence": mustGenerationSequence(generation), "status": "retained_capture_stock_build", "capture_ms": capture.DurationMS,
-			"archive_validation_ms": archiveMS, "support_validation_ms": supportMS, "artifact_build_ms": float64(time.Since(started).Nanoseconds()) / 1e6, "error": fmt.Sprint(err)}
+		result := map[string]any{"protocol": nativebuilddriver.ProtocolVersion, "backend": "retained_stock", "owner": config.Session, "request_sequence": mustGenerationSequence(generation), "status": "retained_capture_stock_build", "capture": capture, "capture_mode": captureMode, "capture_reason": captureReason,
+			"support_validation_ms": supportValidationMS, "artifact_build_ms": float64(time.Since(started).Nanoseconds()) / 1e6, "error": fmt.Sprint(err), "build_argv": buildArgv}
 		if err == nil {
 			digest, size, digestErr := nativebuilddriver.FileDigest(output)
 			if digestErr != nil {
 				return digestErr
 			}
 			result["artifact_digest"], result["executable_bytes"] = digest, size
+			commitStarted := time.Now()
+			var next *nativebuilddriver.InputState
+			var commit nativebuilddriver.StateCommitStats
+			if stateValid {
+				next, commit, err = state.Advance(capture, stateRoot)
+			} else {
+				next, commit, err = nativebuilddriver.NewInputState(capture, stateRoot)
+			}
+			if err == nil {
+				err = writeJSON(statePath, next)
+			}
+			result["phases"] = map[string]any{"state_commit": nativebuilddriver.PhaseTiming{
+				StartedAt: commitStarted.UTC(), DurationMS: float64(time.Since(commitStarted).Nanoseconds()) / 1e6,
+				FilesHashed: commit.FilesHashed, BytesHashed: commit.BytesHashed, FilesReused: commit.FilesReused, BytesReused: commit.BytesReused,
+			}}
+			if err == nil {
+				err = next.PruneUnreferenced(stateRoot)
+			}
+			if err != nil {
+				result["error"] = err.Error()
+			}
 		}
 		result["transaction_ms"] = float64(time.Since(transactionStarted).Nanoseconds()) / 1e6
+		if err == nil {
+			err = preserveArtifact(output, generation)
+		}
 		if writeErr := writeJSON(filepath.Join(generation, "result.json"), result); writeErr != nil {
 			return writeErr
 		}
@@ -228,6 +298,13 @@ func bootstrap(realGo, root, cwd, output, generation string, args, buildArgv []s
 	if err := writeJSON(filepath.Join(root, "recipe.json"), recipe); err != nil {
 		return err
 	}
+	inputState, _, err := nativebuilddriver.NewInputState(capture, filepath.Join(root, "input-state"))
+	if err != nil {
+		return err
+	}
+	if err := writeJSON(filepath.Join(root, "input-state.json"), inputState); err != nil {
+		return err
+	}
 	for _, path := range []string{filepath.Join(recordRoot, "cache"), filepath.Join(recordRoot, "tmp")} {
 		if err := os.RemoveAll(path); err != nil {
 			return err
@@ -245,7 +322,21 @@ func bootstrap(realGo, root, cwd, output, generation string, args, buildArgv []s
 		"package_count": len(capture.Packages), "input_count": len(capture.Files), "retained_bytes": recipe.RetainedBytes, "retention_limit": recipe.RetentionLimit,
 		"support_artifact_count": len(recipe.Support), "tool_invocations": len(actionRecords), "compiled_packages": len(recipe.Compiles),
 		"build_argv": buildArgv, "artifact": output, "artifact_digest": artifactDigest, "executable_bytes": executableBytes}
+	if err := preserveArtifact(output, generation); err != nil {
+		return err
+	}
 	return writeJSON(filepath.Join(generation, "result.json"), result)
+}
+
+func preserveArtifact(output, generation string) error {
+	copy, err := nativebuilddriver.CopyRegular(output, filepath.Join(generation, "application"))
+	if err != nil {
+		return fmt.Errorf("preserve benchmark artifact: %w", err)
+	}
+	if copy.Digest == "" || copy.Bytes <= 0 {
+		return fmt.Errorf("preserved benchmark artifact has no identity")
+	}
+	return nil
 }
 
 func pruneGenerations(root, current string, keep int) error {

@@ -428,7 +428,7 @@ func testSharedBinaryNativeInputMutation(t *testing.T, restoreInput bool, select
 		if data, err := exec.CommandContext(ctx, result.Binary).Output(); err != nil || string(data) != "B" {
 			t.Fatalf("candidate lost compiled B after source restoration: output=%q err=%v", data, err)
 		}
-	} else if buildErr == nil || !strings.Contains(buildErr.Error(), "go build inputs changed") {
+	} else if buildErr == nil || !strings.Contains(buildErr.Error(), "changed during compilation") {
 		t.Fatalf("changed native inputs were not rejected: %v", buildErr)
 	}
 	if _, _, hit, err := loadSharedBinary(cacheRoot, key); err != nil || hit {

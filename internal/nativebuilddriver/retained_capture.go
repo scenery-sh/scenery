@@ -19,10 +19,13 @@ import (
 // unchanged external inputs may reuse a digest only when the platform exposes
 // a stable change time. Only changed workspace Go files need a new snapshot.
 func (recipe *Recipe) RetainedCapture(ctx context.Context, goTool, snapshotRoot string, env []string, buildFlags []string) (Capture, error) {
+	return retainedCapture(ctx, goTool, recipe.Workspace, recipe.currentCapture(), snapshotRoot, env, buildFlags)
+}
+
+func retainedCapture(ctx context.Context, goTool, workspace string, baseline Capture, snapshotRoot string, env []string, buildFlags []string) (Capture, error) {
 	started := time.Now()
-	baseline := recipe.currentCapture()
 	current := Capture{
-		Protocol: ProtocolVersion, Workspace: recipe.Workspace, StartedAt: started.UTC(),
+		Protocol: ProtocolVersion, Workspace: workspace, StartedAt: started.UTC(),
 		Packages: clonePackages(baseline.Packages), Files: map[string]string{}, FileStamps: map[string]FileStamp{}, Syntax: cloneStrings(baseline.Syntax),
 		Directories: map[string]string{}, SnapshotFiles: cloneStrings(baseline.SnapshotFiles),
 		GoVersion: baseline.GoVersion, BuildFlags: append([]string(nil), buildFlags...),
@@ -39,6 +42,7 @@ func (recipe *Recipe) RetainedCapture(ctx context.Context, goTool, snapshotRoot 
 	if err != nil {
 		return current, err
 	}
+	current.PackageLoadingMS = elapsedMS(started)
 	directoryStarted := time.Now()
 	directoryPaths := sortedMapKeys(baseline.Directories)
 	for _, path := range directoryPaths {
@@ -79,7 +83,7 @@ func (recipe *Recipe) RetainedCapture(ctx context.Context, goTool, snapshotRoot 
 		current.FileStamps[path] = stamp
 		digest := expected
 		baselineStamp := baseline.FileStamps[path]
-		if withinWorkspace(recipe.Workspace, path) || baselineStamp.ChangeTimeNano == 0 || stamp != baselineStamp {
+		if withinWorkspace(workspace, path) || baselineStamp.ChangeTimeNano == 0 || stamp != baselineStamp {
 			digest, _, err = FileDigest(path)
 			if err != nil {
 				return current, err
@@ -104,10 +108,10 @@ func (recipe *Recipe) RetainedCapture(ctx context.Context, goTool, snapshotRoot 
 			}
 			current.Syntax[path] = syntax
 		}
-		if !withinWorkspace(recipe.Workspace, path) {
+		if !withinWorkspace(workspace, path) {
 			continue
 		}
-		rel, ok := workspaceRelative(recipe.Workspace, path)
+		rel, ok := workspaceRelative(workspace, path)
 		if !ok {
 			return current, fmt.Errorf("retained source escaped workspace: %s", path)
 		}

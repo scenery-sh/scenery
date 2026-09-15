@@ -30,14 +30,25 @@ func verifySharedBinaryInputs(ctx context.Context, result *Result, discover func
 			return fmt.Errorf("framework source changed during compilation; shared candidate was not published")
 		}
 	}
-	// Discovery also reads live local replacements, embedded/native inputs and
-	// module metadata. Do not let it overwrite the identity being checked.
+	if result.BuildInput == nil {
+		return fmt.Errorf("go build input identity is unavailable after compilation")
+	}
+	directoryChanged, err := verifyObservedBuildInputStamps(result.BuildInput.observed)
+	if err != nil {
+		return err
+	}
+	if !directoryChanged {
+		return ctx.Err()
+	}
+	// A directory stamp change can mean package or embed membership changed.
+	// Only that case needs another Go graph query; stable file and directory
+	// stamps prove the exact discovered input set remained current.
 	current := *result
 	inputs, err := discover(ctx, &current)
 	if err != nil {
 		return err
 	}
-	if result.BuildInput == nil || inputs.Digest != result.BuildInput.Digest {
+	if inputs.Digest != result.BuildInput.Digest {
 		return fmt.Errorf("go build inputs changed during compilation; shared candidate was not published")
 	}
 	// Retain existing detectable-mutation rejection for private candidates too.
@@ -52,6 +63,31 @@ func verifySharedBinaryInputs(ctx context.Context, result *Result, discover func
 		return fmt.Errorf("go build input ownership changed during compilation; shared candidate was not published")
 	}
 	return ctx.Err()
+}
+
+func verifyObservedBuildInputStamps(observed map[string]buildInputFileStamp) (bool, error) {
+	if len(observed) == 0 {
+		return true, nil
+	}
+	directoryChanged := false
+	for path, before := range observed {
+		after, err := buildInputLstat(path)
+		if err != nil {
+			return false, fmt.Errorf("go build input changed during compilation: %s: %w", path, err)
+		}
+		if after.Mode()&os.ModeSymlink != 0 || (!after.IsDir() && !after.Mode().IsRegular()) {
+			return false, fmt.Errorf("go build input changed type during compilation: %s", path)
+		}
+		if buildInputStamp(after) == before {
+			continue
+		}
+		if after.IsDir() {
+			directoryChanged = true
+			continue
+		}
+		return false, fmt.Errorf("go build input changed during compilation, including a possible restore: %s; shared candidate was not published", path)
+	}
+	return directoryChanged, nil
 }
 
 func sharedBinaryWorkspacePath(workspace, path string) bool {
@@ -79,14 +115,7 @@ func observeBuildInputPath(observed map[string]buildInputFileStamp, path string)
 	return nil
 }
 
-func observeExternalBuildInputDirectories(observed map[string]buildInputFileStamp, workspace, directory, packageRoot string) error {
-	relative, err := filepath.Rel(workspace, directory)
-	if err != nil {
-		return err
-	}
-	if relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-		return nil
-	}
+func observeBuildInputDirectories(observed map[string]buildInputFileStamp, directory, packageRoot string) error {
 	for {
 		if err := observeBuildInputPath(observed, directory); err != nil {
 			return err

@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/gotarget"
@@ -55,8 +56,8 @@ func TestSharedBinaryOwnedWorkspaceReusesWithLiveChecks(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		wantBuilds = 2 // No workspace lock, therefore no shared reuse.
 	}
-	if builds != wantBuilds || lists != 2 {
-		t.Fatalf("owned reuse/live checks: builds=%d want=%d discoveries=%d want=2", builds, wantBuilds, lists)
+	if builds != wantBuilds || lists != 0 {
+		t.Fatalf("owned reuse/live checks: builds=%d want=%d discoveries=%d want=0", builds, wantBuilds, lists)
 	}
 	// A persisted manifest's exact public digest is not fresh admission.
 	encoded, err := json.Marshal(result.BuildInput)
@@ -74,8 +75,71 @@ func TestSharedBinaryOwnedWorkspaceReusesWithLiveChecks(t *testing.T) {
 	if err := runSharedGoBuildContext(context.Background(), result); err != nil {
 		t.Fatal(err)
 	}
-	if builds != wantBuilds+1 || lists != 3 {
+	if builds != wantBuilds+1 || lists != 0 {
 		t.Fatalf("persisted manifest authorized reuse: builds=%d discoveries=%d", builds, lists)
+	}
+}
+
+func TestSharedBinaryPostBuildCheckRelistsOnlyAfterDirectoryChange(t *testing.T) {
+	root := t.TempDir()
+	input := filepath.Join(root, "input.go")
+	writeBuildTestFile(t, root, "input.go", "package input\n")
+	observed := map[string]buildInputFileStamp{}
+	for _, path := range []string{root, input} {
+		if err := observeBuildInputPath(observed, path); err != nil {
+			t.Fatal(err)
+		}
+	}
+	result, _ := newSharedBinaryDomainFixture(t)
+	result.BuildInput = &BuildInputManifest{Digest: "same", observed: observed}
+	discoveries := 0
+	discover := func(context.Context, *Result) (*BuildInputManifest, error) {
+		discoveries++
+		return &BuildInputManifest{Digest: "same", observed: observed}, nil
+	}
+	if err := verifySharedBinaryInputs(context.Background(), result, discover); err != nil {
+		t.Fatal(err)
+	}
+	if discoveries != 0 {
+		t.Fatalf("stable inputs triggered %d package graph discoveries", discoveries)
+	}
+	changedAt := time.Now().Add(2 * time.Second)
+	if err := os.Chtimes(root, changedAt, changedAt); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifySharedBinaryInputs(context.Background(), result, discover); err != nil {
+		t.Fatal(err)
+	}
+	if discoveries != 1 {
+		t.Fatalf("directory membership stamp triggered %d discoveries, want 1", discoveries)
+	}
+}
+
+func TestSharedBinaryPostBuildCheckRejectsChangedFileWithoutRelisting(t *testing.T) {
+	root := t.TempDir()
+	input := filepath.Join(root, "input.go")
+	writeBuildTestFile(t, root, "input.go", "package input\nconst Value = 1\n")
+	observed := map[string]buildInputFileStamp{}
+	for _, path := range []string{root, input} {
+		if err := observeBuildInputPath(observed, path); err != nil {
+			t.Fatal(err)
+		}
+	}
+	result, _ := newSharedBinaryDomainFixture(t)
+	result.BuildInput = &BuildInputManifest{Digest: "same", observed: observed}
+	discoveries := 0
+	if err := os.WriteFile(input, []byte("package input\nconst Value = 2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := verifySharedBinaryInputs(context.Background(), result, func(context.Context, *Result) (*BuildInputManifest, error) {
+		discoveries++
+		return nil, nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "changed during compilation") {
+		t.Fatalf("changed file accepted: %v", err)
+	}
+	if discoveries != 0 {
+		t.Fatalf("changed file triggered package graph discovery: %d", discoveries)
 	}
 }
 

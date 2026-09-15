@@ -16,6 +16,8 @@ type Result struct {
 	AppID                     string
 	Dir                       string
 	Binary                    string
+	ArtifactDigest            string
+	ExecutableBytes           int64
 	NeedsTidy                 bool
 	DependencyFingerprint     string
 	SourceFingerprint         string

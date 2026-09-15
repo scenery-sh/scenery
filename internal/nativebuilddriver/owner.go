@@ -138,7 +138,8 @@ func (owner *Owner) build(parent context.Context, request OwnerRequest) (BuildRe
 		_ = os.Remove(candidate)
 		return result, nil
 	}
-	next, err := owner.Recipe.Advance(result, owner.StateRoot)
+	commitStarted := time.Now()
+	next, commitStats, err := owner.Recipe.Advance(result, owner.StateRoot)
 	if err != nil {
 		_ = os.Remove(candidate)
 		return result, err
@@ -159,6 +160,11 @@ func (owner *Owner) build(parent context.Context, request OwnerRequest) (BuildRe
 		return result, err
 	}
 	owner.Recipe = next
+	result.Phases["state_commit"] = PhaseTiming{
+		StartedAt: commitStarted.UTC(), DurationMS: elapsedMS(commitStarted),
+		FilesHashed: commitStats.FilesHashed, BytesHashed: commitStats.BytesHashed,
+		FilesReused: commitStats.FilesReused, BytesReused: commitStats.BytesReused,
+	}
 	if err := next.PruneUnreferenced(owner.StateRoot); err != nil {
 		return result, fmt.Errorf("prune retained state: %w", err)
 	}
