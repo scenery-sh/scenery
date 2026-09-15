@@ -99,8 +99,27 @@ compile the application graph as it needs.
   generation 2 and proves calls pinned to 1 reach the first `echo` instance,
   unpinned calls reach the second, and a retired generation answers
   `unavailable` `not_sent`.
-- [ ] Milestone 3 supervisor slice: per-process builds, instance lifecycle,
-  generation publication and drained retirement through `scenery up`.
+- [x] (2026-09-15) Milestone 3 supervisor slice: with
+  `SCENERY_DEV_PROCESS_MODEL=service`, `scenery up` links the host and every
+  service process with its own identity (`build.BuildDevelopmentProcessesContext`,
+  build input digest over the entrypoint's import closure), preflights and
+  starts services on per-instance sockets, starts the host on the API backend,
+  and publishes generation 1. After an edit it relinks only processes whose
+  identity changed, starts them on new sockets, publishes the next generation
+  and retires the replaced instances once the host reports the old generation
+  drained. On a copy of `testdata/apps/multiservice`: `/echo` and `/greet`
+  answered from three processes; two `echo` body edits replaced only `echo`
+  (PIDs 58577, 59261, 59413) while `greeter` (58578) and the host (58584) kept
+  theirs, `/greet` returned each new text about 1.23 s after the save and old
+  instances exited; a compile error and an `echo` constructor failure each left
+  the published generation serving with unchanged PIDs; restoring identical
+  source changed nothing; an edit to `internal/text`, imported by both
+  services, replaced both in one generation (`packages_rebuilt` `echo_echo`,
+  `greeter_greeter`, host unchanged) and the first new response already
+  combined both edits; `scenery down` left no process, socket or link file.
+- [ ] Milestone 3 remaining: a repeatable `scripts/verify` probe for the
+  fixture scenario including an in-flight request pinned to the previous
+  generation, and per-process status in dashboard and session records.
 - [ ] Milestone 4: ONLV rebaseline, resources, background-work ownership,
   semantic conformance, and the edit-to-response measurement.
 
@@ -172,6 +191,13 @@ compile the application graph as it needs.
 - One resident process per service is 48 processes plus the host for one ONLV
   worktree before any latency work; memory, database connections, idle CPU and
   cleanup need measurement early rather than after the latency milestone.
+- A process-model `echo` edit through `scenery up` spent about 1.16 s in the
+  build request: framework verification 44 ms, input fingerprint 60 ms, the
+  joined implementation check 237 ms, one stock `go build` of the `echo` entrypoint
+  413 ms, and activation 398 ms (session binary copy, preflight execution,
+  process start, readiness and publication). The per-process build still uses
+  stock `go build`, not the retained compiler, and the implementation check runs
+  on every edit; both are the next latency targets before any ONLV measurement.
 - Fixture timing with stock `go build` (no `-w`, load average about 15, probe
   launched from the Claude desktop shell): build 649–666 ms after the first
   1,712 ms, stopping the old `echo` 41–45 ms, new process start to listening

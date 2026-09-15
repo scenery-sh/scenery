@@ -90,6 +90,9 @@ type devRuntimePlan struct {
 	APIEncoding json.RawMessage
 	Initial     bool
 	Environment *devRuntimeEnvironment
+	// Processes is the linked process set of a process-model session, which
+	// replaces the application executable.
+	Processes *build.DevelopmentProcessSet
 }
 
 type devBuildPhaseError struct {
@@ -218,11 +221,17 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 	}); err != nil {
 		return nil, devBuildError(metadata, apiEncoding, err)
 	}
+	var processes *build.DevelopmentProcessSet
 	if err := s.console.Phase("Compiling application source code", func() error {
 		if result != nil && result.GraphFingerprint == "" {
 			result.GraphFingerprint = graphFingerprint
 			result.Metadata = append(json.RawMessage(nil), metadata...)
 			result.APIEncoding = append(json.RawMessage(nil), apiEncoding...)
+		}
+		if s.processModel {
+			var buildErr error
+			processes, buildErr = build.BuildDevelopmentProcessesContext(ctx, result)
+			return buildErr
 		}
 		return build.CompileContext(ctx, result)
 	}); err != nil {
@@ -282,5 +291,6 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 		APIEncoding: apiEncoding,
 		Initial:     initial,
 		Environment: environment,
+		Processes:   processes,
 	}, nil
 }

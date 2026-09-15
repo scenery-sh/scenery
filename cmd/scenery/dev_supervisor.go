@@ -93,9 +93,13 @@ type devSupervisor struct {
 	productionFrontends map[string]*staticFrontendServer
 	events              *devEventSink
 
-	closeOnce          sync.Once
-	mu                 sync.RWMutex
-	current            *runningApp
+	closeOnce sync.Once
+	mu        sync.RWMutex
+	current   *runningApp
+	// processModel selects process-per-service development; processes holds its
+	// host and service instances once started.
+	processModel       bool
+	processes          *devProcessModel
 	status             devdash.AppRecord
 	pendingDevEvents   []devdash.DevEvent
 	startupReady       <-chan error
@@ -118,6 +122,11 @@ const (
 func newDevSupervisor(ctx context.Context, root string, cfg app.Config, env app.ResolvedEnv, backend devBackend, console *runConsole, agent *localagent.Client, agentSession *localagent.Session) (*devSupervisor, error) {
 	supervisorCtx, cancel := context.WithCancel(ctx)
 	backend = backend.normalized()
+	processModel, err := devProcessModelSelected()
+	if err != nil {
+		cancel()
+		return nil, err
+	}
 	token, err := randomToken()
 	if err != nil {
 		cancel()
@@ -150,6 +159,7 @@ func newDevSupervisor(ctx context.Context, root string, cfg app.Config, env app.
 		console:      console,
 		agent:        agent,
 		agentSession: agentSession,
+		processModel: processModel,
 		status: devdash.AppRecord{
 			ID:         appID,
 			Name:       cfg.Name,
@@ -299,6 +309,9 @@ func (s *devSupervisor) Close() error {
 			if err := app.waitOrKill(stopTimeout); err != nil {
 				errs = append(errs, err)
 			}
+		}
+		if err := s.closeDevProcesses(); err != nil {
+			errs = append(errs, err)
 		}
 		for _, frontend := range frontends {
 			if err := frontend.Stop(); err != nil {

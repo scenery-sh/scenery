@@ -1022,6 +1022,28 @@
       ]
     },
     {
+      "name": "SCENERY_DEV_PROCESS_MODEL",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "user_input",
+      "category": "agent.routing",
+      "stability": "dev_escape_hatch",
+      "secret": false,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime",
+      "rationale": "`service` runs `scenery up` as a process host plus one process per native service (Plan 0200 rollout gate); `application` or unset keeps one application executable",
+      "preferred_surface": "temporary rollout gate; no stable flag or config until the process model is accepted",
+      "replacement": "",
+      "sunset": "Plan 0200 completion",
+      "docs": [
+        "docs/environment.md"
+      ]
+    },
+    {
       "name": "SCENERY_DEV_OBSERVABILITY_BACKEND",
       "match": "exact",
       "scope": "runtime",

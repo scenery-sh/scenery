@@ -25,10 +25,16 @@ type appStartPlan struct {
 }
 
 func preflightAppStart(ctx context.Context, plan *appStartPlan) error {
+	return preflightProcessStart(ctx, plan.request, func(data []byte) error { return validateAppPreflight(data, plan.result) })
+}
+
+// preflightProcessStart runs an executable's runtime handshake with its exact
+// start environment and validates the proof before the process may serve.
+func preflightProcessStart(ctx context.Context, request devProcessStartRequest, validate func([]byte) error) error {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	command := commandTreeContext(ctx, plan.request.Command, runtime.RuntimePreflightFlag)
-	command.Dir, command.Env = plan.request.Dir, plan.request.Env
+	command := commandTreeContext(ctx, request.Command, runtime.RuntimePreflightFlag)
+	command.Dir, command.Env = request.Dir, request.Env
 	reader, writer, err := os.Pipe()
 	if err != nil {
 		return err
@@ -58,7 +64,7 @@ func preflightAppStart(ctx context.Context, plan *appStartPlan) error {
 	if proof.truncated {
 		return fmt.Errorf("candidate runtime preflight exceeded its output limit")
 	}
-	return validateAppPreflight(proof.buffer.Bytes(), plan.result)
+	return validate(proof.buffer.Bytes())
 }
 
 func validateAppPreflight(data []byte, result *build.Result) error {

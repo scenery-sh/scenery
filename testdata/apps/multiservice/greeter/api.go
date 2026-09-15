@@ -6,6 +6,7 @@ import (
 
 	echocontract "example.com/multiservice/echo/scenerycontract"
 	greetercontract "example.com/multiservice/greeter/scenerycontract"
+	"example.com/multiservice/internal/text"
 	"scenery.sh"
 )
 
@@ -31,5 +32,5 @@ func (s *Service) Greet(ctx context.Context, input greetercontract.GreetInput) (
 	if !ok {
 		return nil, fmt.Errorf("echo returned %T", outcome)
 	}
-	return greetercontract.GreetOk{Value: greetercontract.GreetResult{Message: "greeter:" + result.Value.Message}}, nil
+	return greetercontract.GreetOk{Value: greetercontract.GreetResult{Message: text.Label("greeter", result.Value.Message)}}, nil
 }

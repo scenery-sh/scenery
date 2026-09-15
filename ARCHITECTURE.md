@@ -387,8 +387,9 @@ application binaries.
 
 `internal/build` owns the transient app build workspace. It materializes the
 current generated overlay, syncs source and generated files, tracks
-build fingerprints, runs `go mod tidy` when needed, compiles the app binary, and
-writes latest-build metadata. Generation is injected through `GenerateHooks`;
+build fingerprints, runs `go mod tidy` when needed, compiles the app binary (or,
+for the development process model, the host and per-service entrypoints with
+per-process identities), and writes latest-build metadata. Generation is injected through `GenerateHooks`;
 the production package does not import `internal/generate`.
 
 Framework preparation snapshots the selected module's relevant source inputs,
@@ -551,7 +552,11 @@ helper crash can degrade an assistant without exposing a second public server.
 
 Architecture invariant: there is one local app server per generated app process.
 `scenery up` may run extra development services around it, but app API execution
-stays inside the generated app binary.
+stays inside generated app binaries. Under the experimental
+`SCENERY_DEV_PROCESS_MODEL=service` gate (Plan 0200) the generated binaries are a
+process host that routes requests and dispatches internal calls by published
+generation plus one runtime process per native service; production builds keep
+the single generated app binary.
 
 Architecture invariant: runtime request state must be scoped to the current
 request or internal call. Public helpers such as `scenery.CurrentRequest()` and

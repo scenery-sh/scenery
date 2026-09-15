@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"scenery.sh/internal/codegen"
 	"scenery.sh/internal/gotarget"
 	"scenery.sh/internal/machine"
 	"scenery.sh/internal/nativebuilddriver"
@@ -70,6 +72,18 @@ type BuildInputManifest struct {
 	sharedWorkspace string
 	// Best-effort live mutation detection only, never shared-cache admission.
 	observed map[string]buildInputFileStamp
+	// processes projects development process manifests from the same discovery.
+	processes *buildInputProcessGraph
+}
+
+// buildInputProcessGraph retains the per-package entries and import edges of
+// one discovery so each development process main can be identified by exactly
+// the inputs of its Go import closure.
+type buildInputProcessGraph struct {
+	global   map[string]string
+	packages map[string]map[string]string
+	imports  map[string][]string
+	mains    map[string]string
 }
 
 type goListPackage struct {
@@ -90,6 +104,8 @@ type goListPackage struct {
 	EmbedFiles        []string
 	IgnoredGoFiles    []string
 	IgnoredOtherFiles []string
+	Imports           []string
+	ImportMap         map[string]string
 	Module            *goListModule
 }
 
@@ -105,7 +121,7 @@ type goListModule struct {
 
 // Ask Go for the complete consumed-file/module projection, without computing
 // unrelated package presentation fields such as transitive import summaries.
-const goBuildInputFields = "Dir,ImportPath,Standard,GoFiles,CgoFiles,CFiles,CXXFiles,MFiles,HFiles,FFiles,SFiles,SwigFiles,SwigCXXFiles,SysoFiles,EmbedFiles,IgnoredGoFiles,IgnoredOtherFiles,Module"
+const goBuildInputFields = "Dir,ImportPath,Standard,GoFiles,CgoFiles,CFiles,CXXFiles,MFiles,HFiles,FFiles,SFiles,SwigFiles,SwigCXXFiles,SysoFiles,EmbedFiles,IgnoredGoFiles,IgnoredOtherFiles,Imports,ImportMap,Module"
 
 type retainedBuildInputSelection struct {
 	Stamp       buildInputFileStamp
@@ -149,6 +165,9 @@ func buildInputManifest(ctx context.Context, result *Result) (*BuildInputManifes
 	}
 	patterns := append([]string(nil), target.Context.Patterns...)
 	patterns = append(patterns, "./scenery_internal_main")
+	if info, err := os.Stat(filepath.Join(result.Dir, codegen.ProcessMainRoot)); err == nil && info.IsDir() {
+		patterns = append(patterns, "./"+codegen.ProcessMainRoot+"/...")
+	}
 	slices.Sort(patterns)
 	patterns = slices.Compact(patterns)
 	args = append(args, patterns...)
@@ -328,16 +347,19 @@ func buildInputManifestFromGoListObserved(result *Result, output []byte, stats *
 	entries := map[string]string{}
 	workspaceOnly, entrypoint := filepath.IsAbs(result.Dir), false
 	observed := map[string]buildInputFileStamp{}
-	addFile := func(identity, path string) error {
+	processRoot := filepath.Join(result.Dir, codegen.ProcessMainRoot)
+	processes := &buildInputProcessGraph{packages: map[string]map[string]string{}, imports: map[string][]string{}, mains: map[string]string{}}
+	addFileTo := func(destination map[string]string, identity, path string) error {
 		workspaceOnly = workspaceOnly && sharedBinaryWorkspacePath(result.Dir, path)
 		if err := observeBuildInputPath(observed, path); err != nil {
 			return err
 		}
-		if err := addBuildInputObserved(entries, identity, path, stats); err != nil {
+		if err := addBuildInputObserved(destination, identity, path, stats); err != nil {
 			return err
 		}
 		return observeBuildInputPath(observed, path)
 	}
+	addFile := func(identity, path string) error { return addFileTo(entries, identity, path) }
 	frameworkRoot := ""
 	decoder := json.NewDecoder(bytes.NewReader(output))
 	for {
@@ -370,15 +392,33 @@ func buildInputManifestFromGoListObserved(result *Result, output []byte, stats *
 		files = append(files, pkg.SwigCXXFiles...)
 		files = append(files, pkg.SysoFiles...)
 		files = append(files, pkg.EmbedFiles...)
+		// Process entrypoints are separate executables: they identify their
+		// own process manifests and never the application executable.
+		packageEntries := map[string]string{}
+		processes.packages[pkg.ImportPath] = packageEntries
+		for _, imported := range pkg.Imports {
+			if mapped := pkg.ImportMap[imported]; mapped != "" {
+				imported = mapped
+			}
+			processes.imports[pkg.ImportPath] = append(processes.imports[pkg.ImportPath], imported)
+		}
+		relative, relativeErr := filepath.Rel(processRoot, pkg.Dir)
+		process := relativeErr == nil && filepath.IsLocal(relative)
+		if process {
+			processes.mains[filepath.Base(pkg.Dir)] = pkg.ImportPath
+		}
 		for _, name := range files {
 			path := filepath.Join(pkg.Dir, filepath.FromSlash(name))
 			identity := "package/" + pkg.ImportPath + "/" + filepath.ToSlash(name)
 			if err := observeBuildInputDirectories(observed, filepath.Dir(path), pkg.Dir); err != nil {
 				return nil, err
 			}
-			if err := addFile(identity, path); err != nil {
+			if err := addFileTo(packageEntries, identity, path); err != nil {
 				return nil, err
 			}
+		}
+		if !process {
+			maps.Copy(entries, packageEntries)
 		}
 		if pkg.Module != nil {
 			// Only the private main module is in the supported reuse domain.
@@ -449,8 +489,15 @@ func buildInputManifestFromGoListObserved(result *Result, output []byte, stats *
 			return nil, err
 		}
 	}
+	processes.global = map[string]string{}
+	for identity, digest := range entries {
+		if !strings.HasPrefix(identity, "package/") {
+			processes.global[identity] = digest
+		}
+	}
 	manifest := newBuildInputManifest(target.Name, entries)
 	manifest.observed = observed
+	manifest.processes = processes
 	if workspaceOnly && entrypoint && sharedBinaryStandaloneModule(result.Dir) {
 		manifest.sharedWorkspace = result.Dir
 	}
@@ -630,4 +677,32 @@ func stringValuesForBuild(value any) []string {
 		}
 	}
 	return values
+}
+
+// developmentProcessManifest identifies one process entrypoint by the inputs of
+// the packages in its Go import closure plus every module, framework, producer
+// and native input of the discovery.
+func (manifest *BuildInputManifest) developmentProcessManifest(name string) (*BuildInputManifest, string, error) {
+	graph := manifest.processes
+	if graph == nil {
+		return nil, "", fmt.Errorf("build inputs do not include development process entrypoints")
+	}
+	main := graph.mains[name]
+	if main == "" {
+		return nil, "", fmt.Errorf("build inputs do not include development process %s", name)
+	}
+	entries := maps.Clone(graph.global)
+	seen := map[string]bool{}
+	pending := []string{main}
+	for len(pending) > 0 {
+		current := pending[len(pending)-1]
+		pending = pending[:len(pending)-1]
+		if seen[current] {
+			continue
+		}
+		seen[current] = true
+		maps.Copy(entries, graph.packages[current])
+		pending = append(pending, graph.imports[current]...)
+	}
+	return newBuildInputManifest(manifest.Target, entries), main, nil
 }

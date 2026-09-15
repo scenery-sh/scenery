@@ -706,6 +706,9 @@ func removeUnexpectedFilesFromListsObserved(root string, sourceFiles, generatedF
 		}
 		rel = filepath.ToSlash(rel)
 		if d.IsDir() {
+			if rel == developmentProcessBinaryDir {
+				return filepath.SkipDir
+			}
 			dirs = append(dirs, path)
 			return nil
 		}

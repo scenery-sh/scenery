@@ -101,6 +101,26 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 	if err := build.VerifyOwnedGoModuleSourcesContext(ctx, plan.Result.OwnedGoModuleSources); err != nil {
 		return s.handleCompileError(ctx, plan.Metadata, plan.APIEncoding, err)
 	}
+	if plan.Processes != nil {
+		if err := s.requireCurrentBuildSnapshot(captured); err != nil {
+			return s.handleCompileError(ctx, plan.Metadata, plan.APIEncoding, err)
+		}
+		activationStarted := time.Now()
+		current, reload, err := s.activateDevProcesses(ctx, plan)
+		build.RecordStep(ctx, build.Step{
+			Name: "runtime.activation", StartedAt: activationStarted, Duration: time.Since(activationStarted),
+			Cache: "not_applicable", Reason: "publish_process_generation", OK: err == nil, PackagesRebuilt: plan.Processes.Rebuilt,
+			ContractRevision: plan.Result.Contract.Manifest.ContractRevision,
+		})
+		if err != nil {
+			return s.handleCompileError(ctx, plan.Metadata, plan.APIEncoding, err)
+		}
+		activated = true
+		s.mu.Lock()
+		s.buildFailed = false
+		s.mu.Unlock()
+		return s.publishActivatedApp(ctx, initial, snapshot, plan, current, reload)
+	}
 	var candidate *appStartPlan
 	candidateStarted := time.Now()
 	err = s.console.Phase("Preparing candidate process", func() error {
@@ -218,7 +238,12 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 	if previous != nil {
 		s.releaseUnusedAppBinary(previous.launch)
 	}
+	return s.publishActivatedApp(ctx, initial, snapshot, plan, current, previous != nil)
+}
 
+// publishActivatedApp reports a successfully activated application generation
+// to status, the dashboard, the console and the local agent.
+func (s *devSupervisor) publishActivatedApp(ctx context.Context, initial bool, snapshot *fileSnapshot, plan *devRuntimePlan, current *runningApp, reload bool) error {
 	s.setCompiling(false, "")
 	s.setRunning(current.pid, plan.Metadata, plan.APIEncoding)
 	if err := s.persistStatus(ctx); err != nil {
@@ -230,7 +255,7 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 	})
 
 	method := "process/start"
-	if previous != nil {
+	if reload {
 		method = "process/reload"
 	}
 	s.dashboard.notify(&devdash.Notification{
@@ -309,6 +334,14 @@ func (s *devSupervisor) prepareAppStart(ctx context.Context, result *build.Resul
 	if sessionBinary != "" {
 		binary = sessionBinary
 	}
+	env := s.appChildEnvironment(result, environment)
+	return &appStartPlan{result: result, metadata: metadata, apiEncoding: apiEncoding, request: s.appProcessStartRequest(ctx, "api", "scenery-api", binary, env)}, nil
+}
+
+// appChildEnvironment is the complete environment of an application runtime
+// process listening on the supervisor's API backend.
+func (s *devSupervisor) appChildEnvironment(result *build.Result, environment *devRuntimeEnvironment) []string {
+	agentSession := s.currentAgentSession()
 	appBaseEnv := s.appDatabaseAuthorityEnv(environment.base, result.Contract.SQLRequirements)
 	env := appChildEnv(
 		appBaseEnv,
@@ -342,10 +375,14 @@ func (s *devSupervisor) prepareAppStart(ctx context.Context, result *build.Resul
 	if path := strings.TrimSpace(s.assistantTokenKeyPath); path != "" {
 		env = append(env, runtime.AssistantTokenKeyFileEnv+"="+path)
 	}
-	return &appStartPlan{result: result, metadata: metadata, apiEncoding: apiEncoding, request: devProcessStartRequest{
-		Name:    "api",
+	return env
+}
+
+func (s *devSupervisor) appProcessStartRequest(ctx context.Context, name, role, binary string, env []string) devProcessStartRequest {
+	return devProcessStartRequest{
+		Name:    name,
 		Kind:    "app",
-		Role:    "scenery-api",
+		Role:    role,
 		Dir:     s.root,
 		Command: binary,
 		Env:     env,
@@ -354,17 +391,17 @@ func (s *devSupervisor) prepareAppStart(ctx context.Context, result *build.Resul
 		Filter:  s.processOutputFilter,
 		OnOutput: func(pid int, stream string, data []byte) {
 			source := devdash.DevSource{
-				ID:     "api",
+				ID:     name,
 				Kind:   "app",
-				Name:   "api",
-				Role:   "scenery-api",
+				Name:   name,
+				Role:   role,
 				PID:    fmt.Sprintf("%d", pid),
 				Stream: stream,
 				Status: "running",
 			}
 			s.eventSink().Output(ctx, source, data)
 		},
-	}}, nil
+	}
 }
 
 func (s *devSupervisor) startPreparedApp(ctx context.Context, plan *appStartPlan) (*runningApp, error) {
