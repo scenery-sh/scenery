@@ -454,7 +454,11 @@ rollback, and executable ownership remain unchanged. Ephemeral, production-
 asset, and deployable builds remain on their existing stock artifact path. No
 application configuration is required to select this internal policy. Stock
 development execution exists only in repository benchmark binaries built with
-the private `scenery_benchmark_stock` tag.
+the private `scenery_benchmark_stock` tag. Ordinary development executables
+link with `-w` ahead of configured linker flags, so they carry no DWARF unless
+`build.go_flags` adds `-ldflags=-w=false`. On macOS the `cmd/scenery`
+supervisor clears an inherited Darwin background policy before each build
+request and reports the observation as `process.scheduling`.
 Before publication or reuse, current workspace membership/bytes and Go input
 checks still run; private builds retain these freshness checks too. Local
 replacement compilation reads only its owned generation, so an external

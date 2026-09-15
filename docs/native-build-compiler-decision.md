@@ -63,8 +63,28 @@ independent of that small short-run delta.
 For `RETAINED-PREP + GO-TOOLS`, compiler p50 was 196.261 ms and linker p50 was
 2,175.229 ms. The next measured executor bottleneck is therefore linking, not
 package loading. A separate direct-link experiment measured `-w` at 538.757 ms
-p50 versus 745.819 ms without it, but rejected the option because it removes
-DWARF/debugger information. It is not enabled.
+p50 versus 745.819 ms without it. Plan 0197 rejected the option; Plan 0198
+superseded that rejection below.
+
+## Development Link Policy (Plan 0198)
+
+The Plan 0197 link phase was not intrinsic linker cost. Measured on the same
+macOS host, the full-ONLV link (619 packages, 52 MB PIE, internal linking)
+takes 0.78–0.82 s: about 210 ms loading archives, 200 ms for DWARF (104 ms of
+it zlib compression), 100 ms data layout, 90 ms dead-code elimination, 57 ms
+pclntab and 90 ms writing output. The linker is effectively single-threaded.
+The same link took 0.95–1.09 s under 16–24 concurrent busy loops, 2.6–2.8 s
+under `taskpolicy -b` and 2.8–3.0 s under `taskpolicy -c background`. Scenery's
+own import configuration rewrite added about 110 ms inside the measured phase.
+
+By explicit human decision, ordinary development executables now link with
+`-w`: 0.55–0.59 s and 39.6 MB instead of 0.78–0.82 s and 51.0 MB. Stack
+traces, panics and profiles use pclntab and keep working; debuggers need
+`build.go_flags: ["-ldflags=-w=false"]`. `-compressdwarf=false` alone saved
+only about 60 ms while adding 32 MB. The import configuration rewrite is now a
+linear exact mapping, and the macOS supervisor clears an inherited Darwin
+background policy before each build request and reports `process.scheduling`.
+QoS clamps remain outside Scenery's control.
 
 ## Boundaries and Attribution
 

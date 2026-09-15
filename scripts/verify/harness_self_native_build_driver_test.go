@@ -66,3 +66,15 @@ func TestNativeBuildComparisonUsesExplicitBaseline(t *testing.T) {
 		t.Fatalf("unfair comparison: %+v", build)
 	}
 }
+
+func TestNativeBuildSchedulingPoliciesCountEveryMeasuredRequest(t *testing.T) {
+	counts := nativeBuildSchedulingPolicies([]nativeBuildDriverSample{
+		{SchedulingPolicy: "darwin_background_cleared"},
+		{SchedulingPolicy: "darwin_background_absent"},
+		{SchedulingPolicy: "darwin_background_absent"},
+		{},
+	})
+	if counts["darwin_background_cleared"] != 1 || counts["darwin_background_absent"] != 2 || counts["not_reported"] != 1 || len(counts) != 3 {
+		t.Fatalf("scheduling policy counts = %#v", counts)
+	}
+}

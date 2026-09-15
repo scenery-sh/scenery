@@ -105,6 +105,7 @@ type nativeBuildDriverSample struct {
 	ActivationMS                 float64                     `json:"runtime_activation_ms,omitempty"`
 	ArtifactHandlingMS           float64                     `json:"artifact_handling_ms,omitempty"`
 	SchedulerDelayMS             float64                     `json:"scheduler_delay_ms,omitempty"`
+	SchedulingPolicy             string                      `json:"scheduling_policy,omitempty"`
 	OperationID                  string                      `json:"operation_id,omitempty"`
 	Phases                       []harnessEditLatencyPhase   `json:"phases,omitempty"`
 	Waterfall                    []nativeBuildPhaseWaterfall `json:"waterfall,omitempty"`
@@ -285,6 +286,7 @@ func runNativeBuildExperimentBenchmark(parent context.Context, repoRoot, sourceR
 		}
 	}
 	run.summary["samples"] = allSamples
+	run.summary["scheduling_policies"] = nativeBuildSchedulingPolicies(allSamples)
 	aggregate := nativeBuildCohortSummary(allSamples)
 	run.summary["aggregate"] = aggregate
 	run.summary["execution_matrix"] = nativeBuildExecutionMatrix(aggregate, spec)
@@ -312,6 +314,7 @@ func runNativeBuildExperimentBenchmark(parent context.Context, repoRoot, sourceR
 		return summary, err
 	}
 	run.summary["source_status_after"] = string(after)
+	run.summary["load_average_after"] = run.nativeBuildLoadAverage("environment-load-average-after")
 	run.summary["source_status_unchanged"] = string(after) == string(before)
 	targetAfter, err := nativeReloadFileDigest(originalTarget)
 	if err != nil || targetAfter != targetBefore {
@@ -674,6 +677,8 @@ func (run *nativeBuildDriverRun) measureLaneSource(lane *nativeBuildDriverLane, 
 			row.ArtifactHandlingMS = phase.DurationMS
 		case "build.queue":
 			row.SchedulerDelayMS = phase.DurationMS + phase.QueueMS
+		case "process.scheduling":
+			row.SchedulingPolicy = phase.Reason
 		case "runtime.activation":
 			row.ActivationMS = phase.DurationMS
 		case "implementation.check":

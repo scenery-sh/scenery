@@ -69,14 +69,31 @@ func prepareRuntimeBundle(ctx context.Context, result *Result) error {
 	return nil
 }
 
-// effectiveGoBuildFlags merges the configured build flags with the runtime
-// linker metadata for the actual go build invocation. Persisted build state
-// and cache comparisons use only result.GoBuildFlags.
+// developmentLinkerFlags omit DWARF from ordinary development executables:
+// it costs about 30 percent of a full-application link, while stack traces,
+// panics and profiles read pclntab. Debuggers need DWARF, so configured linker
+// flags follow this default and -ldflags=-w=false restores it.
+const developmentLinkerFlags = "-w"
+
+// developmentLinkerDefaults applies to the same ordinary development builds
+// that use the retained compiler. Ephemeral, production-asset and deployable
+// artifacts keep the stock linker defaults.
+func developmentLinkerDefaults(result *Result) string {
+	if shouldUseRetainedNativeCompiler(result) {
+		return developmentLinkerFlags
+	}
+	return ""
+}
+
+// effectiveGoBuildFlags merges the development linker defaults, configured
+// build flags and runtime linker metadata for the actual go build invocation.
+// Persisted build state and cache comparisons use only result.GoBuildFlags.
 func effectiveGoBuildFlags(result *Result) []string {
-	if len(result.RuntimeLinkerMetadata) == 0 {
+	defaults := developmentLinkerDefaults(result)
+	if len(result.RuntimeLinkerMetadata) == 0 && defaults == "" {
 		return result.GoBuildFlags
 	}
-	return withRuntimeBundleLinkerMetadata(result.GoBuildFlags, result.RuntimeLinkerMetadata)
+	return withRuntimeBundleLinkerMetadata(result.GoBuildFlags, defaults, result.RuntimeLinkerMetadata)
 }
 
 func validateRuntimeLinkerMetadata(values map[string]string) error {
@@ -140,9 +157,9 @@ func ReadRuntimeBundleFile(path, target string) (RuntimeBundleDescriptor, error)
 	return descriptor, nil
 }
 
-func withRuntimeBundleLinkerMetadata(flags []string, values map[string]string) []string {
+func withRuntimeBundleLinkerMetadata(flags []string, defaults string, values map[string]string) []string {
 	result := make([]string, 0, len(flags)+1)
-	ldflags := ""
+	ldflags := defaults
 	for index := 0; index < len(flags); index++ {
 		flag := flags[index]
 		switch {
@@ -155,8 +172,10 @@ func withRuntimeBundleLinkerMetadata(flags []string, values map[string]string) [
 			result = append(result, flag)
 		}
 	}
-	for _, key := range runtimeLinkerMetadataKeys {
-		ldflags += " -X=" + key + "=" + values[key]
+	if len(values) != 0 {
+		for _, key := range runtimeLinkerMetadataKeys {
+			ldflags += " -X=" + key + "=" + values[key]
+		}
 	}
 	return append(result, "-ldflags="+strings.TrimSpace(ldflags))
 }

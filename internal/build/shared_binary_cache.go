@@ -104,6 +104,10 @@ func sharedBinaryKey(result *Result) (string, sharedBinaryArtifact, error) {
 		return "", sharedBinaryArtifact{}, fmt.Errorf("shared binary cache requires implementation and linker identity")
 	}
 	flags := normalizeGoBuildFlags(result.GoBuildFlags)
+	if defaults := developmentLinkerDefaults(result); defaults != "" {
+		// Linker defaults change executable bytes, so they name the entry too.
+		flags = append([]string{"-ldflags=" + defaults}, flags...)
+	}
 	metadata := make(map[string]string, len(result.RuntimeLinkerMetadata))
 	for key, value := range result.RuntimeLinkerMetadata {
 		metadata[key] = value

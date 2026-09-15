@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -196,6 +197,49 @@ func TestCompileArgsRebindsRetainedEmbedConfiguration(t *testing.T) {
 	delete(capture.SnapshotFiles, asset)
 	if _, err := recipe.compileArgs(action, capture, nil, filepath.Join(root, "rejected.a"), filepath.Join(root, "rejected-generation")); err == nil {
 		t.Fatal("missing embedded snapshot did not fail closed")
+	}
+}
+
+func TestRewriteImportCfgRebindsExactArchivePathsOnly(t *testing.T) {
+	root := t.TempDir()
+	stock := filepath.Join(root, "stock", "a.a")
+	retained := filepath.Join(root, "retained", "a.a")
+	similar := stock + ".orig"
+	for _, path := range []string{stock, retained, similar} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("archive"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	configLines := func(archive string) string {
+		return strings.Join([]string{
+			"# import config",
+			"importmap example/old=example/a",
+			"packagefile example/a=" + archive,
+			"packagefile example/similar=" + similar,
+			`modinfo "` + stock + `"`,
+			"",
+		}, "\n")
+	}
+	source := filepath.Join(root, "importcfg")
+	if err := os.WriteFile(source, []byte(configLines(stock)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	archives := map[string]string{stock: retained}
+	target := filepath.Join(root, "generation", "importcfg")
+	if err := rewriteImportCfg(source, target, archives); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.ReadFile(target); err != nil || string(got) != configLines(retained) {
+		t.Fatalf("rewritten import configuration = %q, want %q: %v", got, configLines(retained), err)
+	}
+	if err := os.Remove(retained); err != nil {
+		t.Fatal(err)
+	}
+	if err := rewriteImportCfg(source, filepath.Join(root, "rejected", "importcfg"), archives); err == nil {
+		t.Fatal("missing retained archive was accepted")
 	}
 }
 

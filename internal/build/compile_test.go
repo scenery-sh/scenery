@@ -219,6 +219,34 @@ func TestCompilePassesConfiguredGoBuildFlags(t *testing.T) {
 	}
 }
 
+func TestEffectiveGoBuildFlagsOmitDWARFOnlyForOrdinaryDevelopmentBuilds(t *testing.T) {
+	t.Parallel()
+	metadata := prepareCompileTestResult(&Result{}).RuntimeLinkerMetadata
+	identity := " -X=scenery.sh/runtime.linkedContractRevision=test-contract -X=scenery.sh/runtime.linkedImplementationRevision=test-implementation" +
+		" -X=scenery.sh/runtime.linkedBuildInputDigest=test-build-input -X=scenery.sh/runtime.linkedGoTarget=test-target"
+	configured := "-w=false -X=main.value=configured"
+	development := &compiler.GoBuildTarget{Role: "development"}
+	for _, test := range []struct {
+		name   string
+		result Result
+		want   string
+	}{
+		{name: "development", result: Result{Target: development}, want: "-ldflags=-w " + configured + identity},
+		{name: "ephemeral", result: Result{Target: development, Ephemeral: true}, want: "-ldflags=" + configured + identity},
+		{name: "production assets", result: Result{Target: development, ProductionAssets: true}, want: "-ldflags=" + configured + identity},
+		{name: "other role", result: Result{Target: &compiler.GoBuildTarget{Role: "production"}}, want: "-ldflags=" + configured + identity},
+	} {
+		test.result.GoBuildFlags = []string{"-tags=fixture", "-ldflags=" + configured}
+		test.result.RuntimeLinkerMetadata = metadata
+		if got, want := effectiveGoBuildFlags(&test.result), []string{"-tags=fixture", test.want}; !slices.Equal(got, want) {
+			t.Fatalf("%s go build flags = %q, want %q", test.name, got, want)
+		}
+	}
+	if got := effectiveGoBuildFlags(&Result{Target: development}); !slices.Equal(got, []string{"-ldflags=-w"}) {
+		t.Fatalf("development flags without runtime metadata = %q", got)
+	}
+}
+
 func TestCompileRejectsUnpreparedResult(t *testing.T) {
 	t.Parallel()
 

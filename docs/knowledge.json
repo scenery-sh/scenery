@@ -19,6 +19,18 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0198-development-link-latency.md",
+      "title": "Development Link Latency",
+      "owner": "scenery runtime / build / native compiler verification",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-09-15",
+      "review_after": "2026-10-15",
+      "summary": "Linear import configuration rewrite, Darwin background scheduling removal with process.scheduling evidence, and DWARF-free development links are complete; isolated full-ONLV link fell to 0.50-0.55 s while the loaded benchmark link phase remained environmental.",
+      "tags": ["plans", "execplans", "build", "runtime", "benchmark", "performance"]
+    },
+    {
       "path": "docs/plans/0197-retained-build-executor-decision.md",
       "title": "Retained Build Executor Decision",
       "owner": "scenery runtime / build / native compiler verification",
@@ -63,7 +75,7 @@
       "freshness": "current",
       "last_reviewed": "2026-09-15",
       "review_after": "2026-10-14",
-      "summary": "Retained-compiler history, corrected short three-lane ONLV evidence, and the current default-development policy boundary.",
+      "summary": "Retained direct executor policy, the five-path short ONLV comparison, full-ONLV link attribution, and the DWARF-free development link and Darwin scheduling policy.",
       "tags": ["build", "runtime", "benchmark", "performance", "decision"]
     },
     {

@@ -55,6 +55,7 @@ func (run *nativeBuildDriverRun) nativeBuildEnvironmentSnapshot(sourceStatus []b
 	if data, err := run.command(run.repoRoot, "environment-hardware", "sysctl", "-n", "hw.model", "hw.memsize", "machdep.cpu.brand_string"); err == nil {
 		result["hardware"] = strings.Split(strings.TrimSpace(string(data)), "\n")
 	}
+	result["load_average"] = run.nativeBuildLoadAverage("environment-load-average")
 	policy := map[string]any{"per_application_authorization": "not exposed by a stable command-line read API; launcher ancestry is recorded"}
 	if data, err := run.command(run.repoRoot, "environment-developer-tools", "/usr/sbin/DevToolsSecurity", "-status"); err == nil {
 		policy["developer_tools_security"] = strings.TrimSpace(string(data))
@@ -268,4 +269,36 @@ func readNativeBuildCounter(root string) int {
 	data, _ := os.ReadFile(filepath.Join(root, "counter"))
 	value, _ := strconv.Atoi(strings.TrimSpace(string(data)))
 	return value
+}
+
+// nativeBuildLoadAverage records host load around the run. Link and compile
+// phases slow down under contention, so comparisons need this context.
+func (run *nativeBuildDriverRun) nativeBuildLoadAverage(name string) string {
+	if runtime.GOOS == "linux" {
+		data, err := os.ReadFile("/proc/loadavg")
+		if err != nil {
+			return ""
+		}
+		return strings.TrimSpace(string(data))
+	}
+	data, err := run.command(run.repoRoot, name, "sysctl", "-n", "vm.loadavg")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
+// nativeBuildSchedulingPolicies counts the Darwin scheduling state each
+// measured request reported. A background policy moves compiler and linker
+// work to throttled scheduling, which invalidates executor comparisons.
+func nativeBuildSchedulingPolicies(samples []nativeBuildDriverSample) map[string]int {
+	counts := map[string]int{}
+	for _, sample := range samples {
+		policy := sample.SchedulingPolicy
+		if policy == "" {
+			policy = "not_reported"
+		}
+		counts[policy]++
+	}
+	return counts
 }

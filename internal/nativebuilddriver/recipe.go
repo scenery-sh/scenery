@@ -871,29 +871,36 @@ func linkIdentityArgs(buildArgs []string) []string {
 	return nil
 }
 
+// rewriteImportCfg rebinds exact packagefile archive paths. Import
+// configurations name archives only in those entries, so one map lookup per
+// line replaces a whole-file scan per archive; every other line is preserved.
 func rewriteImportCfg(source, target string, archives map[string]string) error {
 	data, err := os.ReadFile(source)
 	if err != nil {
 		return err
 	}
-	text := string(data)
-	for old, current := range archives {
-		text = strings.ReplaceAll(text, old, current)
-	}
-	for _, line := range strings.Split(text, "\n") {
-		if value, ok := strings.CutPrefix(line, "packagefile "); ok {
-			_, path, found := strings.Cut(value, "=")
-			if found {
-				if _, err := os.Stat(path); err != nil {
-					return fmt.Errorf("import archive unavailable %s: %w", path, err)
-				}
-			}
+	lines := strings.Split(string(data), "\n")
+	for index, line := range lines {
+		value, ok := strings.CutPrefix(line, "packagefile ")
+		if !ok {
+			continue
+		}
+		importPath, path, found := strings.Cut(value, "=")
+		if !found {
+			continue
+		}
+		if current, mapped := archives[path]; mapped {
+			path = current
+			lines[index] = "packagefile " + importPath + "=" + path
+		}
+		if _, err := os.Stat(path); err != nil {
+			return fmt.Errorf("import archive unavailable %s: %w", path, err)
 		}
 	}
 	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
 		return err
 	}
-	return os.WriteFile(target, []byte(text), 0o600)
+	return os.WriteFile(target, []byte(strings.Join(lines, "\n")), 0o600)
 }
 
 func runTool(ctx context.Context, tool, cwd string, env, args []string) error {

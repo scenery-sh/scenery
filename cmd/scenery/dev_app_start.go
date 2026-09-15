@@ -28,6 +28,7 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 	operationID := newDevBuildOperationID()
 	ctx = build.WithTraceOperation(ctx, operationID, s.emitBuildStep)
 	requestStarted := time.Now()
+	recordDevScheduling(ctx, clearInheritedBackgroundPolicy)
 	defer func() {
 		reason := "source_rebuild"
 		if initial {
