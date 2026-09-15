@@ -144,19 +144,31 @@ func runHarnessProcessModelProbe(parent context.Context, repoRoot string) (summa
 		return nil, fmt.Errorf("host %d, echo %d and greeter %d are not three processes", host, echoOne.PID, greeterOne.PID)
 	}
 
-	// A greet request pinned to the first generation stays in flight while
-	// echo is replaced; it must still reach the first echo instance.
-	pinned := make(chan harnessProcessModelResponse, 1)
-	pinnedErr := make(chan error, 1)
+	// Three generations: a greet request pinned to the first generation waits
+	// while greeter and then echo are replaced. Retiring the second generation
+	// must not stop the first echo, which the first generation still names.
+	type pinnedResult struct {
+		response harnessProcessModelResponse
+		err      error
+		at       time.Time
+	}
+	pinned := make(chan pinnedResult, 1)
 	go func() {
-		response, err := call(ctx, "/greet", `{"name":"wait:8s:pinned"}`)
-		pinned <- response
-		pinnedErr <- err
+		response, err := call(ctx, "/greet", `{"name":"wait:15s:pinned"}`)
+		pinned <- pinnedResult{response, err, time.Now()}
 	}()
 	if err := harnessWaitContext(ctx, 300*time.Millisecond); err != nil {
 		return nil, err
 	}
-	echoSource := filepath.Join(appRoot, "echo/api.go")
+	greeterSource, echoSource := filepath.Join(appRoot, "greeter/api.go"), filepath.Join(appRoot, "echo/api.go")
+	if err := harnessReplaceInFile(greeterSource, `text.Label("greeter", result.Value.Message)`, `text.Label("greeter-two", result.Value.Message)`); err != nil {
+		return nil, err
+	}
+	greeterTwo, _, err := waitFor("/greet", `{"name":"probe"}`, "greeter-two:echo:hello probe")
+	if err != nil {
+		return nil, err
+	}
+	echoEditOffset := logOffset()
 	if err := harnessReplaceInFile(echoSource, `text.Label("echo", input.Message)`, `text.Label("echo-two", input.Message)`); err != nil {
 		return nil, err
 	}
@@ -165,25 +177,34 @@ func runHarnessProcessModelProbe(parent context.Context, repoRoot string) (summa
 	if err != nil {
 		return nil, err
 	}
-	replacementLatency := time.Since(edited)
-	var inFlight harnessProcessModelResponse
+	replacementLatency, thirdPublished := time.Since(edited), time.Now()
+	var inFlight pinnedResult
 	select {
 	case inFlight = <-pinned:
-		if err := <-pinnedErr; err != nil {
-			return nil, fmt.Errorf("pinned in-flight request: %w", err)
-		}
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
-	if inFlight.Message != "greeter:echo:hello pinned" || inFlight.PID != greeterOne.PID {
-		return nil, fmt.Errorf("request pinned to the first generation answered %#v; want the first echo through greeter %d", inFlight, greeterOne.PID)
+	if inFlight.err != nil {
+		return nil, fmt.Errorf("pinned in-flight request: %w", inFlight.err)
 	}
-	if !nativeBuildWaitProcessExit(echoOne.PID, 45*time.Second) {
-		return nil, fmt.Errorf("replaced echo process %d did not retire after its generation drained", echoOne.PID)
+	if inFlight.at.Before(thirdPublished) {
+		return nil, fmt.Errorf("the pinned request finished before the third generation was published")
 	}
-	greeterTwo, err := call(ctx, "/greet", `{"name":"probe"}`)
-	if err != nil || greeterTwo.Message != "greeter:echo-two:hello probe" || greeterTwo.PID != greeterOne.PID || echoTwo.PID == echoOne.PID || echoTwo.Implementation == echoOne.Implementation {
-		return nil, fmt.Errorf("after the echo edit greet = %#v (%v), echo = %#v; want the unchanged greeter %d and a new echo identity", greeterTwo, err, echoTwo, greeterOne.PID)
+	if inFlight.response.Message != "greeter:echo:hello pinned" || inFlight.response.PID != greeterOne.PID {
+		return nil, fmt.Errorf("request pinned to the first generation answered %#v; want the first greeter %d and the first echo", inFlight.response, greeterOne.PID)
+	}
+	for _, pid := range []int{greeterOne.PID, echoOne.PID} {
+		if !nativeBuildWaitProcessExit(pid, 45*time.Second) {
+			return nil, fmt.Errorf("process %d of the first generation did not retire after its pinned work finished", pid)
+		}
+	}
+	current, err := call(ctx, "/greet", `{"name":"probe"}`)
+	if err != nil || current.Message != "greeter-two:echo-two:hello probe" || current.PID != greeterTwo.PID || echoTwo.PID == echoOne.PID || echoTwo.Implementation == echoOne.Implementation {
+		return nil, fmt.Errorf("after both edits greet = %#v (%v), echo = %#v; want greeter %d and a new echo identity", current, err, echoTwo, greeterTwo.PID)
+	}
+	background, err := harnessProcessModelBackground(started.LogPath, echoEditOffset)
+	if err != nil {
+		return nil, err
 	}
 
 	// A failing build leaves the published generation serving.
@@ -199,7 +220,7 @@ func runHarnessProcessModelProbe(parent context.Context, repoRoot string) (summa
 		return nil, err
 	}
 	served, err := call(ctx, "/greet", `{"name":"probe"}`)
-	if err != nil || served.Message != "greeter:echo-two:hello probe" || served.PID != greeterOne.PID {
+	if err != nil || served.Message != "greeter-two:echo-two:hello probe" || served.PID != greeterTwo.PID {
 		return nil, fmt.Errorf("after a failed build greet = %#v, %v", served, err)
 	}
 	restoredOffset := logOffset()
@@ -218,12 +239,12 @@ func runHarnessProcessModelProbe(parent context.Context, repoRoot string) (summa
 	if err := harnessReplaceInFile(filepath.Join(appRoot, "internal/text/text.go"), `service + ":" + message`, `service + "|" + message`); err != nil {
 		return nil, err
 	}
-	greeterThree, sharedLatency, err := waitFor("/greet", `{"name":"probe"}`, "greeter|echo-two|hello probe")
+	greeterThree, sharedLatency, err := waitFor("/greet", `{"name":"probe"}`, "greeter-two|echo-two|hello probe")
 	if err != nil {
 		return nil, err
 	}
 	echoThree, err := call(ctx, "/echo", `{"message":"hi"}`)
-	if err != nil || echoThree.Message != "echo-two|hi" || echoThree.PID == echoTwo.PID || greeterThree.PID == greeterOne.PID {
+	if err != nil || echoThree.Message != "echo-two|hi" || echoThree.PID == echoTwo.PID || greeterThree.PID == greeterTwo.PID {
 		return nil, fmt.Errorf("shared edit answered greet %#v and echo %#v (%v); want both services replaced", greeterThree, echoThree, err)
 	}
 	rebuilt, err := harnessProcessModelRebuiltSet(started.LogPath, sharedOffset)
@@ -233,25 +254,159 @@ func runHarnessProcessModelProbe(parent context.Context, repoRoot string) (summa
 	if !slices.Equal(rebuilt, []string{"echo_echo", "greeter_greeter"}) {
 		return nil, fmt.Errorf("shared edit rebuilt %v; want both service processes and not the host", rebuilt)
 	}
-	session, err := harnessLiveSession(ctx, home, appRoot)
+
+	// A contract-changing generation whose echo constructor fails must leave the
+	// previous host and services serving. The constructor edit lands first so
+	// the contract change is the build that attempts a complete generation.
+	// Fixing the constructor then commits that generation with a new host.
+	// Contract edits regenerate projections and retry their build, so each step
+	// waits for the activation of the expected contract.
+	contract, err := harnessProcessModelContract(started.LogPath)
 	if err != nil {
 		return nil, err
 	}
-	if session.AppPID != started.Session.AppPID {
-		return nil, fmt.Errorf("host process changed from %s to %s", started.Session.AppPID, session.AppPID)
+	failingConstructor := [][2]string{{"return &Service{}, nil", `return nil, errors.New("probe constructor failure")`}, {"import (\n\t\"context\"\n", "import (\n\t\"context\"\n\t\"errors\"\n"}}
+	constructorOffset := logOffset()
+	if err := harnessReplaceEachInFile(echoSource, failingConstructor...); err != nil {
+		return nil, err
+	}
+	if _, err := harnessProcessModelWaitActivation(ctx, started.LogPath, constructorOffset, false, func(revision string) bool { return revision == contract }); err != nil {
+		return nil, err
+	}
+	contractOffset := logOffset()
+	if err := harnessReplaceEachInFile(filepath.Join(appRoot, "echo/package.scn"), [2]string{"record \"echo_result\" {\n", "record \"echo_result\" {\n  field \"note\" {\n    type = string\n  }\n\n"}); err != nil {
+		return nil, err
+	}
+	changedContract, err := harnessProcessModelWaitActivation(ctx, started.LogPath, contractOffset, false, func(revision string) bool { return revision != contract })
+	if err != nil {
+		return nil, err
+	}
+	kept, err := call(ctx, "/greet", `{"name":"probe"}`)
+	if err != nil || kept.Message != "greeter-two|echo-two|hello probe" || kept.PID != greeterThree.PID {
+		return nil, fmt.Errorf("after a failed contract-changing generation greet = %#v, %v", kept, err)
+	}
+	if keptEcho, err := call(ctx, "/echo", `{"message":"hi"}`); err != nil || keptEcho.PID != echoThree.PID {
+		return nil, fmt.Errorf("after a failed contract-changing generation echo = %#v, %v", keptEcho, err)
+	}
+	if session, err := harnessLiveSession(ctx, home, appRoot); err != nil || session.AppPID != started.Session.AppPID {
+		return nil, fmt.Errorf("a failed contract-changing generation replaced the host %s: %#v, %v", started.Session.AppPID, session.AppPID, err)
+	}
+	commitOffset := logOffset()
+	if err := os.WriteFile(echoSource, original, 0o600); err != nil {
+		return nil, err
+	}
+	if _, err := harnessProcessModelWaitActivation(ctx, started.LogPath, commitOffset, true, func(revision string) bool { return revision == changedContract }); err != nil {
+		return nil, err
+	}
+	// The session record names the new host once the activation is published.
+	replacedHost := 0
+	for begin := time.Now(); ; {
+		session, err := harnessLiveSession(ctx, home, appRoot)
+		if err != nil {
+			return nil, err
+		}
+		if replacedHost, _ = strconv.Atoi(session.AppPID); replacedHost > 0 && replacedHost != host {
+			break
+		}
+		if time.Since(begin) > 30*time.Second {
+			return nil, fmt.Errorf("the committed contract-changing generation kept host %d (session reports %q)", host, session.AppPID)
+		}
+		if err := harnessWaitContext(ctx, 20*time.Millisecond); err != nil {
+			return nil, err
+		}
+	}
+	seen = append(seen, replacedHost)
+	greeterFour, err := call(ctx, "/greet", `{"name":"probe"}`)
+	if err != nil || greeterFour.Message != "greeter-two|echo-two|hello probe" || greeterFour.PID == greeterThree.PID {
+		return nil, fmt.Errorf("after the committed contract-changing generation greet = %#v, %v", greeterFour, err)
+	}
+	for _, pid := range []int{host, greeterThree.PID, echoThree.PID} {
+		if !nativeBuildWaitProcessExit(pid, 15*time.Second) {
+			return nil, fmt.Errorf("process %d of the replaced generation outlived the complete replacement", pid)
+		}
 	}
 	return map[string]any{
-		"host_pid":                     host,
-		"echo_pids":                    []int{echoOne.PID, echoTwo.PID, echoThree.PID},
-		"greeter_pids":                 []int{greeterOne.PID, greeterThree.PID},
-		"pinned_in_flight_answer":      inFlight.Message,
-		"echo_edit_to_response_ms":     replacementLatency.Milliseconds(),
-		"shared_edit_to_response_ms":   sharedLatency.Milliseconds(),
-		"failed_build_kept_generation": true,
-		"identical_source_kept_echo":   true,
-		"shared_edit_rebuilt":          rebuilt,
-		"proof":                        "public_scenery_up_process_model_replaced_only_changed_services_with_pinned_generation_and_identity_attribution",
+		"host_pids":                               []int{host, replacedHost},
+		"echo_pids":                               []int{echoOne.PID, echoTwo.PID, echoThree.PID},
+		"greeter_pids":                            []int{greeterOne.PID, greeterTwo.PID, greeterThree.PID, greeterFour.PID},
+		"pinned_across_three_generations":         inFlight.response.Message,
+		"echo_edit_to_response_ms":                replacementLatency.Milliseconds(),
+		"shared_edit_to_response_ms":              sharedLatency.Milliseconds(),
+		"background_transfer":                     background,
+		"failed_build_kept_generation":            true,
+		"identical_source_kept_echo":              true,
+		"shared_edit_rebuilt":                     rebuilt,
+		"failed_contract_generation_kept_serving": true,
+		"committed_contract_revision":             changedContract,
+		"proof":                                   "public_scenery_up_process_model_replaced_only_changed_services_with_retained_generations_background_activation_complete_replacement_and_identity_attribution",
 	}, nil
+}
+
+// harnessProcessModelBackground requires the echo replacement to drain the
+// replaced instance before activating its successor.
+func harnessProcessModelBackground(log string, offset int64) ([]string, error) {
+	events, err := harnessWatchEvents(log, offset)
+	if err != nil {
+		return nil, err
+	}
+	var transfer []string
+	for _, event := range events {
+		if event.Type == "build.step" && event.Data.Name == "process.background" {
+			if !event.Data.OK {
+				return nil, fmt.Errorf("process background %s failed", event.Data.Reason)
+			}
+			transfer = append(transfer, event.Data.Reason)
+		}
+	}
+	if !slices.Equal(transfer, []string{"drain", "activate"}) {
+		return nil, fmt.Errorf("echo replacement transferred background work as %v; want drain then activate", transfer)
+	}
+	return transfer, nil
+}
+
+// harnessProcessModelContract returns the contract revision of the latest
+// successful activation.
+func harnessProcessModelContract(log string) (string, error) {
+	events, err := harnessWatchEvents(log, 0)
+	if err != nil {
+		return "", err
+	}
+	contract := ""
+	for _, event := range events {
+		if event.Type == "build.step" && event.Data.Name == "runtime.activation" && event.Data.OK && event.Data.ContractRevision != "" {
+			contract = event.Data.ContractRevision
+		}
+	}
+	if contract == "" {
+		return "", fmt.Errorf("no successful activation recorded a contract revision")
+	}
+	return contract, nil
+}
+
+// harnessProcessModelWaitActivation waits for the next activation after
+// offset, skipping builds a regenerated projection superseded, and requires its
+// outcome and contract revision.
+func harnessProcessModelWaitActivation(ctx context.Context, log string, offset int64, ok bool, contract func(string) bool) (string, error) {
+	deadline := time.Now().Add(90 * time.Second)
+	for time.Now().Before(deadline) {
+		events, err := harnessWatchEvents(log, offset)
+		if err != nil {
+			return "", err
+		}
+		for _, event := range events {
+			if event.Type != "build.step" || event.Data.Name != "runtime.activation" {
+				continue
+			}
+			if event.Data.OK != ok || event.Data.ContractRevision == "" || !contract(event.Data.ContractRevision) {
+				return "", fmt.Errorf("activation ok=%t with contract %q after offset %d does not match the expected outcome ok=%t", event.Data.OK, event.Data.ContractRevision, offset, ok)
+			}
+			return event.Data.ContractRevision, nil
+		}
+		if err := harnessWaitContext(ctx, 20*time.Millisecond); err != nil {
+			return "", err
+		}
+	}
+	return "", fmt.Errorf("no activation followed the edit")
 }
 
 func copyHarnessMultiserviceFixture(repoRoot, appRoot string) error {
@@ -280,6 +435,21 @@ func copyHarnessMultiserviceFixture(repoRoot, appRoot string) error {
 		}
 		return os.WriteFile(filepath.Join(appRoot, relative), content, 0o600)
 	})
+}
+
+// harnessReplaceEachInFile applies every unique replacement in one save.
+func harnessReplaceEachInFile(path string, replacements ...[2]string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	for _, replacement := range replacements {
+		if bytes.Count(data, []byte(replacement[0])) != 1 {
+			return fmt.Errorf("%s does not contain exactly one %q", path, replacement[0])
+		}
+		data = bytes.Replace(data, []byte(replacement[0]), []byte(replacement[1]), 1)
+	}
+	return harnessAtomicWatchSave(path, data)
 }
 
 func harnessReplaceInFile(path, old, replacement string) error {
@@ -350,8 +520,11 @@ func harnessProcessModelCleanup(home, appRoot string, pids []int) error {
 		return err
 	}
 	for _, entry := range entries {
-		if name := entry.Name(); name == "d.sock" || name == "process-link.json" || strings.HasPrefix(name, "s") && strings.HasSuffix(name, ".sock") {
-			return fmt.Errorf("process-model wiring %s outlived scenery down", name)
+		name := entry.Name()
+		for _, pattern := range []string{"d[0-9]*.sock", "s[0-9]*.sock", "process-link-[0-9]*.json"} {
+			if matched, _ := filepath.Match(pattern, name); matched {
+				return fmt.Errorf("process-model wiring %s outlived scenery down", name)
+			}
 		}
 	}
 	return nil

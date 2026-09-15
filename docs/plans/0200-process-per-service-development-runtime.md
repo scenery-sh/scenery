@@ -196,6 +196,68 @@ compile the application graph as it needs.
   build starts. The implementation check (0.86-0.95 s, concurrent) now ends
   after the 0.55 s entrypoint build, so a faster link alone no longer shortens
   the path.
+- [x] (2026-09-16) Review of 9a0b54d0 shared by the human found lifecycle
+  ownership gaps, each confirmed in code before fixing. Retiring a generation
+  stopped the instances its successor replaced even when an older retained
+  generation still named them; supervisor instance lifetime is now reference
+  based (an instance stops only when neither the current services nor any
+  retained generation name it), and a generation whose pinned work outlives
+  30 s is force-retired by the host (`DELETE .../generations/<n>?force=true`),
+  which ends dispatch within it before its unreferenced instances stop.
+  Host-forwarded MCP tool calls entered unpinned request state; the host now
+  sends the generation it selected and the tool state carries it to nested
+  internal calls. Durable MCP receipts were routed by service name to whatever
+  instance was current and authorized only by that instance's memory; the host
+  now authorizes receipts itself (principal, owning process, durable service and
+  task, bounded to 4,096 records, conflicting owners fail closed) and the owning
+  process of the current generation reads the shared durable store. Candidates
+  started schedules, event consumers and durable acquisition at startup; service
+  processes under a process link now serve requests first and acquire
+  background work only on `/__scenery/process/v1/activate`, which the supervisor
+  sends after publication and after draining the replaced instances (drain
+  revokes for the rest of the process life). A complete replacement stopped the
+  previous host and services before starting the new generation and could not
+  restore them; candidate services now start while the previous generation
+  serves, the previous host stops only when they are ready, and a failed
+  candidate host is abandoned and the previous host restarted from its retained
+  launch with the previous services, which were never drained. Each host
+  incarnation gets its own link file and dispatch socket. The process build now
+  takes the host-wide fair link slot, and configured `-ldflags value` pairs no
+  longer leak their value as a top-level build argument. Unit tests:
+  `TestProcessHostPinsForwardedMCPToolCallsAndTheirInternalCalls`,
+  `TestProcessHostForwardsMCPToolsAndAuthorizesDurableReceiptsAcrossReplacement`,
+  `TestProcessHostForcedRetirementEndsDispatchWithinTheGeneration`,
+  `TestRuntimeBackgroundStartsOnlyOnActivationAndNeverAfterDrain`,
+  `TestDevProcessInstancesStopOnlyWhenNoRetainedGenerationNamesThem`,
+  `TestDevProcessReplacementRestoresThePreviousHostOnlyAfterCandidatesStop`,
+  `TestDevelopmentProcessBuildArgsMoveEveryLinkerFlagIntoEachEntrypoint` and
+  `TestRetainedDevelopmentProcessDigestsDoNotRereadUnchangedExecutables`; each
+  failed with its fix mutated away. `TestProcessHostCountsStreamsAndUpgradedConnectionsAsPinnedWork`
+  keeps a generation unretirable while an event stream or an upgraded
+  connection forwarded in it is open.
+- [x] (2026-09-16) The `process-model` probe now keeps a `greet` request
+  (fixture `wait:15s:`) pinned to generation 1 while `greeter` and then `echo`
+  are replaced, requires it to answer `greeter:echo:hello pinned` from the first
+  instances after generation 3 was published and generation 2 retired, requires
+  both first instances to exit afterwards, and requires the `echo` replacement
+  to record `process.background` drain then activate. After the existing failed
+  build, identical-source and shared-edit checks, it makes `echo`'s constructor
+  fail, adds a result field to `echo`'s contract (the complete generation fails
+  while the host, `greeter` and `echo` keep their PIDs), then fixes the
+  constructor so the contract-changing generation commits with a new host and
+  the previous host and services exit. Pass in 27.4 s (echo edit to response
+  1,199 ms, shared edit 1,228 ms). With retained-generation references removed
+  the probe failed: the pinned request answered 500 `system.internal`.
+- [ ] Follow-ups from the 9a0b54d0 review, not yet scheduled: bound link
+  parallelism inside one process build (the fair slot admits the build, but
+  `go build` still links up to `-p` entrypoints at once; measure peak memory of
+  the first ONLV build first); replace the separate preflight execution with a
+  single-start attestation once it keeps the same guarantees; supervised
+  restart of a crashed service instance from its verified executable with a
+  crash budget and an explicit degraded state; generation-bound verification
+  receipts naming the generation manifest and callee identities a check
+  exercised; and deterministic failure injection at the host's dispatch
+  boundary for disposable sessions.
 - [ ] Milestone 4 remaining toward the 300/500 ms targets, in path order: the
   implementation check on every edit; about 0.42 s of preparation before input
   discovery (framework verification, workspace cache and materialization); the
@@ -286,6 +348,39 @@ compile the application graph as it needs.
   socket 351–371 ms, first cross-process `/greet` response 11–12 ms, about
   1.07 s total. The start interval again reflects macOS first execution of a
   new file from this launching context.
+
+- A three-generation, two-service sequence (a request pinned to generation 1,
+  greeter replaced in 2, echo replaced in 3) stopped the first echo when
+  generation 2 retired, although generation 1 still named it: the supervisor
+  stopped the instances replaced by a transition, and the host only checked
+  work pinned to the generation being retired.
+- The generation a host selected for an MCP tool call did not reach the service
+  process, so a nested internal call after a publication crossed into the new
+  generation. Host-local application endpoints are served before ingress
+  pinning; each forwarded tool call is now pinned individually, and a whole
+  assistant conversation is deliberately not pinned.
+- Durable status and cancellation resolved the accepting service name in the
+  current generation, whose instance had none of the accepting instance's
+  in-memory receipt records and answered `not_found` while the accepting
+  instance was still alive.
+- The previous process wiring (one `process-link.json` and `d.sock` per session)
+  could not let a candidate host start while the previous host still owned the
+  dispatch socket; per-incarnation link files remove that constraint.
+- No public input of the multiservice fixture makes a candidate host fail after
+  its services started, so the restore ordering is proven with injected steps
+  in `TestDevProcessReplacementRestoresThePreviousHostOnlyAfterCandidatesStop`,
+  and the probe proves the realistic case: a contract-changing generation whose
+  service constructor fails never stops the previous host.
+- A single `-ldflags` token was filtered from the shared build arguments without
+  its value, so `-ldflags -s=false` would have passed `-s=false` to `go build`.
+- Reverting a contract-changing `.scn` edit activated the reverted contract in
+  both development models: the generated `scenerycontract` projections kept the
+  added field and the next builds compiled it, even after the source settled.
+  This predates Plan 0200 and is tracked as a separate task; the probe commits
+  its contract change instead of reverting it.
+- `httputil.ReverseProxy` copies both directions of an upgraded connection
+  until both end, so a host generation stays in flight until the client closes
+  its side as well.
 
 ## Decision Log
 
@@ -427,6 +522,61 @@ compile the application graph as it needs.
   and emissions are refused until their bus ownership across processes is
   proven. Migrations and seeds stay supervisor-owned (`scenery db setup`).
   Date: 2026-09-15. Author: Claude.
+- Decision: service-instance lifetime is reference based. The supervisor keeps
+  the instances of every generation the host still retains; retiring a
+  generation releases its references and stops only instances that neither the
+  current services nor another retained generation name. A replaced generation
+  retires when the host reports no pinned work, or after 30 s by forced
+  retirement: the host removes the manifest, dispatch pinned to it answers
+  `unavailable` `not_sent`, and work already forwarded to a stopped instance
+  ends with its connection. Rationale: pinning is only a guarantee while every
+  instance a pinned generation names stays alive, and development sessions need
+  a bound for long-lived streams pinned to old generations. This refines the
+  earlier generation-aware dispatch decision. Date: 2026-09-16. Author: Claude,
+  after the human-shared review.
+- Decision: one runtime-owned generation context covers every entry point that
+  forwards into a service process: ingress requests and host-originated MCP
+  tool calls carry the generation the host selected, the service runtime moves it
+  into request state, and descendant internal calls keep it. Host-local
+  application endpoints (assistant conversations) are not pinned; each tool
+  call they make is pinned individually. Work started outside a forwarded call
+  (schedules, durable workers) stays unpinned and dispatches to the current
+  generation. Date: 2026-09-16. Author: Claude.
+- Decision: the host authorizes durable MCP receipts. A service process that
+  accepts a durable receipt returns its durable service and task with the
+  outcome; the host records principal, execution ID, owning process, service and
+  task (4,096 records, oldest forgotten first, an execution ID accepted by two
+  owners for one principal fails closed) and sends authorized status and
+  cancellation to the owning process of the current generation, which reads the
+  shared durable store without its own receipt records. Process-local receipt
+  records in one application process use the same bound. Rationale: durable
+  work outlives implementation instances; the host outlives service
+  replacements, and the durable store is the state authority. This replaces
+  routing status to "the process that accepted the receipt". Date: 2026-09-16.
+  Author: Claude, after the human-shared review.
+- Decision: readiness and background authority are separate. A runtime with
+  `SCENERY_PROCESS_LINK` opens durable stores and serves requests but starts
+  schedules, event consumers and durable acquisition, schedule and retention
+  loops only on `POST /__scenery/process/v1/activate`; `/drain` revokes them
+  immediately and for the rest of the process life (it waits at most 100 ms for
+  running work and answers 202 when work is still stopping). Instance states are
+  prepared (preflight), ready (serving, inactive), activated, draining and
+  retired. The supervisor activates a generation's new instances only after
+  publication and after draining the instances it replaced; an instance that
+  does not confirm drain is stopped first. Application constructors and `init`
+  still run at candidate startup, so their side effects are not gated. This
+  replaces draining replaced instances as the only barrier. Date: 2026-09-16.
+  Author: Claude, after the human-shared review.
+- Decision: a complete replacement (changed contract or host identity) starts
+  the candidate services with a new host incarnation link while the previous
+  generation serves, stops the previous host only when they are ready (the
+  candidate host needs the application listener and assistant descriptors), and
+  commits only after the candidate host accepted its generation: previous
+  instances then stop before the new ones are activated. A failed candidate host
+  is stopped and the previous host restarts from its retained executable and
+  environment with the previous services republished as generation 1; candidate
+  shutdown that cannot be confirmed refuses the restore, as for one application
+  process. Date: 2026-09-16. Author: Claude, after the human-shared review.
 - Decision: per-service routes come from the same generator data that renders
   endpoint registrations (`runtimeBindingPath`, `renderContractPathTail`) and are
   checked against rendered adapter sources in tests. Rationale: a route table

@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -259,9 +261,10 @@ func isUnavailableDelivery(err error, delivery string) bool {
 	return ok && typed.Code == errs.Unavailable && typed.Meta["delivery"] == delivery
 }
 
-func TestProcessHostForwardsMCPToolsAndDurableReceiptsToTheirOwner(t *testing.T) {
-	restore := replaceGlobalRegistryForTest()
-	defer restore()
+// useLinkedProcessIdentityForTest links this test process with the identity a
+// published service instance in processHostTestContract generations reports.
+func useLinkedProcessIdentityForTest(t *testing.T) {
+	t.Helper()
 	for pointer, value := range map[*string]string{
 		&linkedContractRevision: processHostTestContract, &linkedImplementationRevision: "sha256:2222222222222222222222222222222222222222222222222222222222222222",
 		&linkedBuildInputDigest: "sha256:3333333333333333333333333333333333333333333333333333333333333333", &linkedGoTarget: "development",
@@ -270,6 +273,31 @@ func TestProcessHostForwardsMCPToolsAndDurableReceiptsToTheirOwner(t *testing.T)
 		*pointer = value
 		t.Cleanup(func() { *pointer = previous })
 	}
+}
+
+// serveProcessMCPOwnerForTest serves the service-process MCP endpoints of this
+// test process on a private socket and counts the requests it answers.
+func serveProcessMCPOwnerForTest(t *testing.T, served *atomic.Int32) processGenerationInstance {
+	t.Helper()
+	owner := &server{}
+	socket := serveProcessLinkForTest(t, withProcessGeneration(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		served.Add(1)
+		switch req.URL.Path {
+		case processMCPCallPath:
+			owner.handleProcessMCPCall(w, req, nil)
+		case processMCPDurablePath:
+			owner.handleProcessMCPDurable(w, req, nil)
+		default:
+			http.NotFound(w, req)
+		}
+	})))
+	return processGenerationInstance{Network: socket.Network, Address: socket.Address, PID: os.Getpid(), Identity: processInstanceIdentity(CurrentLinkedContractBundle())}
+}
+
+func TestProcessHostForwardsMCPToolsAndAuthorizesDurableReceiptsAcrossReplacement(t *testing.T) {
+	restore := replaceGlobalRegistryForTest()
+	defer restore()
+	useLinkedProcessIdentityForTest(t)
 	useProcessLinkForTest(t, &processLinkConfig{Token: processLinkTestToken, Dispatch: processLinkTarget{Network: "unix", Address: "/unused"}})
 	calls := 0
 	if err := RegisterMCPTool(MCPToolRegistration{
@@ -287,27 +315,15 @@ func TestProcessHostForwardsMCPToolsAndDurableReceiptsToTheirOwner(t *testing.T)
 	}); err != nil {
 		t.Fatal(err)
 	}
-	owner := &server{}
-	socket := serveProcessLinkForTest(t, http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		switch req.URL.Path {
-		case processMCPCallPath:
-			owner.handleProcessMCPCall(w, req, nil)
-		case processMCPDurablePath:
-			owner.handleProcessMCPDurable(w, req, nil)
-		default:
-			http.NotFound(w, req)
-		}
-	}))
+	var acceptedBy, replacementServed atomic.Int32
+	accepting := serveProcessMCPOwnerForTest(t, &acceptedBy)
 	host, err := newProcessHost(ProcessHostConfig{Name: "house", Fallback: "house_house", MCPTools: []ProcessHostMCPTool{
 		{Process: "house_house", AssistantAddress: "app/assistant/support", Name: "house__process_scene"},
 	}}, processLinkTestToken, processHostTestContract)
 	if err != nil {
 		t.Fatal(err)
 	}
-	bundle := CurrentLinkedContractBundle()
-	if err := host.publish(processGenerationManifest{Generation: 1, ContractRevision: processHostTestContract, Processes: map[string]processGenerationInstance{
-		"house_house": {Network: socket.Network, Address: socket.Address, PID: os.Getpid(), Identity: processInstanceIdentity(bundle)},
-	}}); err != nil {
+	if err := host.publish(processGenerationManifest{Generation: 1, ContractRevision: processHostTestContract, Processes: map[string]processGenerationInstance{"house_house": accepting}}); err != nil {
 		t.Fatal(err)
 	}
 	setActiveProcessHost(host)
@@ -321,35 +337,360 @@ func TestProcessHostForwardsMCPToolsAndDurableReceiptsToTheirOwner(t *testing.T)
 	if _, err := dispatch.CallTool(context.Background(), call, "house__missing", json.RawMessage(`{}`)); err == nil || !strings.Contains(err.Error(), "not_found") {
 		t.Fatalf("unknown MCP tool = %v", err)
 	}
+	// A replacement instance starts without the accepting process's receipt
+	// records; the host authorizes the principal and names the durable task.
+	replacement := serveProcessMCPOwnerForTest(t, &replacementServed)
+	if err := host.publish(processGenerationManifest{Generation: 2, ContractRevision: processHostTestContract, Processes: map[string]processGenerationInstance{"house_house": replacement}}); err != nil {
+		t.Fatal(err)
+	}
+	mcpDurableOwners.Lock()
+	mcpDurableOwners.values, mcpDurableOwners.order = map[string]mcpDurableOwner{}, nil
+	mcpDurableOwners.Unlock()
 	other := call
 	other.Principal = "principal-2"
-	if _, err := durable.Status(context.Background(), other, "execution-1"); err == nil || !strings.Contains(err.Error(), "not_found") {
-		t.Fatalf("status for another principal = %v", err)
+	if _, err := durable.Status(context.Background(), other, "execution-1"); err == nil || !strings.Contains(err.Error(), "not_found") || replacementServed.Load() != 0 {
+		t.Fatalf("status for another principal = %v (replacement served %d)", err, replacementServed.Load())
 	}
-	// The owner process authorizes and reads the receipt itself; without its
-	// durable store the forwarded status reports the owner's own failure.
-	if _, err := durable.Status(context.Background(), call, "execution-1"); err == nil || !strings.Contains(err.Error(), "durable execution store is unavailable") {
-		t.Fatalf("forwarded durable status = %v", err)
+	// Without a durable store the replacement reports its own store failure,
+	// which proves it read the authorized receipt instead of a missing record.
+	for _, operation := range []func(context.Context, MCPToolCallContext, string) (json.RawMessage, error){durable.Status, durable.Cancel} {
+		if _, err := operation(context.Background(), call, "execution-1"); err == nil || !strings.Contains(err.Error(), "durable execution store is unavailable") {
+			t.Fatalf("durable operation after replacement = %v", err)
+		}
+	}
+	if replacementServed.Load() != 2 || acceptedBy.Load() != 1 {
+		t.Fatalf("replacement served %d durable requests, accepting instance served %d requests", replacementServed.Load(), acceptedBy.Load())
 	}
 }
 
-func TestProcessDrainStopsBackgroundWorkWithTheSessionToken(t *testing.T) {
+func TestProcessHostPinsForwardedMCPToolCallsAndTheirInternalCalls(t *testing.T) {
+	restore := replaceGlobalRegistryForTest()
+	defer restore()
+	useLinkedProcessIdentityForTest(t)
+	echoOne := startProcessHostTestBackend(t, "echo_echo", 301, "sha256:echo-1")
+	echoTwo := startProcessHostTestBackend(t, "echo_echo", 302, "sha256:echo-2")
+	host, err := newProcessHost(ProcessHostConfig{Name: "house", Fallback: "echo_echo", MCPTools: []ProcessHostMCPTool{
+		{Process: "house_house", AssistantAddress: "app/assistant/support", Name: "house__describe"},
+	}}, processLinkTestToken, processHostTestContract)
+	if err != nil {
+		t.Fatal(err)
+	}
+	useProcessLinkForTest(t, &processLinkConfig{Token: processLinkTestToken, Dispatch: serveProcessLinkForTest(t, http.HandlerFunc(host.serveControl))})
+	started, resume := make(chan struct{}), make(chan struct{})
+	var invocations atomic.Int32
+	if err := RegisterMCPTool(MCPToolRegistration{
+		ID: "app/assistant/support#house/binding/describe_mcp", Name: "house__describe", AssistantAddress: "app/assistant/support",
+		DecodeInput: func(data []byte) (any, error) { return string(data), nil },
+		EncodeOutput: func(value any) ([]byte, error) {
+			return []byte(`{"kind":"result","name":"ok","value":` + string(value.([]byte)) + `}`), nil
+		},
+		Invoke: func(ctx context.Context, call MCPToolCallContext, input any) (any, error) {
+			if invocations.Add(1) == 1 {
+				close(started)
+				<-resume
+			}
+			return InvokeContractBindingJSON(ctx, "echo/binding/echo_internal", "house", []byte(`{}`))
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var served atomic.Int32
+	owner := serveProcessMCPOwnerForTest(t, &served)
+	generation := func(number uint64, echo *processHostTestBackend) processGenerationManifest {
+		return processGenerationManifest{Generation: number, ContractRevision: processHostTestContract, Bindings: map[string]string{"echo/binding/echo_internal": "echo_echo"},
+			Processes: map[string]processGenerationInstance{"house_house": owner, "echo_echo": echo.instance}}
+	}
+	if err := host.publish(generation(1, echoOne)); err != nil {
+		t.Fatal(err)
+	}
+	setActiveProcessHost(host)
+	t.Cleanup(func() { setActiveProcessHost(nil) })
+	dispatch, _ := assistantMCPDispatchers()
+	call := MCPToolCallContext{Principal: "principal-1", AssistantAddress: "app/assistant/support", RequestID: "request-1"}
+	type result struct {
+		outcome MCPToolOutcome
+		err     error
+	}
+	pinned := make(chan result, 1)
+	go func() {
+		outcome, err := dispatch.CallTool(context.Background(), call, "house__describe", json.RawMessage(`{}`))
+		pinned <- result{outcome, err}
+	}()
+	<-started
+	if err := host.publish(generation(2, echoTwo)); err != nil {
+		t.Fatal(err)
+	}
+	close(resume)
+	if got := <-pinned; got.err != nil || string(got.outcome.Value) != `"echo_echo:sha256:echo-1"` {
+		t.Fatalf("tool call started in generation 1 = %s, %v", got.outcome.Value, got.err)
+	}
+	if outcome, err := dispatch.CallTool(context.Background(), call, "house__describe", json.RawMessage(`{}`)); err != nil || string(outcome.Value) != `"echo_echo:sha256:echo-2"` {
+		t.Fatalf("tool call started in generation 2 = %s, %v", outcome.Value, err)
+	}
+}
+
+func TestProcessHostForcedRetirementEndsDispatchWithinTheGeneration(t *testing.T) {
+	echo := startProcessHostTestBackend(t, "echo_echo", 401, "sha256:echo-1")
+	greeter := startProcessHostTestBackend(t, "greeter_greeter", 402, "sha256:greeter-1")
+	host, err := newProcessHost(ProcessHostConfig{Name: "multiservice", Fallback: "echo_echo", Routes: []ProcessHostRoute{
+		{Process: "greeter_greeter", Methods: []string{"GET"}, Path: "/slow"},
+	}}, processLinkTestToken, processHostTestContract)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := func(number uint64) processGenerationManifest {
+		return processGenerationManifest{Generation: number, ContractRevision: processHostTestContract, Bindings: map[string]string{"echo/binding/echo_internal": "echo_echo"},
+			Processes: map[string]processGenerationInstance{"echo_echo": echo.instance, "greeter_greeter": greeter.instance}}
+	}
+	if err := host.publish(manifest(1)); err != nil {
+		t.Fatal(err)
+	}
+	pinned := make(chan int, 1)
+	go func() {
+		recorder, _ := processHostTestRequest(t, host.serveIngress, "GET", "/slow", nil)
+		pinned <- recorder.Code
+	}()
+	deadline := time.Now().Add(time.Second)
+	for host.status().Generations[0].InFlight == 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if err := host.publish(manifest(2)); err != nil {
+		t.Fatal(err)
+	}
+	control := serveProcessLinkForTest(t, http.HandlerFunc(host.serveControl))
+	retire := func(query string) int {
+		request, _ := http.NewRequest(http.MethodDelete, "http://host"+processGenerationsPath+"/1"+query, nil)
+		request.Header.Set("Authorization", "Bearer "+processLinkTestToken)
+		response, err := processLinkClient(control).Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = response.Body.Close()
+		return response.StatusCode
+	}
+	if status := retire("?force=yes"); status != http.StatusBadRequest {
+		t.Fatalf("malformed forced retirement = %d", status)
+	}
+	if status := retire(""); status != http.StatusConflict {
+		t.Fatalf("retirement with work in flight = %d", status)
+	}
+	if status := retire("?force=true"); status != http.StatusNoContent {
+		t.Fatalf("forced retirement = %d", status)
+	}
+	if generation := host.acquire(1); generation != nil {
+		t.Fatal("a force-retired generation stayed dispatchable")
+	}
+	close(greeter.release)
+	if code := <-pinned; code != http.StatusOK {
+		t.Fatalf("request forwarded before forced retirement = %d", code)
+	}
+	if status := host.status(); status.Current != 2 || len(status.Generations) != 1 {
+		t.Fatalf("host status after forced retirement = %#v", status)
+	}
+}
+
+// Streams and upgraded connections stay pinned work until they end, so their
+// generation is not retired and their instances are not stopped under them.
+func TestProcessHostCountsStreamsAndUpgradedConnectionsAsPinnedWork(t *testing.T) {
+	release := make(chan struct{})
+	instance := processGenerationInstance{PID: 501, Identity: processInstanceIdentity{
+		ContractRevision: processHostTestContract, ImplementationRevision: "sha256:stream-1", BuildInputDigest: "sha256:stream-inputs", GoTarget: "development",
+	}}
+	target := serveProcessLinkForTest(t, http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		for header, value := range map[string]string{processIdentityContractHdr: instance.Identity.ContractRevision, processIdentityImplHeader: instance.Identity.ImplementationRevision,
+			processIdentityBuildHeader: instance.Identity.BuildInputDigest, processIdentityTargetHeader: instance.Identity.GoTarget, processIdentityPIDHeader: strconv.Itoa(instance.PID)} {
+			w.Header().Set(header, value)
+		}
+		if req.URL.Path == "/upgrade" {
+			w.Header().Set("Connection", "Upgrade")
+			w.Header().Set("Upgrade", "probe")
+			w.WriteHeader(http.StatusSwitchingProtocols)
+			conn, buffered, err := http.NewResponseController(w).Hijack()
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			defer func() { _ = conn.Close() }()
+			<-release
+			_, _ = buffered.WriteString("closing")
+			_ = buffered.Flush()
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: first\n\n"))
+		_ = http.NewResponseController(w).Flush()
+		<-release
+		_, _ = w.Write([]byte("data: last\n\n"))
+	}))
+	instance.Network, instance.Address = target.Network, target.Address
+	host, err := newProcessHost(ProcessHostConfig{Name: "streams", Fallback: "stream_stream"}, processLinkTestToken, processHostTestContract)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := func(number uint64) processGenerationManifest {
+		return processGenerationManifest{Generation: number, ContractRevision: processHostTestContract, Processes: map[string]processGenerationInstance{"stream_stream": instance}}
+	}
+	if err := host.publish(manifest(1)); err != nil {
+		t.Fatal(err)
+	}
+	public := serveProcessLinkForTest(t, http.HandlerFunc(host.serveIngress))
+	client := processLinkClient(public)
+	stream, err := client.Get("http://host/events")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = stream.Body.Close() }()
+	first := make([]byte, len("data: first\n\n"))
+	if _, err := io.ReadFull(stream.Body, first); err != nil || string(first) != "data: first\n\n" {
+		t.Fatalf("first stream event = %q, %v", first, err)
+	}
+	request, _ := http.NewRequest(http.MethodGet, "http://host/upgrade", nil)
+	request.Header.Set("Connection", "Upgrade")
+	request.Header.Set("Upgrade", "probe")
+	upgraded, err := client.Do(request)
+	if err != nil || upgraded.StatusCode != http.StatusSwitchingProtocols {
+		t.Fatalf("upgrade = %v, %v", upgraded, err)
+	}
+	upgradedConn, ok := upgraded.Body.(io.ReadWriteCloser)
+	if !ok {
+		t.Fatalf("upgraded body %T is not a connection", upgraded.Body)
+	}
+	defer func() { _ = upgradedConn.Close() }()
+	if err := host.publish(manifest(2)); err != nil {
+		t.Fatal(err)
+	}
+	if status, _ := host.retire(1, false); status != http.StatusConflict || host.status().Generations[0].InFlight != 2 {
+		t.Fatalf("retiring a generation with an open stream and upgraded connection = %d (%#v)", status, host.status())
+	}
+	close(release)
+	if rest, err := io.ReadAll(stream.Body); err != nil || string(rest) != "data: last\n\n" {
+		t.Fatalf("stream end = %q, %v", rest, err)
+	}
+	if rest, err := io.ReadAll(upgradedConn); err != nil || string(rest) != "closing" {
+		t.Fatalf("upgraded connection end = %q, %v", rest, err)
+	}
+	// The host copies both directions of an upgraded connection until both end.
+	_ = upgradedConn.Close()
+	deadline := time.Now().Add(time.Second)
+	for host.status().Generations[0].InFlight != 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if status, _ := host.retire(1, false); status != http.StatusNoContent {
+		t.Fatalf("retiring the generation after its stream and connection ended = %d", status)
+	}
+}
+
+func TestProcessDurableReceiptOwnersAreBoundedAndFailClosed(t *testing.T) {
+	var owners processHostDurableOwners
+	owner := processHostDurableOwner{process: "house_house", service: "house", taskName: "process_scene"}
+	for index := range processHostDurableOwnerLimit + 1 {
+		owners.store("principal-1", strconv.Itoa(index), owner)
+	}
+	if _, ok := owners.load("principal-1", "0"); ok {
+		t.Fatal("the oldest receipt beyond the limit stayed authorized")
+	}
+	if got, ok := owners.load("principal-1", strconv.Itoa(processHostDurableOwnerLimit)); !ok || got != owner {
+		t.Fatalf("newest receipt = %#v, %v", got, ok)
+	}
+	conflicting := owner
+	conflicting.process = "maps_maps"
+	owners.store("principal-1", "1", conflicting)
+	if _, ok := owners.load("principal-1", "1"); ok {
+		t.Fatal("an execution ID accepted by two owners stayed authorized")
+	}
+	var local mcpDurableOwnerStore
+	for index := range mcpDurableOwnerLimit + 1 {
+		local.Store("house", strconv.Itoa(index), mcpDurableOwner{Principal: "principal-1", TaskName: "process_scene"})
+	}
+	if _, ok := local.Load("house", "0"); ok || len(local.values) != mcpDurableOwnerLimit {
+		t.Fatalf("process-local receipts = %d, oldest retained %v", len(local.values), ok)
+	}
+}
+
+// processBackgroundForTest records activation and drain requests.
+type processBackgroundForTest struct {
+	activations, drains int
+	drainErr            error
+}
+
+func (background *processBackgroundForTest) activate() error {
+	background.activations++
+	return nil
+}
+
+func (background *processBackgroundForTest) drain(context.Context) error {
+	background.drains++
+	return background.drainErr
+}
+
+func TestProcessBackgroundActivationAndDrainRequireTheSessionToken(t *testing.T) {
 	useProcessLinkForTest(t, &processLinkConfig{Token: processLinkTestToken, Dispatch: processLinkTarget{Network: "unix", Address: "/unused"}})
-	drained := 0
-	setProcessBackgroundDrain(func(context.Context) error { drained++; return nil })
-	t.Cleanup(func() { setProcessBackgroundDrain(nil) })
+	background := &processBackgroundForTest{}
+	setProcessBackground(background)
+	t.Cleanup(func() { setProcessBackground(nil) })
 	owner := &server{}
-	for token, want := range map[string]int{"wrong-token-wrong-token-wrong-token": http.StatusUnauthorized, processLinkTestToken: http.StatusNoContent} {
-		request := httptest.NewRequest(http.MethodPost, processDrainPath, nil)
+	request := func(handler func(http.ResponseWriter, *http.Request, routeParams), path, token string) int {
+		request := httptest.NewRequest(http.MethodPost, path, nil)
 		request.Header.Set("Authorization", "Bearer "+token)
 		recorder := httptest.NewRecorder()
-		owner.handleProcessDrain(recorder, request, nil)
-		if recorder.Code != want {
-			t.Fatalf("drain with token %q = %d, want %d", token, recorder.Code, want)
+		handler(recorder, request, nil)
+		return recorder.Code
+	}
+	for _, handler := range []func(http.ResponseWriter, *http.Request, routeParams){owner.handleProcessActivate, owner.handleProcessDrain} {
+		if status := request(handler, processDrainPath, "wrong-token-wrong-token-wrong-token"); status != http.StatusUnauthorized {
+			t.Fatalf("background control with a wrong token = %d", status)
 		}
 	}
-	if drained != 1 {
-		t.Fatalf("background drain ran %d times", drained)
+	if status := request(owner.handleProcessActivate, processActivatePath, processLinkTestToken); status != http.StatusNoContent || background.activations != 1 {
+		t.Fatalf("activation = %d (%d activations)", status, background.activations)
+	}
+	if status := request(owner.handleProcessDrain, processDrainPath, processLinkTestToken); status != http.StatusNoContent || background.drains != 1 {
+		t.Fatalf("drain = %d (%d drains)", status, background.drains)
+	}
+	background.drainErr = context.DeadlineExceeded
+	if status := request(owner.handleProcessDrain, processDrainPath, processLinkTestToken); status != http.StatusAccepted {
+		t.Fatalf("drain whose running work outlived the wait = %d", status)
+	}
+}
+
+func TestRuntimeBackgroundStartsOnlyOnActivationAndNeverAfterDrain(t *testing.T) {
+	restore := replaceGlobalRegistryForTest()
+	defer restore()
+	starts, stops := 0, 0
+	newBackground := func() *runtimeBackground {
+		durable := &durableRuntime{ctx: context.Background(), start: func(context.Context) func(context.Context) error {
+			starts++
+			return func(context.Context) error { stops++; return nil }
+		}}
+		return &runtimeBackground{ctx: context.Background(), durable: durable}
+	}
+	background := newBackground()
+	if starts != 0 {
+		t.Fatal("background work started before activation")
+	}
+	for range 2 {
+		if err := background.activate(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if starts != 1 {
+		t.Fatalf("durable background started %d times", starts)
+	}
+	if err := background.drain(context.Background()); err != nil || stops != 1 {
+		t.Fatalf("drain = %v (%d stops)", err, stops)
+	}
+	if err := background.activate(); err == nil || !strings.Contains(err.Error(), "failed_precondition") || starts != 1 {
+		t.Fatalf("activation after drain = %v (%d starts)", err, starts)
+	}
+	revoked := newBackground()
+	if err := revoked.drain(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := revoked.activate(); err == nil || starts != 1 {
+		t.Fatalf("activation of a runtime drained before activation = %v (%d starts)", err, starts)
+	}
+	if err := shutdownRuntime(nil, newBackground()); err != nil || starts != 1 {
+		t.Fatalf("shutdown of an inactive runtime = %v (%d starts)", err, starts)
 	}
 }
 

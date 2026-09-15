@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -18,9 +19,12 @@ import (
 
 // In a process-model session the host runs assistant gateways, and their MCP
 // tools are registered by service processes. The host dispatcher forwards each
-// tool call to the owning process of the current generation and remembers which
-// process accepted a durable receipt, so status and cancellation reach the
-// process whose owner record authorizes them.
+// tool call to the owning process of the current generation, pinning the call
+// and its internal calls to that generation. The host, which outlives service
+// replacements, authorizes durable receipts: it records the principal, owning
+// process, durable service and task of each accepted receipt, and sends
+// authorized status and cancellation to the owning process of the current
+// generation, which reads the shared durable store.
 
 var activeProcessHost struct {
 	sync.RWMutex
@@ -45,9 +49,52 @@ func assistantMCPDispatchers() (mcpcontract.ToolDispatcher, mcpgateway.DurableOp
 	return dispatcher, dispatcher
 }
 
+// processHostDurableOwnerLimit bounds the receipts a host authorizes; the
+// oldest receipt is forgotten first and then reads as not found.
+const processHostDurableOwnerLimit = 4096
+
 type processHostDurableOwners struct {
 	sync.RWMutex
-	values map[string]string
+	values map[string]processHostDurableOwner
+	order  []string
+}
+
+type processHostDurableOwner struct {
+	process  string
+	service  string
+	taskName string
+	// ambiguous marks an execution ID accepted by two owners for one principal;
+	// such a receipt fails closed as it does in one application process.
+	ambiguous bool
+}
+
+func (owners *processHostDurableOwners) store(principal, executionID string, owner processHostDurableOwner) {
+	key := principal + "\x00" + executionID
+	owners.Lock()
+	defer owners.Unlock()
+	if owners.values == nil {
+		owners.values = map[string]processHostDurableOwner{}
+	}
+	if existing, exists := owners.values[key]; exists {
+		if existing.process != owner.process || existing.service != owner.service || existing.taskName != owner.taskName {
+			existing.ambiguous = true
+			owners.values[key] = existing
+		}
+		return
+	}
+	if len(owners.order) >= processHostDurableOwnerLimit {
+		delete(owners.values, owners.order[0])
+		owners.order = owners.order[1:]
+	}
+	owners.values[key] = owner
+	owners.order = append(owners.order, key)
+}
+
+func (owners *processHostDurableOwners) load(principal, executionID string) (processHostDurableOwner, bool) {
+	owners.RLock()
+	defer owners.RUnlock()
+	owner, ok := owners.values[principal+"\x00"+executionID]
+	return owner, ok && !owner.ambiguous
 }
 
 type processHostMCPDispatcher struct {
@@ -70,13 +117,10 @@ func (d processHostMCPDispatcher) CallTool(ctx context.Context, call mcpcontract
 	if response.Outcome == nil {
 		return mcpcontract.ToolOutcome{}, ContractSystemError(fmt.Errorf("service process %s returned no MCP outcome", process))
 	}
-	if receipt := response.Outcome.Receipt; receipt != nil && receipt.ExecutionID != "" {
-		d.host.owners.Lock()
-		if d.host.owners.values == nil {
-			d.host.owners.values = map[string]string{}
-		}
-		d.host.owners.values[strings.TrimSpace(call.Principal)+"\x00"+receipt.ExecutionID] = process
-		d.host.owners.Unlock()
+	if receipt := response.Outcome.Receipt; receipt != nil && receipt.ExecutionID != "" && response.Durable != nil {
+		d.host.owners.store(strings.TrimSpace(call.Principal), receipt.ExecutionID, processHostDurableOwner{
+			process: process, service: strings.TrimSpace(response.Durable.Service), taskName: strings.TrimSpace(response.Durable.TaskName),
+		})
 	}
 	return *response.Outcome, nil
 }
@@ -91,17 +135,15 @@ func (d processHostMCPDispatcher) Cancel(ctx context.Context, call mcpcontract.T
 
 func (d processHostMCPDispatcher) durable(ctx context.Context, operation string, call mcpcontract.ToolCallContext, executionID string) (json.RawMessage, error) {
 	executionID = strings.TrimSpace(executionID)
-	d.host.owners.RLock()
-	process := d.host.owners.values[strings.TrimSpace(call.Principal)+"\x00"+executionID]
-	d.host.owners.RUnlock()
-	if process == "" {
+	owner, ok := d.host.owners.load(strings.TrimSpace(call.Principal), executionID)
+	if !ok || owner.service == "" || owner.taskName == "" {
 		return nil, errors.New("not_found: durable execution not found")
 	}
-	body, err := json.Marshal(processMCPDurableRequest{Operation: operation, Call: call, ExecutionID: executionID})
+	body, err := json.Marshal(processMCPDurableRequest{Operation: operation, Call: call, ExecutionID: executionID, Service: owner.service, TaskName: owner.taskName})
 	if err != nil {
 		return nil, ContractSystemError(err)
 	}
-	response, err := d.host.callProcess(ctx, process, processMCPDurablePath, body)
+	response, err := d.host.callProcess(ctx, owner.process, processMCPDurablePath, body)
 	if err != nil {
 		return nil, err
 	}
@@ -128,7 +170,8 @@ func (h *processHost) mcpToolOwner(assistantAddress, name string) (string, error
 }
 
 // callProcess sends one host-originated call to a service process of the
-// current generation and verifies the answering identity.
+// current generation, pinned to that generation, and verifies the answering
+// identity.
 func (h *processHost) callProcess(ctx context.Context, process, path string, body []byte) (processMCPResponse, error) {
 	generation := h.acquire(0)
 	if generation == nil {
@@ -145,6 +188,7 @@ func (h *processHost) callProcess(ctx context.Context, process, path string, bod
 	}
 	request.Header.Set("Authorization", "Bearer "+h.token)
 	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set(processGenerationHeader, strconv.FormatUint(generation.number, 10))
 	response, err := instance.client.Do(request)
 	if err != nil {
 		return processMCPResponse{}, processLinkCallFailure(ctx, process, err)

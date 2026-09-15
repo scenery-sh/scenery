@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"os"
@@ -26,9 +27,13 @@ import (
 const devProcessModelEnv = "SCENERY_DEV_PROCESS_MODEL"
 
 const (
+	// devProcessRetireTimeout bounds how long a replaced generation may keep
+	// pinned work before the supervisor forces its retirement.
 	devProcessRetireTimeout  = 30 * time.Second
 	devProcessRetireInterval = 20 * time.Millisecond
 	devProcessControlTimeout = 5 * time.Second
+	// devProcessBackgroundTimeout bounds one activation or drain request.
+	devProcessBackgroundTimeout = 5 * time.Second
 )
 
 func devProcessModelSelected() (bool, error) {
@@ -43,21 +48,38 @@ func devProcessModelSelected() (bool, error) {
 }
 
 // devProcessModel owns the host and service process instances of a
-// process-model session. Activations are serialized; retirement of a replaced
-// generation runs in the background once the host reports it drained.
+// process-model session; mu serializes activations. Each host incarnation has
+// its own link (link file and dispatch socket). Service instances start without
+// background work; once a generation is published, the instances it replaced
+// are drained and its new instances are activated, so only instances of the
+// current generation acquire background work. A replaced generation retires
+// when the host reports no pinned work or when its retirement is forced, and an
+// instance stops only when neither the current services nor any generation the
+// host still retains name it.
 type devProcessModel struct {
 	mu         sync.Mutex
 	token      string
 	socketDir  string
-	linkPath   string
-	dispatch   string
 	sequence   int
+	epoch      uint64
+	link       *devProcessLink
 	generation uint64
 	contract   string
+	bindings   map[string]string
 	host       *devProcessInstance
 	services   map[string]*devProcessInstance
-	retiring   map[*devProcessInstance]bool
-	control    *http.Client
+	// retained names the instances of every published generation the current
+	// host incarnation still retains, the current generation included.
+	retained map[uint64]map[string]*devProcessInstance
+}
+
+// devProcessLink is the wiring of one host incarnation.
+type devProcessLink struct {
+	epoch    uint64
+	token    string
+	path     string
+	dispatch string
+	control  *http.Client
 }
 
 type devProcessInstance struct {
@@ -65,6 +87,18 @@ type devProcessInstance struct {
 	socket  string
 	app     *runningApp
 	stopped bool
+}
+
+// devProcessState is the model state a complete replacement restores when the
+// new host incarnation cannot serve.
+type devProcessState struct {
+	link       *devProcessLink
+	generation uint64
+	contract   string
+	bindings   map[string]string
+	host       *devProcessInstance
+	services   map[string]*devProcessInstance
+	retained   map[uint64]map[string]*devProcessInstance
 }
 
 func (s *devSupervisor) ensureDevProcessModel() (*devProcessModel, error) {
@@ -87,27 +121,47 @@ func (s *devSupervisor) ensureDevProcessModel() (*devProcessModel, error) {
 	} else if socketDir, err = os.MkdirTemp("", "scp"); err != nil {
 		return nil, err
 	}
-	model := &devProcessModel{
-		token: token + second, socketDir: socketDir, dispatch: filepath.Join(socketDir, "d.sock"),
-		services: map[string]*devProcessInstance{}, retiring: map[*devProcessInstance]bool{},
+	s.processes = &devProcessModel{
+		token: token + second, socketDir: socketDir,
+		services: map[string]*devProcessInstance{}, retained: map[uint64]map[string]*devProcessInstance{},
 	}
-	model.linkPath = filepath.Join(socketDir, "process-link.json")
-	link, err := json.Marshal(map[string]any{"token": model.token, "dispatch": map[string]string{"network": "unix", "address": model.dispatch}})
+	return s.processes, nil
+}
+
+// newLink writes the private link file of the next host incarnation.
+func (model *devProcessModel) newLink() (*devProcessLink, error) {
+	epoch := model.epoch + 1
+	link := &devProcessLink{
+		epoch:    epoch,
+		token:    model.token,
+		path:     filepath.Join(model.socketDir, "process-link-"+strconv.FormatUint(epoch, 10)+".json"),
+		dispatch: filepath.Join(model.socketDir, "d"+strconv.FormatUint(epoch, 10)+".sock"),
+	}
+	data, err := json.Marshal(map[string]any{"token": model.token, "dispatch": map[string]string{"network": "unix", "address": link.dispatch}})
 	if err != nil {
 		return nil, err
 	}
-	if err := writePrivateProcessLink(model.linkPath, link); err != nil {
+	if err := writePrivateProcessLink(link.path, data); err != nil {
 		return nil, err
 	}
+	model.epoch = epoch
 	dialer := &net.Dialer{}
-	model.control = &http.Client{Timeout: devProcessControlTimeout, Transport: &http.Transport{
+	link.control = &http.Client{Timeout: devProcessControlTimeout, Transport: &http.Transport{
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			return dialer.DialContext(ctx, "unix", model.dispatch)
+			return dialer.DialContext(ctx, "unix", link.dispatch)
 		},
 		DisableCompression: true,
 	}}
-	s.processes = model
-	return model, nil
+	return link, nil
+}
+
+func (link *devProcessLink) remove() {
+	if link == nil {
+		return
+	}
+	link.control.CloseIdleConnections()
+	_ = os.Remove(link.path)
+	_ = os.Remove(link.dispatch)
 }
 
 func writePrivateProcessLink(path string, data []byte) error {
@@ -133,8 +187,7 @@ func writePrivateProcessLink(path string, data []byte) error {
 // activateDevProcesses makes the built process set the published generation.
 // A changed contract or host identity, or a missing host, starts a complete
 // generation; otherwise only services whose linked identity changed start on
-// new sockets, the next generation is published, and the replaced instances
-// retire after the host reports their generation drained.
+// new sockets and the next generation is published.
 func (s *devSupervisor) activateDevProcesses(ctx context.Context, plan *devRuntimePlan, earlyAssistants *assistantStageAttempt) (*runningApp, bool, error) {
 	result, set := plan.Result, plan.Processes
 	for _, resource := range result.Contract.Manifest.Resources {
@@ -164,13 +217,13 @@ func (s *devSupervisor) activateDevProcesses(ctx context.Context, plan *devRunti
 	if host != nil && model.host != nil && model.host.app == host && model.contract == contract && model.host.process.Identity == set.Host.Identity {
 		return host, true, s.replaceDevServiceProcesses(ctx, model, set, s.appChildEnvironment(result, environment))
 	}
-	var stage *assistantStage
+	var stage, previousStage *assistantStage
 	if s.assistants != nil {
 		if earlyAssistants == nil {
 			s.assistants.lifecycle.Lock()
 			defer s.assistants.lifecycle.Unlock()
 		}
-		previousStage := s.assistants.captureStage()
+		previousStage = s.assistants.captureStage()
 		defer s.assistants.releaseStage(previousStage)
 		var stageErr error
 		if earlyAssistants != nil && earlyAssistants.matches(result.Contract) {
@@ -187,58 +240,220 @@ func (s *devSupervisor) activateDevProcesses(ctx context.Context, plan *devRunti
 			return nil, true, stageErr
 		}
 	}
-	current, err := s.startDevProcessGeneration(ctx, model, set, contract, result, environment, stage)
+	current, err := s.startDevProcessGeneration(ctx, model, set, result, environment, stage, previousStage)
 	return current, host != nil, err
 }
 
-func (s *devSupervisor) startDevProcessGeneration(ctx context.Context, model *devProcessModel, set *build.DevelopmentProcessSet, contract string, result *build.Result, environment *devRuntimeEnvironment, stage *assistantStage) (*runningApp, error) {
-	previous := s.detachCurrentApp()
-	stopErr := s.stopDevProcessInstances(model, previous, true)
-	if stopErr != nil {
-		return nil, fmt.Errorf("stop previous process generation: %w", stopErr)
+// devProcessReplacement orders a complete generation replacement. Candidate
+// services start while the previous generation serves; the previous host stops
+// only once they are ready, because the candidate host needs its listener and
+// assistant descriptors. A candidate host that cannot start or accept its
+// generation is abandoned and the previous host restored; commit runs only
+// after the candidate generation is published.
+type devProcessReplacement struct {
+	startServices func(context.Context) error
+	stopPrevious  func() error
+	startHost     func(context.Context) error
+	// abandon stops the candidate processes and restores the previous model.
+	abandon func() error
+	// restore restarts the previous host; it reports false when there is none.
+	restore func(context.Context) (bool, error)
+	commit  func(context.Context)
+}
+
+func (replacement devProcessReplacement) run(ctx context.Context) (bool, error) {
+	if err := replacement.startServices(ctx); err != nil {
+		return false, err
 	}
-	if s.assistants != nil {
-		// Assistant descriptors (MCP listeners and bridge secrets) change only
-		// after the previous host has stopped, as for the application process.
-		if err := s.console.Phase("Activating assistant runtimes", func() error { return s.assistants.activateStage(ctx, stage) }); err != nil {
-			return nil, err
-		}
-		setAssistantImplementationWatch(s.root, assistantDefinitionsFromResult(result.Contract, s.root))
-		s.refreshAssistantRuntimeConfig()
+	if err := replacement.stopPrevious(); err != nil {
+		return false, errors.Join(fmt.Errorf("stop previous process host before replacement: %w", err), replacement.abandon())
 	}
-	base := s.appChildEnvironment(result, environment)
-	started, err := s.startDevServiceInstances(ctx, model, set.Services, base)
+	err := replacement.startHost(ctx)
+	if err == nil {
+		replacement.commit(ctx)
+		return false, nil
+	}
+	if abandonErr := replacement.abandon(); abandonErr != nil {
+		return false, errors.Join(err, fmt.Errorf("candidate shutdown is unconfirmed; rollback refused: %w", abandonErr))
+	}
+	if ctx.Err() != nil {
+		return false, err
+	}
+	restored, restoreErr := replacement.restore(ctx)
+	if restoreErr != nil {
+		return false, errors.Join(err, fmt.Errorf("restore previous process generation: %w", restoreErr))
+	}
+	if !restored {
+		return false, err
+	}
+	return true, fmt.Errorf("process generation startup failed; restored the previous generation: %w", err)
+}
+
+// startDevProcessGeneration starts a complete generation with a new host
+// incarnation, restoring the previous generation when the new host fails.
+func (s *devSupervisor) startDevProcessGeneration(ctx context.Context, model *devProcessModel, set *build.DevelopmentProcessSet, result *build.Result, environment *devRuntimeEnvironment, stage, previousStage *assistantStage) (*runningApp, error) {
+	link, err := model.newLink()
 	if err != nil {
 		return nil, err
 	}
+	base := s.appChildEnvironment(result, environment)
+	previous := devProcessState{link: model.link, generation: model.generation, contract: model.contract, bindings: model.bindings, host: model.host, services: model.services, retained: model.retained}
 	hostInstance := &devProcessInstance{process: set.Host, socket: s.backend.normalized().Addr}
-	hostEnv := append(append([]string(nil), base...), "SCENERY_PROCESS_LINK="+model.linkPath)
-	if err := s.startDevProcessInstance(ctx, hostInstance, "host", hostEnv, s.backend); err != nil {
-		markDevProcessesStopped(started)
-		_ = s.stopInstances(started, currentDevProcessCommands(model))
+	var started []*devProcessInstance
+	var previousHost *runningApp
+	previousStopped := false
+	replacement := devProcessReplacement{
+		startServices: func(ctx context.Context) error {
+			var err error
+			if started, err = s.startDevServiceInstances(ctx, model, set.Services, base, link); err != nil {
+				link.remove()
+			}
+			return err
+		},
+		stopPrevious: func() error {
+			previousHost = s.detachCurrentApp()
+			if previousHost == nil {
+				previousStopped = true
+				return nil
+			}
+			if err := previousHost.stop(); err != nil {
+				s.mu.Lock()
+				s.current = previousHost
+				s.mu.Unlock()
+				return err
+			}
+			previousStopped = true
+			return nil
+		},
+		startHost: func(ctx context.Context) error {
+			if s.assistants != nil {
+				// Assistant descriptors (MCP listeners and bridge secrets) change
+				// only after the previous host has stopped.
+				if err := s.console.Phase("Activating assistant runtimes", func() error { return s.assistants.activateStage(ctx, stage) }); err != nil {
+					return err
+				}
+				setAssistantImplementationWatch(s.root, assistantDefinitionsFromResult(result.Contract, s.root))
+				s.refreshAssistantRuntimeConfig()
+			}
+			hostEnv := append(append([]string(nil), base...), "SCENERY_PROCESS_LINK="+link.path)
+			if err := s.startDevProcessInstance(ctx, hostInstance, "host", hostEnv, s.backend); err != nil {
+				return err
+			}
+			services := make(map[string]*devProcessInstance, len(started))
+			for _, instance := range started {
+				services[instance.process.Name] = instance
+			}
+			model.link, model.generation, model.contract, model.bindings = link, 0, result.Contract.Manifest.ContractRevision, maps.Clone(set.BindingOwners)
+			model.host, model.services, model.retained = hostInstance, services, map[uint64]map[string]*devProcessInstance{}
+			return s.publishDevProcessGeneration(ctx, model)
+		},
+		abandon: func() error {
+			candidates := append([]*devProcessInstance(nil), started...)
+			if hostInstance.app != nil {
+				candidates = append(candidates, hostInstance)
+			}
+			model.link, model.generation, model.contract, model.bindings = previous.link, previous.generation, previous.contract, previous.bindings
+			model.host, model.services, model.retained = previous.host, previous.services, previous.retained
+			if previousStopped {
+				// The previous host's retained generations ended with it; its
+				// current services wait to be republished.
+				model.generation, model.retained = 0, map[uint64]map[string]*devProcessInstance{}
+				for _, instance := range previous.instances() {
+					if previous.services[instance.process.Name] != instance {
+						candidates = append(candidates, instance)
+					}
+				}
+			}
+			markDevProcessesStopped(candidates)
+			err := s.stopInstances(candidates, model.runningCommands())
+			link.remove()
+			return err
+		},
+		restore: func(ctx context.Context) (bool, error) {
+			if previousHost == nil || previousHost.launch == nil || previous.host == nil {
+				return false, nil
+			}
+			restored, err := s.restoreDevProcessHost(ctx, model, previousHost, previousStage)
+			if err != nil {
+				return false, err
+			}
+			s.writeProcessEvent(ctx, "process/rollback", map[string]any{"pid": restored.pid})
+			return true, nil
+		},
+		commit: func(ctx context.Context) {
+			// The previous instances stop before the new generation acquires
+			// background work; the previous host, which alone reached them, has
+			// already stopped.
+			stale := previous.instances()
+			markDevProcessesStopped(stale)
+			s.mu.Lock()
+			s.current = hostInstance.app
+			s.mu.Unlock()
+			_ = s.stopInstances(stale, model.runningCommands())
+			s.activateDevProcessInstances(ctx, model, started)
+			if previousHost != nil {
+				s.releaseUnusedAppBinary(previousHost.launch)
+			}
+			previous.link.remove()
+			go func() {
+				<-hostInstance.app.process.Done
+				s.handleExit(context.Background(), hostInstance.app)
+			}()
+			if s.assistants != nil {
+				_ = s.console.Phase("Starting prepared assistant runtimes", func() error { return s.assistants.StartPrepared(ctx) })
+				s.refreshAssistantRuntimeConfig()
+			}
+		},
+	}
+	if _, err := replacement.run(ctx); err != nil {
 		return nil, err
 	}
-	model.host, model.contract, model.generation = hostInstance, contract, 0
-	model.services = map[string]*devProcessInstance{}
-	for _, instance := range started {
-		model.services[instance.process.Name] = instance
+	return hostInstance.app, nil
+}
+
+// restoreDevProcessHost restarts the previous host from its retained executable
+// and environment and republishes the previous services as its generation.
+func (s *devSupervisor) restoreDevProcessHost(ctx context.Context, model *devProcessModel, previous *runningApp, stage *assistantStage) (*runningApp, error) {
+	if s.assistants != nil {
+		if err := s.assistants.activateStage(ctx, stage); err != nil {
+			return nil, err
+		}
+		s.refreshAssistantRuntimeConfig()
 	}
-	if err := s.publishDevProcessGeneration(ctx, model, set); err != nil {
-		_ = s.stopDevProcessInstances(model, hostInstance.app, true)
+	process, err := startDevManagedProcess(ctx, previous.launch.request)
+	if err != nil {
+		return nil, err
+	}
+	app := &runningApp{process: process, cmd: process.Cmd, pid: strconv.Itoa(process.PID), output: process.Tail, launch: previous.launch}
+	backend := s.backend
+	err = process.WaitReady(ctx, devProcessReadyRequest{Timeout: appStartupTimeout, Interval: appStartupPollInterval, Probe: func(context.Context) error {
+		if backendAcceptsConnections(backend) {
+			return nil
+		}
+		return fmt.Errorf("restored process host is not accepting connections on %s", backend.Addr)
+	}})
+	if err == nil {
+		model.host.app, model.host.stopped = app, false
+		err = s.publishDevProcessGeneration(ctx, model)
+	}
+	if err != nil {
+		_ = app.stop()
 		return nil, err
 	}
 	s.mu.Lock()
-	s.current = hostInstance.app
+	s.current = app
+	metadata, apiEncoding := s.status.Metadata, s.status.APIEncoding
 	s.mu.Unlock()
+	s.setRunning(app.pid, metadata, apiEncoding)
 	go func() {
-		<-hostInstance.app.process.Done
-		s.handleExit(context.Background(), hostInstance.app)
+		<-process.Done
+		s.handleExit(context.Background(), app)
 	}()
 	if s.assistants != nil {
 		_ = s.console.Phase("Starting prepared assistant runtimes", func() error { return s.assistants.StartPrepared(ctx) })
 		s.refreshAssistantRuntimeConfig()
 	}
-	return hostInstance.app, nil
+	return app, nil
 }
 
 func (s *devSupervisor) replaceDevServiceProcesses(ctx context.Context, model *devProcessModel, set *build.DevelopmentProcessSet, base []string) error {
@@ -252,38 +467,36 @@ func (s *devSupervisor) replaceDevServiceProcesses(ctx context.Context, model *d
 	if len(changed) == 0 {
 		return nil
 	}
-	started, err := s.startDevServiceInstances(ctx, model, changed, base)
+	started, err := s.startDevServiceInstances(ctx, model, changed, base, model.link)
 	if err != nil {
 		return err
 	}
 	previous := model.services
-	next := make(map[string]*devProcessInstance, len(previous))
-	for name, instance := range previous {
-		next[name] = instance
-	}
+	next := maps.Clone(previous)
 	for _, instance := range started {
 		next[instance.process.Name] = instance
 	}
 	previousGeneration := model.generation
 	model.services = next
-	if err := s.publishDevProcessGeneration(ctx, model, set); err != nil {
+	if err := s.publishDevProcessGeneration(ctx, model); err != nil {
 		model.services = previous
 		markDevProcessesStopped(started)
-		_ = s.stopInstances(started, currentDevProcessCommands(model))
+		_ = s.stopInstances(started, model.runningCommands())
 		return err
 	}
 	var replaced []*devProcessInstance
 	for _, instance := range started {
 		if old := previous[instance.process.Name]; old != nil {
 			replaced = append(replaced, old)
-			model.retiring[old] = true
 		}
 	}
-	go s.retireDevProcessGeneration(model, previousGeneration, replaced)
+	s.drainDevProcessInstances(ctx, model, replaced)
+	s.activateDevProcessInstances(ctx, model, started)
+	go s.retireDevProcessGeneration(model, model.link, previousGeneration)
 	return nil
 }
 
-func (s *devSupervisor) startDevServiceInstances(ctx context.Context, model *devProcessModel, processes []build.DevelopmentProcess, base []string) ([]*devProcessInstance, error) {
+func (s *devSupervisor) startDevServiceInstances(ctx context.Context, model *devProcessModel, processes []build.DevelopmentProcess, base []string, link *devProcessLink) ([]*devProcessInstance, error) {
 	instances := make([]*devProcessInstance, len(processes))
 	errs := make([]error, len(processes))
 	var wg sync.WaitGroup
@@ -292,7 +505,7 @@ func (s *devSupervisor) startDevServiceInstances(ctx context.Context, model *dev
 		instance := &devProcessInstance{process: process, socket: filepath.Join(model.socketDir, "s"+strconv.Itoa(model.sequence)+".sock")}
 		instances[index] = instance
 		env := append(envWithoutKeys(base, "SCENERY_LISTEN_NETWORK", "SCENERY_LISTEN_ADDR"),
-			"SCENERY_LISTEN_NETWORK=unix", "SCENERY_LISTEN_ADDR="+instance.socket, "SCENERY_PROCESS_LINK="+model.linkPath)
+			"SCENERY_LISTEN_NETWORK=unix", "SCENERY_LISTEN_ADDR="+instance.socket, "SCENERY_PROCESS_LINK="+link.path)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -302,7 +515,7 @@ func (s *devSupervisor) startDevServiceInstances(ctx context.Context, model *dev
 	wg.Wait()
 	if err := errors.Join(errs...); err != nil {
 		markDevProcessesStopped(instances)
-		_ = s.stopInstances(instances, currentDevProcessCommands(model))
+		_ = s.stopInstances(instances, model.runningCommands())
 		return nil, err
 	}
 	for _, instance := range instances {
@@ -370,7 +583,9 @@ func validateDevProcessPreflight(data []byte, name string, identity build.Develo
 	return nil
 }
 
-func (s *devSupervisor) publishDevProcessGeneration(ctx context.Context, model *devProcessModel, set *build.DevelopmentProcessSet) error {
+// publishDevProcessGeneration publishes the model's services as the next
+// generation of the current host incarnation; the caller holds model.mu.
+func (s *devSupervisor) publishDevProcessGeneration(ctx context.Context, model *devProcessModel) error {
 	type identity struct {
 		ContractRevision       string `json:"contract_revision"`
 		ImplementationRevision string `json:"implementation_revision"`
@@ -388,7 +603,7 @@ func (s *devSupervisor) publishDevProcessGeneration(ctx context.Context, model *
 		ContractRevision string              `json:"contract_revision"`
 		Processes        map[string]instance `json:"processes"`
 		Bindings         map[string]string   `json:"bindings"`
-	}{Generation: model.generation + 1, ContractRevision: model.contract, Processes: map[string]instance{}, Bindings: set.BindingOwners}
+	}{Generation: model.generation + 1, ContractRevision: model.contract, Processes: map[string]instance{}, Bindings: model.bindings}
 	for name, service := range model.services {
 		pid, _ := strconv.Atoi(service.app.pid)
 		value := service.process.Identity
@@ -399,76 +614,179 @@ func (s *devSupervisor) publishDevProcessGeneration(ctx context.Context, model *
 		return err
 	}
 	started := time.Now()
-	_, err = model.request(ctx, http.MethodPut, "/__scenery/process/v1/generations", body, http.StatusNoContent)
+	_, err = model.link.request(ctx, http.MethodPut, "/__scenery/process/v1/generations", body, http.StatusNoContent)
+	if err != nil && model.link.current(ctx) == manifest.Generation {
+		// The host applied the manifest although its answer was lost.
+		err = nil
+	}
 	build.RecordStep(ctx, build.Step{Name: "process.publish", StartedAt: started, Duration: time.Since(started), Cache: "not_applicable", Reason: "host_generation_manifest", OK: err == nil, Actions: len(manifest.Processes)})
 	if err != nil {
 		return fmt.Errorf("publish process generation %d: %w", manifest.Generation, err)
 	}
 	model.generation = manifest.Generation
+	model.retained[manifest.Generation] = maps.Clone(model.services)
+	return nil
+}
+
+// drainDevProcessInstances revokes the background work of instances whose
+// generation was replaced. An instance that does not confirm the revocation is
+// stopped, so it cannot acquire work beside its activated replacement.
+func (s *devSupervisor) drainDevProcessInstances(ctx context.Context, model *devProcessModel, instances []*devProcessInstance) {
+	failed := s.controlDevProcessInstances(ctx, model.token, instances, runtimeProcessDrainPath, "process.drain_failed")
+	if len(failed) == 0 {
+		return
+	}
+	markDevProcessesStopped(failed)
+	_ = s.stopInstances(failed, model.runningCommands())
+}
+
+// activateDevProcessInstances grants background work to instances of the
+// published generation. A failure is reported; the generation keeps serving.
+func (s *devSupervisor) activateDevProcessInstances(ctx context.Context, model *devProcessModel, instances []*devProcessInstance) {
+	s.controlDevProcessInstances(ctx, model.token, instances, runtimeProcessActivatePath, "process.activate_failed")
+}
+
+const (
+	runtimeProcessActivatePath = "/__scenery/process/v1/activate"
+	runtimeProcessDrainPath    = "/__scenery/process/v1/drain"
+)
+
+func (s *devSupervisor) controlDevProcessInstances(ctx context.Context, token string, instances []*devProcessInstance, path, failureEvent string) []*devProcessInstance {
+	started := time.Now()
+	failures := make([]error, len(instances))
+	var wg sync.WaitGroup
+	for index, instance := range instances {
+		if instance == nil || instance.app == nil || instance.stopped {
+			continue
+		}
+		wg.Go(func() {
+			failures[index] = instance.control(ctx, path, token)
+		})
+	}
+	wg.Wait()
+	var failed []*devProcessInstance
+	for index, err := range failures {
+		if err == nil {
+			continue
+		}
+		failed = append(failed, instances[index])
+		if s.console != nil {
+			s.console.Event(failureEvent, map[string]any{"service_process": instances[index].process.Name, "pid": instances[index].app.pid, "error": err.Error()})
+		}
+	}
+	build.RecordStep(ctx, build.Step{Name: "process.background", StartedAt: started, Duration: time.Since(started), Cache: "not_applicable", Reason: strings.TrimPrefix(path, "/__scenery/process/v1/"), OK: len(failed) == 0, Actions: len(instances)})
+	return failed
+}
+
+// control sends one background control request to the instance's private
+// socket; drain answers 202 when work was revoked but is still stopping.
+func (instance *devProcessInstance) control(ctx context.Context, path, token string) error {
+	dialer := &net.Dialer{}
+	transport := &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+		return dialer.DialContext(ctx, "unix", instance.socket)
+	}}
+	defer transport.CloseIdleConnections()
+	ctx, cancel := context.WithTimeout(ctx, devProcessBackgroundTimeout)
+	defer cancel()
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://scenery-process"+path, nil)
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Authorization", "Bearer "+token)
+	response, err := (&http.Client{Transport: transport}).Do(request)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = response.Body.Close() }()
+	if response.StatusCode != http.StatusNoContent && response.StatusCode != http.StatusAccepted {
+		message, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
+		return fmt.Errorf("%s answered HTTP %d: %s", path, response.StatusCode, strings.TrimSpace(string(message)))
+	}
 	return nil
 }
 
 // retireDevProcessGeneration waits until the host reports no work pinned to a
-// replaced generation, retires it, and stops the instances it alone used.
-func (s *devSupervisor) retireDevProcessGeneration(model *devProcessModel, generation uint64, replaced []*devProcessInstance) {
-	// Replaced instances stop schedules, event consumers and durable acquisition
-	// at once; requests and calls pinned to their generation still complete.
-	for _, instance := range replaced {
-		if err := model.drain(instance.socket); err != nil && s.console != nil {
-			s.console.Event("process.drain_failed", map[string]any{"service_process": instance.process.Name, "pid": instance.app.pid, "error": err.Error()})
-		}
-	}
+// replaced generation, or forces its retirement after devProcessRetireTimeout,
+// and then stops the instances no retained generation names any longer.
+func (s *devSupervisor) retireDevProcessGeneration(model *devProcessModel, link *devProcessLink, generation uint64) {
+	ctx := context.Background()
 	deadline := time.Now().Add(devProcessRetireTimeout)
 	path := "/__scenery/process/v1/generations/" + strconv.FormatUint(generation, 10)
+	forced := false
 	for {
-		status, err := model.request(context.Background(), http.MethodDelete, path, nil, 0)
-		if err == nil && (status == http.StatusNoContent || status == http.StatusNotFound) || time.Now().After(deadline) {
+		status, err := link.request(ctx, http.MethodDelete, path, nil, 0)
+		if err == nil && (status == http.StatusNoContent || status == http.StatusNotFound) {
+			break
+		}
+		if !model.hostIncarnation(link) {
+			return
+		}
+		if time.Now().After(deadline) {
+			// Forced retirement ends dispatch within the generation; an
+			// unreachable host dispatches nothing to its instances either.
+			forced = true
+			_, _ = link.request(ctx, http.MethodDelete, path+"?force=true", nil, 0)
 			break
 		}
 		time.Sleep(devProcessRetireInterval)
 	}
 	model.mu.Lock()
-	for _, instance := range replaced {
-		delete(model.retiring, instance)
+	if model.link != link {
+		// A complete replacement ended this host incarnation and its instances.
+		model.mu.Unlock()
+		return
 	}
-	markDevProcessesStopped(replaced)
-	inUse := currentDevProcessCommands(model)
+	named := model.retained[generation]
+	delete(model.retained, generation)
+	stale := model.unreferenced(mapValues(named))
+	markDevProcessesStopped(stale)
+	inUse := model.runningCommands()
 	model.mu.Unlock()
-	_ = s.stopInstances(replaced, inUse)
+	if forced && s.console != nil {
+		names := make([]string, 0, len(stale))
+		for _, instance := range stale {
+			names = append(names, instance.process.Name)
+		}
+		s.console.Event("process.retire_forced", map[string]any{"generation": generation, "stopped_service_processes": names})
+	}
+	_ = s.stopInstances(stale, inUse)
 }
 
-func (model *devProcessModel) drain(socket string) error {
-	dialer := &net.Dialer{}
-	client := &http.Client{Timeout: devProcessRetireTimeout, Transport: &http.Transport{
-		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			return dialer.DialContext(ctx, "unix", socket)
-		},
-	}}
-	defer client.CloseIdleConnections()
-	request, err := http.NewRequest(http.MethodPost, "http://scenery-process/__scenery/process/v1/drain", nil)
-	if err != nil {
-		return err
-	}
-	request.Header.Set("Authorization", "Bearer "+model.token)
-	response, err := client.Do(request)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = response.Body.Close() }()
-	if response.StatusCode != http.StatusNoContent {
-		message, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
-		return fmt.Errorf("drain answered HTTP %d: %s", response.StatusCode, strings.TrimSpace(string(message)))
-	}
-	return nil
+func (model *devProcessModel) hostIncarnation(link *devProcessLink) bool {
+	model.mu.Lock()
+	defer model.mu.Unlock()
+	return model.link == link
 }
 
-func (model *devProcessModel) request(ctx context.Context, method, path string, body []byte, want int) (int, error) {
+// unreferenced returns the instances neither the current services nor any
+// retained generation name; the caller holds model.mu.
+func (model *devProcessModel) unreferenced(instances []*devProcessInstance) []*devProcessInstance {
+	var stale []*devProcessInstance
+	for _, instance := range instances {
+		if instance == nil || model.services[instance.process.Name] == instance {
+			continue
+		}
+		referenced := false
+		for _, named := range model.retained {
+			if named[instance.process.Name] == instance {
+				referenced = true
+				break
+			}
+		}
+		if !referenced {
+			stale = append(stale, instance)
+		}
+	}
+	return stale
+}
+
+func (link *devProcessLink) request(ctx context.Context, method, path string, body []byte, want int) (int, error) {
 	request, err := http.NewRequestWithContext(ctx, method, "http://scenery-host"+path, bytes.NewReader(body))
 	if err != nil {
 		return 0, err
 	}
-	request.Header.Set("Authorization", "Bearer "+model.token)
-	response, err := model.control.Do(request)
+	request.Header.Set("Authorization", "Bearer "+link.token)
+	response, err := link.control.Do(request)
 	if err != nil {
 		return 0, err
 	}
@@ -478,6 +796,27 @@ func (model *devProcessModel) request(ctx context.Context, method, path string, 
 		return response.StatusCode, fmt.Errorf("host answered HTTP %d: %s", response.StatusCode, strings.TrimSpace(string(message)))
 	}
 	return response.StatusCode, nil
+}
+
+// current reads the host's current generation, or zero when it cannot.
+func (link *devProcessLink) current(ctx context.Context) uint64 {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://scenery-host/__scenery/process/v1/generations", nil)
+	if err != nil {
+		return 0
+	}
+	request.Header.Set("Authorization", "Bearer "+link.token)
+	response, err := link.control.Do(request)
+	if err != nil {
+		return 0
+	}
+	defer func() { _ = response.Body.Close() }()
+	var status struct {
+		Current uint64 `json:"current"`
+	}
+	if response.StatusCode != http.StatusOK || json.NewDecoder(io.LimitReader(response.Body, 64<<10)).Decode(&status) != nil {
+		return 0
+	}
+	return status.Current
 }
 
 func (s *devSupervisor) watchDevServiceInstance(model *devProcessModel, instance *devProcessInstance) {
@@ -491,27 +830,23 @@ func (s *devSupervisor) watchDevServiceInstance(model *devProcessModel, instance
 	}
 }
 
-// stopDevProcessInstances stops the host and every service instance of the
-// model; the caller holds model.mu or owns the model exclusively.
-func (s *devSupervisor) stopDevProcessInstances(model *devProcessModel, host *runningApp, releaseHost bool) error {
+// instances lists every service instance the state names once.
+func (state devProcessState) instances() []*devProcessInstance {
+	seen := map[*devProcessInstance]bool{}
 	var instances []*devProcessInstance
-	for _, instance := range model.services {
-		instances = append(instances, instance)
-	}
-	for instance := range model.retiring {
-		instances = append(instances, instance)
-	}
-	model.services, model.retiring, model.host = map[string]*devProcessInstance{}, map[*devProcessInstance]bool{}, nil
-	markDevProcessesStopped(instances)
-	var stopErrs []error
-	if host != nil {
-		stopErrs = append(stopErrs, host.stop())
-		if releaseHost {
-			s.releaseUnusedAppBinary(host.launch)
+	add := func(named map[string]*devProcessInstance) {
+		for _, instance := range named {
+			if instance != nil && !seen[instance] {
+				seen[instance] = true
+				instances = append(instances, instance)
+			}
 		}
 	}
-	stopErrs = append(stopErrs, s.stopInstances(instances, currentDevProcessCommands(model)))
-	return errors.Join(stopErrs...)
+	add(state.services)
+	for _, named := range state.retained {
+		add(named)
+	}
+	return instances
 }
 
 // markDevProcessesStopped records an intentional stop before it happens, so
@@ -524,20 +859,21 @@ func markDevProcessesStopped(instances []*devProcessInstance) {
 	}
 }
 
-// currentDevProcessCommands lists the session executables current service
-// instances run; the caller holds model.mu.
-func currentDevProcessCommands(model *devProcessModel) map[string]bool {
+// runningCommands lists the session executables of instances that still run:
+// current services and every retained generation; the caller holds model.mu.
+func (model *devProcessModel) runningCommands() map[string]bool {
 	inUse := map[string]bool{}
-	for _, current := range model.services {
-		if current.app != nil && current.app.launch != nil {
-			inUse[current.app.launch.request.Command] = true
+	state := devProcessState{services: model.services, retained: model.retained}
+	for _, instance := range state.instances() {
+		if !instance.stopped && instance.app != nil && instance.app.launch != nil {
+			inUse[instance.app.launch.request.Command] = true
 		}
 	}
 	return inUse
 }
 
 // stopInstances stops instances already marked stopped and releases retained
-// session executables that no current instance in inUse still runs.
+// session executables that no running instance in inUse still uses.
 func (s *devSupervisor) stopInstances(instances []*devProcessInstance, inUse map[string]bool) error {
 	var wg sync.WaitGroup
 	stopErrs := make([]error, len(instances))
@@ -545,11 +881,9 @@ func (s *devSupervisor) stopInstances(instances []*devProcessInstance, inUse map
 		if instance == nil || instance.app == nil {
 			continue
 		}
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			stopErrs[index] = instance.app.stop()
-		}()
+		})
 	}
 	wg.Wait()
 	for _, instance := range instances {
@@ -571,7 +905,19 @@ func (s *devSupervisor) closeDevProcesses() error {
 	}
 	model.mu.Lock()
 	defer model.mu.Unlock()
-	err := s.stopDevProcessInstances(model, nil, false)
-	_ = os.Remove(model.linkPath)
+	instances := devProcessState{services: model.services, retained: model.retained}.instances()
+	model.services, model.retained, model.host = map[string]*devProcessInstance{}, map[uint64]map[string]*devProcessInstance{}, nil
+	markDevProcessesStopped(instances)
+	err := s.stopInstances(instances, nil)
+	model.link.remove()
+	model.link = nil
 	return err
+}
+
+func mapValues(values map[string]*devProcessInstance) []*devProcessInstance {
+	instances := make([]*devProcessInstance, 0, len(values))
+	for _, instance := range values {
+		instances = append(instances, instance)
+	}
+	return instances
 }

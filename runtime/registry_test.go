@@ -245,7 +245,8 @@ func replaceGlobalRegistryForTest() func() {
 	mcpDurableOwners.Lock()
 	prevMCPDurableOwners := make(map[string]mcpDurableOwner, len(mcpDurableOwners.values))
 	maps.Copy(prevMCPDurableOwners, mcpDurableOwners.values)
-	mcpDurableOwners.values = make(map[string]mcpDurableOwner)
+	prevMCPDurableOwnerOrder := mcpDurableOwners.order
+	mcpDurableOwners.values, mcpDurableOwners.order = make(map[string]mcpDurableOwner), nil
 	mcpDurableOwners.Unlock()
 	activeAssistantMCPGateways.Lock()
 	prevAssistantMCPGateways := activeAssistantMCPGateways.values
@@ -283,7 +284,7 @@ func replaceGlobalRegistryForTest() func() {
 		global = prev
 		appsdk.SetMetadata(previousMetadata)
 		mcpDurableOwners.Lock()
-		mcpDurableOwners.values = prevMCPDurableOwners
+		mcpDurableOwners.values, mcpDurableOwners.order = prevMCPDurableOwners, prevMCPDurableOwnerOrder
 		mcpDurableOwners.Unlock()
 		activeAssistantMCPGateways.Lock()
 		activeAssistantMCPGateways.values = prevAssistantMCPGateways

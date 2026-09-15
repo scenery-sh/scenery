@@ -231,41 +231,29 @@ func developmentProcessKey(process *DevelopmentProcess, buildFlags []string) (st
 	return hex.EncodeToString(sum[:8]), nil
 }
 
-// linkDevelopmentProcesses runs one stock Go build for every pending process.
-// Each entrypoint receives its own linker metadata through a package-scoped
-// -ldflags value; outputs are published only after the whole build succeeds.
+// linkDevelopmentProcesses runs one stock Go build for every pending process
+// under the host-wide fair link slot. Each entrypoint receives its own linker
+// metadata through a package-scoped -ldflags value; outputs are published only
+// after the whole build succeeds.
 func linkDevelopmentProcesses(ctx context.Context, result *Result, binaryRoot string, pending []*DevelopmentProcess) error {
 	generation, err := os.MkdirTemp(binaryRoot, ".link-")
 	if err != nil {
 		return err
 	}
 	defer func() { _ = os.RemoveAll(generation) }()
-	args := []string{"build"}
-	for _, flag := range normalizeGoBuildFlags(result.GoBuildFlags) {
-		if flag != "-ldflags" && !strings.HasPrefix(flag, "-ldflags=") {
-			args = append(args, flag)
-		}
+	release, err := retainedNativeLinkSlot(ctx, result)
+	if err != nil {
+		return err
 	}
-	for _, process := range pending {
-		flags := withRuntimeBundleLinkerMetadata(result.GoBuildFlags, developmentLinkerFlags, map[string]string{
-			"scenery.sh/runtime.linkedContractRevision":       process.Identity.ContractRevision,
-			"scenery.sh/runtime.linkedImplementationRevision": process.Identity.ImplementationRevision,
-			"scenery.sh/runtime.linkedBuildInputDigest":       process.Identity.BuildInputDigest,
-			"scenery.sh/runtime.linkedGoTarget":               process.Identity.GoTarget,
-		})
-		args = append(args, "-ldflags="+process.Package+"="+strings.TrimPrefix(flags[len(flags)-1], "-ldflags="))
-	}
-	args = append(args, "-buildvcs=false", "-o", generation+string(filepath.Separator))
-	for _, process := range pending {
-		args = append(args, process.Package)
-	}
-	if err := runGoContextWithEnvironment(ctx, result.Dir, result.GoEnvironment, args...); err != nil {
+	err = runGoContextWithEnvironment(ctx, result.Dir, result.GoEnvironment, developmentProcessBuildArgs(result.GoBuildFlags, generation, pending)...)
+	release()
+	if err != nil {
 		return err
 	}
 	for _, process := range pending {
 		output := filepath.Join(generation, filepath.Base(process.Package))
 		started := time.Now()
-		digest, size, err := nativebuilddriver.FileDigest(output)
+		digest, size, err := developmentProcessFileDigest(output)
 		if err != nil {
 			return fmt.Errorf("development process %s was not linked: %w", process.Name, err)
 		}
@@ -279,6 +267,28 @@ func linkDevelopmentProcesses(ctx context.Context, result *Result, binaryRoot st
 		RecordStep(ctx, Step{Name: "build.artifact", StartedAt: started, Duration: time.Since(started), Cache: "miss", Reason: "linked_development_process_" + process.Name, OK: true, ExecutableBytes: size})
 	}
 	return nil
+}
+
+// developmentProcessBuildArgs keeps the configured Go build flags, moves every
+// -ldflags value (both -ldflags=value and the -ldflags value pair) into each
+// entrypoint's package-scoped linker flags, and names the pending entrypoints.
+func developmentProcessBuildArgs(buildFlags []string, output string, pending []*DevelopmentProcess) []string {
+	flags := withRuntimeBundleLinkerMetadata(normalizeGoBuildFlags(buildFlags), "", nil)
+	args := append([]string{"build"}, flags[:len(flags)-1]...)
+	for _, process := range pending {
+		linker := withRuntimeBundleLinkerMetadata(normalizeGoBuildFlags(buildFlags), developmentLinkerFlags, map[string]string{
+			"scenery.sh/runtime.linkedContractRevision":       process.Identity.ContractRevision,
+			"scenery.sh/runtime.linkedImplementationRevision": process.Identity.ImplementationRevision,
+			"scenery.sh/runtime.linkedBuildInputDigest":       process.Identity.BuildInputDigest,
+			"scenery.sh/runtime.linkedGoTarget":               process.Identity.GoTarget,
+		})
+		args = append(args, "-ldflags="+process.Package+"="+strings.TrimPrefix(linker[len(linker)-1], "-ldflags="))
+	}
+	args = append(args, "-buildvcs=false", "-o", output+string(filepath.Separator))
+	for _, process := range pending {
+		args = append(args, process.Package)
+	}
+	return args
 }
 
 func pruneDevelopmentProcessBinaries(root string, keep map[string]bool) error {
@@ -297,9 +307,14 @@ func pruneDevelopmentProcessBinaries(root string, keep map[string]bool) error {
 	return nil
 }
 
+// developmentProcessFileDigest reads a whole executable; tests observe it.
+var developmentProcessFileDigest = nativebuilddriver.FileDigest
+
 // developmentProcessDigests remembers the digest of each linked process
-// executable for as long as its file keeps the same size, modification time
-// and inode, so unchanged processes are not rehashed on every rebuild.
+// executable for as long as its file keeps the same size, modification and
+// change times, permissions, device and inode, so a one-service edit does not
+// read the executables of unchanged processes. The owning supervisor process
+// hashes each retained executable once.
 var developmentProcessDigests struct {
 	sync.Mutex
 	values map[string]developmentProcessDigest
@@ -343,7 +358,7 @@ func retainedDevelopmentProcessDigest(path string) (string, bool, error) {
 	if ok && remembered.stamp == buildInputStamp(info) {
 		return remembered.digest, true, nil
 	}
-	digest, _, err := nativebuilddriver.FileDigest(path)
+	digest, _, err := developmentProcessFileDigest(path)
 	if err != nil {
 		return "", false, err
 	}

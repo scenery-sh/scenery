@@ -1606,7 +1606,7 @@
         "tests"
       ],
       "owner": "scenery runtime",
-      "rationale": "Private process-link file injected into development service processes and their host; it names the session token and the host private dispatch listener",
+      "rationale": "Private process-link file injected into development service processes and their host; it names the session token and the host private dispatch listener, and a service runtime started with it acquires background work only after supervisor activation",
       "preferred_surface": "internal development supervisor wiring; not user configuration",
       "replacement": "",
       "sunset": "",

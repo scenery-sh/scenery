@@ -32,8 +32,8 @@ import (
 // request to the generation current at ingress, forwards it unmodified to the
 // owning instance of that generation, dispatches internal calls of pinned
 // requests within the same generation, and rejects answers whose identity does
-// not match the published instance. A generation is retired only when no
-// request pinned to it is in flight.
+// not match the published instance. A generation is retired when no request
+// pinned to it is in flight, or when the supervisor forces its retirement.
 
 const (
 	processGenerationsPath       = "/__scenery/process/v1/generations"
@@ -316,11 +316,16 @@ func (h *processHost) serveControl(w http.ResponseWriter, req *http.Request) {
 		writeProcessHostJSON(w, http.StatusOK, h.status())
 	case strings.HasPrefix(req.URL.Path, processGenerationsPath+"/") && req.Method == http.MethodDelete:
 		number, err := strconv.ParseUint(strings.TrimPrefix(req.URL.Path, processGenerationsPath+"/"), 10, 64)
-		if err != nil || number == 0 {
-			http.Error(w, "invalid generation", http.StatusBadRequest)
+		force := req.URL.Query().Get("force")
+		if err != nil || number == 0 || force != "" && force != "true" {
+			http.Error(w, "invalid generation retirement", http.StatusBadRequest)
 			return
 		}
-		status, message := h.retire(number)
+		status, message := h.retire(number, force == "true")
+		if status == http.StatusNoContent {
+			w.WriteHeader(status)
+			return
+		}
 		http.Error(w, message, status)
 	default:
 		http.NotFound(w, req)
@@ -422,7 +427,10 @@ func (h *processHost) publish(manifest processGenerationManifest) error {
 	return nil
 }
 
-func (h *processHost) retire(number uint64) (int, string) {
+// retire removes a replaced generation when no work is pinned to it. A forced
+// retirement removes it regardless: its pinned internal calls then fail as not
+// sent, and work already forwarded ends when the supervisor stops its instances.
+func (h *processHost) retire(number uint64, force bool) (int, string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	generation := h.generations[number]
@@ -431,7 +439,7 @@ func (h *processHost) retire(number uint64) (int, string) {
 		return http.StatusNotFound, "generation is not published"
 	case generation == h.current:
 		return http.StatusConflict, "the current generation cannot be retired"
-	case generation.inFlight.Load() > 0:
+	case !force && generation.inFlight.Load() > 0:
 		return http.StatusConflict, fmt.Sprintf("generation has %d requests in flight", generation.inFlight.Load())
 	}
 	delete(h.generations, number)

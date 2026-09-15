@@ -78,11 +78,35 @@ var activeDurableStores = struct {
 	stores: make(map[string]*store.Store),
 }
 
+// durableRuntime is the durable capability of one runtime process. Its stores
+// serve durable dispatch from requests as soon as it opens; acquisition,
+// schedule and retention loops start only with StartBackground, and
+// StopBackground revokes them for the life of the process.
+type durableRuntime struct {
+	ctx    context.Context
+	stores []*store.Store
+	start  func(context.Context) func(context.Context) error
+
+	mu      sync.Mutex
+	stop    *onceStop
+	revoked bool
+}
+
+// startDurableRuntime opens the durable runtime and starts its background work.
 func startDurableRuntime(ctx context.Context, cfg AppConfig) (func(context.Context) error, error) {
-	_ = cfg
+	durable, err := openDurableRuntime(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	durable.StartBackground()
+	return durable.Close, nil
+}
+
+func openDurableRuntime(ctx context.Context, cfg AppConfig) (*durableRuntime, error) {
+	durable := &durableRuntime{ctx: ctx}
 	tasks := listDurableTasks()
 	if len(tasks) == 0 {
-		return func(context.Context) error { return nil }, nil
+		return durable, nil
 	}
 	byService := make(map[string][]store.TaskDeclaration)
 	handlers := make(map[string]map[string]durableRegisteredHandler)
@@ -101,9 +125,10 @@ func startDurableRuntime(ctx context.Context, cfg AppConfig) (func(context.Conte
 		if remoteCfg.Token == "" {
 			return nil, fmt.Errorf("runtime: %s is required when %s is set", envDurableToken, envDurableEndpoint)
 		}
-		remote := &onceStop{stop: startDurableRemoteWorkers(ctx, handlers, remoteCfg)}
-		setDurableBackgroundStop(remote.Stop)
-		return remote.Stop, nil
+		durable.start = func(ctx context.Context) func(context.Context) error {
+			return startDurableRemoteWorkers(ctx, handlers, remoteCfg)
+		}
+		return durable, nil
 	}
 	databaseURL, err := durableDatabaseURL()
 	if err != nil {
@@ -136,18 +161,49 @@ func startDurableRuntime(ctx context.Context, cfg AppConfig) (func(context.Conte
 		opened = append(opened, db)
 	}
 	setActiveDurableStores(opened)
-	stopWorkers := startDurableLocalWorkers(ctx, opened, handlers, cfg.Role)
-	stopSchedules := startDurableScheduleLoop(ctx, opened, cfg.Role)
-	stopRetention := startDurableRetentionLoop(ctx, opened)
-	background := &onceStop{stop: func(stopCtx context.Context) error {
-		return errors.Join(stopWorkers(stopCtx), stopSchedules(stopCtx), stopRetention(stopCtx))
-	}}
-	setDurableBackgroundStop(background.Stop)
-	return func(stopCtx context.Context) error {
-		backgroundErr := background.Stop(stopCtx)
-		clearActiveDurableStores(opened)
-		return errors.Join(backgroundErr, closeDurableStores(opened))
-	}, nil
+	durable.stores = opened
+	durable.start = func(ctx context.Context) func(context.Context) error {
+		stopWorkers := startDurableLocalWorkers(ctx, opened, handlers, cfg.Role)
+		stopSchedules := startDurableScheduleLoop(ctx, opened, cfg.Role)
+		stopRetention := startDurableRetentionLoop(ctx, opened)
+		return func(stopCtx context.Context) error {
+			return errors.Join(stopWorkers(stopCtx), stopSchedules(stopCtx), stopRetention(stopCtx))
+		}
+	}
+	return durable, nil
+}
+
+// StartBackground starts acquisition, schedules and retention once, unless
+// they were revoked.
+func (durable *durableRuntime) StartBackground() {
+	durable.mu.Lock()
+	defer durable.mu.Unlock()
+	if durable.stop == nil && !durable.revoked && durable.start != nil {
+		durable.stop = &onceStop{stop: durable.start(durable.ctx)}
+	}
+}
+
+// StopBackground revokes background work: loops are canceled at once, and the
+// call waits for running handlers until ctx ends. Durable stores stay open.
+func (durable *durableRuntime) StopBackground(ctx context.Context) error {
+	durable.mu.Lock()
+	stop := durable.stop
+	durable.revoked = true
+	durable.mu.Unlock()
+	if stop == nil {
+		return nil
+	}
+	return stop.Stop(ctx)
+}
+
+// Close stops background work and closes the durable stores.
+func (durable *durableRuntime) Close(ctx context.Context) error {
+	err := durable.StopBackground(ctx)
+	if len(durable.stores) == 0 {
+		return err
+	}
+	clearActiveDurableStores(durable.stores)
+	return errors.Join(err, closeDurableStores(durable.stores))
 }
 
 // onceStop runs a stop function once; later callers receive its result.
@@ -160,29 +216,6 @@ type onceStop struct {
 func (stop *onceStop) Stop(ctx context.Context) error {
 	stop.once.Do(func() { stop.err = stop.stop(ctx) })
 	return stop.err
-}
-
-var durableBackgroundStop struct {
-	sync.Mutex
-	stop func(context.Context) error
-}
-
-// setDurableBackgroundStop records how to stop acquiring and scheduling
-// durable work while keeping durable stores open for dispatch.
-func setDurableBackgroundStop(stop func(context.Context) error) {
-	durableBackgroundStop.Lock()
-	durableBackgroundStop.stop = stop
-	durableBackgroundStop.Unlock()
-}
-
-func stopDurableBackground(ctx context.Context) error {
-	durableBackgroundStop.Lock()
-	stop := durableBackgroundStop.stop
-	durableBackgroundStop.Unlock()
-	if stop == nil {
-		return nil
-	}
-	return stop(ctx)
 }
 
 func startDurableRetentionLoop(parent context.Context, stores []*store.Store) func(context.Context) error {

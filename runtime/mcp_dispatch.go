@@ -112,9 +112,14 @@ type mcpDurableOwner struct {
 	ExecutionID string
 }
 
+// mcpDurableOwnerLimit bounds the receipts one process authorizes; the oldest
+// receipt is forgotten first and then reads as not found.
+const mcpDurableOwnerLimit = 4096
+
 type mcpDurableOwnerStore struct {
 	sync.RWMutex
 	values map[string]mcpDurableOwner
+	order  []string
 }
 
 var mcpDurableOwners = mcpDurableOwnerStore{values: map[string]mcpDurableOwner{}}
@@ -147,6 +152,9 @@ func (MCPToolDispatcher) CallTool(ctx context.Context, call MCPToolCallContext, 
 		return MCPToolOutcome{}, fmt.Errorf("capability_unavailable: MCP tool %s has incomplete generated registration", name)
 	}
 	state := newMCPToolState(call, registration, input)
+	// A tool call a process host forwarded is pinned to the generation the host
+	// selected, and so are the internal calls it makes.
+	state.processGeneration, _ = ctx.Value(processGenerationKey{}).(uint64)
 	ctx = withState(ctx, state)
 	ctx = withRuntimeInvocation(ctx, state)
 	restore := enterState(state)
@@ -197,16 +205,18 @@ func (MCPToolDispatcher) CallTool(ctx context.Context, call MCPToolCallContext, 
 
 // DurableStatus returns state only to the principal that accepted the receipt.
 func (MCPToolDispatcher) DurableStatus(ctx context.Context, request MCPDurableRequest) (MCPDurableStatus, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	request.Principal = strings.TrimSpace(request.Principal)
-	request.Service = strings.TrimSpace(request.Service)
-	request.TaskName = strings.TrimSpace(request.TaskName)
-	request.ExecutionID = strings.TrimSpace(request.ExecutionID)
+	request = normalizeMCPDurableRequest(request)
 	owner, ok := mcpDurableOwners.Load(request.Service, request.ExecutionID)
 	if !ok || owner.Principal != request.Principal || owner.TaskName != request.TaskName {
 		return MCPDurableStatus{}, errors.New("not_found: durable execution not found")
+	}
+	return readMCPDurableStatus(ctx, request)
+}
+
+// readMCPDurableStatus reads a receipt whose owner was already authorized.
+func readMCPDurableStatus(ctx context.Context, request MCPDurableRequest) (MCPDurableStatus, error) {
+	if ctx == nil {
+		ctx = context.Background()
 	}
 	db, ok := activeDurableStore(request.Service)
 	if !ok {
@@ -231,25 +241,32 @@ func (MCPToolDispatcher) DurableStatus(ctx context.Context, request MCPDurableRe
 
 // CancelDurable cancels only a receipt owned by the principal that accepted it.
 func (MCPToolDispatcher) CancelDurable(ctx context.Context, request MCPDurableRequest) error {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	request.Principal = strings.TrimSpace(request.Principal)
-	request.Service = strings.TrimSpace(request.Service)
-	request.TaskName = strings.TrimSpace(request.TaskName)
-	request.ExecutionID = strings.TrimSpace(request.ExecutionID)
+	request = normalizeMCPDurableRequest(request)
 	owner, ok := mcpDurableOwners.Load(request.Service, request.ExecutionID)
 	if !ok || owner.Principal != request.Principal || owner.TaskName != request.TaskName {
 		return errors.New("not_found: durable execution not found")
+	}
+	return cancelMCPDurable(ctx, request)
+}
+
+// cancelMCPDurable cancels a receipt whose owner was already authorized.
+func cancelMCPDurable(ctx context.Context, request MCPDurableRequest) error {
+	if ctx == nil {
+		ctx = context.Background()
 	}
 	db, ok := activeDurableStore(request.Service)
 	if !ok {
 		return errors.New("capability_unavailable: durable execution store is unavailable")
 	}
-	if err := db.CancelJob(ctx, request.ExecutionID); err != nil {
-		return err
-	}
-	return nil
+	return db.CancelJob(ctx, request.ExecutionID)
+}
+
+func normalizeMCPDurableRequest(request MCPDurableRequest) MCPDurableRequest {
+	request.Principal = strings.TrimSpace(request.Principal)
+	request.Service = strings.TrimSpace(request.Service)
+	request.TaskName = strings.TrimSpace(request.TaskName)
+	request.ExecutionID = strings.TrimSpace(request.ExecutionID)
+	return request
 }
 
 // Status exposes the framework-owned durable status shape expected by the
@@ -262,7 +279,23 @@ func (dispatcher MCPToolDispatcher) Status(ctx context.Context, call MCPToolCall
 	if !ok {
 		return nil, errors.New("not_found: durable execution not found")
 	}
-	status, err := dispatcher.DurableStatus(ctx, MCPDurableRequest{Principal: principal, Service: owner.Service, TaskName: owner.TaskName, ExecutionID: executionID})
+	return mcpDurableStatusPayload(dispatcher.DurableStatus(ctx, MCPDurableRequest{Principal: principal, Service: owner.Service, TaskName: owner.TaskName, ExecutionID: executionID}))
+}
+
+// Cancel exposes the framework-owned durable cancel shape expected by the
+// private MCP gateway and enforces the same principal ownership check as
+// DurableStatus.
+func (dispatcher MCPToolDispatcher) Cancel(ctx context.Context, call MCPToolCallContext, executionID string) (json.RawMessage, error) {
+	principal := strings.TrimSpace(call.Principal)
+	executionID = strings.TrimSpace(executionID)
+	owner, ok := mcpDurableOwners.Find(principal, executionID)
+	if !ok {
+		return nil, errors.New("not_found: durable execution not found")
+	}
+	return mcpDurableCancelPayload(executionID, dispatcher.CancelDurable(ctx, MCPDurableRequest{Principal: principal, Service: owner.Service, TaskName: owner.TaskName, ExecutionID: executionID}))
+}
+
+func mcpDurableStatusPayload(status MCPDurableStatus, err error) (json.RawMessage, error) {
 	if err != nil {
 		return nil, err
 	}
@@ -280,17 +313,8 @@ func (dispatcher MCPToolDispatcher) Status(ctx context.Context, call MCPToolCall
 	return json.RawMessage(encoded), nil
 }
 
-// Cancel exposes the framework-owned durable cancel shape expected by the
-// private MCP gateway and enforces the same principal ownership check as
-// DurableStatus.
-func (dispatcher MCPToolDispatcher) Cancel(ctx context.Context, call MCPToolCallContext, executionID string) (json.RawMessage, error) {
-	principal := strings.TrimSpace(call.Principal)
-	executionID = strings.TrimSpace(executionID)
-	owner, ok := mcpDurableOwners.Find(principal, executionID)
-	if !ok {
-		return nil, errors.New("not_found: durable execution not found")
-	}
-	if err := dispatcher.CancelDurable(ctx, MCPDurableRequest{Principal: principal, Service: owner.Service, TaskName: owner.TaskName, ExecutionID: executionID}); err != nil {
+func mcpDurableCancelPayload(executionID string, err error) (json.RawMessage, error) {
+	if err != nil {
 		return nil, err
 	}
 	encoded, err := json.Marshal(mcpcontract.CancelResult{ExecutionID: executionID, State: "canceled"})
@@ -421,9 +445,15 @@ func (owners *mcpDurableOwnerStore) Store(service, executionID string, owner mcp
 	owner.Service = service
 	owner.ExecutionID = executionID
 	key := service + "\x00" + executionID
-	if _, exists := owners.values[key]; !exists {
-		owners.values[key] = owner
+	if _, exists := owners.values[key]; exists {
+		return
 	}
+	if len(owners.order) >= mcpDurableOwnerLimit {
+		delete(owners.values, owners.order[0])
+		owners.order = owners.order[1:]
+	}
+	owners.values[key] = owner
+	owners.order = append(owners.order, key)
 }
 
 func (owners *mcpDurableOwnerStore) Load(service, executionID string) (mcpDurableOwner, bool) {

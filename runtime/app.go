@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -66,35 +67,35 @@ func Main(cfg AppConfig) error {
 		defer cancelShutdown()
 		return errorsJoin(err, ShutdownServices(shutdownCtx))
 	}
-	stopDurable, err := startDurableRuntime(runCtx, cfg)
+	durable, err := openDurableRuntime(runCtx, cfg)
 	if err != nil {
 		shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancelShutdown()
 		return errorsJoin(err, ShutdownServices(shutdownCtx))
+	}
+	background := &runtimeBackground{ctx: runCtx, durable: durable}
+	// A service process of a process-model session serves requests before its
+	// generation is published and acquires background work only when the
+	// supervisor activates it afterwards.
+	processLinked := processLinkConfigured()
+	if processLinked && role == runtimeRoleWorker {
+		// Activation reaches a process-linked runtime through its listener.
+		return errorsJoin(fmt.Errorf("runtime: a process-linked runtime cannot use SCENERY_ROLE=worker"), shutdownRuntime(nil, background))
+	}
+	if !processLinked {
+		durable.StartBackground()
 	}
 	if cliRequestPath != "" {
 		invokeErr := ExecuteContractCLIRequest(cliRequestPath, os.Stdout)
 		cancelRun()
-		shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancelShutdown()
-		return errorsJoin(invokeErr, stopDurable(shutdownCtx), ShutdownServices(shutdownCtx))
+		return errorsJoin(invokeErr, shutdownRuntime(nil, background))
 	}
-	events, err := StartContractEventRuntime(runCtx)
-	if err != nil {
-		_ = stopDurable(context.Background())
-		shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancelShutdown()
-		return errorsJoin(err, ShutdownServices(shutdownCtx))
+	if processLinked {
+		setProcessBackground(background)
+		defer setProcessBackground(nil)
+	} else if err := background.activate(); err != nil {
+		return errorsJoin(err, shutdownRuntime(nil, background))
 	}
-	scheduler, err := startCronScheduler(runCtx)
-	if err != nil {
-		_ = events.Stop(context.Background())
-		_ = stopDurable(context.Background())
-		return err
-	}
-	setProcessBackgroundDrain(func(ctx context.Context) error {
-		return errorsJoin(scheduler.Stop(ctx), events.Stop(ctx), stopDurableBackground(ctx))
-	})
 
 	sigCtx, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stopSignals()
@@ -108,18 +109,18 @@ func Main(cfg AppConfig) error {
 		logTrace(context.Background(), "worker runtime started")
 		<-runCtx.Done()
 		cancelRun()
-		return shutdownRuntime(nil, scheduler, events, stopDurable)
+		return shutdownRuntime(nil, background)
 	}
 
 	server, err := newServer(cfg.ListenAddr)
 	if err != nil {
 		cancelRun()
-		return shutdownRuntime(nil, scheduler, events, stopDurable)
+		return shutdownRuntime(nil, background)
 	}
 	ln, err := listenRuntime(listenNetwork, cfg.ListenAddr)
 	if err != nil {
 		cancelRun()
-		return errorsJoin(err, shutdownRuntime(nil, scheduler, events, stopDurable))
+		return errorsJoin(err, shutdownRuntime(nil, background))
 	}
 
 	errCh := make(chan error, 1)
@@ -137,10 +138,10 @@ func Main(cfg AppConfig) error {
 	select {
 	case <-runCtx.Done():
 		cancelRun()
-		return shutdownRuntime(server, scheduler, events, stopDurable)
+		return shutdownRuntime(server, background)
 	case err := <-errCh:
 		cancelRun()
-		stopErr := shutdownRuntime(server, scheduler, events, stopDurable)
+		stopErr := shutdownRuntime(server, background)
 		if errors.Is(err, http.ErrServerClosed) {
 			return stopErr
 		}
@@ -208,7 +209,62 @@ func runtimeRoleFromEnv() (runtimeRole, error) {
 	}
 }
 
-func shutdownRuntime(server *http.Server, scheduler *cronScheduler, events *ContractEventRuntime, stopDurable func(context.Context) error) error {
+// runtimeBackground owns the background work one runtime process acquires:
+// contract event consumers, cron schedules and durable acquisition, schedule
+// and retention loops. It starts inactive; activate starts the work once, and
+// drain revokes it for the life of the process while durable stores stay open
+// for dispatch by requests still served.
+type runtimeBackground struct {
+	ctx     context.Context
+	durable *durableRuntime
+
+	mu        sync.Mutex
+	state     runtimeBackgroundState
+	events    *ContractEventRuntime
+	scheduler *cronScheduler
+}
+
+type runtimeBackgroundState int
+
+const (
+	runtimeBackgroundInactive runtimeBackgroundState = iota
+	runtimeBackgroundActive
+	runtimeBackgroundRevoked
+)
+
+func (background *runtimeBackground) activate() error {
+	background.mu.Lock()
+	defer background.mu.Unlock()
+	switch background.state {
+	case runtimeBackgroundActive:
+		return nil
+	case runtimeBackgroundRevoked:
+		return errors.New("failed_precondition: background work of this runtime process was drained")
+	}
+	events, err := StartContractEventRuntime(background.ctx)
+	if err != nil {
+		return err
+	}
+	scheduler, err := startCronScheduler(background.ctx)
+	if err != nil {
+		return errorsJoin(err, events.Stop(context.Background()))
+	}
+	background.durable.StartBackground()
+	background.events, background.scheduler, background.state = events, scheduler, runtimeBackgroundActive
+	return nil
+}
+
+// drain revokes background work at once and waits until ctx ends for work
+// already running to stop.
+func (background *runtimeBackground) drain(ctx context.Context) error {
+	background.mu.Lock()
+	background.state = runtimeBackgroundRevoked
+	events, scheduler := background.events, background.scheduler
+	background.mu.Unlock()
+	return errorsJoin(scheduler.Stop(ctx), events.Stop(ctx), background.durable.StopBackground(ctx))
+}
+
+func shutdownRuntime(server *http.Server, background *runtimeBackground) error {
 	var shutdownErrs []error
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -219,28 +275,27 @@ func shutdownRuntime(server *http.Server, scheduler *cronScheduler, events *Cont
 		}
 	}
 
+	background.mu.Lock()
+	background.state = runtimeBackgroundRevoked
+	events, scheduler := background.events, background.scheduler
+	background.mu.Unlock()
+
 	cronCtx, cronCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cronCancel()
-	if scheduler != nil {
-		if err := scheduler.Stop(cronCtx); err != nil && !errors.Is(err, context.Canceled) {
-			shutdownErrs = append(shutdownErrs, err)
-		}
+	if err := scheduler.Stop(cronCtx); err != nil && !errors.Is(err, context.Canceled) {
+		shutdownErrs = append(shutdownErrs, err)
 	}
 
 	eventCtx, eventCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer eventCancel()
-	if events != nil {
-		if err := events.Stop(eventCtx); err != nil && !errors.Is(err, context.Canceled) {
-			shutdownErrs = append(shutdownErrs, err)
-		}
+	if err := events.Stop(eventCtx); err != nil && !errors.Is(err, context.Canceled) {
+		shutdownErrs = append(shutdownErrs, err)
 	}
 
 	durableCtx, durableCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer durableCancel()
-	if stopDurable != nil {
-		if err := stopDurable(durableCtx); err != nil && !errors.Is(err, context.Canceled) {
-			shutdownErrs = append(shutdownErrs, err)
-		}
+	if err := background.durable.Close(durableCtx); err != nil && !errors.Is(err, context.Canceled) {
+		shutdownErrs = append(shutdownErrs, err)
 	}
 
 	serviceCtx, serviceCancel := context.WithTimeout(context.Background(), 5*time.Second)

@@ -105,3 +105,84 @@ func TestDevelopmentProcessManifestsFollowEachEntrypointImportClosure(t *testing
 		t.Fatal("unknown development process was identified")
 	}
 }
+
+func TestDevelopmentProcessBuildArgsMoveEveryLinkerFlagIntoEachEntrypoint(t *testing.T) {
+	pending := []*DevelopmentProcess{
+		{Name: "echo_echo", Package: "./scenery_internal_processes/services/echo_echo", Identity: DevelopmentProcessIdentity{ContractRevision: "c", ImplementationRevision: "i1", BuildInputDigest: "b1", GoTarget: "development"}},
+		{Name: "host", Package: "./scenery_internal_processes/host", Identity: DevelopmentProcessIdentity{ContractRevision: "c", ImplementationRevision: "i2", BuildInputDigest: "b2", GoTarget: "development"}},
+	}
+	args := developmentProcessBuildArgs([]string{"-ldflags", "-s=false", " -trimpath ", "-ldflags=-X=main.flavor=dev"}, "/out", pending)
+	for _, arg := range args {
+		if arg == "-ldflags" || arg == "-s=false" || arg == "-ldflags=-X=main.flavor=dev" {
+			t.Fatalf("build arguments kept the configured linker flag %q as a top-level argument: %q", arg, args)
+		}
+	}
+	if !slices.Contains(args, "-trimpath") || args[len(args)-2] != pending[0].Package || args[len(args)-1] != pending[1].Package {
+		t.Fatalf("build arguments = %q", args)
+	}
+	for _, process := range pending {
+		prefix := "-ldflags=" + process.Package + "="
+		index := slices.IndexFunc(args, func(arg string) bool { return strings.HasPrefix(arg, prefix) })
+		if index < 0 {
+			t.Fatalf("no package-scoped linker flags for %s: %q", process.Name, args)
+		}
+		value := strings.TrimPrefix(args[index], prefix)
+		for _, want := range []string{"-w", "-s=false", "-X=main.flavor=dev", "linkedImplementationRevision=" + process.Identity.ImplementationRevision} {
+			if !strings.Contains(value, want) {
+				t.Fatalf("%s linker flags %q lack %q", process.Name, value, want)
+			}
+		}
+	}
+}
+
+// An edit that relinks one service must not read the executables of unchanged
+// processes, however many or large they are.
+func TestRetainedDevelopmentProcessDigestsDoNotRereadUnchangedExecutables(t *testing.T) {
+	root := t.TempDir()
+	var hashed []string
+	previous := developmentProcessFileDigest
+	developmentProcessFileDigest = func(path string) (string, int64, error) {
+		hashed = append(hashed, filepath.Base(path))
+		return previous(path)
+	}
+	t.Cleanup(func() { developmentProcessFileDigest = previous })
+	var paths []string
+	for index, size := range []int{1, 64 << 10, 256 << 10} {
+		path := filepath.Join(root, "service-"+string(rune('a'+index)))
+		if err := os.WriteFile(path, bytes.Repeat([]byte{byte(index)}, size), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		paths = append(paths, path)
+	}
+	digests := map[string]string{}
+	for _, path := range paths {
+		digest, ok, err := retainedDevelopmentProcessDigest(path)
+		if err != nil || !ok {
+			t.Fatalf("first digest of %s = %v, %v", path, ok, err)
+		}
+		digests[path] = digest
+	}
+	if len(hashed) != len(paths) {
+		t.Fatalf("first build hashed %v", hashed)
+	}
+	hashed = nil
+	// A relinked executable replaces its file; only it is read again.
+	if err := os.Remove(paths[1]); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(paths[1], []byte("relinked"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range paths {
+		digest, ok, err := retainedDevelopmentProcessDigest(path)
+		if err != nil || !ok || path != paths[1] && digest != digests[path] || path == paths[1] && digest == digests[path] {
+			t.Fatalf("second digest of %s = %s, %v, %v", path, digest, ok, err)
+		}
+	}
+	if !slices.Equal(hashed, []string{"service-b"}) {
+		t.Fatalf("one-service edit hashed %v; want only the replaced executable", hashed)
+	}
+	if _, ok, err := retainedDevelopmentProcessDigest(filepath.Join(root, "missing")); ok || err != nil {
+		t.Fatalf("missing executable = %v, %v", ok, err)
+	}
+}
