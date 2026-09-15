@@ -166,10 +166,31 @@ compile the application graph as it needs.
   "prepared workspace membership changed: scenery-processes/..." because
   workspace membership verification did not own the process executable
   directory; fixed.
-- [ ] Milestone 4 remaining: conformance through the host for internal calls,
-  assistant MCP tools, durable work and streams; the retained compiler for
-  process entrypoints; the implementation check and activation costs; and
-  per-process status in dashboard and session records.
+- [x] (2026-09-15) ONLV conformance smoke through the public origin, run first
+  in the single model and then in the process model with identical results: a
+  streamed `GET /api/drive/maps/<scene>/scene.glb` returned the 8,924,616
+  preset bytes with the asset digest (served by the `drive` process); an
+  invoice for a seeded contact passed `contacts/binding/contacts_get_internal`
+  (which reads the typed `*auth.AuthData` tenant) and failed at its later
+  `issue_date` check; an unauthenticated request answered 401; and a signed
+  assertion to the host's private assistant MCP gateway listed 54 tools and
+  `workspace__describe` answered `described` from the `copilot` process.
+  Durable house jobs need the native lane and were not exercised.
+- [x] (2026-09-15) Telemetry for one-service ONLV edits: rebuilding the
+  retained Go input graph after every proven-current listing took 253 ms and is
+  now skipped on hits (both models); `process.identity` 115-123 ms; stock
+  `go build` of one entrypoint 556-778 ms; `process.retain` 21-29 ms;
+  `process.preflight` 360-364 ms (first execution of a new file from this
+  launching context) and `process.start` 47-56 ms. Edits then took 2.44-2.96 s
+  (median about 2.49 s). The timeline to publication (2.13 s) is 0.37 s of
+  pipeline preparation before input discovery, 0.12 s identity, 0.56 s build,
+  about 0.45 s between the build and activation (status, database setup check,
+  current snapshot rescan, runtime environment resolution) and 0.42 s preflight
+  and start; the implementation check ends before the build.
+- [ ] Milestone 4 remaining: the retained compiler for process entrypoints;
+  moving environment resolution and snapshot verification off the post-build
+  path; the first-execution cost of new executables; and per-process status in
+  dashboard and session records.
 - [ ] Milestone 4: ONLV rebaseline, resources, background-work ownership,
   semantic conformance, and the edit-to-response measurement.
 

@@ -206,8 +206,12 @@ func buildInputManifest(ctx context.Context, result *Result) (*BuildInputManifes
 		Name: "go.input_fingerprint", StartedAt: fingerprintStarted, Duration: time.Since(fingerprintStarted), Cache: "content_stamp",
 		Reason: "exact_consumed_bytes", OK: err == nil, Actions: stats.hits + stats.misses, CacheHits: stats.hits, CacheMisses: stats.misses,
 	})
-	if err == nil {
+	// A retained graph that was just proven current already refreshed its file
+	// stamps in place; only a new listing needs a new retained graph.
+	if err == nil && cache == "miss" {
+		retainStarted := time.Now()
 		state, stateErr := newRetainedBuildInputGraph(graphKey, output)
+		RecordStep(ctx, Step{Name: "go.input_graph_retain", StartedAt: retainStarted, Duration: time.Since(retainStarted), Cache: cache, Reason: "directory_and_import_identity", OK: stateErr == nil})
 		if stateErr != nil {
 			return nil, stateErr
 		}

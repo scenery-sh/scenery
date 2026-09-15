@@ -309,15 +309,24 @@ func (s *devSupervisor) startDevServiceInstances(ctx context.Context, model *dev
 }
 
 func (s *devSupervisor) startDevProcessInstance(ctx context.Context, instance *devProcessInstance, name string, env []string, backend devBackend) error {
+	step := func(stepName, reason string, started time.Time, err error) {
+		build.RecordStep(ctx, build.Step{Name: stepName, StartedAt: started, Duration: time.Since(started), Cache: "not_applicable", Reason: reason + "_" + instance.process.Name, OK: err == nil})
+	}
 	command := instance.process.Binary
-	if retained, err := prepareSessionAppBinary(s.currentAgentSession(), command, instance.process.ArtifactDigest); err != nil {
+	started := time.Now()
+	retained, err := prepareSessionAppBinary(s.currentAgentSession(), command, instance.process.ArtifactDigest)
+	step("process.retain", "session_executable", started, err)
+	if err != nil {
 		return err
 	} else if retained != "" {
 		command = retained
 	}
 	request := s.appProcessStartRequest(ctx, name, "scenery-"+strings.SplitN(name, ":", 2)[0], command, env)
 	identity := instance.process.Identity
-	if err := preflightProcessStart(ctx, request, func(data []byte) error { return validateDevProcessPreflight(data, instance.process.Name, identity) }); err != nil {
+	started = time.Now()
+	err = preflightProcessStart(ctx, request, func(data []byte) error { return validateDevProcessPreflight(data, instance.process.Name, identity) })
+	step("process.preflight", "linked_identity", started, err)
+	if err != nil {
 		return err
 	}
 	if backend.Network == "unix" {
@@ -325,8 +334,10 @@ func (s *devSupervisor) startDevProcessInstance(ctx context.Context, instance *d
 			return err
 		}
 	}
+	started = time.Now()
 	process, err := startDevManagedProcess(ctx, request)
 	if err != nil {
+		step("process.start", "listener_ready", started, err)
 		return err
 	}
 	instance.app = &runningApp{process: process, cmd: process.Cmd, pid: strconv.Itoa(process.PID), output: process.Tail, launch: &appStartPlan{request: request}}
@@ -336,6 +347,7 @@ func (s *devSupervisor) startDevProcessInstance(ctx context.Context, instance *d
 		}
 		return fmt.Errorf("development process %s is not accepting connections on %s", instance.process.Name, backend.Addr)
 	}})
+	step("process.start", "listener_ready", started, err)
 	if err != nil {
 		_ = instance.app.stop()
 		return err
@@ -383,7 +395,10 @@ func (s *devSupervisor) publishDevProcessGeneration(ctx context.Context, model *
 	if err != nil {
 		return err
 	}
-	if _, err := model.request(ctx, http.MethodPut, "/__scenery/process/v1/generations", body, http.StatusNoContent); err != nil {
+	started := time.Now()
+	_, err = model.request(ctx, http.MethodPut, "/__scenery/process/v1/generations", body, http.StatusNoContent)
+	build.RecordStep(ctx, build.Step{Name: "process.publish", StartedAt: started, Duration: time.Since(started), Cache: "not_applicable", Reason: "host_generation_manifest", OK: err == nil, Actions: len(manifest.Processes)})
+	if err != nil {
 		return fmt.Errorf("publish process generation %d: %w", manifest.Generation, err)
 	}
 	model.generation = manifest.Generation
