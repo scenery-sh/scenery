@@ -262,6 +262,17 @@ compile the application graph as it needs.
   activation each took under 1 ms. Replaced instances retired: the supervisor
   kept 48 application processes (47 services and the host) beside the frontend,
   assistant helpers and Victoria.
+- [x] (2026-09-16) Replacement instances are now retained, preflighted and
+  given their socket while the supervisor verifies the candidate (status,
+  database setup inputs and the current source snapshot), so activation only
+  starts them. On ONLV the activation step fell from 418-430 ms to 119-138 ms
+  and one-service edits from 2,295-2,381 ms to 2,026-2,095 ms. The timeline
+  after the 552 ms entrypoint build is now: implementation check to 1,222 ms,
+  preflight 1,283-1,633 ms beside the 216 ms snapshot rescan, process start
+  47 ms, publication at 1,680 ms of a 1,951 ms build request. The next gates
+  are the preflight itself, the implementation check (which delays the
+  preparation), the 375 ms of preparation before input discovery and the
+  entrypoint build.
 - [ ] Follow-ups from the 9a0b54d0 review, not yet scheduled: bound link
   parallelism inside one process build (the fair slot admits the build, but
   `go build` still links up to `-p` entrypoints at once; measure peak memory of
@@ -283,6 +294,14 @@ compile the application graph as it needs.
 
 ## Surprises & Discoveries
 
+- The implementation check runs beside the entrypoint build, so a faster build
+  alone does not shorten an edit: the check (843 ms, of which about 290 ms
+  verifies generated artifact staleness and 560 ms analyzes Go targets) ends
+  after the 552 ms build. A `go list -export -deps` of the whole ONLV
+  application costs 591 ms warm against 258 ms for one service package.
+- Rescanning ONLV's watched files cost about 170 ms, half of it looking up
+  `.gitignore` in each of 851 directories although the walk had already read
+  every directory listing.
 - ONLV partition data (generated workspace for the main checkout, framework
   `scenery.sh v0.3.7-0.20260910222939-de2d81028baf`): a per-service implementation
   closure is 318–414 packages (median about 326) because every service imports

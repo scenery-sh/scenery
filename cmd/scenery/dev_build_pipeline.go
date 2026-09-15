@@ -94,6 +94,9 @@ type devRuntimePlan struct {
 	// Processes is the linked process set of a process-model session, which
 	// replaces the application executable.
 	Processes *build.DevelopmentProcessSet
+	// Prepared holds the service process instances this build already retained
+	// and preflighted while the supervisor verified the candidate.
+	Prepared *devProcessPreparation
 }
 
 type devBuildPhaseError struct {
@@ -128,7 +131,7 @@ func devBuildError(metadata, apiEncoding json.RawMessage, err error) error {
 	return devBuildPhaseError{Metadata: metadata, APIEncoding: apiEncoding, Err: err}
 }
 
-func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool, snapshot fileSnapshot) (*devRuntimePlan, error) {
+func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool, snapshot fileSnapshot) (plan *devRuntimePlan, returnErr error) {
 	frameworkStarted := time.Now()
 	frameworkErr := s.console.Phase("Verifying framework source and producer", func() error { return build.VerifyFrameworkSession(ctx, s.root) })
 	build.RecordStep(ctx, build.Step{Name: "framework.verify", StartedAt: frameworkStarted, Duration: time.Since(frameworkStarted), Cache: "not_applicable", Reason: "current_source_and_producer", OK: frameworkErr == nil})
@@ -257,6 +260,23 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 	}); err != nil {
 		return nil, devBuildError(metadata, apiEncoding, err)
 	}
+	var environment *devRuntimeEnvironment
+	if concurrentEnvironment != nil {
+		if resolved := <-concurrentEnvironment; resolved.err == nil && reflect.DeepEqual(resolved.sql, result.Contract.SQLRequirements) {
+			environment = resolved.environment
+		}
+	}
+	// Replacement instances are retained and preflighted while the supervisor
+	// verifies the candidate below, so activation only starts them.
+	var prepared *devProcessPreparation
+	if processes != nil && !initial && environment != nil {
+		prepared = s.beginDevProcessPreparation(ctx, result, environment, processes)
+		defer func() {
+			if returnErr != nil {
+				prepared.release(s)
+			}
+		}()
+	}
 	identityStep := build.Step{
 		Name: "build.identity", StartedAt: time.Now(), Cache: "not_applicable", Reason: "exact_candidate_inputs", OK: true,
 		SnapshotDigest: graphFingerprint, FrameworkSourceDigest: result.FrameworkSourceDigest,
@@ -296,12 +316,6 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 	if err != nil {
 		return nil, devBuildError(metadata, apiEncoding, err)
 	}
-	var environment *devRuntimeEnvironment
-	if concurrentEnvironment != nil {
-		if resolved := <-concurrentEnvironment; resolved.err == nil && reflect.DeepEqual(resolved.sql, result.Contract.SQLRequirements) {
-			environment = resolved.environment
-		}
-	}
 	if shouldRunDBSetup {
 		if err := s.console.Phase("Running database setup", func() error {
 			if err := s.console.Phase("Resolving database and storage capabilities", func() error {
@@ -318,12 +332,14 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 			return nil, devBuildError(metadata, apiEncoding, err)
 		}
 	}
-	return &devRuntimePlan{
+	plan = &devRuntimePlan{
 		Result:      result,
 		Metadata:    metadata,
 		APIEncoding: apiEncoding,
 		Initial:     initial,
 		Environment: environment,
 		Processes:   processes,
-	}, nil
+		Prepared:    prepared,
+	}
+	return plan, nil
 }

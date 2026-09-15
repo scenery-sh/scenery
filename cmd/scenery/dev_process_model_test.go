@@ -117,3 +117,36 @@ func TestDevProcessReplacementRestoresThePreviousHostOnlyAfterCandidatesStop(t *
 		})
 	}
 }
+
+func TestDevProcessPreparationServesOnlyItsOwnLinkAndIdentity(t *testing.T) {
+	link, other := &devProcessLink{epoch: 1}, &devProcessLink{epoch: 2}
+	process := build.DevelopmentProcess{Name: "echo_echo", Binary: "/tmp/echo-1", Identity: build.DevelopmentProcessIdentity{ImplementationRevision: "sha256:one"}}
+	request := devProcessStartRequest{Command: "/tmp/session/echo-1"}
+	preparation := &devProcessPreparation{link: link, instances: map[string]*devProcessInstance{
+		"echo_echo": {process: process, socket: "/tmp/s1.sock", request: &request},
+	}, done: make(chan struct{})}
+	close(preparation.done)
+	if instance, err := preparation.instance(other, process); instance != nil || err != nil {
+		t.Fatalf("instance of another host incarnation = %#v, %v", instance, err)
+	}
+	replaced := process
+	replaced.Identity.ImplementationRevision = "sha256:two"
+	if instance, err := preparation.instance(link, replaced); instance != nil || err != nil {
+		t.Fatalf("instance of another identity = %#v, %v", instance, err)
+	}
+	instance, err := preparation.instance(link, process)
+	if err != nil || instance == nil || instance.request != &request {
+		t.Fatalf("prepared instance = %#v, %v", instance, err)
+	}
+	// A preparation that failed refuses every instance.
+	failed := &devProcessPreparation{link: link, err: errors.New("preflight failed"), done: make(chan struct{})}
+	close(failed.done)
+	if _, err := failed.instance(link, process); err == nil {
+		t.Fatal("a failed preparation served an instance")
+	}
+	var none *devProcessPreparation
+	if instance, err := none.instance(link, process); instance != nil || err != nil {
+		t.Fatalf("absent preparation = %#v, %v", instance, err)
+	}
+	none.release(&devSupervisor{})
+}

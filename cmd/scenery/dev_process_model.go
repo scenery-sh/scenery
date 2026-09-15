@@ -1,12 +1,10 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"maps"
 	"net"
 	"net/http"
@@ -85,20 +83,11 @@ type devProcessLink struct {
 type devProcessInstance struct {
 	process build.DevelopmentProcess
 	socket  string
+	// request is the retained session executable and exact environment of a
+	// preflighted instance that has not started yet.
+	request *devProcessStartRequest
 	app     *runningApp
 	stopped bool
-}
-
-// devProcessState is the model state a complete replacement restores when the
-// new host incarnation cannot serve.
-type devProcessState struct {
-	link       *devProcessLink
-	generation uint64
-	contract   string
-	bindings   map[string]string
-	host       *devProcessInstance
-	services   map[string]*devProcessInstance
-	retained   map[uint64]map[string]*devProcessInstance
 }
 
 func (s *devSupervisor) ensureDevProcessModel() (*devProcessModel, error) {
@@ -215,7 +204,7 @@ func (s *devSupervisor) activateDevProcesses(ctx context.Context, plan *devRunti
 	s.mu.RUnlock()
 	contract := result.Contract.Manifest.ContractRevision
 	if host != nil && model.host != nil && model.host.app == host && model.contract == contract && model.host.process.Identity == set.Host.Identity {
-		return host, true, s.replaceDevServiceProcesses(ctx, model, set, s.appChildEnvironment(result, environment))
+		return host, true, s.replaceDevServiceProcesses(ctx, model, set, s.appChildEnvironment(result, environment), plan.Prepared)
 	}
 	var stage, previousStage *assistantStage
 	if s.assistants != nil {
@@ -240,7 +229,7 @@ func (s *devSupervisor) activateDevProcesses(ctx context.Context, plan *devRunti
 			return nil, true, stageErr
 		}
 	}
-	current, err := s.startDevProcessGeneration(ctx, model, set, result, environment, stage, previousStage)
+	current, err := s.startDevProcessGeneration(ctx, model, set, result, environment, stage, previousStage, plan.Prepared)
 	return current, host != nil, err
 }
 
@@ -291,7 +280,7 @@ func (replacement devProcessReplacement) run(ctx context.Context) (bool, error) 
 
 // startDevProcessGeneration starts a complete generation with a new host
 // incarnation, restoring the previous generation when the new host fails.
-func (s *devSupervisor) startDevProcessGeneration(ctx context.Context, model *devProcessModel, set *build.DevelopmentProcessSet, result *build.Result, environment *devRuntimeEnvironment, stage, previousStage *assistantStage) (*runningApp, error) {
+func (s *devSupervisor) startDevProcessGeneration(ctx context.Context, model *devProcessModel, set *build.DevelopmentProcessSet, result *build.Result, environment *devRuntimeEnvironment, stage, previousStage *assistantStage, prepared *devProcessPreparation) (*runningApp, error) {
 	link, err := model.newLink()
 	if err != nil {
 		return nil, err
@@ -305,7 +294,7 @@ func (s *devSupervisor) startDevProcessGeneration(ctx context.Context, model *de
 	replacement := devProcessReplacement{
 		startServices: func(ctx context.Context) error {
 			var err error
-			if started, err = s.startDevServiceInstances(ctx, model, set.Services, base, link); err != nil {
+			if started, err = s.startDevServiceInstances(ctx, model, set.Services, base, link, prepared); err != nil {
 				link.remove()
 			}
 			return err
@@ -456,7 +445,7 @@ func (s *devSupervisor) restoreDevProcessHost(ctx context.Context, model *devPro
 	return app, nil
 }
 
-func (s *devSupervisor) replaceDevServiceProcesses(ctx context.Context, model *devProcessModel, set *build.DevelopmentProcessSet, base []string) error {
+func (s *devSupervisor) replaceDevServiceProcesses(ctx context.Context, model *devProcessModel, set *build.DevelopmentProcessSet, base []string, prepared *devProcessPreparation) error {
 	var changed []build.DevelopmentProcess
 	for _, process := range set.Services {
 		current := model.services[process.Name]
@@ -467,7 +456,7 @@ func (s *devSupervisor) replaceDevServiceProcesses(ctx context.Context, model *d
 	if len(changed) == 0 {
 		return nil
 	}
-	started, err := s.startDevServiceInstances(ctx, model, changed, base, model.link)
+	started, err := s.startDevServiceInstances(ctx, model, changed, base, model.link, prepared)
 	if err != nil {
 		return err
 	}
@@ -496,20 +485,27 @@ func (s *devSupervisor) replaceDevServiceProcesses(ctx context.Context, model *d
 	return nil
 }
 
-func (s *devSupervisor) startDevServiceInstances(ctx context.Context, model *devProcessModel, processes []build.DevelopmentProcess, base []string, link *devProcessLink) ([]*devProcessInstance, error) {
+func (s *devSupervisor) startDevServiceInstances(ctx context.Context, model *devProcessModel, processes []build.DevelopmentProcess, base []string, link *devProcessLink, prepared *devProcessPreparation) ([]*devProcessInstance, error) {
 	instances := make([]*devProcessInstance, len(processes))
 	errs := make([]error, len(processes))
+	for index, process := range processes {
+		instance, err := prepared.instance(link, process)
+		if err != nil {
+			return nil, err
+		}
+		if instance == nil {
+			model.sequence++
+			instance = &devProcessInstance{process: process, socket: filepath.Join(model.socketDir, "s"+strconv.Itoa(model.sequence)+".sock")}
+		}
+		instances[index] = instance
+	}
 	var wg sync.WaitGroup
 	for index, process := range processes {
-		model.sequence++
-		instance := &devProcessInstance{process: process, socket: filepath.Join(model.socketDir, "s"+strconv.Itoa(model.sequence)+".sock")}
-		instances[index] = instance
-		env := append(envWithoutKeys(base, "SCENERY_LISTEN_NETWORK", "SCENERY_LISTEN_ADDR"),
-			"SCENERY_LISTEN_NETWORK=unix", "SCENERY_LISTEN_ADDR="+instance.socket, "SCENERY_PROCESS_LINK="+link.path)
+		instance := instances[index]
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			errs[index] = s.startDevProcessInstance(ctx, instance, "service:"+process.Name, env, devBackend{Network: "unix", Addr: instance.socket})
+			errs[index] = s.startDevProcessInstance(ctx, instance, "service:"+process.Name, devProcessInstanceEnvironment(base, instance, link), devBackend{Network: "unix", Addr: instance.socket})
 		}()
 	}
 	wg.Wait()
@@ -524,7 +520,9 @@ func (s *devSupervisor) startDevServiceInstances(ctx context.Context, model *dev
 	return instances, nil
 }
 
-func (s *devSupervisor) startDevProcessInstance(ctx context.Context, instance *devProcessInstance, name string, env []string, backend devBackend) error {
+// prepareDevProcessInstance retains the session executable of an instance and
+// proves its runtime identity with its exact start environment.
+func (s *devSupervisor) prepareDevProcessInstance(ctx context.Context, instance *devProcessInstance, name string, env []string) error {
 	step := func(stepName, reason string, started time.Time, err error) {
 		build.RecordStep(ctx, build.Step{Name: stepName, StartedAt: started, Duration: time.Since(started), Cache: "not_applicable", Reason: reason + "_" + instance.process.Name, OK: err == nil})
 	}
@@ -545,12 +543,26 @@ func (s *devSupervisor) startDevProcessInstance(ctx context.Context, instance *d
 	if err != nil {
 		return err
 	}
+	instance.request = &request
+	return nil
+}
+
+func (s *devSupervisor) startDevProcessInstance(ctx context.Context, instance *devProcessInstance, name string, env []string, backend devBackend) error {
+	step := func(stepName, reason string, started time.Time, err error) {
+		build.RecordStep(ctx, build.Step{Name: stepName, StartedAt: started, Duration: time.Since(started), Cache: "not_applicable", Reason: reason + "_" + instance.process.Name, OK: err == nil})
+	}
+	if instance.request == nil {
+		if err := s.prepareDevProcessInstance(ctx, instance, name, env); err != nil {
+			return err
+		}
+	}
+	request := *instance.request
+	started := time.Now()
 	if backend.Network == "unix" {
 		if err := os.Remove(backend.Addr); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
 	}
-	started = time.Now()
 	process, err := startDevManagedProcess(ctx, request)
 	if err != nil {
 		step("process.start", "listener_ready", started, err)
@@ -581,242 +593,6 @@ func validateDevProcessPreflight(data []byte, name string, identity build.Develo
 		return fmt.Errorf("development process %s does not match the supervisor's prepared build; the published generation was not replaced", name)
 	}
 	return nil
-}
-
-// publishDevProcessGeneration publishes the model's services as the next
-// generation of the current host incarnation; the caller holds model.mu.
-func (s *devSupervisor) publishDevProcessGeneration(ctx context.Context, model *devProcessModel) error {
-	type identity struct {
-		ContractRevision       string `json:"contract_revision"`
-		ImplementationRevision string `json:"implementation_revision"`
-		BuildInputDigest       string `json:"build_input_digest"`
-		GoTarget               string `json:"go_target"`
-	}
-	type instance struct {
-		Network  string   `json:"network"`
-		Address  string   `json:"address"`
-		PID      int      `json:"pid"`
-		Identity identity `json:"identity"`
-	}
-	manifest := struct {
-		Generation       uint64              `json:"generation"`
-		ContractRevision string              `json:"contract_revision"`
-		Processes        map[string]instance `json:"processes"`
-		Bindings         map[string]string   `json:"bindings"`
-	}{Generation: model.generation + 1, ContractRevision: model.contract, Processes: map[string]instance{}, Bindings: model.bindings}
-	for name, service := range model.services {
-		pid, _ := strconv.Atoi(service.app.pid)
-		value := service.process.Identity
-		manifest.Processes[name] = instance{Network: "unix", Address: service.socket, PID: pid, Identity: identity{value.ContractRevision, value.ImplementationRevision, value.BuildInputDigest, value.GoTarget}}
-	}
-	body, err := json.Marshal(manifest)
-	if err != nil {
-		return err
-	}
-	started := time.Now()
-	_, err = model.link.request(ctx, http.MethodPut, "/__scenery/process/v1/generations", body, http.StatusNoContent)
-	if err != nil && model.link.current(ctx) == manifest.Generation {
-		// The host applied the manifest although its answer was lost.
-		err = nil
-	}
-	build.RecordStep(ctx, build.Step{Name: "process.publish", StartedAt: started, Duration: time.Since(started), Cache: "not_applicable", Reason: "host_generation_manifest", OK: err == nil, Actions: len(manifest.Processes)})
-	if err != nil {
-		return fmt.Errorf("publish process generation %d: %w", manifest.Generation, err)
-	}
-	model.generation = manifest.Generation
-	model.retained[manifest.Generation] = maps.Clone(model.services)
-	return nil
-}
-
-// drainDevProcessInstances revokes the background work of instances whose
-// generation was replaced. An instance that does not confirm the revocation is
-// stopped, so it cannot acquire work beside its activated replacement.
-func (s *devSupervisor) drainDevProcessInstances(ctx context.Context, model *devProcessModel, instances []*devProcessInstance) {
-	failed := s.controlDevProcessInstances(ctx, model.token, instances, runtimeProcessDrainPath, "process.drain_failed")
-	if len(failed) == 0 {
-		return
-	}
-	markDevProcessesStopped(failed)
-	_ = s.stopInstances(failed, model.runningCommands())
-}
-
-// activateDevProcessInstances grants background work to instances of the
-// published generation. A failure is reported; the generation keeps serving.
-func (s *devSupervisor) activateDevProcessInstances(ctx context.Context, model *devProcessModel, instances []*devProcessInstance) {
-	s.controlDevProcessInstances(ctx, model.token, instances, runtimeProcessActivatePath, "process.activate_failed")
-}
-
-const (
-	runtimeProcessActivatePath = "/__scenery/process/v1/activate"
-	runtimeProcessDrainPath    = "/__scenery/process/v1/drain"
-)
-
-func (s *devSupervisor) controlDevProcessInstances(ctx context.Context, token string, instances []*devProcessInstance, path, failureEvent string) []*devProcessInstance {
-	started := time.Now()
-	failures := make([]error, len(instances))
-	var wg sync.WaitGroup
-	for index, instance := range instances {
-		if instance == nil || instance.app == nil || instance.stopped {
-			continue
-		}
-		wg.Go(func() {
-			failures[index] = instance.control(ctx, path, token)
-		})
-	}
-	wg.Wait()
-	var failed []*devProcessInstance
-	for index, err := range failures {
-		if err == nil {
-			continue
-		}
-		failed = append(failed, instances[index])
-		if s.console != nil {
-			s.console.Event(failureEvent, map[string]any{"service_process": instances[index].process.Name, "pid": instances[index].app.pid, "error": err.Error()})
-		}
-	}
-	build.RecordStep(ctx, build.Step{Name: "process.background", StartedAt: started, Duration: time.Since(started), Cache: "not_applicable", Reason: strings.TrimPrefix(path, "/__scenery/process/v1/"), OK: len(failed) == 0, Actions: len(instances)})
-	return failed
-}
-
-// control sends one background control request to the instance's private
-// socket; drain answers 202 when work was revoked but is still stopping.
-func (instance *devProcessInstance) control(ctx context.Context, path, token string) error {
-	dialer := &net.Dialer{}
-	transport := &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-		return dialer.DialContext(ctx, "unix", instance.socket)
-	}}
-	defer transport.CloseIdleConnections()
-	ctx, cancel := context.WithTimeout(ctx, devProcessBackgroundTimeout)
-	defer cancel()
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://scenery-process"+path, nil)
-	if err != nil {
-		return err
-	}
-	request.Header.Set("Authorization", "Bearer "+token)
-	response, err := (&http.Client{Transport: transport}).Do(request)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = response.Body.Close() }()
-	if response.StatusCode != http.StatusNoContent && response.StatusCode != http.StatusAccepted {
-		message, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
-		return fmt.Errorf("%s answered HTTP %d: %s", path, response.StatusCode, strings.TrimSpace(string(message)))
-	}
-	return nil
-}
-
-// retireDevProcessGeneration waits until the host reports no work pinned to a
-// replaced generation, or forces its retirement after devProcessRetireTimeout,
-// and then stops the instances no retained generation names any longer.
-func (s *devSupervisor) retireDevProcessGeneration(model *devProcessModel, link *devProcessLink, generation uint64) {
-	ctx := context.Background()
-	deadline := time.Now().Add(devProcessRetireTimeout)
-	path := "/__scenery/process/v1/generations/" + strconv.FormatUint(generation, 10)
-	forced := false
-	for {
-		status, err := link.request(ctx, http.MethodDelete, path, nil, 0)
-		if err == nil && (status == http.StatusNoContent || status == http.StatusNotFound) {
-			break
-		}
-		if !model.hostIncarnation(link) {
-			return
-		}
-		if time.Now().After(deadline) {
-			// Forced retirement ends dispatch within the generation; an
-			// unreachable host dispatches nothing to its instances either.
-			forced = true
-			_, _ = link.request(ctx, http.MethodDelete, path+"?force=true", nil, 0)
-			break
-		}
-		time.Sleep(devProcessRetireInterval)
-	}
-	model.mu.Lock()
-	if model.link != link {
-		// A complete replacement ended this host incarnation and its instances.
-		model.mu.Unlock()
-		return
-	}
-	named := model.retained[generation]
-	delete(model.retained, generation)
-	stale := model.unreferenced(mapValues(named))
-	markDevProcessesStopped(stale)
-	inUse := model.runningCommands()
-	model.mu.Unlock()
-	if forced && s.console != nil {
-		names := make([]string, 0, len(stale))
-		for _, instance := range stale {
-			names = append(names, instance.process.Name)
-		}
-		s.console.Event("process.retire_forced", map[string]any{"generation": generation, "stopped_service_processes": names})
-	}
-	_ = s.stopInstances(stale, inUse)
-}
-
-func (model *devProcessModel) hostIncarnation(link *devProcessLink) bool {
-	model.mu.Lock()
-	defer model.mu.Unlock()
-	return model.link == link
-}
-
-// unreferenced returns the instances neither the current services nor any
-// retained generation name; the caller holds model.mu.
-func (model *devProcessModel) unreferenced(instances []*devProcessInstance) []*devProcessInstance {
-	var stale []*devProcessInstance
-	for _, instance := range instances {
-		if instance == nil || model.services[instance.process.Name] == instance {
-			continue
-		}
-		referenced := false
-		for _, named := range model.retained {
-			if named[instance.process.Name] == instance {
-				referenced = true
-				break
-			}
-		}
-		if !referenced {
-			stale = append(stale, instance)
-		}
-	}
-	return stale
-}
-
-func (link *devProcessLink) request(ctx context.Context, method, path string, body []byte, want int) (int, error) {
-	request, err := http.NewRequestWithContext(ctx, method, "http://scenery-host"+path, bytes.NewReader(body))
-	if err != nil {
-		return 0, err
-	}
-	request.Header.Set("Authorization", "Bearer "+link.token)
-	response, err := link.control.Do(request)
-	if err != nil {
-		return 0, err
-	}
-	defer func() { _ = response.Body.Close() }()
-	message, _ := io.ReadAll(io.LimitReader(response.Body, 64<<10))
-	if want != 0 && response.StatusCode != want {
-		return response.StatusCode, fmt.Errorf("host answered HTTP %d: %s", response.StatusCode, strings.TrimSpace(string(message)))
-	}
-	return response.StatusCode, nil
-}
-
-// current reads the host's current generation, or zero when it cannot.
-func (link *devProcessLink) current(ctx context.Context) uint64 {
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://scenery-host/__scenery/process/v1/generations", nil)
-	if err != nil {
-		return 0
-	}
-	request.Header.Set("Authorization", "Bearer "+link.token)
-	response, err := link.control.Do(request)
-	if err != nil {
-		return 0
-	}
-	defer func() { _ = response.Body.Close() }()
-	var status struct {
-		Current uint64 `json:"current"`
-	}
-	if response.StatusCode != http.StatusOK || json.NewDecoder(io.LimitReader(response.Body, 64<<10)).Decode(&status) != nil {
-		return 0
-	}
-	return status.Current
 }
 
 func (s *devSupervisor) watchDevServiceInstance(model *devProcessModel, instance *devProcessInstance) {
