@@ -738,7 +738,7 @@ func scanWatchedFilesReusing(root string, previous fileSnapshot) (fileSnapshot, 
 	}
 	var dirs []string
 	ignore := watchignore.New(root)
-	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+	err = walkWatchTree(root, ignore, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			// Tolerate entries vanishing or turning unreadable mid-scan; a
 			// transient walk error must not abort the watch loop.
@@ -764,7 +764,6 @@ func scanWatchedFilesReusing(root string, previous fileSnapshot) (fileSnapshot, 
 			if shouldIgnoreWatchPathWithMatcher(rel, true, ignore) || isProductionFrontendOutputDir(root, rel) {
 				return filepath.SkipDir
 			}
-			ignore.LoadDir(rel)
 			dirs = append(dirs, rel)
 			return nil
 		}

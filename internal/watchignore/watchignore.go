@@ -133,6 +133,21 @@ func (m *Matcher) LoadDir(rel string) {
 	m.gitRules = append(m.gitRules, rules...)
 }
 
+// LoadDirEntries loads rel's .gitignore like LoadDir, using the directory
+// listing a walk has already read to skip the lookup when it holds none.
+func (m *Matcher) LoadDirEntries(rel string, entries []fs.DirEntry) {
+	if m == nil {
+		return
+	}
+	for _, entry := range entries {
+		if entry.Name() == ".gitignore" {
+			m.LoadDir(rel)
+			return
+		}
+	}
+	m.loaded[normalizeWatchRel(rel)] = struct{}{}
+}
+
 func (m *Matcher) Ignored(rel string, isDir bool) bool {
 	if m == nil {
 		return false

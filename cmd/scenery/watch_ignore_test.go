@@ -2,6 +2,7 @@ package main
 
 import (
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/fsnotify/fsnotify"
@@ -29,6 +30,35 @@ func TestScanWatchedFilesSkipsGitignoredPaths(t *testing.T) {
 		if _, ok := snapshot.files[ignored]; ok {
 			t.Fatalf("snapshot unexpectedly included gitignored path %q: %+v", ignored, snapshot)
 		}
+	}
+}
+
+func TestScanWatchedFilesAppliesNestedGitignoresFromDirectoryListings(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeWatchFile(t, root, "svc/.gitignore", "local.go\n/cache/\n")
+	writeWatchFile(t, root, "svc/api.go", "package svc\n")
+	writeWatchFile(t, root, "svc/local.go", "package svc\n")
+	writeWatchFile(t, root, "svc/cache/api.go", "package cache\n")
+	writeWatchFile(t, root, "other/local.go", "package other\n")
+
+	first, err := scanWatchedFiles(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for path, want := range map[string]bool{"svc/api.go": true, "svc/local.go": false, "svc/cache/api.go": false, "other/local.go": true} {
+		if _, ok := first.files[path]; ok != want {
+			t.Fatalf("first snapshot includes %s = %v, want %v", path, ok, want)
+		}
+	}
+	writeWatchFile(t, root, "other/.gitignore", "local.go\n")
+	second, err := scanWatchedFilesReusing(root, first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := second.files["other/local.go"]; ok || !slices.Contains(second.dirs, "svc") || slices.Contains(second.dirs, "svc/cache") {
+		t.Fatalf("rescan after adding other/.gitignore = files %v, dirs %v", second.files, second.dirs)
 	}
 }
 
