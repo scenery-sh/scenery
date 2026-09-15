@@ -20,15 +20,16 @@ import (
 )
 
 type harnessSelfOptions struct {
-	RepoRoot     string
-	JSON         bool
-	Write        bool
-	Mode         string
-	Output       string
-	FreshTests   bool
-	Probes       []string
-	Benchmark    string
-	WorkloadRoot string
+	RepoRoot       string
+	JSON           bool
+	Write          bool
+	Mode           string
+	Output         string
+	FreshTests     bool
+	Probes         []string
+	Benchmark      string
+	BenchmarkShort bool
+	WorkloadRoot   string
 }
 
 func runSceneryHarnessSelf(ctx context.Context, stdout io.Writer, args []string) error {
@@ -106,9 +107,9 @@ func runSceneryHarnessSelf(ctx context.Context, stdout io.Writer, args []string)
 	if opts.Mode == harnessSelfModeBenchmark {
 		switch opts.Benchmark {
 		case "native-build-compiler":
-			resp.Steps = append(resp.Steps, runHarnessNativeBuildCompilerStep(ctx, repoRoot, opts.WorkloadRoot, opts.Write))
+			resp.Steps = append(resp.Steps, runHarnessNativeBuildCompilerStep(ctx, repoRoot, opts.WorkloadRoot, opts.Write, opts.BenchmarkShort))
 		case "native-build-driver":
-			resp.Steps = append(resp.Steps, runHarnessNativeBuildDriverStep(ctx, repoRoot, opts.WorkloadRoot, opts.Write))
+			resp.Steps = append(resp.Steps, runHarnessNativeBuildDriverStep(ctx, repoRoot, opts.WorkloadRoot, opts.Write, opts.BenchmarkShort))
 		case "native-reload-attribution":
 			resp.Steps = append(resp.Steps, runHarnessNativeAttributionStep(ctx, repoRoot, opts.WorkloadRoot, opts.Write))
 		case "native-reload-plugin":
@@ -277,6 +278,7 @@ func parseHarnessSelfArgs(args []string) (harnessSelfOptions, error) {
 	flags.BoolFunc("summary", "", func(string) error { opts.Output = harnessSelfOutputSummary; return nil })
 	flags.BoolVar(&opts.Write, "write", false, "")
 	flags.BoolVar(&opts.FreshTests, "fresh-tests", false, "")
+	flags.BoolVar(&opts.BenchmarkShort, "benchmark-short", false, "bounded native build observation: one cohort, one warmup and three rounds")
 	setMode := func(mode string) func(string) error {
 		return func(string) error {
 			if opts.Mode != harnessSelfModeDefault {
@@ -330,6 +332,9 @@ func parseHarnessSelfArgs(args []string) (harnessSelfOptions, error) {
 	needsWorkload := opts.Benchmark == "native-build-compiler" || opts.Benchmark == "native-build-driver" || opts.Benchmark == "native-reload" || opts.Benchmark == "native-reload-plugin" || opts.Benchmark == "native-reload-attribution"
 	if needsWorkload != (strings.TrimSpace(opts.WorkloadRoot) != "") {
 		return harnessSelfOptions{}, fmt.Errorf("--workload-root is required only with a native workload benchmark")
+	}
+	if opts.BenchmarkShort && opts.Benchmark != "native-build-compiler" && opts.Benchmark != "native-build-driver" {
+		return harnessSelfOptions{}, fmt.Errorf("--benchmark-short requires --benchmark native-build-compiler or native-build-driver")
 	}
 	return opts, nil
 }

@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -15,6 +16,8 @@ import (
 	"time"
 )
 
+var ErrIncompleteRecordedRecipe = errors.New("recorded recipe does not cover the current package closure")
+
 type Recipe struct {
 	Protocol       string                    `json:"protocol"`
 	Root           string                    `json:"root"`
@@ -23,6 +26,7 @@ type Recipe struct {
 	Retained       map[string]RetainedFile   `json:"retained_artifacts"`
 	Support        map[string]RetainedFile   `json:"captured_support_artifacts"`
 	Bootstrap      Capture                   `json:"bootstrap_capture"`
+	Current        Capture                   `json:"current_capture"`
 	Compiles       map[string]*CompileAction `json:"compiles"`
 	Link           *LinkAction               `json:"link"`
 	ArchiveByOld   map[string]string         `json:"archive_by_old"`
@@ -60,22 +64,64 @@ type LinkAction struct {
 
 func LoadRecordedRecipe(recordRoot, workspace string, bootstrap Capture) (*Recipe, error) {
 	recipe := &Recipe{Protocol: ProtocolVersion, Root: recordRoot, Workspace: workspace,
-		Bootstrap: bootstrap, Compiles: map[string]*CompileAction{}, ArchiveByOld: map[string]string{}, ToolDigests: map[string]string{}, Retained: map[string]RetainedFile{}, Support: map[string]RetainedFile{}}
-	entries, err := filepath.Glob(filepath.Join(recordRoot, "actions", "action-*", "record.json"))
+		Bootstrap: bootstrap, Current: cloneCaptureValue(bootstrap), Compiles: map[string]*CompileAction{}, ArchiveByOld: map[string]string{}, ToolDigests: map[string]string{}, Retained: map[string]RetainedFile{}, Support: map[string]RetainedFile{}}
+	linkSeen, err := mergeRecordedActions(recipe, recordRoot, bootstrap)
 	if err != nil {
 		return nil, err
+	}
+	var missing []string
+	for importPath := range bootstrap.Packages {
+		if importPath != "unsafe" && recipe.Compiles[importPath] == nil {
+			missing = append(missing, importPath)
+		}
+	}
+	if len(missing) != 0 || !linkSeen || recipe.Link == nil || recipe.Link.MainAt < 0 {
+		return nil, fmt.Errorf("incomplete recipe: compiles=%d packages=%d link=%v", len(recipe.Compiles), len(bootstrap.Packages), recipe.Link != nil)
+	}
+	for old := range recipe.Link.Imports {
+		if _, ok := recipe.ArchiveByOld[old]; !ok {
+			return nil, fmt.Errorf("link input archive was not retained: %s", old)
+		}
+	}
+	for original, path := range bootstrap.SnapshotFiles {
+		if path == "" || bootstrap.Files[original] == "" {
+			continue
+		}
+		if err := retainSupportPath(recipe, path, bootstrap.Files[original]); err != nil {
+			return nil, err
+		}
+	}
+	recipe.RetentionLimit = recipe.RetainedBytes*2 + 512<<20
+	if err := recipe.Validate(); err != nil {
+		return nil, err
+	}
+	return recipe, nil
+}
+
+func mergeRecordedActions(recipe *Recipe, recordRoot string, capture Capture) (bool, error) {
+	entries, err := filepath.Glob(filepath.Join(recordRoot, "actions", "action-*", "record.json"))
+	if err != nil {
+		return false, err
+	}
+	linkSeen := false
+	mainPackage := ""
+	for importPath, pkg := range capture.Packages {
+		if pkg.Name == "main" && samePath(pkg.Dir, filepath.Join(recipe.Workspace, "scenery_internal_main")) {
+			mainPackage = importPath
+			break
+		}
 	}
 	for _, path := range entries {
 		data, err := os.ReadFile(path)
 		if err != nil {
-			return nil, err
+			return false, err
 		}
 		var record ToolRecord
 		if err := json.Unmarshal(data, &record); err != nil {
-			return nil, err
+			return false, err
 		}
 		if record.Protocol != ProtocolVersion || record.ExitCode != 0 {
-			return nil, fmt.Errorf("invalid recorded action %s", path)
+			return false, fmt.Errorf("invalid recorded action %s", path)
 		}
 		base := filepath.Base(record.Tool)
 		switch base {
@@ -84,22 +130,22 @@ func LoadRecordedRecipe(recordRoot, workspace string, bootstrap Capture) (*Recip
 				continue
 			}
 			if err := retainToolDigest(recipe, record.Tool); err != nil {
-				return nil, err
+				return false, err
 			}
 			finalOutput, err := CopyRegular(record.Output.Original, filepath.Join(filepath.Dir(record.Output.Copy), "final-output"))
 			if err != nil {
-				return nil, fmt.Errorf("capture finalized archive for %s: %w", record.ID, err)
+				return false, fmt.Errorf("capture finalized archive for %s: %w", record.ID, err)
 			}
 			imports, cfgAt, err := actionImportCfg(record)
 			if err != nil {
-				return nil, err
+				return false, err
 			}
-			if err := retainSupportFile(recipe, record.Files[cfgAt]); err != nil {
-				return nil, err
+			if err := retainActionSupport(recipe, record.Files, capture.Files); err != nil {
+				return false, err
 			}
 			pkg := flagValue(record.Argv, "-p")
-			if _, exists := recipe.Compiles[pkg]; exists {
-				return nil, fmt.Errorf("duplicate compile recipe for %s", pkg)
+			if pkg == "main" && mainPackage != "" {
+				pkg = mainPackage
 			}
 			action := &CompileAction{Package: pkg, Tool: record.Tool, Argv: record.Argv,
 				Files: record.Files, Output: finalOutput, Imports: imports,
@@ -108,7 +154,7 @@ func LoadRecordedRecipe(recordRoot, workspace string, bootstrap Capture) (*Recip
 			recipe.ArchiveByOld[action.Output.Original] = action.Output.Copy
 			info, err := os.Lstat(action.Output.Copy)
 			if err != nil {
-				return nil, err
+				return false, err
 			}
 			recipe.Retained[action.Output.Copy] = RetainedFile{Digest: action.Output.Digest, Bytes: action.Output.Bytes, Stamp: fileStamp(info)}
 			recipe.RetainedBytes += action.Output.Bytes
@@ -117,14 +163,14 @@ func LoadRecordedRecipe(recordRoot, workspace string, bootstrap Capture) (*Recip
 				continue
 			}
 			if err := retainToolDigest(recipe, record.Tool); err != nil {
-				return nil, err
+				return false, err
 			}
 			imports, cfgAt, err := actionImportCfg(record)
 			if err != nil {
-				return nil, err
+				return false, err
 			}
-			if err := retainSupportFile(recipe, record.Files[cfgAt]); err != nil {
-				return nil, err
+			if err := retainActionSupport(recipe, record.Files, capture.Files); err != nil {
+				return false, err
 			}
 			mainAt := -1
 			for index, file := range record.Files {
@@ -135,50 +181,218 @@ func LoadRecordedRecipe(recordRoot, workspace string, bootstrap Capture) (*Recip
 			recipe.Link = &LinkAction{Tool: record.Tool, Argv: record.Argv, Files: record.Files,
 				Output: *record.Output, Imports: imports, ImportCfgAt: cfgAt,
 				OutputAt: flagIndex(record.Argv, "-o"), MainAt: mainAt}
+			linkSeen = true
 		}
 	}
-	if main := recipe.Compiles["main"]; main != nil && recipe.Link != nil {
-		for importPath, pkg := range bootstrap.Packages {
-			if pkg.Name == "main" && samePath(pkg.Dir, filepath.Join(workspace, "scenery_internal_main")) {
-				delete(recipe.Compiles, "main")
-				main.Package = importPath
-				recipe.Compiles[importPath] = main
-				break
-			}
-		}
-	}
-	var missing []string
-	for importPath := range bootstrap.Packages {
-		if importPath != "unsafe" && recipe.Compiles[importPath] == nil {
-			missing = append(missing, importPath)
-		}
-	}
-	if len(missing) != 0 || recipe.Link == nil || recipe.Link.MainAt < 0 {
-		return nil, fmt.Errorf("incomplete recipe: compiles=%d packages=%d link=%v", len(recipe.Compiles), len(bootstrap.Packages), recipe.Link != nil)
-	}
-	for old := range recipe.Link.Imports {
-		if _, ok := recipe.ArchiveByOld[old]; !ok {
-			return nil, fmt.Errorf("link input archive was not retained: %s", old)
-		}
-	}
-	recipe.RetentionLimit = recipe.RetainedBytes*2 + 512<<20
-	if err := recipe.Validate(); err != nil {
+	return linkSeen, nil
+}
+
+// RefreshRecordedRecipe merges the cache-miss actions from an ordinary stock
+// build into the last committed recipe. Compatible actions and archives remain
+// reusable; every archive named by a newly recorded action is copied into the
+// durable content-addressed store before the refreshed recipe is returned.
+func RefreshRecordedRecipe(previous *Recipe, recordRoot string, current Capture, stateRoot string) (*Recipe, error) {
+	if err := previous.Validate(); err != nil {
 		return nil, err
 	}
-	return recipe, nil
+	next := *previous
+	next.Current = cloneCaptureValue(current)
+	previousCurrent := previous.currentCapture()
+	for original, digest := range next.Current.Files {
+		if previousCurrent.Files[original] == digest && previousCurrent.SnapshotFiles[original] != "" {
+			next.Current.SnapshotFiles[original] = previousCurrent.SnapshotFiles[original]
+		}
+	}
+	next.Compiles = make(map[string]*CompileAction, len(previous.Compiles))
+	for importPath, action := range previous.Compiles {
+		next.Compiles[importPath] = action
+	}
+	next.ToolDigests = cloneStrings(previous.ToolDigests)
+	next.ArchiveByOld = cloneStrings(previous.ArchiveByOld)
+	next.Retained = cloneRetainedFiles(previous.Retained)
+	next.Support = cloneRetainedFiles(previous.Support)
+	linkSeen, err := mergeRecordedActions(&next, recordRoot, current)
+	if err != nil {
+		return nil, err
+	}
+	if !linkSeen || next.Link == nil {
+		return nil, fmt.Errorf("graph refresh did not record a current link action")
+	}
+	for importPath := range next.Compiles {
+		if _, currentPackage := current.Packages[importPath]; !currentPackage {
+			delete(next.Compiles, importPath)
+		}
+	}
+	for importPath := range current.Packages {
+		if importPath != "unsafe" && next.Compiles[importPath] == nil {
+			return nil, fmt.Errorf("%w: compile recipe is absent for %s", ErrIncompleteRecordedRecipe, importPath)
+		}
+	}
+	needed := map[string]bool{}
+	for _, action := range next.Compiles {
+		needed[action.Output.Original] = true
+		for path := range action.Imports {
+			needed[path] = true
+		}
+	}
+	for path := range next.Link.Imports {
+		needed[path] = true
+	}
+	needed[next.Link.Files[next.Link.MainAt].Original] = true
+	for original := range needed {
+		if retained := next.ArchiveByOld[original]; retained != "" {
+			if err := validateRetainedFile(retained, next.Retained[retained]); err == nil && !pathWithin(recordRoot, retained) {
+				continue
+			}
+		}
+		if err := next.retainArchiveMapping(original, stateRoot); err != nil {
+			return nil, err
+		}
+	}
+	for original := range next.ArchiveByOld {
+		if !needed[original] {
+			delete(next.ArchiveByOld, original)
+		}
+	}
+	if err := next.rebuildRetainedAccounting(); err != nil {
+		return nil, err
+	}
+	if err := next.materializeSupport(stateRoot); err != nil {
+		return nil, err
+	}
+	if err := next.rebuildSupportAccounting(); err != nil {
+		return nil, err
+	}
+	if err := next.Validate(); err != nil {
+		return nil, err
+	}
+	return &next, nil
+}
+
+func pathWithin(root, path string) bool {
+	relative, err := filepath.Rel(root, path)
+	return err == nil && relative != ".." && relative != "." && !filepath.IsAbs(relative) && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
+}
+
+func (recipe *Recipe) materializeSupport(stateRoot string) error {
+	for importPath, source := range recipe.Compiles {
+		action := *source
+		action.Argv = append([]string(nil), source.Argv...)
+		action.Files = cloneFileCopies(source.Files)
+		for index, file := range action.Files {
+			if _, isSource := recipe.Current.Files[file.Original]; isSource {
+				continue
+			}
+			retained, err := retainSupportCopy(file, stateRoot)
+			if err != nil {
+				return err
+			}
+			action.Files[index] = retained
+		}
+		recipe.Compiles[importPath] = &action
+	}
+	link := *recipe.Link
+	link.Argv = append([]string(nil), recipe.Link.Argv...)
+	link.Files = cloneFileCopies(recipe.Link.Files)
+	for index, file := range link.Files {
+		if _, isSource := recipe.Current.Files[file.Original]; isSource {
+			continue
+		}
+		retained, err := retainSupportCopy(file, stateRoot)
+		if err != nil {
+			return err
+		}
+		link.Files[index] = retained
+	}
+	recipe.Link = &link
+	for original, snapshot := range recipe.Current.SnapshotFiles {
+		if snapshot == "" || recipe.Current.Files[original] == "" {
+			continue
+		}
+		if retained, ok := recipe.Support[snapshot]; ok && retained.Digest == recipe.Current.Files[original] {
+			continue
+		}
+		target := filepath.Join(stateRoot, "snapshots", digestName(original+"\x00"+recipe.Current.Files[original])+filepath.Ext(original))
+		if !samePath(snapshot, target) {
+			copy, err := CopyRegular(snapshot, target)
+			if err != nil {
+				return err
+			}
+			if copy.Digest != recipe.Current.Files[original] {
+				return fmt.Errorf("refreshed source snapshot identity changed: %s", original)
+			}
+		}
+		recipe.Current.SnapshotFiles[original] = target
+	}
+	return nil
+}
+
+func retainSupportCopy(file FileCopy, stateRoot string) (FileCopy, error) {
+	extension := filepath.Ext(file.Original)
+	target := filepath.Join(stateRoot, "support", strings.TrimPrefix(file.Digest, "sha256:")+extension)
+	if samePath(file.Copy, target) {
+		return file, nil
+	}
+	copy, err := CopyRegular(file.Copy, target)
+	if err != nil {
+		return FileCopy{}, err
+	}
+	if copy.Digest != file.Digest {
+		return FileCopy{}, fmt.Errorf("support input identity changed: %s", file.Original)
+	}
+	copy.Original = file.Original
+	return copy, nil
+}
+
+func cloneFileCopies(source map[int]FileCopy) map[int]FileCopy {
+	result := make(map[int]FileCopy, len(source))
+	for index, file := range source {
+		result[index] = file
+	}
+	return result
+}
+
+func (recipe *Recipe) retainArchiveMapping(original, stateRoot string) error {
+	digest, _, err := FileDigest(original)
+	if err != nil {
+		return fmt.Errorf("retain graph-refresh archive %s: %w", original, err)
+	}
+	target := filepath.Join(stateRoot, "artifacts", strings.TrimPrefix(digest, "sha256:")+".a")
+	copy, err := CopyRegular(original, target)
+	if err != nil {
+		return err
+	}
+	if copy.Digest != digest {
+		return fmt.Errorf("graph-refresh archive identity changed: %s", original)
+	}
+	recipe.ArchiveByOld[original] = target
+	return nil
 }
 
 func samePath(left, right string) bool {
-	canonical := func(path string) string {
-		if evaluated, err := filepath.EvalSymlinks(path); err == nil {
-			path = evaluated
-		}
-		if absolute, err := filepath.Abs(path); err == nil {
-			path = absolute
-		}
-		return filepath.Clean(path)
+	return canonicalRetainedPath(left) == canonicalRetainedPath(right)
+}
+
+func canonicalRetainedPath(path string) string {
+	if absolute, err := filepath.Abs(path); err == nil {
+		path = absolute
 	}
-	return canonical(left) == canonical(right)
+	path = filepath.Clean(path)
+	var suffix []string
+	for {
+		if evaluated, err := filepath.EvalSymlinks(path); err == nil {
+			for index := len(suffix) - 1; index >= 0; index-- {
+				evaluated = filepath.Join(evaluated, suffix[index])
+			}
+			return filepath.Clean(evaluated)
+		}
+		parent := filepath.Dir(path)
+		if parent == path {
+			return path
+		}
+		suffix = append(suffix, filepath.Base(path))
+		path = parent
+	}
 }
 
 // Validate rejects incomplete or internally inconsistent recorded recipes
@@ -190,10 +404,14 @@ func (recipe *Recipe) Validate() error {
 	if recipe.Bootstrap.Protocol != ProtocolVersion || recipe.Bootstrap.Digest == "" || len(recipe.Bootstrap.Packages) == 0 {
 		return fmt.Errorf("bootstrap capture is incomplete")
 	}
+	current := recipe.currentCapture()
+	if current.Protocol != ProtocolVersion || current.Digest == "" || len(current.Packages) == 0 {
+		return fmt.Errorf("current capture is incomplete")
+	}
 	if recipe.Link == nil || recipe.Link.MainAt < 0 || recipe.Link.OutputAt < 0 || recipe.Link.ImportCfgAt < 0 || recipe.Link.OutputAt+1 >= len(recipe.Link.Argv) {
 		return fmt.Errorf("link recipe is incomplete")
 	}
-	for importPath := range recipe.Bootstrap.Packages {
+	for importPath := range current.Packages {
 		if importPath != "unsafe" && recipe.Compiles[importPath] == nil {
 			return fmt.Errorf("compile recipe is absent for %s", importPath)
 		}
@@ -216,12 +434,16 @@ func (recipe *Recipe) Validate() error {
 		return fmt.Errorf("linker support identity is absent")
 	}
 	var retainedBytes int64
+	counted := map[string]bool{}
 	for old, path := range recipe.ArchiveByOld {
 		artifact, ok := recipe.Retained[path]
 		if old == "" || path == "" || !ok || artifact.Digest == "" || artifact.Bytes <= 0 {
 			return fmt.Errorf("retained archive identity is incomplete for %s", old)
 		}
-		retainedBytes += artifact.Bytes
+		if !counted[path] {
+			retainedBytes += artifact.Bytes
+			counted[path] = true
+		}
 	}
 	if retainedBytes != recipe.RetainedBytes || recipe.RetentionLimit < recipe.RetainedBytes {
 		return fmt.Errorf("retained archive accounting is inconsistent")
@@ -240,6 +462,23 @@ func (recipe *Recipe) validateRetainedArtifacts() error {
 
 func (recipe *Recipe) validateSupportArtifacts() error {
 	return validateRetainedFiles(recipe.Support)
+}
+
+// ValidateRetainedState reports the live archive and support validation costs
+// for benchmark controls that keep stock cmd/go as the executor.
+func (recipe *Recipe) ValidateRetainedState() (archiveMS, supportMS float64, err error) {
+	if err := recipe.Validate(); err != nil {
+		return 0, 0, err
+	}
+	started := time.Now()
+	if err := recipe.validateRetainedArtifacts(); err != nil {
+		return elapsedMS(started), 0, err
+	}
+	archiveMS = elapsedMS(started)
+	started = time.Now()
+	err = recipe.validateSupportArtifacts()
+	supportMS = elapsedMS(started)
+	return archiveMS, supportMS, err
 }
 
 func validateRetainedFiles(files map[string]RetainedFile) error {
@@ -268,15 +507,42 @@ func validateRetainedFile(path string, expected RetainedFile) error {
 }
 
 func retainSupportFile(recipe *Recipe, file FileCopy) error {
-	info, err := os.Lstat(file.Copy)
+	return retainSupportPath(recipe, file.Copy, file.Digest)
+}
+
+func retainSupportPath(recipe *Recipe, path, expectedDigest string) error {
+	info, err := os.Lstat(path)
 	if err != nil {
 		return err
 	}
-	recipe.Support[file.Copy] = RetainedFile{Digest: file.Digest, Bytes: file.Bytes, Stamp: fileStamp(info)}
+	digest, size, err := FileDigest(path)
+	if err != nil {
+		return err
+	}
+	if expectedDigest != "" && digest != expectedDigest {
+		return fmt.Errorf("retained support digest differs: %s", path)
+	}
+	recipe.Support[path] = RetainedFile{Digest: digest, Bytes: size, Stamp: fileStamp(info)}
+	return nil
+}
+
+func retainActionSupport(recipe *Recipe, files map[int]FileCopy, sourceFiles map[string]string) error {
+	for _, file := range files {
+		if _, source := sourceFiles[file.Original]; source {
+			continue
+		}
+		if err := retainSupportFile(recipe, file); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
 func retainToolDigest(recipe *Recipe, tool string) error {
+	return retainToolDigestWith(recipe, tool, FileDigest)
+}
+
+func retainToolDigestWith(recipe *Recipe, tool string, digestFile func(string) (string, int64, error)) error {
 	path := tool
 	if !filepath.IsAbs(path) {
 		var err error
@@ -285,7 +551,10 @@ func retainToolDigest(recipe *Recipe, tool string) error {
 			return err
 		}
 	}
-	digest, _, err := FileDigest(path)
+	if recipe.ToolDigests[path] != "" {
+		return nil
+	}
+	digest, _, err := digestFile(path)
 	if err != nil {
 		return err
 	}
@@ -322,166 +591,15 @@ func actionImportCfg(record ToolRecord) (map[string]string, int, error) {
 	return result, index + 1, scanner.Err()
 }
 
-type BuildRequest struct {
-	Workspace, Output, GenerationRoot string
-	BuildArgv                         []string
-	Environment                       []string
-	BuildFlags                        []string
-	CaptureMode                       string
-}
-
-type BuildResult struct {
-	Status          string            `json:"status"`
-	CaptureMS       float64           `json:"capture_ms"`
-	ArchiveMS       float64           `json:"archive_validation_ms,omitempty"`
-	SupportMS       float64           `json:"support_validation_ms,omitempty"`
-	DirectoryMS     float64           `json:"directory_validation_ms,omitempty"`
-	InputHashMS     float64           `json:"input_hash_ms,omitempty"`
-	SnapshotMS      float64           `json:"snapshot_ms,omitempty"`
-	ValidationMS    float64           `json:"validation_ms"`
-	PlanningMS      float64           `json:"planning_ms"`
-	CompileMS       float64           `json:"compile_ms"`
-	LinkMS          float64           `json:"link_ms"`
-	FinalizationMS  float64           `json:"finalization_ms"`
-	ArtifactBuildMS float64           `json:"artifact_build_ms"`
-	CaptureDigest   string            `json:"capture_digest"`
-	ArtifactDigest  string            `json:"artifact_digest"`
-	ExecutableBytes int64             `json:"executable_bytes"`
-	ChangedPackages []string          `json:"changed_packages"`
-	RebuiltPackages []string          `json:"rebuilt_packages"`
-	ToolInvocations int               `json:"tool_invocations"`
-	ActionArtifacts map[string]string `json:"action_artifacts"`
-	Reason          string            `json:"reason,omitempty"`
-	ExpectedConfig  *BuildConfig      `json:"expected_config,omitempty"`
-	ObservedConfig  *BuildConfig      `json:"observed_config,omitempty"`
-}
-
-type BuildConfig struct {
-	GoVersion    string            `json:"go_version"`
-	GoToolDigest string            `json:"go_tool_digest"`
-	BuildFlags   []string          `json:"build_flags"`
-	Environment  map[string]string `json:"environment"`
-}
-
-func (recipe *Recipe) Build(ctx context.Context, request BuildRequest) (BuildResult, error) {
-	var result BuildResult
-	result.Status = "needs_rebootstrap"
-	if err := recipe.Validate(); err != nil {
-		result.Reason = "retained_recipe_invalid"
-		return result, nil
-	}
-	archiveAt := time.Now()
-	if err := recipe.validateRetainedArtifacts(); err != nil {
-		result.ArchiveMS = float64(time.Since(archiveAt).Nanoseconds()) / 1e6
-		result.Reason = "retained_archive_invalid"
-		return result, nil
-	}
-	result.ArchiveMS = float64(time.Since(archiveAt).Nanoseconds()) / 1e6
-	supportAt := time.Now()
-	if err := recipe.validateSupportArtifacts(); err != nil {
-		result.SupportMS = float64(time.Since(supportAt).Nanoseconds()) / 1e6
-		result.Reason = "retained_support_invalid"
-		return result, nil
-	}
-	result.SupportMS = float64(time.Since(supportAt).Nanoseconds()) / 1e6
-	var capture Capture
-	var err error
-	if request.CaptureMode == "retained" {
-		capture, err = recipe.RetainedCapture(ctx, request.BuildArgv[0], filepath.Join(request.GenerationRoot, "snapshot"), request.Environment, request.BuildFlags)
-	} else {
-		capture, err = FullCapture(ctx, request.BuildArgv[0], request.Workspace, filepath.Join(request.GenerationRoot, "snapshot"), request.Environment, request.BuildFlags)
-	}
-	result.CaptureMS, result.CaptureDigest = capture.DurationMS, capture.Digest
-	result.DirectoryMS, result.InputHashMS, result.SnapshotMS = capture.DirectoryValidationMS, capture.InputHashMS, capture.SnapshotMS
-	if err != nil {
-		return result, err
-	}
-	validatedAt := time.Now()
-	changed, reason := recipe.eligible(capture)
-	result.ValidationMS = float64(time.Since(validatedAt).Nanoseconds()) / 1e6
-	if reason != "" {
-		result.Reason = reason
-		result.ExpectedConfig = captureConfig(recipe.Bootstrap)
-		result.ObservedConfig = captureConfig(capture)
-		return result, nil
-	}
-	result.ChangedPackages = changed
-	planningAt := time.Now()
-	rebuilt, err := recipe.rebuildOrder(changed)
-	if err != nil {
-		return result, err
-	}
-	result.RebuiltPackages = rebuilt
-	result.PlanningMS = float64(time.Since(planningAt).Nanoseconds()) / 1e6
-	buildAt := time.Now()
-	archives := make(map[string]string, len(recipe.ArchiveByOld))
-	for old, retained := range recipe.ArchiveByOld {
-		archives[old] = retained
-	}
-	result.ActionArtifacts = map[string]string{}
-	compileAt := time.Now()
-	for _, pkg := range rebuilt {
-		action := recipe.Compiles[pkg]
-		output := filepath.Join(request.GenerationRoot, "archives", digestName(pkg)+".a")
-		if err := os.MkdirAll(filepath.Dir(output), 0o700); err != nil {
-			return result, err
-		}
-		args, err := recipe.compileArgs(action, capture, archives, output, request.GenerationRoot)
-		if err != nil {
-			return result, err
-		}
-		if err := runTool(ctx, action.Tool, request.Workspace, request.Environment, args); err != nil {
-			return result, err
-		}
-		digest, _, err := FileDigest(output)
-		if err != nil {
-			return result, err
-		}
-		result.ActionArtifacts[pkg] = digest
-		archives[action.Output.Original] = output
-		result.ToolInvocations++
-	}
-	result.CompileMS = float64(time.Since(compileAt).Nanoseconds()) / 1e6
-	linkAt := time.Now()
-	args, err := recipe.linkArgs(request, archives)
-	if err != nil {
-		return result, err
-	}
-	if err := os.MkdirAll(filepath.Dir(request.Output), 0o700); err != nil {
-		return result, err
-	}
-	if err := runTool(ctx, recipe.Link.Tool, request.Workspace, request.Environment, args); err != nil {
-		return result, err
-	}
-	result.LinkMS = float64(time.Since(linkAt).Nanoseconds()) / 1e6
-	finalAt := time.Now()
-	digest, size, err := FileDigest(request.Output)
-	if err != nil {
-		return result, err
-	}
-	if err := os.Chmod(request.Output, 0o755); err != nil {
-		return result, err
-	}
-	result.ArtifactDigest, result.ExecutableBytes = digest, size
-	result.FinalizationMS = float64(time.Since(finalAt).Nanoseconds()) / 1e6
-	result.ArtifactBuildMS = float64(time.Since(buildAt).Nanoseconds()) / 1e6
-	result.ToolInvocations++
-	result.Status = "supported_and_rebuilt"
-	return result, nil
-}
-
-func captureConfig(value Capture) *BuildConfig {
-	return &BuildConfig{GoVersion: value.GoVersion, GoToolDigest: value.GoToolDigest, BuildFlags: value.BuildFlags, Environment: value.Environment}
-}
-
 func (recipe *Recipe) eligible(current Capture) ([]string, string) {
+	baseline := recipe.currentCapture()
 	if current.Reason != "" {
 		return nil, current.Reason
 	}
-	if current.GoVersion != recipe.Bootstrap.GoVersion || current.GoToolDigest != recipe.Bootstrap.GoToolDigest {
+	if current.GoVersion != baseline.GoVersion || current.GoToolDigest != baseline.GoToolDigest {
 		return nil, "toolchain_changed"
 	}
-	if !equalStrings(current.BuildFlags, recipe.Bootstrap.BuildFlags) || !equalStringMaps(current.Environment, recipe.Bootstrap.Environment) || !equalStringMaps(current.RequestEnv, recipe.Bootstrap.RequestEnv) {
+	if !equalStrings(current.BuildFlags, baseline.BuildFlags) || !equalStringMaps(current.Environment, baseline.Environment) || !equalStringMaps(current.RequestEnv, baseline.RequestEnv) {
 		return nil, "build_configuration_changed"
 	}
 	for tool, expected := range recipe.ToolDigests {
@@ -490,25 +608,25 @@ func (recipe *Recipe) eligible(current Capture) ([]string, string) {
 			return nil, "tool_identity_changed"
 		}
 	}
-	if len(current.Packages) != len(recipe.Bootstrap.Packages) {
+	if len(current.Packages) != len(baseline.Packages) {
 		return nil, "package_membership_changed"
 	}
 	changedSet := map[string]bool{}
-	for name, baseline := range recipe.Bootstrap.Packages {
+	for name, baselinePackage := range baseline.Packages {
 		actual, ok := current.Packages[name]
-		if !ok || !samePackageSelection(baseline, actual) {
+		if !ok || !samePackageSelection(baselinePackage, actual) {
 			return nil, "package_selection_changed"
 		}
 	}
-	for path, baseline := range recipe.Bootstrap.Files {
+	for path, baselineDigest := range baseline.Files {
 		actual, ok := current.Files[path]
 		if !ok {
 			return nil, "input_missing"
 		}
-		if actual == baseline {
+		if actual == baselineDigest {
 			continue
 		}
-		if !strings.HasSuffix(path, ".go") || current.Syntax[path] != recipe.Bootstrap.Syntax[path] {
+		if !strings.HasSuffix(path, ".go") || current.Syntax[path] != baseline.Syntax[path] {
 			return nil, "unsupported_input_changed"
 		}
 		if !withinWorkspace(recipe.Workspace, path) {
@@ -521,11 +639,11 @@ func (recipe *Recipe) eligible(current Capture) ([]string, string) {
 		changedSet[owner] = true
 	}
 	for path := range current.Files {
-		if _, ok := recipe.Bootstrap.Files[path]; !ok {
+		if _, ok := baseline.Files[path]; !ok {
 			return nil, "input_added"
 		}
 	}
-	if !equalStringMaps(current.Directories, recipe.Bootstrap.Directories) {
+	if !equalStringMaps(current.Directories, baseline.Directories) {
 		return nil, "package_selection_changed"
 	}
 	changed := make([]string, 0, len(changedSet))
@@ -593,6 +711,7 @@ func packageForFile(packages map[string]Package, path string) string {
 }
 
 func (recipe *Recipe) rebuildOrder(changed []string) ([]string, error) {
+	packages := recipe.currentCapture().Packages
 	affected := map[string]bool{}
 	queue := append([]string(nil), changed...)
 	for len(queue) > 0 {
@@ -602,7 +721,7 @@ func (recipe *Recipe) rebuildOrder(changed []string) ([]string, error) {
 			continue
 		}
 		affected[pkg] = true
-		for consumer, value := range recipe.Bootstrap.Packages {
+		for consumer, value := range packages {
 			if contains(value.Imports, pkg) {
 				queue = append(queue, consumer)
 			}
@@ -619,7 +738,7 @@ func (recipe *Recipe) rebuildOrder(changed []string) ([]string, error) {
 			return fmt.Errorf("package cycle at %s", pkg)
 		}
 		visiting[pkg] = true
-		for _, dependency := range recipe.Bootstrap.Packages[pkg].Imports {
+		for _, dependency := range packages[pkg].Imports {
 			if err := visit(dependency); err != nil {
 				return err
 			}
@@ -637,6 +756,27 @@ func (recipe *Recipe) rebuildOrder(changed []string) ([]string, error) {
 	return order, nil
 }
 
+func (recipe *Recipe) unsupportedFrontier(packages []string) string {
+	for _, importPath := range packages {
+		action := recipe.Compiles[importPath]
+		if action == nil {
+			return "compile_recipe_missing"
+		}
+		pkg := recipe.currentCapture().Packages[importPath]
+		if len(pkg.CgoFiles)+len(pkg.CFiles)+len(pkg.CXXFiles)+len(pkg.MFiles)+len(pkg.HFiles)+len(pkg.FFiles)+len(pkg.SFiles)+len(pkg.SwigFiles)+len(pkg.SwigCXXFiles)+len(pkg.SysoFiles) != 0 {
+			return "unsupported_native_action_frontier"
+		}
+	}
+	return ""
+}
+
+func (recipe *Recipe) currentCapture() Capture {
+	if recipe.Current.Protocol == ProtocolVersion && recipe.Current.Digest != "" {
+		return recipe.Current
+	}
+	return recipe.Bootstrap
+}
+
 func (recipe *Recipe) compileArgs(action *CompileAction, capture Capture, archives map[string]string, output, generationRoot string) ([]string, error) {
 	args := append([]string(nil), action.Argv...)
 	args[action.OutputAt+1] = output
@@ -647,16 +787,24 @@ func (recipe *Recipe) compileArgs(action *CompileAction, capture Capture, archiv
 	}
 	args[action.ImportCfgAt] = cfg
 	for index, file := range action.Files {
-		if current := capture.SnapshotFiles[file.Original]; current != "" && strings.HasSuffix(file.Original, ".go") {
+		if current := capture.SnapshotFiles[file.Original]; current != "" {
 			args[index] = current
+		} else if _, source := capture.Files[file.Original]; source {
+			args[index] = file.Original
+		} else {
+			args[index] = file.Copy
 		}
 	}
+	args[action.ImportCfgAt] = cfg
 	args = replaceFlagValue(args, "-trimpath", filepath.Join(generationRoot, "snapshot", "workspace")+"=>"+recipe.Workspace)
 	return args, nil
 }
 
 func (recipe *Recipe) linkArgs(request BuildRequest, archives map[string]string) ([]string, error) {
 	args := append([]string(nil), recipe.Link.Argv...)
+	for index, file := range recipe.Link.Files {
+		args[index] = file.Copy
+	}
 	args[recipe.Link.OutputAt+1] = request.Output
 	cfg := filepath.Join(request.GenerationRoot, "configs", "link.importcfg")
 	if err := rewriteImportCfg(recipe.Link.Files[recipe.Link.ImportCfgAt].Copy, cfg, archives); err != nil {

@@ -21,7 +21,7 @@ remain current data contracts, not an executable product subcommand.
 
 ```text
 scenery harness [--app-root <path>] [-o json] [--write]
-go run ./scripts/verify [--repo-root <path>] [--summary] [-o human|json] [--write] [--quick|--race|--release|--probe <id>...|--benchmark edit-latency|--benchmark worktree-cost|--benchmark native-build-compiler --workload-root <path>|--benchmark native-build-driver --workload-root <path>|--benchmark native-reload --workload-root <path>|--benchmark native-reload-plugin --workload-root <path>|--benchmark native-reload-attribution --workload-root <path>] [--fresh-tests]
+go run ./scripts/verify [--repo-root <path>] [--summary] [-o human|json] [--write] [--quick|--race|--release|--probe <id>...|--benchmark edit-latency|--benchmark worktree-cost|--benchmark native-build-compiler --workload-root <path> [--benchmark-short]|--benchmark native-build-driver --workload-root <path> [--benchmark-short]|--benchmark native-reload --workload-root <path>|--benchmark native-reload-plugin --workload-root <path>|--benchmark native-reload-attribution --workload-root <path>] [--fresh-tests]
 scenery harness ui [--app-root <path>] [--dashboard-url <url>] [--headed] [-o json] [--write]
 scenery inspect harness [artifact <name>|diagnostics --severity error|warning|timing --top <n>] -o json [--app-root <path>] [--repo-root <path>]
 ```
@@ -170,18 +170,22 @@ invokes the pinned compiler and linker directly. It uses two independent roots,
 two warmups per lane, two 30-pair cohorts with backend/root assignment swapped,
 and a separate 50-edit churn check. Unsupported inputs fail closed and the lane
 never changes or silently falls back to a production backend. Evidence is under
-`.scenery/harness/native-build-driver/<run-id>/` with `--write`.
+`.scenery/harness/native-build-driver/<run-id>/` with `--write`. Optional
+`--benchmark-short` uses the same observational one-cohort, one-warmup,
+three-round boundary as the compiler benchmark and cannot make its full
+decision.
 
-`--benchmark native-build-compiler --workload-root <path>` runs the Plan 0194
-full-ONLV retained-domain experiment. The stock lane repeats complete Go package
-discovery and input capture before stock `go build`. The compiler lane hashes
-the complete bootstrap input domain and package-directory membership without
-repeating `go list`, then invokes the same captured stock compiler and linker
-actions. Graph, module, native, embed, tool, flag, or environment changes return
-`needs_rebootstrap`; there is no fallback. It uses the same two independent
-roots, two warmups, two 30-pair cohorts with backend/root assignment swapped,
-authenticated product response proof, and 50-edit churn as Plan 0193. Evidence
-is under `.scenery/harness/native-build-compiler/<run-id>/` with `--write`.
+`--benchmark native-build-compiler --workload-root <path>` runs the full-ONLV
+retained-domain experiment. It measures three explicit lanes: complete capture
+plus stock `go build`, retained validation plus stock `go build`, and retained
+validation plus captured stock compiler/linker execution. Every result is bound
+to the requested backend, owner session, generation and edited runtime identity;
+accountable build time is the enclosing wrapper transaction. The full decision
+series uses two independent cohorts, two warmups, 30 rounds per cohort and a
+50-edit candidate churn check. `--benchmark-short` is a bounded observation of
+one cohort, one warmup and three rounds; it reports
+`short_observation_only` and cannot make the full GO/NO-GO decision. Evidence is
+under `.scenery/harness/native-build-compiler/<run-id>/` with `--write`.
 
 Keep the release guard strict, but make the strictness land on Scenery-owned
 release safety: contracts, schemas, release artifacts, fixture runtimes, route
@@ -375,8 +379,8 @@ contract drift, and schema conformance. The additional work depends on mode:
 | `--benchmark native-reload --workload-root <path>` | Only the pinned ONLV implementation-island experiment after common checks; exact experimental identity, activation and negative cases, with an explicit GO/NO-GO result. |
 | `--benchmark native-reload-plugin --workload-root <path>` | Only the pinned ONLV stable-host/Go-plugin experiment after common checks; unique artifacts, exact experimental identity, typed behavior, incompatibility and retention evidence, with an explicit GO/NO-GO result. |
 | `--benchmark native-reload-attribution --workload-root <path>` | Only the macOS first/repeated-artifact attribution experiment after common checks; 30 primary pairs and five separate diagnostic pairs, identity checks, phase accounting and explicit unknowns. |
-| `--benchmark native-build-compiler --workload-root <path>` | Only the full-ONLV retained-domain compiler experiment after common checks; stock discovery/build versus complete retained validation plus captured stock compile/link, two paired cohorts, product response identity, fail-closed correctness and bounded churn, with an explicit GO/NO-GO result. |
-| `--benchmark native-build-driver --workload-root <path>` | Only the full-ONLV retained standard compiler/linker experiment after common checks; identical capture, two paired cohorts, product response identity, fail-closed correctness and bounded churn, with an explicit GO/NO-GO result. |
+| `--benchmark native-build-compiler --workload-root <path> [--benchmark-short]` | Only the full-ONLV retained-domain compiler experiment after common checks; complete-capture stock, retained-capture stock, and retained direct compiler/linker lanes with product response identity. The full series makes the GO/NO-GO decision; short mode runs one warmup plus three rounds and is observational only. |
+| `--benchmark native-build-driver --workload-root <path> [--benchmark-short]` | Only the full-ONLV retained standard compiler/linker experiment after common checks; identical capture, product response identity and fail-closed correctness. Full mode adds two paired cohorts and bounded churn; short mode is observational only. |
 
 The release edge-process step runs the published static frontend journey
 against managed Caddy on disposable loopback ports, with local TLS issuance

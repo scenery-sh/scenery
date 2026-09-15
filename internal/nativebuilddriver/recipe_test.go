@@ -3,6 +3,8 @@ package nativebuilddriver
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -25,6 +27,9 @@ func TestEligibilitySupportsOnlyFrozenGraphBodyEdits(t *testing.T) {
 		Files: map[string]string{goFile: "sha256:a", modFile: "sha256:m"}, Syntax: map[string]string{goFile: "sha256:syntax"},
 	}
 	recipe := &Recipe{Workspace: root, Bootstrap: base, ToolDigests: map[string]string{}}
+	if relative, ok := workspaceRelative(root, goFile); !ok {
+		t.Fatalf("fixture file is not within workspace: relative=%q root=%q file=%q", relative, root, goFile)
+	}
 	body := cloneCapture(base)
 	body.Files[goFile] = "sha256:b"
 	changed, reason := recipe.eligible(body)
@@ -57,6 +62,214 @@ func TestEligibilitySupportsOnlyFrozenGraphBodyEdits(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAdvanceMovesTheBaselineAndReusesEarlierPackageResults(t *testing.T) {
+	recipe, files := newRetainedRecipeFixture(t)
+	linkAlias := filepath.Join(recipe.Root, "go-cache", "a.a")
+	recipe.Link.Imports[linkAlias] = "example/a"
+	recipe.ArchiveByOld[linkAlias] = recipe.ArchiveByOld[recipe.Compiles["example/a"].Output.Original]
+	buildA := retainedFixtureBuild(t, recipe, files, "a")
+	next, err := recipe.Advance(buildA, filepath.Join(t.TempDir(), "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next.Current.Files[files["a"]] == recipe.Current.Files[files["a"]] {
+		t.Fatal("successful A source identity was not committed")
+	}
+	aArchive := next.ArchiveByOld[next.Compiles["example/a"].Output.Original]
+	if aArchive == recipe.ArchiveByOld[recipe.Compiles["example/a"].Output.Original] {
+		t.Fatal("successful A archive was not committed")
+	}
+	if next.ArchiveByOld[linkAlias] != aArchive {
+		t.Fatalf("linker alias retained stale A archive: %q != %q", next.ArchiveByOld[linkAlias], aArchive)
+	}
+
+	currentB := cloneCapture(next.Current)
+	currentB.Files[files["b"]] = "sha256:" + fmt.Sprintf("%064x", 0xb)
+	changed, reason := next.eligible(currentB)
+	if reason != "" || !reflect.DeepEqual(changed, []string{"example/b"}) {
+		t.Fatalf("B after committed A: changed=%v reason=%q", changed, reason)
+	}
+	rebuilt, err := next.rebuildOrder(changed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(rebuilt, []string{"example/b", "example/main"}) {
+		t.Fatalf("B build accumulated A: %v", rebuilt)
+	}
+	if next.ArchiveByOld[next.Compiles["example/a"].Output.Original] != aArchive {
+		t.Fatal("committed A archive changed while planning B")
+	}
+
+	failed := retainedFixtureBuild(t, next, files, "c")
+	failed.archiveOutputs["example/c"] = filepath.Join(t.TempDir(), "missing")
+	if _, err := next.Advance(failed, filepath.Join(t.TempDir(), "failed-state")); err == nil {
+		t.Fatal("missing candidate archive was committed")
+	}
+	if next.Current.Files[files["c"]] != recipe.Current.Files[files["c"]] {
+		t.Fatal("failed advance mutated the receiver")
+	}
+}
+
+func TestCompileArgsRebindsRetainedEmbedConfiguration(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "workspace")
+	if err := os.Mkdir(workspace, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	source := filepath.Join(workspace, "embed.go")
+	snapshot := filepath.Join(root, "snapshot.go")
+	embedOriginal := filepath.Join(root, "deleted-bootstrap", "embedcfg")
+	embedCopy := filepath.Join(root, "retained", "embedcfg")
+	importCfg := filepath.Join(root, "retained", "importcfg")
+	for path, data := range map[string]string{source: "package embed\n", snapshot: "package embed\n", embedCopy: `{\"Patterns\":{},\"Files\":{}}`, importCfg: ""} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	action := &CompileAction{Package: "example/embed", Argv: []string{"-o", "old", "-p", "example/embed", "-importcfg", "old-importcfg", "-embedcfg", embedOriginal, source}, OutputAt: 0, ImportCfgAt: 5,
+		Files: map[int]FileCopy{5: {Original: importCfg, Copy: importCfg}, 7: {Original: embedOriginal, Copy: embedCopy}, 8: {Original: source, Copy: snapshot}}}
+	recipe := &Recipe{Workspace: workspace}
+	capture := Capture{Digest: "sha256:current", Files: map[string]string{source: "sha256:source"}, SnapshotFiles: map[string]string{source: snapshot}}
+	args, err := recipe.compileArgs(action, capture, nil, filepath.Join(root, "out.a"), filepath.Join(root, "generation"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if args[7] != embedCopy || args[7] == embedOriginal {
+		t.Fatalf("embedcfg was not rebound: %q", args[7])
+	}
+	if _, err := os.Stat(args[7]); err != nil {
+		t.Fatalf("rebound embedcfg is unavailable: %v", err)
+	}
+}
+
+func TestUnsupportedNativeFrontierIsRejectedBeforeExecution(t *testing.T) {
+	recipe := &Recipe{Current: Capture{Protocol: ProtocolVersion, Digest: "sha256:current", Packages: map[string]Package{
+		"example/leaf": {ImportPath: "example/leaf", SFiles: []string{"leaf.s"}},
+		"example/main": {ImportPath: "example/main", Imports: []string{"example/leaf"}},
+	}}, Compiles: map[string]*CompileAction{"example/leaf": {}, "example/main": {}}}
+	rebuilt, err := recipe.rebuildOrder([]string{"example/leaf"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reason := recipe.unsupportedFrontier(rebuilt); reason != "unsupported_native_action_frontier" {
+		t.Fatalf("reason=%q rebuilt=%v", reason, rebuilt)
+	}
+}
+
+func TestRetainToolDigestHashesEachDistinctToolOnce(t *testing.T) {
+	tool := filepath.Join(t.TempDir(), "compile")
+	if err := os.WriteFile(tool, []byte("tool"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	recipe := &Recipe{ToolDigests: map[string]string{}}
+	calls := 0
+	digest := func(path string) (string, int64, error) {
+		calls++
+		return FileDigest(path)
+	}
+	for range 200 {
+		if err := retainToolDigestWith(recipe, tool, digest); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if calls != 1 {
+		t.Fatalf("tool was fully hashed %d times", calls)
+	}
+}
+
+func newRetainedRecipeFixture(t *testing.T) (*Recipe, map[string]string) {
+	t.Helper()
+	root := t.TempDir()
+	workspace := filepath.Join(root, "workspace")
+	if err := os.Mkdir(workspace, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]string{}
+	capture := Capture{Protocol: ProtocolVersion, Workspace: workspace, Digest: "sha256:bootstrap", GoVersion: "go fixture", GoToolDigest: "sha256:go", Packages: map[string]Package{}, Files: map[string]string{}, FileStamps: map[string]FileStamp{}, Syntax: map[string]string{}, Directories: map[string]string{}, SnapshotFiles: map[string]string{}, Environment: map[string]string{}, RequestEnv: map[string]string{}}
+	for _, name := range []string{"a", "b", "c", "main"} {
+		path := filepath.Join(workspace, name+".go")
+		data := []byte("package " + name + "\n")
+		if err := os.WriteFile(path, data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		digest, _, _ := FileDigest(path)
+		files[name] = path
+		capture.Files[path], capture.Syntax[path], capture.SnapshotFiles[path] = digest, "sha256:syntax", path
+		imports := []string(nil)
+		if name == "main" {
+			imports = []string{"example/a", "example/b", "example/c"}
+		}
+		capture.Packages["example/"+name] = Package{ImportPath: "example/" + name, Name: name, Dir: workspace, Imports: imports, GoFiles: []string{name + ".go"}}
+	}
+	tool := filepath.Join(root, "compile")
+	if err := os.WriteFile(tool, []byte("tool"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	toolDigest, _, _ := FileDigest(tool)
+	recipe := &Recipe{Protocol: ProtocolVersion, Root: root, Workspace: workspace, Bootstrap: cloneCaptureValue(capture), Current: cloneCaptureValue(capture), ToolDigests: map[string]string{tool: toolDigest}, Retained: map[string]RetainedFile{}, Support: map[string]RetainedFile{}, Compiles: map[string]*CompileAction{}, ArchiveByOld: map[string]string{}}
+	for _, name := range []string{"a", "b", "c", "main"} {
+		cfg := filepath.Join(root, name+".importcfg")
+		if err := os.WriteFile(cfg, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		cfgDigest, cfgBytes, _ := FileDigest(cfg)
+		cfgInfo, _ := os.Lstat(cfg)
+		recipe.Support[cfg] = RetainedFile{Digest: cfgDigest, Bytes: cfgBytes, Stamp: fileStamp(cfgInfo)}
+		archive := filepath.Join(root, name+".a")
+		if err := os.WriteFile(archive, []byte("archive-"+name), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		archiveDigest, archiveBytes, _ := FileDigest(archive)
+		archiveInfo, _ := os.Lstat(archive)
+		recipe.Retained[archive] = RetainedFile{Digest: archiveDigest, Bytes: archiveBytes, Stamp: fileStamp(archiveInfo)}
+		recipe.RetainedBytes += archiveBytes
+		recipe.ArchiveByOld[archive] = archive
+		recipe.Compiles["example/"+name] = &CompileAction{Package: "example/" + name, Tool: tool, Argv: []string{"-o", archive, "-p", "example/" + name, "-importcfg", cfg, files[name]}, Files: map[int]FileCopy{5: {Original: cfg, Copy: cfg, Digest: cfgDigest, Bytes: cfgBytes}, 6: {Original: files[name], Copy: files[name]}}, Output: FileCopy{Original: archive, Copy: archive, Digest: archiveDigest, Bytes: archiveBytes}, ImportCfgAt: 5, OutputAt: 0}
+	}
+	linkCfg := filepath.Join(root, "link.importcfg")
+	if err := os.WriteFile(linkCfg, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	linkCfgDigest, linkCfgBytes, _ := FileDigest(linkCfg)
+	linkCfgInfo, _ := os.Lstat(linkCfg)
+	recipe.Support[linkCfg] = RetainedFile{Digest: linkCfgDigest, Bytes: linkCfgBytes, Stamp: fileStamp(linkCfgInfo)}
+	mainArchive := recipe.Compiles["example/main"].Output
+	recipe.Link = &LinkAction{Tool: tool, Argv: []string{"-o", filepath.Join(root, "binary"), "-importcfg", linkCfg, mainArchive.Original}, Files: map[int]FileCopy{3: {Original: linkCfg, Copy: linkCfg, Digest: linkCfgDigest, Bytes: linkCfgBytes}, 4: mainArchive}, OutputAt: 0, ImportCfgAt: 3, MainAt: 4, Imports: map[string]string{}}
+	recipe.RetentionLimit = recipe.RetainedBytes*2 + 512<<20
+	if err := recipe.rebuildSupportAccounting(); err != nil {
+		t.Fatal(err)
+	}
+	if err := recipe.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	return recipe, files
+}
+
+func retainedFixtureBuild(t *testing.T, recipe *Recipe, files map[string]string, name string) BuildResult {
+	t.Helper()
+	capture := cloneCaptureValue(recipe.Current)
+	data := []byte("package " + name + "\n// changed\n")
+	snapshot := filepath.Join(t.TempDir(), name+".go")
+	if err := os.WriteFile(snapshot, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	digest, _, _ := FileDigest(snapshot)
+	capture.Files[files[name]], capture.SnapshotFiles[files[name]], capture.Digest = digest, snapshot, "sha256:"+name
+	outputs, artifacts := map[string]string{}, map[string]string{}
+	for _, pkg := range []string{"example/" + name, "example/main"} {
+		output := filepath.Join(t.TempDir(), filepath.Base(pkg)+".a")
+		if err := os.WriteFile(output, []byte("new-"+pkg+"-"+name), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		archiveDigest, _, _ := FileDigest(output)
+		outputs[pkg], artifacts[pkg] = output, archiveDigest
+	}
+	return BuildResult{Status: "supported_and_rebuilt", capture: capture, archiveOutputs: outputs, ActionArtifacts: artifacts}
 }
 
 func TestSourceSelectionIdentityIncludesFunctionDirectives(t *testing.T) {
@@ -425,6 +638,36 @@ func TestCopyRegularRejectsSymlink(t *testing.T) {
 	}
 	if _, err := CopyRegular(link, filepath.Join(root, "copy")); err == nil {
 		t.Fatal("symlink capture unexpectedly succeeded")
+	}
+}
+
+func TestPruneUnreferencedKeepsOnlyPublishedRecipeState(t *testing.T) {
+	root := t.TempDir()
+	kept := filepath.Join(root, "artifacts", "kept.a")
+	stale := filepath.Join(root, "artifacts", "stale.a")
+	keptSupport := filepath.Join(root, "support", "kept.cfg")
+	staleSnapshot := filepath.Join(root, "snapshots", "stale.go")
+	for path, data := range map[string]string{kept: "kept", stale: "stale", keptSupport: "support", staleSnapshot: "snapshot"} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	recipe := &Recipe{Retained: map[string]RetainedFile{kept: {}}, Support: map[string]RetainedFile{keptSupport: {}}}
+	if err := recipe.PruneUnreferenced(root); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{kept, keptSupport} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("published state %s: %v", path, err)
+		}
+	}
+	for _, path := range []string{stale, staleSnapshot} {
+		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("stale state %s still exists: %v", path, err)
+		}
 	}
 }
 

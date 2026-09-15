@@ -30,6 +30,7 @@ const harnessNativeBuildCompilerName = "full ONLV retained Go compiler experimen
 
 type nativeBuildExperimentSpec struct {
 	benchmark, stepName, candidate, candidateMode, stage, orderSeed string
+	control                                                         bool
 }
 
 var nativeBuildDriverSpec = nativeBuildExperimentSpec{
@@ -40,6 +41,7 @@ var nativeBuildDriverSpec = nativeBuildExperimentSpec{
 var nativeBuildCompilerSpec = nativeBuildExperimentSpec{
 	benchmark: "native-build-compiler", stepName: harnessNativeBuildCompilerName, candidate: "compiler", candidateMode: "compiler",
 	stage: "full_capture_stock_vs_retained_manifest_compiler", orderSeed: "0194-v1-balanced",
+	control: true,
 }
 
 type nativeBuildDriverLane struct {
@@ -93,31 +95,36 @@ type nativeBuildDriverSample struct {
 }
 
 type nativeBuildDriverRun struct {
-	ctx, cleanupCtx       context.Context
-	repoRoot, sourceRoot  string
-	root, evidence, runID string
-	baseEnv               []string
-	commands              []nativeReloadCommandRecord
-	worktrees             []string
-	lanes                 []*nativeBuildDriverLane
-	ownerDigest           string
-	summary               map[string]any
-	spec                  nativeBuildExperimentSpec
+	ctx, cleanupCtx                 context.Context
+	repoRoot, sourceRoot            string
+	root, evidence, runID           string
+	baseEnv                         []string
+	commands                        []nativeReloadCommandRecord
+	worktrees                       []string
+	lanes                           []*nativeBuildDriverLane
+	ownerDigest                     string
+	summary                         map[string]any
+	spec                            nativeBuildExperimentSpec
+	cohorts, warmups, rounds, churn int
+	short                           bool
 }
 
-func runHarnessNativeBuildDriverStep(ctx context.Context, repoRoot, workloadRoot string, write bool) harnessStep {
-	return runHarnessNativeBuildExperimentStep(ctx, repoRoot, workloadRoot, write, nativeBuildDriverSpec)
+func runHarnessNativeBuildDriverStep(ctx context.Context, repoRoot, workloadRoot string, write, short bool) harnessStep {
+	return runHarnessNativeBuildExperimentStep(ctx, repoRoot, workloadRoot, write, short, nativeBuildDriverSpec)
 }
 
-func runHarnessNativeBuildCompilerStep(ctx context.Context, repoRoot, workloadRoot string, write bool) harnessStep {
-	return runHarnessNativeBuildExperimentStep(ctx, repoRoot, workloadRoot, write, nativeBuildCompilerSpec)
+func runHarnessNativeBuildCompilerStep(ctx context.Context, repoRoot, workloadRoot string, write, short bool) harnessStep {
+	return runHarnessNativeBuildExperimentStep(ctx, repoRoot, workloadRoot, write, short, nativeBuildCompilerSpec)
 }
 
-func runHarnessNativeBuildExperimentStep(ctx context.Context, repoRoot, workloadRoot string, write bool, spec nativeBuildExperimentSpec) harnessStep {
+func runHarnessNativeBuildExperimentStep(ctx context.Context, repoRoot, workloadRoot string, write, short bool, spec nativeBuildExperimentSpec) harnessStep {
 	started := time.Now()
 	step := harnessStep{Name: spec.stepName, Command: []string{"go", "run", "./scripts/verify", "--benchmark", spec.benchmark, "--workload-root", workloadRoot, "--summary", "--write"}}
+	if short {
+		step.Command = append(step.Command, "--benchmark-short")
+	}
 	var err error
-	step.Summary, err = runNativeBuildExperimentBenchmark(ctx, repoRoot, workloadRoot, write, spec)
+	step.Summary, err = runNativeBuildExperimentBenchmark(ctx, repoRoot, workloadRoot, write, short, spec)
 	step.OK, step.DurationMS = err == nil, time.Since(started).Milliseconds()
 	if err != nil {
 		step.Error = err.Error()
@@ -125,14 +132,18 @@ func runHarnessNativeBuildExperimentStep(ctx context.Context, repoRoot, workload
 	return step
 }
 
-func runNativeBuildExperimentBenchmark(parent context.Context, repoRoot, sourceRoot string, write bool, spec nativeBuildExperimentSpec) (summary map[string]any, resultErr error) {
+func runNativeBuildExperimentBenchmark(parent context.Context, repoRoot, sourceRoot string, write, short bool, spec nativeBuildExperimentSpec) (summary map[string]any, resultErr error) {
 	ctx, cancel := context.WithTimeout(parent, 60*time.Minute)
 	defer cancel()
-	run := &nativeBuildDriverRun{ctx: ctx, repoRoot: repoRoot, spec: spec, summary: map[string]any{
+	cohorts, warmups, rounds, churn := 2, 2, 30, 50
+	if short {
+		cohorts, warmups, rounds, churn = 1, 1, 3, 0
+	}
+	run := &nativeBuildDriverRun{ctx: ctx, repoRoot: repoRoot, spec: spec, short: short, cohorts: cohorts, warmups: warmups, rounds: rounds, churn: churn, summary: map[string]any{
 		"benchmark": spec.benchmark, "protocol": "scenery.native-build-driver", "protocol_version": 1, "decision": "incomplete",
 		"workload_commit": nativeReloadONLVCommit, "comparison": spec.stage, "stage_i": spec.stage, "stage_ii": "conditional",
-		"product_acceptance": "not_measured", "warmups_per_lane": 2, "pairs_per_cohort": 30,
-		"cohort_count": 2, "churn_edits": 50, "order_seed": spec.orderSeed, "quantile_method": "nearest-rank",
+		"product_acceptance": "not_measured", "warmups_per_lane": warmups, "rounds_per_cohort": rounds,
+		"cohort_count": cohorts, "churn_edits": churn, "order_seed": spec.orderSeed, "quantile_method": "nearest-rank", "short_observation": short,
 		"scope":                "complete generated ONLV ./scenery_internal_main; identical logical AHJ handler bytes, production flags, generated contracts, target and runtime protocol",
 		"cache_policy":         "lane-private GOCACHE; candidate bootstrap uses a separate disposable cache; stock and candidate never share changed archives",
 		"payoff_gate":          map[string]any{"median_relative_reduction": 0.25, "median_absolute_reduction_ms": 100, "p95_max_regression": 0.05},
@@ -177,6 +188,9 @@ func runNativeBuildExperimentBenchmark(parent context.Context, repoRoot, sourceR
 	}
 	summary["run_id"], summary["evidence_root"], summary["owned_root"] = run.runID, run.evidence, run.root
 	summary["command"] = []string{"go", "run", "./scripts/verify", "--benchmark", spec.benchmark, "--workload-root", run.sourceRoot, "--summary", "--write"}
+	if short {
+		summary["command"] = append(summary["command"].([]string), "--benchmark-short")
+	}
 	summary["cwd"] = repoRoot
 
 	defer func() {
@@ -217,17 +231,17 @@ func runNativeBuildExperimentBenchmark(parent context.Context, repoRoot, sourceR
 		}
 	}
 	var allSamples []nativeBuildDriverSample
-	for cohort := 1; cohort <= 2; cohort++ {
+	for cohort := 1; cohort <= run.cohorts; cohort++ {
 		cohortSamples, lanes, err := run.runCohort(cohort)
 		allSamples = append(allSamples, cohortSamples...)
 		run.summary[fmt.Sprintf("cohort_%d", cohort)] = nativeBuildCohortSummary(cohortSamples)
 		if err != nil {
 			return summary, err
 		}
-		if cohort == 2 {
+		if cohort == run.cohorts && run.churn > 0 {
 			for _, lane := range lanes {
 				if lane.backend == spec.candidate {
-					churn, churnErr := run.runChurn(lane, 50)
+					churn, churnErr := run.runChurn(lane, run.churn)
 					run.summary["churn"] = churn
 					if churnErr != nil {
 						return summary, churnErr
@@ -248,14 +262,18 @@ func runNativeBuildExperimentBenchmark(parent context.Context, repoRoot, sourceR
 	aggregate := nativeBuildCohortSummary(allSamples)
 	run.summary["aggregate"] = aggregate
 	run.summary["execution_matrix"] = nativeBuildExecutionMatrix(aggregate, spec)
-	run.summary["comparison_deltas"] = map[string]any{
-		"aggregate": nativeBuildComparisonDeltas(aggregate, spec.candidate),
-		"cohort_1":  nativeBuildComparisonDeltas(run.summary["cohort_1"].(map[string]any), spec.candidate),
-		"cohort_2":  nativeBuildComparisonDeltas(run.summary["cohort_2"].(map[string]any), spec.candidate),
+	deltas := map[string]any{"aggregate": nativeBuildComparisonDeltas(aggregate, spec.candidate)}
+	for cohort := 1; cohort <= run.cohorts; cohort++ {
+		key := fmt.Sprintf("cohort_%d", cohort)
+		deltas[key] = nativeBuildComparisonDeltas(run.summary[key].(map[string]any), spec.candidate)
 	}
+	run.summary["comparison_deltas"] = deltas
 	run.summary["native_checkpoint"] = nativeBuildCheckpoint(aggregate, spec.candidate)
 	run.summary["economics"] = nativeBuildEconomics(run.summary, aggregate, spec.candidate)
 	decision := nativeBuildCandidateDecision(run.summary, spec.candidate)
+	if run.short {
+		decision = "short_observation_only"
+	}
 	run.summary["decision"] = decision
 	if decision == "no_go_current_candidate" {
 		run.summary["stage_ii"] = "unperformed_stage_i_payoff_gate_failed"
@@ -373,10 +391,13 @@ func (run *nativeBuildDriverRun) buildTools() error {
 
 func (run *nativeBuildDriverRun) runCohort(cohort int) ([]nativeBuildDriverSample, []*nativeBuildDriverLane, error) {
 	backends := []string{"stock", run.spec.candidate}
-	if cohort == 2 {
-		backends[0], backends[1] = backends[1], backends[0]
+	if run.spec.control {
+		backends = []string{"stock", "retained_stock", run.spec.candidate}
 	}
-	lanes := make([]*nativeBuildDriverLane, 0, 2)
+	if cohort == 2 {
+		backends = append(backends[1:], backends[0])
+	}
+	lanes := make([]*nativeBuildDriverLane, 0, len(backends))
 	for slot, backend := range backends {
 		lane, err := run.prepareLane(cohort, slot, backend)
 		if err != nil {
@@ -386,7 +407,7 @@ func (run *nativeBuildDriverRun) runCohort(cohort int) ([]nativeBuildDriverSampl
 		lanes = append(lanes, lane)
 	}
 	var samples []nativeBuildDriverSample
-	for warmup := 0; warmup < 2; warmup++ {
+	for warmup := 0; warmup < run.warmups; warmup++ {
 		for order, lane := range lanes {
 			row, err := run.measureLane(lane, cohort, -(warmup + 1), order, fmt.Sprintf("c%d-warmup-%02d", cohort, warmup+1))
 			if err != nil {
@@ -395,11 +416,10 @@ func (run *nativeBuildDriverRun) runCohort(cohort int) ([]nativeBuildDriverSampl
 			_ = row
 		}
 	}
-	for pair := 1; pair <= 30; pair++ {
-		order := []*nativeBuildDriverLane{lanes[0], lanes[1]}
-		if pair%2 == 0 {
-			order[0], order[1] = order[1], order[0]
-		}
+	for pair := 1; pair <= run.rounds; pair++ {
+		order := append([]*nativeBuildDriverLane(nil), lanes...)
+		rotation := pair % len(order)
+		order = append(order[rotation:], order[:rotation]...)
 		marker := fmt.Sprintf("c%d-pair-%02d", cohort, pair)
 		for index, lane := range order {
 			row, err := run.measureLane(lane, cohort, pair, index, marker)
@@ -447,7 +467,7 @@ func (run *nativeBuildDriverRun) prepareLane(cohort, slot int, backend string) (
 	}
 	lane := &nativeBuildDriverLane{name: name, backend: backend, appRoot: appRoot, stateRoot: stateRoot, socket: filepath.Join(run.root, fmt.Sprintf("c%d%c.sock", cohort, 'a'+rune(slot))), session: run.runID + "-" + name, scenery: filepath.Join(appRoot, "scripts", "scenery"), source: filepath.Join(appRoot, "solar", "ahjs", "service.go")}
 	run.lanes = append(run.lanes, lane)
-	if err := run.writeLaneConfig(lane, map[bool]string{true: "bootstrap", false: "stock"}[backend == run.spec.candidate]); err != nil {
+	if err := run.writeLaneConfig(lane, map[bool]string{true: "bootstrap", false: "stock"}[backend != "stock"]); err != nil {
 		return nil, err
 	}
 	lane.env = run.laneEnvironment(lane)
@@ -459,14 +479,18 @@ func (run *nativeBuildDriverRun) prepareLane(cohort, slot int, backend string) (
 		return nil, err
 	}
 	lane.bootstrap, lane.buildArgv = bootstrap, buildArgv
-	if backend == run.spec.candidate {
+	if backend != "stock" {
 		if _, err := run.commandEnv(lane.env, appRoot, name+"-down-bootstrap", lane.scenery, "down", "-o", "json"); err != nil {
 			return nil, err
 		}
-		if err := run.startOwner(lane); err != nil {
-			return nil, err
+		mode := "retained-stock"
+		if backend == run.spec.candidate {
+			if err := run.startOwner(lane); err != nil {
+				return nil, err
+			}
+			mode = run.spec.candidateMode
 		}
-		if err := run.writeLaneConfig(lane, run.spec.candidateMode); err != nil {
+		if err := run.writeLaneConfig(lane, mode); err != nil {
 			return nil, err
 		}
 		lane.env = run.laneEnvironment(lane)
@@ -642,14 +666,21 @@ func (run *nativeBuildDriverRun) measureLaneSource(lane *nativeBuildDriverLane, 
 		return row, err
 	}
 	row.CaptureMS, row.ArtifactBuildMS = result.CaptureMS, result.ArtifactBuildMS
-	row.AccountableBuildMS = result.CaptureMS + result.ArtifactBuildMS
+	row.AccountableBuildMS = result.TransactionMS
 	row.ArchiveValidationMS = result.ArchiveValidationMS
 	row.SupportValidationMS = result.SupportValidationMS
 	row.BackendFinalizationMS = result.FinalizationMS
 	row.CompileMS, row.LinkMS, row.ToolInvocations, row.RebuiltPackages = result.CompileMS, result.LinkMS, result.ToolInvocations, result.RebuiltPackages
 	row.ArtifactDigest, row.Generation = result.ArtifactDigest, generation
 	row.ImplementationRevision, row.BuildInputDigest, row.ProcessID = identity.ImplementationRevision, identity.BuildInputDigest, identity.ProcessID
-	if result.Status != map[bool]string{true: "supported_and_rebuilt", false: "stock_go_build"}[lane.backend == run.spec.candidate] || row.ArtifactDigest == "" || identity.ProcessID == lane.lastPID {
+	expectedStatus, expectedBackend := "stock_go_build", "stock"
+	switch lane.backend {
+	case "retained_stock":
+		expectedStatus, expectedBackend = "retained_capture_stock_build", "retained_stock"
+	case run.spec.candidate:
+		expectedStatus, expectedBackend = "supported_and_rebuilt", "retained_compiler"
+	}
+	if result.Status != expectedStatus || result.Backend != expectedBackend || result.Owner != lane.session || result.RequestSequence != uint64(generation) || row.ArtifactDigest == "" || identity.ProcessID == lane.lastPID {
 		return row, fmt.Errorf("invalid backend result status=%s digest=%q pid=%d", result.Status, row.ArtifactDigest, identity.ProcessID)
 	}
 	lane.lastPID = identity.ProcessID
@@ -731,11 +762,12 @@ func (run *nativeBuildDriverRun) inspectCandidate(lane *nativeBuildDriverLane) (
 }
 
 type nativeBuildBackendResult struct {
-	Status, ArtifactDigest                              string
-	CaptureMS, ArchiveValidationMS, SupportValidationMS float64
-	ArtifactBuildMS, CompileMS, LinkMS, FinalizationMS  float64
-	ToolInvocations                                     int
-	RebuiltPackages                                     []string
+	Status, Backend, Owner, ArtifactDigest                            string
+	RequestSequence                                                   uint64
+	CaptureMS, ArchiveValidationMS, SupportValidationMS               float64
+	ArtifactBuildMS, CompileMS, LinkMS, FinalizationMS, TransactionMS float64
+	ToolInvocations                                                   int
+	RebuiltPackages                                                   []string
 }
 
 func nativeBuildReadResult(root string, previous int) (nativeBuildBackendResult, int, error) {
@@ -748,6 +780,9 @@ func nativeBuildReadResult(root string, previous int) (nativeBuildBackendResult,
 			if err == nil {
 				var raw struct {
 					Status          string   `json:"status"`
+					Backend         string   `json:"backend"`
+					Owner           string   `json:"owner"`
+					RequestSequence uint64   `json:"request_sequence"`
 					ArtifactDigest  string   `json:"artifact_digest"`
 					CaptureMS       float64  `json:"capture_ms"`
 					ArtifactBuildMS float64  `json:"artifact_build_ms"`
@@ -756,6 +791,7 @@ func nativeBuildReadResult(root string, previous int) (nativeBuildBackendResult,
 					CompileMS       float64  `json:"compile_ms"`
 					LinkMS          float64  `json:"link_ms"`
 					FinalizationMS  float64  `json:"finalization_ms"`
+					TransactionMS   float64  `json:"transaction_ms"`
 					ToolInvocations int      `json:"tool_invocations"`
 					RebuiltPackages []string `json:"rebuilt_packages"`
 					Capture         struct {
@@ -768,7 +804,7 @@ func nativeBuildReadResult(root string, previous int) (nativeBuildBackendResult,
 				if raw.CaptureMS == 0 {
 					raw.CaptureMS = raw.Capture.DurationMS
 				}
-				return nativeBuildBackendResult{raw.Status, raw.ArtifactDigest, raw.CaptureMS, raw.ArchiveMS, raw.SupportMS, raw.ArtifactBuildMS, raw.CompileMS, raw.LinkMS, raw.FinalizationMS, raw.ToolInvocations, raw.RebuiltPackages}, generation, nil
+				return nativeBuildBackendResult{Status: raw.Status, Backend: raw.Backend, Owner: raw.Owner, ArtifactDigest: raw.ArtifactDigest, RequestSequence: raw.RequestSequence, CaptureMS: raw.CaptureMS, ArchiveValidationMS: raw.ArchiveMS, SupportValidationMS: raw.SupportMS, ArtifactBuildMS: raw.ArtifactBuildMS, CompileMS: raw.CompileMS, LinkMS: raw.LinkMS, FinalizationMS: raw.FinalizationMS, TransactionMS: raw.TransactionMS, ToolInvocations: raw.ToolInvocations, RebuiltPackages: raw.RebuiltPackages}, generation, nil
 			}
 		}
 		time.Sleep(10 * time.Millisecond)

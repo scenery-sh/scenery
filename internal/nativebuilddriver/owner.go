@@ -33,6 +33,7 @@ type Owner struct {
 	Recipe    *Recipe
 	Session   string
 	Workspace string
+	StateRoot string
 
 	mu       sync.Mutex
 	latest   uint64
@@ -124,6 +125,7 @@ func (owner *Owner) build(parent context.Context, request OwnerRequest) (BuildRe
 	candidate := filepath.Join(request.Build.GenerationRoot, "candidate")
 	request.Build.Output = candidate
 	result, err := owner.Recipe.Build(ctx, request.Build)
+	result.Owner, result.RequestSequence = owner.Session, request.Sequence
 	if err != nil {
 		_ = os.Remove(candidate)
 		if errors.Is(err, context.Canceled) || ctx.Err() != nil {
@@ -135,6 +137,11 @@ func (owner *Owner) build(parent context.Context, request OwnerRequest) (BuildRe
 	if result.Status != "supported_and_rebuilt" {
 		_ = os.Remove(candidate)
 		return result, nil
+	}
+	next, err := owner.Recipe.Advance(result, owner.StateRoot)
+	if err != nil {
+		_ = os.Remove(candidate)
+		return result, err
 	}
 	owner.mu.Lock()
 	defer owner.mu.Unlock()
@@ -151,6 +158,11 @@ func (owner *Owner) build(parent context.Context, request OwnerRequest) (BuildRe
 		_ = os.Remove(candidate)
 		return result, err
 	}
+	owner.Recipe = next
+	if err := next.PruneUnreferenced(owner.StateRoot); err != nil {
+		return result, fmt.Errorf("prune retained state: %w", err)
+	}
+	result.TransactionMS = elapsedMS(result.StartedAt)
 	return result, nil
 }
 

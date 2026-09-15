@@ -6,14 +6,15 @@ import (
 )
 
 func nativeBuildCohortSummary(samples []nativeBuildDriverSample) map[string]any {
-	result := map[string]any{"sample_count": len(samples), "complete_pairs": len(samples) / 2}
 	backends := []string{"stock"}
+	seen := map[string]bool{"stock": true}
 	for _, sample := range samples {
-		if sample.Backend != "stock" {
+		if !seen[sample.Backend] {
 			backends = append(backends, sample.Backend)
-			break
+			seen[sample.Backend] = true
 		}
 	}
+	result := map[string]any{"sample_count": len(samples), "complete_pairs": len(samples) / len(backends), "backend_count": len(backends)}
 	for _, backend := range backends {
 		var capture, archive, support, artifact, finalization, compile, link, handling, scheduler, launch, activation, build, buildToResponse, response, accepted []float64
 		for _, sample := range samples {
@@ -106,6 +107,9 @@ func nativeBuildExecutionMatrix(aggregate map[string]any, spec nativeBuildExperi
 			index = 3
 		}
 		rows[index]["status"], rows[index]["measurements"] = "performed", candidate
+	}
+	if control, ok := aggregate["retained_stock"].(map[string]any); ok {
+		rows[2]["status"], rows[2]["measurements"] = "performed", control
 	}
 	return rows
 }

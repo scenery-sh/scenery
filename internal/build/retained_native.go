@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	gobuild "go/build"
 	"io"
 	"os"
 	"os/exec"
@@ -15,16 +16,18 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"scenery.sh/internal/atomicfile"
+	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/nativebuilddriver"
 )
 
 const (
 	retainedNativeStateProtocol = "scenery.retained-go-compiler"
-	retainedNativeStateRevision = 1
-	retainedNativeCacheVersion  = "v1"
+	retainedNativeStateRevision = 2
+	retainedNativeCacheVersion  = "v2"
 )
 
 type retainedNativeCurrent struct {
@@ -35,6 +38,29 @@ type retainedNativeCurrent struct {
 	RecorderExecutable string `json:"recorder_executable"`
 	RecorderDigest     string `json:"recorder_digest"`
 }
+
+type retainedNativeLoaded struct {
+	recipe     *nativebuilddriver.Recipe
+	recipePath string
+}
+
+type retainedNativeCacheEntry struct {
+	mu     sync.Mutex
+	loaded *retainedNativeLoaded
+}
+
+func (entry *retainedNativeCacheEntry) load(load func() (*retainedNativeLoaded, error)) (*retainedNativeLoaded, error) {
+	if entry.loaded != nil {
+		return entry.loaded, nil
+	}
+	loaded, err := load()
+	if err == nil {
+		entry.loaded = loaded
+	}
+	return loaded, err
+}
+
+var retainedNativeRecipeCache sync.Map
 
 var retainedNativeExecutable = func() (string, bool) {
 	path, err := os.Executable()
@@ -47,13 +73,39 @@ var retainedNativeExecutable = func() (string, bool) {
 
 var runRetainedNativeCompiler = runRetainedNativeCompilerContext
 
+var errRetainedNativeGraphRefreshNeedsBootstrap = errors.New("retained graph refresh cannot preserve configured compiler flags")
+
 func compileApplicationBinaryContext(ctx context.Context, result *Result) error {
-	if shouldUseRetainedNativeCompiler(result) {
+	if shouldUseRetainedNativeCompiler(result) && usesStockGoDriver(result.GoEnvironment) {
 		if executable, ok := retainedNativeExecutable(); ok {
 			return runRetainedNativeCompiler(ctx, result, executable)
 		}
 	}
 	return runSharedGoBuildContext(ctx, result)
+}
+
+func usesStockGoDriver(environment []string) bool {
+	pathValue := ""
+	for _, entry := range environment {
+		if value, ok := strings.CutPrefix(entry, "PATH="); ok {
+			pathValue = value
+			break
+		}
+	}
+	if pathValue == "" {
+		pathValue = envpolicy.Get("PATH")
+	}
+	for _, directory := range filepath.SplitList(pathValue) {
+		candidate := filepath.Join(directory, "go")
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			return sameRetainedNativePath(candidate, stockGoDriverPath())
+		}
+	}
+	return false
+}
+
+func stockGoDriverPath() string {
+	return filepath.Join(gobuild.Default.GOROOT, "bin", "go")
 }
 
 func shouldUseRetainedNativeCompiler(result *Result) bool {
@@ -68,45 +120,207 @@ func runRetainedNativeCompilerContext(ctx context.Context, result *Result, recor
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		return err
 	}
-	recipe, loadErr := loadRetainedNativeRecipe(root, result.Dir, recorderExecutable)
+	cacheKey := root + "\x00" + recorderExecutable
+	entryValue, _ := retainedNativeRecipeCache.LoadOrStore(cacheKey, &retainedNativeCacheEntry{})
+	entry := entryValue.(*retainedNativeCacheEntry)
+	entry.mu.Lock()
+	defer entry.mu.Unlock()
+	loaded, loadErr := entry.load(func() (*retainedNativeLoaded, error) {
+		return loadRetainedNativeRecipe(root, result.Dir, recorderExecutable)
+	})
 	bootstrapReason := "missing_recipe"
 	if loadErr == nil {
-		buildResult, err := runRetainedNativeRecipe(ctx, root, result, recipe)
+		buildResult, next, err := runRetainedNativeRecipe(ctx, root, result, loaded)
 		if err != nil {
 			return err
 		}
 		if buildResult.Status == "supported_and_rebuilt" {
+			loaded.recipe = next
 			return nil
 		}
 		if buildResult.Status != "needs_rebootstrap" {
 			return fmt.Errorf("retained compiler returned %s: %s", buildResult.Status, buildResult.Reason)
 		}
 		RecordStep(ctx, Step{Name: "build.backend", StartedAt: time.Now(), Cache: "miss", Reason: "retained_recipe_" + buildResult.Reason, OK: true})
+		if shouldRefreshRetainedNativeGraph(buildResult.Reason) {
+			refreshed, err := refreshRetainedNativeRecipe(ctx, root, result, recorderExecutable, loaded, buildResult.Reason)
+			if errors.Is(err, nativebuilddriver.ErrIncompleteRecordedRecipe) || errors.Is(err, errRetainedNativeGraphRefreshNeedsBootstrap) {
+				refreshed, err = bootstrapRetainedNativeRecipe(ctx, root, result, recorderExecutable, "graph_refresh_incomplete")
+			}
+			if err != nil {
+				return err
+			}
+			entry.loaded = refreshed
+			return nil
+		}
 		bootstrapReason = "incompatible_recipe"
 	} else if !errors.Is(loadErr, os.ErrNotExist) {
 		bootstrapReason = "invalid_recipe"
 	}
-	return bootstrapRetainedNativeRecipe(ctx, root, result, recorderExecutable, bootstrapReason)
+	loaded, err = bootstrapRetainedNativeRecipe(ctx, root, result, recorderExecutable, bootstrapReason)
+	if err == nil {
+		entry.loaded = loaded
+	}
+	return err
 }
 
-func runRetainedNativeRecipe(ctx context.Context, root string, result *Result, recipe *nativebuilddriver.Recipe) (nativebuilddriver.BuildResult, error) {
+func shouldRefreshRetainedNativeGraph(reason string) bool {
+	switch reason {
+	case "package_membership_changed", "package_selection_changed", "input_added", "input_missing",
+		"unsupported_input_changed", "unsupported_external_input_changed", "unsupported_native_or_unowned_change",
+		"compile_recipe_missing", "unsupported_native_action_frontier":
+		return true
+	default:
+		return false
+	}
+}
+
+func refreshRetainedNativeRecipe(ctx context.Context, root string, result *Result, recorderExecutable string, loaded *retainedNativeLoaded, reason string) (*retainedNativeLoaded, error) {
 	started := time.Now()
+	generationsRoot := filepath.Join(root, "generations")
+	if err := os.MkdirAll(generationsRoot, 0o700); err != nil {
+		return nil, err
+	}
+	generation, err := os.MkdirTemp(generationsRoot, "refresh-")
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = os.RemoveAll(generation) }()
+	recordRoot := filepath.Join(generation, "record")
+	for _, directory := range []string{filepath.Join(recordRoot, "actions"), filepath.Join(recordRoot, "tmp")} {
+		if err := os.MkdirAll(directory, 0o700); err != nil {
+			return nil, err
+		}
+	}
+	captureStarted := time.Now()
+	capture, err := nativebuilddriver.FullCapture(ctx, "go", result.Dir, filepath.Join(recordRoot, "snapshot"), result.GoEnvironment, result.GoBuildFlags)
+	RecordStep(ctx, Step{Name: "go.recipe_capture", StartedAt: captureStarted, Duration: time.Since(captureStarted), Cache: "miss", Reason: "graph_refresh_package_loading", OK: err == nil, Actions: len(capture.Packages)})
+	if err != nil {
+		return nil, err
+	}
+	candidate := filepath.Join(generation, "candidate")
+	refreshFlags, ok := retainedNativeGraphRefreshFlags(result.Dir, capture.Packages, generation, result.GoEnvironment, effectiveGoBuildFlags(result))
+	if !ok {
+		return nil, errRetainedNativeGraphRefreshNeedsBootstrap
+	}
+	args := goBuildArgs(candidate, effectiveGoBuildFlags(result))
+	prefix := append([]string{"build", "-work", "-toolexec=" + retainedNativeToolExecCommand(recorderExecutable, recordRoot)}, refreshFlags...)
+	args = append(prefix, args[1:]...)
+	environment := retainedNativeEnvironment(result.GoEnvironment, map[string]string{"TMPDIR": filepath.Join(recordRoot, "tmp")})
+	releaseSlot, err := retainedNativeLinkSlot(ctx, result)
+	if err != nil {
+		return nil, err
+	}
+	commandStarted := time.Now()
+	command := exec.CommandContext(ctx, "go", args...)
+	command.Dir, command.Env = result.Dir, environment
+	output, runErr := command.CombinedOutput()
+	releaseSlot()
+	RecordStep(ctx, Step{Name: "go.command", StartedAt: commandStarted, Duration: time.Since(commandStarted), Cache: "shared", Reason: "retained_graph_refresh", OK: runErr == nil, Actions: 1})
+	if runErr != nil {
+		return nil, fmt.Errorf("refresh retained compiler graph: %w\n%s", runErr, output)
+	}
+	stateRoot := filepath.Join(filepath.Dir(loaded.recipePath), "retained")
+	mergeStarted := time.Now()
+	next, err := nativebuilddriver.RefreshRecordedRecipe(loaded.recipe, recordRoot, capture, stateRoot)
+	RecordStep(ctx, Step{Name: "go.action_recipe", StartedAt: mergeStarted, Duration: time.Since(mergeStarted), Cache: "merge", Reason: "warm_graph_refresh", OK: err == nil, Actions: len(nextCompiles(next)) + 1})
+	if err != nil {
+		return nil, err
+	}
+	if err := writeRetainedNativeRecipe(loaded.recipePath, next); err != nil {
+		return nil, err
+	}
+	if err := publishRetainedNativeBinary(candidate, result.Binary); err != nil {
+		return nil, fmt.Errorf("publish graph-refresh application binary: %w", err)
+	}
+	if err := recordBuildArtifact(ctx, result.Binary, "retained_graph_refresh"); err != nil {
+		return nil, err
+	}
+	RecordStep(ctx, Step{Name: "build.backend", StartedAt: started, Duration: time.Since(started), Cache: "refresh", Reason: "retained_graph_refresh_" + reason, OK: true, Actions: 1, PackagesRebuiltAvailable: false})
+	return &retainedNativeLoaded{recipe: next, recipePath: loaded.recipePath}, nil
+}
+
+// retainedNativeGraphRefreshFlags make cmd/go invoke the compiler for every
+// workspace package even when the newly selected action already exists in the
+// shared Go cache. The identity trimpath mapping does not change source paths,
+// while the generation-specific value gives the recorder a fresh action to
+// capture. Configured compiler flags fall back to the complete stock bootstrap
+// because a later exact package pattern would otherwise replace their meaning.
+func retainedNativeGraphRefreshFlags(workspace string, packages map[string]nativebuilddriver.Package, token string, environment, buildFlags []string) ([]string, bool) {
+	if workspace == "" || len(packages) == 0 || hasRetainedNativeCompilerFlags(buildFlags) {
+		return nil, false
+	}
+	for _, entry := range environment {
+		if value, found := strings.CutPrefix(entry, "GOFLAGS="); found && hasRetainedNativeCompilerFlags(strings.Fields(value)) {
+			return nil, false
+		}
+	}
+	workspacePackages := make([]string, 0, len(packages))
+	for importPath, pkg := range packages {
+		if importPath == "" || !retainedNativePathWithin(workspace, pkg.Dir) {
+			continue
+		}
+		workspacePackages = append(workspacePackages, importPath)
+	}
+	if len(workspacePackages) == 0 {
+		return nil, false
+	}
+	sort.Strings(workspacePackages)
+	mapping := filepath.Clean(token) + "=>" + filepath.Clean(token)
+	flags := make([]string, 0, len(workspacePackages))
+	for _, importPath := range workspacePackages {
+		flags = append(flags, "-gcflags="+importPath+"=-trimpath="+mapping)
+	}
+	return flags, true
+}
+
+func hasRetainedNativeCompilerFlags(flags []string) bool {
+	for _, flag := range flags {
+		if flag == "-gcflags" || strings.HasPrefix(flag, "-gcflags=") {
+			return true
+		}
+	}
+	return false
+}
+
+func retainedNativePathWithin(root, path string) bool {
+	if evaluated, err := filepath.EvalSymlinks(root); err == nil {
+		root = evaluated
+	}
+	if evaluated, err := filepath.EvalSymlinks(path); err == nil {
+		path = evaluated
+	}
+	root, path = filepath.Clean(root), filepath.Clean(path)
+	relative, err := filepath.Rel(root, path)
+	return err == nil && relative != ".." && relative != "." && relative != "" && !filepath.IsAbs(relative) && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
+}
+
+func nextCompiles(recipe *nativebuilddriver.Recipe) map[string]*nativebuilddriver.CompileAction {
+	if recipe == nil {
+		return nil
+	}
+	return recipe.Compiles
+}
+
+func runRetainedNativeRecipe(ctx context.Context, root string, result *Result, loaded *retainedNativeLoaded) (nativebuilddriver.BuildResult, *nativebuilddriver.Recipe, error) {
+	started := time.Now()
+	recipe := loaded.recipe
 	generationRoot := filepath.Join(root, "generations")
 	if err := os.MkdirAll(generationRoot, 0o700); err != nil {
-		return nativebuilddriver.BuildResult{}, err
+		return nativebuilddriver.BuildResult{}, nil, err
 	}
 	if err := pruneRetainedNativeDirectories(generationRoot, "", 0); err != nil {
-		return nativebuilddriver.BuildResult{}, err
+		return nativebuilddriver.BuildResult{}, nil, err
 	}
 	generation, err := os.MkdirTemp(generationRoot, "generation-")
 	if err != nil {
-		return nativebuilddriver.BuildResult{}, err
+		return nativebuilddriver.BuildResult{}, nil, err
 	}
 	candidate := filepath.Join(generation, "candidate")
 	defer func() { _ = os.RemoveAll(generation) }()
 	releaseSlot, err := retainedNativeLinkSlot(ctx, result)
 	if err != nil {
-		return nativebuilddriver.BuildResult{}, err
+		return nativebuilddriver.BuildResult{}, nil, err
 	}
 	buildResult, buildErr := recipe.Build(ctx, nativebuilddriver.BuildRequest{
 		Workspace:      result.Dir,
@@ -118,35 +332,52 @@ func runRetainedNativeRecipe(ctx context.Context, root string, result *Result, r
 		CaptureMode:    "retained",
 	})
 	releaseSlot()
-	recordRetainedNativeSteps(ctx, started, buildResult, buildErr)
 	if buildErr != nil || buildResult.Status != "supported_and_rebuilt" {
-		return buildResult, buildErr
+		recordRetainedNativeSteps(ctx, started, buildResult, buildErr)
+		return buildResult, nil, buildErr
 	}
+	commitStarted := time.Now()
+	next, err := recipe.Advance(buildResult, filepath.Join(filepath.Dir(loaded.recipePath), "retained"))
+	if err != nil {
+		return buildResult, nil, fmt.Errorf("advance retained compiler state: %w", err)
+	}
+	if err := writeRetainedNativeRecipe(loaded.recipePath, next); err != nil {
+		return buildResult, nil, fmt.Errorf("publish retained compiler state: %w", err)
+	}
+	buildResult.Phases["state_commit"] = nativebuilddriver.PhaseTiming{StartedAt: commitStarted.UTC(), DurationMS: retainedNativeElapsedMS(commitStarted)}
+	publishStarted := time.Now()
 	if err := publishRetainedNativeBinary(candidate, result.Binary); err != nil {
-		return buildResult, fmt.Errorf("publish retained application binary: %w", err)
+		return buildResult, nil, fmt.Errorf("publish retained application binary: %w", err)
 	}
+	buildResult.Phases["artifact_publication"] = nativebuilddriver.PhaseTiming{StartedAt: publishStarted.UTC(), DurationMS: retainedNativeElapsedMS(publishStarted)}
 	if err := recordBuildArtifact(ctx, result.Binary, "retained_recipe"); err != nil {
-		return buildResult, err
+		return buildResult, nil, err
 	}
+	cleanupStarted := time.Now()
+	cleanupErr := next.PruneUnreferenced(filepath.Join(filepath.Dir(loaded.recipePath), "retained"))
+	buildResult.Phases["state_cleanup"] = nativebuilddriver.PhaseTiming{StartedAt: cleanupStarted.UTC(), DurationMS: retainedNativeElapsedMS(cleanupStarted)}
+	buildResult.TransactionMS = retainedNativeElapsedMS(started)
+	recordRetainedNativeSteps(ctx, started, buildResult, nil)
+	RecordStep(ctx, Step{Name: "go.state_cleanup", StartedAt: cleanupStarted, Duration: time.Since(cleanupStarted), Cache: "retained_state", Reason: "unreferenced_content_addressed_state", OK: cleanupErr == nil})
 	RecordStep(ctx, Step{Name: "build.backend", StartedAt: started, Duration: time.Since(started), Cache: "hit", Reason: "retained_compiler", OK: true, Actions: buildResult.ToolInvocations, PackagesRebuilt: buildResult.RebuiltPackages, PackagesRebuiltAvailable: true, ExecutableBytes: buildResult.ExecutableBytes})
-	return buildResult, nil
+	return buildResult, next, nil
 }
 
-func bootstrapRetainedNativeRecipe(ctx context.Context, root string, result *Result, recorderExecutable, reason string) error {
+func bootstrapRetainedNativeRecipe(ctx context.Context, root string, result *Result, recorderExecutable, reason string) (*retainedNativeLoaded, error) {
 	started := time.Now()
 	recipesRoot := filepath.Join(root, "recipes")
 	generationsRoot := filepath.Join(root, "generations")
 	for _, directory := range []string{recipesRoot, generationsRoot} {
 		if err := os.MkdirAll(directory, 0o700); err != nil {
-			return err
+			return nil, err
 		}
 	}
 	if err := pruneRetainedNativeDirectories(generationsRoot, "", 0); err != nil {
-		return err
+		return nil, err
 	}
 	recipeRoot, err := os.MkdirTemp(recipesRoot, "recipe-")
 	if err != nil {
-		return err
+		return nil, err
 	}
 	keepRecipe := false
 	defer func() {
@@ -157,12 +388,12 @@ func bootstrapRetainedNativeRecipe(ctx context.Context, root string, result *Res
 	recordRoot := filepath.Join(recipeRoot, "bootstrap")
 	for _, directory := range []string{filepath.Join(recordRoot, "actions"), filepath.Join(recordRoot, "cache"), filepath.Join(recordRoot, "tmp")} {
 		if err := os.MkdirAll(directory, 0o700); err != nil {
-			return err
+			return nil, err
 		}
 	}
 	generation, err := os.MkdirTemp(generationsRoot, "bootstrap-")
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer func() { _ = os.RemoveAll(generation) }()
 	candidate := filepath.Join(generation, "candidate")
@@ -171,7 +402,7 @@ func bootstrapRetainedNativeRecipe(ctx context.Context, root string, result *Res
 	environment := retainedNativeEnvironment(result.GoEnvironment, map[string]string{"GOCACHE": filepath.Join(recordRoot, "cache"), "TMPDIR": filepath.Join(recordRoot, "tmp")})
 	releaseSlot, err := retainedNativeLinkSlot(ctx, result)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	commandStarted := time.Now()
 	command := exec.CommandContext(ctx, "go", args...)
@@ -180,13 +411,13 @@ func bootstrapRetainedNativeRecipe(ctx context.Context, root string, result *Res
 	releaseSlot()
 	RecordStep(ctx, Step{Name: "go.command", StartedAt: commandStarted, Duration: time.Since(commandStarted), Cache: "miss", Reason: "retained_bootstrap", OK: runErr == nil, Actions: 1})
 	if runErr != nil {
-		return fmt.Errorf("bootstrap retained compiler recipe: %w\n%s", runErr, output)
+		return nil, fmt.Errorf("bootstrap retained compiler recipe: %w\n%s", runErr, output)
 	}
 	captureStarted := time.Now()
 	capture, err := nativebuilddriver.FullCapture(ctx, "go", result.Dir, filepath.Join(recordRoot, "bootstrap-snapshot"), result.GoEnvironment, result.GoBuildFlags)
 	RecordStep(ctx, Step{Name: "go.recipe_capture", StartedAt: captureStarted, Duration: time.Since(captureStarted), Cache: "miss", Reason: "stock_package_loading_and_input_snapshot", OK: err == nil, Actions: len(capture.Packages)})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	recipeStarted := time.Now()
 	recipe, err := nativebuilddriver.LoadRecordedRecipe(recordRoot, result.Dir, capture)
@@ -196,43 +427,39 @@ func bootstrapRetainedNativeRecipe(ctx context.Context, root string, result *Res
 	}
 	RecordStep(ctx, Step{Name: "go.action_recipe", StartedAt: recipeStarted, Duration: time.Since(recipeStarted), Cache: "miss", Reason: "captured_stock_tool_actions", OK: err == nil, Actions: actions})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	recipePath := filepath.Join(recipeRoot, "recipe.json")
-	encoded, err := json.MarshalIndent(recipe, "", "  ")
-	if err != nil {
-		return err
-	}
-	if err := atomicfile.Write(recipePath, append(encoded, '\n'), 0o600, atomicfile.Options{}); err != nil {
-		return err
+	if err := writeRetainedNativeRecipe(recipePath, recipe); err != nil {
+		return nil, err
 	}
 	if err := publishRetainedNativeBinary(candidate, result.Binary); err != nil {
-		return fmt.Errorf("publish bootstrap application binary: %w", err)
+		return nil, fmt.Errorf("publish bootstrap application binary: %w", err)
 	}
 	recorderDigest, _, err := nativebuilddriver.FileDigest(recorderExecutable)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	current := retainedNativeCurrent{Protocol: retainedNativeStateProtocol, Revision: retainedNativeStateRevision, Workspace: result.Dir, RecipePath: recipePath, RecorderExecutable: recorderExecutable, RecorderDigest: recorderDigest}
-	encoded, err = json.MarshalIndent(current, "", "  ")
+	encoded, err := json.MarshalIndent(current, "", "  ")
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if err := atomicfile.Write(filepath.Join(root, "current.json"), append(encoded, '\n'), 0o600, atomicfile.Options{}); err != nil {
-		return err
+		return nil, err
 	}
 	keepRecipe = true
 	_ = os.RemoveAll(filepath.Join(recordRoot, "cache"))
 	_ = os.RemoveAll(filepath.Join(recordRoot, "tmp"))
 	_ = pruneRetainedNativeDirectories(recipesRoot, recipeRoot, 1)
 	if err := recordBuildArtifact(ctx, result.Binary, "retained_bootstrap"); err != nil {
-		return err
+		return nil, err
 	}
 	RecordStep(ctx, Step{Name: "build.backend", StartedAt: started, Duration: time.Since(started), Cache: "miss", Reason: reason, OK: true, Actions: len(recipe.Compiles) + 1, PackagesRebuiltAvailable: true})
-	return nil
+	return &retainedNativeLoaded{recipe: recipe, recipePath: recipePath}, nil
 }
 
-func loadRetainedNativeRecipe(root, workspace, recorderExecutable string) (*nativebuilddriver.Recipe, error) {
+func loadRetainedNativeRecipe(root, workspace, recorderExecutable string) (*retainedNativeLoaded, error) {
 	data, err := os.ReadFile(filepath.Join(root, "current.json"))
 	if err != nil {
 		return nil, err
@@ -266,7 +493,15 @@ func loadRetainedNativeRecipe(root, workspace, recorderExecutable string) (*nati
 	if err := recipe.Validate(); err != nil {
 		return nil, err
 	}
-	return &recipe, nil
+	return &retainedNativeLoaded{recipe: &recipe, recipePath: current.RecipePath}, nil
+}
+
+func writeRetainedNativeRecipe(path string, recipe *nativebuilddriver.Recipe) error {
+	encoded, err := json.MarshalIndent(recipe, "", "  ")
+	if err != nil {
+		return err
+	}
+	return atomicfile.Write(path, append(encoded, '\n'), 0o600, atomicfile.Options{})
 }
 
 func decodeRetainedNativeJSON(data []byte, target any) error {
@@ -285,21 +520,29 @@ func decodeRetainedNativeJSON(data []byte, target any) error {
 }
 
 func recordRetainedNativeSteps(ctx context.Context, started time.Time, result nativebuilddriver.BuildResult, err error) {
-	offset := time.Duration(0)
 	ok := err == nil && result.Status == "supported_and_rebuilt"
-	record := func(name string, milliseconds float64, cache, reason string) {
-		duration := time.Duration(milliseconds * float64(time.Millisecond))
-		RecordStep(ctx, Step{Name: name, StartedAt: started.Add(offset), Duration: duration, Cache: cache, Reason: reason, OK: ok})
-		offset += duration
+	record := func(phase, name, cache, reason string) {
+		timing, exists := result.Phases[phase]
+		if !exists {
+			return
+		}
+		RecordStep(ctx, Step{Name: name, StartedAt: timing.StartedAt, Duration: time.Duration(timing.DurationMS * float64(time.Millisecond)), Cache: cache, Reason: reason, OK: ok})
 	}
-	record("go.retained_archive", result.ArchiveMS, "content_stamp", "retained_archive_identity")
-	record("go.retained_support", result.SupportMS, "content_stamp", "retained_importcfg_identity")
-	record("go.input_discovery", result.CaptureMS, "retained", "complete_retained_domain")
-	record("go.input_validation", result.ValidationMS, "retained_recipe", "recipe_compatibility")
-	record("go.action_plan", result.PlanningMS, "retained_recipe", "changed_packages_and_consumers")
-	record("go.compile", result.CompileMS, "retained_recipe", "changed_packages_and_consumers")
-	record("go.link", result.LinkMS, "retained_recipe", "application_executable")
+	record("archive_validation", "go.retained_archive", "content_stamp", "retained_archive_identity")
+	record("support_validation", "go.retained_support", "content_stamp", "retained_action_support_identity")
+	record("input_capture", "go.input_discovery", "retained", "complete_retained_domain")
+	record("eligibility", "go.input_validation", "retained_recipe", "recipe_compatibility")
+	record("planning", "go.action_plan", "retained_recipe", "changed_packages_and_consumers")
+	record("compile", "go.compile", "retained_recipe", "changed_packages_and_consumers")
+	record("link", "go.link", "retained_recipe", "application_executable")
+	record("finalization", "go.finalization", "content_digest", "application_executable")
+	record("state_commit", "go.state_commit", "retained_state", "current_recipe_manifest")
+	record("artifact_publication", "go.artifact_publication", "retained_state", "application_executable")
 	RecordStep(ctx, Step{Name: "go.command", StartedAt: started, Duration: time.Since(started), Cache: "retained_recipe", Reason: "build", OK: ok, Actions: result.ToolInvocations, PackagesRebuilt: result.RebuiltPackages, PackagesRebuiltAvailable: true, ExecutableBytes: result.ExecutableBytes})
+}
+
+func retainedNativeElapsedMS(started time.Time) float64 {
+	return float64(time.Since(started).Nanoseconds()) / 1e6
 }
 
 func retainedNativeToolExecCommand(executable, root string) string {

@@ -19,6 +19,18 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0196-correct-retained-go-compiler.md",
+      "title": "Correct Retained Go Compiler",
+      "owner": "scenery runtime / build / native compiler verification",
+      "status": "completed",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-09-15",
+      "review_after": "2026-10-15",
+      "summary": "Corrected retained compiler state, archive aliases, complete inputs, warm graph refresh, runtime proof, and three-lane benchmark attribution.",
+      "tags": ["plans", "execplans", "build", "runtime", "benchmark", "performance"]
+    },
+    {
       "path": "docs/plans/0195-default-retained-go-compiler.md",
       "title": "Default Retained Go Compiler",
       "owner": "scenery runtime / build / development execution",
@@ -39,7 +51,7 @@
       "freshness": "current",
       "last_reviewed": "2026-09-15",
       "review_after": "2026-10-14",
-      "summary": "Full-ONLV retained-compiler evidence and the subsequent default-development activation decision from Plan 0195.",
+      "summary": "Retained-compiler history, corrected short three-lane ONLV evidence, and the current default-development policy boundary.",
       "tags": ["build", "runtime", "benchmark", "performance", "decision"]
     },
     {

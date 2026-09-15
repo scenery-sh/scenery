@@ -193,8 +193,8 @@ func captureFile(result *Capture, workspace, snapshotRoot, path string, goSyntax
 		}
 		result.Syntax[path] = syntax
 	}
-	rel, err := filepath.Rel(workspace, path)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+	rel, ok := workspaceRelative(workspace, path)
+	if !ok {
 		return nil
 	}
 	dst := filepath.Join(snapshotRoot, "workspace", rel)

@@ -20,7 +20,7 @@ import (
 // a stable change time. Only changed workspace Go files need a new snapshot.
 func (recipe *Recipe) RetainedCapture(ctx context.Context, goTool, snapshotRoot string, env []string, buildFlags []string) (Capture, error) {
 	started := time.Now()
-	baseline := recipe.Bootstrap
+	baseline := recipe.currentCapture()
 	current := Capture{
 		Protocol: ProtocolVersion, Workspace: recipe.Workspace, StartedAt: started.UTC(),
 		Packages: clonePackages(baseline.Packages), Files: map[string]string{}, FileStamps: map[string]FileStamp{}, Syntax: cloneStrings(baseline.Syntax),
@@ -107,9 +107,9 @@ func (recipe *Recipe) RetainedCapture(ctx context.Context, goTool, snapshotRoot 
 		if !withinWorkspace(recipe.Workspace, path) {
 			continue
 		}
-		rel, err := filepath.Rel(recipe.Workspace, path)
-		if err != nil {
-			return current, err
+		rel, ok := workspaceRelative(recipe.Workspace, path)
+		if !ok {
+			return current, fmt.Errorf("retained source escaped workspace: %s", path)
 		}
 		copyStarted := time.Now()
 		copy, err := CopyRegular(path, filepath.Join(snapshotRoot, "workspace", rel))
@@ -148,8 +148,13 @@ func elapsedMS(started time.Time) float64 {
 }
 
 func withinWorkspace(workspace, path string) bool {
-	rel, err := filepath.Rel(workspace, path)
-	return err == nil && rel != ".." && rel != "." && rel != "" && !filepath.IsAbs(rel) && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+	_, ok := workspaceRelative(workspace, path)
+	return ok
+}
+
+func workspaceRelative(workspace, path string) (string, bool) {
+	relative, err := filepath.Rel(canonicalRetainedPath(workspace), canonicalRetainedPath(path))
+	return relative, err == nil && relative != ".." && relative != "." && relative != "" && !filepath.IsAbs(relative) && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
 }
 
 func cloneStrings(source map[string]string) map[string]string {

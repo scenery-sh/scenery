@@ -59,6 +59,7 @@ func run() error {
 	case "bootstrap":
 		return bootstrap(realGo, root, cwd, output, generation, args, buildArgv)
 	case "driver", "compiler":
+		transactionStarted := time.Now()
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
 		sequence, err := generationSequence(generation)
@@ -74,6 +75,10 @@ func run() error {
 			Build: nativebuilddriver.BuildRequest{Workspace: cwd, Output: output, GenerationRoot: generation, BuildArgv: buildArgv, Environment: envpolicy.Environ(), BuildFlags: buildFlags(args), CaptureMode: map[bool]string{true: "retained", false: "full"}[mode == "compiler"]},
 		})
 		result := response.Result
+		result.TransactionMS = float64(time.Since(transactionStarted).Nanoseconds()) / 1e6
+		if result.Owner != config.Session || result.RequestSequence != sequence || result.Backend != "retained_compiler" {
+			return fmt.Errorf("owner result identity mismatch backend=%q owner=%q sequence=%d", result.Backend, result.Owner, result.RequestSequence)
+		}
 		if err := writeJSON(filepath.Join(generation, "result.json"), result); err != nil {
 			return err
 		}
@@ -91,13 +96,14 @@ func run() error {
 	case "stock":
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
+		transactionStarted := time.Now()
 		capture, err := nativebuilddriver.FullCapture(ctx, realGo, cwd, filepath.Join(generation, "snapshot"), envpolicy.Environ(), buildFlags(args))
 		if err != nil {
 			return err
 		}
 		started := time.Now()
 		err = forward(realGo, args)
-		result := map[string]any{"protocol": nativebuilddriver.ProtocolVersion, "status": "stock_go_build", "capture": capture,
+		result := map[string]any{"protocol": nativebuilddriver.ProtocolVersion, "backend": "stock", "owner": config.Session, "request_sequence": mustGenerationSequence(generation), "status": "stock_go_build", "capture": capture,
 			"artifact_build_ms": float64(time.Since(started).Nanoseconds()) / 1e6, "error": fmt.Sprint(err)}
 		if err == nil {
 			digest, size, digestErr := nativebuilddriver.FileDigest(output)
@@ -106,6 +112,40 @@ func run() error {
 			}
 			result["artifact_digest"], result["executable_bytes"] = digest, size
 		}
+		result["transaction_ms"] = float64(time.Since(transactionStarted).Nanoseconds()) / 1e6
+		if writeErr := writeJSON(filepath.Join(generation, "result.json"), result); writeErr != nil {
+			return writeErr
+		}
+		_ = pruneGenerations(root, generation, 4)
+		return err
+	case "retained-stock":
+		transactionStarted := time.Now()
+		var recipe nativebuilddriver.Recipe
+		if err := readJSON(filepath.Join(root, "recipe.json"), &recipe); err != nil {
+			return err
+		}
+		archiveMS, supportMS, err := recipe.ValidateRetainedState()
+		if err != nil {
+			return err
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		capture, err := recipe.RetainedCapture(ctx, realGo, filepath.Join(generation, "snapshot"), envpolicy.Environ(), buildFlags(args))
+		if err != nil {
+			return err
+		}
+		started := time.Now()
+		err = forward(realGo, args)
+		result := map[string]any{"protocol": nativebuilddriver.ProtocolVersion, "backend": "retained_stock", "owner": config.Session, "request_sequence": mustGenerationSequence(generation), "status": "retained_capture_stock_build", "capture_ms": capture.DurationMS,
+			"archive_validation_ms": archiveMS, "support_validation_ms": supportMS, "artifact_build_ms": float64(time.Since(started).Nanoseconds()) / 1e6, "error": fmt.Sprint(err)}
+		if err == nil {
+			digest, size, digestErr := nativebuilddriver.FileDigest(output)
+			if digestErr != nil {
+				return digestErr
+			}
+			result["artifact_digest"], result["executable_bytes"] = digest, size
+		}
+		result["transaction_ms"] = float64(time.Since(transactionStarted).Nanoseconds()) / 1e6
 		if writeErr := writeJSON(filepath.Join(generation, "result.json"), result); writeErr != nil {
 			return writeErr
 		}
@@ -250,6 +290,11 @@ func generationSequence(path string) (uint64, error) {
 	return value, nil
 }
 
+func mustGenerationSequence(path string) uint64 {
+	value, _ := generationSequence(path)
+	return value
+}
+
 func isTargetBuild(args []string) bool {
 	return len(args) > 1 && args[0] == "build" && args[len(args)-1] == "./scenery_internal_main"
 }
@@ -308,4 +353,12 @@ func writeJSON(path string, value any) error {
 		return err
 	}
 	return os.WriteFile(path, append(data, '\n'), 0o600)
+}
+
+func readJSON(path string, target any) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(data, target)
 }

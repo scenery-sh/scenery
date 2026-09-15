@@ -104,7 +104,7 @@ func run() error {
 		if err := readJSON(*recipePath, &recipe); err != nil {
 			return err
 		}
-		owner := &nativebuilddriver.Owner{Recipe: &recipe, Session: *session, Workspace: *workspace}
+		owner := &nativebuilddriver.Owner{Recipe: &recipe, Session: *session, Workspace: *workspace, StateRoot: filepath.Join(filepath.Dir(*recipePath), "retained")}
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
 		go func() {

@@ -1,40 +1,42 @@
 # Native Build Compiler Decision
 
-Status: promoted as the default development compiler by Plan 0195; deployable
-artifact builds remain on stock `go build`.
+Status: default development compiler under corrective validation by Plan 0196;
+deployable artifact builds remain on stock `go build`.
 
 ## Decision
 
-The retained-domain compiler materially reduces the complete full-ONLV build
-transaction while preserving the stock Go 1.27 compiler and linker, complete
-generated `./scenery_internal_main`, generated contracts, build flags, runtime
-identity, and authenticated response behavior. Both independent 30-pair
-cohorts passed the frozen median and p95 gates. Fifty additional compiler edits
-completed with four retained generations and clean owned-worktree/process
-cleanup.
+Plan 0195 promoted the retained-domain compiler as the internal development
+default while keeping the stock Go 1.27 compiler/linker and complete generated
+application. A later revision-bound review found that the implementation and
+benchmark did not yet justify the published performance claim: successful
+builds did not advance baseline/archive state, graph changes cold rebuilt the
+complete closure, and the comparison omitted the retained-validation plus
+stock-build control. Plan 0196 corrects those defects without changing the
+deployable build boundary.
 
-The original result justified designing the production ownership and
-rebootstrap boundary. Petr subsequently approved that internal development
-default explicitly, and Plan 0195 implemented it under the existing supervisor.
-Aggregate accepted-edit p50 in the original ONLV cohort remains 6.234 seconds
-and the stock linker remains about one second, so the broader 200/250 ms native
-checkpoints are still missed.
+The original 35.8% figure is historical, not a current claim. Its accountable
+build values used different capture work between stock and candidate and did
+not include the complete enclosing transaction. The corrected benchmark binds
+each sample to backend, owner, generation and served edit identity and measures
+three lanes over identical full-ONLV edits.
 
-The activation smoke used a fresh macOS basic-app root. Its initial captured
+The original activation smoke used a fresh macOS basic-app root. Its initial captured
 bootstrap took 26,137 ms, including a 20,625 ms recorded stock command. A
 compatible handler-body edit used the retained compiler in 592 ms, rebuilt four
 packages, completed the full build request in 1,112 ms, started a new process,
 and served the changed typed response with new implementation/build-input
 identity. Adding an import rejected retained eligibility and completed a fresh
-captured bootstrap in 25,940 ms before serving the new response. These are
-activation diagnostics, not a replacement performance cohort.
+captured bootstrap in 25,940 ms before serving the new response. Corrected graph
+refresh runs an ordinary shared-cache stock build and merges observed actions;
+it uses a complete bootstrap only when that recording is incomplete.
 
-## Comparable Results
+## Historical Results (Superseded For Comparison)
 
-The final valid run is
+The original run is
 `.scenery/harness/native-build-compiler/20260914T193915Z-16687730043e95c7/report.json`.
 It contains 60 stock and 60 compiler samples over two independently bootstrapped
-cohorts with backend/root assignment swapped.
+cohorts with backend/root assignment swapped. The raw observations remain
+useful, but the percentage comparison is superseded for the reasons above.
 
 | Boundary | Stock p50 / p95 | Compiler p50 / p95 | p50 change |
 |---|---:|---:|---:|
@@ -54,13 +56,39 @@ interleaved cohort.
 |---|---:|---:|---:|---:|---|
 | Stock `go build` after complete capture | 2,352.273 ms | 2,352.273 ms | baseline | baseline | Production baseline |
 | Complete capture plus retained direct compile/link driver | 2,352.273 ms | 2,268.237 ms | -3.6% | -1.3% | NO-GO |
-| Retained input-domain validation plus retained direct compile/link | 2,017.491 ms | 1,296.027 ms | -35.8% | -11.5% | GO for production-boundary design |
+| Retained input-domain validation plus retained direct compile/link | 2,017.491 ms | 1,296.027 ms | -35.8% | -11.5% | Superseded comparison |
 
 The missing matrix cell, retained input-domain validation followed by ordinary
-stock `go build`, was not executed: invoking `go build` would repeat the package
-loading that the retained-domain experiment is designed to remove. Both
-experimental candidates still use the stock Go compiler and linker; the
-difference is whether package discovery and input validation are repeated.
+stock `go build`, is now an explicit `retained_stock` control. It intentionally
+measures the repeated driver work so the direct compiler's contribution can be
+separated from retained input discovery.
+
+## Corrected Short macOS Observation
+
+The corrected short run is
+`.scenery/harness/native-build-compiler/20260915T092035Z-68081b3adf21f643/report.json`.
+It used one full-ONLV cohort, one warmup per lane, and three measured edits per
+lane. Every sample was bound to its requested backend, owner, generation, edit,
+runtime identity, and served response; source status and owned cleanup passed.
+The sample is deliberately too small for a GO/NO-GO decision.
+
+| Boundary | Stock p50 / p95 | Retained + stock p50 / p95 | Retained compiler p50 / p95 |
+|---|---:|---:|---:|
+| Complete input capture/validation | 1,236.829 / 1,365.733 ms | 240.186 / 264.846 ms | 264.478 / 267.712 ms |
+| Artifact compile/link/finalize | 1,138.970 / 1,144.949 ms | 1,175.808 / 1,207.910 ms | 1,176.041 / 1,190.716 ms |
+| Accountable build transaction | 2,399.482 / 2,535.689 ms | 1,495.849 / 1,517.705 ms | 1,733.503 / 1,736.465 ms |
+| First verified response | 5,589.301 / 5,647.248 ms | 4,516.037 / 4,554.373 ms | 4,793.241 / 4,809.750 ms |
+| Accepted edit | 7,494.986 / 7,580.143 ms | 6,412.517 / 6,497.535 ms | 6,724.223 / 6,736.490 ms |
+
+Against stock, the retained compiler reduced accountable-build p50 by 666.0 ms
+(27.8 percent) and accepted-edit p50 by 770.8 ms (10.3 percent). The missing
+control changes the interpretation: retained validation followed by ordinary
+stock `go build` was another 237.7 ms faster at accountable-build p50 and 311.7
+ms faster at accepted-edit p50. Direct compile/link therefore showed no speed
+advantage in this short run; the observed gain remains attributable to retained
+input discovery. The compiler stays the explicitly selected development default
+from Plan 0195, but this short observation does not support a performance
+promotion claim and should guide the next policy decision.
 
 Compiler-only p50 was 150.479 ms and link p50 was 1,001.768 ms. The direct
 compile/link transaction was not faster than stock `go build`; the measured
@@ -71,21 +99,26 @@ ctime-backed external-input digest reuse.
 
 ## Correctness Boundary
 
-The retained compiler supports Go body edits only when package and file
+The retained compiler directly supports Go body edits only when package and file
 membership, imports, build/embed directives, module graph, selected files,
 native inputs, target, flags, environment, and tool identities remain exactly
-compatible with bootstrap. It rebuilds the changed package and all transitive
-consumers, creates current build IDs and runtime linker identity, and atomically
-publishes only the newest owner sequence.
+compatible with the last successfully committed current state. It rebuilds the
+newly changed package and all transitive consumers, creates current build IDs
+and runtime linker identity, and atomically advances source snapshots and
+archive mappings before publishing only the newest owner sequence. Captured
+regular-file arguments, including import, embed and symbol-ABI configuration,
+are rebound to retained copies. Rebuild frontiers requiring unmodeled native
+actions are rejected before compiler execution.
 
 Every known workspace input is read and hashed on each transaction. An
 unchanged external input may reuse its bootstrap digest only when the platform
 supplies a nonzero change time and size, mode, device, inode, modification time,
 and change time all match. Any stamp change causes a content rehash; a platform
 without change time hashes the content. Added, missing, symlinked, malformed,
-module, import, directive, environment, tool, native, or external-content
-changes fail closed as `needs_rebootstrap` or `unsupported`. The experiment has
-no stock-build fallback.
+module, import, directive, native, or external-content changes leave the direct
+path and enter a recorded warm-cache stock graph refresh. Configuration, tool
+and corrupted retained-state changes bootstrap. A refresh that cannot observe
+every required compile action also bootstraps rather than inventing a command.
 
 ## Evidence Limits And Next Step
 
@@ -97,7 +130,7 @@ bounded generations, atomic publication, fail-closed rebootstrap, candidate
 preflight, activation, and rollback. There is no new global daemon or public
 configuration surface. Deployable artifacts remain outside this decision.
 
-The performance cohort predates the subsequent support-artifact validation
-hardening. The report is retained as performance evidence for the measured
-path; the current code passed focused package tests, the full Go suite, lint,
-and the quick verifier without repeating the hour-long cohort.
+Plan 0196 added the bounded `--benchmark-short` observation above. It includes
+all three execution cells but is not a replacement for the full two-cohort
+GO/NO-GO series. Linux comparison is still outside the current macOS-only
+authorization.
