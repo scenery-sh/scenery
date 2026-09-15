@@ -141,8 +141,35 @@ compile the application graph as it needs.
   stages and starts assistant helpers around a full generation start, drains
   schedules, event consumers and durable acquisition of replaced instances
   before retiring them, and refuses event consumers and emissions.
-- [ ] Milestone 3 remaining: per-process status in dashboard and session
-  records.
+- [x] (2026-09-15) Milestone 4 first ONLV run (disposable worktree of ONLV
+  `dbc6ca2a`, `scenery framework use --source` this checkout, `bun
+  development/prepare.ts` with the gate): preparation, snapshot load,
+  dev-bootstrap, scene registration and solar project creation passed through
+  the host. The session ran 47 service processes, the host and the two
+  assistant helpers (50 children) in 1.64 GB RSS, 45 idle Postgres connections
+  (max 100) and 0.05 cores idle CPU; session executables used 1.0 GB. The
+  initial build request took 18.3 s (implementation check 8.4 s, one stock
+  `go build` of every entrypoint 9.5 s, starting all 48 processes 3.5 s).
+  Six edits of an `ahjs` handler message each published a new generation that
+  changed only `ahjs_ahjs`; edit to new response was 4.35-4.52 s. Telemetry
+  showed 2.3 s before `go build` spent computing 48 implementation revisions
+  (each re-projecting the whole contract) and rehashing 47 unchanged
+  executables. After batching revisions and remembering executable digests the
+  same edits took 2.59-2.67 s (build request 2.47-2.54 s: preparation to
+  `go build` 0.77 s, stock `go build` 0.56-0.59 s, 0.28 s before activation,
+  activation 0.62 s; the 0.84 s implementation check runs concurrently).
+- [x] (2026-09-15) Same worktree and edit in the single application model:
+  3 children in 441 MB RSS and 39 Postgres connections; edit to new response
+  3.54-3.63 s (retained compiler with a whole-application link 1.13-1.26 s,
+  implementation check 0.90-1.04 s, activation 0.25-0.30 s). Returning the
+  worktree from the process model to the single model first failed with
+  "prepared workspace membership changed: scenery-processes/..." because
+  workspace membership verification did not own the process executable
+  directory; fixed.
+- [ ] Milestone 4 remaining: conformance through the host for internal calls,
+  assistant MCP tools, durable work and streams; the retained compiler for
+  process entrypoints; the implementation check and activation costs; and
+  per-process status in dashboard and session records.
 - [ ] Milestone 4: ONLV rebaseline, resources, background-work ownership,
   semantic conformance, and the edit-to-response measurement.
 

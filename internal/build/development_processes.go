@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"scenery.sh/internal/compiler"
@@ -93,6 +94,12 @@ func BuildDevelopmentProcessesContext(ctx context.Context, result *Result) (*Dev
 		return nil, err
 	}
 	defer unlock()
+	verifyWorkspace := result.verification != nil
+	if verifyWorkspace {
+		if err := verifyPreparedWorkspace(result); err != nil {
+			return nil, err
+		}
+	}
 	if result.NeedsTidy {
 		if err := tidyWorkspace(ctx, result); err != nil {
 			return nil, err
@@ -107,9 +114,15 @@ func BuildDevelopmentProcessesContext(ctx context.Context, result *Result) (*Dev
 	if err != nil {
 		return nil, err
 	}
+	if verifyWorkspace {
+		if err := verifyPreparedWorkspace(result); err != nil {
+			return nil, err
+		}
+	}
 	if err := VerifyOwnedGoModuleSourcesContext(ctx, result.OwnedGoModuleSources); err != nil {
 		return nil, err
 	}
+	result.verification = nil
 	if err := savePrimedWorkspace(result); err != nil {
 		return nil, err
 	}
@@ -138,22 +151,31 @@ func buildDevelopmentProcesses(ctx context.Context, result *Result, services []g
 	if err := os.MkdirAll(binaryRoot, 0o755); err != nil {
 		return nil, err
 	}
-	var pending []*DevelopmentProcess
-	processes := make([]*DevelopmentProcess, 0, len(names))
-	for _, name := range names {
+	identityStarted := time.Now()
+	manifests := make([]*BuildInputManifest, len(names))
+	mains := make([]string, len(names))
+	digests := make([]string, len(names))
+	for index, name := range names {
 		processManifest, main, err := manifest.developmentProcessManifest(name)
 		if err != nil {
 			return nil, err
 		}
-		revisions, diagnostics := compiler.ComputeImplementationRevisions(result.Contract, map[string]string{result.Target.Name: processManifest.Digest})
-		for _, diagnostic := range diagnostics {
-			if diagnostic.Severity == "error" {
-				return nil, fmt.Errorf("%s: %s", diagnostic.Code, diagnostic.Message)
-			}
+		manifests[index], mains[index], digests[index] = processManifest, main, processManifest.Digest
+	}
+	revisions, diagnostics := compiler.ImplementationRevisionsForInputs(result.Contract, result.Target.Name, digests)
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Severity == "error" {
+			return nil, fmt.Errorf("%s: %s", diagnostic.Code, diagnostic.Message)
 		}
-		process := &DevelopmentProcess{Name: name, Package: main, Identity: DevelopmentProcessIdentity{
-			ContractRevision: result.Contract.Manifest.ContractRevision, ImplementationRevision: revisions[result.Target.Name],
-			BuildInputDigest: processManifest.Digest, GoTarget: result.Target.Name,
+	}
+	RecordStep(ctx, Step{Name: "process.identity", StartedAt: identityStarted, Duration: time.Since(identityStarted), Cache: "not_applicable", Reason: "entrypoint_import_closures", OK: true, Actions: len(names)})
+	reuseStarted := time.Now()
+	var pending []*DevelopmentProcess
+	processes := make([]*DevelopmentProcess, 0, len(names))
+	for index, name := range names {
+		process := &DevelopmentProcess{Name: name, Package: mains[index], Identity: DevelopmentProcessIdentity{
+			ContractRevision: result.Contract.Manifest.ContractRevision, ImplementationRevision: revisions[digests[index]],
+			BuildInputDigest: manifests[index].Digest, GoTarget: result.Target.Name,
 		}}
 		if process.Identity.ImplementationRevision == "" {
 			return nil, fmt.Errorf("implementation_revision is unavailable for development process %s", name)
@@ -163,17 +185,16 @@ func buildDevelopmentProcesses(ctx context.Context, result *Result, services []g
 			return nil, err
 		}
 		process.Binary = filepath.Join(binaryRoot, name+"-"+key)
-		if info, statErr := os.Lstat(process.Binary); statErr == nil && info.Mode().IsRegular() {
-			if process.ArtifactDigest, _, err = nativebuilddriver.FileDigest(process.Binary); err != nil {
-				return nil, err
-			}
-		} else if !errors.Is(statErr, os.ErrNotExist) && statErr != nil {
-			return nil, statErr
+		if digest, ok, err := retainedDevelopmentProcessDigest(process.Binary); err != nil {
+			return nil, err
+		} else if ok {
+			process.ArtifactDigest = digest
 		} else {
 			pending = append(pending, process)
 		}
 		processes = append(processes, process)
 	}
+	RecordStep(ctx, Step{Name: "process.reuse", StartedAt: reuseStarted, Duration: time.Since(reuseStarted), Cache: "retained_digest", Reason: "linked_identity_unchanged", OK: true, Actions: len(names) - len(pending), CacheMisses: len(pending)})
 	if len(pending) > 0 {
 		if err := linkDevelopmentProcesses(ctx, result, binaryRoot, pending); err != nil {
 			return nil, err
@@ -251,6 +272,9 @@ func linkDevelopmentProcesses(ctx context.Context, result *Result, binaryRoot st
 		if err := os.Rename(output, process.Binary); err != nil {
 			return err
 		}
+		if err := rememberDevelopmentProcessDigest(process.Binary, digest); err != nil {
+			return err
+		}
 		process.ArtifactDigest = digest
 		RecordStep(ctx, Step{Name: "build.artifact", StartedAt: started, Duration: time.Since(started), Cache: "miss", Reason: "linked_development_process_" + process.Name, OK: true, ExecutableBytes: size})
 	}
@@ -271,4 +295,57 @@ func pruneDevelopmentProcessBinaries(root string, keep map[string]bool) error {
 		}
 	}
 	return nil
+}
+
+// developmentProcessDigests remembers the digest of each linked process
+// executable for as long as its file keeps the same size, modification time
+// and inode, so unchanged processes are not rehashed on every rebuild.
+var developmentProcessDigests struct {
+	sync.Mutex
+	values map[string]developmentProcessDigest
+}
+
+type developmentProcessDigest struct {
+	stamp  buildInputFileStamp
+	digest string
+}
+
+func rememberDevelopmentProcessDigest(path, digest string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	developmentProcessDigests.Lock()
+	defer developmentProcessDigests.Unlock()
+	if developmentProcessDigests.values == nil {
+		developmentProcessDigests.values = map[string]developmentProcessDigest{}
+	}
+	developmentProcessDigests.values[path] = developmentProcessDigest{stamp: buildInputStamp(info), digest: digest}
+	return nil
+}
+
+// retainedDevelopmentProcessDigest reports the digest of an already linked
+// process executable, hashing it only when no current stamp is remembered.
+func retainedDevelopmentProcessDigest(path string) (string, bool, error) {
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	if !info.Mode().IsRegular() {
+		return "", false, fmt.Errorf("development process executable is not a regular file: %s", path)
+	}
+	developmentProcessDigests.Lock()
+	remembered, ok := developmentProcessDigests.values[path]
+	developmentProcessDigests.Unlock()
+	if ok && remembered.stamp == buildInputStamp(info) {
+		return remembered.digest, true, nil
+	}
+	digest, _, err := nativebuilddriver.FileDigest(path)
+	if err != nil {
+		return "", false, err
+	}
+	return digest, true, rememberDevelopmentProcessDigest(path, digest)
 }

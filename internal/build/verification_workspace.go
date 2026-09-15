@@ -20,14 +20,19 @@ func verifyPreparedWorkspace(result *Result) error {
 		if err != nil {
 			return err
 		}
-		if entry.IsDir() {
-			return nil
-		}
 		relative, err := filepath.Rel(result.Dir, path)
 		if err != nil {
 			return err
 		}
 		relative = filepath.ToSlash(relative)
+		if entry.IsDir() {
+			// Linked development process executables are outputs of the same
+			// preparation, owned like the application executable.
+			if relative == developmentProcessBinaryDir {
+				return filepath.SkipDir
+			}
+			return nil
+		}
 		if entry.Type()&fs.ModeSymlink != 0 || !entry.Type().IsRegular() {
 			return fmt.Errorf("prepared workspace has a non-regular input: %s", relative)
 		}

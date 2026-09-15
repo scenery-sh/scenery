@@ -19,6 +19,8 @@ func TestPreparedWorkspaceRejectsChangedBytesAndMembership(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			// Linked development process executables belong to the preparation.
+			writeBuildTestFile(t, root, developmentProcessBinaryDir+"/echo_echo-0123456789abcdef", "executable")
 			if err := verifyPreparedWorkspace(result); err != nil {
 				t.Fatal(err)
 			}

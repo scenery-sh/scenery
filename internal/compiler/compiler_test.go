@@ -247,6 +247,14 @@ go_target "development" {
 	if hasErrors(diagnostics) || second["development"] == "" || second["development"] == first["development"] {
 		t.Fatalf("second build revision = %#v diagnostics %#v", second, diagnostics)
 	}
+	third, _ := ComputeImplementationRevisions(after, map[string]string{"development": "sha256:" + strings.Repeat("3", 64)})
+	batch, diagnostics := ImplementationRevisionsForInputs(after, "development", []string{"sha256:" + strings.Repeat("2", 64), "sha256:" + strings.Repeat("3", 64)})
+	if hasErrors(diagnostics) || batch["sha256:"+strings.Repeat("2", 64)] != second["development"] || batch["sha256:"+strings.Repeat("3", 64)] != third["development"] {
+		t.Fatalf("batched revisions = %#v, want %s and %s (diagnostics %#v)", batch, second["development"], third["development"], diagnostics)
+	}
+	if _, diagnostics := ImplementationRevisionsForInputs(after, "missing", []string{"sha256:" + strings.Repeat("2", 64)}); !hasErrors(diagnostics) {
+		t.Fatal("batched revisions accepted an unknown Go target")
+	}
 	sourceBytes, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)

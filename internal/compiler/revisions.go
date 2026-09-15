@@ -11,63 +11,28 @@ func ComputeImplementationRevisions(result *Result, buildInputManifestDigests ma
 	if result == nil || result.Manifest == nil {
 		return revisions, nil
 	}
-	resources := result.Manifest.Resources
+	targets := goTargetsByName(result.Manifest.Resources)
 	byAddress := resourcesByAddress(result.Manifest)
-	targets := map[string]Resource{}
-	for _, resource := range resources {
-		if resource.Kind == "scenery.go-target" {
-			targets[resource.Name] = resource
-		}
-	}
 	var diagnostics []Diagnostic
+	var adapterDigest string
 	for _, name := range sortedResourceNames(targets) {
 		inputDigest := buildInputManifestDigests[name]
 		if inputDigest == "" {
 			continue
 		}
-		target := targets[name]
-		effective, err := effectiveGoTarget(target, targets, nil)
-		if err != nil {
-			diagnostics = append(diagnostics, Diagnostic{Code: "SCN6150", Severity: "error", Message: err.Error(), Address: target.Address})
-			continue
+		if adapterDigest == "" {
+			adapterDigest = generatedApplicationAdapterDigest(result)
 		}
-		if stringValue(effective["role"]) == "contract" {
-			continue
-		}
-		moduleRef := resolveResourceRef(target, refString(effective["module"]), "go_module")
-		module := byAddress[moduleRef]
-		if module.Address == "" {
-			diagnostics = append(diagnostics, Diagnostic{Code: "SCN6151", Severity: "error", Message: "Go target has no resolved module", Address: target.Address})
+		projection, targetDiagnostics := implementationRevisionProjection(result, byAddress, targets, targets[name], adapterDigest)
+		diagnostics = append(diagnostics, targetDiagnostics...)
+		if projection == nil {
 			continue
 		}
 		if !isCanonicalSHA256Digest(inputDigest) {
-			diagnostics = append(diagnostics, Diagnostic{Code: "SCN6122", Severity: "error", Message: "build input manifest digest must be canonical sha256", Address: target.Address})
+			diagnostics = append(diagnostics, Diagnostic{Code: "SCN6122", Severity: "error", Message: "build input manifest digest must be canonical sha256", Address: targets[name].Address})
 			continue
 		}
-		toolchainRef := resolveResourceRef(target, refString(effective["toolchain"]), "go_toolchain")
-		toolchain := byAddress[toolchainRef]
-		resolvedTarget, err := resolveGoVerificationTarget(result, targets, target)
-		if err != nil {
-			diagnostics = append(diagnostics, Diagnostic{Code: "SCN6122", Severity: "error", Message: err.Error(), Address: target.Address})
-			continue
-		}
-		effective = resolvedGoTargetContext(effective, toolchain, &resolvedTarget.Context)
-		adapterDigest, err := generatedApplicationAdapterDigest(result)
-		if err != nil {
-			diagnostics = append(diagnostics, Diagnostic{Code: "SCN6122", Severity: "error", Message: "generated adapter digest: " + err.Error(), Address: target.Address})
-			continue
-		}
-		projection := map[string]any{
-			"spec_revision":               result.Manifest.SpecRevision,
-			"contract_revision":           result.Manifest.ContractRevision,
-			"implementation_bindings":     implementationBindings(resources),
-			"build_input_manifest_digest": inputDigest,
-			"generated_adapter_digest":    adapterDigest,
-			"target":                      effective,
-			"module":                      module.Spec,
-			"toolchain":                   toolchain.Spec,
-			"runtime_abi":                 "scenery.go-runtime/v1",
-		}
+		projection["build_input_manifest_digest"] = inputDigest
 		revisions[name] = revisionHash("scenery.implementation-revision\x00", projection)
 	}
 	for name := range buildInputManifestDigests {
@@ -78,7 +43,82 @@ func ComputeImplementationRevisions(result *Result, buildInputManifestDigests ma
 	return revisions, diagnostics
 }
 
-func generatedApplicationAdapterDigest(result *Result) (string, error) {
+// ImplementationRevisionsForInputs computes one Go target's implementation
+// revision for each of several build input manifest digests, such as the
+// entrypoints of development processes. The contract projection that every
+// revision shares is computed once; each result equals ComputeImplementationRevisions
+// for that digest alone.
+func ImplementationRevisionsForInputs(result *Result, targetName string, inputDigests []string) (map[string]string, []Diagnostic) {
+	revisions := map[string]string{}
+	if result == nil || result.Manifest == nil || len(inputDigests) == 0 {
+		return revisions, nil
+	}
+	targets := goTargetsByName(result.Manifest.Resources)
+	target := targets[targetName]
+	if target.Address == "" {
+		return revisions, []Diagnostic{{Code: "SCN6122", Severity: "error", Message: "build input manifest names unknown Go target " + targetName}}
+	}
+	projection, diagnostics := implementationRevisionProjection(result, resourcesByAddress(result.Manifest), targets, target, generatedApplicationAdapterDigest(result))
+	if projection == nil {
+		return revisions, diagnostics
+	}
+	for _, inputDigest := range inputDigests {
+		if !isCanonicalSHA256Digest(inputDigest) {
+			diagnostics = append(diagnostics, Diagnostic{Code: "SCN6122", Severity: "error", Message: "build input manifest digest must be canonical sha256", Address: target.Address})
+			continue
+		}
+		projection["build_input_manifest_digest"] = inputDigest
+		revisions[inputDigest] = revisionHash("scenery.implementation-revision\x00", projection)
+	}
+	return revisions, diagnostics
+}
+
+func goTargetsByName(resources []Resource) map[string]Resource {
+	targets := map[string]Resource{}
+	for _, resource := range resources {
+		if resource.Kind == "scenery.go-target" {
+			targets[resource.Name] = resource
+		}
+	}
+	return targets
+}
+
+// implementationRevisionProjection returns a target's revision projection
+// without its build input digest, or nil for a contract-role target or an
+// unresolvable one.
+func implementationRevisionProjection(result *Result, byAddress map[string]Resource, targets map[string]Resource, target Resource, adapterDigest string) (map[string]any, []Diagnostic) {
+	effective, err := effectiveGoTarget(target, targets, nil)
+	if err != nil {
+		return nil, []Diagnostic{{Code: "SCN6150", Severity: "error", Message: err.Error(), Address: target.Address}}
+	}
+	if stringValue(effective["role"]) == "contract" {
+		return nil, nil
+	}
+	moduleRef := resolveResourceRef(target, refString(effective["module"]), "go_module")
+	module := byAddress[moduleRef]
+	if module.Address == "" {
+		return nil, []Diagnostic{{Code: "SCN6151", Severity: "error", Message: "Go target has no resolved module", Address: target.Address}}
+	}
+	toolchainRef := resolveResourceRef(target, refString(effective["toolchain"]), "go_toolchain")
+	toolchain := byAddress[toolchainRef]
+	resolvedTarget, err := resolveGoVerificationTarget(result, targets, target)
+	if err != nil {
+		return nil, []Diagnostic{{Code: "SCN6122", Severity: "error", Message: err.Error(), Address: target.Address}}
+	}
+	effective = resolvedGoTargetContext(effective, toolchain, &resolvedTarget.Context)
+	return map[string]any{
+		"spec_revision":            result.Manifest.SpecRevision,
+		"contract_revision":        result.Manifest.ContractRevision,
+		"implementation_bindings":  implementationBindings(result.Manifest.Resources),
+		"generated_adapter_digest": adapterDigest,
+		"target":                   effective,
+		"module":                   module.Spec,
+		"toolchain":                toolchain.Spec,
+		"runtime_abi":              "scenery.go-runtime/v1",
+	}, nil
+}
+
+func generatedApplicationAdapterDigest(result *Result) string {
 	projected := make([]Resource, 0, len(result.Manifest.Resources))
 	for _, resource := range result.Manifest.Resources {
 		if projection, include := contractResourceProjection(resource); include {
@@ -86,7 +126,7 @@ func generatedApplicationAdapterDigest(result *Result) (string, error) {
 		}
 	}
 	sort.Slice(projected, func(i, j int) bool { return projected[i].Address < projected[j].Address })
-	return revisionHash("scenery.generated-adapter\x00", projected), nil
+	return revisionHash("scenery.generated-adapter\x00", projected)
 }
 
 func effectiveGoTarget(target Resource, targets map[string]Resource, stack map[string]bool) (map[string]any, error) {
