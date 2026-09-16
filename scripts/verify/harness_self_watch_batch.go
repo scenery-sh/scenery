@@ -238,7 +238,7 @@ func runHarnessWatchBatchProbe(ctx context.Context, root string, started detache
 		return nil, err
 	}
 	embedEditCompleted := time.Now()
-	embeddedEdit, _, embedEditLatency, err := waitReplacement(embedded.AppPID, "asset:dependency:batch:handoff", nil, embedEditCompleted)
+	embeddedEdit, embeddedIdentity, embedEditLatency, err := waitReplacement(embedded.AppPID, "asset:dependency:batch:handoff", nil, embedEditCompleted)
 	if err != nil {
 		return nil, fmt.Errorf("embedded asset edit did not serve new bytes: %w", err)
 	}
@@ -249,11 +249,57 @@ func runHarnessWatchBatchProbe(ctx context.Context, root string, started detache
 	if err != nil || stable.AppPID != embeddedEdit.AppPID {
 		return nil, fmt.Errorf("generated publication restarted the final generation: %v", err)
 	}
+	// A contract edit whose builds fail must not outlive its own revert: the
+	// provisional graph a failed build discovered is membership scope, never an
+	// accepted graph the next build may reuse for returning declarations.
+	brokenPath := filepath.Join(root, "service/watch_broken.go")
+	failingStart, err := logOffset()
+	if err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(brokenPath, []byte("package service\n\nfunc watchBroken() { undefinedWatchSymbol() }\n"), 0o600); err != nil {
+		return nil, err
+	}
+	if err := harnessWaitBuildRequest(ctx, started.LogPath, failingStart, false); err != nil {
+		return nil, fmt.Errorf("broken implementation did not fail its build: %w", err)
+	}
+	failingStart, err = logOffset()
+	if err != nil {
+		return nil, err
+	}
+	if err := harnessAtomicWatchSave(packagePath, bytes.Replace(packageSource, []byte(`timeout   = "30s"`), []byte(`timeout   = "28s"`), 1)); err != nil {
+		return nil, err
+	}
+	if err := harnessWaitBuildRequest(ctx, started.LogPath, failingStart, false); err != nil {
+		return nil, fmt.Errorf("contract edit during a failing build did not fail: %w", err)
+	}
+	failingStart, err = logOffset()
+	if err != nil {
+		return nil, err
+	}
+	if err := harnessAtomicWatchSave(packagePath, bytes.Replace(packageSource, []byte(`timeout   = "30s"`), []byte(`timeout   = "29s"`), 1)); err != nil {
+		return nil, err
+	}
+	if err := harnessWaitBuildRequest(ctx, started.LogPath, failingStart, false); err != nil {
+		return nil, fmt.Errorf("returning the contract during a failing build did not fail: %w", err)
+	}
+	returnedEditCompleted := time.Now()
+	if err := os.Remove(brokenPath); err != nil {
+		return nil, err
+	}
+	returned, returnedIdentity, _, err := waitReplacement(embeddedEdit.AppPID, "asset:dependency:batch:handoff", nil, returnedEditCompleted)
+	if err != nil {
+		return nil, fmt.Errorf("repaired implementation did not serve the returned contract: %w", err)
+	}
+	if returnedIdentity.ContractRevision != embeddedIdentity.ContractRevision {
+		return nil, fmt.Errorf("returning a contract edit served %s, want the previously compiled %s", returnedIdentity.ContractRevision, embeddedIdentity.ContractRevision)
+	}
+
 	churnOffset, err := logOffset()
 	if err != nil {
 		return nil, err
 	}
-	churnCurrent := embeddedEdit
+	churnCurrent := returned
 	churnIdentities := map[string]struct{}{}
 	churnLatencies := make([]float64, 0, 20)
 	for ordinal := 1; ordinal <= 20; ordinal++ {
@@ -390,6 +436,30 @@ func harnessWatchEvents(path string, offset int64) ([]harnessWatchEvent, error) 
 		}
 	}
 	return events, nil
+}
+
+// harnessWaitBuildRequest waits for the next completed build request after
+// offset and requires its outcome.
+func harnessWaitBuildRequest(ctx context.Context, log string, offset int64, ok bool) error {
+	deadline := time.Now().Add(90 * time.Second)
+	for time.Now().Before(deadline) {
+		events, err := harnessWatchEvents(log, offset)
+		if err != nil {
+			return err
+		}
+		for _, event := range events {
+			if event.Type == "build.step" && event.Data.Name == "build.request" {
+				if event.Data.OK != ok {
+					return fmt.Errorf("build request ok=%t, want %t", event.Data.OK, ok)
+				}
+				return nil
+			}
+		}
+		if err := harnessWaitContext(ctx, 20*time.Millisecond); err != nil {
+			return err
+		}
+	}
+	return fmt.Errorf("no build request completed after the edit")
 }
 
 func harnessAssertWatchBuildCount(ctx context.Context, log string, offset int64, want int) error {

@@ -216,7 +216,7 @@ func runHarnessProcessModelProbe(parent context.Context, repoRoot string) (summa
 	if err := os.WriteFile(echoSource, append(append([]byte(nil), original...), []byte("\nfunc brokenProbeEdit() { undefinedProbeSymbol() }\n")...), 0o600); err != nil {
 		return nil, err
 	}
-	if err := harnessProcessModelWaitBuild(ctx, started.LogPath, failedOffset, false); err != nil {
+	if err := harnessWaitBuildRequest(ctx, started.LogPath, failedOffset, false); err != nil {
 		return nil, err
 	}
 	served, err := call(ctx, "/greet", `{"name":"probe"}`)
@@ -227,7 +227,7 @@ func runHarnessProcessModelProbe(parent context.Context, repoRoot string) (summa
 	if err := os.WriteFile(echoSource, original, 0o600); err != nil {
 		return nil, err
 	}
-	if err := harnessProcessModelWaitBuild(ctx, started.LogPath, restoredOffset, true); err != nil {
+	if err := harnessWaitBuildRequest(ctx, started.LogPath, restoredOffset, true); err != nil {
 		return nil, err
 	}
 	if restored, err := call(ctx, "/echo", `{"message":"hi"}`); err != nil || restored.PID != echoTwo.PID {
@@ -461,28 +461,6 @@ func harnessReplaceInFile(path, old, replacement string) error {
 		return fmt.Errorf("%s does not contain exactly one %q", path, old)
 	}
 	return harnessAtomicWatchSave(path, bytes.Replace(data, []byte(old), []byte(replacement), 1))
-}
-
-func harnessProcessModelWaitBuild(ctx context.Context, log string, offset int64, ok bool) error {
-	deadline := time.Now().Add(90 * time.Second)
-	for time.Now().Before(deadline) {
-		events, err := harnessWatchEvents(log, offset)
-		if err != nil {
-			return err
-		}
-		for _, event := range events {
-			if event.Type == "build.step" && event.Data.Name == "build.request" {
-				if event.Data.OK != ok {
-					return fmt.Errorf("build request ok=%t, want %t", event.Data.OK, ok)
-				}
-				return nil
-			}
-		}
-		if err := harnessWaitContext(ctx, 20*time.Millisecond); err != nil {
-			return err
-		}
-	}
-	return fmt.Errorf("no build request completed after the edit")
 }
 
 func harnessProcessModelRebuiltSet(log string, offset int64) ([]string, error) {

@@ -251,10 +251,16 @@ func (stamp fileStamp) sameContent(other fileStamp) bool {
 }
 
 type fileSnapshot struct {
+	// contract is the accepted graph, and contractFiles, contractCompiler and
+	// contractCompilerAbsent are exactly the bytes it was compiled from. Only
+	// that pairing authorizes reusing the graph instead of compiling again.
 	contract               *compiler.Result
 	contractFiles          map[string]fileStamp
 	contractCompiler       map[string]fileStamp
 	contractCompilerAbsent map[string]bool
+	// membership is a provisional graph a declaration edit discovered. It only
+	// widens which files a scan captures and never describes accepted bytes.
+	membership *compiler.Result
 	capturedAt             time.Time
 	files                  map[string]fileStamp
 	compilerFiles          map[string]fileStamp
@@ -712,7 +718,7 @@ func scanWatchedFiles(root string) (fileSnapshot, error) {
 func scanWatchedFilesReusing(root string, previous fileSnapshot) (fileSnapshot, error) {
 	snapshot := fileSnapshot{
 		contract: previous.contract, contractFiles: previous.contractFiles, contractCompiler: previous.contractCompiler,
-		contractCompilerAbsent: previous.contractCompilerAbsent,
+		contractCompilerAbsent: previous.contractCompilerAbsent, membership: previous.membership,
 		files:                  make(map[string]fileStamp, len(previous.files)), compilerValid: true,
 	}
 	generated, err := compiler.GeneratedPaths(root)

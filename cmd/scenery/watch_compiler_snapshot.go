@@ -19,10 +19,14 @@ import (
 // and explicit revision inputs contribute identity without becoming ordinary
 // runtime source synchronization policy.
 func (snapshot *fileSnapshot) captureCompilerRevisionFiles(root string, previous fileSnapshot) {
-	if snapshot.contract == nil {
+	graph := snapshot.membership
+	if graph == nil {
+		graph = snapshot.contract
+	}
+	if graph == nil {
 		return
 	}
-	inputs, err := compiler.WorkspaceRevisionInputsWithGenerated(snapshot.contract, snapshot.generated)
+	inputs, err := compiler.WorkspaceRevisionInputsWithGenerated(graph, snapshot.generated)
 	if err != nil {
 		snapshot.compilerValid = false
 		return

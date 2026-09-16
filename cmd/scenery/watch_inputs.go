@@ -63,7 +63,8 @@ func bindSnapshotContract(snapshot *fileSnapshot, result *compiler.Result) {
 	if snapshot == nil || result == nil {
 		return
 	}
-	snapshot.contract = result
+	// An accepted graph defines the membership of later scans itself.
+	snapshot.contract, snapshot.membership = result, nil
 	snapshot.contractFiles = make(map[string]fileStamp)
 	for rel, stamp := range snapshot.files {
 		if !implementationSnapshotFile(rel, stamp) {
@@ -136,14 +137,15 @@ func refreshBuildCompilerMembership(root string, snapshot *fileSnapshot) error {
 		return err
 	}
 	carrier := *snapshot
-	carrier.contract = discovered
+	// The discovered graph is membership scope only. The snapshot's bound graph
+	// keeps describing exactly the bytes its contract baselines hold, or an edit
+	// that returns the tree to those baselines would let compilation reuse the
+	// provisional graph as if it had described them.
+	carrier.membership = discovered
 	refreshed, err := scanWatchedFilesReusing(root, carrier)
 	if err != nil {
 		return err
 	}
-	// Keep the discovery result only as the membership scope for subsequent
-	// freshness scans. Its contract baselines still belong to the last accepted
-	// graph, so compilation cannot reuse it and must rebuild from captured bytes.
 	*snapshot = refreshed
 	return nil
 }
@@ -158,7 +160,7 @@ func refreshSnapshotContract(root string, snapshot *fileSnapshot, result *compil
 		return
 	}
 	candidate := *snapshot
-	candidate.contract = result
+	candidate.contract, candidate.membership = result, nil
 	candidate.compilerValid = true
 	generated, err := compiler.GeneratedPaths(root)
 	if err != nil {

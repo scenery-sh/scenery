@@ -329,3 +329,55 @@ func TestScanWatchedFilesReusingDetectsChanges(t *testing.T) {
 		t.Fatal("reusing scan trusted preserved size and mtime over changed content")
 	}
 }
+
+// A declaration edit refreshes the snapshot's compiler membership from a
+// provisional graph. Returning the declaration to the accepted bytes must
+// compile the accepted graph again, never the provisional one.
+func TestRefreshedCompilerMembershipNeverBecomesTheSnapshotGraph(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	const accepted = "application \"captured\" {}\n"
+	const edited = "application \"captured\" {}\n\nhttp_gateway \"public_api\" {\n  exposure        = \"internet\"\n  base_path       = \"/\"\n  cors            = std.cors.none\n  trusted_proxies = std.trusted_proxies.none\n  forwarded       = std.forwarded_headers.reject\n}\n"
+	writeWatchFile(t, root, "app.scn", accepted)
+	contract, err := compiler.Compile(root)
+	if err != nil || !contract.Valid() {
+		t.Fatalf("compile: %v", err)
+	}
+	snapshot, err := scanWatchedFilesReusing(root, fileSnapshot{contract: contract})
+	if err != nil || !snapshot.compilerValid {
+		t.Fatalf("initial capture: %v", err)
+	}
+	bindSnapshotContract(&snapshot, contract)
+
+	writeWatchFile(t, root, "app.scn", edited)
+	changed, err := scanWatchedFilesReusing(root, snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := refreshBuildCompilerMembership(root, &changed); err != nil {
+		t.Fatal(err)
+	}
+	provisional, err := build.CompileContractWithSnapshot(root, buildSourceSnapshot(changed))
+	if err != nil || !provisional.Valid() {
+		t.Fatalf("compile the edited declaration: %v", err)
+	}
+	if provisional.Manifest.ContractRevision == contract.Manifest.ContractRevision {
+		t.Fatal("the edited declaration did not change the contract revision")
+	}
+
+	writeWatchFile(t, root, "app.scn", accepted)
+	returned, err := scanWatchedFilesReusing(root, changed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := build.CompileContractWithSnapshot(root, buildSourceSnapshot(returned))
+	if err != nil || !result.Valid() {
+		t.Fatalf("compile the returned declaration: %v", err)
+	}
+	if result.Manifest.ContractRevision != contract.Manifest.ContractRevision {
+		t.Fatalf("returning the declaration compiled %s, want the accepted %s", result.Manifest.ContractRevision, contract.Manifest.ContractRevision)
+	}
+	if changed.contract != contract || returned.contract != contract {
+		t.Fatal("the provisional membership graph became the snapshot's bound graph")
+	}
+}
