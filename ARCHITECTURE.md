@@ -392,6 +392,14 @@ for the development process model, the host and per-service entrypoints with
 per-process identities), and writes latest-build metadata. Generation is injected through `GenerateHooks`;
 the production package does not import `internal/generate`.
 
+Every materialization of that private workspace holds its exclusive workspace
+lock: full preparation, the cached-graph refresh that resynchronizes source
+bytes for an unchanged declaration graph, the tidy `scenery test` runs after Go
+rejects the workspace module files, and compilation. Each phase releases the
+lock before the next reacquires it, so a refresh in one process can neither
+expose a half-synced workspace nor remove another process's in-flight build
+output.
+
 Framework preparation snapshots the selected module's relevant source inputs,
 builds its content-stamped CLI and binds both digests into existing build input
 manifests. `cmd/scenery/framework.go` owns explicit preparation/inspection, not
