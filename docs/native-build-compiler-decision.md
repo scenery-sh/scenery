@@ -1,7 +1,9 @@
 # Native Build Compiler Decision
 
-Status: retained direct compiler/linker is the normal development executor;
-stock `go build` is not a development fallback.
+Status: superseded on 2026-09-16. The retained direct compiler/linker was
+removed with the single application development model (Plan 0200); every
+Scenery build now links with stock `go build`, and `scenery up` links only the
+process entrypoints whose identity changed. The record below is history.
 
 ## Decision
 

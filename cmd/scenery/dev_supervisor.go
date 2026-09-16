@@ -35,13 +35,12 @@ import (
 )
 
 type runningApp struct {
-	process  *devManagedProcess
-	cmd      *exec.Cmd
-	done     chan error
-	buildDir string
-	pid      string
-	output   *safeLineTail
-	launch   *appStartPlan
+	process *devManagedProcess
+	cmd     *exec.Cmd
+	done    chan error
+	pid     string
+	output  *safeLineTail
+	launch  *appStartPlan
 }
 
 type devSupervisor struct {
@@ -96,9 +95,7 @@ type devSupervisor struct {
 	closeOnce sync.Once
 	mu        sync.RWMutex
 	current   *runningApp
-	// processModel selects process-per-service development; processes holds its
-	// host and service instances once started.
-	processModel       bool
+	// processes holds the host and service process instances once started.
 	processes          *devProcessModel
 	status             devdash.AppRecord
 	pendingDevEvents   []devdash.DevEvent
@@ -122,11 +119,6 @@ const (
 func newDevSupervisor(ctx context.Context, root string, cfg app.Config, env app.ResolvedEnv, backend devBackend, console *runConsole, agent *localagent.Client, agentSession *localagent.Session) (*devSupervisor, error) {
 	supervisorCtx, cancel := context.WithCancel(ctx)
 	backend = backend.normalized()
-	processModel, err := devProcessModelSelected()
-	if err != nil {
-		cancel()
-		return nil, err
-	}
 	token, err := randomToken()
 	if err != nil {
 		cancel()
@@ -145,9 +137,6 @@ func newDevSupervisor(ctx context.Context, root string, cfg app.Config, env app.
 	if console == nil {
 		console = newRunConsole(os.Stdout, os.Stderr, false, false, appID, root)
 	}
-	if !processModel {
-		console.Warning(devProcessModelDeprecation)
-	}
 
 	s := &devSupervisor{
 		ctx:          supervisorCtx,
@@ -162,7 +151,6 @@ func newDevSupervisor(ctx context.Context, root string, cfg app.Config, env app.
 		console:      console,
 		agent:        agent,
 		agentSession: agentSession,
-		processModel: processModel,
 		status: devdash.AppRecord{
 			ID:         appID,
 			Name:       cfg.Name,
@@ -729,59 +717,6 @@ func (s *devSupervisor) sessionAuthEnv() []string {
 	}
 }
 
-func (s *devSupervisor) waitForAppStartup(ctx context.Context, app *runningApp) error {
-	if app == nil || app.process == nil {
-		deadline := time.NewTimer(appStartupTimeout)
-		defer deadline.Stop()
-		ticker := time.NewTicker(appStartupPollInterval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				_ = app.stop()
-				return ctx.Err()
-			case err, ok := <-app.done:
-				if !ok {
-					return appStartupExitError(app, nil)
-				}
-				return appStartupExitError(app, err)
-			case <-ticker.C:
-				if backendAcceptsConnections(s.backend) {
-					return nil
-				}
-			case <-deadline.C:
-				_ = app.stop()
-				return fmt.Errorf("scenery app did not listen on %s address %s within %s", s.backend.Network, s.addr, appStartupTimeout)
-			}
-		}
-	}
-	return app.process.WaitReady(ctx, devProcessReadyRequest{
-		Timeout:  appStartupTimeout,
-		Interval: appStartupPollInterval,
-		Probe: func(context.Context) error {
-			if backendAcceptsConnections(s.backend) {
-				return nil
-			}
-			return fmt.Errorf("scenery app is not accepting %s connections on %s", s.backend.Network, s.addr)
-		},
-	})
-}
-
-func appStartupExitError(app *runningApp, err error) error {
-	message := "scenery app exited during startup"
-	if err != nil {
-		message += ": " + err.Error()
-	} else {
-		message += ": process exited without an error"
-	}
-	if app != nil && app.output != nil {
-		if output := strings.TrimSpace(app.output.String()); output != "" {
-			message += "\n" + output
-		}
-	}
-	return errors.New(message)
-}
-
 func backendAcceptsConnections(backend devBackend) bool {
 	backend = backend.normalized()
 	target := backend.Addr
@@ -796,14 +731,6 @@ func backendAcceptsConnections(backend devBackend) bool {
 	}
 	_ = conn.Close()
 	return true
-}
-
-func backendAvailableBeforeStartup(backend devBackend) error {
-	backend = backend.normalized()
-	if backend.Network == "unix" {
-		return nil
-	}
-	return portAvailable(backend.Addr)
 }
 
 func tcpAddrAcceptsConnections(addr string) bool {

@@ -49,7 +49,7 @@ func TestEventDeliveryAttemptKeepsTheGenerationItWasAdmittedTo(t *testing.T) {
 	useProcessLinkForTest(t, config)
 	publish := func(number uint64, worker processGenerationInstance, echo *processHostTestBackend) {
 		t.Helper()
-		if err := host.publish(processGenerationManifest{Generation: number, ContractRevision: processHostTestContract, Bindings: map[string]string{"echo/binding/echo_internal": "echo_echo"},
+		if err := host.publish(processGenerationManifest{Generation: number, ContractRevision: processHostTestContract, Identity: processHostTestBuild(number), Bindings: map[string]string{"echo/binding/echo_internal": "echo_echo"},
 			Processes: map[string]processGenerationInstance{"worker_worker": worker, "echo_echo": echo.instance}}); err != nil {
 			t.Fatal(err)
 		}

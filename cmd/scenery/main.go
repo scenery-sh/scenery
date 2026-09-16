@@ -221,13 +221,6 @@ func runWithCLITelemetry(args []string, telemetry *cliTelemetryInvocation) error
 		return runTelemetryCommand(os.Stdout, args[1:])
 	case "system":
 		return systemCommand(args[1:])
-	case "internal":
-		// Tool-exec calls this once per compiler/linker action. They are part of
-		// one application build, not thousands of user CLI invocations.
-		if telemetry != nil {
-			telemetry.suppress()
-		}
-		return internalCommand(args[1:])
 	default:
 		if handled, err := runBindingCLI(os.Stdout, os.Stderr, args); handled {
 			return err

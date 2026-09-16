@@ -21,7 +21,7 @@ remain current data contracts, not an executable product subcommand.
 
 ```text
 scenery harness [--app-root <path>] [-o json] [--write]
-go run ./scripts/verify [--repo-root <path>] [--summary] [-o human|json] [--write] [--quick|--race|--release|--probe <id>...|--benchmark edit-latency|--benchmark worktree-cost|--benchmark native-build-compiler --workload-root <path> [--benchmark-short]|--benchmark native-build-driver --workload-root <path> [--benchmark-short]|--benchmark native-reload --workload-root <path>|--benchmark native-reload-plugin --workload-root <path>|--benchmark native-reload-attribution --workload-root <path>] [--fresh-tests]
+go run ./scripts/verify [--repo-root <path>] [--summary] [-o human|json] [--write] [--quick|--race|--release|--probe <id>...|--benchmark edit-latency|--benchmark worktree-cost|--benchmark native-reload --workload-root <path>|--benchmark native-reload-plugin --workload-root <path>|--benchmark native-reload-attribution --workload-root <path>] [--fresh-tests]
 scenery harness ui [--app-root <path>] [--dashboard-url <url>] [--headed] [-o json] [--write]
 scenery inspect harness [artifact <name>|diagnostics --severity error|warning|timing --top <n>] -o json [--app-root <path>] [--repo-root <path>]
 ```
@@ -163,30 +163,6 @@ pass while reporting `no_go`; it is architecture evidence, not a product runtime
 or production-equivalence claim. Raw evidence is retained beneath
 `.scenery/harness/minimal-native-reload-plugin/` with `--write`.
 
-`--benchmark native-build-driver --workload-root <path>` runs the Plan 0193
-full-ONLV experiment. Both Stage I lanes perform the same complete package and
-byte capture; stock Go is compared with a benchmark-scoped retained owner that
-invokes the pinned compiler and linker directly. It uses two independent roots,
-two warmups per lane, two 30-pair cohorts with backend/root assignment swapped,
-and a separate 50-edit churn check. Unsupported inputs fail closed and the lane
-never changes or silently falls back to a production backend. Evidence is under
-`.scenery/harness/native-build-driver/<run-id>/` with `--write`. Optional
-`--benchmark-short` uses the same observational one-cohort, one-warmup,
-three-round boundary as the compiler benchmark and cannot make its full
-decision.
-
-`--benchmark native-build-compiler --workload-root <path>` runs the full-ONLV
-retained-domain experiment. It measures three explicit lanes: complete capture
-plus stock `go build`, retained validation plus stock `go build`, and retained
-validation plus captured stock compiler/linker execution. Every result is bound
-to the requested backend, owner session, generation and edited runtime identity;
-accountable build time is the enclosing wrapper transaction. The full decision
-series uses two independent cohorts, two warmups, 30 rounds per cohort and a
-50-edit candidate churn check. `--benchmark-short` is a bounded observation of
-one cohort, one warmup and three rounds; it reports
-`short_observation_only` and cannot make the full GO/NO-GO decision. Evidence is
-under `.scenery/harness/native-build-compiler/<run-id>/` with `--write`.
-
 Keep the release guard strict, but make the strictness land on Scenery-owned
 release safety: contracts, schemas, release artifacts, fixture runtimes, route
 isolation, and managed-substrate semantics. Nondeterministic external host or
@@ -235,8 +211,8 @@ release certification. Failed steps identify their focused rerun command.
 | `build-info` | Build identity freshness |
 | `cli-process` | CLI exit and telemetry |
 | `dev-follower` | Development follower process |
-| `dev-process` | Managed child-process lifecycle, captured-input invalidation matrix, exact previously compiled A-to-B-to-A generation round-trip, a contract edit and its return across failing builds serving the previously compiled contract revision, behavior-preserving cgo/native edit, 20 unique edit-to-exact-response generations, bounded process/FD/RSS/cache settling, and tagged build-cache input mutation/rejection/retry, restored external-source bypass without change time (including temporarily enabled ignored Go files and temporary embeds in initially empty directories), canceled-producer workspace ownership, publication crash recovery and lease/link-slot proof |
-| `process-model` | `testdata/apps/multiservice` through `scenery up` in the default process model (selected explicitly with `SCENERY_DEV_PROCESS_MODEL=service`): three distinct processes; a `greet` request pinned to generation 1 completing against the first `greeter` and `echo` after `greeter` and then `echo` were replaced (generation 2 retires without stopping the first `echo`), with drain before activation on replacement; retirement of the first generation's instances; a failed build and identical restored source keeping the published generation; a shared package edit replacing both services in one generation; a contract-changing generation whose `echo` constructor fails keeping the host and services serving; process/socket/link cleanup; and that every entrypoint of the session was linked by stock Go, with no recipe recorded or used |
+| `dev-process` | Managed child-process lifecycle through the process model: every answer attested by the session host with a build verified against the runtime bundle and naming its service process, a rejected preflight and a failing replacement constructor keeping the published generation serving, the final served build equal to the `build --development --verify-generation` candidate, captured-input invalidation matrix, exact previously compiled A-to-B-to-A generation round-trip, a contract edit and its return across failing builds serving the previously compiled contract revision, behavior-preserving cgo/native edit, 20 unique edit-to-exact-response generations, bounded process/FD/RSS/cache settling, and tagged build-cache input mutation/rejection/retry, restored external-source bypass without change time (including temporarily enabled ignored Go files and temporary embeds in initially empty directories), canceled-producer workspace ownership, publication crash recovery and lease/link-slot proof |
+| `process-model` | `testdata/apps/multiservice` through `scenery up`: three distinct processes, every answer attested by the host with the serving generation's build and naming its service instance; a `greet` request pinned to generation 1 completing against the first `greeter` and `echo` after `greeter` and then `echo` were replaced (generation 2 retires without stopping the first `echo`), with drain before activation on replacement; retirement of the first generation's instances; a failed build and identical restored source keeping the published generation; a shared package edit replacing both services in one generation; a contract-changing generation whose `echo` constructor fails keeping the host and services serving; process/socket/link cleanup; and that every entrypoint of the session was linked by stock Go, with no recipe recorded or used |
 | `dev-lock` | Named process locks |
 | `dev-cleanup` | Session cleanup |
 | `inspect-go` | Go-package documentation inspection |
@@ -244,7 +220,7 @@ release certification. Failed steps identify their focused rerun command.
 | `worktree-git` | Git worktree lifecycle |
 | `edge` | Caddy/publication HTTP and TLS behavior |
 | `generation` | Generated-package/source-only compilation |
-| `native-contract` | Native contract application |
+| `native-contract` | Native contract application through `scenery up`: stock process links with external framework source, generated application, service and host entrypoints, runtime bundle with local replacement inputs, grouped route and removed ungrouped spelling attested by the host with the runtime bundle, generated TypeScript client against the session, and public restarts reusing every process executable |
 | `snapshot-backup` | Snapshot backup process |
 | `typescript` | TypeScript checker |
 | `code-task` | Code-task process |
@@ -380,8 +356,6 @@ contract drift, and schema conformance. The additional work depends on mode:
 | `--benchmark native-reload --workload-root <path>` | Only the pinned ONLV implementation-island experiment after common checks; exact experimental identity, activation and negative cases, with an explicit GO/NO-GO result. |
 | `--benchmark native-reload-plugin --workload-root <path>` | Only the pinned ONLV stable-host/Go-plugin experiment after common checks; unique artifacts, exact experimental identity, typed behavior, incompatibility and retention evidence, with an explicit GO/NO-GO result. |
 | `--benchmark native-reload-attribution --workload-root <path>` | Only the macOS first/repeated-artifact attribution experiment after common checks; 30 primary pairs and five separate diagnostic pairs, identity checks, phase accounting and explicit unknowns. |
-| `--benchmark native-build-compiler --workload-root <path> [--benchmark-short]` | Only the full-ONLV retained-domain compiler experiment after common checks; complete-capture stock, retained-capture stock, and retained direct compiler/linker lanes with product response identity. The full series makes the GO/NO-GO decision; short mode runs one warmup plus three rounds and is observational only. |
-| `--benchmark native-build-driver --workload-root <path> [--benchmark-short]` | Only the full-ONLV retained standard compiler/linker experiment after common checks; identical capture, product response identity and fail-closed correctness. Full mode adds two paired cohorts and bounded churn; short mode is observational only. |
 
 The release edge-process step runs the published static frontend journey
 against managed Caddy on disposable loopback ports, with local TLS issuance

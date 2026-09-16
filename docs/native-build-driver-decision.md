@@ -1,6 +1,8 @@
 # Native Build Driver Decision
 
-Status: NO-GO. Do not promote the equal-capture retained driver.
+Status: NO-GO. Do not promote the equal-capture retained driver. The retained
+compiler it was compared with was removed on 2026-09-16 (Plan 0200), together
+with this benchmark.
 
 ## Decision
 

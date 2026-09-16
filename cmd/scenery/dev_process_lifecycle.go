@@ -122,6 +122,7 @@ type devProcessState struct {
 	link        *devProcessLink
 	generation  uint64
 	contract    string
+	identity    build.DevelopmentProcessIdentity
 	environment string
 	bindings    map[string]string
 	host        *devProcessInstance
@@ -144,12 +145,14 @@ func (s *devSupervisor) publishDevProcessGeneration(ctx context.Context, model *
 		PID      int      `json:"pid"`
 		Identity identity `json:"identity"`
 	}
+	attested := model.identity
 	manifest := struct {
 		Generation       uint64              `json:"generation"`
 		ContractRevision string              `json:"contract_revision"`
+		Identity         identity            `json:"identity"`
 		Processes        map[string]instance `json:"processes"`
 		Bindings         map[string]string   `json:"bindings"`
-	}{Generation: model.generation + 1, ContractRevision: model.contract, Processes: map[string]instance{}, Bindings: model.bindings}
+	}{Generation: model.generation + 1, ContractRevision: model.contract, Identity: identity{attested.ContractRevision, attested.ImplementationRevision, attested.BuildInputDigest, attested.GoTarget}, Processes: map[string]instance{}, Bindings: model.bindings}
 	for name, service := range model.services {
 		pid, _ := strconv.Atoi(service.app.pid)
 		value := service.process.Identity

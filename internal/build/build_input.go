@@ -24,7 +24,6 @@ import (
 	"scenery.sh/internal/codegen"
 	"scenery.sh/internal/gotarget"
 	"scenery.sh/internal/machine"
-	"scenery.sh/internal/nativebuilddriver"
 )
 
 const (
@@ -318,9 +317,9 @@ func retainBuildInputSelection(target map[string]retainedBuildInputSelection, pa
 
 func retainedBuildInputSelectionIdentity(path string, fullContent bool) (string, error) {
 	if !fullContent {
-		return nativebuilddriver.SourceSelectionIdentity(path)
+		return sourceSelectionIdentity(path)
 	}
-	digest, _, err := nativebuilddriver.FileDigest(path)
+	digest, _, err := fileDigest(path)
 	return digest, err
 }
 

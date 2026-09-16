@@ -30,9 +30,6 @@ func TestHarnessExplicitProofSelection(t *testing.T) {
 		{[]string{"--benchmark", "native-reload", "--workload-root", "/onlv"}, harnessSelfModeBenchmark, nil},
 		{[]string{"--benchmark", "native-reload-plugin", "--workload-root", "/onlv"}, harnessSelfModeBenchmark, nil},
 		{[]string{"--benchmark", "native-reload-attribution", "--workload-root", "/onlv"}, harnessSelfModeBenchmark, nil},
-		{[]string{"--benchmark", "native-build-driver", "--workload-root", "/onlv"}, harnessSelfModeBenchmark, nil},
-		{[]string{"--benchmark", "native-build-compiler", "--workload-root", "/onlv"}, harnessSelfModeBenchmark, nil},
-		{[]string{"--benchmark", "native-build-compiler", "--workload-root", "/onlv", "--benchmark-short"}, harnessSelfModeBenchmark, nil},
 	} {
 		opts, err := parseHarnessSelfArgs(tc.args)
 		if err != nil || opts.Mode != tc.mode {
@@ -50,9 +47,6 @@ func TestHarnessExplicitProofSelection(t *testing.T) {
 		}
 		if tc.mode == harnessSelfModeBenchmark && opts.Benchmark != tc.args[1] {
 			t.Fatalf("benchmark lost: %+v", opts)
-		}
-		if slices.Contains(tc.args, "--benchmark-short") && !opts.BenchmarkShort {
-			t.Fatalf("short benchmark option lost: %+v", opts)
 		}
 	}
 }

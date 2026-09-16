@@ -10,24 +10,40 @@ import (
 	"slices"
 	"time"
 
-	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/build"
 )
 
 // Exercise production watch timing, actual atomic saves and edits after Go
 // compilation has begun. Unit tests retain fake-clock settling coverage.
-func runHarnessWatchBatchProbe(ctx context.Context, root string, started detachedDevResult, current localagent.Session,
-	readSession func() (localagent.Session, error),
-	waitReplacement func(string, string, *build.CandidateIdentity, time.Time) (localagent.Session, build.CandidateIdentity, time.Duration, error),
-) (map[string]any, error) {
+func runHarnessWatchBatchProbe(ctx context.Context, root string, started detachedDevResult, current build.CandidateIdentity,
+	served func(string, *build.CandidateIdentity) (build.CandidateIdentity, string, time.Duration, error),
+	waitReplacement func(build.CandidateIdentity, string, *build.CandidateIdentity, time.Time) (build.CandidateIdentity, string, time.Duration, error),
+) (map[string]any, build.CandidateIdentity, error) {
+	// waitBuilt waits for the successful build of an edit that need not change
+	// the served build, then for a verified answer.
+	waitBuilt := func(offset int64, response string, editCompleted time.Time) (build.CandidateIdentity, time.Duration, error) {
+		if err := harnessWaitBuildRequest(ctx, started.LogPath, offset, true); err != nil {
+			return build.CandidateIdentity{}, 0, err
+		}
+		for {
+			requestStarted := time.Now()
+			identity, _, latency, err := served(response, nil)
+			if err == nil {
+				return identity, requestStarted.Add(latency).Sub(editCompleted), nil
+			}
+			if waitErr := harnessWaitContext(ctx, 100*time.Millisecond); waitErr != nil {
+				return build.CandidateIdentity{}, 0, fmt.Errorf("%w: %v", waitErr, err)
+			}
+		}
+	}
 	sourcePath := filepath.Join(root, "service/api.go")
 	source, err := os.ReadFile(sourcePath)
 	if err != nil {
-		return nil, err
+		return nil, build.CandidateIdentity{}, err
 	}
 	anchor := []byte(`sharedprefix.Value("changed:")`)
 	if bytes.Count(source, anchor) != 1 {
-		return nil, fmt.Errorf("watch batch source anchor is missing")
+		return nil, build.CandidateIdentity{}, fmt.Errorf("watch batch source anchor is missing")
 	}
 	logOffset := func() (int64, error) {
 		info, err := os.Stat(started.LogPath)
@@ -38,40 +54,40 @@ func runHarnessWatchBatchProbe(ctx context.Context, root string, started detache
 	}
 	batchStart, err := logOffset()
 	if err != nil {
-		return nil, err
+		return nil, build.CandidateIdentity{}, err
 	}
 	if err := harnessAtomicWatchSave(sourcePath, bytes.Replace(source, anchor, []byte(`sharedprefix.Value(watchPrefix())`), 1)); err != nil {
-		return nil, err
+		return nil, build.CandidateIdentity{}, err
 	}
 	if err := harnessWaitContext(ctx, 25*time.Millisecond); err != nil {
-		return nil, err
+		return nil, build.CandidateIdentity{}, err
 	}
 	prefixPath := filepath.Join(root, "service/watch_batch.go")
 	prefix := func(value string) []byte {
 		return []byte(fmt.Sprintf("package service\nfunc watchPrefix() string { return %q }\n", value))
 	}
 	if err := os.WriteFile(prefixPath, prefix("batch:"), 0o600); err != nil {
-		return nil, err
+		return nil, build.CandidateIdentity{}, err
 	}
 	batchEditCompleted := time.Now()
-	batched, batchedIdentity, batchLatency, err := waitReplacement(current.AppPID, "batch:handoff", nil, batchEditCompleted)
+	batchedIdentity, _, batchLatency, err := waitReplacement(current, "batch:handoff", nil, batchEditCompleted)
 	if err != nil {
-		return nil, fmt.Errorf("atomic multi-file save did not serve the completed batch: %w", err)
+		return nil, build.CandidateIdentity{}, fmt.Errorf("atomic multi-file save did not serve the completed batch: %w", err)
 	}
 	if err := harnessAssertWatchBuildCount(ctx, started.LogPath, batchStart, 1); err != nil {
-		return nil, err
+		return nil, build.CandidateIdentity{}, err
 	}
 	rapidStart, err := logOffset()
 	if err != nil {
-		return nil, err
+		return nil, build.CandidateIdentity{}, err
 	}
 	if err := os.WriteFile(prefixPath, prefix("rapid-one:"), 0o600); err != nil {
-		return nil, err
+		return nil, build.CandidateIdentity{}, err
 	}
 	for {
 		events, err := harnessWatchEvents(started.LogPath, rapidStart)
 		if err != nil {
-			return nil, err
+			return nil, build.CandidateIdentity{}, err
 		}
 		compiling := false
 		for _, event := range events {
@@ -83,171 +99,180 @@ func runHarnessWatchBatchProbe(ctx context.Context, root string, started detache
 			break
 		}
 		if err := harnessWaitContext(ctx, 10*time.Millisecond); err != nil {
-			return nil, fmt.Errorf("watch candidate never reached Go compilation: %w", err)
+			return nil, build.CandidateIdentity{}, fmt.Errorf("watch candidate never reached Go compilation: %w", err)
 		}
 	}
 	if err := os.WriteFile(prefixPath, prefix("rapid-two:"), 0o600); err != nil {
-		return nil, err
+		return nil, build.CandidateIdentity{}, err
 	}
 	if err := harnessWaitContext(ctx, 25*time.Millisecond); err != nil {
-		return nil, err
+		return nil, build.CandidateIdentity{}, err
 	}
 	if err := harnessAtomicWatchSave(prefixPath, prefix("rapid-final:")); err != nil {
-		return nil, err
+		return nil, build.CandidateIdentity{}, err
 	}
 	rapidEditCompleted := time.Now()
-	final, finalIdentity, rapidLatency, err := waitReplacement(batched.AppPID, "rapid-final:handoff", nil, rapidEditCompleted)
+	finalIdentity, _, rapidLatency, err := waitReplacement(batchedIdentity, "rapid-final:handoff", nil, rapidEditCompleted)
 	if err != nil {
-		return nil, fmt.Errorf("edit during compilation was dropped: %w", err)
+		return nil, build.CandidateIdentity{}, fmt.Errorf("edit during compilation was dropped: %w", err)
 	}
 	generated := filepath.Join(root, "service/scenerycontract/types.gen.go")
 	data, err := os.ReadFile(generated)
 	if err != nil {
-		return nil, err
+		return nil, build.CandidateIdentity{}, err
 	}
 	if err := harnessAtomicWatchSave(generated, data); err != nil {
-		return nil, err
+		return nil, build.CandidateIdentity{}, err
 	}
 	if err := harnessAssertWatchBuildCount(ctx, started.LogPath, rapidStart, 2); err != nil {
-		return nil, err
+		return nil, build.CandidateIdentity{}, err
 	}
 	roundtripStart, err := logOffset()
 	if err != nil {
-		return nil, err
+		return nil, build.CandidateIdentity{}, err
 	}
 	if err := harnessAtomicWatchSave(prefixPath, prefix("batch:")); err != nil {
-		return nil, err
+		return nil, build.CandidateIdentity{}, err
 	}
 	roundtripEditCompleted := time.Now()
-	roundtripped, roundtripIdentity, roundtripLatency, err := waitReplacement(final.AppPID, "batch:handoff", nil, roundtripEditCompleted)
+	roundtripIdentity, _, roundtripLatency, err := waitReplacement(finalIdentity, "batch:handoff", nil, roundtripEditCompleted)
 	if err != nil {
-		return nil, fmt.Errorf("return to a previously compiled behavior did not activate the exact generation: %w", err)
+		return nil, build.CandidateIdentity{}, fmt.Errorf("return to a previously compiled behavior did not activate the exact generation: %w", err)
 	}
 	if roundtripIdentity.ContractRevision != batchedIdentity.ContractRevision ||
 		roundtripIdentity.ImplementationRevision != batchedIdentity.ImplementationRevision ||
 		roundtripIdentity.BuildInputDigest != batchedIdentity.BuildInputDigest ||
 		roundtripIdentity.Target != batchedIdentity.Target {
-		return nil, fmt.Errorf("return to a previously compiled behavior changed its exact build identity")
+		return nil, build.CandidateIdentity{}, fmt.Errorf("return to a previously compiled behavior changed its exact build identity")
 	}
 	if err := harnessAssertWatchBuildCount(ctx, started.LogPath, roundtripStart, 1); err != nil {
-		return nil, err
+		return nil, build.CandidateIdentity{}, err
 	}
 
 	matrixStart, err := logOffset()
 	if err != nil {
-		return nil, err
+		return nil, build.CandidateIdentity{}, err
 	}
 	dependencyPath := filepath.Join(root, "sharedprefix/prefix.go")
 	if err := os.WriteFile(dependencyPath, []byte("package sharedprefix\nfunc Value(value string) string { return \"dependency:\" + value }\n"), 0o600); err != nil {
-		return nil, err
+		return nil, build.CandidateIdentity{}, err
 	}
 	dependencyEditCompleted := time.Now()
-	dependency, dependencyIdentity, dependencyLatency, err := waitReplacement(roundtripped.AppPID, "dependency:batch:handoff", nil, dependencyEditCompleted)
+	dependencyIdentity, _, dependencyLatency, err := waitReplacement(roundtripIdentity, "dependency:batch:handoff", nil, dependencyEditCompleted)
 	if err != nil {
-		return nil, fmt.Errorf("shared Go dependency edit did not serve new behavior: %w", err)
+		return nil, build.CandidateIdentity{}, fmt.Errorf("shared Go dependency edit did not serve new behavior: %w", err)
 	}
 	if dependencyIdentity.ImplementationRevision == finalIdentity.ImplementationRevision || dependencyIdentity.BuildInputDigest == finalIdentity.BuildInputDigest {
-		return nil, fmt.Errorf("shared Go dependency edit retained stale implementation identity")
+		return nil, build.CandidateIdentity{}, fmt.Errorf("shared Go dependency edit retained stale implementation identity")
 	}
 
 	revisionInput := filepath.Join(root, "probe.input")
 	if err := os.WriteFile(revisionInput, []byte("captured-input\n"), 0o600); err != nil {
-		return nil, err
+		return nil, build.CandidateIdentity{}, err
 	}
 	appSourcePath := filepath.Join(root, "app.scn")
 	appSource, err := os.ReadFile(appSourcePath)
 	if err != nil {
-		return nil, err
+		return nil, build.CandidateIdentity{}, err
 	}
 	declarationAnchor := []byte("  managed_generated_roots = [")
 	declarationReplacement := []byte("  revision_input \"probe\" { paths = [\"probe.input\"] }\n\n  managed_generated_roots = [")
 	if bytes.Count(appSource, declarationAnchor) != 1 {
-		return nil, fmt.Errorf("declaration input anchor is missing")
+		return nil, build.CandidateIdentity{}, fmt.Errorf("declaration input anchor is missing")
+	}
+	// A declared revision input no Go target consumes changes no served build
+	// identity; its capture is proven by a successful build of the edit.
+	declarationOffset, err := logOffset()
+	if err != nil {
+		return nil, build.CandidateIdentity{}, err
 	}
 	if err := harnessAtomicWatchSave(appSourcePath, bytes.Replace(appSource, declarationAnchor, declarationReplacement, 1)); err != nil {
-		return nil, err
+		return nil, build.CandidateIdentity{}, err
 	}
 	declarationEditCompleted := time.Now()
-	declaration, declarationIdentity, declarationLatency, err := waitReplacement(dependency.AppPID, "dependency:batch:handoff", nil, declarationEditCompleted)
+	declarationIdentity, declarationLatency, err := waitBuilt(declarationOffset, "dependency:batch:handoff", declarationEditCompleted)
 	if err != nil {
-		return nil, fmt.Errorf("new declaration input did not rebuild from captured bytes: %w", err)
+		return nil, build.CandidateIdentity{}, fmt.Errorf("new declaration input did not rebuild from captured bytes: %w", err)
 	}
 	packagePath := filepath.Join(root, "service/package.scn")
 	packageSource, err := os.ReadFile(packagePath)
 	if err != nil {
-		return nil, err
+		return nil, build.CandidateIdentity{}, err
 	}
 	if bytes.Count(packageSource, []byte(`timeout   = "30s"`)) != 1 {
-		return nil, fmt.Errorf("contract change anchor is missing")
+		return nil, build.CandidateIdentity{}, fmt.Errorf("contract change anchor is missing")
 	}
 	if err := harnessAtomicWatchSave(packagePath, bytes.Replace(packageSource, []byte(`timeout   = "30s"`), []byte(`timeout   = "29s"`), 1)); err != nil {
-		return nil, err
+		return nil, build.CandidateIdentity{}, err
 	}
 	contractEditCompleted := time.Now()
-	contract, contractIdentity, contractLatency, err := waitReplacement(declaration.AppPID, "dependency:batch:handoff", nil, contractEditCompleted)
+	contractIdentity, _, contractLatency, err := waitReplacement(declarationIdentity, "dependency:batch:handoff", nil, contractEditCompleted)
 	if err != nil {
-		return nil, fmt.Errorf("semantic contract edit did not preserve the endpoint: %w", err)
+		return nil, build.CandidateIdentity{}, fmt.Errorf("semantic contract edit did not preserve the endpoint: %w", err)
 	}
 	if contractIdentity.ContractRevision == declarationIdentity.ContractRevision {
-		return nil, fmt.Errorf("semantic declaration edit retained stale contract identity")
+		return nil, build.CandidateIdentity{}, fmt.Errorf("semantic declaration edit retained stale contract identity")
 	}
 
 	configPath := filepath.Join(root, ".scenery.json")
 	configSource, err := os.ReadFile(configPath)
 	if err != nil {
-		return nil, err
+		return nil, build.CandidateIdentity{}, err
 	}
 	configAnchor := []byte(`{"name":"basicapp",`)
 	if bytes.Count(configSource, configAnchor) != 1 {
-		return nil, fmt.Errorf("config change anchor is missing")
+		return nil, build.CandidateIdentity{}, fmt.Errorf("config change anchor is missing")
+	}
+	configOffset, err := logOffset()
+	if err != nil {
+		return nil, build.CandidateIdentity{}, err
 	}
 	if err := harnessAtomicWatchSave(configPath, bytes.Replace(configSource, configAnchor, []byte(`{"name":"basicapp","watch":{"ignore":["probe-ignore/"]},`), 1)); err != nil {
-		return nil, err
+		return nil, build.CandidateIdentity{}, err
 	}
 	configEditCompleted := time.Now()
-	configured, _, configLatency, err := waitReplacement(contract.AppPID, "dependency:batch:handoff", nil, configEditCompleted)
+	configuredIdentity, configLatency, err := waitBuilt(configOffset, "dependency:batch:handoff", configEditCompleted)
 	if err != nil {
-		return nil, fmt.Errorf("configuration edit did not preserve the endpoint: %w", err)
+		return nil, build.CandidateIdentity{}, fmt.Errorf("configuration edit did not preserve the endpoint: %w", err)
 	}
 
 	bannerPath := filepath.Join(root, "service/banner.txt")
 	embedPath := filepath.Join(root, "service/embed.go")
 	if err := os.WriteFile(bannerPath, []byte("embed:"), 0o600); err != nil {
-		return nil, err
+		return nil, build.CandidateIdentity{}, err
 	}
 	if err := os.WriteFile(embedPath, []byte("package service\n\nimport _ \"embed\"\n\n//go:embed banner.txt\nvar banner string\n"), 0o600); err != nil {
-		return nil, err
+		return nil, build.CandidateIdentity{}, err
 	}
 	currentSource, err := os.ReadFile(sourcePath)
 	if err != nil {
-		return nil, err
+		return nil, build.CandidateIdentity{}, err
 	}
 	embedAnchor := []byte(`Message: sharedprefix.Value(watchPrefix())`)
 	if bytes.Count(currentSource, embedAnchor) != 1 {
-		return nil, fmt.Errorf("embedded input anchor is missing")
+		return nil, build.CandidateIdentity{}, fmt.Errorf("embedded input anchor is missing")
 	}
 	if err := harnessAtomicWatchSave(sourcePath, bytes.Replace(currentSource, embedAnchor, []byte(`Message: banner + sharedprefix.Value(watchPrefix())`), 1)); err != nil {
-		return nil, err
+		return nil, build.CandidateIdentity{}, err
 	}
 	embedSetupCompleted := time.Now()
-	embedded, _, embedSetupLatency, err := waitReplacement(configured.AppPID, "embed:dependency:batch:handoff", nil, embedSetupCompleted)
+	embeddedSetupIdentity, _, embedSetupLatency, err := waitReplacement(configuredIdentity, "embed:dependency:batch:handoff", nil, embedSetupCompleted)
 	if err != nil {
-		return nil, fmt.Errorf("new embedded input did not serve captured behavior: %w", err)
+		return nil, build.CandidateIdentity{}, fmt.Errorf("new embedded input did not serve captured behavior: %w", err)
 	}
 	if err := harnessAtomicWatchSave(bannerPath, []byte("asset:")); err != nil {
-		return nil, err
+		return nil, build.CandidateIdentity{}, err
 	}
 	embedEditCompleted := time.Now()
-	embeddedEdit, embeddedIdentity, embedEditLatency, err := waitReplacement(embedded.AppPID, "asset:dependency:batch:handoff", nil, embedEditCompleted)
+	embeddedIdentity, embeddedService, embedEditLatency, err := waitReplacement(embeddedSetupIdentity, "asset:dependency:batch:handoff", nil, embedEditCompleted)
 	if err != nil {
-		return nil, fmt.Errorf("embedded asset edit did not serve new bytes: %w", err)
+		return nil, build.CandidateIdentity{}, fmt.Errorf("embedded asset edit did not serve new bytes: %w", err)
 	}
 	if err := harnessAssertWatchBuildCount(ctx, started.LogPath, matrixStart, 6); err != nil {
-		return nil, err
+		return nil, build.CandidateIdentity{}, err
 	}
-	stable, err := readSession()
-	if err != nil || stable.AppPID != embeddedEdit.AppPID {
-		return nil, fmt.Errorf("generated publication restarted the final generation: %v", err)
+	if _, stableService, _, err := served("asset:dependency:batch:handoff", &embeddedIdentity); err != nil || stableService != embeddedService {
+		return nil, build.CandidateIdentity{}, fmt.Errorf("generated publication restarted the final generation: service %s, want %s: %v", stableService, embeddedService, err)
 	}
 	// A contract edit whose builds fail must not outlive its own revert: the
 	// provisional graph a failed build discovered is membership scope, never an
@@ -255,92 +280,96 @@ func runHarnessWatchBatchProbe(ctx context.Context, root string, started detache
 	brokenPath := filepath.Join(root, "service/watch_broken.go")
 	failingStart, err := logOffset()
 	if err != nil {
-		return nil, err
+		return nil, build.CandidateIdentity{}, err
 	}
 	if err := os.WriteFile(brokenPath, []byte("package service\n\nfunc watchBroken() { undefinedWatchSymbol() }\n"), 0o600); err != nil {
-		return nil, err
+		return nil, build.CandidateIdentity{}, err
 	}
 	if err := harnessWaitBuildRequest(ctx, started.LogPath, failingStart, false); err != nil {
-		return nil, fmt.Errorf("broken implementation did not fail its build: %w", err)
+		return nil, build.CandidateIdentity{}, fmt.Errorf("broken implementation did not fail its build: %w", err)
 	}
 	failingStart, err = logOffset()
 	if err != nil {
-		return nil, err
+		return nil, build.CandidateIdentity{}, err
 	}
 	if err := harnessAtomicWatchSave(packagePath, bytes.Replace(packageSource, []byte(`timeout   = "30s"`), []byte(`timeout   = "28s"`), 1)); err != nil {
-		return nil, err
+		return nil, build.CandidateIdentity{}, err
 	}
 	if err := harnessWaitBuildRequest(ctx, started.LogPath, failingStart, false); err != nil {
-		return nil, fmt.Errorf("contract edit during a failing build did not fail: %w", err)
+		return nil, build.CandidateIdentity{}, fmt.Errorf("contract edit during a failing build did not fail: %w", err)
 	}
 	failingStart, err = logOffset()
 	if err != nil {
-		return nil, err
+		return nil, build.CandidateIdentity{}, err
 	}
 	if err := harnessAtomicWatchSave(packagePath, bytes.Replace(packageSource, []byte(`timeout   = "30s"`), []byte(`timeout   = "29s"`), 1)); err != nil {
-		return nil, err
+		return nil, build.CandidateIdentity{}, err
 	}
 	if err := harnessWaitBuildRequest(ctx, started.LogPath, failingStart, false); err != nil {
-		return nil, fmt.Errorf("returning the contract during a failing build did not fail: %w", err)
+		return nil, build.CandidateIdentity{}, fmt.Errorf("returning the contract during a failing build did not fail: %w", err)
+	}
+	returnedOffset, err := logOffset()
+	if err != nil {
+		return nil, build.CandidateIdentity{}, err
 	}
 	returnedEditCompleted := time.Now()
 	if err := os.Remove(brokenPath); err != nil {
-		return nil, err
+		return nil, build.CandidateIdentity{}, err
 	}
-	returned, returnedIdentity, _, err := waitReplacement(embeddedEdit.AppPID, "asset:dependency:batch:handoff", nil, returnedEditCompleted)
+	returnedIdentity, _, err := waitBuilt(returnedOffset, "asset:dependency:batch:handoff", returnedEditCompleted)
 	if err != nil {
-		return nil, fmt.Errorf("repaired implementation did not serve the returned contract: %w", err)
+		return nil, build.CandidateIdentity{}, fmt.Errorf("repaired implementation did not serve the returned contract: %w", err)
 	}
 	if returnedIdentity.ContractRevision != embeddedIdentity.ContractRevision {
-		return nil, fmt.Errorf("returning a contract edit served %s, want the previously compiled %s", returnedIdentity.ContractRevision, embeddedIdentity.ContractRevision)
+		return nil, build.CandidateIdentity{}, fmt.Errorf("returning a contract edit served %s, want the previously compiled %s", returnedIdentity.ContractRevision, embeddedIdentity.ContractRevision)
 	}
 
 	churnOffset, err := logOffset()
 	if err != nil {
-		return nil, err
+		return nil, build.CandidateIdentity{}, err
 	}
-	churnCurrent := returned
+	churnCurrent, churnService := returnedIdentity, embeddedService
 	churnIdentities := map[string]struct{}{}
 	churnLatencies := make([]float64, 0, 20)
 	for ordinal := 1; ordinal <= 20; ordinal++ {
 		value := fmt.Sprintf("churn-%03d:", ordinal)
 		if err := harnessAtomicWatchSave(prefixPath, prefix(value)); err != nil {
-			return nil, err
+			return nil, build.CandidateIdentity{}, err
 		}
 		completed := time.Now()
-		next, identity, latency, err := waitReplacement(churnCurrent.AppPID, "asset:dependency:"+value+"handoff", nil, completed)
+		identity, service, latency, err := waitReplacement(churnCurrent, "asset:dependency:"+value+"handoff", nil, completed)
 		if err != nil {
-			return nil, fmt.Errorf("unique churn edit %d did not serve its generation: %w", ordinal, err)
+			return nil, build.CandidateIdentity{}, fmt.Errorf("unique churn edit %d did not serve its generation: %w", ordinal, err)
 		}
 		if _, duplicate := churnIdentities[identity.ImplementationRevision]; duplicate {
-			return nil, fmt.Errorf("unique churn edit %d reused an implementation revision", ordinal)
+			return nil, build.CandidateIdentity{}, fmt.Errorf("unique churn edit %d reused an implementation revision", ordinal)
 		}
 		churnIdentities[identity.ImplementationRevision] = struct{}{}
 		churnLatencies = append(churnLatencies, float64(latency.Microseconds())/1000)
-		churnCurrent = next
+		churnCurrent, churnService = identity, service
 	}
 	if err := harnessAssertWatchBuildCount(ctx, started.LogPath, churnOffset, 20); err != nil {
-		return nil, err
+		return nil, build.CandidateIdentity{}, err
 	}
 	nativePath := filepath.Join(root, "nativevalue/native.c")
 	nativeSource, err := os.ReadFile(nativePath)
 	if err != nil {
-		return nil, err
+		return nil, build.CandidateIdentity{}, err
 	}
 	nativeChanged := bytes.Replace(nativeSource, []byte("return 7;"), []byte("return 3 + 4;"), 1)
 	if bytes.Equal(nativeSource, nativeChanged) {
-		return nil, fmt.Errorf("native input edit anchor is missing")
+		return nil, build.CandidateIdentity{}, fmt.Errorf("native input edit anchor is missing")
 	}
 	if err := harnessAtomicWatchSave(nativePath, nativeChanged); err != nil {
-		return nil, err
+		return nil, build.CandidateIdentity{}, err
 	}
 	nativeCompleted := time.Now()
-	nativeSession, nativeIdentity, nativeLatency, err := waitReplacement(churnCurrent.AppPID, "asset:dependency:churn-020:handoff", nil, nativeCompleted)
+	nativeIdentity, nativeService, nativeLatency, err := waitReplacement(churnCurrent, "asset:dependency:churn-020:handoff", nil, nativeCompleted)
 	if err != nil {
-		return nil, fmt.Errorf("behavior-preserving native input edit did not activate: %w", err)
+		return nil, build.CandidateIdentity{}, fmt.Errorf("behavior-preserving native input edit did not activate: %w", err)
 	}
-	if nativeSession.AppPID == churnCurrent.AppPID || nativeIdentity.ImplementationRevision == "" {
-		return nil, fmt.Errorf("native input edit retained the previous execution generation")
+	if nativeService == churnService || nativeIdentity.ImplementationRevision == "" {
+		return nil, build.CandidateIdentity{}, fmt.Errorf("native input edit retained the previous execution generation")
 	}
 	slices.Sort(churnLatencies)
 	return map[string]any{
@@ -369,7 +398,7 @@ func runHarnessWatchBatchProbe(ctx context.Context, root string, started detache
 		"configuration_change_to_response_ms":   float64(configLatency.Microseconds()) / 1000,
 		"embed_setup_to_response_ms":            float64(embedSetupLatency.Microseconds()) / 1000,
 		"embedded_asset_to_response_ms":         float64(embedEditLatency.Microseconds()) / 1000,
-	}, nil
+	}, nativeIdentity, nil
 }
 
 func harnessAtomicWatchSave(path string, data []byte) error {

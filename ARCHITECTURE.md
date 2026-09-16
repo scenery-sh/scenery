@@ -362,21 +362,6 @@ development cache root. Production honors `SCENERY_DEV_CACHE_DIR`; tests inject
 `SetRoot`. Doctor, build, and CLI resolve the cache here instead of linking
 through `internal/build`.
 
-### `internal/nativebuilddriver`
-
-`internal/nativebuilddriver` owns the retained Go input-domain model and the
-captured tool recipe used by development compilation. A bootstrap `go build -a`
-records the complete compiler and linker invocations selected by `cmd/go`.
-Compatible body-only edits validate the current package/file/config/tool
-identity, rebuild changed packages and transitive consumers by invoking those
-tools directly, and atomically advance current source snapshots and archive
-mappings. Package-graph changes reconcile actions observed through `cmd/go`;
-an incomplete refresh fails closed and requires a complete new capture.
-The direct path retains and rebinds every captured regular-file argument and
-rejects rebuild frontiers requiring unmodeled cgo, assembly or other native
-actions before tool execution. It does not invent dependency rules or publish
-application binaries.
-
 ### `internal/build`
 
 `internal/build` owns the transient app build workspace. It materializes the
@@ -443,21 +428,11 @@ belong to the locked private workspace. Framework source outside it, local
 replacements, module-cache dependencies, native/assembly inputs, custom tool
 flags and unknown provenance bypass lookup, in-flight joins and publication.
 Content-addressed paths or read-only permissions do not prove immutable source.
-Ordinary development builds use the retained compiler under the existing
-supervisor and fair link budget. Stock execution is neither the development
-default nor a fallback. The first build, or an incompatible tool/configuration/
-retained-state change, uses `cmd/go` to capture a complete workspace-bound tool
-recipe beneath the private development cache. Package/import changes use
-`cmd/go` to reconcile the recorded action graph while preserving compatible
-archives; incomplete capture requires a complete new capture. Compatible later
-body edits reuse the retained package graph for build-input discovery, invoke
-the compiler/linker directly, and advance current retained package state.
-Candidate preflight, activation,
-rollback, and executable ownership remain unchanged. Ephemeral, production-
-asset, and deployable builds remain on their existing stock artifact path. No
-application configuration is required to select this internal policy. Stock
-development execution exists only in repository benchmark binaries built with
-the private `scenery_benchmark_stock` tag. Ordinary development executables
+Every build links with stock `go build` under the fair link budget: `scenery up`
+links the process entrypoints whose identity changed, and single-executable
+builds link the application entrypoint. A process-model build also publishes
+the runtime bundle of the development target, the build identity every
+generation of its processes attests. Ordinary development executables
 link with `-w` ahead of configured linker flags, so they carry no DWARF unless
 `build.go_flags` adds `-ldflags=-w=false`. On macOS the `cmd/scenery`
 supervisor clears an inherited Darwin background policy before each build
@@ -538,14 +513,14 @@ helper crash can degrade an assistant without exposing a second public server.
 
 Architecture invariant: there is one local app server per generated app process.
 `scenery up` may run extra development services around it, but app API execution
-stays inside generated app binaries. In development the default process model
+stays inside generated app binaries. In development the process model
 (Plan 0200) makes the generated binaries a process host that routes requests,
 MCP tool calls and internal calls by published generation and authorizes
 durable MCP receipts, plus one runtime process per native service that acquires
 background work only after its generation is published and admits each
-background attempt to one generation for the attempt's lifetime. The deprecated
-`SCENERY_DEV_PROCESS_MODEL=application` selection keeps one generated app
-binary in development; production builds keep the single generated app binary.
+background attempt to one generation for the attempt's lifetime. The host's
+public answers attest the build of the generation that served them. Production
+builds keep the single generated app binary.
 
 Architecture invariant: runtime request state must be scoped to the current
 request or internal call. Public helpers such as `scenery.CurrentRequest()` and

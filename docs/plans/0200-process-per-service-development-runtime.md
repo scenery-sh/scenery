@@ -100,7 +100,7 @@ compile the application graph as it needs.
   unpinned calls reach the second, and a retired generation answers
   `unavailable` `not_sent`.
 - [x] (2026-09-15) Milestone 3 supervisor slice: with
-  `SCENERY_DEV_PROCESS_MODEL=service`, `scenery up` links the host and every
+  the process model selector (since removed) set to `service`, `scenery up` links the host and every
   service process with its own identity (`build.BuildDevelopmentProcessesContext`,
   build input digest over the entrypoint's import closure), preflights and
   starts services on per-instance sockets, starts the host on the API backend,
@@ -334,7 +334,7 @@ compile the application graph as it needs.
   Repeating the ONLV measurements needs a new disposable worktree.
 - [x] (2026-09-16) ONLV process-model startup is unblocked. A disposable
   worktree of ONLV `fd5bd25b` prepared in the single application model and
-  restarted with `SCENERY_DEV_PROCESS_MODEL=service` and `--wait registered`
+  restarted in the process model and with `--wait registered`
   reached `run.ready` 18-21 s after start on every one of six restarts:
   compilation 10.6-10.8 s, "Starting prepared assistant runtimes" 419-454 ms.
   Edits of `solar/ahjs/detail.go` rebuilt and published only `ahjs_ahjs`. A
@@ -451,7 +451,7 @@ compile the application graph as it needs.
   `scenery down` none of the session's 54 recorded or child processes lived;
   and the log held no recipe recording or retained entrypoint link.
 - [x] (2026-09-16) The process model is the default `scenery up` runtime and
-  `SCENERY_DEV_PROCESS_MODEL=application` is deprecated (warning on start).
+  its selector value `application` (since removed) is deprecated (warning on start).
   An application with event consumers or emissions, or without a native
   service, failed before its build with guidance to select `application`
   (both are supported since the conformance entry below).
@@ -527,8 +527,55 @@ compile the application graph as it needs.
   registered refuses activation with HTTP 503, and the supervisor reports the
   service `degraded` with `background work unavailable: capability_unavailable:
   ...` instead of repeating an activation that cannot succeed.
+- [x] (2026-09-16) One development runtime. The single application
+  development model, its selector, candidate restart path, retained compiler,
+  `internal/nativebuilddriver`, the `internal native-build-toolexec` command
+  and the `native-build-compiler`/`native-build-driver` benchmarks are removed;
+  `build --development`, workers and binding CLI calls link one executable with
+  stock Go through the shared executable cache, and each workspace's retained
+  compiler state is removed on its next process build. Moving the pinned
+  probes onto the process model found a regression the default switch had
+  introduced: every public answer carried the identity of the service process
+  that answered, which differs from the development target's runtime bundle,
+  and its PID, which is not the session's `app_pid`, so a check that binds
+  answers to `build --development --verify-generation` (ONLV acceptance) or to
+  `build/runtime/development.json` could never pass, and `scenery up` wrote no
+  runtime bundle at all. A process build now computes the development target's
+  build identity, writes its runtime bundle once the implementation check
+  passed, and publishes that identity with every generation; the host stamps
+  public answers with it and its own PID and names the answering instance in
+  `X-Scenery-Service-Process-ID` and `X-Scenery-Service-Implementation-Revision`.
+  A build that changes no process but the build identity publishes the same
+  instances as a new generation. `native-contract` now links through
+  `scenery up`, checks the application, service and host entrypoints, calls the
+  grouped routes and runs the generated TypeScript client against the session,
+  requires both answers to attest the runtime bundle, and requires public
+  restarts to reuse every process executable; `process-model` also requires
+  each answer to attest the host and the generation's build. `dev-process`
+  identifies replacements by the attested build rather than a changed PID,
+  keeps a rejected preflight and a failing replacement constructor on the
+  published generation, and ends by requiring the served build to equal the
+  `build --development --verify-generation` candidate. Its fixture no longer
+  takes an exclusive lock in the service constructor: serving instances of the
+  process model overlap while pinned requests finish, and background work,
+  which does not overlap, is covered by `process-model`. A contract edit
+  replaces the host too, so the journey follows the session's current host
+  and asserts an unchanged host only where no replacement is expected.
 
 ## Surprises & Discoveries
+
+- An application root spelled through a symbolic link (macOS `/tmp`) gives
+  `scenery up`, which works on the canonical root, and `scenery build`, which
+  keeps the spelling, different private workspaces. With a framework source
+  selection the absolute replacement path in each workspace `go.mod` differs,
+  so the two builds report different build-input digests for the same source.
+  The `dev-process` probe builds its candidate through the canonical root; the
+  command-wide fix is tracked separately.
+- The first run of the consolidation probes filled the disk: failed probes keep
+  their temporary roots for inspection, and the removed retained compiler had
+  left 7.1 GB of per-workspace state in the development cache. Both were
+  removed, and the next process build of each workspace removes its own
+  retained compiler state.
 
 - The implementation check runs beside the entrypoint build, so a faster build
   alone does not shorten an edit: the check (843 ms, of which about 290 ms
@@ -734,7 +781,7 @@ compile the application graph as it needs.
   ownership is designed in Milestone 4. Date: 2026-09-15. Author: Claude.
 - Decision (superseded 2026-09-16: the process model is the default): until
   Milestone 4 accepts ONLV, the development supervisor selects
-  the process model only when `SCENERY_DEV_PROCESS_MODEL=service` is injected;
+  the process model only when its selector (since removed) is set to `service`;
   the default stays the single application executable. Rationale: `scenery up`
   flags and `.scenery.json` are stable public contracts, while this selector is
   a temporary rollout gate that disappears when the process model becomes the
@@ -895,7 +942,7 @@ compile the application graph as it needs.
   A snapshot is copied rather than moved, because a capture may name the
   developer's own workspace file. Date: 2026-09-16. Author: Claude.
 - Decision: the process model is the default development runtime and the
-  single application model is deprecated. `SCENERY_DEV_PROCESS_MODEL` defaults
+  single application model is deprecated. The model selector (since removed) defaults
   to `service`; `application` remains selectable with a deprecation warning,
   and an application the process model could not run yet failed with guidance
   rather than falling back automatically. Remaining gaps and the removal path
@@ -953,6 +1000,21 @@ compile the application graph as it needs.
   activation cannot succeed until a new build replaces the process, and an
   "unconfirmed" reason would misdescribe a definite refusal. Date: 2026-09-16.
   Author: Claude.
+- Decision: remove the single application development model instead of
+  keeping it deprecated. Rationale (human choice after a review of `9bf19d28`):
+  its three remaining consumers were verification, every lifecycle change had
+  to be implemented twice, and the retained compiler it alone used was at parity
+  with stock Go. Production keeps one executable. Date: 2026-09-16. Author:
+  human.
+- Decision: a process host attests on public answers the build identity of the
+  serving generation and its own PID, not the answering service instance's
+  identity. Rationale: the response identity headers mean "the linked runtime
+  bundle that served this request" for consumers that compare answers with the
+  development target's verified candidate; the host verified the instance
+  belongs to the generation and every instance of a generation has its process
+  identity from that build, so the claim is exact, and existing consumers such
+  as ONLV acceptance need no change. The instance stays observable in separate
+  headers. Date: 2026-09-16. Author: Claude.
 
 ## Outcomes & Retrospective
 

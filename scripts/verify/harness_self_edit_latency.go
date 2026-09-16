@@ -251,7 +251,7 @@ func prepareHarnessEditLatencyLane(ctx context.Context, root, label, fixtureRoot
 		apiURL:     strings.TrimRight(started.Session.RouteManifest.Routes[localagent.RouteAPI].URL, "/") + "/echo",
 		sourcePath: sourcePath, source: source, seen: map[string]struct{}{},
 	}
-	if _, _, err := harnessHandoffEcho(ctx, appRoot, lane.apiURL, "echo:handoff", started.Session.AppPID, nil); err != nil {
+	if _, _, _, err := harnessHandoffEcho(ctx, appRoot, lane.apiURL, "echo:handoff", started.Session.AppPID, nil); err != nil {
 		lane.close()
 		return nil, err
 	}

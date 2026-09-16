@@ -140,9 +140,6 @@ func PrepareFramework(ctx context.Context, appRoot, sourceRoot, version, revisio
 	}
 	flags += " -X=main.sceneryVersion=" + version + " -X=main.sceneryCommit=" + revision
 	binaryDir := filepath.Join(stateRoot, "bin", strings.TrimPrefix(source.Digest, "sha256:"), runtime.GOOS+"-"+runtime.GOARCH+"-"+runtime.Version())
-	if benchmarkStockGoBuild {
-		binaryDir += "-scenery-benchmark-stock"
-	}
 	if err := ensureFrameworkStateRoot(canonical, binaryDir); err != nil {
 		return selection, err
 	}
@@ -152,8 +149,7 @@ func PrepareFramework(ctx context.Context, appRoot, sourceRoot, version, revisio
 	}
 	defer func() { _ = os.RemoveAll(staging) }()
 	binary := filepath.Join(staging, "scenery")
-	args := append([]string{"build"}, benchmarkFrameworkBuildFlags()...)
-	args = append(args, "-buildvcs=false", "-ldflags="+flags, "-o", binary, "./cmd/scenery")
+	args := []string{"build", "-buildvcs=false", "-ldflags=" + flags, "-o", binary, "./cmd/scenery"}
 	command := exec.CommandContext(ctx, "go", args...)
 	command.Dir, command.Env = snapshot.Root, frameworkGoEnvironment()
 	if output, err := command.CombinedOutput(); err != nil {

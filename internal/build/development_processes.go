@@ -13,10 +13,9 @@ import (
 	"sync"
 	"time"
 
+	"scenery.sh/internal/atomicfile"
 	"scenery.sh/internal/compiler"
 	generateapi "scenery.sh/internal/generate/api"
-	"scenery.sh/internal/atomicfile"
-	"scenery.sh/internal/nativebuilddriver"
 )
 
 // developmentProcessBinaryDir holds the linked executables of process-model
@@ -47,6 +46,11 @@ type DevelopmentProcess struct {
 // DevelopmentProcessSet is a complete process-model generation: the host, one
 // process per native service, and the service process owning each binding.
 type DevelopmentProcessSet struct {
+	// Identity is the build identity of the whole generation: the runtime
+	// bundle of the development target, which a single application executable
+	// built from the same inputs links. Every process of the set was linked
+	// from, or has the process identity of, this build.
+	Identity      DevelopmentProcessIdentity
 	Host          DevelopmentProcess
 	Services      []DevelopmentProcess
 	BindingOwners map[string]string
@@ -143,7 +147,8 @@ func BuildDevelopmentProcessesContext(ctx context.Context, result *Result) (*Dev
 			return err
 		}
 		result.verification = nil
-		return nil
+		// The runtime bundle describes a verified build only.
+		return writeRuntimeBundle(result)
 	}, nil
 }
 
@@ -152,8 +157,21 @@ func buildDevelopmentProcesses(ctx context.Context, result *Result, services []g
 	if err != nil {
 		return nil, err
 	}
+	targetRevisions, diagnostics := compiler.ComputeImplementationRevisions(result.Contract, map[string]string{result.Target.Name: manifest.Digest})
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Severity == "error" {
+			return nil, fmt.Errorf("%s: %s", diagnostic.Code, diagnostic.Message)
+		}
+	}
+	if targetRevisions[result.Target.Name] == "" {
+		return nil, fmt.Errorf("implementation_revision is unavailable for Go target %s", result.Target.Name)
+	}
+	result.BuildInput, result.ImplementationRevisions = manifest, targetRevisions
 	names := []string{DevelopmentProcessHost}
-	set := &DevelopmentProcessSet{BindingOwners: map[string]string{}}
+	set := &DevelopmentProcessSet{BindingOwners: map[string]string{}, Identity: DevelopmentProcessIdentity{
+		ContractRevision: result.Contract.Manifest.ContractRevision, ImplementationRevision: targetRevisions[result.Target.Name],
+		BuildInputDigest: manifest.Digest, GoTarget: result.Target.Name,
+	}}
 	for _, service := range services {
 		names = append(names, service.Name)
 		for _, address := range service.RequiredAddresses {
@@ -214,9 +232,11 @@ func buildDevelopmentProcesses(ctx context.Context, result *Result, services []g
 			return nil, err
 		}
 	}
-	retireRetainedProcessState(ctx, result.Dir)
+	retireCompilerState(ctx, result.Dir)
 	keep := map[string]bool{}
+	result.DevelopmentProcessBinaries = result.DevelopmentProcessBinaries[:0]
 	for _, process := range processes {
+		result.DevelopmentProcessBinaries = append(result.DevelopmentProcessBinaries, filepath.Join(developmentProcessBinaryDir, filepath.Base(process.Binary)))
 		keep[filepath.Base(process.Binary)] = true
 		keep[filepath.Base(process.Binary)+developmentProcessDigestSuffix] = true
 	}
@@ -257,7 +277,7 @@ func linkDevelopmentProcesses(ctx context.Context, result *Result, binaryRoot st
 		return err
 	}
 	defer func() { _ = os.RemoveAll(generation) }()
-	release, err := retainedNativeLinkSlot(ctx, result)
+	release, err := developmentLinkSlot(ctx, result)
 	if err != nil {
 		return err
 	}
@@ -288,6 +308,17 @@ func linkDevelopmentProcesses(ctx context.Context, result *Result, binaryRoot st
 // developmentProcessBuildArgs keeps the configured Go build flags, moves every
 // -ldflags value (both -ldflags=value and the -ldflags value pair) into each
 // entrypoint's package-scoped linker flags, and names the pending entrypoints.
+// developmentLinkSlot waits for the host-wide fair link slot that orders the
+// links of every worktree's development builds.
+func developmentLinkSlot(ctx context.Context, result *Result) (func(), error) {
+	root, err := sharedBinaryRoot()
+	if err != nil {
+		return nil, err
+	}
+	digest := sha256.Sum256([]byte(result.Dir))
+	return acquireSharedBinarySlotObserved(ctx, root, hex.EncodeToString(digest[:]))
+}
+
 func developmentProcessBuildArgs(buildFlags []string, output string, pending []*DevelopmentProcess) []string {
 	flags := withRuntimeBundleLinkerMetadata(normalizeGoBuildFlags(buildFlags), "", nil)
 	args := append([]string{"build"}, flags[:len(flags)-1]...)
@@ -324,7 +355,7 @@ func pruneDevelopmentProcessBinaries(root string, keep map[string]bool) error {
 }
 
 // developmentProcessFileDigest reads a whole executable; tests observe it.
-var developmentProcessFileDigest = nativebuilddriver.FileDigest
+var developmentProcessFileDigest = fileDigest
 
 // developmentProcessDigestSuffix names the record of the digest an executable
 // had when its link published it, beside the executable. The executable's path

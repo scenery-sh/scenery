@@ -21,6 +21,12 @@ import (
 
 const processHostTestContract = "sha256:1111111111111111111111111111111111111111111111111111111111111111"
 
+// processHostTestBuild is the build identity of a published test generation.
+func processHostTestBuild(generation uint64) processInstanceIdentity {
+	number := strconv.FormatUint(generation, 10)
+	return processInstanceIdentity{ContractRevision: processHostTestContract, ImplementationRevision: "sha256:build-" + number, BuildInputDigest: "sha256:inputs-" + number, GoTarget: "development"}
+}
+
 // processHostTestBackend emulates one service process instance: it answers
 // forwarded HTTP and dispatched calls with its own identity headers.
 type processHostTestBackend struct {
@@ -103,7 +109,7 @@ func TestProcessHostForwardsEachRequestToTheOwningProcess(t *testing.T) {
 	if recorder, _ := processHostTestRequest(t, host.serveIngress, "POST", "/echo", nil); recorder.Code != http.StatusServiceUnavailable {
 		t.Fatalf("ingress before publication = %d", recorder.Code)
 	}
-	if err := host.publish(processGenerationManifest{Generation: 1, ContractRevision: processHostTestContract, Processes: map[string]processGenerationInstance{
+	if err := host.publish(processGenerationManifest{Generation: 1, ContractRevision: processHostTestContract, Identity: processHostTestBuild(1), Processes: map[string]processGenerationInstance{
 		"echo_echo": echo.instance, "greeter_greeter": greeter.instance,
 	}}); err != nil {
 		t.Fatal(err)
@@ -133,6 +139,17 @@ func TestProcessHostForwardsEachRequestToTheOwningProcess(t *testing.T) {
 		if recorder.Header().Get(processGenerationHeader) != "1" {
 			t.Errorf("%s %s answered without its generation: %q", check.method, check.target, recorder.Header().Get(processGenerationHeader))
 		}
+		// It attests the generation's build identity and the host process, as
+		// an application executable of that build would, and names the
+		// answering service instance beside it.
+		assertProcessHostAttestation(t, recorder.Header(), processHostTestBuild(1))
+		if recorder.Header().Get(processServiceIDHeader) != strconv.Itoa(check.backend.instance.PID) || recorder.Header().Get(processServiceImplementationHeader) != check.backend.instance.Identity.ImplementationRevision {
+			t.Errorf("%s %s named service instance %q %q", check.method, check.target, recorder.Header().Get(processServiceIDHeader), recorder.Header().Get(processServiceImplementationHeader))
+		}
+	}
+	incomplete := processGenerationManifest{Generation: 2, ContractRevision: processHostTestContract, Processes: map[string]processGenerationInstance{"echo_echo": echo.instance, "greeter_greeter": greeter.instance}}
+	if err := host.publish(incomplete); err == nil {
+		t.Fatal("a generation without a build identity was published")
 	}
 	if seen := echo.last(); seen["forwarded_for"] != "203.0.113.7" {
 		t.Fatalf("forwarded headers = %#v", seen)
@@ -143,6 +160,18 @@ func TestProcessHostForwardsEachRequestToTheOwningProcess(t *testing.T) {
 	}
 	if _, err := newProcessHost(ProcessHostConfig{Fallback: "echo_echo", Routes: []ProcessHostRoute{{Process: "echo_echo", Path: "/x"}}}, processLinkTestToken, processHostTestContract); err == nil {
 		t.Fatal("route without methods was accepted")
+	}
+}
+
+func assertProcessHostAttestation(t *testing.T, headers http.Header, identity processInstanceIdentity) {
+	t.Helper()
+	for name, want := range map[string]string{
+		processIdentityContractHdr: identity.ContractRevision, processIdentityImplHeader: identity.ImplementationRevision,
+		processIdentityBuildHeader: identity.BuildInputDigest, processIdentityTargetHeader: identity.GoTarget, processIdentityPIDHeader: strconv.Itoa(os.Getpid()),
+	} {
+		if got := headers.Values(name); len(got) != 1 || got[0] != want {
+			t.Errorf("answer attests %s = %q, want %q", name, got, want)
+		}
 	}
 }
 
@@ -158,7 +187,7 @@ func TestProcessHostPinsRequestsAndCallsToTheirGeneration(t *testing.T) {
 	}
 	bindings := map[string]string{"echo/binding/echo_internal": "echo_echo"}
 	generation := func(number uint64, echo *processHostTestBackend) processGenerationManifest {
-		return processGenerationManifest{Generation: number, ContractRevision: processHostTestContract, Bindings: bindings, Processes: map[string]processGenerationInstance{
+		return processGenerationManifest{Generation: number, ContractRevision: processHostTestContract, Identity: processHostTestBuild(number), Bindings: bindings, Processes: map[string]processGenerationInstance{
 			"echo_echo": echo.instance, "greeter_greeter": greeter.instance,
 		}}
 	}
@@ -333,7 +362,7 @@ func TestProcessHostForwardsMCPToolsAndAuthorizesDurableReceiptsAcrossReplacemen
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := host.publish(processGenerationManifest{Generation: 1, ContractRevision: processHostTestContract, Processes: map[string]processGenerationInstance{"house_house": accepting}}); err != nil {
+	if err := host.publish(processGenerationManifest{Generation: 1, ContractRevision: processHostTestContract, Identity: processHostTestBuild(1), Processes: map[string]processGenerationInstance{"house_house": accepting}}); err != nil {
 		t.Fatal(err)
 	}
 	setActiveProcessHost(host)
@@ -350,7 +379,7 @@ func TestProcessHostForwardsMCPToolsAndAuthorizesDurableReceiptsAcrossReplacemen
 	// A replacement instance starts without the accepting process's receipt
 	// records; the host authorizes the principal and names the durable task.
 	replacement := serveProcessMCPOwnerForTest(t, &replacementServed)
-	if err := host.publish(processGenerationManifest{Generation: 2, ContractRevision: processHostTestContract, Processes: map[string]processGenerationInstance{"house_house": replacement}}); err != nil {
+	if err := host.publish(processGenerationManifest{Generation: 2, ContractRevision: processHostTestContract, Identity: processHostTestBuild(2), Processes: map[string]processGenerationInstance{"house_house": replacement}}); err != nil {
 		t.Fatal(err)
 	}
 	mcpDurableOwners.Lock()
@@ -407,7 +436,7 @@ func TestProcessHostPinsForwardedMCPToolCallsAndTheirInternalCalls(t *testing.T)
 	var served atomic.Int32
 	owner := serveProcessMCPOwnerForTest(t, &served)
 	generation := func(number uint64, echo *processHostTestBackend) processGenerationManifest {
-		return processGenerationManifest{Generation: number, ContractRevision: processHostTestContract, Bindings: map[string]string{"echo/binding/echo_internal": "echo_echo"},
+		return processGenerationManifest{Generation: number, ContractRevision: processHostTestContract, Identity: processHostTestBuild(number), Bindings: map[string]string{"echo/binding/echo_internal": "echo_echo"},
 			Processes: map[string]processGenerationInstance{"house_house": owner, "echo_echo": echo.instance}}
 	}
 	if err := host.publish(generation(1, echoOne)); err != nil {
@@ -449,7 +478,7 @@ func TestProcessHostForcedRetirementEndsDispatchWithinTheGeneration(t *testing.T
 		t.Fatal(err)
 	}
 	manifest := func(number uint64) processGenerationManifest {
-		return processGenerationManifest{Generation: number, ContractRevision: processHostTestContract, Bindings: map[string]string{"echo/binding/echo_internal": "echo_echo"},
+		return processGenerationManifest{Generation: number, ContractRevision: processHostTestContract, Identity: processHostTestBuild(number), Bindings: map[string]string{"echo/binding/echo_internal": "echo_echo"},
 			Processes: map[string]processGenerationInstance{"echo_echo": echo.instance, "greeter_greeter": greeter.instance}}
 	}
 	if err := host.publish(manifest(1)); err != nil {
@@ -538,7 +567,7 @@ func TestProcessHostCountsStreamsAndUpgradedConnectionsAsPinnedWork(t *testing.T
 		t.Fatal(err)
 	}
 	manifest := func(number uint64) processGenerationManifest {
-		return processGenerationManifest{Generation: number, ContractRevision: processHostTestContract, Processes: map[string]processGenerationInstance{"stream_stream": instance}}
+		return processGenerationManifest{Generation: number, ContractRevision: processHostTestContract, Identity: processHostTestBuild(number), Processes: map[string]processGenerationInstance{"stream_stream": instance}}
 	}
 	if err := host.publish(manifest(1)); err != nil {
 		t.Fatal(err)
@@ -709,12 +738,17 @@ func TestProcessHostServesItsOwnApplicationEndpointsBeforePublication(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	host.local = http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) { _, _ = w.Write([]byte("local:" + req.URL.Path)) })
+	// The host's runtime sets its own linked identity before handling, which
+	// is not the identity of any published generation.
+	host.local = http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		w.Header().Set(processIdentityImplHeader, "sha256:host-linked")
+		_, _ = w.Write([]byte("local:" + req.URL.Path))
+	})
 	host.localRoutes = newRouteTable()
 	host.localRoutes.Handle([]string{http.MethodPost}, "/assistants/support/:conversation_id/turns", func(http.ResponseWriter, *http.Request, routeParams) {})
 	recorder, _ := processHostTestRequest(t, host.serveIngress, "POST", "/assistants/support/c1/turns", nil)
-	if recorder.Code != http.StatusOK || recorder.Body.String() != "local:/assistants/support/c1/turns" {
-		t.Fatalf("host application endpoint = %d %s", recorder.Code, recorder.Body.String())
+	if recorder.Code != http.StatusOK || recorder.Body.String() != "local:/assistants/support/c1/turns" || recorder.Header().Get(processIdentityImplHeader) != "" {
+		t.Fatalf("host application endpoint = %d %s attesting %q", recorder.Code, recorder.Body.String(), recorder.Header().Get(processIdentityImplHeader))
 	}
 	if recorder, _ := processHostTestRequest(t, host.serveIngress, "POST", "/greet", nil); recorder.Code != http.StatusServiceUnavailable {
 		t.Fatalf("service route before publication = %d", recorder.Code)
@@ -732,7 +766,7 @@ func TestProcessHostFailsSelectedWorkOnPurpose(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := host.publish(processGenerationManifest{Generation: 1, ContractRevision: processHostTestContract,
+	if err := host.publish(processGenerationManifest{Generation: 1, ContractRevision: processHostTestContract, Identity: processHostTestBuild(1),
 		Bindings:  map[string]string{"echo/binding/echo_internal": "echo_echo"},
 		Processes: map[string]processGenerationInstance{"echo_echo": echo.instance, "greeter_greeter": greeter.instance}}); err != nil {
 		t.Fatal(err)
@@ -826,7 +860,7 @@ func TestProcessHostForwardsTheRawQueryTheContractDecodes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := host.publish(processGenerationManifest{Generation: 1, ContractRevision: processHostTestContract, Processes: map[string]processGenerationInstance{"echo_echo": echo.instance}}); err != nil {
+	if err := host.publish(processGenerationManifest{Generation: 1, ContractRevision: processHostTestContract, Identity: processHostTestBuild(1), Processes: map[string]processGenerationInstance{"echo_echo": echo.instance}}); err != nil {
 		t.Fatal(err)
 	}
 	for _, query := range []string{"q=alice;bob", "q=%ZZ", "q=a%20b&broken=%ZZ", "q=a+b", "q=1,2&q=3", "q=%2C&q=x%2By", ""} {
@@ -864,13 +898,14 @@ func TestProcessHostWithoutServicesServesItself(t *testing.T) {
 	if recorder, _ := processHostTestRequest(t, host.serveIngress, "GET", "/__scenery/config", nil); recorder.Code != http.StatusServiceUnavailable {
 		t.Fatalf("host before publication = %d", recorder.Code)
 	}
-	if err := host.publish(processGenerationManifest{Generation: 1, ContractRevision: processHostTestContract, Processes: map[string]processGenerationInstance{}}); err != nil {
+	if err := host.publish(processGenerationManifest{Generation: 1, ContractRevision: processHostTestContract, Identity: processHostTestBuild(1), Processes: map[string]processGenerationInstance{}}); err != nil {
 		t.Fatal(err)
 	}
 	recorder, _ := processHostTestRequest(t, host.serveIngress, "GET", "/__scenery/config", nil)
 	if recorder.Code != http.StatusOK || recorder.Body.String() != "local:/__scenery/config" || recorder.Header().Get(processGenerationHeader) != "1" {
 		t.Fatalf("host without services = %d %q generation %q", recorder.Code, recorder.Body.String(), recorder.Header().Get(processGenerationHeader))
 	}
+	assertProcessHostAttestation(t, recorder.Header(), processHostTestBuild(1))
 	if _, err := newProcessHost(ProcessHostConfig{Routes: []ProcessHostRoute{{Process: "echo_echo", Methods: []string{"GET"}, Path: "/x"}}}, processLinkTestToken, processHostTestContract); err == nil {
 		t.Fatal("a host with service routes and no fallback process was accepted")
 	}

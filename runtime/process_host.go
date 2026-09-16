@@ -73,10 +73,13 @@ type ProcessHostConfig struct {
 }
 
 type processGenerationManifest struct {
-	Generation       uint64                               `json:"generation"`
-	ContractRevision string                               `json:"contract_revision"`
-	Processes        map[string]processGenerationInstance `json:"processes"`
-	Bindings         map[string]string                    `json:"bindings"`
+	Generation       uint64 `json:"generation"`
+	ContractRevision string `json:"contract_revision"`
+	// Identity is the build identity of the generation: the runtime bundle of
+	// the development target the generation's processes were built from.
+	Identity  processInstanceIdentity              `json:"identity"`
+	Processes map[string]processGenerationInstance `json:"processes"`
+	Bindings  map[string]string                    `json:"bindings"`
 }
 
 type processGenerationInstance struct {
@@ -132,6 +135,7 @@ type processHost struct {
 
 type processHostGeneration struct {
 	number    uint64
+	identity  processInstanceIdentity
 	instances map[string]*processHostInstance
 	bindings  map[string]string
 	inFlight  atomic.Int64
@@ -283,10 +287,11 @@ func (h *processHost) serveIngress(w http.ResponseWriter, req *http.Request) {
 			method = requested
 		}
 		if h.localRoutes.ownerRoute(req.URL.EscapedPath(), method) != nil {
-			if current := h.currentGeneration(); current != 0 {
-				w.Header().Set(processGenerationHeader, strconv.FormatUint(current, 10))
+			current := h.published()
+			if current != nil {
+				w.Header().Set(processGenerationHeader, strconv.FormatUint(current.number, 10))
 			}
-			h.local.ServeHTTP(w, req)
+			h.local.ServeHTTP(&processHostAttestingWriter{ResponseWriter: w, generation: current}, req)
 			return
 		}
 	}
@@ -312,7 +317,7 @@ func (h *processHost) serveIngress(w http.ResponseWriter, req *http.Request) {
 	if h.fallback == "" {
 		// An application without a native service: the host's own runtime
 		// serves framework routes and answers unmatched requests.
-		h.local.ServeHTTP(w, req)
+		h.local.ServeHTTP(&processHostAttestingWriter{ResponseWriter: w, generation: generation}, req)
 		return
 	}
 	h.forward(w, req, h.fallback)
@@ -398,14 +403,11 @@ func (h *processHost) dispatch(w http.ResponseWriter, req *http.Request) {
 	instance.dispatch.ServeHTTP(w, req)
 }
 
-// currentGeneration reports the published generation without pinning work to it.
-func (h *processHost) currentGeneration() uint64 {
+// published returns the current generation without pinning work to it.
+func (h *processHost) published() *processHostGeneration {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
-	if h.current == nil {
-		return 0
-	}
-	return h.current.number
+	return h.current
 }
 
 func (h *processHost) acquire(number uint64) *processHostGeneration {
@@ -440,6 +442,9 @@ func (h *processHost) publish(manifest processGenerationManifest) error {
 	if manifest.ContractRevision != h.contract {
 		return fmt.Errorf("generation %d contract revision %q differs from the host's %q", manifest.Generation, manifest.ContractRevision, h.contract)
 	}
+	if identity := manifest.Identity; identity.ContractRevision != manifest.ContractRevision || identity.ImplementationRevision == "" || identity.BuildInputDigest == "" || identity.GoTarget == "" {
+		return fmt.Errorf("generation %d has an incomplete build identity", manifest.Generation)
+	}
 	for _, process := range h.required {
 		if _, ok := manifest.Processes[process]; !ok {
 			return fmt.Errorf("generation %d has no instance of service process %s", manifest.Generation, process)
@@ -455,7 +460,7 @@ func (h *processHost) publish(manifest processGenerationManifest) error {
 	if h.current != nil && manifest.Generation <= h.current.number || manifest.Generation == 0 {
 		return fmt.Errorf("generation %d does not follow the published generation", manifest.Generation)
 	}
-	generation := &processHostGeneration{number: manifest.Generation, instances: map[string]*processHostInstance{}, bindings: maps.Clone(manifest.Bindings)}
+	generation := &processHostGeneration{number: manifest.Generation, identity: manifest.Identity, instances: map[string]*processHostInstance{}, bindings: maps.Clone(manifest.Bindings)}
 	for name, spec := range manifest.Processes {
 		identity := spec.Identity
 		if !validProcessLinkTarget(processLinkTarget{Network: spec.Network, Address: spec.Address}) || spec.PID <= 0 || identity.ContractRevision != manifest.ContractRevision ||
@@ -532,6 +537,15 @@ func newProcessHostInstance(name string, spec processGenerationInstance) *proces
 	verify := func(response *http.Response) error {
 		if !processIdentityMatches(response.Header, spec) {
 			return &processIdentityMismatchError{process: name}
+		}
+		// A public answer attests the generation it was pinned to; internal
+		// dispatch keeps the instance identity its caller verifies.
+		if generation, ok := response.Request.Context().Value(processHostGenerationKey{}).(*processHostGeneration); ok {
+			for service, instance := range map[string]string{processServiceIDHeader: processIdentityPIDHeader, processServiceImplementationHeader: processIdentityImplHeader} {
+				response.Header.Set(service, response.Header.Get(instance))
+				exposeResponseHeader(response.Header, service)
+			}
+			attestProcessGeneration(response.Header, generation)
 		}
 		return nil
 	}

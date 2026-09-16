@@ -4,15 +4,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"scenery.sh/internal/build"
 )
 
-// Re-enter the real dev build pipeline with unchanged source, then require its
-// persisted graph to survive a full public down/up cycle. The external framework
-// excludes whole-executable reuse; each start must compile with current checks.
-func verifyHarnessNativeRuntimeReuse(ctx context.Context, repoRoot, appRoot string, env []string) (returnErr error) {
+// Restart the unchanged application through the public lifecycle twice. Each
+// start re-enters the real dev build pipeline with current checks, persists the
+// same graph and runtime bundle, and links nothing: every process executable of
+// the linked build is reused by its recorded digest.
+func verifyHarnessNativeRuntimeReuse(ctx context.Context, repoRoot, appRoot string, env []string, linked build.RuntimeBundleDescriptor) (returnErr error) {
 	defer func() {
 		cleanup, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
@@ -20,6 +22,9 @@ func verifyHarnessNativeRuntimeReuse(ctx context.Context, repoRoot, appRoot stri
 		returnErr = errors.Join(returnErr, err)
 	}()
 	up := func() (*build.LatestBuildManifest, error) {
+		if _, err := runHarnessAppCLIWithEnv(ctx, repoRoot, appRoot, env, "down", "-o", "json"); err != nil {
+			return nil, err
+		}
 		output, err := runHarnessAppCLIWithEnv(ctx, repoRoot, appRoot, env, "up", "--detach", "--wait", "ready", "-o", "json")
 		if err != nil {
 			return nil, err
@@ -32,15 +37,22 @@ func verifyHarnessNativeRuntimeReuse(ctx context.Context, repoRoot, appRoot stri
 		if err != nil {
 			return nil, err
 		}
-		if _, err := harnessPrivateExternalBuildEvidence(events); err != nil {
+		if err := harnessProcessReuseEvidence(events); err != nil {
 			return nil, err
 		}
 		manifest, ok, err := build.ReadLatestBuildManifest(appRoot)
 		if err != nil {
 			return nil, err
 		}
-		if !ok || manifest.Build.Phase != "compiled" || !manifest.Build.BinaryExists || !manifest.Build.BuildStateExists || manifest.Build.GraphFingerprint == "" || !manifest.Build.MetadataPresent || !manifest.Build.APIEncodingPresent {
+		if !ok || manifest.Build.Phase != "compiled" || !manifest.Build.BuildStateExists || manifest.Build.GraphFingerprint == "" || !manifest.Build.MetadataPresent || !manifest.Build.APIEncodingPresent {
 			return nil, fmt.Errorf("public runtime did not persist reusable build state: %+v", manifest)
+		}
+		bundle, err := build.ReadRuntimeBundle(appRoot, "development")
+		if err != nil {
+			return nil, err
+		}
+		if bundle.ImplementationRevision != linked.ImplementationRevision || bundle.BuildInput.Digest != linked.BuildInput.Digest {
+			return nil, fmt.Errorf("unchanged public restart changed the runtime bundle identity")
 		}
 		return manifest, nil
 	}
@@ -48,22 +60,49 @@ func verifyHarnessNativeRuntimeReuse(ctx context.Context, repoRoot, appRoot stri
 	if err != nil {
 		return err
 	}
-	if _, err := runHarnessAppCLIWithEnv(ctx, repoRoot, appRoot, env, "down", "-o", "json"); err != nil {
-		return err
-	}
 	second, err := up()
 	if err != nil {
 		return err
 	}
-	if second.Build.GraphFingerprint != first.Build.GraphFingerprint || second.Build.BinaryPath != first.Build.BinaryPath {
-		return fmt.Errorf("unchanged public restart changed the native graph/build identity")
+	if second.Build.GraphFingerprint != first.Build.GraphFingerprint {
+		return fmt.Errorf("unchanged public restart changed the native graph")
+	}
+	return nil
+}
+
+// harnessProcessReuseEvidence requires the successful build of a start to have
+// reused every process executable and linked none.
+func harnessProcessReuseEvidence(events []harnessWatchEvent) error {
+	operation := ""
+	for _, event := range events {
+		if event.Type == "build.step" && event.Data.Name == "build.request" && event.Data.OK {
+			operation = event.Data.OperationID
+		}
+	}
+	reused, linked := -1, 0
+	for _, event := range events {
+		data := event.Data
+		if event.Type != "build.step" || data.OperationID != operation {
+			continue
+		}
+		switch {
+		case data.Name == "process.reuse" && data.OK && data.CacheMisses == 0:
+			reused = data.Actions
+		case data.Name == "build.artifact" && strings.HasPrefix(data.Reason, "linked_development_process_"):
+			linked++
+		}
+	}
+	if operation == "" || reused <= 0 || linked != 0 {
+		return fmt.Errorf("unchanged restart did not reuse every process executable: operation=%q reused=%d linked=%d", operation, reused, linked)
 	}
 	return nil
 }
 
 // Both real-app probes have an external Scenery source replacement. Require a
-// current-operation stock private build or retained default build, plus the
-// common link budget. An old generation's events cannot satisfy this assertion.
+// current-operation stock Go link of the changed process entrypoints under the
+// host-wide link budget, and no publication to the shared executable cache,
+// which never admits inputs outside its reuse domain. An old generation's
+// events cannot satisfy this assertion.
 func harnessPrivateExternalBuildEvidence(events []harnessWatchEvent) (map[string]any, error) {
 	operation := ""
 	for _, event := range events {
@@ -71,9 +110,9 @@ func harnessPrivateExternalBuildEvidence(events []harnessWatchEvent) (map[string
 			operation = event.Data.OperationID
 		}
 	}
-	builds, artifacts, retainedArtifacts := 0, 0, 0
-	bypassed, checked, queued, sharedAction := false, false, false, false
-	retainedBootstrap, retainedCompile, retainedBackend := false, false, ""
+	builds := 0
+	var linked []string
+	queued, shared := false, false
 	for _, event := range events {
 		data := event.Data
 		if event.Type != "build.step" || data.OperationID != operation {
@@ -82,45 +121,20 @@ func harnessPrivateExternalBuildEvidence(events []harnessWatchEvent) (map[string
 		switch data.Name {
 		case "go.command":
 			if data.Reason == "build" && data.OK {
-				if data.Cache == "retained_recipe" {
-					retainedCompile = true
-				} else {
-					builds++
-				}
-			}
-			if data.Reason == "retained_bootstrap" && data.Cache == "miss" && data.OK {
-				retainedBootstrap = true
-			}
-		case "build.backend":
-			if data.OK && data.Cache == "hit" && data.Reason == "retained_compiler" {
-				retainedBackend = "retained_compiler"
-			}
-			if data.OK && data.Cache == "miss" && (data.Reason == "missing_recipe" || data.Reason == "invalid_recipe" || data.Reason == "incompatible_recipe") {
-				retainedBackend = "retained_bootstrap"
+				builds++
 			}
 		case "build.artifact":
-			if data.OK && (data.Cache == "retained_recipe" || data.Cache == "retained_bootstrap") && data.ExecutableBytes > 0 {
-				retainedArtifacts++
+			if process, ok := strings.CutPrefix(data.Reason, "linked_development_process_"); ok && data.OK && data.ExecutableBytes > 0 {
+				linked = append(linked, process)
 			}
-		case "build.shared_input_check":
-			checked = data.OK
 		case "build.shared_link_queue":
 			queued = data.OK
-		case "build.shared_queue":
-			sharedAction = true
-		case "build.shared_artifact":
-			artifacts++
-			bypassed = data.OK && data.Cache == "bypass" && data.Reason == "inputs_outside_shared_reuse_domain" && data.ExecutableBytes > 0
+		case "build.shared_artifact", "build.shared_queue":
+			shared = true
 		}
 	}
-	stock := builds == 1 && artifacts == 1 && bypassed && checked
-	retained := retainedArtifacts == 1 && ((retainedBootstrap && retainedBackend == "retained_bootstrap") || (retainedCompile && retainedBackend == "retained_compiler"))
-	if operation == "" || !queued || sharedAction || (!stock && !retained) {
-		return nil, fmt.Errorf("external-input build did not prove private or retained compilation: operation=%q builds=%d shared_artifacts=%d retained_artifacts=%d bypass=%t checked=%t retained_bootstrap=%t retained_compile=%t retained_backend=%q link_queued=%t shared_action=%t", operation, builds, artifacts, retainedArtifacts, bypassed, checked, retainedBootstrap, retainedCompile, retainedBackend, queued, sharedAction)
+	if operation == "" || builds != 1 || len(linked) == 0 || !queued || shared {
+		return nil, fmt.Errorf("external-input build did not prove a private process link: operation=%q builds=%d linked=%v link_queued=%t shared_cache=%t", operation, builds, linked, queued, shared)
 	}
-	backend := "stock_private"
-	if retained {
-		backend = retainedBackend
-	}
-	return map[string]any{"operation_id": operation, "build_backend": backend, "shared_artifact_published": false, "live_input_check": true, "link_budget_queued": true}, nil
+	return map[string]any{"operation_id": operation, "build_backend": "stock_process_link", "linked_processes": linked, "shared_artifact_published": false, "link_budget_queued": true}, nil
 }

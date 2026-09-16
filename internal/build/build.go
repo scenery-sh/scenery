@@ -52,7 +52,11 @@ type Result struct {
 	AssistantAssets         []generateapi.AssistantAssetDescriptor
 	ProductionAssets        bool
 	OwnedGoModuleSources    []OwnedGoModuleSource
-	verification            *preparedVerification
+	// DevelopmentProcessBinaries names, relative to Dir, the executables of the
+	// process-model generation this build produced instead of one application
+	// executable.
+	DevelopmentProcessBinaries []string
+	verification               *preparedVerification
 }
 
 // SourceStamp records the size/mtime/permissions of an app source file as
@@ -116,6 +120,8 @@ type buildState struct {
 	ManagedGeneratedPaths     []string               `json:"managed_generated_paths,omitempty"`
 	GoBuildFlags              []string               `json:"go_build_flags,omitempty"`
 	OwnedGoModuleSources      []OwnedGoModuleSource  `json:"owned_go_module_sources,omitempty"`
+	// DevelopmentProcessBinaries are the executables of a process-model build.
+	DevelopmentProcessBinaries []string `json:"development_process_binaries,omitempty"`
 }
 
 const (

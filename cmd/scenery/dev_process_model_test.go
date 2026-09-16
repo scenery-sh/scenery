@@ -508,22 +508,6 @@ func TestSessionRecordReplacesStoredServiceProcesses(t *testing.T) {
 	}
 }
 
-func TestProcessModelIsTheDefaultAndApplicationIsDeprecated(t *testing.T) {
-	for value, want := range map[string]bool{"": true, "service": true, "application": false} {
-		t.Setenv(devProcessModelEnv, value)
-		if selected, err := devProcessModelSelected(); err != nil || selected != want {
-			t.Fatalf("%s=%q selected the process model = %t, %v; want %t", devProcessModelEnv, value, selected, err, want)
-		}
-	}
-	t.Setenv(devProcessModelEnv, "services")
-	if _, err := devProcessModelSelected(); err == nil {
-		t.Fatal("an unknown development model was accepted")
-	}
-	if !strings.Contains(devProcessModelDeprecation, "deprecated") {
-		t.Fatalf("deprecation warning = %q", devProcessModelDeprecation)
-	}
-}
-
 // A generation's processes keep the environment they started with, so the
 // identity must follow what a started process receives: a moved database
 // endpoint or a different winning duplicate changes it, while assembly order

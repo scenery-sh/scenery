@@ -143,8 +143,14 @@ func verifyCurrentSourceStateWithSnapshot(root, workspace string, state buildSta
 	if fingerprint != state.BuildFingerprint {
 		return fmt.Errorf("candidate workspace inputs changed (built=%s current=%s); rebuild the application", state.BuildFingerprint, fingerprint)
 	}
-	if _, err := os.Stat(filepath.Join(workspace, workspaceBinaryName(root, state.BuildFingerprint))); err != nil {
-		return fmt.Errorf("candidate executable is missing: %w", err)
+	executables := state.DevelopmentProcessBinaries
+	if len(executables) == 0 {
+		executables = []string{workspaceBinaryName(root, state.BuildFingerprint)}
+	}
+	for _, executable := range executables {
+		if _, err := os.Stat(filepath.Join(workspace, executable)); err != nil {
+			return fmt.Errorf("candidate executable is missing: %w", err)
+		}
 	}
 	current, err := loadBuildState(workspace)
 	if err != nil {

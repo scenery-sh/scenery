@@ -252,15 +252,12 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 			result.Metadata = append(json.RawMessage(nil), metadata...)
 			result.APIEncoding = append(json.RawMessage(nil), apiEncoding...)
 		}
-		if s.processModel {
-			var buildErr error
-			processes, joinImplementationCheck, buildErr = build.BuildDevelopmentProcessesContext(ctx, result)
-			if buildErr != nil {
-				joinImplementationCheck = func() error { return nil }
-			}
-			return buildErr
+		var buildErr error
+		processes, joinImplementationCheck, buildErr = build.BuildDevelopmentProcessesContext(ctx, result)
+		if buildErr != nil {
+			joinImplementationCheck = func() error { return nil }
 		}
-		return build.CompileContext(ctx, result)
+		return buildErr
 	}); err != nil {
 		return nil, devBuildError(metadata, apiEncoding, err)
 	}

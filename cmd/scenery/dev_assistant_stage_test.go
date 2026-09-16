@@ -162,24 +162,16 @@ func TestAssistantStageRollbackRetainsExactPrivateBytes(t *testing.T) {
 	if !reflect.DeepEqual(beforeConfig, s.RuntimeConfig()) {
 		t.Fatal("staging published a new descriptor")
 	}
-	previousApp := &runningApp{launch: &appStartPlan{assistants: previous}}
-	candidatePlan := &appStartPlan{assistants: candidate}
-	current, recovered, err := replaceAppGeneration(context.Background(), previousApp, candidatePlan,
-		func(*runningApp) error { return nil },
-		func(ctx context.Context, plan *appStartPlan) (*runningApp, error) {
-			if err := s.activateStage(ctx, plan.assistants); err != nil {
-				return nil, err
-			}
-			if plan == candidatePlan {
-				if err := os.Remove(filepath.Join(source, "index.ts")); err != nil {
-					t.Fatal(err)
-				}
-				return nil, errors.New("candidate listener failed")
-			}
-			return &runningApp{launch: plan}, nil
-		})
-	if err == nil || !recovered || current.launch != previousApp.launch {
-		t.Fatalf("handoff did not restore previous generation: recovered=%v err=%v", recovered, err)
+	// A candidate generation activates its stage and then fails to start;
+	// restoring the previous generation activates the previous stage again.
+	if err := s.activateStage(context.Background(), candidate); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(source, "index.ts")); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.activateStage(context.Background(), previous); err != nil {
+		t.Fatalf("handoff did not restore previous stage: %v", err)
 	}
 	s.releaseStage(candidate)
 	s.releaseStage(previous)

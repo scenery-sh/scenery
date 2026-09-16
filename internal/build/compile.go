@@ -84,25 +84,26 @@ func refreshWorkspaceBuildIdentity(result *Result) error {
 
 func savePrimedWorkspace(result *Result) error {
 	if err := saveBuildState(result.Dir, buildState{
-		Version:                   buildStateVersion,
-		DependencyFingerprint:     result.DependencyFingerprint,
-		SourceFingerprint:         result.SourceFingerprint,
-		SourceMetadataFingerprint: result.SourceMetadataFingerprint,
-		FrameworkFingerprint:      result.FrameworkFingerprint,
-		GeneratorFingerprint:      result.GeneratorFingerprint,
-		PreparationFingerprint:    result.PreparationFingerprint,
-		BuildFingerprint:          result.BuildFingerprint,
-		GraphFingerprint:          result.GraphFingerprint,
-		Metadata:                  append([]byte(nil), result.Metadata...),
-		APIEncoding:               append([]byte(nil), result.APIEncoding...),
-		SourceStamps:              maps.Clone(result.SourceStamps),
-		GeneratedFiles:            append([]string(nil), result.GeneratedFiles...),
-		GeneratedStamps:           maps.Clone(result.GeneratedStamps),
-		PublicGeneratedStamps:     maps.Clone(result.PublicGeneratedStamps),
-		CachedTypeScriptStamps:    maps.Clone(result.CachedTypeScriptStamps),
-		ManagedGeneratedPaths:     append([]string(nil), result.ManagedGeneratedPaths...),
-		GoBuildFlags:              append([]string(nil), result.GoBuildFlags...),
-		OwnedGoModuleSources:      cloneOwnedGoModuleSources(result.OwnedGoModuleSources),
+		Version:                    buildStateVersion,
+		DependencyFingerprint:      result.DependencyFingerprint,
+		SourceFingerprint:          result.SourceFingerprint,
+		SourceMetadataFingerprint:  result.SourceMetadataFingerprint,
+		FrameworkFingerprint:       result.FrameworkFingerprint,
+		GeneratorFingerprint:       result.GeneratorFingerprint,
+		PreparationFingerprint:     result.PreparationFingerprint,
+		BuildFingerprint:           result.BuildFingerprint,
+		GraphFingerprint:           result.GraphFingerprint,
+		Metadata:                   append([]byte(nil), result.Metadata...),
+		APIEncoding:                append([]byte(nil), result.APIEncoding...),
+		SourceStamps:               maps.Clone(result.SourceStamps),
+		GeneratedFiles:             append([]string(nil), result.GeneratedFiles...),
+		GeneratedStamps:            maps.Clone(result.GeneratedStamps),
+		PublicGeneratedStamps:      maps.Clone(result.PublicGeneratedStamps),
+		CachedTypeScriptStamps:     maps.Clone(result.CachedTypeScriptStamps),
+		ManagedGeneratedPaths:      append([]string(nil), result.ManagedGeneratedPaths...),
+		GoBuildFlags:               append([]string(nil), result.GoBuildFlags...),
+		OwnedGoModuleSources:       cloneOwnedGoModuleSources(result.OwnedGoModuleSources),
+		DevelopmentProcessBinaries: append([]string(nil), result.DevelopmentProcessBinaries...),
 	}); err != nil {
 		return err
 	}
@@ -227,7 +228,7 @@ func compilePrivateWorkspace(ctx context.Context, result *Result) error {
 	if err := validateRuntimeLinkerMetadata(result.RuntimeLinkerMetadata); err != nil {
 		return err
 	}
-	return compileApplicationBinaryContext(ctx, result)
+	return runSharedGoBuildContext(ctx, result)
 }
 
 func runGoBuildContext(ctx context.Context, result *Result) error {

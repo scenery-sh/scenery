@@ -19,15 +19,8 @@ import (
 	"time"
 
 	"scenery.sh/internal/build"
-	"scenery.sh/internal/envpolicy"
 	"scenery.sh/runtime"
 )
-
-// devProcessModelEnv selects the development runtime model. The process model
-// (one host process and one process per native service) is the default;
-// `application` selects the deprecated single application executable (see
-// docs/tech-debt.md).
-const devProcessModelEnv = "SCENERY_DEV_PROCESS_MODEL"
 
 const (
 	// devProcessRetireTimeout bounds how long a replaced generation may keep
@@ -47,21 +40,6 @@ const (
 	devProcessRestartWindow  = time.Minute
 	devProcessRestartBackoff = 250 * time.Millisecond
 )
-
-// devProcessModelDeprecation is reported when a session selects the single
-// application model.
-const devProcessModelDeprecation = "the single application development model is deprecated; unset " + devProcessModelEnv + " to use the default process model"
-
-func devProcessModelSelected() (bool, error) {
-	switch value := strings.TrimSpace(envpolicy.Get(devProcessModelEnv)); value {
-	case "", "service":
-		return true, nil
-	case "application":
-		return false, nil
-	default:
-		return false, fmt.Errorf("unsupported %s %q; use service or application", devProcessModelEnv, value)
-	}
-}
 
 // devProcessModel owns the host and service process instances of a
 // process-model session; mu serializes activations and guards the model, and
@@ -83,6 +61,9 @@ type devProcessModel struct {
 	link       *devProcessLink
 	generation uint64
 	contract   string
+	// identity is the build identity every published generation attests: the
+	// build whose process identities the services have.
+	identity build.DevelopmentProcessIdentity
 	// environment identifies the child environment every process of the host
 	// incarnation started with; a change, such as a moved database endpoint,
 	// needs a complete generation.
@@ -367,7 +348,7 @@ func (s *devSupervisor) startDevProcessGeneration(ctx context.Context, model *de
 		return nil, false, err
 	}
 	base := s.appChildEnvironment(result, environment)
-	previous := devProcessState{link: model.link, generation: model.generation, contract: model.contract, environment: model.environment, bindings: model.bindings, host: model.host, services: model.services, retained: model.retained}
+	previous := devProcessState{link: model.link, generation: model.generation, contract: model.contract, identity: model.identity, environment: model.environment, bindings: model.bindings, host: model.host, services: model.services, retained: model.retained}
 	hostInstance := &devProcessInstance{process: set.Host, socket: s.backend.normalized().Addr}
 	var started []*devProcessInstance
 	var previousHost *runningApp
@@ -414,7 +395,7 @@ func (s *devSupervisor) startDevProcessGeneration(ctx context.Context, model *de
 				services[instance.process.Name] = instance
 			}
 			model.link, model.generation, model.contract, model.bindings = link, 0, result.Contract.Manifest.ContractRevision, maps.Clone(set.BindingOwners)
-			model.environment = devProcessEnvironmentIdentity(base)
+			model.identity, model.environment = set.Identity, devProcessEnvironmentIdentity(base)
 			model.host, model.services, model.retained = hostInstance, services, map[uint64]map[string]*devProcessInstance{}
 			return s.publishDevProcessGeneration(ctx, model)
 		},
@@ -424,7 +405,7 @@ func (s *devSupervisor) startDevProcessGeneration(ctx context.Context, model *de
 				candidates = append(candidates, hostInstance)
 			}
 			model.link, model.generation, model.contract, model.bindings = previous.link, previous.generation, previous.contract, previous.bindings
-			model.environment = previous.environment
+			model.identity, model.environment = previous.identity, previous.environment
 			model.host, model.services, model.retained = previous.host, previous.services, previous.retained
 			if previousStopped {
 				// The previous host's retained generations ended with it; its
@@ -531,22 +512,25 @@ func (s *devSupervisor) replaceDevServiceProcesses(ctx context.Context, model *d
 			changed = append(changed, process)
 		}
 	}
-	if len(changed) == 0 {
+	// A build that changed no process identity still changes what the served
+	// generation attests when its build identity differs, so it publishes the
+	// same instances as a generation of the new build.
+	if len(changed) == 0 && model.identity == set.Identity {
 		return nil
 	}
 	started, err := s.startDevServiceInstances(ctx, model, changed, base, model.link, prepared)
 	if err != nil {
 		return err
 	}
-	previous := model.services
+	previous, previousIdentity := model.services, model.identity
 	next := maps.Clone(previous)
 	for _, instance := range started {
 		next[instance.process.Name] = instance
 	}
 	previousGeneration := model.generation
-	model.services = next
+	model.services, model.identity = next, set.Identity
 	if err := s.publishDevProcessGeneration(ctx, model); err != nil {
-		model.services = previous
+		model.services, model.identity = previous, previousIdentity
 		markDevProcessesStopped(started)
 		_ = s.stopInstances(started, model.runningCommands())
 		return err

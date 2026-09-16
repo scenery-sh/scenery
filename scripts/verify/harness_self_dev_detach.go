@@ -61,11 +61,7 @@ func runHarnessDetachedStartupProbe(parent context.Context, repoRoot string) (ma
 	env := envWithOverrides(envWithoutKeys(envpolicy.Environ(), "SCENERY_AGENT_SOCKET", "SCENERY_AGENT_ROUTER_ADDR", "SCENERY_DEV_DASHBOARD_ADDR", "SCENERY_DEV_CACHE_DIR", "DATABASE_URL", detachedDevChildEnv,
 		"SCENERY_TEST_WATCH_POLL_MS", "SCENERY_TEST_WATCH_BACKUP_POLL_MS", "SCENERY_TEST_WATCH_SETTLE_DELAY_MS"),
 		"SCENERY_AGENT_HOME="+home, "SCENERY_DEV_CACHE_DIR="+sceneryCache, "GOCACHE="+goCache,
-		"SCENERY_DEV_VICTORIA=0", "SCENERY_DEV_VICTORIA_DOWNLOAD=0",
-		// The detached startup journey asserts that the application process
-		// serves the session, which only the deprecated single application
-		// model does (docs/tech-debt.md).
-		"SCENERY_DEV_PROCESS_MODEL=application")
+		"SCENERY_DEV_VICTORIA=0", "SCENERY_DEV_VICTORIA_DOWNLOAD=0")
 	binary := harnessLocalSceneryBinaryPath(repoRoot)
 	framework, err := prepareHarnessSelectedFramework(ctx, repoRoot, root, appRoot, binary, env)
 	if err != nil {
@@ -238,7 +234,7 @@ func runHarnessDetachedStartupProbe(parent context.Context, repoRoot string) (ma
 	if err := os.WriteFile(originInput, append(content, []byte("\n// Independently edited co-development checkout.\n")...), 0o600); err != nil {
 		return nil, err
 	}
-	handoff, err := runHarnessAppHandoffProbe(ctx, appRoot, home, sceneryCache, goCache, runtime)
+	handoff, err := runHarnessAppHandoffProbe(ctx, appRoot, home, sceneryCache, goCache, binary, env, runtime)
 	if err != nil {
 		return nil, err
 	}

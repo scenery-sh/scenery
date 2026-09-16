@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -14,9 +13,9 @@ import (
 	"strings"
 	"time"
 
+	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/appwalk"
 	"scenery.sh/internal/build"
-	"scenery.sh/internal/envpolicy"
 )
 
 const harnessNativeContractApplicationProbeName = "native contract application probe"
@@ -103,10 +102,7 @@ func runHarnessNativeContractApplicationProbeCheck(parent context.Context, repoR
 		return summary, nil, err
 	}
 
-	// The journey inspects the compiled application executable and its runtime
-	// bundle, which only the deprecated single application model produces
-	// (docs/tech-debt.md).
-	env := envWithOverrides(harnessAppEnv(filepath.Join(probeRoot, "state")), "SCENERY_DEV_CACHE_DIR="+devCacheRoot, "SCENERY_DEV_PROCESS_MODEL=application")
+	env := envWithOverrides(harnessAppEnv(filepath.Join(probeRoot, "state")), "SCENERY_DEV_CACHE_DIR="+devCacheRoot)
 	defer func() {
 		cleanup, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
@@ -119,33 +115,31 @@ func runHarnessNativeContractApplicationProbeCheck(parent context.Context, repoR
 	}); err != nil {
 		return summary, nil, err
 	}
-	binary := ""
-	if err := segments.run("compile generated application", func() error {
-		_, err := runHarnessAppCLIWithEnv(ctx, repoRoot, appRoot, env, "up", "--detach", "--wait", "ready", "-o", "json")
+	var started detachedDevResult
+	if err := segments.run("link generated process entrypoints", func() error {
+		output, err := runHarnessAppCLIWithEnv(ctx, repoRoot, appRoot, env, "up", "--detach", "--wait", "ready", "-o", "json")
 		if err != nil {
 			return err
 		}
-		manifest, ok, err := build.ReadLatestBuildManifest(appRoot)
+		if err := decodeCLIJSON(output, &started); err != nil {
+			return err
+		}
+		events, err := harnessWatchEvents(started.LogPath, 0)
 		if err != nil {
 			return err
 		}
-		if !ok || manifest.Build.BinaryPath == "" {
-			return fmt.Errorf("public up did not publish its compiled application binary")
-		}
-		binary = manifest.Build.BinaryPath
-		return nil
+		evidence, err := harnessPrivateExternalBuildEvidence(events)
+		summary["external_source_build"] = evidence
+		return err
 	}); err != nil {
 		return summary, nil, err
 	}
-	if _, err := os.Stat(binary); err != nil {
-		return summary, nil, fmt.Errorf("compiled native application binary: %w", err)
-	}
-	if err := segments.run("verify compiled build manifest and entrypoint", func() error {
+	if err := segments.run("verify compiled build manifest and entrypoints", func() error {
 		manifest, ok, readErr := build.ReadLatestBuildManifest(appRoot)
 		if readErr != nil {
 			return readErr
 		}
-		if !ok || manifest.Build.Phase != "compiled" || !manifest.Build.BinaryExists || !manifest.Build.BuildStateExists {
+		if !ok || manifest.Build.Phase != "compiled" || !manifest.Build.BuildStateExists {
 			return fmt.Errorf("compiled build manifest = %+v, exists = %t", manifest, ok)
 		}
 		return verifyHarnessNativeContractEntrypoint(manifest.Build.WorkspaceDir)
@@ -176,26 +170,24 @@ func runHarnessNativeContractApplicationProbeCheck(parent context.Context, repoR
 	}); err != nil {
 		return summary, nil, err
 	}
-	if err := segments.run("start application and run generated client", func() error {
-		if _, err := runHarnessAppCLIWithEnv(ctx, repoRoot, appRoot, env, "down", "-o", "json"); err != nil {
-			return err
-		}
-		return runHarnessGeneratedTypeScriptClient(ctx, appRoot, devCacheRoot, binary)
+	if err := segments.run("call grouped routes and run generated client against the session", func() error {
+		baseURL := strings.TrimRight(started.Session.RouteManifest.Routes[localagent.RouteAPI].URL, "/")
+		return runHarnessGeneratedTypeScriptClient(ctx, appRoot, baseURL, started.Session.AppPID, bundle)
 	}); err != nil {
 		return summary, nil, err
 	}
 	if err := segments.run("verify reusable build state through public restart", func() error {
-		return verifyHarnessNativeRuntimeReuse(ctx, repoRoot, appRoot, env)
+		return verifyHarnessNativeRuntimeReuse(ctx, repoRoot, appRoot, env, bundle)
 	}); err != nil {
 		return summary, nil, err
 	}
 
-	summary["proof"] = "generated_native_contract_application_compiled_started_and_called"
+	summary["proof"] = "generated_native_contract_process_entrypoints_linked_started_attested_and_called"
 	summary["contract_revision"] = bundle.ContractRevision
 	summary["implementation_revision"] = bundle.ImplementationRevision
 	summary["build_input_digest"] = bundle.BuildInput.Digest
 	summary["local_replace_build_inputs"] = localReplaceBuildInputs
-	summary["latest_build_manifest_proof"] = "compiled_phase_and_public_restart_with_external_source_bypass"
+	summary["latest_build_manifest_proof"] = "compiled_phase_and_public_restart_reusing_every_process_executable"
 	summary["prepared_phase_assertion"] = "internal/build.TestPrepareAndCompileWriteLatestBuildManifestInProcess"
 	summary["configured_flags_assertion"] = "internal/build.TestCompilePassesConfiguredGoBuildFlags"
 	summary["grouped_route"] = "/api/group1/nested/house/process"
@@ -284,6 +276,10 @@ func copyHarnessNativeContractFixture(repoRoot, appRoot string) error {
 	return os.WriteFile(goModPath, updated, 0o644)
 }
 
+// verifyHarnessNativeContractEntrypoint checks the application entrypoint a
+// production build links and the service entrypoint of the development process
+// model: both verify the linked contract bundle before registering and sealing
+// the contract registry.
 func verifyHarnessNativeContractEntrypoint(workspaceRoot string) error {
 	mainSource, err := os.ReadFile(filepath.Join(workspaceRoot, "scenery_internal_main", "main.go"))
 	if err != nil {
@@ -293,6 +289,26 @@ func verifyHarnessNativeContractEntrypoint(workspaceRoot string) error {
 		if !bytes.Contains(mainSource, []byte(fragment)) {
 			return fmt.Errorf("generated native application entrypoint is missing %q", fragment)
 		}
+	}
+	services, err := filepath.Glob(filepath.Join(workspaceRoot, "scenery_internal_processes", "services", "*", "main.go"))
+	if err != nil || len(services) != 1 {
+		return fmt.Errorf("generated service process entrypoints = %v, %v; want one", services, err)
+	}
+	serviceSource, err := os.ReadFile(services[0])
+	if err != nil {
+		return err
+	}
+	for _, fragment := range nativeContractServiceEntrypointFragments {
+		if !bytes.Contains(serviceSource, []byte(fragment)) {
+			return fmt.Errorf("generated service process entrypoint %s is missing %q", services[0], fragment)
+		}
+	}
+	host, err := os.ReadFile(filepath.Join(workspaceRoot, "scenery_internal_processes", "host", "main.go"))
+	if err != nil {
+		return err
+	}
+	if !bytes.Contains(host, []byte("sceneryruntime.MainProcessHost(")) || bytes.Contains(host, []byte("scenerycomposition")) {
+		return fmt.Errorf("generated process host entrypoint does not run a host without application adapters")
 	}
 	return nil
 }
@@ -305,90 +321,26 @@ var nativeContractEntrypointFragments = []string{
 	"contractRegistry.Seal()",
 }
 
-func runHarnessGeneratedTypeScriptClient(parent context.Context, appRoot, devCacheRoot, binary string) error {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return err
-	}
-	address := listener.Addr().String()
-	if err := listener.Close(); err != nil {
-		return err
-	}
+var nativeContractServiceEntrypointFragments = []string{
+	`scenerycomposition "example.test/nativeapp/internal/scenerygen/`,
+	"sceneryruntime.VerifyLinkedContractBundle(scenerycomposition.ContractRevision)",
+	"sceneryruntime.NewContractRegistry",
+	"scenerycomposition.Register(contractRegistry)",
+	"contractRegistry.Seal()",
+}
 
-	logPath := filepath.Join(appRoot, "reference-server.log")
-	logFile, err := os.Create(logPath)
-	if err != nil {
-		return err
+// runHarnessGeneratedTypeScriptClient calls the grouped route and its removed
+// ungrouped spelling through the session, requires every answer to attest the
+// linked runtime bundle and the session's host process, and runs the generated
+// TypeScript client against the same session.
+func runHarnessGeneratedTypeScriptClient(parent context.Context, appRoot, baseURL, hostPID string, bundle build.RuntimeBundleDescriptor) error {
+	if baseURL == "" || hostPID == "" {
+		return fmt.Errorf("the session published no API route or host process")
 	}
-	defer func() { _ = logFile.Close() }()
-	serverCtx, stopServerContext := context.WithCancel(parent)
-	defer stopServerContext()
-	server := exec.CommandContext(serverCtx, binary)
-	server.Dir = appRoot
-	server.Env = envWithOverrides(envpolicy.Environ(),
-		"SCENERY_LISTEN_ADDR="+address,
-		"SCENERY_DEV_CACHE_DIR="+devCacheRoot,
-	)
-	server.Stdout = logFile
-	server.Stderr = logFile
-	if err := server.Start(); err != nil {
-		return err
-	}
-	done := make(chan error, 1)
-	go func() { done <- server.Wait() }()
-	stopped := false
-	stopServer := func() {
-		if stopped {
-			return
-		}
-		stopped = true
-		stopServerContext()
-		select {
-		case <-done:
-		case <-time.After(5 * time.Second):
-			_ = server.Process.Kill()
-			<-done
-		}
-		_ = logFile.Sync()
-	}
-	defer stopServer()
-	serverOutput := func() string {
-		_ = logFile.Sync()
-		data, _ := os.ReadFile(logPath)
-		return string(data)
-	}
-
-	baseURL := "http://" + address
 	if err := os.WriteFile(filepath.Join(appRoot, "typescript_reference_server_url.txt"), []byte(baseURL), 0o600); err != nil {
 		return err
 	}
-	client := &http.Client{Timeout: 500 * time.Millisecond}
-	deadline := time.NewTimer(30 * time.Second)
-	defer deadline.Stop()
-	for {
-		request, requestErr := http.NewRequestWithContext(parent, http.MethodGet, baseURL+"/__scenery_reference_ready", nil)
-		if requestErr != nil {
-			return requestErr
-		}
-		response, requestErr := client.Do(request)
-		if requestErr == nil {
-			_ = response.Body.Close()
-			// Any response proves the generated server is accepting HTTP. The
-			// reserved probe path intentionally has no application route.
-			break
-		}
-		select {
-		case <-parent.Done():
-			return fmt.Errorf("generated reference server readiness: %w\n%s", parent.Err(), serverOutput())
-		case <-deadline.C:
-			return fmt.Errorf("generated reference server did not become ready: %v\n%s", requestErr, serverOutput())
-		case serverErr := <-done:
-			stopped = true
-			return fmt.Errorf("generated reference server exited before readiness: %v\n%s", serverErr, serverOutput())
-		case <-time.After(25 * time.Millisecond):
-		}
-	}
-
+	client := &http.Client{Timeout: 10 * time.Second}
 	for _, route := range []string{"/api/house/process", "/api/group1/nested/house/process"} {
 		request, err := http.NewRequestWithContext(parent, http.MethodPost, baseURL+route, strings.NewReader(`{"scene_id":"grouped-probe"}`))
 		if err != nil {
@@ -407,13 +359,23 @@ func runHarnessGeneratedTypeScriptClient(parent context.Context, appRoot, devCac
 		if response.StatusCode != want {
 			return fmt.Errorf("grouped native route %s returned %d, want %d", route, response.StatusCode, want)
 		}
+		for header, value := range map[string]string{
+			"X-Scenery-Contract-Revision": bundle.ContractRevision, "X-Scenery-Implementation-Revision": bundle.ImplementationRevision,
+			"X-Scenery-Build-Input-Digest": bundle.BuildInput.Digest, "X-Scenery-Go-Target": bundle.Target, "X-Scenery-Process-ID": hostPID,
+		} {
+			if got := response.Header.Get(header); got != value {
+				return fmt.Errorf("%s answered %s %q, want the linked runtime bundle's %q", route, header, got, value)
+			}
+		}
+		if want == http.StatusOK && (response.Header.Get("X-Scenery-Service-Process-ID") == "" || response.Header.Get("X-Scenery-Service-Process-ID") == hostPID) {
+			return fmt.Errorf("%s did not name its answering service process", route)
+		}
 	}
-
 	bun := exec.CommandContext(parent, "bun", "test", "./typescript_reference_server.test.ts")
 	bun.Dir = appRoot
 	bunOutput, err := bun.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("generated TypeScript client against generated Go server: %w\n%s\nserver:\n%s", err, bunOutput, serverOutput())
+		return fmt.Errorf("generated TypeScript client against the development session: %w\n%s", err, bunOutput)
 	}
 	if !bytes.Contains(bunOutput, []byte("1 pass")) {
 		return fmt.Errorf("generated TypeScript client proof did not report one pass:\n%s", bunOutput)

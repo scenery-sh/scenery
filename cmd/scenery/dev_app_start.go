@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -12,7 +11,6 @@ import (
 	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/build"
-	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/devdash"
 	"scenery.sh/runtime"
 )
@@ -111,148 +109,28 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 	if err := build.VerifyOwnedGoModuleSourcesContext(ctx, plan.Result.OwnedGoModuleSources); err != nil {
 		return s.handleCompileError(ctx, plan.Metadata, plan.APIEncoding, err)
 	}
-	if plan.Processes != nil {
-		defer plan.Prepared.release(s)
-		snapshotStarted := time.Now()
-		err := s.requireCurrentBuildSnapshot(captured)
-		build.RecordStep(ctx, build.Step{Name: "supervisor.snapshot_verify", StartedAt: snapshotStarted, Duration: time.Since(snapshotStarted), Cache: "not_applicable", Reason: "source_unchanged_since_capture", OK: err == nil})
-		if err != nil {
-			return s.handleCompileError(ctx, plan.Metadata, plan.APIEncoding, err)
-		}
-		activationStarted := time.Now()
-		current, reload, err := s.activateDevProcesses(ctx, plan, earlyAssistants)
-		build.RecordStep(ctx, build.Step{
-			Name: "runtime.activation", StartedAt: activationStarted, Duration: time.Since(activationStarted),
-			Cache: "not_applicable", Reason: "publish_process_generation", OK: err == nil, PackagesRebuilt: plan.Processes.Rebuilt,
-			ContractRevision: plan.Result.Contract.Manifest.ContractRevision,
-		})
-		if err != nil {
-			return s.handleCompileError(ctx, plan.Metadata, plan.APIEncoding, err)
-		}
-		activated = true
-		s.mu.Lock()
-		s.buildFailed = false
-		s.mu.Unlock()
-		return s.publishActivatedApp(ctx, initial, snapshot, plan, current, reload)
-	}
-	var candidate *appStartPlan
-	candidateStarted := time.Now()
-	err = s.console.Phase("Preparing candidate process", func() error {
-		candidate, err = s.prepareAppStart(ctx, plan.Result, plan.Metadata, plan.APIEncoding, plan.Environment)
-		return err
-	})
-	candidateStep := build.Step{Name: "candidate.prepare", StartedAt: candidateStarted, Duration: time.Since(candidateStarted), Cache: "not_applicable", Reason: "retained_executable_and_environment", OK: err == nil}
-	if candidate != nil && candidate.request.Command != "" {
-		candidateStep.WrittenPaths = []string{candidate.request.Command}
-	}
-	build.RecordStep(ctx, candidateStep)
-	defer s.releaseUnusedAppBinary(candidate)
-	if err == nil {
-		preflightStarted := time.Now()
-		err = s.console.Phase("Verifying candidate preflight", func() error { return preflightAppStart(ctx, candidate) })
-		build.RecordStep(ctx, build.Step{Name: "candidate.preflight", StartedAt: preflightStarted, Duration: time.Since(preflightStarted), Cache: "not_applicable", Reason: "exact_executable_attestation", OK: err == nil})
-	}
+	defer plan.Prepared.release(s)
+	snapshotStarted := time.Now()
+	err = s.requireCurrentBuildSnapshot(captured)
+	build.RecordStep(ctx, build.Step{Name: "supervisor.snapshot_verify", StartedAt: snapshotStarted, Duration: time.Since(snapshotStarted), Cache: "not_applicable", Reason: "source_unchanged_since_capture", OK: err == nil})
 	if err != nil {
-		return s.handleCompileError(ctx, nil, nil, err)
-	}
-	if s.assistants != nil {
-		if earlyAssistants == nil {
-			s.assistants.lifecycle.Lock()
-			defer s.assistants.lifecycle.Unlock()
-		}
-		previousStage := s.assistants.captureStage()
-		defer s.assistants.releaseStage(previousStage)
-		s.mu.Lock()
-		previous := s.current
-		if previous != nil && previous.launch != nil {
-			previous.launch.assistants = previousStage
-		}
-		s.mu.Unlock()
-		err = s.console.Phase("Staging assistant runtimes", func() error {
-			var stageErr error
-			if earlyAssistants != nil {
-				if earlyAssistants.matches(plan.Result.Contract) {
-					candidate.assistants, stageErr = earlyAssistants.wait()
-					return stageErr
-				}
-				// A source change during startup may have forced a fresh graph.
-				// Join and retire the old private stage before preparing that graph.
-				earlyAssistants.release()
-			}
-			candidate.assistants, stageErr = s.assistants.stage(ctx, plan.Result.Contract)
-			return stageErr
-		})
-		defer s.assistants.releaseStage(candidate.assistants)
-		if err != nil && previous != nil {
-			return s.handleCompileError(ctx, nil, nil, err)
-		}
-		if earlyAssistants != nil {
-			unchanged, checkErr := compiler.SnapshotUnchanged(plan.Result.Contract)
-			if checkErr != nil {
-				return s.handleCompileError(ctx, nil, nil, checkErr)
-			}
-			if !unchanged {
-				return s.handleCompileError(ctx, nil, nil, errors.New("source changed during startup preparation; retry from a stable snapshot"))
-			}
-		}
-	}
-
-	// Detach before stopping so the exit watchers treat this as an intentional
-	// restart rather than a crash; otherwise handleExit races the restart and
-	// can register the session as "stopped" after the new app is running.
-	if err := s.requireCurrentBuildSnapshot(captured); err != nil {
-		return s.handleCompileError(ctx, plan.Metadata, plan.APIEncoding, err)
-	}
-	if err := build.VerifyOwnedGoModuleSourcesContext(ctx, plan.Result.OwnedGoModuleSources); err != nil {
 		return s.handleCompileError(ctx, plan.Metadata, plan.APIEncoding, err)
 	}
 	activationStarted := time.Now()
-	previous := s.detachCurrentApp()
-	var current *runningApp
-	var recovered bool
-	err = s.console.Phase("Starting scenery application", func() error {
-		current, recovered, err = replaceAppGeneration(ctx, previous, candidate, func(app *runningApp) error {
-			return s.console.Phase("Stopping previous application process", app.stop)
-		}, s.startPreparedApp)
-		return err
-	})
-	activationStep := build.Step{
+	current, reload, err := s.activateDevProcesses(ctx, plan, earlyAssistants)
+	build.RecordStep(ctx, build.Step{
 		Name: "runtime.activation", StartedAt: activationStarted, Duration: time.Since(activationStarted),
-		Cache: "not_applicable", Reason: "retire_launch_listener", OK: err == nil,
-	}
-	if candidate != nil && candidate.result != nil {
-		activationStep.FrameworkSourceDigest = candidate.result.FrameworkSourceDigest
-		if candidate.result.Target != nil {
-			activationStep.GoTarget = candidate.result.Target.Name
-			activationStep.ImplementationRevision = candidate.result.ImplementationRevisions[candidate.result.Target.Name]
-		}
-		if candidate.result.Contract != nil && candidate.result.Contract.Manifest != nil {
-			activationStep.ContractRevision = candidate.result.Contract.Manifest.ContractRevision
-		}
-		if candidate.result.BuildInput != nil {
-			activationStep.BuildInputDigest = candidate.result.BuildInput.Digest
-		}
-	}
-	build.RecordStep(ctx, activationStep)
+		Cache: "not_applicable", Reason: "publish_process_generation", OK: err == nil, PackagesRebuilt: plan.Processes.Rebuilt,
+		ContractRevision: plan.Result.Contract.Manifest.ContractRevision,
+	})
 	if err != nil {
-		s.mu.Lock()
-		s.current = current
-		s.mu.Unlock()
-		if recovered {
-			s.setRunning(current.pid, current.launch.metadata, current.launch.apiEncoding)
-			s.writeProcessEvent(ctx, "process/rollback", map[string]any{"pid": current.pid, "reason": err.Error()})
-		}
-		return s.handleCompileError(ctx, nil, nil, err)
+		return s.handleCompileError(ctx, plan.Metadata, plan.APIEncoding, err)
 	}
 	activated = true
 	s.mu.Lock()
-	s.current = current
 	s.buildFailed = false
 	s.mu.Unlock()
-	if previous != nil {
-		s.releaseUnusedAppBinary(previous.launch)
-	}
-	return s.publishActivatedApp(ctx, initial, snapshot, plan, current, previous != nil)
+	return s.publishActivatedApp(ctx, initial, snapshot, plan, current, reload)
 }
 
 // publishActivatedApp reports a successfully activated application generation
@@ -326,32 +204,6 @@ func (s *devSupervisor) reloadConfig(snapshot fileSnapshot) (app.Config, error) 
 	return cfg, nil
 }
 
-func (s *devSupervisor) prepareAppStart(ctx context.Context, result *build.Result, metadata, apiEncoding json.RawMessage, environment *devRuntimeEnvironment) (*appStartPlan, error) {
-	if result == nil || result.Contract == nil || !result.Contract.Valid() {
-		return nil, fmt.Errorf("application startup requires a valid compiled contract")
-	}
-	agentSession := s.currentAgentSession()
-	binary := result.Binary
-	sessionBinary, environment, err := prepareAppStartInputs(func() (string, error) {
-		return prepareSessionAppBinary(agentSession, result.Binary, result.ArtifactDigest)
-	}, func() (*devRuntimeEnvironment, error) {
-		if environment != nil {
-			return environment, nil
-		}
-		return s.prepareRuntimeEnvironment(ctx, result.Contract)
-	}, func(path string) {
-		s.releaseUnusedAppBinary(&appStartPlan{request: devProcessStartRequest{Command: path}})
-	})
-	if err != nil {
-		return nil, err
-	}
-	if sessionBinary != "" {
-		binary = sessionBinary
-	}
-	env := s.appChildEnvironment(result, environment)
-	return &appStartPlan{result: result, metadata: metadata, apiEncoding: apiEncoding, request: s.appProcessStartRequest(ctx, "api", "scenery-api", binary, env)}, nil
-}
-
 // appChildEnvironment is the complete environment of an application runtime
 // process listening on the supervisor's API backend.
 func (s *devSupervisor) appChildEnvironment(result *build.Result, environment *devRuntimeEnvironment) []string {
@@ -416,51 +268,4 @@ func (s *devSupervisor) appProcessStartRequest(ctx context.Context, name, role, 
 			s.eventSink().Output(ctx, source, data)
 		},
 	}
-}
-
-func (s *devSupervisor) startPreparedApp(ctx context.Context, plan *appStartPlan) (*runningApp, error) {
-	if s.assistants != nil {
-		if err := s.console.Phase("Activating assistant runtimes", func() error {
-			return s.assistants.activateStage(ctx, plan.assistants)
-		}); err != nil {
-			return nil, err
-		}
-		setAssistantImplementationWatch(s.root, assistantDefinitionsFromResult(plan.result.Contract, s.root))
-		s.refreshAssistantRuntimeConfig()
-	}
-	if err := backendAvailableBeforeStartup(s.backend); err != nil {
-		return nil, fmt.Errorf("app listen address %s is unavailable before startup: %w", s.addr, err)
-	}
-	var process *devManagedProcess
-	err := s.console.Phase("Launching application process", func() error {
-		var err error
-		process, err = startDevManagedProcess(ctx, plan.request)
-		return err
-	})
-	if err != nil {
-		return nil, err
-	}
-	app := &runningApp{
-		process:  process,
-		cmd:      process.Cmd,
-		buildDir: plan.result.Dir,
-		pid:      fmt.Sprintf("%d", process.PID),
-		output:   process.Tail,
-		launch:   plan,
-	}
-	go func() {
-		<-process.Done
-		s.handleExit(context.Background(), app)
-	}()
-	if err := s.console.Phase("Waiting for application listener", func() error { return s.waitForAppStartup(ctx, app) }); err != nil {
-		if stopErr := app.stop(); stopErr != nil {
-			return app, errors.Join(err, fmt.Errorf("candidate shutdown is unconfirmed; rollback refused: %w", stopErr))
-		}
-		return nil, err
-	}
-	if s.assistants != nil {
-		_ = s.console.Phase("Starting prepared assistant runtimes", func() error { return s.assistants.StartPrepared(ctx) })
-		s.refreshAssistantRuntimeConfig()
-	}
-	return app, nil
 }

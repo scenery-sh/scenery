@@ -23,8 +23,8 @@ import (
 const harnessProcessModelProbeName = "process model replacement probe"
 
 // The process-model probe runs testdata/apps/multiservice through the public
-// `scenery up` lifecycle with SCENERY_DEV_PROCESS_MODEL=service. Every response
-// is attributed to its answering process through the runtime identity header.
+// `scenery up` lifecycle. Every response is attributed to its answering service
+// process, and to the host and build that attest it, through its headers.
 func runHarnessProcessModelProbeStep(ctx context.Context, repoRoot string) harnessStep {
 	started := time.Now()
 	step := harnessStep{Name: harnessProcessModelProbeName, Command: []string{"go", "run", "./scripts/verify", "--probe", "process-model", "--summary"}}
@@ -45,7 +45,9 @@ func runHarnessProcessModelProbeStep(ctx context.Context, repoRoot string) harne
 type harnessProcessModelResponse struct {
 	Message        string
 	PID            int
+	Host           int
 	Implementation string
+	Build          string
 	Generation     int
 }
 
@@ -61,7 +63,7 @@ func runHarnessProcessModelProbe(parent context.Context, repoRoot string) (summa
 	if err := copyHarnessMultiserviceFixture(repoRoot, appRoot); err != nil {
 		return nil, err
 	}
-	env := envWithOverrides(harnessAppEnv(home), "SCENERY_DEV_PROCESS_MODEL=service")
+	env := harnessAppEnv(home)
 	output, err := runHarnessAppCLIWithEnv(ctx, repoRoot, appRoot, env, "up", "--detach", "--wait", "ready", "-o", "json")
 	if err != nil {
 		return nil, err
@@ -107,12 +109,15 @@ func runHarnessProcessModelProbe(parent context.Context, repoRoot string) (summa
 		if response.StatusCode != http.StatusOK || json.Unmarshal(data, &decoded) != nil {
 			return harnessProcessModelResponse{}, fmt.Errorf("%s answered %d %s", path, response.StatusCode, data)
 		}
-		pid, _ := strconv.Atoi(response.Header.Get("X-Scenery-Process-ID"))
+		// The host attests the generation's build and itself; the answering
+		// service instance is named beside it.
+		pid, _ := strconv.Atoi(response.Header.Get("X-Scenery-Service-Process-ID"))
 		if pid > 0 && !slices.Contains(seen, pid) {
 			seen = append(seen, pid)
 		}
+		host, _ := strconv.Atoi(response.Header.Get("X-Scenery-Process-ID"))
 		generation, _ := strconv.Atoi(response.Header.Get("X-Scenery-Process-Generation"))
-		return harnessProcessModelResponse{Message: decoded.Message, PID: pid, Implementation: response.Header.Get("X-Scenery-Implementation-Revision"), Generation: generation}, nil
+		return harnessProcessModelResponse{Message: decoded.Message, PID: pid, Host: host, Implementation: response.Header.Get("X-Scenery-Service-Implementation-Revision"), Build: response.Header.Get("X-Scenery-Build-Input-Digest"), Generation: generation}, nil
 	}
 	waitFor := func(path, body, want string) (harnessProcessModelResponse, time.Duration, error) {
 		begin := time.Now()
@@ -145,6 +150,9 @@ func runHarnessProcessModelProbe(parent context.Context, repoRoot string) (summa
 	if echoOne.PID <= 0 || greeterOne.PID <= 0 || len(map[int]bool{host: true, echoOne.PID: true, greeterOne.PID: true}) != 3 {
 		return nil, fmt.Errorf("host %d, echo %d and greeter %d are not three processes", host, echoOne.PID, greeterOne.PID)
 	}
+	if echoOne.Host != host || greeterOne.Host != host || echoOne.Build == "" || echoOne.Build != greeterOne.Build || echoOne.Implementation == greeterOne.Implementation {
+		return nil, fmt.Errorf("answers of one generation attest hosts %d and %d with builds %q and %q (session host %d)", echoOne.Host, greeterOne.Host, echoOne.Build, greeterOne.Build, host)
+	}
 
 	// A service process that stops on its own restarts from its own verified
 	// executable, without rebuilding and without disturbing other services.
@@ -161,7 +169,7 @@ func runHarnessProcessModelProbe(parent context.Context, repoRoot string) (summa
 	if greet, err := call(ctx, "/greet", `{"name":"probe"}`); err != nil || greet.Message != "greeter:echo:hello probe" || greet.PID != greeterOne.PID {
 		return nil, fmt.Errorf("after a restart greet = %#v, %v; want the unchanged greeter %d", greet, err, greeterOne.PID)
 	}
-	if !nativeBuildWaitProcessExit(echoOne.PID, 15*time.Second) {
+	if !harnessWaitProcessExit(echoOne.PID, 15*time.Second) {
 		return nil, fmt.Errorf("killed echo process %d did not exit", echoOne.PID)
 	}
 	echoOne = restarted
@@ -221,13 +229,18 @@ func runHarnessProcessModelProbe(parent context.Context, repoRoot string) (summa
 		return nil, fmt.Errorf("answers named generations %d (pinned), %d (when it entered) and %d (after two replacements)", inFlight.response.Generation, echoOne.Generation, echoTwo.Generation)
 	}
 	for _, pid := range []int{greeterOne.PID, echoOne.PID} {
-		if !nativeBuildWaitProcessExit(pid, 45*time.Second) {
+		if !harnessWaitProcessExit(pid, 45*time.Second) {
 			return nil, fmt.Errorf("process %d of the first generation did not retire after its pinned work finished", pid)
 		}
 	}
 	current, err := call(ctx, "/greet", `{"name":"probe"}`)
 	if err != nil || current.Message != "greeter-two:echo-two:hello probe" || current.PID != greeterTwo.PID || echoTwo.PID == echoOne.PID || echoTwo.Implementation == echoOne.Implementation {
 		return nil, fmt.Errorf("after both edits greet = %#v (%v), echo = %#v; want greeter %d and a new echo identity", current, err, echoTwo, greeterTwo.PID)
+	}
+	// The unchanged greeter answers as part of the latest build, which differs
+	// from the build the pinned request attested.
+	if current.Build != echoTwo.Build || current.Build == inFlight.response.Build || greeterTwo.Build == echoOne.Build {
+		return nil, fmt.Errorf("attested builds: pinned %q, greeter edit %q, echo edit %q, unchanged greeter %q", inFlight.response.Build, greeterTwo.Build, echoTwo.Build, current.Build)
 	}
 	background, err := harnessProcessModelBackground(started.LogPath, echoEditOffset)
 	if err != nil {
@@ -348,7 +361,7 @@ func runHarnessProcessModelProbe(parent context.Context, repoRoot string) (summa
 		return nil, fmt.Errorf("after the committed contract-changing generation greet = %#v, %v", greeterFour, err)
 	}
 	for _, pid := range []int{host, greeterThree.PID, echoThree.PID} {
-		if !nativeBuildWaitProcessExit(pid, 15*time.Second) {
+		if !harnessWaitProcessExit(pid, 15*time.Second) {
 			return nil, fmt.Errorf("process %d of the replaced generation outlived the complete replacement", pid)
 		}
 	}
@@ -543,7 +556,7 @@ func harnessProcessModelRebuiltSet(log string, offset int64) ([]string, error) {
 // process-link wiring to disappear with the session.
 func harnessProcessModelCleanup(home, appRoot string, pids []int) error {
 	for _, pid := range pids {
-		if !nativeBuildWaitProcessExit(pid, 15*time.Second) {
+		if !harnessWaitProcessExit(pid, 15*time.Second) {
 			return fmt.Errorf("process %d outlived scenery down", pid)
 		}
 		if err := syscall.Kill(pid, 0); err == nil {
@@ -567,4 +580,16 @@ func harnessProcessModelCleanup(home, appRoot string, pids []int) error {
 		}
 	}
 	return nil
+}
+
+// harnessWaitProcessExit reports whether the process exited within timeout.
+func harnessWaitProcessExit(pid int, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if err := syscall.Kill(pid, 0); err != nil {
+			return true
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return syscall.Kill(pid, 0) != nil
 }
