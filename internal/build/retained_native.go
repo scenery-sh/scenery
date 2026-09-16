@@ -184,7 +184,7 @@ func refreshRetainedNativeRecipe(ctx context.Context, root string, result *Resul
 	}
 	captureStarted := time.Now()
 	goTool := stockGoDriverPath()
-	capture, err := nativebuilddriver.FullCapture(ctx, goTool, result.Dir, filepath.Join(recordRoot, "snapshot"), result.GoEnvironment, result.GoBuildFlags)
+	capture, err := nativebuilddriver.FullCapture(ctx, goTool, result.Dir, filepath.Join(recordRoot, "snapshot"), result.GoEnvironment, result.GoBuildFlags, "")
 	RecordStep(ctx, Step{Name: "go.recipe_capture", StartedAt: captureStarted, Duration: time.Since(captureStarted), Cache: "miss", Reason: "graph_refresh_package_loading", OK: err == nil, Actions: len(capture.Packages)})
 	if err != nil {
 		return nil, err
@@ -406,13 +406,13 @@ func bootstrapRetainedNativeRecipe(ctx context.Context, root string, result *Res
 		return nil, fmt.Errorf("bootstrap retained compiler recipe: %w\n%s", runErr, output)
 	}
 	captureStarted := time.Now()
-	capture, err := nativebuilddriver.FullCapture(ctx, goTool, result.Dir, filepath.Join(recordRoot, "bootstrap-snapshot"), result.GoEnvironment, result.GoBuildFlags)
+	capture, err := nativebuilddriver.FullCapture(ctx, goTool, result.Dir, filepath.Join(recordRoot, "bootstrap-snapshot"), result.GoEnvironment, result.GoBuildFlags, "")
 	RecordStep(ctx, Step{Name: "go.recipe_capture", StartedAt: captureStarted, Duration: time.Since(captureStarted), Cache: "miss", Reason: "stock_package_loading_and_input_snapshot", OK: err == nil, Actions: len(capture.Packages)})
 	if err != nil {
 		return nil, err
 	}
 	recipeStarted := time.Now()
-	recipe, err := nativebuilddriver.LoadRecordedRecipe(recordRoot, result.Dir, capture)
+	recipe, err := nativebuilddriver.LoadRecordedRecipe(recordRoot, result.Dir, capture, filepath.Join(recipeRoot, "retained"))
 	actions := 0
 	if recipe != nil {
 		actions = len(recipe.Compiles) + 1
@@ -446,8 +446,8 @@ func bootstrapRetainedNativeRecipe(ctx context.Context, root string, result *Res
 		return nil, err
 	}
 	keepRecipe = true
-	_ = os.RemoveAll(filepath.Join(recordRoot, "cache"))
-	_ = os.RemoveAll(filepath.Join(recordRoot, "tmp"))
+	// Every retained input now lives in the content-addressed state root.
+	_ = os.RemoveAll(recordRoot)
 	_ = pruneRetainedNativeDirectories(recipesRoot, recipeRoot, 1)
 	if err := recordBuildArtifact(ctx, result.Binary, "retained_bootstrap"); err != nil {
 		return nil, err

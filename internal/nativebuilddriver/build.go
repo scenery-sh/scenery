@@ -114,7 +114,7 @@ func (recipe *Recipe) Build(ctx context.Context, request BuildRequest) (result B
 	if request.CaptureMode == "retained" {
 		capture, err = recipe.RetainedCapture(ctx, request.BuildArgv[0], filepath.Join(request.GenerationRoot, "snapshot"), request.Environment, request.BuildFlags)
 	} else {
-		capture, err = FullCapture(ctx, request.BuildArgv[0], request.Workspace, filepath.Join(request.GenerationRoot, "snapshot"), request.Environment, request.BuildFlags)
+		capture, err = FullCapture(ctx, request.BuildArgv[0], request.Workspace, filepath.Join(request.GenerationRoot, "snapshot"), request.Environment, request.BuildFlags, recipe.currentCapture().EntrypointPattern())
 	}
 	result.CaptureMS, result.CaptureDigest = capture.DurationMS, capture.Digest
 	recordPhase("input_capture", captureAt)
@@ -408,16 +408,28 @@ func (recipe *Recipe) archiveAliases(importPath string) []string {
 // recipe manifest and executable have both been published. It never follows
 // symlinks and only visits the three driver-owned retained-state directories.
 func (recipe *Recipe) PruneUnreferenced(stateRoot string) error {
+	return PruneUnreferencedAcross(stateRoot, []*Recipe{recipe})
+}
+
+// PruneUnreferencedAcross removes retained state that none of the given recipes
+// references. Recipes that share one state root must be pruned together, or one
+// recipe would delete the archives another still needs.
+func PruneUnreferencedAcross(stateRoot string, recipes []*Recipe) error {
 	root, err := filepath.Abs(stateRoot)
 	if err != nil {
 		return err
 	}
-	referenced := make(map[string]struct{}, len(recipe.Retained)+len(recipe.Support))
-	for path := range recipe.Retained {
-		referenced[filepath.Clean(path)] = struct{}{}
-	}
-	for path := range recipe.Support {
-		referenced[filepath.Clean(path)] = struct{}{}
+	referenced := map[string]struct{}{}
+	for _, recipe := range recipes {
+		if recipe == nil {
+			continue
+		}
+		for path := range recipe.Retained {
+			referenced[filepath.Clean(path)] = struct{}{}
+		}
+		for path := range recipe.Support {
+			referenced[filepath.Clean(path)] = struct{}{}
+		}
 	}
 	for _, name := range []string{"artifacts", "snapshots", "support"} {
 		directory := filepath.Join(root, name)

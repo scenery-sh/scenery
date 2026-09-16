@@ -206,3 +206,20 @@ func TestRetainedDevelopmentProcessDigestsDoNotRereadUnchangedExecutables(t *tes
 		t.Fatalf("missing executable = %v, %v", ok, err)
 	}
 }
+
+// A session of fifty services must not answer its first build by recording
+// fifty complete closures; only an entrypoint the developer links again is
+// worth a recipe.
+func TestProcessRecipesFollowRepeatedEntrypointLinks(t *testing.T) {
+	root := t.TempDir()
+	edited := retainedProcessTargetRoot(root, "echo_echo")
+	if repeatedStockProcessLink(edited) {
+		t.Fatal("the first stock link of a session scheduled a recipe capture")
+	}
+	if !repeatedStockProcessLink(edited) {
+		t.Fatal("a repeated stock link of the same entrypoint scheduled no recipe capture")
+	}
+	if untouched := retainedProcessTargetRoot(root, "greeter_greeter"); repeatedStockProcessLink(untouched) {
+		t.Fatal("an entrypoint linked once scheduled a recipe capture because a sibling was edited")
+	}
+}

@@ -340,6 +340,18 @@ compile the application graph as it needs.
   rebaseline, resources, conformance and edit-to-response measurement need that
   helper to reach readiness.
 
+- [x] Service entrypoints can link through the retained compiler. Each
+  entrypoint keeps its own recorded recipe, and the recipes of one workspace
+  share a single content-addressed store of archives, support inputs and source
+  snapshots. A session records a recipe only for an entrypoint it has linked by
+  stock Go more than once, one recording at a time, at a lowered scheduling
+  priority. Measured on the three-service fixture: recording one entrypoint
+  takes 20-25 s and leaves 223 MB of shared state (the same three entrypoints
+  cost 1.4 GB before the store was shared), and a retained service build takes
+  528-622 ms against 434-708 ms for the stock build of one service. The retained
+  path is therefore not yet a latency win at this closure size; its value has to
+  be measured on ONLV, which stays blocked below.
+
 ## Surprises & Discoveries
 
 - The implementation check runs beside the entrypoint build, so a faster build
@@ -462,6 +474,23 @@ compile the application graph as it needs.
 - `httputil.ReverseProxy` copies both directions of an upgraded connection
   until both end, so a host generation stays in flight until the client closes
   its side as well.
+
+- The recorded recipe of a process entrypoint failed to load for two reasons
+  that only appear away from the application entrypoint: the pattern is an
+  import path, not a directory, so the recorded `main` compile matched no
+  package; and the per-process `-ldflags` carry the linked identity, which
+  changes with every edit, so a recipe that compared them was never eligible.
+  Both are now explicit: a capture records the import path its pattern resolved
+  to, and only stable build configuration decides eligibility.
+- A background recording that discards its error is invisible. The first
+  attempts produced nothing for twenty minutes without a single log line;
+  `build.recipe_capture` now reports every recording with its reason, which
+  found both failures in one run.
+- Recording archives inside the recording directory cost 471-477 MB per
+  entrypoint, because each recipe kept its own copy of the same closure and
+  kept both the recorded and the finalized archive. Moving bootstrap state into
+  the content-addressed store made a second entrypoint adopt what the first
+  recorded.
 
 ## Decision Log
 
@@ -663,6 +692,19 @@ compile the application graph as it needs.
   checked against rendered adapter sources in tests. Rationale: a route table
   generated separately from registrations would drift. Date: 2026-09-15.
   Author: Claude.
+
+- Decision: a development session records an entrypoint recipe only after it
+  has linked that entrypoint by stock Go more than once, and records one
+  entrypoint at a time. Rationale: an application of fifty services would
+  otherwise answer its first edit by rebuilding fifty complete closures, and
+  a developer works on a few services at a time. Date: 2026-09-16. Author:
+  Claude.
+- Decision: recorded archives, support inputs and source snapshots move into one
+  content-addressed store per workspace, and a recording directory is deleted
+  once its recipe is published. Rationale: entrypoints of one application
+  compile nearly the same packages; separate stores retained each closure again.
+  A snapshot is copied rather than moved, because a capture may name the
+  developer's own workspace file. Date: 2026-09-16. Author: Claude.
 
 ## Outcomes & Retrospective
 

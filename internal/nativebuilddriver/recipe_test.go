@@ -808,3 +808,43 @@ func cloneCapture(value Capture) Capture {
 	_ = json.Unmarshal(data, &result)
 	return result
 }
+
+func TestBootstrapStateIsAdoptedByContentAcrossRecipes(t *testing.T) {
+	stateRoot := filepath.Join(t.TempDir(), "state")
+	first, files := newRetainedRecipeFixture(t)
+	recorded := first.Compiles["example/a"].Output.Original
+	if err := first.retainBootstrapState(stateRoot); err != nil {
+		t.Fatal(err)
+	}
+	if err := first.Validate(); err != nil {
+		t.Fatalf("retained bootstrap state is invalid: %v", err)
+	}
+	shared := first.ArchiveByOld[recorded]
+	if !pathWithin(stateRoot, shared) {
+		t.Fatalf("archive stayed outside the shared store: %q", shared)
+	}
+	if retained := first.Retained[shared]; retained.Digest == "" || retained.Bytes == 0 {
+		t.Fatalf("shared archive is unaccounted: %+v", retained)
+	}
+	if snapshot := first.Current.SnapshotFiles[files["a"]]; !pathWithin(stateRoot, snapshot) {
+		t.Fatalf("source snapshot stayed outside the shared store: %q", snapshot)
+	}
+	if _, err := os.Lstat(files["a"]); err != nil {
+		t.Fatalf("workspace source was consumed by retention: %v", err)
+	}
+
+	second, _ := newRetainedRecipeFixture(t)
+	if err := second.retainBootstrapState(stateRoot); err != nil {
+		t.Fatal(err)
+	}
+	if adopted := second.ArchiveByOld[second.Compiles["example/a"].Output.Original]; adopted != shared {
+		t.Fatalf("second recipe did not adopt the retained archive: %q != %q", adopted, shared)
+	}
+	entries, err := os.ReadDir(filepath.Join(stateRoot, "artifacts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != len(first.Compiles) {
+		t.Fatalf("shared store holds %d archives for two identical closures of %d packages", len(entries), len(first.Compiles))
+	}
+}

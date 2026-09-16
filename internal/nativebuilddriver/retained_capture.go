@@ -28,7 +28,7 @@ func retainedCapture(ctx context.Context, goTool, workspace string, baseline Cap
 		Protocol: ProtocolVersion, Workspace: workspace, StartedAt: started.UTC(),
 		Packages: clonePackages(baseline.Packages), Files: map[string]string{}, FileStamps: map[string]FileStamp{}, Syntax: cloneStrings(baseline.Syntax),
 		Directories: map[string]string{}, SnapshotFiles: cloneStrings(baseline.SnapshotFiles),
-		GoVersion: baseline.GoVersion, BuildFlags: append([]string(nil), buildFlags...),
+		GoVersion: baseline.GoVersion, BuildFlags: append([]string(nil), buildFlags...), Pattern: baseline.Pattern, Entrypoint: baseline.Entrypoint,
 		Environment: cloneStrings(baseline.Environment), RequestEnv: relevantRequestEnvironment(env),
 	}
 	if err := ctx.Err(); err != nil {

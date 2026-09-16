@@ -13,7 +13,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 )
 
 var ErrIncompleteRecordedRecipe = errors.New("recorded recipe does not cover the current package closure")
@@ -62,7 +61,11 @@ type LinkAction struct {
 	MainAt      int               `json:"main_at"`
 }
 
-func LoadRecordedRecipe(recordRoot, workspace string, bootstrap Capture) (*Recipe, error) {
+// LoadRecordedRecipe turns one recorded stock-Go build into a recipe. Every
+// archive, support input and source snapshot it keeps is moved into the
+// content-addressed state root, so the recording directory is disposable and
+// recipes of one workspace share the state their closures have in common.
+func LoadRecordedRecipe(recordRoot, workspace string, bootstrap Capture, stateRoot string) (*Recipe, error) {
 	recipe := &Recipe{Protocol: ProtocolVersion, Root: recordRoot, Workspace: workspace,
 		Bootstrap: bootstrap, Current: cloneCaptureValue(bootstrap), Compiles: map[string]*CompileAction{}, ArchiveByOld: map[string]string{}, ToolDigests: map[string]string{}, Retained: map[string]RetainedFile{}, Support: map[string]RetainedFile{}}
 	linkSeen, err := mergeRecordedActions(recipe, recordRoot, bootstrap)
@@ -83,15 +86,9 @@ func LoadRecordedRecipe(recordRoot, workspace string, bootstrap Capture) (*Recip
 			return nil, fmt.Errorf("link input archive was not retained: %s", old)
 		}
 	}
-	for original, path := range bootstrap.SnapshotFiles {
-		if path == "" || bootstrap.Files[original] == "" {
-			continue
-		}
-		if err := retainSupportPath(recipe, path, bootstrap.Files[original]); err != nil {
-			return nil, err
-		}
+	if err := recipe.retainBootstrapState(stateRoot); err != nil {
+		return nil, err
 	}
-	recipe.RetentionLimit = recipe.RetainedBytes*2 + 512<<20
 	if err := recipe.Validate(); err != nil {
 		return nil, err
 	}
@@ -104,13 +101,9 @@ func mergeRecordedActions(recipe *Recipe, recordRoot string, capture Capture) (b
 		return false, err
 	}
 	linkSeen := false
-	mainPackage := ""
-	for importPath, pkg := range capture.Packages {
-		if pkg.Name == "main" && samePath(pkg.Dir, filepath.Join(recipe.Workspace, "scenery_internal_main")) {
-			mainPackage = importPath
-			break
-		}
-	}
+	// The recorded compile of the entrypoint names the package "main"; every
+	// other action is keyed by import path, so the entrypoint is too.
+	mainPackage := capture.Entrypoint
 	for _, path := range entries {
 		data, err := os.ReadFile(path)
 		if err != nil {
@@ -274,99 +267,12 @@ func pathWithin(root, path string) bool {
 	return err == nil && relative != ".." && relative != "." && !filepath.IsAbs(relative) && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
 }
 
-func (recipe *Recipe) materializeSupport(stateRoot string) error {
-	for importPath, source := range recipe.Compiles {
-		action := *source
-		action.Argv = append([]string(nil), source.Argv...)
-		action.Files = cloneFileCopies(source.Files)
-		for index, file := range action.Files {
-			if _, isSource := recipe.Current.Files[file.Original]; isSource {
-				continue
-			}
-			retained, err := retainSupportCopy(file, stateRoot)
-			if err != nil {
-				return err
-			}
-			action.Files[index] = retained
-		}
-		recipe.Compiles[importPath] = &action
-	}
-	link := *recipe.Link
-	link.Argv = append([]string(nil), recipe.Link.Argv...)
-	link.Files = cloneFileCopies(recipe.Link.Files)
-	for index, file := range link.Files {
-		if _, isSource := recipe.Current.Files[file.Original]; isSource {
-			continue
-		}
-		retained, err := retainSupportCopy(file, stateRoot)
-		if err != nil {
-			return err
-		}
-		link.Files[index] = retained
-	}
-	recipe.Link = &link
-	for original, snapshot := range recipe.Current.SnapshotFiles {
-		if snapshot == "" || recipe.Current.Files[original] == "" {
-			continue
-		}
-		if retained, ok := recipe.Support[snapshot]; ok && retained.Digest == recipe.Current.Files[original] {
-			continue
-		}
-		target := filepath.Join(stateRoot, "snapshots", digestName(original+"\x00"+recipe.Current.Files[original])+filepath.Ext(original))
-		if !samePath(snapshot, target) {
-			copy, err := CopyRegular(snapshot, target)
-			if err != nil {
-				return err
-			}
-			if copy.Digest != recipe.Current.Files[original] {
-				return fmt.Errorf("refreshed source snapshot identity changed: %s", original)
-			}
-		}
-		recipe.Current.SnapshotFiles[original] = target
-	}
-	return nil
-}
-
-func retainSupportCopy(file FileCopy, stateRoot string) (FileCopy, error) {
-	extension := filepath.Ext(file.Original)
-	target := filepath.Join(stateRoot, "support", strings.TrimPrefix(file.Digest, "sha256:")+extension)
-	if samePath(file.Copy, target) {
-		return file, nil
-	}
-	copy, err := CopyRegular(file.Copy, target)
-	if err != nil {
-		return FileCopy{}, err
-	}
-	if copy.Digest != file.Digest {
-		return FileCopy{}, fmt.Errorf("support input identity changed: %s", file.Original)
-	}
-	copy.Original = file.Original
-	return copy, nil
-}
-
 func cloneFileCopies(source map[int]FileCopy) map[int]FileCopy {
 	result := make(map[int]FileCopy, len(source))
 	for index, file := range source {
 		result[index] = file
 	}
 	return result
-}
-
-func (recipe *Recipe) retainArchiveMapping(original, stateRoot string) error {
-	digest, _, err := FileDigest(original)
-	if err != nil {
-		return fmt.Errorf("retain graph-refresh archive %s: %w", original, err)
-	}
-	target := filepath.Join(stateRoot, "artifacts", strings.TrimPrefix(digest, "sha256:")+".a")
-	copy, err := CopyRegular(original, target)
-	if err != nil {
-		return err
-	}
-	if copy.Digest != digest {
-		return fmt.Errorf("graph-refresh archive identity changed: %s", original)
-	}
-	recipe.ArchiveByOld[original] = target
-	return nil
 }
 
 func samePath(left, right string) bool {
@@ -453,112 +359,6 @@ func (recipe *Recipe) Validate() error {
 			return fmt.Errorf("link input archive was not retained: %s", old)
 		}
 	}
-	return nil
-}
-
-func (recipe *Recipe) validateRetainedArtifacts() error {
-	return validateRetainedFiles(recipe.Retained)
-}
-
-func (recipe *Recipe) validateSupportArtifacts() error {
-	return validateRetainedFiles(recipe.Support)
-}
-
-// ValidateRetainedState reports the live archive and support validation costs
-// for benchmark controls that keep stock cmd/go as the executor.
-func (recipe *Recipe) ValidateRetainedState() (archiveMS, supportMS float64, err error) {
-	if err := recipe.Validate(); err != nil {
-		return 0, 0, err
-	}
-	started := time.Now()
-	if err := recipe.validateRetainedArtifacts(); err != nil {
-		return elapsedMS(started), 0, err
-	}
-	archiveMS = elapsedMS(started)
-	started = time.Now()
-	err = recipe.validateSupportArtifacts()
-	supportMS = elapsedMS(started)
-	return archiveMS, supportMS, err
-}
-
-func validateRetainedFiles(files map[string]RetainedFile) error {
-	for path, expected := range files {
-		if err := validateRetainedFile(path, expected); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func validateRetainedFile(path string, expected RetainedFile) error {
-	info, err := os.Lstat(path)
-	if err != nil || !info.Mode().IsRegular() {
-		return fmt.Errorf("retained build input is unavailable: %s", path)
-	}
-	stamp := fileStamp(info)
-	if stamp == expected.Stamp {
-		return nil
-	}
-	digest, size, err := FileDigest(path)
-	if err != nil || digest != expected.Digest || size != expected.Bytes {
-		return fmt.Errorf("retained build input identity changed: %s", path)
-	}
-	return nil
-}
-
-func retainSupportFile(recipe *Recipe, file FileCopy) error {
-	return retainSupportPath(recipe, file.Copy, file.Digest)
-}
-
-func retainSupportPath(recipe *Recipe, path, expectedDigest string) error {
-	info, err := os.Lstat(path)
-	if err != nil {
-		return err
-	}
-	digest, size, err := FileDigest(path)
-	if err != nil {
-		return err
-	}
-	if expectedDigest != "" && digest != expectedDigest {
-		return fmt.Errorf("retained support digest differs: %s", path)
-	}
-	recipe.Support[path] = RetainedFile{Digest: digest, Bytes: size, Stamp: fileStamp(info)}
-	return nil
-}
-
-func retainActionSupport(recipe *Recipe, files map[int]FileCopy, sourceFiles map[string]string) error {
-	for _, file := range files {
-		if _, source := sourceFiles[file.Original]; source {
-			continue
-		}
-		if err := retainSupportFile(recipe, file); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func retainToolDigest(recipe *Recipe, tool string) error {
-	return retainToolDigestWith(recipe, tool, FileDigest)
-}
-
-func retainToolDigestWith(recipe *Recipe, tool string, digestFile func(string) (string, int64, error)) error {
-	path := tool
-	if !filepath.IsAbs(path) {
-		var err error
-		path, err = exec.LookPath(path)
-		if err != nil {
-			return err
-		}
-	}
-	if recipe.ToolDigests[path] != "" {
-		return nil
-	}
-	digest, _, err := digestFile(path)
-	if err != nil {
-		return err
-	}
-	recipe.ToolDigests[path] = digest
 	return nil
 }
 

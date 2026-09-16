@@ -7,7 +7,17 @@ recipes, direct compile/link execution, and fail-closed compatibility results.
 
 ## Local Contracts
 
-- Stock `cmd/go` is the only source of bootstrap compile and link recipes.
+- Stock `cmd/go` is the only source of bootstrap compile and link recipes. A
+  capture names both the pattern it was built from and the import path that
+  pattern resolved to; only the resolved entrypoint identifies the recorded
+  `main` compile. Build flags that carry per-build identity belong in the build
+  argv, never in the captured configuration that decides eligibility.
+- Recorded archives, support inputs and source snapshots are retained under one
+  caller-owned content-addressed state root, so recipes of one workspace adopt
+  what their closures have in common and a recording directory is disposable
+  once its recipe is published. Archives may be linked into the store; a source
+  snapshot is copied, because a capture may name a workspace file the developer
+  owns.
 - Retained execution compares against the last committed current capture, not
   the immutable bootstrap. Successful builds advance source snapshots and
   archive mappings together in caller-owned durable state.

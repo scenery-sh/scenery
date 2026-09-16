@@ -38,11 +38,11 @@ func run() error {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
-		capture, err := nativebuilddriver.FullCapture(ctx, *goTool, *workspace, filepath.Join(*recordRoot, "bootstrap-snapshot"), envpolicy.Environ(), nil)
+		capture, err := nativebuilddriver.FullCapture(ctx, *goTool, *workspace, filepath.Join(*recordRoot, "bootstrap-snapshot"), envpolicy.Environ(), nil, "")
 		if err != nil {
 			return err
 		}
-		recipe, err := nativebuilddriver.LoadRecordedRecipe(*recordRoot, *workspace, capture)
+		recipe, err := nativebuilddriver.LoadRecordedRecipe(*recordRoot, *workspace, capture, filepath.Join(filepath.Dir(*output), "retained"))
 		if err != nil {
 			return err
 		}

@@ -100,7 +100,7 @@ func run() error {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
 		transactionStarted := time.Now()
-		capture, err := nativebuilddriver.FullCapture(ctx, realGo, cwd, filepath.Join(generation, "snapshot"), envpolicy.Environ(), buildFlags(args))
+		capture, err := nativebuilddriver.FullCapture(ctx, realGo, cwd, filepath.Join(generation, "snapshot"), envpolicy.Environ(), buildFlags(args), "")
 		if err != nil {
 			return err
 		}
@@ -173,7 +173,7 @@ func run() error {
 			captureMode, captureReason = "full", "retained_input_"+reason
 		}
 		if captureMode == "full" {
-			capture, err = nativebuilddriver.FullCapture(ctx, realGo, cwd, filepath.Join(generation, "snapshot-full"), envpolicy.Environ(), buildFlags(args))
+			capture, err = nativebuilddriver.FullCapture(ctx, realGo, cwd, filepath.Join(generation, "snapshot-full"), envpolicy.Environ(), buildFlags(args), "")
 		} else {
 			err = captureErr
 		}
@@ -287,11 +287,11 @@ func bootstrap(realGo, root, cwd, output, generation string, args, buildArgv []s
 	buildMS := float64(time.Since(started).Nanoseconds()) / 1e6
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
-	capture, err := nativebuilddriver.FullCapture(ctx, realGo, cwd, filepath.Join(recordRoot, "bootstrap-snapshot"), envpolicy.Environ(), buildFlags(args))
+	capture, err := nativebuilddriver.FullCapture(ctx, realGo, cwd, filepath.Join(recordRoot, "bootstrap-snapshot"), envpolicy.Environ(), buildFlags(args), "")
 	if err != nil {
 		return err
 	}
-	recipe, err := nativebuilddriver.LoadRecordedRecipe(recordRoot, cwd, capture)
+	recipe, err := nativebuilddriver.LoadRecordedRecipe(recordRoot, cwd, capture, filepath.Join(root, "retained"))
 	if err != nil {
 		return err
 	}

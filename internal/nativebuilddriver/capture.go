@@ -40,27 +40,34 @@ type Package struct {
 }
 
 type Capture struct {
-	Protocol              string               `json:"protocol"`
-	Workspace             string               `json:"workspace"`
-	StartedAt             time.Time            `json:"started_at"`
-	DurationMS            float64              `json:"duration_ms"`
-	Packages              map[string]Package   `json:"packages"`
-	Files                 map[string]string    `json:"files"`
-	FileStamps            map[string]FileStamp `json:"file_stamps"`
-	Syntax                map[string]string    `json:"syntax"`
-	Directories           map[string]string    `json:"directories"`
-	SnapshotFiles         map[string]string    `json:"snapshot_files,omitempty"`
-	GoVersion             string               `json:"go_version"`
-	GoToolDigest          string               `json:"go_tool_digest"`
-	BuildFlags            []string             `json:"build_flags"`
-	Environment           map[string]string    `json:"environment"`
-	RequestEnv            map[string]string    `json:"request_environment"`
-	Digest                string               `json:"digest"`
-	Reason                string               `json:"reason,omitempty"`
-	PackageLoadingMS      float64              `json:"package_loading_ms,omitempty"`
-	DirectoryValidationMS float64              `json:"directory_validation_ms,omitempty"`
-	InputHashMS           float64              `json:"input_hash_ms,omitempty"`
-	SnapshotMS            float64              `json:"snapshot_ms,omitempty"`
+	Protocol      string               `json:"protocol"`
+	Workspace     string               `json:"workspace"`
+	StartedAt     time.Time            `json:"started_at"`
+	DurationMS    float64              `json:"duration_ms"`
+	Packages      map[string]Package   `json:"packages"`
+	Files         map[string]string    `json:"files"`
+	FileStamps    map[string]FileStamp `json:"file_stamps"`
+	Syntax        map[string]string    `json:"syntax"`
+	Directories   map[string]string    `json:"directories"`
+	SnapshotFiles map[string]string    `json:"snapshot_files,omitempty"`
+	GoVersion     string               `json:"go_version"`
+	GoToolDigest  string               `json:"go_tool_digest"`
+	BuildFlags    []string             `json:"build_flags"`
+	// Pattern is the entrypoint package this capture describes; an empty value
+	// means the application entrypoint.
+	Pattern string `json:"pattern,omitempty"`
+	// Entrypoint is the import path the pattern resolved to. A pattern may be
+	// a directory or an import path, so only the resolved package identifies
+	// the recorded main compile action.
+	Entrypoint            string            `json:"entrypoint,omitempty"`
+	Environment           map[string]string `json:"environment"`
+	RequestEnv            map[string]string `json:"request_environment"`
+	Digest                string            `json:"digest"`
+	Reason                string            `json:"reason,omitempty"`
+	PackageLoadingMS      float64           `json:"package_loading_ms,omitempty"`
+	DirectoryValidationMS float64           `json:"directory_validation_ms,omitempty"`
+	InputHashMS           float64           `json:"input_hash_ms,omitempty"`
+	SnapshotMS            float64           `json:"snapshot_ms,omitempty"`
 }
 
 type FileStamp struct {
@@ -91,10 +98,27 @@ func (capture Capture) ValidateCurrentStamps() error {
 	return nil
 }
 
-func FullCapture(ctx context.Context, goTool, workspace, snapshotRoot string, env []string, buildFlags []string) (Capture, error) {
+// ApplicationEntrypointPattern is the package pattern of the generated
+// application entrypoint, which a capture describes unless it names another.
+const ApplicationEntrypointPattern = "./scenery_internal_main"
+
+// EntrypointPattern is the package pattern this capture describes.
+func (capture Capture) EntrypointPattern() string {
+	if capture.Pattern == "" {
+		return ApplicationEntrypointPattern
+	}
+	return capture.Pattern
+}
+
+// FullCapture loads the complete package graph of one entrypoint. An empty
+// pattern captures the application entrypoint.
+func FullCapture(ctx context.Context, goTool, workspace, snapshotRoot string, env []string, buildFlags []string, pattern string) (Capture, error) {
+	if pattern == "" {
+		pattern = ApplicationEntrypointPattern
+	}
 	started := time.Now()
 	packageLoadingStarted := started
-	result := Capture{Protocol: ProtocolVersion, Workspace: workspace, StartedAt: started.UTC(), Packages: map[string]Package{}, Files: map[string]string{}, FileStamps: map[string]FileStamp{}, Syntax: map[string]string{}, Directories: map[string]string{}, SnapshotFiles: map[string]string{}, BuildFlags: append([]string(nil), buildFlags...), RequestEnv: relevantRequestEnvironment(env)}
+	result := Capture{Protocol: ProtocolVersion, Workspace: workspace, StartedAt: started.UTC(), Packages: map[string]Package{}, Files: map[string]string{}, FileStamps: map[string]FileStamp{}, Syntax: map[string]string{}, Directories: map[string]string{}, SnapshotFiles: map[string]string{}, BuildFlags: append([]string(nil), buildFlags...), Pattern: pattern, RequestEnv: relevantRequestEnvironment(env)}
 	goPath, err := exec.LookPath(goTool)
 	if err != nil {
 		return result, err
@@ -116,7 +140,7 @@ func FullCapture(ctx context.Context, goTool, workspace, snapshotRoot string, en
 	}
 	args := []string{"list"}
 	args = append(args, buildFlags...)
-	args = append(args, "-deps", "-json", "./scenery_internal_main")
+	args = append(args, "-deps", "-json", pattern)
 	cmd := exec.CommandContext(ctx, goTool, args...)
 	cmd.Dir, cmd.Env = workspace, env
 	data, err := cmd.Output()
@@ -138,10 +162,15 @@ func FullCapture(ctx context.Context, goTool, workspace, snapshotRoot string, en
 		if pkg.ImportPath == "" || pkg.Incomplete || len(pkg.Error) != 0 || len(pkg.DepsErrors) != 0 {
 			return result, fmt.Errorf("incomplete package capture: %s", pkg.ImportPath)
 		}
-		result.Packages[pkg.ImportPath] = pkg
+		// A dependency is always listed before the package that imports it, so
+		// the named pattern is the last package of the listing.
+		result.Packages[pkg.ImportPath], result.Entrypoint = pkg, pkg.ImportPath
 	}
 	if len(result.Packages) == 0 {
 		return result, fmt.Errorf("empty package closure")
+	}
+	if result.Packages[result.Entrypoint].Name != "main" {
+		return result, fmt.Errorf("package pattern %s does not name an executable", pattern)
 	}
 	result.PackageLoadingMS = elapsedMS(packageLoadingStarted)
 	var directoryDuration, inputHashDuration, snapshotDuration time.Duration
