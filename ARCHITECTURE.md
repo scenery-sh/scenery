@@ -262,8 +262,7 @@ compiler results and never sit below it.
 `internal/generate` renders Go contracts and composition, TypeScript clients,
 OpenAPI projections, generated React page adapters, and the binary-owned
 `@scenery/ui` catalog from one compiler result. `internal/generate/api` is the
-stdlib-only leaf for `LibraryBuildSpec`,
-`RuntimeIntegrationPlan`, and assistant-asset descriptor types;
+stdlib-only leaf for `RuntimeIntegrationPlan` and assistant-asset descriptor types;
 packages that only need that surface must not import `internal/generate`. The
 catalog materializes its root component barrel and the direct
 `tokens.stylex.ts` defining module in the same artifact-set transaction. Its check path reports both diagnostics and
@@ -273,11 +272,6 @@ Generated React routes carry static or dynamic path contracts. A
 `detail_page` adapter receives decoded router params, loads one typed record,
 and feeds one shared content component into its routed-page and controlled-
 dialog wrappers; generated related tables remain scoped to those params.
-
-Declared Go libraries add a `scenerylib_<name>` facade with source/shared
-backends and an `export/` c-shared shim inside the declared existing Go module.
-Application source imports only the facade; these files remain generated
-projections rather than declaration or edit surfaces.
 
 Application-imported Go packages are ordinary in-module projections, ignored by
 Git by default. One renderer supplies those packages and private cached
@@ -502,22 +496,6 @@ workspace the source of truth.
 
 Architecture invariant: build metadata should be machine-readable enough for
 agents and humans to diagnose drift without scraping terminal output.
-
-### `internal/librarybuild` and `scenery.sh/library`
-
-`internal/librarybuild` turns a verified declared-library export shim into the
-exact darwin/arm64 and linux/amd64 artifact matrix. It builds Darwin natively,
-builds Linux in the pinned oldest-supported container, hashes each artifact,
-and writes the current portable manifest.
-
-The public `scenery.sh/library` package strictly decodes that manifest, selects
-the host artifact, verifies its digest and ABI/version symbols, binds operation
-symbols with `RTLD_NOW|RTLD_LOCAL`, and atomically routes new calls to a swapped
-version. Loaded Go runtimes remain resident forever; `dlclose` is forbidden.
-
-Architecture invariant: shared linkage substitutes only a declared,
-record-shaped operation contract. It never exposes an arbitrary Go package ABI
-or bypasses the generated facade.
 
 ### `internal/testsuite`
 

@@ -6,21 +6,7 @@ package generateapi
 // GoWorkspaceProjection shares one rendered artifact set between private
 // workspace preparation and native package analysis for that preparation.
 type GoWorkspaceProjection struct {
-	Files                map[string][]byte
-	VerificationPatterns []string
-}
-
-// LibraryBuildSpec is the portable identity of one declared Go library used
-// by shared-object builds. Resolution from a compiler result stays in
-// internal/generate.
-type LibraryBuildSpec struct {
-	Address        string
-	Name           string
-	Artifact       string
-	Version        string
-	ABIHash        string
-	ExportPackage  string
-	ExportBuildTag string
+	Files map[string][]byte
 }
 
 // RuntimeIntegrationPlan is the generated composition import consumed by

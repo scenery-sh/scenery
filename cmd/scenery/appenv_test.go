@@ -56,28 +56,6 @@ func TestNamedEnvironmentDotenvPrecedenceAndInjection(t *testing.T) {
 	}
 }
 
-func TestAppProcessEnvInjectsResolvedLibraryLinkage(t *testing.T) {
-	t.Parallel()
-
-	root := t.TempDir()
-	cfg := app.Config{Name: "demo", Envs: map[string]app.EnvConfig{
-		"local": {Default: true, Libraries: map[string]app.EnvLibraryConfig{
-			"maps3d": {Linkage: "shared", Manifest: "artifacts/maps3d.json"},
-		}},
-	}}
-	processEnv, err := appProcessEnv(root, cfg, nil, "json", "local")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if value := lookupEnvValue(processEnv, "SCENERY_LIBRARY_MAPS3D_LINKAGE"); value != "shared" {
-		t.Fatalf("library linkage = %q", value)
-	}
-	wantManifest := filepath.Join(root, "artifacts", "maps3d.json")
-	if value := lookupEnvValue(processEnv, "SCENERY_LIBRARY_MAPS3D_MANIFEST"); value != wantManifest {
-		t.Fatalf("library manifest = %q, want %q", value, wantManifest)
-	}
-}
-
 func TestAppEnvironmentOptionalDotenvSources(t *testing.T) {
 	t.Setenv("DOTENV_PROCESS_VALUE", "from-process")
 	cfg := app.Config{Name: "demo", Envs: map[string]app.EnvConfig{

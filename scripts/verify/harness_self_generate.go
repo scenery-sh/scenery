@@ -10,7 +10,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"slices"
 	"strings"
 	"time"
 
@@ -369,53 +368,6 @@ func runHarnessGenerationCompileProbeCheck(parent context.Context, repoRoot stri
 		return summary, nil, err
 	}
 
-	libraryRoot := filepath.Join(probeRoot, "generated-library-facade")
-	if err := runSegment("prepare generated library facade fixture", func() error {
-		if err := copyHarnessNativeContractFixture(repoRoot, libraryRoot); err != nil {
-			return err
-		}
-		return configureHarnessGeneratedLibraryFacadeFixture(libraryRoot)
-	}); err != nil {
-		return summary, nil, err
-	}
-	var libraryVerificationPatterns []string
-	if err := runSegment("resolve generated library facade through Go toolchain", func() error {
-		compiled, compileErr := compiler.Compile(libraryRoot)
-		if compileErr != nil {
-			return compileErr
-		}
-		if !compiled.Valid() {
-			return fmt.Errorf("generated library facade graph is invalid: %#v", compiled.Diagnostics)
-		}
-		libraryVerificationPatterns, compileErr = generate.GoVerificationPatterns(compiled)
-		if compileErr != nil {
-			return compileErr
-		}
-		if !slices.Contains(libraryVerificationPatterns, "./pkg/geometry/scenerylib_geometry") {
-			return fmt.Errorf("generated library facade verification pattern is missing: %#v", libraryVerificationPatterns)
-		}
-		if implementationDiagnostics := generate.VerifyImplementation(compiled); len(implementationDiagnostics) != 0 {
-			return fmt.Errorf("generated library facade implementation diagnostics: %#v", implementationDiagnostics)
-		}
-		bootstrap := exec.CommandContext(ctx, harnessLocalSceneryBinaryPath(repoRoot), "generate", "--target", "contracts", "-o", "json")
-		bootstrap.Dir = libraryRoot
-		bootstrap.Env = envWithoutKeys(envpolicy.Environ(), "GOWORK", "GOFLAGS")
-		if output, err := bootstrap.CombinedOutput(); err != nil {
-			return fmt.Errorf("publish library facade: %w\n%s", err, output)
-		}
-		for _, args := range [][]string{{"mod", "tidy"}, {"doc", "example.test/nativeapp/pkg/geometry/scenerylib_geometry"}, {"test", "./..."}} {
-			command := exec.CommandContext(ctx, "go", args...)
-			command.Dir = libraryRoot
-			command.Env = envWithOverrides(envWithoutKeys(envpolicy.Environ(), "GOFLAGS"), "GOWORK=off")
-			if output, err := command.CombinedOutput(); err != nil {
-				return fmt.Errorf("ordinary library facade Go command %v: %w\n%s", args, err, output)
-			}
-		}
-		return nil
-	}); err != nil {
-		return summary, nil, err
-	}
-
 	summary["proof"] = "generation_external_boundaries_passed"
 	summary["provider_crud_proof"] = "generated_provider_crud_adapter_compiles_in_disposable_clone"
 	summary["contract_revision"] = contractRevision
@@ -434,8 +386,6 @@ func runHarnessGenerationCompileProbeCheck(parent context.Context, repoRoot stri
 	summary["user_workspace_go_test_output"] = userWorkspaceGoTestOutput
 	summary["nested_contract_proof"] = "nested_exported_type_contract_closure_compiled"
 	summary["nested_go_test_output"] = nestedGoTestOutput
-	summary["generated_library_facade_proof"] = "generated_facade_resolved_by_real_go_toolchain"
-	summary["generated_library_verification_patterns"] = libraryVerificationPatterns
 	return summary, nil, nil
 }
 
@@ -622,85 +572,6 @@ func configureHarnessInvalidImplementationFixture(appRoot string) error {
 		return err
 	}
 	return os.RemoveAll(filepath.Join(appRoot, "house", "scenerycontract"))
-}
-
-func configureHarnessGeneratedLibraryFacadeFixture(appRoot string) error {
-	appPath := filepath.Join(appRoot, scn.AppFilename)
-	appSource, err := os.ReadFile(appPath)
-	if err != nil {
-		return err
-	}
-	appSource = bytes.Replace(appSource, []byte("    \"internal/scenerygen\","), []byte("    \"internal/scenerygen\",\n    \"pkg/geometry/scenerycontract\",\n    \"pkg/geometry/scenerylib_geometry\","), 1)
-	appSource = append(appSource, []byte(`
-
-module "geometry" {
-  source = "./pkg/geometry"
-}
-`)...)
-	if err := os.WriteFile(appPath, appSource, 0o644); err != nil {
-		return err
-	}
-
-	packageRoot := filepath.Join(appRoot, "pkg", "geometry")
-	if err := os.MkdirAll(packageRoot, 0o755); err != nil {
-		return err
-	}
-	packageSource := `package "geometry" {
-  go_contract { import_path = "example.test/nativeapp/pkg/geometry" }
-}
-
-library "geometry" {
-  runtime = "go"
-  package = "example.test/nativeapp/pkg/geometry"
-  version = "v1.0.0"
-  artifact { name = "geometry" }
-}
-
-record "process_input" {
-  field "value" { type = string }
-}
-
-record "process_result" {
-  field "value" { type = string }
-}
-
-operation "process" {
-  library = library.geometry
-  input = record.process_input
-  handler { method = "Process" }
-  result "processed" { type = record.process_result }
-}
-`
-	if err := os.WriteFile(filepath.Join(packageRoot, scn.PackageFilename), []byte(packageSource), 0o644); err != nil {
-		return err
-	}
-	implementation := `package geometry
-
-import (
-	"context"
-	contract "example.test/nativeapp/pkg/geometry/scenerycontract"
-)
-
-func Process(_ context.Context, input contract.ProcessInput) (contract.ProcessOutcome, error) {
-	return contract.ProcessProcessed{Value: contract.ProcessResult{Value: input.Value}}, nil
-}
-`
-	if err := os.WriteFile(filepath.Join(packageRoot, "library.go"), []byte(implementation), 0o644); err != nil {
-		return err
-	}
-	consumer := `package nativeapp
-
-import (
-	"context"
-	contract "example.test/nativeapp/pkg/geometry/scenerycontract"
-	library "example.test/nativeapp/pkg/geometry/scenerylib_geometry"
-)
-
-func consumeGeneratedLibrary() {
-	_, _ = library.Process(context.Background(), contract.ProcessInput{})
-}
-`
-	return os.WriteFile(filepath.Join(appRoot, "library_consumer.go"), []byte(consumer), 0o644)
 }
 
 func findHarnessProviderCRUDAdapter(appRoot string) (string, error) {

@@ -37,7 +37,6 @@ type Result struct {
 	GeneratedStamps           map[string]string
 	PublicGeneratedStamps     map[string]string
 	CachedTypeScriptStamps    map[string]string
-	VerificationPatterns      []string
 	ManagedGeneratedPaths     []string
 	Ephemeral                 bool
 	GoBuildFlags              []string
@@ -114,7 +113,6 @@ type buildState struct {
 	GeneratedStamps           map[string]string      `json:"generated_file_sha256,omitempty"`
 	PublicGeneratedStamps     map[string]string      `json:"public_generated_sha256,omitempty"`
 	CachedTypeScriptStamps    map[string]string      `json:"cached_typescript_sha256,omitempty"`
-	VerificationPatterns      []string               `json:"verification_patterns,omitempty"`
 	ManagedGeneratedPaths     []string               `json:"managed_generated_paths,omitempty"`
 	GoBuildFlags              []string               `json:"go_build_flags,omitempty"`
 	OwnedGoModuleSources      []OwnedGoModuleSource  `json:"owned_go_module_sources,omitempty"`

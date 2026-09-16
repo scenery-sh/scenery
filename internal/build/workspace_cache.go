@@ -262,7 +262,6 @@ func loadCachedGraphContext(ctx context.Context, appRoot string, cfg app.Config,
 		GeneratedStamps:           maps.Clone(state.GeneratedStamps),
 		PublicGeneratedStamps:     maps.Clone(state.PublicGeneratedStamps),
 		CachedTypeScriptStamps:    maps.Clone(state.CachedTypeScriptStamps),
-		VerificationPatterns:      append([]string(nil), state.VerificationPatterns...),
 		ManagedGeneratedPaths:     append([]string(nil), state.ManagedGeneratedPaths...),
 		GoBuildFlags:              append([]string(nil), goBuildFlags...),
 		OwnedGoModuleSources:      cloneOwnedGoModuleSources(state.OwnedGoModuleSources),
@@ -318,7 +317,7 @@ func PrepareCachedWorkspaceWithSnapshotContext(ctx context.Context, appRoot stri
 		cache, projectionReason := "miss", "artifact_missing_or_changed"
 		if current {
 			cache, projectionReason = "hit", "preparation_key_and_artifacts_match"
-			result.verification = &preparedVerification{patterns: append([]string(nil), result.VerificationPatterns...)}
+			result.verification = &preparedVerification{}
 		}
 		finishStep(ctx, "projection.go", projectionStarted, cache, projectionReason, err)
 		finishStep(ctx, "projection.typescript", projectionStarted, cache, projectionReason, err)
@@ -516,7 +515,7 @@ func refreshCachedGoProjection(appRoot string, result *Result, snapshot *SourceS
 	// Runtime setup needs current compiled requirements even when the executable
 	// is reusable. Retain this verified snapshot, not persisted cache metadata.
 	result.Contract = contract
-	result.verification = &preparedVerification{patterns: append([]string(nil), projection.VerificationPatterns...)}
+	result.verification = &preparedVerification{}
 	return true, nil
 }
 

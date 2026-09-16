@@ -34,16 +34,15 @@ func VerifyImplementation(result *compiler.Result) []Diagnostic {
 	if err != nil {
 		return []Diagnostic{{Code: "SCN6202", Severity: "error", Message: fmt.Sprintf("resolve Go verification targets: %v", err)}}
 	}
-	patterns := generatedLibraryPackagePatterns(result.Root, files)
-	return verifyGoTargets(context.Background(), result, result.Root, overlay, patterns, targets)
+	return verifyGoTargets(context.Background(), result, result.Root, overlay, targets)
 }
 
-func verifyGoTargets(ctx context.Context, result *compiler.Result, root string, overlay map[string][]byte, patterns []string, targets []compiler.GoBuildTarget) []Diagnostic {
+func verifyGoTargets(ctx context.Context, result *compiler.Result, root string, overlay map[string][]byte, targets []compiler.GoBuildTarget) []Diagnostic {
 	var diagnostics []Diagnostic
 	for _, target := range targets {
 		sourceContext := target.Context
 		verificationContext := sourceContext
-		verificationContext.Patterns = append(slices.Clone(sourceContext.Patterns), patterns...)
+		verificationContext.Patterns = slices.Clone(sourceContext.Patterns)
 		appModel, appModelErr := parse.AnalyzeTargetContext(ctx, root, result.Manifest.Application.Name, overlay, verificationContext)
 		if appModelErr != nil {
 			if ctx.Err() != nil {
@@ -61,7 +60,6 @@ func verifyGoTargets(ctx context.Context, result *compiler.Result, root string, 
 		}
 		diagnostics = append(diagnostics, validateNativeGoServices(appModel, result.Manifest.Resources)...)
 		diagnostics = append(diagnostics, validateNativeGoHandlers(appModel, result.Manifest.Resources)...)
-		diagnostics = append(diagnostics, validateNativeGoLibraries(appModel, result.Manifest.Resources)...)
 	}
 	return diagnostics
 }

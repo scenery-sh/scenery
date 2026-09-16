@@ -27,7 +27,7 @@ func validateGoPackageLocations(result *Result, files []generatedFile) error {
 	}
 	for _, file := range files {
 		name := filepath.Base(file.Path)
-		if name != "scenery.package-generated.json" && name != "scenery.library-generated.json" {
+		if name != "scenery.package-generated.json" {
 			continue
 		}
 		directory := filepath.Dir(file.Path)
@@ -46,16 +46,12 @@ func validateGoPackageLocations(result *Result, files []generatedFile) error {
 			return fmt.Errorf("failed_precondition: Go output %s is outside workspace.managed_generated_roots", directory)
 		}
 		var descriptor struct {
-			ImportPath   string `json:"import_path"`
-			FacadeImport string `json:"facade_import"`
+			ImportPath string `json:"import_path"`
 		}
 		if err := json.Unmarshal(file.Bytes, &descriptor); err != nil {
 			return err
 		}
 		importPath := descriptor.ImportPath
-		if name == "scenery.library-generated.json" {
-			importPath = descriptor.FacadeImport
-		}
 		moduleRoot, moduleImport := "", ""
 		for _, resource := range result.Manifest.Resources {
 			if resource.Kind != "scenery.go-module" {

@@ -29,7 +29,7 @@ func GeneratedPaths(root string) (map[string]bool, error) {
 		}
 		kind := strings.TrimSuffix(entry.Name(), ".json")
 		switch kind {
-		case "scenery.package-generated", "scenery.generated", "scenery.library-generated", "scenery.typescript-client-generated":
+		case "scenery.package-generated", "scenery.generated", "scenery.typescript-client-generated":
 		default:
 			return nil
 		}

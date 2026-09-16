@@ -43,7 +43,6 @@ scenery changes apply <plan> --expect-workspace-revision <rev> --expect-contract
 scenery changes rename <address> <new-name> [--dry-run] [--approval-token <file>] [-o human|json]
 scenery generate [--target contracts|typescript_client.<name>] [--check] [--app-root <path>] [-o human|json]
 scenery build [--development] [--verify-generation] [--target <go-target>] [--output <binary>] [-o human|json]
-scenery build --lib <name|address|artifact> [--version <vN.N.N>] [--platform all|host|darwin/arm64|linux/amd64|<csv>] [--output <directory>] [-o human|json]
 scenery build --desktop [--env <name>] [--app-root <path>] [-o human|json]
 scenery snapshot save --output <file.zip> [--db] [--storage] [--app-root <path>] [-o human|json]
 scenery snapshot verify --input <file.zip> [-o human|json]
@@ -267,19 +266,10 @@ Current shape:
   "envs": {
     "local": {
       "default": true,
-      "libraries": {
-        "geometry": { "linkage": "source" }
-      },
       "frontends": { "app": { "serve": "development" } }
     },
     "production": {
       "domain": "app.example.com",
-      "libraries": {
-        "geometry": {
-          "linkage": "shared",
-          "manifest": "dist/libraries/geometry/v1.2.3/geometry.scenery-library.json"
-        }
-      },
       "frontends": { "app": { "serve": "production" } },
       "deploy": {}
     }
@@ -363,39 +353,6 @@ Current shape:
   }
 }
 ```
-
-`envs.<name>.libraries.<library>` selects the generated facade backend without
-changing application imports. `source` directly calls the declared Go handler.
-`shared` requires an app-root-relative `manifest` that stays beneath the app
-root. Scenery injects
-`SCENERY_LIBRARY_<NORMALIZED_NAME>_LINKAGE` and, for shared mode,
-`SCENERY_LIBRARY_<NORMALIZED_NAME>_MANIFEST` into the app process; these are
-derived runtime inputs, not user configuration knobs.
-
-A package-local source file declares the contract:
-
-```hcl
-library "geometry" {
-  runtime = "go"
-  package = "example.com/app/pkg/geometry"
-  version = "v1.2.3"
-  artifact { name = "geometry" }
-}
-
-operation "render" {
-  library = library.geometry
-  input   = record.render_input
-  handler { method = "Render" }
-  result "ok" { type = record.render_result }
-}
-```
-
-Libraries are Go-only, must belong to a module rooted beneath `pkg/`, require a
-canonical semantic version and lower-snake artifact name, and own at least one
-operation. Inputs and every success/error outcome are direct records so the
-generated source and C-ABI backends share one exact wire contract. The handler
-is an exported package function with the generated input/outcome signature; a
-library operation cannot also belong to a service.
 
 Rules:
 - App root discovery walks from the start directory upward until it finds `.scenery.json`.
@@ -540,7 +497,6 @@ scenery deploy teardown [-o json]
 
 ```text
 scenery build [--development] [--verify-generation] [--app-root <path>] [--target <go-target>] [--output <path>] [-o human|json]
-scenery build --lib <name|address|artifact> [--version <vN.N.N>] [--platform all|host|darwin/arm64|linux/amd64|<csv>] [--app-root <path>] [--output <directory>] [-o human|json]
 scenery build --desktop [--env <name>] [--app-root <path>] [-o human|json]
 scenery check [--app-root <path>] [-o json]
 scenery generate [--target contracts|typescript_client.<name>] [--check] [--app-root <path>] [-o human|json]
@@ -551,7 +507,7 @@ scenery test [--app-root <path>] [go test flags/packages...]
 
 `build --development` builds a candidate with the same source-linked assistant
 assets as `up`, without starting or replacing a runtime. It defaults to the
-development Go target and cannot combine with `--lib` or `--desktop`. Ordinary
+development Go target and cannot combine with `--desktop`. Ordinary
 `build` continues to embed production assets. Use the development variant when
 comparing candidate build-input identity with a served development generation.
 
@@ -1353,24 +1309,6 @@ Today scenery uses:
 - build workspace: `<cache-root>/build/<sanitized-app-name>-<hash>`
 - built app binary: `<workspace>/scenery-app`
 - build state: `<workspace>/.scenery-build-state.json`
-- generated library facade and export shim:
-  `<workspace>/<package>/scenerylib_<name>/`
-- default library release directory:
-  `<app-root>/dist/libraries/<artifact>/<version>/`
-- library artifact manifest:
-  `<output>/<artifact>.scenery-library.json`
-
-`scenery build --lib` defaults to both supported targets: darwin/arm64
-(`lib<artifact>_darwin_arm64.dylib`) and linux/amd64
-(`lib<artifact>_linux_amd64.so`). Darwin builds natively on a darwin/arm64 host;
-Linux builds in the pinned `golang:1.27.0-bookworm` linux/amd64 container and
-records Go `go1.27.0` plus glibc floor `2.36`. `--platform all` is the same
-matrix; `host` is accepted only when the host is one of those exact targets.
-The manifest binds library/version/ABI identity and per-artifact platform,
-relative path, SHA-256, Go version, and Linux glibc floor. The loader rejects
-unknown fields, stale schema revisions, traversal paths, digest or ABI/version
-mismatches, unsupported hosts, or missing symbols before routing calls.
-
 ### Repo-Local Cache Locations
 
 Shared development executables under the existing cache root are reusable only
@@ -1502,9 +1440,6 @@ Implemented now:
 - [scenery.generated.schema.json](schemas/scenery.generated.schema.json)
 - [scenery.generate.result.schema.json](schemas/scenery.generate.result.schema.json) — `generate` envelope data
 - [scenery.provider.lock.result.schema.json](schemas/scenery.provider.lock.result.schema.json) — `provider lock` envelope data
-- [scenery.library-generated.schema.json](schemas/scenery.library-generated.schema.json)
-- [scenery.library.artifact.schema.json](schemas/scenery.library.artifact.schema.json)
-- [scenery.library.build.result.schema.json](schemas/scenery.library.build.result.schema.json)
 - [scenery.go-build-input-manifest.schema.json](schemas/scenery.go-build-input-manifest.schema.json)
 - [scenery.manifest.schema.json](schemas/scenery.manifest.schema.json)
 - [scenery.package-generated.schema.json](schemas/scenery.package-generated.schema.json)

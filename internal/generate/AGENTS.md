@@ -30,10 +30,6 @@ CLI wires generation.
 - Cache pure projections by complete inputs, including live catalogs and private
   composition's workspace/implementation revisions. Recheck ownership,
   implementation and snapshots on hits; transact only changed output.
-- For declared Go libraries, render the typed `scenerylib_<name>` facade,
-  source/shared backends, c-shared export shim, and detached descriptor into
-  the declared in-module root. Do not hand-edit projections; publishing a Go
-  module explicitly includes its required generated package source.
 - Reuse `workspacetx` for one serialized, recoverable artifact publication.
   Never replace or delete bytes whose descriptor/digest ownership is unproven.
 - Graph reads, `check`, and `generate --check` do not repair application output.

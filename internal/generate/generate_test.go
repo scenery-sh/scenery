@@ -22,7 +22,6 @@ func TestGeneratedDescriptorStalenessIgnoresProducerProvenance(t *testing.T) {
 	}{
 		{"scenery.generated.json", goApplicationDescriptorKind, goApplicationSchemaDescriptor},
 		{"scenery.package-generated.json", goPackageDescriptorKind, goPackageSchemaDescriptor},
-		{"scenery.library-generated.json", goLibraryDescriptorKind, goLibrarySchemaDescriptor},
 		{"scenery.typescript-client-generated.json", typeScriptDescriptorKind, typeScriptSchemaDescriptor},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -117,109 +116,6 @@ func TestGenerateTypeScriptClientsAreStable(t *testing.T) {
 	for _, path := range []string{"types.ts", "runtime.ts", "client.ts", "metadata.ts", "index.ts", "scenery.typescript-client-generated.json"} {
 		if _, err := os.Stat(filepath.Join(temp, "clients", "generated", "public_api", path)); err != nil {
 			t.Error(err)
-		}
-	}
-}
-
-func TestGeneratedLibraryVerificationIncludesFacadePatternInProcess(t *testing.T) {
-	root := t.TempDir()
-	copyTree(t, filepath.Join("..", "compiler", "testdata", "native"), root)
-	rewriteFixtureSceneryReplace(t, root)
-	rootSourcePath := filepath.Join(root, testAppFilename)
-	rootSource, err := os.ReadFile(rootSourcePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	rootSource = append(rootSource, []byte(`
-
-module "geometry" {
-  source = "./pkg/geometry"
-}
-`)...)
-	rootSource = bytes.Replace(rootSource, []byte("managed_generated_roots = ["), []byte("managed_generated_roots = [\n    \"pkg/geometry/scenerycontract\",\n    \"pkg/geometry/scenerylib_geometry\","), 1)
-	if err := os.WriteFile(rootSourcePath, rootSource, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	packageRoot := filepath.Join(root, "pkg", "geometry")
-	if err := os.MkdirAll(packageRoot, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	packageSource := `package "geometry" {
-  go_contract { import_path = "example.test/nativeapp/pkg/geometry" }
-}
-
-library "geometry" {
-  runtime = "go"
-  package = "example.test/nativeapp/pkg/geometry"
-  version = "v1.0.0"
-  artifact { name = "geometry" }
-}
-
-record "process_input" {
-  field "value" { type = string }
-}
-
-record "process_result" {
-  field "value" { type = string }
-}
-
-operation "process" {
-  library = library.geometry
-  input = record.process_input
-  handler { method = "Process" }
-  result "processed" { type = record.process_result }
-}
-`
-	if err := os.WriteFile(filepath.Join(packageRoot, testPackageFilename), []byte(packageSource), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	implementation := `package geometry
-
-import (
-	"context"
-	contract "example.test/nativeapp/pkg/geometry/scenerycontract"
-)
-
-func Process(_ context.Context, input contract.ProcessInput) (contract.ProcessOutcome, error) {
-	return contract.ProcessProcessed{Value: contract.ProcessResult{Value: input.Value}}, nil
-}
-`
-	if err := os.WriteFile(filepath.Join(packageRoot, "library.go"), []byte(implementation), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	consumer := `package nativeapp
-
-import (
-	"context"
-	contract "example.test/nativeapp/pkg/geometry/scenerycontract"
-	library "example.test/nativeapp/pkg/geometry/scenerylib_geometry"
-)
-
-func consumeGeneratedLibrary() {
-	_, _ = library.Process(context.Background(), contract.ProcessInput{})
-}
-`
-	if err := os.WriteFile(filepath.Join(root, "library_consumer.go"), []byte(consumer), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	result, err := compiler.Compile(root)
-	if err != nil || !result.Valid() {
-		t.Fatalf("compile: %v diagnostics=%#v", err, result.Diagnostics)
-	}
-	projection, err := PrepareBuildGoWorkspace(result)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !slices.Contains(projection.VerificationPatterns, "./pkg/geometry/scenerylib_geometry") {
-		t.Fatalf("library verification patterns = %#v", projection.VerificationPatterns)
-	}
-	files := projection.Files
-	for _, path := range []string{
-		"pkg/geometry/scenerylib_geometry/facade.gen.go",
-		"pkg/geometry/scenerylib_geometry/scenery.library-generated.json",
-	} {
-		if len(files[path]) == 0 {
-			t.Fatalf("generated library facade file %q is missing", path)
 		}
 	}
 }

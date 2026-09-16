@@ -120,49 +120,6 @@ For assistant-surface changes in Scenery itself, also run
 It checks that private provider identity and signatures stay out of public
 artifacts; app-level assistant changes still regenerate their declared client.
 
-### Declared Go libraries
-
-A package beneath `pkg/` may declare a `library` and library-owned operations
-with direct record inputs and outcomes. Scenery generates
-`scenerylib_<name>` beside the package inside its existing Go module and declared
-managed root. App code imports that stable typed facade. Ignore its complete
-generated tree by default, never hand-edit it, and include it explicitly when
-publishing the module, together with its `export/` c-shared shim.
-
-Select linkage per environment in `.scenery.json`:
-
-```json
-{
-  "envs": {
-    "local": {
-      "default": true,
-      "libraries": { "geometry": { "linkage": "source" } }
-    },
-    "production": {
-      "libraries": {
-        "geometry": {
-          "linkage": "shared",
-          "manifest": "dist/libraries/geometry/v1.2.3/geometry.scenery-library.json"
-        }
-      }
-    }
-  }
-}
-```
-
-Build the portable fixed matrix with
-`scenery build --lib geometry --version v1.2.3 -o json`. The default emits
-darwin/arm64 and linux/amd64 artifacts plus a digest/ABI-bound manifest.
-Shared startup fails closed if its artifact is missing, unsupported, stale,
-tampered, or ABI-incompatible.
-
-For a live load-alongside upgrade, call the generated facade's
-`UseShared(newManifest)`; new calls use the new version atomically while active
-old calls drain. `Versions()` exposes process-local state. Go c-shared runtimes
-cannot be unloaded, so recycle long-running processes after unusually frequent
-swaps. Validate both backends with a deterministic fixture on the same
-architecture; cross-architecture floating-point bytes may differ.
-
 ## Diagnostics And Semantic Changes
 
 Branch on stable diagnostic codes, never message text. Inspect the catalog with:
@@ -679,7 +636,6 @@ scenery is a Go-native service runtime and local development platform. Think in 
 - Terminal HTTP path tails use `{name...}` plus one typed `path_tail` mapping under the HTTP codec/runtime contract. They capture zero or more complete segments with exact/literal/parameter/tail precedence, strict one-time segment decoding, ordinary typed Go inputs, and independently encoded TypeScript segments.
 - Generated internal calls preserve route, private access, auth context, tracing, and error semantics.
 - Constructors receive typed `scenery.sh/datasource` and `scenery.sh/object` capabilities; built-in CRUD, fixtures, views, pages, and renderers stay in the same generated application composition.
-- Go packages beneath `pkg/` may declare a contract-bearing `library` whose generated typed facade selects source linkage or a verified hot-swappable c-shared artifact per environment. Shared linkage supports exactly darwin/arm64 and linux/amd64, loads through `scenery.sh/library`, and never unloads a Go runtime.
 - Agent capabilities expose exact `resource_create_kinds`; `scenery schema` / `schema.get` provide the recursive authored shape, and semantic creation must reject unadvertised kinds instead of guessing blocks, labels, or source destinations.
 - Mutation plans normalize typed values/references and resolved kind/schema identities before hashing. Planning retains the exact canonical plan under app-local trusted state, and apply rejects caller-recomputed plans before trusting expiry, approvals, operations, edits, or provider actions. Approval-bearing migration transitions use `--out <plan>` followed by `migrate apply <plan>` so the detached token binds the exact issued plan instead of a replanned expiry. Semantic renames emit revision-bound, digest-checked plan/apply receipts, including migration-manifest references and containing-module descendants; later diffs load matching app-local receipts or accept `--rename-receipts` explicitly.
 - Mutation apply is one durable commit with authenticated receipt replay. A

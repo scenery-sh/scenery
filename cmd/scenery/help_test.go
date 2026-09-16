@@ -33,24 +33,20 @@ func TestHelpCommandJSONScopesBuildDescriptor(t *testing.T) {
 	}
 	wantUsage := []string{
 		"scenery build [--development] [--verify-generation] [--target <go-target>] [--app-root <path>] [--output <binary>] [-o human|json]",
-		"scenery build --lib <name|address|artifact> [--version <vN.N.N>] [--platform all|host|darwin/arm64|linux/amd64|<csv>] [--app-root <path>] [--output <directory>] [-o human|json]",
 		"scenery build --desktop [--env <name>] [--app-root <path>] [-o human|json]",
 	}
 	if !reflect.DeepEqual(build.Usage, wantUsage) {
 		t.Fatalf("usage = %#v", build.Usage)
 	}
-	for _, flag := range []string{"--development", "--target <go-target>", "--lib <name|address|artifact>", "--desktop", "--env <name>", "-o human|json"} {
+	for _, flag := range []string{"--development", "--target <go-target>", "--desktop", "--env <name>", "-o human|json"} {
 		if !containsHelpString(build.Flags, flag) {
 			t.Errorf("flags missing %q: %#v", flag, build.Flags)
 		}
 	}
 	for _, relationship := range []helpRequiredCombination{
-		{When: "--version", Requires: []string{"--lib"}},
-		{When: "--platform", Requires: []string{"--lib"}},
 		{When: "--env", Requires: []string{"--desktop"}},
-		{When: "--development", ConflictsWith: []string{"--lib", "--desktop"}},
-		{When: "--lib", ConflictsWith: []string{"--target", "--desktop"}},
-		{When: "--desktop", ConflictsWith: []string{"--target", "--lib", "--version", "--platform", "--output", "--development"}},
+		{When: "--development", ConflictsWith: []string{"--desktop"}},
+		{When: "--desktop", ConflictsWith: []string{"--target", "--output", "--development"}},
 	} {
 		if !containsHelpRelationship(build.RequiredCombinations, relationship) {
 			t.Errorf("required_combinations missing %#v: %#v", relationship, build.RequiredCombinations)
@@ -61,7 +57,6 @@ func TestHelpCommandJSONScopesBuildDescriptor(t *testing.T) {
 	}
 	wantSchemas := map[string]string{
 		"application": "scenery.build.result",
-		"library":     "scenery.library.build.result",
 		"desktop":     "scenery.build.desktop",
 	}
 	if len(build.OutputSchemas) != len(wantSchemas) {
@@ -175,12 +170,8 @@ func TestBuildRequiredFlagCombinationsAreEnforced(t *testing.T) {
 		args []string
 		want string
 	}{
-		{args: []string{"--version", "v1.2.3"}, want: "--version requires --lib"},
-		{args: []string{"--platform", "host"}, want: "--platform requires --lib"},
 		{args: []string{"--env", "production"}, want: "--env is only supported with --desktop"},
-		{args: []string{"--lib", "geometry", "--target", "production"}, want: "--lib cannot be combined with --target"},
 		{args: []string{"--desktop", "--output", "dist"}, want: "--desktop cannot be combined with --output"},
-		{args: []string{"--lib="}, want: "--lib requires a non-empty selector"},
 	}
 	for _, test := range tests {
 		err := buildCommand(io.Discard, test.args)

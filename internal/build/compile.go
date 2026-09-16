@@ -100,7 +100,6 @@ func savePrimedWorkspace(result *Result) error {
 		GeneratedStamps:           maps.Clone(result.GeneratedStamps),
 		PublicGeneratedStamps:     maps.Clone(result.PublicGeneratedStamps),
 		CachedTypeScriptStamps:    maps.Clone(result.CachedTypeScriptStamps),
-		VerificationPatterns:      append([]string(nil), result.VerificationPatterns...),
 		ManagedGeneratedPaths:     append([]string(nil), result.ManagedGeneratedPaths...),
 		GoBuildFlags:              append([]string(nil), result.GoBuildFlags...),
 		OwnedGoModuleSources:      cloneOwnedGoModuleSources(result.OwnedGoModuleSources),

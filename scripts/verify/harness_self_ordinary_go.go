@@ -181,7 +181,7 @@ func runHarnessOrdinaryGoCheckout(ctx context.Context, repoRoot, root string) (s
 	if err != nil {
 		return summary, err
 	}
-	if bytes.Contains(goMod, []byte("/scenerycontract ")) || bytes.Contains(goMod, []byte("/scenerylib_")) {
+	if bytes.Contains(goMod, []byte("/scenerycontract ")) {
 		return summary, fmt.Errorf("tidy introduced a generated-module dependency")
 	}
 	if _, err := run(nil, "go", "test", "./..."); err != nil {

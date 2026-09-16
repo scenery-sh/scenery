@@ -163,7 +163,6 @@ var authoredFieldOverrides = map[authoredFieldKey]authoredFieldOverride{
 	{Revision: "scenery.source.service", Name: "lifecycle"}:              {RevisionDomain: "implementation"},
 	{Revision: "scenery.source.service", Name: "config"}:                 {RevisionDomain: "implementation"},
 	{Revision: "scenery.source.service", Name: "config_schema"}:          {RevisionDomain: "implementation"},
-	{Revision: "scenery.source.library", Name: "package"}:                {RevisionDomain: "implementation"},
 	{Revision: "scenery.source.operation", Name: "handler"}:              {RevisionDomain: "implementation"},
 	{Revision: "scenery.source.provider", Name: "source"}:                {RevisionDomain: "implementation"},
 	{Revision: "scenery.source.provider", Name: "config"}:                {RevisionDomain: "implementation"},
@@ -528,8 +527,6 @@ func authoredAttributeType(revision, name string) (map[string]any, string) {
 		switch name {
 		case "service":
 			return resourceRef("service")
-		case "library":
-			return resourceRef("library")
 		case "input":
 			return typeExpression()
 		}
@@ -553,15 +550,6 @@ func authoredAttributeType(revision, name string) (map[string]any, string) {
 		if name == "runtime" {
 			return primitive("string")
 		}
-	case "scenery.source.library":
-		switch name {
-		case "runtime", "package":
-			return primitive("string")
-		case "version":
-			return primitive("version")
-		}
-	case "scenery.library.artifact":
-		return primitive("string")
 	case "scenery.service.implementation":
 		return primitive("string")
 	case "scenery.service.dependency":

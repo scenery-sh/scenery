@@ -69,7 +69,6 @@ Guidance, Verification and Child Agent Index as useful section headings.
 - `internal/graph/AGENTS.md` owns canonical resources, graph views, provenance, and general revision hashing.
 - `internal/harnessevidence/AGENTS.md` owns bounded evidence artifacts and explicit writes, without verification execution.
 - `internal/harnessreport/AGENTS.md` owns shared report data and pure bounded summaries.
-- `internal/librarybuild/AGENTS.md` owns the fixed-platform c-shared library build matrix and portable artifact manifests.
 - `internal/machine/AGENTS.md` owns singular CLI JSON/JSONL envelopes, exact machine revisions, producer identity, and strict current decoding.
 - `internal/repoinfo/AGENTS.md` owns read-only knowledge data and the singular path classification table.
 - `internal/scn/AGENTS.md` owns `.scn` source discovery, safe filesystem access, parsing, positions, lossless CSTs, and canonical formatting.

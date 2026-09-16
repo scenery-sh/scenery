@@ -10,23 +10,16 @@ import (
 	"os/exec"
 	"path/filepath"
 	goruntime "runtime"
-	"strings"
 
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/build"
 	"scenery.sh/internal/compiler"
-	"scenery.sh/internal/generate"
-	generateapi "scenery.sh/internal/generate/api"
-	"scenery.sh/internal/librarybuild"
 )
 
 func buildCommand(out io.Writer, args []string) error {
 	outputPath := ""
 	appRootFlag := ""
 	targetName := ""
-	libraryName := ""
-	libraryVersion := ""
-	libraryPlatforms := ""
 	envName := ""
 	desktop := false
 	development := false
@@ -37,9 +30,6 @@ func buildCommand(out io.Writer, args []string) error {
 	registerJSONOutput(flags, &jsonOutput)
 	flags.StringVar(&appRootFlag, "app-root", "", "")
 	flags.StringVar(&targetName, "target", "", "")
-	flags.StringVar(&libraryName, "lib", "", "")
-	flags.StringVar(&libraryVersion, "version", "", "")
-	flags.StringVar(&libraryPlatforms, "platform", "", "")
 	flags.StringVar(&envName, "env", "", "")
 	flags.BoolVar(&desktop, "desktop", false, "")
 	flags.BoolVar(&development, "development", false, "")
@@ -51,33 +41,17 @@ func buildCommand(out io.Writer, args []string) error {
 	if err := rejectCLIPositionals(positionals); err != nil {
 		return fmt.Errorf("invalid_request: %w", err)
 	}
-	if verifyGeneration && (!development || desktop || libraryName != "") {
+	if verifyGeneration && (!development || desktop) {
 		return fmt.Errorf("invalid_request: --verify-generation requires a --development application build")
 	}
 	if desktop {
-		for _, name := range []string{"target", "lib", "version", "platform", "output", "development"} {
+		for _, name := range []string{"target", "output", "development"} {
 			if cliFlagSet(flags, name) {
 				return fmt.Errorf("invalid_request: --desktop cannot be combined with --%s", name)
 			}
 		}
 	} else if cliFlagSet(flags, "env") {
 		return fmt.Errorf("invalid_request: --env is only supported with --desktop")
-	} else {
-		if development && cliFlagSet(flags, "lib") {
-			return fmt.Errorf("invalid_request: --development cannot be combined with --lib")
-		}
-		if cliFlagSet(flags, "lib") && strings.TrimSpace(libraryName) == "" {
-			return fmt.Errorf("invalid_request: --lib requires a non-empty selector")
-		}
-		if cliFlagSet(flags, "version") && !cliFlagSet(flags, "lib") {
-			return fmt.Errorf("invalid_request: --version requires --lib")
-		}
-		if cliFlagSet(flags, "platform") && !cliFlagSet(flags, "lib") {
-			return fmt.Errorf("invalid_request: --platform requires --lib")
-		}
-		if cliFlagSet(flags, "lib") && cliFlagSet(flags, "target") {
-			return fmt.Errorf("invalid_request: --lib cannot be combined with --target")
-		}
 	}
 
 	start, err := resolveAppRoot(appRootFlag)
@@ -118,9 +92,7 @@ func buildCommand(out io.Writer, args []string) error {
 		}
 	}
 	var result *build.Result
-	if libraryName != "" {
-		result, err = build.Prepare(appRoot, cfg)
-	} else if development {
+	if development {
 		result, err = build.AppForTarget(appRoot, cfg, targetName, "development")
 	} else {
 		result, err = build.BuildArtifactForTarget(appRoot, cfg, targetName, "artifact")
@@ -130,52 +102,6 @@ func buildCommand(out io.Writer, args []string) error {
 			return &codedCLIError{err: err, code: 2}
 		}
 		return err
-	}
-	if libraryName != "" {
-		specs, err := generate.LibraryBuildSpecs(result.Contract)
-		if err != nil {
-			return err
-		}
-		var selected *generateapi.LibraryBuildSpec
-		for index := range specs {
-			if specs[index].Name == libraryName || specs[index].Address == libraryName || specs[index].Artifact == libraryName {
-				if selected != nil {
-					return fmt.Errorf("library selector %q is ambiguous", libraryName)
-				}
-				selected = &specs[index]
-			}
-		}
-		if selected == nil {
-			return fmt.Errorf("library selector %q did not match a declared Go library", libraryName)
-		}
-		version := strings.TrimSpace(libraryVersion)
-		if version == "" {
-			version = selected.Version
-		}
-		if outputPath == "" {
-			outputPath = filepath.Join(appRoot, "dist", "libraries", selected.Artifact, version)
-		}
-		var platforms []string
-		if value := strings.TrimSpace(libraryPlatforms); value != "" && value != "all" {
-			for _, platform := range strings.Split(value, ",") {
-				platforms = append(platforms, strings.TrimSpace(platform))
-			}
-		}
-		libraryResult, err := librarybuild.Build(context.Background(), librarybuild.Options{
-			Workspace: result.Dir, OutputDir: outputPath, Spec: *selected,
-			Version: version, Platforms: platforms,
-		})
-		if err != nil {
-			return err
-		}
-		if jsonOutput {
-			return writeCLIJSON(out, withCLIPayloadIdentity("scenery.library.build.result", map[string]any{
-				"library": selected.Name, "version": version,
-				"manifest_path": libraryResult.ManifestPath, "artifacts": libraryResult.Manifest.Artifacts,
-			}))
-		}
-		_, _ = fmt.Fprintf(out, "scenery: built library %s at %s\n", selected.Name, libraryResult.ManifestPath)
-		return nil
 	}
 	if outputPath == "" {
 		goos := goruntime.GOOS

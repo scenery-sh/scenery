@@ -953,6 +953,14 @@ darwin/arm64 plus linux/amd64 matrix. ONLV maps3d is the first adopter, with
 House source/shared byte parity, real two-version swapping, measured overhead,
 Linux container loading, and app-side repoharness guardrails.
 
+Removed on 2026-09-16 by owner decision: the whole `library` concept was an
+experiment with a single adopter that never left source linkage. The `library`
+block, library-owned operations, generated `scenerylib_<name>` facades and
+export shims, `scenery.sh/library`, `internal/librarybuild`, `scenery build
+--lib`, `envs.<env>.libraries`, the `SCENERY_LIBRARY_*` transport, and the
+`github.com/ebitengine/purego` dependency are all gone. ONLV `maps3d` now
+imports its Go package directly. This plan is history, not current behavior.
+
 ## Fully Generated Client Apps
 
 - Status: completed

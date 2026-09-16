@@ -9,9 +9,7 @@ import (
 	"scenery.sh/internal/compiler"
 )
 
-type preparedVerification struct {
-	patterns []string
-}
+type preparedVerification struct{}
 
 func cloneVerificationContract(contract *compiler.Result) *compiler.Result {
 	checked := *contract
@@ -28,11 +26,10 @@ func preparedChecker(result *Result) (func(context.Context) (*compiler.Result, e
 	}
 	checked := cloneVerificationContract(result.Contract)
 	workspace, target := result.Dir, *result.Target
-	patterns := slices.Clone(result.verification.patterns)
 	check := generateHooks.ApplyPreparedImplementationCheck
 	return func(ctx context.Context) (*compiler.Result, error) {
 		err := observeBuildAction(ctx, "implementation.check", func() error {
-			if err := check(ctx, checked, workspace, patterns, target); err != nil {
+			if err := check(ctx, checked, workspace, target); err != nil {
 				return err
 			}
 			return preparedContractError(checked)

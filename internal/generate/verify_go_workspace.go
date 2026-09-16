@@ -14,7 +14,7 @@ import (
 // ApplyPreparedImplementationCheck verifies fresh public-artifact ownership and
 // every required native target against the private workspace consumed by build.
 // The caller owns that workspace until this operation has returned.
-func ApplyPreparedImplementationCheck(ctx context.Context, result *compiler.Result, workspace string, patterns []string, selected compiler.GoBuildTarget) error {
+func ApplyPreparedImplementationCheck(ctx context.Context, result *compiler.Result, workspace string, selected compiler.GoBuildTarget) error {
 	if result == nil || !result.Valid() || workspace == "" {
 		return fmt.Errorf("prepared implementation checking requires a valid graph and private workspace")
 	}
@@ -28,7 +28,7 @@ func ApplyPreparedImplementationCheck(ctx context.Context, result *compiler.Resu
 	} else if targets, err = preparedGoVerificationTargets(result.Root, workspace, targets, selected); err != nil {
 		diagnostics = append(diagnostics, Diagnostic{Code: "SCN6202", Severity: "error", Message: err.Error()})
 	} else {
-		diagnostics = verifyGoTargets(ctx, result, workspace, nil, patterns, targets)
+		diagnostics = verifyGoTargets(ctx, result, workspace, nil, targets)
 	}
 	if err := ctx.Err(); err != nil {
 		return err

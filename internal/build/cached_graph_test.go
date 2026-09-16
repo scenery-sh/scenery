@@ -162,7 +162,7 @@ func TestCompileCachedGraphWritesLatestBuildManifest(t *testing.T) {
 	oldCheck := generateHooks.ApplyPreparedImplementationCheck
 	t.Cleanup(func() { generateHooks.ApplyPreparedImplementationCheck = oldCheck })
 	checks := 0
-	generateHooks.ApplyPreparedImplementationCheck = func(_ context.Context, checked *compiler.Result, workspace string, _ []string, target compiler.GoBuildTarget) error {
+	generateHooks.ApplyPreparedImplementationCheck = func(_ context.Context, checked *compiler.Result, workspace string, target compiler.GoBuildTarget) error {
 		if workspace != result.Dir || target.Name != result.Target.Name {
 			return fmt.Errorf("verification did not use the prepared workspace/target")
 		}

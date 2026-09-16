@@ -23,7 +23,6 @@ const (
 )
 
 var allowedDirectGoDeps = map[string]string{
-	"github.com/ebitengine/purego":           "cgo-free dlopen and symbol binding for verified generated shared-library facades",
 	"github.com/fsnotify/fsnotify":           "file watching for scenery up live rebuilds",
 	"github.com/jackc/pgx/v5":                "database/sql Postgres driver for the plan 0097 Postgres-only data platform",
 	"github.com/golang-jwt/jwt/v5":           "JWT signing and verification for standard auth",
@@ -162,7 +161,7 @@ var packageLayerRules = []packageLayerRule{
 		PathPrefixes: []string{
 			"internal/scn/", "internal/graph/", "internal/compiler/", "internal/generate/",
 			"internal/evolution/", "internal/deployplan/", "internal/contractagent/",
-			"internal/build/", "internal/workspacetx/", "internal/librarybuild/",
+			"internal/build/", "internal/workspacetx/",
 			"internal/contract/", "internal/contractpolicy/",
 		},
 		ForbiddenImports: []string{

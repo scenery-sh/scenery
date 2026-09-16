@@ -12,7 +12,6 @@ func TestBuildGenerationVerificationRequiresDevelopmentApplication(t *testing.T)
 	for _, args := range [][]string{
 		{"--verify-generation"},
 		{"--verify-generation", "--development", "--desktop"},
-		{"--verify-generation", "--development", "--lib", "geometry"},
 	} {
 		if err := buildCommand(io.Discard, args); err == nil || !strings.Contains(err.Error(), "requires a --development application build") {
 			t.Fatalf("args=%v err=%v", args, err)

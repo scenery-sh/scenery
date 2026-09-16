@@ -158,7 +158,6 @@ func harnessReleaseSensitivePath(path, category string) bool {
 		"internal/doctor/",
 		"internal/durable/",
 		"internal/edge/",
-		"internal/librarybuild/",
 		"internal/localproxy/",
 		"internal/observability/",
 		"internal/postgresdb/",

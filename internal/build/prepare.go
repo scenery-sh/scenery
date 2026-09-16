@@ -291,13 +291,12 @@ func prepareWithContractTargetContext(ctx context.Context, appRoot string, cfg a
 		GeneratedStamps:           generatedStamps,
 		PublicGeneratedStamps:     publicGeneratedStamps,
 		CachedTypeScriptStamps:    cachedTypeScriptStamps,
-		VerificationPatterns:      append([]string(nil), projection.VerificationPatterns...),
 		ManagedGeneratedPaths:     managedGeneratedPaths,
 		GoBuildFlags:              append([]string(nil), goBuildFlags...),
 		OwnedGoModuleSources:      ownedSources,
 		Contract:                  contract,
 		Target:                    &target,
-		verification:              &preparedVerification{patterns: append([]string(nil), projection.VerificationPatterns...)},
+		verification:              &preparedVerification{},
 	}
 	result.GoEnvironment = gotarget.Environment(target.Context)
 	if err := WriteLatestBuildManifest(result, "prepared"); err != nil {

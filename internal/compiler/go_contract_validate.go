@@ -34,7 +34,7 @@ func validateGoContractOwnership(application *Block, resources []Resource) []Dia
 			entry.importPath = importPath
 		}
 		for _, resource := range resources {
-			if resource.Module == instance && ((resource.Kind == "scenery.service" && stringValue(resource.Spec["runtime"]) == "go") || (resource.Kind == "scenery.library" && stringValue(resource.Spec["runtime"]) == "go")) {
+			if resource.Module == instance && resource.Kind == "scenery.service" && stringValue(resource.Spec["runtime"]) == "go" {
 				entry.hasNativeDeclarations = true
 				entry.address = resource.Address
 			}
@@ -49,7 +49,7 @@ func validateGoContractOwnership(application *Block, resources []Resource) []Dia
 	}
 	rootHasNativeDeclarations := false
 	for _, resource := range resources {
-		rootHasNativeDeclarations = rootHasNativeDeclarations || resource.Module == "app" && ((resource.Kind == "scenery.service" && stringValue(resource.Spec["runtime"]) == "go") || (resource.Kind == "scenery.library" && stringValue(resource.Spec["runtime"]) == "go"))
+		rootHasNativeDeclarations = rootHasNativeDeclarations || resource.Module == "app" && resource.Kind == "scenery.service" && stringValue(resource.Spec["runtime"]) == "go"
 	}
 	if rootHasContract || rootHasNativeDeclarations {
 		owners["application"] = owner{key: "application", address: "app", hasContract: rootHasContract, hasNativeDeclarations: rootHasNativeDeclarations}
@@ -65,9 +65,9 @@ func validateGoContractOwnership(application *Block, resources []Resource) []Dia
 		entry := owners[key]
 		switch {
 		case entry.hasNativeDeclarations && !entry.hasContract:
-			diagnostics = append(diagnostics, Diagnostic{Code: "SCN6120", Severity: "error", Message: "source unit with Go services or libraries requires exactly one go_contract", Address: entry.address})
+			diagnostics = append(diagnostics, Diagnostic{Code: "SCN6120", Severity: "error", Message: "source unit with Go services requires exactly one go_contract", Address: entry.address})
 		case !entry.hasNativeDeclarations && entry.hasContract:
-			diagnostics = append(diagnostics, Diagnostic{Code: "SCN6120", Severity: "error", Message: "source unit without Go services or libraries must not declare go_contract", Address: entry.address})
+			diagnostics = append(diagnostics, Diagnostic{Code: "SCN6120", Severity: "error", Message: "source unit without Go services must not declare go_contract", Address: entry.address})
 		}
 		if entry.importPath == "" {
 			continue

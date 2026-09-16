@@ -12,7 +12,7 @@ import (
 // asset materialization. Production CLI and build tests wire them; the
 // production package does not import internal/generate.
 type GenerateHooks struct {
-	ApplyPreparedImplementationCheck func(context.Context, *compiler.Result, string, []string, compiler.GoBuildTarget) error
+	ApplyPreparedImplementationCheck func(context.Context, *compiler.Result, string, compiler.GoBuildTarget) error
 	SyncCachedTypeScript             func(*compiler.Result) ([]string, error)
 	PrepareBuildGoWorkspace          func(*compiler.Result) (generateapi.GoWorkspaceProjection, error)
 	RuntimeIntegrationPlan           func(*compiler.Result) (generateapi.RuntimeIntegrationPlan, error)

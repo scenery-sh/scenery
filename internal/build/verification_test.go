@@ -42,7 +42,7 @@ func TestCompilePublicationWaitsForVerification(t *testing.T) {
 				entered, release, built := make(chan struct{}), make(chan struct{}), make(chan struct{})
 				oldCheck, oldGo := generateHooks.ApplyPreparedImplementationCheck, runGo
 				t.Cleanup(func() { generateHooks.ApplyPreparedImplementationCheck, runGo = oldCheck, oldGo })
-				generateHooks.ApplyPreparedImplementationCheck = func(_ context.Context, checked *compiler.Result, root string, _ []string, _ compiler.GoBuildTarget) error {
+				generateHooks.ApplyPreparedImplementationCheck = func(_ context.Context, checked *compiler.Result, root string, _ compiler.GoBuildTarget) error {
 					if checked == original || checked.Manifest == original.Manifest || root != workspace {
 						return errors.New("verification did not own an independent diagnostic snapshot")
 					}
@@ -122,7 +122,7 @@ func TestPreparedCompilationCancelsAndJoinsBothBranches(t *testing.T) {
 				entered, exited, finishCheck := make(chan struct{}), make(chan struct{}), make(chan struct{})
 				old := generateHooks.ApplyPreparedImplementationCheck
 				t.Cleanup(func() { generateHooks.ApplyPreparedImplementationCheck = old })
-				generateHooks.ApplyPreparedImplementationCheck = func(ctx context.Context, _ *compiler.Result, _ string, _ []string, _ compiler.GoBuildTarget) error {
+				generateHooks.ApplyPreparedImplementationCheck = func(ctx context.Context, _ *compiler.Result, _ string, _ compiler.GoBuildTarget) error {
 					defer close(exited)
 					close(entered)
 					if failedBranch == "check" {
