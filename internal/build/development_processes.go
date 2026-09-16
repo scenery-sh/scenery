@@ -169,15 +169,14 @@ func buildDevelopmentProcesses(ctx context.Context, result *Result, services []g
 		return nil, err
 	}
 	identityStarted := time.Now()
-	manifests := make([]*BuildInputManifest, len(names))
 	mains := make([]string, len(names))
 	digests := make([]string, len(names))
 	for index, name := range names {
-		processManifest, main, err := manifest.developmentProcessManifest(name)
+		digest, main, err := manifest.developmentProcessDigest(name)
 		if err != nil {
 			return nil, err
 		}
-		manifests[index], mains[index], digests[index] = processManifest, main, processManifest.Digest
+		mains[index], digests[index] = main, digest
 	}
 	revisions, diagnostics := compiler.ImplementationRevisionsForInputs(result.Contract, result.Target.Name, digests)
 	for _, diagnostic := range diagnostics {
@@ -192,7 +191,7 @@ func buildDevelopmentProcesses(ctx context.Context, result *Result, services []g
 	for index, name := range names {
 		process := &DevelopmentProcess{Name: name, Package: mains[index], Identity: DevelopmentProcessIdentity{
 			ContractRevision: result.Contract.Manifest.ContractRevision, ImplementationRevision: revisions[digests[index]],
-			BuildInputDigest: manifests[index].Digest, GoTarget: result.Target.Name,
+			BuildInputDigest: digests[index], GoTarget: result.Target.Name,
 		}}
 		if process.Identity.ImplementationRevision == "" {
 			return nil, fmt.Errorf("implementation_revision is unavailable for development process %s", name)

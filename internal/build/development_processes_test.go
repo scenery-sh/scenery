@@ -69,11 +69,19 @@ func TestDevelopmentProcessManifestsFollowEachEntrypointImportClosure(t *testing
 	}
 	process := func(manifest *BuildInputManifest, name string) *BuildInputManifest {
 		t.Helper()
-		processManifest, _, err := manifest.developmentProcessManifest(name)
+		processManifest, _, err := manifest.developmentProcessInputs(name)
 		if err != nil {
 			t.Fatal(err)
 		}
 		return processManifest
+	}
+	identity := func(manifest *BuildInputManifest, name string) string {
+		t.Helper()
+		digest, _, err := manifest.developmentProcessDigest(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return digest
 	}
 	before := discover()
 	if inputs := packageInputs(before); slices.ContainsFunc(inputs, func(input string) bool { return strings.HasPrefix(input, "scenery_internal_processes") }) {
@@ -92,17 +100,29 @@ func TestDevelopmentProcessManifestsFollowEachEntrypointImportClosure(t *testing
 	}
 	write("echo/source.go", "package echo\n\nconst edited = true\n")
 	afterEcho := discover()
-	if process(afterEcho, "echo_echo").Digest == process(before, "echo_echo").Digest || process(afterEcho, "greeter_greeter").Digest != process(before, "greeter_greeter").Digest ||
-		process(afterEcho, "host").Digest != process(before, "host").Digest {
+	if identity(afterEcho, "echo_echo") == identity(before, "echo_echo") || identity(afterEcho, "greeter_greeter") != identity(before, "greeter_greeter") ||
+		identity(afterEcho, "host") != identity(before, "host") {
 		t.Fatal("an echo implementation edit did not change exactly the echo process identity")
+	}
+	if got := packageInputs(process(afterEcho, "echo_echo")); !slices.Contains(got, "echo") {
+		t.Fatalf("echo process inputs after the edit = %v", got)
 	}
 	write("echo/scenerycontract/source.go", "package scenerycontract\n\nconst edited = true\n")
 	afterContract := discover()
-	if process(afterContract, "echo_echo").Digest == process(afterEcho, "echo_echo").Digest || process(afterContract, "greeter_greeter").Digest == process(afterEcho, "greeter_greeter").Digest {
+	if identity(afterContract, "echo_echo") == identity(afterEcho, "echo_echo") || identity(afterContract, "greeter_greeter") == identity(afterEcho, "greeter_greeter") {
 		t.Fatal("an edit to a package both processes compile did not change both identities")
 	}
-	if _, _, err := afterContract.developmentProcessManifest("missing_missing"); err == nil {
+	// Two entrypoints whose closures differ never share an identity, and the
+	// memoized closure digests stay stable across repeated identification.
+	repeated := identity(afterContract, "echo_echo")
+	if identity(afterContract, "echo_echo") == identity(afterContract, "greeter_greeter") || identity(afterContract, "echo_echo") != repeated {
+		t.Fatal("process identities collapsed or were unstable")
+	}
+	if _, _, err := afterContract.developmentProcessDigest("missing_missing"); err == nil {
 		t.Fatal("unknown development process was identified")
+	}
+	if _, _, err := afterContract.developmentProcessInputs("missing_missing"); err == nil {
+		t.Fatal("unknown development process was projected")
 	}
 }
 

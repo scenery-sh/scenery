@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -13,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"sort"
 	"strings"
@@ -84,6 +86,8 @@ type buildInputProcessGraph struct {
 	packages map[string]map[string]string
 	imports  map[string][]string
 	mains    map[string]string
+	// closures memoizes the digest of each package's import closure.
+	closures map[string]string
 }
 
 type goListPackage struct {
@@ -365,6 +369,10 @@ func buildInputManifestFromGoListObserved(result *Result, output []byte, stats *
 	}
 	addFile := func(identity, path string) error { return addFileTo(entries, identity, path) }
 	frameworkRoot := ""
+	// Stamping a package's consumed files is stat-bound, so packages are read
+	// concurrently into their own entry and observation sets and merged in
+	// listing order, which keeps discovery deterministic.
+	var listed []goListPackage
 	decoder := json.NewDecoder(bytes.NewReader(output))
 	for {
 		var pkg goListPackage
@@ -376,29 +384,31 @@ func buildInputManifestFromGoListObserved(result *Result, output []byte, stats *
 		if pkg.Standard {
 			continue
 		}
-		workspaceOnly = workspaceOnly && sharedBinaryWorkspacePath(result.Dir, pkg.Dir)
+		listed = append(listed, pkg)
+	}
+	read, err := readBuildInputPackages(result.Dir, listed)
+	if err != nil {
+		return nil, err
+	}
+	for index, pkg := range listed {
+		if stats != nil {
+			stats.hits += read[index].stats.hits
+			stats.misses += read[index].stats.misses
+		}
+		workspaceOnly = workspaceOnly && read[index].workspaceOnly
+		for path, stamp := range read[index].observed {
+			if before, ok := observed[path]; ok && before != stamp {
+				return nil, fmt.Errorf("go build input changed during discovery: %s", path)
+			}
+			observed[path] = stamp
+		}
 		if err := observeBuildInputPath(observed, pkg.Dir); err != nil {
 			return nil, err
 		}
 		entrypoint = entrypoint || (pkg.Dir == filepath.Join(result.Dir, "scenery_internal_main") && len(pkg.GoFiles) > 0)
-		// Native/assembly tools can read includes and link inputs outside Go's
-		// file projection. No shared executable until those reads are owned.
-		workspaceOnly = workspaceOnly && len(pkg.CgoFiles)+len(pkg.CFiles)+len(pkg.CXXFiles)+len(pkg.MFiles)+len(pkg.HFiles)+len(pkg.FFiles)+len(pkg.SFiles)+len(pkg.SwigFiles)+len(pkg.SwigCXXFiles)+len(pkg.SysoFiles) == 0
-		files := append([]string{}, pkg.GoFiles...)
-		files = append(files, pkg.CgoFiles...)
-		files = append(files, pkg.CFiles...)
-		files = append(files, pkg.CXXFiles...)
-		files = append(files, pkg.MFiles...)
-		files = append(files, pkg.HFiles...)
-		files = append(files, pkg.FFiles...)
-		files = append(files, pkg.SFiles...)
-		files = append(files, pkg.SwigFiles...)
-		files = append(files, pkg.SwigCXXFiles...)
-		files = append(files, pkg.SysoFiles...)
-		files = append(files, pkg.EmbedFiles...)
 		// Process entrypoints are separate executables: they identify their
 		// own process manifests and never the application executable.
-		packageEntries := map[string]string{}
+		packageEntries := read[index].entries
 		processes.packages[pkg.ImportPath] = packageEntries
 		for _, imported := range pkg.Imports {
 			if mapped := pkg.ImportMap[imported]; mapped != "" {
@@ -410,16 +420,6 @@ func buildInputManifestFromGoListObserved(result *Result, output []byte, stats *
 		process := relativeErr == nil && filepath.IsLocal(relative)
 		if process {
 			processes.mains[filepath.Base(pkg.Dir)] = pkg.ImportPath
-		}
-		for _, name := range files {
-			path := filepath.Join(pkg.Dir, filepath.FromSlash(name))
-			identity := "package/" + pkg.ImportPath + "/" + filepath.ToSlash(name)
-			if err := observeBuildInputDirectories(observed, filepath.Dir(path), pkg.Dir); err != nil {
-				return nil, err
-			}
-			if err := addFileTo(packageEntries, identity, path); err != nil {
-				return nil, err
-			}
 		}
 		if !process {
 			maps.Copy(entries, packageEntries)
@@ -506,6 +506,66 @@ func buildInputManifestFromGoListObserved(result *Result, output []byte, stats *
 		manifest.sharedWorkspace = result.Dir
 	}
 	return manifest, nil
+}
+
+// buildInputPackageRead is one package's consumed files, the paths discovery
+// observed while reading them, and whether they all stayed inside the
+// workspace's shared reuse domain.
+type buildInputPackageRead struct {
+	entries       map[string]string
+	observed      map[string]buildInputFileStamp
+	stats         buildInputDigestStats
+	workspaceOnly bool
+}
+
+// readBuildInputPackages stamps every listed package's consumed files. Reads
+// run concurrently because they are dominated by file metadata lookups; each
+// package owns its own maps, so the caller merges them in listing order.
+func readBuildInputPackages(workspace string, listed []goListPackage) ([]buildInputPackageRead, error) {
+	reads := make([]buildInputPackageRead, len(listed))
+	errs := make([]error, len(listed))
+	workers := min(max(runtime.GOMAXPROCS(0), 1), 8)
+	slots := make(chan struct{}, workers)
+	var wg sync.WaitGroup
+	for index, pkg := range listed {
+		slots <- struct{}{}
+		wg.Go(func() {
+			defer func() { <-slots }()
+			reads[index], errs[index] = readBuildInputPackage(workspace, pkg)
+		})
+	}
+	wg.Wait()
+	return reads, errors.Join(errs...)
+}
+
+func readBuildInputPackage(workspace string, pkg goListPackage) (buildInputPackageRead, error) {
+	read := buildInputPackageRead{entries: map[string]string{}, observed: map[string]buildInputFileStamp{}}
+	// Native/assembly tools can read includes and link inputs outside Go's
+	// file projection. No shared executable until those reads are owned.
+	read.workspaceOnly = sharedBinaryWorkspacePath(workspace, pkg.Dir) &&
+		len(pkg.CgoFiles)+len(pkg.CFiles)+len(pkg.CXXFiles)+len(pkg.MFiles)+len(pkg.HFiles)+len(pkg.FFiles)+len(pkg.SFiles)+len(pkg.SwigFiles)+len(pkg.SwigCXXFiles)+len(pkg.SysoFiles) == 0
+	files := append([]string{}, pkg.GoFiles...)
+	for _, group := range [][]string{pkg.CgoFiles, pkg.CFiles, pkg.CXXFiles, pkg.MFiles, pkg.HFiles, pkg.FFiles, pkg.SFiles, pkg.SwigFiles, pkg.SwigCXXFiles, pkg.SysoFiles, pkg.EmbedFiles} {
+		files = append(files, group...)
+	}
+	for _, name := range files {
+		path := filepath.Join(pkg.Dir, filepath.FromSlash(name))
+		identity := "package/" + pkg.ImportPath + "/" + filepath.ToSlash(name)
+		if err := observeBuildInputDirectories(read.observed, filepath.Dir(path), pkg.Dir); err != nil {
+			return read, err
+		}
+		read.workspaceOnly = read.workspaceOnly && sharedBinaryWorkspacePath(workspace, path)
+		if err := observeBuildInputPath(read.observed, path); err != nil {
+			return read, err
+		}
+		if err := addBuildInputObserved(read.entries, identity, path, &read.stats); err != nil {
+			return read, err
+		}
+		if err := observeBuildInputPath(read.observed, path); err != nil {
+			return read, err
+		}
+	}
+	return read, nil
 }
 
 func newBuildInputManifest(target string, entries map[string]string) *BuildInputManifest {
@@ -683,10 +743,80 @@ func stringValuesForBuild(value any) []string {
 	return values
 }
 
-// developmentProcessManifest identifies one process entrypoint by the inputs of
+// developmentProcessDigest identifies one process entrypoint by the inputs of
 // the packages in its Go import closure plus every module, framework, producer
-// and native input of the discovery.
-func (manifest *BuildInputManifest) developmentProcessManifest(name string) (*BuildInputManifest, string, error) {
+// and native input of the discovery. Package closure digests are memoized, so
+// identifying every entrypoint of an application costs one pass over the import
+// graph instead of one input union per entrypoint.
+func (manifest *BuildInputManifest) developmentProcessDigest(name string) (string, string, error) {
+	graph := manifest.processes
+	if graph == nil {
+		return "", "", fmt.Errorf("build inputs do not include development process entrypoints")
+	}
+	main := graph.mains[name]
+	if main == "" {
+		return "", "", fmt.Errorf("build inputs do not include development process %s", name)
+	}
+	closure, err := graph.closureDigest(main, map[string]bool{})
+	if err != nil {
+		return "", "", err
+	}
+	sum := sha256.Sum256([]byte("scenery.go-build-input-process\x00" + manifest.Target + "\x00" + graph.entriesDigest(graph.global) + "\x00" + closure))
+	return "sha256:" + hex.EncodeToString(sum[:]), main, nil
+}
+
+// closureDigest hashes a package's own inputs with the digests of the packages
+// it imports, which identifies every input the package's closure consumes.
+func (graph *buildInputProcessGraph) closureDigest(pkg string, visiting map[string]bool) (string, error) {
+	if digest, ok := graph.closures[pkg]; ok {
+		return digest, nil
+	}
+	if visiting[pkg] {
+		return "", fmt.Errorf("go build graph imports %s cyclically", pkg)
+	}
+	visiting[pkg] = true
+	defer delete(visiting, pkg)
+	imported := make([]string, 0, len(graph.imports[pkg]))
+	for _, dependency := range graph.imports[pkg] {
+		digest, err := graph.closureDigest(dependency, visiting)
+		if err != nil {
+			return "", err
+		}
+		imported = append(imported, digest)
+	}
+	sort.Strings(imported)
+	imported = slices.Compact(imported)
+	hash := sha256.New()
+	_, _ = hash.Write([]byte(pkg + "\x00" + graph.entriesDigest(graph.packages[pkg])))
+	for _, digest := range imported {
+		_, _ = hash.Write([]byte("\x00" + digest))
+	}
+	digest := hex.EncodeToString(hash.Sum(nil))
+	if graph.closures == nil {
+		graph.closures = map[string]string{}
+	}
+	graph.closures[pkg] = digest
+	return digest, nil
+}
+
+// entriesDigest hashes one input set by identity and content digest.
+func (graph *buildInputProcessGraph) entriesDigest(entries map[string]string) string {
+	identities := make([]string, 0, len(entries))
+	for identity := range entries {
+		identities = append(identities, identity)
+	}
+	sort.Strings(identities)
+	hash := sha256.New()
+	for _, identity := range identities {
+		_, _ = hash.Write([]byte(identity + "\x00" + entries[identity] + "\x00"))
+	}
+	return hex.EncodeToString(hash.Sum(nil))
+}
+
+// developmentProcessInputs projects the complete input set of one process
+// entrypoint. Identification uses developmentProcessDigest; this projection
+// serves diagnostics and tests that assert membership.
+func (manifest *BuildInputManifest) developmentProcessInputs(name string) (*BuildInputManifest, string, error) {
 	graph := manifest.processes
 	if graph == nil {
 		return nil, "", fmt.Errorf("build inputs do not include development process entrypoints")
