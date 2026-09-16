@@ -34,7 +34,9 @@ func BuildRuntimeIntegrationPlan(result *Result) (RuntimeIntegrationPlan, error)
 	assistants := canonicalAssistantResources(result.Manifest.Resources)
 	mcpServers := canonicalMCPServers(result.Manifest.Resources)
 	if len(services) == 0 && len(assistants) == 0 && len(mcpServers) == 0 {
-		return RuntimeIntegrationPlan{}, nil
+		// Nothing is composed, but the process model still runs a host that
+		// verifies the linked contract.
+		return RuntimeIntegrationPlan{ContractRevision: result.Manifest.ContractRevision}, nil
 	}
 	_, generatedImport, err := resolveApplicationGeneratedRoot(result)
 	if err != nil {

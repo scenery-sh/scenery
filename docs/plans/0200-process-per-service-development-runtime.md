@@ -453,7 +453,8 @@ compile the application graph as it needs.
 - [x] (2026-09-16) The process model is the default `scenery up` runtime and
   `SCENERY_DEV_PROCESS_MODEL=application` is deprecated (warning on start).
   An application with event consumers or emissions, or without a native
-  service, fails before its build with guidance to select `application`.
+  service, failed before its build with guidance to select `application`
+  (both are supported since the conformance entry below).
   Running the `scenery up` probes on the new default exposed that the Go
   command reports package directories through its resolved working directory:
   in a workspace under a symbolic link (Darwin's `/tmp` and `/var`) process
@@ -478,6 +479,31 @@ compile the application graph as it needs.
   environment starts a complete generation. A6 asserted a new application
   process after a source edit; it now accepts the replaced service process the
   process model publishes (`service-library-library`).
+- [x] (2026-09-16) Default-path conformance after a review of `c45450f2`, each
+  finding confirmed in code first. A reused service executable must still
+  have the digest its link published (recorded beside it); a changed or
+  unrecorded executable is linked again instead of being adopted by rehashing.
+  The host forwards the exact raw query, because the reverse proxy drops
+  query parameters it cannot parse and the contract decoder then saw
+  different values than in the single application model (`q=alice;bob`
+  vanished, and `broken=%ZZ` turned `q=a%20b` into `a+b`). A generation's
+  environment identity is the effective environment, so a different winning
+  duplicate replaces processes and an overridden value does not. Retiring old
+  recipe state is retried until the removal succeeds. The process model now
+  runs every application class: event consumers, emissions and schedules were
+  already registered by each service's own adapter and started at activation,
+  so only the supervisor's rejection is removed (no event bus implementation
+  ships in this repository, in either model; `examples/webhook-inbox` uses no
+  contract events, contrary to an earlier note), and an application without a
+  native service runs a host alone that serves framework routes itself.
+  A copy of `testdata/apps/basic` without its service module started through
+  `scenery up` on the default: the host linked and published generation 1,
+  `/__scenery/config` answered 200 and an unknown path 404, both naming the
+  generation, and the session registered only `api`.
+  Afterwards `process-model`, `dev-process` and `worktree` (A1-A17) passed, and
+  the ONLV worktree on the default model reached `run.ready` in 18 s with
+  warm `ahjs` edits of 1,917-2,110 ms (median 1,953 ms), 538-617 ms entrypoint
+  builds and 67 % mean process-tree CPU.
 
 ## Surprises & Discoveries
 
@@ -848,7 +874,7 @@ compile the application graph as it needs.
 - Decision: the process model is the default development runtime and the
   single application model is deprecated. `SCENERY_DEV_PROCESS_MODEL` defaults
   to `service`; `application` remains selectable with a deprecation warning,
-  and an application the process model cannot run yet fails with guidance
+  and an application the process model could not run yet failed with guidance
   rather than falling back automatically. Remaining gaps and the removal path
   are tracked in `docs/tech-debt.md`. This supersedes the rollout-gate decision
   of 2026-09-15. Date: 2026-09-16. Author: human.

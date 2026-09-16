@@ -19,15 +19,13 @@ import (
 	"time"
 
 	"scenery.sh/internal/build"
-	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/runtime"
 )
 
 // devProcessModelEnv selects the development runtime model. The process model
 // (one host process and one process per native service) is the default;
-// `application` selects the deprecated single application executable, which
-// remains only until the process model runs every application (see
+// `application` selects the deprecated single application executable (see
 // docs/tech-debt.md).
 const devProcessModelEnv = "SCENERY_DEV_PROCESS_MODEL"
 
@@ -53,26 +51,6 @@ const (
 // devProcessModelDeprecation is reported when a session selects the single
 // application model.
 const devProcessModelDeprecation = "the single application development model is deprecated; unset " + devProcessModelEnv + " to use the default process model"
-
-// devProcessModelUnsupported explains why the default process model cannot run
-// an application and how to run it in the deprecated model meanwhile.
-func devProcessModelUnsupported(reason string) error {
-	return fmt.Errorf("%s; the process model is the default development runtime, and %s=application runs this application in the deprecated single application model", reason, devProcessModelEnv)
-}
-
-// devProcessModelSupports rejects an application the process model cannot run
-// before anything is built for it.
-func devProcessModelSupports(contract *compiler.Result) error {
-	if contract == nil || contract.Manifest == nil {
-		return nil
-	}
-	for _, resource := range contract.Manifest.Resources {
-		if resource.Kind == "scenery.event-emission" || resource.Kind == "scenery.binding" && resource.Spec["protocol"] == "event" {
-			return devProcessModelUnsupported("the process model does not run event consumers or emissions yet")
-		}
-	}
-	return nil
-}
 
 func devProcessModelSelected() (bool, error) {
 	switch value := strings.TrimSpace(envpolicy.Get(devProcessModelEnv)); value {
@@ -311,10 +289,20 @@ func (s *devSupervisor) activateDevProcesses(ctx context.Context, plan *devRunti
 }
 
 // devProcessEnvironmentIdentity identifies the environment the processes of a
-// generation start with, before each instance's own listener and link.
+// generation start with, before each instance's own listener and link. It is
+// the effective environment a started process receives: os/exec keeps the last
+// value of a repeated name, which the supervisor relies on to let framework
+// values override ambient ones, so an overridden value changes nothing.
 func devProcessEnvironmentIdentity(base []string) string {
-	entries := slices.Clone(base)
-	slices.Sort(entries)
+	effective := map[string]string{}
+	for _, entry := range base {
+		name, _, found := strings.Cut(entry, "=")
+		if !found {
+			continue
+		}
+		effective[name] = entry
+	}
+	entries := slices.Sorted(maps.Values(effective))
 	sum := sha256.Sum256([]byte(strings.Join(entries, "\x00")))
 	return hex.EncodeToString(sum[:])
 }

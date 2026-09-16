@@ -2,8 +2,11 @@ package generate
 
 import (
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+
+	generateapi "scenery.sh/internal/generate/api"
 )
 
 func TestEmptyHTTPResponseDoesNotLeaveOutcomeVariableUnused(t *testing.T) {
@@ -292,6 +295,22 @@ func TestGenerateApplicationAdapterRegistersSchedulesConsumersAndEmissions(t *te
 	} {
 		if !strings.Contains(adapter, fragment) {
 			t.Fatalf("adapter missing %q:\n%s", fragment, adapter)
+		}
+	}
+	// In the process model the service's own process registers this adapter,
+	// so it requires, and at activation starts, the service's event consumers,
+	// emissions and schedules.
+	plan, err := BuildRuntimeIntegrationPlan(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	house := slices.IndexFunc(plan.Services, func(service generateapi.ServiceProcessPlan) bool { return service.Name == "house_house" })
+	if house < 0 {
+		t.Fatalf("plan has no house service process: %#v", plan.Services)
+	}
+	for _, address := range []string{"house/binding/process_scene_event", "house/event_emission/scene_processed", "house/schedule/nightly"} {
+		if !slices.Contains(plan.Services[house].RequiredAddresses, address) {
+			t.Fatalf("house service process does not require %s: %v", address, plan.Services[house].RequiredAddresses)
 		}
 	}
 }

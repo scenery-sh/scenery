@@ -17,8 +17,6 @@ import (
 
 	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/build"
-	"scenery.sh/internal/compiler"
-	"scenery.sh/internal/graph"
 )
 
 func TestDevProcessInstancesStopOnlyWhenNoRetainedGenerationNamesThem(t *testing.T) {
@@ -471,30 +469,28 @@ func TestProcessModelIsTheDefaultAndApplicationIsDeprecated(t *testing.T) {
 	if _, err := devProcessModelSelected(); err == nil {
 		t.Fatal("an unknown development model was accepted")
 	}
-	// An application the process model cannot run fails before it is built
-	// and names the deprecated model that still runs it.
-	events := &compiler.Result{Manifest: &graph.Manifest{Resources: []graph.Resource{{Kind: "scenery.binding", Spec: map[string]any{"protocol": "event"}}}}}
-	if err := devProcessModelSupports(events); err == nil || !strings.Contains(err.Error(), devProcessModelEnv+"=application") {
-		t.Fatalf("an event application was accepted or not told how to run: %v", err)
-	}
-	if err := devProcessModelSupports(&compiler.Result{Manifest: &graph.Manifest{}}); err != nil {
-		t.Fatalf("an application without events was rejected: %v", err)
-	}
 	if !strings.Contains(devProcessModelDeprecation, "deprecated") {
 		t.Fatalf("deprecation warning = %q", devProcessModelDeprecation)
 	}
 }
 
-// A generation's processes keep the environment they started with, so a moved
-// database endpoint must identify a different environment, while the order the
-// supervisor assembles it in must not.
-func TestDevProcessEnvironmentIdentityFollowsValuesNotOrder(t *testing.T) {
+// A generation's processes keep the environment they started with, so the
+// identity must follow what a started process receives: a moved database
+// endpoint or a different winning duplicate changes it, while assembly order
+// of distinct names and an overridden value do not.
+func TestDevProcessEnvironmentIdentityFollowsTheEffectiveEnvironment(t *testing.T) {
+	identity := devProcessEnvironmentIdentity
 	base := []string{"SCENERY_APP_ID=app", "DATABASE_URL=postgres://127.0.0.1:5432/app"}
-	if devProcessEnvironmentIdentity(base) != devProcessEnvironmentIdentity([]string{base[1], base[0]}) {
-		t.Fatal("reordering the environment changed its identity")
+	if identity(base) != identity([]string{base[1], base[0]}) {
+		t.Fatal("reordering distinct names changed the identity")
 	}
-	moved := []string{"SCENERY_APP_ID=app", "DATABASE_URL=postgres://127.0.0.1:6543/app"}
-	if devProcessEnvironmentIdentity(base) == devProcessEnvironmentIdentity(moved) {
-		t.Fatal("a moved database endpoint kept the environment identity")
+	if identity(base) == identity([]string{"SCENERY_APP_ID=app", "DATABASE_URL=postgres://127.0.0.1:6543/app"}) {
+		t.Fatal("a moved database endpoint kept the identity")
+	}
+	if identity([]string{"DATABASE_URL=endpoint-a", "DATABASE_URL=endpoint-b"}) == identity([]string{"DATABASE_URL=endpoint-b", "DATABASE_URL=endpoint-a"}) {
+		t.Fatal("environments whose last duplicate differs share an identity")
+	}
+	if identity([]string{"DATABASE_URL=ambient-x", "DATABASE_URL=framework"}) != identity([]string{"DATABASE_URL=ambient-y", "DATABASE_URL=framework"}) {
+		t.Fatal("a value the framework overrides changed the identity")
 	}
 }

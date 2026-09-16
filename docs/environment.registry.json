@@ -1035,7 +1035,7 @@
         "tests"
       ],
       "owner": "scenery runtime",
-      "rationale": "unset or `service` (the default) runs `scenery up` as a process host plus one process per native service; `application` selects the deprecated single application executable for applications the process model cannot run yet",
+      "rationale": "unset or `service` (the default) runs `scenery up` as a process host plus one process per native service; `application` selects the deprecated single application executable",
       "preferred_surface": "leave unset; `application` is a deprecated escape hatch with no stable flag or config",
       "replacement": "the default process model",
       "sunset": "removal of the single application development model (docs/tech-debt.md)",

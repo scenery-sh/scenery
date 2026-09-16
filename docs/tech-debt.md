@@ -60,20 +60,18 @@ Recorded 2026-09-16, when the process model became the default for
   preflight, restart and retained whole-application compiler. It is deprecated
   and prints a warning, but every lifecycle change must still be made and
   verified twice, and the retained compiler is maintained only for it.
-- Why it cannot be removed yet: the process model does not run applications
-  with event consumers or emissions (`examples/webhook-inbox`) or applications
-  without a native service; both fail with guidance to select `application`.
-  Verification that asserts single-executable behavior selects it
-  explicitly: the detached startup journey of the `dev-process` probe (the
-  application process serves the session), the `native-contract` probe (it
-  inspects the compiled application executable and runtime bundle) and the
-  native build driver benchmark (the retained compiler builds only the
-  application executable).
-- Removal: run event consumers and emissions in service processes, give an
-  application without a native service a host-only generation, move the probes
-  that select `application` to the process model, then delete the selector
-  value, the single application development path and its retained compiler.
-  Production builds keep one generated binary and are not part of this debt.
+- Why it is not removed yet: the process model runs every application class
+  (event consumers and emissions run in their service's process, and an
+  application without a native service runs a host alone), but verification
+  that asserts single-executable behavior still selects `application`: the
+  detached startup journey of the `dev-process` probe (the application process
+  serves the session), the `native-contract` probe (it inspects the compiled
+  application executable and runtime bundle) and the native build driver
+  benchmark (the retained compiler builds only the application executable).
+- Removal: move those three to the process model or retire their
+  single-executable assertions, then delete the selector value, the single
+  application development path and its retained compiler. Production builds
+  keep one generated binary and are not part of this debt.
 - Evidence: Plan 0200 measurements on ONLV (one-service edit 1,980-2,080 ms in
   the process model against 3,540-3,630 ms measured on 2026-09-15 in the single
   application model, before later shared speedups).

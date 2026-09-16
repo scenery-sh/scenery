@@ -15,6 +15,7 @@ import (
 
 	"scenery.sh/internal/compiler"
 	generateapi "scenery.sh/internal/generate/api"
+	"scenery.sh/internal/atomicfile"
 	"scenery.sh/internal/nativebuilddriver"
 )
 
@@ -69,10 +70,6 @@ func (set *DevelopmentProcessSet) Process(name string) (DevelopmentProcess, bool
 	return DevelopmentProcess{}, false
 }
 
-// ErrNoNativeService reports an application without a native service, which
-// has no process to build beside the host.
-var ErrNoNativeService = errors.New("the process model requires at least one native service")
-
 // BuildDevelopmentProcessesContext links the process entrypoints of a prepared
 // development workspace. A process whose linked identity equals a retained
 // executable is reused; every other process is linked by one stock Go build.
@@ -92,9 +89,6 @@ func BuildDevelopmentProcessesContext(ctx context.Context, result *Result) (*Dev
 	plan, err := generateHooks.RuntimeIntegrationPlan(result.Contract)
 	if err != nil {
 		return nil, nil, err
-	}
-	if len(plan.Services) == 0 {
-		return nil, nil, ErrNoNativeService
 	}
 	unlock, err := lockWorkspace(result.Dir)
 	if err != nil {
@@ -220,10 +214,11 @@ func buildDevelopmentProcesses(ctx context.Context, result *Result, services []g
 			return nil, err
 		}
 	}
-	retireRetainedProcessState(result.Dir)
+	retireRetainedProcessState(ctx, result.Dir)
 	keep := map[string]bool{}
 	for _, process := range processes {
 		keep[filepath.Base(process.Binary)] = true
+		keep[filepath.Base(process.Binary)+developmentProcessDigestSuffix] = true
 	}
 	for _, process := range pending {
 		set.Rebuilt = append(set.Rebuilt, process.Name)
@@ -281,7 +276,7 @@ func linkDevelopmentProcesses(ctx context.Context, result *Result, binaryRoot st
 		if err := os.Rename(output, process.Binary); err != nil {
 			return err
 		}
-		if err := rememberDevelopmentProcessDigest(process.Binary, digest); err != nil {
+		if err := publishDevelopmentProcessDigest(process.Binary, digest); err != nil {
 			return err
 		}
 		process.ArtifactDigest = digest
@@ -331,11 +326,16 @@ func pruneDevelopmentProcessBinaries(root string, keep map[string]bool) error {
 // developmentProcessFileDigest reads a whole executable; tests observe it.
 var developmentProcessFileDigest = nativebuilddriver.FileDigest
 
-// developmentProcessDigests remembers the digest of each linked process
+// developmentProcessDigestSuffix names the record of the digest an executable
+// had when its link published it, beside the executable. The executable's path
+// is keyed by the linked identity, so the record binds that identity to the
+// verified output.
+const developmentProcessDigestSuffix = ".sha256"
+
+// developmentProcessDigests remembers the verified digest of each linked process
 // executable for as long as its file keeps the same size, modification and
 // change times, permissions, device and inode, so a one-service edit does not
-// read the executables of unchanged processes. The owning supervisor process
-// hashes each retained executable once.
+// read the executables of unchanged processes.
 var developmentProcessDigests struct {
 	sync.Mutex
 	values map[string]developmentProcessDigest
@@ -344,6 +344,15 @@ var developmentProcessDigests struct {
 type developmentProcessDigest struct {
 	stamp  buildInputFileStamp
 	digest string
+}
+
+// publishDevelopmentProcessDigest records the digest a link produced for an
+// executable it has just published.
+func publishDevelopmentProcessDigest(path, digest string) error {
+	if err := atomicfile.Write(path+developmentProcessDigestSuffix, []byte(digest+"\n"), 0o600, atomicfile.Options{}); err != nil {
+		return err
+	}
+	return rememberDevelopmentProcessDigest(path, digest)
 }
 
 func rememberDevelopmentProcessDigest(path, digest string) error {
@@ -360,8 +369,12 @@ func rememberDevelopmentProcessDigest(path, digest string) error {
 	return nil
 }
 
-// retainedDevelopmentProcessDigest reports the digest of an already linked
-// process executable, hashing it only when no current stamp is remembered.
+// retainedDevelopmentProcessDigest reports the verified digest of an already
+// linked process executable. A remembered current stamp avoids reading it;
+// otherwise its bytes must still have the digest its link published. An
+// executable without that record, or whose bytes differ, is not reusable and is
+// linked again: rehashing observes content, it does not establish which output
+// was verified.
 func retainedDevelopmentProcessDigest(path string) (string, bool, error) {
 	info, err := os.Lstat(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -379,9 +392,20 @@ func retainedDevelopmentProcessDigest(path string) (string, bool, error) {
 	if ok && remembered.stamp == buildInputStamp(info) {
 		return remembered.digest, true, nil
 	}
+	record, err := os.ReadFile(path + developmentProcessDigestSuffix)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	expected := strings.TrimSpace(string(record))
 	digest, _, err := developmentProcessFileDigest(path)
 	if err != nil {
 		return "", false, err
+	}
+	if expected == "" || digest != expected {
+		return "", false, nil
 	}
 	return digest, true, rememberDevelopmentProcessDigest(path, digest)
 }

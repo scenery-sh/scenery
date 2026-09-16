@@ -1,6 +1,7 @@
 package build
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -27,7 +28,19 @@ func TestRetiredProcessRecipeStateIsRemovedBesideApplicationState(t *testing.T) 
 			t.Fatal(err)
 		}
 	}
-	retireRetainedProcessState(workspace)
+	// A removal that fails leaves the workspace unretired, so a later process
+	// build tries again.
+	if err := os.Chmod(root, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	retireRetainedProcessState(context.Background(), workspace)
+	if err := os.Chmod(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(retired); err != nil {
+		t.Fatalf("retired state vanished although its removal failed: %v", err)
+	}
+	retireRetainedProcessState(context.Background(), workspace)
 	if _, err := os.Lstat(retired); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("retired entrypoint recipes remain: %v", err)
 	}

@@ -64,7 +64,13 @@ func generateHostMain(appName string, cfg appcfg.Config, plan generateapi.Runtim
 		buf.WriteString("\tif err == nil { err = contractRegistry.Seal() }\n")
 		buf.WriteString("\tif err != nil {\n\t\t_, _ = fmt.Fprintf(os.Stderr, \"scenery: %v\\n\", err)\n\t\tos.Exit(1)\n\t}\n")
 	}
-	fmt.Fprintf(&buf, "\tif err := sceneryruntime.MainProcessHost(sceneryruntime.ProcessHostConfig{Name: %q, ListenAddr: sceneryruntime.ListenAddrFromEnv(), Fallback: %q,\n", appName, plan.Services[0].Name)
+	// The first service process serves framework and unmatched routes; an
+	// application without a native service has none, and its host serves them.
+	fallback := ""
+	if len(plan.Services) > 0 {
+		fallback = plan.Services[0].Name
+	}
+	fmt.Fprintf(&buf, "\tif err := sceneryruntime.MainProcessHost(sceneryruntime.ProcessHostConfig{Name: %q, ListenAddr: sceneryruntime.ListenAddrFromEnv(), Fallback: %q,\n", appName, fallback)
 	buf.WriteString("\t\tRoutes: []sceneryruntime.ProcessHostRoute{\n")
 	for _, service := range plan.Services {
 		for _, route := range service.Routes {

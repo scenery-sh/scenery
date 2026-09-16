@@ -59,7 +59,8 @@ type ProcessHostMCPTool struct {
 }
 
 // ProcessHostConfig is rendered into the generated host entrypoint. Fallback
-// serves framework routes and requests that match no contract route.
+// serves framework routes and requests that match no contract route; an
+// application without a native service has none, and its host serves them.
 type ProcessHostConfig struct {
 	Name       string
 	ListenAddr string
@@ -175,7 +176,7 @@ func MainProcessHost(cfg ProcessHostConfig) error {
 		defer cancelShutdown()
 		_ = ShutdownServices(shutdownCtx)
 	}()
-	if endpoints := listEndpoints(); len(endpoints) > 0 {
+	if endpoints := listEndpoints(); len(endpoints) > 0 || cfg.Fallback == "" {
 		local, err := newServer(cfg.ListenAddr)
 		if err != nil {
 			return err
@@ -230,11 +231,15 @@ func MainProcessHost(cfg ProcessHostConfig) error {
 }
 
 func newProcessHost(cfg ProcessHostConfig, token, contract string) (*processHost, error) {
-	if strings.TrimSpace(cfg.Fallback) == "" {
-		return nil, fmt.Errorf("runtime: process host requires a fallback process")
+	cfg.Fallback = strings.TrimSpace(cfg.Fallback)
+	if cfg.Fallback == "" && (len(cfg.Routes) > 0 || len(cfg.MCPTools) > 0) {
+		return nil, fmt.Errorf("runtime: process host with service routes requires a fallback process")
 	}
 	host := &processHost{name: cfg.Name, token: token, contract: contract, routes: newRouteTable(), fallback: cfg.Fallback, generations: map[uint64]*processHostGeneration{}, mcpTools: map[string]string{}}
-	required := map[string]bool{cfg.Fallback: true}
+	required := map[string]bool{}
+	if cfg.Fallback != "" {
+		required[cfg.Fallback] = true
+	}
 	for _, tool := range cfg.MCPTools {
 		key := tool.AssistantAddress + "\x00" + tool.Name
 		if strings.TrimSpace(tool.Process) == "" || strings.TrimSpace(tool.Name) == "" || host.mcpTools[key] != "" {
@@ -294,6 +299,12 @@ func (h *processHost) serveIngress(w http.ResponseWriter, req *http.Request) {
 	}
 	if owner := h.routes.ownerRoute(req.URL.EscapedPath(), method); owner != nil {
 		owner.handler(w, req, nil)
+		return
+	}
+	if h.fallback == "" {
+		// An application without a native service: the host's own runtime
+		// serves framework routes and answers unmatched requests.
+		h.local.ServeHTTP(w, req)
 		return
 	}
 	h.forward(w, req, h.fallback)
@@ -516,6 +527,10 @@ func newProcessHostInstance(name string, spec processGenerationInstance) *proces
 	}
 	rewrite := func(request *httputil.ProxyRequest) {
 		request.Out.URL.Scheme, request.Out.URL.Host = "http", "scenery-process"
+		// The reverse proxy drops query parameters it cannot parse before
+		// Rewrite. The owning process decodes the raw query under the contract's
+		// own rules, so it must receive exactly the query the host received.
+		request.Out.URL.RawQuery = request.In.URL.RawQuery
 		request.Out.Host = request.In.Host
 		// The owning process applies the gateway's forwarded-header policy to
 		// the headers the host received, not to a host-rewritten set.

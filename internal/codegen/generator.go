@@ -23,7 +23,7 @@ func Generate(appName string, cfg appcfg.Config, plan generateapi.RuntimeIntegra
 		return nil, err
 	}
 	out.Generated["scenery_internal_main/main.go"] = mainFile
-	if len(plan.Services) == 0 {
+	if len(plan.Services) == 0 && plan.ContractRevision == "" {
 		return out, nil
 	}
 	for _, service := range plan.Services {

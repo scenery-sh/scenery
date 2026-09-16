@@ -166,44 +166,107 @@ func TestRetainedDevelopmentProcessDigestsDoNotRereadUnchangedExecutables(t *tes
 		return previous(path)
 	}
 	t.Cleanup(func() { developmentProcessFileDigest = previous })
-	var paths []string
-	for index, size := range []int{1, 64 << 10, 256 << 10} {
-		path := filepath.Join(root, "service-"+string(rune('a'+index)))
-		if err := os.WriteFile(path, bytes.Repeat([]byte{byte(index)}, size), 0o755); err != nil {
+	// link publishes an executable with the digest its link produced.
+	link := func(path string, content []byte) string {
+		t.Helper()
+		if err := os.WriteFile(path, content, 0o755); err != nil {
 			t.Fatal(err)
 		}
+		digest, _, err := previous(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := publishDevelopmentProcessDigest(path, digest); err != nil {
+			t.Fatal(err)
+		}
+		return digest
+	}
+	var paths []string
+	digests := map[string]string{}
+	for index, size := range []int{1, 64 << 10, 256 << 10} {
+		path := filepath.Join(root, "service-"+string(rune('a'+index)))
+		digests[path] = link(path, bytes.Repeat([]byte{byte(index)}, size))
 		paths = append(paths, path)
 	}
-	digests := map[string]string{}
 	for _, path := range paths {
 		digest, ok, err := retainedDevelopmentProcessDigest(path)
-		if err != nil || !ok {
-			t.Fatalf("first digest of %s = %v, %v", path, ok, err)
+		if err != nil || !ok || digest != digests[path] {
+			t.Fatalf("first digest of %s = %s, %v, %v", path, digest, ok, err)
 		}
-		digests[path] = digest
 	}
-	if len(hashed) != len(paths) {
-		t.Fatalf("first build hashed %v", hashed)
+	if len(hashed) != 0 {
+		t.Fatalf("reusing just linked executables hashed %v", hashed)
 	}
-	hashed = nil
-	// A relinked executable replaces its file; only it is read again.
+	// A relinked executable replaces its file and its record; nothing else is
+	// read again.
 	if err := os.Remove(paths[1]); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(paths[1], []byte("relinked"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	digests[paths[1]] = link(paths[1], []byte("relinked"))
 	for _, path := range paths {
 		digest, ok, err := retainedDevelopmentProcessDigest(path)
-		if err != nil || !ok || path != paths[1] && digest != digests[path] || path == paths[1] && digest == digests[path] {
+		if err != nil || !ok || digest != digests[path] {
 			t.Fatalf("second digest of %s = %s, %v, %v", path, digest, ok, err)
 		}
 	}
-	if !slices.Equal(hashed, []string{"service-b"}) {
-		t.Fatalf("one-service edit hashed %v; want only the replaced executable", hashed)
+	if len(hashed) != 0 {
+		t.Fatalf("one-service edit hashed %v", hashed)
 	}
 	if _, ok, err := retainedDevelopmentProcessDigest(filepath.Join(root, "missing")); ok || err != nil {
 		t.Fatalf("missing executable = %v, %v", ok, err)
+	}
+}
+
+// Rehashing an executable observes its bytes; it must not make them the
+// verified output of the linked identity its path names.
+func TestModifiedDevelopmentProcessExecutableIsNotReused(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "service-a")
+	if err := os.WriteFile(path, []byte("behavior-A"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	digest, _, err := developmentProcessFileDigest(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := publishDevelopmentProcessDigest(path, digest); err != nil {
+		t.Fatal(err)
+	}
+	forget := func() {
+		developmentProcessDigests.Lock()
+		delete(developmentProcessDigests.values, path)
+		developmentProcessDigests.Unlock()
+	}
+	t.Cleanup(forget)
+	// Same length, different behavior, a new stamp.
+	if err := os.WriteFile(path, []byte("behavior-B"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := retainedDevelopmentProcessDigest(path); ok || err != nil {
+		t.Fatalf("a modified executable was reused: %v, %v", ok, err)
+	}
+	// A supervisor that starts later has nothing remembered and still refuses.
+	forget()
+	if _, ok, err := retainedDevelopmentProcessDigest(path); ok || err != nil {
+		t.Fatalf("a modified executable was reused after a restart: %v, %v", ok, err)
+	}
+	// An executable without the record its link publishes is not trusted.
+	if err := os.Remove(path + developmentProcessDigestSuffix); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := retainedDevelopmentProcessDigest(path); ok || err != nil {
+		t.Fatalf("an executable without its published digest was reused: %v, %v", ok, err)
+	}
+	// Restored bytes match the published digest again.
+	if err := os.WriteFile(path, []byte("behavior-A"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := publishDevelopmentProcessDigest(path, digest); err != nil {
+		t.Fatal(err)
+	}
+	forget()
+	if got, ok, err := retainedDevelopmentProcessDigest(path); !ok || err != nil || got != digest {
+		t.Fatalf("the published executable was not reused: %s, %v, %v", got, ok, err)
 	}
 }
 

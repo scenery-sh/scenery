@@ -107,3 +107,27 @@ func TestServiceProcessEntrypointsRegisterOnlyTheirAdapter(t *testing.T) {
 		}
 	}
 }
+
+// An application without a native service still runs the process model: a
+// host alone, which verifies the linked contract and serves framework routes
+// itself.
+func TestApplicationWithoutServicesRendersAHostServingItself(t *testing.T) {
+	output, err := Generate("frontend", app.Config{}, generateapi.RuntimeIntegrationPlan{ContractRevision: "sha256:contract"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	host := string(output.Generated[ProcessMainRoot+"/host/main.go"])
+	for _, fragment := range []string{`const contractRevision = "sha256:contract"`, `Fallback: ""`, "sceneryruntime.MainProcessHost("} {
+		if !strings.Contains(host, fragment) {
+			t.Fatalf("host entrypoint without services missing %q:\n%s", fragment, host)
+		}
+	}
+	for path := range output.Generated {
+		if strings.HasPrefix(path, ProcessMainRoot+"/services/") {
+			t.Fatalf("an application without services rendered %s", path)
+		}
+	}
+	if output, err := Generate("frontend", app.Config{}, generateapi.RuntimeIntegrationPlan{}, nil); err != nil || len(output.Generated) != 1 {
+		t.Fatalf("a plan without a contract rendered %d files, %v", len(output.Generated), err)
+	}
+}

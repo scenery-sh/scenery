@@ -52,7 +52,7 @@ These are injected by scenery into generated app processes. App code may read th
 | `SCENERY_PARENT_MONITOR` | injected/user input | Enables runtime parent monitoring. |
 | `SCENERY_PARENT_MONITOR_PID` | injected | Parent PID watched by runtime parent monitoring. |
 | `SCENERY_DEV_ENDPOINTS` | injected/user input | `1` enables dev/admin endpoints such as `/__scenery/config` and `/debug/pprof/*`. |
-| `SCENERY_DEV_PROCESS_MODEL` | user input | Selects the `scenery up` development runtime. Unset or `service` (the default) runs a process host plus one process per native service. `application` selects the deprecated single application executable and prints a deprecation warning; it remains only until the process model runs every application, currently applications with event consumers or emissions and applications without a native service (see `docs/tech-debt.md`). |
+| `SCENERY_DEV_PROCESS_MODEL` | user input | Selects the `scenery up` development runtime. Unset or `service` (the default) runs a process host plus one process per native service (a host alone for an application without one). `application` selects the deprecated single application executable and prints a deprecation warning (see `docs/tech-debt.md`). |
 | `SCENERY_CORS_ALLOW_ORIGINS` | user input | Comma-separated production CORS allowlist outside dev endpoint mode. |
 | `SCENERY_DEV_REPORT_URL` | injected | Dev dashboard report endpoint. |
 | `SCENERY_DEV_REPORT_TOKEN` | injected | Token used by the app child to report logs/traces to the dev dashboard. |

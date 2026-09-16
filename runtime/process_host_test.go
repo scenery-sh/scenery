@@ -814,3 +814,64 @@ func TestProcessHostFailsSelectedWorkOnPurpose(t *testing.T) {
 		t.Fatalf("listed faults = %#v, %v", listed.Faults, err)
 	}
 }
+
+// The host forwards the exact raw query, so the owning process decodes the
+// same values, and rejects the same malformed input, as a single application
+// process would.
+func TestProcessHostForwardsTheRawQueryTheContractDecodes(t *testing.T) {
+	echo := startProcessHostTestBackend(t, "echo_echo", 101, "sha256:echo-1")
+	host, err := newProcessHost(ProcessHostConfig{Name: "multiservice", Fallback: "echo_echo", Routes: []ProcessHostRoute{
+		{Process: "echo_echo", Methods: []string{"GET"}, Path: "/search"},
+	}}, processLinkTestToken, processHostTestContract)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := host.publish(processGenerationManifest{Generation: 1, ContractRevision: processHostTestContract, Processes: map[string]processGenerationInstance{"echo_echo": echo.instance}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, query := range []string{"q=alice;bob", "q=%ZZ", "q=a%20b&broken=%ZZ", "q=a+b", "q=1,2&q=3", "q=%2C&q=x%2By", ""} {
+		target := "/search"
+		if query != "" {
+			target += "?" + query
+		}
+		recorder, _ := processHostTestRequest(t, host.serveIngress, "GET", target, nil)
+		seen := echo.last()
+		if recorder.Code != http.StatusOK || seen["uri"] != target {
+			t.Errorf("%s reached the process as %q (status %d)", target, seen["uri"], recorder.Code)
+			continue
+		}
+		forwarded := strings.TrimPrefix(strings.TrimPrefix(seen["uri"], "/search"), "?")
+		for _, encoding := range []string{"", "comma"} {
+			want, wantErr := contractRawQueryValues(query, "q", encoding)
+			got, gotErr := contractRawQueryValues(forwarded, "q", encoding)
+			if (wantErr == nil) != (gotErr == nil) || strings.Join(want, "\x00") != strings.Join(got, "\x00") {
+				t.Errorf("%s (%q encoding) decodes to %q, %v through the host; want %q, %v", target, encoding, got, gotErr, want, wantErr)
+			}
+		}
+	}
+}
+
+// An application without a native service runs a host alone: once its empty
+// generation is published, the host's own runtime serves framework routes and
+// unmatched requests, still naming the generation.
+func TestProcessHostWithoutServicesServesItself(t *testing.T) {
+	host, err := newProcessHost(ProcessHostConfig{Name: "frontend-only"}, processLinkTestToken, processHostTestContract)
+	if err != nil {
+		t.Fatal(err)
+	}
+	host.local = http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) { _, _ = w.Write([]byte("local:" + req.URL.Path)) })
+	host.localRoutes = newRouteTable()
+	if recorder, _ := processHostTestRequest(t, host.serveIngress, "GET", "/__scenery/config", nil); recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("host before publication = %d", recorder.Code)
+	}
+	if err := host.publish(processGenerationManifest{Generation: 1, ContractRevision: processHostTestContract, Processes: map[string]processGenerationInstance{}}); err != nil {
+		t.Fatal(err)
+	}
+	recorder, _ := processHostTestRequest(t, host.serveIngress, "GET", "/__scenery/config", nil)
+	if recorder.Code != http.StatusOK || recorder.Body.String() != "local:/__scenery/config" || recorder.Header().Get(processGenerationHeader) != "1" {
+		t.Fatalf("host without services = %d %q generation %q", recorder.Code, recorder.Body.String(), recorder.Header().Get(processGenerationHeader))
+	}
+	if _, err := newProcessHost(ProcessHostConfig{Routes: []ProcessHostRoute{{Process: "echo_echo", Methods: []string{"GET"}, Path: "/x"}}}, processLinkTestToken, processHostTestContract); err == nil {
+		t.Fatal("a host with service routes and no fallback process was accepted")
+	}
+}
