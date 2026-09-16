@@ -67,6 +67,9 @@ type ProcessHostConfig struct {
 	Routes     []ProcessHostRoute
 	MCPTools   []ProcessHostMCPTool
 	Fallback   string
+	// Observability filters the logs and traces of requests the host serves
+	// itself, as the application entrypoint's configuration does.
+	Observability ObservabilityConfig
 }
 
 type processGenerationManifest struct {
@@ -122,6 +125,9 @@ type processHost struct {
 	mu          sync.RWMutex
 	current     *processHostGeneration
 	generations map[uint64]*processHostGeneration
+
+	// closing ends held admissions when the host stops.
+	closing chan struct{}
 }
 
 type processHostGeneration struct {
@@ -159,8 +165,9 @@ func MainProcessHost(cfg ProcessHostConfig) error {
 	if cfg.ListenAddr == "" {
 		cfg.ListenAddr = ListenAddrFromEnv()
 	}
-	SetAppConfig(AppConfig{Name: cfg.Name, ListenAddr: cfg.ListenAddr})
-	stopReporting := startDevelopmentReporting(AppConfig{Name: cfg.Name, ListenAddr: cfg.ListenAddr})
+	appConfig := AppConfig{Name: cfg.Name, ListenAddr: cfg.ListenAddr, Observability: cfg.Observability}
+	SetAppConfig(appConfig)
+	stopReporting := startDevelopmentReporting(appConfig)
 	defer stopReporting()
 	// Application-level registrations (assistant gateways and their private MCP
 	// gateways) run in the host and reach service-owned MCP tools through it.
@@ -216,6 +223,7 @@ func MainProcessHost(cfg ProcessHostConfig) error {
 	case <-sigCtx.Done():
 	case serveErr = <-errCh:
 	}
+	close(host.closing)
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), processHostShutdownGrace)
 	defer cancel()
 	shutdownErrs := []error{}
@@ -235,7 +243,7 @@ func newProcessHost(cfg ProcessHostConfig, token, contract string) (*processHost
 	if cfg.Fallback == "" && (len(cfg.Routes) > 0 || len(cfg.MCPTools) > 0) {
 		return nil, fmt.Errorf("runtime: process host with service routes requires a fallback process")
 	}
-	host := &processHost{name: cfg.Name, token: token, contract: contract, routes: newRouteTable(), fallback: cfg.Fallback, generations: map[uint64]*processHostGeneration{}, mcpTools: map[string]string{}}
+	host := &processHost{name: cfg.Name, token: token, contract: contract, routes: newRouteTable(), fallback: cfg.Fallback, generations: map[uint64]*processHostGeneration{}, mcpTools: map[string]string{}, closing: make(chan struct{})}
 	required := map[string]bool{}
 	if cfg.Fallback != "" {
 		required[cfg.Fallback] = true
@@ -332,6 +340,8 @@ func (h *processHost) serveControl(w http.ResponseWriter, req *http.Request) {
 	switch {
 	case req.URL.Path == processLinkBindingPath && req.Method == http.MethodPost:
 		h.dispatch(w, req)
+	case req.URL.Path == processAdmissionsPath && req.Method == http.MethodPost:
+		h.serveAdmission(w, req)
 	case req.URL.Path == processGenerationsPath && req.Method == http.MethodPut:
 		h.servePublish(w, req)
 	case req.URL.Path == processGenerationsPath && req.Method == http.MethodGet:

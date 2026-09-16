@@ -126,6 +126,11 @@ type devProcessInstance struct {
 	// model.mu.
 	activation  string
 	reconciling bool
+	// unavailable is the reason the instance's build refused background work,
+	// such as an event consumer whose bus no provider registered. A refused
+	// activation is not repeated; a replacement build activates anew. Guarded
+	// by model.mu.
+	unavailable string
 	// controlMu serializes background control requests to the instance and
 	// guards drained. Callers that hold model.mu may take it; nothing holding it
 	// takes model.mu.

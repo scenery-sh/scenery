@@ -61,8 +61,9 @@ Recorded 2026-09-16, when the process model became the default for
   and prints a warning, but every lifecycle change must still be made and
   verified twice, and the retained compiler is maintained only for it.
 - Why it is not removed yet: the process model runs every application class
-  (event consumers and emissions run in their service's process, and an
-  application without a native service runs a host alone), but verification
+  (event consumers and emissions run in their service's process with
+  generation-admitted attempts, and an application without a native service
+  runs a host alone with its SQL and authentication wiring), but verification
   that asserts single-executable behavior still selects `application`: the
   detached startup journey of the `dev-process` probe (the application process
   serves the session), the `native-contract` probe (it inspects the compiled

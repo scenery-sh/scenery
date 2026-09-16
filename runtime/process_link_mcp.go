@@ -164,7 +164,13 @@ func (s *server) handleProcessActivate(w http.ResponseWriter, req *http.Request,
 	}
 	if background := currentProcessBackground(); background != nil {
 		if err := background.activate(); err != nil {
-			http.Error(w, err.Error(), http.StatusConflict)
+			// A capability this build does not provide refuses activation until
+			// a new build replaces the process; other failures may be repeated.
+			status := http.StatusConflict
+			if strings.HasPrefix(err.Error(), "capability_unavailable:") {
+				status = http.StatusServiceUnavailable
+			}
+			http.Error(w, err.Error(), status)
 			return
 		}
 	}

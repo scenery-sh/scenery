@@ -198,7 +198,7 @@ func runCronJobLoop(ctx context.Context, job *CronJob) {
 		callCtx, cancel := context.WithCancel(withCronInvocation(ctx, scheduledAt, executionID))
 		running[executionID] = cancel
 		workers.Go(func() {
-			if err := safeInvokeCronJob(callCtx, job); err != nil && callCtx.Err() == nil {
+			if err := invokeAdmittedCronJob(callCtx, job); err != nil && callCtx.Err() == nil {
 				slog.Error("scenery cron job failed", "id", job.ID, "err", err)
 			}
 			select {
@@ -287,6 +287,20 @@ func runCronJobLoop(ctx context.Context, job *CronJob) {
 			}
 		}
 	}
+}
+
+// invokeAdmittedCronJob runs one scheduled run admitted to an application
+// generation; a run that is not admitted does not start.
+func invokeAdmittedCronJob(ctx context.Context, job *CronJob) error {
+	generation, release, err := admitProcessGeneration(ctx)
+	if err != nil {
+		return err
+	}
+	defer release()
+	if state := stateFromContext(ctx); state != nil {
+		state.processGeneration = generation
+	}
+	return safeInvokeCronJob(ctx, job)
 }
 
 func safeInvokeCronJob(ctx context.Context, job *CronJob) (err error) {

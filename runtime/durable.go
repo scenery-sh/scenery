@@ -412,7 +412,9 @@ func durableInvocationMetadataFromJSON(value string) *durableInvocationMetadata 
 	return &metadata
 }
 
-func enterDurableInvocation(ctx context.Context, service, taskName, executionID string, timeout time.Duration, metadata *durableInvocationMetadata) (context.Context, func()) {
+// enterDurableInvocation enters one task attempt; generation pins its internal
+// calls to the application generation the attempt was admitted to.
+func enterDurableInvocation(ctx context.Context, service, taskName, executionID string, timeout time.Duration, metadata *durableInvocationMetadata, generation uint64) (context.Context, func()) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -424,7 +426,7 @@ func enterDurableInvocation(ctx context.Context, service, taskName, executionID 
 			ExecutionID: executionID, Service: service, Endpoint: taskName, Method: "DURABLE",
 			Path: taskName, Headers: make(map[string][]string),
 		},
-		logsEnabled: true, traceEnabled: true,
+		logsEnabled: true, traceEnabled: true, processGeneration: generation,
 	}
 	if timeout > 0 {
 		state.request.Deadline = started.Add(timeout)
@@ -537,15 +539,24 @@ func runDurableLocalWorker(ctx context.Context, db *store.Store, workerID string
 			_ = db.FailLeasedJob(ctx, job.ID, workerID, leaseID, []byte("missing durable task handler"))
 			continue
 		}
+		// An attempt that is not admitted to an application generation fails
+		// as an attempt the process could not run, under the task's retry policy.
+		generation, release, err := admitProcessGeneration(ctx)
+		if err != nil {
+			_ = db.FailLeasedJob(ctx, job.ID, workerID, leaseID, []byte("durable task attempt was not admitted to an application generation"))
+			sleepDurableWorker(ctx)
+			continue
+		}
 		jobCtx := context.WithValue(ctx, durableContextStore, db)
 		jobCtx = context.WithValue(jobCtx, durableContextJobID, job.ID)
-		jobCtx, restore := enterDurableInvocation(jobCtx, db.Service, job.TaskName, job.ID, time.Duration(job.TimeoutMS)*time.Millisecond, durableInvocationMetadataFromJSON(job.MemoJSON))
+		jobCtx, restore := enterDurableInvocation(jobCtx, db.Service, job.TaskName, job.ID, time.Duration(job.TimeoutMS)*time.Millisecond, durableInvocationMetadataFromJSON(job.MemoJSON), generation)
 		stopHeartbeat := startDurableHeartbeat(jobCtx, time.Duration(job.LeaseMS)*time.Millisecond, func(heartbeatCtx context.Context) error {
 			return db.HeartbeatJob(heartbeatCtx, job.ID, workerID, leaseID)
 		})
 		result, err := runDurableTaskHandler(jobCtx, handler.timeout, handler.handler, job.InputBlob)
 		stopHeartbeat()
 		restore()
+		release()
 		if err != nil {
 			message := "durable task failed"
 			if errors.Is(err, context.DeadlineExceeded) {

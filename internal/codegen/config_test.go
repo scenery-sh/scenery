@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"scenery.sh/internal/app"
+	"scenery.sh/internal/compiler"
 	generateapi "scenery.sh/internal/generate/api"
 )
 
@@ -110,17 +111,33 @@ func TestServiceProcessEntrypointsRegisterOnlyTheirAdapter(t *testing.T) {
 
 // An application without a native service still runs the process model: a
 // host alone, which verifies the linked contract and serves framework routes
-// itself.
+// itself with the SQL, authentication and observability configuration of the
+// application entrypoint.
 func TestApplicationWithoutServicesRendersAHostServingItself(t *testing.T) {
-	output, err := Generate("frontend", app.Config{}, generateapi.RuntimeIntegrationPlan{ContractRevision: "sha256:contract"}, nil)
+	cfg := app.Config{Auth: app.AuthConfig{Enabled: true}, Observability: app.ObservabilityConfig{Logs: app.EndpointFilterConfig{ExcludeEndpoints: []string{"users.DevBootstrap"}}}}
+	sql := compiler.SQLRequirements{{Kind: compiler.SQLStandardAuth, Name: "scenery", Schema: "scenery"}}
+	output, err := Generate("frontend", cfg, generateapi.RuntimeIntegrationPlan{ContractRevision: "sha256:contract"}, sql)
 	if err != nil {
 		t.Fatal(err)
 	}
 	host := string(output.Generated[ProcessMainRoot+"/host/main.go"])
-	for _, fragment := range []string{`const contractRevision = "sha256:contract"`, `Fallback: ""`, "sceneryruntime.MainProcessHost("} {
+	entrypoint := string(output.Generated["scenery_internal_main/main.go"])
+	for _, fragment := range []string{
+		`const contractRevision = "sha256:contract"`, `Fallback: ""`, "sceneryruntime.MainProcessHost(",
+		`sceneryauth "scenery.sh/auth"`, "sceneryruntime.ConfigureSQLBindings(", `{Name: "scenery", Schema: "scenery", DurableOnly: false}`,
+		"sceneryauth.RegisterStandard(", `Observability: sceneryruntime.ObservabilityConfig{Logs: sceneryruntime.EndpointFilterConfig{ExcludeEndpoints: []string{"users.DevBootstrap"}}}`,
+	} {
 		if !strings.Contains(host, fragment) {
 			t.Fatalf("host entrypoint without services missing %q:\n%s", fragment, host)
 		}
+	}
+	for _, fragment := range []string{"sceneryauth.RegisterStandard(", "sceneryruntime.ConfigureSQLBindings("} {
+		if strings.Count(host, fragment) != strings.Count(entrypoint, fragment) {
+			t.Fatalf("host entrypoint without services and the application entrypoint disagree on %q:\n%s\n%s", fragment, host, entrypoint)
+		}
+	}
+	if strings.Contains(host, "registerApplication") || strings.Contains(host, "NewContractRegistry") {
+		t.Fatalf("host without application registrations builds a contract registry:\n%s", host)
 	}
 	for path := range output.Generated {
 		if strings.HasPrefix(path, ProcessMainRoot+"/services/") {

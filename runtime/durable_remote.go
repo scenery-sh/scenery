@@ -108,7 +108,8 @@ func runDurableRemoteWorker(ctx context.Context, client *http.Client, cfg durabl
 		if lease.Job.TimeoutMS > 0 {
 			timeout = time.Duration(lease.Job.TimeoutMS) * time.Millisecond
 		}
-		jobCtx, restore := enterDurableInvocation(ctx, service, lease.Job.TaskName, lease.Job.ID, timeout, lease.Job.Invocation)
+		// A remote worker is never process-linked, so its attempts run unpinned.
+		jobCtx, restore := enterDurableInvocation(ctx, service, lease.Job.TaskName, lease.Job.ID, timeout, lease.Job.Invocation, 0)
 		result, err := runDurableTaskHandler(jobCtx, timeout, handler.handler, []byte(lease.Job.Input))
 		stopHeartbeat()
 		restore()

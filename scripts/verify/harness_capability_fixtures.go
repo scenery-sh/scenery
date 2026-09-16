@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -44,7 +45,7 @@ func replaceHarnessSource(root, relative, before, after string) error {
 	return os.WriteFile(path, []byte(strings.Replace(string(content), before, after, 1)), 0o600)
 }
 
-func verifyHarnessAuthOnlyCapability(ctx context.Context, repoRoot, root string, env []string) error {
+func verifyHarnessAuthOnlyCapability(ctx context.Context, repoRoot, root string, env []string, serviceProcesses bool) error {
 	configPath := filepath.Join(root, ".scenery.json")
 	content, err := os.ReadFile(configPath)
 	if err != nil {
@@ -54,7 +55,9 @@ func verifyHarnessAuthOnlyCapability(ctx context.Context, repoRoot, root string,
 	if err := json.Unmarshal(content, &config); err != nil {
 		return err
 	}
-	config["auth"] = map[string]any{"enabled": true, "auto_bootstrap_database": true, "dev_bootstrap": map[string]any{"enabled": true}}
+	// The default user email makes bootstrap create a stored user and session,
+	// so the authenticated endpoint below reads the framework SQL binding.
+	config["auth"] = map[string]any{"enabled": true, "auto_bootstrap_database": true, "dev_bootstrap": map[string]any{"enabled": true, "default_user_email": "probe@example.test"}}
 	if err := writeHarnessFixtureConfig(root, config); err != nil {
 		return err
 	}
@@ -87,10 +90,58 @@ func verifyHarnessAuthOnlyCapability(ctx context.Context, repoRoot, root string,
 		Token string `json:"token"`
 	}
 	if err := json.NewDecoder(response.Body).Decode(&session); err != nil || response.StatusCode != http.StatusOK || session.Token == "" {
-		return fmt.Errorf("auth-only framework bootstrap failed: status %d: %w", response.StatusCode, err)
+		return fmt.Errorf("auth-only framework bootstrap failed: status %d (decode: %v)", response.StatusCode, err)
+	}
+	// The issued session authenticates a standard endpoint, and its absence is
+	// rejected by the registered authentication handler, not an unknown route.
+	for token, want := range map[string]int{session.Token: http.StatusOK, "": http.StatusUnauthorized} {
+		request, err := http.NewRequestWithContext(ctx, http.MethodGet, worktreeProbeAPI(runtime)+"/auth/me", nil)
+		if err != nil {
+			return err
+		}
+		if token != "" {
+			request.Header.Set("Authorization", "Bearer "+token)
+		}
+		response, err := (&http.Client{Timeout: 5 * time.Second}).Do(request)
+		if err != nil {
+			return err
+		}
+		body, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
+		_ = response.Body.Close()
+		if response.StatusCode != want {
+			return fmt.Errorf("auth-only /auth/me with token=%t answered %d, want %d: %s", token != "", response.StatusCode, want, body)
+		}
+	}
+	if !serviceProcesses {
+		for key := range runtime.Session.Processes {
+			if strings.HasPrefix(key, "service-") {
+				return fmt.Errorf("an application without a native service started service process %s", key)
+			}
+		}
 	}
 	_, err = cli(root, "down", "-o", "json")
 	return err
+}
+
+// copyHarnessServicelessFixture copies the basic application without its
+// native service module, so the process host alone serves it.
+func copyHarnessServicelessFixture(repoRoot, appRoot string) error {
+	if err := copyHarnessBasicFixture(repoRoot, appRoot); err != nil {
+		return err
+	}
+	if err := os.RemoveAll(filepath.Join(appRoot, "service")); err != nil {
+		return err
+	}
+	path := filepath.Join(appRoot, "app.scn")
+	source, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	module := bytes.Index(source, []byte(`module "service"`))
+	if module < 0 {
+		return fmt.Errorf("basic fixture no longer declares its service module")
+	}
+	return os.WriteFile(path, append(bytes.TrimRight(source[:module], "\n"), '\n'), 0o600)
 }
 
 func verifyHarnessWebhookHTTP(ctx context.Context, root, baseURL string, env []string) error {

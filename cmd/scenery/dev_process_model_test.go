@@ -269,7 +269,12 @@ func devProcessControlServer(t *testing.T, statuses ...int) (string, *atomic.Int
 	var requests atomic.Int32
 	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		index := int(requests.Add(1)) - 1
-		w.WriteHeader(statuses[min(index, len(statuses)-1)])
+		status := statuses[min(index, len(statuses)-1)]
+		if status == http.StatusServiceUnavailable {
+			http.Error(w, "capability_unavailable: event bus app/event_bus/orders for orders/consumer/placed is not registered", status)
+			return
+		}
+		w.WriteHeader(status)
 	})}
 	go func() { _ = server.Serve(listener) }()
 	t.Cleanup(func() { _ = server.Close() })
@@ -310,6 +315,51 @@ func TestUnconfirmedActivationIsDegradedUntilReconciled(t *testing.T) {
 	}
 	if got := requests.Load(); got != 2 {
 		t.Fatalf("activation requests = %d, want 2", got)
+	}
+}
+
+// A build whose background work lacks a capability, such as an event bus no
+// provider registered, refuses activation. The instance keeps serving, reports
+// that background work is unavailable and why, and the refusal is not repeated
+// by the reconciler, whether it answers the first activation or a repetition.
+func TestRefusedActivationReportsUnavailableBackgroundWork(t *testing.T) {
+	for name, statuses := range map[string][]int{"first": {http.StatusServiceUnavailable}, "repeated": {http.StatusInternalServerError, http.StatusServiceUnavailable}} {
+		t.Run(name, func(t *testing.T) {
+			socket, requests := devProcessControlServer(t, statuses...)
+			instance := &devProcessInstance{process: build.DevelopmentProcess{Name: "orders_orders"}, socket: socket, app: &runningApp{pid: "302"}}
+			model := &devProcessModel{
+				token: "token", activationBackoff: time.Millisecond, degraded: map[string]string{},
+				services: map[string]*devProcessInstance{"orders_orders": instance},
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			supervisor := &devSupervisor{ctx: ctx, processes: model}
+			model.mu.Lock()
+			supervisor.activateDevProcessInstances(ctx, model, []*devProcessInstance{instance})
+			model.unlock()
+			want := "background work unavailable: capability_unavailable: event bus app/event_bus/orders for orders/consumer/placed is not registered"
+			deadline := time.Now().Add(2 * time.Second)
+			for {
+				statuses := supervisor.serviceProcessStatuses()
+				model.mu.Lock()
+				reconciling := instance.reconciling
+				model.mu.Unlock()
+				if len(statuses) == 1 && statuses[0].State == "degraded" && statuses[0].Reason == want && !reconciling {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatalf("refused activation reported %#v (reconciling %t)", statuses, reconciling)
+				}
+				time.Sleep(time.Millisecond)
+			}
+			time.Sleep(5 * time.Millisecond)
+			if got := requests.Load(); got != int32(len(statuses)) {
+				t.Fatalf("activation requests = %d, want %d", got, len(statuses))
+			}
+			if processes := supervisor.sessionServiceProcesses(); processes["service-orders-orders"].PID != 302 {
+				t.Fatalf("an instance without background work left the session: %#v", processes)
+			}
+		})
 	}
 }
 

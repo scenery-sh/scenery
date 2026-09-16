@@ -504,6 +504,29 @@ compile the application graph as it needs.
   the ONLV worktree on the default model reached `run.ready` in 18 s with
   warm `ahjs` edits of 1,917-2,110 ms (median 1,953 ms), 538-617 ms entrypoint
   builds and 67 % mean process-tree CPU.
+- [x] (2026-09-16) Entry-point conformance after a review of `9bf19d28`, both
+  findings confirmed in code first. A host without services rendered SQL and
+  standard authentication only beside assistant registrations, so an
+  application with authentication and no native service answered
+  `/users/dev-bootstrap` with 404; such a host now renders the application
+  entrypoint's SQL, authentication and observability configuration. The
+  `capability-authority` probe starts a copy of `testdata/apps/basic` without
+  its service module with standard authentication, bootstraps a stored user,
+  reads `/auth/me` with and without its token (200 and 401) and asserts that no
+  service process started; with the old condition restored the same journey
+  fails with the 404. Event delivery attempts, scheduled runs and durable task
+  attempts entered no generation, so a handler that called another service
+  before and after a replacement reached both generations. Each attempt is now
+  admitted through the host's private control listener to the newest published
+  generation that includes its process and holds it while the attempt runs. A
+  runtime test with a synchronous test bus pauses a handler between two internal
+  calls, publishes a replacement, and proves both calls reach generation 1,
+  retirement of generation 1 waits for the attempt, a later attempt reaches
+  generation 2, and an instance no generation includes runs no attempt; without
+  the pin the second call reached generation 2. A consumer whose bus no provider
+  registered refuses activation with HTTP 503, and the supervisor reports the
+  service `degraded` with `background work unavailable: capability_unavailable:
+  ...` instead of repeating an activation that cannot succeed.
 
 ## Surprises & Discoveries
 
@@ -915,6 +938,21 @@ compile the application graph as it needs.
   generation. Rationale: HTTP availability and background work are separate
   capabilities, and holding the lock for each attempt guarantees that a drain
   can never be followed by a late activation. Date: 2026-09-16. Author: Claude.
+- Decision: a background attempt is admitted to a generation when the attempt
+  starts, to the newest published generation that includes the process running
+  it, and the admission is one open request to the host rather than an acquire
+  and release pair. Rationale: work created long before (a queued event or
+  durable job) must not run against the generation that created it, the
+  running process's own generation is the only one whose instances its code
+  was built against, and a connection that ends with the attempt or its
+  process cannot leak a hold that blocks retirement. Date: 2026-09-16. Author:
+  Claude.
+- Decision: an activation refused for a missing capability is reported as
+  unavailable background work and not repeated. Rationale: a capability such
+  as an event bus is registered by the build itself, so repeating the
+  activation cannot succeed until a new build replaces the process, and an
+  "unconfirmed" reason would misdescribe a definite refusal. Date: 2026-09-16.
+  Author: Claude.
 
 ## Outcomes & Retrospective
 

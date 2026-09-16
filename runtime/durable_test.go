@@ -25,7 +25,7 @@ func TestDurableInvocationMetadataSurvivesDispatchBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, restore := enterDurableInvocation(context.Background(), "house", "house/execution/process", "job-1", time.Minute, durableInvocationMetadataFromJSON(encoded))
+	ctx, restore := enterDurableInvocation(context.Background(), "house", "house/execution/process", "job-1", time.Minute, durableInvocationMetadataFromJSON(encoded), 0)
 	defer restore()
 	_, err = runDurableTaskHandler(ctx, time.Minute, func(handlerCtx context.Context, _ []byte) ([]byte, error) {
 		invocation, ok := runtimeapi.InvocationFromContext(handlerCtx)

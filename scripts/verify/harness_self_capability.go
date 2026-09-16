@@ -51,7 +51,7 @@ func runHarnessCapabilityAuthority(parent context.Context, repoRoot string) (sum
 		return summary, err
 	}
 	defer func() { summary["assertions"] = segments.entries }()
-	roots := []string{filepath.Join(root, "basic"), filepath.Join(root, "webhook"), filepath.Join(root, "instances")}
+	roots := []string{filepath.Join(root, "basic"), filepath.Join(root, "webhook"), filepath.Join(root, "instances"), filepath.Join(root, "serviceless")}
 	restore := patchEnv(map[string]*string{"SCENERY_AGENT_HOME": stringPtr(home), "DATABASE_URL": nil})
 	defer restore()
 	defer func() {
@@ -122,7 +122,15 @@ func runHarnessCapabilityAuthority(parent context.Context, repoRoot string) (sum
 		return summary, errors.New("docker is unavailable; mandatory managed SQL and external ownership assertions did not run")
 	}
 	if err := segments.run("A8 standard-auth-only registration supplies framework SQL without Google or a data_source", func() error {
-		return verifyHarnessAuthOnlyCapability(ctx, repoRoot, roots[0], env)
+		return verifyHarnessAuthOnlyCapability(ctx, repoRoot, roots[0], env, true)
+	}); err != nil {
+		return summary, err
+	}
+	if err := segments.run("A8 standard auth without a native service is served by the process host alone", func() error {
+		if err := copyHarnessServicelessFixture(repoRoot, roots[3]); err != nil {
+			return err
+		}
+		return verifyHarnessAuthOnlyCapability(ctx, repoRoot, roots[3], env, false)
 	}); err != nil {
 		return summary, err
 	}

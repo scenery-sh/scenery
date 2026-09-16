@@ -203,6 +203,8 @@ func (model *devProcessModel) publishStatus() {
 			service.State, service.Reason = "degraded", model.degraded[name]
 		case instance.stopped || instance.app == nil:
 			service.State = "degraded"
+		case instance.unavailable != "":
+			service.State, service.Reason = "degraded", "background work unavailable: "+instance.unavailable
 		case instance.activation != "":
 			service.State, service.Reason = "degraded", "background work activation unconfirmed: "+instance.activation
 		}
@@ -294,10 +296,14 @@ func (s *devSupervisor) activateDevProcessInstances(ctx context.Context, model *
 	failures := s.controlDevProcessInstances(ctx, model.token, instances, runtimeProcessActivatePath, "process.activate_failed")
 	for _, instance := range instances {
 		if instance != nil && failures[instance] == nil {
-			instance.activation = ""
+			instance.activation, instance.unavailable = "", ""
 		}
 	}
 	for instance, err := range failures {
+		if refused, ok := errors.AsType[*devProcessActivationRefusedError](err); ok {
+			instance.activation, instance.unavailable = "", refused.reason
+			continue
+		}
 		instance.activation = err.Error()
 		if !instance.reconciling {
 			instance.reconciling = true
@@ -341,6 +347,11 @@ func (s *devSupervisor) reconcileDevProcessActivation(model *devProcessModel, in
 		model.mu.Lock()
 		if !current() || errors.Is(err, errDevProcessDrained) {
 			instance.reconciling = false
+			model.unlock()
+			return
+		}
+		if refused, ok := errors.AsType[*devProcessActivationRefusedError](err); ok {
+			instance.activation, instance.unavailable, instance.reconciling = "", refused.reason, false
 			model.unlock()
 			return
 		}
@@ -396,6 +407,12 @@ func (s *devSupervisor) controlDevProcessInstances(ctx context.Context, token st
 // was revoked.
 var errDevProcessDrained = errors.New("development process was drained")
 
+// devProcessActivationRefusedError reports an activation the instance refused
+// because its build lacks a capability its background work requires.
+type devProcessActivationRefusedError struct{ reason string }
+
+func (e *devProcessActivationRefusedError) Error() string { return e.reason }
+
 // control sends one background control request to the instance's private
 // socket; drain answers 202 when work was revoked but is still stopping.
 // Requests to one instance are serialized, and once a drain was sent the
@@ -432,6 +449,9 @@ func (instance *devProcessInstance) sendControl(ctx context.Context, path, token
 	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusNoContent && response.StatusCode != http.StatusAccepted {
 		message, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
+		if path == runtimeProcessActivatePath && response.StatusCode == http.StatusServiceUnavailable {
+			return &devProcessActivationRefusedError{reason: strings.TrimSpace(string(message))}
+		}
 		return fmt.Errorf("%s answered HTTP %d: %s", path, response.StatusCode, strings.TrimSpace(string(message)))
 	}
 	return nil

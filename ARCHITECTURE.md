@@ -542,7 +542,8 @@ stays inside generated app binaries. In development the default process model
 (Plan 0200) makes the generated binaries a process host that routes requests,
 MCP tool calls and internal calls by published generation and authorizes
 durable MCP receipts, plus one runtime process per native service that acquires
-background work only after its generation is published. The deprecated
+background work only after its generation is published and admits each
+background attempt to one generation for the attempt's lifetime. The deprecated
 `SCENERY_DEV_PROCESS_MODEL=application` selection keeps one generated app
 binary in development; production builds keep the single generated app binary.
 

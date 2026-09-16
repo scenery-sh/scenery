@@ -195,7 +195,12 @@ func StartContractEventRuntime(ctx context.Context) (*ContractEventRuntime, erro
 				if message.BusAddress != consumer.BusAddress || message.Channel != consumer.Channel || message.ContractAddress != consumer.ContractAddress || message.ContractVersion != consumer.ContractVersion {
 					return fmt.Errorf("runtime: event message contradicts subscription %s", consumer.Address)
 				}
-				callCtx, restore := enterContractEventInvocation(callCtx, consumer, message)
+				generation, release, err := admitProcessGeneration(callCtx)
+				if err != nil {
+					return fmt.Errorf("runtime: event delivery to %s: %w", consumer.Address, err)
+				}
+				defer release()
+				callCtx, restore := enterContractEventInvocation(callCtx, consumer, message, generation)
 				defer restore()
 				return consumer.Invoke(callCtx, append([]byte(nil), message.Payload...))
 			},
@@ -276,7 +281,9 @@ func PublishContractOperationOutcome(ctx context.Context, operationAddress strin
 	return nil
 }
 
-func enterContractEventInvocation(ctx context.Context, consumer ContractEventConsumerRegistration, message ContractEventMessage) (context.Context, func()) {
+// enterContractEventInvocation enters one delivery attempt; generation pins its
+// internal calls to the generation the attempt was admitted to.
+func enterContractEventInvocation(ctx context.Context, consumer ContractEventConsumerRegistration, message ContractEventMessage, generation uint64) (context.Context, func()) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -289,7 +296,7 @@ func enterContractEventInvocation(ctx context.Context, consumer ContractEventCon
 		started:     started,
 		request:     shared.Request{Type: shared.EventCall, Started: started, InvocationID: invocationID, Service: "event", Endpoint: consumer.Address, Method: "EVENT", Path: consumer.Channel, Headers: make(http.Header), Payload: append([]byte(nil), message.Payload...), CallerBinding: consumer.Address},
 		auth:        AuthInfo{UID: consumer.Identity, Data: map[string]any{"workload_identity": consumer.Identity, "event_contract": consumer.ContractAddress}},
-		logsEnabled: true, traceEnabled: true,
+		logsEnabled: true, traceEnabled: true, processGeneration: generation,
 	}
 	ctx = withState(ctx, state)
 	ctx = withRuntimeInvocation(ctx, state)

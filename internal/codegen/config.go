@@ -36,17 +36,19 @@ func generateServiceMain(appName string, cfg appcfg.Config, service generateapi.
 // generateHostMain renders the process host entrypoint. It links no adapter, so
 // implementation edits never rebuild it; the route and MCP tool tables and the
 // contract revision are literal data, and the first service process serves
-// framework and unmatched routes. Application-level registrations (assistants
-// and MCP federation) are rendered beside it with the entrypoint's SQL and
+// framework and unmatched routes. A host that serves requests itself, because
+// it has application-level registrations (assistants and MCP federation) or no
+// service process serves the framework, renders the entrypoint's SQL and
 // authentication wiring.
 func generateHostMain(appName string, cfg appcfg.Config, plan generateapi.RuntimeIntegrationPlan, sql compiler.SQLRequirements) ([]byte, error) {
 	if plan.ContractRevision == "" {
 		return nil, fmt.Errorf("process host requires a contract revision")
 	}
 	application := len(plan.HostApplication) > 0
+	servesItself := application || len(plan.Services) == 0
 	var buf strings.Builder
 	buf.WriteString("package main\n\nimport (\n\t\"fmt\"\n\t\"os\"\n")
-	if application && cfg.Auth.Enabled {
+	if servesItself && cfg.Auth.Enabled {
 		buf.WriteString("\tsceneryauth \"scenery.sh/auth\"\n")
 	}
 	buf.WriteString("\tsceneryruntime \"scenery.sh/runtime\"\n)\n\n")
@@ -56,9 +58,11 @@ func generateHostMain(appName string, cfg appcfg.Config, plan generateapi.Runtim
 	buf.WriteString("\t\tproof := os.NewFile(3, \"scenery-runtime-preflight\")\n\t\tdefer proof.Close()\n")
 	buf.WriteString("\t\tif err := sceneryruntime.WriteRuntimePreflight(proof, contractRevision); err != nil {\n\t\t\t_, _ = fmt.Fprintf(os.Stderr, \"scenery: %v\\n\", err)\n\t\t\tos.Exit(1)\n\t\t}\n\t\treturn\n\t}\n")
 	buf.WriteString("\tif err := sceneryruntime.VerifyLinkedContractBundle(contractRevision); err != nil {\n\t\t_, _ = fmt.Fprintf(os.Stderr, \"scenery: %v\\n\", err)\n\t\tos.Exit(1)\n\t}\n")
-	if application {
+	if servesItself {
 		renderSQLBindings(&buf, sql)
 		renderAuthRegistration(&buf, cfg)
+	}
+	if application {
 		buf.WriteString("\tcontractRegistry, err := sceneryruntime.NewContractRegistry(sceneryruntime.ContractRegistryOptions{ContractRevision: contractRevision, RequiredAddresses: applicationRequiredAddresses, ProviderABIs: sceneryruntime.ContractProviderABIs()})\n")
 		buf.WriteString("\tif err == nil { err = registerApplication(contractRegistry) }\n")
 		buf.WriteString("\tif err == nil { err = contractRegistry.Seal() }\n")
@@ -70,7 +74,11 @@ func generateHostMain(appName string, cfg appcfg.Config, plan generateapi.Runtim
 	if len(plan.Services) > 0 {
 		fallback = plan.Services[0].Name
 	}
-	fmt.Fprintf(&buf, "\tif err := sceneryruntime.MainProcessHost(sceneryruntime.ProcessHostConfig{Name: %q, ListenAddr: sceneryruntime.ListenAddrFromEnv(), Fallback: %q,\n", appName, fallback)
+	observability := ""
+	if literal := observabilityConfigLiteral(cfg.Observability); literal != "" {
+		observability = " Observability: " + literal + ","
+	}
+	fmt.Fprintf(&buf, "\tif err := sceneryruntime.MainProcessHost(sceneryruntime.ProcessHostConfig{Name: %q, ListenAddr: sceneryruntime.ListenAddrFromEnv(), Fallback: %q,%s\n", appName, fallback, observability)
 	buf.WriteString("\t\tRoutes: []sceneryruntime.ProcessHostRoute{\n")
 	for _, service := range plan.Services {
 		for _, route := range service.Routes {
