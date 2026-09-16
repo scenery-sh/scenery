@@ -300,8 +300,10 @@ func (s *devSupervisor) activateDevProcessInstances(ctx context.Context, model *
 }
 
 // reconcileDevProcessActivation repeats the activation of a current instance
-// until it confirms. It holds model.mu for each attempt, so a drain of the
-// instance can never be followed by a late activation of it.
+// until it confirms. It waits for the instance's answer without holding
+// model.mu, so an unresponsive service delays only control of that instance,
+// never a replacement of another; the instance's own control serialization
+// guarantees a drain is never followed by a late activation.
 func (s *devSupervisor) reconcileDevProcessActivation(model *devProcessModel, instance *devProcessInstance) {
 	ctx := s.ctx
 	if ctx == nil {
@@ -311,6 +313,9 @@ func (s *devSupervisor) reconcileDevProcessActivation(model *devProcessModel, in
 	if backoff <= 0 {
 		backoff = devProcessActivationBackoff
 	}
+	current := func() bool {
+		return model.services[instance.process.Name] == instance && !instance.stopped && instance.app != nil
+	}
 	for {
 		select {
 		case <-time.After(backoff):
@@ -319,12 +324,19 @@ func (s *devSupervisor) reconcileDevProcessActivation(model *devProcessModel, in
 		}
 		backoff = min(backoff*2, devProcessBackgroundTimeout)
 		model.mu.Lock()
-		if model.services[instance.process.Name] != instance || instance.stopped || instance.app == nil {
+		if !current() {
 			instance.reconciling = false
 			model.unlock()
 			return
 		}
+		model.mu.Unlock()
 		err := instance.control(ctx, runtimeProcessActivatePath, model.token)
+		model.mu.Lock()
+		if !current() || errors.Is(err, errDevProcessDrained) {
+			instance.reconciling = false
+			model.unlock()
+			return
+		}
 		if err != nil {
 			instance.activation = err.Error()
 			model.unlock()
@@ -373,9 +385,27 @@ func (s *devSupervisor) controlDevProcessInstances(ctx context.Context, token st
 	return failed
 }
 
+// errDevProcessDrained refuses to activate an instance whose background work
+// was revoked.
+var errDevProcessDrained = errors.New("development process was drained")
+
 // control sends one background control request to the instance's private
 // socket; drain answers 202 when work was revoked but is still stopping.
+// Requests to one instance are serialized, and once a drain was sent the
+// instance is never activated again, whatever the drain's answer.
 func (instance *devProcessInstance) control(ctx context.Context, path, token string) error {
+	instance.controlMu.Lock()
+	defer instance.controlMu.Unlock()
+	if path == runtimeProcessActivatePath && instance.drained {
+		return errDevProcessDrained
+	}
+	if path == runtimeProcessDrainPath {
+		instance.drained = true
+	}
+	return instance.sendControl(ctx, path, token)
+}
+
+func (instance *devProcessInstance) sendControl(ctx context.Context, path, token string) error {
 	dialer := &net.Dialer{}
 	transport := &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 		return dialer.DialContext(ctx, "unix", instance.socket)

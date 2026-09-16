@@ -5,6 +5,7 @@ package devprocess
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os/exec"
 	"syscall"
 	"time"
@@ -27,6 +28,33 @@ func InterruptTree(cmd *exec.Cmd) error {
 
 func KillTree(cmd *exec.Cmd) error {
 	return signalProcessTree(cmd, syscall.SIGKILL)
+}
+
+// KillTreeConfirmed kills every process of the group a ConfigureChild command
+// leads and waits, up to timeout, until none remains. The command's own exit
+// does not end its descendants, such as the tools a build driver started.
+func KillTreeConfirmed(cmd *exec.Cmd, timeout time.Duration) error {
+	if cmd == nil || cmd.Process == nil || cmd.Process.Pid <= 1 {
+		return nil
+	}
+	group := cmd.Process.Pid
+	deadline := time.Now().Add(timeout)
+	for {
+		// A group whose remaining members are exited but not yet reaped answers
+		// EPERM on some platforms (Darwin) instead of ESRCH; their new parent
+		// reaps them shortly.
+		err := syscall.Kill(-group, syscall.SIGKILL)
+		if errors.Is(err, syscall.ESRCH) {
+			return nil
+		}
+		if err != nil && !errors.Is(err, syscall.EPERM) {
+			return err
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("process group %d still has members after %s: %v", group, timeout, err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 func TerminateTreePID(pid int) error {

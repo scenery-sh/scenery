@@ -104,6 +104,7 @@ func mergeRecordedActions(recipe *Recipe, recordRoot string, capture Capture) (b
 	// The recorded compile of the entrypoint names the package "main"; every
 	// other action is keyed by import path, so the entrypoint is too.
 	mainPackage := capture.Entrypoint
+	selection := newCapturedSelection(capture)
 	for _, path := range entries {
 		data, err := os.ReadFile(path)
 		if err != nil {
@@ -116,7 +117,7 @@ func mergeRecordedActions(recipe *Recipe, recordRoot string, capture Capture) (b
 		if record.Protocol != ProtocolVersion || record.ExitCode != 0 {
 			return false, fmt.Errorf("invalid recorded action %s", path)
 		}
-		if err := validateRecordedInputs(record, capture.Files); err != nil {
+		if err := selection.validate(record, mainPackage); err != nil {
 			return false, err
 		}
 		base := filepath.Base(record.Tool)
@@ -183,14 +184,54 @@ func mergeRecordedActions(recipe *Recipe, recordRoot string, capture Capture) (b
 	return linkSeen, nil
 }
 
-// validateRecordedInputs binds a recorded action to the capture its recipe
-// describes: every captured input the tool read must have had the captured
-// content. A capture taken on either side of an edit would otherwise pair the
-// archive compiled from one source with the identity of another.
-func validateRecordedInputs(record ToolRecord, captured map[string]string) error {
+// capturedSelection is the source selection a capture names: the content of
+// every captured input and the directories of its selected packages.
+type capturedSelection struct {
+	files       map[string]string
+	packages    map[string]Package
+	directories map[string]bool
+}
+
+func newCapturedSelection(capture Capture) capturedSelection {
+	selection := capturedSelection{files: capture.Files, packages: capture.Packages, directories: map[string]bool{}}
+	for _, pkg := range capture.Packages {
+		if pkg.Dir != "" {
+			selection.directories[filepath.Clean(pkg.Dir)] = true
+		}
+	}
+	return selection
+}
+
+// validate binds a recorded action to the capture its recipe describes. The
+// recorder compiled the live workspace, so checking the inputs the capture
+// knows is not enough: a source file added to a selected package and removed
+// again before the capture is revalidated leaves every captured stamp and
+// directory listing unchanged. Every input the tool read from a selected
+// package directory must therefore be a captured input with its captured
+// content, and every compiled package must be a captured package. Inputs
+// outside package directories are the build's own generated files, such as
+// import configurations and archives in its work directory.
+func (selection capturedSelection) validate(record ToolRecord, mainPackage string) error {
+	tool := filepath.Base(record.Tool)
+	if tool == "compile" && flagValue(record.Argv, "-V") == "" {
+		pkg := flagValue(record.Argv, "-p")
+		if pkg == "main" && mainPackage != "" {
+			pkg = mainPackage
+		}
+		if _, captured := selection.packages[pkg]; pkg != "" && pkg != "main" && !captured {
+			return fmt.Errorf("recorded compile of %s is outside its captured package selection", pkg)
+		}
+	}
 	for _, file := range record.Files {
-		if digest, ok := captured[file.Original]; ok && digest != file.Digest {
-			return fmt.Errorf("recorded %s input differs from its captured content: %s", filepath.Base(record.Tool), file.Original)
+		digest, captured := selection.files[file.Original]
+		if captured {
+			if digest != file.Digest {
+				return fmt.Errorf("recorded %s input differs from its captured content: %s", tool, file.Original)
+			}
+			continue
+		}
+		if selection.directories[filepath.Dir(filepath.Clean(file.Original))] {
+			return fmt.Errorf("recorded %s input is outside its captured source selection: %s", tool, file.Original)
 		}
 	}
 	return nil

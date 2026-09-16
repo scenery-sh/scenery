@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"scenery.sh/internal/atomicfile"
+	"scenery.sh/internal/devprocess"
 	"scenery.sh/internal/nativebuilddriver"
 )
 
@@ -57,6 +58,10 @@ var (
 	retainedProcessRejected sync.Map
 )
 
+// retainedRecordingStopTimeout bounds how long a recording waits for the tools
+// of its process group to end.
+const retainedRecordingStopTimeout = 5 * time.Second
+
 // retainedRecordingPoll is how often a waiting recording checks whether the
 // machine can admit it.
 const retainedRecordingPoll = 250 * time.Millisecond
@@ -65,7 +70,9 @@ const retainedRecordingPoll = 250 * time.Millisecond
 // machine. A recording rebuilds a complete closure, so the admission is shared
 // by every supervisor and worktree through the same host-wide state as the
 // foreground link queue, and a recording starts only while no foreground link
-// is queued or running: interactive builds of any worktree go first.
+// is queued or running. A foreground link that arrives later makes a running
+// recording yield (see yieldToForegroundLinks); foreground links never wait for
+// a recording.
 func acquireRetainedRecordingSlot(ctx context.Context) (func(), error) {
 	return acquireRetainedRecordingSlotEvery(ctx, retainedRecordingPoll)
 }
@@ -93,6 +100,31 @@ func acquireRetainedRecordingSlotEvery(ctx context.Context, poll time.Duration) 
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		case <-time.After(poll):
+		}
+	}
+}
+
+// errRetainedRecordingYielded ends a recording that gave way to a foreground
+// link; it is retried once the machine admits it again.
+var errRetainedRecordingYielded = errors.New("recording yielded to a foreground link")
+
+// yieldToForegroundLinks cancels a running recording with
+// errRetainedRecordingYielded as soon as a foreground link of any worktree is
+// queued or running, and returns when ctx ends.
+func yieldToForegroundLinks(ctx context.Context, cancel context.CancelCauseFunc, poll time.Duration) {
+	root, err := sharedBinaryRoot()
+	if err != nil {
+		return
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(poll):
+		}
+		if tickets, err := sharedBinaryActiveTickets(filepath.Join(root, "queue")); err == nil && len(tickets) > 0 {
+			cancel(errRetainedRecordingYielded)
+			return
 		}
 	}
 }
@@ -353,17 +385,22 @@ func captureRetainedProcessRecipes(ctx context.Context, result *Result, targets 
 			defer release()
 			ctx, cancel := context.WithTimeout(ctx, retainedProcessBootstrap)
 			defer cancel()
-			releaseSlot, err := acquireRetainedRecordingSlot(ctx)
-			if err != nil {
-				return
+			for {
+				releaseSlot, err := acquireRetainedRecordingSlot(ctx)
+				if err != nil {
+					return
+				}
+				started := time.Now()
+				err = captureRetainedProcessRecipe(ctx, workspace, environment, configuration, targetRoot, shared, recorder, target)
+				releaseSlot()
+				RecordStep(ctx, Step{
+					Name: "build.recipe_capture", StartedAt: started, Duration: time.Since(started), Cache: "miss",
+					Reason: captureReason(target.name, err), OK: err == nil,
+				})
+				if !errors.Is(err, errRetainedRecordingYielded) {
+					return
+				}
 			}
-			defer releaseSlot()
-			started := time.Now()
-			err = captureRetainedProcessRecipe(ctx, workspace, environment, configuration, targetRoot, shared, recorder, target)
-			RecordStep(ctx, Step{
-				Name: "build.recipe_capture", StartedAt: started, Duration: time.Since(started), Cache: "miss",
-				Reason: captureReason(target.name, err), OK: err == nil,
-			})
 		})
 		if !started {
 			release()
@@ -410,20 +447,35 @@ func captureRetainedProcessRecipe(ctx context.Context, workspace string, environ
 			return err
 		}
 	}
+	recordCtx, cancelRecording := context.WithCancelCause(ctx)
+	defer cancelRecording(nil)
+	go yieldToForegroundLinks(recordCtx, cancelRecording, retainedRecordingPoll)
+	yielded := func(err error) error {
+		if errors.Is(context.Cause(recordCtx), errRetainedRecordingYielded) {
+			return errRetainedRecordingYielded
+		}
+		return err
+	}
 	goTool := stockGoDriverPath()
 	// The capture does not own the workspace, which later edits keep changing.
 	// It names the input revision it records before any tool runs, and that
 	// revision must still be current once the tools have finished; the recorded
 	// actions must also have read exactly its content. An edit during the
 	// recording discards it instead of pairing archives with other sources.
-	capture, err := nativebuilddriver.FullCapture(ctx, goTool, workspace, filepath.Join(recordRoot, "bootstrap-snapshot"), environment, configuration, target.pattern)
+	capture, err := nativebuilddriver.FullCapture(recordCtx, goTool, workspace, filepath.Join(recordRoot, "bootstrap-snapshot"), environment, configuration, target.pattern)
 	if err != nil {
-		return err
+		return yielded(err)
 	}
 	candidate := filepath.Join(recipeRoot, "candidate")
 	args := developmentProcessGoBuildArgs(retainedProcessTarget{pattern: target.pattern, output: candidate, flags: target.flags})
 	args = append([]string{"build", "-a", "-work", "-p=" + strconv.Itoa(retainedRecordingParallelism()), "-toolexec=" + retainedNativeToolExecCommand(recorder, recordRoot)}, args[1:]...)
-	command := exec.CommandContext(ctx, goTool, args...)
+	// The Go command and every tool it starts through the recorder form one
+	// process group. Cancelling the recording ends the whole group, and the
+	// recording returns, releasing its slot, lease and directory, only once no
+	// process of the group remains.
+	command := exec.CommandContext(recordCtx, goTool, args...)
+	devprocess.ConfigureChild(command)
+	command.Cancel = func() error { return devprocess.KillTree(command) }
 	command.Dir = workspace
 	command.Env = retainedNativeEnvironment(environment, map[string]string{"GOCACHE": filepath.Join(recordRoot, "cache"), "TMPDIR": filepath.Join(recordRoot, "tmp")})
 	if err := command.Start(); err != nil {
@@ -432,9 +484,14 @@ func captureRetainedProcessRecipe(ctx context.Context, workspace string, environ
 	// Capturing a recipe rebuilds a complete closure; it must not compete with
 	// the edit loop that requested it.
 	_ = syscall.Setpriority(syscall.PRIO_PROCESS, command.Process.Pid, retainedProcessPriority)
-	if err := command.Wait(); err != nil {
-		return err
+	waitErr := command.Wait()
+	if err := devprocess.KillTreeConfirmed(command, retainedRecordingStopTimeout); err != nil {
+		return errors.Join(waitErr, err)
 	}
+	if waitErr != nil {
+		return yielded(waitErr)
+	}
+	cancelRecording(nil)
 	if err := capture.ValidateCurrentStamps(); err != nil {
 		return err
 	}

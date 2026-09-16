@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -29,6 +30,11 @@ func runHarnessProcessModelProbeStep(ctx context.Context, repoRoot string) harne
 	started := time.Now()
 	step := harnessStep{Name: harnessProcessModelProbeName, Command: []string{"go", "run", "./scripts/verify", "--probe", "process-model", "--summary"}}
 	summary, err := runHarnessProcessModelProbe(ctx, repoRoot)
+	if err == nil {
+		var recording map[string]any
+		recording, err = runHarnessRetainedRecordingTreeProof(ctx, repoRoot)
+		summary["recording_process_tree"] = recording
+	}
 	step.Summary, step.DurationMS = summary, time.Since(started).Milliseconds()
 	if err != nil {
 		step.Error = strings.TrimSpace(err.Error())
@@ -369,6 +375,26 @@ func runHarnessProcessModelProbe(parent context.Context, repoRoot string) (summa
 		"failed_contract_generation_kept_serving": true,
 		"committed_contract_revision":             changedContract,
 		"proof":                                   "public_scenery_up_process_model_replaced_only_changed_services_with_retained_generations_background_activation_complete_replacement_and_identity_attribution",
+	}, nil
+}
+
+// runHarnessRetainedRecordingTreeProof closes the owner of a real recipe
+// recording while a tool its Go command started through the recorder is
+// blocked, and requires every process of the recording to have ended before
+// Close returns.
+func runHarnessRetainedRecordingTreeProof(parent context.Context, repoRoot string) (map[string]any, error) {
+	ctx, cancel := context.WithTimeout(parent, 2*time.Minute)
+	defer cancel()
+	const run = "^TestRetainedRecordingCrossProcess"
+	command := exec.CommandContext(ctx, "go", "test", "-tags=scenery_build_cache_integration", "./internal/build", "-run="+run, "-count=1")
+	command.Dir = repoRoot
+	output, err := command.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("retained recording process-tree proof: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	return map[string]any{
+		"closed_owner_stopped_blocked_tool": true,
+		"command":                           "go test -tags=scenery_build_cache_integration ./internal/build -run=" + run + " -count=1",
 	}, nil
 }
 

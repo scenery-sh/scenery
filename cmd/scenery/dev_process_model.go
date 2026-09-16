@@ -113,6 +113,11 @@ type devProcessInstance struct {
 	// model.mu.
 	activation  string
 	reconciling bool
+	// controlMu serializes background control requests to the instance and
+	// guards drained. Callers that hold model.mu may take it; nothing holding it
+	// takes model.mu.
+	controlMu sync.Mutex
+	drained   bool
 }
 
 func (s *devSupervisor) ensureDevProcessModel() (*devProcessModel, error) {

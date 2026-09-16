@@ -894,8 +894,9 @@ func TestAdoptionReplacesAnExistingArchiveWhoseContentDiffers(t *testing.T) {
 
 func TestRecordedActionsMustMatchTheCapturedInputs(t *testing.T) {
 	root := t.TempDir()
-	source := filepath.Join(root, "workspace", "a.go")
-	if err := os.MkdirAll(filepath.Dir(source), 0o700); err != nil {
+	directory := filepath.Join(root, "workspace", "a")
+	source := filepath.Join(directory, "a.go")
+	if err := os.MkdirAll(directory, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(source, []byte("package a // A\n"), 0o600); err != nil {
@@ -905,21 +906,47 @@ func TestRecordedActionsMustMatchTheCapturedInputs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	record := ToolRecord{Protocol: ProtocolVersion, Tool: filepath.Join(root, "compile"), Argv: []string{"-p", "example/a", source}, Files: map[int]FileCopy{2: {Original: source, Digest: compiled}}}
-	if err := validateRecordedInputs(record, map[string]string{source: compiled}); err != nil {
-		t.Fatalf("matching capture was rejected: %v", err)
+	work := filepath.Join(root, "record", "tmp", "go-build1", "b001", "importcfg")
+	capture := Capture{
+		Files:    map[string]string{source: compiled},
+		Packages: map[string]Package{"example/a": {ImportPath: "example/a", Dir: directory, GoFiles: []string{"a.go"}}},
+	}
+	compile := func(files ...FileCopy) ToolRecord {
+		record := ToolRecord{Protocol: ProtocolVersion, Tool: filepath.Join(root, "compile"), Argv: []string{"-p", "example/a", "-importcfg", work}, Files: map[int]FileCopy{3: {Original: work, Digest: "sha256:importcfg"}}}
+		for index, file := range files {
+			record.Argv = append(record.Argv, file.Original)
+			record.Files[4+index] = file
+		}
+		return record
+	}
+	selection := newCapturedSelection(capture)
+	if err := selection.validate(compile(FileCopy{Original: source, Digest: compiled}), ""); err != nil {
+		t.Fatalf("a recording of exactly the captured selection was rejected: %v", err)
 	}
 	// The workspace was edited after the tool compiled it and before the
 	// capture that describes the recipe.
-	if err := validateRecordedInputs(record, map[string]string{source: "sha256:edited"}); err == nil || !strings.Contains(err.Error(), "differs from its captured content") {
+	if err := newCapturedSelection(Capture{Files: map[string]string{source: "sha256:edited"}, Packages: capture.Packages}).validate(compile(FileCopy{Original: source, Digest: compiled}), ""); err == nil || !strings.Contains(err.Error(), "differs from its captured content") {
 		t.Fatalf("an archive compiled from other source was accepted: %v", err)
 	}
+	// A source file was added to the package, compiled, and removed again
+	// before the capture was revalidated: every captured stamp and the
+	// directory listing are unchanged, but the archive contains it.
+	transient := FileCopy{Original: filepath.Join(directory, "transient.go"), Digest: "sha256:transient"}
+	if err := selection.validate(compile(FileCopy{Original: source, Digest: compiled}, transient), ""); err == nil || !strings.Contains(err.Error(), "outside its captured source selection") {
+		t.Fatalf("a transient source file entered the recording: %v", err)
+	}
+	unselected := compile(FileCopy{Original: source, Digest: compiled})
+	unselected.Argv[1] = "example/b"
+	if err := selection.validate(unselected, ""); err == nil {
+		t.Fatal("a compile of an unselected package was accepted")
+	}
+
 	recordRoot := filepath.Join(root, "record")
 	action := filepath.Join(recordRoot, "actions", "action-1")
 	if err := os.MkdirAll(action, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	encoded, err := json.Marshal(record)
+	encoded, err := json.Marshal(compile(FileCopy{Original: source, Digest: compiled}, transient))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -927,8 +954,8 @@ func TestRecordedActionsMustMatchTheCapturedInputs(t *testing.T) {
 		t.Fatal(err)
 	}
 	recipe := &Recipe{Compiles: map[string]*CompileAction{}, ArchiveByOld: map[string]string{}, ToolDigests: map[string]string{}, Retained: map[string]RetainedFile{}, Support: map[string]RetainedFile{}}
-	if _, err := mergeRecordedActions(recipe, recordRoot, Capture{Files: map[string]string{source: "sha256:edited"}}); err == nil {
-		t.Fatal("merging a recording taken before an edit into a later capture succeeded")
+	if _, err := mergeRecordedActions(recipe, recordRoot, capture); err == nil {
+		t.Fatal("merging a recording that compiled a transient source file succeeded")
 	}
 }
 

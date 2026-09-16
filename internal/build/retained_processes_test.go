@@ -244,6 +244,33 @@ func TestRecordingAdmissionIsMachineWideAndYieldsToForegroundLinks(t *testing.T)
 	if blocked() {
 		t.Fatal("a recording stayed blocked after the foreground link finished")
 	}
+	// A foreground link that arrives after a recording started makes it yield.
+	recording, cancelRecording := context.WithCancelCause(context.Background())
+	defer cancelRecording(nil)
+	yielded := make(chan struct{})
+	go func() {
+		yieldToForegroundLinks(recording, cancelRecording, time.Millisecond)
+		close(yielded)
+	}()
+	select {
+	case <-recording.Done():
+		t.Fatal("a recording yielded without foreground demand")
+	case <-time.After(5 * time.Millisecond):
+	}
+	_, releaseLater, err := createSharedBinaryLease(filepath.Join(root, "queue"), "00000000000000000002-0000000001-00000000000000000002.ticket")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer releaseLater()
+	select {
+	case <-recording.Done():
+	case <-time.After(time.Second):
+		t.Fatal("a running recording kept competing with a foreground link")
+	}
+	<-yielded
+	if !errors.Is(context.Cause(recording), errRetainedRecordingYielded) {
+		t.Fatalf("recording ended with %v, want it to yield", context.Cause(recording))
+	}
 	if parallelism := retainedRecordingParallelism(); parallelism < 2 || parallelism > max(2, runtime.NumCPU()) {
 		t.Fatalf("recording parallelism = %d", parallelism)
 	}

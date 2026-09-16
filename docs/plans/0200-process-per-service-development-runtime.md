@@ -402,8 +402,34 @@ compile the application graph as it needs.
   cores. On ONLV a bounded recording took 13.7-14.6 s instead of 24.8 s.
 - [x] (2026-09-16) Prepared assistant helpers start after the process model is
   released, on a complete replacement and on a restore, so no helper start or
-  its callbacks run under `model.mu`. Reconciling an unconfirmed activation
-  still holds it per attempt, deliberately, to exclude a concurrent drain.
+  its callbacks run under `model.mu`.
+- [x] (2026-09-16) Second review of the recording and activation paths, each
+  finding reproduced in code first. A recorded action is now rejected when it
+  read a file from a selected package directory that its capture does not name
+  (a source added, compiled and removed during a recording kept every stamp
+  and directory listing) or compiled a package outside the selection. A
+  recording's Go command and every tool it starts form one process group that
+  is killed and confirmed empty before the recording releases its slot, lease
+  and directory; the tagged `TestRetainedRecordingCrossProcess` journey, run by
+  the `process-model` probe, fails without that and passes with it. On Darwin a
+  group of exited, unreaped members answers `EPERM`, which ONLV exposed and the
+  confirmation now waits out. A foreground link that arrives during a recording
+  makes it yield and retry. Control requests are serialized per instance and
+  an activation is repeated without holding `model.mu`, so an unresponsive
+  service delays only itself; a drained instance is never activated again.
+- [x] (2026-09-16) ONLV comparison of automatic recording, seven `ahjs` handler
+  edits per series with the supervisor process tree sampled every 250 ms (the
+  first edit of a session includes a cold 1.8 s entrypoint build):
+
+  | Series | Backend per edit | Edit to response, edits 2-7 | Mean CPU | Mean RSS |
+  |---|---|---|---|---|
+  | A: recording disabled (`scenery_benchmark_stock` binary) | stock 610-657 ms | 2,171-2,281 ms, median 2,239 | 68 % | 2.98 GB |
+  | B: recording running and yielding to every edit | stock 657-819 ms | 2,477-2,687 ms, median 2,638 | 150 % | 3.24 GB |
+  | C: retained recipe ready, no recording | retained 557-603 ms | 2,153-2,286 ms, median 2,227 | 75 % | 2.78 GB |
+
+  A ready recipe does not shorten an edit measurably, and an edit made while a
+  recording runs is about 400 ms slower at twice the CPU. Automatic recording
+  therefore does not improve this session; see the Decision Log.
 
 ## Surprises & Discoveries
 
@@ -770,6 +796,12 @@ compile the application graph as it needs.
   compile nearly the same packages; separate stores retained each closure again.
   A snapshot is copied rather than moved, because a capture may name the
   developer's own workspace file. Date: 2026-09-16. Author: Claude.
+- Decision pending the human: the ONLV comparison shows automatic recipe
+  recording costs about 400 ms per edit while it runs and a ready recipe saves
+  nothing measurable, so recording should not start automatically until a
+  closure shows a real saving. Recorded here instead of acted on because the
+  earlier decision to keep the path was the human's. Date: 2026-09-16. Author:
+  Claude.
 - Decision: keep the retained entrypoint path and make it cheaper rather than
   remove it. Rationale (human choice after the ONLV measurement): its compile
   and link are below the stock build and its overhead was measurable validation

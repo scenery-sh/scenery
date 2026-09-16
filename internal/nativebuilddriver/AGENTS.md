@@ -20,8 +20,10 @@ recipes, direct compile/link execution, and fail-closed compatibility results.
   owns. A name and size never prove an existing store entry: adoption hashes it
   and atomically replaces content that differs.
 - A recorded action is merged only when every captured input it read had the
-  captured content, so a capture taken across an edit cannot pair an archive
-  with another source revision.
+  captured content, every input it read from a selected package directory is
+  captured, and every package it compiled is selected, so a capture taken
+  across an edit or a transient source file cannot pair an archive with another
+  source revision.
 - Retained execution compares against the last committed current capture, not
   the immutable bootstrap. Successful builds advance source snapshots and
   archive mappings together in caller-owned durable state.

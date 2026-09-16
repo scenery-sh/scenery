@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -342,5 +343,90 @@ func TestActivationReconcilerStopsForAReplacedInstance(t *testing.T) {
 	}
 	if got := requests.Load(); got != 1 {
 		t.Fatalf("a replaced instance received %d activation requests, want 1", got)
+	}
+}
+
+// An unresponsive service delays control of itself only: while its activation
+// is being repeated, the model stays available to replace other services, and
+// once it is drained it is never activated again.
+func TestActivationReconcilerDoesNotHoldTheModelAndNeverFollowsADrain(t *testing.T) {
+	directory, err := os.MkdirTemp("", "scp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(directory) })
+	socket := filepath.Join(directory, "s.sock")
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	answering, release := make(chan struct{}, 8), make(chan struct{})
+	var mu sync.Mutex
+	var requests []string
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		requests = append(requests, filepath.Base(r.URL.Path))
+		first := len(requests) == 1
+		mu.Unlock()
+		if first {
+			answering <- struct{}{}
+			<-release
+		}
+		if strings.HasSuffix(r.URL.Path, "/drain") {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+	})}
+	go func() { _ = server.Serve(listener) }()
+	t.Cleanup(func() { _ = server.Close() })
+
+	slow := &devProcessInstance{process: build.DevelopmentProcess{Name: "echo_echo"}, socket: socket, app: &runningApp{pid: "302"}, activation: "unconfirmed", reconciling: true}
+	model := &devProcessModel{
+		token: "token", activationBackoff: time.Millisecond, degraded: map[string]string{},
+		services: map[string]*devProcessInstance{"echo_echo": slow},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	supervisor := &devSupervisor{ctx: ctx, processes: model}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		supervisor.reconcileDevProcessActivation(model, slow)
+	}()
+	<-answering
+	locked := make(chan struct{})
+	go func() {
+		model.mu.Lock()
+		close(locked)
+	}()
+	select {
+	case <-locked:
+	case <-time.After(time.Second):
+		t.Fatal("an unanswered activation held the process model")
+	}
+	// A newer generation replaces the instance and drains it while its
+	// activation is still unanswered; the drain waits for that request only.
+	model.services = map[string]*devProcessInstance{"echo_echo": {process: build.DevelopmentProcess{Name: "echo_echo"}, app: &runningApp{pid: "303"}}}
+	drained := make(chan struct{})
+	go func() {
+		defer close(drained)
+		supervisor.drainDevProcessInstances(ctx, model, []*devProcessInstance{slow})
+	}()
+	close(release)
+	<-drained
+	model.unlock()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("the reconciler kept running for a drained instance")
+	}
+	if err := slow.control(ctx, runtimeProcessActivatePath, "token"); !errors.Is(err, errDevProcessDrained) {
+		t.Fatalf("a drained instance accepted an activation: %v", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if !slices.Equal(requests, []string{"activate", "drain"}) {
+		t.Fatalf("control requests = %v, want one activation followed by the drain", requests)
 	}
 }
