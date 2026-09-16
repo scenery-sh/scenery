@@ -89,6 +89,69 @@ func TestWatchIgnoreMatcherNegatedDirectoryDoesNotUnignoreContents(t *testing.T)
 	}
 }
 
+// A tree walk that loads each directory before its entries decides every entry
+// with IgnoredEntry and IgnoreEntryPath exactly as Ignored and IgnorePath do,
+// including negations of parents, directory-only, anchored and ** patterns,
+// nested ignore files and configured rules.
+func TestWatchIgnoreEntryDecisionsMatchFullPathDecisions(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeWatchFile(t, root, ".scenery.json", `{"name":"walkapp","watch":{"ignore":["reference/","tmp/*.go"]}}`)
+	writeWatchFile(t, root, ".gitignore", strings.Join([]string{
+		"*.log", "!keep.log", "build/", "/dist", "docs/**/gen", "a*", "!/alpha/", "nested/*.tmp", "**/cache", "vendor", "!vendor/keep.go", "!/kept/",
+	}, "\n"))
+	writeWatchFile(t, root, "apps/ui/.gitignore", "dist\n!dist/keep\n*.local\n/only-here\n")
+	writeWatchFile(t, root, "apps/ui/src/.gitignore", "!important.local\ngen/\n")
+	for _, rel := range []string{
+		".env", ".scenery.json", ".hidden/x.go", "keep.log", "debug.log", "build/out.go", "src/build/x.go", "dist/a.go", "src/dist/a.go",
+		"docs/x/y/gen/a.md", "docs/gen/a.md", "alpha/main.go", "abc/main.go", "alpha/abc/x.go", "nested/x.tmp", "nested/deep/x.tmp",
+		"pkg/cache/x.go", "cache/y.go", "vendor/keep.go", "vendor/other.go", "src/vendor/z.go", "reference/api.go", "tmp/a.go", "tmp/sub/b.go",
+		"apps/ui/dist/keep", "apps/ui/dist/main.js", "apps/ui/src/dist/x.js", "apps/ui/a.local", "apps/ui/src/important.local", "apps/ui/src/b.local",
+		"apps/ui/only-here", "apps/ui/src/only-here", "apps/ui/src/gen/x.ts", "apps/ui/gen/x.ts", "apps/ui/node_modules/react/index.js",
+		"service/api.go", "service/.gitignore", "kept/x.go", "scenery_internal_processes/host/main.go",
+	} {
+		writeWatchFile(t, root, rel, "x")
+	}
+	ignore := New(root)
+	checked, ignoredParents := 0, 0
+	// The walk also enters directories the rules ignore, where an entry's
+	// decision depends most on its parents; only the built-in decision assumes
+	// a parent the walk would visit.
+	var walk func(rel string, parentIgnored bool)
+	walk = func(rel string, parentIgnored bool) {
+		entries, err := os.ReadDir(filepath.Join(root, filepath.FromSlash(rel)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		ignore.LoadDirEntries(rel, entries)
+		for _, entry := range entries {
+			child := entry.Name()
+			if rel != "" {
+				child = rel + "/" + child
+			}
+			checked++
+			if parentIgnored {
+				ignoredParents++
+			}
+			if got, want := ignore.IgnoredEntry(child, entry.IsDir()), ignore.Ignored(child, entry.IsDir()); got != want {
+				t.Errorf("IgnoredEntry(%s) = %t, Ignored = %t", child, got, want)
+			}
+			ignored := IgnorePath(child, entry.IsDir(), ignore)
+			if got := IgnoreEntryPath(child, entry.IsDir(), ignore); !parentIgnored && got != ignored {
+				t.Errorf("IgnoreEntryPath(%s) = %t, IgnorePath = %t", child, got, ignored)
+			}
+			if entry.IsDir() && !shouldIgnoreWatchPathBuiltin(child, true) {
+				walk(child, parentIgnored || ignored)
+			}
+		}
+	}
+	walk("", false)
+	if checked < 40 || ignoredParents < 5 {
+		t.Fatalf("walk checked %d entries, %d below ignored directories", checked, ignoredParents)
+	}
+}
+
 func BenchmarkWatchIgnoreMatcher(b *testing.B) {
 	root := b.TempDir()
 	writeWatchFile(b, root, ".gitignore", strings.Join([]string{

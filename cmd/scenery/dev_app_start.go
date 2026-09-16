@@ -37,6 +37,14 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 			Cache: "not_applicable", Reason: reason, OK: returnErr == nil, SnapshotDigest: snapshotFingerprint(captured),
 		})
 	}()
+	if !captured.scanStartedAt.IsZero() && !captured.capturedAt.IsZero() {
+		build.RecordStep(ctx, build.Step{
+			Name: "watch.scan", StartedAt: captured.scanStartedAt, Duration: captured.capturedAt.Sub(captured.scanStartedAt),
+			Cache: "directory_listing", Reason: "captured_snapshot", OK: true, Actions: len(captured.files), SnapshotDigest: snapshotFingerprint(captured),
+			CacheHits: captured.scanStats.dirsReused, CacheMisses: captured.scanStats.dirsRead,
+			FilesHashed: captured.scanStats.filesHashed, BytesHashed: captured.scanStats.bytesHashed,
+		})
+	}
 	if !captured.capturedAt.IsZero() {
 		queue := time.Since(captured.capturedAt)
 		if queue < 0 {
@@ -130,7 +138,10 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 	s.mu.Lock()
 	s.buildFailed = false
 	s.mu.Unlock()
-	return s.publishActivatedApp(ctx, initial, snapshot, plan, current, reload)
+	publishStarted := time.Now()
+	err = s.publishActivatedApp(ctx, initial, snapshot, plan, current, reload)
+	build.RecordStep(ctx, build.Step{Name: "supervisor.publish", StartedAt: publishStarted, Duration: time.Since(publishStarted), Cache: "not_applicable", Reason: "activated_generation_status", OK: err == nil})
+	return err
 }
 
 // publishActivatedApp reports a successfully activated application generation

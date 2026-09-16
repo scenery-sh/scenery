@@ -561,8 +561,47 @@ compile the application graph as it needs.
   which does not overlap, is covered by `process-model`. A contract edit
   replaces the host too, so the journey follows the session's current host
   and asserts an unchanged host only where no replacement is expected.
+- [x] (2026-09-17) Warm preparation reduction on ONLV. A traced body edit in the
+  disposable ONLV worktree (stock Go, commit `a9dfe364` plus instrumentation,
+  Apple M2 Ultra, detached `scenery up`, 47 service processes) spent about
+  305 ms from save to captured snapshot, 1,596 ms from build request to
+  published generation and 45 ms to the first verified response. New
+  `watch.scan`, `process.plan`, `workspace.verify` and `supervisor.publish`
+  steps attributed the untraced gaps. The largest avoidable cost was the
+  whole-tree snapshot scan, run by the watcher and again as
+  `supervisor.snapshot_verify` (about 200 ms each) and repeated inside
+  generated-path discovery: 93 ms of each 155 ms scan matched every file against
+  every gitignore rule and every parent segment (4,541 checks, 91 root rules),
+  and most of the rest listed 857 unchanged directories. A walk now evaluates
+  gitignore rules against each entry once, with its parents' contribution
+  derived per directory (identical decisions, proven against the full-path
+  matcher), and `internal/dirlisting` reuses a directory listing while the
+  directory's identity, modification time and size are unchanged and it had
+  settled for two seconds. The scan took 42 ms in isolation. Against the same
+  producer without the change, same protocol and non-repeating behavior
+  changes: body edits across `ahjs`, `tariffs` and `incentives` (24 each)
+  p50 1,940 to 1,742 ms, p95 2,442 to 1,837 ms; 20-edit churn p50 1,938 to
+  1,733 ms, p95 2,001 to 1,898 ms; `pkg/appfs` edits replacing five services
+  p50 2,825 to 2,559 ms; contract edits with `scenery generate` p50 23.4 to
+  22.1 s; a failing edit reported its failure after about 1.8 s instead of
+  2.0-2.4 s. In the session `watch.scan` fell from 210 to 92 ms,
+  `supervisor.snapshot_verify` from 202 to 87 ms and `workspace.cache` from 142
+  to 82 ms; 52 of 64 scans read no directory and hashed one file. A body edit
+  now waits mostly on `go build` (about 535 ms), preparation before it (about
+  495 ms, of which process identity 103 ms and input fingerprint 74 ms), the
+  service preflight (about 350 ms, first execution) and the save-to-capture
+  settle.
 
 ## Surprises & Discoveries
+
+- A contract edit in ONLV replaces every one of its 48 processes as a complete
+  generation (about 22 s including `scenery generate`: 8.5 s of stock links
+  and 48 concurrent preflights), because the contract revision is part of every
+  process identity. ONLV's TypeScript clients are materialized into source, so
+  a contract edit without `scenery generate` fails its build with SCN6204 and
+  keeps the published generation serving.
+- The snapshot scan's cost was CPU in gitignore matching, not filesystem access:
+  each file was matched against every rule at every parent segment.
 
 - An application root spelled through a symbolic link (macOS `/tmp`) gives
   `scenery up`, which works on the canonical root, and `scenery build`, which
@@ -1006,6 +1045,12 @@ compile the application graph as it needs.
   to be implemented twice, and the retained compiler it alone used was at parity
   with stock Go. Production keeps one executable. Date: 2026-09-16. Author:
   human.
+- Decision: reduce the repeated whole-tree scan before any identity caching.
+  Rationale: the trace showed it as the largest avoidable cost on the critical
+  path, it ran three times per edit and grew with the application tree rather
+  than with the change; the reduction keeps every freshness check (each file's
+  own metadata is still read, and a directory listing is reused only on an
+  unchanged, settled directory stamp). Date: 2026-09-17. Author: Claude.
 - Decision: a process host attests on public answers the build identity of the
   serving generation and its own PID, not the answering service instance's
   identity. Rationale: the response identity headers mean "the linked runtime

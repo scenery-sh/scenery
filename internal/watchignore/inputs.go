@@ -1,6 +1,7 @@
 package watchignore
 
 import (
+	pathpkg "path"
 	filepath "path/filepath"
 	app "scenery.sh/internal/app"
 	strconv "strconv"
@@ -70,6 +71,28 @@ func IgnorePath(rel string, isDir bool, ignore *Matcher) bool {
 		return true
 	}
 	return false
+}
+
+// IgnoreEntryPath decides IgnorePath for an entry of a tree walk that visits an
+// entry only when its parent directory was not ignored and that loaded the
+// ignore files of its ancestors first (see Matcher.IgnoredEntry). Its parents
+// already passed the built-in rules, so only the entry's own name is checked.
+func IgnoreEntryPath(rel string, isDir bool, ignore *Matcher) bool {
+	rel = filepath.ToSlash(filepath.Clean(rel))
+	if rel == "." || rel == "" {
+		return false
+	}
+	if isDir || !IsRootDotFile(rel) {
+		name := pathpkg.Base(rel)
+		if strings.HasPrefix(name, ".") && (isDir || name != ".gitignore") {
+			return true
+		}
+		switch name {
+		case "node_modules", "scenery_internal_main", "scenery_internal_processes":
+			return true
+		}
+	}
+	return ignore != nil && ignore.IgnoredEntry(rel, isDir)
 }
 
 func shouldIgnoreWatchPathBuiltin(rel string, isDir bool) bool {

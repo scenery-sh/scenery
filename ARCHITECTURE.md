@@ -362,6 +362,15 @@ development cache root. Production honors `SCENERY_DEV_CACHE_DIR`; tests inject
 `SetRoot`. Doctor, build, and CLI resolve the cache here instead of linking
 through `internal/build`.
 
+### `internal/dirlisting`
+
+`internal/dirlisting` is the stdlib leaf that reuses directory listings between
+walks of one tree. The development watcher's snapshot scans and generated-path
+discovery read a directory again only when its identity, modification time or
+size changed, or when it was modified within the timestamp granularity of
+common filesystems before its last listing; unchanged directories cost one
+`lstat`. Files are still checked by their own metadata by each caller.
+
 ### `internal/build`
 
 `internal/build` owns the transient app build workspace. It materializes the

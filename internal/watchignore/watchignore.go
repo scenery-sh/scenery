@@ -18,6 +18,19 @@ type Matcher struct {
 	loaded      map[string]struct{}
 	configRules []watchIgnoreRule
 	gitRules    []watchIgnoreRule
+	// parents memoizes, per directory, the part of every ignore decision below
+	// it that the directory and its ancestors contribute (see IgnoredEntry).
+	parents map[string]parentIgnore
+}
+
+// parentIgnore is what a directory and its ancestors contribute to the ignore
+// decision of each entry directly inside it: whether a configured rule matches
+// one of them, and the highest-indexed non-negated gitignore rule that does
+// (-1 when none). A rule matches an entry when it matches the entry itself or,
+// unless it is negated, one of the entry's parents.
+type parentIgnore struct {
+	configured bool
+	lastRule   int
 }
 
 type watchIgnoreRule struct {
@@ -35,6 +48,7 @@ func New(root string) *Matcher {
 		root:        root,
 		loaded:      make(map[string]struct{}),
 		configRules: watchConfigIgnoreRules(root),
+		parents:     make(map[string]parentIgnore),
 	}
 	m.LoadDir("")
 	return m
@@ -174,6 +188,64 @@ func (m *Matcher) Ignored(rel string, isDir bool) bool {
 	return false
 }
 
+// IgnoredEntry decides Ignored for an entry of a tree walk. The walk must have
+// loaded the ignore files of every ancestor of rel (LoadDir or LoadDirEntries)
+// before calling it, as a walk that loads each directory before visiting its
+// entries does. The decision is identical to Ignored; the contribution of the
+// entry's parents is computed once per directory instead of once per entry.
+func (m *Matcher) IgnoredEntry(rel string, isDir bool) bool {
+	if m == nil || len(m.configRules) == 0 && len(m.gitRules) == 0 {
+		return false
+	}
+	rel = normalizeWatchRel(rel)
+	if rel == "" {
+		return false
+	}
+	parts := strings.Split(rel, "/")
+	parent := m.parentIgnore(parts[:len(parts)-1])
+	if parent.configured {
+		return true
+	}
+	for _, rule := range m.configRules {
+		if rule.matchesEntry(parts, isDir) {
+			return true
+		}
+	}
+	for i := len(m.gitRules) - 1; i > parent.lastRule; i-- {
+		if m.gitRules[i].matchesEntry(parts, isDir) {
+			return !m.gitRules[i].negated
+		}
+	}
+	return parent.lastRule >= 0
+}
+
+// parentIgnore returns the contribution of the directory dir and its ancestors,
+// deriving it from its parent's.
+func (m *Matcher) parentIgnore(dir []string) parentIgnore {
+	if len(dir) == 0 {
+		return parentIgnore{lastRule: -1}
+	}
+	key := strings.Join(dir, "/")
+	if state, ok := m.parents[key]; ok {
+		return state
+	}
+	state := m.parentIgnore(dir[:len(dir)-1])
+	for _, rule := range m.configRules {
+		if state.configured {
+			break
+		}
+		state.configured = rule.matchesEntry(dir, true)
+	}
+	for i := len(m.gitRules) - 1; i > state.lastRule; i-- {
+		if rule := m.gitRules[i]; !rule.negated && rule.matchesEntry(dir, true) {
+			state.lastRule = i
+			break
+		}
+	}
+	m.parents[key] = state
+	return state
+}
+
 func parseWatchConfigIgnoreRule(line string) (watchIgnoreRule, bool) {
 	line = strings.TrimSpace(line)
 	if line == "" || strings.HasPrefix(line, "!") {
@@ -265,6 +337,13 @@ func (r watchIgnoreRule) matches(relParts []string, isDir bool) bool {
 		return r.matchesExact(sub, isDir)
 	}
 	return r.matchesSelfOrParent(sub, isDir)
+}
+
+// matchesEntry reports whether the rule matches relParts itself, without its
+// parents.
+func (r watchIgnoreRule) matchesEntry(relParts []string, isDir bool) bool {
+	sub, ok := partsUnderWatchBase(relParts, r.baseParts)
+	return ok && len(sub) > 0 && r.matchesExact(sub, isDir)
 }
 
 func (r watchIgnoreRule) matchesExact(sub []string, isDir bool) bool {

@@ -90,7 +90,9 @@ func BuildDevelopmentProcessesContext(ctx context.Context, result *Result) (*Dev
 	if err := requireGenerateHooks(); err != nil {
 		return nil, nil, err
 	}
+	planStarted := time.Now()
 	plan, err := generateHooks.RuntimeIntegrationPlan(result.Contract)
+	RecordStep(ctx, Step{Name: "process.plan", StartedAt: planStarted, Duration: time.Since(planStarted), Cache: "not_applicable", Reason: "runtime_integration_plan", OK: err == nil, Actions: len(plan.Services)})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -106,7 +108,7 @@ func BuildDevelopmentProcessesContext(ctx context.Context, result *Result) (*Dev
 	}()
 	verifyWorkspace := result.verification != nil
 	if verifyWorkspace {
-		if err := verifyPreparedWorkspace(result); err != nil {
+		if err := observeWorkspaceVerification(ctx, result, "before_compile"); err != nil {
 			return nil, nil, err
 		}
 	}
@@ -125,7 +127,7 @@ func BuildDevelopmentProcessesContext(ctx context.Context, result *Result) (*Dev
 		return nil, nil, err
 	}
 	if verifyWorkspace {
-		if err := verifyPreparedWorkspace(result); err != nil {
+		if err := observeWorkspaceVerification(ctx, result, "after_compile"); err != nil {
 			return nil, nil, errors.Join(err, check())
 		}
 	}

@@ -1,10 +1,21 @@
 package build
 
 import (
+	"context"
 	"fmt"
 	"io/fs"
 	"path/filepath"
+	"time"
 )
+
+// observeWorkspaceVerification verifies the prepared workspace and records it
+// as a build step.
+func observeWorkspaceVerification(ctx context.Context, result *Result, reason string) error {
+	started := time.Now()
+	err := verifyPreparedWorkspace(result)
+	RecordStep(ctx, Step{Name: "workspace.verify", StartedAt: started, Duration: time.Since(started), Cache: "not_applicable", Reason: reason, OK: err == nil})
+	return err
+}
 
 // Reacquiring the workspace lock must not silently adopt another preparation's
 // files. Check membership and bytes, not saved timestamps, before the fork and
