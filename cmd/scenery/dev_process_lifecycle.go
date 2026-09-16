@@ -15,12 +15,15 @@ import (
 	"net/http"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/build"
+	"scenery.sh/internal/devdash"
 )
 
 // devProcessPreparation retains and preflights the replacement instances of a
@@ -168,6 +171,58 @@ func (s *devSupervisor) publishDevProcessGeneration(ctx context.Context, model *
 	model.generation = manifest.Generation
 	model.retained[manifest.Generation] = maps.Clone(model.services)
 	return nil
+}
+
+// serviceProcessStatuses reports the service processes of a process-model
+// session for the dashboard, including services whose process is gone.
+func (s *devSupervisor) serviceProcessStatuses() []devdash.ServiceProcess {
+	s.mu.RLock()
+	model := s.processes
+	s.mu.RUnlock()
+	if model == nil {
+		return nil
+	}
+	model.mu.Lock()
+	defer model.mu.Unlock()
+	statuses := make([]devdash.ServiceProcess, 0, len(model.services))
+	for name, instance := range model.services {
+		status := devdash.ServiceProcess{
+			Name: name, Generation: model.generation, State: "running",
+			ImplementationRevision: instance.process.Identity.ImplementationRevision,
+		}
+		if instance.app != nil {
+			status.PID = instance.app.pid
+		}
+		if reason := model.degraded[name]; reason != "" {
+			status.State, status.Reason = "degraded", reason
+		} else if instance.stopped || instance.app == nil {
+			status.State = "degraded"
+		}
+		statuses = append(statuses, status)
+	}
+	sort.Slice(statuses, func(i, j int) bool { return statuses[i].Name < statuses[j].Name })
+	return statuses
+}
+
+// sessionServiceProcesses names each running service process of the session so
+// cleanup and inspection see them beside the host and helper processes.
+func (s *devSupervisor) sessionServiceProcesses() map[string]localagent.Process {
+	processes := map[string]localagent.Process{}
+	for _, status := range s.serviceProcessStatuses() {
+		if pid := atoiPID(status.PID); pid > 0 && status.State == "running" {
+			processes["service:"+status.Name] = localagent.Process{PID: pid}
+		}
+	}
+	return processes
+}
+
+// clearDevProcessRecovery forgets the crash history and degraded state of the
+// services a new build replaced; the caller holds model.mu.
+func clearDevProcessRecovery(model *devProcessModel, instances []*devProcessInstance) {
+	for _, instance := range instances {
+		delete(model.restarts, instance.process.Name)
+		delete(model.degraded, instance.process.Name)
+	}
 }
 
 // drainDevProcessInstances revokes the background work of instances whose

@@ -95,9 +95,10 @@ type processGenerationStatus struct {
 }
 
 type processGenerationStatusEntry struct {
-	Generation uint64         `json:"generation"`
-	InFlight   int64          `json:"in_flight"`
-	Processes  map[string]int `json:"processes"`
+	Generation uint64                             `json:"generation"`
+	InFlight   int64                              `json:"in_flight"`
+	Processes  map[string]int                     `json:"processes"`
+	Instances  map[string]processInstanceIdentity `json:"instances"`
 }
 
 type processHost struct {
@@ -115,6 +116,7 @@ type processHost struct {
 	localRoutes *routeTable
 
 	owners processHostDurableOwners
+	faults processHostFaults
 
 	mu          sync.RWMutex
 	current     *processHostGeneration
@@ -268,6 +270,9 @@ func (h *processHost) serveIngress(w http.ResponseWriter, req *http.Request) {
 			method = requested
 		}
 		if h.localRoutes.ownerRoute(req.URL.EscapedPath(), method) != nil {
+			if current := h.currentGeneration(); current != 0 {
+				w.Header().Set(processGenerationHeader, strconv.FormatUint(current, 10))
+			}
 			h.local.ServeHTTP(w, req)
 			return
 		}
@@ -278,6 +283,9 @@ func (h *processHost) serveIngress(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	defer generation.inFlight.Add(-1)
+	// An answer names the application generation that served it, so a check can
+	// bind its evidence to the exact published implementation set.
+	w.Header().Set(processGenerationHeader, strconv.FormatUint(generation.number, 10))
 	req.Header.Set(processGenerationHeader, strconv.FormatUint(generation.number, 10))
 	req = req.WithContext(context.WithValue(req.Context(), processHostGenerationKey{}, generation))
 	method := req.Method
@@ -298,6 +306,9 @@ func (h *processHost) forward(w http.ResponseWriter, req *http.Request, process 
 		errs.HTTPErrorWithCode(w, errs.B().Code(errs.Unavailable).Msgf(processHostUnavailableReason, process).Err(), http.StatusServiceUnavailable)
 		return
 	}
+	if h.applyIngressFault(w, req, process) {
+		return
+	}
 	instance.ingress.ServeHTTP(w, req)
 }
 
@@ -314,6 +325,8 @@ func (h *processHost) serveControl(w http.ResponseWriter, req *http.Request) {
 		h.servePublish(w, req)
 	case req.URL.Path == processGenerationsPath && req.Method == http.MethodGet:
 		writeProcessHostJSON(w, http.StatusOK, h.status())
+	case req.URL.Path == processFaultsPath && (req.Method == http.MethodPut || req.Method == http.MethodGet):
+		h.serveFaults(w, req)
 	case strings.HasPrefix(req.URL.Path, processGenerationsPath+"/") && req.Method == http.MethodDelete:
 		number, err := strconv.ParseUint(strings.TrimPrefix(req.URL.Path, processGenerationsPath+"/"), 10, 64)
 		force := req.URL.Query().Get("force")
@@ -352,12 +365,26 @@ func (h *processHost) dispatch(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	defer generation.inFlight.Add(-1)
-	instance := generation.instances[generation.bindings[address]]
+	process := generation.bindings[address]
+	instance := generation.instances[process]
 	if instance == nil {
 		writeProcessLinkResponse(w, http.StatusNotFound, processLinkResponse{Error: &processLinkError{Kind: "error", Message: fmt.Sprintf("contract internal binding %s is not registered", address)}})
 		return
 	}
+	if h.applyProcessFault(w, req, process, address) {
+		return
+	}
 	instance.dispatch.ServeHTTP(w, req)
+}
+
+// currentGeneration reports the published generation without pinning work to it.
+func (h *processHost) currentGeneration() uint64 {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	if h.current == nil {
+		return 0
+	}
+	return h.current.number
 }
 
 func (h *processHost) acquire(number uint64) *processHostGeneration {
@@ -454,9 +481,10 @@ func (h *processHost) status() processGenerationStatus {
 		status.Current = h.current.number
 	}
 	for number, generation := range h.generations {
-		entry := processGenerationStatusEntry{Generation: number, InFlight: generation.inFlight.Load(), Processes: map[string]int{}}
+		entry := processGenerationStatusEntry{Generation: number, InFlight: generation.inFlight.Load(), Processes: map[string]int{}, Instances: map[string]processInstanceIdentity{}}
 		for name, instance := range generation.instances {
 			entry.Processes[name] = instance.spec.PID
+			entry.Instances[name] = instance.spec.Identity
 		}
 		status.Generations = append(status.Generations, entry)
 	}

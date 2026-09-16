@@ -46,6 +46,7 @@ type harnessProcessModelResponse struct {
 	Message        string
 	PID            int
 	Implementation string
+	Generation     int
 }
 
 func runHarnessProcessModelProbe(parent context.Context, repoRoot string) (summary map[string]any, returnErr error) {
@@ -110,7 +111,8 @@ func runHarnessProcessModelProbe(parent context.Context, repoRoot string) (summa
 		if pid > 0 && !slices.Contains(seen, pid) {
 			seen = append(seen, pid)
 		}
-		return harnessProcessModelResponse{Message: decoded.Message, PID: pid, Implementation: response.Header.Get("X-Scenery-Implementation-Revision")}, nil
+		generation, _ := strconv.Atoi(response.Header.Get("X-Scenery-Process-Generation"))
+		return harnessProcessModelResponse{Message: decoded.Message, PID: pid, Implementation: response.Header.Get("X-Scenery-Implementation-Revision"), Generation: generation}, nil
 	}
 	waitFor := func(path, body, want string) (harnessProcessModelResponse, time.Duration, error) {
 		begin := time.Now()
@@ -143,6 +145,26 @@ func runHarnessProcessModelProbe(parent context.Context, repoRoot string) (summa
 	if echoOne.PID <= 0 || greeterOne.PID <= 0 || len(map[int]bool{host: true, echoOne.PID: true, greeterOne.PID: true}) != 3 {
 		return nil, fmt.Errorf("host %d, echo %d and greeter %d are not three processes", host, echoOne.PID, greeterOne.PID)
 	}
+
+	// A service process that stops on its own restarts from its own verified
+	// executable, without rebuilding and without disturbing other services.
+	if err := syscall.Kill(echoOne.PID, syscall.SIGKILL); err != nil {
+		return nil, err
+	}
+	restarted, restartLatency, err := waitFor("/echo", `{"message":"hi"}`, "echo:hi")
+	if err != nil {
+		return nil, fmt.Errorf("a killed service process was not restarted: %w", err)
+	}
+	if restarted.PID == echoOne.PID || restarted.Implementation != echoOne.Implementation {
+		return nil, fmt.Errorf("restarted echo = %#v; want a new process running the same implementation as %#v", restarted, echoOne)
+	}
+	if greet, err := call(ctx, "/greet", `{"name":"probe"}`); err != nil || greet.Message != "greeter:echo:hello probe" || greet.PID != greeterOne.PID {
+		return nil, fmt.Errorf("after a restart greet = %#v, %v; want the unchanged greeter %d", greet, err, greeterOne.PID)
+	}
+	if !nativeBuildWaitProcessExit(echoOne.PID, 15*time.Second) {
+		return nil, fmt.Errorf("killed echo process %d did not exit", echoOne.PID)
+	}
+	echoOne = restarted
 
 	// Three generations: a greet request pinned to the first generation waits
 	// while greeter and then echo are replaced. Retiring the second generation
@@ -192,6 +214,11 @@ func runHarnessProcessModelProbe(parent context.Context, repoRoot string) (summa
 	}
 	if inFlight.response.Message != "greeter:echo:hello pinned" || inFlight.response.PID != greeterOne.PID {
 		return nil, fmt.Errorf("request pinned to the first generation answered %#v; want the first greeter %d and the first echo", inFlight.response, greeterOne.PID)
+	}
+	// Every answer names the generation that served it: the pinned request
+	// keeps the generation it entered while later requests name a newer one.
+	if inFlight.response.Generation != greeterOne.Generation || echoTwo.Generation <= inFlight.response.Generation {
+		return nil, fmt.Errorf("answers named generations %d (pinned), %d (first) and %d (after two replacements)", inFlight.response.Generation, greeterOne.Generation, echoTwo.Generation)
 	}
 	for _, pid := range []int{greeterOne.PID, echoOne.PID} {
 		if !nativeBuildWaitProcessExit(pid, 45*time.Second) {
@@ -330,6 +357,9 @@ func runHarnessProcessModelProbe(parent context.Context, repoRoot string) (summa
 		"echo_pids":                               []int{echoOne.PID, echoTwo.PID, echoThree.PID},
 		"greeter_pids":                            []int{greeterOne.PID, greeterTwo.PID, greeterThree.PID, greeterFour.PID},
 		"pinned_across_three_generations":         inFlight.response.Message,
+		"pinned_generation":                       inFlight.response.Generation,
+		"current_generation_after_two_edits":      echoTwo.Generation,
+		"crash_restart_to_response_ms":            restartLatency.Milliseconds(),
 		"echo_edit_to_response_ms":                replacementLatency.Milliseconds(),
 		"shared_edit_to_response_ms":              sharedLatency.Milliseconds(),
 		"background_transfer":                     background,

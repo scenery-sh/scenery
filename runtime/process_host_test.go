@@ -129,6 +129,10 @@ func TestProcessHostForwardsEachRequestToTheOwningProcess(t *testing.T) {
 		if recorder.Code != http.StatusOK || body["process"] != check.backend.name || seen["method"] != check.method || seen["uri"] != check.target || seen["generation"] != "1" || seen["host"] != "api.example.test" {
 			t.Errorf("%s %s reached %#v (status %d, seen %#v), want %s in generation 1", check.method, check.target, body, recorder.Code, seen, check.backend.name)
 		}
+		// An answer names the generation that served it.
+		if recorder.Header().Get(processGenerationHeader) != "1" {
+			t.Errorf("%s %s answered without its generation: %q", check.method, check.target, recorder.Header().Get(processGenerationHeader))
+		}
 	}
 	if seen := echo.last(); seen["forwarded_for"] != "203.0.113.7" {
 		t.Fatalf("forwarded headers = %#v", seen)
@@ -251,8 +255,14 @@ func TestProcessHostPinsRequestsAndCallsToTheirGeneration(t *testing.T) {
 	if _, err := call(1); !isUnavailableDelivery(err, "not_sent") {
 		t.Fatalf("call pinned to a retired generation = %#v", err)
 	}
-	if status := host.status(); status.Current != 2 || len(status.Generations) != 1 || status.Generations[0].Processes["echo_echo"] != 202 {
+	status := host.status()
+	if status.Current != 2 || len(status.Generations) != 1 || status.Generations[0].Processes["echo_echo"] != 202 {
 		t.Fatalf("host status = %#v", status)
+	}
+	// The status names the exact implementation every instance of a retained
+	// generation runs, so a check can bind its evidence to those identities.
+	if identity := status.Generations[0].Instances["echo_echo"]; identity != echoTwo.instance.Identity || identity.ImplementationRevision != "sha256:echo-2" {
+		t.Fatalf("published instance identity = %#v", identity)
 	}
 }
 
@@ -708,5 +718,99 @@ func TestProcessHostServesItsOwnApplicationEndpointsBeforePublication(t *testing
 	}
 	if recorder, _ := processHostTestRequest(t, host.serveIngress, "POST", "/greet", nil); recorder.Code != http.StatusServiceUnavailable {
 		t.Fatalf("service route before publication = %d", recorder.Code)
+	}
+}
+
+// A disposable session can fail selected work on purpose: each rule applies a
+// bounded number of times and names the delivery its caller must assume.
+func TestProcessHostFailsSelectedWorkOnPurpose(t *testing.T) {
+	echo := startProcessHostTestBackend(t, "echo_echo", 601, "sha256:echo-1")
+	greeter := startProcessHostTestBackend(t, "greeter_greeter", 602, "sha256:greeter-1")
+	host, err := newProcessHost(ProcessHostConfig{Name: "multiservice", Fallback: "echo_echo", Routes: []ProcessHostRoute{
+		{Process: "greeter_greeter", Methods: []string{"POST"}, Path: "/greet"},
+	}}, processLinkTestToken, processHostTestContract)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := host.publish(processGenerationManifest{Generation: 1, ContractRevision: processHostTestContract,
+		Bindings:  map[string]string{"echo/binding/echo_internal": "echo_echo"},
+		Processes: map[string]processGenerationInstance{"echo_echo": echo.instance, "greeter_greeter": greeter.instance}}); err != nil {
+		t.Fatal(err)
+	}
+	control := serveProcessLinkForTest(t, http.HandlerFunc(host.serveControl))
+	faults := func(body string) int {
+		request, _ := http.NewRequest(http.MethodPut, "http://host"+processFaultsPath, strings.NewReader(body))
+		request.Header.Set("Authorization", "Bearer "+processLinkTestToken)
+		response, err := processLinkClient(control).Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = response.Body.Close()
+		return response.StatusCode
+	}
+	if status := faults(`{"faults":[{"mode":"linger"}]}`); status != http.StatusBadRequest {
+		t.Fatalf("unsupported fault mode = %d", status)
+	}
+	if status := faults(`{"faults":[{"binding":"echo/binding/echo_internal","mode":"refuse","message":"echo refused"},{"path":"/greet","mode":"abort"}]}`); status != http.StatusNoContent {
+		t.Fatalf("publish fault rules = %d", status)
+	}
+	config := &processLinkConfig{Token: processLinkTestToken, Dispatch: control}
+	call := func() (string, error) {
+		state := &requestState{processGeneration: 1}
+		ctx := withState(runtimeapi.WithInvocation(context.Background(), runtimeapi.NewInvocation("invocation-7", "", "", "", time.Time{})), state)
+		restore := enterState(state)
+		defer restore()
+		invocation, _ := runtimeapi.InvocationFromContext(ctx)
+		output, err := invokeProcessLinkedBindingJSON(ctx, config, "echo/binding/echo_internal", "greeter", invocation, []byte(`{}`))
+		var value string
+		_ = json.Unmarshal(output, &value)
+		return value, err
+	}
+	if _, err := call(); !isUnavailableDelivery(err, "not_sent") || !strings.Contains(err.Error(), "echo refused") {
+		t.Fatalf("refused internal call = %v", err)
+	}
+	// The rule applied once; the next call reaches its owner again.
+	if value, err := call(); err != nil || value != "echo_echo:sha256:echo-1" {
+		t.Fatalf("call after the rule was consumed = %q, %v", value, err)
+	}
+	recorder, _ := processHostTestRequest(t, host.serveIngress, "POST", "/greet", nil)
+	if recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("aborted request = %d %s", recorder.Code, recorder.Body.String())
+	}
+	if recorder, body := processHostTestRequest(t, host.serveIngress, "POST", "/greet", nil); recorder.Code != http.StatusOK || body["process"] != "greeter_greeter" {
+		t.Fatalf("request after the rule was consumed = %d %#v", recorder.Code, body)
+	}
+	// A delay outlives its caller, which then assumes an unknown delivery.
+	if status := faults(`{"faults":[{"process":"echo_echo","mode":"delay","delay_ms":5000}]}`); status != http.StatusNoContent {
+		t.Fatalf("publish delay rule = %d", status)
+	}
+	delayed := make(chan error, 1)
+	go func() {
+		_, err := call()
+		delayed <- err
+	}()
+	select {
+	case err := <-delayed:
+		if !isUnavailableDelivery(err, "unknown") && err == nil {
+			t.Errorf("delayed call = %v", err)
+		}
+	case <-time.After(250 * time.Millisecond):
+		// The delay is still holding the call, which is the point of the rule.
+	}
+	if status := faults(`{"faults":[]}`); status != http.StatusNoContent {
+		t.Fatalf("clear fault rules = %d", status)
+	}
+	request, _ := http.NewRequest(http.MethodGet, "http://host"+processFaultsPath, nil)
+	request.Header.Set("Authorization", "Bearer "+processLinkTestToken)
+	response, err := processLinkClient(control).Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = response.Body.Close() }()
+	var listed struct {
+		Faults []processHostFault `json:"faults"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&listed); err != nil || len(listed.Faults) != 0 {
+		t.Fatalf("listed faults = %#v, %v", listed.Faults, err)
 	}
 }

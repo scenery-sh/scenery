@@ -32,6 +32,12 @@ const (
 	devProcessControlTimeout = 5 * time.Second
 	// devProcessBackgroundTimeout bounds one activation or drain request.
 	devProcessBackgroundTimeout = 5 * time.Second
+	// A crashed service process restarts from its own verified executable
+	// within this budget; beyond it the service stays degraded until its next
+	// build, so a failing constructor cannot become a restart storm.
+	devProcessRestartBudget  = 3
+	devProcessRestartWindow  = time.Minute
+	devProcessRestartBackoff = 250 * time.Millisecond
 )
 
 func devProcessModelSelected() (bool, error) {
@@ -69,6 +75,10 @@ type devProcessModel struct {
 	// retained names the instances of every published generation the current
 	// host incarnation still retains, the current generation included.
 	retained map[uint64]map[string]*devProcessInstance
+	// restarts records the recent crash recoveries of each service process and
+	// degraded names the services whose budget is exhausted.
+	restarts map[string][]time.Time
+	degraded map[string]string
 }
 
 // devProcessLink is the wiring of one host incarnation.
@@ -113,6 +123,7 @@ func (s *devSupervisor) ensureDevProcessModel() (*devProcessModel, error) {
 	s.processes = &devProcessModel{
 		token: token + second, socketDir: socketDir,
 		services: map[string]*devProcessInstance{}, retained: map[uint64]map[string]*devProcessInstance{},
+		restarts: map[string][]time.Time{}, degraded: map[string]string{},
 	}
 	return s.processes, nil
 }
@@ -479,6 +490,7 @@ func (s *devSupervisor) replaceDevServiceProcesses(ctx context.Context, model *d
 			replaced = append(replaced, old)
 		}
 	}
+	clearDevProcessRecovery(model, started)
 	s.drainDevProcessInstances(ctx, model, replaced)
 	s.activateDevProcessInstances(ctx, model, started)
 	go s.retireDevProcessGeneration(model, model.link, previousGeneration)
@@ -601,9 +613,93 @@ func (s *devSupervisor) watchDevServiceInstance(model *devProcessModel, instance
 	current := model.services[instance.process.Name] == instance && !instance.stopped
 	instance.stopped = true
 	model.mu.Unlock()
-	if current && s.console != nil {
+	if !current {
+		return
+	}
+	if s.console != nil {
 		s.console.Event("process.stop", map[string]any{"pid": instance.app.pid, "service_process": instance.process.Name, "output": strings.TrimSpace(instance.app.output.String())})
 	}
+	s.recoverDevServiceInstance(model, instance)
+}
+
+// recoverDevServiceInstance restarts the exact executable of a service process
+// that stopped on its own and publishes it as the next generation. A service
+// that exhausts its restart budget stays degraded: the published generation
+// keeps naming the process that is gone, so requests to it fail visibly until
+// its next build replaces it.
+func (s *devSupervisor) recoverDevServiceInstance(model *devProcessModel, crashed *devProcessInstance) {
+	name := crashed.process.Name
+	model.mu.Lock()
+	restartable := model.services[name] == crashed && model.link != nil && crashed.request != nil
+	allowed := restartable && model.allowRestart(name, time.Now())
+	attempts := len(model.restarts[name])
+	if restartable && !allowed {
+		model.degraded[name] = "restart budget exhausted"
+	}
+	model.mu.Unlock()
+	if !restartable {
+		return
+	}
+	if !allowed {
+		if s.console != nil {
+			s.console.Event("process.degraded", map[string]any{"service_process": name, "restarts": devProcessRestartBudget, "window": devProcessRestartWindow.String()})
+		}
+		return
+	}
+	select {
+	case <-time.After(time.Duration(attempts) * devProcessRestartBackoff):
+	case <-s.ctx.Done():
+		return
+	}
+	model.mu.Lock()
+	defer model.mu.Unlock()
+	if model.services[name] != crashed || model.link == nil {
+		return
+	}
+	model.sequence++
+	replacement := &devProcessInstance{process: crashed.process, socket: filepath.Join(model.socketDir, "s"+strconv.Itoa(model.sequence)+".sock")}
+	environment := append(envWithoutKeys(crashed.request.Env, "SCENERY_LISTEN_ADDR"), "SCENERY_LISTEN_ADDR="+replacement.socket)
+	if err := s.startDevProcessInstance(s.ctx, replacement, "service:"+name, environment, devBackend{Network: "unix", Addr: replacement.socket}); err != nil {
+		model.degraded[name] = err.Error()
+		if s.console != nil {
+			s.console.Event("process.degraded", map[string]any{"service_process": name, "error": err.Error()})
+		}
+		return
+	}
+	go s.watchDevServiceInstance(model, replacement)
+	previous, previousGeneration := model.services, model.generation
+	next := maps.Clone(previous)
+	next[name] = replacement
+	model.services = next
+	if err := s.publishDevProcessGeneration(s.ctx, model); err != nil {
+		model.services = previous
+		markDevProcessesStopped([]*devProcessInstance{replacement})
+		_ = s.stopInstances([]*devProcessInstance{replacement}, model.runningCommands())
+		model.degraded[name] = err.Error()
+		return
+	}
+	s.activateDevProcessInstances(s.ctx, model, []*devProcessInstance{replacement})
+	go s.retireDevProcessGeneration(model, model.link, previousGeneration)
+	if s.console != nil {
+		s.console.Event("process.restart", map[string]any{"service_process": name, "pid": replacement.app.pid, "stopped_pid": crashed.app.pid, "attempt": attempts})
+	}
+}
+
+// allowRestart records one crash recovery of a service process and reports
+// whether its budget still allows restarting it; the caller holds model.mu.
+func (model *devProcessModel) allowRestart(name string, now time.Time) bool {
+	kept := model.restarts[name][:0]
+	for _, attempt := range model.restarts[name] {
+		if now.Sub(attempt) < devProcessRestartWindow {
+			kept = append(kept, attempt)
+		}
+	}
+	model.restarts[name] = kept
+	if len(kept) >= devProcessRestartBudget {
+		return false
+	}
+	model.restarts[name] = append(kept, now)
+	return true
 }
 
 // instances lists every service instance the state names once.

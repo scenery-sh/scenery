@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"scenery.sh/internal/build"
 )
@@ -149,4 +150,69 @@ func TestDevProcessPreparationServesOnlyItsOwnLinkAndIdentity(t *testing.T) {
 		t.Fatalf("absent preparation = %#v, %v", instance, err)
 	}
 	none.release(&devSupervisor{})
+}
+
+func TestDevProcessRestartBudgetDegradesAServiceThatKeepsCrashing(t *testing.T) {
+	model := &devProcessModel{restarts: map[string][]time.Time{}, degraded: map[string]string{}}
+	now := time.Now()
+	for attempt := range devProcessRestartBudget {
+		if !model.allowRestart("echo_echo", now.Add(time.Duration(attempt)*time.Second)) {
+			t.Fatalf("restart %d was refused inside the budget", attempt)
+		}
+	}
+	if model.allowRestart("echo_echo", now.Add(time.Duration(devProcessRestartBudget)*time.Second)) {
+		t.Fatal("a service restarted beyond its budget")
+	}
+	// Another service keeps its own budget, and crashes older than the window
+	// no longer count.
+	if !model.allowRestart("greeter_greeter", now) {
+		t.Fatal("an unrelated service was refused")
+	}
+	if !model.allowRestart("echo_echo", now.Add(devProcessRestartWindow+time.Second)) {
+		t.Fatal("a service was refused after its window passed")
+	}
+	// A new build of the service forgets its crash history and degraded state.
+	model.degraded["echo_echo"] = "restart budget exhausted"
+	clearDevProcessRecovery(model, []*devProcessInstance{{process: build.DevelopmentProcess{Name: "echo_echo"}}})
+	if len(model.restarts["echo_echo"]) != 0 || model.degraded["echo_echo"] != "" {
+		t.Fatalf("a rebuilt service kept %d crashes and %q", len(model.restarts["echo_echo"]), model.degraded["echo_echo"])
+	}
+}
+
+func TestServiceProcessStatusesReportEveryServiceAndItsState(t *testing.T) {
+	instance := func(name, revision, pid string) *devProcessInstance {
+		return &devProcessInstance{
+			process: build.DevelopmentProcess{Name: name, Identity: build.DevelopmentProcessIdentity{ImplementationRevision: revision}},
+			app:     &runningApp{pid: pid},
+		}
+	}
+	crashed := instance("maps_maps", "sha256:maps", "303")
+	crashed.stopped = true
+	supervisor := &devSupervisor{processes: &devProcessModel{
+		generation: 7,
+		services: map[string]*devProcessInstance{
+			"greeter_greeter": instance("greeter_greeter", "sha256:greeter", "301"),
+			"echo_echo":       instance("echo_echo", "sha256:echo", "302"),
+			"maps_maps":       crashed,
+		},
+		degraded: map[string]string{"maps_maps": "restart budget exhausted"},
+		restarts: map[string][]time.Time{},
+	}}
+	statuses := supervisor.serviceProcessStatuses()
+	if len(statuses) != 3 || statuses[0].Name != "echo_echo" || statuses[1].Name != "greeter_greeter" || statuses[2].Name != "maps_maps" {
+		t.Fatalf("service process statuses = %#v", statuses)
+	}
+	if statuses[0].State != "running" || statuses[0].PID != "302" || statuses[0].Generation != 7 || statuses[0].ImplementationRevision != "sha256:echo" {
+		t.Fatalf("running service = %#v", statuses[0])
+	}
+	if statuses[2].State != "degraded" || statuses[2].Reason != "restart budget exhausted" {
+		t.Fatalf("degraded service = %#v", statuses[2])
+	}
+	session := supervisor.sessionServiceProcesses()
+	if len(session) != 2 || session["service:echo_echo"].PID != 302 || session["service:greeter_greeter"].PID != 301 {
+		t.Fatalf("session service processes = %#v", session)
+	}
+	if statuses := (&devSupervisor{}).serviceProcessStatuses(); statuses != nil {
+		t.Fatalf("single application model reported service processes: %#v", statuses)
+	}
 }
