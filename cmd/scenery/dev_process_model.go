@@ -759,7 +759,15 @@ func (s *devSupervisor) stopInstances(instances []*devProcessInstance, inUse map
 	}
 	wg.Wait()
 	for _, instance := range instances {
-		if instance != nil && instance.app != nil && instance.app.launch != nil && !inUse[instance.app.launch.request.Command] {
+		if instance == nil {
+			continue
+		}
+		// An instance that was killed rather than stopped leaves its listening
+		// socket behind; the supervisor owns that path.
+		if instance.socket != "" && instance.process.Name != build.DevelopmentProcessHost {
+			_ = os.Remove(instance.socket)
+		}
+		if instance.app != nil && instance.app.launch != nil && !inUse[instance.app.launch.request.Command] {
 			s.releaseUnusedAppBinary(instance.app.launch)
 		}
 	}

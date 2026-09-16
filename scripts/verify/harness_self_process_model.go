@@ -217,8 +217,8 @@ func runHarnessProcessModelProbe(parent context.Context, repoRoot string) (summa
 	}
 	// Every answer names the generation that served it: the pinned request
 	// keeps the generation it entered while later requests name a newer one.
-	if inFlight.response.Generation != greeterOne.Generation || echoTwo.Generation <= inFlight.response.Generation {
-		return nil, fmt.Errorf("answers named generations %d (pinned), %d (first) and %d (after two replacements)", inFlight.response.Generation, greeterOne.Generation, echoTwo.Generation)
+	if inFlight.response.Generation != echoOne.Generation || echoTwo.Generation <= inFlight.response.Generation {
+		return nil, fmt.Errorf("answers named generations %d (pinned), %d (when it entered) and %d (after two replacements)", inFlight.response.Generation, echoOne.Generation, echoTwo.Generation)
 	}
 	for _, pid := range []int{greeterOne.PID, echoOne.PID} {
 		if !nativeBuildWaitProcessExit(pid, 45*time.Second) {
