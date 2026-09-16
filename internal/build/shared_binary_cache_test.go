@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -96,8 +97,7 @@ func TestSharedDevelopmentBinaryDeduplicatesInflightAndDetachesCanceledWaiter(t 
 	t.Setenv("SCENERY_DEV_CACHE_DIR", t.TempDir())
 	root, first := newCachedBuildTestWorkspace(t, "inflight")
 	prepareSharedBinaryTestResult(root, first)
-	second := cloneSharedBinaryTestResult(first, filepath.Join(t.TempDir(), "second"))
-	third := cloneSharedBinaryTestResult(first, filepath.Join(t.TempDir(), "third"))
+	second, third := cloneSharedBinaryTestWorkspace(t, first), cloneSharedBinaryTestWorkspace(t, first)
 	started, releaseBuild := make(chan struct{}), make(chan struct{})
 	var builds atomic.Int32
 	restore := SetGoRunnerForTesting(func(ctx context.Context, _ string, args ...string) error {
@@ -144,7 +144,7 @@ func TestSharedDevelopmentBinaryProducerCancellationKeepsSubscribedBuild(t *test
 	t.Setenv("SCENERY_DEV_CACHE_DIR", t.TempDir())
 	root, first := newCachedBuildTestWorkspace(t, "producer-cancel")
 	prepareSharedBinaryTestResult(root, first)
-	second := cloneSharedBinaryTestResult(first, filepath.Join(t.TempDir(), "second"))
+	second := cloneSharedBinaryTestWorkspace(t, first)
 	started, releaseBuild, buildCanceled := make(chan struct{}), make(chan struct{}), make(chan struct{})
 	var builds atomic.Int32
 	restore := SetGoRunnerForTesting(func(ctx context.Context, _ string, args ...string) error {
@@ -448,6 +448,8 @@ func runSharedBinaryTestBuild(ctx context.Context, result *Result) error {
 	})
 }
 
+// The clone borrows the source's private workspace. CompileContext serializes
+// such callers under the workspace lock, so only run them sequentially.
 func cloneSharedBinaryTestResult(source *Result, binary string) *Result {
 	clone := *source
 	target := *source.Target
@@ -458,4 +460,32 @@ func cloneSharedBinaryTestResult(source *Result, binary string) *Result {
 		clone.RuntimeLinkerMetadata[key] = value
 	}
 	return &clone
+}
+
+// Concurrent callers each hold their own workspace lock in production, so one
+// caller's in-workspace executable publication never reaches another caller's
+// membership check. Identical verified bytes keep one exact artifact key.
+func cloneSharedBinaryTestWorkspace(t *testing.T, source *Result) *Result {
+	t.Helper()
+	workspace := t.TempDir()
+	for _, relative := range slices.Concat([]string{"go.mod", "go.sum"}, source.SourceFiles, source.GeneratedFiles) {
+		data, err := os.ReadFile(filepath.Join(source.Dir, filepath.FromSlash(relative)))
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeBuildTestFile(t, workspace, relative, string(data))
+	}
+	clone := cloneSharedBinaryTestResult(source, filepath.Join(workspace, workspaceBinaryName(source.AppRoot, source.BuildFingerprint)))
+	input := *source.BuildInput
+	input.sharedWorkspace = workspace
+	clone.Dir, clone.BuildInput = workspace, &input
+	sourceKey, _, sourceErr := sharedBinaryKey(source)
+	cloneKey, _, cloneErr := sharedBinaryKey(clone)
+	if err := errors.Join(sourceErr, cloneErr); err != nil || cloneKey != sourceKey {
+		t.Fatalf("private workspace clone changed the shared binary key: same_key=%t err=%v", cloneKey == sourceKey, err)
+	}
+	return clone
 }
