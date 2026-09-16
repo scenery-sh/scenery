@@ -19,6 +19,7 @@ import type {
   DashboardEvent,
   DevLogEntry,
   ObservabilitySignal,
+  ServiceProcess,
   SQLDatabase,
   TraceSummary,
 } from './scenery'
@@ -144,6 +145,10 @@ export function OverviewPage({
         />
       </Grid>
 
+      {(status?.serviceProcesses?.length ?? 0) > 0 ? (
+        <ServiceProcessesPanel processes={status?.serviceProcesses ?? []} />
+      ) : null}
+
       <Grid columns={{ minWidth: 320, max: 2 }} gap={4}>
         <ServiceLinksPanel links={serviceLinks} />
         <ActivityPanel logs={logs} traces={traces} events={events} />
@@ -180,6 +185,35 @@ export function LogsPage({ logs }: { logs: DevLogEntry[] }) {
         hasHover
         textOverflow="truncate"
       />
+    </Section>
+  )
+}
+
+function ServiceProcessesPanel({ processes }: { processes: ServiceProcess[] }) {
+  const running = processes.filter((process) => process.state === 'running').length
+  return (
+    <Section padding={4}>
+      <VStack gap={4} as="section">
+        <SectionHeading
+          title="Service Processes"
+          description={`${running} of ${processes.length} service processes running in generation ${processes[0]?.generation ?? 0}`}
+        />
+        <section {...stylex.props(styles.routeList)}>
+          {processes.map((process) => (
+            <section key={process.name} {...stylex.props(styles.routeRow)}>
+              <VStack gap={0.5} as="section">
+                <Text type="label" weight="semibold">
+                  {process.name}
+                </Text>
+                <Text type="supporting" color="secondary" maxLines={1} xstyle={styles.codeText}>
+                  {process.reason ?? `pid ${process.pid ?? 'none'} · ${process.implementationRevision ?? 'unknown'}`}
+                </Text>
+              </VStack>
+              <Badge label={process.state} variant={process.state === 'running' ? 'success' : 'error'} />
+            </section>
+          ))}
+        </section>
+      </VStack>
     </Section>
   )
 }

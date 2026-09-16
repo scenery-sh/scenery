@@ -207,6 +207,15 @@ export type AppSummary = {
   compileError?: string
 }
 
+export type ServiceProcess = {
+  name: string
+  pid?: string
+  generation?: number
+  implementationRevision?: string
+  state: string
+  reason?: string
+}
+
 export type AppStatus = {
   running: boolean
   appID: string
@@ -222,6 +231,7 @@ export type AppStatus = {
   sessionStatusReason?: string
   compiling: boolean
   compileError?: string
+  serviceProcesses?: ServiceProcess[]
   observability?: {
     enabled?: boolean
     backend?: string

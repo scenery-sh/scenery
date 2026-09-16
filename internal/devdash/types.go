@@ -63,6 +63,21 @@ type AppStatus struct {
 	DashboardBundle     *DashboardBundle    `json:"dashboardBundle,omitempty"`
 	Compiling           bool                `json:"compiling"`
 	CompileError        string              `json:"compileError,omitempty"`
+	// ServiceProcesses reports the service processes of a process-model
+	// session; it is absent when the application runs as one process.
+	ServiceProcesses []ServiceProcess `json:"serviceProcesses,omitempty"`
+}
+
+// ServiceProcess is one service process of the published generation.
+type ServiceProcess struct {
+	Name                   string `json:"name"`
+	PID                    string `json:"pid,omitempty"`
+	Generation             uint64 `json:"generation,omitempty"`
+	ImplementationRevision string `json:"implementationRevision,omitempty"`
+	// State is running for a serving instance, degraded for a service whose
+	// process stopped and exhausted its restart budget.
+	State  string `json:"state"`
+	Reason string `json:"reason,omitempty"`
 }
 
 type DashboardBundle struct {

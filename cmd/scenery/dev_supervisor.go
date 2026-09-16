@@ -1335,6 +1335,7 @@ func (s *devSupervisor) appStatus() devdash.AppStatus {
 		CompileError:  s.status.CompileError,
 	}
 	s.mu.RUnlock()
+	status.ServiceProcesses = s.serviceProcessStatuses()
 	applySessionStatusToAppStatus(&status, session)
 	status.Meta = s.metadataWithRuntimePostgresDatabases(status.Meta, status.AppRoot)
 	return status
@@ -1652,6 +1653,14 @@ func (s *devSupervisor) sessionProcessesFor(session *localagent.Session, appPID 
 		for key, process := range s.assistants.ProcessSnapshot() {
 			processes[key] = process
 		}
+	}
+	for key := range processes {
+		if strings.HasPrefix(key, "service:") {
+			delete(processes, key)
+		}
+	}
+	for key, process := range s.sessionServiceProcesses() {
+		processes[key] = process
 	}
 	if len(processes) == 0 {
 		return nil

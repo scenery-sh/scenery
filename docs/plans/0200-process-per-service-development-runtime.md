@@ -282,6 +282,32 @@ compile the application graph as it needs.
   (1,215-1,561 ms) beside the database and snapshot checks, 55 ms process start
   and publication at 1,616 ms. The check itself ended at 1,189 ms, off the
   critical path.
+- [x] (2026-09-16) Identifying every process entrypoint now memoizes package
+  closure digests over the import graph instead of unioning the inputs of each
+  entrypoint's closure, and package inputs are stamped concurrently. Go package
+  tests and lint pass; the ONLV measurement is pending (see below).
+- [x] (2026-09-16) A service process that stops on its own restarts from its own
+  verified executable and is published as the next generation, bounded by three
+  restarts per minute per service; beyond that the service stays degraded until
+  its next build, and the published generation keeps naming the process that is
+  gone so requests to it fail visibly. `TestDevProcessRestartBudgetDegradesAServiceThatKeepsCrashing`
+  covers the budget, and the `process-model` probe kills `echo` and requires the
+  same implementation to serve again while `greeter` keeps its process.
+- [x] (2026-09-16) Per-process status: `devdash.AppStatus` reports every service
+  process (name, PID, generation, implementation revision, running or degraded
+  with its reason), the console shows them in an overview panel, and the agent
+  session record names each running service process as `service:<name>`.
+- [x] (2026-09-16) Generation-bound evidence: every answer the host serves names
+  its application generation in `X-Scenery-Process-Generation`, including the
+  answer to a request pinned to a replaced generation, and the host's generation
+  status lists each retained generation's instances with their linked
+  identities. The `process-model` probe requires the pinned answer to name the
+  generation it entered while later answers name a newer one.
+- [x] (2026-09-16) Deterministic failure injection: a session's host accepts
+  fault rules on its private control listener that refuse, delay or lose the
+  answer of selected dispatched calls and forwarded requests, each bounded by a
+  count, so a disposable session can prove application retry and idempotency
+  behavior. `TestProcessHostFailsSelectedWorkOnPurpose` covers every mode.
 - [ ] Reaching the 300/500 ms targets needs the remaining path to shrink about
   fivefold, and no single step dominates it any more: the entrypoint build
   (548 ms of stock `go build`), the first execution of the new executable
@@ -291,24 +317,17 @@ compile the application graph as it needs.
   (55 ms). The retained compiler for entrypoints and a cheaper workspace
   preparation are the next candidates; a single-start handshake would save only
   the second execution (about 55 ms) because the first execution's cost stays.
-- [ ] Follow-ups from the 9a0b54d0 review, not yet scheduled: bound link
-  parallelism inside one process build (the fair slot admits the build, but
-  `go build` still links up to `-p` entrypoints at once; measure peak memory of
-  the first ONLV build first); replace the separate preflight execution with a
-  single-start attestation once it keeps the same guarantees; supervised
-  restart of a crashed service instance from its verified executable with a
-  crash budget and an explicit degraded state; generation-bound verification
-  receipts naming the generation manifest and callee identities a check
-  exercised; and deterministic failure injection at the host's dispatch
-  boundary for disposable sessions.
-- [ ] Milestone 4 remaining toward the 300/500 ms targets, in path order: the
-  implementation check on every edit; about 0.42 s of preparation before input
-  discovery (framework verification, workspace cache and materialization); the
-  0.2 s snapshot rescan; the first execution of each new executable from this
-  launching context; the retained compiler for process entrypoints; and
-  per-process status in dashboard and session records.
-- [ ] Milestone 4: ONLV rebaseline, resources, background-work ownership,
-  semantic conformance, and the edit-to-response measurement.
+- [ ] Remaining follow-ups from the 9a0b54d0 review: bound link parallelism
+  inside one process build (the fair slot admits the build, but `go build` still
+  links up to `-p` entrypoints at once; measure the peak memory of a complete
+  ONLV build first), and replace the separate preflight execution with a
+  single-start attestation, which saves only the second execution because the
+  first execution's cost stays.
+- [ ] Milestone 4 acceptance on ONLV is blocked: `main` removed the library
+  concept (b6d80b30), and the disposable ONLV worktree of 2026-09-15 still
+  declares `library.maps3d` and `envs.local.libraries`, so its session no longer
+  starts. The rebaseline, resources, conformance and edit-to-response
+  measurement need an ONLV checkout that matches the current framework.
 
 ## Surprises & Discoveries
 
