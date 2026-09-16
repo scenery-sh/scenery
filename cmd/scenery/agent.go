@@ -590,23 +590,29 @@ func parsePruneArgs(args []string) (pruneOptions, error) {
 		}
 	}
 	if opts.OlderThan <= 0 {
-		return pruneOptions{}, fmt.Errorf("prune requires --older-than <duration>")
+		return pruneOptions{}, &codedCLIError{err: fmt.Errorf("prune requires --older-than <duration>, for example 336h or 14d"), code: 2}
 	}
 	return opts, nil
 }
 
+// parsePruneAge rejects a malformed or non-positive age as an invalid request:
+// a caller mistyping a duration must read what it should have written, not an
+// opaque internal failure report.
 func parsePruneAge(value string) (time.Duration, error) {
+	invalid := func() error {
+		return &codedCLIError{err: fmt.Errorf("invalid --older-than duration %q; use a positive Go duration such as 336h or day shorthand such as 14d", value), code: 2}
+	}
 	value = strings.TrimSpace(value)
 	if strings.HasSuffix(value, "d") {
 		days, err := strconv.Atoi(strings.TrimSuffix(value, "d"))
 		if err != nil || days <= 0 {
-			return 0, fmt.Errorf("invalid --older-than duration %q", value)
+			return 0, invalid()
 		}
 		return time.Duration(days) * 24 * time.Hour, nil
 	}
 	duration, err := time.ParseDuration(value)
 	if err != nil || duration <= 0 {
-		return 0, fmt.Errorf("invalid --older-than duration %q", value)
+		return 0, invalid()
 	}
 	return duration, nil
 }

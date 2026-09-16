@@ -325,6 +325,13 @@ compile the application graph as it needs.
   ONLV build first), and replace the separate preflight execution with a
   single-start attestation, which saves only the second execution because the
   first execution's cost stays.
+- [ ] The disposable ONLV worktrees of this work are removed: their retained
+  clusters, containers and volumes through `scenery prune --older-than 1s --all
+  --app-root <root>`, then the checkouts and their build workspaces and retained
+  compiler state, which returned 9.7 GB. `scenery prune` reported every usage
+  mistake as an internal failure with an opaque token, so an unusable
+  `--older-than` is now an invalid request that names the flag and an example.
+  Repeating the ONLV measurements needs a new disposable worktree.
 - [ ] Milestone 4 acceptance on ONLV is blocked in this environment. A fresh
   disposable worktree of ONLV `fd5bd25b` (which no longer declares libraries)
   prepares and serves in the single application model, and in the process model
