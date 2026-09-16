@@ -25,6 +25,7 @@ import (
 
 	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/app"
+	"scenery.sh/internal/build"
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/devdash"
 	"scenery.sh/internal/envfile"
@@ -45,8 +46,11 @@ type runningApp struct {
 }
 
 type devSupervisor struct {
-	ctx                   context.Context
-	cancel                context.CancelFunc
+	ctx    context.Context
+	cancel context.CancelFunc
+	// background owns build work that outlives the build that scheduled it;
+	// Close cancels it and waits for it.
+	background            *build.BackgroundWork
 	root                  string
 	cfg                   app.Config
 	env                   app.ResolvedEnv
@@ -149,6 +153,7 @@ func newDevSupervisor(ctx context.Context, root string, cfg app.Config, env app.
 	s := &devSupervisor{
 		ctx:          supervisorCtx,
 		cancel:       cancel,
+		background:   build.NewBackgroundWork(supervisorCtx),
 		root:         root,
 		cfg:          cfg,
 		env:          env,
@@ -231,6 +236,7 @@ func (s *devSupervisor) Close() error {
 		if s.cancel != nil {
 			s.cancel()
 		}
+		s.background.Close()
 		if s.postgresMonitorDone != nil {
 			<-s.postgresMonitorDone
 		}

@@ -116,6 +116,9 @@ func mergeRecordedActions(recipe *Recipe, recordRoot string, capture Capture) (b
 		if record.Protocol != ProtocolVersion || record.ExitCode != 0 {
 			return false, fmt.Errorf("invalid recorded action %s", path)
 		}
+		if err := validateRecordedInputs(record, capture.Files); err != nil {
+			return false, err
+		}
 		base := filepath.Base(record.Tool)
 		switch base {
 		case "compile":
@@ -178,6 +181,19 @@ func mergeRecordedActions(recipe *Recipe, recordRoot string, capture Capture) (b
 		}
 	}
 	return linkSeen, nil
+}
+
+// validateRecordedInputs binds a recorded action to the capture its recipe
+// describes: every captured input the tool read must have had the captured
+// content. A capture taken on either side of an edit would otherwise pair the
+// archive compiled from one source with the identity of another.
+func validateRecordedInputs(record ToolRecord, captured map[string]string) error {
+	for _, file := range record.Files {
+		if digest, ok := captured[file.Original]; ok && digest != file.Digest {
+			return fmt.Errorf("recorded %s input differs from its captured content: %s", filepath.Base(record.Tool), file.Original)
+		}
+	}
+	return nil
 }
 
 // RefreshRecordedRecipe merges the cache-miss actions from an ordinary stock

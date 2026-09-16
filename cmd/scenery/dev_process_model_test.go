@@ -3,12 +3,18 @@ package main
 import (
 	"context"
 	"errors"
+	"net"
+	"net/http"
+	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/build"
 )
 
@@ -198,6 +204,7 @@ func TestServiceProcessStatusesReportEveryServiceAndItsState(t *testing.T) {
 		degraded: map[string]string{"maps_maps": "restart budget exhausted"},
 		restarts: map[string][]time.Time{},
 	}}
+	supervisor.processes.publishStatus()
 	statuses := supervisor.serviceProcessStatuses()
 	if len(statuses) != 3 || statuses[0].Name != "echo_echo" || statuses[1].Name != "greeter_greeter" || statuses[2].Name != "maps_maps" {
 		t.Fatalf("service process statuses = %#v", statuses)
@@ -214,5 +221,126 @@ func TestServiceProcessStatusesReportEveryServiceAndItsState(t *testing.T) {
 	}
 	if statuses := (&devSupervisor{}).serviceProcessStatuses(); statuses != nil {
 		t.Fatalf("single application model reported service processes: %#v", statuses)
+	}
+}
+
+// An assistant helper that starts during a complete activation reports its
+// process, which registers the session and names the service processes while
+// the activation still holds model.mu. Reading them must not wait for it.
+func TestSessionServiceProcessesDoNotWaitForAnActivation(t *testing.T) {
+	model := &devProcessModel{
+		generation: 3,
+		services: map[string]*devProcessInstance{"echo_echo": {
+			process: build.DevelopmentProcess{Name: "echo_echo"}, app: &runningApp{pid: "302"},
+		}},
+		degraded: map[string]string{},
+	}
+	supervisor := &devSupervisor{processes: model}
+	model.mu.Lock()
+	model.publishStatus()
+	read := make(chan map[string]localagent.Process, 1)
+	go func() { read <- supervisor.sessionProcessesFor(&localagent.Session{}, "301") }()
+	select {
+	case processes := <-read:
+		if processes["service:echo_echo"].PID != 302 || processes[localagent.RouteAPI].PID != 301 {
+			t.Fatalf("session processes = %#v", processes)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("registering the session waited for the activation that holds model.mu")
+	}
+	model.unlock()
+}
+
+// devProcessControlServer answers the background control requests of one
+// instance socket with the next status of statuses, repeating the last one.
+func devProcessControlServer(t *testing.T, statuses ...int) (string, *atomic.Int32) {
+	t.Helper()
+	directory, err := os.MkdirTemp("", "scp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(directory) })
+	socket := filepath.Join(directory, "s.sock")
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var requests atomic.Int32
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		index := int(requests.Add(1)) - 1
+		w.WriteHeader(statuses[min(index, len(statuses)-1)])
+	})}
+	go func() { _ = server.Serve(listener) }()
+	t.Cleanup(func() { _ = server.Close() })
+	return socket, &requests
+}
+
+func TestUnconfirmedActivationIsDegradedUntilReconciled(t *testing.T) {
+	socket, requests := devProcessControlServer(t, http.StatusInternalServerError, http.StatusNoContent)
+	instance := &devProcessInstance{process: build.DevelopmentProcess{Name: "echo_echo"}, socket: socket, app: &runningApp{pid: "302"}}
+	model := &devProcessModel{
+		token: "token", activationBackoff: time.Millisecond, degraded: map[string]string{},
+		services: map[string]*devProcessInstance{"echo_echo": instance},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	supervisor := &devSupervisor{ctx: ctx, processes: model}
+	model.mu.Lock()
+	supervisor.activateDevProcessInstances(ctx, model, []*devProcessInstance{instance})
+	// The reconciler cannot confirm the activation while mu is held.
+	model.publishStatus()
+	if statuses := supervisor.serviceProcessStatuses(); len(statuses) != 1 || statuses[0].State != "degraded" || !strings.Contains(statuses[0].Reason, "activation unconfirmed") {
+		t.Fatalf("unconfirmed activation reported %#v", statuses)
+	}
+	if processes := supervisor.sessionServiceProcesses(); processes["service:echo_echo"].PID != 302 {
+		t.Fatalf("a serving instance with unconfirmed background work left the session: %#v", processes)
+	}
+	model.unlock()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		statuses := supervisor.serviceProcessStatuses()
+		if len(statuses) == 1 && statuses[0].State == "running" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("activation was not reconciled: %#v after %d requests", statuses, requests.Load())
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if got := requests.Load(); got != 2 {
+		t.Fatalf("activation requests = %d, want 2", got)
+	}
+}
+
+func TestActivationReconcilerStopsForAReplacedInstance(t *testing.T) {
+	socket, requests := devProcessControlServer(t, http.StatusInternalServerError)
+	instance := &devProcessInstance{process: build.DevelopmentProcess{Name: "echo_echo"}, socket: socket, app: &runningApp{pid: "302"}}
+	model := &devProcessModel{
+		token: "token", activationBackoff: time.Millisecond, degraded: map[string]string{},
+		services: map[string]*devProcessInstance{"echo_echo": instance},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	supervisor := &devSupervisor{ctx: ctx, processes: model}
+	model.mu.Lock()
+	supervisor.activateDevProcessInstances(ctx, model, []*devProcessInstance{instance})
+	// A newer generation replaces the instance before its activation confirms.
+	model.services = map[string]*devProcessInstance{"echo_echo": {process: build.DevelopmentProcess{Name: "echo_echo"}, app: &runningApp{pid: "303"}}}
+	model.unlock()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		model.mu.Lock()
+		reconciling := instance.reconciling
+		model.mu.Unlock()
+		if !reconciling {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the reconciler kept activating a replaced instance")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if got := requests.Load(); got != 1 {
+		t.Fatalf("a replaced instance received %d activation requests, want 1", got)
 	}
 }

@@ -32,6 +32,9 @@ const (
 	devProcessControlTimeout = 5 * time.Second
 	// devProcessBackgroundTimeout bounds one activation or drain request.
 	devProcessBackgroundTimeout = 5 * time.Second
+	// devProcessActivationBackoff is the first delay before an unconfirmed
+	// activation is repeated; later attempts double up to the request timeout.
+	devProcessActivationBackoff = 250 * time.Millisecond
 	// A crashed service process restarts from its own verified executable
 	// within this budget; beyond it the service stays degraded until its next
 	// build, so a failing constructor cannot become a restart storm.
@@ -52,7 +55,9 @@ func devProcessModelSelected() (bool, error) {
 }
 
 // devProcessModel owns the host and service process instances of a
-// process-model session; mu serializes activations. Each host incarnation has
+// process-model session; mu serializes activations and guards the model, and
+// every critical section that changes the model publishes its status before
+// releasing mu (see unlock). Each host incarnation has
 // its own link (link file and dispatch socket). Service instances start without
 // background work; once a generation is published, the instances it replaced
 // are drained and its new instances are activated, so only instances of the
@@ -79,6 +84,11 @@ type devProcessModel struct {
 	// degraded names the services whose budget is exhausted.
 	restarts map[string][]time.Time
 	degraded map[string]string
+	// activationBackoff overrides devProcessActivationBackoff when positive.
+	activationBackoff time.Duration
+	// statusMu guards status, which readers use instead of mu.
+	statusMu sync.Mutex
+	status   devProcessStatus
 }
 
 // devProcessLink is the wiring of one host incarnation.
@@ -98,6 +108,11 @@ type devProcessInstance struct {
 	request *devProcessStartRequest
 	app     *runningApp
 	stopped bool
+	// activation is the error of an activation the instance has not confirmed;
+	// reconciling reports that a reconciler repeats it. Both are guarded by
+	// model.mu.
+	activation  string
+	reconciling bool
 }
 
 func (s *devSupervisor) ensureDevProcessModel() (*devProcessModel, error) {
@@ -209,7 +224,7 @@ func (s *devSupervisor) activateDevProcesses(ctx context.Context, plan *devRunti
 		}
 	}
 	model.mu.Lock()
-	defer model.mu.Unlock()
+	defer model.unlock()
 	s.mu.RLock()
 	host := s.current
 	s.mu.RUnlock()
@@ -399,6 +414,9 @@ func (s *devSupervisor) startDevProcessGeneration(ctx context.Context, model *de
 				<-hostInstance.app.process.Done
 				s.handleExit(context.Background(), hostInstance.app)
 			}()
+			// Helpers that start next register the session, which reads the
+			// published status while this activation still holds model.mu.
+			model.publishStatus()
 			if s.assistants != nil {
 				_ = s.console.Phase("Starting prepared assistant runtimes", func() error { return s.assistants.StartPrepared(ctx) })
 				s.refreshAssistantRuntimeConfig()
@@ -449,6 +467,7 @@ func (s *devSupervisor) restoreDevProcessHost(ctx context.Context, model *devPro
 		<-process.Done
 		s.handleExit(context.Background(), app)
 	}()
+	model.publishStatus()
 	if s.assistants != nil {
 		_ = s.console.Phase("Starting prepared assistant runtimes", func() error { return s.assistants.StartPrepared(ctx) })
 		s.refreshAssistantRuntimeConfig()
@@ -612,7 +631,7 @@ func (s *devSupervisor) watchDevServiceInstance(model *devProcessModel, instance
 	model.mu.Lock()
 	current := model.services[instance.process.Name] == instance && !instance.stopped
 	instance.stopped = true
-	model.mu.Unlock()
+	model.unlock()
 	if !current {
 		return
 	}
@@ -636,7 +655,7 @@ func (s *devSupervisor) recoverDevServiceInstance(model *devProcessModel, crashe
 	if restartable && !allowed {
 		model.degraded[name] = "restart budget exhausted"
 	}
-	model.mu.Unlock()
+	model.unlock()
 	if !restartable {
 		return
 	}
@@ -652,7 +671,7 @@ func (s *devSupervisor) recoverDevServiceInstance(model *devProcessModel, crashe
 		return
 	}
 	model.mu.Lock()
-	defer model.mu.Unlock()
+	defer model.unlock()
 	if model.services[name] != crashed || model.link == nil {
 		return
 	}
@@ -784,7 +803,7 @@ func (s *devSupervisor) closeDevProcesses() error {
 		return nil
 	}
 	model.mu.Lock()
-	defer model.mu.Unlock()
+	defer model.unlock()
 	instances := devProcessState{services: model.services, retained: model.retained}.instances()
 	model.services, model.retained, model.host = map[string]*devProcessInstance{}, map[uint64]map[string]*devProcessInstance{}, nil
 	markDevProcessesStopped(instances)

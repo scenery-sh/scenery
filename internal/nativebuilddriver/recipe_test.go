@@ -848,3 +848,86 @@ func TestBootstrapStateIsAdoptedByContentAcrossRecipes(t *testing.T) {
 		t.Fatalf("shared store holds %d archives for two identical closures of %d packages", len(entries), len(first.Compiles))
 	}
 }
+
+func TestAdoptionReplacesAnExistingArchiveWhoseContentDiffers(t *testing.T) {
+	root := t.TempDir()
+	recorded := filepath.Join(root, "recorded.a")
+	if err := os.WriteFile(recorded, []byte("archive-A"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	digest, size, err := FileDigest(recorded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(root, "store", "artifacts", strings.TrimPrefix(digest, "sha256:")+".a")
+	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// Different bytes of the same size under the content-addressed name.
+	if err := os.WriteFile(target, []byte("archive-B"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	adopted, err := adoptRetainedFile(recorded, target, RetainedFile{Digest: digest, Bytes: size})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if actual, _, err := FileDigest(target); err != nil || actual != digest {
+		t.Fatalf("adopted entry holds %s, want %s (%v)", actual, digest, err)
+	}
+	if err := validateRetainedFile(target, adopted); err != nil {
+		t.Fatalf("replaced entry does not validate: %v", err)
+	}
+
+	// An entry that already holds the expected content is adopted in place.
+	before, err := os.Lstat(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := adoptRetainedFile(recorded, target, RetainedFile{Digest: digest, Bytes: size})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.Stamp != fileStamp(before) {
+		t.Fatal("an entry with the expected content was replaced")
+	}
+}
+
+func TestRecordedActionsMustMatchTheCapturedInputs(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(root, "workspace", "a.go")
+	if err := os.MkdirAll(filepath.Dir(source), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(source, []byte("package a // A\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	compiled, _, err := FileDigest(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := ToolRecord{Protocol: ProtocolVersion, Tool: filepath.Join(root, "compile"), Argv: []string{"-p", "example/a", source}, Files: map[int]FileCopy{2: {Original: source, Digest: compiled}}}
+	if err := validateRecordedInputs(record, map[string]string{source: compiled}); err != nil {
+		t.Fatalf("matching capture was rejected: %v", err)
+	}
+	// The workspace was edited after the tool compiled it and before the
+	// capture that describes the recipe.
+	if err := validateRecordedInputs(record, map[string]string{source: "sha256:edited"}); err == nil || !strings.Contains(err.Error(), "differs from its captured content") {
+		t.Fatalf("an archive compiled from other source was accepted: %v", err)
+	}
+	recordRoot := filepath.Join(root, "record")
+	action := filepath.Join(recordRoot, "actions", "action-1")
+	if err := os.MkdirAll(action, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(action, "record.json"), encoded, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	recipe := &Recipe{Compiles: map[string]*CompileAction{}, ArchiveByOld: map[string]string{}, ToolDigests: map[string]string{}, Retained: map[string]RetainedFile{}, Support: map[string]RetainedFile{}}
+	if _, err := mergeRecordedActions(recipe, recordRoot, Capture{Files: map[string]string{source: "sha256:edited"}}); err == nil {
+		t.Fatal("merging a recording taken before an edit into a later capture succeeded")
+	}
+}

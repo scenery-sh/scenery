@@ -3,6 +3,7 @@ package build
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -27,6 +28,12 @@ const (
 	retainedProcessRoot      = "processes"
 	retainedProcessBootstrap = 10 * time.Minute
 	retainedProcessPriority  = 10
+	// retainedProcessCollectInterval is the number of recipe publications of a
+	// workspace after which its shared store is collected again. Every retained
+	// edit publishes an advanced recipe and leaves the archives and snapshots it
+	// superseded behind, so a long session must keep collecting, but a
+	// collection reads every recipe and must not run on every edit.
+	retainedProcessCollectInterval = 16
 )
 
 // retainedProcessTarget is one entrypoint the retained compiler can link.
@@ -40,8 +47,12 @@ type retainedProcessTarget struct {
 var (
 	retainedProcessRecipes    sync.Map
 	retainedProcessBootstraps sync.Map
-	retainedProcessPruned     sync.Map
+	retainedProcessStores     sync.Map
 	retainedProcessStockLinks sync.Map
+	// retainedProcessRejected names, per target root, the recipe a retained
+	// build found incompatible, so the committed pointer to it does not count
+	// as a usable recipe and a replacement is captured.
+	retainedProcessRejected sync.Map
 	// One capture rebuilds a complete closure with every core it can use, so a
 	// workspace records one recipe at a time however many entrypoints wait.
 	retainedProcessCaptureSlot = make(chan struct{}, 1)
@@ -58,6 +69,103 @@ func retainedProcessRoots(workspace string) (root, shared string, err error) {
 
 func retainedProcessTargetRoot(root, name string) string {
 	return filepath.Join(root, "targets", name)
+}
+
+// BackgroundWork owns build work that outlives the build which scheduled it,
+// such as recipe capture. Its owner closes it, which cancels the work and waits
+// until it has stopped; a build whose context carries no owner schedules none.
+type BackgroundWork struct {
+	ctx    context.Context
+	cancel context.CancelFunc
+	mu     sync.Mutex
+	closed bool
+	wg     sync.WaitGroup
+}
+
+type backgroundWorkKey struct{}
+
+// NewBackgroundWork returns background work that ends with parent or Close.
+func NewBackgroundWork(parent context.Context) *BackgroundWork {
+	ctx, cancel := context.WithCancel(parent)
+	return &BackgroundWork{ctx: ctx, cancel: cancel}
+}
+
+// WithBackgroundWork makes work the owner of background work that builds
+// running with the returned context schedule.
+func WithBackgroundWork(ctx context.Context, work *BackgroundWork) context.Context {
+	return context.WithValue(ctx, backgroundWorkKey{}, work)
+}
+
+// Close cancels the owned work and waits for it to stop.
+func (work *BackgroundWork) Close() {
+	if work == nil {
+		return
+	}
+	work.mu.Lock()
+	work.closed = true
+	work.mu.Unlock()
+	work.cancel()
+	work.wg.Wait()
+}
+
+// start runs one unit of work owned by the owner in ctx. The work keeps the
+// values of ctx, such as its build trace, but not its cancellation: it ends
+// when its owner closes. It reports false when there is no open owner.
+func startBackgroundWork(ctx context.Context, run func(context.Context)) bool {
+	work, _ := ctx.Value(backgroundWorkKey{}).(*BackgroundWork)
+	if work == nil {
+		return false
+	}
+	work.mu.Lock()
+	defer work.mu.Unlock()
+	if work.closed || work.ctx.Err() != nil {
+		return false
+	}
+	work.wg.Add(1)
+	runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	stop := context.AfterFunc(work.ctx, cancel)
+	go func() {
+		defer work.wg.Done()
+		defer cancel()
+		defer stop()
+		run(runCtx)
+	}()
+	return true
+}
+
+// retainedProcessStore accounts for the shared retained store of one
+// workspace: the captures that may be adopting objects into it before their
+// recipe is published, and the publications since it was last collected.
+type retainedProcessStore struct {
+	mu           sync.Mutex
+	captures     int
+	publications int
+	collected    bool
+}
+
+func retainedProcessStoreFor(root string) *retainedProcessStore {
+	value, _ := retainedProcessStores.LoadOrStore(root, &retainedProcessStore{})
+	return value.(*retainedProcessStore)
+}
+
+func (store *retainedProcessStore) lease() func() {
+	store.mu.Lock()
+	store.captures++
+	store.mu.Unlock()
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			store.mu.Lock()
+			store.captures--
+			store.mu.Unlock()
+		})
+	}
+}
+
+func (store *retainedProcessStore) published() {
+	store.mu.Lock()
+	store.publications++
+	store.mu.Unlock()
 }
 
 // linkRetainedDevelopmentProcess links one entrypoint from its captured recipe.
@@ -84,18 +192,24 @@ func linkRetainedDevelopmentProcess(ctx context.Context, result *Result, target 
 	if err != nil {
 		return false, nil
 	}
+	if rejected, _ := retainedProcessRejected.Load(targetRoot); rejected == loaded.recipePath {
+		// Its replacement is not published yet.
+		return false, nil
+	}
 	buildResult, next, err := runRetainedProcessRecipe(ctx, result, target, shared, loaded)
 	if err != nil {
 		return false, err
 	}
 	if buildResult.Status != "supported_and_rebuilt" {
-		// The recipe no longer describes this entrypoint's inputs. Forget it and
-		// capture a new one beside the stock build the caller now runs.
-		retainedProcessRecipes.Delete(key)
+		// The recipe no longer describes this entrypoint's inputs. Reject it, so
+		// the capture scheduled beside the stock build the caller now runs
+		// replaces it rather than finding its pointer and keeping it.
+		retainedProcessRejected.Store(targetRoot, loaded.recipePath)
 		RecordStep(ctx, Step{Name: "build.backend", StartedAt: time.Now(), Cache: "miss", Reason: "retained_process_" + buildResult.Reason, OK: true})
 		return false, nil
 	}
 	loaded.recipe = next
+	retainedProcessStoreFor(root).published()
 	return true, nil
 }
 
@@ -149,8 +263,8 @@ func runRetainedProcessRecipe(ctx context.Context, result *Result, target retain
 // actually works on link without the Go command's own package loading. The
 // first build of a session links every entrypoint and records nothing: an
 // application of fifty services must not answer its first edit by rebuilding
-// fifty complete closures. Capture runs in the background at a lowered
-// priority and never blocks or fails the build that requested it.
+// fifty complete closures. Capture runs in the background work that ctx names,
+// at a lowered priority, and never blocks or fails the build that requested it.
 func captureRetainedProcessRecipes(ctx context.Context, result *Result, targets []retainedProcessTarget) {
 	recorder, ok := retainedNativeExecutable()
 	if !ok || benchmarkStockGoBuild || len(targets) == 0 {
@@ -160,6 +274,7 @@ func captureRetainedProcessRecipes(ctx context.Context, result *Result, targets 
 	if err != nil {
 		return
 	}
+	store := retainedProcessStoreFor(root)
 	workspace, environment := result.Dir, append([]string(nil), result.GoEnvironment...)
 	configuration := append([]string(nil), result.GoBuildFlags...)
 	for _, target := range targets {
@@ -170,26 +285,31 @@ func captureRetainedProcessRecipes(ctx context.Context, result *Result, targets 
 		if _, exists := retainedProcessBootstraps.LoadOrStore(targetRoot, true); exists {
 			continue
 		}
-		// The capture outlives the build that scheduled it but keeps its trace,
-		// so the recipe it captures is attributed to the edit that needed it.
-		captureCtx := context.WithoutCancel(ctx)
-		go func(target retainedProcessTarget) {
+		// The lease is taken before this build collects the shared store, which
+		// the capture adopts objects into before its recipe references them.
+		release := store.lease()
+		started := startBackgroundWork(ctx, func(ctx context.Context) {
 			defer retainedProcessBootstraps.Delete(targetRoot)
-			captureCtx, cancel := context.WithTimeout(captureCtx, retainedProcessBootstrap)
+			defer release()
+			ctx, cancel := context.WithTimeout(ctx, retainedProcessBootstrap)
 			defer cancel()
 			select {
 			case retainedProcessCaptureSlot <- struct{}{}:
 				defer func() { <-retainedProcessCaptureSlot }()
-			case <-captureCtx.Done():
+			case <-ctx.Done():
 				return
 			}
 			started := time.Now()
-			err := captureRetainedProcessRecipe(captureCtx, workspace, environment, configuration, targetRoot, shared, recorder, target)
-			RecordStep(captureCtx, Step{
+			err := captureRetainedProcessRecipe(ctx, workspace, environment, configuration, targetRoot, shared, recorder, target)
+			RecordStep(ctx, Step{
 				Name: "build.recipe_capture", StartedAt: started, Duration: time.Since(started), Cache: "miss",
 				Reason: captureReason(target.name, err), OK: err == nil,
 			})
-		}(target)
+		})
+		if !started {
+			release()
+			retainedProcessBootstraps.Delete(targetRoot)
+		}
 	}
 }
 
@@ -204,7 +324,9 @@ func repeatedStockProcessLink(targetRoot string) bool {
 }
 
 func captureRetainedProcessRecipe(ctx context.Context, workspace string, environment, configuration []string, targetRoot, shared, recorder string, target retainedProcessTarget) error {
-	if _, err := os.Lstat(filepath.Join(targetRoot, "current.json")); err == nil {
+	if !retainedProcessNeedsRecipe(targetRoot, func() (*retainedNativeLoaded, error) {
+		return loadRetainedNativeRecipe(targetRoot, workspace, recorder)
+	}) {
 		return nil
 	}
 	recipeRoot, err := os.MkdirTemp(targetRoot, "recipe-")
@@ -229,10 +351,19 @@ func captureRetainedProcessRecipe(ctx context.Context, workspace string, environ
 			return err
 		}
 	}
+	goTool := stockGoDriverPath()
+	// The capture does not own the workspace, which later edits keep changing.
+	// It names the input revision it records before any tool runs, and that
+	// revision must still be current once the tools have finished; the recorded
+	// actions must also have read exactly its content. An edit during the
+	// recording discards it instead of pairing archives with other sources.
+	capture, err := nativebuilddriver.FullCapture(ctx, goTool, workspace, filepath.Join(recordRoot, "bootstrap-snapshot"), environment, configuration, target.pattern)
+	if err != nil {
+		return err
+	}
 	candidate := filepath.Join(recipeRoot, "candidate")
 	args := developmentProcessGoBuildArgs(retainedProcessTarget{pattern: target.pattern, output: candidate, flags: target.flags})
 	args = append([]string{"build", "-a", "-work", "-toolexec=" + retainedNativeToolExecCommand(recorder, recordRoot)}, args[1:]...)
-	goTool := stockGoDriverPath()
 	command := exec.CommandContext(ctx, goTool, args...)
 	command.Dir = workspace
 	command.Env = retainedNativeEnvironment(environment, map[string]string{"GOCACHE": filepath.Join(recordRoot, "cache"), "TMPDIR": filepath.Join(recordRoot, "tmp")})
@@ -245,8 +376,7 @@ func captureRetainedProcessRecipe(ctx context.Context, workspace string, environ
 	if err := command.Wait(); err != nil {
 		return err
 	}
-	capture, err := nativebuilddriver.FullCapture(ctx, goTool, workspace, filepath.Join(recordRoot, "bootstrap-snapshot"), environment, configuration, target.pattern)
-	if err != nil {
+	if err := capture.ValidateCurrentStamps(); err != nil {
 		return err
 	}
 	recipe, err := nativebuilddriver.LoadRecordedRecipe(recordRoot, workspace, capture, shared)
@@ -265,33 +395,71 @@ func captureRetainedProcessRecipe(ctx context.Context, workspace string, environ
 		Protocol: retainedNativeStateProtocol, Revision: retainedNativeStateRevision, Workspace: workspace,
 		RecipePath: recipePath, RecorderExecutable: recorder, RecorderDigest: recorderDigest,
 	}
+	// Every retained input now lives in the shared content-addressed store.
+	_ = os.RemoveAll(recordRoot)
+	_ = os.Remove(candidate)
+	if err := publishRetainedProcessRecipe(targetRoot, recipeRoot, current); err != nil {
+		return err
+	}
+	keep = true
+	return nil
+}
+
+// retainedProcessNeedsRecipe reports whether a target has no committed recipe
+// a retained build can use: none is committed, the committed one cannot be
+// loaded for this workspace and recorder, or a retained build rejected it. The
+// mere existence of its pointer never suppresses a replacement.
+func retainedProcessNeedsRecipe(targetRoot string, load func() (*retainedNativeLoaded, error)) bool {
+	loaded, err := load()
+	if err != nil {
+		return true
+	}
+	rejected, _ := retainedProcessRejected.Load(targetRoot)
+	return rejected == loaded.recipePath
+}
+
+// publishRetainedProcessRecipe atomically makes a captured recipe the target's
+// committed recipe. It holds the target's recipe cache entry, so no retained
+// build is advancing the recipe it supersedes while that recipe is removed,
+// and the next build loads the published one.
+func publishRetainedProcessRecipe(targetRoot, recipeRoot string, current retainedNativeCurrent) error {
 	encoded, err := json.MarshalIndent(current, "", "  ")
 	if err != nil {
 		return err
 	}
+	entryValue, _ := retainedProcessRecipes.LoadOrStore(targetRoot+"\x00"+current.RecorderExecutable, &retainedNativeCacheEntry{})
+	entry := entryValue.(*retainedNativeCacheEntry)
+	entry.mu.Lock()
+	defer entry.mu.Unlock()
 	if err := atomicfile.Write(filepath.Join(targetRoot, "current.json"), append(encoded, '\n'), 0o600, atomicfile.Options{}); err != nil {
 		return err
 	}
-	keep = true
-	// Every retained input now lives in the shared content-addressed store.
-	_ = os.RemoveAll(recordRoot)
-	_ = os.Remove(candidate)
+	entry.loaded = nil
+	retainedProcessRejected.Delete(targetRoot)
 	// An interrupted capture leaves its directory without a current.json.
 	_ = pruneRetainedNativeDirectories(targetRoot, recipeRoot, 1)
+	retainedProcessStoreFor(filepath.Dir(filepath.Dir(targetRoot))).published()
 	return nil
 }
 
 // pruneRetainedProcessState removes shared retained state no entrypoint recipe
-// references. It runs once per workspace in this process, because it must read
-// every recipe to know what is still referenced.
+// references. A collection reads every committed recipe, so it runs on the
+// first build of a workspace in this process and then once every
+// retainedProcessCollectInterval publications. It never runs while a capture
+// holds a lease, because a capture adopts objects before its recipe names them;
+// the next build collects instead.
 func pruneRetainedProcessState(workspace string) {
 	root, shared, err := retainedProcessRoots(workspace)
 	if err != nil {
 		return
 	}
-	if _, pruned := retainedProcessPruned.LoadOrStore(root, true); pruned {
+	store := retainedProcessStoreFor(root)
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if store.captures > 0 || store.collected && store.publications < retainedProcessCollectInterval {
 		return
 	}
+	store.collected, store.publications = true, 0
 	entries, err := os.ReadDir(filepath.Join(root, "targets"))
 	if err != nil {
 		return
@@ -302,6 +470,10 @@ func pruneRetainedProcessState(workspace string) {
 			continue
 		}
 		loaded, err := loadRetainedProcessRecipe(filepath.Join(root, "targets", entry.Name()))
+		if errors.Is(err, os.ErrNotExist) {
+			// A target whose first capture never completed references nothing.
+			continue
+		}
 		if err != nil || loaded == nil {
 			// An unreadable recipe must not authorize deleting shared state.
 			return

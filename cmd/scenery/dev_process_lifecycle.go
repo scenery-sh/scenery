@@ -173,45 +173,85 @@ func (s *devSupervisor) publishDevProcessGeneration(ctx context.Context, model *
 	return nil
 }
 
-// serviceProcessStatuses reports the service processes of a process-model
-// session for the dashboard, including services whose process is gone.
-func (s *devSupervisor) serviceProcessStatuses() []devdash.ServiceProcess {
-	s.mu.RLock()
-	model := s.processes
-	s.mu.RUnlock()
-	if model == nil {
-		return nil
-	}
-	model.mu.Lock()
-	defer model.mu.Unlock()
-	statuses := make([]devdash.ServiceProcess, 0, len(model.services))
+// devProcessStatus is the service-process view of the model's last committed
+// state. It is published while mu is held and read without it, because status
+// readers include callbacks that run inside an activation: an assistant helper
+// that reports its process during activation registers the session, which
+// names the service processes.
+type devProcessStatus struct {
+	services []devdash.ServiceProcess
+	// running names the live process of each service, including a service
+	// whose background work is not yet confirmed, so session cleanup sees it.
+	running map[string]int
+}
+
+// publishStatus publishes the current service-process view; the caller holds
+// model.mu.
+func (model *devProcessModel) publishStatus() {
+	status := devProcessStatus{services: make([]devdash.ServiceProcess, 0, len(model.services)), running: map[string]int{}}
 	for name, instance := range model.services {
-		status := devdash.ServiceProcess{
+		service := devdash.ServiceProcess{
 			Name: name, Generation: model.generation, State: "running",
 			ImplementationRevision: instance.process.Identity.ImplementationRevision,
 		}
 		if instance.app != nil {
-			status.PID = instance.app.pid
+			service.PID = instance.app.pid
 		}
-		if reason := model.degraded[name]; reason != "" {
-			status.State, status.Reason = "degraded", reason
-		} else if instance.stopped || instance.app == nil {
-			status.State = "degraded"
+		switch {
+		case model.degraded[name] != "":
+			service.State, service.Reason = "degraded", model.degraded[name]
+		case instance.stopped || instance.app == nil:
+			service.State = "degraded"
+		case instance.activation != "":
+			service.State, service.Reason = "degraded", "background work activation unconfirmed: "+instance.activation
 		}
-		statuses = append(statuses, status)
+		if pid := atoiPID(service.PID); pid > 0 && !instance.stopped && instance.app != nil {
+			status.running[name] = pid
+		}
+		status.services = append(status.services, service)
 	}
-	sort.Slice(statuses, func(i, j int) bool { return statuses[i].Name < statuses[j].Name })
-	return statuses
+	sort.Slice(status.services, func(i, j int) bool { return status.services[i].Name < status.services[j].Name })
+	model.statusMu.Lock()
+	model.status = status
+	model.statusMu.Unlock()
 }
 
-// sessionServiceProcesses names each running service process of the session so
+// unlock publishes the state a critical section committed and releases mu.
+func (model *devProcessModel) unlock() {
+	model.publishStatus()
+	model.mu.Unlock()
+}
+
+func (s *devSupervisor) processStatus() devProcessStatus {
+	s.mu.RLock()
+	model := s.processes
+	s.mu.RUnlock()
+	if model == nil {
+		return devProcessStatus{}
+	}
+	model.statusMu.Lock()
+	defer model.statusMu.Unlock()
+	return model.status
+}
+
+// serviceProcessStatuses reports the service processes of a process-model
+// session for the dashboard, including services whose process is gone.
+func (s *devSupervisor) serviceProcessStatuses() []devdash.ServiceProcess {
+	s.mu.RLock()
+	selected := s.processes != nil
+	s.mu.RUnlock()
+	if !selected {
+		return nil
+	}
+	return append([]devdash.ServiceProcess{}, s.processStatus().services...)
+}
+
+// sessionServiceProcesses names each live service process of the session so
 // cleanup and inspection see them beside the host and helper processes.
 func (s *devSupervisor) sessionServiceProcesses() map[string]localagent.Process {
 	processes := map[string]localagent.Process{}
-	for _, status := range s.serviceProcessStatuses() {
-		if pid := atoiPID(status.PID); pid > 0 && status.State == "running" {
-			processes["service:"+status.Name] = localagent.Process{PID: pid}
-		}
+	for name, pid := range s.processStatus().running {
+		processes["service:"+name] = localagent.Process{PID: pid}
 	}
 	return processes
 }
@@ -229,18 +269,74 @@ func clearDevProcessRecovery(model *devProcessModel, instances []*devProcessInst
 // generation was replaced. An instance that does not confirm the revocation is
 // stopped, so it cannot acquire work beside its activated replacement.
 func (s *devSupervisor) drainDevProcessInstances(ctx context.Context, model *devProcessModel, instances []*devProcessInstance) {
-	failed := s.controlDevProcessInstances(ctx, model.token, instances, runtimeProcessDrainPath, "process.drain_failed")
-	if len(failed) == 0 {
+	failures := s.controlDevProcessInstances(ctx, model.token, instances, runtimeProcessDrainPath, "process.drain_failed")
+	if len(failures) == 0 {
 		return
 	}
+	failed := slices.Collect(maps.Keys(failures))
 	markDevProcessesStopped(failed)
 	_ = s.stopInstances(failed, model.runningCommands())
 }
 
 // activateDevProcessInstances grants background work to instances of the
-// published generation. A failure is reported; the generation keeps serving.
+// published generation; the caller holds model.mu. An instance whose
+// activation is unconfirmed keeps serving, reports degraded background work,
+// and is reconciled until it confirms or stops being current: activation is
+// idempotent, so a request whose answer was lost is simply repeated.
 func (s *devSupervisor) activateDevProcessInstances(ctx context.Context, model *devProcessModel, instances []*devProcessInstance) {
-	s.controlDevProcessInstances(ctx, model.token, instances, runtimeProcessActivatePath, "process.activate_failed")
+	failures := s.controlDevProcessInstances(ctx, model.token, instances, runtimeProcessActivatePath, "process.activate_failed")
+	for _, instance := range instances {
+		if instance != nil && failures[instance] == nil {
+			instance.activation = ""
+		}
+	}
+	for instance, err := range failures {
+		instance.activation = err.Error()
+		if !instance.reconciling {
+			instance.reconciling = true
+			go s.reconcileDevProcessActivation(model, instance)
+		}
+	}
+}
+
+// reconcileDevProcessActivation repeats the activation of a current instance
+// until it confirms. It holds model.mu for each attempt, so a drain of the
+// instance can never be followed by a late activation of it.
+func (s *devSupervisor) reconcileDevProcessActivation(model *devProcessModel, instance *devProcessInstance) {
+	ctx := s.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	backoff := model.activationBackoff
+	if backoff <= 0 {
+		backoff = devProcessActivationBackoff
+	}
+	for {
+		select {
+		case <-time.After(backoff):
+		case <-ctx.Done():
+			return
+		}
+		backoff = min(backoff*2, devProcessBackgroundTimeout)
+		model.mu.Lock()
+		if model.services[instance.process.Name] != instance || instance.stopped || instance.app == nil {
+			instance.reconciling = false
+			model.unlock()
+			return
+		}
+		err := instance.control(ctx, runtimeProcessActivatePath, model.token)
+		if err != nil {
+			instance.activation = err.Error()
+			model.unlock()
+			continue
+		}
+		instance.activation, instance.reconciling = "", false
+		model.unlock()
+		if s.console != nil {
+			s.console.Event("process.activate_reconciled", map[string]any{"service_process": instance.process.Name, "pid": instance.app.pid})
+		}
+		return
+	}
 }
 
 const (
@@ -248,7 +344,9 @@ const (
 	runtimeProcessDrainPath    = "/__scenery/process/v1/drain"
 )
 
-func (s *devSupervisor) controlDevProcessInstances(ctx context.Context, token string, instances []*devProcessInstance, path, failureEvent string) []*devProcessInstance {
+// controlDevProcessInstances sends one control request to each running instance
+// and reports the instances that did not confirm it.
+func (s *devSupervisor) controlDevProcessInstances(ctx context.Context, token string, instances []*devProcessInstance, path, failureEvent string) map[*devProcessInstance]error {
 	started := time.Now()
 	failures := make([]error, len(instances))
 	var wg sync.WaitGroup
@@ -261,12 +359,12 @@ func (s *devSupervisor) controlDevProcessInstances(ctx context.Context, token st
 		})
 	}
 	wg.Wait()
-	var failed []*devProcessInstance
+	failed := map[*devProcessInstance]error{}
 	for index, err := range failures {
 		if err == nil {
 			continue
 		}
-		failed = append(failed, instances[index])
+		failed[instances[index]] = err
 		if s.console != nil {
 			s.console.Event(failureEvent, map[string]any{"service_process": instances[index].process.Name, "pid": instances[index].app.pid, "error": err.Error()})
 		}
@@ -338,7 +436,7 @@ func (s *devSupervisor) retireDevProcessGeneration(model *devProcessModel, link 
 	stale := model.unreferenced(mapValues(named))
 	markDevProcessesStopped(stale)
 	inUse := model.runningCommands()
-	model.mu.Unlock()
+	model.unlock()
 	if forced && s.console != nil {
 		names := make([]string, 0, len(stale))
 		for _, instance := range stale {

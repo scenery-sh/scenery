@@ -338,7 +338,9 @@ compile the application graph as it needs.
   it builds and publishes 47 services and its host, but the supervisor then
   stays in "Starting prepared assistant runtimes" (one helper process idle for
   20 minutes), so its initial build request never completes and the watcher
-  never starts: edits produce no rebuild. The `assistant-init` and
+  never starts: edits produce no rebuild. A review on 2026-09-16 found a lock
+  cycle on exactly this path (see Surprises & Discoveries), now removed; ONLV
+  startup has not been rerun since. The `assistant-init` and
   `assistant-runtime` probes pass, so this is not a general assistant
   regression. Two other environment facts: a cold workspace's first
   process-model build exceeds the two-minute readiness window of
@@ -373,6 +375,19 @@ compile the application graph as it needs.
   from 156 ms to 775 ms, so it is fully overlapped. The remaining critical path
   of a 1261 ms edit is the entrypoint build (619 ms) and activation (410 ms, of
   which candidate preflight is 359 ms).
+- [x] Review corrections of 2026-09-16, before any further optimization. Status
+  readers use a status the process model publishes at each committed change, so
+  assistant startup inside an activation no longer waits for `model.mu`. An
+  unconfirmed activation reports a degraded service and is repeated under
+  `model.mu` until it confirms or the instance is no longer current. Background
+  recipe recording is owned by the session (cancelled and joined at close),
+  captures its input revision before its tools run, validates it afterwards,
+  and merges only recorded actions whose captured inputs match. A rejected
+  recipe is replaced; an existing store entry is hashed before adoption; the
+  shared store is collected every 16 publications outside capture leases.
+  Covered by in-process tests only; the ONLV startup, a pause-during-recording
+  run and the long-edit endurance run through the real product path remain to
+  be measured.
 
 ## Surprises & Discoveries
 
@@ -513,6 +528,18 @@ compile the application graph as it needs.
   kept both the recorded and the finalized archive. Moving bootstrap state into
   the content-addressed store made a second entrypoint adopt what the first
   recorded.
+- The ONLV "Starting prepared assistant runtimes" stall has a deterministic
+  cause. A complete activation held `model.mu` while `StartPrepared` waited for
+  helper starts; a started helper reported its PID, which registered the agent
+  session, whose process list read the service-process status under
+  `model.mu`. Status now comes from a published snapshot instead.
+- A background recording captured its input state after the stock build, so an
+  edit during the 20-25 s recording could pair archives compiled from one source
+  with the identity of the next. Its incompatible recipe also could never be
+  replaced: only the in-memory entry was dropped, and the recording returned as
+  soon as the stale `current.json` existed. Shared-store collection ran once
+  per process, so every advanced recipe's superseded archives stayed for the
+  whole session.
 
 ## Decision Log
 
@@ -727,6 +754,18 @@ compile the application graph as it needs.
   compile nearly the same packages; separate stores retained each closure again.
   A snapshot is copied rather than moved, because a capture may name the
   developer's own workspace file. Date: 2026-09-16. Author: Claude.
+- Decision: a background recording binds to the input revision it captures
+  before running tools and validates it afterwards, instead of holding the
+  workspace lock or materializing a separate build view. Rationale: holding the
+  lock would stall edits for the whole recording, a copied view would change
+  the recorded source paths recipes rebind, and the stamp validation plus a
+  per-action digest comparison already reject every revision change. Date:
+  2026-09-16. Author: Claude.
+- Decision: an unconfirmed activation keeps its instance serving, reports it
+  degraded, and is reconciled while holding `model.mu`, rather than failing the
+  generation. Rationale: HTTP availability and background work are separate
+  capabilities, and holding the lock for each attempt guarantees that a drain
+  can never be followed by a late activation. Date: 2026-09-16. Author: Claude.
 
 ## Outcomes & Retrospective
 

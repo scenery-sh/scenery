@@ -74,8 +74,9 @@ type ServiceProcess struct {
 	PID                    string `json:"pid,omitempty"`
 	Generation             uint64 `json:"generation,omitempty"`
 	ImplementationRevision string `json:"implementationRevision,omitempty"`
-	// State is running for a serving instance, degraded for a service whose
-	// process stopped and exhausted its restart budget.
+	// State is running for a serving instance whose background work is active,
+	// degraded for a service whose process stopped and exhausted its restart
+	// budget or whose background work activation is not yet confirmed.
 	State  string `json:"state"`
 	Reason string `json:"reason,omitempty"`
 }

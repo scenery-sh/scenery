@@ -17,7 +17,11 @@ recipes, direct compile/link execution, and fail-closed compatibility results.
   what their closures have in common and a recording directory is disposable
   once its recipe is published. Archives may be linked into the store; a source
   snapshot is copied, because a capture may name a workspace file the developer
-  owns.
+  owns. A name and size never prove an existing store entry: adoption hashes it
+  and atomically replaces content that differs.
+- A recorded action is merged only when every captured input it read had the
+  captured content, so a capture taken across an edit cannot pair an archive
+  with another source revision.
 - Retained execution compares against the last committed current capture, not
   the immutable bootstrap. Successful builds advance source snapshots and
   archive mappings together in caller-owned durable state.

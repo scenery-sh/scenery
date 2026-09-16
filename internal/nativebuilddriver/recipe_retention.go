@@ -69,17 +69,28 @@ func (recipe *Recipe) retainBootstrapState(stateRoot string) error {
 }
 
 // adoptRetainedFile links one recorded archive into its content-addressed path
-// and describes what the store now holds. An entry that already exists holds
-// the same content, so it is adopted as it is: captures of sibling entrypoints
-// run concurrently and must never replace an archive another recipe already
-// identifies by its recorded stamp. The recorded copy is left to its owner,
-// which discards the whole recording directory.
+// and describes what the store now holds. A content-addressed name and an equal
+// size do not prove an existing entry's content, so an entry that already
+// exists is hashed once here, where it is adopted; the stamp returned with its
+// digest is what later reuse trusts. Captures of sibling entrypoints run
+// concurrently: an entry with the expected content is adopted as it is, so an
+// archive another recipe identifies by its recorded stamp is never replaced,
+// and an entry whose content differs is atomically replaced by the recorded
+// archive. The recorded copy is left to its owner, which discards the whole
+// recording directory.
 func adoptRetainedFile(recorded, target string, file RetainedFile) (RetainedFile, error) {
 	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
 		return RetainedFile{}, err
 	}
 	switch err := os.Link(recorded, target); {
-	case err == nil, errors.Is(err, os.ErrExist):
+	case err == nil:
+	case errors.Is(err, os.ErrExist):
+		digest, _, digestErr := FileDigest(target)
+		if digestErr != nil || digest != file.Digest {
+			if err := replaceRetainedFile(recorded, target, file); err != nil {
+				return RetainedFile{}, err
+			}
+		}
 	default:
 		// A recording directory on another filesystem cannot be linked from.
 		copied, copyErr := CopyRegular(recorded, target)
@@ -101,6 +112,27 @@ func adoptRetainedFile(recorded, target string, file RetainedFile) (RetainedFile
 		return RetainedFile{}, fmt.Errorf("retained state differs in size: %s", target)
 	}
 	return RetainedFile{Digest: file.Digest, Bytes: info.Size(), Stamp: fileStamp(info)}, nil
+}
+
+// replaceRetainedFile atomically replaces a content-addressed entry whose
+// content is not its name with the recorded file, which must hold that content.
+func replaceRetainedFile(recorded, target string, file RetainedFile) error {
+	temporary, err := os.CreateTemp(filepath.Dir(target), ".replace-*")
+	if err != nil {
+		return err
+	}
+	name := temporary.Name()
+	_ = temporary.Close()
+	_ = os.Remove(name)
+	defer func() { _ = os.Remove(name) }()
+	copied, err := CopyRegular(recorded, name)
+	if err != nil {
+		return err
+	}
+	if copied.Digest != file.Digest {
+		return fmt.Errorf("recorded file identity changed: %s", recorded)
+	}
+	return os.Rename(name, target)
 }
 
 func (recipe *Recipe) materializeSupport(stateRoot string) error {
