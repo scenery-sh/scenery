@@ -355,7 +355,30 @@ func buildInputManifestFromGoListObserved(result *Result, output []byte, stats *
 	entries := map[string]string{}
 	workspaceOnly, entrypoint := filepath.IsAbs(result.Dir), false
 	observed := map[string]buildInputFileStamp{}
-	processRoot := filepath.Join(result.Dir, codegen.ProcessMainRoot)
+	// The Go command reports package directories through the working directory
+	// it resolves itself, which on some systems is the canonical form of a
+	// workspace reached through a symbolic link (Darwin's /var is
+	// /private/var); entrypoints are recognized under either form.
+	workspaces := []string{filepath.Clean(result.Dir)}
+	if canonical, err := filepath.EvalSymlinks(result.Dir); err == nil && filepath.Clean(canonical) != workspaces[0] {
+		workspaces = append(workspaces, filepath.Clean(canonical))
+	}
+	processEntrypoint := func(dir string) bool {
+		for _, workspace := range workspaces {
+			if relative, err := filepath.Rel(filepath.Join(workspace, codegen.ProcessMainRoot), dir); err == nil && filepath.IsLocal(relative) {
+				return true
+			}
+		}
+		return false
+	}
+	applicationEntrypoint := func(dir string) bool {
+		for _, workspace := range workspaces {
+			if filepath.Clean(dir) == filepath.Join(workspace, "scenery_internal_main") {
+				return true
+			}
+		}
+		return false
+	}
 	processes := &buildInputProcessGraph{packages: map[string]map[string]string{}, imports: map[string][]string{}, mains: map[string]string{}}
 	addFileTo := func(destination map[string]string, identity, path string) error {
 		workspaceOnly = workspaceOnly && sharedBinaryWorkspacePath(result.Dir, path)
@@ -405,7 +428,7 @@ func buildInputManifestFromGoListObserved(result *Result, output []byte, stats *
 		if err := observeBuildInputPath(observed, pkg.Dir); err != nil {
 			return nil, err
 		}
-		entrypoint = entrypoint || (pkg.Dir == filepath.Join(result.Dir, "scenery_internal_main") && len(pkg.GoFiles) > 0)
+		entrypoint = entrypoint || (applicationEntrypoint(pkg.Dir) && len(pkg.GoFiles) > 0)
 		// Process entrypoints are separate executables: they identify their
 		// own process manifests and never the application executable.
 		packageEntries := read[index].entries
@@ -416,8 +439,7 @@ func buildInputManifestFromGoListObserved(result *Result, output []byte, stats *
 			}
 			processes.imports[pkg.ImportPath] = append(processes.imports[pkg.ImportPath], imported)
 		}
-		relative, relativeErr := filepath.Rel(processRoot, pkg.Dir)
-		process := relativeErr == nil && filepath.IsLocal(relative)
+		process := processEntrypoint(pkg.Dir)
 		if process {
 			processes.mains[filepath.Base(pkg.Dir)] = pkg.ImportPath
 		}

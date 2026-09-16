@@ -253,10 +253,16 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 			result.APIEncoding = append(json.RawMessage(nil), apiEncoding...)
 		}
 		if s.processModel {
+			if err := devProcessModelSupports(result.Contract); err != nil {
+				return err
+			}
 			var buildErr error
 			processes, joinImplementationCheck, buildErr = build.BuildDevelopmentProcessesContext(ctx, result)
 			if buildErr != nil {
 				joinImplementationCheck = func() error { return nil }
+			}
+			if errors.Is(buildErr, build.ErrNoNativeService) {
+				buildErr = devProcessModelUnsupported(buildErr.Error())
 			}
 			return buildErr
 		}

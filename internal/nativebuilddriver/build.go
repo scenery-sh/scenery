@@ -408,13 +408,7 @@ func (recipe *Recipe) archiveAliases(importPath string) []string {
 // recipe manifest and executable have both been published. It never follows
 // symlinks and only visits the three driver-owned retained-state directories.
 func (recipe *Recipe) PruneUnreferenced(stateRoot string) error {
-	return PruneUnreferencedAcross(stateRoot, []*Recipe{recipe})
-}
-
-// PruneUnreferencedAcross removes retained state that none of the given recipes
-// references. Recipes that share one state root must be pruned together, or one
-// recipe would delete the archives another still needs.
-func PruneUnreferencedAcross(stateRoot string, recipes []*Recipe) error {
+	recipes := []*Recipe{recipe}
 	root, err := filepath.Abs(stateRoot)
 	if err != nil {
 		return err

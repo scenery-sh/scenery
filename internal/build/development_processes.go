@@ -69,6 +69,10 @@ func (set *DevelopmentProcessSet) Process(name string) (DevelopmentProcess, bool
 	return DevelopmentProcess{}, false
 }
 
+// ErrNoNativeService reports an application without a native service, which
+// has no process to build beside the host.
+var ErrNoNativeService = errors.New("the process model requires at least one native service")
+
 // BuildDevelopmentProcessesContext links the process entrypoints of a prepared
 // development workspace. A process whose linked identity equals a retained
 // executable is reused; every other process is linked by one stock Go build.
@@ -90,7 +94,7 @@ func BuildDevelopmentProcessesContext(ctx context.Context, result *Result) (*Dev
 		return nil, nil, err
 	}
 	if len(plan.Services) == 0 {
-		return nil, nil, fmt.Errorf("development processes require at least one native service")
+		return nil, nil, ErrNoNativeService
 	}
 	unlock, err := lockWorkspace(result.Dir)
 	if err != nil {
@@ -216,7 +220,7 @@ func buildDevelopmentProcesses(ctx context.Context, result *Result, services []g
 			return nil, err
 		}
 	}
-	pruneRetainedProcessState(result.Dir)
+	retireRetainedProcessState(result.Dir)
 	keep := map[string]bool{}
 	for _, process := range processes {
 		keep[filepath.Base(process.Binary)] = true
@@ -248,41 +252,11 @@ func developmentProcessKey(process *DevelopmentProcess, buildFlags []string) (st
 	return hex.EncodeToString(sum[:8]), nil
 }
 
-// linkDevelopmentProcesses links every pending entrypoint. An entrypoint with a
-// captured recipe is linked by the retained compiler; the rest are linked by one
-// stock Go build under the host-wide fair link slot, and their recipes are
-// captured in the background for the next edit. Each entrypoint receives its own
-// linker metadata through a package-scoped -ldflags value; stock outputs are
-// published only after the whole build succeeds.
+// linkDevelopmentProcesses runs one stock Go build for every pending process
+// under the host-wide fair link slot. Each entrypoint receives its own linker
+// metadata through a package-scoped -ldflags value; outputs are published only
+// after the whole build succeeds.
 func linkDevelopmentProcesses(ctx context.Context, result *Result, binaryRoot string, pending []*DevelopmentProcess) error {
-	var stock []*DevelopmentProcess
-	var uncaptured []retainedProcessTarget
-	for _, process := range pending {
-		target := retainedProcessTarget{name: process.Name, pattern: process.Package, output: process.Binary, flags: developmentProcessLinkerFlags(result, process)}
-		linked, err := linkRetainedDevelopmentProcess(ctx, result, target)
-		if err != nil {
-			return err
-		}
-		if linked {
-			digest, size, digestErr := developmentProcessFileDigest(process.Binary)
-			if digestErr != nil {
-				return fmt.Errorf("development process %s was not linked: %w", process.Name, digestErr)
-			}
-			if err := rememberDevelopmentProcessDigest(process.Binary, digest); err != nil {
-				return err
-			}
-			process.ArtifactDigest = digest
-			RecordStep(ctx, Step{Name: "build.artifact", StartedAt: time.Now(), Cache: "hit", Reason: "retained_development_process_" + process.Name, OK: true, ExecutableBytes: size})
-			continue
-		}
-		stock = append(stock, process)
-		uncaptured = append(uncaptured, target)
-	}
-	defer captureRetainedProcessRecipes(ctx, result, uncaptured)
-	if len(stock) == 0 {
-		return nil
-	}
-	pending = stock
 	generation, err := os.MkdirTemp(binaryRoot, ".link-")
 	if err != nil {
 		return err
@@ -319,18 +293,6 @@ func linkDevelopmentProcesses(ctx context.Context, result *Result, binaryRoot st
 // developmentProcessBuildArgs keeps the configured Go build flags, moves every
 // -ldflags value (both -ldflags=value and the -ldflags value pair) into each
 // entrypoint's package-scoped linker flags, and names the pending entrypoints.
-// developmentProcessLinkerFlags are the Go build flags of one entrypoint,
-// carrying its own runtime linker metadata.
-func developmentProcessLinkerFlags(result *Result, process *DevelopmentProcess) []string {
-	flags := withRuntimeBundleLinkerMetadata(normalizeGoBuildFlags(result.GoBuildFlags), developmentLinkerFlags, map[string]string{
-		"scenery.sh/runtime.linkedContractRevision":       process.Identity.ContractRevision,
-		"scenery.sh/runtime.linkedImplementationRevision": process.Identity.ImplementationRevision,
-		"scenery.sh/runtime.linkedBuildInputDigest":       process.Identity.BuildInputDigest,
-		"scenery.sh/runtime.linkedGoTarget":               process.Identity.GoTarget,
-	})
-	return flags
-}
-
 func developmentProcessBuildArgs(buildFlags []string, output string, pending []*DevelopmentProcess) []string {
 	flags := withRuntimeBundleLinkerMetadata(normalizeGoBuildFlags(buildFlags), "", nil)
 	args := append([]string{"build"}, flags[:len(flags)-1]...)

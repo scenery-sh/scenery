@@ -25,7 +25,6 @@ import (
 
 	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/app"
-	"scenery.sh/internal/build"
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/devdash"
 	"scenery.sh/internal/envfile"
@@ -46,11 +45,8 @@ type runningApp struct {
 }
 
 type devSupervisor struct {
-	ctx    context.Context
-	cancel context.CancelFunc
-	// background owns build work that outlives the build that scheduled it;
-	// Close cancels it and waits for it.
-	background            *build.BackgroundWork
+	ctx                   context.Context
+	cancel                context.CancelFunc
 	root                  string
 	cfg                   app.Config
 	env                   app.ResolvedEnv
@@ -149,11 +145,13 @@ func newDevSupervisor(ctx context.Context, root string, cfg app.Config, env app.
 	if console == nil {
 		console = newRunConsole(os.Stdout, os.Stderr, false, false, appID, root)
 	}
+	if !processModel {
+		console.Warning(devProcessModelDeprecation)
+	}
 
 	s := &devSupervisor{
 		ctx:          supervisorCtx,
 		cancel:       cancel,
-		background:   build.NewBackgroundWork(supervisorCtx),
 		root:         root,
 		cfg:          cfg,
 		env:          env,
@@ -236,7 +234,6 @@ func (s *devSupervisor) Close() error {
 		if s.cancel != nil {
 			s.cancel()
 		}
-		s.background.Close()
 		if s.postgresMonitorDone != nil {
 			<-s.postgresMonitorDone
 		}
@@ -1661,7 +1658,7 @@ func (s *devSupervisor) sessionProcessesFor(session *localagent.Session, appPID 
 		}
 	}
 	for key := range processes {
-		if strings.HasPrefix(key, "service:") {
+		if strings.HasPrefix(key, devProcessSessionPrefix) {
 			delete(processes, key)
 		}
 	}

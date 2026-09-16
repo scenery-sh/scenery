@@ -1035,10 +1035,10 @@
         "tests"
       ],
       "owner": "scenery runtime",
-      "rationale": "`service` runs `scenery up` as a process host plus one process per native service (Plan 0200 rollout gate); `application` or unset keeps one application executable",
-      "preferred_surface": "temporary rollout gate; no stable flag or config until the process model is accepted",
-      "replacement": "",
-      "sunset": "Plan 0200 completion",
+      "rationale": "unset or `service` (the default) runs `scenery up` as a process host plus one process per native service; `application` selects the deprecated single application executable for applications the process model cannot run yet",
+      "preferred_surface": "leave unset; `application` is a deprecated escape hatch with no stable flag or config",
+      "replacement": "the default process model",
+      "sunset": "removal of the single application development model (docs/tech-debt.md)",
       "docs": [
         "docs/environment.md"
       ]

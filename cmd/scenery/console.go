@@ -325,6 +325,19 @@ func frontendLabel(name string) string {
 	return "Frontend " + name + ":"
 }
 
+// Warning reports a condition the session continues through, such as a
+// deprecated selection.
+func (c *runConsole) Warning(message string) {
+	if c == nil {
+		return
+	}
+	if c.json {
+		c.Event("warning", map[string]any{"message": message})
+		return
+	}
+	c.printf(c.err, "\n  %s %s\n\n", c.palette.Yellow("!"), message)
+}
+
 func (c *runConsole) printError(label string, err error) {
 	if err == nil {
 		return

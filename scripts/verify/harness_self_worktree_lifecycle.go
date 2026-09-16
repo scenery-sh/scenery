@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"time"
 
 	localagent "scenery.sh/internal/agent"
@@ -69,6 +71,22 @@ func (p *worktreeRuntimeProbe) outage(rootA, rootB string, a, b detachedDevResul
 		_, err = p.verify(rootB, b, "persisted")
 		return err
 	})
+}
+
+// worktreeServingReplacements names the serving processes of a session whose
+// process changed: the application process or a service process.
+func worktreeServingReplacements(before, after localagent.Session) []string {
+	var replaced []string
+	if after.AppPID != "" && after.AppPID != before.AppPID {
+		replaced = append(replaced, "app")
+	}
+	for name, process := range after.Processes {
+		if strings.HasPrefix(name, "service-") && process.PID > 0 && before.Processes[name].PID != process.PID {
+			replaced = append(replaced, name)
+		}
+	}
+	slices.Sort(replaced)
+	return replaced
 }
 
 func (p *worktreeRuntimeProbe) verifiedContainerCommand(record localagent.WorktreeRecord, action string, args ...string) error {
@@ -144,12 +162,17 @@ func (p *worktreeRuntimeProbe) lifecycle(root string, runtime *detachedDevResult
 		if err := os.WriteFile(sourcePath, append(source, []byte("\n// Release probe rebuild boundary.\n")...), 0o644); err != nil {
 			return err
 		}
+		// The edit replaces the application process in the single application
+		// model and the edited service's process in the process model; either
+		// replacement must be serving and registered.
 		deadline := time.Now().Add(45 * time.Second)
 		for {
 			current, readErr := p.liveSession(root)
-			if readErr == nil && current.AppPID != "" && current.AppPID != session.AppPID && current.Status == "running" {
-				e["rebuild_old_app_pid"], e["rebuild_new_app_pid"] = session.AppPID, current.AppPID
-				break
+			if readErr == nil && current.Status == "running" {
+				if replaced := worktreeServingReplacements(session, current); len(replaced) > 0 {
+					e["rebuild_replaced_processes"] = replaced
+					break
+				}
 			}
 			if time.Now().After(deadline) {
 				return fmt.Errorf("source edit did not produce a serving replacement app process")

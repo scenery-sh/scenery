@@ -10,7 +10,6 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -30,11 +29,6 @@ func runHarnessProcessModelProbeStep(ctx context.Context, repoRoot string) harne
 	started := time.Now()
 	step := harnessStep{Name: harnessProcessModelProbeName, Command: []string{"go", "run", "./scripts/verify", "--probe", "process-model", "--summary"}}
 	summary, err := runHarnessProcessModelProbe(ctx, repoRoot)
-	if err == nil {
-		var recording map[string]any
-		recording, err = runHarnessRetainedRecordingTreeProof(ctx, repoRoot)
-		summary["recording_process_tree"] = recording
-	}
 	step.Summary, step.DurationMS = summary, time.Since(started).Milliseconds()
 	if err != nil {
 		step.Error = strings.TrimSpace(err.Error())
@@ -358,7 +352,12 @@ func runHarnessProcessModelProbe(parent context.Context, repoRoot string) (summa
 			return nil, fmt.Errorf("process %d of the replaced generation outlived the complete replacement", pid)
 		}
 	}
+	stockLinks, err := harnessProcessModelStockOnly(started.LogPath)
+	if err != nil {
+		return nil, err
+	}
 	return map[string]any{
+		"stock_entrypoint_links":                  stockLinks,
 		"host_pids":                               []int{host, replacedHost},
 		"echo_pids":                               []int{echoOne.PID, echoTwo.PID, echoThree.PID},
 		"greeter_pids":                            []int{greeterOne.PID, greeterTwo.PID, greeterThree.PID, greeterFour.PID},
@@ -378,24 +377,30 @@ func runHarnessProcessModelProbe(parent context.Context, repoRoot string) (summa
 	}, nil
 }
 
-// runHarnessRetainedRecordingTreeProof closes the owner of a real recipe
-// recording while a tool its Go command started through the recorder is
-// blocked, and requires every process of the recording to have ended before
-// Close returns.
-func runHarnessRetainedRecordingTreeProof(parent context.Context, repoRoot string) (map[string]any, error) {
-	ctx, cancel := context.WithTimeout(parent, 2*time.Minute)
-	defer cancel()
-	const run = "^TestRetainedRecordingCrossProcess"
-	command := exec.CommandContext(ctx, "go", "test", "-tags=scenery_build_cache_integration", "./internal/build", "-run="+run, "-count=1")
-	command.Dir = repoRoot
-	output, err := command.CombinedOutput()
+// harnessProcessModelStockOnly requires every service entrypoint of the session
+// to have been linked by stock Go: no recipe was recorded and no entrypoint was
+// linked from one. It reports the number of stock entrypoint links.
+func harnessProcessModelStockOnly(log string) (int, error) {
+	events, err := harnessWatchEvents(log, 0)
 	if err != nil {
-		return nil, fmt.Errorf("retained recording process-tree proof: %w: %s", err, strings.TrimSpace(string(output)))
+		return 0, err
 	}
-	return map[string]any{
-		"closed_owner_stopped_blocked_tool": true,
-		"command":                           "go test -tags=scenery_build_cache_integration ./internal/build -run=" + run + " -count=1",
-	}, nil
+	links := 0
+	for _, event := range events {
+		if event.Type != "build.step" {
+			continue
+		}
+		if event.Data.Name == "build.recipe_capture" || strings.HasPrefix(event.Data.Reason, "retained_process_") || strings.HasPrefix(event.Data.Reason, "retained_development_process_") {
+			return 0, fmt.Errorf("the process-model session used retained entrypoint recipes: %s %s", event.Data.Name, event.Data.Reason)
+		}
+		if event.Data.Name == "build.artifact" && strings.HasPrefix(event.Data.Reason, "linked_development_process_") {
+			links++
+		}
+	}
+	if links == 0 {
+		return 0, fmt.Errorf("the process-model session reported no stock entrypoint link")
+	}
+	return links, nil
 }
 
 // harnessProcessModelBackground requires the echo replacement to drain the

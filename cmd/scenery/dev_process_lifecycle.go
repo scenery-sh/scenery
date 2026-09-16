@@ -119,13 +119,14 @@ func devProcessInstanceEnvironment(base []string, instance *devProcessInstance, 
 // devProcessState is the model state a complete replacement restores when the
 // new host incarnation cannot serve.
 type devProcessState struct {
-	link       *devProcessLink
-	generation uint64
-	contract   string
-	bindings   map[string]string
-	host       *devProcessInstance
-	services   map[string]*devProcessInstance
-	retained   map[uint64]map[string]*devProcessInstance
+	link        *devProcessLink
+	generation  uint64
+	contract    string
+	environment string
+	bindings    map[string]string
+	host        *devProcessInstance
+	services    map[string]*devProcessInstance
+	retained    map[uint64]map[string]*devProcessInstance
 }
 
 // publishDevProcessGeneration publishes the model's services as the next
@@ -246,12 +247,18 @@ func (s *devSupervisor) serviceProcessStatuses() []devdash.ServiceProcess {
 	return append([]devdash.ServiceProcess{}, s.processStatus().services...)
 }
 
+// devProcessSessionPrefix begins the session record key of every service
+// process. The agent stores record keys as labels, so the prefix is already a
+// label: a key the supervisor reads back from a stored record still carries it
+// and is replaced rather than kept beside a newer instance of the service.
+const devProcessSessionPrefix = "service-"
+
 // sessionServiceProcesses names each live service process of the session so
 // cleanup and inspection see them beside the host and helper processes.
 func (s *devSupervisor) sessionServiceProcesses() map[string]localagent.Process {
 	processes := map[string]localagent.Process{}
 	for name, pid := range s.processStatus().running {
-		processes["service:"+name] = localagent.Process{PID: pid}
+		processes[devProcessSessionPrefix+localagentLabel(name)] = localagent.Process{PID: pid}
 	}
 	return processes
 }

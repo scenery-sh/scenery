@@ -103,7 +103,10 @@ func runHarnessNativeContractApplicationProbeCheck(parent context.Context, repoR
 		return summary, nil, err
 	}
 
-	env := envWithOverrides(harnessAppEnv(filepath.Join(probeRoot, "state")), "SCENERY_DEV_CACHE_DIR="+devCacheRoot)
+	// The journey inspects the compiled application executable and its runtime
+	// bundle, which only the deprecated single application model produces
+	// (docs/tech-debt.md).
+	env := envWithOverrides(harnessAppEnv(filepath.Join(probeRoot, "state")), "SCENERY_DEV_CACHE_DIR="+devCacheRoot, "SCENERY_DEV_PROCESS_MODEL=application")
 	defer func() {
 		cleanup, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()

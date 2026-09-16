@@ -430,6 +430,54 @@ compile the application graph as it needs.
   A ready recipe does not shorten an edit measurably, and an edit made while a
   recording runs is about 400 ms slower at twice the CPU. Automatic recording
   therefore does not improve this session; see the Decision Log.
+- [x] (2026-09-16) Per-service recipe recording and retained entrypoint linking
+  are removed (see the NO-GO decision). A workspace's first process build
+  deletes the entrypoint recipes an earlier session recorded, which on the ONLV
+  worktree were 806 MB, and leaves the application entrypoint's retained state.
+  A recorded compile is also rejected when its embed configuration names a
+  file its capture does not, closing a transient embedded file (a shared
+  recipe-loader check the single application model still relies on). The
+  ONLV session record kept service processes under the key the agent derives
+  from `service:<name>`, so a registration never replaced them and `scenery ps`
+  showed replaced instances; keys are now `service-<label>`. ONLV stock-only
+  journey (disposable worktree, framework from this checkout): `run.ready`
+  after 18-21 s; seven `ahjs` handler edits took 1,980-2,080 ms after the first
+  (median 2,038 ms) with 576-585 ms entrypoint builds, 66 % mean process-tree
+  CPU and 2.65 GB mean RSS; a body edit replaced only `ahjs_ahjs`; an edit of
+  `solar/tariffs/statecodes`, which only `tariffs_tariffs` imports according to
+  `go list -deps`, replaced only that service; a failing edit kept `ahjs`
+  serving from the same process and restoring the source kept it; the session
+  record then named exactly the 47 live service processes; after
+  `scenery down` none of the session's 54 recorded or child processes lived;
+  and the log held no recipe recording or retained entrypoint link.
+- [x] (2026-09-16) The process model is the default `scenery up` runtime and
+  `SCENERY_DEV_PROCESS_MODEL=application` is deprecated (warning on start).
+  An application with event consumers or emissions, or without a native
+  service, fails before its build with guidance to select `application`.
+  Running the `scenery up` probes on the new default exposed that the Go
+  command reports package directories through its resolved working directory:
+  in a workspace under a symbolic link (Darwin's `/tmp` and `/var`) process
+  entrypoints were not recognized and every build failed with "build inputs do
+  not include development process host"; entrypoints are now recognized under
+  both forms. `parallel-runtime`, `storage`, `capability-authority`,
+  `dev-follower`, `process-model` and `desktop` pass on the default; the
+  `dev-process` detached startup journey, `native-contract` and the native
+  build driver benchmark assert single-executable behavior and select
+  `application` explicitly (tracked in `docs/tech-debt.md`).
+- [x] (2026-09-16) The `worktree` probe (A1-A17) passes on the default process
+  model in 232 s (574 s in the single application model). It first failed A1
+  on stale `testdata/apps/worktree-postgres` clients: `fad0aefb` removed
+  library schemas and diagnostics from the specification catalog, which moved
+  the specification and therefore every contract revision, and regenerated
+  only the `native` and `house` clients; `fad0aefb^` generates the committed
+  `77e995d7` revision and `fad0aefb` generates `e23917c6`. It then failed A5:
+  after the worktree PostgreSQL container restarted on a new port the
+  supervisor requested a rebuild, but no process identity changed, so service
+  processes kept the old database endpoint. A generation now records the
+  identity of the environment its processes start with, and a changed
+  environment starts a complete generation. A6 asserted a new application
+  process after a source edit; it now accepts the replaced service process the
+  process model publishes (`service-library-library`).
 
 ## Surprises & Discoveries
 
@@ -635,7 +683,8 @@ compile the application graph as it needs.
   whose methods are split across processes reports only the owner's `Allow`
   methods; durable HTTP worker routes stay with the fallback until durable
   ownership is designed in Milestone 4. Date: 2026-09-15. Author: Claude.
-- Decision: until Milestone 4 accepts ONLV, the development supervisor selects
+- Decision (superseded 2026-09-16: the process model is the default): until
+  Milestone 4 accepts ONLV, the development supervisor selects
   the process model only when `SCENERY_DEV_PROCESS_MODEL=service` is injected;
   the default stays the single application executable. Rationale: `scenery up`
   flags and `.scenery.json` are stable public contracts, while this selector is
@@ -796,13 +845,26 @@ compile the application graph as it needs.
   compile nearly the same packages; separate stores retained each closure again.
   A snapshot is copied rather than moved, because a capture may name the
   developer's own workspace file. Date: 2026-09-16. Author: Claude.
-- Decision pending the human: the ONLV comparison shows automatic recipe
-  recording costs about 400 ms per edit while it runs and a ready recipe saves
-  nothing measurable, so recording should not start automatically until a
-  closure shows a real saving. Recorded here instead of acted on because the
-  earlier decision to keep the path was the human's. Date: 2026-09-16. Author:
-  Claude.
-- Decision: keep the retained entrypoint path and make it cheaper rather than
+- Decision: the process model is the default development runtime and the
+  single application model is deprecated. `SCENERY_DEV_PROCESS_MODEL` defaults
+  to `service`; `application` remains selectable with a deprecation warning,
+  and an application the process model cannot run yet fails with guidance
+  rather than falling back automatically. Remaining gaps and the removal path
+  are tracked in `docs/tech-debt.md`. This supersedes the rollout-gate decision
+  of 2026-09-15. Date: 2026-09-16. Author: human.
+- Decision: NO-GO for automatic per-service recipe recording under the
+  measured workload. Service entrypoints are linked by stock Go only; the
+  per-service retained executor, its recording, admission, yielding, shared
+  store collection and background-work owner are removed rather than left
+  dormant, and recipes earlier sessions recorded are deleted on a workspace's
+  first process build so behavior never depends on historical cache contents.
+  Rationale: on ONLV a ready recipe changed the warm edit median by 12 ms while
+  a running recording added about 400 ms at twice the CPU. This is not a
+  judgment on the multi-process model or on the single-application retained
+  compiler, which stays, nor on direct compiler invocation in general. Date:
+  2026-09-16. Author: human.
+- Decision (superseded by the NO-GO above): keep the retained entrypoint path
+  and make it cheaper rather than
   remove it. Rationale (human choice after the ONLV measurement): its compile
   and link are below the stock build and its overhead was measurable validation
   work. After concurrent input capture it is roughly at parity (532-583 ms

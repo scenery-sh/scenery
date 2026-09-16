@@ -17,6 +17,8 @@ import (
 
 	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/build"
+	"scenery.sh/internal/compiler"
+	"scenery.sh/internal/graph"
 )
 
 func TestDevProcessInstancesStopOnlyWhenNoRetainedGenerationNamesThem(t *testing.T) {
@@ -217,7 +219,7 @@ func TestServiceProcessStatusesReportEveryServiceAndItsState(t *testing.T) {
 		t.Fatalf("degraded service = %#v", statuses[2])
 	}
 	session := supervisor.sessionServiceProcesses()
-	if len(session) != 2 || session["service:echo_echo"].PID != 302 || session["service:greeter_greeter"].PID != 301 {
+	if len(session) != 2 || session["service-echo-echo"].PID != 302 || session["service-greeter-greeter"].PID != 301 {
 		t.Fatalf("session service processes = %#v", session)
 	}
 	if statuses := (&devSupervisor{}).serviceProcessStatuses(); statuses != nil {
@@ -243,7 +245,7 @@ func TestSessionServiceProcessesDoNotWaitForAnActivation(t *testing.T) {
 	go func() { read <- supervisor.sessionProcessesFor(&localagent.Session{}, "301") }()
 	select {
 	case processes := <-read:
-		if processes["service:echo_echo"].PID != 302 || processes[localagent.RouteAPI].PID != 301 {
+		if processes["service-echo-echo"].PID != 302 || processes[localagent.RouteAPI].PID != 301 {
 			t.Fatalf("session processes = %#v", processes)
 		}
 	case <-time.After(2 * time.Second):
@@ -293,7 +295,7 @@ func TestUnconfirmedActivationIsDegradedUntilReconciled(t *testing.T) {
 	if statuses := supervisor.serviceProcessStatuses(); len(statuses) != 1 || statuses[0].State != "degraded" || !strings.Contains(statuses[0].Reason, "activation unconfirmed") {
 		t.Fatalf("unconfirmed activation reported %#v", statuses)
 	}
-	if processes := supervisor.sessionServiceProcesses(); processes["service:echo_echo"].PID != 302 {
+	if processes := supervisor.sessionServiceProcesses(); processes["service-echo-echo"].PID != 302 {
 		t.Fatalf("a serving instance with unconfirmed background work left the session: %#v", processes)
 	}
 	model.unlock()
@@ -428,5 +430,71 @@ func TestActivationReconcilerDoesNotHoldTheModelAndNeverFollowsADrain(t *testing
 	defer mu.Unlock()
 	if !slices.Equal(requests, []string{"activate", "drain"}) {
 		t.Fatalf("control requests = %v, want one activation followed by the drain", requests)
+	}
+}
+
+// The agent stores session record keys as labels. A record read back from the
+// agent must have its service entries replaced by the current instances, not
+// kept beside them, and a service that no longer runs must leave the record.
+func TestSessionRecordReplacesStoredServiceProcesses(t *testing.T) {
+	model := &devProcessModel{
+		services: map[string]*devProcessInstance{"echo_echo": {process: build.DevelopmentProcess{Name: "echo_echo"}, app: &runningApp{pid: "302"}}},
+		degraded: map[string]string{},
+	}
+	model.publishStatus()
+	supervisor := &devSupervisor{processes: model}
+	stored := &localagent.Session{Processes: map[string]localagent.Process{
+		"service-echo-echo": {PID: 101}, "service-maps-maps": {PID: 102}, "frontend-web": {PID: 103},
+	}}
+	processes := supervisor.sessionProcessesFor(stored, "301")
+	if processes["service-echo-echo"].PID != 302 || processes["frontend-web"].PID != 103 || processes[localagent.RouteAPI].PID != 301 {
+		t.Fatalf("session processes = %#v", processes)
+	}
+	if _, stale := processes["service-maps-maps"]; stale {
+		t.Fatalf("a service that no longer runs stayed in the session record: %#v", processes)
+	}
+	for key := range processes {
+		if localagentLabel(key) != key {
+			t.Fatalf("session record key %q is not a label the agent keeps", key)
+		}
+	}
+}
+
+func TestProcessModelIsTheDefaultAndApplicationIsDeprecated(t *testing.T) {
+	for value, want := range map[string]bool{"": true, "service": true, "application": false} {
+		t.Setenv(devProcessModelEnv, value)
+		if selected, err := devProcessModelSelected(); err != nil || selected != want {
+			t.Fatalf("%s=%q selected the process model = %t, %v; want %t", devProcessModelEnv, value, selected, err, want)
+		}
+	}
+	t.Setenv(devProcessModelEnv, "services")
+	if _, err := devProcessModelSelected(); err == nil {
+		t.Fatal("an unknown development model was accepted")
+	}
+	// An application the process model cannot run fails before it is built
+	// and names the deprecated model that still runs it.
+	events := &compiler.Result{Manifest: &graph.Manifest{Resources: []graph.Resource{{Kind: "scenery.binding", Spec: map[string]any{"protocol": "event"}}}}}
+	if err := devProcessModelSupports(events); err == nil || !strings.Contains(err.Error(), devProcessModelEnv+"=application") {
+		t.Fatalf("an event application was accepted or not told how to run: %v", err)
+	}
+	if err := devProcessModelSupports(&compiler.Result{Manifest: &graph.Manifest{}}); err != nil {
+		t.Fatalf("an application without events was rejected: %v", err)
+	}
+	if !strings.Contains(devProcessModelDeprecation, "deprecated") {
+		t.Fatalf("deprecation warning = %q", devProcessModelDeprecation)
+	}
+}
+
+// A generation's processes keep the environment they started with, so a moved
+// database endpoint must identify a different environment, while the order the
+// supervisor assembles it in must not.
+func TestDevProcessEnvironmentIdentityFollowsValuesNotOrder(t *testing.T) {
+	base := []string{"SCENERY_APP_ID=app", "DATABASE_URL=postgres://127.0.0.1:5432/app"}
+	if devProcessEnvironmentIdentity(base) != devProcessEnvironmentIdentity([]string{base[1], base[0]}) {
+		t.Fatal("reordering the environment changed its identity")
+	}
+	moved := []string{"SCENERY_APP_ID=app", "DATABASE_URL=postgres://127.0.0.1:6543/app"}
+	if devProcessEnvironmentIdentity(base) == devProcessEnvironmentIdentity(moved) {
+		t.Fatal("a moved database endpoint kept the environment identity")
 	}
 }

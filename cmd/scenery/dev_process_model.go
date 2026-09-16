@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,18 +12,23 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"scenery.sh/internal/build"
+	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/runtime"
 )
 
-// devProcessModelEnv selects the process-per-service development model while
-// Plan 0200 rolls it out; the default remains one application executable.
+// devProcessModelEnv selects the development runtime model. The process model
+// (one host process and one process per native service) is the default;
+// `application` selects the deprecated single application executable, which
+// remains only until the process model runs every application (see
+// docs/tech-debt.md).
 const devProcessModelEnv = "SCENERY_DEV_PROCESS_MODEL"
 
 const (
@@ -43,14 +50,38 @@ const (
 	devProcessRestartBackoff = 250 * time.Millisecond
 )
 
+// devProcessModelDeprecation is reported when a session selects the single
+// application model.
+const devProcessModelDeprecation = "the single application development model is deprecated; unset " + devProcessModelEnv + " to use the default process model"
+
+// devProcessModelUnsupported explains why the default process model cannot run
+// an application and how to run it in the deprecated model meanwhile.
+func devProcessModelUnsupported(reason string) error {
+	return fmt.Errorf("%s; the process model is the default development runtime, and %s=application runs this application in the deprecated single application model", reason, devProcessModelEnv)
+}
+
+// devProcessModelSupports rejects an application the process model cannot run
+// before anything is built for it.
+func devProcessModelSupports(contract *compiler.Result) error {
+	if contract == nil || contract.Manifest == nil {
+		return nil
+	}
+	for _, resource := range contract.Manifest.Resources {
+		if resource.Kind == "scenery.event-emission" || resource.Kind == "scenery.binding" && resource.Spec["protocol"] == "event" {
+			return devProcessModelUnsupported("the process model does not run event consumers or emissions yet")
+		}
+	}
+	return nil
+}
+
 func devProcessModelSelected() (bool, error) {
 	switch value := strings.TrimSpace(envpolicy.Get(devProcessModelEnv)); value {
-	case "", "application":
-		return false, nil
-	case "service":
+	case "", "service":
 		return true, nil
+	case "application":
+		return false, nil
 	default:
-		return false, fmt.Errorf("unsupported %s %q; use application or service", devProcessModelEnv, value)
+		return false, fmt.Errorf("unsupported %s %q; use service or application", devProcessModelEnv, value)
 	}
 }
 
@@ -74,9 +105,13 @@ type devProcessModel struct {
 	link       *devProcessLink
 	generation uint64
 	contract   string
-	bindings   map[string]string
-	host       *devProcessInstance
-	services   map[string]*devProcessInstance
+	// environment identifies the child environment every process of the host
+	// incarnation started with; a change, such as a moved database endpoint,
+	// needs a complete generation.
+	environment string
+	bindings    map[string]string
+	host        *devProcessInstance
+	services    map[string]*devProcessInstance
 	// retained names the instances of every published generation the current
 	// host incarnation still retains, the current generation included.
 	retained map[uint64]map[string]*devProcessInstance
@@ -210,11 +245,6 @@ func writePrivateProcessLink(path string, data []byte) error {
 // new sockets and the next generation is published.
 func (s *devSupervisor) activateDevProcesses(ctx context.Context, plan *devRuntimePlan, earlyAssistants *assistantStageAttempt) (*runningApp, bool, error) {
 	result, set := plan.Result, plan.Processes
-	for _, resource := range result.Contract.Manifest.Resources {
-		if resource.Kind == "scenery.event-emission" || resource.Kind == "scenery.binding" && resource.Spec["protocol"] == "event" {
-			return nil, false, errors.New("the process-per-service development model does not run event consumers or emissions yet")
-		}
-	}
 	model, err := s.ensureDevProcessModel()
 	if err != nil {
 		return nil, false, err
@@ -239,8 +269,9 @@ func (s *devSupervisor) activateDevProcesses(ctx context.Context, plan *devRunti
 	host := s.current
 	s.mu.RUnlock()
 	contract := result.Contract.Manifest.ContractRevision
-	if host != nil && model.host != nil && model.host.app == host && model.contract == contract && model.host.process.Identity == set.Host.Identity {
-		return host, true, s.replaceDevServiceProcesses(ctx, model, set, s.appChildEnvironment(result, environment), plan.Prepared)
+	base := s.appChildEnvironment(result, environment)
+	if host != nil && model.host != nil && model.host.app == host && model.contract == contract && model.host.process.Identity == set.Host.Identity && model.environment == devProcessEnvironmentIdentity(base) {
+		return host, true, s.replaceDevServiceProcesses(ctx, model, set, base, plan.Prepared)
 	}
 	var stage, previousStage *assistantStage
 	if s.assistants != nil {
@@ -277,6 +308,15 @@ func (s *devSupervisor) activateDevProcesses(ctx context.Context, plan *devRunti
 		s.refreshAssistantRuntimeConfig()
 	}
 	return current, host != nil, err
+}
+
+// devProcessEnvironmentIdentity identifies the environment the processes of a
+// generation start with, before each instance's own listener and link.
+func devProcessEnvironmentIdentity(base []string) string {
+	entries := slices.Clone(base)
+	slices.Sort(entries)
+	sum := sha256.Sum256([]byte(strings.Join(entries, "\x00")))
+	return hex.EncodeToString(sum[:])
 }
 
 // devProcessReplacement orders a complete generation replacement. Candidate
@@ -334,7 +374,7 @@ func (s *devSupervisor) startDevProcessGeneration(ctx context.Context, model *de
 		return nil, false, err
 	}
 	base := s.appChildEnvironment(result, environment)
-	previous := devProcessState{link: model.link, generation: model.generation, contract: model.contract, bindings: model.bindings, host: model.host, services: model.services, retained: model.retained}
+	previous := devProcessState{link: model.link, generation: model.generation, contract: model.contract, environment: model.environment, bindings: model.bindings, host: model.host, services: model.services, retained: model.retained}
 	hostInstance := &devProcessInstance{process: set.Host, socket: s.backend.normalized().Addr}
 	var started []*devProcessInstance
 	var previousHost *runningApp
@@ -381,6 +421,7 @@ func (s *devSupervisor) startDevProcessGeneration(ctx context.Context, model *de
 				services[instance.process.Name] = instance
 			}
 			model.link, model.generation, model.contract, model.bindings = link, 0, result.Contract.Manifest.ContractRevision, maps.Clone(set.BindingOwners)
+			model.environment = devProcessEnvironmentIdentity(base)
 			model.host, model.services, model.retained = hostInstance, services, map[uint64]map[string]*devProcessInstance{}
 			return s.publishDevProcessGeneration(ctx, model)
 		},
@@ -390,6 +431,7 @@ func (s *devSupervisor) startDevProcessGeneration(ctx context.Context, model *de
 				candidates = append(candidates, hostInstance)
 			}
 			model.link, model.generation, model.contract, model.bindings = previous.link, previous.generation, previous.contract, previous.bindings
+			model.environment = previous.environment
 			model.host, model.services, model.retained = previous.host, previous.services, previous.retained
 			if previousStopped {
 				// The previous host's retained generations ended with it; its

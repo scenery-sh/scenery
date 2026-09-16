@@ -8,6 +8,7 @@ when recorded; those historical `harness self` invocations are not live commands
 
 - [Resolved](#resolved)
 - [Open](#open)
+  - [Deprecated Single Application Development Model](#deprecated-single-application-development-model)
   - [Agent Thread Findings - 2026-07-03](#agent-thread-findings---2026-07-03)
   - [Agent Thread Findings - 2026-07-02](#agent-thread-findings---2026-07-02)
   - [Agent Thread Findings - 2026-07-01](#agent-thread-findings---2026-07-01)
@@ -42,6 +43,40 @@ when recorded; those historical `harness self` invocations are not live commands
 - 2026-09-02: Public router ownership verification — public requests now read an immutable in-memory route snapshot. Candidate public-route sessions retain the full PID-reuse-resistant fingerprint check during restoration/registration, deploy/session changes republish the snapshot, and a bounded owner monitor invalidates exited owners; request handling no longer reads `deploy.json` or inspects a process. Enabled-but-down apps and backend failures remain fail-closed with `503`.
 
 ## Open
+
+### Deprecated Single Application Development Model
+
+Recorded 2026-09-16, when the process model became the default for
+`scenery up` (Plan 0200).
+
+- Area: `cmd/scenery` development supervisor (`dev_app_start.go`,
+  `dev_build_pipeline.go`, the non-`processModel` branches of
+  `dev_supervisor.go`), `internal/build` application executable compilation
+  for development, and `internal/build/retained_native.go` with
+  `internal/nativebuilddriver`, which only the single application model uses in
+  development.
+- Debt: two development runtimes. `SCENERY_DEV_PROCESS_MODEL=application`
+  still selects one generated application executable with its own candidate
+  preflight, restart and retained whole-application compiler. It is deprecated
+  and prints a warning, but every lifecycle change must still be made and
+  verified twice, and the retained compiler is maintained only for it.
+- Why it cannot be removed yet: the process model does not run applications
+  with event consumers or emissions (`examples/webhook-inbox`) or applications
+  without a native service; both fail with guidance to select `application`.
+  Verification that asserts single-executable behavior selects it
+  explicitly: the detached startup journey of the `dev-process` probe (the
+  application process serves the session), the `native-contract` probe (it
+  inspects the compiled application executable and runtime bundle) and the
+  native build driver benchmark (the retained compiler builds only the
+  application executable).
+- Removal: run event consumers and emissions in service processes, give an
+  application without a native service a host-only generation, move the probes
+  that select `application` to the process model, then delete the selector
+  value, the single application development path and its retained compiler.
+  Production builds keep one generated binary and are not part of this debt.
+- Evidence: Plan 0200 measurements on ONLV (one-service edit 1,980-2,080 ms in
+  the process model against 3,540-3,630 ms measured on 2026-09-15 in the single
+  application model, before later shared speedups).
 
 ### Agent Thread Findings - 2026-07-03
 

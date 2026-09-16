@@ -26,7 +26,8 @@ plumbing around it.
 
 - **One local development command.** `scenery up` runs your backend, configured
   frontend dev servers, and managed dependencies, with file watching and a
-  development dashboard.
+  development dashboard. Each native service runs as its own process, so an
+  edit restarts only the services it changes.
 - **Common backend capabilities.** Typed HTTP APIs, authentication, PostgreSQL,
   object storage, background jobs, and schedules.
 - **A connected frontend.** Generated TypeScript clients match your declared

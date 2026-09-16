@@ -205,7 +205,8 @@ func runNativeBuildExperimentBenchmark(parent context.Context, repoRoot, sourceR
 		return summary, err
 	}
 	run.baseEnv = envWithOverrides(envWithoutKeys(envpolicy.Environ(), "SCENERY_AGENT_SOCKET", "SCENERY_AGENT_ROUTER_ADDR", "DATABASE_URL", "SCENERY_DEV_CACHE_DIR"),
-		"GOWORK=off", "SCENERY_DEV_CACHE_DIR="+filepath.Join(run.root, "cache"), "SCENERY_AGENT_HOME="+filepath.Join(run.root, "agent"))
+		// Only the deprecated single application model uses the measured retained compiler.
+		"GOWORK=off", "SCENERY_DEV_CACHE_DIR="+filepath.Join(run.root, "cache"), "SCENERY_AGENT_HOME="+filepath.Join(run.root, "agent"), "SCENERY_DEV_PROCESS_MODEL=application")
 	marker := filepath.Join(run.root, "owner.json")
 	if err := nativeReloadWriteJSON(marker, map[string]any{"kind": spec.benchmark + "-experiment", "pid": os.Getpid(), "run_id": run.runID, "source": run.sourceRoot, "commit": nativeReloadONLVCommit, "created_at": time.Now().UTC()}); err != nil {
 		return summary, err

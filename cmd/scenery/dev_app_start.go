@@ -27,7 +27,6 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 	captured := *snapshot
 	operationID := newDevBuildOperationID()
 	ctx = build.WithTraceOperation(ctx, operationID, s.emitBuildStep)
-	ctx = build.WithBackgroundWork(ctx, s.background)
 	requestStarted := time.Now()
 	recordDevScheduling(ctx, clearInheritedBackgroundPolicy)
 	defer func() {

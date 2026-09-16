@@ -28,12 +28,6 @@ func KillTree(cmd *exec.Cmd) error {
 	return cmd.Process.Signal(syscall.SIGKILL)
 }
 
-// KillTreeConfirmed kills the command's process; platforms without process
-// groups cannot observe its descendants.
-func KillTreeConfirmed(cmd *exec.Cmd, _ time.Duration) error {
-	return KillTree(cmd)
-}
-
 func TerminateTreePID(pid int) error {
 	proc, err := os.FindProcess(pid)
 	if err != nil {

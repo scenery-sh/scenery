@@ -207,19 +207,43 @@ func TestRetainedDevelopmentProcessDigestsDoNotRereadUnchangedExecutables(t *tes
 	}
 }
 
-// A session of fifty services must not answer its first build by recording
-// fifty complete closures; only an entrypoint the developer links again is
-// worth a recipe.
-func TestProcessRecipesFollowRepeatedEntrypointLinks(t *testing.T) {
-	root := t.TempDir()
-	edited := retainedProcessTargetRoot(root, "echo_echo")
-	if repeatedStockProcessLink(edited) {
-		t.Fatal("the first stock link of a session scheduled a recipe capture")
+// The Go command reports package directories through the working directory it
+// resolves itself, which is the canonical form of a workspace reached through
+// a symbolic link, as a temporary directory under Darwin's /var is.
+func TestDevelopmentProcessEntrypointsAreFoundThroughALinkedWorkspace(t *testing.T) {
+	canonical, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !repeatedStockProcessLink(edited) {
-		t.Fatal("a repeated stock link of the same entrypoint scheduled no recipe capture")
+	linked := filepath.Join(t.TempDir(), "workspace")
+	if err := os.Symlink(canonical, linked); err != nil {
+		t.Fatal(err)
 	}
-	if untouched := retainedProcessTargetRoot(root, "greeter_greeter"); repeatedStockProcessLink(untouched) {
-		t.Fatal("an entrypoint linked once scheduled a recipe capture because a sibling was edited")
+	module := &goListModule{Path: "example.test/app", Dir: canonical, GoMod: filepath.Join(canonical, "go.mod")}
+	if err := os.WriteFile(filepath.Join(canonical, "go.mod"), []byte("module example.test/app\n\ngo 1.27\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var listed bytes.Buffer
+	for _, dir := range []string{"scenery_internal_main", "scenery_internal_processes/host", "scenery_internal_processes/services/echo_echo"} {
+		path := filepath.Join(canonical, filepath.FromSlash(dir))
+		if err := os.MkdirAll(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(path, "main.go"), []byte("package main\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := json.NewEncoder(&listed).Encode(goListPackage{Dir: path, ImportPath: "example.test/app/" + dir, GoFiles: []string{"main.go"}, Module: module}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	result := &Result{AppRoot: linked, Dir: linked, Target: &compiler.GoBuildTarget{Name: "development"}}
+	manifest, err := buildInputManifestFromGoListObserved(result, listed.Bytes(), &buildInputDigestStats{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{DevelopmentProcessHost, "echo_echo"} {
+		if _, _, err := manifest.developmentProcessDigest(name); err != nil {
+			t.Fatalf("process %s was not found through the linked workspace: %v", name, err)
+		}
 	}
 }

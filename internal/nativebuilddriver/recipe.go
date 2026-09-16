@@ -221,6 +221,11 @@ func (selection capturedSelection) validate(record ToolRecord, mainPackage strin
 		if _, captured := selection.packages[pkg]; pkg != "" && pkg != "main" && !captured {
 			return fmt.Errorf("recorded compile of %s is outside its captured package selection", pkg)
 		}
+		if config := flagValue(record.Argv, "-embedcfg"); config != "" {
+			if err := selection.validateEmbeds(record, config); err != nil {
+				return err
+			}
+		}
 	}
 	for _, file := range record.Files {
 		digest, captured := selection.files[file.Original]
@@ -232,6 +237,45 @@ func (selection capturedSelection) validate(record ToolRecord, mainPackage strin
 		}
 		if selection.directories[filepath.Dir(filepath.Clean(file.Original))] {
 			return fmt.Errorf("recorded %s input is outside its captured source selection: %s", tool, file.Original)
+		}
+	}
+	return nil
+}
+
+// validateEmbeds requires every file a recorded compile embedded to be a
+// captured input. The compiler reads embedded files through its embed
+// configuration rather than its arguments, so they are not recorded inputs of
+// their own: a file added under an embed pattern and removed again before the
+// capture is revalidated would otherwise stay in the archive.
+func (selection capturedSelection) validateEmbeds(record ToolRecord, config string) error {
+	if !filepath.IsAbs(config) {
+		config = filepath.Join(record.CWD, config)
+	}
+	var recorded *FileCopy
+	for _, file := range record.Files {
+		if filepath.Clean(file.Original) == filepath.Clean(config) {
+			recorded = &file
+			break
+		}
+	}
+	if recorded == nil {
+		return fmt.Errorf("recorded compile did not retain its embed configuration: %s", config)
+	}
+	data, err := os.ReadFile(recorded.Copy)
+	if err != nil {
+		return err
+	}
+	var embeds struct {
+		Files map[string]string
+	}
+	if err := json.Unmarshal(data, &embeds); err != nil {
+		return fmt.Errorf("decode recorded embed configuration %s: %w", config, err)
+	}
+	for _, original := range embeds.Files {
+		if _, captured := selection.files[original]; !captured {
+			if _, captured := selection.files[filepath.Clean(original)]; !captured {
+				return fmt.Errorf("recorded compile embedded a file outside its captured source selection: %s", original)
+			}
 		}
 	}
 	return nil

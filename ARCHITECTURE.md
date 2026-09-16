@@ -538,13 +538,13 @@ helper crash can degrade an assistant without exposing a second public server.
 
 Architecture invariant: there is one local app server per generated app process.
 `scenery up` may run extra development services around it, but app API execution
-stays inside generated app binaries. Under the experimental
-`SCENERY_DEV_PROCESS_MODEL=service` gate (Plan 0200) the generated binaries are a
-process host that routes requests, MCP tool calls and internal calls by
-published generation and authorizes durable MCP receipts, plus one runtime
-process per native service that acquires background work only after its
-generation is published; production builds keep the single generated app
-binary.
+stays inside generated app binaries. In development the default process model
+(Plan 0200) makes the generated binaries a process host that routes requests,
+MCP tool calls and internal calls by published generation and authorizes
+durable MCP receipts, plus one runtime process per native service that acquires
+background work only after its generation is published. The deprecated
+`SCENERY_DEV_PROCESS_MODEL=application` selection keeps one generated app
+binary in development; production builds keep the single generated app binary.
 
 Architecture invariant: runtime request state must be scoped to the current
 request or internal call. Public helpers such as `scenery.CurrentRequest()` and
