@@ -285,7 +285,9 @@ compile the application graph as it needs.
 - [x] (2026-09-16) Identifying every process entrypoint now memoizes package
   closure digests over the import graph instead of unioning the inputs of each
   entrypoint's closure, and package inputs are stamped concurrently. Go package
-  tests and lint pass; the ONLV measurement is pending (see below).
+  tests and lint pass; the ONLV measurement of both (about 120 ms and 90 ms of
+  a one-service edit before the change) is pending on the blocked ONLV lane
+  below.
 - [x] (2026-09-16) A service process that stops on its own restarts from its own
   verified executable and is published as the next generation, bounded by three
   restarts per minute per service; beyond that the service stays degraded until
@@ -323,11 +325,20 @@ compile the application graph as it needs.
   ONLV build first), and replace the separate preflight execution with a
   single-start attestation, which saves only the second execution because the
   first execution's cost stays.
-- [ ] Milestone 4 acceptance on ONLV is blocked: `main` removed the library
-  concept (b6d80b30), and the disposable ONLV worktree of 2026-09-15 still
-  declares `library.maps3d` and `envs.local.libraries`, so its session no longer
-  starts. The rebaseline, resources, conformance and edit-to-response
-  measurement need an ONLV checkout that matches the current framework.
+- [ ] Milestone 4 acceptance on ONLV is blocked in this environment. A fresh
+  disposable worktree of ONLV `fd5bd25b` (which no longer declares libraries)
+  prepares and serves in the single application model, and in the process model
+  it builds and publishes 47 services and its host, but the supervisor then
+  stays in "Starting prepared assistant runtimes" (one helper process idle for
+  20 minutes), so its initial build request never completes and the watcher
+  never starts: edits produce no rebuild. The `assistant-init` and
+  `assistant-runtime` probes pass, so this is not a general assistant
+  regression. Two other environment facts: a cold workspace's first
+  process-model build exceeds the two-minute readiness window of
+  `scenery up --detach --wait ready` (use `--wait registered`), and the
+  measurements recorded above therefore remain the last ONLV data points. The
+  rebaseline, resources, conformance and edit-to-response measurement need that
+  helper to reach readiness.
 
 ## Surprises & Discoveries
 
